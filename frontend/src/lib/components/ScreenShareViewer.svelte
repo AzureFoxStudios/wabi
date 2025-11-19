@@ -16,16 +16,20 @@
 
 	let localStream: MediaStream | null = null;
 	let error = '';
+	let localVideoElement: HTMLVideoElement;
 
 	async function handleStartShare() {
 		try {
 			if (!$socket) return;
 
 			localStream = await startScreenShare($socket);
+			console.log('Screen share started, stream:', localStream);
+			console.log('Stream tracks:', localStream?.getTracks());
+			console.log('Video tracks:', localStream?.getVideoTracks());
 			error = '';
 		} catch (err) {
 			error = 'Failed to start screen sharing. Please grant permissions.';
-			console.error(err);
+			console.error('Screen share error:', err);
 		}
 	}
 
@@ -33,6 +37,27 @@
 		if (!$socket) return;
 		stopScreenShare($socket);
 		localStream = null;
+	}
+
+	// Reactive statement to update video srcObject when localStream changes
+	$: if (localVideoElement && localStream) {
+		console.log('Setting local video srcObject', localStream);
+		localVideoElement.srcObject = localStream;
+		localVideoElement.play().catch(err => console.error('Error playing local video:', err));
+	}
+
+	// Custom Svelte action to set srcObject on video elements
+	function setVideoStream(node: HTMLVideoElement, stream: MediaStream) {
+		console.log('Setting remote video srcObject', stream, 'tracks:', stream.getTracks());
+		node.srcObject = stream;
+		node.play().catch(err => console.error('Error playing remote video:', err));
+		return {
+			update(newStream: MediaStream) {
+				console.log('Updating remote video srcObject', newStream, 'tracks:', newStream.getTracks());
+				node.srcObject = newStream;
+				node.play().catch(err => console.error('Error playing updated remote video:', err));
+			}
+		};
 	}
 
 	onMount(() => {
@@ -103,7 +128,7 @@
 					<span class="badge">Your Screen</span>
 				</div>
 				<video
-					srcObject={localStream}
+					bind:this={localVideoElement}
 					autoplay
 					muted
 					playsinline
@@ -117,7 +142,7 @@
 					<span class="username">{share.username}'s Screen</span>
 				</div>
 				<video
-					srcObject={share.stream}
+					use:setVideoStream={share.stream}
 					autoplay
 					playsinline
 				></video>
