@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { messages, users } from '$lib/socket';
+	import { channelMessages, currentChannel, users } from '$lib/socket';
 
 	function exportData() {
 		const data = {
 			exportDate: new Date().toISOString(),
-			messages: $messages,
+			currentChannel: $currentChannel,
+			messages: $channelMessages[$currentChannel] || [],
 			users: $users
 		};
 
@@ -15,7 +16,7 @@
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
-		a.download = `chat-export-${Date.now()}.json`;
+		a.download = `chat-export-${$currentChannel}-${Date.now()}.json`;
 		document.body.appendChild(a);
 		a.click();
 		document.body.removeChild(a);
