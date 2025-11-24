@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push:*)",
+      "Bash(git remote update:*)",
+      "Bash(git for-each-ref:*)",
+      "Bash(git stash:*)",
+      "Bash(git reset:*)",
+      "Bash(bun install:*)",
+      "Bash(frontend/.env)",
+      "Bash(./ngrok version:*)",
+      "Bash(./ngrok config:*)",
+      "Bash(powershell -Command \"Get-Process ngrok | Stop-Process -Force\")",
+      "Bash(git commit:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npm start)",
+      "Bash(npm install:*)",
+      "Bash(taskkill:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

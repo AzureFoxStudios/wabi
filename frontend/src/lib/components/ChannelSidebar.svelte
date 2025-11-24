@@ -1,8 +1,17 @@
 <script lang="ts">
-	import { channels, currentChannel, joinChannel, createChannel, deleteChannel } from '$lib/socket';
+	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead } from '$lib/socket';
+	import Settings from './Settings.svelte';
+
+	export let activeView: 'chat' | 'draw' | 'screen' = 'chat';
 
 	let newChannelName = '';
 	let showCreateInput = false;
+	let showSettings = false;
+
+	// Clear unread count when switching to chat view
+	$: if (activeView === 'chat') {
+		markMessagesAsRead();
+	}
 
 	function handleChannelClick(channelId: string) {
 		joinChannel(channelId);
@@ -24,6 +33,15 @@
 </script>
 
 <div class="channel-sidebar">
+	<div class="top-section">
+		<div class="logo">
+			<img src="/wabi-logo.png" alt="Wabi" class="logo-img" />
+		</div>
+		<button class="settings-btn" on:click={() => showSettings = true} title="Settings">
+			⚙️
+		</button>
+	</div>
+
 	<div class="sidebar-header">
 		<h3>Text Channels</h3>
 		<button class="add-btn" on:click={() => showCreateInput = !showCreateInput} title="Create channel">+</button>
@@ -55,16 +73,75 @@
 			</div>
 		{/each}
 	</div>
+
+	<div class="bottom-nav">
+		<button
+			class="nav-btn"
+			class:active={activeView === 'draw'}
+			on:click={() => activeView = 'draw'}
+		>
+			<span class="icon">✏️</span>
+			<span>Draw</span>
+		</button>
+		<button
+			class="nav-btn"
+			class:active={activeView === 'screen'}
+			on:click={() => activeView = 'screen'}
+		>
+			<span class="icon">🖥️</span>
+			<span>Screen Share</span>
+		</button>
+	</div>
 </div>
+
+<Settings bind:isOpen={showSettings} />
 
 <style>
 	.channel-sidebar {
-		width: 200px;
+		width: 100%;
 		background: var(--bg-tertiary);
 		border-right: 1px solid var(--border);
 		display: flex;
 		flex-direction: column;
 		height: 100vh;
+		overflow: hidden;
+	}
+
+	.top-section {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.logo {
+		flex: 1;
+		display: flex;
+		align-items: center;
+	}
+
+	.logo-img {
+		height: 40px;
+		width: auto;
+		filter: invert(1);
+	}
+
+	.settings-btn {
+		background: transparent;
+		border: none;
+		font-size: 1.5rem;
+		cursor: pointer;
+		color: var(--text-secondary);
+		padding: 0.5rem;
+		transition: all 0.2s;
+		border-radius: 8px;
+	}
+
+	.settings-btn:hover {
+		color: var(--text-primary);
+		background: var(--bg-secondary);
+		transform: rotate(45deg);
 	}
 
 	.sidebar-header {
@@ -200,5 +277,43 @@
 	.delete-btn:hover {
 		background: #ef4444;
 		color: white;
+	}
+
+	.bottom-nav {
+		margin-top: auto;
+		padding: 0.5rem;
+		border-top: 1px solid var(--border);
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.nav-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.625rem;
+		background: transparent;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		border-radius: 4px;
+		transition: all 0.2s;
+		font-size: 0.9rem;
+		text-align: left;
+	}
+
+	.nav-btn:hover {
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+	}
+
+	.nav-btn.active {
+		background: var(--accent);
+		color: white;
+	}
+
+	.nav-btn .icon {
+		font-size: 1.1rem;
 	}
 </style>

@@ -3,7 +3,6 @@
 	import { channelMessages, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, type Message } from '$lib/socket';
 	import GiphyPicker from './GiphyPicker.svelte';
 	import MessageList from './MessageList.svelte';
-	import ExportButton from './ExportButton.svelte';
 	import PinnedMessages from './PinnedMessages.svelte';
 
 	$: messages = $channelMessages[$currentChannel] || [];
@@ -144,8 +143,7 @@
 
 <div class="chat-container">
 	<div class="chat-header">
-		<h2>💬 Chat</h2>
-		<ExportButton />
+		<h2>#{$currentChannel}</h2>
 	</div>
 
 	<div class="messages" bind:this={chatContainer}>

@@ -194,6 +194,16 @@
 		const ext = fileName.toLowerCase().split('.').pop() || '';
 		return ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv'].includes(ext);
 	}
+
+	let enlargedImage: string | null = null;
+
+	function enlargeImage(imageUrl: string) {
+		enlargedImage = imageUrl;
+	}
+
+	function closeEnlargedImage() {
+		enlargedImage = null;
+	}
 </script>
 
 {#each messages as message (message.id)}
@@ -274,7 +284,15 @@
 						{#if isImage(message.fileName)}
 							<!-- Display image inline -->
 							<div class="image-container">
-								<img src={message.fileUrl} alt={message.fileName} class="inline-image" />
+								<!-- svelte-ignore a11y-click-events-have-key-events -->
+								<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+								<img
+									src={message.fileUrl}
+									alt={message.fileName}
+									class="inline-image"
+									on:click={() => message.fileUrl && enlargeImage(message.fileUrl)}
+									title="Click to enlarge"
+								/>
 								<a href={message.fileUrl} download={message.fileName} class="image-download-link">
 									<span class="file-icon">{getFileIcon(message.fileName)}</span>
 									{message.fileName}
@@ -330,6 +348,25 @@
 		onPin={handlePin}
 		onReply={handleReply}
 	/>
+{/if}
+
+{#if enlargedImage}
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<div class="image-modal" on:click={closeEnlargedImage}>
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+		<img
+			src={enlargedImage}
+			alt="Enlarged"
+			class="enlarged-image"
+			on:click|stopPropagation
+		/>
+		<button class="close-modal" on:click={closeEnlargedImage}>✕</button>
+		<a href={enlargedImage} target="_blank" rel="noopener noreferrer" class="open-new-tab">
+			Open in new tab
+		</a>
+	</div>
 {/if}
 
 <style>
@@ -599,15 +636,23 @@
 		flex-direction: column;
 		gap: 0.5rem;
 		margin-bottom: 0.5rem;
+		align-items: flex-start;
 	}
 
 	.inline-image {
-		max-width: 100%;
-		max-height: 400px;
+		max-width: 400px;
+		max-height: 300px;
+		width: auto;
+		height: auto;
 		border-radius: 8px;
-		object-fit: contain;
-		background: #f3f4f6;
+		display: block;
 		cursor: pointer;
+		transition: opacity 0.2s;
+		object-fit: contain;
+	}
+
+	.inline-image:hover {
+		opacity: 0.9;
 	}
 
 	.image-download-link {
@@ -697,5 +742,71 @@
 
 	.markdown-content :global(.emote-animated) {
 		/* Animated emotes can have special styling if needed */
+	}
+
+	/* Image modal styles */
+	.image-modal {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.9);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 2rem;
+	}
+
+	.enlarged-image {
+		max-width: 90vw;
+		max-height: 90vh;
+		object-fit: contain;
+		border-radius: 8px;
+	}
+
+	.close-modal {
+		position: absolute;
+		top: 1rem;
+		right: 1rem;
+		width: 40px;
+		height: 40px;
+		border-radius: 50%;
+		background: rgba(255, 255, 255, 0.1);
+		border: 2px solid rgba(255, 255, 255, 0.3);
+		color: white;
+		font-size: 1.5rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
+	}
+
+	.close-modal:hover {
+		background: rgba(255, 255, 255, 0.2);
+		transform: scale(1.1);
+	}
+
+	.open-new-tab {
+		position: absolute;
+		bottom: 1rem;
+		left: 50%;
+		transform: translateX(-50%);
+		padding: 0.75rem 1.5rem;
+		background: rgba(255, 255, 255, 0.1);
+		border: 2px solid rgba(255, 255, 255, 0.3);
+		border-radius: 8px;
+		color: white;
+		text-decoration: none;
+		font-size: 0.875rem;
+		font-weight: 500;
+		transition: all 0.2s;
+	}
+
+	.open-new-tab:hover {
+		background: rgba(255, 255, 255, 0.2);
+		transform: translateX(-50%) translateY(-2px);
 	}
 </style>
