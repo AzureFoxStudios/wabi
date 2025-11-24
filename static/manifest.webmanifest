@@ -1,0 +1,1 @@
+{"name":"Community Chat","short_name":"Chat","start_url":"./","display":"standalone","background_color":"#1a1a1a","lang":"en","scope":"./","description":"Self-hosted ephemeral chat with screen sharing","theme_color":"#1a1a1a","icons":[{"src":"/icon-192.png","sizes":"192x192","type":"image/png"},{"src":"/icon-512.png","sizes":"512x512","type":"image/png"}]}

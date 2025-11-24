@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { messages, users, currentUser } from '$lib/socket';
+	import { channelMessages, users, currentUser } from '$lib/socket';
 
 	export let isOpen = false;
 
@@ -47,7 +47,7 @@
 
 	function exportData() {
 		const data = {
-			messages: $messages,
+			channelMessages: $channelMessages,
 			users: $users,
 			currentUser: $currentUser,
 			exportedAt: new Date().toISOString()
@@ -57,7 +57,7 @@
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
-		a.download = `chat-export-${Date.now()}.json`;
+		a.download = `chat-export-all-channels-${Date.now()}.json`;
 		a.click();
 		URL.revokeObjectURL(url);
 	}
@@ -89,7 +89,7 @@
 
 	function clearAllData() {
 		if (confirm('Are you sure you want to clear all chat data? This cannot be undone.')) {
-			messages.set([]);
+			channelMessages.set({ general: [] });
 			localStorage.clear();
 			alert('All data cleared.');
 		}

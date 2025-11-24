@@ -1,10 +1,19 @@
 import { Server } from "socket.io";
 import { createServer } from "http";
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 
 // In-memory data store
-const messages: Array<{
+interface Channel {
+  id: string;
+  name: string;
+  createdAt: number;
+}
+
+const channels = new Map<string, Channel>();
+channels.set('general', { id: 'general', name: 'general', createdAt: Date.now() });
+
+const channelMessages = new Map<string, Array<{
   id: string;
   user: string;
   userId: string;
@@ -18,9 +27,13 @@ const messages: Array<{
   isPinned?: boolean;
   isEdited?: boolean;
   replyTo?: string;
-}> = [];
+}>>();
 
-const pinnedMessages = new Set<string>();
+// Initialize general channel with empty messages
+channelMessages.set('general', []);
+
+const pinnedMessages = new Map<string, Set<string>>(); // channelId -> Set of messageIds
+pinnedMessages.set('general', new Set());
 
 const users = new Map<string, {
   id: string;
@@ -41,8 +54,23 @@ const screenSharers = new Map<string, {
 // Excalidraw state
 let excalidrawState: any = null;
 
+// Emote storage
+const emotes = new Map<string, {
+  name: string;
+  url: string;
+  type: 'static' | 'animated';
+  uploadedBy: string;
+  timestamp: number;
+}>();
+
 const PORT = process.env.PORT || 3000;
 const STATIC_DIR = process.env.STATIC_DIR || join(import.meta.dir, "../../static");
+const EMOTES_DIR = join(STATIC_DIR, "emotes");
+
+// Ensure emotes directory exists
+if (!existsSync(EMOTES_DIR)) {
+  mkdirSync(EMOTES_DIR, { recursive: true });
+}
 
 // Create HTTP server using Node.js http module (Bun compatible)
 const server = createServer((req, res) => {
@@ -118,11 +146,12 @@ io.on("connection", (socket) => {
       profilePicture: undefined
     });
 
-    // Send existing messages and users to the new user
+    // Send existing channels, users, and emotes to the new user
     socket.emit("init", {
-      messages,
+      channels: Array.from(channels.values()),
       users: Array.from(users.values()),
-      excalidrawState
+      excalidrawState,
+      emotes: Array.from(emotes.values())
     });
 
     // Broadcast new user to others
@@ -163,10 +192,21 @@ io.on("connection", (socket) => {
     console.log(`${user.username} updated profile: status=${user.status}`);
   });
 
+  // Handle joining a channel
+  socket.on("join-channel", (channelId: string) => {
+    const channel = channels.get(channelId);
+    if (!channel) return;
+
+    // Send channel messages to the user
+    const messages = channelMessages.get(channelId) || [];
+    socket.emit("channel-messages", { channelId, messages });
+  });
+
   // Handle chat messages
   socket.on("message", (data: {
     text: string;
     type: 'text' | 'gif' | 'file';
+    channelId: string;
     gifUrl?: string;
     fileUrl?: string;
     fileName?: string;
@@ -175,6 +215,9 @@ io.on("connection", (socket) => {
   }) => {
     const user = users.get(socket.id);
     if (!user) return;
+
+    const channel = channels.get(data.channelId);
+    if (!channel) return;
 
     const message = {
       id: `${Date.now()}-${socket.id}`,
@@ -192,14 +235,12 @@ io.on("connection", (socket) => {
       replyTo: data.replyTo
     };
 
+    // Add message to channel
+    const messages = channelMessages.get(data.channelId) || [];
     messages.push(message);
+    channelMessages.set(data.channelId, messages);
 
-    // Keep only last 500 messages (memory management)
-    if (messages.length > 500) {
-      messages.shift();
-    }
-
-    io.emit("message", message);
+    io.emit("message", { channelId: data.channelId, message });
 
     // Clear typing indicator
     if (typingUsers.has(socket.id)) {
@@ -209,44 +250,63 @@ io.on("connection", (socket) => {
   });
 
   // Handle message edit
-  socket.on("edit-message", (data: { messageId: string; newText: string }) => {
+  socket.on("edit-message", (data: { messageId: string; newText: string; channelId: string }) => {
+    const messages = channelMessages.get(data.channelId);
+    if (!messages) return;
+
     const message = messages.find(m => m.id === data.messageId);
     if (!message || message.userId !== socket.id) return;
 
     message.text = data.newText;
     message.isEdited = true;
 
-    io.emit("message-edited", { messageId: data.messageId, newText: data.newText });
+    io.emit("message-edited", { channelId: data.channelId, messageId: data.messageId, newText: data.newText });
   });
 
   // Handle message delete
-  socket.on("delete-message", (messageId: string) => {
-    const messageIndex = messages.findIndex(m => m.id === messageId);
+  socket.on("delete-message", (data: { messageId: string; channelId: string }) => {
+    const messages = channelMessages.get(data.channelId);
+    if (!messages) return;
+
+    const messageIndex = messages.findIndex(m => m.id === data.messageId);
     if (messageIndex === -1) return;
 
     const message = messages[messageIndex];
     if (message.userId !== socket.id) return;
 
     messages.splice(messageIndex, 1);
-    pinnedMessages.delete(messageId);
 
-    io.emit("message-deleted", messageId);
+    const channelPins = pinnedMessages.get(data.channelId);
+    if (channelPins) {
+      channelPins.delete(data.messageId);
+    }
+
+    io.emit("message-deleted", { channelId: data.channelId, messageId: data.messageId });
   });
 
   // Handle message pin/unpin
-  socket.on("toggle-pin-message", (messageId: string) => {
-    const message = messages.find(m => m.id === messageId);
+  socket.on("toggle-pin-message", (data: { messageId: string; channelId: string }) => {
+    const messages = channelMessages.get(data.channelId);
+    if (!messages) return;
+
+    const message = messages.find(m => m.id === data.messageId);
     if (!message) return;
 
     message.isPinned = !message.isPinned;
 
-    if (message.isPinned) {
-      pinnedMessages.add(messageId);
-    } else {
-      pinnedMessages.delete(messageId);
+    let channelPins = pinnedMessages.get(data.channelId);
+    if (!channelPins) {
+      channelPins = new Set();
+      pinnedMessages.set(data.channelId, channelPins);
     }
 
-    io.emit("message-pin-toggled", { messageId, isPinned: message.isPinned });
+    if (message.isPinned) {
+      channelPins.add(data.messageId);
+    } else {
+      channelPins.delete(data.messageId);
+    }
+
+    io.emit("message-pin-toggled", { channelId: data.channelId, messageId: data.messageId, isPinned: message.isPinned });
   });
 
   // Handle typing indicator
@@ -361,6 +421,135 @@ io.on("connection", (socket) => {
       candidate: data.candidate,
       senderId: socket.id
     });
+  });
+
+  // Channel management
+  socket.on("create-channel", (channelName: string) => {
+    const channelId = channelName.toLowerCase().replace(/\s+/g, '-');
+
+    // Check if channel already exists
+    if (channels.has(channelId)) {
+      socket.emit("channel-error", "Channel already exists");
+      return;
+    }
+
+    // Validate channel name
+    if (!/^[a-zA-Z0-9\s-]+$/.test(channelName)) {
+      socket.emit("channel-error", "Channel name must be alphanumeric");
+      return;
+    }
+
+    const channel: Channel = {
+      id: channelId,
+      name: channelName,
+      createdAt: Date.now()
+    };
+
+    channels.set(channelId, channel);
+    channelMessages.set(channelId, []);
+    pinnedMessages.set(channelId, new Set());
+
+    io.emit("channel-created", channel);
+    console.log(`Channel created: ${channelName}`);
+  });
+
+  socket.on("delete-channel", (channelId: string) => {
+    // Prevent deletion of general channel
+    if (channelId === 'general') {
+      socket.emit("channel-error", "Cannot delete general channel");
+      return;
+    }
+
+    if (!channels.has(channelId)) {
+      socket.emit("channel-error", "Channel does not exist");
+      return;
+    }
+
+    channels.delete(channelId);
+    channelMessages.delete(channelId);
+    pinnedMessages.delete(channelId);
+
+    io.emit("channel-deleted", channelId);
+    console.log(`Channel deleted: ${channelId}`);
+  });
+
+  // Emote management
+  socket.on("upload-emote", (data: { name: string; imageData: string; type: 'static' | 'animated' }) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    // Validate emote name (alphanumeric and underscores only)
+    if (!/^[a-zA-Z0-9_]+$/.test(data.name)) {
+      socket.emit("emote-error", "Emote name must be alphanumeric");
+      return;
+    }
+
+    // Check if emote already exists
+    if (emotes.has(data.name)) {
+      socket.emit("emote-error", "Emote name already exists");
+      return;
+    }
+
+    // Parse base64 image data
+    const matches = data.imageData.match(/^data:image\/(\w+);base64,(.+)$/);
+    if (!matches) {
+      socket.emit("emote-error", "Invalid image data");
+      return;
+    }
+
+    const ext = matches[1];
+    const base64Data = matches[2];
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // File size limit (2MB)
+    if (buffer.length > 2 * 1024 * 1024) {
+      socket.emit("emote-error", "File too large (max 2MB)");
+      return;
+    }
+
+    // Save file
+    const fileName = `${data.name}.${ext}`;
+    const filePath = join(EMOTES_DIR, fileName);
+
+    try {
+      writeFileSync(filePath, buffer);
+
+      // Add to emotes map
+      const emote = {
+        name: data.name,
+        url: `/emotes/${fileName}`,
+        type: data.type,
+        uploadedBy: user.username,
+        timestamp: Date.now()
+      };
+
+      emotes.set(data.name, emote);
+
+      // Broadcast new emote to all users
+      io.emit("emote-added", emote);
+
+      console.log(`${user.username} added emote: ${data.name}`);
+    } catch (error) {
+      console.error("Error saving emote:", error);
+      socket.emit("emote-error", "Failed to save emote");
+    }
+  });
+
+  socket.on("delete-emote", (emoteName: string) => {
+    const emote = emotes.get(emoteName);
+    if (!emote) return;
+
+    // Only allow uploader to delete (for now, can add admin check later)
+    const user = users.get(socket.id);
+    if (!user || emote.uploadedBy !== user.username) {
+      socket.emit("emote-error", "You can only delete your own emotes");
+      return;
+    }
+
+    emotes.delete(emoteName);
+    io.emit("emote-deleted", emoteName);
+
+    console.log(`${user.username} deleted emote: ${emoteName}`);
   });
 
   // Handle disconnect

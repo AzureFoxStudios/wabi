@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { messages, typingUsers, sendMessage, sendTyping, lastReadMessageId, type Message } from '$lib/socket';
+	import { channelMessages, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, type Message } from '$lib/socket';
 	import GiphyPicker from './GiphyPicker.svelte';
 	import MessageList from './MessageList.svelte';
 	import ExportButton from './ExportButton.svelte';
 	import PinnedMessages from './PinnedMessages.svelte';
 
-	$: pinnedMessages = $messages.filter(m => m.isPinned);
+	$: messages = $channelMessages[$currentChannel] || [];
+	$: pinnedMessages = messages.filter((m: Message) => m.isPinned);
 
 	let messageInput = '';
 	let chatContainer: HTMLElement;
@@ -14,6 +15,7 @@
 	let showGiphyPicker = false;
 	let replyingTo: Message | null = null;
 	let fileInput: HTMLInputElement;
+	let editingMessage: Message | null = null;
 
 	async function scrollToBottom() {
 		await tick();
@@ -22,7 +24,7 @@
 		}
 	}
 
-	$: if ($messages.length) {
+	$: if (messages.length) {
 		scrollToBottom();
 	}
 
@@ -38,13 +40,45 @@
 		}, 1000) as unknown as number;
 	}
 
+	function handleKeyDown(e: KeyboardEvent) {
+		// Arrow up to edit last message
+		if (e.key === 'ArrowUp' && !messageInput.trim() && !editingMessage) {
+			e.preventDefault();
+			// Find the last message from the current user
+			const userMessages = messages.filter((m: Message) => m.userId === $currentUser?.id);
+			if (userMessages.length > 0) {
+				const lastMessage = userMessages[userMessages.length - 1];
+				editingMessage = lastMessage;
+				messageInput = lastMessage.text;
+			}
+		}
+		// Escape to cancel editing
+		else if (e.key === 'Escape' && editingMessage) {
+			e.preventDefault();
+			cancelEdit();
+		}
+		// Enter without shift sends the message
+		else if (e.key === 'Enter' && !e.shiftKey) {
+			e.preventDefault();
+			handleSubmit();
+		}
+		// Shift+Enter adds a new line (default textarea behavior)
+	}
+
 	function handleSubmit() {
 		if (messageInput.trim()) {
-			sendMessage(messageInput.trim(), 'text', {
-				replyTo: replyingTo?.id
-			});
+			if (editingMessage) {
+				// Edit the existing message
+				editMessage($currentChannel, editingMessage.id, messageInput.trim());
+				editingMessage = null;
+			} else {
+				// Send new message
+				sendMessage($currentChannel, messageInput.trim(), 'text', {
+					replyTo: replyingTo?.id
+				});
+				replyingTo = null;
+			}
 			messageInput = '';
-			replyingTo = null;
 			sendTyping(false);
 
 			if (typingTimeout) {
@@ -53,8 +87,13 @@
 		}
 	}
 
+	function cancelEdit() {
+		editingMessage = null;
+		messageInput = '';
+	}
+
 	function handleGifSelect(event: CustomEvent<string>) {
-		sendMessage('', 'gif', {
+		sendMessage($currentChannel, '', 'gif', {
 			gifUrl: event.detail,
 			replyTo: replyingTo?.id
 		});
@@ -82,7 +121,7 @@
 			const reader = new FileReader();
 			reader.onload = (e) => {
 				const fileUrl = e.target?.result as string;
-				sendMessage(messageInput.trim() || `Shared: ${file.name}`, 'file', {
+				sendMessage($currentChannel, messageInput.trim() || `Shared: ${file.name}`, 'file', {
 					fileUrl,
 					fileName: file.name,
 					fileSize: file.size,
@@ -111,7 +150,7 @@
 
 	<div class="messages" bind:this={chatContainer}>
 		<PinnedMessages pinnedMessages={pinnedMessages} />
-		<MessageList messages={$messages} onReply={handleReply} firstUnreadMessageId={$lastReadMessageId} />
+		<MessageList messages={messages} onReply={handleReply} firstUnreadMessageId={$lastReadMessageId} />
 
 		{#if $typingUsers.length > 0}
 			<div class="typing-indicator">
@@ -128,7 +167,15 @@
 		/>
 	{/if}
 
-	{#if replyingTo}
+	{#if editingMessage}
+		<div class="edit-bar">
+			<div class="edit-info">
+				<span class="edit-label">Editing message</span>
+				<span class="edit-hint">Press Escape to cancel</span>
+			</div>
+			<button class="cancel-edit" on:click={cancelEdit}>✕</button>
+		</div>
+	{:else if replyingTo}
 		<div class="reply-bar">
 			<div class="reply-info">
 				<span class="reply-label">Replying to {replyingTo.user}:</span>
@@ -159,14 +206,14 @@
 		>
 			GIF
 		</button>
-		<input
-			type="text"
+		<textarea
 			bind:value={messageInput}
 			on:input={handleInput}
-			on:keydown={(e) => e.key === 'Enter' && handleSubmit()}
-			placeholder="Type a message..."
-			maxlength="500"
-		/>
+			on:keydown={handleKeyDown}
+			placeholder="Type a message... (Shift+Enter for new line)"
+			maxlength="2000"
+			rows="1"
+		></textarea>
 		<button on:click={handleSubmit} disabled={!messageInput.trim()}>
 			Send
 		</button>
@@ -253,6 +300,49 @@
 		}
 	}
 
+	.edit-bar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.75rem 1rem;
+		background: #fef3c7;
+		border-top: 1px solid #f59e0b;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.edit-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.edit-label {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #f59e0b;
+	}
+
+	.edit-hint {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		font-style: italic;
+	}
+
+	.cancel-edit {
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		font-size: 1.25rem;
+		padding: 0.25rem 0.5rem;
+		border-radius: 4px;
+		transition: background-color 0.2s;
+	}
+
+	.cancel-edit:hover {
+		background: rgba(0, 0, 0, 0.05);
+	}
+
 	.reply-bar {
 		display: flex;
 		align-items: center;
@@ -326,6 +416,16 @@
 	.gif-button:hover {
 		background: var(--accent);
 		color: white;
+	}
+
+	textarea {
+		flex: 1;
+		min-height: 40px;
+		max-height: 200px;
+		resize: vertical;
+		font-family: inherit;
+		line-height: 1.5;
+		padding: 0.625rem;
 	}
 
 	input {

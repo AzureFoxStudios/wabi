@@ -2,6 +2,7 @@ import { writable } from 'svelte/store';
 import { io, Socket } from 'socket.io-client';
 import { browser } from '$app/environment';
 import { showNotification } from './notifications';
+import { initEmotes, addEmote, removeEmote } from './markdown';
 
 export interface Message {
 	id: string;
@@ -27,8 +28,16 @@ export interface User {
 	profilePicture?: string;
 }
 
+export interface Channel {
+	id: string;
+	name: string;
+	createdAt: number;
+}
+
 export const socket = writable<Socket | null>(null);
-export const messages = writable<Message[]>([]);
+export const channels = writable<Channel[]>([]);
+export const currentChannel = writable<string>('general');
+export const channelMessages = writable<Record<string, Message[]>>({ general: [] });
 export const users = writable<User[]>([]);
 export const typingUsers = writable<string[]>([]);
 export const currentUser = writable<User | null>(null);
@@ -57,29 +66,48 @@ export function initSocket(username: string) {
 		connected.set(false);
 	});
 
-	socketInstance.on('init', (data: { messages: Message[]; users: User[]; excalidrawState: any }) => {
-		messages.set(data.messages);
+	socketInstance.on('init', (data: { channels: Channel[]; users: User[]; excalidrawState: any; emotes: any[] }) => {
+		channels.set(data.channels);
 		users.set(data.users);
+
+		// Initialize emotes
+		if (data.emotes) {
+			initEmotes(data.emotes);
+		}
 
 		// Find current user
 		const user = data.users.find(u => u.id === socketInstance?.id);
 		if (user) {
 			currentUser.set(user);
 		}
+
+		// Join the general channel by default
+		socketInstance?.emit('join-channel', 'general');
 	});
 
-	socketInstance.on('message', (message: Message) => {
-		messages.update(msgs => [...msgs, message]);
+	socketInstance.on('channel-messages', (data: { channelId: string; messages: Message[] }) => {
+		channelMessages.update(msgs => ({
+			...msgs,
+			[data.channelId]: data.messages
+		}));
+	});
+
+	socketInstance.on('message', (data: { channelId: string; message: Message }) => {
+		channelMessages.update(msgs => ({
+			...msgs,
+			[data.channelId]: [...(msgs[data.channelId] || []), data.message]
+		}));
+
 		// Show notification for messages from other users
-		const isCurrentUser = message.userId === socketInstance?.id;
-		showNotification(message, isCurrentUser);
+		const isCurrentUser = data.message.userId === socketInstance?.id;
+		showNotification(data.message, isCurrentUser);
 
 		// Increment unread count and track first unread if not from current user and page is hidden
 		if (!isCurrentUser && document.hidden) {
 			unreadCount.update(n => {
 				// Set first unread message ID if this is the first unread
 				if (n === 0) {
-					lastReadMessageId.set(message.id);
+					lastReadMessageId.set(data.message.id);
 				}
 				return n + 1;
 			});
@@ -106,45 +134,103 @@ export function initSocket(username: string) {
 		currentUser.update(cu => cu && cu.id === user.id ? user : cu);
 	});
 
-	socketInstance.on('message-edited', (data: { messageId: string; newText: string }) => {
-		messages.update(msgs => msgs.map(msg =>
-			msg.id === data.messageId ? { ...msg, text: data.newText, isEdited: true } : msg
-		));
+	socketInstance.on('message-edited', (data: { channelId: string; messageId: string; newText: string }) => {
+		channelMessages.update(msgs => ({
+			...msgs,
+			[data.channelId]: (msgs[data.channelId] || []).map(msg =>
+				msg.id === data.messageId ? { ...msg, text: data.newText, isEdited: true } : msg
+			)
+		}));
 	});
 
-	socketInstance.on('message-deleted', (messageId: string) => {
-		messages.update(msgs => msgs.filter(msg => msg.id !== messageId));
+	socketInstance.on('message-deleted', (data: { channelId: string; messageId: string }) => {
+		channelMessages.update(msgs => ({
+			...msgs,
+			[data.channelId]: (msgs[data.channelId] || []).filter(msg => msg.id !== data.messageId)
+		}));
 	});
 
-	socketInstance.on('message-pin-toggled', (data: { messageId: string; isPinned: boolean }) => {
-		messages.update(msgs => msgs.map(msg =>
-			msg.id === data.messageId ? { ...msg, isPinned: data.isPinned } : msg
-		));
+	socketInstance.on('message-pin-toggled', (data: { channelId: string; messageId: string; isPinned: boolean }) => {
+		channelMessages.update(msgs => ({
+			...msgs,
+			[data.channelId]: (msgs[data.channelId] || []).map(msg =>
+				msg.id === data.messageId ? { ...msg, isPinned: data.isPinned } : msg
+			)
+		}));
+	});
+
+	// Channel events
+	socketInstance.on('channel-created', (channel: Channel) => {
+		channels.update(chs => [...chs, channel]);
+		channelMessages.update(msgs => ({ ...msgs, [channel.id]: [] }));
+	});
+
+	socketInstance.on('channel-deleted', (channelId: string) => {
+		channels.update(chs => chs.filter(ch => ch.id !== channelId));
+		channelMessages.update(msgs => {
+			const newMsgs = { ...msgs };
+			delete newMsgs[channelId];
+			return newMsgs;
+		});
+		// If current channel was deleted, switch to general
+		currentChannel.update(ch => ch === channelId ? 'general' : ch);
+	});
+
+	socketInstance.on('channel-error', (error: string) => {
+		console.error('Channel error:', error);
+		alert(error);
+	});
+
+	// Emote events
+	socketInstance.on('emote-added', (emote: any) => {
+		addEmote(emote);
+	});
+
+	socketInstance.on('emote-deleted', (emoteName: string) => {
+		removeEmote(emoteName);
+	});
+
+	socketInstance.on('emote-error', (error: string) => {
+		console.error('Emote error:', error);
+		alert(error);
 	});
 
 	return socketInstance;
 }
 
-export function sendMessage(text: string, type: 'text' | 'gif' | 'file' = 'text', options?: {
+export function joinChannel(channelId: string) {
+	socketInstance?.emit('join-channel', channelId);
+	currentChannel.set(channelId);
+}
+
+export function createChannel(channelName: string) {
+	socketInstance?.emit('create-channel', channelName);
+}
+
+export function deleteChannel(channelId: string) {
+	socketInstance?.emit('delete-channel', channelId);
+}
+
+export function sendMessage(channelId: string, text: string, type: 'text' | 'gif' | 'file' = 'text', options?: {
 	gifUrl?: string;
 	fileUrl?: string;
 	fileName?: string;
 	fileSize?: number;
 	replyTo?: string;
 }) {
-	socketInstance?.emit('message', { text, type, ...options });
+	socketInstance?.emit('message', { channelId, text, type, ...options });
 }
 
-export function editMessage(messageId: string, newText: string) {
-	socketInstance?.emit('edit-message', { messageId, newText });
+export function editMessage(channelId: string, messageId: string, newText: string) {
+	socketInstance?.emit('edit-message', { channelId, messageId, newText });
 }
 
-export function deleteMessage(messageId: string) {
-	socketInstance?.emit('delete-message', messageId);
+export function deleteMessage(channelId: string, messageId: string) {
+	socketInstance?.emit('delete-message', { channelId, messageId });
 }
 
-export function togglePinMessage(messageId: string) {
-	socketInstance?.emit('toggle-pin-message', messageId);
+export function togglePinMessage(channelId: string, messageId: string) {
+	socketInstance?.emit('toggle-pin-message', { channelId, messageId });
 }
 
 export function sendTyping(isTyping: boolean) {
@@ -164,4 +250,12 @@ export function disconnect() {
 export function markMessagesAsRead() {
 	unreadCount.set(0);
 	lastReadMessageId.set(null);
+}
+
+export function uploadEmote(name: string, imageData: string, type: 'static' | 'animated') {
+	socketInstance?.emit('upload-emote', { name, imageData, type });
+}
+
+export function deleteEmote(emoteName: string) {
+	socketInstance?.emit('delete-emote', emoteName);
 }

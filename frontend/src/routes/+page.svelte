@@ -4,6 +4,7 @@
 	import Chat from '$lib/components/Chat.svelte';
 	import Login from '$lib/components/Login.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
+	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
 	import ScreenShareViewer from '$lib/components/ScreenShareViewer.svelte';
 	import DrawingBoard from '$lib/components/DrawingBoard.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
@@ -28,6 +29,9 @@
 {:else}
 	<div class="app-container">
 		<Sidebar bind:activeView />
+		{#if activeView === 'chat'}
+			<ChannelSidebar />
+		{/if}
 		<div class="main-content">
 			{#if activeView === 'chat'}
 				<Chat />

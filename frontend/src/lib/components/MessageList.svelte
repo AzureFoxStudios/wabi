@@ -1,8 +1,10 @@
 <script lang="ts">
 	import type { Message, User } from '$lib/socket';
-	import { users, currentUser, editMessage, deleteMessage, togglePinMessage } from '$lib/socket';
+	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage } from '$lib/socket';
 	import ProfileModal from './ProfileModal.svelte';
 	import MessageContextMenu from './MessageContextMenu.svelte';
+	import { parseMessage } from '$lib/markdown';
+	import '$lib/prism-theme.css';
 
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
@@ -62,7 +64,7 @@
 
 	function saveEdit(messageId: string) {
 		if (editText.trim()) {
-			editMessage(messageId, editText.trim());
+			editMessage($currentChannel, messageId, editText.trim());
 		}
 		editingMessageId = null;
 		editText = '';
@@ -76,14 +78,14 @@
 	function handleDelete() {
 		if (!contextMenuMessage) return;
 		if (confirm('Are you sure you want to delete this message?')) {
-			deleteMessage(contextMenuMessage.id);
+			deleteMessage($currentChannel, contextMenuMessage.id);
 		}
 		contextMenuVisible = false;
 	}
 
 	function handlePin() {
 		if (!contextMenuMessage) return;
-		togglePinMessage(contextMenuMessage.id);
+		togglePinMessage($currentChannel, contextMenuMessage.id);
 		contextMenuVisible = false;
 	}
 
@@ -304,10 +306,10 @@
 							</a>
 						{/if}
 						{#if message.text && message.text !== `Shared: ${message.fileName}`}
-							<p>{message.text}</p>
+							<div class="markdown-content">{@html parseMessage(message.text)}</div>
 						{/if}
 					{:else}
-						<p>{message.text}</p>
+						<div class="markdown-content">{@html parseMessage(message.text)}</div>
 					{/if}
 				</div>
 			{/if}
@@ -655,5 +657,45 @@
 
 	.video-download-link:hover {
 		background: #e5e7eb;
+	}
+
+	/* Markdown content styles */
+	.markdown-content :global(p) {
+		margin: 0;
+		line-height: 1.5;
+	}
+
+	.markdown-content :global(p:not(:last-child)) {
+		margin-bottom: 0.5rem;
+	}
+
+	.markdown-content :global(strong) {
+		font-weight: 600;
+	}
+
+	.markdown-content :global(em) {
+		font-style: italic;
+	}
+
+	.markdown-content :global(a) {
+		color: #3b82f6;
+		text-decoration: underline;
+	}
+
+	.markdown-content :global(a:hover) {
+		color: #2563eb;
+	}
+
+	/* Emote styles */
+	.markdown-content :global(.emote) {
+		display: inline-block;
+		height: 1.5em;
+		width: auto;
+		vertical-align: middle;
+		margin: 0 0.1em;
+	}
+
+	.markdown-content :global(.emote-animated) {
+		/* Animated emotes can have special styling if needed */
 	}
 </style>
