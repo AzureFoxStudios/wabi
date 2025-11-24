@@ -72,9 +72,125 @@ if (!existsSync(EMOTES_DIR)) {
   mkdirSync(EMOTES_DIR, { recursive: true });
 }
 
+// File upload storage
+const UPLOADS_DIR = join(STATIC_DIR, "uploads");
+if (!existsSync(UPLOADS_DIR)) {
+  mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
 // Create HTTP server using Node.js http module (Bun compatible)
 const server = createServer((req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
+
+  // CORS headers for all requests
+  res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:5173');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+  // Handle OPTIONS preflight
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  // File upload endpoint
+  if (url.pathname === "/api/upload" && req.method === "POST") {
+    let body = '';
+    let chunks: Buffer[] = [];
+
+    req.on('data', (chunk) => {
+      chunks.push(chunk);
+    });
+
+    req.on('end', () => {
+      try {
+        const buffer = Buffer.concat(chunks);
+        const boundary = req.headers['content-type']?.split('boundary=')[1];
+
+        if (!boundary) {
+          // Handle JSON upload (base64)
+          const data = JSON.parse(buffer.toString());
+          const { fileName, fileData, channelId, userId, username } = data;
+
+          // Save file
+          const fileId = `${Date.now()}-${fileName}`;
+          const filePath = join(UPLOADS_DIR, fileId);
+
+          // Convert base64 to buffer and save
+          const fileBuffer = Buffer.from(fileData.split(',')[1], 'base64');
+          writeFileSync(filePath, fileBuffer);
+
+          const fileUrl = `/uploads/${fileId}`;
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            success: true,
+            fileUrl,
+            fileName,
+            fileSize: fileBuffer.length
+          }));
+        } else {
+          // Handle multipart/form-data upload
+          const parts = buffer.toString('binary').split(`--${boundary}`);
+          let fileName = '';
+          let fileData: Buffer | null = null;
+          let channelId = '';
+          let userId = '';
+          let username = '';
+
+          for (const part of parts) {
+            if (part.includes('Content-Disposition')) {
+              const nameMatch = part.match(/name="([^"]+)"/);
+              const filenameMatch = part.match(/filename="([^"]+)"/);
+
+              if (filenameMatch) {
+                fileName = filenameMatch[1];
+                const dataStart = part.indexOf('\r\n\r\n') + 4;
+                const dataEnd = part.lastIndexOf('\r\n');
+                fileData = Buffer.from(part.substring(dataStart, dataEnd), 'binary');
+              } else if (nameMatch) {
+                const fieldName = nameMatch[1];
+                const dataStart = part.indexOf('\r\n\r\n') + 4;
+                const dataEnd = part.lastIndexOf('\r\n');
+                const value = part.substring(dataStart, dataEnd);
+
+                if (fieldName === 'channelId') channelId = value;
+                if (fieldName === 'userId') userId = value;
+                if (fieldName === 'username') username = value;
+              }
+            }
+          }
+
+          if (fileData && fileName) {
+            const fileId = `${Date.now()}-${fileName}`;
+            const filePath = join(UPLOADS_DIR, fileId);
+            writeFileSync(filePath, fileData);
+
+            const fileUrl = `/uploads/${fileId}`;
+
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+              success: true,
+              fileUrl,
+              fileName,
+              fileSize: fileData.length
+            }));
+          } else {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: 'No file uploaded' }));
+          }
+        }
+      } catch (error) {
+        console.error('Upload error:', error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Upload failed' }));
+      }
+    });
+
+    return;
+  }
 
   // Health check endpoint
   if (url.pathname === "/health") {
@@ -82,7 +198,6 @@ const server = createServer((req, res) => {
     res.end(JSON.stringify({
       status: "ok",
       users: users.size,
-      messages: messages.length,
       uptime: process.uptime()
     }));
     return;
@@ -127,9 +242,11 @@ server.listen(PORT);
 // Create Socket.IO server attached to HTTP server
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
-    methods: ["GET", "POST"]
-  }
+    origin: process.env.FRONTEND_URL || ["http://localhost:5173", "https://ungruff-subtarsal-libby.ngrok-free.dev"],
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  maxHttpBufferSize: 75 * 1024 * 1024 // 75MB (to handle 50MB files after base64 encoding ~33% overhead)
 });
 
 io.on("connection", (socket) => {

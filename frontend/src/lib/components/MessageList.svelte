@@ -102,6 +102,19 @@
 		return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 	}
 
+	function getFileUrl(fileUrl?: string): string {
+		if (!fileUrl) return '';
+		// If it's already a full URL (data: or http:), return as-is
+		if (fileUrl.startsWith('data:') || fileUrl.startsWith('http:') || fileUrl.startsWith('https:')) {
+			return fileUrl;
+		}
+		// Otherwise, prepend the backend server URL
+		const serverUrl = window.location.origin.includes(':5173')
+			? 'http://localhost:3000'
+			: window.location.origin;
+		return `${serverUrl}${fileUrl}`;
+	}
+
 	function getReplyToMessage(replyToId?: string): Message | undefined {
 		if (!replyToId) return undefined;
 		return messages.find(m => m.id === replyToId);
@@ -287,13 +300,13 @@
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
 								<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 								<img
-									src={message.fileUrl}
+									src={getFileUrl(message.fileUrl)}
 									alt={message.fileName}
 									class="inline-image"
-									on:click={() => message.fileUrl && enlargeImage(message.fileUrl)}
+									on:click={() => message.fileUrl && enlargeImage(getFileUrl(message.fileUrl))}
 									title="Click to enlarge"
 								/>
-								<a href={message.fileUrl} download={message.fileName} class="image-download-link">
+								<a href={getFileUrl(message.fileUrl)} download={message.fileName} class="image-download-link">
 									<span class="file-icon">{getFileIcon(message.fileName)}</span>
 									{message.fileName}
 									<span class="file-size">({formatFileSize(message.fileSize)})</span>
@@ -304,10 +317,10 @@
 							<div class="video-container">
 								<!-- svelte-ignore a11y-media-has-caption -->
 								<video controls class="inline-video">
-									<source src={message.fileUrl} type="video/{message.fileName?.split('.').pop()}" />
+									<source src={getFileUrl(message.fileUrl)} type="video/{message.fileName?.split('.').pop()}" />
 									Your browser does not support the video tag.
 								</video>
-								<a href={message.fileUrl} download={message.fileName} class="video-download-link">
+								<a href={getFileUrl(message.fileUrl)} download={message.fileName} class="video-download-link">
 									<span class="file-icon">{getFileIcon(message.fileName)}</span>
 									{message.fileName}
 									<span class="file-size">({formatFileSize(message.fileSize)})</span>
@@ -315,7 +328,7 @@
 							</div>
 						{:else}
 							<!-- Display other files as download link -->
-							<a href={message.fileUrl} download={message.fileName} class="file-attachment">
+							<a href={getFileUrl(message.fileUrl)} download={message.fileName} class="file-attachment">
 								<span class="file-icon">{getFileIcon(message.fileName)}</span>
 								<div class="file-info">
 									<span class="file-name">{message.fileName}</span>

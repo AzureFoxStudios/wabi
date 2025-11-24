@@ -15,6 +15,8 @@
 	let replyingTo: Message | null = null;
 	let fileInput: HTMLInputElement;
 	let editingMessage: Message | null = null;
+	let uploadProgress = 0;
+	let isUploading = false;
 
 	async function scrollToBottom() {
 		await tick();
@@ -111,29 +113,84 @@
 		replyingTo = null;
 	}
 
-	function handleFileSelect(event: Event) {
+	async function handleFileSelect(event: Event) {
 		const input = event.target as HTMLInputElement;
 		const file = input.files?.[0];
 
-		if (file) {
-			// Convert file to base64
-			const reader = new FileReader();
-			reader.onload = (e) => {
-				const fileUrl = e.target?.result as string;
-				sendMessage($currentChannel, messageInput.trim() || `Shared: ${file.name}`, 'file', {
-					fileUrl,
-					fileName: file.name,
-					fileSize: file.size,
-					replyTo: replyingTo?.id
-				});
-				messageInput = '';
-				replyingTo = null;
-			};
-			reader.readAsDataURL(file);
+		if (!file) {
+			console.log('No file selected');
+			return;
 		}
 
-		// Reset file input
-		input.value = '';
+		console.log('File selected:', file.name, file.size, file.type);
+
+		// Check file size (1GB limit)
+		const maxSize = 1024 * 1024 * 1024; // 1GB
+		if (file.size > maxSize) {
+			alert(`File too large! Maximum size is 1GB. Your file is ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+			input.value = '';
+			return;
+		}
+
+		isUploading = true;
+		uploadProgress = 0;
+
+		try {
+			// Use multipart/form-data for efficient upload
+			const formData = new FormData();
+			formData.append('file', file);
+			formData.append('channelId', $currentChannel);
+
+			const serverUrl = window.location.origin.includes(':5173')
+				? 'http://localhost:3000'
+				: window.location.origin;
+
+			const xhr = new XMLHttpRequest();
+
+			// Track upload progress
+			xhr.upload.addEventListener('progress', (e) => {
+				if (e.lengthComputable) {
+					uploadProgress = Math.round((e.loaded / e.total) * 100);
+				}
+			});
+
+			// Handle completion
+			xhr.addEventListener('load', () => {
+				if (xhr.status === 200) {
+					const result = JSON.parse(xhr.responseText);
+
+					// Send message with file URL
+					sendMessage($currentChannel, messageInput.trim() || `Shared: ${file.name}`, 'file', {
+						fileUrl: result.fileUrl,
+						fileName: file.name,
+						fileSize: file.size,
+						replyTo: replyingTo?.id
+					});
+
+					console.log('File uploaded and message sent');
+					messageInput = '';
+					replyingTo = null;
+					isUploading = false;
+					uploadProgress = 0;
+				} else {
+					throw new Error('Upload failed');
+				}
+			});
+
+			xhr.addEventListener('error', () => {
+				throw new Error('Upload failed');
+			});
+
+			xhr.open('POST', `${serverUrl}/api/upload`);
+			xhr.send(formData);
+		} catch (error) {
+			console.error('Upload error:', error);
+			alert('Failed to upload file. Please try again.');
+			isUploading = false;
+			uploadProgress = 0;
+		} finally {
+			input.value = '';
+		}
 	}
 
 	onMount(() => {
@@ -180,6 +237,18 @@
 				<span class="reply-preview">{replyingTo.text.substring(0, 50)}{replyingTo.text.length > 50 ? '...' : ''}</span>
 			</div>
 			<button class="cancel-reply" on:click={cancelReply}>✕</button>
+		</div>
+	{/if}
+
+	{#if isUploading}
+		<div class="upload-progress-bar">
+			<div class="upload-progress-info">
+				<span>Uploading file...</span>
+				<span>{uploadProgress}%</span>
+			</div>
+			<div class="progress-bar">
+				<div class="progress-fill" style="width: {uploadProgress}%"></div>
+			</div>
 		</div>
 	{/if}
 
@@ -230,9 +299,6 @@
 		padding: 1rem;
 		background: var(--bg-secondary);
 		border-bottom: 1px solid var(--border);
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
 	}
 
 	.chat-header h2 {
@@ -381,6 +447,38 @@
 
 	.cancel-reply:hover {
 		background: rgba(0, 0, 0, 0.05);
+	}
+
+	.upload-progress-bar {
+		padding: 0.75rem 1rem;
+		background: #f0f9ff;
+		border-top: 1px solid #3b82f6;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.upload-progress-info {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.5rem;
+		font-size: 0.875rem;
+		color: var(--text-primary);
+		font-weight: 500;
+	}
+
+	.progress-bar {
+		width: 100%;
+		height: 8px;
+		background: #e0e0e0;
+		border-radius: 4px;
+		overflow: hidden;
+	}
+
+	.progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, #3b82f6, #2563eb);
+		transition: width 0.3s ease;
+		border-radius: 4px;
 	}
 
 	.input-container {

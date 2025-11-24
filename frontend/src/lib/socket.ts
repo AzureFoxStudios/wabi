@@ -3,6 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { browser } from '$app/environment';
 import { showNotification } from './notifications';
 import { initEmotes, addEmote, removeEmote } from './markdown';
+import { chatStorage } from './storage';
 
 export interface Message {
 	id: string;
@@ -50,10 +51,27 @@ let socketInstance: Socket | null = null;
 export function initSocket(username: string) {
 	if (!browser) return;
 
-	const serverUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
+	// Auto-detect server URL: use window origin if not in dev mode, otherwise localhost
+	let serverUrl = 'http://localhost:3000';
+	if (import.meta.env.VITE_SOCKET_URL) {
+		serverUrl = import.meta.env.VITE_SOCKET_URL;
+	} else if (typeof window !== 'undefined') {
+		const origin = window.location.origin;
+		// Use same origin unless it's the dev server port
+		if (!origin.includes(':5173')) {
+			serverUrl = origin;
+		}
+	}
 
 	socketInstance = io(serverUrl);
 	socket.set(socketInstance);
+
+	// Load saved messages from IndexedDB if enabled
+	chatStorage.loadAllMessages().then(savedMessages => {
+		if (Object.keys(savedMessages).length > 0) {
+			channelMessages.set(savedMessages);
+		}
+	});
 
 	socketInstance.on('connect', () => {
 		console.log('Connected to server');
@@ -97,6 +115,9 @@ export function initSocket(username: string) {
 			...msgs,
 			[data.channelId]: [...(msgs[data.channelId] || []), data.message]
 		}));
+
+		// Save to local storage if enabled
+		chatStorage.saveMessage(data.channelId, data.message);
 
 		// Show notification for messages from other users
 		const isCurrentUser = data.message.userId === socketInstance?.id;

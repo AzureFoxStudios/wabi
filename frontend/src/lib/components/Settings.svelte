@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { channelMessages, users, currentUser } from '$lib/socket';
+	import StorageSettings from './StorageSettings.svelte';
 
 	export let isOpen = false;
 
@@ -169,25 +170,18 @@
 					</div>
 				</div>
 
-				<!-- Data Management -->
+				<!-- Local Storage Settings -->
 				<div class="settings-section">
-					<h3>💾 Data Management</h3>
-					<div class="action-buttons">
-						<button class="action-btn export" on:click={exportData}>
-							📥 Export Chat History
-						</button>
-						<button class="action-btn danger" on:click={clearAllData}>
-							🗑️ Clear Local Data
-						</button>
-					</div>
+					<StorageSettings />
 				</div>
 
 				<!-- About -->
 				<div class="settings-section">
 					<h3>ℹ️ About</h3>
 					<div class="about-info">
-						<p><strong>Community Chat</strong></p>
-						<p>Self-hosted ephemeral chat with screen sharing</p>
+						<p><strong>Wabi Chat</strong></p>
+						<p>Privacy-first ephemeral chat. No tracking. No data collection.</p>
+						<p>Server stores nothing permanently. You control your data.</p>
 						<p class="version">Version 1.0.0</p>
 					</div>
 				</div>

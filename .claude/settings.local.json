@@ -16,7 +16,16 @@
       "Bash(npm start)",
       "Bash(npm install:*)",
       "Bash(taskkill:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(bun run dev)",
+      "Bash(powershell -Command \"Get-Process bun | Stop-Process -Force\")",
+      "Bash(.ngrok.exe http 3000)",
+      "Bash(./ngrok http:*)",
+      "Bash(curl:*)",
+      "Bash(bun run build:*)",
+      "Bash(tasklist:*)",
+      "Bash(findstr:*)",
+      "Bash(netstat:*)"
     ],
     "deny": [],
     "ask": []
