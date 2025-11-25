@@ -1,6 +1,6 @@
 import { Server } from "socket.io";
 import { createServer } from "http";
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
+import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 
 // In-memory data store
@@ -217,10 +217,25 @@ const server = createServer((req, res) => {
         pinnedMessages.set(channelId, new Set());
       });
 
+      // Delete all files from uploads directory
+      if (existsSync(UPLOADS_DIR)) {
+        const files = readdirSync(UPLOADS_DIR);
+        let deletedCount = 0;
+        for (const file of files) {
+          try {
+            unlinkSync(join(UPLOADS_DIR, file));
+            deletedCount++;
+          } catch (err) {
+            console.error(`Failed to delete file ${file}:`, err);
+          }
+        }
+        console.log(`Deleted ${deletedCount} files from uploads directory`);
+      }
+
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
         success: true,
-        message: "All messages cleared from server"
+        message: "All messages and files cleared from server"
       }));
     } catch (error) {
       console.error('Clear messages error:', error);

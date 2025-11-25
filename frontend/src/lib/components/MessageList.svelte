@@ -249,6 +249,7 @@
 	}
 
 	let enlargedImage: string | null = null;
+	let enlargedVideo: string | null = null;
 
 	function enlargeImage(imageUrl: string) {
 		enlargedImage = imageUrl;
@@ -256,6 +257,14 @@
 
 	function closeEnlargedImage() {
 		enlargedImage = null;
+	}
+
+	function enlargeVideo(videoUrl: string) {
+		enlargedVideo = videoUrl;
+	}
+
+	function closeEnlargedVideo() {
+		enlargedVideo = null;
 	}
 
 	// Attach click handlers to spoiler elements
@@ -372,6 +381,24 @@
 												</div>
 											{/if}
 										</div>
+									{:else if isVideo(fileAttachment.fileName)}
+										<!-- svelte-ignore a11y-media-has-caption -->
+										<!-- svelte-ignore a11y-click-events-have-key-events -->
+										<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+										<div class="gallery-file-item" class:last-item={index === 3 && message.files.length > 4}>
+											<video
+												class="gallery-file-video"
+												on:click={(e) => e.button === 0 && enlargeVideo(getFileUrl(fileAttachment.fileUrl))}
+												title="Click to enlarge"
+											>
+												<source src={getFileUrl(fileAttachment.fileUrl)} />
+											</video>
+											{#if index === 3 && message.files.length > 4}
+												<div class="more-overlay">
+													<span class="more-count">+{message.files.length - 4}</span>
+												</div>
+											{/if}
+										</div>
 									{:else}
 										<a href={getFileUrl(fileAttachment.fileUrl)} download={fileAttachment.fileName} class="gallery-file-item file-link">
 											<div class="gallery-file-icon-large">{getFileIcon(fileAttachment.fileName)}</div>
@@ -407,7 +434,19 @@
 							<!-- Display video with player -->
 							<div class="video-container">
 								<!-- svelte-ignore a11y-media-has-caption -->
-								<video controls class="inline-video">
+								<!-- svelte-ignore a11y-click-events-have-key-events -->
+								<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+								<video
+									controls
+									class="inline-video"
+									on:click={(e) => {
+										if (e.button === 0 && message.fileUrl) {
+											enlargeVideo(getFileUrl(message.fileUrl));
+										}
+									}}
+									on:contextmenu={(e) => handleImageContextMenu(e, message)}
+									title="Click to enlarge, right-click for options"
+								>
 									<source src={getFileUrl(message.fileUrl)} type="video/{message.fileName?.split('.').pop()}" />
 									Your browser does not support the video tag.
 								</video>
@@ -473,6 +512,29 @@
 		/>
 		<button class="close-modal" on:click={closeEnlargedImage}>✕</button>
 		<a href={enlargedImage} target="_blank" rel="noopener noreferrer" class="open-new-tab">
+			Open in new tab
+		</a>
+	</div>
+{/if}
+
+{#if enlargedVideo}
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<div class="video-modal" on:click={closeEnlargedVideo}>
+		<!-- svelte-ignore a11y-media-has-caption -->
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+		<video
+			controls
+			autoplay
+			class="enlarged-video"
+			on:click|stopPropagation
+		>
+			<source src={enlargedVideo} />
+			Your browser does not support the video tag.
+		</video>
+		<button class="close-modal" on:click={closeEnlargedVideo}>✕</button>
+		<a href={enlargedVideo} target="_blank" rel="noopener noreferrer" class="open-new-tab">
 			Open in new tab
 		</a>
 	</div>
@@ -877,6 +939,27 @@
 		cursor: default;
 	}
 
+	.video-modal {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.9);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 2rem;
+	}
+
+	.enlarged-video {
+		max-width: 85vw;
+		max-height: 85vh;
+		border-radius: 8px;
+		cursor: default;
+	}
+
 	.close-modal {
 		position: absolute;
 		top: 1rem;
@@ -949,6 +1032,13 @@
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
+	}
+
+	.gallery-file-video {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		cursor: pointer;
 	}
 
 	.gallery-file-icon-large {
