@@ -16,7 +16,8 @@
 			gifUrl: message.gifUrl,
 			fileUrl: message.fileUrl,
 			fileName: message.fileName,
-			fileSize: message.fileSize
+			fileSize: message.fileSize,
+			files: message.files
 		});
 
 		visible = false;

@@ -42,22 +42,19 @@
 		</button>
 	</div>
 
-	<!-- Screen Share Button -->
-	<div class="screen-share-section">
-		<button
-			class="screen-share-btn"
-			class:active={activeView === 'screen'}
-			on:click={() => activeView = 'screen'}
-			title="Screen Share"
-		>
-			<span class="icon">🖥️</span>
-			<span>Screen Share</span>
-		</button>
-	</div>
-
 	<div class="sidebar-header">
 		<h3>Text Channels</h3>
-		<button class="add-btn" on:click={() => showCreateInput = !showCreateInput} title="Create channel">+</button>
+		<div class="header-buttons">
+			<button
+				class="screen-share-icon-btn"
+				class:active={activeView === 'screen'}
+				on:click={() => activeView = 'screen'}
+				title="Screen Share"
+			>
+				📺
+			</button>
+			<button class="add-btn" on:click={() => showCreateInput = !showCreateInput} title="Create channel">+</button>
+		</div>
 	</div>
 
 	{#if showCreateInput}
@@ -119,7 +116,7 @@
 	.logo-img {
 		height: 32px;
 		width: auto;
-		filter: invert(1);
+		filter: invert(1) drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.3));
 	}
 
 	.settings-btn {
@@ -157,9 +154,16 @@
 		margin: 0;
 	}
 
-	.add-btn {
+	.header-buttons {
 		position: absolute;
 		right: 1rem;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.screen-share-icon-btn,
+	.add-btn {
 		width: 24px;
 		height: 24px;
 		border-radius: 0;
@@ -172,23 +176,33 @@
 		align-items: center;
 		justify-content: center;
 		transition: all 0.2s;
+		opacity: 0.3;
 	}
 
+	.screen-share-icon-btn:hover,
 	.add-btn:hover {
 		background: var(--bg-secondary);
 		color: var(--text-primary);
+		opacity: 1;
+	}
+
+	.screen-share-icon-btn.active {
+		background: var(--accent);
+		color: white;
+		opacity: 1;
 	}
 
 	.create-channel {
-		padding: 0.5rem 1rem;
+		padding: 0.5rem 0.5rem;
 		border-bottom: 1px solid var(--border);
 		display: flex;
+		flex-direction: column;
 		gap: 0.5rem;
 	}
 
 	.create-channel input {
-		flex: 1;
-		padding: 0.25rem 0.5rem;
+		width: 100%;
+		padding: 0.5rem;
 		font-size: 0.875rem;
 		border: 1px solid var(--border);
 		border-radius: 0;
@@ -197,13 +211,14 @@
 	}
 
 	.create-channel button {
-		padding: 0.25rem 0.75rem;
+		padding: 0.5rem;
 		font-size: 0.875rem;
 		background: var(--accent);
 		color: white;
 		border: none;
 		border-radius: 0;
 		cursor: pointer;
+		width: 100%;
 	}
 
 	.channel-list {
