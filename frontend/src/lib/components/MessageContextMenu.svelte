@@ -10,8 +10,36 @@
 	export let onDelete: () => void;
 	export let onPin: () => void;
 	export let onReply: () => void;
+	export let onDownload: (() => void) | undefined = undefined;
+	export let onForward: (() => void) | undefined = undefined;
 
 	$: isOwnMessage = message.userId === $currentUser?.id;
+	$: hasFile = message.type === 'file' && message.fileUrl;
+
+	let menuElement: HTMLDivElement;
+
+	// Adjust position to keep menu on screen
+	$: adjustedX = (() => {
+		if (!menuElement) return x;
+		const menuWidth = menuElement.offsetWidth || 200; // fallback width
+		const windowWidth = window.innerWidth;
+		// If menu would go off right edge, flip to left
+		if (x + menuWidth > windowWidth) {
+			return x - menuWidth;
+		}
+		return x;
+	})();
+
+	$: adjustedY = (() => {
+		if (!menuElement) return y;
+		const menuHeight = menuElement.offsetHeight || 300; // fallback height
+		const windowHeight = window.innerHeight;
+		// If menu would go off bottom edge, flip to top
+		if (y + menuHeight > windowHeight) {
+			return y - menuHeight;
+		}
+		return y;
+	})();
 </script>
 
 {#if visible}
@@ -24,14 +52,29 @@
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
+			bind:this={menuElement}
 			class="context-menu"
-			style="top: {y}px; left: {x}px;"
+			style="top: {adjustedY}px; left: {adjustedX}px;"
 			on:click|stopPropagation
 		>
 			<button class="menu-item" on:click={onReply}>
 				<span class="menu-icon">💬</span>
 				Reply
 			</button>
+
+			{#if hasFile && onDownload}
+				<button class="menu-item" on:click={onDownload}>
+					<span class="menu-icon">⬇️</span>
+					Download
+				</button>
+			{/if}
+
+			{#if onForward}
+				<button class="menu-item" on:click={onForward}>
+					<span class="menu-icon">↗️</span>
+					Forward
+				</button>
+			{/if}
 
 			{#if isOwnMessage}
 				<button class="menu-item" on:click={onEdit}>

@@ -5,6 +5,12 @@ import { showNotification } from './notifications';
 import { initEmotes, addEmote, removeEmote } from './markdown';
 import { chatStorage } from './storage';
 
+export interface FileAttachment {
+	fileUrl: string;
+	fileName: string;
+	fileSize: number;
+}
+
 export interface Message {
 	id: string;
 	user: string;
@@ -16,6 +22,7 @@ export interface Message {
 	fileUrl?: string;
 	fileName?: string;
 	fileSize?: number;
+	files?: FileAttachment[]; // Multiple file attachments
 	isPinned?: boolean;
 	isEdited?: boolean;
 	replyTo?: string;

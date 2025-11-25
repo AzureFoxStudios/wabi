@@ -81,6 +81,10 @@ marked.use({ renderer });
  * Parse markdown and replace emotes
  */
 export function parseMessage(text: string): string {
+  // Preprocess spoiler tags ||text|| before markdown parsing
+  // Replace with span that can be clicked to reveal
+  text = text.replace(/\|\|(.+?)\|\|/g, '<span class="spoiler" data-spoiler="true">$1</span>');
+
   // Discord-style code block preprocessing: ensure closing ``` is on its own line
   // Matches: ```lang\ncode``` and converts to: ```lang\ncode\n```
   text = text.replace(/```(\w+)\n([\s\S]*?)```/g, (match, lang, code) => {
@@ -117,7 +121,7 @@ export function parseMessage(text: string): string {
       'a', 'img', 'blockquote', 'ul', 'ol', 'li', 'h1', 'h2', 'h3',
       'h4', 'h5', 'h6', 'hr', 'span'
     ],
-    ALLOWED_ATTR: ['href', 'src', 'alt', 'class', 'title', 'target', 'rel'],
+    ALLOWED_ATTR: ['href', 'src', 'alt', 'class', 'title', 'target', 'rel', 'data-spoiler'],
     FORBID_TAGS: ['style', 'script'],
     FORBID_ATTR: ['style', 'onerror', 'onload'],
   });

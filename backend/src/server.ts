@@ -371,6 +371,7 @@ io.on("connection", (socket) => {
     fileUrl?: string;
     fileName?: string;
     fileSize?: number;
+    files?: { fileUrl: string; fileName: string; fileSize: number }[];
     replyTo?: string;
   }) => {
     const user = users.get(socket.id);
@@ -390,6 +391,7 @@ io.on("connection", (socket) => {
       fileUrl: data.fileUrl,
       fileName: data.fileName,
       fileSize: data.fileSize,
+      files: data.files,
       isPinned: false,
       isEdited: false,
       replyTo: data.replyTo

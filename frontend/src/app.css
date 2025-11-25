@@ -92,3 +92,25 @@ input:focus, textarea:focus {
 ::-webkit-scrollbar-thumb:hover {
 	background: var(--border);
 }
+
+/* Spoiler styling */
+.spoiler {
+	background: var(--text-primary);
+	color: transparent;
+	padding: 0.125rem 0.25rem;
+	border-radius: 3px;
+	cursor: pointer;
+	user-select: none;
+	transition: all 0.15s ease;
+}
+
+.spoiler:hover {
+	background: var(--text-secondary);
+}
+
+.spoiler.revealed {
+	background: var(--bg-tertiary);
+	color: var(--text-primary);
+	user-select: text;
+	cursor: text;
+}

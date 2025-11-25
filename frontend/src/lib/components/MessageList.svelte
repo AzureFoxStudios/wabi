@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { onMount, afterUpdate } from 'svelte';
 	import type { Message, User } from '$lib/socket';
 	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage } from '$lib/socket';
 	import ProfileModal from './ProfileModal.svelte';
 	import MessageContextMenu from './MessageContextMenu.svelte';
+	import ForwardDialog from './ForwardDialog.svelte';
 	import { parseMessage } from '$lib/markdown';
 	import '$lib/prism-theme.css';
 
@@ -95,15 +97,42 @@
 		contextMenuVisible = false;
 	}
 
-	function handleImageContextMenu(event: MouseEvent, fileUrl: string, fileName: string) {
+	async function handleDownload() {
+		if (!contextMenuMessage?.fileUrl || !contextMenuMessage?.fileName) return;
+		try {
+			const fileUrl = getFileUrl(contextMenuMessage.fileUrl);
+			const response = await fetch(fileUrl);
+			const blob = await response.blob();
+			const url = window.URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = contextMenuMessage.fileName;
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+			window.URL.revokeObjectURL(url);
+		} catch (error) {
+			console.error('Download failed:', error);
+		}
+		contextMenuVisible = false;
+	}
+
+	let showForwardDialog = false;
+	let forwardMessage: Message | null = null;
+
+	function handleForward() {
+		if (!contextMenuMessage) return;
+		forwardMessage = contextMenuMessage;
+		showForwardDialog = true;
+		contextMenuVisible = false;
+	}
+
+	function handleImageContextMenu(event: MouseEvent, message: Message) {
 		event.preventDefault();
-		// Create a temporary anchor element to trigger download
-		const link = document.createElement('a');
-		link.href = getFileUrl(fileUrl);
-		link.download = fileName;
-		document.body.appendChild(link);
-		link.click();
-		document.body.removeChild(link);
+		contextMenuMessage = message;
+		contextMenuX = event.clientX;
+		contextMenuY = event.clientY;
+		contextMenuVisible = true;
 	}
 
 	function formatFileSize(bytes?: number): string {
@@ -228,6 +257,23 @@
 	function closeEnlargedImage() {
 		enlargedImage = null;
 	}
+
+	// Attach click handlers to spoiler elements
+	function attachSpoilerHandlers() {
+		const spoilers = document.querySelectorAll('.spoiler[data-spoiler="true"]');
+		spoilers.forEach(spoiler => {
+			if (!spoiler.hasAttribute('data-listener-attached')) {
+				spoiler.addEventListener('click', function(this: HTMLElement) {
+					this.classList.toggle('revealed');
+				});
+				spoiler.setAttribute('data-listener-attached', 'true');
+			}
+		});
+	}
+
+	// Attach handlers when component mounts and updates
+	onMount(attachSpoilerHandlers);
+	afterUpdate(attachSpoilerHandlers);
 </script>
 
 {#each messages as message (message.id)}
@@ -304,8 +350,41 @@
 				<div class="message-content">
 					{#if message.type === 'gif' && message.gifUrl}
 						<img src={message.gifUrl} alt="GIF" class="gif" />
-					{:else if message.type === 'file' && message.fileUrl}
-						{#if isImage(message.fileName)}
+					{:else if message.type === 'file' && (message.fileUrl || message.files)}
+						{#if message.files && message.files.length > 1}
+							<!-- Multiple files gallery -->
+							<div class="files-gallery" class:has-more={message.files.length > 4}>
+								{#each message.files.slice(0, 4) as fileAttachment, index}
+									{#if isImage(fileAttachment.fileName)}
+										<!-- svelte-ignore a11y-click-events-have-key-events -->
+										<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+										<div class="gallery-file-item" class:last-item={index === 3 && message.files.length > 4}>
+											<img
+												src={getFileUrl(fileAttachment.fileUrl)}
+												alt={fileAttachment.fileName}
+												class="gallery-file-image"
+												on:click={(e) => e.button === 0 && enlargeImage(getFileUrl(fileAttachment.fileUrl))}
+												title="Click to enlarge"
+											/>
+											{#if index === 3 && message.files.length > 4}
+												<div class="more-overlay">
+													<span class="more-count">+{message.files.length - 4}</span>
+												</div>
+											{/if}
+										</div>
+									{:else}
+										<a href={getFileUrl(fileAttachment.fileUrl)} download={fileAttachment.fileName} class="gallery-file-item file-link">
+											<div class="gallery-file-icon-large">{getFileIcon(fileAttachment.fileName)}</div>
+											<div class="gallery-file-overlay">
+												<span class="file-name-truncate">{fileAttachment.fileName}</span>
+												<span class="file-size-small">({formatFileSize(fileAttachment.fileSize)})</span>
+											</div>
+										</a>
+									{/if}
+								{/each}
+							</div>
+						{:else if message.fileUrl}
+							{#if isImage(message.fileName)}
 							<!-- Display image inline -->
 							<div class="image-container">
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -314,9 +393,9 @@
 									src={getFileUrl(message.fileUrl)}
 									alt={message.fileName}
 									class="inline-image"
-									on:click={() => message.fileUrl && enlargeImage(getFileUrl(message.fileUrl))}
-									on:contextmenu={(e) => message.fileUrl && message.fileName && handleImageContextMenu(e, message.fileUrl, message.fileName)}
-								title="Click to enlarge, right-click to download"
+									on:click={(e) => e.button === 0 && message.fileUrl && enlargeImage(getFileUrl(message.fileUrl))}
+									on:contextmenu={(e) => handleImageContextMenu(e, message)}
+									title="Click to enlarge, right-click for options"
 								/>
 								<a href={getFileUrl(message.fileUrl)} download={message.fileName} class="image-download-link">
 									<span class="file-icon">{getFileIcon(message.fileName)}</span>
@@ -348,7 +427,8 @@
 								</div>
 							</a>
 						{/if}
-						{#if message.text && message.text !== `Shared: ${message.fileName}`}
+						{/if}
+						{#if message.text && (message.files ? message.text !== `Shared ${message.files.length} files` : message.text !== `Shared: ${message.fileName}`)}
 							<div class="markdown-content">{@html parseMessage(message.text)}</div>
 						{/if}
 					{:else}
@@ -372,8 +452,12 @@
 		onDelete={handleDelete}
 		onPin={handlePin}
 		onReply={handleReply}
+		onDownload={handleDownload}
+		onForward={handleForward}
 	/>
 {/if}
+
+<ForwardDialog bind:visible={showForwardDialog} bind:message={forwardMessage} />
 
 {#if enlargedImage}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -835,5 +919,99 @@
 	.open-new-tab:hover {
 		background: rgba(255, 255, 255, 0.2);
 		transform: translateX(-50%) translateY(-2px);
+	}
+
+	.files-gallery {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 0.25rem;
+		margin-top: 0.5rem;
+		max-width: 600px;
+	}
+
+	.gallery-file-item {
+		position: relative;
+		aspect-ratio: 1;
+		border-radius: 8px;
+		overflow: hidden;
+		border: 1px solid var(--border);
+		cursor: pointer;
+		transition: transform 0.2s;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.gallery-file-item:hover {
+		transform: scale(1.02);
+	}
+
+	.gallery-file-image {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.gallery-file-icon-large {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 4rem;
+		background: var(--bg-secondary);
+	}
+
+	.gallery-file-overlay {
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+		color: white;
+		padding: 0.5rem;
+		font-size: 0.75rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.file-name-truncate {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-weight: 500;
+	}
+
+	.file-size-small {
+		font-size: 0.7rem;
+		opacity: 0.9;
+	}
+
+	.file-link {
+		text-decoration: none;
+		color: inherit;
+	}
+
+	.more-overlay {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.7);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		pointer-events: none;
+	}
+
+	.more-count {
+		color: white;
+		font-size: 2rem;
+		font-weight: 700;
+		text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+	}
+
+	.gallery-file-item.last-item {
+		cursor: pointer;
 	}
 </style>
