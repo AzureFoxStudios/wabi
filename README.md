@@ -12,7 +12,8 @@ A self-hosted, ephemeral chat system with screen sharing for 10-50 users. Built 
 - **Export Chat**: Download chat history as JSON
 - **PWA Support**: Install as a Progressive Web App
 - **Ephemeral Storage**: All data stored in-memory (no database required)
-- **Privacy-Focused**: No data persistence, self-hosted deployment
+- **Privacy-Focused**: No data persistence, opt-in logging, self-hosted deployment
+- **File Management**: Uploaded files are automatically deleted when messages are deleted
 
 ## Tech Stack
 
@@ -51,6 +52,7 @@ Backend (create `backend/.env`):
 ```env
 PORT=3000
 FRONTEND_URL=http://localhost:5173
+ENABLE_LOGGING=false  # Set to 'true' to enable activity logging
 ```
 
 Frontend (create `frontend/.env`):
@@ -86,6 +88,9 @@ chmod +x build.sh
 ```bash
 cd dist
 PORT=3000 ./community-chat-server
+
+# Or with logging enabled:
+ENABLE_LOGGING=true PORT=3000 ./community-chat-server
 ```
 
 The server will serve both the API and static files on the specified port.
@@ -115,6 +120,7 @@ docker-compose up -d
 |----------|-------------|---------|
 | `PORT` | Server port | `3000` |
 | `FRONTEND_URL` | Frontend URL for CORS | `http://localhost:5173` |
+| `ENABLE_LOGGING` | Enable activity logging (user joins/leaves, messages, etc.) | `false` |
 
 ### Frontend Environment Variables
 
@@ -135,12 +141,16 @@ docker-compose up -d
 
 - In-memory data storage (ephemeral)
 - Socket.IO event handlers for:
-  - Chat messages
+  - Chat messages (with edit, delete, pin support)
   - User presence
   - Typing indicators
-  - WebRTC signaling
+  - WebRTC signaling (screen sharing, voice/video calls)
   - Excalidraw state sync
-- Keeps last 500 messages in memory
+  - File uploads (with automatic cleanup on message deletion)
+  - Channel management
+  - Custom emotes
+- Privacy-focused: Opt-in activity logging (disabled by default)
+- Automatic file deletion when messages are removed
 
 ### Frontend (SvelteKit)
 
@@ -224,6 +234,37 @@ const rtcConfig: RTCConfiguration = {
     ]
 };
 ```
+
+## Privacy & Data Management
+
+### Truly Ephemeral by Default
+
+This chat system is designed with **privacy first**:
+
+- **No Database**: All messages stored in-memory only, lost on server restart
+- **Opt-in Logging**: Server activity logs are **disabled by default**
+  - Set `ENABLE_LOGGING=true` to log user activity (joins, messages, file uploads, etc.)
+  - Error logs and startup info always enabled for operational purposes
+  - Without logging enabled, no audit trail is created
+- **Automatic File Cleanup**: When messages with uploaded files are deleted:
+  - Files are **permanently removed** from the server filesystem
+  - No orphaned files left behind
+- **No Persistence**: Chat history, user data, and files exist only while the server runs
+
+### What Gets Logged (if `ENABLE_LOGGING=true`)
+
+- User connections/disconnections
+- Users joining/leaving chat
+- Channel creation/deletion
+- File uploads/deletions
+- Emote additions/deletions
+- Profile updates
+
+### What's Always Logged (operational)
+
+- Server startup information (port, directories)
+- Error messages (for debugging)
+- Health check requests
 
 ## Security Notes
 

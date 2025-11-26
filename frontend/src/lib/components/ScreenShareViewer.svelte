@@ -13,6 +13,7 @@
 		removeScreenShare
 	} from '$lib/webrtc';
 	import { users } from '$lib/socket';
+	import { playNotificationSound } from '$lib/notifications';
 
 	export let activeView: 'chat' | 'screen' = 'screen';
 
@@ -72,7 +73,21 @@
 		$socket.on('screen-share-started', async (data: { userId: string; username: string }) => {
 			if (!$socket) return;
 			// Viewer receives notification that someone started sharing
-			// They will receive an offer next
+			console.log(`${data.username} started screen sharing`);
+
+			// Play notification sound
+			playNotificationSound();
+
+			// Auto-switch to screen share tab
+			activeView = 'screen';
+
+			// Show browser notification if document is not focused
+			if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+				new Notification('Screen Share Started', {
+					body: `${data.username} is sharing their screen`,
+					icon: '/icon-192.png'
+				});
+			}
 		});
 
 		$socket.on('screen-share-stopped', (userId: string) => {

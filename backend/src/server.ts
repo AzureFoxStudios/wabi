@@ -66,6 +66,7 @@ const emotes = new Map<string, {
 const PORT = process.env.PORT || 3000;
 const STATIC_DIR = process.env.STATIC_DIR || join(import.meta.dir, "../../static");
 const EMOTES_DIR = join(STATIC_DIR, "emotes");
+const ENABLE_LOGGING = process.env.ENABLE_LOGGING === 'true';
 
 // Ensure emotes directory exists
 if (!existsSync(EMOTES_DIR)) {
@@ -82,8 +83,20 @@ if (!existsSync(UPLOADS_DIR)) {
 const server = createServer((req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
-  // CORS headers for all requests
-  res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:5173');
+  // CORS headers for all requests - dynamically set based on request origin
+  const allowedOrigins = [
+    'http://localhost:5173',
+    'https://ungruff-subtarsal-libby.ngrok-free.dev',
+    process.env.FRONTEND_URL
+  ].filter(Boolean);
+
+  const requestOrigin = req.headers.origin;
+  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+    res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
+  }
+
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Requested-With');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -229,7 +242,7 @@ const server = createServer((req, res) => {
             console.error(`Failed to delete file ${file}:`, err);
           }
         }
-        console.log(`Deleted ${deletedCount} files from uploads directory`);
+        if (ENABLE_LOGGING) console.log(`Deleted ${deletedCount} files from uploads directory`);
       }
 
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -300,7 +313,11 @@ server.listen(PORT);
 // Create Socket.IO server attached to HTTP server
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || ["http://localhost:5173", "https://ungruff-subtarsal-libby.ngrok-free.dev"],
+    origin: [
+      "http://localhost:5173",
+      "https://ungruff-subtarsal-libby.ngrok-free.dev",
+      process.env.FRONTEND_URL
+    ].filter(Boolean), // Remove undefined if FRONTEND_URL not set
     methods: ["GET", "POST"],
     credentials: true
   },
@@ -308,7 +325,7 @@ const io = new Server(server, {
 });
 
 io.on("connection", (socket) => {
-  console.log(`User connected: ${socket.id}`);
+  if (ENABLE_LOGGING) console.log(`User connected: ${socket.id}`);
 
   // Handle user join
   socket.on("join", (username: string) => {
@@ -338,7 +355,7 @@ io.on("connection", (socket) => {
       profilePicture: undefined
     });
 
-    console.log(`${username} joined the chat`);
+    if (ENABLE_LOGGING) console.log(`${username} joined the chat`);
   });
 
   // Handle profile updates
@@ -364,7 +381,7 @@ io.on("connection", (socket) => {
       profilePicture: user.profilePicture
     });
 
-    console.log(`${user.username} updated profile: status=${user.status}`);
+    if (ENABLE_LOGGING) console.log(`${user.username} updated profile: status=${user.status}`);
   });
 
   // Handle joining a channel
@@ -450,6 +467,37 @@ io.on("connection", (socket) => {
 
     const message = messages[messageIndex];
     if (message.userId !== socket.id) return;
+
+    // Delete associated files from filesystem
+    if (message.fileUrl) {
+      // Single file upload
+      const fileName = message.fileUrl.replace('/uploads/', '');
+      const filePath = join(UPLOADS_DIR, fileName);
+      try {
+        if (existsSync(filePath)) {
+          unlinkSync(filePath);
+          if (ENABLE_LOGGING) console.log(`Deleted file: ${fileName}`);
+        }
+      } catch (error) {
+        console.error(`Failed to delete file ${fileName}:`, error);
+      }
+    }
+
+    if (message.files && Array.isArray(message.files)) {
+      // Multiple file uploads
+      for (const file of message.files) {
+        const fileName = file.fileUrl.replace('/uploads/', '');
+        const filePath = join(UPLOADS_DIR, fileName);
+        try {
+          if (existsSync(filePath)) {
+            unlinkSync(filePath);
+            if (ENABLE_LOGGING) console.log(`Deleted file: ${fileName}`);
+          }
+        } catch (error) {
+          console.error(`Failed to delete file ${fileName}:`, error);
+        }
+      }
+    }
 
     messages.splice(messageIndex, 1);
 
@@ -627,7 +675,7 @@ io.on("connection", (socket) => {
     pinnedMessages.set(channelId, new Set());
 
     io.emit("channel-created", channel);
-    console.log(`Channel created: ${channelName}`);
+    if (ENABLE_LOGGING) console.log(`Channel created: ${channelName}`);
   });
 
   socket.on("delete-channel", (channelId: string) => {
@@ -647,7 +695,7 @@ io.on("connection", (socket) => {
     pinnedMessages.delete(channelId);
 
     io.emit("channel-deleted", channelId);
-    console.log(`Channel deleted: ${channelId}`);
+    if (ENABLE_LOGGING) console.log(`Channel deleted: ${channelId}`);
   });
 
   // Emote management
@@ -705,7 +753,7 @@ io.on("connection", (socket) => {
       // Broadcast new emote to all users
       io.emit("emote-added", emote);
 
-      console.log(`${user.username} added emote: ${data.name}`);
+      if (ENABLE_LOGGING) console.log(`${user.username} added emote: ${data.name}`);
     } catch (error) {
       console.error("Error saving emote:", error);
       socket.emit("emote-error", "Failed to save emote");
@@ -726,7 +774,7 @@ io.on("connection", (socket) => {
     emotes.delete(emoteName);
     io.emit("emote-deleted", emoteName);
 
-    console.log(`${user.username} deleted emote: ${emoteName}`);
+    if (ENABLE_LOGGING) console.log(`${user.username} deleted emote: ${emoteName}`);
   });
 
   // Handle disconnect
@@ -747,7 +795,7 @@ io.on("connection", (socket) => {
         username: user.username
       });
 
-      console.log(`${user.username} left the chat`);
+      if (ENABLE_LOGGING) console.log(`${user.username} left the chat`);
     }
   });
 });

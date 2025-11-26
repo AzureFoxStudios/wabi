@@ -68,11 +68,12 @@
 			<div class="resize-handle resize-handle-channel" on:mousedown={startResizeChannel}></div>
 		</div>
 		<div class="main-content">
-			{#if activeView === 'chat'}
+			<div class:hidden={activeView !== 'chat'}>
 				<Chat />
-			{:else if activeView === 'screen'}
+			</div>
+			<div class:hidden={activeView !== 'screen'}>
 				<ScreenShareViewer bind:activeView />
-			{/if}
+			</div>
 		</div>
 		{#if showUserPanel}
 			<div class="user-panel-container" style="width: {userPanelWidth}px;">
@@ -116,6 +117,16 @@
 	.main-content {
 		flex: 1;
 		overflow: hidden;
+		position: relative;
+	}
+
+	.main-content > div {
+		height: 100%;
+		width: 100%;
+	}
+
+	.hidden {
+		display: none !important;
 	}
 
 	.resize-handle {

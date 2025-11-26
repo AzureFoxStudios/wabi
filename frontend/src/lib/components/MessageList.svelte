@@ -250,13 +250,46 @@
 
 	let enlargedImage: string | null = null;
 	let enlargedVideo: string | null = null;
+	let currentImageGallery: string[] = [];
+	let currentImageIndex: number = 0;
 
-	function enlargeImage(imageUrl: string) {
+	function enlargeImage(imageUrl: string, gallery: string[] = []) {
 		enlargedImage = imageUrl;
+		currentImageGallery = gallery.length > 0 ? gallery : [imageUrl];
+		currentImageIndex = currentImageGallery.indexOf(imageUrl);
 	}
 
 	function closeEnlargedImage() {
 		enlargedImage = null;
+		currentImageGallery = [];
+		currentImageIndex = 0;
+	}
+
+	function navigateImage(direction: 'prev' | 'next') {
+		if (currentImageGallery.length === 0) return;
+
+		if (direction === 'prev') {
+			currentImageIndex = (currentImageIndex - 1 + currentImageGallery.length) % currentImageGallery.length;
+		} else {
+			currentImageIndex = (currentImageIndex + 1) % currentImageGallery.length;
+		}
+
+		enlargedImage = currentImageGallery[currentImageIndex];
+	}
+
+	function handleImageKeydown(e: KeyboardEvent) {
+		if (!enlargedImage) return;
+
+		if (e.key === 'ArrowLeft') {
+			e.preventDefault();
+			navigateImage('prev');
+		} else if (e.key === 'ArrowRight') {
+			e.preventDefault();
+			navigateImage('next');
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			closeEnlargedImage();
+		}
 	}
 
 	function enlargeVideo(videoUrl: string) {
@@ -349,7 +382,20 @@
 			<!-- Message Content or Edit Mode -->
 			{#if editingMessageId === message.id}
 				<div class="edit-mode">
-					<textarea bind:value={editText} class="edit-textarea" rows="3"></textarea>
+					<textarea
+						bind:value={editText}
+						class="edit-textarea"
+						rows="3"
+						on:keydown={(e) => {
+							if (e.key === 'Enter' && !e.shiftKey) {
+								e.preventDefault();
+								saveEdit(message.id);
+							} else if (e.key === 'Escape') {
+								e.preventDefault();
+								cancelEdit();
+							}
+						}}
+					></textarea>
 					<div class="edit-actions">
 						<button class="edit-cancel" on:click={cancelEdit}>Cancel</button>
 						<button class="edit-save" on:click={() => saveEdit(message.id)}>Save</button>
@@ -372,7 +418,14 @@
 												src={getFileUrl(fileAttachment.fileUrl)}
 												alt={fileAttachment.fileName}
 												class="gallery-file-image"
-												on:click={(e) => e.button === 0 && enlargeImage(getFileUrl(fileAttachment.fileUrl))}
+												on:click={(e) => {
+													if (e.button === 0) {
+														const imageGallery = message.files
+															.filter(f => isImage(f.fileName))
+															.map(f => getFileUrl(f.fileUrl));
+														enlargeImage(getFileUrl(fileAttachment.fileUrl), imageGallery);
+													}
+												}}
 												title="Click to enlarge"
 											/>
 											{#if index === 3 && message.files.length > 4}

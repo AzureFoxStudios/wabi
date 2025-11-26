@@ -1,6 +1,42 @@
 import { browser } from '$app/environment';
 import type { Message } from '$lib/socket';
 
+// Simple notification sound using Web Audio API
+let audioContext: AudioContext | null = null;
+
+function initAudio() {
+	if (!browser) return;
+	if (!audioContext) {
+		audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+	}
+}
+
+export function playNotificationSound() {
+	if (!browser) return;
+
+	initAudio();
+	if (!audioContext) return;
+
+	// Create a simple pleasant notification sound
+	const oscillator = audioContext.createOscillator();
+	const gainNode = audioContext.createGain();
+
+	oscillator.connect(gainNode);
+	gainNode.connect(audioContext.destination);
+
+	// Set frequency (higher pitch for notification)
+	oscillator.frequency.value = 800;
+	oscillator.type = 'sine';
+
+	// Set volume (0.1 = 10% volume)
+	gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+	gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+
+	// Play for 100ms
+	oscillator.start(audioContext.currentTime);
+	oscillator.stop(audioContext.currentTime + 0.1);
+}
+
 export function showNotification(message: Message, isCurrentUser: boolean) {
 	if (!browser) return;
 
@@ -20,9 +56,12 @@ export function showNotification(message: Message, isCurrentUser: boolean) {
 		return;
 	}
 
-	// Only notify if window is not focused (user is in another tab/app)
+	// Play sound regardless of visibility
+	playNotificationSound();
+
+	// Only show desktop notification if window is not focused (user is in another tab/app)
 	if (!document.hidden) {
-		console.log('Page is visible, skipping notification');
+		console.log('Page is visible, skipping desktop notification');
 		return;
 	}
 
