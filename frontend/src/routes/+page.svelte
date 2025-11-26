@@ -7,6 +7,10 @@
 	import UserPanel from '$lib/components/UserPanel.svelte';
 	import ScreenShareViewer from '$lib/components/ScreenShareViewer.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
+	import type { PageData } from './$types';
+
+	// Accept data prop to suppress warning (we don't use it in this page)
+	export let data: PageData;
 
 	let username = '';
 	let loggedIn = false;

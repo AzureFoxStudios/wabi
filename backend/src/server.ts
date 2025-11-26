@@ -27,6 +27,7 @@ const channelMessages = new Map<string, Array<{
   isPinned?: boolean;
   isEdited?: boolean;
   replyTo?: string;
+  isSpoiler?: boolean;
 }>>();
 
 // Initialize general channel with empty messages

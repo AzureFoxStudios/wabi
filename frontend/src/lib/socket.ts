@@ -26,6 +26,7 @@ export interface Message {
 	isPinned?: boolean;
 	isEdited?: boolean;
 	replyTo?: string;
+	isSpoiler?: boolean; // Mark media as spoiler (requires click to reveal)
 }
 
 export interface User {
@@ -245,6 +246,7 @@ export function sendMessage(channelId: string, text: string, type: 'text' | 'gif
 	fileName?: string;
 	fileSize?: number;
 	replyTo?: string;
+	isSpoiler?: boolean;
 }) {
 	socketInstance?.emit('message', { channelId, text, type, ...options });
 }

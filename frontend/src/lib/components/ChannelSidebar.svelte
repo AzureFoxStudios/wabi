@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead } from '$lib/socket';
+	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser } from '$lib/socket';
 	import Settings from './Settings.svelte';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
@@ -7,6 +7,8 @@
 	let newChannelName = '';
 	let showCreateInput = false;
 	let showSettings = false;
+	let isMuted = false;
+	let isDeafened = false;
 
 	// Clear unread count when switching to chat view
 	$: if (activeView === 'chat') {
@@ -83,6 +85,52 @@
 			</div>
 		{/each}
 	</div>
+
+	{#if $currentUser}
+		<div class="profile-card">
+			<div class="profile-info">
+				<div class="avatar-container">
+					{#if $currentUser.profilePicture}
+						<img src={$currentUser.profilePicture} alt={$currentUser.username} class="avatar" />
+					{:else}
+						<div class="avatar-placeholder" style="background-color: {$currentUser.color}">
+							{$currentUser.username.charAt(0).toUpperCase()}
+						</div>
+					{/if}
+					<div class="status-indicator" class:online={$currentUser.status === 'active'} class:away={$currentUser.status === 'away'} class:busy={$currentUser.status === 'busy'}></div>
+				</div>
+				<div class="user-details">
+					<div class="username">{$currentUser.username}</div>
+					<div class="user-tag">#{$currentUser.id.slice(0, 4)}</div>
+				</div>
+			</div>
+			<div class="profile-controls">
+				<button
+					class="control-btn"
+					class:active={isMuted}
+					on:click={() => isMuted = !isMuted}
+					title={isMuted ? 'Unmute' : 'Mute'}
+				>
+					{isMuted ? '🔇' : '🎤'}
+				</button>
+				<button
+					class="control-btn"
+					class:active={isDeafened}
+					on:click={() => isDeafened = !isDeafened}
+					title={isDeafened ? 'Undeafen' : 'Deafen'}
+				>
+					{isDeafened ? '🔇' : '🎧'}
+				</button>
+				<button
+					class="control-btn"
+					on:click={() => showSettings = true}
+					title="User Settings"
+				>
+					⚙️
+				</button>
+			</div>
+		</div>
+	{/if}
 </div>
 
 <Settings bind:isOpen={showSettings} />
@@ -326,5 +374,125 @@
 
 	.screen-share-btn .icon {
 		font-size: 1.1rem;
+	}
+
+	.profile-card {
+		background: var(--bg-tertiary);
+		border-top: 1px solid var(--border);
+		padding: 0.625rem;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		height: 52px;
+	}
+
+	.profile-info {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		min-width: 0;
+	}
+
+	.avatar-container {
+		position: relative;
+		flex-shrink: 0;
+	}
+
+	.avatar,
+	.avatar-placeholder {
+		width: 32px;
+		height: 32px;
+		border-radius: 50%;
+		object-fit: cover;
+	}
+
+	.avatar-placeholder {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: white;
+		font-weight: 600;
+		font-size: 0.875rem;
+	}
+
+	.status-indicator {
+		position: absolute;
+		bottom: 0;
+		right: 0;
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		border: 2px solid var(--bg-tertiary);
+		background: #6b7280;
+	}
+
+	.status-indicator.online {
+		background: #22c55e;
+	}
+
+	.status-indicator.away {
+		background: #f59e0b;
+	}
+
+	.status-indicator.busy {
+		background: #ef4444;
+	}
+
+	.user-details {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.username {
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.user-tag {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.profile-controls {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		flex-shrink: 0;
+	}
+
+	.control-btn {
+		width: 32px;
+		height: 32px;
+		border-radius: 4px;
+		background: transparent;
+		border: none;
+		color: var(--text-secondary);
+		font-size: 1.1rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
+	}
+
+	.control-btn:hover {
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+	}
+
+	.control-btn.active {
+		background: #ef4444;
+		color: white;
 	}
 </style>

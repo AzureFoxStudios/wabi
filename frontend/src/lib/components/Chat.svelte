@@ -19,6 +19,7 @@
 	let isUploading = false;
 	let selectedFiles: File[] = [];
 	let filePreviews: { file: File; preview?: string }[] = [];
+	let markAsSpoiler = false;
 	let isDragging = false;
 	let dragCounter = 0;
 
@@ -79,7 +80,8 @@
 			} else {
 				// Send new message
 				sendMessage($currentChannel, messageInput.trim(), 'text', {
-					replyTo: replyingTo?.id
+					replyTo: replyingTo?.id,
+					isSpoiler: markAsSpoiler
 				});
 				replyingTo = null;
 			}
@@ -100,7 +102,8 @@
 	function handleGifSelect(event: CustomEvent<string>) {
 		sendMessage($currentChannel, '', 'gif', {
 			gifUrl: event.detail,
-			replyTo: replyingTo?.id
+			replyTo: replyingTo?.id,
+			isSpoiler: markAsSpoiler
 		});
 		replyingTo = null;
 		showGiphyPicker = false;
@@ -291,13 +294,15 @@
 					fileUrl: uploadedFiles[0].fileUrl,
 					fileName: uploadedFiles[0].fileName,
 					fileSize: uploadedFiles[0].fileSize,
-					replyTo: replyingTo?.id
+					replyTo: replyingTo?.id,
+					isSpoiler: markAsSpoiler
 				});
 			} else {
 				// Multiple files - use new format
 				sendMessage($currentChannel, messageInput.trim() || `Shared ${uploadedFiles.length} files`, 'file', {
 					files: uploadedFiles,
-					replyTo: replyingTo?.id
+					replyTo: replyingTo?.id,
+					isSpoiler: markAsSpoiler
 				});
 			}
 
@@ -408,6 +413,13 @@
 							<button class="remove-file" on:click={() => removeFile(index)}>✕</button>
 						</div>
 					{/each}
+				</div>
+				<div class="spoiler-checkbox-container">
+					<label class="spoiler-checkbox-label">
+						<input type="checkbox" bind:checked={markAsSpoiler} class="spoiler-checkbox" />
+						<span>Mark as spoiler</span>
+					</label>
+					<span class="spoiler-hint" title="Sensitive content will be hidden until clicked">⚠️</span>
 				</div>
 				<button class="upload-files-btn" on:click={uploadSelectedFiles}>
 					Upload {filePreviews.length} file{filePreviews.length > 1 ? 's' : ''}
@@ -921,5 +933,43 @@
 		to {
 			transform: translateY(-10px);
 		}
+	}
+
+	.spoiler-checkbox-container {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0;
+		border-top: 1px solid var(--border);
+		margin-top: 0.5rem;
+		padding-top: 0.75rem;
+	}
+
+	.spoiler-checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+		font-size: 0.875rem;
+		color: var(--text-primary);
+		user-select: none;
+	}
+
+	.spoiler-checkbox {
+		width: 18px;
+		height: 18px;
+		cursor: pointer;
+		accent-color: #f59e0b;
+	}
+
+	.spoiler-hint {
+		font-size: 1rem;
+		cursor: help;
+		opacity: 0.7;
+		transition: opacity 0.2s;
+	}
+
+	.spoiler-hint:hover {
+		opacity: 1;
 	}
 </style>
