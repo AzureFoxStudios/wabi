@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { channelMessages, users, currentUser } from '$lib/socket';
 	import StorageSettings from './StorageSettings.svelte';
+	import ConfirmDialog from './ConfirmDialog.svelte';
 
 	export let isOpen = false;
 
@@ -10,6 +11,9 @@
 	let micEnabled = true;
 	let cameraEnabled = true;
 	let theme: 'dark' | 'light' = 'dark';
+
+	let showClearDataConfirm = false;
+	let showClearServerConfirm = false;
 
 	// Load settings from localStorage
 	onMount(() => {
@@ -89,17 +93,21 @@
 	}
 
 	function clearAllData() {
-		if (confirm('Are you sure you want to clear all chat data? This cannot be undone.')) {
-			channelMessages.set({ general: [] });
-			localStorage.clear();
-			alert('All data cleared.');
-		}
+		showClearDataConfirm = true;
+	}
+
+	function confirmClearData() {
+		channelMessages.set({ general: [] });
+		localStorage.clear();
+		alert('All data cleared.');
+		showClearDataConfirm = false;
 	}
 
 	async function clearServerMessages() {
-		if (!confirm('Are you sure you want to delete ALL messages from the server? This will clear messages for all users and cannot be undone!')) {
-			return;
-		}
+		showClearServerConfirm = true;
+	}
+
+	async function confirmClearServer() {
 
 		try {
 			const serverUrl = window.location.origin.includes(':5173')
@@ -126,6 +134,7 @@
 			console.error('Error clearing server messages:', error);
 			alert('Failed to clear server messages. Check console for details.');
 		}
+		showClearServerConfirm = false;
 	}
 
 	function closeModal() {
@@ -235,6 +244,26 @@
 		</div>
 	</div>
 {/if}
+
+<ConfirmDialog
+	isOpen={showClearDataConfirm}
+	title="Clear Local Data"
+	message="Are you sure you want to clear all chat data? This cannot be undone."
+	confirmText="Clear Data"
+	variant="danger"
+	onConfirm={confirmClearData}
+	onCancel={() => showClearDataConfirm = false}
+/>
+
+<ConfirmDialog
+	isOpen={showClearServerConfirm}
+	title="Clear Server Messages"
+	message="Are you sure you want to delete ALL messages from the server? This will clear messages for all users and cannot be undone!"
+	confirmText="Delete All"
+	variant="danger"
+	onConfirm={confirmClearServer}
+	onCancel={() => showClearServerConfirm = false}
+/>
 
 <style>
 	.modal-overlay {

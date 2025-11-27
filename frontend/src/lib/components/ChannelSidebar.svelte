@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser } from '$lib/socket';
 	import Settings from './Settings.svelte';
+	import ConfirmDialog from './ConfirmDialog.svelte';
+	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 
@@ -9,6 +11,10 @@
 	let showSettings = false;
 	let isMuted = false;
 	let isDeafened = false;
+	let showDeleteConfirm = false;
+	let channelToDelete = '';
+	let showPinnedModal = false;
+	let selectedChannelForPinned = '';
 
 	// Clear unread count when switching to chat view
 	$: if (activeView === 'chat') {
@@ -28,9 +34,18 @@
 	}
 
 	function handleDeleteChannel(channelId: string) {
-		if (confirm(`Delete channel #${channelId}?`)) {
-			deleteChannel(channelId);
-		}
+		channelToDelete = channelId;
+		showDeleteConfirm = true;
+	}
+
+	function confirmDeleteChannel() {
+		deleteChannel(channelToDelete);
+		showDeleteConfirm = false;
+	}
+
+	function handleShowPinnedMessages(channelId: string) {
+		selectedChannelForPinned = channelId;
+		showPinnedModal = true;
 	}
 </script>
 
@@ -76,9 +91,12 @@
 					<span class="hash">#</span>
 					{channel.name}
 				</button>
-				{#if channel.id !== 'general'}
-					<button class="delete-btn" on:click|stopPropagation={() => handleDeleteChannel(channel.id)}>×</button>
-				{/if}
+				<div class="channel-actions">
+					<button class="pin-btn" on:click|stopPropagation={() => handleShowPinnedMessages(channel.id)} title="View pinned messages">📌</button>
+					{#if channel.id !== 'general'}
+						<button class="delete-btn" on:click|stopPropagation={() => handleDeleteChannel(channel.id)}>×</button>
+					{/if}
+				</div>
 			</div>
 		{/each}
 	</div>
@@ -131,6 +149,18 @@
 </div>
 
 <Settings bind:isOpen={showSettings} />
+
+<ConfirmDialog
+	isOpen={showDeleteConfirm}
+	title="Delete Channel"
+	message="Delete channel #{channelToDelete}? This action cannot be undone."
+	confirmText="Delete"
+	variant="danger"
+	onConfirm={confirmDeleteChannel}
+	onCancel={() => showDeleteConfirm = false}
+/>
+
+<PinnedMessagesModal bind:isOpen={showPinnedModal} channelId={selectedChannelForPinned} />
 
 <style>
 	.channel-sidebar {
@@ -185,10 +215,9 @@
 		padding: 0.75rem 1rem;
 		border-bottom: 1px solid var(--border);
 		display: flex;
-		justify-content: center;
+		justify-content: space-between;
 		align-items: center;
 		height: 58px;
-		position: relative;
 	}
 
 	.sidebar-header h3 {
@@ -197,14 +226,14 @@
 		text-transform: uppercase;
 		color: var(--text-secondary);
 		margin: 0;
+		flex: 1;
 	}
 
 	.header-buttons {
-		position: absolute;
-		right: 1rem;
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+		flex-shrink: 0;
 	}
 
 	.screen-share-icon-btn,
@@ -313,6 +342,13 @@
 		font-weight: 600;
 	}
 
+	.channel-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.pin-btn,
 	.delete-btn {
 		opacity: 0;
 		width: 20px;
@@ -321,7 +357,7 @@
 		background: none;
 		border: none;
 		color: var(--text-secondary);
-		font-size: 1.25rem;
+		font-size: 1rem;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
@@ -329,8 +365,18 @@
 		transition: all 0.2s;
 	}
 
+	.channel-item:hover .pin-btn,
 	.channel-item:hover .delete-btn {
 		opacity: 1;
+	}
+
+	.pin-btn:hover {
+		background: #fbbf24;
+		color: white;
+	}
+
+	.delete-btn {
+		font-size: 1.25rem;
 	}
 
 	.delete-btn:hover {
@@ -388,7 +434,8 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		min-width: 0;
+		min-width: 80px;
+		overflow: hidden;
 	}
 
 	.avatar-container {
@@ -465,22 +512,23 @@
 		display: flex;
 		align-items: center;
 		gap: 0.25rem;
-		flex-shrink: 0;
+		flex-shrink: 1;
 	}
 
 	.control-btn {
-		width: 32px;
-		height: 32px;
+		width: 28px;
+		height: 28px;
 		border-radius: 4px;
 		background: transparent;
 		border: none;
 		color: var(--text-secondary);
-		font-size: 1.1rem;
+		font-size: 1rem;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		transition: all 0.2s;
+		flex-shrink: 0;
 	}
 
 	.control-btn:hover {
