@@ -1,11 +1,17 @@
 <script lang="ts">
 	import { chatStorage, type RotationPeriod } from '$lib/storage';
 	import { onMount } from 'svelte';
+	import ConfirmDialog from './ConfirmDialog.svelte';
 
 	let saveHistory = false;
 	let rotationPeriod = chatStorage.getRotationPeriod();
 	let maxArchives = chatStorage.getMaxArchives();
 	let stats = { archives: [], totalSize: 0, totalMessages: 0 };
+
+	let showDisableStorageConfirm = false;
+	let showDeleteArchiveConfirm = false;
+	let archiveToDelete = '';
+	let showDeleteAllConfirm = false;
 
 	function formatBytes(bytes: number): string {
 		if (bytes === 0) return '0 B';
@@ -34,14 +40,22 @@
 		await chatStorage.setEnabled(saveHistory);
 
 		if (!saveHistory) {
-			if (confirm('Disable local storage? Your saved history will remain until you clear it manually.')) {
-				// Just disable, don't auto-delete
-			} else {
-				saveHistory = true;
-				await chatStorage.setEnabled(true);
-			}
+			showDisableStorageConfirm = true;
+		} else {
+			await refreshStats();
 		}
+	}
+
+	async function confirmDisableStorage() {
+		// Just disable, don't auto-delete
+		showDisableStorageConfirm = false;
 		await refreshStats();
+	}
+
+	function cancelDisableStorage() {
+		saveHistory = true;
+		chatStorage.setEnabled(true);
+		showDisableStorageConfirm = false;
 	}
 
 	async function updateRotationPeriod() {
@@ -55,10 +69,14 @@
 	}
 
 	async function deleteArchive(period: string) {
-		if (confirm(`Delete archive "${formatPeriod(period)}"?`)) {
-			await chatStorage.deleteArchive(period);
-			await refreshStats();
-		}
+		archiveToDelete = period;
+		showDeleteArchiveConfirm = true;
+	}
+
+	async function confirmDeleteArchive() {
+		await chatStorage.deleteArchive(archiveToDelete);
+		await refreshStats();
+		showDeleteArchiveConfirm = false;
 	}
 
 	async function exportArchive(period: string) {
@@ -70,10 +88,13 @@
 	}
 
 	async function clearAll() {
-		if (confirm('Delete ALL saved chat history? This cannot be undone!')) {
-			await chatStorage.clearAllHistory();
-			await refreshStats();
-		}
+		showDeleteAllConfirm = true;
+	}
+
+	async function confirmClearAll() {
+		await chatStorage.clearAllHistory();
+		await refreshStats();
+		showDeleteAllConfirm = false;
 	}
 
 	async function refreshStats() {
@@ -180,6 +201,36 @@
 		</div>
 	{/if}
 </div>
+
+<ConfirmDialog
+	isOpen={showDisableStorageConfirm}
+	title="Disable Local Storage"
+	message="Disable local storage? Your saved history will remain until you clear it manually."
+	confirmText="Disable"
+	variant="warning"
+	onConfirm={confirmDisableStorage}
+	onCancel={cancelDisableStorage}
+/>
+
+<ConfirmDialog
+	isOpen={showDeleteArchiveConfirm}
+	title="Delete Archive"
+	message={`Delete archive "${formatPeriod(archiveToDelete)}"?`}
+	confirmText="Delete"
+	variant="danger"
+	onConfirm={confirmDeleteArchive}
+	onCancel={() => showDeleteArchiveConfirm = false}
+/>
+
+<ConfirmDialog
+	isOpen={showDeleteAllConfirm}
+	title="Delete All History"
+	message="Delete ALL saved chat history? This cannot be undone!"
+	confirmText="Delete All"
+	variant="danger"
+	onConfirm={confirmClearAll}
+	onCancel={() => showDeleteAllConfirm = false}
+/>
 
 <style>
 	.storage-settings {

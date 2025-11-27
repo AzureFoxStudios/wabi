@@ -5,6 +5,7 @@
 	import ProfileModal from './ProfileModal.svelte';
 	import MessageContextMenu from './MessageContextMenu.svelte';
 	import ForwardDialog from './ForwardDialog.svelte';
+	import ConfirmDialog from './ConfirmDialog.svelte';
 	import { parseMessage } from '$lib/markdown';
 	import '$lib/prism-theme.css';
 
@@ -25,6 +26,10 @@
 	// Edit mode state
 	let editingMessageId: string | null = null;
 	let editText = '';
+
+	// Delete confirmation state
+	let showDeleteConfirm = false;
+	let messageToDelete: Message | null = null;
 
 	function formatTime(timestamp: number): string {
 		const date = new Date(timestamp);
@@ -79,10 +84,16 @@
 
 	function handleDelete() {
 		if (!contextMenuMessage) return;
-		if (confirm('Are you sure you want to delete this message?')) {
-			deleteMessage($currentChannel, contextMenuMessage.id);
-		}
+		messageToDelete = contextMenuMessage;
+		showDeleteConfirm = true;
 		contextMenuVisible = false;
+	}
+
+	function confirmDeleteMessage() {
+		if (messageToDelete) {
+			deleteMessage($currentChannel, messageToDelete.id);
+		}
+		showDeleteConfirm = false;
 	}
 
 	function handlePin() {
@@ -554,6 +565,16 @@
 {/if}
 
 <ForwardDialog bind:visible={showForwardDialog} bind:message={forwardMessage} />
+
+<ConfirmDialog
+	isOpen={showDeleteConfirm}
+	title="Delete Message"
+	message="Are you sure you want to delete this message?"
+	confirmText="Delete"
+	variant="danger"
+	onConfirm={confirmDeleteMessage}
+	onCancel={() => showDeleteConfirm = false}
+/>
 
 {#if enlargedImage}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->

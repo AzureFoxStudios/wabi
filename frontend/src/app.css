@@ -5,6 +5,7 @@
 }
 
 :root {
+	/* Main theme colors */
 	--bg-primary: #fff5f7;
 	--bg-secondary: #ffe4e9;
 	--bg-tertiary: #ffd1dc;
@@ -15,8 +16,65 @@
 	--accent: #ff6b9d;
 	--accent-hover: #ff5689;
 	--border: #ffc2d1;
-	--error: #ff4a6b;
-	--success: #7ed6b8;
+
+	/* Status colors */
+	--status-online: #10b981;
+	--status-online-hover: #059669;
+	--status-away: #f59e0b;
+	--status-away-hover: #d97706;
+	--status-busy: #ef4444;
+	--status-busy-hover: #dc2626;
+	--status-offline: #6b7280;
+
+	/* Semantic colors */
+	--color-success: #10b981;
+	--color-success-hover: #059669;
+	--color-info: #3b82f6;
+	--color-info-hover: #2563eb;
+	--color-warning: #f59e0b;
+	--color-warning-hover: #d97706;
+	--color-danger: #ef4444;
+	--color-danger-hover: #dc2626;
+	--color-danger-dark: #b91c1c;
+
+	/* Modal/Dialog colors */
+	--modal-bg: white;
+	--modal-overlay: rgba(0, 0, 0, 0.5);
+	--modal-border: #e5e7eb;
+	--modal-header-bg: #f9fafb;
+	--modal-text: #111827;
+	--modal-text-secondary: #6b7280;
+	--modal-text-muted: #9ca3af;
+
+	/* UI element colors */
+	--ui-bg-light: #f3f4f6;
+	--ui-bg-lighter: #f9fafb;
+	--ui-border-light: #e5e7eb;
+	--ui-border: #d1d5db;
+	--ui-text: #374151;
+	--ui-text-dark: #111827;
+
+	/* Pinned messages theme */
+	--pinned-bg: #fffbeb;
+	--pinned-bg-hover: #fef3c7;
+	--pinned-border: #fbbf24;
+	--pinned-text: #78350f;
+	--pinned-text-dark: #92400e;
+	--pinned-text-secondary: #b45309;
+
+	/* Special backgrounds */
+	--bg-info-light: #eff6ff;
+	--bg-info-lighter: #f0f9ff;
+	--bg-warning-light: #fef3c7;
+
+	/* Shadow colors */
+	--shadow-sm: rgba(0, 0, 0, 0.05);
+	--shadow-md: rgba(0, 0, 0, 0.1);
+	--shadow-lg: rgba(0, 0, 0, 0.15);
+
+	/* Login/dark theme */
+	--dark-bg-primary: #1a1a1a;
+	--dark-bg-secondary: #2d2d2d;
 }
 
 body {
