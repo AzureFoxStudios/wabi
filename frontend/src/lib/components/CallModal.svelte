@@ -18,12 +18,27 @@
 		handleCallIceCandidate,
 		createCallOffer
 	} from '$lib/calling';
+	import { showCallNotification, playCallRingtone } from '$lib/notifications';
 
 	let localVideoElement: HTMLVideoElement;
 	let remoteVideoElements: Record<string, HTMLVideoElement> = {};
+	let callNotification: Notification | null = null;
 
 	$: if ($incomingCall) {
 		playRingtone();
+		// Show desktop notification with answer/reject buttons
+		callNotification = showCallNotification(
+			$incomingCall.username,
+			$incomingCall.isVideoCall,
+			() => handleAnswer(),
+			() => handleReject()
+		);
+	} else {
+		// Clear notification when call ends
+		if (callNotification) {
+			callNotification.close();
+			callNotification = null;
+		}
 	}
 
 	onMount(() => {
@@ -96,8 +111,8 @@
 	}
 
 	function playRingtone() {
-		// Could add an actual ringtone audio here
-		console.log('Incoming call ringtone');
+		// Play ringtone sound
+		playCallRingtone();
 	}
 
 	async function handleAnswer() {
@@ -244,7 +259,7 @@
 		padding: 2rem;
 		width: 90%;
 		max-width: 400px;
-		box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+		box-shadow: none;
 		animation: slideUp 0.3s ease-out;
 	}
 
@@ -268,7 +283,7 @@
 		width: 100px;
 		height: 100px;
 		border-radius: 50%;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		background: var(--accent);
 		color: white;
 		font-size: 3rem;
 		font-weight: bold;
@@ -291,11 +306,11 @@
 	.caller-info h2 {
 		margin: 0 0 0.5rem;
 		font-size: 1.5rem;
-		color: #111827;
+		color: var(--modal-text);
 	}
 
 	.call-type {
-		color: #6b7280;
+		color: var(--modal-text-secondary);
 		font-size: 1rem;
 		margin: 0;
 	}
@@ -323,22 +338,22 @@
 	}
 
 	.answer-btn {
-		background: #10b981;
+		background: var(--color-success);
 		color: white;
 	}
 
 	.answer-btn:hover {
-		background: #059669;
+		background: var(--color-success-hover);
 		transform: translateY(-2px);
 	}
 
 	.reject-btn {
-		background: #ef4444;
+		background: var(--color-danger-hover);
 		color: white;
 	}
 
 	.reject-btn:hover {
-		background: #dc2626;
+		background: var(--color-danger-dark);
 		transform: translateY(-2px);
 	}
 
@@ -352,7 +367,7 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		background: #1f2937;
+		background: var(--dark-bg-primary);
 		z-index: 1500;
 		display: flex;
 		flex-direction: column;
@@ -369,7 +384,7 @@
 
 	.video-wrapper {
 		position: relative;
-		background: #111827;
+		background: var(--dark-bg-secondary);
 		border-radius: 12px;
 		overflow: hidden;
 		aspect-ratio: 16 / 9;
@@ -381,7 +396,7 @@
 		bottom: 1rem;
 		right: 1rem;
 		z-index: 10;
-		border: 2px solid #3b82f6;
+		border: none;
 	}
 
 	.video-element {
@@ -404,7 +419,7 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		background: #374151;
+		background: var(--modal-text);
 		color: white;
 		gap: 0.5rem;
 	}
@@ -429,9 +444,9 @@
 		display: flex;
 		gap: 1rem;
 		padding: 1.5rem;
-		background: #111827;
+		background: var(--dark-bg-secondary);
 		justify-content: center;
-		border-top: 1px solid #374151;
+		border-top: 1px solid var(--modal-text);
 	}
 
 	.control-btn {
@@ -439,7 +454,7 @@
 		height: 60px;
 		border-radius: 50%;
 		border: none;
-		background: #374151;
+		background: var(--modal-text);
 		color: white;
 		font-size: 1.5rem;
 		cursor: pointer;
@@ -450,20 +465,20 @@
 	}
 
 	.control-btn:hover {
-		background: #4b5563;
+		background: var(--modal-text-secondary);
 		transform: scale(1.1);
 	}
 
 	.control-btn.active {
-		background: #ef4444;
+		background: var(--color-danger-hover);
 	}
 
 	.end-call-btn {
-		background: #ef4444;
+		background: var(--color-danger-hover);
 	}
 
 	.end-call-btn:hover {
-		background: #dc2626;
+		background: var(--color-danger-dark);
 	}
 
 	.control-icon {

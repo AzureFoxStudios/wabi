@@ -17,13 +17,28 @@
 		togglePinMessage(channelId, messageId);
 	}
 
+	function jumpToMessage(messageId: string) {
+		closeModal();
+		// Use a timeout to ensure the modal closes before scrolling
+		setTimeout(() => {
+			const messageElement = document.getElementById(`message-${messageId}`);
+			if (messageElement) {
+				messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+				messageElement.classList.add('highlighted');
+				setTimeout(() => {
+					messageElement.classList.remove('highlighted');
+				}, 2000);
+			}
+		}, 100);
+	}
+
 	function getUserByUsername(username: string): User | undefined {
 		return $users.find(u => u.username === username);
 	}
 
 	function getUserColor(username: string): string {
 		const user = getUserByUsername(username);
-		return user?.color || '#6b7280';
+		return user?.color || 'var(--status-offline)';
 	}
 
 	function formatTime(timestamp: number): string {
@@ -75,9 +90,14 @@
 										</span>
 										<span class="timestamp">{formatTime(message.timestamp)}</span>
 									</div>
-									<button class="unpin-btn" on:click={() => handleUnpin(message.id)} title="Unpin message">
-										Unpin
-									</button>
+									<div class="action-buttons">
+										<button class="jump-btn" on:click={() => jumpToMessage(message.id)} title="Jump to message">
+											Jump to
+										</button>
+										<button class="unpin-btn" on:click={() => handleUnpin(message.id)} title="Unpin message">
+											Unpin
+										</button>
+									</div>
 								</div>
 								<div class="message-text">
 									{message.text}
@@ -113,7 +133,7 @@
 		background: white;
 		display: flex;
 		flex-direction: column;
-		box-shadow: -4px 0 20px rgba(0, 0, 0, 0.15);
+		box-shadow: none;
 		overflow: hidden;
 		animation: slideIn 0.3s ease-out;
 	}
@@ -132,8 +152,8 @@
 		justify-content: space-between;
 		align-items: center;
 		padding: 1rem 1.25rem;
-		border-bottom: 2px solid #fbbf24;
-		background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+		border-bottom: 2px solid var(--pinned-border);
+		background: linear-gradient(135deg, var(--pinned-bg) 0%, var(--pinned-bg-hover) 100%);
 		flex-shrink: 0;
 	}
 
@@ -141,14 +161,14 @@
 		margin: 0;
 		font-size: 1.1rem;
 		font-weight: 600;
-		color: #92400e;
+		color: var(--pinned-text-dark);
 	}
 
 	.close-btn {
 		background: none;
 		border: none;
 		font-size: 1.5rem;
-		color: #92400e;
+		color: var(--pinned-text-dark);
 		cursor: pointer;
 		width: 28px;
 		height: 28px;
@@ -161,20 +181,20 @@
 	}
 
 	.close-btn:hover {
-		background-color: #fde68a;
+		background-color: var(--pinned-bg-hover);
 	}
 
 	.modal-body {
 		padding: 1.25rem;
 		overflow-y: auto;
 		flex: 1;
-		background: #fafafa;
+		background: var(--ui-bg-light);
 	}
 
 	.empty-state {
 		text-align: center;
 		padding: 3rem 1.5rem;
-		color: #6b7280;
+		color: var(--modal-text-secondary);
 	}
 
 	.empty-state p {
@@ -183,7 +203,7 @@
 
 	.hint {
 		font-size: 0.875rem;
-		color: #9ca3af;
+		color: var(--modal-text-muted);
 		font-style: italic;
 	}
 
@@ -194,17 +214,17 @@
 	}
 
 	.pinned-message {
-		background: white;
-		border: 1px solid #fbbf24;
+		background: var(--modal-bg);
+		border: none;
 		border-radius: 8px;
 		padding: 0.875rem;
 		transition: all 0.2s;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		box-shadow: none;
 	}
 
 	.pinned-message:hover {
-		background: #fffbeb;
-		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+		background: var(--pinned-bg);
+		box-shadow: none;
 		transform: translateY(-1px);
 	}
 
@@ -234,15 +254,40 @@
 
 	.timestamp {
 		font-size: 0.7rem;
-		color: #b45309;
+		color: var(--pinned-text-secondary);
+	}
+
+	.action-buttons {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+	}
+
+	.jump-btn {
+		padding: 0.25rem 0.5rem;
+		background: #5865f2;
+		border: none;
+		border-radius: 4px;
+		color: white;
+		font-size: 0.7rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+		flex-shrink: 0;
+		white-space: nowrap;
+	}
+
+	.jump-btn:hover {
+		background: #4752c4;
+		transform: translateY(-1px);
 	}
 
 	.unpin-btn {
 		padding: 0.25rem 0.5rem;
 		background: none;
-		border: 1px solid #fbbf24;
+		border: none;
 		border-radius: 4px;
-		color: #92400e;
+		color: var(--pinned-text-dark);
 		font-size: 0.7rem;
 		font-weight: 500;
 		cursor: pointer;
@@ -252,12 +297,12 @@
 	}
 
 	.unpin-btn:hover {
-		background: #fbbf24;
+		background: var(--pinned-border);
 		color: white;
 	}
 
 	.message-text {
-		color: #78350f;
+		color: var(--pinned-text);
 		font-size: 0.875rem;
 		line-height: 1.5;
 		word-wrap: break-word;
@@ -270,15 +315,15 @@
 	}
 
 	.modal-body::-webkit-scrollbar-track {
-		background: #f3f4f6;
+		background: var(--ui-bg-light);
 	}
 
 	.modal-body::-webkit-scrollbar-thumb {
-		background: #fbbf24;
+		background: var(--pinned-border);
 		border-radius: 4px;
 	}
 
 	.modal-body::-webkit-scrollbar-thumb:hover {
-		background: #f59e0b;
+		background: var(--color-warning);
 	}
 </style>

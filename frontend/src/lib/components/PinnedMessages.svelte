@@ -10,7 +10,7 @@
 
 	function getUserColor(username: string): string {
 		const user = getUserByUsername(username);
-		return user?.color || '#6b7280';
+		return user?.color || 'var(--status-offline)';
 	}
 
 	function formatTime(timestamp: number): string {
@@ -54,12 +54,12 @@
 
 <style>
 	.pinned-container {
-		background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
-		border: 1px solid #fbbf24;
+		background: linear-gradient(135deg, var(--bg-warning-light) 0%, var(--bg-warning-light) 100%);
+		border: none;
 		border-radius: 8px;
 		margin-bottom: 1rem;
 		overflow: hidden;
-		box-shadow: 0 2px 4px rgba(251, 191, 36, 0.1);
+		box-shadow: none;
 	}
 
 	.pinned-header {
@@ -67,10 +67,10 @@
 		align-items: center;
 		gap: 0.5rem;
 		padding: 0.75rem 1rem;
-		background: #fef3c7;
-		border-bottom: 1px solid #fbbf24;
+		background: var(--bg-warning-light);
+		border-bottom: 1px solid var(--color-warning);
 		font-weight: 600;
-		color: #92400e;
+		color: var(--pinned-text-dark);
 	}
 
 	.pinned-icon {
@@ -83,7 +83,7 @@
 
 	.pinned-count {
 		font-size: 0.75rem;
-		color: #b45309;
+		color: var(--color-warning-hover);
 		font-weight: 500;
 	}
 
@@ -97,7 +97,7 @@
 		justify-content: space-between;
 		align-items: center;
 		padding: 0.75rem 1rem;
-		border-bottom: 1px solid #fde68a;
+		border-bottom: 1px solid var(--status-away);
 		transition: background-color 0.2s;
 		gap: 0.75rem;
 	}
@@ -107,7 +107,7 @@
 	}
 
 	.pinned-message:hover {
-		background-color: #fef3c7;
+		background-color: var(--bg-warning-light);
 	}
 
 	.pinned-message-content {
@@ -125,7 +125,7 @@
 	}
 
 	.pinned-text {
-		color: #78350f;
+		color: var(--pinned-text-dark);
 		font-size: 0.875rem;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -135,14 +135,14 @@
 
 	.pinned-time {
 		font-size: 0.75rem;
-		color: #b45309;
+		color: var(--color-warning-hover);
 		flex-shrink: 0;
 	}
 
 	.unpin-btn {
 		background: none;
 		border: none;
-		color: #b45309;
+		color: var(--color-warning-hover);
 		font-size: 1.5rem;
 		cursor: pointer;
 		width: 28px;
@@ -156,8 +156,8 @@
 	}
 
 	.unpin-btn:hover {
-		background-color: #fde68a;
-		color: #92400e;
+		background-color: var(--status-away);
+		color: var(--pinned-text-dark);
 	}
 
 	/* Scrollbar styling */
@@ -166,15 +166,15 @@
 	}
 
 	.pinned-messages::-webkit-scrollbar-track {
-		background: #fef3c7;
+		background: var(--bg-warning-light);
 	}
 
 	.pinned-messages::-webkit-scrollbar-thumb {
-		background: #fbbf24;
+		background: var(--color-warning);
 		border-radius: 3px;
 	}
 
 	.pinned-messages::-webkit-scrollbar-thumb:hover {
-		background: #f59e0b;
+		background: var(--color-warning-hover);
 	}
 </style>

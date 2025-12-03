@@ -74,13 +74,13 @@
 	function getStatusColor(status: string) {
 		switch (status) {
 			case 'active':
-				return '#10b981'; // green
+				return 'var(--status-online)';
 			case 'away':
-				return '#f59e0b'; // amber
+				return 'var(--status-away)';
 			case 'busy':
-				return '#ef4444'; // red
+				return 'var(--status-busy)';
 			default:
-				return '#6b7280'; // gray
+				return 'var(--status-offline)';
 		}
 	}
 </script>
@@ -239,7 +239,7 @@
 		border-radius: 12px;
 		width: 90%;
 		max-width: 500px;
-		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+		box-shadow: none;
 		overflow: hidden;
 	}
 
@@ -248,21 +248,21 @@
 		justify-content: space-between;
 		align-items: center;
 		padding: 1.5rem;
-		border-bottom: 1px solid #e5e7eb;
+		border-bottom: 1px solid var(--modal-border);
 	}
 
 	.modal-header h2 {
 		margin: 0;
 		font-size: 1.5rem;
 		font-weight: 600;
-		color: #111827;
+		color: var(--modal-text);
 	}
 
 	.close-btn {
 		background: none;
 		border: none;
 		font-size: 2rem;
-		color: #6b7280;
+		color: var(--modal-text-secondary);
 		cursor: pointer;
 		width: 32px;
 		height: 32px;
@@ -274,8 +274,8 @@
 	}
 
 	.close-btn:hover {
-		background-color: #f3f4f6;
-		color: #111827;
+		background-color: var(--ui-bg-light);
+		color: var(--modal-text);
 	}
 
 	.modal-body {
@@ -300,7 +300,7 @@
 		height: 100%;
 		border-radius: 50%;
 		object-fit: cover;
-		border: 3px solid #e5e7eb;
+		border: none;
 	}
 
 	.profile-picture-placeholder {
@@ -313,7 +313,7 @@
 		font-size: 3rem;
 		font-weight: bold;
 		color: white;
-		border: 3px solid #e5e7eb;
+		border: none;
 	}
 
 	.upload-section {
@@ -325,7 +325,7 @@
 	.upload-label {
 		display: inline-block;
 		padding: 0.5rem 1rem;
-		background-color: #3b82f6;
+		background-color: var(--color-info);
 		color: white;
 		border-radius: 6px;
 		cursor: pointer;
@@ -335,7 +335,7 @@
 	}
 
 	.upload-label:hover {
-		background-color: #2563eb;
+		background-color: var(--color-info-hover);
 	}
 
 	.file-input {
@@ -350,23 +350,23 @@
 		display: flex;
 		justify-content: space-between;
 		padding: 0.75rem 0;
-		border-bottom: 1px solid #f3f4f6;
+		border-bottom: 1px solid var(--ui-bg-light);
 	}
 
 	.info-label {
 		font-weight: 500;
-		color: #6b7280;
+		color: var(--modal-text-secondary);
 	}
 
 	.info-value {
-		color: #111827;
+		color: var(--modal-text);
 		font-weight: 500;
 	}
 
 	.notes-section {
 		margin-top: 1.5rem;
 		padding: 1rem;
-		background-color: #f9fafb;
+		background-color: var(--modal-header-bg);
 		border-radius: 8px;
 	}
 
@@ -379,13 +379,13 @@
 
 	.notes-label {
 		font-weight: 500;
-		color: #374151;
+		color: var(--ui-text);
 		font-size: 0.875rem;
 	}
 
 	.edit-note-btn {
 		padding: 0.375rem 0.75rem;
-		background-color: #3b82f6;
+		background-color: var(--color-info);
 		color: white;
 		border: none;
 		border-radius: 6px;
@@ -396,13 +396,13 @@
 	}
 
 	.edit-note-btn:hover {
-		background-color: #2563eb;
+		background-color: var(--color-info-hover);
 	}
 
 	.note-textarea {
 		width: 100%;
 		padding: 0.75rem;
-		border: 1px solid #d1d5db;
+		border: none;
 		border-radius: 6px;
 		font-family: inherit;
 		font-size: 0.875rem;
@@ -412,9 +412,9 @@
 
 	.note-textarea:focus {
 		outline: none;
-		border-color: #3b82f6;
+		border-color: var(--color-info);
 		ring: 2px;
-		ring-color: #3b82f6;
+		ring-color: var(--color-info);
 	}
 
 	.note-actions {
@@ -435,31 +435,31 @@
 	}
 
 	.cancel-note-btn {
-		background: white;
-		border: 1px solid #d1d5db;
-		color: #374151;
+		background: var(--modal-bg);
+		border: none;
+		color: var(--ui-text);
 	}
 
 	.cancel-note-btn:hover {
-		background-color: #f3f4f6;
+		background-color: var(--ui-bg-light);
 	}
 
 	.save-note-btn {
-		background-color: #3b82f6;
-		border: 1px solid #3b82f6;
+		background-color: var(--color-info);
+		border: none;
 		color: white;
 	}
 
 	.save-note-btn:hover {
-		background-color: #2563eb;
+		background-color: var(--color-info-hover);
 	}
 
 	.note-display {
 		padding: 0.75rem;
-		background: white;
+		background: var(--modal-bg);
 		border-radius: 6px;
 		font-size: 0.875rem;
-		color: #374151;
+		color: var(--ui-text);
 		line-height: 1.5;
 		white-space: pre-wrap;
 		word-break: break-word;
@@ -467,7 +467,7 @@
 
 	.note-placeholder {
 		padding: 0.75rem;
-		color: #9ca3af;
+		color: var(--modal-text-muted);
 		font-size: 0.875rem;
 		font-style: italic;
 		text-align: center;
@@ -480,7 +480,7 @@
 	.status-label {
 		display: block;
 		font-weight: 500;
-		color: #374151;
+		color: var(--modal-text);
 		margin-bottom: 0.75rem;
 	}
 
@@ -492,7 +492,7 @@
 	.status-btn {
 		flex: 1;
 		padding: 0.75rem 1rem;
-		border: 2px solid #e5e7eb;
+		border: none;
 		background: white;
 		border-radius: 8px;
 		cursor: pointer;
@@ -502,18 +502,18 @@
 		gap: 0.5rem;
 		font-size: 0.875rem;
 		font-weight: 500;
-		color: #374151;
+		color: var(--modal-text);
 		transition: all 0.2s;
 	}
 
 	.status-btn:hover {
-		border-color: #3b82f6;
-		background-color: #eff6ff;
+		border-color: var(--color-info);
+		background-color: var(--bg-hover);
 	}
 
 	.status-btn.selected {
-		border-color: #3b82f6;
-		background-color: #3b82f6;
+		border-color: var(--color-info);
+		background-color: var(--color-info);
 		color: white;
 	}
 
@@ -529,14 +529,14 @@
 		align-items: center;
 		gap: 0.5rem;
 		padding: 0.75rem;
-		background-color: #f9fafb;
+		background-color: var(--modal-header-bg);
 		border-radius: 8px;
 		margin-top: 1rem;
 	}
 
 	.status-text {
 		font-weight: 500;
-		color: #374151;
+		color: var(--modal-text);
 	}
 
 	.modal-footer {
@@ -544,8 +544,8 @@
 		justify-content: flex-end;
 		gap: 0.75rem;
 		padding: 1.5rem;
-		border-top: 1px solid #e5e7eb;
-		background-color: #f9fafb;
+		border-top: 1px solid var(--modal-border);
+		background-color: var(--modal-header-bg);
 	}
 
 	.cancel-btn,
@@ -560,23 +560,23 @@
 
 	.cancel-btn {
 		background: white;
-		border: 1px solid #d1d5db;
-		color: #374151;
+		border: none;
+		color: var(--modal-text);
 	}
 
 	.cancel-btn:hover {
-		background-color: #f3f4f6;
-		border-color: #9ca3af;
+		background-color: var(--ui-bg-light);
+		border-color: var(--modal-text-muted);
 	}
 
 	.save-btn {
-		background-color: #3b82f6;
-		border: 1px solid #3b82f6;
+		background-color: var(--color-info);
+		border: none;
 		color: white;
 	}
 
 	.save-btn:hover {
-		background-color: #2563eb;
-		border-color: #2563eb;
+		background-color: var(--color-info-hover);
+		border-color: var(--color-info-hover);
 	}
 </style>

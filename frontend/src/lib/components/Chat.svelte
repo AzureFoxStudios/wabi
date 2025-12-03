@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { channelMessages, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, type Message } from '$lib/socket';
+	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, type Message } from '$lib/socket';
 	import GiphyPicker from './GiphyPicker.svelte';
 	import MessageList from './MessageList.svelte';
 	import PinnedMessages from './PinnedMessages.svelte';
 
 	$: messages = $channelMessages[$currentChannel] || [];
 	$: pinnedMessages = messages.filter((m: Message) => m.isPinned);
+	$: currentChannelData = $channels.find(ch => ch.id === $currentChannel);
+	$: channelDisplayName = currentChannelData?.name || $currentChannel;
 
 	let messageInput = '';
 	let chatContainer: HTMLElement;
@@ -22,6 +24,7 @@
 	let markAsSpoiler = false;
 	let isDragging = false;
 	let dragCounter = 0;
+	let textareaElement: HTMLTextAreaElement;
 
 	async function scrollToBottom() {
 		await tick();
@@ -34,7 +37,19 @@
 		scrollToBottom();
 	}
 
+	function autoResizeTextarea() {
+		if (!textareaElement) return;
+
+		// Reset height to auto to get the correct scrollHeight
+		textareaElement.style.height = 'auto';
+
+		// Set height based on content, up to max-height
+		const newHeight = Math.min(textareaElement.scrollHeight, 120); // ~4 lines max
+		textareaElement.style.height = `${newHeight}px`;
+	}
+
 	function handleInput() {
+		autoResizeTextarea();
 		sendTyping(true);
 
 		if (typingTimeout) {
@@ -91,12 +106,22 @@
 			if (typingTimeout) {
 				clearTimeout(typingTimeout);
 			}
+
+			// Reset textarea height
+			if (textareaElement) {
+				textareaElement.style.height = 'auto';
+			}
 		}
 	}
 
 	function cancelEdit() {
 		editingMessage = null;
 		messageInput = '';
+
+		// Reset textarea height
+		if (textareaElement) {
+			textareaElement.style.height = 'auto';
+		}
 	}
 
 	function handleGifSelect(event: CustomEvent<string>) {
@@ -343,7 +368,7 @@
 	{/if}
 
 	<div class="chat-header">
-		<h2>{$currentChannel}</h2>
+		<h2>{channelDisplayName}</h2>
 	</div>
 
 	<div class="messages" bind:this={chatContainer}>
@@ -454,15 +479,9 @@
 				>
 					📎
 				</button>
-				<button
-					class="input-icon-button"
-					on:click={() => showGiphyPicker = !showGiphyPicker}
-					title="Add GIF"
-				>
-					GIF
-				</button>
 			</div>
 			<textarea
+				bind:this={textareaElement}
 				bind:value={messageInput}
 				on:input={handleInput}
 				on:keydown={handleKeyDown}
@@ -470,6 +489,13 @@
 				maxlength="2000"
 				rows="1"
 			></textarea>
+			<button
+				class="input-icon-button"
+				on:click={() => showGiphyPicker = !showGiphyPicker}
+				title="Add GIF"
+			>
+				GIF
+			</button>
 			<button
 				class="send-button"
 				on:click={handleSubmit}
@@ -569,8 +595,8 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 0.75rem 1rem;
-		background: #fef3c7;
-		border-top: 1px solid #f59e0b;
+		background: var(--bg-warning-light);
+		border-top: 1px solid var(--color-warning);
 		border-bottom: 1px solid var(--border);
 	}
 
@@ -583,7 +609,7 @@
 	.edit-label {
 		font-size: 0.75rem;
 		font-weight: 600;
-		color: #f59e0b;
+		color: var(--color-warning);
 	}
 
 	.edit-hint {
@@ -612,8 +638,8 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 0.75rem 1rem;
-		background: #eff6ff;
-		border-top: 1px solid #3b82f6;
+		background: var(--bg-info-light);
+		border-top: 1px solid var(--color-info);
 		border-bottom: 1px solid var(--border);
 	}
 
@@ -626,7 +652,7 @@
 	.reply-label {
 		font-size: 0.75rem;
 		font-weight: 600;
-		color: #3b82f6;
+		color: var(--color-info);
 	}
 
 	.reply-preview {
@@ -651,8 +677,8 @@
 
 	.upload-progress-bar {
 		padding: 0.75rem;
-		background: #f0f9ff;
-		border: 1px solid #3b82f6;
+		background: var(--bg-info-light);
+		border: none;
 		border-radius: 0;
 		margin-bottom: 0.25rem;
 	}
@@ -670,14 +696,14 @@
 	.progress-bar {
 		width: 100%;
 		height: 8px;
-		background: #e0e0e0;
+		background: var(--ui-bg-light);
 		border-radius: 4px;
 		overflow: hidden;
 	}
 
 	.progress-fill {
 		height: 100%;
-		background: linear-gradient(90deg, #3b82f6, #2563eb);
+		background: linear-gradient(90deg, var(--color-info), var(--color-info-hover));
 		transition: width 0.3s ease;
 		border-radius: 4px;
 	}
@@ -691,8 +717,8 @@
 	.input-container {
 		display: flex;
 		align-items: center;
-		background: var(--bg-primary);
-		border: 1px solid var(--border);
+		background: transparent;
+		border: none;
 		border-radius: 0;
 		padding: 0.5rem;
 		gap: 0.5rem;
@@ -732,7 +758,8 @@
 	textarea {
 		flex: 1;
 		min-height: 28px;
-		max-height: 200px;
+		max-height: 120px; /* ~4 lines with line-height 1.5 */
+		overflow-y: auto;
 		resize: none;
 		font-family: inherit;
 		line-height: 1.5;
@@ -741,6 +768,7 @@
 		background: transparent;
 		color: var(--text-primary);
 		outline: none;
+		transition: height 0.1s ease;
 	}
 
 	.send-button {
@@ -768,7 +796,7 @@
 
 	.file-gallery {
 		background: var(--bg-primary);
-		border: 1px solid var(--border);
+		border: none;
 		border-radius: 0;
 		padding: 1rem;
 		margin-bottom: 0.25rem;
@@ -808,7 +836,7 @@
 	.gallery-item {
 		position: relative;
 		background: var(--bg-secondary);
-		border: 1px solid var(--border);
+		border: none;
 		border-radius: 8px;
 		overflow: hidden;
 		aspect-ratio: 1;
@@ -909,11 +937,11 @@
 
 	.drag-overlay-content {
 		background: white;
-		border: 3px dashed var(--accent);
+		border: none;
 		border-radius: 16px;
 		padding: 3rem 4rem;
 		text-align: center;
-		box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+		box-shadow: none;
 	}
 
 	.drag-icon {
@@ -961,7 +989,7 @@
 		width: 18px;
 		height: 18px;
 		cursor: pointer;
-		accent-color: #f59e0b;
+		accent-color: var(--color-warning);
 	}
 
 	.spoiler-hint {

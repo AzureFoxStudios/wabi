@@ -72,7 +72,7 @@
 		border-radius: 12px;
 		width: 90%;
 		max-width: 450px;
-		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+		box-shadow: none;
 		overflow: hidden;
 	}
 
@@ -81,21 +81,21 @@
 		justify-content: space-between;
 		align-items: center;
 		padding: 1.5rem;
-		border-bottom: 1px solid #e5e7eb;
+		border-bottom: 1px solid var(--modal-border);
 	}
 
 	.modal-header h2 {
 		margin: 0;
 		font-size: 1.25rem;
 		font-weight: 600;
-		color: #111827;
+		color: var(--modal-text);
 	}
 
 	.close-btn {
 		background: none;
 		border: none;
 		font-size: 2rem;
-		color: #6b7280;
+		color: var(--modal-text-secondary);
 		cursor: pointer;
 		width: 32px;
 		height: 32px;
@@ -107,8 +107,8 @@
 	}
 
 	.close-btn:hover {
-		background-color: #f3f4f6;
-		color: #111827;
+		background-color: var(--ui-bg-light);
+		color: var(--modal-text);
 	}
 
 	.modal-body {
@@ -117,7 +117,7 @@
 
 	.modal-body p {
 		margin: 0;
-		color: #374151;
+		color: var(--ui-text);
 		font-size: 0.9375rem;
 		line-height: 1.6;
 	}
@@ -127,8 +127,8 @@
 		justify-content: flex-end;
 		gap: 0.75rem;
 		padding: 1.5rem;
-		border-top: 1px solid #e5e7eb;
-		background-color: #f9fafb;
+		border-top: 1px solid var(--modal-border);
+		background-color: var(--modal-header-bg);
 	}
 
 	.cancel-btn,
@@ -143,14 +143,14 @@
 	}
 
 	.cancel-btn {
-		background: white;
-		border: 1px solid #d1d5db;
-		color: #374151;
+		background: var(--modal-bg);
+		border: none;
+		color: var(--ui-text);
 	}
 
 	.cancel-btn:hover {
-		background-color: #f3f4f6;
-		border-color: #9ca3af;
+		background-color: var(--ui-bg-light);
+		border-color: var(--modal-text-muted);
 	}
 
 	.confirm-btn {
@@ -158,26 +158,26 @@
 	}
 
 	.confirm-btn.info {
-		background-color: #3b82f6;
+		background-color: var(--color-info);
 	}
 
 	.confirm-btn.info:hover {
-		background-color: #2563eb;
+		background-color: var(--color-info-hover);
 	}
 
 	.confirm-btn.warning {
-		background-color: #f59e0b;
+		background-color: var(--color-warning);
 	}
 
 	.confirm-btn.warning:hover {
-		background-color: #d97706;
+		background-color: var(--color-warning-hover);
 	}
 
 	.confirm-btn.danger {
-		background-color: #ef4444;
+		background-color: var(--color-danger);
 	}
 
 	.confirm-btn.danger:hover {
-		background-color: #dc2626;
+		background-color: var(--color-danger-hover);
 	}
 </style>
