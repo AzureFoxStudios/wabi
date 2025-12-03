@@ -119,13 +119,13 @@
 
 	.context-menu {
 		position: fixed;
-		background: white;
+		background: #2b2d31;
 		border-radius: 8px;
-		box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 		padding: 0.5rem;
-		min-width: 180px;
+		min-width: 200px;
 		z-index: 1000;
-		border: 1px solid #e5e7eb;
+		border: 2px solid #5865f2;
 	}
 
 	.menu-item {
@@ -133,38 +133,42 @@
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
-		padding: 0.625rem 0.75rem;
+		padding: 0.75rem 1rem;
 		background: none;
 		border: none;
 		border-radius: 6px;
 		cursor: pointer;
-		font-size: 0.875rem;
-		color: #374151;
+		font-size: 0.95rem;
+		font-weight: 500;
+		color: #dbdee1;
 		text-align: left;
-		transition: background-color 0.15s;
+		transition: all 0.15s ease;
 	}
 
 	.menu-item:hover {
-		background-color: #f3f4f6;
+		background: #5865f2;
+		color: #ffffff;
+		font-weight: 600;
 	}
 
 	.menu-item.delete {
-		color: #dc2626;
+		color: #f23f43;
 	}
 
 	.menu-item.delete:hover {
-		background-color: #fee2e2;
+		background: #da373c;
+		color: #ffffff;
 	}
 
 	.menu-icon {
-		font-size: 1rem;
-		width: 20px;
+		font-size: 1.2rem;
+		width: 24px;
 		display: inline-block;
 	}
 
 	.menu-divider {
-		height: 1px;
-		background-color: #e5e7eb;
+		height: 2px;
+		background: #404249;
 		margin: 0.5rem 0;
 	}
 </style>

@@ -1,3 +1,18 @@
+// TODO: CRITICAL - Calling system has multiple critical bugs that need fixing:
+// 1. Answering calls doesn't actually connect - investigate WebRTC handshake
+// 2. No call notifications system - need to add browser notifications
+// 3. Can't answer from notifications - need notification click handlers
+// 4. Call UI buttons are unresponsive - check event handlers in CallModal.svelte
+// 5. Video feeds not displaying - check video element bindings and stream handling
+// 6. Missing right-click context menu on user profiles for:
+//    - Initiating calls
+//    - Starting screenshare
+//    - Opening individual DMs
+// 7. Individual DM functionality is completely missing
+// 8. Group chat functionality is completely missing
+//
+// Priority: HIGH - Core communication features are broken
+
 import { writable } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 

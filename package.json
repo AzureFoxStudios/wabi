@@ -9,10 +9,15 @@
     "preview": "cd frontend && bun run preview",
     "start": "cd backend && bun run start"
   },
-  "keywords": ["chat", "webrtc", "screen-sharing", "ephemeral"],
+  "keywords": [
+    "chat",
+    "webrtc",
+    "screen-sharing",
+    "ephemeral"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^9.2.1"
   }
 }

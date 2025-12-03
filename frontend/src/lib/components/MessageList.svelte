@@ -45,7 +45,7 @@
 
 	function getUserColor(username: string): string {
 		const user = getUserByUsername(username);
-		return user?.color || '#6b7280';
+		return user?.color || 'var(--status-offline)';
 	}
 
 	function openProfile(user: User) {
@@ -169,6 +169,22 @@
 	function getReplyToMessage(replyToId?: string): Message | undefined {
 		if (!replyToId) return undefined;
 		return messages.find(m => m.id === replyToId);
+	}
+
+	// Jump to referenced message
+	let highlightedMessageId: string | null = null;
+
+	function jumpToMessage(messageId: string) {
+		const messageElement = document.getElementById(`message-${messageId}`);
+		if (messageElement) {
+			messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+			// Highlight the message briefly
+			highlightedMessageId = messageId;
+			setTimeout(() => {
+				highlightedMessageId = null;
+			}, 2000);
+		}
 	}
 
 	function getFileIcon(fileName?: string): string {
@@ -329,6 +345,9 @@
 	afterUpdate(attachSpoilerHandlers);
 </script>
 
+<!-- Window-level keyboard listener for image navigation -->
+<svelte:window on:keydown={handleImageKeydown} />
+
 {#each messages as message (message.id)}
 	{@const user = getUserByUsername(message.user)}
 	{@const replyToMsg = getReplyToMessage(message.replyTo)}
@@ -342,7 +361,8 @@
 
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
-		class="message {message.isPinned ? 'pinned' : ''}"
+		id="message-{message.id}"
+		class="message {message.isPinned ? 'pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''}"
 		on:contextmenu={(e) => handleContextMenu(e, message)}
 	>
 		<!-- Profile Picture -->
@@ -379,7 +399,9 @@
 
 			<!-- Reply Preview -->
 			{#if replyToMsg}
-				<div class="reply-preview">
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
+				<!-- svelte-ignore a11y-no-static-element-interactions -->
+				<div class="reply-preview" on:click={() => jumpToMessage(replyToMsg.id)}>
 					<div class="reply-line"></div>
 					<div class="reply-content">
 						<span class="reply-username">
@@ -588,6 +610,20 @@
 			class="enlarged-image"
 			on:click|stopPropagation
 		/>
+
+		<!-- Navigation arrows (only show if multiple images) -->
+		{#if currentImageGallery.length > 1}
+			<button class="nav-arrow nav-prev" on:click|stopPropagation={() => navigateImage('prev')} title="Previous (←)">
+				‹
+			</button>
+			<button class="nav-arrow nav-next" on:click|stopPropagation={() => navigateImage('next')} title="Next (→)">
+				›
+			</button>
+			<div class="image-counter">
+				{currentImageIndex + 1} / {currentImageGallery.length}
+			</div>
+		{/if}
+
 		<button class="close-modal" on:click={closeEnlargedImage}>✕</button>
 		<a href={enlargedImage} target="_blank" rel="noopener noreferrer" class="open-new-tab">
 			Open in new tab
@@ -624,7 +660,7 @@
 		align-items: center;
 		gap: 1rem;
 		margin: 1rem 0;
-		color: #ef4444;
+		color: var(--color-danger-hover);
 		font-size: 0.8rem;
 		font-weight: 600;
 		text-transform: uppercase;
@@ -635,7 +671,7 @@
 		content: '';
 		flex: 1;
 		height: 1px;
-		background: #ef4444;
+		background: var(--color-danger-hover);
 	}
 
 	.message {
@@ -653,9 +689,24 @@
 		background: var(--bg-tertiary);
 	}
 
+	.message.highlighted {
+		background: #5865f2;
+		animation: highlight-pulse 2s ease-out;
+		border: 2px solid #5865f2;
+	}
+
+	@keyframes highlight-pulse {
+		0%, 100% {
+			box-shadow: 0 0 0 0 rgba(88, 101, 242, 0.7);
+		}
+		50% {
+			box-shadow: 0 0 20px 10px rgba(88, 101, 242, 0.3);
+		}
+	}
+
 	.message.pinned {
-		border-left: 3px solid #f59e0b;
-		background: #fffbeb;
+		border-left: 3px solid var(--color-warning);
+		background: var(--bg-warning-light);
 	}
 
 	.message-avatar {
@@ -667,7 +718,7 @@
 		height: 40px;
 		border-radius: 50%;
 		object-fit: cover;
-		border: 2px solid var(--border);
+		border: none;
 	}
 
 	.avatar-placeholder {
@@ -680,7 +731,7 @@
 		font-weight: bold;
 		color: white;
 		font-size: 1rem;
-		border: 2px solid var(--border);
+		border: none;
 	}
 
 	.message-body {
@@ -743,6 +794,18 @@
 		background: var(--bg-tertiary);
 		border-radius: 6px;
 		font-size: 0.875rem;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.reply-preview:hover {
+		background: #5865f2;
+		transform: translateX(4px);
+	}
+
+	.reply-preview:hover .reply-username,
+	.reply-preview:hover .reply-text {
+		color: #ffffff;
 	}
 
 	.reply-line {
@@ -779,7 +842,7 @@
 	.edit-textarea {
 		width: 100%;
 		padding: 0.75rem;
-		border: 1px solid var(--border);
+		border: none;
 		border-radius: 6px;
 		font-family: inherit;
 		font-size: 0.875rem;
@@ -811,7 +874,7 @@
 
 	.edit-cancel {
 		background: white;
-		border: 1px solid var(--border);
+		border: none;
 		color: var(--text-primary);
 	}
 
@@ -821,7 +884,7 @@
 
 	.edit-save {
 		background: var(--accent);
-		border: 1px solid var(--accent);
+		border: none;
 		color: white;
 	}
 
@@ -857,7 +920,7 @@
 	}
 
 	.file-attachment:hover {
-		background: #e5e7eb;
+		background: var(--ui-bg-light);
 	}
 
 	.file-icon {
@@ -919,7 +982,7 @@
 	}
 
 	.image-download-link:hover {
-		background: #e5e7eb;
+		background: var(--ui-bg-light);
 	}
 
 	/* Video display styles */
@@ -951,7 +1014,7 @@
 	}
 
 	.video-download-link:hover {
-		background: #e5e7eb;
+		background: var(--ui-bg-light);
 	}
 
 	/* Markdown content styles */
@@ -973,12 +1036,12 @@
 	}
 
 	.markdown-content :global(a) {
-		color: #3b82f6;
+		color: var(--color-info);
 		text-decoration: underline;
 	}
 
 	.markdown-content :global(a:hover) {
-		color: #2563eb;
+		color: var(--color-info-hover);
 	}
 
 	/* Emote styles */
@@ -1059,6 +1122,53 @@
 	.close-modal:hover {
 		background: rgba(255, 255, 255, 0.2);
 		transform: scale(1.1);
+	}
+
+	.nav-arrow {
+		position: absolute;
+		top: 50%;
+		transform: translateY(-50%);
+		width: 50px;
+		height: 50px;
+		border-radius: 50%;
+		background: rgba(255, 255, 255, 0.1);
+		border: 2px solid rgba(255, 255, 255, 0.3);
+		color: white;
+		font-size: 2.5rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
+		font-weight: 300;
+		line-height: 1;
+	}
+
+	.nav-arrow:hover {
+		background: rgba(255, 255, 255, 0.2);
+		transform: translateY(-50%) scale(1.1);
+	}
+
+	.nav-prev {
+		left: 2rem;
+	}
+
+	.nav-next {
+		right: 2rem;
+	}
+
+	.image-counter {
+		position: absolute;
+		top: 1rem;
+		left: 50%;
+		transform: translateX(-50%);
+		padding: 0.5rem 1rem;
+		background: rgba(0, 0, 0, 0.7);
+		border: 1px solid rgba(255, 255, 255, 0.3);
+		border-radius: 20px;
+		color: white;
+		font-size: 0.875rem;
+		font-weight: 500;
 	}
 
 	.open-new-tab {

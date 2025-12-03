@@ -3,6 +3,7 @@
 	import { channelMessages, users, currentUser } from '$lib/socket';
 	import StorageSettings from './StorageSettings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
+	import { playNotificationSound } from '$lib/notifications';
 
 	export let isOpen = false;
 
@@ -11,6 +12,8 @@
 	let micEnabled = true;
 	let cameraEnabled = true;
 	let theme: 'dark' | 'light' = 'dark';
+	let notificationSound = '/sounds/ProjectSound.ogg';
+	let notificationVolume = 0.5;
 
 	let showClearDataConfirm = false;
 	let showClearServerConfirm = false;
@@ -22,6 +25,8 @@
 		micEnabled = localStorage.getItem('micEnabled') !== 'false';
 		cameraEnabled = localStorage.getItem('cameraEnabled') !== 'false';
 		theme = (localStorage.getItem('theme') as 'dark' | 'light') || 'dark';
+		notificationSound = localStorage.getItem('notificationSound') || '/sounds/ProjectSound.ogg';
+		notificationVolume = parseFloat(localStorage.getItem('notificationVolume') || '0.5');
 	});
 
 	function toggleSound() {
@@ -48,6 +53,20 @@
 		theme = theme === 'dark' ? 'light' : 'dark';
 		localStorage.setItem('theme', theme);
 		document.documentElement.setAttribute('data-theme', theme);
+	}
+
+	function updateNotificationSound(sound: string) {
+		notificationSound = sound;
+		localStorage.setItem('notificationSound', sound);
+	}
+
+	function updateNotificationVolume(volume: number) {
+		notificationVolume = volume;
+		localStorage.setItem('notificationVolume', volume.toString());
+	}
+
+	function testNotificationSound() {
+		playNotificationSound();
 	}
 
 	function exportData() {
@@ -195,6 +214,44 @@
 							{notificationsEnabled ? '✅ Enabled' : '🔔 Enable'}
 						</button>
 					</div>
+
+					<!-- Notification Sound -->
+					<div class="setting-item-full">
+						<div class="setting-info">
+							<span class="setting-label">🔊 Notification Sound</span>
+							<span class="setting-description">Choose which sound to play for notifications</span>
+						</div>
+						<div class="sound-options">
+							<button
+								class="sound-option"
+								class:active={notificationSound === '/sounds/ProjectSound.ogg'}
+								on:click={() => updateNotificationSound('/sounds/ProjectSound.ogg')}
+							>
+								ProjectSound.ogg
+							</button>
+							<!-- Add more sound options here as you add more .ogg files -->
+						</div>
+						<button class="test-sound-btn" on:click={testNotificationSound}>
+							🎵 Test Sound
+						</button>
+					</div>
+
+					<!-- Notification Volume -->
+					<div class="setting-item-full">
+						<div class="setting-info">
+							<span class="setting-label">🔉 Notification Volume</span>
+							<span class="setting-description">Adjust the volume of notification sounds ({Math.round(notificationVolume * 100)}%)</span>
+						</div>
+						<input
+							type="range"
+							min="0"
+							max="1"
+							step="0.05"
+							bind:value={notificationVolume}
+							on:input={(e) => updateNotificationVolume(parseFloat(e.currentTarget.value))}
+							class="volume-slider"
+						/>
+					</div>
 				</div>
 
 				<!-- Appearance -->
@@ -287,7 +344,7 @@
 		max-width: 600px;
 		max-height: 80vh;
 		overflow-y: auto;
-		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+		box-shadow: none;
 	}
 
 	.modal-header {
@@ -377,7 +434,7 @@
 
 	.toggle-btn {
 		background: var(--bg-secondary);
-		border: 2px solid var(--border);
+		border: none;
 		border-radius: 8px;
 		padding: 0.5rem 1rem;
 		font-size: 1.2rem;
@@ -414,32 +471,32 @@
 	}
 
 	.action-btn.export {
-		background: #3b82f6;
+		background: var(--color-info);
 		color: white;
 	}
 
 	.action-btn.export:hover {
-		background: #2563eb;
+		background: var(--color-info-hover);
 		transform: translateY(-2px);
 	}
 
 	.action-btn.import {
-		background: #10b981;
+		background: var(--color-success);
 		color: white;
 	}
 
 	.action-btn.import:hover {
-		background: #059669;
+		background: var(--color-success-hover);
 		transform: translateY(-2px);
 	}
 
 	.action-btn.danger {
-		background: #ef4444;
+		background: var(--color-danger);
 		color: white;
 	}
 
 	.action-btn.danger:hover {
-		background: #dc2626;
+		background: var(--color-danger-hover);
 		transform: translateY(-2px);
 	}
 
@@ -463,5 +520,102 @@
 		font-size: 0.85rem;
 		color: var(--text-tertiary);
 		margin-top: 1rem !important;
+	}
+
+	/* Notification Sound Settings */
+	.setting-item-full {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		padding: 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+	}
+
+	.sound-options {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+
+	.sound-option {
+		padding: 0.5rem 1rem;
+		background: var(--bg-secondary);
+		border: 2px solid transparent;
+		border-radius: 6px;
+		color: var(--text-primary);
+		font-size: 0.875rem;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.sound-option:hover {
+		background: var(--bg-primary);
+		border-color: var(--accent);
+	}
+
+	.sound-option.active {
+		background: var(--accent);
+		color: white;
+		border-color: var(--accent);
+	}
+
+	.test-sound-btn {
+		padding: 0.75rem 1rem;
+		background: var(--primary);
+		border: none;
+		border-radius: 6px;
+		color: white;
+		font-size: 0.875rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+		align-self: flex-start;
+	}
+
+	.test-sound-btn:hover {
+		background: var(--primary-hover);
+		transform: translateY(-2px);
+	}
+
+	.volume-slider {
+		width: 100%;
+		height: 6px;
+		border-radius: 3px;
+		background: var(--bg-secondary);
+		outline: none;
+		-webkit-appearance: none;
+		appearance: none;
+	}
+
+	.volume-slider::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 18px;
+		height: 18px;
+		border-radius: 50%;
+		background: var(--accent);
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.volume-slider::-webkit-slider-thumb:hover {
+		transform: scale(1.2);
+		background: var(--primary);
+	}
+
+	.volume-slider::-moz-range-thumb {
+		width: 18px;
+		height: 18px;
+		border-radius: 50%;
+		background: var(--accent);
+		cursor: pointer;
+		border: none;
+		transition: all 0.2s;
+	}
+
+	.volume-slider::-moz-range-thumb:hover {
+		transform: scale(1.2);
+		background: var(--primary);
 	}
 </style>

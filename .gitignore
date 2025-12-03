@@ -12,3 +12,7 @@ coverage/
 *.swp
 *.swo
 *~
+nul
+frontend/nul
+frontend/src/lib/components/nul
+.ngrok.exe.old

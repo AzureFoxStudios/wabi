@@ -84,7 +84,7 @@
 	.dialog {
 		background: white;
 		border-radius: 8px;
-		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+		box-shadow: none;
 		max-width: 500px;
 		width: 90%;
 		max-height: 80vh;
@@ -97,21 +97,21 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 1.25rem;
-		border-bottom: 1px solid #e5e7eb;
+		border-bottom: 1px solid var(--modal-border);
 	}
 
 	.dialog-header h3 {
 		margin: 0;
 		font-size: 1.125rem;
 		font-weight: 600;
-		color: #111827;
+		color: var(--modal-text);
 	}
 
 	.close-button {
 		background: none;
 		border: none;
 		font-size: 1.5rem;
-		color: #6b7280;
+		color: var(--modal-text-secondary);
 		cursor: pointer;
 		padding: 0;
 		width: 32px;
@@ -124,7 +124,7 @@
 	}
 
 	.close-button:hover {
-		background: #f3f4f6;
+		background: var(--ui-bg-light);
 	}
 
 	.dialog-content {
@@ -134,7 +134,7 @@
 
 	.dialog-description {
 		margin: 0 0 1rem 0;
-		color: #6b7280;
+		color: var(--modal-text-secondary);
 		font-size: 0.875rem;
 	}
 
@@ -150,7 +150,7 @@
 		gap: 0.75rem;
 		padding: 0.75rem 1rem;
 		background: white;
-		border: 1px solid #e5e7eb;
+		border: none;
 		border-radius: 6px;
 		cursor: pointer;
 		transition: all 0.2s;
@@ -159,8 +159,8 @@
 	}
 
 	.channel-item:hover {
-		background: #f9fafb;
-		border-color: #3b82f6;
+		background: var(--modal-header-bg);
+		border-color: var(--color-info);
 	}
 
 	.channel-icon {
@@ -173,6 +173,6 @@
 	.channel-name {
 		font-size: 0.875rem;
 		font-weight: 500;
-		color: #374151;
+		color: var(--modal-text);
 	}
 </style>

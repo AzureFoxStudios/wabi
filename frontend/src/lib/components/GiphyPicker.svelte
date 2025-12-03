@@ -1,4 +1,8 @@
 <script lang="ts">
+	// TODO: GIFs are loading but not displaying on page - investigate rendering issue
+	// The API call works (console shows gifs), but the grid isn't showing them
+	// Possible issues: CSS display/visibility, button styling, or reactive updates
+
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { GiphyFetch } from '@giphy/js-fetch-api';
 
@@ -36,8 +40,10 @@
 		try {
 			const { data } = await gf.trending({ limit: 20 });
 			gifs = data;
+			console.log('Loaded GIFs:', gifs.length, gifs);
 		} catch (error) {
 			console.error('Error fetching trending GIFs:', error);
+			gifs = [];
 		}
 		loading = false;
 	}
@@ -81,22 +87,21 @@
 	.giphy-picker {
 		position: absolute;
 		bottom: 70px;
-		left: 1rem;
 		right: 1rem;
-		max-width: 500px;
+		width: 500px;
 		height: 400px;
-		background: var(--bg-secondary);
-		border: 1px solid var(--border);
+		background: var(--modal-bg);
+		border: none;
 		border-radius: 8px;
 		display: flex;
 		flex-direction: column;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+		box-shadow: none;
 		z-index: 100;
 	}
 
 	.giphy-header {
 		padding: 1rem;
-		border-bottom: 1px solid var(--border);
+		border-bottom: none;
 		display: flex;
 		gap: 0.5rem;
 	}
@@ -120,10 +125,10 @@
 	.gif-grid {
 		flex: 1;
 		overflow-y: auto;
-		padding: 1rem;
+		padding: 2rem;
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-		gap: 0.5rem;
+		grid-template-columns: 1fr 1fr;
+		gap: 3rem 2rem;
 		align-content: start;
 	}
 
@@ -133,13 +138,14 @@
 		border-radius: 4px;
 		overflow: hidden;
 		cursor: pointer;
-		aspect-ratio: 1;
+		width: 100%;
+		height: auto;
 	}
 
 	.gif-item img {
 		width: 100%;
-		height: 100%;
-		object-fit: cover;
+		height: auto;
+		object-fit: contain;
 		transition: transform 0.2s;
 	}
 

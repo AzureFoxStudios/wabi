@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import { io, Socket } from 'socket.io-client';
 import { browser } from '$app/environment';
 import { showNotification } from './notifications';
@@ -41,6 +41,13 @@ export interface Channel {
 	id: string;
 	name: string;
 	createdAt: number;
+	type?: 'public' | 'dm' | 'group';
+	members?: string[]; // User IDs for DMs and group chats
+	otherUser?: User; // For DMs, the other user in the conversation
+
+	autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
+	isTemporary?: boolean; // If true, channel is temporary and will be deleted after all users leave
+	persistMessages?: boolean; // If true, messages are persisted to disk for recovery on server restart
 }
 
 export const socket = writable<Socket | null>(null);
@@ -53,6 +60,10 @@ export const currentUser = writable<User | null>(null);
 export const connected = writable(false);
 export const unreadCount = writable(0);
 export const lastReadMessageId = writable<string | null>(null);
+// Per-channel unread counts: { channelId: count }
+export const channelUnreadCounts = writable<Record<string, number>>({});
+// DM panel state: signal to open DM panel with channel and user info
+export const dmPanelSignal = writable<{ channelId: string; otherUser: User } | null>(null);
 
 let socketInstance: Socket | null = null;
 
@@ -74,10 +85,37 @@ export function initSocket(username: string) {
 	socketInstance = io(serverUrl);
 	socket.set(socketInstance);
 
+	// Load unread counts from localStorage
+	if (browser) {
+		try {
+			const saved = localStorage.getItem('channelUnreadCounts');
+			if (saved) {
+				const counts = JSON.parse(saved);
+				channelUnreadCounts.set(counts);
+				// Calculate total unread
+				const total = Object.values(counts).reduce((sum: number, count) => sum + (count as number), 0);
+				unreadCount.set(total);
+				updateBrowserTitle();
+			}
+		} catch (e) {
+			console.error('Failed to load unread counts from localStorage:', e);
+		}
+	}
+
 	// Load saved messages from IndexedDB if enabled
 	chatStorage.loadAllMessages().then(savedMessages => {
 		if (Object.keys(savedMessages).length > 0) {
-			channelMessages.set(savedMessages);
+			// Deduplicate messages in each channel by ID
+			const deduped: Record<string, Message[]> = {};
+			for (const [channelId, messages] of Object.entries(savedMessages)) {
+				const seen = new Set<string>();
+				deduped[channelId] = messages.filter(msg => {
+					if (seen.has(msg.id)) return false;
+					seen.add(msg.id);
+					return true;
+				});
+			}
+			channelMessages.set(deduped);
 		}
 	});
 
@@ -93,8 +131,27 @@ export function initSocket(username: string) {
 	});
 
 	socketInstance.on('init', (data: { channels: Channel[]; users: User[]; excalidrawState: any; emotes: any[] }) => {
-		channels.set(data.channels);
 		users.set(data.users);
+
+		// Process channels to fix DM names
+		const processedChannels = data.channels.map(channel => {
+			if (channel.type === 'dm' && channel.members) {
+				// Find the other user in the DM
+				const otherUserId = channel.members.find(id => id !== socketInstance?.id);
+				const otherUser = data.users.find(u => u.id === otherUserId);
+
+				if (otherUser) {
+					return {
+						...channel,
+						name: otherUser.username,
+						otherUser: otherUser
+					};
+				}
+			}
+			return channel;
+		});
+
+		channels.set(processedChannels);
 
 		// Initialize emotes
 		if (data.emotes) {
@@ -112,34 +169,79 @@ export function initSocket(username: string) {
 	});
 
 	socketInstance.on('channel-messages', (data: { channelId: string; messages: Message[] }) => {
-		channelMessages.update(msgs => ({
-			...msgs,
-			[data.channelId]: data.messages
-		}));
+		channelMessages.update(msgs => {
+			// Merge server messages with local messages, deduplicating by ID
+			const existingMessages = msgs[data.channelId] || [];
+			const existingIds = new Set(existingMessages.map(m => m.id));
+			const newMessages = data.messages.filter(m => !existingIds.has(m.id));
+
+			return {
+				...msgs,
+				[data.channelId]: [...existingMessages, ...newMessages]
+			};
+		});
 	});
 
 	socketInstance.on('message', (data: { channelId: string; message: Message }) => {
-		channelMessages.update(msgs => ({
-			...msgs,
-			[data.channelId]: [...(msgs[data.channelId] || []), data.message]
-		}));
+		channelMessages.update(msgs => {
+			const channelMsgs = msgs[data.channelId] || [];
+			// Check if message already exists (prevent duplicates)
+			if (channelMsgs.some(m => m.id === data.message.id)) {
+				return msgs;
+			}
+			return {
+				...msgs,
+				[data.channelId]: [...channelMsgs, data.message]
+			};
+		});
 
-		// Save to local storage if enabled
-		chatStorage.saveMessage(data.channelId, data.message);
+		// Save to local storage if channel has persistMessages enabled
+		channels.subscribe(chs => {
+			const channel = chs.find(ch => ch.id === data.channelId);
+			if (channel?.persistMessages) {
+				chatStorage.saveMessage(data.channelId, data.message);
+			}
+		})();
 
-		// Show notification for messages from other users
+		// Show notification for messages from other users with channel context
 		const isCurrentUser = data.message.userId === socketInstance?.id;
-		showNotification(data.message, isCurrentUser);
+		const currentChannels = get(channels);
+		const currentChannelId = get(currentChannel);
 
-		// Increment unread count and track first unread if not from current user and page is hidden
-		if (!isCurrentUser && document.hidden) {
+		const channel = currentChannels.find(ch => ch.id === data.channelId);
+		const channelName = channel?.name;
+		const isCurrentChannelActive = currentChannelId === data.channelId;
+
+		showNotification(data.message, isCurrentUser, channelName);
+
+		// Increment per-channel unread count if not from current user and either:
+		// - user is NOT viewing the current channel OR
+		// - page is hidden
+		if (!isCurrentUser && (!isCurrentChannelActive || document.hidden)) {
+			channelUnreadCounts.update(counts => {
+				const newCounts = {
+					...counts,
+					[data.channelId]: (counts[data.channelId] || 0) + 1
+				};
+
+				// Save to localStorage
+				if (browser) {
+					localStorage.setItem('channelUnreadCounts', JSON.stringify(newCounts));
+				}
+
+				return newCounts;
+			});
+
+			// Also increment global unread count
 			unreadCount.update(n => {
-				// Set first unread message ID if this is the first unread
 				if (n === 0) {
 					lastReadMessageId.set(data.message.id);
 				}
 				return n + 1;
 			});
+
+			// Update browser tab title
+			updateBrowserTitle();
 		}
 	});
 
@@ -190,8 +292,26 @@ export function initSocket(username: string) {
 
 	// Channel events
 	socketInstance.on('channel-created', (channel: Channel) => {
-		channels.update(chs => [...chs, channel]);
-		channelMessages.update(msgs => ({ ...msgs, [channel.id]: [] }));
+		let processedChannel = channel;
+
+		// Fix DM name if needed
+		if (channel.type === 'dm' && channel.members) {
+			users.subscribe(usersList => {
+				const otherUserId = channel.members!.find(id => id !== socketInstance?.id);
+				const otherUser = usersList.find(u => u.id === otherUserId);
+
+				if (otherUser) {
+					processedChannel = {
+						...channel,
+						name: otherUser.username,
+						otherUser: otherUser
+					};
+				}
+			})();
+		}
+
+		channels.update(chs => [...chs, processedChannel]);
+		channelMessages.update(msgs => ({ ...msgs, [processedChannel.id]: [] }));
 	});
 
 	socketInstance.on('channel-deleted', (channelId: string) => {
@@ -210,6 +330,48 @@ export function initSocket(username: string) {
 		alert(error);
 	});
 
+	// DM events
+	socketInstance.on('dm-created', (data: { channelId: string; otherUser: User }) => {
+		const dmChannel: Channel = {
+			id: data.channelId,
+			name: data.otherUser.username,
+			createdAt: Date.now(),
+			type: 'dm',
+			otherUser: data.otherUser
+		};
+
+		channels.update(chs => {
+			// Check if DM already exists in list
+			if (chs.some(ch => ch.id === data.channelId)) {
+				return chs;
+			}
+			return [...chs, dmChannel];
+		});
+
+		channelMessages.update(msgs => ({
+			...msgs,
+			[data.channelId]: msgs[data.channelId] || []
+		}));
+
+		// Signal to open the DM panel (not switch main chat)
+		dmPanelSignal.set({ channelId: data.channelId, otherUser: data.otherUser });
+	});
+
+	// Group events
+	socketInstance.on('group-created', (group: Channel) => {
+		channels.update(chs => {
+			if (chs.some(ch => ch.id === group.id)) {
+				return chs;
+			}
+			return [...chs, group];
+		});
+
+		channelMessages.update(msgs => ({
+			...msgs,
+			[group.id]: msgs[group.id] || []
+		}));
+	});
+
 	// Emote events
 	socketInstance.on('emote-added', (emote: any) => {
 		addEmote(emote);
@@ -224,12 +386,27 @@ export function initSocket(username: string) {
 		alert(error);
 	});
 
+	// Channel settings events
+	socketInstance.on('channel-settings-updated', (data: {
+		channelId: string;
+		autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
+		persistMessages?: boolean;
+	}) => {
+		channels.update(chs => chs.map(ch =>
+			ch.id === data.channelId
+				? { ...ch, autoDeleteAfter: data.autoDeleteAfter, persistMessages: data.persistMessages }
+				: ch
+		));
+	});
+
 	return socketInstance;
 }
 
 export function joinChannel(channelId: string) {
 	socketInstance?.emit('join-channel', channelId);
 	currentChannel.set(channelId);
+	// Mark channel as read when joining
+	markChannelAsRead(channelId);
 }
 
 export function createChannel(channelName: string) {
@@ -280,6 +457,45 @@ export function disconnect() {
 export function markMessagesAsRead() {
 	unreadCount.set(0);
 	lastReadMessageId.set(null);
+	updateBrowserTitle();
+}
+
+export function markChannelAsRead(channelId: string) {
+	channelUnreadCounts.update(counts => {
+		const newCounts = { ...counts };
+		const channelCount = newCounts[channelId] || 0;
+
+		// Subtract channel count from global unread count
+		unreadCount.update(n => Math.max(0, n - channelCount));
+
+		// Clear channel unread count
+		delete newCounts[channelId];
+		return newCounts;
+	});
+
+	// Save to localStorage
+	if (browser) {
+		channelUnreadCounts.subscribe(counts => {
+			localStorage.setItem('channelUnreadCounts', JSON.stringify(counts));
+		})();
+	}
+
+	updateBrowserTitle();
+}
+
+function updateBrowserTitle() {
+	if (!browser) return;
+
+	let totalUnread = 0;
+	unreadCount.subscribe(n => totalUnread = n)();
+
+	if (totalUnread === 0) {
+		document.title = 'Wabi Chat';
+	} else if (totalUnread <= 10) {
+		document.title = `(${totalUnread}) Wabi Chat`;
+	} else {
+		document.title = '(•) Wabi Chat';
+	}
 }
 
 export function uploadEmote(name: string, imageData: string, type: 'static' | 'animated') {
@@ -288,4 +504,19 @@ export function uploadEmote(name: string, imageData: string, type: 'static' | 'a
 
 export function deleteEmote(emoteName: string) {
 	socketInstance?.emit('delete-emote', emoteName);
+}
+
+export function createDM(targetUserId: string) {
+	socketInstance?.emit('create-dm', { targetUserId });
+}
+
+export function createGroup(name: string, memberIds: string[]) {
+	socketInstance?.emit('create-group', { name, memberIds });
+}
+
+export function updateChannelSettings(channelId: string, settings: {
+	autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
+	persistMessages?: boolean;
+}) {
+	socketInstance?.emit('update-channel-settings', { channelId, ...settings });
 }

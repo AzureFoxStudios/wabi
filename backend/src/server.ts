@@ -8,10 +8,15 @@ interface Channel {
   id: string;
   name: string;
   createdAt: number;
+  type?: 'public' | 'dm' | 'group';
+  members?: string[]; // User IDs for DMs and group chats
+  autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
+  isTemporary?: boolean;
+  persistMessages?: boolean; // Opt-in flag for message persistence
 }
 
 const channels = new Map<string, Channel>();
-channels.set('general', { id: 'general', name: 'general', createdAt: Date.now() });
+channels.set('general', { id: 'general', name: 'general', createdAt: Date.now(), type: 'public' });
 
 const channelMessages = new Map<string, Array<{
   id: string;
@@ -28,6 +33,7 @@ const channelMessages = new Map<string, Array<{
   isEdited?: boolean;
   replyTo?: string;
   isSpoiler?: boolean;
+  scheduledDeletionTime?: number; // Unix timestamp when message should be deleted
 }>>();
 
 // Initialize general channel with empty messages
@@ -45,6 +51,10 @@ const users = new Map<string, {
 }>();
 
 const typingUsers = new Set<string>();
+// Track which channel each user is currently in
+const userCurrentChannel = new Map<string, string>();
+// Track typing users per channel: channelId -> Set of userIds
+const channelTypingUsers = new Map<string, Set<string>>();
 
 // WebRTC signaling state
 const screenSharers = new Map<string, {
@@ -63,6 +73,167 @@ const emotes = new Map<string, {
   uploadedBy: string;
   timestamp: number;
 }>();
+
+// Auto-delete message timers
+const messageDeletionTimers = new Map<string, NodeJS.Timeout>(); // messageId -> timer
+
+// Helper function to convert auto-delete duration to milliseconds
+function getAutoDeleteMs(duration: string): number {
+  const durations: Record<string, number> = {
+    '1h': 60 * 60 * 1000,
+    '6h': 6 * 60 * 60 * 1000,
+    '12h': 12 * 60 * 60 * 1000,
+    '24h': 24 * 60 * 60 * 1000,
+    '3d': 3 * 24 * 60 * 60 * 1000,
+    '7d': 7 * 24 * 60 * 60 * 1000,
+    '14d': 14 * 24 * 60 * 60 * 1000,
+    '30d': 30 * 24 * 60 * 60 * 1000,
+  };
+  return durations[duration] || 0;
+}
+
+// Helper function to schedule message deletion
+function scheduleMessageDeletion(channelId: string, messageId: string, duration: string) {
+  const ms = getAutoDeleteMs(duration);
+  if (ms === 0) return;
+
+  const timer = setTimeout(() => {
+    const messages = channelMessages.get(channelId);
+    if (!messages) return;
+
+    const messageIndex = messages.findIndex(m => m.id === messageId);
+    if (messageIndex === -1) return;
+
+    const message = messages[messageIndex];
+
+    // Delete associated files from filesystem
+    if (message.fileUrl) {
+      const fileName = message.fileUrl.replace('/uploads/', '');
+      const filePath = join(UPLOADS_DIR, fileName);
+      try {
+        if (existsSync(filePath)) {
+          unlinkSync(filePath);
+        }
+      } catch (err) {
+        console.error(`Failed to delete file: ${fileName}`, err);
+      }
+    }
+
+    // Delete multiple files if present
+    if (message.files && message.files.length > 0) {
+      for (const file of message.files) {
+        const fileName = file.fileUrl.replace('/uploads/', '');
+        const filePath = join(UPLOADS_DIR, fileName);
+        try {
+          if (existsSync(filePath)) {
+            unlinkSync(filePath);
+          }
+        } catch (err) {
+          console.error(`Failed to delete file: ${fileName}`, err);
+        }
+      }
+    }
+
+    // Remove message
+    messages.splice(messageIndex, 1);
+    channelMessages.set(channelId, messages);
+
+    // Notify clients
+    emitToChannel(channelId, "message-deleted", { channelId, messageId });
+
+    // Clean up timer reference
+    messageDeletionTimers.delete(messageId);
+
+    if (ENABLE_LOGGING) console.log(`Auto-deleted message ${messageId} from channel ${channelId}`);
+  }, ms);
+
+  messageDeletionTimers.set(messageId, timer);
+}
+
+// Helper function to cancel scheduled message deletion
+function cancelMessageDeletion(messageId: string) {
+  const timer = messageDeletionTimers.get(messageId);
+  if (timer) {
+    clearTimeout(timer);
+    messageDeletionTimers.delete(messageId);
+  }
+}
+
+// Message persistence functions
+const DATA_DIR = './data';
+const MESSAGES_FILE = join(DATA_DIR, 'messages.json');
+
+// Ensure data directory exists
+if (!existsSync(DATA_DIR)) {
+  mkdirSync(DATA_DIR, { recursive: true });
+}
+
+function saveMessagesToDisk() {
+  try {
+    const messagesToSave: Record<string, any[]> = {};
+
+    channelMessages.forEach((messages, channelId) => {
+      const channel = channels.get(channelId);
+      // Only persist messages for channels with persistMessages enabled
+      if (channel?.persistMessages) {
+        messagesToSave[channelId] = messages;
+      }
+    });
+
+    writeFileSync(MESSAGES_FILE, JSON.stringify(messagesToSave, null, 2));
+    if (ENABLE_LOGGING) console.log('💾 Messages saved to disk');
+  } catch (error) {
+    console.error('Error saving messages:', error);
+  }
+}
+
+function loadMessagesFromDisk() {
+  try {
+    if (existsSync(MESSAGES_FILE)) {
+      const data = readFileSync(MESSAGES_FILE, 'utf-8');
+      const savedMessages: Record<string, any[]> = JSON.parse(data);
+
+      Object.entries(savedMessages).forEach(([channelId, messages]) => {
+        channelMessages.set(channelId, messages);
+      });
+
+      if (ENABLE_LOGGING) console.log('📂 Messages loaded from disk');
+    }
+  } catch (error) {
+    console.error('Error loading messages:', error);
+  }
+}
+
+function restoreMessageDeletionTimers() {
+  channelMessages.forEach((messages, channelId) => {
+    const channel = channels.get(channelId);
+
+    messages.forEach(message => {
+      if (message.scheduledDeletionTime && channel?.autoDeleteAfter) {
+        const timeRemaining = message.scheduledDeletionTime - Date.now();
+
+        if (timeRemaining <= 0) {
+          // Message should have been deleted, delete now
+          deleteMessageById(channelId, message.id);
+        } else {
+          // Schedule deletion for remaining time
+          const timer = setTimeout(() => {
+            deleteMessageById(channelId, message.id);
+          }, timeRemaining);
+          messageDeletionTimers.set(message.id, timer);
+
+          if (ENABLE_LOGGING) {
+            console.log(`⏱️  Restored deletion timer for message ${message.id} (${Math.round(timeRemaining / 1000)}s remaining)`);
+          }
+        }
+      }
+    });
+  });
+}
+
+// deleteMessageById will be defined after Socket.IO initialization
+// For now, we declare it as a variable to be assigned later
+let deleteMessageById: ((channelId: string, messageId: string) => void) | null = null;
 
 const PORT = process.env.PORT || 3000;
 const STATIC_DIR = process.env.STATIC_DIR || join(import.meta.dir, "../../static");
@@ -325,6 +496,89 @@ const io = new Server(server, {
   maxHttpBufferSize: 75 * 1024 * 1024 // 75MB (to handle 50MB files after base64 encoding ~33% overhead)
 });
 
+// Helper function to emit to channel members only
+function emitToChannel(channelId: string, event: string, data: any) {
+  const channel = channels.get(channelId);
+  if (!channel) return;
+
+  // For DMs and group chats, only emit to members
+  if (channel.members && channel.members.length > 0) {
+    channel.members.forEach(memberId => {
+      io.to(memberId).emit(event, data);
+    });
+  } else {
+    // For public channels, broadcast to everyone
+    io.emit(event, data);
+  }
+}
+
+// Define the deleteMessageById function now that emitToChannel is available
+deleteMessageById = (channelId: string, messageId: string) => {
+  const messages = channelMessages.get(channelId) || [];
+  const messageIndex = messages.findIndex(m => m.id === messageId);
+
+  if (messageIndex === -1) return;
+
+  const message = messages[messageIndex];
+
+  // Delete associated files from filesystem
+  if (message.fileUrl) {
+    const fileName = message.fileUrl.replace('/uploads/', '');
+    const filePath = join(UPLOADS_DIR, fileName);
+    try {
+      if (existsSync(filePath)) {
+        unlinkSync(filePath);
+      }
+    } catch (err) {
+      console.error(`Failed to delete file: ${fileName}`, err);
+    }
+  }
+
+  // Delete multiple files if present
+  if (message.files && message.files.length > 0) {
+    for (const file of message.files) {
+      const fileName = file.fileUrl.replace('/uploads/', '');
+      const filePath = join(UPLOADS_DIR, fileName);
+      try {
+        if (existsSync(filePath)) {
+          unlinkSync(filePath);
+        }
+      } catch (err) {
+        console.error(`Failed to delete file: ${fileName}`, err);
+      }
+    }
+  }
+
+  // Remove message
+  messages.splice(messageIndex, 1);
+  channelMessages.set(channelId, messages);
+
+  // Cancel timer if exists
+  const timer = messageDeletionTimers.get(messageId);
+  if (timer) {
+    clearTimeout(timer);
+    messageDeletionTimers.delete(messageId);
+  }
+
+  // Notify clients
+  emitToChannel(channelId, "message-deleted", { channelId, messageId });
+
+  // Note: We do NOT save to server disk anymore
+  // Clients handle their own localStorage persistence
+
+  if (ENABLE_LOGGING) {
+    console.log(`🗑️ Auto-deleted message ${messageId} from channel ${channelId}`);
+  }
+};
+
+// Initialize server: DO NOT load persisted messages from disk
+// Messages are stored client-side in localStorage, not server-side
+// restoreMessageDeletionTimers() is not needed since messages start fresh on server restart
+
+if (ENABLE_LOGGING) {
+  console.log(`🚀 Community Chat server running on port ${PORT}`);
+}
+
 io.on("connection", (socket) => {
   if (ENABLE_LOGGING) console.log(`User connected: ${socket.id}`);
 
@@ -340,8 +594,18 @@ io.on("connection", (socket) => {
     });
 
     // Send existing channels, users, and emotes to the new user
+    // Filter channels: only send public channels and channels where user is a member
+    const userChannels = Array.from(channels.values()).filter(channel => {
+      // Public channels (no members array) are visible to everyone
+      if (!channel.members || channel.members.length === 0) {
+        return true;
+      }
+      // DMs and groups: only visible if user is a member
+      return channel.members.includes(socket.id);
+    });
+
     socket.emit("init", {
-      channels: Array.from(channels.values()),
+      channels: userChannels,
       users: Array.from(users.values()),
       excalidrawState,
       emotes: Array.from(emotes.values())
@@ -390,6 +654,9 @@ io.on("connection", (socket) => {
     const channel = channels.get(channelId);
     if (!channel) return;
 
+    // Track which channel the user is in
+    userCurrentChannel.set(socket.id, channelId);
+
     // Send channel messages to the user
     const messages = channelMessages.get(channelId) || [];
     socket.emit("channel-messages", { channelId, messages });
@@ -414,6 +681,12 @@ io.on("connection", (socket) => {
     const channel = channels.get(data.channelId);
     if (!channel) return;
 
+    // Calculate deletion time: use channel auto-delete setting, or default to 1 day
+    const DEFAULT_SERVER_EXPIRATION = 24 * 60 * 60 * 1000; // 1 day in milliseconds
+    const deletionTime = channel.autoDeleteAfter
+      ? Date.now() + getAutoDeleteMs(channel.autoDeleteAfter)
+      : Date.now() + DEFAULT_SERVER_EXPIRATION;
+
     const message = {
       id: `${Date.now()}-${socket.id}`,
       user: user.username,
@@ -429,7 +702,9 @@ io.on("connection", (socket) => {
       isPinned: false,
       isEdited: false,
       replyTo: data.replyTo,
-      isSpoiler: data.isSpoiler
+      isSpoiler: data.isSpoiler,
+      // All messages have scheduled deletion time (either custom or default 1-day)
+      scheduledDeletionTime: deletionTime
     };
 
     // Add message to channel
@@ -437,7 +712,14 @@ io.on("connection", (socket) => {
     messages.push(message);
     channelMessages.set(data.channelId, messages);
 
-    io.emit("message", { channelId: data.channelId, message });
+    emitToChannel(data.channelId, "message", { channelId: data.channelId, message });
+
+    // Schedule auto-deletion for ALL messages (either custom time or default 1-day)
+    const deletionDuration = channel.autoDeleteAfter || '24h';
+    scheduleMessageDeletion(data.channelId, message.id, deletionDuration);
+
+    // Note: We do NOT save messages to server disk anymore
+    // Clients save messages to their own localStorage if persistence is enabled
 
     // Clear typing indicator
     if (typingUsers.has(socket.id)) {
@@ -457,7 +739,7 @@ io.on("connection", (socket) => {
     message.text = data.newText;
     message.isEdited = true;
 
-    io.emit("message-edited", { channelId: data.channelId, messageId: data.messageId, newText: data.newText });
+    emitToChannel(data.channelId, "message-edited", { channelId: data.channelId, messageId: data.messageId, newText: data.newText });
   });
 
   // Handle message delete
@@ -509,7 +791,10 @@ io.on("connection", (socket) => {
       channelPins.delete(data.messageId);
     }
 
-    io.emit("message-deleted", { channelId: data.channelId, messageId: data.messageId });
+    // Cancel any scheduled auto-deletion for this message
+    cancelMessageDeletion(data.messageId);
+
+    emitToChannel(data.channelId, "message-deleted", { channelId: data.channelId, messageId: data.messageId });
   });
 
   // Handle message pin/unpin
@@ -534,7 +819,7 @@ io.on("connection", (socket) => {
       channelPins.delete(data.messageId);
     }
 
-    io.emit("message-pin-toggled", { channelId: data.channelId, messageId: data.messageId, isPinned: message.isPinned });
+    emitToChannel(data.channelId, "message-pin-toggled", { channelId: data.channelId, messageId: data.messageId, isPinned: message.isPinned });
   });
 
   // Handle typing indicator
@@ -542,13 +827,28 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
     if (!user) return;
 
-    if (isTyping) {
-      typingUsers.add(socket.id);
-    } else {
-      typingUsers.delete(socket.id);
+    // Get the channel the user is currently in
+    const channelId = userCurrentChannel.get(socket.id);
+    if (!channelId) return;
+
+    // Get or create the typing users set for this channel
+    let channelTyping = channelTypingUsers.get(channelId);
+    if (!channelTyping) {
+      channelTyping = new Set<string>();
+      channelTypingUsers.set(channelId, channelTyping);
     }
 
-    io.emit("typing", Array.from(typingUsers).map(id => users.get(id)?.username).filter(Boolean));
+    if (isTyping) {
+      typingUsers.add(socket.id);
+      channelTyping.add(socket.id);
+    } else {
+      typingUsers.delete(socket.id);
+      channelTyping.delete(socket.id);
+    }
+
+    // Only emit typing indicator to users in the same channel
+    const typingUsernames = Array.from(channelTyping).map(id => users.get(id)?.username).filter(Boolean);
+    emitToChannel(channelId, "typing", typingUsernames);
   });
 
   // WebRTC Signaling for screen sharing
@@ -701,6 +1001,161 @@ io.on("connection", (socket) => {
     if (ENABLE_LOGGING) console.log(`Channel deleted: ${channelId}`);
   });
 
+  // Update channel auto-delete settings
+  socket.on("update-channel-settings", (data: {
+    channelId: string;
+    autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
+    persistMessages?: boolean;
+  }) => {
+    const channel = channels.get(data.channelId);
+    if (!channel) {
+      socket.emit("channel-error", "Channel does not exist");
+      return;
+    }
+
+    // Update channel settings
+    channel.autoDeleteAfter = data.autoDeleteAfter;
+    if (data.persistMessages !== undefined) {
+      channel.persistMessages = data.persistMessages;
+    }
+    channels.set(data.channelId, channel);
+
+    // Notify all clients about the update
+    io.emit("channel-settings-updated", {
+      channelId: data.channelId,
+      autoDeleteAfter: data.autoDeleteAfter,
+      persistMessages: data.persistMessages
+    });
+
+    if (ENABLE_LOGGING) {
+      console.log(`Channel ${data.channelId} settings updated:`, {
+        autoDeleteAfter: data.autoDeleteAfter || 'disabled',
+        persistMessages: data.persistMessages
+      });
+    }
+  });
+
+  // DM (Direct Message) creation
+  socket.on("create-dm", (data: { targetUserId: string }) => {
+    const user = users.get(socket.id);
+    const targetUser = users.get(data.targetUserId);
+
+    if (!user || !targetUser) {
+      socket.emit("channel-error", "User not found");
+      return;
+    }
+
+    // Create DM channel ID by sorting user IDs to ensure consistency
+    const memberIds = [socket.id, data.targetUserId].sort();
+    const dmId = `dm-${memberIds.join('-')}`;
+
+    // Check if DM already exists
+    if (channels.has(dmId)) {
+      // DM exists, just notify the creator to switch to it
+      socket.emit("dm-created", {
+        channelId: dmId,
+        otherUser: {
+          id: targetUser.id,
+          username: targetUser.username,
+          color: targetUser.color,
+          status: targetUser.status,
+          profilePicture: targetUser.profilePicture
+        }
+      });
+      return;
+    }
+
+    // Create new DM channel
+    const dmChannel: Channel = {
+      id: dmId,
+      name: `${user.username}, ${targetUser.username}`,
+      createdAt: Date.now(),
+      type: 'dm',
+      members: memberIds
+    };
+
+    channels.set(dmId, dmChannel);
+    channelMessages.set(dmId, []);
+    pinnedMessages.set(dmId, new Set());
+
+    // Notify both users about the DM
+    socket.emit("dm-created", {
+      channelId: dmId,
+      otherUser: {
+        id: targetUser.id,
+        username: targetUser.username,
+        color: targetUser.color,
+        status: targetUser.status,
+        profilePicture: targetUser.profilePicture
+      }
+    });
+
+    io.to(data.targetUserId).emit("dm-created", {
+      channelId: dmId,
+      otherUser: {
+        id: user.id,
+        username: user.username,
+        color: user.color,
+        status: user.status,
+        profilePicture: user.profilePicture
+      }
+    });
+
+    if (ENABLE_LOGGING) console.log(`DM created: ${dmId} between ${user.username} and ${targetUser.username}`);
+  });
+
+  // Group chat creation
+  socket.on("create-group", (data: { name: string; memberIds: string[] }) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    // Validate group name
+    if (!/^[a-zA-Z0-9\s-]+$/.test(data.name)) {
+      socket.emit("channel-error", "Group name must be alphanumeric");
+      return;
+    }
+
+    // Ensure creator is in the member list
+    const memberIds = [...new Set([socket.id, ...data.memberIds])];
+
+    // Create group chat ID
+    const groupId = `group-${Date.now()}-${socket.id}`;
+
+    const groupChannel: Channel = {
+      id: groupId,
+      name: data.name,
+      createdAt: Date.now(),
+      type: 'group',
+      members: memberIds
+    };
+
+    channels.set(groupId, groupChannel);
+    channelMessages.set(groupId, []);
+    pinnedMessages.set(groupId, new Set());
+
+    // Notify all members about the group
+    memberIds.forEach(memberId => {
+      io.to(memberId).emit("group-created", {
+        id: groupId,
+        name: data.name,
+        createdAt: groupChannel.createdAt,
+        type: 'group',
+        members: memberIds.map(id => {
+          const u = users.get(id);
+          return u ? {
+            id: u.id,
+            username: u.username,
+            color: u.color,
+            status: u.status,
+            profilePicture: u.profilePicture
+          } : null;
+        }).filter(Boolean)
+      });
+    });
+
+    if (ENABLE_LOGGING) console.log(`Group created: ${data.name} (${groupId}) by ${user.username}`);
+  });
+
   // Emote management
   socket.on("upload-emote", (data: { name: string; imageData: string; type: 'static' | 'animated' }) => {
     const user = users.get(socket.id);
@@ -787,6 +1242,16 @@ io.on("connection", (socket) => {
     if (user) {
       users.delete(socket.id);
       typingUsers.delete(socket.id);
+
+      // Clean up channel tracking
+      const channelId = userCurrentChannel.get(socket.id);
+      if (channelId) {
+        const channelTyping = channelTypingUsers.get(channelId);
+        if (channelTyping) {
+          channelTyping.delete(socket.id);
+        }
+        userCurrentChannel.delete(socket.id);
+      }
 
       if (screenSharers.has(socket.id)) {
         screenSharers.delete(socket.id);

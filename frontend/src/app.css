@@ -5,76 +5,88 @@
 }
 
 :root {
-	/* Main theme colors */
-	--bg-primary: #fff5f7;
-	--bg-secondary: #ffe4e9;
-	--bg-tertiary: #ffd1dc;
-	--bg-hover: #ffc2d1;
-	--text-primary: #4a2c3d;
-	--text-secondary: #8b6b7a;
-	--text-tertiary: #a88595;
-	--accent: #ff6b9d;
-	--accent-hover: #ff5689;
-	--border: #ffc2d1;
+	/* === NEBULA COSMIC THEME === */
+	/* Unified left-to-right gradients for a space nebula vibe—purples, blues, pinks fading like interstellar clouds. Deep cosmic depths with starry accents. */
 
-	/* Status colors */
-	--status-online: #10b981;
-	--status-online-hover: #059669;
-	--status-away: #f59e0b;
-	--status-away-hover: #d97706;
-	--status-busy: #ef4444;
-	--status-busy-hover: #dc2626;
-	--status-offline: #6b7280;
+	/* Main backgrounds - Ethereal nebula gradients */
+	--bg-primary: linear-gradient(to right, #0f0c29 0%, #302b63 100%);  /* Deep space purple fade for main app */
+	--bg-secondary: rgba(0,0,0,0%);  /* Transparent for messages (blends into cosmic void) */
+	--bg-tertiary: #24243e;  /* Solid dark indigo for sidebars */
+	--bg-hover: #302b63;  /* Solid hover in mid-purple */
 
-	/* Semantic colors */
-	--color-success: #10b981;
-	--color-success-hover: #059669;
-	--color-info: #3b82f6;
-	--color-info-hover: #2563eb;
-	--color-warning: #f59e0b;
-	--color-warning-hover: #d97706;
-	--color-danger: #ef4444;
-	--color-danger-hover: #dc2626;
-	--color-danger-dark: #b91c1c;
+	/* Text colors - Starlight contrasts */
+	--text-primary: #e0e0ff;  /* Pale lavender (high contrast on dark) */
+	--text-secondary: #b3b3ff;  /* Soft blue-purple */
+	--text-tertiary: #9999ff;  /* Muted violet */
 
-	/* Modal/Dialog colors */
-	--modal-bg: white;
-	--modal-overlay: rgba(0, 0, 0, 0.5);
-	--modal-border: #e5e7eb;
-	--modal-header-bg: #f9fafb;
-	--modal-text: #111827;
-	--modal-text-secondary: #6b7280;
-	--modal-text-muted: #9ca3af;
+	/* Accent - Pulsing nebula energy */
+	--accent: linear-gradient(to right, #ff00ff 0%, #ff69b4 100%);  /* Magenta to hot pink glow */
+	--accent-hover: linear-gradient(to right, #ff69b4 0%, #ff1493 100%);  /* Hot pink to deep magenta pulse */
 
-	/* UI element colors */
-	--ui-bg-light: #f3f4f6;
-	--ui-bg-lighter: #f9fafb;
-	--ui-border-light: #e5e7eb;
-	--ui-border: #d1d5db;
-	--ui-text: #374151;
-	--ui-text-dark: #111827;
+	/* Borders - Glowing cosmic edges */
+	--border: none;
 
-	/* Pinned messages theme */
-	--pinned-bg: #fffbeb;
-	--pinned-bg-hover: #fef3c7;
-	--pinned-border: #fbbf24;
-	--pinned-text: #78350f;
-	--pinned-text-dark: #92400e;
-	--pinned-text-secondary: #b45309;
+	/* Status colors - Celestial phenomena */
+	--status-online: #00ff7f;  /* Spring green (comet trail) */
+	--status-online-hover: #00fa9a;
+	--status-away: #ffd700;  /* Gold (distant star) */
+	--status-away-hover: #ffc300;
+	--status-busy: #ff00ff;  /* Magenta (nebula core) */
+	--status-busy-hover: #ee82ee;
+	--status-offline: #708090;  /* Slate gray (void) */
 
-	/* Special backgrounds */
-	--bg-info-light: #eff6ff;
-	--bg-info-lighter: #f0f9ff;
-	--bg-warning-light: #fef3c7;
+	/* Semantic colors - Galactic alerts */
+	--color-success: #00ff7f;  /* Green success flare */
+	--color-success-hover: #00fa9a;
+	--color-info: #00bfff;  /* Deep sky blue info */
+	--color-info-hover: #1e90ff;
+	--color-warning: #ffd700;  /* Gold warning */
+	--color-warning-hover: #ffc300;
+	--color-danger: #ff00ff;  /* Magenta danger */
+	--color-danger-hover: #ee82ee;
+	--color-danger-dark: #db7093;
 
-	/* Shadow colors */
-	--shadow-sm: rgba(0, 0, 0, 0.05);
-	--shadow-md: rgba(0, 0, 0, 0.1);
-	--shadow-lg: rgba(0, 0, 0, 0.15);
+	/* Modal/Dialog colors - Starfield clarity */
+	--modal-bg: #0f0c29;  /* Deep space for modals */
+	--modal-overlay: rgba(48, 43, 99, 0.7);  /* Purple haze overlay */
+	--modal-border: none;
+	--modal-header-bg: #24243e;
+	--modal-text: #e0e0ff;  /* Starlight text */
+	--modal-text-secondary: #b3b3ff;
+	--modal-text-muted: #9999ff;
 
-	/* Login/dark theme */
-	--dark-bg-primary: #1a1a1a;
-	--dark-bg-secondary: #2d2d2d;
+	/* UI element colors - Cosmic dust */
+	--ui-bg-light: #302b63;
+	--ui-bg-lighter: #24243e;
+	--ui-border-light: none;
+	--ui-border: none;
+	--ui-text: #b3b3ff;
+	--ui-text-dark: #e0e0ff;
+
+	/* Pinned messages theme - Supernova highlights */
+	--pinned-bg: #4b0082;
+	--pinned-bg-hover: #6a1b9a;
+	--pinned-border: none;
+	--pinned-text: #e0e0ff;
+	--pinned-text-dark: #ff00ff;
+	--pinned-text-secondary: #ee82ee;
+
+	/* Special backgrounds - Nebula variations */
+	--bg-info-light: #302b63;
+	--bg-info-lighter: #24243e;
+	--bg-warning-light: #4b0082;
+
+	/* Shadow colors - Black hole pulls */
+	--shadow-sm: rgba(123, 104, 238, 0.1);  /* Medium slate blue tint */
+	--shadow-md: rgba(123, 104, 238, 0.15);
+	--shadow-lg: rgba(123, 104, 238, 0.2);
+
+	/* Dark theme - Even deeper void */
+	--dark-bg-primary: #000000;
+	--dark-bg-secondary: #0f0c29;
+
+	/* Error state */
+	--error: #ff1493;  /* Deep pink error flash */
 }
 
 body {
@@ -86,80 +98,95 @@ body {
 
 button {
 	background: var(--accent);
-	color: rgb(253, 225, 225);
+	color: white;
 	border: none;
 	padding: 0.5rem 1rem;
-	border-radius: 1px;
+	border-radius: 0px;
 	cursor: pointer;
 	font-size: 0.9rem;
-	transition: background 0.2s;
+	font-weight: 500;
+	transition: all 0.2s;
+	box-shadow: none;
 }
 
 button:hover {
 	background: var(--accent-hover);
+	transform: translateY(-1px);
+	box-shadow: none;
+}
+
+button:active {
+	transform: translateY(0);
+	box-shadow: none;
 }
 
 button:disabled {
 	opacity: 0.5;
 	cursor: not-allowed;
+	transform: none;
 }
 
 input, textarea {
-	background: var(--bg-tertiary);
+	background: var(--ui-bg-lighter);
 	color: var(--text-primary);
-	border: 1px solid var(--border);
-	padding: 0.5rem;
-	border-radius: 1px;
+	border: none;
+	padding: 0.625rem;
+	border-radius: 0px;
 	font-size: 0.9rem;
-}
-
-.input-container textarea::placeholder {
-    color: var(--text-secondary);
-}
-
-.input-container .send-button {
-    background: var(--accent);
-    color: white;
-    padding: 0.35rem 0.75rem;
-    border-radius: 6px;
-    font-size: 0.9rem;
-}
-
-.input-container .send-button:disabled {
-    opacity: 0.4;
+	transition: all 0.2s;
 }
 
 input:focus, textarea:focus {
 	outline: none;
-	border-color: var(--accent);
+	border: none;
+	box-shadow: none;
 }
 
+.input-container textarea::placeholder {
+	color: var(--text-secondary);
+}
+
+.input-container .send-button {
+	background: var(--accent);
+	color: white;
+	padding: 0.5rem 1rem;
+	border-radius: 0px;
+	font-size: 0.9rem;
+	font-weight: 500;
+}
+
+.input-container .send-button:disabled {
+	opacity: 0.4;
+}
+
+/* Scrollbar theming - Cosmic styled */
 ::-webkit-scrollbar {
-	width: 8px;
+	width: 10px;
+	height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-	background: var(--bg-secondary);
+	background: var(--ui-bg-light);
 }
 
 ::-webkit-scrollbar-thumb {
-	background: var(--bg-tertiary);
-	border-radius: 4px;
+	background: linear-gradient(to bottom, #7b68ee 0%, #9370db 100%);
+	border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-	background: var(--border);
+	background: linear-gradient(to bottom, #9370db 0%, #8a2be2 100%);
 }
 
-/* Spoiler styling */
+/* Spoiler styling - Nebula reveal mystery */
 .spoiler {
 	background: var(--text-primary);
 	color: transparent;
 	padding: 0.125rem 0.25rem;
-	border-radius: 3px;
+	border-radius: 4px;
 	cursor: pointer;
 	user-select: none;
-	transition: all 0.15s ease;
+	transition: all 0.3s ease;
 }
 
 .spoiler:hover {
@@ -167,7 +194,7 @@ input:focus, textarea:focus {
 }
 
 .spoiler.revealed {
-	background: var(--bg-tertiary);
+	background: var(--ui-bg-light);
 	color: var(--text-primary);
 	user-select: text;
 	cursor: text;

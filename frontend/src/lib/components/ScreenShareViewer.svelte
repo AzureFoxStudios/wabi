@@ -215,7 +215,7 @@
 	.back-btn {
 		background: var(--bg-tertiary);
 		color: var(--text-primary);
-		border: 1px solid var(--border);
+		border: none;
 		padding: 0.5rem 1rem;
 		border-radius: 0;
 		font-size: 0.9rem;
@@ -234,7 +234,7 @@
 	}
 
 	.stop-btn:hover {
-		background: #dd3030;
+		background: var(--color-danger-hover);
 	}
 
 	.error {
@@ -259,7 +259,7 @@
 		background: var(--bg-secondary);
 		border-radius: 0;
 		overflow: hidden;
-		border: 1px solid var(--border);
+		border: none;
 	}
 
 	.screen-header {

@@ -262,12 +262,13 @@ export class ChatStorage {
 	}
 
 	// Save message to current period's archive
+	// Note: Caller is responsible for checking if persistence is enabled for the channel
 	async saveMessage(channel: string, message: Message) {
 		if (!browser) return;
 		await this.ensureInit();
 
-		const isEnabled = await this.isEnabled();
-		if (!isEnabled) return;
+		// No longer check global isEnabled() - persistence is now per-channel
+		// The socket.ts code checks channel.persistMessages before calling this
 
 		const periodKey = this.getPeriodKey();
 
@@ -305,12 +306,13 @@ export class ChatStorage {
 	}
 
 	// Load all messages from all archives
+	// Always loads saved messages, regardless of global setting (persistence is per-channel)
 	async loadAllMessages(): Promise<Record<string, Message[]>> {
 		if (!browser) return {};
 		await this.ensureInit();
 
-		const isEnabled = await this.isEnabled();
-		if (!isEnabled) return {};
+		// No longer check global isEnabled() - we always load what was saved
+		// Individual channels control whether messages are saved via persistMessages flag
 
 		const allMessages: Record<string, Message[]> = {};
 

@@ -320,7 +320,7 @@
 
 	select {
 		padding: 0.5rem;
-		border: 1px solid var(--border);
+		border: none;
 		border-radius: 4px;
 		background: var(--bg-primary);
 		color: var(--text-primary);
@@ -336,7 +336,7 @@
 	.number-input-group input {
 		width: 80px;
 		padding: 0.5rem;
-		border: 1px solid var(--border);
+		border: none;
 		border-radius: 4px;
 		background: var(--bg-primary);
 		color: var(--text-primary);
@@ -376,7 +376,7 @@
 		padding: 0.75rem 1rem;
 		background: var(--bg-tertiary);
 		border-radius: 6px;
-		border: 1px solid var(--border);
+		border: none;
 	}
 
 	.archive-info {
@@ -448,7 +448,7 @@
 
 	.btn-danger {
 		padding: 0.6rem 1.2rem;
-		background: #dc2626;
+		background: var(--color-danger-hover);
 		color: white;
 		border: none;
 		border-radius: 4px;
@@ -458,6 +458,6 @@
 	}
 
 	.btn-danger:hover {
-		background: #b91c1c;
+		background: var(--color-danger-dark);
 	}
 </style>
