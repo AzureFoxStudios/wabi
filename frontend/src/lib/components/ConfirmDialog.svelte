@@ -59,20 +59,21 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		background-color: rgba(0, 0, 0, 0.5);
+		background-color: rgba(15, 12, 41, 0.85);
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		z-index: 1000;
-		backdrop-filter: blur(4px);
+		backdrop-filter: blur(8px);
 	}
 
 	.modal-content {
-		background: white;
+		background: linear-gradient(135deg, #1a1535 0%, #2a2050 100%);
+		border: 1px solid rgba(179, 179, 255, 0.2);
 		border-radius: 12px;
 		width: 90%;
 		max-width: 450px;
-		box-shadow: none;
+		box-shadow: 0 8px 32px rgba(255, 0, 255, 0.15);
 		overflow: hidden;
 	}
 
@@ -81,21 +82,22 @@
 		justify-content: space-between;
 		align-items: center;
 		padding: 1.5rem;
-		border-bottom: 1px solid var(--modal-border);
+		border-bottom: 1px solid rgba(179, 179, 255, 0.15);
+		background: rgba(48, 43, 99, 0.3);
 	}
 
 	.modal-header h2 {
 		margin: 0;
 		font-size: 1.25rem;
 		font-weight: 600;
-		color: var(--modal-text);
+		color: var(--text-primary);
 	}
 
 	.close-btn {
 		background: none;
 		border: none;
 		font-size: 2rem;
-		color: var(--modal-text-secondary);
+		color: var(--text-secondary);
 		cursor: pointer;
 		width: 32px;
 		height: 32px;
@@ -103,12 +105,12 @@
 		align-items: center;
 		justify-content: center;
 		border-radius: 6px;
-		transition: background-color 0.2s;
+		transition: all 0.2s;
 	}
 
 	.close-btn:hover {
-		background-color: var(--ui-bg-light);
-		color: var(--modal-text);
+		background-color: rgba(255, 0, 255, 0.2);
+		color: var(--text-primary);
 	}
 
 	.modal-body {
@@ -117,7 +119,7 @@
 
 	.modal-body p {
 		margin: 0;
-		color: var(--ui-text);
+		color: var(--text-secondary);
 		font-size: 0.9375rem;
 		line-height: 1.6;
 	}
@@ -127,8 +129,8 @@
 		justify-content: flex-end;
 		gap: 0.75rem;
 		padding: 1.5rem;
-		border-top: 1px solid var(--modal-border);
-		background-color: var(--modal-header-bg);
+		border-top: 1px solid rgba(179, 179, 255, 0.15);
+		background-color: rgba(48, 43, 99, 0.2);
 	}
 
 	.cancel-btn,
@@ -143,14 +145,14 @@
 	}
 
 	.cancel-btn {
-		background: var(--modal-bg);
-		border: none;
-		color: var(--ui-text);
+		background: rgba(48, 43, 99, 0.5);
+		border: 1px solid rgba(179, 179, 255, 0.2);
+		color: var(--text-primary);
 	}
 
 	.cancel-btn:hover {
-		background-color: var(--ui-bg-light);
-		border-color: var(--modal-text-muted);
+		background-color: rgba(48, 43, 99, 0.8);
+		border-color: rgba(179, 179, 255, 0.4);
 	}
 
 	.confirm-btn {

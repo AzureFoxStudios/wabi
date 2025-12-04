@@ -28,7 +28,12 @@
       "Bash(netstat:*)",
       "Bash(nul)",
       "Bash(dir:*)",
-      "Bash(cmd //c \"taskkill /PID 27992 /F\")"
+      "Bash(cmd //c \"taskkill /PID 27992 /F\")",
+      "Bash(npm run build:*)",
+      "Bash(cmd //c \"taskkill /PID 94244 /F\")",
+      "Bash(cmd //c \"taskkill /PID 29536 /F\")",
+      "Bash(cmd //c \"taskkill /PID 91072 /F\")",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

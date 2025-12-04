@@ -57,12 +57,12 @@
 				required
 				autofocus
 			/>
-			<button type="submit" class="join-btn">Join the Fridge</button>
+			<button type="submit" class="join-btn">Join Chat</button>
 		</form>
 
 		<!-- QR CODE BUTTON -->
 		<button type="button" on:click={generateQR} class="qr-btn">
-			Scan to Join This House
+			Join via QR Code
 		</button>
 	</div>
 
@@ -80,11 +80,11 @@
 			class="qr-modal"
 			role="dialog"
 			aria-modal="true"
-			aria-label="QR code to join this Wabi house"
+			aria-label="QR code to join chat"
 			on:click|stopPropagation
 			on:keydown|stopPropagation
 		>
-			<h2>Join This Wabi House</h2>
+			<h2>Scan to Join</h2>
 			<canvas bind:this={qrCanvas}></canvas>
 
 			<p class="url">{serverUrl}</p>

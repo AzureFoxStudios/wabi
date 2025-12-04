@@ -199,3 +199,25 @@ input:focus, textarea:focus {
 	user-select: text;
 	cursor: text;
 }
+
+/* Emoji inline styling - Inline emojis in messages */
+.emoji-inline {
+	width: 1.25em;
+	height: 1.25em;
+	vertical-align: -0.2em;
+	display: inline-block;
+	object-fit: contain;
+}
+
+/* Custom emote styling - GIF/animated emotes */
+.emote {
+	width: 2em;
+	height: 2em;
+	vertical-align: -0.4em;
+	display: inline-block;
+	object-fit: contain;
+}
+
+.emote-animated {
+	/* No additional styling needed for now */
+}
