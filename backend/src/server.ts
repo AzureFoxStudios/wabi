@@ -2,6 +2,8 @@ import { Server } from "socket.io";
 import { createServer } from "http";
 import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
+import { PluginLoader } from "./plugins/loader";
+import { getAllEmojis, getEmojiByName, addCustomEmoji, deleteCustomEmoji, type Emoji } from "./emojis";
 
 // In-memory data store
 interface Channel {
@@ -34,6 +36,7 @@ const channelMessages = new Map<string, Array<{
   replyTo?: string;
   isSpoiler?: boolean;
   scheduledDeletionTime?: number; // Unix timestamp when message should be deleted
+  reactions?: Record<string, string[]>; // emojiId -> array of userIds who reacted
 }>>();
 
 // Initialize general channel with empty messages
@@ -579,6 +582,21 @@ if (ENABLE_LOGGING) {
   console.log(`🚀 Community Chat server running on port ${PORT}`);
 }
 
+// Initialize plugin system
+const pluginLoader = new PluginLoader(io, server as any, {
+  channels,
+  users,
+  channelMessages,
+  emitToChannel
+});
+
+// Load all plugins asynchronously
+pluginLoader.loadAll().then(() => {
+  console.log('🔌 Plugin system ready');
+}).catch(error => {
+  console.error('❌ Failed to load plugins:', error);
+});
+
 io.on("connection", (socket) => {
   if (ENABLE_LOGGING) console.log(`User connected: ${socket.id}`);
 
@@ -608,7 +626,8 @@ io.on("connection", (socket) => {
       channels: userChannels,
       users: Array.from(users.values()),
       excalidrawState,
-      emotes: Array.from(emotes.values())
+      emotes: Array.from(emotes.values()),
+      emojis: getAllEmojis()
     });
 
     // Broadcast new user to others
@@ -721,10 +740,18 @@ io.on("connection", (socket) => {
     // Note: We do NOT save messages to server disk anymore
     // Clients save messages to their own localStorage if persistence is enabled
 
-    // Clear typing indicator
+    // Clear typing indicator for this channel
     if (typingUsers.has(socket.id)) {
       typingUsers.delete(socket.id);
-      io.emit("typing", Array.from(typingUsers).map(id => users.get(id)?.username).filter(Boolean));
+
+      // Also remove from channel-specific typing users
+      const channelTyping = channelTypingUsers.get(data.channelId);
+      if (channelTyping) {
+        channelTyping.delete(socket.id);
+        // Emit updated typing list only to users in this channel
+        const typingUsernames = Array.from(channelTyping).map(id => users.get(id)?.username).filter(Boolean);
+        emitToChannel(data.channelId, "typing", typingUsernames);
+      }
     }
   });
 
@@ -820,6 +847,95 @@ io.on("connection", (socket) => {
     }
 
     emitToChannel(data.channelId, "message-pin-toggled", { channelId: data.channelId, messageId: data.messageId, isPinned: message.isPinned });
+  });
+
+  // Handle emoji reactions
+  socket.on("add-reaction", (data: { messageId: string; channelId: string; emojiId: string }) => {
+    const messages = channelMessages.get(data.channelId);
+    if (!messages) return;
+
+    const message = messages.find(m => m.id === data.messageId);
+    if (!message) return;
+
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    // Initialize reactions object if needed
+    if (!message.reactions) {
+      message.reactions = {};
+    }
+
+    // Initialize emoji reaction array if needed
+    if (!message.reactions[data.emojiId]) {
+      message.reactions[data.emojiId] = [];
+    }
+
+    // Add user to reaction if not already present
+    if (!message.reactions[data.emojiId].includes(user.id)) {
+      message.reactions[data.emojiId].push(user.id);
+    }
+
+    emitToChannel(data.channelId, "reaction-added", {
+      channelId: data.channelId,
+      messageId: data.messageId,
+      emojiId: data.emojiId,
+      userId: user.id,
+      reactions: message.reactions
+    });
+  });
+
+  socket.on("remove-reaction", (data: { messageId: string; channelId: string; emojiId: string }) => {
+    const messages = channelMessages.get(data.channelId);
+    if (!messages) return;
+
+    const message = messages.find(m => m.id === data.messageId);
+    if (!message || !message.reactions) return;
+
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    // Remove user from reaction
+    if (message.reactions[data.emojiId]) {
+      message.reactions[data.emojiId] = message.reactions[data.emojiId].filter(id => id !== user.id);
+
+      // Remove emoji key if no users left
+      if (message.reactions[data.emojiId].length === 0) {
+        delete message.reactions[data.emojiId];
+      }
+    }
+
+    emitToChannel(data.channelId, "reaction-removed", {
+      channelId: data.channelId,
+      messageId: data.messageId,
+      emojiId: data.emojiId,
+      userId: user.id,
+      reactions: message.reactions
+    });
+  });
+
+  // Handle emoji management
+  socket.on("get-emojis", () => {
+    socket.emit("emojis-list", getAllEmojis());
+  });
+
+  socket.on("upload-emoji", (data: { name: string; url: string; category: string }) => {
+    const emoji: Emoji = {
+      id: `custom_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      name: data.name,
+      url: data.url,
+      category: data.category,
+      isCustom: true
+    };
+
+    addCustomEmoji(emoji);
+    io.emit("emoji-added", emoji);
+  });
+
+  socket.on("delete-emoji", (emojiName: string) => {
+    const success = deleteCustomEmoji(emojiName);
+    if (success) {
+      io.emit("emoji-deleted", emojiName);
+    }
   });
 
   // Handle typing indicator

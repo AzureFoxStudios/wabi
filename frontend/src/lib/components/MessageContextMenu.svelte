@@ -12,6 +12,7 @@
 	export let onReply: () => void;
 	export let onDownload: (() => void) | undefined = undefined;
 	export let onForward: (() => void) | undefined = undefined;
+	export let onAddReaction: (() => void) | undefined = undefined;
 
 	$: isOwnMessage = message.userId === $currentUser?.id;
 	$: hasFile = message.type === 'file' && message.fileUrl;
@@ -61,6 +62,13 @@
 				<span class="menu-icon">💬</span>
 				Reply
 			</button>
+
+			{#if onAddReaction}
+				<button class="menu-item" on:click={onAddReaction}>
+					<span class="menu-icon">😀</span>
+					Add Reaction
+				</button>
+			{/if}
 
 			{#if hasFile && onDownload}
 				<button class="menu-item" on:click={onDownload}>

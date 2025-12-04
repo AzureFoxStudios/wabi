@@ -58,8 +58,21 @@
 		contextMenuUser = null;
 	}
 
-	function handleOpenDM(targetUser?: User) {
-		const user = targetUser || contextMenuUser;
+	function handleOpenDM(event?: CustomEvent<{ user: User }> | User) {
+		// Handle both direct user parameter and event with user data
+		let user: User | null = null;
+
+		if (event && 'detail' in event) {
+			// Called from context menu event
+			user = event.detail.user;
+		} else if (event && 'id' in event) {
+			// Called with user object directly
+			user = event as User;
+		} else {
+			// Fallback to contextMenuUser (for backwards compatibility)
+			user = contextMenuUser;
+		}
+
 		if (!user) return;
 
 		// Create DM and find the channel

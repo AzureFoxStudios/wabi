@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, type Message } from '$lib/socket';
+	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, type Message, type Emoji } from '$lib/socket';
 	import GiphyPicker from './GiphyPicker.svelte';
+	import EmojiPicker from './EmojiPicker.svelte';
 	import MessageList from './MessageList.svelte';
 	import PinnedMessages from './PinnedMessages.svelte';
 
@@ -10,10 +11,17 @@
 	$: currentChannelData = $channels.find(ch => ch.id === $currentChannel);
 	$: channelDisplayName = currentChannelData?.name || $currentChannel;
 
+	// Safeguard: DM channels should never be displayed in the main chat area
+	// They should only appear in the DM panel on the right side
+	// This check prevents accidental rendering of DMs in the middle chat
+	$: isDMChannel = currentChannelData?.type === 'dm';
+
 	let messageInput = '';
 	let chatContainer: HTMLElement;
 	let typingTimeout: number;
 	let showGiphyPicker = false;
+	let showEmojiPicker = false;
+	let emojiPickerButton: HTMLButtonElement;
 	let replyingTo: Message | null = null;
 	let fileInput: HTMLInputElement;
 	let editingMessage: Message | null = null;
@@ -132,6 +140,15 @@
 		});
 		replyingTo = null;
 		showGiphyPicker = false;
+	}
+
+	function handleEmojiSelect(event: CustomEvent<{ emoji: Emoji }>) {
+		const emoji = event.detail.emoji;
+		// Insert emoji syntax at cursor position or end of text
+		messageInput += `:${emoji.name}:`;
+		showEmojiPicker = false;
+		// Focus the textarea
+		textareaElement?.focus();
 	}
 
 	function handleReply(message: Message) {
@@ -367,9 +384,20 @@
 		</div>
 	{/if}
 
-	<div class="chat-header">
-		<h2>{channelDisplayName}</h2>
-	</div>
+	{#if isDMChannel}
+		<!-- DM channels should not be displayed in the main chat area -->
+		<!-- They are only accessible through the DM panel on the right -->
+		<div class="dm-redirect-message">
+			<div class="dm-redirect-content">
+				<h2>Direct Messages</h2>
+				<p>Direct messages are displayed in the DM panel on the right side.</p>
+				<p>Click on a user in the user panel to start or view a DM conversation.</p>
+			</div>
+		</div>
+	{:else}
+		<div class="chat-header">
+			<h2>{channelDisplayName}</h2>
+		</div>
 
 	<div class="messages" bind:this={chatContainer}>
 		<PinnedMessages pinnedMessages={pinnedMessages} />
@@ -387,6 +415,16 @@
 		<GiphyPicker
 			on:select={handleGifSelect}
 			on:close={() => showGiphyPicker = false}
+		/>
+	{/if}
+
+	{#if showEmojiPicker && emojiPickerButton}
+		<EmojiPicker
+			isOpen={showEmojiPicker}
+			x={emojiPickerButton.getBoundingClientRect().left}
+			y={emojiPickerButton.getBoundingClientRect().top - 420}
+			on:select={handleEmojiSelect}
+			on:close={() => showEmojiPicker = false}
 		/>
 	{/if}
 
@@ -497,6 +535,14 @@
 				GIF
 			</button>
 			<button
+				bind:this={emojiPickerButton}
+				class="input-icon-button"
+				on:click={() => showEmojiPicker = !showEmojiPicker}
+				title="Add emoji"
+			>
+				😀
+			</button>
+			<button
 				class="send-button"
 				on:click={handleSubmit}
 				disabled={!messageInput.trim()}
@@ -505,6 +551,7 @@
 			</button>
 		</div>
 	</div>
+	{/if}
 </div>
 
 <style>
@@ -1001,5 +1048,31 @@
 
 	.spoiler-hint:hover {
 		opacity: 1;
+	}
+
+	/* DM redirect message (when DM channel accidentally opens in main chat) */
+	.dm-redirect-message {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 100%;
+		background: var(--bg-primary);
+	}
+
+	.dm-redirect-content {
+		text-align: center;
+		padding: 2rem;
+		max-width: 400px;
+		color: var(--text-secondary);
+	}
+
+	.dm-redirect-content h2 {
+		color: var(--text-primary);
+		margin-bottom: 1rem;
+	}
+
+	.dm-redirect-content p {
+		margin: 0.5rem 0;
+		line-height: 1.6;
 	}
 </style>

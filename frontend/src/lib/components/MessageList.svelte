@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { onMount, afterUpdate } from 'svelte';
-	import type { Message, User } from '$lib/socket';
-	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage } from '$lib/socket';
+	import type { Message, User, Emoji } from '$lib/socket';
+	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis } from '$lib/socket';
 	import ProfileModal from './ProfileModal.svelte';
 	import MessageContextMenu from './MessageContextMenu.svelte';
 	import ForwardDialog from './ForwardDialog.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
+	import EmojiPicker from './EmojiPicker.svelte';
 	import { parseMessage } from '$lib/markdown';
 	import '$lib/prism-theme.css';
 
@@ -30,6 +31,12 @@
 	// Delete confirmation state
 	let showDeleteConfirm = false;
 	let messageToDelete: Message | null = null;
+
+	// Emoji picker for reactions
+	let showReactionPicker = false;
+	let reactionPickerX = 0;
+	let reactionPickerY = 0;
+	let reactionPickerMessageId: string | null = null;
 
 	function formatTime(timestamp: number): string {
 		const date = new Date(timestamp);
@@ -136,6 +143,50 @@
 		forwardMessage = contextMenuMessage;
 		showForwardDialog = true;
 		contextMenuVisible = false;
+	}
+
+	function handleAddReaction() {
+		if (!contextMenuMessage) return;
+		// Open emoji picker at the context menu position
+		reactionPickerMessageId = contextMenuMessage.id;
+		reactionPickerX = contextMenuX;
+		reactionPickerY = contextMenuY;
+		showReactionPicker = true;
+		contextMenuVisible = false;
+	}
+
+	function openReactionPicker(event: MouseEvent, messageId: string) {
+		event.stopPropagation();
+		reactionPickerMessageId = messageId;
+		reactionPickerX = event.clientX;
+		reactionPickerY = event.clientY;
+		showReactionPicker = true;
+	}
+
+	function handleReactionSelect(event: CustomEvent<{ emoji: Emoji }>) {
+		if (!reactionPickerMessageId) return;
+		addReaction($currentChannel, reactionPickerMessageId, event.detail.emoji.id);
+		showReactionPicker = false;
+		reactionPickerMessageId = null;
+	}
+
+	function toggleReaction(messageId: string, emojiId: string) {
+		const message = messages.find(m => m.id === messageId);
+		if (!message || !message.reactions) {
+			addReaction($currentChannel, messageId, emojiId);
+			return;
+		}
+
+		const userReacted = message.reactions[emojiId]?.includes($currentUser?.id || '');
+		if (userReacted) {
+			removeReaction($currentChannel, messageId, emojiId);
+		} else {
+			addReaction($currentChannel, messageId, emojiId);
+		}
+	}
+
+	function getEmojiById(emojiId: string): Emoji | undefined {
+		return $emojis.find(e => e.id === emojiId);
 	}
 
 	function handleImageContextMenu(event: MouseEvent, message: Message) {
@@ -273,6 +324,12 @@
 		if (!fileName) return false;
 		const ext = fileName.toLowerCase().split('.').pop() || '';
 		return ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv'].includes(ext);
+	}
+
+	function isAudio(fileName?: string): boolean {
+		if (!fileName) return false;
+		const ext = fileName.toLowerCase().split('.').pop() || '';
+		return ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma'].includes(ext);
 	}
 
 	let enlargedImage: string | null = null;
@@ -487,6 +544,23 @@
 												</div>
 											{/if}
 										</div>
+									{:else if isAudio(fileAttachment.fileName)}
+										<!-- svelte-ignore a11y-media-has-caption -->
+										<div class="gallery-file-item audio-item" class:last-item={index === 3 && message.files.length > 4}>
+											<audio
+												controls
+												class="gallery-file-audio"
+											>
+												<source src={getFileUrl(fileAttachment.fileUrl)} type="audio/{fileAttachment.fileName?.split('.').pop()}" />
+												Your browser does not support the audio element.
+											</audio>
+											<div class="audio-file-name">{fileAttachment.fileName}</div>
+											{#if index === 3 && message.files.length > 4}
+												<div class="more-overlay">
+													<span class="more-count">+{message.files.length - 4}</span>
+												</div>
+											{/if}
+										</div>
 									{:else}
 										<a href={getFileUrl(fileAttachment.fileUrl)} download={fileAttachment.fileName} class="gallery-file-item file-link">
 											<div class="gallery-file-icon-large">{getFileIcon(fileAttachment.fileName)}</div>
@@ -546,6 +620,23 @@
 									<span class="file-size">({formatFileSize(message.fileSize)})</span>
 								</a>
 							</div>
+						{:else if isAudio(message.fileName)}
+							<!-- Display audio with player -->
+							<div class="audio-container">
+								<!-- svelte-ignore a11y-media-has-caption -->
+								<audio
+									controls
+									class="inline-audio"
+								>
+									<source src={getFileUrl(message.fileUrl)} type="audio/{message.fileName?.split('.').pop()}" />
+									Your browser does not support the audio element.
+								</audio>
+								<div class="audio-file-info">
+									<span class="file-icon">{getFileIcon(message.fileName)}</span>
+									{message.fileName}
+									<span class="file-size">({formatFileSize(message.fileSize)})</span>
+								</div>
+							</div>
 						{:else}
 							<!-- Display other files as download link -->
 							<a href={getFileUrl(message.fileUrl)} download={message.fileName} class="file-attachment">
@@ -565,11 +656,57 @@
 					{/if}
 				</div>
 			{/if}
+
+			<!-- Reactions -->
+			{#if message.reactions && Object.keys(message.reactions).length > 0}
+				<div class="reactions">
+					{#each Object.entries(message.reactions) as [emojiId, userIds]}
+						{@const emoji = getEmojiById(emojiId)}
+						{#if emoji && userIds.length > 0}
+							{@const userReacted = userIds.includes($currentUser?.id || '')}
+							<button
+								class="reaction-btn"
+								class:user-reacted={userReacted}
+								on:click={() => toggleReaction(message.id, emojiId)}
+								title={userIds.map(id => $users.find(u => u.id === id)?.username).filter(Boolean).join(', ')}
+							>
+								<img src={emoji.url} alt={emoji.name} class="reaction-emoji" />
+								<span class="reaction-count">{userIds.length}</span>
+							</button>
+						{/if}
+					{/each}
+					<button
+						class="add-reaction-btn"
+						on:click={(e) => openReactionPicker(e, message.id)}
+						title="Add reaction"
+					>
+						+
+					</button>
+				</div>
+			{:else}
+				<div class="reactions-hover">
+					<button
+						class="add-reaction-btn"
+						on:click={(e) => openReactionPicker(e, message.id)}
+						title="Add reaction"
+					>
+						+
+					</button>
+				</div>
+			{/if}
 		</div>
 	</div>
 {/each}
 
 <ProfileModal bind:isOpen={showProfileModal} bind:user={selectedUser} {isOwnProfile} />
+
+<EmojiPicker
+	bind:isOpen={showReactionPicker}
+	x={reactionPickerX}
+	y={reactionPickerY}
+	on:select={handleReactionSelect}
+	on:close={() => showReactionPicker = false}
+/>
 
 {#if contextMenuMessage}
 	<MessageContextMenu
@@ -583,6 +720,7 @@
 		onReply={handleReply}
 		onDownload={handleDownload}
 		onForward={handleForward}
+		onAddReaction={handleAddReaction}
 	/>
 {/if}
 
@@ -1017,6 +1155,107 @@
 		background: var(--ui-bg-light);
 	}
 
+	.audio-container {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin-bottom: 0.5rem;
+		background: linear-gradient(135deg, rgba(48, 43, 99, 0.3) 0%, rgba(26, 21, 53, 0.3) 100%);
+		padding: 0.75rem;
+		border-radius: 12px;
+		border: 1px solid rgba(179, 179, 255, 0.15);
+	}
+
+	.inline-audio {
+		width: 100%;
+		max-width: 400px;
+		border-radius: 8px;
+		outline: none;
+	}
+
+	.inline-audio::-webkit-media-controls-panel {
+		background: linear-gradient(135deg, rgba(48, 43, 99, 0.8) 0%, rgba(26, 21, 53, 0.8) 100%);
+		border-radius: 8px;
+	}
+
+	.inline-audio::-webkit-media-controls-play-button,
+	.inline-audio::-webkit-media-controls-mute-button {
+		background-color: rgba(255, 0, 255, 0.3);
+		border-radius: 50%;
+	}
+
+	.inline-audio::-webkit-media-controls-play-button:hover,
+	.inline-audio::-webkit-media-controls-mute-button:hover {
+		background-color: rgba(255, 0, 255, 0.5);
+	}
+
+	.inline-audio::-webkit-media-controls-timeline {
+		background: rgba(179, 179, 255, 0.2);
+		border-radius: 4px;
+		margin: 0 8px;
+	}
+
+	.inline-audio::-webkit-media-controls-current-time-display,
+	.inline-audio::-webkit-media-controls-time-remaining-display {
+		color: var(--text-secondary);
+	}
+
+	.audio-file-info {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem;
+		background: rgba(48, 43, 99, 0.3);
+		border-radius: 6px;
+		font-size: 0.875rem;
+		color: var(--text-primary);
+		border: 1px solid rgba(179, 179, 255, 0.1);
+	}
+
+	.gallery-file-audio {
+		width: 100%;
+		height: 40px;
+		border-radius: 6px;
+		outline: none;
+	}
+
+	.gallery-file-audio::-webkit-media-controls-panel {
+		background: linear-gradient(135deg, rgba(48, 43, 99, 0.6) 0%, rgba(26, 21, 53, 0.6) 100%);
+		border-radius: 6px;
+	}
+
+	.gallery-file-audio::-webkit-media-controls-play-button {
+		background-color: rgba(255, 0, 255, 0.3);
+		border-radius: 50%;
+	}
+
+	.gallery-file-audio::-webkit-media-controls-play-button:hover {
+		background-color: rgba(255, 0, 255, 0.5);
+	}
+
+	.gallery-file-audio::-webkit-media-controls-timeline {
+		background: rgba(179, 179, 255, 0.2);
+		border-radius: 3px;
+	}
+
+	.audio-file-name {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		padding: 0.25rem 0.5rem;
+		text-align: center;
+		word-break: break-word;
+	}
+
+	.audio-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		padding: 0.75rem;
+		background: linear-gradient(135deg, rgba(48, 43, 99, 0.3) 0%, rgba(26, 21, 53, 0.3) 100%);
+		border-radius: 8px;
+		border: 1px solid rgba(179, 179, 255, 0.15);
+	}
+
 	/* Markdown content styles */
 	.markdown-content :global(p) {
 		margin: 0;
@@ -1325,5 +1564,83 @@
 
 	.spoiler.revealed::before {
 		display: none;
+	}
+
+	/* Reactions */
+	.reactions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.375rem;
+		margin-top: 0.5rem;
+	}
+
+	.reactions-hover {
+		opacity: 0;
+		transition: opacity 0.2s;
+		margin-top: 0.5rem;
+	}
+
+	.message:hover .reactions-hover {
+		opacity: 1;
+	}
+
+	.reaction-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.25rem 0.5rem;
+		background: var(--bg-tertiary);
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		cursor: pointer;
+		transition: all 0.2s;
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+	}
+
+	.reaction-btn:hover {
+		background: var(--bg-hover);
+		border-color: var(--color-primary);
+		transform: scale(1.05);
+	}
+
+	.reaction-btn.user-reacted {
+		background: rgba(88, 101, 242, 0.2);
+		border-color: var(--color-primary);
+		color: var(--color-primary);
+	}
+
+	.reaction-emoji {
+		width: 16px;
+		height: 16px;
+		object-fit: contain;
+	}
+
+	.reaction-count {
+		font-weight: 600;
+		font-size: 0.75rem;
+	}
+
+	.add-reaction-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		background: var(--bg-tertiary);
+		border: 1px dashed var(--border);
+		border-radius: 12px;
+		cursor: pointer;
+		transition: all 0.2s;
+		font-size: 1rem;
+		color: var(--text-secondary);
+	}
+
+	.add-reaction-btn:hover {
+		background: var(--bg-hover);
+		border-color: var(--color-primary);
+		color: var(--color-primary);
+		transform: scale(1.1);
 	}
 </style>

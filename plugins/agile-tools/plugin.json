@@ -1,0 +1,41 @@
+{
+  "id": "agile-tools",
+  "name": "Agile Tools",
+  "version": "1.0.0",
+  "description": "Sprint planning, task management, and burndown charts for agile teams",
+  "author": "Community",
+  "enabled": true,
+
+  "backend": {
+    "entry": "./backend/index.ts",
+    "socketEvents": [
+      "task:create",
+      "task:update",
+      "task:delete",
+      "task:list",
+      "sprint:create",
+      "sprint:start",
+      "sprint:end",
+      "burndown:get"
+    ]
+  },
+
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "extensions": {
+      "sidebar": {
+        "icon": "📊",
+        "label": "Agile",
+        "component": "./frontend/AgilePanel.svelte",
+        "position": 1
+      },
+      "commands": ["/task", "/sprint"]
+    }
+  },
+
+  "permissions": [
+    "channels:read",
+    "messages:write"
+  ],
+  "dependencies": []
+}

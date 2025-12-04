@@ -1,6 +1,8 @@
 import { marked } from 'marked';
 import Prism from 'prismjs';
 import DOMPurify from 'dompurify';
+import { get } from 'svelte/store';
+import { emojis } from './socket';
 
 // Import Prism language support
 import 'prismjs/components/prism-javascript';
@@ -105,13 +107,19 @@ export function parseMessage(text: string): string {
     html = text; // Fallback to plain text
   }
 
-  // Replace emote codes with images
+  // Replace emote codes with images (custom emotes uploaded by users)
   html = html.replace(/:([a-zA-Z0-9_]+):/g, (match, emoteName) => {
     const emote = emotes.get(emoteName);
     if (emote) {
       return `<img src="${emote.url}" alt=":${emoteName}:" class="emote ${emote.type === 'animated' ? 'emote-animated' : ''}" title=":${emoteName}:">`;
     }
-    return match; // Return original if emote not found
+    // If not an emote, check if it's an emoji
+    const emojiList = get(emojis);
+    const emoji = emojiList.find(e => e.name === emoteName);
+    if (emoji) {
+      return `<img src="${emoji.url}" alt=":${emoji.name}:" class="emoji-inline" title=":${emoji.name}:">`;
+    }
+    return match; // Return original if neither emote nor emoji found
   });
 
   // Sanitize HTML to prevent XSS
