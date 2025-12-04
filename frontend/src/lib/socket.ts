@@ -27,6 +27,15 @@ export interface Message {
 	isEdited?: boolean;
 	replyTo?: string;
 	isSpoiler?: boolean; // Mark media as spoiler (requires click to reveal)
+	reactions?: Record<string, string[]>; // emojiId -> array of userIds who reacted
+}
+
+export interface Emoji {
+	id: string;
+	name: string;
+	url: string;
+	category: string;
+	isCustom: boolean;
 }
 
 export interface User {
@@ -64,6 +73,8 @@ export const lastReadMessageId = writable<string | null>(null);
 export const channelUnreadCounts = writable<Record<string, number>>({});
 // DM panel state: signal to open DM panel with channel and user info
 export const dmPanelSignal = writable<{ channelId: string; otherUser: User } | null>(null);
+// Emojis store
+export const emojis = writable<Emoji[]>([]);
 
 let socketInstance: Socket | null = null;
 
@@ -130,7 +141,7 @@ export function initSocket(username: string) {
 		connected.set(false);
 	});
 
-	socketInstance.on('init', (data: { channels: Channel[]; users: User[]; excalidrawState: any; emotes: any[] }) => {
+	socketInstance.on('init', (data: { channels: Channel[]; users: User[]; excalidrawState: any; emotes: any[]; emojis: Emoji[] }) => {
 		users.set(data.users);
 
 		// Process channels to fix DM names
@@ -156,6 +167,11 @@ export function initSocket(username: string) {
 		// Initialize emotes
 		if (data.emotes) {
 			initEmotes(data.emotes);
+		}
+
+		// Initialize emojis
+		if (data.emojis) {
+			emojis.set(data.emojis);
 		}
 
 		// Find current user
@@ -386,6 +402,45 @@ export function initSocket(username: string) {
 		alert(error);
 	});
 
+	// Emoji and reaction events
+	socketInstance.on('reaction-added', (data: {
+		channelId: string;
+		messageId: string;
+		emojiId: string;
+		userId: string;
+		reactions: Record<string, string[]>
+	}) => {
+		channelMessages.update(msgs => ({
+			...msgs,
+			[data.channelId]: (msgs[data.channelId] || []).map(msg =>
+				msg.id === data.messageId ? { ...msg, reactions: data.reactions } : msg
+			)
+		}));
+	});
+
+	socketInstance.on('reaction-removed', (data: {
+		channelId: string;
+		messageId: string;
+		emojiId: string;
+		userId: string;
+		reactions: Record<string, string[]>
+	}) => {
+		channelMessages.update(msgs => ({
+			...msgs,
+			[data.channelId]: (msgs[data.channelId] || []).map(msg =>
+				msg.id === data.messageId ? { ...msg, reactions: data.reactions } : msg
+			)
+		}));
+	});
+
+	socketInstance.on('emoji-added', (emoji: Emoji) => {
+		emojis.update(e => [...e, emoji]);
+	});
+
+	socketInstance.on('emoji-deleted', (emojiName: string) => {
+		emojis.update(e => e.filter(emoji => emoji.name !== emojiName));
+	});
+
 	// Channel settings events
 	socketInstance.on('channel-settings-updated', (data: {
 		channelId: string;
@@ -403,6 +458,19 @@ export function initSocket(username: string) {
 }
 
 export function joinChannel(channelId: string) {
+	// Prevent DM channels from being opened in the main chat area
+	// DMs should only be opened via the DM panel (dmPanelSignal)
+	const channel = get(channels).find(ch => ch.id === channelId);
+	if (channel && channel.type === 'dm') {
+		console.warn('Cannot join DM channel via joinChannel - use DM panel instead');
+
+		// If someone tries to join a DM channel, redirect them to the DM panel
+		if (channel.otherUser) {
+			dmPanelSignal.set({ channelId, otherUser: channel.otherUser });
+		}
+		return;
+	}
+
 	socketInstance?.emit('join-channel', channelId);
 	currentChannel.set(channelId);
 	// Mark channel as read when joining
@@ -519,4 +587,20 @@ export function updateChannelSettings(channelId: string, settings: {
 	persistMessages?: boolean;
 }) {
 	socketInstance?.emit('update-channel-settings', { channelId, ...settings });
+}
+
+export function addReaction(channelId: string, messageId: string, emojiId: string) {
+	socketInstance?.emit('add-reaction', { channelId, messageId, emojiId });
+}
+
+export function removeReaction(channelId: string, messageId: string, emojiId: string) {
+	socketInstance?.emit('remove-reaction', { channelId, messageId, emojiId });
+}
+
+export function uploadEmoji(name: string, url: string, category: string) {
+	socketInstance?.emit('upload-emoji', { name, url, category });
+}
+
+export function deleteEmoji(emojiName: string) {
+	socketInstance?.emit('delete-emoji', emojiName);
 }

@@ -1,0 +1,44 @@
+{
+  "id": "voice-video",
+  "name": "Voice & Video Calling",
+  "version": "1.0.0",
+  "description": "WebRTC-based voice and video calling with screen sharing",
+  "author": "Core Team",
+  "enabled": true,
+
+  "backend": {
+    "entry": "./backend/index.ts",
+    "socketEvents": [
+      "call:initiate",
+      "call:accept",
+      "call:reject",
+      "call:end",
+      "call:offer",
+      "call:answer",
+      "call:ice-candidate",
+      "screen-share:start",
+      "screen-share:stop",
+      "screen-share:offer",
+      "screen-share:answer"
+    ]
+  },
+
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "extensions": {
+      "sidebar": {
+        "icon": "📞",
+        "label": "Calls",
+        "component": "./frontend/CallPanel.svelte",
+        "position": 2
+      }
+    }
+  },
+
+  "permissions": [
+    "media:audio",
+    "media:video",
+    "media:screen"
+  ],
+  "dependencies": []
+}

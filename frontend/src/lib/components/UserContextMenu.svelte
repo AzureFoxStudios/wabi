@@ -11,7 +11,7 @@
 		close: void;
 		voiceCall: void;
 		videoCall: void;
-		openDM: void;
+		openDM: { user: User };
 		viewProfile: void;
 	}>();
 
@@ -55,7 +55,7 @@
 	}
 
 	function handleOpenDM() {
-		dispatch('openDM');
+		dispatch('openDM', { user });
 		dispatch('close');
 	}
 
