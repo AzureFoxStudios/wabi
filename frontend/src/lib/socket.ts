@@ -99,7 +99,16 @@ export function initSocket(username: string) {
 		}
 	}
 
+	console.log('[Socket] Connecting to:', serverUrl);
 	socketInstance = io(serverUrl);
+
+	socketInstance.on('connect', () => {
+		console.log('[Socket] Connected successfully!', socketInstance.id);
+	});
+
+	socketInstance.on('connect_error', (error) => {
+		console.error('[Socket] Connection error:', error);
+	});
 	socket.set(socketInstance);
 
 	// Load unread counts from localStorage

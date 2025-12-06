@@ -693,7 +693,7 @@ pluginLoader.loadAll().then(() => {
 });
 
 io.on("connection", (socket) => {
-  if (ENABLE_LOGGING) console.log(`User connected: ${socket.id}`);
+  console.log(`🔌 WebSocket connection established: ${socket.id}`);
 
   // Handle user join
   socket.on("join", (username: string) => {
