@@ -392,6 +392,101 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // Emoji upload endpoint
+  if (url.pathname === "/api/emoji/upload" && req.method === "POST") {
+    let chunks: Buffer[] = [];
+
+    req.on('data', (chunk) => {
+      chunks.push(chunk);
+    });
+
+    req.on('end', () => {
+      try {
+        const buffer = Buffer.concat(chunks);
+        const boundary = req.headers['content-type']?.split('boundary=')[1];
+
+        if (!boundary) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: 'Invalid content type' }));
+          return;
+        }
+
+        const parts = buffer.toString('binary').split(`--${boundary}`);
+        let fileName = '';
+        let fileData: Buffer | null = null;
+        let emojiName = '';
+        let category = 'custom';
+
+        for (const part of parts) {
+          if (part.includes('Content-Disposition')) {
+            const nameMatch = part.match(/name="([^"]+)"/);
+            const filenameMatch = part.match(/filename="([^"]+)"/);
+
+            if (filenameMatch) {
+              fileName = filenameMatch[1];
+              const dataStart = part.indexOf('\r\n\r\n') + 4;
+              const dataEnd = part.lastIndexOf('\r\n');
+              fileData = Buffer.from(part.substring(dataStart, dataEnd), 'binary');
+            } else if (nameMatch) {
+              const fieldName = nameMatch[1];
+              const dataStart = part.indexOf('\r\n\r\n') + 4;
+              const dataEnd = part.lastIndexOf('\r\n');
+              const value = part.substring(dataStart, dataEnd);
+
+              if (fieldName === 'name') emojiName = value;
+              if (fieldName === 'category') category = value;
+            }
+          }
+        }
+
+        if (fileData && fileName && emojiName) {
+          // Check if emoji name already exists
+          const existing = getEmojiByName(emojiName);
+          if (existing) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: 'Emoji name already exists' }));
+            return;
+          }
+
+          // Save file
+          const fileId = `emoji-${Date.now()}-${fileName}`;
+          const filePath = join(UPLOADS_DIR, fileId);
+          writeFileSync(filePath, fileData);
+
+          // Use full URL for emoji (important for dev mode with separate ports)
+          const serverUrl = `http://localhost:${PORT}`;
+          const emojiUrl = `${serverUrl}/uploads/${fileId}`;
+
+          // Add emoji to database
+          const newEmoji: Emoji = {
+            id: emojiName,
+            name: emojiName,
+            url: emojiUrl,
+            category,
+            isCustom: true
+          };
+
+          addCustomEmoji(newEmoji);
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            success: true,
+            emoji: newEmoji
+          }));
+        } else {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: 'Missing required fields' }));
+        }
+      } catch (error) {
+        console.error('Emoji upload error:', error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Upload failed' }));
+      }
+    });
+
+    return;
+  }
+
   // Delete all messages endpoint
   if (url.pathname === "/api/clear-messages" && req.method === "POST") {
     try {
@@ -686,9 +781,11 @@ io.on("connection", (socket) => {
   // Handle chat messages
   socket.on("message", (data: {
     text: string;
-    type: 'text' | 'gif' | 'file';
+    type: 'text' | 'gif' | 'file' | 'emoji';
     channelId: string;
     gifUrl?: string;
+    emojiUrl?: string;
+    emojiName?: string;
     fileUrl?: string;
     fileName?: string;
     fileSize?: number;
@@ -716,6 +813,8 @@ io.on("connection", (socket) => {
       timestamp: Date.now(),
       type: data.type,
       gifUrl: data.gifUrl,
+      emojiUrl: data.emojiUrl,
+      emojiName: data.emojiName,
       fileUrl: data.fileUrl,
       fileName: data.fileName,
       fileSize: data.fileSize,
@@ -1354,6 +1453,19 @@ io.on("connection", (socket) => {
   });
 
   // Handle disconnect
+  // Emoji management
+  socket.on("emoji-added", (emoji: Emoji) => {
+    // Broadcast new emoji to all clients
+    io.emit("emoji-added", emoji);
+  });
+
+  socket.on("delete-emoji", (emojiName: string) => {
+    const deleted = deleteCustomEmoji(emojiName);
+    if (deleted) {
+      io.emit("emoji-deleted", emojiName);
+    }
+  });
+
   socket.on("disconnect", () => {
     const user = users.get(socket.id);
 

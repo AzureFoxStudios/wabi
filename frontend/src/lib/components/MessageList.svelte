@@ -33,6 +33,11 @@
 	let messageToDelete: Message | null = null;
 
 	// Emoji picker for reactions
+	// TODO: Add emoji reactions feature
+	// - Right-click message → "Add Reaction" → Opens emoji picker
+	// - Click emoji → Adds reaction to message
+	// - Display reactions below messages with counts
+	// - Click reaction to toggle your reaction on/off
 	let showReactionPicker = false;
 	let reactionPickerX = 0;
 	let reactionPickerY = 0;
@@ -495,6 +500,8 @@
 				<div class="message-content">
 					{#if message.type === 'gif' && message.gifUrl}
 						<img src={message.gifUrl} alt="GIF" class="gif {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} />
+					{:else if message.type === 'emoji' && message.emojiUrl}
+						<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} />
 					{:else if message.type === 'file' && (message.fileUrl || message.files)}
 						{#if message.files && message.files.length > 1}
 							<!-- Multiple files gallery -->
@@ -700,13 +707,12 @@
 
 <ProfileModal bind:isOpen={showProfileModal} bind:user={selectedUser} {isOwnProfile} />
 
-<EmojiPicker
-	bind:isOpen={showReactionPicker}
-	x={reactionPickerX}
-	y={reactionPickerY}
-	on:select={handleReactionSelect}
-	on:close={() => showReactionPicker = false}
-/>
+{#if showReactionPicker}
+	<EmojiPicker
+		on:select={handleReactionSelect}
+		on:close={() => showReactionPicker = false}
+	/>
+{/if}
 
 {#if contextMenuMessage}
 	<MessageContextMenu
@@ -1042,6 +1048,14 @@
 		max-height: 300px;
 		border-radius: 8px;
 		display: block;
+	}
+
+	.emoji-large {
+		width: 128px;
+		height: 128px;
+		display: block;
+		image-rendering: -webkit-optimize-contrast;
+		image-rendering: crisp-edges;
 	}
 
 	.file-attachment {

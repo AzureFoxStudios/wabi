@@ -2,10 +2,6 @@
 	import { createEventDispatcher } from 'svelte';
 	import { emojis, type Emoji } from '$lib/socket';
 
-	export let isOpen = false;
-	export let x = 0;
-	export let y = 0;
-
 	const dispatch = createEventDispatcher<{
 		select: { emoji: Emoji };
 		close: void;
@@ -26,15 +22,6 @@
 
 	function handleEmojiClick(emoji: Emoji) {
 		dispatch('select', { emoji });
-		dispatch('close');
-	}
-
-	function handleClickOutside(event: MouseEvent) {
-		const target = event.target as HTMLElement;
-		const picker = document.querySelector('.emoji-picker');
-		if (picker && !picker.contains(target)) {
-			dispatch('close');
-		}
 	}
 
 	function getCategoryIcon(category: string): string {
@@ -50,18 +37,14 @@
 	}
 </script>
 
-<svelte:window on:click={isOpen ? handleClickOutside : undefined} />
-
-{console.log('[EMOJI PICKER] Component evaluating - isOpen:', isOpen, 'x:', x, 'y:', y)}
-<div class="emoji-picker" style="left: {x}px; top: {y}px; display: {isOpen ? 'flex' : 'none'};" on:click|stopPropagation>
-		<!-- Search bar -->
-		<div class="search-bar">
+<div class="emoji-picker">
+		<div class="emoji-header">
 			<input
 				type="text"
 				placeholder="Search emojis..."
 				bind:value={searchQuery}
-				class="search-input"
 			/>
+			<button on:click={() => dispatch('close')} class="close-btn">✕</button>
 		</div>
 
 		<!-- Category tabs -->
@@ -98,37 +81,41 @@
 
 <style>
 	.emoji-picker {
-		position: fixed;
-		width: 320px;
-		max-height: 400px;
-		background: #ff0000 !important;
-		border: 5px solid #00ff00 !important;
+		position: absolute;
+		bottom: 70px;
+		right: 1rem;
+		width: 400px;
+		height: 400px;
+		background: var(--modal-bg);
+		border: none;
 		border-radius: 8px;
-		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.9);
-		z-index: 99999 !important;
 		display: flex;
 		flex-direction: column;
-		overflow: hidden;
+		box-shadow: none;
+		z-index: 100;
 	}
 
-	.search-bar {
-		padding: 0.75rem;
-		border-bottom: 1px solid var(--border);
+	.emoji-header {
+		padding: 1rem;
+		border-bottom: none;
+		display: flex;
+		gap: 0.5rem;
 	}
 
-	.search-input {
-		width: 100%;
+	.emoji-header input {
+		flex: 1;
+	}
+
+	.close-btn {
+		background: transparent;
+		color: var(--text-secondary);
 		padding: 0.5rem;
-		background: var(--bg-tertiary);
-		border: 1px solid var(--border);
-		border-radius: 4px;
-		color: var(--text-primary);
-		font-size: 0.875rem;
+		width: 40px;
 	}
 
-	.search-input:focus {
-		outline: none;
-		border-color: var(--color-primary);
+	.close-btn:hover {
+		color: var(--text-primary);
+		background: var(--bg-tertiary);
 	}
 
 	.category-tabs {

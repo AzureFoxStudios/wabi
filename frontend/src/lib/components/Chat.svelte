@@ -101,11 +101,32 @@
 				editMessage($currentChannel, editingMessage.id, messageInput.trim());
 				editingMessage = null;
 			} else {
-				// Send new message
-				sendMessage($currentChannel, messageInput.trim(), 'text', {
-					replyTo: replyingTo?.id,
-					isSpoiler: markAsSpoiler
-				});
+				const trimmedMessage = messageInput.trim();
+
+				// Check if message is ONLY emoji syntax (e.g., ":smile:" or ":smile::heart:")
+				const emojiOnlyPattern = /^(?::[\w_]+:)+$/;
+				const isEmojiOnly = emojiOnlyPattern.test(trimmedMessage);
+
+				if (isEmojiOnly) {
+					// Extract emoji names and find their URLs
+					const emojiNames = trimmedMessage.match(/:[\w_]+:/g)?.map(e => e.slice(1, -1)) || [];
+					const firstEmojiName = emojiNames[0];
+					const firstEmoji = $emojis.find(e => e.name === firstEmojiName);
+
+					// Send as emoji type for large display
+					sendMessage($currentChannel, trimmedMessage, 'emoji', {
+						emojiUrl: firstEmoji?.url,
+						emojiName: firstEmojiName,
+						replyTo: replyingTo?.id,
+						isSpoiler: markAsSpoiler
+					});
+				} else {
+					// Send as regular text message
+					sendMessage($currentChannel, trimmedMessage, 'text', {
+						replyTo: replyingTo?.id,
+						isSpoiler: markAsSpoiler
+					});
+				}
 				replyingTo = null;
 			}
 			messageInput = '';
@@ -144,11 +165,11 @@
 
 	function handleEmojiSelect(event: CustomEvent<{ emoji: Emoji }>) {
 		const emoji = event.detail.emoji;
-		// Insert emoji syntax at cursor position or end of text
-		messageInput += `:${emoji.name}:`;
 		showEmojiPicker = false;
-		// Focus the textarea
-		textareaElement?.focus();
+
+		// Insert emoji syntax and auto-send
+		messageInput = messageInput.trim() ? messageInput + `:${emoji.name}:` : `:${emoji.name}:`;
+		handleSubmit();
 	}
 
 	function handleReply(message: Message) {
@@ -418,17 +439,8 @@
 		/>
 	{/if}
 
-	{#if showEmojiPicker && emojiPickerButton}
-		{@const buttonRect = emojiPickerButton.getBoundingClientRect()}
-		{@const pickerHeight = 400}
-		{@const pickerY = buttonRect.top - pickerHeight - 10}
-		{@const finalX = Math.max(10, Math.min(buttonRect.left, window.innerWidth - 340))}
-		{@const finalY = Math.max(10, pickerY)}
-		{console.log('[PICKER DEBUG] Positioning emoji picker at x:', finalX, 'y:', finalY, 'buttonRect:', buttonRect)}
+	{#if showEmojiPicker}
 		<EmojiPicker
-			isOpen={showEmojiPicker}
-			x={finalX}
-			y={finalY}
 			on:select={handleEmojiSelect}
 			on:close={() => showEmojiPicker = false}
 		/>
@@ -543,12 +555,8 @@
 			<button
 				bind:this={emojiPickerButton}
 				class="input-icon-button"
-				on:click={() => {
-				console.log('Emoji button clicked! Current state:', showEmojiPicker);
-				console.log('emojiPickerButton ref:', emojiPickerButton);
+				on:click|stopPropagation={() => {
 				showEmojiPicker = !showEmojiPicker;
-				console.log('New state:', showEmojiPicker);
-				console.log('Should show picker:', showEmojiPicker && emojiPickerButton);
 			}}
 				title="Add emoji"
 			>

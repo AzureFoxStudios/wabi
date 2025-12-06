@@ -17,8 +17,10 @@ export interface Message {
 	userId: string;
 	text: string;
 	timestamp: number;
-	type: 'text' | 'gif' | 'file';
+	type: 'text' | 'gif' | 'file' | 'emoji';
 	gifUrl?: string;
+	emojiUrl?: string;
+	emojiName?: string;
 	fileUrl?: string;
 	fileName?: string;
 	fileSize?: number;
@@ -77,6 +79,10 @@ export const dmPanelSignal = writable<{ channelId: string; otherUser: User } | n
 export const emojis = writable<Emoji[]>([]);
 
 let socketInstance: Socket | null = null;
+
+export function getSocket(): Socket | null {
+	return socketInstance;
+}
 
 export function initSocket(username: string) {
 	if (!browser) return;

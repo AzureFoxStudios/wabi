@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { channelMessages, users, currentUser } from '$lib/socket';
+	import { channelMessages, users, currentUser, emojis } from '$lib/socket';
 	import StorageSettings from './StorageSettings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import { playNotificationSound } from '$lib/notifications';
+	import { getSocket } from '$lib/socket';
 
 	export let isOpen = false;
 
@@ -17,6 +18,19 @@
 
 	let showClearDataConfirm = false;
 	let showClearServerConfirm = false;
+
+	// Emoji upload state
+	let emojiFileInput: HTMLInputElement;
+	let emojiName = '';
+	let emojiCategory = 'custom';
+	let selectedEmojiFile: File | null = null;
+	let emojiPreview: string | null = null;
+	let uploadingEmoji = false;
+
+	// Bulk emoji upload state
+	let bulkEmojiFileInput: HTMLInputElement;
+	let bulkEmojiFiles: { file: File; name: string; preview: string }[] = [];
+	let uploadingBulk = false;
 
 	// Load settings from localStorage
 	onMount(() => {
@@ -124,6 +138,208 @@
 
 	async function clearServerMessages() {
 		showClearServerConfirm = true;
+	}
+
+	async function handleEmojiFileSelect(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+
+		if (!file) return;
+
+		// Check if it's an image
+		if (!file.type.startsWith('image/')) {
+			alert('Please select an image file (PNG, GIF, JPG, etc.)');
+			return;
+		}
+
+		// Check file size (2MB limit)
+		if (file.size > 2 * 1024 * 1024) {
+			alert('File too large! Maximum size is 2MB');
+			return;
+		}
+
+		selectedEmojiFile = file;
+
+		// Generate preview
+		const reader = new FileReader();
+		reader.onload = (e) => {
+			emojiPreview = e.target?.result as string;
+		};
+		reader.readAsDataURL(file);
+	}
+
+	async function uploadEmoji() {
+		if (!selectedEmojiFile || !emojiName.trim()) {
+			alert('Please select a file and enter an emoji name');
+			return;
+		}
+
+		uploadingEmoji = true;
+
+		try {
+			const serverUrl = window.location.origin.includes(':5173')
+				? 'http://localhost:3000'
+				: window.location.origin;
+
+			// Upload the file
+			const formData = new FormData();
+			formData.append('file', selectedEmojiFile);
+			formData.append('name', emojiName.trim());
+			formData.append('category', emojiCategory);
+
+			const response = await fetch(`${serverUrl}/api/emoji/upload`, {
+				method: 'POST',
+				body: formData
+			});
+
+			if (!response.ok) {
+				throw new Error('Upload failed');
+			}
+
+			const result = await response.json();
+
+			// Emit socket event to notify all clients
+			const socket = getSocket();
+			socket?.emit('emoji-added', result.emoji);
+
+			// Reset form
+			emojiName = '';
+			emojiCategory = 'custom';
+			selectedEmojiFile = null;
+			emojiPreview = null;
+			if (emojiFileInput) emojiFileInput.value = '';
+
+			alert(`Emoji "${result.emoji.name}" uploaded successfully!`);
+		} catch (error) {
+			console.error('Emoji upload error:', error);
+			alert('Failed to upload emoji. Please try again.');
+		} finally {
+			uploadingEmoji = false;
+		}
+	}
+
+	function deleteEmoji(emojiName: string) {
+		if (!confirm(`Delete emoji ":${emojiName}:"?`)) return;
+
+		const socket = getSocket();
+		socket?.emit('delete-emoji', emojiName);
+	}
+
+	async function handleBulkEmojiFileSelect(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const files = Array.from(input.files || []);
+
+		if (files.length === 0) return;
+
+		// Filter only image files
+		const imageFiles = files.filter(f => f.type.startsWith('image/'));
+
+		if (imageFiles.length === 0) {
+			alert('No valid image files selected');
+			return;
+		}
+
+		// Check file sizes
+		for (const file of imageFiles) {
+			if (file.size > 2 * 1024 * 1024) {
+				alert(`File "${file.name}" is too large! Maximum size is 2MB`);
+				return;
+			}
+		}
+
+		// Generate previews and auto-name from filename
+		const filesWithPreviews = await Promise.all(
+			imageFiles.map(async (file) => {
+				const preview = await new Promise<string>((resolve) => {
+					const reader = new FileReader();
+					reader.onload = (e) => resolve(e.target?.result as string);
+					reader.readAsDataURL(file);
+				});
+
+				// Auto-generate name from filename (remove extension, sanitize)
+				const autoName = file.name
+					.replace(/\.[^/.]+$/, '') // Remove extension
+					.toLowerCase()
+					.replace(/[^a-z0-9_]/g, '_') // Replace non-alphanumeric with underscore
+					.replace(/_+/g, '_') // Replace multiple underscores with single
+					.replace(/^_|_$/g, ''); // Remove leading/trailing underscores
+
+				return { file, name: autoName, preview };
+			})
+		);
+
+		bulkEmojiFiles = filesWithPreviews;
+	}
+
+	async function uploadBulkEmojis() {
+		if (bulkEmojiFiles.length === 0) {
+			alert('No files selected');
+			return;
+		}
+
+		// Check for empty names
+		const emptyNames = bulkEmojiFiles.filter(f => !f.name.trim());
+		if (emptyNames.length > 0) {
+			alert('All emojis must have a name');
+			return;
+		}
+
+		uploadingBulk = true;
+		let successCount = 0;
+		let failCount = 0;
+
+		try {
+			const serverUrl = window.location.origin.includes(':5173')
+				? 'http://localhost:3000'
+				: window.location.origin;
+
+			for (const item of bulkEmojiFiles) {
+				try {
+					const formData = new FormData();
+					formData.append('file', item.file);
+					formData.append('name', item.name.trim());
+					formData.append('category', emojiCategory);
+
+					const response = await fetch(`${serverUrl}/api/emoji/upload`, {
+						method: 'POST',
+						body: formData
+					});
+
+					if (!response.ok) {
+						const error = await response.json();
+						console.error(`Failed to upload ${item.name}:`, error);
+						failCount++;
+						continue;
+					}
+
+					const result = await response.json();
+
+					// Emit socket event to notify all clients
+					const socket = getSocket();
+					socket?.emit('emoji-added', result.emoji);
+
+					successCount++;
+				} catch (error) {
+					console.error(`Error uploading ${item.name}:`, error);
+					failCount++;
+				}
+			}
+
+			// Reset form
+			bulkEmojiFiles = [];
+			if (bulkEmojiFileInput) bulkEmojiFileInput.value = '';
+
+			alert(`Upload complete!\n✅ ${successCount} successful\n❌ ${failCount} failed`);
+		} catch (error) {
+			console.error('Bulk upload error:', error);
+			alert('Failed to upload emojis. Please try again.');
+		} finally {
+			uploadingBulk = false;
+		}
+	}
+
+	function removeBulkEmoji(index: number) {
+		bulkEmojiFiles = bulkEmojiFiles.filter((_, i) => i !== index);
 	}
 
 	async function confirmClearServer() {
@@ -279,6 +495,128 @@
 						<button class="action-btn danger" on:click={clearServerMessages}>
 							🗑️ Clear Server
 						</button>
+					</div>
+				</div>
+
+				<!-- Custom Emojis -->
+				<div class="settings-section">
+					<h3>🎨 Custom Emojis</h3>
+
+					<!-- Single Upload Form -->
+					<div class="emoji-upload-form">
+						<input
+							type="file"
+							bind:this={emojiFileInput}
+							on:change={handleEmojiFileSelect}
+							accept="image/*"
+							style="display: none;"
+						/>
+
+						{#if emojiPreview}
+							<div class="emoji-preview">
+								<img src={emojiPreview} alt="Preview" />
+							</div>
+						{/if}
+
+						<button class="emoji-select-btn" on:click={() => emojiFileInput?.click()}>
+							{emojiPreview ? '📷 Change Image' : '📁 Select Image'}
+						</button>
+
+						<input
+							type="text"
+							bind:value={emojiName}
+							placeholder="Emoji name (e.g., parrot)"
+							maxlength="30"
+							class="emoji-name-input"
+						/>
+
+						<select bind:value={emojiCategory} class="emoji-category-select">
+							<option value="custom">Custom</option>
+							<option value="animated">Animated</option>
+							<option value="art">Art</option>
+							<option value="memes">Memes</option>
+						</select>
+
+						<button
+							class="emoji-upload-btn"
+							on:click={uploadEmoji}
+							disabled={uploadingEmoji || !selectedEmojiFile || !emojiName.trim()}
+						>
+							{uploadingEmoji ? '⏳ Uploading...' : '⬆️ Upload Emoji'}
+						</button>
+
+						<p class="emoji-hint">Supports PNG, GIF (animated), JPG. Max 2MB.</p>
+					</div>
+
+					<!-- Bulk Upload Form -->
+					<div class="emoji-upload-form bulk">
+						<h4>📦 Bulk Upload</h4>
+						<input
+							type="file"
+							bind:this={bulkEmojiFileInput}
+							on:change={handleBulkEmojiFileSelect}
+							accept="image/*"
+							multiple
+							style="display: none;"
+						/>
+
+						<button class="emoji-select-btn" on:click={() => bulkEmojiFileInput?.click()}>
+							📂 Select Multiple Images
+						</button>
+
+						{#if bulkEmojiFiles.length > 0}
+							<div class="bulk-emoji-list">
+								<p class="bulk-count">{bulkEmojiFiles.length} file(s) selected</p>
+								{#each bulkEmojiFiles as item, index (index)}
+									<div class="bulk-emoji-item">
+										<img src={item.preview} alt="Preview" class="bulk-preview" />
+										<input
+											type="text"
+											bind:value={item.name}
+											placeholder="emoji_name"
+											maxlength="30"
+											class="bulk-name-input"
+										/>
+										<button
+											class="bulk-remove-btn"
+											on:click={() => removeBulkEmoji(index)}
+											title="Remove"
+										>
+											✕
+										</button>
+									</div>
+								{/each}
+								<button
+									class="emoji-upload-btn"
+									on:click={uploadBulkEmojis}
+									disabled={uploadingBulk || bulkEmojiFiles.length === 0}
+								>
+									{uploadingBulk ? '⏳ Uploading...' : `⬆️ Upload ${bulkEmojiFiles.length} Emoji${bulkEmojiFiles.length > 1 ? 's' : ''}`}
+								</button>
+							</div>
+						{/if}
+
+						<p class="emoji-hint">Auto-names from filenames. Edit names before uploading.</p>
+					</div>
+
+					<!-- Emoji List -->
+					<div class="emoji-list">
+						<h4>Your Custom Emojis ({$emojis.filter(e => e.isCustom).length})</h4>
+						<div class="emoji-grid-list">
+							{#each $emojis.filter(e => e.isCustom) as emoji (emoji.id)}
+								<div class="emoji-item">
+									<img src={emoji.url} alt={emoji.name} class="emoji-thumb" />
+									<span class="emoji-item-name">:{emoji.name}:</span>
+									<button
+										class="emoji-delete-btn"
+										on:click={() => deleteEmoji(emoji.name)}
+										title="Delete emoji"
+									>
+										🗑️
+									</button>
+								</div>
+							{/each}
+						</div>
 					</div>
 				</div>
 
@@ -617,5 +955,202 @@
 	.volume-slider::-moz-range-thumb:hover {
 		transform: scale(1.2);
 		background: var(--primary);
+	}
+
+	/* Emoji Upload Styles */
+	.emoji-upload-form {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		padding: 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+		margin-bottom: 1.5rem;
+	}
+
+	.emoji-preview {
+		text-align: center;
+		padding: 1rem;
+		background: var(--bg-primary);
+		border-radius: 8px;
+	}
+
+	.emoji-preview img {
+		max-width: 128px;
+		max-height: 128px;
+		object-fit: contain;
+	}
+
+	.emoji-select-btn,
+	.emoji-upload-btn {
+		padding: 0.75rem;
+		border-radius: 8px;
+		border: none;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.emoji-select-btn {
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+	}
+
+	.emoji-select-btn:hover {
+		background: var(--bg-primary);
+	}
+
+	.emoji-upload-btn {
+		background: var(--accent);
+		color: white;
+	}
+
+	.emoji-upload-btn:hover:not(:disabled) {
+		opacity: 0.9;
+		transform: translateY(-1px);
+	}
+
+	.emoji-upload-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.emoji-name-input,
+	.emoji-category-select {
+		padding: 0.75rem;
+		border-radius: 8px;
+		border: 1px solid var(--border);
+		background: var(--bg-primary);
+		color: var(--text-primary);
+		font-size: 1rem;
+	}
+
+	.emoji-hint {
+		font-size: 0.875rem;
+		color: var(--text-secondary);
+		text-align: center;
+		margin: 0;
+	}
+
+	.emoji-list h4 {
+		margin: 0 0 1rem 0;
+		color: var(--text-primary);
+	}
+
+	.emoji-grid-list {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+		gap: 0.75rem;
+	}
+
+	.emoji-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+		position: relative;
+	}
+
+	.emoji-thumb {
+		width: 32px;
+		height: 32px;
+		object-fit: contain;
+		flex-shrink: 0;
+	}
+
+	.emoji-item-name {
+		flex: 1;
+		font-size: 0.875rem;
+		font-family: monospace;
+		color: var(--text-primary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.emoji-delete-btn {
+		background: none;
+		border: none;
+		font-size: 1.1rem;
+		cursor: pointer;
+		padding: 0.25rem;
+		opacity: 0.6;
+		transition: opacity 0.2s;
+	}
+
+	.emoji-delete-btn:hover {
+		opacity: 1;
+	}
+
+	/* Bulk Upload Styles */
+	.emoji-upload-form.bulk {
+		background: var(--bg-secondary);
+		border: 2px dashed var(--border);
+	}
+
+	.emoji-upload-form.bulk h4 {
+		margin: 0 0 1rem 0;
+		color: var(--text-primary);
+	}
+
+	.bulk-emoji-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		margin-top: 1rem;
+	}
+
+	.bulk-count {
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin: 0;
+	}
+
+	.bulk-emoji-item {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+	}
+
+	.bulk-preview {
+		width: 48px;
+		height: 48px;
+		object-fit: contain;
+		flex-shrink: 0;
+		background: var(--bg-primary);
+		border-radius: 4px;
+	}
+
+	.bulk-name-input {
+		flex: 1;
+		padding: 0.5rem;
+		border-radius: 4px;
+		border: 1px solid var(--border);
+		background: var(--bg-primary);
+		color: var(--text-primary);
+		font-size: 0.875rem;
+		font-family: monospace;
+	}
+
+	.bulk-remove-btn {
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		font-size: 1.25rem;
+		cursor: pointer;
+		padding: 0.25rem 0.5rem;
+		opacity: 0.6;
+		transition: opacity 0.2s;
+	}
+
+	.bulk-remove-btn:hover {
+		opacity: 1;
+		color: var(--color-danger);
 	}
 </style>
