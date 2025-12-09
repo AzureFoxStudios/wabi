@@ -1,5 +1,9 @@
 import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
+import { addCallLog, updateCallLog, getCallHistory } from './history';
+
+let currentCallLogId: string | null = null;
+
 
 export interface Call {
 	userId: string;
@@ -23,7 +27,75 @@ export const isVideoOff = writable(false);
 export const localStream = writable<MediaStream | null>(null);
 export const connectionState = writable<'idle' | 'connecting' | 'connected' | 'disconnected' | 'failed'>('idle');
 
+export interface ConnectionQuality {
+    quality: 'good' | 'average' | 'poor';
+    packetsLost?: number;
+    jitter?: number;
+    roundTripTime?: number;
+}
+export const connectionStats = writable<Map<string, ConnectionQuality>>(new Map());
+
 const peerConnections = new Map<string, RTCPeerConnection>();
+const monitoringIntervals = new Map<string, number>();
+
+let lastStats: Map<string, RTCStatsReport> = new Map();
+
+function analyzeStats(statsReport: RTCStatsReport, userId: string): ConnectionQuality {
+    let packetsLost = 0;
+    let jitter = 0;
+    let roundTripTime = 0;
+    let quality: ConnectionQuality['quality'] = 'good';
+
+    statsReport.forEach(report => {
+        if (report.type === 'inbound-rtp' && report.kind === 'video') {
+            packetsLost = report.packetsLost;
+            jitter = report.jitter;
+        }
+        if (report.type === 'remote-candidate-pair' || report.type === 'candidate-pair' && report.state === 'succeeded') {
+            roundTripTime = report.currentRoundTripTime;
+        }
+    });
+
+    if (packetsLost > 10 || jitter > 0.1 || roundTripTime > 0.5) {
+        quality = 'poor';
+    } else if (packetsLost > 2 || jitter > 0.05 || roundTripTime > 0.25) {
+        quality = 'average';
+    }
+
+    const qualityData = { quality, packetsLost, jitter, roundTripTime };
+    connectionStats.update(stats => stats.set(userId, qualityData));
+    return qualityData;
+}
+
+function startMonitoringConnection(userId: string) {
+    const pc = peerConnections.get(userId);
+    if (!pc) return;
+
+    const intervalId = setInterval(async () => {
+        if (pc.signalingState === 'closed') {
+            stopMonitoringConnection(userId);
+            return;
+        }
+        const stats = await pc.getStats();
+        analyzeStats(stats, userId);
+        lastStats.set(userId, stats);
+    }, 5000);
+
+    monitoringIntervals.set(userId, intervalId as unknown as number);
+}
+
+function stopMonitoringConnection(userId: string) {
+    if (monitoringIntervals.has(userId)) {
+        clearInterval(monitoringIntervals.get(userId));
+        monitoringIntervals.delete(userId);
+    }
+    connectionStats.update(stats => {
+        stats.delete(userId);
+        return stats;
+    });
+    lastStats.delete(userId);
+}
+
 
 const rtcConfig: RTCConfiguration = {
 	iceServers: [
@@ -32,15 +104,10 @@ const rtcConfig: RTCConfiguration = {
 		// Public TURN servers (you might want to use a more robust solution like Coturn or a commercial service for production)
 		{
 			urls: [
-				'turn:global.relay.metered.ca:80',
-				'turn:global.relay.metered.ca:80?transport=udp',
-				'turn:global.relay.metered.ca:80?transport=tcp',
-				'turns:global.relay.metered.ca:443',
-				'turns:global.relay.metered.ca:443?transport=udp',
-				'turns:global.relay.metered.ca:443?transport=tcp'
+				'turn:YOUR_SERVER_IP:3478'
 			],
-			username: 'YOUR_API_KEY', // Replace with your Metered API key or other TURN server credentials
-			credential: 'YOUR_SECRET' // Replace with your Metered API secret or other TURN server credentials
+			username: 'chatuser',
+			credential: 'SecurePassword123'
 		}
 	]
 };
@@ -63,6 +130,15 @@ export async function startCall(socket: Socket, targetUserId: string, isVideoCal
 			targetUserId,
 			isVideoCall
 		});
+
+        const newLog = addCallLog({
+            username: targetUserId, // We might want to resolve this to a proper username later
+            type: 'outgoing',
+            status: 'answered',
+            startTime: Date.now(),
+            isVideo: isVideoCall,
+        });
+        currentCallLogId = newLog.id;
 
 		return stream;
 	} catch (error) {
@@ -105,6 +181,18 @@ export async function answerCall(socket: Socket, callerId: string, isVideoCall: 
 			isVideoCall
 		});
 
+        const callInfo = get(incomingCall);
+        if (callInfo) {
+            const newLog = addCallLog({
+                username: callInfo.username,
+                type: 'incoming',
+                status: 'answered',
+                startTime: Date.now(),
+                isVideo: isVideoCall,
+            });
+            currentCallLogId = newLog.id;
+        }
+
 		// Clear incoming call
 		incomingCall.set(null);
 
@@ -132,6 +220,20 @@ export async function answerCall(socket: Socket, callerId: string, isVideoCall: 
 
 export function rejectCall(socket: Socket, callerId: string) {
 	socket.emit('call-reject', { callerId });
+
+    const callInfo = get(incomingCall);
+    if (callInfo) {
+        addCallLog({
+            username: callInfo.username,
+            type: 'incoming',
+            status: 'declined',
+            startTime: Date.now(),
+            endTime: Date.now(),
+            duration: 0,
+            isVideo: callInfo.isVideoCall,
+        });
+    }
+
 	incomingCall.set(null);
 }
 
@@ -142,6 +244,20 @@ export function endCall(socket: Socket) {
 		localStream.set(null);
 	}
 
+    if (currentCallLogId) {
+        const history = getCallHistory(); // Note: getCallHistory is not defined in this file. It should be imported.
+        const log = history.find(l => l.id === currentCallLogId);
+        if (log) {
+            const endTime = Date.now();
+            updateCallLog(currentCallLogId, {
+                status: 'ended',
+                endTime: endTime,
+                duration: Math.round((endTime - log.startTime) / 1000)
+            });
+        }
+        currentCallLogId = null;
+    }
+
 	isInCall.set(false);
 	isMuted.set(false);
 	isVideoOff.set(false);
@@ -149,7 +265,10 @@ export function endCall(socket: Socket) {
 	socket.emit('call-end');
 
 	// Close all peer connections
-	peerConnections.forEach(pc => pc.close());
+	peerConnections.forEach((pc, userId) => {
+		pc.close();
+        stopMonitoringConnection(userId);
+	});
 	peerConnections.clear();
 	activeCalls.set([]);
 	connectionState.set('idle');
@@ -179,14 +298,11 @@ export function toggleVideo() {
 
 export async function createCallOffer(socket: Socket, targetId: string) {
 	const pc = new RTCPeerConnection(rtcConfig);
-	peerConnections.set(targetId, pc);
-
-	connectionState.set('connecting');
-
 	pc.onconnectionstatechange = () => {
 		console.log(`[WebRTC] Connection state changed: ${pc.connectionState}`);
 		if (pc.connectionState === 'connected') {
 			connectionState.set('connected');
+            startMonitoringConnection(targetId);
 		} else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
 			connectionState.set(pc.connectionState);
 			// Optionally, implement auto-retry or call end here
@@ -242,6 +358,7 @@ export async function handleCallOffer(
 		console.log(`[WebRTC] Connection state changed: ${pc.connectionState}`);
 		if (pc.connectionState === 'connected') {
 			connectionState.set('connected');
+            startMonitoringConnection(senderId);
 		} else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
 			connectionState.set(pc.connectionState);
 			// Optionally, implement auto-retry or call end here
@@ -325,5 +442,6 @@ export function removeCall(userId: string) {
 		pc.close();
 		peerConnections.delete(userId);
 	}
+    stopMonitoringConnection(userId);
 }
 

@@ -9,6 +9,7 @@
 	import ScreenShareViewer from '$lib/components/ScreenShareViewer.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
 	import DMPanel from '$lib/components/DMPanel.svelte';
+	import CallHistory from '$lib/components/CallHistory.svelte';
 	import type { PageData } from './$types';
 
 	// Accept data prop to suppress warning (we don't use it in this page)
@@ -16,7 +17,7 @@
 
 	let username = '';
 	let loggedIn = false;
-	let activeView: 'chat' | 'screen' = 'chat';
+	let activeView: 'chat' | 'screen' | 'history' = 'chat';
 	let showUserPanel = false;
 	let showDMPanel = false;
 	let dmChannelId: string | null = null;
@@ -129,6 +130,9 @@
 			</div>
 			<div class:hidden={activeView !== 'screen'}>
 				<ScreenShareViewer bind:activeView />
+			</div>
+			<div class:hidden={activeView !== 'history'}>
+				<CallHistory />
 			</div>
 		</div>
 		{#if showUserPanel}
