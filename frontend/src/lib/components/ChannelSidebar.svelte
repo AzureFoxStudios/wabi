@@ -13,7 +13,7 @@
 		return '•';
 	}
 
-	export let activeView: 'chat' | 'screen' | 'history' = 'chat';
+	export let activeView: 'chat' | 'screen' = 'chat';
 
 	let newChannelName = '';
 	let showCreateInput = false;
@@ -110,14 +110,6 @@
 			>
 				📺
 			</button>
-            <button
-                class="history-icon-btn"
-                class:active={activeView === 'history'}
-                on:click={() => activeView = 'history'}
-                title="Call History"
-            >
-                📜
-            </button>
 			<button class="add-btn" on:click={() => showCreateInput = !showCreateInput} title="Create channel">+</button>
 		</div>
 	</div>
@@ -430,7 +422,6 @@
 	}
 
 	.screen-share-icon-btn,
-    .history-icon-btn,
 	.add-btn {
 		width: 24px;
 		height: 24px;
@@ -448,15 +439,13 @@
 	}
 
 	.screen-share-icon-btn:hover,
-    .history-icon-btn:hover,
 	.add-btn:hover {
 		background: var(--bg-secondary);
 		color: var(--text-primary);
 		opacity: 1;
 	}
 
-	.screen-share-icon-btn.active,
-    .history-icon-btn.active {
+	.screen-share-icon-btn.active {
 		background: var(--accent);
 		color: white;
 		opacity: 1;
