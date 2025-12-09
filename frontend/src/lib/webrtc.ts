@@ -20,10 +20,15 @@ const rtcConfig: RTCConfiguration = {
 		// Public TURN servers (you might want to use a more robust solution like Coturn or a commercial service for production)
 		{
 			urls: [
-				'turn:YOUR_SERVER_IP:3478'
+				'turn:global.relay.metered.ca:80',
+				'turn:global.relay.metered.ca:80?transport=udp',
+				'turn:global.relay.metered.ca:80?transport=tcp',
+				'turns:global.relay.metered.ca:443',
+				'turns:global.relay.metered.ca:443?transport=udp',
+				'turns:global.relay.metered.ca:443?transport=tcp'
 			],
-			username: 'chatuser',
-			credential: 'SecurePassword123'
+			username: 'YOUR_API_KEY', // Replace with your Metered API key or other TURN server credentials
+			credential: 'YOUR_SECRET' // Replace with your Metered API secret or other TURN server credentials
 		}
 	]
 };
