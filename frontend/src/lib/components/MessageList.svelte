@@ -427,6 +427,18 @@
 		class="message {message.isPinned ? 'pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''}"
 		on:contextmenu={(e) => handleContextMenu(e, message)}
 	>
+		<!-- Message Hover Actions (Discord-style) -->
+		<div class="message-hover-actions">
+			<button
+				class="action-btn add-reaction-btn"
+				on:click={(e) => openReactionPicker(e, message.id)}
+				title="Add reaction"
+			>
+				😀
+			</button>
+			<!-- Add more actions here if needed -->
+		</div>
+
 		<!-- Profile Picture -->
 		<div class="message-avatar">
 			{#if user?.profilePicture}
@@ -682,23 +694,7 @@
 							</button>
 						{/if}
 					{/each}
-					<button
-						class="add-reaction-btn"
-						on:click={(e) => openReactionPicker(e, message.id)}
-						title="Add reaction"
-					>
-						+
-					</button>
-				</div>
-			{:else}
-				<div class="reactions-hover">
-					<button
-						class="add-reaction-btn"
-						on:click={(e) => openReactionPicker(e, message.id)}
-						title="Add reaction"
-					>
-						+
-					</button>
+
 				</div>
 			{/if}
 		</div>
@@ -852,6 +848,55 @@
 		border-left: 3px solid var(--color-warning);
 		background: var(--bg-warning-light);
 	}
+
+	.message-hover-actions {
+		position: absolute;
+		top: -10px; /* Adjust as needed */
+		right: 10px; /* Adjust as needed */
+		background: var(--bg-primary);
+		border-radius: 8px;
+		box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+		display: flex;
+		gap: 0.25rem;
+		padding: 0.25rem;
+		opacity: 0;
+		visibility: hidden;
+		transform: translateY(10px);
+		transition: all 0.2s ease-out;
+		z-index: 10;
+	}
+
+	.message:hover .message-hover-actions {
+		opacity: 1;
+		visibility: visible;
+		transform: translateY(0);
+	}
+
+	.message-hover-actions .action-btn {
+		background: var(--bg-tertiary);
+		border: none;
+		border-radius: 6px;
+		padding: 0.5rem;
+		cursor: pointer;
+		font-size: 1rem;
+		transition: background 0.2s;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px; /* Fixed width for consistent button size */
+		height: 32px; /* Fixed height for consistent button size */
+		color: var(--text-secondary);
+	}
+
+	.message-hover-actions .action-btn:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.message-hover-actions .add-reaction-btn {
+		/* Specific styling for the add reaction button if needed */
+	}
+
 
 	.message-avatar {
 		flex-shrink: 0;
