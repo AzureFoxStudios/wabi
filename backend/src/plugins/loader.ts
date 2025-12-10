@@ -127,6 +127,31 @@ export class PluginLoader {
     }
   }
 
+  handleNewConnection(socket: Socket) {
+    for (const [pluginId, { plugin }] of this.plugins.entries()) {
+        const ctx = this.createContext(pluginId);
+
+        plugin.onConnection?.(socket, ctx);
+
+        if (plugin.socketHandlers) {
+            for (const [event, handler] of Object.entries(plugin.socketHandlers)) {
+                socket.on(event, (data: any) => {
+                    try {
+                        handler(socket, data, ctx);
+                    } catch (error) {
+                        console.error(`❌ Error in plugin ${pluginId} handling ${event}:`, error);
+                    }
+                });
+            }
+        }
+
+        socket.on('disconnect', () => {
+            plugin.onDisconnect?.(socket, ctx);
+        });
+    }
+  }
+
+
   private createContext(pluginId: string): PluginContext {
     return {
       io: this.io,
