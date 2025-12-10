@@ -427,6 +427,19 @@
 		class="message {message.isPinned ? 'pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''}"
 		on:contextmenu={(e) => handleContextMenu(e, message)}
 	>
+		<div class="message-actions">
+			<span class="timestamp-action">{formatTime(message.timestamp)}</span>
+			<button class="action-btn" title="Forward" on:click={() => handleForward(message)}>
+				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 17l5-5-5-5"/></svg>
+			</button>
+			<button class="action-btn" title="Reply" on:click={() => handleReply(message)}>
+				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+			</button>
+			<button class="action-btn" title="More" on:click={(e) => handleContextMenu(e, message)}>
+				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
+			</button>
+		</div>
+
 		<!-- Profile Picture -->
 		<div class="message-avatar">
 			{#if user?.profilePicture}
@@ -456,7 +469,6 @@
 						<span class="edited-badge" title="Edited">(edited)</span>
 					{/if}
 				</div>
-				<span class="timestamp">{formatTime(message.timestamp)}</span>
 			</div>
 
 			<!-- Reply Preview -->
@@ -881,53 +893,82 @@
 	.message-body {
 		flex: 1;
 		min-width: 0;
+		position: relative; /* Added for message-actions positioning */
+		padding-right: 90px; /* Increased padding to accommodate action buttons */
 	}
 
 	.message-header {
 		display: flex;
-		justify-content: space-between;
+		justify-content: flex-start; /* Changed to flex-start */
 		align-items: center;
 		margin-bottom: 0.375rem;
 		gap: 0.5rem;
 	}
+	.timestamp {
+		/* Moved timestamp to message-actions */
+		display: none;
+	}
 
-	.header-left {
+	.message-actions {
+		position: absolute;
+		top: -10px; /* Adjusted position to be slightly above the message body */
+		right: 0px;
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		flex-wrap: wrap;
+		background: var(--bg-secondary);
+		border-radius: 8px;
+		box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+		z-index: 10;
+		opacity: 0;
+		visibility: hidden;
+		transform: translateY(10px);
+		transition: opacity 0.2s ease-out, visibility 0.2s ease-out, transform 0.2s ease-out;
+		padding: 0 5px; /* Added padding to the action bar itself */
+		height: 30px; /* Fixed height for consistency */
 	}
 
-	.username {
-		font-weight: 600;
-		font-size: 0.9rem;
-		color: var(--text-primary);
-		background: none;
-		border: none;
-		padding: 0;
-		cursor: pointer;
-		transition: opacity 0.2s;
+	.message:hover .message-actions {
+		opacity: 1;
+		visibility: visible;
+		transform: translateY(0);
 	}
 
-	.username:hover {
-		opacity: 0.8;
-		text-decoration: underline;
-	}
-
-	.pin-badge {
-		font-size: 0.875rem;
-	}
-
-	.edited-badge {
-		font-size: 0.75rem;
-		color: var(--text-secondary);
-		font-style: italic;
-	}
-
-	.timestamp {
+	.timestamp-action {
 		font-size: 0.75rem;
 		color: var(--text-secondary);
 		white-space: nowrap;
+		margin-right: 5px; /* Space between timestamp and first button */
+		/* Added for better visibility against background */
+		background-color: var(--bg-secondary);
+		padding: 0 5px;
+		border-radius: 4px;
+	}
+
+	.action-btn {
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		padding: 0.25rem; /* Adjusted padding for smaller buttons */
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 1rem;
+		transition: color 0.2s, background-color 0.2s;
+		height: 24px; /* Fixed height for icon */
+		width: 24px; /* Fixed width for icon */
+	}
+
+	.action-btn:hover {
+		color: var(--accent);
+		background-color: var(--bg-tertiary);
+		border-radius: 8px;
+	}
+
+	.action-btn svg {
+		width: 18px;
+		height: 18px;
+		stroke-width: 2;
 	}
 
 	.reply-preview {
@@ -1036,241 +1077,10 @@
 		opacity: 0.9;
 	}
 
-	.message-content p {
-		color: var(--text-primary);
-		line-height: 1.5;
-		word-wrap: break-word;
-		margin: 0;
+	.message-content {
+		min-height: 24px; /* Ensure minimum height for message content */
 	}
 
-	.gif {
-		max-width: 100%;
-		max-height: 300px;
-		border-radius: 8px;
-		display: block;
-	}
-
-	.emoji-large {
-		width: 128px;
-		height: 128px;
-		display: block;
-		image-rendering: -webkit-optimize-contrast;
-		image-rendering: crisp-edges;
-	}
-
-	.file-attachment {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 0.75rem;
-		background: var(--bg-tertiary);
-		border-radius: 8px;
-		text-decoration: none;
-		color: var(--text-primary);
-		transition: background-color 0.2s;
-		margin-bottom: 0.5rem;
-	}
-
-	.file-attachment:hover {
-		background: var(--ui-bg-light);
-	}
-
-	.file-icon {
-		font-size: 1.5rem;
-	}
-
-	.file-info {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-	}
-
-	.file-name {
-		font-weight: 500;
-		font-size: 0.875rem;
-	}
-
-	.file-size {
-		font-size: 0.75rem;
-		color: var(--text-secondary);
-	}
-
-	/* Image display styles */
-	.image-container {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		margin-bottom: 0.5rem;
-		align-items: flex-start;
-	}
-
-	.inline-image {
-		max-width: 400px;
-		max-height: 300px;
-		width: auto;
-		height: auto;
-		border-radius: 8px;
-		display: block;
-		cursor: pointer;
-		transition: opacity 0.2s;
-		object-fit: contain;
-	}
-
-	.inline-image:hover {
-		opacity: 0.9;
-	}
-
-	.image-download-link {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem;
-		background: var(--bg-tertiary);
-		border-radius: 6px;
-		text-decoration: none;
-		color: var(--text-primary);
-		font-size: 0.875rem;
-		transition: background-color 0.2s;
-	}
-
-	.image-download-link:hover {
-		background: var(--ui-bg-light);
-	}
-
-	/* Video display styles */
-	.video-container {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		margin-bottom: 0.5rem;
-	}
-
-	.inline-video {
-		max-width: 100%;
-		max-height: 400px;
-		border-radius: 8px;
-		background: #000;
-	}
-
-	.video-download-link {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem;
-		background: var(--bg-tertiary);
-		border-radius: 6px;
-		text-decoration: none;
-		color: var(--text-primary);
-		font-size: 0.875rem;
-		transition: background-color 0.2s;
-	}
-
-	.video-download-link:hover {
-		background: var(--ui-bg-light);
-	}
-
-	.audio-container {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		margin-bottom: 0.5rem;
-		background: linear-gradient(135deg, rgba(48, 43, 99, 0.3) 0%, rgba(26, 21, 53, 0.3) 100%);
-		padding: 0.75rem;
-		border-radius: 12px;
-		border: 1px solid rgba(179, 179, 255, 0.15);
-	}
-
-	.inline-audio {
-		width: 100%;
-		max-width: 400px;
-		border-radius: 8px;
-		outline: none;
-	}
-
-	.inline-audio::-webkit-media-controls-panel {
-		background: linear-gradient(135deg, rgba(48, 43, 99, 0.8) 0%, rgba(26, 21, 53, 0.8) 100%);
-		border-radius: 8px;
-	}
-
-	.inline-audio::-webkit-media-controls-play-button,
-	.inline-audio::-webkit-media-controls-mute-button {
-		background-color: rgba(255, 0, 255, 0.3);
-		border-radius: 50%;
-	}
-
-	.inline-audio::-webkit-media-controls-play-button:hover,
-	.inline-audio::-webkit-media-controls-mute-button:hover {
-		background-color: rgba(255, 0, 255, 0.5);
-	}
-
-	.inline-audio::-webkit-media-controls-timeline {
-		background: rgba(179, 179, 255, 0.2);
-		border-radius: 4px;
-		margin: 0 8px;
-	}
-
-	.inline-audio::-webkit-media-controls-current-time-display,
-	.inline-audio::-webkit-media-controls-time-remaining-display {
-		color: var(--text-secondary);
-	}
-
-	.audio-file-info {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem;
-		background: rgba(48, 43, 99, 0.3);
-		border-radius: 6px;
-		font-size: 0.875rem;
-		color: var(--text-primary);
-		border: 1px solid rgba(179, 179, 255, 0.1);
-	}
-
-	.gallery-file-audio {
-		width: 100%;
-		height: 40px;
-		border-radius: 6px;
-		outline: none;
-	}
-
-	.gallery-file-audio::-webkit-media-controls-panel {
-		background: linear-gradient(135deg, rgba(48, 43, 99, 0.6) 0%, rgba(26, 21, 53, 0.6) 100%);
-		border-radius: 6px;
-	}
-
-	.gallery-file-audio::-webkit-media-controls-play-button {
-		background-color: rgba(255, 0, 255, 0.3);
-		border-radius: 50%;
-	}
-
-	.gallery-file-audio::-webkit-media-controls-play-button:hover {
-		background-color: rgba(255, 0, 255, 0.5);
-	}
-
-	.gallery-file-audio::-webkit-media-controls-timeline {
-		background: rgba(179, 179, 255, 0.2);
-		border-radius: 3px;
-	}
-
-	.audio-file-name {
-		font-size: 0.75rem;
-		color: var(--text-secondary);
-		padding: 0.25rem 0.5rem;
-		text-align: center;
-		word-break: break-word;
-	}
-
-	.audio-item {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-		padding: 0.75rem;
-		background: linear-gradient(135deg, rgba(48, 43, 99, 0.3) 0%, rgba(26, 21, 53, 0.3) 100%);
-		border-radius: 8px;
-		border: 1px solid rgba(179, 179, 255, 0.15);
-	}
-
-	/* Markdown content styles */
 	.markdown-content :global(p) {
 		margin: 0;
 		line-height: 1.5;
@@ -1508,7 +1318,7 @@
 	.file-name-truncate {
 		overflow: hidden;
 		text-overflow: ellipsis;
-		white-space: nowrap;
+		white-writeSpace: nowrap;
 		font-weight: 500;
 	}
 
@@ -1649,12 +1459,5 @@
 		transition: all 0.2s;
 		font-size: 1rem;
 		color: var(--text-secondary);
-	}
-
-	.add-reaction-btn:hover {
-		background: var(--bg-hover);
-		border-color: var(--color-primary);
-		color: var(--color-primary);
-		transform: scale(1.1);
 	}
 </style>
