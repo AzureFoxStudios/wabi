@@ -89,6 +89,13 @@ export function getSocket(): Socket | null {
 export function initSocket(username: string) {
 	if (!browser) return;
 
+	// Close existing socket if any (prevents zombie connections)
+	if (socketInstance) {
+		console.log('[Socket] Closing existing connection before reconnecting');
+		socketInstance.disconnect();
+		socketInstance = null;
+	}
+
 	// Auto-detect server URL: use window origin if not in dev mode, otherwise localhost
 	let serverUrl = 'http://localhost:3000';
 	if (import.meta.env.VITE_SOCKET_URL) {
@@ -102,15 +109,28 @@ export function initSocket(username: string) {
 	}
 
 	console.log('[Socket] Connecting to:', serverUrl);
-	socketInstance = io(serverUrl);
+	socketInstance = io(serverUrl, {
+		// Add connection options to prevent hanging
+		reconnectionDelay: 1000,
+		reconnectionDelayMax: 5000,
+		timeout: 10000
+	});
 
 	socketInstance.on('connect', () => {
 		console.log('[Socket] Connected successfully!', socketInstance.id);
+		connected.set(true);
 	});
 
 	socketInstance.on('connect_error', (error) => {
 		console.error('[Socket] Connection error:', error);
+		connected.set(false);
 	});
+
+	socketInstance.on('connect_timeout', () => {
+		console.error('[Socket] Connection timeout!');
+		connected.set(false);
+	});
+
 	socket.set(socketInstance);
 
 	// Load unread counts from localStorage
@@ -148,7 +168,7 @@ export function initSocket(username: string) {
 	});
 
 	socketInstance.on('connect', () => {
-		console.log('Connected to server');
+		console.log('[Socket] Connected to server - sending join event with username:', username);
 		connected.set(true);
 		socketInstance?.emit('join', username);
 	});
@@ -159,6 +179,7 @@ export function initSocket(username: string) {
 	});
 
 	socketInstance.on('init', (data: { channels: Channel[]; users: User[]; excalidrawState: any; emotes: any[]; emojis: Emoji[] }) => {
+		console.log('[Socket] Received init event', data);
 		console.log('[INIT DEBUG] Received init data:', Object.keys(data));
 		console.log('[INIT DEBUG] data.emojis value:', data.emojis);
 		console.log('[INIT DEBUG] typeof data.emojis:', typeof data.emojis);
@@ -198,9 +219,14 @@ export function initSocket(username: string) {
 		}
 
 		// Find current user
+		console.log('[Socket] Looking for current user. Socket ID:', socketInstance?.id);
+		console.log('[Socket] Available users:', data.users);
 		const user = data.users.find(u => u.id === socketInstance?.id);
 		if (user) {
+			console.log('[Socket] ✅ Found current user:', user);
 			currentUser.set(user);
+		} else {
+			console.error('[Socket] ❌ Could not find current user in users list!');
 		}
 
 		// Join the general channel by default
