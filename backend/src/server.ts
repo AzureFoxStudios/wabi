@@ -239,7 +239,7 @@ function restoreMessageDeletionTimers() {
 let deleteMessageById: ((channelId: string, messageId: string) => void) | null = null;
 
 const PORT = process.env.PORT || 3000;
-const STATIC_DIR = process.env.STATIC_DIR || join(import.meta.dir, "../../static");
+const STATIC_DIR = process.env.STATIC_DIR || join(import.meta.dir, "../../frontend/build");
 const EMOTES_DIR = join(STATIC_DIR, "emotes");
 const ENABLE_LOGGING = process.env.ENABLE_LOGGING === 'true';
 
