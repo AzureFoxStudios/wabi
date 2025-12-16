@@ -96,17 +96,8 @@ export function initSocket(username: string) {
 		socketInstance = null;
 	}
 
-	// Auto-detect server URL: use window origin if not in dev mode, otherwise localhost
-	let serverUrl = 'http://localhost:3000';
-	if (import.meta.env.VITE_SOCKET_URL) {
-		serverUrl = import.meta.env.VITE_SOCKET_URL;
-	} else if (typeof window !== 'undefined') {
-		const origin = window.location.origin;
-		// Use same origin unless it's the dev server port
-		if (!origin.includes(':5173')) {
-			serverUrl = origin;
-		}
-	}
+	// Connect to the specified ngrok URL
+	let serverUrl = 'https://ungruff-subtarsal-libby.ngrok-free.dev';
 
 	console.log('[Socket] Connecting to:', serverUrl);
 	socketInstance = io(serverUrl, {
