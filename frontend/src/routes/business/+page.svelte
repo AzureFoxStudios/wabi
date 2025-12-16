@@ -1,6 +1,7 @@
 <script lang="ts">
+	import { get } from 'svelte/store';
 	import '$lib/business/theme.css';
-	import { todos, projects, calendarEvents, todaysTodos, overdueTodos } from '$lib/business/store';
+	import { todos, projects, calendarEvents, diaryEntries, sprints, kanbanColumns, todaysTodos, overdueTodos } from '$lib/business/store';
 	import Calendar from '$lib/components/business/Calendar.svelte';
 	import DiaryView from '$lib/components/business/DiaryView.svelte';
 	import ProjectsView from '$lib/components/business/ProjectsView.svelte';
@@ -22,6 +23,24 @@
 		const weekFromNow = now + 7 * 24 * 60 * 60 * 1000;
 		return e.startDate >= now && e.startDate <= weekFromNow;
 	}).length;
+
+	function exportData() {
+		const data = {
+			todos: get(todos),
+			calendarEvents: get(calendarEvents),
+			diaryEntries: get(diaryEntries),
+			projects: get(projects),
+			sprints: get(sprints),
+			kanbanColumns: get(kanbanColumns)
+		};
+		const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `business-hub-export-${new Date().toISOString().split('T')[0]}.json`;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
 </script>
 
 <div class="dashboard">
@@ -113,6 +132,17 @@
 					<span class="stat-label">done</span>
 				</div>
 			</div>
+
+			<!-- Export Button -->
+			<button
+				class="panel-toggle"
+				on:click={exportData}
+				title="Export All Business Data"
+			>
+				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+				</svg>
+			</button>
 
 			<!-- Task Panel Toggle -->
 			<button
