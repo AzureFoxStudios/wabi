@@ -19,3 +19,4 @@ frontend/src/lib/components/nul
 *.exe
 frontend/src-tauri/target/
 static/_app/immutable/
+frontend/src-tauri.zip
