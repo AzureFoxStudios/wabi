@@ -101,7 +101,9 @@ export function initSocket(username: string) {
 
 	console.log('[Socket] Connecting to:', serverUrl);
 	socketInstance = io(serverUrl, {
-		// Add connection options to prevent hanging
+		extraHeaders: {
+			'ngrok-skip-browser-warning': 'true'
+		},
 		reconnectionDelay: 1000,
 		reconnectionDelayMax: 5000,
 		timeout: 10000
