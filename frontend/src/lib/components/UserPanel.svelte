@@ -3,7 +3,6 @@
 	import { users, currentUser, socket, channels, type User, createDM, channelUnreadCounts } from '$lib/socket';
 	import { startCall } from '$lib/calling';
 	import { startScreenShare } from '$lib/webrtc';
-	import ProfileModal from './ProfileModal.svelte';
 	import UserPopout from './UserPopout.svelte';
 	import UserContextMenu from './UserContextMenu.svelte';
 	import CreateDMModal from './CreateDMModal.svelte';
@@ -29,9 +28,6 @@
 		return '•';
 	}
 
-	let showProfileModal = false;
-	let selectedUser: User | null = null;
-	let isOwnProfile = false;
 	let showDMModal = false;
 
 	// User popout state
@@ -51,18 +47,6 @@
 		popoutIsOwnProfile = user.id === $currentUser?.id;
 		popoutAnchorElement = anchorEl;
 		showUserPopout = true;
-	}
-
-	function handleOpenFullProfile(event: CustomEvent<{ user: User; isOwnProfile: boolean }>) {
-		selectedUser = event.detail.user;
-		isOwnProfile = event.detail.isOwnProfile;
-		showProfileModal = true;
-	}
-
-	function openProfileDirect(user: User) {
-		selectedUser = user;
-		isOwnProfile = user.id === $currentUser?.id;
-		showProfileModal = true;
 	}
 
 	function handleContextMenu(event: MouseEvent, user: User) {
@@ -260,15 +244,12 @@
 	</div>
 </aside>
 
-<ProfileModal bind:isOpen={showProfileModal} bind:user={selectedUser} {isOwnProfile} />
-
 <UserPopout
 	bind:isOpen={showUserPopout}
 	bind:user={popoutUser}
 	anchorElement={popoutAnchorElement}
 	isOwnProfile={popoutIsOwnProfile}
 	on:close={() => showUserPopout = false}
-	on:openFullProfile={handleOpenFullProfile}
 />
 
 {#if showContextMenu && contextMenuUser}
@@ -283,7 +264,7 @@
 		on:screenShare={() => handleScreenShare()}
 		on:openDM={handleOpenDM}
 		on:viewProfile={() => {
-			if (contextMenuUser) openProfileDirect(contextMenuUser);
+			if (contextMenuUser) openProfile(contextMenuUser);
 		}}
 	/>
 {/if}

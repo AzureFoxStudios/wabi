@@ -2,7 +2,6 @@
 	import { onMount, afterUpdate } from 'svelte';
 	import type { Message, User, Emoji } from '$lib/socket';
 	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis } from '$lib/socket';
-	import ProfileModal from './ProfileModal.svelte';
 	import MessageContextMenu from './MessageContextMenu.svelte';
 	import UserPopout from './UserPopout.svelte';
 	import ForwardDialog from './ForwardDialog.svelte';
@@ -10,35 +9,25 @@
 	import EmojiPicker from './EmojiPicker.svelte';
 	import { parseMessage } from '$lib/markdown';
 	import '$lib/prism-theme.css';
-
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
-
-	let showProfileModal = false;
-	let selectedUser: User | null = null;
-	let isOwnProfile = false;
-
 	// User popout state
 	let showUserPopout = false;
 	let popoutUser: User | null = null;
 	let popoutAnchorElement: HTMLElement | null = null;
 	let popoutIsOwnProfile = false;
-
 	// Context menu state
 	let contextMenuVisible = false;
 	let contextMenuX = 0;
 	let contextMenuY = 0;
 	let contextMenuMessage: Message | null = null;
-
 	// Edit mode state
 	let editingMessageId: string | null = null;
 	let editText = '';
-
 	// Delete confirmation state
 	let showDeleteConfirm = false;
 	let messageToDelete: Message | null = null;
-
 	// Emoji picker for reactions
 	// TODO: Add emoji reactions feature
 	// - Right-click message → "Add Reaction" → Opens emoji picker
@@ -49,7 +38,6 @@
 	let reactionPickerX = 0;
 	let reactionPickerY = 0;
 	let reactionPickerMessageId: string | null = null;
-
 	function formatTime(timestamp: number): string {
 		const date = new Date(timestamp);
 		return date.toLocaleTimeString('en-US', {
@@ -57,27 +45,12 @@
 			minute: '2-digit'
 		});
 	}
-
 	function getUserByUsername(username: string): User | undefined {
 		return $users.find(u => u.username === username);
 	}
-
 	function getUserColor(username: string): string {
 		const user = getUserByUsername(username);
 		return user?.color || 'var(--status-offline)';
-	}
-
-	function openProfile(user: User, anchorEl: HTMLElement) {
-		popoutUser = user;
-		popoutIsOwnProfile = user.id === $currentUser?.id;
-		popoutAnchorElement = anchorEl;
-		showUserPopout = true;
-	}
-
-	function handleOpenFullProfile(event: CustomEvent<{ user: User; isOwnProfile: boolean }>) {
-		selectedUser = event.detail.user;
-		isOwnProfile = event.detail.isOwnProfile;
-		showProfileModal = true;
 	}
 
 	function handleContextMenu(event: MouseEvent, message: Message) {
@@ -87,14 +60,12 @@
 		contextMenuY = event.clientY;
 		contextMenuVisible = true;
 	}
-
 	function handleEdit() {
 		if (!contextMenuMessage) return;
 		editingMessageId = contextMenuMessage.id;
 		editText = contextMenuMessage.text;
 		contextMenuVisible = false;
 	}
-
 	function saveEdit(messageId: string) {
 		if (editText.trim()) {
 			editMessage($currentChannel, messageId, editText.trim());
@@ -102,38 +73,32 @@
 		editingMessageId = null;
 		editText = '';
 	}
-
 	function cancelEdit() {
 		editingMessageId = null;
 		editText = '';
 	}
-
 	function handleDelete() {
 		if (!contextMenuMessage) return;
 		messageToDelete = contextMenuMessage;
 		showDeleteConfirm = true;
 		contextMenuVisible = false;
 	}
-
 	function confirmDeleteMessage() {
 		if (messageToDelete) {
 			deleteMessage($currentChannel, messageToDelete.id);
 		}
 		showDeleteConfirm = false;
 	}
-
 	function handlePin() {
 		if (!contextMenuMessage) return;
 		togglePinMessage($currentChannel, contextMenuMessage.id);
 		contextMenuVisible = false;
 	}
-
 	function handleReply() {
 		if (!contextMenuMessage) return;
 		onReply(contextMenuMessage);
 		contextMenuVisible = false;
 	}
-
 	async function handleDownload() {
 		if (!contextMenuMessage?.fileUrl || !contextMenuMessage?.fileName) return;
 		try {
@@ -153,17 +118,14 @@
 		}
 		contextMenuVisible = false;
 	}
-
 	let showForwardDialog = false;
 	let forwardMessage: Message | null = null;
-
 	function handleForward() {
 		if (!contextMenuMessage) return;
 		forwardMessage = contextMenuMessage;
 		showForwardDialog = true;
 		contextMenuVisible = false;
 	}
-
 	function handleAddReaction() {
 		if (!contextMenuMessage) return;
 		// Open emoji picker at the context menu position
@@ -173,7 +135,6 @@
 		showReactionPicker = true;
 		contextMenuVisible = false;
 	}
-
 	function openReactionPicker(event: MouseEvent, messageId: string) {
 		event.stopPropagation();
 		reactionPickerMessageId = messageId;
@@ -181,21 +142,18 @@
 		reactionPickerY = event.clientY;
 		showReactionPicker = true;
 	}
-
 	function handleReactionSelect(event: CustomEvent<{ emoji: Emoji }>) {
 		if (!reactionPickerMessageId) return;
 		addReaction($currentChannel, reactionPickerMessageId, event.detail.emoji.id);
 		showReactionPicker = false;
 		reactionPickerMessageId = null;
 	}
-
 	function toggleReaction(messageId: string, emojiId: string) {
 		const message = messages.find(m => m.id === messageId);
 		if (!message || !message.reactions) {
 			addReaction($currentChannel, messageId, emojiId);
 			return;
 		}
-
 		const userReacted = message.reactions[emojiId]?.includes($currentUser?.id || '');
 		if (userReacted) {
 			removeReaction($currentChannel, messageId, emojiId);
@@ -203,11 +161,9 @@
 			addReaction($currentChannel, messageId, emojiId);
 		}
 	}
-
 	function getEmojiById(emojiId: string): Emoji | undefined {
 		return $emojis.find(e => e.id === emojiId);
 	}
-
 	function handleImageContextMenu(event: MouseEvent, message: Message) {
 		event.preventDefault();
 		contextMenuMessage = message;
@@ -215,14 +171,12 @@
 		contextMenuY = event.clientY;
 		contextMenuVisible = true;
 	}
-
 	function formatFileSize(bytes?: number): string {
 		if (!bytes) return '';
 		if (bytes < 1024) return bytes + ' B';
 		if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
 		return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 	}
-
 	function getFileUrl(fileUrl?: string): string {
 		if (!fileUrl) return '';
 		// If it's already a full URL (data: or http:), return as-is
@@ -235,20 +189,16 @@
 			: window.location.origin;
 		return `${serverUrl}${fileUrl}`;
 	}
-
 	function getReplyToMessage(replyToId?: string): Message | undefined {
 		if (!replyToId) return undefined;
 		return messages.find(m => m.id === replyToId);
 	}
-
 	// Jump to referenced message
 	let highlightedMessageId: string | null = null;
-
 	function jumpToMessage(messageId: string) {
 		const messageElement = document.getElementById(`message-${messageId}`);
 		if (messageElement) {
 			messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
 			// Highlight the message briefly
 			highlightedMessageId = messageId;
 			setTimeout(() => {
@@ -256,10 +206,8 @@
 			}, 2000);
 		}
 	}
-
 	function getFileIcon(fileName?: string): string {
 		if (!fileName) return '📎';
-
 		const ext = fileName.toLowerCase().split('.').pop() || '';
 		const iconMap: Record<string, string> = {
 			// Images
@@ -270,7 +218,6 @@
 			'bmp': '🖼️',
 			'svg': '🖼️',
 			'webp': '🖼️',
-
 			// Videos
 			'mp4': '🎬',
 			'mov': '🎬',
@@ -278,36 +225,30 @@
 			'mkv': '🎬',
 			'webm': '🎬',
 			'flv': '🎬',
-
 			// Audio
 			'mp3': '🎵',
 			'wav': '🎵',
 			'ogg': '🎵',
 			'flac': '🎵',
-
 			// Documents
 			'pdf': '📄',
 			'doc': '📝',
 			'docx': '📝',
 			'txt': '📝',
 			'rtf': '📝',
-
 			// Spreadsheets
 			'xls': '📊',
 			'xlsx': '📊',
 			'csv': '📊',
-
 			// Presentations
 			'ppt': '📽️',
 			'pptx': '📽️',
-
 			// Archives
 			'zip': '📦',
 			'rar': '📦',
 			'7z': '📦',
 			'tar': '📦',
 			'gz': '📦',
-
 			// Code
 			'js': '💻',
 			'ts': '💻',
@@ -319,7 +260,6 @@
 			'html': '💻',
 			'css': '💻',
 			'json': '💻',
-
 			// 3D/Design
 			'blend': '🎨',
 			'fbx': '🎨',
@@ -329,60 +269,48 @@
 			'ai': '🎨',
 			'sketch': '🎨',
 		};
-
 		return iconMap[ext] || '📎';
 	}
-
 	function isImage(fileName?: string): boolean {
 		if (!fileName) return false;
 		const ext = fileName.toLowerCase().split('.').pop() || '';
 		return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp'].includes(ext);
 	}
-
 	function isVideo(fileName?: string): boolean {
 		if (!fileName) return false;
 		const ext = fileName.toLowerCase().split('.').pop() || '';
 		return ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv'].includes(ext);
 	}
-
 	function isAudio(fileName?: string): boolean {
 		if (!fileName) return false;
 		const ext = fileName.toLowerCase().split('.').pop() || '';
 		return ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma'].includes(ext);
 	}
-
 	let enlargedImage: string | null = null;
 	let enlargedVideo: string | null = null;
 	let currentImageGallery: string[] = [];
 	let currentImageIndex: number = 0;
-
 	function enlargeImage(imageUrl: string, gallery: string[] = []) {
 		enlargedImage = imageUrl;
 		currentImageGallery = gallery.length > 0 ? gallery : [imageUrl];
 		currentImageIndex = currentImageGallery.indexOf(imageUrl);
 	}
-
 	function closeEnlargedImage() {
 		enlargedImage = null;
 		currentImageGallery = [];
 		currentImageIndex = 0;
 	}
-
 	function navigateImage(direction: 'prev' | 'next') {
 		if (currentImageGallery.length === 0) return;
-
 		if (direction === 'prev') {
 			currentImageIndex = (currentImageIndex - 1 + currentImageGallery.length) % currentImageGallery.length;
 		} else {
 			currentImageIndex = (currentImageIndex + 1) % currentImageGallery.length;
 		}
-
 		enlargedImage = currentImageGallery[currentImageIndex];
 	}
-
 	function handleImageKeydown(e: KeyboardEvent) {
 		if (!enlargedImage) return;
-
 		if (e.key === 'ArrowLeft') {
 			e.preventDefault();
 			navigateImage('prev');
@@ -394,15 +322,12 @@
 			closeEnlargedImage();
 		}
 	}
-
 	function enlargeVideo(videoUrl: string) {
 		enlargedVideo = videoUrl;
 	}
-
 	function closeEnlargedVideo() {
 		enlargedVideo = null;
 	}
-
 	// Attach click handlers to spoiler elements
 	function attachSpoilerHandlers() {
 		const spoilers = document.querySelectorAll('.spoiler[data-spoiler="true"]');
@@ -415,7 +340,6 @@
 			}
 		});
 	}
-
 	// Attach handlers when component mounts and updates
 	onMount(attachSpoilerHandlers);
 	afterUpdate(attachSpoilerHandlers);
@@ -460,7 +384,7 @@
 		<!-- Profile Picture -->
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
-			<div class="message-avatar" on:click={(e) => user && openProfile(user, e.currentTarget)}>
+			<div class="message-avatar">
 				{#if user?.profilePicture}
 					<img src={user.profilePicture} alt={message.user} class="avatar" />
 				{:else}
@@ -476,7 +400,7 @@
 					{#if user}
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						<!-- svelte-ignore a11y-no-static-element-interactions -->
-						<span class="username" on:click={(e) => openProfile(user, e.currentTarget)} style="color: {getUserColor(message.user)}">
+						<span class="username" style="color: {getUserColor(message.user)}">
 							{message.user}
 						</span>
 					{:else}
@@ -719,15 +643,12 @@
 	</div>
 {/each}
 
-<ProfileModal bind:isOpen={showProfileModal} bind:user={selectedUser} {isOwnProfile} />
-
 <UserPopout
 	bind:isOpen={showUserPopout}
 	bind:user={popoutUser}
 	anchorElement={popoutAnchorElement}
 	isOwnProfile={popoutIsOwnProfile}
 	on:close={() => showUserPopout = false}
-	on:openFullProfile={handleOpenFullProfile}
 />
 
 {#if showReactionPicker}
@@ -1280,7 +1201,7 @@
 		grid-template-columns: repeat(4, 1fr);
 		gap: 0.25rem;
 		margin-top: 0.5rem;
-		max-width: 600px;
+		max-width: 450px;
 	}
 
 	.gallery-file-item {
@@ -1453,6 +1374,38 @@
 	.reaction-count {
 		font-weight: 600;
 		font-size: 0.75rem;
+	}
+
+	/* ========== IMAGE & VIDEO SIZE LIMITS ========== */
+	.inline-image {
+		max-width: 450px;
+		max-height: 400px;
+		border-radius: 8px;
+		cursor: pointer;
+		object-fit: contain;
+		display: block;
+	}
+
+	.inline-video {
+		max-width: 450px;
+		max-height: 400px;
+		border-radius: 8px;
+		cursor: pointer;
+		display: block;
+	}
+
+	.gif {
+		max-width: 400px;
+		max-height: 350px;
+		border-radius: 8px;
+		cursor: pointer;
+		display: block;
+	}
+
+	.image-container,
+	.video-container {
+		margin-top: 0.5rem;
+		margin-bottom: 0.25rem;
 	}
 
 	/* ========== MOBILE STYLES ========== */

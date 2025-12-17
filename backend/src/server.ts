@@ -248,8 +248,8 @@ if (!existsSync(EMOTES_DIR)) {
   mkdirSync(EMOTES_DIR, { recursive: true });
 }
 
-// File upload storage
-const UPLOADS_DIR = join(STATIC_DIR, "uploads");
+// File upload storage - OUTSIDE build folder to persist across rebuilds
+const UPLOADS_DIR = join(import.meta.dir, "../uploads");
 if (!existsSync(UPLOADS_DIR)) {
   mkdirSync(UPLOADS_DIR, { recursive: true });
 }
@@ -284,6 +284,89 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // Profile picture upload endpoint
+  if (url.pathname === "/api/upload-profile-picture" && req.method === "POST") {
+    let chunks: Buffer[] = [];
+
+    req.on('data', (chunk) => {
+      chunks.push(chunk);
+    });
+
+    req.on('end', () => {
+      try {
+        const buffer = Buffer.concat(chunks);
+        const contentType = req.headers['content-type'];
+        const boundary = contentType?.split('boundary=')[1];
+
+        if (!boundary) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: 'Invalid content type' }));
+          return;
+        }
+
+        const parts = buffer.toString('binary').split(`--${boundary}`);
+        let profilePictureFile: Buffer | null = null;
+        let profilePictureFileName = '';
+
+        for (const part of parts) {
+          if (part.includes('Content-Disposition') && part.includes('name="profilePicture"')) {
+            const filenameMatch = part.match(/filename="([^"]+)"/);
+            if (filenameMatch) {
+              profilePictureFileName = filenameMatch[1];
+              const dataStart = part.indexOf('\r\n\r\n') + 4;
+              const dataEnd = part.lastIndexOf('\r\n');
+              profilePictureFile = Buffer.from(part.substring(dataStart, dataEnd), 'binary');
+              break;
+            }
+          }
+        }
+
+        if (profilePictureFile && profilePictureFileName) {
+          // Validate file type
+          const ext = profilePictureFileName.split('.').pop()?.toLowerCase();
+          if (!ext || !['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: 'Invalid file type. Only PNG, JPG, JPEG, GIF, WEBP are allowed.' }));
+            return;
+          }
+
+          // Validate file size (e.g., max 5MB)
+          const MAX_FILE_SIZE = 5 * 1024 * 1024;
+          if (profilePictureFile.length > MAX_FILE_SIZE) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: 'File too large. Maximum size is 5MB.' }));
+            return;
+          }
+
+          const fileId = `pfp-${Date.now()}-${profilePictureFileName}`;
+          const filePath = join(UPLOADS_DIR, fileId);
+
+          if (!existsSync(UPLOADS_DIR)) {
+            mkdirSync(UPLOADS_DIR, { recursive: true });
+          }
+          writeFileSync(filePath, profilePictureFile);
+
+          const serverUrl = `http://localhost:${PORT}`; // Assuming frontend and backend run on same host, different ports
+          const profilePictureUrl = `${serverUrl}/uploads/${fileId}`;
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            success: true,
+            profilePictureUrl
+          }));
+        } else {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: 'No profile picture file found in request' }));
+        }
+      } catch (error) {
+        console.error('Profile picture upload error:', error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Internal server error during upload' }));
+      }
+    });
+    return;
+  }
+
   // File upload endpoint
   if (url.pathname === "/api/upload" && req.method === "POST") {
     let body = '';
@@ -307,6 +390,10 @@ const server = createServer((req, res) => {
           const fileId = `${Date.now()}-${fileName}`;
           const filePath = join(UPLOADS_DIR, fileId);
 
+          // Ensure uploads dir exists (may have been wiped by redeploy)
+          if (!existsSync(UPLOADS_DIR)) {
+            mkdirSync(UPLOADS_DIR, { recursive: true });
+          }
           // Convert base64 to buffer and save
           const fileBuffer = Buffer.from(fileData.split(',')[1], 'base64');
           writeFileSync(filePath, fileBuffer);
@@ -355,6 +442,10 @@ const server = createServer((req, res) => {
           if (fileData && fileName) {
             const fileId = `${Date.now()}-${fileName}`;
             const filePath = join(UPLOADS_DIR, fileId);
+            // Ensure uploads dir exists (may have been wiped by redeploy)
+            if (!existsSync(UPLOADS_DIR)) {
+              mkdirSync(UPLOADS_DIR, { recursive: true });
+            }
             writeFileSync(filePath, fileData);
 
             const fileUrl = `/uploads/${fileId}`;
@@ -451,6 +542,10 @@ const server = createServer((req, res) => {
           // Save file
           const fileId = `emoji-${Date.now()}-${fileName}`;
           const filePath = join(UPLOADS_DIR, fileId);
+          // Ensure uploads dir exists (may have been wiped by redeploy)
+          if (!existsSync(UPLOADS_DIR)) {
+            mkdirSync(UPLOADS_DIR, { recursive: true });
+          }
           writeFileSync(filePath, fileData);
 
           // Use full URL for emoji (important for dev mode with separate ports)
@@ -526,6 +621,37 @@ const server = createServer((req, res) => {
       res.end(JSON.stringify({ success: false, error: 'Failed to clear messages' }));
     }
     return;
+  }
+
+  // Serve uploaded files from dedicated uploads directory
+  if (url.pathname.startsWith('/uploads/')) {
+    const fileName = url.pathname.replace('/uploads/', '');
+    const filePath = join(UPLOADS_DIR, fileName);
+
+    if (existsSync(filePath)) {
+      const file = readFileSync(filePath);
+      const ext = filePath.split('.').pop()?.toLowerCase();
+      const contentTypes: Record<string, string> = {
+        'png': 'image/png',
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'gif': 'image/gif',
+        'webp': 'image/webp',
+        'svg': 'image/svg+xml',
+        'mp4': 'video/mp4',
+        'webm': 'video/webm',
+        'pdf': 'application/pdf',
+        'zip': 'application/zip'
+      };
+
+      res.writeHead(200, { "Content-Type": contentTypes[ext || ''] || 'application/octet-stream' });
+      res.end(file);
+      return;
+    } else {
+      res.writeHead(404);
+      res.end("Upload not found");
+      return;
+    }
   }
 
   // Serve static files in production

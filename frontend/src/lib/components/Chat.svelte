@@ -751,6 +751,14 @@
 		color: var(--text-primary);
 		outline: none;
 		font-size: 1rem;
+		/* Hide scrollbar while keeping scroll functionality */
+		-ms-overflow-style: none;  /* IE and Edge */
+		scrollbar-width: none;  /* Firefox */
+	}
+
+	/* Hide scrollbar for Chrome, Safari and Opera */
+	textarea::-webkit-scrollbar {
+		display: none;
 	}
 
 	.send-button {

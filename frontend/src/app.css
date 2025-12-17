@@ -10,7 +10,7 @@
 
 	/* Main backgrounds - Ethereal nebula gradients */
 	--bg-primary: linear-gradient(to right, #0f0c29 0%, #302b63 100%);  /* Deep space purple fade for main app */
-	--bg-secondary: rgba(0,0,0,0%);  /* Transparent for messages (blends into cosmic void) */
+	--bg-secondary: #1a1a2e;  /* Deep cosmic background for modals/panels */
 	--bg-tertiary: #24243e;  /* Solid dark indigo for sidebars */
 	--bg-hover: #302b63;  /* Solid hover in mid-purple */
 
@@ -31,8 +31,8 @@
 	--status-online-hover: #00fa9a;
 	--status-away: #ffd700;  /* Gold (distant star) */
 	--status-away-hover: #ffc300;
-	--status-busy: #ff00ff;  /* Magenta (nebula core) */
-	--status-busy-hover: #ee82ee;
+	--status-busy: #ff0000;  /* Red (danger zone) */
+	--status-busy-hover: #cc0000;
 	--status-offline: #708090;  /* Slate gray (void) */
 
 	/* Semantic colors - Galactic alerts */
@@ -42,9 +42,9 @@
 	--color-info-hover: #1e90ff;
 	--color-warning: #ffd700;  /* Gold warning */
 	--color-warning-hover: #ffc300;
-	--color-danger: #ff00ff;  /* Magenta danger */
-	--color-danger-hover: #ee82ee;
-	--color-danger-dark: #db7093;
+	--color-danger: #ff0000;  /* Red danger */
+	--color-danger-hover: #cc0000;
+	--color-danger-dark: #990000;
 
 	/* Modal/Dialog colors - Starfield clarity */
 	--modal-bg: #0f0c29;  /* Deep space for modals */

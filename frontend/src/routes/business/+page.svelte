@@ -12,6 +12,7 @@
 	let activeView: MainView = 'calendar';
 	let showTaskPanel = true;
 	let taskPanelWidth = 380;
+	let importFileInput: HTMLInputElement;
 
 	// Quick stats for header
 	$: totalTasks = $todos.length;
@@ -31,7 +32,9 @@
 			diaryEntries: get(diaryEntries),
 			projects: get(projects),
 			sprints: get(sprints),
-			kanbanColumns: get(kanbanColumns)
+			kanbanColumns: get(kanbanColumns),
+			exportedAt: new Date().toISOString(),
+			version: '1.0'
 		};
 		const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
 		const url = URL.createObjectURL(blob);
@@ -40,6 +43,51 @@
 		a.download = `business-hub-export-${new Date().toISOString().split('T')[0]}.json`;
 		a.click();
 		URL.revokeObjectURL(url);
+	}
+
+	function handleImportFile(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+
+		if (!file) return;
+
+		const reader = new FileReader();
+		reader.onload = (e) => {
+			try {
+				const data = JSON.parse(e.target?.result as string);
+				importData(data);
+				alert('Data imported successfully!');
+			} catch (error) {
+				console.error('Import error:', error);
+				alert('Failed to import data. Please check the file format.');
+			}
+		};
+		reader.readAsText(file);
+
+		// Reset input so the same file can be imported again
+		input.value = '';
+	}
+
+	function importData(data: any) {
+		// Validate and import each data type
+		if (data.todos && Array.isArray(data.todos)) {
+			todos.set(data.todos);
+		}
+		if (data.calendarEvents && Array.isArray(data.calendarEvents)) {
+			calendarEvents.set(data.calendarEvents);
+		}
+		if (data.diaryEntries && Array.isArray(data.diaryEntries)) {
+			diaryEntries.set(data.diaryEntries);
+		}
+		if (data.projects && Array.isArray(data.projects)) {
+			projects.set(data.projects);
+		}
+		if (data.sprints && Array.isArray(data.sprints)) {
+			sprints.set(data.sprints);
+		}
+		if (data.kanbanColumns && Array.isArray(data.kanbanColumns)) {
+			kanbanColumns.set(data.kanbanColumns);
+		}
 	}
 </script>
 
@@ -132,6 +180,26 @@
 					<span class="stat-label">done</span>
 				</div>
 			</div>
+
+			<!-- Hidden file input for import -->
+			<input
+				type="file"
+				bind:this={importFileInput}
+				on:change={handleImportFile}
+				accept=".json"
+				style="display: none;"
+			/>
+
+			<!-- Import Button -->
+			<button
+				class="panel-toggle"
+				on:click={() => importFileInput?.click()}
+				title="Import Business Data"
+			>
+				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+				</svg>
+			</button>
 
 			<!-- Export Button -->
 			<button
@@ -376,12 +444,42 @@
 			bottom: 0;
 			z-index: 100;
 			box-shadow: var(--biz-shadow-lg);
+			width: 320px !important;
 		}
 	}
 
 	@media (max-width: 768px) {
 		.dashboard-header {
-			padding: 0 1rem;
+			padding: 0 0.75rem;
+			height: 52px;
+		}
+
+		.dashboard-header h1 {
+			font-size: 1rem;
+		}
+
+		.header-left {
+			gap: 0.5rem;
+		}
+
+		.back-btn {
+			width: 32px;
+			height: 32px;
+		}
+
+		.header-right {
+			gap: 0.5rem;
+		}
+
+		.panel-toggle {
+			padding: 0.5rem;
+			font-size: 0.8rem;
+		}
+
+		/* Hide text on export button, keep icon */
+		.panel-toggle svg {
+			width: 18px;
+			height: 18px;
 		}
 
 		.header-nav {
@@ -391,20 +489,55 @@
 			right: 0;
 			background: var(--biz-bg-secondary, #1a2332);
 			border-top: 1px solid var(--biz-border, #2d3a4d);
-			padding: 0.5rem;
+			padding: 0.5rem 0.25rem;
 			justify-content: space-around;
 			z-index: 100;
 		}
 
 		.nav-tab {
 			flex-direction: column;
-			padding: 0.5rem;
-			font-size: 0.75rem;
-			gap: 0.25rem;
+			padding: 0.4rem 0.5rem;
+			font-size: 0.65rem;
+			gap: 0.2rem;
+			min-width: 0;
+		}
+
+		.tab-icon svg {
+			width: 16px;
+			height: 16px;
 		}
 
 		.dashboard-body {
 			padding-bottom: 70px;
+		}
+
+		.main-content {
+			padding: 0.75rem;
+		}
+
+		.task-panel {
+			position: fixed;
+			right: 0;
+			top: 52px;
+			bottom: 70px;
+			width: 100% !important;
+			max-width: 100%;
+			z-index: 150;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.dashboard-header h1 {
+			display: none;
+		}
+
+		.nav-tab {
+			padding: 0.35rem 0.4rem;
+			font-size: 0.6rem;
+		}
+
+		.panel-toggle {
+			padding: 0.4rem 0.5rem;
 		}
 	}
 </style>

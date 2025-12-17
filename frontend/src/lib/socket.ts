@@ -612,8 +612,8 @@ export function sendTyping(isTyping: boolean) {
 	socketInstance?.emit('typing', isTyping);
 }
 
-export function updateProfile(status?: 'active' | 'away' | 'busy', profilePicture?: string) {
-	socketInstance?.emit('update-profile', { status, profilePicture });
+export function updateProfile(status?: 'active' | 'away' | 'busy', profilePicture?: string, bannerUrl?: string) {
+	socketInstance?.emit('update-profile', { status, profilePicture, bannerUrl });
 }
 
 export function disconnect() {

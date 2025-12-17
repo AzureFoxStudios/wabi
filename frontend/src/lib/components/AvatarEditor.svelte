@@ -15,6 +15,7 @@
 		imageFile = null;
 		previewUrl = null;
 		error = '';
+		if (fileInput) fileInput.value = ''; // Clear file input on modal open
 	}
 
 	function closeModal() {
@@ -22,6 +23,7 @@
 		imageFile = null;
 		previewUrl = null;
 		error = '';
+		if (fileInput) fileInput.value = '';
 	}
 
 	function handleFileInput(event: Event) {
@@ -31,10 +33,14 @@
 		if (file) {
 			if (!['image/jpeg', 'image/gif', 'image/png'].includes(file.type)) {
 				error = 'Please select a JPG, GIF, or PNG file.';
+				imageFile = null;
+				previewUrl = null;
 				return;
 			}
 			if (file.size > 5 * 1024 * 1024) {
 				error = 'File is too large. Please select an image under 5MB.';
+				imageFile = null;
+				previewUrl = null;
 				return;
 			}
 
@@ -45,6 +51,9 @@
 				previewUrl = e.target?.result as string;
 			};
 			reader.readAsDataURL(file);
+		} else {
+			imageFile = null;
+			previewUrl = null;
 		}
 	}
 
@@ -54,7 +63,7 @@
 			return;
 		}
 
-		// Pass the file and preview back to ProfileModal - DON'T upload here
+		// Dispatch the selected file and its data URL
 		dispatch('change', { file: imageFile, dataUrl: previewUrl });
 		closeModal();
 	}
@@ -66,42 +75,35 @@
 	<div class="modal-overlay" on:click={closeModal}>
 		<div class="modal-content" on:click|stopPropagation>
 			<div class="modal-header">
-				<h2>Choose Avatar</h2>
+				<h2>Choose Profile Picture</h2>
 				<button class="close-btn" on:click={closeModal}>&times;</button>
 			</div>
 			<div class="modal-body">
-				{#if !previewUrl}
-					<p class="instructions">Select a JPG, GIF, or PNG image (max 5MB)</p>
-					<button class="choose-file-btn" on:click={() => fileInput?.click()}>
-						Choose Image
-					</button>
-					<input
-						bind:this={fileInput}
-						type="file"
-						accept="image/jpeg,image/gif,image/png"
-						on:change={handleFileInput}
-						style="display: none;"
-					/>
-				{:else}
+				<p class="instructions">Select a JPG, GIF, or PNG image (max 5MB)</p>
+				<button class="choose-file-btn" on:click={() => fileInput?.click()}>
+					{imageFile ? 'Change Image' : 'Choose Image'}
+				</button>
+				<input
+					bind:this={fileInput}
+					type="file"
+					accept="image/jpeg,image/gif,image/png"
+					on:change={handleFileInput}
+					style="display: none;"
+				/>
+
+				{#if previewUrl}
 					<div class="preview-container">
-						<img src={previewUrl} alt="Avatar preview" class="avatar-preview" />
-					</div>
-					<div class="preview-actions">
-						<button class="change-btn" on:click={() => { previewUrl = null; imageFile = null; fileInput?.click(); }}>
-							Choose Different
-						</button>
+						<img src={previewUrl} alt="Profile picture preview" class="avatar-preview" />
 					</div>
 				{/if}
 				{#if error}
 					<p class="error">{error}</p>
 				{/if}
 			</div>
-			{#if previewUrl}
-				<div class="modal-footer">
-					<button class="cancel-btn" on:click={closeModal}>Cancel</button>
-					<button class="confirm-btn" on:click={confirmSelection}>Use This Image</button>
-				</div>
-			{/if}
+			<div class="modal-footer">
+				<button class="cancel-btn" on:click={closeModal}>Cancel</button>
+				<button class="confirm-btn" on:click={confirmSelection} disabled={!imageFile}>Use This Image</button>
+			</div>
 		</div>
 	</div>
 {/if}
@@ -182,6 +184,7 @@
 		font-weight: 500;
 		cursor: pointer;
 		transition: background 0.2s;
+		margin-bottom: 1.5rem;
 	}
 
 	.choose-file-btn:hover {
@@ -200,27 +203,6 @@
 		border-radius: 50%;
 		object-fit: cover;
 		border: 3px solid var(--accent);
-	}
-
-	.preview-actions {
-		display: flex;
-		justify-content: center;
-	}
-
-	.change-btn {
-		padding: 0.5rem 1rem;
-		background: transparent;
-		color: var(--text-secondary);
-		border: 1px solid var(--border);
-		border-radius: 6px;
-		font-size: 0.875rem;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.change-btn:hover {
-		background: var(--bg-hover);
-		color: var(--text-primary);
 	}
 
 	.error {
@@ -261,7 +243,12 @@
 		color: white;
 	}
 
-	.confirm-btn:hover {
+	.confirm-btn:hover:not(:disabled) {
 		background: var(--accent-hover);
+	}
+
+	.confirm-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 </style>

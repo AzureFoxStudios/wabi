@@ -478,4 +478,43 @@
 	.priority-indicator {
 		display: none;
 	}
+
+	/* Mobile styles */
+	@media (max-width: 768px) {
+		.task-panel-container {
+			padding: 0.75rem;
+		}
+
+		.panel-header h2 {
+			font-size: 1rem;
+		}
+
+		.filter-tabs {
+			margin-bottom: 0.75rem;
+		}
+
+		.filter-tab {
+			padding: 0.4rem 0.5rem;
+			font-size: 0.75rem;
+		}
+
+		.task-item {
+			padding: 0.6rem;
+			gap: 0.5rem;
+		}
+
+		.task-title {
+			font-size: 0.85rem;
+		}
+
+		.task-list {
+			/* Hide scrollbar on mobile */
+			-ms-overflow-style: none;
+			scrollbar-width: none;
+		}
+
+		.task-list::-webkit-scrollbar {
+			display: none;
+		}
+	}
 </style>

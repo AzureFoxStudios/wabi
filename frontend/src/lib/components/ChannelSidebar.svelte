@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts } from '$lib/socket';
+	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile } from '$lib/socket';
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
-	import ProfileModal from './ProfileModal.svelte';
 	import type { Channel } from '$lib/socket';
 
 	const dispatch = createEventDispatcher();
@@ -27,7 +26,7 @@
 	let channelToDelete = '';
 	let showPinnedModal = false;
 	let selectedChannelForPinned = '';
-	let showProfileModal = false;
+	let showStatusPopup = false;
 	let showChannelSettingsModal = false;
 	let selectedChannelForSettings: Channel | null = null;
 
@@ -91,8 +90,13 @@
 		tempPersistMessages = !tempPersistMessages;
 	}
 
-	function openOwnProfile() {
-		showProfileModal = true;
+	function toggleStatusPopup() {
+		showStatusPopup = !showStatusPopup;
+	}
+
+	function changeStatus(newStatus: 'active' | 'away' | 'busy') {
+		updateProfile(newStatus, undefined, undefined);
+		showStatusPopup = false;
 	}
 </script>
 
@@ -188,8 +192,8 @@
 
 	{#if $currentUser}
 		<div class="profile-card">
-			<button class="profile-info" on:click={openOwnProfile}>
-				<div class="avatar-container">
+			<div class="profile-info">
+				<button class="avatar-container" on:click={() => showSettings = true}>
 					{#if $currentUser.profilePicture}
 						<img src={$currentUser.profilePicture} alt={$currentUser.username} class="avatar" />
 					{:else}
@@ -198,12 +202,31 @@
 						</div>
 					{/if}
 					<div class="status-indicator" class:online={$currentUser.status === 'active'} class:away={$currentUser.status === 'away'} class:busy={$currentUser.status === 'busy'}></div>
-				</div>
+				</button>
 				<div class="user-details">
-					<div class="username">{$currentUser.username}</div>
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div class="username" on:click={toggleStatusPopup}>{$currentUser.username}</div>
 					<div class="user-tag">#{$currentUser.id.slice(0, 4)}</div>
 				</div>
-			</button>
+			</div>
+
+			{#if showStatusPopup}
+				<div class="status-popup">
+					<button class="status-option active" on:click={() => changeStatus('active')}>
+						<span class="status-dot" style="background-color: var(--status-online)"></span>
+						Active
+					</button>
+					<button class="status-option away" on:click={() => changeStatus('away')}>
+						<span class="status-dot" style="background-color: var(--status-away)"></span>
+						Away
+					</button>
+					<button class="status-option busy" on:click={() => changeStatus('busy')}>
+						<span class="status-dot" style="background-color: var(--status-busy)"></span>
+						Busy
+					</button>
+				</div>
+			{/if}
 			<div class="profile-controls">
 				<button
 					class="control-btn"
@@ -246,8 +269,6 @@
 />
 
 <PinnedMessagesModal bind:isOpen={showPinnedModal} channelId={selectedChannelForPinned} />
-
-<ProfileModal bind:isOpen={showProfileModal} bind:user={$currentUser} isOwnProfile={true} />
 
 <!-- Channel Settings Modal -->
 {#if showChannelSettingsModal && selectedChannelForSettings}
@@ -650,6 +671,7 @@
 		align-items: center;
 		gap: 0.5rem;
 		height: 52px;
+		position: relative;
 	}
 
 	.profile-info {
@@ -659,23 +681,21 @@
 		gap: 0.5rem;
 		min-width: 80px;
 		overflow: hidden;
-		background: transparent;
-		border: none;
-		padding: 0.5rem;
-		border-radius: 8px;
-		cursor: pointer;
-		transition: background-color 0.2s;
-		text-align: left;
-	}
-
-	.profile-info:hover {
-		background: var(--bg-hover);
 	}
 
 	.avatar-container {
 		position: relative;
 		flex-shrink: 0;
 		cursor: pointer;
+		background: transparent;
+		border: none;
+		padding: 0;
+		border-radius: 50%;
+		transition: opacity 0.2s;
+	}
+
+	.avatar-container:hover {
+		opacity: 0.8;
 	}
 
 	.avatar,
@@ -727,6 +747,54 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		cursor: pointer;
+		transition: color 0.2s;
+	}
+
+	.username:hover {
+		color: var(--accent);
+	}
+
+	.status-popup {
+		position: absolute;
+		bottom: 100%;
+		left: 0.625rem;
+		margin-bottom: 8px;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		background: var(--bg-secondary);
+		border-radius: 8px;
+		padding: 6px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+		z-index: 100;
+		min-width: 140px;
+	}
+
+	.status-option {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 8px 12px;
+		background: transparent;
+		border: none;
+		border-radius: 6px;
+		color: var(--text-primary);
+		cursor: pointer;
+		transition: background 0.2s;
+		text-align: left;
+		font-size: 0.9rem;
+	}
+
+	.status-option:hover {
+		background: var(--bg-hover);
+	}
+
+	.status-dot {
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		flex-shrink: 0;
 	}
 
 	.user-tag {
