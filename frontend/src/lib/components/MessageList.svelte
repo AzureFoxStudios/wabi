@@ -184,9 +184,12 @@
 			return fileUrl;
 		}
 		// Otherwise, prepend the backend server URL
-		const serverUrl = window.location.origin.includes(':5173')
-			? 'http://localhost:3000'
-			: window.location.origin;
+		let serverUrl: string;
+		if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
+			serverUrl = 'http://localhost:3000';
+		} else {
+			serverUrl = window.location.origin;
+		}
 		return `${serverUrl}${fileUrl}`;
 	}
 	function getReplyToMessage(replyToId?: string): Message | undefined {

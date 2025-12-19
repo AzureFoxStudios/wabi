@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { get } from 'svelte/store';
 	import {
 		todos,
 		projects,
@@ -161,13 +162,13 @@
 
 	function getProjectName(projectId: string | undefined): string {
 		if (!projectId) return '';
-		const project = $projects.find(p => p.id === projectId);
+		const project = get(projects).find(p => p.id === projectId);
 		return project?.name || '';
 	}
 
 	function getProjectColor(projectId: string | undefined): string {
 		if (!projectId) return '#64748b';
-		const project = $projects.find(p => p.id === projectId);
+		const project = get(projects).find(p => p.id === projectId);
 		return project?.color || '#64748b';
 	}
 

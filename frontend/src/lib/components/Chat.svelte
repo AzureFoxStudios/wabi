@@ -302,9 +302,17 @@
 		let completedFiles = 0;
 
 		try {
-			const serverUrl = window.location.origin.includes(':5173')
-				? 'http://localhost:3000'
-				: window.location.origin;
+			let serverUrl: string;
+			if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
+				// Dev mode or Tauri app: use localhost
+				serverUrl = 'http://localhost:3000';
+			} else {
+				// Production: use current origin
+				serverUrl = window.location.origin;
+			}
+
+			console.log('Upload serverUrl:', serverUrl);
+			console.log('Upload URL will be:', `${serverUrl}/api/upload`);
 
 			// Upload all files and collect their URLs
 			const uploadedFiles: { fileUrl: string; fileName: string; fileSize: number }[] = [];
@@ -314,6 +322,8 @@
 					const formData = new FormData();
 					formData.append('file', file);
 					formData.append('channelId', $currentChannel);
+
+					console.log('Uploading file:', file.name, 'to channel:', $currentChannel);
 
 					const xhr = new XMLHttpRequest();
 
@@ -329,23 +339,33 @@
 					// Handle completion
 					xhr.addEventListener('load', () => {
 						if (xhr.status === 200) {
-							const uploadResult = JSON.parse(xhr.responseText);
-							completedFiles++;
-							resolve({
-								fileUrl: uploadResult.fileUrl,
-								fileName: file.name,
-								fileSize: file.size
-							});
+							try {
+								const uploadResult = JSON.parse(xhr.responseText);
+								completedFiles++;
+								resolve({
+									fileUrl: uploadResult.fileUrl,
+									fileName: file.name,
+									fileSize: file.size
+								});
+							} catch (parseError) {
+								console.error('Failed to parse upload response:', xhr.responseText);
+								reject(new Error(`Invalid server response: ${xhr.responseText.substring(0, 100)}`));
+							}
 						} else {
-							reject(new Error('Upload failed'));
+							console.error('Upload failed with status', xhr.status, xhr.responseText);
+							reject(new Error(`Upload failed with status ${xhr.status}`));
 						}
 					});
 
 					xhr.addEventListener('error', () => {
-						reject(new Error('Upload failed'));
+						console.error('XHR error event');
+						reject(new Error('Upload network error'));
 					});
 
-					xhr.open('POST', `${serverUrl}/api/upload`);
+					const uploadUrl = `${serverUrl}/api/upload`;
+					console.log('Opening XHR POST to:', uploadUrl);
+					xhr.open('POST', uploadUrl);
+					console.log('Sending FormData with file:', file.name);
 					xhr.send(formData);
 				});
 

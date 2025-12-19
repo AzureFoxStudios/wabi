@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { get } from 'svelte/store';
 	import { todos, projects, addTodo, updateTodo, deleteTodo, type Todo } from '$lib/business';
 
 	let newTaskTitle = '';
@@ -63,7 +64,7 @@
 
 	function getProjectName(projectId: string | null | undefined): string {
 		if (!projectId) return '';
-		const project = $projects.find(p => p.id === projectId);
+		const project = get(projects).find(p => p.id === projectId);
 		return project?.name || '';
 	}
 

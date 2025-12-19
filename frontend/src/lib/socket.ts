@@ -116,11 +116,18 @@ export function initSocket(username: string) {
 
 	socketInstance.on('connect_error', (error) => {
 		console.error('[Socket] Connection error:', error);
+		console.error('[Socket] Error details:', {
+			message: error?.message,
+			type: error?.type,
+			data: error?.data,
+			toString: error?.toString?.()
+		});
 		connected.set(false);
 	});
 
 	socketInstance.on('connect_timeout', () => {
 		console.error('[Socket] Connection timeout!');
+		console.error('[Socket] Attempted to connect to:', serverUrl);
 		connected.set(false);
 	});
 

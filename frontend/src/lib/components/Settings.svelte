@@ -184,9 +184,12 @@
 		uploadingEmoji = true;
 
 		try {
-			const serverUrl = window.location.origin.includes(':5173')
-				? 'http://localhost:3000'
-				: window.location.origin;
+			let serverUrl: string;
+			if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
+				serverUrl = 'http://localhost:3000';
+			} else {
+				serverUrl = window.location.origin;
+			}
 
 			// Upload the file
 			const formData = new FormData();
@@ -296,9 +299,12 @@
 		let failCount = 0;
 
 		try {
-			const serverUrl = window.location.origin.includes(':5173')
-				? 'http://localhost:3000'
-				: window.location.origin;
+			let serverUrl: string;
+			if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
+				serverUrl = 'http://localhost:3000';
+			} else {
+				serverUrl = window.location.origin;
+			}
 
 			for (const item of bulkEmojiFiles) {
 				try {
@@ -352,9 +358,12 @@
 	async function confirmClearServer() {
 
 		try {
-			const serverUrl = window.location.origin.includes(':5173')
-				? 'http://localhost:3000'
-				: window.location.origin;
+			let serverUrl: string;
+			if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
+				serverUrl = 'http://localhost:3000';
+			} else {
+				serverUrl = window.location.origin;
+			}
 
 			const response = await fetch(`${serverUrl}/api/clear-messages`, {
 				method: 'POST',
@@ -398,9 +407,14 @@
 		uploadingAvatar = true;
 
 		try {
-			const serverUrl = window.location.origin.includes(':5173')
-				? 'http://localhost:3000'
-				: window.location.origin;
+			let serverUrl: string;
+			if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
+				// Dev mode or Tauri app: use localhost
+				serverUrl = 'http://localhost:3000';
+			} else {
+				// Production: use current origin
+				serverUrl = window.location.origin;
+			}
 
 			const formData = new FormData();
 			formData.append('profilePicture', selectedAvatarFile);
@@ -416,7 +430,7 @@
 
 			const result = await response.json();
 			if (result.profilePictureUrl) {
-				updateProfile({ profilePicture: result.profilePictureUrl });
+				updateProfile(undefined, result.profilePictureUrl);
 				alert('Profile picture updated successfully!');
 			} else {
 				throw new Error('No profile picture URL returned.');

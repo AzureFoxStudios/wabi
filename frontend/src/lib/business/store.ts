@@ -98,12 +98,34 @@ function saveToStorage() {
 // Auto-save on changes
 if (browser) {
 	loadFromStorage();
-	todos.subscribe(saveToStorage);
-	calendarEvents.subscribe(saveToStorage);
-	diaryEntries.subscribe(saveToStorage);
-	projects.subscribe(saveToStorage);
-	sprints.subscribe(saveToStorage);
+
+	// Save to localStorage and trigger sync on any data change
+	todos.subscribe(() => {
+		saveToStorage();
+		import('./sync').then(({ triggerSync }) => triggerSync());
+	});
+	calendarEvents.subscribe(() => {
+		saveToStorage();
+		import('./sync').then(({ triggerSync }) => triggerSync());
+	});
+	diaryEntries.subscribe(() => {
+		saveToStorage();
+		import('./sync').then(({ triggerSync }) => triggerSync());
+	});
+	projects.subscribe(() => {
+		saveToStorage();
+		import('./sync').then(({ triggerSync }) => triggerSync());
+	});
+	sprints.subscribe(() => {
+		saveToStorage();
+		import('./sync').then(({ triggerSync }) => triggerSync());
+	});
 	kanbanColumns.subscribe(saveToStorage);
+
+	// Initialize sync engine for server sync
+	import('./sync').then(({ initSync }) => {
+		initSync();
+	});
 }
 
 // Helper function to generate IDs

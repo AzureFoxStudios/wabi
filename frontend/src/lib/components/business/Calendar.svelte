@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { get } from 'svelte/store';
 	import {
 		calendarEvents,
 		todos,
@@ -12,6 +13,7 @@
 
 	// Current view state
 	let currentMonth = new Date();
+	let days: Date[] = [];
 	let showEventModal = false;
 	let editingEvent: CalendarEvent | null = null;
 	let selectedDayEvents: CalendarEvent[] = [];
@@ -86,7 +88,7 @@
 		const dayEnd = new Date(date);
 		dayEnd.setHours(23, 59, 59, 999);
 
-		return $calendarEvents.filter(event => {
+		return get(calendarEvents).filter(event => {
 			const eventStart = new Date(event.startDate);
 			const eventEnd = event.endDate ? new Date(event.endDate) : eventStart;
 			return (
@@ -103,7 +105,7 @@
 		const dayEnd = new Date(date);
 		dayEnd.setHours(23, 59, 59, 999);
 
-		return $todos.filter(todo =>
+		return get(todos).filter(todo =>
 			todo.dueDate &&
 			todo.dueDate >= dayStart.getTime() &&
 			todo.dueDate <= dayEnd.getTime() &&
@@ -171,7 +173,11 @@
 	}
 
 	function formatDateForInput(date: Date): string {
-		return date.toISOString().split('T')[0];
+		// Use local timezone, not UTC
+		const year = date.getFullYear();
+		const month = String(date.getMonth() + 1).padStart(2, '0');
+		const day = String(date.getDate()).padStart(2, '0');
+		return `${year}-${month}-${day}`;
 	}
 
 	function formatTimeForInput(date: Date): string {
@@ -181,9 +187,9 @@
 	// Modal handlers
 	function openAddModal(date?: Date) {
 		resetForm();
-		if (date) {
-			formStartDate = formatDateForInput(date);
-		}
+		// Default to provided date, or today if none provided
+		const defaultDate = date || new Date();
+		formStartDate = formatDateForInput(defaultDate);
 		showEventModal = true;
 	}
 
@@ -201,8 +207,16 @@
 
 	function openDayModal(date: Date) {
 		selectedDate.set(date.getTime());
-		selectedDayEvents = getEventsForDay(date);
 		showDayModal = true;
+	}
+
+	// Reactive statement: update selectedDayEvents whenever calendar events or selected date changes
+	$: {
+		if (showDayModal) {
+			selectedDayEvents = getEventsForDay(new Date($selectedDate));
+		}
+		// Force dependency on calendarEvents by reading it
+		void $calendarEvents;
 	}
 
 	function closeModal() {
@@ -257,7 +271,12 @@
 		}
 	}
 
-	$: days = getDaysInMonth(currentMonth);
+	// Regenerate calendar whenever events/todos/month change
+	$: {
+		void $calendarEvents; // Force dependency tracking
+		void $todos; // Force dependency tracking
+		days = getDaysInMonth(currentMonth);
+	}
 	$: monthLabel = currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 </script>
 

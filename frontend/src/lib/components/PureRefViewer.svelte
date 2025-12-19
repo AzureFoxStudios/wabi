@@ -9,6 +9,8 @@
   let showViewer = false;
 
   onMount(() => {
+    // Disabled for now - PureRef server not running on port 12345
+    /*
     ws = new WebSocket('ws://localhost:12345');
 
     ws.onopen = () => {
@@ -33,6 +35,8 @@
       console.error('[PureRefViewer] WebSocket error:', err);
       isConnected = false;
     };
+    */
+    isConnected = false;
 
     // Add keydown listener for closing with Escape key
     window.addEventListener('keydown', handleKeydown);

@@ -1,0 +1,45 @@
+{
+  "workspaceId": "default-workspace",
+  "todos": [],
+  "calendarEvents": [
+    {
+      "title": "edge",
+      "description": "edge",
+      "startDate": 1764460800000,
+      "allDay": false,
+      "color": "#5865f2",
+      "createdBy": "current-user",
+      "id": "1766119355981-5g8ns7lwb"
+    },
+    {
+      "title": "asdf",
+      "description": "asdf",
+      "startDate": 1766016000000,
+      "allDay": false,
+      "color": "#5865f2",
+      "createdBy": "current-user",
+      "id": "1766126629608-7u0jz8c5n"
+    },
+    {
+      "title": "Blah blah",
+      "startDate": 1766102400000,
+      "allDay": false,
+      "color": "#5865f2",
+      "createdBy": "current-user",
+      "id": "1766126662726-k44j70vm3"
+    },
+    {
+      "title": "b",
+      "description": "b",
+      "startDate": 1765584000000,
+      "allDay": false,
+      "color": "#5865f2",
+      "createdBy": "current-user",
+      "id": "1766126885241-jwea7kpby"
+    }
+  ],
+  "diaryEntries": [],
+  "projects": [],
+  "sprints": [],
+  "lastUpdated": 1766128266147
+}

@@ -51,9 +51,24 @@ const users = new Map<string, {
   color: string;
   status: 'active' | 'away' | 'busy';
   profilePicture?: string;
+  workspaceId?: string; // Business workspace the user belongs to
 }>();
 
 const typingUsers = new Set<string>();
+
+// Business workspace data - for collaborative business features
+interface BusinessData {
+  workspaceId: string;
+  todos: any[];
+  calendarEvents: any[];
+  diaryEntries: any[];
+  projects: any[];
+  sprints: any[];
+  lastUpdated: number;
+}
+
+const businessWorkspaces = new Map<string, BusinessData>();
+const defaultWorkspaceId = 'default-workspace'; // Default workspace for all users
 // Track which channel each user is currently in
 const userCurrentChannel = new Map<string, string>();
 // Track typing users per channel: channelId -> Set of userIds
@@ -165,10 +180,14 @@ function cancelMessageDeletion(messageId: string) {
 // Message persistence functions
 const DATA_DIR = './data';
 const MESSAGES_FILE = join(DATA_DIR, 'messages.json');
+const BUSINESS_DATA_DIR = join(DATA_DIR, 'business');
 
-// Ensure data directory exists
+// Ensure data directories exist
 if (!existsSync(DATA_DIR)) {
   mkdirSync(DATA_DIR, { recursive: true });
+}
+if (!existsSync(BUSINESS_DATA_DIR)) {
+  mkdirSync(BUSINESS_DATA_DIR, { recursive: true });
 }
 
 function saveMessagesToDisk() {
@@ -238,6 +257,65 @@ function restoreMessageDeletionTimers() {
 // For now, we declare it as a variable to be assigned later
 let deleteMessageById: ((channelId: string, messageId: string) => void) | null = null;
 
+// Business data persistence functions
+function getBusinessDataPath(workspaceId: string): string {
+  return join(BUSINESS_DATA_DIR, `${workspaceId}.json`);
+}
+
+function loadBusinessData(workspaceId: string): BusinessData | null {
+  try {
+    const filePath = getBusinessDataPath(workspaceId);
+    if (existsSync(filePath)) {
+      const data = JSON.parse(readFileSync(filePath, 'utf-8'));
+      const enableLogging = process.env.ENABLE_LOGGING === 'true';
+      if (enableLogging) console.log(`📊 Loaded business data for workspace: ${workspaceId}`);
+      return data;
+    }
+  } catch (error) {
+    console.error(`Error loading business data for workspace ${workspaceId}:`, error);
+  }
+  return null;
+}
+
+function saveBusinessData(workspaceId: string, data: BusinessData): void {
+  try {
+    const filePath = getBusinessDataPath(workspaceId);
+    data.lastUpdated = Date.now();
+    writeFileSync(filePath, JSON.stringify(data, null, 2));
+    const enableLogging = process.env.ENABLE_LOGGING === 'true';
+    if (enableLogging) console.log(`💾 Saved business data for workspace: ${workspaceId}`);
+  } catch (error) {
+    console.error(`Error saving business data for workspace ${workspaceId}:`, error);
+  }
+}
+
+function initializeWorkspace(workspaceId: string): BusinessData {
+  const data: BusinessData = {
+    workspaceId,
+    todos: [],
+    calendarEvents: [],
+    diaryEntries: [],
+    projects: [],
+    sprints: [],
+    lastUpdated: Date.now()
+  };
+
+  // Try to load from disk first
+  const loaded = loadBusinessData(workspaceId);
+  if (loaded) {
+    businessWorkspaces.set(workspaceId, loaded);
+    return loaded;
+  }
+
+  // Otherwise use empty data
+  businessWorkspaces.set(workspaceId, data);
+  saveBusinessData(workspaceId, data);
+  return data;
+}
+
+// Initialize default workspace on startup
+initializeWorkspace(defaultWorkspaceId);
+
 const PORT = process.env.PORT || 3000;
 const STATIC_DIR = process.env.STATIC_DIR || join(import.meta.dir, "../../frontend/build");
 const EMOTES_DIR = join(STATIC_DIR, "emotes");
@@ -261,6 +339,7 @@ const server = createServer((req, res) => {
   // CORS headers for all requests - dynamically set based on request origin
   const allowedOrigins = [
     'http://localhost:5173',
+    'http://tauri.localhost',
     'https://ungruff-subtarsal-libby.ngrok-free.dev',
     process.env.FRONTEND_URL
   ].filter(Boolean);
@@ -480,6 +559,75 @@ const server = createServer((req, res) => {
       users: users.size,
       uptime: process.uptime()
     }));
+    return;
+  }
+
+  // Business data sync endpoints
+  // Get business data for a workspace
+  if (url.pathname === "/api/business/get" && req.method === "GET") {
+    try {
+      // For now, use default workspace. Later, get from user session/auth
+      const workspaceId = defaultWorkspaceId;
+      const data = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data
+      }));
+    } catch (error) {
+      console.error('Get business data error:', error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Failed to load business data' }));
+    }
+    return;
+  }
+
+  // Save/sync business data for a workspace
+  if (url.pathname === "/api/business/sync" && req.method === "POST") {
+    let body = '';
+
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on('end', () => {
+      try {
+        const { todos, calendarEvents, diaryEntries, projects, sprints } = JSON.parse(body);
+
+        // For now, use default workspace. Later, get from user session/auth
+        const workspaceId = defaultWorkspaceId;
+
+        const businessData: BusinessData = {
+          workspaceId,
+          todos: todos || [],
+          calendarEvents: calendarEvents || [],
+          diaryEntries: diaryEntries || [],
+          projects: projects || [],
+          sprints: sprints || [],
+          lastUpdated: Date.now()
+        };
+
+        businessWorkspaces.set(workspaceId, businessData);
+        saveBusinessData(workspaceId, businessData);
+
+        // Broadcast update to all other connected users in this workspace
+        io.emit('business-data-updated', {
+          workspaceId,
+          data: businessData
+        });
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          lastUpdated: businessData.lastUpdated
+        }));
+      } catch (error) {
+        console.error('Sync business data error:', error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Failed to sync business data' }));
+      }
+    });
     return;
   }
 
@@ -711,6 +859,7 @@ const io = new Server(server, {
   cors: {
     origin: [
       "http://localhost:5173",
+      "http://tauri.localhost",
       "https://ungruff-subtarsal-libby.ngrok-free.dev",
       process.env.FRONTEND_URL
     ].filter(Boolean), // Remove undefined if FRONTEND_URL not set
