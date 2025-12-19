@@ -62,6 +62,7 @@ try {
 // Fallback: Ensure at least icon.ico exists
 const icoPath = path.join(iconDir, 'icon.ico');
 const pngPath = path.join(iconDir, 'icon.png');
+const appIconPath = path.join(projectRoot, 'app-icon.png');
 
 console.log('Fallback: Checking for required icon files...\n');
 
@@ -73,24 +74,32 @@ if (!fs.existsSync(icoPath)) {
 
 console.log('✓ icon.ico found');
 
-// Try to create PNG from ICO if it doesn't exist
+// Try to create PNG from source if it doesn't exist
 if (!fs.existsSync(pngPath)) {
-  console.log('Creating icon.png from icon.ico...');
+  console.log('Creating icon.png from source...');
 
   try {
-    // Try using sharp if available
-    const sharp = await import('sharp').catch(() => null);
-
-    if (sharp) {
-      await sharp.default(icoPath)
-        .png()
-        .toFile(pngPath);
-      console.log('✓ Created icon.png using sharp');
+    // First, try to use source PNG if available
+    if (fs.existsSync(appIconPath)) {
+      console.log(`Using source: ${appIconPath}`);
+      fs.copyFileSync(appIconPath, pngPath);
+      console.log('✓ Created icon.png from app-icon.png');
     } else {
-      // Fallback: copy ICO as PNG (not ideal but allows build to proceed)
-      fs.copyFileSync(icoPath, pngPath);
-      console.log('⚠ Created icon.png by copying icon.ico (basic fallback)');
-      console.log('  For best results, provide a proper PNG icon file\n');
+      // Try using sharp to convert ICO to PNG if available
+      const sharp = await import('sharp').catch(() => null);
+
+      if (sharp) {
+        console.log('Converting icon.ico to PNG using sharp...');
+        await sharp.default(icoPath)
+          .png()
+          .toFile(pngPath);
+        console.log('✓ Created icon.png from icon.ico using sharp');
+      } else {
+        console.error('⚠ Could not create icon.png');
+        console.error('  - app-icon.png not found');
+        console.error('  - sharp library not available');
+        console.log('  Continuing build (may fail if PNG is required)\n');
+      }
     }
   } catch (err) {
     console.error('⚠ Could not create icon.png automatically');
