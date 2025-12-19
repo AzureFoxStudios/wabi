@@ -9,6 +9,7 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         platform: [ubuntu-latest, windows-latest]
         # macOS builds commented out - requires additional setup
@@ -51,9 +52,12 @@ jobs:
 
       - name: Build Tauri app
         working-directory: ./frontend
-        run: bun run tauri build
+        run: |
+          echo "Starting Tauri build..."
+          bun run tauri build
         env:
           RUST_BACKTRACE: 1
+          RUST_LOG: debug
 
       - name: Upload artifacts (Windows)
         if: runner.os == 'Windows'
