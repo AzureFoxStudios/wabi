@@ -34,23 +34,10 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libayatana-appindicator3-dev librsvg2-dev imagemagick
-
-      - name: Install macOS dependencies
-        if: runner.os == 'macOS'
-        run: |
-          brew install imagemagick
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
       - name: Convert icon ICO to PNG
-        shell: bash
-        run: |
-          if [ -f "frontend/src-tauri/icons/icon.ico" ] && [ ! -f "frontend/src-tauri/icons/icon.png" ]; then
-            echo "Converting icon.ico to icon.png..."
-            convert "frontend/src-tauri/icons/icon.ico" "frontend/src-tauri/icons/icon.png"
-            echo "Conversion complete"
-          else
-            echo "icon.png already exists or icon.ico not found"
-          fi
+        run: node scripts/convert-icon.js
 
       - name: Install frontend dependencies
         run: cd frontend && bun install
