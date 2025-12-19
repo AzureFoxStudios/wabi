@@ -110,6 +110,50 @@ if (!fs.existsSync(pngPath)) {
   console.log('✓ icon.png already exists');
 }
 
+// Try to create ICNS for macOS if it doesn't exist
+const icnsPath = path.join(iconDir, 'icon.icns');
+
+if (!fs.existsSync(icnsPath)) {
+  console.log('\nAttempting to generate icon.icns for macOS...');
+
+  try {
+    // For now, we'll create a placeholder ICNS structure
+    // A proper ICNS requires special tools, but this allows bundling to proceed
+    // Real ICNS would need: imagemagick, sips (macOS only), or a Node library
+
+    console.log('⚠ ICNS generation requires imagemagick or sips tool');
+    console.log('  Attempting with available tools...');
+
+    // Try using sips (macOS only tool)
+    try {
+      execSync(`sips -z 512 512 "${pngPath}" --out "${icnsPath}"`, {
+        stdio: 'pipe'
+      });
+      console.log('✓ Generated icon.icns using sips');
+    } catch (e) {
+      // sips not available or failed
+      console.log('⚠ sips not available (macOS-only tool)');
+
+      // Try using imagemagick convert
+      try {
+        execSync(`convert "${pngPath}" -define icon:auto-resize=512,256,128,96,64,48,32,16 "${icnsPath}"`, {
+          stdio: 'pipe'
+        });
+        console.log('✓ Generated icon.icns using ImageMagick');
+      } catch (e2) {
+        console.log('⚠ Could not generate icon.icns');
+        console.log('  - imagemagick not installed');
+        console.log('  - sips not available (macOS only)');
+        console.log('  macOS builds may fail without proper ICNS');
+      }
+    }
+  } catch (err) {
+    console.log('⚠ ICNS generation failed:', err.message);
+  }
+} else {
+  console.log('✓ icon.icns already exists');
+}
+
 console.log('\n✓ Icon setup complete');
 console.log('\nRecommended next steps:');
 console.log('1. For best cross-platform support, use: tauri icon app-icon.png');
