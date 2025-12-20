@@ -5,6 +5,11 @@ import { join } from "path";
 import { PluginLoader } from "./plugins/loader";
 import { getAllEmojis, getEmojiByName, addCustomEmoji, deleteCustomEmoji, type Emoji } from "./emojis";
 
+// 🧠 RAM OPTIMIZATION CONSTANTS
+const MAX_MESSAGES_PER_CHANNEL = 5000; // Keep only recent messages in memory
+const MAX_TODO_AGE_DAYS = 30; // Archive completed todos older than 30 days
+const CLEANUP_INTERVAL = 3600000; // Run cleanup every hour (3600000ms)
+
 // In-memory data store
 interface Channel {
   id: string;
@@ -988,6 +993,10 @@ const server = createServer((req, res) => {
 // Start HTTP server
 server.listen(PORT);
 
+// 🧠 Start cleanup interval on server startup
+runCleanup(); // Run once immediately on startup
+setInterval(runCleanup, CLEANUP_INTERVAL);
+
 // Create Socket.IO server attached to HTTP server
 const io = new Server(server, {
   cors: {
@@ -1077,6 +1086,58 @@ deleteMessageById = (channelId: string, messageId: string) => {
     console.log(`🗑️ Auto-deleted message ${messageId} from channel ${channelId}`);
   }
 };
+
+// 🧠 CLEANUP FUNCTIONS FOR RAM OPTIMIZATION
+
+// Prune old messages from memory (keep only recent ones)
+function pruneMessages() {
+  let pruned = 0;
+  channelMessages.forEach((messages, channelId) => {
+    if (messages.length > MAX_MESSAGES_PER_CHANNEL) {
+      const oldCount = messages.length;
+      // Keep only the most recent MAX_MESSAGES_PER_CHANNEL
+      const removed = messages.splice(0, messages.length - MAX_MESSAGES_PER_CHANNEL);
+      channelMessages.set(channelId, messages);
+      pruned += removed.length;
+      console.log(
+        `📊 Pruned ${channelId}: kept ${MAX_MESSAGES_PER_CHANNEL} of ${oldCount} messages`
+      );
+    }
+  });
+  if (pruned > 0) {
+    console.log(`🧹 Total messages pruned: ${pruned}`);
+  }
+}
+
+// Archive old completed todos to free RAM
+function archiveOldTodos() {
+  const thirtyDaysAgo = Date.now() - MAX_TODO_AGE_DAYS * 24 * 60 * 60 * 1000;
+  let archived = 0;
+
+  businessWorkspaces.forEach((workspace) => {
+    const completed = workspace.todos.filter(
+      (todo: any) =>
+        todo.completedAt && todo.completedAt < thirtyDaysAgo
+    );
+    archived += completed.length;
+    // Remove archived todos from memory
+    workspace.todos = workspace.todos.filter(
+      (todo: any) =>
+        !todo.completedAt || todo.completedAt >= thirtyDaysAgo
+    );
+  });
+
+  if (archived > 0) {
+    console.log(`📦 Archived ${archived} old completed todos`);
+  }
+}
+
+// Run cleanup routine
+function runCleanup() {
+  console.log("🧹 Running RAM cleanup...");
+  pruneMessages();
+  archiveOldTodos();
+}
 
 // Initialize server: DO NOT load persisted messages from disk
 // Messages are stored client-side in localStorage, not server-side
@@ -1239,6 +1300,15 @@ io.on("connection", (socket) => {
     // Add message to channel
     const messages = channelMessages.get(data.channelId) || [];
     messages.push(message);
+
+    // 🧠 RAM SAVER: Prune if channel exceeds max messages
+    if (messages.length > MAX_MESSAGES_PER_CHANNEL) {
+      const removed = messages.splice(0, messages.length - MAX_MESSAGES_PER_CHANNEL);
+      console.log(
+        `📊 Auto-pruned ${data.channelId}: removed ${removed.length} old messages`
+      );
+    }
+
     channelMessages.set(data.channelId, messages);
 
     emitToChannel(data.channelId, "message", { channelId: data.channelId, message });
