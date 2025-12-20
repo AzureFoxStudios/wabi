@@ -621,6 +621,7 @@
 		font-size: 0.9rem;
 		border-radius: 0;
 		transition: all 0.2s;
+		line-height: 1; /* Fix for vertical alignment of icons and text */
 	}
 
 	.channel-item.active .channel-btn {
