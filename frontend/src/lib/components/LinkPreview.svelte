@@ -121,7 +121,7 @@
 		padding-bottom: 56.25%; /* 16:9 aspect ratio */
 		height: 0;
 		overflow: hidden;
-		max-width: 600px;
+		max-width: 380px;
 		margin: 0.5rem 0;
 		border-radius: 8px;
 		background: var(--bg-secondary);
