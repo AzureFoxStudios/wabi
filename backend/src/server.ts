@@ -425,7 +425,7 @@ const server = createServer((req, res) => {
           }
           writeFileSync(filePath, profilePictureFile);
 
-          const serverUrl = `http://localhost:${PORT}`; // Assuming frontend and backend run on same host, different ports
+          const serverUrl = `http://${req.headers.host}`; // Use actual request host for remote accessibility
           const profilePictureUrl = `${serverUrl}/uploads/${fileId}`;
 
           res.writeHead(200, { "Content-Type": "application/json" });
@@ -477,7 +477,8 @@ const server = createServer((req, res) => {
           const fileBuffer = Buffer.from(fileData.split(',')[1], 'base64');
           writeFileSync(filePath, fileBuffer);
 
-          const fileUrl = `/uploads/${fileId}`;
+          const serverUrl = `http://${req.headers.host}`; // Use actual request host for remote accessibility
+          const fileUrl = `${serverUrl}/uploads/${fileId}`;
 
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({
@@ -527,7 +528,8 @@ const server = createServer((req, res) => {
             }
             writeFileSync(filePath, fileData);
 
-            const fileUrl = `/uploads/${fileId}`;
+            const serverUrl = `http://${req.headers.host}`; // Use actual request host for remote accessibility
+            const fileUrl = `${serverUrl}/uploads/${fileId}`;
 
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(JSON.stringify({
@@ -696,8 +698,8 @@ const server = createServer((req, res) => {
           }
           writeFileSync(filePath, fileData);
 
-          // Use full URL for emoji (important for dev mode with separate ports)
-          const serverUrl = `http://localhost:${PORT}`;
+          // Use full URL for emoji (important for dev mode with separate ports and remote accessibility)
+          const serverUrl = `http://${req.headers.host}`;
           const emojiUrl = `${serverUrl}/uploads/${fileId}`;
 
           // Add emoji to database
@@ -767,6 +769,138 @@ const server = createServer((req, res) => {
       console.error('Clear messages error:', error);
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: false, error: 'Failed to clear messages' }));
+    }
+    return;
+  }
+
+  // URL Preview API - fetch Open Graph metadata
+  if (url.pathname === "/api/url-preview" && req.method === "GET") {
+    const targetUrl = url.searchParams.get('url');
+
+    if (!targetUrl) {
+      res.writeHead(400, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
+      });
+      res.end(JSON.stringify({ error: 'URL parameter required' }));
+      return;
+    }
+
+    // YouTube special handling - skip fetching, just extract video ID
+    if (targetUrl.includes('youtube.com') || targetUrl.includes('youtu.be')) {
+      const videoIdMatch = targetUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&?]+)/);
+      if (videoIdMatch) {
+        const metadata = {
+          url: targetUrl,
+          title: 'YouTube Video',
+          description: null,
+          image: `https://img.youtube.com/vi/${videoIdMatch[1]}/maxresdefault.jpg`,
+          siteName: 'YouTube',
+          type: 'video.youtube',
+          youtubeId: videoIdMatch[1]
+        };
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*"
+        });
+        res.end(JSON.stringify(metadata));
+        return;
+      }
+    }
+
+    try {
+      const https = require('https');
+      const http = require('http');
+      const urlModule = new URL(targetUrl);
+      const protocol = urlModule.protocol === 'https:' ? https : http;
+
+      const options = {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'DNT': '1',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Cache-Control': 'max-age=0'
+        },
+        timeout: 5000 // 5 second timeout
+      };
+
+      const request = protocol.get(targetUrl, options, (fetchRes: any) => {
+        let data = '';
+
+        fetchRes.on('data', (chunk: any) => {
+          data += chunk;
+          // Limit data size to prevent abuse
+          if (data.length > 500000) {
+            fetchRes.destroy();
+          }
+        });
+
+        fetchRes.on('end', () => {
+          const metadata: any = {
+            url: targetUrl,
+            title: null,
+            description: null,
+            image: null,
+            siteName: null,
+            type: 'website'
+          };
+
+          // Parse Open Graph tags
+          const ogTitle = data.match(/<meta\s+property="og:title"\s+content="([^"]*)"/i);
+          const ogDescription = data.match(/<meta\s+property="og:description"\s+content="([^"]*)"/i);
+          const ogImage = data.match(/<meta\s+property="og:image"\s+content="([^"]*)"/i);
+          const ogSiteName = data.match(/<meta\s+property="og:site_name"\s+content="([^"]*)"/i);
+          const ogType = data.match(/<meta\s+property="og:type"\s+content="([^"]*)"/i);
+
+          // Fallback to regular meta tags
+          const titleTag = data.match(/<title>([^<]*)<\/title>/i);
+          const descTag = data.match(/<meta\s+name="description"\s+content="([^"]*)"/i);
+
+          metadata.title = ogTitle?.[1] || titleTag?.[1] || null;
+          metadata.description = ogDescription?.[1] || descTag?.[1] || null;
+          metadata.image = ogImage?.[1] || null;
+          metadata.siteName = ogSiteName?.[1] || null;
+          metadata.type = ogType?.[1] || 'website';
+
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*"
+          });
+          res.end(JSON.stringify(metadata));
+        });
+      });
+
+      request.on('error', (err: any) => {
+        console.error('URL fetch error:', err);
+        res.writeHead(500, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*"
+        });
+        res.end(JSON.stringify({ error: 'Failed to fetch URL' }));
+      });
+
+      request.on('timeout', () => {
+        request.destroy();
+        res.writeHead(500, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*"
+        });
+        res.end(JSON.stringify({ error: 'Request timeout' }));
+      });
+    } catch (error) {
+      console.error('URL preview error:', error);
+      res.writeHead(500, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
+      });
+      res.end(JSON.stringify({ error: 'Invalid URL' }));
     }
     return;
   }
