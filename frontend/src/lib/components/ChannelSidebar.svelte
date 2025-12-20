@@ -183,13 +183,15 @@
 						<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
 					{/if}
 				</button>
-				<div class="channel-actions">
-					<button class="settings-btn" on:click|stopPropagation={() => handleOpenChannelSettings(channel)} title="Channel settings">⚙️</button>
-					<button class="pin-btn" on:click|stopPropagation={() => handleShowPinnedMessages(channel.id)} title="View pinned messages">📌</button>
-					{#if channel.id !== 'general'}
-						<button class="delete-btn" on:click|stopPropagation={() => handleDeleteChannel(channel.id)}>×</button>
-					{/if}
-				</div>
+				{#if !isNarrow}
+					<div class="channel-actions">
+						<button class="settings-btn" on:click|stopPropagation={() => handleOpenChannelSettings(channel)} title="Channel settings">⚙️</button>
+						<button class="pin-btn" on:click|stopPropagation={() => handleShowPinnedMessages(channel.id)} title="View pinned messages">📌</button>
+						{#if channel.id !== 'general'}
+							<button class="delete-btn" on:click|stopPropagation={() => handleDeleteChannel(channel.id)}>×</button>
+						{/if}
+					</div>
+				{/if}
 			</div>
 		{/each}
 
@@ -218,11 +220,13 @@
 							<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
 						{/if}
 					</button>
-					<div class="channel-actions">
-						<button class="settings-btn" on:click|stopPropagation={() => handleOpenChannelSettings(channel)} title="Channel settings">⚙️</button>
-						<button class="pin-btn" on:click|stopPropagation={() => handleShowPinnedMessages(channel.id)} title="View pinned messages">📌</button>
-						<button class="delete-btn" on:click|stopPropagation={() => handleDeleteChannel(channel.id)}>×</button>
-					</div>
+					{#if !isNarrow}
+						<div class="channel-actions">
+							<button class="settings-btn" on:click|stopPropagation={() => handleOpenChannelSettings(channel)} title="Channel settings">⚙️</button>
+							<button class="pin-btn" on:click|stopPropagation={() => handleShowPinnedMessages(channel.id)} title="View pinned messages">📌</button>
+							<button class="delete-btn" on:click|stopPropagation={() => handleDeleteChannel(channel.id)}>×</button>
+						</div>
+					{/if}
 				</div>
 			{/each}
 		{/if}
@@ -621,7 +625,6 @@
 		font-size: 0.9rem;
 		border-radius: 0;
 		transition: all 0.2s;
-		line-height: 1; /* Fix for vertical alignment of icons and text */
 	}
 
 	.channel-item.active .channel-btn {
