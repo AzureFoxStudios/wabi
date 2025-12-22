@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: wabi-backend
+    runtime: node
+    buildCommand: cd frontend && bun install && bun run build && cd ../backend && bun install
+    startCommand: cd backend && bun run src/server.ts
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: FRONTEND_URL
+        value: https://wabi.onrender.com
