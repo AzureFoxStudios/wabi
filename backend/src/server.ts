@@ -333,7 +333,15 @@ if (!existsSync(UPLOADS_DIR)) {
 }
 
 // Create HTTP server using Node.js http module (Bun compatible)
-const server = createServer((req, res) => {
+const server = createServer();
+
+// Request handler - but Socket.IO will handle /socket.io/ requests first
+server.on('request', (req, res) => {
+  // Skip Socket.IO requests - Socket.IO handles them at a lower level
+  if (req.url?.startsWith('/socket.io/')) {
+    return;
+  }
+
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
   // CORS headers for all requests - dynamically set based on request origin
@@ -361,11 +369,6 @@ const server = createServer((req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
-    return;
-  }
-
-  // Skip Socket.IO requests - let Socket.IO handle them
-  if (url.pathname.startsWith('/socket.io/')) {
     return;
   }
 
