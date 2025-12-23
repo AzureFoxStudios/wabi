@@ -11,7 +11,7 @@ services:
       FRONTEND_URL: http://localhost:3000
       PUBLIC_URL: http://localhost:3000
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      test: ["CMD", "bun", "-e", "const r = await fetch('http://localhost:3000/health'); process.exit(r.ok ? 0 : 1)"]
       interval: 30s
       timeout: 5s
       retries: 3
