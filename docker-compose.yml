@@ -1,13 +1,20 @@
 version: '3.8'
 
 services:
-  community-chat:
+  wabi:
     build: .
     ports:
       - "3000:3000"
     environment:
-      - PORT=3000
-      - FRONTEND_URL=http://localhost:5173
+      PORT: 3000
+      NODE_ENV: production
+      FRONTEND_URL: http://localhost:3000
+      PUBLIC_URL: http://localhost:3000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
-    labels:
-      - "com.example.description=Community Chat - Self-hosted ephemeral chat"
+

@@ -1,4 +1,5 @@
-FROM oven/bun:1 as builder
+# Build stage
+FROM node:20-slim as builder
 
 WORKDIR /app
 
@@ -8,37 +9,37 @@ COPY frontend/package.json ./frontend/
 COPY backend/package.json ./backend/
 
 # Install dependencies
-RUN cd frontend && bun install
-RUN cd backend && bun install
+RUN cd frontend && npm install
+RUN cd backend && npm install
 
 # Copy source code
 COPY frontend ./frontend
 COPY backend ./backend
 
 # Build frontend
-RUN cd frontend && bun run build
-
-# Build backend
-RUN cd backend && bun run build
+RUN cd frontend && npm run build
 
 # Production stage
-FROM debian:bookworm-slim
+FROM node:20-slim
 
 WORKDIR /app
 
-# Copy built artifacts
-COPY --from=builder /app/backend/community-chat-server .
-COPY --from=builder /app/frontend/build ./static
+# Copy built frontend
+COPY --from=builder /app/frontend/build ./frontend/build
 
-# Make binary executable
-RUN chmod +x community-chat-server
+# Copy backend source and node_modules
+COPY --from=builder /app/backend ./backend
+
+# Set environment
+ENV NODE_ENV=production
+ENV PORT=3000
 
 # Expose port
 EXPOSE 3000
 
-# Set environment variables
-ENV PORT=3000
-ENV FRONTEND_URL=http://localhost:5173
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
 
-# Run the application
-CMD ["./community-chat-server"]
+# Start backend server
+CMD ["node", "backend/src/server.ts"]
