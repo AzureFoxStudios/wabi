@@ -96,14 +96,30 @@ export function initSocket(username: string) {
 		socketInstance = null;
 	}
 
-	// Connect to the specified ngrok URL
-	let serverUrl = 'https://ungruff-subtarsal-libby.ngrok-free.dev';
+	// Auto-detect backend server URL
+	function getServerUrl(): string {
+		// 1. Check for explicit environment variable override
+		const envUrl = import.meta.env.VITE_SOCKET_URL;
+		if (envUrl) {
+			console.log('[Socket] Using VITE_SOCKET_URL from environment:', envUrl);
+			return envUrl;
+		}
+
+		// 2. Auto-detect: if on dev port or Tauri, connect to localhost backend
+		if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
+			console.log('[Socket] Detected local dev environment, connecting to localhost:3000');
+			return 'http://localhost:3000';
+		}
+
+		// 3. Otherwise, backend is on same origin as frontend (Render, self-hosted, etc.)
+		console.log('[Socket] Using same-origin for backend:', window.location.origin);
+		return window.location.origin;
+	}
+
+	const serverUrl = getServerUrl();
 
 	console.log('[Socket] Connecting to:', serverUrl);
 	socketInstance = io(serverUrl, {
-		extraHeaders: {
-			'ngrok-skip-browser-warning': 'true'
-		},
 		reconnectionDelay: 1000,
 		reconnectionDelayMax: 5000,
 		timeout: 10000

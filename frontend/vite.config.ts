@@ -4,7 +4,12 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
 	server: {
-		allowedHosts: ['ungruff-subtarsal-libby.ngrok-free.dev', 'wabi.onrender.com']
+		allowedHosts: [
+		'localhost',
+		'.ngrok-free.dev',
+		'wabi.onrender.com',
+		process.env.PUBLIC_URL ? new URL(process.env.PUBLIC_URL).hostname : null
+	].filter(Boolean)
 	},
 	define: {
 		'process.env': {}
