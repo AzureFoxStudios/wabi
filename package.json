@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"cd frontend && bun run dev\" \"cd backend && bun run dev\"",
-    "build": "cd frontend && bun run build && cd ../backend && bun run build",
+    "build": "cd frontend && bun install && bun run build && cd ../backend && bun install",
     "preview": "cd frontend && bun run preview",
     "start": "cd backend && bun run start",
     "build:frontend": "cd frontend && bun run build"
