@@ -1,26 +1,54 @@
+# Dependencies
 node_modules/
-.DS_Store
+backend/node_modules/
+frontend/node_modules/
+
+# Build outputs
 dist/
 build/
+backend/build/
+backend/dist/
+frontend/build/
+frontend/dist/
 .svelte-kit/
-.env
-.env.local
-*.log
-coverage/
+.svelte-kit/output/
+
+# Tauri artifacts (NEVER commit these!)
+frontend/src-tauri/
+frontend/src-tauri.zip
+frontend/src-tauri.tar.gz
+
+# Backend binaries (NEVER commit these!)
+backend/community-chat-server
+backend/community-chat-server.exe
+*.exe
+
+# ngrok artifacts (NEVER commit these!)
+.ngrok.exe
+.ngrok.exe.old
+ngrok.zip
+ngrok.yml
+start-ngrok.bat
+start-ngrok.sh
+
+# IDE & editor
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
+
+# Environment
+.env
+.env.local
+
+# Logs & coverage
+*.log
+coverage/
+
+# OS
+.DS_Store
 nul
-frontend/nul
-frontend/src/lib/components/nul
-.ngrok.exe.old
-*.exe
-frontend/src-tauri/target/
+
+# Misc
 static/_app/immutable/
-frontend/src-tauri.zip
-frontend/build/
-backend/dist/
-.svelte-kit/output/
-backend/community-chat-server
