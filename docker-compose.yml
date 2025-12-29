@@ -1,6 +1,12 @@
 version: '3.8'
-
+name: wabi
+ 
 services:
+- name: wabi
+  git:
+    repo_clone_url: https://github.com/azurefoxstudios/wabi
+    branch: main
+  dockerfile_path: Dockerfile
   wabi:
     build: .
     ports:
