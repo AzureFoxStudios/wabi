@@ -1,22 +1,26 @@
 name: wabi
 services:
 - name: wabi
-  git:
-    repo_clone_url: https://github.com/AzureFoxStudios/wabi
-    branch: main
-  dockerfile_path: Dockerfile
   source_dir: ./
-  envs:
-  - key: PORT
-    value: "3000"
-  - key: NODE_ENV
-    value: production
-  - key: FRONTEND_URL
-    scope: RUN_AND_BUILD_TIME
-    value: ${APP_DOMAIN}
-  - key: PUBLIC_URL
-    scope: RUN_AND_BUILD_TIME
-    value: ${APP_DOMAIN}
+  github:
+    repo: AzureFoxStudios/wabi
+    branch: main
+    deploy_on_push: true
+  build_command: ""
+  dockerfile_path: Dockerfile
   http_port: 3000
   health_check:
     http_path: /health
+  envs:
+  - key: NODE_ENV
+    value: production
+    scope: RUN_AND_BUILD_TIME
+  - key: PORT
+    value: "3000"
+    scope: RUN_AND_BUILD_TIME
+  - key: FRONTEND_URL
+    value: ${APP_DOMAIN}
+    scope: RUN_AND_BUILD_TIME
+  - key: PUBLIC_URL
+    value: ${APP_DOMAIN}
+    scope: RUN_AND_BUILD_TIME
