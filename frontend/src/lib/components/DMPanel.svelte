@@ -115,20 +115,17 @@
 		{:else if otherUser}
 			<button class="dm-back-btn" on:click={showConversationList} title="Back to DM list">←</button>
 			<div class="dm-user-info">
-				{#if otherUser.profilePicture}
-					<img src={otherUser.profilePicture} alt={otherUser.username} class="dm-avatar" />
-				{:else}
-					<div class="dm-avatar-placeholder" style="background-color: {otherUser.color}">
-						{otherUser.username.charAt(0).toUpperCase()}
-					</div>
-				{/if}
-				<div class="dm-user-details">
-					<span class="dm-username">{otherUser.username}</span>
-					<div class="dm-user-status">
-						<span class="dm-status-indicator" class:online={otherUser.status === 'active'} class:away={otherUser.status === 'away'} class:busy={otherUser.status === 'busy'}></span>
-						<span class="dm-status-text">{otherUser.status || 'active'}</span>
-					</div>
+				<div class="dm-avatar-container">
+					{#if otherUser.profilePicture}
+						<img src={otherUser.profilePicture} alt={otherUser.username} class="dm-avatar" />
+					{:else}
+						<div class="dm-avatar-placeholder" style="background-color: {otherUser.color}">
+							{otherUser.username.charAt(0).toUpperCase()}
+						</div>
+					{/if}
+					<span class="dm-status-indicator" class:online={otherUser.status === 'active'} class:away={otherUser.status === 'away'} class:busy={otherUser.status === 'busy'}></span>
 				</div>
+				<span class="dm-username">{otherUser.username}</span>
 			</div>
 		{:else}
 			<span class="dm-title">Direct Message</span>
@@ -216,8 +213,13 @@
 	.dm-user-info {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
+		gap: 0.5rem;
 		flex: 1;
+	}
+
+	.dm-avatar-container {
+		position: relative;
+		flex-shrink: 0;
 	}
 
 	.dm-avatar {
@@ -241,25 +243,16 @@
 		border: 1px solid var(--accent);
 	}
 
-	.dm-user-details {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-	}
-
 	.dm-username {
 		font-weight: 600;
 		font-size: 1rem;
 		color: var(--text-primary);
 	}
 
-	.dm-user-status {
-		display: flex;
-		align-items: center;
-		gap: 0.35rem;
-	}
-
 	.dm-status-indicator {
+		position: absolute;
+		bottom: 0;
+		right: 0;
 		width: 6px;
 		height: 6px;
 		border-radius: 50%;
