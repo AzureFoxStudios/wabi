@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { get } from 'svelte/store';
+	import { currentUser } from '$lib/socket';
 	import {
 		todos,
 		projects,
@@ -130,7 +131,7 @@
 			projectId: formProjectId || undefined,
 			dueDate: formDueDate ? new Date(formDueDate).getTime() : undefined,
 			status: targetColumn,
-			createdBy: 'current-user'
+			createdBy: $currentUser?.id || 'unknown'
 		};
 
 		if (editingTodo) {

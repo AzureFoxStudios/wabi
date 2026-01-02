@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { currentUser } from '$lib/socket';
 	import {
 		todos,
 		todosByStatus,
@@ -78,7 +79,7 @@
 			dueDate: formDueDate ? new Date(formDueDate).getTime() : undefined,
 			projectId: formProjectId || undefined,
 			tags: formTags ? formTags.split(',').map(t => t.trim()).filter(Boolean) : undefined,
-			createdBy: 'current-user' // TODO: Get from auth
+			createdBy: $currentUser?.id || 'unknown'
 		};
 
 		if (editingTodo) {

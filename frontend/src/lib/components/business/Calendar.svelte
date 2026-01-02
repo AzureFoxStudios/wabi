@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { get } from 'svelte/store';
+	import { currentUser } from '$lib/socket';
 	import {
 		calendarEvents,
 		todos,
@@ -252,7 +253,7 @@
 			endDate: formEndDate ? new Date(formEndDate).getTime() : undefined,
 			allDay: formAllDay,
 			color: formColor,
-			createdBy: 'current-user'
+			createdBy: $currentUser?.id || 'unknown'
 		};
 
 		if (editingEvent) {

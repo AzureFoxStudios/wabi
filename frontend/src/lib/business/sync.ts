@@ -1,5 +1,6 @@
 import { get } from 'svelte/store';
 import { browser } from '$app/environment';
+import { socket } from '$lib/socket';
 import {
 	todos,
 	calendarEvents,
@@ -166,6 +167,30 @@ function handleOffline() {
 	stopAutoSync();
 }
 
+// Socket.io listeners for real-time updates
+let socketListenerSetup = false;
+
+function setupSocketListeners() {
+	if (!browser || socketListenerSetup) return;
+
+	try {
+		const sock = socket.get();
+		if (!sock) return;
+
+		// Listen for business data updates from other clients or server
+		sock.on('business-data-updated', (data: any) => {
+			console.log('📡 Real-time business data update received', data);
+			// Sync immediately when server sends update
+			pullFromServer();
+		});
+
+		socketListenerSetup = true;
+		console.log('✅ Socket.io business listeners initialized');
+	} catch (error) {
+		console.error('Failed to setup Socket.io listeners:', error);
+	}
+}
+
 // Auto-sync when online
 function startAutoSync() {
 	if (syncInterval) return; // Already running
@@ -194,6 +219,9 @@ export function initSync() {
 	// Set up online/offline listeners
 	window.addEventListener('online', handleOnline);
 	window.addEventListener('offline', handleOffline);
+
+	// Set up Socket.io listeners for real-time updates
+	setupSocketListeners();
 
 	// Initial sync if online
 	if (isOnline) {

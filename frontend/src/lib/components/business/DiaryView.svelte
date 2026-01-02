@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { currentUser } from '$lib/socket';
 	import {
 		diaryEntries,
 		addDiaryEntry,
@@ -130,7 +131,7 @@
 			images: formImages.length > 0 ? formImages : undefined,
 			tags: formTags ? formTags.split(',').map(t => t.trim()).filter(Boolean) : undefined,
 			isPrivate: formIsPrivate,
-			createdBy: 'current-user'
+			createdBy: $currentUser?.id || 'unknown'
 		};
 
 		if (currentEntry) {

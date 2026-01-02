@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { currentUser } from '$lib/socket';
 	import {
 		projects,
 		todos,
@@ -178,7 +179,7 @@
 			startDate: projectStartDate ? new Date(projectStartDate).getTime() : undefined,
 			targetEndDate: projectTargetDate ? new Date(projectTargetDate).getTime() : undefined,
 			status: 'active' as const,
-			createdBy: 'current-user',
+			createdBy: $currentUser?.id || 'unknown',
 			parentId: projectParentId || undefined
 		};
 
