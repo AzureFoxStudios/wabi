@@ -31,6 +31,8 @@ services:
   http_port: 3000
   instance_count: 1
   instance_size_slug: basic-xs
+  build_command: ""
+
   health_check:
     http_path: /health
   envs:
@@ -60,9 +62,10 @@ services:
   http_port: 80
   instance_count: 1
   instance_size_slug: basic-xs
+  build_command: ""
 
   health_check:
-    http_path: /health
+    http_path: /
   envs:
   - key: VITE_SOCKET_URL
     value: https://${APP_DOMAIN}
