@@ -478,8 +478,7 @@
 
 	/* Compact mode: show only letters */
 	.channel-sidebar[style*="width: 60px"] .logo-img {
-		height: 24px;
-		width: auto;
+		display: none;
 	}
 
 	.channel-sidebar[style*="width: 60px"] .sidebar-header,
