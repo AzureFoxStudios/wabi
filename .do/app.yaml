@@ -28,7 +28,7 @@ services:
     branch: fix/remove-build-command
     deploy_on_push: true
   source_dir: .
-  dockerfile_path: Dockerfile.backend
+  dockerfile_path: ./Dockerfile.backend
   http_port: 3000
   instance_count: 1
   instance_size_slug: basic-xs
@@ -59,7 +59,7 @@ services:
     branch: fix/remove-build-command
     deploy_on_push: true
   source_dir: .
-  dockerfile_path: Dockerfile.frontend
+  dockerfile_path: ./Dockerfile.frontend
   http_port: 80
   instance_count: 1
   instance_size_slug: basic-xs
