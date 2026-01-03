@@ -16,6 +16,8 @@ services:
       - ./backend/uploads:/app/uploads
       # Persist emotes outside container
       - ./backend/emotes:/app/emotes
+      # Persist plugin storage outside container
+      - ./.plugin-storage:/app/.plugin-storage
     networks:
       - wabi-network
     restart: unless-stopped
