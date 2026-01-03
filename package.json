@@ -4,6 +4,7 @@
   "description": "Self-hosted ephemeral chat system with screen sharing",
   "type": "module",
   "scripts": {
+    "build": "cd frontend && bun run build && cd ../backend && bun install --production",
     "dev": "concurrently \"cd frontend && bun run dev\" \"cd backend && bun run dev\"",
     "preview": "cd frontend && bun run preview",
     "start": "cd backend && bun run start",
