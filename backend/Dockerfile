@@ -7,14 +7,14 @@ WORKDIR /app
 RUN useradd -m -u 1001 -s /sbin/nologin wabi
 
 # Copy package files (explicitly use bun.lock)
-COPY backend/package.json.orig ./package.json
-COPY backend/bun.lock ./
+COPY package.json.orig ./package.json
+COPY bun.lock ./
 
 # Install dependencies using frozen lockfile (production only)
 RUN bun install --frozen-lockfile --production
 
 # Copy backend source code
-COPY backend ./
+COPY . ./src
 
 # Build the backend
 RUN bun run build
