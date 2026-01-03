@@ -4,30 +4,33 @@ FROM oven/bun:1 AS builder
 WORKDIR /app
 
 # Copy package files
-COPY package.json bun.lock ./
-COPY frontend/package.json ./frontend/
-COPY backend/package.json ./backend/
+# Copy root manifests first to maximize cache hits
+COPY package.json bun.lockb* bun.lock* ./
 
-# Install dependencies
-RUN cd frontend && bun install
-RUN cd backend && bun install
 
-# Copy source code
+# Copy per-app manifests (lock first, then package.json)
+COPY frontend/bun.lockb* frontend/bun.lock* frontend/package.json ./frontend/
+COPY backend/bun.lockb* backend/bun.lock* backend/package.json ./backend/
+
+# Install deps
+WORKDIR /app/frontend
+RUN bun install --frozen-lockfile
+WORKDIR /app/backend
+RUN bun install --frozen-lockfile
+
+# Copy sources and build
+WORKDIR /app
 COPY frontend ./frontend
 COPY backend ./backend
-
-# Build frontend
-RUN cd frontend && bun run build
+RUN bun run --cwd ./frontend build
 
 # Production stage
-FROM oven/bun:1
+FROM oven/bun:1 AS runtime
 
 WORKDIR /app
 
-# Copy built frontend
+# Bring in build artifacts
 COPY --from=builder /app/frontend/build ./frontend/build
-
-# Copy backend source
 COPY --from=builder /app/backend ./backend
 
 # Set environment
