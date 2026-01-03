@@ -28,6 +28,7 @@ services:
     branch: main
     deploy_on_push: true
   dockerfile_path: Dockerfile.backend
+  source_dir: .
   http_port: 3000
   instance_count: 1
   instance_size_slug: basic-xs
@@ -59,6 +60,7 @@ services:
     branch: main
     deploy_on_push: true
   dockerfile_path: Dockerfile.frontend
+  source_dir: .
   http_port: 80
   instance_count: 1
   instance_size_slug: basic-xs
