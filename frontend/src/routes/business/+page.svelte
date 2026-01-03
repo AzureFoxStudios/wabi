@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { get } from 'svelte/store';
+	import { onMount } from 'svelte';
 	import '$lib/business/theme.css';
 	import { todos, projects, calendarEvents, diaryEntries, sprints, kanbanColumns, todaysTodos, overdueTodos } from '$lib/business/store';
 	import Calendar from '$lib/components/business/Calendar.svelte';
@@ -13,6 +14,25 @@
 	let showTaskPanel = true;
 	let taskPanelWidth = 380;
 	let importFileInput: HTMLInputElement;
+
+	onMount(() => {
+		// Restore the last active view from localStorage
+		const savedView = localStorage.getItem('businessHubView') as MainView;
+		if (savedView && ['calendar', 'journal', 'projects', 'kanban'].includes(savedView)) {
+			activeView = savedView;
+		}
+
+		// Also restore selected project if on projects view
+		const savedProjectId = localStorage.getItem('businessHubSelectedProject');
+		if (savedProjectId && activeView === 'projects') {
+			// ProjectsView will handle restoration through its own mechanism
+		}
+	});
+
+	// Save the active view whenever it changes
+	$: if (typeof window !== 'undefined') {
+		localStorage.setItem('businessHubView', activeView);
+	}
 
 	// Quick stats for header
 	$: totalTasks = $todos.length;

@@ -28,6 +28,10 @@
 	let formEndDate = '';
 	let formAllDay = false;
 	let formColor = '#5865f2';
+	let formRecurring = false;
+	let formRecurringFrequency: 'daily' | 'weekly' | 'monthly' | 'yearly' = 'weekly';
+	let formRecurringInterval = 1;
+	let formRecurringEndDate = '';
 
 	const colorOptions = [
 		'#5865f2', // Blue
@@ -203,6 +207,10 @@
 		formEndDate = event.endDate ? formatDateForInput(new Date(event.endDate)) : '';
 		formAllDay = event.allDay;
 		formColor = event.color || '#5865f2';
+		formRecurring = !!event.recurring;
+		formRecurringFrequency = event.recurring?.frequency || 'weekly';
+		formRecurringInterval = event.recurring?.interval || 1;
+		formRecurringEndDate = event.recurring?.endDate ? formatDateForInput(new Date(event.recurring.endDate)) : '';
 		showEventModal = true;
 	}
 
@@ -234,6 +242,10 @@
 		formEndDate = '';
 		formAllDay = false;
 		formColor = '#5865f2';
+		formRecurring = false;
+		formRecurringFrequency = 'weekly';
+		formRecurringInterval = 1;
+		formRecurringEndDate = '';
 		editingEvent = null;
 	}
 
@@ -246,7 +258,7 @@
 			startDate.setHours(parseInt(hours), parseInt(minutes));
 		}
 
-		const eventData = {
+		const eventData: any = {
 			title: formTitle.trim(),
 			description: formDescription.trim() || undefined,
 			startDate: startDate.getTime(),
@@ -255,6 +267,15 @@
 			color: formColor,
 			createdBy: $currentUser?.id || 'unknown'
 		};
+
+		// Add recurring data if enabled
+		if (formRecurring) {
+			eventData.recurring = {
+				frequency: formRecurringFrequency,
+				interval: formRecurringInterval,
+				endDate: formRecurringEndDate ? new Date(formRecurringEndDate).getTime() : undefined
+			};
+		}
 
 		if (editingEvent) {
 			updateCalendarEvent(editingEvent.id, eventData);
@@ -440,6 +461,13 @@
 					</label>
 				</div>
 
+				<div class="form-group">
+					<label class="checkbox-label">
+						<input type="checkbox" bind:checked={formRecurring} />
+						Repeating event
+					</label>
+				</div>
+
 				<div class="form-row">
 					<div class="form-group">
 						<label for="startDate">Start Date *</label>
@@ -457,6 +485,29 @@
 					<label for="endDate">End Date (optional)</label>
 					<input id="endDate" type="date" bind:value={formEndDate} />
 				</div>
+
+				{#if formRecurring}
+					<div class="form-row">
+						<div class="form-group">
+							<label for="frequency">Repeats</label>
+							<select id="frequency" bind:value={formRecurringFrequency}>
+								<option value="daily">Every day</option>
+								<option value="weekly">Every week</option>
+								<option value="monthly">Every month</option>
+								<option value="yearly">Every year</option>
+							</select>
+						</div>
+						<div class="form-group">
+							<label for="interval">Every N:</label>
+							<input id="interval" type="number" bind:value={formRecurringInterval} min="1" max="99" />
+						</div>
+					</div>
+
+					<div class="form-group">
+						<label for="recurringEndDate">Repeat until (optional)</label>
+						<input id="recurringEndDate" type="date" bind:value={formRecurringEndDate} />
+					</div>
+				{/if}
 
 				<div class="form-group">
 					<label>Color</label>
@@ -910,22 +961,45 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		background: rgba(0, 0, 0, 0.75);
+		background: rgba(0, 0, 0, 0.8);
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		z-index: 1000;
+		backdrop-filter: blur(2px);
+		animation: fadeIn 0.2s ease-out;
+	}
+
+	@keyframes fadeIn {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
 	}
 
 	.modal {
-		background: var(--biz-bg-secondary, #1a2332);
+		background: linear-gradient(135deg, var(--biz-bg-secondary, #1a2332), var(--biz-bg-tertiary, #243044));
 		border-radius: 12px;
 		width: 100%;
 		max-width: 450px;
 		max-height: 90vh;
 		overflow-y: auto;
 		border: 1px solid var(--biz-border, #2d3a4d);
-		box-shadow: var(--biz-shadow-lg, 0 10px 25px rgba(0, 0, 0, 0.4));
+		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+		animation: slideIn 0.3s ease-out;
+	}
+
+	@keyframes slideIn {
+		from {
+			transform: scale(0.95) translateY(-20px);
+			opacity: 0;
+		}
+		to {
+			transform: scale(1) translateY(0);
+			opacity: 1;
+		}
 	}
 
 	.day-modal {
@@ -936,14 +1010,17 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 1rem 1.25rem;
-		border-bottom: 1px solid var(--biz-border, #2d3a4d);
+		padding: 1.5rem 1.5rem 1rem;
+		border-bottom: 2px solid var(--biz-border, #2d3a4d);
+		background: linear-gradient(90deg, rgba(245, 158, 11, 0.05), transparent);
 	}
 
 	.modal-header h2 {
 		margin: 0;
-		font-size: 1.1rem;
+		font-size: 1.25rem;
+		font-weight: 600;
 		color: var(--biz-text-primary, #f1f5f9);
+		letter-spacing: -0.3px;
 	}
 
 	.close-btn {
@@ -953,26 +1030,35 @@
 		font-size: 1.5rem;
 		cursor: pointer;
 		line-height: 1;
-		transition: color 0.2s;
+		transition: all 0.2s;
+		padding: 0.25rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.close-btn:hover {
 		color: var(--biz-text-primary, #f1f5f9);
+		background: rgba(255, 255, 255, 0.05);
+		border-radius: 4px;
 	}
 
 	form {
-		padding: 1.25rem;
+		padding: 1.5rem;
 	}
 
 	.form-group {
-		margin-bottom: 1rem;
+		margin-bottom: 1.25rem;
 	}
 
 	.form-group label {
 		display: block;
-		font-size: 0.85rem;
-		margin-bottom: 0.35rem;
+		font-size: 0.8rem;
+		margin-bottom: 0.5rem;
 		color: var(--biz-text-secondary, #94a3b8);
+		font-weight: 500;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
 	}
 
 	.checkbox-label {
@@ -981,28 +1067,45 @@
 		gap: 0.5rem;
 		cursor: pointer;
 		color: var(--biz-text-primary, #f1f5f9);
+		font-size: 0.9rem;
+		margin: 0;
+	}
+
+	.form-group:has(.checkbox-label) {
+		margin-bottom: 0.75rem;
 	}
 
 	.checkbox-label input {
 		width: auto;
 		accent-color: var(--biz-accent, #f59e0b);
+		cursor: pointer;
+		margin-top: 0;
 	}
 
 	.form-group input,
 	.form-group textarea {
 		width: 100%;
-		padding: 0.6rem 0.75rem;
-		background: var(--biz-bg-tertiary, #243044);
+		padding: 0.75rem;
+		background: var(--biz-bg-secondary, #1a2332);
 		border: 1px solid var(--biz-border, #2d3a4d);
 		border-radius: 8px;
 		color: var(--biz-text-primary, #f1f5f9);
 		font-size: 0.9rem;
+		transition: all 0.2s;
+		font-family: inherit;
+	}
+
+	.form-group input::placeholder,
+	.form-group textarea::placeholder {
+		color: var(--biz-text-muted, #64748b);
 	}
 
 	.form-group input:focus,
 	.form-group textarea:focus {
 		outline: none;
 		border-color: var(--biz-accent, #f59e0b);
+		background: rgba(245, 158, 11, 0.05);
+		box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
 	}
 
 	.form-row {
@@ -1013,82 +1116,109 @@
 
 	.color-picker {
 		display: flex;
-		gap: 0.5rem;
+		gap: 0.75rem;
+		flex-wrap: wrap;
 	}
 
 	.color-option {
-		width: 28px;
-		height: 28px;
-		min-width: 28px;
-		min-height: 28px;
-		border-radius: 50% !important;
+		width: 32px;
+		height: 32px;
+		min-width: 32px;
+		min-height: 32px;
+		border-radius: 50%;
 		border: 2px solid transparent;
 		cursor: pointer;
 		transition: all 0.2s;
 		padding: 0;
-		/* Reset global button styles - let inline style control background */
-		background: transparent;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+		appearance: none;
+		-webkit-appearance: none;
+		-moz-appearance: none;
 	}
 
 	.color-option:hover {
-		transform: scale(1.1);
+		transform: scale(1.15);
+		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
 	}
 
 	.color-option.selected {
 		border-color: white;
-		box-shadow: 0 0 0 2px var(--biz-bg-tertiary, #243044);
+		box-shadow: 0 0 0 2px var(--biz-bg-secondary, #1a2332), 0 0 0 4px var(--biz-accent, #f59e0b);
 	}
 
 	.form-actions {
 		display: flex;
 		justify-content: flex-end;
 		gap: 0.75rem;
-		margin-top: 1.5rem;
+		margin-top: 2rem;
+		padding-top: 1.5rem;
+		border-top: 1px solid var(--biz-border, #2d3a4d);
 	}
 
 	.delete-btn {
-		padding: 0.6rem 1rem;
+		padding: 0.75rem 1.5rem;
 		background: var(--biz-danger, #ef4444);
 		border: none;
 		border-radius: 8px;
 		color: white;
 		cursor: pointer;
 		margin-right: auto;
-		transition: background 0.2s;
+		transition: all 0.2s;
+		font-weight: 500;
+		font-size: 0.9rem;
 	}
 
 	.delete-btn:hover {
 		background: #dc2626;
+		box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
+	}
+
+	.delete-btn:active {
+		transform: scale(0.98);
 	}
 
 	.cancel-btn {
-		padding: 0.6rem 1rem;
+		padding: 0.75rem 1.5rem;
 		background: transparent;
 		border: 1px solid var(--biz-border, #2d3a4d);
 		border-radius: 8px;
 		color: var(--biz-text-secondary, #94a3b8);
 		cursor: pointer;
 		transition: all 0.2s;
+		font-weight: 500;
+		font-size: 0.9rem;
 	}
 
 	.cancel-btn:hover {
 		background: var(--biz-bg-tertiary, #243044);
 		color: var(--biz-text-primary, #f1f5f9);
+		border-color: var(--biz-border, #2d3a4d);
+	}
+
+	.cancel-btn:active {
+		transform: scale(0.98);
 	}
 
 	.submit-btn {
-		padding: 0.6rem 1.25rem;
-		background: var(--biz-accent, #f59e0b);
+		padding: 0.75rem 2rem;
+		background: linear-gradient(135deg, var(--biz-accent, #f59e0b), var(--biz-accent-hover, #d97706));
 		border: none;
 		border-radius: 8px;
 		color: white;
 		cursor: pointer;
-		font-weight: 500;
-		transition: background 0.2s;
+		font-weight: 600;
+		transition: all 0.2s;
+		font-size: 0.9rem;
+		box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
 	}
 
 	.submit-btn:hover {
-		background: var(--biz-accent-hover, #d97706);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+	}
+
+	.submit-btn:active {
+		transform: scale(0.98);
 	}
 
 	/* Day Detail Modal */

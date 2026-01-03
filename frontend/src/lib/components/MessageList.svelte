@@ -786,11 +786,13 @@
 		align-items: flex-start;
 		gap: 0.75rem;
 		padding: 0.75rem;
-		border-radius: 8px;
+		border-radius: 0;
 		background: transparent;
 		margin-bottom: 0.5rem;
 		transition: all 0.25s ease;
 		position: relative;
+		margin-left: -9999px;
+		padding-left: calc(0.75rem + 9999px);
 	}
 
 	.message:hover {
@@ -798,17 +800,37 @@
 	}
 
 	.message.highlighted {
-		background: #5865f2;
+		background: rgba(88, 101, 242, 0.2);
 		animation: highlight-pulse 2s ease-out;
-		border: 2px solid #5865f2;
+		border: none;
+		border-left: 3px solid #5865f2;
+		z-index: 0;
+	}
+
+	.message.highlighted::before {
+		content: '';
+		position: absolute;
+		left: -9999px;
+		right: 0;
+		top: 0;
+		bottom: 0;
+		background: rgba(88, 101, 242, 0.15);
+		z-index: -1;
+		pointer-events: none;
 	}
 
 	@keyframes highlight-pulse {
-		0%, 100% {
-			box-shadow: 0 0 0 0 rgba(88, 101, 242, 0.7);
+		0% {
+			border-left-color: #5865f2;
+			background: rgba(88, 101, 242, 0.3);
 		}
 		50% {
-			box-shadow: 0 0 20px 10px rgba(88, 101, 242, 0.3);
+			border-left-color: #7c8bff;
+			background: rgba(88, 101, 242, 0.25);
+		}
+		100% {
+			border-left-color: #5865f2;
+			background: rgba(88, 101, 242, 0.15);
 		}
 	}
 

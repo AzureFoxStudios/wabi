@@ -40,7 +40,7 @@ export interface CalendarEvent {
 		endDate?: number;
 	};
 	reminders?: number[]; // minutes before event
-	linkedTodoId?: string; // link to a todo item
+	cancelledDates?: number[]; // timestamps of cancelled recurring instances
 }
 
 export interface DiaryEntry {
