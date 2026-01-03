@@ -27,12 +27,12 @@ services:
     repo: AzureFoxStudios/wabi
     branch: fix/remove-build-command
     deploy_on_push: true
+  source_dir: .
   dockerfile_path: Dockerfile.backend
-  build_command: ""
   http_port: 3000
   instance_count: 1
   instance_size_slug: basic-xs
-  
+
   health_check:
     http_path: /health
   envs:
@@ -58,8 +58,8 @@ services:
     repo: AzureFoxStudios/wabi
     branch: fix/remove-build-command
     deploy_on_push: true
+  source_dir: .
   dockerfile_path: Dockerfile.frontend
-  build_command: ""
   http_port: 80
   instance_count: 1
   instance_size_slug: basic-xs
