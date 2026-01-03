@@ -31,8 +31,6 @@ services:
   http_port: 3000
   instance_count: 1
   instance_size_slug: basic-xs
-  build_command: ""
-  
   health_check:
     http_path: /health
   envs:
