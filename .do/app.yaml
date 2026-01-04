@@ -27,7 +27,8 @@ services:
     repo: AzureFoxStudios/wabi
     branch: main
     deploy_on_push: true
-  dockerfile_path: ./backend/Dockerfile
+  source_dir: backend
+  dockerfile_path: Dockerfile
   build_command: "npm install && npm run build"
   run_command: "node build"
   http_port: 8080
@@ -59,7 +60,8 @@ services:
     repo: AzureFoxStudios/wabi
     branch: main
     deploy_on_push: true
-  dockerfile_path: ./frontend/Dockerfile
+  source_dir: frontend
+  dockerfile_path: Dockerfile
   build_command: "npm install && npm run build"
   run_command: "npm run start"
   http_port: 8080
