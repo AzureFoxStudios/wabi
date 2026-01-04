@@ -25,7 +25,7 @@ services:
 - name: backend
   github:
     repo: AzureFoxStudios/wabi
-    branch: main
+    branch: fix/package-json-update
     deploy_on_push: true
   dockerfile_path: ./backend/Dockerfile
   build_command: "npm install && npm run build"
