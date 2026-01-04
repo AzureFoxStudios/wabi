@@ -2,11 +2,13 @@
   "name": "wabi-backend",
   "version": "1.0.0",
   "type": "module",
-  "scripts": {
-    "dev": "bun run --watch src/server.ts",
-    "start": "bun run src/server.ts",
-    "build": "bun build src/server.ts --compile --outfile community-chat-server"
-  },
+ "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+  }
   "dependencies": {
     "socket.io": "^4.7.2"
   },
