@@ -27,11 +27,12 @@ services:
     repo: AzureFoxStudios/wabi
     branch: main
     deploy_on_push: true
-  dockerfile_path: Dockerfile.backend
-  http_port: 3000
+  dockerfile_path: ./backend/Dockerfile
+  build_command: "npm install && npm run build"
+  run_command: "node build"
+  http_port: 8080
   instance_count: 1
   instance_size_slug: basic-xs
-  build_command: ""
 
   health_check:
     http_path: /health
@@ -40,7 +41,7 @@ services:
     value: production
     scope: RUN_AND_BUILD_TIME
   - key: PORT
-    value: "3000"
+    value: "8080"
     scope: RUN_AND_BUILD_TIME
   - key: FRONTEND_URL
     value: https://${APP_DOMAIN}
@@ -58,11 +59,12 @@ services:
     repo: AzureFoxStudios/wabi
     branch: main
     deploy_on_push: true
-  dockerfile_path: Dockerfile.frontend
-  http_port: 80
+  dockerfile_path: ./frontend/Dockerfile
+  build_command: "npm install && npm run build"
+  run_command: "npm run start"
+  http_port: 8080
   instance_count: 1
   instance_size_slug: basic-xs
-  build_command: ""
 
   health_check:
     http_path: /
