@@ -178,7 +178,7 @@ function cancelMessageDeletion(messageId: string) {
 }
 
 // Message persistence functions
-const DATA_DIR = './data';
+const DATA_DIR = '/app/data';
 const MESSAGES_FILE = join(DATA_DIR, 'messages.json');
 const BUSINESS_DATA_DIR = join(DATA_DIR, 'business');
 
@@ -317,7 +317,7 @@ function initializeWorkspace(workspaceId: string): BusinessData {
 initializeWorkspace(defaultWorkspaceId);
 
 const PORT = process.env.PORT || 3000;
-const STATIC_DIR = process.env.STATIC_DIR || join(import.meta.dir, "../../frontend/build");
+const STATIC_DIR = process.env.STATIC_DIR || '/app/frontend/build';
 const EMOTES_DIR = join(STATIC_DIR, "emotes");
 const ENABLE_LOGGING = process.env.ENABLE_LOGGING === 'true';
 
@@ -327,7 +327,7 @@ if (!existsSync(EMOTES_DIR)) {
 }
 
 // File upload storage - OUTSIDE build folder to persist across rebuilds
-const UPLOADS_DIR = join(import.meta.dir, "../uploads");
+const UPLOADS_DIR = '/app/uploads';
 if (!existsSync(UPLOADS_DIR)) {
   mkdirSync(UPLOADS_DIR, { recursive: true });
 }
