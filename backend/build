@@ -1,0 +1,1494 @@
+// src/server.ts
+import { Server } from "socket.io";
+import { createServer } from "http";
+import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "fs";
+import { join } from "path";
+
+// src/plugins/loader.ts
+import fs from "fs";
+import path from "path";
+var PluginLoader = class {
+  constructor(io2, httpServer, context) {
+    this.io = io2;
+    this.httpServer = httpServer;
+    this.context = context;
+    this.pluginsDir = path.join(__dirname, "../../../plugins");
+    this.storageDir = path.join(__dirname, "../../../.plugin-storage");
+    if (!fs.existsSync(this.storageDir)) {
+      fs.mkdirSync(this.storageDir, { recursive: true });
+    }
+  }
+  plugins = /* @__PURE__ */ new Map();
+  pluginsDir;
+  storageDir;
+  async loadAll() {
+    console.log("\u{1F50C} Loading plugins from:", this.pluginsDir);
+    if (!fs.existsSync(this.pluginsDir)) {
+      console.log("\u{1F4C1} Creating plugins directory...");
+      fs.mkdirSync(this.pluginsDir, { recursive: true });
+      return;
+    }
+    const pluginDirs = fs.readdirSync(this.pluginsDir, { withFileTypes: true }).filter((dirent) => dirent.isDirectory()).map((dirent) => dirent.name);
+    console.log(`\u{1F4E6} Found ${pluginDirs.length} potential plugins:`, pluginDirs);
+    for (const dir of pluginDirs) {
+      await this.loadPlugin(dir);
+    }
+    console.log(`\u2705 Successfully loaded ${this.plugins.size} plugins`);
+  }
+  async loadPlugin(pluginId) {
+    try {
+      const pluginPath = path.join(this.pluginsDir, pluginId);
+      const manifestPath = path.join(pluginPath, "plugin.json");
+      if (!fs.existsSync(manifestPath)) {
+        console.warn(`\u26A0\uFE0F  No plugin.json found for ${pluginId}`);
+        return;
+      }
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+      if (manifest.enabled === false) {
+        console.log(`\u23ED\uFE0F  Plugin ${manifest.name} is disabled, skipping`);
+        return;
+      }
+      if (!manifest.backend?.entry) {
+        console.log(`\u23ED\uFE0F  Plugin ${manifest.name} has no backend component`);
+        return;
+      }
+      const backendEntry = path.join(pluginPath, manifest.backend.entry);
+      if (!fs.existsSync(backendEntry)) {
+        console.warn(`\u26A0\uFE0F  Backend entry not found: ${backendEntry}`);
+        return;
+      }
+      const pluginModule = await import(backendEntry);
+      const plugin = pluginModule.default || pluginModule;
+      const ctx = this.createContext(pluginId);
+      await plugin.onLoad?.(ctx);
+      this.io.on("connection", (socket) => {
+        plugin.onConnection?.(socket, ctx);
+        if (plugin.socketHandlers) {
+          for (const [event, handler] of Object.entries(plugin.socketHandlers)) {
+            socket.on(event, (data) => {
+              try {
+                handler(socket, data, ctx);
+              } catch (error) {
+                console.error(`\u274C Error in plugin ${pluginId} handling ${event}:`, error);
+              }
+            });
+          }
+        }
+        socket.on("disconnect", () => {
+          plugin.onDisconnect?.(socket, ctx);
+        });
+      });
+      if (plugin.routes && plugin.routes.length > 0) {
+        console.warn(`  \u26A0\uFE0F  Plugin ${manifest.name} defines routes but Express is not available`);
+      }
+      this.plugins.set(pluginId, { plugin, manifest });
+      console.log(`\u2705 Loaded plugin: ${manifest.name} v${manifest.version}`);
+      if (manifest.backend.socketEvents && manifest.backend.socketEvents.length > 0) {
+        console.log(`  \u{1F50C} Socket events: ${manifest.backend.socketEvents.join(", ")}`);
+      }
+    } catch (error) {
+      console.error(`\u274C Failed to load plugin ${pluginId}:`, error);
+    }
+  }
+  handleNewConnection(socket) {
+    for (const [pluginId, { plugin }] of this.plugins.entries()) {
+      const ctx = this.createContext(pluginId);
+      plugin.onConnection?.(socket, ctx);
+      if (plugin.socketHandlers) {
+        for (const [event, handler] of Object.entries(plugin.socketHandlers)) {
+          socket.on(event, (data) => {
+            try {
+              handler(socket, data, ctx);
+            } catch (error) {
+              console.error(`\u274C Error in plugin ${pluginId} handling ${event}:`, error);
+            }
+          });
+        }
+      }
+      socket.on("disconnect", () => {
+        plugin.onDisconnect?.(socket, ctx);
+      });
+    }
+  }
+  createContext(pluginId) {
+    return {
+      io: this.io,
+      httpServer: this.httpServer,
+      channels: this.context.channels,
+      users: this.context.users,
+      channelMessages: this.context.channelMessages,
+      storage: this.createPluginStorage(pluginId),
+      emit: (event, data) => this.io.emit(event, data),
+      emitToChannel: (channelId, event, data) => {
+        this.context.emitToChannel(channelId, event, data);
+      }
+    };
+  }
+  createPluginStorage(pluginId) {
+    const pluginStorageDir = path.join(this.storageDir, pluginId);
+    if (!fs.existsSync(pluginStorageDir)) {
+      fs.mkdirSync(pluginStorageDir, { recursive: true });
+    }
+    return {
+      get: async (key) => {
+        const filePath = path.join(pluginStorageDir, `${key}.json`);
+        if (fs.existsSync(filePath)) {
+          return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+        }
+        return null;
+      },
+      set: async (key, value) => {
+        const filePath = path.join(pluginStorageDir, `${key}.json`);
+        fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
+      },
+      delete: async (key) => {
+        const filePath = path.join(pluginStorageDir, `${key}.json`);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      },
+      list: async () => {
+        return fs.readdirSync(pluginStorageDir).filter((f) => f.endsWith(".json")).map((f) => f.replace(".json", ""));
+      }
+    };
+  }
+  // Hook methods for core to call
+  async triggerOnMessage(channelId, message) {
+    for (const { plugin } of this.plugins.values()) {
+      try {
+        await plugin.onMessage?.(channelId, message, this.createContext(plugin.name));
+      } catch (error) {
+        console.error(`Error in plugin ${plugin.name} onMessage:`, error);
+      }
+    }
+  }
+  async triggerOnChannelCreate(channel) {
+    for (const { plugin } of this.plugins.values()) {
+      try {
+        await plugin.onChannelCreate?.(channel, this.createContext(plugin.name));
+      } catch (error) {
+        console.error(`Error in plugin ${plugin.name} onChannelCreate:`, error);
+      }
+    }
+  }
+  async triggerOnUserJoin(user) {
+    for (const { plugin } of this.plugins.values()) {
+      try {
+        await plugin.onUserJoin?.(user, this.createContext(plugin.name));
+      } catch (error) {
+        console.error(`Error in plugin ${plugin.name} onUserJoin:`, error);
+      }
+    }
+  }
+  async triggerOnUserLeave(userId) {
+    for (const { plugin } of this.plugins.values()) {
+      try {
+        await plugin.onUserLeave?.(userId, this.createContext(plugin.name));
+      } catch (error) {
+        console.error(`Error in plugin ${plugin.name} onUserLeave:`, error);
+      }
+    }
+  }
+  getLoadedPlugins() {
+    return Array.from(this.plugins.entries()).map(([id, { manifest }]) => ({
+      id,
+      name: manifest.name,
+      version: manifest.version,
+      description: manifest.description
+    }));
+  }
+};
+
+// src/emojis.ts
+var defaultEmojis = [
+  // Smileys
+  { id: "smile", name: "smile", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f604.png", category: "smileys", isCustom: false },
+  { id: "laughing", name: "laughing", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f606.png", category: "smileys", isCustom: false },
+  { id: "heart_eyes", name: "heart_eyes", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f60d.png", category: "smileys", isCustom: false },
+  { id: "thinking", name: "thinking", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f914.png", category: "smileys", isCustom: false },
+  { id: "cry", name: "cry", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f622.png", category: "smileys", isCustom: false },
+  { id: "rage", name: "rage", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f621.png", category: "smileys", isCustom: false },
+  { id: "cool", name: "cool", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f60e.png", category: "smileys", isCustom: false },
+  { id: "skull", name: "skull", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f480.png", category: "smileys", isCustom: false },
+  // Gestures
+  { id: "thumbsup", name: "thumbsup", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f44d.png", category: "gestures", isCustom: false },
+  { id: "thumbsdown", name: "thumbsdown", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f44e.png", category: "gestures", isCustom: false },
+  { id: "clap", name: "clap", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f44f.png", category: "gestures", isCustom: false },
+  { id: "wave", name: "wave", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f44b.png", category: "gestures", isCustom: false },
+  { id: "ok_hand", name: "ok_hand", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f44c.png", category: "gestures", isCustom: false },
+  { id: "pray", name: "pray", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f64f.png", category: "gestures", isCustom: false },
+  // Hearts
+  { id: "heart", name: "heart", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/2764.png", category: "hearts", isCustom: false },
+  { id: "heartbreak", name: "heartbreak", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f494.png", category: "hearts", isCustom: false },
+  { id: "fire", name: "fire", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f525.png", category: "symbols", isCustom: false },
+  { id: "sparkles", name: "sparkles", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/2728.png", category: "symbols", isCustom: false },
+  { id: "star", name: "star", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/2b50.png", category: "symbols", isCustom: false },
+  { id: "boom", name: "boom", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f4a5.png", category: "symbols", isCustom: false },
+  // Objects
+  { id: "rocket", name: "rocket", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f680.png", category: "objects", isCustom: false },
+  { id: "trophy", name: "trophy", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f3c6.png", category: "objects", isCustom: false },
+  { id: "gift", name: "gift", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f381.png", category: "objects", isCustom: false },
+  { id: "tada", name: "tada", url: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f389.png", category: "objects", isCustom: false }
+];
+var customEmojis = /* @__PURE__ */ new Map();
+function getAllEmojis() {
+  return [...defaultEmojis, ...Array.from(customEmojis.values())];
+}
+function getEmojiByName(name) {
+  const custom = customEmojis.get(name);
+  if (custom) return custom;
+  return defaultEmojis.find((e) => e.name === name);
+}
+function addCustomEmoji(emoji) {
+  customEmojis.set(emoji.name, emoji);
+}
+function deleteCustomEmoji(name) {
+  return customEmojis.delete(name);
+}
+
+// src/server.ts
+var channels = /* @__PURE__ */ new Map();
+channels.set("general", { id: "general", name: "general", createdAt: Date.now(), type: "public" });
+var channelMessages = /* @__PURE__ */ new Map();
+channelMessages.set("general", []);
+var pinnedMessages = /* @__PURE__ */ new Map();
+pinnedMessages.set("general", /* @__PURE__ */ new Set());
+var users = /* @__PURE__ */ new Map();
+var typingUsers = /* @__PURE__ */ new Set();
+var businessWorkspaces = /* @__PURE__ */ new Map();
+var defaultWorkspaceId = "default-workspace";
+var userCurrentChannel = /* @__PURE__ */ new Map();
+var channelTypingUsers = /* @__PURE__ */ new Map();
+var screenSharers = /* @__PURE__ */ new Map();
+var excalidrawState = null;
+var emotes = /* @__PURE__ */ new Map();
+var messageDeletionTimers = /* @__PURE__ */ new Map();
+function getAutoDeleteMs(duration) {
+  const durations = {
+    "1h": 60 * 60 * 1e3,
+    "6h": 6 * 60 * 60 * 1e3,
+    "12h": 12 * 60 * 60 * 1e3,
+    "24h": 24 * 60 * 60 * 1e3,
+    "3d": 3 * 24 * 60 * 60 * 1e3,
+    "7d": 7 * 24 * 60 * 60 * 1e3,
+    "14d": 14 * 24 * 60 * 60 * 1e3,
+    "30d": 30 * 24 * 60 * 60 * 1e3
+  };
+  return durations[duration] || 0;
+}
+function scheduleMessageDeletion(channelId, messageId, duration) {
+  const ms = getAutoDeleteMs(duration);
+  if (ms === 0) return;
+  const timer = setTimeout(() => {
+    const messages = channelMessages.get(channelId);
+    if (!messages) return;
+    const messageIndex = messages.findIndex((m) => m.id === messageId);
+    if (messageIndex === -1) return;
+    const message = messages[messageIndex];
+    if (message.fileUrl) {
+      const fileName = message.fileUrl.replace("/uploads/", "");
+      const filePath = join(UPLOADS_DIR, fileName);
+      try {
+        if (existsSync(filePath)) {
+          unlinkSync(filePath);
+        }
+      } catch (err) {
+        console.error(`Failed to delete file: ${fileName}`, err);
+      }
+    }
+    if (message.files && message.files.length > 0) {
+      for (const file of message.files) {
+        const fileName = file.fileUrl.replace("/uploads/", "");
+        const filePath = join(UPLOADS_DIR, fileName);
+        try {
+          if (existsSync(filePath)) {
+            unlinkSync(filePath);
+          }
+        } catch (err) {
+          console.error(`Failed to delete file: ${fileName}`, err);
+        }
+      }
+    }
+    messages.splice(messageIndex, 1);
+    channelMessages.set(channelId, messages);
+    emitToChannel(channelId, "message-deleted", { channelId, messageId });
+    messageDeletionTimers.delete(messageId);
+    if (ENABLE_LOGGING) console.log(`Auto-deleted message ${messageId} from channel ${channelId}`);
+  }, ms);
+  messageDeletionTimers.set(messageId, timer);
+}
+function cancelMessageDeletion(messageId) {
+  const timer = messageDeletionTimers.get(messageId);
+  if (timer) {
+    clearTimeout(timer);
+    messageDeletionTimers.delete(messageId);
+  }
+}
+var DATA_DIR = "./data";
+var MESSAGES_FILE = join(DATA_DIR, "messages.json");
+var BUSINESS_DATA_DIR = join(DATA_DIR, "business");
+if (!existsSync(DATA_DIR)) {
+  mkdirSync(DATA_DIR, { recursive: true });
+}
+if (!existsSync(BUSINESS_DATA_DIR)) {
+  mkdirSync(BUSINESS_DATA_DIR, { recursive: true });
+}
+var deleteMessageById = null;
+function getBusinessDataPath(workspaceId) {
+  return join(BUSINESS_DATA_DIR, `${workspaceId}.json`);
+}
+function loadBusinessData(workspaceId) {
+  try {
+    const filePath = getBusinessDataPath(workspaceId);
+    if (existsSync(filePath)) {
+      const data = JSON.parse(readFileSync(filePath, "utf-8"));
+      const enableLogging = process.env.ENABLE_LOGGING === "true";
+      if (enableLogging) console.log(`\u{1F4CA} Loaded business data for workspace: ${workspaceId}`);
+      return data;
+    }
+  } catch (error) {
+    console.error(`Error loading business data for workspace ${workspaceId}:`, error);
+  }
+  return null;
+}
+function saveBusinessData(workspaceId, data) {
+  try {
+    const filePath = getBusinessDataPath(workspaceId);
+    data.lastUpdated = Date.now();
+    writeFileSync(filePath, JSON.stringify(data, null, 2));
+    const enableLogging = process.env.ENABLE_LOGGING === "true";
+    if (enableLogging) console.log(`\u{1F4BE} Saved business data for workspace: ${workspaceId}`);
+  } catch (error) {
+    console.error(`Error saving business data for workspace ${workspaceId}:`, error);
+  }
+}
+function initializeWorkspace(workspaceId) {
+  const data = {
+    workspaceId,
+    todos: [],
+    calendarEvents: [],
+    diaryEntries: [],
+    projects: [],
+    sprints: [],
+    lastUpdated: Date.now()
+  };
+  const loaded = loadBusinessData(workspaceId);
+  if (loaded) {
+    businessWorkspaces.set(workspaceId, loaded);
+    return loaded;
+  }
+  businessWorkspaces.set(workspaceId, data);
+  saveBusinessData(workspaceId, data);
+  return data;
+}
+initializeWorkspace(defaultWorkspaceId);
+var PORT = process.env.PORT || 3e3;
+var STATIC_DIR = process.env.STATIC_DIR || join(import.meta.dir, "../../frontend/build");
+var EMOTES_DIR = join(STATIC_DIR, "emotes");
+var ENABLE_LOGGING = process.env.ENABLE_LOGGING === "true";
+if (!existsSync(EMOTES_DIR)) {
+  mkdirSync(EMOTES_DIR, { recursive: true });
+}
+var UPLOADS_DIR = join(import.meta.dir, "../uploads");
+if (!existsSync(UPLOADS_DIR)) {
+  mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+var server = createServer();
+var io = new Server(server, {
+  cors: {
+    origin: (origin, callback) => {
+      if (!origin) {
+        return callback(null, true);
+      }
+      const allowedOrigins = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://tauri.localhost",
+        process.env.FRONTEND_URL,
+        process.env.PUBLIC_URL
+      ].filter(Boolean);
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      if (process.env.NODE_ENV === "production") {
+        return callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  maxHttpBufferSize: 75 * 1024 * 1024
+  // 75MB (to handle 50MB files after base64 encoding ~33% overhead)
+});
+server.on("request", (req, res) => {
+  if (req.url?.startsWith("/socket.io/")) {
+    return;
+  }
+  const url = new URL(req.url || "/", `http://${req.headers.host}`);
+  const allowedOrigins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://tauri.localhost",
+    process.env.FRONTEND_URL,
+    process.env.PUBLIC_URL
+  ].filter(Boolean);
+  const requestOrigin = req.headers.origin;
+  if (requestOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", requestOrigin);
+  } else if (process.env.NODE_ENV === "development") {
+    res.setHeader("Access-Control-Allow-Origin", "http://localhost:5173");
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Requested-With");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Max-Age", "86400");
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+  if (url.pathname === "/api/upload-profile-picture" && req.method === "POST") {
+    let chunks = [];
+    req.on("data", (chunk) => {
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      try {
+        const buffer = Buffer.concat(chunks);
+        const contentType = req.headers["content-type"];
+        const boundary = contentType?.split("boundary=")[1];
+        if (!boundary) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: "Invalid content type" }));
+          return;
+        }
+        const parts = buffer.toString("binary").split(`--${boundary}`);
+        let profilePictureFile = null;
+        let profilePictureFileName = "";
+        for (const part of parts) {
+          if (part.includes("Content-Disposition") && part.includes('name="profilePicture"')) {
+            const filenameMatch = part.match(/filename="([^"]+)"/);
+            if (filenameMatch) {
+              profilePictureFileName = filenameMatch[1];
+              const dataStart = part.indexOf("\r\n\r\n") + 4;
+              const dataEnd = part.lastIndexOf("\r\n");
+              profilePictureFile = Buffer.from(part.substring(dataStart, dataEnd), "binary");
+              break;
+            }
+          }
+        }
+        if (profilePictureFile && profilePictureFileName) {
+          const ext = profilePictureFileName.split(".").pop()?.toLowerCase();
+          if (!ext || !["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: "Invalid file type. Only PNG, JPG, JPEG, GIF, WEBP are allowed." }));
+            return;
+          }
+          const MAX_FILE_SIZE = 5 * 1024 * 1024;
+          if (profilePictureFile.length > MAX_FILE_SIZE) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: "File too large. Maximum size is 5MB." }));
+            return;
+          }
+          const fileId = `pfp-${Date.now()}-${profilePictureFileName}`;
+          const filePath = join(UPLOADS_DIR, fileId);
+          if (!existsSync(UPLOADS_DIR)) {
+            mkdirSync(UPLOADS_DIR, { recursive: true });
+          }
+          writeFileSync(filePath, profilePictureFile);
+          const serverUrl = process.env.PUBLIC_URL || `http://${req.headers.host}`;
+          const profilePictureUrl = `${serverUrl}/uploads/${fileId}`;
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            success: true,
+            profilePictureUrl
+          }));
+        } else {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: "No profile picture file found in request" }));
+        }
+      } catch (error) {
+        console.error("Profile picture upload error:", error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "Internal server error during upload" }));
+      }
+    });
+    return;
+  }
+  if (url.pathname === "/api/upload" && req.method === "POST") {
+    let body = "";
+    let chunks = [];
+    req.on("data", (chunk) => {
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      try {
+        const buffer = Buffer.concat(chunks);
+        const boundary = req.headers["content-type"]?.split("boundary=")[1];
+        if (!boundary) {
+          const data = JSON.parse(buffer.toString());
+          const { fileName, fileData, channelId, userId, username } = data;
+          const fileId = `${Date.now()}-${fileName}`;
+          const filePath = join(UPLOADS_DIR, fileId);
+          if (!existsSync(UPLOADS_DIR)) {
+            mkdirSync(UPLOADS_DIR, { recursive: true });
+          }
+          const fileBuffer = Buffer.from(fileData.split(",")[1], "base64");
+          writeFileSync(filePath, fileBuffer);
+          const fileUrl = `/uploads/${fileId}`;
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            success: true,
+            fileUrl,
+            fileName,
+            fileSize: fileBuffer.length
+          }));
+        } else {
+          const parts = buffer.toString("binary").split(`--${boundary}`);
+          let fileName = "";
+          let fileData = null;
+          let channelId = "";
+          let userId = "";
+          let username = "";
+          for (const part of parts) {
+            if (part.includes("Content-Disposition")) {
+              const nameMatch = part.match(/name="([^"]+)"/);
+              const filenameMatch = part.match(/filename="([^"]+)"/);
+              if (filenameMatch) {
+                fileName = filenameMatch[1];
+                const dataStart = part.indexOf("\r\n\r\n") + 4;
+                const dataEnd = part.lastIndexOf("\r\n");
+                fileData = Buffer.from(part.substring(dataStart, dataEnd), "binary");
+              } else if (nameMatch) {
+                const fieldName = nameMatch[1];
+                const dataStart = part.indexOf("\r\n\r\n") + 4;
+                const dataEnd = part.lastIndexOf("\r\n");
+                const value = part.substring(dataStart, dataEnd);
+                if (fieldName === "channelId") channelId = value;
+                if (fieldName === "userId") userId = value;
+                if (fieldName === "username") username = value;
+              }
+            }
+          }
+          if (fileData && fileName) {
+            const fileId = `${Date.now()}-${fileName}`;
+            const filePath = join(UPLOADS_DIR, fileId);
+            if (!existsSync(UPLOADS_DIR)) {
+              mkdirSync(UPLOADS_DIR, { recursive: true });
+            }
+            writeFileSync(filePath, fileData);
+            const fileUrl = `/uploads/${fileId}`;
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+              success: true,
+              fileUrl,
+              fileName,
+              fileSize: fileData.length
+            }));
+          } else {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: "No file uploaded" }));
+          }
+        }
+      } catch (error) {
+        console.error("Upload error:", error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "Upload failed" }));
+      }
+    });
+    return;
+  }
+  if (url.pathname === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      status: "ok",
+      users: users.size,
+      uptime: process.uptime()
+    }));
+    return;
+  }
+  if (url.pathname === "/api/business/get" && req.method === "GET") {
+    try {
+      const workspaceId = defaultWorkspaceId;
+      const data = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data
+      }));
+    } catch (error) {
+      console.error("Get business data error:", error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Failed to load business data" }));
+    }
+    return;
+  }
+  if (url.pathname === "/api/business/sync" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+    req.on("end", () => {
+      try {
+        const { todos, calendarEvents, diaryEntries, projects, sprints } = JSON.parse(body);
+        const workspaceId = defaultWorkspaceId;
+        const businessData = {
+          workspaceId,
+          todos: todos || [],
+          calendarEvents: calendarEvents || [],
+          diaryEntries: diaryEntries || [],
+          projects: projects || [],
+          sprints: sprints || [],
+          lastUpdated: Date.now()
+        };
+        businessWorkspaces.set(workspaceId, businessData);
+        saveBusinessData(workspaceId, businessData);
+        io.emit("business-data-updated", {
+          workspaceId,
+          data: businessData
+        });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          lastUpdated: businessData.lastUpdated
+        }));
+      } catch (error) {
+        console.error("Sync business data error:", error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "Failed to sync business data" }));
+      }
+    });
+    return;
+  }
+  if (url.pathname === "/api/emoji/upload" && req.method === "POST") {
+    let chunks = [];
+    req.on("data", (chunk) => {
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      try {
+        const buffer = Buffer.concat(chunks);
+        const boundary = req.headers["content-type"]?.split("boundary=")[1];
+        if (!boundary) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: "Invalid content type" }));
+          return;
+        }
+        const parts = buffer.toString("binary").split(`--${boundary}`);
+        let fileName = "";
+        let fileData = null;
+        let emojiName = "";
+        let category = "custom";
+        for (const part of parts) {
+          if (part.includes("Content-Disposition")) {
+            const nameMatch = part.match(/name="([^"]+)"/);
+            const filenameMatch = part.match(/filename="([^"]+)"/);
+            if (filenameMatch) {
+              fileName = filenameMatch[1];
+              const dataStart = part.indexOf("\r\n\r\n") + 4;
+              const dataEnd = part.lastIndexOf("\r\n");
+              fileData = Buffer.from(part.substring(dataStart, dataEnd), "binary");
+            } else if (nameMatch) {
+              const fieldName = nameMatch[1];
+              const dataStart = part.indexOf("\r\n\r\n") + 4;
+              const dataEnd = part.lastIndexOf("\r\n");
+              const value = part.substring(dataStart, dataEnd);
+              if (fieldName === "name") emojiName = value;
+              if (fieldName === "category") category = value;
+            }
+          }
+        }
+        if (fileData && fileName && emojiName) {
+          const existing = getEmojiByName(emojiName);
+          if (existing) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: "Emoji name already exists" }));
+            return;
+          }
+          const fileId = `emoji-${Date.now()}-${fileName}`;
+          const filePath = join(UPLOADS_DIR, fileId);
+          if (!existsSync(UPLOADS_DIR)) {
+            mkdirSync(UPLOADS_DIR, { recursive: true });
+          }
+          writeFileSync(filePath, fileData);
+          const serverUrl = process.env.PUBLIC_URL || `http://${req.headers.host}`;
+          const emojiUrl = `${serverUrl}/uploads/${fileId}`;
+          const newEmoji = {
+            id: emojiName,
+            name: emojiName,
+            url: emojiUrl,
+            category,
+            isCustom: true
+          };
+          addCustomEmoji(newEmoji);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            success: true,
+            emoji: newEmoji
+          }));
+        } else {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: "Missing required fields" }));
+        }
+      } catch (error) {
+        console.error("Emoji upload error:", error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "Upload failed" }));
+      }
+    });
+    return;
+  }
+  if (url.pathname === "/api/clear-messages" && req.method === "POST") {
+    try {
+      channelMessages.forEach((messages, channelId) => {
+        channelMessages.set(channelId, []);
+      });
+      pinnedMessages.forEach((pins, channelId) => {
+        pinnedMessages.set(channelId, /* @__PURE__ */ new Set());
+      });
+      if (existsSync(UPLOADS_DIR)) {
+        const files = readdirSync(UPLOADS_DIR);
+        let deletedCount = 0;
+        for (const file of files) {
+          try {
+            unlinkSync(join(UPLOADS_DIR, file));
+            deletedCount++;
+          } catch (err) {
+            console.error(`Failed to delete file ${file}:`, err);
+          }
+        }
+        if (ENABLE_LOGGING) console.log(`Deleted ${deletedCount} files from uploads directory`);
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        message: "All messages and files cleared from server"
+      }));
+    } catch (error) {
+      console.error("Clear messages error:", error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Failed to clear messages" }));
+    }
+    return;
+  }
+  if (url.pathname.startsWith("/uploads/")) {
+    const fileName = decodeURIComponent(url.pathname.replace("/uploads/", ""));
+    const filePath = join(UPLOADS_DIR, fileName);
+    if (existsSync(filePath)) {
+      const file = readFileSync(filePath);
+      const ext = filePath.split(".").pop()?.toLowerCase();
+      const contentTypes = {
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "gif": "image/gif",
+        "bmp": "image/bmp",
+        "webp": "image/webp",
+        "svg": "image/svg+xml",
+        "mp4": "video/mp4",
+        "webm": "video/webm",
+        "pdf": "application/pdf",
+        "zip": "application/zip"
+      };
+      res.writeHead(200, { "Content-Type": contentTypes[ext || ""] || "application/octet-stream" });
+      res.end(file);
+      return;
+    } else {
+      res.writeHead(404);
+      res.end("Upload not found");
+      return;
+    }
+  }
+  if (existsSync(STATIC_DIR)) {
+    const decodedPathname = decodeURIComponent(url.pathname);
+    let filePath = join(STATIC_DIR, decodedPathname === "/" ? "index.html" : decodedPathname);
+    if (existsSync(filePath)) {
+      const file = readFileSync(filePath);
+      const ext = filePath.split(".").pop()?.toLowerCase();
+      const contentTypes = {
+        "html": "text/html",
+        "js": "application/javascript",
+        "css": "text/css",
+        "json": "application/json",
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "gif": "image/gif",
+        "bmp": "image/bmp",
+        "webp": "image/webp",
+        "svg": "image/svg+xml",
+        "ico": "image/x-icon",
+        "mp4": "video/mp4",
+        "webm": "video/webm",
+        "pdf": "application/pdf",
+        "zip": "application/zip"
+      };
+      res.writeHead(200, { "Content-Type": contentTypes[ext || "html"] || "application/octet-stream" });
+      res.end(file);
+      return;
+    }
+    if (!url.pathname.startsWith("/api") && !url.pathname.startsWith("/uploads")) {
+      const indexPath = join(STATIC_DIR, "index.html");
+      if (existsSync(indexPath)) {
+        const file = readFileSync(indexPath);
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(file);
+        return;
+      }
+    }
+  }
+  res.writeHead(404);
+  res.end("Not Found");
+});
+server.listen(PORT, "0.0.0.0");
+console.log("[Server] Listening on 0.0.0.0:" + PORT);
+function emitToChannel(channelId, event, data) {
+  const channel = channels.get(channelId);
+  if (!channel) return;
+  if (channel.members && channel.members.length > 0) {
+    channel.members.forEach((memberId) => {
+      io.to(memberId).emit(event, data);
+    });
+  } else {
+    io.emit(event, data);
+  }
+}
+deleteMessageById = (channelId, messageId) => {
+  const messages = channelMessages.get(channelId) || [];
+  const messageIndex = messages.findIndex((m) => m.id === messageId);
+  if (messageIndex === -1) return;
+  const message = messages[messageIndex];
+  if (message.fileUrl) {
+    const fileName = message.fileUrl.replace("/uploads/", "");
+    const filePath = join(UPLOADS_DIR, fileName);
+    try {
+      if (existsSync(filePath)) {
+        unlinkSync(filePath);
+      }
+    } catch (err) {
+      console.error(`Failed to delete file: ${fileName}`, err);
+    }
+  }
+  if (message.files && message.files.length > 0) {
+    for (const file of message.files) {
+      const fileName = file.fileUrl.replace("/uploads/", "");
+      const filePath = join(UPLOADS_DIR, fileName);
+      try {
+        if (existsSync(filePath)) {
+          unlinkSync(filePath);
+        }
+      } catch (err) {
+        console.error(`Failed to delete file: ${fileName}`, err);
+      }
+    }
+  }
+  messages.splice(messageIndex, 1);
+  channelMessages.set(channelId, messages);
+  const timer = messageDeletionTimers.get(messageId);
+  if (timer) {
+    clearTimeout(timer);
+    messageDeletionTimers.delete(messageId);
+  }
+  emitToChannel(channelId, "message-deleted", { channelId, messageId });
+  if (ENABLE_LOGGING) {
+    console.log(`\u{1F5D1}\uFE0F Auto-deleted message ${messageId} from channel ${channelId}`);
+  }
+};
+if (ENABLE_LOGGING) {
+  console.log(`\u{1F680} Community Chat server running on port ${PORT}`);
+}
+var pluginLoader = new PluginLoader(io, server, {
+  channels,
+  users,
+  channelMessages,
+  emitToChannel
+});
+pluginLoader.loadAll().then(() => {
+  console.log("\u{1F50C} Plugin system ready");
+}).catch((error) => {
+  console.error("\u274C Failed to load plugins:", error);
+});
+io.on("connection", (socket) => {
+  console.log(`\u{1F50C} WebSocket connection established: ${socket.id}`);
+  socket.on("join", (username) => {
+    const color = `#${Math.floor(Math.random() * 16777215).toString(16)}`;
+    users.set(socket.id, {
+      id: socket.id,
+      username,
+      color,
+      status: "active",
+      profilePicture: void 0
+    });
+    const userChannels = Array.from(channels.values()).filter((channel) => {
+      if (!channel.members || channel.members.length === 0) {
+        return true;
+      }
+      return channel.members.includes(socket.id);
+    });
+    const emojisData = getAllEmojis();
+    console.log("[EMOJI DEBUG] Sending emojis to client:", emojisData.length, "emojis");
+    socket.emit("init", {
+      channels: userChannels,
+      users: Array.from(users.values()),
+      excalidrawState,
+      emotes: Array.from(emotes.values()),
+      emojis: emojisData
+    });
+    socket.broadcast.emit("user-joined", {
+      id: socket.id,
+      username,
+      color,
+      status: "active",
+      profilePicture: void 0
+    });
+    if (ENABLE_LOGGING) console.log(`${username} joined the chat`);
+  });
+  socket.on("update-profile", (data) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+    if (data.status) {
+      user.status = data.status;
+    }
+    if (data.profilePicture !== void 0) {
+      user.profilePicture = data.profilePicture;
+    }
+    users.set(socket.id, user);
+    io.emit("profile-updated", {
+      id: socket.id,
+      username: user.username,
+      color: user.color,
+      status: user.status,
+      profilePicture: user.profilePicture
+    });
+    if (ENABLE_LOGGING) console.log(`${user.username} updated profile: status=${user.status}`);
+  });
+  socket.on("join-channel", (channelId) => {
+    const channel = channels.get(channelId);
+    if (!channel) return;
+    userCurrentChannel.set(socket.id, channelId);
+    const messages = channelMessages.get(channelId) || [];
+    socket.emit("channel-messages", { channelId, messages });
+  });
+  socket.on("message", (data) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+    const channel = channels.get(data.channelId);
+    if (!channel) return;
+    const DEFAULT_SERVER_EXPIRATION = 24 * 60 * 60 * 1e3;
+    const deletionTime = channel.autoDeleteAfter ? Date.now() + getAutoDeleteMs(channel.autoDeleteAfter) : Date.now() + DEFAULT_SERVER_EXPIRATION;
+    const message = {
+      id: `${Date.now()}-${socket.id}`,
+      user: user.username,
+      userId: socket.id,
+      text: data.text,
+      timestamp: Date.now(),
+      type: data.type,
+      gifUrl: data.gifUrl,
+      emojiUrl: data.emojiUrl,
+      emojiName: data.emojiName,
+      fileUrl: data.fileUrl,
+      fileName: data.fileName,
+      fileSize: data.fileSize,
+      files: data.files,
+      isPinned: false,
+      isEdited: false,
+      replyTo: data.replyTo,
+      isSpoiler: data.isSpoiler,
+      // All messages have scheduled deletion time (either custom or default 1-day)
+      scheduledDeletionTime: deletionTime
+    };
+    const messages = channelMessages.get(data.channelId) || [];
+    messages.push(message);
+    channelMessages.set(data.channelId, messages);
+    emitToChannel(data.channelId, "message", { channelId: data.channelId, message });
+    const deletionDuration = channel.autoDeleteAfter || "24h";
+    scheduleMessageDeletion(data.channelId, message.id, deletionDuration);
+    if (typingUsers.has(socket.id)) {
+      typingUsers.delete(socket.id);
+      const channelTyping = channelTypingUsers.get(data.channelId);
+      if (channelTyping) {
+        channelTyping.delete(socket.id);
+        const typingUsernames = Array.from(channelTyping).map((id) => users.get(id)?.username).filter(Boolean);
+        emitToChannel(data.channelId, "typing", typingUsernames);
+      }
+    }
+  });
+  socket.on("edit-message", (data) => {
+    const messages = channelMessages.get(data.channelId);
+    if (!messages) return;
+    const message = messages.find((m) => m.id === data.messageId);
+    if (!message || message.userId !== socket.id) return;
+    message.text = data.newText;
+    message.isEdited = true;
+    emitToChannel(data.channelId, "message-edited", { channelId: data.channelId, messageId: data.messageId, newText: data.newText });
+  });
+  socket.on("delete-message", (data) => {
+    const messages = channelMessages.get(data.channelId);
+    if (!messages) return;
+    const messageIndex = messages.findIndex((m) => m.id === data.messageId);
+    if (messageIndex === -1) return;
+    const message = messages[messageIndex];
+    if (message.userId !== socket.id) return;
+    if (message.fileUrl) {
+      const fileName = message.fileUrl.replace("/uploads/", "");
+      const filePath = join(UPLOADS_DIR, fileName);
+      try {
+        if (existsSync(filePath)) {
+          unlinkSync(filePath);
+          if (ENABLE_LOGGING) console.log(`Deleted file: ${fileName}`);
+        }
+      } catch (error) {
+        console.error(`Failed to delete file ${fileName}:`, error);
+      }
+    }
+    if (message.files && Array.isArray(message.files)) {
+      for (const file of message.files) {
+        const fileName = file.fileUrl.replace("/uploads/", "");
+        const filePath = join(UPLOADS_DIR, fileName);
+        try {
+          if (existsSync(filePath)) {
+            unlinkSync(filePath);
+            if (ENABLE_LOGGING) console.log(`Deleted file: ${fileName}`);
+          }
+        } catch (error) {
+          console.error(`Failed to delete file ${fileName}:`, error);
+        }
+      }
+    }
+    messages.splice(messageIndex, 1);
+    const channelPins = pinnedMessages.get(data.channelId);
+    if (channelPins) {
+      channelPins.delete(data.messageId);
+    }
+    cancelMessageDeletion(data.messageId);
+    emitToChannel(data.channelId, "message-deleted", { channelId: data.channelId, messageId: data.messageId });
+  });
+  socket.on("toggle-pin-message", (data) => {
+    const messages = channelMessages.get(data.channelId);
+    if (!messages) return;
+    const message = messages.find((m) => m.id === data.messageId);
+    if (!message) return;
+    message.isPinned = !message.isPinned;
+    let channelPins = pinnedMessages.get(data.channelId);
+    if (!channelPins) {
+      channelPins = /* @__PURE__ */ new Set();
+      pinnedMessages.set(data.channelId, channelPins);
+    }
+    if (message.isPinned) {
+      channelPins.add(data.messageId);
+    } else {
+      channelPins.delete(data.messageId);
+    }
+    emitToChannel(data.channelId, "message-pin-toggled", { channelId: data.channelId, messageId: data.messageId, isPinned: message.isPinned });
+  });
+  socket.on("add-reaction", (data) => {
+    const messages = channelMessages.get(data.channelId);
+    if (!messages) return;
+    const message = messages.find((m) => m.id === data.messageId);
+    if (!message) return;
+    const user = users.get(socket.id);
+    if (!user) return;
+    if (!message.reactions) {
+      message.reactions = {};
+    }
+    if (!message.reactions[data.emojiId]) {
+      message.reactions[data.emojiId] = [];
+    }
+    if (!message.reactions[data.emojiId].includes(user.id)) {
+      message.reactions[data.emojiId].push(user.id);
+    }
+    emitToChannel(data.channelId, "reaction-added", {
+      channelId: data.channelId,
+      messageId: data.messageId,
+      emojiId: data.emojiId,
+      userId: user.id,
+      reactions: message.reactions
+    });
+  });
+  socket.on("remove-reaction", (data) => {
+    const messages = channelMessages.get(data.channelId);
+    if (!messages) return;
+    const message = messages.find((m) => m.id === data.messageId);
+    if (!message || !message.reactions) return;
+    const user = users.get(socket.id);
+    if (!user) return;
+    if (message.reactions[data.emojiId]) {
+      message.reactions[data.emojiId] = message.reactions[data.emojiId].filter((id) => id !== user.id);
+      if (message.reactions[data.emojiId].length === 0) {
+        delete message.reactions[data.emojiId];
+      }
+    }
+    emitToChannel(data.channelId, "reaction-removed", {
+      channelId: data.channelId,
+      messageId: data.messageId,
+      emojiId: data.emojiId,
+      userId: user.id,
+      reactions: message.reactions
+    });
+  });
+  socket.on("get-emojis", () => {
+    socket.emit("emojis-list", getAllEmojis());
+  });
+  socket.on("upload-emoji", (data) => {
+    const emoji = {
+      id: `custom_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      name: data.name,
+      url: data.url,
+      category: data.category,
+      isCustom: true
+    };
+    addCustomEmoji(emoji);
+    io.emit("emoji-added", emoji);
+  });
+  socket.on("delete-emoji", (emojiName) => {
+    const success = deleteCustomEmoji(emojiName);
+    if (success) {
+      io.emit("emoji-deleted", emojiName);
+    }
+  });
+  socket.on("typing", (isTyping) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+    const channelId = userCurrentChannel.get(socket.id);
+    if (!channelId) return;
+    let channelTyping = channelTypingUsers.get(channelId);
+    if (!channelTyping) {
+      channelTyping = /* @__PURE__ */ new Set();
+      channelTypingUsers.set(channelId, channelTyping);
+    }
+    if (isTyping) {
+      typingUsers.add(socket.id);
+      channelTyping.add(socket.id);
+    } else {
+      typingUsers.delete(socket.id);
+      channelTyping.delete(socket.id);
+    }
+    const typingUsernames = Array.from(channelTyping).map((id) => users.get(id)?.username).filter(Boolean);
+    emitToChannel(channelId, "typing", typingUsernames);
+  });
+  socket.on("start-screen-share", () => {
+    const user = users.get(socket.id);
+    if (!user) return;
+    screenSharers.set(socket.id, {
+      userId: socket.id,
+      username: user.username
+    });
+    socket.broadcast.emit("screen-share-started", {
+      userId: socket.id,
+      username: user.username
+    });
+  });
+  socket.on("stop-screen-share", () => {
+    screenSharers.delete(socket.id);
+    socket.broadcast.emit("screen-share-stopped", socket.id);
+  });
+  socket.on("webrtc-offer", (data) => {
+    io.to(data.targetId).emit("webrtc-offer", {
+      offer: data.offer,
+      senderId: socket.id
+    });
+  });
+  socket.on("webrtc-answer", (data) => {
+    io.to(data.targetId).emit("webrtc-answer", {
+      answer: data.answer,
+      senderId: socket.id
+    });
+  });
+  socket.on("webrtc-ice-candidate", (data) => {
+    io.to(data.targetId).emit("webrtc-ice-candidate", {
+      candidate: data.candidate,
+      senderId: socket.id
+    });
+  });
+  socket.on("excalidraw-update", (state) => {
+    excalidrawState = state;
+    socket.broadcast.emit("excalidraw-update", state);
+  });
+  socket.on("call-initiate", (data) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+    io.to(data.targetUserId).emit("call-incoming", {
+      userId: socket.id,
+      username: user.username,
+      isVideoCall: data.isVideoCall
+    });
+  });
+  socket.on("call-answer", (data) => {
+    io.to(data.callerId).emit("call-accepted", {
+      userId: socket.id,
+      isVideoCall: data.isVideoCall
+    });
+  });
+  socket.on("call-reject", (data) => {
+    io.to(data.callerId).emit("call-rejected", {
+      userId: socket.id
+    });
+  });
+  socket.on("call-end", () => {
+    socket.broadcast.emit("call-ended", {
+      userId: socket.id
+    });
+  });
+  socket.on("call-offer", (data) => {
+    io.to(data.targetId).emit("call-offer", {
+      offer: data.offer,
+      senderId: socket.id
+    });
+  });
+  socket.on("call-answer-sdp", (data) => {
+    io.to(data.targetId).emit("call-answer-sdp", {
+      answer: data.answer,
+      senderId: socket.id
+    });
+  });
+  socket.on("call-ice-candidate", (data) => {
+    io.to(data.targetId).emit("call-ice-candidate", {
+      candidate: data.candidate,
+      senderId: socket.id
+    });
+  });
+  socket.on("create-channel", (channelName) => {
+    const channelId = channelName.toLowerCase().replace(/\s+/g, "-");
+    if (channels.has(channelId)) {
+      socket.emit("channel-error", "Channel already exists");
+      return;
+    }
+    if (!/^[a-zA-Z0-9\s-]+$/.test(channelName)) {
+      socket.emit("channel-error", "Channel name must be alphanumeric");
+      return;
+    }
+    const channel = {
+      id: channelId,
+      name: channelName,
+      createdAt: Date.now()
+    };
+    channels.set(channelId, channel);
+    channelMessages.set(channelId, []);
+    pinnedMessages.set(channelId, /* @__PURE__ */ new Set());
+    io.emit("channel-created", channel);
+    if (ENABLE_LOGGING) console.log(`Channel created: ${channelName}`);
+  });
+  socket.on("delete-channel", (channelId) => {
+    if (channelId === "general") {
+      socket.emit("channel-error", "Cannot delete general channel");
+      return;
+    }
+    if (!channels.has(channelId)) {
+      socket.emit("channel-error", "Channel does not exist");
+      return;
+    }
+    channels.delete(channelId);
+    channelMessages.delete(channelId);
+    pinnedMessages.delete(channelId);
+    io.emit("channel-deleted", channelId);
+    if (ENABLE_LOGGING) console.log(`Channel deleted: ${channelId}`);
+  });
+  socket.on("update-channel-settings", (data) => {
+    const channel = channels.get(data.channelId);
+    if (!channel) {
+      socket.emit("channel-error", "Channel does not exist");
+      return;
+    }
+    channel.autoDeleteAfter = data.autoDeleteAfter;
+    if (data.persistMessages !== void 0) {
+      channel.persistMessages = data.persistMessages;
+    }
+    channels.set(data.channelId, channel);
+    io.emit("channel-settings-updated", {
+      channelId: data.channelId,
+      autoDeleteAfter: data.autoDeleteAfter,
+      persistMessages: data.persistMessages
+    });
+    if (ENABLE_LOGGING) {
+      console.log(`Channel ${data.channelId} settings updated:`, {
+        autoDeleteAfter: data.autoDeleteAfter || "disabled",
+        persistMessages: data.persistMessages
+      });
+    }
+  });
+  socket.on("create-dm", (data) => {
+    const user = users.get(socket.id);
+    const targetUser = users.get(data.targetUserId);
+    if (!user || !targetUser) {
+      socket.emit("channel-error", "User not found");
+      return;
+    }
+    const memberIds = [socket.id, data.targetUserId].sort();
+    const dmId = `dm-${memberIds.join("-")}`;
+    if (channels.has(dmId)) {
+      socket.emit("dm-created", {
+        channelId: dmId,
+        otherUser: {
+          id: targetUser.id,
+          username: targetUser.username,
+          color: targetUser.color,
+          status: targetUser.status,
+          profilePicture: targetUser.profilePicture
+        }
+      });
+      return;
+    }
+    const dmChannel = {
+      id: dmId,
+      name: `${user.username}, ${targetUser.username}`,
+      createdAt: Date.now(),
+      type: "dm",
+      members: memberIds
+    };
+    channels.set(dmId, dmChannel);
+    channelMessages.set(dmId, []);
+    pinnedMessages.set(dmId, /* @__PURE__ */ new Set());
+    socket.emit("dm-created", {
+      channelId: dmId,
+      otherUser: {
+        id: targetUser.id,
+        username: targetUser.username,
+        color: targetUser.color,
+        status: targetUser.status,
+        profilePicture: targetUser.profilePicture
+      }
+    });
+    io.to(data.targetUserId).emit("dm-created", {
+      channelId: dmId,
+      otherUser: {
+        id: user.id,
+        username: user.username,
+        color: user.color,
+        status: user.status,
+        profilePicture: user.profilePicture
+      }
+    });
+    if (ENABLE_LOGGING) console.log(`DM created: ${dmId} between ${user.username} and ${targetUser.username}`);
+  });
+  socket.on("create-group", (data) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+    if (!/^[a-zA-Z0-9\s-]+$/.test(data.name)) {
+      socket.emit("channel-error", "Group name must be alphanumeric");
+      return;
+    }
+    const memberIds = [.../* @__PURE__ */ new Set([socket.id, ...data.memberIds])];
+    const groupId = `group-${Date.now()}-${socket.id}`;
+    const groupChannel = {
+      id: groupId,
+      name: data.name,
+      createdAt: Date.now(),
+      type: "group",
+      members: memberIds
+    };
+    channels.set(groupId, groupChannel);
+    channelMessages.set(groupId, []);
+    pinnedMessages.set(groupId, /* @__PURE__ */ new Set());
+    memberIds.forEach((memberId) => {
+      io.to(memberId).emit("group-created", {
+        id: groupId,
+        name: data.name,
+        createdAt: groupChannel.createdAt,
+        type: "group",
+        members: memberIds.map((id) => {
+          const u = users.get(id);
+          return u ? {
+            id: u.id,
+            username: u.username,
+            color: u.color,
+            status: u.status,
+            profilePicture: u.profilePicture
+          } : null;
+        }).filter(Boolean)
+      });
+    });
+    if (ENABLE_LOGGING) console.log(`Group created: ${data.name} (${groupId}) by ${user.username}`);
+  });
+  socket.on("upload-emote", (data) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+    if (!/^[a-zA-Z0-9_]+$/.test(data.name)) {
+      socket.emit("emote-error", "Emote name must be alphanumeric");
+      return;
+    }
+    if (emotes.has(data.name)) {
+      socket.emit("emote-error", "Emote name already exists");
+      return;
+    }
+    const matches = data.imageData.match(/^data:image\/(\w+);base64,(.+)$/);
+    if (!matches) {
+      socket.emit("emote-error", "Invalid image data");
+      return;
+    }
+    const ext = matches[1];
+    const base64Data = matches[2];
+    const buffer = Buffer.from(base64Data, "base64");
+    if (buffer.length > 2 * 1024 * 1024) {
+      socket.emit("emote-error", "File too large (max 2MB)");
+      return;
+    }
+    const fileName = `${data.name}.${ext}`;
+    const filePath = join(EMOTES_DIR, fileName);
+    try {
+      writeFileSync(filePath, buffer);
+      const emote = {
+        name: data.name,
+        url: `/emotes/${fileName}`,
+        type: data.type,
+        uploadedBy: user.username,
+        timestamp: Date.now()
+      };
+      emotes.set(data.name, emote);
+      io.emit("emote-added", emote);
+      if (ENABLE_LOGGING) console.log(`${user.username} added emote: ${data.name}`);
+    } catch (error) {
+      console.error("Error saving emote:", error);
+      socket.emit("emote-error", "Failed to save emote");
+    }
+  });
+  socket.on("delete-emote", (emoteName) => {
+    const emote = emotes.get(emoteName);
+    if (!emote) return;
+    const user = users.get(socket.id);
+    if (!user || emote.uploadedBy !== user.username) {
+      socket.emit("emote-error", "You can only delete your own emotes");
+      return;
+    }
+    emotes.delete(emoteName);
+    io.emit("emote-deleted", emoteName);
+    if (ENABLE_LOGGING) console.log(`${user.username} deleted emote: ${emoteName}`);
+  });
+  socket.on("emoji-added", (emoji) => {
+    io.emit("emoji-added", emoji);
+  });
+  socket.on("delete-emoji", (emojiName) => {
+    const deleted = deleteCustomEmoji(emojiName);
+    if (deleted) {
+      io.emit("emoji-deleted", emojiName);
+    }
+  });
+  socket.on("disconnect", () => {
+    const user = users.get(socket.id);
+    if (user) {
+      users.delete(socket.id);
+      typingUsers.delete(socket.id);
+      const channelId = userCurrentChannel.get(socket.id);
+      if (channelId) {
+        const channelTyping = channelTypingUsers.get(channelId);
+        if (channelTyping) {
+          channelTyping.delete(socket.id);
+        }
+        userCurrentChannel.delete(socket.id);
+      }
+      if (screenSharers.has(socket.id)) {
+        screenSharers.delete(socket.id);
+        socket.broadcast.emit("screen-share-stopped", socket.id);
+      }
+      socket.broadcast.emit("user-left", {
+        id: socket.id,
+        username: user.username
+      });
+      if (ENABLE_LOGGING) console.log(`${user.username} left the chat`);
+    }
+  });
+});
+console.log(`\u{1F680} Community Chat server running on port ${PORT}`);
+console.log(`\u{1F4C1} Serving static files from: ${STATIC_DIR}`);
+console.log(`\u{1F49A} Health check available at: http://localhost:${PORT}/health`);
