@@ -27,6 +27,7 @@ services:
     repo: AzureFoxStudios/wabi
     branch: fix/remove-build-command
     deploy_on_push: true
+  source_dir: .
   dockerfile_path: backend/Dockerfile
   http_port: 8080
   instance_count: 1
