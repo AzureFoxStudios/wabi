@@ -5,7 +5,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: ./backend/Dockerfile
     container_name: wabi-backend
     environment:
       - NODE_ENV=production
@@ -34,7 +34,7 @@ services:
   frontend:
     build:
       context: .
-      dockerfile: Dockerfile.frontend
+      dockerfile: ./frontend/Dockerfile
     container_name: wabi-frontend
     ports:
       - "80:80"
