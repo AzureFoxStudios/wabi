@@ -27,7 +27,8 @@ services:
     repo: AzureFoxStudios/wabi
     branch: fix/remove-build-command
     deploy_on_push: true
-  dockerfile_path: Dockerfile.backend
+  source_dir: backend
+  dockerfile_path: Dockerfile
   http_port: 8080
   instance_count: 1
   instance_size_slug: basic-xs
@@ -51,13 +52,14 @@ services:
     value: /app
     scope: RUN_AND_BUILD_TIME
 
-# Frontend Nginx reverse proxy and static file server
+# Frontend Node.js app server
 - name: web
   github:
     repo: AzureFoxStudios/wabi
-    branch: main
+    branch: fix/remove-build-command
     deploy_on_push: true
-  dockerfile_path: Dockerfile.frontend
+  source_dir: frontend
+  dockerfile_path: Dockerfile
   http_port: 8080
   instance_count: 1
   instance_size_slug: basic-xs
