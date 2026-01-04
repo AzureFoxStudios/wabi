@@ -1,46 +1,39 @@
-# Build stage - use Bun to build the Svelte app
-FROM oven/bun:1 AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files (explicitly use bun.lock)
-COPY frontend/package.json ./
-COPY frontend/bun.lock ./
+# Copy package files
+COPY package.json ./
+COPY package-lock.json ./
 
-# Install dependencies using frozen lockfile
-RUN bun install --frozen-lockfile
+# Install dependencies with npm (not bun)
+RUN npm ci
 
 # Copy source code
-COPY frontend ./
+COPY . .
 
-# Build the frontend
-RUN bun run build
+# Build the frontend with adapter-node
+RUN npm run build
 
-# Production stage - use Nginx to serve static files
-FROM nginx:alpine
+# Production stage - run the Node.js app
+FROM node:20-alpine
 
-# Copy built files from builder
-COPY --from=builder /app/build /usr/share/nginx/html
+WORKDIR /app
 
-# Copy nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy built app from builder
+COPY --from=builder /app/build ./build
+COPY --from=builder /app/node_modules ./node_modules
+COPY package.json ./
 
-# Set proper permissions for nginx user (nginx user already exists in alpine)
-RUN chown -R nginx:nginx /usr/share/nginx/html && \
-    chown -R nginx:nginx /var/cache/nginx && \
-    chown -R nginx:nginx /var/log/nginx && \
-    touch /var/run/nginx.pid && \
-    chown nginx:nginx /var/run/nginx.pid
+# Set environment
+ENV NODE_ENV=production
 
-# Switch to non-root user
-USER nginx
-
-# Expose port 80
-EXPOSE 80
+# Expose port 3000
+EXPOSE 3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost/health || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
 
-# Start nginx
-CMD ["nginx", "-g", "daemon off;"]
+# Start the app
+CMD ["npm", "start"]

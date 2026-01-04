@@ -53,3 +53,4 @@ nul
 # Misc
 static/_app/immutable/
 backend/uploads/
+bun.lock

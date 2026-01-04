@@ -1,25 +1,24 @@
-# Production backend image
-FROM oven/bun:1
+FROM node:20-alpine
 
 WORKDIR /app
 
 # Create non-root user for security
-RUN useradd -m -u 1001 -s /sbin/nologin wabi
+RUN addgroup -g 1001 -S wabi && adduser -S wabi -u 1001
 
-# Copy package files (explicitly use bun.lock)
-COPY backend/package.json ./
-COPY backend/bun.lock ./
+# Copy package files
+COPY package.json ./
+COPY package-lock.json ./
 
-# Install dependencies using frozen lockfile (production only)
-RUN bun install --frozen-lockfile --production
+# Install dependencies with npm (not bun)
+RUN npm ci --production
 
 # Copy backend source code
-COPY backend ./
+COPY . .
 
 # Build the backend
-RUN bun run build
+RUN npm run build
 
-# Set proper permissions for wabi user
+# Set proper permissions
 RUN chown -R wabi:wabi /app
 
 # Switch to non-root user
@@ -34,7 +33,7 @@ EXPOSE 3000
 
 # Health check endpoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl --fail http://localhost:3000/health || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
 
 # Start the backend server
-CMD ["./community-chat-server"]
+CMD ["node", "build"]

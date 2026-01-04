@@ -1,0 +1,26 @@
+{
+  "name": "community-chat",
+  "version": "1.0.0",
+  "description": "Self-hosted ephemeral chat system with screen sharing",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"cd frontend && bun run dev\" \"cd backend && bun run dev\"",
+    "preview": "cd frontend && bun run preview",
+    "start": "cd backend && bun run start",
+    "build:frontend": "cd frontend && bun run build"
+  },
+  "keywords": [
+    "chat",
+    "webrtc",
+    "screen-sharing",
+    "ephemeral"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "dependencies": {
+    "sharp": "^0.34.5"
+  }
+}
