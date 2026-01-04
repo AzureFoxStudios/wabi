@@ -9,14 +9,24 @@ RUN addgroup -g 1001 -S wabi && adduser -S wabi -u 1001
 COPY package.json ./
 COPY package-lock.json ./
 
-# Install dependencies with npm (not bun)
-RUN npm ci --production
+# Install all dependencies (including devDependencies)
+# Use npm ci to ensure esbuild binary is installed fresh for Linux platform
+RUN npm ci
+
+# Ensure esbuild binary is properly built for this platform
+RUN npm rebuild esbuild || npm install esbuild@latest
 
 # Copy backend source code
 COPY . .
 
-# Build the backend
+# Build the backend with ESM format to support import.meta
 RUN npm run build
+
+# Verify build output exists
+RUN test -f build || (echo "ERROR: build file not created" && ls -la && exit 1)
+
+# Prune devDependencies
+RUN npm prune --production
 
 # Set proper permissions
 RUN chown -R wabi:wabi /app
