@@ -1,3 +1,8 @@
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
 import fs from 'fs';
 import path from 'path';
 import type { Server, Socket } from 'socket.io';

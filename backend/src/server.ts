@@ -5,6 +5,7 @@ import { join } from "path";
 import { PluginLoader } from "./plugins/loader";
 import { getAllEmojis, getEmojiByName, addCustomEmoji, deleteCustomEmoji, type Emoji } from "./emojis";
 
+import { __dirname } from "./_dirname.js";
 // In-memory data store
 interface Channel {
   id: string;
