@@ -7,7 +7,7 @@ WORKDIR /app
 RUN useradd -m -u 1001 -s /sbin/nologin wabi
 
 # Copy package files (explicitly use bun.lock)
-COPY package.json.orig ./package.json
+COPY package.json ./package.json
 COPY bun.lock ./
 
 # Install dependencies using frozen lockfile (production only)

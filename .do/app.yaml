@@ -28,10 +28,11 @@ services:
     branch: main
     deploy_on_push: true
   dockerfile_path: ./backend/Dockerfile
+  build_command: "npm install && npm run build"
+  run_command: "node build"
   http_port: 3000
   instance_count: 1
   instance_size_slug: basic-xs
-  build_command: ""
 
   health_check:
     http_path: /health
@@ -59,10 +60,11 @@ services:
     branch: main
     deploy_on_push: true
   dockerfile_path: ./frontend/Dockerfile
-  http_port: 80
+  build_command: "npm install && npm run build"
+  run_command: "npm run start"
+  http_port: 3000
   instance_count: 1
   instance_size_slug: basic-xs
-  build_command: ""
 
   health_check:
     http_path: /
