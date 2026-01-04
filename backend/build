@@ -5,8 +5,11 @@ import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlink
 import { join } from "path";
 
 // src/plugins/loader.ts
+import { fileURLToPath } from "url";
+import { dirname } from "path";
 import fs from "fs";
 import path from "path";
+var __dirname = dirname(fileURLToPath(import.meta.url));
 var PluginLoader = class {
   constructor(io2, httpServer, context) {
     this.io = io2;
@@ -324,7 +327,7 @@ function cancelMessageDeletion(messageId) {
     messageDeletionTimers.delete(messageId);
   }
 }
-var DATA_DIR = "./data";
+var DATA_DIR = "/app/data";
 var MESSAGES_FILE = join(DATA_DIR, "messages.json");
 var BUSINESS_DATA_DIR = join(DATA_DIR, "business");
 if (!existsSync(DATA_DIR)) {
@@ -383,13 +386,13 @@ function initializeWorkspace(workspaceId) {
 }
 initializeWorkspace(defaultWorkspaceId);
 var PORT = process.env.PORT || 3e3;
-var STATIC_DIR = process.env.STATIC_DIR || join(import.meta.dir, "../../frontend/build");
+var STATIC_DIR = process.env.STATIC_DIR || "/app/frontend/build";
 var EMOTES_DIR = join(STATIC_DIR, "emotes");
 var ENABLE_LOGGING = process.env.ENABLE_LOGGING === "true";
 if (!existsSync(EMOTES_DIR)) {
   mkdirSync(EMOTES_DIR, { recursive: true });
 }
-var UPLOADS_DIR = join(import.meta.dir, "../uploads");
+var UPLOADS_DIR = "/app/uploads";
 if (!existsSync(UPLOADS_DIR)) {
   mkdirSync(UPLOADS_DIR, { recursive: true });
 }
