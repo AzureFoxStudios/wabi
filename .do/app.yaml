@@ -25,7 +25,7 @@ services:
 - name: backend
   github:
     repo: AzureFoxStudios/wabi
-    branch: fix/remove-build-command
+    branch: main
     deploy_on_push: true
   source_dir: .
   dockerfile_path: backend/Dockerfile
