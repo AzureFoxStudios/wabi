@@ -25,7 +25,7 @@ services:
 - name: backend
   github:
     repo: AzureFoxStudios/wabi
-    branch: main
+    branch: fix/sayonara-nginx
     deploy_on_push: true
   source_dir: .
   dockerfile_path: backend/Dockerfile
@@ -56,7 +56,7 @@ services:
 - name: web
   github:
     repo: AzureFoxStudios/wabi
-    branch: main
+    branch: fix/sayonara-nginx
     deploy_on_push: true
   source_dir: frontend
   dockerfile_path: Dockerfile
