@@ -1,6 +1,8 @@
 # Wabi - A Self-Hosted, Extensible Chat Platform
 
-Wabi is a private, self-hosted, and ephemeral real-time chat application designed for small to medium-sized communities (10-50 users). It runs as a web application and can be packaged as a native desktop application using Tauri. It prioritizes privacy and simplicity, with all chat data stored in-memory and disappearing when the server restarts.
+Wabi is a **private**, **self-hosted**, and **ephemeral** real-time chat application designed for small to medium-sized communities (10-50 users). It runs as a web application and can be packaged as a native desktop application using Tauri. It prioritizes privacy and simplicity, with all chat data stored in-memory and disappearing when the server restarts.
+
+A chill place to hang out with your friends. No fuss. No spying. No bloat. Just chill.
 
 ## Features
 
@@ -34,25 +36,24 @@ Wabi is a private, self-hosted, and ephemeral real-time chat application designe
 └── pureref-connector/ # Standalone tool for PureRef integration
 ```
 
-## Getting Started
+# System Requirements
 
-### Prerequisites
+So far this has only been tested on Linux (Bazzite & Ubuntu), please do write in about your experience!
 
-- [Bun](https://bun.sh/) v1.0 or higher
-- [Docker](https://www.docker.com/get-started) & [Docker Compose](https://docs.docker.com/compose/install/) (for the TURN server)
-- A modern web browser
+You also need the latest version of [Docker](https://www.docker.com/products/docker-desktop/) installed.
 
-### 1. Installation
+# Setting Up Wabi
 
-Clone the repository and install all dependencies using Bun's workspace feature.
+- Navigate to your terminal.
+- Clone this repository: `git clone https://github.com/AzureFoxStudios/wabi`
+- Navigate to the new `wabi` folder on your computer.
+- Run `docker build .`
 
-```bash
-git clone <your-repo-url>
-cd <repo-name>
-bun install
-```
+The containers should start themselves automatically.
 
-### 2. Configure the Backend URL
+Congratulations, you now have a Wabi instance running locally!
+
+### Configuring the Backend URL
 
 Backend (create `backend/.env`):
 ```env
@@ -61,7 +62,7 @@ FRONTEND_URL=http://localhost:5173
 ENABLE_LOGGING=false  # Set to 'true' to enable activity logging
 ```
 
-### 3. Configure and Run the TURN Relay Server
+### Configuring and Running the TURN Relay Server
 
 For voice/video calls to work reliably, you need the TURN relay server.
 
@@ -70,7 +71,7 @@ For voice/video calls to work reliably, you need the TURN relay server.
 3.  Start the server using Docker Compose: `docker-compose up -d`.
 4.  Navigate back to the root directory: `cd ..`
 
-### 4. Run the Application
+### Running the Application
 
 Start the backend and frontend development servers concurrently from the root directory.
 
@@ -321,6 +322,7 @@ This project is under active development. Key areas for contribution include:
 - [ ] Admin/moderation controls
 - [ ] Custom themes
 - [ ] Message threading
+- [ ] DevOps, Docker optimization
 
 ## License
 
