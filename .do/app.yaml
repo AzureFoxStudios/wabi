@@ -56,7 +56,7 @@ services:
 - name: web
   github:
     repo: AzureFoxStudios/wabi
-    branch: fix/remove-build-command
+    branch: main
     deploy_on_push: true
   source_dir: frontend
   dockerfile_path: Dockerfile
