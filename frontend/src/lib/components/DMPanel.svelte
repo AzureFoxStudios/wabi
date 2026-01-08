@@ -329,8 +329,8 @@
 		align-items: center;
 		background: transparent;
 		border-radius: 8px;
-		padding: 0.25rem;
-		gap: 0.25rem;
+		padding: 0.125rem;
+		gap: 0.125rem;
 		transition: background 0.2s;
 	}
 
@@ -341,18 +341,18 @@
 
 	.dm-input {
 		flex: 1;
-		min-height: 28px;
+		min-height: 24px;
 		max-height: 120px;
 		overflow-y: auto;
 		resize: none;
 		font-family: inherit;
-		line-height: 1.5;
-		padding: 0.5rem;
+		line-height: 1.3;
+		padding: 0.375rem;
 		border: none;
 		background: transparent;
 		color: var(--text-primary);
 		outline: none;
-		font-size: 1rem;
+		font-size: 0.95rem;
 		-ms-overflow-style: none;
 		scrollbar-width: none;
 	}
@@ -373,13 +373,14 @@
 		background: var(--accent);
 		color: white;
 		border: none;
-		padding: 0 1rem;
-		height: 36px;
-		border-radius: 6px;
+		padding: 0 0.75rem;
+		height: 32px;
+		border-radius: 4px;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.2s;
-		font-size: 0.9rem;
+		font-size: 0.85rem;
+		flex-shrink: 0;
 	}
 
 	.dm-send-btn:hover:not(:disabled) {
@@ -533,15 +534,15 @@
 		}
 
 		.dm-input {
-			padding: 1rem;
+			padding: 0.75rem;
 			font-size: 16px; /* Prevents iOS zoom */
-			min-height: 44px;
+			min-height: 40px;
 			border-radius: 6px;
 		}
 
 		.dm-send-btn {
-			min-width: 44px;
-			min-height: 44px;
+			min-width: 40px;
+			min-height: 40px;
 			padding: 0.5rem 0.75rem;
 		}
 
