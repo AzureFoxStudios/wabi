@@ -183,13 +183,10 @@
 	<div class="channel-list">
 		<!-- Public Channels -->
 		{#each publicChannels as channel (channel.id)}
-			<div class="channel-item" class:active={$currentChannel === channel.id}>
-				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)}>
+			<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter}>
+				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
 					<span class="hash">#</span>
 					{channel.name}
-					{#if channel.autoDeleteAfter}
-						<span class="auto-delete-indicator" title="Auto-delete: {channel.autoDeleteAfter}">⏱️</span>
-					{/if}
 					{#if $channelUnreadCounts[channel.id] && $currentChannel !== channel.id}
 						<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
 					{/if}
@@ -210,13 +207,10 @@
 		{#if groupChannels.length > 0}
 			<div class="section-header">Group Chats</div>
 			{#each groupChannels as channel (channel.id)}
-				<div class="channel-item" class:active={$currentChannel === channel.id}>
-					<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)}>
+				<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter}>
+					<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
 						<span class="group-icon">👥</span>
 						{channel.name}
-						{#if channel.autoDeleteAfter}
-							<span class="auto-delete-indicator" title="Auto-delete: {channel.autoDeleteAfter}">⏱️</span>
-						{/if}
 						{#if $channelUnreadCounts[channel.id] && $currentChannel !== channel.id}
 							<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
 						{/if}
@@ -978,11 +972,23 @@
 		color: white;
 	}
 
-	/* Auto-delete indicator */
-	.auto-delete-indicator {
-		font-size: 0.75rem;
-		margin-left: 0.25rem;
-		opacity: 0.8;
+	/* Auto-delete/Timer indicator - redder highlight */
+	.channel-item.has-timer {
+		background: rgba(255, 87, 87, 0.1);
+		border-left: 3px solid #ff5757;
+	}
+
+	.channel-item.has-timer:hover {
+		background: rgba(255, 87, 87, 0.15);
+	}
+
+	.channel-item.has-timer.active {
+		background: rgba(255, 87, 87, 0.2);
+	}
+
+	/* Compact mode: maintain red indicator */
+	.channel-sidebar[style*="width: 60px"] .channel-item.has-timer {
+		border-radius: 0;
 	}
 
 	/* Channel Settings Modal */
