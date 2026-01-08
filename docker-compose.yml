@@ -15,8 +15,8 @@ services:
       - PLUGINS_DIR=/app/plugins
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8080}
     volumes:
-      - wabi-data:/app/data
-      - wabi-plugins:/app/plugins
+      - ./data:/app/data
+      - ./plugins:/app/plugins
     restart: unless-stopped
 
   frontend:
@@ -32,7 +32,3 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
-
-volumes:
-  wabi-data:
-  wabi-plugins:
