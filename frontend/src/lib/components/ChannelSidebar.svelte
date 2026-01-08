@@ -6,6 +6,9 @@
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
 	import type { Channel } from '$lib/socket';
 
+	// Calculate total unread count across all channels
+	$: totalUnreadCount = Object.values($channelUnreadCounts).reduce((sum, count) => sum + count, 0);
+
 	const dispatch = createEventDispatcher();
 
 	// Helper function to format badge display
@@ -163,7 +166,13 @@
 			>
 				📺
 			</button>
-			<button class="add-btn" on:click={() => showCreateInput = !showCreateInput} title="Create channel">+</button>
+			<button
+				class="add-btn"
+				data-has-unread={totalUnreadCount > 0 ? 'true' : 'false'}
+				data-unread={totalUnreadCount > 99 ? '99+' : totalUnreadCount}
+				on:click={() => showCreateInput = !showCreateInput}
+				title="Create channel"
+			>+</button>
 		</div>
 	</div>
 
@@ -590,6 +599,7 @@
 		justify-content: space-between;
 		align-items: center;
 		height: 58px;
+		position: relative;
 	}
 
 	.sidebar-header h3 {
@@ -636,6 +646,37 @@
 		background: var(--accent);
 		color: white;
 		opacity: 1;
+	}
+
+	/* Unread badge for add button */
+	.add-btn {
+		position: relative;
+	}
+
+	.add-btn::after {
+		content: attr(data-unread);
+		position: absolute;
+		top: -4px;
+		right: -4px;
+		background: #ff4757;
+		color: white;
+		font-size: 0.65rem;
+		font-weight: 700;
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: 2px solid var(--bg-tertiary);
+	}
+
+	.add-btn:not([data-unread="0"])::after {
+		display: flex;
+	}
+
+	.add-btn[data-unread="0"]::after {
+		display: none;
 	}
 
 	.create-channel {
@@ -698,6 +739,7 @@
 		font-size: 0.9rem;
 		border-radius: 0;
 		transition: all 0.2s;
+		min-width: 0; /* Allows text to shrink and ellipsis */
 	}
 
 	.channel-item.active .channel-btn {
@@ -1155,6 +1197,8 @@
 	@media (max-width: 768px) {
 		.channel-sidebar {
 			height: calc(100dvh - 56px);
+			max-width: 100%;
+			overflow: hidden;
 		}
 
 		.mobile-close-btn {
@@ -1196,8 +1240,8 @@
 		}
 
 		.channel-btn {
-			padding: 0.5rem 0.375rem;
-			min-height: 36px;
+			padding: 0.5rem 0.5rem;
+			min-height: 40px;
 			font-size: 0.875rem;
 		}
 

@@ -533,7 +533,7 @@
 		}
 
 		.dm-input {
-			padding: 0.75rem;
+			padding: 1rem;
 			font-size: 16px; /* Prevents iOS zoom */
 			min-height: 44px;
 			border-radius: 6px;
