@@ -1,7 +1,7 @@
 import { Server } from "socket.io";
 import { createServer } from "http";
 import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "fs";
-import { join } from "path";
+import { join, basename } from "path";
 import { PluginLoader } from "./plugins/loader";
 import { getAllEmojis, getEmojiByName, addCustomEmoji, deleteCustomEmoji, type Emoji } from "./emojis";
 
@@ -824,7 +824,17 @@ server.on('request', (req, res) => {
 
   // Serve uploaded files from dedicated uploads directory
   if (url.pathname.startsWith('/uploads/')) {
-    const fileName = decodeURIComponent(url.pathname.replace('/uploads/', ''));
+    const pathSegment = decodeURIComponent(url.pathname.replace('/uploads/', ''));
+
+    // Security: Prevent path traversal attacks
+    if (pathSegment.includes('..') || pathSegment.startsWith('/')) {
+      res.writeHead(403);
+      res.end("Access denied");
+      return;
+    }
+
+    // Use basename to strip any remaining directory components
+    const fileName = basename(pathSegment);
     const filePath = join(UPLOADS_DIR, fileName);
 
     if (existsSync(filePath)) {
