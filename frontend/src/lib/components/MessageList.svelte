@@ -1530,6 +1530,8 @@
 			gap: 0.375rem;
 			margin-bottom: 0.125rem;
 			border-radius: 4px;
+			margin-left: 0;
+			padding-left: 0.5rem;
 		}
 
 		/* Compact avatars */
