@@ -28,6 +28,11 @@
 		return '•';
 	}
 
+	// Calculate total unread DM count
+	$: totalUnreadDMs = Object.entries($channelUnreadCounts)
+		.filter(([channelId]) => channelId.startsWith('dm-'))
+		.reduce((sum, [, count]) => sum + count, 0);
+
 	let showDMModal = false;
 
 	// User popout state
@@ -165,7 +170,13 @@
 	<div class="panel-header">
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
 		<h3>Online ({$users.length})</h3>
-		<button class="dm-btn" on:click={openDMModal} title="Start a DM">💬</button>
+		<button
+			class="dm-btn"
+			class:has-unread={totalUnreadDMs > 0}
+			data-unread={totalUnreadDMs > 99 ? '99+' : totalUnreadDMs}
+			on:click={openDMModal}
+			title="Start a DM"
+		>💬</button>
 	</div>
 
 	<div class="user-list">
@@ -343,6 +354,30 @@
 		transform: none;
 	}
 
+	/* Unread badge for DM button */
+	.dm-btn {
+		position: relative;
+	}
+
+	.dm-btn.has-unread::after {
+		content: attr(data-unread);
+		position: absolute;
+		top: -4px;
+		right: -4px;
+		background: #ff4757;
+		color: white;
+		font-size: 0.65rem;
+		font-weight: 700;
+		width: 18px;
+		height: 18px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: 2px solid var(--bg-secondary);
+		line-height: 1;
+	}
+
 	.user-list {
 		flex: 1;
 		overflow-y: auto;
@@ -381,6 +416,9 @@
 		background: none;
 		cursor: pointer;
 		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
 	}
 
 	.user-info-button {
@@ -391,6 +429,8 @@
 		cursor: pointer;
 		text-align: left;
 		display: flex;
+		align-items: center;
+		min-width: 0;
 	}
 
 	.user-avatar {

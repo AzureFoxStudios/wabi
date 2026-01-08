@@ -6,9 +6,6 @@
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
 	import type { Channel } from '$lib/socket';
 
-	// Calculate total unread count across all channels
-	$: totalUnreadCount = Object.values($channelUnreadCounts).reduce((sum, count) => sum + count, 0);
-
 	const dispatch = createEventDispatcher();
 
 	// Helper function to format badge display
@@ -166,13 +163,7 @@
 			>
 				📺
 			</button>
-			<button
-				class="add-btn"
-				data-has-unread={totalUnreadCount > 0 ? 'true' : 'false'}
-				data-unread={totalUnreadCount > 99 ? '99+' : totalUnreadCount}
-				on:click={() => showCreateInput = !showCreateInput}
-				title="Create channel"
-			>+</button>
+			<button class="add-btn" on:click={() => showCreateInput = !showCreateInput} title="Create channel">+</button>
 		</div>
 	</div>
 
@@ -646,37 +637,6 @@
 		background: var(--accent);
 		color: white;
 		opacity: 1;
-	}
-
-	/* Unread badge for add button */
-	.add-btn {
-		position: relative;
-	}
-
-	.add-btn::after {
-		content: attr(data-unread);
-		position: absolute;
-		top: -4px;
-		right: -4px;
-		background: #ff4757;
-		color: white;
-		font-size: 0.65rem;
-		font-weight: 700;
-		width: 16px;
-		height: 16px;
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border: 2px solid var(--bg-tertiary);
-	}
-
-	.add-btn:not([data-unread="0"])::after {
-		display: flex;
-	}
-
-	.add-btn[data-unread="0"]::after {
-		display: none;
 	}
 
 	.create-channel {
