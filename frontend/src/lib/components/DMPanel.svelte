@@ -53,6 +53,13 @@
 	let chatContainer: HTMLElement;
 	let typingTimeout: number;
 	let textareaElement: HTMLTextAreaElement;
+	let fileInput: HTMLInputElement;
+	let selectedFiles: File[] = [];
+	let filePreviews: { file: File; preview?: string }[] = [];
+	let isUploading = false;
+	let uploadProgress = 0;
+	let isDragging = false;
+	let dragCounter = 0;
 
 	async function scrollToBottom() {
 		await tick();
@@ -105,6 +112,199 @@
 
 	function handleReply(message: Message) {
 		// Future implementation
+	}
+
+	async function handleFileSelect(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const files = Array.from(input.files || []);
+		if (files.length === 0) return;
+
+		// Check file sizes
+		const maxSize = 1024 * 1024 * 1024; // 1GB
+		for (const file of files) {
+			if (file.size > maxSize) {
+				alert(`File too large! Maximum size is 1GB per file. "${file.name}" is ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+				input.value = '';
+				return;
+			}
+		}
+
+		// Store selected files and generate previews for images
+		selectedFiles = files;
+		filePreviews = await Promise.all(
+			files.map(async (file) => {
+				if (file.type.startsWith('image/')) {
+					const preview = await new Promise<string>((resolve) => {
+						const reader = new FileReader();
+						reader.onload = (e) => resolve(e.target?.result as string);
+						reader.readAsDataURL(file);
+					});
+					return { file, preview };
+				}
+				return { file };
+			})
+		);
+
+		input.value = '';
+	}
+
+	function removeFile(index: number) {
+		selectedFiles = selectedFiles.filter((_, i) => i !== index);
+		filePreviews = filePreviews.filter((_, i) => i !== index);
+	}
+
+	function cancelUpload() {
+		selectedFiles = [];
+		filePreviews = [];
+	}
+
+	function handleDragEnter(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		dragCounter++;
+		if (e.dataTransfer?.types.includes('Files')) {
+			isDragging = true;
+		}
+	}
+
+	function handleDragLeave(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		dragCounter--;
+		if (dragCounter === 0) {
+			isDragging = false;
+		}
+	}
+
+	function handleDragOver(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+	}
+
+	async function handleDrop(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		isDragging = false;
+		dragCounter = 0;
+
+		const files = Array.from(e.dataTransfer?.files || []);
+		if (files.length === 0) return;
+
+		// Check file sizes
+		const maxSize = 1024 * 1024 * 1024; // 1GB
+		for (const file of files) {
+			if (file.size > maxSize) {
+				alert(`File too large! Maximum size is 1GB per file. "${file.name}" is ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+				return;
+			}
+		}
+
+		// Store selected files and generate previews
+		selectedFiles = files;
+		filePreviews = await Promise.all(
+			files.map(async (file) => {
+				if (file.type.startsWith('image/')) {
+					const preview = await new Promise<string>((resolve) => {
+						const reader = new FileReader();
+						reader.onload = (e) => resolve(e.target?.result as string);
+						reader.readAsDataURL(file);
+					});
+					return { file, preview };
+				}
+				return { file };
+			})
+		);
+	}
+
+	async function uploadSelectedFiles() {
+		if (selectedFiles.length === 0 || !dmChannelId) return;
+
+		isUploading = true;
+		const totalFiles = selectedFiles.length;
+		let completedFiles = 0;
+
+		try {
+			let serverUrl: string;
+			if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
+				serverUrl = 'http://localhost:3000';
+			} else if (window.location.origin.includes(':3000')) {
+				serverUrl = window.location.origin.replace(':3000', ':8080');
+			} else {
+				serverUrl = window.location.origin;
+			}
+
+			const uploadedFiles: { fileUrl: string; fileName: string; fileSize: number }[] = [];
+
+			for (const file of selectedFiles) {
+				const result = await new Promise<{ fileUrl: string; fileName: string; fileSize: number }>((resolve, reject) => {
+					const formData = new FormData();
+					formData.append('file', file);
+					formData.append('channelId', dmChannelId);
+
+					const xhr = new XMLHttpRequest();
+
+					xhr.upload.addEventListener('progress', (e) => {
+						if (e.lengthComputable) {
+							const fileProgress = (e.loaded / e.total) * 100;
+							const overallProgress = ((completedFiles + fileProgress / 100) / totalFiles) * 100;
+							uploadProgress = Math.round(overallProgress);
+						}
+					});
+
+					xhr.addEventListener('load', () => {
+						if (xhr.status === 200) {
+							try {
+								const uploadResult = JSON.parse(xhr.responseText);
+								completedFiles++;
+								resolve({
+									fileUrl: uploadResult.fileUrl,
+									fileName: uploadResult.fileName,
+									fileSize: uploadResult.fileSize
+								});
+							} catch (parseError) {
+								reject(new Error(`Invalid server response: ${xhr.responseText.substring(0, 100)}`));
+							}
+						} else {
+							reject(new Error(`Upload failed with status ${xhr.status}`));
+						}
+					});
+
+					xhr.addEventListener('error', () => {
+						reject(new Error('Upload network error'));
+					});
+
+					const uploadUrl = `${serverUrl}/api/upload`;
+					xhr.open('POST', uploadUrl);
+					xhr.send(formData);
+				});
+
+				uploadedFiles.push(result);
+			}
+
+			// Send files as message
+			if (uploadedFiles.length === 1) {
+				sendMessage(dmChannelId, messageInput.trim() || `Shared: ${uploadedFiles[0].fileName}`, 'file', {
+					fileUrl: uploadedFiles[0].fileUrl,
+					fileName: uploadedFiles[0].fileName,
+					fileSize: uploadedFiles[0].fileSize
+				});
+			} else {
+				sendMessage(dmChannelId, messageInput.trim() || `Shared ${uploadedFiles.length} files`, 'file', {
+					files: uploadedFiles
+				});
+			}
+
+			messageInput = '';
+			selectedFiles = [];
+			filePreviews = [];
+			isUploading = false;
+			uploadProgress = 0;
+		} catch (error) {
+			console.error('Upload error:', error);
+			alert('Failed to upload files. Please try again.');
+			isUploading = false;
+			uploadProgress = 0;
+		}
 	}
 </script>
 
@@ -161,7 +361,23 @@
 			{/if}
 		</div>
 	{:else}
-		<div class="dm-messages" bind:this={chatContainer}>
+		{#if isDragging}
+			<div class="drag-overlay">
+				<div class="drag-overlay-content">
+					<div class="drag-icon">📁</div>
+					<div class="drag-text">Drop files here to share</div>
+				</div>
+			</div>
+		{/if}
+
+		<div
+			class="dm-messages"
+			bind:this={chatContainer}
+			on:dragenter={handleDragEnter}
+			on:dragleave={handleDragLeave}
+			on:dragover={handleDragOver}
+			on:drop={handleDrop}
+		>
 			{#if messages.length === 0}
 				<div class="dm-empty">
 					<p>Start a conversation with {otherUser?.username || 'this user'}!</p>
@@ -171,20 +387,86 @@
 			{/if}
 		</div>
 
-		<form class="dm-input-container" on:submit={handleSubmit}>
-			<textarea
-				bind:this={textareaElement}
-				bind:value={messageInput}
-				on:input={handleInput}
-				on:keydown={handleKeydown}
-				placeholder={otherUser ? `Message ${otherUser.username}...` : 'Type a message...'}
-				rows="1"
-				class="dm-input"
-			></textarea>
-			<button type="submit" class="dm-send-btn" disabled={!messageInput.trim()}>
-				<span class="send-icon">➤</span>
-			</button>
-		</form>
+		<div class="dm-input-wrapper">
+			{#if filePreviews.length > 0 && !isUploading}
+				<div class="file-gallery">
+					<div class="gallery-header">
+						<span>{filePreviews.length} file{filePreviews.length > 1 ? 's' : ''} selected</span>
+						<button class="cancel-gallery" on:click={cancelUpload}>✕</button>
+					</div>
+					<div class="gallery-grid">
+						{#each filePreviews as { file, preview }, index}
+							<div class="gallery-item">
+								{#if preview}
+									<img src={preview} alt={file.name} class="gallery-preview" />
+								{:else}
+									<div class="gallery-file-icon">
+										{#if file.type.startsWith('video/')}
+											🎬
+										{:else if file.type.startsWith('audio/')}
+											🎵
+										{:else}
+											📄
+										{/if}
+									</div>
+								{/if}
+								<div class="gallery-file-info">
+									<div class="gallery-file-name">{file.name}</div>
+									<div class="gallery-file-size">{(file.size / 1024 / 1024).toFixed(2)} MB</div>
+								</div>
+								<button class="remove-file" on:click={() => removeFile(index)}>✕</button>
+							</div>
+						{/each}
+					</div>
+					<button class="upload-files-btn" on:click={uploadSelectedFiles}>
+						Upload {filePreviews.length} file{filePreviews.length > 1 ? 's' : ''}
+					</button>
+				</div>
+			{/if}
+
+			{#if isUploading}
+				<div class="upload-progress-bar">
+					<div class="upload-progress-info">
+						<span>Uploading files...</span>
+						<span>{uploadProgress}%</span>
+					</div>
+					<div class="progress-bar">
+						<div class="progress-fill" style="width: {uploadProgress}%"></div>
+					</div>
+				</div>
+			{/if}
+
+			<input
+				type="file"
+				bind:this={fileInput}
+				on:change={handleFileSelect}
+				multiple
+				style="display: none;"
+			/>
+
+				<form class="dm-input-container" on:submit={handleSubmit}>
+				<button
+					type="button"
+					class="dm-attach-btn"
+					on:click={() => fileInput?.click()}
+					title="Attach file"
+				>
+					📎
+				</button>
+				<textarea
+					bind:this={textareaElement}
+					bind:value={messageInput}
+					on:input={handleInput}
+					on:keydown={handleKeydown}
+					placeholder={otherUser ? `Message ${otherUser.username}...` : 'Type a message...'}
+					rows="1"
+					class="dm-input"
+				></textarea>
+				<button type="submit" class="dm-send-btn" disabled={!messageInput.trim()}>
+					<span class="send-icon">➤</span>
+				</button>
+			</form>
+		</div>
 	{/if}
 </div>
 
@@ -395,6 +677,221 @@
 	.send-icon {
 		display: inline-block;
 		transform: rotate(0deg);
+	}
+
+	.dm-input-wrapper {
+		flex-shrink: 0;
+		background: var(--bg-primary);
+		border-top: 1px solid var(--border);
+		z-index: 2;
+	}
+
+	.dm-attach-btn {
+		background: transparent;
+		border: none;
+		color: var(--text-secondary);
+		font-size: 1.1rem;
+		cursor: pointer;
+		padding: 0.25rem;
+		transition: all 0.2s;
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+	}
+
+	.dm-attach-btn:hover {
+		color: var(--text-primary);
+		background: var(--bg-tertiary);
+		border-radius: 4px;
+	}
+
+	/* Drag & Drop Overlay */
+	.drag-overlay {
+		position: absolute;
+		top: 52px;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.7);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 999;
+		border-radius: 0;
+	}
+
+	.drag-overlay-content {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1rem;
+		pointer-events: none;
+	}
+
+	.drag-icon {
+		font-size: 3rem;
+	}
+
+	.drag-text {
+		color: white;
+		font-size: 1.2rem;
+		font-weight: 600;
+	}
+
+	/* File Gallery */
+	.file-gallery {
+		padding: 0.75rem;
+		background: var(--bg-secondary);
+		border-bottom: 1px solid var(--border);
+	}
+
+	.gallery-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.75rem;
+		font-size: 0.9rem;
+		font-weight: 500;
+	}
+
+	.cancel-gallery {
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		font-size: 1.2rem;
+		padding: 0;
+	}
+
+	.gallery-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+		gap: 0.75rem;
+		margin-bottom: 1rem;
+	}
+
+	.gallery-item {
+		position: relative;
+		aspect-ratio: 1;
+		border-radius: 8px;
+		overflow: hidden;
+		background: var(--bg-tertiary);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.gallery-preview {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.gallery-file-icon {
+		font-size: 2rem;
+	}
+
+	.gallery-file-info {
+		display: none;
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		background: rgba(0, 0, 0, 0.8);
+		color: white;
+		padding: 0.5rem;
+		font-size: 0.7rem;
+		text-align: center;
+	}
+
+	.gallery-item:hover .gallery-file-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+
+	.gallery-file-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-weight: 600;
+	}
+
+	.gallery-file-size {
+		opacity: 0.8;
+	}
+
+	.remove-file {
+		position: absolute;
+		top: 2px;
+		right: 2px;
+		background: rgba(0, 0, 0, 0.7);
+		border: none;
+		color: white;
+		cursor: pointer;
+		width: 24px;
+		height: 24px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 1rem;
+		opacity: 0;
+		transition: opacity 0.2s;
+	}
+
+	.gallery-item:hover .remove-file {
+		opacity: 1;
+	}
+
+	.upload-files-btn {
+		width: 100%;
+		padding: 0.75rem;
+		background: var(--accent);
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-weight: 600;
+		transition: all 0.2s;
+		font-size: 0.9rem;
+	}
+
+	.upload-files-btn:hover {
+		box-shadow: inset 0 0 8px rgba(255, 0, 255, 0.2);
+	}
+
+	/* Upload Progress */
+	.upload-progress-bar {
+		padding: 0.75rem;
+		background: var(--bg-secondary);
+		border-bottom: 1px solid var(--border);
+	}
+
+	.upload-progress-info {
+		display: flex;
+		justify-content: space-between;
+		margin-bottom: 0.5rem;
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+	}
+
+	.progress-bar {
+		width: 100%;
+		height: 6px;
+		background: var(--bg-tertiary);
+		border-radius: 3px;
+		overflow: hidden;
+	}
+
+	.progress-fill {
+		height: 100%;
+		background: var(--accent);
+		transition: width 0.3s ease;
 	}
 
 	.dm-back-btn {
