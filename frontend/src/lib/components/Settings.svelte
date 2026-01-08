@@ -187,6 +187,8 @@
 			let serverUrl: string;
 			if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
 				serverUrl = 'http://localhost:3000';
+			} else if (window.location.origin.includes(':3000')) {
+				serverUrl = window.location.origin.replace(':3000', ':8080');
 			} else {
 				serverUrl = window.location.origin;
 			}
@@ -302,6 +304,8 @@
 			let serverUrl: string;
 			if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
 				serverUrl = 'http://localhost:3000';
+			} else if (window.location.origin.includes(':3000')) {
+				serverUrl = window.location.origin.replace(':3000', ':8080');
 			} else {
 				serverUrl = window.location.origin;
 			}
@@ -361,6 +365,8 @@
 			let serverUrl: string;
 			if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
 				serverUrl = 'http://localhost:3000';
+			} else if (window.location.origin.includes(':3000')) {
+				serverUrl = window.location.origin.replace(':3000', ':8080');
 			} else {
 				serverUrl = window.location.origin;
 			}
@@ -411,6 +417,9 @@
 			if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
 				// Dev mode or Tauri app: use localhost
 				serverUrl = 'http://localhost:3000';
+			} else if (window.location.origin.includes(':3000')) {
+				// Docker deployment: if on port 3000 (frontend), connect to port 8080 (backend)
+				serverUrl = window.location.origin.replace(':3000', ':8080');
 			} else {
 				// Production: use current origin
 				serverUrl = window.location.origin;
