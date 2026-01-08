@@ -21,7 +21,10 @@ export class PluginLoader {
   ) {
     // Plugins are at root level, not in backend/src
     this.pluginsDir = path.join(__dirname, '../../../plugins');
-    this.storageDir = path.join(__dirname, '../../../.plugin-storage');
+
+    // Use /app/data for storage when running in Docker, otherwise use relative path
+    const dataDir = process.env.DATA_DIR || path.join(__dirname, '../../../data');
+    this.storageDir = path.join(dataDir, '.plugin-storage');
 
     // Create storage directory if it doesn't exist
     if (!fs.existsSync(this.storageDir)) {

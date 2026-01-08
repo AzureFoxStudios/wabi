@@ -30,6 +30,7 @@ COPY package.json ./
 
 # Set environment
 ENV NODE_ENV=production
+ENV PORT=8080
 
 # Expose port 8080
 EXPOSE 8080
