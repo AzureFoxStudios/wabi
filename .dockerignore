@@ -40,3 +40,7 @@ coverage
 
 # Uploads (will be mounted as volume)
 backend/uploads
+
+# Tauri/Desktop app (not needed for web deployment)
+src-tauri
+target
