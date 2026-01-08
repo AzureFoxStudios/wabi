@@ -23,6 +23,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - VITE_SOCKET_URL=${VITE_SOCKET_URL:-http://wabi-backend:8080}
     container_name: wabi-frontend
     ports:
       - "3000:8080"
