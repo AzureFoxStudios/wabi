@@ -28,7 +28,7 @@ RUN test -f build || (echo "ERROR: build file not created" && ls -la && exit 1)
 RUN npm prune --production
 
 # Create data directory for plugin storage and other runtime data
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data /app/plugins
 
 # Set proper permissions
 RUN chown -R wabi:wabi /app
@@ -40,6 +40,7 @@ USER wabi
 ENV NODE_ENV=production
 ENV PORT=8080
 ENV DATA_DIR=/app/data
+ENV PLUGINS_DIR=/app/plugins
 
 # Expose backend port
 EXPOSE 8080

@@ -12,9 +12,11 @@ services:
       - NODE_ENV=production
       - PORT=8080
       - DATA_DIR=/app/data
+      - PLUGINS_DIR=/app/plugins
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8080}
     volumes:
       - wabi-data:/app/data
+      - wabi-plugins:/app/plugins
     restart: unless-stopped
 
   frontend:
@@ -33,3 +35,4 @@ services:
 
 volumes:
   wabi-data:
+  wabi-plugins:
