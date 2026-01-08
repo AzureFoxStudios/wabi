@@ -23,6 +23,9 @@ function getServerUrl(): string {
 
 	if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
 		return 'http://localhost:3000';
+	} else if (window.location.origin.includes(':3000')) {
+		// Docker deployment: if on port 3000 (frontend), connect to port 8080 (backend)
+		return window.location.origin.replace(':3000', ':8080');
 	} else {
 		return window.location.origin;
 	}

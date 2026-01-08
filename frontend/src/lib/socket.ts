@@ -111,7 +111,14 @@ export function initSocket(username: string) {
 			return 'http://localhost:3000';
 		}
 
-		// 3. Otherwise, backend is on same origin as frontend (Render, self-hosted, etc.)
+		// 3. Docker deployment: if on port 3000 (frontend), connect to port 8080 (backend)
+		if (window.location.origin.includes(':3000')) {
+			const backendUrl = window.location.origin.replace(':3000', ':8080');
+			console.log('[Socket] Detected Docker deployment, connecting to backend on port 8080:', backendUrl);
+			return backendUrl;
+		}
+
+		// 4. Otherwise, backend is on same origin as frontend (Render, self-hosted, etc.)
 		console.log('[Socket] Using same-origin for backend:', window.location.origin);
 		return window.location.origin;
 	}

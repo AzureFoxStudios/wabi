@@ -13,9 +13,7 @@ RUN npm ci
 COPY . .
 
 # Build the frontend with adapter-node
-# Use backend service name for internal Docker networking
-ARG VITE_SOCKET_URL=http://wabi-backend:8080
-RUN VITE_SOCKET_URL=$VITE_SOCKET_URL npm run build
+RUN npm run build
 
 # Production stage - run the Node.js app
 FROM node:24-slim
