@@ -60,6 +60,7 @@
 	let uploadProgress = 0;
 	let isDragging = false;
 	let dragCounter = 0;
+	let markAsSpoiler = false;
 
 	async function scrollToBottom() {
 		await tick();
@@ -286,11 +287,13 @@
 				sendMessage(dmChannelId, messageInput.trim() || `Shared: ${uploadedFiles[0].fileName}`, 'file', {
 					fileUrl: uploadedFiles[0].fileUrl,
 					fileName: uploadedFiles[0].fileName,
-					fileSize: uploadedFiles[0].fileSize
+					fileSize: uploadedFiles[0].fileSize,
+					isSpoiler: markAsSpoiler
 				});
 			} else {
 				sendMessage(dmChannelId, messageInput.trim() || `Shared ${uploadedFiles.length} files`, 'file', {
-					files: uploadedFiles
+					files: uploadedFiles,
+					isSpoiler: markAsSpoiler
 				});
 			}
 
@@ -418,6 +421,10 @@
 							</div>
 						{/each}
 					</div>
+					<label class="spoiler-checkbox">
+						<input type="checkbox" bind:checked={markAsSpoiler} />
+						<span>Mark as spoiler</span>
+					</label>
 					<button class="upload-files-btn" on:click={uploadSelectedFiles}>
 						Upload {filePreviews.length} file{filePreviews.length > 1 ? 's' : ''}
 					</button>
@@ -846,6 +853,29 @@
 
 	.gallery-item:hover .remove-file {
 		opacity: 1;
+	}
+
+	.spoiler-checkbox {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0;
+		cursor: pointer;
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+		transition: color 0.2s;
+		margin-bottom: 0.75rem;
+	}
+
+	.spoiler-checkbox:hover {
+		color: var(--text-primary);
+	}
+
+	.spoiler-checkbox input[type="checkbox"] {
+		cursor: pointer;
+		width: 16px;
+		height: 16px;
+		accent-color: var(--accent);
 	}
 
 	.upload-files-btn {

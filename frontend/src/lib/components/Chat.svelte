@@ -834,7 +834,74 @@
 		border-radius: 8px;
 		overflow: hidden;
 	}
-	
+
+	/* Drag & Drop Overlay - smooth fade effect */
+	.drag-overlay {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 999;
+		animation: fadeIn 0.2s ease-in-out forwards;
+	}
+
+	@keyframes fadeIn {
+		from {
+			background-color: rgba(0, 0, 0, 0);
+			opacity: 0;
+		}
+		to {
+			background-color: rgba(0, 0, 0, 0.5);
+			opacity: 1;
+		}
+	}
+
+	@keyframes fadeOut {
+		from {
+			background-color: rgba(0, 0, 0, 0.5);
+			opacity: 1;
+		}
+		to {
+			background-color: rgba(0, 0, 0, 0);
+			opacity: 0;
+		}
+	}
+
+	.drag-overlay-content {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1rem;
+		pointer-events: none;
+	}
+
+	.drag-icon {
+		font-size: 3rem;
+		animation: pulse 1s ease-in-out infinite;
+	}
+
+	.drag-text {
+		color: white;
+		font-size: 1.2rem;
+		font-weight: 600;
+	}
+
+	@keyframes pulse {
+		0%, 100% {
+			transform: scale(1);
+			opacity: 1;
+		}
+		50% {
+			transform: scale(1.1);
+			opacity: 0.8;
+		}
+	}
+
 	/* Other existing styles for uploads, spoilers, etc. can remain here */
 	/* ... */
 
