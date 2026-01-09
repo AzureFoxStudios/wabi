@@ -12,11 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "Claude Sandbox",
-        "width": 1200,
-        "height": 800,
-        "minWidth": 400,
-        "minHeight": 600,
+        "title": "Wabi",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 600,
+        "minHeight": 700,
         "resizable": true,
         "fullscreen": false,
         "decorations": true,

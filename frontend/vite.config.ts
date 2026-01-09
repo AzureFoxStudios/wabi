@@ -2,7 +2,19 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const isTauri = process.env.TAURI_ENV_PLATFORM ? true : false;
+
 export default defineConfig({
+	// Tauri requires specific builder config
+	build: {
+		target: isTauri ? 'ES2021' : ['ES2020', 'edge88', 'firefox78', 'chrome87', 'safari13.1'],
+		minify: !process.env.TAURI_DEBUG ? 'terser' : false,
+		terserOptions: {
+			compress: {
+				drop_console: !process.env.TAURI_DEBUG
+			}
+		}
+	},
 	server: {
 		allowedHosts: [
 		'localhost',
