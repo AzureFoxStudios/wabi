@@ -121,8 +121,9 @@
 		// Clear session
 		try {
 			localStorage.removeItem('sessionId');
+			localStorage.removeItem('username');
 		} catch (e) {
-			console.error('Failed to clear sessionId:', e);
+			console.error('Failed to clear session data:', e);
 		}
 		// Dispatch logout event to parent
 		dispatch('logout');
