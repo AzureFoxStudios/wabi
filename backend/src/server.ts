@@ -1040,57 +1040,98 @@ io.on("connection", (socket) => {
 
   // Handle user join
   socket.on("join", (username: string) => {
-    const color = `#${Math.floor(Math.random()*16777215).toString(16)}`;
-
-    // Generate and store session ID for persistence
-    const sessionId = generateSessionId();
-    sessions.set(sessionId, {
-      userId: socket.id,
-      username,
-      color,
-      createdAt: Date.now()
-    });
-
-    users.set(socket.id, {
-      id: socket.id,
-      username,
-      color,
-      status: 'active',
-      profilePicture: undefined
-    });
-
-    // Send existing channels, users, and emotes to the new user
-    // Filter channels: only send public channels and channels where user is a member
-    const userChannels = Array.from(channels.values()).filter(channel => {
-      // Public channels (no members array) are visible to everyone
-      if (!channel.members || channel.members.length === 0) {
-        return true;
+    // Check if a session for this username already exists
+    let existingSession: { sessionId: string; session: { userId: string; username: string; color: string; profilePicture?: string; createdAt: number } } | null = null;
+    for (const [sessionId, session] of sessions.entries()) {
+      if (session.username === username) {
+        existingSession = { sessionId, session };
+        break;
       }
-      // DMs and groups: only visible if user is a member
-      return channel.members.includes(socket.id);
-    });
+    }
 
-    const emojisData = getAllEmojis();
-    console.log('[EMOJI DEBUG] Sending emojis to client:', emojisData.length, 'emojis');
-    socket.emit("init", {
-      channels: userChannels,
-      users: Array.from(users.values()),
-      excalidrawState,
-      emotes: Array.from(emotes.values()),
-      emojis: emojisData,
-      sessionId: sessionId
-    });
+    if (existingSession) {
+      // If session exists, treat as a rejoin
+      const { sessionId, session } = existingSession;
+      session.userId = socket.id; // Update session with new socket.id
+      sessions.set(sessionId, session);
 
-    // Broadcast new user to others
-    socket.broadcast.emit("user-joined", {
-      id: socket.id,
-      username,
-      color,
-      status: 'active',
-      profilePicture: undefined
-    });
+      // Create/update user object with existing session data
+      users.set(socket.id, {
+        id: socket.id,
+        username: session.username,
+        color: session.color,
+        status: 'active',
+        profilePicture: session.profilePicture
+      });
 
-    if (ENABLE_LOGGING) console.log(`${username} joined the chat`);
+      const userChannels = Array.from(channels.values()).filter(channel => {
+        if (!channel.members || channel.members.length === 0) return true;
+        return channel.members.includes(socket.id);
+      });
+
+      const emojisData = getAllEmojis();
+      socket.emit("init", {
+        channels: userChannels,
+        users: Array.from(users.values()),
+        excalidrawState,
+        emotes: Array.from(emotes.values()),
+        emojis: emojisData,
+        sessionId: sessionId
+      });
+
+      socket.broadcast.emit("user-joined", {
+        id: socket.id,
+        username: session.username,
+        color: session.color,
+        status: 'active',
+        profilePicture: session.profilePicture
+      });
+
+      if (ENABLE_LOGGING) console.log(`${session.username} re-joined the chat with a new socket`);
+    } else {
+      // No session exists, create a new one
+      const color = `#${Math.floor(Math.random()*16777215).toString(16)}`;
+      const sessionId = generateSessionId();
+      sessions.set(sessionId, {
+        userId: socket.id,
+        username,
+        color,
+        createdAt: Date.now()
+      });
+
+      users.set(socket.id, {
+        id: socket.id,
+        username,
+        color,
+        status: 'active',
+        profilePicture: undefined
+      });
+
+      const userChannels = Array.from(channels.values()).filter(channel => {
+        if (!channel.members || channel.members.length === 0) return true;
+        return channel.members.includes(socket.id);
+      });
+
+      const emojisData = getAllEmojis();
+      socket.emit("init", {
+        channels: userChannels,
+        users: Array.from(users.values()),
+        excalidrawState,
+        emotes: Array.from(emotes.values()),
+        emojis: emojisData,
+        sessionId: sessionId
+      });
+
+      socket.broadcast.emit("user-joined", {
+        id: socket.id,
+        username,
+        color,
+        status: 'active',
+        profilePicture: undefined
+      });
+
+      if (ENABLE_LOGGING) console.log(`${username} joined the chat`);
+    }
   });
 
   // Handle user rejoin with existing session (for persistence across reloads)
@@ -1100,6 +1141,10 @@ io.on("connection", (socket) => {
       socket.emit("rejoin-failed", { reason: "Invalid session" });
       return;
     }
+
+    // IMPORTANT: Update the session with the new socket.id
+    session.userId = socket.id;
+    sessions.set(sessionId, session);
 
     // Create/update user object with existing session data
     users.set(socket.id, {
@@ -1161,7 +1206,7 @@ io.on("connection", (socket) => {
       if (session.userId === socket.id) {
         session.profilePicture = user.profilePicture;
         sessions.set(sessionId, session);
-        break;
+        break; // Assuming one session per socket.id
       }
     }
 

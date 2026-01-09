@@ -47,7 +47,7 @@
 
 <div class="login-container">
 	<div class="login-box">
-		<img src="/wabi-logo.webp" alt="Wabi" class="logo" />
+		<img src="/wabi-logo-small.webp" alt="Wabi" class="logo" />
 
 		<form on:submit|preventDefault={handleSubmit}>
 			<input
