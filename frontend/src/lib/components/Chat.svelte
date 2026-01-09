@@ -723,7 +723,7 @@
 		padding: 0.5rem;
 		padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
 		border-top: 1px solid var(--border);
-		z-index: 2;
+		z-index: 2001;
 	}
 
 	.input-container {

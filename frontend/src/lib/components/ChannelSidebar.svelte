@@ -432,20 +432,13 @@
 		transition: all 0.2s;
 		padding: 0;
 		opacity: 0;
-		pointer-events: none;
+		pointer-events: auto;
 	}
 
 	.expand-btn:hover {
 		background: var(--bg-secondary);
 		color: var(--text-primary);
 		opacity: 1;
-	}
-
-	/* Show on hover near the left edge */
-	body:has(.expand-btn:hover) .expand-btn,
-	.expand-btn:hover {
-		opacity: 1;
-		pointer-events: auto;
 	}
 
 	.channel-sidebar {

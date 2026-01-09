@@ -690,7 +690,7 @@
 		flex-shrink: 0;
 		background: var(--bg-primary);
 		border-top: 1px solid var(--border);
-		z-index: 2;
+		z-index: 2001;
 	}
 
 	.dm-attach-btn {
