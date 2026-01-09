@@ -37,6 +37,72 @@
 	// Search functionality
 	let searchInput = '';
 	let filteredMessages: Message[] = [];
+	let searchSuggestions: string[] = [];
+	let selectedSuggestionIndex = -1;
+	let showSuggestions = false;
+
+	// Generate search suggestions
+	function generateSearchSuggestions(query: string): string[] {
+		if (!query.trim()) return [];
+
+		const suggestions: string[] = [];
+
+		// If user is typing "ha", suggest "has:"
+		if (query.toLowerCase().includes('has:')) {
+			// User is typing with has:, suggest filter types
+			const hasMatch = query.match(/has:(\w*)/);
+			const prefix = hasMatch ? hasMatch[0] : 'has:';
+			const filterTypes = ['image', 'video', 'file', 'link', 'gif', 'website'];
+			return filterTypes.map(type => query.replace(/has:\w*/, `has:${type}`));
+		} else if (query.toLowerCase().endsWith('ha')) {
+			// Suggest starting "has:" filter
+			suggestions.push(query.slice(0, -2) + 'has:');
+		}
+
+		// Suggest active users
+		const userSuggestions = $users
+			.filter(u => u.username.toLowerCase().includes(query.toLowerCase()))
+			.slice(0, 3)
+			.map(u => `by:${u.username}`);
+
+		return [...suggestions, ...userSuggestions];
+	}
+
+	// Update suggestions when search input changes
+	$: {
+		if (searchInput.trim()) {
+			searchSuggestions = generateSearchSuggestions(searchInput);
+			showSuggestions = searchSuggestions.length > 0;
+			selectedSuggestionIndex = -1;
+		} else {
+			searchSuggestions = [];
+			showSuggestions = false;
+		}
+	}
+
+	function applySuggestion(suggestion: string) {
+		searchInput = suggestion;
+		showSuggestions = false;
+		selectedSuggestionIndex = -1;
+	}
+
+	function handleSearchKeydown(e: KeyboardEvent) {
+		if (!showSuggestions) return;
+
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			selectedSuggestionIndex = (selectedSuggestionIndex + 1) % searchSuggestions.length;
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			selectedSuggestionIndex = selectedSuggestionIndex <= 0 ? searchSuggestions.length - 1 : selectedSuggestionIndex - 1;
+		} else if (e.key === 'Enter' && selectedSuggestionIndex >= 0) {
+			e.preventDefault();
+			applySuggestion(searchSuggestions[selectedSuggestionIndex]);
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			showSuggestions = false;
+		}
+	}
 
 	// Parse search syntax: by:username, has:image, has:video, has:file, has:link, and text content
 	function parseSearchQuery(query: string): { text: string; byUser?: string; hasTypes: string[] } {
@@ -499,12 +565,37 @@
 		<div class="chat-header">
 			<h2>{channelDisplayName}</h2>
 			<div class="search-container">
-				<input
-					type="text"
-					bind:value={searchInput}
-					placeholder="Search (by:username, has:image, etc.)"
-					class="search-input"
-				/>
+				<div class="search-input-wrapper">
+					<input
+						type="text"
+						bind:value={searchInput}
+						on:keydown={handleSearchKeydown}
+						on:focus={() => showSuggestions = searchSuggestions.length > 0}
+						placeholder="Search (by:username, has:image, etc.)"
+						class="search-input"
+						autocomplete="off"
+					/>
+					{#if showSuggestions && searchSuggestions.length > 0}
+						<div class="search-suggestions">
+							{#each searchSuggestions as suggestion, index}
+								<button
+									class="suggestion-item"
+									class:selected={index === selectedSuggestionIndex}
+									on:click={() => applySuggestion(suggestion)}
+									on:mouseenter={() => selectedSuggestionIndex = index}
+								>
+									{#if suggestion.startsWith('by:')}
+										👤 {suggestion}
+									{:else if suggestion.startsWith('has:')}
+										🏷️ {suggestion}
+									{:else}
+										{suggestion}
+									{/if}
+								</button>
+							{/each}
+						</div>
+					{/if}
+				</div>
 				{#if searchInput}
 					<span class="search-results">{filteredMessages.length} result{filteredMessages.length !== 1 ? 's' : ''}</span>
 				{/if}
@@ -702,6 +793,10 @@
 		align-items: center;
 	}
 
+	.search-input-wrapper {
+		position: relative;
+	}
+
 	.search-input {
 		padding: 0.5rem 0.75rem;
 		border: 1px solid var(--border);
@@ -721,6 +816,48 @@
 		outline: none;
 		border-color: var(--accent);
 		background: var(--bg-tertiary);
+	}
+
+	.search-suggestions {
+		position: absolute;
+		top: 100%;
+		left: 0;
+		right: 0;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+		border-top: none;
+		border-radius: 0 0 6px 6px;
+		max-height: 250px;
+		overflow-y: auto;
+		z-index: 10;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	}
+
+	.suggestion-item {
+		display: block;
+		width: 100%;
+		padding: 0.75rem;
+		border: none;
+		background: transparent;
+		color: var(--text-primary);
+		text-align: left;
+		cursor: pointer;
+		font-size: 0.9rem;
+		transition: all 0.15s;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.suggestion-item:last-child {
+		border-bottom: none;
+	}
+
+	.suggestion-item:hover {
+		background: var(--bg-tertiary);
+	}
+
+	.suggestion-item.selected {
+		background: var(--accent);
+		color: white;
 	}
 
 	.search-results {
