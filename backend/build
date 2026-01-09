@@ -2,7 +2,7 @@
 import { Server } from "socket.io";
 import { createServer } from "http";
 import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "fs";
-import { join } from "path";
+import { join, basename } from "path";
 
 // src/plugins/loader.ts
 import { fileURLToPath } from "url";
@@ -15,8 +15,10 @@ var PluginLoader = class {
     this.io = io2;
     this.httpServer = httpServer;
     this.context = context;
-    this.pluginsDir = path.join(__dirname, "../../../plugins");
-    this.storageDir = path.join(__dirname, "../../../.plugin-storage");
+    const dataDir = process.env.DATA_DIR || path.join(__dirname, "../../../data");
+    const pluginsBaseDir = process.env.PLUGINS_DIR || path.join(__dirname, "../../../plugins");
+    this.pluginsDir = pluginsBaseDir;
+    this.storageDir = path.join(dataDir, ".plugin-storage");
     if (!fs.existsSync(this.storageDir)) {
       fs.mkdirSync(this.storageDir, { recursive: true });
     }
@@ -257,6 +259,10 @@ channelMessages.set("general", []);
 var pinnedMessages = /* @__PURE__ */ new Map();
 pinnedMessages.set("general", /* @__PURE__ */ new Set());
 var users = /* @__PURE__ */ new Map();
+var sessions = /* @__PURE__ */ new Map();
+function generateSessionId() {
+  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+}
 var typingUsers = /* @__PURE__ */ new Set();
 var businessWorkspaces = /* @__PURE__ */ new Map();
 var defaultWorkspaceId = "default-workspace";
@@ -777,7 +783,13 @@ server.on("request", (req, res) => {
     return;
   }
   if (url.pathname.startsWith("/uploads/")) {
-    const fileName = decodeURIComponent(url.pathname.replace("/uploads/", ""));
+    const pathSegment = decodeURIComponent(url.pathname.replace("/uploads/", ""));
+    if (pathSegment.includes("..") || pathSegment.startsWith("/")) {
+      res.writeHead(403);
+      res.end("Access denied");
+      return;
+    }
+    const fileName = basename(pathSegment);
     const filePath = join(UPLOADS_DIR, fileName);
     if (existsSync(filePath)) {
       const file = readFileSync(filePath);
@@ -913,10 +925,24 @@ pluginLoader.loadAll().then(() => {
 }).catch((error) => {
   console.error("\u274C Failed to load plugins:", error);
 });
+io.use((socket, next) => {
+  const sessionId = socket.handshake.auth.sessionId;
+  if (sessionId && sessions.has(sessionId)) {
+    socket.sessionId = sessionId;
+    socket.userId = sessions.get(sessionId)?.userId;
+  }
+  next();
+});
 io.on("connection", (socket) => {
   console.log(`\u{1F50C} WebSocket connection established: ${socket.id}`);
   socket.on("join", (username) => {
     const color = `#${Math.floor(Math.random() * 16777215).toString(16)}`;
+    const sessionId = generateSessionId();
+    sessions.set(sessionId, {
+      userId: socket.id,
+      username,
+      createdAt: Date.now()
+    });
     users.set(socket.id, {
       id: socket.id,
       username,
@@ -937,7 +963,8 @@ io.on("connection", (socket) => {
       users: Array.from(users.values()),
       excalidrawState,
       emotes: Array.from(emotes.values()),
-      emojis: emojisData
+      emojis: emojisData,
+      sessionId
     });
     socket.broadcast.emit("user-joined", {
       id: socket.id,
@@ -947,6 +974,44 @@ io.on("connection", (socket) => {
       profilePicture: void 0
     });
     if (ENABLE_LOGGING) console.log(`${username} joined the chat`);
+  });
+  socket.on("rejoin", (sessionId) => {
+    const session = sessions.get(sessionId);
+    if (!session) {
+      socket.emit("rejoin-failed", { reason: "Invalid session" });
+      return;
+    }
+    users.set(socket.id, {
+      id: socket.id,
+      username: session.username,
+      color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
+      // Keep old color if available, but for now generate new
+      status: "active",
+      profilePicture: void 0
+    });
+    const userChannels = Array.from(channels.values()).filter((channel) => {
+      if (!channel.members || channel.members.length === 0) {
+        return true;
+      }
+      return channel.members.includes(socket.id);
+    });
+    const emojisData = getAllEmojis();
+    socket.emit("init", {
+      channels: userChannels,
+      users: Array.from(users.values()),
+      excalidrawState,
+      emotes: Array.from(emotes.values()),
+      emojis: emojisData,
+      sessionId
+    });
+    socket.broadcast.emit("user-joined", {
+      id: socket.id,
+      username: session.username,
+      color: users.get(socket.id)?.color,
+      status: "active",
+      profilePicture: void 0
+    });
+    if (ENABLE_LOGGING) console.log(`${session.username} rejoined the chat`);
   });
   socket.on("update-profile", (data) => {
     const user = users.get(socket.id);

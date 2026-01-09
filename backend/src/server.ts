@@ -55,6 +55,14 @@ const users = new Map<string, {
   workspaceId?: string; // Business workspace the user belongs to
 }>();
 
+// Session management for persistence across reconnects
+const sessions = new Map<string, { userId: string; username: string; createdAt: number }>();
+
+// Generate a random session ID
+function generateSessionId(): string {
+	return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+}
+
 const typingUsers = new Set<string>();
 
 // Business workspace data - for collaborative business features
@@ -1016,12 +1024,32 @@ pluginLoader.loadAll().then(() => {
   console.error('❌ Failed to load plugins:', error);
 });
 
+// Socket.IO middleware to validate sessions
+io.use((socket, next) => {
+  const sessionId = socket.handshake.auth.sessionId;
+  if (sessionId && sessions.has(sessionId)) {
+    // Valid existing session - attach to socket for later use
+    (socket as any).sessionId = sessionId;
+    (socket as any).userId = sessions.get(sessionId)?.userId;
+  }
+  next();
+});
+
 io.on("connection", (socket) => {
   console.log(`🔌 WebSocket connection established: ${socket.id}`);
 
   // Handle user join
   socket.on("join", (username: string) => {
     const color = `#${Math.floor(Math.random()*16777215).toString(16)}`;
+
+    // Generate and store session ID for persistence
+    const sessionId = generateSessionId();
+    sessions.set(sessionId, {
+      userId: socket.id,
+      username,
+      createdAt: Date.now()
+    });
+
     users.set(socket.id, {
       id: socket.id,
       username,
@@ -1048,7 +1076,8 @@ io.on("connection", (socket) => {
       users: Array.from(users.values()),
       excalidrawState,
       emotes: Array.from(emotes.values()),
-      emojis: emojisData
+      emojis: emojisData,
+      sessionId: sessionId
     });
 
     // Broadcast new user to others
@@ -1061,6 +1090,53 @@ io.on("connection", (socket) => {
     });
 
     if (ENABLE_LOGGING) console.log(`${username} joined the chat`);
+  });
+
+  // Handle user rejoin with existing session (for persistence across reloads)
+  socket.on("rejoin", (sessionId: string) => {
+    const session = sessions.get(sessionId);
+    if (!session) {
+      socket.emit("rejoin-failed", { reason: "Invalid session" });
+      return;
+    }
+
+    // Create/update user object with existing session data
+    users.set(socket.id, {
+      id: socket.id,
+      username: session.username,
+      color: `#${Math.floor(Math.random()*16777215).toString(16)}`, // Keep old color if available, but for now generate new
+      status: 'active',
+      profilePicture: undefined
+    });
+
+    // Send existing channels, users, and emotes to the reconnecting user
+    const userChannels = Array.from(channels.values()).filter(channel => {
+      if (!channel.members || channel.members.length === 0) {
+        return true;
+      }
+      return channel.members.includes(socket.id);
+    });
+
+    const emojisData = getAllEmojis();
+    socket.emit("init", {
+      channels: userChannels,
+      users: Array.from(users.values()),
+      excalidrawState,
+      emotes: Array.from(emotes.values()),
+      emojis: emojisData,
+      sessionId: sessionId
+    });
+
+    // Broadcast user rejoin
+    socket.broadcast.emit("user-joined", {
+      id: socket.id,
+      username: session.username,
+      color: users.get(socket.id)?.color,
+      status: 'active',
+      profilePicture: undefined
+    });
+
+    if (ENABLE_LOGGING) console.log(`${session.username} rejoined the chat`);
   });
 
   // Handle profile updates

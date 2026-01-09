@@ -125,11 +125,24 @@ export function initSocket(username: string) {
 
 	const serverUrl = getServerUrl();
 
-	console.log('[Socket] Connecting to:', serverUrl);
+	// Check for existing session
+	let sessionId: string | null = null;
+	if (browser) {
+		try {
+			sessionId = localStorage.getItem('sessionId');
+		} catch (e) {
+			console.error('Failed to read sessionId from localStorage:', e);
+		}
+	}
+
+	console.log('[Socket] Connecting to:', serverUrl, sessionId ? '(with existing session)' : '(new connection)');
 	socketInstance = io(serverUrl, {
 		reconnectionDelay: 1000,
 		reconnectionDelayMax: 5000,
-		timeout: 10000
+		timeout: 10000,
+		auth: {
+			sessionId: sessionId || undefined
+		}
 	});
 
 	socketInstance.on('connect', () => {
@@ -191,9 +204,14 @@ export function initSocket(username: string) {
 	});
 
 	socketInstance.on('connect', () => {
-		console.log('[Socket] Connected to server - sending join event with username:', username);
 		connected.set(true);
-		socketInstance?.emit('join', username);
+		if (sessionId) {
+			console.log('[Socket] Connected to server - sending rejoin event with sessionId');
+			socketInstance?.emit('rejoin', sessionId);
+		} else {
+			console.log('[Socket] Connected to server - sending join event with username:', username);
+			socketInstance?.emit('join', username);
+		}
 	});
 
 	socketInstance.on('disconnect', () => {
@@ -201,11 +219,37 @@ export function initSocket(username: string) {
 		connected.set(false);
 	});
 
-	socketInstance.on('init', (data: { channels: Channel[]; users: User[]; excalidrawState: any; emotes: any[]; emojis: Emoji[] }) => {
+	// Handle rejoin failure - fall back to join with username
+	socketInstance.on('rejoin-failed', (data: { reason: string }) => {
+		console.log('[Socket] Rejoin failed:', data.reason, '- falling back to join with username');
+		// Clear invalid session
+		if (browser) {
+			try {
+				localStorage.removeItem('sessionId');
+			} catch (e) {
+				console.error('Failed to clear sessionId from localStorage:', e);
+			}
+		}
+		// Fallback to regular join
+		socketInstance?.emit('join', username);
+	});
+
+	socketInstance.on('init', (data: { channels: Channel[]; users: User[]; excalidrawState: any; emotes: any[]; emojis: Emoji[]; sessionId?: string }) => {
 		console.log('[Socket] Received init event', data);
 		console.log('[INIT DEBUG] Received init data:', Object.keys(data));
 		console.log('[INIT DEBUG] data.emojis value:', data.emojis);
 		console.log('[INIT DEBUG] typeof data.emojis:', typeof data.emojis);
+
+		// Save session ID for persistence across page reloads
+		if (data.sessionId && browser) {
+			try {
+				localStorage.setItem('sessionId', data.sessionId);
+				console.log('[Socket] Session ID saved to localStorage');
+			} catch (e) {
+				console.error('Failed to save sessionId to localStorage:', e);
+			}
+		}
+
 		users.set(data.users);
 
 		// Process channels to fix DM names
