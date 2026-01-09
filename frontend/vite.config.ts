@@ -38,9 +38,9 @@ export default defineConfig({
 				navigateFallbackDenylist: [/^\/_/, /\/[^\/.]+\.[^\/]+$/]
 			},
 			manifest: {
-				name: 'Community Chat',
-				short_name: 'Chat',
-				description: 'Self-hosted ephemeral chat with screen sharing',
+				name: 'Wabi',
+				short_name: 'Wabi',
+				description: 'Ephemeral chat with screen sharing and business features',
 				start_url: '/',
 				display: 'standalone',
 				background_color: '#1a1a1a',

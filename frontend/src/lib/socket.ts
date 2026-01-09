@@ -105,20 +105,33 @@ export function initSocket(username: string) {
 			return envUrl;
 		}
 
-		// 2. Auto-detect: if on dev port or Tauri, connect to localhost backend
-		if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
-			console.log('[Socket] Detected local dev environment, connecting to localhost:3000');
+		// 2. Dev mode: if on Vite dev port, connect to localhost backend
+		if (window.location.origin.includes(':5173')) {
+			console.log('[Socket] Detected Vite dev environment, connecting to localhost:3000');
 			return 'http://localhost:3000';
 		}
 
-		// 3. Docker deployment: if on port 3000 (frontend), connect to port 8080 (backend)
+		// 3. Tauri development: if tauri.localhost and TAURI_DEBUG, connect to localhost
+		if (window.location.origin.includes('tauri.localhost')) {
+			const isDebug = import.meta.env.TAURI_DEBUG === 'true' || import.meta.env.DEV;
+			if (isDebug) {
+				console.log('[Socket] Detected Tauri dev environment, connecting to localhost:3000');
+				return 'http://localhost:3000';
+			} else {
+				// Tauri production: connect to wabi.chat
+				console.log('[Socket] Detected Tauri production environment, connecting to wabi.chat');
+				return 'https://wabi.chat';
+			}
+		}
+
+		// 4. Docker deployment: if on port 3000 (frontend), connect to port 8080 (backend)
 		if (window.location.origin.includes(':3000')) {
 			const backendUrl = window.location.origin.replace(':3000', ':8080');
 			console.log('[Socket] Detected Docker deployment, connecting to backend on port 8080:', backendUrl);
 			return backendUrl;
 		}
 
-		// 4. Otherwise, backend is on same origin as frontend (Render, self-hosted, etc.)
+		// 5. Otherwise, backend is on same origin as frontend (Render, self-hosted, etc.)
 		console.log('[Socket] Using same-origin for backend:', window.location.origin);
 		return window.location.origin;
 	}
