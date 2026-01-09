@@ -463,8 +463,8 @@
 </script>
 
 {#if isOpen}
-	<div class="modal-overlay" on:click={closeModal}>
-		<div class="modal-content" on:click|stopPropagation>
+	<div class="modal-overlay" on:click={closeModal} on:keydown|stopPropagation>
+		<div class="modal-content" on:click|stopPropagation on:keydown|stopPropagation>
 			<div class="modal-header">
 				<h2>⚙️ Settings</h2>
 				<button class="close-btn" on:click={closeModal}>✕</button>
@@ -799,6 +799,8 @@
 		max-height: 80vh;
 		overflow-y: auto;
 		box-shadow: none;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.modal-header {
@@ -834,6 +836,17 @@
 		transform: scale(1.1);
 	}
 
+	/* Logout button section - always visible at bottom */
+	.modal-content > .settings-section:last-child {
+		flex-shrink: 0;
+		border-top: 1px solid var(--border);
+		padding-top: 1rem;
+		margin-top: auto;
+		background: var(--bg-secondary);
+		position: sticky;
+		bottom: 0;
+	}
+
 	.logout-btn {
 		width: 100%;
 		padding: 1rem;
@@ -857,6 +870,9 @@
 		display: flex;
 		flex-direction: column;
 		gap: 2rem;
+		flex: 1;
+		overflow-y: auto;
+		min-height: 0;
 	}
 
 	.settings-section {
