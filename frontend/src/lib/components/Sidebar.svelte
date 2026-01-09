@@ -6,7 +6,7 @@
 
 <aside class="sidebar">
 	<div class="logo">
-		<img src="/wabi-logo.png" alt="Wabi" class="logo-img" />
+		<img src="/wabi-logo.webp" alt="Wabi" class="logo-img" />
 	</div>
 
 	<div class="spacer"></div>

@@ -147,7 +147,7 @@
 	<div class="top-section">
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
 		<div class="logo">
-			<img src="/wabi-logo.png" alt="Wabi" class="logo-img" />
+			<img src="/wabi-logo.webp" alt="Wabi" class="logo-img" />
 		</div>
 	</div>
 
