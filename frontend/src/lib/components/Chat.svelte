@@ -34,6 +34,60 @@
 	let dragCounter = 0;
 	let textareaElement: HTMLTextAreaElement;
 
+	// Search functionality
+	let searchInput = '';
+	let filteredMessages: Message[] = [];
+
+	// Parse search syntax: by:username, has:image, has:video, has:file, has:link, and text content
+	function parseSearchQuery(query: string): { text: string; byUser?: string; hasTypes: string[] } {
+		const byUserMatch = query.match(/by:(\S+)/);
+		const hasMatches = query.match(/has:(\S+)/g) || [];
+
+		const byUser = byUserMatch ? byUserMatch[1] : undefined;
+		const hasTypes = hasMatches.map(m => m.replace('has:', '').toLowerCase());
+
+		const text = query.replace(/by:\S+/g, '').replace(/has:\S+/g, '').trim().toLowerCase();
+
+		return { text, byUser, hasTypes };
+	}
+
+	// Filter messages based on search query
+	function filterMessages(msgs: Message[], query: string): Message[] {
+		if (!query.trim()) return msgs;
+
+		const { text, byUser, hasTypes } = parseSearchQuery(query);
+
+		return msgs.filter(msg => {
+			// Filter by user
+			if (byUser && msg.user.toLowerCase() !== byUser.toLowerCase()) {
+				return false;
+			}
+
+			// Filter by type (has:image, has:file, etc.)
+			if (hasTypes.length > 0) {
+				const hasMatch = hasTypes.some(type => {
+					if (type === 'image' && msg.type === 'file' && msg.fileUrl?.match(/\.(jpg|jpeg|png|gif|webp)$/i)) return true;
+					if (type === 'video' && msg.type === 'file' && msg.fileUrl?.match(/\.(mp4|webm|mov)$/i)) return true;
+					if (type === 'file' && msg.type === 'file') return true;
+					if (type === 'link' && msg.text.match(/https?:\/\//i)) return true;
+					if (type === 'gif' && msg.type === 'gif') return true;
+					return false;
+				});
+				if (!hasMatch) return false;
+			}
+
+			// Filter by text content
+			if (text && !msg.text.toLowerCase().includes(text)) {
+				return false;
+			}
+
+			return true;
+		});
+	}
+
+	// Reactive search
+	$: filteredMessages = filterMessages(messages, searchInput);
+
 	async function scrollToBottom() {
 		await tick();
 		if (chatContainer) {
@@ -444,11 +498,24 @@
 	{:else}
 		<div class="chat-header">
 			<h2>{channelDisplayName}</h2>
+			<div class="search-container">
+				<input
+					type="text"
+					bind:value={searchInput}
+					placeholder="Search (by:username, has:image, etc.)"
+					class="search-input"
+				/>
+				{#if searchInput}
+					<span class="search-results">{filteredMessages.length} result{filteredMessages.length !== 1 ? 's' : ''}</span>
+				{/if}
+			</div>
 		</div>
 
 	<div class="messages" bind:this={chatContainer}>
-		<PinnedMessages pinnedMessages={pinnedMessages} />
-		<MessageList messages={messages} onReply={handleReply} firstUnreadMessageId={$lastReadMessageId} />
+		{#if !searchInput}
+			<PinnedMessages pinnedMessages={pinnedMessages} />
+		{/if}
+		<MessageList messages={filteredMessages} onReply={handleReply} firstUnreadMessageId={$lastReadMessageId} />
 
 		{#if $typingUsers.length > 0}
 			<div class="typing-indicator">
@@ -626,6 +693,41 @@
 		font-size: 1.25rem;
 		margin: 0;
 		font-weight: 600;
+		flex: 1;
+	}
+
+	.search-container {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+	}
+
+	.search-input {
+		padding: 0.5rem 0.75rem;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		font-size: 0.9rem;
+		min-width: 250px;
+		transition: all 0.2s;
+	}
+
+	.search-input::placeholder {
+		color: var(--text-secondary);
+	}
+
+	.search-input:focus {
+		outline: none;
+		border-color: var(--accent);
+		background: var(--bg-tertiary);
+	}
+
+	.search-results {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+		white-space: nowrap;
+		padding: 0 0.5rem;
 	}
 
 	.messages {
@@ -921,6 +1023,18 @@
 
 		.chat-header h2 {
 			font-size: 1rem;
+		}
+
+		.search-container {
+			flex-direction: column;
+			gap: 0.25rem;
+		}
+
+		.search-input {
+			min-width: unset;
+			width: 100%;
+			font-size: 0.85rem;
+			padding: 0.4rem 0.5rem;
 		}
 
 		.messages {
