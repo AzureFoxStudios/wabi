@@ -16,7 +16,8 @@
 
 	function handleSubmit() {
 		if (username.trim()) {
-			localStorage.setItem('wabi-username', username.trim());
+			localStorage.setItem('username', username.trim());
+			localStorage.removeItem('sessionId'); // Clear old session when logging in with new username
 			dispatch('login', username.trim());
 		}
 	}

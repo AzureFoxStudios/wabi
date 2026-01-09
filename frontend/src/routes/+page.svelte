@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
-	import { initSocket, disconnect, dmPanelSignal, type User } from '$lib/socket';
+	import { initSocket, disconnect, dmPanelSignal, connected, type User } from '$lib/socket';
 	import { requestNotificationPermission } from '$lib/notifications';
 	import Chat from '$lib/components/Chat.svelte';
 	import Login from '$lib/components/Login.svelte';
@@ -36,6 +36,11 @@
 	let mql: MediaQueryList;
 	
 	// --- Reactive Calculations ---
+	// Auto-login when socket connects (from root layout initialization)
+	$: if ($connected && !loggedIn) {
+		loggedIn = true;
+	}
+
 	// These are now purely for desktop visibility, mobile uses different classes
 	$: showUserPanel = rightPanelView === 'users' && !isMobile;
 	$: showDMPanel = rightPanelView === 'dm' && !isMobile;
@@ -71,8 +76,9 @@
 
 	function handleLogin(event: CustomEvent<string>) {
 		username = event.detail;
-		initSocket(username);
 		loggedIn = true;
+		// Socket is already initialized in root layout +layout.svelte
+		// Just mark as logged in to show the chat UI
 	}
 
 	function handleLogout() {
