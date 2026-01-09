@@ -1,7 +1,14 @@
 <script lang="ts">
+	import { createEventDispatcher } from 'svelte';
 	import Settings from './Settings.svelte';
 
+	const dispatch = createEventDispatcher();
+
 	let showSettings = false;
+
+	function handleLogout() {
+		dispatch('logout');
+	}
 </script>
 
 <aside class="sidebar">
@@ -16,7 +23,7 @@
 	</button>
 </aside>
 
-<Settings bind:isOpen={showSettings} />
+<Settings bind:isOpen={showSettings} on:logout={handleLogout} />
 
 <style>
 	.sidebar {

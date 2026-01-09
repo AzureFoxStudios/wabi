@@ -1,11 +1,13 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { createEventDispatcher, onMount } from 'svelte';
 	import { channelMessages, users, currentUser, emojis, updateProfile } from '$lib/socket';
 	import StorageSettings from './StorageSettings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import { playNotificationSound } from '$lib/notifications';
 	import { getSocket } from '$lib/socket';
 	import AvatarEditor from './AvatarEditor.svelte'; // Import the AvatarEditor
+
+	const dispatch = createEventDispatcher();
 
 	export let isOpen = false;
 
@@ -398,6 +400,11 @@
 		isOpen = false;
 	}
 
+	function handleLogout() {
+		closeModal();
+		dispatch('logout');
+	}
+
 	function handleAvatarSelected(event: CustomEvent<{ file: File; dataUrl: string }>) {
 		selectedAvatarFile = event.detail.file;
 		selectedAvatarPreview = event.detail.dataUrl;
@@ -738,6 +745,11 @@
 					</div>
 				</div>
 			</div>
+
+			<!-- Logout -->
+			<div class="settings-section">
+				<button class="logout-btn" on:click={handleLogout}>🚪 Logout & Change Name</button>
+			</div>
 		</div>
 	</div>
 {/if}
@@ -820,6 +832,24 @@
 	.close-btn:hover {
 		color: var(--text-primary);
 		transform: scale(1.1);
+	}
+
+	.logout-btn {
+		width: 100%;
+		padding: 1rem;
+		background: rgba(255, 87, 87, 0.1);
+		border: 1px solid #ff5757;
+		color: #ff5757;
+		border-radius: 8px;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.logout-btn:hover {
+		background: rgba(255, 87, 87, 0.2);
+		transform: translateY(-2px);
 	}
 
 	.settings-sections {
