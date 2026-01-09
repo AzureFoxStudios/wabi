@@ -637,6 +637,8 @@
 		gap: 0.75rem;
 		min-height: 0; /* Important for flex overflow */
 		background: var(--bg-primary);
+		position: relative;
+		z-index: 1;
 	}
 
 	.typing-indicator {
@@ -724,6 +726,7 @@
 		padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
 		border-top: 1px solid var(--border);
 		z-index: 2001;
+		position: relative;
 	}
 
 	.input-container {

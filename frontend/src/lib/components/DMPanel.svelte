@@ -691,6 +691,7 @@
 		background: var(--bg-primary);
 		border-top: 1px solid var(--border);
 		z-index: 2001;
+		position: relative;
 	}
 
 	.dm-attach-btn {
