@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, type Message, type Emoji } from '$lib/socket';
+	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, users, type Message, type Emoji } from '$lib/socket';
 	import GiphyPicker from './GiphyPicker.svelte';
 	import EmojiPicker from './EmojiPicker.svelte';
 	import MessageList from './MessageList.svelte';
