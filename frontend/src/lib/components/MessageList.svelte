@@ -808,13 +808,15 @@
 		border: none;
 		border-left: 3px solid #5865f2;
 		z-index: 0;
+		margin-right: -9999px;
+		padding-right: calc(0.75rem + 9999px);
 	}
 
 	.message.highlighted::before {
 		content: '';
 		position: absolute;
 		left: -9999px;
-		right: 0;
+		right: -9999px;
 		top: 0;
 		bottom: 0;
 		background: rgba(88, 101, 242, 0.15);
