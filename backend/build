@@ -941,6 +941,7 @@ io.on("connection", (socket) => {
     sessions.set(sessionId, {
       userId: socket.id,
       username,
+      color,
       createdAt: Date.now()
     });
     users.set(socket.id, {
@@ -984,10 +985,9 @@ io.on("connection", (socket) => {
     users.set(socket.id, {
       id: socket.id,
       username: session.username,
-      color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
-      // Keep old color if available, but for now generate new
+      color: session.color,
       status: "active",
-      profilePicture: void 0
+      profilePicture: session.profilePicture
     });
     const userChannels = Array.from(channels.values()).filter((channel) => {
       if (!channel.members || channel.members.length === 0) {
@@ -1004,12 +1004,13 @@ io.on("connection", (socket) => {
       emojis: emojisData,
       sessionId
     });
+    const rejoinUser = users.get(socket.id);
     socket.broadcast.emit("user-joined", {
       id: socket.id,
       username: session.username,
-      color: users.get(socket.id)?.color,
+      color: rejoinUser?.color,
       status: "active",
-      profilePicture: void 0
+      profilePicture: rejoinUser?.profilePicture
     });
     if (ENABLE_LOGGING) console.log(`${session.username} rejoined the chat`);
   });
@@ -1023,6 +1024,14 @@ io.on("connection", (socket) => {
       user.profilePicture = data.profilePicture;
     }
     users.set(socket.id, user);
+    const sessions_array = Array.from(sessions.entries());
+    for (const [sessionId, session] of sessions_array) {
+      if (session.userId === socket.id) {
+        session.profilePicture = user.profilePicture;
+        sessions.set(sessionId, session);
+        break;
+      }
+    }
     io.emit("profile-updated", {
       id: socket.id,
       username: user.username,

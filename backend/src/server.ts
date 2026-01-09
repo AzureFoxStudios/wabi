@@ -56,7 +56,7 @@ const users = new Map<string, {
 }>();
 
 // Session management for persistence across reconnects
-const sessions = new Map<string, { userId: string; username: string; createdAt: number }>();
+const sessions = new Map<string, { userId: string; username: string; color: string; profilePicture?: string; createdAt: number }>();
 
 // Generate a random session ID
 function generateSessionId(): string {
@@ -1047,6 +1047,7 @@ io.on("connection", (socket) => {
     sessions.set(sessionId, {
       userId: socket.id,
       username,
+      color,
       createdAt: Date.now()
     });
 
@@ -1104,9 +1105,9 @@ io.on("connection", (socket) => {
     users.set(socket.id, {
       id: socket.id,
       username: session.username,
-      color: `#${Math.floor(Math.random()*16777215).toString(16)}`, // Keep old color if available, but for now generate new
+      color: session.color,
       status: 'active',
-      profilePicture: undefined
+      profilePicture: session.profilePicture
     });
 
     // Send existing channels, users, and emotes to the reconnecting user
@@ -1128,12 +1129,13 @@ io.on("connection", (socket) => {
     });
 
     // Broadcast user rejoin
+    const rejoinUser = users.get(socket.id);
     socket.broadcast.emit("user-joined", {
       id: socket.id,
       username: session.username,
-      color: users.get(socket.id)?.color,
+      color: rejoinUser?.color,
       status: 'active',
-      profilePicture: undefined
+      profilePicture: rejoinUser?.profilePicture
     });
 
     if (ENABLE_LOGGING) console.log(`${session.username} rejoined the chat`);
@@ -1152,6 +1154,16 @@ io.on("connection", (socket) => {
     }
 
     users.set(socket.id, user);
+
+    // Also update session to persist profile picture across reloads
+    const sessions_array = Array.from(sessions.entries());
+    for (const [sessionId, session] of sessions_array) {
+      if (session.userId === socket.id) {
+        session.profilePicture = user.profilePicture;
+        sessions.set(sessionId, session);
+        break;
+      }
+    }
 
     // Broadcast profile update to all users
     io.emit("profile-updated", {
