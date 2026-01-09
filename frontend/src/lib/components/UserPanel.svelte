@@ -117,6 +117,17 @@
 		showDMModal = true;
 	}
 
+	function handleLogout() {
+		// Clear session
+		try {
+			localStorage.removeItem('sessionId');
+		} catch (e) {
+			console.error('Failed to clear sessionId:', e);
+		}
+		// Dispatch logout event to parent
+		dispatch('logout');
+	}
+
 	function getStatusColor(status: string) {
 		switch (status) {
 			case 'active':
@@ -170,13 +181,20 @@
 	<div class="panel-header">
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
 		<h3>Online ({$users.length})</h3>
-		<button
-			class="dm-btn"
-			class:has-unread={totalUnreadDMs > 0}
-			data-unread={totalUnreadDMs > 99 ? '99+' : totalUnreadDMs}
-			on:click={openDMModal}
-			title="Start a DM"
-		>💬</button>
+		<div class="header-buttons">
+			<button
+				class="dm-btn"
+				class:has-unread={totalUnreadDMs > 0}
+				data-unread={totalUnreadDMs > 99 ? '99+' : totalUnreadDMs}
+				on:click={openDMModal}
+				title="Start a DM"
+			>💬</button>
+			<button
+				class="logout-btn"
+				on:click={handleLogout}
+				title="Logout and change name"
+			>🚪</button>
+		</div>
 	</div>
 
 	<div class="user-list">
@@ -376,6 +394,34 @@
 		justify-content: center;
 		border: 2px solid var(--bg-secondary);
 		line-height: 1;
+	}
+
+	.header-buttons {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+	}
+
+	.logout-btn {
+		width: 32px;
+		height: 32px;
+		background: transparent;
+		border: none;
+		color: var(--text-secondary);
+		font-size: 1.2rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
+		padding: 0;
+		opacity: 0.6;
+	}
+
+	.logout-btn:hover {
+		background: var(--bg-tertiary);
+		color: var(--text-primary);
+		opacity: 1;
 	}
 
 	.user-list {

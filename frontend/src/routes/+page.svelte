@@ -74,7 +74,13 @@
 		initSocket(username);
 		loggedIn = true;
 	}
-	
+
+	function handleLogout() {
+		disconnect();
+		loggedIn = false;
+		username = '';
+	}
+
 	// Desktop resizing
 	function startResizeChannel(e: MouseEvent) { isResizingChannel = true; e.preventDefault(); }
 	function startResizeUser(e: MouseEvent) { isResizingUser = true; e.preventDefault(); }
@@ -191,7 +197,7 @@
 			style:width="{showUserPanel ? userPanelWidth : 0}px"
 			class:mobile-visible={isMobile && rightPanelView === 'users'}
 		>
-			<UserPanel on:openDM={handleOpenDM} on:close={() => rightPanelView = 'none'} />
+			<UserPanel on:openDM={handleOpenDM} on:close={() => rightPanelView = 'none'} on:logout={handleLogout} />
 			{#if !isMobile}
 				<div class="resize-handle resize-handle-user" on:mousedown={startResizeUser}></div>
 			{/if}
