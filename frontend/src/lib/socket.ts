@@ -140,6 +140,8 @@ export function initSocket(username: string) {
 		reconnectionDelay: 1000,
 		reconnectionDelayMax: 5000,
 		timeout: 10000,
+		withCredentials: true,
+		transports: ['websocket', 'polling'],
 		auth: {
 			sessionId: sessionId || undefined
 		}

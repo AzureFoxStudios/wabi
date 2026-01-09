@@ -33,6 +33,10 @@ export default defineConfig({
 			devOptions: {
 				enabled: true // This enables PWA features in dev mode
 			},
+			workbox: {
+				navigateFallback: 'index.html',
+				navigateFallbackDenylist: [/^\/_/, /\/[^\/.]+\.[^\/]+$/]
+			},
 			manifest: {
 				name: 'Community Chat',
 				short_name: 'Chat',

@@ -358,6 +358,7 @@ const io = new Server(server, {
         "http://localhost:5173",
         "http://localhost:3000",
         "http://tauri.localhost",
+        "http://localhost",
         process.env.FRONTEND_URL,
         process.env.PUBLIC_URL
       ].filter(Boolean);
@@ -367,14 +368,18 @@ const io = new Server(server, {
         return callback(null, true);
       }
 
-      // In development, be strict. In production, be more lenient
-      if (process.env.NODE_ENV === 'production') {
-        // Allow any origin in production (backend may be behind reverse proxy)
+      // Allow localhost variations in development (including Tauri)
+      if (process.env.NODE_ENV !== 'production' && origin.includes('localhost')) {
         return callback(null, true);
-      } else {
-        // In development, validate the origin more strictly
-        callback(new Error('Not allowed by CORS'));
       }
+
+      // In production, allow any origin (backend may be behind reverse proxy)
+      if (process.env.NODE_ENV === 'production') {
+        return callback(null, true);
+      }
+
+      // Otherwise reject
+      callback(new Error('Not allowed by CORS'));
     },
     methods: ["GET", "POST"],
     credentials: true
