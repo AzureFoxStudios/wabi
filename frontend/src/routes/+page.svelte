@@ -36,11 +36,6 @@
 	let mql: MediaQueryList;
 	
 	// --- Reactive Calculations ---
-	// Auto-login when socket connects (from root layout initialization)
-	$: if ($connected && !loggedIn) {
-		loggedIn = true;
-	}
-
 	// These are now purely for desktop visibility, mobile uses different classes
 	$: showUserPanel = rightPanelView === 'users' && !isMobile;
 	$: showDMPanel = rightPanelView === 'dm' && !isMobile;
@@ -76,15 +71,24 @@
 
 	function handleLogin(event: CustomEvent<string>) {
 		username = event.detail;
+		// Save username to localStorage (sessionId will be saved by socket.ts init)
+		localStorage.setItem('username', username);
+		// Initialize socket with the username user entered
+		initSocket(username);
 		loggedIn = true;
-		// Socket is already initialized in root layout +layout.svelte
-		// Just mark as logged in to show the chat UI
 	}
 
 	function handleLogout() {
 		disconnect();
 		loggedIn = false;
 		username = '';
+		// Clear all session data
+		try {
+			localStorage.removeItem('username');
+			localStorage.removeItem('sessionId');
+		} catch (e) {
+			console.error('Failed to clear localStorage:', e);
+		}
 	}
 
 	// Desktop resizing

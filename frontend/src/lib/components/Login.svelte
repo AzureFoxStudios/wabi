@@ -16,8 +16,8 @@
 
 	function handleSubmit() {
 		if (username.trim()) {
-			localStorage.setItem('username', username.trim());
-			localStorage.removeItem('sessionId'); // Clear old session when logging in with new username
+			// Clear old session before logging in with new username
+			localStorage.removeItem('sessionId');
 			dispatch('login', username.trim());
 		}
 	}

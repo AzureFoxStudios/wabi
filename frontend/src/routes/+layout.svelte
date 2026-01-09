@@ -19,10 +19,15 @@
 			});
 		}
 
-		// Initialize socket connection in background (non-blocking)
-		const username = localStorage.getItem('username') || `User${Math.floor(Math.random() * 1000)}`;
-		localStorage.setItem('username', username);
-		initSocket(username);
+		// Only initialize socket if user has a saved session (from explicit login)
+		// Don't auto-login on page load - user must submit login form first
+		const username = localStorage.getItem('username');
+		const sessionId = localStorage.getItem('sessionId');
+
+		if (username && sessionId) {
+			// User has a saved session, reconnect them
+			initSocket(username);
+		}
 	});
 </script>
 
