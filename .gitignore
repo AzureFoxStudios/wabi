@@ -15,6 +15,7 @@ frontend/dist/
 
 # Tauri artifacts (NEVER commit these!)
 frontend/src-tauri/
+!frontend/src-tauri/icons/
 frontend/src-tauri.zip
 frontend/src-tauri.tar.gz
 
