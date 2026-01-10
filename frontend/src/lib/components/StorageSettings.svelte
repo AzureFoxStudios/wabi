@@ -2,6 +2,13 @@
 	import { chatStorage, type RotationPeriod } from '$lib/storage';
 	import { onMount } from 'svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
+	import {
+		isRunningInTauri,
+		exportTauriDataAsZip,
+		clearTauriData,
+		getTauriDataPath
+	} from '$lib/tauri-storage';
+	import { channelMessages, users, currentUser } from '$lib/socket';
 
 	let saveHistory = false;
 	let rotationPeriod = chatStorage.getRotationPeriod();
@@ -12,6 +19,13 @@
 	let showDeleteArchiveConfirm = false;
 	let archiveToDelete = '';
 	let showDeleteAllConfirm = false;
+
+	// Tauri storage state
+	let isTauri = false;
+	let tauriStorageEnabled = false;
+	let tauriDataPath = '';
+	let tauriExporting = false;
+	let showTauriClearConfirm = false;
 
 	function formatBytes(bytes: number): string {
 		if (bytes === 0) return '0 B';
@@ -101,15 +115,124 @@
 		stats = await chatStorage.getStats();
 	}
 
+	// Tauri data management functions
+	async function exportTauriData() {
+		if (!isTauri) return;
+		tauriExporting = true;
+		try {
+			const zipPath = await exportTauriDataAsZip();
+			alert(`✅ Data exported successfully!\n\nLocation: ${zipPath}`);
+		} catch (error) {
+			alert(`❌ Export failed: ${error}`);
+		} finally {
+			tauriExporting = false;
+		}
+	}
+
+	function confirmTauriClear() {
+		showTauriClearConfirm = true;
+	}
+
+	async function confirmClearTauriData() {
+		try {
+			await clearTauriData();
+			showTauriClearConfirm = false;
+			alert('✅ Tauri data cleared successfully');
+		} catch (error) {
+			alert(`❌ Clear failed: ${error}`);
+		}
+	}
+
+	async function toggleTauriStorage() {
+		tauriStorageEnabled = !tauriStorageEnabled;
+		try {
+			localStorage.setItem('tauriStorageEnabled', String(tauriStorageEnabled));
+			if (tauriStorageEnabled) {
+				alert('✅ Tauri storage enabled! Your data will auto-save every 30 seconds.');
+			} else {
+				alert('⚠️ Tauri storage disabled. Your data will not be auto-saved.');
+			}
+		} catch (error) {
+			console.error('Failed to save Tauri storage setting:', error);
+			alert('Failed to save setting');
+		}
+	}
+
 	onMount(async () => {
+		isTauri = isRunningInTauri();
+		if (isTauri) {
+			try {
+				tauriDataPath = await getTauriDataPath();
+				// Load the stored setting
+				const setting = localStorage.getItem('tauriStorageEnabled');
+				tauriStorageEnabled = setting === 'true';
+			} catch (error) {
+				console.error('Failed to get Tauri data path:', error);
+			}
+		}
+
 		saveHistory = await chatStorage.isEnabled();
 		await refreshStats();
 	});
 </script>
 
 <div class="storage-settings">
+	{#if isTauri}
+		<div class="tauri-section">
+			<div class="header">
+				<h3>🖥️ Tauri Desktop Storage</h3>
+				<p class="subtitle">
+					Your data is stored in organized sidecar files that you can manage, backup, and export.
+					{#if tauriDataPath}
+						<br />
+						<code class="path">{tauriDataPath}</code>
+					{/if}
+				</p>
+			</div>
+
+			<div class="setting-group">
+				<label class="toggle-setting">
+					<input type="checkbox" bind:checked={tauriStorageEnabled} on:change={toggleTauriStorage} />
+					<span class="toggle-label">Enable Tauri Desktop Storage (auto-save every 30s)</span>
+				</label>
+				<p class="hint">
+					When enabled, your messages are automatically saved to %APPDATA%/Wabi every 30 seconds in organized yearly files.
+					You can disable this anytime without losing existing data.
+				</p>
+			</div>
+
+			{#if tauriStorageEnabled}
+			<div class="setting-group">
+				<div class="tauri-actions">
+					<button
+						class="btn-primary"
+						on:click={exportTauriData}
+						disabled={tauriExporting}
+					>
+						{tauriExporting ? '📦 Exporting...' : '📦 Export as ZIP'}
+					</button>
+					<p class="hint">
+						Download all your messages and attachments as a portable ZIP file. Perfect for backups!
+					</p>
+				</div>
+			</div>
+
+			<div class="setting-group">
+				<div class="tauri-actions">
+					<button class="btn-danger" on:click={confirmTauriClear}>
+						🗑️ Clear All Tauri Data
+					</button>
+					<p class="hint">Delete all locally stored data. This cannot be undone.</p>
+				</div>
+			</div>
+			{/if}
+		</div>
+
+		<div class="divider"></div>
+	{/if}
+
 	<div class="header">
-		<h3>💾 Local Storage</h3>
+		<h3>💾 Browser Storage</h3>
 		<p class="subtitle">Your chat history is saved only on your device. The server stores nothing permanently.</p>
 	</div>
 
@@ -231,6 +354,18 @@
 	onConfirm={confirmClearAll}
 	onCancel={() => showDeleteAllConfirm = false}
 />
+
+{#if isTauri}
+	<ConfirmDialog
+		isOpen={showTauriClearConfirm}
+		title="Clear Tauri Data"
+		message="Delete ALL locally stored data? This includes all messages and attachments. This cannot be undone!"
+		confirmText="Clear All"
+		variant="danger"
+		onConfirm={confirmClearTauriData}
+		onCancel={() => (showTauriClearConfirm = false)}
+	/>
+{/if}
 
 <style>
 	.storage-settings {
@@ -459,5 +594,61 @@
 
 	.btn-danger:hover {
 		background: var(--color-danger-dark);
+	}
+
+	/* Tauri Section Styles */
+	.tauri-section {
+		background: linear-gradient(135deg, rgba(88, 101, 242, 0.05), rgba(88, 101, 242, 0.02));
+		border: 1px solid rgba(88, 101, 242, 0.2);
+		border-radius: 8px;
+		padding: 1.5rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.tauri-actions {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.btn-primary {
+		padding: 0.6rem 1.2rem;
+		background: var(--accent);
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-weight: 500;
+		transition: all 0.2s;
+		width: 100%;
+		text-align: left;
+	}
+
+	.btn-primary:hover:not(:disabled) {
+		opacity: 0.9;
+		transform: translateY(-2px);
+	}
+
+	.btn-primary:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.divider {
+		height: 1px;
+		background: var(--border);
+		margin: 2rem 0;
+	}
+
+	.path {
+		display: block;
+		margin-top: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		background: var(--bg-primary);
+		border-radius: 4px;
+		font-size: 0.8rem;
+		word-break: break-all;
+		color: var(--accent);
+		font-family: 'Courier New', monospace;
 	}
 </style>

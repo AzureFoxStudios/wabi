@@ -413,17 +413,20 @@ var io = new Server(server, {
         "http://localhost:5173",
         "http://localhost:3000",
         "http://tauri.localhost",
+        "http://localhost",
         process.env.FRONTEND_URL,
         process.env.PUBLIC_URL
       ].filter(Boolean);
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
+      if (process.env.NODE_ENV !== "production" && origin.includes("localhost")) {
+        return callback(null, true);
+      }
       if (process.env.NODE_ENV === "production") {
         return callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
       }
+      callback(new Error("Not allowed by CORS"));
     },
     methods: ["GET", "POST"],
     credentials: true
@@ -936,45 +939,83 @@ io.use((socket, next) => {
 io.on("connection", (socket) => {
   console.log(`\u{1F50C} WebSocket connection established: ${socket.id}`);
   socket.on("join", (username) => {
-    const color = `#${Math.floor(Math.random() * 16777215).toString(16)}`;
-    const sessionId = generateSessionId();
-    sessions.set(sessionId, {
-      userId: socket.id,
-      username,
-      color,
-      createdAt: Date.now()
-    });
-    users.set(socket.id, {
-      id: socket.id,
-      username,
-      color,
-      status: "active",
-      profilePicture: void 0
-    });
-    const userChannels = Array.from(channels.values()).filter((channel) => {
-      if (!channel.members || channel.members.length === 0) {
-        return true;
+    let existingSession = null;
+    for (const [sessionId, session] of sessions.entries()) {
+      if (session.username === username) {
+        existingSession = { sessionId, session };
+        break;
       }
-      return channel.members.includes(socket.id);
-    });
-    const emojisData = getAllEmojis();
-    console.log("[EMOJI DEBUG] Sending emojis to client:", emojisData.length, "emojis");
-    socket.emit("init", {
-      channels: userChannels,
-      users: Array.from(users.values()),
-      excalidrawState,
-      emotes: Array.from(emotes.values()),
-      emojis: emojisData,
-      sessionId
-    });
-    socket.broadcast.emit("user-joined", {
-      id: socket.id,
-      username,
-      color,
-      status: "active",
-      profilePicture: void 0
-    });
-    if (ENABLE_LOGGING) console.log(`${username} joined the chat`);
+    }
+    if (existingSession) {
+      const { sessionId, session } = existingSession;
+      session.userId = socket.id;
+      sessions.set(sessionId, session);
+      users.set(socket.id, {
+        id: socket.id,
+        username: session.username,
+        color: session.color,
+        status: "active",
+        profilePicture: session.profilePicture
+      });
+      const userChannels = Array.from(channels.values()).filter((channel) => {
+        if (!channel.members || channel.members.length === 0) return true;
+        return channel.members.includes(socket.id);
+      });
+      const emojisData = getAllEmojis();
+      socket.emit("init", {
+        channels: userChannels,
+        users: Array.from(users.values()),
+        excalidrawState,
+        emotes: Array.from(emotes.values()),
+        emojis: emojisData,
+        sessionId
+      });
+      socket.broadcast.emit("user-joined", {
+        id: socket.id,
+        username: session.username,
+        color: session.color,
+        status: "active",
+        profilePicture: session.profilePicture
+      });
+      if (ENABLE_LOGGING) console.log(`${session.username} re-joined the chat with a new socket`);
+    } else {
+      const color = `#${Math.floor(Math.random() * 16777215).toString(16)}`;
+      const sessionId = generateSessionId();
+      sessions.set(sessionId, {
+        userId: socket.id,
+        username,
+        color,
+        createdAt: Date.now()
+      });
+      users.set(socket.id, {
+        id: socket.id,
+        username,
+        color,
+        status: "active",
+        profilePicture: void 0
+      });
+      const userChannels = Array.from(channels.values()).filter((channel) => {
+        if (!channel.members || channel.members.length === 0) return true;
+        return channel.members.includes(socket.id);
+      });
+      const emojisData = getAllEmojis();
+      socket.emit("init", {
+        channels: userChannels,
+        users: Array.from(users.values()),
+        excalidrawState,
+        emotes: Array.from(emotes.values()),
+        emojis: emojisData,
+        sessionId
+      });
+      socket.broadcast.emit("user-joined", {
+        id: socket.id,
+        username,
+        color,
+        status: "active",
+        profilePicture: void 0
+      });
+      if (ENABLE_LOGGING) console.log(`${username} joined the chat`);
+    }
   });
   socket.on("rejoin", (sessionId) => {
     const session = sessions.get(sessionId);
@@ -982,6 +1023,8 @@ io.on("connection", (socket) => {
       socket.emit("rejoin-failed", { reason: "Invalid session" });
       return;
     }
+    session.userId = socket.id;
+    sessions.set(sessionId, session);
     users.set(socket.id, {
       id: socket.id,
       username: session.username,
