@@ -10,12 +10,18 @@
 	let searchQuery = '';
 	let gifs: any[] = [];
 	let loading = false;
+	let gf: GiphyFetch | null = null;
 
-	// Use a public API key for demo purposes
-	// In production, use environment variable
-	const gf = new GiphyFetch(import.meta.env.VITE_GIPHY_API_KEY || 'sXpGFDGZs0Dv1mmNFvYaGUvYwKX0PWIh');
+	// Initialize Giphy API only if key is configured
+	if (import.meta.env.VITE_GIPHY_API_KEY) {
+		gf = new GiphyFetch(import.meta.env.VITE_GIPHY_API_KEY);
+	}
 
 	async function searchGifs() {
+		if (!gf) {
+			console.warn('Giphy API key not configured');
+			return;
+		}
 		if (!searchQuery.trim()) {
 			loadTrending();
 			return;
@@ -32,6 +38,11 @@
 	}
 
 	async function loadTrending() {
+		if (!gf) {
+			console.warn('Giphy API key not configured');
+			gifs = [];
+			return;
+		}
 		loading = true;
 		try {
 			const { data } = await gf.trending({ limit: 20 });
