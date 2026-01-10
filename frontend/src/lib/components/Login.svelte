@@ -47,7 +47,7 @@
 
 <div class="login-container">
 	<div class="login-box">
-		<img src="/wabi-logo-small.webp" alt="Wabi" class="logo" />
+		<img src="/wabi-logo.webp" alt="Wabi" class="logo" />
 
 		<form on:submit|preventDefault={handleSubmit}>
 			<input
@@ -131,9 +131,21 @@
 	}
 
 	.logo {
-		height: 280px;
-		margin-bottom: 1.5rem;
-		filter: invert(1) drop-shadow(0 4px 8px rgba(0,0,0,0.3));
+		height: 320px;
+		margin-bottom: 2rem;
+		filter: invert(1) drop-shadow(0 4px 12px rgba(0,0,0,0.4));
+		animation: logoFadeIn 0.6s ease-out;
+	}
+
+	@keyframes logoFadeIn {
+		from {
+			opacity: 0;
+			transform: scale(0.95);
+		}
+		to {
+			opacity: 1;
+			transform: scale(1);
+		}
 	}
 
 	input {
