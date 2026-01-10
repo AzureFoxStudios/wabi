@@ -21,7 +21,7 @@ export default defineConfig({
 		'.ngrok-free.dev',
 		'wabi.onrender.com',
 		process.env.PUBLIC_URL ? new URL(process.env.PUBLIC_URL).hostname : null
-	].filter(Boolean)
+	].filter(Boolean) as string[]
 	},
 	define: {
 		'process.env': {}

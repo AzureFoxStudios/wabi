@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { chatStorage, type RotationPeriod } from '$lib/storage';
+	import { chatStorage, type RotationPeriod, type StorageStats } from '$lib/storage';
 	import { onMount } from 'svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import {
@@ -13,7 +13,7 @@
 	let saveHistory = false;
 	let rotationPeriod = chatStorage.getRotationPeriod();
 	let maxArchives = chatStorage.getMaxArchives();
-	let stats = { archives: [], totalSize: 0, totalMessages: 0 };
+	let stats: StorageStats = { archives: [], totalSize: 0, totalMessages: 0 };
 
 	let showDisableStorageConfirm = false;
 	let showDeleteArchiveConfirm = false;

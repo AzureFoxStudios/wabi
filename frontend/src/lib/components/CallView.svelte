@@ -34,7 +34,7 @@
 					autoplay
 					playsinline
 					muted={call.userId === $activeCalls[0]?.userId}
-					srcObject={call.stream}
+					bind:srcObject={call.stream}
 					class:hidden={!call.isVideoEnabled}
 				></video>
 				<div class="user-label">{call.username || 'Unknown'} (Call)</div>
@@ -46,7 +46,7 @@
 				<video
 					autoplay
 					playsinline
-					srcObject={share.stream}
+					bind:srcObject={share.stream}
 				></video>
 				<div class="user-label">{share.username || 'Unknown'} (Screen Share)</div>
 			</div>

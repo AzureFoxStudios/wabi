@@ -48,6 +48,8 @@ export interface User {
 	color: string;
 	status: 'active' | 'away' | 'busy';
 	profilePicture?: string;
+	bio?: string;
+	joinedAt?: number;
 }
 
 export interface Channel {
@@ -161,7 +163,7 @@ export function initSocket(username: string) {
 	});
 
 	socketInstance.on('connect', () => {
-		console.log('[Socket] Connected successfully!', socketInstance.id);
+		console.log('[Socket] Connected successfully!', socketInstance!.id);
 		connected.set(true);
 	});
 
@@ -303,7 +305,7 @@ export function initSocket(username: string) {
 		// Find current user
 		console.log('[Socket] Looking for current user. Socket ID:', socketInstance?.id);
 		console.log('[Socket] Available users:', data.users);
-		const user = data.users.find(u => u.id === socketInstance?.id);
+		const user = data.users.find(u => u.id === socketInstance!.id);
 		if (user) {
 			console.log('[Socket] ✅ Found current user:', user);
 			currentUser.set(user);
@@ -593,7 +595,7 @@ export function initSocket(username: string) {
 
 	socketInstance.on('call-rejected', () => {
 		console.log('[WebRTC] Call rejected');
-		calling.endCall(socketInstance);
+		calling.endCall(socketInstance!);
 	});
 
 	socketInstance.on('call-ended', (data: { userId: string }) => {
@@ -604,7 +606,7 @@ export function initSocket(username: string) {
 
 	socketInstance.on('call-offer', (data: { offer: RTCSessionDescriptionInit, senderId: string, username: string }) => {
 		console.log(`[WebRTC] Received call offer from ${data.username}`);
-		calling.handleCallOffer(socketInstance, data.senderId, data.username, data.offer);
+		calling.handleCallOffer(socketInstance!, data.senderId, data.username, data.offer);
 	});
 
 	socketInstance.on('call-answer-sdp', (data: { answer: RTCSessionDescriptionInit, senderId: string }) => {
@@ -621,7 +623,7 @@ export function initSocket(username: string) {
 	socketInstance.on('screen-share-started', (data: { userId: string, username: string }) => {
 		console.log(`[WebRTC] ${data.username} started screen sharing`);
 		// We need to initiate a WebRTC connection to receive the stream
-		webrtc.createOffer(socketInstance, data.userId);
+		webrtc.createOffer(socketInstance!, data.userId);
 	});
 
 	socketInstance.on('screen-share-stopped', (data: { userId: string }) => {
@@ -631,7 +633,7 @@ export function initSocket(username: string) {
 
 	socketInstance.on('webrtc-offer', (data: { offer: RTCSessionDescriptionInit, senderId: string, username: string }) => {
 		console.log(`[WebRTC] Received webrtc offer from ${data.username}`);
-		webrtc.handleOffer(socketInstance, data.senderId, data.username, data.offer);
+		webrtc.handleOffer(socketInstance!, data.senderId, data.username, data.offer);
 	});
 
 	socketInstance.on('webrtc-answer', (data: { answer: RTCSessionDescriptionInit, senderId: string }) => {
