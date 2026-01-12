@@ -1,5 +1,10 @@
-import type { Message } from './socket';
+import type { Message, Channel } from './socket';
 import { browser } from '$app/environment';
+
+export interface LoadMessagesResult {
+	messages: Record<string, Message[]>;
+	availableArchives: Record<string, string[]>; // channelId -> archive keys sorted oldest-first
+}
 
 export interface StorageStats {
 	archives: Array<{
@@ -324,14 +329,17 @@ export class ChatStorage {
 	// Load all messages from all archives
 	// Always loads saved messages, regardless of global setting (persistence is per-channel)
 	// RAM OPTIMIZATION: Only loads most recent messages per channel to limit memory usage
-	async loadAllMessages(): Promise<Record<string, Message[]>> {
-		if (!browser) return {};
+	// PAGINATION: Tracks available archives for channels with persistMessages enabled
+	async loadAllMessages(channels?: Channel[]): Promise<LoadMessagesResult> {
+		if (!browser) return { messages: {}, availableArchives: {} };
 		await this.ensureInit();
 
 		const allMessages: Record<string, Message[]> = {};
+		const availableArchives: Record<string, string[]> = {};
 
 		const archives = await this.db.getAllArchives();
 
+		// First pass: collect all messages and track which archives each channel has
 		for (const archive of archives) {
 			const periodData = archive.data || {};
 
@@ -339,23 +347,75 @@ export class ChatStorage {
 			Object.entries(periodData).forEach(([channel, messages]) => {
 				if (!allMessages[channel]) allMessages[channel] = [];
 				allMessages[channel].push(...(messages as Message[]));
+
+				// Track available archives for each channel
+				if (!availableArchives[channel]) availableArchives[channel] = [];
+				availableArchives[channel].push(archive.period);
 			});
 		}
 
-		// Sort by timestamp
+		// Sort by timestamp and conditionally prune based on persistMessages flag
 		Object.keys(allMessages).forEach((channel) => {
 			allMessages[channel].sort((a, b) => a.timestamp - b.timestamp);
-			// 🧠 RAM SAVER: Limit to last N messages per channel to prevent RAM bloat
-			// Older messages are still in IndexedDB, just not in memory
-			if (allMessages[channel].length > MAX_MESSAGES_PER_CHANNEL) {
+
+			// Check if this channel has persistence enabled
+			const channelConfig = channels?.find((ch) => ch.id === channel);
+			const shouldPersist = channelConfig?.persistMessages === true;
+
+			if (!shouldPersist && allMessages[channel].length > MAX_MESSAGES_PER_CHANNEL) {
+				// Non-persistent channels: prune to 2000 (old behavior)
 				console.log(
 					`📊 Pruning ${channel}: keeping last ${MAX_MESSAGES_PER_CHANNEL} of ${allMessages[channel].length} messages`
 				);
 				allMessages[channel] = allMessages[channel].slice(-MAX_MESSAGES_PER_CHANNEL);
+			} else if (shouldPersist && allMessages[channel].length > MAX_MESSAGES_PER_CHANNEL) {
+				// Persistent channels: keep recent 2000, track available archives for pagination
+				console.log(
+					`📚 Pagination enabled for ${channel}: loading recent ${MAX_MESSAGES_PER_CHANNEL} of ${allMessages[channel].length} messages (${allMessages[channel].length - MAX_MESSAGES_PER_CHANNEL} available via pagination)`
+				);
+				allMessages[channel] = allMessages[channel].slice(-MAX_MESSAGES_PER_CHANNEL);
+			}
+
+			// Sort available archives oldest-first for pagination
+			if (availableArchives[channel]) {
+				availableArchives[channel].sort();
 			}
 		});
 
-		return allMessages;
+		return { messages: allMessages, availableArchives };
+	}
+
+	// Load a specific archive for a channel
+	// Used by pagination/lazy-loading to fetch older messages
+	async loadArchiveForChannel(channelId: string, archiveKey: string): Promise<Message[]> {
+		if (!browser) return [];
+		await this.ensureInit();
+
+		const data = await this.db.getArchive(archiveKey);
+		if (!data || !data[channelId]) return [];
+
+		const messages = data[channelId] as Message[];
+		// Sort by timestamp to ensure chronological order
+		return messages.sort((a, b) => a.timestamp - b.timestamp);
+	}
+
+	// Get all available archive keys for a channel
+	// Used to determine which archives have messages for this channel
+	async getAvailableArchives(channelId: string): Promise<string[]> {
+		if (!browser) return [];
+		await this.ensureInit();
+
+		const archives = await this.db.getAllArchives();
+		const result: string[] = [];
+
+		for (const archive of archives) {
+			if (archive.data && archive.data[channelId]) {
+				result.push(archive.period);
+			}
+		}
+
+		// Return sorted oldest-first for pagination
+		return result.sort();
 	}
 
 	// Delete specific archive

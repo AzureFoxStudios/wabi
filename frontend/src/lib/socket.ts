@@ -82,13 +82,18 @@ export const dmPanelSignal = writable<{ channelId: string; otherUser: User } | n
 // Emojis store
 export const emojis = writable<Emoji[]>([]);
 
+// PAGINATION STORES: Track which archives are loaded for each channel
+export const channelLoadedArchives = writable<Record<string, Set<string>>>({});
+export const channelAvailableArchives = writable<Record<string, string[]>>({});
+export const channelLoadingOlder = writable<Record<string, boolean>>({});
+
 let socketInstance: Socket | null = null;
 
 export function getSocket(): Socket | null {
 	return socketInstance;
 }
 
-export function initSocket(username: string) {
+export function initSocket(username: string, authToken?: string) {
 	if (!browser) return;
 
 	// Close existing socket if any (prevents zombie connections)
@@ -140,17 +145,24 @@ export function initSocket(username: string) {
 
 	const serverUrl = getServerUrl();
 
-	// Check for existing session
+	// Check for existing session or token
 	let sessionId: string | null = null;
+	let token: string | null = null;
+
 	if (browser) {
 		try {
-			sessionId = localStorage.getItem('sessionId');
+			token = authToken || localStorage.getItem('authToken');
+			if (!token) {
+				sessionId = localStorage.getItem('sessionId');
+			}
 		} catch (e) {
-			console.error('Failed to read sessionId from localStorage:', e);
+			console.error('Failed to read auth from localStorage:', e);
 		}
 	}
 
-	console.log('[Socket] Connecting to:', serverUrl, sessionId ? '(with existing session)' : '(new connection)');
+	const isRegistered = !!token;
+	console.log('[Socket] Connecting to:', serverUrl, isRegistered ? '(registered user)' : sessionId ? '(with existing session)' : '(new connection)');
+
 	socketInstance = io(serverUrl, {
 		reconnectionDelay: 1000,
 		reconnectionDelayMax: 5000,
@@ -158,7 +170,8 @@ export function initSocket(username: string) {
 		withCredentials: true,
 		transports: ['websocket', 'polling'],
 		auth: {
-			sessionId: sessionId || undefined
+			token: token || undefined,
+			sessionId: !token ? sessionId || undefined : undefined
 		}
 	});
 
@@ -204,11 +217,12 @@ export function initSocket(username: string) {
 	}
 
 	// Load saved messages from IndexedDB if enabled
-	chatStorage.loadAllMessages().then(savedMessages => {
-		if (Object.keys(savedMessages).length > 0) {
+	// This is called before we know channel config, so we'll load archives again after 'init'
+	chatStorage.loadAllMessages().then(result => {
+		if (Object.keys(result.messages).length > 0) {
 			// Deduplicate messages in each channel by ID
 			const deduped: Record<string, Message[]> = {};
-			for (const [channelId, messages] of Object.entries(savedMessages)) {
+			for (const [channelId, messages] of Object.entries(result.messages)) {
 				const seen = new Set<string>();
 				deduped[channelId] = messages.filter(msg => {
 					if (seen.has(msg.id)) return false;
@@ -218,6 +232,15 @@ export function initSocket(username: string) {
 			}
 			channelMessages.set(deduped);
 		}
+
+		// Initialize pagination tracking for all channels
+		const initialLoaded: Record<string, Set<string>> = {};
+		const initialAvailable = result.availableArchives;
+		for (const channelId of Object.keys(result.messages)) {
+			initialLoaded[channelId] = new Set(); // Will be populated after 'init' event
+		}
+		channelLoadedArchives.set(initialLoaded);
+		channelAvailableArchives.set(initialAvailable);
 	});
 
 	socketInstance.on('connect', () => {
@@ -289,10 +312,30 @@ export function initSocket(username: string) {
 
 		channels.set(processedChannels);
 
-		// Initialize emotes
-		if (data.emotes) {
-			initEmotes(data.emotes);
+	// PAGINATION: Now that we have channels, re-load with channel context for proper pagination setup
+	chatStorage.loadAllMessages(processedChannels).then(result => {
+		// Update pagination state
+		const loadedArchives: Record<string, Set<string>> = {};
+
+		// For each channel, determine which archives are currently loaded
+		for (const channelId of Object.keys(result.messages)) {
+			const channelConfig = processedChannels.find(ch => ch.id === channelId);
+			const shouldPersist = channelConfig?.persistMessages === true;
+
+			if (shouldPersist && result.availableArchives[channelId]) {
+				// For persistent channels, the most recent archives are loaded
+				loadedArchives[channelId] = new Set(); // Start empty, will be populated as user loads more
+			}
 		}
+
+		channelLoadedArchives.set(loadedArchives);
+		channelAvailableArchives.set(result.availableArchives);
+	});
+
+	// Initialize emotes
+	if (data.emotes) {
+		initEmotes(data.emotes);
+	}
 
 		// Initialize emojis
 		if (data.emojis) {
@@ -574,6 +617,37 @@ export function initSocket(username: string) {
 		emojis.update(e => e.filter(emoji => emoji.name !== emojiName));
 	});
 
+	// Offline message events for registered users
+	socketInstance.on('offline-messages', (data: { channelId: string; messages: Message[] }) => {
+		console.log(`[Socket] Received ${data.messages.length} offline messages for channel ${data.channelId}`);
+
+		// Add offline messages to the channel
+		channelMessages.update(msgs => {
+			const existing = msgs[data.channelId] || [];
+			// Merge without duplicates
+			const existingIds = new Set(existing.map(m => m.id));
+			const newMessages = data.messages.filter(m => !existingIds.has(m.id));
+
+			return {
+				...msgs,
+				[data.channelId]: [...existing, ...newMessages]
+			};
+		});
+
+		// Show notification
+		showNotification({
+			title: '📬 Offline Messages',
+			body: `You have ${data.messages.length} new message${data.messages.length > 1 ? 's' : ''} in chat`
+		} as Message, false, '');
+	});
+
+	// Confirmation that message was queued for offline delivery
+	socketInstance.on('message-queued', (data: { messageId: string }) => {
+		console.log(`[Socket] Message ${data.messageId} queued for offline delivery`);
+		// Optional: Update UI to show "queued" status on the message
+		// Could be used for visual feedback like "⏱️ Queued for offline delivery"
+	});
+
 	// Channel settings events
 	socketInstance.on('channel-settings-updated', (data: {
 		channelId: string;
@@ -756,6 +830,59 @@ function updateBrowserTitle() {
 		document.title = `(${totalUnread}) Wabi Chat`;
 	} else {
 		document.title = '(•) Wabi Chat';
+	}
+}
+
+// PAGINATION: Load older messages for a channel
+// Called when user clicks "Load More" button
+export async function loadOlderMessages(channelId: string): Promise<void> {
+	if (!browser) return;
+
+	// Set loading state
+	channelLoadingOlder.update(state => ({ ...state, [channelId]: true }));
+
+	try {
+		// Get current state
+		const availableArchives = get(channelAvailableArchives)[channelId] || [];
+		const loadedArchives = get(channelLoadedArchives)[channelId] || new Set();
+
+		// Find next unloaded archive (oldest first)
+		const nextArchive = availableArchives.find(archiveKey => !loadedArchives.has(archiveKey));
+
+		if (!nextArchive) {
+			console.log(`[Pagination] No more archives for ${channelId}`);
+			channelLoadingOlder.update(state => ({ ...state, [channelId]: false }));
+			return;
+		}
+
+		console.log(`[Pagination] Loading archive ${nextArchive} for ${channelId}`);
+
+		// Load the archive from IndexedDB
+		const olderMessages = await chatStorage.loadArchiveForChannel(channelId, nextArchive);
+
+		if (olderMessages.length === 0) {
+			console.log(`[Pagination] Archive ${nextArchive} is empty for ${channelId}`);
+			channelLoadingOlder.update(state => ({ ...state, [channelId]: false }));
+			return;
+		}
+
+		// Merge into channel messages (insert at beginning to maintain chronological order)
+		channelMessages.update(msgs => ({
+			...msgs,
+			[channelId]: [...olderMessages, ...(msgs[channelId] || [])]
+		}));
+
+		// Mark this archive as loaded
+		channelLoadedArchives.update(state => ({
+			...state,
+			[channelId]: new Set([...(state[channelId] || new Set()), nextArchive])
+		}));
+
+		console.log(`[Pagination] ✅ Loaded ${olderMessages.length} messages from ${nextArchive}`);
+	} catch (error) {
+		console.error(`[Pagination] Failed to load older messages for ${channelId}:`, error);
+	} finally {
+		channelLoadingOlder.update(state => ({ ...state, [channelId]: false }));
 	}
 }
 

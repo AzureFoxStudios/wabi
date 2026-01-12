@@ -6,6 +6,13 @@ import { PluginLoader } from "./plugins/loader";
 import { getAllEmojis, getEmojiByName, addCustomEmoji, deleteCustomEmoji, type Emoji } from "./emojis";
 
 import { __dirname } from "./_dirname.js";
+import db, { initializeDatabase, closeDatabase } from "./db/database.js";
+import { userRepository } from "./db/repositories/userRepository.js";
+import { sessionRepository } from "./db/repositories/sessionRepository.js";
+import { offlineMessageRepository } from "./db/repositories/offlineMessageRepository.js";
+import { settingsRepository } from "./db/repositories/settingsRepository.js";
+import { verifyToken } from "./auth/jwt.js";
+import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings } from "./api/authRoutes.js";
 // In-memory data store
 interface Channel {
   id: string;
@@ -388,7 +395,7 @@ const io = new Server(server, {
 });
 
 // Request handler
-server.on('request', (req, res) => {
+server.on('request', async (req, res) => {
   // Skip Socket.IO requests - Socket.IO handles them at a lower level
   if (req.url?.startsWith('/socket.io/')) {
     return;
@@ -623,6 +630,33 @@ server.on('request', (req, res) => {
       users: users.size,
       uptime: process.uptime()
     }));
+    return;
+  }
+
+  // Authentication endpoints
+  if (url.pathname === "/api/auth/register" && req.method === "POST") {
+    await handleRegister(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/auth/login" && req.method === "POST") {
+    await handleLogin(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/auth/upgrade" && req.method === "POST") {
+    await handleUpgrade(req, res);
+    return;
+  }
+
+  // User settings endpoints
+  if (url.pathname === "/api/user/settings" && req.method === "GET") {
+    await handleGetUserSettings(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/user/settings" && req.method === "POST") {
+    await handleSaveUserSettings(req, res);
     return;
   }
 
@@ -927,6 +961,30 @@ server.on('request', (req, res) => {
   res.end("Not Found");
 });
 
+// Initialize database
+try {
+  initializeDatabase();
+  console.log('[Database] ✅ Initialized');
+} catch (error) {
+  console.error('[Database] ❌ Initialization failed:', error);
+  process.exit(1);
+}
+
+// Start background job for expired offline message cleanup (hourly)
+setInterval(() => {
+  const deleted = offlineMessageRepository.deleteExpired();
+  if (deleted > 0) {
+    console.log(`[Cleanup] 🗑️ Deleted ${deleted} expired offline messages`);
+  }
+}, 60 * 60 * 1000); // 1 hour
+
+// Cleanup on shutdown
+process.on('SIGINT', () => {
+  console.log('\n[Server] Shutting down...');
+  closeDatabase();
+  process.exit(0);
+});
+
 // Start HTTP server
 server.listen(PORT, '0.0.0.0');
 console.log('[Server] Listening on 0.0.0.0:' + PORT);
@@ -1029,22 +1087,95 @@ pluginLoader.loadAll().then(() => {
   console.error('❌ Failed to load plugins:', error);
 });
 
-// Socket.IO middleware to validate sessions
+// Socket.IO middleware to validate sessions (temp and registered users)
 io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
   const sessionId = socket.handshake.auth.sessionId;
-  if (sessionId && sessions.has(sessionId)) {
-    // Valid existing session - attach to socket for later use
+
+  if (token) {
+    // Registered user with JWT
+    try {
+      const payload = verifyToken(token);
+      const dbSession = sessionRepository.findById(payload.sessionId);
+
+      if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
+        return next(new Error('Session expired'));
+      }
+
+      (socket as any).sessionId = payload.sessionId;
+      (socket as any).userId = payload.userId;
+      (socket as any).isRegistered = true;
+      (socket as any).dbUserId = payload.userId;
+      next();
+    } catch (error) {
+      return next(new Error('Invalid token'));
+    }
+  } else if (sessionId && sessions.has(sessionId)) {
+    // Temp user with in-memory session
     (socket as any).sessionId = sessionId;
     (socket as any).userId = sessions.get(sessionId)?.userId;
+    (socket as any).isRegistered = false;
+    next();
+  } else {
+    // Allow new connection (will be assigned temp session on join)
+    next();
   }
-  next();
 });
+
+// Helper function to deliver offline messages to a user
+async function deliverOfflineMessages(socket: any, dbUserId: number | null) {
+  if (!dbUserId) return;
+
+  try {
+    const offlineMessages = offlineMessageRepository.getByRecipient(dbUserId);
+
+    if (offlineMessages.length > 0) {
+      // Group messages by channel
+      const messagesByChannel: Record<string, any[]> = {};
+
+      for (const msg of offlineMessages) {
+        if (!messagesByChannel[msg.channel_id]) {
+          messagesByChannel[msg.channel_id] = [];
+        }
+
+        messagesByChannel[msg.channel_id].push({
+          id: `offline-${msg.message_id}`,
+          user: msg.from_username,
+          userId: msg.from_user_id || 'unknown',
+          text: msg.message_content,
+          timestamp: msg.created_at,
+          type: msg.message_type,
+          gifUrl: msg.gif_url,
+          fileUrl: msg.file_url,
+          fileName: msg.file_name,
+          fileSize: msg.file_size
+        });
+      }
+
+      // Emit offline messages for each channel
+      for (const [channelId, messages] of Object.entries(messagesByChannel)) {
+        socket.emit('offline-messages', {
+          channelId,
+          messages
+        });
+      }
+
+      // Mark all as delivered
+      const messageIds = offlineMessages.map((m) => m.message_id!);
+      offlineMessageRepository.markDelivered(messageIds);
+
+      console.log(`[Offline] 📬 Delivered ${offlineMessages.length} offline messages to user ${dbUserId}`);
+    }
+  } catch (error) {
+    console.error('[Offline] Failed to deliver offline messages:', error);
+  }
+}
 
 io.on("connection", (socket) => {
   console.log(`🔌 WebSocket connection established: ${socket.id}`);
 
   // Handle user join
-  socket.on("join", (username: string) => {
+  socket.on("join", async (username: string) => {
     // Check if a session for this username already exists
     let existingSession: { sessionId: string; session: { userId: string; username: string; color: string; profilePicture?: string; createdAt: number } } | null = null;
     for (const [sessionId, session] of sessions.entries()) {
@@ -1083,6 +1214,11 @@ io.on("connection", (socket) => {
         emojis: emojisData,
         sessionId: sessionId
       });
+
+      // Deliver offline messages if registered user
+      if ((socket as any).isRegistered && (socket as any).dbUserId) {
+        await deliverOfflineMessages(socket, (socket as any).dbUserId);
+      }
 
       socket.broadcast.emit("user-joined", {
         id: socket.id,
@@ -1126,6 +1262,11 @@ io.on("connection", (socket) => {
         emojis: emojisData,
         sessionId: sessionId
       });
+
+      // Deliver offline messages if registered user
+      if ((socket as any).isRegistered && (socket as any).dbUserId) {
+        await deliverOfflineMessages(socket, (socket as any).dbUserId);
+      }
 
       socket.broadcast.emit("user-joined", {
         id: socket.id,

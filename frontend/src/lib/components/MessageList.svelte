@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, afterUpdate } from 'svelte';
-	import type { Message, User, Emoji } from '$lib/socket';
-	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis } from '$lib/socket';
+	import type { Message, User, Emoji, Channel } from '$lib/socket';
+	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder } from '$lib/socket';
 	import MessageContextMenu from './MessageContextMenu.svelte';
 	import UserPopout from './UserPopout.svelte';
 	import ForwardDialog from './ForwardDialog.svelte';
@@ -357,10 +357,54 @@
 	// Attach handlers when component mounts and updates
 	onMount(attachSpoilerHandlers);
 	afterUpdate(attachSpoilerHandlers);
+
+	// Pagination state
+	let showLoadMore = false;
+	let isLoadingOlder = false;
+	let hasMoreMessages = false;
+	let nextArchivePeriod: string | null = null;
+
+	// Reactive statements to compute pagination state based on current channel
+	$: {
+		const currentChannelData = $channels.find(ch => ch.id === $currentChannel);
+		showLoadMore = currentChannelData?.persistMessages === true;
+
+		if (showLoadMore) {
+			const available = $channelAvailableArchives[$currentChannel] || [];
+			const loaded = $channelLoadedArchives[$currentChannel] || new Set();
+			isLoadingOlder = $channelLoadingOlder[$currentChannel] || false;
+			hasMoreMessages = available.length > loaded.size;
+			nextArchivePeriod = available.find(a => !loaded.has(a)) || null;
+		}
+	}
+
+	async function handleLoadMore() {
+		if (!$currentChannel) return;
+		await loadOlderMessages($currentChannel);
+	}
 </script>
 
 <!-- Window-level keyboard listener for image navigation -->
 <svelte:window on:keydown={handleImageKeydown} />
+
+<!-- Load More Messages Button for Persistent Channels -->
+{#if showLoadMore}
+	{#if hasMoreMessages}
+		<div class="load-more-container">
+			<button class="load-more-btn" on:click={handleLoadMore} disabled={isLoadingOlder}>
+				{#if isLoadingOlder}
+					<span class="spinner"></span> Loading...
+				{:else}
+					Load Older Messages {nextArchivePeriod ? `(${nextArchivePeriod})` : ''}
+				{/if}
+			</button>
+		</div>
+	{:else if nextArchivePeriod === null && $channelAvailableArchives[$currentChannel]?.length > 0}
+		<div class="load-more-container">
+			<div class="no-more-messages">All messages loaded</div>
+		</div>
+	{/if}
+{/if}
 
 {#each messages as message (message.id)}
 	{@const user = getUserByUsername(message.user)}
@@ -1821,6 +1865,63 @@
 			grid-template-columns: 1fr 1fr;
 		}
 	}
+
+/* --- Load More Pagination Styles --- */
+
+.load-more-container {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	padding: 1rem;
+	gap: 1rem;
+}
+
+.load-more-btn {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem 1rem;
+	background-color: var(--color-primary);
+	color: white;
+	border: none;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 0.9rem;
+	font-weight: 500;
+	transition: background-color 0.2s ease;
+}
+
+.load-more-btn:hover:not(:disabled) {
+	background-color: var(--color-primary-hover, #4752c4);
+}
+
+.load-more-btn:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+
+.load-more-btn .spinner {
+	display: inline-block;
+	width: 14px;
+	height: 14px;
+	border: 2px solid rgba(255, 255, 255, 0.3);
+	border-top-color: white;
+	border-radius: 50%;
+	animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.no-more-messages {
+	text-align: center;
+	color: var(--text-secondary);
+	font-size: 0.9rem;
+	padding: 1rem;
+}
 
 /* --- Refined Mobile/Desktop Readability Styles --- */
 

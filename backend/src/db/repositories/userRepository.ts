@@ -1,0 +1,76 @@
+import db from '../database.js';
+
+export interface RegisteredUser {
+	user_id?: number;
+	username: string;
+	password_hash: string;
+	created_at: number;
+	color: string;
+	profile_picture?: string;
+	bio?: string;
+	is_active?: number;
+}
+
+export class UserRepository {
+	// Create a new user
+	create(user: Omit<RegisteredUser, 'user_id'>): RegisteredUser {
+		const stmt = db.prepare(`
+			INSERT INTO users (username, password_hash, created_at, color, profile_picture, bio)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`);
+
+		const info = stmt.run(
+			user.username,
+			user.password_hash,
+			user.created_at,
+			user.color,
+			user.profile_picture || null,
+			user.bio || null
+		);
+
+		return {
+			user_id: info.lastInsertRowid as number,
+			...user
+		};
+	}
+
+	// Find user by username
+	findByUsername(username: string): RegisteredUser | null {
+		const stmt = db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE');
+		return (stmt.get(username) as RegisteredUser) || null;
+	}
+
+	// Find user by ID
+	findById(userId: number): RegisteredUser | null {
+		const stmt = db.prepare('SELECT * FROM users WHERE user_id = ?');
+		return (stmt.get(userId) as RegisteredUser) || null;
+	}
+
+	// Update user profile
+	update(userId: number, updates: Partial<RegisteredUser>): void {
+		const allowedFields = ['color', 'profile_picture', 'bio', 'is_active'];
+		const fields = Object.keys(updates).filter((key) => allowedFields.includes(key));
+
+		if (fields.length === 0) return;
+
+		const setClause = fields.map((field) => `${field} = ?`).join(', ');
+		const values = fields.map((field) => updates[field as keyof RegisteredUser]);
+
+		const stmt = db.prepare(`UPDATE users SET ${setClause} WHERE user_id = ?`);
+		stmt.run(...values, userId);
+	}
+
+	// Delete user
+	delete(userId: number): void {
+		const stmt = db.prepare('DELETE FROM users WHERE user_id = ?');
+		stmt.run(userId);
+	}
+
+	// Get all users
+	getAll(): RegisteredUser[] {
+		const stmt = db.prepare('SELECT * FROM users WHERE is_active = 1');
+		return stmt.all() as RegisteredUser[];
+	}
+}
+
+export const userRepository = new UserRepository();

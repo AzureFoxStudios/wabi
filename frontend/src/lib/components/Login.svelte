@@ -1,24 +1,95 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import QRCode from 'qrcode';
+	import { register, login, upgradeToRegistered } from '$lib/api';
 
-	const dispatch = createEventDispatcher<{ login: string }>();
+	const dispatch = createEventDispatcher<{
+		login: { username: string; token?: string; authMethod: 'guest' | 'registered' };
+	}>();
 
+	let tab: 'guest' | 'login' | 'register' = 'guest';
 	let username = '';
+	let password = '';
+	let passwordConfirm = '';
+	let error = '';
+	let loading = false;
+
 	let qrCanvas: HTMLCanvasElement;
 	let showQR = false;
 	let customRoom = '';
 
-	// Auto-detect current origin (works on localhost, LAN, VPS, phone hotspot, etc.)
+	// Auto-detect current origin
 	$: serverUrl = typeof window !== 'undefined'
 		? `${window.location.origin}${import.meta.env.BASE_URL || ''}`
 		: '';
 
-	function handleSubmit() {
+	// Tab switching helpers
+	function switchTab(newTab: 'guest' | 'login' | 'register') {
+		tab = newTab;
+		error = '';
+		username = '';
+		password = '';
+		passwordConfirm = '';
+	}
+
+	// Guest login
+	function handleGuestLogin() {
 		if (username.trim()) {
-			// Clear old session before logging in with new username
-			localStorage.removeItem('sessionId');
-			dispatch('login', username.trim());
+			localStorage.removeItem('authToken');
+			dispatch('login', { username: username.trim(), authMethod: 'guest' });
+		}
+	}
+
+	// Register
+	async function handleRegister() {
+		error = '';
+
+		// Validation
+		if (username.length < 2) {
+			error = 'Username must be at least 2 characters';
+			return;
+		}
+		if (password.length < 8) {
+			error = 'Password must be at least 8 characters';
+			return;
+		}
+		if (password !== passwordConfirm) {
+			error = 'Passwords do not match';
+			return;
+		}
+
+		loading = true;
+
+		try {
+			const result = await register(username, password);
+			localStorage.setItem('authToken', result.token);
+			dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered' });
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Registration failed';
+		} finally {
+			loading = false;
+		}
+	}
+
+	// Login
+	async function handleLogin() {
+		error = '';
+
+		if (!username || !password) {
+			error = 'Username and password required';
+			return;
+		}
+
+		loading = true;
+
+		try {
+			const result = await login(username, password);
+			localStorage.setItem('authToken', result.token);
+			dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered' });
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Login failed';
+		} finally {
+			loading = false;
 		}
 	}
 
@@ -32,12 +103,11 @@
 			QRCode.toCanvas(qrCanvas, finalUrl, {
 				width: 300,
 				margin: 2,
-				color: { dark: '#ffffff', light: '#00000000' } // transparent bg
+				color: { dark: '#ffffff', light: '#00000000' }
 			});
 		}, 50);
 	}
 
-	// Optional: auto-focus input on mobile
 	onMount(() => {
 		const urlParams = new URLSearchParams(window.location.search);
 		const room = urlParams.get('room');
@@ -49,65 +119,159 @@
 	<div class="login-box">
 		<img src="/wabi-logo.webp" alt="Wabi" class="logo" />
 
-		<form on:submit|preventDefault={handleSubmit}>
-			<input
-				type="text"
-				bind:value={username}
-				placeholder="Enter your name"
-				maxlength="20"
-				required
-				autofocus
-			/>
-			<button type="submit" class="join-btn">Join Chat</button>
-		</form>
+		<!-- Tab Navigation -->
+		<div class="tabs">
+			<button
+				class="tab-btn"
+				class:active={tab === 'guest'}
+				on:click={() => switchTab('guest')}
+			>
+				Guest
+			</button>
+			<button
+				class="tab-btn"
+				class:active={tab === 'login'}
+				on:click={() => switchTab('login')}
+			>
+				Login
+			</button>
+			<button
+				class="tab-btn"
+				class:active={tab === 'register'}
+				on:click={() => switchTab('register')}
+			>
+				Register
+			</button>
+		</div>
 
-		<!-- QR CODE BUTTON -->
-		<button type="button" on:click={generateQR} class="qr-btn">
-			Join via QR Code
-		</button>
+		<!-- Error Message -->
+		{#if error}
+			<div class="error-message">{error}</div>
+		{/if}
 
-		<a href="/business" class="hub-btn">Business Hub</a>
-	</div>
-
-<!-- QR MODAL – fully a11y compliant, zero warnings -->
-{#if showQR}
-	<div
-		class="qr-overlay"
-		role="button"
-		tabindex="0"
-		aria-label="Close QR code modal"
-		on:click={() => showQR = false}
-		on:keydown={(e) => (e.key === 'Escape' || e.key === ' ') && (showQR = false)}
-	>
-		<div
-			class="qr-modal"
-			role="dialog"
-			aria-modal="true"
-			aria-label="QR code to join chat"
-			on:click|stopPropagation
-			on:keydown|stopPropagation
-		>
-			<h2>Scan to Join</h2>
-			<canvas bind:this={qrCanvas}></canvas>
-
-			<p class="url">{serverUrl}</p>
-
-			<div class="room-input">
+		<!-- GUEST TAB -->
+		{#if tab === 'guest'}
+			<form on:submit|preventDefault={handleGuestLogin}>
 				<input
 					type="text"
-					bind:value={customRoom}
-					placeholder="Optional room name (e.g. kitchen)"
-					on:input={() => setTimeout(generateQR, 300)}
+					bind:value={username}
+					placeholder="Enter your name"
+					maxlength="20"
+					required
+					autofocus
+					disabled={loading}
 				/>
-			</div>
+				<button type="submit" class="join-btn" disabled={loading}>
+					{loading ? 'Joining...' : 'Join as Guest'}
+				</button>
+			</form>
 
-			<div class="qr-actions">
-				<button on:click={generateQR}>Regenerate</button>
-				<button on:click={() => showQR = false}>Close</button>
+			<button type="button" on:click={generateQR} class="qr-btn" disabled={loading}>
+				Join via QR Code
+			</button>
+
+			<a href="/business" class="hub-btn">Business Hub</a>
+		{/if}
+
+		<!-- LOGIN TAB -->
+		{#if tab === 'login'}
+			<form on:submit|preventDefault={handleLogin}>
+				<input
+					type="text"
+					bind:value={username}
+					placeholder="Username"
+					required
+					autofocus
+					disabled={loading}
+				/>
+				<input
+					type="password"
+					bind:value={password}
+					placeholder="Password"
+					required
+					disabled={loading}
+				/>
+				<button type="submit" class="join-btn" disabled={loading}>
+					{loading ? 'Logging in...' : 'Login'}
+				</button>
+			</form>
+		{/if}
+
+		<!-- REGISTER TAB -->
+		{#if tab === 'register'}
+			<form on:submit|preventDefault={handleRegister}>
+				<input
+					type="text"
+					bind:value={username}
+					placeholder="Choose username"
+					minlength="2"
+					maxlength="32"
+					required
+					autofocus
+					disabled={loading}
+				/>
+				<input
+					type="password"
+					bind:value={password}
+					placeholder="Password (8+ characters)"
+					minlength="8"
+					required
+					disabled={loading}
+				/>
+				<input
+					type="password"
+					bind:value={passwordConfirm}
+					placeholder="Confirm password"
+					minlength="8"
+					required
+					disabled={loading}
+				/>
+				<button type="submit" class="join-btn" disabled={loading}>
+					{loading ? 'Creating account...' : 'Create Account'}
+				</button>
+			</form>
+		{/if}
+	</div>
+
+	<!-- QR MODAL -->
+	{#if showQR}
+		<div
+			class="qr-overlay"
+			role="button"
+			tabindex="0"
+			aria-label="Close QR code modal"
+			on:click={() => (showQR = false)}
+			on:keydown={(e) => (e.key === 'Escape' || e.key === ' ') && (showQR = false)}
+		>
+			<div
+				class="qr-modal"
+				role="dialog"
+				aria-modal="true"
+				aria-label="QR code to join chat"
+				on:click|stopPropagation
+				on:keydown|stopPropagation
+			>
+				<h2>Scan to Join</h2>
+				<canvas bind:this={qrCanvas}></canvas>
+
+				<p class="url">{serverUrl}</p>
+
+				<div class="room-input">
+					<input
+						type="text"
+						bind:value={customRoom}
+						placeholder="Optional room name (e.g. kitchen)"
+						on:input={() => setTimeout(generateQR, 300)}
+					/>
+				</div>
+
+				<div class="qr-actions">
+					<button on:click={generateQR}>Regenerate</button>
+					<button on:click={() => (showQR = false)}>Close</button>
+				</div>
 			</div>
 		</div>
-	</div>
-{/if}
+	{/if}
 </div>
 
 <style>
@@ -127,13 +291,13 @@
 		width: 100%;
 		max-width: 420px;
 		text-align: center;
-		box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
 	}
 
 	.logo {
 		height: 320px;
 		margin-bottom: 2rem;
-		filter: invert(1) drop-shadow(0 4px 12px rgba(0,0,0,0.4));
+		filter: invert(1) drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
 		animation: logoFadeIn 0.6s ease-out;
 	}
 
@@ -148,6 +312,36 @@
 		}
 	}
 
+	/* Tabs */
+	.tabs {
+		display: flex;
+		gap: 0.5rem;
+		margin-bottom: 1.5rem;
+		border-bottom: 2px solid var(--border);
+	}
+
+	.tab-btn {
+		flex: 1;
+		padding: 0.75rem 1rem;
+		background: transparent;
+		color: var(--text-secondary);
+		border: none;
+		cursor: pointer;
+		font-weight: 600;
+		border-bottom: 3px solid transparent;
+		transition: all 0.3s;
+		margin-bottom: -2px;
+	}
+
+	.tab-btn:hover {
+		color: var(--accent);
+	}
+
+	.tab-btn.active {
+		color: var(--accent);
+		border-bottom-color: var(--accent);
+	}
+
 	input {
 		width: 100%;
 		padding: 1rem;
@@ -157,6 +351,11 @@
 		background: var(--bg-tertiary);
 		color: white;
 		margin-bottom: 1rem;
+	}
+
+	input:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 
 	.join-btn {
@@ -170,6 +369,18 @@
 		border-radius: 12px;
 		cursor: pointer;
 		margin-bottom: 1.5rem;
+		transition: all 0.3s;
+	}
+
+	.join-btn:hover:not(:disabled) {
+		background: var(--accent-hover, #4752c4);
+		transform: translateY(-2px);
+		box-shadow: 0 8px 20px rgba(88, 101, 242, 0.3);
+	}
+
+	.join-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 
 	.qr-btn {
@@ -209,11 +420,22 @@
 		background: rgba(88, 101, 242, 0.1);
 	}
 
+	/* Error message */
+	.error-message {
+		background: rgba(239, 68, 68, 0.1);
+		border: 1px solid rgb(239, 68, 68);
+		color: #fca5a5;
+		padding: 0.75rem 1rem;
+		border-radius: 8px;
+		margin-bottom: 1rem;
+		font-size: 0.9rem;
+	}
+
 	/* QR Modal */
 	.qr-overlay {
 		position: fixed;
 		inset: 0;
-		background: rgba(0,0,0,0.92);
+		background: rgba(0, 0, 0, 0.92);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -227,7 +449,7 @@
 		border-radius: 20px;
 		text-align: center;
 		max-width: 90%;
-		box-shadow: 0 30px 60px rgba(0,0,0,0.6);
+		box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6);
 	}
 
 	.qr-modal h2 {
@@ -275,7 +497,7 @@
 		color: var(--text-primary);
 	}
 
-	/* ========== MOBILE STYLES ========== */
+	/* Mobile styles */
 	@media (max-width: 768px) {
 		.login-container {
 			padding: 1rem;
@@ -293,7 +515,7 @@
 
 		input {
 			padding: 0.875rem;
-			font-size: 16px; /* Prevents iOS zoom */
+			font-size: 16px;
 			border-radius: 10px;
 			min-height: 48px;
 		}
@@ -301,71 +523,16 @@
 		.join-btn {
 			padding: 0.875rem;
 			font-size: 1.1rem;
-			border-radius: 10px;
 			min-height: 48px;
 		}
 
-		.qr-btn {
-			padding: 0.75rem 1rem;
-			border-radius: 10px;
-			min-height: 48px;
+		.tabs {
+			gap: 0.25rem;
 		}
 
-		/* QR Modal mobile */
-		.qr-modal {
-			padding: 1.25rem;
-			border-radius: 16px;
-		}
-
-		.qr-modal h2 {
-			font-size: 1.25rem;
-		}
-
-		.qr-modal canvas {
-			max-width: 250px;
-		}
-
-		.url {
-			font-size: 0.75rem;
-			padding: 0.375rem;
-		}
-
-		.room-input input {
-			padding: 0.75rem;
-			font-size: 16px; /* Prevents iOS zoom */
-			min-height: 44px;
-		}
-
-		.qr-actions {
-			display: flex;
-			flex-wrap: wrap;
-			gap: 0.5rem;
-		}
-
-		.qr-actions button {
-			flex: 1;
-			min-width: 100px;
-			min-height: 44px;
-			margin: 0;
-		}
-	}
-
-	/* Extra small screens */
-	@media (max-width: 400px) {
-		.login-box {
-			padding: 1rem;
-		}
-
-		.logo {
-			height: 140px;
-		}
-
-		.join-btn {
-			font-size: 1rem;
-		}
-
-		.qr-modal canvas {
-			max-width: 200px;
+		.tab-btn {
+			padding: 0.5rem 0.75rem;
+			font-size: 0.85rem;
 		}
 	}
 </style>

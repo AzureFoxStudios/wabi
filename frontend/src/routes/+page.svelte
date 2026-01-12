@@ -69,12 +69,20 @@
 		dmPanelSignal.set(null);
 	}
 
-	function handleLogin(event: CustomEvent<string>) {
-		username = event.detail;
-		// Save username to localStorage (sessionId will be saved by socket.ts init)
+	function handleLogin(event: CustomEvent<{ username: string; token?: string; authMethod: 'guest' | 'registered' }>) {
+		const { username: user, token, authMethod } = event.detail;
+		username = user;
+		// Save username to localStorage
 		localStorage.setItem('username', username);
-		// Initialize socket with the username user entered
-		initSocket(username);
+
+		// Save token if registered user
+		if (token) {
+			localStorage.setItem('authToken', token);
+			localStorage.removeItem('sessionId');
+		}
+
+		// Initialize socket with username and optional token
+		initSocket(username, token);
 		loggedIn = true;
 	}
 

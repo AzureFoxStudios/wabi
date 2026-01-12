@@ -5,12 +5,18 @@
   "scripts": {
     "dev": "node --watch src/server.ts",
     "start": "node build",
-    "build": "esbuild src/server.ts --bundle --platform=node --target=node24 --format=esm --outfile=build --external:socket.io"
+    "build": "esbuild src/server.ts --bundle --platform=node --target=node24 --format=esm --outfile=build --external:socket.io --external:better-sqlite3"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
+    "better-sqlite3": "^12.6.0",
+    "jsonwebtoken": "^9.0.3",
     "socket.io": "^4.7.2"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/jsonwebtoken": "^9.0.10",
     "esbuild": "^0.27.2"
   }
 }
