@@ -25,7 +25,15 @@ db.pragma('foreign_keys = ON');
 
 // Initialize schema
 export function initializeDatabase() {
-	const schemaPath = join(__dirname, 'schema.sql');
+	const schemaCandidates = [
+		join(process.cwd(), 'src', 'db', 'schema.sql'),
+		join(process.cwd(), 'schema.sql'),
+		join(__dirname, 'schema.sql')
+	];
+	const schemaPath = schemaCandidates.find(path => fs.existsSync(path));
+	if (!schemaPath) {
+		throw new Error(`Schema file not found. Checked: ${schemaCandidates.join(', ')}`);
+	}
 	const schema = fs.readFileSync(schemaPath, 'utf-8');
 
 	// Split by semicolons and execute each statement
