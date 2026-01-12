@@ -199,7 +199,7 @@
 			style:width="{channelSidebarWidth}px"
 			class:mobile-visible={isMobile && showMobileChannels}
 		>
-			<ChannelSidebar on:close={() => showMobileChannels = false} bind:activeView bind:sidebarWidth={channelSidebarWidth} />
+			<ChannelSidebar on:close={() => showMobileChannels = false} bind:activeView bind:sidebarWidth={channelSidebarWidth} on:logout={handleLogout} />
 		</div>
 
 		<!-- Main Content -->
