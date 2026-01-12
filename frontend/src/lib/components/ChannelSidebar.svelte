@@ -69,6 +69,10 @@
 		sidebarWidth = sidebarWidth === 0 ? 280 : 0;
 	}
 
+	function handleLogout() {
+		dispatch('logout');
+	}
+
 	// Separate channels by type
 	// Note: DMs are excluded from sidebar - only accessible via UserPanel
 	$: publicChannels = $channels.filter(ch => !ch.type || ch.type === 'public');
@@ -291,7 +295,7 @@
 	{/if}
 </div>
 
-<Settings bind:isOpen={showSettings} />
+<Settings bind:isOpen={showSettings} on:logout={handleLogout} />
 
 <ConfirmDialog
 	isOpen={showDeleteConfirm}
