@@ -16,7 +16,7 @@ COPY . .
 RUN npm run build
 
 # Verify build output exists
-RUN test -f build || (echo "ERROR: build file not created" && ls -la && exit 1)
+RUN test -d build || (echo "ERROR: build directory not created" && ls -la && exit 1)
 
 # Prune devDependencies
 RUN npm prune --production
