@@ -55,3 +55,6 @@ nul
 static/_app/immutable/
 backend/uploads/
 bun.lock
+
+# Claude Code temporary files
+tmpclaude-*.cwd
