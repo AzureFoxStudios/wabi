@@ -80,6 +80,9 @@ interface BusinessData {
   diaryEntries: any[];
   projects: any[];
   sprints: any[];
+  resources: any[];
+  tags: any[];
+  graphEdges: any[];
   lastUpdated: number;
 }
 
@@ -313,6 +316,9 @@ function initializeWorkspace(workspaceId: string): BusinessData {
     diaryEntries: [],
     projects: [],
     sprints: [],
+    resources: [],
+    tags: [],
+    graphEdges: [],
     lastUpdated: Date.now()
   };
 
@@ -691,7 +697,7 @@ server.on('request', async (req, res) => {
 
     req.on('end', () => {
       try {
-        const { todos, calendarEvents, diaryEntries, projects, sprints } = JSON.parse(body);
+        const { todos, calendarEvents, diaryEntries, projects, sprints, resources, tags, graphEdges } = JSON.parse(body);
 
         // For now, use default workspace. Later, get from user session/auth
         const workspaceId = defaultWorkspaceId;
@@ -703,6 +709,9 @@ server.on('request', async (req, res) => {
           diaryEntries: diaryEntries || [],
           projects: projects || [],
           sprints: sprints || [],
+          resources: resources || [],
+          tags: tags || [],
+          graphEdges: graphEdges || [],
           lastUpdated: Date.now()
         };
 
@@ -726,6 +735,178 @@ server.on('request', async (req, res) => {
         res.end(JSON.stringify({ success: false, error: 'Failed to sync business data' }));
       }
     });
+    return;
+  }
+
+  // Helper function to extract user ID from request
+  function getAuthenticatedUserId(req: IncomingMessage): number | null {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return null;
+    }
+
+    try {
+      const token = authHeader.slice(7);
+      const payload = verifyToken(token);
+      const dbSession = sessionRepository.findById(payload.sessionId);
+      if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
+        return null;
+      }
+      return payload.userId;
+    } catch {
+      return null;
+    }
+  }
+
+  // Resource management endpoints
+  // List all resources for a workspace
+  if (url.pathname === "/api/business/resources" && req.method === "GET") {
+    try {
+      const userId = getAuthenticatedUserId(req);
+      if (!userId) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: 'Missing or invalid authorization' }));
+        return;
+      }
+
+      const workspaceId = defaultWorkspaceId;
+      const data = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        resources: data.resources
+      }));
+    } catch (error) {
+      console.error('Get resources error:', error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Failed to load resources' }));
+    }
+    return;
+  }
+
+  // Create a new resource
+  if (url.pathname === "/api/business/resource/create" && req.method === "POST") {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on('end', () => {
+      try {
+        const userId = getAuthenticatedUserId(req);
+        if (!userId) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: 'Missing or invalid authorization' }));
+          return;
+        }
+
+        const resourceData = JSON.parse(body);
+        const workspaceId = defaultWorkspaceId;
+        const workspace = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
+
+        const newResource = {
+          id: `res-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          ...resourceData,
+          createdBy: String(userId),
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        };
+
+        workspace.resources.push(newResource);
+        businessWorkspaces.set(workspaceId, workspace);
+        saveBusinessData(workspaceId, workspace);
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          resource: newResource
+        }));
+      } catch (error) {
+        console.error('Create resource error:', error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Failed to create resource' }));
+      }
+    });
+    return;
+  }
+
+  // Update a resource
+  if (url.pathname.startsWith("/api/business/resource/") && req.method === "PUT") {
+    const resourceId = url.pathname.split("/").pop();
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on('end', () => {
+      try {
+        const userId = getAuthenticatedUserId(req);
+        if (!userId) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: 'Missing or invalid authorization' }));
+          return;
+        }
+
+        const updates = JSON.parse(body);
+        const workspaceId = defaultWorkspaceId;
+        const workspace = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
+
+        const resourceIndex = workspace.resources.findIndex((r: any) => r.id === resourceId);
+        if (resourceIndex === -1) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: 'Resource not found' }));
+          return;
+        }
+
+        workspace.resources[resourceIndex] = {
+          ...workspace.resources[resourceIndex],
+          ...updates,
+          updatedAt: Date.now()
+        };
+
+        businessWorkspaces.set(workspaceId, workspace);
+        saveBusinessData(workspaceId, workspace);
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          resource: workspace.resources[resourceIndex]
+        }));
+      } catch (error) {
+        console.error('Update resource error:', error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Failed to update resource' }));
+      }
+    });
+    return;
+  }
+
+  // Delete a resource
+  if (url.pathname.startsWith("/api/business/resource/") && req.method === "DELETE") {
+    const resourceId = url.pathname.split("/").pop();
+    try {
+      const userId = getAuthenticatedUserId(req);
+      if (!userId) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: 'Missing or invalid authorization' }));
+        return;
+      }
+
+      const workspaceId = defaultWorkspaceId;
+      const workspace = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
+
+      workspace.resources = workspace.resources.filter((r: any) => r.id !== resourceId);
+      businessWorkspaces.set(workspaceId, workspace);
+      saveBusinessData(workspaceId, workspace);
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true }));
+    } catch (error) {
+      console.error('Delete resource error:', error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Failed to delete resource' }));
+    }
     return;
   }
 
