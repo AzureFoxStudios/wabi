@@ -31,7 +31,7 @@ export interface CommandResult {
 	success: boolean;
 	message?: string;
 	data?: any;
-	action?: 'navigate' | 'open-modal' | 'insert-text' | 'send-message';
+	action?: 'navigate' | 'open-modal' | 'insert-text' | 'send-message' | 'clear-channel';
 }
 
 type CommandHandler = (args: string[], context: CommandContext) => Promise<CommandResult>;
@@ -265,12 +265,58 @@ Available commands:
 • /tag create <name> [color] - Create a new tag
 • /todo <text> - Create a quick todo
 • /search <query> - Search everything
+• /me <action> - Send action message
+• /shrug - Append ¯\\_(ツ)_/¯ to message
+• /tableflip - Append (╯°□°)╯︵ ┻━┻ to message
 • /help - Show this help message
 `;
 
 	return {
 		success: true,
 		message: help,
+		action: 'send-message'
+	};
+});
+
+// /clear - Clear channel messages (client-side only)
+registerCommand('clear', async (args, context) => {
+	return {
+		success: true,
+		message: 'Cleared channel messages',
+		action: 'clear-channel'
+	};
+});
+
+// /me <action> - Send action message
+registerCommand('me', async (args, context) => {
+	const action = args.join(' ');
+	if (!action) {
+		return { success: false, message: 'Usage: /me <action>' };
+	}
+
+	return {
+		success: true,
+		message: `_${action}_`,
+		action: 'send-message'
+	};
+});
+
+// /shrug - Append shrug emoji
+registerCommand('shrug', async (args, context) => {
+	const text = args.join(' ');
+	return {
+		success: true,
+		message: `${text} ¯\\_(ツ)_/¯`,
+		action: 'send-message'
+	};
+});
+
+// /tableflip - Append table flip emoji
+registerCommand('tableflip', async (args, context) => {
+	const text = args.join(' ');
+	return {
+		success: true,
+		message: `${text} (╯°□°)╯︵ ┻━┻`,
 		action: 'send-message'
 	};
 });

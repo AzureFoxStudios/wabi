@@ -244,6 +244,9 @@
 							} else {
 								goto('/business/graph');
 							}
+						} else if (result.action === 'clear-channel') {
+							// Clear channel messages (TODO: implement)
+							console.log('Clear channel not yet implemented');
 						}
 						// action: 'open-modal' and other types can be handled as needed
 					} else {
