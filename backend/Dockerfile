@@ -2,9 +2,6 @@ FROM node:24-slim
 
 WORKDIR /app
 
-# Create non-root user for security (Debian syntax, not Alpine)
-RUN groupadd -g 1001 wabi && useradd -u 1001 -g wabi wabi
-
 # Copy package files
 COPY package.json ./
 COPY package-lock.json ./
@@ -29,12 +26,6 @@ RUN npm prune --production
 
 # Create data directory for plugin storage and other runtime data
 RUN mkdir -p /app/data /app/plugins
-
-# Set proper permissions
-RUN chown -R wabi:wabi /app
-
-# Switch to non-root user
-USER wabi
 
 # Set environment variables
 ENV NODE_ENV=production
