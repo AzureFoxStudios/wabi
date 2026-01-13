@@ -63,10 +63,12 @@ export interface Channel {
 	autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
 	isTemporary?: boolean; // If true, channel is temporary and will be deleted after all users leave
 	persistMessages?: boolean; // If true, messages are persisted to disk for recovery on server restart
+	pinnedBy?: string[]; // Array of user IDs who have pinned this channel
 }
 
 export const socket = writable<Socket | null>(null);
 export const channels = writable<Channel[]>([]);
+export const pinnedChannels = writable<Channel[]>([]);
 export const currentChannel = writable<string>('general');
 export const channelMessages = writable<Record<string, Message[]>>({ general: [] });
 export const users = writable<User[]>([]);
@@ -91,6 +93,19 @@ let socketInstance: Socket | null = null;
 
 export function getSocket(): Socket | null {
 	return socketInstance;
+}
+
+function updatePinnedChannels() {
+	const current = get(currentUser);
+	const allChannels = get(channels);
+
+	if (!current) return;
+
+	const pinned = allChannels.filter(ch =>
+		ch.pinnedBy && ch.pinnedBy.includes(current.id)
+	);
+
+	pinnedChannels.set(pinned);
 }
 
 export function initSocket(username: string, authToken?: string) {
@@ -352,6 +367,8 @@ export function initSocket(username: string, authToken?: string) {
 		if (user) {
 			console.log('[Socket] ✅ Found current user:', user);
 			currentUser.set(user);
+			// Update pinned channels now that we have the current user
+			updatePinnedChannels();
 		} else {
 			console.error('[Socket] ❌ Could not find current user in users list!');
 		}
@@ -515,6 +532,24 @@ export function initSocket(username: string, authToken?: string) {
 		});
 		// If current channel was deleted, switch to general
 		currentChannel.update(ch => ch === channelId ? 'general' : ch);
+	});
+
+	socketInstance.on('channel-pinned', (data: { channelId: string; channel: Channel }) => {
+		// Update the channel in the channels store to include the user in pinnedBy
+		channels.update(chs =>
+			chs.map(ch => ch.id === data.channelId ? data.channel : ch)
+		);
+		// Update pinned channels store
+		updatePinnedChannels();
+	});
+
+	socketInstance.on('channel-unpinned', (data: { channelId: string; channel: Channel }) => {
+		// Update the channel in the channels store to remove the user from pinnedBy
+		channels.update(chs =>
+			chs.map(ch => ch.id === data.channelId ? data.channel : ch)
+		);
+		// Update pinned channels store
+		updatePinnedChannels();
 	});
 
 	socketInstance.on('channel-error', (error: string) => {
@@ -773,6 +808,14 @@ export function deleteMessage(channelId: string, messageId: string) {
 
 export function togglePinMessage(channelId: string, messageId: string) {
 	socketInstance?.emit('toggle-pin-message', { channelId, messageId });
+}
+
+export function pinChannel(channelId: string) {
+	socketInstance?.emit('pin-channel', { channelId });
+}
+
+export function unpinChannel(channelId: string) {
+	socketInstance?.emit('unpin-channel', { channelId });
 }
 
 export function sendTyping(isTyping: boolean) {

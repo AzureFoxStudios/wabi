@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile } from '$lib/socket';
+	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, pinnedChannels, pinChannel, unpinChannel } from '$lib/socket';
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
@@ -35,6 +35,11 @@
 	let isResizing = false;
 	let startX = 0;
 	let startWidth = 0;
+
+	// Context menu state
+	let contextMenuChannel: Channel | null = null;
+	let contextMenuPosition = { x: 0, y: 0 };
+	let showContextMenu = false;
 
 	function startResize(e: MouseEvent) {
 		isResizing = true;
@@ -141,6 +146,33 @@
 		updateProfile(newStatus, undefined, undefined);
 		showStatusPopup = false;
 	}
+
+	function handleChannelRightClick(event: MouseEvent, channel: Channel) {
+		event.preventDefault();
+		contextMenuChannel = channel;
+		contextMenuPosition = { x: event.clientX, y: event.clientY };
+		showContextMenu = true;
+	}
+
+	function closeContextMenu() {
+		showContextMenu = false;
+		contextMenuChannel = null;
+	}
+
+	function isChannelPinned(channel: Channel): boolean {
+		return $pinnedChannels.some(ch => ch.id === channel.id);
+	}
+
+	async function togglePinChannel() {
+		if (!contextMenuChannel) return;
+
+		if (isChannelPinned(contextMenuChannel)) {
+			unpinChannel(contextMenuChannel.id);
+		} else {
+			pinChannel(contextMenuChannel.id);
+		}
+		closeContextMenu();
+	}
 </script>
 
 {#if sidebarWidth === 0}
@@ -187,10 +219,13 @@
 	<div class="channel-list">
 		<!-- Public Channels -->
 		{#each publicChannels as channel (channel.id)}
-			<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter}>
+			<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)}>
 				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
 					<span class="hash">#</span>
 					{channel.name}
+					{#if isChannelPinned(channel)}
+						<span class="pin-icon" title="Pinned">📌</span>
+					{/if}
 					{#if $channelUnreadCounts[channel.id] && $currentChannel !== channel.id}
 						<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
 					{/if}
@@ -211,10 +246,13 @@
 		{#if groupChannels.length > 0}
 			<div class="section-header">Group Chats</div>
 			{#each groupChannels as channel (channel.id)}
-				<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter}>
+				<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)}>
 					<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
 						<span class="group-icon">👥</span>
 						{channel.name}
+						{#if isChannelPinned(channel)}
+							<span class="pin-icon" title="Pinned">📌</span>
+						{/if}
 						{#if $channelUnreadCounts[channel.id] && $currentChannel !== channel.id}
 							<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
 						{/if}
@@ -228,6 +266,24 @@
 			{/each}
 		{/if}
 	</div>
+
+	{#if showContextMenu && contextMenuChannel}
+		<div
+			class="context-menu"
+			style:left="{contextMenuPosition.x}px"
+			style:top="{contextMenuPosition.y}px"
+			on:click={closeContextMenu}
+			on:contextmenu|preventDefault
+		>
+			<button class="context-menu-item" on:click={togglePinChannel}>
+				{#if isChannelPinned(contextMenuChannel)}
+					📌 Unpin Channel
+				{:else}
+					📌 Pin Channel
+				{/if}
+			</button>
+		</div>
+	{/if}
 
 	{#if $currentUser}
 		<div class="profile-card">
@@ -414,6 +470,8 @@
 		</div>
 	</div>
 {/if}
+
+<svelte:window on:click={closeContextMenu} />
 
 <style>
 	.expand-btn {
@@ -1154,6 +1212,42 @@
 		line-height: 1;
 		min-width: 44px;
 		min-height: 44px;
+	}
+
+	/* Context Menu Styles */
+	.context-menu {
+		position: fixed;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 4px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+		z-index: 10000;
+		min-width: 160px;
+	}
+
+	.context-menu-item {
+		width: 100%;
+		padding: 8px 12px;
+		background: transparent;
+		border: none;
+		text-align: left;
+		cursor: pointer;
+		border-radius: 4px;
+		color: var(--text-primary);
+		font-size: 0.9rem;
+		transition: background 0.15s;
+	}
+
+	.context-menu-item:hover {
+		background: var(--accent);
+		color: white;
+	}
+
+	.pin-icon {
+		margin-left: auto;
+		opacity: 0.7;
+		font-size: 0.9em;
 	}
 
 	/* ========== MOBILE STYLES ========== */

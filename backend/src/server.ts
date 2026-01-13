@@ -23,6 +23,7 @@ interface Channel {
   autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
   isTemporary?: boolean;
   persistMessages?: boolean; // Opt-in flag for message persistence
+  pinnedBy?: string[]; // Array of user IDs who have pinned this channel
 }
 
 const channels = new Map<string, Channel>();
@@ -1732,6 +1733,41 @@ io.on("connection", (socket) => {
     }
 
     emitToChannel(data.channelId, "message-pin-toggled", { channelId: data.channelId, messageId: data.messageId, isPinned: message.isPinned });
+  });
+
+  // Handle channel pinning
+  socket.on("pin-channel", (data: { channelId: string }) => {
+    const channel = channels.get(data.channelId);
+    if (!channel) return;
+
+    // Initialize pinnedBy array if needed
+    if (!channel.pinnedBy) {
+      channel.pinnedBy = [];
+    }
+
+    // Add user to pinnedBy if not already present
+    if (!channel.pinnedBy.includes(socket.id)) {
+      channel.pinnedBy.push(socket.id);
+    }
+
+    channels.set(data.channelId, channel);
+
+    // Emit to all connected clients (including the user who pinned it)
+    io.emit("channel-pinned", { channelId: data.channelId, channel });
+  });
+
+  // Handle channel unpinning
+  socket.on("unpin-channel", (data: { channelId: string }) => {
+    const channel = channels.get(data.channelId);
+    if (!channel || !channel.pinnedBy) return;
+
+    // Remove user from pinnedBy array
+    channel.pinnedBy = channel.pinnedBy.filter(id => id !== socket.id);
+
+    channels.set(data.channelId, channel);
+
+    // Emit to all connected clients
+    io.emit("channel-unpinned", { channelId: data.channelId, channel });
   });
 
   // Handle emoji reactions
