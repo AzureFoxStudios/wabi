@@ -214,7 +214,7 @@
 		// Shift+Enter adds a new line (default textarea behavior)
 	}
 
-	function handleSubmit() {
+	async function handleSubmit() {
 		if (messageInput.trim()) {
 			if (editingMessage) {
 				// Edit the existing message
@@ -222,6 +222,49 @@
 				editingMessage = null;
 			} else {
 				const trimmedMessage = messageInput.trim();
+
+				// Check for slash commands
+				if (trimmedMessage.startsWith('/')) {
+					const { executeCommand } = await import('$lib/commands/CommandRegistry');
+					const result = await executeCommand(trimmedMessage, {
+						userId: $currentUser?.id || '',
+						channelId: $currentChannel,
+						workspaceId: 'default-workspace',
+						messageInput: trimmedMessage
+					});
+
+					if (result.success) {
+						if (result.action === 'send-message' && result.message) {
+							// Send command result as a system message
+							sendMessage($currentChannel, result.message, 'text');
+						} else if (result.action === 'navigate') {
+							// Navigate to a different route
+							if (result.data?.filter) {
+								goto(`/business/graph?filter=${encodeURIComponent(result.data.filter)}`);
+							} else {
+								goto('/business/graph');
+							}
+						}
+						// action: 'open-modal' and other types can be handled as needed
+					} else {
+						// Send error message to chat
+						sendMessage($currentChannel, `⚠️ ${result.message || 'Command failed'}`, 'text');
+					}
+
+					messageInput = '';
+					sendTyping(false);
+
+					if (typingTimeout) {
+						clearTimeout(typingTimeout);
+					}
+
+					// Reset textarea height
+					if (textareaElement) {
+						textareaElement.style.height = 'auto';
+					}
+					textareaElement?.focus();
+					return;
+				}
 
 				// Check if message is ONLY emoji syntax (e.g., ":smile:" or ":smile::heart:")
 				const emojiOnlyPattern = /^(?::[\w_]+:)+$/;

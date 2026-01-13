@@ -104,3 +104,52 @@ export interface CalendarFilters {
 	endDate: number;
 	projectId?: string;
 }
+
+// Knowledge Graph & Resource Types
+export interface Resource {
+	id: string;
+	type: 'brush' | 'code' | 'image' | 'url' | 'note' | 'file';
+	name: string;
+	description?: string;
+	storageType: 'inline' | 'upload' | 'external';
+	content?: string; // For inline (base64 or text)
+	fileUrl?: string; // For uploads: /uploads/res-123.zip
+	externalUrl?: string; // For external URLs
+	fileSize?: number;
+	mimeType?: string;
+	preview?: string; // Thumbnail URL or base64
+	tags: string[];
+	createdBy: string;
+	createdAt: number;
+	updatedAt: number;
+}
+
+export interface Tag {
+	id: string;
+	name: string;
+	color: string;
+	createdAt: number;
+}
+
+export type NodeType = 'todo' | 'project' | 'diary_entry' | 'resource' | 'tag' | 'sprint';
+export type EdgeType = 'contains' | 'depends_on' | 'references' | 'tagged_with' | 'related_to' | 'inspired_by';
+
+export interface GraphNode {
+	id: string;
+	type: NodeType;
+	label: string;
+	data: Todo | Project | DiaryEntry | Resource | Tag | Sprint;
+	position?: { x: number; y: number };
+	collapsed?: boolean;
+}
+
+export interface GraphEdge {
+	id: string;
+	source: string; // Node ID
+	target: string; // Node ID
+	type: EdgeType;
+	label?: string;
+	weight?: number;
+	createdAt: number;
+	createdBy: string;
+}

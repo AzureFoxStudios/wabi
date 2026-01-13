@@ -10,7 +10,10 @@ import type {
 	Sprint,
 	DashboardView,
 	TodoFilters,
-	BurnChartDataPoint
+	BurnChartDataPoint,
+	Resource,
+	Tag,
+	GraphEdge
 } from './types';
 
 // Default kanban columns configuration
@@ -30,6 +33,11 @@ export const diaryEntries = writable<DiaryEntry[]>([]);
 export const projects = writable<Project[]>([]);
 export const sprints = writable<Sprint[]>([]);
 export const kanbanColumns = writable<KanbanColumn[]>(DEFAULT_KANBAN_COLUMNS);
+
+// Knowledge Graph stores
+export const resources = writable<Resource[]>([]);
+export const tags = writable<Tag[]>([]);
+export const graphEdges = writable<GraphEdge[]>([]);
 
 // UI state
 export const currentView = writable<DashboardView>('overview');
@@ -72,6 +80,10 @@ function loadFromStorage() {
 				}
 				kanbanColumns.set(migratedColumns);
 			}
+			// Knowledge Graph entities
+			if (data.resources) resources.set(data.resources);
+			if (data.tags) tags.set(data.tags);
+			if (data.graphEdges) graphEdges.set(data.graphEdges);
 		}
 	} catch (e) {
 		console.error('Failed to load business data from localStorage:', e);
@@ -87,7 +99,10 @@ function saveToStorage() {
 			diaryEntries: get(diaryEntries),
 			projects: get(projects),
 			sprints: get(sprints),
-			kanbanColumns: get(kanbanColumns)
+			kanbanColumns: get(kanbanColumns),
+			resources: get(resources),
+			tags: get(tags),
+			graphEdges: get(graphEdges)
 		};
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 	} catch (e) {
@@ -121,6 +136,20 @@ if (browser) {
 		import('./sync').then(({ triggerSync }) => triggerSync());
 	});
 	kanbanColumns.subscribe(saveToStorage);
+
+	// Knowledge Graph subscriptions
+	resources.subscribe(() => {
+		saveToStorage();
+		import('./sync').then(({ triggerSync }) => triggerSync());
+	});
+	tags.subscribe(() => {
+		saveToStorage();
+		import('./sync').then(({ triggerSync }) => triggerSync());
+	});
+	graphEdges.subscribe(() => {
+		saveToStorage();
+		import('./sync').then(({ triggerSync }) => triggerSync());
+	});
 
 	// Initialize sync engine for server sync
 	import('./sync').then(({ initSync }) => {
@@ -476,5 +505,106 @@ export function getDiaryEntryForDate(date: number): DiaryEntry | undefined {
 
 	return get(diaryEntries).find(e =>
 		e.date >= dayStart.getTime() && e.date < dayEnd.getTime()
+	);
+}
+
+// Resource CRUD operations
+export function addResource(resource: Omit<Resource, 'id' | 'createdAt' | 'updatedAt'>): Resource {
+	const newResource: Resource = {
+		...resource,
+		id: generateId(),
+		createdAt: Date.now(),
+		updatedAt: Date.now()
+	};
+	resources.update(r => [...r, newResource]);
+	return newResource;
+}
+
+export function updateResource(id: string, updates: Partial<Resource>): void {
+	resources.update(r =>
+		r.map(resource =>
+			resource.id === id
+				? { ...resource, ...updates, updatedAt: Date.now() }
+				: resource
+		)
+	);
+}
+
+export function deleteResource(id: string): void {
+	resources.update(r => r.filter(resource => resource.id !== id));
+}
+
+export function getResource(id: string): Resource | undefined {
+	return get(resources).find(r => r.id === id);
+}
+
+// Tag CRUD operations
+export function addTag(tag: Omit<Tag, 'id'>): Tag {
+	const newTag: Tag = {
+		...tag,
+		id: generateId()
+	};
+	tags.update(t => [...t, newTag]);
+	return newTag;
+}
+
+export function updateTag(id: string, updates: Partial<Tag>): void {
+	tags.update(t =>
+		t.map(tag =>
+			tag.id === id ? { ...tag, ...updates } : tag
+		)
+	);
+}
+
+export function deleteTag(id: string): void {
+	tags.update(t => t.filter(tag => tag.id !== id));
+}
+
+export function getTag(id: string): Tag | undefined {
+	return get(tags).find(t => t.id === id);
+}
+
+// Graph Edge CRUD operations
+export function addGraphEdge(edge: Omit<GraphEdge, 'id'>): GraphEdge {
+	const newEdge: GraphEdge = {
+		...edge,
+		id: generateId()
+	};
+	graphEdges.update(e => [...e, newEdge]);
+	return newEdge;
+}
+
+export function updateGraphEdge(id: string, updates: Partial<GraphEdge>): void {
+	graphEdges.update(e =>
+		e.map(edge =>
+			edge.id === id ? { ...edge, ...updates } : edge
+		)
+	);
+}
+
+export function deleteGraphEdge(id: string): void {
+	graphEdges.update(e => e.filter(edge => edge.id !== id));
+}
+
+export function getGraphEdge(id: string): GraphEdge | undefined {
+	return get(graphEdges).find(e => e.id === id);
+}
+
+// Get all edges connected to a node
+export function getConnectedEdges(nodeId: string): GraphEdge[] {
+	return get(graphEdges).filter(e => e.source === nodeId || e.target === nodeId);
+}
+
+// Get all resources with a specific tag
+export function getResourcesByTag(tagId: string): Resource[] {
+	return get(resources).filter(r => r.tags.includes(tagId));
+}
+
+// Search resources by name or description
+export function searchResources(query: string): Resource[] {
+	const lowerQuery = query.toLowerCase();
+	return get(resources).filter(r =>
+		r.name.toLowerCase().includes(lowerQuery) ||
+		r.description?.toLowerCase().includes(lowerQuery)
 	);
 }
