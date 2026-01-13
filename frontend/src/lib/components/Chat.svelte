@@ -239,7 +239,10 @@
 							sendMessage($currentChannel, result.message, 'text');
 						} else if (result.action === 'navigate') {
 							// Navigate to a different route
-							if (result.data?.filter) {
+							if (result.data?.path) {
+								// Use path directly if provided
+								goto(result.data.path);
+							} else if (result.data?.filter) {
 								goto(`/business/graph?filter=${encodeURIComponent(result.data.filter)}`);
 							} else {
 								goto('/business/graph');

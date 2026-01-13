@@ -265,6 +265,7 @@ Available commands:
 • /tag create <name> [color] - Create a new tag
 • /todo <text> - Create a quick todo
 • /search <query> - Search everything
+• /business - Open business hub (Ctrl+Shift+1)
 • /me <action> - Send action message
 • /shrug - Append ¯\\_(ツ)_/¯ to message
 • /tableflip - Append (╯°□°)╯︵ ┻━┻ to message
@@ -318,5 +319,15 @@ registerCommand('tableflip', async (args, context) => {
 		success: true,
 		message: `${text} (╯°□°)╯︵ ┻━┻`,
 		action: 'send-message'
+	};
+});
+
+// /business - Open business hub
+registerCommand('business', async (args, context) => {
+	return {
+		success: true,
+		message: 'Opening business hub...',
+		action: 'navigate',
+		data: { path: '/business' }
 	};
 });

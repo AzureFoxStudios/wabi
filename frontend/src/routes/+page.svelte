@@ -45,13 +45,23 @@
 	onMount(async () => {
 		const notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 		if (notificationsEnabled) await requestNotificationPermission();
-		
+
 		mql = window.matchMedia('(max-width: 768px)');
 		isMobile = mql.matches;
 		mql.addEventListener('change', (e) => {
 			isMobile = e.matches;
 			if (!isMobile) rightPanelView = 'none'; // Reset panels on resize to desktop
 		});
+
+		// Keyboard shortcut: Ctrl+Shift+1 to open business hub
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.ctrlKey && e.shiftKey && e.key === '1') {
+				e.preventDefault();
+				window.location.href = '/business';
+			}
+		};
+		window.addEventListener('keydown', handleKeyDown);
+		return () => window.removeEventListener('keydown', handleKeyDown);
 	});
 	
 	onDestroy(() => {
@@ -236,6 +246,13 @@
 		
 		<!-- Desktop-Only Buttons -->
 		{#if !isMobile}
+			<a
+				href="/business"
+				class="business-nav-button"
+				title="Business Hub (Ctrl+Shift+1)"
+			>
+				🏢
+			</a>
 			<button
 				class="user-panel-toggle"
 				class:open={showUserPanel || showDMPanel}
@@ -326,6 +343,30 @@
 	.user-panel-toggle:hover {
 		opacity: 1;
 		background: var(--accent);
+	}
+
+	.business-nav-button {
+		position: absolute;
+		top: 12px;
+		right: 12px;
+		width: 40px;
+		height: 40px;
+		background: var(--bg-secondary);
+		border: 2px solid var(--border);
+		border-radius: 8px;
+		cursor: pointer;
+		font-size: 1.5rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		text-decoration: none;
+		transition: all 0.3s ease;
+		z-index: 500;
+	}
+	.business-nav-button:hover {
+		background: var(--accent);
+		border-color: var(--accent);
+		transform: scale(1.1);
 	}
 
 	/* --- Mobile Styles --- */
