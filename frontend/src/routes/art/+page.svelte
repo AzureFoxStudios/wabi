@@ -24,6 +24,11 @@
 	let contextMenuNodeId: string | null = null;
 	let contextMenuNodeLabel = '';
 
+	// Create resource state
+	let showCreateDialog = false;
+	let newResourceName = '';
+	let newResourceType = 'reference';
+
 	onMount(() => {
 		// Parse highlight from URL: /art?highlight=res-123
 		const params = new URLSearchParams($page.url.search);
@@ -74,6 +79,37 @@
 		contextMenuVisible = false;
 		contextMenuNodeId = null;
 	}
+
+	function handleCreateResource() {
+		if (!newResourceName.trim()) {
+			alert('Please enter a resource name');
+			return;
+		}
+
+		const newResource = {
+			id: `res-${Date.now()}`,
+			name: newResourceName,
+			type: newResourceType,
+			createdAt: new Date().toISOString(),
+			createdBy: 'You',
+			isAnonymous: false,
+			tags: [],
+			preview: null
+		};
+
+		resources.update(r => [...r, newResource]);
+
+		// Reset form and close dialog
+		newResourceName = '';
+		newResourceType = 'reference';
+		showCreateDialog = false;
+	}
+
+	function closeCreateDialog() {
+		showCreateDialog = false;
+		newResourceName = '';
+		newResourceType = 'reference';
+	}
 </script>
 
 <div class="art-page">
@@ -82,6 +118,9 @@
 		<div class="header-left">
 			<h1>🎨 Art Resource Graph</h1>
 			<div class="header-controls">
+				<button class="create-btn" on:click={() => showCreateDialog = true} title="Create a new resource">
+					➕ New Resource
+				</button>
 				<LayoutSwitcher on:layout-change={handleLayoutChange} />
 				<GraphSwitcher {currentGraph} onSwitch={handleGraphSwitch} />
 			</div>
@@ -144,6 +183,48 @@
 	onCopyLink={handleCopyResourceLink}
 />
 
+<!-- Create Resource Dialog -->
+{#if showCreateDialog}
+	<div class="modal-overlay" on:click={closeCreateDialog}>
+		<div class="modal-content" on:click|stopPropagation>
+			<div class="modal-header">
+				<h2>➕ Create New Resource</h2>
+				<button class="close-btn" on:click={closeCreateDialog}>✕</button>
+			</div>
+
+			<div class="modal-body">
+				<div class="form-group">
+					<label for="resource-name">Resource Name</label>
+					<input
+						id="resource-name"
+						type="text"
+						placeholder="e.g., Design Inspiration Board"
+						bind:value={newResourceName}
+						on:keydown={(e) => e.key === 'Enter' && handleCreateResource()}
+					/>
+				</div>
+
+				<div class="form-group">
+					<label for="resource-type">Type</label>
+					<select id="resource-type" bind:value={newResourceType}>
+						<option value="reference">Reference Material</option>
+						<option value="tutorial">Tutorial</option>
+						<option value="inspiration">Inspiration</option>
+						<option value="project">Project File</option>
+						<option value="tool">Tool/Software</option>
+						<option value="other">Other</option>
+					</select>
+				</div>
+			</div>
+
+			<div class="modal-footer">
+				<button class="btn-cancel" on:click={closeCreateDialog}>Cancel</button>
+				<button class="btn-create" on:click={handleCreateResource}>Create Resource</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
 	.art-page {
 		display: flex;
@@ -178,6 +259,23 @@
 		display: flex;
 		gap: 16px;
 		flex-wrap: wrap;
+		align-items: center;
+	}
+
+	.create-btn {
+		padding: 8px 16px;
+		background: #6366f1;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 0.9rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.create-btn:hover {
+		background: #4f46e5;
 	}
 
 	.header-stats {
@@ -245,10 +343,143 @@
 		margin: 0;
 	}
 
+	/* Modal Styles */
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.7);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 10001;
+	}
+
+	.modal-content {
+		background: #2a2a2e;
+		border-radius: 12px;
+		box-shadow: 0 20px 25px rgba(0, 0, 0, 0.4);
+		max-width: 500px;
+		width: 90%;
+		overflow: hidden;
+	}
+
+	.modal-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 20px;
+		border-bottom: 1px solid #333;
+	}
+
+	.modal-header h2 {
+		margin: 0;
+		font-size: 1.3rem;
+		color: #e0e0e0;
+	}
+
+	.close-btn {
+		background: transparent;
+		border: none;
+		color: #a0a0a0;
+		font-size: 1.5rem;
+		cursor: pointer;
+		padding: 0;
+		width: 30px;
+		height: 30px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: color 0.2s;
+	}
+
+	.close-btn:hover {
+		color: #e0e0e0;
+	}
+
+	.modal-body {
+		padding: 20px;
+	}
+
+	.form-group {
+		margin-bottom: 16px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.form-group label {
+		font-size: 0.9rem;
+		color: #a0a0a0;
+		font-weight: 500;
+	}
+
+	.form-group input,
+	.form-group select {
+		padding: 10px 12px;
+		background: #1e1e24;
+		border: 1px solid #333;
+		border-radius: 6px;
+		color: #e0e0e0;
+		font-size: 0.95rem;
+		font-family: inherit;
+	}
+
+	.form-group input:focus,
+	.form-group select:focus {
+		outline: none;
+		border-color: #6366f1;
+		box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+	}
+
+	.modal-footer {
+		display: flex;
+		gap: 12px;
+		padding: 16px 20px;
+		border-top: 1px solid #333;
+		justify-content: flex-end;
+	}
+
+	.btn-cancel,
+	.btn-create {
+		padding: 10px 20px;
+		border-radius: 6px;
+		border: none;
+		font-size: 0.9rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-cancel {
+		background: #3a3a3e;
+		color: #e0e0e0;
+	}
+
+	.btn-cancel:hover {
+		background: #4a4a4e;
+	}
+
+	.btn-create {
+		background: #6366f1;
+		color: white;
+	}
+
+	.btn-create:hover {
+		background: #4f46e5;
+	}
+
 	@media (max-width: 1024px) {
 		.art-header {
 			flex-direction: column;
 			align-items: flex-start;
+			gap: 12px;
+		}
+
+		.header-controls {
+			gap: 12px;
 		}
 
 		.header-stats {
@@ -259,15 +490,53 @@
 		.resource-panel {
 			width: 350px;
 		}
+
+		.create-btn {
+			padding: 6px 12px;
+			font-size: 0.85rem;
+		}
 	}
 
 	@media (max-width: 768px) {
+		.art-page {
+			height: 100vh;
+		}
+
+		.art-header {
+			flex-direction: column;
+			align-items: flex-start;
+			padding: 12px 16px;
+			gap: 12px;
+		}
+
+		.art-header h1 {
+			font-size: 1.4rem;
+		}
+
+		.header-controls {
+			flex-direction: column;
+			width: 100%;
+			gap: 8px;
+		}
+
+		.create-btn {
+			width: 100%;
+			padding: 10px 12px;
+			font-size: 0.85rem;
+		}
+
+		.header-stats {
+			flex-wrap: wrap;
+			gap: 16px;
+			width: 100%;
+		}
+
 		.art-content {
 			flex-direction: column;
 		}
 
 		.pinned-sidebar-wrapper {
-			height: 200px;
+			height: 150px;
 			width: 100%;
 			overflow-y: auto;
 			border-bottom: 1px solid #333;
@@ -275,13 +544,95 @@
 
 		.resource-panel {
 			width: 100%;
-			height: 40%;
+			height: 35%;
 			border-left: none;
 			border-top: 1px solid #333;
 		}
 
 		.graph-container {
 			flex: 1;
+		}
+
+		.art-info {
+			padding: 8px 12px;
+			font-size: 0.8rem;
+		}
+
+		.modal-content {
+			width: 95%;
+			max-width: 450px;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.art-header {
+			padding: 8px 12px;
+		}
+
+		.art-header h1 {
+			font-size: 1.1rem;
+		}
+
+		.header-controls {
+			gap: 6px;
+		}
+
+		.create-btn {
+			width: 100%;
+			padding: 8px 10px;
+			font-size: 0.8rem;
+		}
+
+		.header-stats {
+			gap: 12px;
+		}
+
+		.stat {
+			min-width: 45px;
+		}
+
+		.stat-label {
+			font-size: 0.6rem;
+		}
+
+		.stat-value {
+			font-size: 1.2rem;
+		}
+
+		.pinned-sidebar-wrapper {
+			height: 120px;
+		}
+
+		.resource-panel {
+			height: 30%;
+		}
+
+		.art-info {
+			padding: 6px 10px;
+			font-size: 0.75rem;
+		}
+
+		.modal-content {
+			width: 98%;
+		}
+
+		.modal-header {
+			padding: 16px;
+		}
+
+		.modal-body {
+			padding: 16px;
+		}
+
+		.modal-footer {
+			padding: 12px 16px;
+			gap: 8px;
+		}
+
+		.btn-cancel,
+		.btn-create {
+			padding: 8px 16px;
+			font-size: 0.85rem;
 		}
 	}
 </style>
