@@ -34,8 +34,21 @@ export default defineConfig({
 				enabled: true // This enables PWA features in dev mode
 			},
 			workbox: {
-				navigateFallback: 'index.html',
-				navigateFallbackDenylist: [/^\/_/, /\/[^\/.]+\.[^\/]+$/]
+				navigateFallback: undefined,
+				navigateFallbackDenylist: [/^\/_/, /\/[^\/.]+\.[^\/]+$/],
+				runtimeCaching: [
+					{
+						urlPattern: /^\/api\//,
+						handler: 'NetworkFirst',
+						options: {
+							cacheName: 'api-cache',
+							expiration: {
+								maxEntries: 50,
+								maxAgeSeconds: 3600
+							}
+						}
+					}
+				]
 			},
 			manifest: {
 				name: 'Wabi',
