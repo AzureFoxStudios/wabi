@@ -155,11 +155,130 @@ if (browser) {
 	import('./sync').then(({ initSync }) => {
 		initSync();
 	});
+
+	// Initialize sample data if empty
+	initializeSampleData();
 }
 
 // Helper function to generate IDs
 export function generateId(): string {
 	return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Initialize sample data for demo/testing
+function initializeSampleData() {
+	// Only add sample data if resources are empty
+	const currentResources = get(resources);
+	if (currentResources.length > 0) return;
+
+	// Sample resources
+	const sampleResources: Omit<Resource, 'id' | 'createdAt' | 'updatedAt'>[] = [
+		{
+			name: 'Brush Pack - Watercolor',
+			type: 'brush',
+			description: 'Professional watercolor brush set for digital painting',
+			createdBy: 'Alice',
+			isAnonymous: false,
+			tags: ['brush', 'watercolor', 'painting'],
+			fileUrl: '/brushes/watercolor.abr',
+			visibility_type: 'public'
+		},
+		{
+			name: 'Color Theory Guide',
+			type: 'note',
+			description: 'Comprehensive guide to color harmony and theory',
+			createdBy: 'Bob',
+			isAnonymous: false,
+			tags: ['color', 'theory', 'tutorial'],
+			visibility_type: 'public'
+		},
+		{
+			name: 'Digital Painting Tutorial',
+			type: 'url',
+			description: 'Learn advanced digital painting techniques',
+			createdBy: 'Charlie',
+			isAnonymous: false,
+			tags: ['painting', 'tutorial', 'digital'],
+			externalUrl: 'https://example.com/tutorials/digital-painting',
+			visibility_type: 'public'
+		},
+		{
+			name: 'Texture Pack - Nature',
+			type: 'file',
+			description: 'Natural textures for background and surface details',
+			createdBy: 'Diana',
+			isAnonymous: false,
+			tags: ['texture', 'nature', 'assets'],
+			fileUrl: '/textures/nature-pack.zip',
+			visibility_type: 'public'
+		},
+		{
+			name: 'Character Design Reference',
+			type: 'image',
+			description: 'Reference images for character design and anatomy',
+			createdBy: 'Eve',
+			isAnonymous: false,
+			tags: ['character', 'design', 'reference'],
+			fileUrl: '/images/character-ref.jpg',
+			preview: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22150%22%3E%3Crect fill=%22%234f46e5%22 width=%22200%22 height=%22150%22/%3E%3Ctext fill=%22white%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22%3ECharacter Design%3C/text%3E%3C/svg%3E',
+			visibility_type: 'public'
+		},
+		{
+			name: 'Perspective Techniques',
+			type: 'code',
+			description: 'Code snippets and techniques for perspective drawing',
+			createdBy: 'Frank',
+			isAnonymous: false,
+			tags: ['perspective', 'technique', 'drawing'],
+			visibility_type: 'public'
+		}
+	];
+
+	// Add sample resources
+	const addedResources: Resource[] = [];
+	sampleResources.forEach(res => {
+		addedResources.push(addResource(res));
+	});
+
+	// Sample edges (connections between resources)
+	if (addedResources.length >= 2) {
+		const sampleEdges = [
+			{
+				source: addedResources[0].id,
+				target: addedResources[1].id,
+				type: 'related',
+				label: 'similar topic'
+			},
+			{
+				source: addedResources[1].id,
+				target: addedResources[2].id,
+				type: 'related',
+				label: 'same category'
+			},
+			{
+				source: addedResources[0].id,
+				target: addedResources[4].id,
+				type: 'uses',
+				label: 'used by'
+			},
+			{
+				source: addedResources[3].id,
+				target: addedResources[4].id,
+				type: 'related',
+				label: 'complementary'
+			},
+			{
+				source: addedResources[2].id,
+				target: addedResources[5].id,
+				type: 'related',
+				label: 'technique'
+			}
+		];
+
+		sampleEdges.forEach(edge => {
+			addGraphEdge(edge);
+		});
+	}
 }
 
 // Todo CRUD operations
