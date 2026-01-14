@@ -31,7 +31,7 @@ export interface CommandResult {
 	success: boolean;
 	message?: string;
 	data?: any;
-	action?: 'navigate' | 'open-modal' | 'insert-text' | 'send-message' | 'clear-channel';
+	action?: 'navigate' | 'open-modal' | 'insert-text' | 'send-message' | 'clear-channel' | 'show-resource-links';
 }
 
 type CommandHandler = (args: string[], context: CommandContext) => Promise<CommandResult>;
@@ -104,25 +104,23 @@ registerCommand('resource', async (args, context) => {
 	}
 
 	if (action === 'create') {
-		const name = args.slice(1).join(' ');
+		const name = args[1];
+		const color = args[2] || '#64748b';
+
 		if (!name) {
-			return { success: false, message: 'Usage: /resource create <name>' };
+			return { success: false, message: 'Usage: /tag create <name> [color]' };
 		}
 
-		const newResource = addResource({
-			type: 'note',
+		const newTag = addTag({
 			name,
-			description: '',
-			storageType: 'inline',
-			content: '',
-			tags: [],
-			createdBy: context.userId
+			color,
+			createdAt: Date.now()
 		});
 
 		return {
 			success: true,
-			message: `Created resource: ${name}`,
-			data: newResource,
+			message: `Created tag: ${name}`,
+			data: newTag,
 			action: 'send-message'
 		};
 	}
@@ -194,7 +192,8 @@ registerCommand('tag', async (args, context) => {
 
 		const newTag = addTag({
 			name,
-			color
+			color,
+			createdAt: Date.now()
 		});
 
 		return {
@@ -257,20 +256,21 @@ registerCommand('help', async (args, context) => {
 	const commands = Array.from(commandHandlers.keys());
 	const help = `
 Available commands:
-• /resource list [type] - List resources (optionally by type)
-• /resource create <name> - Create a new resource
-• /resource search <query> - Search resources
-• /graph [filter] - Open knowledge graph
-• /tag list - List all tags
-• /tag create <name> [color] - Create a new tag
-• /todo <text> - Create a quick todo
-• /search <query> - Search everything
-• /business - Open business hub (Ctrl+Shift+1)
-• /me <action> - Send action message
-• /shrug - Append ¯\\_(ツ)_/¯ to message
-• /tableflip - Append (╯°□°)╯︵ ┻━┻ to message
-• /help - Show this help message
-`;
+ • /resource list [type] - List resources (optionally by type)
+ • /resource create <name> - Create a new resource
+ • /resource search <query> - Search resources
+ • /res [terms] [-tag1 -tag2] - Search art resources by tags and text
+ • /graph [filter] - Open knowledge graph
+ • /tag list - List all tags
+ • /tag create <name> [color] - Create a new tag
+ • /todo <text> - Create a quick todo
+ • /search <query> - Search everything
+ • /business - Open business hub (Ctrl+Shift+1)
+ • /me <action> - Send action message
+ • /shrug - Append ¯\\_(ツ)_/¯ to message
+ • /tableflip - Append (╯°□°)╯︵ ┻━┻ to message
+ • /help - Show this help message
+ `;
 
 	return {
 		success: true,
@@ -329,5 +329,78 @@ registerCommand('business', async (args, context) => {
 		message: 'Opening business hub...',
 		action: 'navigate',
 		data: { path: '/business' }
+	};
+});
+
+// /res - Search art resources by tags and text
+registerCommand('res', async (args, context) => {
+	const input = args.join(' ');
+
+	if (!input) {
+		return { success: false, message: 'Usage: /res [search terms] [-tag1 -tag2]' };
+	}
+
+	// Parse flags (tags start with -) and search terms
+	const tags: string[] = [];
+	const searchTerms: string[] = [];
+
+	for (const arg of args) {
+		if (arg.startsWith('-')) {
+			tags.push(arg.slice(1));
+		} else if (arg.length > 0) {
+			searchTerms.push(arg);
+		}
+	}
+
+	// Get all resources
+	let allResources = get(resources);
+
+	// Apply tag filters
+	if (tags.length > 0) {
+		allResources = allResources.filter(r =>
+			r.tags && tags.every(tag => r.tags.includes(tag))
+		);
+	}
+
+	// Apply text search
+	if (searchTerms.length > 0) {
+		const query = searchTerms.join(' ').toLowerCase();
+		allResources = allResources.filter(r =>
+			r.name.toLowerCase().includes(query) ||
+			(r.description && r.description.toLowerCase().includes(query))
+		);
+	}
+
+	if (allResources.length === 0) {
+		return {
+			success: true,
+			message: `No resources found matching: ${input}`,
+			action: 'send-message'
+		};
+	}
+
+	const resultText =
+		tags.length > 0 && searchTerms.length > 0
+			? `Found ${allResources.length} resources with tags [${tags.join(', ')}] matching "${searchTerms.join(' ')}"`
+			: tags.length > 0
+			? `Found ${allResources.length} resources tagged: ${tags.join(', ')}`
+			: `Found ${allResources.length} resources matching "${searchTerms.join(' ')}"`;
+
+	return {
+		success: true,
+		message: resultText,
+		data: {
+			resourceNodes: allResources.map(r => ({
+				id: r.id,
+				name: r.name,
+				type: r.type,
+				isAnonymous: r.isAnonymous,
+				preview: r.preview,
+				tags: r.tags || [],
+				thumbnail: r.preview
+			})),
+			tagsFound: tags
+		},
+		action: 'show-resource-links'
 	};
 });

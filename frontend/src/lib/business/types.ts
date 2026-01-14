@@ -122,7 +122,15 @@ export interface Resource {
 	createdBy: string;
 	createdAt: number;
 	updatedAt: number;
+	// Privacy fields
+	isAnonymous?: boolean;
+	visibilityType?: 'public' | 'role_restricted' | 'private' | 'personal';
+	minRole?: 'admin' | 'mod' | 'contributor' | 'viewer' | 'owner';
+	isEncrypted?: boolean;
+	workspaceId?: string;
 }
+
+export type UserRole = 'admin' | 'mod' | 'contributor' | 'viewer' | 'owner';
 
 export interface Tag {
 	id: string;

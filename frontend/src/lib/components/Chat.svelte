@@ -23,6 +23,7 @@
 	let showEmojiPicker = false;
 	let emojiPickerButton: HTMLButtonElement;
 	let replyingTo: Message | null = null;
+	let resourceSearchResults: any[] = []; // Store /res command results
 	let fileInput: HTMLInputElement;
 	let editingMessage: Message | null = null;
 	let uploadProgress = 0;
@@ -36,6 +37,25 @@
 
 	// Search functionality
 	let searchInput = '';
+
+	// Get icon for resource type
+	function getResourceIcon(type: string): string {
+		const icons: Record<string, string> = {
+			brush: '🖌️',
+			image: '🖼️',
+			url: '🔗',
+			note: '📝',
+			file: '📁',
+			code: '💻'
+		};
+		return icons[type] || '📄';
+	}
+
+	// Open resource in graph
+	function openResourceInGraph(resourceId: string) {
+		// Open graph page with highlight
+		window.open(`/art?highlight=${resourceId}`, '_blank');
+	}
 	let filteredMessages: Message[] = [];
 	let searchSuggestions: string[] = [];
 	let selectedSuggestionIndex = -1;
@@ -237,6 +257,11 @@
 						if (result.action === 'send-message' && result.message) {
 							// Send command result as a system message
 							sendMessage($currentChannel, result.message, 'text');
+						} else if (result.action === 'show-resource-links') {
+							// Store resource search results for display
+							resourceSearchResults = result.data?.resourceNodes || [];
+							// Send summary message
+							sendMessage($currentChannel, result.message || '', 'text');
 						} else if (result.action === 'navigate') {
 							// Navigate to a different route
 							if (result.data?.path) {
@@ -596,214 +621,43 @@
 			<div class="drag-overlay-content">
 				<div class="drag-icon">📁</div>
 				<div class="drag-text">Drop files here to upload</div>
-			</div>
-		</div>
-	{/if}
-
-	{#if isDMChannel}
-		<!-- DM channels should not be displayed in the main chat area -->
-		<!-- They are only accessible through the DM panel on the right -->
-		<div class="dm-redirect-message">
-			<div class="dm-redirect-content">
-				<h2>Direct Messages</h2>
-				<p>Direct messages are displayed in the DM panel on the right side.</p>
-				<p>Click on a user in the user panel to start or view a DM conversation.</p>
-			</div>
-		</div>
-	{:else}
-		<div class="chat-header">
-			<h2>{channelDisplayName}</h2>
-			<div class="search-container">
-				<div class="search-input-wrapper">
-					<input
-						type="text"
-						bind:value={searchInput}
-						on:keydown={handleSearchKeydown}
-						on:focus={() => showSuggestions = searchSuggestions.length > 0}
-						placeholder="Search (by:username, has:image, etc.)"
-						class="search-input"
-						autocomplete="off"
-					/>
-					{#if showSuggestions && searchSuggestions.length > 0}
-						<div class="search-suggestions">
-							{#each searchSuggestions as suggestion, index}
-								<button
-									class="suggestion-item"
-									class:selected={index === selectedSuggestionIndex}
-									on:click={() => applySuggestion(suggestion)}
-									on:mouseenter={() => selectedSuggestionIndex = index}
-								>
-									{#if suggestion.startsWith('by:')}
-										👤 {suggestion}
-									{:else if suggestion.startsWith('has:')}
-										🏷️ {suggestion}
-									{:else}
-										{suggestion}
-									{/if}
-								</button>
-							{/each}
-						</div>
-					{/if}
-				</div>
-				{#if searchInput}
-					<span class="search-results">{filteredMessages.length} result{filteredMessages.length !== 1 ? 's' : ''}</span>
-				{/if}
-			</div>
-		</div>
-
-	<div class="messages" bind:this={chatContainer}>
-		{#if !searchInput}
-			<PinnedMessages pinnedMessages={pinnedMessages} />
-		{/if}
-		<MessageList messages={filteredMessages} onReply={handleReply} firstUnreadMessageId={$lastReadMessageId} />
-
-		{#if $typingUsers.length > 0}
-			<div class="typing-indicator">
-				<span class="typing-dots"></span>
-				<span>{$typingUsers.join(', ')} {$typingUsers.length === 1 ? 'is' : 'are'} typing...</span>
-			</div>
-		{/if}
 	</div>
 
-	{#if showGiphyPicker}
-		<GiphyPicker
-			on:select={handleGifSelect}
-			on:close={() => showGiphyPicker = false}
-		/>
-	{/if}
-
-	{#if showEmojiPicker}
-		<EmojiPicker
-			on:select={handleEmojiSelect}
-			on:close={() => showEmojiPicker = false}
-		/>
-	{/if}
-
-	{#if editingMessage}
-		<div class="edit-bar">
-			<div class="edit-info">
-				<span class="edit-label">Editing message</span>
-				<span class="edit-hint">Press Escape to cancel</span>
+	<!-- Resource Search Results Display -->
+	{#if resourceSearchResults.length > 0}
+		<div class="resource-results">
+			<div class="resource-results-header">
+				<span>Found {resourceSearchResults.length} resource{resourceSearchResults.length === 1 ? '' : 's'}</span>
+				<button class="close-results-btn" on:click={() => resourceSearchResults = []}>✕</button>
 			</div>
-			<button class="cancel-edit" on:click={cancelEdit}>✕</button>
-		</div>
-	{:else if replyingTo}
-		<div class="reply-bar">
-			<div class="reply-info">
-				<span class="reply-label">Replying to {replyingTo.user}:</span>
-				<span class="reply-preview">{replyingTo.text.substring(0, 50)}{replyingTo.text.length > 50 ? '...' : ''}</span>
-			</div>
-			<button class="cancel-reply" on:click={cancelReply}>✕</button>
-		</div>
-	{/if}
-
-	<div class="input-wrapper">
-		{#if filePreviews.length > 0 && !isUploading}
-			<div class="file-gallery">
-				<div class="gallery-header">
-					<span>{filePreviews.length} file{filePreviews.length > 1 ? 's' : ''} selected</span>
-					<button class="cancel-gallery" on:click={cancelUpload}>✕</button>
-				</div>
-				<div class="gallery-grid">
-					{#each filePreviews as { file, preview }, index}
-						<div class="gallery-item">
-							{#if preview}
-								<img src={preview} alt={file.name} class="gallery-preview" />
-							{:else}
-								<div class="gallery-file-icon">
-									{#if file.type.startsWith('video/')}
-										🎬
-									{:else if file.type.startsWith('audio/')}
-										🎵
-									{:else}
-										📄
-									{/if}
-								</div>
+			<div class="resource-results-list">
+				{#each resourceSearchResults as node}
+					<div class="resource-link-item">
+						<span class="resource-icon">{getResourceIcon(node.type)}</span>
+						<a
+							href="#"
+							on:click|preventDefault={() => openResourceInGraph(node.id)}
+							class="resource-link">
+							{node.name}
+						</a>
+						<span class="resource-meta">
+							{#if !node.isAnonymous && node.author}
+								by {node.author}
+							{:else if node.isAnonymous}
+								🔒 Anonymous
 							{/if}
-							<div class="gallery-file-info">
-								<div class="gallery-file-name">{file.name}</div>
-								<div class="gallery-file-size">{(file.size / 1024 / 1024).toFixed(2)} MB</div>
+						</span>
+						{#if node.tags.length > 0}
+							<div class="resource-tags">
+								{#each node.tags as tag}
+									<span class="result-tag">#{tag}</span>
+								{/each}
 							</div>
-							<button class="remove-file" on:click={() => removeFile(index)}>✕</button>
-						</div>
-					{/each}
-				</div>
-				<div class="spoiler-checkbox-container">
-					<label class="spoiler-checkbox-label">
-						<input type="checkbox" bind:checked={markAsSpoiler} class="spoiler-checkbox" />
-						<span>Mark as spoiler</span>
-					</label>
-					<span class="spoiler-hint" title="Sensitive content will be hidden until clicked">⚠️</span>
-				</div>
-				<button class="upload-files-btn" on:click={uploadSelectedFiles}>
-					Upload {filePreviews.length} file{filePreviews.length > 1 ? 's' : ''}
-				</button>
+						{/if}
+					</div>
+				{/each}
 			</div>
-		{/if}
-
-		{#if isUploading}
-			<div class="upload-progress-bar">
-				<div class="upload-progress-info">
-					<span>Uploading files...</span>
-					<span>{uploadProgress}%</span>
-				</div>
-				<div class="progress-bar">
-					<div class="progress-fill" style="width: {uploadProgress}%"></div>
-				</div>
-			</div>
-		{/if}
-		<input
-			type="file"
-			bind:this={fileInput}
-			on:change={handleFileSelect}
-			multiple
-			style="display: none;"
-		/>
-		<div class="input-container">
-			<div class="input-buttons-left">
-				<button
-					class="input-icon-button"
-					on:click={() => fileInput?.click()}
-					title="Attach file"
-				>
-					📎
-				</button>
-			</div>
-			<textarea
-				bind:this={textareaElement}
-				bind:value={messageInput}
-				on:input={handleInput}
-				on:keydown={handleKeyDown}
-				placeholder="Type a message... (Shift+Enter for new line)"
-				maxlength="2000"
-				rows="1"
-			></textarea>
-			<button
-				class="input-icon-button"
-				on:click={() => showGiphyPicker = !showGiphyPicker}
-				title="Add GIF"
-			>
-				GIF
-			</button>
-			<button
-				bind:this={emojiPickerButton}
-				class="input-icon-button"
-				on:click|stopPropagation={() => {
-				showEmojiPicker = !showEmojiPicker;
-			}}
-				title="Add emoji"
-			>
-				😀
-			</button>
-			<button
-				class="send-button"
-				on:click={handleSubmit}
-				disabled={!messageInput.trim()}
-			>
-				Send
-			</button>
 		</div>
-	</div>
 	{/if}
 </div>
 
@@ -1268,5 +1122,89 @@
 		.edit-bar, .reply-bar {
 			padding: 0.375rem 0.75rem;
 		}
+	}
+	.resource-results {
+		background: #2a2a2e;
+		border-radius: 8px;
+		padding: 12px;
+		margin: 8px 0;
+		border: 1px solid #444;
+	}
+
+	.resource-results-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 12px;
+		font-size: 14px;
+		color: #fff;
+		font-weight: 600;
+	}
+
+	.close-results-btn {
+		background: transparent;
+		border: none;
+		color: #aaa;
+		cursor: pointer;
+		font-size: 18px;
+		padding: 4px;
+	}
+
+	.close-results-btn:hover {
+		color: #fff;
+	}
+
+	.resource-results-list {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.resource-link-item {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 10px;
+		background: #3a3a3e;
+		border-radius: 6px;
+		transition: background 0.2s;
+	}
+
+	.resource-link-item:hover {
+		background: #4a4a4e;
+	}
+
+	.resource-icon {
+		font-size: 20px;
+	}
+
+	.resource-link {
+		flex: 1;
+		color: #fff;
+		text-decoration: none;
+		font-weight: 600;
+	}
+
+	.resource-link:hover {
+		color: #6366f1;
+	}
+
+	.resource-meta {
+		font-size: 12px;
+		color: #aaa;
+		white-space: nowrap;
+	}
+
+	.resource-tags {
+		display: flex;
+		gap: 4px;
+		margin-top: 4px;
+	}
+
+	.result-tag {
+		background: #6366f1;
+		padding: 2px 8px;
+		border-radius: 10px;
+		font-size: 11px;
 	}
 </style>
