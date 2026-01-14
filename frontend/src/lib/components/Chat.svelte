@@ -1,10 +1,14 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, type Message, type Emoji } from '$lib/socket';
+	import { resources, graphEdges } from '$lib/business/store';
+	import { pinChannel, unpinChannel } from '$lib/socket';
 	import GiphyPicker from './GiphyPicker.svelte';
 	import EmojiPicker from './EmojiPicker.svelte';
 	import MessageList from './MessageList.svelte';
 	import PinnedMessages from './PinnedMessages.svelte';
+	import CommandPalette from './CommandPalette.svelte';
+	import { parseCommand, formatCommandHelp, getMatchingCommands, type Command } from '$lib/commands';
 
 	$: messages = $channelMessages[$currentChannel] || [];
 	$: pinnedMessages = messages.filter((m: Message) => m.isPinned);
@@ -33,6 +37,11 @@
 	let isDragging = false;
 	let dragCounter = 0;
 	let textareaElement: HTMLTextAreaElement;
+
+	// Command palette
+	let commandPalette: CommandPalette;
+	let showCommandPalette = false;
+	let commandPaletteSelectedIndex = 0;
 
 	// Search functionality
 	let searchInput = '';
@@ -123,7 +132,25 @@
 		}, 1000) as unknown as number;
 	}
 
+	function handleInputChange() {
+		// Show command palette if input starts with /
+		if (messageInput.startsWith('/')) {
+			showCommandPalette = getMatchingCommands(messageInput).length > 0;
+		} else {
+			showCommandPalette = false;
+		}
+	}
+
 	function handleKeyDown(e: KeyboardEvent) {
+		// Command palette navigation
+		if (showCommandPalette && commandPalette) {
+			const handled = commandPalette.handleKeyDown(e.key);
+			if (handled) {
+				e.preventDefault();
+				return;
+			}
+		}
+
 		// Arrow up to edit last message
 		if (e.key === 'ArrowUp' && !messageInput.trim() && !editingMessage) {
 			e.preventDefault();
@@ -135,10 +162,14 @@
 				messageInput = lastMessage.text;
 			}
 		}
-		// Escape to cancel editing
-		else if (e.key === 'Escape' && editingMessage) {
+		// Escape to cancel editing/command palette
+		else if (e.key === 'Escape') {
 			e.preventDefault();
-			cancelEdit();
+			if (showCommandPalette) {
+				showCommandPalette = false;
+			} else if (editingMessage) {
+				cancelEdit();
+			}
 		}
 		// Enter without shift sends the message
 		else if (e.key === 'Enter' && !e.shiftKey) {
@@ -146,6 +177,95 @@
 			handleSubmit();
 		}
 		// Shift+Enter adds a new line (default textarea behavior)
+	}
+
+	function handleCommandSelect(command: Command) {
+		// Replace the / command with selected command name
+		messageInput = `/${command.name} `;
+		showCommandPalette = false;
+		textareaElement?.focus();
+	}
+
+	function executeCommand(commandInput: string) {
+		const parsed = parseCommand(commandInput);
+
+		if (parsed.error) {
+			console.warn(parsed.error);
+			return;
+		}
+
+		if (!parsed.command) return;
+
+		const commandName = parsed.command.name;
+
+		switch (commandName) {
+			case 'help':
+			case 'h':
+			case '?':
+				alert(`📚 Available Commands:\n\n${formatCommandHelp()}`);
+				break;
+
+			case 'resource':
+			case 'res':
+			case 'r': {
+				// /resource <name> [-a] [-tag tagname]
+				const resourceName = parsed.args.join(' ');
+				if (!resourceName) {
+					alert('Resource name is required.\nUsage: /resource <name> [-a] [-tag tagname]');
+					return;
+				}
+
+				const newResource = {
+					id: `res-${Date.now()}`,
+					name: resourceName,
+					type: parsed.flags['type'] as string || 'reference',
+					createdAt: new Date().toISOString(),
+					createdBy: parsed.flags['a'] ? 'Anonymous' : ($currentUser?.username || 'Unknown'),
+					isAnonymous: !!parsed.flags['a'],
+					tags: parsed.flags['tag'] ? [parsed.flags['tag']] : [],
+					preview: null
+				};
+
+				resources.update(r => [...r, newResource]);
+				alert(`✅ Resource "${resourceName}" created!`);
+				break;
+			}
+
+			case 'search':
+			case 's': {
+				// /search <term> [-by username] [-has image|video|file|link]
+				const searchTerm = parsed.args.join(' ');
+				if (!searchTerm) {
+					alert('Search term is required.\nUsage: /search <term> [-by username] [-has image|video|file|link]');
+					return;
+				}
+				searchInput = searchTerm;
+				if (parsed.flags['by']) {
+					searchInput += ` by:${parsed.flags['by']}`;
+				}
+				if (parsed.flags['has']) {
+					searchInput += ` has:${parsed.flags['has']}`;
+				}
+				break;
+			}
+
+			case 'pin':
+			case 'p': {
+				pinChannel($currentChannel);
+				alert(`📌 Channel pinned!`);
+				break;
+			}
+
+			case 'unpin':
+			case 'up': {
+				unpinChannel($currentChannel);
+				alert(`📌 Channel unpinned!`);
+				break;
+			}
+
+			default:
+				console.warn(`Unknown command: ${commandName}`);
+		}
 	}
 
 	function handleSubmit() {
@@ -156,6 +276,13 @@
 				editingMessage = null;
 			} else {
 				const trimmedMessage = messageInput.trim();
+
+				// Check if it's a command
+				if (trimmedMessage.startsWith('/')) {
+					executeCommand(trimmedMessage);
+					messageInput = '';
+					return;
+				}
 
 				// Check if message is ONLY emoji syntax (e.g., ":smile:" or ":smile::heart:")
 				const emojiOnlyPattern = /^(?::[\w_]+:)+$/;
@@ -508,13 +635,6 @@
 				{#if searchInput}
 					<span class="search-results">{filteredMessages.length} result{filteredMessages.length !== 1 ? 's' : ''}</span>
 				{/if}
-				<button
-					class="help-button"
-					title="View available commands"
-					on:click={() => alert('📚 Available Commands:\n\n/resource create <name> - Add a new resource\n/res [terms] [-tag] - Search resources\n/help - Show all commands')}
-				>
-					❓
-				</button>
 			</div>
 		</div>
 
@@ -627,6 +747,13 @@
 			style="display: none;"
 		/>
 		<div class="input-container">
+			<CommandPalette
+				bind:this={commandPalette}
+				bind:input={messageInput}
+				bind:isVisible={showCommandPalette}
+				bind:selectedIndex={commandPaletteSelectedIndex}
+				onSelect={handleCommandSelect}
+			/>
 			<div class="input-buttons-left">
 				<button
 					class="input-icon-button"
@@ -639,9 +766,12 @@
 			<textarea
 				bind:this={textareaElement}
 				bind:value={messageInput}
-				on:input={handleInput}
+				on:input={() => {
+					handleInput();
+					handleInputChange();
+				}}
 				on:keydown={handleKeyDown}
-				placeholder="Type a message... (Shift+Enter for new line)"
+				placeholder="Type a message... or /help for commands (Shift+Enter for new line)"
 				maxlength="2000"
 				rows="1"
 			></textarea>
@@ -730,23 +860,6 @@
 		background: var(--bg-tertiary);
 	}
 
-	.help-button {
-		background: transparent;
-		border: 1px solid var(--border);
-		color: var(--text-secondary);
-		border-radius: 6px;
-		padding: 0.5rem 0.75rem;
-		cursor: pointer;
-		font-size: 1rem;
-		transition: all 0.2s;
-		flex-shrink: 0;
-	}
-
-	.help-button:hover {
-		background: var(--accent);
-		color: white;
-		border-color: var(--accent);
-	}
 
 	.search-results {
 		font-size: 0.8rem;
