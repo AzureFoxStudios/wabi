@@ -508,6 +508,13 @@
 				{#if searchInput}
 					<span class="search-results">{filteredMessages.length} result{filteredMessages.length !== 1 ? 's' : ''}</span>
 				{/if}
+				<button
+					class="help-button"
+					title="View available commands"
+					on:click={() => alert('📚 Available Commands:\n\n/resource create <name> - Add a new resource\n/res [terms] [-tag] - Search resources\n/help - Show all commands')}
+				>
+					❓
+				</button>
 			</div>
 		</div>
 
@@ -721,6 +728,24 @@
 		outline: none;
 		border-color: var(--accent);
 		background: var(--bg-tertiary);
+	}
+
+	.help-button {
+		background: transparent;
+		border: 1px solid var(--border);
+		color: var(--text-secondary);
+		border-radius: 6px;
+		padding: 0.5rem 0.75rem;
+		cursor: pointer;
+		font-size: 1rem;
+		transition: all 0.2s;
+		flex-shrink: 0;
+	}
+
+	.help-button:hover {
+		background: var(--accent);
+		color: white;
+		border-color: var(--accent);
 	}
 
 	.search-results {

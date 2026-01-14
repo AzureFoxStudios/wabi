@@ -33,6 +33,17 @@
 		window.open(`/art?highlight=${resourceId}`, '_blank');
 	}
 
+	function copyLink() {
+		const url = `${window.location.origin}/art?highlight=${resourceId}`;
+		navigator.clipboard.writeText(url);
+		alert('Link copied to clipboard!');
+	}
+
+	function handleContextMenu(event: MouseEvent) {
+		event.preventDefault();
+		// Context menu handled by browser right-click on buttons
+	}
+
 	const typeIcons: Record<string, string> = {
 		brush: '🖌️',
 		image: '🖼️',
@@ -117,6 +128,9 @@
 				{:else}
 					⬇️ Download
 				{/if}
+			</button>
+			<button class="action-btn" on:click={copyLink} title="Copy shareable link to clipboard">
+				🔗 Copy Link
 			</button>
 			<button class="action-btn" on:click={openInGraph}>
 				👁️ View in Graph
@@ -299,23 +313,24 @@
 	}
 
 	.card-actions {
-		display: flex;
+		display: grid;
+		grid-template-columns: 1fr 1fr;
 		gap: 8px;
 		margin-top: 20px;
-		flex-wrap: wrap;
 	}
 
 	.action-btn {
-		flex: 1;
-		min-width: 120px;
-		padding: 10px 16px;
+		padding: 10px 12px;
 		background: #2a2a2e;
 		border: 1px solid #444;
 		border-radius: 6px;
 		color: #e0e0e0;
 		cursor: pointer;
-		font-size: 0.9rem;
+		font-size: 0.85rem;
 		transition: all 0.15s;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.action-btn:hover {

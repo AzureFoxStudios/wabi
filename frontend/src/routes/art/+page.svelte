@@ -5,7 +5,8 @@
 	import LayoutSwitcher from '$lib/components/LayoutSwitcher.svelte';
 	import GraphSwitcher from '$lib/components/GraphSwitcher.svelte';
 	import ResourceCard from '$lib/components/ResourceCard.svelte';
-	import { resources, graphEdges } from '$lib/business/store';
+	import NodeContextMenu from '$lib/components/NodeContextMenu.svelte';
+	import { resources, graphEdges, deleteResource } from '$lib/business/store';
 
 	export let data: any;
 
@@ -13,6 +14,13 @@
 	let selectedNodeId: string | null = null;
 	let currentLayout: 'community' | 'radial' | 'force-directed' | 'timeline' = 'community';
 	let currentGraph: 'workspace' | 'personal' = 'workspace';
+
+	// Context menu state
+	let contextMenuVisible = false;
+	let contextMenuX = 0;
+	let contextMenuY = 0;
+	let contextMenuNodeId: string | null = null;
+	let contextMenuNodeLabel = '';
 
 	onMount(() => {
 		// Parse highlight from URL: /art?highlight=res-123
@@ -34,6 +42,35 @@
 
 	function handleNodeSelect(nodeId: string) {
 		selectedNodeId = nodeId;
+	}
+
+	function handleNodeContextMenu(event: CustomEvent<{ nodeId: string; x: number; y: number; label: string }>) {
+		contextMenuNodeId = event.detail.nodeId;
+		contextMenuNodeLabel = event.detail.label;
+		contextMenuX = event.detail.x;
+		contextMenuY = event.detail.y;
+		contextMenuVisible = true;
+	}
+
+	function handleEditResource(nodeId: string) {
+		// TODO: Open edit dialog for resource
+		console.log('Edit resource:', nodeId);
+	}
+
+	function handleDeleteResource(nodeId: string) {
+		deleteResource(nodeId);
+		selectedNodeId = null;
+	}
+
+	function handleCopyResourceLink(nodeId: string) {
+		const url = `${window.location.origin}/art?highlight=${nodeId}`;
+		navigator.clipboard.writeText(url);
+		alert('Link copied to clipboard!');
+	}
+
+	function closeContextMenu() {
+		contextMenuVisible = false;
+		contextMenuNodeId = null;
 	}
 </script>
 
@@ -67,6 +104,7 @@
 				bind:highlightNodeId
 				{currentLayout}
 				on:node-select={(e) => handleNodeSelect(e.detail)}
+				on:node-context-menu={handleNodeContextMenu}
 			/>
 		</div>
 
@@ -83,6 +121,19 @@
 		<p>💡 Click nodes to view details • Right-click for options • Use layout switcher to change view</p>
 	</div>
 </div>
+
+<!-- Context Menu -->
+<NodeContextMenu
+	visible={contextMenuVisible}
+	x={contextMenuX}
+	y={contextMenuY}
+	nodeId={contextMenuNodeId}
+	nodeLabel={contextMenuNodeLabel}
+	onClose={closeContextMenu}
+	onEdit={handleEditResource}
+	onDelete={handleDeleteResource}
+	onCopyLink={handleCopyResourceLink}
+/>
 
 <style>
 	.art-page {

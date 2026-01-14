@@ -130,6 +130,19 @@
 		}
 	}
 
+	function onNodeContextMenu(event: any) {
+		const nodeId = event.detail?.node?.id;
+		const label = event.detail?.node?.data?.label || 'Node';
+		if (nodeId) {
+			dispatch('node-context-menu', {
+				nodeId,
+				label,
+				x: event.detail?.event?.pageX || 0,
+				y: event.detail?.event?.pageY || 0
+			});
+		}
+	}
+
 	// Subscribe to stores
 	const unsubscribeNodes = flowNodes.subscribe(n => {
 		nodes = n;
@@ -150,6 +163,7 @@
 	bind:edges
 	{nodeTypes}
 	on:nodeclick={onNodeClick}
+	on:nodecontextmenu={onNodeContextMenu}
 	class="art-graph"
 >
 	<Background />
