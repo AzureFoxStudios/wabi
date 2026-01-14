@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
 	import {
 		SvelteFlow,
 		Background,
@@ -11,10 +11,20 @@
 	import '@xyflow/svelte/dist/style.css';
 	import { get, derived } from 'svelte/store';
 	import { resources, graphEdges } from '$lib/business/store';
+	import ResourceNode from './ResourceNode.svelte';
+	import TagNode from './TagNode.svelte';
+
+	const dispatch = createEventDispatcher();
 
 	export let highlightNodeId: string | null = null;
 	export let layout: 'community' | 'radial' | 'force-directed' | 'timeline' = 'community';
 	export let workspaceId: string = 'default-workspace';
+
+	// Define custom node types
+	const nodeTypes: NodeTypes = {
+		resourceNode: ResourceNode,
+		tagNode: TagNode
+	};
 
 	// Transform business data to Svelte Flow format
 	const flowNodes = derived(
@@ -23,7 +33,7 @@
 			// Resource nodes
 			const resourceNodes: Node[] = $resources.map(r => ({
 				id: r.id,
-				type: 'default',
+				type: 'resourceNode',
 				position: getNodePosition(r.id, $resources),
 				data: {
 					label: r.name,
@@ -41,8 +51,8 @@
 				const uniqueTags = new Set($resources.flatMap(r => r.tags || []));
 				tagNodes.push(...Array.from(uniqueTags).map(tag => ({
 					id: `tag-${tag}`,
-					type: 'default',
-					position: { x: 0, y: 0 },
+					type: 'tagNode',
+					position: getNodePosition(`tag-${tag}`, $resources),
 					data: { label: `#${tag}`, isTag: true }
 				})));
 			}
@@ -112,7 +122,12 @@
 	}
 
 	function onNodeClick(event: any) {
-		console.log('Node clicked:', event);
+		const nodeId = event.detail?.node?.id;
+		if (nodeId) {
+			highlightNodeId = nodeId;
+			// Dispatch event to parent component
+			dispatch('node-select', nodeId);
+		}
 	}
 
 	// Subscribe to stores
@@ -133,6 +148,7 @@
 <SvelteFlow
 	bind:nodes
 	bind:edges
+	{nodeTypes}
 	on:nodeclick={onNodeClick}
 	class="art-graph"
 >
