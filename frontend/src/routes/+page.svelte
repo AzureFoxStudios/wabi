@@ -53,6 +53,15 @@
 			if (!isMobile) rightPanelView = 'none'; // Reset panels on resize to desktop
 		});
 
+		// Auto-restore login from localStorage (sticky login)
+		const savedUsername = localStorage.getItem('username');
+		const savedToken = localStorage.getItem('authToken');
+		if (savedUsername) {
+			username = savedUsername;
+			initSocket(savedUsername, savedToken || undefined);
+			loggedIn = true;
+		}
+
 		// Keyboard shortcut: Ctrl+Shift+1 to open business hub
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (e.ctrlKey && e.shiftKey && e.key === '1') {
