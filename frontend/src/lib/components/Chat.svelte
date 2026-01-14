@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, users, type Message, type Emoji } from '$lib/socket';
 	import GiphyPicker from './GiphyPicker.svelte';
 	import EmojiPicker from './EmojiPicker.svelte';
@@ -621,7 +622,9 @@
 			<div class="drag-overlay-content">
 				<div class="drag-icon">📁</div>
 				<div class="drag-text">Drop files here to upload</div>
-	</div>
+			</div>
+		</div>
+	{/if}
 
 	<!-- Resource Search Results Display -->
 	{#if resourceSearchResults.length > 0}
