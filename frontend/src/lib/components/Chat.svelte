@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { goto } from '$app/navigation';
-	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, users, type Message, type Emoji } from '$lib/socket';
+	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, type Message, type Emoji } from '$lib/socket';
 	import GiphyPicker from './GiphyPicker.svelte';
 	import EmojiPicker from './EmojiPicker.svelte';
 	import MessageList from './MessageList.svelte';
@@ -24,7 +23,6 @@
 	let showEmojiPicker = false;
 	let emojiPickerButton: HTMLButtonElement;
 	let replyingTo: Message | null = null;
-	let resourceSearchResults: any[] = []; // Store /res command results
 	let fileInput: HTMLInputElement;
 	let editingMessage: Message | null = null;
 	let uploadProgress = 0;
@@ -38,92 +36,7 @@
 
 	// Search functionality
 	let searchInput = '';
-
-	// Get icon for resource type
-	function getResourceIcon(type: string): string {
-		const icons: Record<string, string> = {
-			brush: '🖌️',
-			image: '🖼️',
-			url: '🔗',
-			note: '📝',
-			file: '📁',
-			code: '💻'
-		};
-		return icons[type] || '📄';
-	}
-
-	// Open resource in graph
-	function openResourceInGraph(resourceId: string) {
-		// Open graph page with highlight
-		window.open(`/art?highlight=${resourceId}`, '_blank');
-	}
 	let filteredMessages: Message[] = [];
-	let searchSuggestions: string[] = [];
-	let selectedSuggestionIndex = -1;
-	let showSuggestions = false;
-
-	// Generate search suggestions
-	function generateSearchSuggestions(query: string): string[] {
-		if (!query.trim()) return [];
-
-		const suggestions: string[] = [];
-
-		// If user is typing "ha", suggest "has:"
-		if (query.toLowerCase().includes('has:')) {
-			// User is typing with has:, suggest filter types
-			const hasMatch = query.match(/has:(\w*)/);
-			const prefix = hasMatch ? hasMatch[0] : 'has:';
-			const filterTypes = ['image', 'video', 'file', 'link', 'gif', 'website'];
-			return filterTypes.map(type => query.replace(/has:\w*/, `has:${type}`));
-		} else if (query.toLowerCase().endsWith('ha')) {
-			// Suggest starting "has:" filter
-			suggestions.push(query.slice(0, -2) + 'has:');
-		}
-
-		// Suggest active users
-		const userSuggestions = $users
-			.filter(u => u.username.toLowerCase().includes(query.toLowerCase()))
-			.slice(0, 3)
-			.map(u => `by:${u.username}`);
-
-		return [...suggestions, ...userSuggestions];
-	}
-
-	// Update suggestions when search input changes
-	$: {
-		if (searchInput.trim()) {
-			searchSuggestions = generateSearchSuggestions(searchInput);
-			showSuggestions = searchSuggestions.length > 0;
-			selectedSuggestionIndex = -1;
-		} else {
-			searchSuggestions = [];
-			showSuggestions = false;
-		}
-	}
-
-	function applySuggestion(suggestion: string) {
-		searchInput = suggestion;
-		showSuggestions = false;
-		selectedSuggestionIndex = -1;
-	}
-
-	function handleSearchKeydown(e: KeyboardEvent) {
-		if (!showSuggestions) return;
-
-		if (e.key === 'ArrowDown') {
-			e.preventDefault();
-			selectedSuggestionIndex = (selectedSuggestionIndex + 1) % searchSuggestions.length;
-		} else if (e.key === 'ArrowUp') {
-			e.preventDefault();
-			selectedSuggestionIndex = selectedSuggestionIndex <= 0 ? searchSuggestions.length - 1 : selectedSuggestionIndex - 1;
-		} else if (e.key === 'Enter' && selectedSuggestionIndex >= 0) {
-			e.preventDefault();
-			applySuggestion(searchSuggestions[selectedSuggestionIndex]);
-		} else if (e.key === 'Escape') {
-			e.preventDefault();
-			showSuggestions = false;
-		}
-	}
 
 	// Parse search syntax: by:username, has:image, has:video, has:file, has:link, and text content
 	function parseSearchQuery(query: string): { text: string; byUser?: string; hasTypes: string[] } {
@@ -235,7 +148,7 @@
 		// Shift+Enter adds a new line (default textarea behavior)
 	}
 
-	async function handleSubmit() {
+	function handleSubmit() {
 		if (messageInput.trim()) {
 			if (editingMessage) {
 				// Edit the existing message
@@ -243,60 +156,6 @@
 				editingMessage = null;
 			} else {
 				const trimmedMessage = messageInput.trim();
-
-				// Check for slash commands
-				if (trimmedMessage.startsWith('/')) {
-					const { executeCommand } = await import('$lib/commands/CommandRegistry');
-					const result = await executeCommand(trimmedMessage, {
-						userId: $currentUser?.id || '',
-						channelId: $currentChannel,
-						workspaceId: 'default-workspace',
-						messageInput: trimmedMessage
-					});
-
-					if (result.success) {
-						if (result.action === 'send-message' && result.message) {
-							// Send command result as a system message
-							sendMessage($currentChannel, result.message, 'text');
-						} else if (result.action === 'show-resource-links') {
-							// Store resource search results for display
-							resourceSearchResults = result.data?.resourceNodes || [];
-							// Send summary message
-							sendMessage($currentChannel, result.message || '', 'text');
-						} else if (result.action === 'navigate') {
-							// Navigate to a different route
-							if (result.data?.path) {
-								// Use path directly if provided
-								goto(result.data.path);
-							} else if (result.data?.filter) {
-								goto(`/business/graph?filter=${encodeURIComponent(result.data.filter)}`);
-							} else {
-								goto('/business/graph');
-							}
-						} else if (result.action === 'clear-channel') {
-							// Clear channel messages (TODO: implement)
-							console.log('Clear channel not yet implemented');
-						}
-						// action: 'open-modal' and other types can be handled as needed
-					} else {
-						// Send error message to chat
-						sendMessage($currentChannel, `⚠️ ${result.message || 'Command failed'}`, 'text');
-					}
-
-					messageInput = '';
-					sendTyping(false);
-
-					if (typingTimeout) {
-						clearTimeout(typingTimeout);
-					}
-
-					// Reset textarea height
-					if (textareaElement) {
-						textareaElement.style.height = 'auto';
-					}
-					textareaElement?.focus();
-					return;
-				}
 
 				// Check if message is ONLY emoji syntax (e.g., ":smile:" or ":smile::heart:")
 				const emojiOnlyPattern = /^(?::[\w_]+:)+$/;
@@ -626,41 +485,185 @@
 		</div>
 	{/if}
 
-	<!-- Resource Search Results Display -->
-	{#if resourceSearchResults.length > 0}
-		<div class="resource-results">
-			<div class="resource-results-header">
-				<span>Found {resourceSearchResults.length} resource{resourceSearchResults.length === 1 ? '' : 's'}</span>
-				<button class="close-results-btn" on:click={() => resourceSearchResults = []}>✕</button>
-			</div>
-			<div class="resource-results-list">
-				{#each resourceSearchResults as node}
-					<div class="resource-link-item">
-						<span class="resource-icon">{getResourceIcon(node.type)}</span>
-						<a
-							href="#"
-							on:click|preventDefault={() => openResourceInGraph(node.id)}
-							class="resource-link">
-							{node.name}
-						</a>
-						<span class="resource-meta">
-							{#if !node.isAnonymous && node.author}
-								by {node.author}
-							{:else if node.isAnonymous}
-								🔒 Anonymous
-							{/if}
-						</span>
-						{#if node.tags.length > 0}
-							<div class="resource-tags">
-								{#each node.tags as tag}
-									<span class="result-tag">#{tag}</span>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				{/each}
+	{#if isDMChannel}
+		<!-- DM channels should not be displayed in the main chat area -->
+		<!-- They are only accessible through the DM panel on the right -->
+		<div class="dm-redirect-message">
+			<div class="dm-redirect-content">
+				<h2>Direct Messages</h2>
+				<p>Direct messages are displayed in the DM panel on the right side.</p>
+				<p>Click on a user in the user panel to start or view a DM conversation.</p>
 			</div>
 		</div>
+	{:else}
+		<div class="chat-header">
+			<h2>{channelDisplayName}</h2>
+			<div class="search-container">
+				<input
+					type="text"
+					bind:value={searchInput}
+					placeholder="Search (by:username, has:image, etc.)"
+					class="search-input"
+				/>
+				{#if searchInput}
+					<span class="search-results">{filteredMessages.length} result{filteredMessages.length !== 1 ? 's' : ''}</span>
+				{/if}
+			</div>
+		</div>
+
+	<div class="messages" bind:this={chatContainer}>
+		{#if !searchInput}
+			<PinnedMessages pinnedMessages={pinnedMessages} />
+		{/if}
+		<MessageList messages={filteredMessages} onReply={handleReply} firstUnreadMessageId={$lastReadMessageId} />
+
+		{#if $typingUsers.length > 0}
+			<div class="typing-indicator">
+				<span class="typing-dots"></span>
+				<span>{$typingUsers.join(', ')} {$typingUsers.length === 1 ? 'is' : 'are'} typing...</span>
+			</div>
+		{/if}
+	</div>
+
+	{#if showGiphyPicker}
+		<GiphyPicker
+			on:select={handleGifSelect}
+			on:close={() => showGiphyPicker = false}
+		/>
+	{/if}
+
+	{#if showEmojiPicker}
+		<EmojiPicker
+			on:select={handleEmojiSelect}
+			on:close={() => showEmojiPicker = false}
+		/>
+	{/if}
+
+	{#if editingMessage}
+		<div class="edit-bar">
+			<div class="edit-info">
+				<span class="edit-label">Editing message</span>
+				<span class="edit-hint">Press Escape to cancel</span>
+			</div>
+			<button class="cancel-edit" on:click={cancelEdit}>✕</button>
+		</div>
+	{:else if replyingTo}
+		<div class="reply-bar">
+			<div class="reply-info">
+				<span class="reply-label">Replying to {replyingTo.user}:</span>
+				<span class="reply-preview">{replyingTo.text.substring(0, 50)}{replyingTo.text.length > 50 ? '...' : ''}</span>
+			</div>
+			<button class="cancel-reply" on:click={cancelReply}>✕</button>
+		</div>
+	{/if}
+
+	<div class="input-wrapper">
+		{#if filePreviews.length > 0 && !isUploading}
+			<div class="file-gallery">
+				<div class="gallery-header">
+					<span>{filePreviews.length} file{filePreviews.length > 1 ? 's' : ''} selected</span>
+					<button class="cancel-gallery" on:click={cancelUpload}>✕</button>
+				</div>
+				<div class="gallery-grid">
+					{#each filePreviews as { file, preview }, index}
+						<div class="gallery-item">
+							{#if preview}
+								<img src={preview} alt={file.name} class="gallery-preview" />
+							{:else}
+								<div class="gallery-file-icon">
+									{#if file.type.startsWith('video/')}
+										🎬
+									{:else if file.type.startsWith('audio/')}
+										🎵
+									{:else}
+										📄
+									{/if}
+								</div>
+							{/if}
+							<div class="gallery-file-info">
+								<div class="gallery-file-name">{file.name}</div>
+								<div class="gallery-file-size">{(file.size / 1024 / 1024).toFixed(2)} MB</div>
+							</div>
+							<button class="remove-file" on:click={() => removeFile(index)}>✕</button>
+						</div>
+					{/each}
+				</div>
+				<div class="spoiler-checkbox-container">
+					<label class="spoiler-checkbox-label">
+						<input type="checkbox" bind:checked={markAsSpoiler} class="spoiler-checkbox" />
+						<span>Mark as spoiler</span>
+					</label>
+					<span class="spoiler-hint" title="Sensitive content will be hidden until clicked">⚠️</span>
+				</div>
+				<button class="upload-files-btn" on:click={uploadSelectedFiles}>
+					Upload {filePreviews.length} file{filePreviews.length > 1 ? 's' : ''}
+				</button>
+			</div>
+		{/if}
+
+		{#if isUploading}
+			<div class="upload-progress-bar">
+				<div class="upload-progress-info">
+					<span>Uploading files...</span>
+					<span>{uploadProgress}%</span>
+				</div>
+				<div class="progress-bar">
+					<div class="progress-fill" style="width: {uploadProgress}%"></div>
+				</div>
+			</div>
+		{/if}
+		<input
+			type="file"
+			bind:this={fileInput}
+			on:change={handleFileSelect}
+			multiple
+			style="display: none;"
+		/>
+		<div class="input-container">
+			<div class="input-buttons-left">
+				<button
+					class="input-icon-button"
+					on:click={() => fileInput?.click()}
+					title="Attach file"
+				>
+					📎
+				</button>
+			</div>
+			<textarea
+				bind:this={textareaElement}
+				bind:value={messageInput}
+				on:input={handleInput}
+				on:keydown={handleKeyDown}
+				placeholder="Type a message... (Shift+Enter for new line)"
+				maxlength="2000"
+				rows="1"
+			></textarea>
+			<button
+				class="input-icon-button"
+				on:click={() => showGiphyPicker = !showGiphyPicker}
+				title="Add GIF"
+			>
+				GIF
+			</button>
+			<button
+				bind:this={emojiPickerButton}
+				class="input-icon-button"
+				on:click|stopPropagation={() => {
+				showEmojiPicker = !showEmojiPicker;
+			}}
+				title="Add emoji"
+			>
+				😀
+			</button>
+			<button
+				class="send-button"
+				on:click={handleSubmit}
+				disabled={!messageInput.trim()}
+			>
+				Send
+			</button>
+		</div>
+	</div>
 	{/if}
 </div>
 
@@ -699,10 +702,6 @@
 		align-items: center;
 	}
 
-	.search-input-wrapper {
-		position: relative;
-	}
-
 	.search-input {
 		padding: 0.5rem 0.75rem;
 		border: 1px solid var(--border);
@@ -724,48 +723,6 @@
 		background: var(--bg-tertiary);
 	}
 
-	.search-suggestions {
-		position: absolute;
-		top: 100%;
-		left: 0;
-		right: 0;
-		background: var(--bg-secondary);
-		border: 1px solid var(--border);
-		border-top: none;
-		border-radius: 0 0 6px 6px;
-		max-height: 250px;
-		overflow-y: auto;
-		z-index: 10;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-	}
-
-	.suggestion-item {
-		display: block;
-		width: 100%;
-		padding: 0.75rem;
-		border: none;
-		background: transparent;
-		color: var(--text-primary);
-		text-align: left;
-		cursor: pointer;
-		font-size: 0.9rem;
-		transition: all 0.15s;
-		border-bottom: 1px solid var(--border);
-	}
-
-	.suggestion-item:last-child {
-		border-bottom: none;
-	}
-
-	.suggestion-item:hover {
-		background: var(--bg-tertiary);
-	}
-
-	.suggestion-item.selected {
-		background: var(--accent);
-		color: white;
-	}
-
 	.search-results {
 		font-size: 0.8rem;
 		color: var(--text-secondary);
@@ -776,7 +733,6 @@
 	.messages {
 		flex: 1;
 		overflow-y: auto;
-		overflow-x: hidden;
 		padding: 1rem;
 		display: flex;
 		flex-direction: column;
@@ -1125,89 +1081,5 @@
 		.edit-bar, .reply-bar {
 			padding: 0.375rem 0.75rem;
 		}
-	}
-	.resource-results {
-		background: #2a2a2e;
-		border-radius: 8px;
-		padding: 12px;
-		margin: 8px 0;
-		border: 1px solid #444;
-	}
-
-	.resource-results-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 12px;
-		font-size: 14px;
-		color: #fff;
-		font-weight: 600;
-	}
-
-	.close-results-btn {
-		background: transparent;
-		border: none;
-		color: #aaa;
-		cursor: pointer;
-		font-size: 18px;
-		padding: 4px;
-	}
-
-	.close-results-btn:hover {
-		color: #fff;
-	}
-
-	.resource-results-list {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-	}
-
-	.resource-link-item {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		padding: 10px;
-		background: #3a3a3e;
-		border-radius: 6px;
-		transition: background 0.2s;
-	}
-
-	.resource-link-item:hover {
-		background: #4a4a4e;
-	}
-
-	.resource-icon {
-		font-size: 20px;
-	}
-
-	.resource-link {
-		flex: 1;
-		color: #fff;
-		text-decoration: none;
-		font-weight: 600;
-	}
-
-	.resource-link:hover {
-		color: #6366f1;
-	}
-
-	.resource-meta {
-		font-size: 12px;
-		color: #aaa;
-		white-space: nowrap;
-	}
-
-	.resource-tags {
-		display: flex;
-		gap: 4px;
-		margin-top: 4px;
-	}
-
-	.result-tag {
-		background: #6366f1;
-		padding: 2px 8px;
-		border-radius: 10px;
-		font-size: 11px;
 	}
 </style>
