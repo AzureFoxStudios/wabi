@@ -2,6 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, type Message, type Emoji } from '$lib/socket';
 	import { resources, graphEdges } from '$lib/business/store';
+	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
 	import { pinChannel, unpinChannel } from '$lib/socket';
 	import GiphyPicker from './GiphyPicker.svelte';
 	import EmojiPicker from './EmojiPicker.svelte';
@@ -260,6 +261,118 @@
 			case 'up': {
 				unpinChannel($currentChannel);
 				alert(`📌 Channel unpinned!`);
+				break;
+			}
+
+			case 'todo':
+			case 'todos':
+			case 'tasks': {
+				// /todo [-open]
+				const todoList = $todos;
+				if (todoList.length === 0) {
+					alert('📝 No todos yet!');
+					return;
+				}
+
+				const isOpen = !!parsed.flags['open'];
+				const todoText = todoList
+					.map((t, i) => `${i + 1}. ${t.status === 'done' ? '✅' : '⭕'} ${t.title}`)
+					.join('\n');
+
+				const message = `📝 **My Todos${isOpen ? ' (Shared)' : ''}:**\n\`\`\`\n${todoText}\n\`\`\``;
+
+				if (isOpen) {
+					sendMessage($currentChannel, message, 'text', {});
+				} else {
+					alert(`📝 **My Todos:**\n\n${todoText}`);
+				}
+				break;
+			}
+
+			case 'calendar':
+			case 'cal':
+			case 'events': {
+				// /calendar [-open]
+				const now = Date.now();
+				const upcoming = $calendarEvents
+					.filter(e => e.startDate >= now)
+					.sort((a, b) => a.startDate - b.startDate)
+					.slice(0, 10);
+
+				if (upcoming.length === 0) {
+					alert('📅 No upcoming events!');
+					return;
+				}
+
+				const isOpen = !!parsed.flags['open'];
+				const eventText = upcoming
+					.map(e => {
+						const date = new Date(e.startDate).toLocaleDateString();
+						return `📅 ${e.title} - ${date}`;
+					})
+					.join('\n');
+
+				const message = `📅 **Upcoming Events${isOpen ? ' (Shared)' : ''}:**\n\`\`\`\n${eventText}\n\`\`\``;
+
+				if (isOpen) {
+					sendMessage($currentChannel, message, 'text', {});
+				} else {
+					alert(`📅 **Upcoming Events:**\n\n${eventText}`);
+				}
+				break;
+			}
+
+			case 'journal':
+			case 'j':
+			case 'diary': {
+				// /journal [-open]
+				const entries = $diaryEntries.slice(0, 5);
+
+				if (entries.length === 0) {
+					alert('📖 No journal entries yet!');
+					return;
+				}
+
+				const isOpen = !!parsed.flags['open'];
+				const entryText = entries
+					.map(e => {
+						const date = new Date(e.createdAt).toLocaleDateString();
+						return `${date}: ${e.content.substring(0, 100)}...`;
+					})
+					.join('\n');
+
+				const message = `📖 **Recent Journal Entries${isOpen ? ' (Shared)' : ''}:**\n\`\`\`\n${entryText}\n\`\`\``;
+
+				if (isOpen) {
+					sendMessage($currentChannel, message, 'text', {});
+				} else {
+					alert(`📖 **Recent Journal Entries:**\n\n${entryText}`);
+				}
+				break;
+			}
+
+			case 'projects':
+			case 'proj': {
+				// /projects [-open]
+				const projectList = $projects;
+
+				if (projectList.length === 0) {
+					alert('📊 No projects yet!');
+					return;
+				}
+
+				const isOpen = !!parsed.flags['open'];
+				const projText = projectList
+					.map(p => `📊 ${p.name} - ${p.status}`)
+					.join('\n');
+
+				const message = `📊 **My Projects${isOpen ? ' (Shared)' : ''}:**\n\`\`\`\n${projText}\n\`\`\``;
+
+				if (isOpen) {
+					sendMessage($currentChannel, message, 'text', {});
+				} else {
+					alert(`📊 **My Projects:**\n\n${projText}`);
+				}
 				break;
 			}
 

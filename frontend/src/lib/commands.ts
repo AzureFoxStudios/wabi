@@ -42,6 +42,42 @@ export const COMMANDS: Command[] = [
 		description: 'Unpin the current channel',
 		usage: '/unpin',
 		aliases: ['up']
+	},
+	{
+		name: 'todo',
+		description: 'Show all todos (business hub data)',
+		usage: '/todo [-open]',
+		aliases: ['todos', 'tasks'],
+		execute: (args, flags) => {
+			// Implementation in Chat component
+		}
+	},
+	{
+		name: 'calendar',
+		description: 'Show upcoming calendar events',
+		usage: '/calendar [-open]',
+		aliases: ['cal', 'events'],
+		execute: (args, flags) => {
+			// Implementation in Chat component
+		}
+	},
+	{
+		name: 'journal',
+		description: 'Show recent journal entries',
+		usage: '/journal [-open]',
+		aliases: ['j', 'diary'],
+		execute: (args, flags) => {
+			// Implementation in Chat component
+		}
+	},
+	{
+		name: 'projects',
+		description: 'Show all projects',
+		usage: '/projects [-open]',
+		aliases: ['proj', 'p'],
+		execute: (args, flags) => {
+			// Implementation in Chat component
+		}
 	}
 ];
 
