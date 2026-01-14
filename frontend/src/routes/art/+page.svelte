@@ -6,7 +6,9 @@
 	import GraphSwitcher from '$lib/components/GraphSwitcher.svelte';
 	import ResourceCard from '$lib/components/ResourceCard.svelte';
 	import NodeContextMenu from '$lib/components/NodeContextMenu.svelte';
+	import PinnedChannelsSidebar from '$lib/components/PinnedChannelsSidebar.svelte';
 	import { resources, graphEdges, deleteResource } from '$lib/business/store';
+	import { pinnedChannels } from '$lib/socket';
 
 	export let data: any;
 
@@ -98,6 +100,13 @@
 
 	<!-- Main Content -->
 	<div class="art-content">
+		<!-- Pinned Channels Sidebar -->
+		{#if $pinnedChannels.length > 0}
+			<div class="pinned-sidebar-wrapper">
+				<PinnedChannelsSidebar />
+			</div>
+		{/if}
+
 		<!-- Graph Canvas -->
 		<div class="graph-container">
 			<ArtGraph
@@ -202,6 +211,11 @@
 		gap: 0;
 	}
 
+	.pinned-sidebar-wrapper {
+		flex-shrink: 0;
+		overflow: hidden;
+	}
+
 	.graph-container {
 		flex: 1;
 		min-width: 0;
@@ -250,6 +264,13 @@
 	@media (max-width: 768px) {
 		.art-content {
 			flex-direction: column;
+		}
+
+		.pinned-sidebar-wrapper {
+			height: 200px;
+			width: 100%;
+			overflow-y: auto;
+			border-bottom: 1px solid #333;
 		}
 
 		.resource-panel {

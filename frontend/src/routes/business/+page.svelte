@@ -8,6 +8,8 @@
 	import ProjectsView from '$lib/components/business/ProjectsView.svelte';
 	import KanbanBoard from '$lib/components/business/KanbanBoard.svelte';
 	import TaskPanel from '$lib/components/business/TaskPanel.svelte';
+	import PinnedChannelsSidebar from '$lib/components/PinnedChannelsSidebar.svelte';
+	import { pinnedChannels } from '$lib/socket';
 
 	type MainView = 'calendar' | 'journal' | 'projects' | 'kanban';
 	let activeView: MainView = 'calendar';
@@ -250,6 +252,13 @@
 
 	<!-- Main Content Area -->
 	<div class="dashboard-body">
+		<!-- Left Pinned Channels Sidebar -->
+		{#if $pinnedChannels.length > 0}
+			<div class="pinned-sidebar-wrapper">
+				<PinnedChannelsSidebar />
+			</div>
+		{/if}
+
 		<main class="main-content" class:panel-open={showTaskPanel}>
 			{#if activeView === 'calendar'}
 				<Calendar />
@@ -437,6 +446,11 @@
 		overflow: hidden;
 	}
 
+	.pinned-sidebar-wrapper {
+		flex-shrink: 0;
+		overflow: hidden;
+	}
+
 	.main-content {
 		flex: 1;
 		overflow-y: auto;
@@ -529,6 +543,10 @@
 
 		.dashboard-body {
 			padding-bottom: 70px;
+		}
+
+		.pinned-sidebar-wrapper {
+			display: none;
 		}
 
 		.main-content {
