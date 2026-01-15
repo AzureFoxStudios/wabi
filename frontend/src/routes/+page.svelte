@@ -60,7 +60,7 @@
 		if (savedUsername) {
 			username = savedUsername;
 			initSocket(savedUsername, savedToken || undefined);
-			// loggedIn is already set from initial state check
+			loggedIn = true;
 		}
 
 		// Keyboard shortcuts for portals (Ctrl+Shift+1 for business, Ctrl+Shift+2 for art)
