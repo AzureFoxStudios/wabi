@@ -103,8 +103,8 @@
 		console.log('Created workspace:', newWorkspace);
 	}
 
-	// Save current workspace selection whenever it changes
-	$: if (currentWorkspaceId) {
+	// Save current workspace selection whenever it changes (only in browser)
+	$: if (typeof window !== 'undefined' && currentWorkspaceId) {
 		localStorage.setItem('currentArtWorkspaceId', currentWorkspaceId);
 	}
 
