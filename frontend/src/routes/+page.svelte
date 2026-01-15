@@ -14,7 +14,8 @@
 	export let data: PageData;
 
 	let username = '';
-	let loggedIn = false;
+	// Check localStorage synchronously to avoid flash of login screen
+	let loggedIn = typeof window !== 'undefined' && !!localStorage.getItem('username');
 	let activeView: 'chat' | 'screen' = 'chat';
 
 	// --- Unified Panel State ---
@@ -59,7 +60,7 @@
 		if (savedUsername) {
 			username = savedUsername;
 			initSocket(savedUsername, savedToken || undefined);
-			loggedIn = true;
+			// loggedIn is already set from initial state check
 		}
 
 		// Keyboard shortcuts for portals (Ctrl+Shift+1 for business, Ctrl+Shift+2 for art)
