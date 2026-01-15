@@ -95,9 +95,10 @@
 		togglePinMessage($currentChannel, contextMenuMessage.id);
 		contextMenuVisible = false;
 	}
-	function handleReply() {
-		if (!contextMenuMessage) return;
-		onReply(contextMenuMessage);
+	function handleReply(message?: Message) {
+		const targetMessage = message || contextMenuMessage;
+		if (!targetMessage) return;
+		onReply(targetMessage);
 		contextMenuVisible = false;
 	}
 	async function handleDownload() {
