@@ -108,13 +108,13 @@ export interface CalendarFilters {
 // Knowledge Graph & Resource Types
 export interface Resource {
 	id: string;
-	type: 'brush' | 'code' | 'image' | 'url' | 'note' | 'file';
+	type: 'brush' | 'code' | 'image' | 'url' | 'note' | 'file' | 'youtube' | 'video' | 'pdf' | 'audio' | 'ebook' | 'document' | 'archive';
 	name: string;
 	description?: string;
 	storageType: 'inline' | 'upload' | 'external';
-	content?: string; // For inline (base64 or text)
+	content?: string; // For inline (base64 or text) - store file data as data URI
 	fileUrl?: string; // For uploads: /uploads/res-123.zip
-	externalUrl?: string; // For external URLs
+	externalUrl?: string; // For external URLs (including YouTube URLs)
 	fileSize?: number;
 	mimeType?: string;
 	preview?: string; // Thumbnail URL or base64

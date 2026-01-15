@@ -7,6 +7,7 @@
 	import ResourceCard from '$lib/components/ResourceCard.svelte';
 	import NodeContextMenu from '$lib/components/NodeContextMenu.svelte';
 	import PinnedChannelsSidebar from '$lib/components/PinnedChannelsSidebar.svelte';
+	import Chat from '$lib/components/Chat.svelte';
 	import { resources, graphEdges, deleteResource } from '$lib/business/store';
 	import { pinnedChannels } from '$lib/socket';
 
@@ -16,6 +17,16 @@
 	let selectedNodeId: string | null = null;
 	let currentLayout: 'community' | 'radial' | 'force-directed' | 'timeline' = 'community';
 	let currentGraph: 'workspace' | 'personal' = 'workspace';
+
+	// Workspace state
+	interface Workspace {
+		id: string;
+		name: string;
+		method: 'blank' | 'template' | 'import';
+		createdAt: number;
+	}
+	let workspaces: Workspace[] = [];
+	let currentWorkspaceId: string = 'default-workspace';
 
 	// Context menu state
 	let contextMenuVisible = false;
@@ -28,6 +39,13 @@
 	let showCreateDialog = false;
 	let newResourceName = '';
 	let newResourceType = 'reference';
+	let newResourceUrl = '';
+	let newResourceFile: File | null = null;
+	let fileInputRef: HTMLInputElement;
+	let newResourceTags: string[] = [];
+	let newTagInput = '';
+	let tagSuggestions: string[] = [];
+	let showTagSuggestions = false;
 
 	onMount(() => {
 		// Parse highlight from URL: /art?highlight=res-123
@@ -37,14 +55,57 @@
 			highlightNodeId = highlight;
 			selectedNodeId = highlight;
 		}
+
+		// Load workspaces from localStorage
+		const savedWorkspaces = localStorage.getItem('artWorkspaces');
+		if (savedWorkspaces) {
+			try {
+				workspaces = JSON.parse(savedWorkspaces);
+			} catch (e) {
+				console.error('Failed to load workspaces:', e);
+				workspaces = [];
+			}
+		}
+
+		// Load current workspace selection from localStorage
+		const savedCurrentWorkspaceId = localStorage.getItem('currentArtWorkspaceId');
+		if (savedCurrentWorkspaceId && workspaces.some(w => w.id === savedCurrentWorkspaceId)) {
+			currentWorkspaceId = savedCurrentWorkspaceId;
+		}
 	});
 
 	function handleLayoutChange(event: CustomEvent<{ layout: any }>) {
 		currentLayout = event.detail.layout;
 	}
 
-	function handleGraphSwitch(graphType: 'workspace' | 'personal') {
-		currentGraph = graphType;
+	function handleGraphChange(event: CustomEvent<{ type: 'workspace' | 'personal' }>) {
+		currentGraph = event.detail.type;
+	}
+
+	function handleCreateWorkspace(event: CustomEvent<{ name: string; method: 'blank' | 'template' | 'import' }>) {
+		const { name, method } = event.detail;
+
+		const newWorkspace: Workspace = {
+			id: `workspace-${Date.now()}`,
+			name,
+			method,
+			createdAt: Date.now()
+		};
+
+		workspaces = [...workspaces, newWorkspace];
+		currentWorkspaceId = newWorkspace.id;
+		currentGraph = 'workspace';
+
+		// Save to localStorage
+		localStorage.setItem('artWorkspaces', JSON.stringify(workspaces));
+		localStorage.setItem('currentArtWorkspaceId', currentWorkspaceId);
+
+		console.log('Created workspace:', newWorkspace);
+	}
+
+	// Save current workspace selection whenever it changes
+	$: if (currentWorkspaceId) {
+		localStorage.setItem('currentArtWorkspaceId', currentWorkspaceId);
 	}
 
 	function handleNodeSelect(nodeId: string) {
@@ -80,21 +141,46 @@
 		contextMenuNodeId = null;
 	}
 
+	function isYouTubeUrl(url: string): boolean {
+		return /(?:youtube\.com|youtu\.be)/.test(url);
+	}
+
 	function handleCreateResource() {
 		if (!newResourceName.trim()) {
 			alert('Please enter a resource name');
 			return;
 		}
 
+		// Determine resource type based on URL if provided
+		let resourceType = newResourceType;
+		let externalUrl: string | undefined = undefined;
+		let storageType: 'inline' | 'upload' | 'external' = 'inline';
+
+		if (newResourceUrl.trim()) {
+			externalUrl = newResourceUrl.trim();
+			storageType = 'external';
+
+			// Auto-detect YouTube URLs
+			if (isYouTubeUrl(externalUrl)) {
+				resourceType = 'youtube';
+			} else {
+				resourceType = 'url';
+			}
+		}
+
 		const newResource = {
 			id: `res-${Date.now()}`,
 			name: newResourceName,
-			type: newResourceType,
-			createdAt: new Date().toISOString(),
+			type: resourceType,
+			storageType: storageType,
+			externalUrl: externalUrl,
+			createdAt: Date.now(),
 			createdBy: 'You',
 			isAnonymous: false,
 			tags: [],
-			preview: null
+			preview: null,
+			description: undefined,
+			updatedAt: Date.now()
 		};
 
 		resources.update(r => [...r, newResource]);
@@ -102,6 +188,7 @@
 		// Reset form and close dialog
 		newResourceName = '';
 		newResourceType = 'reference';
+		newResourceUrl = '';
 		showCreateDialog = false;
 	}
 
@@ -109,6 +196,90 @@
 		showCreateDialog = false;
 		newResourceName = '';
 		newResourceType = 'reference';
+		newResourceUrl = '';
+		newResourceFile = null;
+		if (fileInputRef) fileInputRef.value = '';
+	}
+
+	function handleFileSelected(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (file) {
+			newResourceFile = file;
+			// Auto-set name if not already set
+			if (!newResourceName.trim()) {
+				newResourceName = file.name.replace(/\.[^/.]+$/, ''); // Remove extension
+			}
+		}
+	}
+
+	async function readFileAsDataUrl(file: File): Promise<string> {
+		return new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onload = (e) => resolve(e.target?.result as string);
+			reader.onerror = reject;
+			reader.readAsDataURL(file);
+		});
+	}
+
+	// Tag management functions
+	function getExistingTags(): string[] {
+		// Get all unique tags from existing resources
+		const allTags = new Set<string>();
+		$resources.forEach(resource => {
+			resource.tags?.forEach(tag => allTags.add(tag));
+		});
+		return Array.from(allTags).sort();
+	}
+
+	function updateTagSuggestions() {
+		if (newTagInput.trim()) {
+			const allTags = getExistingTags();
+			const input = newTagInput.toLowerCase();
+			tagSuggestions = allTags
+				.filter(tag => tag.toLowerCase().includes(input) && !newResourceTags.includes(tag))
+				.slice(0, 5);
+			showTagSuggestions = true;
+		} else {
+			showTagSuggestions = false;
+		}
+	}
+
+	function addTag(tag?: string) {
+		const tagToAdd = (tag || newTagInput).trim().toLowerCase();
+		if (tagToAdd && !newResourceTags.includes(tagToAdd)) {
+			newResourceTags = [...newResourceTags, tagToAdd];
+			newTagInput = '';
+			tagSuggestions = [];
+			showTagSuggestions = false;
+		}
+	}
+
+	function removeTag(tag: string) {
+		newResourceTags = newResourceTags.filter(t => t !== tag);
+	}
+
+	function handleTagInput(e: Event) {
+		const input = (e.target as HTMLInputElement).value;
+		newTagInput = input;
+		if (input.trim()) {
+			updateTagSuggestions();
+		} else {
+			showTagSuggestions = false;
+		}
+	}
+
+	function handleTagKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			addTag();
+		} else if (e.key === ',' || e.key === ' ') {
+			// Allow comma or space as tag separator
+			if (newTagInput.trim()) {
+				e.preventDefault();
+				addTag();
+			}
+		}
 	}
 </script>
 
@@ -122,7 +293,7 @@
 					➕ New Resource
 				</button>
 				<LayoutSwitcher on:layout-change={handleLayoutChange} />
-				<GraphSwitcher {currentGraph} onSwitch={handleGraphSwitch} />
+				<GraphSwitcher {currentGraph} on:graph-change={handleGraphChange} on:create-workspace={handleCreateWorkspace} />
 			</div>
 		</div>
 		<div class="header-stats">
@@ -162,6 +333,11 @@
 				<ResourceCard resourceId={selectedNodeId} />
 			</div>
 		{/if}
+
+		<!-- Chat Panel -->
+		<div class="chat-panel-art">
+			<Chat />
+		</div>
 	</div>
 
 	<!-- Help Info -->
@@ -205,8 +381,24 @@
 				</div>
 
 				<div class="form-group">
-					<label for="resource-type">Type</label>
-					<select id="resource-type" bind:value={newResourceType}>
+					<label for="resource-url">URL (Optional)</label>
+					<input
+						id="resource-url"
+						type="text"
+						placeholder="e.g., https://youtu.be/... or https://example.com"
+						bind:value={newResourceUrl}
+						on:keydown={(e) => e.key === 'Enter' && handleCreateResource()}
+					/>
+					{#if newResourceUrl && isYouTubeUrl(newResourceUrl)}
+						<small class="form-hint">🎬 YouTube link detected - will be saved as YouTube resource</small>
+					{:else if newResourceUrl}
+						<small class="form-hint">🔗 URL resource</small>
+					{/if}
+				</div>
+
+				<div class="form-group">
+					<label for="resource-type">Type (Auto-selected if URL provided)</label>
+					<select id="resource-type" bind:value={newResourceType} disabled={newResourceUrl.length > 0}>
 						<option value="reference">Reference Material</option>
 						<option value="tutorial">Tutorial</option>
 						<option value="inspiration">Inspiration</option>
@@ -363,6 +555,16 @@
 		padding: 0;
 	}
 
+	.chat-panel-art {
+		width: 350px;
+		flex-shrink: 0;
+		background: #1e1e24;
+		border-left: 1px solid #333;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+
 	.art-info {
 		padding: 16px 24px;
 		background: linear-gradient(135deg, #1a1a20 0%, #232329 100%);
@@ -507,6 +709,20 @@
 
 	.form-group input::placeholder {
 		color: #666;
+	}
+
+	.form-group input:disabled,
+	.form-group select:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.form-hint {
+		display: block;
+		margin-top: 6px;
+		font-size: 0.85rem;
+		color: #a0a0a0;
+		font-style: italic;
 	}
 
 	.modal-footer {

@@ -458,6 +458,17 @@
 		transition: margin-right 0.3s ease;
 	}
 
+	/* Chat Panel */
+	.chat-panel-business {
+		width: 350px;
+		flex-shrink: 0;
+		background: var(--biz-bg-secondary, #1a2332);
+		border-left: 1px solid var(--biz-border, #2d3a4d);
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+
 	/* Task Panel */
 	.task-panel {
 		background: var(--biz-bg-secondary, #1a2332);
@@ -469,6 +480,15 @@
 	@media (max-width: 1024px) {
 		.quick-stats {
 			display: none;
+		}
+
+		.chat-panel-business {
+			position: fixed;
+			right: 0;
+			top: 60px;
+			bottom: 0;
+			z-index: 50;
+			width: 320px !important;
 		}
 
 		.task-panel {

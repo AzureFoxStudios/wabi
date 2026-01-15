@@ -10,6 +10,34 @@
 	$: editName = resource?.name || '';
 	$: editDescription = resource?.description || '';
 
+	// YouTube URL detection and embed generation
+	function extractYouTubeVideoId(url: string): string | null {
+		const patterns = [
+			/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\n?#]+)/,
+			/youtube\.com\/embed\/([^&\n?#]+)/,
+			/youtube\.com\/v\/([^&\n?#]+)/
+		];
+		for (const pattern of patterns) {
+			const match = url.match(pattern);
+			if (match) return match[1];
+		}
+		return null;
+	}
+
+	function isYouTubeUrl(url: string): boolean {
+		return /(?:youtube\.com|youtu\.be)/.test(url);
+	}
+
+	function getYouTubeEmbedUrl(url: string): string | null {
+		const videoId = extractYouTubeVideoId(url);
+		if (videoId) return `https://www.youtube.com/embed/${videoId}?rel=0`;
+		return null;
+	}
+
+	$: youtubeEmbedUrl = resource?.type === 'youtube' || (resource?.externalUrl && isYouTubeUrl(resource.externalUrl))
+		? getYouTubeEmbedUrl(resource?.externalUrl || '')
+		: null;
+
 	function handleDownload() {
 		if (!resource) return;
 
@@ -52,6 +80,7 @@
 		file: '📁',
 		code: '💻',
 		video: '🎬',
+		youtube: '📺',
 		audio: '🎵'
 	};
 </script>
@@ -265,6 +294,16 @@
 		width: 100%;
 		height: 100%;
 		object-fit: contain;
+	}
+
+	.card-preview.youtube-embed {
+		background: #000;
+		padding: 0;
+	}
+
+	.card-preview.youtube-embed iframe {
+		border: none;
+		border-radius: 8px;
 	}
 
 	.card-description {
