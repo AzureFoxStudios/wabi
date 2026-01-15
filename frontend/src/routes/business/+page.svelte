@@ -9,13 +9,18 @@
 	import KanbanBoard from '$lib/components/business/KanbanBoard.svelte';
 	import TaskPanel from '$lib/components/business/TaskPanel.svelte';
 	import PinnedChannelsSidebar from '$lib/components/PinnedChannelsSidebar.svelte';
-	import { pinnedChannels } from '$lib/socket';
+	import Chat from '$lib/components/Chat.svelte';
+	import { pinnedChannels, channels, currentChannel, joinChannel } from '$lib/socket';
 
 	type MainView = 'calendar' | 'journal' | 'projects' | 'kanban';
 	let activeView: MainView = 'calendar';
 	let showTaskPanel = true;
 	let taskPanelWidth = 380;
 	let importFileInput: HTMLInputElement;
+
+	// Chat panel state
+	let showChatPanel = true;
+	let chatPanelExpanded = false;
 
 	onMount(() => {
 		// Restore the last active view from localStorage
@@ -110,6 +115,18 @@
 		if (data.kanbanColumns && Array.isArray(data.kanbanColumns)) {
 			kanbanColumns.set(data.kanbanColumns);
 		}
+	}
+
+	function toggleChatPanel() {
+		showChatPanel = !showChatPanel;
+	}
+
+	function toggleChatExpanded() {
+		chatPanelExpanded = !chatPanelExpanded;
+	}
+
+	function handleChatChannelSwitch(channelId: string) {
+		joinChannel(channelId);
 	}
 </script>
 
@@ -276,6 +293,68 @@
 			<aside class="task-panel" style="width: {taskPanelWidth}px">
 				<TaskPanel />
 			</aside>
+		{/if}
+
+		<!-- Chat Panel -->
+		{#if showChatPanel}
+			<div class="chat-panel-business" class:expanded={chatPanelExpanded}>
+				<div class="chat-header">
+					<div class="chat-title">
+						{#if chatPanelExpanded}
+							💬 Conversations
+						{:else}
+							{$channels.find(ch => ch.id === $currentChannel)?.name || 'Chat'}
+						{/if}
+					</div>
+					<div class="chat-controls">
+						<button class="chat-btn" on:click={toggleChatExpanded} title={chatPanelExpanded ? 'Show chat' : 'Show channels'}>
+							{chatPanelExpanded ? '💬' : '👀'}
+						</button>
+						<button class="chat-btn" on:click={toggleChatPanel} title="Toggle chat panel">
+							✕
+						</button>
+					</div>
+				</div>
+
+				{#if chatPanelExpanded}
+					<!-- Channel/DM List -->
+					<div class="chat-list">
+						{#if $channels.length > 0}
+							{#each $channels as channel}
+								<button
+									class="chat-list-item"
+									class:active={$currentChannel === channel.id}
+									on:click={() => handleChatChannelSwitch(channel.id)}
+									title={channel.name}
+								>
+									<span class="chat-icon">
+										{#if channel.type === 'dm'}
+											👤
+										{:else if channel.type === 'group'}
+											👥
+										{:else}
+											#
+										{/if}
+									</span>
+									<span class="chat-name">{channel.name}</span>
+								</button>
+							{/each}
+						{:else}
+							<div class="empty-list">No channels available</div>
+						{/if}
+					</div>
+				{:else}
+					<!-- Chat View -->
+					<div class="chat-view">
+						<Chat />
+					</div>
+				{/if}
+			</div>
+		{:else}
+			<!-- Collapsed Chat Button -->
+			<button class="chat-toggle-btn" on:click={toggleChatPanel} title="Open chat">
+				💬
+			</button>
 		{/if}
 	</div>
 </div>
@@ -467,6 +546,140 @@
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
+		position: relative;
+	}
+
+	.chat-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 12px;
+		border-bottom: 1px solid var(--biz-border, #2d3a4d);
+		background: var(--biz-bg-primary, #0f1419);
+		flex-shrink: 0;
+	}
+
+	.chat-title {
+		font-weight: 600;
+		font-size: 0.9rem;
+		color: var(--biz-text-primary, #f1f5f9);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.chat-controls {
+		display: flex;
+		gap: 4px;
+		flex-shrink: 0;
+	}
+
+	.chat-btn {
+		background: transparent;
+		border: none;
+		color: var(--biz-text-secondary, #94a3b8);
+		cursor: pointer;
+		font-size: 1rem;
+		padding: 4px 8px;
+		border-radius: 4px;
+		transition: all 0.15s;
+	}
+
+	.chat-btn:hover {
+		background: rgba(148, 163, 184, 0.1);
+		color: var(--biz-text-primary, #f1f5f9);
+	}
+
+	.chat-list {
+		flex: 1;
+		overflow-y: auto;
+		padding: 8px;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.chat-list-item {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 10px 12px;
+		background: rgba(148, 163, 184, 0.05);
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-radius: 6px;
+		color: var(--biz-text-secondary, #94a3b8);
+		cursor: pointer;
+		font-size: 0.9rem;
+		transition: all 0.15s;
+		white-space: nowrap;
+		overflow: hidden;
+		text-align: left;
+		font-family: inherit;
+	}
+
+	.chat-list-item:hover {
+		background: rgba(148, 163, 184, 0.15);
+		color: var(--biz-text-primary, #f1f5f9);
+		border-color: rgba(148, 163, 184, 0.3);
+	}
+
+	.chat-list-item.active {
+		background: #64748b;
+		color: white;
+		border-color: #64748b;
+	}
+
+	.chat-icon {
+		flex-shrink: 0;
+		font-size: 1rem;
+	}
+
+	.chat-name {
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.chat-view {
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.empty-list {
+		padding: 20px 12px;
+		text-align: center;
+		color: var(--biz-text-tertiary, #64748b);
+		font-size: 0.85rem;
+	}
+
+	.chat-toggle-btn {
+		position: fixed;
+		bottom: 24px;
+		right: 12px;
+		width: 48px;
+		height: 48px;
+		border-radius: 50%;
+		background: #64748b;
+		border: none;
+		color: white;
+		font-size: 1.5rem;
+		cursor: pointer;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+		transition: all 0.2s;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 500;
+	}
+
+	.chat-toggle-btn:hover {
+		background: #475569;
+		transform: scale(1.1);
+		box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
 	}
 
 	/* Task Panel */

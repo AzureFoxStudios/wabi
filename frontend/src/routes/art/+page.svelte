@@ -376,25 +376,23 @@
 					<div class="chat-list">
 						{#if $channels.length > 0}
 							{#each $channels as channel}
-								{#if channel.type !== 'dm' || !channel.otherUser}
-									<button
-										class="chat-list-item"
-										class:active={$currentChannel === channel.id}
-										on:click={() => handleChatChannelSwitch(channel.id)}
-										title={channel.name}
-									>
-										<span class="chat-icon">
-											{#if channel.type === 'dm'}
-												👤
-											{:else if channel.type === 'group'}
-												👥
-											{:else}
-												#
-											{/if}
-										</span>
-										<span class="chat-name">{channel.name}</span>
-									</button>
-								{/if}
+								<button
+									class="chat-list-item"
+									class:active={$currentChannel === channel.id}
+									on:click={() => handleChatChannelSwitch(channel.id)}
+									title={channel.name}
+								>
+									<span class="chat-icon">
+										{#if channel.type === 'dm'}
+											👤
+										{:else if channel.type === 'group'}
+											👥
+										{:else}
+											#
+										{/if}
+									</span>
+									<span class="chat-name">{channel.name}</span>
+								</button>
 							{/each}
 						{:else}
 							<div class="empty-list">No channels available</div>

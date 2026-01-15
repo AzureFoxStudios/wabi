@@ -203,7 +203,7 @@
 			case 'help':
 			case 'h':
 			case '?':
-				alert(`📚 Available Commands:\n\n${formatCommandHelp()}`);
+				alert(`Available Commands:\n\n${formatCommandHelp()}`);
 				break;
 
 			case 'resource':
@@ -228,7 +228,7 @@
 				};
 
 				resources.update(r => [...r, newResource]);
-				alert(`✅ Resource "${resourceName}" created!`);
+				alert(`Resource "${resourceName}" created!`);
 				break;
 			}
 
@@ -252,15 +252,43 @@
 
 			case 'pin':
 			case 'p': {
-				pinChannel($currentChannel);
-				alert(`📌 Channel pinned!`);
+				// /pin [channelName] - pin a channel by name, or current channel if no arg
+				let targetChannelId = $currentChannel;
+				if (parsed.args.length > 0) {
+					const channelName = parsed.args.join(' ');
+					const targetChannel = $channels.find(ch =>
+						ch.name.toLowerCase() === channelName.toLowerCase()
+					);
+					if (!targetChannel) {
+						alert(`Channel "${channelName}" not found!`);
+						return;
+					}
+					targetChannelId = targetChannel.id;
+				}
+				pinChannel(targetChannelId);
+				const channelName = $channels.find(ch => ch.id === targetChannelId)?.name || 'Channel';
+				alert(`"${channelName}" pinned!`);
 				break;
 			}
 
 			case 'unpin':
 			case 'up': {
-				unpinChannel($currentChannel);
-				alert(`📌 Channel unpinned!`);
+				// /unpin [channelName] - unpin a channel by name, or current channel if no arg
+				let targetChannelId = $currentChannel;
+				if (parsed.args.length > 0) {
+					const channelName = parsed.args.join(' ');
+					const targetChannel = $channels.find(ch =>
+						ch.name.toLowerCase() === channelName.toLowerCase()
+					);
+					if (!targetChannel) {
+						alert(`Channel "${channelName}" not found!`);
+						return;
+					}
+					targetChannelId = targetChannel.id;
+				}
+				unpinChannel(targetChannelId);
+				const channelName = $channels.find(ch => ch.id === targetChannelId)?.name || 'Channel';
+				alert(`"${channelName}" unpinned!`);
 				break;
 			}
 
@@ -270,21 +298,21 @@
 				// /todo [-open]
 				const todoList = $todos;
 				if (todoList.length === 0) {
-					alert('📝 No todos yet!');
+					alert('No todos yet!');
 					return;
 				}
 
 				const isOpen = !!parsed.flags['open'];
 				const todoText = todoList
-					.map((t, i) => `${i + 1}. ${t.status === 'done' ? '✅' : '⭕'} ${t.title}`)
+					.map((t, i) => `${i + 1}. ${t.status === 'done' ? 'DONE' : 'OPEN'} ${t.title}`)
 					.join('\n');
 
-				const message = `📝 **My Todos${isOpen ? ' (Shared)' : ''}:**\n\`\`\`\n${todoText}\n\`\`\``;
+				const message = `My Todos${isOpen ? ' (Shared)' : ''}:\n\`\`\`\n${todoText}\n\`\`\``;
 
 				if (isOpen) {
 					sendMessage($currentChannel, message, 'text', {});
 				} else {
-					alert(`📝 **My Todos:**\n\n${todoText}`);
+					alert(`My Todos:\n\n${todoText}`);
 				}
 				break;
 			}
@@ -300,7 +328,7 @@
 					.slice(0, 10);
 
 				if (upcoming.length === 0) {
-					alert('📅 No upcoming events!');
+					alert('No upcoming events!');
 					return;
 				}
 
@@ -308,16 +336,16 @@
 				const eventText = upcoming
 					.map(e => {
 						const date = new Date(e.startDate).toLocaleDateString();
-						return `📅 ${e.title} - ${date}`;
+						return `${e.title} - ${date}`;
 					})
 					.join('\n');
 
-				const message = `📅 **Upcoming Events${isOpen ? ' (Shared)' : ''}:**\n\`\`\`\n${eventText}\n\`\`\``;
+				const message = `Upcoming Events${isOpen ? ' (Shared)' : ''}:\n\`\`\`\n${eventText}\n\`\`\``;
 
 				if (isOpen) {
 					sendMessage($currentChannel, message, 'text', {});
 				} else {
-					alert(`📅 **Upcoming Events:**\n\n${eventText}`);
+					alert(`Upcoming Events:\n\n${eventText}`);
 				}
 				break;
 			}
@@ -329,7 +357,7 @@
 				const entries = $diaryEntries.slice(0, 5);
 
 				if (entries.length === 0) {
-					alert('📖 No journal entries yet!');
+					alert('No journal entries yet!');
 					return;
 				}
 
@@ -341,12 +369,12 @@
 					})
 					.join('\n');
 
-				const message = `📖 **Recent Journal Entries${isOpen ? ' (Shared)' : ''}:**\n\`\`\`\n${entryText}\n\`\`\``;
+				const message = `Recent Journal Entries${isOpen ? ' (Shared)' : ''}:\n\`\`\`\n${entryText}\n\`\`\``;
 
 				if (isOpen) {
 					sendMessage($currentChannel, message, 'text', {});
 				} else {
-					alert(`📖 **Recent Journal Entries:**\n\n${entryText}`);
+					alert(`Recent Journal Entries:\n\n${entryText}`);
 				}
 				break;
 			}
@@ -357,21 +385,69 @@
 				const projectList = $projects;
 
 				if (projectList.length === 0) {
-					alert('📊 No projects yet!');
+					alert('No projects yet!');
 					return;
 				}
 
 				const isOpen = !!parsed.flags['open'];
 				const projText = projectList
-					.map(p => `📊 ${p.name} - ${p.status}`)
+					.map(p => `${p.name} - ${p.status}`)
 					.join('\n');
 
-				const message = `📊 **My Projects${isOpen ? ' (Shared)' : ''}:**\n\`\`\`\n${projText}\n\`\`\``;
+				const message = `My Projects${isOpen ? ' (Shared)' : ''}:\n\`\`\`\n${projText}\n\`\`\``;
 
 				if (isOpen) {
 					sendMessage($currentChannel, message, 'text', {});
 				} else {
-					alert(`📊 **My Projects:**\n\n${projText}`);
+					alert(`My Projects:\n\n${projText}`);
+				}
+				break;
+			}
+
+			case 'art':
+			case 'a':
+			case 'graph':
+			case 'resources': {
+				// /art - Navigate to Art/Knowledge Graph portal
+				window.location.href = '/art';
+				break;
+			}
+
+			case 'business':
+			case 'b':
+			case 'hub':
+			case 'tasks': {
+				// /business - Navigate to Business Hub
+				window.location.href = '/business';
+				break;
+			}
+
+			case 'dm':
+			case 'message':
+			case 'msg': {
+				// /dm <username> - Open or create DM with user
+				const username = parsed.args.join(' ');
+				if (!username) {
+					alert('Please specify a username.\nUsage: /dm <username>');
+					return;
+				}
+
+				// Try to find if this user exists in any DM channels
+				const existingDM = $channels.find(ch =>
+					ch.type === 'dm' &&
+					ch.name.toLowerCase() === username.toLowerCase()
+				);
+
+				if (existingDM) {
+					// Join existing DM
+					const joinChannelFn = channels.subscribe(chans => {
+						// selectChannel is not exported, navigate to /chat with channel param
+						window.location.href = `/chat?channel=${existingDM.id}`;
+					})();
+					alert(`Started DM with ${username}`);
+				} else {
+					// In a real app, this would create a new DM on the backend
+					alert(`Starting DM with ${username}...\n\n(User lookup would happen on the backend in production)`);
 				}
 				break;
 			}
@@ -1053,7 +1129,7 @@
 		background: var(--bg-secondary);
 		border-top: 1px solid var(--border);
 	}
-	
+
 	.edit-info, .reply-info {
 		display: flex;
 		flex-direction: column;
@@ -1063,7 +1139,7 @@
 	.edit-label { color: var(--color-warning); font-weight: 600; }
 	.reply-label { color: var(--color-info); font-weight: 600; }
 	.edit-hint { font-style: italic; }
-	
+
 	.cancel-edit, .cancel-reply {
 		background: none;
 		border: none;
@@ -1158,7 +1234,7 @@
 		transition: all 0.2s;
 		font-size: 0.9rem;
 	}
-	
+
 	.send-button:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;

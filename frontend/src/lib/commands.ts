@@ -33,14 +33,14 @@ export const COMMANDS: Command[] = [
 	},
 	{
 		name: 'pin',
-		description: 'Pin the current channel',
-		usage: '/pin',
+		description: 'Pin a channel (or current channel if no name given)',
+		usage: '/pin [channelName]',
 		aliases: ['p']
 	},
 	{
 		name: 'unpin',
-		description: 'Unpin the current channel',
-		usage: '/unpin',
+		description: 'Unpin a channel (or current channel if no name given)',
+		usage: '/unpin [channelName]',
 		aliases: ['up']
 	},
 	{
@@ -75,6 +75,33 @@ export const COMMANDS: Command[] = [
 		description: 'Show all projects',
 		usage: '/projects [-open]',
 		aliases: ['proj', 'p'],
+		execute: (args, flags) => {
+			// Implementation in Chat component
+		}
+	},
+	{
+		name: 'art',
+		description: 'Navigate to the Art/Knowledge Graph portal',
+		usage: '/art',
+		aliases: ['a', 'graph', 'resources'],
+		execute: (args, flags) => {
+			// Implementation in Chat component
+		}
+	},
+	{
+		name: 'business',
+		description: 'Navigate to the Business Hub (Calendar, Journal, Projects)',
+		usage: '/business',
+		aliases: ['b', 'hub', 'tasks'],
+		execute: (args, flags) => {
+			// Implementation in Chat component
+		}
+	},
+	{
+		name: 'dm',
+		description: 'Open a direct message with a user',
+		usage: '/dm <username>',
+		aliases: ['message', 'msg'],
 		execute: (args, flags) => {
 			// Implementation in Chat component
 		}
