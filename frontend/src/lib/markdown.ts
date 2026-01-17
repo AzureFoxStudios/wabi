@@ -2,7 +2,7 @@ import { marked } from 'marked';
 import Prism from 'prismjs';
 import DOMPurify from 'dompurify';
 import { get } from 'svelte/store';
-import { emojis } from './socket';
+import { emojis } from './emoji-store';
 
 // Import Prism language support
 import 'prismjs/components/prism-javascript';

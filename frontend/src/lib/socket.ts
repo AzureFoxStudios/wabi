@@ -6,65 +6,10 @@ import { initEmotes, addEmote, removeEmote } from './markdown';
 import { chatStorage } from './storage';
 import * as calling from './calling';
 import * as webrtc from './webrtc';
+import type { FileAttachment, Message, Emoji, User, Channel } from './socket-types';
+import { emojis } from './emoji-store';
 
-export interface FileAttachment {
-	fileUrl: string;
-	fileName: string;
-	fileSize: number;
-}
-
-export interface Message {
-	id: string;
-	user: string;
-	userId: string;
-	text: string;
-	timestamp: number;
-	type: 'text' | 'gif' | 'file' | 'emoji';
-	gifUrl?: string;
-	emojiUrl?: string;
-	emojiName?: string;
-	fileUrl?: string;
-	fileName?: string;
-	fileSize?: number;
-	files?: FileAttachment[]; // Multiple file attachments
-	isPinned?: boolean;
-	isEdited?: boolean;
-	replyTo?: string;
-	isSpoiler?: boolean; // Mark media as spoiler (requires click to reveal)
-	reactions?: Record<string, string[]>; // emojiId -> array of userIds who reacted
-}
-
-export interface Emoji {
-	id: string;
-	name: string;
-	url: string;
-	category: string;
-	isCustom: boolean;
-}
-
-export interface User {
-	id: string;
-	username: string;
-	color: string;
-	status: 'active' | 'away' | 'busy';
-	profilePicture?: string;
-	bio?: string;
-	joinedAt?: number;
-}
-
-export interface Channel {
-	id: string;
-	name: string;
-	createdAt: number;
-	type?: 'public' | 'dm' | 'group';
-	members?: string[]; // User IDs for DMs and group chats
-	otherUser?: User; // For DMs, the other user in the conversation
-
-	autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
-	isTemporary?: boolean; // If true, channel is temporary and will be deleted after all users leave
-	persistMessages?: boolean; // If true, messages are persisted to disk for recovery on server restart
-	pinnedBy?: string[]; // Array of user IDs who have pinned this channel
-}
+export type { FileAttachment, Message, Emoji, User, Channel } from './socket-types';
 
 export const socket = writable<Socket | null>(null);
 export const channels = writable<Channel[]>([]);
@@ -82,7 +27,7 @@ export const channelUnreadCounts = writable<Record<string, number>>({});
 // DM panel state: signal to open DM panel with channel and user info
 export const dmPanelSignal = writable<{ channelId: string; otherUser: User } | null>(null);
 // Emojis store
-export const emojis = writable<Emoji[]>([]);
+export { emojis };
 
 // PAGINATION STORES: Track which archives are loaded for each channel
 export const channelLoadedArchives = writable<Record<string, Set<string>>>({});

@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Message } from './socket';
+import type { Message } from './socket-types';
 
 export interface WabiData {
 	version: string;
