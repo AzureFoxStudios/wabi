@@ -1,7 +1,7 @@
 // src/server.ts
 import { Server } from "socket.io";
 import { createServer } from "http";
-import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "fs";
+import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync } from "fs";
 import { join as join2, basename } from "path";
 
 // src/plugins/loader.ts
@@ -1626,6 +1626,25 @@ server.on("request", async (req, res) => {
     const decodedPathname = decodeURIComponent(url.pathname);
     let filePath = join2(STATIC_DIR, decodedPathname === "/" ? "index.html" : decodedPathname);
     if (existsSync(filePath)) {
+      try {
+        const stats = statSync(filePath);
+        if (stats.isDirectory()) {
+          const indexPath = join2(filePath, "index.html");
+          if (existsSync(indexPath)) {
+            const file2 = readFileSync(indexPath);
+            res.writeHead(200, { "Content-Type": "text/html" });
+            res.end(file2);
+            return;
+          }
+          res.writeHead(403);
+          res.end("Forbidden");
+          return;
+        }
+      } catch (err) {
+        res.writeHead(404);
+        res.end("Not Found");
+        return;
+      }
       const file = readFileSync(filePath);
       const ext = filePath.split(".").pop()?.toLowerCase();
       const contentTypes = {
