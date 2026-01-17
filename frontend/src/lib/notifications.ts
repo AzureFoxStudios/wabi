@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import type { Message } from '$lib/socket';
+import type { Message } from '$lib/socket-types';
 
 let notificationAudio: HTMLAudioElement | null = null;
 let audioContext: AudioContext | null = null;

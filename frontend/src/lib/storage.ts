@@ -1,4 +1,4 @@
-import type { Message, Channel } from './socket';
+import type { Message, Channel } from './socket-types';
 import { browser } from '$app/environment';
 
 export interface LoadMessagesResult {
