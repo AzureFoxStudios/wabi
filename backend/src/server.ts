@@ -1,6 +1,6 @@
 import { Server } from "socket.io";
 import { createServer } from "http";
-import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "fs";
+import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync } from "fs";
 import { join, basename } from "path";
 import { PluginLoader } from "./plugins/loader";
 import { getAllEmojis, getEmojiByName, addCustomEmoji, deleteCustomEmoji, type Emoji } from "./emojis";
@@ -1099,8 +1099,32 @@ server.on('request', async (req, res) => {
     const decodedPathname = decodeURIComponent(url.pathname);
     let filePath = join(STATIC_DIR, decodedPathname === "/" ? "index.html" : decodedPathname);
 
-    // Check if the file exists
+    // Check if the file exists (but not if it's a directory)
     if (existsSync(filePath)) {
+      try {
+        const stats = statSync(filePath);
+        // Skip directories - they're not files to serve
+        if (stats.isDirectory()) {
+          // Try to serve index.html from that directory
+          const indexPath = join(filePath, 'index.html');
+          if (existsSync(indexPath)) {
+            const file = readFileSync(indexPath);
+            res.writeHead(200, { "Content-Type": 'text/html' });
+            res.end(file);
+            return;
+          }
+          // Directory exists but no index.html inside
+          res.writeHead(403);
+          res.end('Forbidden');
+          return;
+        }
+      } catch (err) {
+        // If stat fails, continue to 404
+        res.writeHead(404);
+        res.end('Not Found');
+        return;
+      }
+
       const file = readFileSync(filePath);
       const ext = filePath.split('.').pop()?.toLowerCase();
       const contentTypes: Record<string, string> = {
