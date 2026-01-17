@@ -19,7 +19,7 @@ COPY . .
 RUN npm run build
 
 # Verify build output exists
-RUN test -f build || (echo "ERROR: build file not created" && ls -la && exit 1)
+RUN test -f dist/server.js || (echo "ERROR: build file not created" && ls -la && exit 1)
 
 # Prune devDependencies
 RUN npm prune --production
@@ -41,4 +41,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
 # Start the backend server
-CMD ["node", "build"]
+CMD ["node", "dist/server.js"]
