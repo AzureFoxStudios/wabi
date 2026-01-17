@@ -64,10 +64,16 @@
 		}
 
 		// Keyboard shortcuts for portals (Ctrl+Shift+1 for business, Ctrl+Shift+2 for art)
+		// Ctrl+Shift+O for emergency logout
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (e.ctrlKey && e.shiftKey && e.key === '1') {
 				e.preventDefault();
 				window.location.href = '/business';
+			}
+			// Emergency logout shortcut: Ctrl+Shift+O
+			if (e.ctrlKey && e.shiftKey && (e.key === 'O' || e.key === 'o')) {
+				e.preventDefault();
+				handleLogout();
 			}
 		};
 		window.addEventListener('keydown', handleKeyDown);
@@ -110,10 +116,11 @@
 		disconnect();
 		loggedIn = false;
 		username = '';
-		// Clear all session data
+		// Clear all session data (including authToken for registered users)
 		try {
 			localStorage.removeItem('username');
 			localStorage.removeItem('sessionId');
+			localStorage.removeItem('authToken');
 		} catch (e) {
 			console.error('Failed to clear localStorage:', e);
 		}
@@ -224,7 +231,7 @@
 
 		<!-- Main Content -->
 		<div class="main-content">
-			<div class:hidden={activeView !== 'chat'}><Chat /></div>
+			<div class:hidden={activeView !== 'chat'}><Chat on:logout={handleLogout} /></div>
 			<div class:hidden={activeView !== 'screen'}><ScreenShareViewer bind:activeView /></div>
 		</div>
 		

@@ -1382,7 +1382,57 @@ io.on("connection", (socket) => {
 
   // Handle user join
   socket.on("join", async (username: string) => {
-    // Check if a session for this username already exists
+    // Check if this is a registered user (authenticated via JWT in middleware)
+    if ((socket as any).isRegistered && (socket as any).sessionId) {
+      // Registered user - use their DB session instead of creating a temp session
+      const dbSession = sessionRepository.findById((socket as any).sessionId);
+
+      if (dbSession) {
+        // Use the registered user's data from the database
+        const registeredUsername = dbSession.username;
+        const registeredColor = dbSession.color || `#${Math.floor(Math.random()*16777215).toString(16)}`;
+        const registeredProfilePic = dbSession.profile_picture;
+
+        users.set(socket.id, {
+          id: socket.id,
+          username: registeredUsername,
+          color: registeredColor,
+          status: 'active',
+          profilePicture: registeredProfilePic
+        });
+
+        const userChannels = Array.from(channels.values()).filter(channel => {
+          if (!channel.members || channel.members.length === 0) return true;
+          return channel.members.includes(socket.id);
+        });
+
+        const emojisData = getAllEmojis();
+        socket.emit("init", {
+          channels: userChannels,
+          users: Array.from(users.values()),
+          excalidrawState,
+          emotes: Array.from(emotes.values()),
+          emojis: emojisData,
+          sessionId: (socket as any).sessionId
+        });
+
+        // Deliver offline messages for registered user
+        await deliverOfflineMessages(socket, (socket as any).dbUserId);
+
+        socket.broadcast.emit("user-joined", {
+          id: socket.id,
+          username: registeredUsername,
+          color: registeredColor,
+          status: 'active',
+          profilePicture: registeredProfilePic
+        });
+
+        if (ENABLE_LOGGING) console.log(`${registeredUsername} joined as registered user`);
+        return; // Exit early - don't create temp session
+      }
+    }
+
+    // Guest/temp user flow - check if a session for this username already exists
     let existingSession: { sessionId: string; session: { userId: string; username: string; color: string; profilePicture?: string; createdAt: number } } | null = null;
     for (const [sessionId, session] of sessions.entries()) {
       if (session.username === username) {
@@ -1421,11 +1471,6 @@ io.on("connection", (socket) => {
         sessionId: sessionId
       });
 
-      // Deliver offline messages if registered user
-      if ((socket as any).isRegistered && (socket as any).dbUserId) {
-        await deliverOfflineMessages(socket, (socket as any).dbUserId);
-      }
-
       socket.broadcast.emit("user-joined", {
         id: socket.id,
         username: session.username,
@@ -1436,7 +1481,7 @@ io.on("connection", (socket) => {
 
       if (ENABLE_LOGGING) console.log(`${session.username} re-joined the chat with a new socket`);
     } else {
-      // No session exists, create a new one
+      // No session exists, create a new one (guest user)
       const color = `#${Math.floor(Math.random()*16777215).toString(16)}`;
       const sessionId = generateSessionId();
       sessions.set(sessionId, {
@@ -1469,11 +1514,6 @@ io.on("connection", (socket) => {
         sessionId: sessionId
       });
 
-      // Deliver offline messages if registered user
-      if ((socket as any).isRegistered && (socket as any).dbUserId) {
-        await deliverOfflineMessages(socket, (socket as any).dbUserId);
-      }
-
       socket.broadcast.emit("user-joined", {
         id: socket.id,
         username,
@@ -1482,7 +1522,7 @@ io.on("connection", (socket) => {
         profilePicture: undefined
       });
 
-      if (ENABLE_LOGGING) console.log(`${username} joined the chat`);
+      if (ENABLE_LOGGING) console.log(`${username} joined the chat as guest`);
     }
   });
 

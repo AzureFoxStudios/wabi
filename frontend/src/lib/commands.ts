@@ -105,6 +105,15 @@ export const COMMANDS: Command[] = [
 		execute: (args, flags) => {
 			// Implementation in Chat component
 		}
+	},
+	{
+		name: 'logout',
+		description: 'Log out of the chat and clear session data',
+		usage: '/logout',
+		aliases: ['signout', 'exit'],
+		execute: (args, flags) => {
+			// Implementation in Chat component
+		}
 	}
 ];
 

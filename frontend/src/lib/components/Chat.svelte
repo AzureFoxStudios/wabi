@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, createEventDispatcher } from 'svelte';
 	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, type Message, type Emoji } from '$lib/socket';
 	import { resources, graphEdges } from '$lib/business/store';
 	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
@@ -10,6 +10,8 @@
 	import PinnedMessages from './PinnedMessages.svelte';
 	import CommandPalette from './CommandPalette.svelte';
 	import { parseCommand, formatCommandHelp, getMatchingCommands, type Command } from '$lib/commands';
+
+	const dispatch = createEventDispatcher();
 
 	$: messages = $channelMessages[$currentChannel] || [];
 	$: pinnedMessages = messages.filter((m: Message) => m.isPinned);
@@ -449,6 +451,14 @@
 					// In a real app, this would create a new DM on the backend
 					alert(`Starting DM with ${username}...\n\n(User lookup would happen on the backend in production)`);
 				}
+				break;
+			}
+
+			case 'logout':
+			case 'signout':
+			case 'exit': {
+				// /logout - Log out and clear session
+				dispatch('logout');
 				break;
 			}
 
