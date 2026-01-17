@@ -73,8 +73,29 @@
 {/if}
 
 {#if showViewer}
-  <div class="viewer-overlay" on:click={() => showViewer = false}>
-    <div class="viewer-content" on:click|stopPropagation>
+  <div
+    class="viewer-overlay"
+    role="button"
+    tabindex="0"
+    on:click={() => showViewer = false}
+    on:keydown={(event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        showViewer = false;
+      }
+    }}
+  >
+    <div
+      class="viewer-content"
+      role="button"
+      tabindex="0"
+      on:click|stopPropagation
+      on:keydown|stopPropagation={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+        }
+      }}
+    >
       <img src="{imageUrl}?v={cacheBuster}" alt="PureRef Board" />
     </div>
   </div>

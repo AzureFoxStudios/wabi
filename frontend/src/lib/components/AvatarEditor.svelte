@@ -72,8 +72,29 @@
 {#if isOpen}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div class="modal-overlay" on:click={closeModal}>
-		<div class="modal-content" on:click|stopPropagation>
+	<div
+		class="modal-overlay"
+		role="button"
+		tabindex="0"
+		on:click={closeModal}
+		on:keydown={(event) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				closeModal();
+			}
+		}}
+	>
+		<div
+			class="modal-content"
+			role="button"
+			tabindex="0"
+			on:click|stopPropagation
+			on:keydown|stopPropagation={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+				}
+			}}
+		>
 			<div class="modal-header">
 				<h2>Choose Profile Picture</h2>
 				<button class="close-btn" on:click={closeModal}>&times;</button>

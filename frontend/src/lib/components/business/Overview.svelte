@@ -61,7 +61,18 @@
 
 	<!-- Stats Cards -->
 	<div class="stats-grid">
-		<div class="stat-card" on:click={() => navigateTo('todos')}>
+		<div
+			class="stat-card"
+			role="button"
+			tabindex="0"
+			on:click={() => navigateTo('todos')}
+			on:keydown={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+					navigateTo('todos');
+				}
+			}}
+		>
 			<div class="stat-icon">✅</div>
 			<div class="stat-content">
 				<div class="stat-value">{completedTodos}/{totalTodos}</div>
@@ -72,7 +83,18 @@
 			</div>
 		</div>
 
-		<div class="stat-card warning" on:click={() => navigateTo('todos')}>
+		<div
+			class="stat-card warning"
+			role="button"
+			tabindex="0"
+			on:click={() => navigateTo('todos')}
+			on:keydown={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+					navigateTo('todos');
+				}
+			}}
+		>
 			<div class="stat-icon">⚠️</div>
 			<div class="stat-content">
 				<div class="stat-value">{overdueCount}</div>
@@ -80,7 +102,18 @@
 			</div>
 		</div>
 
-		<div class="stat-card" on:click={() => navigateTo('calendar')}>
+		<div
+			class="stat-card"
+			role="button"
+			tabindex="0"
+			on:click={() => navigateTo('calendar')}
+			on:keydown={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+					navigateTo('calendar');
+				}
+			}}
+		>
 			<div class="stat-icon">📅</div>
 			<div class="stat-content">
 				<div class="stat-value">{upcomingCount}</div>
@@ -88,7 +121,18 @@
 			</div>
 		</div>
 
-		<div class="stat-card" on:click={() => navigateTo('projects')}>
+		<div
+			class="stat-card"
+			role="button"
+			tabindex="0"
+			on:click={() => navigateTo('projects')}
+			on:keydown={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+					navigateTo('projects');
+				}
+			}}
+		>
 			<div class="stat-icon">📁</div>
 			<div class="stat-content">
 				<div class="stat-value">{$projects.length}</div>

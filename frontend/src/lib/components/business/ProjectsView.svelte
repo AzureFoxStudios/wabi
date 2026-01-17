@@ -682,8 +682,29 @@
 
 <!-- Project Modal -->
 {#if showProjectModal}
-	<div class="modal-overlay" on:click={closeProjectModal}>
-		<div class="modal" on:click|stopPropagation>
+	<div
+		class="modal-overlay"
+		role="button"
+		tabindex="0"
+		on:click={closeProjectModal}
+		on:keydown={(event) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				closeProjectModal();
+			}
+		}}
+	>
+		<div
+			class="modal"
+			role="button"
+			tabindex="0"
+			on:click|stopPropagation
+			on:keydown|stopPropagation={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+				}
+			}}
+		>
 			<div class="modal-header">
 				<h2>{editingProject ? 'Edit Project' : 'New Project'}</h2>
 				<button class="close-btn" on:click={closeProjectModal}>&times;</button>
@@ -748,8 +769,29 @@
 
 <!-- Sprint Modal -->
 {#if showSprintModal}
-	<div class="modal-overlay" on:click={closeSprintModal}>
-		<div class="modal" on:click|stopPropagation>
+	<div
+		class="modal-overlay"
+		role="button"
+		tabindex="0"
+		on:click={closeSprintModal}
+		on:keydown={(event) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				closeSprintModal();
+			}
+		}}
+	>
+		<div
+			class="modal"
+			role="button"
+			tabindex="0"
+			on:click|stopPropagation
+			on:keydown|stopPropagation={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+				}
+			}}
+		>
 			<div class="modal-header">
 				<h2>{editingSprint ? 'Edit Sprint' : 'New Sprint'}</h2>
 				<button class="close-btn" on:click={closeSprintModal}>&times;</button>

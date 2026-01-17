@@ -63,7 +63,18 @@
 			></iframe>
 		</div>
 	{:else}
-		<div class="link-preview" on:click={handleClick}>
+		<div
+			class="link-preview"
+			role="button"
+			tabindex="0"
+			on:click={handleClick}
+			on:keydown={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+					handleClick();
+				}
+			}}
+		>
 			{#if preview.image}
 				<div class="preview-image">
 					<img src={preview.image} alt={preview.title || 'Preview'} loading="lazy" />

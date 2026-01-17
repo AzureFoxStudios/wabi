@@ -66,8 +66,29 @@
 </script>
 
 {#if isOpen}
-	<div class="modal-overlay" on:click={closeModal}>
-		<div class="modal-content" on:click|stopPropagation>
+	<div
+		class="modal-overlay"
+		role="button"
+		tabindex="0"
+		on:click={closeModal}
+		on:keydown={(event) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				closeModal();
+			}
+		}}
+	>
+		<div
+			class="modal-content"
+			role="button"
+			tabindex="0"
+			on:click|stopPropagation
+			on:keydown|stopPropagation={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+				}
+			}}
+		>
 			<div class="modal-header">
 				<h2>📌 Pinned Messages in #{channelName}</h2>
 				<button class="close-btn" on:click={closeModal}>&times;</button>

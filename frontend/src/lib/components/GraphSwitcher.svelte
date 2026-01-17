@@ -61,8 +61,29 @@
 
 	<!-- New Workspace Dialog -->
 	{#if showNewWorkspaceDialog}
-		<div class="dialog-overlay" on:click={closeNewWorkspaceDialog}>
-			<div class="dialog-box" on:click|stopPropagation>
+		<div
+			class="dialog-overlay"
+			role="button"
+			tabindex="0"
+			on:click={closeNewWorkspaceDialog}
+			on:keydown={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+					closeNewWorkspaceDialog();
+				}
+			}}
+		>
+			<div
+				class="dialog-box"
+				role="button"
+				tabindex="0"
+				on:click|stopPropagation
+				on:keydown|stopPropagation={(event) => {
+					if (event.key === 'Enter' || event.key === ' ') {
+						event.preventDefault();
+					}
+				}}
+			>
 				<h2>Create New Workspace</h2>
 
 				<div class="form-group">

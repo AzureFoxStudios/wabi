@@ -380,7 +380,18 @@
 				<h3>Overdue</h3>
 				<div class="task-list">
 					{#each overdueTasks.slice(0, 5) as task}
-						<div class="sidebar-task overdue" on:click={() => toggleTaskComplete(task)}>
+						<div
+							class="sidebar-task overdue"
+							role="button"
+							tabindex="0"
+							on:click={() => toggleTaskComplete(task)}
+							on:keydown={(event) => {
+								if (event.key === 'Enter' || event.key === ' ') {
+									event.preventDefault();
+									toggleTaskComplete(task);
+								}
+							}}
+						>
 							<span class="task-priority" style="background-color: {getPriorityColor(task.priority)}"></span>
 							<div class="task-info">
 								<span class="task-name">{task.title}</span>
@@ -403,7 +414,18 @@
 			{:else}
 				<div class="task-list">
 					{#each upcomingTasks as task}
-						<div class="sidebar-task" on:click={() => toggleTaskComplete(task)}>
+						<div
+							class="sidebar-task"
+							role="button"
+							tabindex="0"
+							on:click={() => toggleTaskComplete(task)}
+							on:keydown={(event) => {
+								if (event.key === 'Enter' || event.key === ' ') {
+									event.preventDefault();
+									toggleTaskComplete(task);
+								}
+							}}
+						>
 							<span class="task-priority" style="background-color: {getPriorityColor(task.priority)}"></span>
 							<div class="task-info">
 								<span class="task-name">{task.title}</span>
@@ -426,8 +448,29 @@
 
 <!-- Event Modal -->
 {#if showEventModal}
-	<div class="modal-overlay" on:click|stopPropagation={closeModal}>
-		<div class="modal" on:click|stopPropagation>
+	<div
+		class="modal-overlay"
+		role="button"
+		tabindex="0"
+		on:click|stopPropagation={closeModal}
+		on:keydown|stopPropagation={(event) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				closeModal();
+			}
+		}}
+	>
+		<div
+			class="modal"
+			role="button"
+			tabindex="0"
+			on:click|stopPropagation
+			on:keydown|stopPropagation={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+				}
+			}}
+		>
 			<div class="modal-header">
 				<h2>{editingEvent ? 'Edit Event' : 'Add New Event'}</h2>
 				<button class="close-btn" on:click={closeModal}>&times;</button>
@@ -543,8 +586,29 @@
 <!-- Day Detail Modal -->
 {#if showDayModal}
 	{@const modalDayTasks = getTasksForDay(new Date($selectedDate))}
-	<div class="modal-overlay" on:click|stopPropagation={closeModal}>
-		<div class="modal day-modal" on:click|stopPropagation>
+	<div
+		class="modal-overlay"
+		role="button"
+		tabindex="0"
+		on:click|stopPropagation={closeModal}
+		on:keydown|stopPropagation={(event) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				closeModal();
+			}
+		}}
+	>
+		<div
+			class="modal day-modal"
+			role="button"
+			tabindex="0"
+			on:click|stopPropagation
+			on:keydown|stopPropagation={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+				}
+			}}
+		>
 			<div class="modal-header">
 				<h2>{new Date($selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h2>
 				<button class="close-btn" on:click={closeModal}>&times;</button>

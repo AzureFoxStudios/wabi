@@ -73,7 +73,19 @@
 
 <svelte:window on:click={handleClickOutside} />
 
-<div bind:this={menuElement} class="context-menu" style="left: {adjustedX}px; top: {adjustedY}px;" on:click|stopPropagation>
+<div
+	bind:this={menuElement}
+	class="context-menu"
+	style="left: {adjustedX}px; top: {adjustedY}px;"
+	role="button"
+	tabindex="0"
+	on:click|stopPropagation
+	on:keydown|stopPropagation={(event) => {
+		if (event.key === 'Enter' || event.key === ' ') {
+			event.preventDefault();
+		}
+	}}
+>
 	<div class="menu-header">
 		<div class="user-info">
 			{#if user.profilePicture}

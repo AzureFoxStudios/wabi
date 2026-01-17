@@ -434,8 +434,29 @@
 
 <!-- Create Resource Dialog -->
 {#if showCreateDialog}
-	<div class="modal-overlay" on:click={closeCreateDialog}>
-		<div class="modal-content" on:click|stopPropagation>
+	<div
+		class="modal-overlay"
+		role="button"
+		tabindex="0"
+		on:click={closeCreateDialog}
+		on:keydown={(event) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				closeCreateDialog();
+			}
+		}}
+	>
+		<div
+			class="modal-content"
+			role="button"
+			tabindex="0"
+			on:click|stopPropagation
+			on:keydown|stopPropagation={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+				}
+			}}
+		>
 			<div class="modal-header">
 				<h2>➕ Create New Resource</h2>
 				<button class="close-btn" on:click={closeCreateDialog}>✕</button>
