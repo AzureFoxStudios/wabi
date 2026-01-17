@@ -263,13 +263,6 @@
 		
 		<!-- Desktop-Only Buttons -->
 		{#if !isMobile}
-			<a
-				href="/business"
-				class="business-nav-button"
-				title="Business Hub (Ctrl+Shift+1)"
-			>
-				🏢
-			</a>
 			<button
 				class="user-panel-toggle"
 				class:open={showUserPanel || showDMPanel}
@@ -381,30 +374,6 @@
 		z-index: 500;
 	}
 	.art-nav-button:hover {
-		background: var(--accent);
-		border-color: var(--accent);
-		transform: scale(1.1);
-	}
-
-	.business-nav-button {
-		position: absolute;
-		top: 12px;
-		right: 12px;
-		width: 40px;
-		height: 40px;
-		background: var(--bg-secondary);
-		border: 2px solid var(--border);
-		border-radius: 8px;
-		cursor: pointer;
-		font-size: 1.5rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		text-decoration: none;
-		transition: all 0.3s ease;
-		z-index: 500;
-	}
-	.business-nav-button:hover {
 		background: var(--accent);
 		border-color: var(--accent);
 		transform: scale(1.1);

@@ -424,6 +424,15 @@
 				break;
 			}
 
+			case 'mainchat':
+			case 'main':
+			case 'chat':
+			case 'home': {
+				// /mainchat - Return to main Wabi Chat
+				window.location.href = '/';
+				break;
+			}
+
 			case 'dm':
 			case 'message':
 			case 'msg': {

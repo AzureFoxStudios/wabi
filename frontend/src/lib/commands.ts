@@ -98,6 +98,15 @@ export const COMMANDS: Command[] = [
 		}
 	},
 	{
+		name: 'mainchat',
+		description: 'Return to the main Wabi Chat',
+		usage: '/mainchat',
+		aliases: ['main', 'chat', 'home'],
+		execute: (args, flags) => {
+			// Implementation in Chat component
+		}
+	},
+	{
 		name: 'dm',
 		description: 'Open a direct message with a user',
 		usage: '/dm <username>',
