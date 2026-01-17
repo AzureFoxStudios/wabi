@@ -29,12 +29,29 @@
 </script>
 
 {#if visible && message}
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div class="dialog-overlay" on:click={closeDialog}>
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div class="dialog" on:click|stopPropagation>
+	<div
+		class="dialog-overlay"
+		role="button"
+		tabindex="0"
+		on:click={closeDialog}
+		on:keydown={(event) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				closeDialog();
+			}
+		}}
+	>
+		<div
+			class="dialog"
+			role="button"
+			tabindex="0"
+			on:click|stopPropagation
+			on:keydown|stopPropagation={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+				}
+			}}
+		>
 			<div class="dialog-header">
 				<h3>Forward Message</h3>
 				<button class="close-button" on:click={closeDialog}>✕</button>

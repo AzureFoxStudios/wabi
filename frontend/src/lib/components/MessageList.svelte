@@ -478,7 +478,18 @@
 			{#if replyToMsg}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
-				<div class="reply-preview" on:click={() => jumpToMessage(replyToMsg.id)}>
+				<div
+					class="reply-preview"
+					role="button"
+					tabindex="0"
+					on:click={() => jumpToMessage(replyToMsg.id)}
+					on:keydown={(event) => {
+						if (event.key === 'Enter' || event.key === ' ') {
+							event.preventDefault();
+							jumpToMessage(replyToMsg.id);
+						}
+					}}
+				>
 					<div class="reply-line"></div>
 					<div class="reply-content">
 						<span class="reply-username">
@@ -756,7 +767,18 @@
 {#if enlargedImage}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div class="image-modal" on:click={closeEnlargedImage}>
+	<div
+		class="image-modal"
+		role="button"
+		tabindex="0"
+		on:click={closeEnlargedImage}
+		on:keydown={(event) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				closeEnlargedImage();
+			}
+		}}
+	>
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 		<img
@@ -789,7 +811,18 @@
 {#if enlargedVideo}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div class="video-modal" on:click={closeEnlargedVideo}>
+	<div
+		class="video-modal"
+		role="button"
+		tabindex="0"
+		on:click={closeEnlargedVideo}
+		on:keydown={(event) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				closeEnlargedVideo();
+			}
+		}}
+	>
 		<!-- svelte-ignore a11y-media-has-caption -->
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->

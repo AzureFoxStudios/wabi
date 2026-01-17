@@ -470,7 +470,18 @@
 
 <!-- Full-screen Image Viewer -->
 {#if viewingImage}
-	<div class="image-viewer-overlay" on:click={() => viewingImage = null}>
+	<div
+		class="image-viewer-overlay"
+		role="button"
+		tabindex="0"
+		on:click={() => viewingImage = null}
+		on:keydown={(event) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				viewingImage = null;
+			}
+		}}
+	>
 		<button class="viewer-close" on:click={() => viewingImage = null}>&times;</button>
 		<img src={viewingImage} alt="Full view" class="viewer-image" on:click|stopPropagation />
 	</div>

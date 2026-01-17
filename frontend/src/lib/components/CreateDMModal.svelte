@@ -41,7 +41,18 @@
 </script>
 
 {#if isOpen}
-	<div class="modal-overlay" on:click={closeModal}></div>
+	<div
+		class="modal-overlay"
+		role="button"
+		tabindex="0"
+		on:click={closeModal}
+		on:keydown={(event) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				closeModal();
+			}
+		}}
+	></div>
 	<div class="modal">
 		<div class="modal-header">
 			<h2>Start a Direct Message</h2>

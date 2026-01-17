@@ -33,8 +33,29 @@
 </script>
 
 {#if isOpen}
-	<div class="modal-overlay" on:click={handleCancel}>
-		<div class="modal-content" on:click|stopPropagation>
+<div
+	class="modal-overlay"
+	role="button"
+	tabindex="0"
+	on:click={handleCancel}
+	on:keydown={(event) => {
+		if (event.key === 'Enter' || event.key === ' ') {
+			event.preventDefault();
+			handleCancel();
+		}
+	}}
+>
+	<div
+		class="modal-content"
+		role="button"
+		tabindex="0"
+		on:click|stopPropagation
+		on:keydown|stopPropagation={(event) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+			}
+		}}
+	>
 			<div class="modal-header">
 				<h2>{title}</h2>
 				<button class="close-btn" on:click={handleCancel}>&times;</button>

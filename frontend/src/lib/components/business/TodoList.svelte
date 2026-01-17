@@ -382,8 +382,29 @@
 
 <!-- Add/Edit Modal -->
 {#if showAddModal}
-	<div class="modal-overlay" on:click={closeModal}>
-		<div class="modal" on:click|stopPropagation>
+	<div
+		class="modal-overlay"
+		role="button"
+		tabindex="0"
+		on:click={closeModal}
+		on:keydown={(event) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				closeModal();
+			}
+		}}
+	>
+		<div
+			class="modal"
+			role="button"
+			tabindex="0"
+			on:click|stopPropagation
+			on:keydown|stopPropagation={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+				}
+			}}
+		>
 			<div class="modal-header">
 				<h2>{editingTodo ? 'Edit Task' : 'Add New Task'}</h2>
 				<button class="close-btn" on:click={closeModal}>&times;</button>
