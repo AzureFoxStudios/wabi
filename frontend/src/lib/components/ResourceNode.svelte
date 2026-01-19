@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { Handle, Position } from '@xyflow/svelte';
-
 	interface Props {
 		data: {
 			label: string;
@@ -10,10 +8,11 @@
 			isAnonymous?: boolean;
 			tags?: string[];
 		};
-		isConnectable: boolean;
 	}
 
-	let { data, isConnectable }: Props = $props();
+	let { data }: Props = $props();
+
+	// Handles removed: connections are predefined via graphEdges store, not user-created through drag-and-drop
 
 	const typeIcons: Record<string, string> = {
 		brush: '🖌️',
@@ -39,8 +38,6 @@
 </script>
 
 <div class="resource-node">
-	<Handle type="target" position={Position.Top} {isConnectable} />
-
 	<div class="node-content">
 		<div class="node-header">
 			<span class="node-icon" style="font-size: 1.5rem;">
@@ -74,8 +71,6 @@
 			</div>
 		{/if}
 	</div>
-
-	<Handle type="source" position={Position.Bottom} {isConnectable} />
 </div>
 
 <style>

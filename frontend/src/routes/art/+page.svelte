@@ -161,7 +161,7 @@
 		return /(?:youtube\.com|youtu\.be)/.test(url);
 	}
 
-	function handleCreateResource() {
+	async function handleCreateResource() {
 		if (!newResourceName.trim()) {
 			alert('Please enter a resource name');
 			return;
@@ -170,6 +170,8 @@
 		// Determine resource type based on URL if provided
 		let resourceType = newResourceType;
 		let externalUrl: string | undefined = undefined;
+		let fileUrl: string | undefined = undefined;
+		let preview: string | null = null;
 		let storageType: 'inline' | 'upload' | 'external' = 'inline';
 
 		if (newResourceUrl.trim()) {
@@ -184,17 +186,40 @@
 			}
 		}
 
+		// Handle file upload
+		if (newResourceFile) {
+			const fileDataUrl = await readFileAsDataUrl(newResourceFile);
+			fileUrl = fileDataUrl;
+			storageType = 'inline';
+
+			// Auto-detect resource type from MIME type
+			const mimeType = newResourceFile.type;
+			if (mimeType.startsWith('image/')) {
+				resourceType = 'image';
+				preview = fileDataUrl;
+			} else if (mimeType.startsWith('video/')) {
+				resourceType = 'video';
+			} else if (mimeType.startsWith('audio/')) {
+				resourceType = 'audio';
+			} else if (mimeType.includes('pdf')) {
+				resourceType = 'file';
+			} else {
+				resourceType = 'file';
+			}
+		}
+
 		const newResource = {
 			id: `res-${Date.now()}`,
 			name: newResourceName,
 			type: resourceType,
 			storageType: storageType,
 			externalUrl: externalUrl,
+			fileUrl: fileUrl,
 			createdAt: Date.now(),
 			createdBy: 'You',
 			isAnonymous: false,
 			tags: [],
-			preview: null,
+			preview: preview,
 			description: undefined,
 			updatedAt: Date.now()
 		};
@@ -205,6 +230,8 @@
 		newResourceName = '';
 		newResourceType = 'reference';
 		newResourceUrl = '';
+		newResourceFile = null;
+		if (fileInputRef) fileInputRef.value = '';
 		showCreateDialog = false;
 	}
 
@@ -308,7 +335,18 @@
 				<button class="create-btn" on:click={() => showCreateDialog = true} title="Create a new resource">
 					➕ New Resource
 				</button>
-				<LayoutSwitcher on:layout-change={handleLayoutChange} />
+				<!--
+			LAYOUT SWITCHER (Commented out - all content appears community-based)
+
+			Available layouts if needed in future:
+			- 🗂️ Communities: Groups resources by tags/categories
+			- 🔘 Radial: Mind map style spreading from center
+			- 🧲 Force-Directed: Physics simulation for organic clustering
+			- 📅 Timeline: Chronological by creation date
+
+			To re-enable: uncomment <LayoutSwitcher on:layout-change={handleLayoutChange} />
+			-->
+			<!-- <LayoutSwitcher on:layout-change={handleLayoutChange} /> -->
 				<GraphSwitcher {currentGraph} on:graph-change={handleGraphChange} on:create-workspace={handleCreateWorkspace} />
 			</div>
 		</div>
@@ -487,6 +525,20 @@
 						<small class="form-hint">🎬 YouTube link detected - will be saved as YouTube resource</small>
 					{:else if newResourceUrl}
 						<small class="form-hint">🔗 URL resource</small>
+					{/if}
+				</div>
+
+				<div class="form-group">
+					<label for="resource-file">Upload File (Optional)</label>
+					<input
+						id="resource-file"
+						type="file"
+						accept="image/*,video/*,audio/*,.pdf,.txt"
+						bind:this={fileInputRef}
+						on:change={handleFileSelected}
+					/>
+					{#if newResourceFile}
+						<small class="form-hint">📎 {newResourceFile.name} selected</small>
 					{/if}
 				</div>
 

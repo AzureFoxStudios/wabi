@@ -6,9 +6,15 @@
 	export let resourceId: string;
 
 	$: resource = get(resources).find(r => r.id === resourceId);
-	$: isEditing = false;
-	$: editName = resource?.name || '';
-	$: editDescription = resource?.description || '';
+
+	let isEditing = false;
+	let editName = '';
+	let editDescription = '';
+
+	$: if (resource && !isEditing) {
+		editName = resource.name || '';
+		editDescription = resource.description || '';
+	}
 
 	// YouTube URL detection and embed generation
 	function extractYouTubeVideoId(url: string): string | null {
@@ -67,6 +73,24 @@
 		alert('Link copied to clipboard!');
 	}
 
+	function handleSave() {
+		if (!resource) return;
+		resources.update(list =>
+			list.map(r =>
+				r.id === resourceId
+					? { ...r, name: editName, description: editDescription, updatedAt: Date.now() }
+					: r
+			)
+		);
+		isEditing = false;
+	}
+
+	function handleCancelEdit() {
+		editName = resource?.name || '';
+		editDescription = resource?.description || '';
+		isEditing = false;
+	}
+
 	function handleContextMenu(event: MouseEvent) {
 		event.preventDefault();
 		// Context menu handled by browser right-click on buttons
@@ -88,10 +112,17 @@
 {#if resource}
 	<div class="resource-card">
 		<div class="card-header">
-			<div class="card-title">
-				<span class="icon">{typeIcons[resource.type] || '📄'}</span>
-				<h2>{resource.name}</h2>
-			</div>
+			{#if isEditing}
+				<div class="edit-header">
+					<span class="icon">{typeIcons[resource.type] || '📄'}</span>
+					<input type="text" class="edit-name-input" bind:value={editName} placeholder="Resource name" />
+				</div>
+			{:else}
+				<div class="card-title">
+					<span class="icon">{typeIcons[resource.type] || '📄'}</span>
+					<h2>{resource.name}</h2>
+				</div>
+			{/if}
 			<button class="close-btn" on:click={() => {}}>✕</button>
 		</div>
 
@@ -132,7 +163,18 @@
 			</div>
 		{/if}
 
-		{#if resource.description}
+		{#if isEditing}
+			<div class="edit-form">
+				<div class="form-group">
+					<label>Description (Optional)</label>
+					<textarea bind:value={editDescription} rows="4" placeholder="Enter resource description"></textarea>
+				</div>
+				<div class="edit-actions">
+					<button class="btn-save" on:click={handleSave}>💾 Save</button>
+					<button class="btn-cancel" on:click={handleCancelEdit}>✕ Cancel</button>
+				</div>
+			</div>
+		{:else if resource.description}
 			<div class="card-description">
 				<h3>Description</h3>
 				<p>{resource.description}</p>
@@ -150,24 +192,29 @@
 		{/if}
 
 		<!-- Actions -->
-		<div class="card-actions">
-			<button class="action-btn primary" on:click={handleDownload}>
-				{#if resource.type === 'url'}
-					🔗 Open Link
-				{:else}
-					⬇️ Download
-				{/if}
-			</button>
-			<button class="action-btn" on:click={copyLink} title="Copy shareable link to clipboard">
-				🔗 Copy Link
-			</button>
-			<button class="action-btn" on:click={openInGraph}>
-				👁️ View in Graph
-			</button>
-			<button class="action-btn danger" on:click={handleDelete}>
-				🗑️ Delete
-			</button>
-		</div>
+		{#if !isEditing}
+			<div class="card-actions">
+				<button class="action-btn primary" on:click={handleDownload}>
+					{#if resource.type === 'url'}
+						🔗 Open Link
+					{:else}
+						⬇️ Download
+					{/if}
+				</button>
+				<button class="action-btn" on:click={copyLink} title="Copy shareable link to clipboard">
+					🔗 Copy Link
+				</button>
+				<button class="action-btn" on:click={() => isEditing = true}>
+					✏️ Edit
+				</button>
+				<button class="action-btn" on:click={openInGraph}>
+					👁️ View in Graph
+				</button>
+				<button class="action-btn danger" on:click={handleDelete}>
+					🗑️ Delete
+				</button>
+			</div>
+		{/if}
 	</div>
 {:else}
 	<div class="resource-card empty">
@@ -392,5 +439,115 @@
 		background: #ef4444;
 		border-color: #ef4444;
 		color: white;
+	}
+
+	.edit-header {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		flex: 1;
+	}
+
+	.edit-name-input {
+		flex: 1;
+		padding: 10px 12px;
+		background: rgba(99, 102, 241, 0.1);
+		border: 2px solid rgba(99, 102, 241, 0.3);
+		border-radius: 6px;
+		color: #e0e0e0;
+		font-size: 1.2rem;
+		font-weight: 600;
+		font-family: inherit;
+		transition: all 0.2s;
+	}
+
+	.edit-name-input:focus {
+		outline: none;
+		border-color: #6366f1;
+		background: rgba(99, 102, 241, 0.15);
+		box-shadow: 0 0 10px rgba(99, 102, 241, 0.3);
+	}
+
+	.edit-form {
+		margin: 16px 0;
+		padding: 12px;
+		background: #2a2a2e;
+		border-radius: 6px;
+		border-left: 3px solid #6366f1;
+	}
+
+	.edit-form .form-group {
+		margin-bottom: 12px;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.edit-form .form-group label {
+		font-size: 0.85rem;
+		color: #a78bfa;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.edit-form textarea {
+		padding: 10px 12px;
+		background: rgba(99, 102, 241, 0.05);
+		border: 2px solid rgba(99, 102, 241, 0.2);
+		border-radius: 6px;
+		color: #e0e0e0;
+		font-size: 0.9rem;
+		font-family: inherit;
+		resize: vertical;
+		transition: all 0.2s;
+	}
+
+	.edit-form textarea:focus {
+		outline: none;
+		border-color: #6366f1;
+		background: rgba(99, 102, 241, 0.1);
+		box-shadow: 0 0 10px rgba(99, 102, 241, 0.3);
+	}
+
+	.edit-actions {
+		display: flex;
+		gap: 8px;
+		margin-top: 12px;
+	}
+
+	.btn-save,
+	.btn-cancel {
+		flex: 1;
+		padding: 10px 12px;
+		border-radius: 6px;
+		border: none;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		font-family: inherit;
+	}
+
+	.btn-save {
+		background: #6366f1;
+		color: white;
+	}
+
+	.btn-save:hover {
+		background: #7c3aed;
+		transform: translateY(-2px);
+	}
+
+	.btn-cancel {
+		background: rgba(99, 102, 241, 0.1);
+		color: #a0a0a0;
+		border: 1px solid rgba(99, 102, 241, 0.2);
+	}
+
+	.btn-cancel:hover {
+		background: rgba(99, 102, 241, 0.2);
+		color: #e0e0e0;
+		transform: translateY(-2px);
 	}
 </style>
