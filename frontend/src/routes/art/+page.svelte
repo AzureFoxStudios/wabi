@@ -218,7 +218,7 @@
 			createdAt: Date.now(),
 			createdBy: 'You',
 			isAnonymous: false,
-			tags: [],
+			tags: newResourceTags,
 			preview: preview,
 			description: undefined,
 			updatedAt: Date.now()
@@ -231,6 +231,8 @@
 		newResourceType = 'reference';
 		newResourceUrl = '';
 		newResourceFile = null;
+		newResourceTags = [];
+		newTagInput = '';
 		if (fileInputRef) fileInputRef.value = '';
 		showCreateDialog = false;
 	}
@@ -241,6 +243,8 @@
 		newResourceType = 'reference';
 		newResourceUrl = '';
 		newResourceFile = null;
+		newResourceTags = [];
+		newTagInput = '';
 		if (fileInputRef) fileInputRef.value = '';
 	}
 
@@ -451,10 +455,6 @@
 		{/if}
 	</div>
 
-	<!-- Help Info -->
-	<div class="art-info">
-		<p>💡 Click nodes to view details • Right-click for options • Use layout switcher to change view</p>
-	</div>
 </div>
 
 <!-- Context Menu -->
@@ -555,10 +555,46 @@
 				</div>
 			</div>
 
-			<div class="modal-footer">
-				<button class="btn-cancel" on:click={closeCreateDialog}>Cancel</button>
-				<button class="btn-create" on:click={handleCreateResource}>Create Resource</button>
+			<div class="form-group">
+				<label for="resource-tags">Tags (Optional)</label>
+				<input
+					id="resource-tags"
+					type="text"
+					placeholder="e.g., design, inspiration (press Enter or comma to add)"
+					bind:value={newTagInput}
+					on:input={handleTagInput}
+					on:keydown={handleTagKeydown}
+				/>
+				{#if showTagSuggestions && tagSuggestions.length > 0}
+					<div class="tag-suggestions">
+						{#each tagSuggestions as suggestion}
+							<button
+								type="button"
+								class="tag-suggestion"
+								on:click={() => addTag(suggestion)}
+							>
+								#{suggestion}
+							</button>
+						{/each}
+					</div>
+				{/if}
+				{#if newResourceTags.length > 0}
+					<div class="selected-tags">
+						{#each newResourceTags as tag}
+							<span class="tag-chip">
+								#{tag}
+								<button type="button" class="remove-tag" on:click={() => removeTag(tag)}>✕</button>
+							</span>
+						{/each}
+					</div>
+				{/if}
 			</div>
+		</div>
+
+		<div class="modal-footer">
+			<button class="btn-cancel" on:click={closeCreateDialog}>Cancel</button>
+			<button class="btn-create" on:click={handleCreateResource}>Create Resource</button>
+		</div>
 		</div>
 	</div>
 {/if}
@@ -577,7 +613,7 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 20px 32px;
+		padding: 8px 12px;
 		background: linear-gradient(135deg, #1a1a20 0%, #232329 100%);
 		border-bottom: 2px solid #6366f1;
 		gap: 24px;
@@ -590,8 +626,8 @@
 	}
 
 	.art-header h1 {
-		margin: 0 0 8px 0;
-		font-size: 2rem;
+		margin: 0 0 2px 0;
+		font-size: 0.667rem;
 		font-weight: 700;
 		background: linear-gradient(135deg, #6366f1 0%, #a78bfa 100%);
 		-webkit-background-clip: text;
@@ -608,12 +644,12 @@
 	}
 
 	.create-btn {
-		padding: 10px 20px;
+		padding: 4px 8px;
 		background: linear-gradient(135deg, #6366f1 0%, #7c3aed 100%);
 		color: white;
 		border: none;
 		border-radius: 8px;
-		font-size: 0.95rem;
+		font-size: 0.317rem;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -641,7 +677,7 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		padding: 12px 16px;
+		padding: 4px 6px;
 		background: rgba(99, 102, 241, 0.1);
 		border-radius: 8px;
 		border: 1px solid rgba(99, 102, 241, 0.3);
@@ -656,7 +692,7 @@
 	}
 
 	.stat-label {
-		font-size: 0.75rem;
+		font-size: 0.25rem;
 		color: #a0a0a0;
 		text-transform: uppercase;
 		letter-spacing: 1px;
@@ -664,13 +700,13 @@
 	}
 
 	.stat-value {
-		font-size: 2rem;
+		font-size: 0.667rem;
 		font-weight: 700;
 		background: linear-gradient(135deg, #6366f1 0%, #a78bfa 100%);
 		-webkit-background-clip: text;
 		-webkit-text-fill-color: transparent;
 		background-clip: text;
-		margin-top: 4px;
+		margin-top: 2px;
 	}
 
 	.art-content {
@@ -845,20 +881,6 @@
 		box-shadow: 0 6px 16px rgba(99, 102, 241, 0.6);
 	}
 
-	.art-info {
-		padding: 16px 24px;
-		background: linear-gradient(135deg, #1a1a20 0%, #232329 100%);
-		border-top: 1px solid rgba(99, 102, 241, 0.3);
-		font-size: 0.9rem;
-		color: #a0a0a0;
-		text-align: center;
-		box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.2);
-	}
-
-	.art-info p {
-		margin: 0;
-		font-weight: 500;
-	}
 
 	/* Modal Styles */
 	.modal-overlay {
@@ -1053,10 +1075,68 @@
 		transform: translateY(0);
 	}
 
+	.tag-suggestions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 8px;
+		padding: 8px;
+		background: rgba(99, 102, 241, 0.05);
+		border-radius: 6px;
+	}
+
+	.tag-suggestion {
+		padding: 4px 10px;
+		background: rgba(99, 102, 241, 0.2);
+		border: 1px solid rgba(99, 102, 241, 0.3);
+		border-radius: 12px;
+		color: #6366f1;
+		cursor: pointer;
+		font-size: 0.85rem;
+		transition: all 0.15s;
+	}
+
+	.tag-suggestion:hover {
+		background: rgba(99, 102, 241, 0.3);
+		border-color: #6366f1;
+	}
+
+	.selected-tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 8px;
+	}
+
+	.tag-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 4px 10px;
+		background: #6366f1;
+		border-radius: 12px;
+		color: white;
+		font-size: 0.85rem;
+	}
+
+	.remove-tag {
+		background: none;
+		border: none;
+		color: white;
+		cursor: pointer;
+		font-size: 0.9rem;
+		padding: 0 4px;
+		margin-left: 4px;
+		opacity: 0.7;
+		transition: opacity 0.15s;
+	}
+
+	.remove-tag:hover {
+		opacity: 1;
+	}
+
 	@media (max-width: 1024px) {
 		.art-header {
-			flex-direction: column;
-			align-items: flex-start;
 			gap: 12px;
 		}
 
@@ -1085,26 +1165,21 @@
 		}
 
 		.art-header {
-			flex-direction: column;
-			align-items: flex-start;
-			padding: 12px 16px;
+			padding: 6px 8px;
 			gap: 12px;
 		}
 
 		.art-header h1 {
-			font-size: 1.4rem;
+			font-size: 0.667rem;
 		}
 
 		.header-controls {
-			flex-direction: column;
-			width: 100%;
 			gap: 8px;
 		}
 
 		.create-btn {
-			width: 100%;
-			padding: 10px 12px;
-			font-size: 0.85rem;
+			padding: 3px 6px;
+			font-size: 0.317rem;
 		}
 
 		.header-stats {
@@ -1135,10 +1210,6 @@
 			flex: 1;
 		}
 
-		.art-info {
-			padding: 8px 12px;
-			font-size: 0.8rem;
-		}
 
 		.modal-content {
 			width: 95%;
@@ -1148,11 +1219,11 @@
 
 	@media (max-width: 480px) {
 		.art-header {
-			padding: 8px 12px;
+			padding: 4px 8px;
 		}
 
 		.art-header h1 {
-			font-size: 1.1rem;
+			font-size: 0.667rem;
 		}
 
 		.header-controls {
@@ -1160,9 +1231,8 @@
 		}
 
 		.create-btn {
-			width: 100%;
-			padding: 8px 10px;
-			font-size: 0.8rem;
+			padding: 2px 4px;
+			font-size: 0.317rem;
 		}
 
 		.header-stats {
@@ -1174,11 +1244,11 @@
 		}
 
 		.stat-label {
-			font-size: 0.6rem;
+			font-size: 0.25rem;
 		}
 
 		.stat-value {
-			font-size: 1.2rem;
+			font-size: 0.667rem;
 		}
 
 		.pinned-sidebar-wrapper {
@@ -1189,10 +1259,6 @@
 			height: 30%;
 		}
 
-		.art-info {
-			padding: 6px 10px;
-			font-size: 0.75rem;
-		}
 
 		.modal-content {
 			width: 98%;

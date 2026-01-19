@@ -10,10 +10,15 @@
 	let isEditing = false;
 	let editName = '';
 	let editDescription = '';
+	let editTags: string[] = [];
+	let newTagInput = '';
+	let tagSuggestions: string[] = [];
+	let showTagSuggestions = false;
 
 	$: if (resource && !isEditing) {
 		editName = resource.name || '';
 		editDescription = resource.description || '';
+		editTags = resource.tags || [];
 	}
 
 	// YouTube URL detection and embed generation
@@ -73,12 +78,69 @@
 		alert('Link copied to clipboard!');
 	}
 
+	function getExistingTags(): string[] {
+		const allTags = new Set<string>();
+		get(resources).forEach(r => {
+			r.tags?.forEach(tag => allTags.add(tag));
+		});
+		return Array.from(allTags).sort();
+	}
+
+	function updateTagSuggestions() {
+		if (newTagInput.trim()) {
+			const allTags = getExistingTags();
+			const input = newTagInput.toLowerCase();
+			tagSuggestions = allTags
+				.filter(tag => tag.toLowerCase().includes(input) && !editTags.includes(tag))
+				.slice(0, 5);
+			showTagSuggestions = true;
+		} else {
+			showTagSuggestions = false;
+		}
+	}
+
+	function addTag(tag?: string) {
+		const tagToAdd = (tag || newTagInput).trim().toLowerCase();
+		if (tagToAdd && !editTags.includes(tagToAdd)) {
+			editTags = [...editTags, tagToAdd];
+			newTagInput = '';
+			tagSuggestions = [];
+			showTagSuggestions = false;
+		}
+	}
+
+	function removeTag(tag: string) {
+		editTags = editTags.filter(t => t !== tag);
+	}
+
+	function handleTagInput(e: Event) {
+		const input = (e.target as HTMLInputElement).value;
+		newTagInput = input;
+		if (input.trim()) {
+			updateTagSuggestions();
+		} else {
+			showTagSuggestions = false;
+		}
+	}
+
+	function handleTagKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			addTag();
+		} else if (e.key === ',' || e.key === ' ') {
+			if (newTagInput.trim()) {
+				e.preventDefault();
+				addTag();
+			}
+		}
+	}
+
 	function handleSave() {
 		if (!resource) return;
 		resources.update(list =>
 			list.map(r =>
 				r.id === resourceId
-					? { ...r, name: editName, description: editDescription, updatedAt: Date.now() }
+					? { ...r, name: editName, description: editDescription, tags: editTags, updatedAt: Date.now() }
 					: r
 			)
 		);
@@ -88,6 +150,8 @@
 	function handleCancelEdit() {
 		editName = resource?.name || '';
 		editDescription = resource?.description || '';
+		editTags = resource?.tags || [];
+		newTagInput = '';
 		isEditing = false;
 	}
 

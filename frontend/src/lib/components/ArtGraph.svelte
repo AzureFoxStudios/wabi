@@ -131,6 +131,9 @@
 	}
 
 	function onNodeContextMenu(event: any) {
+		// Prevent browser's default context menu
+		event.detail?.event?.preventDefault();
+
 		const nodeId = event.detail?.node?.id;
 		const label = event.detail?.node?.data?.label || 'Node';
 		if (nodeId) {
