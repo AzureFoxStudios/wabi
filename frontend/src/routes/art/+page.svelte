@@ -135,11 +135,17 @@
 	}
 
 	function handleNodeContextMenu(event: CustomEvent<{ nodeId: string; x: number; y: number; label: string }>) {
-		contextMenuNodeId = event.detail.nodeId;
-		contextMenuNodeLabel = event.detail.label;
-		contextMenuX = event.detail.x;
-		contextMenuY = event.detail.y;
-		contextMenuVisible = true;
+		try {
+			if (event?.detail) {
+				contextMenuNodeId = event.detail.nodeId;
+				contextMenuNodeLabel = event.detail.label;
+				contextMenuX = event.detail.x;
+				contextMenuY = event.detail.y;
+				contextMenuVisible = true;
+			}
+		} catch (error) {
+			console.error('Error handling node context menu:', error);
+		}
 	}
 
 	function handleEditResource(nodeId: string) {
@@ -179,10 +185,11 @@
 	}
 
 	async function handleCreateResource() {
-		if (!newResourceName.trim()) {
-			alert('Please enter a resource name');
-			return;
-		}
+		try {
+			if (!newResourceName.trim()) {
+				alert('Please enter a resource name');
+				return;
+			}
 
 		// Verify tags are present before creating resource
 		console.log('Creating resource with tags:', newResourceTags);
@@ -246,15 +253,19 @@
 
 		resources.update(r => [...r, newResource]);
 
-		// Reset form and close dialog
-		newResourceName = '';
-		newResourceType = 'reference';
-		newResourceUrl = '';
-		newResourceFile = null;
-		newResourceTags = [];
-		newTagInput = '';
-		if (fileInputRef) fileInputRef.value = '';
-		showCreateDialog = false;
+			// Reset form and close dialog
+			newResourceName = '';
+			newResourceType = 'reference';
+			newResourceUrl = '';
+			newResourceFile = null;
+			newResourceTags = [];
+			newTagInput = '';
+			if (fileInputRef) fileInputRef.value = '';
+			showCreateDialog = false;
+		} catch (error) {
+			console.error('Error creating resource:', error);
+			alert('Failed to create resource. Check the console for details.');
+		}
 	}
 
 	function closeCreateDialog() {
