@@ -18,6 +18,7 @@
 	// Check localStorage synchronously to avoid flash of login screen
 	let loggedIn = typeof window !== 'undefined' && !!localStorage.getItem('username');
 	let isInitialLoad = true;
+	let showLoadingScreen = true;
 	let activeView: 'chat' | 'screen' = 'chat';
 
 	// --- Unified Panel State ---
@@ -46,6 +47,9 @@
 
 	// --- Lifecycle ---
 	onMount(async () => {
+		// Hide loading screen now that we're hydrated and state is correct
+		showLoadingScreen = false;
+
 		// Mark initial load as complete so transitions only run on actual state changes
 		isInitialLoad = false;
 
@@ -198,6 +202,10 @@
 </script>
 
 <svelte:window on:mousemove={handleMouseMove} on:mouseup={stopResize} />
+
+{#if showLoadingScreen}
+	<div class="loading-screen" transition:fade={{ duration: 400 }}></div>
+{/if}
 
 {#if !loggedIn}
 	{#if isInitialLoad}
@@ -372,6 +380,14 @@
 {/if}
 
 <style>
+	.loading-screen {
+		position: fixed;
+		inset: 0;
+		background: linear-gradient(135deg, var(--dark-bg-primary) 0%, var(--dark-bg-secondary) 100%);
+		z-index: 10000;
+		pointer-events: none;
+	}
+
 	:global(body) {
 		overflow: hidden;
 	}
