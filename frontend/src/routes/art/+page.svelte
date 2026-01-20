@@ -84,7 +84,9 @@
 	}
 
 	function handleGraphChange(event: CustomEvent<{ type: 'workspace' | 'personal' }>) {
-		currentGraph = event.detail.type;
+		if (event?.detail?.type) {
+			currentGraph = event.detail.type;
+		}
 	}
 
 	function handleCreateWorkspace(event: CustomEvent<{ name: string; method: 'blank' | 'template' | 'import' }>) {
@@ -122,7 +124,9 @@
 	}
 
 	function handleChatChannelSwitch(channelId: string) {
-		joinChannel(channelId);
+		if (channelId) {
+			joinChannel(channelId);
+		}
 	}
 
 	function handleNodeSelect(nodeId: string) {
@@ -209,7 +213,7 @@
 			storageType = 'inline';
 
 			// Auto-detect resource type from MIME type
-			const mimeType = newResourceFile.type;
+			const mimeType = newResourceFile.type || '';
 			if (mimeType.startsWith('image/')) {
 				resourceType = 'image';
 				preview = fileDataUrl;
@@ -416,24 +420,26 @@
 					<!-- Channel/DM List -->
 					<div class="chat-list">
 						{#if $channels.length > 0}
-							{#each $channels as channel}
-								<button
-									class="chat-list-item"
-									class:active={$currentChannel === channel.id}
-									on:click={() => handleChatChannelSwitch(channel.id)}
-									title={channel.name}
-								>
-									<span class="chat-icon">
-										{#if channel.type === 'dm'}
-											👤
-										{:else if channel.type === 'group'}
-											👥
-										{:else}
-											#
-										{/if}
-									</span>
-									<span class="chat-name">{channel.name}</span>
-								</button>
+							{#each $channels as channel (channel.id)}
+								{#if channel}
+									<button
+										class="chat-list-item"
+										class:active={$currentChannel === channel.id}
+										on:click={() => handleChatChannelSwitch(channel.id)}
+										title={channel.name}
+									>
+										<span class="chat-icon">
+											{#if channel.type === 'dm'}
+												👤
+											{:else if channel.type === 'group'}
+												👥
+											{:else}
+												#
+											{/if}
+										</span>
+										<span class="chat-name">{channel.name}</span>
+									</button>
+								{/if}
 							{/each}
 						{:else}
 							<div class="empty-list">No channels available</div>
