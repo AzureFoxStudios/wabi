@@ -83,7 +83,7 @@
 		if (layout === 'community') {
 			return computeCommunityPosition(nodeId, allResources);
 		}
-		return { x: Math.random() * 1600, y: Math.random() * 1200 };
+		return { x: Math.random() * 400 - 200, y: Math.random() * 400 - 200 };
 	}
 
 	function computeCommunityPosition(nodeId: string, allResources: any[]): { x: number; y: number } {
@@ -97,13 +97,17 @@
 			const totalTags = allTags.length || 1;
 			const tagAngle = (tagIndex / totalTags) * 2 * Math.PI;
 			return {
-				x: 800 + Math.cos(tagAngle) * 800,
-				y: 600 + Math.sin(tagAngle) * 600
+				x: Math.cos(tagAngle) * 400,
+				y: Math.sin(tagAngle) * 400
 			};
 		}
 
 		if (!node || !node.tags || node.tags.length === 0) {
-			return { x: Math.random() * 1600, y: Math.random() * 1200 };
+			// New untagged resources spawn near center with small random offset
+			return {
+				x: (Math.random() - 0.5) * 200,
+				y: (Math.random() - 0.5) * 200
+			};
 		}
 
 		const primaryTag = node.tags[0];
@@ -114,11 +118,11 @@
 		const clusterIndex = taggedResources.findIndex((r: any) => r.id === nodeId);
 		const clusterCount = taggedResources.length || 1;
 		const angle = (clusterIndex / clusterCount) * 2 * Math.PI;
-		const radius = 400 + (clusterCount * 5);
+		const radius = 200 + (clusterCount * 10);
 
 		return {
-			x: 800 + Math.cos(angle) * radius,
-			y: 600 + Math.sin(angle) * radius
+			x: Math.cos(angle) * radius,
+			y: Math.sin(angle) * radius
 		};
 	}
 

@@ -160,6 +160,16 @@
 		contextMenuNodeId = null;
 	}
 
+	function centerGraph() {
+		// Fit all nodes in view - dispatch to ArtGraph or use fitView if available
+		const graphElement = document.querySelector('.svelte-flow__viewport');
+		if (graphElement && window && typeof window !== 'undefined') {
+			// Try to fit the view to all nodes
+			const event = new CustomEvent('fit-view');
+			document.querySelector('.art-graph')?.dispatchEvent(event);
+		}
+	}
+
 	function isYouTubeUrl(url: string): boolean {
 		return /(?:youtube\.com|youtu\.be)/.test(url);
 	}
@@ -336,36 +346,18 @@
 <div class="art-page">
 	<!-- Header -->
 	<div class="art-header">
-		<div class="header-left">
-			<h1>🎨 Art Resource Graph</h1>
-			<div class="header-controls">
-				<button class="create-btn" on:click={() => showCreateDialog = true} title="Create a new resource">
-					➕ New Resource
-				</button>
-				<!--
-			LAYOUT SWITCHER (Commented out - all content appears community-based)
-
-			Available layouts if needed in future:
-			- 🗂️ Communities: Groups resources by tags/categories
-			- 🔘 Radial: Mind map style spreading from center
-			- 🧲 Force-Directed: Physics simulation for organic clustering
-			- 📅 Timeline: Chronological by creation date
-
-			To re-enable: uncomment <LayoutSwitcher on:layout-change={handleLayoutChange} />
-			-->
-			<!-- <LayoutSwitcher on:layout-change={handleLayoutChange} /> -->
-				<GraphSwitcher {currentGraph} on:graph-change={handleGraphChange} on:create-workspace={handleCreateWorkspace} />
-			</div>
-		</div>
+		<h1>🎨 Art Resource Graph</h1>
+		<button class="create-btn" on:click={() => showCreateDialog = true} title="Create a new resource">
+			➕ New Resource
+		</button>
+		<GraphSwitcher {currentGraph} on:graph-change={handleGraphChange} on:create-workspace={handleCreateWorkspace} />
+		<div class="header-spacer"></div>
+		<button class="center-btn" on:click={() => centerGraph()} title="Center all resources">
+			🎯 Center
+		</button>
 		<div class="header-stats">
-			<div class="stat">
-				<span class="stat-label">Resources</span>
-				<span class="stat-value">{$resources.length}</span>
-			</div>
-			<div class="stat">
-				<span class="stat-label">Connections</span>
-				<span class="stat-value">{$graphEdges.length}</span>
-			</div>
+			<span class="stat-inline">Resources: <strong>{$resources.length}</strong></span>
+			<span class="stat-inline">Connections: <strong>{$graphEdges.length}</strong></span>
 		</div>
 	</div>
 
@@ -613,51 +605,39 @@
 
 	.art-header {
 		display: flex;
-		justify-content: space-between;
+		justify-content: flex-start;
 		align-items: center;
 		padding: 6px 12px;
 		background: linear-gradient(135deg, #1a1a20 0%, #232329 100%);
 		border-bottom: 2px solid #6366f1;
-		gap: 12px;
+		gap: 8px;
 		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 		backdrop-filter: blur(10px);
-		flex-wrap: wrap;
-	}
-
-	.header-left {
-		flex: 1;
-		min-width: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
+		flex-wrap: nowrap;
 	}
 
 	.art-header h1 {
 		margin: 0;
-		font-size: 0.9rem;
+		font-size: 1rem;
 		font-weight: 700;
 		background: linear-gradient(135deg, #6366f1 0%, #a78bfa 100%);
 		-webkit-background-clip: text;
 		-webkit-text-fill-color: transparent;
 		background-clip: text;
 		letter-spacing: -0.5px;
-		line-height: 1.2;
+		line-height: 1.4;
+		white-space: nowrap;
+		flex-shrink: 0;
 	}
 
-	.header-controls {
-		display: flex;
-		gap: 6px;
-		flex-wrap: wrap;
-		align-items: center;
-	}
-
-	.create-btn {
+	.create-btn,
+	.center-btn {
 		padding: 4px 10px;
 		background: linear-gradient(135deg, #6366f1 0%, #7c3aed 100%);
 		color: white;
 		border: none;
 		border-radius: 6px;
-		font-size: 0.8rem;
+		font-size: 0.75rem;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.2s;
@@ -665,57 +645,42 @@
 		position: relative;
 		overflow: hidden;
 		white-space: nowrap;
+		flex-shrink: 0;
 	}
 
-	.create-btn:hover {
+	.create-btn:hover,
+	.center-btn:hover {
 		transform: translateY(-2px);
 		box-shadow: 0 8px 25px rgba(99, 102, 241, 0.6);
 		background: linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%);
 	}
 
-	.create-btn:active {
+	.create-btn:active,
+	.center-btn:active {
 		transform: translateY(0);
+	}
+
+	.header-spacer {
+		flex: 1;
+		min-width: 20px;
 	}
 
 	.header-stats {
 		display: flex;
-		gap: 20px;
+		gap: 12px;
+		flex-shrink: 0;
 	}
 
-	.stat {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		padding: 4px 6px;
-		background: rgba(99, 102, 241, 0.1);
-		border-radius: 8px;
-		border: 1px solid rgba(99, 102, 241, 0.3);
-		backdrop-filter: blur(10px);
-		transition: all 0.3s;
-	}
-
-	.stat:hover {
-		background: rgba(99, 102, 241, 0.15);
-		border-color: rgba(99, 102, 241, 0.5);
-		transform: translateY(-2px);
-	}
-
-	.stat-label {
-		font-size: 0.65rem;
+	.stat-inline {
+		font-size: 0.8rem;
 		color: #a0a0a0;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-		font-weight: 600;
+		white-space: nowrap;
 	}
 
-	.stat-value {
-		font-size: 1rem;
+	.stat-inline strong {
+		color: #6366f1;
 		font-weight: 700;
-		background: linear-gradient(135deg, #6366f1 0%, #a78bfa 100%);
-		-webkit-background-clip: text;
-		-webkit-text-fill-color: transparent;
-		background-clip: text;
-		margin-top: 2px;
+		margin-left: 2px;
 	}
 
 	.art-content {
