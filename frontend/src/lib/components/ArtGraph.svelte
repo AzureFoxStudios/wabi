@@ -178,6 +178,8 @@
 	bind:edges
 	{nodeTypes}
 	connectionMode="loose"
+	panOnScroll
+	selectNodesOnDrag
 	on:nodeclick={onNodeClick}
 	on:nodecontextmenu={onNodeContextMenu}
 	on:connect={onConnect}

@@ -15,6 +15,7 @@
 
 	let highlightNodeId: string | null = null;
 	let selectedNodeId: string | null = null;
+	let forceEditMode = false;
 	let currentLayout: 'community' | 'radial' | 'force-directed' | 'timeline' = 'community';
 	let currentGraph: 'workspace' | 'personal' = 'workspace';
 
@@ -126,6 +127,7 @@
 
 	function handleNodeSelect(nodeId: string) {
 		selectedNodeId = nodeId;
+		forceEditMode = false;
 	}
 
 	function handleNodeContextMenu(event: CustomEvent<{ nodeId: string; x: number; y: number; label: string }>) {
@@ -137,8 +139,9 @@
 	}
 
 	function handleEditResource(nodeId: string) {
-		// TODO: Open edit dialog for resource
-		console.log('Edit resource:', nodeId);
+		selectedNodeId = nodeId;
+		forceEditMode = true;
+		contextMenuVisible = false;
 	}
 
 	function handleDeleteResource(nodeId: string) {
@@ -388,7 +391,7 @@
 		<!-- Resource Detail Panel -->
 		{#if selectedNodeId}
 			<div class="resource-panel">
-				<ResourceCard resourceId={selectedNodeId} />
+				<ResourceCard resourceId={selectedNodeId} {forceEditMode} />
 			</div>
 		{/if}
 
@@ -612,49 +615,56 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 8px 12px;
+		padding: 6px 12px;
 		background: linear-gradient(135deg, #1a1a20 0%, #232329 100%);
 		border-bottom: 2px solid #6366f1;
-		gap: 24px;
+		gap: 12px;
 		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 		backdrop-filter: blur(10px);
+		flex-wrap: wrap;
 	}
 
 	.header-left {
 		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
 	}
 
 	.art-header h1 {
-		margin: 0 0 2px 0;
-		font-size: 0.667rem;
+		margin: 0;
+		font-size: 0.9rem;
 		font-weight: 700;
 		background: linear-gradient(135deg, #6366f1 0%, #a78bfa 100%);
 		-webkit-background-clip: text;
 		-webkit-text-fill-color: transparent;
 		background-clip: text;
 		letter-spacing: -0.5px;
+		line-height: 1.2;
 	}
 
 	.header-controls {
 		display: flex;
-		gap: 12px;
+		gap: 6px;
 		flex-wrap: wrap;
 		align-items: center;
 	}
 
 	.create-btn {
-		padding: 4px 8px;
+		padding: 4px 10px;
 		background: linear-gradient(135deg, #6366f1 0%, #7c3aed 100%);
 		color: white;
 		border: none;
-		border-radius: 8px;
-		font-size: 0.317rem;
+		border-radius: 6px;
+		font-size: 0.8rem;
 		font-weight: 600;
 		cursor: pointer;
-		transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-		box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+		transition: all 0.2s;
+		box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
 		position: relative;
 		overflow: hidden;
+		white-space: nowrap;
 	}
 
 	.create-btn:hover {
@@ -691,15 +701,15 @@
 	}
 
 	.stat-label {
-		font-size: 0.25rem;
+		font-size: 0.65rem;
 		color: #a0a0a0;
 		text-transform: uppercase;
-		letter-spacing: 1px;
+		letter-spacing: 0.5px;
 		font-weight: 600;
 	}
 
 	.stat-value {
-		font-size: 0.667rem;
+		font-size: 1rem;
 		font-weight: 700;
 		background: linear-gradient(135deg, #6366f1 0%, #a78bfa 100%);
 		-webkit-background-clip: text;
@@ -890,11 +900,14 @@
 		bottom: 0;
 		background: rgba(0, 0, 0, 0.85);
 		display: flex;
+		flex-direction: column;
 		align-items: center;
 		justify-content: center;
 		z-index: 10001;
 		backdrop-filter: blur(5px);
 		animation: fadeIn 0.2s ease-out;
+		padding: 20px;
+		gap: 0;
 	}
 
 	@keyframes fadeIn {
@@ -919,27 +932,32 @@
 
 	.modal-content {
 		background: linear-gradient(135deg, #1a1a20 0%, #232329 100%);
-		border-radius: 16px;
+		border-radius: 12px 12px 0 0;
 		box-shadow: 0 25px 50px rgba(99, 102, 241, 0.2), 0 0 40px rgba(99, 102, 241, 0.1);
 		max-width: 500px;
 		width: 90%;
-		overflow: hidden;
+		max-height: 70vh;
+		display: flex;
+		flex-direction: column;
 		border: 1px solid rgba(99, 102, 241, 0.3);
+		border-bottom: none;
 		animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+		flex-shrink: 0;
 	}
 
 	.modal-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 24px;
+		padding: 12px 16px;
 		border-bottom: 1px solid rgba(99, 102, 241, 0.2);
 		background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, transparent 100%);
+		flex-shrink: 0;
 	}
 
 	.modal-header h2 {
 		margin: 0;
-		font-size: 1.5rem;
+		font-size: 1.2rem;
 		font-weight: 700;
 		background: linear-gradient(135deg, #6366f1 0%, #a78bfa 100%);
 		-webkit-background-clip: text;
@@ -951,16 +969,17 @@
 		background: rgba(99, 102, 241, 0.2);
 		border: none;
 		color: #a0a0a0;
-		font-size: 1.5rem;
+		font-size: 1.2rem;
 		cursor: pointer;
-		padding: 8px;
-		width: 40px;
-		height: 40px;
+		padding: 4px;
+		width: 32px;
+		height: 32px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		transition: all 0.3s;
-		border-radius: 8px;
+		border-radius: 6px;
+		flex-shrink: 0;
 	}
 
 	.close-btn:hover {
@@ -970,18 +989,20 @@
 	}
 
 	.modal-body {
-		padding: 24px;
+		padding: 16px;
+		overflow-y: auto;
+		flex: 1;
 	}
 
 	.form-group {
-		margin-bottom: 20px;
+		margin-bottom: 12px;
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: 4px;
 	}
 
 	.form-group label {
-		font-size: 0.95rem;
+		font-size: 0.75rem;
 		color: #a78bfa;
 		font-weight: 600;
 		text-transform: uppercase;
@@ -990,14 +1011,14 @@
 
 	.form-group input,
 	.form-group select {
-		padding: 12px 14px;
+		padding: 8px 10px;
 		background: rgba(99, 102, 241, 0.05);
-		border: 2px solid rgba(99, 102, 241, 0.2);
-		border-radius: 8px;
+		border: 1px solid rgba(99, 102, 241, 0.2);
+		border-radius: 6px;
 		color: #e0e0e0;
-		font-size: 0.95rem;
+		font-size: 0.85rem;
 		font-family: inherit;
-		transition: all 0.3s;
+		transition: all 0.2s;
 	}
 
 	.form-group input:focus,
@@ -1029,18 +1050,25 @@
 	.modal-footer {
 		display: flex;
 		gap: 12px;
-		padding: 20px 24px;
+		padding: 12px 16px;
 		border-top: 1px solid rgba(99, 102, 241, 0.2);
 		justify-content: flex-end;
-		background: rgba(99, 102, 241, 0.03);
+		background: linear-gradient(135deg, #1a1a20 0%, #232329 100%);
+		flex-shrink: 0;
+		border-radius: 0 0 12px 12px;
+		border: 1px solid rgba(99, 102, 241, 0.3);
+		border-top: 1px solid rgba(99, 102, 241, 0.2);
+		max-width: 500px;
+		width: 90%;
+		margin-top: -1px;
 	}
 
 	.btn-cancel,
 	.btn-create {
-		padding: 12px 24px;
-		border-radius: 8px;
+		padding: 8px 16px;
+		border-radius: 6px;
 		border: none;
-		font-size: 0.95rem;
+		font-size: 0.85rem;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);

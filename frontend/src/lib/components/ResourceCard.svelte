@@ -4,10 +4,15 @@
 	import type { Resource } from '$lib/business/store';
 
 	export let resourceId: string;
+	export let forceEditMode = false;
 
 	$: resource = get(resources).find(r => r.id === resourceId);
 
 	let isEditing = false;
+
+	$: if (forceEditMode && !isEditing) {
+		isEditing = true;
+	}
 	let editName = '';
 	let editDescription = '';
 	let editTags: string[] = [];
