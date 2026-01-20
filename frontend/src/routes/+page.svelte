@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import { fade } from 'svelte/transition';
 	import { initSocket, disconnect, dmPanelSignal, connected, type User } from '$lib/socket';
 	import { requestNotificationPermission } from '$lib/notifications';
 	import Chat from '$lib/components/Chat.svelte';
@@ -195,8 +196,11 @@
 <svelte:window on:mousemove={handleMouseMove} on:mouseup={stopResize} />
 
 {#if !loggedIn}
-	<Login on:login={handleLogin} />
+	<div transition:fade={{ duration: 300 }}>
+		<Login on:login={handleLogin} />
+	</div>
 {:else}
+	<div transition:fade={{ duration: 300 }}>
 	{#if isMobile}
 		<!-- Mobile Bottom Navigation Bar -->
 		<nav class="mobile-bottom-nav">
@@ -275,6 +279,7 @@
 		{/if}
 	</div>
 	<CallModal />
+	</div>
 {/if}
 
 <style>
