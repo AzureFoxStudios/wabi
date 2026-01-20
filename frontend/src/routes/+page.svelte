@@ -17,6 +17,7 @@
 	let username = '';
 	// Check localStorage synchronously to avoid flash of login screen
 	let loggedIn = typeof window !== 'undefined' && !!localStorage.getItem('username');
+	let isInitialLoad = true;
 	let activeView: 'chat' | 'screen' = 'chat';
 
 	// --- Unified Panel State ---
@@ -45,6 +46,9 @@
 
 	// --- Lifecycle ---
 	onMount(async () => {
+		// Mark initial load as complete so transitions only run on actual state changes
+		isInitialLoad = false;
+
 		const notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 		if (notificationsEnabled) await requestNotificationPermission();
 
@@ -196,11 +200,15 @@
 <svelte:window on:mousemove={handleMouseMove} on:mouseup={stopResize} />
 
 {#if !loggedIn}
-	<div transition:fade={{ duration: 300 }}>
+	{#if isInitialLoad}
 		<Login on:login={handleLogin} />
-	</div>
+	{:else}
+		<div transition:fade={{ duration: 300 }}>
+			<Login on:login={handleLogin} />
+		</div>
+	{/if}
 {:else}
-	<div transition:fade={{ duration: 300 }}>
+	{#if isInitialLoad}
 	{#if isMobile}
 		<!-- Mobile Bottom Navigation Bar -->
 		<nav class="mobile-bottom-nav">
@@ -279,7 +287,88 @@
 		{/if}
 	</div>
 	<CallModal />
+	{:else}
+	<div transition:fade={{ duration: 300 }}>
+	{#if isMobile}
+		<!-- Mobile Bottom Navigation Bar -->
+		<nav class="mobile-bottom-nav">
+			<button class:active={!showMobileChannels && rightPanelView === 'none'} on:click={() => { showMobileChannels = false; rightPanelView = 'none'; }}>
+				<svg width="24" height="24" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+				<span>Chat</span>
+			</button>
+			<button class:active={showMobileChannels} on:click={toggleMobileChannels}>
+				<svg width="24" height="24" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+				<span>Channels</span>
+			</button>
+			<button class:active={rightPanelView === 'users' || rightPanelView === 'dm'} on:click={toggleMobileUsers}>
+				<svg width="24" height="24" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+				<span>Users</span>
+			</button>
+			<a href="/business" class="nav-link">
+				<svg width="24" height="24" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+				<span>Hub</span>
+			</a>
+		</nav>
+	{/if}
+
+	<div class="app-container" class:resizing={isResizingChannel || isResizingUser || isResizingDM}>
+		<!-- Channel Sidebar (Left) -->
+		<div
+			class="channel-sidebar-container"
+			style:width="{channelSidebarWidth}px"
+			class:mobile-visible={isMobile && showMobileChannels}
+		>
+			<ChannelSidebar on:close={() => showMobileChannels = false} bind:activeView bind:sidebarWidth={channelSidebarWidth} on:logout={handleLogout} />
+		</div>
+
+		<!-- Main Content -->
+		<div class="main-content">
+			<div class:hidden={activeView !== 'chat'}><Chat on:logout={handleLogout} /></div>
+			<div class:hidden={activeView !== 'screen'}><ScreenShareViewer bind:activeView /></div>
+		</div>
+
+		<!-- User Panel (Right) -->
+		<div
+			class="user-panel-container"
+			class:visible={showUserPanel}
+			style:width="{showUserPanel ? userPanelWidth : 0}px"
+			class:mobile-visible={isMobile && rightPanelView === 'users'}
+		>
+			<UserPanel on:openDM={handleOpenDM} on:close={() => rightPanelView = 'none'} on:logout={handleLogout} />
+			{#if !isMobile}
+				<div class="resize-handle resize-handle-user" on:mousedown={startResizeUser}></div>
+			{/if}
+		</div>
+
+		<!-- DM Panel (Far Right) -->
+		<div
+			class="dm-panel-container"
+			class:visible={showDMPanel}
+			style:width="{showDMPanel ? dmPanelWidth : 0}px"
+			class:mobile-visible={isMobile && rightPanelView === 'dm'}
+		>
+			<DMPanel {dmChannelId} otherUser={dmOtherUser} onClose={handleCloseDM} onSelectDM={handleSelectDM} />
+			{#if !isMobile}
+				<div class="resize-handle resize-handle-dm" on:mousedown={startResizeDM}></div>
+			{/if}
+		</div>
+
+		<!-- Desktop-Only Buttons -->
+		{#if !isMobile}
+			<button
+				class="user-panel-toggle"
+				class:open={showUserPanel || showDMPanel}
+				on:click={toggleDesktopUserPanel}
+				title={rightPanelView === 'users' ? 'Hide user panel' : 'Show user panel'}
+				style:right="{toggleButtonRight}px"
+			>
+				{showUserPanel || showDMPanel ? '→' : '←'}
+			</button>
+		{/if}
 	</div>
+	<CallModal />
+	</div>
+	{/if}
 {/if}
 
 <style>
