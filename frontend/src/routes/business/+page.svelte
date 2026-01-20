@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { get } from 'svelte/store';
 	import { onMount } from 'svelte';
+	import { fade } from 'svelte/transition';
 	import '$lib/business/theme.css';
 	import { todos, projects, calendarEvents, diaryEntries, sprints, kanbanColumns, todaysTodos, overdueTodos } from '$lib/business/store';
 	import Calendar from '$lib/components/business/Calendar.svelte';
@@ -17,12 +18,16 @@
 	let showTaskPanel = true;
 	let taskPanelWidth = 380;
 	let importFileInput: HTMLInputElement;
+	let showLoadingScreen = true;
 
 	// Chat panel state
 	let showChatPanel = true;
 	let chatPanelExpanded = false;
 
 	onMount(() => {
+		// Hide loading screen now that we're hydrated
+		showLoadingScreen = false;
+
 		// Restore the last active view from localStorage
 		const savedView = localStorage.getItem('businessHubView') as MainView;
 		if (savedView && ['calendar', 'journal', 'projects', 'kanban'].includes(savedView)) {
@@ -129,6 +134,10 @@
 		joinChannel(channelId);
 	}
 </script>
+
+{#if showLoadingScreen}
+	<div class="loading-screen" transition:fade={{ duration: 400 }}></div>
+{/if}
 
 <div class="dashboard">
 	<!-- Top Header Bar -->
@@ -360,6 +369,14 @@
 </div>
 
 <style>
+	.loading-screen {
+		position: fixed;
+		inset: 0;
+		background: linear-gradient(135deg, #0f0f13 0%, #1a1a1e 100%);
+		z-index: 10000;
+		pointer-events: none;
+	}
+
 	.dashboard {
 		display: flex;
 		flex-direction: column;
