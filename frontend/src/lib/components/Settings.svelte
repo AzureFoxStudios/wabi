@@ -201,8 +201,16 @@
 			formData.append('name', emojiName.trim());
 			formData.append('category', emojiCategory);
 
+			// Get auth token from localStorage
+			const authToken = localStorage.getItem('authToken');
+			const headers: HeadersInit = {};
+			if (authToken) {
+				headers['Authorization'] = `Bearer ${authToken}`;
+			}
+
 			const response = await fetch(`${serverUrl}/api/emoji/upload`, {
 				method: 'POST',
+				headers,
 				body: formData
 			});
 
@@ -312,6 +320,13 @@
 				serverUrl = window.location.origin;
 			}
 
+			// Get auth token from localStorage
+			const authToken = localStorage.getItem('authToken');
+			const headers: HeadersInit = {};
+			if (authToken) {
+				headers['Authorization'] = `Bearer ${authToken}`;
+			}
+
 			for (const item of bulkEmojiFiles) {
 				try {
 					const formData = new FormData();
@@ -321,6 +336,7 @@
 
 					const response = await fetch(`${serverUrl}/api/emoji/upload`, {
 						method: 'POST',
+						headers,
 						body: formData
 					});
 
@@ -373,11 +389,18 @@
 				serverUrl = window.location.origin;
 			}
 
+			// Get auth token from localStorage
+			const authToken = localStorage.getItem('authToken');
+			const headers: HeadersInit = {
+				'Content-Type': 'application/json'
+			};
+			if (authToken) {
+				headers['Authorization'] = `Bearer ${authToken}`;
+			}
+
 			const response = await fetch(`${serverUrl}/api/clear-messages`, {
 				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json'
-				}
+				headers
 			});
 
 			const result = await response.json();
@@ -435,8 +458,16 @@
 			const formData = new FormData();
 			formData.append('profilePicture', selectedAvatarFile);
 
+			// Get auth token from localStorage
+			const authToken = localStorage.getItem('authToken');
+			const headers: HeadersInit = {};
+			if (authToken) {
+				headers['Authorization'] = `Bearer ${authToken}`;
+			}
+
 			const response = await fetch(`${serverUrl}/api/upload-profile-picture`, {
 				method: 'POST',
+				headers,
 				body: formData
 			});
 
