@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Handle, Position } from '@xyflow/svelte';
+
 	interface Props {
 		data: {
 			label: string;
@@ -7,9 +9,9 @@
 	}
 
 	let { data }: Props = $props();
-
-	// Handles removed: connections are predefined via graphEdges store, not user-created through drag-and-drop
 </script>
+
+<Handle type="target" position={Position.Top} />
 
 <div class="tag-node">
 	<div class="tag-content">
@@ -17,6 +19,8 @@
 		<span class="tag-label">{data.label}</span>
 	</div>
 </div>
+
+<Handle type="source" position={Position.Bottom} />
 
 <style>
 	.tag-node {

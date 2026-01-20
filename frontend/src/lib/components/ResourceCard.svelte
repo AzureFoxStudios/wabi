@@ -233,6 +233,41 @@
 					<label>Description (Optional)</label>
 					<textarea bind:value={editDescription} rows="4" placeholder="Enter resource description"></textarea>
 				</div>
+
+				<div class="form-group">
+					<label>Tags (Optional)</label>
+					<input
+						type="text"
+						placeholder="e.g., design, inspiration (press Enter or comma to add)"
+						bind:value={newTagInput}
+						on:input={handleTagInput}
+						on:keydown={handleTagKeydown}
+					/>
+					{#if showTagSuggestions && tagSuggestions.length > 0}
+						<div class="tag-suggestions">
+							{#each tagSuggestions as suggestion}
+								<button
+									type="button"
+									class="tag-suggestion"
+									on:click={() => addTag(suggestion)}
+								>
+									#{suggestion}
+								</button>
+							{/each}
+						</div>
+					{/if}
+					{#if editTags.length > 0}
+						<div class="selected-tags">
+							{#each editTags as tag}
+								<span class="tag-chip">
+									#{tag}
+									<button type="button" class="remove-tag" on:click={() => removeTag(tag)}>✕</button>
+								</span>
+							{/each}
+						</div>
+					{/if}
+				</div>
+
 				<div class="edit-actions">
 					<button class="btn-save" on:click={handleSave}>💾 Save</button>
 					<button class="btn-cancel" on:click={handleCancelEdit}>✕ Cancel</button>
@@ -572,6 +607,82 @@
 		border-color: #6366f1;
 		background: rgba(99, 102, 241, 0.1);
 		box-shadow: 0 0 10px rgba(99, 102, 241, 0.3);
+	}
+
+	.edit-form input[type="text"] {
+		padding: 10px 12px;
+		background: rgba(99, 102, 241, 0.05);
+		border: 2px solid rgba(99, 102, 241, 0.2);
+		border-radius: 6px;
+		color: #e0e0e0;
+		font-size: 0.9rem;
+		font-family: inherit;
+		transition: all 0.2s;
+	}
+
+	.edit-form input[type="text"]:focus {
+		outline: none;
+		border-color: #6366f1;
+		background: rgba(99, 102, 241, 0.1);
+		box-shadow: 0 0 10px rgba(99, 102, 241, 0.3);
+	}
+
+	.tag-suggestions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 8px;
+		padding: 8px;
+		background: rgba(99, 102, 241, 0.05);
+		border-radius: 6px;
+	}
+
+	.tag-suggestion {
+		padding: 4px 10px;
+		background: rgba(99, 102, 241, 0.2);
+		border: 1px solid rgba(99, 102, 241, 0.3);
+		border-radius: 12px;
+		color: #6366f1;
+		cursor: pointer;
+		font-size: 0.85rem;
+		transition: all 0.15s;
+	}
+
+	.tag-suggestion:hover {
+		background: rgba(99, 102, 241, 0.3);
+		border-color: #6366f1;
+	}
+
+	.selected-tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 8px;
+	}
+
+	.tag-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 4px 10px;
+		background: #6366f1;
+		border-radius: 12px;
+		color: white;
+		font-size: 0.85rem;
+	}
+
+	.remove-tag {
+		background: none;
+		border: none;
+		color: white;
+		cursor: pointer;
+		padding: 0;
+		font-size: 0.9rem;
+		transition: all 0.15s;
+	}
+
+	.remove-tag:hover {
+		transform: scale(1.1);
 	}
 
 	.edit-actions {

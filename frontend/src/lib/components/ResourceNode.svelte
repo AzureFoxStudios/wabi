@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Handle, Position } from '@xyflow/svelte';
+
 	interface Props {
 		data: {
 			label: string;
@@ -11,8 +13,6 @@
 	}
 
 	let { data }: Props = $props();
-
-	// Handles removed: connections are predefined via graphEdges store, not user-created through drag-and-drop
 
 	const typeIcons: Record<string, string> = {
 		brush: '🖌️',
@@ -36,6 +36,8 @@
 		audio: '#6366f1'
 	};
 </script>
+
+<Handle type="target" position={Position.Top} />
 
 <div class="resource-node">
 	<div class="node-content">
@@ -72,6 +74,8 @@
 		{/if}
 	</div>
 </div>
+
+<Handle type="source" position={Position.Bottom} />
 
 <style>
 	.resource-node {

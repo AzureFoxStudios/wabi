@@ -6,11 +6,12 @@
 		Controls,
 		type Node,
 		type Edge,
-		type NodeTypes
+		type NodeTypes,
+		type Connection
 	} from '@xyflow/svelte';
 	import '@xyflow/svelte/dist/style.css';
 	import { get, derived } from 'svelte/store';
-	import { resources, graphEdges } from '$lib/business/store';
+	import { resources, graphEdges, addGraphEdge } from '$lib/business/store';
 	import ResourceNode from './ResourceNode.svelte';
 	import TagNode from './TagNode.svelte';
 
@@ -146,6 +147,17 @@
 		}
 	}
 
+	function onConnect(connection: Connection) {
+		if (connection.source && connection.target) {
+			const newEdge = addGraphEdge({
+				source: connection.source,
+				target: connection.target,
+				type: 'default',
+				label: ''
+			});
+		}
+	}
+
 	// Subscribe to stores
 	const unsubscribeNodes = flowNodes.subscribe(n => {
 		nodes = n;
@@ -165,8 +177,10 @@
 	bind:nodes
 	bind:edges
 	{nodeTypes}
+	connectionMode="loose"
 	on:nodeclick={onNodeClick}
 	on:nodecontextmenu={onNodeContextMenu}
+	on:connect={onConnect}
 	class="art-graph"
 >
 	<Background />
