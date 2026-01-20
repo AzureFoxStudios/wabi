@@ -595,7 +595,6 @@
 			<button class="btn-cancel" on:click={closeCreateDialog}>Cancel</button>
 			<button class="btn-create" on:click={handleCreateResource}>Create Resource</button>
 		</div>
-		</div>
 	</div>
 {/if}
 
