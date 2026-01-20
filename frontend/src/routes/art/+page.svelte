@@ -180,6 +180,9 @@
 			return;
 		}
 
+		// Verify tags are present before creating resource
+		console.log('Creating resource with tags:', newResourceTags);
+
 		// Determine resource type based on URL if provided
 		let resourceType = newResourceType;
 		let externalUrl: string | undefined = undefined;
@@ -376,6 +379,7 @@
 				bind:highlightNodeId
 				{currentLayout}
 				on:node-select={(e) => handleNodeSelect(e.detail)}
+				on:node-edit={(e) => handleEditResource(e.detail)}
 				on:node-context-menu={handleNodeContextMenu}
 			/>
 		</div>

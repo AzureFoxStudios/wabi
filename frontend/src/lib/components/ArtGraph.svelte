@@ -90,15 +90,17 @@
 		const $resources = get(resources);
 		const node = $resources.find((r: any) => r.id === nodeId);
 
-		// Tag nodes
+		// Tag nodes - positioned in circle around center
 		if (nodeId.startsWith('tag-')) {
+			const tagName = nodeId.replace('tag-', '');
 			const allTags = Array.from(new Set($resources.flatMap((r: any) => r.tags || [])));
-			const tagIndex = allTags.indexOf(nodeId.replace('tag-', ''));
+			const tagIndex = allTags.indexOf(tagName);
 			const totalTags = allTags.length || 1;
 			const tagAngle = (tagIndex / totalTags) * 2 * Math.PI;
+			const radius = 300;
 			return {
-				x: Math.cos(tagAngle) * 400,
-				y: Math.sin(tagAngle) * 400
+				x: Math.cos(tagAngle) * radius,
+				y: Math.sin(tagAngle) * radius
 			};
 		}
 
@@ -135,18 +137,29 @@
 		}
 	}
 
+	function onNodeDoubleClick(event: any) {
+		const nodeId = event.detail?.node?.id;
+		const label = event.detail?.node?.data?.label || 'Node';
+		if (nodeId) {
+			highlightNodeId = nodeId;
+			// Dispatch double-click as edit request
+			dispatch('node-edit', nodeId);
+		}
+	}
+
 	function onNodeContextMenu(event: any) {
 		// Prevent browser's default context menu
-		event.detail?.event?.preventDefault();
+		event.detail?.event?.preventDefault?.();
 
 		const nodeId = event.detail?.node?.id;
 		const label = event.detail?.node?.data?.label || 'Node';
 		if (nodeId) {
+			const mouseEvent = event.detail?.event;
 			dispatch('node-context-menu', {
 				nodeId,
 				label,
-				x: event.detail?.event?.pageX || 0,
-				y: event.detail?.event?.pageY || 0
+				x: mouseEvent?.pageX || 0,
+				y: mouseEvent?.pageY || 0
 			});
 		}
 	}
@@ -185,6 +198,7 @@
 	panOnScroll
 	selectNodesOnDrag
 	on:nodeclick={onNodeClick}
+	on:nodedoubleclick={onNodeDoubleClick}
 	on:nodecontextmenu={onNodeContextMenu}
 	on:connect={onConnect}
 	class="art-graph"
