@@ -6,7 +6,10 @@ import {
 	calendarEvents,
 	diaryEntries,
 	projects,
-	sprints
+	sprints,
+	resources,
+	tags,
+	graphEdges
 } from './store';
 
 // Sync state
@@ -61,6 +64,10 @@ export async function pullFromServer(): Promise<boolean> {
 			if (serverData.diaryEntries) diaryEntries.set(serverData.diaryEntries);
 			if (serverData.projects) projects.set(serverData.projects);
 			if (serverData.sprints) sprints.set(serverData.sprints);
+			// Art Portal data
+			if (serverData.resources) resources.set(serverData.resources);
+			if (serverData.tags) tags.set(serverData.tags);
+			if (serverData.graphEdges) graphEdges.set(serverData.graphEdges);
 
 			console.log('✅ Pulled business data from server');
 			return true;
@@ -88,7 +95,11 @@ export async function pushToServer(): Promise<boolean> {
 			calendarEvents: get(calendarEvents),
 			diaryEntries: get(diaryEntries),
 			projects: get(projects),
-			sprints: get(sprints)
+			sprints: get(sprints),
+			// Art Portal data
+			resources: get(resources),
+			tags: get(tags),
+			graphEdges: get(graphEdges)
 		};
 
 		const response = await fetch(`${serverUrl}/api/business/sync`, {
