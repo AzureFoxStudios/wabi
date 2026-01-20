@@ -552,41 +552,41 @@
 						<option value="other">Other</option>
 					</select>
 				</div>
-			</div>
 
-			<div class="form-group">
-				<label for="resource-tags">Tags (Optional)</label>
-				<input
-					id="resource-tags"
-					type="text"
-					placeholder="e.g., design, inspiration (press Enter or comma to add)"
-					bind:value={newTagInput}
-					on:input={handleTagInput}
-					on:keydown={handleTagKeydown}
-				/>
-				{#if showTagSuggestions && tagSuggestions.length > 0}
-					<div class="tag-suggestions">
-						{#each tagSuggestions as suggestion}
-							<button
-								type="button"
-								class="tag-suggestion"
-								on:click={() => addTag(suggestion)}
-							>
-								#{suggestion}
-							</button>
-						{/each}
-					</div>
-				{/if}
-				{#if newResourceTags.length > 0}
-					<div class="selected-tags">
-						{#each newResourceTags as tag}
-							<span class="tag-chip">
-								#{tag}
-								<button type="button" class="remove-tag" on:click={() => removeTag(tag)}>✕</button>
-							</span>
-						{/each}
-					</div>
-				{/if}
+				<div class="form-group">
+					<label for="resource-tags">Tags (Optional)</label>
+					<input
+						id="resource-tags"
+						type="text"
+						placeholder="e.g., design, inspiration (press Enter or comma to add)"
+						bind:value={newTagInput}
+						on:input={handleTagInput}
+						on:keydown={handleTagKeydown}
+					/>
+					{#if showTagSuggestions && tagSuggestions.length > 0}
+						<div class="tag-suggestions">
+							{#each tagSuggestions as suggestion}
+								<button
+									type="button"
+									class="tag-suggestion"
+									on:click={() => addTag(suggestion)}
+								>
+									#{suggestion}
+								</button>
+							{/each}
+						</div>
+					{/if}
+					{#if newResourceTags.length > 0}
+						<div class="selected-tags">
+							{#each newResourceTags as tag}
+								<span class="tag-chip">
+									#{tag}
+									<button type="button" class="remove-tag" on:click={() => removeTag(tag)}>✕</button>
+								</span>
+							{/each}
+						</div>
+					{/if}
+				</div>
 			</div>
 		</div>
 
