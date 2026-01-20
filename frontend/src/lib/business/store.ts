@@ -167,9 +167,9 @@ export function generateId(): string {
 
 // Initialize sample data for demo/testing
 function initializeSampleData() {
-	// Only add sample data if resources are empty
+	// Only add sample data if resources are empty AND no server connection
 	const currentResources = get(resources);
-	if (currentResources.length > 0) return;
+	if (currentResources.length > 0) return; // Already have data locally
 
 	// Sample resources
 	const sampleResources: Omit<Resource, 'id' | 'createdAt' | 'updatedAt'>[] = [
@@ -181,7 +181,8 @@ function initializeSampleData() {
 			isAnonymous: false,
 			tags: ['brush', 'watercolor', 'painting'],
 			fileUrl: '/brushes/watercolor.abr',
-			visibility_type: 'public'
+			storageType: 'external',
+			visibilityType: 'public'
 		},
 		{
 			name: 'Color Theory Guide',
@@ -190,7 +191,8 @@ function initializeSampleData() {
 			createdBy: 'Bob',
 			isAnonymous: false,
 			tags: ['color', 'theory', 'tutorial'],
-			visibility_type: 'public'
+			storageType: 'inline',
+			visibilityType: 'public'
 		},
 		{
 			name: 'Digital Painting Tutorial',
@@ -200,7 +202,8 @@ function initializeSampleData() {
 			isAnonymous: false,
 			tags: ['painting', 'tutorial', 'digital'],
 			externalUrl: 'https://example.com/tutorials/digital-painting',
-			visibility_type: 'public'
+			storageType: 'external',
+			visibilityType: 'public'
 		},
 		{
 			name: 'Texture Pack - Nature',
@@ -210,7 +213,8 @@ function initializeSampleData() {
 			isAnonymous: false,
 			tags: ['texture', 'nature', 'assets'],
 			fileUrl: '/textures/nature-pack.zip',
-			visibility_type: 'public'
+			storageType: 'external',
+			visibilityType: 'public'
 		},
 		{
 			name: 'Character Design Reference',
@@ -221,7 +225,8 @@ function initializeSampleData() {
 			tags: ['character', 'design', 'reference'],
 			fileUrl: '/images/character-ref.jpg',
 			preview: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22150%22%3E%3Crect fill=%22%234f46e5%22 width=%22200%22 height=%22150%22/%3E%3Ctext fill=%22white%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22%3ECharacter Design%3C/text%3E%3C/svg%3E',
-			visibility_type: 'public'
+			storageType: 'external',
+			visibilityType: 'public'
 		},
 		{
 			name: 'Perspective Techniques',
@@ -230,7 +235,8 @@ function initializeSampleData() {
 			createdBy: 'Frank',
 			isAnonymous: false,
 			tags: ['perspective', 'technique', 'drawing'],
-			visibility_type: 'public'
+			storageType: 'inline',
+			visibilityType: 'public'
 		}
 	];
 

@@ -58,18 +58,26 @@ export async function pullFromServer(): Promise<boolean> {
 		if (result.success && result.data) {
 			const serverData = result.data;
 
-			// Update stores with server data
+			// Update stores with server data - only if data exists
 			if (serverData.todos) todos.set(serverData.todos);
 			if (serverData.calendarEvents) calendarEvents.set(serverData.calendarEvents);
 			if (serverData.diaryEntries) diaryEntries.set(serverData.diaryEntries);
 			if (serverData.projects) projects.set(serverData.projects);
 			if (serverData.sprints) sprints.set(serverData.sprints);
-			// Art Portal data
-			if (serverData.resources) resources.set(serverData.resources);
-			if (serverData.tags) tags.set(serverData.tags);
-			if (serverData.graphEdges) graphEdges.set(serverData.graphEdges);
 
-			console.log('✅ Pulled business data from server');
+			// Art Portal data - preserve local data if server is empty
+			// Only sync resources/tags/edges if server actually has them
+			const hasServerResources = serverData.resources && Array.isArray(serverData.resources) && serverData.resources.length > 0;
+			const hasServerTags = serverData.tags && Array.isArray(serverData.tags) && serverData.tags.length > 0;
+			const hasServerEdges = serverData.graphEdges && Array.isArray(serverData.graphEdges) && serverData.graphEdges.length > 0;
+
+			if (hasServerResources) resources.set(serverData.resources);
+			if (hasServerTags) tags.set(serverData.tags);
+			if (hasServerEdges) graphEdges.set(serverData.graphEdges);
+
+			if (hasServerResources || hasServerTags || hasServerEdges) {
+				console.log('✅ Pulled business data from server');
+			}
 			return true;
 		}
 
