@@ -285,13 +285,16 @@
 	}
 
 	.login-box {
-		background: var(--bg-secondary);
+		background: rgba(20, 20, 30, 0.25);
+		backdrop-filter: blur(16px);
+		-webkit-backdrop-filter: blur(16px);
 		padding: 2.5rem;
 		border-radius: 16px;
 		width: 100%;
 		max-width: 420px;
 		text-align: center;
-		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
 	}
 
 	.logo {
@@ -444,12 +447,15 @@
 	}
 
 	.qr-modal {
-		background: var(--bg-secondary);
+		background: rgba(20, 20, 30, 0.3);
+		backdrop-filter: blur(16px);
+		-webkit-backdrop-filter: blur(16px);
 		padding: 2rem;
 		border-radius: 20px;
 		text-align: center;
 		max-width: 90%;
-		box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 	}
 
 	.qr-modal h2 {
