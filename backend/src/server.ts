@@ -63,6 +63,12 @@ const users = new Map<string, {
   status: 'active' | 'away' | 'busy';
   profilePicture?: string;
   workspaceId?: string; // Business workspace the user belongs to
+  usernameFont?: {
+    family?: string;
+    size?: string;
+    weight?: string;
+    style?: string;
+  };
 }>();
 
 // Session management for persistence across reconnects
@@ -519,6 +525,90 @@ server.on('request', async (req, res) => {
         }
       } catch (error) {
         console.error('Profile picture upload error:', error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Internal server error during upload' }));
+      }
+    });
+    return;
+  }
+
+  // Background image upload endpoint
+  if (url.pathname === "/api/upload-background-image" && req.method === "POST") {
+    let chunks: Buffer[] = [];
+
+    req.on('data', (chunk) => {
+      chunks.push(chunk);
+    });
+
+    req.on('end', () => {
+      try {
+        const buffer = Buffer.concat(chunks);
+        const contentType = req.headers['content-type'];
+        const boundary = contentType?.split('boundary=')[1];
+
+        if (!boundary) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: 'Invalid content type' }));
+          return;
+        }
+
+        const parts = buffer.toString('binary').split(`--${boundary}`);
+        let backgroundImageFile: Buffer | null = null;
+        let backgroundImageFileName = '';
+
+        for (const part of parts) {
+          if (part.includes('Content-Disposition') && part.includes('name="backgroundImage"')) {
+            const filenameMatch = part.match(/filename="([^"]+)"/);
+            if (filenameMatch) {
+              backgroundImageFileName = filenameMatch[1];
+              const dataStart = part.indexOf('\r\n\r\n') + 4;
+              const dataEnd = part.lastIndexOf('\r\n');
+              backgroundImageFile = Buffer.from(part.substring(dataStart, dataEnd), 'binary');
+              break;
+            }
+          }
+        }
+
+        if (backgroundImageFile && backgroundImageFileName) {
+          // Validate file type
+          const ext = backgroundImageFileName.split('.').pop()?.toLowerCase();
+          if (!ext || !['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: 'Invalid file type. Only PNG, JPG, JPEG, GIF, WEBP are allowed.' }));
+            return;
+          }
+
+          // Validate file size (max 10MB for background images)
+          const MAX_FILE_SIZE = 10 * 1024 * 1024;
+          if (backgroundImageFile.length > MAX_FILE_SIZE) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: 'File too large. Maximum size is 10MB.' }));
+            return;
+          }
+
+          const fileId = `bg-${Date.now()}-${backgroundImageFileName}`;
+          const filePath = join(UPLOADS_DIR, fileId);
+
+          if (!existsSync(UPLOADS_DIR)) {
+            mkdirSync(UPLOADS_DIR, { recursive: true });
+          }
+          writeFileSync(filePath, backgroundImageFile);
+
+          // Use PUBLIC_URL if available, otherwise construct from request host
+          const serverUrl = process.env.PUBLIC_URL || `http://${req.headers.host}`;
+          const backgroundImageUrl = `${serverUrl}/uploads/${fileId}`;
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            success: true,
+            backgroundImageUrl
+          }));
+        } else {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: 'No background image file found in request' }));
+        }
+      } catch (error) {
+        console.error('Background image upload error:', error);
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: false, error: 'Internal server error during upload' }));
       }
@@ -1411,12 +1501,27 @@ io.on("connection", (socket) => {
         const registeredColor = dbSession.color || `#${Math.floor(Math.random()*16777215).toString(16)}`;
         const registeredProfilePic = dbSession.profile_picture;
 
+        // Get username font from user database
+        let usernameFont = undefined;
+        if (dbSession.user_id) {
+          const userRecord = userRepository.findById(dbSession.user_id);
+          if (userRecord) {
+            usernameFont = {
+              family: userRecord.username_font_family,
+              size: userRecord.username_font_size,
+              weight: userRecord.username_font_weight,
+              style: userRecord.username_font_style
+            };
+          }
+        }
+
         users.set(socket.id, {
           id: socket.id,
           username: registeredUsername,
           color: registeredColor,
           status: 'active',
-          profilePicture: registeredProfilePic
+          profilePicture: registeredProfilePic,
+          usernameFont
         });
 
         const userChannels = Array.from(channels.values()).filter(channel => {
@@ -1442,7 +1547,8 @@ io.on("connection", (socket) => {
           username: registeredUsername,
           color: registeredColor,
           status: 'active',
-          profilePicture: registeredProfilePic
+          profilePicture: registeredProfilePic,
+          usernameFont
         });
 
         if (ENABLE_LOGGING) console.log(`${registeredUsername} joined as registered user`);
@@ -1597,7 +1703,7 @@ io.on("connection", (socket) => {
   });
 
   // Handle profile updates
-  socket.on("update-profile", (data: { status?: 'active' | 'away' | 'busy'; profilePicture?: string }) => {
+  socket.on("update-profile", (data: { status?: 'active' | 'away' | 'busy'; profilePicture?: string; usernameFont?: { family?: string; size?: string; weight?: string; style?: string } }) => {
     const user = users.get(socket.id);
     if (!user) return;
 
@@ -1606,6 +1712,9 @@ io.on("connection", (socket) => {
     }
     if (data.profilePicture !== undefined) {
       user.profilePicture = data.profilePicture;
+    }
+    if (data.usernameFont !== undefined) {
+      user.usernameFont = data.usernameFont;
     }
 
     users.set(socket.id, user);
@@ -1622,12 +1731,19 @@ io.on("connection", (socket) => {
 
           // Also update the user's main profile
           if (dbSession.user_id) {
-            userRepository.update(dbSession.user_id, {
+            const userUpdateData: any = {
               profile_picture: user.profilePicture || null
-            });
+            };
+            if (user.usernameFont) {
+              userUpdateData.username_font_family = user.usernameFont.family;
+              userUpdateData.username_font_size = user.usernameFont.size;
+              userUpdateData.username_font_weight = user.usernameFont.weight;
+              userUpdateData.username_font_style = user.usernameFont.style;
+            }
+            userRepository.update(dbSession.user_id, userUpdateData);
           }
 
-          if (ENABLE_LOGGING) console.log(`[DB] Updated profile picture for ${user.username}`);
+          if (ENABLE_LOGGING) console.log(`[DB] Updated profile for ${user.username}`);
         }
       } catch (error) {
         console.error('[Error] Failed to update profile picture in database:', error);
@@ -1650,7 +1766,8 @@ io.on("connection", (socket) => {
       username: user.username,
       color: user.color,
       status: user.status,
-      profilePicture: user.profilePicture
+      profilePicture: user.profilePicture,
+      usernameFont: user.usernameFont
     });
 
     if (ENABLE_LOGGING) console.log(`${user.username} updated profile: status=${user.status}`);

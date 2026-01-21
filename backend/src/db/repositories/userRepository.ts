@@ -9,6 +9,10 @@ export interface RegisteredUser {
 	profile_picture?: string;
 	bio?: string;
 	is_active?: number;
+	username_font_family?: string;
+	username_font_size?: string;
+	username_font_weight?: string;
+	username_font_style?: string;
 }
 
 export class UserRepository {
@@ -48,7 +52,7 @@ export class UserRepository {
 
 	// Update user profile
 	update(userId: number, updates: Partial<RegisteredUser>): void {
-		const allowedFields = ['color', 'profile_picture', 'bio', 'is_active'];
+		const allowedFields = ['color', 'profile_picture', 'bio', 'is_active', 'username_font_family', 'username_font_size', 'username_font_weight', 'username_font_style'];
 		const fields = Object.keys(updates).filter((key) => allowedFields.includes(key));
 
 		if (fields.length === 0) return;

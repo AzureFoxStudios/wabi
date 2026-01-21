@@ -98,6 +98,15 @@
 	--ui-text-dark: #e0e0ff;
 	--ui-text-dark-rgb: 224, 224, 255;
 
+	/* Background Image Variables - Customizable chat background */
+	--background-image-url: none;
+	--background-image-opacity: 1;
+	--background-image-blur: 0px;
+	--background-image-size: cover;
+	--background-image-position: center;
+	--background-image-repeat: no-repeat;
+	--background-image-blend: normal;
+
 	/* Pinned messages theme - Supernova highlights */
 	--pinned-bg: #4b0082;
 	--pinned-bg-rgb: 75, 0, 130;

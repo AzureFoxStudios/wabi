@@ -1019,7 +1019,22 @@
 		height: 100%;
 		position: relative;
 		background: var(--bg-primary);
+		background-image: var(--background-image-url, none);
+		background-size: var(--background-image-size, cover);
+		background-position: var(--background-image-position, center);
+		background-repeat: var(--background-image-repeat, no-repeat);
+		background-blend-mode: var(--background-image-blend, overlay);
 		overflow: hidden;
+	}
+
+	.chat-container::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background-color: rgba(0, 0, 0, calc(1 - var(--background-image-opacity, 1)));
+		filter: blur(var(--background-image-blur, 0px));
+		pointer-events: none;
+		z-index: 0;
 	}
 
 	.chat-header {
@@ -1084,7 +1099,7 @@
 		flex-direction: column;
 		gap: 0.75rem;
 		min-height: 0; /* Important for flex overflow */
-		background: var(--bg-primary);
+		background: transparent;
 		position: relative;
 		z-index: 1;
 	}

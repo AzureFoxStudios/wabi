@@ -7,7 +7,11 @@ CREATE TABLE IF NOT EXISTS users (
   color TEXT NOT NULL,
   profile_picture TEXT,
   bio TEXT,
-  is_active INTEGER DEFAULT 1
+  is_active INTEGER DEFAULT 1,
+  username_font_family TEXT DEFAULT 'inherit',
+  username_font_size TEXT DEFAULT 'inherit',
+  username_font_weight TEXT DEFAULT '600',
+  username_font_style TEXT DEFAULT 'normal'
 );
 
 -- Unified sessions (temp + registered)
@@ -60,6 +64,11 @@ CREATE TABLE IF NOT EXISTS theme_preferences (
   custom_theme TEXT,
   created_at INTEGER DEFAULT (strftime('%s', 'now')),
   updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+  uniform_font_enabled INTEGER DEFAULT 0,
+  uniform_font_family TEXT DEFAULT 'inherit',
+  uniform_font_size TEXT DEFAULT 'inherit',
+  uniform_font_weight TEXT DEFAULT '600',
+  uniform_font_style TEXT DEFAULT 'normal',
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 

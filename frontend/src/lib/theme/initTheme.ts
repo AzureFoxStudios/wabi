@@ -43,7 +43,9 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 
 		// Apply the theme to DOM
 		const theme = get(currentTheme);
-		applyTheme(theme);
+		const stateInit = get(themeStore);
+	const bgImage = stateInit.customTheme?.backgroundImage;
+	applyTheme(theme, bgImage);
 
 		themeStore.setLoading(false);
 	} catch (error) {
@@ -52,7 +54,9 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 
 		// Apply default theme as fallback
 		const theme = get(currentTheme);
-		applyTheme(theme);
+		const state = get(themeStore);
+		const backgroundImage = state.customTheme?.backgroundImage;
+		applyTheme(theme, backgroundImage);
 	}
 }
 
@@ -62,7 +66,9 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
  */
 export function watchThemeChanges(): () => void {
 	return currentTheme.subscribe((theme) => {
-		applyTheme(theme);
+		const state = get(themeStore);
+		const backgroundImage = state.customTheme?.backgroundImage;
+		applyTheme(theme, backgroundImage);
 	});
 }
 

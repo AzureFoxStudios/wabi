@@ -12,6 +12,11 @@ interface ThemeState {
 	customTheme: CustomTheme | null;
 	isLoading: boolean;
 	error: string | null;
+	uniformFontEnabled: boolean;
+	uniformFontFamily: string;
+	uniformFontSize: string;
+	uniformFontWeight: string;
+	uniformFontStyle: string;
 }
 
 // Initial state
@@ -19,7 +24,12 @@ const initialState: ThemeState = {
 	themeId: 'dark',
 	customTheme: null,
 	isLoading: false,
-	error: null
+	error: null,
+	uniformFontEnabled: false,
+	uniformFontFamily: 'inherit',
+	uniformFontSize: 'inherit',
+	uniformFontWeight: '600',
+	uniformFontStyle: 'normal'
 };
 
 // Create the store
@@ -72,6 +82,43 @@ function createThemeStore() {
 				customTheme: prefs.custom_theme || null,
 				isLoading: false,
 				error: null
+			}));
+		},
+
+		// Set uniform font enabled state
+		setUniformFontEnabled: (enabled: boolean) => {
+			update((state) => ({ ...state, uniformFontEnabled: enabled }));
+		},
+
+		// Set uniform font family
+		setUniformFontFamily: (family: string) => {
+			update((state) => ({ ...state, uniformFontFamily: family }));
+		},
+
+		// Set uniform font size
+		setUniformFontSize: (size: string) => {
+			update((state) => ({ ...state, uniformFontSize: size }));
+		},
+
+		// Set uniform font weight
+		setUniformFontWeight: (weight: string) => {
+			update((state) => ({ ...state, uniformFontWeight: weight }));
+		},
+
+		// Set uniform font style
+		setUniformFontStyle: (style: string) => {
+			update((state) => ({ ...state, uniformFontStyle: style }));
+		},
+
+		// Set all uniform font settings at once
+		setUniformFont: (settings: { enabled: boolean; family: string; size: string; weight: string; style: string }) => {
+			update((state) => ({
+				...state,
+				uniformFontEnabled: settings.enabled,
+				uniformFontFamily: settings.family,
+				uniformFontSize: settings.size,
+				uniformFontWeight: settings.weight,
+				uniformFontStyle: settings.style
 			}));
 		}
 	};

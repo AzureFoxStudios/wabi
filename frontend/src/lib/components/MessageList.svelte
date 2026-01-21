@@ -2,6 +2,7 @@
 	import { onMount, afterUpdate } from 'svelte';
 	import type { Message, User, Emoji, Channel } from '$lib/socket';
 	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder } from '$lib/socket';
+	import { themeStore } from '$lib/theme/themeStore';
 	import MessageContextMenu from './MessageContextMenu.svelte';
 	import UserPopout from './UserPopout.svelte';
 	import ForwardDialog from './ForwardDialog.svelte';
@@ -52,6 +53,46 @@
 	function getUserColor(username: string): string {
 		const user = getUserByUsername(username);
 		return user?.color || 'var(--status-offline)';
+	}
+
+	function getUsernameStyle(username: string, themeState: any): string {
+		let style = '';
+
+		// Check if uniform font mode is enabled
+		if (themeState.uniformFontEnabled) {
+			// Use uniform font settings
+			if (themeState.uniformFontFamily && themeState.uniformFontFamily !== 'inherit') {
+				style += `font-family: ${themeState.uniformFontFamily};`;
+			}
+			if (themeState.uniformFontSize && themeState.uniformFontSize !== 'inherit') {
+				style += `font-size: ${themeState.uniformFontSize};`;
+			}
+			if (themeState.uniformFontWeight) {
+				style += `font-weight: ${themeState.uniformFontWeight};`;
+			}
+			if (themeState.uniformFontStyle) {
+				style += `font-style: ${themeState.uniformFontStyle};`;
+			}
+		} else {
+			// Use the user's custom font
+			const user = getUserByUsername(username);
+			if (user?.usernameFont) {
+				if (user.usernameFont.family && user.usernameFont.family !== 'inherit') {
+					style += `font-family: ${user.usernameFont.family};`;
+				}
+				if (user.usernameFont.size && user.usernameFont.size !== 'inherit') {
+					style += `font-size: ${user.usernameFont.size};`;
+				}
+				if (user.usernameFont.weight) {
+					style += `font-weight: ${user.usernameFont.weight};`;
+				}
+				if (user.usernameFont.style) {
+					style += `font-style: ${user.usernameFont.style};`;
+				}
+			}
+		}
+
+		return style;
 	}
 
 	function handleContextMenu(event: MouseEvent, message: Message) {
@@ -458,7 +499,7 @@
 					{#if user}
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						<!-- svelte-ignore a11y-no-static-element-interactions -->
-						<span class="username" style="color: {getUserColor(message.user)}">
+						<span class="username" style="color: {getUserColor(message.user)}; {getUsernameStyle(message.user, $themeStore)}">
 							{message.user}
 						</span>
 					{:else}

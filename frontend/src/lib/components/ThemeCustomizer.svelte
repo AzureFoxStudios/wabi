@@ -4,6 +4,7 @@
 	import ColorPicker from './ColorPicker.svelte';
 	import GradientEditor from './GradientEditor.svelte';
 	import ThemePreview from './ThemePreview.svelte';
+	import BackgroundImageEditor from './BackgroundImageEditor.svelte';
 	import type { CustomTheme } from '$lib/types/theme';
 
 	let customColors: CustomTheme['colors'] = {
@@ -161,6 +162,12 @@
 						onChange={(g) => (customGradients.accent = g)}
 					/>
 				</div>
+			</section>
+
+			<!-- Background Image -->
+			<section class="section">
+				<h4>Background Image</h4>
+				<BackgroundImageEditor />
 			</section>
 
 			<!-- Live Preview -->

@@ -41,6 +41,12 @@ export interface User {
   profilePicture?: string;
   bio?: string;
   joinedAt?: number;
+  usernameFont?: {
+    family?: string;
+    size?: string;
+    weight?: string;
+    style?: string;
+  };
 }
 
 export interface Channel {

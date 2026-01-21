@@ -4,6 +4,7 @@
  */
 
 import type { Theme } from './themes';
+import type { BackgroundImage } from '../types/theme';
 
 /**
  * Convert color name from camelCase to kebab-case CSS variable name
@@ -17,7 +18,7 @@ function toKebabCase(str: string): string {
  * Apply a theme to the document root
  * Sets all CSS custom properties based on theme values
  */
-export function applyTheme(theme: Theme): void {
+export function applyTheme(theme: Theme, backgroundImage?: BackgroundImage): void {
 	const root = document.documentElement;
 
 	// Apply color variables
@@ -31,6 +32,26 @@ export function applyTheme(theme: Theme): void {
 		const cssVarName = `--gradient-${toKebabCase(key)}`;
 		root.style.setProperty(cssVarName, value);
 	});
+
+	// Apply background image variables if provided
+	if (backgroundImage) {
+		root.style.setProperty('--background-image-url', `url('${backgroundImage.url}')`);
+		root.style.setProperty('--background-image-opacity', String(backgroundImage.opacity ?? 0.3));
+		root.style.setProperty('--background-image-blur', `${backgroundImage.blur ?? 0}px`);
+		root.style.setProperty('--background-image-size', backgroundImage.size ?? 'cover');
+		root.style.setProperty('--background-image-position', backgroundImage.position ?? 'center');
+		root.style.setProperty('--background-image-repeat', backgroundImage.repeat ?? 'no-repeat');
+		root.style.setProperty('--background-image-blend', backgroundImage.blend ?? 'overlay');
+	} else {
+		// Clear background image variables if no image
+		root.style.setProperty('--background-image-url', 'none');
+		root.style.setProperty('--background-image-opacity', '1');
+		root.style.setProperty('--background-image-blur', '0px');
+		root.style.setProperty('--background-image-size', 'cover');
+		root.style.setProperty('--background-image-position', 'center');
+		root.style.setProperty('--background-image-repeat', 'no-repeat');
+		root.style.setProperty('--background-image-blend', 'normal');
+	}
 
 	// Set data-theme attribute for CSS selectors
 	root.setAttribute('data-theme', theme.id);

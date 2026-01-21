@@ -13,6 +13,8 @@
 	import { saveThemePreferences } from '$lib/theme/themeApi';
 	import { saveThemeToLocalStorage } from '$lib/theme/themeManager';
 	import ThemeCustomizer from './ThemeCustomizer.svelte';
+	import UsernameFontCustomizer from './UsernameFontCustomizer.svelte';
+	import UniformFontMode from './UniformFontMode.svelte';
 
 	const dispatch = createEventDispatcher();
 
@@ -573,6 +575,11 @@
 					</div>
 				</div>
 
+				<!-- Username Font -->
+				<div class="settings-section">
+					<UsernameFontCustomizer />
+				</div>
+
 				<!-- Audio & Video Settings -->
 				<div class="settings-section">
 					<h3>🎤 Audio & Video</h3>
@@ -687,6 +694,11 @@
 					<!-- Theme Customizer -->
 					<div class="customizer-container">
 						<ThemeCustomizer />
+					</div>
+
+					<!-- Uniform Font Mode -->
+					<div class="customizer-container">
+						<UniformFontMode />
 					</div>
 				</div>
 

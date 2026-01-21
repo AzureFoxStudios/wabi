@@ -6,6 +6,11 @@ export interface ThemePreferences {
 	custom_theme: string | null;
 	created_at: number;
 	updated_at: number;
+	uniform_font_enabled?: number;
+	uniform_font_family?: string;
+	uniform_font_size?: string;
+	uniform_font_weight?: string;
+	uniform_font_style?: string;
 }
 
 export interface CustomTheme {
@@ -54,8 +59,8 @@ export class ThemeRepository {
 		if (!existing) {
 			// Create new preferences
 			const stmt = db.prepare(`
-				INSERT INTO theme_preferences (user_id, theme_id, custom_theme, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?)
+				INSERT INTO theme_preferences (user_id, theme_id, custom_theme, created_at, updated_at, uniform_font_enabled, uniform_font_family, uniform_font_size, uniform_font_weight, uniform_font_style)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			`);
 
 			stmt.run(
@@ -63,7 +68,12 @@ export class ThemeRepository {
 				prefs.theme_id || 'dark',
 				prefs.custom_theme || null,
 				now,
-				now
+				now,
+				prefs.uniform_font_enabled ?? 0,
+				prefs.uniform_font_family || 'inherit',
+				prefs.uniform_font_size || 'inherit',
+				prefs.uniform_font_weight || '600',
+				prefs.uniform_font_style || 'normal'
 			);
 		} else {
 			// Update existing preferences
@@ -78,6 +88,31 @@ export class ThemeRepository {
 			if (prefs.custom_theme !== undefined) {
 				fields.push('custom_theme = ?');
 				values.push(prefs.custom_theme);
+			}
+
+			if (prefs.uniform_font_enabled !== undefined) {
+				fields.push('uniform_font_enabled = ?');
+				values.push(prefs.uniform_font_enabled);
+			}
+
+			if (prefs.uniform_font_family !== undefined) {
+				fields.push('uniform_font_family = ?');
+				values.push(prefs.uniform_font_family);
+			}
+
+			if (prefs.uniform_font_size !== undefined) {
+				fields.push('uniform_font_size = ?');
+				values.push(prefs.uniform_font_size);
+			}
+
+			if (prefs.uniform_font_weight !== undefined) {
+				fields.push('uniform_font_weight = ?');
+				values.push(prefs.uniform_font_weight);
+			}
+
+			if (prefs.uniform_font_style !== undefined) {
+				fields.push('uniform_font_style = ?');
+				values.push(prefs.uniform_font_style);
 			}
 
 			if (fields.length === 0) return;
