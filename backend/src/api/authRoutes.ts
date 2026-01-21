@@ -150,6 +150,7 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 					id: user.user_id,
 					username: user.username,
 					color: user.color,
+					profilePicture: user.profile_picture,
 					isRegistered: true
 				}
 			})

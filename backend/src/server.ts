@@ -1592,7 +1592,31 @@ io.on("connection", (socket) => {
 
     users.set(socket.id, user);
 
-    // Also update session to persist profile picture across reloads
+    // For registered users, update the database session and user profile
+    if ((socket as any).isRegistered && (socket as any).sessionId) {
+      try {
+        const dbSession = sessionRepository.findById((socket as any).sessionId);
+        if (dbSession) {
+          // Update session with new profile picture
+          sessionRepository.update((socket as any).sessionId, {
+            profile_picture: user.profilePicture || null
+          });
+
+          // Also update the user's main profile
+          if (dbSession.user_id) {
+            userRepository.update(dbSession.user_id, {
+              profile_picture: user.profilePicture || null
+            });
+          }
+
+          if (ENABLE_LOGGING) console.log(`[DB] Updated profile picture for ${user.username}`);
+        }
+      } catch (error) {
+        console.error('[Error] Failed to update profile picture in database:', error);
+      }
+    }
+
+    // For temp users, update in-memory session
     const sessions_array = Array.from(sessions.entries());
     for (const [sessionId, session] of sessions_array) {
       if (session.userId === socket.id) {
