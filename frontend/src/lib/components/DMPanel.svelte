@@ -492,7 +492,7 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 0.625rem 1rem;
-		background: linear-gradient(to bottom, rgba(36, 36, 62, 0.8), rgba(26, 26, 46, 0.6));
+		background: var(--gradient-fade-bottom-dark);
 		border-bottom: 1px solid rgba(255, 0, 255, 0.1);
 		height: 52px;
 		box-sizing: border-box;

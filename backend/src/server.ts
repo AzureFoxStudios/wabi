@@ -11,8 +11,10 @@ import { userRepository } from "./db/repositories/userRepository.js";
 import { sessionRepository } from "./db/repositories/sessionRepository.js";
 import { offlineMessageRepository } from "./db/repositories/offlineMessageRepository.js";
 import { settingsRepository } from "./db/repositories/settingsRepository.js";
+import { themeRepository } from "./db/repositories/themeRepository.js";
 import { verifyToken } from "./auth/jwt.js";
 import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings } from "./api/authRoutes.js";
+import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
 // In-memory data store
 interface Channel {
   id: string;
@@ -664,6 +666,22 @@ server.on('request', async (req, res) => {
 
   if (url.pathname === "/api/user/settings" && req.method === "POST") {
     await handleSaveUserSettings(req, res);
+    return;
+  }
+
+  // Theme preferences endpoints
+  if (url.pathname === "/api/user/theme" && req.method === "GET") {
+    await handleGetThemePreferences(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/user/theme" && req.method === "POST") {
+    await handleSaveThemePreferences(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/user/theme/reset" && req.method === "POST") {
+    await handleResetThemePreferences(req, res);
     return;
   }
 

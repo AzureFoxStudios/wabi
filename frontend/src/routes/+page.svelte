@@ -12,6 +12,9 @@
 	import DMPanel from '$lib/components/DMPanel.svelte';
 	import type { PageData } from './$types';
 
+	// Theme system
+	import { initializeTheme, watchThemeChanges, syncThemeToLocalStorage } from '$lib/theme/initTheme';
+
 	export let data: PageData;
 
 	let username = '';
@@ -72,6 +75,19 @@
 			loggedIn = true;
 		}
 
+		// Initialize theme system
+		const isRegistered = !!savedToken;
+		await initializeTheme(isRegistered);
+
+		// Watch for theme changes and auto-apply
+		const unsubscribeThemeWatcher = watchThemeChanges();
+
+		// For guest users, sync theme to localStorage
+		let unsubscribeLocalStorageSync: (() => void) | null = null;
+		if (!isRegistered) {
+			unsubscribeLocalStorageSync = syncThemeToLocalStorage();
+		}
+
 		// Keyboard shortcuts for portals (Ctrl+Shift+1 for business, Ctrl+Shift+2 for art)
 		// Ctrl+Shift+O for emergency logout
 		const handleKeyDown = (e: KeyboardEvent) => {
@@ -86,7 +102,11 @@
 			}
 		};
 		window.addEventListener('keydown', handleKeyDown);
-		return () => window.removeEventListener('keydown', handleKeyDown);
+		return () => {
+			window.removeEventListener('keydown', handleKeyDown);
+			unsubscribeThemeWatcher();
+			if (unsubscribeLocalStorageSync) unsubscribeLocalStorageSync();
+		};
 	});
 	
 	onDestroy(() => {
@@ -104,7 +124,7 @@
 		dmPanelSignal.set(null);
 	}
 
-	function handleLogin(event: CustomEvent<{ username: string; token?: string; authMethod: 'guest' | 'registered' }>) {
+	async function handleLogin(event: CustomEvent<{ username: string; token?: string; authMethod: 'guest' | 'registered' }>) {
 		const { username: user, token, authMethod } = event.detail;
 		username = user;
 		// Save username to localStorage
@@ -119,6 +139,10 @@
 		// Initialize socket with username and optional token
 		initSocket(username, token);
 		loggedIn = true;
+
+		// Re-initialize theme system for new login
+		const isRegistered = authMethod === 'registered' || !!token;
+		await initializeTheme(isRegistered);
 	}
 
 	function handleLogout() {
@@ -383,7 +407,7 @@
 	.loading-screen {
 		position: fixed;
 		inset: 0;
-		background: linear-gradient(135deg, var(--dark-bg-primary) 0%, var(--dark-bg-secondary) 100%);
+		background: var(--gradient-loading-dark);
 		z-index: 10000;
 		pointer-events: none;
 	}

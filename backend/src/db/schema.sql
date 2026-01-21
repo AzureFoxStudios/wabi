@@ -53,6 +53,16 @@ CREATE TABLE IF NOT EXISTS user_settings (
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
+-- Theme preferences (appearance customization)
+CREATE TABLE IF NOT EXISTS theme_preferences (
+  user_id INTEGER PRIMARY KEY,
+  theme_id TEXT DEFAULT 'dark',
+  custom_theme TEXT,
+  created_at INTEGER DEFAULT (strftime('%s', 'now')),
+  updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
 -- User roles (admin, mod, contributor, viewer, etc.)
 CREATE TABLE IF NOT EXISTS user_roles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

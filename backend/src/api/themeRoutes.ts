@@ -1,0 +1,169 @@
+import { IncomingMessage, ServerResponse } from 'http';
+import { themeRepository } from '../db/repositories/themeRepository.js';
+import { verifyToken } from '../auth/jwt.js';
+
+// Parse JSON body
+function parseBody(req: IncomingMessage): Promise<Record<string, any>> {
+	return new Promise((resolve, reject) => {
+		let body = '';
+
+		req.on('data', (chunk) => {
+			body += chunk.toString();
+		});
+
+		req.on('end', () => {
+			try {
+				resolve(JSON.parse(body));
+			} catch (error) {
+				reject(new Error('Invalid JSON'));
+			}
+		});
+
+		req.on('error', reject);
+	});
+}
+
+// Predefined theme IDs (validation)
+const VALID_THEME_IDS = [
+	'dark',
+	'light',
+	'midnight-blue',
+	'forest-green',
+	'sunset-orange',
+	'custom'
+];
+
+// Get user theme preferences
+export async function handleGetThemePreferences(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		// Extract user ID from request context (set by auth middleware)
+		const userId = (req as any).userId;
+		if (!userId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'User not authenticated' }));
+			return;
+		}
+
+		// Get theme preferences from database
+		const prefs = themeRepository.get(userId);
+
+		// Parse custom theme if it exists
+		let customTheme = null;
+		if (prefs.custom_theme) {
+			try {
+				customTheme = JSON.parse(prefs.custom_theme);
+			} catch (error) {
+				console.error('[Theme] Failed to parse custom theme:', error);
+			}
+		}
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({
+			theme_id: prefs.theme_id,
+			custom_theme: customTheme,
+			updated_at: prefs.updated_at
+		}));
+	} catch (error) {
+		console.error('[Theme] Get preferences error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to load theme preferences' }));
+	}
+}
+
+// Save user theme preferences
+export async function handleSaveThemePreferences(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		const userId = (req as any).userId;
+		if (!userId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'User not authenticated' }));
+			return;
+		}
+
+		// Parse request body
+		const body = await parseBody(req);
+		const { theme_id, custom_theme } = body;
+
+		// Validate theme_id if provided
+		if (theme_id && !VALID_THEME_IDS.includes(theme_id)) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({
+				error: 'Invalid theme ID',
+				valid_themes: VALID_THEME_IDS
+			}));
+			return;
+		}
+
+		// Validate custom_theme if provided
+		if (custom_theme !== undefined && custom_theme !== null) {
+			// Ensure it's an object or null
+			if (typeof custom_theme !== 'object') {
+				res.writeHead(400, { 'Content-Type': 'application/json' });
+				res.end(JSON.stringify({ error: 'Custom theme must be an object or null' }));
+				return;
+			}
+
+			// Validate custom theme structure (basic validation)
+			if (custom_theme.colors && typeof custom_theme.colors !== 'object') {
+				res.writeHead(400, { 'Content-Type': 'application/json' });
+				res.end(JSON.stringify({ error: 'Custom theme colors must be an object' }));
+				return;
+			}
+		}
+
+		// Save theme preferences
+		const prefsToSave: any = {};
+
+		if (theme_id !== undefined) {
+			prefsToSave.theme_id = theme_id;
+		}
+
+		if (custom_theme !== undefined) {
+			prefsToSave.custom_theme = custom_theme ? JSON.stringify(custom_theme) : null;
+		}
+
+		themeRepository.set(userId, prefsToSave);
+
+		// Return updated preferences
+		const updated = themeRepository.get(userId);
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({
+			success: true,
+			theme_id: updated.theme_id,
+			updated_at: updated.updated_at
+		}));
+	} catch (error) {
+		console.error('[Theme] Save preferences error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to save theme preferences' }));
+	}
+}
+
+// Reset theme preferences to default
+export async function handleResetThemePreferences(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		const userId = (req as any).userId;
+		if (!userId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'User not authenticated' }));
+			return;
+		}
+
+		// Reset to default (dark theme, no custom theme)
+		themeRepository.set(userId, {
+			theme_id: 'dark',
+			custom_theme: null
+		});
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({
+			success: true,
+			theme_id: 'dark'
+		}));
+	} catch (error) {
+		console.error('[Theme] Reset preferences error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to reset theme preferences' }));
+	}
+}

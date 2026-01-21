@@ -372,7 +372,7 @@
 	.loading-screen {
 		position: fixed;
 		inset: 0;
-		background: linear-gradient(135deg, #0f0f13 0%, #1a1a1e 100%);
+		background: var(--gradient-loading-business);
 		z-index: 10000;
 		pointer-events: none;
 	}

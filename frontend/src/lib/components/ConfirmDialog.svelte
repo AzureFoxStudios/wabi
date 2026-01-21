@@ -89,7 +89,7 @@
 	}
 
 	.modal-content {
-		background: linear-gradient(135deg, #1a1535 0%, #2a2050 100%);
+		background: var(--gradient-dialog-dark);
 		border: 1px solid rgba(179, 179, 255, 0.2);
 		border-radius: 12px;
 		width: 90%;
