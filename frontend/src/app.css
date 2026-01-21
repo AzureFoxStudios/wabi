@@ -8,19 +8,35 @@
 	/* === NEBULA COSMIC THEME === */
 	/* Unified left-to-right gradients for a space nebula vibe—purples, blues, pinks fading like interstellar clouds. Deep cosmic depths with starry accents. */
 
+	/* === OPACITY VARIABLES === */
+	--opacity-subtle: 0.1;
+	--opacity-light: 0.15;
+	--opacity-medium: 0.25;
+	--opacity-strong: 0.5;
+	--opacity-heavy: 0.75;
+
 	/* Main backgrounds - Ethereal nebula gradients */
 	--bg-primary: linear-gradient(to right, #0f0c29 0%, #302b63 100%);  /* Deep space purple fade for main app */
+	--bg-primary-rgb: 15, 12, 41;
 	--bg-secondary: #1a1a2e;  /* Deep cosmic background for modals/panels */
+	--bg-secondary-rgb: 26, 26, 46;
 	--bg-tertiary: #24243e;  /* Solid dark indigo for sidebars */
+	--bg-tertiary-rgb: 36, 36, 62;
 	--bg-hover: #302b63;  /* Solid hover in mid-purple */
+	--bg-hover-rgb: 48, 43, 99;
 
 	/* Text colors - Starlight contrasts */
 	--text-primary: #e0e0ff;  /* Pale lavender (high contrast on dark) */
+	--text-primary-rgb: 224, 224, 255;
 	--text-secondary: #b3b3ff;  /* Soft blue-purple */
+	--text-secondary-rgb: 179, 179, 255;
 	--text-tertiary: #9999ff;  /* Muted violet */
+	--text-tertiary-rgb: 153, 153, 255;
 
 	/* Accent - Pulsing nebula energy */
 	--accent: linear-gradient(to right, #ff00ff 0%, #ff69b4 100%);  /* Magenta to hot pink glow */
+	--accent-hex: #ff00ff;
+	--accent-rgb: 255, 0, 255;
 	--accent-hover: linear-gradient(to right, #ff69b4 0%, #ff1493 100%);  /* Hot pink to deep magenta pulse */
 
 	/* Borders - Glowing cosmic edges */
@@ -28,65 +44,135 @@
 
 	/* Status colors - Celestial phenomena */
 	--status-online: #00ff7f;  /* Spring green (comet trail) */
+	--status-online-rgb: 0, 255, 127;
 	--status-online-hover: #00fa9a;
 	--status-away: #ffd700;  /* Gold (distant star) */
+	--status-away-rgb: 255, 215, 0;
 	--status-away-hover: #ffc300;
 	--status-busy: #ff0000;  /* Red (danger zone) */
+	--status-busy-rgb: 255, 0, 0;
 	--status-busy-hover: #cc0000;
 	--status-offline: #708090;  /* Slate gray (void) */
+	--status-offline-rgb: 112, 128, 144;
 
 	/* Semantic colors - Galactic alerts */
 	--color-success: #00ff7f;  /* Green success flare */
+	--color-success-rgb: 0, 255, 127;
 	--color-success-hover: #00fa9a;
 	--color-info: #00bfff;  /* Deep sky blue info */
+	--color-info-rgb: 0, 191, 255;
 	--color-info-hover: #1e90ff;
 	--color-warning: #ffd700;  /* Gold warning */
+	--color-warning-rgb: 255, 215, 0;
 	--color-warning-hover: #ffc300;
 	--color-danger: #ff0000;  /* Red danger */
+	--color-danger-rgb: 255, 0, 0;
 	--color-danger-hover: #cc0000;
 	--color-danger-dark: #990000;
 
 	/* Modal/Dialog colors - Starfield clarity */
 	--modal-bg: #0f0c29;  /* Deep space for modals */
+	--modal-bg-rgb: 15, 12, 41;
 	--modal-overlay: rgba(48, 43, 99, 0.7);  /* Purple haze overlay */
+	--modal-overlay-rgb: 48, 43, 99;
+	--modal-overlay-opacity: 0.7;
 	--modal-border: none;
 	--modal-header-bg: #24243e;
+	--modal-header-bg-rgb: 36, 36, 62;
 	--modal-text: #e0e0ff;  /* Starlight text */
+	--modal-text-rgb: 224, 224, 255;
 	--modal-text-secondary: #b3b3ff;
+	--modal-text-secondary-rgb: 179, 179, 255;
 	--modal-text-muted: #9999ff;
+	--modal-text-muted-rgb: 153, 153, 255;
 
 	/* UI element colors - Cosmic dust */
 	--ui-bg-light: #302b63;
+	--ui-bg-light-rgb: 48, 43, 99;
 	--ui-bg-lighter: #24243e;
+	--ui-bg-lighter-rgb: 36, 36, 62;
 	--ui-border-light: none;
 	--ui-border: none;
 	--ui-text: #b3b3ff;
+	--ui-text-rgb: 179, 179, 255;
 	--ui-text-dark: #e0e0ff;
+	--ui-text-dark-rgb: 224, 224, 255;
 
 	/* Pinned messages theme - Supernova highlights */
 	--pinned-bg: #4b0082;
+	--pinned-bg-rgb: 75, 0, 130;
 	--pinned-bg-hover: #6a1b9a;
+	--pinned-bg-hover-rgb: 106, 27, 154;
 	--pinned-border: none;
 	--pinned-text: #e0e0ff;
+	--pinned-text-rgb: 224, 224, 255;
 	--pinned-text-dark: #ff00ff;
+	--pinned-text-dark-rgb: 255, 0, 255;
 	--pinned-text-secondary: #ee82ee;
+	--pinned-text-secondary-rgb: 238, 130, 238;
 
 	/* Special backgrounds - Nebula variations */
 	--bg-info-light: #302b63;
+	--bg-info-light-rgb: 48, 43, 99;
 	--bg-info-lighter: #24243e;
+	--bg-info-lighter-rgb: 36, 36, 62;
 	--bg-warning-light: #4b0082;
+	--bg-warning-light-rgb: 75, 0, 130;
 
 	/* Shadow colors - Black hole pulls */
-	--shadow-sm: rgba(123, 104, 238, 0.1);  /* Medium slate blue tint */
-	--shadow-md: rgba(123, 104, 238, 0.15);
-	--shadow-lg: rgba(123, 104, 238, 0.2);
+	--shadow-rgb: 123, 104, 238;
+	--shadow-sm: rgba(var(--shadow-rgb), var(--opacity-subtle));
+	--shadow-md: rgba(var(--shadow-rgb), var(--opacity-light));
+	--shadow-lg: rgba(var(--shadow-rgb), var(--opacity-medium));
 
 	/* Dark theme - Even deeper void */
 	--dark-bg-primary: #000000;
+	--dark-bg-primary-rgb: 0, 0, 0;
 	--dark-bg-secondary: #0f0c29;
+	--dark-bg-secondary-rgb: 15, 12, 41;
 
 	/* Error state */
 	--error: #ff1493;  /* Deep pink error flash */
+	--error-rgb: 255, 20, 147;
+
+	/* Priority colors - Used across task/kanban systems */
+	--priority-urgent: #ef4444;
+	--priority-urgent-rgb: 239, 68, 68;
+	--priority-high: #f97316;
+	--priority-high-rgb: 249, 115, 22;
+	--priority-medium: #eab308;
+	--priority-medium-rgb: 234, 179, 8;
+	--priority-low: #22c55e;
+	--priority-low-rgb: 34, 197, 94;
+
+	/* === GRADIENT VARIABLES (Phase 2) === */
+
+	/* Main app gradients - Already defined, but listed for reference */
+	/* --bg-primary: linear-gradient(to right, #0f0c29 0%, #302b63 100%); */
+	/* --accent: linear-gradient(to right, #ff00ff 0%, #ff69b4 100%); */
+	/* --accent-hover: linear-gradient(to right, #ff69b4 0%, #ff1493 100%); */
+
+	/* Component gradients - UI elements */
+	--gradient-dialog-dark: linear-gradient(135deg, #1a1535 0%, #2a2050 100%);
+	--gradient-fade-bottom-dark: linear-gradient(to bottom, rgba(36, 36, 62, 0.8), rgba(26, 26, 46, 0.6));
+	--gradient-fade-right-transparent: linear-gradient(to right, transparent, var(--bg-secondary));
+	--gradient-line-glow: linear-gradient(90deg, transparent, rgba(123, 104, 238, 0.1), transparent);
+	--gradient-fade-top-dark: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+
+	/* Accent highlight gradients - For messages/highlights */
+	--gradient-accent-subtle: linear-gradient(135deg, rgba(255, 0, 255, 0.1) 0%, rgba(255, 105, 180, 0.1) 100%);
+	--gradient-accent-medium: linear-gradient(135deg, rgba(255, 0, 255, 0.25) 0%, rgba(255, 105, 180, 0.25) 100%);
+	--gradient-accent-subtle-alt: linear-gradient(135deg, rgba(88, 101, 242, 0.05), rgba(88, 101, 242, 0.02));
+
+	/* Scrollbar gradients */
+	--gradient-scrollbar: linear-gradient(to bottom, #7b68ee 0%, #9370db 100%);
+	--gradient-scrollbar-hover: linear-gradient(to bottom, #9370db 0%, #8a2be2 100%);
+
+	/* Loading screen gradient - Dark mode */
+	--gradient-loading-dark: linear-gradient(135deg, var(--dark-bg-primary) 0%, var(--dark-bg-secondary) 100%);
+
+	/* Business hub gradients - Professional dashboard */
+	--gradient-loading-business: linear-gradient(135deg, #0f0f13 0%, #1a1a1e 100%);
 }
 
 body {
@@ -170,12 +256,12 @@ input:focus, textarea:focus {
 }
 
 ::-webkit-scrollbar-thumb {
-	background: linear-gradient(to bottom, #7b68ee 0%, #9370db 100%);
+	background: var(--gradient-scrollbar);
 	border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-	background: linear-gradient(to bottom, #9370db 0%, #8a2be2 100%);
+	background: var(--gradient-scrollbar-hover);
 }
 
 /* Spoiler styling - Nebula reveal mystery */
@@ -330,6 +416,78 @@ input:focus, textarea:focus {
         right: 10px;
         bottom: 10px;
     }
+}
+
+/* ========== RGBA UTILITY CLASSES (Phase 1 Standardization) ========== */
+
+/* Overlay utilities - Common for modals and overlays */
+.overlay-dark-subtle {
+	background-color: rgba(var(--dark-bg-primary-rgb), var(--opacity-subtle));
+}
+
+.overlay-dark-light {
+	background-color: rgba(var(--dark-bg-primary-rgb), var(--opacity-light));
+}
+
+.overlay-dark-medium {
+	background-color: rgba(var(--dark-bg-primary-rgb), var(--opacity-medium));
+}
+
+.overlay-dark-heavy {
+	background-color: rgba(var(--dark-bg-primary-rgb), var(--opacity-heavy));
+}
+
+/* Modal overlay - Standard overlay for modals */
+.overlay-modal {
+	background-color: rgba(var(--modal-overlay-rgb), var(--modal-overlay-opacity));
+}
+
+/* Background utilities - Semitransparent backgrounds */
+.bg-primary-subtle {
+	background-color: rgba(var(--bg-primary-rgb), var(--opacity-subtle));
+}
+
+.bg-primary-light {
+	background-color: rgba(var(--bg-primary-rgb), var(--opacity-light));
+}
+
+.bg-secondary-subtle {
+	background-color: rgba(var(--bg-secondary-rgb), var(--opacity-subtle));
+}
+
+.bg-secondary-light {
+	background-color: rgba(var(--bg-secondary-rgb), var(--opacity-light));
+}
+
+/* Accent utilities - For accented elements */
+.accent-subtle {
+	background-color: rgba(var(--accent-rgb), var(--opacity-subtle));
+}
+
+.accent-light {
+	background-color: rgba(var(--accent-rgb), var(--opacity-light));
+}
+
+/* Status color utilities */
+.status-online-subtle {
+	background-color: rgba(var(--status-online-rgb), var(--opacity-subtle));
+}
+
+.status-busy-subtle {
+	background-color: rgba(var(--status-busy-rgb), var(--opacity-subtle));
+}
+
+/* Shadow utilities - Now tied to opacity system */
+.shadow-subtle {
+	box-shadow: 0 1px 2px var(--shadow-sm);
+}
+
+.shadow-light {
+	box-shadow: 0 4px 6px var(--shadow-md);
+}
+
+.shadow-medium {
+	box-shadow: 0 10px 15px var(--shadow-lg);
 }
 
 /* ========== GLOBAL MOBILE TOUCH IMPROVEMENTS ========== */

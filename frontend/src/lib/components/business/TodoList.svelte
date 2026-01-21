@@ -117,12 +117,13 @@
 	}
 
 	function getPriorityColor(priority: string): string {
+		// Updated to use CSS variable values for consistency with theme system
 		switch (priority) {
-			case 'urgent': return '#ef4444';
-			case 'high': return '#f97316';
-			case 'medium': return '#eab308';
-			case 'low': return '#22c55e';
-			default: return '#6b7280';
+			case 'urgent': return 'var(--priority-urgent)';
+			case 'high': return 'var(--priority-high)';
+			case 'medium': return 'var(--priority-medium)';
+			case 'low': return 'var(--priority-low)';
+			default: return '#6b7280'; // gray for unknown
 		}
 	}
 

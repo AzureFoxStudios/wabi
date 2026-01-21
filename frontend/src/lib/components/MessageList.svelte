@@ -1417,7 +1417,7 @@
 		bottom: 0;
 		left: 0;
 		right: 0;
-		background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+		background: var(--gradient-fade-top-dark);
 		color: white;
 		padding: 0.5rem;
 		font-size: 0.75rem;
@@ -1451,7 +1451,7 @@
 		gap: 0.3rem;
 		padding: 0.375rem 0.625rem;
 		margin-top: 0.75rem;
-		background: linear-gradient(135deg, rgba(255, 0, 255, 0.1) 0%, rgba(255, 105, 180, 0.1) 100%);
+		background: var(--gradient-accent-subtle);
 		border: 1px solid rgba(255, 0, 255, 0.3);
 		border-radius: 4px;
 		color: #ff69b4;
@@ -1465,7 +1465,7 @@
 
 	.image-download-link:hover,
 	.video-download-link:hover {
-		background: linear-gradient(135deg, rgba(255, 0, 255, 0.25) 0%, rgba(255, 105, 180, 0.25) 100%);
+		background: var(--gradient-accent-medium);
 		border-color: rgba(255, 0, 255, 0.6);
 		color: #ff00ff;
 		box-shadow: 0 3px 12px rgba(255, 0, 255, 0.2);

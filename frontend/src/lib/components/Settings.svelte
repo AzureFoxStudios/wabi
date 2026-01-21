@@ -7,6 +7,13 @@
 	import { getSocket } from '$lib/socket';
 	import AvatarEditor from './AvatarEditor.svelte'; // Import the AvatarEditor
 
+	// Theme system
+	import { themeStore, currentTheme } from '$lib/theme/themeStore';
+	import { THEMES } from '$lib/theme/themes';
+	import { saveThemePreferences } from '$lib/theme/themeApi';
+	import { saveThemeToLocalStorage } from '$lib/theme/themeManager';
+	import ThemeCustomizer from './ThemeCustomizer.svelte';
+
 	const dispatch = createEventDispatcher();
 
 	export let isOpen = false;
@@ -15,9 +22,11 @@
 	let notificationsEnabled = true;
 	let micEnabled = true;
 	let cameraEnabled = true;
-	let theme: 'dark' | 'light' = 'dark';
 	let notificationSound = '/sounds/ProjectSound.ogg';
 	let notificationVolume = 0.5;
+
+	// Theme saving state
+	let savingTheme = false;
 
 	let showClearDataConfirm = false;
 	let showClearServerConfirm = false;
@@ -47,7 +56,6 @@
 		notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 		micEnabled = localStorage.getItem('micEnabled') !== 'false';
 		cameraEnabled = localStorage.getItem('cameraEnabled') !== 'false';
-		theme = (localStorage.getItem('theme') as 'dark' | 'light') || 'dark';
 		notificationSound = localStorage.getItem('notificationSound') || '/sounds/ProjectSound.ogg';
 		notificationVolume = parseFloat(localStorage.getItem('notificationVolume') || '0.5');
 	});
@@ -72,10 +80,28 @@
 		localStorage.setItem('cameraEnabled', cameraEnabled.toString());
 	}
 
-	function toggleTheme() {
-		theme = theme === 'dark' ? 'light' : 'dark';
-		localStorage.setItem('theme', theme);
-		document.documentElement.setAttribute('data-theme', theme);
+	// Handle theme change
+	async function handleThemeChange(themeId: string) {
+		try {
+			savingTheme = true;
+			themeStore.setThemeId(themeId);
+
+			// Check if user is registered
+			const isRegistered = !!localStorage.getItem('authToken');
+
+			if (isRegistered) {
+				// Save to server for registered users
+				await saveThemePreferences({ theme_id: themeId });
+			} else {
+				// Save to localStorage for guests
+				saveThemeToLocalStorage(themeId);
+			}
+		} catch (error) {
+			console.error('[Settings] Failed to save theme:', error);
+			alert('Failed to save theme preferences. Please try again.');
+		} finally {
+			savingTheme = false;
+		}
 	}
 
 	function updateNotificationSound(sound: string) {
@@ -637,11 +663,30 @@
 					<div class="setting-item">
 						<div class="setting-info">
 							<span class="setting-label">Theme</span>
-							<span class="setting-description">Switch between light and dark mode</span>
+							<span class="setting-description">Choose your preferred theme</span>
 						</div>
-						<button class="toggle-btn" class:active={theme === 'light'} on:click={toggleTheme}>
-							{theme === 'dark' ? '🌙' : '☀️'}
-						</button>
+						<select
+							class="theme-select"
+							value={$themeStore.themeId}
+							on:change={(e) => handleThemeChange(e.currentTarget.value)}
+							disabled={savingTheme}
+						>
+							{#each Object.values(THEMES) as theme}
+								<option value={theme.id}>
+									{theme.name}
+								</option>
+							{/each}
+						</select>
+					</div>
+					{#if savingTheme}
+						<div class="save-indicator">
+							<span class="spinner">⏳</span> Saving theme...
+						</div>
+					{/if}
+
+					<!-- Theme Customizer -->
+					<div class="customizer-container">
+						<ThemeCustomizer />
 					</div>
 				</div>
 
@@ -991,6 +1036,57 @@
 	.toggle-btn.active {
 		background: var(--primary);
 		border-color: var(--primary);
+	}
+
+	.theme-select {
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		border: 1px solid var(--ui-bg-light);
+		border-radius: 8px;
+		padding: 0.5rem 1rem;
+		font-size: 0.9rem;
+		cursor: pointer;
+		transition: all 0.2s;
+		min-width: 180px;
+	}
+
+	.theme-select:hover {
+		border-color: var(--accent-hex);
+	}
+
+	.theme-select:focus {
+		outline: none;
+		border-color: var(--accent-hex);
+		box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.2);
+	}
+
+	.theme-select:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.save-indicator {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0;
+		color: var(--text-secondary);
+		font-size: 0.85rem;
+	}
+
+	.spinner {
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
+	}
+
+	.customizer-container {
+		margin-top: 1.5rem;
+		padding-top: 1.5rem;
+		border-top: 1px solid rgba(var(--accent-rgb), 0.1);
 	}
 
 	.action-buttons {
