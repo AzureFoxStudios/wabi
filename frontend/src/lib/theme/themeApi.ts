@@ -97,3 +97,12 @@ export async function resetThemePreferences(): Promise<void> {
 		throw new Error('Failed to reset theme preferences');
 	}
 }
+
+/**
+ * Theme API object for convenience imports
+ */
+export const themeApi = {
+	fetchThemePreferences,
+	saveThemePreferences,
+	resetThemePreferences
+};
