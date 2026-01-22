@@ -1,0 +1,113 @@
+To move away from the "archaic" full reboot/redeploy cycle, you need a **two-layered update strategy**. The goal is to separate the *technical* process of swapping containers from the *user experience* of seeing new code.
+
+Currently, your Docker redeploy is like a building's power going out while the electrician swaps a fuse. We want to move toward a "Generator" model where the lights never flicker.
+
+---
+
+### **Layer 1: The Deployment (Zero-Downtime Docker)**
+
+Instead of `docker-compose down && docker-compose up`, which kills the process entirely, you should use a **Rolling Update** or **Blue-Green** strategy.
+
+#### **The Quickest Fix: `docker-rollout**`
+
+There is a fantastic Docker CLI plugin called **[docker-rollout](https://github.com/wowu/docker-rollout)**. It allows you to update a service without downtime by starting a new container, waiting for it to be "Healthy," and then killing the old one.
+
+**How to use it:**
+
+1. **Add a Healthcheck** to your `docker-compose.yml`:
+```yaml
+services:
+  wabi:
+    image: wabi-app:latest
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+```
+
+
+2. **Run the update:**
+Instead of `up -d`, run:
+```bash
+docker rollout wabi
+
+```
+
+
+*This creates a "Green" container while the "Blue" one is still running. Once the healthcheck passes, it switches the traffic and retires the old one.*
+
+---
+
+### **Layer 2: The UI (SvelteKit "Update Available" Toast)**
+
+Even with zero-downtime Docker, a user already on your site might experience errors (like "ChunkLoadError") if they try to navigate and the old Javascript files they were using are gone.
+
+SvelteKit has a built-in way to handle this gracefully using the **`updated` store**.
+
+#### **1. Enable Polling in `svelte.config.js**`
+
+Tell SvelteKit to check for new versions every few minutes (or seconds).
+
+```javascript
+const config = {
+  kit: {
+    version: {
+      pollInterval: 60000 // Check every 60 seconds
+    }
+  }
+};
+
+```
+
+#### **2. Create an Update Notification**
+
+In your `src/routes/+layout.svelte` (or a specific dashboard component), subscribe to the update store. When it turns `true`, show a "New Version Available" button.
+
+```svelte
+<script>
+  import { updated } from '$app/stores';
+  import { toast } from 'your-toast-library'; // e.g., svelte-french-toast
+
+  // This triggers when SvelteKit detects a version mismatch
+  $: if ($updated) {
+    showUpdateToast();
+  }
+
+  function reload() {
+    window.location.reload();
+  }
+</script>
+
+{#if $updated}
+  <div class="fixed bottom-4 right-4 bg-blue-600 text-white p-4 rounded-lg shadow-xl z-50">
+    <p>A new version of Wabi is ready!</p>
+    <button on:click={reload} class="mt-2 bg-white text-blue-600 px-3 py-1 rounded font-bold">
+      Update Now
+    </button>
+  </div>
+{/if}
+
+```
+
+---
+
+### **The "Modern" Workflow Summary**
+
+| Action | Old "Archaic" Way | New "Wabi" Way |
+| --- | --- | --- |
+| **Deploying** | `docker-compose down` (Downtime) | `docker rollout` (Seamless Swap) |
+| **User State** | Page breaks or "Connection Lost" | Continues working on old version |
+| **Synchronization** | Manual Browser Refresh | UI Toast: "Click to Update" |
+
+### **A Pro Tip for SvelteKit & Docker:**
+
+When you deploy a new Docker container, the old `.js` files (chunks) are usually deleted. If a user is on the site and clicks a link, their browser tries to fetch an old chunk that no longer exists on the new container.
+
+To fix this, **keep your old assets for one version cycle**. You can do this by:
+
+1. Using a **Shared Volume** in Docker to store the `build` or `client` folder.
+2. Configuring your reverse proxy (Nginx/Traefik) to try and serve files from a "previous_version" folder if they aren't in the current one.
+
+**Would you like me to help you write a GitHub Action or a shell script that automates the `docker rollout` and the version bumping?**

@@ -8,6 +8,9 @@ const config = {
 		adapter: adapter(),
 		serviceWorker: {
 			register: true
+		},
+		version: {
+			pollInterval: 60000 // Check for updates every 60 seconds
 		}
 	}
 };
