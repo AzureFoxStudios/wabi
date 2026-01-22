@@ -116,10 +116,10 @@
 				<p>A new version of Wabi is ready. Refresh to update.</p>
 			</div>
 			<div class="update-actions">
-				<button class="update-btn primary" onclick={reloadApp}>
+				<button class="update-btn primary" on:click={reloadApp}>
 					Update Now
 				</button>
-				<button class="update-btn secondary" onclick={dismissUpdate}>
+				<button class="update-btn secondary" on:click={dismissUpdate}>
 					Later
 				</button>
 			</div>
