@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { themeStore } from '../theme/themeStore';
-	import { themeApi } from '../theme/themeApi';
+	import { saveThemePreferences } from '../theme/themeApi';
 	import type { BackgroundImage, CustomTheme } from '../../types/theme';
 
 	let isUploading = false;
@@ -111,7 +111,7 @@
 			};
 
 			themeStore.setCustomTheme(customTheme);
-			await themeApi.saveThemePreferences({
+			await saveThemePreferences({
 				custom_theme: customTheme
 			});
 		} catch (error) {
@@ -122,7 +122,7 @@
 	async function handleRemove() {
 		backgroundImage = null;
 		themeStore.setCustomTheme(null);
-		await themeApi.saveThemePreferences({
+		await saveThemePreferences({
 			custom_theme: null
 		});
 	}
