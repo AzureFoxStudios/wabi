@@ -14,8 +14,8 @@
 	$: dmChannel = dmChannelId ? $channels.find(ch => ch.id === dmChannelId) : null;
 	$: dmChannels = $channels.filter(ch => ch.type === 'dm');
 
-	function showConversationList() {
-		showDMList = true;
+	function handleBack() {
+		dispatch('back');
 	}
 
 	function handleSelectDM(channel: Channel) {
@@ -316,7 +316,7 @@
 		{#if showDMList}
 			<span class="dm-title">Direct Messages</span>
 		{:else if otherUser}
-			<button class="dm-back-btn" on:click={showConversationList} title="Back to DM list">←</button>
+			<button class="dm-back-btn" on:click={handleBack} title="Back to DM list">← Back</button>
 			<div class="dm-user-info">
 				<div class="dm-avatar-container">
 					{#if otherUser.profilePicture}

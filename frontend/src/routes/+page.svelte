@@ -6,7 +6,7 @@
 	import Chat from '$lib/components/Chat.svelte';
 	import Login from '$lib/components/Login.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
-	import UserPanel from '$lib/components/UserPanel.svelte';
+	import DMListPanel from '$lib/components/DMListPanel.svelte';
 	import ScreenShareViewer from '$lib/components/ScreenShareViewer.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
 	import DMPanel from '$lib/components/DMPanel.svelte';
@@ -25,9 +25,10 @@
 	let activeView: 'chat' | 'screen' = 'chat';
 
 	// --- Unified Panel State ---
-	type RightPanelView = 'none' | 'users' | 'dm';
+	type RightPanelView = 'none' | 'dm-list' | 'dm';
 	let rightPanelView: RightPanelView = 'none';
-	
+	let dmListPanelActiveTab: 'users' | 'messages' = 'messages';
+
 	let dmChannelId: string | null = null;
 	let dmOtherUser: User | null = null;
 	
@@ -44,9 +45,9 @@
 	
 	// --- Reactive Calculations ---
 	// These are now purely for desktop visibility, mobile uses different classes
-	$: showUserPanel = rightPanelView === 'users' && !isMobile;
+	$: showDMListPanel = rightPanelView === 'dm-list' && !isMobile;
 	$: showDMPanel = rightPanelView === 'dm' && !isMobile;
-	$: toggleButtonRight = (showUserPanel ? userPanelWidth : 0) + (showDMPanel ? dmPanelWidth : 0);
+	$: toggleButtonRight = (showDMListPanel ? userPanelWidth : 0) + (showDMPanel ? dmPanelWidth : 0);
 
 	// --- Lifecycle ---
 	onMount(async () => {
@@ -190,8 +191,12 @@
 	function handleCloseDM() {
 		dmChannelId = null;
 		dmOtherUser = null;
-		// On mobile, go back to the user list. On desktop, just close.
-		rightPanelView = isMobile ? 'users' : 'none';
+		// On mobile, go back to the DM list. On desktop, just close.
+		rightPanelView = isMobile ? 'dm-list' : 'none';
+	}
+
+	function handleDMPanelBack() {
+		rightPanelView = 'dm-list';
 	}
 
 	function handleSelectDM(channelId: string, user: User) {
@@ -200,11 +205,11 @@
 	}
 
 	function toggleDesktopUserPanel() {
-		if (rightPanelView === 'users') {
+		if (rightPanelView === 'dm-list') {
 			rightPanelView = 'none';
 		} else {
-			// If a DM is open, this button should still open the user list, replacing the DM
-			rightPanelView = 'users';
+			// If a DM is open, this button should still open the DM list, replacing the DM
+			rightPanelView = 'dm-list';
 		}
 	}
 	
@@ -216,10 +221,10 @@
 	
 	function toggleMobileUsers() {
 		// This button now acts as a master toggle for the right-side panels
-		if (rightPanelView === 'users' || rightPanelView === 'dm') {
+		if (rightPanelView === 'dm-list' || rightPanelView === 'dm') {
 			rightPanelView = 'none'; // Close whatever is open
 		} else {
-			rightPanelView = 'users'; // Open the user list
+			rightPanelView = 'dm-list'; // Open the DM list
 			showMobileChannels = false;
 		}
 	}
@@ -252,7 +257,7 @@
 				<svg width="24" height="24" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
 				<span>Channels</span>
 			</button>
-			<button class:active={rightPanelView === 'users' || rightPanelView === 'dm'} on:click={toggleMobileUsers}>
+			<button class:active={rightPanelView === 'dm-list' || rightPanelView === 'dm'} on:click={toggleMobileUsers}>
 				<svg width="24" height="24" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
 				<span>Users</span>
 			</button>
@@ -282,11 +287,11 @@
 		<!-- User Panel (Right) -->
 		<div 
 			class="user-panel-container"
-			class:visible={showUserPanel}
-			style:width="{showUserPanel ? userPanelWidth : 0}px"
+			class:visible={showDMListPanel}
+			style:width="{showDMListPanel ? userPanelWidth : 0}px"
 			class:mobile-visible={isMobile && rightPanelView === 'users'}
 		>
-			<UserPanel on:openDM={handleOpenDM} on:close={() => rightPanelView = 'none'} on:logout={handleLogout} />
+			<DMListPanel bind:activeTab={dmListPanelActiveTab} on:openDM={handleOpenDM} on:close={() => rightPanelView = 'none'} />
 			{#if !isMobile}
 				<div class="resize-handle resize-handle-user" on:mousedown={startResizeUser}></div>
 			{/if}
@@ -299,7 +304,7 @@
 			style:width="{showDMPanel ? dmPanelWidth : 0}px"
 			class:mobile-visible={isMobile && rightPanelView === 'dm'}
 		>
-			<DMPanel {dmChannelId} otherUser={dmOtherUser} onClose={handleCloseDM} onSelectDM={handleSelectDM} />
+			<DMPanel {dmChannelId} otherUser={dmOtherUser} onClose={handleCloseDM} onSelectDM={handleSelectDM} on:back={handleDMPanelBack} />
 			{#if !isMobile}
 				<div class="resize-handle resize-handle-dm" on:mousedown={startResizeDM}></div>
 			{/if}
@@ -311,7 +316,7 @@
 				class="user-panel-toggle"
 				class:open={showUserPanel || showDMPanel}
 				on:click={toggleDesktopUserPanel}
-				title={rightPanelView === 'users' ? 'Hide user panel' : 'Show user panel'}
+				title={rightPanelView === 'dm-list' ? 'Hide messages panel' : 'Show messages panel'}
 				style:right="{toggleButtonRight}px"
 			>
 				{showUserPanel || showDMPanel ? '→' : '←'}
@@ -332,7 +337,7 @@
 				<svg width="24" height="24" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
 				<span>Channels</span>
 			</button>
-			<button class:active={rightPanelView === 'users' || rightPanelView === 'dm'} on:click={toggleMobileUsers}>
+			<button class:active={rightPanelView === 'dm-list' || rightPanelView === 'dm'} on:click={toggleMobileUsers}>
 				<svg width="24" height="24" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
 				<span>Users</span>
 			</button>
@@ -362,11 +367,11 @@
 		<!-- User Panel (Right) -->
 		<div
 			class="user-panel-container"
-			class:visible={showUserPanel}
-			style:width="{showUserPanel ? userPanelWidth : 0}px"
+			class:visible={showDMListPanel}
+			style:width="{showDMListPanel ? userPanelWidth : 0}px"
 			class:mobile-visible={isMobile && rightPanelView === 'users'}
 		>
-			<UserPanel on:openDM={handleOpenDM} on:close={() => rightPanelView = 'none'} on:logout={handleLogout} />
+			<DMListPanel bind:activeTab={dmListPanelActiveTab} on:openDM={handleOpenDM} on:close={() => rightPanelView = 'none'} />
 			{#if !isMobile}
 				<div class="resize-handle resize-handle-user" on:mousedown={startResizeUser}></div>
 			{/if}
@@ -379,7 +384,7 @@
 			style:width="{showDMPanel ? dmPanelWidth : 0}px"
 			class:mobile-visible={isMobile && rightPanelView === 'dm'}
 		>
-			<DMPanel {dmChannelId} otherUser={dmOtherUser} onClose={handleCloseDM} onSelectDM={handleSelectDM} />
+			<DMPanel {dmChannelId} otherUser={dmOtherUser} onClose={handleCloseDM} onSelectDM={handleSelectDM} on:back={handleDMPanelBack} />
 			{#if !isMobile}
 				<div class="resize-handle resize-handle-dm" on:mousedown={startResizeDM}></div>
 			{/if}
@@ -391,7 +396,7 @@
 				class="user-panel-toggle"
 				class:open={showUserPanel || showDMPanel}
 				on:click={toggleDesktopUserPanel}
-				title={rightPanelView === 'users' ? 'Hide user panel' : 'Show user panel'}
+				title={rightPanelView === 'dm-list' ? 'Hide messages panel' : 'Show messages panel'}
 				style:right="{toggleButtonRight}px"
 			>
 				{showUserPanel || showDMPanel ? '→' : '←'}
