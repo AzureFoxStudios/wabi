@@ -589,14 +589,9 @@ input:focus, textarea:focus {
 	border-right: 3px solid #00bfff;
 }
 
-/* Sidebar header separator */
-:root[data-theme='vscode-high-contrast'] .sidebar-header {
-	border-bottom: 2px solid #00bfff;
-}
-
 /* Channel list separator */
 :root[data-theme='vscode-high-contrast'] .channel-list {
-	border-top: 1px solid #00bfff;
+	border-top: 2px solid #00bfff;
 }
 
 /* Channel items with left border on hover/active */
@@ -625,8 +620,24 @@ input:focus, textarea:focus {
 }
 
 :root[data-theme='vscode-high-contrast'] .tab-switcher {
-	border-bottom: 1px solid #00bfff;
-	margin-bottom: 0.5rem;
+	border-bottom: none;
+	margin-bottom: 0;
+	gap: 0.25rem;
+}
+
+:root[data-theme='vscode-high-contrast'] .tab-btn {
+	font-size: 0.6rem;
+	padding: 0.125rem 0.125rem;
+	width: 0.8rem;
+	transform: skewX(-25deg) rotateZ(-8deg);
+	color: #00bfff;
+	opacity: 0.7;
+}
+
+:root[data-theme='vscode-high-contrast'] .tab-btn.active {
+	color: #00bfff;
+	opacity: 1;
+	font-weight: 900;
 }
 
 :root[data-theme='vscode-high-contrast'] .conversations-list,

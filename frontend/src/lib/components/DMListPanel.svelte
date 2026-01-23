@@ -231,33 +231,41 @@
 
 	.tab-switcher {
 		display: flex;
-		gap: 0.5rem;
-		background: var(--bg-secondary);
-		border-radius: 6px;
-		padding: 0.25rem;
+		gap: 0;
+		background: transparent;
+		border-radius: 0;
+		padding: 0;
+		align-items: center;
 	}
 
 	.tab-btn {
-		flex: 1;
-		padding: 0.5rem 1rem;
+		flex: 0 0 auto;
+		padding: 0.25rem 0.25rem;
 		background: transparent;
 		border: none;
 		color: var(--text-secondary);
 		cursor: pointer;
-		border-radius: 4px;
-		font-weight: 500;
-		font-size: 0.875rem;
+		border-radius: 0;
+		font-weight: 700;
+		font-size: 0.5rem;
 		transition: all 0.2s;
+		transform: skewX(-25deg) rotateZ(-10deg);
+		width: 1rem;
+		height: 1.5rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		overflow: visible;
+		text-overflow: clip;
+		white-space: nowrap;
 	}
 
 	.tab-btn:hover {
 		color: var(--text-primary);
-		background: rgba(var(--accent-hex, 88, 101, 242), 0.1);
 	}
 
 	.tab-btn.active {
-		background: var(--accent);
-		color: white;
+		color: #00bfff;
 	}
 
 	.messages-tab,
