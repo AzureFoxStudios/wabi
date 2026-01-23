@@ -88,67 +88,47 @@
 <aside class="dm-list-panel">
 	<div class="panel-header">
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
-		<div class="tab-switcher">
-			<button
-				class="tab-btn"
-				class:active={activeTab === 'messages'}
-				on:click={() => setActiveTab('messages')}
-			>
-				💬 Messages
-			</button>
-			<button
-				class="tab-btn"
-				class:active={activeTab === 'users'}
-				on:click={() => setActiveTab('users')}
-			>
-				👥 Users ({$users.length})
-			</button>
-		</div>
+		<span class="header-title">Direct Messages</span>
+		<button class="add-dm-btn" on:click={handleOpenDMModal} title="Start new DM">+</button>
 	</div>
 
-	{#if activeTab === 'messages'}
-		<div class="messages-tab">
-			<button class="start-dm-btn" on:click={handleOpenDMModal}>
-				<span class="plus-icon">+</span>
-				Start New DM
-			</button>
+	<div class="messages-tab">
+		{#if dmChannels.length === 0}
+			<div class="empty-state">
+				<div class="empty-icon">💭</div>
+				<p>No messages yet</p>
+				<p class="empty-hint">Start a conversation to begin</p>
+			</div>
+		{:else}
+			<div class="conversations-list">
+				{#each dmChannels as channel (channel.id)}
+					{@const otherUser = getOtherUser(channel)}
+					{#if otherUser}
+						<button
+							class="conversation-item"
+							on:click={() => handleOpenDM(channel)}
+						>
+							<div class="conversation-avatar">
+								{#if otherUser.profilePicture}
+									<img src={otherUser.profilePicture} alt={otherUser.username} />
+								{:else}
+									<div class="avatar-placeholder" style="background-color: {otherUser.color}">
+										{otherUser.username.charAt(0).toUpperCase()}
+									</div>
+								{/if}
+							</div>
+							<div class="conversation-info">
+								<div class="conversation-name">{otherUser.username}</div>
+								<div class="conversation-preview">{getLastMessagePreview(channel.id)}</div>
+							</div>
+						</button>
+					{/if}
+				{/each}
+			</div>
+		{/if}
+	</div>
 
-			{#if dmChannels.length === 0}
-				<div class="empty-state">
-					<div class="empty-icon">💭</div>
-					<p>No messages yet</p>
-					<p class="empty-hint">Start a conversation to begin</p>
-				</div>
-			{:else}
-				<div class="conversations-list">
-					{#each dmChannels as channel (channel.id)}
-						{@const otherUser = getOtherUser(channel)}
-						{#if otherUser}
-							<button
-								class="conversation-item"
-								on:click={() => handleOpenDM(channel)}
-							>
-								<div class="conversation-avatar">
-									{#if otherUser.profilePicture}
-										<img src={otherUser.profilePicture} alt={otherUser.username} />
-									{:else}
-										<div class="avatar-placeholder" style="background-color: {otherUser.color}">
-											{otherUser.username.charAt(0).toUpperCase()}
-										</div>
-									{/if}
-								</div>
-								<div class="conversation-info">
-									<div class="conversation-name">{otherUser.username}</div>
-									<div class="conversation-preview">{getLastMessagePreview(channel.id)}</div>
-								</div>
-							</button>
-						{/if}
-					{/each}
-				</div>
-			{/if}
-		</div>
-	{/if}
-
+	<!-- Users tab hidden for now -->
 	{#if activeTab === 'users'}
 		<div class="users-tab">
 			<div class="users-list">
@@ -217,6 +197,19 @@
 		padding: 1rem;
 		border-bottom: 1px solid var(--border);
 		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+	}
+
+	.header-title {
+		color: var(--text-primary);
+		font-weight: 600;
+		font-size: 0.875rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		flex: 1;
 	}
 
 	.mobile-close-btn {
@@ -226,61 +219,27 @@
 		font-size: 1.5rem;
 		cursor: pointer;
 		color: var(--text-primary);
-		margin-bottom: 0.5rem;
 	}
 
-	.tab-switcher {
-		display: flex;
-		gap: 0;
-		background: transparent;
-		border-radius: 0;
-		padding: 0;
-		align-items: center;
-		position: relative;
-	}
-
-	.tab-switcher::after {
-		content: '/';
-		position: absolute;
-		left: 50%;
-		top: 50%;
-		transform: translateY(-50%);
-		color: var(--accent);
-		font-weight: 700;
-		font-size: 0.875rem;
-		pointer-events: none;
-	}
-
-	.tab-btn {
-		flex: 1;
-		padding: 0.5rem 1rem;
-		background: transparent;
+	.add-dm-btn {
+		background: none;
 		border: none;
 		color: var(--text-secondary);
 		cursor: pointer;
-		border-radius: 0;
-		font-weight: 500;
-		font-size: 0.875rem;
+		font-size: 1.25rem;
+		padding: 0;
+		width: 2rem;
+		height: 2rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 4px;
 		transition: all 0.2s;
-		position: relative;
 	}
 
-	.tab-btn:hover {
+	.add-dm-btn:hover {
+		background: var(--bg-hover);
 		color: var(--text-primary);
-	}
-
-	.tab-btn.active {
-		color: var(--accent);
-	}
-
-	.tab-btn.active::after {
-		content: '';
-		position: absolute;
-		bottom: -2px;
-		left: 0;
-		right: 0;
-		height: 2px;
-		background: var(--accent);
 	}
 
 	.messages-tab,
@@ -353,26 +312,29 @@
 	.conversation-item {
 		display: flex;
 		align-items: center;
-		padding: 0.75rem 1rem;
+		padding: 0.75rem 0.5rem;
 		background: transparent;
 		border: none;
-		border-bottom: 1px solid var(--bg-secondary);
+		border-bottom: none;
 		cursor: pointer;
-		transition: all 0.2s;
+		transition: all 0.15s;
 		gap: 0.75rem;
 		text-align: left;
+		margin: 0 0.5rem;
+		border-radius: 4px;
 	}
 
 	.conversation-item:hover {
-		background: var(--bg-secondary);
+		background: rgba(var(--accent-hex, 88, 101, 242), 0.15);
 	}
 
 	.conversation-avatar {
 		flex-shrink: 0;
-		width: 40px;
-		height: 40px;
+		width: 36px;
+		height: 36px;
 		border-radius: 50%;
 		overflow: hidden;
+		position: relative;
 	}
 
 	.conversation-avatar img {
@@ -389,26 +351,31 @@
 		justify-content: center;
 		color: white;
 		font-weight: 600;
-		font-size: 0.875rem;
+		font-size: 0.75rem;
 	}
 
 	.conversation-info {
 		flex: 1;
 		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0;
 	}
 
 	.conversation-name {
 		font-weight: 500;
 		color: var(--text-primary);
-		margin-bottom: 0.25rem;
+		font-size: 0.9rem;
+		line-height: 1.2;
 	}
 
 	.conversation-preview {
-		font-size: 0.875rem;
+		font-size: 0.8rem;
 		color: var(--text-secondary);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		line-height: 1.2;
 	}
 
 	.users-list {
