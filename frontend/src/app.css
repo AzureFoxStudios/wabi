@@ -622,22 +622,24 @@ input:focus, textarea:focus {
 :root[data-theme='vscode-high-contrast'] .tab-switcher {
 	border-bottom: none;
 	margin-bottom: 0;
-	gap: 0.25rem;
+}
+
+:root[data-theme='vscode-high-contrast'] .tab-switcher::after {
+	color: #00bfff;
+	font-size: 1rem;
 }
 
 :root[data-theme='vscode-high-contrast'] .tab-btn {
-	font-size: 0.6rem;
-	padding: 0.125rem 0.125rem;
-	width: 0.8rem;
-	transform: skewX(-25deg) rotateZ(-8deg);
-	color: #00bfff;
-	opacity: 0.7;
+	font-size: 0.875rem;
+	color: #ffffff;
 }
 
 :root[data-theme='vscode-high-contrast'] .tab-btn.active {
 	color: #00bfff;
-	opacity: 1;
-	font-weight: 900;
+}
+
+:root[data-theme='vscode-high-contrast'] .tab-btn.active::after {
+	background: #00bfff;
 }
 
 :root[data-theme='vscode-high-contrast'] .conversations-list,

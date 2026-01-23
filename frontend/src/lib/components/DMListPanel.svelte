@@ -236,28 +236,33 @@
 		border-radius: 0;
 		padding: 0;
 		align-items: center;
+		position: relative;
+	}
+
+	.tab-switcher::after {
+		content: '/';
+		position: absolute;
+		left: 50%;
+		top: 50%;
+		transform: translateY(-50%);
+		color: var(--accent);
+		font-weight: 700;
+		font-size: 0.875rem;
+		pointer-events: none;
 	}
 
 	.tab-btn {
-		flex: 0 0 auto;
-		padding: 0.25rem 0.25rem;
+		flex: 1;
+		padding: 0.5rem 1rem;
 		background: transparent;
 		border: none;
 		color: var(--text-secondary);
 		cursor: pointer;
 		border-radius: 0;
-		font-weight: 700;
-		font-size: 0.5rem;
+		font-weight: 500;
+		font-size: 0.875rem;
 		transition: all 0.2s;
-		transform: skewX(-25deg) rotateZ(-10deg);
-		width: 1rem;
-		height: 1.5rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		overflow: visible;
-		text-overflow: clip;
-		white-space: nowrap;
+		position: relative;
 	}
 
 	.tab-btn:hover {
@@ -265,7 +270,17 @@
 	}
 
 	.tab-btn.active {
-		color: #00bfff;
+		color: var(--accent);
+	}
+
+	.tab-btn.active::after {
+		content: '';
+		position: absolute;
+		bottom: -2px;
+		left: 0;
+		right: 0;
+		height: 2px;
+		background: var(--accent);
 	}
 
 	.messages-tab,

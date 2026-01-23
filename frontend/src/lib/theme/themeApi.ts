@@ -5,7 +5,8 @@
 
 import type { ThemePreferences } from '../../types/theme';
 
-const API_BASE = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
+// Use relative URL so it works on both localhost and production
+const API_BASE = import.meta.env.VITE_SOCKET_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
 
 /**
  * Get auth token from localStorage
