@@ -55,6 +55,12 @@
 	--status-offline: #708090;  /* Slate gray (void) */
 	--status-offline-rgb: 112, 128, 144;
 
+	/* Uniform Font Mode - Default values */
+	--uniform-font-family: inherit;
+	--uniform-font-size: inherit;
+	--uniform-font-weight: inherit;
+	--uniform-font-style: inherit;
+
 	/* Semantic colors - Galactic alerts */
 	--color-success: #00ff7f;  /* Green success flare */
 	--color-success-rgb: 0, 255, 127;
@@ -559,6 +565,20 @@ input:focus, textarea:focus {
 	:root {
 		--border: 1px solid var(--text-primary);
 	}
+}
+
+/* === UNIFORM FONT MODE === */
+/* Apply uniform font settings to usernames throughout the app */
+.user-name,
+.username,
+.dm-username,
+.message-author,
+.user-info-btn .user-name,
+.conversation-name {
+	font-family: var(--uniform-font-family, inherit);
+	font-size: var(--uniform-font-size, inherit);
+	font-weight: var(--uniform-font-weight, inherit);
+	font-style: var(--uniform-font-style, inherit);
 }
 
 /* Reduced motion for users who prefer it */
