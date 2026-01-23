@@ -1,5 +1,5 @@
 // frontend/src/lib/layoutStore.ts
-import { writable, readable, derived } from 'svelte/store';
+import { writable, readable, derived, get } from 'svelte/store';
 import type { User } from './socket-types';
 
 // State

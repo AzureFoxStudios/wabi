@@ -11,12 +11,20 @@
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 
+	let isResizingChannel = false;
+	let isResizingUser = false;
+	let isResizingDM = false;
+
+	layoutStore.isResizingChannel.subscribe(v => isResizingChannel = v);
+	layoutStore.isResizingUser.subscribe(v => isResizingUser = v);
+	layoutStore.isResizingDM.subscribe(v => isResizingDM = v);
+
 	function handleMouseMove(e: MouseEvent) {
-		if (layoutStore.isResizingChannel.get()) {
+		if (isResizingChannel) {
 			layoutStore.channelSidebarWidth.set(Math.max(180, Math.min(e.clientX, 400)));
-		} else if (layoutStore.isResizingUser.get()) {
+		} else if (isResizingUser) {
 			layoutStore.userPanelWidth.set(Math.max(200, Math.min(window.innerWidth - e.clientX, 500)));
-		} else if (layoutStore.isResizingDM.get()) {
+		} else if (isResizingDM) {
 			layoutStore.dmPanelWidth.set(Math.max(300, Math.min(window.innerWidth - e.clientX, 600)));
 		}
 	}
@@ -59,7 +67,7 @@
 		style:width="{$layoutStore.channelSidebarWidth}px"
 		class:mobile-visible={$layoutStore.showMobileChannels}
 	>
-		<ChannelSidebar on:close={() => layoutStore.showMobileChannels.set(false)} bind:activeView bind:sidebarWidth={$layoutStore.channelSidebarWidth} on:logout />
+		<ChannelSidebar on:close={() => layoutStore.showMobileChannels.set(false)} bind:activeView on:logout />
 	</div>
 
 	<!-- Main Content -->
@@ -88,11 +96,12 @@
 		style:width="{$layoutStore.showDMPanel ? $layoutStore.dmPanelWidth : 0}px"
 		class:mobile-visible={$layoutStore.isMobile && $layoutStore.rightPanelView === 'dm'}
 	>
-		<DMPanel 
-            dmChannelId={$layoutStore.dmChannelId} 
-            otherUser={$layoutStore.dmOtherUser} 
-            onClose={layoutStore.closeDM} 
-            on:back={layoutStore.handleDMPanelBack} 
+		<DMPanel
+            dmChannelId={$layoutStore.dmChannelId}
+            otherUser={$layoutStore.dmOtherUser}
+            onClose={layoutStore.closeDM}
+            onSelectDM={(channelId, user) => layoutStore.openDM(channelId, user)}
+            on:back={layoutStore.handleDMPanelBack}
         />
 		{#if !$layoutStore.isMobile}
 			<div class="resize-handle resize-handle-dm" on:mousedown={() => layoutStore.isResizingDM.set(true)}></div>
