@@ -314,12 +314,12 @@
 		{#if !isMobile}
 			<button
 				class="user-panel-toggle"
-				class:open={showUserPanel || showDMPanel}
+				class:open={showDMListPanel || showDMPanel}
 				on:click={toggleDesktopUserPanel}
 				title={rightPanelView === 'dm-list' ? 'Hide messages panel' : 'Show messages panel'}
 				style:right="{toggleButtonRight}px"
 			>
-				{showUserPanel || showDMPanel ? '→' : '←'}
+				{showDMListPanel || showDMPanel ? '→' : '←'}
 			</button>
 		{/if}
 	</div>
@@ -394,12 +394,12 @@
 		{#if !isMobile}
 			<button
 				class="user-panel-toggle"
-				class:open={showUserPanel || showDMPanel}
+				class:open={showDMListPanel || showDMPanel}
 				on:click={toggleDesktopUserPanel}
 				title={rightPanelView === 'dm-list' ? 'Hide messages panel' : 'Show messages panel'}
 				style:right="{toggleButtonRight}px"
 			>
-				{showUserPanel || showDMPanel ? '→' : '←'}
+				{showDMListPanel || showDMPanel ? '→' : '←'}
 			</button>
 		{/if}
 	</div>
