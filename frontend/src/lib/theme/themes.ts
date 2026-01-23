@@ -263,7 +263,7 @@ export const vscodeHighContrastTheme: Theme = {
 	colors: {
 		bgPrimary: '#000000',
 		bgSecondary: '#0a0a0a',
-		bgTertiary: '#1a1a1a',
+		bgTertiary: '#000000',
 		bgHover: '#1a1a1a',
 
 		textPrimary: '#ffffff',
@@ -274,8 +274,8 @@ export const vscodeHighContrastTheme: Theme = {
 		accentHex: '0, 191, 255',
 		accentHover: '#0099ff',
 
-		uiBgLight: '#1a1a1a',
-		uiBgLighter: '#2a2a2a',
+		uiBgLight: '#0a0a0a',
+		uiBgLighter: '#1a1a1a',
 		uiText: '#d0d0d0',
 		uiTextDark: '#ffffff',
 
@@ -290,7 +290,7 @@ export const vscodeHighContrastTheme: Theme = {
 		colorDanger: '#ff3333',
 
 		modalBg: '#000000',
-		modalHeaderBg: '#1a1a1a',
+		modalHeaderBg: '#000000',
 		modalText: '#ffffff',
 
 		darkBgPrimary: '#000000',
@@ -299,12 +299,12 @@ export const vscodeHighContrastTheme: Theme = {
 		error: '#ff3333'
 	},
 	gradients: {
-		primary: 'linear-gradient(to right, #000000 0%, #0a0a0a 100%)',
+		primary: 'linear-gradient(to right, #000000 0%, #000000 100%)',
 		accent: 'linear-gradient(to right, #00bfff 0%, #0099ff 100%)',
 		accentHover: 'linear-gradient(to right, #0099ff 0%, #0077cc 100%)',
-		dialogDark: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%)',
-		fadeBottomDark: 'linear-gradient(to bottom, rgba(26, 26, 26, 0.9), rgba(0, 0, 0, 0.7))',
-		fadeRightTransparent: 'linear-gradient(to right, transparent, #0a0a0a)',
+		dialogDark: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)',
+		fadeBottomDark: 'linear-gradient(to bottom, rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0.8))',
+		fadeRightTransparent: 'linear-gradient(to right, transparent, #000000)',
 		lineGlow: 'linear-gradient(90deg, transparent, rgba(0, 191, 255, 0.2), transparent)',
 		fadeTopDark: 'linear-gradient(to top, rgba(0, 0, 0, 0.9), transparent)',
 		accentSubtle: 'linear-gradient(135deg, rgba(0, 191, 255, 0.15) 0%, rgba(0, 153, 255, 0.15) 100%)',

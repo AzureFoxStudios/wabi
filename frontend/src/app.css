@@ -583,12 +583,41 @@ input:focus, textarea:focus {
 
 /* === VS CODE HIGH CONTRAST THEME SEPARATORS === */
 /* Add electric blue separator lines characteristic of VS Code high contrast */
-:root[data-theme='vscode-high-contrast'] .dm-list-panel {
-	border-left: 3px solid #00bfff;
-}
 
+/* Channel sidebar - right edge and dividers */
 :root[data-theme='vscode-high-contrast'] .channel-sidebar {
 	border-right: 3px solid #00bfff;
+}
+
+/* Sidebar header separator */
+:root[data-theme='vscode-high-contrast'] .sidebar-header {
+	border-bottom: 2px solid #00bfff;
+}
+
+/* Channel list separator */
+:root[data-theme='vscode-high-contrast'] .channel-list {
+	border-top: 1px solid #00bfff;
+}
+
+/* Channel items with left border on hover/active */
+:root[data-theme='vscode-high-contrast'] .channel-item {
+	border-left: 3px solid transparent;
+	transition: border-left-color 0.2s;
+}
+
+:root[data-theme='vscode-high-contrast'] .channel-item:hover,
+:root[data-theme='vscode-high-contrast'] .channel-item.active {
+	border-left-color: #00bfff;
+}
+
+/* Chat header at top */
+:root[data-theme='vscode-high-contrast'] .chat-header {
+	border-bottom: 2px solid #00bfff;
+}
+
+/* DM list panel */
+:root[data-theme='vscode-high-contrast'] .dm-list-panel {
+	border-left: 3px solid #00bfff;
 }
 
 :root[data-theme='vscode-high-contrast'] .panel-header {
