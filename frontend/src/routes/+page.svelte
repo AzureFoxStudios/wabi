@@ -1,156 +1,112 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import { initSocket, disconnect, dmPanelSignal, connected, type User } from '$lib/socket';
+	import { initSocket, disconnect, dmPanelSignal } from '$lib/socket';
 	import { requestNotificationPermission } from '$lib/notifications';
-	import Chat from '$lib/components/Chat.svelte';
 	import Login from '$lib/components/Login.svelte';
-	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
-	import DMListPanel from '$lib/components/DMListPanel.svelte';
-	import ScreenShareViewer from '$lib/components/ScreenShareViewer.svelte';
-	import CallModal from '$lib/components/CallModal.svelte';
-	import DMPanel from '$lib/components/DMPanel.svelte';
+	import MainLayout from '$lib/components/MainLayout.svelte';
 	import type { PageData } from './$types';
+	import { layoutStore } from '$lib/layoutStore';
 
 	// Theme system
 	import { initializeTheme, watchThemeChanges, syncThemeToLocalStorage } from '$lib/theme/initTheme';
 
 	export let data: PageData;
 
-	let username = '';
-	// Check localStorage synchronously to avoid flash of login screen
 	let loggedIn = typeof window !== 'undefined' && !!localStorage.getItem('username');
 	let isInitialLoad = true;
 	let showLoadingScreen = true;
-	let activeView: 'chat' | 'screen' = 'chat';
 
-	// --- Unified Panel State ---
-	type RightPanelView = 'none' | 'dm-list' | 'dm';
-	let rightPanelView: RightPanelView = 'none';
-	let dmListPanelActiveTab: 'users' | 'messages' = 'messages';
-
-	let dmChannelId: string | null = null;
-	let dmOtherUser: User | null = null;
-	
-	// --- UI & Layout State ---
-	let channelSidebarWidth = 240;
-	let userPanelWidth = 250;
-	let dmPanelWidth = 350;
-	let isResizingChannel = false;
-	let isResizingUser = false;
-	let isResizingDM = false;
-	let isMobile = false;
-	let showMobileChannels = false;
-	let mql: MediaQueryList;
-	
-	// --- Reactive Calculations ---
-	// These are now purely for desktop visibility, mobile uses different classes
-	$: showDMListPanel = rightPanelView === 'dm-list' && !isMobile;
-	$: showDMPanel = rightPanelView === 'dm' && !isMobile;
-	$: toggleButtonRight = (showDMListPanel ? userPanelWidth : 0) + (showDMPanel ? dmPanelWidth : 0);
+	let unsubscribeThemeWatcher: (() => void) | null = null;
+	let unsubscribeLocalStorageSync: (() => void) | null = null;
 
 	// --- Lifecycle ---
 	onMount(async () => {
-		// Hide loading screen now that we're hydrated and state is correct
 		showLoadingScreen = false;
-
-		// Mark initial load as complete so transitions only run on actual state changes
 		isInitialLoad = false;
 
 		const notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 		if (notificationsEnabled) await requestNotificationPermission();
-
-		mql = window.matchMedia('(max-width: 768px)');
-		isMobile = mql.matches;
-		mql.addEventListener('change', (e) => {
-			isMobile = e.matches;
-			if (!isMobile) rightPanelView = 'none'; // Reset panels on resize to desktop
+		
+		layoutStore.subscribe(state => {
+			if (state.isMobile) {
+				layoutStore.resetPanelsOnDesktop();
+			}
 		});
 
-		// Auto-restore login from localStorage (sticky login)
 		const savedUsername = localStorage.getItem('username');
 		const savedToken = localStorage.getItem('authToken');
 		if (savedUsername) {
-			username = savedUsername;
 			initSocket(savedUsername, savedToken || undefined);
 			loggedIn = true;
 		}
 
-		// Initialize theme system
 		const isRegistered = !!savedToken;
 		await initializeTheme(isRegistered);
 
-		// Watch for theme changes and auto-apply
-		const unsubscribeThemeWatcher = watchThemeChanges();
+		unsubscribeThemeWatcher = watchThemeChanges();
 
-		// For guest users, sync theme to localStorage
-		let unsubscribeLocalStorageSync: (() => void) | null = null;
 		if (!isRegistered) {
 			unsubscribeLocalStorageSync = syncThemeToLocalStorage();
 		}
 
-		// Keyboard shortcuts for portals (Ctrl+Shift+1 for business, Ctrl+Shift+2 for art)
-		// Ctrl+Shift+O for emergency logout
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (e.ctrlKey && e.shiftKey && e.key === '1') {
 				e.preventDefault();
 				window.location.href = '/business';
 			}
-			// Emergency logout shortcut: Ctrl+Shift+O
 			if (e.ctrlKey && e.shiftKey && (e.key === 'O' || e.key === 'o')) {
 				e.preventDefault();
 				handleLogout();
 			}
 		};
 		window.addEventListener('keydown', handleKeyDown);
+		
 		return () => {
 			window.removeEventListener('keydown', handleKeyDown);
-			unsubscribeThemeWatcher();
-			if (unsubscribeLocalStorageSync) unsubscribeLocalStorageSync();
+			unsubscribeThemeWatcher?.();
+			unsubscribeLocalStorageSync?.();
 		};
 	});
 	
 	onDestroy(() => {
-		if (mql) mql.removeEventListener('change', (e) => (isMobile = e.matches));
 		disconnect();
 	});
 
 	// --- Event Handlers & Logic ---
-
-	// Open DM panel when signaled from another component (e.g., notification click)
 	$: if ($dmPanelSignal) {
-		dmChannelId = $dmPanelSignal.channelId;
-		dmOtherUser = $dmPanelSignal.otherUser;
-		rightPanelView = 'dm';
+		layoutStore.openDM($dmPanelSignal.channelId, $dmPanelSignal.otherUser);
 		dmPanelSignal.set(null);
 	}
 
 	async function handleLogin(event: CustomEvent<{ username: string; token?: string; authMethod: 'guest' | 'registered' }>) {
-		const { username: user, token, authMethod } = event.detail;
-		username = user;
-		// Save username to localStorage
+		const { username, token, authMethod } = event.detail;
 		localStorage.setItem('username', username);
 
-		// Save token if registered user
 		if (token) {
 			localStorage.setItem('authToken', token);
 			localStorage.removeItem('sessionId');
 		}
 
-		// Initialize socket with username and optional token
 		initSocket(username, token);
 		loggedIn = true;
 
-		// Re-initialize theme system for new login
 		const isRegistered = authMethod === 'registered' || !!token;
 		await initializeTheme(isRegistered);
+
+		// Stop old watchers/syncers and start new ones if needed
+		unsubscribeThemeWatcher?.();
+		unsubscribeLocalStorageSync?.();
+
+		unsubscribeThemeWatcher = watchThemeChanges();
+		if (!isRegistered) {
+			unsubscribeLocalStorageSync = syncThemeToLocalStorage();
+		}
 	}
 
 	function handleLogout() {
 		disconnect();
 		loggedIn = false;
-		username = '';
-		// Clear all session data (including authToken for registered users)
 		try {
 			localStorage.removeItem('username');
 			localStorage.removeItem('sessionId');
@@ -159,78 +115,7 @@
 			console.error('Failed to clear localStorage:', e);
 		}
 	}
-
-	// Desktop resizing
-	function startResizeChannel(e: MouseEvent) { isResizingChannel = true; e.preventDefault(); }
-	function startResizeUser(e: MouseEvent) { isResizingUser = true; e.preventDefault(); }
-	function startResizeDM(e: MouseEvent) { isResizingDM = true; e.preventDefault(); }
-
-	function handleMouseMove(e: MouseEvent) {
-		if (isResizingChannel) {
-			channelSidebarWidth = Math.max(180, Math.min(e.clientX, 400));
-		} else if (isResizingUser) {
-			userPanelWidth = Math.max(200, Math.min(window.innerWidth - e.clientX, 500));
-		} else if (isResizingDM) {
-			dmPanelWidth = Math.max(300, Math.min(window.innerWidth - e.clientX, 600));
-		}
-	}
-
-	function stopResize() {
-		isResizingChannel = false;
-		isResizingUser = false;
-		isResizingDM = false;
-	}
-	
-	// Panel State Transitions
-	function handleOpenDM(event: CustomEvent<{ channelId: string; otherUser: User }>) {
-		dmChannelId = event.detail.channelId;
-		dmOtherUser = event.detail.otherUser;
-		rightPanelView = 'dm';
-	}
-
-	function handleCloseDM() {
-		dmChannelId = null;
-		dmOtherUser = null;
-		// On mobile, go back to the DM list. On desktop, just close.
-		rightPanelView = isMobile ? 'dm-list' : 'none';
-	}
-
-	function handleDMPanelBack() {
-		rightPanelView = 'dm-list';
-	}
-
-	function handleSelectDM(channelId: string, user: User) {
-		dmChannelId = channelId;
-		dmOtherUser = user;
-	}
-
-	function toggleDesktopUserPanel() {
-		if (rightPanelView === 'dm-list') {
-			rightPanelView = 'none';
-		} else {
-			// If a DM is open, this button should still open the DM list, replacing the DM
-			rightPanelView = 'dm-list';
-		}
-	}
-	
-	// Mobile Navigation
-	function toggleMobileChannels() {
-		showMobileChannels = !showMobileChannels;
-		if (showMobileChannels) rightPanelView = 'none';
-	}
-	
-	function toggleMobileUsers() {
-		// This button now acts as a master toggle for the right-side panels
-		if (rightPanelView === 'dm-list' || rightPanelView === 'dm') {
-			rightPanelView = 'none'; // Close whatever is open
-		} else {
-			rightPanelView = 'dm-list'; // Open the DM list
-			showMobileChannels = false;
-		}
-	}
 </script>
-
-<svelte:window on:mousemove={handleMouseMove} on:mouseup={stopResize} />
 
 {#if showLoadingScreen}
 	<div class="loading-screen" transition:fade={{ duration: 400 }}></div>
@@ -246,165 +131,11 @@
 	{/if}
 {:else}
 	{#if isInitialLoad}
-	{#if isMobile}
-		<!-- Mobile Bottom Navigation Bar -->
-		<nav class="mobile-bottom-nav">
-			<button class:active={!showMobileChannels && rightPanelView === 'none'} on:click={() => { showMobileChannels = false; rightPanelView = 'none'; }}>
-				<svg width="24" height="24" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-				<span>Chat</span>
-			</button>
-			<button class:active={showMobileChannels} on:click={toggleMobileChannels}>
-				<svg width="24" height="24" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
-				<span>Channels</span>
-			</button>
-			<button class:active={rightPanelView === 'dm-list' || rightPanelView === 'dm'} on:click={toggleMobileUsers}>
-				<svg width="24" height="24" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-				<span>Users</span>
-			</button>
-			<a href="/business" class="nav-link">
-				<svg width="24" height="24" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-				<span>Hub</span>
-			</a>
-		</nav>
-	{/if}
-
-	<div class="app-container" class:resizing={isResizingChannel || isResizingUser || isResizingDM}>
-		<!-- Channel Sidebar (Left) -->
-		<div 
-			class="channel-sidebar-container" 
-			style:width="{channelSidebarWidth}px"
-			class:mobile-visible={isMobile && showMobileChannels}
-		>
-			<ChannelSidebar on:close={() => showMobileChannels = false} bind:activeView bind:sidebarWidth={channelSidebarWidth} on:logout={handleLogout} />
-		</div>
-
-		<!-- Main Content -->
-		<div class="main-content">
-			<div class:hidden={activeView !== 'chat'}><Chat on:logout={handleLogout} /></div>
-			<div class:hidden={activeView !== 'screen'}><ScreenShareViewer bind:activeView /></div>
-		</div>
-		
-		<!-- User Panel (Right) -->
-		<div 
-			class="user-panel-container"
-			class:visible={showDMListPanel}
-			style:width="{showDMListPanel ? userPanelWidth : 0}px"
-			class:mobile-visible={isMobile && rightPanelView === 'users'}
-		>
-			<DMListPanel bind:activeTab={dmListPanelActiveTab} on:openDM={handleOpenDM} on:close={() => rightPanelView = 'none'} />
-			{#if !isMobile}
-				<div class="resize-handle resize-handle-user" on:mousedown={startResizeUser}></div>
-			{/if}
-		</div>
-		
-		<!-- DM Panel (Far Right) -->
-		<div 
-			class="dm-panel-container"
-			class:visible={showDMPanel}
-			style:width="{showDMPanel ? dmPanelWidth : 0}px"
-			class:mobile-visible={isMobile && rightPanelView === 'dm'}
-		>
-			<DMPanel {dmChannelId} otherUser={dmOtherUser} onClose={handleCloseDM} onSelectDM={handleSelectDM} on:back={handleDMPanelBack} />
-			{#if !isMobile}
-				<div class="resize-handle resize-handle-dm" on:mousedown={startResizeDM}></div>
-			{/if}
-		</div>
-		
-		<!-- Desktop-Only Buttons -->
-		{#if !isMobile}
-			<button
-				class="user-panel-toggle"
-				class:open={showDMListPanel || showDMPanel}
-				on:click={toggleDesktopUserPanel}
-				title={rightPanelView === 'dm-list' ? 'Hide messages panel' : 'Show messages panel'}
-				style:right="{toggleButtonRight}px"
-			>
-				{showDMListPanel || showDMPanel ? '→' : '←'}
-			</button>
-		{/if}
-	</div>
-	<CallModal />
+		<MainLayout on:logout={handleLogout} />
 	{:else}
-	<div transition:fade={{ duration: 300 }}>
-	{#if isMobile}
-		<!-- Mobile Bottom Navigation Bar -->
-		<nav class="mobile-bottom-nav">
-			<button class:active={!showMobileChannels && rightPanelView === 'none'} on:click={() => { showMobileChannels = false; rightPanelView = 'none'; }}>
-				<svg width="24" height="24" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-				<span>Chat</span>
-			</button>
-			<button class:active={showMobileChannels} on:click={toggleMobileChannels}>
-				<svg width="24" height="24" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
-				<span>Channels</span>
-			</button>
-			<button class:active={rightPanelView === 'dm-list' || rightPanelView === 'dm'} on:click={toggleMobileUsers}>
-				<svg width="24" height="24" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-				<span>Users</span>
-			</button>
-			<a href="/business" class="nav-link">
-				<svg width="24" height="24" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-				<span>Hub</span>
-			</a>
-		</nav>
-	{/if}
-
-	<div class="app-container" class:resizing={isResizingChannel || isResizingUser || isResizingDM}>
-		<!-- Channel Sidebar (Left) -->
-		<div
-			class="channel-sidebar-container"
-			style:width="{channelSidebarWidth}px"
-			class:mobile-visible={isMobile && showMobileChannels}
-		>
-			<ChannelSidebar on:close={() => showMobileChannels = false} bind:activeView bind:sidebarWidth={channelSidebarWidth} on:logout={handleLogout} />
+		<div transition:fade={{ duration: 300 }}>
+			<MainLayout on:logout={handleLogout} />
 		</div>
-
-		<!-- Main Content -->
-		<div class="main-content">
-			<div class:hidden={activeView !== 'chat'}><Chat on:logout={handleLogout} /></div>
-			<div class:hidden={activeView !== 'screen'}><ScreenShareViewer bind:activeView /></div>
-		</div>
-
-		<!-- User Panel (Right) -->
-		<div
-			class="user-panel-container"
-			class:visible={showDMListPanel}
-			style:width="{showDMListPanel ? userPanelWidth : 0}px"
-			class:mobile-visible={isMobile && rightPanelView === 'users'}
-		>
-			<DMListPanel bind:activeTab={dmListPanelActiveTab} on:openDM={handleOpenDM} on:close={() => rightPanelView = 'none'} />
-			{#if !isMobile}
-				<div class="resize-handle resize-handle-user" on:mousedown={startResizeUser}></div>
-			{/if}
-		</div>
-
-		<!-- DM Panel (Far Right) -->
-		<div
-			class="dm-panel-container"
-			class:visible={showDMPanel}
-			style:width="{showDMPanel ? dmPanelWidth : 0}px"
-			class:mobile-visible={isMobile && rightPanelView === 'dm'}
-		>
-			<DMPanel {dmChannelId} otherUser={dmOtherUser} onClose={handleCloseDM} onSelectDM={handleSelectDM} on:back={handleDMPanelBack} />
-			{#if !isMobile}
-				<div class="resize-handle resize-handle-dm" on:mousedown={startResizeDM}></div>
-			{/if}
-		</div>
-
-		<!-- Desktop-Only Buttons -->
-		{#if !isMobile}
-			<button
-				class="user-panel-toggle"
-				class:open={showDMListPanel || showDMPanel}
-				on:click={toggleDesktopUserPanel}
-				title={rightPanelView === 'dm-list' ? 'Hide messages panel' : 'Show messages panel'}
-				style:right="{toggleButtonRight}px"
-			>
-				{showDMListPanel || showDMPanel ? '→' : '←'}
-			</button>
-		{/if}
-	</div>
-	<CallModal />
-	</div>
 	{/if}
 {/if}
 
@@ -415,166 +146,5 @@
 		background: var(--gradient-loading-dark);
 		z-index: 10000;
 		pointer-events: none;
-	}
-
-	:global(body) {
-		overflow: hidden;
-	}
-	.app-container {
-		display: flex;
-		height: 100vh;
-		overflow: hidden;
-		position: relative;
-	}
-
-	.app-container.resizing {
-		cursor: col-resize;
-		user-select: none;
-	}
-	
-	.main-content {
-		flex: 1;
-		min-width: 0; /* Prevents flexbox overflow */
-		position: relative;
-	}
-
-	.main-content > div { height: 100%; width: 100%; }
-	.hidden { display: none !important; }
-
-	.channel-sidebar-container {
-		flex-shrink: 0;
-		position: relative;
-	}
-
-	/* Desktop Panel Styles */
-	.user-panel-container,
-	.dm-panel-container {
-		flex-shrink: 0;
-		position: relative;
-		overflow: hidden;
-		transition: width 0.2s ease-in-out;
-		will-change: width;
-	}
-
-	.resize-handle {
-		position: absolute;
-		top: 0;
-		bottom: 0;
-		width: 6px;
-		cursor: col-resize;
-		z-index: 100;
-		transition: background 0.2s;
-	}
-	.resize-handle:hover { background: var(--accent); opacity: 0.5; }
-	.resize-handle-channel { right: -3px; }
-	.resize-handle-user { left: -3px; }
-	.resize-handle-dm { left: -3px; }
-	
-	.user-panel-toggle {
-		position: absolute;
-		top: 50%;
-		transform: translateY(-50%);
-		width: 28px;
-		height: 80px;
-		background: var(--bg-secondary);
-		border: none;
-		border-radius: 8px 0 0 8px;
-		cursor: pointer;
-		font-size: 1.2rem;
-		color: var(--text-secondary);
-		transition: all 0.3s ease;
-		z-index: 999;
-		opacity: 0;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-	.user-panel-toggle:hover {
-		opacity: 1;
-		background: var(--accent);
-	}
-
-	.art-nav-button {
-		position: absolute;
-		top: 12px;
-		right: 60px;
-		width: 40px;
-		height: 40px;
-		background: var(--bg-secondary);
-		border: 2px solid var(--border);
-		border-radius: 8px;
-		cursor: pointer;
-		font-size: 1.5rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		text-decoration: none;
-		transition: all 0.3s ease;
-		z-index: 500;
-	}
-	.art-nav-button:hover {
-		background: var(--accent);
-		border-color: var(--accent);
-		transform: scale(1.1);
-	}
-
-	/* --- Mobile Styles --- */
-	.mobile-bottom-nav { display: none; }
-	
-	@media (max-width: 768px) {
-		.app-container { height: calc(100vh - 56px); }
-		.user-panel-toggle, .resize-handle { display: none; }
-
-		.channel-sidebar-container,
-		.user-panel-container,
-		.dm-panel-container {
-			display: none; /* Hidden by default */
-			position: fixed;
-			top: 0;
-			left: 0;
-			width: 100% !important; /* Override inline style */
-			height: calc(100vh - 56px);
-			z-index: 1500;
-			background: var(--bg-primary);
-		}
-		
-		.channel-sidebar-container.mobile-visible,
-		.user-panel-container.mobile-visible,
-		.dm-panel-container.mobile-visible {
-			display: block; /* Shown when active */
-		}
-
-		.mobile-bottom-nav {
-			display: flex;
-			justify-content: space-around;
-			align-items: center;
-			position: fixed;
-			bottom: 0;
-			left: 0;
-			right: 0;
-			height: 56px;
-			background: var(--bg-tertiary);
-			border-top: 1px solid var(--border);
-			z-index: 2000;
-			padding: 0;
-			padding-bottom: env(safe-area-inset-bottom, 0);
-		}
-		.mobile-bottom-nav button, .mobile-bottom-nav .nav-link {
-			display: flex;
-			flex-direction: column;
-			align-items: center;
-			justify-content: center;
-			gap: 0.125rem;
-			background: transparent;
-			border: none;
-			color: var(--text-secondary);
-			font-size: 0.6rem;
-			padding: 0.375rem 0.5rem;
-			text-decoration: none;
-			transition: color 0.15s;
-		}
-		.mobile-bottom-nav button:hover, .mobile-bottom-nav .nav-link:hover { color: var(--text-primary); }
-		.mobile-bottom-nav button.active { color: var(--accent); }
-		.mobile-bottom-nav svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; }
 	}
 </style>
