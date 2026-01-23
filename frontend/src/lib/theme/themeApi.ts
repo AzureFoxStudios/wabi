@@ -11,7 +11,7 @@ const API_BASE = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
  * Get auth token from localStorage
  */
 function getAuthToken(): string | null {
-	return localStorage.getItem('token');
+	return localStorage.getItem('authToken');
 }
 
 /**
@@ -20,9 +20,11 @@ function getAuthToken(): string | null {
 export async function fetchThemePreferences(): Promise<ThemePreferences> {
 	const token = getAuthToken();
 	if (!token) {
+		console.warn('[ThemeApi] No auth token found');
 		throw new Error('Not authenticated');
 	}
 
+	console.log('[ThemeApi] Fetching theme preferences from', `${API_BASE}/api/user/theme`);
 	const response = await fetch(`${API_BASE}/api/user/theme`, {
 		method: 'GET',
 		headers: {
@@ -31,7 +33,10 @@ export async function fetchThemePreferences(): Promise<ThemePreferences> {
 		}
 	});
 
+	console.log('[ThemeApi] Fetch response status:', response.status);
 	if (!response.ok) {
+		const errorText = await response.text();
+		console.error('[ThemeApi] Fetch failed:', errorText);
 		if (response.status === 401) {
 			throw new Error('Unauthorized');
 		}
@@ -57,9 +62,11 @@ export async function fetchThemePreferences(): Promise<ThemePreferences> {
 export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Promise<void> {
 	const token = getAuthToken();
 	if (!token) {
+		console.warn('[ThemeApi] No auth token found for save');
 		throw new Error('Not authenticated');
 	}
 
+	console.log('[ThemeApi] Saving theme preferences to', `${API_BASE}/api/user/theme`, prefs);
 	const response = await fetch(`${API_BASE}/api/user/theme`, {
 		method: 'POST',
 		headers: {
@@ -69,13 +76,17 @@ export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Pr
 		body: JSON.stringify(prefs)
 	});
 
+	console.log('[ThemeApi] Save response status:', response.status);
 	if (!response.ok) {
+		const errorText = await response.text();
+		console.error('[ThemeApi] Save failed:', errorText);
 		if (response.status === 401) {
 			throw new Error('Unauthorized');
 		}
-		const errorData = await response.json().catch(() => ({}));
+		const errorData = await response.json().catch(() => ({ error: errorText }));
 		throw new Error(errorData.error || 'Failed to save theme preferences');
 	}
+	console.log('[ThemeApi] Save successful');
 }
 
 /**

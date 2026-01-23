@@ -45,7 +45,9 @@
 		isSaving = true;
 		saveSuccess = false;
 		saveError = null;
+		console.log('[UniformFont] Save button clicked');
 		try {
+			console.log('[UniformFont] Updating theme store...');
 			themeStore.setUniformFont({
 				enabled: uniformFontEnabled,
 				family: selectedFamily,
@@ -54,6 +56,7 @@
 				style: styleMap[selectedStyle as keyof typeof styleMap]
 			});
 
+			console.log('[UniformFont] Sending to server...');
 			await themeApi.saveThemePreferences({
 				uniform_font_enabled: uniformFontEnabled ? 1 : 0,
 				uniform_font_family: selectedFamily,
@@ -62,6 +65,7 @@
 				uniform_font_style: styleMap[selectedStyle as keyof typeof styleMap]
 			});
 
+			console.log('[UniformFont] Save successful!');
 			// Show success message
 			saveSuccess = true;
 			setTimeout(() => {
@@ -70,7 +74,7 @@
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : 'Failed to save font settings';
 			saveError = errorMessage;
-			console.error('Failed to save uniform font settings:', error);
+			console.error('[UniformFont] Save failed:', error);
 
 			// Auto-dismiss error after 5 seconds
 			setTimeout(() => {
