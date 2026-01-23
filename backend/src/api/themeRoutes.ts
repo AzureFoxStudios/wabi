@@ -61,6 +61,11 @@ export async function handleGetThemePreferences(req: IncomingMessage, res: Serve
 		res.end(JSON.stringify({
 			theme_id: prefs.theme_id,
 			custom_theme: customTheme,
+			uniform_font_enabled: prefs.uniform_font_enabled,
+			uniform_font_family: prefs.uniform_font_family,
+			uniform_font_size: prefs.uniform_font_size,
+			uniform_font_weight: prefs.uniform_font_weight,
+			uniform_font_style: prefs.uniform_font_style,
 			updated_at: prefs.updated_at
 		}));
 	} catch (error) {
@@ -82,7 +87,7 @@ export async function handleSaveThemePreferences(req: IncomingMessage, res: Serv
 
 		// Parse request body
 		const body = await parseBody(req);
-		const { theme_id, custom_theme } = body;
+		const { theme_id, custom_theme, uniform_font_enabled, uniform_font_family, uniform_font_size, uniform_font_weight, uniform_font_style } = body;
 
 		// Validate theme_id if provided
 		if (theme_id && !VALID_THEME_IDS.includes(theme_id)) {
@@ -122,6 +127,27 @@ export async function handleSaveThemePreferences(req: IncomingMessage, res: Serv
 			prefsToSave.custom_theme = custom_theme ? JSON.stringify(custom_theme) : null;
 		}
 
+		// Save uniform font settings
+		if (uniform_font_enabled !== undefined) {
+			prefsToSave.uniform_font_enabled = uniform_font_enabled;
+		}
+
+		if (uniform_font_family !== undefined) {
+			prefsToSave.uniform_font_family = uniform_font_family;
+		}
+
+		if (uniform_font_size !== undefined) {
+			prefsToSave.uniform_font_size = uniform_font_size;
+		}
+
+		if (uniform_font_weight !== undefined) {
+			prefsToSave.uniform_font_weight = uniform_font_weight;
+		}
+
+		if (uniform_font_style !== undefined) {
+			prefsToSave.uniform_font_style = uniform_font_style;
+		}
+
 		themeRepository.set(userId, prefsToSave);
 
 		// Return updated preferences
@@ -131,6 +157,11 @@ export async function handleSaveThemePreferences(req: IncomingMessage, res: Serv
 		res.end(JSON.stringify({
 			success: true,
 			theme_id: updated.theme_id,
+			uniform_font_enabled: updated.uniform_font_enabled,
+			uniform_font_family: updated.uniform_font_family,
+			uniform_font_size: updated.uniform_font_size,
+			uniform_font_weight: updated.uniform_font_weight,
+			uniform_font_style: updated.uniform_font_style,
 			updated_at: updated.updated_at
 		}));
 	} catch (error) {
@@ -150,10 +181,15 @@ export async function handleResetThemePreferences(req: IncomingMessage, res: Ser
 			return;
 		}
 
-		// Reset to default (dark theme, no custom theme)
+		// Reset to default (dark theme, no custom theme, no uniform font)
 		themeRepository.set(userId, {
 			theme_id: 'dark',
-			custom_theme: null
+			custom_theme: null,
+			uniform_font_enabled: 0,
+			uniform_font_family: 'inherit',
+			uniform_font_size: 'inherit',
+			uniform_font_weight: '600',
+			uniform_font_style: 'normal'
 		});
 
 		res.writeHead(200, { 'Content-Type': 'application/json' });

@@ -75,11 +75,16 @@ function createThemeStore() {
 		},
 
 		// Load from saved preferences
-		load: (prefs: { theme_id: string; custom_theme?: CustomTheme | null }) => {
+		load: (prefs: { theme_id: string; custom_theme?: CustomTheme | null; uniform_font_enabled?: number | boolean; uniform_font_family?: string; uniform_font_size?: string; uniform_font_weight?: string; uniform_font_style?: string }) => {
 			update((state) => ({
 				...state,
 				themeId: prefs.theme_id || 'dark',
 				customTheme: prefs.custom_theme || null,
+				uniformFontEnabled: Boolean(prefs.uniform_font_enabled),
+				uniformFontFamily: prefs.uniform_font_family || 'inherit',
+				uniformFontSize: prefs.uniform_font_size || 'inherit',
+				uniformFontWeight: prefs.uniform_font_weight || '600',
+				uniformFontStyle: prefs.uniform_font_style || 'normal',
 				isLoading: false,
 				error: null
 			}));

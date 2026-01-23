@@ -59,12 +59,18 @@ export function applyTheme(theme: Theme, backgroundImage?: BackgroundImage, unif
 		root.style.setProperty('--background-image-blend', 'normal');
 	}
 
-	// Apply uniform font settings if enabled
+	// Apply uniform font settings if enabled, clear if disabled
 	if (uniformFontSettings?.enabled) {
 		root.style.setProperty('--uniform-font-family', uniformFontSettings.family);
 		root.style.setProperty('--uniform-font-size', uniformFontSettings.size);
 		root.style.setProperty('--uniform-font-weight', uniformFontSettings.weight);
 		root.style.setProperty('--uniform-font-style', uniformFontSettings.style);
+	} else {
+		// Clear uniform font variables when disabled
+		root.style.setProperty('--uniform-font-family', 'inherit');
+		root.style.setProperty('--uniform-font-size', 'inherit');
+		root.style.setProperty('--uniform-font-weight', 'inherit');
+		root.style.setProperty('--uniform-font-style', 'inherit');
 	}
 
 	// Set data-theme attribute for CSS selectors

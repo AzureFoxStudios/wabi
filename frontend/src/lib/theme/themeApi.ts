@@ -42,6 +42,11 @@ export async function fetchThemePreferences(): Promise<ThemePreferences> {
 	return {
 		theme_id: data.theme_id,
 		custom_theme: data.custom_theme,
+		uniform_font_enabled: data.uniform_font_enabled,
+		uniform_font_family: data.uniform_font_family,
+		uniform_font_size: data.uniform_font_size,
+		uniform_font_weight: data.uniform_font_weight,
+		uniform_font_style: data.uniform_font_style,
 		updated_at: data.updated_at
 	};
 }
