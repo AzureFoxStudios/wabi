@@ -20,7 +20,7 @@
 
 	let isSaving = false;
 
-	const previewStyle = `
+	$: previewStyle = `
 		font-family: ${selectedFamily !== 'inherit' ? selectedFamily : 'inherit'};
 		font-size: ${sizeMap[selectedSize as keyof typeof sizeMap]};
 		font-weight: ${weightMap[selectedWeight as keyof typeof weightMap]};

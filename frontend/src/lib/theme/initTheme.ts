@@ -45,7 +45,13 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 		const theme = get(currentTheme);
 		const stateInit = get(themeStore);
 	const bgImage = stateInit.customTheme?.backgroundImage;
-	applyTheme(theme, bgImage);
+	applyTheme(theme, bgImage, {
+		enabled: stateInit.uniformFontEnabled,
+		family: stateInit.uniformFontFamily,
+		size: stateInit.uniformFontSize,
+		weight: stateInit.uniformFontWeight,
+		style: stateInit.uniformFontStyle
+	});
 
 		themeStore.setLoading(false);
 	} catch (error) {
@@ -56,7 +62,13 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 		const theme = get(currentTheme);
 		const state = get(themeStore);
 		const backgroundImage = state.customTheme?.backgroundImage;
-		applyTheme(theme, backgroundImage);
+		applyTheme(theme, backgroundImage, {
+			enabled: state.uniformFontEnabled,
+			family: state.uniformFontFamily,
+			size: state.uniformFontSize,
+			weight: state.uniformFontWeight,
+			style: state.uniformFontStyle
+		});
 	}
 }
 
@@ -65,10 +77,16 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
  * Call this once on app initialization
  */
 export function watchThemeChanges(): () => void {
-	return currentTheme.subscribe((theme) => {
-		const state = get(themeStore);
+	return themeStore.subscribe((state) => {
+		const theme = get(currentTheme);
 		const backgroundImage = state.customTheme?.backgroundImage;
-		applyTheme(theme, backgroundImage);
+		applyTheme(theme, backgroundImage, {
+			enabled: state.uniformFontEnabled,
+			family: state.uniformFontFamily,
+			size: state.uniformFontSize,
+			weight: state.uniformFontWeight,
+			style: state.uniformFontStyle
+		});
 	});
 }
 

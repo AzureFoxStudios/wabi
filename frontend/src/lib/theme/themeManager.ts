@@ -18,7 +18,13 @@ function toKebabCase(str: string): string {
  * Apply a theme to the document root
  * Sets all CSS custom properties based on theme values
  */
-export function applyTheme(theme: Theme, backgroundImage?: BackgroundImage): void {
+export function applyTheme(theme: Theme, backgroundImage?: BackgroundImage, uniformFontSettings?: {
+	enabled: boolean;
+	family: string;
+	size: string;
+	weight: string;
+	style: string;
+}): void {
 	const root = document.documentElement;
 
 	// Apply color variables
@@ -51,6 +57,14 @@ export function applyTheme(theme: Theme, backgroundImage?: BackgroundImage): voi
 		root.style.setProperty('--background-image-position', 'center');
 		root.style.setProperty('--background-image-repeat', 'no-repeat');
 		root.style.setProperty('--background-image-blend', 'normal');
+	}
+
+	// Apply uniform font settings if enabled
+	if (uniformFontSettings?.enabled) {
+		root.style.setProperty('--uniform-font-family', uniformFontSettings.family);
+		root.style.setProperty('--uniform-font-size', uniformFontSettings.size);
+		root.style.setProperty('--uniform-font-weight', uniformFontSettings.weight);
+		root.style.setProperty('--uniform-font-style', uniformFontSettings.style);
 	}
 
 	// Set data-theme attribute for CSS selectors
