@@ -15,6 +15,8 @@
 	const styleMap = { Normal: 'normal', Italic: 'italic' };
 
 	let isSaving = false;
+	let saveSuccess = false;
+	let saveError: string | null = null;
 
 	let uniformFontEnabled = false;
 	let selectedFamily = 'Arial';
@@ -41,6 +43,8 @@
 
 	async function handleSave() {
 		isSaving = true;
+		saveSuccess = false;
+		saveError = null;
 		try {
 			themeStore.setUniformFont({
 				enabled: uniformFontEnabled,
@@ -57,8 +61,21 @@
 				uniform_font_weight: weightMap[selectedWeight as keyof typeof weightMap],
 				uniform_font_style: styleMap[selectedStyle as keyof typeof styleMap]
 			});
+
+			// Show success message
+			saveSuccess = true;
+			setTimeout(() => {
+				saveSuccess = false;
+			}, 3000);
 		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : 'Failed to save font settings';
+			saveError = errorMessage;
 			console.error('Failed to save uniform font settings:', error);
+
+			// Auto-dismiss error after 5 seconds
+			setTimeout(() => {
+				saveError = null;
+			}, 5000);
 		} finally {
 			isSaving = false;
 		}
@@ -134,6 +151,20 @@
 			<button class="btn btn-primary" on:click={handleSave} disabled={isSaving}>
 				{isSaving ? 'Saving...' : 'Save Settings'}
 			</button>
+
+			{#if saveSuccess}
+				<div class="toast toast-success">
+					<span class="toast-icon">✓</span>
+					<span class="toast-text">Font settings saved successfully!</span>
+				</div>
+			{/if}
+
+			{#if saveError}
+				<div class="toast toast-error">
+					<span class="toast-icon">✕</span>
+					<span class="toast-text">{saveError}</span>
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -271,5 +302,49 @@
 	.btn:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	.toast {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		margin-top: 12px;
+		padding: 12px 16px;
+		border-radius: 6px;
+		font-size: 0.875rem;
+		font-weight: 500;
+		animation: slideUp 0.3s ease-out;
+	}
+
+	.toast-success {
+		background: rgba(16, 185, 129, 0.15);
+		border: 1px solid #10b981;
+		color: #10b981;
+	}
+
+	.toast-error {
+		background: rgba(239, 68, 68, 0.15);
+		border: 1px solid #ef4444;
+		color: #ef4444;
+	}
+
+	.toast-icon {
+		font-weight: bold;
+		font-size: 1rem;
+	}
+
+	.toast-text {
+		flex: 1;
+	}
+
+	@keyframes slideUp {
+		from {
+			opacity: 0;
+			transform: translateY(10px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 </style>

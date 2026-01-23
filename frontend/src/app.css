@@ -581,6 +581,41 @@ input:focus, textarea:focus {
 	font-style: var(--uniform-font-style, inherit);
 }
 
+/* === VS CODE HIGH CONTRAST THEME SEPARATORS === */
+/* Add electric blue separator lines characteristic of VS Code high contrast */
+:root[data-theme='vscode-high-contrast'] .dm-list-panel {
+	border-left: 3px solid #00bfff;
+}
+
+:root[data-theme='vscode-high-contrast'] .channel-sidebar {
+	border-right: 3px solid #00bfff;
+}
+
+:root[data-theme='vscode-high-contrast'] .panel-header {
+	border-bottom: 2px solid #00bfff;
+}
+
+:root[data-theme='vscode-high-contrast'] .tab-switcher {
+	border-bottom: 1px solid #00bfff;
+	margin-bottom: 0.5rem;
+}
+
+:root[data-theme='vscode-high-contrast'] .conversations-list,
+:root[data-theme='vscode-high-contrast'] .users-list {
+	border-top: 1px solid #00bfff;
+}
+
+:root[data-theme='vscode-high-contrast'] .conversation-item,
+:root[data-theme='vscode-high-contrast'] .user-item {
+	border-left: 3px solid transparent;
+	transition: border-left-color 0.2s;
+}
+
+:root[data-theme='vscode-high-contrast'] .conversation-item:hover,
+:root[data-theme='vscode-high-contrast'] .user-item:hover {
+	border-left-color: #00bfff;
+}
+
 /* Reduced motion for users who prefer it */
 @media (prefers-reduced-motion: reduce) {
 	*,

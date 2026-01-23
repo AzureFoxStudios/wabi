@@ -255,15 +255,76 @@ export const midnightBlueTheme: Theme = {
 	}
 };
 
+// ===== VS CODE HIGH CONTRAST THEME =====
+export const vscodeHighContrastTheme: Theme = {
+	id: 'vscode-high-contrast',
+	name: 'VS Code High Contrast',
+	description: 'Pure black with electric blue accents and orange highlights',
+	colors: {
+		bgPrimary: '#000000',
+		bgSecondary: '#0a0a0a',
+		bgTertiary: '#1a1a1a',
+		bgHover: '#1a1a1a',
+
+		textPrimary: '#ffffff',
+		textSecondary: '#d0d0d0',
+		textTertiary: '#a0a0a0',
+
+		accent: '#00bfff',
+		accentHex: '0, 191, 255',
+		accentHover: '#0099ff',
+
+		uiBgLight: '#1a1a1a',
+		uiBgLighter: '#2a2a2a',
+		uiText: '#d0d0d0',
+		uiTextDark: '#ffffff',
+
+		statusOnline: '#00ff7f',
+		statusAway: '#ffa500',
+		statusBusy: '#ff3333',
+		statusOffline: '#707070',
+
+		colorSuccess: '#00ff7f',
+		colorInfo: '#00bfff',
+		colorWarning: '#ffa500',
+		colorDanger: '#ff3333',
+
+		modalBg: '#000000',
+		modalHeaderBg: '#1a1a1a',
+		modalText: '#ffffff',
+
+		darkBgPrimary: '#000000',
+		darkBgSecondary: '#0a0a0a',
+
+		error: '#ff3333'
+	},
+	gradients: {
+		primary: 'linear-gradient(to right, #000000 0%, #0a0a0a 100%)',
+		accent: 'linear-gradient(to right, #00bfff 0%, #0099ff 100%)',
+		accentHover: 'linear-gradient(to right, #0099ff 0%, #0077cc 100%)',
+		dialogDark: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%)',
+		fadeBottomDark: 'linear-gradient(to bottom, rgba(26, 26, 26, 0.9), rgba(0, 0, 0, 0.7))',
+		fadeRightTransparent: 'linear-gradient(to right, transparent, #0a0a0a)',
+		lineGlow: 'linear-gradient(90deg, transparent, rgba(0, 191, 255, 0.2), transparent)',
+		fadeTopDark: 'linear-gradient(to top, rgba(0, 0, 0, 0.9), transparent)',
+		accentSubtle: 'linear-gradient(135deg, rgba(0, 191, 255, 0.15) 0%, rgba(0, 153, 255, 0.15) 100%)',
+		accentMedium: 'linear-gradient(135deg, rgba(0, 191, 255, 0.3) 0%, rgba(0, 153, 255, 0.3) 100%)',
+		scrollbar: 'linear-gradient(to bottom, #00bfff 0%, #0099ff 100%)',
+		scrollbarHover: 'linear-gradient(to bottom, #0099ff 0%, #0077cc 100%)',
+		loadingDark: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)'
+	}
+};
+
 // ===== ALL THEMES REGISTRY =====
 export const THEMES: Record<string, Theme> = {
 	dark: darkTheme,
 	light: lightTheme,
-	'midnight-blue': midnightBlueTheme
+	'midnight-blue': midnightBlueTheme,
+	'vscode-high-contrast': vscodeHighContrastTheme
 };
 
 // Default theme
-export const DEFAULT_THEME = darkTheme;
+export const DEFAULT_THEME = midnightBlueTheme;
 
 // Get theme by ID
 export function getThemeById(id: string): Theme {

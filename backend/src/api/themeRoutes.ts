@@ -181,9 +181,9 @@ export async function handleResetThemePreferences(req: IncomingMessage, res: Ser
 			return;
 		}
 
-		// Reset to default (dark theme, no custom theme, no uniform font)
+		// Reset to default (midnight-blue theme, no custom theme, no uniform font)
 		themeRepository.set(userId, {
-			theme_id: 'dark',
+			theme_id: 'midnight-blue',
 			custom_theme: null,
 			uniform_font_enabled: 0,
 			uniform_font_family: 'inherit',
@@ -195,7 +195,7 @@ export async function handleResetThemePreferences(req: IncomingMessage, res: Ser
 		res.writeHead(200, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({
 			success: true,
-			theme_id: 'dark'
+			theme_id: 'midnight-blue'
 		}));
 	} catch (error) {
 		console.error('[Theme] Reset preferences error:', error);

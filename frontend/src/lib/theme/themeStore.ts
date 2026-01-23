@@ -21,7 +21,7 @@ interface ThemeState {
 
 // Initial state
 const initialState: ThemeState = {
-	themeId: 'dark',
+	themeId: 'midnight-blue',
 	customTheme: null,
 	isLoading: false,
 	error: null,
