@@ -42,6 +42,10 @@ start-ngrok.sh
 # Environment
 .env
 .env.local
+.env.production
+frontend/.env
+frontend/.env.local
+frontend/.env.production
 
 # Logs & coverage
 *.log
@@ -58,3 +62,7 @@ bun.lock
 
 # Claude Code temporary files
 tmpclaude-*.cwd
+
+# TURN server files
+turn-server/certs/
+turn-server/turnserver.conf

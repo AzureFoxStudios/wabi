@@ -44,34 +44,108 @@ You also need the latest version of [Docker](https://www.docker.com/products/doc
 
 # Setting Up Wabi
 
-- Navigate to your terminal.
-- Clone this repository: `git clone https://github.com/AzureFoxStudios/wabi`
-- Navigate to the new `wabi` folder on your computer.
-- Run `docker build .`
+## Quick Start (Local Development)
 
-The containers should start themselves automatically.
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/AzureFoxStudios/wabi
+   cd wabi
+   ```
 
-Congratulations, you now have a Wabi instance running locally!
+2. Set up environment configuration:
+   ```bash
+   cp .env.example .env
+   cp frontend/.env.example frontend/.env
+   ```
 
-### Configuring the Backend URL
+3. Start all services with Docker Compose:
+   ```bash
+   docker-compose up -d
+   ```
 
-Backend (create `backend/.env`):
+The application will be available at:
+- Frontend: `http://localhost:3000`
+- Backend API: `http://localhost:8080`
+- TURN server: Running on port 3478
+
+## Environment Configuration
+
+Wabi uses environment variables for configuration. Two `.env` files are required:
+
+### Root `.env` (Backend & TURN Server)
+
 ```env
-PORT=3000
-FRONTEND_URL=http://localhost:5173
-ENABLE_LOGGING=false  # Set to 'true' to enable activity logging
+# TURN Server Configuration
+TURN_EXTERNAL_IP=127.0.0.1              # Your domain or public IP
+TURN_REALM=wabi.local                   # TURN server realm
+TURN_USERNAME=wabi                      # TURN username
+TURN_PASSWORD=change_this_password      # TURN password (generate with: openssl rand -base64 32)
+
+# Backend Configuration
+BACKEND_PORT=8080
+NODE_ENV=production
+JWT_SECRET=your_jwt_secret_here         # Generate with: openssl rand -base64 64
 ```
 
-### Configuring and Running the TURN Relay Server
+### Frontend `.env` (Frontend/Client)
 
-For voice/video calls to work reliably, you need the TURN relay server.
+```env
+# TURN Server Configuration
+VITE_TURN_SERVER=127.0.0.1             # Must match TURN_EXTERNAL_IP
+VITE_TURN_PORT=3478                    # 3478 for TURN, 5349 for TURNS
+VITE_TURN_USERNAME=wabi                # Must match TURN_USERNAME
+VITE_TURN_PASSWORD=change_this_password # Must match TURN_PASSWORD
+VITE_USE_TURNS=false                   # Set to true if using SSL/TLS
+VITE_ENABLE_GOOGLE_STUN=true           # Optional Google STUN fallback
 
-1.  Navigate to the `turn-server` directory: `cd turn-server`.
-2.  **Open `turnserver.conf`** and change `external-ip=127.0.0.1` to your machine's local IP address (or public IP for production).
-3.  Start the server using Docker Compose: `docker-compose up -d`.
-4.  Navigate back to the root directory: `cd ..`
+# Optional: Giphy API Key
+VITE_GIPHY_API_KEY=                    # Get from https://developers.giphy.com/
+```
 
-### Running the Application
+**Important:** Credentials must match between root `.env` and `frontend/.env`.
+
+## TURN Server Setup
+
+For production voice/video calling that works across different networks, you need to configure the integrated TURN server.
+
+**See the comprehensive [TURN Setup Guide](TURN_SETUP.md) for:**
+- Production deployment with public IP/domain
+- SSL/TLS certificate setup for TURNS
+- Firewall configuration
+- Testing and troubleshooting
+- Advanced configurations
+
+### Quick TURN Setup for Production
+
+1. Generate secure credentials:
+   ```bash
+   openssl rand -base64 32
+   ```
+
+2. Update `.env` with your public IP/domain:
+   ```env
+   TURN_EXTERNAL_IP=your.domain.com
+   TURN_PASSWORD=<paste_generated_password>
+   ```
+
+3. Update `frontend/.env` with matching credentials:
+   ```env
+   VITE_TURN_SERVER=your.domain.com
+   VITE_TURN_PASSWORD=<same_password>
+   ```
+
+4. Configure firewall to allow:
+   - Ports 3478 (TCP/UDP) - TURN signaling
+   - Ports 49152-65535 (UDP) - Media relay
+
+5. Restart services:
+   ```bash
+   docker-compose up -d
+   ```
+
+For detailed instructions, see [TURN_SETUP.md](TURN_SETUP.md).
+
+### Running the Application in Development
 
 Start the backend and frontend development servers concurrently from the root directory.
 
@@ -173,8 +247,12 @@ docker-compose up -d
 
 For reliable WebRTC connections (especially across different networks), STUN and TURN servers are used.
 
-- **STUN**: Public STUN servers are pre-configured to help clients discover their public IP address.
-- **TURN**: This project includes a pre-configured `coturn` TURN server in the `/turn-server` directory. It relays media traffic when a direct peer-to-peer connection fails. The frontend is already configured to use it, but you must ensure it's running and its IP is correctly configured in `turnserver.conf` and `frontend/src/lib/(calling|webrtc).ts`.
+- **STUN**: Helps clients discover their public IP address (uses Google STUN as optional fallback)
+- **TURN**: This project includes an integrated `coturn` TURN server that's fully configurable via environment variables
+  - Automatically configured when you run `docker-compose up`
+  - No hardcoded credentials - uses `.env` for configuration
+  - Supports both TURN (port 3478) and TURNS with TLS (port 5349)
+  - See [TURN_SETUP.md](TURN_SETUP.md) for production deployment guide
 
 ## Building for Production
 
@@ -236,22 +314,20 @@ server {
 
 2. Or use a platform with built-in SSL (Railway, Fly.io, etc.)
 
-### STUN/TURN Servers
+### TURN Server Configuration
 
-For better WebRTC connectivity, configure TURN servers in `frontend/src/lib/webrtc.ts`:
+Wabi includes an integrated coturn TURN server for reliable WebRTC connectivity.
 
-```typescript
-const rtcConfig: RTCConfiguration = {
-    iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        {
-            urls: 'turn:your-turn-server.com:3478',
-            username: 'user',
-            credential: 'pass'
-        }
-    ]
-};
-```
+**For local development:** The default `.env.example` configuration works out of the box.
+
+**For production:** See [TURN_SETUP.md](TURN_SETUP.md) for:
+- Configuring your public IP/domain
+- Setting up SSL/TLS certificates (TURNS)
+- Firewall configuration
+- Testing connectivity
+- Troubleshooting common issues
+
+The TURN server is automatically configured from environment variables - no need to edit source code.
 
 ## Privacy & Data Management
 

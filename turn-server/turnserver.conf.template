@@ -11,7 +11,7 @@
 # The most important setting: The public IP address of this server.
 # For local testing, you can use 127.0.0.1.
 # For production, you MUST change this to your server's public IP.
-external-ip=127.0.0.1
+external-ip=${TURN_EXTERNAL_IP}
 
 # The port coturn listens on for client connections.
 # 3478 is the standard for TURN/STUN.
@@ -36,7 +36,30 @@ user=${TURN_USERNAME}:${TURN_PASSWORD}
 
 # The "realm" distinguishes this TURN server from others.
 # It can be a domain name you own or any descriptive name.
-realm=claude.sandbox
+realm=${TURN_REALM}
+
+# ---------------------------------------------------------------------------
+#  PRODUCTION SECURITY
+# ---------------------------------------------------------------------------
+
+# Enable fingerprint for STUN message integrity
+fingerprint
+
+# Disable telnet CLI (security - no remote admin)
+no-cli
+
+# Prevent relay to localhost (security - avoid SSRF attacks)
+denied-peer-ip=127.0.0.1
+denied-peer-ip=::1
+
+# ---------------------------------------------------------------------------
+#  TLS/TURNS SUPPORT (Optional - for production with SSL)
+# ---------------------------------------------------------------------------
+
+# Uncomment these lines if you have SSL certificates
+# cert=/etc/coturn/certs/cert.pem
+# pkey=/etc/coturn/certs/privkey.pem
+# tls-listening-port=5349
 
 # ---------------------------------------------------------------------------
 #  LOGGING
