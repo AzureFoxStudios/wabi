@@ -105,6 +105,8 @@ const layout = derived(
 			showMobileChannels: $isMobile && $showMobileChannels,
 			showDMListPanel,
 			showDMPanel,
+			userPanelWidth: $userPanelWidth,
+			dmPanelWidth: $dmPanelWidth,
 			toggleButtonRight: (showDMListPanel ? $userPanelWidth : 0) + (showDMPanel ? $dmPanelWidth : 0)
 		};
 	}
