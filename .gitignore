@@ -41,6 +41,7 @@ start-ngrok.sh
 
 # Environment
 .env
+.env.example
 .env.local
 .env.production
 frontend/.env
