@@ -88,11 +88,22 @@
 <aside class="dm-list-panel">
 	<div class="panel-header">
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
-		<span class="header-title">Direct Messages</span>
-		<button class="add-dm-btn" on:click={handleOpenDMModal} title="Start new DM">+</button>
+		<span class="header-title">{activeTab === 'users' ? 'All Users' : 'Direct Messages'}</span>
+		{#if activeTab === 'messages'}
+			<button class="add-dm-btn" on:click={handleOpenDMModal} title="Start new DM">+</button>
+		{/if}
 	</div>
 
-	<div class="messages-tab">
+	<div class="panel-tabs">
+		<button class="tab-btn" class:active={activeTab === 'messages'} on:click={() => setActiveTab('messages')}>
+			Messages
+		</button>
+		<button class="tab-btn" class:active={activeTab === 'users'} on:click={() => setActiveTab('users')}>
+			Users
+		</button>
+	</div>
+
+	<div class="messages-tab" class:hidden={activeTab !== 'messages'}>
 		{#if dmChannels.length === 0}
 			<div class="empty-state">
 				<div class="empty-icon">💭</div>
@@ -128,57 +139,54 @@
 		{/if}
 	</div>
 
-	<!-- Users tab hidden for now -->
-	{#if activeTab === 'users'}
-		<div class="users-tab">
-			<div class="users-list">
-				{#each $users as user (user.id)}
-					<div class="user-item">
-						<button class="user-avatar-btn">
-							{#if user.profilePicture}
-								<img src={user.profilePicture} alt={user.username} class="user-avatar" />
-							{:else}
-								<div class="user-avatar-placeholder" style="background-color: {user.color}">
-									{user.username.charAt(0).toUpperCase()}
-								</div>
-							{/if}
-						</button>
-						<button
-							class="user-info-btn"
-							on:click={() => {
-								if (user.id !== $currentUser?.id) {
-									const memberIds = [$currentUser?.id, user.id].sort();
-									const dmId = `dm-${memberIds.join('-')}`;
-									const existingDM = $channels.find(ch => ch.id === dmId);
-									if (existingDM) {
-										dispatch('openDM', { channelId: dmId, otherUser: user });
-									} else {
-										createDM(user.id);
-										const unsubscribe = channels.subscribe(chs => {
-											const newDM = chs.find(ch => ch.id === dmId);
-											if (newDM) {
-												dispatch('openDM', { channelId: dmId, otherUser: user });
-												unsubscribe();
-											}
-										});
-									}
+	<div class="users-tab" class:hidden={activeTab !== 'users'}>
+		<div class="users-list">
+			{#each $users as user (user.id)}
+				<div class="user-item">
+					<button class="user-avatar-btn">
+						{#if user.profilePicture}
+							<img src={user.profilePicture} alt={user.username} class="user-avatar" />
+						{:else}
+							<div class="user-avatar-placeholder" style="background-color: {user.color}">
+								{user.username.charAt(0).toUpperCase()}
+							</div>
+						{/if}
+					</button>
+					<button
+						class="user-info-btn"
+						on:click={() => {
+							if (user.id !== $currentUser?.id) {
+								const memberIds = [$currentUser?.id, user.id].sort();
+								const dmId = `dm-${memberIds.join('-')}`;
+								const existingDM = $channels.find(ch => ch.id === dmId);
+								if (existingDM) {
+									dispatch('openDM', { channelId: dmId, otherUser: user });
+								} else {
+									createDM(user.id);
+									const unsubscribe = channels.subscribe(chs => {
+										const newDM = chs.find(ch => ch.id === dmId);
+										if (newDM) {
+											dispatch('openDM', { channelId: dmId, otherUser: user });
+											unsubscribe();
+										}
+									});
 								}
-							}}
-						>
-							<div class="user-name">
-								{user.username}
-								{#if user.id === $currentUser?.id}<span class="you-badge">(you)</span>{/if}
-							</div>
-							<div class="user-status">
-								<span class="status-dot" style="background-color: {user.status === 'active' ? 'var(--status-online)' : user.status === 'away' ? 'var(--status-away)' : 'var(--status-offline)'}"></span>
-								<span>{user.status}</span>
-							</div>
-						</button>
-					</div>
-				{/each}
-			</div>
+							}
+						}}
+					>
+						<div class="user-name">
+							{user.username}
+							{#if user.id === $currentUser?.id}<span class="you-badge">(you)</span>{/if}
+						</div>
+						<div class="user-status">
+							<span class="status-dot" style="background-color: {user.status === 'active' ? 'var(--status-online)' : user.status === 'away' ? 'var(--status-away)' : 'var(--status-offline)'}"></span>
+							<span>{user.status}</span>
+						</div>
+					</button>
+				</div>
+			{/each}
 		</div>
-	{/if}
+	</div>
 </aside>
 
 <CreateDMModal bind:isOpen={showDMModal} on:dm-created={handleDMCreated} />
@@ -240,6 +248,39 @@
 	.add-dm-btn:hover {
 		background: var(--bg-hover);
 		color: var(--text-primary);
+	}
+
+	.panel-tabs {
+		display: flex;
+		flex-shrink: 0;
+		border-bottom: 1px solid var(--border);
+		padding: 0 0.5rem;
+	}
+
+	.tab-btn {
+		flex: 1;
+		padding: 0.75rem 0.5rem;
+		background: none;
+		border: none;
+		border-bottom: 2px solid transparent;
+		color: var(--text-secondary);
+		cursor: pointer;
+		font-weight: 500;
+		transition: all 0.2s;
+	}
+
+	.tab-btn:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.tab-btn.active {
+		color: var(--accent);
+		border-bottom-color: var(--accent);
+	}
+
+	.hidden {
+		display: none;
 	}
 
 	.messages-tab,
