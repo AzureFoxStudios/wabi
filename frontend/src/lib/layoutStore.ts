@@ -32,11 +32,9 @@ const dmOtherUser = writable<User | null>(null);
 // Actions
 const toggleDesktopUserPanel = () => {
 	rightPanelView.update((current) => {
-		if (current === 'dm-list') {
-			return 'none';
-		} else {
-			return 'dm-list';
-		}
+		const newValue = current === 'dm-list' ? 'none' : 'dm-list';
+		console.log('[layoutStore] toggleDesktopUserPanel:', current, '->', newValue);
+		return newValue;
 	});
 };
 
@@ -92,6 +90,14 @@ const layout = derived(
 	([$isMobile, $rightPanelView, $showMobileChannels, $userPanelWidth, $dmPanelWidth]) => {
 		const showDMListPanel = !$isMobile && $rightPanelView === 'dm-list';
 		const showDMPanel = !$isMobile && $rightPanelView === 'dm';
+
+		console.log('[layoutStore] derived:', {
+			isMobile: $isMobile,
+			rightPanelView: $rightPanelView,
+			showDMListPanel,
+			showDMPanel,
+			userPanelWidth: $userPanelWidth
+		});
 
 		return {
 			isMobile: $isMobile,

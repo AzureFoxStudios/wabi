@@ -77,10 +77,12 @@
 	</div>
 	
 	<!-- User Panel (Right) -->
-	<div 
+	<!-- DEBUG: showDMListPanel={$layoutStore.showDMListPanel}, width={$layoutStore.showDMListPanel ? $layoutStore.userPanelWidth : 0} -->
+	<div
 		class="user-panel-container"
 		class:visible={$layoutStore.showDMListPanel}
 		style:width="{$layoutStore.showDMListPanel ? $layoutStore.userPanelWidth : 0}px"
+		style:min-width="{$layoutStore.showDMListPanel ? $layoutStore.userPanelWidth : 0}px"
 		class:mobile-visible={$layoutStore.isMobile && $layoutStore.rightPanelView === 'users'}
 	>
 		<DMListPanel on:openDM={(e) => layoutStore.openDM(e.detail.channelId, e.detail.otherUser)} on:close={() => layoutStore.rightPanelView.set('none')} />
