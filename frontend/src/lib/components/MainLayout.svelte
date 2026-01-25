@@ -5,7 +5,7 @@
 	import Chat from '$lib/components/Chat.svelte';
 	import ScreenShareViewer from '$lib/components/ScreenShareViewer.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
-	import DMListPanel from '$lib/components/DMListPanel.svelte';
+	import UserPanel from '$lib/components/UserPanel.svelte';
 	import DMPanel from '$lib/components/DMPanel.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
 
@@ -49,7 +49,7 @@
 			<svg width="24" height="24" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
 			<span>Channels</span>
 		</button>
-		<button class:active={$layoutStore.rightPanelView === 'dm-list' || $layoutStore.rightPanelView === 'dm'} on:click={layoutStore.toggleMobileUsers}>
+		<button class:active={$layoutStore.rightPanelView === 'user-list' || $layoutStore.rightPanelView === 'dm'} on:click={layoutStore.toggleMobileUsers}>
 			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
 			<span>Users</span>
 		</button>
@@ -77,15 +77,15 @@
 	</div>
 	
 	<!-- User Panel (Right) -->
-	<!-- DEBUG: showDMListPanel={$layoutStore.showDMListPanel}, width={$layoutStore.showDMListPanel ? $layoutStore.userPanelWidth : 0} -->
+	<!-- DEBUG: showUserPanel={$layoutStore.showUserPanel}, width={$layoutStore.showUserPanel ? $layoutStore.userPanelWidth : 0} -->
 	<div
 		class="user-panel-container"
-		class:visible={$layoutStore.showDMListPanel}
-		style:width="{$layoutStore.showDMListPanel ? $layoutStore.userPanelWidth : 0}px"
-		style:min-width="{$layoutStore.showDMListPanel ? $layoutStore.userPanelWidth : 0}px"
+		class:visible={$layoutStore.showUserPanel}
+		style:width="{$layoutStore.showUserPanel ? $layoutStore.userPanelWidth : 0}px"
+		style:min-width="{$layoutStore.showUserPanel ? $layoutStore.userPanelWidth : 0}px"
 		class:mobile-visible={$layoutStore.isMobile && $layoutStore.rightPanelView === 'users'}
 	>
-		<DMListPanel on:openDM={(e) => layoutStore.openDM(e.detail.channelId, e.detail.otherUser)} on:close={() => layoutStore.rightPanelView.set('none')} />
+		<UserPanel on:openDM={(e) => layoutStore.openDM(e.detail.channelId, e.detail.otherUser)} on:close={() => layoutStore.rightPanelView.set('none')} on:logout />
 		{#if !$layoutStore.isMobile}
 			<div class="resize-handle resize-handle-user" on:mousedown={() => layoutStore.isResizingUser.set(true)}></div>
 		{/if}
@@ -114,12 +114,12 @@
 	{#if !$layoutStore.isMobile}
 		<button
 			class="user-panel-toggle"
-			class:open={$layoutStore.showDMListPanel || $layoutStore.showDMPanel}
+			class:open={$layoutStore.showUserPanel || $layoutStore.showDMPanel}
 			on:click={layoutStore.toggleDesktopUserPanel}
-			title={$layoutStore.rightPanelView === 'dm-list' ? 'Hide messages panel' : 'Show messages panel'}
+			title={$layoutStore.rightPanelView === 'user-list' ? 'Hide user list' : 'Show user list'}
 			style:right="{$layoutStore.toggleButtonRight}px"
 		>
-			{$layoutStore.showDMListPanel || $layoutStore.showDMPanel ? '→' : '←'}
+			{$layoutStore.showUserPanel || $layoutStore.showDMPanel ? '→' : '←'}
 		</button>
 	{/if}
 </div>
@@ -165,8 +165,7 @@
 		transition: width 0.2s ease-in-out;
 		will-change: width;
 		height: 100vh;
-		background: red; /* TEMPORARY - to see if panel is rendering */
-		opacity: 1 !important;
+		background: var(--bg-secondary);
 	}
 
 	.resize-handle {
