@@ -21,17 +21,18 @@
 
 ## 1. Design Philosophy
 
-### Adaptive Clarity
+### Core Principle: Adaptive Clarity
 
-**Core Principle**: The interface adapts to user mood (chill ↔ focused) and context (chat, draw, share) while maintaining clarity and usability.
+The interface adapts to user mood (chill ↔ focused) and context (chat, draw, share) while maintaining clarity and usability. **This guide is theme-agnostic**—it provides design principles that work with any theme.
 
-**Guiding Principles**:
+### Guiding Principles
 
 - **Content-first**: Messages and content receive maximum screen space. Chrome (UI scaffolding) is minimal and contextual.
-- **VSCode-inspired theming**: Well-defined CSS variables with predictable customization boundaries. Professional, not restrictive.
+- **CSS-variable-driven**: All theming happens through well-defined CSS variables. Components never hardcode colors. This enables flexible, user-customizable themes.
 - **Purposeful motion**: Every animation serves UX—guide attention, provide feedback, reduce cognitive load. Never decorative.
-- **Flexible personality**: Support both "late-night hangout" and "focused work session" moods through theming.
+- **Flexible personality**: Support both "late-night hangout" and "focused work session" moods through theming. The default Nebula Cosmic theme provides vibrant personality; alternative themes can be professional, minimal, or anything else.
 - **Trust through simplicity**: Privacy-focused clarity without sterility. Signal's ethos, Discord's efficiency.
+- **Accessible by default**: WCAG AA minimum for all themes, with guidance for custom themes.
 
 ### Design Inspirations
 
@@ -51,60 +52,151 @@
 
 ## 2. Color System
 
-### Color Architecture
+### CSS Variable Architecture (Theme-Agnostic)
 
-Based on the existing theme system (`frontend/src/lib/theme/`), Wabi uses a layered color architecture with **semantic roles** for consistency across themes.
+Wabi uses **CSS variables** to enable flexible theming while maintaining consistency. Themes define values for these variables; components use variables, never hardcoded colors.
 
-#### Background Layers (Depth Through Subtle Contrast)
+#### Variable Categories
 
-```css
---bg-primary: #1a1a1d;      /* Main canvas (darkest in dark mode) */
---bg-secondary: #25252a;    /* Raised surfaces (sidebars, panels) */
---bg-tertiary: #2f2f35;     /* Elevated elements (hover states, modals) */
-```
-
-**Purpose**: Create visual depth without heavy shadows. Layers guide the eye: primary (background) → secondary (containers) → tertiary (interactive elements).
-
-#### Text Hierarchy (Scannable Information Architecture)
+**Background Layers** (Create visual hierarchy)
 
 ```css
---text-primary: #ffffff;    /* Main content (messages, usernames) */
---text-secondary: #b0b0b5;  /* Supporting info (timestamps, descriptions) */
---text-tertiary: #70707a;   /* Subtle hints (placeholders, disabled states) */
+--bg-primary: /* Main canvas - base surface */
+--bg-secondary: /* Raised surfaces (sidebars, panels) */
+--bg-tertiary: /* Elevated elements (hover states, modals) */
+--bg-hover: /* Interactive element hover state */
 ```
 
-**Purpose**: Clear hierarchy helps users scan quickly. Primary for content, secondary for metadata, tertiary for hints.
+**Guideline**: Create visual depth through layering. Primary (background) → secondary (containers) → tertiary (interactive). This works for any color scheme: dark modes use lighter layers, light modes invert the pattern.
 
-#### Accent System (Personality and Focus)
+**Text Layers** (Clear information hierarchy)
 
 ```css
---accent: #6366f1;          /* Primary brand color (links, active states, CTAs) */
---accent-hover: #4f46e5;    /* Interaction feedback (hover, focus) */
---accent-muted: rgba(99, 102, 241, 0.1);  /* Subtle highlights, backgrounds */
+--text-primary: /* Main content (messages, usernames) */
+--text-secondary: /* Supporting info (timestamps, descriptions) */
+--text-tertiary: /* Subtle hints (placeholders, disabled states) */
 ```
 
-**Purpose**: Single accent color creates visual consistency. Use sparingly for focus and brand identity.
+**Guideline**: Use primary for content, secondary for metadata, tertiary for disabled/hint text. Ensures scannable information architecture regardless of color choice.
 
-#### Semantic Colors (Instant Recognition)
+**Accent Colors** (Personality and focus)
 
 ```css
---status-online: #43b581;   /* Green - user online, success states */
---status-away: #faa61a;     /* Yellow/amber - user away, warnings */
---status-offline: #747f8d;  /* Gray - user offline, neutral */
---error: #f04747;           /* Red - destructive actions, errors */
---success: #43b581;         /* Green - confirmations, success */
---warning: #faa61a;         /* Orange - caution, important notices */
+--accent: /* Primary brand color (links, active states, CTAs) */
+--accent-hex: /* Hex fallback for non-gradient uses */
+--accent-hover: /* Interaction feedback (hover, focus) */
 ```
 
-**Purpose**: Colors carry meaning. Green = positive, red = destructive, yellow = caution. Consistent across all themes.
+**Guideline**: Single accent for consistency. Use `--accent-hex` for places where gradients don't work (borders, dots, small indicators).
 
-#### Borders and Dividers
+**Semantic Colors** (Universal meaning across themes)
 
 ```css
---border: rgba(255, 255, 255, 0.1);  /* Subtle dividers, component outlines */
+--status-online: /* User online, success states */
+--status-away: /* User away, warnings */
+--status-busy: /* User busy, active action needed */
+--status-offline: /* User offline, neutral/inactive */
+--color-success: /* Confirmations, success messages */
+--color-info: /* Information, help text */
+--color-warning: /* Caution, warnings */
+--color-danger: /* Errors, destructive actions */
 ```
 
-**Purpose**: Subtle, not heavy. Borders provide structure without visual noise.
+**Guideline**: These colors carry **universal meaning**. Green always = positive, red always = error. Maintain this across all themes. Users rely on this consistency.
+
+**UI-Specific Variables**
+
+```css
+--ui-bg-light: /* Lighter UI element backgrounds */
+--ui-bg-lighter: /* Even lighter UI backgrounds */
+--ui-text: /* UI text (buttons, labels) */
+--ui-text-dark: /* UI text (inverse) */
+--border: /* Dividers, component outlines */
+```
+
+**Modal-Specific Variables**
+
+```css
+--modal-bg: /* Modal background */
+--modal-header-bg: /* Modal header background */
+--modal-text: /* Modal text */
+--modal-overlay: /* Backdrop overlay */
+--modal-border: /* Modal borders */
+```
+
+### RGB Variants System
+
+Every color variable has an `-rgb` variant for `rgba()` usage:
+
+```css
+--accent: #6366f1;
+--accent-rgb: 99, 102, 241;
+
+/* Usage */
+background: rgba(var(--accent-rgb), 0.1); /* 10% opacity */
+box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.2); /* Focus ring */
+```
+
+**Why**: Allows flexible opacity without repeating hex calculations. Use RGB variants everywhere you need `rgba()`.
+
+### Opacity Scale System
+
+```css
+--opacity-subtle: 0.1;    /* 10% - very light, barely visible */
+--opacity-light: 0.15;    /* 15% - light tint */
+--opacity-medium: 0.25;   /* 25% - moderate tint */
+--opacity-strong: 0.5;    /* 50% - strong tint */
+--opacity-heavy: 0.75;    /* 75% - very strong tint */
+```
+
+**Usage**: Apply to colors for consistent opacity levels:
+
+```css
+background: rgba(var(--accent-rgb), var(--opacity-subtle)); /* 10% accent tint */
+border: 1px solid rgba(var(--text-primary-rgb), var(--opacity-light)); /* 15% text border */
+```
+
+### Gradients (Optional Design Feature)
+
+Wabi's theme system optionally supports **gradients** for visual richness:
+
+```css
+--gradient-primary: linear-gradient(...);
+--gradient-accent: linear-gradient(...);
+--gradient-accent-hover: linear-gradient(...);
+```
+
+**Important**: Gradients are **optional**. Themes can use:
+- **Gradient-based**: Nebula Cosmic uses gradients for visual depth and personality
+- **Solid color-based**: Professional themes use solid colors for clarity
+- **Mixed approach**: Combine both (solid backgrounds + gradient accents)
+
+When designing themes, decide your gradient approach early and stay consistent.
+
+### Color Contrast Requirements
+
+**WCAG 2.1 AA Compliance** (minimum):
+
+- **Text on background**: 4.5:1 minimum (7:1 for AAA)
+- **Large text (18px+)**: 3:1 minimum
+- **UI components**: 3:1 against adjacent colors
+- **Status indicators**: Distinguishable by shape + color (colorblind-friendly)
+
+**Testing**: Use [WebAIM Contrast Checker](https://webaim.org/resources/contrastchecker/) or browser DevTools.
+
+### Theme Consistency Guidelines
+
+**Maintain across all themes**:
+- Semantic color meanings (green = success, red = error)
+- Text layer hierarchy (primary > secondary > tertiary)
+- Sufficient contrast for accessibility
+- Consistent accent usage (don't use multiple brands)
+
+**Can vary by theme**:
+- Specific hex/RGB values (adapt to theme palette)
+- Whether to use gradients (cosmic yes, professional no)
+- Background layer saturation (vibrant vs. muted)
+- Accent intensity (subtle vs. bold)
 
 ### Color Contrast Requirements
 
@@ -313,25 +405,36 @@ margin-bottom: 16px;              /* Generous spacing */
 }
 ```
 
-### Spacing Scale (8px Base Unit)
+### Spacing System (Rem-Based)
 
-Consistent spacing creates rhythm and predictability.
+Wabi uses **rem-based spacing** for scalable, accessible spacing. The base system is flexible—components use rem units, which scale with user preferences.
+
+**Common spacing values**:
 
 ```css
---space-1: 4px;       /* Tight (icon padding, inline spacing) */
---space-2: 8px;       /* Standard (between related elements) */
---space-3: 12px;      /* Comfortable (component padding) */
---space-4: 16px;      /* Generous (section padding, message gaps) */
---space-6: 24px;      /* Separated (modal padding, section breaks) */
---space-8: 32px;      /* Distinct (large gaps, page padding) */
---space-12: 48px;     /* Hero (marketing pages, rarely used in app) */
+0.5rem = 8px
+0.75rem = 12px
+1rem = 16px
+1.5rem = 24px
+2rem = 32px
+3rem = 48px
 ```
 
-**Usage**:
-- **Inline spacing** (icons, badges): `--space-1` (4px)
-- **Component padding** (buttons, inputs): `--space-3` (12px)
-- **Message gaps**: `--space-2` (8px) same user, `--space-4` (16px) user change
-- **Modal/panel padding**: `--space-6` (24px)
+**Usage patterns** (not strict rules, adapt as needed):
+- **Inline spacing** (icons, small gaps): 0.5rem (8px)
+- **Component padding** (buttons, inputs): 0.75rem (12px)
+- **Message gaps**: 0.5rem (8px) same user, 1rem (16px) user change
+- **Section padding**: 1rem–1.5rem (16px–24px)
+- **Modal/panel padding**: 1.5rem (24px)
+- **Large gaps**: 2rem+ (32px+)
+
+**Why rem-based**:
+- Scales with user font-size preferences (accessibility)
+- Consistent with web standards
+- Easier to adjust global spacing if needed
+- Still creates visual rhythm and predictability
+
+**Don't hardcode pixels everywhere**—use rem units and let CSS variables handle it.
 
 ### Layout Patterns
 
@@ -339,21 +442,22 @@ Consistent spacing creates rhythm and predictability.
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│  [Avatar]  Username • Timestamp                       8px  │
+│  [Avatar]  Username • Timestamp                           │
 │            Message text content here...                    │
-│                                                       16px  │ ← Gap for user change
-│  [Avatar]  OtherUser • Timestamp                      8px  │
+│                                                     1rem   │ ← Gap for user change
+│  [Avatar]  OtherUser • Timestamp                          │
 │            Another message...                              │
-│                                                        8px  │ ← Gap for same user
+│                                                   0.5rem   │ ← Gap for same user
 │            Follow-up message from same user...             │
 └────────────────────────────────────────────────────────────┘
 ```
 
-**Specs**:
-- **Avatar**: 32-36px, left-aligned, top of message
-- **Message spacing**: 8px (same user), 16px (user change)
-- **Max width**: 680px (optimal reading length ~70 chars)
-- **Padding**: 16px horizontal, 8px vertical
+**Specs** (actual implementation):
+- **Avatar**: 40px × 40px, left-aligned, top of message
+- **Message padding**: 0.75rem (12px)
+- **Gap between avatar/content**: 0.75rem (12px)
+- **Message spacing**: 0.5rem (8px) same user, 1rem (16px) user change
+- **Max width**: 680px (optimal reading length ~70 characters)
 
 #### 2. Sidebar (Channels/DMs) - Efficient Scanning
 
@@ -455,40 +559,41 @@ Located in context panel (right sidebar) or bottom of channel sidebar.
 ```css
 .message {
   display: flex;
-  gap: 12px;                      /* Space between avatar and content */
-  padding: 8px 16px;
-  margin-bottom: 8px;             /* Same user */
+  gap: 0.75rem;                   /* 12px - Space between avatar and content */
+  padding: 0.75rem;               /* 12px - Compact message padding */
+  margin-bottom: 0.5rem;          /* 8px - Same user spacing */
+  border-radius: 0;               /* Sharp corners (theme override to 6px) */
 }
 
 .message:not(.same-user) {
-  margin-top: 16px;               /* Different user */
+  margin-top: 16px;               /* Different user - larger gap */
 }
 
 .message:hover {
-  background: var(--bg-tertiary); /* Subtle highlight */
+  background: rgba(var(--bg-secondary-rgb), 0.6);  /* Subtle hover tint */
 }
 
 .message-avatar {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
-  flex-shrink: 0;                 /* Don't compress avatar */
+  flex-shrink: 0;                 /* Prevent avatar compression */
 }
 
 .message-content {
   flex: 1;
-  max-width: 680px;               /* Optimal reading length */
+  max-width: 680px;               /* Optimal reading length ~70 characters */
 }
 
 .message-header {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 0.5rem;                    /* 8px */
   margin-bottom: 4px;
 }
 
 .message-username {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--accent);
   cursor: pointer;
@@ -508,16 +613,23 @@ Located in context panel (right sidebar) or bottom of channel sidebar.
 
 .message-actions {
   display: flex;
-  gap: 8px;
+  gap: 0.5rem;                    /* 8px */
   margin-top: 4px;
-  opacity: 0;                     /* Hidden by default */
-  transition: opacity 150ms ease;
+  opacity: 0;
+  transition: opacity 200ms ease-out;  /* 200ms matches actual implementation */
 }
 
 .message:hover .message-actions {
   opacity: 1;                     /* Reveal on hover */
 }
 ```
+
+**Actual measurements** (from `frontend/src/lib/components/MessageList.svelte`):
+- Avatar: 40px × 40px
+- Padding: 0.75rem (12px)
+- Gap: 0.75rem (12px)
+- Message spacing: 0.5rem (8px) same user, 1rem (16px) different user
+- Hover action transition: 200ms ease-out
 
 #### Message States
 
@@ -1291,207 +1403,218 @@ Icons should be **instantly recognizable** and **visually consistent** across th
 
 ### Working with the Existing Theme System
 
-Wabi's theme system (`frontend/src/lib/theme/`) is robust and well-architected. The UI guide leverages this system.
+Wabi's theme system (`frontend/src/lib/theme/`) is robust and well-architected. All theming happens through CSS variables defined in `themes.ts` and applied to `:root` at runtime.
 
 **Key files**:
 - `themeStore.ts` - Svelte store for theme state
-- `themes.ts` - Theme definitions (presets + custom)
+- `themes.ts` - Theme definitions (presets + custom) with `ThemeColors` and `ThemeGradients`
 - `themeManager.ts` - Applies themes to DOM via CSS variables
 - `themeApi.ts` - HTTP client for theme persistence
 - `initTheme.ts` - Theme initialization on app load
 
-### CSS Variables (Set on `:root`)
+### How Components Use Themes
 
-All colors, spacing, and typography should use CSS variables for theme compatibility.
+**All color, spacing, and typography must use CSS variables** for theme compatibility.
 
 ```css
-:root {
-  /* Backgrounds */
-  --bg-primary: #1a1a1d;
-  --bg-secondary: #25252a;
-  --bg-tertiary: #2f2f35;
-
-  /* Text */
-  --text-primary: #ffffff;
-  --text-secondary: #b0b0b5;
-  --text-tertiary: #70707a;
-
-  /* Accent */
-  --accent: #6366f1;
-  --accent-hover: #4f46e5;
-  --accent-muted: rgba(99, 102, 241, 0.1);
-
-  /* Semantic colors */
-  --status-online: #43b581;
-  --status-away: #faa61a;
-  --status-offline: #747f8d;
-  --error: #f04747;
-  --success: #43b581;
-  --warning: #faa61a;
-
-  /* Borders */
-  --border: rgba(255, 255, 255, 0.1);
-
-  /* Spacing (optional, can hardcode) */
-  --space-2: 8px;
-  --space-4: 16px;
-  /* ... */
-
-  /* Typography */
-  --text-base: 14px;
-  --text-lg: 16px;
-  /* ... */
+/* ❌ Bad - hardcoded colors don't theme */
+.button {
+  background: #6366f1;
 }
 
-/* Light theme example */
-[data-theme="light"] {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f5f5f5;
-  --bg-tertiary: #e8e8e8;
-  --text-primary: #1a1a1d;
-  --text-secondary: #70707a;
-  --text-tertiary: #b0b0b5;
-  --border: rgba(0, 0, 0, 0.1);
+/* ✅ Good - uses CSS variable */
+.button {
+  background: var(--accent);
+}
+
+/* ✅ Good - RGB variant for opacity */
+.button:hover {
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.2);
 }
 ```
 
-### Theme Presets
+**Never hardcode colors in component CSS.** Always use CSS variables from the theme system.
 
-#### 1. Midnight Blue (Default, "Chill")
+### Default Theme: Nebula Cosmic
+
+Wabi ships with **Nebula Cosmic** as the default theme—a vibrant, space-inspired aesthetic with gradients and glowing accents.
+
+**Characteristics**:
+- **Gradients**: Used for backgrounds and accents to create visual depth
+- **Color Palette**: Purples, magentas, electric cyans with high saturation
+- **Accent**: Magenta-to-hot-pink gradient (`#ff00ff` → `#ff69b4`)
+- **Status colors**: Neon green online, gold away, deep gray offline
+- **Personality**: Chill, creative, unique (avoids generic AI aesthetic)
+
+**Key variables** (see `app.css` for complete list):
+```css
+--bg-primary: linear-gradient(to right, #0f0c29 0%, #302b63 100%);
+--accent: linear-gradient(to right, #ff00ff 0%, #ff69b4 100%);
+--accent-hex: #ff00ff; /* For non-gradient uses */
+--status-online: #00ff7f; /* Neon green */
+```
+
+**When to use Nebula Cosmic**:
+- Default for new users (no preference yet)
+- Great for "chill" / creative contexts
+- Emphasizes personality and uniqueness
+
+### Adding Alternative Themes
+
+To create additional theme presets, follow this pattern in `themes.ts`:
+
+#### Example: Professional Theme (Minimal, High Contrast)
 
 ```typescript
-{
-  id: 'midnight-blue',
-  name: 'Midnight Blue',
+export const professionalTheme: Theme = {
+  id: 'professional',
+  name: 'Professional',
+  description: 'Clean, minimal, high-contrast for work',
   colors: {
-    background: {
-      primary: '#1a1a2e',      // Rich dark blue-black
-      secondary: '#16213e',    // Slightly lighter blue
-      tertiary: '#0f3460',     // Elevated blue
-    },
-    text: {
-      primary: '#ffffff',
-      secondary: '#94a3b8',
-      tertiary: '#64748b',
-    },
-    accent: {
-      base: '#4f7cff',         // Bright blue
-      hover: '#3d5acc',
-      muted: 'rgba(79, 124, 255, 0.1)',
-    },
-    // ... semantic colors
+    bgPrimary: 'linear-gradient(to right, #f5f5f5 0%, #efefef 100%)',
+    bgSecondary: '#ffffff',
+    bgTertiary: '#f0f0f0',
+    bgHover: '#e8e8e8',
+
+    textPrimary: '#1a1a1d',
+    textSecondary: '#4a4a6a',
+    textTertiary: '#7a7a8a',
+
+    accent: 'linear-gradient(to right, #4f46e5 0%, #4338ca 100%)',
+    accentHex: '#4f46e5',
+    accentHover: 'linear-gradient(to right, #4338ca 0%, #3730a3 100%)',
+
+    statusOnline: '#059669', /* Muted green */
+    statusAway: '#d97706', /* Muted amber */
+    statusBusy: '#dc2626',
+    statusOffline: '#6b7280',
+
+    colorSuccess: '#059669',
+    colorInfo: '#0284c7',
+    colorWarning: '#d97706',
+    colorDanger: '#dc2626',
+
+    // ... other colors
+  },
+  gradients: {
+    primary: 'linear-gradient(to right, #f5f5f5 0%, #efefef 100%)',
+    accent: 'linear-gradient(to right, #4f46e5 0%, #4338ca 100%)',
+    // ... minimal gradients, mostly for consistency
   }
-}
+};
 ```
 
-**Personality**: Calm, late-night hangout, warm but focused.
+**Key decisions**:
+- **Gradients**: Minimal (only where necessary for visual consistency)
+- **Colors**: Muted saturation for professional contexts
+- **Contrast**: Higher contrast for readability
+- **Personality**: Clean, minimal, developer-friendly
 
-#### 2. High Contrast (VSCode-inspired, "Focused")
+#### Example: Minimal Theme (Solid Colors Only)
+
+For a theme with no gradients:
 
 ```typescript
-{
-  id: 'high-contrast',
-  name: 'High Contrast',
+export const minimalTheme: Theme = {
+  // ...
   colors: {
-    background: {
-      primary: '#0d1117',      // GitHub dark
-      secondary: '#161b22',
-      tertiary: '#21262d',
-    },
-    text: {
-      primary: '#f0f6fc',
-      secondary: '#8b949e',
-      tertiary: '#6e7681',
-    },
-    accent: {
-      base: '#58a6ff',         // GitHub blue
-      hover: '#4493e1',
-      muted: 'rgba(88, 166, 255, 0.1)',
-    },
+    bgPrimary: '#f8f8f8', /* Solid instead of gradient */
+    accent: '#2563eb', /* Solid blue */
+    accentHex: '#2563eb',
+    accentHover: '#1d4ed8',
     // ...
+  },
+  gradients: {
+    primary: '#f8f8f8', /* Can be solid color too */
+    accent: '#2563eb', /* Solid fallback */
+    // ... minimal or no gradients
   }
-}
+};
 ```
 
-**Personality**: Professional, developer-focused, maximum readability.
+### Guidelines for Creating Cohesive Themes
 
-#### 3. Light Mode (Optional)
-
-```typescript
-{
-  id: 'light',
-  name: 'Light Mode',
-  colors: {
-    background: {
-      primary: '#fafafa',
-      secondary: '#f5f5f5',
-      tertiary: '#e8e8e8',
-    },
-    text: {
-      primary: '#1a1a1d',
-      secondary: '#70707a',
-      tertiary: '#b0b0b5',
-    },
-    accent: {
-      base: '#4f46e5',         // Indigo
-      hover: '#4338ca',
-      muted: 'rgba(79, 70, 229, 0.1)',
-    },
-    // ...
-  }
-}
-```
-
-**Personality**: Daytime, clean, approachable.
+1. **Choose a color palette** (3-5 primary colors + 2-3 accent colors)
+2. **Define all semantic colors** (online, away, offline, success, danger, etc.)
+3. **Maintain contrast ratios** (4.5:1 text minimum, test with [WebAIM](https://webaim.org/resources/contrastchecker/))
+4. **Decide on gradients early** (yes/no/minimal—stay consistent)
+5. **Test with real content**:
+   - Open a message list with multiple users
+   - Send/receive messages with reactions
+   - Check hover states and focus indicators
+   - Verify low-vision users can read text
+6. **Document the theme philosophy** (why these colors, what mood it evokes)
 
 ### Custom Themes (User-Defined)
 
 Users can override all CSS variables via the **ThemeCustomizer** UI (`ThemeCustomizer.svelte`).
 
-**Guidelines for custom themes**:
-- **Maintain contrast ratios**: Use contrast checker, enforce minimums
-- **Test with content**: Don't just check empty states
-- **Provide defaults**: If user breaks contrast, show warning but allow it (their choice)
-- **Semantic consistency**: Green should still mean "online/success", red "error"
+**User guidelines**:
+- Any CSS variable can be customized (colors, spacing, gradients)
+- Contrast checker warns if text falls below WCAG AA (but allows override)
+- Test themes with actual message content
+- Reset to defaults if theme breaks usability
+
+**App behavior**:
+- Show warnings for low-contrast, allow user choice
+- Persist custom themes to backend
+- Restore on next login
 
 ### Theme Application Flow
 
 ```typescript
-// 1. User selects theme in ThemeCustomizer
-themeStore.setTheme('high-contrast');
+// 1. User selects theme in Settings/ThemeCustomizer
+themeStore.setTheme('professional');
 
-// 2. themeManager applies CSS variables to :root
+// 2. themeManager reads theme definition from themes.ts
+// 3. Converts all theme colors/gradients to CSS variables
+// 4. Applies variables to :root element
 applyTheme(theme);
 
-// 3. Theme saved to backend
-POST /api/user/theme { theme_id: 'high-contrast' }
+// 5. Theme is saved to backend
+POST /api/user/theme { theme_id: 'professional' }
 
-// 4. On page reload, theme restored
+// 6. On page reload, theme is restored
 initTheme() → GET /api/user/theme → applyTheme()
 ```
 
 ### Adding New Theme Variables
 
-If you need a new CSS variable (e.g., `--shadow-lg`):
+If you need a new CSS variable (e.g., `--shadow-focus`):
 
-1. **Add to `themes.ts`**: Include in all theme presets
-2. **Use in CSS**: Reference via `var(--shadow-lg)`
-3. **Document in UI guide**: Add to this document
+1. **Update `themes.ts` ThemeColors interface**:
+   ```typescript
+   export interface ThemeColors {
+     // ... existing colors
+     shadowFocus: string; // New variable
+   }
+   ```
 
-**Example**:
-```typescript
-// themes.ts
-cssVariables: {
-  '--shadow-lg': '0 10px 40px rgba(0, 0, 0, 0.3)',
-}
-```
+2. **Add to all theme presets**:
+   ```typescript
+   export const darkTheme: Theme = {
+     colors: {
+       // ... existing colors
+       shadowFocus: '0 0 0 3px rgba(255, 0, 255, 0.2)',
+     }
+   };
+   ```
 
-```css
-/* Component CSS */
-.modal {
-  box-shadow: var(--shadow-lg);
-}
-```
+3. **Use in CSS**:
+   ```css
+   .button:focus-visible {
+     box-shadow: var(--shadow-focus);
+   }
+   ```
+
+4. **Document in this guide** (add to relevant section)
+
+### Testing Themes
+
+- **Contrast**: [WebAIM Contrast Checker](https://webaim.org/resources/contrastchecker/)
+- **Vision simulation**: [Coblis](https://www.color-blindness.com/coblis-color-blindness-simulator/)
+- **Content**: Use real messages, reactions, and status indicators
+- **Accessibility**: Chrome DevTools > Lighthouse > Accessibility audit
 
 ---
 
@@ -1770,6 +1893,79 @@ AI-generated websites often share a predictable, sterile aesthetic. Wabi avoids 
 **Purposeful animations on interaction only**
 - Triggered by user, not automatic
 - Provides feedback, not decoration
+
+### Theme System Anti-Patterns
+
+#### ❌ Don't Do This
+
+**Hardcoding colors in component CSS**
+```css
+/* ❌ Bad - breaks theming */
+.button {
+  background: #6366f1;
+  color: #ffffff;
+  border: 1px solid #4f46e5;
+}
+```
+
+This breaks theming—users can't customize colors, and theme presets can't be applied.
+
+**Inconsistent use of CSS variables**
+```css
+/* ❌ Bad - mixes hardcoded and variables */
+.card {
+  background: var(--bg-secondary); /* Variable */
+  border: 1px solid #404050; /* Hardcoded - breaks theming */
+  color: #ffffff; /* Hardcoded - breaks theming */
+}
+```
+
+**Using color values directly instead of RGB variants for opacity**
+```css
+/* ❌ Bad - must recalculate hex to RGBA */
+.button:hover {
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2); /* Hardcoded RGB */
+}
+
+/* ✅ Good - uses CSS variable */
+.button:hover {
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.2);
+}
+```
+
+#### ✅ Do This Instead
+
+**Always use CSS variables for colors**
+```css
+.button {
+  background: var(--accent);
+  color: var(--text-primary);
+  border: none;
+}
+
+.button:hover {
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), var(--opacity-medium));
+}
+```
+
+**RGB variants for dynamic opacity**
+```css
+/* Use RGB variants + opacity scale */
+background: rgba(var(--accent-rgb), var(--opacity-light));
+border: 1px solid rgba(var(--text-secondary-rgb), var(--opacity-subtle));
+```
+
+**Theme-aware styling**
+```css
+/* Check which theme, apply accordingly */
+[data-theme="dark"] .element {
+  /* Use high contrast for dark mode */
+}
+
+[data-theme="light"] .element {
+  /* Use different styling for light mode */
+}
+```
 
 ### Chat-Specific Anti-Patterns
 
