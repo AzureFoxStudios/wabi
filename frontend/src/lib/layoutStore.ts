@@ -14,7 +14,7 @@ const isMobile = readable(false, (set) => {
 	return () => mql.removeEventListener('change', listener);
 });
 
-type RightPanelView = 'none' | 'user-list' | 'dm';
+type RightPanelView = 'none' | 'dm-list' | 'dm';
 const rightPanelView = writable<RightPanelView>('none');
 const showMobileChannels = writable(false);
 
@@ -32,7 +32,7 @@ const dmOtherUser = writable<User | null>(null);
 // Actions
 const toggleDesktopUserPanel = () => {
 	rightPanelView.update((current) => {
-		const newValue = current === 'user-list' ? 'none' : 'user-list';
+		const newValue = current === 'dm-list' ? 'none' : 'dm-list';
 		console.log('[layoutStore] toggleDesktopUserPanel:', current, '->', newValue);
 		return newValue;
 	});
@@ -47,11 +47,11 @@ const openDM = (channelIdStr: string, otherUserObj: User) => {
 const closeDM = () => {
 	dmChannelId.set(null);
 	dmOtherUser.set(null);
-	rightPanelView.update(current => get(isMobile) ? 'user-list' : 'none');
+	rightPanelView.update(current => get(isMobile) ? 'dm-list' : 'none');
 };
 
 const handleDMPanelBack = () => {
-	rightPanelView.set('user-list');
+	rightPanelView.set('dm-list');
 };
 
 const toggleMobileChannels = () => {
@@ -63,11 +63,11 @@ const toggleMobileChannels = () => {
 
 const toggleMobileUsers = () => {
 	rightPanelView.update(current => {
-		if (current === 'user-list' || current === 'dm') {
+		if (current === 'dm-list' || current === 'dm') {
 			return 'none';
 		} else {
 			showMobileChannels.set(false);
-			return 'user-list';
+			return 'dm-list';
 		}
 	});
 };
@@ -88,13 +88,13 @@ const isResizing = derived(
 const layout = derived(
 	[isMobile, rightPanelView, showMobileChannels, userPanelWidth, dmPanelWidth],
 	([$isMobile, $rightPanelView, $showMobileChannels, $userPanelWidth, $dmPanelWidth]) => {
-		const showUserPanel = !$isMobile && $rightPanelView === 'user-list';
+		const showDMListPanel = !$isMobile && $rightPanelView === 'dm-list';
 		const showDMPanel = !$isMobile && $rightPanelView === 'dm';
 
 		console.log('[layoutStore] derived:', {
 			isMobile: $isMobile,
 			rightPanelView: $rightPanelView,
-			showUserPanel,
+			showDMListPanel,
 			showDMPanel,
 			userPanelWidth: $userPanelWidth
 		});
@@ -103,11 +103,11 @@ const layout = derived(
 			isMobile: $isMobile,
 			rightPanelView: $rightPanelView,
 			showMobileChannels: $isMobile && $showMobileChannels,
-			showUserPanel,
+			showDMListPanel,
 			showDMPanel,
 			userPanelWidth: $userPanelWidth,
 			dmPanelWidth: $dmPanelWidth,
-			toggleButtonRight: (showUserPanel ? $userPanelWidth : 0) + (showDMPanel ? $dmPanelWidth : 0)
+			toggleButtonRight: (showDMListPanel ? $userPanelWidth : 0) + (showDMPanel ? $dmPanelWidth : 0)
 		};
 	}
 );
