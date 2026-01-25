@@ -163,6 +163,8 @@
 		transition: width 0.2s ease-in-out;
 		will-change: width;
 		height: 100vh;
+		background: red; /* TEMPORARY - to see if panel is rendering */
+		opacity: 1 !important;
 	}
 
 	.resize-handle {
