@@ -162,6 +162,7 @@
 		overflow: hidden;
 		transition: width 0.2s ease-in-out;
 		will-change: width;
+		height: 100vh;
 	}
 
 	.resize-handle {
