@@ -2,8 +2,8 @@ FROM coturn/coturn:latest
 
 # Install gettext for envsubst command (environment variable substitution)
 USER root
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends gettext-base && \
+RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gettext-base && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy configuration template and entrypoint script

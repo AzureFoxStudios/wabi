@@ -185,14 +185,14 @@
 		width: 28px;
 		height: 80px;
 		background: var(--bg-secondary);
-		border: none;
+		border: 1px solid var(--border);
 		border-radius: 8px 0 0 8px;
 		cursor: pointer;
 		font-size: 1.2rem;
 		color: var(--text-secondary);
 		transition: all 0.3s ease;
 		z-index: 999;
-		opacity: 0;
+		opacity: 0.6;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -200,6 +200,7 @@
 	.user-panel-toggle:hover {
 		opacity: 1;
 		background: var(--accent);
+		color: var(--text-primary);
 	}
 
 	.art-nav-button {
