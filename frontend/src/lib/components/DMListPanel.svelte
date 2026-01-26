@@ -88,7 +88,13 @@
 <aside class="dm-list-panel">
 	<div class="panel-header">
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
-		<span class="header-title">{activeTab === 'users' ? 'All Users' : 'Direct Messages'}</span>
+		<span class="header-title">
+			{#if activeTab === 'users'}
+				All Users
+			{:else}
+				Direct Messages
+			{/if}
+		</span>
 		{#if activeTab === 'messages'}
 			<button class="add-dm-btn" on:click={handleOpenDMModal} title="Start new DM">+</button>
 		{/if}
@@ -103,88 +109,90 @@
 		</button>
 	</div>
 
-	<div class="messages-tab" class:hidden={activeTab !== 'messages'}>
-		{#if dmChannels.length === 0}
-			<div class="empty-state">
-				<div class="empty-icon">💭</div>
-				<p>No messages yet</p>
-				<p class="empty-hint">Start a conversation to begin</p>
-			</div>
-		{:else}
-			<div class="conversations-list">
-				{#each dmChannels as channel (channel.id)}
-					{@const otherUser = getOtherUser(channel)}
-					{#if otherUser}
+	<div class="panel-content">
+		<div class="messages-tab" class:hidden={activeTab !== 'messages'}>
+			{#if dmChannels.length === 0}
+				<div class="empty-state">
+					<div class="empty-icon">💭</div>
+					<p>No messages yet</p>
+					<p class="empty-hint">Start a conversation to begin</p>
+				</div>
+			{:else}
+				<div class="conversations-list">
+					{#each dmChannels as channel (channel.id)}
+						{@const otherUser = getOtherUser(channel)}
+						{#if otherUser}
+							<button
+								class="conversation-item"
+								on:click={() => handleOpenDM(channel)}
+							>
+								<div class="conversation-avatar">
+									{#if otherUser.profilePicture}
+										<img src={otherUser.profilePicture} alt={otherUser.username} />
+									{:else}
+										<div class="avatar-placeholder" style="background-color: {otherUser.color}">
+											{otherUser.username.charAt(0).toUpperCase()}
+										</div>
+									{/if}
+								</div>
+								<div class="conversation-info">
+									<div class="conversation-name">{otherUser.username}</div>
+									<div class="conversation-preview">{getLastMessagePreview(channel.id)}</div>
+								</div>
+							</button>
+						{/if}
+					{/each}
+				</div>
+			{/if}
+		</div>
+	
+		<div class="users-tab" class:hidden={activeTab !== 'users'}>
+			<div class="users-list">
+				{#each $users as user (user.id)}
+					<div class="user-item">
+						<button class="user-avatar-btn">
+							{#if user.profilePicture}
+								<img src={user.profilePicture} alt={user.username} class="user-avatar" />
+							{:else}
+								<div class="user-avatar-placeholder" style="background-color: {user.color}">
+									{user.username.charAt(0).toUpperCase()}
+								</div>
+							{/if}
+						</button>
 						<button
-							class="conversation-item"
-							on:click={() => handleOpenDM(channel)}
+							class="user-info-btn"
+							on:click={() => {
+								if (user.id !== $currentUser?.id) {
+									const memberIds = [$currentUser?.id, user.id].sort();
+									const dmId = `dm-${memberIds.join('-')}`;
+									const existingDM = $channels.find(ch => ch.id === dmId);
+									if (existingDM) {
+										dispatch('openDM', { channelId: dmId, otherUser: user });
+									} else {
+										createDM(user.id);
+										const unsubscribe = channels.subscribe(chs => {
+											const newDM = chs.find(ch => ch.id === dmId);
+											if (newDM) {
+												dispatch('openDM', { channelId: dmId, otherUser: user });
+												unsubscribe();
+											}
+										});
+									}
+								}
+							}}
 						>
-							<div class="conversation-avatar">
-								{#if otherUser.profilePicture}
-									<img src={otherUser.profilePicture} alt={otherUser.username} />
-								{:else}
-									<div class="avatar-placeholder" style="background-color: {otherUser.color}">
-										{otherUser.username.charAt(0).toUpperCase()}
-									</div>
-								{/if}
+							<div class="user-name">
+								{user.username}
+								{#if user.id === $currentUser?.id}<span class="you-badge">(you)</span>{/if}
 							</div>
-							<div class="conversation-info">
-								<div class="conversation-name">{otherUser.username}</div>
-								<div class="conversation-preview">{getLastMessagePreview(channel.id)}</div>
+							<div class="user-status">
+								<span class="status-dot" style="background-color: {user.status === 'active' ? 'var(--status-online)' : user.status === 'away' ? 'var(--status-away)' : 'var(--status-offline)'}"></span>
+								<span>{user.status}</span>
 							</div>
 						</button>
-					{/if}
+					</div>
 				{/each}
 			</div>
-		{/if}
-	</div>
-
-	<div class="users-tab" class:hidden={activeTab !== 'users'}>
-		<div class="users-list">
-			{#each $users as user (user.id)}
-				<div class="user-item">
-					<button class="user-avatar-btn">
-						{#if user.profilePicture}
-							<img src={user.profilePicture} alt={user.username} class="user-avatar" />
-						{:else}
-							<div class="user-avatar-placeholder" style="background-color: {user.color}">
-								{user.username.charAt(0).toUpperCase()}
-							</div>
-						{/if}
-					</button>
-					<button
-						class="user-info-btn"
-						on:click={() => {
-							if (user.id !== $currentUser?.id) {
-								const memberIds = [$currentUser?.id, user.id].sort();
-								const dmId = `dm-${memberIds.join('-')}`;
-								const existingDM = $channels.find(ch => ch.id === dmId);
-								if (existingDM) {
-									dispatch('openDM', { channelId: dmId, otherUser: user });
-								} else {
-									createDM(user.id);
-									const unsubscribe = channels.subscribe(chs => {
-										const newDM = chs.find(ch => ch.id === dmId);
-										if (newDM) {
-											dispatch('openDM', { channelId: dmId, otherUser: user });
-											unsubscribe();
-										}
-									});
-								}
-							}
-						}}
-					>
-						<div class="user-name">
-							{user.username}
-							{#if user.id === $currentUser?.id}<span class="you-badge">(you)</span>{/if}
-						</div>
-						<div class="user-status">
-							<span class="status-dot" style="background-color: {user.status === 'active' ? 'var(--status-online)' : user.status === 'away' ? 'var(--status-away)' : 'var(--status-offline)'}"></span>
-							<span>{user.status}</span>
-						</div>
-					</button>
-				</div>
-			{/each}
 		</div>
 	</div>
 </aside>
@@ -196,26 +204,26 @@
 		display: flex;
 		flex-direction: column;
 		height: 100%;
-		background: var(--bg-secondary);
-		border-left: 1px solid var(--border);
-		overflow: hidden;
+		background: var(--color-background-secondary);
+		border-left: 1px solid var(--color-border-primary);
+		overflow: hidden; /* Crucial for containing scroll */
 	}
 
 	.panel-header {
-		padding: 0.75rem 1rem;
-		border-bottom: 1px solid var(--border);
-		flex-shrink: 0;
+		padding: var(--space-3) var(--space-4);
+		border-bottom: 1px solid var(--color-border-primary);
+		flex-shrink: 0; /* Prevent header from shrinking */
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 0.5rem;
+		gap: var(--space-2);
 		height: 52px;
 	}
 
 	.header-title {
-		color: var(--text-primary);
-		font-weight: 600;
-		font-size: 1rem;
+		color: var(--color-text-primary);
+		font-weight: var(--font-weight-semibold);
+		font-size: var(--font-size-3);
 		flex: 1;
 	}
 
@@ -225,73 +233,77 @@
 		border: none;
 		font-size: 1.5rem;
 		cursor: pointer;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 	}
 
 	.add-dm-btn {
 		background: none;
 		border: none;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		cursor: pointer;
 		font-size: 1.25rem;
 		padding: 0;
-		width: 2rem;
-		height: 2rem;
+		width: var(--space-8);
+		height: var(--space-8);
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 4px;
-		transition: all 0.2s;
+		border-radius: var(--radius-sm);
+		transition: all var(--duration-fast);
 	}
 
 	.add-dm-btn:hover {
-		background: var(--bg-hover);
-		color: var(--text-primary);
+		background: var(--color-background-tertiary);
+		color: var(--color-text-primary);
 	}
 
 	.panel-tabs {
 		display: flex;
-		flex-shrink: 0;
-		border-bottom: 1px solid var(--border);
-		padding: 0 0.5rem;
+		flex-shrink: 0; /* Prevent tabs from shrinking */
+		border-bottom: 1px solid var(--color-border-primary);
+		padding: 0 var(--space-2);
 	}
 
 	.tab-btn {
 		flex: 1;
-		padding: 0.75rem 0.5rem;
+		padding: var(--space-3) var(--space-2);
 		background: none;
 		border: none;
 		border-bottom: 2px solid transparent;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		cursor: pointer;
-		font-size: 0.875rem;
-		font-weight: 500;
-		transition: all 0.2s;
+		font-size: var(--font-size-2);
+		font-weight: var(--font-weight-medium);
+		transition: all var(--duration-fast);
 		margin-bottom: -1px; /* Overlap with border-bottom */
 	}
 
 	.tab-btn:hover {
-		background: var(--bg-tertiary);
-		color: var(--text-primary);
+		background: var(--color-background-tertiary);
+		color: var(--color-text-primary);
 	}
 
 	.tab-btn.active {
-		color: var(--accent);
-		border-bottom-color: var(--accent);
-		font-weight: 600;
+		color: var(--color-accent-primary);
+		border-bottom-color: var(--color-accent-primary);
+		font-weight: var(--font-weight-semibold);
 	}
 
 	.hidden {
 		display: none;
 	}
 	
+	/* This new container will hold all tab content and manage scrolling */
+	.panel-content {
+		flex: 1; /* Takes up all remaining space */
+		overflow-y: auto; /* Only this container scrolls */
+		position: relative; /* For positioning children if needed */
+	}
+
 	.messages-tab,
 	.users-tab {
-		display: flex;
+		display: flex; /* Use flex to help with layout inside tabs */
 		flex-direction: column;
-		flex: 1;
-		overflow-y: auto;
-		overflow-x: hidden;
 	}
 
 	.empty-state {
@@ -299,77 +311,72 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 2rem 1rem;
-		color: var(--text-secondary);
+		padding: var(--space-8) var(--space-4);
+		color: var(--color-text-secondary);
 		text-align: center;
 		flex: 1;
 	}
 
 	.empty-icon {
 		font-size: 2.5rem;
-		margin-bottom: 1rem;
-		opacity: 0.5;
+		margin-bottom: var(--space-4);
+		opacity: var(--opacity-50);
 	}
 
 	.empty-state p {
-		margin: 0.25rem 0;
+		margin: var(--space-1) 0;
 	}
 
 	.empty-hint {
-		font-size: 0.875rem;
+		font-size: var(--font-size-2);
 		opacity: 0.7;
 	}
 
-	.conversations-list {
+	.conversations-list,
+	.users-list {
 		display: flex;
 		flex-direction: column;
 		gap: 0;
-		overflow-y: auto;
 	}
 
 	.conversation-item {
 		display: flex;
 		align-items: center;
-		padding: 0.75rem 0.5rem;
+		padding: var(--space-3) var(--space-2);
 		background: transparent;
 		border: none;
-		border-bottom: none;
 		cursor: pointer;
-		transition: all 0.15s;
-		gap: 0.75rem;
+		transition: all var(--duration-fast);
+		gap: var(--space-3);
 		text-align: left;
-		margin: 0 0.5rem;
-		border-radius: 4px;
+		margin: 0 var(--space-2);
+		border-radius: var(--radius-sm);
 	}
 
 	.conversation-item:hover {
-		background: var(--accent-muted);
+		background: rgba(var(--color-accent-primary-rgb), var(--opacity-10));
 	}
 
 	.conversation-avatar {
 		flex-shrink: 0;
 		width: 36px;
 		height: 36px;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		overflow: hidden;
 		position: relative;
 	}
 
-	.conversation-avatar img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
+	.conversation-avatar img,
 	.avatar-placeholder {
 		width: 100%;
 		height: 100%;
+		object-fit: cover;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		color: white;
-		font-weight: 600;
-		font-size: 0.75rem;
+		font-weight: var(--font-weight-semibold);
+		font-size: var(--font-size-1);
 	}
 
 	.conversation-info {
@@ -381,37 +388,30 @@
 	}
 
 	.conversation-name {
-		font-weight: 500;
-		color: var(--text-primary);
-		font-size: 0.9rem;
-		line-height: 1.2;
+		font-weight: var(--font-weight-medium);
+		color: var(--color-text-primary);
+		font-size: var(--font-size-2);
+		line-height: var(--line-height-tight);
 	}
 
 	.conversation-preview {
 		font-size: 0.8rem;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		line-height: 1.2;
-	}
-
-	.users-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0;
-		overflow-y: auto;
+		line-height: var(--line-height-tight);
 	}
 
 	.user-item {
 		display: flex;
 		align-items: center;
-		padding: 0.625rem 1rem;
-		gap: 0.75rem;
-		transition: background 0.1s ease-in-out;
+		padding: var(--space-2) var(--space-4);
+		gap: var(--space-3);
+		transition: background var(--duration-fast) ease-in-out;
 	}
 	.user-item:hover {
-		background: var(--bg-tertiary);
+		background: var(--color-background-tertiary);
 	}
 
 	.user-avatar-btn {
@@ -422,25 +422,21 @@
 		cursor: pointer;
 		width: 32px;
 		height: 32px;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		overflow: hidden;
 	}
 
-	.user-avatar {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
+	.user-avatar,
 	.user-avatar-placeholder {
 		width: 100%;
 		height: 100%;
+		object-fit: cover;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		color: white;
-		font-weight: 600;
-		font-size: 0.75rem;
+		font-weight: var(--font-weight-semibold);
+		font-size: var(--font-size-1);
 	}
 
 	.user-info-btn {
@@ -450,41 +446,41 @@
 		padding: 0;
 		cursor: pointer;
 		text-align: left;
-		transition: all 0.2s;
-		color: var(--text-primary);
+		transition: all var(--duration-fast);
+		color: var(--color-text-primary);
 	}
 
 	.user-info-btn:hover .user-name {
-		color: var(--accent);
+		color: var(--color-accent-primary);
 	}
 
 	.user-name {
-		font-weight: 500;
-		margin-bottom: 0.125rem;
+		font-weight: var(--font-weight-medium);
+		margin-bottom: var(--space-1);
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		transition: color 0.1s ease-in-out;
+		gap: var(--space-2);
+		transition: color var(--duration-fast) ease-in-out;
 	}
 
 	.you-badge {
-		font-size: 0.75rem;
-		color: var(--text-secondary);
-		font-weight: normal;
+		font-size: var(--font-size-1);
+		color: var(--color-text-secondary);
+		font-weight: var(--font-weight-regular);
 	}
 
 	.user-status {
-		font-size: 0.75rem;
-		color: var(--text-secondary);
+		font-size: var(--font-size-1);
+		color: var(--color-text-secondary);
 		display: flex;
 		align-items: center;
-		gap: 0.375rem;
+		gap: 6px; /* 0.375rem */
 	}
 
 	.status-dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
+		width: var(--space-2);
+		height: var(--space-2);
+		border-radius: var(--radius-full);
 		display: inline-block;
 	}
 

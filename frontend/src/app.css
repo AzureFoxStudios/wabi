@@ -1,219 +1,261 @@
-* {
-	margin: 0;
-	padding: 0;
-	box-sizing: border-box;
+:root {
+	/* ==========================================================================
+	   1. DESIGN TOKENS
+	   ========================================================================== */
+
+	/* --------------------------------------------------------------------------
+	   COLOR SYSTEM
+	   - Naming convention: --color-[category]-[name]
+	   - Includes RGB variants for use with rgba() for opacity.
+	   -------------------------------------------------------------------------- */
+
+	/* -- Base Palette (Nebula Cosmic Theme) -- */
+	--color-background-primary: #1a1a2e; /* Deep cosmic blue for main surfaces */
+	--color-background-primary-rgb: 26, 26, 46;
+
+	--color-background-secondary: #24243e; /* Raised surfaces like sidebars */
+	--color-background-secondary-rgb: 36, 36, 62;
+
+	--color-background-tertiary: #302b63; /* Hover states, interactive elements */
+	--color-background-tertiary-rgb: 48, 43, 99;
+
+	--color-text-primary: #e0e0ff; /* Main content text */
+	--color-text-primary-rgb: 224, 224, 255;
+
+	--color-text-secondary: #b3b3ff; /* Supporting info, timestamps */
+	--color-text-secondary-rgb: 179, 179, 255;
+
+	--color-text-tertiary: #9999ff; /* Placeholders, disabled text */
+	--color-text-tertiary-rgb: 153, 153, 255;
+	
+	--color-border-primary: #302b63; /* Primary border color */
+	--color-border-primary-rgb: 48, 43, 99;
+
+	/* -- Accent Palette -- */
+	--color-accent-primary: #ff00ff; /* Magenta for main CTAs and links */
+	--color-accent-primary-rgb: 255, 0, 255;
+
+	--color-accent-secondary: #ff69b4; /* Hot pink for hover and secondary accents */
+	--color-accent-secondary-rgb: 255, 105, 180;
+
+	--color-accent-gradient: linear-gradient(to right, var(--color-accent-primary), var(--color-accent-secondary));
+	
+	/* -- Semantic Palette -- */
+	--color-status-success: #00ff7f; /* Success states, online indicators */
+	--color-status-success-rgb: 0, 255, 127;
+	
+	--color-status-warning: #ffd700; /* Warnings, away status */
+	--color-status-warning-rgb: 255, 215, 0;
+
+	--color-status-danger: #ff1493; /* Errors, destructive actions */
+	--color-status-danger-rgb: 255, 20, 147;
+
+	--color-status-info: #00bfff; /* Informational messages */
+	--color-status-info-rgb: 0, 191, 255;
+
+	--color-status-neutral: #708090; /* Neutral/offline status */
+	--color-status-neutral-rgb: 112, 128, 144;
+
+
+	/* --------------------------------------------------------------------------
+	   TYPOGRAPHY
+	   - Font sizes based on a modular scale.
+	   - Weights and line heights for consistent text styling.
+	   -------------------------------------------------------------------------- */
+	
+	/* -- Font Families -- */
+	--font-family-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+	--font-family-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', Monaco, monospace;
+
+	/* -- Font Sizes (Modular Scale) -- */
+	--font-size-1: 0.75rem;  /* 12px */
+	--font-size-2: 0.875rem; /* 14px */
+	--font-size-3: 1rem;     /* 16px (base) */
+	--font-size-4: 1.125rem; /* 18px */
+	--font-size-5: 1.25rem;  /* 20px */
+	--font-size-6: 1.5rem;   /* 24px */
+
+	/* -- Font Weights -- */
+	--font-weight-regular: 400;
+	--font-weight-medium: 500;
+	--font-weight-semibold: 600;
+	--font-weight-bold: 700;
+
+	/* -- Line Heights -- */
+	--line-height-tight: 1.25;
+	--line-height-normal: 1.5;
+	--line-height-relaxed: 1.75;
+
+	/* --------------------------------------------------------------------------
+	   SPACING
+	   - 4px base unit. --space-1 = 4px, --space-2 = 8px, etc.
+	   -------------------------------------------------------------------------- */
+	
+	--space-1: 0.25rem;  /* 4px */
+	--space-2: 0.5rem;   /* 8px */
+	--space-3: 0.75rem;  /* 12px */
+	--space-4: 1rem;     /* 16px */
+	--space-5: 1.25rem;  /* 20px */
+	--space-6: 1.5rem;   /* 24px */
+	--space-8: 2rem;     /* 32px */
+	--space-10: 2.5rem;  /* 40px */
+	--space-12: 3rem;    /* 48px */
+	--space-16: 4rem;    /* 64px */
+
+	/* --------------------------------------------------------------------------
+	   BORDERS & RADII
+	   -------------------------------------------------------------------------- */
+
+	/* -- Border Widths -- */
+	--border-width-sm: 1px;
+	--border-width-md: 2px;
+	
+	/* -- Radii -- */
+	--radius-sm: 4px;
+	--radius-md: 8px;
+	--radius-lg: 16px;
+	--radius-full: 9999px;
+
+	/* --------------------------------------------------------------------------
+	   SHADOWS
+	   - Standardized elevation levels.
+	   -------------------------------------------------------------------------- */
+
+	--shadow-color-rgb: 0, 0, 0; /* Using black for shadows for now */
+	--shadow-sm: 0 1px 2px 0 rgba(var(--shadow-color-rgb), 0.1);
+	--shadow-md: 0 4px 6px -1px rgba(var(--shadow-color-rgb), 0.1), 0 2px 4px -1px rgba(var(--shadow-color-rgb), 0.06);
+	--shadow-lg: 0 10px 15px -3px rgba(var(--shadow-color-rgb), 0.1), 0 4px 6px -2px rgba(var(--shadow-color-rgb), 0.05);
+	--shadow-focus-ring: 0 0 0 3px rgba(var(--color-accent-primary-rgb), 0.4);
+
+	/* --------------------------------------------------------------------------
+	   MOTION & TRANSITIONS
+	   -------------------------------------------------------------------------- */
+	--duration-fast: 150ms;
+	--duration-normal: 250ms;
+	--ease-out: cubic-bezier(0, 0, 0.2, 1);
+	--ease-in: cubic-bezier(0.4, 0, 1, 1);
+	--ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+	/* --------------------------------------------------------------------------
+	   OPACITY
+	   -------------------------------------------------------------------------- */
+	--opacity-10: 0.1;
+	--opacity-25: 0.25;
+	--opacity-50: 0.5;
+	--opacity-75: 0.75;
 }
 
-:root {
-	/* === NEBULA COSMIC THEME === */
-	/* Unified left-to-right gradients for a space nebula vibe—purples, blues, pinks fading like interstellar clouds. Deep cosmic depths with starry accents. */
+/* ==========================================================================
+   2. GLOBAL BASE STYLES
+   ========================================================================== */
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+}
 
-	/* === OPACITY VARIABLES === */
-	--opacity-subtle: 0.1;
-	--opacity-light: 0.15;
-	--opacity-medium: 0.25;
-	--opacity-strong: 0.5;
-	--opacity-heavy: 0.75;
-
-	/* Main backgrounds - Ethereal nebula gradients */
-	--bg-primary: linear-gradient(to right, #0f0c29 0%, #302b63 100%);  /* Deep space purple fade for main app */
-	--bg-primary-rgb: 15, 12, 41;
-	--bg-secondary: #1a1a2e;  /* Deep cosmic background for modals/panels */
-	--bg-secondary-rgb: 26, 26, 46;
-	--bg-tertiary: #24243e;  /* Solid dark indigo for sidebars */
-	--bg-tertiary-rgb: 36, 36, 62;
-	--bg-hover: #302b63;  /* Solid hover in mid-purple */
-	--bg-hover-rgb: 48, 43, 99;
-
-	/* Text colors - Starlight contrasts */
-	--text-primary: #e0e0ff;  /* Pale lavender (high contrast on dark) */
-	--text-primary-rgb: 224, 224, 255;
-	--text-secondary: #b3b3ff;  /* Soft blue-purple */
-	--text-secondary-rgb: 179, 179, 255;
-	--text-tertiary: #9999ff;  /* Muted violet */
-	--text-tertiary-rgb: 153, 153, 255;
-
-	/* Accent - Pulsing nebula energy */
-	--accent: linear-gradient(to right, #ff00ff 0%, #ff69b4 100%);  /* Magenta to hot pink glow */
-	--accent-hex: #ff00ff;
-	--accent-rgb: 255, 0, 255;
-	--accent-hover: linear-gradient(to right, #ff69b4 0%, #ff1493 100%);  /* Hot pink to deep magenta pulse */
-
-	/* Borders - Glowing cosmic edges */
-	--border: none;
-
-	/* Status colors - Celestial phenomena */
-	--status-online: #00ff7f;  /* Spring green (comet trail) */
-	--status-online-rgb: 0, 255, 127;
-	--status-online-hover: #00fa9a;
-	--status-away: #ffd700;  /* Gold (distant star) */
-	--status-away-rgb: 255, 215, 0;
-	--status-away-hover: #ffc300;
-	--status-busy: #ff0000;  /* Red (danger zone) */
-	--status-busy-rgb: 255, 0, 0;
-	--status-busy-hover: #cc0000;
-	--status-offline: #708090;  /* Slate gray (void) */
-	--status-offline-rgb: 112, 128, 144;
-
-	/* Uniform Font Mode - Default values */
-	--uniform-font-family: inherit;
-	--uniform-font-size: inherit;
-	--uniform-font-weight: inherit;
-	--uniform-font-style: inherit;
-
-	/* Semantic colors - Galactic alerts */
-	--color-success: #00ff7f;  /* Green success flare */
-	--color-success-rgb: 0, 255, 127;
-	--color-success-hover: #00fa9a;
-	--color-info: #00bfff;  /* Deep sky blue info */
-	--color-info-rgb: 0, 191, 255;
-	--color-info-hover: #1e90ff;
-	--color-warning: #ffd700;  /* Gold warning */
-	--color-warning-rgb: 255, 215, 0;
-	--color-warning-hover: #ffc300;
-	--color-danger: #ff0000;  /* Red danger */
-	--color-danger-rgb: 255, 0, 0;
-	--color-danger-hover: #cc0000;
-	--color-danger-dark: #990000;
-
-	/* Modal/Dialog colors - Starfield clarity */
-	--modal-bg: #0f0c29;  /* Deep space for modals */
-	--modal-bg-rgb: 15, 12, 41;
-	--modal-overlay: rgba(48, 43, 99, 0.7);  /* Purple haze overlay */
-	--modal-overlay-rgb: 48, 43, 99;
-	--modal-overlay-opacity: 0.7;
-	--modal-border: none;
-	--modal-header-bg: #24243e;
-	--modal-header-bg-rgb: 36, 36, 62;
-	--modal-text: #e0e0ff;  /* Starlight text */
-	--modal-text-rgb: 224, 224, 255;
-	--modal-text-secondary: #b3b3ff;
-	--modal-text-secondary-rgb: 179, 179, 255;
-	--modal-text-muted: #9999ff;
-	--modal-text-muted-rgb: 153, 153, 255;
-
-	/* UI element colors - Cosmic dust */
-	--ui-bg-light: #302b63;
-	--ui-bg-light-rgb: 48, 43, 99;
-	--ui-bg-lighter: #24243e;
-	--ui-bg-lighter-rgb: 36, 36, 62;
-	--ui-border-light: none;
-	--ui-border: none;
-	--ui-text: #b3b3ff;
-	--ui-text-rgb: 179, 179, 255;
-	--ui-text-dark: #e0e0ff;
-	--ui-text-dark-rgb: 224, 224, 255;
-
-	/* Background Image Variables - Customizable chat background */
-	--background-image-url: none;
-	--background-image-opacity: 1;
-	--background-image-blur: 0px;
-	--background-image-size: cover;
-	--background-image-position: center;
-	--background-image-repeat: no-repeat;
-	--background-image-blend: normal;
-
-	/* Pinned messages theme - Supernova highlights */
-	--pinned-bg: #4b0082;
-	--pinned-bg-rgb: 75, 0, 130;
-	--pinned-bg-hover: #6a1b9a;
-	--pinned-bg-hover-rgb: 106, 27, 154;
-	--pinned-border: none;
-	--pinned-text: #e0e0ff;
-	--pinned-text-rgb: 224, 224, 255;
-	--pinned-text-dark: #ff00ff;
-	--pinned-text-dark-rgb: 255, 0, 255;
-	--pinned-text-secondary: #ee82ee;
-	--pinned-text-secondary-rgb: 238, 130, 238;
-
-	/* Special backgrounds - Nebula variations */
-	--bg-info-light: #302b63;
-	--bg-info-light-rgb: 48, 43, 99;
-	--bg-info-lighter: #24243e;
-	--bg-info-lighter-rgb: 36, 36, 62;
-	--bg-warning-light: #4b0082;
-	--bg-warning-light-rgb: 75, 0, 130;
-
-	/* Shadow colors - Black hole pulls */
-	--shadow-rgb: 123, 104, 238;
-	--shadow-sm: rgba(var(--shadow-rgb), var(--opacity-subtle));
-	--shadow-md: rgba(var(--shadow-rgb), var(--opacity-light));
-	--shadow-lg: rgba(var(--shadow-rgb), var(--opacity-medium));
-
-	/* Dark theme - Even deeper void */
-	--dark-bg-primary: #000000;
-	--dark-bg-primary-rgb: 0, 0, 0;
-	--dark-bg-secondary: #0f0c29;
-	--dark-bg-secondary-rgb: 15, 12, 41;
-
-	/* Error state */
-	--error: #ff1493;  /* Deep pink error flash */
-	--error-rgb: 255, 20, 147;
-
-	/* Priority colors - Used across task/kanban systems */
-	--priority-urgent: #ef4444;
-	--priority-urgent-rgb: 239, 68, 68;
-	--priority-high: #f97316;
-	--priority-high-rgb: 249, 115, 22;
-	--priority-medium: #eab308;
-	--priority-medium-rgb: 234, 179, 8;
-	--priority-low: #22c55e;
-	--priority-low-rgb: 34, 197, 94;
-
-	/* === GRADIENT VARIABLES (Phase 2) === */
-
-	/* Main app gradients - Already defined, but listed for reference */
-	/* --bg-primary: linear-gradient(to right, #0f0c29 0%, #302b63 100%); */
-	/* --accent: linear-gradient(to right, #ff00ff 0%, #ff69b4 100%); */
-	/* --accent-hover: linear-gradient(to right, #ff69b4 0%, #ff1493 100%); */
-
-	/* Component gradients - UI elements */
-	--gradient-dialog-dark: linear-gradient(135deg, #1a1535 0%, #2a2050 100%);
-	--gradient-fade-bottom-dark: linear-gradient(to bottom, rgba(36, 36, 62, 0.8), rgba(26, 26, 46, 0.6));
-	--gradient-fade-right-transparent: linear-gradient(to right, transparent, var(--bg-secondary));
-	--gradient-line-glow: linear-gradient(90deg, transparent, rgba(123, 104, 238, 0.1), transparent);
-	--gradient-fade-top-dark: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
-
-	/* Accent highlight gradients - For messages/highlights */
-	--gradient-accent-subtle: linear-gradient(135deg, rgba(255, 0, 255, 0.1) 0%, rgba(255, 105, 180, 0.1) 100%);
-	--gradient-accent-medium: linear-gradient(135deg, rgba(255, 0, 255, 0.25) 0%, rgba(255, 105, 180, 0.25) 100%);
-	--gradient-accent-subtle-alt: linear-gradient(135deg, rgba(88, 101, 242, 0.05), rgba(88, 101, 242, 0.02));
-
-	/* Scrollbar gradients */
-	--gradient-scrollbar: linear-gradient(to bottom, #7b68ee 0%, #9370db 100%);
-	--gradient-scrollbar-hover: linear-gradient(to bottom, #9370db 0%, #8a2be2 100%);
-
-	/* Loading screen gradient - Dark mode */
-	--gradient-loading-dark: linear-gradient(135deg, var(--dark-bg-primary) 0%, var(--dark-bg-secondary) 100%);
-
-	/* Business hub gradients - Professional dashboard */
-	--gradient-loading-business: linear-gradient(135deg, #0f0f13 0%, #1a1a1e 100%);
+html {
+	font-size: 16px; /* Sets the base for rem units */
 }
 
 body {
-	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-	background: var(--bg-primary);
-	color: var(--text-primary);
+	font-family: var(--font-family-sans);
+	background-color: var(--color-background-primary);
+	color: var(--color-text-primary);
 	overflow: hidden;
 }
 
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+	font-weight: var(--font-weight-semibold);
+	line-height: var(--line-height-tight);
+}
+
+h1 { font-size: var(--font-size-6); }
+h2 { font-size: var(--font-size-5); }
+h3 { font-size: var(--font-size-4); }
+
+/* Paragraphs and Links */
+p {
+	margin-bottom: var(--space-4);
+	line-height: var(--line-height-normal);
+}
+
+a {
+	color: var(--color-accent-primary);
+	text-decoration: none;
+	transition: color var(--duration-fast) ease-out;
+}
+a:hover {
+	color: var(--color-accent-secondary);
+	text-decoration: underline;
+}
+
+/* Focus visible standard */
+*:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus-ring);
+}
+
+/* ==========================================================================
+   3. SCROLLBAR STYLES
+   ========================================================================== */
+::-webkit-scrollbar {
+	width: var(--space-2);
+	height: var(--space-2);
+}
+
+::-webkit-scrollbar-track {
+	background: rgba(var(--color-background-primary-rgb), var(--opacity-50));
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--color-background-tertiary);
+	border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: var(--color-accent-primary);
+}
+
+/* ==========================================================================
+   4. UTILITY CLASSES (Optional)
+   ========================================================================== */
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border-width: 0;
+}
+
+/* ==========================================================================
+   5. COMPONENT-SPECIFIC BASE STYLES (Refactored to use new tokens)
+   ========================================================================== */
+
 button {
-	background: var(--accent);
-	color: white;
+	background: var(--color-accent-gradient);
+	color: var(--color-text-primary); /* Assuming white/light text on accent */
 	border: none;
-	padding: 0.5rem 1rem;
-	border-radius: 0px;
+	padding: var(--space-2) var(--space-4);
+	border-radius: var(--radius-sm);
 	cursor: pointer;
-	font-size: 0.9rem;
-	font-weight: 500;
-	transition: all 0.2s;
+	font-size: var(--font-size-2);
+	font-weight: var(--font-weight-medium);
+	transition: all var(--duration-fast);
 	box-shadow: none;
 }
 
 button:hover {
-	background: var(--accent-hover);
+	background: var(--color-accent-secondary); /* or a darker accent gradient */
 	transform: translateY(-1px);
-	box-shadow: none;
+	box-shadow: var(--shadow-sm); /* Subtle lift */
 }
 
 button:active {
@@ -222,81 +264,62 @@ button:active {
 }
 
 button:disabled {
-	opacity: 0.5;
+	opacity: var(--opacity-50);
 	cursor: not-allowed;
 	transform: none;
 }
 
 input, textarea {
-	background: var(--ui-bg-lighter);
-	color: var(--text-primary);
-	border: none;
-	padding: 0.625rem;
-	border-radius: 0px;
-	font-size: 0.9rem;
-	transition: all 0.2s;
+	background: var(--color-background-tertiary);
+	color: var(--color-text-primary);
+	border: 1px solid var(--color-border-primary);
+	padding: var(--space-2);
+	border-radius: var(--radius-sm);
+	font-size: var(--font-size-2);
+	transition: all var(--duration-fast);
 }
 
 input:focus, textarea:focus {
 	outline: none;
-	border: none;
-	box-shadow: none;
+	border-color: var(--color-accent-primary);
+	box-shadow: var(--shadow-focus-ring);
 }
 
 .input-container textarea::placeholder {
-	color: var(--text-secondary);
+	color: var(--color-text-secondary);
 }
 
 .input-container .send-button {
-	background: var(--accent);
-	color: white;
-	padding: 0.5rem 1rem;
-	border-radius: 0px;
-	font-size: 0.9rem;
-	font-weight: 500;
+	background: var(--color-accent-gradient);
+	color: var(--color-text-primary);
+	padding: var(--space-2) var(--space-4);
+	border-radius: var(--radius-sm);
+	font-size: var(--font-size-2);
+	font-weight: var(--font-weight-medium);
 }
 
 .input-container .send-button:disabled {
-	opacity: 0.4;
-}
-
-/* Scrollbar theming - Cosmic styled */
-::-webkit-scrollbar {
-	width: 10px;
-	height: 10px;
-}
-
-::-webkit-scrollbar-track {
-	background: var(--ui-bg-light);
-}
-
-::-webkit-scrollbar-thumb {
-	background: var(--gradient-scrollbar);
-	border-radius: 5px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-	background: var(--gradient-scrollbar-hover);
+	opacity: var(--opacity-50);
 }
 
 /* Spoiler styling - Nebula reveal mystery */
 .spoiler {
-	background: var(--text-primary);
+	background: var(--color-text-primary); /* Hidden text background */
 	color: transparent;
-	padding: 0.125rem 0.25rem;
-	border-radius: 4px;
+	padding: var(--space-1) var(--space-2);
+	border-radius: var(--radius-sm);
 	cursor: pointer;
 	user-select: none;
-	transition: all 0.3s ease;
+	transition: all var(--duration-normal) ease;
 }
 
 .spoiler:hover {
-	background: var(--text-secondary);
+	background: var(--color-text-secondary);
 }
 
 .spoiler.revealed {
-	background: var(--ui-bg-light);
-	color: var(--text-primary);
+	background: var(--color-background-secondary);
+	color: var(--color-text-primary);
 	user-select: text;
 	cursor: text;
 }
@@ -328,13 +351,14 @@ input:focus, textarea:focus {
 /* Generic Avatar styles */
 .avatar, .avatar-placeholder, .profile-picture, .user-avatar, .dm-avatar, .dm-list-avatar {
     aspect-ratio: 1 / 1;
-    border-radius: 50%;
+    border-radius: var(--radius-full);
     object-fit: cover;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
 }
+
 /* --- Responsive Design for Mobile --- */
 
 /* On screens 768px or less, apply these mobile-first styles */
@@ -360,7 +384,7 @@ input:focus, textarea:focus {
         width: 100%;
         height: 100%;
         z-index: 200;
-        background: var(--bg-primary);
+        background: var(--color-background-primary);
     }
     
     /* When the DM panel is toggled, make it a full-screen overlay */
@@ -372,7 +396,7 @@ input:focus, textarea:focus {
         width: 100%;
         height: 100%;
         z-index: 200;
-        background: var(--bg-primary);
+        background: var(--color-background-primary);
     }
 
 	/* Main content should take up all available space */
@@ -395,22 +419,22 @@ input:focus, textarea:focus {
 	/* Adjust the business hub button for mobile */
 	.business-hub-btn {
 		left: auto;
-		right: 20px;
-		bottom: 20px;
+		right: var(--space-5);
+		bottom: var(--space-5);
 		/* Make it a bit smaller */
-		padding: 0.5rem 0.8rem;
-		font-size: 0.8rem;
+		padding: var(--space-2) var(--space-3);
+		font-size: var(--font-size-2);
 	}
 
     /* Make the PureRef button less intrusive on mobile */
     .pureref-button-container {
-        bottom: 10px;
-        right: 10px;
+        bottom: var(--space-3);
+        right: var(--space-3);
     }
 
     .pureref-button-container button {
-        padding: 0.4rem 0.8rem;
-        font-size: 0.8rem;
+        padding: var(--space-1) var(--space-2);
+        font-size: var(--font-size-2);
     }
 }
 
@@ -418,91 +442,19 @@ input:focus, textarea:focus {
 @media (max-width: 480px) {
 	/* Reduce padding and font sizes for tiny screens */
 	button {
-		padding: 0.4rem 0.8rem;
-		font-size: 0.8rem;
+		padding: var(--space-1) var(--space-2);
+		font-size: var(--font-size-2);
 	}
 
 	input, textarea {
-		padding: 0.5rem;
-		font-size: 0.85rem;
+		padding: var(--space-2);
+		font-size: var(--font-size-2);
 	}
 
     .business-hub-btn {
-        right: 10px;
-        bottom: 10px;
+        right: var(--space-3);
+        bottom: var(--space-3);
     }
-}
-
-/* ========== RGBA UTILITY CLASSES (Phase 1 Standardization) ========== */
-
-/* Overlay utilities - Common for modals and overlays */
-.overlay-dark-subtle {
-	background-color: rgba(var(--dark-bg-primary-rgb), var(--opacity-subtle));
-}
-
-.overlay-dark-light {
-	background-color: rgba(var(--dark-bg-primary-rgb), var(--opacity-light));
-}
-
-.overlay-dark-medium {
-	background-color: rgba(var(--dark-bg-primary-rgb), var(--opacity-medium));
-}
-
-.overlay-dark-heavy {
-	background-color: rgba(var(--dark-bg-primary-rgb), var(--opacity-heavy));
-}
-
-/* Modal overlay - Standard overlay for modals */
-.overlay-modal {
-	background-color: rgba(var(--modal-overlay-rgb), var(--modal-overlay-opacity));
-}
-
-/* Background utilities - Semitransparent backgrounds */
-.bg-primary-subtle {
-	background-color: rgba(var(--bg-primary-rgb), var(--opacity-subtle));
-}
-
-.bg-primary-light {
-	background-color: rgba(var(--bg-primary-rgb), var(--opacity-light));
-}
-
-.bg-secondary-subtle {
-	background-color: rgba(var(--bg-secondary-rgb), var(--opacity-subtle));
-}
-
-.bg-secondary-light {
-	background-color: rgba(var(--bg-secondary-rgb), var(--opacity-light));
-}
-
-/* Accent utilities - For accented elements */
-.accent-subtle {
-	background-color: rgba(var(--accent-rgb), var(--opacity-subtle));
-}
-
-.accent-light {
-	background-color: rgba(var(--accent-rgb), var(--opacity-light));
-}
-
-/* Status color utilities */
-.status-online-subtle {
-	background-color: rgba(var(--status-online-rgb), var(--opacity-subtle));
-}
-
-.status-busy-subtle {
-	background-color: rgba(var(--status-busy-rgb), var(--opacity-subtle));
-}
-
-/* Shadow utilities - Now tied to opacity system */
-.shadow-subtle {
-	box-shadow: 0 1px 2px var(--shadow-sm);
-}
-
-.shadow-light {
-	box-shadow: 0 4px 6px var(--shadow-md);
-}
-
-.shadow-medium {
-	box-shadow: 0 10px 15px var(--shadow-lg);
 }
 
 /* ========== GLOBAL MOBILE TOUCH IMPROVEMENTS ========== */
@@ -516,7 +468,7 @@ input:focus, textarea:focus {
 	/* Better touch feedback */
 	button:active,
 	[role="button"]:active {
-		opacity: 0.85;
+		opacity: var(--opacity-75);
 	}
 
 	/* Prevent horizontal scroll */
@@ -545,25 +497,25 @@ input:focus, textarea:focus {
 	input,
 	textarea,
 	select {
-		font-size: 16px !important;
+		font-size: 16px !important; /* Prevents zoom on iOS */
 	}
 }
 
 /* Safe area support for devices with notches/home indicators */
 @supports (padding: env(safe-area-inset-bottom)) {
 	.mobile-bottom-nav {
-		padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+		padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom));
 	}
 
 	.input-wrapper {
-		padding-bottom: calc(0.25rem + env(safe-area-inset-bottom));
+		padding-bottom: calc(var(--space-1) + env(safe-area-inset-bottom));
 	}
 }
 
 /* High contrast mode for accessibility */
 @media (prefers-contrast: high) {
 	:root {
-		--border: 1px solid var(--text-primary);
+		--color-border-primary: 1px solid var(--color-text-primary);
 	}
 }
 
@@ -586,37 +538,37 @@ input:focus, textarea:focus {
 
 /* Channel sidebar - right edge and dividers */
 :root[data-theme='vscode-high-contrast'] .channel-sidebar {
-	border-right: 2px solid #00bfff;
+	border-right: var(--border-width-md) solid var(--color-status-info);
 }
 
 /* Channel list separator */
 :root[data-theme='vscode-high-contrast'] .channel-list {
-	border-top: 2px solid #00bfff;
+	border-top: var(--border-width-md) solid var(--color-status-info);
 }
 
 /* Channel items with left border on hover/active */
 :root[data-theme='vscode-high-contrast'] .channel-item {
-	border-left: 2px solid transparent;
-	transition: border-left-color 0.2s;
+	border-left: var(--border-width-md) solid transparent;
+	transition: border-left-color var(--duration-fast);
 }
 
 :root[data-theme='vscode-high-contrast'] .channel-item:hover,
 :root[data-theme='vscode-high-contrast'] .channel-item.active {
-	border-left-color: #00bfff;
+	border-left-color: var(--color-status-info);
 }
 
 /* Chat header at top */
 :root[data-theme='vscode-high-contrast'] .chat-header {
-	border-bottom: 2px solid #00bfff;
+	border-bottom: var(--border-width-md) solid var(--color-status-info);
 }
 
 /* DM list panel */
 :root[data-theme='vscode-high-contrast'] .dm-list-panel {
-	border-left: 2px solid #00bfff;
+	border-left: var(--border-width-md) solid var(--color-status-info);
 }
 
 :root[data-theme='vscode-high-contrast'] .panel-header {
-	border-bottom: 2px solid #00bfff;
+	border-bottom: var(--border-width-md) solid var(--color-status-info);
 }
 
 :root[data-theme='vscode-high-contrast'] .tab-switcher {
@@ -625,37 +577,37 @@ input:focus, textarea:focus {
 }
 
 :root[data-theme='vscode-high-contrast'] .tab-switcher::after {
-	color: #00bfff;
-	font-size: 1rem;
+	color: var(--color-status-info);
+	font-size: var(--font-size-3);
 }
 
 :root[data-theme='vscode-high-contrast'] .tab-btn {
-	font-size: 0.875rem;
-	color: #ffffff;
+	font-size: var(--font-size-2);
+	color: var(--color-text-primary);
 }
 
 :root[data-theme='vscode-high-contrast'] .tab-btn.active {
-	color: #00bfff;
+	color: var(--color-status-info);
 }
 
 :root[data-theme='vscode-high-contrast'] .tab-btn.active::after {
-	background: #00bfff;
+	background: var(--color-status-info);
 }
 
 :root[data-theme='vscode-high-contrast'] .conversations-list,
 :root[data-theme='vscode-high-contrast'] .users-list {
-	border-top: 1px solid #00bfff;
+	border-top: var(--border-width-sm) solid var(--color-status-info);
 }
 
 :root[data-theme='vscode-high-contrast'] .conversation-item,
 :root[data-theme='vscode-high-contrast'] .user-item {
-	border-left: 2px solid transparent;
-	transition: border-left-color 0.2s;
+	border-left: var(--border-width-md) solid transparent;
+	transition: border-left-color var(--duration-fast);
 }
 
 :root[data-theme='vscode-high-contrast'] .conversation-item:hover,
 :root[data-theme='vscode-high-contrast'] .user-item:hover {
-	border-left-color: #00bfff;
+	border-left-color: var(--color-status-info);
 }
 
 /* Reduced motion for users who prefer it */

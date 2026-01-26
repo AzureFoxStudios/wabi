@@ -105,3 +105,4 @@ export function corsCallback(origin: string | undefined, callback: (err: Error |
 	console.error(`[CORS] Rejected origin: "${origin}". Allowed: [${allowedOrigins.join(', ')}]`);
 	callback(new Error(`Not allowed by CORS: origin "${origin}" not in allowed list`));
 }
+
