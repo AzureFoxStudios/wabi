@@ -107,6 +107,16 @@ CREATE TABLE IF NOT EXISTS user_encryption_keys (
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
+-- Guest access codes for business hub
+CREATE TABLE IF NOT EXISTS guest_codes (
+  code TEXT PRIMARY KEY,
+  description TEXT,
+  created_at INTEGER DEFAULT (strftime('%s', 'now')),
+  created_by INTEGER,
+  is_active INTEGER DEFAULT 1,
+  FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_offline_messages_to_user ON offline_messages(to_user_id, delivered);
@@ -114,3 +124,8 @@ CREATE INDEX IF NOT EXISTS idx_offline_messages_expires_at ON offline_messages(e
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
 CREATE INDEX IF NOT EXISTS idx_resource_visibility_resource ON resource_visibility(resource_id);
+CREATE INDEX IF NOT EXISTS idx_guest_codes_active ON guest_codes(is_active);
+
+-- Initial guest code
+INSERT OR IGNORE INTO guest_codes (code, description, is_active)
+VALUES ('VIP2026', 'Default VIP guest access code', 1);

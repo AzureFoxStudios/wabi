@@ -95,6 +95,7 @@ export async function pushToServer(): Promise<boolean> {
 		isSyncing = true;
 		const serverUrl = getServerUrl();
 		const token = browser ? localStorage.getItem('authToken') : null;
+		const guestCode = browser ? sessionStorage.getItem('guestAccessCode') : null;
 
 		const data = {
 			todos: get(todos),
@@ -116,7 +117,8 @@ export async function pushToServer(): Promise<boolean> {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
-					...(token ? { 'Authorization': `Bearer ${token}` } : {})
+					...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+					...(guestCode && !token ? { 'X-Guest-Code': guestCode } : {})
 				},
 				body: JSON.stringify(data),
 				signal: controller.signal

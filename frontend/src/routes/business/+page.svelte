@@ -2,6 +2,7 @@
 	import { get } from 'svelte/store';
 	import { onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
+	import { browser } from '$app/environment';
 	import '$lib/business/theme.css';
 	import { todos, projects, calendarEvents, diaryEntries, sprints, kanbanColumns, todaysTodos, overdueTodos } from '$lib/business/store';
 	import Calendar from '$lib/components/business/Calendar.svelte';
@@ -12,6 +13,7 @@
 	import BusinessPrivacyToggle from '$lib/components/BusinessPrivacyToggle.svelte';
 	import PinnedChannelsSidebar from '$lib/components/PinnedChannelsSidebar.svelte';
 	import Chat from '$lib/components/Chat.svelte';
+	import GuestCodePrompt from '$lib/components/GuestCodePrompt.svelte';
 	import { pinnedChannels, channels, currentChannel, joinChannel } from '$lib/socket';
 
 	type MainView = 'calendar' | 'journal' | 'projects' | 'kanban';
@@ -25,9 +27,32 @@
 	let showChatPanel = true;
 	let chatPanelExpanded = false;
 
+	// Guest access state
+	let isGuest = false;
+	let hasGuestAccess = false;
+	let showGuestPrompt = false;
+	let guestReadOnly = false;
+
 	onMount(() => {
 		// Hide loading screen now that we're hydrated
 		showLoadingScreen = false;
+
+		// Check if user is guest
+		if (browser) {
+			const authToken = localStorage.getItem('authToken');
+			isGuest = !authToken;
+
+			if (isGuest) {
+				// Check if guest has verified code in session
+				const guestCode = sessionStorage.getItem('guestAccessCode');
+				hasGuestAccess = !!guestCode;
+
+				// Show prompt if no code
+				if (!hasGuestAccess) {
+					showGuestPrompt = true;
+				}
+			}
+		}
 
 		// Restore the last active view from localStorage
 		const savedView = localStorage.getItem('businessHubView') as MainView;
@@ -41,6 +66,16 @@
 			// ProjectsView will handle restoration through its own mechanism
 		}
 	});
+
+	function handleGuestVerified() {
+		hasGuestAccess = true;
+		guestReadOnly = false;
+	}
+
+	function handleGuestReadOnly() {
+		hasGuestAccess = false;
+		guestReadOnly = true;
+	}
 
 	// Save the active view whenever it changes
 	$: if (typeof window !== 'undefined') {
@@ -139,6 +174,12 @@
 {#if showLoadingScreen}
 	<div class="loading-screen" transition:fade={{ duration: 400 }}></div>
 {/if}
+
+<GuestCodePrompt
+	bind:show={showGuestPrompt}
+	on:verified={handleGuestVerified}
+	on:readonly={handleGuestReadOnly}
+/>
 
 <div class="dashboard">
 	<!-- Top Header Bar -->
@@ -278,6 +319,13 @@
 	</header>
 
 	<!-- Main Content Area -->
+	<!-- Read-only banner for guests -->
+	{#if guestReadOnly}
+		<div class="read-only-banner">
+			👁️ Viewing in read-only mode. <button class="banner-link" on:click={() => showGuestPrompt = true}>Enter access code</button> to create/edit.
+		</div>
+	{/if}
+
 	<div class="dashboard-body">
 		<!-- Left Pinned Channels Sidebar -->
 		{#if $pinnedChannels.length > 0}
@@ -288,13 +336,13 @@
 
 		<main class="main-content" class:panel-open={showTaskPanel}>
 			{#if activeView === 'calendar'}
-				<Calendar />
+				<Calendar isReadOnly={isGuest && !hasGuestAccess} />
 			{:else if activeView === 'journal'}
-				<DiaryView />
+				<DiaryView isReadOnly={isGuest && !hasGuestAccess} />
 			{:else if activeView === 'projects'}
-				<ProjectsView />
+				<ProjectsView isReadOnly={isGuest && !hasGuestAccess} />
 			{:else if activeView === 'kanban'}
-				<KanbanBoard {showTaskPanel} {taskPanelWidth} />
+				<KanbanBoard {showTaskPanel} {taskPanelWidth} isReadOnly={isGuest && !hasGuestAccess} />
 			{/if}
 		</main>
 
@@ -535,6 +583,32 @@
 		background: var(--biz-accent, #f59e0b);
 		border-color: var(--biz-accent, #f59e0b);
 		color: white;
+	}
+
+	/* Read-only banner */
+	.read-only-banner {
+		background: #1e293b;
+		border-bottom: 1px solid #334155;
+		padding: 0.75rem 1.5rem;
+		text-align: center;
+		color: #94a3b8;
+		font-size: 0.9rem;
+		flex-shrink: 0;
+	}
+
+	.banner-link {
+		background: none;
+		border: none;
+		color: #f59e0b;
+		text-decoration: underline;
+		cursor: pointer;
+		padding: 0;
+		font-size: inherit;
+		font-weight: 600;
+	}
+
+	.banner-link:hover {
+		color: #fbbf24;
 	}
 
 	/* Body */

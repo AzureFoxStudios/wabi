@@ -12,6 +12,9 @@
 	} from '$lib/business/store';
 	import type { CalendarEvent, Todo } from '$lib/business/types';
 
+	// Props
+	export let isReadOnly = false;
+
 	// Current view state
 	let currentMonth = new Date();
 	let days: Date[] = [];
@@ -32,6 +35,7 @@
 	let formRecurringFrequency: 'daily' | 'weekly' | 'monthly' | 'yearly' = 'weekly';
 	let formRecurringInterval = 1;
 	let formRecurringEndDate = '';
+	let willSign = false;
 
 	const colorOptions = [
 		'#5865f2', // Blue
@@ -212,6 +216,7 @@
 		formRecurringFrequency = event.recurring?.frequency || 'weekly';
 		formRecurringInterval = event.recurring?.interval || 1;
 		formRecurringEndDate = event.recurring?.endDate ? formatDateForInput(new Date(event.recurring.endDate)) : '';
+		willSign = !!event.signedBy;
 		showEventModal = true;
 	}
 
@@ -247,6 +252,7 @@
 		formRecurringFrequency = 'weekly';
 		formRecurringInterval = 1;
 		formRecurringEndDate = '';
+		willSign = false;
 		editingEvent = null;
 	}
 
@@ -266,7 +272,8 @@
 			endDate: formEndDate ? new Date(formEndDate).getTime() : undefined,
 			allDay: formAllDay,
 			color: formColor,
-			createdBy: $currentUser?.id || 'unknown'
+			createdBy: $currentUser?.id || 'unknown',
+			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined
 		};
 
 		// Add recurring data if enabled
@@ -316,7 +323,7 @@
 			</div>
 			<div class="header-right">
 				<button class="today-btn" on:click={goToToday}>Today</button>
-				<button class="add-btn" on:click={() => openAddModal()}>+ Add Event</button>
+				<button class="add-btn" on:click={() => openAddModal()} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Add new event'}>+ Add Event</button>
 			</div>
 		</header>
 
@@ -568,6 +575,14 @@
 					</div>
 				</div>
 
+				<!-- Signature checkbox -->
+				<div class="form-group checkbox-group">
+					<label class="checkbox-label">
+						<input type="checkbox" bind:checked={willSign} />
+						<span>Sign this event with my username</span>
+					</label>
+				</div>
+
 				<div class="form-actions">
 					{#if editingEvent}
 						<button type="button" class="delete-btn" on:click={() => handleDelete(editingEvent.id)}>
@@ -624,11 +639,18 @@
 									<div class="event-color" style="background-color: {event.color || '#5865f2'}"></div>
 									<div class="event-details">
 										<span class="event-title">{event.title}</span>
-										{#if event.allDay}
-											<span class="event-time">All day</span>
-										{:else}
-											<span class="event-time">{formatTime(event.startDate)}</span>
-										{/if}
+										<div class="event-meta">
+											{#if event.allDay}
+												<span class="event-time">All day</span>
+											{:else}
+												<span class="event-time">{formatTime(event.startDate)}</span>
+											{/if}
+											{#if event.signedBy}
+												<span class="signature" title="Signed by {event.signedBy}">
+													✍️ {event.signedBy}
+												</span>
+											{/if}
+										</div>
 									</div>
 								</li>
 							{/each}
@@ -658,7 +680,7 @@
 					<p class="empty-message">No events or tasks scheduled</p>
 				{/if}
 
-				<button class="add-event-btn" on:click={() => { closeModal(); openAddModal(new Date($selectedDate)); }}>
+				<button class="add-event-btn" on:click={() => { closeModal(); openAddModal(new Date($selectedDate)); }} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Add event for this day'}>
 					+ Add event for this day
 				</button>
 			</div>
@@ -1284,6 +1306,42 @@
 
 	.submit-btn:active {
 		transform: scale(0.98);
+	}
+
+	.submit-btn:disabled,
+	.add-btn:disabled,
+	.add-event-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.add-btn:disabled:hover,
+	.add-event-btn:disabled:hover {
+		background: none;
+	}
+
+	.checkbox-group {
+		margin-bottom: 0.75rem;
+	}
+
+	.signature {
+		font-size: 0.75rem;
+		color: #f59e0b;
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+		background: rgba(245, 158, 11, 0.1);
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		white-space: nowrap;
+	}
+
+	.event-meta {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+		flex-wrap: wrap;
+		margin-top: 0.25rem;
 	}
 
 	/* Day Detail Modal */

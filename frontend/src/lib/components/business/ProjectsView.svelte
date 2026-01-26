@@ -18,6 +18,9 @@
 	import { onMount } from 'svelte';
 	import GanttChart from './GanttChart.svelte';
 
+	// Props
+	export let isReadOnly = false;
+
 	let selectedProject: Project | null = null;
 	let showProjectModal = false;
 	let showSprintModal = false;
@@ -54,6 +57,10 @@
 	let projectStartDate = '';
 	let projectTargetDate = '';
 	let projectParentId = '';
+	let projectWillSign = false;
+
+	// Sprint form
+	let sprintWillSign = false;
 
 	// Get sub-projects for a parent
 	function getSubProjects(parentId: string): Project[] {
@@ -185,6 +192,7 @@
 			projectStartDate = project.startDate ? new Date(project.startDate).toISOString().split('T')[0] : '';
 			projectTargetDate = project.targetEndDate ? new Date(project.targetEndDate).toISOString().split('T')[0] : '';
 			projectParentId = project.parentId || '';
+			projectWillSign = !!project.signedBy;
 		} else {
 			resetProjectForm();
 			if (parentId) {
@@ -202,6 +210,7 @@
 		projectStartDate = '';
 		projectTargetDate = '';
 		projectParentId = '';
+		projectWillSign = false;
 	}
 
 	function closeProjectModal() {
@@ -220,7 +229,8 @@
 			targetEndDate: projectTargetDate ? new Date(projectTargetDate).getTime() : undefined,
 			status: 'active' as const,
 			createdBy: $currentUser?.id || 'unknown',
-			parentId: projectParentId || undefined
+			parentId: projectParentId || undefined,
+			signedBy: projectWillSign ? ($currentUser?.username || 'Guest') : undefined
 		};
 
 		if (editingProject) {
@@ -257,12 +267,14 @@
 			sprintStartDate = new Date(sprint.startDate).toISOString().split('T')[0];
 			sprintEndDate = new Date(sprint.endDate).toISOString().split('T')[0];
 			sprintGoals = sprint.goals?.join('\n') || '';
+			sprintWillSign = !!sprint.signedBy;
 		} else {
 			editingSprint = null;
 			sprintName = '';
 			sprintStartDate = '';
 			sprintEndDate = '';
 			sprintGoals = '';
+			sprintWillSign = false;
 		}
 		showSprintModal = true;
 	}
@@ -280,7 +292,8 @@
 			startDate: new Date(sprintStartDate).getTime(),
 			endDate: new Date(sprintEndDate).getTime(),
 			goals: sprintGoals ? sprintGoals.split('\n').filter(g => g.trim()) : undefined,
-			status: editingSprint?.status || 'planned'
+			status: editingSprint?.status || 'planned',
+			signedBy: sprintWillSign ? ($currentUser?.username || 'Guest') : undefined
 		};
 
 		if (editingSprint) {
@@ -452,9 +465,9 @@
 					</div>
 				</div>
 				<div class="header-actions">
-					<button class="sub-project-btn" on:click={() => openProjectModal(undefined, selectedProject.id)}>+ Sub-project</button>
-					<button class="edit-btn" on:click={() => openProjectModal(selectedProject)}>Edit</button>
-					<button class="delete-btn" on:click={() => handleDeleteProject(selectedProject)}>Delete</button>
+					<button class="sub-project-btn" on:click={() => openProjectModal(undefined, selectedProject.id)} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Add Sub-project'}>+ Sub-project</button>
+					<button class="edit-btn" on:click={() => openProjectModal(selectedProject)} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Edit'}>Edit</button>
+					<button class="delete-btn" on:click={() => handleDeleteProject(selectedProject)} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Delete'}>Delete</button>
 				</div>
 			</header>
 
@@ -756,6 +769,14 @@
 					</div>
 				</div>
 
+				<!-- Signature checkbox -->
+				<div class="form-group checkbox-group">
+					<label class="checkbox-label">
+						<input type="checkbox" bind:checked={projectWillSign} />
+						<span>Sign this project with my username</span>
+					</label>
+				</div>
+
 				<div class="form-actions">
 					<button type="button" class="cancel-btn" on:click={closeProjectModal}>Cancel</button>
 					<button type="submit" class="submit-btn">
@@ -818,9 +839,17 @@
 					<textarea id="sprintGoals" bind:value={sprintGoals} rows="3" placeholder="Complete user auth&#10;Fix critical bugs&#10;Deploy to staging"></textarea>
 				</div>
 
+				<!-- Signature checkbox -->
+				<div class="form-group checkbox-group">
+					<label class="checkbox-label">
+						<input type="checkbox" bind:checked={sprintWillSign} />
+						<span>Sign this sprint with my username</span>
+					</label>
+				</div>
+
 				<div class="form-actions">
 					{#if editingSprint}
-						<button type="button" class="delete-btn" on:click={() => handleDeleteSprint(editingSprint)}>Delete</button>
+						<button type="button" class="delete-btn" on:click={() => handleDeleteSprint(editingSprint)} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Delete'}>Delete</button>
 					{/if}
 					<div style="flex: 1;"></div>
 					<button type="button" class="cancel-btn" on:click={closeSprintModal}>Cancel</button>
@@ -1843,5 +1872,50 @@
 		.stats-row {
 			grid-template-columns: repeat(2, 1fr);
 		}
+	}
+
+	.submit-btn:disabled,
+	.edit-btn:disabled,
+	.delete-btn:disabled,
+	.sub-project-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.edit-btn:disabled:hover,
+	.delete-btn:disabled:hover,
+	.sub-project-btn:disabled:hover {
+		background: none;
+		color: inherit;
+	}
+
+	.checkbox-group {
+		margin-bottom: 0.75rem;
+	}
+
+	.checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0;
+		cursor: pointer;
+		color: var(--biz-text-secondary, #94a3b8);
+		font-size: 0.95rem;
+	}
+
+	.checkbox-label input[type="checkbox"] {
+		cursor: pointer;
+	}
+
+	.signature {
+		font-size: 0.75rem;
+		color: #f59e0b;
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+		background: rgba(245, 158, 11, 0.1);
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		white-space: nowrap;
 	}
 </style>

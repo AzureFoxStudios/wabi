@@ -16,6 +16,9 @@
 	} from '$lib/business/store';
 	import type { Todo, TodoStatus, KanbanColumn } from '$lib/business/types';
 
+	// Props
+	export let isReadOnly = false;
+
 	let showAddModal = false;
 	let showColumnSettings = false;
 	let editingTodo: Todo | null = null;
@@ -29,6 +32,7 @@
 	let formDueDate = '';
 	let formProjectId = '';
 	let formTags = '';
+	let willSign = false;
 
 	// Filter state
 	let filterStatus: TodoStatus | '' = '';
@@ -43,6 +47,7 @@
 		formDueDate = '';
 		formProjectId = '';
 		formTags = '';
+		willSign = false;
 		editingTodo = null;
 	}
 
@@ -60,6 +65,7 @@
 		formDueDate = todo.dueDate ? new Date(todo.dueDate).toISOString().split('T')[0] : '';
 		formProjectId = todo.projectId || '';
 		formTags = todo.tags?.join(', ') || '';
+		willSign = !!todo.signedBy;
 		showAddModal = true;
 	}
 
@@ -79,7 +85,8 @@
 			dueDate: formDueDate ? new Date(formDueDate).getTime() : undefined,
 			projectId: formProjectId || undefined,
 			tags: formTags ? formTags.split(',').map(t => t.trim()).filter(Boolean) : undefined,
-			createdBy: $currentUser?.id || 'unknown'
+			createdBy: $currentUser?.id || 'unknown',
+			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined
 		};
 
 		if (editingTodo) {
@@ -207,7 +214,7 @@
 			<button class="archive-btn" on:click={handleArchiveOld} title="Archive old completed tasks">
 				📦 Archive Old
 			</button>
-			<button class="add-btn" on:click={openAddModal}>
+			<button class="add-btn" on:click={openAddModal} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Add new task'}>
 				+ Add Task
 			</button>
 		</div>
@@ -286,8 +293,8 @@
 										{todo.priority}
 									</span>
 									<div class="card-actions">
-										<button class="icon-btn" on:click={() => openEditModal(todo)} title="Edit">✏️</button>
-										<button class="icon-btn" on:click={() => handleDelete(todo.id)} title="Delete">🗑️</button>
+										<button class="icon-btn" on:click={() => openEditModal(todo)} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Edit'}>✏️</button>
+										<button class="icon-btn" on:click={() => handleDelete(todo.id)} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Delete'}>🗑️</button>
 									</div>
 								</div>
 								<h4 class="card-title">{todo.title}</h4>
@@ -306,6 +313,11 @@
 												<span class="tag">{tag}</span>
 											{/each}
 										</div>
+									{/if}
+									{#if todo.signedBy}
+										<span class="signature" title="Signed by {todo.signedBy}">
+											✍️ {todo.signedBy}
+										</span>
 									{/if}
 								</div>
 							</div>
@@ -364,8 +376,8 @@
 							</td>
 							<td>
 								<div class="table-actions">
-									<button class="icon-btn" on:click={() => openEditModal(todo)} title="Edit">✏️</button>
-									<button class="icon-btn" on:click={() => handleDelete(todo.id)} title="Delete">🗑️</button>
+									<button class="icon-btn" on:click={() => openEditModal(todo)} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Edit'}>✏️</button>
+									<button class="icon-btn" on:click={() => handleDelete(todo.id)} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Delete'}>🗑️</button>
 								</div>
 							</td>
 						</tr>
@@ -481,6 +493,14 @@
 						bind:value={formTags}
 						placeholder="e.g., bug, feature, urgent"
 					/>
+				</div>
+
+				<!-- Signature checkbox -->
+				<div class="form-group checkbox-group">
+					<label class="checkbox-label">
+						<input type="checkbox" bind:checked={willSign} />
+						<span>Sign this task with my username</span>
+					</label>
 				</div>
 
 				<div class="form-actions">
@@ -1008,6 +1028,49 @@
 
 	.submit-btn:hover {
 		background: #4752c4;
+	}
+
+	.submit-btn:disabled,
+	.add-btn:disabled,
+	.icon-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.icon-btn:disabled:hover {
+		background: none;
+	}
+
+	.checkbox-group {
+		margin-bottom: 0.75rem;
+	}
+
+	.checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0;
+		cursor: pointer;
+		color: var(--text-secondary, #aaa);
+		font-size: 0.95rem;
+	}
+
+	.checkbox-label input[type="checkbox"] {
+		cursor: pointer;
+		width: 18px;
+		height: 18px;
+	}
+
+	.signature {
+		font-size: 0.75rem;
+		color: #f59e0b;
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+		background: rgba(245, 158, 11, 0.1);
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		white-space: nowrap;
 	}
 
 	@media (max-width: 1200px) {

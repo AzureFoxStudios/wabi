@@ -9,6 +9,9 @@
 	} from '$lib/business/store';
 	import type { DiaryEntry } from '$lib/business/types';
 
+	// Props
+	export let isReadOnly = false;
+
 	let selectedDate: Date | null = null;
 	let isEditing = false;
 	let currentEntry: DiaryEntry | null = null;
@@ -19,6 +22,7 @@
 	let formTags = '';
 	let formIsPrivate = false;
 	let formImages: string[] = [];
+	let willSign = false;
 	let fileInput: HTMLInputElement;
 
 	// Image upload handling
@@ -103,6 +107,7 @@
 			formTags = entry.tags?.join(', ') || '';
 			formIsPrivate = entry.isPrivate;
 			formImages = entry.images || [];
+			willSign = !!entry.signedBy;
 		} else {
 			resetForm();
 		}
@@ -114,6 +119,7 @@
 		formTags = '';
 		formIsPrivate = false;
 		formImages = [];
+		willSign = false;
 	}
 
 	function startEditing() {
@@ -131,7 +137,8 @@
 			images: formImages.length > 0 ? formImages : undefined,
 			tags: formTags ? formTags.split(',').map(t => t.trim()).filter(Boolean) : undefined,
 			isPrivate: formIsPrivate,
-			createdBy: $currentUser?.id || 'unknown'
+			createdBy: $currentUser?.id || 'unknown',
+			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined
 		};
 
 		if (currentEntry) {
@@ -232,8 +239,8 @@
 				<div class="header-actions">
 					<button class="today-btn" on:click={goToToday}>Today</button>
 					{#if currentEntry && !isEditing}
-						<button class="edit-btn" on:click={startEditing}>Edit</button>
-						<button class="delete-btn" on:click={handleDelete}>Delete</button>
+						<button class="edit-btn" on:click={startEditing} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Edit'}>Edit</button>
+						<button class="delete-btn" on:click={handleDelete} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Delete'}>Delete</button>
 					{/if}
 				</div>
 			</header>
@@ -384,6 +391,12 @@
 							<input type="checkbox" bind:checked={formIsPrivate} />
 							<span>Private entry</span>
 						</label>
+
+						<!-- Signature checkbox -->
+						<label class="sign-toggle">
+							<input type="checkbox" bind:checked={willSign} />
+							<span>Sign this entry with my username</span>
+						</label>
 					</div>
 
 					<div class="editor-actions">
@@ -452,6 +465,11 @@
 								(edited {new Date(currentEntry.updatedAt).toLocaleDateString()})
 							</span>
 						{/if}
+						{#if currentEntry.signedBy}
+							<span class="signature" title="Signed by {currentEntry.signedBy}">
+								✍️ {currentEntry.signedBy}
+							</span>
+						{/if}
 					</div>
 				</div>
 			{/if}
@@ -459,7 +477,7 @@
 			{#if selectedDate && !currentEntry && !isEditing}
 				<div class="no-entry">
 					<p>No entry for this day</p>
-					<button class="start-writing-btn" on:click={startEditing}>
+					<button class="start-writing-btn" on:click={startEditing} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Start Writing'}>
 						Start Writing
 					</button>
 				</div>
@@ -696,6 +714,47 @@
 	.delete-btn:hover {
 		background: var(--biz-danger, #ef4444);
 		color: white;
+	}
+
+	.edit-btn:disabled,
+	.delete-btn:disabled,
+	.save-btn:disabled,
+	.start-writing-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.edit-btn:disabled:hover,
+	.delete-btn:disabled:hover,
+	.start-writing-btn:disabled:hover {
+		background: none;
+		color: inherit;
+	}
+
+	.signature {
+		font-size: 0.85rem;
+		color: #f59e0b;
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+		background: rgba(245, 158, 11, 0.1);
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		white-space: nowrap;
+	}
+
+	.sign-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0;
+		cursor: pointer;
+		color: var(--biz-text-secondary, #94a3b8);
+		font-size: 0.95rem;
+	}
+
+	.sign-toggle input[type="checkbox"] {
+		cursor: pointer;
 	}
 
 	.diary-content {

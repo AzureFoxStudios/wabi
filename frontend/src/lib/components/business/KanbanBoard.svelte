@@ -17,6 +17,7 @@
 	// Props to track task panel state
 	export let showTaskPanel: boolean = false;
 	export let taskPanelWidth: number = 380;
+	export let isReadOnly: boolean = false;
 
 	// Drag and drop state
 	let draggingTodo: Todo | null = null;
@@ -33,6 +34,7 @@
 	let formPriority: Todo['priority'] = 'medium';
 	let formProjectId: string | null = null;
 	let formDueDate = '';
+	let willSign = false;
 
 	// Filter state
 	let filterProject: string | null = null;
@@ -180,6 +182,7 @@
 		formPriority = todo.priority;
 		formProjectId = todo.projectId || null;
 		formDueDate = todo.dueDate ? new Date(todo.dueDate).toISOString().split('T')[0] : '';
+		willSign = !!todo.signedBy;
 		showAddModal = true;
 	}
 
@@ -195,6 +198,7 @@
 		formPriority = 'medium';
 		formProjectId = null;
 		formDueDate = '';
+		willSign = false;
 	}
 
 	function handleSubmit() {
@@ -207,7 +211,8 @@
 			projectId: formProjectId || undefined,
 			dueDate: formDueDate ? new Date(formDueDate).getTime() : undefined,
 			status: targetColumn,
-			createdBy: $currentUser?.id || 'unknown'
+			createdBy: $currentUser?.id || 'unknown',
+			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined
 		};
 
 		if (editingTodo) {
@@ -353,7 +358,7 @@
 						<h2>{column.label}</h2>
 						<span class="column-count">{(sortedTodosByColumn[column.id] || []).length}</span>
 					</div>
-					<button class="add-card-btn" on:click={() => openAddModal(column.id)} title="Add task">
+					<button class="add-card-btn" on:click={() => openAddModal(column.id)} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Add task'}>
 						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<line x1="12" y1="5" x2="12" y2="19"/>
 							<line x1="5" y1="12" x2="19" y2="12"/>
@@ -502,9 +507,17 @@
 					</div>
 				</div>
 
+				<!-- Signature checkbox -->
+				<div class="form-group checkbox-group">
+					<label class="checkbox-label">
+						<input type="checkbox" bind:checked={willSign} />
+						<span>Sign this task with my username</span>
+					</label>
+				</div>
+
 				<div class="form-actions">
 					{#if editingTodo}
-						<button type="button" class="delete-btn" on:click={() => editingTodo && handleDelete(editingTodo)}>
+						<button type="button" class="delete-btn" on:click={() => editingTodo && handleDelete(editingTodo)} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Delete'}>
 							Delete
 						</button>
 					{/if}
@@ -1073,5 +1086,48 @@
 		.form-row {
 			grid-template-columns: 1fr;
 		}
+	}
+
+	.submit-btn:disabled,
+	.delete-btn:disabled,
+	.add-card-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.delete-btn:disabled:hover,
+	.add-card-btn:disabled:hover {
+		background: none;
+		color: inherit;
+	}
+
+	.checkbox-group {
+		margin-bottom: 0.75rem;
+	}
+
+	.checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0;
+		cursor: pointer;
+		color: var(--biz-text-secondary, #94a3b8);
+		font-size: 0.95rem;
+	}
+
+	.checkbox-label input[type="checkbox"] {
+		cursor: pointer;
+	}
+
+	.signature {
+		font-size: 0.75rem;
+		color: #f59e0b;
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+		background: rgba(245, 158, 11, 0.1);
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		white-space: nowrap;
 	}
 </style>

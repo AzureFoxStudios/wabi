@@ -12,6 +12,7 @@ import { sessionRepository } from "./db/repositories/sessionRepository.js";
 import { offlineMessageRepository } from "./db/repositories/offlineMessageRepository.js";
 import { settingsRepository } from "./db/repositories/settingsRepository.js";
 import { themeRepository } from "./db/repositories/themeRepository.js";
+import { guestCodeRepository } from "./db/repositories/guestCodeRepository.js";
 import { verifyToken } from "./auth/jwt.js";
 import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings } from "./api/authRoutes.js";
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
@@ -768,6 +769,39 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  // Verify guest access code
+  if (url.pathname === "/api/guest/verify-code" && req.method === "POST") {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on('end', () => {
+      try {
+        const { code } = JSON.parse(body);
+
+        if (!code || typeof code !== 'string') {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ valid: false, error: 'Code required' }));
+          return;
+        }
+
+        const isValid = guestCodeRepository.isValidCode(code);
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          valid: isValid,
+          message: isValid ? 'Code verified' : 'Invalid code'
+        }));
+      } catch (error) {
+        console.error('Guest code verification error:', error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ valid: false, error: 'Verification failed' }));
+      }
+    });
+    return;
+  }
+
   // Toggle business private mode
   if (url.pathname === "/api/user/business-private-mode" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
@@ -836,6 +870,22 @@ server.on('request', async (req, res) => {
 
     // Check if user wants private workspace
     const userId = getAuthenticatedUserId(req);
+
+    // Guest validation: check for verified guest code
+    if (!userId) {
+      // This is a guest - check for guest code header
+      const guestCode = req.headers['x-guest-code'] as string;
+
+      if (!guestCode || !guestCodeRepository.isValidCode(guestCode)) {
+        res.writeHead(403, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: false,
+          error: 'Guest posting requires valid access code'
+        }));
+        return;
+      }
+    }
+
     if (userId) {
       const userSettings = settingsRepository.get(userId);
       if (userSettings.business_private_mode === 1) {
