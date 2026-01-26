@@ -384,15 +384,13 @@ This chat system is designed with **privacy first**:
 - Check CORS settings match frontend URL
 
 **Build fails:**
-- Ensure Bun is installed and up to date
-- Clear node_modules and reinstall
-- Check for TypeScript errors
+- Check your Docker logs for errors
 
 ## Contributing
 
 This project is under active development. Key areas for contribution include:
 
-- [ ] Add authentication and user accounts
+- [✔️ ] Add authentication and user accounts
 - [ ] Persist messages to an optional database (e.g., SQLite)
 - [ ] Add message reactions
 - [ ] Admin/moderation controls
