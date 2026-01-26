@@ -1,16 +1,7 @@
-import { browser } from '$app/environment';
+import { getServerUrl } from './serverUrl';
+import { authStore } from './authStore';
 
-let SERVER_URL = 'http://localhost:3000';
-
-if (browser) {
-	if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
-		SERVER_URL = 'http://localhost:3000';
-	} else if (window.location.origin.includes(':3000')) {
-		SERVER_URL = window.location.origin.replace(':3000', ':8080');
-	} else {
-		SERVER_URL = window.location.origin;
-	}
-}
+const SERVER_URL = getServerUrl();
 
 export interface AuthResponse {
 	token: string;
@@ -24,61 +15,92 @@ export interface AuthResponse {
 }
 
 export async function register(username: string, password: string): Promise<AuthResponse> {
-	const res = await fetch(`${SERVER_URL}/api/auth/register`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ username, password })
-	});
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 8000);
+	try {
+		const res = await fetch(`${SERVER_URL}/api/auth/register`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ username, password }),
+			signal: controller.signal
+		});
 
-	if (!res.ok) {
-		const error = await res.json();
-		throw new Error(error.error || 'Registration failed');
+		if (!res.ok) {
+			const error = await res.json();
+			throw new Error(error.error || 'Registration failed');
+		}
+
+		return res.json();
+	} finally {
+		clearTimeout(timeout);
 	}
-
-	return res.json();
 }
 
 export async function login(username: string, password: string): Promise<AuthResponse> {
-	const res = await fetch(`${SERVER_URL}/api/auth/login`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ username, password })
-	});
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 8000);
+	try {
+		const res = await fetch(`${SERVER_URL}/api/auth/login`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ username, password }),
+			signal: controller.signal
+		});
 
-	if (!res.ok) {
-		const error = await res.json();
-		throw new Error(error.error || 'Login failed');
+		if (!res.ok) {
+			const error = await res.json();
+			throw new Error(error.error || 'Login failed');
+		}
+
+		return res.json();
+	} finally {
+		clearTimeout(timeout);
 	}
-
-	return res.json();
 }
 
 export async function upgradeToRegistered(sessionId: string, password: string): Promise<AuthResponse> {
-	const res = await fetch(`${SERVER_URL}/api/auth/upgrade`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ sessionId, password })
-	});
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 8000);
+	try {
+		const res = await fetch(`${SERVER_URL}/api/auth/upgrade`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ sessionId, password }),
+			signal: controller.signal
+		});
 
-	if (!res.ok) {
-		const error = await res.json();
-		throw new Error(error.error || 'Upgrade failed');
+		if (!res.ok) {
+			const error = await res.json();
+			throw new Error(error.error || 'Upgrade failed');
+		}
+
+		return res.json();
+	} finally {
+		clearTimeout(timeout);
 	}
-
-	return res.json();
 }
 
 export async function getUserSettings(token: string): Promise<any> {
-	const res = await fetch(`${SERVER_URL}/api/user/settings`, {
-		method: 'GET',
-		headers: { Authorization: `Bearer ${token}` }
-	});
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 8000);
+	try {
+		const res = await fetch(`${SERVER_URL}/api/user/settings`, {
+			method: 'GET',
+			headers: { Authorization: `Bearer ${token}` },
+			signal: controller.signal
+		});
 
-	if (!res.ok) {
-		throw new Error('Failed to load settings');
+		if (!res.ok) {
+			if (res.status === 401) {
+				authStore.setAuthError('Your session has expired. Please log in again.', 'session_expired');
+			}
+			throw new Error('Failed to load settings');
+		}
+
+		return res.json();
+	} finally {
+		clearTimeout(timeout);
 	}
-
-	return res.json();
 }
 
 export async function saveUserSettings(
@@ -88,16 +110,26 @@ export async function saveUserSettings(
 		allow_temp_user_messages?: boolean;
 	}
 ): Promise<void> {
-	const res = await fetch(`${SERVER_URL}/api/user/settings`, {
-		method: 'POST',
-		headers: {
-			Authorization: `Bearer ${token}`,
-			'Content-Type': 'application/json'
-		},
-		body: JSON.stringify(settings)
-	});
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 8000);
+	try {
+		const res = await fetch(`${SERVER_URL}/api/user/settings`, {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${token}`,
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify(settings),
+			signal: controller.signal
+		});
 
-	if (!res.ok) {
-		throw new Error('Failed to save settings');
+		if (!res.ok) {
+			if (res.status === 401) {
+				authStore.setAuthError('Your session has expired. Please log in again.', 'session_expired');
+			}
+			throw new Error('Failed to save settings');
+		}
+	} finally {
+		clearTimeout(timeout);
 	}
 }

@@ -15,6 +15,7 @@ import { themeRepository } from "./db/repositories/themeRepository.js";
 import { verifyToken } from "./auth/jwt.js";
 import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings } from "./api/authRoutes.js";
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
+import { corsCallback, getCORSHeaders } from "./config/cors.js";
 // In-memory data store
 interface Channel {
   id: string;
@@ -370,44 +371,32 @@ const server = createServer();
 // This ensures Socket.IO can intercept /socket.io/ requests properly
 const io = new Server(server, {
   cors: {
-    origin: (origin, callback) => {
-      // Allow if no origin header (same-origin requests)
-      if (!origin) {
-        return callback(null, true);
-      }
-
-      const allowedOrigins = [
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://tauri.localhost",
-        "http://localhost",
-        process.env.FRONTEND_URL,
-        process.env.PUBLIC_URL
-      ].filter(Boolean);
-
-      // Check exact match
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      // Allow localhost variations in development (including Tauri)
-      if (process.env.NODE_ENV !== 'production' && origin.includes('localhost')) {
-        return callback(null, true);
-      }
-
-      // In production, allow any origin (backend may be behind reverse proxy)
-      if (process.env.NODE_ENV === 'production') {
-        return callback(null, true);
-      }
-
-      // Otherwise reject
-      callback(new Error('Not allowed by CORS'));
-    },
+    origin: corsCallback,
     methods: ["GET", "POST"],
     credentials: true
   },
   maxHttpBufferSize: 75 * 1024 * 1024 // 75MB (to handle 50MB files after base64 encoding ~33% overhead)
 });
+
+// Helper function to verify auth token from request
+function getAuthenticatedUserId(req: any): number | null {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+
+  try {
+    const token = authHeader.slice(7);
+    const payload = verifyToken(token);
+    const dbSession = sessionRepository.findById(payload.sessionId);
+    if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
+      return null;
+    }
+    return payload.userId;
+  } catch {
+    return null;
+  }
+}
 
 // Request handler
 server.on('request', async (req, res) => {
@@ -418,28 +407,11 @@ server.on('request', async (req, res) => {
 
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
-  // CORS headers for all requests - dynamically set based on request origin
-  const allowedOrigins = [
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'http://tauri.localhost',
-    process.env.FRONTEND_URL,
-    process.env.PUBLIC_URL
-  ].filter(Boolean);
-
-  const requestOrigin = req.headers.origin;
-  // In production, accept all origins for better deployment flexibility
-  // Socket.IO has its own CORS validation below
-  if (requestOrigin) {
-    res.setHeader('Access-Control-Allow-Origin', requestOrigin);
-  } else if (process.env.NODE_ENV === 'development') {
-    res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
-  }
-
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Requested-With');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Max-Age', '86400');
+  // CORS headers for all requests - use centralized config
+  const corsHeaders = getCORSHeaders(req.headers.origin as string);
+  Object.entries(corsHeaders).forEach(([header, value]) => {
+    res.setHeader(header, value);
+  });
 
   // Handle OPTIONS preflight
   if (req.method === 'OPTIONS') {
@@ -450,6 +422,13 @@ server.on('request', async (req, res) => {
 
   // Profile picture upload endpoint
   if (url.pathname === "/api/upload-profile-picture" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
     let chunks: Buffer[] = [];
 
     req.on('data', (chunk) => {
@@ -534,6 +513,13 @@ server.on('request', async (req, res) => {
 
   // Background image upload endpoint
   if (url.pathname === "/api/upload-background-image" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
     let chunks: Buffer[] = [];
 
     req.on('data', (chunk) => {
@@ -618,6 +604,13 @@ server.on('request', async (req, res) => {
 
   // File upload endpoint
   if (url.pathname === "/api/upload" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
     let body = '';
     let chunks: Buffer[] = [];
 
@@ -778,6 +771,13 @@ server.on('request', async (req, res) => {
   // Business data sync endpoints
   // Get business data for a workspace
   if (url.pathname === "/api/business/get" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
     try {
       // For now, use default workspace. Later, get from user session/auth
       const workspaceId = defaultWorkspaceId;
@@ -798,6 +798,13 @@ server.on('request', async (req, res) => {
 
   // Save/sync business data for a workspace
   if (url.pathname === "/api/business/sync" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
     let body = '';
 
     req.on('data', (chunk) => {
@@ -1021,6 +1028,13 @@ server.on('request', async (req, res) => {
 
   // Emoji upload endpoint
   if (url.pathname === "/api/emoji/upload" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
     let chunks: Buffer[] = [];
 
     req.on('data', (chunk) => {
@@ -1120,6 +1134,13 @@ server.on('request', async (req, res) => {
 
   // Delete all messages endpoint
   if (url.pathname === "/api/clear-messages" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
     try {
       // Clear all messages from all channels
       channelMessages.forEach((messages, channelId) => {

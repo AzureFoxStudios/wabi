@@ -1,6 +1,7 @@
 import { get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { socket } from '$lib/socket';
+import { getServerUrl } from '$lib/serverUrl';
 import {
 	todos,
 	calendarEvents,
@@ -20,20 +21,6 @@ let debounceTimeout: ReturnType<typeof setTimeout> | null = null;
 const SYNC_INTERVAL_MS = 30000; // Sync every 30 seconds when online
 const DEBOUNCE_MS = 1000; // Wait 1 second after last change before syncing
 
-// Server URL detection (same as other components)
-function getServerUrl(): string {
-	if (!browser) return 'http://localhost:3000';
-
-	if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
-		return 'http://localhost:3000';
-	} else if (window.location.origin.includes(':3000')) {
-		// Docker deployment: if on port 3000 (frontend), connect to port 8080 (backend)
-		return window.location.origin.replace(':3000', ':8080');
-	} else {
-		return window.location.origin;
-	}
-}
-
 // Load business data from server
 export async function pullFromServer(): Promise<boolean> {
 	if (!browser || isSyncing) return false;
@@ -42,12 +29,20 @@ export async function pullFromServer(): Promise<boolean> {
 		isSyncing = true;
 		const serverUrl = getServerUrl();
 
-		const response = await fetch(`${serverUrl}/api/business/get`, {
-			method: 'GET',
-			headers: {
-				'Content-Type': 'application/json'
-			}
-		});
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 8000);
+		let response;
+		try {
+			response = await fetch(`${serverUrl}/api/business/get`, {
+				method: 'GET',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				signal: controller.signal
+			});
+		} finally {
+			clearTimeout(timeout);
+		}
 
 		if (!response.ok) {
 			throw new Error('Failed to fetch business data from server');
@@ -110,13 +105,21 @@ export async function pushToServer(): Promise<boolean> {
 			graphEdges: get(graphEdges)
 		};
 
-		const response = await fetch(`${serverUrl}/api/business/sync`, {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify(data)
-		});
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 8000);
+		let response;
+		try {
+			response = await fetch(`${serverUrl}/api/business/sync`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify(data),
+				signal: controller.signal
+			});
+		} finally {
+			clearTimeout(timeout);
+		}
 
 		if (!response.ok) {
 			throw new Error('Failed to sync business data to server');

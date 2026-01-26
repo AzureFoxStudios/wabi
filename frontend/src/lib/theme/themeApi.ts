@@ -4,9 +4,10 @@
  */
 
 import type { ThemePreferences } from '../../types/theme';
+import { getServerUrl } from '../serverUrl';
+import { authStore } from '../authStore';
 
-// Use relative URL so it works on both localhost and production
-const API_BASE = import.meta.env.VITE_SOCKET_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
+const API_BASE = getServerUrl();
 
 /**
  * Get auth token from localStorage
@@ -29,17 +30,22 @@ export async function fetchThemePreferences(): Promise<ThemePreferences> {
 	console.log('[ThemeApi] Using auth token:', token.substring(0, 20) + '...');
 
 	let response;
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 8000);
 	try {
 		response = await fetch(`${API_BASE}/api/user/theme`, {
 			method: 'GET',
 			headers: {
 				'Authorization': `Bearer ${token}`,
 				'Content-Type': 'application/json'
-			}
+			},
+			signal: controller.signal
 		});
 	} catch (networkError) {
 		console.error('[ThemeApi] Network error:', networkError);
 		throw new Error(`Network error: ${networkError instanceof Error ? networkError.message : 'Failed to reach server'}`);
+	} finally {
+		clearTimeout(timeout);
 	}
 
 	console.log('[ThemeApi] Fetch response status:', response.status);
@@ -55,6 +61,7 @@ export async function fetchThemePreferences(): Promise<ThemePreferences> {
 		console.error('[ThemeApi] Fetch failed with status', response.status, ':', errorText);
 
 		if (response.status === 401) {
+			authStore.setAuthError('Your session has expired. Please log in again.', 'session_expired');
 			throw new Error('Unauthorized - invalid or expired token');
 		} else if (response.status === 404) {
 			throw new Error('Theme endpoint not found on server');
@@ -103,6 +110,8 @@ export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Pr
 	console.log('[ThemeApi] Preferences to save:', prefs);
 
 	let response;
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 8000);
 	try {
 		response = await fetch(`${API_BASE}/api/user/theme`, {
 			method: 'POST',
@@ -110,11 +119,14 @@ export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Pr
 				'Authorization': `Bearer ${token}`,
 				'Content-Type': 'application/json'
 			},
-			body: JSON.stringify(prefs)
+			body: JSON.stringify(prefs),
+			signal: controller.signal
 		});
 	} catch (networkError) {
 		console.error('[ThemeApi] Network error during save:', networkError);
 		throw new Error(`Network error: ${networkError instanceof Error ? networkError.message : 'Failed to reach server'}`);
+	} finally {
+		clearTimeout(timeout);
 	}
 
 	console.log('[ThemeApi] Save response status:', response.status);
@@ -130,6 +142,7 @@ export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Pr
 		console.error('[ThemeApi] Save failed with status', response.status, ':', errorText);
 
 		if (response.status === 401) {
+			authStore.setAuthError('Your session has expired. Please log in again.', 'session_expired');
 			throw new Error('Unauthorized - invalid or expired token');
 		} else if (response.status === 404) {
 			throw new Error('Theme endpoint not found on server');
@@ -160,13 +173,21 @@ export async function resetThemePreferences(): Promise<void> {
 		throw new Error('Not authenticated');
 	}
 
-	const response = await fetch(`${API_BASE}/api/user/theme/reset`, {
-		method: 'POST',
-		headers: {
-			'Authorization': `Bearer ${token}`,
-			'Content-Type': 'application/json'
-		}
-	});
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 8000);
+	let response;
+	try {
+		response = await fetch(`${API_BASE}/api/user/theme/reset`, {
+			method: 'POST',
+			headers: {
+				'Authorization': `Bearer ${token}`,
+				'Content-Type': 'application/json'
+			},
+			signal: controller.signal
+		});
+	} finally {
+		clearTimeout(timeout);
+	}
 
 	if (!response.ok) {
 		if (response.status === 401) {

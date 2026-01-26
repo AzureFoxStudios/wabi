@@ -8,6 +8,8 @@ import * as calling from './calling';
 import * as webrtc from './webrtc';
 import type { FileAttachment, Message, Emoji, User, Channel } from './socket-types';
 import { emojis } from './emoji-store';
+import { getServerUrl } from './serverUrl';
+import { authStore } from './authStore';
 
 export type { FileAttachment, Message, Emoji, User, Channel } from './socket-types';
 
@@ -63,47 +65,19 @@ export function initSocket(username: string, authToken?: string) {
 		socketInstance = null;
 	}
 
-	// Auto-detect backend server URL
-	function getServerUrl(): string {
-		// 1. Check for explicit environment variable override
-		const envUrl = import.meta.env.VITE_SOCKET_URL;
-		if (envUrl) {
-			console.log('[Socket] Using VITE_SOCKET_URL from environment:', envUrl);
-			return envUrl;
+	// Special handling for Tauri production hardcoded domain
+	let serverUrl = getServerUrl();
+	if (typeof window !== 'undefined' && window.location.origin.includes('tauri.localhost')) {
+		const isDebug = import.meta.env.TAURI_DEBUG === 'true' || import.meta.env.DEV;
+		if (!isDebug) {
+			console.log('[Socket] Detected Tauri production environment, connecting to wabi.chat');
+			serverUrl = 'https://wabi.chat';
+		} else {
+			console.log('[Socket] Using centralized server URL detection for Tauri dev');
 		}
-
-		// 2. Dev mode: if on Vite dev port, connect to localhost backend
-		if (window.location.origin.includes(':5173')) {
-			console.log('[Socket] Detected Vite dev environment, connecting to localhost:3000');
-			return 'http://localhost:3000';
-		}
-
-		// 3. Tauri development: if tauri.localhost and TAURI_DEBUG, connect to localhost
-		if (window.location.origin.includes('tauri.localhost')) {
-			const isDebug = import.meta.env.TAURI_DEBUG === 'true' || import.meta.env.DEV;
-			if (isDebug) {
-				console.log('[Socket] Detected Tauri dev environment, connecting to localhost:3000');
-				return 'http://localhost:3000';
-			} else {
-				// Tauri production: connect to wabi.chat
-				console.log('[Socket] Detected Tauri production environment, connecting to wabi.chat');
-				return 'https://wabi.chat';
-			}
-		}
-
-		// 4. Docker deployment: if on port 3000 (frontend), connect to port 8080 (backend)
-		if (window.location.origin.includes(':3000')) {
-			const backendUrl = window.location.origin.replace(':3000', ':8080');
-			console.log('[Socket] Detected Docker deployment, connecting to backend on port 8080:', backendUrl);
-			return backendUrl;
-		}
-
-		// 5. Otherwise, backend is on same origin as frontend (Render, self-hosted, etc.)
-		console.log('[Socket] Using same-origin for backend:', window.location.origin);
-		return window.location.origin;
+	} else {
+		console.log('[Socket] Using centralized server URL detection');
 	}
-
-	const serverUrl = getServerUrl();
 
 	// Check for existing session or token
 	let sessionId: string | null = null;
@@ -126,6 +100,7 @@ export function initSocket(username: string, authToken?: string) {
 	socketInstance = io(serverUrl, {
 		reconnectionDelay: 1000,
 		reconnectionDelayMax: 5000,
+		reconnectionAttempts: 10,
 		timeout: 10000,
 		withCredentials: true,
 		transports: ['websocket', 'polling'],
@@ -149,12 +124,21 @@ export function initSocket(username: string, authToken?: string) {
 			toString: error?.toString?.()
 		});
 		connected.set(false);
+		if (error?.message?.includes('Invalid token') || error?.message?.includes('Session expired')) {
+			authStore.setAuthError('Your session has expired. Please log in again.', 'session_expired');
+		}
 	});
 
 	socketInstance.on('connect_timeout', () => {
 		console.error('[Socket] Connection timeout!');
 		console.error('[Socket] Attempted to connect to:', serverUrl);
 		connected.set(false);
+	});
+
+	socketInstance.on('reconnect_failed', () => {
+		console.error('[Socket] Failed to reconnect after 10 attempts - giving up');
+		connected.set(false);
+		authStore.setAuthError('Could not reconnect to server. Please refresh the page.', 'connection_lost');
 	});
 
 	socket.set(socketInstance);

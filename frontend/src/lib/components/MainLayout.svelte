@@ -8,6 +8,7 @@
 	import DMListPanel from '$lib/components/DMListPanel.svelte';
 	import DMPanel from '$lib/components/DMPanel.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
+	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 
@@ -37,6 +38,8 @@
 </script>
 
 <svelte:window on:mousemove={handleMouseMove} on:mouseup={stopResize} />
+
+<AuthErrorBanner />
 
 {#if $layoutStore.isMobile}
 	<!-- Mobile Bottom Navigation Bar -->
