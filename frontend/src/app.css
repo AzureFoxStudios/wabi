@@ -586,7 +586,7 @@ input:focus, textarea:focus {
 
 /* Channel sidebar - right edge and dividers */
 :root[data-theme='vscode-high-contrast'] .channel-sidebar {
-	border-right: 3px solid #00bfff;
+	border-right: 2px solid #00bfff;
 }
 
 /* Channel list separator */
@@ -596,7 +596,7 @@ input:focus, textarea:focus {
 
 /* Channel items with left border on hover/active */
 :root[data-theme='vscode-high-contrast'] .channel-item {
-	border-left: 3px solid transparent;
+	border-left: 2px solid transparent;
 	transition: border-left-color 0.2s;
 }
 
@@ -612,7 +612,7 @@ input:focus, textarea:focus {
 
 /* DM list panel */
 :root[data-theme='vscode-high-contrast'] .dm-list-panel {
-	border-left: 3px solid #00bfff;
+	border-left: 2px solid #00bfff;
 }
 
 :root[data-theme='vscode-high-contrast'] .panel-header {
@@ -649,7 +649,7 @@ input:focus, textarea:focus {
 
 :root[data-theme='vscode-high-contrast'] .conversation-item,
 :root[data-theme='vscode-high-contrast'] .user-item {
-	border-left: 3px solid transparent;
+	border-left: 2px solid transparent;
 	transition: border-left-color 0.2s;
 }
 

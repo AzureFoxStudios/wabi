@@ -199,6 +199,15 @@
 			>
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
 			</button>
+			{#if sidebarWidth < 170}
+				<button
+					class="control-btn compact-settings-btn"
+					on:click={() => showSettings = true}
+					title="User Settings"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m3.08 3.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m3.08-3.08l4.24-4.24M19.78 19.78l-4.24-4.24m-3.08-3.08l-4.24-4.24M19.78 4.22l-4.24 4.24m-3.08 3.08l-4.24-4.24"></path></svg>
+				</button>
+			{/if}
 			<button class="add-btn" on:click={() => showCreateInput = !showCreateInput} title="Create channel">+</button>
 		</div>
 	</div>
@@ -372,13 +381,15 @@
 						{/if}
 					</svg>
 				</button>
-				<button
-					class="control-btn"
-					on:click={() => showSettings = true}
-					title="User Settings"
-				>
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m3.08 3.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m3.08-3.08l4.24-4.24M19.78 19.78l-4.24-4.24m-3.08-3.08l-4.24-4.24M19.78 4.22l-4.24 4.24m-3.08 3.08l-4.24-4.24"></path></svg>
-				</button>
+				{#if sidebarWidth >= 170}
+					<button
+						class="control-btn"
+						on:click={() => showSettings = true}
+						title="User Settings"
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m3.08 3.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m3.08-3.08l4.24-4.24M19.78 19.78l-4.24-4.24m-3.08-3.08l-4.24-4.24M19.78 4.22l-4.24 4.24m-3.08 3.08l-4.24-4.24"></path></svg>
+					</button>
+				{/if}
 			</div>
 		</div>
 	{/if}
@@ -759,6 +770,36 @@
 		background: var(--accent);
 		color: white;
 		opacity: 1;
+	}
+
+	.compact-settings-btn {
+		width: 32px;
+		height: 32px;
+		border-radius: 4px;
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
+		opacity: 0.7;
+		padding: 0;
+	}
+
+	.compact-settings-btn svg {
+		width: 18px;
+		height: 18px;
+		stroke: currentColor;
+		stroke-width: 2;
+	}
+
+	.compact-settings-btn:hover {
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		opacity: 1;
+		box-shadow: inset 0 0 6px rgba(255, 255, 255, 0.1);
 	}
 
 	.create-channel {
