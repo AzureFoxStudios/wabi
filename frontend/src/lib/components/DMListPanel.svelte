@@ -202,13 +202,14 @@
 
 	.panel-tabs-header {
 		display: flex;
-		align-items: stretch;
+		align-items: center;
 		flex-shrink: 0;
-		border-bottom: 1px solid rgba(var(--border-rgb), var(--opacity-light));
-		padding: 0;
-		gap: 0;
+		border-bottom: 1px solid var(--border);
+		padding: 0.75rem 1rem;
+		gap: 0.5rem;
 		height: 52px;
 		background: var(--bg-secondary);
+		box-sizing: border-box;
 	}
 
 	.mobile-close-btn {
@@ -259,7 +260,7 @@
 
 	.tab-btn {
 		flex: 1;
-		padding: 0 var(--space-3);
+		padding: 0;
 		background: transparent;
 		border: none;
 		border-bottom: 2px solid transparent;
@@ -273,7 +274,7 @@
 		justify-content: center;
 		text-transform: uppercase;
 		letter-spacing: 0.5px;
-		height: 100%;
+		height: auto;
 	}
 
 	.tab-btn:hover {

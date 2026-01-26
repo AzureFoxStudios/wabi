@@ -642,8 +642,9 @@
 		justify-content: space-between;
 		padding: 0.75rem 1rem;
 		border-bottom: 1px solid var(--border);
-		height: 58px;
+		height: 52px;
 		gap: 0.5rem;
+		box-sizing: border-box;
 	}
 
 	.logo {
@@ -1419,7 +1420,8 @@
 		}
 
 		.top-section {
-			padding: 0.375rem 0.5rem;
+			padding: 0.75rem 1rem;
+			height: 52px;
 		}
 
 		.sidebar-header {

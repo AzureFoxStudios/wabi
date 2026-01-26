@@ -490,9 +490,9 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 0.625rem 1rem;
+		padding: 0.75rem 1rem;
 		background: var(--bg-secondary);
-		border-bottom: 1px solid rgba(var(--accent-rgb), var(--opacity-light));
+		border-bottom: 1px solid var(--border);
 		height: 52px;
 		box-sizing: border-box;
 		z-index: 2;
@@ -1034,7 +1034,7 @@
 		}
 
 		.dm-header {
-			padding: 0.75rem;
+			padding: 0.75rem 1rem;
 			min-height: 52px;
 		}
 
