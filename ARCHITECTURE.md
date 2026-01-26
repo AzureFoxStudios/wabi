@@ -73,7 +73,7 @@ Wabi is a **private, self-hosted, ephemeral real-time chat platform** designed f
 | **Frontend Desktop** | Tauri | Native desktop app wrapper |
 | **Frontend Real-time** | Socket.IO Client | WebSocket communication |
 | **Frontend Media** | WebRTC | Peer-to-peer screen share, voice, video |
-| **Backend Runtime** | Bun | JavaScript runtime (faster than Node.js) |
+| **Backend Runtime** | Node.js | JavaScript runtime |
 | **Backend API** | Node.js HTTP Server | REST endpoints + health checks |
 | **Backend Real-time** | Socket.IO | WebSocket server for events |
 | **Backend Auth** | JWT (Custom) | Token-based session management |
