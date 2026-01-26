@@ -88,13 +88,7 @@
 <aside class="dm-list-panel">
 	<div class="panel-header">
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
-		<span class="header-title">
-			{#if activeTab === 'users'}
-				All Users
-			{:else}
-				Direct Messages
-			{/if}
-		</span>
+		<span class="header-title">Direct Messages</span>
 		{#if activeTab === 'messages'}
 			<button class="add-dm-btn" on:click={handleOpenDMModal} title="Start new DM">+</button>
 		{/if}
@@ -145,55 +139,83 @@
 				</div>
 			{/if}
 		</div>
-	
+
 		<div class="users-tab" class:hidden={activeTab !== 'users'}>
-			<div class="users-list">
-				{#each $users as user (user.id)}
-					<div class="user-item">
-						<button class="user-avatar-btn">
-							{#if user.profilePicture}
-								<img src={user.profilePicture} alt={user.username} class="user-avatar" />
-							{:else}
-								<div class="user-avatar-placeholder" style="background-color: {user.color}">
-									{user.username.charAt(0).toUpperCase()}
-								</div>
-							{/if}
-						</button>
+			{#if $users.filter(u => u.id !== $currentUser?.id).length === 0}
+				<div class="empty-state">
+					<div class="empty-icon">👥</div>
+					<p>No users online</p>
+				</div>
+			{:else}
+				<div class="users-list">
+					{#each $users.filter(u => u.id !== $currentUser?.id) as user (user.id)}
 						<button
-							class="user-info-btn"
+							class="user-item"
 							on:click={() => {
-								if (user.id !== $currentUser?.id) {
-									const memberIds = [$currentUser?.id, user.id].sort();
-									const dmId = `dm-${memberIds.join('-')}`;
-									const existingDM = $channels.find(ch => ch.id === dmId);
-									if (existingDM) {
-										dispatch('openDM', { channelId: dmId, otherUser: user });
-									} else {
-										createDM(user.id);
-										const unsubscribe = channels.subscribe(chs => {
-											const newDM = chs.find(ch => ch.id === dmId);
-											if (newDM) {
-												dispatch('openDM', { channelId: dmId, otherUser: user });
-												unsubscribe();
-											}
-										});
-									}
+								const memberIds = [$currentUser?.id, user.id].sort();
+								const dmId = `dm-${memberIds.join('-')}`;
+								const existingDM = $channels.find(ch => ch.id === dmId);
+								if (existingDM) {
+									dispatch('openDM', { channelId: dmId, otherUser: user });
+								} else {
+									createDM(user.id);
+									const unsubscribe = channels.subscribe(chs => {
+										const newDM = chs.find(ch => ch.id === dmId);
+										if (newDM) {
+											dispatch('openDM', { channelId: dmId, otherUser: user });
+											unsubscribe();
+										}
+									});
 								}
 							}}
 						>
-							<div class="user-name">
-								{user.username}
-								{#if user.id === $currentUser?.id}<span class="you-badge">(you)</span>{/if}
+							<div class="user-avatar-btn">
+								{#if user.profilePicture}
+									<img src={user.profilePicture} alt={user.username} class="user-avatar" />
+								{:else}
+									<div class="user-avatar-placeholder" style="background-color: {user.color}">
+										{user.username.charAt(0).toUpperCase()}
+									</div>
+								{/if}
 							</div>
-							<div class="user-status">
-								<span class="status-dot" style="background-color: {user.status === 'active' ? 'var(--status-online)' : user.status === 'away' ? 'var(--status-away)' : 'var(--status-offline)'}"></span>
-								<span>{user.status}</span>
+							<div class="user-info">
+								<div class="user-name">{user.username}</div>
+								<div class="user-status">
+									<span class="status-dot" style="background-color: {user.status === 'active' ? 'var(--status-online)' : user.status === 'away' ? 'var(--status-away)' : 'var(--status-offline)'}"></span>
+									<span>{user.status}</span>
+								</div>
 							</div>
 						</button>
-					</div>
-				{/each}
-			</div>
+					{/each}
+				</div>
+			{/if}
 		</div>
+	</div>
+
+	<div class="panel-footer">
+		{#if $currentUser}
+			<div class="current-user-section">
+				<div class="footer-divider"></div>
+				<div class="current-user">
+					<div class="user-avatar-btn">
+						{#if $currentUser.profilePicture}
+							<img src={$currentUser.profilePicture} alt={$currentUser.username} class="user-avatar" />
+						{:else}
+							<div class="user-avatar-placeholder" style="background-color: {$currentUser.color}">
+								{$currentUser.username.charAt(0).toUpperCase()}
+							</div>
+						{/if}
+					</div>
+					<div class="user-info">
+						<div class="user-name">{$currentUser.username} <span class="you-badge">(you)</span></div>
+						<div class="user-status">
+							<span class="status-dot" style="background-color: {$currentUser.status === 'active' ? 'var(--status-online)' : $currentUser.status === 'away' ? 'var(--status-away)' : 'var(--status-offline)'}"></span>
+							<span>{$currentUser.status}</span>
+						</div>
+					</div>
+				</div>
+			</div>
+		{/if}
 	</div>
 </aside>
 
@@ -293,17 +315,18 @@
 		display: none;
 	}
 	
-	/* This new container will hold all tab content and manage scrolling */
+	/* Scrollable content area (middle) */
 	.panel-content {
-		flex: 1; /* Takes up all remaining space */
-		overflow-y: auto; /* Only this container scrolls */
-		position: relative; /* For positioning children if needed */
+		flex: 1;
+		overflow-y: auto;
+		position: relative;
 	}
 
 	.messages-tab,
 	.users-tab {
-		display: flex; /* Use flex to help with layout inside tabs */
+		display: flex;
 		flex-direction: column;
+		height: 100%;
 	}
 
 	.empty-state {
@@ -409,6 +432,11 @@
 		padding: var(--space-2) var(--space-4);
 		gap: var(--space-3);
 		transition: background var(--duration-fast) ease-in-out;
+		background: transparent;
+		border: none;
+		cursor: pointer;
+		width: 100%;
+		text-align: left;
 	}
 	.user-item:hover {
 		background: var(--color-background-tertiary);
@@ -437,6 +465,14 @@
 		color: white;
 		font-weight: var(--font-weight-semibold);
 		font-size: var(--font-size-1);
+	}
+
+	.user-info {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0;
 	}
 
 	.user-info-btn {
@@ -482,6 +518,39 @@
 		height: var(--space-2);
 		border-radius: var(--radius-full);
 		display: inline-block;
+	}
+
+	/* Fixed footer with current user at bottom */
+	.panel-footer {
+		flex-shrink: 0;
+		background: var(--color-background-secondary);
+		border-top: 1px solid var(--color-border-primary);
+	}
+
+	.current-user-section {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.footer-divider {
+		height: 1px;
+		background: var(--color-border-primary);
+	}
+
+	.current-user {
+		display: flex;
+		align-items: center;
+		padding: var(--space-3) var(--space-4);
+		gap: var(--space-3);
+	}
+
+	.current-user .user-avatar-btn {
+		flex-shrink: 0;
+	}
+
+	.current-user .user-info {
+		flex: 1;
+		min-width: 0;
 	}
 
 	@media (max-width: 768px) {
