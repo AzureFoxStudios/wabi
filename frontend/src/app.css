@@ -128,21 +128,96 @@
 	--shadow-focus-ring: 0 0 0 3px rgba(var(--color-accent-primary-rgb), 0.4);
 
 	/* --------------------------------------------------------------------------
-	   MOTION & TRANSITIONS
+	   MOTION & TRANSITIONS (as per UI_GUIDE.md)
 	   -------------------------------------------------------------------------- */
-	--duration-fast: 150ms;
-	--duration-normal: 250ms;
-	--ease-out: cubic-bezier(0, 0, 0.2, 1);
-	--ease-in: cubic-bezier(0.4, 0, 1, 1);
-	--ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+	--duration-instant: 100ms;    /* Micro-interactions (hover, focus, button press) */
+	--duration-fast: 150ms;        /* Micro-interactions (original) */
+	--duration-normal: 250ms;      /* Transitions (panel open/close, navigation) */
+	--duration-slow: 300ms;        /* Animations (modals, toasts, complex state changes) */
+
+	/* Easing functions */
+	--ease-out: cubic-bezier(0, 0, 0.2, 1);      /* Elements entering (decelerating) */
+	--ease-in: cubic-bezier(0.4, 0, 1, 1);       /* Elements exiting (accelerating) */
+	--ease-in-out: cubic-bezier(0.4, 0, 0.2, 1); /* Position changes */
 
 	/* --------------------------------------------------------------------------
-	   OPACITY
+	   OPACITY SCALE (as per UI_GUIDE.md)
 	   -------------------------------------------------------------------------- */
+	--opacity-subtle: 0.1;    /* 10% - very light, barely visible */
+	--opacity-light: 0.15;    /* 15% - light tint */
+	--opacity-medium: 0.25;   /* 25% - moderate tint */
+	--opacity-strong: 0.5;    /* 50% - strong tint */
+	--opacity-heavy: 0.75;    /* 75% - very strong tint */
+
+	/* Legacy opacity variables for backward compatibility */
 	--opacity-10: 0.1;
 	--opacity-25: 0.25;
 	--opacity-50: 0.5;
 	--opacity-75: 0.75;
+
+	/* --------------------------------------------------------------------------
+	   THEME-AWARE CSS VARIABLES (Applied by themeManager.ts)
+	   These are overridden by the theme system and use themeManager to apply
+	   -------------------------------------------------------------------------- */
+
+	/* Background layers */
+	--bg-primary: linear-gradient(to right, #0f0c29 0%, #302b63 100%);
+	--bg-secondary: #1a1a2e;
+	--bg-tertiary: #24243e;
+	--bg-hover: #302b63;
+	--bg-primary-rgb: 15, 12, 41;
+	--bg-secondary-rgb: 26, 26, 46;
+	--bg-tertiary-rgb: 36, 36, 62;
+
+	/* Text layers */
+	--text-primary: #e0e0ff;
+	--text-secondary: #b3b3ff;
+	--text-tertiary: #9999ff;
+	--text-primary-rgb: 224, 224, 255;
+	--text-secondary-rgb: 179, 179, 255;
+	--text-tertiary-rgb: 153, 153, 255;
+
+	/* Accent colors */
+	--accent: linear-gradient(to right, #ff00ff 0%, #ff69b4 100%);
+	--accent-hex: #ff00ff;
+	--accent-rgb: 255, 0, 255;
+	--accent-hover: linear-gradient(to right, #ff69b4 0%, #ff1493 100%);
+
+	/* UI colors */
+	--ui-bg-light: #302b63;
+	--ui-bg-lighter: #24243e;
+	--ui-text: #b3b3ff;
+	--ui-text-dark: #e0e0ff;
+
+	/* Status colors */
+	--status-online: #00ff7f;
+	--status-away: #ffd700;
+	--status-busy: #ff0000;
+	--status-offline: #708090;
+
+	/* Semantic colors */
+	--color-success: #00ff7f;
+	--color-info: #00bfff;
+	--color-warning: #ffd700;
+	--color-danger: #ff0000;
+
+	/* Modal colors */
+	--modal-bg: #0f0c29;
+	--modal-header-bg: #24243e;
+	--modal-text: #e0e0ff;
+	--modal-overlay: rgba(0, 0, 0, 0.6);
+	--modal-border: rgba(255, 0, 255, 0.1);
+
+	/* Dark mode variants */
+	--dark-bg-primary: #000000;
+	--dark-bg-secondary: #0f0c29;
+
+	/* Error state */
+	--error: #ff1493;
+
+	/* Border color */
+	--border: #302b63;
+	--border-rgb: 48, 43, 99;
 }
 
 /* ==========================================================================
