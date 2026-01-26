@@ -483,7 +483,6 @@
 		flex-direction: column;
 		height: 100%;
 		background: var(--bg-primary);
-		border-left: 2px solid var(--border);
 	}
 
 	.dm-header {

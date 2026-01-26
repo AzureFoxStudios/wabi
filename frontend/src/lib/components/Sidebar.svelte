@@ -71,7 +71,6 @@
 	.sidebar {
 		width: 80px;
 		background: var(--bg-secondary);
-		border-right: 1px solid var(--border);
 		display: flex;
 		flex-direction: column;
 		align-items: center;

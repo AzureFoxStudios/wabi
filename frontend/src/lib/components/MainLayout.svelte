@@ -158,6 +158,11 @@
 	.channel-sidebar-container {
 		flex-shrink: 0;
 		position: relative;
+		border-right: 1px solid rgba(var(--border-rgb), var(--opacity-light));
+	}
+
+	.main-content {
+		border-right: 1px solid rgba(var(--border-rgb), var(--opacity-light));
 	}
 
 	/* Desktop Panel Styles */
@@ -170,6 +175,7 @@
 		will-change: width;
 		height: 100vh;
 		background: var(--bg-secondary);
+		border-right: 1px solid rgba(var(--border-rgb), var(--opacity-light));
 	}
 
 	.resize-handle {

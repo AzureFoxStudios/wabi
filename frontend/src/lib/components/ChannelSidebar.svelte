@@ -569,7 +569,6 @@
 
 	.channel-sidebar {
 		background: var(--bg-tertiary);
-		border-right: 1px solid var(--border);
 		display: flex;
 		flex-direction: column;
 		height: 100dvh;

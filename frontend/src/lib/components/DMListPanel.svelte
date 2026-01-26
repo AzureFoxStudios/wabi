@@ -197,7 +197,6 @@
 		flex-direction: column;
 		height: 100%;
 		background: var(--bg-secondary);
-		border-left: 1px solid rgba(var(--border-rgb), var(--opacity-light));
 		overflow: hidden;
 	}
 
