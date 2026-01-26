@@ -492,8 +492,8 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 0.625rem 1rem;
-		background: var(--gradient-fade-bottom-dark);
-		border-bottom: 1px solid rgba(255, 0, 255, 0.1);
+		background: var(--bg-secondary);
+		border-bottom: 1px solid rgba(var(--accent-rgb), var(--opacity-light));
 		height: 52px;
 		box-sizing: border-box;
 		z-index: 2;
@@ -625,7 +625,7 @@
 
 	.dm-input-container:focus-within {
 		background: var(--bg-tertiary);
-		box-shadow: inset 0 0 8px rgba(255, 0, 255, 0.2);
+		box-shadow: inset 0 0 8px rgba(var(--accent-rgb), var(--opacity-medium));
 	}
 
 	.dm-input {
@@ -673,7 +673,7 @@
 	}
 
 	.dm-send-btn:hover:not(:disabled) {
-		box-shadow: inset 0 0 8px rgba(255, 0, 255, 0.2);
+		box-shadow: inset 0 0 8px rgba(var(--accent-rgb), var(--opacity-medium));
 	}
 
 	.dm-send-btn:disabled {
@@ -732,7 +732,7 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		background: rgba(0, 0, 0, 0.7);
+		background: rgba(0, 0, 0, var(--opacity-strong));
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -753,7 +753,7 @@
 	}
 
 	.drag-text {
-		color: white;
+		color: var(--text-primary);
 		font-size: 1.2rem;
 		font-weight: 600;
 	}
@@ -818,8 +818,8 @@
 		bottom: 0;
 		left: 0;
 		right: 0;
-		background: rgba(0, 0, 0, 0.8);
-		color: white;
+		background: rgba(0, 0, 0, var(--opacity-heavy));
+		color: var(--text-primary);
 		padding: 0.5rem;
 		font-size: 0.7rem;
 		text-align: center;
@@ -846,9 +846,9 @@
 		position: absolute;
 		top: 2px;
 		right: 2px;
-		background: rgba(0, 0, 0, 0.7);
+		background: rgba(0, 0, 0, var(--opacity-strong));
 		border: none;
-		color: white;
+		color: var(--text-primary);
 		cursor: pointer;
 		width: 24px;
 		height: 24px;
@@ -902,7 +902,7 @@
 	}
 
 	.upload-files-btn:hover {
-		box-shadow: inset 0 0 8px rgba(255, 0, 255, 0.2);
+		box-shadow: inset 0 0 8px rgba(var(--accent-rgb), var(--opacity-medium));
 	}
 
 	/* Upload Progress */
@@ -997,7 +997,7 @@
 		align-items: center;
 		justify-content: center;
 		font-weight: bold;
-		color: white;
+		color: var(--text-primary);
 		font-size: 1.2rem;
 		border: 2px solid var(--accent);
 	}

@@ -767,7 +767,7 @@
 
 	.screen-share-icon-btn.active {
 		background: var(--accent);
-		color: white;
+		color: var(--text-primary);
 		opacity: 1;
 	}
 
@@ -823,7 +823,7 @@
 		padding: 0.5rem;
 		font-size: 0.875rem;
 		background: var(--accent);
-		color: white;
+		color: var(--text-primary);
 		border: none;
 		border-radius: 0;
 		cursor: pointer;
@@ -942,7 +942,7 @@
 
 	.pin-btn:hover {
 		background: var(--pinned-border);
-		color: white;
+		color: var(--text-primary);
 	}
 
 	.delete-btn {
@@ -951,7 +951,7 @@
 
 	.delete-btn:hover {
 		background: var(--color-danger);
-		color: white;
+		color: var(--text-primary);
 	}
 
 	.screen-share-section {
@@ -982,7 +982,7 @@
 
 	.screen-share-btn.active {
 		background: var(--accent);
-		color: white;
+		color: var(--text-primary);
 	}
 
 	.screen-share-btn .icon {
@@ -1030,7 +1030,7 @@
 	}
 
 	.avatar-placeholder {
-		color: white;
+		color: var(--text-primary);
 		font-weight: 600;
 		font-size: 0.875rem;
 	}
@@ -1170,7 +1170,7 @@
 
 	.control-btn.active {
 		background: var(--color-danger);
-		color: white;
+		color: var(--text-primary);
 	}
 
 	.control-btn.active:hover {
@@ -1179,16 +1179,16 @@
 
 	/* Auto-delete/Timer indicator - redder highlight */
 	.channel-item.has-timer {
-		background: rgba(255, 87, 87, 0.1);
-		border-left: 3px solid #ff5757;
+		background: rgba(255, 77, 77, var(--opacity-subtle));
+		border-left: 3px solid var(--color-danger);
 	}
 
 	.channel-item.has-timer:hover {
-		background: rgba(255, 87, 87, 0.15);
+		background: rgba(255, 77, 77, var(--opacity-light));
 	}
 
 	.channel-item.has-timer.active {
-		background: rgba(255, 87, 87, 0.2);
+		background: rgba(255, 77, 77, var(--opacity-medium));
 	}
 
 	/* Compact mode: maintain red indicator */
@@ -1306,7 +1306,7 @@
 
 	.auto-delete-btn.active {
 		background: var(--accent);
-		color: white;
+		color: var(--text-primary);
 		border-color: var(--accent);
 	}
 
@@ -1333,8 +1333,8 @@
 
 	/* Unread badge styling */
 	.unread-badge {
-		background: #ff4444;
-		color: white;
+		background: var(--color-danger);
+		color: var(--text-primary);
 		font-size: 0.75rem;
 		font-weight: bold;
 		padding: 2px 6px;
@@ -1391,7 +1391,7 @@
 
 	.context-menu-item:hover {
 		background: var(--accent);
-		color: white;
+		color: var(--text-primary);
 	}
 
 	.pin-icon {
