@@ -191,32 +191,6 @@
 			{/if}
 		</div>
 	</div>
-
-	<div class="panel-footer">
-		{#if $currentUser}
-			<div class="current-user-section">
-				<div class="footer-divider"></div>
-				<div class="current-user">
-					<div class="user-avatar-btn">
-						{#if $currentUser.profilePicture}
-							<img src={$currentUser.profilePicture} alt={$currentUser.username} class="user-avatar" />
-						{:else}
-							<div class="user-avatar-placeholder" style="background-color: {$currentUser.color}">
-								{$currentUser.username.charAt(0).toUpperCase()}
-							</div>
-						{/if}
-					</div>
-					<div class="user-info">
-						<div class="user-name">{$currentUser.username} <span class="you-badge">(you)</span></div>
-						<div class="user-status">
-							<span class="status-dot" style="background-color: {$currentUser.status === 'active' ? 'var(--status-online)' : $currentUser.status === 'away' ? 'var(--status-away)' : 'var(--status-offline)'}"></span>
-							<span>{$currentUser.status}</span>
-						</div>
-					</div>
-				</div>
-			</div>
-		{/if}
-	</div>
 </aside>
 
 <CreateDMModal bind:isOpen={showDMModal} on:dm-created={handleDMCreated} />
@@ -518,39 +492,6 @@
 		height: var(--space-2);
 		border-radius: var(--radius-full);
 		display: inline-block;
-	}
-
-	/* Fixed footer with current user at bottom */
-	.panel-footer {
-		flex-shrink: 0;
-		background: var(--color-background-secondary);
-		border-top: 1px solid var(--color-border-primary);
-	}
-
-	.current-user-section {
-		display: flex;
-		flex-direction: column;
-	}
-
-	.footer-divider {
-		height: 1px;
-		background: var(--color-border-primary);
-	}
-
-	.current-user {
-		display: flex;
-		align-items: center;
-		padding: var(--space-3) var(--space-4);
-		gap: var(--space-3);
-	}
-
-	.current-user .user-avatar-btn {
-		flex-shrink: 0;
-	}
-
-	.current-user .user-info {
-		flex: 1;
-		min-width: 0;
 	}
 
 	@media (max-width: 768px) {
