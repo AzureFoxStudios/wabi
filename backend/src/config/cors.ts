@@ -7,25 +7,40 @@
  * Get list of allowed origins from environment or use defaults
  */
 export function getAllowedOrigins(): string[] {
+	const origins: Set<string> = new Set();
+
+	// 1. Explicit ALLOWED_ORIGINS (highest priority)
 	const envOrigins = process.env.ALLOWED_ORIGINS;
-
 	if (envOrigins) {
-		// Parse comma-separated list from environment
-		return envOrigins.split(',').map(origin => origin.trim()).filter(Boolean);
+		envOrigins.split(',').map(o => o.trim()).filter(Boolean).forEach(o => origins.add(o));
 	}
 
-	// Development defaults
+	// 2. Auto-derive from FRONTEND_URL (set in all deployment configs)
+	if (process.env.FRONTEND_URL) {
+		origins.add(process.env.FRONTEND_URL.replace(/\/$/, ''));
+	}
+
+	// 3. Auto-derive from PUBLIC_URL
+	if (process.env.PUBLIC_URL) {
+		origins.add(process.env.PUBLIC_URL.replace(/\/$/, ''));
+	}
+
+	// 4. Development defaults
 	if (process.env.NODE_ENV !== 'production') {
-		return [
-			'http://localhost:5173',
-			'http://localhost:3000',
-			'http://tauri.localhost',
-			'http://localhost'
-		];
+		['http://localhost:5173', 'http://localhost:3000',
+		 'http://tauri.localhost', 'http://localhost'].forEach(o => origins.add(o));
 	}
 
-	// Production: require explicit configuration
-	return [];
+	const result = Array.from(origins);
+
+	// Safety: warn if production has zero origins
+	if (process.env.NODE_ENV === 'production' && result.length === 0) {
+		console.error('[CORS] WARNING: No allowed origins in production! Set ALLOWED_ORIGINS or FRONTEND_URL.');
+	} else if (process.env.NODE_ENV === 'production') {
+		console.log('[CORS] Allowed origins:', result);
+	}
+
+	return result;
 }
 
 /**
@@ -87,5 +102,6 @@ export function corsCallback(origin: string | undefined, callback: (err: Error |
 	}
 
 	// Production: reject unless whitelisted
-	callback(new Error('Not allowed by CORS'));
+	console.error(`[CORS] Rejected origin: "${origin}". Allowed: [${allowedOrigins.join(', ')}]`);
+	callback(new Error(`Not allowed by CORS: origin "${origin}" not in allowed list`));
 }

@@ -1,33 +1,43 @@
 import { browser } from '$app/environment';
 
-/**
- * Centralized server URL detection
- * Handles all deployment modes: dev (Vite), Docker, Tauri, and production
- * Returns the backend server URL regardless of frontend origin
- */
 export function getServerUrl(): string {
+	const result = resolveServerUrl();
+	if (browser) {
+		console.log(`[ServerUrl] Resolved: ${result.url} (source: ${result.source})`);
+	}
+	return result.url;
+}
+
+export function resolveServerUrl(): { url: string; source: string } {
 	if (!browser) {
-		return 'http://localhost:3000';
+		return { url: 'http://localhost:3000', source: 'ssr_default' };
 	}
 
-	// 1. Check for explicit environment variable override
+	// 1. Explicit env override (baked at build time)
 	const envUrl = import.meta.env.VITE_SOCKET_URL;
 	if (envUrl) {
-		return envUrl;
+		return { url: envUrl, source: 'env_override' };
 	}
 
 	const origin = window.location.origin;
+	const hostname = window.location.hostname;
+	const port = window.location.port;
 
-	// 2. Dev mode (Vite dev server on :5173) or Tauri dev
-	if (origin.includes(':5173') || origin.includes('tauri.localhost')) {
-		return 'http://localhost:3000';
+	// 2. Tauri dev
+	if (hostname === 'tauri.localhost') {
+		return { url: 'http://localhost:3000', source: 'dev_tauri' };
 	}
 
-	// 3. Docker deployment (frontend on :3000, backend on :8080)
-	if (origin.includes(':3000')) {
-		return origin.replace(':3000', ':8080');
+	// 3. Vite dev server
+	if (port === '5173') {
+		return { url: 'http://localhost:3000', source: 'dev_vite' };
 	}
 
-	// 4. Production or same-origin deployment
-	return origin;
+	// 4. Docker: frontend on :3000, backend on :8080 (localhost only)
+	if (port === '3000' && (hostname === 'localhost' || hostname === '127.0.0.1')) {
+		return { url: origin.replace(':3000', ':8080'), source: 'docker_port_rewrite' };
+	}
+
+	// 5. Production: same-origin (platform routes /socket.io to backend)
+	return { url: origin, source: 'same_origin' };
 }

@@ -16,7 +16,7 @@ import { guestCodeRepository } from "./db/repositories/guestCodeRepository.js";
 import { verifyToken } from "./auth/jwt.js";
 import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings } from "./api/authRoutes.js";
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
-import { corsCallback, getCORSHeaders } from "./config/cors.js";
+import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
 // In-memory data store
 interface Channel {
   id: string;
@@ -376,7 +376,15 @@ const io = new Server(server, {
     methods: ["GET", "POST"],
     credentials: true
   },
-  maxHttpBufferSize: 75 * 1024 * 1024 // 75MB (to handle 50MB files after base64 encoding ~33% overhead)
+  maxHttpBufferSize: 75 * 1024 * 1024, // 75MB (to handle 50MB files after base64 encoding ~33% overhead)
+  pingTimeout: 30000,       // 30s pong wait (more forgiving for mobile)
+  pingInterval: 25000,      // 25s ping (keeps alive through proxies)
+  connectTimeout: 15000,    // 15s initial connect (fail faster than default 45s)
+  transports: ['websocket', 'polling'],
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 2 * 60 * 1000, // 2 min recovery window
+    skipMiddlewares: false
+  }
 });
 
 // Helper function to verify auth token from request
@@ -722,6 +730,21 @@ server.on('request', async (req, res) => {
       status: "ok",
       users: users.size,
       uptime: process.uptime()
+    }));
+    return;
+  }
+
+  // CORS diagnostic endpoint
+  if (url.pathname === "/health/cors") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      allowedOrigins: getAllowedOrigins(),
+      nodeEnv: process.env.NODE_ENV,
+      frontendUrl: process.env.FRONTEND_URL || '(not set)',
+      publicUrl: process.env.PUBLIC_URL || '(not set)',
+      allowedOriginsEnv: process.env.ALLOWED_ORIGINS || '(not set)',
+      requestOrigin: req.headers.origin || '(none)',
+      isAllowed: isOriginAllowed(req.headers.origin as string, getAllowedOrigins())
     }));
     return;
   }

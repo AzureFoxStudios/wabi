@@ -116,23 +116,43 @@ export function initSocket(username: string, authToken?: string) {
 	});
 
 	socketInstance.on('connect_error', (error) => {
-		console.error('[Socket] Connection error:', error);
-		console.error('[Socket] Error details:', {
-			message: error?.message,
-			type: error?.type,
-			data: error?.data,
-			toString: error?.toString?.()
-		});
-		connected.set(false);
-		if (error?.message?.includes('Invalid token') || error?.message?.includes('Session expired')) {
-			authStore.setAuthError('Your session has expired. Please log in again.', 'session_expired');
-		}
-	});
+		const msg = error?.message || '';
+		let errorType = 'unknown';
+		let userMessage = `Connection error: ${msg}`;
 
-	socketInstance.on('connect_timeout', () => {
-		console.error('[Socket] Connection timeout!');
-		console.error('[Socket] Attempted to connect to:', serverUrl);
+		if (msg.includes('CORS') || msg.includes('cors') || msg.includes('Not allowed')) {
+			errorType = 'cors_rejection';
+			userMessage = 'Connection blocked by server security policy (CORS).';
+		} else if (msg.includes('Session expired') || msg.includes('session expired')) {
+			errorType = 'auth_expired';
+			userMessage = 'Your session has expired. Please log in again.';
+		} else if (msg.includes('Invalid token') || msg.includes('invalid token')) {
+			errorType = 'auth_invalid';
+			userMessage = 'Authentication failed. Please log in again.';
+		} else if (msg.includes('websocket error') || msg.includes('transport close')) {
+			errorType = 'upgrade_failed';
+			userMessage = 'WebSocket upgrade failed. Retrying...';
+		} else if (msg.includes('xhr poll error') || msg.includes('fetch') || msg.includes('NetworkError')) {
+			errorType = 'network_unreachable';
+			userMessage = 'Cannot reach server. Check your internet connection.';
+		} else if (msg.includes('timeout')) {
+			errorType = 'timeout';
+			userMessage = 'Connection timed out.';
+		}
+
+		console.error(`[Socket] Connection error [${errorType}]:`, userMessage);
+		console.error('[Socket] Raw error:', { message: msg, type: (error as any)?.type, data: (error as any)?.data });
 		connected.set(false);
+
+		// Surface actionable errors to user via AuthErrorBanner
+		if (errorType === 'auth_expired' || errorType === 'auth_invalid') {
+			authStore.setAuthError(userMessage, 'session_expired');
+		} else if (errorType === 'cors_rejection') {
+			authStore.setAuthError(userMessage, 'auth_failed');
+		} else if (errorType === 'network_unreachable' || errorType === 'timeout') {
+			authStore.setAuthError(userMessage, 'connection_lost');
+		}
+		// upgrade_failed and unknown: don't show banner (Socket.io retries automatically)
 	});
 
 	socketInstance.on('reconnect_failed', () => {

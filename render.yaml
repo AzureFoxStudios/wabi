@@ -40,3 +40,6 @@ services:
       - key: PUBLIC_URL
         value: https://wabi.onrender.com
 
+      - key: ALLOWED_ORIGINS
+        value: https://wabi.onrender.com
+

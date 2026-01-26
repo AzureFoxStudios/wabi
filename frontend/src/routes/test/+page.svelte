@@ -1,15 +1,31 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { io } from 'socket.io-client';
+	import { resolveServerUrl } from '$lib/serverUrl';
 
 	let logs: string[] = [];
 	let socketConnected = false;
 	let socketId = '';
 	let jsWorking = false;
+	let corsStatus = '';
 
 	function addLog(message: string) {
 		logs = [...logs, `[${new Date().toLocaleTimeString()}] ${message}`];
 		console.log(message);
+	}
+
+	async function checkCors() {
+		corsStatus = 'checking...';
+		try {
+			const { url } = resolveServerUrl();
+			const res = await fetch(`${url}/health/cors`);
+			const data = await res.json();
+			corsStatus = data.isAllowed ? 'Allowed' : 'Rejected';
+			addLog(`CORS check: ${JSON.stringify(data)}`);
+		} catch (e: any) {
+			corsStatus = `Error: ${e.message}`;
+			addLog(`CORS check failed: ${e.message}`);
+		}
 	}
 
 	onMount(() => {
@@ -17,14 +33,8 @@
 		addLog('✅ JavaScript IS WORKING! onMount fired');
 		addLog('Starting socket connection test...');
 
-		// Detect server URL
-		let serverUrl = 'http://localhost:3000';
-		const origin = window.location.origin;
-		if (!origin.includes(':5173')) {
-			serverUrl = origin;
-		}
-
-		addLog(`Connecting to: ${serverUrl}`);
+		const { url: serverUrl, source } = resolveServerUrl();
+		addLog(`Server URL: ${serverUrl} (detected via: ${source})`);
 
 		const socket = io(serverUrl, {
 			reconnectionDelay: 1000,
@@ -93,6 +103,13 @@
 				<div class="log-entry">{log}</div>
 			{/each}
 		</div>
+	</div>
+
+	<div class="cors-check">
+		<button on:click={checkCors}>Check CORS</button>
+		{#if corsStatus}
+			<span class="cors-result">{corsStatus}</span>
+		{/if}
 	</div>
 
 	<div class="actions">
@@ -190,6 +207,31 @@
 		color: #5865f2;
 		text-decoration: none;
 		font-size: 1.1rem;
+	}
+
+	.cors-check {
+		text-align: center;
+		margin-bottom: 1.5rem;
+	}
+
+	.cors-check button {
+		background-color: #5865f2;
+		color: #fff;
+		border: none;
+		border-radius: 4px;
+		padding: 0.5rem 1.5rem;
+		font-size: 1rem;
+		cursor: pointer;
+	}
+
+	.cors-check button:hover {
+		background-color: #4752c4;
+	}
+
+	.cors-result {
+		margin-left: 1rem;
+		font-family: monospace;
+		color: #aaa;
 	}
 
 	.actions a:hover {

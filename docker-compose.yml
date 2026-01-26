@@ -12,6 +12,7 @@ services:
       - DATA_DIR=/app/data
       - PLUGINS_DIR=/app/plugins
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8080}
+      - ALLOWED_ORIGINS=${FRONTEND_URL:-http://localhost:8080}
     volumes:
       - ./data:/app/data
       - ./plugins:/app/plugins
