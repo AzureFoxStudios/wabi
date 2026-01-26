@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import BaseModal from './BaseModal.svelte';
 
 	export let isOpen = false;
 	export let title = 'Confirm Action';
@@ -17,135 +17,49 @@
 	function handleCancel() {
 		onCancel();
 	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && isOpen) {
-			handleCancel();
-		}
-	}
-
-	onMount(() => {
-		window.addEventListener('keydown', handleKeydown);
-		return () => {
-			window.removeEventListener('keydown', handleKeydown);
-		};
-	});
 </script>
 
-{#if isOpen}
-<div
-	class="modal-overlay"
-	role="button"
-	tabindex="0"
-	on:click={handleCancel}
-	on:keydown={(event) => {
-		if (event.key === 'Enter' || event.key === ' ') {
-			event.preventDefault();
-			handleCancel();
-		}
-	}}
->
-	<div
-		class="modal-content"
-		role="button"
-		tabindex="0"
-		on:click|stopPropagation
-		on:keydown|stopPropagation={(event) => {
-			if (event.key === 'Enter' || event.key === ' ') {
-				event.preventDefault();
-			}
-		}}
-	>
-			<div class="modal-header">
-				<h2>{title}</h2>
-				<button class="close-btn" on:click={handleCancel}>&times;</button>
-			</div>
-
-			<div class="modal-body">
-				<p>{message}</p>
-			</div>
-
-			<div class="modal-footer">
-				<button class="cancel-btn" on:click={handleCancel}>{cancelText}</button>
-				<button class="confirm-btn {variant}" on:click={handleConfirm}>{confirmText}</button>
-			</div>
-		</div>
+<BaseModal {isOpen} onClose={handleCancel} variant="center" width="480px">
+	<div slot="header" class="confirm-header">
+		<h2>{title}</h2>
 	</div>
-{/if}
+
+	<div class="confirm-body">
+		<p>{message}</p>
+	</div>
+
+	<div slot="footer" class="confirm-actions">
+		<button class="cancel-btn" on:click={handleCancel}>{cancelText}</button>
+		<button class="confirm-btn {variant}" on:click={handleConfirm}>{confirmText}</button>
+	</div>
+</BaseModal>
 
 <style>
-	.modal-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background-color: rgba(15, 12, 41, 0.85);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 1000;
-		backdrop-filter: blur(8px);
-	}
-
-	.modal-content {
-		background: var(--gradient-dialog-dark);
-		border: 1px solid rgba(179, 179, 255, 0.2);
-		border-radius: 12px;
-		width: 90%;
-		max-width: 450px;
-		box-shadow: 0 8px 32px rgba(255, 0, 255, 0.15);
-		overflow: hidden;
-	}
-
-	.modal-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
+	.confirm-header {
 		padding: 1.5rem;
 		border-bottom: 1px solid rgba(179, 179, 255, 0.15);
 		background: rgba(48, 43, 99, 0.3);
 	}
 
-	.modal-header h2 {
+	.confirm-header h2 {
 		margin: 0;
 		font-size: 1.25rem;
 		font-weight: 600;
 		color: var(--text-primary);
 	}
 
-	.close-btn {
-		background: none;
-		border: none;
-		font-size: 2rem;
-		color: var(--text-secondary);
-		cursor: pointer;
-		width: 32px;
-		height: 32px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 6px;
-		transition: all 0.2s;
-	}
-
-	.close-btn:hover {
-		background-color: rgba(255, 0, 255, 0.2);
-		color: var(--text-primary);
-	}
-
-	.modal-body {
+	.confirm-body {
 		padding: 1.5rem;
 	}
 
-	.modal-body p {
+	.confirm-body p {
 		margin: 0;
 		color: var(--text-secondary);
 		font-size: 0.9375rem;
 		line-height: 1.6;
 	}
 
-	.modal-footer {
+	.confirm-actions {
 		display: flex;
 		justify-content: flex-end;
 		gap: 0.75rem;

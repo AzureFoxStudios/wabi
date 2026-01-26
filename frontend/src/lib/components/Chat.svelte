@@ -968,7 +968,7 @@
 					on:click={() => fileInput?.click()}
 					title="Attach file"
 				>
-					📎
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 0 19.8 4.3M22 12.5a10 10 0 0 0-19.8-4.2"></path></svg>
 				</button>
 			</div>
 			<textarea
@@ -988,7 +988,7 @@
 				on:click={() => showGiphyPicker = !showGiphyPicker}
 				title="Add GIF"
 			>
-				GIF
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
 			</button>
 			<button
 				bind:this={emojiPickerButton}
@@ -998,14 +998,15 @@
 			}}
 				title="Add emoji"
 			>
-				😀
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
 			</button>
 			<button
 				class="send-button"
 				on:click={handleSubmit}
 				disabled={!messageInput.trim()}
+				title="Send message"
 			>
-				Send
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
 			</button>
 		</div>
 	</div>
@@ -1225,6 +1226,14 @@
 		align-items: center;
 		justify-content: center;
 		font-weight: 600;
+		padding: 0;
+	}
+
+	.input-icon-button svg {
+		width: 20px;
+		height: 20px;
+		stroke: currentColor;
+		stroke-width: 2;
 	}
 
 	.input-icon-button:hover {
@@ -1260,13 +1269,23 @@
 		background: var(--accent);
 		color: white;
 		border: none;
-		padding: 0 1rem;
+		padding: 0 0.75rem;
 		height: 36px;
 		border-radius: 6px;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.2s;
 		font-size: 0.9rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.send-button svg {
+		width: 18px;
+		height: 18px;
+		stroke: currentColor;
+		stroke-width: 2;
 	}
 
 	.send-button:disabled {

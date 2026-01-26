@@ -458,7 +458,7 @@
 					on:click={() => fileInput?.click()}
 					title="Attach file"
 				>
-					📎
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 0 19.8 4.3M22 12.5a10 10 0 0 0-19.8-4.2"></path></svg>
 				</button>
 				<textarea
 					bind:this={textareaElement}
@@ -470,7 +470,7 @@
 					class="dm-input"
 				></textarea>
 				<button type="submit" class="dm-send-btn" disabled={!messageInput.trim()}>
-					<span class="send-icon">➤</span>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
 				</button>
 			</form>
 		</div>
@@ -681,9 +681,11 @@
 		cursor: not-allowed;
 	}
 
-	.send-icon {
-		display: inline-block;
-		transform: rotate(0deg);
+	.dm-send-btn svg {
+		width: 16px;
+		height: 16px;
+		stroke: currentColor;
+		stroke-width: 2;
 	}
 
 	.dm-input-wrapper {
@@ -708,6 +710,13 @@
 		justify-content: center;
 		width: 32px;
 		height: 32px;
+	}
+
+	.dm-attach-btn svg {
+		width: 18px;
+		height: 18px;
+		stroke: currentColor;
+		stroke-width: 2;
 	}
 
 	.dm-attach-btn:hover {

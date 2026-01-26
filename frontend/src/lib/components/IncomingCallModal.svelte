@@ -49,16 +49,16 @@
 		position: fixed;
 		top: 20px;
 		right: 20px;
-		background-color: rgba(40, 40, 40, 0.8);
+		background-color: var(--modal-bg, rgba(40, 40, 40, 0.9));
 		border-radius: 8px;
 		padding: 20px;
 		z-index: 1000;
 		box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
-		border: 1px solid #444;
+		border: 1px solid rgba(255, 255, 255, 0.1);
 	}
 
 	.modal-content {
-		color: #fff;
+		color: var(--text-primary, white);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
@@ -72,7 +72,7 @@
 
 	strong {
 		font-weight: 600;
-		color: #a29bfe;
+		color: var(--accent, #a29bfe);
 	}
 
 	.button-group {
@@ -90,20 +90,20 @@
 	}
 
 	.accept {
-		background-color: #2ecc71;
+		background-color: var(--color-success, #2ecc71);
 		color: white;
 	}
 
 	.accept:hover {
-		background-color: #27ae60;
+		background-color: var(--color-success-hover, #27ae60);
 	}
 
 	.reject {
-		background-color: #e74c3c;
+		background-color: var(--color-danger, #e74c3c);
 		color: white;
 	}
 
 	.reject:hover {
-		background-color: #c0392b;
+		background-color: var(--color-danger-hover, #c0392b);
 	}
 </style>
