@@ -202,11 +202,11 @@
 
 	.panel-tabs-header {
 		display: flex;
-		align-items: center;
+		align-items: stretch;
 		flex-shrink: 0;
 		border-bottom: 1px solid var(--border);
-		padding: 0.75rem 1rem;
-		gap: 0.5rem;
+		padding: 0;
+		gap: 0;
 		height: 52px;
 		background: var(--bg-secondary);
 		box-sizing: border-box;
@@ -260,7 +260,7 @@
 
 	.tab-btn {
 		flex: 1;
-		padding: 0;
+		padding: 0 var(--space-3);
 		background: transparent;
 		border: none;
 		border-bottom: 2px solid transparent;
@@ -274,7 +274,7 @@
 		justify-content: center;
 		text-transform: uppercase;
 		letter-spacing: 0.5px;
-		height: auto;
+		height: 100%;
 	}
 
 	.tab-btn:hover {
