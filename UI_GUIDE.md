@@ -366,20 +366,35 @@ margin-bottom: 16px;              /* Generous spacing */
 
 **Core Principle**: Content (messages, drawings, shared screens) gets maximum space. Navigation and metadata are minimal, collapsible, and context-aware.
 
-### Main Chat Layout (Three-Zone Adaptive)
+### Main Chat Layout (Three-Column Adaptive)
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│ [Channel Sidebar]  │  [Messages (primary)]  │  [Context Panel] │
-│  (collapsible)     │   (fluid, max space)   │    (optional)    │
-│   200-240px        │     flex-grow: 1       │    240-280px     │
-└───────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│ [Channels]  │  [Messages (primary)]  │  [DM Panel]             │
+│  200-240px  │    flex-grow: 1        │  240-300px              │
+│             │                        │  ┌─────────────────────┐│
+│ • general   │ [Message Thread]       │ │ Direct Messages  [+]││
+│ • random    │                        │ ├─────────────────────┤│
+│ • design    │ Alice: Hey there!      │ │Messages  │ Users   ││
+│             │ Bob: Hey!              │ ├─────────────────────┤│
+│ ─────────   │ Carol: How's it going? │ │• Alice   last msg...││
+│ ● Alice     │                        │ │• Bob     you there? ││
+│ ● Bob       │ [Input box]            │ │• Carol   lol ok     ││
+│ ○ Carol     │                        │ ├─────────────────────┤│
+│             │                        │ │You (you) ● active   ││
+│             │                        │ └─────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-**Behavior**:
-- **Channel Sidebar**: Channels/DMs list. Collapses to icons on narrow screens or user preference.
-- **Messages**: Primary focus. Expands to fill available space.
-- **Context Panel**: User list, pinned messages, thread view. Appears contextually, not always visible.
+**Three-Column Layout**:
+- **Left**: Channel sidebar (channels/DMs) - collapsible
+- **Center**: Message thread (primary content) - flex-grow to fill space
+- **Right**: Direct Message panel (DMs + users + current user) - optional, 240-300px
+
+**DM Panel (Right)**:
+- **Top**: Messages tab (DMs you're in)
+- **Alternative**: Users tab (online users)
+- **Bottom**: Current user context (fixed footer)
 
 ### Responsive Breakpoints
 
@@ -481,24 +496,53 @@ Wabi uses **rem-based spacing** for scalable, accessible spacing. The base syste
 - **Active**: Left border (4px `--accent`) OR accent background tint
 - **Unread badge**: Right-aligned, accent background, white text, 18px height
 
-#### 3. User Panel (Contextual, Collapsible)
+#### 3. Direct Message Panel (Three-Zone Layout)
 
-Located in context panel (right sidebar) or bottom of channel sidebar.
+Located in right sidebar. Consists of three fixed zones with scrollable middle:
 
 ```
-┌────────────────────────────┐
-│  [Avatar]  Alice           │
-│  ● Online                  │
-│  [Settings] [Logout]       │
-└────────────────────────────┘
+┌─────────────────────────────┐
+│ Direct Messages        [+]  │  ← Fixed Header (52px)
+├─────────────────────────────┤
+│ Messages      │ Users       │  ← Fixed Tabs
+├─────────────────────────────┤
+│ [Alice]  Hey, how are...    │
+│ [Bob]    Got it!            │  ← Scrollable Content
+│ [Carol]  See you later      │     (active tab)
+├─────────────────────────────┤
+│ [Avatar] You (you)          │  ← Fixed Footer
+│ ● active                    │     (current user context)
+└─────────────────────────────┘
 ```
+
+**Three-Zone Architecture**:
+1. **Header** (fixed): Title + add DM button (if Messages tab active)
+2. **Tabs** (fixed): Messages | Users toggle
+3. **Content** (scrollable): Active tab content (DM list or users list)
+4. **Footer** (fixed): Current user info + status
+
+**Messages Tab**:
+- Shows DM conversations (most recent first)
+- Each item: Avatar + name + last message preview
+- Click to open conversation
+
+**Users Tab**:
+- Shows online users (excludes current user)
+- Each item: Avatar + name + status indicator
+- Click to start/open DM with user
+- Empty state: "No users online" if list empty
+
+**Footer (Current User)**:
+- Always visible
+- Shows: Avatar + username "(you)" badge + status
+- Context-sensitive info (not clickable navigation)
 
 **Specs**:
-- **Avatar**: 32px circular
-- **Name**: 14px, bold
-- **Status**: 8px dot + text or icon
-- **Actions**: Icon buttons (20px icons)
-- **Collapse**: On narrow screens, show icon-only or move to dropdown
+- **Avatar**: 32-36px circular
+- **Name**: 14px, medium weight
+- **Status**: 8px colored dot + text
+- **Message preview**: Truncated to ~50 chars, secondary text color
+- **Spacing**: 8-12px padding, consistent gaps
 
 #### 4. Modals (Focused, Escapable)
 
