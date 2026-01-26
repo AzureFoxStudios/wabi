@@ -19,7 +19,7 @@ A chill place to hang out with your friends. No fuss. No spying. No bloat. Just 
 
 ## Tech Stack
 
-- **Backend**: Node.js (Bun Runtime), Socket.IO, TypeScript
+- **Backend**: Node.js, Socket.IO, TypeScript
 - **Frontend**: SvelteKit, TypeScript
 - **Desktop**: Tauri
 - **Real-time Comms**: Socket.IO (Signaling), WebRTC (Media)
