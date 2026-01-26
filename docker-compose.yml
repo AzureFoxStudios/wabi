@@ -48,10 +48,14 @@ services:
       context: ./turn-server
       dockerfile: Dockerfile
     container_name: wabi-coturn
+    profiles:
+      - turn
     network_mode: "host"
     volumes:
       - ./turn-server/turnserver.conf.template:/etc/coturn/turnserver.conf.template:ro
       - ./turn-server/certs:/etc/coturn/certs:ro
+      - ./turn-server/docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/docker-entrypoint.sh"]
     environment:
       - TURN_EXTERNAL_IP=${TURN_EXTERNAL_IP:-127.0.0.1}
       - TURN_REALM=${TURN_REALM:-wabi.local}
