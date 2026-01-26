@@ -222,7 +222,14 @@
 				on:click={handleToggleMute}
 				title={$isMuted ? 'Unmute' : 'Mute'}
 			>
-				<span class="control-icon">{$isMuted ? '🔇' : '🎤'}</span>
+				<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					{#if $isMuted}
+						<line x1="1" y1="1" x2="23" y2="23"></line>
+						<path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path>
+					{:else}
+						<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+					{/if}
+				</svg>
 			</button>
 
 			<button
@@ -231,11 +238,21 @@
 				on:click={handleToggleVideo}
 				title={$isVideoOff ? 'Turn on camera' : 'Turn off camera'}
 			>
-				<span class="control-icon">{$isVideoOff ? '📹' : '📷'}</span>
+				<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					{#if $isVideoOff}
+						<line x1="1" y1="1" x2="23" y2="23"></line>
+						<path d="M7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3m0-11l5-5h6a2 2 0 0 1 2 2v9.34a2 2 0 0 1-.46 1.32"></path>
+					{:else}
+						<path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+					{/if}
+				</svg>
 			</button>
 
 			<button class="control-btn end-call-btn" on:click={handleEndCall} title="End call">
-				<span class="control-icon">📞</span>
+				<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+					<line x1="1" y1="1" x2="23" y2="23"></line>
+				</svg>
 			</button>
 		</div>
 
@@ -490,6 +507,15 @@
 
 	.control-icon {
 		display: block;
+		width: 24px;
+		height: 24px;
+	}
+
+	.control-btn svg {
+		width: 24px;
+		height: 24px;
+		stroke: currentColor;
+		stroke-width: 2;
 	}
 
     .connection-status {

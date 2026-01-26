@@ -197,7 +197,7 @@
 				on:click={() => activeView = 'screen'}
 				title="Screen Share"
 			>
-				📺
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
 			</button>
 			<button class="add-btn" on:click={() => showCreateInput = !showCreateInput} title="Create channel">+</button>
 		</div>
@@ -224,15 +224,19 @@
 					<span class="hash">#</span>
 					{channel.name}
 					{#if isChannelPinned(channel)}
-						<span class="pin-icon" title="Pinned">📌</span>
+						<svg class="pin-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" title="Pinned"><path d="M12 17V5M9 8h6"></path></svg>
 					{/if}
 					{#if $channelUnreadCounts[channel.id] && $currentChannel !== channel.id}
 						<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
 					{/if}
 				</button>
 				<div class="channel-actions">
-					<button class="settings-btn" on:click|stopPropagation={() => handleOpenChannelSettings(channel)} title="Channel settings">⚙️</button>
-					<button class="pin-btn" on:click|stopPropagation={() => handleShowPinnedMessages(channel.id)} title="View pinned messages">📌</button>
+					<button class="settings-btn" on:click|stopPropagation={() => handleOpenChannelSettings(channel)} title="Channel settings">
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m3.08 3.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m3.08-3.08l4.24-4.24M19.78 19.78l-4.24-4.24m-3.08-3.08l-4.24-4.24M19.78 4.22l-4.24 4.24m-3.08 3.08l-4.24-4.24"></path></svg>
+				</button>
+					<button class="pin-btn" on:click|stopPropagation={() => handleShowPinnedMessages(channel.id)} title="View pinned messages">
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V5M9 8h6"></path></svg>
+				</button>
 					{#if channel.id !== 'general'}
 						<button class="delete-btn" on:click|stopPropagation={() => handleDeleteChannel(channel.id)}>×</button>
 					{/if}
@@ -248,18 +252,22 @@
 			{#each groupChannels as channel (channel.id)}
 				<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)}>
 					<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
-						<span class="group-icon">👥</span>
+						<svg class="group-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
 						{channel.name}
 						{#if isChannelPinned(channel)}
-							<span class="pin-icon" title="Pinned">📌</span>
+							<svg class="pin-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" title="Pinned"><path d="M12 17V5M9 8h6"></path></svg>
 						{/if}
 						{#if $channelUnreadCounts[channel.id] && $currentChannel !== channel.id}
 							<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
 						{/if}
 					</button>
 					<div class="channel-actions">
-						<button class="settings-btn" on:click|stopPropagation={() => handleOpenChannelSettings(channel)} title="Channel settings">⚙️</button>
-						<button class="pin-btn" on:click|stopPropagation={() => handleShowPinnedMessages(channel.id)} title="View pinned messages">📌</button>
+						<button class="settings-btn" on:click|stopPropagation={() => handleOpenChannelSettings(channel)} title="Channel settings">
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m3.08 3.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m3.08-3.08l4.24-4.24M19.78 19.78l-4.24-4.24m-3.08-3.08l-4.24-4.24M19.78 4.22l-4.24 4.24m-3.08 3.08l-4.24-4.24"></path></svg>
+				</button>
+						<button class="pin-btn" on:click|stopPropagation={() => handleShowPinnedMessages(channel.id)} title="View pinned messages">
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V5M9 8h6"></path></svg>
+				</button>
 						<button class="delete-btn" on:click|stopPropagation={() => handleDeleteChannel(channel.id)}>×</button>
 					</div>
 				</div>
@@ -342,7 +350,13 @@
 					on:click={() => isMuted = !isMuted}
 					title={isMuted ? 'Unmute' : 'Mute'}
 				>
-					{isMuted ? '🔇' : '🎤'}
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						{#if isMuted}
+							<line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12m14 0a7 7 0 0 1-13.46 3.4"></path>
+						{:else}
+							<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+						{/if}
+					</svg>
 				</button>
 				<button
 					class="control-btn"
@@ -350,14 +364,20 @@
 					on:click={() => isDeafened = !isDeafened}
 					title={isDeafened ? 'Undeafen' : 'Deafen'}
 				>
-					{isDeafened ? '🔇' : '🎧'}
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						{#if isDeafened}
+							<circle cx="12" cy="13" r="5"></circle><path d="M6.5 8.5c-1 1-2 2.5-2 4.5 0 5.523 4.477 10 10 10s10-4.477 10-10c0-2 -1-3.5-2-4.5"></path><path d="M12 5V2"></path>
+						{:else}
+							<path d="M6 9v6"></path><circle cx="12" cy="13" r="5"></circle><path d="M18 9v6"></path><line x1="12" y1="2" x2="12" y2="5"></line>
+						{/if}
+					</svg>
 				</button>
 				<button
 					class="control-btn"
 					on:click={() => showSettings = true}
 					title="User Settings"
 				>
-					⚙️
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m3.08 3.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m3.08-3.08l4.24-4.24M19.78 19.78l-4.24-4.24m-3.08-3.08l-4.24-4.24M19.78 4.22l-4.24 4.24m-3.08 3.08l-4.24-4.24"></path></svg>
 				</button>
 			</div>
 		</div>
@@ -657,13 +677,23 @@
 		color: var(--text-secondary);
 		padding: 0.5rem;
 		transition: all 0.2s;
-		border-radius: 0;
+		border-radius: 4px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.settings-btn svg {
+		width: 18px;
+		height: 18px;
+		stroke: currentColor;
+		stroke-width: 2;
 	}
 
 	.settings-btn:hover {
 		color: var(--text-primary);
 		background: var(--bg-secondary);
-		transform: rotate(45deg);
+		box-shadow: inset 0 0 6px rgba(255, 255, 255, 0.1);
 	}
 
 	.sidebar-header {
@@ -694,9 +724,9 @@
 
 	.screen-share-icon-btn,
 	.add-btn {
-		width: 24px;
-		height: 24px;
-		border-radius: 0;
+		width: 32px;
+		height: 32px;
+		border-radius: 4px;
 		background: none;
 		border: none;
 		color: var(--text-secondary);
@@ -706,7 +736,16 @@
 		align-items: center;
 		justify-content: center;
 		transition: all 0.2s;
-		opacity: 0.3;
+		opacity: 0.7;
+		padding: 0;
+	}
+
+	.screen-share-icon-btn svg,
+	.add-btn {
+		width: 18px;
+		height: 18px;
+		stroke: currentColor;
+		stroke-width: 2;
 	}
 
 	.screen-share-icon-btn:hover,
@@ -794,10 +833,25 @@
 		color: var(--text-primary);
 	}
 
-	.hash,
+	.hash {
+		color: var(--text-secondary);
+		font-weight: 600;
+	}
+
 	.group-icon {
 		color: var(--text-secondary);
 		font-weight: 600;
+		width: 18px;
+		height: 18px;
+		stroke: currentColor;
+		stroke-width: 2;
+	}
+
+	.pin-icon {
+		width: 16px;
+		height: 16px;
+		stroke: currentColor;
+		stroke-width: 2;
 	}
 
 	.section-header {
@@ -818,9 +872,9 @@
 	.pin-btn,
 	.delete-btn {
 		opacity: 0;
-		width: 20px;
-		height: 20px;
-		border-radius: 0;
+		width: 24px;
+		height: 24px;
+		border-radius: 4px;
 		background: none;
 		border: none;
 		color: var(--text-secondary);
@@ -830,6 +884,15 @@
 		align-items: center;
 		justify-content: center;
 		transition: all 0.2s;
+		padding: 0;
+	}
+
+	.pin-btn svg,
+	.settings-btn svg {
+		width: 16px;
+		height: 16px;
+		stroke: currentColor;
+		stroke-width: 2;
 	}
 
 	.channel-item:hover .pin-btn,
@@ -1049,16 +1112,29 @@
 		justify-content: center;
 		transition: all 0.2s;
 		flex-shrink: 0;
+		padding: 0;
+	}
+
+	.control-btn svg {
+		width: 18px;
+		height: 18px;
+		stroke: currentColor;
+		stroke-width: 2;
 	}
 
 	.control-btn:hover {
 		background: var(--bg-secondary);
 		color: var(--text-primary);
+		box-shadow: inset 0 0 6px rgba(255, 255, 255, 0.1);
 	}
 
 	.control-btn.active {
 		background: var(--color-danger);
 		color: white;
+	}
+
+	.control-btn.active:hover {
+		box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.2);
 	}
 
 	/* Auto-delete/Timer indicator - redder highlight */

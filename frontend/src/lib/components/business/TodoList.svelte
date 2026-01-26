@@ -201,7 +201,8 @@
 		</div>
 		<div class="header-right">
 			<button class="settings-btn" on:click={() => showColumnSettings = !showColumnSettings} title="Column Settings">
-				⚙️ Columns
+				<svg class="settings-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m3.08 3.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m3.08-3.08l4.24-4.24M19.78 19.78l-4.24-4.24m-3.08-3.08l-4.24-4.24M19.78 4.22l-4.24 4.24m-3.08 3.08l-4.24-4.24"></path></svg>
+				Columns
 			</button>
 			<button class="archive-btn" on:click={handleArchiveOld} title="Archive old completed tasks">
 				📦 Archive Old
@@ -529,6 +530,15 @@
 		cursor: pointer;
 		font-size: 0.85rem;
 		transition: all 0.2s;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.settings-icon {
+		width: 18px;
+		height: 18px;
+		flex-shrink: 0;
 	}
 
 	.settings-btn:hover,

@@ -546,7 +546,10 @@
 			}}
 		>
 			<div class="modal-header">
-				<h2>⚙️ Settings</h2>
+				<h2>
+				<svg class="header-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m3.08 3.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m3.08-3.08l4.24-4.24M19.78 19.78l-4.24-4.24m-3.08-3.08l-4.24-4.24M19.78 4.22l-4.24 4.24m-3.08 3.08l-4.24-4.24"></path></svg>
+				Settings
+			</h2>
 				<button class="close-btn" on:click={closeModal}>✕</button>
 			</div>
 
@@ -589,7 +592,11 @@
 							<span class="setting-description">Play sounds for messages and notifications</span>
 						</div>
 						<button class="toggle-btn" class:active={soundEnabled} on:click={toggleSound}>
-							{soundEnabled ? '🔊' : '🔇'}
+							{#if soundEnabled}
+								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+							{:else}
+								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
+							{/if}
 						</button>
 					</div>
 					<div class="setting-item">
@@ -598,7 +605,11 @@
 							<span class="setting-description">Enable microphone for voice calls</span>
 						</div>
 						<button class="toggle-btn" class:active={micEnabled} on:click={toggleMic}>
-							{micEnabled ? '🎤' : '🔇'}
+							{#if micEnabled}
+								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+							{:else}
+								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12m14 0a7 7 0 0 1-13.46 3.4"></path></svg>
+							{/if}
 						</button>
 					</div>
 					<div class="setting-item">
@@ -628,7 +639,10 @@
 					<!-- Notification Sound -->
 					<div class="setting-item-full">
 						<div class="setting-info">
-							<span class="setting-label">🔊 Notification Sound</span>
+							<span class="setting-label">
+							<svg class="setting-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+							Notification Sound
+						</span>
 							<span class="setting-description">Choose which sound to play for notifications</span>
 						</div>
 						<div class="sound-options">
@@ -928,6 +942,26 @@
 		margin: 0;
 		font-size: 1.5rem;
 		color: var(--text-primary);
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.header-icon {
+		width: 28px;
+		height: 28px;
+		stroke: currentColor;
+		stroke-width: 2;
+		flex-shrink: 0;
+	}
+
+	.setting-icon {
+		width: 18px;
+		height: 18px;
+		stroke: currentColor;
+		stroke-width: 2;
+		display: inline;
+		margin-right: 0.5rem;
 	}
 
 	.close-btn {

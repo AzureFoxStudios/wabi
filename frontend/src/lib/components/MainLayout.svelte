@@ -76,39 +76,40 @@
 		<div class:hidden={activeView !== 'screen'}><ScreenShareViewer bind:activeView /></div>
 	</div>
 	
-	<!-- User Panel (Right) -->
-	<!-- DEBUG: showDMListPanel={$layoutStore.showDMListPanel}, width={$layoutStore.showDMListPanel ? $layoutStore.userPanelWidth : 0} -->
-	<div
-		class="user-panel-container"
-		class:visible={$layoutStore.showDMListPanel}
-		style:width="{$layoutStore.showDMListPanel ? $layoutStore.userPanelWidth : 0}px"
-		style:min-width="{$layoutStore.showDMListPanel ? $layoutStore.userPanelWidth : 0}px"
-		class:mobile-visible={$layoutStore.isMobile && $layoutStore.rightPanelView === 'users'}
-	>
-		<DMListPanel on:openDM={(e) => layoutStore.openDM(e.detail.channelId, e.detail.otherUser)} on:close={() => layoutStore.rightPanelView.set('none')} />
-		{#if !$layoutStore.isMobile}
-			<div class="resize-handle resize-handle-user" on:mousedown={() => layoutStore.isResizingUser.set(true)}></div>
-		{/if}
-	</div>
-	
-	<!-- DM Panel (Far Right) -->
-	<div 
-		class="dm-panel-container"
-		class:visible={$layoutStore.showDMPanel}
-		style:width="{$layoutStore.showDMPanel ? $layoutStore.dmPanelWidth : 0}px"
-		class:mobile-visible={$layoutStore.isMobile && $layoutStore.rightPanelView === 'dm'}
-	>
-		<DMPanel
-            dmChannelId={$layoutStore.dmChannelId}
-            otherUser={$layoutStore.dmOtherUser}
-            onClose={layoutStore.closeDM}
-            onSelectDM={(channelId, user) => layoutStore.openDM(channelId, user)}
-            on:back={layoutStore.handleDMPanelBack}
-        />
-		{#if !$layoutStore.isMobile}
-			<div class="resize-handle resize-handle-dm" on:mousedown={() => layoutStore.isResizingDM.set(true)}></div>
-		{/if}
-	</div>
+	<!-- User Panel (Right) - Tab 1 -->
+	{#if $layoutStore.showDMListPanel || ($layoutStore.isMobile && $layoutStore.rightPanelView === 'dm-list')}
+		<div
+			class="user-panel-container"
+			style:width="{$layoutStore.showDMListPanel ? $layoutStore.userPanelWidth : 0}px"
+			style:min-width="{$layoutStore.showDMListPanel ? $layoutStore.userPanelWidth : 0}px"
+			class:mobile-visible={$layoutStore.isMobile && $layoutStore.rightPanelView === 'dm-list'}
+		>
+			<DMListPanel on:openDM={(e) => layoutStore.openDM(e.detail.channelId, e.detail.otherUser)} on:close={() => layoutStore.rightPanelView.set('none')} />
+			{#if !$layoutStore.isMobile}
+				<div class="resize-handle resize-handle-user" on:mousedown={() => layoutStore.isResizingUser.set(true)}></div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- DM Panel (Far Right) - Tab 2 -->
+	{#if $layoutStore.showDMPanel || ($layoutStore.isMobile && $layoutStore.rightPanelView === 'dm')}
+		<div
+			class="dm-panel-container"
+			style:width="{$layoutStore.showDMPanel ? $layoutStore.dmPanelWidth : 0}px"
+			class:mobile-visible={$layoutStore.isMobile && $layoutStore.rightPanelView === 'dm'}
+		>
+			<DMPanel
+                dmChannelId={$layoutStore.dmChannelId}
+                otherUser={$layoutStore.dmOtherUser}
+                onClose={layoutStore.closeDM}
+                onSelectDM={(channelId, user) => layoutStore.openDM(channelId, user)}
+                on:back={layoutStore.handleDMPanelBack}
+            />
+			{#if !$layoutStore.isMobile}
+				<div class="resize-handle resize-handle-dm" on:mousedown={() => layoutStore.isResizingDM.set(true)}></div>
+			{/if}
+		</div>
+	{/if}
 	
 	<!-- Desktop-Only Buttons -->
 	{#if !$layoutStore.isMobile}
