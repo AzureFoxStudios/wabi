@@ -21,23 +21,34 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 		if (isRegistered) {
 			// Try to load from server for registered users
 			try {
+				console.log('[Theme] Attempting to load preferences from server (registered user)...');
 				const prefs = await fetchThemePreferences();
 				themeStore.load(prefs);
-				console.log('[Theme] Loaded preferences from server:', prefs);
+				console.log('[Theme] ✅ Successfully loaded preferences from server:', {
+					theme_id: prefs.theme_id,
+					uniform_font_enabled: prefs.uniform_font_enabled
+				});
 			} catch (error) {
-				console.warn('[Theme] Failed to load from server, using localStorage:', error);
+				console.warn('[Theme] ❌ Failed to load from server:', error instanceof Error ? error.message : error);
+				console.log('[Theme] Falling back to localStorage...');
 				// Fallback to localStorage
 				const localPrefs = loadThemeFromLocalStorage();
 				if (localPrefs) {
 					themeStore.load(localPrefs);
+					console.log('[Theme] ✅ Loaded from localStorage fallback:', localPrefs);
+				} else {
+					console.log('[Theme] No localStorage preferences found, using defaults');
 				}
 			}
 		} else {
 			// Guest users: load from localStorage only
+			console.log('[Theme] Loading preferences for guest user from localStorage...');
 			const localPrefs = loadThemeFromLocalStorage();
 			if (localPrefs) {
 				themeStore.load(localPrefs);
-				console.log('[Theme] Loaded preferences from localStorage:', localPrefs);
+				console.log('[Theme] ✅ Loaded from localStorage:', localPrefs);
+			} else {
+				console.log('[Theme] No localStorage preferences found for guest, using defaults');
 			}
 		}
 
@@ -54,8 +65,9 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 	});
 
 		themeStore.setLoading(false);
+	console.log('[Theme] ✅ Theme initialization complete');
 	} catch (error) {
-		console.error('[Theme] Initialization error:', error);
+		console.error('[Theme] ❌ Initialization error:', error instanceof Error ? error.message : error);
 		themeStore.setError('Failed to initialize theme');
 
 		// Apply default theme as fallback

@@ -21,30 +21,62 @@ function getAuthToken(): string | null {
 export async function fetchThemePreferences(): Promise<ThemePreferences> {
 	const token = getAuthToken();
 	if (!token) {
-		console.warn('[ThemeApi] No auth token found');
-		throw new Error('Not authenticated');
+		console.warn('[ThemeApi] No auth token found - cannot fetch from server');
+		throw new Error('Not authenticated - no token');
 	}
 
 	console.log('[ThemeApi] Fetching theme preferences from', `${API_BASE}/api/user/theme`);
-	const response = await fetch(`${API_BASE}/api/user/theme`, {
-		method: 'GET',
-		headers: {
-			'Authorization': `Bearer ${token}`,
-			'Content-Type': 'application/json'
-		}
-	});
+	console.log('[ThemeApi] Using auth token:', token.substring(0, 20) + '...');
 
-	console.log('[ThemeApi] Fetch response status:', response.status);
-	if (!response.ok) {
-		const errorText = await response.text();
-		console.error('[ThemeApi] Fetch failed:', errorText);
-		if (response.status === 401) {
-			throw new Error('Unauthorized');
-		}
-		throw new Error('Failed to fetch theme preferences');
+	let response;
+	try {
+		response = await fetch(`${API_BASE}/api/user/theme`, {
+			method: 'GET',
+			headers: {
+				'Authorization': `Bearer ${token}`,
+				'Content-Type': 'application/json'
+			}
+		});
+	} catch (networkError) {
+		console.error('[ThemeApi] Network error:', networkError);
+		throw new Error(`Network error: ${networkError instanceof Error ? networkError.message : 'Failed to reach server'}`);
 	}
 
-	const data = await response.json();
+	console.log('[ThemeApi] Fetch response status:', response.status);
+
+	if (!response.ok) {
+		let errorText = '';
+		try {
+			errorText = await response.text();
+		} catch (e) {
+			errorText = 'Could not read error response';
+		}
+
+		console.error('[ThemeApi] Fetch failed with status', response.status, ':', errorText);
+
+		if (response.status === 401) {
+			throw new Error('Unauthorized - invalid or expired token');
+		} else if (response.status === 404) {
+			throw new Error('Theme endpoint not found on server');
+		} else if (response.status >= 500) {
+			throw new Error('Server error - theme service unavailable');
+		}
+		throw new Error(`Failed to fetch theme preferences (${response.status}): ${errorText}`);
+	}
+
+	let data;
+	try {
+		data = await response.json();
+	} catch (parseError) {
+		console.error('[ThemeApi] Failed to parse response JSON:', parseError);
+		throw new Error('Server returned invalid JSON');
+	}
+
+	console.log('[ThemeApi] Successfully fetched preferences:', {
+		theme_id: data.theme_id,
+		uniform_font_enabled: data.uniform_font_enabled
+	});
+
 	return {
 		theme_id: data.theme_id,
 		custom_theme: data.custom_theme,
@@ -64,29 +96,58 @@ export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Pr
 	const token = getAuthToken();
 	if (!token) {
 		console.warn('[ThemeApi] No auth token found for save');
-		throw new Error('Not authenticated');
+		throw new Error('Not authenticated - cannot save to server');
 	}
 
-	console.log('[ThemeApi] Saving theme preferences to', `${API_BASE}/api/user/theme`, prefs);
-	const response = await fetch(`${API_BASE}/api/user/theme`, {
-		method: 'POST',
-		headers: {
-			'Authorization': `Bearer ${token}`,
-			'Content-Type': 'application/json'
-		},
-		body: JSON.stringify(prefs)
-	});
+	console.log('[ThemeApi] Saving theme preferences to', `${API_BASE}/api/user/theme`);
+	console.log('[ThemeApi] Preferences to save:', prefs);
+
+	let response;
+	try {
+		response = await fetch(`${API_BASE}/api/user/theme`, {
+			method: 'POST',
+			headers: {
+				'Authorization': `Bearer ${token}`,
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify(prefs)
+		});
+	} catch (networkError) {
+		console.error('[ThemeApi] Network error during save:', networkError);
+		throw new Error(`Network error: ${networkError instanceof Error ? networkError.message : 'Failed to reach server'}`);
+	}
 
 	console.log('[ThemeApi] Save response status:', response.status);
+
 	if (!response.ok) {
-		const errorText = await response.text();
-		console.error('[ThemeApi] Save failed:', errorText);
-		if (response.status === 401) {
-			throw new Error('Unauthorized');
+		let errorText = '';
+		try {
+			errorText = await response.text();
+		} catch (e) {
+			errorText = 'Could not read error response';
 		}
-		const errorData = await response.json().catch(() => ({ error: errorText }));
-		throw new Error(errorData.error || 'Failed to save theme preferences');
+
+		console.error('[ThemeApi] Save failed with status', response.status, ':', errorText);
+
+		if (response.status === 401) {
+			throw new Error('Unauthorized - invalid or expired token');
+		} else if (response.status === 404) {
+			throw new Error('Theme endpoint not found on server');
+		} else if (response.status >= 500) {
+			throw new Error('Server error - theme service unavailable');
+		}
+
+		// Try to parse JSON error response
+		let errorData;
+		try {
+			errorData = JSON.parse(errorText);
+		} catch (e) {
+			errorData = { error: errorText };
+		}
+
+		throw new Error(errorData.error || `Failed to save theme preferences (${response.status})`);
 	}
+
 	console.log('[ThemeApi] Save successful');
 }
 
