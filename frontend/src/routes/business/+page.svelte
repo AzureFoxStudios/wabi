@@ -9,6 +9,7 @@
 	import ProjectsView from '$lib/components/business/ProjectsView.svelte';
 	import KanbanBoard from '$lib/components/business/KanbanBoard.svelte';
 	import TaskPanel from '$lib/components/business/TaskPanel.svelte';
+	import BusinessPrivacyToggle from '$lib/components/BusinessPrivacyToggle.svelte';
 	import PinnedChannelsSidebar from '$lib/components/PinnedChannelsSidebar.svelte';
 	import Chat from '$lib/components/Chat.svelte';
 	import { pinnedChannels, channels, currentChannel, joinChannel } from '$lib/socket';
@@ -301,6 +302,7 @@
 		{#if showTaskPanel}
 			<aside class="task-panel" style="width: {taskPanelWidth}px">
 				<TaskPanel />
+				<BusinessPrivacyToggle />
 			</aside>
 		{/if}
 

@@ -768,19 +768,52 @@ server.on('request', async (req, res) => {
     return;
   }
 
-  // Business data sync endpoints
-  // Get business data for a workspace
-  if (url.pathname === "/api/business/get" && req.method === "GET") {
+  // Toggle business private mode
+  if (url.pathname === "/api/user/business-private-mode" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
     if (!userId) {
       res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
       return;
     }
 
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on('end', () => {
+      try {
+        const { privateMode } = JSON.parse(body);
+        settingsRepository.set(userId, { business_private_mode: privateMode ? 1 : 0 });
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, privateMode: privateMode }));
+      } catch (error) {
+        console.error('Failed to update private mode setting:', error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: 'Failed to update setting' }));
+      }
+    });
+    return;
+  }
+
+  // Business data sync endpoints
+  // Get business data for a workspace
+  if (url.pathname === "/api/business/get" && req.method === "GET") {
     try {
-      // For now, use default workspace. Later, get from user session/auth
-      const workspaceId = defaultWorkspaceId;
+      // Default: shared workspace for collaboration
+      let workspaceId = defaultWorkspaceId;
+
+      // Check if user wants private workspace
+      const userId = getAuthenticatedUserId(req);
+      if (userId) {
+        const userSettings = settingsRepository.get(userId);
+        if (userSettings.business_private_mode === 1) {
+          workspaceId = `user-${userId}`; // Private mode enabled
+        }
+      }
+
       const data = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
 
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -798,11 +831,16 @@ server.on('request', async (req, res) => {
 
   // Save/sync business data for a workspace
   if (url.pathname === "/api/business/sync" && req.method === "POST") {
+    // Default: shared workspace for collaboration
+    let workspaceId = defaultWorkspaceId;
+
+    // Check if user wants private workspace
     const userId = getAuthenticatedUserId(req);
-    if (!userId) {
-      res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
-      return;
+    if (userId) {
+      const userSettings = settingsRepository.get(userId);
+      if (userSettings.business_private_mode === 1) {
+        workspaceId = `user-${userId}`; // Private mode enabled
+      }
     }
 
     let body = '';
@@ -814,9 +852,6 @@ server.on('request', async (req, res) => {
     req.on('end', () => {
       try {
         const { todos, calendarEvents, diaryEntries, projects, sprints, resources, tags, graphEdges } = JSON.parse(body);
-
-        // For now, use default workspace. Later, get from user session/auth
-        const workspaceId = defaultWorkspaceId;
 
         const businessData: BusinessData = {
           workspaceId,

@@ -4,6 +4,7 @@ export interface UserSettings {
 	user_id: number;
 	offline_message_retention: string;
 	allow_temp_user_messages: number;
+	business_private_mode?: number;
 }
 
 export class SettingsRepository {
@@ -36,14 +37,15 @@ export class SettingsRepository {
 		if (!existing) {
 			// Create new settings
 			const stmt = db.prepare(`
-				INSERT INTO user_settings (user_id, offline_message_retention, allow_temp_user_messages)
-				VALUES (?, ?, ?)
+				INSERT INTO user_settings (user_id, offline_message_retention, allow_temp_user_messages, business_private_mode)
+				VALUES (?, ?, ?, ?)
 			`);
 
 			stmt.run(
 				userId,
 				settings.offline_message_retention || '7d',
-				settings.allow_temp_user_messages !== undefined ? settings.allow_temp_user_messages : 1
+				settings.allow_temp_user_messages !== undefined ? settings.allow_temp_user_messages : 1,
+				settings.business_private_mode !== undefined ? settings.business_private_mode : 0
 			);
 		} else {
 			// Update existing settings

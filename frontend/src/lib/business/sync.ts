@@ -28,6 +28,7 @@ export async function pullFromServer(): Promise<boolean> {
 	try {
 		isSyncing = true;
 		const serverUrl = getServerUrl();
+		const token = browser ? localStorage.getItem('authToken') : null;
 
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort(), 8000);
@@ -36,7 +37,8 @@ export async function pullFromServer(): Promise<boolean> {
 			response = await fetch(`${serverUrl}/api/business/get`, {
 				method: 'GET',
 				headers: {
-					'Content-Type': 'application/json'
+					'Content-Type': 'application/json',
+					...(token ? { 'Authorization': `Bearer ${token}` } : {})
 				},
 				signal: controller.signal
 			});
@@ -92,6 +94,7 @@ export async function pushToServer(): Promise<boolean> {
 	try {
 		isSyncing = true;
 		const serverUrl = getServerUrl();
+		const token = browser ? localStorage.getItem('authToken') : null;
 
 		const data = {
 			todos: get(todos),
@@ -112,7 +115,8 @@ export async function pushToServer(): Promise<boolean> {
 			response = await fetch(`${serverUrl}/api/business/sync`, {
 				method: 'POST',
 				headers: {
-					'Content-Type': 'application/json'
+					'Content-Type': 'application/json',
+					...(token ? { 'Authorization': `Bearer ${token}` } : {})
 				},
 				body: JSON.stringify(data),
 				signal: controller.signal
