@@ -48,9 +48,6 @@ services:
   - key: PUBLIC_URL
     value: https://${APP_DOMAIN}
     scope: RUN_AND_BUILD_TIME
-  - key: ALLOWED_ORIGINS
-    value: https://${APP_DOMAIN}
-    scope: RUN_AND_BUILD_TIME
   - key: STATIC_DIR
     value: /app
     scope: RUN_AND_BUILD_TIME
