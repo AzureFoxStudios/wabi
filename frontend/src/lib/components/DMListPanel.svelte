@@ -86,21 +86,17 @@
 </script>
 
 <aside class="dm-list-panel">
-	<div class="panel-header">
+	<div class="panel-tabs-header">
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
-		<span class="header-title">Direct Messages</span>
-		{#if activeTab === 'messages'}
-			<button class="add-dm-btn" on:click={handleOpenDMModal} title="Start new DM">+</button>
-		{/if}
-	</div>
-
-	<div class="panel-tabs">
 		<button class="tab-btn" class:active={activeTab === 'messages'} on:click={() => setActiveTab('messages')}>
 			Messages
 		</button>
 		<button class="tab-btn" class:active={activeTab === 'users'} on:click={() => setActiveTab('users')}>
 			Users
 		</button>
+		{#if activeTab === 'messages'}
+			<button class="add-dm-btn" on:click={handleOpenDMModal} title="Start new DM">+</button>
+		{/if}
 	</div>
 
 	<div class="panel-content">
@@ -205,25 +201,15 @@
 		overflow: hidden;
 	}
 
-	.panel-header {
-		padding: var(--space-3) var(--space-4);
-		border-bottom: 1px solid rgba(var(--border-rgb), var(--opacity-light));
-		flex-shrink: 0;
+	.panel-tabs-header {
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
+		align-items: stretch;
+		flex-shrink: 0;
+		border-bottom: 1px solid rgba(var(--border-rgb), var(--opacity-light));
+		padding: 0;
+		gap: 0;
 		height: 52px;
 		background: var(--bg-secondary);
-	}
-
-	.header-title {
-		color: var(--text-primary);
-		font-weight: 600;
-		font-size: 0.95rem;
-		flex: 1;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
 	}
 
 	.mobile-close-btn {
@@ -233,14 +219,15 @@
 		font-size: 1.5rem;
 		cursor: pointer;
 		color: var(--text-primary);
-		padding: 0;
-		width: 32px;
-		height: 32px;
+		padding: 0 var(--space-3);
+		width: auto;
+		height: 100%;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 4px;
+		border-radius: 0;
 		transition: all 150ms ease;
+		flex-shrink: 0;
 	}
 
 	.mobile-close-btn:hover {
@@ -254,15 +241,16 @@
 		color: var(--text-secondary);
 		cursor: pointer;
 		font-size: 1.25rem;
-		padding: 0;
-		width: 32px;
-		height: 32px;
+		padding: 0 var(--space-3);
+		width: auto;
+		height: 100%;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 4px;
+		border-radius: 0;
 		transition: all 150ms ease;
 		flex-shrink: 0;
+		border-bottom: 2px solid transparent;
 	}
 
 	.add-dm-btn:hover {
@@ -270,17 +258,9 @@
 		color: var(--accent);
 	}
 
-	.panel-tabs {
-		display: flex;
-		flex-shrink: 0;
-		border-bottom: 1px solid rgba(var(--border-rgb), var(--opacity-light));
-		padding: 0;
-		gap: 0;
-	}
-
 	.tab-btn {
 		flex: 1;
-		padding: var(--space-3) var(--space-2);
+		padding: 0 var(--space-3);
 		background: transparent;
 		border: none;
 		border-bottom: 2px solid transparent;
@@ -289,7 +269,12 @@
 		font-size: 0.875rem;
 		font-weight: 500;
 		transition: all 150ms ease;
-		margin-bottom: -1px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		height: 100%;
 	}
 
 	.tab-btn:hover {
