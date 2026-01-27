@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { currentUser, type User, channels, createDM, dmPanelSignal } from '$lib/socket';
+	import { currentUser, socket, type User, channels, createDM, dmPanelSignal } from '$lib/socket';
+	import { startCall } from '$lib/calling';
+	import { startScreenShare } from '$lib/webrtc';
 	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
 	import { onMount, onDestroy } from 'svelte';
@@ -104,6 +106,36 @@
 	function openFullProfile() {
 		dispatch('openFullProfile', { user, isOwnProfile });
 		closePopout();
+	}
+
+	async function handleVoiceCall() {
+		if (!user || !$socket || user.id === get(currentUser)?.id) return;
+		try {
+			await startCall($socket, user.id, false);
+			closePopout();
+		} catch (error) {
+			alert('Failed to start voice call. Please check microphone permissions.');
+		}
+	}
+
+	async function handleVideoCall() {
+		if (!user || !$socket || user.id === get(currentUser)?.id) return;
+		try {
+			await startCall($socket, user.id, true);
+			closePopout();
+		} catch (error) {
+			alert('Failed to start video call. Please check camera and microphone permissions.');
+		}
+	}
+
+	async function handleScreenShare() {
+		if (!user || !$socket || user.id === get(currentUser)?.id) return;
+		try {
+			await startScreenShare($socket);
+			closePopout();
+		} catch (error) {
+			alert('Failed to start screen share. Please grant screen sharing permissions.');
+		}
 	}
 
 	function copyUserId() {
@@ -226,6 +258,30 @@
 					{isOwnProfile ? 'Edit Profile' : 'View Full Profile'}
 				</button>
 			</div>
+
+			<!-- Call Actions (only for other users) -->
+			{#if !isOwnProfile}
+				<div class="call-actions">
+					<button class="call-btn voice-call" on:click={handleVoiceCall} title="Voice Call">
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+							<path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 00-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/>
+						</svg>
+						Voice Call
+					</button>
+					<button class="call-btn video-call" on:click={handleVideoCall} title="Video Call">
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+							<path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
+						</svg>
+						Video Call
+					</button>
+					<button class="call-btn screen-share" on:click={handleScreenShare} title="Screen Share">
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+							<path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/>
+						</svg>
+						Screen Share
+					</button>
+				</div>
+			{/if}
 
 			<!-- Context Menu Actions -->
 			<div class="context-actions">
@@ -454,5 +510,44 @@
 	.context-btn:hover {
 		background: var(--bg-tertiary);
 		color: var(--text-primary);
+	}
+
+	.call-actions {
+		display: flex;
+		gap: 6px;
+		margin-bottom: 8px;
+	}
+
+	.call-btn {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		padding: 8px 10px;
+		border: none;
+		border-radius: 4px;
+		font-size: 0.75rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.15s ease;
+		background: var(--bg-tertiary);
+		color: var(--text-secondary);
+	}
+
+	.call-btn:hover {
+		color: white;
+	}
+
+	.call-btn.voice-call:hover {
+		background: var(--color-success, #43b581);
+	}
+
+	.call-btn.video-call:hover {
+		background: var(--color-info, #5865f2);
+	}
+
+	.call-btn.screen-share:hover {
+		background: var(--color-warning, #faa61a);
 	}
 </style>
