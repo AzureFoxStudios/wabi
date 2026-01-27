@@ -79,113 +79,113 @@
 
 		showDMModal = false;
 	}
-
-	function setActiveTab(tab: 'users' | 'messages') {
-		activeTab = tab;
-	}
 </script>
 
 <aside class="dm-list-panel">
-	<div class="panel-tabs-header">
+	<div class="panel-header">
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
-		<button class="tab-btn" class:active={activeTab === 'messages'} on:click={() => setActiveTab('messages')}>
-			Messages
-		</button>
-		<button class="tab-btn" class:active={activeTab === 'users'} on:click={() => setActiveTab('users')}>
-			Users
-		</button>
+		<div class="tab-buttons">
+			<button class="tab-btn" class:active={activeTab === 'messages'} on:click={() => (activeTab = 'messages')}>
+				Messages
+			</button>
+			<button class="tab-btn" class:active={activeTab === 'users'} on:click={() => (activeTab = 'users')}>
+				Users
+			</button>
+		</div>
 		{#if activeTab === 'messages'}
 			<button class="add-dm-btn" on:click={handleOpenDMModal} title="Start new DM">+</button>
 		{/if}
 	</div>
 
 	<div class="panel-content">
-		<div class="messages-tab" class:hidden={activeTab !== 'messages'}>
-			{#if dmChannels.length === 0}
-				<div class="empty-state">
-					<div class="empty-icon">💭</div>
-					<p>No messages yet</p>
-					<p class="empty-hint">Start a conversation to begin</p>
-				</div>
-			{:else}
-				<div class="conversations-list">
-					{#each dmChannels as channel (channel.id)}
-						{@const otherUser = getOtherUser(channel)}
-						{#if otherUser}
+		{#if activeTab === 'messages'}
+			<div class="content-view">
+				{#if dmChannels.length === 0}
+					<div class="empty-state">
+						<div class="empty-icon">💭</div>
+						<p>No messages yet</p>
+						<p class="empty-hint">Start a conversation to begin</p>
+					</div>
+				{:else}
+					<div class="conversations-list">
+						{#each dmChannels as channel (channel.id)}
+							{@const otherUser = getOtherUser(channel)}
+							{#if otherUser}
+								<button
+									class="conversation-item"
+									on:click={() => handleOpenDM(channel)}
+								>
+									<div class="conversation-avatar">
+										{#if otherUser.profilePicture}
+											<img src={otherUser.profilePicture} alt={otherUser.username} />
+										{:else}
+											<div class="avatar-placeholder" style="background-color: {otherUser.color}">
+												{otherUser.username.charAt(0).toUpperCase()}
+											</div>
+										{/if}
+									</div>
+									<div class="conversation-info">
+										<div class="conversation-name">{otherUser.username}</div>
+										<div class="conversation-preview">{getLastMessagePreview(channel.id)}</div>
+									</div>
+								</button>
+							{/if}
+						{/each}
+					</div>
+				{/if}
+			</div>
+		{:else if activeTab === 'users'}
+			<div class="content-view">
+				{#if $users.filter(u => u.id !== $currentUser?.id).length === 0}
+					<div class="empty-state">
+						<div class="empty-icon">👥</div>
+						<p>No users online</p>
+					</div>
+				{:else}
+					<div class="users-list">
+						{#each $users.filter(u => u.id !== $currentUser?.id) as user (user.id)}
 							<button
-								class="conversation-item"
-								on:click={() => handleOpenDM(channel)}
+								class="user-item"
+								on:click={() => {
+									const memberIds = [$currentUser?.id, user.id].sort();
+									const dmId = `dm-${memberIds.join('-')}`;
+									const existingDM = $channels.find(ch => ch.id === dmId);
+									if (existingDM) {
+										dispatch('openDM', { channelId: dmId, otherUser: user });
+									} else {
+										createDM(user.id);
+										const unsubscribe = channels.subscribe(chs => {
+											const newDM = chs.find(ch => ch.id === dmId);
+											if (newDM) {
+												dispatch('openDM', { channelId: dmId, otherUser: user });
+												unsubscribe();
+											}
+										});
+									}
+								}}
 							>
-								<div class="conversation-avatar">
-									{#if otherUser.profilePicture}
-										<img src={otherUser.profilePicture} alt={otherUser.username} />
+								<div class="user-avatar-btn">
+									{#if user.profilePicture}
+										<img src={user.profilePicture} alt={user.username} class="user-avatar" />
 									{:else}
-										<div class="avatar-placeholder" style="background-color: {otherUser.color}">
-											{otherUser.username.charAt(0).toUpperCase()}
+										<div class="user-avatar-placeholder" style="background-color: {user.color}">
+											{user.username.charAt(0).toUpperCase()}
 										</div>
 									{/if}
 								</div>
-								<div class="conversation-info">
-									<div class="conversation-name">{otherUser.username}</div>
-									<div class="conversation-preview">{getLastMessagePreview(channel.id)}</div>
+								<div class="user-info">
+									<div class="user-name">{user.username}</div>
+									<div class="user-status">
+										<span class="status-dot" style="background-color: {user.status === 'active' ? 'var(--status-online)' : user.status === 'away' ? 'var(--status-away)' : 'var(--status-offline)'}"></span>
+										<span>{user.status}</span>
+									</div>
 								</div>
 							</button>
-						{/if}
-					{/each}
-				</div>
-			{/if}
-		</div>
-
-		<div class="users-tab" class:hidden={activeTab !== 'users'}>
-			{#if $users.filter(u => u.id !== $currentUser?.id).length === 0}
-				<div class="empty-state">
-					<div class="empty-icon">👥</div>
-					<p>No users online</p>
-				</div>
-			{:else}
-				<div class="users-list">
-					{#each $users.filter(u => u.id !== $currentUser?.id) as user (user.id)}
-						<button
-							class="user-item"
-							on:click={() => {
-								const memberIds = [$currentUser?.id, user.id].sort();
-								const dmId = `dm-${memberIds.join('-')}`;
-								const existingDM = $channels.find(ch => ch.id === dmId);
-								if (existingDM) {
-									dispatch('openDM', { channelId: dmId, otherUser: user });
-								} else {
-									createDM(user.id);
-									const unsubscribe = channels.subscribe(chs => {
-										const newDM = chs.find(ch => ch.id === dmId);
-										if (newDM) {
-											dispatch('openDM', { channelId: dmId, otherUser: user });
-											unsubscribe();
-										}
-									});
-								}
-							}}
-						>
-							<div class="user-avatar-btn">
-								{#if user.profilePicture}
-									<img src={user.profilePicture} alt={user.username} class="user-avatar" />
-								{:else}
-									<div class="user-avatar-placeholder" style="background-color: {user.color}">
-										{user.username.charAt(0).toUpperCase()}
-									</div>
-								{/if}
-							</div>
-							<div class="user-info">
-								<div class="user-name">{user.username}</div>
-								<div class="user-status">
-									<span class="status-dot" style="background-color: {user.status === 'active' ? 'var(--status-online)' : user.status === 'away' ? 'var(--status-away)' : 'var(--status-offline)'}"></span>
-									<span>{user.status}</span>
-								</div>
-							</div>
-						</button>
-					{/each}
-				</div>
-			{/if}
-		</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+		{/if}
 	</div>
 </aside>
 
@@ -200,7 +200,7 @@
 		overflow: hidden;
 	}
 
-	.panel-tabs-header {
+	.panel-header {
 		display: flex;
 		align-items: stretch;
 		flex-shrink: 0;
@@ -210,6 +210,12 @@
 		height: 52px;
 		background: var(--bg-secondary);
 		box-sizing: border-box;
+	}
+
+	.tab-buttons {
+		display: flex;
+		flex: 1;
+		gap: 0;
 	}
 
 	.mobile-close-btn {
@@ -232,7 +238,7 @@
 
 	.mobile-close-btn:hover {
 		background: rgba(var(--accent-rgb), var(--opacity-light));
-		color: var(--accent);
+		color: var(--accent-hex);
 	}
 
 	.add-dm-btn {
@@ -255,7 +261,7 @@
 
 	.add-dm-btn:hover {
 		background: rgba(var(--accent-rgb), var(--opacity-light));
-		color: var(--accent);
+		color: var(--accent-hex);
 	}
 
 	.tab-btn {
@@ -283,31 +289,23 @@
 	}
 
 	.tab-btn.active {
-		color: var(--accent);
-		border-bottom-color: var(--accent);
+		color: var(--accent-hex);
+		border-bottom-color: var(--accent-hex);
 		font-weight: 600;
-	}
-
-	.hidden {
-		display: none;
 	}
 
 	.panel-content {
 		flex: 1;
 		overflow-y: auto;
-		position: relative;
-	}
-
-	.messages-tab,
-	.users-tab {
 		display: flex;
 		flex-direction: column;
-		height: 100%;
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
+	}
+
+	.content-view {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-height: 0;
 	}
 
 	.empty-state {
@@ -342,6 +340,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0;
+		overflow-y: auto;
 	}
 
 	.conversation-item {
@@ -495,7 +494,7 @@
 			display: flex;
 		}
 
-		.header-title {
+		.tab-buttons {
 			flex: 1;
 		}
 
