@@ -246,6 +246,60 @@
 		);
 	}
 
+	async function handlePaste(e: ClipboardEvent) {
+		const items = e.clipboardData?.items;
+		if (!items) return;
+
+		// Check for files/images in clipboard
+		const files: File[] = [];
+		for (let i = 0; i < items.length; i++) {
+			const item = items[i];
+			if (item.kind === 'file') {
+				const file = item.getAsFile();
+				if (file) {
+					e.preventDefault(); // Prevent default paste
+					files.push(file);
+				}
+			}
+		}
+
+		// If files found, add to selectedFiles (reuse existing upload logic)
+		if (files.length > 0) {
+			// Check file sizes
+			const maxSize = 1024 * 1024 * 1024; // 1GB
+			for (const file of files) {
+				if (file.size > maxSize) {
+					alert(`File too large! Maximum size is 1GB per file. "${file.name}" is ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+					return;
+				}
+			}
+
+			selectedFiles = [...selectedFiles, ...files];
+			filePreviews = await Promise.all(
+				files.map(async (file) => {
+					if (file.type.startsWith('image/')) {
+						const preview = await new Promise<string>((resolve) => {
+							const reader = new FileReader();
+							reader.onload = (e) => resolve(e.target?.result as string);
+							reader.readAsDataURL(file);
+						});
+						return { file, preview };
+					}
+					return { file };
+				})
+			);
+			return;
+		}
+
+		// If no files, check if text content exists
+		const text = e.clipboardData?.getData('text');
+		if (text && text.trim()) {
+			// Only send typing indicator if actual text content exists
+			handleInput();
+		}
+		// If empty paste (no files, no text), do nothing - prevents false typing
+	}
+
 	async function uploadSelectedFiles() {
 		if (selectedFiles.length === 0 || !dmChannelId) return;
 
@@ -497,6 +551,7 @@
 				<textarea
 					bind:this={textareaElement}
 					bind:value={messageInput}
+					on:paste={handlePaste}
 					on:input={handleInput}
 					on:keydown={handleKeydown}
 					placeholder={otherUser ? `Message ${otherUser.username}...` : 'Type a message...'}
