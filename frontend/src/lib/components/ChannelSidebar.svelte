@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, pinnedChannels, pinChannel, unpinChannel } from '$lib/socket';
+	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, pinnedChannels, pinChannel, unpinChannel, users, socket } from '$lib/socket';
+	import { startCall } from '$lib/calling';
+	import { startScreenShare } from '$lib/webrtc';
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
-	import type { Channel } from '$lib/socket';
+	import type { Channel, User } from '$lib/socket';
 
 	const dispatch = createEventDispatcher();
 
@@ -173,6 +175,37 @@
 		}
 		closeContextMenu();
 	}
+
+	// ===== TEMPORARY: Quick User List Below Channels =====
+	// TODO: This is temporary for quick access to user calls
+	// Should be removed or refactored into a separate component
+
+	async function handleQuickVoiceCall(user: User) {
+		if (!$socket || user.id === $currentUser?.id) return;
+		try {
+			await startCall($socket, user.id, false);
+		} catch (error) {
+			alert('Failed to start voice call. Please check microphone permissions.');
+		}
+	}
+
+	async function handleQuickVideoCall(user: User) {
+		if (!$socket || user.id === $currentUser?.id) return;
+		try {
+			await startCall($socket, user.id, true);
+		} catch (error) {
+			alert('Failed to start video call. Please check camera and microphone permissions.');
+		}
+	}
+
+	async function handleQuickScreenShare(user: User) {
+		if (!$socket || user.id === $currentUser?.id) return;
+		try {
+			await startScreenShare($socket);
+		} catch (error) {
+			alert('Failed to start screen share. Please grant screen sharing permissions.');
+		}
+	}
 </script>
 
 {#if sidebarWidth === 0}
@@ -282,6 +315,50 @@
 			{/each}
 		{/if}
 	</div>
+
+	<!-- ===== TEMPORARY: Quick User List Below Channels ===== -->
+	<!-- TODO: This is temporary - should be removed or refactored -->
+	<div class="temp-user-list">
+		<div class="temp-section-header">Users Online</div>
+		{#each $users.filter(u => u.id !== $currentUser?.id) as user (user.id)}
+			<div class="temp-user-item">
+				<div class="temp-user-info">
+					{#if user.profilePicture}
+						<img src={user.profilePicture} alt={user.username} class="temp-user-avatar" />
+					{:else}
+						<div class="temp-user-avatar-placeholder" style="background-color: {user.color}">
+							{user.username.charAt(0).toUpperCase()}
+						</div>
+					{/if}
+					<span class="temp-user-name">{user.username}</span>
+				</div>
+				<div class="temp-user-actions">
+					<button
+						class="temp-action-btn"
+						on:click={() => handleQuickVoiceCall(user)}
+						title="Voice call"
+					>
+						📞
+					</button>
+					<button
+						class="temp-action-btn"
+						on:click={() => handleQuickVideoCall(user)}
+						title="Video call"
+					>
+						📹
+					</button>
+					<button
+						class="temp-action-btn"
+						on:click={() => handleQuickScreenShare(user)}
+						title="Share screen"
+					>
+						📺
+					</button>
+				</div>
+			</div>
+		{/each}
+	</div>
+	<!-- ===== END TEMPORARY ===== -->
 
 	{#if showContextMenu && contextMenuChannel}
 		<div
@@ -1558,4 +1635,133 @@
 			height: 28px;
 		}
 	}
+
+	/* ===== TEMPORARY: Quick User List Below Channels ===== */
+	/* TODO: TEMPORARY - This should be removed or refactored into a proper component */
+	.temp-user-list {
+		flex-shrink: 0;
+		border-top: 1px solid var(--border);
+		padding: 0.5rem 0;
+		max-height: 200px;
+		overflow-y: auto;
+		background: rgba(var(--bg-secondary-rgb), 0.5);
+	}
+
+	.temp-section-header {
+		padding: 0.5rem 1rem;
+		font-size: 0.75rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+		letter-spacing: 0.5px;
+	}
+
+	.temp-user-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.5rem 0.75rem;
+		gap: 0.5rem;
+		border-bottom: 1px solid rgba(var(--border-rgb), 0.3);
+		transition: background 150ms ease;
+	}
+
+	.temp-user-item:hover {
+		background: rgba(var(--accent-rgb), var(--opacity-subtle));
+	}
+
+	.temp-user-info {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex: 1;
+		min-width: 0;
+	}
+
+	.temp-user-avatar,
+	.temp-user-avatar-placeholder {
+		flex-shrink: 0;
+		width: 24px;
+		height: 24px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-weight: 600;
+		font-size: 0.65rem;
+		color: white;
+		border: 1px solid rgba(var(--accent-rgb), var(--opacity-light));
+		object-fit: cover;
+	}
+
+	.temp-user-name {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.temp-user-actions {
+		display: flex;
+		gap: 0.25rem;
+		flex-shrink: 0;
+	}
+
+	.temp-action-btn {
+		background: transparent;
+		border: none;
+		font-size: 0.9rem;
+		cursor: pointer;
+		color: var(--text-secondary);
+		padding: 0.25rem;
+		width: 24px;
+		height: 24px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 3px;
+		transition: all 150ms ease;
+		flex-shrink: 0;
+	}
+
+	.temp-action-btn:hover {
+		color: var(--accent-hex);
+		background: rgba(var(--accent-rgb), var(--opacity-light));
+	}
+
+	/* Hide temp user list in compact mode */
+	.channel-sidebar[style*="width: 60px"] .temp-user-list,
+	.channel-sidebar[style*="width: 0px"] .temp-user-list {
+		display: none;
+	}
+
+	/* Responsive styling for temp user list */
+	@media (max-width: 768px) {
+		.temp-user-list {
+			max-height: 150px;
+		}
+
+		.temp-user-item {
+			padding: 0.375rem 0.5rem;
+		}
+
+		.temp-user-avatar,
+		.temp-user-avatar-placeholder {
+			width: 20px;
+			height: 20px;
+			font-size: 0.6rem;
+		}
+
+		.temp-user-name {
+			font-size: 0.75rem;
+		}
+
+		.temp-action-btn {
+			font-size: 0.8rem;
+			width: 20px;
+			height: 20px;
+		}
+	}
+	/* ===== END TEMPORARY ===== */
 </style>
