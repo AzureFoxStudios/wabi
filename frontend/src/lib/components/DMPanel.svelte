@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { channelMessages, channels, currentUser, sendMessage, sendTyping, users, type Message, type User, type Channel } from '$lib/socket';
+	import { channelMessages, channels, currentUser, sendMessage, sendTyping, users, socket, type Message, type User, type Channel } from '$lib/socket';
+	import { startCall } from '$lib/calling';
+	import { startScreenShare } from '$lib/webrtc';
 	import MessageList from './MessageList.svelte';
 
 	export let dmChannelId: string | null = null;
@@ -61,6 +63,33 @@
 	let isDragging = false;
 	let dragCounter = 0;
 	let markAsSpoiler = false;
+
+	async function handleVoiceCall() {
+		if (!$socket || !otherUser || otherUser.id === $currentUser?.id) return;
+		try {
+			await startCall($socket, otherUser.id, false);
+		} catch (error) {
+			alert('Failed to start voice call. Please check microphone permissions.');
+		}
+	}
+
+	async function handleVideoCall() {
+		if (!$socket || !otherUser || otherUser.id === $currentUser?.id) return;
+		try {
+			await startCall($socket, otherUser.id, true);
+		} catch (error) {
+			alert('Failed to start video call. Please check camera and microphone permissions.');
+		}
+	}
+
+	async function handleScreenShare() {
+		if (!$socket || !otherUser || otherUser.id === $currentUser?.id) return;
+		try {
+			await startScreenShare($socket);
+		} catch (error) {
+			alert('Failed to start screen share. Please grant screen sharing permissions.');
+		}
+	}
 
 	async function scrollToBottom() {
 		await tick();
@@ -330,6 +359,11 @@
 				</div>
 				<span class="dm-username">{otherUser.username}</span>
 			</div>
+			<div class="dm-header-actions">
+				<button class="dm-action-btn" on:click={handleVoiceCall} title="Start voice call">📞</button>
+				<button class="dm-action-btn" on:click={handleVideoCall} title="Start video call">📹</button>
+				<button class="dm-action-btn" on:click={handleScreenShare} title="Share screen">📺</button>
+			</div>
 		{:else}
 			<span class="dm-title">Direct Message</span>
 		{/if}
@@ -503,6 +537,36 @@
 		align-items: center;
 		gap: 0.5rem;
 		flex: 1;
+		min-width: 0;
+	}
+
+	.dm-header-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		flex-shrink: 0;
+		margin-left: 0.5rem;
+	}
+
+	.dm-action-btn {
+		background: transparent;
+		border: none;
+		font-size: 1.25rem;
+		cursor: pointer;
+		color: var(--text-secondary);
+		padding: 0.25rem 0.5rem;
+		transition: all 0.2s;
+		border-radius: 4px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+	}
+
+	.dm-action-btn:hover {
+		color: var(--accent-hex);
+		background: rgba(var(--accent-rgb), var(--opacity-subtle));
 	}
 
 	.dm-avatar-container {
@@ -1121,6 +1185,18 @@
 
 		.dm-input-container {
 			padding: 0.5rem;
+		}
+
+		.dm-header-actions {
+			gap: 0.125rem;
+			margin-left: 0.25rem;
+		}
+
+		.dm-action-btn {
+			font-size: 1rem;
+			width: 28px;
+			height: 28px;
+			padding: 0.125rem;
 		}
 	}
 </style>
