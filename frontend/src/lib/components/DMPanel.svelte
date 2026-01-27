@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { channelMessages, channels, currentUser, sendMessage, sendTyping, users, socket, type Message, type User, type Channel } from '$lib/socket';
+	import { channelMessages, channels, currentChannel, currentUser, sendMessage, sendTyping, users, socket, switchChannel, type Message, type User, type Channel } from '$lib/socket';
 	import { startCall } from '$lib/calling';
 	import { startScreenShare } from '$lib/webrtc';
 	import MessageList from './MessageList.svelte';
@@ -16,6 +16,11 @@
 	$: dmChannel = dmChannelId ? $channels.find(ch => ch.id === dmChannelId) : null;
 	$: dmChannels = $channels.filter(ch => ch.type === 'dm');
 
+	// Notify server when DM channel changes for typing indicator isolation
+	$: if (dmChannelId) {
+		switchChannel(dmChannelId);
+	}
+
 	function handleBack() {
 		dispatch('back');
 	}
@@ -24,6 +29,12 @@
 		if (!channel.otherUser) return;
 		showDMList = false;
 		onSelectDM(channel.id, channel.otherUser);
+	}
+
+	function handleClose() {
+		// Switch back to main chat channel on close
+		switchChannel($currentChannel);
+		onClose();
 	}
 
 	function getOtherUserFromChannel(channel: Channel): User | null {
@@ -252,19 +263,25 @@
 
 		// Check for files/images in clipboard
 		const files: File[] = [];
+		let hasText = false;
+
 		for (let i = 0; i < items.length; i++) {
 			const item = items[i];
+			// Handle both file items and direct image paste (e.g., from clipboard screenshots)
 			if (item.kind === 'file') {
 				const file = item.getAsFile();
 				if (file) {
-					e.preventDefault(); // Prevent default paste
 					files.push(file);
 				}
+			} else if (item.kind === 'string' && item.type.startsWith('text/')) {
+				hasText = true;
 			}
 		}
 
 		// If files found, add to selectedFiles (reuse existing upload logic)
 		if (files.length > 0) {
+			e.preventDefault(); // Prevent default paste
+
 			// Check file sizes
 			const maxSize = 1024 * 1024 * 1024; // 1GB
 			for (const file of files) {
@@ -292,12 +309,17 @@
 		}
 
 		// If no files, check if text content exists
-		const text = e.clipboardData?.getData('text');
-		if (text && text.trim()) {
-			// Only send typing indicator if actual text content exists
-			handleInput();
+		if (!hasText) {
+			const text = e.clipboardData?.getData('text');
+			if (!text || !text.trim()) {
+				// No files and no actual text content - prevent default paste to avoid false typing
+				e.preventDefault();
+				return;
+			}
 		}
-		// If empty paste (no files, no text), do nothing - prevents false typing
+
+		// Only send typing indicator if actual content (text or files) was pasted
+		handleInput();
 	}
 
 	async function uploadSelectedFiles() {
@@ -421,7 +443,7 @@
 		{:else}
 			<span class="dm-title">Direct Message</span>
 		{/if}
-		<button class="dm-close-btn" on:click={onClose} title="Close DM">✕</button>
+		<button class="dm-close-btn" on:click={handleClose} title="Close DM">✕</button>
 	</div>
 
 	{#if showDMList}

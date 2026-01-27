@@ -728,6 +728,16 @@ export function joinChannel(channelId: string) {
 	markChannelAsRead(channelId);
 }
 
+/**
+ * Internal function to notify server of channel switch without UI changes.
+ * Used by DM panel to track user's active channel for typing indicators.
+ */
+export function switchChannel(channelId: string) {
+	socketInstance?.emit('join-channel', channelId);
+	// Don't set currentChannel - that's only for main chat area
+	// Don't call markChannelAsRead - DM panel handles its own read state
+}
+
 export function createChannel(channelName: string) {
 	socketInstance?.emit('create-channel', channelName);
 }
