@@ -1,0 +1,18 @@
+const unsubscribe = channels.subscribe(chs => {
+			const newDM = chs.find(ch => ch.id === dmId);
+			if (newDM) {
+				clearTimeout(timeoutId);
+				dispatch('openDM', { channelId: dmId, otherUser: user });
+				unsubscribe();
+			}
+		});
+	}
+
+	function handleOpenDM(channel: any) {
+		const otherUser = getOtherUser(channel);
+		if (otherUser) {
+			dispatch('openDM', { channelId: channel.id, otherUser });
+		}
+
+		showDMModal = false;
+	}
