@@ -88,22 +88,23 @@ class SocketManager {
 			return this.socket;
 		}
 
-		// Guard: if already connected with same credentials, return existing socket
-		if (this.socket?.connected && this.username === username) {
+		// Guard: if already connected/connecting with same credentials, return existing socket
+		if (this.socket && this.username === username && !this.socket.disconnected) {
 			console.log('[SocketManager] Already connected with same username, reusing connection');
 			return this.socket;
 		}
+
+		// Mark as connecting BEFORE any async operations
+		this.isConnecting = true;
+		this.username = username;
+		this.authToken = authToken || null;
+		connectionState.set('connecting');
 
 		// If we have an existing socket, clean it up first
 		if (this.socket) {
 			console.log('[SocketManager] Cleaning up existing socket before reconnecting');
 			this.cleanup();
 		}
-
-		this.isConnecting = true;
-		this.username = username;
-		this.authToken = authToken || null;
-		connectionState.set('connecting');
 
 		// Determine server URL
 		let serverUrl = getServerUrl();
