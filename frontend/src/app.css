@@ -240,6 +240,9 @@ body {
 	background-color: var(--color-background-primary);
 	color: var(--color-text-primary);
 	overflow: hidden;
+	/* Mobile: Use dynamic viewport height for iOS keyboard */
+	height: 100vh;
+	height: 100dvh;
 }
 
 /* Headings */
