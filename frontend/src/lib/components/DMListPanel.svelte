@@ -67,10 +67,17 @@
 			dispatch('openDM', { channelId: dmId, otherUser: user });
 		} else {
 			createDM(user.id);
-			// Subscribe to channels to wait for the new DM
-			const unsubscribe = channels.subscribe(chs => {
+			// Subscribe to channels to wait for the new DM with timeout to prevent memory leaks
+			let unsubscribe: () => void;
+			const timeoutId = setTimeout(() => {
+				unsubscribe();
+				console.warn('[DMListPanel] DM creation timeout:', dmId);
+			}, 5000);
+
+			unsubscribe = channels.subscribe(chs => {
 				const newDM = chs.find(ch => ch.id === dmId);
 				if (newDM) {
+					clearTimeout(timeoutId);
 					dispatch('openDM', { channelId: dmId, otherUser: user });
 					unsubscribe();
 				}
@@ -154,9 +161,17 @@
 										dispatch('openDM', { channelId: dmId, otherUser: user });
 									} else {
 										createDM(user.id);
-										const unsubscribe = channels.subscribe(chs => {
+										// Subscribe with timeout to prevent memory leaks
+										let unsubscribe: () => void;
+										const timeoutId = setTimeout(() => {
+											unsubscribe();
+											console.warn('[DMListPanel] DM creation timeout:', dmId);
+										}, 5000);
+
+										unsubscribe = channels.subscribe(chs => {
 											const newDM = chs.find(ch => ch.id === dmId);
 											if (newDM) {
+												clearTimeout(timeoutId);
 												dispatch('openDM', { channelId: dmId, otherUser: user });
 												unsubscribe();
 											}
