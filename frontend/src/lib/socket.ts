@@ -174,8 +174,8 @@ class SocketManager {
 		}
 
 		if (this.socket) {
-			// Remove all listeners before disconnecting
-			this.socket.removeAllListeners();
+			// Socket.IO's disconnect() handles cleanup automatically
+			// Do NOT call removeAllListeners() - it breaks internal socket state
 			this.socket.disconnect();
 			this.socket = null;
 		}
