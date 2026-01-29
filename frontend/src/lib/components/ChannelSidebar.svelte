@@ -733,6 +733,14 @@
 	.logo-img {
 		height: 32px;
 		width: auto;
+		filter: drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.3));
+		transition: filter 0.3s ease;
+	}
+
+	/* Invert logo for dark themes only */
+	:root[data-theme="dark"] .logo-img,
+	:root[data-theme="midnight-blue"] .logo-img,
+	:root[data-theme="vscode-high-contrast"] .logo-img {
 		filter: invert(1) drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.3));
 	}
 

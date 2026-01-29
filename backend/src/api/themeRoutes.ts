@@ -50,6 +50,8 @@ const VALID_THEME_IDS = [
 	'light',
 	'midnight-blue',
 	'vscode-high-contrast',
+	'professional',
+	'minimal',
 	'custom'
 ];
 
