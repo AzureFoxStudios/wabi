@@ -181,13 +181,13 @@ export const lightTheme: Theme = {
 		bgSecondaryRgb: '255, 255, 255',
 		bgTertiaryRgb: '245, 245, 248',
 
-		textPrimary: '#1a1a2e',
-		textSecondary: '#4a4a6a',
-		textTertiary: '#6a6a8a',
+		textPrimary: '#000000',
+		textSecondary: '#2a2a4a',
+		textTertiary: '#4a4a6a',
 
-		textPrimaryRgb: '26, 26, 46',
-		textSecondaryRgb: '74, 74, 106',
-		textTertiaryRgb: '106, 106, 138',
+		textPrimaryRgb: '0, 0, 0',
+		textSecondaryRgb: '42, 42, 74',
+		textTertiaryRgb: '74, 74, 106',
 
 		accent: 'linear-gradient(to right, #6200ea 0%, #7c4dff 100%)',
 		accentHex: '#6200ea',
@@ -196,8 +196,8 @@ export const lightTheme: Theme = {
 
 		uiBgLight: '#e8e8f0',
 		uiBgLighter: '#f5f5f8',
-		uiText: '#4a4a6a',
-		uiTextDark: '#1a1a2e',
+		uiText: '#2a2a4a',
+		uiTextDark: '#000000',
 
 		statusOnline: '#00c853',
 		statusAway: '#ffa000',
@@ -211,7 +211,7 @@ export const lightTheme: Theme = {
 
 		modalBg: '#ffffff',
 		modalHeaderBg: '#f5f5f8',
-		modalText: '#1a1a2e',
+		modalText: '#000000',
 		modalOverlay: 'rgba(0, 0, 0, 0.4)',
 		modalBorder: 'rgba(98, 0, 234, 0.1)',
 
@@ -403,13 +403,13 @@ export const professionalTheme: Theme = {
 		bgSecondaryRgb: '255, 255, 255',
 		bgTertiaryRgb: '240, 240, 240',
 
-		textPrimary: '#1a1a1d',
-		textSecondary: '#4a4a6a',
-		textTertiary: '#7a7a8a',
+		textPrimary: '#000000',
+		textSecondary: '#2a2a4a',
+		textTertiary: '#4a4a6a',
 
-		textPrimaryRgb: '26, 26, 29',
-		textSecondaryRgb: '74, 74, 106',
-		textTertiaryRgb: '122, 122, 138',
+		textPrimaryRgb: '0, 0, 0',
+		textSecondaryRgb: '42, 42, 74',
+		textTertiaryRgb: '74, 74, 106',
 
 		accent: '#4f46e5',
 		accentHex: '#4f46e5',
@@ -418,8 +418,8 @@ export const professionalTheme: Theme = {
 
 		uiBgLight: '#e8e8e8',
 		uiBgLighter: '#f0f0f0',
-		uiText: '#4a4a6a',
-		uiTextDark: '#1a1a1d',
+		uiText: '#2a2a4a',
+		uiTextDark: '#000000',
 
 		statusOnline: '#059669',
 		statusAway: '#d97706',
@@ -433,7 +433,7 @@ export const professionalTheme: Theme = {
 
 		modalBg: '#ffffff',
 		modalHeaderBg: '#f0f0f0',
-		modalText: '#1a1a1d',
+		modalText: '#000000',
 		modalOverlay: 'rgba(0, 0, 0, 0.4)',
 		modalBorder: 'rgba(79, 70, 229, 0.1)',
 

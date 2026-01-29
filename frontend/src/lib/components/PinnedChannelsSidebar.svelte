@@ -2,6 +2,7 @@
 	import { pinnedChannels, currentChannel, channelMessages } from '$lib/socket';
 
 	export let collapsed = false;
+	let headerHovered = false;
 
 	function toggleCollapse() {
 		collapsed = !collapsed;
@@ -24,9 +25,9 @@
 </script>
 
 <div class="pinned-sidebar" class:collapsed>
-	<div class="pinned-header">
+	<div class="pinned-header" on:mouseenter={() => headerHovered = true} on:mouseleave={() => headerHovered = false}>
 		<h3>📌 Pinned Channels</h3>
-		<button class="collapse-btn" on:click={toggleCollapse} title={collapsed ? 'Expand' : 'Collapse'}>
+		<button class="collapse-btn" class:visible={headerHovered} on:click={toggleCollapse} title={collapsed ? 'Expand' : 'Collapse'}>
 			{collapsed ? '▶' : '◀'}
 		</button>
 	</div>
@@ -101,7 +102,12 @@
 		cursor: pointer;
 		font-size: 0.8rem;
 		padding: 4px;
-		transition: color 0.2s;
+		transition: opacity 0.2s, color 0.2s;
+		opacity: 0;
+	}
+
+	.collapse-btn.visible {
+		opacity: 1;
 	}
 
 	.collapse-btn:hover {

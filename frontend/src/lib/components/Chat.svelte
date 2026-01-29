@@ -50,6 +50,19 @@
 	let searchInput = '';
 	let filteredMessages: Message[] = [];
 
+	// Format typing users list with proper grammar
+	function formatTypingUsers(users: string[]): string {
+		if (users.length === 0) return '';
+		if (users.length === 1) return `${users[0]} is typing...`;
+		if (users.length === 2) return `${users[0]} and ${users[1]} are typing...`;
+		if (users.length >= 6) return 'Many users are typing...';
+
+		// 3-5 users: "User1, User2, and User3 are typing..."
+		const allButLast = users.slice(0, -1).join(', ');
+		const lastUser = users[users.length - 1];
+		return `${allButLast}, and ${lastUser} are typing...`;
+	}
+
 	// Parse search syntax: by:username, has:image, has:video, has:file, has:link, and text content
 	function parseSearchQuery(query: string): { text: string; byUser?: string; hasTypes: string[] } {
 		const byUserMatch = query.match(/by:(\S+)/);
@@ -916,7 +929,7 @@
 		{#if $typingUsers.length > 0}
 			<div class="typing-indicator">
 				<span class="typing-dots"></span>
-				<span>{$typingUsers.join(', ')} {$typingUsers.length === 1 ? 'is' : 'are'} typing...</span>
+				<span>{formatTypingUsers($typingUsers)}</span>
 			</div>
 		{/if}
 	</div>

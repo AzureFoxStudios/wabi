@@ -245,4 +245,13 @@
 		color: var(--text-secondary);
 		text-transform: capitalize;
 	}
+
+	/* Mobile responsiveness */
+	@media (max-width: 768px) {
+		.modal {
+			width: 100%;
+			right: 0;
+			height: 100vh;
+		}
+	}
 </style>
