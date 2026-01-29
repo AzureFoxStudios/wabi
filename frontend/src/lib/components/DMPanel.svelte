@@ -381,6 +381,13 @@
 
 					const uploadUrl = `${serverUrl}/api/upload`;
 					xhr.open('POST', uploadUrl);
+
+					// Add authentication header
+					const authToken = localStorage.getItem('authToken');
+					if (authToken) {
+						xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+					}
+
 					xhr.send(formData);
 				});
 

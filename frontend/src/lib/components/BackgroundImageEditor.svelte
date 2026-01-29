@@ -59,8 +59,16 @@
 			const formData = new FormData();
 			formData.append('backgroundImage', file);
 
+			// Get auth token from localStorage
+			const authToken = localStorage.getItem('authToken');
+			const headers: HeadersInit = {};
+			if (authToken) {
+				headers['Authorization'] = `Bearer ${authToken}`;
+			}
+
 			const response = await fetch('/api/upload-background-image', {
 				method: 'POST',
+				headers,
 				body: formData
 			});
 
