@@ -1538,15 +1538,16 @@
 			font-size: 0.875rem;
 		}
 
-		/* Compact channel actions */
+		/* Compact channel actions - Improved touch targets for mobile */
 		.pin-btn,
 		.delete-btn,
 		.settings-btn {
 			opacity: 0.7;
-			min-width: 28px;
-			min-height: 28px;
-			width: 28px;
-			height: 28px;
+			min-width: 40px;
+			min-height: 40px;
+			width: 40px;
+			height: 40px;
+			padding: 8px;
 		}
 
 		.create-channel {

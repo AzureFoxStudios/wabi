@@ -590,6 +590,26 @@ input:focus, textarea:focus {
 	}
 }
 
+/* Mobile modal overflow handling */
+@media (max-width: 768px) {
+	/* Ensure modals don't overflow viewport */
+	[role="dialog"],
+	.modal-overlay,
+	.modal-content {
+		max-height: 100dvh;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	/* Better input field sizes for mobile */
+	.modal input[type="text"],
+	.modal input[type="email"],
+	.modal textarea {
+		min-height: 44px;
+		font-size: 16px !important;
+	}
+}
+
 /* High contrast mode for accessibility */
 @media (prefers-contrast: high) {
 	:root {
