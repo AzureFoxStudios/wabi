@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { browser } from '$app/environment';
-import { socket } from '$lib/socket';
+import { socket, getSocket } from '$lib/socket';
 import { getServerUrl } from '$lib/serverUrl';
 import {
 	todos,
@@ -205,7 +205,7 @@ function setupSocketListeners() {
 	if (!browser || socketListenerSetup) return;
 
 	try {
-		const sock = socket.get();
+		const sock = getSocket();
 		if (!sock) return;
 
 		// Listen for business data updates from other clients or server

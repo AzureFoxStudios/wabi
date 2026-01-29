@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
-	import { socket } from '$lib/socket';
+	import { socket, getSocket } from '$lib/socket';
 	import {
 		incomingCall,
 		isInCall,
@@ -12,13 +11,8 @@
 		endCall,
 		toggleMute,
 		toggleVideo,
-		handleCallOffer,
-		handleCallAnswer,
-		handleCallIceCandidate,
-		createCallOffer,
 		localStream,
-		connectionState,
-		removeCall
+		connectionState
 	} from '$lib/calling';
 	import { showCallNotification, playCallRingtone } from '$lib/notifications';
 
@@ -43,62 +37,9 @@
 		}
 	}
 
-	onMount(() => {
-		if (!$socket) return;
-
-		// Listen for call events
-		$socket.on('call-incoming', (data: { userId: string; username: string; isVideoCall: boolean }) => {
-			incomingCall.set({
-				userId: data.userId,
-				username: data.username,
-				isVideoCall: data.isVideoCall
-			});
-		});
-
-		$socket.on('call-accepted', async (data: { userId: string; isVideoCall: boolean }) => {
-			// Start WebRTC connection
-			await createCallOffer($socket!, data.userId);
-		});
-
-		$socket.on('call-rejected', (data: { userId: string }) => {
-			// alert('Call was rejected'); // Removed, handled by connectionState
-			// Don't emit call-end - that creates an infinite loop
-			incomingCall.set(null);
-		});
-
-		$socket.on('call-ended', (data: { userId: string }) => {
-			// alert('Call was ended'); // Removed, handled by connectionState
-			// Don't emit call-end - that creates an infinite loop
-			// Just clean up the local state
-			removeCall(data.userId);
-		});
-
-		$socket.on('call-offer', async (data: { offer: RTCSessionDescriptionInit; senderId: string }) => {
-			const call = $activeCalls.find(c => c.userId === data.senderId) || $incomingCall;
-			const username = call ? (call as any).username : 'Unknown';
-			await handleCallOffer($socket!, data.senderId, username, data.offer);
-		});
-
-		$socket.on('call-answer-sdp', async (data: { answer: RTCSessionDescriptionInit; senderId: string }) => {
-			await handleCallAnswer(data.senderId, data.answer);
-		});
-
-		$socket.on('call-ice-candidate', async (data: { candidate: RTCIceCandidateInit; senderId: string }) => {
-			await handleCallIceCandidate(data.senderId, data.candidate);
-		});
-	});
-
-	onDestroy(() => {
-		if ($socket) {
-			$socket.off('call-incoming');
-			$socket.off('call-accepted');
-			$socket.off('call-rejected');
-			$socket.off('call-ended');
-			$socket.off('call-offer');
-			$socket.off('call-answer-sdp');
-			$socket.off('call-ice-candidate');
-		}
-	});
+	// NOTE: All socket event listeners are now handled centrally in socket.ts (SocketManager)
+	// This component only handles UI rendering and user interactions
+	// The stores (incomingCall, activeCalls, etc.) are updated by the SocketManager
 
 	$: if ($isInCall && localVideoElement && $localStream) {
 		localVideoElement.srcObject = $localStream;

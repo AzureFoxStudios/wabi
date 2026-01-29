@@ -1,18 +1,11 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { socket } from '$lib/socket';
+	import { socket, getSocket } from '$lib/socket';
 	import {
 		screenShares,
 		isSharing,
 		startScreenShare,
-		stopScreenShare,
-		createOffer,
-		handleOffer,
-		handleAnswer,
-		handleIceCandidate,
-		removeScreenShare
+		stopScreenShare
 	} from '$lib/webrtc';
-	import { users } from '$lib/socket';
 	import { playNotificationSound } from '$lib/notifications';
 
 	export let activeView: 'chat' | 'screen' = 'screen';
@@ -20,6 +13,7 @@
 	let localStream: MediaStream | null = null;
 	let error = '';
 	let localVideoElement: HTMLVideoElement;
+	let previousShareCount = 0;
 
 	function backToChat() {
 		activeView = 'chat';
@@ -27,12 +21,11 @@
 
 	async function handleStartShare() {
 		try {
-			if (!$socket) return;
+			const sock = getSocket();
+			if (!sock) return;
 
-			localStream = await startScreenShare($socket);
+			localStream = await startScreenShare(sock);
 			console.log('Screen share started, stream:', localStream);
-			console.log('Stream tracks:', localStream?.getTracks());
-			console.log('Video tracks:', localStream?.getVideoTracks());
 			error = '';
 		} catch (err) {
 			error = 'Failed to start screen sharing. Please grant permissions.';
@@ -41,87 +34,53 @@
 	}
 
 	function handleStopShare() {
-		if (!$socket) return;
-		stopScreenShare($socket);
+		const sock = getSocket();
+		if (!sock) return;
+		stopScreenShare(sock);
 		localStream = null;
 	}
 
 	// Reactive statement to update video srcObject when localStream changes
 	$: if (localVideoElement && localStream) {
-		console.log('Setting local video srcObject', localStream);
 		localVideoElement.srcObject = localStream;
 		localVideoElement.play().catch(err => console.error('Error playing local video:', err));
 	}
 
+	// React to new screen shares being added (handled centrally by SocketManager)
+	$: if ($screenShares.length > previousShareCount && previousShareCount >= 0) {
+		// New screen share detected
+		if (previousShareCount > 0) {
+			playNotificationSound();
+			activeView = 'screen';
+
+			// Show browser notification if document is not focused
+			if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+				const newestShare = $screenShares[$screenShares.length - 1];
+				new Notification('Screen Share Started', {
+					body: `${newestShare?.username || 'Someone'} is sharing their screen`,
+					icon: '/icon-192.png'
+				});
+			}
+		}
+		previousShareCount = $screenShares.length;
+	} else {
+		previousShareCount = $screenShares.length;
+	}
+
 	// Custom Svelte action to set srcObject on video elements
 	function setVideoStream(node: HTMLVideoElement, stream: MediaStream) {
-		console.log('Setting remote video srcObject', stream, 'tracks:', stream.getTracks());
 		node.srcObject = stream;
 		node.play().catch(err => console.error('Error playing remote video:', err));
 		return {
 			update(newStream: MediaStream) {
-				console.log('Updating remote video srcObject', newStream, 'tracks:', newStream.getTracks());
 				node.srcObject = newStream;
 				node.play().catch(err => console.error('Error playing updated remote video:', err));
 			}
 		};
 	}
 
-	onMount(() => {
-		if (!$socket) return;
-
-		$socket.on('screen-share-started', async (data: { userId: string; username: string }) => {
-			if (!$socket) return;
-			// Viewer receives notification that someone started sharing
-			console.log(`${data.username} started screen sharing`);
-
-			// Play notification sound
-			playNotificationSound();
-
-			// Auto-switch to screen share tab
-			activeView = 'screen';
-
-			// Show browser notification if document is not focused
-			if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-				new Notification('Screen Share Started', {
-					body: `${data.username} is sharing their screen`,
-					icon: '/icon-192.png'
-				});
-			}
-		});
-
-		$socket.on('screen-share-stopped', (userId: string) => {
-			removeScreenShare(userId);
-		});
-
-		$socket.on('webrtc-offer', async (data: { offer: RTCSessionDescriptionInit; senderId: string }) => {
-			if (!$socket) return;
-
-			const user = $users.find(u => u.id === data.senderId);
-			if (user) {
-				await handleOffer($socket, data.senderId, user.username, data.offer);
-			}
-		});
-
-		$socket.on('webrtc-answer', async (data: { answer: RTCSessionDescriptionInit; senderId: string }) => {
-			await handleAnswer(data.senderId, data.answer);
-		});
-
-		$socket.on('webrtc-ice-candidate', async (data: { candidate: RTCIceCandidateInit; senderId: string }) => {
-			await handleIceCandidate(data.senderId, data.candidate);
-		});
-
-		// When someone joins and we're sharing, create an offer for them
-		$socket.on('user-joined', async (user: any) => {
-			if ($isSharing && $socket) {
-				setTimeout(() => {
-					if ($socket) {
-						createOffer($socket, user.id);
-					}
-				}, 1000);
-			}
-		});
-	});
+	// NOTE: All socket event listeners for WebRTC signaling are now handled
+	// centrally in socket.ts (SocketManager). This component only handles UI.
 </script>
 
 <div class="screen-share-container">

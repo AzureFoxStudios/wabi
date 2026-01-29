@@ -3,8 +3,8 @@
 	import '$lib/prism-theme.css';
 	import type { PageData } from './$types';
 	import { onMount, onDestroy } from 'svelte';
-	import { initSocket, channelMessages, channels } from '$lib/socket';
-  import PureRefViewer from '$lib/components/PureRefViewer.svelte';
+	import { channelMessages, channels } from '$lib/socket';
+	import PureRefViewer from '$lib/components/PureRefViewer.svelte';
 	import { isRunningInTauri, startAutoSaveTauri, type WabiData } from '$lib/tauri-storage';
 	import { migrateTauriData, loadMigratedTauriData } from '$lib/tauri-migration';
 	import { chatStorage } from '$lib/storage';
@@ -40,15 +40,8 @@
 			});
 		}
 
-		// Only initialize socket if user has a saved session (from explicit login)
-		// Don't auto-login on page load - user must submit login form first
-		const username = localStorage.getItem('username');
-		const sessionId = localStorage.getItem('sessionId');
-
-		if (username && sessionId) {
-			// User has a saved session, reconnect them
-			initSocket(username);
-		}
+		// NOTE: Socket initialization is handled ONLY by +page.svelte
+		// This prevents duplicate connections when both layout and page mount
 
 		// Initialize Tauri features if running in Tauri
 		if (isRunningInTauri()) {
