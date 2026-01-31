@@ -13,6 +13,12 @@
 # For production, you MUST change this to your server's public IP.
 external-ip=${TURN_EXTERNAL_IP}
 
+# Listen on all interfaces (required for Docker host networking)
+listening-ip=0.0.0.0
+
+# Relay IP - same as external IP for single-server deployments
+relay-ip=${TURN_EXTERNAL_IP}
+
 # The port coturn listens on for client connections.
 # 3478 is the standard for TURN/STUN.
 listening-port=3478
