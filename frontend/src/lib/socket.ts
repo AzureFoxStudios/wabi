@@ -16,7 +16,6 @@ import { showNotification } from './notifications';
 import { initEmotes, addEmote, removeEmote } from './markdown';
 import { chatStorage } from './storage';
 import * as calling from './calling';
-import * as webrtc from './webrtc';
 import type { FileAttachment, Message, Emoji, User, Channel } from './socket-types';
 import { emojis } from './emoji-store';
 import { getServerUrl } from './serverUrl';
@@ -611,6 +610,12 @@ class SocketManager {
 			calling.incomingCall.set(data);
 		});
 
+		sock.on('call-accepted', (data: { userId: string, username: string, isVideoCall: boolean }) => {
+			console.log(`[SocketManager] Call accepted by ${data.username}`);
+			// Create the WebRTC offer now that the call is accepted
+			calling.createCallOffer(sock, data.userId, data.username);
+		});
+
 		sock.on('call-rejected', () => {
 			console.log('[SocketManager] Call rejected');
 			calling.endCall(sock);
@@ -619,7 +624,7 @@ class SocketManager {
 		sock.on('call-ended', (data: { userId: string }) => {
 			console.log(`[SocketManager] Call ended with ${data.userId}`);
 			calling.removeCall(data.userId);
-			webrtc.removeScreenShare(data.userId);
+			calling.removeScreenShare(data.userId);
 		});
 
 		sock.on('call-offer', (data: { offer: RTCSessionDescriptionInit, senderId: string, username: string }) => {
@@ -638,24 +643,32 @@ class SocketManager {
 
 		sock.on('screen-share-started', (data: { userId: string, username: string }) => {
 			console.log(`[SocketManager] ${data.username} started screen sharing`);
-			webrtc.createOffer(sock, data.userId);
+			// Request the screen share from the sharer
+			// The sharer will create an offer and send it to us
+			sock.emit('request-screen-share', { sharerId: data.userId });
+		});
+
+		sock.on('screen-share-request', (data: { viewerId: string }) => {
+			console.log(`[SocketManager] User ${data.viewerId} requested our screen share`);
+			// Someone wants to view our screen share - create offer for them
+			calling.createScreenShareOffer(sock, data.viewerId);
 		});
 
 		sock.on('screen-share-stopped', (data: { userId: string }) => {
 			console.log(`[SocketManager] Screen share stopped for ${data.userId}`);
-			webrtc.removeScreenShare(data.userId);
+			calling.removeScreenShare(data.userId);
 		});
 
 		sock.on('webrtc-offer', (data: { offer: RTCSessionDescriptionInit, senderId: string, username: string }) => {
-			webrtc.handleOffer(sock, data.senderId, data.username, data.offer);
+			calling.handleScreenShareOffer(sock, data.senderId, data.username, data.offer);
 		});
 
 		sock.on('webrtc-answer', (data: { answer: RTCSessionDescriptionInit, senderId: string }) => {
-			webrtc.handleAnswer(data.senderId, data.answer);
+			calling.handleScreenShareAnswer(data.senderId, data.answer);
 		});
 
 		sock.on('webrtc-ice-candidate', (data: { candidate: RTCIceCandidateInit, senderId: string }) => {
-			webrtc.handleIceCandidate(data.senderId, data.candidate);
+			calling.handleScreenShareIceCandidate(data.senderId, data.candidate);
 		});
 	}
 

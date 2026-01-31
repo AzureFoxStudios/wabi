@@ -2,7 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import { channelMessages, channels, currentChannel, currentUser, sendMessage, sendTyping, users, socket, switchChannel, type Message, type User, type Channel } from '$lib/socket';
 	import { startCall } from '$lib/calling';
-	import { startScreenShare } from '$lib/webrtc';
+	import { startScreenShare } from '$lib/calling';
 	import MessageList from './MessageList.svelte';
 
 	export let dmChannelId: string | null = null;

@@ -3,14 +3,14 @@
 	import {
 		screenShares,
 		isSharing,
+		localScreenStream,
 		startScreenShare,
 		stopScreenShare
-	} from '$lib/webrtc';
+	} from '$lib/calling';
 	import { playNotificationSound } from '$lib/notifications';
 
 	export let activeView: 'chat' | 'screen' = 'screen';
 
-	let localStream: MediaStream | null = null;
 	let error = '';
 	let localVideoElement: HTMLVideoElement;
 	let previousShareCount = 0;
@@ -24,8 +24,7 @@
 			const sock = getSocket();
 			if (!sock) return;
 
-			localStream = await startScreenShare(sock);
-			console.log('Screen share started, stream:', localStream);
+			await startScreenShare(sock);
 			error = '';
 		} catch (err) {
 			error = 'Failed to start screen sharing. Please grant permissions.';
@@ -37,12 +36,11 @@
 		const sock = getSocket();
 		if (!sock) return;
 		stopScreenShare(sock);
-		localStream = null;
 	}
 
-	// Reactive statement to update video srcObject when localStream changes
-	$: if (localVideoElement && localStream) {
-		localVideoElement.srcObject = localStream;
+	// Reactive statement to update video srcObject when localScreenStream changes
+	$: if (localVideoElement && $localScreenStream) {
+		localVideoElement.srcObject = $localScreenStream;
 		localVideoElement.play().catch(err => console.error('Error playing local video:', err));
 	}
 
@@ -107,7 +105,7 @@
 	{/if}
 
 	<div class="screens">
-		{#if $isSharing && localStream}
+		{#if $isSharing && $localScreenStream}
 			<div class="screen-item">
 				<div class="screen-header">
 					<span class="badge">Your Screen</span>

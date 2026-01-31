@@ -2,7 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import { currentUser, socket, type User, channels, createDM, dmPanelSignal } from '$lib/socket';
 	import { startCall } from '$lib/calling';
-	import { startScreenShare } from '$lib/webrtc';
+	import { startScreenShare } from '$lib/calling';
 	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
 	import { onMount, onDestroy } from 'svelte';

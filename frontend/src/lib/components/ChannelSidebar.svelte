@@ -2,7 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, pinnedChannels, pinChannel, unpinChannel, users, socket } from '$lib/socket';
 	import { startCall } from '$lib/calling';
-	import { startScreenShare } from '$lib/webrtc';
+	import { startScreenShare } from '$lib/calling';
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';

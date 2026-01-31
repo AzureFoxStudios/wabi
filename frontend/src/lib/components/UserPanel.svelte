@@ -2,7 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import { users, currentUser, socket, channels, type User, createDM, channelUnreadCounts } from '$lib/socket';
 	import { startCall } from '$lib/calling';
-	import { startScreenShare } from '$lib/webrtc';
+	import { startScreenShare } from '$lib/calling';
 	import UserPopout from './UserPopout.svelte';
 	import UserContextMenu from './UserContextMenu.svelte';
 	import CreateDMModal from './CreateDMModal.svelte';

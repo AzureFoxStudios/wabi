@@ -2258,13 +2258,21 @@ io.on("connection", (socket) => {
 
   socket.on("stop-screen-share", () => {
     screenSharers.delete(socket.id);
-    socket.broadcast.emit("screen-share-stopped", socket.id);
+    // Fixed: emit object with userId, not just socket.id string
+    socket.broadcast.emit("screen-share-stopped", { userId: socket.id });
+  });
+
+  socket.on("request-screen-share", (data: { sharerId: string }) => {
+    // Forward the request to the sharer so they can create an offer for this viewer
+    io.to(data.sharerId).emit("screen-share-request", { viewerId: socket.id });
   });
 
   socket.on("webrtc-offer", (data: { offer: RTCSessionDescriptionInit; targetId: string }) => {
+    const user = users.get(socket.id);
     io.to(data.targetId).emit("webrtc-offer", {
       offer: data.offer,
-      senderId: socket.id
+      senderId: socket.id,
+      username: user?.username || 'Unknown'
     });
   });
 
@@ -2301,8 +2309,11 @@ io.on("connection", (socket) => {
   });
 
   socket.on("call-answer", (data: { callerId: string; isVideoCall: boolean }) => {
+    const user = users.get(socket.id);
+    // Fixed: emit call-accepted with username for proper UI display
     io.to(data.callerId).emit("call-accepted", {
       userId: socket.id,
+      username: user?.username || 'Unknown',
       isVideoCall: data.isVideoCall
     });
   });
@@ -2313,10 +2324,21 @@ io.on("connection", (socket) => {
     });
   });
 
-  socket.on("call-end", () => {
-    socket.broadcast.emit("call-ended", {
-      userId: socket.id
-    });
+  socket.on("call-end", (data?: { participants?: string[] }) => {
+    // Fixed: only notify call participants, not broadcast to everyone
+    if (data?.participants && data.participants.length > 0) {
+      // Send to specific participants
+      data.participants.forEach(participantId => {
+        io.to(participantId).emit("call-ended", {
+          userId: socket.id
+        });
+      });
+    } else {
+      // Fallback: broadcast (for backward compatibility)
+      socket.broadcast.emit("call-ended", {
+        userId: socket.id
+      });
+    }
   });
 
   socket.on("call-offer", (data: { offer: RTCSessionDescriptionInit; targetId: string }) => {
@@ -2657,7 +2679,8 @@ io.on("connection", (socket) => {
 
       if (screenSharers.has(socket.id)) {
         screenSharers.delete(socket.id);
-        socket.broadcast.emit("screen-share-stopped", socket.id);
+        // Fixed: emit object with userId, not just socket.id string
+        socket.broadcast.emit("screen-share-stopped", { userId: socket.id });
       }
 
       socket.broadcast.emit("user-left", {
