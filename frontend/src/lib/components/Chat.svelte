@@ -1127,9 +1127,9 @@
 	}
 
 	.chat-header h2 {
-		font-size: 1.25rem;
+		font-size: var(--text-xl);
 		margin: 0;
-		font-weight: 600;
+		font-weight: var(--font-weight-semibold);
 		flex: 1;
 	}
 
@@ -1142,12 +1142,12 @@
 	.search-input {
 		padding: 0.5rem 0.75rem;
 		border: 1px solid var(--border);
-		border-radius: 6px;
+		border-radius: var(--radius-md);
 		background: var(--bg-secondary);
 		color: var(--text-primary);
-		font-size: 0.9rem;
+		font-size: var(--text-base);
 		min-width: 250px;
-		transition: all 0.2s;
+		transition: all var(--duration-fast);
 	}
 
 	.search-input::placeholder {
@@ -1162,7 +1162,7 @@
 
 
 	.search-results {
-		font-size: 0.8rem;
+		font-size: var(--text-sm);
 		color: var(--text-secondary);
 		white-space: nowrap;
 		padding: 0 0.5rem;
@@ -1186,7 +1186,7 @@
 		align-items: center;
 		gap: 0.5rem;
 		color: var(--text-secondary);
-		font-size: 0.85rem;
+		font-size: var(--text-sm);
 		font-style: italic;
 		padding: 0.5rem;
 	}

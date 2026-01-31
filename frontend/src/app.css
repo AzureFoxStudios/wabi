@@ -75,6 +75,14 @@
 	--font-size-5: 1.25rem;  /* 20px */
 	--font-size-6: 1.5rem;   /* 24px */
 
+	/* -- Text Size Aliases (per UI Guide) -- */
+	--text-xs: 11px;      /* Timestamps, metadata */
+	--text-sm: 13px;      /* Secondary info, captions */
+	--text-base: 14px;    /* Body text, messages (default) */
+	--text-lg: 16px;      /* Usernames, headings */
+	--text-xl: 20px;      /* Modal titles, page headings */
+	--text-2xl: 24px;     /* Hero elements (rare) */
+
 	/* -- Font Weights -- */
 	--font-weight-regular: 400;
 	--font-weight-medium: 500;
@@ -317,34 +325,116 @@ a:hover {
    5. COMPONENT-SPECIFIC BASE STYLES (Refactored to use new tokens)
    ========================================================================== */
 
+/* --- Base Button Reset (transparent by default) --- */
 button {
-	background: var(--color-accent-gradient);
-	color: var(--color-text-primary); /* Assuming white/light text on accent */
+	background: transparent;
+	color: var(--text-primary);
 	border: none;
 	padding: var(--space-2) var(--space-4);
-	border-radius: var(--radius-sm);
+	border-radius: var(--radius-md);
 	cursor: pointer;
 	font-size: var(--font-size-2);
 	font-weight: var(--font-weight-medium);
-	transition: all var(--duration-fast);
+	transition: all var(--duration-instant);
 	box-shadow: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--space-2);
 }
 
 button:hover {
-	background: var(--color-accent-secondary); /* or a darker accent gradient */
-	transform: translateY(-1px);
-	box-shadow: var(--shadow-sm); /* Subtle lift */
+	background: var(--bg-hover);
 }
 
 button:active {
-	transform: translateY(0);
-	box-shadow: none;
+	transform: scale(0.98);
 }
 
 button:disabled {
 	opacity: var(--opacity-50);
 	cursor: not-allowed;
 	transform: none;
+}
+
+/* --- Button Variants --- */
+
+/* Primary - Main CTAs */
+.btn-primary {
+	background: var(--accent);
+	color: white;
+	padding: 0.625rem 1.25rem;
+	font-weight: var(--font-weight-semibold);
+}
+
+.btn-primary:hover {
+	background: var(--accent-hover);
+	transform: translateY(-1px);
+	box-shadow: var(--shadow-sm);
+}
+
+/* Secondary - Alternative actions */
+.btn-secondary {
+	background: transparent;
+	color: var(--text-primary);
+	border: 1px solid var(--border);
+	padding: 0.625rem 1.25rem;
+}
+
+.btn-secondary:hover {
+	background: var(--bg-tertiary);
+	border-color: var(--text-secondary);
+}
+
+/* Ghost - Subtle, icon buttons */
+.btn-ghost {
+	background: transparent;
+	color: var(--text-secondary);
+	padding: var(--space-2);
+}
+
+.btn-ghost:hover {
+	background: var(--bg-tertiary);
+	color: var(--text-primary);
+}
+
+/* Danger - Destructive actions */
+.btn-danger {
+	background: var(--color-danger);
+	color: white;
+	padding: 0.625rem 1.25rem;
+	font-weight: var(--font-weight-semibold);
+}
+
+.btn-danger:hover {
+	filter: brightness(1.1);
+}
+
+/* Icon Button - Square, for icons only */
+.btn-icon {
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	border-radius: var(--radius-sm);
+	color: var(--text-secondary);
+}
+
+.btn-icon:hover {
+	background: rgba(var(--accent-rgb), var(--opacity-light));
+	color: var(--accent-hex);
+}
+
+/* Button Sizes */
+.btn-sm {
+	height: 28px;
+	padding: 0.25rem 0.75rem;
+	font-size: var(--font-size-1);
+}
+
+.btn-lg {
+	height: 44px;
+	padding: 0.75rem 1.5rem;
+	font-size: var(--font-size-3);
 }
 
 input, textarea {
@@ -435,6 +525,45 @@ input:focus, textarea:focus {
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+}
+
+/* ==========================================================================
+   6. LAYOUT UTILITIES
+   ========================================================================== */
+
+/* --- Standardized Panel Header (52px) --- */
+.panel-header {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	height: 52px;
+	padding: 0 var(--space-3);
+	background: var(--bg-secondary);
+	border-bottom: 1px solid var(--border);
+	flex-shrink: 0;
+}
+
+.panel-header h2,
+.panel-header h3 {
+	margin: 0;
+	font-size: var(--text-lg);
+	font-weight: var(--font-weight-semibold);
+	color: var(--text-primary);
+}
+
+/* --- Standardized Panel Content (scrollable) --- */
+.panel-content {
+	flex: 1;
+	overflow-y: auto;
+	min-height: 0;
+}
+
+/* --- Standardized Panel Footer (fixed) --- */
+.panel-footer {
+	flex-shrink: 0;
+	padding: var(--space-2) var(--space-3);
+	background: var(--bg-tertiary);
+	border-top: 1px solid var(--border);
 }
 
 /* --- Responsive Design for Mobile --- */

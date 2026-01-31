@@ -43,7 +43,7 @@
 
 	.confirm-header h2 {
 		margin: 0;
-		font-size: 1.25rem;
+		font-size: var(--text-xl);
 		font-weight: 600;
 		color: var(--text-primary);
 	}
@@ -55,7 +55,7 @@
 	.confirm-body p {
 		margin: 0;
 		color: var(--text-secondary);
-		font-size: 0.9375rem;
+		font-size: var(--text-base);
 		line-height: 1.6;
 	}
 
@@ -73,7 +73,7 @@
 		padding: 0.625rem 1.25rem;
 		border-radius: 8px;
 		font-weight: 500;
-		font-size: 0.875rem;
+		font-size: var(--text-base);
 		cursor: pointer;
 		transition: all 0.2s;
 		border: none;

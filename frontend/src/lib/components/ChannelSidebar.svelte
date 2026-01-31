@@ -1,12 +1,10 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, pinnedChannels, pinChannel, unpinChannel, users, socket } from '$lib/socket';
-	import { startCall } from '$lib/calling';
-	import { startScreenShare } from '$lib/calling';
+	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, pinnedChannels, pinChannel, unpinChannel } from '$lib/socket';
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
-	import type { Channel, User } from '$lib/socket';
+	import type { Channel } from '$lib/socket';
 
 	const dispatch = createEventDispatcher();
 
@@ -176,36 +174,6 @@
 		closeContextMenu();
 	}
 
-	// ===== TEMPORARY: Quick User List Below Channels =====
-	// TODO: This is temporary for quick access to user calls
-	// Should be removed or refactored into a separate component
-
-	async function handleQuickVoiceCall(user: User) {
-		if (!$socket || user.id === $currentUser?.id) return;
-		try {
-			await startCall($socket, user.id, false);
-		} catch (error) {
-			alert('Failed to start voice call. Please check microphone permissions.');
-		}
-	}
-
-	async function handleQuickVideoCall(user: User) {
-		if (!$socket || user.id === $currentUser?.id) return;
-		try {
-			await startCall($socket, user.id, true);
-		} catch (error) {
-			alert('Failed to start video call. Please check camera and microphone permissions.');
-		}
-	}
-
-	async function handleQuickScreenShare(user: User) {
-		if (!$socket || user.id === $currentUser?.id) return;
-		try {
-			await startScreenShare($socket);
-		} catch (error) {
-			alert('Failed to start screen share. Please grant screen sharing permissions.');
-		}
-	}
 </script>
 
 {#if sidebarWidth === 0}
@@ -316,49 +284,6 @@
 		{/if}
 	</div>
 
-	<!-- ===== TEMPORARY: Quick User List Below Channels ===== -->
-	<!-- TODO: This is temporary - should be removed or refactored -->
-	<div class="temp-user-list">
-		<div class="temp-section-header">Users Online</div>
-		{#each $users.filter(u => u.id !== $currentUser?.id) as user (user.id)}
-			<div class="temp-user-item">
-				<div class="temp-user-info">
-					{#if user.profilePicture}
-						<img src={user.profilePicture} alt={user.username} class="temp-user-avatar" />
-					{:else}
-						<div class="temp-user-avatar-placeholder" style="background-color: {user.color}">
-							{user.username.charAt(0).toUpperCase()}
-						</div>
-					{/if}
-					<span class="temp-user-name">{user.username}</span>
-				</div>
-				<div class="temp-user-actions">
-					<button
-						class="temp-action-btn"
-						on:click={() => handleQuickVoiceCall(user)}
-						title="Voice call"
-					>
-						📞
-					</button>
-					<button
-						class="temp-action-btn"
-						on:click={() => handleQuickVideoCall(user)}
-						title="Video call"
-					>
-						📹
-					</button>
-					<button
-						class="temp-action-btn"
-						on:click={() => handleQuickScreenShare(user)}
-						title="Share screen"
-					>
-						📺
-					</button>
-				</div>
-			</div>
-		{/each}
-	</div>
-	<!-- ===== END TEMPORARY ===== -->
 
 	{#if showContextMenu && contextMenuChannel}
 		<div
@@ -689,7 +614,7 @@
 
 	.channel-sidebar[style*="width: 60px"] .channel-btn::after {
 		content: attr(data-abbrev);
-		font-size: 0.8rem;
+		font-size: var(--text-sm);
 		font-weight: 600;
 		color: var(--text-secondary);
 	}
@@ -802,7 +727,7 @@
 	}
 
 	.sidebar-header h3 {
-		font-size: 0.875rem;
+		font-size: var(--text-base);
 		font-weight: 600;
 		text-transform: uppercase;
 		color: var(--text-secondary);
@@ -897,7 +822,7 @@
 	.create-channel input {
 		width: 100%;
 		padding: 0.5rem;
-		font-size: 0.875rem;
+		font-size: var(--text-base);
 		border: none;
 		border-radius: 0;
 		background: var(--bg-secondary);
@@ -906,7 +831,7 @@
 
 	.create-channel button {
 		padding: 0.5rem;
-		font-size: 0.875rem;
+		font-size: var(--text-base);
 		background: var(--accent);
 		color: var(--text-primary);
 		border: none;
@@ -943,7 +868,7 @@
 		color: var(--text-secondary);
 		cursor: pointer;
 		text-align: left;
-		font-size: 0.9rem;
+		font-size: var(--text-base);
 		border-radius: 0;
 		transition: all 0.2s;
 		min-width: 0; /* Allows text to shrink and ellipsis */
@@ -981,7 +906,7 @@
 
 	.section-header {
 		padding: 1rem 1rem 0.5rem 1rem;
-		font-size: 0.75rem;
+		font-size: var(--text-xs);
 		font-weight: 600;
 		text-transform: uppercase;
 		color: var(--text-secondary);
@@ -1055,7 +980,7 @@
 		cursor: pointer;
 		border-radius: 0;
 		transition: all 0.2s;
-		font-size: 0.9rem;
+		font-size: var(--text-base);
 		width: 100%;
 		text-align: left;
 	}
@@ -1117,7 +1042,7 @@
 	.avatar-placeholder {
 		color: var(--text-primary);
 		font-weight: 600;
-		font-size: 0.875rem;
+		font-size: var(--text-base);
 	}
 
 	.status-indicator {
@@ -1152,7 +1077,7 @@
 	}
 
 	.username {
-		font-size: 0.875rem;
+		font-size: var(--text-base);
 		font-weight: 600;
 		color: var(--text-primary);
 		overflow: hidden;
@@ -1194,7 +1119,7 @@
 		cursor: pointer;
 		transition: background 0.2s;
 		text-align: left;
-		font-size: 0.9rem;
+		font-size: var(--text-base);
 	}
 
 	.status-option:hover {
@@ -1209,7 +1134,7 @@
 	}
 
 	.user-tag {
-		font-size: 0.75rem;
+		font-size: var(--text-xs);
 		color: var(--text-secondary);
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -1315,7 +1240,7 @@
 
 	.modal-header h2 {
 		margin: 0;
-		font-size: 1.25rem;
+		font-size: var(--text-xl);
 		color: var(--text-primary);
 	}
 
@@ -1346,7 +1271,7 @@
 	.setting-section h3 {
 		margin: 0 0 1rem 0;
 		color: var(--text-primary);
-		font-size: 1.1rem;
+		font-size: var(--text-lg);
 	}
 
 	.setting-group {
@@ -1362,7 +1287,7 @@
 
 	.setting-description {
 		color: var(--text-secondary);
-		font-size: 0.875rem;
+		font-size: var(--text-base);
 		margin-bottom: 1rem;
 	}
 
@@ -1378,7 +1303,7 @@
 		border: 2px solid transparent;
 		border-radius: 6px;
 		color: var(--text-primary);
-		font-size: 0.875rem;
+		font-size: var(--text-base);
 		font-weight: 500;
 		cursor: pointer;
 		transition: all 0.2s;
@@ -1399,7 +1324,7 @@
 		background: transparent;
 		border: none;
 		color: var(--text-muted);
-		font-size: 0.875rem;
+		font-size: var(--text-base);
 		cursor: pointer;
 		padding: 0.25rem 0.5rem;
 		border-radius: 4px;
@@ -1420,7 +1345,7 @@
 	.unread-badge {
 		background: var(--color-danger);
 		color: var(--text-primary);
-		font-size: 0.75rem;
+		font-size: var(--text-xs);
 		font-weight: bold;
 		padding: 2px 6px;
 		border-radius: 10px;
@@ -1470,7 +1395,7 @@
 		cursor: pointer;
 		border-radius: 4px;
 		color: var(--text-primary);
-		font-size: 0.9rem;
+		font-size: var(--text-base);
 		transition: background 0.15s;
 	}
 
@@ -1645,132 +1570,4 @@
 		}
 	}
 
-	/* ===== TEMPORARY: Quick User List Below Channels ===== */
-	/* TODO: TEMPORARY - This should be removed or refactored into a proper component */
-	.temp-user-list {
-		flex-shrink: 0;
-		border-top: 1px solid var(--border);
-		padding: 0.5rem 0;
-		max-height: 200px;
-		overflow-y: auto;
-		background: rgba(var(--bg-secondary-rgb), 0.5);
-	}
-
-	.temp-section-header {
-		padding: 0.5rem 1rem;
-		font-size: 0.75rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		color: var(--text-tertiary);
-		letter-spacing: 0.5px;
-	}
-
-	.temp-user-item {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0.5rem 0.75rem;
-		gap: 0.5rem;
-		border-bottom: 1px solid rgba(var(--border-rgb), 0.3);
-		transition: background 150ms ease;
-	}
-
-	.temp-user-item:hover {
-		background: rgba(var(--accent-rgb), var(--opacity-subtle));
-	}
-
-	.temp-user-info {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		flex: 1;
-		min-width: 0;
-	}
-
-	.temp-user-avatar,
-	.temp-user-avatar-placeholder {
-		flex-shrink: 0;
-		width: 24px;
-		height: 24px;
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-weight: 600;
-		font-size: 0.65rem;
-		color: white;
-		border: 1px solid rgba(var(--accent-rgb), var(--opacity-light));
-		object-fit: cover;
-	}
-
-	.temp-user-name {
-		font-size: 0.8rem;
-		color: var(--text-secondary);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.temp-user-actions {
-		display: flex;
-		gap: 0.25rem;
-		flex-shrink: 0;
-	}
-
-	.temp-action-btn {
-		background: transparent;
-		border: none;
-		font-size: 0.9rem;
-		cursor: pointer;
-		color: var(--text-secondary);
-		padding: 0.25rem;
-		width: 24px;
-		height: 24px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 3px;
-		transition: all 150ms ease;
-		flex-shrink: 0;
-	}
-
-	.temp-action-btn:hover {
-		color: var(--accent-hex);
-		background: rgba(var(--accent-rgb), var(--opacity-light));
-	}
-
-	/* Hide temp user list in compact mode */
-	.channel-sidebar[style*="width: 60px"] .temp-user-list,
-	.channel-sidebar[style*="width: 0px"] .temp-user-list {
-		display: none;
-	}
-
-	/* Responsive styling for temp user list */
-	@media (max-width: 768px) {
-		.temp-user-list {
-			max-height: 150px;
-		}
-
-		.temp-user-item {
-			padding: 0.375rem 0.5rem;
-		}
-
-		.temp-user-avatar,
-		.temp-user-avatar-placeholder {
-			width: 20px;
-			height: 20px;
-			font-size: 0.6rem;
-		}
-
-		.temp-user-name {
-			font-size: 0.75rem;
-		}
-
-		.temp-action-btn {
-			font-size: 0.8rem;
-			width: 20px;
-			height: 20px;
-		}
-	}
-	/* ===== END TEMPORARY ===== */
 </style>

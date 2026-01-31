@@ -887,7 +887,7 @@
 		gap: 1rem;
 		margin: 1rem 0;
 		color: var(--color-danger-hover);
-		font-size: 0.8rem;
+		font-size: var(--text-sm);
 		font-weight: 600;
 		text-transform: uppercase;
 	}
@@ -982,7 +982,7 @@
 		justify-content: center;
 		font-weight: bold;
 		color: var(--text-primary);
-		font-size: 1rem;
+		font-size: var(--text-lg);
 	}
 
 	.message-body {
@@ -1015,7 +1015,7 @@
 	}
 
 	.timestamp {
-		font-size: 0.75rem;
+		font-size: var(--text-xs);
 		color: var(--text-secondary);
 		margin-left: 0.5rem;
 		opacity: 0.7;
@@ -1084,12 +1084,12 @@
 	}
 
 	.pin-badge {
-		font-size: 0.85rem;
+		font-size: var(--text-sm);
 		margin-left: 0.25rem;
 	}
 
 	.edited-badge {
-		font-size: 0.75rem;
+		font-size: var(--text-xs);
 		color: var(--text-secondary);
 		font-style: italic;
 		margin-left: 0.25rem;
@@ -1102,7 +1102,7 @@
 		padding: 0.5rem;
 		background: var(--bg-tertiary);
 		border-radius: 6px;
-		font-size: 0.875rem;
+		font-size: var(--text-base);
 		cursor: pointer;
 		transition: all 0.2s ease;
 	}
@@ -1133,12 +1133,12 @@
 
 	.reply-username {
 		font-weight: 600;
-		font-size: 0.8125rem;
+		font-size: var(--text-sm);
 	}
 
 	.reply-text {
 		color: var(--text-secondary);
-		font-size: 0.8125rem;
+		font-size: var(--text-sm);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -1154,7 +1154,7 @@
 		border: none;
 		border-radius: 6px;
 		font-family: inherit;
-		font-size: 0.875rem;
+		font-size: var(--text-base);
 		resize: vertical;
 		min-height: 60px;
 	}
@@ -1175,7 +1175,7 @@
 	.edit-save {
 		padding: 0.5rem 1rem;
 		border-radius: 6px;
-		font-size: 0.875rem;
+		font-size: var(--text-base);
 		font-weight: 500;
 		cursor: pointer;
 		transition: all 0.2s;
@@ -1379,7 +1379,7 @@
 		border: 1px solid rgba(255, 255, 255, 0.3);
 		border-radius: 20px;
 		color: white;
-		font-size: 0.875rem;
+		font-size: var(--text-base);
 		font-weight: 500;
 	}
 
@@ -1394,7 +1394,7 @@
 		border-radius: 8px;
 		color: white;
 		text-decoration: none;
-		font-size: 0.875rem;
+		font-size: var(--text-base);
 		font-weight: 500;
 		transition: all 0.2s;
 	}
@@ -1458,7 +1458,7 @@
 		background: var(--gradient-fade-top-dark);
 		color: white;
 		padding: 0.5rem;
-		font-size: 0.75rem;
+		font-size: var(--text-xs);
 		display: flex;
 		flex-direction: column;
 		gap: 0.125rem;
@@ -1495,7 +1495,7 @@
 		color: var(--accent-hex);
 		text-decoration: none;
 		font-weight: 600;
-		font-size: 0.75rem;
+		font-size: var(--text-xs);
 		transition: all 0.3s ease;
 		cursor: pointer;
 		box-shadow: 0 2px 8px rgba(var(--accent-rgb), var(--opacity-subtle));
@@ -1585,7 +1585,7 @@
 		border-radius: 12px;
 		cursor: pointer;
 		transition: all 0.2s;
-		font-size: 0.75rem;
+		font-size: var(--text-xs);
 		color: var(--text-secondary);
 	}
 
@@ -1609,7 +1609,7 @@
 
 	.reaction-count {
 		font-weight: 600;
-		font-size: 0.75rem;
+		font-size: var(--text-xs);
 	}
 
 	/* ========== IMAGE & VIDEO SIZE LIMITS ========== */
@@ -1958,7 +1958,7 @@
 	border: none;
 	border-radius: 4px;
 	cursor: pointer;
-	font-size: 0.9rem;
+	font-size: var(--text-base);
 	font-weight: 500;
 	transition: background-color 0.2s ease;
 }
@@ -1991,7 +1991,7 @@
 .no-more-messages {
 	text-align: center;
 	color: var(--text-secondary);
-	font-size: 0.9rem;
+	font-size: var(--text-base);
 	padding: 1rem;
 }
 

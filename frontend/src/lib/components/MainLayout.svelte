@@ -1,32 +1,30 @@
 <!-- frontend/src/lib/components/MainLayout.svelte -->
 <script lang="ts">
-	import { fade } from 'svelte/transition';
 	import { layoutStore } from '$lib/layoutStore';
 	import Chat from '$lib/components/Chat.svelte';
 	import ScreenShareViewer from '$lib/components/ScreenShareViewer.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
-	import DMListPanel from '$lib/components/DMListPanel.svelte';
-	import DMPanel from '$lib/components/DMPanel.svelte';
+	import RightPanel from '$lib/components/RightPanel.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 
 	let isResizingChannel = false;
-	let isResizingUser = false;
-	let isResizingDM = false;
+	let isResizingRight = false;
+
+	// Right panel state
+	let rightPanelActiveTab: 'messages' | 'users' = 'messages';
+	let rightPanelActiveDM: { channelId: string; otherUser: any } | null = null;
 
 	layoutStore.isResizingChannel.subscribe(v => isResizingChannel = v);
-	layoutStore.isResizingUser.subscribe(v => isResizingUser = v);
-	layoutStore.isResizingDM.subscribe(v => isResizingDM = v);
+	layoutStore.isResizingUser.subscribe(v => isResizingRight = v);
 
 	function handleMouseMove(e: MouseEvent) {
 		if (isResizingChannel) {
 			layoutStore.channelSidebarWidth.set(Math.max(180, Math.min(e.clientX, 400)));
-		} else if (isResizingUser) {
-			layoutStore.userPanelWidth.set(Math.max(200, Math.min(window.innerWidth - e.clientX, 500)));
-		} else if (isResizingDM) {
-			layoutStore.dmPanelWidth.set(Math.max(300, Math.min(window.innerWidth - e.clientX, 600)));
+		} else if (isResizingRight) {
+			layoutStore.userPanelWidth.set(Math.max(260, Math.min(window.innerWidth - e.clientX, 420)));
 		}
 	}
 
@@ -34,6 +32,11 @@
 		layoutStore.isResizingChannel.set(false);
 		layoutStore.isResizingUser.set(false);
 		layoutStore.isResizingDM.set(false);
+	}
+
+	function closeRightPanel() {
+		layoutStore.rightPanelView.set('none');
+		rightPanelActiveDM = null;
 	}
 </script>
 
@@ -79,37 +82,20 @@
 		<div class:hidden={activeView !== 'screen'}><ScreenShareViewer bind:activeView /></div>
 	</div>
 	
-	<!-- User Panel (Right) - Tab 1 -->
-	{#if $layoutStore.showDMListPanel || ($layoutStore.isMobile && $layoutStore.rightPanelView === 'dm-list')}
+	<!-- Right Panel (unified Messages/Users + DM view) -->
+	{#if $layoutStore.showDMListPanel || $layoutStore.showDMPanel || ($layoutStore.isMobile && ($layoutStore.rightPanelView === 'dm-list' || $layoutStore.rightPanelView === 'dm'))}
 		<div
-			class="user-panel-container"
-			style:width="{$layoutStore.showDMListPanel ? $layoutStore.userPanelWidth : 0}px"
-			style:min-width="{$layoutStore.showDMListPanel ? $layoutStore.userPanelWidth : 0}px"
-			class:mobile-visible={$layoutStore.isMobile && $layoutStore.rightPanelView === 'dm-list'}
+			class="right-panel-container"
+			style:width="{$layoutStore.showDMListPanel || $layoutStore.showDMPanel ? $layoutStore.userPanelWidth : 0}px"
+			class:mobile-visible={$layoutStore.isMobile && ($layoutStore.rightPanelView === 'dm-list' || $layoutStore.rightPanelView === 'dm')}
 		>
-			<DMListPanel on:openDM={(e) => layoutStore.openDM(e.detail.channelId, e.detail.otherUser)} on:close={() => layoutStore.rightPanelView.set('none')} />
+			<RightPanel
+				bind:activeTab={rightPanelActiveTab}
+				bind:activeDM={rightPanelActiveDM}
+				on:close={closeRightPanel}
+			/>
 			{#if !$layoutStore.isMobile}
-				<div class="resize-handle resize-handle-user" on:mousedown={() => layoutStore.isResizingUser.set(true)}></div>
-			{/if}
-		</div>
-	{/if}
-
-	<!-- DM Panel (Far Right) - Tab 2 -->
-	{#if $layoutStore.showDMPanel || ($layoutStore.isMobile && $layoutStore.rightPanelView === 'dm')}
-		<div
-			class="dm-panel-container"
-			style:width="{$layoutStore.showDMPanel ? $layoutStore.dmPanelWidth : 0}px"
-			class:mobile-visible={$layoutStore.isMobile && $layoutStore.rightPanelView === 'dm'}
-		>
-			<DMPanel
-                dmChannelId={$layoutStore.dmChannelId}
-                otherUser={$layoutStore.dmOtherUser}
-                onClose={layoutStore.closeDM}
-                onSelectDM={(channelId, user) => layoutStore.openDM(channelId, user)}
-                on:back={layoutStore.handleDMPanelBack}
-            />
-			{#if !$layoutStore.isMobile}
-				<div class="resize-handle resize-handle-dm" on:mousedown={() => layoutStore.isResizingDM.set(true)}></div>
+				<div class="resize-handle resize-handle-right" on:mousedown={() => layoutStore.isResizingUser.set(true)}></div>
 			{/if}
 		</div>
 	{/if}
@@ -166,8 +152,7 @@
 	}
 
 	/* Desktop Panel Styles */
-	.user-panel-container,
-	.dm-panel-container {
+	.right-panel-container {
 		flex-shrink: 0;
 		position: relative;
 		overflow: hidden;
@@ -175,7 +160,6 @@
 		will-change: width;
 		height: 100vh;
 		background: var(--bg-secondary);
-		border-right: 1px solid rgba(var(--border-rgb), var(--opacity-light));
 	}
 
 	.resize-handle {
@@ -189,8 +173,7 @@
 	}
 	.resize-handle:hover { background: var(--accent); opacity: 0.5; }
 	.resize-handle-channel { right: -3px; }
-	.resize-handle-user { left: -3px; }
-	.resize-handle-dm { left: -3px; }
+	.resize-handle-right { left: -3px; }
 	
 	.user-panel-toggle {
 		position: absolute;
@@ -249,8 +232,7 @@
 		.user-panel-toggle, .resize-handle { display: none; }
 
 		.channel-sidebar-container,
-		.user-panel-container,
-		.dm-panel-container {
+		.right-panel-container {
 			display: none; /* Hidden by default */
 			position: fixed;
 			top: 0;
@@ -260,10 +242,9 @@
 			z-index: 1500;
 			background: var(--bg-primary);
 		}
-		
+
 		.channel-sidebar-container.mobile-visible,
-		.user-panel-container.mobile-visible,
-		.dm-panel-container.mobile-visible {
+		.right-panel-container.mobile-visible {
 			display: block; /* Shown when active */
 		}
 
