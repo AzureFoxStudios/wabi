@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, pinnedChannels, pinChannel, unpinChannel } from '$lib/socket';
+	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, pinnedChannels, pinChannel, unpinChannel, users, socket } from '$lib/socket';
+	import { startCall, startScreenShare } from '$lib/calling';
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
-	import type { Channel } from '$lib/socket';
+	import type { Channel, User } from '$lib/socket';
 
 	const dispatch = createEventDispatcher();
 
@@ -174,6 +175,36 @@
 		closeContextMenu();
 	}
 
+	// ===== TEMPORARY: Quick User List Below Channels =====
+	// TODO: This is temporary for quick access to user calls
+	// Should be removed or refactored into a separate component
+
+	async function handleQuickVoiceCall(user: User) {
+		if (!$socket || user.id === $currentUser?.id) return;
+		try {
+			await startCall($socket, user.id, false);
+		} catch (error) {
+			alert('Failed to start voice call. Please check microphone permissions.');
+		}
+	}
+
+	async function handleQuickVideoCall(user: User) {
+		if (!$socket || user.id === $currentUser?.id) return;
+		try {
+			await startCall($socket, user.id, true);
+		} catch (error) {
+			alert('Failed to start video call. Please check camera and microphone permissions.');
+		}
+	}
+
+	async function handleQuickScreenShare(user: User) {
+		if (!$socket || user.id === $currentUser?.id) return;
+		try {
+			await startScreenShare($socket);
+		} catch (error) {
+			alert('Failed to start screen share. Please grant screen sharing permissions.');
+		}
+	}
 </script>
 
 {#if sidebarWidth === 0}
@@ -284,6 +315,49 @@
 		{/if}
 	</div>
 
+	<!-- ===== TEMPORARY: Quick User List Below Channels ===== -->
+	<!-- TODO: This is temporary - should be removed or refactored -->
+	<div class="temp-user-list">
+		<div class="temp-section-header">Users Online</div>
+		{#each $users.filter(u => u.id !== $currentUser?.id) as user (user.id)}
+			<div class="temp-user-item">
+				<div class="temp-user-info">
+					{#if user.profilePicture}
+						<img src={user.profilePicture} alt={user.username} class="temp-user-avatar" />
+					{:else}
+						<div class="temp-user-avatar-placeholder" style="background-color: {user.color}">
+							{user.username.charAt(0).toUpperCase()}
+						</div>
+					{/if}
+					<span class="temp-user-name">{user.username}</span>
+				</div>
+				<div class="temp-user-actions">
+					<button
+						class="temp-action-btn"
+						on:click={() => handleQuickVoiceCall(user)}
+						title="Voice call"
+					>
+						📞
+					</button>
+					<button
+						class="temp-action-btn"
+						on:click={() => handleQuickVideoCall(user)}
+						title="Video call"
+					>
+						📹
+					</button>
+					<button
+						class="temp-action-btn"
+						on:click={() => handleQuickScreenShare(user)}
+						title="Share screen"
+					>
+						📺
+					</button>
+				</div>
+			</div>
+		{/each}
+	</div>
+	<!-- ===== END TEMPORARY ===== -->
 
 	{#if showContextMenu && contextMenuChannel}
 		<div
@@ -1569,5 +1643,93 @@
 			height: 28px;
 		}
 	}
+
+	/* ===== TEMPORARY: Quick User List Styles ===== */
+	.temp-user-list {
+		border-top: 1px solid var(--border);
+		padding: 0.5rem;
+		max-height: 200px;
+		overflow-y: auto;
+	}
+
+	.temp-section-header {
+		font-size: var(--text-xs);
+		font-weight: 600;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+		padding: 0.5rem;
+	}
+
+	.temp-user-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.375rem 0.5rem;
+		border-radius: 4px;
+		transition: background 0.2s;
+	}
+
+	.temp-user-item:hover {
+		background: var(--bg-secondary);
+	}
+
+	.temp-user-info {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		min-width: 0;
+		flex: 1;
+	}
+
+	.temp-user-avatar,
+	.temp-user-avatar-placeholder {
+		width: 24px;
+		height: 24px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.temp-user-avatar-placeholder {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: white;
+	}
+
+	.temp-user-name {
+		font-size: var(--text-sm);
+		color: var(--text-primary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.temp-user-actions {
+		display: flex;
+		gap: 0.25rem;
+		flex-shrink: 0;
+	}
+
+	.temp-action-btn {
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		background: transparent;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 1rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: background 0.2s;
+	}
+
+	.temp-action-btn:hover {
+		background: var(--accent);
+	}
+	/* ===== END TEMPORARY STYLES ===== */
 
 </style>
