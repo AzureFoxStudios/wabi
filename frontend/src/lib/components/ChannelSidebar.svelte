@@ -688,7 +688,7 @@
 
 	.channel-sidebar[style*="width: 60px"] .channel-btn::after {
 		content: attr(data-abbrev);
-		font-size: var(--text-sm);
+		font-size: 0.8rem;
 		font-weight: 600;
 		color: var(--text-secondary);
 	}
@@ -942,7 +942,7 @@
 		color: var(--text-secondary);
 		cursor: pointer;
 		text-align: left;
-		font-size: var(--text-base);
+		font-size: 0.9rem;
 		border-radius: 0;
 		transition: all 0.2s;
 		min-width: 0; /* Allows text to shrink and ellipsis */
@@ -980,7 +980,7 @@
 
 	.section-header {
 		padding: 1rem 1rem 0.5rem 1rem;
-		font-size: var(--text-xs);
+		font-size: 0.75rem;
 		font-weight: 600;
 		text-transform: uppercase;
 		color: var(--text-secondary);
@@ -1054,7 +1054,7 @@
 		cursor: pointer;
 		border-radius: 0;
 		transition: all 0.2s;
-		font-size: var(--text-base);
+		font-size: 0.9rem;
 		width: 100%;
 		text-align: left;
 	}
@@ -1419,7 +1419,7 @@
 	.unread-badge {
 		background: var(--color-danger);
 		color: var(--text-primary);
-		font-size: var(--text-xs);
+		font-size: 0.75rem;
 		font-weight: bold;
 		padding: 2px 6px;
 		border-radius: 10px;
@@ -1469,7 +1469,7 @@
 		cursor: pointer;
 		border-radius: 4px;
 		color: var(--text-primary);
-		font-size: var(--text-base);
+		font-size: 0.9rem;
 		transition: background 0.15s;
 	}
 
