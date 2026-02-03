@@ -922,7 +922,7 @@
 
 	.channel-item {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		padding: 0 0.5rem;
 		position: relative;
 	}
@@ -934,7 +934,7 @@
 	.channel-btn {
 		flex: 1;
 		display: flex;
-		align-items: flex-start;
+		align-items: center;
 		gap: 0.5rem;
 		padding: 0.5rem;
 		background: none;
@@ -946,7 +946,6 @@
 		border-radius: 0;
 		transition: all 0.2s;
 		min-width: 0; /* Allows text to shrink and ellipsis */
-		padding-top: 0.625rem;
 	}
 
 	.channel-item.active .channel-btn {
