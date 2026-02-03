@@ -934,7 +934,7 @@
 	.channel-btn {
 		flex: 1;
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		gap: 0.5rem;
 		padding: 0.5rem;
 		background: none;
@@ -942,10 +942,11 @@
 		color: var(--text-secondary);
 		cursor: pointer;
 		text-align: left;
-		font-size: 0.9rem;
+		font-size: var(--channel-btn-font-size);
 		border-radius: 0;
 		transition: all 0.2s;
 		min-width: 0; /* Allows text to shrink and ellipsis */
+		padding-top: 0.625rem;
 	}
 
 	.channel-item.active .channel-btn {
@@ -1054,7 +1055,7 @@
 		cursor: pointer;
 		border-radius: 0;
 		transition: all 0.2s;
-		font-size: 0.9rem;
+		font-size: var(--channel-btn-font-size);
 		width: 100%;
 		text-align: left;
 	}
@@ -1469,7 +1470,7 @@
 		cursor: pointer;
 		border-radius: 4px;
 		color: var(--text-primary);
-		font-size: 0.9rem;
+		font-size: var(--channel-btn-font-size);
 		transition: background 0.15s;
 	}
 

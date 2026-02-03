@@ -83,6 +83,9 @@
 	--text-xl: 20px;      /* Modal titles, page headings */
 	--text-2xl: 24px;     /* Hero elements (rare) */
 
+	/* -- Component-specific Font Sizes -- */
+	--channel-btn-font-size: 0.9rem; /* Channel list items */
+
 	/* -- Font Weights -- */
 	--font-weight-regular: 400;
 	--font-weight-medium: 500;
