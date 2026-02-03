@@ -934,7 +934,7 @@
 	.channel-btn {
 		flex: 1;
 		display: flex;
-		align-items: flex-start;
+		align-items: center;
 		gap: 0.5rem;
 		padding: 0.5rem;
 		background: none;
@@ -946,7 +946,7 @@
 		border-radius: 0;
 		transition: all 0.2s;
 		min-width: 0; /* Allows text to shrink and ellipsis */
-		padding-top: 0.625rem;
+		height: fit-content;
 	}
 
 	.channel-item.active .channel-btn {
@@ -990,9 +990,9 @@
 
 	.channel-actions {
 		display: flex;
-		align-items: flex-start;
+		align-items: center;
 		gap: 0.25rem;
-		padding-top: 0.625rem;
+		height: fit-content;
 	}
 
 	.pin-btn,
