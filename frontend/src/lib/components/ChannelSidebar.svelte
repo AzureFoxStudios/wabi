@@ -5,6 +5,7 @@
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
+	import DMListPanel from './DMListPanel.svelte';
 	import type { Channel, User } from '$lib/socket';
 
 	const dispatch = createEventDispatcher();
@@ -314,6 +315,9 @@
 			{/each}
 		{/if}
 	</div>
+
+	<!-- TEMPORARY DM List Panel -->
+	<DMListPanel />
 
 	<!-- ===== TEMPORARY: Quick User List Below Channels ===== -->
 	<!-- TODO: This is temporary - should be removed or refactored -->

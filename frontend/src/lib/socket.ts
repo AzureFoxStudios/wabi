@@ -781,17 +781,9 @@ export function disconnect(): void {
 }
 
 export function joinChannel(channelId: string): void {
+	// TEMPORARY: DMs now open in center chat like channels
+	// TODO: Move DMs to dedicated left sidebar section later
 	const channel = get(channels).find(ch => ch.id === channelId);
-
-	// GUARD: DMs should ONLY be accessed via right panel, never main chat
-	if (channel?.type === 'dm') {
-		console.warn('[socket] Blocked attempt to join DM channel in main chat:', channelId);
-		if (channel.otherUser) {
-			// Open in right panel instead
-			dmPanelSignal.set({ channelId, otherUser: channel.otherUser });
-		}
-		return; // EXIT - do not join DM in main chat
-	}
 
 	socketManager.emit('join-channel', channelId);
 	currentChannel.set(channelId);
