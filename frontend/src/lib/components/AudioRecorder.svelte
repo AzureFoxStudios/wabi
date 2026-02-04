@@ -29,6 +29,11 @@
   let permissionDenied = false;
   let audioElement: HTMLAudioElement;
 
+  // Device selection
+  let availableDevices: MediaDeviceInfo[] = [];
+  let selectedDeviceId: string = '';
+  let devicesLoaded = false;
+
   // Format duration as MM:SS
   function formatTime(seconds: number): string {
     const mins = Math.floor(seconds / 60);
@@ -46,6 +51,29 @@
     return 'audio/webm'; // fallback
   }
 
+  // Enumerate available audio input devices
+  async function loadDevices() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      availableDevices = devices.filter(d => d.kind === 'audioinput');
+
+      // Auto-select first device if none selected
+      if (availableDevices.length > 0 && !selectedDeviceId) {
+        selectedDeviceId = availableDevices[0].deviceId;
+      }
+
+      devicesLoaded = true;
+    } catch (err) {
+      console.error('Failed to enumerate devices:', err);
+      availableDevices = [];
+    }
+  }
+
+  // Get display label for device (fallback for empty labels)
+  function getDeviceLabel(device: MediaDeviceInfo, index: number): string {
+    return device.label || `Microphone ${index + 1}`;
+  }
+
   // Start recording
   async function startRecording() {
     try {
@@ -54,6 +82,7 @@
 
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
+          deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined,
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
@@ -61,6 +90,11 @@
           sampleRate: 48000
         }
       });
+
+      // After permission granted, reload devices to get labels
+      if (!devicesLoaded || !availableDevices[0]?.label) {
+        await loadDevices();
+      }
 
       const mimeType = getSupportedMimeType();
       recorder = new MediaRecorder(stream, {
@@ -224,11 +258,32 @@
     startRecording();
   }
 
+  // Handle device selection change
+  async function handleDeviceChange(event: Event) {
+    const select = event.target as HTMLSelectElement;
+    const newDeviceId = select.value;
+
+    if (state === 'recording') {
+      error = 'Cannot switch microphones while recording. Please stop first.';
+      setTimeout(() => error = null, 3000);
+      return;
+    }
+
+    selectedDeviceId = newDeviceId;
+
+    // If we already have a stream (idle with permission), restart it
+    if (stream && state === 'idle') {
+      cleanup();
+      await startRecording();
+    }
+  }
+
   // Send audio
   function sendAudio() {
     if (audioBlob) {
       dispatch('send', audioBlob);
-      close();
+      cleanup();  // Explicitly cleanup before closing
+      dispatch('close');  // Then dispatch close
     }
   }
 
@@ -282,6 +337,11 @@
     }
   }
 
+  // Load devices when modal opens
+  $: if (isOpen && !devicesLoaded) {
+    loadDevices();
+  }
+
   // Auto-start recording when modal opens
   $: if (isOpen && state === 'idle' && !permissionDenied && !error) {
     // Small delay to allow modal to render
@@ -289,6 +349,21 @@
       if (isOpen) startRecording();
     }, 100);
   }
+
+  // Ensure cleanup when modal closes
+  $: if (!isOpen) {
+    cleanup();
+  }
+
+  // Listen for device changes (plug/unplug)
+  onMount(() => {
+    const handleDeviceChange = () => loadDevices();
+    navigator.mediaDevices?.addEventListener('devicechange', handleDeviceChange);
+
+    return () => {
+      navigator.mediaDevices?.removeEventListener('devicechange', handleDeviceChange);
+    };
+  });
 
   onDestroy(cleanup);
 </script>
@@ -308,6 +383,32 @@
       </div>
 
       <div class="modal-body">
+        {#if availableDevices.length > 1 && state === 'idle'}
+          <div class="device-selector">
+            <label for="mic-select">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="23"></line>
+                <line x1="8" y1="23" x2="16" y2="23"></line>
+              </svg>
+              Microphone:
+            </label>
+            <select
+              id="mic-select"
+              bind:value={selectedDeviceId}
+              on:change={handleDeviceChange}
+              disabled={state !== 'idle'}
+            >
+              {#each availableDevices as device, index}
+                <option value={device.deviceId}>
+                  {getDeviceLabel(device, index)}
+                </option>
+              {/each}
+            </select>
+          </div>
+        {/if}
+
         {#if error}
           <div class="error-message">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -445,6 +546,55 @@
 
   .modal-body {
     padding: 2rem 1.5rem;
+  }
+
+  .device-selector {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 0;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color, #333);
+  }
+
+  .device-selector label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary, #999);
+    white-space: nowrap;
+  }
+
+  .device-selector label svg {
+    flex-shrink: 0;
+  }
+
+  .device-selector select {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-primary, #1e1e1e);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 6px;
+    color: var(--text-primary, #fff);
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .device-selector select:hover {
+    border-color: #3b82f6;
+  }
+
+  .device-selector select:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .device-selector select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .error-message {
@@ -609,6 +759,20 @@
 
     .modal-backdrop {
       padding: 0;
+    }
+
+    .device-selector {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.5rem;
+    }
+
+    .device-selector label {
+      font-size: 0.85rem;
+    }
+
+    .device-selector select {
+      width: 100%;
     }
   }
 </style>

@@ -143,14 +143,14 @@
 
 	function handleInput() {
 		autoResizeTextarea();
-		sendTyping(true);
+		sendTyping(true, $currentChannel);
 
 		if (typingTimeout) {
 			clearTimeout(typingTimeout);
 		}
 
 		typingTimeout = setTimeout(() => {
-			sendTyping(false);
+			sendTyping(false, $currentChannel);
 		}, 1000) as unknown as number;
 	}
 
@@ -538,7 +538,7 @@
 				replyingTo = null;
 			}
 			messageInput = '';
-			sendTyping(false);
+			sendTyping(false, $currentChannel);
 
 			if (typingTimeout) {
 				clearTimeout(typingTimeout);
@@ -938,31 +938,25 @@
 		</div>
 	{/if}
 
-	{#if isDMChannel}
-		<!-- DM channels should not be displayed in the main chat area -->
-		<!-- They are only accessible through the DM panel on the right -->
-		<div class="dm-redirect-message">
-			<div class="dm-redirect-content">
-				<h2>Direct Messages</h2>
-				<p>Direct messages are displayed in the DM panel on the right side.</p>
-				<p>Click on a user in the user panel to start or view a DM conversation.</p>
-			</div>
+	<div class="chat-header" class:dm-channel={isDMChannel}>
+		<h2>
+			{channelDisplayName}
+			{#if isDMChannel}
+				<span class="dm-badge">Direct Message</span>
+			{/if}
+		</h2>
+		<div class="search-container">
+			<input
+				type="text"
+				bind:value={searchInput}
+				placeholder="Search (by:username, has:image, etc.)"
+				class="search-input"
+			/>
+			{#if searchInput}
+				<span class="search-results">{filteredMessages.length} result{filteredMessages.length !== 1 ? 's' : ''}</span>
+			{/if}
 		</div>
-	{:else}
-		<div class="chat-header">
-			<h2>{channelDisplayName}</h2>
-			<div class="search-container">
-				<input
-					type="text"
-					bind:value={searchInput}
-					placeholder="Search (by:username, has:image, etc.)"
-					class="search-input"
-				/>
-				{#if searchInput}
-					<span class="search-results">{filteredMessages.length} result{filteredMessages.length !== 1 ? 's' : ''}</span>
-				{/if}
-			</div>
-		</div>
+	</div>
 
 	<div class="messages" bind:this={chatContainer}>
 		{#if !searchInput}
@@ -970,10 +964,10 @@
 		{/if}
 		<MessageList messages={filteredMessages} onReply={handleReply} firstUnreadMessageId={$lastReadMessageId} />
 
-		{#if $typingUsers.length > 0}
+		{#if ($typingUsers[$currentChannel] || []).length > 0}
 			<div class="typing-indicator">
 				<span class="typing-dots"></span>
-				<span>{formatTypingUsers($typingUsers)}</span>
+				<span>{formatTypingUsers($typingUsers[$currentChannel] || [])}</span>
 			</div>
 		{/if}
 	</div>
@@ -1157,7 +1151,6 @@
 			</button>
 		</div>
 	</div>
-	{/if}
 </div>
 
 <style>
@@ -1203,6 +1196,19 @@
 		margin: 0;
 		font-weight: var(--font-weight-semibold);
 		flex: 1;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.dm-badge {
+		display: inline-block;
+		padding: 0.25rem 0.5rem;
+		background: var(--accent);
+		color: white;
+		font-size: var(--text-xs);
+		border-radius: var(--radius-sm);
+		font-weight: var(--font-weight-medium);
 	}
 
 	.search-container {

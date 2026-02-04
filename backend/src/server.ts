@@ -1988,7 +1988,7 @@ io.on("connection", (socket) => {
         channelTyping.delete(socket.id);
         // Emit updated typing list only to users in this channel
         const typingUsernames = Array.from(channelTyping).map(id => users.get(id)?.username).filter(Boolean);
-        emitToChannel(data.channelId, "typing", typingUsernames);
+        emitToChannel(data.channelId, "typing", { channelId: data.channelId, usernames: typingUsernames });
       }
     }
   });
@@ -2212,12 +2212,12 @@ io.on("connection", (socket) => {
   });
 
   // Handle typing indicator
-  socket.on("typing", (isTyping: boolean) => {
+  socket.on("typing", (data: { isTyping: boolean; channelId: string }) => {
     const user = users.get(socket.id);
     if (!user) return;
 
-    // Get the channel the user is currently in
-    const channelId = userCurrentChannel.get(socket.id);
+    // Use the channelId provided by the client
+    const channelId = data.channelId;
     if (!channelId) return;
 
     // Get or create the typing users set for this channel
@@ -2227,7 +2227,7 @@ io.on("connection", (socket) => {
       channelTypingUsers.set(channelId, channelTyping);
     }
 
-    if (isTyping) {
+    if (data.isTyping) {
       typingUsers.add(socket.id);
       channelTyping.add(socket.id);
     } else {
@@ -2237,7 +2237,7 @@ io.on("connection", (socket) => {
 
     // Only emit typing indicator to users in the same channel
     const typingUsernames = Array.from(channelTyping).map(id => users.get(id)?.username).filter(Boolean);
-    emitToChannel(channelId, "typing", typingUsernames);
+    emitToChannel(channelId, "typing", { channelId, usernames: typingUsernames });
   });
 
   // WebRTC Signaling for screen sharing

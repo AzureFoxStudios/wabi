@@ -31,7 +31,7 @@ export const pinnedChannels = writable<Channel[]>([]);
 export const currentChannel = writable<string>('general');
 export const channelMessages = writable<Record<string, Message[]>>({ general: [] });
 export const users = writable<User[]>([]);
-export const typingUsers = writable<string[]>([]);
+export const typingUsers = writable<Record<string, string[]>>({});
 export const currentUser = writable<User | null>(null);
 export const connected = writable(false);
 export const unreadCount = writable(0);
@@ -442,8 +442,11 @@ class SocketManager {
 			users.update(u => u.filter(user => user.id !== data.id));
 		});
 
-		sock.on('typing', (usernames: string[]) => {
-			typingUsers.set(usernames);
+		sock.on('typing', (data: { channelId: string; usernames: string[] }) => {
+			typingUsers.update(users => ({
+				...users,
+				[data.channelId]: data.usernames || []
+			}));
 		});
 
 		sock.on('profile-updated', (user: User) => {
@@ -835,8 +838,9 @@ export function unpinChannel(channelId: string): void {
 	socketManager.emit('unpin-channel', { channelId });
 }
 
-export function sendTyping(isTyping: boolean): void {
-	socketManager.emit('typing', isTyping);
+export function sendTyping(isTyping: boolean, channelId?: string): void {
+	const currentChannelId = channelId || get(currentChannel);
+	socketManager.emit('typing', { isTyping, channelId: currentChannelId });
 }
 
 export function updateProfile(status?: 'active' | 'away' | 'busy', profilePicture?: string, bannerUrl?: string): void {
