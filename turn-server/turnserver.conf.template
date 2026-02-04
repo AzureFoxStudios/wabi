@@ -78,5 +78,5 @@ denied-peer-ip=::1
 # Log to stdout, which is the standard for Docker containers.
 log-file=stdout
 
-# Do not create a PID file.
-no-pidfile
+# Do not create a PID file. Coturn 4.8.0 treats this as an invalid directive.
+# pidfile=
