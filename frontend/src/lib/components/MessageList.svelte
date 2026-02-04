@@ -262,6 +262,34 @@
 		return matches || [];
 	}
 
+	// TEMPORARY: Detect media URLs (images, videos, audio)
+	function getMediaType(url: string): 'image' | 'video' | 'audio' | null {
+		try {
+			const urlObj = new URL(url);
+			const pathname = urlObj.pathname.toLowerCase();
+
+			// Image extensions
+			if (/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|#|$)/i.test(pathname)) {
+				return 'image';
+			}
+			// Video extensions
+			if (/\.(mp4|webm|ogg|mov|avi|mkv|flv|wmv|m4v)(\?|#|$)/i.test(pathname)) {
+				return 'video';
+			}
+			// Audio extensions
+			if (/\.(mp3|wav|ogg|m4a|flac|aac|wma)(\?|#|$)/i.test(pathname)) {
+				return 'audio';
+			}
+		} catch (e) {
+			// Invalid URL
+		}
+		return null;
+	}
+
+	function isMediaUrl(url: string): boolean {
+		return getMediaType(url) !== null;
+	}
+
 	function getFileIcon(fileName?: string): string {
 		if (!fileName) return '📎';
 		const ext = fileName.toLowerCase().split('.').pop() || '';
@@ -726,11 +754,43 @@
 						<div class="markdown-content">{@html parseMessage(message.text)}</div>
 					{/if}
 
-					<!-- Link Previews -->
+					<!-- TEMPORARY: Media URLs and Link Previews -->
 					{#if message.text}
 						{@const urls = extractUrls(message.text)}
 						{#each urls as url}
-							<LinkPreview {url} />
+							{@const mediaType = getMediaType(url)}
+							{#if mediaType === 'image'}
+								<img
+									src={url}
+									alt="Embedded image"
+									class="embedded-media embedded-image {message.isSpoiler ? 'spoiler' : ''}"
+									data-spoiler={message.isSpoiler ? 'true' : 'false'}
+									loading="lazy"
+								/>
+							{:else if mediaType === 'video'}
+								<!-- svelte-ignore a11y-media-has-caption -->
+								<video
+									controls
+									class="embedded-media embedded-video {message.isSpoiler ? 'spoiler' : ''}"
+									data-spoiler={message.isSpoiler ? 'true' : 'false'}
+									loading="lazy"
+								>
+									<source src={url} />
+									Your browser does not support the video tag.
+								</video>
+							{:else if mediaType === 'audio'}
+								<!-- svelte-ignore a11y-media-has-caption -->
+								<audio
+									controls
+									class="embedded-media embedded-audio"
+								>
+									<source src={url} />
+									Your browser does not support the audio element.
+								</audio>
+							{:else}
+								<!-- Regular link preview for non-media URLs -->
+								<LinkPreview {url} />
+							{/if}
 						{/each}
 					{/if}
 				</div>
@@ -2023,5 +2083,53 @@
         padding-top: 0.6rem;
         padding-bottom: 0.6rem;
     }
+}
+
+/* TEMPORARY: Embedded media styles */
+.embedded-media {
+	max-width: 100%;
+	max-height: 400px;
+	border-radius: var(--radius-md);
+	margin: 0.5rem 0;
+	background: var(--bg-secondary);
+}
+
+.embedded-image {
+	display: block;
+	cursor: pointer;
+	transition: opacity 0.2s;
+}
+
+.embedded-image:hover {
+	opacity: 0.9;
+}
+
+.embedded-image.spoiler {
+	filter: blur(20px);
+	cursor: pointer;
+}
+
+.embedded-image.spoiler[data-spoiler="false"] {
+	filter: none;
+}
+
+.embedded-video {
+	display: block;
+	width: 100%;
+	max-width: 500px;
+}
+
+.embedded-video.spoiler {
+	filter: blur(20px);
+}
+
+.embedded-video.spoiler[data-spoiler="false"] {
+	filter: none;
+}
+
+.embedded-audio {
+	display: block;
+	width: 100%;
+	margin: 0.5rem 0;
 }
 </style>
