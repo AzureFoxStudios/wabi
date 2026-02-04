@@ -5,6 +5,8 @@
 	import CreateDMModal from './CreateDMModal.svelte';
 	import MessageList from './MessageList.svelte';
 	import UserPopout from './UserPopout.svelte';
+	import AudioRecorder from './AudioRecorder.svelte';
+	import CameraCapture from './CameraCapture.svelte';
 
 	const dispatch = createEventDispatcher();
 
@@ -31,6 +33,9 @@
 	let uploadProgress = 0;
 	let isDragging = false;
 	let dragCounter = 0;
+	let showAudioRecorder = false;
+	let showCameraCapture = false;
+	let markAsSpoiler = false;
 
 	// Reactive data
 	$: dmChannels = $channels.filter(ch => ch.type === 'dm').sort((a, b) => {
@@ -228,12 +233,103 @@
 		filePreviews = [];
 	}
 
+	function supportsMediaCapture(): boolean {
+		return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+	}
+
+	async function handleAudioSend(event: CustomEvent<Blob>) {
+		const blob = event.detail;
+		const ext = blob.type.includes('webm') ? 'webm' : 'm4a';
+		const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type });
+
+		if (file.size > 10 * 1024 * 1024) {
+			alert('Audio too large (max 10MB). Please try again.');
+			return;
+		}
+
+		selectedFiles = [file];
+		await uploadSelectedFiles();
+		showAudioRecorder = false;
+	}
+
+	async function handlePhotoCapture(event: CustomEvent<Blob>) {
+		const blob = event.detail;
+		const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
+
+		if (file.size > 10 * 1024 * 1024) {
+			alert('Photo too large (max 10MB). Please try again.');
+			return;
+		}
+
+		selectedFiles = [file];
+		await uploadSelectedFiles();
+		showCameraCapture = false;
+	}
+
 	async function uploadSelectedFiles() {
 		if (selectedFiles.length === 0 || !activeDM) return;
 		isUploading = true;
-		// Upload logic here (reuse from DMPanel)
-		// For brevity, marking as TODO - would integrate existing upload logic
-		isUploading = false;
+		uploadProgress = 0;
+
+		try {
+			const formData = new FormData();
+			selectedFiles.forEach(file => {
+				formData.append('files', file);
+			});
+			formData.append('channelId', activeDM.channelId);
+			if (markAsSpoiler) {
+				formData.append('spoiler', 'true');
+			}
+
+			const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+				? 'http://localhost:3001'
+				: '';
+
+			await new Promise<void>((resolve, reject) => {
+				const xhr = new XMLHttpRequest();
+
+				xhr.upload.addEventListener('progress', (e) => {
+					if (e.lengthComputable) {
+						uploadProgress = (e.loaded / e.total) * 100;
+					}
+				});
+
+				xhr.addEventListener('load', () => {
+					if (xhr.status >= 200 && xhr.status < 300) {
+						resolve();
+					} else {
+						reject(new Error(`Upload failed with status ${xhr.status}`));
+					}
+				});
+
+				xhr.addEventListener('error', () => {
+					reject(new Error('Network error during upload'));
+				});
+
+				xhr.addEventListener('abort', () => {
+					reject(new Error('Upload cancelled'));
+				});
+
+				xhr.open('POST', `${serverUrl}/api/upload`);
+
+				const token = localStorage.getItem('token');
+				if (token) {
+					xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+				}
+
+				xhr.send(formData);
+			});
+
+			selectedFiles = [];
+			filePreviews = [];
+			markAsSpoiler = false;
+			uploadProgress = 0;
+		} catch (err) {
+			console.error('Upload error:', err);
+			alert(`Upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+		} finally {
+			isUploading = false;
+		}
 	}
 </script>
 
@@ -291,12 +387,76 @@
 
 		<div class="dm-input-wrapper">
 			<input type="file" bind:this={fileInput} on:change={handleFileSelect} multiple style="display: none;" />
+
+			{#if filePreviews.length > 0}
+				<div class="file-gallery">
+					{#each filePreviews as { file, preview }, i}
+						<div class="gallery-item">
+							{#if preview}
+								<img src={preview} alt={file.name} />
+							{:else}
+								<div class="file-icon">
+									<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+										<polyline points="13 2 13 9 20 9"/>
+									</svg>
+								</div>
+							{/if}
+							<div class="file-info">
+								<span class="file-name">{file.name}</span>
+								<span class="file-size">{(file.size / 1024).toFixed(1)} KB</span>
+							</div>
+							<button type="button" class="remove-file-btn" on:click={() => removeFile(i)} title="Remove">
+								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+								</svg>
+							</button>
+						</div>
+					{/each}
+				</div>
+				<div class="file-actions">
+					<label class="spoiler-checkbox">
+						<input type="checkbox" bind:checked={markAsSpoiler} />
+						Mark as spoiler
+					</label>
+					<button type="button" class="btn-secondary" on:click={cancelUpload}>Cancel</button>
+					<button type="button" class="btn-primary" on:click={uploadSelectedFiles} disabled={isUploading}>
+						{isUploading ? `Uploading... ${uploadProgress.toFixed(0)}%` : 'Send Files'}
+					</button>
+				</div>
+			{/if}
+
+			{#if isUploading}
+				<div class="upload-progress-bar">
+					<div class="progress-fill" style="width: {uploadProgress}%"></div>
+				</div>
+			{/if}
+
 			<form class="input-container" on:submit={handleSubmit}>
 				<button type="button" class="icon-btn" on:click={() => fileInput?.click()} title="Attach file">
 					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
 					</svg>
 				</button>
+
+				{#if supportsMediaCapture()}
+					<button type="button" class="icon-btn" on:click={() => showCameraCapture = true} title="Take photo">
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+							<circle cx="12" cy="13" r="4"/>
+						</svg>
+					</button>
+
+					<button type="button" class="icon-btn" on:click={() => showAudioRecorder = true} title="Record audio">
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+							<path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+							<line x1="12" y1="19" x2="12" y2="23"/>
+							<line x1="8" y1="23" x2="16" y2="23"/>
+						</svg>
+					</button>
+				{/if}
+
 				<textarea
 					bind:this={textareaElement}
 					bind:value={messageInput}
@@ -433,6 +593,18 @@
 	anchorElement={popoutAnchorElement}
 	isOwnProfile={popoutUser?.id === $currentUser?.id}
 	on:close={() => showUserPopout = false}
+/>
+
+<AudioRecorder
+	isOpen={showAudioRecorder}
+	on:close={() => showAudioRecorder = false}
+	on:send={handleAudioSend}
+/>
+
+<CameraCapture
+	isOpen={showCameraCapture}
+	on:close={() => showCameraCapture = false}
+	on:capture={handlePhotoCapture}
 />
 
 <style>
@@ -902,5 +1074,157 @@
 			width: 40px;
 			height: 40px;
 		}
+	}
+
+	/* --- File Upload Gallery --- */
+	.file-gallery {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+		gap: 0.5rem;
+		padding: 0.75rem;
+		background: var(--bg-secondary);
+		border-top: 1px solid var(--border-color);
+	}
+
+	.gallery-item {
+		position: relative;
+		background: var(--bg-primary);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-md);
+		overflow: hidden;
+		aspect-ratio: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.gallery-item img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.file-icon {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: var(--text-secondary);
+	}
+
+	.file-info {
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		background: rgba(0, 0, 0, 0.7);
+		padding: 0.25rem 0.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.file-name {
+		font-size: var(--text-xs);
+		color: white;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.file-size {
+		font-size: var(--text-xs);
+		color: rgba(255, 255, 255, 0.7);
+	}
+
+	.remove-file-btn {
+		position: absolute;
+		top: 0.25rem;
+		right: 0.25rem;
+		background: rgba(0, 0, 0, 0.7);
+		border: none;
+		border-radius: 50%;
+		width: 24px;
+		height: 24px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		color: white;
+		transition: background 0.2s;
+	}
+
+	.remove-file-btn:hover {
+		background: rgba(220, 38, 38, 0.9);
+	}
+
+	.file-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem;
+		background: var(--bg-secondary);
+		border-top: 1px solid var(--border-color);
+	}
+
+	.spoiler-checkbox {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
+		cursor: pointer;
+	}
+
+	.spoiler-checkbox input {
+		cursor: pointer;
+	}
+
+	.btn-secondary,
+	.btn-primary {
+		padding: 0.5rem 1rem;
+		border: none;
+		border-radius: var(--radius-md);
+		font-size: var(--text-sm);
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-secondary {
+		background: var(--bg-tertiary);
+		color: var(--text-primary);
+	}
+
+	.btn-secondary:hover {
+		background: var(--bg-hover);
+	}
+
+	.btn-primary {
+		background: var(--accent-color);
+		color: white;
+		margin-left: auto;
+	}
+
+	.btn-primary:hover {
+		opacity: 0.9;
+	}
+
+	.btn-primary:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	/* --- Upload Progress --- */
+	.upload-progress-bar {
+		height: 3px;
+		background: var(--bg-tertiary);
+		overflow: hidden;
+	}
+
+	.progress-fill {
+		height: 100%;
+		background: var(--accent-color);
+		transition: width 0.3s ease;
 	}
 </style>

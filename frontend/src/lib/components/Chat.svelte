@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick, createEventDispatcher } from 'svelte';
-	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, type Message, type Emoji } from '$lib/socket';
+	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, users, dmPanelSignal, createDM, type Message, type Emoji } from '$lib/socket';
 	import { resources, graphEdges } from '$lib/business/store';
 	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
 	import { pinChannel, unpinChannel } from '$lib/socket';
@@ -455,29 +455,32 @@
 			case 'dm':
 			case 'message':
 			case 'msg': {
-				// /dm <username> - Open or create DM with user
 				const username = parsed.args.join(' ');
 				if (!username) {
 					alert('Please specify a username.\nUsage: /dm <username>');
 					return;
 				}
 
-				// Try to find if this user exists in any DM channels
-				const existingDM = $channels.find(ch =>
-					ch.type === 'dm' &&
-					ch.name.toLowerCase() === username.toLowerCase()
+				const targetUser = $users.find(u =>
+					u.username.toLowerCase() === username.toLowerCase()
 				);
 
+				if (!targetUser) {
+					alert(`User "${username}" not found or offline.`);
+					return;
+				}
+
+				// Check if DM already exists
+				const memberIds = [$currentUser?.id, targetUser.id].sort();
+				const dmId = `dm-${memberIds.join('-')}`;
+				const existingDM = $channels.find(ch => ch.id === dmId);
+
 				if (existingDM) {
-					// Join existing DM
-					const joinChannelFn = channels.subscribe(chans => {
-						// selectChannel is not exported, navigate to /chat with channel param
-						window.location.href = `/chat?channel=${existingDM.id}`;
-					})();
-					alert(`Started DM with ${username}`);
+					// Open existing DM in right panel
+					dmPanelSignal.set({ channelId: dmId, otherUser: targetUser });
 				} else {
-					// In a real app, this would create a new DM on the backend
-					alert(`Starting DM with ${username}...\n\n(User lookup would happen on the backend in production)`);
+					// Create new DM (will auto-open via dmPanelSignal)
+					createDM(targetUser.id);
 				}
 				break;
 			}
