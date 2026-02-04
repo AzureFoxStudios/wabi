@@ -17,8 +17,11 @@
 	$: dmChannels = $channels.filter(ch => ch.type === 'dm');
 
 	// Notify server when DM channel changes for typing indicator isolation
-	$: if (dmChannelId) {
+	// Use onMount + manual tracking to avoid reactive statement running too often
+	let lastSwitchedChannelId: string | null = null;
+	$: if (dmChannelId && dmChannelId !== lastSwitchedChannelId) {
 		switchChannel(dmChannelId);
+		lastSwitchedChannelId = dmChannelId;
 	}
 
 	function handleBack() {
@@ -129,19 +132,37 @@
 	}
 
 	function handleSubmit(event: Event) {
+		console.log('1. handleSubmit called');
 		event.preventDefault();
+		console.log('2. preventDefault done');
 		if (!messageInput.trim() || !dmChannelId) return;
 
-		sendMessage(dmChannelId, messageInput.trim(), 'text');
+		const messageText = messageInput.trim();
+		const channelId = dmChannelId;
+		console.log('3. variables captured:', { messageText, channelId });
+
+		// Clear input immediately to prevent duplicate sends
 		messageInput = '';
+		console.log('4. messageInput cleared');
 
 		// Reset textarea height
 		if (textareaElement) {
 			textareaElement.style.height = 'auto';
+			// Ensure textarea can still be focused
+			setTimeout(() => {
+				textareaElement?.focus();
+			}, 0);
 		}
+		console.log('5. textarea reset');
 
-		sendTyping(false, dmChannelId);
+		// Send typing stop and message asynchronously to prevent blocking
+		console.log('6. about to call sendTyping');
+		sendTyping(false, channelId);
+		console.log('7. sendTyping done');
 		clearTimeout(typingTimeout);
+		console.log('8. clearTimeout done');
+		sendMessage(channelId, messageText, 'text');
+		console.log('9. sendMessage done');
 	}
 
 	function handleKeydown(event: KeyboardEvent) {

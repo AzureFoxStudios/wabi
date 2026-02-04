@@ -958,65 +958,75 @@
 		</div>
 	</div>
 
-	<div class="messages" bind:this={chatContainer}>
-		{#if !searchInput}
-			<PinnedMessages pinnedMessages={pinnedMessages} />
-		{/if}
-		<MessageList messages={filteredMessages} onReply={handleReply} firstUnreadMessageId={$lastReadMessageId} />
-
-		{#if ($typingUsers[$currentChannel] || []).length > 0}
-			<div class="typing-indicator">
-				<span class="typing-dots"></span>
-				<span>{formatTypingUsers($typingUsers[$currentChannel] || [])}</span>
-			</div>
-		{/if}
-	</div>
-
-	{#if showGiphyPicker}
-		<GiphyPicker
-			on:select={handleGifSelect}
-			on:close={() => showGiphyPicker = false}
-		/>
-	{/if}
-
-	{#if showEmojiPicker}
-		<EmojiPicker
-			on:select={handleEmojiSelect}
-			on:close={() => showEmojiPicker = false}
-		/>
-	{/if}
-
-	<CameraCapture
-		isOpen={showCameraCapture}
-		on:close={() => showCameraCapture = false}
-		on:capture={handlePhotoCapture}
-	/>
-
-	<AudioRecorder
-		isOpen={showAudioRecorder}
-		on:close={() => showAudioRecorder = false}
-		on:send={handleAudioSend}
-	/>
-
-	{#if editingMessage}
-		<div class="edit-bar">
-			<div class="edit-info">
-				<span class="edit-label">Editing message</span>
-				<span class="edit-hint">Press Escape to cancel</span>
-			</div>
-			<button class="cancel-edit" on:click={cancelEdit}>✕</button>
+	{#if isDMChannel}
+		<!-- DM channels should only be displayed in the DM panel on the right side -->
+		<div class="dm-redirect-message">
+			<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+			</svg>
+			<h3>Direct Messages</h3>
+			<p>Direct messages are displayed in the DM panel on the right side.</p>
 		</div>
-	{:else if replyingTo}
-		<div class="reply-bar">
-			<div class="reply-info">
-				<span class="reply-label">Replying to {replyingTo.user}:</span>
-				<span class="reply-preview">{replyingTo.text.substring(0, 50)}{replyingTo.text.length > 50 ? '...' : ''}</span>
-			</div>
-			<button class="cancel-reply" on:click={cancelReply}>✕</button>
-		</div>
-	{/if}
+	{:else}
+		<div class="messages" bind:this={chatContainer}>
+			{#if !searchInput}
+				<PinnedMessages pinnedMessages={pinnedMessages} />
+			{/if}
+			<MessageList messages={filteredMessages} onReply={handleReply} firstUnreadMessageId={$lastReadMessageId} />
 
-	<div class="input-wrapper">
+			{#if ($typingUsers[$currentChannel] || []).length > 0}
+				<div class="typing-indicator">
+					<span class="typing-dots"></span>
+					<span>{formatTypingUsers($typingUsers[$currentChannel] || [])}</span>
+				</div>
+			{/if}
+		</div>
+
+		{#if showGiphyPicker}
+			<GiphyPicker
+				on:select={handleGifSelect}
+				on:close={() => showGiphyPicker = false}
+			/>
+		{/if}
+
+		{#if showEmojiPicker}
+			<EmojiPicker
+				on:select={handleEmojiSelect}
+				on:close={() => showEmojiPicker = false}
+			/>
+		{/if}
+
+		<CameraCapture
+			isOpen={showCameraCapture}
+			on:close={() => showCameraCapture = false}
+			on:capture={handlePhotoCapture}
+		/>
+
+		<AudioRecorder
+			isOpen={showAudioRecorder}
+			on:close={() => showAudioRecorder = false}
+			on:send={handleAudioSend}
+		/>
+
+		{#if editingMessage}
+			<div class="edit-bar">
+				<div class="edit-info">
+					<span class="edit-label">Editing message</span>
+					<span class="edit-hint">Press Escape to cancel</span>
+				</div>
+				<button class="cancel-edit" on:click={cancelEdit}>✕</button>
+			</div>
+		{:else if replyingTo}
+			<div class="reply-bar">
+				<div class="reply-info">
+					<span class="reply-label">Replying to {replyingTo.user}:</span>
+					<span class="reply-preview">{replyingTo.text.substring(0, 50)}{replyingTo.text.length > 50 ? '...' : ''}</span>
+				</div>
+				<button class="cancel-reply" on:click={cancelReply}>✕</button>
+			</div>
+		{/if}
+
+		<div class="input-wrapper">
 		{#if filePreviews.length > 0 && !isUploading}
 			<div class="file-gallery">
 				<div class="gallery-header">
@@ -1151,6 +1161,7 @@
 			</button>
 		</div>
 	</div>
+	{/if}
 </div>
 
 <style>
@@ -1209,6 +1220,36 @@
 		font-size: var(--text-xs);
 		border-radius: var(--radius-sm);
 		font-weight: var(--font-weight-medium);
+	}
+
+	.dm-redirect-message {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		height: 100%;
+		gap: 1rem;
+		color: var(--text-secondary);
+		text-align: center;
+		padding: 2rem;
+	}
+
+	.dm-redirect-message svg {
+		color: var(--text-tertiary);
+		opacity: 0.5;
+	}
+
+	.dm-redirect-message h3 {
+		margin: 0;
+		color: var(--text-primary);
+		font-size: var(--text-lg);
+		font-weight: var(--font-weight-semibold);
+	}
+
+	.dm-redirect-message p {
+		margin: 0;
+		font-size: var(--text-sm);
+		max-width: 300px;
 	}
 
 	.search-container {
