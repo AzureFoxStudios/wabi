@@ -8,6 +8,11 @@
 	let showCreateDM = false;
 	let searchQuery = '';
 
+	// TEMPORARY: Context menu for DMs
+	let contextMenuDM: any = null;
+	let contextMenuPosition = { x: 0, y: 0 };
+	let showContextMenu = false;
+
 	$: dmChannels = $channels.filter(ch => ch.type === 'dm').sort((a, b) => {
 		const aLastMsg = ($channelMessages[a.id] || []).length > 0
 			? ($channelMessages[a.id] || [])[$channelMessages[a.id].length - 1].timestamp
@@ -64,6 +69,34 @@
 
 	function selectDM(channelId: string) {
 		joinChannel(channelId);
+	}
+
+	// TEMPORARY: Context menu handlers
+	function handleDMRightClick(event: MouseEvent, dmChannel: any) {
+		event.preventDefault();
+		contextMenuDM = dmChannel;
+		contextMenuPosition = { x: event.clientX, y: event.clientY };
+		showContextMenu = true;
+	}
+
+	function closeContextMenu() {
+		showContextMenu = false;
+		contextMenuDM = null;
+	}
+
+	function deleteDM() {
+		if (!contextMenuDM) return;
+		// TODO: Implement delete DM on backend
+		// For now, just remove from local state by leaving the channel
+		console.log('Delete DM:', contextMenuDM.id);
+		closeContextMenu();
+	}
+
+	function archiveDM() {
+		if (!contextMenuDM) return;
+		// TODO: Implement archive DM on backend
+		console.log('Archive DM:', contextMenuDM.id);
+		closeContextMenu();
 	}
 </script>
 
@@ -143,6 +176,7 @@
 							class="dm-item"
 							class:active={$currentChannel === channel.id}
 							on:click={() => selectDM(channel.id)}
+							on:contextmenu={(e) => handleDMRightClick(e, channel)}
 						>
 							<div class="dm-avatar">
 								{#if otherUser.profilePicture}
@@ -162,6 +196,24 @@
 				{/each}
 			</div>
 		{/if}
+	{/if}
+
+	<!-- TEMPORARY: Context menu for DMs -->
+	{#if showContextMenu && contextMenuDM}
+		<div
+			class="context-menu"
+			style:left="{contextMenuPosition.x}px"
+			style:top="{contextMenuPosition.y}px"
+			on:click={closeContextMenu}
+			on:contextmenu|preventDefault
+		>
+			<button class="context-menu-item" on:click={archiveDM}>
+				📦 Archive
+			</button>
+			<button class="context-menu-item" on:click={deleteDM}>
+				🗑️ Delete
+			</button>
+		</div>
 	{/if}
 </div>
 
@@ -381,5 +433,41 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+
+	/* TEMPORARY: Context menu styles */
+	.context-menu {
+		position: fixed;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-md);
+		z-index: 1000;
+		min-width: 150px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	}
+
+	.context-menu-item {
+		display: block;
+		width: 100%;
+		padding: 0.5rem 1rem;
+		border: none;
+		background: none;
+		color: var(--text-primary);
+		cursor: pointer;
+		text-align: left;
+		font-size: var(--text-sm);
+		transition: background 0.2s;
+	}
+
+	.context-menu-item:hover {
+		background: var(--bg-hover);
+	}
+
+	.context-menu-item:first-child {
+		border-radius: var(--radius-md) var(--radius-md) 0 0;
+	}
+
+	.context-menu-item:last-child {
+		border-radius: 0 0 var(--radius-md) var(--radius-md);
 	}
 </style>
