@@ -132,14 +132,18 @@
 	}
 
 	function handleSubmit(event: Event) {
+		console.log('1. handleSubmit called');
 		event.preventDefault();
+		console.log('2. preventDefault done');
 		if (!messageInput.trim() || !dmChannelId) return;
 
 		const messageText = messageInput.trim();
 		const channelId = dmChannelId;
+		console.log('3. variables captured:', { messageText, channelId });
 
 		// Clear input immediately to prevent duplicate sends
 		messageInput = '';
+		console.log('4. messageInput cleared');
 
 		// Reset textarea height
 		if (textareaElement) {
@@ -149,11 +153,16 @@
 				textareaElement?.focus();
 			}, 0);
 		}
+		console.log('5. textarea reset');
 
 		// Send typing stop and message asynchronously to prevent blocking
+		console.log('6. about to call sendTyping');
 		sendTyping(false, channelId);
+		console.log('7. sendTyping done');
 		clearTimeout(typingTimeout);
+		console.log('8. clearTimeout done');
 		sendMessage(channelId, messageText, 'text');
+		console.log('9. sendMessage done');
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
