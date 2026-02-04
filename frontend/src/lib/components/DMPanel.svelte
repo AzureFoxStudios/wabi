@@ -122,9 +122,9 @@
 
 		// Send typing indicator
 		clearTimeout(typingTimeout);
-		sendTyping(true);
+		sendTyping(true, dmChannelId);
 		typingTimeout = setTimeout(() => {
-			sendTyping(false);
+			sendTyping(false, dmChannelId);
 		}, 2000);
 	}
 
@@ -140,7 +140,7 @@
 			textareaElement.style.height = 'auto';
 		}
 
-		sendTyping(false);
+		sendTyping(false, dmChannelId);
 		clearTimeout(typingTimeout);
 	}
 

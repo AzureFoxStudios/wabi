@@ -324,6 +324,9 @@
 
   // Handle escape key
   function handleKeydown(e: KeyboardEvent) {
+    // Only handle keyboard shortcuts when modal is open
+    if (!isOpen) return;
+
     if (e.key === 'Escape') {
       close();
     } else if (e.key === ' ' || e.key === 'Enter') {

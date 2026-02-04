@@ -796,6 +796,8 @@ export function joinChannel(channelId: string): void {
 
 export function switchChannel(channelId: string): void {
 	socketManager.emit('join-channel', channelId);
+	currentChannel.set(channelId);
+	markChannelAsRead(channelId);
 }
 
 export function createChannel(channelName: string): void {
