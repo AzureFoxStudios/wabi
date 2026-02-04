@@ -1905,7 +1905,11 @@ io.on("connection", (socket) => {
   // Handle joining a channel
   socket.on("join-channel", (channelId: string) => {
     const channel = channels.get(channelId);
-    if (!channel) return;
+    if (!channel) {
+      console.error(`[join-channel] Channel ${channelId} not found for user ${socket.id}`);
+      socket.emit("channel-error", `Channel ${channelId} does not exist`);
+      return;
+    }
 
     // Track which channel the user is in
     userCurrentChannel.set(socket.id, channelId);
@@ -1913,6 +1917,8 @@ io.on("connection", (socket) => {
     // Send channel messages to the user
     const messages = channelMessages.get(channelId) || [];
     socket.emit("channel-messages", { channelId, messages });
+
+    if (ENABLE_LOGGING) console.log(`User ${socket.id} joined channel ${channelId}`);
   });
 
   // Handle chat messages

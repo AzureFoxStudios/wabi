@@ -782,12 +782,11 @@ export function disconnect(): void {
 
 export function joinChannel(channelId: string): void {
 	const channel = get(channels).find(ch => ch.id === channelId);
-	if (channel?.type === 'dm') {
-		console.warn('[SocketManager] Cannot join DM via joinChannel - use DM panel');
-		if (channel.otherUser) {
-			dmPanelSignal.set({ channelId, otherUser: channel.otherUser });
-		}
-		return;
+
+	// DMs can now be accessed via main chat area
+	// Signal the DM panel if it exists, but still join the channel
+	if (channel?.type === 'dm' && channel.otherUser) {
+		dmPanelSignal.set({ channelId, otherUser: channel.otherUser });
 	}
 
 	socketManager.emit('join-channel', channelId);
