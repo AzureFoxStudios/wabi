@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import { on } from 'svelte/events';
 
   export let isOpen = false;
 
@@ -367,13 +368,16 @@
 
   onDestroy(cleanup);
 
-  // Dynamically attach/detach keyboard listener based on isOpen
-  $: if (typeof window !== 'undefined') {
-    if (isOpen) {
-      window.addEventListener('keydown', handleKeydown);
-    } else {
-      window.removeEventListener('keydown', handleKeydown);
-    }
+  // Conditionally attach keyboard listener using Svelte's proper event pattern
+  let unsubscribeKeydown: (() => void) | null = null;
+
+  $: if (isOpen && !unsubscribeKeydown) {
+    // Attach listener when modal opens
+    unsubscribeKeydown = on(window, 'keydown', handleKeydown);
+  } else if (!isOpen && unsubscribeKeydown) {
+    // Remove listener when modal closes
+    unsubscribeKeydown();
+    unsubscribeKeydown = null;
   }
 
 </script>

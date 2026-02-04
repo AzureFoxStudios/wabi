@@ -17,8 +17,11 @@
 	$: dmChannels = $channels.filter(ch => ch.type === 'dm');
 
 	// Notify server when DM channel changes for typing indicator isolation
-	$: if (dmChannelId) {
+	// Use onMount + manual tracking to avoid reactive statement running too often
+	let lastSwitchedChannelId: string | null = null;
+	$: if (dmChannelId && dmChannelId !== lastSwitchedChannelId) {
 		switchChannel(dmChannelId);
+		lastSwitchedChannelId = dmChannelId;
 	}
 
 	function handleBack() {
@@ -132,16 +135,25 @@
 		event.preventDefault();
 		if (!messageInput.trim() || !dmChannelId) return;
 
-		sendMessage(dmChannelId, messageInput.trim(), 'text');
+		const messageText = messageInput.trim();
+		const channelId = dmChannelId;
+
+		// Clear input immediately to prevent duplicate sends
 		messageInput = '';
 
 		// Reset textarea height
 		if (textareaElement) {
 			textareaElement.style.height = 'auto';
+			// Ensure textarea can still be focused
+			setTimeout(() => {
+				textareaElement?.focus();
+			}, 0);
 		}
 
-		sendTyping(false, dmChannelId);
+		// Send typing stop and message asynchronously to prevent blocking
+		sendTyping(false, channelId);
 		clearTimeout(typingTimeout);
+		sendMessage(channelId, messageText, 'text');
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
