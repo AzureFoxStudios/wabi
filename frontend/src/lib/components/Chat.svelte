@@ -9,6 +9,8 @@
 	import MessageList from './MessageList.svelte';
 	import PinnedMessages from './PinnedMessages.svelte';
 	import CommandPalette from './CommandPalette.svelte';
+	import AudioRecorder from './AudioRecorder.svelte';
+	import CameraCapture from './CameraCapture.svelte';
 	import { parseCommand, formatCommandHelp, getMatchingCommands, type Command } from '$lib/commands';
 
 	const dispatch = createEventDispatcher();
@@ -49,6 +51,10 @@
 	// Search functionality
 	let searchInput = '';
 	let filteredMessages: Message[] = [];
+
+	// Photo and audio capture
+	let showCameraCapture = false;
+	let showAudioRecorder = false;
 
 	// Format typing users list with proper grammar
 	function formatTypingUsers(users: string[]): string {
@@ -873,6 +879,44 @@
 		}
 	}
 
+	// Handle photo capture
+	async function handlePhotoCapture(event: CustomEvent<Blob>) {
+		const blob = event.detail;
+		const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
+
+		// Validate file size (10MB limit)
+		if (file.size > 10 * 1024 * 1024) {
+			alert('Photo too large (max 10MB). Please try again.');
+			return;
+		}
+
+		selectedFiles = [file];
+		await uploadSelectedFiles();
+		showCameraCapture = false;
+	}
+
+	// Handle audio recording
+	async function handleAudioSend(event: CustomEvent<Blob>) {
+		const blob = event.detail;
+		const ext = blob.type.includes('webm') ? 'webm' : 'm4a';
+		const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type });
+
+		// Validate file size (10MB limit)
+		if (file.size > 10 * 1024 * 1024) {
+			alert('Audio too large (max 10MB). Please try again.');
+			return;
+		}
+
+		selectedFiles = [file];
+		await uploadSelectedFiles();
+		showAudioRecorder = false;
+	}
+
+	// Check if browser supports media capture
+	function supportsMediaCapture(): boolean {
+		return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+	}
+
 	onMount(() => {
 		scrollToBottom();
 	});
@@ -947,6 +991,18 @@
 			on:close={() => showEmojiPicker = false}
 		/>
 	{/if}
+
+	<CameraCapture
+		isOpen={showCameraCapture}
+		on:close={() => showCameraCapture = false}
+		on:capture={handlePhotoCapture}
+	/>
+
+	<AudioRecorder
+		isOpen={showAudioRecorder}
+		on:close={() => showAudioRecorder = false}
+		on:send={handleAudioSend}
+	/>
 
 	{#if editingMessage}
 		<div class="edit-bar">
@@ -1044,6 +1100,22 @@
 				>
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
 				</button>
+				{#if supportsMediaCapture()}
+					<button
+						class="input-icon-button"
+						on:click={() => showCameraCapture = true}
+						title="Take photo"
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+					</button>
+					<button
+						class="input-icon-button"
+						on:click={() => showAudioRecorder = true}
+						title="Record voice message"
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+					</button>
+				{/if}
 			</div>
 			<textarea
 				bind:this={textareaElement}

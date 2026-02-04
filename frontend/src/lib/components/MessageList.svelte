@@ -335,12 +335,12 @@
 	function isVideo(fileName?: string): boolean {
 		if (!fileName) return false;
 		const ext = fileName.toLowerCase().split('.').pop() || '';
-		return ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv'].includes(ext);
+		return ['mp4', 'mov', 'avi', 'mkv', 'flv'].includes(ext);
 	}
 	function isAudio(fileName?: string): boolean {
 		if (!fileName) return false;
 		const ext = fileName.toLowerCase().split('.').pop() || '';
-		return ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma'].includes(ext);
+		return ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma', 'webm'].includes(ext);
 	}
 	let enlargedImage: string | null = null;
 	let enlargedVideo: string | null = null;

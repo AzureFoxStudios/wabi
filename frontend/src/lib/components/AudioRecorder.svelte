@@ -1,0 +1,614 @@
+<script lang="ts">
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+
+  export let isOpen = false;
+
+  const dispatch = createEventDispatcher<{
+    close: void;
+    send: Blob;
+  }>();
+
+  const MAX_DURATION = 300; // 5 minutes in seconds
+  const MIME_TYPES = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm', 'audio/ogg'];
+
+  type RecordingState = 'idle' | 'recording' | 'stopped' | 'preview';
+
+  let state: RecordingState = 'idle';
+  let stream: MediaStream | null = null;
+  let recorder: MediaRecorder | null = null;
+  let chunks: Blob[] = [];
+  let duration = 0;
+  let timerInterval: number | null = null;
+  let audioBlob: Blob | null = null;
+  let audioUrl: string | null = null;
+  let canvasElement: HTMLCanvasElement;
+  let audioContext: AudioContext | null = null;
+  let analyser: AnalyserNode | null = null;
+  let animationId: number | null = null;
+  let error: string | null = null;
+  let permissionDenied = false;
+  let audioElement: HTMLAudioElement;
+
+  // Format duration as MM:SS
+  function formatTime(seconds: number): string {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+
+  // Get supported MIME type
+  function getSupportedMimeType(): string {
+    for (const mimeType of MIME_TYPES) {
+      if (MediaRecorder.isTypeSupported(mimeType)) {
+        return mimeType;
+      }
+    }
+    return 'audio/webm'; // fallback
+  }
+
+  // Start recording
+  async function startRecording() {
+    try {
+      error = null;
+      permissionDenied = false;
+
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 48000
+        }
+      });
+
+      const mimeType = getSupportedMimeType();
+      recorder = new MediaRecorder(stream, {
+        mimeType,
+        audioBitsPerSecond: 32000 // Voice-optimized bitrate
+      });
+
+      chunks = [];
+      recorder.ondataavailable = (ev) => {
+        if (ev.data.size > 0) {
+          chunks.push(ev.data);
+        }
+      };
+
+      recorder.onstop = handleRecordingComplete;
+
+      recorder.start(100); // Collect data every 100ms for smoother visualization
+      state = 'recording';
+      duration = 0;
+      startTimer();
+      setupVisualization();
+    } catch (err) {
+      console.error('Failed to start recording:', err);
+      if (err instanceof Error) {
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          error = 'Microphone access required. Please enable in browser settings.';
+          permissionDenied = true;
+        } else if (err.name === 'NotFoundError') {
+          error = 'No microphone found on this device.';
+        } else {
+          error = 'Failed to start recording. Please try again.';
+        }
+      }
+    }
+  }
+
+  // Stop recording
+  function stopRecording() {
+    if (recorder && state === 'recording') {
+      recorder.stop();
+      state = 'stopped';
+      stopTimer();
+      stopVisualization();
+    }
+  }
+
+  // Handle recording completion
+  function handleRecordingComplete() {
+    if (chunks.length === 0) {
+      error = 'No audio recorded. Please try again.';
+      cleanup();
+      return;
+    }
+
+    const mimeType = recorder?.mimeType || 'audio/webm';
+    audioBlob = new Blob(chunks, { type: mimeType });
+
+    // Check file size (10MB limit)
+    if (audioBlob.size > 10 * 1024 * 1024) {
+      error = 'Audio too large (max 10MB). Please record a shorter message.';
+      cleanup();
+      return;
+    }
+
+    audioUrl = URL.createObjectURL(audioBlob);
+    state = 'preview';
+  }
+
+  // Start timer
+  function startTimer() {
+    timerInterval = window.setInterval(() => {
+      duration++;
+      if (duration >= MAX_DURATION) {
+        stopRecording();
+      }
+    }, 1000);
+  }
+
+  // Stop timer
+  function stopTimer() {
+    if (timerInterval !== null) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+  }
+
+  // Setup waveform visualization
+  function setupVisualization() {
+    if (!stream || !canvasElement) return;
+
+    try {
+      audioContext = new AudioContext();
+      analyser = audioContext.createAnalyser();
+      const source = audioContext.createMediaStreamSource(stream);
+
+      analyser.fftSize = 256;
+      source.connect(analyser);
+
+      drawWaveform();
+    } catch (err) {
+      console.error('Failed to setup visualization:', err);
+      // Continue without visualization
+    }
+  }
+
+  // Draw waveform
+  function drawWaveform() {
+    if (!analyser || !canvasElement) return;
+
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const draw = () => {
+      if (state !== 'recording') return;
+
+      animationId = requestAnimationFrame(draw);
+      analyser!.getByteFrequencyData(dataArray);
+
+      const ctx = canvasElement.getContext('2d');
+      if (!ctx) return;
+
+      const width = canvasElement.width;
+      const height = canvasElement.height;
+
+      ctx.clearRect(0, 0, width, height);
+
+      const barWidth = width / bufferLength;
+      let x = 0;
+
+      for (let i = 0; i < bufferLength; i++) {
+        const barHeight = (dataArray[i] / 255) * height * 0.8;
+        const gradient = ctx.createLinearGradient(0, height - barHeight, 0, height);
+        gradient.addColorStop(0, '#3b82f6');
+        gradient.addColorStop(1, '#60a5fa');
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(x, height - barHeight, barWidth - 1, barHeight);
+        x += barWidth;
+      }
+    };
+
+    draw();
+  }
+
+  // Stop visualization
+  function stopVisualization() {
+    if (animationId !== null) {
+      cancelAnimationFrame(animationId);
+      animationId = null;
+    }
+    if (audioContext) {
+      audioContext.close();
+      audioContext = null;
+    }
+  }
+
+  // Re-record
+  function reRecord() {
+    cleanup();
+    state = 'idle';
+    startRecording();
+  }
+
+  // Send audio
+  function sendAudio() {
+    if (audioBlob) {
+      dispatch('send', audioBlob);
+      close();
+    }
+  }
+
+  // Close modal
+  function close() {
+    cleanup();
+    dispatch('close');
+  }
+
+  // Cleanup resources
+  function cleanup() {
+    stopTimer();
+    stopVisualization();
+
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+    }
+
+    if (recorder) {
+      if (recorder.state !== 'inactive') {
+        recorder.stop();
+      }
+      recorder = null;
+    }
+
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+      audioUrl = null;
+    }
+
+    chunks = [];
+    audioBlob = null;
+    duration = 0;
+    error = null;
+    state = 'idle';
+  }
+
+  // Handle escape key
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      close();
+    } else if (e.key === ' ' || e.key === 'Enter') {
+      if (state === 'idle') {
+        e.preventDefault();
+        startRecording();
+      } else if (state === 'recording') {
+        e.preventDefault();
+        stopRecording();
+      }
+    }
+  }
+
+  // Auto-start recording when modal opens
+  $: if (isOpen && state === 'idle' && !permissionDenied && !error) {
+    // Small delay to allow modal to render
+    setTimeout(() => {
+      if (isOpen) startRecording();
+    }, 100);
+  }
+
+  onDestroy(cleanup);
+</script>
+
+<svelte:window on:keydown={handleKeydown} />
+
+{#if isOpen}
+  <div class="modal-backdrop" on:click={close} role="presentation">
+    <div class="modal" on:click|stopPropagation role="dialog" aria-labelledby="modal-title" aria-modal="true">
+      <div class="modal-header">
+        <h2 id="modal-title">Record Voice Message</h2>
+        <button class="close-btn" on:click={close} aria-label="Close">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        {#if error}
+          <div class="error-message">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 8v4m0 4h.01" />
+            </svg>
+            <p>{error}</p>
+          </div>
+        {/if}
+
+        <div class="timer">
+          <span class="current-time">{formatTime(duration)}</span>
+          <span class="separator">/</span>
+          <span class="max-time">{formatTime(MAX_DURATION)}</span>
+        </div>
+
+        <div class="visualizer-container">
+          <canvas
+            bind:this={canvasElement}
+            width="400"
+            height="100"
+            class="waveform-canvas"
+            class:recording={state === 'recording'}
+          />
+          {#if state === 'idle' || state === 'stopped'}
+            <div class="placeholder-text">
+              {state === 'idle' ? 'Ready to record' : 'Recording stopped'}
+            </div>
+          {/if}
+        </div>
+
+        {#if state === 'preview' && audioUrl}
+          <div class="preview-player">
+            <audio bind:this={audioElement} src={audioUrl} controls />
+          </div>
+        {/if}
+
+        <div class="controls">
+          {#if state === 'idle' && !error}
+            <button class="btn-record" on:click={startRecording}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="12" r="8" />
+              </svg>
+              Record
+            </button>
+          {/if}
+
+          {#if state === 'recording'}
+            <button class="btn-stop" on:click={stopRecording}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
+              Stop
+            </button>
+          {/if}
+
+          {#if state === 'preview'}
+            <button class="btn-secondary" on:click={reRecord}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+              Re-record
+            </button>
+            <button class="btn-secondary" on:click={close}>Cancel</button>
+            <button class="btn-primary" on:click={sendAudio}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+              </svg>
+              Send
+            </button>
+          {/if}
+
+          {#if error}
+            <button class="btn-secondary" on:click={close}>Close</button>
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<style>
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1rem;
+  }
+
+  .modal {
+    background: var(--bg-primary, #1e1e1e);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 500px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color, #333);
+  }
+
+  .modal-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary, #fff);
+  }
+
+  .close-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary, #999);
+    cursor: pointer;
+    padding: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    transition: all 0.2s;
+  }
+
+  .close-btn:hover {
+    background: var(--bg-secondary, #2a2a2a);
+    color: var(--text-primary, #fff);
+  }
+
+  .modal-body {
+    padding: 2rem 1.5rem;
+  }
+
+  .error-message {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 8px;
+    color: #ef4444;
+    margin-bottom: 1.5rem;
+  }
+
+  .error-message svg {
+    flex-shrink: 0;
+  }
+
+  .error-message p {
+    margin: 0;
+    font-size: 0.9rem;
+  }
+
+  .timer {
+    text-align: center;
+    font-size: 2rem;
+    font-weight: 600;
+    margin-bottom: 2rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary, #fff);
+  }
+
+  .separator {
+    color: var(--text-secondary, #666);
+    margin: 0 0.25rem;
+  }
+
+  .max-time {
+    color: var(--text-secondary, #666);
+    font-size: 1.5rem;
+  }
+
+  .visualizer-container {
+    position: relative;
+    width: 100%;
+    height: 100px;
+    margin-bottom: 2rem;
+    background: var(--bg-secondary, #2a2a2a);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .waveform-canvas {
+    width: 100%;
+    height: 100%;
+  }
+
+  .placeholder-text {
+    position: absolute;
+    color: var(--text-secondary, #666);
+    font-size: 0.9rem;
+  }
+
+  .preview-player {
+    margin-bottom: 2rem;
+  }
+
+  .preview-player audio {
+    width: 100%;
+  }
+
+  .controls {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  button {
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 48px;
+  }
+
+  .btn-record {
+    background: #3b82f6;
+    color: white;
+    font-size: 1.1rem;
+    padding: 1rem 2rem;
+  }
+
+  .btn-record:hover {
+    background: #2563eb;
+  }
+
+  .btn-stop {
+    background: #ef4444;
+    color: white;
+    font-size: 1.1rem;
+    padding: 1rem 2rem;
+    animation: pulse 2s infinite;
+  }
+
+  .btn-stop:hover {
+    background: #dc2626;
+  }
+
+  @keyframes pulse {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.8;
+    }
+  }
+
+  .btn-primary {
+    background: #3b82f6;
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: #2563eb;
+  }
+
+  .btn-secondary {
+    background: var(--bg-secondary, #2a2a2a);
+    color: var(--text-primary, #fff);
+    border: 1px solid var(--border-color, #333);
+  }
+
+  .btn-secondary:hover {
+    background: var(--bg-tertiary, #333);
+  }
+
+  @media (max-width: 768px) {
+    .modal {
+      max-width: none;
+      border-radius: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .modal-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .modal-backdrop {
+      padding: 0;
+    }
+  }
+</style>
