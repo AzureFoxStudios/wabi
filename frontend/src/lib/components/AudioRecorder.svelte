@@ -366,10 +366,19 @@
   });
 
   onDestroy(cleanup);
+
+  // Dynamically attach/detach keyboard listener based on isOpen
+  $: if (typeof window !== 'undefined') {
+    if (isOpen) {
+      window.addEventListener('keydown', handleKeydown);
+    } else {
+      window.removeEventListener('keydown', handleKeydown);
+    }
+  }
+
 </script>
 
 {#if isOpen}
-  <svelte:window on:keydown={handleKeydown} />
   <div class="modal-backdrop" on:click={close} role="presentation">
     <div class="modal" on:click|stopPropagation role="dialog" aria-labelledby="modal-title" aria-modal="true">
       <div class="modal-header">
