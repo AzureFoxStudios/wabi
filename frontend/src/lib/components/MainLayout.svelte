@@ -4,39 +4,23 @@
 	import Chat from '$lib/components/Chat.svelte';
 	import ScreenShareViewer from '$lib/components/ScreenShareViewer.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
-	import RightPanel from '$lib/components/RightPanel.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 
 	let isResizingChannel = false;
-	let isResizingRight = false;
-
-	// Right panel state
-	let rightPanelActiveTab: 'messages' | 'users' = 'messages';
-	let rightPanelActiveDM: { channelId: string; otherUser: any } | null = null;
 
 	layoutStore.isResizingChannel.subscribe(v => isResizingChannel = v);
-	layoutStore.isResizingUser.subscribe(v => isResizingRight = v);
 
 	function handleMouseMove(e: MouseEvent) {
 		if (isResizingChannel) {
 			layoutStore.channelSidebarWidth.set(Math.max(180, Math.min(e.clientX, 400)));
-		} else if (isResizingRight) {
-			layoutStore.userPanelWidth.set(Math.max(260, Math.min(window.innerWidth - e.clientX, 420)));
 		}
 	}
 
 	function stopResize() {
 		layoutStore.isResizingChannel.set(false);
-		layoutStore.isResizingUser.set(false);
-		layoutStore.isResizingDM.set(false);
-	}
-
-	function closeRightPanel() {
-		layoutStore.rightPanelView.set('none');
-		rightPanelActiveDM = null;
 	}
 </script>
 
@@ -82,36 +66,8 @@
 		<div class:hidden={activeView !== 'screen'}><ScreenShareViewer bind:activeView /></div>
 	</div>
 	
-	<!-- Right Panel (unified Messages/Users + DM view) -->
-	{#if $layoutStore.showDMListPanel || $layoutStore.showDMPanel || ($layoutStore.isMobile && ($layoutStore.rightPanelView === 'dm-list' || $layoutStore.rightPanelView === 'dm'))}
-		<div
-			class="right-panel-container"
-			style:width="{$layoutStore.showDMListPanel || $layoutStore.showDMPanel ? $layoutStore.userPanelWidth : 0}px"
-			class:mobile-visible={$layoutStore.isMobile && ($layoutStore.rightPanelView === 'dm-list' || $layoutStore.rightPanelView === 'dm')}
-		>
-			<RightPanel
-				bind:activeTab={rightPanelActiveTab}
-				bind:activeDM={rightPanelActiveDM}
-				on:close={closeRightPanel}
-			/>
-			{#if !$layoutStore.isMobile}
-				<div class="resize-handle resize-handle-right" on:mousedown={() => layoutStore.isResizingUser.set(true)}></div>
-			{/if}
-		</div>
-	{/if}
-	
-	<!-- Desktop-Only Buttons -->
-	{#if !$layoutStore.isMobile}
-		<button
-			class="user-panel-toggle"
-			class:open={$layoutStore.showDMListPanel || $layoutStore.showDMPanel}
-			on:click={layoutStore.toggleDesktopUserPanel}
-			title={$layoutStore.rightPanelView === 'dm-list' ? 'Hide user list' : 'Show user list'}
-			style:right="{$layoutStore.toggleButtonRight}px"
-		>
-			{$layoutStore.showDMListPanel || $layoutStore.showDMPanel ? '→' : '←'}
-		</button>
-	{/if}
+	<!-- TEMPORARY: Right panel removed - DMs now render in center -->
+	<!-- Right panel will be re-added later as users-only panel if needed -->
 </div>
 <CallModal />
 

@@ -961,17 +961,8 @@
 		</div>
 	</div>
 
-	{#if isDMChannel}
-		<!-- DM channels should only be displayed in the DM panel on the right side -->
-		<div class="dm-redirect-message">
-			<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-			</svg>
-			<h3>Direct Messages</h3>
-			<p>Direct messages are displayed in the DM panel on the right side.</p>
-		</div>
-	{:else}
-		<div class="messages" bind:this={chatContainer}>
+	<!-- TEMPORARY: DMs now render in center like channels -->
+	<div class="messages" bind:this={chatContainer}>
 			{#if !searchInput}
 				<PinnedMessages pinnedMessages={pinnedMessages} />
 			{/if}
@@ -1164,7 +1155,6 @@
 			</button>
 		</div>
 	</div>
-	{/if}
 </div>
 
 <style>
