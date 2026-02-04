@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, tick } from 'svelte';
-	import { users, currentUser, channels, channelMessages, createDM, sendMessage, sendTyping, switchChannel, type User, type Message, type Channel } from '$lib/socket';
+	import { users, currentUser, channels, channelMessages, createDM, sendMessage, sendTyping, switchChannel, dmPanelSignal, type User, type Message, type Channel } from '$lib/socket';
 	import { startCall, startScreenShare } from '$lib/calling';
 	import CreateDMModal from './CreateDMModal.svelte';
 	import MessageList from './MessageList.svelte';
@@ -54,6 +54,11 @@
 	// Switch channel when DM changes
 	$: if (activeDM?.channelId) {
 		switchChannel(activeDM.channelId);
+	}
+
+	// Watch dmPanelSignal and update activeDM
+	$: if ($dmPanelSignal) {
+		activeDM = $dmPanelSignal;
 	}
 
 	// Scroll to bottom when messages change
