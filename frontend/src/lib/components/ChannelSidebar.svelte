@@ -915,6 +915,8 @@
 	}
 
 	.channel-list {
+		display: flex;
+		flex-direction: column;
 		flex: 1;
 		overflow-y: auto;
 		padding: 0.5rem 0;
