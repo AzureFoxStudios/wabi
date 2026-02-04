@@ -324,9 +324,6 @@
 
   // Handle escape key
   function handleKeydown(e: KeyboardEvent) {
-    // Only handle keyboard shortcuts when modal is open
-    if (!isOpen) return;
-
     if (e.key === 'Escape') {
       close();
     } else if (e.key === ' ' || e.key === 'Enter') {
@@ -371,9 +368,8 @@
   onDestroy(cleanup);
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
-
 {#if isOpen}
+  <svelte:window on:keydown={handleKeydown} />
   <div class="modal-backdrop" on:click={close} role="presentation">
     <div class="modal" on:click|stopPropagation role="dialog" aria-labelledby="modal-title" aria-modal="true">
       <div class="modal-header">

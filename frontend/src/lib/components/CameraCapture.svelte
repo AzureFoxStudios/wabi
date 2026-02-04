@@ -172,9 +172,8 @@
   onDestroy(cleanup);
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
-
 {#if isOpen}
+  <svelte:window on:keydown={handleKeydown} />
   <div class="modal-backdrop" on:click={close} role="presentation">
     <div class="modal" on:click|stopPropagation role="dialog" aria-labelledby="modal-title" aria-modal="true">
       <div class="modal-header">
