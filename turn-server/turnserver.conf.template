@@ -62,10 +62,10 @@ denied-peer-ip=::1
 #  TLS/TURNS SUPPORT (Optional - for production with SSL)
 # ---------------------------------------------------------------------------
 
-# Uncomment these lines if you have SSL certificates
-# cert=/etc/coturn/certs/cert.pem
-# pkey=/etc/coturn/certs/privkey.pem
-# tls-listening-port=5349
+# TLS/TURNS SUPPORT
+cert=/etc/coturn/certs/cert.pem
+pkey=/etc/coturn/certs/privkey.pem
+tls-listening-port=5349
 
 # ---------------------------------------------------------------------------
 #  LOGGING
