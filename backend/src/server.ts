@@ -377,26 +377,10 @@ const io = new Server(server, {
     credentials: true
   },
   maxHttpBufferSize: 75 * 1024 * 1024, // 75MB (to handle 50MB files after base64 encoding ~33% overhead)
-  pingTimeout: 20000,       // 20s pong wait (faster dead connection detection)
-  pingInterval: 15000,      // 15s ping (more frequent keepalive)
-  connectTimeout: 10000,    // 10s initial connect
+  pingTimeout: 30000,       // 30s pong wait (more forgiving for mobile)
+  pingInterval: 25000,      // 25s ping (keeps alive through proxies)
+  connectTimeout: 15000,    // 15s initial connect (fail faster than default 45s)
   transports: ['websocket', 'polling'],
-  perMessageDeflate: {
-    threshold: 1024,         // Only compress payloads >1KB
-    zlibDeflateOptions: {
-      chunkSize: 1024,
-      memLevel: 7,
-      level: 3                // Fast compression (not max)
-    },
-    zlibInflateOptions: {
-      chunkSize: 10 * 1024
-    },
-    clientNoContextTakeover: true,
-    serverNoContextTakeover: true,
-    serverMaxWindowBits: 15,
-    clientMaxWindowBits: 15,
-    concurrencyLimit: 10
-  },
   connectionStateRecovery: {
     maxDisconnectionDuration: 2 * 60 * 1000, // 2 min recovery window
     skipMiddlewares: false
