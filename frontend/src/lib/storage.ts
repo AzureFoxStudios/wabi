@@ -282,6 +282,19 @@ export class ChatStorage {
 		await this.db.setSetting('saveHistory', enabled.toString());
 	}
 
+	// Public settings access for typed array storage
+	async getSetting(key: string): Promise<any> {
+		if (!browser) return null;
+		await this.ensureInit();
+		return this.db.getSetting(key);
+	}
+
+	async setSetting(key: string, value: any): Promise<void> {
+		if (!browser) return;
+		await this.ensureInit();
+		return this.db.setSetting(key, value);
+	}
+
 	// Save message to current period's archive
 	// Note: Caller is responsible for checking if persistence is enabled for the channel
 	async saveMessage(channel: string, message: Message) {

@@ -30,7 +30,7 @@ export interface CalendarEvent {
 	id: string;
 	title: string;
 	description?: string;
-	startDate: number; // timestamp
+	startDate: number; // timestamp (Unix milliseconds)
 	endDate?: number; // timestamp (for multi-day events)
 	allDay: boolean;
 	color?: string;
@@ -40,8 +40,8 @@ export interface CalendarEvent {
 		interval: number; // every N days/weeks/months/years
 		endDate?: number;
 	};
-	reminders?: number[]; // minutes before event
-	cancelledDates?: number[]; // timestamps of cancelled recurring instances
+	reminders?: Int32Array | number[]; // minutes before event (using Int32Array for efficiency)
+	cancelledDates?: BigInt64Array | number[]; // timestamps of cancelled recurring instances
 	signedBy?: string; // Optional signature with username
 }
 
@@ -85,9 +85,9 @@ export interface Sprint {
 
 export interface BurnChartDataPoint {
 	date: number;
-	totalPoints: number;
-	completedPoints: number;
-	remainingPoints: number;
+	totalPoints: number | Int32Array; // Using Int32Array for efficient storage in Tauri
+	completedPoints: number | Int32Array;
+	remainingPoints: number | Int32Array;
 }
 
 // View types for the dashboard
