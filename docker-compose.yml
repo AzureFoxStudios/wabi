@@ -13,7 +13,6 @@ services:
       - PORT=8080
       - DATA_DIR=/app/data
       - PLUGINS_DIR=/app/plugins
-      - ALLOWED_ORIGINS=https://www.wabi.chat,https://wabi.chat,http://tauri.localhost
     volumes:
       - ./data:/app/data
       - ./plugins:/app/plugins
