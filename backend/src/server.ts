@@ -393,8 +393,8 @@ const io = new Server(server, {
     },
     clientNoContextTakeover: true,
     serverNoContextTakeover: true,
-    serverMaxWindowBits: 10,
-    clientMaxWindowBits: 10,
+    serverMaxWindowBits: 15,
+    clientMaxWindowBits: 15,
     concurrencyLimit: 10
   },
   connectionStateRecovery: {
