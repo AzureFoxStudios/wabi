@@ -377,10 +377,26 @@ const io = new Server(server, {
     credentials: true
   },
   maxHttpBufferSize: 75 * 1024 * 1024, // 75MB (to handle 50MB files after base64 encoding ~33% overhead)
-  pingTimeout: 30000,       // 30s pong wait (more forgiving for mobile)
-  pingInterval: 25000,      // 25s ping (keeps alive through proxies)
-  connectTimeout: 15000,    // 15s initial connect (fail faster than default 45s)
+  pingTimeout: 20000,       // 20s pong wait (faster dead connection detection)
+  pingInterval: 15000,      // 15s ping (more frequent keepalive)
+  connectTimeout: 10000,    // 10s initial connect
   transports: ['websocket', 'polling'],
+  perMessageDeflate: {
+    threshold: 1024,         // Only compress payloads >1KB
+    zlibDeflateOptions: {
+      chunkSize: 1024,
+      memLevel: 7,
+      level: 3                // Fast compression (not max)
+    },
+    zlibInflateOptions: {
+      chunkSize: 10 * 1024
+    },
+    clientNoContextTakeover: true,
+    serverNoContextTakeover: true,
+    serverMaxWindowBits: 10,
+    clientMaxWindowBits: 10,
+    concurrencyLimit: 10
+  },
   connectionStateRecovery: {
     maxDisconnectionDuration: 2 * 60 * 1000, // 2 min recovery window
     skipMiddlewares: false
@@ -1948,27 +1964,27 @@ io.on("connection", (socket) => {
       ? Date.now() + getAutoDeleteMs(channel.autoDeleteAfter)
       : Date.now() + DEFAULT_SERVER_EXPIRATION;
 
-    const message = {
+    // Build minimal message object with only present fields
+    const message: any = {
       id: `${Date.now()}-${socket.id}`,
       user: user.username,
       userId: socket.id,
       text: data.text,
       timestamp: Date.now(),
       type: data.type,
-      gifUrl: data.gifUrl,
-      emojiUrl: data.emojiUrl,
-      emojiName: data.emojiName,
-      fileUrl: data.fileUrl,
-      fileName: data.fileName,
-      fileSize: data.fileSize,
-      files: data.files,
-      isPinned: false,
-      isEdited: false,
-      replyTo: data.replyTo,
-      isSpoiler: data.isSpoiler,
-      // All messages have scheduled deletion time (either custom or default 1-day)
       scheduledDeletionTime: deletionTime
     };
+
+    // Only add optional fields if they exist (reduces payload size by 30-40%)
+    if (data.gifUrl) message.gifUrl = data.gifUrl;
+    if (data.emojiUrl) message.emojiUrl = data.emojiUrl;
+    if (data.emojiName) message.emojiName = data.emojiName;
+    if (data.fileUrl) message.fileUrl = data.fileUrl;
+    if (data.fileName) message.fileName = data.fileName;
+    if (data.fileSize) message.fileSize = data.fileSize;
+    if (data.files) message.files = data.files;
+    if (data.replyTo) message.replyTo = data.replyTo;
+    if (data.isSpoiler) message.isSpoiler = data.isSpoiler;
 
     // Add message to channel
     const messages = channelMessages.get(data.channelId) || [];

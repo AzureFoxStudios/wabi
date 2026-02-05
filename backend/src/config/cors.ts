@@ -3,10 +3,20 @@
  * Handles CORS policy across both HTTP and Socket.IO
  */
 
+// Cache allowed origins at module level (computed once at startup)
+let cachedOrigins: string[] | null = null;
+let corsLoggedAtStartup = false;
+
 /**
  * Get list of allowed origins from environment or use defaults
+ * Cached for performance - recomputed only once at startup
  */
 export function getAllowedOrigins(): string[] {
+	// Return cached origins on subsequent calls
+	if (cachedOrigins !== null) {
+		return cachedOrigins;
+	}
+
 	const origins: Set<string> = new Set();
 
 	// 1. Explicit ALLOWED_ORIGINS (highest priority)
@@ -31,16 +41,19 @@ export function getAllowedOrigins(): string[] {
 		 'http://tauri.localhost', 'http://localhost'].forEach(o => origins.add(o));
 	}
 
-	const result = Array.from(origins);
+	cachedOrigins = Array.from(origins);
 
-	// Safety: warn if production has zero origins
-	if (process.env.NODE_ENV === 'production' && result.length === 0) {
-		console.error('[CORS] WARNING: No allowed origins in production! Set ALLOWED_ORIGINS or FRONTEND_URL.');
-	} else if (process.env.NODE_ENV === 'production') {
-		console.log('[CORS] Allowed origins:', result);
+	// Log once at startup only
+	if (!corsLoggedAtStartup) {
+		corsLoggedAtStartup = true;
+		if (process.env.NODE_ENV === 'production' && cachedOrigins.length === 0) {
+			console.error('[CORS] WARNING: No allowed origins in production! Set ALLOWED_ORIGINS or FRONTEND_URL.');
+		} else if (process.env.NODE_ENV === 'production') {
+			console.log('[CORS] Allowed origins configured:', cachedOrigins);
+		}
 	}
 
-	return result;
+	return cachedOrigins;
 }
 
 /**

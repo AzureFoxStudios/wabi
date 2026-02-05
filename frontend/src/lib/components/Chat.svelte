@@ -28,6 +28,8 @@
 	let messageInput = '';
 	let chatContainer: HTMLElement;
 	let typingTimeout: number;
+	let lastTypingEmit = 0;
+	const TYPING_THROTTLE_MS = 300; // Max one typing event per 300ms
 	let showGiphyPicker = false;
 	let showEmojiPicker = false;
 	let emojiPickerButton: HTMLButtonElement;
@@ -143,8 +145,15 @@
 
 	function handleInput() {
 		autoResizeTextarea();
-		sendTyping(true, $currentChannel);
 
+		// Throttle typing emissions - max once per TYPING_THROTTLE_MS
+		const now = Date.now();
+		if (now - lastTypingEmit >= TYPING_THROTTLE_MS) {
+			sendTyping(true, $currentChannel);
+			lastTypingEmit = now;
+		}
+
+		// Debounce stop typing
 		if (typingTimeout) {
 			clearTimeout(typingTimeout);
 		}
