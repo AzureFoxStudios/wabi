@@ -129,3 +129,58 @@ CREATE INDEX IF NOT EXISTS idx_guest_codes_active ON guest_codes(is_active);
 -- Initial guest code
 INSERT OR IGNORE INTO guest_codes (code, description, is_active)
 VALUES ('VIP2026', 'Default VIP guest access code', 1);
+
+-- Channels table (DMs, groups, public)
+CREATE TABLE IF NOT EXISTS channels (
+  channel_id TEXT PRIMARY KEY,
+  channel_type TEXT NOT NULL DEFAULT 'public',  -- 'public', 'dm', 'group'
+  name TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  created_by TEXT,
+  persist_messages INTEGER DEFAULT 1,
+  is_archived INTEGER DEFAULT 0
+);
+
+-- Channel members (for DMs and groups)
+CREATE TABLE IF NOT EXISTS channel_members (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  channel_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  username TEXT NOT NULL,
+  registered_user_id INTEGER,
+  joined_at INTEGER NOT NULL,
+  role TEXT DEFAULT 'member',  -- 'owner', 'admin', 'member'
+  FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE CASCADE,
+  UNIQUE(channel_id, user_id)
+);
+
+-- Messages table (all message persistence)
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  message_id TEXT UNIQUE NOT NULL,
+  channel_id TEXT NOT NULL,
+  sender_id TEXT NOT NULL,
+  sender_username TEXT NOT NULL,
+  sender_color TEXT,
+  message_type TEXT NOT NULL DEFAULT 'text',
+  content TEXT NOT NULL,
+  gif_url TEXT,
+  file_url TEXT,
+  file_name TEXT,
+  file_size INTEGER,
+  reply_to_id TEXT,
+  is_spoiler INTEGER DEFAULT 0,
+  is_pinned INTEGER DEFAULT 0,
+  is_edited INTEGER DEFAULT 0,
+  reactions_json TEXT,
+  created_at INTEGER NOT NULL,
+  deleted_at INTEGER,
+  FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE CASCADE
+);
+
+-- Indexes for new tables
+CREATE INDEX IF NOT EXISTS idx_channels_type ON channels(channel_type);
+CREATE INDEX IF NOT EXISTS idx_channel_members_channel ON channel_members(channel_id);
+CREATE INDEX IF NOT EXISTS idx_channel_members_user ON channel_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(message_id);

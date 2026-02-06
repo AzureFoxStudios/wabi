@@ -76,10 +76,15 @@ export const channelUnreadCounts = writable<Record<string, number>>({});
 export const dmPanelSignal = writable<{ channelId: string; otherUser: User } | null>(null);
 export { emojis };
 
-// Pagination stores
+// Pagination stores (client-side archive-based)
 export const channelLoadedArchives = writable<Record<string, Set<string>>>({});
 export const channelAvailableArchives = writable<Record<string, string[]>>({});
 export const channelLoadingOlder = writable<Record<string, boolean>>({});
+
+// Server-side history pagination stores
+export const channelHistoryLoading = writable<Record<string, boolean>>({});
+export const channelHasMoreHistory = writable<Record<string, boolean>>({});
+export const channelOldestMessageId = writable<Record<string, string | null>>({});
 
 // Connection state for UI feedback
 export const connectionState = writable<ConnectionState>('disconnected');
@@ -517,6 +522,21 @@ class SocketManager {
 				this.updatePinnedChannels();
 			}
 
+			// On reconnect, sync newer messages for the current channel
+			if (this.reconnectAttempts > 0) {
+				const currentChan = get(currentChannel);
+				const msgs = get(channelMessages)[currentChan];
+				if (msgs && msgs.length > 0) {
+					const newestMsg = msgs[msgs.length - 1];
+					console.log(`[SocketManager] Reconnect: syncing messages after ${newestMsg.id}`);
+					sock.emit('load-history', {
+						channelId: currentChan,
+						afterMessageId: newestMsg.id,
+						limit: 100
+					});
+				}
+			}
+
 			sock.emit('join-channel', 'general');
 		});
 
@@ -529,6 +549,46 @@ class SocketManager {
 				const newMsgs = data.messages.filter(m => !existingIds.has(m.id));
 				return { ...msgs, [data.channelId]: [...existing, ...newMsgs] };
 			});
+		});
+
+		// Handle server-side history loading response
+		sock.on('history-loaded', (data: {
+			channelId: string;
+			messages: Message[];
+			hasMore: boolean;
+			direction: 'older' | 'newer' | 'initial';
+		}) => {
+			channelMessages.update(msgs => {
+				const existing = msgs[data.channelId] || [];
+				const existingIds = new Set(existing.map(m => m.id));
+				const newMsgs = data.messages.filter(m => !existingIds.has(m.id));
+
+				if (data.direction === 'older') {
+					// Prepend older messages
+					return { ...msgs, [data.channelId]: [...newMsgs, ...existing] };
+				} else if (data.direction === 'newer') {
+					// Append newer messages
+					return { ...msgs, [data.channelId]: [...existing, ...newMsgs] };
+				} else {
+					// Initial load - replace if empty, merge if not
+					if (existing.length === 0) {
+						return { ...msgs, [data.channelId]: newMsgs };
+					}
+					return { ...msgs, [data.channelId]: [...newMsgs, ...existing] };
+				}
+			});
+
+			// Update pagination state
+			channelHasMoreHistory.update(s => ({ ...s, [data.channelId]: data.hasMore }));
+			channelHistoryLoading.update(s => ({ ...s, [data.channelId]: false }));
+
+			// Track oldest message for pagination
+			if (data.messages.length > 0 && (data.direction === 'older' || data.direction === 'initial')) {
+				const oldestMsg = data.messages[0];
+				channelOldestMessageId.update(s => ({ ...s, [data.channelId]: oldestMsg.id }));
+			}
+
+			console.log(`[SocketManager] History loaded: ${data.messages.length} messages for ${data.channelId} (${data.direction})`);
 		});
 
 		sock.on('message', (data: { channelId: string; message: Message }) => {
@@ -1038,12 +1098,24 @@ export function joinChannel(channelId: string): void {
 	socketManager.emit('join-channel', channelId);
 	currentChannel.set(channelId);
 	markChannelAsRead(channelId);
+
+	// Load history from server if channel is empty
+	const msgs = get(channelMessages)[channelId];
+	if (!msgs || msgs.length === 0) {
+		loadHistory(channelId);
+	}
 }
 
 export function switchChannel(channelId: string): void {
 	socketManager.emit('join-channel', channelId);
 	currentChannel.set(channelId);
 	markChannelAsRead(channelId);
+
+	// Load history from server if channel is empty
+	const msgs = get(channelMessages)[channelId];
+	if (!msgs || msgs.length === 0) {
+		loadHistory(channelId);
+	}
 }
 
 export function createChannel(channelName: string): void {
@@ -1167,6 +1239,48 @@ export async function loadOlderMessages(channelId: string): Promise<void> {
 	} finally {
 		channelLoadingOlder.update(state => ({ ...state, [channelId]: false }));
 	}
+}
+
+// Server-side history loading functions
+export function loadHistory(channelId: string, options?: {
+	beforeMessageId?: string;
+	afterMessageId?: string;
+	limit?: number;
+}): void {
+	if (!browser) return;
+
+	channelHistoryLoading.update(s => ({ ...s, [channelId]: true }));
+	socketManager.emit('load-history', { channelId, ...options });
+}
+
+export function loadOlderHistory(channelId: string): void {
+	if (!browser) return;
+
+	const oldestId = get(channelOldestMessageId)[channelId];
+	const hasMore = get(channelHasMoreHistory)[channelId];
+	const isLoading = get(channelHistoryLoading)[channelId];
+
+	if (!hasMore || isLoading) {
+		console.log(`[SocketManager] No more history or already loading for ${channelId}`);
+		return;
+	}
+
+	loadHistory(channelId, { beforeMessageId: oldestId || undefined, limit: 50 });
+}
+
+export function syncNewerMessages(channelId: string): void {
+	if (!browser) return;
+
+	const msgs = get(channelMessages)[channelId];
+	if (!msgs || msgs.length === 0) {
+		// Load initial history
+		loadHistory(channelId);
+		return;
+	}
+
+	// Get the newest message and sync from there
+	const newestMsg = msgs[msgs.length - 1];
+	loadHistory(channelId, { afterMessageId: newestMsg.id, limit: 100 });
 }
 
 export function uploadEmote(name: string, imageData: string, type: 'static' | 'animated'): void {

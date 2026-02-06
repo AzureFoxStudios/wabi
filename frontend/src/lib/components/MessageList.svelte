@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, afterUpdate } from 'svelte';
 	import type { Message, User, Emoji, Channel } from '$lib/socket';
-	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder } from '$lib/socket';
+	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder, loadOlderHistory, channelHistoryLoading, channelHasMoreHistory } from '$lib/socket';
 	import { themeStore } from '$lib/theme/themeStore';
 	import MessageContextMenu from './MessageContextMenu.svelte';
 	import UserPopout from './UserPopout.svelte';
@@ -428,17 +428,22 @@
 	onMount(attachSpoilerHandlers);
 	afterUpdate(attachSpoilerHandlers);
 
-	// Pagination state
+	// Pagination state (client-side archives)
 	let showLoadMore = false;
 	let isLoadingOlder = false;
 	let hasMoreMessages = false;
 	let nextArchivePeriod: string | null = null;
+
+	// Server-side history pagination state
+	let hasMoreServerHistory = false;
+	let isLoadingServerHistory = false;
 
 	// Reactive statements to compute pagination state based on current channel
 	$: {
 		const currentChannelData = $channels.find(ch => ch.id === $currentChannel);
 		showLoadMore = currentChannelData?.persistMessages === true;
 
+		// Client-side archive pagination
 		if (showLoadMore) {
 			const available = $channelAvailableArchives[$currentChannel] || [];
 			const loaded = $channelLoadedArchives[$currentChannel] || new Set();
@@ -446,34 +451,51 @@
 			hasMoreMessages = available.length > loaded.size;
 			nextArchivePeriod = available.find(a => !loaded.has(a)) || null;
 		}
+
+		// Server-side history pagination
+		hasMoreServerHistory = $channelHasMoreHistory[$currentChannel] ?? true; // Assume more until proven otherwise
+		isLoadingServerHistory = $channelHistoryLoading[$currentChannel] || false;
 	}
 
 	async function handleLoadMore() {
 		if (!$currentChannel) return;
-		await loadOlderMessages($currentChannel);
+		// Prefer server-side history loading
+		if (hasMoreServerHistory && !isLoadingServerHistory) {
+			loadOlderHistory($currentChannel);
+		} else if (hasMoreMessages && !isLoadingOlder) {
+			// Fallback to client-side archives
+			await loadOlderMessages($currentChannel);
+		}
+	}
+
+	// Scroll handler for infinite scroll
+	function handleScroll(e: Event) {
+		const target = e.target as HTMLElement;
+		// Load more when scrolled near the top (within 100px)
+		if (target.scrollTop < 100 && hasMoreServerHistory && !isLoadingServerHistory) {
+			loadOlderHistory($currentChannel);
+		}
 	}
 </script>
 
 <!-- Window-level keyboard listener for image navigation -->
 <svelte:window on:keydown={handleImageKeydown} />
 
-<!-- Load More Messages Button for Persistent Channels -->
-{#if showLoadMore}
-	{#if hasMoreMessages}
-		<div class="load-more-container">
-			<button class="load-more-btn" on:click={handleLoadMore} disabled={isLoadingOlder}>
-				{#if isLoadingOlder}
-					<span class="spinner"></span> Loading...
-				{:else}
-					Load Older Messages {nextArchivePeriod ? `(${nextArchivePeriod})` : ''}
-				{/if}
-			</button>
-		</div>
-	{:else if nextArchivePeriod === null && $channelAvailableArchives[$currentChannel]?.length > 0}
-		<div class="load-more-container">
-			<div class="no-more-messages">All messages loaded</div>
-		</div>
-	{/if}
+<!-- Load More Messages Button -->
+{#if hasMoreServerHistory || hasMoreMessages}
+	<div class="load-more-container">
+		<button class="load-more-btn" on:click={handleLoadMore} disabled={isLoadingServerHistory || isLoadingOlder}>
+			{#if isLoadingServerHistory || isLoadingOlder}
+				<span class="spinner"></span> Loading...
+			{:else}
+				Load Older Messages
+			{/if}
+		</button>
+	</div>
+{:else if messages.length > 0}
+	<div class="load-more-container">
+		<div class="no-more-messages">Beginning of conversation</div>
+	</div>
 {/if}
 
 {#each messages as message (message.id)}

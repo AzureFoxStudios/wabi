@@ -42,10 +42,15 @@ export {
 	emojis,
 	connectionState,
 
-	// Pagination stores
+	// Pagination stores (client-side)
 	channelLoadedArchives,
 	channelAvailableArchives,
 	channelLoadingOlder,
+
+	// Server-side history pagination stores
+	channelHistoryLoading,
+	channelHasMoreHistory,
+	channelOldestMessageId,
 
 	// Channel operations
 	joinChannel,
@@ -62,6 +67,11 @@ export {
 	deleteMessage,
 	togglePinMessage,
 	loadOlderMessages,
+
+	// Server-side history loading
+	loadHistory,
+	loadOlderHistory,
+	syncNewerMessages,
 
 	// User operations
 	sendTyping,
