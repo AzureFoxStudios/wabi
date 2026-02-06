@@ -199,24 +199,44 @@ function handleOffline() {
 }
 
 // Socket.io listeners for real-time updates
-let socketListenerSetup = false;
+// Track current socket instance to detect recreation
+let currentSocketId: string | null = null;
+let listenerCleanup: (() => void) | null = null;
 
 function setupSocketListeners() {
-	if (!browser || socketListenerSetup) return;
+	if (!browser) return;
 
 	try {
 		const sock = getSocket();
 		if (!sock) return;
 
-		// Listen for business data updates from other clients or server
-		sock.on('business-data-updated', (data: any) => {
-			console.log('📡 Real-time business data update received', data);
-			// Sync immediately when server sends update
-			pullFromServer();
-		});
+		// Check if this is the same socket we already set up
+		if (currentSocketId === sock.id && listenerCleanup) {
+			return; // Already set up for this socket
+		}
 
-		socketListenerSetup = true;
-		console.log('✅ Socket.io business listeners initialized');
+		// Clean up previous listener if socket changed
+		if (listenerCleanup) {
+			listenerCleanup();
+			listenerCleanup = null;
+		}
+
+		// Define the handler
+		const handleBusinessUpdate = (data: any) => {
+			console.log('📡 Real-time business data update received', data);
+			pullFromServer();
+		};
+
+		// Attach listener
+		sock.on('business-data-updated', handleBusinessUpdate);
+
+		// Store cleanup function
+		listenerCleanup = () => {
+			sock.off('business-data-updated', handleBusinessUpdate);
+		};
+
+		currentSocketId = sock.id;
+		console.log('✅ Socket.io business listeners initialized for socket:', sock.id);
 	} catch (error) {
 		console.error('Failed to setup Socket.io listeners:', error);
 	}
@@ -271,4 +291,11 @@ export function cleanupSync() {
 	window.removeEventListener('online', handleOnline);
 	window.removeEventListener('offline', handleOffline);
 	stopAutoSync();
+
+	// Clean up socket listeners
+	if (listenerCleanup) {
+		listenerCleanup();
+		listenerCleanup = null;
+	}
+	currentSocketId = null;
 }
