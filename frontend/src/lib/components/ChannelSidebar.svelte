@@ -82,7 +82,13 @@
 
 	// Separate channels by type
 	// Note: DMs are excluded from sidebar - only accessible via UserPanel
-	$: publicChannels = $channels.filter(ch => !ch.type || ch.type === 'public');
+	$: publicChannels = $channels
+		.filter(ch => !ch.type || ch.type === 'public')
+		.sort((a, b) => {
+			if (a.id === 'general') return -1;
+			if (b.id === 'general') return 1;
+			return a.name.localeCompare(b.name);
+		});
 	$: groupChannels = $channels.filter(ch => ch.type === 'group');
 
 	// Clear unread count when switching to chat view
