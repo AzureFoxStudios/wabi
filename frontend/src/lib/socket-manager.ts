@@ -9,7 +9,7 @@
  * - Firefox and Chrome behavioral parity
  *
  * KEY FIXES FROM v1:
- * - Transport order changed to ['polling', 'websocket'] for reliable upgrades
+ * - Transport order: ['websocket', 'polling'] (WS preferred, polling fallback)
  * - State machine prevents race conditions
  * - Proper close code handling for Firefox
  * - Listener cleanup before rebinding
@@ -194,8 +194,8 @@ class SocketManager {
 
 		// Create socket with cross-browser optimized settings
 		this.socket = io(serverUrl, {
-			// Force websocket-only transport to bypass polling/sticky session issues
-			transports: ['websocket'],
+			// WebSocket preferred, polling fallback for reliability across browsers
+			transports: ['websocket', 'polling'],
 
 			// Disable Socket.IO's auto-reconnect - we handle it manually
 			// for better control over backoff and state

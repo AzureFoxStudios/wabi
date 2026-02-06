@@ -379,7 +379,6 @@ const io = new Server(server, {
     methods: ["GET", "POST"],
     credentials: true
   },
-  allowEIO3: true, 
   maxHttpBufferSize: 75 * 1024 * 1024, // 75MB (to handle 50MB files after base64 encoding ~33% overhead)
   pingTimeout: 20000,       // 20s pong wait (faster dead connection detection)
   pingInterval: 15000,      // 15s ping (more frequent keepalive)
