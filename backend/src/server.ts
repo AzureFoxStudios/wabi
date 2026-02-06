@@ -2893,20 +2893,6 @@ io.on("connection", (socket) => {
     if (ENABLE_LOGGING) console.log(`${user.username} deleted emote: ${emoteName}`);
   });
 
-  // Handle disconnect
-  // Emoji management
-  socket.on("emoji-added", (emoji: Emoji) => {
-    // Broadcast new emoji to all clients
-    io.emit("emoji-added", emoji);
-  });
-
-  socket.on("delete-emoji", (emojiName: string) => {
-    const deleted = deleteCustomEmoji(emojiName);
-    if (deleted) {
-      io.emit("emoji-deleted", emojiName);
-    }
-  });
-
   socket.on("disconnect", () => {
     const user = users.get(socket.id);
 
