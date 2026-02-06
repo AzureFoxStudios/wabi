@@ -194,9 +194,8 @@ class SocketManager {
 
 		// Create socket with cross-browser optimized settings
 		this.socket = io(serverUrl, {
-			// CRITICAL: Start with polling, upgrade to websocket
-			// This is more reliable across browsers, especially Firefox
-			transports: ['polling', 'websocket'],
+			// Force websocket-only transport to bypass polling/sticky session issues
+			transports: ['websocket'],
 
 			// Disable Socket.IO's auto-reconnect - we handle it manually
 			// for better control over backoff and state
