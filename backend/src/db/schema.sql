@@ -58,9 +58,6 @@ CREATE TABLE IF NOT EXISTS user_settings (
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
--- Add business_private_mode column to existing databases (if not already present)
-ALTER TABLE user_settings ADD COLUMN business_private_mode INTEGER DEFAULT 0;
-
 -- Theme preferences (appearance customization)
 CREATE TABLE IF NOT EXISTS theme_preferences (
   user_id INTEGER PRIMARY KEY,
