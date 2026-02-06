@@ -189,6 +189,9 @@ function scheduleMessageDeletion(channelId: string, messageId: string, duration:
     messages.splice(messageIndex, 1);
     channelMessages.set(channelId, messages);
 
+    // Soft-delete from database
+    try { messageRepository.softDelete(messageId); } catch {}
+
     // Notify clients
     emitToChannel(channelId, "message-deleted", { channelId, messageId });
 
@@ -1457,6 +1460,12 @@ setInterval(() => {
   if (deleted > 0) {
     console.log(`[Cleanup] 🗑️ Deleted ${deleted} expired offline messages`);
   }
+
+  // Hard-purge soft-deleted messages older than 7 days to reclaim DB space
+  const purged = messageRepository.purgeDeleted();
+  if (purged > 0) {
+    console.log(`[Cleanup] 🗑️ Purged ${purged} soft-deleted messages from DB`);
+  }
 }, 60 * 60 * 1000); // 1 hour
 
 // Cleanup on shutdown
@@ -1526,6 +1535,9 @@ deleteMessageById = (channelId: string, messageId: string) => {
   // Remove message
   messages.splice(messageIndex, 1);
   channelMessages.set(channelId, messages);
+
+  // Soft-delete from database
+  try { messageRepository.softDelete(messageId); } catch {}
 
   // Cancel timer if exists
   const timer = messageDeletionTimers.get(messageId);
@@ -1981,9 +1993,22 @@ io.on("connection", (socket) => {
     // Track which channel the user is in
     userCurrentChannel.set(socket.id, channelId);
 
-    // Send channel messages to the user
-    const messages = channelMessages.get(channelId) || [];
-    socket.emit("channel-messages", { channelId, messages });
+    // Serve from DB (authoritative) instead of volatile in-memory Map
+    try {
+      const dbMessages = messageRepository.getByChannel(channelId, { limit: 50 });
+      const clientMessages = dbMessages.map(m => messageRepository.toClientFormat(m));
+      const totalCount = messageRepository.getChannelMessageCount(channelId);
+      socket.emit("channel-messages", {
+        channelId,
+        messages: clientMessages,
+        hasMore: totalCount > 50
+      });
+    } catch (err) {
+      // Fallback to in-memory on DB error
+      console.error(`[join-channel] DB query failed for ${channelId}:`, err);
+      const messages = channelMessages.get(channelId) || [];
+      socket.emit("channel-messages", { channelId, messages, hasMore: false });
+    }
 
     if (ENABLE_LOGGING) console.log(`User ${socket.id} joined channel ${channelId}`);
   });
@@ -2668,7 +2693,8 @@ io.on("connection", (socket) => {
       name: `${user.username}, ${targetUser.username}`,
       createdAt: Date.now(),
       type: 'dm',
-      members: memberIds
+      members: memberIds,
+      persistMessages: true
     };
 
     channels.set(dmId, dmChannel);

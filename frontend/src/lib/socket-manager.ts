@@ -541,13 +541,21 @@ class SocketManager {
 
 		// ==================== MESSAGE EVENTS ====================
 
-		sock.on('channel-messages', (data: { channelId: string; messages: Message[] }) => {
+		sock.on('channel-messages', (data: { channelId: string; messages: Message[]; hasMore?: boolean }) => {
 			channelMessages.update(msgs => {
 				const existing = msgs[data.channelId] || [];
 				const existingIds = new Set(existing.map(m => m.id));
 				const newMsgs = data.messages.filter(m => !existingIds.has(m.id));
 				return { ...msgs, [data.channelId]: [...existing, ...newMsgs] };
 			});
+
+			// Initialize pagination state from server response
+			if (data.hasMore !== undefined) {
+				channelHasMoreHistory.update(s => ({ ...s, [data.channelId]: data.hasMore }));
+			}
+			if (data.messages.length > 0) {
+				channelOldestMessageId.update(s => ({ ...s, [data.channelId]: data.messages[0].id }));
+			}
 		});
 
 		// Handle server-side history loading response
@@ -1097,24 +1105,12 @@ export function joinChannel(channelId: string): void {
 	socketManager.emit('join-channel', channelId);
 	currentChannel.set(channelId);
 	markChannelAsRead(channelId);
-
-	// Load history from server if channel is empty
-	const msgs = get(channelMessages)[channelId];
-	if (!msgs || msgs.length === 0) {
-		loadHistory(channelId);
-	}
 }
 
 export function switchChannel(channelId: string): void {
 	socketManager.emit('join-channel', channelId);
 	currentChannel.set(channelId);
 	markChannelAsRead(channelId);
-
-	// Load history from server if channel is empty
-	const msgs = get(channelMessages)[channelId];
-	if (!msgs || msgs.length === 0) {
-		loadHistory(channelId);
-	}
 }
 
 export function createChannel(channelName: string): void {
