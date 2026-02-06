@@ -453,7 +453,7 @@
 		}
 
 		// Server-side history pagination
-		hasMoreServerHistory = $channelHasMoreHistory[$currentChannel] ?? true; // Assume more until proven otherwise
+		hasMoreServerHistory = $channelHasMoreHistory[$currentChannel] ?? false; // Hidden until server confirms
 		isLoadingServerHistory = $channelHistoryLoading[$currentChannel] || false;
 	}
 
@@ -482,7 +482,7 @@
 <svelte:window on:keydown={handleImageKeydown} />
 
 <!-- Load More Messages Button -->
-{#if hasMoreServerHistory || hasMoreMessages}
+{#if (hasMoreServerHistory || hasMoreMessages) && messages.length >= 50}
 	<div class="load-more-container">
 		<button class="load-more-btn" on:click={handleLoadMore} disabled={isLoadingServerHistory || isLoadingOlder}>
 			{#if isLoadingServerHistory || isLoadingOlder}
