@@ -56,44 +56,77 @@ export function playCallRingtone() {
 	if (!audioContext) return;
 
 	// Clear any existing ringtone timeouts
-    if (ringtoneTimeout) {
-        clearTimeout(ringtoneTimeout);
-        ringtoneTimeout = null;
-    }
+	if (ringtoneTimeout) {
+		clearTimeout(ringtoneTimeout);
+		ringtoneTimeout = null;
+	}
 
-	// Create a repeating ringtone pattern
-	const playRingPattern = () => {
-		const oscillator1 = audioContext!.createOscillator();
-		const oscillator2 = audioContext!.createOscillator();
-		const gainNode = audioContext!.createGain();
+	// 1950s rotary phone bell ring
+	const playRingBurst = () => {
+		const ctx = audioContext!;
+		const now = ctx.currentTime;
+		const duration = 0.8;
 
-		oscillator1.connect(gainNode);
-		oscillator2.connect(gainNode);
-		gainNode.connect(audioContext!.destination);
+		// Envelope: overall volume with fade-out
+		const envelope = ctx.createGain();
+		envelope.connect(ctx.destination);
+		envelope.gain.setValueAtTime(0.15, now);
+		envelope.gain.setValueAtTime(0.15, now + duration - 0.03);
+		envelope.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
-		// Two-tone ringtone
-		oscillator1.frequency.value = 480;
-		oscillator2.frequency.value = 620;
-		oscillator1.type = 'sine';
-		oscillator2.type = 'sine';
+		// 20 Hz tremolo simulating the mechanical bell striker
+		const tremolo = ctx.createGain();
+		tremolo.connect(envelope);
+		tremolo.gain.setValueAtTime(0.5, now);
 
-		// Volume
-		gainNode.gain.setValueAtTime(0.15, audioContext!.currentTime);
-		gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext!.currentTime + 0.8);
+		const lfo = ctx.createOscillator();
+		const lfoDepth = ctx.createGain();
+		lfo.type = 'sine';
+		lfo.frequency.value = 20;
+		lfoDepth.gain.value = 0.5;
+		lfo.connect(lfoDepth);
+		lfoDepth.connect(tremolo.gain);
 
-		// Play for 800ms
-		oscillator1.start(audioContext!.currentTime);
-		oscillator2.start(audioContext!.currentTime);
-		oscillator1.stop(audioContext!.currentTime + 0.8);
-		oscillator2.stop(audioContext!.currentTime + 0.8);
+		// Dual bell tones (characteristic 1950s dual-gong ring)
+		const bell1 = ctx.createOscillator();
+		bell1.type = 'sine';
+		bell1.frequency.value = 425;
+		bell1.connect(tremolo);
+
+		const bell2 = ctx.createOscillator();
+		bell2.type = 'sine';
+		bell2.frequency.value = 575;
+		bell2.connect(tremolo);
+
+		// Upper harmonics for metallic bell timbre
+		const harm1 = ctx.createOscillator();
+		harm1.type = 'sine';
+		harm1.frequency.value = 850;
+		const mix1 = ctx.createGain();
+		mix1.gain.value = 0.25;
+		harm1.connect(mix1);
+		mix1.connect(tremolo);
+
+		const harm2 = ctx.createOscillator();
+		harm2.type = 'sine';
+		harm2.frequency.value = 1150;
+		const mix2 = ctx.createGain();
+		mix2.gain.value = 0.12;
+		harm2.connect(mix2);
+		mix2.connect(tremolo);
+
+		// Start and stop all oscillators
+		const oscs = [lfo, bell1, bell2, harm1, harm2];
+		oscs.forEach(o => o.start(now));
+		oscs.forEach(o => o.stop(now + duration));
 	};
 
-	// Play pattern twice with a gap, store timeout ID
-	playRingPattern();
+	// Ring pattern: two bursts with a pause (like a real rotary phone)
+	playRingBurst();
 	ringtoneTimeout = setTimeout(() => {
-		playRingPattern();
-		ringtoneTimeout = null; // Clear after last play
-	}, 1000);
+		playRingBurst();
+		ringtoneTimeout = null;
+	}, 1200);
 }
 
 export function stopCallRingtone() {
