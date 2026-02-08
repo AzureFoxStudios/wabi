@@ -470,4 +470,121 @@
 	.context-menu-item:last-child {
 		border-radius: 0 0 var(--radius-md) var(--radius-md);
 	}
+
+	/* ========== MOBILE STYLES ========== */
+	@media (max-width: 768px) {
+		.dm-header {
+			padding: 0.75rem;
+			min-height: 52px;
+		}
+
+		.dm-toggle,
+		.dm-create {
+			font-size: 1rem;
+			padding: 0.5rem;
+			min-height: 44px;
+		}
+
+		.dm-create-panel {
+			padding: 0.75rem;
+			gap: 0.5rem;
+		}
+
+		.search-input {
+			padding: 0.75rem;
+			font-size: 16px;
+			min-height: 44px;
+			border-radius: 8px;
+		}
+
+		.user-list {
+			gap: 0.25rem;
+			max-height: 250px;
+		}
+
+		.user-item {
+			padding: 0.625rem 0.5rem;
+			min-height: 52px;
+			font-size: 1rem;
+		}
+
+		.user-avatar {
+			width: 40px;
+			height: 40px;
+		}
+
+		.username {
+			font-size: 1rem;
+		}
+
+		.dm-list {
+			gap: 0.25rem;
+			padding: 0.375rem;
+		}
+
+		.dm-item {
+			padding: 0.625rem 0.5rem;
+			min-height: 56px;
+			border-radius: 8px;
+		}
+
+		.dm-avatar {
+			width: 44px;
+			height: 44px;
+		}
+
+		.dm-name {
+			font-size: 1rem;
+		}
+
+		.dm-preview {
+			font-size: 0.8125rem;
+		}
+
+		.empty,
+		.empty-state {
+			padding: 1.5rem;
+			font-size: 1rem;
+		}
+
+		.start-dm-btn {
+			padding: 0.75rem 1.5rem;
+			font-size: 1rem;
+			min-height: 44px;
+			border-radius: 8px;
+		}
+
+		.context-menu {
+			min-width: 200px;
+		}
+
+		.context-menu-item {
+			padding: 0.75rem 1rem;
+			min-height: 44px;
+			font-size: 1rem;
+		}
+	}
+
+	/* Extra small screens */
+	@media (max-width: 400px) {
+		.dm-item {
+			padding: 0.5rem;
+			min-height: 52px;
+		}
+
+		.dm-avatar {
+			width: 40px;
+			height: 40px;
+		}
+
+		.user-item {
+			padding: 0.5rem;
+			min-height: 48px;
+		}
+
+		.user-avatar {
+			width: 36px;
+			height: 36px;
+		}
+	}
 </style>
