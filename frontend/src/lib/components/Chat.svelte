@@ -12,6 +12,8 @@
 	import AudioRecorder from './AudioRecorder.svelte';
 	import CameraCapture from './CameraCapture.svelte';
 	import { parseCommand, formatCommandHelp, getMatchingCommands, type Command } from '$lib/commands';
+	import { layoutStore } from '$lib/layoutStore';
+	import { isInCall } from '$lib/calling';
 
 	const dispatch = createEventDispatcher();
 
@@ -1011,6 +1013,7 @@
 			on:send={handleAudioSend}
 		/>
 
+		{#if !($layoutStore.isMobile && $isInCall)}
 		{#if editingMessage}
 			<div class="edit-bar">
 				<div class="edit-info">
@@ -1164,6 +1167,7 @@
 			</button>
 		</div>
 	</div>
+		{/if}
 </div>
 
 <style>
@@ -1172,6 +1176,7 @@
 		flex-direction: column;
 		height: 100%;
 		position: relative;
+		isolation: isolate;
 		background: var(--bg-primary);
 		background-image: var(--background-image-url, none);
 		background-size: var(--background-image-size, cover);
@@ -1386,7 +1391,7 @@
 		padding: 0.5rem;
 		padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
 		border-top: 1px solid var(--border);
-		z-index: 2001;
+		z-index: 10;
 		position: relative;
 	}
 

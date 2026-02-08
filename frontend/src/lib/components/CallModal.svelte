@@ -411,6 +411,7 @@
 		display: flex;
 		gap: 1rem;
 		padding: 1.5rem;
+		padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
 		background: var(--dark-bg-secondary);
 		justify-content: center;
 		border-top: 1px solid var(--modal-text);
@@ -474,5 +475,16 @@
         font-weight: 500;
         text-transform: capitalize;
     }
+
+	@media (max-width: 768px) {
+		.control-btn {
+			width: 48px;
+			height: 48px;
+		}
+
+		.video-grid {
+			grid-template-columns: 1fr;
+		}
+	}
 </style>
 

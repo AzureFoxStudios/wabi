@@ -112,6 +112,7 @@
 		right: 0;
 		width: 400px;
 		height: 100vh;
+		height: 100dvh;
 		background: var(--modal-bg);
 		z-index: 1000;
 		display: flex;
@@ -252,6 +253,7 @@
 			width: 100%;
 			right: 0;
 			height: 100vh;
+			height: 100dvh;
 		}
 	}
 </style>

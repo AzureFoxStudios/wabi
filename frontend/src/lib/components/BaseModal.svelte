@@ -102,6 +102,7 @@
 	.right-panel .modal-content {
 		width: 400px;
 		height: 100vh;
+		height: 100dvh;
 		max-height: none;
 		border-radius: 0;
 		animation: slideIn 0.25s ease-out;

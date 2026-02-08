@@ -758,6 +758,7 @@
       max-width: none;
       border-radius: 0;
       height: 100vh;
+      height: 100dvh;
       display: flex;
       flex-direction: column;
     }

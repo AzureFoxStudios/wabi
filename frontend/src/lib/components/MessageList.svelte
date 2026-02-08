@@ -1977,6 +1977,31 @@
 		.edited-badge {
 			font-size: 0.65rem;
 		}
+
+		/* Load more - mobile */
+		.load-more-container {
+			padding: 0.5rem;
+		}
+
+		.load-more-btn {
+			width: 100%;
+			min-height: 44px;
+			justify-content: center;
+			font-size: var(--text-sm);
+			border-radius: 8px;
+			background: var(--bg-tertiary);
+			color: var(--text-secondary);
+		}
+
+		.load-more-btn:active:not(:disabled) {
+			background: var(--bg-hover);
+		}
+
+		.no-more-messages {
+			font-size: var(--text-xs);
+			color: var(--text-tertiary);
+			padding: 0.5rem;
+		}
 	}
 
 	/* Extra small screens */
