@@ -28,7 +28,7 @@ export default defineConfig({
 	},
 	plugins: [
 		sveltekit(),
-		VitePWA({
+		...(isTauri ? [] : [VitePWA({
 			registerType: 'autoUpdate',
 			devOptions: {
 				enabled: true // This enables PWA features in dev mode
@@ -77,6 +77,6 @@ export default defineConfig({
 					}
 				]
 			}
-		})
+		})])
 	]
 });

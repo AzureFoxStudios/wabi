@@ -1,17 +1,24 @@
-import adapter from '@sveltejs/adapter-node';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+
+const isTauri = !!process.env.TAURI_ENV_PLATFORM;
+
+const adapter = isTauri
+	? (await import('@sveltejs/adapter-static')).default({
+			fallback: 'index.html'
+		})
+	: (await import('@sveltejs/adapter-node')).default();
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
 	preprocess: vitePreprocess(),
 	kit: {
-		adapter: adapter(),
-		serviceWorker: {
-			register: true
-		},
-		version: {
-			pollInterval: 60000 // Check for updates every 60 seconds
-		}
+		adapter,
+		...(isTauri
+			? { prerender: { entries: [] } }
+			: {
+					serviceWorker: { register: true },
+					version: { pollInterval: 60000 }
+				})
 	}
 };
 

@@ -2747,7 +2747,7 @@ io.on("connection", (socket) => {
       }
     });
 
-    io.to(data.targetUserId).emit("dm-created", {
+    io.to(data.targetUserId).emit("dm-channel-added", {
       channelId: dmId,
       otherUser: {
         id: user.id,

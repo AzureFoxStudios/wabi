@@ -180,12 +180,6 @@ class SocketManager {
 
 		// Determine server URL
 		let serverUrl = getServerUrl();
-		if (typeof window !== 'undefined' && window.location.origin.includes('tauri.localhost')) {
-			const isDebug = import.meta.env.TAURI_DEBUG === 'true' || import.meta.env.DEV;
-			if (!isDebug) {
-				serverUrl = 'https://wabi.chat';
-			}
-		}
 
 		// Get auth credentials safely
 		const { token, sessionId } = this.getAuthCredentials(authToken);
@@ -750,6 +744,26 @@ class SocketManager {
 			}));
 
 			dmPanelSignal.set({ channelId: data.channelId, otherUser: data.otherUser });
+		});
+
+		sock.on('dm-channel-added', (data: { channelId: string; otherUser: User }) => {
+			const dmChannel: Channel = {
+				id: data.channelId,
+				name: data.otherUser.username,
+				createdAt: Date.now(),
+				type: 'dm',
+				otherUser: data.otherUser
+			};
+
+			channels.update(chs => {
+				if (chs.some(ch => ch.id === data.channelId)) return chs;
+				return [...chs, dmChannel];
+			});
+
+			channelMessages.update(msgs => ({
+				...msgs,
+				[data.channelId]: msgs[data.channelId] || []
+			}));
 		});
 
 		sock.on('group-created', (group: Channel) => {
