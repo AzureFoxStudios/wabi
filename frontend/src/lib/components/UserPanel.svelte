@@ -5,6 +5,7 @@
 	import { startScreenShare } from '$lib/calling';
 	import UserPopout from './UserPopout.svelte';
 	import UserContextMenu from './UserContextMenu.svelte';
+	import { longpress } from '$lib/actions/longpress';
 	import CreateDMModal from './CreateDMModal.svelte';
 
 	const dispatch = createEventDispatcher();
@@ -52,6 +53,18 @@
 		popoutIsOwnProfile = user.id === $currentUser?.id;
 		popoutAnchorElement = anchorEl;
 		showUserPopout = true;
+	}
+
+	function handleUserLongPress(event: TouchEvent, user: User) {
+		const touch = event.touches?.[0] || event.changedTouches?.[0];
+		if (!touch) return;
+		const syntheticEvent = {
+			preventDefault: () => {},
+			stopPropagation: () => {},
+			clientX: touch.clientX,
+			clientY: touch.clientY
+		} as MouseEvent;
+		handleContextMenu(syntheticEvent, user);
 	}
 
 	function handleContextMenu(event: MouseEvent, user: User) {
@@ -203,6 +216,7 @@
 			<div
 				class="user"
 				on:contextmenu={(e) => handleContextMenu(e, user)}
+				use:longpress={{ onLongPress: (e) => handleUserLongPress(e, user) }}
 			>
 				<!-- Profile Picture or Placeholder -->
 				<button class="user-avatar-button" on:click|stopPropagation={(e) => openProfile(user, e.currentTarget)}>

@@ -7,6 +7,7 @@
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
 	import DMListPanel from './DMListPanel.svelte';
 	import type { Channel, User } from '$lib/socket';
+	import { longpress } from '$lib/actions/longpress';
 
 	const dispatch = createEventDispatcher();
 
@@ -155,6 +156,17 @@
 		showStatusPopup = false;
 	}
 
+	function handleChannelLongPress(event: TouchEvent, channel: Channel) {
+		const touch = event.touches?.[0] || event.changedTouches?.[0];
+		if (!touch) return;
+		const syntheticEvent = new MouseEvent('contextmenu', {
+			clientX: touch.clientX,
+			clientY: touch.clientY,
+			bubbles: true
+		});
+		handleChannelRightClick(syntheticEvent, channel);
+	}
+
 	function handleChannelRightClick(event: MouseEvent, channel: Channel) {
 		event.preventDefault();
 		contextMenuChannel = channel;
@@ -264,7 +276,7 @@
 	<div class="channel-list">
 		<!-- Public Channels -->
 		{#each publicChannels as channel (channel.id)}
-			<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)}>
+			<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)} use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}>
 				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
 					<span class="hash">#</span>
 					{channel.name}
@@ -296,7 +308,7 @@
 		{#if groupChannels.length > 0}
 			<div class="section-header">Group Chats</div>
 			{#each groupChannels as channel (channel.id)}
-				<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)}>
+				<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)} use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}>
 					<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
 						<svg class="group-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
 						{channel.name}

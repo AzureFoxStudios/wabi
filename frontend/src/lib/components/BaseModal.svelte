@@ -158,4 +158,20 @@
 			transform: translateX(0);
 		}
 	}
+
+	@media (max-width: 768px) {
+		.modal-content {
+			max-width: calc(100vw - 2rem);
+			max-height: 85dvh;
+		}
+
+		.right-panel .modal-content {
+			width: 100%;
+		}
+
+		.modal-close {
+			width: 44px;
+			height: 44px;
+		}
+	}
 </style>

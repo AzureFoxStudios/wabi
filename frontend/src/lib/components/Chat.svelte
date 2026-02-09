@@ -598,9 +598,7 @@
 
 	function handleReply(message: Message) {
 		replyingTo = message;
-		// Focus the input
-		const input = document.querySelector('input[type="text"]') as HTMLInputElement;
-		input?.focus();
+		textareaElement?.focus();
 	}
 
 	function cancelReply() {
@@ -1649,9 +1647,9 @@
 			flex-shrink: 0;
 		}
 
-		/* Hide GIF button on mobile to reduce clutter */
+		/* Show attach/camera buttons on mobile */
 		.input-buttons-left {
-			display: none;
+			display: flex;
 		}
 
 		.send-button {

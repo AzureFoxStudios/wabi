@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { channels, channelMessages, currentChannel, users, currentUser, createDM, joinChannel, type User } from '$lib/socket';
+	import { longpress } from '$lib/actions/longpress';
 
 	// TEMPORARY: This is a temporary DM panel for the left sidebar
 	// TODO: Refactor DM system later, move to dedicated DM section
@@ -69,6 +70,17 @@
 
 	function selectDM(channelId: string) {
 		joinChannel(channelId);
+	}
+
+	function handleDMLongPress(event: TouchEvent, dmChannel: any) {
+		const touch = event.touches?.[0] || event.changedTouches?.[0];
+		if (!touch) return;
+		const syntheticEvent = new MouseEvent('contextmenu', {
+			clientX: touch.clientX,
+			clientY: touch.clientY,
+			bubbles: true
+		});
+		handleDMRightClick(syntheticEvent, dmChannel);
 	}
 
 	// TEMPORARY: Context menu handlers
@@ -177,6 +189,7 @@
 							class:active={$currentChannel === channel.id}
 							on:click={() => selectDM(channel.id)}
 							on:contextmenu={(e) => handleDMRightClick(e, channel)}
+							use:longpress={{ onLongPress: (e) => handleDMLongPress(e, channel) }}
 						>
 							<div class="dm-avatar">
 								{#if otherUser.profilePicture}

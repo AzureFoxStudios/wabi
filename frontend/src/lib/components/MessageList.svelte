@@ -11,6 +11,7 @@
 	import LinkPreview from './LinkPreview.svelte';
 	import { parseMessage } from '$lib/markdown';
 	import '$lib/prism-theme.css';
+	import { longpress } from '$lib/actions/longpress';
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
@@ -370,6 +371,17 @@
 		const ext = fileName.toLowerCase().split('.').pop() || '';
 		return ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma', 'webm'].includes(ext);
 	}
+	// Mobile long-press message actions
+	let mobileActionsMessageId: string | null = null;
+
+	function handleMessageLongPress(event: TouchEvent, message: Message) {
+		mobileActionsMessageId = message.id;
+	}
+
+	function dismissMobileActions() {
+		mobileActionsMessageId = null;
+	}
+
 	let enlargedImage: string | null = null;
 	let enlargedVideo: string | null = null;
 	let currentImageGallery: string[] = [];
@@ -479,7 +491,7 @@
 </script>
 
 <!-- Window-level keyboard listener for image navigation -->
-<svelte:window on:keydown={handleImageKeydown} />
+<svelte:window on:keydown={handleImageKeydown} on:click={dismissMobileActions} />
 
 <!-- Load More Messages Button -->
 {#if (hasMoreServerHistory || hasMoreMessages) && messages.length >= 50}
@@ -514,8 +526,9 @@
 		id="message-{message.id}"
 		class="message {message.isPinned ? 'pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''}"
 		on:contextmenu={(e) => handleContextMenu(e, message)}
+		use:longpress={{ onLongPress: (e) => handleMessageLongPress(e, message) }}
 	>
-		<div class="message-actions">
+		<div class="message-actions" class:mobile-visible={mobileActionsMessageId === message.id}>
 			<button class="action-btn" title="Add Reaction" on:click={(e) => openReactionPicker(e, message.id)}>
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
 			</button>
@@ -1762,24 +1775,25 @@
 			display: none;
 		}
 
-		.message:active .message-actions {
+		.message-actions.mobile-visible {
 			display: flex;
 			position: absolute;
 			top: -8px;
 			right: 0;
 			opacity: 1;
 			visibility: visible;
+			transform: translateY(0);
 		}
 
 		.action-btn {
-			width: 28px;
-			height: 28px;
-			padding: 0.25rem;
+			width: 44px;
+			height: 44px;
+			padding: 0.5rem;
 		}
 
 		.action-btn svg {
-			width: 14px;
-			height: 14px;
+			width: 20px;
+			height: 20px;
 		}
 
 		.timestamp-action {
