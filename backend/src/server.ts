@@ -1572,9 +1572,21 @@ function loadUserChannelsFromDB(userId: string): Channel[] {
           persistMessages: dbChannel.persist_messages === 1
         });
 
-        // Initialize message array if not exists
+        // Initialize message array and load message history if not exists
         if (!channelMessages.has(dbChannel.channel_id)) {
-          channelMessages.set(dbChannel.channel_id, []);
+          try {
+            // Load message history for this channel from database
+            const dbMessages = messageRepository.getByChannel(dbChannel.channel_id, { limit: 50 });
+            const clientMessages = dbMessages.map(msg => messageRepository.toClientFormat(msg));
+            channelMessages.set(dbChannel.channel_id, clientMessages);
+            
+            if (ENABLE_LOGGING && dbMessages.length > 0) {
+              console.log(`[loadUserChannelsFromDB] Loaded ${dbMessages.length} messages for channel ${dbChannel.channel_id}`);
+            }
+          } catch (error) {
+            console.error(`[loadUserChannelsFromDB] Failed to load messages for ${dbChannel.channel_id}:`, error);
+            channelMessages.set(dbChannel.channel_id, []); // Fallback to empty array
+          }
         }
       }
     }
