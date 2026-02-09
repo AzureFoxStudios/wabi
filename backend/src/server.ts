@@ -17,6 +17,9 @@ import { verifyToken } from "./auth/jwt.js";
 import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings } from "./api/authRoutes.js";
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
+import { channelRepository } from "./db/repositories/channelRepository.js";
+import { channelMemberRepository } from "./db/repositories/channelMemberRepository.js";
+import { messageRepository } from "./db/repositories/messageRepository.js";
 // In-memory data store
 interface Channel {
   id: string;
@@ -372,10 +375,11 @@ const server = createServer();
 // This ensures Socket.IO can intercept /socket.io/ requests properly
 const io = new Server(server, {
   cors: {
-    origin: corsCallback,
+    origin: getAllowedOrigins(),
     methods: ["GET", "POST"],
     credentials: true
   },
+  allowEIO3: true, 
   maxHttpBufferSize: 75 * 1024 * 1024, // 75MB (to handle 50MB files after base64 encoding ~33% overhead)
   pingTimeout: 30000,       // 30s pong wait (more forgiving for mobile)
   pingInterval: 25000,      // 25s ping (keeps alive through proxies)
@@ -1408,6 +1412,25 @@ server.on('request', async (req, res) => {
 try {
   initializeDatabase();
   console.log('[Database] ✅ Initialized');
+
+  // Ensure general channel exists in DB and load public channels
+  channelRepository.ensureGeneralExists();
+  const dbChannels = channelRepository.getPublicChannels();
+  dbChannels.forEach(ch => {
+    if (!channels.has(ch.channel_id)) {
+      channels.set(ch.channel_id, {
+        id: ch.channel_id,
+        name: ch.name,
+        createdAt: ch.created_at,
+        type: ch.channel_type,
+        persistMessages: ch.persist_messages === 1
+      });
+      if (!channelMessages.has(ch.channel_id)) {
+        channelMessages.set(ch.channel_id, []);
+      }
+    }
+  });
+  console.log(`[Database] ✅ Loaded ${dbChannels.length} channels from database`);
 } catch (error) {
   console.error('[Database] ❌ Initialization failed:', error);
   process.exit(1);
@@ -1510,6 +1533,46 @@ deleteMessageById = (channelId: string, messageId: string) => {
 // Initialize server: DO NOT load persisted messages from disk
 // Messages are stored client-side in localStorage, not server-side
 // restoreMessageDeletionTimers() is not needed since messages start fresh on server restart
+
+// Helper function to load user's persisted DM/group channels from database
+// and ensure they exist in the in-memory maps
+function loadUserChannelsFromDB(userId: string): Channel[] {
+  try {
+    // Get channels where user is a member from DB
+    const userChannelRecords = channelMemberRepository.getUserChannels(userId);
+
+    for (const record of userChannelRecords) {
+      const dbChannel = channelRepository.findById(record.channel_id);
+      if (dbChannel && !channels.has(dbChannel.channel_id)) {
+        // Get members for this channel
+        const memberIds = channelMemberRepository.getMemberIds(dbChannel.channel_id);
+
+        // Add to in-memory channels
+        channels.set(dbChannel.channel_id, {
+          id: dbChannel.channel_id,
+          name: dbChannel.name,
+          createdAt: dbChannel.created_at,
+          type: dbChannel.channel_type,
+          members: memberIds,
+          persistMessages: dbChannel.persist_messages === 1
+        });
+
+        // Initialize message array if not exists
+        if (!channelMessages.has(dbChannel.channel_id)) {
+          channelMessages.set(dbChannel.channel_id, []);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[loadUserChannelsFromDB] Error loading channels:', error);
+  }
+
+  // Return all channels the user has access to
+  return Array.from(channels.values()).filter(channel => {
+    if (!channel.members || channel.members.length === 0) return true;
+    return channel.members.includes(userId);
+  });
+}
 
 if (ENABLE_LOGGING) {
   console.log(`🚀 Community Chat server running on port ${PORT}`);
@@ -1653,10 +1716,8 @@ io.on("connection", (socket) => {
           usernameFont
         });
 
-        const userChannels = Array.from(channels.values()).filter(channel => {
-          if (!channel.members || channel.members.length === 0) return true;
-          return channel.members.includes(socket.id);
-        });
+        // Load user's persisted DM/group channels from database
+        const userChannels = loadUserChannelsFromDB(socket.id);
 
         const emojisData = getAllEmojis();
         socket.emit("init", {
@@ -1709,10 +1770,8 @@ io.on("connection", (socket) => {
         profilePicture: session.profilePicture
       });
 
-      const userChannels = Array.from(channels.values()).filter(channel => {
-        if (!channel.members || channel.members.length === 0) return true;
-        return channel.members.includes(socket.id);
-      });
+      // Load user's persisted DM/group channels from database
+      const userChannels = loadUserChannelsFromDB(socket.id);
 
       const emojisData = getAllEmojis();
       socket.emit("init", {
@@ -1752,10 +1811,8 @@ io.on("connection", (socket) => {
         profilePicture: undefined
       });
 
-      const userChannels = Array.from(channels.values()).filter(channel => {
-        if (!channel.members || channel.members.length === 0) return true;
-        return channel.members.includes(socket.id);
-      });
+      // Load user's persisted DM/group channels from database
+      const userChannels = loadUserChannelsFromDB(socket.id);
 
       const emojisData = getAllEmojis();
       socket.emit("init", {
@@ -1800,13 +1857,8 @@ io.on("connection", (socket) => {
       profilePicture: session.profilePicture
     });
 
-    // Send existing channels, users, and emotes to the reconnecting user
-    const userChannels = Array.from(channels.values()).filter(channel => {
-      if (!channel.members || channel.members.length === 0) {
-        return true;
-      }
-      return channel.members.includes(socket.id);
-    });
+    // Load user's persisted DM/group channels from database
+    const userChannels = loadUserChannelsFromDB(socket.id);
 
     const emojisData = getAllEmojis();
     socket.emit("init", {
@@ -1921,6 +1973,63 @@ io.on("connection", (socket) => {
     if (ENABLE_LOGGING) console.log(`User ${socket.id} joined channel ${channelId}`);
   });
 
+  // Handle history loading with pagination
+  socket.on("load-history", (data: {
+    channelId: string;
+    beforeMessageId?: string;
+    afterMessageId?: string;
+    limit?: number;
+  }) => {
+    const channel = channels.get(data.channelId);
+    if (!channel) {
+      socket.emit("history-loaded", {
+        channelId: data.channelId,
+        messages: [],
+        hasMore: false,
+        direction: data.beforeMessageId ? 'older' : 'initial'
+      });
+      return;
+    }
+
+    // Check membership for DMs and groups
+    if (channel.members && channel.members.length > 0) {
+      if (!channel.members.includes(socket.id)) {
+        socket.emit("channel-error", "Access denied to this channel");
+        return;
+      }
+    }
+
+    try {
+      const limit = data.limit || 50;
+      const dbMessages = messageRepository.getByChannel(data.channelId, {
+        limit,
+        beforeMessageId: data.beforeMessageId,
+        afterMessageId: data.afterMessageId
+      });
+
+      const clientMessages = dbMessages.map(m => messageRepository.toClientFormat(m));
+
+      socket.emit("history-loaded", {
+        channelId: data.channelId,
+        messages: clientMessages,
+        hasMore: dbMessages.length === limit,
+        direction: data.beforeMessageId ? 'older' : data.afterMessageId ? 'newer' : 'initial'
+      });
+
+      if (ENABLE_LOGGING) {
+        console.log(`[load-history] Loaded ${clientMessages.length} messages for ${data.channelId}`);
+      }
+    } catch (error) {
+      console.error('[load-history] Failed to load history:', error);
+      socket.emit("history-loaded", {
+        channelId: data.channelId,
+        messages: [],
+        hasMore: false,
+        direction: data.beforeMessageId ? 'older' : 'initial'
+      });
+    }
+  });
+
   // Handle chat messages
   socket.on("message", (data: {
     text: string;
@@ -1981,8 +2090,29 @@ io.on("connection", (socket) => {
     const deletionDuration = channel.autoDeleteAfter || '24h';
     scheduleMessageDeletion(data.channelId, message.id, deletionDuration);
 
-    // Note: We do NOT save messages to server disk anymore
-    // Clients save messages to their own localStorage if persistence is enabled
+    // Persist message to database
+    try {
+      messageRepository.create({
+        message_id: message.id,
+        channel_id: data.channelId,
+        sender_id: socket.id,
+        sender_username: user.username,
+        sender_color: user.color,
+        message_type: data.type,
+        content: data.text,
+        gif_url: data.gifUrl,
+        file_url: data.fileUrl,
+        file_name: data.fileName,
+        file_size: data.fileSize,
+        reply_to_id: data.replyTo,
+        is_spoiler: data.isSpoiler ? 1 : 0,
+        is_pinned: 0,
+        is_edited: 0,
+        created_at: message.timestamp
+      });
+    } catch (dbError) {
+      console.error('[MessageRepository] Failed to persist message:', dbError);
+    }
 
     // Clear typing indicator for this channel
     if (typingUsers.has(socket.id)) {
@@ -2009,6 +2139,13 @@ io.on("connection", (socket) => {
 
     message.text = data.newText;
     message.isEdited = true;
+
+    // Persist edit to database
+    try {
+      messageRepository.markEdited(data.messageId, data.newText);
+    } catch (dbError) {
+      console.error('[MessageRepository] Failed to persist edit:', dbError);
+    }
 
     emitToChannel(data.channelId, "message-edited", { channelId: data.channelId, messageId: data.messageId, newText: data.newText });
   });
@@ -2065,6 +2202,13 @@ io.on("connection", (socket) => {
     // Cancel any scheduled auto-deletion for this message
     cancelMessageDeletion(data.messageId);
 
+    // Soft delete in database
+    try {
+      messageRepository.softDelete(data.messageId);
+    } catch (dbError) {
+      console.error('[MessageRepository] Failed to soft delete message:', dbError);
+    }
+
     emitToChannel(data.channelId, "message-deleted", { channelId: data.channelId, messageId: data.messageId });
   });
 
@@ -2088,6 +2232,13 @@ io.on("connection", (socket) => {
       channelPins.add(data.messageId);
     } else {
       channelPins.delete(data.messageId);
+    }
+
+    // Persist pin state to database
+    try {
+      messageRepository.update(data.messageId, { is_pinned: message.isPinned ? 1 : 0 });
+    } catch (dbError) {
+      console.error('[MessageRepository] Failed to update pin state:', dbError);
     }
 
     emitToChannel(data.channelId, "message-pin-toggled", { channelId: data.channelId, messageId: data.messageId, isPinned: message.isPinned });
@@ -2154,6 +2305,13 @@ io.on("connection", (socket) => {
       message.reactions[data.emojiId].push(user.id);
     }
 
+    // Persist reactions to database
+    try {
+      messageRepository.updateReactions(data.messageId, message.reactions);
+    } catch (dbError) {
+      console.error('[MessageRepository] Failed to update reactions:', dbError);
+    }
+
     emitToChannel(data.channelId, "reaction-added", {
       channelId: data.channelId,
       messageId: data.messageId,
@@ -2181,6 +2339,13 @@ io.on("connection", (socket) => {
       if (message.reactions[data.emojiId].length === 0) {
         delete message.reactions[data.emojiId];
       }
+    }
+
+    // Persist reactions to database
+    try {
+      messageRepository.updateReactions(data.messageId, message.reactions);
+    } catch (dbError) {
+      console.error('[MessageRepository] Failed to update reactions:', dbError);
     }
 
     emitToChannel(data.channelId, "reaction-removed", {
@@ -2495,6 +2660,40 @@ io.on("connection", (socket) => {
     channelMessages.set(dmId, []);
     pinnedMessages.set(dmId, new Set());
 
+    // Persist DM channel and members to database
+    try {
+      if (!channelRepository.exists(dmId)) {
+        channelRepository.create({
+          channel_id: dmId,
+          channel_type: 'dm',
+          name: dmChannel.name,
+          created_at: dmChannel.createdAt,
+          created_by: socket.id,
+          persist_messages: 1
+        });
+
+        // Add both members
+        channelMemberRepository.addMembers([
+          {
+            channel_id: dmId,
+            user_id: socket.id,
+            username: user.username,
+            joined_at: Date.now(),
+            role: 'member'
+          },
+          {
+            channel_id: dmId,
+            user_id: data.targetUserId,
+            username: targetUser.username,
+            joined_at: Date.now(),
+            role: 'member'
+          }
+        ]);
+      }
+    } catch (dbError) {
+      console.error('[ChannelRepository] Failed to persist DM:', dbError);
+    }
+
     // Notify both users about the DM
     socket.emit("dm-created", {
       channelId: dmId,
@@ -2549,6 +2748,33 @@ io.on("connection", (socket) => {
     channels.set(groupId, groupChannel);
     channelMessages.set(groupId, []);
     pinnedMessages.set(groupId, new Set());
+
+    // Persist group channel and members to database
+    try {
+      channelRepository.create({
+        channel_id: groupId,
+        channel_type: 'group',
+        name: data.name,
+        created_at: groupChannel.createdAt,
+        created_by: socket.id,
+        persist_messages: 1
+      });
+
+      // Add all members
+      const memberRecords = memberIds.map(memberId => {
+        const memberUser = users.get(memberId);
+        return {
+          channel_id: groupId,
+          user_id: memberId,
+          username: memberUser?.username || 'Unknown',
+          joined_at: Date.now(),
+          role: memberId === socket.id ? 'owner' as const : 'member' as const
+        };
+      });
+      channelMemberRepository.addMembers(memberRecords);
+    } catch (dbError) {
+      console.error('[ChannelRepository] Failed to persist group:', dbError);
+    }
 
     // Notify all members about the group
     memberIds.forEach(memberId => {

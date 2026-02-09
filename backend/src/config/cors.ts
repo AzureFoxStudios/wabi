@@ -110,10 +110,6 @@ export function corsCallback(origin: string | undefined, callback: (err: Error |
 		return callback(null, true);
 	}
 
-	if (process.env.NODE_ENV !== 'production') {
-		return callback(null, true); // Dev mode: allow all
-	}
-
 	// Production: reject unless whitelisted
 	console.error(`[CORS] Rejected origin: "${origin}". Allowed: [${allowedOrigins.join(', ')}]`);
 	callback(new Error(`Not allowed by CORS: origin "${origin}" not in allowed list`));
