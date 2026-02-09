@@ -21,7 +21,7 @@
 		localStream,
 		connectionState
 	} from '$lib/calling';
-	import { showCallNotification, playCallRingtone } from '$lib/notifications';
+	import { showCallNotification, playCallRingtone, stopCallRingtone } from '$lib/notifications';
 	import { onDestroy } from 'svelte';
 
 	// ---- Tile types ----
@@ -151,6 +151,7 @@
 			() => handleReject()
 		);
 	} else {
+		stopCallRingtone();
 		if (callNotification) {
 			callNotification.close();
 			callNotification = null;

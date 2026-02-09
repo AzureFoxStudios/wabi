@@ -113,6 +113,26 @@ const screenSharers = new Map<string, {
   username: string;
 }>();
 
+// Track active call peers: socketId -> Set of partner socketIds
+const activeCallPeers = new Map<string, Set<string>>();
+
+function addCallPeer(socketId: string, peerId: string) {
+  if (!activeCallPeers.has(socketId)) activeCallPeers.set(socketId, new Set());
+  if (!activeCallPeers.has(peerId)) activeCallPeers.set(peerId, new Set());
+  activeCallPeers.get(socketId)!.add(peerId);
+  activeCallPeers.get(peerId)!.add(socketId);
+}
+
+function removeAllCallPeers(socketId: string): Set<string> {
+  const peers = activeCallPeers.get(socketId) || new Set();
+  for (const peerId of peers) {
+    activeCallPeers.get(peerId)?.delete(socketId);
+    if (activeCallPeers.get(peerId)?.size === 0) activeCallPeers.delete(peerId);
+  }
+  activeCallPeers.delete(socketId);
+  return peers;
+}
+
 // Excalidraw state
 let excalidrawState: any = null;
 
@@ -2534,6 +2554,7 @@ io.on("connection", (socket) => {
       username: user?.username || 'Unknown',
       isVideoCall: data.isVideoCall
     });
+    addCallPeer(socket.id, data.callerId);
   });
 
   socket.on("call-reject", (data: { callerId: string }) => {
@@ -2543,6 +2564,9 @@ io.on("connection", (socket) => {
   });
 
   socket.on("call-end", (data?: { participants?: string[] }) => {
+    // Clean up call peer tracking
+    removeAllCallPeers(socket.id);
+
     // Fixed: only notify call participants, not broadcast to everyone
     if (data?.participants && data.participants.length > 0) {
       // Send to specific participants
@@ -2560,9 +2584,11 @@ io.on("connection", (socket) => {
   });
 
   socket.on("call-offer", (data: { offer: RTCSessionDescriptionInit; targetId: string }) => {
+    const user = users.get(socket.id);
     io.to(data.targetId).emit("call-offer", {
       offer: data.offer,
-      senderId: socket.id
+      senderId: socket.id,
+      username: user?.username || 'Unknown'
     });
   });
 
@@ -2947,6 +2973,12 @@ io.on("connection", (socket) => {
         screenSharers.delete(socket.id);
         // Fixed: emit object with userId, not just socket.id string
         socket.broadcast.emit("screen-share-stopped", { userId: socket.id });
+      }
+
+      // Clean up active calls — notify orphaned peers
+      const callPeers = removeAllCallPeers(socket.id);
+      for (const peerId of callPeers) {
+        io.to(peerId).emit("call-ended", { userId: socket.id });
       }
 
       socket.broadcast.emit("user-left", {

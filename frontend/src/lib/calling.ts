@@ -528,13 +528,18 @@ export async function createCallOffer(socket: Socket, targetId: string, username
 		});
 	}
 
-	const offer = await pc.createOffer();
-	await pc.setLocalDescription(offer);
+	try {
+		const offer = await pc.createOffer();
+		await pc.setLocalDescription(offer);
 
-	socket.emit('call-offer', {
-		offer,
-		targetId
-	});
+		socket.emit('call-offer', {
+			offer,
+			targetId
+		});
+	} catch (err) {
+		console.error('[WebRTC] Failed to create call offer:', err);
+		cleanupPeerConnection(key);
+	}
 }
 
 export async function handleCallOffer(
@@ -553,22 +558,27 @@ export async function handleCallOffer(
 		});
 	}
 
-	await pc.setRemoteDescription(offer);
+	try {
+		await pc.setRemoteDescription(offer);
 
-	// Mark remote description as set and flush queue
-	const state = peerConnections.get(key);
-	if (state) {
-		state.hasRemoteDescription = true;
-		await flushIceCandidateQueue(key);
+		// Mark remote description as set and flush queue
+		const state = peerConnections.get(key);
+		if (state) {
+			state.hasRemoteDescription = true;
+			await flushIceCandidateQueue(key);
+		}
+
+		const answer = await pc.createAnswer();
+		await pc.setLocalDescription(answer);
+
+		socket.emit('call-answer-sdp', {
+			answer,
+			targetId: senderId
+		});
+	} catch (err) {
+		console.error('[WebRTC] Failed to handle call offer:', err);
+		cleanupPeerConnection(key);
 	}
-
-	const answer = await pc.createAnswer();
-	await pc.setLocalDescription(answer);
-
-	socket.emit('call-answer-sdp', {
-		answer,
-		targetId: senderId
-	});
 }
 
 export async function handleCallAnswer(senderId: string, answer: RTCSessionDescriptionInit) {
@@ -647,6 +657,7 @@ export function stopScreenShare(socket: Socket) {
 
 export async function createScreenShareOffer(socket: Socket, targetId: string) {
 	const pc = createPeerConnection(targetId, '', 'screen-share-outbound', socket);
+	const key = getConnectionKey(targetId, 'screen');
 
 	const stream = get(localScreenStream);
 	if (stream) {
@@ -655,13 +666,18 @@ export async function createScreenShareOffer(socket: Socket, targetId: string) {
 		});
 	}
 
-	const offer = await pc.createOffer();
-	await pc.setLocalDescription(offer);
+	try {
+		const offer = await pc.createOffer();
+		await pc.setLocalDescription(offer);
 
-	socket.emit('webrtc-offer', {
-		offer,
-		targetId
-	});
+		socket.emit('webrtc-offer', {
+			offer,
+			targetId
+		});
+	} catch (err) {
+		console.error('[WebRTC] Failed to create screen share offer:', err);
+		cleanupPeerConnection(key);
+	}
 }
 
 export async function handleScreenShareOffer(
@@ -673,21 +689,26 @@ export async function handleScreenShareOffer(
 	const pc = createPeerConnection(senderId, username, 'screen-share-inbound', socket);
 	const key = getConnectionKey(senderId, 'screen');
 
-	await pc.setRemoteDescription(offer);
+	try {
+		await pc.setRemoteDescription(offer);
 
-	const state = peerConnections.get(key);
-	if (state) {
-		state.hasRemoteDescription = true;
-		await flushIceCandidateQueue(key);
+		const state = peerConnections.get(key);
+		if (state) {
+			state.hasRemoteDescription = true;
+			await flushIceCandidateQueue(key);
+		}
+
+		const answer = await pc.createAnswer();
+		await pc.setLocalDescription(answer);
+
+		socket.emit('webrtc-answer', {
+			answer,
+			targetId: senderId
+		});
+	} catch (err) {
+		console.error('[WebRTC] Failed to handle screen share offer:', err);
+		cleanupPeerConnection(key);
 	}
-
-	const answer = await pc.createAnswer();
-	await pc.setLocalDescription(answer);
-
-	socket.emit('webrtc-answer', {
-		answer,
-		targetId: senderId
-	});
 }
 
 export async function handleScreenShareAnswer(senderId: string, answer: RTCSessionDescriptionInit) {
