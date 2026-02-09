@@ -31,6 +31,7 @@ interface Channel {
   isTemporary?: boolean;
   persistMessages?: boolean; // Opt-in flag for message persistence
   pinnedBy?: string[]; // Array of user IDs who have pinned this channel
+  recipientNotified?: boolean;
 }
 
 const channels = new Map<string, Channel>();
@@ -2151,6 +2152,24 @@ io.on("connection", (socket) => {
     messages.push(message);
     channelMessages.set(data.channelId, messages);
 
+    // Notify DM recipient on first message (lazy channel delivery)
+    if (channel.type === 'dm' && !channel.recipientNotified && channel.members) {
+      const recipientId = channel.members.find(m => m !== socket.id);
+      if (recipientId) {
+        io.to(recipientId).emit("dm-channel-added", {
+          channelId: data.channelId,
+          otherUser: {
+            id: user.id,
+            username: user.username,
+            color: user.color,
+            status: user.status,
+            profilePicture: user.profilePicture
+          }
+        });
+        channel.recipientNotified = true;
+      }
+    }
+
     emitToChannel(data.channelId, "message", { channelId: data.channelId, message });
 
     // Schedule auto-deletion for ALL messages (either custom time or default 1-day)
@@ -2727,7 +2746,8 @@ io.on("connection", (socket) => {
       createdAt: Date.now(),
       type: 'dm',
       members: memberIds,
-      persistMessages: true
+      persistMessages: true,
+      recipientNotified: false
     };
 
     channels.set(dmId, dmChannel);
@@ -2777,17 +2797,6 @@ io.on("connection", (socket) => {
         color: targetUser.color,
         status: targetUser.status,
         profilePicture: targetUser.profilePicture
-      }
-    });
-
-    io.to(data.targetUserId).emit("dm-channel-added", {
-      channelId: dmId,
-      otherUser: {
-        id: user.id,
-        username: user.username,
-        color: user.color,
-        status: user.status,
-        profilePicture: user.profilePicture
       }
     });
 
