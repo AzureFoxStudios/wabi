@@ -14,6 +14,7 @@
 	import { parseCommand, formatCommandHelp, getMatchingCommands, type Command } from '$lib/commands';
 	import { layoutStore } from '$lib/layoutStore';
 	import { isInCall } from '$lib/calling';
+	import { getServerUrl } from '$lib/serverUrl';
 
 	const dispatch = createEventDispatcher();
 
@@ -776,17 +777,7 @@
 		let completedFiles = 0;
 
 		try {
-			let serverUrl: string;
-			if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
-				// Dev mode or Tauri app: use localhost
-				serverUrl = 'http://localhost:3000';
-			} else if (window.location.origin.includes(':3000')) {
-				// Docker deployment: if on port 3000 (frontend), connect to port 8080 (backend)
-				serverUrl = window.location.origin.replace(':3000', ':8080');
-			} else {
-				// Production: use current origin
-				serverUrl = window.location.origin;
-			}
+			const serverUrl = getServerUrl();
 
 			console.log('Upload serverUrl:', serverUrl);
 			console.log('Upload URL will be:', `${serverUrl}/api/upload`);
