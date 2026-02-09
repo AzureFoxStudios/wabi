@@ -37,7 +37,7 @@ export class ThemeRepository {
 		if (!prefs) {
 			// Create default preferences
 			this.set(userId, {
-				theme_id: 'dark'
+				theme_id: 'midnight-blue'
 			});
 			prefs = this.findById(userId)!;
 		}

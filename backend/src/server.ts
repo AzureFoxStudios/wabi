@@ -541,9 +541,7 @@ server.on('request', async (req, res) => {
           }
           writeFileSync(filePath, profilePictureFile);
 
-          // Use PUBLIC_URL if available, otherwise construct from request host
-          const serverUrl = process.env.PUBLIC_URL || `http://${req.headers.host}`;
-          const profilePictureUrl = `${serverUrl}/uploads/${fileId}`;
+          const profilePictureUrl = `/uploads/${fileId}`;
 
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({
@@ -632,9 +630,7 @@ server.on('request', async (req, res) => {
           }
           writeFileSync(filePath, backgroundImageFile);
 
-          // Use PUBLIC_URL if available, otherwise construct from request host
-          const serverUrl = process.env.PUBLIC_URL || `http://${req.headers.host}`;
-          const backgroundImageUrl = `${serverUrl}/uploads/${fileId}`;
+          const backgroundImageUrl = `/uploads/${fileId}`;
 
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({
@@ -1001,26 +997,6 @@ server.on('request', async (req, res) => {
       }
     });
     return;
-  }
-
-  // Helper function to extract user ID from request
-  function getAuthenticatedUserId(req: IncomingMessage): number | null {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return null;
-    }
-
-    try {
-      const token = authHeader.slice(7);
-      const payload = verifyToken(token);
-      const dbSession = sessionRepository.findById(payload.sessionId);
-      if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
-        return null;
-      }
-      return payload.userId;
-    } catch {
-      return null;
-    }
   }
 
   // Resolve workspace ID for an authenticated user (private vs shared)
@@ -1903,13 +1879,31 @@ io.on("connection", (socket) => {
     session.userId = socket.id;
     sessions.set(sessionId, session);
 
+    // Load usernameFont for registered users from the database
+    let usernameFont = session.usernameFont;
+    if ((socket as any).isRegistered && (socket as any).sessionId) {
+      const dbSession = sessionRepository.findById((socket as any).sessionId);
+      if (dbSession?.user_id) {
+        const userRecord = userRepository.findById(dbSession.user_id);
+        if (userRecord) {
+          usernameFont = {
+            family: userRecord.username_font_family,
+            size: userRecord.username_font_size,
+            weight: userRecord.username_font_weight,
+            style: userRecord.username_font_style
+          };
+        }
+      }
+    }
+
     // Create/update user object with existing session data
     users.set(socket.id, {
       id: socket.id,
       username: session.username,
       color: session.color,
       status: 'active',
-      profilePicture: session.profilePicture
+      profilePicture: session.profilePicture,
+      usernameFont
     });
 
     // Load user's persisted DM/group channels from database
@@ -1932,16 +1926,20 @@ io.on("connection", (socket) => {
       username: session.username,
       color: rejoinUser?.color,
       status: 'active',
-      profilePicture: rejoinUser?.profilePicture
+      profilePicture: rejoinUser?.profilePicture,
+      usernameFont: rejoinUser?.usernameFont
     });
 
     if (ENABLE_LOGGING) console.log(`${session.username} rejoined the chat`);
   });
 
   // Handle profile updates
-  socket.on("update-profile", (data: { status?: 'active' | 'away' | 'busy'; profilePicture?: string; usernameFont?: { family?: string; size?: string; weight?: string; style?: string } }) => {
+  socket.on("update-profile", (data: { status?: 'active' | 'away' | 'busy'; profilePicture?: string; usernameFont?: { family?: string; size?: string; weight?: string; style?: string } }, callback?: (response: { success: boolean; error?: string }) => void) => {
     const user = users.get(socket.id);
-    if (!user) return;
+    if (!user) {
+      if (callback) callback({ success: false, error: 'User not found' });
+      return;
+    }
 
     if (data.status) {
       user.status = data.status;
@@ -1983,6 +1981,8 @@ io.on("connection", (socket) => {
         }
       } catch (error) {
         console.error('[Error] Failed to update profile picture in database:', error);
+        if (callback) callback({ success: false, error: 'Database update failed' });
+        return;
       }
     }
 
@@ -1991,6 +1991,7 @@ io.on("connection", (socket) => {
     for (const [sessionId, session] of sessions_array) {
       if (session.userId === socket.id) {
         session.profilePicture = user.profilePicture;
+        session.usernameFont = user.usernameFont;
         sessions.set(sessionId, session);
         break; // Assuming one session per socket.id
       }
@@ -2007,6 +2008,7 @@ io.on("connection", (socket) => {
     });
 
     if (ENABLE_LOGGING) console.log(`${user.username} updated profile: status=${user.status}`);
+    if (callback) callback({ success: true });
   });
 
   // Handle joining a channel

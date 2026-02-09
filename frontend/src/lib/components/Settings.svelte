@@ -5,6 +5,7 @@
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import { playNotificationSound } from '$lib/notifications';
 	import { getSocket } from '$lib/socket';
+	import { getServerUrl } from '$lib/serverUrl';
 	import AvatarEditor from './AvatarEditor.svelte'; // Import the AvatarEditor
 
 	// Theme system
@@ -214,14 +215,7 @@
 		uploadingEmoji = true;
 
 		try {
-			let serverUrl: string;
-			if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
-				serverUrl = 'http://localhost:3000';
-			} else if (window.location.origin.includes(':3000')) {
-				serverUrl = window.location.origin.replace(':3000', ':8080');
-			} else {
-				serverUrl = window.location.origin;
-			}
+			const serverUrl = getServerUrl();
 
 			// Upload the file
 			const formData = new FormData();
@@ -339,14 +333,7 @@
 		let failCount = 0;
 
 		try {
-			let serverUrl: string;
-			if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
-				serverUrl = 'http://localhost:3000';
-			} else if (window.location.origin.includes(':3000')) {
-				serverUrl = window.location.origin.replace(':3000', ':8080');
-			} else {
-				serverUrl = window.location.origin;
-			}
+			const serverUrl = getServerUrl();
 
 			// Get auth token from localStorage
 			const authToken = localStorage.getItem('authToken');
@@ -408,14 +395,7 @@
 	async function confirmClearServer() {
 
 		try {
-			let serverUrl: string;
-			if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
-				serverUrl = 'http://localhost:3000';
-			} else if (window.location.origin.includes(':3000')) {
-				serverUrl = window.location.origin.replace(':3000', ':8080');
-			} else {
-				serverUrl = window.location.origin;
-			}
+			const serverUrl = getServerUrl();
 
 			// Get auth token from localStorage
 			const authToken = localStorage.getItem('authToken');
@@ -471,17 +451,7 @@
 		uploadingAvatar = true;
 
 		try {
-			let serverUrl: string;
-			if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
-				// Dev mode or Tauri app: use localhost
-				serverUrl = 'http://localhost:3000';
-			} else if (window.location.origin.includes(':3000')) {
-				// Docker deployment: if on port 3000 (frontend), connect to port 8080 (backend)
-				serverUrl = window.location.origin.replace(':3000', ':8080');
-			} else {
-				// Production: use current origin
-				serverUrl = window.location.origin;
-			}
+			const serverUrl = getServerUrl();
 
 			const formData = new FormData();
 			formData.append('profilePicture', selectedAvatarFile);
