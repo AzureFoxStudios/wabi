@@ -965,10 +965,8 @@ server.on('request', async (req, res) => {
         saveBusinessData(workspaceId, businessData);
 
         // Broadcast update to all other connected users in this workspace
-        io.emit('business-data-updated', {
-          workspaceId,
-          data: businessData
-        });
+        // Only send workspaceId — clients call pullFromServer() to fetch their own data
+        io.emit('business-data-updated', { workspaceId });
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
@@ -1004,6 +1002,15 @@ server.on('request', async (req, res) => {
     }
   }
 
+  // Resolve workspace ID for an authenticated user (private vs shared)
+  function resolveWorkspaceId(userId: number): string {
+    const userSettings = settingsRepository.get(userId);
+    if (userSettings.business_private_mode === 1) {
+      return `user-${userId}`;
+    }
+    return defaultWorkspaceId;
+  }
+
   // Resource management endpoints
   // List all resources for a workspace
   if (url.pathname === "/api/business/resources" && req.method === "GET") {
@@ -1015,7 +1022,7 @@ server.on('request', async (req, res) => {
         return;
       }
 
-      const workspaceId = defaultWorkspaceId;
+      const workspaceId = resolveWorkspaceId(userId);
       const data = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
 
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -1048,7 +1055,7 @@ server.on('request', async (req, res) => {
         }
 
         const resourceData = JSON.parse(body);
-        const workspaceId = defaultWorkspaceId;
+        const workspaceId = resolveWorkspaceId(userId);
         const workspace = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
 
         const newResource = {
@@ -1095,7 +1102,7 @@ server.on('request', async (req, res) => {
         }
 
         const updates = JSON.parse(body);
-        const workspaceId = defaultWorkspaceId;
+        const workspaceId = resolveWorkspaceId(userId);
         const workspace = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
 
         const resourceIndex = workspace.resources.findIndex((r: any) => r.id === resourceId);
@@ -1139,7 +1146,7 @@ server.on('request', async (req, res) => {
         return;
       }
 
-      const workspaceId = defaultWorkspaceId;
+      const workspaceId = resolveWorkspaceId(userId);
       const workspace = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
 
       workspace.resources = workspace.resources.filter((r: any) => r.id !== resourceId);

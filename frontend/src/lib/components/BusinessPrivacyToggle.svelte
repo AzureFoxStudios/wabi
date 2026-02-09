@@ -68,7 +68,7 @@
 	<label>
 		<input
 			type="checkbox"
-			bind:checked={privateMode}
+			checked={privateMode}
 			on:change={togglePrivateMode}
 			disabled={loading || !isAuthenticated}
 		/>
