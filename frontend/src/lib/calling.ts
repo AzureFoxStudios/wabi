@@ -66,6 +66,7 @@ export const connectionState = writable<ConnectionLifecycleState>('idle');
 // ============================================================================
 
 // Single map for ALL peer connections (calls and screen shares)
+// Keys are composite: `${targetId}:call` or `${targetId}:screen`
 const peerConnections = new Map<string, PeerConnectionState>();
 
 // Track call participants for targeted cleanup
@@ -82,13 +83,27 @@ function getRTCConfig(): RTCConfiguration {
 }
 
 // ============================================================================
+// Composite Key Helper
+// ============================================================================
+
+type ConnectionKeyType = 'call' | 'screen';
+
+function getConnectionKey(targetId: string, type: ConnectionKeyType): string {
+	return `${targetId}:${type}`;
+}
+
+function keyTypeFromPCType(pcType: PeerConnectionState['type']): ConnectionKeyType {
+	return pcType === 'call' ? 'call' : 'screen';
+}
+
+// ============================================================================
 // ICE Candidate Queue Management
 // ============================================================================
 
-function queueIceCandidate(targetId: string, candidate: RTCIceCandidateInit): void {
-	const state = peerConnections.get(targetId);
+function queueIceCandidate(key: string, candidate: RTCIceCandidateInit): void {
+	const state = peerConnections.get(key);
 	if (!state) {
-		console.warn(`[WebRTC] Cannot queue ICE candidate - no peer connection for ${targetId}`);
+		console.warn(`[WebRTC] Cannot queue ICE candidate - no peer connection for ${key}`);
 		return;
 	}
 
@@ -100,18 +115,18 @@ function queueIceCandidate(targetId: string, candidate: RTCIceCandidateInit): vo
 	} else {
 		// Queue for later
 		state.iceCandidateQueue.push(candidate);
-		console.log(`[WebRTC] Queued ICE candidate for ${targetId} (queue size: ${state.iceCandidateQueue.length})`);
+		console.log(`[WebRTC] Queued ICE candidate for ${key} (queue size: ${state.iceCandidateQueue.length})`);
 	}
 }
 
-async function flushIceCandidateQueue(targetId: string): Promise<void> {
-	const state = peerConnections.get(targetId);
+async function flushIceCandidateQueue(key: string): Promise<void> {
+	const state = peerConnections.get(key);
 	if (!state) return;
 
 	const queue = state.iceCandidateQueue;
 	state.iceCandidateQueue = [];
 
-	console.log(`[WebRTC] Flushing ${queue.length} queued ICE candidates for ${targetId}`);
+	console.log(`[WebRTC] Flushing ${queue.length} queued ICE candidates for ${key}`);
 
 	for (const candidate of queue) {
 		try {
@@ -132,12 +147,14 @@ function createPeerConnection(
 	type: PeerConnectionState['type'],
 	socket: Socket
 ): RTCPeerConnection {
-	// Close existing connection if any (prevents duplicates)
-	const existing = peerConnections.get(targetId);
+	const key = getConnectionKey(targetId, keyTypeFromPCType(type));
+
+	// Close existing connection of same type if any (prevents duplicates)
+	const existing = peerConnections.get(key);
 	if (existing) {
-		console.log(`[WebRTC] Closing existing peer connection for ${targetId}`);
+		console.log(`[WebRTC] Closing existing peer connection for ${key}`);
 		existing.pc.close();
-		peerConnections.delete(targetId);
+		peerConnections.delete(key);
 	}
 
 	const pc = new RTCPeerConnection(getRTCConfig());
@@ -152,12 +169,12 @@ function createPeerConnection(
 		hasRemoteDescription: false
 	};
 
-	peerConnections.set(targetId, state);
+	peerConnections.set(key, state);
 	connectionState.set('signaling');
 
 	// Connection state change handler
 	pc.onconnectionstatechange = () => {
-		console.log(`[WebRTC] Connection state for ${targetId}: ${pc.connectionState}`);
+		console.log(`[WebRTC] Connection state for ${key}: ${pc.connectionState}`);
 
 		switch (pc.connectionState) {
 			case 'connected':
@@ -171,17 +188,16 @@ function createPeerConnection(
 			case 'failed':
 				state.lifecycleState = 'failed';
 				connectionState.set('failed');
-				// Could implement reconnection here
 				break;
 			case 'closed':
-				cleanupPeerConnection(targetId);
+				cleanupPeerConnection(key);
 				break;
 		}
 	};
 
 	// ICE connection state (more granular)
 	pc.oniceconnectionstatechange = () => {
-		console.log(`[WebRTC] ICE connection state for ${targetId}: ${pc.iceConnectionState}`);
+		console.log(`[WebRTC] ICE connection state for ${key}: ${pc.iceConnectionState}`);
 
 		if (pc.iceConnectionState === 'checking') {
 			state.lifecycleState = 'connecting';
@@ -202,7 +218,7 @@ function createPeerConnection(
 
 	// Track handler
 	pc.ontrack = (event) => {
-		console.log(`[WebRTC] Received track from ${targetId}:`, event.track.kind);
+		console.log(`[WebRTC] Received track from ${key}:`, event.track.kind);
 
 		const stream = event.streams[0];
 		if (!stream) {
@@ -212,18 +228,18 @@ function createPeerConnection(
 
 		// Handle track ended
 		event.track.onended = () => {
-			console.log(`[WebRTC] Track ended from ${targetId}:`, event.track.kind);
-			handleRemoteTrackEnded(targetId, event.track, type);
+			console.log(`[WebRTC] Track ended from ${key}:`, event.track.kind);
+			handleRemoteTrackEnded(targetId, key, event.track, type);
 		};
 
 		// Handle track muted/unmuted for UI sync
 		event.track.onmute = () => {
-			console.log(`[WebRTC] Track muted from ${targetId}:`, event.track.kind);
+			console.log(`[WebRTC] Track muted from ${key}:`, event.track.kind);
 			updateRemoteTrackState(targetId, event.track, type);
 		};
 
 		event.track.onunmute = () => {
-			console.log(`[WebRTC] Track unmuted from ${targetId}:`, event.track.kind);
+			console.log(`[WebRTC] Track unmuted from ${key}:`, event.track.kind);
 			updateRemoteTrackState(targetId, event.track, type);
 		};
 
@@ -237,11 +253,11 @@ function createPeerConnection(
 	return pc;
 }
 
-function cleanupPeerConnection(targetId: string): void {
-	const state = peerConnections.get(targetId);
+function cleanupPeerConnection(key: string): void {
+	const state = peerConnections.get(key);
 	if (!state) return;
 
-	console.log(`[WebRTC] Cleaning up peer connection for ${targetId}`);
+	console.log(`[WebRTC] Cleaning up peer connection for ${key}`);
 
 	try {
 		state.pc.close();
@@ -249,12 +265,15 @@ function cleanupPeerConnection(targetId: string): void {
 		// Ignore close errors
 	}
 
-	peerConnections.delete(targetId);
-	callParticipants.delete(targetId);
+	peerConnections.delete(key);
 
-	// Update UI stores
-	activeCalls.update(calls => calls.filter(c => c.userId !== targetId));
-	screenShares.update(shares => shares.filter(s => s.userId !== targetId));
+	// Only clean the relevant store based on connection type
+	if (state.type === 'call') {
+		callParticipants.delete(state.targetId);
+		activeCalls.update(calls => calls.filter(c => c.userId !== state.targetId));
+	} else {
+		screenShares.update(shares => shares.filter(s => s.userId !== state.targetId));
+	}
 
 	// Check if any connections remain
 	if (peerConnections.size === 0) {
@@ -312,7 +331,7 @@ function addRemoteScreenShare(userId: string, username: string, stream: MediaStr
 	});
 }
 
-function handleRemoteTrackEnded(targetId: string, track: MediaStreamTrack, type: PeerConnectionState['type']): void {
+function handleRemoteTrackEnded(targetId: string, key: string, track: MediaStreamTrack, type: PeerConnectionState['type']): void {
 	if (type === 'call') {
 		// Update call state to reflect ended track
 		activeCalls.update(calls => {
@@ -330,7 +349,7 @@ function handleRemoteTrackEnded(targetId: string, track: MediaStreamTrack, type:
 	} else if (type === 'screen-share-inbound') {
 		// Screen share track ended - remove the share
 		screenShares.update(shares => shares.filter(s => s.userId !== targetId));
-		cleanupPeerConnection(targetId);
+		cleanupPeerConnection(key);
 	}
 }
 
@@ -435,12 +454,14 @@ export function endCall(socket: Socket) {
 		participants: Array.from(callParticipants)
 	});
 
-	// Close all call peer connections
-	peerConnections.forEach((state, targetId) => {
+	// Close all call peer connections (collect keys first to avoid mutation during iteration)
+	const callKeys: string[] = [];
+	peerConnections.forEach((state, key) => {
 		if (state.type === 'call') {
-			cleanupPeerConnection(targetId);
+			callKeys.push(key);
 		}
 	});
+	callKeys.forEach(key => cleanupPeerConnection(key));
 
 	activeCalls.set([]);
 	callParticipants.clear();
@@ -498,6 +519,7 @@ export function toggleVideo() {
 
 export async function createCallOffer(socket: Socket, targetId: string, username: string = '') {
 	const pc = createPeerConnection(targetId, username, 'call', socket);
+	const key = getConnectionKey(targetId, 'call');
 
 	const stream = get(localStream);
 	if (stream) {
@@ -522,6 +544,7 @@ export async function handleCallOffer(
 	offer: RTCSessionDescriptionInit
 ) {
 	const pc = createPeerConnection(senderId, username, 'call', socket);
+	const key = getConnectionKey(senderId, 'call');
 
 	const stream = get(localStream);
 	if (stream) {
@@ -533,10 +556,10 @@ export async function handleCallOffer(
 	await pc.setRemoteDescription(offer);
 
 	// Mark remote description as set and flush queue
-	const state = peerConnections.get(senderId);
+	const state = peerConnections.get(key);
 	if (state) {
 		state.hasRemoteDescription = true;
-		await flushIceCandidateQueue(senderId);
+		await flushIceCandidateQueue(key);
 	}
 
 	const answer = await pc.createAnswer();
@@ -549,7 +572,8 @@ export async function handleCallOffer(
 }
 
 export async function handleCallAnswer(senderId: string, answer: RTCSessionDescriptionInit) {
-	const state = peerConnections.get(senderId);
+	const key = getConnectionKey(senderId, 'call');
+	const state = peerConnections.get(key);
 	if (!state) {
 		console.warn(`[WebRTC] No peer connection for call answer from ${senderId}`);
 		return;
@@ -558,14 +582,15 @@ export async function handleCallAnswer(senderId: string, answer: RTCSessionDescr
 	try {
 		await state.pc.setRemoteDescription(answer);
 		state.hasRemoteDescription = true;
-		await flushIceCandidateQueue(senderId);
+		await flushIceCandidateQueue(key);
 	} catch (err) {
 		console.error(`[WebRTC] Failed to set remote description:`, err);
 	}
 }
 
 export async function handleCallIceCandidate(senderId: string, candidate: RTCIceCandidateInit) {
-	queueIceCandidate(senderId, candidate);
+	const key = getConnectionKey(senderId, 'call');
+	queueIceCandidate(key, candidate);
 }
 
 // ============================================================================
@@ -576,7 +601,7 @@ export async function startScreenShare(socket: Socket) {
 	try {
 		const stream = await navigator.mediaDevices.getDisplayMedia({
 			video: true,
-			audio: false
+			audio: true
 		});
 
 		localScreenStream.set(stream);
@@ -591,6 +616,10 @@ export async function startScreenShare(socket: Socket) {
 
 		return stream;
 	} catch (error) {
+		// User clicked Cancel on the screen picker — not an error
+		if (error instanceof DOMException && error.name === 'NotAllowedError') {
+			return null;
+		}
 		console.error('Error starting screen share:', error);
 		throw error;
 	}
@@ -606,12 +635,14 @@ export function stopScreenShare(socket: Socket) {
 	isSharing.set(false);
 	socket.emit('stop-screen-share');
 
-	// Close all outbound screen share connections
-	peerConnections.forEach((state, targetId) => {
+	// Close all outbound screen share connections (collect keys first)
+	const outboundKeys: string[] = [];
+	peerConnections.forEach((state, key) => {
 		if (state.type === 'screen-share-outbound') {
-			cleanupPeerConnection(targetId);
+			outboundKeys.push(key);
 		}
 	});
+	outboundKeys.forEach(key => cleanupPeerConnection(key));
 }
 
 export async function createScreenShareOffer(socket: Socket, targetId: string) {
@@ -640,13 +671,14 @@ export async function handleScreenShareOffer(
 	offer: RTCSessionDescriptionInit
 ) {
 	const pc = createPeerConnection(senderId, username, 'screen-share-inbound', socket);
+	const key = getConnectionKey(senderId, 'screen');
 
 	await pc.setRemoteDescription(offer);
 
-	const state = peerConnections.get(senderId);
+	const state = peerConnections.get(key);
 	if (state) {
 		state.hasRemoteDescription = true;
-		await flushIceCandidateQueue(senderId);
+		await flushIceCandidateQueue(key);
 	}
 
 	const answer = await pc.createAnswer();
@@ -659,7 +691,8 @@ export async function handleScreenShareOffer(
 }
 
 export async function handleScreenShareAnswer(senderId: string, answer: RTCSessionDescriptionInit) {
-	const state = peerConnections.get(senderId);
+	const key = getConnectionKey(senderId, 'screen');
+	const state = peerConnections.get(key);
 	if (!state) {
 		console.warn(`[WebRTC] No peer connection for screen share answer from ${senderId}`);
 		return;
@@ -668,14 +701,15 @@ export async function handleScreenShareAnswer(senderId: string, answer: RTCSessi
 	try {
 		await state.pc.setRemoteDescription(answer);
 		state.hasRemoteDescription = true;
-		await flushIceCandidateQueue(senderId);
+		await flushIceCandidateQueue(key);
 	} catch (err) {
 		console.error(`[WebRTC] Failed to set remote description:`, err);
 	}
 }
 
 export async function handleScreenShareIceCandidate(senderId: string, candidate: RTCIceCandidateInit) {
-	queueIceCandidate(senderId, candidate);
+	const key = getConnectionKey(senderId, 'screen');
+	queueIceCandidate(key, candidate);
 }
 
 // ============================================================================
@@ -683,11 +717,11 @@ export async function handleScreenShareIceCandidate(senderId: string, candidate:
 // ============================================================================
 
 export function removeCall(userId: string) {
-	cleanupPeerConnection(userId);
+	cleanupPeerConnection(getConnectionKey(userId, 'call'));
 }
 
 export function removeScreenShare(userId: string) {
-	cleanupPeerConnection(userId);
+	cleanupPeerConnection(getConnectionKey(userId, 'screen'));
 }
 
 export function cleanupAllConnections() {
@@ -705,7 +739,7 @@ export function cleanupAllConnections() {
 	}
 
 	// Close all peer connections
-	peerConnections.forEach((state, targetId) => {
+	peerConnections.forEach((state) => {
 		try {
 			state.pc.close();
 		} catch (e) {
@@ -745,9 +779,16 @@ function handleMediaError(error: DOMException, action: string) {
 
 // Update username for a call (called when username info becomes available)
 export function updateCallUsername(userId: string, username: string) {
-	const state = peerConnections.get(userId);
-	if (state) {
-		state.username = username;
+	// Update all peer connection states for this user
+	const callKey = getConnectionKey(userId, 'call');
+	const screenKey = getConnectionKey(userId, 'screen');
+	const callState = peerConnections.get(callKey);
+	if (callState) {
+		callState.username = username;
+	}
+	const screenState = peerConnections.get(screenKey);
+	if (screenState) {
+		screenState.username = username;
 	}
 
 	activeCalls.update(calls => {
