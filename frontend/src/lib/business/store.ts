@@ -248,36 +248,46 @@ function initializeSampleData() {
 
 	// Sample edges (connections between resources)
 	if (addedResources.length >= 2) {
-		const sampleEdges = [
+		const sampleEdges: Omit<GraphEdge, 'id'>[] = [
 			{
 				source: addedResources[0].id,
 				target: addedResources[1].id,
-				type: 'related',
-				label: 'similar topic'
+				type: 'related_to',
+				label: 'similar topic',
+				createdAt: Date.now(),
+				createdBy: 'system'
 			},
 			{
 				source: addedResources[1].id,
 				target: addedResources[2].id,
-				type: 'related',
-				label: 'same category'
+				type: 'related_to',
+				label: 'same category',
+				createdAt: Date.now(),
+				createdBy: 'system'
 			},
 			{
 				source: addedResources[0].id,
 				target: addedResources[4].id,
-				type: 'uses',
-				label: 'used by'
+				type: 'references',
+				label: 'used by',
+				createdAt: Date.now(),
+				createdBy: 'system'
 			},
 			{
 				source: addedResources[3].id,
 				target: addedResources[4].id,
-				type: 'related',
-				label: 'complementary'
+				type: 'related_to',
+				label: 'complementary',
+				createdAt: Date.now(),
+				createdBy: 'system'
 			},
 			{
 				source: addedResources[2].id,
 				target: addedResources[5].id,
-				type: 'related',
-				label: 'technique'
+				type: 'related_to',
+				label: 'technique',
+				createdAt: Date.now(),
+				createdBy: 'system'
 			}
 		];
 
@@ -572,7 +582,9 @@ export const todaysTodos = derived(todos, ($todos) => {
 		t.dueDate &&
 		t.dueDate >= today.getTime() &&
 		t.dueDate < tomorrow.getTime() &&
-		t.status !== 'done'
+		t.status !== 'done' &&
+		t.status !== 'archived' &&
+		t.status !== 'scrapped'
 	);
 });
 
@@ -581,7 +593,9 @@ export const overdueTodos = derived(todos, ($todos) => {
 	return $todos.filter(t =>
 		t.dueDate &&
 		t.dueDate < now &&
-		t.status !== 'done'
+		t.status !== 'done' &&
+		t.status !== 'archived' &&
+		t.status !== 'scrapped'
 	);
 });
 

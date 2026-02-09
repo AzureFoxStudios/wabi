@@ -1,6 +1,7 @@
 // frontend/src/lib/layoutStore.ts
 import { writable, readable, derived, get } from 'svelte/store';
 import type { User } from './socket-types';
+import { isInCall } from '$lib/calling';
 
 // State
 const isMobile = readable(false, (set) => {
@@ -86,8 +87,8 @@ const isResizing = derived(
 );
 
 const layout = derived(
-	[isMobile, rightPanelView, showMobileChannels, userPanelWidth, dmPanelWidth],
-	([$isMobile, $rightPanelView, $showMobileChannels, $userPanelWidth, $dmPanelWidth]) => {
+	[isMobile, rightPanelView, showMobileChannels, userPanelWidth, dmPanelWidth, isInCall],
+	([$isMobile, $rightPanelView, $showMobileChannels, $userPanelWidth, $dmPanelWidth, $isInCall]) => {
 		const showDMListPanel = !$isMobile && $rightPanelView === 'dm-list';
 		const showDMPanel = !$isMobile && $rightPanelView === 'dm';
 
@@ -101,6 +102,7 @@ const layout = derived(
 
 		return {
 			isMobile: $isMobile,
+			isInCall: $isInCall,
 			rightPanelView: $rightPanelView,
 			showMobileChannels: $isMobile && $showMobileChannels,
 			showDMListPanel,

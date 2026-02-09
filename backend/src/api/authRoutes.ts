@@ -3,7 +3,27 @@ import { userRepository } from '../db/repositories/userRepository.js';
 import { sessionRepository } from '../db/repositories/sessionRepository.js';
 import { settingsRepository } from '../db/repositories/settingsRepository.js';
 import { hashPassword, verifyPassword } from '../auth/passwordHash.js';
-import { generateToken } from '../auth/jwt.js';
+import { generateToken, verifyToken } from '../auth/jwt.js';
+
+// Get authenticated user ID from request
+function getAuthenticatedUserId(req: IncomingMessage): number | null {
+	const authHeader = req.headers.authorization;
+	if (!authHeader || !authHeader.startsWith('Bearer ')) {
+		return null;
+	}
+
+	try {
+		const token = authHeader.slice(7);
+		const payload = verifyToken(token);
+		const dbSession = sessionRepository.findById(payload.sessionId);
+		if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
+			return null;
+		}
+		return payload.userId;
+	} catch {
+		return null;
+	}
+}
 
 // Simple in-memory rate limiting
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
@@ -334,20 +354,7 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 // Get user settings
 export async function handleGetUserSettings(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
-		// Extract user ID from Authorization header (JWT token)
-		const authHeader = req.headers.authorization;
-		if (!authHeader || !authHeader.startsWith('Bearer ')) {
-			res.writeHead(401, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ error: 'Missing or invalid authorization' }));
-			return;
-		}
-
-		// For now, we'll extract user ID from the session info
-		// In a real app, you'd verify the JWT and extract user ID from the token payload
-		// This is a simplified version - you may need to enhance JWT handling
-
-		// Try to get user ID from request context (would be set by auth middleware in a full impl)
-		const userId = (req as any).userId;
+		const userId = getAuthenticatedUserId(req);
 		if (!userId) {
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'User not authenticated' }));
@@ -372,15 +379,7 @@ export async function handleGetUserSettings(req: IncomingMessage, res: ServerRes
 // Save user settings
 export async function handleSaveUserSettings(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
-		// Extract user ID from Authorization header
-		const authHeader = req.headers.authorization;
-		if (!authHeader || !authHeader.startsWith('Bearer ')) {
-			res.writeHead(401, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ error: 'Missing or invalid authorization' }));
-			return;
-		}
-
-		const userId = (req as any).userId;
+		const userId = getAuthenticatedUserId(req);
 		if (!userId) {
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'User not authenticated' }));

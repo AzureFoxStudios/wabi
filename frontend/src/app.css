@@ -573,13 +573,7 @@ input:focus, textarea:focus {
 
 /* On screens 768px or less, apply these mobile-first styles */
 @media (max-width: 768px) {
-	.app-container {
-		/* Stack elements vertically instead of side-by-side */
-		flex-direction: column;
-	}
-
 	/* Hide the side panels by default on mobile */
-	.channel-sidebar-container,
 	.user-panel-container,
     .dm-panel-container {
 		display: none;
@@ -596,7 +590,7 @@ input:focus, textarea:focus {
         z-index: 200;
         background: var(--color-background-primary);
     }
-    
+
     /* When the DM panel is toggled, make it a full-screen overlay */
     .dm-panel-container.mobile-visible {
         display: block;
@@ -613,17 +607,6 @@ input:focus, textarea:focus {
 	.main-content {
 		flex: 1;
 		width: 100%;
-	}
-
-	/* Hide the desktop-only resize handles */
-	.resize-handle {
-		display: none;
-	}
-
-	/* Reposition the user panel toggle button */
-	.user-panel-toggle {
-		/* We will handle toggling with a new hamburger menu, so hide this for now */
-        display: none;
 	}
 
 	/* Adjust the business hub button for mobile */

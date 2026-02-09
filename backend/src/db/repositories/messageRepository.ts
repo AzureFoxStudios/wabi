@@ -240,6 +240,13 @@ export class MessageRepository {
 		const stmt = db.prepare('UPDATE messages SET content = ?, is_edited = 1 WHERE message_id = ?');
 		stmt.run(newContent, messageId);
 	}
+
+	// Hard-delete soft-deleted messages older than a threshold to reclaim space
+	purgeDeleted(olderThanMs: number = 7 * 24 * 60 * 60 * 1000): number {
+		const cutoff = Date.now() - olderThanMs;
+		const stmt = db.prepare('DELETE FROM messages WHERE deleted_at IS NOT NULL AND deleted_at < ?');
+		return stmt.run(cutoff).changes;
+	}
 }
 
 export const messageRepository = new MessageRepository();

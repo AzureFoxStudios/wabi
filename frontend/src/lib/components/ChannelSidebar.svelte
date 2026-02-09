@@ -7,6 +7,7 @@
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
 	import DMListPanel from './DMListPanel.svelte';
 	import type { Channel, User } from '$lib/socket';
+	import { longpress } from '$lib/actions/longpress';
 
 	const dispatch = createEventDispatcher();
 
@@ -82,7 +83,13 @@
 
 	// Separate channels by type
 	// Note: DMs are excluded from sidebar - only accessible via UserPanel
-	$: publicChannels = $channels.filter(ch => !ch.type || ch.type === 'public');
+	$: publicChannels = $channels
+		.filter(ch => !ch.type || ch.type === 'public')
+		.sort((a, b) => {
+			if (a.id === 'general') return -1;
+			if (b.id === 'general') return 1;
+			return a.name.localeCompare(b.name);
+		});
 	$: groupChannels = $channels.filter(ch => ch.type === 'group');
 
 	// Clear unread count when switching to chat view
@@ -147,6 +154,17 @@
 	function changeStatus(newStatus: 'active' | 'away' | 'busy') {
 		updateProfile(newStatus, undefined, undefined);
 		showStatusPopup = false;
+	}
+
+	function handleChannelLongPress(event: TouchEvent, channel: Channel) {
+		const touch = event.touches?.[0] || event.changedTouches?.[0];
+		if (!touch) return;
+		const syntheticEvent = new MouseEvent('contextmenu', {
+			clientX: touch.clientX,
+			clientY: touch.clientY,
+			bubbles: true
+		});
+		handleChannelRightClick(syntheticEvent, channel);
 	}
 
 	function handleChannelRightClick(event: MouseEvent, channel: Channel) {
@@ -258,7 +276,7 @@
 	<div class="channel-list">
 		<!-- Public Channels -->
 		{#each publicChannels as channel (channel.id)}
-			<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)}>
+			<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)} use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}>
 				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
 					<span class="hash">#</span>
 					{channel.name}
@@ -290,7 +308,7 @@
 		{#if groupChannels.length > 0}
 			<div class="section-header">Group Chats</div>
 			{#each groupChannels as channel (channel.id)}
-				<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)}>
+				<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)} use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}>
 					<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
 						<svg class="group-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
 						{channel.name}
@@ -1504,96 +1522,145 @@
 			display: flex;
 			align-items: center;
 			justify-content: center;
-			width: 36px;
-			height: 36px;
-			min-width: 36px;
-			min-height: 36px;
+			width: 44px;
+			height: 44px;
+			min-width: 44px;
+			min-height: 44px;
 			font-size: 1.5rem;
 		}
 
 		.top-section {
 			padding: 0.75rem 1rem;
-			height: 52px;
+			height: 56px;
+		}
+
+		.resize-handle {
+			display: none;
 		}
 
 		.sidebar-header {
-			padding: 0.375rem 0.5rem;
+			padding: 0.5rem 0.75rem;
 			height: auto;
-			min-height: 40px;
+			min-height: 44px;
 		}
 
 		.sidebar-header h3 {
-			font-size: 0.75rem;
+			font-size: 0.8rem;
+			letter-spacing: 0.05em;
 		}
 
-		/* Compact buttons */
+		/* Touch-friendly header buttons */
 		.screen-share-icon-btn,
 		.add-btn {
-			width: 32px;
-			height: 32px;
-			font-size: 1.2rem;
-			opacity: 0.8;
+			width: 44px;
+			height: 44px;
+			font-size: 1.3rem;
 		}
 
+		/* Spacious channel items */
 		.channel-item {
-			padding: 0.125rem 0.375rem;
+			padding: 0.25rem 0.75rem;
 		}
 
 		.channel-btn {
-			padding: 0.5rem 0.5rem;
-			min-height: 40px;
-			font-size: 0.875rem;
+			padding: 0.75rem 0.75rem;
+			min-height: 52px;
+			font-size: 1rem;
+			border-radius: 8px;
 		}
 
-		/* Compact channel actions - Improved touch targets for mobile */
+		/* Hide action buttons by default on mobile — show only on active channel */
+		.channel-actions {
+			display: none;
+		}
+
+		.channel-item.active .channel-actions {
+			display: flex;
+		}
+
 		.pin-btn,
 		.delete-btn,
 		.settings-btn {
-			opacity: 0.7;
-			min-width: 40px;
-			min-height: 40px;
-			width: 40px;
-			height: 40px;
-			padding: 8px;
+			min-width: 44px;
+			min-height: 44px;
+			width: 44px;
+			height: 44px;
+			padding: 10px;
 		}
 
 		.create-channel {
-			padding: 0.5rem;
+			padding: 0.75rem;
 		}
 
 		.create-channel input {
-			padding: 0.5rem;
+			padding: 0.75rem;
 			font-size: 16px;
-			min-height: 36px;
+			min-height: 44px;
+			border-radius: 8px;
 		}
 
 		.create-channel button {
-			padding: 0.5rem;
-			min-height: 36px;
-			font-size: 0.8rem;
+			padding: 0.75rem;
+			min-height: 44px;
+			font-size: 0.9rem;
+			border-radius: 8px;
 		}
 
-		/* Compact profile card */
+		/* Spacious profile card */
 		.profile-card {
-			padding: 0.5rem;
+			padding: 0.75rem;
 			height: auto;
-			min-height: 50px;
+			min-height: 64px;
 		}
 
 		.profile-info {
 			padding: 0.25rem;
 		}
 
+		.avatar-container {
+			width: 40px;
+			height: 40px;
+		}
+
 		.control-btn {
-			width: 32px;
-			height: 32px;
+			width: 44px;
+			height: 44px;
+			font-size: 1.1rem;
+		}
+
+		/* Section headers */
+		.section-header {
+			padding: 0.75rem 0.75rem 0.375rem;
+			font-size: 0.8rem;
+		}
+
+		/* Temp user list mobile */
+		.temp-user-item {
+			padding: 0.5rem 0.75rem;
+			min-height: 52px;
+		}
+
+		.temp-user-avatar,
+		.temp-user-avatar-placeholder {
+			width: 36px;
+			height: 36px;
+		}
+
+		.temp-user-name {
 			font-size: 1rem;
+		}
+
+		.temp-action-btn {
+			width: 44px;
+			height: 44px;
+			font-size: 1.2rem;
 		}
 
 		/* Modal adjustments */
 		.modal-content {
 			width: 95%;
 			max-height: 90vh;
+			max-height: 90dvh;
 		}
 
 		.modal-header {
@@ -1610,26 +1677,33 @@
 		}
 
 		.auto-delete-btn {
-			padding: 0.5rem;
-			font-size: 0.75rem;
+			padding: 0.75rem;
+			font-size: 0.875rem;
+			min-height: 44px;
+		}
+
+		/* Context menu mobile */
+		.context-menu {
+			min-width: 200px;
+		}
+
+		.context-menu-item {
+			padding: 0.75rem 1rem;
+			min-height: 44px;
+			font-size: 1rem;
 		}
 	}
 
 	/* Extra small screens */
 	@media (max-width: 400px) {
-		.sidebar-header {
-			padding: 0.25rem 0.375rem;
-			min-height: 36px;
-		}
-
-		.sidebar-header h3 {
-			font-size: 0.7rem;
+		.channel-item {
+			padding: 0.25rem 0.5rem;
 		}
 
 		.channel-btn {
-			padding: 0.375rem;
-			min-height: 32px;
-			font-size: 0.8rem;
+			padding: 0.625rem 0.5rem;
+			min-height: 48px;
+			font-size: 0.9375rem;
 		}
 
 		.auto-delete-options {
@@ -1638,17 +1712,18 @@
 		}
 
 		.auto-delete-btn {
-			padding: 0.375rem;
-			font-size: 0.7rem;
+			padding: 0.5rem;
+			font-size: 0.8rem;
+			min-height: 40px;
 		}
 
 		.profile-controls {
-			gap: 0.125rem;
+			gap: 0.25rem;
 		}
 
 		.control-btn {
-			width: 28px;
-			height: 28px;
+			width: 40px;
+			height: 40px;
 		}
 	}
 

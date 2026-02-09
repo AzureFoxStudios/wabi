@@ -35,7 +35,10 @@ export function getAllowedOrigins(): string[] {
 		origins.add(process.env.PUBLIC_URL.replace(/\/$/, ''));
 	}
 
-	// 4. Development defaults
+	// 4. Tauri desktop origins (always allowed — these are reserved Tauri webview origins)
+	['https://tauri.localhost', 'http://tauri.localhost', 'tauri://localhost'].forEach(o => origins.add(o));
+
+	// 5. Development defaults
 	if (process.env.NODE_ENV !== 'production') {
 		['http://localhost:5173', 'http://localhost:3000',
 		 'http://tauri.localhost', 'http://localhost'].forEach(o => origins.add(o));

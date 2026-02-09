@@ -62,19 +62,12 @@ export async function pullFromServer(): Promise<boolean> {
 			if (serverData.projects) projects.set(serverData.projects);
 			if (serverData.sprints) sprints.set(serverData.sprints);
 
-			// Art Portal data - preserve local data if server is empty
-			// Only sync resources/tags/edges if server actually has them
-			const hasServerResources = serverData.resources && Array.isArray(serverData.resources) && serverData.resources.length > 0;
-			const hasServerTags = serverData.tags && Array.isArray(serverData.tags) && serverData.tags.length > 0;
-			const hasServerEdges = serverData.graphEdges && Array.isArray(serverData.graphEdges) && serverData.graphEdges.length > 0;
+			// Art Portal data - sync if server provides an array (including empty arrays)
+			if (Array.isArray(serverData.resources)) resources.set(serverData.resources);
+			if (Array.isArray(serverData.tags)) tags.set(serverData.tags);
+			if (Array.isArray(serverData.graphEdges)) graphEdges.set(serverData.graphEdges);
 
-			if (hasServerResources) resources.set(serverData.resources);
-			if (hasServerTags) tags.set(serverData.tags);
-			if (hasServerEdges) graphEdges.set(serverData.graphEdges);
-
-			if (hasServerResources || hasServerTags || hasServerEdges) {
-				console.log('✅ Pulled business data from server');
-			}
+			console.log('✅ Pulled business data from server');
 			return true;
 		}
 

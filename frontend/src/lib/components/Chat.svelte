@@ -12,6 +12,9 @@
 	import AudioRecorder from './AudioRecorder.svelte';
 	import CameraCapture from './CameraCapture.svelte';
 	import { parseCommand, formatCommandHelp, getMatchingCommands, type Command } from '$lib/commands';
+	import { layoutStore } from '$lib/layoutStore';
+	import { isInCall } from '$lib/calling';
+	import { getServerUrl } from '$lib/serverUrl';
 
 	const dispatch = createEventDispatcher();
 
@@ -596,9 +599,7 @@
 
 	function handleReply(message: Message) {
 		replyingTo = message;
-		// Focus the input
-		const input = document.querySelector('input[type="text"]') as HTMLInputElement;
-		input?.focus();
+		textareaElement?.focus();
 	}
 
 	function cancelReply() {
@@ -776,17 +777,7 @@
 		let completedFiles = 0;
 
 		try {
-			let serverUrl: string;
-			if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
-				// Dev mode or Tauri app: use localhost
-				serverUrl = 'http://localhost:3000';
-			} else if (window.location.origin.includes(':3000')) {
-				// Docker deployment: if on port 3000 (frontend), connect to port 8080 (backend)
-				serverUrl = window.location.origin.replace(':3000', ':8080');
-			} else {
-				// Production: use current origin
-				serverUrl = window.location.origin;
-			}
+			const serverUrl = getServerUrl();
 
 			console.log('Upload serverUrl:', serverUrl);
 			console.log('Upload URL will be:', `${serverUrl}/api/upload`);
@@ -1011,6 +1002,7 @@
 			on:send={handleAudioSend}
 		/>
 
+		{#if !($layoutStore.isMobile && $isInCall)}
 		{#if editingMessage}
 			<div class="edit-bar">
 				<div class="edit-info">
@@ -1164,6 +1156,7 @@
 			</button>
 		</div>
 	</div>
+		{/if}
 </div>
 
 <style>
@@ -1172,6 +1165,7 @@
 		flex-direction: column;
 		height: 100%;
 		position: relative;
+		isolation: isolate;
 		background: var(--bg-primary);
 		background-image: var(--background-image-url, none);
 		background-size: var(--background-image-size, cover);
@@ -1386,7 +1380,7 @@
 		padding: 0.5rem;
 		padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
 		border-top: 1px solid var(--border);
-		z-index: 2001;
+		z-index: 10;
 		position: relative;
 	}
 
@@ -1644,9 +1638,9 @@
 			flex-shrink: 0;
 		}
 
-		/* Hide GIF button on mobile to reduce clutter */
+		/* Show attach/camera buttons on mobile */
 		.input-buttons-left {
-			display: none;
+			display: flex;
 		}
 
 		.send-button {

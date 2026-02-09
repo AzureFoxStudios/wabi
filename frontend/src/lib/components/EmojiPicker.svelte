@@ -82,7 +82,7 @@
 <style>
 	.emoji-picker {
 		position: absolute;
-		bottom: 70px;
+		bottom: 56px;
 		right: 1rem;
 		width: 400px;
 		height: 400px;
@@ -214,7 +214,7 @@
 	@media (max-width: 768px) {
 		.emoji-picker {
 			position: fixed;
-			bottom: 70px;
+			bottom: 56px;
 			left: 0.5rem;
 			right: 0.5rem;
 			width: auto;
@@ -269,7 +269,7 @@
 	/* Extra small screens */
 	@media (max-width: 400px) {
 		.emoji-picker {
-			bottom: 70px;
+			bottom: 56px;
 			left: 0.25rem;
 			right: 0.25rem;
 			height: 45vh;

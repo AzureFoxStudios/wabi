@@ -23,9 +23,12 @@ export function resolveServerUrl(): { url: string; source: string } {
 	const hostname = window.location.hostname;
 	const port = window.location.port;
 
-	// 2. Tauri dev
-	if (hostname === 'tauri.localhost') {
-		return { url: 'http://localhost:3000', source: 'dev_tauri' };
+	// 2. Tauri (Windows uses https://tauri.localhost, macOS/Linux use tauri://localhost)
+	if (hostname === 'tauri.localhost' || window.location.protocol === 'tauri:') {
+		if (import.meta.env.DEV) {
+			return { url: 'http://localhost:3000', source: 'dev_tauri' };
+		}
+		return { url: 'https://wabi.chat', source: 'prod_tauri' };
 	}
 
 	// 3. Vite dev server

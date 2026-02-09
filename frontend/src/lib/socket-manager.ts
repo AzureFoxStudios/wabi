@@ -9,7 +9,7 @@
  * - Firefox and Chrome behavioral parity
  *
  * KEY FIXES FROM v1:
- * - Transport order changed to ['polling', 'websocket'] for reliable upgrades
+ * - Transport order: ['websocket', 'polling'] (WS preferred, polling fallback)
  * - State machine prevents race conditions
  * - Proper close code handling for Firefox
  * - Listener cleanup before rebinding
@@ -180,12 +180,6 @@ class SocketManager {
 
 		// Determine server URL
 		let serverUrl = getServerUrl();
-		if (typeof window !== 'undefined' && window.location.origin.includes('tauri.localhost')) {
-			const isDebug = import.meta.env.TAURI_DEBUG === 'true' || import.meta.env.DEV;
-			if (!isDebug) {
-				serverUrl = 'https://wabi.chat';
-			}
-		}
 
 		// Get auth credentials safely
 		const { token, sessionId } = this.getAuthCredentials(authToken);
@@ -194,8 +188,8 @@ class SocketManager {
 
 		// Create socket with cross-browser optimized settings
 		this.socket = io(serverUrl, {
-			// Force websocket-only transport to bypass polling/sticky session issues
-			transports: ['websocket'],
+			// WebSocket preferred, polling fallback for reliability across browsers
+			transports: ['websocket', 'polling'],
 
 			// Disable Socket.IO's auto-reconnect - we handle it manually
 			// for better control over backoff and state
@@ -541,13 +535,21 @@ class SocketManager {
 
 		// ==================== MESSAGE EVENTS ====================
 
-		sock.on('channel-messages', (data: { channelId: string; messages: Message[] }) => {
+		sock.on('channel-messages', (data: { channelId: string; messages: Message[]; hasMore?: boolean }) => {
 			channelMessages.update(msgs => {
 				const existing = msgs[data.channelId] || [];
 				const existingIds = new Set(existing.map(m => m.id));
 				const newMsgs = data.messages.filter(m => !existingIds.has(m.id));
 				return { ...msgs, [data.channelId]: [...existing, ...newMsgs] };
 			});
+
+			// Initialize pagination state from server response
+			if (data.hasMore !== undefined) {
+				channelHasMoreHistory.update(s => ({ ...s, [data.channelId]: data.hasMore }));
+			}
+			if (data.messages.length > 0) {
+				channelOldestMessageId.update(s => ({ ...s, [data.channelId]: data.messages[0].id }));
+			}
 		});
 
 		// Handle server-side history loading response
@@ -744,6 +746,26 @@ class SocketManager {
 			dmPanelSignal.set({ channelId: data.channelId, otherUser: data.otherUser });
 		});
 
+		sock.on('dm-channel-added', (data: { channelId: string; otherUser: User }) => {
+			const dmChannel: Channel = {
+				id: data.channelId,
+				name: data.otherUser.username,
+				createdAt: Date.now(),
+				type: 'dm',
+				otherUser: data.otherUser
+			};
+
+			channels.update(chs => {
+				if (chs.some(ch => ch.id === data.channelId)) return chs;
+				return [...chs, dmChannel];
+			});
+
+			channelMessages.update(msgs => ({
+				...msgs,
+				[data.channelId]: msgs[data.channelId] || []
+			}));
+		});
+
 		sock.on('group-created', (group: Channel) => {
 			channels.update(chs => {
 				if (chs.some(ch => ch.id === group.id)) return chs;
@@ -833,7 +855,8 @@ class SocketManager {
 
 		sock.on('call-accepted', (data: { userId: string; username: string; isVideoCall: boolean }) => {
 			console.log(`[SocketManager] Call accepted by ${data.username}`);
-			calling.createCallOffer(sock, data.userId, data.username);
+			calling.createCallOffer(sock, data.userId, data.username)
+				.catch(err => console.error('[SocketManager] createCallOffer failed:', err));
 		});
 
 		sock.on('call-rejected', () => {
@@ -849,12 +872,14 @@ class SocketManager {
 
 		sock.on('call-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string }) => {
 			console.log(`[SocketManager] Call offer from ${data.username}`);
-			calling.handleCallOffer(sock, data.senderId, data.username, data.offer);
+			calling.handleCallOffer(sock, data.senderId, data.username, data.offer)
+				.catch(err => console.error('[SocketManager] handleCallOffer failed:', err));
 		});
 
 		sock.on('call-answer-sdp', (data: { answer: RTCSessionDescriptionInit; senderId: string }) => {
 			console.log(`[SocketManager] Call answer from ${data.senderId}`);
-			calling.handleCallAnswer(data.senderId, data.answer);
+			calling.handleCallAnswer(data.senderId, data.answer)
+				.catch(err => console.error('[SocketManager] handleCallAnswer failed:', err));
 		});
 
 		sock.on('call-ice-candidate', (data: { candidate: RTCIceCandidateInit; senderId: string }) => {
@@ -868,7 +893,8 @@ class SocketManager {
 
 		sock.on('screen-share-request', (data: { viewerId: string }) => {
 			console.log(`[SocketManager] Screen share request from ${data.viewerId}`);
-			calling.createScreenShareOffer(sock, data.viewerId);
+			calling.createScreenShareOffer(sock, data.viewerId)
+				.catch(err => console.error('[SocketManager] createScreenShareOffer failed:', err));
 		});
 
 		sock.on('screen-share-stopped', (data: { userId: string }) => {
@@ -877,11 +903,13 @@ class SocketManager {
 		});
 
 		sock.on('webrtc-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string }) => {
-			calling.handleScreenShareOffer(sock, data.senderId, data.username, data.offer);
+			calling.handleScreenShareOffer(sock, data.senderId, data.username, data.offer)
+				.catch(err => console.error('[SocketManager] handleScreenShareOffer failed:', err));
 		});
 
 		sock.on('webrtc-answer', (data: { answer: RTCSessionDescriptionInit; senderId: string }) => {
-			calling.handleScreenShareAnswer(data.senderId, data.answer);
+			calling.handleScreenShareAnswer(data.senderId, data.answer)
+				.catch(err => console.error('[SocketManager] handleScreenShareAnswer failed:', err));
 		});
 
 		sock.on('webrtc-ice-candidate', (data: { candidate: RTCIceCandidateInit; senderId: string }) => {
@@ -1097,24 +1125,12 @@ export function joinChannel(channelId: string): void {
 	socketManager.emit('join-channel', channelId);
 	currentChannel.set(channelId);
 	markChannelAsRead(channelId);
-
-	// Load history from server if channel is empty
-	const msgs = get(channelMessages)[channelId];
-	if (!msgs || msgs.length === 0) {
-		loadHistory(channelId);
-	}
 }
 
 export function switchChannel(channelId: string): void {
 	socketManager.emit('join-channel', channelId);
 	currentChannel.set(channelId);
 	markChannelAsRead(channelId);
-
-	// Load history from server if channel is empty
-	const msgs = get(channelMessages)[channelId];
-	if (!msgs || msgs.length === 0) {
-		loadHistory(channelId);
-	}
 }
 
 export function createChannel(channelName: string): void {

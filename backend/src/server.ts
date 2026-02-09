@@ -31,6 +31,7 @@ interface Channel {
   isTemporary?: boolean;
   persistMessages?: boolean; // Opt-in flag for message persistence
   pinnedBy?: string[]; // Array of user IDs who have pinned this channel
+  recipientNotified?: boolean;
 }
 
 const channels = new Map<string, Channel>();
@@ -113,6 +114,26 @@ const screenSharers = new Map<string, {
   username: string;
 }>();
 
+// Track active call peers: socketId -> Set of partner socketIds
+const activeCallPeers = new Map<string, Set<string>>();
+
+function addCallPeer(socketId: string, peerId: string) {
+  if (!activeCallPeers.has(socketId)) activeCallPeers.set(socketId, new Set());
+  if (!activeCallPeers.has(peerId)) activeCallPeers.set(peerId, new Set());
+  activeCallPeers.get(socketId)!.add(peerId);
+  activeCallPeers.get(peerId)!.add(socketId);
+}
+
+function removeAllCallPeers(socketId: string): Set<string> {
+  const peers = activeCallPeers.get(socketId) || new Set();
+  for (const peerId of peers) {
+    activeCallPeers.get(peerId)?.delete(socketId);
+    if (activeCallPeers.get(peerId)?.size === 0) activeCallPeers.delete(peerId);
+  }
+  activeCallPeers.delete(socketId);
+  return peers;
+}
+
 // Excalidraw state
 let excalidrawState: any = null;
 
@@ -188,6 +209,9 @@ function scheduleMessageDeletion(channelId: string, messageId: string, duration:
     // Remove message
     messages.splice(messageIndex, 1);
     channelMessages.set(channelId, messages);
+
+    // Soft-delete from database
+    try { messageRepository.softDelete(messageId); } catch {}
 
     // Notify clients
     emitToChannel(channelId, "message-deleted", { channelId, messageId });
@@ -379,7 +403,6 @@ const io = new Server(server, {
     methods: ["GET", "POST"],
     credentials: true
   },
-  allowEIO3: true, 
   maxHttpBufferSize: 75 * 1024 * 1024, // 75MB (to handle 50MB files after base64 encoding ~33% overhead)
   pingTimeout: 30000,       // 30s pong wait (more forgiving for mobile)
   pingInterval: 25000,      // 25s ping (keeps alive through proxies)
@@ -502,9 +525,7 @@ server.on('request', async (req, res) => {
           }
           writeFileSync(filePath, profilePictureFile);
 
-          // Use PUBLIC_URL if available, otherwise construct from request host
-          const serverUrl = process.env.PUBLIC_URL || `http://${req.headers.host}`;
-          const profilePictureUrl = `${serverUrl}/uploads/${fileId}`;
+          const profilePictureUrl = `/uploads/${fileId}`;
 
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({
@@ -593,9 +614,7 @@ server.on('request', async (req, res) => {
           }
           writeFileSync(filePath, backgroundImageFile);
 
-          // Use PUBLIC_URL if available, otherwise construct from request host
-          const serverUrl = process.env.PUBLIC_URL || `http://${req.headers.host}`;
-          const backgroundImageUrl = `${serverUrl}/uploads/${fileId}`;
+          const backgroundImageUrl = `/uploads/${fileId}`;
 
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({
@@ -947,10 +966,8 @@ server.on('request', async (req, res) => {
         saveBusinessData(workspaceId, businessData);
 
         // Broadcast update to all other connected users in this workspace
-        io.emit('business-data-updated', {
-          workspaceId,
-          data: businessData
-        });
+        // Only send workspaceId — clients call pullFromServer() to fetch their own data
+        io.emit('business-data-updated', { workspaceId });
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
@@ -966,24 +983,13 @@ server.on('request', async (req, res) => {
     return;
   }
 
-  // Helper function to extract user ID from request
-  function getAuthenticatedUserId(req: IncomingMessage): number | null {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return null;
+  // Resolve workspace ID for an authenticated user (private vs shared)
+  function resolveWorkspaceId(userId: number): string {
+    const userSettings = settingsRepository.get(userId);
+    if (userSettings.business_private_mode === 1) {
+      return `user-${userId}`;
     }
-
-    try {
-      const token = authHeader.slice(7);
-      const payload = verifyToken(token);
-      const dbSession = sessionRepository.findById(payload.sessionId);
-      if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
-        return null;
-      }
-      return payload.userId;
-    } catch {
-      return null;
-    }
+    return defaultWorkspaceId;
   }
 
   // Resource management endpoints
@@ -997,7 +1003,7 @@ server.on('request', async (req, res) => {
         return;
       }
 
-      const workspaceId = defaultWorkspaceId;
+      const workspaceId = resolveWorkspaceId(userId);
       const data = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
 
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -1030,7 +1036,7 @@ server.on('request', async (req, res) => {
         }
 
         const resourceData = JSON.parse(body);
-        const workspaceId = defaultWorkspaceId;
+        const workspaceId = resolveWorkspaceId(userId);
         const workspace = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
 
         const newResource = {
@@ -1077,7 +1083,7 @@ server.on('request', async (req, res) => {
         }
 
         const updates = JSON.parse(body);
-        const workspaceId = defaultWorkspaceId;
+        const workspaceId = resolveWorkspaceId(userId);
         const workspace = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
 
         const resourceIndex = workspace.resources.findIndex((r: any) => r.id === resourceId);
@@ -1121,7 +1127,7 @@ server.on('request', async (req, res) => {
         return;
       }
 
-      const workspaceId = defaultWorkspaceId;
+      const workspaceId = resolveWorkspaceId(userId);
       const workspace = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
 
       workspace.resources = workspace.resources.filter((r: any) => r.id !== resourceId);
@@ -1442,6 +1448,12 @@ setInterval(() => {
   if (deleted > 0) {
     console.log(`[Cleanup] 🗑️ Deleted ${deleted} expired offline messages`);
   }
+
+  // Hard-purge soft-deleted messages older than 7 days to reclaim DB space
+  const purged = messageRepository.purgeDeleted();
+  if (purged > 0) {
+    console.log(`[Cleanup] 🗑️ Purged ${purged} soft-deleted messages from DB`);
+  }
 }, 60 * 60 * 1000); // 1 hour
 
 // Cleanup on shutdown
@@ -1511,6 +1523,9 @@ deleteMessageById = (channelId: string, messageId: string) => {
   // Remove message
   messages.splice(messageIndex, 1);
   channelMessages.set(channelId, messages);
+
+  // Soft-delete from database
+  try { messageRepository.softDelete(messageId); } catch {}
 
   // Cancel timer if exists
   const timer = messageDeletionTimers.get(messageId);
@@ -1848,13 +1863,31 @@ io.on("connection", (socket) => {
     session.userId = socket.id;
     sessions.set(sessionId, session);
 
+    // Load usernameFont for registered users from the database
+    let usernameFont = session.usernameFont;
+    if ((socket as any).isRegistered && (socket as any).sessionId) {
+      const dbSession = sessionRepository.findById((socket as any).sessionId);
+      if (dbSession?.user_id) {
+        const userRecord = userRepository.findById(dbSession.user_id);
+        if (userRecord) {
+          usernameFont = {
+            family: userRecord.username_font_family,
+            size: userRecord.username_font_size,
+            weight: userRecord.username_font_weight,
+            style: userRecord.username_font_style
+          };
+        }
+      }
+    }
+
     // Create/update user object with existing session data
     users.set(socket.id, {
       id: socket.id,
       username: session.username,
       color: session.color,
       status: 'active',
-      profilePicture: session.profilePicture
+      profilePicture: session.profilePicture,
+      usernameFont
     });
 
     // Load user's persisted DM/group channels from database
@@ -1877,16 +1910,20 @@ io.on("connection", (socket) => {
       username: session.username,
       color: rejoinUser?.color,
       status: 'active',
-      profilePicture: rejoinUser?.profilePicture
+      profilePicture: rejoinUser?.profilePicture,
+      usernameFont: rejoinUser?.usernameFont
     });
 
     if (ENABLE_LOGGING) console.log(`${session.username} rejoined the chat`);
   });
 
   // Handle profile updates
-  socket.on("update-profile", (data: { status?: 'active' | 'away' | 'busy'; profilePicture?: string; usernameFont?: { family?: string; size?: string; weight?: string; style?: string } }) => {
+  socket.on("update-profile", (data: { status?: 'active' | 'away' | 'busy'; profilePicture?: string; usernameFont?: { family?: string; size?: string; weight?: string; style?: string } }, callback?: (response: { success: boolean; error?: string }) => void) => {
     const user = users.get(socket.id);
-    if (!user) return;
+    if (!user) {
+      if (callback) callback({ success: false, error: 'User not found' });
+      return;
+    }
 
     if (data.status) {
       user.status = data.status;
@@ -1928,6 +1965,8 @@ io.on("connection", (socket) => {
         }
       } catch (error) {
         console.error('[Error] Failed to update profile picture in database:', error);
+        if (callback) callback({ success: false, error: 'Database update failed' });
+        return;
       }
     }
 
@@ -1936,6 +1975,7 @@ io.on("connection", (socket) => {
     for (const [sessionId, session] of sessions_array) {
       if (session.userId === socket.id) {
         session.profilePicture = user.profilePicture;
+        session.usernameFont = user.usernameFont;
         sessions.set(sessionId, session);
         break; // Assuming one session per socket.id
       }
@@ -1952,6 +1992,7 @@ io.on("connection", (socket) => {
     });
 
     if (ENABLE_LOGGING) console.log(`${user.username} updated profile: status=${user.status}`);
+    if (callback) callback({ success: true });
   });
 
   // Handle joining a channel
@@ -1966,9 +2007,22 @@ io.on("connection", (socket) => {
     // Track which channel the user is in
     userCurrentChannel.set(socket.id, channelId);
 
-    // Send channel messages to the user
-    const messages = channelMessages.get(channelId) || [];
-    socket.emit("channel-messages", { channelId, messages });
+    // Serve from DB (authoritative) instead of volatile in-memory Map
+    try {
+      const dbMessages = messageRepository.getByChannel(channelId, { limit: 50 });
+      const clientMessages = dbMessages.map(m => messageRepository.toClientFormat(m));
+      const totalCount = messageRepository.getChannelMessageCount(channelId);
+      socket.emit("channel-messages", {
+        channelId,
+        messages: clientMessages,
+        hasMore: totalCount > 50
+      });
+    } catch (err) {
+      // Fallback to in-memory on DB error
+      console.error(`[join-channel] DB query failed for ${channelId}:`, err);
+      const messages = channelMessages.get(channelId) || [];
+      socket.emit("channel-messages", { channelId, messages, hasMore: false });
+    }
 
     if (ENABLE_LOGGING) console.log(`User ${socket.id} joined channel ${channelId}`);
   });
@@ -2083,6 +2137,24 @@ io.on("connection", (socket) => {
     const messages = channelMessages.get(data.channelId) || [];
     messages.push(message);
     channelMessages.set(data.channelId, messages);
+
+    // Notify DM recipient on first message (lazy channel delivery)
+    if (channel.type === 'dm' && !channel.recipientNotified && channel.members) {
+      const recipientId = channel.members.find(m => m !== socket.id);
+      if (recipientId) {
+        io.to(recipientId).emit("dm-channel-added", {
+          channelId: data.channelId,
+          otherUser: {
+            id: user.id,
+            username: user.username,
+            color: user.color,
+            status: user.status,
+            profilePicture: user.profilePicture
+          }
+        });
+        channel.recipientNotified = true;
+      }
+    }
 
     emitToChannel(data.channelId, "message", { channelId: data.channelId, message });
 
@@ -2487,6 +2559,7 @@ io.on("connection", (socket) => {
       username: user?.username || 'Unknown',
       isVideoCall: data.isVideoCall
     });
+    addCallPeer(socket.id, data.callerId);
   });
 
   socket.on("call-reject", (data: { callerId: string }) => {
@@ -2496,6 +2569,9 @@ io.on("connection", (socket) => {
   });
 
   socket.on("call-end", (data?: { participants?: string[] }) => {
+    // Clean up call peer tracking
+    removeAllCallPeers(socket.id);
+
     // Fixed: only notify call participants, not broadcast to everyone
     if (data?.participants && data.participants.length > 0) {
       // Send to specific participants
@@ -2513,9 +2589,11 @@ io.on("connection", (socket) => {
   });
 
   socket.on("call-offer", (data: { offer: RTCSessionDescriptionInit; targetId: string }) => {
+    const user = users.get(socket.id);
     io.to(data.targetId).emit("call-offer", {
       offer: data.offer,
-      senderId: socket.id
+      senderId: socket.id,
+      username: user?.username || 'Unknown'
     });
   });
 
@@ -2653,7 +2731,9 @@ io.on("connection", (socket) => {
       name: `${user.username}, ${targetUser.username}`,
       createdAt: Date.now(),
       type: 'dm',
-      members: memberIds
+      members: memberIds,
+      persistMessages: true,
+      recipientNotified: false
     };
 
     channels.set(dmId, dmChannel);
@@ -2703,17 +2783,6 @@ io.on("connection", (socket) => {
         color: targetUser.color,
         status: targetUser.status,
         profilePicture: targetUser.profilePicture
-      }
-    });
-
-    io.to(data.targetUserId).emit("dm-created", {
-      channelId: dmId,
-      otherUser: {
-        id: user.id,
-        username: user.username,
-        color: user.color,
-        status: user.status,
-        profilePicture: user.profilePicture
       }
     });
 
@@ -2878,20 +2947,6 @@ io.on("connection", (socket) => {
     if (ENABLE_LOGGING) console.log(`${user.username} deleted emote: ${emoteName}`);
   });
 
-  // Handle disconnect
-  // Emoji management
-  socket.on("emoji-added", (emoji: Emoji) => {
-    // Broadcast new emoji to all clients
-    io.emit("emoji-added", emoji);
-  });
-
-  socket.on("delete-emoji", (emojiName: string) => {
-    const deleted = deleteCustomEmoji(emojiName);
-    if (deleted) {
-      io.emit("emoji-deleted", emojiName);
-    }
-  });
-
   socket.on("disconnect", () => {
     const user = users.get(socket.id);
 
@@ -2913,6 +2968,12 @@ io.on("connection", (socket) => {
         screenSharers.delete(socket.id);
         // Fixed: emit object with userId, not just socket.id string
         socket.broadcast.emit("screen-share-stopped", { userId: socket.id });
+      }
+
+      // Clean up active calls — notify orphaned peers
+      const callPeers = removeAllCallPeers(socket.id);
+      for (const peerId of callPeers) {
+        io.to(peerId).emit("call-ended", { userId: socket.id });
       }
 
       socket.broadcast.emit("user-left", {

@@ -102,6 +102,7 @@
 	.right-panel .modal-content {
 		width: 400px;
 		height: 100vh;
+		height: 100dvh;
 		max-height: none;
 		border-radius: 0;
 		animation: slideIn 0.25s ease-out;
@@ -155,6 +156,22 @@
 		}
 		to {
 			transform: translateX(0);
+		}
+	}
+
+	@media (max-width: 768px) {
+		.modal-content {
+			max-width: calc(100vw - 2rem);
+			max-height: 85dvh;
+		}
+
+		.right-panel .modal-content {
+			width: 100%;
+		}
+
+		.modal-close {
+			width: 44px;
+			height: 44px;
 		}
 	}
 </style>

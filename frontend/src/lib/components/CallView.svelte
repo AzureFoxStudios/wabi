@@ -406,8 +406,9 @@
 		left: 0;
 		width: 100vw;
 		height: 100vh;
+		height: 100dvh;
 		background-color: var(--bg-primary, #1a1a2e);
-		z-index: 999;
+		z-index: 1500;
 		display: flex;
 		flex-direction: column;
 	}
@@ -721,6 +722,7 @@
 		justify-content: center;
 		gap: 1rem;
 		padding: 1rem;
+		padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
 		background: var(--bg-secondary, #16213e);
 		border-top: 1px solid var(--border, #333);
 	}
@@ -802,5 +804,32 @@
 	.control-btn.end-call svg {
 		width: 18px;
 		height: 18px;
+	}
+
+	@media (max-width: 768px) {
+		.remote-videos {
+			grid-template-columns: 1fr;
+		}
+
+		.screens-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.local-video-pip {
+			width: 120px;
+			bottom: 80px;
+		}
+
+		.control-btn {
+			width: 44px;
+			height: 44px;
+			min-width: 44px;
+			min-height: 44px;
+		}
+
+		.control-btn svg {
+			width: 18px;
+			height: 18px;
+		}
 	}
 </style>

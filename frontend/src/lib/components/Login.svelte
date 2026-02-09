@@ -108,6 +108,8 @@
 		}, 50);
 	}
 
+	function focusOnMount(node: HTMLInputElement) { node.focus(); return {}; }
+
 	onMount(() => {
 		const urlParams = new URLSearchParams(window.location.search);
 		const room = urlParams.get('room');
@@ -158,7 +160,7 @@
 					placeholder="Enter your name"
 					maxlength="20"
 					required
-					autofocus
+					use:focusOnMount
 					disabled={loading}
 				/>
 				<button type="submit" class="join-btn" disabled={loading}>
@@ -181,7 +183,7 @@
 					bind:value={username}
 					placeholder="Username"
 					required
-					autofocus
+					use:focusOnMount
 					disabled={loading}
 				/>
 				<input
@@ -207,7 +209,7 @@
 					minlength="2"
 					maxlength="32"
 					required
-					autofocus
+					use:focusOnMount
 					disabled={loading}
 				/>
 				<input
