@@ -1,6 +1,6 @@
 import { Server } from "socket.io";
 import { createServer } from "http";
-import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync } from "fs";
+import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync, createReadStream } from "fs";
 import { join, basename } from "path";
 import { PluginLoader } from "./plugins/loader";
 import { getAllEmojis, getEmojiByName, addCustomEmoji, deleteCustomEmoji, type Emoji } from "./emojis";
@@ -16,6 +16,8 @@ import { guestCodeRepository } from "./db/repositories/guestCodeRepository.js";
 import { verifyToken } from "./auth/jwt.js";
 import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings } from "./api/authRoutes.js";
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
+import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApprove, handleGetAllRelays } from "./api/relayRoutes.js";
+import { relayRepository } from "./db/repositories/relayRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
 import { channelRepository } from "./db/repositories/channelRepository.js";
 import { channelMemberRepository } from "./db/repositories/channelMemberRepository.js";
@@ -815,6 +817,32 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  // Relay network endpoints
+  if (url.pathname === "/api/relays" && req.method === "GET") {
+    await handleGetRelays(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/relays/admin" && req.method === "GET") {
+    await handleGetAllRelays(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/relay/register" && req.method === "POST") {
+    await handleRelayRegister(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/relay/health" && req.method === "POST") {
+    await handleRelayHealth(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/relay/approve" && req.method === "POST") {
+    await handleRelayApprove(req, res);
+    return;
+  }
+
   // Verify guest access code
   if (url.pathname === "/api/guest/verify-code" && req.method === "POST") {
     let body = '';
@@ -1314,7 +1342,7 @@ server.on('request', async (req, res) => {
     const filePath = join(UPLOADS_DIR, fileName);
 
     if (existsSync(filePath)) {
-      const file = readFileSync(filePath);
+      const stat = statSync(filePath);
       const ext = filePath.split('.').pop()?.toLowerCase();
       const contentTypes: Record<string, string> = {
         'png': 'image/png',
@@ -1329,9 +1357,56 @@ server.on('request', async (req, res) => {
         'pdf': 'application/pdf',
         'zip': 'application/zip'
       };
+      const contentType = contentTypes[ext || ''] || 'application/octet-stream';
+      const etag = `"${stat.size}-${Math.floor(stat.mtimeMs)}"`;
 
-      res.writeHead(200, { "Content-Type": contentTypes[ext || ''] || 'application/octet-stream' });
-      res.end(file);
+      const headers: Record<string, string | number> = {
+        'Content-Type': contentType,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        'ETag': etag,
+        'Last-Modified': stat.mtime.toUTCString(),
+        'Accept-Ranges': 'bytes',
+        'X-Content-Type-Options': 'nosniff',
+      };
+
+      // Add CORS headers for relay cross-origin requests
+      const originHeader = req.headers.origin;
+      if (originHeader) {
+        headers['Access-Control-Allow-Origin'] = originHeader;
+        headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS';
+      }
+
+      // 304 Not Modified for conditional requests
+      if (req.headers['if-none-match'] === etag) {
+        res.writeHead(304);
+        res.end();
+        return;
+      }
+
+      // Range request support (video seeking, download resume)
+      const rangeHeader = req.headers.range;
+      if (rangeHeader) {
+        const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+        if (match) {
+          const start = parseInt(match[1], 10);
+          const end = match[2] ? parseInt(match[2], 10) : stat.size - 1;
+          if (start >= stat.size || end >= stat.size || start > end) {
+            res.writeHead(416, { 'Content-Range': `bytes */${stat.size}` });
+            res.end();
+            return;
+          }
+          headers['Content-Range'] = `bytes ${start}-${end}/${stat.size}`;
+          headers['Content-Length'] = end - start + 1;
+          res.writeHead(206, headers);
+          createReadStream(filePath, { start, end }).pipe(res);
+          return;
+        }
+      }
+
+      // Full response with streaming
+      headers['Content-Length'] = stat.size;
+      res.writeHead(200, headers);
+      createReadStream(filePath).pipe(res);
       return;
     } else {
       res.writeHead(404);
@@ -2545,6 +2620,35 @@ io.on("connection", (socket) => {
     });
   });
 
+  // P2P file transfer signaling
+  socket.on("p2p-offer", (data: { transferId: string; targetId: string; offer: any; fileName: string; fileSize: number }) => {
+    const user = users.get(socket.id);
+    io.to(data.targetId).emit("p2p-offer", {
+      transferId: data.transferId,
+      senderId: socket.id,
+      senderUsername: user?.username || 'Unknown',
+      offer: data.offer,
+      fileName: data.fileName,
+      fileSize: data.fileSize
+    });
+  });
+
+  socket.on("p2p-answer", (data: { transferId: string; targetId: string; answer: any }) => {
+    io.to(data.targetId).emit("p2p-answer", {
+      transferId: data.transferId,
+      senderId: socket.id,
+      answer: data.answer
+    });
+  });
+
+  socket.on("p2p-ice-candidate", (data: { transferId: string; targetId: string; candidate: any }) => {
+    io.to(data.targetId).emit("p2p-ice-candidate", {
+      transferId: data.transferId,
+      senderId: socket.id,
+      candidate: data.candidate
+    });
+  });
+
   // Excalidraw collaboration
   socket.on("excalidraw-update", (state: any) => {
     excalidrawState = state;
@@ -2997,6 +3101,15 @@ io.on("connection", (socket) => {
     }
   });
 });
+
+// Relay health monitor: mark stale relays as offline every 60 seconds
+const RELAY_HEALTH_TIMEOUT = parseInt(process.env.RELAY_HEALTH_TIMEOUT || '300', 10);
+setInterval(() => {
+  const marked = relayRepository.markStaleRelaysOffline(RELAY_HEALTH_TIMEOUT);
+  if (marked > 0 && ENABLE_LOGGING) {
+    console.log(`[Relay] Marked ${marked} stale relay(s) as offline`);
+  }
+}, 60_000);
 
 console.log(`🚀 Community Chat server running on port ${PORT}`);
 console.log(`📁 Serving static files from: ${STATIC_DIR}`);
