@@ -51,6 +51,73 @@ export function initializeDatabase() {
 	}
 
 	console.log('[Database] ✅ Schema initialized');
+
+	// Run migrations
+	runMigrations();
+
+	// Seed default roles
+	seedDefaultRoles();
+}
+
+function runMigrations() {
+	// Migration: Add handle column to users table
+	try {
+		const cols = db.pragma('table_info(users)') as { name: string }[];
+		if (!cols.some(c => c.name === 'handle')) {
+			db.exec('ALTER TABLE users ADD COLUMN handle TEXT UNIQUE COLLATE NOCASE');
+			// Backfill existing users: handle = lowercase username with spaces removed
+			db.exec("UPDATE users SET handle = LOWER(REPLACE(username, ' ', '')) WHERE handle IS NULL");
+			console.log('[Database] Migration: added handle column to users');
+		}
+	} catch (e) {
+		// Column may already exist
+	}
+
+	// Migration: Add priority/color/is_hoisted to user_roles
+	try {
+		const cols = db.pragma('table_info(user_roles)') as { name: string }[];
+		if (!cols.some(c => c.name === 'priority')) {
+			db.exec('ALTER TABLE user_roles ADD COLUMN priority INTEGER DEFAULT 10');
+			db.exec('ALTER TABLE user_roles ADD COLUMN color TEXT');
+			db.exec('ALTER TABLE user_roles ADD COLUMN is_hoisted INTEGER DEFAULT 0');
+			console.log('[Database] Migration: added priority/color/is_hoisted to user_roles');
+		}
+	} catch (e) {
+		// Columns may already exist
+	}
+}
+
+function seedDefaultRoles() {
+	const defaultRoles = [
+		{ role_name: 'owner', priority: 100, color: '#FFD700', is_hoisted: 1 },
+		{ role_name: 'admin', priority: 90, color: '#FF4444', is_hoisted: 1 },
+		{ role_name: 'mod', priority: 70, color: '#44FF44', is_hoisted: 1 },
+		{ role_name: 'member', priority: 10, color: null, is_hoisted: 0 },
+		{ role_name: 'guest', priority: 0, color: '#888888', is_hoisted: 0 }
+	];
+
+	const insertRole = db.prepare(
+		'INSERT OR IGNORE INTO roles (role_name, workspace_id, priority, color, is_hoisted) VALUES (?, ?, ?, ?, ?)'
+	);
+
+	for (const role of defaultRoles) {
+		insertRole.run(role.role_name, 'default-workspace', role.priority, role.color, role.is_hoisted);
+	}
+
+	// Auto-assign owner to the first registered user if no owner exists
+	const ownerExists = db.prepare(
+		"SELECT 1 FROM user_roles WHERE role_name = 'owner' AND workspace_id = 'default-workspace' LIMIT 1"
+	).get();
+
+	if (!ownerExists) {
+		const firstUser = db.prepare('SELECT user_id FROM users ORDER BY user_id ASC LIMIT 1').get() as { user_id: number } | undefined;
+		if (firstUser) {
+			db.prepare(
+				"INSERT OR IGNORE INTO user_roles (user_id, role_name, workspace_id) VALUES (?, 'owner', 'default-workspace')"
+			).run(firstUser.user_id);
+			console.log(`[Database] Auto-assigned owner role to user_id ${firstUser.user_id}`);
+		}
+	}
 }
 
 // Cleanup on shutdown

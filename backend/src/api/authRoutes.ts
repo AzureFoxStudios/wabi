@@ -111,13 +111,24 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 		}
 
 		const body = await parseBody(req);
-		const { username, password } = body;
+		const { username, password, handle: rawHandle } = body;
 
 		// Validate input
 		const validation = validateInput(username, password);
 		if (!validation.valid) {
 			res.writeHead(400, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: validation.error }));
+			return;
+		}
+
+		// Validate and normalize handle
+		const handle = rawHandle
+			? rawHandle.replace(/^@/, '').toLowerCase()
+			: username.replace(/\s+/g, '').toLowerCase();
+
+		if (!/^[a-z][a-z0-9_]{1,31}$/.test(handle)) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Handle must start with a letter, be 2-32 chars, and contain only lowercase letters, numbers, and underscores' }));
 			return;
 		}
 
@@ -128,10 +139,18 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 			return;
 		}
 
+		// Check if handle already exists
+		if (userRepository.findByHandle(handle)) {
+			res.writeHead(409, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Handle already taken' }));
+			return;
+		}
+
 		// Hash password and create user
 		const passwordHash = await hashPassword(password);
 		const user = userRepository.create({
 			username,
+			handle,
 			password_hash: passwordHash,
 			created_at: Date.now(),
 			color: generateColor()
@@ -169,6 +188,7 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 				user: {
 					id: user.user_id,
 					username: user.username,
+					handle: user.handle,
 					color: user.color,
 					profilePicture: user.profile_picture,
 					isRegistered: true
@@ -200,12 +220,12 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 		// Validate input
 		if (!username || !password) {
 			res.writeHead(400, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ error: 'Username and password required' }));
+			res.end(JSON.stringify({ error: 'Username or handle and password required' }));
 			return;
 		}
 
-		// Find user
-		const user = userRepository.findByUsername(username);
+		// Find user by handle or username
+		const user = userRepository.findByHandleOrUsername(username);
 		if (!user) {
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Invalid credentials' }));
@@ -247,6 +267,7 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 				user: {
 					id: user.user_id,
 					username: user.username,
+					handle: user.handle,
 					color: user.color,
 					profilePicture: user.profile_picture,
 					isRegistered: true

@@ -8,20 +8,21 @@ export interface AuthResponse {
 	user: {
 		id: number;
 		username: string;
+		handle?: string;
 		color: string;
 		profilePicture?: string;
 		isRegistered: boolean;
 	};
 }
 
-export async function register(username: string, password: string): Promise<AuthResponse> {
+export async function register(username: string, password: string, handle?: string): Promise<AuthResponse> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), 8000);
 	try {
 		const res = await fetch(`${SERVER_URL}/api/auth/register`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ username, password }),
+			body: JSON.stringify({ username, password, handle }),
 			signal: controller.signal
 		});
 

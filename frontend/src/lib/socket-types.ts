@@ -36,12 +36,16 @@ export interface Emoji {
 export interface User {
   id: string;
   username: string;
+  handle?: string;
   color: string;
   status: 'active' | 'away' | 'busy' | 'offline';
   profilePicture?: string;
   bio?: string;
   joinedAt?: number;
   dbUserId?: number; // Stable registered user ID (undefined for guests)
+  roles?: string[];
+  highestRole?: string;
+  roleColor?: string | null;
   usernameFont?: {
     family?: string;
     size?: string;

@@ -778,6 +778,35 @@ class SocketManager {
 			}));
 		});
 
+		sock.on('dm-deleted', (data: { channelId: string }) => {
+			channels.update(chs => chs.filter(ch => ch.id !== data.channelId));
+			channelMessages.update(msgs => {
+				const newMsgs = { ...msgs };
+				delete newMsgs[data.channelId];
+				return newMsgs;
+			});
+			currentChannel.update(ch => ch === data.channelId ? 'general' : ch);
+		});
+
+		sock.on('user-role-changed', (data: {
+			userId: string;
+			dbUserId: number;
+			roles: string[];
+			highestRole: string;
+			roleColor: string | null;
+		}) => {
+			users.update(u => u.map(existing =>
+				existing.id === data.userId
+					? { ...existing, roles: data.roles, highestRole: data.highestRole, roleColor: data.roleColor }
+					: existing
+			));
+			currentUser.update(cu =>
+				cu && cu.id === data.userId
+					? { ...cu, roles: data.roles, highestRole: data.highestRole, roleColor: data.roleColor }
+					: cu
+			);
+		});
+
 		sock.on('group-created', (group: Channel) => {
 			channels.update(chs => {
 				if (chs.some(ch => ch.id === group.id)) return chs;
@@ -1329,6 +1358,18 @@ export function getDMChannelIdForUser(myUser: User | null, targetUser: User): st
 	const targetStableId = targetUser.dbUserId ? `user-${targetUser.dbUserId}` : targetUser.id;
 	const memberIds = [myStableId, targetStableId].sort();
 	return `dm-${memberIds.join('-')}`;
+}
+
+export function deleteDM(channelId: string): void {
+	socketManager.emit('delete-dm', { channelId });
+}
+
+export function assignRole(targetUserId: number, roleName: string): void {
+	socketManager.emit('assign-role', { targetUserId, roleName });
+}
+
+export function removeUserRole(targetUserId: number, roleName: string): void {
+	socketManager.emit('remove-role', { targetUserId, roleName });
 }
 
 export function createGroup(name: string, memberIds: string[]): void {

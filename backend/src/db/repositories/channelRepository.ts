@@ -112,6 +112,12 @@ export class ChannelRepository {
 		stmt.run(...values);
 	}
 
+	// Delete a channel (CASCADE deletes members + messages)
+	delete(channelId: string): void {
+		const stmt = db.prepare('DELETE FROM channels WHERE channel_id = ?');
+		stmt.run(channelId);
+	}
+
 	// Check if channel exists
 	exists(channelId: string): boolean {
 		const stmt = db.prepare('SELECT 1 FROM channels WHERE channel_id = ? AND is_archived = 0');

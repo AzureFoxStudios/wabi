@@ -9,6 +9,7 @@
 
 	let tab: 'guest' | 'login' | 'register' = 'guest';
 	let username = '';
+	let handle = '';
 	let password = '';
 	let passwordConfirm = '';
 	let error = '';
@@ -24,10 +25,18 @@
 		: '';
 
 	// Tab switching helpers
+	// Auto-suggest handle from username
+	$: if (tab === 'register' && !handleManuallyEdited) {
+		handle = username.replace(/\s+/g, '').toLowerCase();
+	}
+	let handleManuallyEdited = false;
+
 	function switchTab(newTab: 'guest' | 'login' | 'register') {
 		tab = newTab;
 		error = '';
 		username = '';
+		handle = '';
+		handleManuallyEdited = false;
 		password = '';
 		passwordConfirm = '';
 	}
@@ -49,6 +58,11 @@
 			error = 'Username must be at least 2 characters';
 			return;
 		}
+		const cleanHandle = handle.replace(/^@/, '').toLowerCase();
+		if (!/^[a-z][a-z0-9_]{1,31}$/.test(cleanHandle)) {
+			error = 'Handle must start with a letter, be 2-32 chars, lowercase letters/numbers/underscores only';
+			return;
+		}
 		if (password.length < 8) {
 			error = 'Password must be at least 8 characters';
 			return;
@@ -61,7 +75,7 @@
 		loading = true;
 
 		try {
-			const result = await register(username, password);
+			const result = await register(username, password, cleanHandle);
 			localStorage.setItem('authToken', result.token);
 			dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered' });
 		} catch (err) {
@@ -181,7 +195,7 @@
 				<input
 					type="text"
 					bind:value={username}
-					placeholder="Username"
+					placeholder="Username or @handle"
 					required
 					use:focusOnMount
 					disabled={loading}
@@ -205,13 +219,27 @@
 				<input
 					type="text"
 					bind:value={username}
-					placeholder="Choose username"
+					placeholder="Choose display name"
 					minlength="2"
 					maxlength="32"
 					required
 					use:focusOnMount
 					disabled={loading}
 				/>
+				<div class="handle-input-wrapper">
+					<span class="handle-prefix">@</span>
+					<input
+						type="text"
+						bind:value={handle}
+						on:input={() => { handleManuallyEdited = true; }}
+						placeholder="yourhandle"
+						minlength="2"
+						maxlength="32"
+						required
+						disabled={loading}
+						class="handle-input"
+					/>
+				</div>
 				<input
 					type="password"
 					bind:value={password}
@@ -423,6 +451,31 @@
 		border-color: var(--accent);
 		color: var(--accent);
 		background: rgba(88, 101, 242, 0.1);
+	}
+
+	/* Handle input */
+	.handle-input-wrapper {
+		display: flex;
+		align-items: center;
+		background: var(--bg-tertiary);
+		border-radius: 12px;
+		margin-bottom: 1rem;
+		overflow: hidden;
+	}
+
+	.handle-prefix {
+		padding: 0 0 0 1rem;
+		font-size: 1.1rem;
+		color: var(--text-secondary);
+		font-weight: 600;
+		user-select: none;
+	}
+
+	.handle-input {
+		flex: 1;
+		margin-bottom: 0 !important;
+		border-radius: 0 !important;
+		padding-left: 0.25rem !important;
 	}
 
 	/* Error message */

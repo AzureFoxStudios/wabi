@@ -61,7 +61,18 @@
       "Bash(npx tsc:*)",
       "Bash(git log:*)",
       "Bash(git pull:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(sqlite3:*)",
+      "Bash(apt-get install:*)",
+      "Bash(for t in users sessions channels channel_members messages offline_messages user_settings user_roles theme_preferences guest_codes resource_visibility user_encryption_keys)",
+      "Bash(do echo -n \"$t: \")",
+      "Bash(done)",
+      "Bash(npx svelte-check:*)",
+      "WebSearch",
+      "WebFetch(domain:support.cci.drexel.edu)",
+      "WebFetch(domain:support.discord.com)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:deepwiki.com)"
     ],
     "deny": [],
     "ask": []

@@ -1,290 +1,138 @@
 <script lang="ts">
-	import { users, currentUser, type User } from '$lib/socket';
-	import UserPopout from './UserPopout.svelte';
+	import { layoutStore } from '$lib/layoutStore';
+	import UserListTab from './UserListTab.svelte';
+	import DMTab from './DMTab.svelte';
 
-	const dispatch = (event: string) => {};
-
-	// User popout state
-	let showUserPopout = false;
-	let popoutUser: User | null = null;
-	let popoutAnchorElement: HTMLElement | null = null;
-
-	$: onlineUsers = $users.filter(u => u.id !== $currentUser?.id);
-
-	function getStatusColor(status: string): string {
-		switch (status) {
-			case 'active': return 'var(--status-online)';
-			case 'away': return 'var(--status-away)';
-			case 'busy': return 'var(--status-busy)';
-			default: return 'var(--status-offline)';
-		}
-	}
-
-	function showUserPopoutHandler(user: User, anchorEl: HTMLElement) {
-		popoutUser = user;
-		popoutAnchorElement = anchorEl;
-		showUserPopout = true;
-	}
+	$: activeTab = $layoutStore.activeRightTab;
 </script>
 
-<aside class="right-panel">
-	<header class="panel-header">
-		<h2>Users Online</h2>
-	</header>
-
-	<div class="panel-content">
-		{#if onlineUsers.length === 0}
-			<div class="empty-state">
-				<div class="empty-icon">👥</div>
-				<p>No users online</p>
-			</div>
-		{:else}
-			<div class="list">
-				{#each onlineUsers as user (user.id)}
-					<button
-						class="list-item user-item"
-						on:click={(e) => showUserPopoutHandler(user, e.currentTarget)}
-					>
-						<div class="avatar-wrapper">
-							{#if user.profilePicture}
-								<img src={user.profilePicture} alt={user.username} class="avatar" />
-							{:else}
-								<div class="avatar-placeholder" style="background-color: {user.color}">
-									{user.username.charAt(0).toUpperCase()}
-								</div>
-							{/if}
-							<span class="status-dot" style="background-color: {getStatusColor(user.status)}"></span>
-						</div>
-						<div class="item-info">
-							<span class="item-name">{user.username}</span>
-							<span class="item-status">{user.status}</span>
-						</div>
-					</button>
-				{/each}
-			</div>
-		{/if}
+<div class="right-panel">
+	<div class="right-panel-tabs">
+		<button
+			class="tab-btn"
+			class:active={activeTab === 'users'}
+			on:click={layoutStore.showUsersTab}
+		>
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+				<circle cx="9" cy="7" r="4"/>
+				<path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+				<path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+			</svg>
+			<span>Users</span>
+		</button>
+		<button
+			class="tab-btn"
+			class:active={activeTab === 'dms'}
+			on:click={layoutStore.showDMsTab}
+		>
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+			</svg>
+			<span>DMs</span>
+		</button>
+		<div class="tab-spacer"></div>
+		<button class="tab-close" on:click={layoutStore.toggleRightPanel} title="Close panel">
+			<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<line x1="18" y1="6" x2="6" y2="18"/>
+				<line x1="6" y1="6" x2="18" y2="18"/>
+			</svg>
+		</button>
 	</div>
 
-	<footer class="panel-footer" style="border-top: 1px solid var(--border-color);">
-		<button class="profile-button">
-			<div class="avatar-wrapper">
-				{#if $currentUser?.profilePicture}
-					<img src={$currentUser.profilePicture} alt={$currentUser?.username} class="avatar" />
-				{:else}
-					<div class="avatar-placeholder" style="background-color: {$currentUser?.color}">
-						{$currentUser?.username.charAt(0).toUpperCase()}
-					</div>
-				{/if}
-				<span class="status-dot status-dot-sm" style="background-color: {getStatusColor($currentUser?.status)}"></span>
-			</div>
-			<div class="footer-info">
-				<span class="footer-name">{$currentUser?.username} <span class="you-badge">(you)</span></span>
-				<span class="footer-status">{$currentUser?.status}</span>
-			</div>
-		</button>
-	</footer>
-</aside>
-
-<UserPopout
-	bind:isOpen={showUserPopout}
-	bind:user={popoutUser}
-	anchorElement={popoutAnchorElement}
-	isOwnProfile={popoutUser?.id === $currentUser?.id}
-	on:close={() => (showUserPopout = false)}
-/>
+	<div class="right-panel-content">
+		{#if activeTab === 'users'}
+			<UserListTab />
+		{:else if activeTab === 'dms'}
+			<DMTab />
+		{/if}
+	</div>
+</div>
 
 <style>
 	.right-panel {
 		display: flex;
 		flex-direction: column;
 		height: 100%;
-		background: var(--bg-primary);
-		border-left: 1px solid var(--border-color);
-		overflow: hidden;
-	}
-
-	.panel-header {
-		padding: 1rem;
-		border-bottom: 1px solid var(--border-color);
 		background: var(--bg-secondary);
 	}
 
-	.panel-header h2 {
-		margin: 0;
-		font-size: var(--text-lg);
-		font-weight: 600;
+	.right-panel-tabs {
+		display: flex;
+		align-items: center;
+		border-bottom: 1px solid var(--border);
+		flex-shrink: 0;
+		padding: 0 0.25rem;
+		background: var(--bg-tertiary, var(--bg-secondary));
+	}
+
+	.tab-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.625rem 0.75rem;
+		background: none;
+		border: none;
+		border-bottom: 2px solid transparent;
+		color: var(--text-secondary);
+		cursor: pointer;
+		font-size: 0.8rem;
+		font-weight: 500;
+		transition: color 0.15s, border-color 0.15s;
+	}
+
+	.tab-btn:hover {
 		color: var(--text-primary);
 	}
 
-	.panel-content {
-		flex: 1;
-		overflow-y: auto;
-		display: flex;
-		flex-direction: column;
+	.tab-btn.active {
+		color: var(--accent);
+		border-bottom-color: var(--accent);
 	}
 
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 3rem 1.5rem;
-		text-align: center;
-		color: var(--text-secondary);
-	}
-
-	.empty-icon {
-		font-size: 2.5rem;
-		margin-bottom: 1rem;
-		opacity: 0.5;
-	}
-
-	.empty-state p {
-		margin: 0.25rem 0;
-		font-size: var(--text-base);
-	}
-
-	.list {
-		display: flex;
-		flex-direction: column;
-	}
-
-	.list-item {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 0.75rem 1rem;
-		border: none;
-		background: none;
-		color: inherit;
-		cursor: pointer;
-		transition: background 0.2s;
-		border-bottom: 1px solid var(--border-color);
-	}
-
-	.list-item:hover {
-		background: var(--bg-hover);
-	}
-
-	.avatar-wrapper {
-		position: relative;
+	.tab-btn svg {
 		flex-shrink: 0;
 	}
 
-	.avatar {
-		width: 48px;
-		height: 48px;
-		border-radius: 50%;
-		object-fit: cover;
+	.tab-spacer {
+		flex: 1;
 	}
 
-	.avatar-placeholder {
-		width: 48px;
-		height: 48px;
-		border-radius: 50%;
+	.tab-close {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-weight: 600;
-		color: white;
-		font-size: var(--text-lg);
-	}
-
-	.status-dot {
-		position: absolute;
-		bottom: 0;
-		right: 0;
-		width: 14px;
-		height: 14px;
-		border-radius: 50%;
-		border: 3px solid var(--bg-primary);
-	}
-
-	.status-dot-sm {
-		width: 12px;
-		height: 12px;
-		border-width: 2px;
-	}
-
-	.item-info {
-		display: flex;
-		flex-direction: column;
-		gap: 0.125rem;
-		min-width: 0;
-	}
-
-	.item-name {
-		font-size: var(--text-base);
-		font-weight: 500;
-		color: var(--text-primary);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.item-status {
-		font-size: var(--text-sm);
-		color: var(--text-secondary);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		text-transform: capitalize;
-	}
-
-	.panel-footer {
-		padding: 1rem;
-		background: var(--bg-secondary);
-	}
-
-	.profile-button {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		width: 100%;
-		padding: 0.5rem;
-		border: none;
+		width: 28px;
+		height: 28px;
 		background: none;
-		color: inherit;
+		border: none;
+		color: var(--text-secondary);
 		cursor: pointer;
-		border-radius: var(--radius-md);
-		transition: background 0.2s;
+		border-radius: 4px;
+		margin-right: 0.25rem;
 	}
 
-	.profile-button:hover {
+	.tab-close:hover {
+		color: var(--text-primary);
 		background: var(--bg-hover);
 	}
 
-	.footer-info {
-		display: flex;
-		flex-direction: column;
-		gap: 0.125rem;
-		min-width: 0;
-	}
-
-	.footer-name {
-		font-size: var(--text-base);
-		font-weight: 500;
-		color: var(--text-primary);
-		white-space: nowrap;
+	.right-panel-content {
+		flex: 1;
+		min-height: 0;
 		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.you-badge {
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
-		font-weight: 400;
-	}
-
-	.footer-status {
-		font-size: var(--text-sm);
-		color: var(--text-secondary);
-		text-transform: capitalize;
 	}
 
 	@media (max-width: 768px) {
-		.right-panel {
-			display: none;
+		.tab-btn {
+			padding: 0.75rem;
+			font-size: 0.9rem;
+			gap: 0.5rem;
+		}
+
+		.tab-close {
+			width: 36px;
+			height: 36px;
 		}
 	}
 </style>

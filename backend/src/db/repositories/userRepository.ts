@@ -3,6 +3,7 @@ import db from '../database.js';
 export interface RegisteredUser {
 	user_id?: number;
 	username: string;
+	handle?: string;
 	password_hash: string;
 	created_at: number;
 	color: string;
@@ -19,12 +20,13 @@ export class UserRepository {
 	// Create a new user
 	create(user: Omit<RegisteredUser, 'user_id'>): RegisteredUser {
 		const stmt = db.prepare(`
-			INSERT INTO users (username, password_hash, created_at, color, profile_picture, bio)
-			VALUES (?, ?, ?, ?, ?, ?)
+			INSERT INTO users (username, handle, password_hash, created_at, color, profile_picture, bio)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
 		`);
 
 		const info = stmt.run(
 			user.username,
+			user.handle || null,
 			user.password_hash,
 			user.created_at,
 			user.color,
@@ -42,6 +44,19 @@ export class UserRepository {
 	findByUsername(username: string): RegisteredUser | null {
 		const stmt = db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE');
 		return (stmt.get(username) as RegisteredUser) || null;
+	}
+
+	// Find user by handle
+	findByHandle(handle: string): RegisteredUser | null {
+		const cleanHandle = handle.startsWith('@') ? handle.slice(1) : handle;
+		const stmt = db.prepare('SELECT * FROM users WHERE handle = ? COLLATE NOCASE');
+		return (stmt.get(cleanHandle) as RegisteredUser) || null;
+	}
+
+	// Find user by handle or username (for login)
+	findByHandleOrUsername(identifier: string): RegisteredUser | null {
+		const cleanId = identifier.startsWith('@') ? identifier.slice(1) : identifier;
+		return this.findByHandle(cleanId) || this.findByUsername(identifier);
 	}
 
 	// Find user by ID

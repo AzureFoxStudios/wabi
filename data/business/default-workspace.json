@@ -1,6 +1,25 @@
 {
   "workspaceId": "default-workspace",
-  "todos": [],
+  "todos": [
+    {
+      "title": "Task A",
+      "priority": "medium",
+      "projectId": null,
+      "status": "todo",
+      "id": "1770731813310-bf77voyi9",
+      "createdAt": 1770731813310,
+      "updatedAt": 1770731813310
+    },
+    {
+      "title": "Task B",
+      "priority": "medium",
+      "projectId": null,
+      "status": "todo",
+      "id": "1770731821834-rt4pkpobr",
+      "createdAt": 1770731821834,
+      "updatedAt": 1770731821834
+    }
+  ],
   "calendarEvents": [],
   "diaryEntries": [],
   "projects": [],
@@ -179,5 +198,5 @@
       "id": "1768371914630-9neun4tia"
     }
   ],
-  "lastUpdated": 1770648323181
+  "lastUpdated": 1770732796448
 }

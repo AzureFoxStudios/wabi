@@ -20,6 +20,25 @@ import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from
 import { channelRepository } from "./db/repositories/channelRepository.js";
 import { channelMemberRepository } from "./db/repositories/channelMemberRepository.js";
 import { messageRepository } from "./db/repositories/messageRepository.js";
+import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
+
+// Helper: get role info for a user (roles, highest role, display color)
+function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: string; roleColor: string | null } {
+  if (!dbUserId) return { roles: ['guest'], highestRole: 'guest', roleColor: '#888888' };
+
+  const roles = getUserRoles(dbUserId);
+  if (roles.length === 0) return { roles: ['member'], highestRole: 'member', roleColor: null };
+
+  // Get role priorities from DB
+  const roleRows = db.prepare(
+    'SELECT role_name, priority, color FROM roles WHERE role_name IN (' + roles.map(() => '?').join(',') + ') ORDER BY priority DESC'
+  ).all(...roles) as { role_name: string; priority: number; color: string | null }[];
+
+  const highestRole = roleRows[0]?.role_name || 'member';
+  const roleColor = roleRows.find(r => r.color)?.color || null;
+
+  return { roles: roles.length > 0 ? roles : ['member'], highestRole, roleColor };
+}
 // In-memory data store
 interface Channel {
   id: string;
@@ -65,11 +84,15 @@ pinnedMessages.set('general', new Set());
 const users = new Map<string, {
   id: string;
   username: string;
+  handle?: string;
   color: string;
   status: 'active' | 'away' | 'busy';
   profilePicture?: string;
   workspaceId?: string; // Business workspace the user belongs to
   dbUserId?: number; // Stable registered user ID from DB (null for guests)
+  roles?: string[];
+  highestRole?: string;
+  roleColor?: string | null;
   usernameFont?: {
     family?: string;
     size?: string;
@@ -1818,13 +1841,22 @@ io.on("connection", (socket) => {
           }
         }
 
+        // Get handle and role info
+        const userRecord = dbSession.user_id ? userRepository.findById(dbSession.user_id) : null;
+        const registeredHandle = userRecord?.handle;
+        const roleInfo = getUserRoleInfo((socket as any).dbUserId);
+
         users.set(socket.id, {
           id: socket.id,
           username: registeredUsername,
+          handle: registeredHandle,
           color: registeredColor,
           status: 'active',
           profilePicture: registeredProfilePic,
           dbUserId: (socket as any).dbUserId,
+          roles: roleInfo.roles,
+          highestRole: roleInfo.highestRole,
+          roleColor: roleInfo.roleColor,
           usernameFont
         });
 
@@ -1854,10 +1886,14 @@ io.on("connection", (socket) => {
         socket.broadcast.emit("user-joined", {
           id: socket.id,
           username: registeredUsername,
+          handle: registeredHandle,
           color: registeredColor,
           status: 'active',
           profilePicture: registeredProfilePic,
           dbUserId: (socket as any).dbUserId,
+          roles: roleInfo.roles,
+          highestRole: roleInfo.highestRole,
+          roleColor: roleInfo.roleColor,
           usernameFont
         });
 
@@ -2958,6 +2994,123 @@ io.on("connection", (socket) => {
     });
 
     if (ENABLE_LOGGING) console.log(`DM created: ${dmId} between ${user.username} and ${targetUser.username}`);
+  });
+
+  // Delete DM
+  socket.on("delete-dm", (data: { channelId: string }) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    const channel = channels.get(data.channelId);
+    if (!channel || channel.type !== 'dm') {
+      socket.emit("channel-error", "DM channel not found");
+      return;
+    }
+
+    // Verify the requesting user is a member
+    const myStableId = getStableUserId(socket);
+    if (!channel.members?.includes(myStableId)) {
+      socket.emit("channel-error", "Not a member of this DM");
+      return;
+    }
+
+    // Remove from in-memory state
+    channels.delete(data.channelId);
+    channelMessages.delete(data.channelId);
+    pinnedMessages.delete(data.channelId);
+
+    // Remove from database (CASCADE deletes members + messages)
+    try {
+      channelRepository.delete(data.channelId);
+    } catch (e) {
+      console.error('[DM] Failed to delete from DB:', e);
+    }
+
+    // Notify both participants
+    for (const memberId of channel.members || []) {
+      const memberSocketId = resolveSocketId(memberId);
+      if (memberSocketId) {
+        io.to(memberSocketId).emit("dm-deleted", { channelId: data.channelId });
+      }
+    }
+
+    if (ENABLE_LOGGING) console.log(`DM deleted: ${data.channelId}`);
+  });
+
+  // Role management
+  socket.on("assign-role", (data: { targetUserId: number; roleName: string }) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId) return;
+
+    // Only admin/owner can assign roles
+    const myRoleInfo = getUserRoleInfo(user.dbUserId);
+    if (!['owner', 'admin'].includes(myRoleInfo.highestRole)) {
+      socket.emit("channel-error", "Insufficient permissions to assign roles");
+      return;
+    }
+
+    try {
+      assignRole(data.targetUserId, data.roleName as any);
+      const newRoleInfo = getUserRoleInfo(data.targetUserId);
+
+      // Find the target user's socket and update their info
+      for (const [sid, u] of users.entries()) {
+        if (u.dbUserId === data.targetUserId) {
+          u.roles = newRoleInfo.roles;
+          u.highestRole = newRoleInfo.highestRole;
+          u.roleColor = newRoleInfo.roleColor;
+          users.set(sid, u);
+
+          // Broadcast role change to all clients
+          io.emit("user-role-changed", {
+            userId: sid,
+            dbUserId: data.targetUserId,
+            roles: newRoleInfo.roles,
+            highestRole: newRoleInfo.highestRole,
+            roleColor: newRoleInfo.roleColor
+          });
+          break;
+        }
+      }
+    } catch (e) {
+      socket.emit("channel-error", "Failed to assign role");
+    }
+  });
+
+  socket.on("remove-role", (data: { targetUserId: number; roleName: string }) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId) return;
+
+    const myRoleInfo = getUserRoleInfo(user.dbUserId);
+    if (!['owner', 'admin'].includes(myRoleInfo.highestRole)) {
+      socket.emit("channel-error", "Insufficient permissions to remove roles");
+      return;
+    }
+
+    try {
+      removeRole(data.targetUserId, data.roleName as any, 'default-workspace');
+      const newRoleInfo = getUserRoleInfo(data.targetUserId);
+
+      for (const [sid, u] of users.entries()) {
+        if (u.dbUserId === data.targetUserId) {
+          u.roles = newRoleInfo.roles;
+          u.highestRole = newRoleInfo.highestRole;
+          u.roleColor = newRoleInfo.roleColor;
+          users.set(sid, u);
+
+          io.emit("user-role-changed", {
+            userId: sid,
+            dbUserId: data.targetUserId,
+            roles: newRoleInfo.roles,
+            highestRole: newRoleInfo.highestRole,
+            roleColor: newRoleInfo.roleColor
+          });
+          break;
+        }
+      }
+    } catch (e) {
+      socket.emit("channel-error", "Failed to remove role");
+    }
   });
 
   // Group chat creation
