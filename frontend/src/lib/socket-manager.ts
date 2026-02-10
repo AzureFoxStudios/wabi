@@ -491,13 +491,20 @@ class SocketManager {
 
 			users.set(data.users);
 
-			// Process channels
+			// Process channels - server now enriches DM channels with otherUser
 			const processedChannels = data.channels.map(channel => {
-				if (channel.type === 'dm' && channel.members) {
-					const otherUserId = channel.members.find(id => id !== sock.id);
-					const otherUser = data.users.find(u => u.id === otherUserId);
-					if (otherUser) {
-						return { ...channel, name: otherUser.username, otherUser };
+				if (channel.type === 'dm') {
+					// Server provides otherUser; use it if available
+					if (channel.otherUser) {
+						return { ...channel, name: channel.otherUser.username };
+					}
+					// Fallback: try to resolve from online users list
+					if (channel.members) {
+						const otherUserId = channel.members.find(id => id !== sock.id);
+						const otherUser = data.users.find(u => u.id === otherUserId);
+						if (otherUser) {
+							return { ...channel, name: otherUser.username, otherUser };
+						}
 					}
 				}
 				return channel;
@@ -673,12 +680,17 @@ class SocketManager {
 
 		sock.on('channel-created', (channel: Channel) => {
 			let processedChannel = channel;
-			if (channel.type === 'dm' && channel.members) {
-				const userList = get(users);
-				const otherUserId = channel.members.find(id => id !== sock.id);
-				const otherUser = userList.find(u => u.id === otherUserId);
-				if (otherUser) {
-					processedChannel = { ...channel, name: otherUser.username, otherUser };
+			if (channel.type === 'dm') {
+				// Server may provide otherUser directly
+				if (channel.otherUser) {
+					processedChannel = { ...channel, name: channel.otherUser.username };
+				} else if (channel.members) {
+					const userList = get(users);
+					const otherUserId = channel.members.find(id => id !== sock.id);
+					const otherUser = userList.find(u => u.id === otherUserId);
+					if (otherUser) {
+						processedChannel = { ...channel, name: otherUser.username, otherUser };
+					}
 				}
 			}
 			channels.update(chs => [...chs, processedChannel]);
@@ -1308,6 +1320,15 @@ export function deleteEmote(emoteName: string): void {
 
 export function createDM(targetUserId: string): void {
 	socketManager.emit('create-dm', { targetUserId });
+}
+
+// Get the stable DM channel ID for a user pair.
+// Uses dbUserId for registered users, socket.id for guests.
+export function getDMChannelIdForUser(myUser: User | null, targetUser: User): string {
+	const myStableId = myUser?.dbUserId ? `user-${myUser.dbUserId}` : myUser?.id || '';
+	const targetStableId = targetUser.dbUserId ? `user-${targetUser.dbUserId}` : targetUser.id;
+	const memberIds = [myStableId, targetStableId].sort();
+	return `dm-${memberIds.join('-')}`;
 }
 
 export function createGroup(name: string, memberIds: string[]): void {

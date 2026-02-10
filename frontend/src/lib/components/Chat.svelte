@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick, createEventDispatcher } from 'svelte';
-	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, users, dmPanelSignal, createDM, type Message, type Emoji } from '$lib/socket';
+	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, users, dmPanelSignal, createDM, getDMChannelIdForUser, type Message, type Emoji } from '$lib/socket';
 	import { resources, graphEdges } from '$lib/business/store';
 	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
 	import { pinChannel, unpinChannel } from '$lib/socket';
@@ -482,9 +482,8 @@
 					return;
 				}
 
-				// Check if DM already exists
-				const memberIds = [$currentUser?.id, targetUser.id].sort();
-				const dmId = `dm-${memberIds.join('-')}`;
+				// Check if DM already exists using stable IDs
+				const dmId = getDMChannelIdForUser($currentUser, targetUser);
 				const existingDM = $channels.find(ch => ch.id === dmId);
 
 				if (existingDM) {

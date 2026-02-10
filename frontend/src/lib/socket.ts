@@ -81,6 +81,7 @@ export {
 
 	// DM/Group operations
 	createDM,
+	getDMChannelIdForUser,
 	createGroup,
 
 	// Emote operations

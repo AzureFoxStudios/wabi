@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { currentUser, socket, type User, channels, createDM, dmPanelSignal } from '$lib/socket';
+	import { currentUser, socket, type User, channels, createDM, getDMChannelIdForUser, dmPanelSignal } from '$lib/socket';
 	import { startCall } from '$lib/calling';
 	import { startScreenShare } from '$lib/calling';
 	import { browser } from '$app/environment';
@@ -87,8 +87,7 @@
 		const self = get(currentUser);
 		if (!self || user.id === self.id) return;
 
-		const memberIds = [self.id, user.id].sort();
-		const dmId = `dm-${memberIds.join('-')}`;
+		const dmId = getDMChannelIdForUser(self, user);
 
 		const allChannels = get(channels);
 		const existingDM = allChannels.find(ch => ch.id === dmId);

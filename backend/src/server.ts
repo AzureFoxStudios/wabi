@@ -69,6 +69,7 @@ const users = new Map<string, {
   status: 'active' | 'away' | 'busy';
   profilePicture?: string;
   workspaceId?: string; // Business workspace the user belongs to
+  dbUserId?: number; // Stable registered user ID from DB (null for guests)
   usernameFont?: {
     family?: string;
     size?: string;
@@ -77,8 +78,28 @@ const users = new Map<string, {
   };
 }>();
 
+// Reverse mapping: stable dbUserId -> current socket.id (for registered users only)
+const dbUserIdToSocketId = new Map<number, string>();
+
+// Helper: get the stable identity key for a user (dbUserId string for registered, socket.id for guests)
+function getStableUserId(socket: any): string {
+  if ((socket as any).isRegistered && (socket as any).dbUserId) {
+    return `user-${(socket as any).dbUserId}`;
+  }
+  return socket.id;
+}
+
+// Helper: resolve a stable user ID to the current socket.id for delivery
+function resolveSocketId(stableId: string): string | null {
+  if (stableId.startsWith('user-')) {
+    const dbId = parseInt(stableId.substring(5), 10);
+    return dbUserIdToSocketId.get(dbId) || null;
+  }
+  return stableId; // Already a socket.id (guest user)
+}
+
 // Session management for persistence across reconnects
-const sessions = new Map<string, { userId: string; username: string; color: string; profilePicture?: string; createdAt: number }>();
+const sessions = new Map<string, { userId: string; username: string; color: string; profilePicture?: string; createdAt: number; usernameFont?: any }>();
 
 // Generate a random session ID
 function generateSessionId(): string {
@@ -1474,8 +1495,12 @@ function emitToChannel(channelId: string, event: string, data: any) {
 
   // For DMs and group chats, only emit to members
   if (channel.members && channel.members.length > 0) {
-    channel.members.forEach(memberId => {
-      io.to(memberId).emit(event, data);
+    channel.members.forEach(stableId => {
+      // Resolve stable ID (e.g. "user-5") to current socket.id
+      const socketId = resolveSocketId(stableId);
+      if (socketId) {
+        io.to(socketId).emit(event, data);
+      }
     });
   } else {
     // For public channels, broadcast to everyone
@@ -1550,16 +1575,17 @@ deleteMessageById = (channelId: string, messageId: string) => {
 // restoreMessageDeletionTimers() is not needed since messages start fresh on server restart
 
 // Helper function to load user's persisted DM/group channels from database
-// and ensure they exist in the in-memory maps
-function loadUserChannelsFromDB(userId: string): Channel[] {
+// and ensure they exist in the in-memory maps.
+// stableUserId is either "user-{dbId}" for registered users or socket.id for guests.
+function loadUserChannelsFromDB(stableUserId: string): Channel[] {
   try {
-    // Get channels where user is a member from DB
-    const userChannelRecords = channelMemberRepository.getUserChannels(userId);
+    // Get channels where user is a member from DB (using stable user_id)
+    const userChannelRecords = channelMemberRepository.getUserChannels(stableUserId);
 
     for (const record of userChannelRecords) {
       const dbChannel = channelRepository.findById(record.channel_id);
       if (dbChannel && !channels.has(dbChannel.channel_id)) {
-        // Get members for this channel
+        // Get members for this channel (these are stable IDs)
         const memberIds = channelMemberRepository.getMemberIds(dbChannel.channel_id);
 
         // Add to in-memory channels
@@ -1569,7 +1595,8 @@ function loadUserChannelsFromDB(userId: string): Channel[] {
           createdAt: dbChannel.created_at,
           type: dbChannel.channel_type,
           members: memberIds,
-          persistMessages: dbChannel.persist_messages === 1
+          persistMessages: dbChannel.persist_messages === 1,
+          recipientNotified: true // Already persisted, so both sides know
         });
 
         // Initialize message array and load message history if not exists
@@ -1579,7 +1606,7 @@ function loadUserChannelsFromDB(userId: string): Channel[] {
             const dbMessages = messageRepository.getByChannel(dbChannel.channel_id, { limit: 50 });
             const clientMessages = dbMessages.map(msg => messageRepository.toClientFormat(msg));
             channelMessages.set(dbChannel.channel_id, clientMessages);
-            
+
             if (ENABLE_LOGGING && dbMessages.length > 0) {
               console.log(`[loadUserChannelsFromDB] Loaded ${dbMessages.length} messages for channel ${dbChannel.channel_id}`);
             }
@@ -1596,8 +1623,65 @@ function loadUserChannelsFromDB(userId: string): Channel[] {
 
   // Return all channels the user has access to
   return Array.from(channels.values()).filter(channel => {
+    // Public channels are accessible to everyone
     if (!channel.members || channel.members.length === 0) return true;
-    return channel.members.includes(userId);
+    // Check if user's stable ID is in the members list
+    return channel.members.includes(stableUserId);
+  });
+}
+
+// Helper: enrich DM channels with otherUser info for a given user's stable ID
+function enrichDMChannels(channelList: Channel[], myStableId: string): any[] {
+  return channelList.map(channel => {
+    if (channel.type === 'dm' && channel.members) {
+      const otherStableId = channel.members.find(m => m !== myStableId);
+      if (otherStableId) {
+        // Try to find the other user online (by resolving stable ID to socket)
+        const otherSocketId = resolveSocketId(otherStableId);
+        const onlineUser = otherSocketId ? users.get(otherSocketId) : null;
+
+        if (onlineUser) {
+          return { ...channel, otherUser: {
+            id: onlineUser.id,
+            username: onlineUser.username,
+            color: onlineUser.color,
+            status: onlineUser.status,
+            profilePicture: onlineUser.profilePicture,
+            dbUserId: onlineUser.dbUserId
+          }};
+        }
+
+        // Offline: resolve from DB if it's a registered user
+        if (otherStableId.startsWith('user-')) {
+          const dbId = parseInt(otherStableId.substring(5), 10);
+          const dbUser = userRepository.findById(dbId);
+          if (dbUser) {
+            return { ...channel, otherUser: {
+              id: otherStableId,
+              username: dbUser.username,
+              color: dbUser.color,
+              status: 'offline' as const,
+              profilePicture: dbUser.profile_picture,
+              dbUserId: dbId
+            }};
+          }
+        }
+
+        // Fallback: use channel_members username
+        const memberRecords = channelMemberRepository.getMembers(channel.id);
+        const otherMember = memberRecords.find(m => m.user_id === otherStableId);
+        if (otherMember) {
+          return { ...channel, otherUser: {
+            id: otherStableId,
+            username: otherMember.username,
+            color: '#888888',
+            status: 'offline' as const,
+            dbUserId: otherMember.registered_user_id
+          }};
+        }
+      }
+    }
+    return channel;
   });
 }
 
@@ -1740,15 +1824,23 @@ io.on("connection", (socket) => {
           color: registeredColor,
           status: 'active',
           profilePicture: registeredProfilePic,
+          dbUserId: (socket as any).dbUserId,
           usernameFont
         });
 
-        // Load user's persisted DM/group channels from database
-        const userChannels = loadUserChannelsFromDB(socket.id);
+        // Update reverse mapping for registered users
+        if ((socket as any).dbUserId) {
+          dbUserIdToSocketId.set((socket as any).dbUserId, socket.id);
+        }
+
+        // Load user's persisted DM/group channels from database using stable ID
+        const stableId = getStableUserId(socket);
+        const userChannels = loadUserChannelsFromDB(stableId);
+        const enrichedChannels = enrichDMChannels(userChannels, stableId);
 
         const emojisData = getAllEmojis();
         socket.emit("init", {
-          channels: userChannels,
+          channels: enrichedChannels,
           users: Array.from(users.values()),
           excalidrawState,
           emotes: Array.from(emotes.values()),
@@ -1765,6 +1857,7 @@ io.on("connection", (socket) => {
           color: registeredColor,
           status: 'active',
           profilePicture: registeredProfilePic,
+          dbUserId: (socket as any).dbUserId,
           usernameFont
         });
 
@@ -1797,12 +1890,12 @@ io.on("connection", (socket) => {
         profilePicture: session.profilePicture
       });
 
-      // Load user's persisted DM/group channels from database
-      const userChannels = loadUserChannelsFromDB(socket.id);
+      // Guest users use socket.id as their stable ID (ephemeral, expected)
+      const guestChannels = loadUserChannelsFromDB(socket.id);
 
       const emojisData = getAllEmojis();
       socket.emit("init", {
-        channels: userChannels,
+        channels: guestChannels,
         users: Array.from(users.values()),
         excalidrawState,
         emotes: Array.from(emotes.values()),
@@ -1838,16 +1931,16 @@ io.on("connection", (socket) => {
         profilePicture: undefined
       });
 
-      // Load user's persisted DM/group channels from database
-      const userChannels = loadUserChannelsFromDB(socket.id);
+      // Guest users use socket.id as their stable ID (ephemeral, expected)
+      const newGuestChannels = loadUserChannelsFromDB(socket.id);
 
-      const emojisData = getAllEmojis();
+      const emojisData2 = getAllEmojis();
       socket.emit("init", {
-        channels: userChannels,
+        channels: newGuestChannels,
         users: Array.from(users.values()),
         excalidrawState,
         emotes: Array.from(emotes.values()),
-        emojis: emojisData,
+        emojis: emojisData2,
         sessionId: sessionId
       });
 
@@ -1893,27 +1986,41 @@ io.on("connection", (socket) => {
     }
 
     // Create/update user object with existing session data
+    const rejoinDbUserId = (socket as any).isRegistered ? (socket as any).dbUserId : undefined;
     users.set(socket.id, {
       id: socket.id,
       username: session.username,
       color: session.color,
       status: 'active',
       profilePicture: session.profilePicture,
+      dbUserId: rejoinDbUserId,
       usernameFont
     });
 
-    // Load user's persisted DM/group channels from database
-    const userChannels = loadUserChannelsFromDB(socket.id);
+    // Update reverse mapping for registered users
+    if (rejoinDbUserId) {
+      dbUserIdToSocketId.set(rejoinDbUserId, socket.id);
+    }
+
+    // Load user's persisted DM/group channels from database using stable ID
+    const rejoinStableId = getStableUserId(socket);
+    const rejoinChannels = loadUserChannelsFromDB(rejoinStableId);
+    const enrichedRejoinChannels = enrichDMChannels(rejoinChannels, rejoinStableId);
 
     const emojisData = getAllEmojis();
     socket.emit("init", {
-      channels: userChannels,
+      channels: enrichedRejoinChannels,
       users: Array.from(users.values()),
       excalidrawState,
       emotes: Array.from(emotes.values()),
       emojis: emojisData,
       sessionId: sessionId
     });
+
+    // Deliver offline messages for registered user on rejoin
+    if (rejoinDbUserId) {
+      deliverOfflineMessages(socket, rejoinDbUserId);
+    }
 
     // Broadcast user rejoin
     const rejoinUser = users.get(socket.id);
@@ -1923,6 +2030,7 @@ io.on("connection", (socket) => {
       color: rejoinUser?.color,
       status: 'active',
       profilePicture: rejoinUser?.profilePicture,
+      dbUserId: rejoinDbUserId,
       usernameFont: rejoinUser?.usernameFont
     });
 
@@ -2000,6 +2108,7 @@ io.on("connection", (socket) => {
       color: user.color,
       status: user.status,
       profilePicture: user.profilePicture,
+      dbUserId: user.dbUserId,
       usernameFont: user.usernameFont
     });
 
@@ -2123,11 +2232,14 @@ io.on("connection", (socket) => {
       ? Date.now() + getAutoDeleteMs(channel.autoDeleteAfter)
       : Date.now() + DEFAULT_SERVER_EXPIRATION;
 
+    // Use stable user ID for message identity
+    const senderStableId = getStableUserId(socket);
+
     // Build minimal message object with only present fields
     const message: any = {
-      id: `${Date.now()}-${socket.id}`,
+      id: `${Date.now()}-${senderStableId}`,
       user: user.username,
-      userId: socket.id,
+      userId: socket.id, // Current socket.id for realtime identification
       text: data.text,
       timestamp: Date.now(),
       type: data.type,
@@ -2152,18 +2264,23 @@ io.on("connection", (socket) => {
 
     // Notify DM recipient on first message (lazy channel delivery)
     if (channel.type === 'dm' && !channel.recipientNotified && channel.members) {
-      const recipientId = channel.members.find(m => m !== socket.id);
-      if (recipientId) {
-        io.to(recipientId).emit("dm-channel-added", {
-          channelId: data.channelId,
-          otherUser: {
-            id: user.id,
-            username: user.username,
-            color: user.color,
-            status: user.status,
-            profilePicture: user.profilePicture
-          }
-        });
+      const myStableId = getStableUserId(socket);
+      const recipientStableId = channel.members.find(m => m !== myStableId);
+      if (recipientStableId) {
+        const recipientSocketId = resolveSocketId(recipientStableId);
+        if (recipientSocketId) {
+          io.to(recipientSocketId).emit("dm-channel-added", {
+            channelId: data.channelId,
+            otherUser: {
+              id: user.id,
+              username: user.username,
+              color: user.color,
+              status: user.status,
+              profilePicture: user.profilePicture,
+              dbUserId: user.dbUserId
+            }
+          });
+        }
         channel.recipientNotified = true;
       }
     }
@@ -2174,12 +2291,12 @@ io.on("connection", (socket) => {
     const deletionDuration = channel.autoDeleteAfter || '24h';
     scheduleMessageDeletion(data.channelId, message.id, deletionDuration);
 
-    // Persist message to database
+    // Persist message to database with stable sender ID
     try {
       messageRepository.create({
         message_id: message.id,
         channel_id: data.channelId,
-        sender_id: socket.id,
+        sender_id: senderStableId,
         sender_username: user.username,
         sender_color: user.color,
         message_type: data.type,
@@ -2717,11 +2834,15 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // Create DM channel ID by sorting user IDs to ensure consistency
-    const memberIds = [socket.id, data.targetUserId].sort();
-    const dmId = `dm-${memberIds.join('-')}`;
+    // Use stable IDs for registered users, socket IDs for guests
+    const myStableId = getStableUserId(socket);
+    const targetStableId = targetUser.dbUserId ? `user-${targetUser.dbUserId}` : data.targetUserId;
 
-    // Check if DM already exists
+    // Create DM channel ID by sorting stable IDs to ensure consistency
+    const stableMemberIds = [myStableId, targetStableId].sort();
+    const dmId = `dm-${stableMemberIds.join('-')}`;
+
+    // Check if DM already exists (in-memory or database)
     if (channels.has(dmId)) {
       // DM exists, just notify the creator to switch to it
       socket.emit("dm-created", {
@@ -2731,19 +2852,56 @@ io.on("connection", (socket) => {
           username: targetUser.username,
           color: targetUser.color,
           status: targetUser.status,
-          profilePicture: targetUser.profilePicture
+          profilePicture: targetUser.profilePicture,
+          dbUserId: targetUser.dbUserId
         }
       });
       return;
     }
 
-    // Create new DM channel
+    // Also check the database for existing DM (may not be in memory yet)
+    if (channelRepository.exists(dmId)) {
+      // Load from DB into memory
+      const dbChannel = channelRepository.findById(dmId);
+      if (dbChannel) {
+        const memberIds = channelMemberRepository.getMemberIds(dmId);
+        const dmChannel: Channel = {
+          id: dmId,
+          name: dbChannel.name,
+          createdAt: dbChannel.created_at,
+          type: 'dm',
+          members: memberIds,
+          persistMessages: dbChannel.persist_messages === 1,
+          recipientNotified: true
+        };
+        channels.set(dmId, dmChannel);
+        if (!channelMessages.has(dmId)) {
+          const dbMessages = messageRepository.getByChannel(dmId, { limit: 50 });
+          channelMessages.set(dmId, dbMessages.map(msg => messageRepository.toClientFormat(msg)));
+        }
+
+        socket.emit("dm-created", {
+          channelId: dmId,
+          otherUser: {
+            id: targetUser.id,
+            username: targetUser.username,
+            color: targetUser.color,
+            status: targetUser.status,
+            profilePicture: targetUser.profilePicture,
+            dbUserId: targetUser.dbUserId
+          }
+        });
+        return;
+      }
+    }
+
+    // Create new DM channel with stable member IDs
     const dmChannel: Channel = {
       id: dmId,
       name: `${user.username}, ${targetUser.username}`,
       createdAt: Date.now(),
       type: 'dm',
-      members: memberIds,
+      members: stableMemberIds,
       persistMessages: true,
       recipientNotified: false
     };
@@ -2754,39 +2912,39 @@ io.on("connection", (socket) => {
 
     // Persist DM channel and members to database
     try {
-      if (!channelRepository.exists(dmId)) {
-        channelRepository.create({
-          channel_id: dmId,
-          channel_type: 'dm',
-          name: dmChannel.name,
-          created_at: dmChannel.createdAt,
-          created_by: socket.id,
-          persist_messages: 1
-        });
+      channelRepository.create({
+        channel_id: dmId,
+        channel_type: 'dm',
+        name: dmChannel.name,
+        created_at: dmChannel.createdAt,
+        created_by: myStableId,
+        persist_messages: 1
+      });
 
-        // Add both members
-        channelMemberRepository.addMembers([
-          {
-            channel_id: dmId,
-            user_id: socket.id,
-            username: user.username,
-            joined_at: Date.now(),
-            role: 'member'
-          },
-          {
-            channel_id: dmId,
-            user_id: data.targetUserId,
-            username: targetUser.username,
-            joined_at: Date.now(),
-            role: 'member'
-          }
-        ]);
-      }
+      // Add both members with stable IDs and registered_user_id where applicable
+      channelMemberRepository.addMembers([
+        {
+          channel_id: dmId,
+          user_id: myStableId,
+          username: user.username,
+          registered_user_id: user.dbUserId,
+          joined_at: Date.now(),
+          role: 'member'
+        },
+        {
+          channel_id: dmId,
+          user_id: targetStableId,
+          username: targetUser.username,
+          registered_user_id: targetUser.dbUserId,
+          joined_at: Date.now(),
+          role: 'member'
+        }
+      ]);
     } catch (dbError) {
       console.error('[ChannelRepository] Failed to persist DM:', dbError);
     }
 
-    // Notify both users about the DM
+    // Notify the creator about the DM
     socket.emit("dm-created", {
       channelId: dmId,
       otherUser: {
@@ -2794,7 +2952,8 @@ io.on("connection", (socket) => {
         username: targetUser.username,
         color: targetUser.color,
         status: targetUser.status,
-        profilePicture: targetUser.profilePicture
+        profilePicture: targetUser.profilePicture,
+        dbUserId: targetUser.dbUserId
       }
     });
 
@@ -2963,6 +3122,14 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
 
     if (user) {
+      // Clean up reverse mapping for registered users
+      if (user.dbUserId) {
+        const currentSocketForUser = dbUserIdToSocketId.get(user.dbUserId);
+        if (currentSocketForUser === socket.id) {
+          dbUserIdToSocketId.delete(user.dbUserId);
+        }
+      }
+
       users.delete(socket.id);
       typingUsers.delete(socket.id);
 

@@ -37,10 +37,11 @@ export interface User {
   id: string;
   username: string;
   color: string;
-  status: 'active' | 'away' | 'busy';
+  status: 'active' | 'away' | 'busy' | 'offline';
   profilePicture?: string;
   bio?: string;
   joinedAt?: number;
+  dbUserId?: number; // Stable registered user ID (undefined for guests)
   usernameFont?: {
     family?: string;
     size?: string;
