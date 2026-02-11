@@ -1348,23 +1348,47 @@ server.on('request', async (req, res) => {
         || (html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]) || null;
       const description = getMeta('og:description') || getMeta('twitter:description')
         || getMeta('description') || null;
-      const image = getMeta('og:image') || getMeta('twitter:image') || null;
       const siteName = getMeta('og:site_name') || null;
       const type = getMeta('og:type') || null;
 
-      // Extract YouTube video ID
+      // Video/player embed metadata
+      const videoUrl = getMeta('og:video:secure_url') || getMeta('og:video:url') || getMeta('og:video') || null;
+      const videoType = getMeta('og:video:type') || null;
+      const videoWidth = getMeta('og:video:width') || getMeta('twitter:player:width') || null;
+      const videoHeight = getMeta('og:video:height') || getMeta('twitter:player:height') || null;
+      const twitterCard = getMeta('twitter:card') || null;
+      const twitterPlayer = getMeta('twitter:player') || null;
+
+      // Extract YouTube video ID from URL
       let youtubeId: string | null = null;
       try {
         const parsed = new URL(targetUrl);
-        if (parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')) {
-          youtubeId = parsed.searchParams.get('v')
-            || parsed.pathname.split('/').pop()
-            || null;
+        if (parsed.hostname.includes('youtube.com')) {
+          youtubeId = parsed.searchParams.get('v') || null;
+          // Handle /embed/VIDEO_ID and /shorts/VIDEO_ID
+          if (!youtubeId) {
+            const segments = parsed.pathname.split('/').filter(Boolean);
+            if (segments.length >= 2 && (segments[0] === 'embed' || segments[0] === 'shorts')) {
+              youtubeId = segments[1];
+            }
+          }
+        } else if (parsed.hostname.includes('youtu.be')) {
+          youtubeId = parsed.pathname.slice(1) || null;
         }
       } catch {}
 
+      // Build image — for YouTube, guarantee a high-res thumbnail
+      let image = getMeta('og:image') || getMeta('twitter:image') || null;
+      if (youtubeId && !image) {
+        image = `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`;
+      }
+
       res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req) });
-      res.end(JSON.stringify({ title, description, image, siteName, type, youtubeId }));
+      res.end(JSON.stringify({
+        title, description, image, siteName, type, youtubeId,
+        video: videoUrl ? { url: videoUrl, type: videoType, width: videoWidth, height: videoHeight } : null,
+        twitterCard, twitterPlayer
+      }));
     } catch (error: any) {
       if (error.name === 'AbortError') {
         res.writeHead(504, { "Content-Type": "application/json", ...getCORSHeaders(req) });
