@@ -20,6 +20,7 @@
 	export let activeView: 'chat' | 'screen' = 'chat';
 
 	let newChannelName = '';
+	let newChannelDescription = '';
 	let showCreateInput = false;
 	let showSettings = false;
 	let isMuted = false;
@@ -72,8 +73,9 @@
 
 	function handleCreateChannel() {
 		if (newChannelName.trim()) {
-			createChannel(newChannelName.trim());
+			createChannel(newChannelName.trim(), newChannelDescription.trim());
 			newChannelName = '';
+			newChannelDescription = '';
 			showCreateInput = false;
 		}
 	}
@@ -94,10 +96,12 @@
 	}
 
 	let tempPersistMessages = false;
+	let tempDescription = '';
 
 	function handleOpenChannelSettings(channel: Channel) {
 		selectedChannelForSettings = channel;
 		tempPersistMessages = channel.persistMessages || false;
+		tempDescription = channel.description || '';
 		showChannelSettingsModal = true;
 	}
 
@@ -105,7 +109,19 @@
 		if (selectedChannelForSettings) {
 			updateChannelSettings(selectedChannelForSettings.id, {
 				autoDeleteAfter,
-				persistMessages: tempPersistMessages
+				persistMessages: tempPersistMessages,
+				description: tempDescription
+			});
+			showChannelSettingsModal = false;
+		}
+	}
+
+	function handleSaveChannelSettings() {
+		if (selectedChannelForSettings) {
+			updateChannelSettings(selectedChannelForSettings.id, {
+				autoDeleteAfter: selectedChannelForSettings.autoDeleteAfter || null,
+				persistMessages: tempPersistMessages,
+				description: tempDescription
 			});
 			showChannelSettingsModal = false;
 		}
@@ -204,6 +220,12 @@
 				placeholder="channel-name"
 				on:keydown={(e) => e.key === 'Enter' && handleCreateChannel()}
 				autofocus
+			/>
+			<input
+				type="text"
+				bind:value={newChannelDescription}
+				placeholder="Description (optional)"
+				on:keydown={(e) => e.key === 'Enter' && handleCreateChannel()}
 			/>
 			<button on:click={handleCreateChannel}>Create</button>
 		</div>
@@ -439,6 +461,20 @@
 			<div class="modal-body">
 				<div class="setting-section">
 					<h3>Channel: #{selectedChannelForSettings.name}</h3>
+
+					<div class="setting-group">
+						<label>Description</label>
+						<input
+							type="text"
+							bind:value={tempDescription}
+							placeholder="Add a channel description..."
+							class="description-input"
+							maxlength="200"
+						/>
+						<button class="save-description-btn" on:click={handleSaveChannelSettings}>
+							Save Settings
+						</button>
+					</div>
 
 					<div class="setting-group">
 						<label>Auto-Delete Messages</label>
@@ -1309,6 +1345,33 @@
 		background: var(--accent);
 		color: var(--text-primary);
 		border-color: var(--accent);
+	}
+
+	.description-input {
+		width: 100%;
+		padding: 0.75rem;
+		border-radius: 6px;
+		border: 1px solid var(--border);
+		background: var(--bg-primary);
+		color: var(--text-primary);
+		font-size: var(--text-base);
+		box-sizing: border-box;
+	}
+
+	.save-description-btn {
+		padding: 0.625rem 1.25rem;
+		background: var(--accent);
+		border: none;
+		border-radius: 6px;
+		color: white;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		margin-top: 0.5rem;
+	}
+
+	.save-description-btn:hover {
+		opacity: 0.9;
 	}
 
 	.settings-btn {

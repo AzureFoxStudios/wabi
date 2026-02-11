@@ -726,10 +726,16 @@ class SocketManager {
 			channelId: string;
 			autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
 			persistMessages?: boolean;
+			description?: string;
 		}) => {
 			channels.update(chs => chs.map(ch =>
 				ch.id === data.channelId
-					? { ...ch, autoDeleteAfter: data.autoDeleteAfter, persistMessages: data.persistMessages }
+					? {
+						...ch,
+						autoDeleteAfter: data.autoDeleteAfter,
+						persistMessages: data.persistMessages,
+						...(data.description !== undefined ? { description: data.description } : {})
+					}
 					: ch
 			));
 		});
@@ -1174,8 +1180,8 @@ export function switchChannel(channelId: string): void {
 	markChannelAsRead(channelId);
 }
 
-export function createChannel(channelName: string): void {
-	socketManager.emit('create-channel', channelName);
+export function createChannel(channelName: string, description?: string): void {
+	socketManager.emit('create-channel', { name: channelName, description: description || '' });
 }
 
 export function deleteChannel(channelId: string): void {
@@ -1379,6 +1385,7 @@ export function createGroup(name: string, memberIds: string[]): void {
 export function updateChannelSettings(channelId: string, settings: {
 	autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
 	persistMessages?: boolean;
+	description?: string;
 }): void {
 	socketManager.emit('update-channel-settings', { channelId, ...settings });
 }

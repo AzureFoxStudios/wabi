@@ -31,6 +31,7 @@ export interface Emoji {
   url: string;
   category: string;
   isCustom: boolean;
+  type?: 'emoji' | 'sticker';
 }
 
 export interface User {
@@ -57,6 +58,7 @@ export interface User {
 export interface Channel {
   id: string;
   name: string;
+  description?: string;
   createdAt: number;
   type?: 'public' | 'dm' | 'group';
   members?: string[];

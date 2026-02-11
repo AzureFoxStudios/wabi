@@ -5,6 +5,7 @@ export interface Emoji {
   url: string;
   category: string;
   isCustom: boolean;
+  type?: 'emoji' | 'sticker';
 }
 
 // Stock emoji database using Twemoji (Twitter's open source emoji)

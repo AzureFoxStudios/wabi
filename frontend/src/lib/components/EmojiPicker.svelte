@@ -7,18 +7,28 @@
 		close: void;
 	}>();
 
+	let pickerMode: 'emoji' | 'sticker' = 'emoji';
 	let selectedCategory = 'all';
 	let searchQuery = '';
 
-	// Group emojis by category
-	$: categories = ['all', ...new Set($emojis.map(e => e.category))];
+	// Filter emojis by current mode first
+	$: modeEmojis = $emojis.filter(e => (e.type || 'emoji') === pickerMode);
 
-	$: filteredEmojis = $emojis.filter(emoji => {
+	// Group emojis by category
+	$: categories = ['all', ...new Set(modeEmojis.map(e => e.category))];
+
+	$: filteredEmojis = modeEmojis.filter(emoji => {
 		const matchesCategory = selectedCategory === 'all' || emoji.category === selectedCategory;
 		const matchesSearch = searchQuery === '' ||
 			emoji.name.toLowerCase().includes(searchQuery.toLowerCase());
 		return matchesCategory && matchesSearch;
 	});
+
+	// Reset category when switching modes
+	function setMode(mode: 'emoji' | 'sticker') {
+		pickerMode = mode;
+		selectedCategory = 'all';
+	}
 
 	function handleEmojiClick(emoji: Emoji) {
 		dispatch('select', { emoji });
@@ -41,10 +51,24 @@
 		<div class="emoji-header">
 			<input
 				type="text"
-				placeholder="Search emojis..."
+				placeholder="Search {pickerMode === 'sticker' ? 'stickers' : 'emojis'}..."
 				bind:value={searchQuery}
 			/>
 			<button on:click={() => dispatch('close')} class="close-btn">✕</button>
+		</div>
+
+		<!-- Mode toggle tabs -->
+		<div class="mode-tabs">
+			<button
+				class="mode-tab"
+				class:active={pickerMode === 'emoji'}
+				on:click={() => setMode('emoji')}
+			>Emojis</button>
+			<button
+				class="mode-tab"
+				class:active={pickerMode === 'sticker'}
+				on:click={() => setMode('sticker')}
+			>Stickers</button>
 		</div>
 
 		<!-- Category tabs -->
@@ -61,18 +85,19 @@
 			{/each}
 		</div>
 
-		<!-- Emoji grid -->
-		<div class="emoji-grid">
+		<!-- Emoji/Sticker grid -->
+		<div class="emoji-grid" class:sticker-grid={pickerMode === 'sticker'}>
 			{#if filteredEmojis.length === 0}
-				<div class="no-emojis">No emojis found</div>
+				<div class="no-emojis">No {pickerMode === 'sticker' ? 'stickers' : 'emojis'} found</div>
 			{:else}
 				{#each filteredEmojis as emoji (emoji.id)}
 					<button
 						class="emoji-btn"
+						class:sticker-btn={pickerMode === 'sticker'}
 						on:click={() => handleEmojiClick(emoji)}
 						title=":{emoji.name}:"
 					>
-						<img src={emoji.url} alt={emoji.name} class="emoji-img" />
+						<img src={emoji.url} alt={emoji.name} class="emoji-img" class:sticker-img={pickerMode === 'sticker'} />
 					</button>
 				{/each}
 			{/if}
@@ -118,6 +143,35 @@
 		background: var(--bg-tertiary);
 	}
 
+	/* Mode toggle (Emojis / Stickers) */
+	.mode-tabs {
+		display: flex;
+		padding: 0 0.5rem;
+		gap: 0.25rem;
+	}
+
+	.mode-tab {
+		flex: 1;
+		padding: 0.375rem 0;
+		background: transparent;
+		border: none;
+		border-bottom: 2px solid transparent;
+		color: var(--text-secondary);
+		font-size: 0.8125rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.mode-tab:hover {
+		color: var(--text-primary);
+	}
+
+	.mode-tab.active {
+		color: var(--color-primary);
+		border-bottom-color: var(--color-primary);
+	}
+
 	.category-tabs {
 		display: flex;
 		gap: 0.25rem;
@@ -159,6 +213,11 @@
 		max-height: 280px;
 	}
 
+	.emoji-grid.sticker-grid {
+		grid-template-columns: repeat(4, 1fr);
+		gap: 0.5rem;
+	}
+
 	.emoji-btn {
 		width: 32px;
 		height: 32px;
@@ -173,6 +232,11 @@
 		justify-content: center;
 	}
 
+	.emoji-btn.sticker-btn {
+		width: 68px;
+		height: 68px;
+	}
+
 	.emoji-btn:hover {
 		background: var(--bg-tertiary);
 		transform: scale(1.2);
@@ -182,6 +246,11 @@
 		width: 24px;
 		height: 24px;
 		object-fit: contain;
+	}
+
+	.emoji-img.sticker-img {
+		width: 56px;
+		height: 56px;
 	}
 
 	.no-emojis {
@@ -237,6 +306,16 @@
 			min-height: 44px;
 		}
 
+		.mode-tabs {
+			padding: 0 0.75rem;
+		}
+
+		.mode-tab {
+			padding: 0.5rem 0;
+			font-size: 0.875rem;
+			min-height: 44px;
+		}
+
 		.category-tabs {
 			padding: 0.375rem;
 			gap: 0.125rem;
@@ -255,14 +334,28 @@
 			max-height: 200px;
 		}
 
+		.emoji-grid.sticker-grid {
+			grid-template-columns: repeat(3, 1fr);
+		}
+
 		.emoji-btn {
 			width: 40px;
 			height: 40px;
 		}
 
+		.emoji-btn.sticker-btn {
+			width: 60px;
+			height: 60px;
+		}
+
 		.emoji-img {
 			width: 28px;
 			height: 28px;
+		}
+
+		.emoji-img.sticker-img {
+			width: 48px;
+			height: 48px;
 		}
 	}
 
@@ -277,6 +370,10 @@
 
 		.emoji-grid {
 			grid-template-columns: repeat(5, 1fr);
+		}
+
+		.emoji-grid.sticker-grid {
+			grid-template-columns: repeat(3, 1fr);
 		}
 
 		.emoji-btn {

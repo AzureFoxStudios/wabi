@@ -144,6 +144,7 @@ CREATE TABLE IF NOT EXISTS channels (
   channel_id TEXT PRIMARY KEY,
   channel_type TEXT NOT NULL DEFAULT 'public',  -- 'public', 'dm', 'group'
   name TEXT NOT NULL,
+  description TEXT DEFAULT '',
   created_at INTEGER NOT NULL,
   created_by TEXT,
   persist_messages INTEGER DEFAULT 1,

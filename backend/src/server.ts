@@ -43,6 +43,7 @@ function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: str
 interface Channel {
   id: string;
   name: string;
+  description?: string;
   createdAt: number;
   type?: 'public' | 'dm' | 'group';
   members?: string[]; // User IDs for DMs and group chats
@@ -1219,6 +1220,7 @@ server.on('request', async (req, res) => {
         let fileData: Buffer | null = null;
         let emojiName = '';
         let category = 'custom';
+        let emojiType: 'emoji' | 'sticker' = 'emoji';
 
         for (const part of parts) {
           if (part.includes('Content-Disposition')) {
@@ -1238,6 +1240,7 @@ server.on('request', async (req, res) => {
 
               if (fieldName === 'name') emojiName = value;
               if (fieldName === 'category') category = value;
+              if (fieldName === 'type' && (value === 'emoji' || value === 'sticker')) emojiType = value;
             }
           }
         }
@@ -1270,7 +1273,8 @@ server.on('request', async (req, res) => {
             name: emojiName,
             url: emojiUrl,
             category,
-            isCustom: true
+            isCustom: true,
+            type: emojiType
           };
 
           addCustomEmoji(newEmoji);
@@ -1471,6 +1475,7 @@ try {
       channels.set(ch.channel_id, {
         id: ch.channel_id,
         name: ch.name,
+        description: ch.description || '',
         createdAt: ch.created_at,
         type: ch.channel_type,
         persistMessages: ch.persist_messages === 1
@@ -1615,6 +1620,7 @@ function loadUserChannelsFromDB(stableUserId: string): Channel[] {
         channels.set(dbChannel.channel_id, {
           id: dbChannel.channel_id,
           name: dbChannel.name,
+          description: dbChannel.description || '',
           createdAt: dbChannel.created_at,
           type: dbChannel.channel_type,
           members: memberIds,
@@ -2777,7 +2783,10 @@ io.on("connection", (socket) => {
   });
 
   // Channel management
-  socket.on("create-channel", (channelName: string) => {
+  socket.on("create-channel", (data: string | { name: string; description?: string }) => {
+    // Backward compat: accept plain string or object
+    const channelName = typeof data === 'string' ? data : data.name;
+    const channelDescription = typeof data === 'string' ? '' : (data.description || '');
     const channelId = channelName.toLowerCase().replace(/\s+/g, '-');
 
     // Check if channel already exists
@@ -2795,6 +2804,7 @@ io.on("connection", (socket) => {
     const channel: Channel = {
       id: channelId,
       name: channelName,
+      description: channelDescription,
       createdAt: Date.now()
     };
 
@@ -2831,6 +2841,7 @@ io.on("connection", (socket) => {
     channelId: string;
     autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
     persistMessages?: boolean;
+    description?: string;
   }) => {
     const channel = channels.get(data.channelId);
     if (!channel) {
@@ -2843,19 +2854,33 @@ io.on("connection", (socket) => {
     if (data.persistMessages !== undefined) {
       channel.persistMessages = data.persistMessages;
     }
+    if (data.description !== undefined) {
+      channel.description = data.description;
+    }
     channels.set(data.channelId, channel);
+
+    // Persist description to database
+    if (data.description !== undefined) {
+      try {
+        channelRepository.updateSettings(data.channelId, { description: data.description });
+      } catch (e) {
+        // Channel may not exist in DB yet (in-memory only)
+      }
+    }
 
     // Notify all clients about the update
     io.emit("channel-settings-updated", {
       channelId: data.channelId,
       autoDeleteAfter: data.autoDeleteAfter,
-      persistMessages: data.persistMessages
+      persistMessages: data.persistMessages,
+      description: data.description
     });
 
     if (ENABLE_LOGGING) {
       console.log(`Channel ${data.channelId} settings updated:`, {
         autoDeleteAfter: data.autoDeleteAfter || 'disabled',
-        persistMessages: data.persistMessages
+        persistMessages: data.persistMessages,
+        description: data.description
       });
     }
   });

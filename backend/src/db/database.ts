@@ -73,6 +73,31 @@ function runMigrations() {
 		// Column may already exist
 	}
 
+	// Migration: Add username font columns to users table
+	try {
+		const cols = db.pragma('table_info(users)') as { name: string }[];
+		if (!cols.some(c => c.name === 'username_font_family')) {
+			db.exec('ALTER TABLE users ADD COLUMN username_font_family TEXT DEFAULT "inherit"');
+			db.exec('ALTER TABLE users ADD COLUMN username_font_size TEXT DEFAULT "inherit"');
+			db.exec('ALTER TABLE users ADD COLUMN username_font_weight TEXT DEFAULT "600"');
+			db.exec('ALTER TABLE users ADD COLUMN username_font_style TEXT DEFAULT "normal"');
+			console.log('[Database] Migration: added username font columns to users');
+		}
+	} catch (e) {
+		// Columns may already exist
+	}
+
+	// Migration: Add description column to channels table
+	try {
+		const cols = db.pragma('table_info(channels)') as { name: string }[];
+		if (!cols.some(c => c.name === 'description')) {
+			db.exec("ALTER TABLE channels ADD COLUMN description TEXT DEFAULT ''");
+			console.log('[Database] Migration: added description column to channels');
+		}
+	} catch (e) {
+		// Column may already exist
+	}
+
 	// Migration: Add priority/color/is_hoisted to user_roles
 	try {
 		const cols = db.pragma('table_info(user_roles)') as { name: string }[];

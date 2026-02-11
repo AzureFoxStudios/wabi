@@ -4,6 +4,7 @@ export interface DbChannel {
 	channel_id: string;
 	channel_type: 'public' | 'dm' | 'group';
 	name: string;
+	description: string;
 	created_at: number;
 	created_by?: string;
 	persist_messages: number;
@@ -14,14 +15,15 @@ export class ChannelRepository {
 	// Create a new channel
 	create(channel: Omit<DbChannel, 'is_archived'>): DbChannel {
 		const stmt = db.prepare(`
-			INSERT INTO channels (channel_id, channel_type, name, created_at, created_by, persist_messages, is_archived)
-			VALUES (?, ?, ?, ?, ?, ?, 0)
+			INSERT INTO channels (channel_id, channel_type, name, description, created_at, created_by, persist_messages, is_archived)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 0)
 		`);
 
 		stmt.run(
 			channel.channel_id,
 			channel.channel_type,
 			channel.name,
+			channel.description || '',
 			channel.created_at,
 			channel.created_by || null,
 			channel.persist_messages ?? 1
@@ -96,13 +98,18 @@ export class ChannelRepository {
 	}
 
 	// Update channel settings
-	updateSettings(channelId: string, settings: { persist_messages?: number }): void {
+	updateSettings(channelId: string, settings: { persist_messages?: number; description?: string }): void {
 		const updates: string[] = [];
 		const values: any[] = [];
 
 		if (settings.persist_messages !== undefined) {
 			updates.push('persist_messages = ?');
 			values.push(settings.persist_messages);
+		}
+
+		if (settings.description !== undefined) {
+			updates.push('description = ?');
+			values.push(settings.description);
 		}
 
 		if (updates.length === 0) return;

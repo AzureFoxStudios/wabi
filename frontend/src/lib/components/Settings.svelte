@@ -6,7 +6,7 @@
 	import { playNotificationSound } from '$lib/notifications';
 	import { getSocket } from '$lib/socket';
 	import { getServerUrl } from '$lib/serverUrl';
-	import AvatarEditor from './AvatarEditor.svelte'; // Import the AvatarEditor
+	import AvatarEditor from './AvatarEditor.svelte';
 
 	// Theme system
 	import { themeStore, currentTheme } from '$lib/theme/themeStore';
@@ -20,6 +20,9 @@
 	const dispatch = createEventDispatcher();
 
 	export let isOpen = false;
+
+	type SettingsTab = 'profile' | 'audio' | 'notifications' | 'appearance' | 'server' | 'emojis' | 'storage' | 'about';
+	let activeSettingsTab: SettingsTab = 'profile';
 
 	let soundEnabled = true;
 	let notificationsEnabled = true;
@@ -44,6 +47,7 @@
 	let emojiFileInput: HTMLInputElement;
 	let emojiName = '';
 	let emojiCategory = 'custom';
+	let emojiType: 'emoji' | 'sticker' = 'emoji';
 	let selectedEmojiFile: File | null = null;
 	let emojiPreview: string | null = null;
 	let uploadingEmoji = false;
@@ -89,14 +93,11 @@
 			savingTheme = true;
 			themeStore.setThemeId(themeId);
 
-			// Check if user is registered
 			const isRegistered = !!localStorage.getItem('authToken');
 
 			if (isRegistered) {
-				// Save to server for registered users
 				await saveThemePreferences({ theme_id: themeId });
 			} else {
-				// Save to localStorage for guests
 				saveThemeToLocalStorage(themeId);
 			}
 		} catch (error) {
@@ -184,13 +185,11 @@
 
 		if (!file) return;
 
-		// Check if it's an image
 		if (!file.type.startsWith('image/')) {
 			alert('Please select an image file (PNG, GIF, JPG, etc.)');
 			return;
 		}
 
-		// Check file size (2MB limit)
 		if (file.size > 2 * 1024 * 1024) {
 			alert('File too large! Maximum size is 2MB');
 			return;
@@ -198,7 +197,6 @@
 
 		selectedEmojiFile = file;
 
-		// Generate preview
 		const reader = new FileReader();
 		reader.onload = (e) => {
 			emojiPreview = e.target?.result as string;
@@ -217,13 +215,12 @@
 		try {
 			const serverUrl = getServerUrl();
 
-			// Upload the file
 			const formData = new FormData();
 			formData.append('file', selectedEmojiFile);
 			formData.append('name', emojiName.trim());
 			formData.append('category', emojiCategory);
+			formData.append('type', emojiType);
 
-			// Get auth token from localStorage
 			const authToken = localStorage.getItem('authToken');
 			const headers: HeadersInit = {};
 			if (authToken) {
@@ -242,13 +239,12 @@
 
 			const result = await response.json();
 
-			// Emit socket event to notify all clients
 			const socket = getSocket();
 			socket?.emit('emoji-added', result.emoji);
 
-			// Reset form
 			emojiName = '';
 			emojiCategory = 'custom';
+			emojiType = 'emoji';
 			selectedEmojiFile = null;
 			emojiPreview = null;
 			if (emojiFileInput) emojiFileInput.value = '';
@@ -275,7 +271,6 @@
 
 		if (files.length === 0) return;
 
-		// Filter only image files
 		const imageFiles = files.filter(f => f.type.startsWith('image/'));
 
 		if (imageFiles.length === 0) {
@@ -283,7 +278,6 @@
 			return;
 		}
 
-		// Check file sizes
 		for (const file of imageFiles) {
 			if (file.size > 2 * 1024 * 1024) {
 				alert(`File "${file.name}" is too large! Maximum size is 2MB`);
@@ -291,7 +285,6 @@
 			}
 		}
 
-		// Generate previews and auto-name from filename
 		const filesWithPreviews = await Promise.all(
 			imageFiles.map(async (file) => {
 				const preview = await new Promise<string>((resolve) => {
@@ -300,13 +293,12 @@
 					reader.readAsDataURL(file);
 				});
 
-				// Auto-generate name from filename (remove extension, sanitize)
 				const autoName = file.name
-					.replace(/\.[^/.]+$/, '') // Remove extension
+					.replace(/\.[^/.]+$/, '')
 					.toLowerCase()
-					.replace(/[^a-z0-9_]/g, '_') // Replace non-alphanumeric with underscore
-					.replace(/_+/g, '_') // Replace multiple underscores with single
-					.replace(/^_|_$/g, ''); // Remove leading/trailing underscores
+					.replace(/[^a-z0-9_]/g, '_')
+					.replace(/_+/g, '_')
+					.replace(/^_|_$/g, '');
 
 				return { file, name: autoName, preview };
 			})
@@ -321,7 +313,6 @@
 			return;
 		}
 
-		// Check for empty names
 		const emptyNames = bulkEmojiFiles.filter(f => !f.name.trim());
 		if (emptyNames.length > 0) {
 			alert('All emojis must have a name');
@@ -335,7 +326,6 @@
 		try {
 			const serverUrl = getServerUrl();
 
-			// Get auth token from localStorage
 			const authToken = localStorage.getItem('authToken');
 			const headers: HeadersInit = {};
 			if (authToken) {
@@ -348,6 +338,7 @@
 					formData.append('file', item.file);
 					formData.append('name', item.name.trim());
 					formData.append('category', emojiCategory);
+					formData.append('type', emojiType);
 
 					const response = await fetch(`${serverUrl}/api/emoji/upload`, {
 						method: 'POST',
@@ -364,7 +355,6 @@
 
 					const result = await response.json();
 
-					// Emit socket event to notify all clients
 					const socket = getSocket();
 					socket?.emit('emoji-added', result.emoji);
 
@@ -375,11 +365,10 @@
 				}
 			}
 
-			// Reset form
 			bulkEmojiFiles = [];
 			if (bulkEmojiFileInput) bulkEmojiFileInput.value = '';
 
-			alert(`Upload complete!\n✅ ${successCount} successful\n❌ ${failCount} failed`);
+			alert(`Upload complete!\n${successCount} successful\n${failCount} failed`);
 		} catch (error) {
 			console.error('Bulk upload error:', error);
 			alert('Failed to upload emojis. Please try again.');
@@ -397,7 +386,6 @@
 		try {
 			const serverUrl = getServerUrl();
 
-			// Get auth token from localStorage
 			const authToken = localStorage.getItem('authToken');
 			const headers: HeadersInit = {
 				'Content-Type': 'application/json'
@@ -414,7 +402,6 @@
 			const result = await response.json();
 
 			if (result.success) {
-				// Also clear local data
 				channelMessages.set({ general: [] });
 				alert('All server messages have been deleted successfully!');
 			} else {
@@ -456,7 +443,6 @@
 			const formData = new FormData();
 			formData.append('profilePicture', selectedAvatarFile);
 
-			// Get auth token from localStorage
 			const authToken = localStorage.getItem('authToken');
 			const headers: HeadersInit = {};
 			if (authToken) {
@@ -520,328 +506,336 @@
 				<svg class="header-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m3.08 3.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m3.08-3.08l4.24-4.24M19.78 19.78l-4.24-4.24m-3.08-3.08l-4.24-4.24M19.78 4.22l-4.24 4.24m-3.08 3.08l-4.24-4.24"></path></svg>
 				Settings
 			</h2>
-				<button class="close-btn" on:click={closeModal}>✕</button>
+				<button class="close-btn" on:click={closeModal}>&#x2715;</button>
 			</div>
 
-			<div class="settings-sections">
-				<!-- Profile Picture -->
-				<div class="settings-section">
-					<h3>🎨 Profile Picture</h3>
-					<div class="pfp-upload-section">
-						<div class="current-pfp">
-							{#if $currentUser?.profilePicture}
-								<img src={$currentUser.profilePicture} alt="Current PFP" class="pfp-current-img" />
-							{:else}
-								<div class="pfp-placeholder" style="background-color: var(--accent);">
-									{$currentUser?.username?.charAt(0).toUpperCase() || '?'}
+			<div class="settings-layout">
+				<!-- Left sidebar tabs -->
+				<div class="settings-tabs">
+					<button class="settings-tab" class:active={activeSettingsTab === 'profile'} on:click={() => activeSettingsTab = 'profile'}>Profile</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'audio'} on:click={() => activeSettingsTab = 'audio'}>Audio & Video</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'notifications'} on:click={() => activeSettingsTab = 'notifications'}>Notifications</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'appearance'} on:click={() => activeSettingsTab = 'appearance'}>Appearance</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'server'} on:click={() => activeSettingsTab = 'server'}>Server</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'emojis'} on:click={() => activeSettingsTab = 'emojis'}>Emojis</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'storage'} on:click={() => activeSettingsTab = 'storage'}>Storage</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'about'} on:click={() => activeSettingsTab = 'about'}>About</button>
+					<div class="settings-tabs-spacer"></div>
+					<button class="settings-tab logout-tab" on:click={handleLogout}>Logout</button>
+				</div>
+
+				<!-- Right content pane -->
+				<div class="settings-content">
+					{#if activeSettingsTab === 'profile'}
+						<div class="settings-section">
+							<h3>Profile Picture</h3>
+							<div class="pfp-upload-section">
+								<div class="current-pfp">
+									{#if $currentUser?.profilePicture}
+										<img src={$currentUser.profilePicture} alt="Current PFP" class="pfp-current-img" />
+									{:else}
+										<div class="pfp-placeholder" style="background-color: var(--accent);">
+											{$currentUser?.username?.charAt(0).toUpperCase() || '?'}
+										</div>
+									{/if}
 								</div>
-							{/if}
-						</div>
-						<div class="pfp-upload-form">
-							<button class="pfp-select-btn" on:click={() => showAvatarEditor = true}>
-								Change Profile Picture
-							</button>
-							{#if uploadingAvatar}
-								<p>Uploading...</p>
-							{/if}
-						</div>
-					</div>
-				</div>
-
-				<!-- Username Font -->
-				<div class="settings-section">
-					<UsernameFontCustomizer />
-				</div>
-
-				<!-- Audio & Video Settings -->
-				<div class="settings-section">
-					<h3>🎤 Audio & Video</h3>
-					<div class="setting-item">
-						<div class="setting-info">
-							<span class="setting-label">Sound Effects</span>
-							<span class="setting-description">Play sounds for messages and notifications</span>
-						</div>
-						<button class="toggle-btn" class:active={soundEnabled} on:click={toggleSound}>
-							{#if soundEnabled}
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
-							{:else}
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
-							{/if}
-						</button>
-					</div>
-					<div class="setting-item">
-						<div class="setting-info">
-							<span class="setting-label">Microphone</span>
-							<span class="setting-description">Enable microphone for voice calls</span>
-						</div>
-						<button class="toggle-btn" class:active={micEnabled} on:click={toggleMic}>
-							{#if micEnabled}
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-							{:else}
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12m14 0a7 7 0 0 1-13.46 3.4"></path></svg>
-							{/if}
-						</button>
-					</div>
-					<div class="setting-item">
-						<div class="setting-info">
-							<span class="setting-label">Camera</span>
-							<span class="setting-description">Enable camera for video calls</span>
-						</div>
-						<button class="toggle-btn" class:active={cameraEnabled} on:click={toggleCamera}>
-							{cameraEnabled ? '📹' : '📷'}
-						</button>
-					</div>
-				</div>
-
-				<!-- Notifications -->
-				<div class="settings-section">
-					<h3>🔔 Notifications</h3>
-					<div class="setting-item">
-						<div class="setting-info">
-							<span class="setting-label">Desktop Notifications</span>
-							<span class="setting-description">Get notified when you receive new messages</span>
-						</div>
-						<button class="action-btn" class:active={notificationsEnabled} on:click={requestNotificationPermission}>
-							{notificationsEnabled ? '✅ Enabled' : '🔔 Enable'}
-						</button>
-					</div>
-
-					<!-- Notification Sound -->
-					<div class="setting-item-full">
-						<div class="setting-info">
-							<span class="setting-label">
-							<svg class="setting-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-							Notification Sound
-						</span>
-							<span class="setting-description">Choose which sound to play for notifications</span>
-						</div>
-						<div class="sound-options">
-							<button
-								class="sound-option"
-								class:active={notificationSound === '/sounds/ProjectSound.ogg'}
-								on:click={() => updateNotificationSound('/sounds/ProjectSound.ogg')}
-							>
-								ProjectSound.ogg
-							</button>
-							<!-- Add more sound options here as you add more .ogg files -->
-						</div>
-						<button class="test-sound-btn" on:click={testNotificationSound}>
-							🎵 Test Sound
-						</button>
-					</div>
-
-					<!-- Notification Volume -->
-					<div class="setting-item-full">
-						<div class="setting-info">
-							<span class="setting-label">🔉 Notification Volume</span>
-							<span class="setting-description">Adjust the volume of notification sounds ({Math.round(notificationVolume * 100)}%)</span>
-						</div>
-						<input
-							type="range"
-							min="0"
-							max="1"
-							step="0.05"
-							bind:value={notificationVolume}
-							on:input={(e) => updateNotificationVolume(parseFloat(e.currentTarget.value))}
-							class="volume-slider"
-						/>
-					</div>
-				</div>
-
-				<!-- Appearance -->
-				<div class="settings-section">
-					<h3>🎨 Appearance</h3>
-					<div class="setting-item">
-						<div class="setting-info">
-							<span class="setting-label">Theme</span>
-							<span class="setting-description">Choose your preferred theme</span>
-						</div>
-						<select
-							class="theme-select"
-							value={$themeStore.themeId}
-							on:change={(e) => handleThemeChange(e.currentTarget.value)}
-							disabled={savingTheme}
-						>
-							{#each Object.values(THEMES) as theme}
-								<option value={theme.id}>
-									{theme.name}
-								</option>
-							{/each}
-						</select>
-					</div>
-					{#if savingTheme}
-						<div class="save-indicator">
-							<span class="spinner">⏳</span> Saving theme...
-						</div>
-					{/if}
-
-					<!-- Theme Customizer -->
-					<div class="customizer-container">
-						<ThemeCustomizer />
-					</div>
-
-					<!-- Uniform Font Mode -->
-					<div class="customizer-container">
-						<UniformFontMode />
-					</div>
-				</div>
-
-				<!-- Server Management -->
-				<div class="settings-section">
-					<h3>🖥️ Server Management</h3>
-					<div class="setting-item">
-						<div class="setting-info">
-							<span class="setting-label">Clear All Server Messages</span>
-							<span class="setting-description">Delete all messages from the server for all users (cannot be undone)</span>
-						</div>
-						<button class="action-btn danger" on:click={clearServerMessages}>
-							🗑️ Clear Server
-						</button>
-					</div>
-				</div>
-
-				<!-- Custom Emojis -->
-				<div class="settings-section">
-					<h3>🎨 Custom Emojis</h3>
-
-					<!-- Single Upload Form -->
-					<div class="emoji-upload-form">
-						<input
-							type="file"
-							bind:this={emojiFileInput}
-							on:change={handleEmojiFileSelect}
-							accept="image/*"
-							style="display: none;"
-						/>
-
-						{#if emojiPreview}
-							<div class="emoji-preview">
-								<img src={emojiPreview} alt="Preview" />
+								<div class="pfp-upload-form">
+									<button class="pfp-select-btn" on:click={() => showAvatarEditor = true}>
+										Change Profile Picture
+									</button>
+									{#if uploadingAvatar}
+										<p>Uploading...</p>
+									{/if}
+								</div>
 							</div>
-						{/if}
+						</div>
+						<div class="settings-section">
+							<UsernameFontCustomizer />
+						</div>
 
-						<button class="emoji-select-btn" on:click={() => emojiFileInput?.click()}>
-							{emojiPreview ? '📷 Change Image' : '📁 Select Image'}
-						</button>
-
-						<input
-							type="text"
-							bind:value={emojiName}
-							placeholder="Emoji name (e.g., parrot)"
-							maxlength="30"
-							class="emoji-name-input"
-						/>
-
-						<select bind:value={emojiCategory} class="emoji-category-select">
-							<option value="custom">Custom</option>
-							<option value="animated">Animated</option>
-							<option value="art">Art</option>
-							<option value="memes">Memes</option>
-						</select>
-
-						<button
-							class="emoji-upload-btn"
-							on:click={uploadEmoji}
-							disabled={uploadingEmoji || !selectedEmojiFile || !emojiName.trim()}
-						>
-							{uploadingEmoji ? '⏳ Uploading...' : '⬆️ Upload Emoji'}
-						</button>
-
-						<p class="emoji-hint">Supports PNG, GIF (animated), JPG. Max 2MB.</p>
-					</div>
-
-					<!-- Bulk Upload Form -->
-					<div class="emoji-upload-form bulk">
-						<h4>📦 Bulk Upload</h4>
-						<input
-							type="file"
-							bind:this={bulkEmojiFileInput}
-							on:change={handleBulkEmojiFileSelect}
-							accept="image/*"
-							multiple
-							style="display: none;"
-						/>
-
-						<button class="emoji-select-btn" on:click={() => bulkEmojiFileInput?.click()}>
-							📂 Select Multiple Images
-						</button>
-
-						{#if bulkEmojiFiles.length > 0}
-							<div class="bulk-emoji-list">
-								<p class="bulk-count">{bulkEmojiFiles.length} file(s) selected</p>
-								{#each bulkEmojiFiles as item, index (index)}
-									<div class="bulk-emoji-item">
-										<img src={item.preview} alt="Preview" class="bulk-preview" />
-										<input
-											type="text"
-											bind:value={item.name}
-											placeholder="emoji_name"
-											maxlength="30"
-											class="bulk-name-input"
-										/>
-										<button
-											class="bulk-remove-btn"
-											on:click={() => removeBulkEmoji(index)}
-											title="Remove"
-										>
-											✕
-										</button>
-									</div>
-								{/each}
-								<button
-									class="emoji-upload-btn"
-									on:click={uploadBulkEmojis}
-									disabled={uploadingBulk || bulkEmojiFiles.length === 0}
-								>
-									{uploadingBulk ? '⏳ Uploading...' : `⬆️ Upload ${bulkEmojiFiles.length} Emoji${bulkEmojiFiles.length > 1 ? 's' : ''}`}
+					{:else if activeSettingsTab === 'audio'}
+						<div class="settings-section">
+							<h3>Audio & Video</h3>
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Sound Effects</span>
+									<span class="setting-description">Play sounds for messages and notifications</span>
+								</div>
+								<button class="toggle-btn" class:active={soundEnabled} on:click={toggleSound}>
+									{#if soundEnabled}
+										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+									{:else}
+										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
+									{/if}
 								</button>
 							</div>
-						{/if}
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Microphone</span>
+									<span class="setting-description">Enable microphone for voice calls</span>
+								</div>
+								<button class="toggle-btn" class:active={micEnabled} on:click={toggleMic}>
+									{#if micEnabled}
+										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+									{:else}
+										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12m14 0a7 7 0 0 1-13.46 3.4"></path></svg>
+									{/if}
+								</button>
+							</div>
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Camera</span>
+									<span class="setting-description">Enable camera for video calls</span>
+								</div>
+								<button class="toggle-btn" class:active={cameraEnabled} on:click={toggleCamera}>
+									{cameraEnabled ? 'On' : 'Off'}
+								</button>
+							</div>
+						</div>
 
-						<p class="emoji-hint">Auto-names from filenames. Edit names before uploading.</p>
-					</div>
+					{:else if activeSettingsTab === 'notifications'}
+						<div class="settings-section">
+							<h3>Notifications</h3>
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Desktop Notifications</span>
+									<span class="setting-description">Get notified when you receive new messages</span>
+								</div>
+								<button class="action-btn" class:active={notificationsEnabled} on:click={requestNotificationPermission}>
+									{notificationsEnabled ? 'Enabled' : 'Enable'}
+								</button>
+							</div>
 
-					<!-- Emoji List -->
-					<div class="emoji-list">
-						<h4>Your Custom Emojis ({$emojis.filter(e => e.isCustom).length})</h4>
-						<div class="emoji-grid-list">
-							{#each $emojis.filter(e => e.isCustom) as emoji (emoji.id)}
-								<div class="emoji-item">
-									<img src={emoji.url} alt={emoji.name} class="emoji-thumb" />
-									<span class="emoji-item-name">:{emoji.name}:</span>
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">
+									<svg class="setting-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+									Notification Sound
+								</span>
+									<span class="setting-description">Choose which sound to play for notifications</span>
+								</div>
+								<div class="sound-options">
 									<button
-										class="emoji-delete-btn"
-										on:click={() => deleteEmoji(emoji.name)}
-										title="Delete emoji"
+										class="sound-option"
+										class:active={notificationSound === '/sounds/ProjectSound.ogg'}
+										on:click={() => updateNotificationSound('/sounds/ProjectSound.ogg')}
 									>
-										🗑️
+										ProjectSound.ogg
 									</button>
 								</div>
-							{/each}
+								<button class="test-sound-btn" on:click={testNotificationSound}>
+									Test Sound
+								</button>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">Notification Volume</span>
+									<span class="setting-description">Adjust the volume of notification sounds ({Math.round(notificationVolume * 100)}%)</span>
+								</div>
+								<input
+									type="range"
+									min="0"
+									max="1"
+									step="0.05"
+									bind:value={notificationVolume}
+									on:input={(e) => updateNotificationVolume(parseFloat(e.currentTarget.value))}
+									class="volume-slider"
+								/>
+							</div>
 						</div>
-					</div>
-				</div>
 
-				<!-- Local Storage Settings -->
-				<div class="settings-section">
-					<StorageSettings />
-				</div>
+					{:else if activeSettingsTab === 'appearance'}
+						<div class="settings-section">
+							<h3>Appearance</h3>
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Theme</span>
+									<span class="setting-description">Choose your preferred theme</span>
+								</div>
+								<select
+									class="theme-select"
+									value={$themeStore.themeId}
+									on:change={(e) => handleThemeChange(e.currentTarget.value)}
+									disabled={savingTheme}
+								>
+									{#each Object.values(THEMES) as theme}
+										<option value={theme.id}>
+											{theme.name}
+										</option>
+									{/each}
+								</select>
+							</div>
+							{#if savingTheme}
+								<div class="save-indicator">
+									<span class="spinner">...</span> Saving theme...
+								</div>
+							{/if}
 
-				<!-- About -->
-				<div class="settings-section">
-					<h3>ℹ️ About</h3>
-					<div class="about-info">
-						<p><strong>Wabi Chat</strong></p>
-						<p>Privacy-first ephemeral chat. No tracking. No data collection.</p>
-						<p>Server stores nothing permanently. You control your data.</p>
-						<p class="version">Version 1.0.0</p>
-					</div>
-				</div>
-			</div>
+							<div class="customizer-container">
+								<ThemeCustomizer />
+							</div>
 
-			<!-- Logout -->
-			<div class="settings-section">
-				<button class="logout-btn" on:click={handleLogout}>🚪 Logout & Change Name</button>
+							<div class="customizer-container">
+								<UniformFontMode />
+							</div>
+						</div>
+
+					{:else if activeSettingsTab === 'server'}
+						<div class="settings-section">
+							<h3>Server Management</h3>
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Clear All Server Messages</span>
+									<span class="setting-description">Delete all messages from the server for all users (cannot be undone)</span>
+								</div>
+								<button class="action-btn danger" on:click={clearServerMessages}>
+									Clear Server
+								</button>
+							</div>
+						</div>
+
+					{:else if activeSettingsTab === 'emojis'}
+						<div class="settings-section">
+							<h3>Custom Emojis</h3>
+
+							<div class="emoji-upload-form">
+								<input
+									type="file"
+									bind:this={emojiFileInput}
+									on:change={handleEmojiFileSelect}
+									accept="image/*"
+									style="display: none;"
+								/>
+
+								{#if emojiPreview}
+									<div class="emoji-preview">
+										<img src={emojiPreview} alt="Preview" />
+									</div>
+								{/if}
+
+								<button class="emoji-select-btn" on:click={() => emojiFileInput?.click()}>
+									{emojiPreview ? 'Change Image' : 'Select Image'}
+								</button>
+
+								<input
+									type="text"
+									bind:value={emojiName}
+									placeholder="Emoji name (e.g., parrot)"
+									maxlength="30"
+									class="emoji-name-input"
+								/>
+
+								<select bind:value={emojiCategory} class="emoji-category-select">
+									<option value="custom">Custom</option>
+									<option value="animated">Animated</option>
+									<option value="art">Art</option>
+									<option value="memes">Memes</option>
+								</select>
+
+								<select bind:value={emojiType} class="emoji-category-select">
+									<option value="emoji">Emoji</option>
+									<option value="sticker">Sticker</option>
+								</select>
+
+								<button
+									class="emoji-upload-btn"
+									on:click={uploadEmoji}
+									disabled={uploadingEmoji || !selectedEmojiFile || !emojiName.trim()}
+								>
+									{uploadingEmoji ? 'Uploading...' : emojiType === 'sticker' ? 'Upload Sticker' : 'Upload Emoji'}
+								</button>
+
+								<p class="emoji-hint">Supports PNG, GIF (animated), JPG. Max 2MB.</p>
+							</div>
+
+							<div class="emoji-upload-form bulk">
+								<h4>Bulk Upload</h4>
+								<input
+									type="file"
+									bind:this={bulkEmojiFileInput}
+									on:change={handleBulkEmojiFileSelect}
+									accept="image/*"
+									multiple
+									style="display: none;"
+								/>
+
+								<button class="emoji-select-btn" on:click={() => bulkEmojiFileInput?.click()}>
+									Select Multiple Images
+								</button>
+
+								{#if bulkEmojiFiles.length > 0}
+									<div class="bulk-emoji-list">
+										<p class="bulk-count">{bulkEmojiFiles.length} file(s) selected</p>
+										{#each bulkEmojiFiles as item, index (index)}
+											<div class="bulk-emoji-item">
+												<img src={item.preview} alt="Preview" class="bulk-preview" />
+												<input
+													type="text"
+													bind:value={item.name}
+													placeholder="emoji_name"
+													maxlength="30"
+													class="bulk-name-input"
+												/>
+												<button
+													class="bulk-remove-btn"
+													on:click={() => removeBulkEmoji(index)}
+													title="Remove"
+												>
+													&#x2715;
+												</button>
+											</div>
+										{/each}
+										<button
+											class="emoji-upload-btn"
+											on:click={uploadBulkEmojis}
+											disabled={uploadingBulk || bulkEmojiFiles.length === 0}
+										>
+											{uploadingBulk ? 'Uploading...' : `Upload ${bulkEmojiFiles.length} Emoji${bulkEmojiFiles.length > 1 ? 's' : ''}`}
+										</button>
+									</div>
+								{/if}
+
+								<p class="emoji-hint">Auto-names from filenames. Edit names before uploading.</p>
+							</div>
+
+							<div class="emoji-list">
+								<h4>Your Custom Emojis & Stickers ({$emojis.filter(e => e.isCustom).length})</h4>
+								<div class="emoji-grid-list">
+									{#each $emojis.filter(e => e.isCustom) as emoji (emoji.id)}
+										<div class="emoji-item">
+											<img src={emoji.url} alt={emoji.name} class="emoji-thumb" />
+											<span class="emoji-item-name">:{emoji.name}: {emoji.type === 'sticker' ? '(sticker)' : ''}</span>
+											<button
+												class="emoji-delete-btn"
+												on:click={() => deleteEmoji(emoji.name)}
+												title="Delete emoji"
+											>
+												&#x1F5D1;
+											</button>
+										</div>
+									{/each}
+								</div>
+							</div>
+						</div>
+
+					{:else if activeSettingsTab === 'storage'}
+						<div class="settings-section">
+							<StorageSettings />
+						</div>
+
+					{:else if activeSettingsTab === 'about'}
+						<div class="settings-section">
+							<h3>About</h3>
+							<div class="about-info">
+								<p><strong>Wabi Chat</strong></p>
+								<p>Privacy-first ephemeral chat. No tracking. No data collection.</p>
+								<p>Server stores nothing permanently. You control your data.</p>
+								<p class="version">Version 1.0.0</p>
+							</div>
+						</div>
+					{/if}
+				</div>
 			</div>
 		</div>
 	</div>
@@ -888,9 +882,9 @@
 		background: var(--bg-secondary);
 		border-radius: 12px;
 		width: 90%;
-		max-width: 600px;
+		max-width: 800px;
 		max-height: 80vh;
-		overflow-y: auto;
+		overflow: hidden;
 		box-shadow: none;
 		display: flex;
 		flex-direction: column;
@@ -902,10 +896,8 @@
 		align-items: center;
 		padding: 1.5rem;
 		border-bottom: 1px solid var(--border);
-		position: sticky;
-		top: 0;
 		background: var(--bg-secondary);
-		z-index: 1;
+		flex-shrink: 0;
 	}
 
 	.modal-header h2 {
@@ -949,42 +941,74 @@
 		transform: scale(1.1);
 	}
 
-	/* Logout button section - always visible at bottom */
-	.modal-content > .settings-section:last-child {
+	/* Two-pane layout */
+	.settings-layout {
+		display: flex;
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+	}
+
+	.settings-tabs {
+		width: 180px;
 		flex-shrink: 0;
-		border-top: 1px solid var(--border);
-		padding-top: 1rem;
-		margin-top: auto;
-		background: var(--bg-secondary);
-		position: sticky;
-		bottom: 0;
+		display: flex;
+		flex-direction: column;
+		padding: 0.5rem;
+		border-right: 1px solid var(--border);
+		background: var(--bg-tertiary);
+		overflow-y: auto;
 	}
 
-	.logout-btn {
+	.settings-tabs-spacer {
+		flex: 1;
+	}
+
+	.settings-tab {
+		display: block;
 		width: 100%;
-		padding: 1rem;
-		background: rgba(255, 87, 87, 0.1);
-		border: 1px solid #ff5757;
-		color: #ff5757;
-		border-radius: 8px;
-		font-size: 1rem;
-		font-weight: 600;
+		padding: 0.625rem 0.75rem;
+		background: transparent;
+		border: none;
+		border-left: 3px solid transparent;
+		border-radius: 0 6px 6px 0;
+		color: var(--text-secondary);
+		font-size: 0.875rem;
+		font-weight: 500;
+		text-align: left;
 		cursor: pointer;
-		transition: all 0.2s;
+		transition: all 0.15s;
 	}
 
-	.logout-btn:hover {
-		background: rgba(255, 87, 87, 0.2);
-		transform: translateY(-2px);
+	.settings-tab:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
 	}
 
-	.settings-sections {
+	.settings-tab.active {
+		border-left-color: var(--accent);
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		font-weight: 600;
+	}
+
+	.settings-tab.logout-tab {
+		color: #ff5757;
+		margin-top: 0.5rem;
+	}
+
+	.settings-tab.logout-tab:hover {
+		background: rgba(255, 87, 87, 0.1);
+		color: #ff5757;
+	}
+
+	.settings-content {
+		flex: 1;
+		overflow-y: auto;
 		padding: 1.5rem;
 		display: flex;
 		flex-direction: column;
 		gap: 2rem;
-		flex: 1;
-		overflow-y: auto;
 		min-height: 0;
 	}
 
@@ -1105,12 +1129,6 @@
 		border-top: 1px solid rgba(var(--accent-rgb), 0.1);
 	}
 
-	.action-buttons {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-
 	.action-btn {
 		padding: 0.875rem 1.25rem;
 		border-radius: 8px;
@@ -1120,26 +1138,6 @@
 		cursor: pointer;
 		transition: all 0.2s;
 		text-align: left;
-	}
-
-	.action-btn.export {
-		background: var(--color-info);
-		color: white;
-	}
-
-	.action-btn.export:hover {
-		background: var(--color-info-hover);
-		transform: translateY(-2px);
-	}
-
-	.action-btn.import {
-		background: var(--color-success);
-		color: white;
-	}
-
-	.action-btn.import:hover {
-		background: var(--color-success-hover);
-		transform: translateY(-2px);
 	}
 
 	.action-btn.danger {
@@ -1312,149 +1310,19 @@
 		gap: 0.75rem;
 	}
 
-	.pfp-preview {
-		text-align: center;
-	}
-
-	.pfp-preview img {
-		width: 60px;
-		height: 60px;
-		border-radius: 50%;
-		object-fit: cover;
-		border: 2px solid var(--accent);
-	}
-
-	.pfp-select-btn,
-	.pfp-upload-btn {
+	.pfp-select-btn {
 		padding: 0.75rem;
 		border-radius: 8px;
 		border: none;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.2s;
-	}
-
-	.pfp-select-btn {
 		background: var(--bg-secondary);
 		color: var(--text-primary);
 	}
 
 	.pfp-select-btn:hover {
 		background: var(--bg-primary);
-	}
-
-	.pfp-upload-btn {
-		background: var(--accent);
-		color: white;
-	}
-
-	.pfp-upload-btn:hover:not(:disabled) {
-		opacity: 0.9;
-	}
-
-	.pfp-upload-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.pfp-hint {
-		font-size: 0.8rem;
-		color: var(--text-secondary);
-		margin: 0;
-	}
-
-	/* Banner Upload Styles */
-	.banner-upload-section {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-		padding: 1rem;
-		background: var(--bg-tertiary);
-		border-radius: 8px;
-	}
-
-	.current-banner {
-		width: 100%;
-		max-width: 600px;
-	}
-
-	.current-banner img {
-		width: 100%;
-		height: auto;
-		display: block;
-		border-radius: 8px;
-		border: 2px solid var(--border);
-	}
-
-	.banner-preview {
-		width: 100%;
-		max-width: 600px;
-	}
-
-	.banner-preview img {
-		width: 100%;
-		height: auto;
-		display: block;
-		border-radius: 8px;
-		border: 2px solid var(--accent);
-	}
-
-	.banner-label {
-		font-size: 0.75rem;
-		color: var(--text-secondary);
-		margin-top: 0.25rem;
-		margin-bottom: 0;
-	}
-
-	.banner-upload-form {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-
-	/* Status Selector Styles */
-	.status-selector {
-		display: flex;
-		gap: 0.75rem;
-		padding: 1rem;
-		background: var(--bg-tertiary);
-		border-radius: 8px;
-		flex-wrap: wrap;
-	}
-
-	.status-btn {
-		flex: 1;
-		min-width: 100px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0.5rem;
-		padding: 0.75rem 1rem;
-		background: var(--bg-secondary);
-		border: 2px solid transparent;
-		border-radius: 8px;
-		color: var(--text-primary);
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.status-btn:hover {
-		background: var(--bg-primary);
-		border-color: var(--accent);
-	}
-
-	.status-btn.active {
-		background: var(--accent);
-		color: white;
-		border-color: var(--accent);
-	}
-
-	.status-dot {
-		width: 10px;
-		height: 10px;
-		border-radius: 50%;
-		display: inline-block;
 	}
 
 	/* Emoji Upload Styles */
@@ -1652,5 +1520,55 @@
 	.bulk-remove-btn:hover {
 		opacity: 1;
 		color: var(--color-danger);
+	}
+
+	/* Mobile responsive: tabs go horizontal */
+	@media (max-width: 768px) {
+		.settings-layout {
+			flex-direction: column;
+		}
+
+		.settings-tabs {
+			width: 100%;
+			flex-direction: row;
+			overflow-x: auto;
+			border-right: none;
+			border-bottom: 1px solid var(--border);
+			padding: 0.375rem;
+			gap: 0.25rem;
+		}
+
+		.settings-tabs-spacer {
+			display: none;
+		}
+
+		.settings-tab {
+			border-left: none;
+			border-bottom: 3px solid transparent;
+			border-radius: 6px 6px 0 0;
+			padding: 0.5rem 0.75rem;
+			white-space: nowrap;
+			font-size: 0.8rem;
+			text-align: center;
+		}
+
+		.settings-tab.active {
+			border-left-color: transparent;
+			border-bottom-color: var(--accent);
+		}
+
+		.settings-tab.logout-tab {
+			margin-top: 0;
+			margin-left: auto;
+		}
+
+		.settings-content {
+			padding: 1rem;
+		}
+
+		.modal-content {
+			max-height: 90vh;
+			max-height: 90dvh;
+		}
 	}
 </style>
