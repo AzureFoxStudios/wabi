@@ -2185,8 +2185,10 @@ io.on("connection", (socket) => {
     session.userId = socket.id;
     sessions.set(sessionId, session);
 
-    // Load usernameFont for registered users from the database
+    // Load usernameFont, handle, and role info for registered users from the database
     let usernameFont = session.usernameFont;
+    let rejoinHandle: string | undefined;
+    let rejoinRoleInfo: { roles: string[]; highestRole: string | undefined; roleColor: string | null | undefined } = { roles: [], highestRole: undefined, roleColor: undefined };
     if ((socket as any).isRegistered && (socket as any).sessionId) {
       const dbSession = sessionRepository.findById((socket as any).sessionId);
       if (dbSession?.user_id) {
@@ -2198,19 +2200,27 @@ io.on("connection", (socket) => {
             weight: userRecord.username_font_weight,
             style: userRecord.username_font_style
           };
+          rejoinHandle = userRecord.handle;
         }
       }
     }
+    const rejoinDbUserId = (socket as any).isRegistered ? (socket as any).dbUserId : undefined;
+    if (rejoinDbUserId) {
+      rejoinRoleInfo = getUserRoleInfo(rejoinDbUserId);
+    }
 
     // Create/update user object with existing session data
-    const rejoinDbUserId = (socket as any).isRegistered ? (socket as any).dbUserId : undefined;
     users.set(socket.id, {
       id: socket.id,
       username: session.username,
+      handle: rejoinHandle,
       color: session.color,
       status: 'active',
       profilePicture: session.profilePicture,
       dbUserId: rejoinDbUserId,
+      roles: rejoinRoleInfo.roles,
+      highestRole: rejoinRoleInfo.highestRole,
+      roleColor: rejoinRoleInfo.roleColor,
       usernameFont
     });
 
@@ -2244,10 +2254,14 @@ io.on("connection", (socket) => {
     socket.broadcast.emit("user-joined", {
       id: socket.id,
       username: session.username,
+      handle: rejoinUser?.handle,
       color: rejoinUser?.color,
       status: 'active',
       profilePicture: rejoinUser?.profilePicture,
       dbUserId: rejoinDbUserId,
+      roles: rejoinUser?.roles,
+      highestRole: rejoinUser?.highestRole,
+      roleColor: rejoinUser?.roleColor,
       usernameFont: rejoinUser?.usernameFont
     });
 
