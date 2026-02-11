@@ -20,7 +20,7 @@ const rightPanelView = writable<RightPanelView>('none');
 const activeRightTab = writable<'users' | 'dms'>('users');
 const showMobileChannels = writable(false);
 
-const channelSidebarWidth = writable(240);
+const channelSidebarWidth = writable(280);
 const rightPanelWidth = writable(320);
 
 const isResizingChannel = writable(false);

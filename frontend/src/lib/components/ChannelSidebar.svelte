@@ -6,6 +6,7 @@
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
 	import type { Channel } from '$lib/socket';
 	import { longpress } from '$lib/actions/longpress';
+	import { layoutStore } from '$lib/layoutStore';
 
 	const dispatch = createEventDispatcher();
 
@@ -31,48 +32,17 @@
 	let showChannelSettingsModal = false;
 	let selectedChannelForSettings: Channel | null = null;
 
-	// Sidebar width management - 3 modes: normal (280px), compact (60px), hidden (0px)
-	export let sidebarWidth = 280;
-	let isResizing = false;
-	let startX = 0;
-	let startWidth = 0;
+	// Sidebar width from layout store - 3 modes: normal (280px), compact (60px), hidden (0px)
+	$: sidebarWidth = $layoutStore.channelSidebarWidth;
 
 	// Context menu state
 	let contextMenuChannel: Channel | null = null;
 	let contextMenuPosition = { x: 0, y: 0 };
 	let showContextMenu = false;
 
-	function startResize(e: MouseEvent) {
-		isResizing = true;
-		startX = e.clientX;
-		startWidth = sidebarWidth;
-		document.addEventListener('mousemove', handleResize);
-		document.addEventListener('mouseup', stopResize);
-	}
-
-	function handleResize(e: MouseEvent) {
-		if (!isResizing) return;
-		const delta = e.clientX - startX;
-		sidebarWidth = Math.max(0, startWidth + delta);
-	}
-
-	function stopResize() {
-		isResizing = false;
-		document.removeEventListener('mousemove', handleResize);
-		document.removeEventListener('mouseup', stopResize);
-
-		// Snap to nearest mode
-		if (sidebarWidth < 30) {
-			sidebarWidth = 0; // Hidden
-		} else if (sidebarWidth < 170) {
-			sidebarWidth = 60; // Compact
-		} else {
-			sidebarWidth = 280; // Normal
-		}
-	}
-
 	function toggleSidebar() {
-		sidebarWidth = sidebarWidth === 0 ? 280 : 0;
+		const current = $layoutStore.channelSidebarWidth;
+		layoutStore.channelSidebarWidth.set(current === 0 ? 280 : 0);
 	}
 
 	function handleLogout() {
@@ -198,7 +168,7 @@
 	<button class="expand-btn" on:click={toggleSidebar} title="Expand sidebar">›</button>
 {/if}
 
-<div class="channel-sidebar" style="width: {sidebarWidth}px">
+<div class="channel-sidebar" style="width: {$layoutStore.channelSidebarWidth}px">
 	<div class="top-section">
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
 		<div class="logo">
@@ -225,8 +195,6 @@
 			<button class="add-btn" on:click={() => showCreateInput = !showCreateInput} title="Create channel">+</button>
 		</div>
 	</div>
-
-	<div class="resize-handle" on:mousedown={startResize}></div>
 
 	{#if showCreateInput}
 		<div class="create-channel">
@@ -362,7 +330,7 @@
 					>
 						{$currentUser.username}
 					</div>
-					<div class="user-tag">{$currentUser.handle ? `@${$currentUser.handle}` : `#${$currentUser.id.slice(0, 4)}`}</div>
+					<div class="user-tag">{$currentUser.handle ? `@${$currentUser.handle}` : `#${$currentUser.id.slice(-4)}`}</div>
 				</div>
 			</div>
 
@@ -607,16 +575,6 @@
 		transition: width 0.2s ease;
 		position: relative;
 		z-index: 50;
-	}
-
-	.resize-handle {
-		position: absolute;
-		right: -4px;
-		top: 0;
-		width: 8px;
-		height: 100%;
-		cursor: col-resize;
-		z-index: 5;
 	}
 
 	/* Compact mode: show only letters */

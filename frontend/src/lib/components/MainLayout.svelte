@@ -1,6 +1,7 @@
 <!-- frontend/src/lib/components/MainLayout.svelte -->
 <script lang="ts">
 	import { layoutStore } from '$lib/layoutStore';
+	import { get } from 'svelte/store';
 	import Chat from '$lib/components/Chat.svelte';
 	import ScreenShareViewer from '$lib/components/ScreenShareViewer.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
@@ -20,7 +21,7 @@
 
 	function handleMouseMove(e: MouseEvent) {
 		if (resizingChannel) {
-			layoutStore.channelSidebarWidth.set(Math.max(180, Math.min(e.clientX, 400)));
+			layoutStore.channelSidebarWidth.set(Math.max(0, Math.min(e.clientX, 400)));
 		}
 		if (resizingRight) {
 			const rightEdge = window.innerWidth;
@@ -30,6 +31,12 @@
 	}
 
 	function stopResize() {
+		if (resizingChannel) {
+			const w = get(layoutStore.channelSidebarWidth);
+			if (w < 30) layoutStore.channelSidebarWidth.set(0);
+			else if (w < 170) layoutStore.channelSidebarWidth.set(60);
+			else layoutStore.channelSidebarWidth.set(280);
+		}
 		layoutStore.isResizingChannel.set(false);
 		layoutStore.isResizingRight.set(false);
 	}
@@ -154,6 +161,13 @@
 		flex-shrink: 0;
 		position: relative;
 		border-right: 1px solid rgba(var(--border-rgb), var(--opacity-light));
+		overflow: hidden;
+	}
+
+	/* Hide border when sidebar is collapsed */
+	.channel-sidebar-container[style*="width: 0px"],
+	.channel-sidebar-container[style*="width:0px"] {
+		border-right: none;
 	}
 
 	/* Desktop Right Panel */
@@ -174,7 +188,7 @@
 		bottom: 0;
 		width: 6px;
 		cursor: col-resize;
-		z-index: 100;
+		z-index: 10;
 		transition: background 0.2s;
 	}
 	.resize-handle:hover { background: var(--accent); opacity: 0.5; }
