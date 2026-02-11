@@ -7,6 +7,7 @@
 	import MainLayout from '$lib/components/MainLayout.svelte';
 	import type { PageData } from './$types';
 	import { layoutStore } from '$lib/layoutStore';
+	import { initE2E, clearE2EState } from '$lib/e2eManager';
 
 	// Theme system
 	import { initializeTheme, watchThemeChanges, syncThemeToLocalStorage } from '$lib/theme/initTheme';
@@ -39,6 +40,14 @@
 		if (savedUsername) {
 			initSocket(savedUsername, savedToken || undefined);
 			loggedIn = true;
+
+			// Initialize E2E encryption if registered user
+			if (savedToken) {
+				const dbUserId = localStorage.getItem('dbUserId');
+				if (dbUserId) {
+					initE2E(parseInt(dbUserId, 10), savedToken, false);
+				}
+			}
 		}
 
 		const isRegistered = !!savedToken;
@@ -106,6 +115,7 @@
 
 	function handleLogout() {
 		disconnect();
+		clearE2EState();
 		loggedIn = false;
 		try {
 			localStorage.removeItem('username');

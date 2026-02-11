@@ -144,6 +144,18 @@ function runMigrations() {
 	} catch (e) {
 		// Columns may already exist
 	}
+
+	// Migration: Add encryption columns to messages table
+	try {
+		const cols = db.pragma('table_info(messages)') as { name: string }[];
+		if (!cols.some(c => c.name === 'is_encrypted')) {
+			db.exec('ALTER TABLE messages ADD COLUMN is_encrypted INTEGER DEFAULT 0');
+			db.exec('ALTER TABLE messages ADD COLUMN encryption_iv TEXT');
+			console.log('[Database] Migration: added encryption columns to messages');
+		}
+	} catch (e) {
+		// Columns may already exist
+	}
 }
 
 function seedDefaultRoles() {

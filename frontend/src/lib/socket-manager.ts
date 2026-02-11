@@ -27,6 +27,32 @@ import type { FileAttachment, Message, Emoji, User, Channel } from './socket-typ
 import { emojis } from './emoji-store';
 import { getServerUrl } from './serverUrl';
 import { authStore } from './authStore';
+import { encryptDMMessage, decryptDMMessage, isE2EAvailable } from './e2eManager';
+
+/**
+ * Decrypt an array of messages for a DM channel (in-place mutation of text field).
+ * Skips non-encrypted messages. Requires channel to be a DM with a known otherUser.dbUserId.
+ */
+async function decryptMessagesForChannel(channelId: string, messages: Message[]): Promise<void> {
+	if (!isE2EAvailable() || !browser) return;
+
+	const token = localStorage.getItem('authToken');
+	if (!token) return;
+
+	const channelList = get(channels);
+	const channel = channelList.find(ch => ch.id === channelId);
+	if (!channel || channel.type !== 'dm' || !channel.otherUser?.dbUserId) return;
+
+	const otherDbUserId = channel.otherUser.dbUserId;
+
+	await Promise.all(
+		messages.map(async (msg) => {
+			if (msg.encrypted && msg.iv) {
+				msg.text = await decryptDMMessage(msg, otherDbUserId, token);
+			}
+		})
+	);
+}
 
 // ============================================================================
 // CONNECTION STATE MACHINE
@@ -542,7 +568,10 @@ class SocketManager {
 
 		// ==================== MESSAGE EVENTS ====================
 
-		sock.on('channel-messages', (data: { channelId: string; messages: Message[]; hasMore?: boolean }) => {
+		sock.on('channel-messages', async (data: { channelId: string; messages: Message[]; hasMore?: boolean }) => {
+			// Decrypt encrypted messages in DM channels
+			await decryptMessagesForChannel(data.channelId, data.messages);
+
 			channelMessages.update(msgs => {
 				const existing = msgs[data.channelId] || [];
 				const existingIds = new Set(existing.map(m => m.id));
@@ -560,12 +589,15 @@ class SocketManager {
 		});
 
 		// Handle server-side history loading response
-		sock.on('history-loaded', (data: {
+		sock.on('history-loaded', async (data: {
 			channelId: string;
 			messages: Message[];
 			hasMore: boolean;
 			direction: 'older' | 'newer' | 'initial';
 		}) => {
+			// Decrypt encrypted messages in DM channels
+			await decryptMessagesForChannel(data.channelId, data.messages);
+
 			channelMessages.update(msgs => {
 				const existing = msgs[data.channelId] || [];
 				const existingIds = new Set(existing.map(m => m.id));
@@ -599,11 +631,16 @@ class SocketManager {
 			console.log(`[SocketManager] History loaded: ${data.messages.length} messages for ${data.channelId} (${data.direction})`);
 		});
 
-		sock.on('message', (data: { channelId: string; message: Message }) => {
+		sock.on('message', async (data: { channelId: string; message: Message }) => {
 			// Validate incoming message
 			if (!data?.channelId || !data?.message?.id) {
 				console.warn('[SocketManager] Received malformed message:', data);
 				return;
+			}
+
+			// Decrypt single encrypted message in DM channels
+			if (data.message.encrypted && data.message.iv) {
+				await decryptMessagesForChannel(data.channelId, [data.message]);
 			}
 
 			channelMessages.update(msgs => {
@@ -1188,15 +1225,34 @@ export function deleteChannel(channelId: string): void {
 	socketManager.emit('delete-channel', channelId);
 }
 
-export function sendMessage(channelId: string, text: string, type: 'text' | 'gif' | 'file' = 'text', options?: {
+export async function sendMessage(channelId: string, text: string, type: 'text' | 'gif' | 'file' = 'text', options?: {
 	gifUrl?: string;
 	fileUrl?: string;
 	fileName?: string;
 	fileSize?: number;
 	replyTo?: string;
 	isSpoiler?: boolean;
-}): void {
-	socketManager.emit('message', { channelId, text, type, ...options });
+}): Promise<void> {
+	const payload: Record<string, any> = { channelId, text, type, ...options };
+
+	// Attempt E2E encryption for text DMs
+	if (type === 'text' && isE2EAvailable()) {
+		const channelList = get(channels);
+		const channel = channelList.find(ch => ch.id === channelId);
+		if (channel?.type === 'dm' && channel.otherUser?.dbUserId) {
+			const token = browser ? localStorage.getItem('authToken') : null;
+			if (token) {
+				const encrypted = await encryptDMMessage(text, channel.otherUser.dbUserId, token);
+				if (encrypted) {
+					payload.text = encrypted.text;
+					payload.encrypted = encrypted.encrypted;
+					payload.iv = encrypted.iv;
+				}
+			}
+		}
+	}
+
+	socketManager.emit('message', payload);
 }
 
 export function editMessage(channelId: string, messageId: string, newText: string): void {

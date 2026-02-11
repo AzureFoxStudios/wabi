@@ -14,7 +14,7 @@ import { settingsRepository } from "./db/repositories/settingsRepository.js";
 import { themeRepository } from "./db/repositories/themeRepository.js";
 import { guestCodeRepository } from "./db/repositories/guestCodeRepository.js";
 import { verifyToken } from "./auth/jwt.js";
-import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings } from "./api/authRoutes.js";
+import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings, handleGetPublicKey, handleStoreEncryptionKeys } from "./api/authRoutes.js";
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
 import { channelRepository } from "./db/repositories/channelRepository.js";
@@ -844,6 +844,18 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  // Encryption key endpoints
+  const publicKeyMatch = url.pathname.match(/^\/api\/users\/(\d+)\/public-key$/);
+  if (publicKeyMatch && req.method === "GET") {
+    await handleGetPublicKey(req, res, parseInt(publicKeyMatch[1], 10));
+    return;
+  }
+
+  if (url.pathname === "/api/user/encryption-keys" && req.method === "POST") {
+    await handleStoreEncryptionKeys(req, res);
+    return;
+  }
+
   // Theme preferences endpoints
   if (url.pathname === "/api/user/theme" && req.method === "GET") {
     await handleGetThemePreferences(req, res);
@@ -1337,14 +1349,17 @@ server.on('request', async (req, res) => {
       const html = await response.text();
 
       // Parse OpenGraph and meta tags with simple regex (no dependency needed)
+      const decodeHtmlEntities = (str: string): string =>
+        str.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+
       const getMeta = (property: string): string | null => {
         // Try og: property first, then name attribute
         const ogMatch = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${property}["'][^>]+content=["']([^"']*)["']`, 'i'))
           || html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${property}["']`, 'i'));
-        return ogMatch ? ogMatch[1] : null;
+        return ogMatch ? decodeHtmlEntities(ogMatch[1]) : null;
       };
 
-      const title = getMeta('og:title') || getMeta('twitter:title')
+      let title = getMeta('og:title') || getMeta('twitter:title')
         || (html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]) || null;
       const description = getMeta('og:description') || getMeta('twitter:description')
         || getMeta('description') || null;
@@ -1355,18 +1370,15 @@ server.on('request', async (req, res) => {
       const videoUrl = getMeta('og:video:secure_url') || getMeta('og:video:url') || getMeta('og:video') || null;
       const videoType = getMeta('og:video:type') || null;
       const videoWidth = getMeta('og:video:width') || getMeta('twitter:player:width') || null;
-      const image = getMeta('og:image') || getMeta('twitter:image') || null; // This line is common and should be kept
+      let image = getMeta('og:image') || getMeta('twitter:image') || null;
 
-      // Video/player embed metadata
-      const videoUrl = getMeta('og:video:secure_url') || getMeta('og:video:url') || getMeta('og:video') || null;
-      const videoType = getMeta('og:video:type') || null;
-      const videoWidth = getMeta('og:video:width') || getMeta('twitter:player:width') || null;
       const videoHeight = getMeta('og:video:height') || getMeta('twitter:player:height') || null;
       const twitterCard = getMeta('twitter:card') || null;
       const twitterPlayer = getMeta('twitter:player') || null;
 
       // Extract YouTube video ID from URL
       let youtubeId: string | null = null;
+      let channelName: string | null = null;
       try {
         const parsed = new URL(targetUrl);
         if (parsed.hostname.includes('youtube.com')) {
@@ -1383,17 +1395,80 @@ server.on('request', async (req, res) => {
         }
       } catch {}
 
-      // Build image — for YouTube, guarantee a high-res thumbnail
-      if (youtubeId && !image) {
-        image = `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`;
+      // For YouTube, use oEmbed API to get reliable title, channel name, and thumbnail
+      if (youtubeId) {
+        try {
+          const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${youtubeId}&format=json`);
+          if (oembedRes.ok) {
+            const oembed = await oembedRes.json() as { title?: string; author_name?: string; thumbnail_url?: string };
+            if (oembed.title) title = oembed.title;
+            channelName = oembed.author_name || null;
+            if (oembed.thumbnail_url && !image) image = oembed.thumbnail_url;
+          }
+        } catch {}
+        // Guarantee a high-res thumbnail
+        if (!image) {
+          image = `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`;
+        } else {
+          // Upgrade to maxresdefault if using ytimg
+          image = `https://i.ytimg.com/vi/${youtubeId}/maxresdefault.jpg`;
+        }
       }
 
       res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req) });
       res.end(JSON.stringify({
-        title, description, image, siteName, type, youtubeId,
+        title, description, image, siteName, type, youtubeId, channelName,
         video: videoUrl ? { url: videoUrl, type: videoType, width: videoWidth, height: videoHeight } : null,
         twitterCard, twitterPlayer
       }));
+    } catch (err) {
+      res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.end(JSON.stringify({ error: 'Failed to fetch URL preview' }));
+    }
+    return;
+  }
+
+  // Image proxy endpoint - proxy images to avoid hotlink protection (Instagram, etc.)
+  if (url.pathname === "/api/image-proxy" && req.method === "GET") {
+    const imageUrl = url.searchParams.get('url');
+    if (!imageUrl) {
+      res.writeHead(400, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.end(JSON.stringify({ error: 'Missing url parameter' }));
+      return;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+
+      const response = await fetch(imageUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)',
+          'Accept': 'image/*'
+        },
+        signal: controller.signal,
+        redirect: 'follow'
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+        res.end(JSON.stringify({ error: 'Failed to fetch image' }));
+        return;
+      }
+
+      const contentType = response.headers.get('content-type') || 'image/jpeg';
+      const buffer = Buffer.from(await response.arrayBuffer());
+
+      res.writeHead(200, {
+        "Content-Type": contentType,
+        "Cache-Control": "public, max-age=86400",
+        ...getCORSHeaders(req)
+      });
+      res.end(buffer);
+    } catch (err) {
+      res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.end(JSON.stringify({ error: 'Failed to proxy image' }));
     }
     return;
   }
@@ -2361,6 +2436,8 @@ io.on("connection", (socket) => {
     files?: { fileUrl: string; fileName: string; fileSize: number }[];
     replyTo?: string;
     isSpoiler?: boolean;
+    encrypted?: boolean;
+    iv?: string;
   }) => {
     const user = users.get(socket.id);
     if (!user) return;
@@ -2398,6 +2475,8 @@ io.on("connection", (socket) => {
     if (data.files) message.files = data.files;
     if (data.replyTo) message.replyTo = data.replyTo;
     if (data.isSpoiler) message.isSpoiler = data.isSpoiler;
+    if (data.encrypted) message.encrypted = true;
+    if (data.iv) message.iv = data.iv;
 
     // Add message to channel
     const messages = channelMessages.get(data.channelId) || [];
@@ -2451,6 +2530,8 @@ io.on("connection", (socket) => {
         is_spoiler: data.isSpoiler ? 1 : 0,
         is_pinned: 0,
         is_edited: 0,
+        is_encrypted: data.encrypted ? 1 : 0,
+        encryption_iv: data.iv || undefined,
         created_at: message.timestamp
       });
     } catch (dbError) {
@@ -2479,6 +2560,9 @@ io.on("connection", (socket) => {
 
     const message = messages.find(m => m.id === data.messageId);
     if (!message || message.userId !== socket.id) return;
+
+    // Block editing encrypted messages
+    if (message.encrypted) return;
 
     message.text = data.newText;
     message.isEdited = true;

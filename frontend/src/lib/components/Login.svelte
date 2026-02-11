@@ -2,6 +2,7 @@
 	import { createEventDispatcher, onMount } from 'svelte';
 	import QRCode from 'qrcode';
 	import { register, login, upgradeToRegistered } from '$lib/api';
+	import { initE2E } from '$lib/e2eManager';
 
 	const dispatch = createEventDispatcher<{
 		login: { username: string; token?: string; authMethod: 'guest' | 'registered' };
@@ -77,6 +78,10 @@
 		try {
 			const result = await register(username, password, cleanHandle);
 			localStorage.setItem('authToken', result.token);
+			if (result.user.id) {
+				localStorage.setItem('dbUserId', String(result.user.id));
+				initE2E(result.user.id, result.token, true);
+			}
 			dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered' });
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Registration failed';
@@ -99,6 +104,10 @@
 		try {
 			const result = await login(username, password);
 			localStorage.setItem('authToken', result.token);
+			if (result.user.id) {
+				localStorage.setItem('dbUserId', String(result.user.id));
+				initE2E(result.user.id, result.token, false);
+			}
 			dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered' });
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Login failed';

@@ -20,6 +20,8 @@ export interface Message {
   files?: FileAttachment[];
   isPinned?: boolean;
   isEdited?: boolean;
+  encrypted?: boolean;
+  iv?: string;
   replyTo?: string;
   isSpoiler?: boolean;
   reactions?: Record<string, string[]>;

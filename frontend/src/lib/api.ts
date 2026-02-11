@@ -81,6 +81,49 @@ export async function upgradeToRegistered(sessionId: string, password: string): 
 	}
 }
 
+export async function storeEncryptionKeys(token: string, publicKey: string, privateKeyEncrypted: string): Promise<void> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 8000);
+	try {
+		const res = await fetch(`${SERVER_URL}/api/user/encryption-keys`, {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${token}`,
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({ publicKey, privateKeyEncrypted }),
+			signal: controller.signal
+		});
+
+		if (!res.ok && res.status !== 409) {
+			throw new Error('Failed to store encryption keys');
+		}
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+export async function getPublicKey(token: string, userId: number): Promise<string | null> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 8000);
+	try {
+		const res = await fetch(`${SERVER_URL}/api/users/${userId}/public-key`, {
+			method: 'GET',
+			headers: { Authorization: `Bearer ${token}` },
+			signal: controller.signal
+		});
+
+		if (!res.ok) {
+			return null;
+		}
+
+		const data = await res.json();
+		return data.publicKey || null;
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
 export async function getUserSettings(token: string): Promise<any> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), 8000);

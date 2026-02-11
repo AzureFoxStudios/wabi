@@ -2,6 +2,7 @@ import { IncomingMessage, ServerResponse } from 'http';
 import { userRepository } from '../db/repositories/userRepository.js';
 import { sessionRepository } from '../db/repositories/sessionRepository.js';
 import { settingsRepository } from '../db/repositories/settingsRepository.js';
+import { encryptionKeyRepository } from '../db/repositories/encryptionKeyRepository.js';
 import { hashPassword, verifyPassword } from '../auth/passwordHash.js';
 import { generateToken, verifyToken } from '../auth/jwt.js';
 
@@ -421,6 +422,68 @@ export async function handleGetUserSettings(req: IncomingMessage, res: ServerRes
 		console.error('[Auth] Get settings error:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ error: 'Failed to load settings' }));
+	}
+}
+
+// Get public key for a user
+export async function handleGetPublicKey(req: IncomingMessage, res: ServerResponse, userId: number): Promise<void> {
+	try {
+		const authUserId = getAuthenticatedUserId(req);
+		if (!authUserId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Not authenticated' }));
+			return;
+		}
+
+		const publicKey = encryptionKeyRepository.getPublicKey(userId);
+		if (!publicKey) {
+			res.writeHead(404, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'No encryption keys found for this user' }));
+			return;
+		}
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ publicKey }));
+	} catch (error) {
+		console.error('[Auth] Get public key error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to get public key' }));
+	}
+}
+
+// Store encryption keys for the authenticated user
+export async function handleStoreEncryptionKeys(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		const userId = getAuthenticatedUserId(req);
+		if (!userId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Not authenticated' }));
+			return;
+		}
+
+		const body = await parseBody(req);
+		const { publicKey, privateKeyEncrypted } = body;
+
+		if (!publicKey || !privateKeyEncrypted) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'publicKey and privateKeyEncrypted are required' }));
+			return;
+		}
+
+		if (encryptionKeyRepository.hasKeys(userId)) {
+			res.writeHead(409, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Encryption keys already exist for this user' }));
+			return;
+		}
+
+		encryptionKeyRepository.create(userId, publicKey, privateKeyEncrypted);
+
+		res.writeHead(201, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ success: true }));
+	} catch (error) {
+		console.error('[Auth] Store encryption keys error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to store encryption keys' }));
 	}
 }
 
