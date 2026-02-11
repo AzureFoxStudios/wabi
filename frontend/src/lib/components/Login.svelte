@@ -310,6 +310,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		overflow-y: auto;
 		background: linear-gradient(135deg, var(--dark-bg-primary) 0%, var(--dark-bg-secondary) 100%);
 		padding: 1rem;
 	}
@@ -328,7 +329,7 @@
 	}
 
 	.logo {
-		height: 320px;
+		height: min(320px, 25vh);
 		margin-bottom: 2rem;
 		filter: invert(1) drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
 		animation: logoFadeIn 0.6s ease-out;
@@ -558,6 +559,14 @@
 		color: var(--text-primary);
 	}
 
+	@media (max-height: 700px) {
+		.logo { height: 100px; margin-bottom: 0.5rem; }
+		.login-box { padding: 1.25rem; }
+		input { padding: 0.75rem; font-size: 1rem; margin-bottom: 0.75rem; }
+		.join-btn { padding: 0.75rem; font-size: 1rem; margin-bottom: 1rem; }
+		.tabs { margin-bottom: 1rem; }
+	}
+
 	/* Mobile styles */
 	@media (max-width: 768px) {
 		.login-container {
@@ -570,7 +579,7 @@
 		}
 
 		.logo {
-			height: 180px;
+			height: min(180px, 20vh);
 			margin-bottom: 1rem;
 		}
 

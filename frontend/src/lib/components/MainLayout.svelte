@@ -25,7 +25,7 @@
 		}
 		if (resizingRight) {
 			const rightEdge = window.innerWidth;
-			const newWidth = Math.max(250, Math.min(rightEdge - e.clientX, 500));
+			const newWidth = Math.max(0, Math.min(rightEdge - e.clientX, 500));
 			layoutStore.rightPanelWidth.set(newWidth);
 		}
 	}
@@ -36,6 +36,15 @@
 			if (w < 30) layoutStore.channelSidebarWidth.set(0);
 			else if (w < 170) layoutStore.channelSidebarWidth.set(60);
 			else layoutStore.channelSidebarWidth.set(280);
+		}
+		if (resizingRight) {
+			const w = get(layoutStore.rightPanelWidth);
+			if (w < 30) {
+				layoutStore.rightPanelWidth.set(0);
+				layoutStore.rightPanelView.set('none');
+			} else if (w < 200) {
+				layoutStore.rightPanelWidth.set(250);
+			}
 		}
 		layoutStore.isResizingChannel.set(false);
 		layoutStore.isResizingRight.set(false);
@@ -161,7 +170,6 @@
 		flex-shrink: 0;
 		position: relative;
 		border-right: 1px solid rgba(var(--border-rgb), var(--opacity-light));
-		overflow: hidden;
 	}
 
 	/* Hide border when sidebar is collapsed */
@@ -174,7 +182,6 @@
 	.right-panel-container {
 		flex-shrink: 0;
 		position: relative;
-		overflow: hidden;
 		height: 100vh;
 		height: 100dvh;
 		background: var(--bg-secondary);
@@ -188,7 +195,7 @@
 		bottom: 0;
 		width: 6px;
 		cursor: col-resize;
-		z-index: 10;
+		z-index: 100;
 		transition: background 0.2s;
 	}
 	.resize-handle:hover { background: var(--accent); opacity: 0.5; }

@@ -1,15 +1,27 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { emojis, type Emoji } from '$lib/socket';
+	import { GiphyFetch } from '@giphy/js-fetch-api';
 
 	const dispatch = createEventDispatcher<{
 		select: { emoji: Emoji };
+		gif: string;
 		close: void;
 	}>();
 
-	let pickerMode: 'emoji' | 'sticker' = 'emoji';
+	let pickerMode: 'emoji' | 'sticker' | 'gif' = 'emoji';
 	let selectedCategory = 'all';
 	let searchQuery = '';
+
+	// GIF state
+	let gifs: any[] = [];
+	let gifLoading = false;
+	let gf: GiphyFetch | null = null;
+	let gifSearchQuery = '';
+
+	if (import.meta.env.VITE_GIPHY_API_KEY) {
+		gf = new GiphyFetch(import.meta.env.VITE_GIPHY_API_KEY);
+	}
 
 	// Filter emojis by current mode first
 	$: modeEmojis = $emojis.filter(e => (e.type || 'emoji') === pickerMode);
@@ -25,9 +37,12 @@
 	});
 
 	// Reset category when switching modes
-	function setMode(mode: 'emoji' | 'sticker') {
+	function setMode(mode: 'emoji' | 'sticker' | 'gif') {
 		pickerMode = mode;
 		selectedCategory = 'all';
+		if (mode === 'gif' && gifs.length === 0) {
+			loadTrendingGifs();
+		}
 	}
 
 	function handleEmojiClick(emoji: Emoji) {
@@ -45,15 +60,58 @@
 			default: return '📁';
 		}
 	}
+
+	// GIF functions
+	async function loadTrendingGifs() {
+		if (!gf) return;
+		gifLoading = true;
+		try {
+			const { data } = await gf.trending({ limit: 20 });
+			gifs = data;
+		} catch (error) {
+			console.error('Error fetching trending GIFs:', error);
+			gifs = [];
+		}
+		gifLoading = false;
+	}
+
+	async function searchGifs() {
+		if (!gf) return;
+		if (!gifSearchQuery.trim()) {
+			loadTrendingGifs();
+			return;
+		}
+		gifLoading = true;
+		try {
+			const { data } = await gf.search(gifSearchQuery, { limit: 20 });
+			gifs = data;
+		} catch (error) {
+			console.error('Error fetching GIFs:', error);
+		}
+		gifLoading = false;
+	}
+
+	function selectGif(gif: any) {
+		dispatch('gif', gif.images.fixed_height.url);
+	}
 </script>
 
 <div class="emoji-picker">
 		<div class="emoji-header">
-			<input
-				type="text"
-				placeholder="Search {pickerMode === 'sticker' ? 'stickers' : 'emojis'}..."
-				bind:value={searchQuery}
-			/>
+			{#if pickerMode === 'gif'}
+				<input
+					type="text"
+					placeholder="Search GIFs..."
+					bind:value={gifSearchQuery}
+					on:input={searchGifs}
+				/>
+			{:else}
+				<input
+					type="text"
+					placeholder="Search {pickerMode === 'sticker' ? 'stickers' : 'emojis'}..."
+					bind:value={searchQuery}
+				/>
+			{/if}
 			<button on:click={() => dispatch('close')} class="close-btn">✕</button>
 		</div>
 
@@ -69,39 +127,61 @@
 				class:active={pickerMode === 'sticker'}
 				on:click={() => setMode('sticker')}
 			>Stickers</button>
+			<button
+				class="mode-tab"
+				class:active={pickerMode === 'gif'}
+				on:click={() => setMode('gif')}
+			>GIFs</button>
 		</div>
 
-		<!-- Category tabs -->
-		<div class="category-tabs">
-			{#each categories as category}
-				<button
-					class="category-tab"
-					class:active={selectedCategory === category}
-					on:click={() => selectedCategory = category}
-					title={category}
-				>
-					{getCategoryIcon(category)}
-				</button>
-			{/each}
-		</div>
-
-		<!-- Emoji/Sticker grid -->
-		<div class="emoji-grid" class:sticker-grid={pickerMode === 'sticker'}>
-			{#if filteredEmojis.length === 0}
-				<div class="no-emojis">No {pickerMode === 'sticker' ? 'stickers' : 'emojis'} found</div>
-			{:else}
-				{#each filteredEmojis as emoji (emoji.id)}
+		{#if pickerMode === 'gif'}
+			<!-- GIF grid -->
+			<div class="gif-grid">
+				{#if gifLoading}
+					<div class="no-emojis">Loading...</div>
+				{:else if gifs.length === 0}
+					<div class="no-emojis">No GIFs found</div>
+				{:else}
+					{#each gifs as gif (gif.id)}
+						<button class="gif-item" on:click={() => selectGif(gif)}>
+							<img src={gif.images.fixed_height_small.url} alt={gif.title} />
+						</button>
+					{/each}
+				{/if}
+			</div>
+		{:else}
+			<!-- Category tabs -->
+			<div class="category-tabs">
+				{#each categories as category}
 					<button
-						class="emoji-btn"
-						class:sticker-btn={pickerMode === 'sticker'}
-						on:click={() => handleEmojiClick(emoji)}
-						title=":{emoji.name}:"
+						class="category-tab"
+						class:active={selectedCategory === category}
+						on:click={() => selectedCategory = category}
+						title={category}
 					>
-						<img src={emoji.url} alt={emoji.name} class="emoji-img" class:sticker-img={pickerMode === 'sticker'} />
+						{getCategoryIcon(category)}
 					</button>
 				{/each}
-			{/if}
-		</div>
+			</div>
+
+			<!-- Emoji/Sticker grid -->
+			<div class="emoji-grid" class:sticker-grid={pickerMode === 'sticker'}>
+				{#if filteredEmojis.length === 0}
+					<div class="no-emojis">No {pickerMode === 'sticker' ? 'stickers' : 'emojis'} found</div>
+				{:else}
+					{#each filteredEmojis as emoji (emoji.id)}
+						<button
+							class="emoji-btn"
+							class:sticker-btn={pickerMode === 'sticker'}
+							on:click={() => handleEmojiClick(emoji)}
+							title=":{emoji.name}:"
+						>
+							<img src={emoji.url} alt={emoji.name} class="emoji-img" class:sticker-img={pickerMode === 'sticker'} />
+						</button>
+					{/each}
+				{/if}
+			</div>
+		{/if}
 	</div>
 
 <style>
@@ -259,6 +339,45 @@
 		padding: 2rem;
 		color: var(--text-secondary);
 		font-size: 0.875rem;
+	}
+
+	/* GIF grid */
+	.gif-grid {
+		flex: 1;
+		overflow-y: auto;
+		overflow-x: hidden;
+		padding: 0.5rem;
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 0.5rem;
+		align-content: start;
+	}
+
+	.gif-item {
+		background: var(--bg-tertiary);
+		padding: 0;
+		border: none;
+		border-radius: 6px;
+		overflow: hidden;
+		cursor: pointer;
+		width: 100%;
+		height: 120px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
+	}
+
+	.gif-item:hover {
+		background: var(--bg-hover);
+		transform: scale(1.02);
+	}
+
+	.gif-item img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		display: block;
 	}
 
 	/* Scrollbar styling */

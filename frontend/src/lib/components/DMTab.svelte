@@ -6,7 +6,6 @@
 
 	let searchQuery = '';
 	let showNewDM = false;
-	let confirmDeleteId: string | null = null;
 
 	$: selectedDmId = $layoutStore.selectedDmChannelId;
 	$: dmOther = $layoutStore.dmOtherUser;
@@ -70,33 +69,21 @@
 		searchQuery = '';
 	}
 
-	function handleDeleteDM(channelId: string) {
-		if (confirmDeleteId === channelId) {
-			deleteDM(channelId);
-			if (selectedDmId === channelId) {
-				layoutStore.closeDM();
-			}
-			confirmDeleteId = null;
-		} else {
-			confirmDeleteId = channelId;
-			setTimeout(() => { confirmDeleteId = null; }, 3000);
-		}
-	}
-
-	function handleRightClick(e: MouseEvent, channel: Channel) {
-		e.preventDefault();
-		handleDeleteDM(channel.id);
-	}
 </script>
 
 <div class="dm-tab">
 	{#if selectedDmId && dmOther}
 		<!-- Active DM conversation -->
 		<div class="dm-tab-active">
-			<button class="dm-back-btn" on:click={() => layoutStore.closeDM()}>
-				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-				<span>All DMs</span>
-			</button>
+			<div class="dm-active-header">
+				<button class="dm-back-btn" on:click={() => layoutStore.closeDM()}>
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+					<span>All DMs</span>
+				</button>
+				<button class="dm-delete-btn" on:click={() => { deleteDM(selectedDmId); layoutStore.closeDM(); }} title="Delete conversation">
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+				</button>
+			</div>
 			<div class="dm-tab-messages">
 				<DMMessageView channelId={selectedDmId} otherUser={dmOther} />
 			</div>
@@ -145,11 +132,12 @@
 				{#each dmChannels as channel (channel.id)}
 					{@const other = getOtherUser(channel)}
 					{#if other}
-						<button
+						<div
 							class="dm-conv-item"
-							class:deleting={confirmDeleteId === channel.id}
+							role="button"
+							tabindex="0"
 							on:click={() => selectDM(channel)}
-							on:contextmenu={(e) => handleRightClick(e, channel)}
+							on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectDM(channel); } }}
 						>
 							<div class="dm-conv-avatar-wrap">
 								{#if other.profilePicture}
@@ -167,10 +155,14 @@
 								</div>
 								<span class="dm-conv-preview">{getLastPreview(channel.id)}</span>
 							</div>
-							{#if confirmDeleteId === channel.id}
-								<span class="dm-conv-delete-confirm">Click to delete</span>
-							{/if}
-						</button>
+							<button
+								class="dm-conv-close-btn"
+								on:click|stopPropagation={() => { deleteDM(channel.id); if (selectedDmId === channel.id) layoutStore.closeDM(); }}
+								title="Delete conversation"
+							>
+								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+							</button>
+						</div>
 					{/if}
 				{:else}
 					<div class="dm-empty-state">
@@ -201,6 +193,14 @@
 		min-height: 0;
 	}
 
+	.dm-active-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		border-bottom: 1px solid var(--border);
+		flex-shrink: 0;
+	}
+
 	.dm-back-btn {
 		display: flex;
 		align-items: center;
@@ -208,16 +208,33 @@
 		padding: 0.5rem 0.75rem;
 		background: none;
 		border: none;
-		border-bottom: 1px solid var(--border);
 		color: var(--text-secondary);
 		cursor: pointer;
 		font-size: 0.8rem;
-		flex-shrink: 0;
 	}
 
 	.dm-back-btn:hover {
 		color: var(--text-primary);
 		background: var(--bg-hover);
+	}
+
+	.dm-delete-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		margin-right: 0.5rem;
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		border-radius: 4px;
+	}
+
+	.dm-delete-btn:hover {
+		color: #f44336;
+		background: rgba(244, 67, 54, 0.1);
 	}
 
 	.dm-tab-messages {
@@ -375,9 +392,32 @@
 
 	.dm-conv-item:hover { background: var(--bg-hover); }
 
-	.dm-conv-item.deleting {
+	.dm-conv-close-btn {
+		position: absolute;
+		right: 0.375rem;
+		top: 50%;
+		transform: translateY(-50%);
+		width: 22px;
+		height: 22px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		border-radius: 4px;
+		opacity: 0;
+		transition: opacity 0.15s, color 0.15s;
+	}
+
+	.dm-conv-item:hover .dm-conv-close-btn {
+		opacity: 1;
+	}
+
+	.dm-conv-close-btn:hover {
+		color: #f44336;
 		background: rgba(244, 67, 54, 0.1);
-		border: 1px solid rgba(244, 67, 54, 0.3);
 	}
 
 	.dm-conv-avatar-wrap {
@@ -440,18 +480,6 @@
 		text-overflow: ellipsis;
 	}
 
-	.dm-conv-delete-confirm {
-		position: absolute;
-		right: 0.5rem;
-		top: 50%;
-		transform: translateY(-50%);
-		font-size: 0.65rem;
-		color: #f44336;
-		font-weight: 600;
-		background: var(--bg-secondary);
-		padding: 2px 6px;
-		border-radius: 4px;
-	}
 
 	/* Empty state */
 	.dm-empty-state {
