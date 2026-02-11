@@ -43,11 +43,14 @@
 	let selectedAvatarPreview: string | null = null;
 	let uploadingAvatar = false;
 
+	// Emoji/Sticker sub-toggle mode
+	let emojiTabMode: 'emoji' | 'sticker' = 'emoji';
+
 	// Emoji upload state
 	let emojiFileInput: HTMLInputElement;
 	let emojiName = '';
 	let emojiCategory = 'custom';
-	let emojiType: 'emoji' | 'sticker' = 'emoji';
+	$: emojiType = emojiTabMode;
 	let selectedEmojiFile: File | null = null;
 	let emojiPreview: string | null = null;
 	let uploadingEmoji = false;
@@ -244,12 +247,12 @@
 
 			emojiName = '';
 			emojiCategory = 'custom';
-			emojiType = 'emoji';
 			selectedEmojiFile = null;
 			emojiPreview = null;
 			if (emojiFileInput) emojiFileInput.value = '';
 
-			alert(`Emoji "${result.emoji.name}" uploaded successfully!`);
+			const typeLabel = emojiTabMode === 'sticker' ? 'Sticker' : 'Emoji';
+			alert(`${typeLabel} "${result.emoji.name}" uploaded successfully!`);
 		} catch (error) {
 			console.error('Emoji upload error:', error);
 			alert('Failed to upload emoji. Please try again.');
@@ -697,7 +700,25 @@
 
 					{:else if activeSettingsTab === 'emojis'}
 						<div class="settings-section">
-							<h3>Custom Emojis</h3>
+							<h3>Custom Emojis & Stickers</h3>
+
+						<!-- Emoji/Sticker sub-toggle -->
+						<div class="emoji-sticker-toggle">
+							<button
+								class="toggle-pill"
+								class:active={emojiTabMode === 'emoji'}
+								on:click={() => emojiTabMode = 'emoji'}
+							>
+								Emojis
+							</button>
+							<button
+								class="toggle-pill"
+								class:active={emojiTabMode === 'sticker'}
+								on:click={() => emojiTabMode = 'sticker'}
+							>
+								Stickers
+							</button>
+						</div>
 
 							<div class="emoji-upload-form">
 								<input
@@ -709,7 +730,7 @@
 								/>
 
 								{#if emojiPreview}
-									<div class="emoji-preview">
+									<div class="emoji-preview" class:sticker-preview={emojiTabMode === 'sticker'}>
 										<img src={emojiPreview} alt="Preview" />
 									</div>
 								{/if}
@@ -721,7 +742,7 @@
 								<input
 									type="text"
 									bind:value={emojiName}
-									placeholder="Emoji name (e.g., parrot)"
+									placeholder={emojiTabMode === 'sticker' ? 'Sticker name (e.g., thumbsup_big)' : 'Emoji name (e.g., parrot)'}
 									maxlength="30"
 									class="emoji-name-input"
 								/>
@@ -733,17 +754,12 @@
 									<option value="memes">Memes</option>
 								</select>
 
-								<select bind:value={emojiType} class="emoji-category-select">
-									<option value="emoji">Emoji</option>
-									<option value="sticker">Sticker</option>
-								</select>
-
 								<button
 									class="emoji-upload-btn"
 									on:click={uploadEmoji}
 									disabled={uploadingEmoji || !selectedEmojiFile || !emojiName.trim()}
 								>
-									{uploadingEmoji ? 'Uploading...' : emojiType === 'sticker' ? 'Upload Sticker' : 'Upload Emoji'}
+									{uploadingEmoji ? 'Uploading...' : emojiTabMode === 'sticker' ? 'Upload Sticker' : 'Upload Emoji'}
 								</button>
 
 								<p class="emoji-hint">Supports PNG, GIF (animated), JPG. Max 2MB.</p>
@@ -773,7 +789,7 @@
 												<input
 													type="text"
 													bind:value={item.name}
-													placeholder="emoji_name"
+													placeholder={emojiTabMode === 'sticker' ? 'sticker_name' : 'emoji_name'}
 													maxlength="30"
 													class="bulk-name-input"
 												/>
@@ -791,7 +807,11 @@
 											on:click={uploadBulkEmojis}
 											disabled={uploadingBulk || bulkEmojiFiles.length === 0}
 										>
-											{uploadingBulk ? 'Uploading...' : `Upload ${bulkEmojiFiles.length} Emoji${bulkEmojiFiles.length > 1 ? 's' : ''}`}
+											{#if uploadingBulk}
+										Uploading...
+									{:else}
+										Upload {bulkEmojiFiles.length} {emojiTabMode === 'sticker' ? 'Sticker' : 'Emoji'}{bulkEmojiFiles.length > 1 ? 's' : ''}
+									{/if}
 										</button>
 									</div>
 								{/if}
@@ -800,22 +820,41 @@
 							</div>
 
 							<div class="emoji-list">
-								<h4>Your Custom Emojis & Stickers ({$emojis.filter(e => e.isCustom).length})</h4>
-								<div class="emoji-grid-list">
-									{#each $emojis.filter(e => e.isCustom) as emoji (emoji.id)}
-										<div class="emoji-item">
-											<img src={emoji.url} alt={emoji.name} class="emoji-thumb" />
-											<span class="emoji-item-name">:{emoji.name}: {emoji.type === 'sticker' ? '(sticker)' : ''}</span>
-											<button
-												class="emoji-delete-btn"
-												on:click={() => deleteEmoji(emoji.name)}
-												title="Delete emoji"
-											>
-												&#x1F5D1;
-											</button>
-										</div>
-									{/each}
-								</div>
+								{#if emojiTabMode === 'sticker'}
+									<h4>Your Custom Stickers ({$emojis.filter(e => e.isCustom && e.type === 'sticker').length})</h4>
+									<div class="emoji-grid-list">
+										{#each $emojis.filter(e => e.isCustom && e.type === 'sticker') as emoji (emoji.id)}
+											<div class="emoji-item sticker-item">
+												<img src={emoji.url} alt={emoji.name} class="emoji-thumb sticker-thumb" />
+												<span class="emoji-item-name">:{emoji.name}:</span>
+												<button
+													class="emoji-delete-btn"
+													on:click={() => deleteEmoji(emoji.name)}
+													title="Delete sticker"
+												>
+													&#x1F5D1;
+												</button>
+											</div>
+										{/each}
+									</div>
+								{:else}
+									<h4>Your Custom Emojis ({$emojis.filter(e => e.isCustom && e.type !== 'sticker').length})</h4>
+									<div class="emoji-grid-list">
+										{#each $emojis.filter(e => e.isCustom && e.type !== 'sticker') as emoji (emoji.id)}
+											<div class="emoji-item">
+												<img src={emoji.url} alt={emoji.name} class="emoji-thumb" />
+												<span class="emoji-item-name">:{emoji.name}:</span>
+												<button
+													class="emoji-delete-btn"
+													on:click={() => deleteEmoji(emoji.name)}
+													title="Delete emoji"
+												>
+													&#x1F5D1;
+												</button>
+											</div>
+										{/each}
+									</div>
+								{/if}
 							</div>
 						</div>
 
@@ -1323,6 +1362,54 @@
 
 	.pfp-select-btn:hover {
 		background: var(--bg-primary);
+	}
+
+	/* Emoji/Sticker Sub-Toggle */
+	.emoji-sticker-toggle {
+		display: flex;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+		padding: 4px;
+		gap: 4px;
+	}
+
+	.toggle-pill {
+		flex: 1;
+		padding: 0.5rem 1rem;
+		border: none;
+		border-radius: 6px;
+		background: transparent;
+		color: var(--text-secondary);
+		font-size: 0.9rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.toggle-pill:hover {
+		color: var(--text-primary);
+		background: var(--bg-hover);
+	}
+
+	.toggle-pill.active {
+		background: var(--accent);
+		color: white;
+		font-weight: 600;
+	}
+
+	/* Sticker-specific styles */
+	.sticker-preview img {
+		max-width: 200px !important;
+		max-height: 200px !important;
+	}
+
+	.sticker-item {
+		min-height: 56px;
+	}
+
+	.sticker-thumb {
+		width: 48px !important;
+		height: 48px !important;
 	}
 
 	/* Emoji Upload Styles */
