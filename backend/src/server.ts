@@ -1355,6 +1355,12 @@ server.on('request', async (req, res) => {
       const videoUrl = getMeta('og:video:secure_url') || getMeta('og:video:url') || getMeta('og:video') || null;
       const videoType = getMeta('og:video:type') || null;
       const videoWidth = getMeta('og:video:width') || getMeta('twitter:player:width') || null;
+      const image = getMeta('og:image') || getMeta('twitter:image') || null; // This line is common and should be kept
+
+      // Video/player embed metadata
+      const videoUrl = getMeta('og:video:secure_url') || getMeta('og:video:url') || getMeta('og:video') || null;
+      const videoType = getMeta('og:video:type') || null;
+      const videoWidth = getMeta('og:video:width') || getMeta('twitter:player:width') || null;
       const videoHeight = getMeta('og:video:height') || getMeta('twitter:player:height') || null;
       const twitterCard = getMeta('twitter:card') || null;
       const twitterPlayer = getMeta('twitter:player') || null;
@@ -1378,7 +1384,6 @@ server.on('request', async (req, res) => {
       } catch {}
 
       // Build image — for YouTube, guarantee a high-res thumbnail
-      let image = getMeta('og:image') || getMeta('twitter:image') || null;
       if (youtubeId && !image) {
         image = `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`;
       }
@@ -1389,15 +1394,6 @@ server.on('request', async (req, res) => {
         video: videoUrl ? { url: videoUrl, type: videoType, width: videoWidth, height: videoHeight } : null,
         twitterCard, twitterPlayer
       }));
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        res.writeHead(504, { "Content-Type": "application/json", ...getCORSHeaders(req) });
-        res.end(JSON.stringify({ error: 'URL fetch timed out' }));
-      } else {
-        console.error('URL preview error:', error);
-        res.writeHead(500, { "Content-Type": "application/json", ...getCORSHeaders(req) });
-        res.end(JSON.stringify({ error: 'Failed to generate preview' }));
-      }
     }
     return;
   }
