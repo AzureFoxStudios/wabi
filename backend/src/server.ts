@@ -2559,7 +2559,11 @@ io.on("connection", (socket) => {
     if (!messages) return;
 
     const message = messages.find(m => m.id === data.messageId);
-    if (!message || message.userId !== socket.id) return;
+    if (!message) return;
+
+    // Allow edit if userId matches current socket.id OR stable user ID
+    const stableId = getStableUserId(socket);
+    if (message.userId !== socket.id && message.userId !== stableId) return;
 
     // Block editing encrypted messages
     if (message.encrypted) return;
@@ -2586,7 +2590,9 @@ io.on("connection", (socket) => {
     if (messageIndex === -1) return;
 
     const message = messages[messageIndex];
-    if (message.userId !== socket.id) return;
+    // Allow delete if userId matches current socket.id OR stable user ID
+    const stableId = getStableUserId(socket);
+    if (message.userId !== socket.id && message.userId !== stableId) return;
 
     // Delete associated files from filesystem
     if (message.fileUrl) {
