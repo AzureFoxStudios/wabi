@@ -112,44 +112,33 @@ function saveToStorage() {
 
 // Auto-save on changes
 if (browser) {
+	// Ready flag prevents store subscriptions from triggering sync during init
+	let ready = false;
+
 	loadFromStorage();
 
 	// Save to localStorage and trigger sync on any data change
-	todos.subscribe(() => {
+	const syncOnChange = () => {
 		saveToStorage();
-		import('./sync').then(({ triggerSync }) => triggerSync());
-	});
-	calendarEvents.subscribe(() => {
-		saveToStorage();
-		import('./sync').then(({ triggerSync }) => triggerSync());
-	});
-	diaryEntries.subscribe(() => {
-		saveToStorage();
-		import('./sync').then(({ triggerSync }) => triggerSync());
-	});
-	projects.subscribe(() => {
-		saveToStorage();
-		import('./sync').then(({ triggerSync }) => triggerSync());
-	});
-	sprints.subscribe(() => {
-		saveToStorage();
-		import('./sync').then(({ triggerSync }) => triggerSync());
-	});
+		if (ready) {
+			import('./sync').then(({ triggerSync }) => triggerSync());
+		}
+	};
+
+	todos.subscribe(syncOnChange);
+	calendarEvents.subscribe(syncOnChange);
+	diaryEntries.subscribe(syncOnChange);
+	projects.subscribe(syncOnChange);
+	sprints.subscribe(syncOnChange);
 	kanbanColumns.subscribe(saveToStorage);
 
 	// Knowledge Graph subscriptions
-	resources.subscribe(() => {
-		saveToStorage();
-		import('./sync').then(({ triggerSync }) => triggerSync());
-	});
-	tags.subscribe(() => {
-		saveToStorage();
-		import('./sync').then(({ triggerSync }) => triggerSync());
-	});
-	graphEdges.subscribe(() => {
-		saveToStorage();
-		import('./sync').then(({ triggerSync }) => triggerSync());
-	});
+	resources.subscribe(syncOnChange);
+	tags.subscribe(syncOnChange);
+	graphEdges.subscribe(syncOnChange);
+
+	// All subscriptions registered and storage loaded — enable sync
+	ready = true;
 
 	// Initialize sync engine for server sync
 	import('./sync').then(({ initSync }) => {

@@ -197,8 +197,17 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 		);
 	} catch (error) {
 		console.error('[Auth] Register error:', error);
-		res.writeHead(500, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({ error: 'Registration failed' }));
+		const msg = error instanceof Error ? error.message : '';
+		if (msg.includes('UNIQUE constraint failed') && msg.includes('handle')) {
+			res.writeHead(409, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Handle already taken' }));
+		} else if (msg.includes('UNIQUE constraint failed') && msg.includes('username')) {
+			res.writeHead(409, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Username already taken' }));
+		} else {
+			res.writeHead(500, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Registration failed — please try again' }));
+		}
 	}
 }
 
@@ -276,8 +285,14 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 		);
 	} catch (error) {
 		console.error('[Auth] Login error:', error);
-		res.writeHead(500, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({ error: 'Login failed' }));
+		const msg = error instanceof Error ? error.message : '';
+		if (msg.includes('no such column') || msg.includes('handle')) {
+			res.writeHead(500, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Server database needs migration' }));
+		} else {
+			res.writeHead(500, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Login failed' }));
+		}
 	}
 }
 
@@ -315,10 +330,21 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 			return;
 		}
 
+		// Generate handle from username
+		const handle = tempSession.username.replace(/\s+/g, '').toLowerCase();
+
+		// Check if handle already taken
+		if (userRepository.findByHandle(handle)) {
+			res.writeHead(409, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Handle already taken — please register with a different username' }));
+			return;
+		}
+
 		// Hash password and create registered user
 		const passwordHash = await hashPassword(password);
 		const user = userRepository.create({
 			username: tempSession.username,
+			handle,
 			password_hash: passwordHash,
 			created_at: tempSession.created_at,
 			color: tempSession.color,
@@ -359,6 +385,7 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 				user: {
 					id: user.user_id,
 					username: user.username,
+					handle: user.handle,
 					color: user.color,
 					profilePicture: user.profile_picture,
 					isRegistered: true

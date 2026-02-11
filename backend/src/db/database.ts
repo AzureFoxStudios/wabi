@@ -65,12 +65,46 @@ function runMigrations() {
 		const cols = db.pragma('table_info(users)') as { name: string }[];
 		if (!cols.some(c => c.name === 'handle')) {
 			db.exec('ALTER TABLE users ADD COLUMN handle TEXT UNIQUE COLLATE NOCASE');
-			// Backfill existing users: handle = lowercase username with spaces removed
-			db.exec("UPDATE users SET handle = LOWER(REPLACE(username, ' ', '')) WHERE handle IS NULL");
 			console.log('[Database] Migration: added handle column to users');
 		}
 	} catch (e) {
-		// Column may already exist
+		console.error('[Database] Migration error adding handle column:', e);
+	}
+
+	// Backfill handles for users that don't have one
+	try {
+		const usersWithoutHandle = db.prepare("SELECT user_id, username FROM users WHERE handle IS NULL").all() as { user_id: number; username: string }[];
+		if (usersWithoutHandle.length > 0) {
+			const updateStmt = db.prepare("UPDATE users SET handle = ? WHERE user_id = ?");
+			for (const user of usersWithoutHandle) {
+				const baseHandle = user.username.replace(/\s+/g, '').toLowerCase();
+				let handle = baseHandle;
+				let suffix = 1;
+				// Resolve conflicts by appending numeric suffix
+				while (true) {
+					const existing = db.prepare("SELECT 1 FROM users WHERE handle = ? COLLATE NOCASE AND user_id != ?").get(handle, user.user_id);
+					if (!existing) break;
+					handle = `${baseHandle}${suffix}`;
+					suffix++;
+				}
+				try {
+					updateStmt.run(handle, user.user_id);
+				} catch (e) {
+					console.error(`[Database] Failed to backfill handle for user_id ${user.user_id}:`, e);
+				}
+			}
+			console.log(`[Database] Backfilled handles for ${usersWithoutHandle.length} users`);
+		}
+	} catch (e) {
+		console.error('[Database] Handle backfill error:', e);
+	}
+
+	// Verify handle column exists
+	{
+		const cols = db.pragma('table_info(users)') as { name: string }[];
+		if (!cols.some(c => c.name === 'handle')) {
+			console.error('[Database] WARNING: handle column missing after migration — auth may be degraded');
+		}
 	}
 
 	// Migration: Add username font columns to users table

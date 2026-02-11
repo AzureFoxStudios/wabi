@@ -1298,6 +1298,86 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  // URL preview endpoint - fetch OpenGraph metadata for link previews
+  if (url.pathname === "/api/url-preview" && req.method === "GET") {
+    const targetUrl = url.searchParams.get('url');
+    if (!targetUrl) {
+      res.writeHead(400, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.end(JSON.stringify({ error: 'Missing url parameter' }));
+      return;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+
+      const response = await fetch(targetUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)',
+          'Accept': 'text/html'
+        },
+        signal: controller.signal,
+        redirect: 'follow'
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+        res.end(JSON.stringify({ error: 'Failed to fetch URL' }));
+        return;
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('text/html')) {
+        res.writeHead(400, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+        res.end(JSON.stringify({ error: 'URL is not an HTML page' }));
+        return;
+      }
+
+      const html = await response.text();
+
+      // Parse OpenGraph and meta tags with simple regex (no dependency needed)
+      const getMeta = (property: string): string | null => {
+        // Try og: property first, then name attribute
+        const ogMatch = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${property}["'][^>]+content=["']([^"']*)["']`, 'i'))
+          || html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${property}["']`, 'i'));
+        return ogMatch ? ogMatch[1] : null;
+      };
+
+      const title = getMeta('og:title') || getMeta('twitter:title')
+        || (html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]) || null;
+      const description = getMeta('og:description') || getMeta('twitter:description')
+        || getMeta('description') || null;
+      const image = getMeta('og:image') || getMeta('twitter:image') || null;
+      const siteName = getMeta('og:site_name') || null;
+      const type = getMeta('og:type') || null;
+
+      // Extract YouTube video ID
+      let youtubeId: string | null = null;
+      try {
+        const parsed = new URL(targetUrl);
+        if (parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')) {
+          youtubeId = parsed.searchParams.get('v')
+            || parsed.pathname.split('/').pop()
+            || null;
+        }
+      } catch {}
+
+      res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.end(JSON.stringify({ title, description, image, siteName, type, youtubeId }));
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        res.writeHead(504, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+        res.end(JSON.stringify({ error: 'URL fetch timed out' }));
+      } else {
+        console.error('URL preview error:', error);
+        res.writeHead(500, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+        res.end(JSON.stringify({ error: 'Failed to generate preview' }));
+      }
+    }
+    return;
+  }
+
   // Delete all messages endpoint
   if (url.pathname === "/api/clear-messages" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);

@@ -16,8 +16,7 @@ const config = {
 		...(isTauri
 			? { prerender: { entries: [] } }
 			: {
-					serviceWorker: { register: true },
-					version: { pollInterval: 60000 }
+					serviceWorker: { register: true }
 				})
 	}
 };
