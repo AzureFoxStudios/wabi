@@ -195,7 +195,7 @@
 		bottom: 0;
 		width: 6px;
 		cursor: col-resize;
-		z-index: 100;
+		z-index: var(--z-sticky);
 		transition: background 0.2s;
 	}
 	.resize-handle:hover { background: var(--accent); opacity: 0.5; }
@@ -213,12 +213,12 @@
 		background: var(--bg-secondary);
 		border: 1px solid var(--border);
 		border-right: none;
-		border-radius: 8px 0 0 8px;
+		border-radius: var(--radius-md) 0 0 var(--radius-md);
 		cursor: pointer;
 		color: var(--text-secondary);
 		transition: all 0.2s ease;
-		z-index: 999;
-		opacity: 0;
+		z-index: var(--z-sticky);
+		opacity: 0.3;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -253,7 +253,7 @@
 			width: 100% !important;
 			height: calc(100vh - 56px);
 			height: calc(100dvh - 56px);
-			z-index: 1500;
+			z-index: var(--z-modal);
 			background: var(--bg-primary);
 		}
 
@@ -270,7 +270,7 @@
 			width: 100%;
 			height: calc(100vh - 56px);
 			height: calc(100dvh - 56px);
-			z-index: 1500;
+			z-index: var(--z-modal);
 			background: var(--bg-primary);
 		}
 
@@ -285,7 +285,7 @@
 			height: 56px;
 			background: var(--bg-tertiary);
 			border-top: 1px solid var(--border);
-			z-index: 2000;
+			z-index: var(--z-toast);
 			padding: 0;
 			padding-bottom: env(safe-area-inset-bottom, 0);
 		}
@@ -298,7 +298,7 @@
 			background: transparent;
 			border: none;
 			color: var(--text-secondary);
-			font-size: 0.6rem;
+			font-size: 0.65rem;
 			padding: 0.375rem 0.5rem;
 			text-decoration: none;
 			transition: color 0.15s;

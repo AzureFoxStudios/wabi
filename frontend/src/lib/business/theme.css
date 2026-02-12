@@ -30,16 +30,26 @@
 	/* Text colors */
 	--biz-text-primary: #f1f5f9;
 	--biz-text-secondary: #94a3b8;
+	--biz-text-tertiary: #64748b;
 	--biz-text-muted: #64748b;
 
 	/* Borders */
 	--biz-border: #2d3a4d;
 	--biz-border-light: #3d4a5d;
 
+	/* Danger hover */
+	--biz-danger-hover: #dc2626;
+
 	/* Shadows */
 	--biz-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
 	--biz-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3);
 	--biz-shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.4);
+
+	/* Priority colors (used in inline styles via getPriorityColor) */
+	--priority-urgent: #ef4444;
+	--priority-high: #f97316;
+	--priority-medium: #eab308;
+	--priority-low: #22c55e;
 
 	/* Gradients */
 	--biz-gradient-card: linear-gradient(135deg, #1e2a3a 0%, #243044 100%);

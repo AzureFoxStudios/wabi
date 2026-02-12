@@ -66,7 +66,7 @@
 		right: 0;
 		bottom: 0;
 		background: var(--modal-overlay, rgba(15, 12, 41, 0.85));
-		z-index: 1000;
+		z-index: var(--z-overlay);
 		display: flex;
 		backdrop-filter: blur(8px);
 	}
@@ -88,7 +88,7 @@
 
 	.modal-content {
 		background: var(--modal-bg, var(--gradient-dialog-dark));
-		border-radius: 12px;
+		border-radius: var(--radius-lg);
 		max-width: var(--modal-width);
 		width: 100%;
 		max-height: 90vh;

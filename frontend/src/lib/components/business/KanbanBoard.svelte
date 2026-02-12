@@ -239,7 +239,7 @@
 			case 'high': return 'var(--priority-high)';
 			case 'medium': return 'var(--priority-medium)';
 			case 'low': return 'var(--priority-low)';
-			default: return '#64748b'; // slate for unknown
+			default: return 'var(--biz-text-muted, #64748b)';
 		}
 	}
 
@@ -868,7 +868,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 1000;
+		z-index: var(--z-overlay);
 		backdrop-filter: blur(2px);
 		animation: fadeIn 0.2s ease-out;
 	}
@@ -1017,7 +1017,7 @@
 	}
 
 	.delete-btn:hover {
-		background: #dc2626;
+		background: var(--biz-danger-hover, #dc2626);
 		box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
 	}
 
@@ -1061,7 +1061,7 @@
 	}
 
 	.submit-btn:hover {
-		transform: translateY(-2px);
+		transform: translateY(-1px);
 		box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
 	}
 
@@ -1121,7 +1121,7 @@
 
 	.signature {
 		font-size: 0.75rem;
-		color: #f59e0b;
+		color: var(--biz-accent, #f59e0b);
 		padding: 0.2rem 0.5rem;
 		border-radius: 4px;
 		background: rgba(245, 158, 11, 0.1);

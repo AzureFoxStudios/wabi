@@ -733,7 +733,7 @@
 
 	.signature {
 		font-size: 0.85rem;
-		color: #f59e0b;
+		color: var(--biz-accent, #f59e0b);
 		padding: 0.2rem 0.5rem;
 		border-radius: 4px;
 		background: rgba(245, 158, 11, 0.1);
@@ -1386,7 +1386,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 2000;
+		z-index: var(--z-toast);
 		padding: 2rem;
 	}
 
