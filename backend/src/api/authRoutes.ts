@@ -20,6 +20,14 @@ function getAuthenticatedUserId(req: IncomingMessage): number | null {
 		if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
 			return null;
 		}
+
+		// Verify the user still exists in the database
+		const user = userRepository.findById(payload.userId);
+		if (!user) {
+			console.log('[Auth] User deleted but session still exists:', payload.userId);
+			return null;
+		}
+
 		return payload.userId;
 	} catch {
 		return null;

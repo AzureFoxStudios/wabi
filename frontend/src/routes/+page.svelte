@@ -28,7 +28,7 @@
 
 		const notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 		if (notificationsEnabled) await requestNotificationPermission();
-		
+
 		layoutStore.subscribe(state => {
 			if (state.isMobile) {
 				layoutStore.resetPanelsOnDesktop();
@@ -38,16 +38,27 @@
 		const savedUsername = localStorage.getItem('username');
 		const savedToken = localStorage.getItem('authToken');
 		if (savedUsername) {
-			initSocket(savedUsername, savedToken || undefined);
-			loggedIn = true;
-
-			// Initialize E2E encryption if registered user
+			// Initialize E2E encryption if registered user (before socket, to validate session)
 			if (savedToken) {
 				const dbUserId = localStorage.getItem('dbUserId');
 				if (dbUserId) {
-					initE2E(parseInt(dbUserId, 10), savedToken, false);
+					try {
+						await initE2E(parseInt(dbUserId, 10), savedToken, false);
+					} catch (err) {
+						console.error('[App] Cached session invalid, clearing login:', err);
+						// User no longer exists or session is invalid - force logout
+						localStorage.removeItem('username');
+						localStorage.removeItem('authToken');
+						localStorage.removeItem('dbUserId');
+						localStorage.removeItem('sessionId');
+						loggedIn = false;
+						return; // Skip socket init
+					}
 				}
 			}
+
+			initSocket(savedUsername, savedToken || undefined);
+			loggedIn = true;
 		}
 
 		const isRegistered = !!savedToken;

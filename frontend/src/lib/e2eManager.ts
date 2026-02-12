@@ -46,8 +46,14 @@ export async function initE2E(dbUserId: number, token: string, isNewRegistration
 			// Ensure server has our public key (may have been lost)
 			try {
 				await storeEncryptionKeys(token, stored.publicKey, stored.privateKey);
-			} catch {
+			} catch (err) {
 				// 409 is expected if keys already exist
+				// 401/403 means user was deleted or session is invalid
+				if (err instanceof Error && (err.message.includes('401') || err.message.includes('403'))) {
+					console.error('[E2E] User no longer exists or session invalid:', err);
+					throw err; // Propagate to trigger logout
+				}
+				// Other errors are ignored
 			}
 		} else {
 			console.log('[E2E] No local keys found — encryption unavailable until key recovery');
