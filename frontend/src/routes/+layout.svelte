@@ -9,6 +9,11 @@
 	import { migrateTauriData, loadMigratedTauriData } from '$lib/tauri-migration';
 	import { chatStorage } from '$lib/storage';
 	import { get } from 'svelte/store';
+<<<<<<< HEAD
+=======
+	import { updated } from '$app/stores';
+	import { initRelaySelector } from '$lib/relaySelector';
+>>>>>>> origin/main
 
 	// Accept data prop to suppress warning (we don't use it in root layout)
 	export let data: PageData;
@@ -24,6 +29,9 @@
 				console.error('❌ Service Worker registration failed:', error);
 			});
 		}
+
+		// Initialize relay selector for file CDN
+		initRelaySelector();
 
 		// NOTE: Socket initialization is handled ONLY by +page.svelte
 		// This prevents duplicate connections when both layout and page mount

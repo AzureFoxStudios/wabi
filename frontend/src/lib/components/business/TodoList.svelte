@@ -402,7 +402,13 @@
 		tabindex="0"
 		on:click={closeModal}
 		on:keydown={(event) => {
+<<<<<<< HEAD
 			if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
+=======
+			const tag = (event.target as HTMLElement).tagName;
+			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+			if (event.key === 'Enter' || event.key === ' ') {
+>>>>>>> origin/main
 				event.preventDefault();
 				closeModal();
 			}
@@ -413,7 +419,17 @@
 			role="button"
 			tabindex="0"
 			on:click|stopPropagation
+<<<<<<< HEAD
 			on:keydown|stopPropagation
+=======
+			on:keydown|stopPropagation={(event) => {
+				const tag = (event.target as HTMLElement).tagName;
+				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+				}
+			}}
+>>>>>>> origin/main
 		>
 			<div class="modal-header">
 				<h2>{editingTodo ? 'Edit Task' : 'Add New Task'}</h2>

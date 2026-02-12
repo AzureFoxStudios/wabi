@@ -462,7 +462,13 @@
 		tabindex="0"
 		on:click|stopPropagation={closeModal}
 		on:keydown|stopPropagation={(event) => {
+<<<<<<< HEAD
 			if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
+=======
+			const tag = (event.target as HTMLElement).tagName;
+			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+			if (event.key === 'Enter' || event.key === ' ') {
+>>>>>>> origin/main
 				event.preventDefault();
 				closeModal();
 			}
@@ -473,7 +479,17 @@
 			role="button"
 			tabindex="0"
 			on:click|stopPropagation
+<<<<<<< HEAD
 			on:keydown|stopPropagation
+=======
+			on:keydown|stopPropagation={(event) => {
+				const tag = (event.target as HTMLElement).tagName;
+				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+				}
+			}}
+>>>>>>> origin/main
 		>
 			<div class="modal-header">
 				<h2>{editingEvent ? 'Edit Event' : 'Add New Event'}</h2>
@@ -604,7 +620,13 @@
 		tabindex="0"
 		on:click|stopPropagation={closeModal}
 		on:keydown|stopPropagation={(event) => {
+<<<<<<< HEAD
 			if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
+=======
+			const tag = (event.target as HTMLElement).tagName;
+			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+			if (event.key === 'Enter' || event.key === ' ') {
+>>>>>>> origin/main
 				event.preventDefault();
 				closeModal();
 			}
@@ -615,7 +637,17 @@
 			role="button"
 			tabindex="0"
 			on:click|stopPropagation
+<<<<<<< HEAD
 			on:keydown|stopPropagation
+=======
+			on:keydown|stopPropagation={(event) => {
+				const tag = (event.target as HTMLElement).tagName;
+				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+				}
+			}}
+>>>>>>> origin/main
 		>
 			<div class="modal-header">
 				<h2>{new Date($selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h2>

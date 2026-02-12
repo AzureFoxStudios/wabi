@@ -12,6 +12,7 @@
 	import { parseMessage } from '$lib/markdown';
 	import '$lib/prism-theme.css';
 	import { longpress } from '$lib/actions/longpress';
+	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
@@ -226,6 +227,10 @@
 		// If it's already a full URL (data: or http:), return as-is
 		if (fileUrl.startsWith('data:') || fileUrl.startsWith('http:') || fileUrl.startsWith('https:')) {
 			return fileUrl;
+		}
+		// Use relay if enabled and available
+		if ($relayEnabled) {
+			return getRelayFileUrl(fileUrl);
 		}
 		// Otherwise, prepend the backend server URL
 		let serverUrl: string;

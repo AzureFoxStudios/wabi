@@ -1,0 +1,246 @@
+import { IncomingMessage, ServerResponse } from 'http';
+import { relayRepository } from '../db/repositories/relayRepository.js';
+import { verifyToken } from '../auth/jwt.js';
+import { sessionRepository } from '../db/repositories/sessionRepository.js';
+
+// Parse JSON body (same pattern as themeRoutes.ts)
+function parseBody(req: IncomingMessage): Promise<Record<string, any>> {
+	return new Promise((resolve, reject) => {
+		let body = '';
+
+		req.on('data', (chunk: any) => {
+			body += chunk.toString();
+		});
+
+		req.on('end', () => {
+			try {
+				resolve(body ? JSON.parse(body) : {});
+			} catch (error) {
+				reject(new Error('Invalid JSON'));
+			}
+		});
+
+		req.on('error', reject);
+	});
+}
+
+// Get authenticated user ID from Bearer token
+function getAuthenticatedUserId(req: IncomingMessage): number | null {
+	const authHeader = req.headers.authorization;
+	if (!authHeader || !authHeader.startsWith('Bearer ')) {
+		return null;
+	}
+
+	try {
+		const token = authHeader.slice(7);
+		const payload = verifyToken(token);
+		const dbSession = sessionRepository.findById(payload.sessionId);
+		if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
+			return null;
+		}
+		return payload.userId;
+	} catch {
+		return null;
+	}
+}
+
+// Verify relay API key from X-Relay-Id + X-Relay-Key headers
+async function authenticateRelay(req: IncomingMessage): Promise<number | null> {
+	const relayId = req.headers['x-relay-id'] as string;
+	const apiKey = req.headers['x-relay-key'] as string;
+	if (!relayId || !apiKey) return null;
+	const id = parseInt(relayId, 10);
+	if (isNaN(id)) return null;
+	const valid = await relayRepository.verifyApiKey(id, apiKey);
+	return valid ? id : null;
+}
+
+// GET /api/relays — Public: list active approved relays
+export async function handleGetRelays(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		const relays = relayRepository.getActiveRelays();
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ relays }));
+	} catch (error) {
+		console.error('[Relay] Get relays error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to fetch relays' }));
+	}
+}
+
+// POST /api/relay/register — Relay self-registers with origin
+export async function handleRelayRegister(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		let body: any;
+		try {
+			body = await parseBody(req);
+		} catch {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Invalid JSON in request body' }));
+			return;
+		}
+
+		const { url, name, region, latitude, longitude, bandwidth_mbps, storage_gb, syncthing_device_id } = body;
+
+		if (!url || !name || !region) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'url, name, and region are required' }));
+			return;
+		}
+
+		// Validate URL format
+		try {
+			new URL(url);
+		} catch {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Invalid URL format' }));
+			return;
+		}
+
+		// Check for duplicate
+		const existing = relayRepository.findByUrl(url);
+		if (existing) {
+			res.writeHead(409, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Relay with this URL already registered' }));
+			return;
+		}
+
+		const { relay_id, api_key } = await relayRepository.register({
+			url, name, region,
+			latitude: latitude != null ? parseFloat(latitude) : undefined,
+			longitude: longitude != null ? parseFloat(longitude) : undefined,
+			bandwidth_mbps: bandwidth_mbps != null ? parseInt(bandwidth_mbps, 10) : undefined,
+			storage_gb: storage_gb != null ? parseInt(storage_gb, 10) : undefined,
+			syncthing_device_id: syncthing_device_id || undefined
+		});
+
+		console.log(`[Relay] New relay registered: ${name} (${url}) — ID: ${relay_id}`);
+
+		// Return API key ONCE — relay must save it, never returned again
+		res.writeHead(201, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({
+			relay_id,
+			api_key,
+			status: 'pending',
+			message: 'Relay registered. An admin must approve it before it goes active.'
+		}));
+	} catch (error) {
+		console.error('[Relay] Register error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to register relay' }));
+	}
+}
+
+// POST /api/relay/health — Authenticated relay reports health
+export async function handleRelayHealth(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		const relayId = await authenticateRelay(req);
+		if (!relayId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Invalid relay credentials' }));
+			return;
+		}
+
+		let body: Record<string, any> = {};
+		try {
+			body = await parseBody(req);
+		} catch {
+			// Health ping with no body is fine
+		}
+
+		relayRepository.updateHealth(relayId, {
+			bandwidth_mbps: body.bandwidth_mbps != null ? parseInt(body.bandwidth_mbps, 10) : undefined,
+			storage_gb: body.storage_gb != null ? parseInt(body.storage_gb, 10) : undefined
+		});
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ status: 'ok' }));
+	} catch (error) {
+		console.error('[Relay] Health update error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to update health' }));
+	}
+}
+
+// POST /api/relay/approve — Admin approves a pending relay
+export async function handleRelayApprove(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		const userId = getAuthenticatedUserId(req);
+		if (!userId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Authentication required' }));
+			return;
+		}
+
+		// Check admin — user ID 1 is always admin, or check RELAY_ADMIN_USER_IDS env
+		const adminIds = (process.env.RELAY_ADMIN_USER_IDS || '1').split(',').map(id => parseInt(id.trim(), 10));
+		if (!adminIds.includes(userId)) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Admin access required' }));
+			return;
+		}
+
+		let body: any;
+		try {
+			body = await parseBody(req);
+		} catch {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Invalid JSON in request body' }));
+			return;
+		}
+
+		const { relay_id } = body;
+		if (!relay_id) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'relay_id is required' }));
+			return;
+		}
+
+		const relay = relayRepository.findById(relay_id);
+		if (!relay) {
+			res.writeHead(404, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Relay not found' }));
+			return;
+		}
+
+		relayRepository.approve(relay_id);
+		console.log(`[Relay] Relay approved: ${relay.name} (${relay.url})`);
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ success: true, relay_id, status: 'active' }));
+	} catch (error) {
+		console.error('[Relay] Approve error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to approve relay' }));
+	}
+}
+
+// GET /api/relays/admin — Admin: list all relays (including pending/offline)
+export async function handleGetAllRelays(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		const userId = getAuthenticatedUserId(req);
+		if (!userId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Authentication required' }));
+			return;
+		}
+
+		const adminIds = (process.env.RELAY_ADMIN_USER_IDS || '1').split(',').map(id => parseInt(id.trim(), 10));
+		if (!adminIds.includes(userId)) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Admin access required' }));
+			return;
+		}
+
+		const relays = relayRepository.getAllRelays();
+		// Strip api_key_hash from response
+		const sanitized = relays.map(({ api_key_hash, ...rest }) => rest);
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ relays: sanitized }));
+	} catch (error) {
+		console.error('[Relay] Admin list error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to fetch relays' }));
+	}
+}

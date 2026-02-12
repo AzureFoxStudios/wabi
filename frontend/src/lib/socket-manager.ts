@@ -27,6 +27,7 @@ import type { FileAttachment, Message, Emoji, User, Channel } from './socket-typ
 import { emojis } from './emoji-store';
 import { getServerUrl } from './serverUrl';
 import { authStore } from './authStore';
+<<<<<<< HEAD
 import { encryptDMMessage, decryptDMMessage, isE2EAvailable } from './e2eManager';
 
 /**
@@ -53,6 +54,9 @@ async function decryptMessagesForChannel(channelId: string, messages: Message[])
 		})
 	);
 }
+=======
+import { handleP2PIncomingOffer, handleP2PAnswer, handleP2PIceCandidate } from './p2pFileTransfer';
+>>>>>>> origin/main
 
 // ============================================================================
 // CONNECTION STATE MACHINE
@@ -1036,6 +1040,19 @@ class SocketManager {
 
 		sock.on('webrtc-ice-candidate', (data: { candidate: RTCIceCandidateInit; senderId: string }) => {
 			calling.handleScreenShareIceCandidate(data.senderId, data.candidate);
+		});
+
+		// P2P file transfer signaling
+		sock.on('p2p-offer', (data: { transferId: string; senderId: string; senderUsername: string; offer: RTCSessionDescriptionInit; fileName: string; fileSize: number }) => {
+			handleP2PIncomingOffer(data);
+		});
+
+		sock.on('p2p-answer', (data: { transferId: string; senderId: string; answer: RTCSessionDescriptionInit }) => {
+			handleP2PAnswer(data).catch(err => console.error('[SocketManager] handleP2PAnswer failed:', err));
+		});
+
+		sock.on('p2p-ice-candidate', (data: { transferId: string; senderId: string; candidate: RTCIceCandidateInit }) => {
+			handleP2PIceCandidate(data);
 		});
 
 		// Mark all listeners as bound
