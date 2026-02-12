@@ -96,7 +96,10 @@ export async function storeEncryptionKeys(token: string, publicKey: string, priv
 		});
 
 		if (!res.ok && res.status !== 409) {
-			throw new Error('Failed to store encryption keys');
+			// Include HTTP status in error for proper session validation
+			const error = new Error(`Failed to store encryption keys (${res.status})`);
+			(error as any).status = res.status;
+			throw error;
 		}
 	} finally {
 		clearTimeout(timeout);

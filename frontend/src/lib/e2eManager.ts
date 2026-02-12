@@ -49,11 +49,13 @@ export async function initE2E(dbUserId: number, token: string, isNewRegistration
 			} catch (err) {
 				// 409 is expected if keys already exist
 				// 401/403 means user was deleted or session is invalid
-				if (err instanceof Error && (err.message.includes('401') || err.message.includes('403'))) {
-					console.error('[E2E] User no longer exists or session invalid:', err);
+				const status = (err as any)?.status;
+				if (status === 401 || status === 403) {
+					console.error('[E2E] User no longer exists or session invalid (HTTP', status + '):', err);
 					throw err; // Propagate to trigger logout
 				}
 				// Other errors are ignored
+				console.warn('[E2E] Error storing encryption keys:', err);
 			}
 		} else {
 			console.log('[E2E] No local keys found — encryption unavailable until key recovery');
