@@ -181,3 +181,25 @@ CREATE INDEX IF NOT EXISTS idx_channel_members_channel ON channel_members(channe
 CREATE INDEX IF NOT EXISTS idx_channel_members_user ON channel_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(message_id);
+
+-- Relay servers (community-hosted file CDN nodes)
+CREATE TABLE IF NOT EXISTS relays (
+  relay_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  url TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  region TEXT NOT NULL,
+  api_key_hash TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  last_health_ping INTEGER,
+  registered_at INTEGER NOT NULL,
+  approved INTEGER DEFAULT 0,
+  latitude REAL,
+  longitude REAL,
+  bandwidth_mbps INTEGER,
+  storage_gb INTEGER,
+  syncthing_device_id TEXT,
+  metadata_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_relays_status ON relays(status);
+CREATE INDEX IF NOT EXISTS idx_relays_region ON relays(region);
