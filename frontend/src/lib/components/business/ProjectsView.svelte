@@ -701,13 +701,9 @@
 		tabindex="0"
 		on:click={closeProjectModal}
 		on:keydown={(event) => {
-<<<<<<< HEAD
-			if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
-=======
 			const tag = (event.target as HTMLElement).tagName;
 			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 			if (event.key === 'Enter' || event.key === ' ') {
->>>>>>> origin/main
 				event.preventDefault();
 				closeProjectModal();
 			}
@@ -718,9 +714,6 @@
 			role="button"
 			tabindex="0"
 			on:click|stopPropagation
-<<<<<<< HEAD
-			on:keydown|stopPropagation
-=======
 			on:keydown|stopPropagation={(event) => {
 				const tag = (event.target as HTMLElement).tagName;
 				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
@@ -728,7 +721,6 @@
 					event.preventDefault();
 				}
 			}}
->>>>>>> origin/main
 		>
 			<div class="modal-header">
 				<h2>{editingProject ? 'Edit Project' : 'New Project'}</h2>
@@ -808,13 +800,9 @@
 		tabindex="0"
 		on:click={closeSprintModal}
 		on:keydown={(event) => {
-<<<<<<< HEAD
-			if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
-=======
 			const tag = (event.target as HTMLElement).tagName;
 			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 			if (event.key === 'Enter' || event.key === ' ') {
->>>>>>> origin/main
 				event.preventDefault();
 				closeSprintModal();
 			}
@@ -825,9 +813,6 @@
 			role="button"
 			tabindex="0"
 			on:click|stopPropagation
-<<<<<<< HEAD
-			on:keydown|stopPropagation
-=======
 			on:keydown|stopPropagation={(event) => {
 				const tag = (event.target as HTMLElement).tagName;
 				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
@@ -835,7 +820,6 @@
 					event.preventDefault();
 				}
 			}}
->>>>>>> origin/main
 		>
 			<div class="modal-header">
 				<h2>{editingSprint ? 'Edit Sprint' : 'New Sprint'}</h2>
