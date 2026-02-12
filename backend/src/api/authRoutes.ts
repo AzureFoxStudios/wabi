@@ -227,8 +227,11 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 		const body = await parseBody(req);
 		const { username, password } = body;
 
+		console.log('[Auth] Login attempt for:', username);
+
 		// Validate input
 		if (!username || !password) {
+			console.log('[Auth] Missing username or password');
 			res.writeHead(400, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Username or handle and password required' }));
 			return;
@@ -237,14 +240,19 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 		// Find user by handle or username
 		const user = userRepository.findByHandleOrUsername(username);
 		if (!user) {
+			console.log('[Auth] User not found for:', username);
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Invalid credentials' }));
 			return;
 		}
 
+		console.log('[Auth] User found:', user.user_id, user.username);
+
 		// Verify password
 		const isValid = await verifyPassword(password, user.password_hash);
+		console.log('[Auth] Password verification result:', isValid);
 		if (!isValid) {
+			console.log('[Auth] Password mismatch for user:', username);
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Invalid credentials' }));
 			return;
