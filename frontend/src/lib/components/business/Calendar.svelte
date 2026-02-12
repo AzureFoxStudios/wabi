@@ -462,6 +462,8 @@
 		tabindex="0"
 		on:click|stopPropagation={closeModal}
 		on:keydown|stopPropagation={(event) => {
+			const tag = (event.target as HTMLElement).tagName;
+			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 			if (event.key === 'Enter' || event.key === ' ') {
 				event.preventDefault();
 				closeModal();
@@ -474,6 +476,8 @@
 			tabindex="0"
 			on:click|stopPropagation
 			on:keydown|stopPropagation={(event) => {
+				const tag = (event.target as HTMLElement).tagName;
+				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 				if (event.key === 'Enter' || event.key === ' ') {
 					event.preventDefault();
 				}
@@ -608,6 +612,8 @@
 		tabindex="0"
 		on:click|stopPropagation={closeModal}
 		on:keydown|stopPropagation={(event) => {
+			const tag = (event.target as HTMLElement).tagName;
+			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 			if (event.key === 'Enter' || event.key === ' ') {
 				event.preventDefault();
 				closeModal();
@@ -620,6 +626,8 @@
 			tabindex="0"
 			on:click|stopPropagation
 			on:keydown|stopPropagation={(event) => {
+				const tag = (event.target as HTMLElement).tagName;
+				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 				if (event.key === 'Enter' || event.key === ' ') {
 					event.preventDefault();
 				}
