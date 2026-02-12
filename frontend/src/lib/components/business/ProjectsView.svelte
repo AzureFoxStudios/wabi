@@ -701,6 +701,8 @@
 		tabindex="0"
 		on:click={closeProjectModal}
 		on:keydown={(event) => {
+			const tag = (event.target as HTMLElement).tagName;
+			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 			if (event.key === 'Enter' || event.key === ' ') {
 				event.preventDefault();
 				closeProjectModal();
@@ -713,6 +715,8 @@
 			tabindex="0"
 			on:click|stopPropagation
 			on:keydown|stopPropagation={(event) => {
+				const tag = (event.target as HTMLElement).tagName;
+				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 				if (event.key === 'Enter' || event.key === ' ') {
 					event.preventDefault();
 				}
@@ -796,6 +800,8 @@
 		tabindex="0"
 		on:click={closeSprintModal}
 		on:keydown={(event) => {
+			const tag = (event.target as HTMLElement).tagName;
+			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 			if (event.key === 'Enter' || event.key === ' ') {
 				event.preventDefault();
 				closeSprintModal();
@@ -808,6 +814,8 @@
 			tabindex="0"
 			on:click|stopPropagation
 			on:keydown|stopPropagation={(event) => {
+				const tag = (event.target as HTMLElement).tagName;
+				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 				if (event.key === 'Enter' || event.key === ' ') {
 					event.preventDefault();
 				}

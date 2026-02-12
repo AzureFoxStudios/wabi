@@ -402,6 +402,8 @@
 		tabindex="0"
 		on:click={closeModal}
 		on:keydown={(event) => {
+			const tag = (event.target as HTMLElement).tagName;
+			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 			if (event.key === 'Enter' || event.key === ' ') {
 				event.preventDefault();
 				closeModal();
@@ -414,6 +416,8 @@
 			tabindex="0"
 			on:click|stopPropagation
 			on:keydown|stopPropagation={(event) => {
+				const tag = (event.target as HTMLElement).tagName;
+				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 				if (event.key === 'Enter' || event.key === ' ') {
 					event.preventDefault();
 				}
