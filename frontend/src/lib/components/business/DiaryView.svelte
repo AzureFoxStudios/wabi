@@ -494,7 +494,7 @@
 		tabindex="0"
 		on:click={() => viewingImage = null}
 		on:keydown={(event) => {
-			if (event.key === 'Enter' || event.key === ' ') {
+			if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
 				event.preventDefault();
 				viewingImage = null;
 			}

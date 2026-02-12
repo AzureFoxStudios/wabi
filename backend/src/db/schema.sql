@@ -148,7 +148,8 @@ CREATE TABLE IF NOT EXISTS channels (
   created_at INTEGER NOT NULL,
   created_by TEXT,
   persist_messages INTEGER DEFAULT 1,
-  is_archived INTEGER DEFAULT 0
+  is_archived INTEGER DEFAULT 0,
+  avatar TEXT
 );
 
 -- Channel members (for DMs and groups)

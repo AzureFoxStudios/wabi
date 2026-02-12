@@ -1,17 +1,20 @@
 <script lang="ts">
-	import { channelMessages, sendMessage, currentUser, sendTyping } from '$lib/socket';
+	import { channelMessages, sendMessage, currentUser, users, sendTyping } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
-	import type { User, Message } from '$lib/socket';
+	import GroupAvatar from './GroupAvatar.svelte';
+	import type { User, Message, Channel } from '$lib/socket';
 	import { onMount, afterUpdate, tick } from 'svelte';
 
 	export let channelId: string;
 	export let otherUser: User;
+	export let channel: Channel | undefined = undefined;
 
 	let messageInput = '';
 	let messagesContainer: HTMLDivElement;
 	let shouldAutoScroll = true;
 	let typingTimeout: ReturnType<typeof setTimeout> | null = null;
 
+	$: isGroup = channel?.type === 'group';
 	$: messages = $channelMessages[channelId] || [];
 
 	function handleSend() {
@@ -54,6 +57,24 @@
 		return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 	}
 
+	function getMsgColor(msg: Message): string {
+		if (msg.userId === $currentUser?.id) {
+			return $currentUser?.roleColor || $currentUser?.color || '#fff';
+		}
+		if (isGroup) {
+			// Find the sender in the users store
+			const sender = $users.find(u => u.id === msg.userId);
+			if (sender) return sender.roleColor || sender.color;
+			// Try memberUsers
+			const memberUser = channel?.memberUsers?.find(u => u.id === msg.userId);
+			if (memberUser) return memberUser.roleColor || memberUser.color;
+			return '#888';
+		}
+		return otherUser.roleColor || otherUser.color;
+	}
+
+	$: placeholderText = isGroup ? `Message ${channel?.name}...` : `Message ${otherUser.username}...`;
+
 	afterUpdate(() => {
 		scrollToBottom();
 	});
@@ -66,21 +87,29 @@
 <div class="dm-message-view">
 	<div class="dm-header">
 		<div class="dm-header-info">
-			{#if otherUser.profilePicture}
-				<img src={otherUser.profilePicture} alt={otherUser.username} class="dm-header-avatar" />
+			{#if isGroup && channel}
+				<GroupAvatar {channel} size={28} />
+				<div class="dm-header-text">
+					<span class="dm-header-name">{channel.name}</span>
+					<span class="dm-header-handle">{channel.members?.length || 0} members</span>
+				</div>
 			{:else}
-				<div class="dm-header-avatar-placeholder" style="background-color: {otherUser.roleColor || otherUser.color}">
-					{otherUser.username.charAt(0).toUpperCase()}
+				{#if otherUser.profilePicture}
+					<img src={otherUser.profilePicture} alt={otherUser.username} class="dm-header-avatar" />
+				{:else}
+					<div class="dm-header-avatar-placeholder" style="background-color: {otherUser.roleColor || otherUser.color}">
+						{otherUser.username.charAt(0).toUpperCase()}
+					</div>
+				{/if}
+				<div class="dm-header-text">
+					<span class="dm-header-name">{otherUser.username}</span>
+					{#if otherUser.handle}
+						<span class="dm-header-handle">@{otherUser.handle}</span>
+					{/if}
 				</div>
 			{/if}
-			<div class="dm-header-text">
-				<span class="dm-header-name">{otherUser.username}</span>
-				{#if otherUser.handle}
-					<span class="dm-header-handle">@{otherUser.handle}</span>
-				{/if}
-			</div>
 		</div>
-		<button class="dm-close-btn" on:click={handleClose} title="Close DM">
+		<button class="dm-close-btn" on:click={handleClose} title="Close">
 			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 		</button>
 	</div>
@@ -94,7 +123,7 @@
 			{#each messages as msg (msg.id)}
 				<div class="dm-msg" class:own={msg.userId === $currentUser?.id}>
 					<div class="dm-msg-header">
-						<span class="dm-msg-author" style="color: {msg.userId === $currentUser?.id ? ($currentUser?.roleColor || $currentUser?.color || '#fff') : (otherUser.roleColor || otherUser.color)}">{msg.user}</span>
+						<span class="dm-msg-author" style="color: {getMsgColor(msg)}">{msg.user}</span>
 						<span class="dm-msg-time">{formatTime(msg.timestamp)}</span>
 						{#if msg.encrypted}
 							<span class="dm-msg-encrypted" title="End-to-end encrypted">
@@ -114,7 +143,7 @@
 			bind:value={messageInput}
 			on:keydown={handleKeydown}
 			on:input={handleInput}
-			placeholder="Message {otherUser.username}..."
+			placeholder={placeholderText}
 			rows="1"
 		></textarea>
 		<button class="dm-send-btn" on:click={handleSend} disabled={!messageInput.trim()}>

@@ -462,7 +462,7 @@
 		tabindex="0"
 		on:click|stopPropagation={closeModal}
 		on:keydown|stopPropagation={(event) => {
-			if (event.key === 'Enter' || event.key === ' ') {
+			if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
 				event.preventDefault();
 				closeModal();
 			}
@@ -473,11 +473,7 @@
 			role="button"
 			tabindex="0"
 			on:click|stopPropagation
-			on:keydown|stopPropagation={(event) => {
-				if (event.key === 'Enter' || event.key === ' ') {
-					event.preventDefault();
-				}
-			}}
+			on:keydown|stopPropagation
 		>
 			<div class="modal-header">
 				<h2>{editingEvent ? 'Edit Event' : 'Add New Event'}</h2>
@@ -608,7 +604,7 @@
 		tabindex="0"
 		on:click|stopPropagation={closeModal}
 		on:keydown|stopPropagation={(event) => {
-			if (event.key === 'Enter' || event.key === ' ') {
+			if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
 				event.preventDefault();
 				closeModal();
 			}
@@ -619,11 +615,7 @@
 			role="button"
 			tabindex="0"
 			on:click|stopPropagation
-			on:keydown|stopPropagation={(event) => {
-				if (event.key === 'Enter' || event.key === ' ') {
-					event.preventDefault();
-				}
-			}}
+			on:keydown|stopPropagation
 		>
 			<div class="modal-header">
 				<h2>{new Date($selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h2>

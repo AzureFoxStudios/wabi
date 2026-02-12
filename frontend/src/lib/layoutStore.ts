@@ -1,6 +1,6 @@
 // frontend/src/lib/layoutStore.ts
 import { writable, readable, derived, get } from 'svelte/store';
-import type { User } from './socket-types';
+import type { User, Channel } from './socket-types';
 import { isInCall } from '$lib/calling';
 
 // State
@@ -28,6 +28,7 @@ const isResizingRight = writable(false);
 
 const selectedDmChannelId = writable<string | null>(null);
 const dmOtherUser = writable<User | null>(null);
+const selectedGroupChannel = writable<Channel | null>(null);
 
 // Actions
 const toggleRightPanel = () => {
@@ -52,6 +53,15 @@ const showDMsTab = () => {
 const openDM = (channelIdStr: string, otherUserObj: User) => {
 	selectedDmChannelId.set(channelIdStr);
 	dmOtherUser.set(otherUserObj);
+	selectedGroupChannel.set(null);
+	activeRightTab.set('dms');
+	rightPanelView.set('dms');
+};
+
+const openGroupDM = (channelIdStr: string, channel: Channel) => {
+	selectedDmChannelId.set(channelIdStr);
+	dmOtherUser.set(null);
+	selectedGroupChannel.set(channel);
 	activeRightTab.set('dms');
 	rightPanelView.set('dms');
 };
@@ -59,6 +69,7 @@ const openDM = (channelIdStr: string, otherUserObj: User) => {
 const closeDM = () => {
 	selectedDmChannelId.set(null);
 	dmOtherUser.set(null);
+	selectedGroupChannel.set(null);
 };
 
 const toggleMobileChannels = () => {
@@ -93,8 +104,8 @@ const isResizing = derived(
 );
 
 const layout = derived(
-	[isMobile, rightPanelView, showMobileChannels, channelSidebarWidth, rightPanelWidth, isInCall, activeRightTab, selectedDmChannelId, dmOtherUser, isResizing],
-	([$isMobile, $rightPanelView, $showMobileChannels, $channelSidebarWidth, $rightPanelWidth, $isInCall, $activeRightTab, $selectedDmChannelId, $dmOtherUser, $isResizing]) => {
+	[isMobile, rightPanelView, showMobileChannels, channelSidebarWidth, rightPanelWidth, isInCall, activeRightTab, selectedDmChannelId, dmOtherUser, selectedGroupChannel, isResizing],
+	([$isMobile, $rightPanelView, $showMobileChannels, $channelSidebarWidth, $rightPanelWidth, $isInCall, $activeRightTab, $selectedDmChannelId, $dmOtherUser, $selectedGroupChannel, $isResizing]) => {
 		const showRightPanel = !$isMobile && $rightPanelView !== 'none';
 
 		return {
@@ -109,6 +120,7 @@ const layout = derived(
 			toggleButtonRight: showRightPanel ? $rightPanelWidth : 0,
 			selectedDmChannelId: $selectedDmChannelId,
 			dmOtherUser: $dmOtherUser,
+			selectedGroupChannel: $selectedGroupChannel,
 			isResizing: $isResizing
 		};
 	}
@@ -123,6 +135,7 @@ export const layoutStore = {
 	isResizingRight,
 	selectedDmChannelId,
 	dmOtherUser,
+	selectedGroupChannel,
 	rightPanelView,
 	activeRightTab,
 	showMobileChannels,
@@ -132,6 +145,7 @@ export const layoutStore = {
 	showUsersTab,
 	showDMsTab,
 	openDM,
+	openGroupDM,
 	closeDM,
 	toggleMobileChannels,
 	toggleMobileUsers,

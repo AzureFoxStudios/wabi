@@ -65,6 +65,8 @@ export interface Channel {
   type?: 'public' | 'dm' | 'group';
   members?: string[];
   otherUser?: User;
+  memberUsers?: User[];
+  avatar?: string | null;
   autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
   isTemporary?: boolean;
   persistMessages?: boolean;

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { channels, channelMessages, currentChannel, users, currentUser, createDM, getDMChannelIdForUser, joinChannel, type User } from '$lib/socket';
 	import { longpress } from '$lib/actions/longpress';
+	import GroupAvatar from './GroupAvatar.svelte';
 
 	// TEMPORARY: This is a temporary DM panel for the left sidebar
 	// TODO: Refactor DM system later, move to dedicated DM section
@@ -14,7 +15,7 @@
 	let contextMenuPosition = { x: 0, y: 0 };
 	let showContextMenu = false;
 
-	$: dmChannels = $channels.filter(ch => ch.type === 'dm').sort((a, b) => {
+	$: dmChannels = $channels.filter(ch => ch.type === 'dm' || ch.type === 'group').sort((a, b) => {
 		const aLastMsg = ($channelMessages[a.id] || []).length > 0
 			? ($channelMessages[a.id] || [])[$channelMessages[a.id].length - 1].timestamp
 			: 0;
@@ -190,8 +191,7 @@
 		{:else}
 			<div class="dm-list">
 				{#each dmChannels as channel (channel.id)}
-					{@const otherUser = getOtherUser(channel)}
-					{#if otherUser}
+					{#if channel.type === 'group'}
 						<button
 							class="dm-item"
 							class:active={$currentChannel === channel.id}
@@ -200,19 +200,38 @@
 							use:longpress={{ onLongPress: (e) => handleDMLongPress(e, channel) }}
 						>
 							<div class="dm-avatar">
-								{#if otherUser.profilePicture}
-									<img src={otherUser.profilePicture} alt={otherUser.username} />
-								{:else}
-									<div class="avatar-placeholder" style="background-color: {otherUser.color}">
-										{otherUser.username.charAt(0).toUpperCase()}
-									</div>
-								{/if}
+								<GroupAvatar {channel} size={40} />
 							</div>
 							<div class="dm-info">
-								<span class="dm-name">{otherUser.username}</span>
+								<span class="dm-name">{channel.name}</span>
 								<span class="dm-preview">{getLastMessagePreview(channel.id)}</span>
 							</div>
 						</button>
+					{:else}
+						{@const otherUser = getOtherUser(channel)}
+						{#if otherUser}
+							<button
+								class="dm-item"
+								class:active={$currentChannel === channel.id}
+								on:click={() => selectDM(channel.id)}
+								on:contextmenu={(e) => handleDMRightClick(e, channel)}
+								use:longpress={{ onLongPress: (e) => handleDMLongPress(e, channel) }}
+							>
+								<div class="dm-avatar">
+									{#if otherUser.profilePicture}
+										<img src={otherUser.profilePicture} alt={otherUser.username} />
+									{:else}
+										<div class="avatar-placeholder" style="background-color: {otherUser.color}">
+											{otherUser.username.charAt(0).toUpperCase()}
+										</div>
+									{/if}
+								</div>
+								<div class="dm-info">
+									<span class="dm-name">{otherUser.username}</span>
+									<span class="dm-preview">{getLastMessagePreview(channel.id)}</span>
+								</div>
+							</button>
+						{/if}
 					{/if}
 				{/each}
 			</div>

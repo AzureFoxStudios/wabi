@@ -590,6 +590,101 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  // Group avatar upload endpoint
+  if (url.pathname === "/api/upload-group-avatar" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    let chunks: Buffer[] = [];
+
+    req.on('data', (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+
+    req.on('end', () => {
+      try {
+        const buffer = Buffer.concat(chunks);
+        const contentType = req.headers['content-type'];
+        const boundary = contentType?.split('boundary=')[1];
+
+        if (!boundary) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: 'Invalid content type' }));
+          return;
+        }
+
+        const parts = buffer.toString('binary').split(`--${boundary}`);
+        let avatarFile: Buffer | null = null;
+        let avatarFileName = '';
+        let channelId = '';
+
+        for (const part of parts) {
+          if (part.includes('Content-Disposition') && part.includes('name="channelId"')) {
+            const dataStart = part.indexOf('\r\n\r\n') + 4;
+            const dataEnd = part.lastIndexOf('\r\n');
+            channelId = part.substring(dataStart, dataEnd).trim();
+          }
+          if (part.includes('Content-Disposition') && part.includes('name="avatar"')) {
+            const filenameMatch = part.match(/filename="([^"]+)"/);
+            if (filenameMatch) {
+              avatarFileName = filenameMatch[1];
+              const dataStart = part.indexOf('\r\n\r\n') + 4;
+              const dataEnd = part.lastIndexOf('\r\n');
+              avatarFile = Buffer.from(part.substring(dataStart, dataEnd), 'binary');
+            }
+          }
+        }
+
+        if (!channelId) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: 'channelId is required' }));
+          return;
+        }
+
+        if (avatarFile && avatarFileName) {
+          const ext = avatarFileName.split('.').pop()?.toLowerCase();
+          if (!ext || !['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: 'Invalid file type. Only PNG, JPG, JPEG, GIF, WEBP are allowed.' }));
+            return;
+          }
+
+          const MAX_FILE_SIZE = 5 * 1024 * 1024;
+          if (avatarFile.length > MAX_FILE_SIZE) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: 'File too large. Maximum size is 5MB.' }));
+            return;
+          }
+
+          const fileId = `group-avatar-${Date.now()}-${avatarFileName}`;
+          const filePath = join(UPLOADS_DIR, fileId);
+
+          if (!existsSync(UPLOADS_DIR)) {
+            mkdirSync(UPLOADS_DIR, { recursive: true });
+          }
+          writeFileSync(filePath, avatarFile);
+
+          const avatarUrl = `/uploads/${fileId}`;
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: true, avatarUrl }));
+        } else {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: 'No avatar file found in request' }));
+        }
+      } catch (error) {
+        console.error('Group avatar upload error:', error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Internal server error during upload' }));
+      }
+    });
+    return;
+  }
+
   // Background image upload endpoint
   if (url.pathname === "/api/upload-background-image" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
@@ -1642,6 +1737,14 @@ try {
   initializeDatabase();
   console.log('[Database] ✅ Initialized');
 
+  // Migration: add avatar column to channels if missing
+  try {
+    db.prepare('ALTER TABLE channels ADD COLUMN avatar TEXT').run();
+    console.log('[Database] Added avatar column to channels');
+  } catch (_) {
+    // Column already exists - ignore
+  }
+
   // Ensure general channel exists in DB and load public channels
   channelRepository.ensureGeneralExists();
   const dbChannels = channelRepository.getPublicChannels();
@@ -1885,6 +1988,29 @@ function enrichDMChannels(channelList: Channel[], myStableId: string): any[] {
         }
       }
     }
+
+    // Enrich group channels with member user objects
+    if (channel.type === 'group' && channel.members) {
+      const dbChannel = channelRepository.findById(channel.id);
+      const memberUsers = channel.members.map(stableId => {
+        const socketId = resolveSocketId(stableId);
+        const onlineUser = socketId ? users.get(socketId) : null;
+        if (onlineUser) {
+          return { id: onlineUser.id, username: onlineUser.username, color: onlineUser.color, status: onlineUser.status, profilePicture: onlineUser.profilePicture, dbUserId: onlineUser.dbUserId };
+        }
+        if (stableId.startsWith('user-')) {
+          const dbId = parseInt(stableId.substring(5), 10);
+          const dbUser = userRepository.findById(dbId);
+          if (dbUser) {
+            return { id: stableId, username: dbUser.username, color: dbUser.color, status: 'offline' as const, profilePicture: dbUser.profile_picture, dbUserId: dbId };
+          }
+        }
+        return null;
+      }).filter(Boolean);
+
+      return { ...channel, memberUsers, avatar: dbChannel?.avatar || null };
+    }
+
     return channel;
   });
 }
@@ -3348,16 +3474,18 @@ io.on("connection", (socket) => {
     if (!user) return;
 
     // Validate group name
-    if (!/^[a-zA-Z0-9\s-]+$/.test(data.name)) {
+    if (!/^[a-zA-Z0-9\s\-_]+$/.test(data.name)) {
       socket.emit("channel-error", "Group name must be alphanumeric");
       return;
     }
 
-    // Ensure creator is in the member list
-    const memberIds = [...new Set([socket.id, ...data.memberIds])];
+    const creatorStableId = getStableUserId(socket);
 
-    // Create group chat ID
-    const groupId = `group-${Date.now()}-${socket.id}`;
+    // Ensure creator is in the member list (memberIds should be stable IDs like "user-123")
+    const memberIds = [...new Set([creatorStableId, ...data.memberIds])];
+
+    // Create group chat ID using stable ID
+    const groupId = `group-${Date.now()}-${creatorStableId}`;
 
     const groupChannel: Channel = {
       id: groupId,
@@ -3371,6 +3499,38 @@ io.on("connection", (socket) => {
     channelMessages.set(groupId, []);
     pinnedMessages.set(groupId, new Set());
 
+    // Resolve member user objects for the emit payload
+    const memberUsers = memberIds.map(stableId => {
+      const socketId = resolveSocketId(stableId);
+      const memberUser = socketId ? users.get(socketId) : null;
+      if (memberUser) {
+        return {
+          id: memberUser.id,
+          username: memberUser.username,
+          color: memberUser.color,
+          status: memberUser.status,
+          profilePicture: memberUser.profilePicture,
+          dbUserId: memberUser.dbUserId
+        };
+      }
+      // Offline DB fallback
+      if (stableId.startsWith('user-')) {
+        const dbId = parseInt(stableId.substring(5), 10);
+        const dbUser = userRepository.findById(dbId);
+        if (dbUser) {
+          return {
+            id: stableId,
+            username: dbUser.username,
+            color: dbUser.color,
+            status: 'offline' as const,
+            profilePicture: dbUser.profile_picture,
+            dbUserId: dbId
+          };
+        }
+      }
+      return null;
+    }).filter(Boolean);
+
     // Persist group channel and members to database
     try {
       channelRepository.create({
@@ -3378,19 +3538,22 @@ io.on("connection", (socket) => {
         channel_type: 'group',
         name: data.name,
         created_at: groupChannel.createdAt,
-        created_by: socket.id,
+        created_by: creatorStableId,
         persist_messages: 1
       });
 
-      // Add all members
-      const memberRecords = memberIds.map(memberId => {
-        const memberUser = users.get(memberId);
+      // Add all members with proper stable IDs and registered_user_id
+      const memberRecords = memberIds.map(stableId => {
+        const socketId = resolveSocketId(stableId);
+        const memberUser = socketId ? users.get(socketId) : null;
+        const registeredUserId = stableId.startsWith('user-') ? parseInt(stableId.substring(5), 10) : undefined;
         return {
           channel_id: groupId,
-          user_id: memberId,
+          user_id: stableId,
           username: memberUser?.username || 'Unknown',
+          registered_user_id: registeredUserId,
           joined_at: Date.now(),
-          role: memberId === socket.id ? 'owner' as const : 'member' as const
+          role: stableId === creatorStableId ? 'owner' as const : 'member' as const
         };
       });
       channelMemberRepository.addMembers(memberRecords);
@@ -3399,26 +3562,252 @@ io.on("connection", (socket) => {
     }
 
     // Notify all members about the group
-    memberIds.forEach(memberId => {
-      io.to(memberId).emit("group-created", {
-        id: groupId,
-        name: data.name,
-        createdAt: groupChannel.createdAt,
-        type: 'group',
-        members: memberIds.map(id => {
-          const u = users.get(id);
-          return u ? {
-            id: u.id,
-            username: u.username,
-            color: u.color,
-            status: u.status,
-            profilePicture: u.profilePicture
-          } : null;
-        }).filter(Boolean)
-      });
+    const groupPayload = {
+      id: groupId,
+      name: data.name,
+      createdAt: groupChannel.createdAt,
+      type: 'group' as const,
+      members: memberIds,
+      memberUsers,
+      avatar: null
+    };
+
+    memberIds.forEach(stableId => {
+      const socketId = resolveSocketId(stableId);
+      if (socketId) {
+        io.to(socketId).emit("group-created", groupPayload);
+      }
     });
 
     if (ENABLE_LOGGING) console.log(`Group created: ${data.name} (${groupId}) by ${user.username}`);
+  });
+
+  // Leave group (silent)
+  socket.on("leave-group", (data: { channelId: string }) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    const stableId = getStableUserId(socket);
+    const channel = channels.get(data.channelId);
+    if (!channel || channel.type !== 'group') return;
+
+    // Verify membership
+    if (!channel.members?.includes(stableId)) {
+      socket.emit("channel-error", "You are not a member of this group");
+      return;
+    }
+
+    // Remove from DB
+    channelMemberRepository.removeMember(data.channelId, stableId);
+
+    // Update in-memory
+    channel.members = channel.members.filter(id => id !== stableId);
+
+    // Notify leaver
+    socket.emit("group-removed", { channelId: data.channelId });
+
+    // Notify remaining members
+    channel.members.forEach(memberId => {
+      const memberSocketId = resolveSocketId(memberId);
+      if (memberSocketId) {
+        io.to(memberSocketId).emit("group-member-removed", { channelId: data.channelId, userId: stableId });
+      }
+    });
+
+    // Archive if no members remain
+    if (channel.members.length === 0) {
+      channelRepository.archive(data.channelId);
+      channels.delete(data.channelId);
+    }
+
+    if (ENABLE_LOGGING) console.log(`User ${user.username} left group ${data.channelId}`);
+  });
+
+  // Kick group member
+  socket.on("kick-group-member", (data: { channelId: string; targetUserId: string }) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    const stableId = getStableUserId(socket);
+    const channel = channels.get(data.channelId);
+    if (!channel || channel.type !== 'group') return;
+
+    // Verify caller is owner or admin
+    const callerMember = channelMemberRepository.getMember(data.channelId, stableId);
+    if (!callerMember || (callerMember.role !== 'owner' && callerMember.role !== 'admin')) {
+      socket.emit("channel-error", "Only the owner or admin can kick members");
+      return;
+    }
+
+    // Verify target is a member and not the owner
+    const targetMember = channelMemberRepository.getMember(data.channelId, data.targetUserId);
+    if (!targetMember) {
+      socket.emit("channel-error", "User is not a member of this group");
+      return;
+    }
+    if (targetMember.role === 'owner') {
+      socket.emit("channel-error", "Cannot kick the group owner");
+      return;
+    }
+
+    // Remove from DB
+    channelMemberRepository.removeMember(data.channelId, data.targetUserId);
+
+    // Update in-memory
+    if (channel.members) {
+      channel.members = channel.members.filter(id => id !== data.targetUserId);
+    }
+
+    // Notify kicked user
+    const targetSocketId = resolveSocketId(data.targetUserId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("group-removed", { channelId: data.channelId });
+    }
+
+    // Notify remaining members
+    channel.members?.forEach(memberId => {
+      const memberSocketId = resolveSocketId(memberId);
+      if (memberSocketId) {
+        io.to(memberSocketId).emit("group-member-removed", { channelId: data.channelId, userId: data.targetUserId });
+      }
+    });
+
+    if (ENABLE_LOGGING) console.log(`User ${data.targetUserId} kicked from group ${data.channelId} by ${user.username}`);
+  });
+
+  // Add member to group
+  socket.on("add-group-member", (data: { channelId: string; userId: string }) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    const stableId = getStableUserId(socket);
+    const channel = channels.get(data.channelId);
+    if (!channel || channel.type !== 'group') return;
+
+    // Verify caller is owner or admin
+    const callerMember = channelMemberRepository.getMember(data.channelId, stableId);
+    if (!callerMember || (callerMember.role !== 'owner' && callerMember.role !== 'admin')) {
+      socket.emit("channel-error", "Only the owner or admin can add members");
+      return;
+    }
+
+    // Verify target not already a member
+    if (channel.members?.includes(data.userId)) {
+      socket.emit("channel-error", "User is already a member");
+      return;
+    }
+
+    // Resolve user info
+    const targetSocketId = resolveSocketId(data.userId);
+    const targetUser = targetSocketId ? users.get(targetSocketId) : null;
+    const registeredUserId = data.userId.startsWith('user-') ? parseInt(data.userId.substring(5), 10) : undefined;
+
+    // Add to DB
+    channelMemberRepository.addMember({
+      channel_id: data.channelId,
+      user_id: data.userId,
+      username: targetUser?.username || 'Unknown',
+      registered_user_id: registeredUserId,
+      joined_at: Date.now(),
+      role: 'member'
+    });
+
+    // Update in-memory
+    if (!channel.members) channel.members = [];
+    channel.members.push(data.userId);
+
+    // Build user info for emit
+    let addedUserInfo: any = null;
+    if (targetUser) {
+      addedUserInfo = {
+        id: targetUser.id,
+        username: targetUser.username,
+        color: targetUser.color,
+        status: targetUser.status,
+        profilePicture: targetUser.profilePicture,
+        dbUserId: targetUser.dbUserId
+      };
+    } else if (data.userId.startsWith('user-')) {
+      const dbId = parseInt(data.userId.substring(5), 10);
+      const dbUser = userRepository.findById(dbId);
+      if (dbUser) {
+        addedUserInfo = {
+          id: data.userId,
+          username: dbUser.username,
+          color: dbUser.color,
+          status: 'offline',
+          profilePicture: dbUser.profile_picture,
+          dbUserId: dbId
+        };
+      }
+    }
+
+    // Notify existing members
+    channel.members.forEach(memberId => {
+      if (memberId === data.userId) return;
+      const memberSocketId = resolveSocketId(memberId);
+      if (memberSocketId) {
+        io.to(memberSocketId).emit("group-member-added", { channelId: data.channelId, user: addedUserInfo });
+      }
+    });
+
+    // Notify the new member with full channel data (reuse group-created event)
+    const memberUsers = channel.members.map(mid => {
+      const sid = resolveSocketId(mid);
+      const mu = sid ? users.get(sid) : null;
+      if (mu) return { id: mu.id, username: mu.username, color: mu.color, status: mu.status, profilePicture: mu.profilePicture, dbUserId: mu.dbUserId };
+      if (mid.startsWith('user-')) {
+        const dbId = parseInt(mid.substring(5), 10);
+        const dbUser = userRepository.findById(dbId);
+        if (dbUser) return { id: mid, username: dbUser.username, color: dbUser.color, status: 'offline', profilePicture: dbUser.profile_picture, dbUserId: dbId };
+      }
+      return null;
+    }).filter(Boolean);
+
+    const dbChannel = channelRepository.findById(data.channelId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("group-created", {
+        id: data.channelId,
+        name: channel.name,
+        createdAt: channel.createdAt,
+        type: 'group',
+        members: channel.members,
+        memberUsers,
+        avatar: dbChannel?.avatar || null
+      });
+    }
+
+    if (ENABLE_LOGGING) console.log(`User ${data.userId} added to group ${data.channelId} by ${user.username}`);
+  });
+
+  // Update group avatar
+  socket.on("update-group-avatar", (data: { channelId: string; avatarUrl: string | null }) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    const stableId = getStableUserId(socket);
+    const channel = channels.get(data.channelId);
+    if (!channel || channel.type !== 'group') return;
+
+    // Verify caller is owner or admin
+    const callerMember = channelMemberRepository.getMember(data.channelId, stableId);
+    if (!callerMember || (callerMember.role !== 'owner' && callerMember.role !== 'admin')) {
+      socket.emit("channel-error", "Only the owner or admin can change the group avatar");
+      return;
+    }
+
+    // Update DB
+    channelRepository.updateAvatar(data.channelId, data.avatarUrl);
+
+    // Notify all members
+    channel.members?.forEach(memberId => {
+      const memberSocketId = resolveSocketId(memberId);
+      if (memberSocketId) {
+        io.to(memberSocketId).emit("group-avatar-updated", { channelId: data.channelId, avatar: data.avatarUrl });
+      }
+    });
+
+    if (ENABLE_LOGGING) console.log(`Group avatar updated for ${data.channelId} by ${user.username}`);
   });
 
   // Emote management

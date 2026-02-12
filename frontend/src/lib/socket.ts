@@ -84,6 +84,10 @@ export {
 	deleteDM,
 	getDMChannelIdForUser,
 	createGroup,
+	leaveGroup,
+	kickGroupMember,
+	addGroupMember,
+	updateGroupAvatar,
 
 	// Role operations
 	assignRole,

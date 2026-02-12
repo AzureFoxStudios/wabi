@@ -428,7 +428,7 @@
 		tabindex="0"
 		on:click={closeModal}
 		on:keydown={(event) => {
-			if (event.key === 'Enter' || event.key === ' ') {
+			if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
 				event.preventDefault();
 				closeModal();
 			}
@@ -439,11 +439,7 @@
 			role="button"
 			tabindex="0"
 			on:click|stopPropagation
-			on:keydown|stopPropagation={(event) => {
-				if (event.key === 'Enter' || event.key === ' ') {
-					event.preventDefault();
-				}
-			}}
+			on:keydown|stopPropagation
 		>
 			<div class="modal-header">
 				<h2>{editingTodo ? 'Edit Task' : 'Add Task'}</h2>

@@ -701,7 +701,7 @@
 		tabindex="0"
 		on:click={closeProjectModal}
 		on:keydown={(event) => {
-			if (event.key === 'Enter' || event.key === ' ') {
+			if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
 				event.preventDefault();
 				closeProjectModal();
 			}
@@ -712,11 +712,7 @@
 			role="button"
 			tabindex="0"
 			on:click|stopPropagation
-			on:keydown|stopPropagation={(event) => {
-				if (event.key === 'Enter' || event.key === ' ') {
-					event.preventDefault();
-				}
-			}}
+			on:keydown|stopPropagation
 		>
 			<div class="modal-header">
 				<h2>{editingProject ? 'Edit Project' : 'New Project'}</h2>
@@ -796,7 +792,7 @@
 		tabindex="0"
 		on:click={closeSprintModal}
 		on:keydown={(event) => {
-			if (event.key === 'Enter' || event.key === ' ') {
+			if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
 				event.preventDefault();
 				closeSprintModal();
 			}
@@ -807,11 +803,7 @@
 			role="button"
 			tabindex="0"
 			on:click|stopPropagation
-			on:keydown|stopPropagation={(event) => {
-				if (event.key === 'Enter' || event.key === ' ') {
-					event.preventDefault();
-				}
-			}}
+			on:keydown|stopPropagation
 		>
 			<div class="modal-header">
 				<h2>{editingSprint ? 'Edit Sprint' : 'New Sprint'}</h2>

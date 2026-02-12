@@ -861,6 +861,44 @@ class SocketManager {
 			}));
 		});
 
+		sock.on('group-removed', (data: { channelId: string }) => {
+			channels.update(chs => chs.filter(ch => ch.id !== data.channelId));
+			channelMessages.update(msgs => {
+				const newMsgs = { ...msgs };
+				delete newMsgs[data.channelId];
+				return newMsgs;
+			});
+		});
+
+		sock.on('group-member-removed', (data: { channelId: string; userId: string }) => {
+			channels.update(chs => chs.map(ch => {
+				if (ch.id !== data.channelId) return ch;
+				return {
+					...ch,
+					members: ch.members?.filter(id => id !== data.userId),
+					memberUsers: ch.memberUsers?.filter(u => u.id !== data.userId && `user-${u.dbUserId}` !== data.userId)
+				};
+			}));
+		});
+
+		sock.on('group-member-added', (data: { channelId: string; user: any }) => {
+			channels.update(chs => chs.map(ch => {
+				if (ch.id !== data.channelId) return ch;
+				const stableId = data.user?.dbUserId ? `user-${data.user.dbUserId}` : data.user?.id;
+				return {
+					...ch,
+					members: ch.members ? [...ch.members, stableId] : [stableId],
+					memberUsers: ch.memberUsers ? [...ch.memberUsers, data.user] : [data.user]
+				};
+			}));
+		});
+
+		sock.on('group-avatar-updated', (data: { channelId: string; avatar: string | null }) => {
+			channels.update(chs => chs.map(ch =>
+				ch.id === data.channelId ? { ...ch, avatar: data.avatar } : ch
+			));
+		});
+
 		// ==================== EMOTE/EMOJI EVENTS ====================
 
 		sock.on('emote-added', (emote: any) => addEmote(emote));
@@ -1436,6 +1474,22 @@ export function removeUserRole(targetUserId: number, roleName: string): void {
 
 export function createGroup(name: string, memberIds: string[]): void {
 	socketManager.emit('create-group', { name, memberIds });
+}
+
+export function leaveGroup(channelId: string): void {
+	socketManager.emit('leave-group', { channelId });
+}
+
+export function kickGroupMember(channelId: string, targetUserId: string): void {
+	socketManager.emit('kick-group-member', { channelId, targetUserId });
+}
+
+export function addGroupMember(channelId: string, userId: string): void {
+	socketManager.emit('add-group-member', { channelId, userId });
+}
+
+export function updateGroupAvatar(channelId: string, avatarUrl: string | null): void {
+	socketManager.emit('update-group-avatar', { channelId, avatarUrl });
 }
 
 export function updateChannelSettings(channelId: string, settings: {

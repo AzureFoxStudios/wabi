@@ -1,16 +1,25 @@
 <script lang="ts">
-	import { channels, channelMessages, currentUser, users, createDM, deleteDM, getDMChannelIdForUser } from '$lib/socket';
+	import { channels, channelMessages, currentUser, users, createDM, deleteDM, leaveGroup, getDMChannelIdForUser } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import DMMessageView from './DMMessageView.svelte';
+	import GroupAvatar from './GroupAvatar.svelte';
+	import GroupSettingsPanel from './GroupSettingsPanel.svelte';
+	import CreateGroupModal from './CreateGroupModal.svelte';
 	import type { User, Channel } from '$lib/socket';
 
 	let searchQuery = '';
 	let showNewDM = false;
+	let showCreateGroup = false;
+	let showGroupSettings = false;
 
 	$: selectedDmId = $layoutStore.selectedDmChannelId;
 	$: dmOther = $layoutStore.dmOtherUser;
+	$: selectedGroup = $layoutStore.selectedGroupChannel;
 
-	$: dmChannels = $channels.filter(ch => ch.type === 'dm').sort((a, b) => {
+	// Keep selectedGroup in sync with channels store (so avatar/member changes reflect)
+	$: activeGroup = selectedGroup ? $channels.find(ch => ch.id === selectedGroup.id) || selectedGroup : null;
+
+	$: dmChannels = $channels.filter(ch => ch.type === 'dm' || ch.type === 'group').sort((a, b) => {
 		const aMsgs = $channelMessages[a.id] || [];
 		const bMsgs = $channelMessages[b.id] || [];
 		const aLast = aMsgs.length > 0 ? aMsgs[aMsgs.length - 1].timestamp : 0;
@@ -56,10 +65,15 @@
 		return `${Math.floor(diff / 86400000)}d`;
 	}
 
-	function selectDM(channel: Channel) {
-		const other = getOtherUser(channel);
-		if (other) {
-			layoutStore.openDM(channel.id, other);
+	function selectConversation(channel: Channel) {
+		showGroupSettings = false;
+		if (channel.type === 'group') {
+			layoutStore.openGroupDM(channel.id, channel);
+		} else {
+			const other = getOtherUser(channel);
+			if (other) {
+				layoutStore.openDM(channel.id, other);
+			}
 		}
 	}
 
@@ -69,33 +83,62 @@
 		searchQuery = '';
 	}
 
+	function handleDeleteOrLeave(channel: Channel) {
+		if (channel.type === 'group') {
+			leaveGroup(channel.id);
+		} else {
+			deleteDM(channel.id);
+		}
+		if (selectedDmId === channel.id) layoutStore.closeDM();
+	}
 </script>
 
 <div class="dm-tab">
-	{#if selectedDmId && dmOther}
-		<!-- Active DM conversation -->
+	{#if selectedDmId && (dmOther || activeGroup)}
+		<!-- Active conversation -->
 		<div class="dm-tab-active">
 			<div class="dm-active-header">
-				<button class="dm-back-btn" on:click={() => layoutStore.closeDM()}>
+				<button class="dm-back-btn" on:click={() => { showGroupSettings = false; layoutStore.closeDM(); }}>
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
 					<span>All DMs</span>
 				</button>
-				<button class="dm-delete-btn" on:click={() => { deleteDM(selectedDmId); layoutStore.closeDM(); }} title="Delete conversation">
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-				</button>
+				{#if activeGroup}
+					<button class="dm-settings-btn" on:click={() => { showGroupSettings = !showGroupSettings; }} title="Group settings">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+					</button>
+				{:else}
+					<button class="dm-delete-btn" on:click={() => { if (selectedDmId) { deleteDM(selectedDmId); layoutStore.closeDM(); } }} title="Delete conversation">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+					</button>
+				{/if}
 			</div>
-			<div class="dm-tab-messages">
-				<DMMessageView channelId={selectedDmId} otherUser={dmOther} />
-			</div>
+			{#if showGroupSettings && activeGroup}
+				<div class="dm-tab-messages">
+					<GroupSettingsPanel channel={activeGroup} />
+				</div>
+			{:else}
+				<div class="dm-tab-messages">
+					{#if activeGroup}
+						<DMMessageView channelId={selectedDmId} otherUser={activeGroup.memberUsers?.[0] || { id: '', username: activeGroup.name, color: '#888', status: 'offline' }} channel={activeGroup} />
+					{:else if dmOther}
+						<DMMessageView channelId={selectedDmId} otherUser={dmOther} />
+					{/if}
+				</div>
+			{/if}
 		</div>
 	{:else}
 		<!-- DM list view -->
 		<div class="dm-tab-list">
 			<div class="dm-tab-header">
-				<span class="dm-tab-title">Direct Messages</span>
-				<button class="dm-new-btn" on:click={() => { showNewDM = !showNewDM; }} title="New DM">
-					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-				</button>
+				<span class="dm-tab-title">Messages</span>
+				<div class="dm-header-actions">
+					<button class="dm-new-btn" on:click={() => { showCreateGroup = true; }} title="New Group">
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+					</button>
+					<button class="dm-new-btn" on:click={() => { showNewDM = !showNewDM; }} title="New DM">
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+					</button>
+				</div>
 			</div>
 
 			{#if showNewDM}
@@ -130,39 +173,67 @@
 
 			<div class="dm-conversations">
 				{#each dmChannels as channel (channel.id)}
-					{@const other = getOtherUser(channel)}
-					{#if other}
+					{#if channel.type === 'group'}
 						<div
 							class="dm-conv-item"
 							role="button"
 							tabindex="0"
-							on:click={() => selectDM(channel)}
-							on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectDM(channel); } }}
+							on:click={() => selectConversation(channel)}
+							on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectConversation(channel); } }}
 						>
 							<div class="dm-conv-avatar-wrap">
-								{#if other.profilePicture}
-									<img src={other.profilePicture} alt={other.username} class="dm-conv-avatar" />
-								{:else}
-									<div class="dm-conv-avatar-ph" style="background-color: {other.roleColor || other.color}">
-										{other.username.charAt(0).toUpperCase()}
-									</div>
-								{/if}
+								<GroupAvatar {channel} size={36} />
 							</div>
 							<div class="dm-conv-info">
 								<div class="dm-conv-top">
-									<span class="dm-conv-name">{other.username}</span>
+									<span class="dm-conv-name">{channel.name}</span>
 									<span class="dm-conv-time">{formatRelativeTime(channel.id)}</span>
 								</div>
-								<span class="dm-conv-preview">{getLastPreview(channel.id)}</span>
+								<span class="dm-conv-preview">{channel.members?.length || 0} members - {getLastPreview(channel.id)}</span>
 							</div>
 							<button
 								class="dm-conv-close-btn"
-								on:click|stopPropagation={() => { deleteDM(channel.id); if (selectedDmId === channel.id) layoutStore.closeDM(); }}
-								title="Delete conversation"
+								on:click|stopPropagation={() => handleDeleteOrLeave(channel)}
+								title="Leave group"
 							>
 								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 							</button>
 						</div>
+					{:else}
+						{@const other = getOtherUser(channel)}
+						{#if other}
+							<div
+								class="dm-conv-item"
+								role="button"
+								tabindex="0"
+								on:click={() => selectConversation(channel)}
+								on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectConversation(channel); } }}
+							>
+								<div class="dm-conv-avatar-wrap">
+									{#if other.profilePicture}
+										<img src={other.profilePicture} alt={other.username} class="dm-conv-avatar" />
+									{:else}
+										<div class="dm-conv-avatar-ph" style="background-color: {other.roleColor || other.color}">
+											{other.username.charAt(0).toUpperCase()}
+										</div>
+									{/if}
+								</div>
+								<div class="dm-conv-info">
+									<div class="dm-conv-top">
+										<span class="dm-conv-name">{other.username}</span>
+										<span class="dm-conv-time">{formatRelativeTime(channel.id)}</span>
+									</div>
+									<span class="dm-conv-preview">{getLastPreview(channel.id)}</span>
+								</div>
+								<button
+									class="dm-conv-close-btn"
+									on:click|stopPropagation={() => handleDeleteOrLeave(channel)}
+									title="Delete conversation"
+								>
+									<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+								</button>
+							</div>
+						{/if}
 					{/if}
 				{:else}
 					<div class="dm-empty-state">
@@ -176,6 +247,8 @@
 		</div>
 	{/if}
 </div>
+
+<CreateGroupModal bind:isOpen={showCreateGroup} />
 
 <style>
 	.dm-tab {
@@ -218,7 +291,8 @@
 		background: var(--bg-hover);
 	}
 
-	.dm-delete-btn {
+	.dm-delete-btn,
+	.dm-settings-btn {
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -235,6 +309,11 @@
 	.dm-delete-btn:hover {
 		color: #f44336;
 		background: rgba(244, 67, 54, 0.1);
+	}
+
+	.dm-settings-btn:hover {
+		color: var(--text-primary);
+		background: var(--bg-hover);
 	}
 
 	.dm-tab-messages {
@@ -265,6 +344,11 @@
 		color: var(--text-secondary);
 		text-transform: uppercase;
 		letter-spacing: 0.03em;
+	}
+
+	.dm-header-actions {
+		display: flex;
+		gap: 0.375rem;
 	}
 
 	.dm-new-btn {

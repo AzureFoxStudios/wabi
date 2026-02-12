@@ -9,6 +9,7 @@ export interface DbChannel {
 	created_by?: string;
 	persist_messages: number;
 	is_archived: number;
+	avatar?: string;
 }
 
 export class ChannelRepository {
@@ -129,6 +130,12 @@ export class ChannelRepository {
 	exists(channelId: string): boolean {
 		const stmt = db.prepare('SELECT 1 FROM channels WHERE channel_id = ? AND is_archived = 0');
 		return stmt.get(channelId) !== undefined;
+	}
+
+	// Update group avatar
+	updateAvatar(channelId: string, avatarUrl: string | null): void {
+		const stmt = db.prepare('UPDATE channels SET avatar = ? WHERE channel_id = ?');
+		stmt.run(avatarUrl, channelId);
 	}
 }
 
