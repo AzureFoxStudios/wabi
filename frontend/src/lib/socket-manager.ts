@@ -27,7 +27,6 @@ import type { FileAttachment, Message, Emoji, User, Channel } from './socket-typ
 import { emojis } from './emoji-store';
 import { getServerUrl } from './serverUrl';
 import { authStore } from './authStore';
-<<<<<<< HEAD
 import { encryptDMMessage, decryptDMMessage, isE2EAvailable } from './e2eManager';
 
 /**
@@ -54,9 +53,9 @@ async function decryptMessagesForChannel(channelId: string, messages: Message[])
 		})
 	);
 }
-=======
+
 import { handleP2PIncomingOffer, handleP2PAnswer, handleP2PIceCandidate } from './p2pFileTransfer';
->>>>>>> origin/main
+
 
 // ============================================================================
 // CONNECTION STATE MACHINE

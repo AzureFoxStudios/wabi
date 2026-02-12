@@ -9,11 +9,10 @@
 	import { migrateTauriData, loadMigratedTauriData } from '$lib/tauri-migration';
 	import { chatStorage } from '$lib/storage';
 	import { get } from 'svelte/store';
-<<<<<<< HEAD
-=======
+
 	import { updated } from '$app/stores';
 	import { initRelaySelector } from '$lib/relaySelector';
->>>>>>> origin/main
+
 
 	// Accept data prop to suppress warning (we don't use it in root layout)
 	export let data: PageData;
