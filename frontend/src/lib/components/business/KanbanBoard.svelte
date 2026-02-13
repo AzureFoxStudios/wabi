@@ -57,6 +57,11 @@
 	let filterPriority: Todo['priority'] | null = null;
 	let showColumnSettings = false;
 
+	// Column management state
+	let managingColumns = false;
+	let newColumnName = '';
+	let newColumnColor = '#3b82f6';
+
 	onMount(async () => {
 		try {
 			const response = await fetch('/api/users');
@@ -306,6 +311,29 @@
 		}
 	}
 
+	// Column management functions
+	function addNewColumn() {
+		if (!newColumnName.trim()) return;
+
+		const newColumnId = newColumnName.toLowerCase().replace(/\s+/g, '_') as TodoStatus;
+		const newColumn: KanbanColumn = {
+			id: newColumnId,
+			label: newColumnName,
+			color: newColumnColor,
+			visible: true
+		};
+
+		kanbanColumns.update(cols => [...cols, newColumn]);
+		newColumnName = '';
+		newColumnColor = '#3b82f6';
+	}
+
+	function deleteColumn(columnId: TodoStatus) {
+		if (confirm(`Delete column "${columnId}"? Tasks in this column won't be deleted.`)) {
+			kanbanColumns.update(cols => cols.filter(col => col.id !== columnId));
+		}
+	}
+
 	// Helpers
 	function getPriorityColor(priority: Todo['priority']): string {
 		// Updated to use CSS variable values for consistency with theme system
@@ -378,6 +406,16 @@
 					<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
 				</svg>
 			</button>
+			<button
+				class="settings-btn"
+				class:active={managingColumns}
+				on:click={() => managingColumns = !managingColumns}
+				title="Manage columns"
+			>
+				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M12 5v14M5 12h14"/>
+				</svg>
+			</button>
 		</div>
 	</header>
 
@@ -395,6 +433,68 @@
 					<span class="toggle-label" style="--col-color: {column.color}">{column.label}</span>
 				</label>
 			{/each}
+		</div>
+	{/if}
+
+	<!-- Column management panel -->
+	{#if managingColumns}
+		<div class="column-management">
+			<div class="management-header">
+				<h3>Manage Columns</h3>
+				<button class="close-btn" on:click={() => managingColumns = false}>×</button>
+			</div>
+
+			<!-- Add new column -->
+			<div class="add-column-form">
+				<h4>Add New Column</h4>
+				<input
+					type="text"
+					bind:value={newColumnName}
+					placeholder="Column name"
+					class="column-input"
+				/>
+				<div class="color-picker">
+					<label>Color:</label>
+					<input
+						type="color"
+						bind:value={newColumnColor}
+						class="color-input"
+					/>
+					<div class="color-preview" style="background-color: {newColumnColor}"></div>
+				</div>
+				<button
+					class="add-column-btn"
+					on:click={addNewColumn}
+					disabled={!newColumnName.trim()}
+				>
+					Add Column
+				</button>
+			</div>
+
+			<!-- Existing columns -->
+			<div class="existing-columns">
+				<h4>Existing Columns</h4>
+				<div class="columns-list">
+					{#each $kanbanColumns as column}
+						<div class="column-item">
+							<div class="column-info">
+								<div class="column-color" style="background-color: {column.color}"></div>
+								<span>{column.label}</span>
+								<span class="column-id">({column.id})</span>
+							</div>
+							{#if !['todo', 'done', 'in_progress'].includes(column.id)}
+								<button
+									class="delete-column-btn"
+									on:click={() => deleteColumn(column.id)}
+									title="Delete column"
+								>
+									🗑️
+								</button>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			</div>
 		</div>
 	{/if}
 
@@ -759,6 +859,189 @@
 		color: var(--biz-text-primary, #f1f5f9);
 		padding-left: 0.35rem;
 		border-left: 3px solid var(--col-color);
+	}
+
+	.settings-btn.active {
+		background: var(--biz-accent, #f59e0b);
+		color: white;
+	}
+
+	/* Column Management Panel */
+	.column-management {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+		padding: 1.5rem;
+		background: var(--biz-bg-secondary, #1a2332);
+		border-radius: 8px;
+		margin-bottom: 1rem;
+		border: 2px solid var(--biz-accent, #f59e0b);
+	}
+
+	.management-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.management-header h3 {
+		margin: 0;
+		font-size: 1rem;
+		color: var(--biz-text-primary, #f1f5f9);
+		font-weight: 600;
+	}
+
+	.close-btn {
+		background: transparent;
+		border: none;
+		color: var(--biz-text-secondary, #94a3b8);
+		font-size: 1.5rem;
+		cursor: pointer;
+		padding: 0;
+		width: 24px;
+		height: 24px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.close-btn:hover {
+		color: var(--biz-text-primary, #f1f5f9);
+	}
+
+	.add-column-form {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		padding: 1rem;
+		background: var(--biz-bg-tertiary, #243044);
+		border-radius: 8px;
+	}
+
+	.add-column-form h4 {
+		margin: 0 0 0.5rem 0;
+		font-size: 0.9rem;
+		color: var(--biz-text-primary, #f1f5f9);
+		font-weight: 600;
+	}
+
+	.column-input {
+		padding: 0.6rem;
+		background: var(--biz-bg-primary, #0f1419);
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-radius: 6px;
+		color: var(--biz-text-primary, #f1f5f9);
+		font-size: 0.9rem;
+	}
+
+	.column-input:focus {
+		outline: none;
+		border-color: var(--biz-accent, #f59e0b);
+	}
+
+	.color-picker {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.color-picker label {
+		font-size: 0.85rem;
+		color: var(--biz-text-secondary, #94a3b8);
+		flex-shrink: 0;
+	}
+
+	.color-input {
+		width: 50px;
+		height: 40px;
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-radius: 6px;
+		cursor: pointer;
+	}
+
+	.color-preview {
+		width: 40px;
+		height: 40px;
+		border-radius: 6px;
+		border: 1px solid var(--biz-border, #2d3a4d);
+	}
+
+	.add-column-btn {
+		padding: 0.6rem 1rem;
+		background: var(--biz-accent, #f59e0b);
+		border: none;
+		border-radius: 6px;
+		color: white;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		margin-top: 0.5rem;
+	}
+
+	.add-column-btn:hover:not(:disabled) {
+		background: var(--biz-accent-hover, #d97706);
+	}
+
+	.add-column-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.existing-columns h4 {
+		margin: 0 0 0.75rem 0;
+		font-size: 0.9rem;
+		color: var(--biz-text-primary, #f1f5f9);
+		font-weight: 600;
+	}
+
+	.columns-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.column-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.75rem;
+		background: var(--biz-bg-primary, #0f1419);
+		border-radius: 6px;
+		border: 1px solid var(--biz-border, #2d3a4d);
+	}
+
+	.column-info {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex: 1;
+	}
+
+	.column-color {
+		width: 20px;
+		height: 20px;
+		border-radius: 4px;
+		flex-shrink: 0;
+		border: 1px solid var(--biz-border, #2d3a4d);
+	}
+
+	.column-id {
+		font-size: 0.75rem;
+		color: var(--biz-text-muted, #64748b);
+		margin-left: auto;
+	}
+
+	.delete-column-btn {
+		background: transparent;
+		border: none;
+		cursor: pointer;
+		padding: 0.25rem;
+		font-size: 1rem;
+		transition: all 0.2s;
+	}
+
+	.delete-column-btn:hover {
+		opacity: 0.7;
 	}
 
 	/* Kanban Board Wrapper */
