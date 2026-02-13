@@ -455,7 +455,8 @@
 								<div class="card-meta">
 									{#if todo.assignedTo}
 										<span class="assignee-chip-card">
-											(o{getAssigneeName(parseInt(String(todo.assignedTo), 10))})
+											<span class="assignee-dot" style="background-color: {registeredUsers.find(u => u.user_id === parseInt(String(todo.assignedTo), 10))?.color || '#888'}"></span>
+											<span>{getAssigneeName(parseInt(String(todo.assignedTo), 10))}</span>
 										</span>
 									{/if}
 									{#if todo.projectId}
