@@ -915,6 +915,7 @@
 		cursor: grab;
 		transition: all 0.2s;
 		overflow: hidden;
+		flex-shrink: 0;
 	}
 
 	.kanban-card:hover {
