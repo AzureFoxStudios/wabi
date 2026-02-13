@@ -73,8 +73,11 @@
 		}
 	});
 
+	// Re-render cards when users load
+	$: userCount = registeredUsers.length;
+
 	// Reactive todos grouped by column - this ensures UI updates when todos change
-	$: todosByColumn = $todos.reduce((acc, todo) => {
+	$: todosByColumn = ($todos, userCount, filterProject, filterPriority) && $todos.reduce((acc, todo) => {
 		if (!acc[todo.status]) acc[todo.status] = [];
 		// Apply filters
 		if (filterProject && todo.projectId !== filterProject) return acc;
@@ -1234,8 +1237,8 @@
 		align-items: center;
 		gap: 0.35rem;
 		padding: 0.15rem 0.5rem;
-		background: rgba(245, 158, 11, 0.1);
-		color: var(--biz-accent, #f59e0b);
+		background: var(--biz-info-soft, rgba(59, 130, 246, 0.15));
+		color: var(--biz-info, #3b82f6);
 		border-radius: 4px;
 		font-size: 0.7rem;
 		white-space: nowrap;
