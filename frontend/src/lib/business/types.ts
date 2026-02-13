@@ -17,6 +17,7 @@ export interface Todo {
 	projectId?: string;
 	completedAt?: number;
 	signedBy?: string; // Optional signature with username
+	visibility?: 'public' | 'private'; // Defaults to 'public' if not set
 }
 
 export interface KanbanColumn {
@@ -43,6 +44,7 @@ export interface CalendarEvent {
 	reminders?: Int32Array | number[]; // minutes before event (using Int32Array for efficiency)
 	cancelledDates?: BigInt64Array | number[]; // timestamps of cancelled recurring instances
 	signedBy?: string; // Optional signature with username
+	visibility?: 'public' | 'private'; // Defaults to 'public' if not set
 }
 
 export interface DiaryEntry {
@@ -70,6 +72,7 @@ export interface Project {
 	status: 'planning' | 'active' | 'paused' | 'completed' | 'cancelled';
 	parentId?: string; // For sub-projects
 	signedBy?: string; // Optional signature with username
+	visibility?: 'public' | 'private'; // Defaults to 'public' if not set
 }
 
 export interface Sprint {
@@ -81,6 +84,7 @@ export interface Sprint {
 	goals?: string[];
 	status: 'planned' | 'active' | 'completed';
 	signedBy?: string; // Optional signature with username
+	visibility?: 'public' | 'private'; // Defaults to 'public' if not set
 }
 
 export interface BurnChartDataPoint {

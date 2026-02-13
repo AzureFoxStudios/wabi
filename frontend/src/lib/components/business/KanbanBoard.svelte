@@ -35,6 +35,7 @@
 	let formProjectId: string | null = null;
 	let formDueDate = '';
 	let willSign = false;
+	let formVisibility: 'public' | 'private' = 'public';
 
 	// Filter state
 	let filterProject: string | null = null;
@@ -183,6 +184,7 @@
 		formProjectId = todo.projectId || null;
 		formDueDate = todo.dueDate ? new Date(todo.dueDate).toISOString().split('T')[0] : '';
 		willSign = !!todo.signedBy;
+		formVisibility = todo.visibility ?? 'public';
 		showAddModal = true;
 	}
 
@@ -199,6 +201,7 @@
 		formProjectId = null;
 		formDueDate = '';
 		willSign = false;
+		formVisibility = 'public';
 	}
 
 	function handleSubmit() {
@@ -212,7 +215,8 @@
 			dueDate: formDueDate ? new Date(formDueDate).getTime() : undefined,
 			status: targetColumn,
 			createdBy: $currentUser?.id || 'unknown',
-			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined
+			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined,
+			visibility: formVisibility
 		};
 
 		if (editingTodo) {
@@ -517,6 +521,21 @@
 						<input type="checkbox" bind:checked={willSign} />
 						<span>Sign this task with my username</span>
 					</label>
+				</div>
+
+				<!-- Visibility toggle -->
+				<div class="form-group">
+					<label>Visibility</label>
+					<div class="radio-group">
+						<label class="radio-label">
+							<input type="radio" bind:group={formVisibility} value="public" />
+							<span>Public (visible to collaborators)</span>
+						</label>
+						<label class="radio-label">
+							<input type="radio" bind:group={formVisibility} value="private" />
+							<span>Private (only me)</span>
+						</label>
+					</div>
 				</div>
 
 				<div class="form-actions">
@@ -1120,6 +1139,26 @@
 	}
 
 	.checkbox-label input[type="checkbox"] {
+		cursor: pointer;
+	}
+
+	.radio-group {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 0.5rem 0;
+	}
+
+	.radio-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+		color: var(--biz-text-secondary, #94a3b8);
+		font-size: 0.95rem;
+	}
+
+	.radio-label input[type="radio"] {
 		cursor: pointer;
 	}
 

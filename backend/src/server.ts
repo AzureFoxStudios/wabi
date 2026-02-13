@@ -1058,6 +1058,18 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  // Filter business data by visibility for a requesting user
+  function filterForUser(data: BusinessData, requestingUserId: number | null): BusinessData {
+    return {
+      ...data,
+      todos: data.todos.filter(t => (t.visibility ?? 'public') === 'public'),
+      projects: data.projects.filter(p => (p.visibility ?? 'public') === 'public'),
+      sprints: data.sprints.filter(s => (s.visibility ?? 'public') === 'public'),
+      calendarEvents: data.calendarEvents.filter(e => (e.visibility ?? 'public') === 'public'),
+      diaryEntries: data.diaryEntries.filter(e => !e.isPrivate || (requestingUserId && e.createdBy === requestingUserId.toString()))
+    };
+  }
+
   // Business data sync endpoints
   // Get business data for a workspace
   if (url.pathname === "/api/business/get" && req.method === "GET") {
@@ -1074,12 +1086,50 @@ server.on('request', async (req, res) => {
         }
       }
 
-      const data = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
+      let data = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
+
+      // If user is in private mode, also merge signed items from shared workspace
+      if (userId && workspaceId !== defaultWorkspaceId) {
+        const sharedData = businessWorkspaces.get(defaultWorkspaceId);
+        if (sharedData) {
+          // Merge signed items from shared workspace (don't overwrite private workspace items with same id)
+          const mergedData = { ...data };
+
+          // Add shared signed items that aren't already in private workspace
+          const privateIds = {
+            todos: new Set(data.todos.map(t => t.id)),
+            projects: new Set(data.projects.map(p => p.id)),
+            sprints: new Set(data.sprints.map(s => s.id)),
+            calendarEvents: new Set(data.calendarEvents.map(e => e.id))
+          };
+
+          mergedData.todos = [
+            ...data.todos,
+            ...sharedData.todos.filter(t => t.signedBy && !privateIds.todos.has(t.id))
+          ];
+          mergedData.projects = [
+            ...data.projects,
+            ...sharedData.projects.filter(p => p.signedBy && !privateIds.projects.has(p.id))
+          ];
+          mergedData.sprints = [
+            ...data.sprints,
+            ...sharedData.sprints.filter(s => s.signedBy && !privateIds.sprints.has(s.id))
+          ];
+          mergedData.calendarEvents = [
+            ...data.calendarEvents,
+            ...sharedData.calendarEvents.filter(e => e.signedBy && !privateIds.calendarEvents.has(e.id))
+          ];
+
+          data = mergedData;
+        }
+      }
+
+      const filteredData = filterForUser(data, userId);
 
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
         success: true,
-        data
+        data: filteredData
       }));
     } catch (error) {
       console.error('Get business data error:', error);
@@ -1144,6 +1194,65 @@ server.on('request', async (req, res) => {
 
         businessWorkspaces.set(workspaceId, businessData);
         saveBusinessData(workspaceId, businessData);
+
+        // If this is a private mode user, mirror signed items to the shared workspace
+        if (userId && workspaceId !== defaultWorkspaceId) {
+          const sharedData = businessWorkspaces.get(defaultWorkspaceId) || initializeWorkspace(defaultWorkspaceId);
+
+          // Extract signed items from this user's data
+          const signedTodos = todos?.filter((t: any) => t.signedBy) || [];
+          const signedProjects = projects?.filter((p: any) => p.signedBy) || [];
+          const signedSprints = sprints?.filter((s: any) => s.signedBy) || [];
+          const signedCalendarEvents = calendarEvents?.filter((e: any) => e.signedBy) || [];
+
+          // Merge signed items into shared workspace (upsert by id)
+          for (const item of signedTodos) {
+            const existingIdx = sharedData.todos.findIndex(t => t.id === item.id);
+            if (existingIdx >= 0) {
+              sharedData.todos[existingIdx] = item;
+            } else {
+              sharedData.todos.push(item);
+            }
+          }
+
+          for (const item of signedProjects) {
+            const existingIdx = sharedData.projects.findIndex(p => p.id === item.id);
+            if (existingIdx >= 0) {
+              sharedData.projects[existingIdx] = item;
+            } else {
+              sharedData.projects.push(item);
+            }
+          }
+
+          for (const item of signedSprints) {
+            const existingIdx = sharedData.sprints.findIndex(s => s.id === item.id);
+            if (existingIdx >= 0) {
+              sharedData.sprints[existingIdx] = item;
+            } else {
+              sharedData.sprints.push(item);
+            }
+          }
+
+          for (const item of signedCalendarEvents) {
+            const existingIdx = sharedData.calendarEvents.findIndex(e => e.id === item.id);
+            if (existingIdx >= 0) {
+              sharedData.calendarEvents[existingIdx] = item;
+            } else {
+              sharedData.calendarEvents.push(item);
+            }
+          }
+
+          // Remove unsigned items that this user previously signed (only if they created them)
+          const userIdStr = userId.toString();
+          sharedData.todos = sharedData.todos.filter(t => !(t.createdBy === userIdStr && !t.signedBy));
+          sharedData.projects = sharedData.projects.filter(p => !(p.createdBy === userIdStr && !p.signedBy));
+          sharedData.sprints = sharedData.sprints.filter(s => !(s.createdBy === userIdStr && !s.signedBy));
+          sharedData.calendarEvents = sharedData.calendarEvents.filter(e => !(e.createdBy === userIdStr && !e.signedBy));
+
+          sharedData.lastUpdated = Date.now();
+          businessWorkspaces.set(defaultWorkspaceId, sharedData);
+          saveBusinessData(defaultWorkspaceId, sharedData);
+        }
 
         // Broadcast update to all other connected users in this workspace
         // Only send workspaceId — clients call pullFromServer() to fetch their own data

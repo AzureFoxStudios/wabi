@@ -33,6 +33,7 @@
 	let formProjectId = '';
 	let formTags = '';
 	let willSign = false;
+	let formVisibility: 'public' | 'private' = 'public';
 
 	// Filter state
 	let filterStatus: TodoStatus | '' = '';
@@ -48,6 +49,7 @@
 		formProjectId = '';
 		formTags = '';
 		willSign = false;
+		formVisibility = 'public';
 		editingTodo = null;
 	}
 
@@ -66,6 +68,7 @@
 		formProjectId = todo.projectId || '';
 		formTags = todo.tags?.join(', ') || '';
 		willSign = !!todo.signedBy;
+		formVisibility = todo.visibility ?? 'public';
 		showAddModal = true;
 	}
 
@@ -86,7 +89,8 @@
 			projectId: formProjectId || undefined,
 			tags: formTags ? formTags.split(',').map(t => t.trim()).filter(Boolean) : undefined,
 			createdBy: $currentUser?.id || 'unknown',
-			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined
+			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined,
+			visibility: formVisibility
 		};
 
 		if (editingTodo) {
@@ -505,6 +509,21 @@
 						<input type="checkbox" bind:checked={willSign} />
 						<span>Sign this task with my username</span>
 					</label>
+				</div>
+
+				<!-- Visibility toggle -->
+				<div class="form-group">
+					<label>Visibility</label>
+					<div class="radio-group">
+						<label class="radio-label">
+							<input type="radio" bind:group={formVisibility} value="public" />
+							<span>Public (visible to collaborators)</span>
+						</label>
+						<label class="radio-label">
+							<input type="radio" bind:group={formVisibility} value="private" />
+							<span>Private (only me)</span>
+						</label>
+					</div>
 				</div>
 
 				<div class="form-actions">
@@ -1063,6 +1082,26 @@
 		cursor: pointer;
 		width: 18px;
 		height: 18px;
+	}
+
+	.radio-group {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 0.5rem 0;
+	}
+
+	.radio-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+		color: var(--text-secondary, #aaa);
+		font-size: 0.95rem;
+	}
+
+	.radio-label input[type="radio"] {
+		cursor: pointer;
 	}
 
 	.signature {
