@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { get } from 'svelte/store';
 	import { currentUser } from '$lib/socket';
+	import { onMount } from 'svelte';
 	import {
 		todos,
 		projects,
@@ -13,6 +14,13 @@
 		type Todo
 	} from '$lib/business';
 	import type { TodoStatus, KanbanColumn } from '$lib/business/types';
+
+	interface RegisteredUser {
+		user_id: number;
+		username: string;
+		profile_picture?: string;
+		color: string;
+	}
 
 	// Props to track task panel state
 	export let showTaskPanel: boolean = false;
@@ -34,13 +42,36 @@
 	let formPriority: Todo['priority'] = 'medium';
 	let formProjectId: string | null = null;
 	let formDueDate = '';
+	let formAssigneeId: number | null = null;
 	let willSign = false;
 	let formVisibility: 'public' | 'private' = 'public';
+
+	// User and assignee state
+	let registeredUsers: RegisteredUser[] = [];
+	let filteredUsers: RegisteredUser[] = [];
+	let userSearchQuery = '';
+	let showUserDropdown = false;
 
 	// Filter state
 	let filterProject: string | null = null;
 	let filterPriority: Todo['priority'] | null = null;
 	let showColumnSettings = false;
+
+	onMount(async () => {
+		try {
+			const response = await fetch('/api/users');
+			if (response.ok) {
+				const data = await response.json();
+				console.log('[KanbanBoard] Fetched users:', data);
+				registeredUsers = data;
+				filteredUsers = registeredUsers;
+			} else {
+				console.error('[KanbanBoard] Failed to fetch users:', response.status);
+			}
+		} catch (error) {
+			console.error('[KanbanBoard] Failed to fetch users:', error);
+		}
+	});
 
 	// Reactive todos grouped by column - this ensures UI updates when todos change
 	$: todosByColumn = $todos.reduce((acc, todo) => {
@@ -183,6 +214,7 @@
 		formPriority = todo.priority;
 		formProjectId = todo.projectId || null;
 		formDueDate = todo.dueDate ? new Date(todo.dueDate).toISOString().split('T')[0] : '';
+		formAssigneeId = todo.assignedTo ? parseInt(String(todo.assignedTo), 10) : null;
 		willSign = !!todo.signedBy;
 		formVisibility = todo.visibility ?? 'public';
 		showAddModal = true;
@@ -194,12 +226,46 @@
 		resetForm();
 	}
 
+	function filterUsers(query: string) {
+		userSearchQuery = query;
+		if (!query.trim()) {
+			filteredUsers = registeredUsers;
+		} else {
+			const lowerQuery = query.toLowerCase();
+			filteredUsers = registeredUsers.filter(u =>
+				u.username.toLowerCase().includes(lowerQuery)
+			);
+		}
+	}
+
+	function selectUser(user: RegisteredUser) {
+		formAssigneeId = user.user_id;
+		showUserDropdown = false;
+		userSearchQuery = '';
+		filteredUsers = registeredUsers;
+	}
+
+	function clearAssignee() {
+		formAssigneeId = null;
+		userSearchQuery = '';
+		filteredUsers = registeredUsers;
+	}
+
+	function getAssigneeName(userId: number | undefined): string {
+		if (!userId) return '';
+		const user = registeredUsers.find(u => u.user_id === userId);
+		return user?.username || '';
+	}
+
 	function resetForm() {
 		formTitle = '';
 		formDescription = '';
 		formPriority = 'medium';
 		formProjectId = null;
 		formDueDate = '';
+		formAssigneeId = null;
+		userSearchQuery = '';
+		filteredUsers = registeredUsers;
 		willSign = false;
 		formVisibility = 'public';
 	}
@@ -214,6 +280,7 @@
 			projectId: formProjectId || undefined,
 			dueDate: formDueDate ? new Date(formDueDate).getTime() : undefined,
 			status: targetColumn,
+			assignedTo: formAssigneeId?.toString(),
 			createdBy: $currentUser?.id || 'unknown',
 			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined,
 			visibility: formVisibility
@@ -386,6 +453,11 @@
 									<p class="card-description">{todo.description.slice(0, 80)}{todo.description.length > 80 ? '...' : ''}</p>
 								{/if}
 								<div class="card-meta">
+									{#if todo.assignedTo}
+										<span class="assignee-chip-card">
+											(o{getAssigneeName(parseInt(String(todo.assignedTo), 10))})
+										</span>
+									{/if}
 									{#if todo.projectId}
 										<span class="card-project" style="background-color: {getProjectColor(todo.projectId)}20; color: {getProjectColor(todo.projectId)}">
 											{getProjectName(todo.projectId)}
@@ -445,13 +517,7 @@
 			role="button"
 			tabindex="0"
 			on:click|stopPropagation
-			on:keydown|stopPropagation={(event) => {
-				const tag = (event.target as HTMLElement).tagName;
-				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-				if (event.key === 'Enter' || event.key === ' ') {
-					event.preventDefault();
-				}
-			}}
+			on:keydown|stopPropagation={() => {}}
 		>
 			<div class="modal-header">
 				<h2>{editingTodo ? 'Edit Task' : 'Add Task'}</h2>
@@ -476,7 +542,46 @@
 						bind:value={formDescription}
 						placeholder="Add details..."
 						rows="3"
+						class="description-textarea"
 					></textarea>
+				</div>
+
+				<div class="form-group">
+					<label for="assignee">Assign to</label>
+					<div class="assignee-search-wrap">
+						{#if formAssigneeId}
+							<div class="assignee-chip">
+								<span class="assignee-dot" style="background-color: {registeredUsers.find(u => u.user_id === formAssigneeId)?.color || '#888'}"></span>
+								<span>{getAssigneeName(formAssigneeId)}</span>
+								<button type="button" class="chip-remove" on:click={clearAssignee} title="Clear assignee">×</button>
+							</div>
+						{:else}
+							<input
+								type="text"
+								id="assignee"
+								placeholder="Search user..."
+								value={userSearchQuery}
+								on:input={(e) => filterUsers(e.currentTarget.value)}
+								on:focus={() => showUserDropdown = true}
+								on:blur={() => setTimeout(() => showUserDropdown = false, 200)}
+								class="assignee-input"
+							/>
+							{#if showUserDropdown && filteredUsers.length > 0}
+								<div class="assignee-dropdown">
+									{#each filteredUsers as user (user.user_id)}
+										<button
+											type="button"
+											class="assignee-item"
+											on:click={() => selectUser(user)}
+										>
+											<span class="assignee-item-dot" style="background-color: {user.color}"></span>
+											<span>{user.username}</span>
+										</button>
+									{/each}
+								</div>
+							{/if}
+						{/if}
+					</div>
 				</div>
 
 				<div class="form-row">
@@ -725,7 +830,8 @@
 		border-radius: 12px;
 		display: flex;
 		flex-direction: column;
-		max-height: 100%;
+		min-height: 0;
+		height: 100%;
 		border: 1px solid var(--biz-border, #2d3a4d);
 		transition: all 0.2s;
 	}
@@ -792,6 +898,7 @@
 
 	.column-cards {
 		flex: 1;
+		min-height: 0;
 		overflow-y: auto;
 		padding: 0.5rem;
 		display: flex;
@@ -829,6 +936,15 @@
 		flex: 1;
 		padding: 0.75rem;
 		min-width: 0;
+	}
+
+	.card-assignee-badge {
+		font-size: 0.7rem;
+		color: var(--biz-accent, #f59e0b);
+		font-weight: 600;
+		margin-bottom: 0.25rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
 	}
 
 	.card-title {
@@ -1000,6 +1116,127 @@
 	.form-group input::placeholder,
 	.form-group textarea::placeholder {
 		color: var(--biz-text-muted, #64748b);
+	}
+
+	.description-textarea {
+		resize: vertical;
+		min-height: 80px;
+	}
+
+	.assignee-search-wrap {
+		position: relative;
+	}
+
+	.assignee-input {
+		width: 100%;
+		padding: 0.75rem;
+		background: var(--biz-bg-secondary, #1a2332);
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-radius: 8px;
+		color: var(--biz-text-primary, #f1f5f9);
+		font-size: 0.9rem;
+		transition: all 0.2s;
+		font-family: inherit;
+	}
+
+	.assignee-input:focus {
+		outline: none;
+		border-color: var(--biz-accent, #f59e0b);
+		background: rgba(245, 158, 11, 0.05);
+		box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+	}
+
+	.assignee-dropdown {
+		position: absolute;
+		top: 100%;
+		left: 0;
+		right: 0;
+		background: var(--biz-bg-secondary, #1a2332);
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-top: none;
+		border-radius: 0 0 8px 8px;
+		max-height: 180px;
+		overflow-y: auto;
+		z-index: 50;
+		margin-top: -1px;
+	}
+
+	.assignee-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.6rem 0.75rem;
+		background: transparent;
+		border: none;
+		color: var(--biz-text-primary, #f1f5f9);
+		cursor: pointer;
+		text-align: left;
+		font-size: 0.9rem;
+		transition: all 0.2s;
+	}
+
+	.assignee-item:hover {
+		background: var(--biz-bg-tertiary, #243044);
+	}
+
+	.assignee-item-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.assignee-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		background: var(--biz-bg-tertiary, #243044);
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-radius: 20px;
+		color: var(--biz-text-primary, #f1f5f9);
+		font-size: 0.85rem;
+		white-space: nowrap;
+	}
+
+	.assignee-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.chip-remove {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		background: transparent;
+		border: none;
+		color: var(--biz-text-secondary, #94a3b8);
+		cursor: pointer;
+		font-size: 1.2rem;
+		padding: 0;
+		transition: all 0.2s;
+		margin-left: 0.25rem;
+	}
+
+	.chip-remove:hover {
+		color: var(--biz-text-primary, #f1f5f9);
+	}
+
+	.assignee-chip-card {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.15rem 0.5rem;
+		background: rgba(245, 158, 11, 0.1);
+		color: var(--biz-accent, #f59e0b);
+		border-radius: 4px;
+		font-size: 0.7rem;
+		white-space: nowrap;
 	}
 
 	.form-group input:focus,

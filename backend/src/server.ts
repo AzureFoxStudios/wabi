@@ -1028,6 +1028,27 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  // Get list of registered users for task assignment
+  if (url.pathname === "/api/users" && req.method === "GET") {
+    try {
+      const users = userRepository.getAll();
+      const sanitized = users.map(u => ({
+        user_id: u.user_id,
+        username: u.username,
+        profile_picture: u.profile_picture,
+        color: u.color
+      }));
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(sanitized));
+    } catch (error) {
+      console.error('Failed to fetch users:', error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Failed to fetch users' }));
+    }
+    return;
+  }
+
   // Toggle business private mode
   if (url.pathname === "/api/user/business-private-mode" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
