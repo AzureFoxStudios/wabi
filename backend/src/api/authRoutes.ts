@@ -467,7 +467,7 @@ export async function handleGetPublicKey(req: IncomingMessage, res: ServerRespon
 	}
 }
 
-// Store encryption keys for the authenticated user
+// Store or update encryption keys for the authenticated user
 export async function handleStoreEncryptionKeys(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
 		const userId = getAuthenticatedUserId(req);
@@ -486,16 +486,16 @@ export async function handleStoreEncryptionKeys(req: IncomingMessage, res: Serve
 			return;
 		}
 
+		// Create or update encryption keys
 		if (encryptionKeyRepository.hasKeys(userId)) {
-			res.writeHead(409, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ error: 'Encryption keys already exist for this user' }));
-			return;
+			encryptionKeyRepository.update(userId, publicKey, privateKeyEncrypted);
+			res.writeHead(200, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ success: true }));
+		} else {
+			encryptionKeyRepository.create(userId, publicKey, privateKeyEncrypted);
+			res.writeHead(201, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ success: true }));
 		}
-
-		encryptionKeyRepository.create(userId, publicKey, privateKeyEncrypted);
-
-		res.writeHead(201, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({ success: true }));
 	} catch (error) {
 		console.error('[Auth] Store encryption keys error:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });

@@ -42,6 +42,24 @@ export class EncryptionKeyRepository {
 		const stmt = db.prepare('SELECT 1 FROM user_encryption_keys WHERE user_id = ?');
 		return stmt.get(userId) !== undefined;
 	}
+
+	update(userId: number, publicKey: string, privateKeyEncrypted: string): EncryptionKeyRecord {
+		const stmt = db.prepare(`
+			UPDATE user_encryption_keys
+			SET public_key = ?, private_key_encrypted = ?
+			WHERE user_id = ?
+		`);
+
+		stmt.run(publicKey, privateKeyEncrypted, userId);
+		const existing = this.getByUserId(userId);
+
+		return existing || {
+			user_id: userId,
+			public_key: publicKey,
+			private_key_encrypted: privateKeyEncrypted,
+			created_at: Date.now()
+		};
+	}
 }
 
 export const encryptionKeyRepository = new EncryptionKeyRepository();
