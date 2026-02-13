@@ -73,18 +73,19 @@
 		}
 	});
 
-	// Re-render cards when users load
-	$: userCount = registeredUsers.length;
-
-	// Reactive todos grouped by column - this ensures UI updates when todos change
-	$: todosByColumn = ($todos, userCount, filterProject, filterPriority) && $todos.reduce((acc, todo) => {
-		if (!acc[todo.status]) acc[todo.status] = [];
-		// Apply filters
-		if (filterProject && todo.projectId !== filterProject) return acc;
-		if (filterPriority && todo.priority !== filterPriority) return acc;
-		acc[todo.status].push(todo);
-		return acc;
-	}, {} as Record<TodoStatus, Todo[]>);
+	// Reactive todos grouped by column - this ensures UI updates when todos change and users load
+	$: todosByColumn = (() => {
+		// Reference registeredUsers to trigger re-render when users load
+		void registeredUsers;
+		return $todos.reduce((acc, todo) => {
+			if (!acc[todo.status]) acc[todo.status] = [];
+			// Apply filters
+			if (filterProject && todo.projectId !== filterProject) return acc;
+			if (filterPriority && todo.priority !== filterPriority) return acc;
+			acc[todo.status].push(todo);
+			return acc;
+		}, {} as Record<TodoStatus, Todo[]>);
+	})();
 
 	// Sort todos within each column
 	$: sortedTodosByColumn = Object.fromEntries(
