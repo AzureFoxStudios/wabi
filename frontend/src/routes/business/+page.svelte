@@ -349,7 +349,7 @@
 		<!-- Right Task Panel -->
 		{#if showTaskPanel}
 			<aside class="task-panel" style="width: {taskPanelWidth}px">
-				<TaskPanel />
+				<TaskPanel onClose={() => showTaskPanel = false} />
 				<BusinessPrivacyToggle />
 			</aside>
 		{/if}

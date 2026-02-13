@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { get } from 'svelte/store';
 	import { todos, projects, addTodo, updateTodo, deleteTodo, type Todo } from '$lib/business';
+
+	export let onClose: (() => void) | undefined = undefined;
 	import { onMount } from 'svelte';
 
 	interface RegisteredUser {
@@ -207,12 +209,22 @@
 <div class="task-panel-container">
 	<div class="panel-header">
 		<h2>Tasks</h2>
-		<button class="add-btn" on:click={() => showAddForm = !showAddForm} title="Add Task">
-			<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<line x1="12" y1="5" x2="12" y2="19"/>
-				<line x1="5" y1="12" x2="19" y2="12"/>
-			</svg>
-		</button>
+		<div class="header-buttons">
+			<button class="add-btn" on:click={() => showAddForm = !showAddForm} title="Add Task">
+				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<line x1="12" y1="5" x2="12" y2="19"/>
+					<line x1="5" y1="12" x2="19" y2="12"/>
+				</svg>
+			</button>
+			{#if onClose}
+				<button class="close-panel-btn" on:click={onClose} title="Close task panel">
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<line x1="18" y1="6" x2="6" y2="18"/>
+						<line x1="6" y1="6" x2="18" y2="18"/>
+					</svg>
+				</button>
+			{/if}
+		</div>
 	</div>
 
 	<!-- Filter Tabs -->
@@ -471,6 +483,12 @@
 		color: var(--biz-text-primary, #f1f5f9);
 	}
 
+	.header-buttons {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
 	.add-btn {
 		display: flex;
 		align-items: center;
@@ -488,6 +506,27 @@
 	.add-btn:hover {
 		background: var(--biz-accent-hover, #d97706);
 		transform: scale(1.05);
+	}
+
+	.close-panel-btn {
+		display: none;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		background: transparent;
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-radius: 8px;
+		color: var(--biz-text-secondary, #94a3b8);
+		cursor: pointer;
+		transition: all 0.2s;
+		padding: 0;
+	}
+
+	.close-panel-btn:hover {
+		background: var(--biz-bg-hover, #2a3a4d);
+		color: var(--biz-text-primary, #f1f5f9);
+		border-color: var(--biz-accent, #f59e0b);
 	}
 
 	/* Filter Tabs */
@@ -990,6 +1029,10 @@
 
 		.panel-header h2 {
 			font-size: 1rem;
+		}
+
+		.close-panel-btn {
+			display: flex;
 		}
 
 		.filter-tabs {
