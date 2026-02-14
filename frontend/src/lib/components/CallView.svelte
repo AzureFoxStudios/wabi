@@ -97,8 +97,9 @@
 		toggleDeafen();
 	}
 
-	function handleToggleVideo() {
-		toggleVideo();
+	async function handleToggleVideo() {
+		const sock = getSocket();
+		await toggleVideo(sock || undefined);
 	}
 
 	// Get initials for avatar
