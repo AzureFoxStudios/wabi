@@ -58,9 +58,11 @@
 	let projectTargetDate = '';
 	let projectParentId = '';
 	let projectWillSign = false;
+	let projectVisibility: 'public' | 'private' = 'public';
 
 	// Sprint form
 	let sprintWillSign = false;
+	let sprintVisibility: 'public' | 'private' = 'public';
 
 	// Get sub-projects for a parent
 	function getSubProjects(parentId: string): Project[] {
@@ -193,6 +195,7 @@
 			projectTargetDate = project.targetEndDate ? new Date(project.targetEndDate).toISOString().split('T')[0] : '';
 			projectParentId = project.parentId || '';
 			projectWillSign = !!project.signedBy;
+			projectVisibility = project.visibility ?? 'public';
 		} else {
 			resetProjectForm();
 			if (parentId) {
@@ -211,6 +214,7 @@
 		projectTargetDate = '';
 		projectParentId = '';
 		projectWillSign = false;
+		projectVisibility = 'public';
 	}
 
 	function closeProjectModal() {
@@ -230,7 +234,8 @@
 			status: 'active' as const,
 			createdBy: $currentUser?.id || 'unknown',
 			parentId: projectParentId || undefined,
-			signedBy: projectWillSign ? ($currentUser?.username || 'Guest') : undefined
+			signedBy: projectWillSign ? ($currentUser?.username || 'Guest') : undefined,
+			visibility: projectVisibility
 		};
 
 		if (editingProject) {
@@ -268,6 +273,7 @@
 			sprintEndDate = new Date(sprint.endDate).toISOString().split('T')[0];
 			sprintGoals = sprint.goals?.join('\n') || '';
 			sprintWillSign = !!sprint.signedBy;
+			sprintVisibility = sprint.visibility ?? 'public';
 		} else {
 			editingSprint = null;
 			sprintName = '';
@@ -275,6 +281,7 @@
 			sprintEndDate = '';
 			sprintGoals = '';
 			sprintWillSign = false;
+			sprintVisibility = 'public';
 		}
 		showSprintModal = true;
 	}
@@ -293,7 +300,8 @@
 			endDate: new Date(sprintEndDate).getTime(),
 			goals: sprintGoals ? sprintGoals.split('\n').filter(g => g.trim()) : undefined,
 			status: editingSprint?.status || 'planned',
-			signedBy: sprintWillSign ? ($currentUser?.username || 'Guest') : undefined
+			signedBy: sprintWillSign ? ($currentUser?.username || 'Guest') : undefined,
+			visibility: sprintVisibility
 		};
 
 		if (editingSprint) {
@@ -781,6 +789,21 @@
 					</label>
 				</div>
 
+				<!-- Visibility toggle -->
+				<div class="form-group">
+					<label>Visibility</label>
+					<div class="radio-group">
+						<label class="radio-label">
+							<input type="radio" bind:group={projectVisibility} value="public" />
+							<span>Public (visible to collaborators)</span>
+						</label>
+						<label class="radio-label">
+							<input type="radio" bind:group={projectVisibility} value="private" />
+							<span>Private (only me)</span>
+						</label>
+					</div>
+				</div>
+
 				<div class="form-actions">
 					<button type="button" class="cancel-btn" on:click={closeProjectModal}>Cancel</button>
 					<button type="submit" class="submit-btn">
@@ -853,6 +876,21 @@
 						<input type="checkbox" bind:checked={sprintWillSign} />
 						<span>Sign this sprint with my username</span>
 					</label>
+				</div>
+
+				<!-- Visibility toggle -->
+				<div class="form-group">
+					<label>Visibility</label>
+					<div class="radio-group">
+						<label class="radio-label">
+							<input type="radio" bind:group={sprintVisibility} value="public" />
+							<span>Public (visible to collaborators)</span>
+						</label>
+						<label class="radio-label">
+							<input type="radio" bind:group={sprintVisibility} value="private" />
+							<span>Private (only me)</span>
+						</label>
+					</div>
 				</div>
 
 				<div class="form-actions">
@@ -1912,6 +1950,26 @@
 	}
 
 	.checkbox-label input[type="checkbox"] {
+		cursor: pointer;
+	}
+
+	.radio-group {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 0.5rem 0;
+	}
+
+	.radio-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+		color: var(--biz-text-secondary, #94a3b8);
+		font-size: 0.95rem;
+	}
+
+	.radio-label input[type="radio"] {
 		cursor: pointer;
 	}
 

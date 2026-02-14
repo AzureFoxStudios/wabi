@@ -27,7 +27,35 @@ import type { FileAttachment, Message, Emoji, User, Channel } from './socket-typ
 import { emojis } from './emoji-store';
 import { getServerUrl } from './serverUrl';
 import { authStore } from './authStore';
+import { encryptDMMessage, decryptDMMessage, isE2EAvailable } from './e2eManager';
+
+/**
+ * Decrypt an array of messages for a DM channel (in-place mutation of text field).
+ * Skips non-encrypted messages. Requires channel to be a DM with a known otherUser.dbUserId.
+ */
+async function decryptMessagesForChannel(channelId: string, messages: Message[]): Promise<void> {
+	if (!isE2EAvailable() || !browser) return;
+
+	const token = localStorage.getItem('authToken');
+	if (!token) return;
+
+	const channelList = get(channels);
+	const channel = channelList.find(ch => ch.id === channelId);
+	if (!channel || channel.type !== 'dm' || !channel.otherUser?.dbUserId) return;
+
+	const otherDbUserId = channel.otherUser.dbUserId;
+
+	await Promise.all(
+		messages.map(async (msg) => {
+			if (msg.encrypted && msg.iv) {
+				msg.text = await decryptDMMessage(msg, otherDbUserId, token);
+			}
+		})
+	);
+}
+
 import { handleP2PIncomingOffer, handleP2PAnswer, handleP2PIceCandidate } from './p2pFileTransfer';
+
 
 // ============================================================================
 // CONNECTION STATE MACHINE
@@ -492,13 +520,20 @@ class SocketManager {
 
 			users.set(data.users);
 
-			// Process channels
+			// Process channels - server now enriches DM channels with otherUser
 			const processedChannels = data.channels.map(channel => {
-				if (channel.type === 'dm' && channel.members) {
-					const otherUserId = channel.members.find(id => id !== sock.id);
-					const otherUser = data.users.find(u => u.id === otherUserId);
-					if (otherUser) {
-						return { ...channel, name: otherUser.username, otherUser };
+				if (channel.type === 'dm') {
+					// Server provides otherUser; use it if available
+					if (channel.otherUser) {
+						return { ...channel, name: channel.otherUser.username };
+					}
+					// Fallback: try to resolve from online users list
+					if (channel.members) {
+						const otherUserId = channel.members.find(id => id !== sock.id);
+						const otherUser = data.users.find(u => u.id === otherUserId);
+						if (otherUser) {
+							return { ...channel, name: otherUser.username, otherUser };
+						}
 					}
 				}
 				return channel;
@@ -536,7 +571,10 @@ class SocketManager {
 
 		// ==================== MESSAGE EVENTS ====================
 
-		sock.on('channel-messages', (data: { channelId: string; messages: Message[]; hasMore?: boolean }) => {
+		sock.on('channel-messages', async (data: { channelId: string; messages: Message[]; hasMore?: boolean }) => {
+			// Decrypt encrypted messages in DM channels
+			await decryptMessagesForChannel(data.channelId, data.messages);
+
 			channelMessages.update(msgs => {
 				const existing = msgs[data.channelId] || [];
 				const existingIds = new Set(existing.map(m => m.id));
@@ -554,12 +592,15 @@ class SocketManager {
 		});
 
 		// Handle server-side history loading response
-		sock.on('history-loaded', (data: {
+		sock.on('history-loaded', async (data: {
 			channelId: string;
 			messages: Message[];
 			hasMore: boolean;
 			direction: 'older' | 'newer' | 'initial';
 		}) => {
+			// Decrypt encrypted messages in DM channels
+			await decryptMessagesForChannel(data.channelId, data.messages);
+
 			channelMessages.update(msgs => {
 				const existing = msgs[data.channelId] || [];
 				const existingIds = new Set(existing.map(m => m.id));
@@ -593,11 +634,16 @@ class SocketManager {
 			console.log(`[SocketManager] History loaded: ${data.messages.length} messages for ${data.channelId} (${data.direction})`);
 		});
 
-		sock.on('message', (data: { channelId: string; message: Message }) => {
+		sock.on('message', async (data: { channelId: string; message: Message }) => {
 			// Validate incoming message
 			if (!data?.channelId || !data?.message?.id) {
 				console.warn('[SocketManager] Received malformed message:', data);
 				return;
+			}
+
+			// Decrypt single encrypted message in DM channels
+			if (data.message.encrypted && data.message.iv) {
+				await decryptMessagesForChannel(data.channelId, [data.message]);
 			}
 
 			channelMessages.update(msgs => {
@@ -674,12 +720,17 @@ class SocketManager {
 
 		sock.on('channel-created', (channel: Channel) => {
 			let processedChannel = channel;
-			if (channel.type === 'dm' && channel.members) {
-				const userList = get(users);
-				const otherUserId = channel.members.find(id => id !== sock.id);
-				const otherUser = userList.find(u => u.id === otherUserId);
-				if (otherUser) {
-					processedChannel = { ...channel, name: otherUser.username, otherUser };
+			if (channel.type === 'dm') {
+				// Server may provide otherUser directly
+				if (channel.otherUser) {
+					processedChannel = { ...channel, name: channel.otherUser.username };
+				} else if (channel.members) {
+					const userList = get(users);
+					const otherUserId = channel.members.find(id => id !== sock.id);
+					const otherUser = userList.find(u => u.id === otherUserId);
+					if (otherUser) {
+						processedChannel = { ...channel, name: otherUser.username, otherUser };
+					}
 				}
 			}
 			channels.update(chs => [...chs, processedChannel]);
@@ -715,10 +766,16 @@ class SocketManager {
 			channelId: string;
 			autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
 			persistMessages?: boolean;
+			description?: string;
 		}) => {
 			channels.update(chs => chs.map(ch =>
 				ch.id === data.channelId
-					? { ...ch, autoDeleteAfter: data.autoDeleteAfter, persistMessages: data.persistMessages }
+					? {
+						...ch,
+						autoDeleteAfter: data.autoDeleteAfter,
+						persistMessages: data.persistMessages,
+						...(data.description !== undefined ? { description: data.description } : {})
+					}
 					: ch
 			));
 		});
@@ -767,6 +824,35 @@ class SocketManager {
 			}));
 		});
 
+		sock.on('dm-deleted', (data: { channelId: string }) => {
+			channels.update(chs => chs.filter(ch => ch.id !== data.channelId));
+			channelMessages.update(msgs => {
+				const newMsgs = { ...msgs };
+				delete newMsgs[data.channelId];
+				return newMsgs;
+			});
+			currentChannel.update(ch => ch === data.channelId ? 'general' : ch);
+		});
+
+		sock.on('user-role-changed', (data: {
+			userId: string;
+			dbUserId: number;
+			roles: string[];
+			highestRole: string;
+			roleColor: string | null;
+		}) => {
+			users.update(u => u.map(existing =>
+				existing.id === data.userId
+					? { ...existing, roles: data.roles, highestRole: data.highestRole, roleColor: data.roleColor }
+					: existing
+			));
+			currentUser.update(cu =>
+				cu && cu.id === data.userId
+					? { ...cu, roles: data.roles, highestRole: data.highestRole, roleColor: data.roleColor }
+					: cu
+			);
+		});
+
 		sock.on('group-created', (group: Channel) => {
 			channels.update(chs => {
 				if (chs.some(ch => ch.id === group.id)) return chs;
@@ -776,6 +862,44 @@ class SocketManager {
 				...msgs,
 				[group.id]: msgs[group.id] || []
 			}));
+		});
+
+		sock.on('group-removed', (data: { channelId: string }) => {
+			channels.update(chs => chs.filter(ch => ch.id !== data.channelId));
+			channelMessages.update(msgs => {
+				const newMsgs = { ...msgs };
+				delete newMsgs[data.channelId];
+				return newMsgs;
+			});
+		});
+
+		sock.on('group-member-removed', (data: { channelId: string; userId: string }) => {
+			channels.update(chs => chs.map(ch => {
+				if (ch.id !== data.channelId) return ch;
+				return {
+					...ch,
+					members: ch.members?.filter(id => id !== data.userId),
+					memberUsers: ch.memberUsers?.filter(u => u.id !== data.userId && `user-${u.dbUserId}` !== data.userId)
+				};
+			}));
+		});
+
+		sock.on('group-member-added', (data: { channelId: string; user: any }) => {
+			channels.update(chs => chs.map(ch => {
+				if (ch.id !== data.channelId) return ch;
+				const stableId = data.user?.dbUserId ? `user-${data.user.dbUserId}` : data.user?.id;
+				return {
+					...ch,
+					members: ch.members ? [...ch.members, stableId] : [stableId],
+					memberUsers: ch.memberUsers ? [...ch.memberUsers, data.user] : [data.user]
+				};
+			}));
+		});
+
+		sock.on('group-avatar-updated', (data: { channelId: string; avatar: string | null }) => {
+			channels.update(chs => chs.map(ch =>
+				ch.id === data.channelId ? { ...ch, avatar: data.avatar } : ch
+			));
 		});
 
 		// ==================== EMOTE/EMOJI EVENTS ====================
@@ -1147,23 +1271,42 @@ export function switchChannel(channelId: string): void {
 	markChannelAsRead(channelId);
 }
 
-export function createChannel(channelName: string): void {
-	socketManager.emit('create-channel', channelName);
+export function createChannel(channelName: string, description?: string): void {
+	socketManager.emit('create-channel', { name: channelName, description: description || '' });
 }
 
 export function deleteChannel(channelId: string): void {
 	socketManager.emit('delete-channel', channelId);
 }
 
-export function sendMessage(channelId: string, text: string, type: 'text' | 'gif' | 'file' = 'text', options?: {
+export async function sendMessage(channelId: string, text: string, type: 'text' | 'gif' | 'file' = 'text', options?: {
 	gifUrl?: string;
 	fileUrl?: string;
 	fileName?: string;
 	fileSize?: number;
 	replyTo?: string;
 	isSpoiler?: boolean;
-}): void {
-	socketManager.emit('message', { channelId, text, type, ...options });
+}): Promise<void> {
+	const payload: Record<string, any> = { channelId, text, type, ...options };
+
+	// Attempt E2E encryption for text DMs
+	if (type === 'text' && isE2EAvailable()) {
+		const channelList = get(channels);
+		const channel = channelList.find(ch => ch.id === channelId);
+		if (channel?.type === 'dm' && channel.otherUser?.dbUserId) {
+			const token = browser ? localStorage.getItem('authToken') : null;
+			if (token) {
+				const encrypted = await encryptDMMessage(text, channel.otherUser.dbUserId, token);
+				if (encrypted) {
+					payload.text = encrypted.text;
+					payload.encrypted = encrypted.encrypted;
+					payload.iv = encrypted.iv;
+				}
+			}
+		}
+	}
+
+	socketManager.emit('message', payload);
 }
 
 export function editMessage(channelId: string, messageId: string, newText: string): void {
@@ -1324,13 +1467,51 @@ export function createDM(targetUserId: string): void {
 	socketManager.emit('create-dm', { targetUserId });
 }
 
+// Get the stable DM channel ID for a user pair.
+// Uses dbUserId for registered users, socket.id for guests.
+export function getDMChannelIdForUser(myUser: User | null, targetUser: User): string {
+	const myStableId = myUser?.dbUserId ? `user-${myUser.dbUserId}` : myUser?.id || '';
+	const targetStableId = targetUser.dbUserId ? `user-${targetUser.dbUserId}` : targetUser.id;
+	const memberIds = [myStableId, targetStableId].sort();
+	return `dm-${memberIds.join('-')}`;
+}
+
+export function deleteDM(channelId: string): void {
+	socketManager.emit('delete-dm', { channelId });
+}
+
+export function assignRole(targetUserId: number, roleName: string): void {
+	socketManager.emit('assign-role', { targetUserId, roleName });
+}
+
+export function removeUserRole(targetUserId: number, roleName: string): void {
+	socketManager.emit('remove-role', { targetUserId, roleName });
+}
+
 export function createGroup(name: string, memberIds: string[]): void {
 	socketManager.emit('create-group', { name, memberIds });
+}
+
+export function leaveGroup(channelId: string): void {
+	socketManager.emit('leave-group', { channelId });
+}
+
+export function kickGroupMember(channelId: string, targetUserId: string): void {
+	socketManager.emit('kick-group-member', { channelId, targetUserId });
+}
+
+export function addGroupMember(channelId: string, userId: string): void {
+	socketManager.emit('add-group-member', { channelId, userId });
+}
+
+export function updateGroupAvatar(channelId: string, avatarUrl: string | null): void {
+	socketManager.emit('update-group-avatar', { channelId, avatarUrl });
 }
 
 export function updateChannelSettings(channelId: string, settings: {
 	autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
 	persistMessages?: boolean;
+	description?: string;
 }): void {
 	socketManager.emit('update-channel-settings', { channelId, ...settings });
 }

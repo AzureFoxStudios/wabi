@@ -18,6 +18,8 @@ export interface DbMessage {
 	is_pinned: number;
 	is_edited: number;
 	reactions_json?: string;
+	is_encrypted?: number;
+	encryption_iv?: string;
 	created_at: number;
 	deleted_at?: number;
 }
@@ -43,6 +45,8 @@ export interface ClientMessage {
 	isSpoiler?: boolean;
 	isPinned?: boolean;
 	isEdited?: boolean;
+	encrypted?: boolean;
+	iv?: string;
 	reactions?: Record<string, string[]>;
 	color?: string;
 }
@@ -54,9 +58,10 @@ export class MessageRepository {
 			INSERT INTO messages (
 				message_id, channel_id, sender_id, sender_username, sender_color,
 				message_type, content, gif_url, file_url, file_name, file_size,
-				reply_to_id, is_spoiler, is_pinned, is_edited, reactions_json, created_at
+				reply_to_id, is_spoiler, is_pinned, is_edited, reactions_json,
+				is_encrypted, encryption_iv, created_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`);
 
 		const info = stmt.run(
@@ -76,6 +81,8 @@ export class MessageRepository {
 			message.is_pinned || 0,
 			message.is_edited || 0,
 			message.reactions_json || null,
+			message.is_encrypted || 0,
+			message.encryption_iv || null,
 			message.created_at
 		);
 
@@ -197,6 +204,8 @@ export class MessageRepository {
 		if (dbMsg.is_spoiler) msg.isSpoiler = true;
 		if (dbMsg.is_pinned) msg.isPinned = true;
 		if (dbMsg.is_edited) msg.isEdited = true;
+		if (dbMsg.is_encrypted) msg.encrypted = true;
+		if (dbMsg.encryption_iv) msg.iv = dbMsg.encryption_iv;
 		if (dbMsg.sender_color) msg.color = dbMsg.sender_color;
 
 		if (dbMsg.reactions_json) {

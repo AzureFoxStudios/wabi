@@ -1,13 +1,12 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, pinnedChannels, pinChannel, unpinChannel, users, socket } from '$lib/socket';
-	import { startCall, startScreenShare } from '$lib/calling';
+	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, pinnedChannels, pinChannel, unpinChannel } from '$lib/socket';
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
-	import DMListPanel from './DMListPanel.svelte';
-	import type { Channel, User } from '$lib/socket';
+	import type { Channel } from '$lib/socket';
 	import { longpress } from '$lib/actions/longpress';
+	import { layoutStore } from '$lib/layoutStore';
 
 	const dispatch = createEventDispatcher();
 
@@ -21,6 +20,7 @@
 	export let activeView: 'chat' | 'screen' = 'chat';
 
 	let newChannelName = '';
+	let newChannelDescription = '';
 	let showCreateInput = false;
 	let showSettings = false;
 	let isMuted = false;
@@ -33,48 +33,17 @@
 	let showChannelSettingsModal = false;
 	let selectedChannelForSettings: Channel | null = null;
 
-	// Sidebar width management - 3 modes: normal (280px), compact (60px), hidden (0px)
-	export let sidebarWidth = 280;
-	let isResizing = false;
-	let startX = 0;
-	let startWidth = 0;
+	// Sidebar width from layout store - 3 modes: normal (280px), compact (60px), hidden (0px)
+	$: sidebarWidth = $layoutStore.channelSidebarWidth;
 
 	// Context menu state
 	let contextMenuChannel: Channel | null = null;
 	let contextMenuPosition = { x: 0, y: 0 };
 	let showContextMenu = false;
 
-	function startResize(e: MouseEvent) {
-		isResizing = true;
-		startX = e.clientX;
-		startWidth = sidebarWidth;
-		document.addEventListener('mousemove', handleResize);
-		document.addEventListener('mouseup', stopResize);
-	}
-
-	function handleResize(e: MouseEvent) {
-		if (!isResizing) return;
-		const delta = e.clientX - startX;
-		sidebarWidth = Math.max(0, startWidth + delta);
-	}
-
-	function stopResize() {
-		isResizing = false;
-		document.removeEventListener('mousemove', handleResize);
-		document.removeEventListener('mouseup', stopResize);
-
-		// Snap to nearest mode
-		if (sidebarWidth < 30) {
-			sidebarWidth = 0; // Hidden
-		} else if (sidebarWidth < 170) {
-			sidebarWidth = 60; // Compact
-		} else {
-			sidebarWidth = 280; // Normal
-		}
-	}
-
 	function toggleSidebar() {
-		sidebarWidth = sidebarWidth === 0 ? 280 : 0;
+		const current = $layoutStore.channelSidebarWidth;
+		layoutStore.channelSidebarWidth.set(current === 0 ? 280 : 0);
 	}
 
 	function handleLogout() {
@@ -104,8 +73,9 @@
 
 	function handleCreateChannel() {
 		if (newChannelName.trim()) {
-			createChannel(newChannelName.trim());
+			createChannel(newChannelName.trim(), newChannelDescription.trim());
 			newChannelName = '';
+			newChannelDescription = '';
 			showCreateInput = false;
 		}
 	}
@@ -126,10 +96,12 @@
 	}
 
 	let tempPersistMessages = false;
+	let tempDescription = '';
 
 	function handleOpenChannelSettings(channel: Channel) {
 		selectedChannelForSettings = channel;
 		tempPersistMessages = channel.persistMessages || false;
+		tempDescription = channel.description || '';
 		showChannelSettingsModal = true;
 	}
 
@@ -137,7 +109,19 @@
 		if (selectedChannelForSettings) {
 			updateChannelSettings(selectedChannelForSettings.id, {
 				autoDeleteAfter,
-				persistMessages: tempPersistMessages
+				persistMessages: tempPersistMessages,
+				description: tempDescription
+			});
+			showChannelSettingsModal = false;
+		}
+	}
+
+	function handleSaveChannelSettings() {
+		if (selectedChannelForSettings) {
+			updateChannelSettings(selectedChannelForSettings.id, {
+				autoDeleteAfter: selectedChannelForSettings.autoDeleteAfter || null,
+				persistMessages: tempPersistMessages,
+				description: tempDescription
 			});
 			showChannelSettingsModal = false;
 		}
@@ -194,43 +178,13 @@
 		closeContextMenu();
 	}
 
-	// ===== TEMPORARY: Quick User List Below Channels =====
-	// TODO: This is temporary for quick access to user calls
-	// Should be removed or refactored into a separate component
-
-	async function handleQuickVoiceCall(user: User) {
-		if (!$socket || user.id === $currentUser?.id) return;
-		try {
-			await startCall($socket, user.id, false);
-		} catch (error) {
-			alert('Failed to start voice call. Please check microphone permissions.');
-		}
-	}
-
-	async function handleQuickVideoCall(user: User) {
-		if (!$socket || user.id === $currentUser?.id) return;
-		try {
-			await startCall($socket, user.id, true);
-		} catch (error) {
-			alert('Failed to start video call. Please check camera and microphone permissions.');
-		}
-	}
-
-	async function handleQuickScreenShare(user: User) {
-		if (!$socket || user.id === $currentUser?.id) return;
-		try {
-			await startScreenShare($socket);
-		} catch (error) {
-			alert('Failed to start screen share. Please grant screen sharing permissions.');
-		}
-	}
 </script>
 
 {#if sidebarWidth === 0}
 	<button class="expand-btn" on:click={toggleSidebar} title="Expand sidebar">›</button>
 {/if}
 
-<div class="channel-sidebar" style="width: {sidebarWidth}px">
+<div class="channel-sidebar" style="width: {$layoutStore.channelSidebarWidth}px">
 	<div class="top-section">
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
 		<div class="logo">
@@ -258,8 +212,6 @@
 		</div>
 	</div>
 
-	<div class="resize-handle" on:mousedown={startResize}></div>
-
 	{#if showCreateInput}
 		<div class="create-channel">
 			<input
@@ -268,6 +220,12 @@
 				placeholder="channel-name"
 				on:keydown={(e) => e.key === 'Enter' && handleCreateChannel()}
 				autofocus
+			/>
+			<input
+				type="text"
+				bind:value={newChannelDescription}
+				placeholder="Description (optional)"
+				on:keydown={(e) => e.key === 'Enter' && handleCreateChannel()}
 			/>
 			<button on:click={handleCreateChannel}>Create</button>
 		</div>
@@ -334,53 +292,6 @@
 		{/if}
 	</div>
 
-	<!-- TEMPORARY DM List Panel -->
-	<DMListPanel />
-
-	<!-- ===== TEMPORARY: Quick User List Below Channels ===== -->
-	<!-- TODO: This is temporary - should be removed or refactored -->
-	<div class="temp-user-list">
-		<div class="temp-section-header">Users Online</div>
-		{#each $users.filter(u => u.id !== $currentUser?.id) as user (user.id)}
-			<div class="temp-user-item">
-				<div class="temp-user-info">
-					{#if user.profilePicture}
-						<img src={user.profilePicture} alt={user.username} class="temp-user-avatar" />
-					{:else}
-						<div class="temp-user-avatar-placeholder" style="background-color: {user.color}">
-							{user.username.charAt(0).toUpperCase()}
-						</div>
-					{/if}
-					<span class="temp-user-name">{user.username}</span>
-				</div>
-				<div class="temp-user-actions">
-					<button
-						class="temp-action-btn"
-						on:click={() => handleQuickVoiceCall(user)}
-						title="Voice call"
-					>
-						📞
-					</button>
-					<button
-						class="temp-action-btn"
-						on:click={() => handleQuickVideoCall(user)}
-						title="Video call"
-					>
-						📹
-					</button>
-					<button
-						class="temp-action-btn"
-						on:click={() => handleQuickScreenShare(user)}
-						title="Share screen"
-					>
-						📺
-					</button>
-				</div>
-			</div>
-		{/each}
-	</div>
-	<!-- ===== END TEMPORARY ===== -->
-
 	{#if showContextMenu && contextMenuChannel}
 		<div
 			class="context-menu"
@@ -391,11 +302,23 @@
 		>
 			<button class="context-menu-item" on:click={togglePinChannel}>
 				{#if isChannelPinned(contextMenuChannel)}
-					📌 Unpin Channel
+					Unpin Channel
 				{:else}
-					📌 Pin Channel
+					Pin Channel
 				{/if}
 			</button>
+			<button class="context-menu-item" on:click={() => { if (contextMenuChannel) handleShowPinnedMessages(contextMenuChannel.id); closeContextMenu(); }}>
+				Pinned Messages
+			</button>
+			<button class="context-menu-item" on:click={() => { if (contextMenuChannel) handleOpenChannelSettings(contextMenuChannel); closeContextMenu(); }}>
+				Channel Settings
+			</button>
+			{#if contextMenuChannel.id !== 'general'}
+				<div class="context-menu-separator"></div>
+				<button class="context-menu-item danger" on:click={() => { if (contextMenuChannel) handleDeleteChannel(contextMenuChannel.id); closeContextMenu(); }}>
+					Delete Channel
+				</button>
+			{/if}
 		</div>
 	{/if}
 
@@ -429,7 +352,7 @@
 					>
 						{$currentUser.username}
 					</div>
-					<div class="user-tag">#{$currentUser.id.slice(0, 4)}</div>
+					<div class="user-tag">{$currentUser.handle ? `@${$currentUser.handle}` : `#${$currentUser.id.slice(-4)}`}</div>
 				</div>
 			</div>
 
@@ -538,6 +461,20 @@
 			<div class="modal-body">
 				<div class="setting-section">
 					<h3>Channel: #{selectedChannelForSettings.name}</h3>
+
+					<div class="setting-group">
+						<label>Description</label>
+						<input
+							type="text"
+							bind:value={tempDescription}
+							placeholder="Add a channel description..."
+							class="description-input"
+							maxlength="200"
+						/>
+						<button class="save-description-btn" on:click={handleSaveChannelSettings}>
+							Save Settings
+						</button>
+					</div>
 
 					<div class="setting-group">
 						<label>Auto-Delete Messages</label>
@@ -674,16 +611,6 @@
 		transition: width 0.2s ease;
 		position: relative;
 		z-index: 50;
-	}
-
-	.resize-handle {
-		position: absolute;
-		right: -4px;
-		top: 0;
-		width: 8px;
-		height: 100%;
-		cursor: col-resize;
-		z-index: 5;
 	}
 
 	/* Compact mode: show only letters */
@@ -1420,6 +1347,33 @@
 		border-color: var(--accent);
 	}
 
+	.description-input {
+		width: 100%;
+		padding: 0.75rem;
+		border-radius: 6px;
+		border: 1px solid var(--border);
+		background: var(--bg-primary);
+		color: var(--text-primary);
+		font-size: var(--text-base);
+		box-sizing: border-box;
+	}
+
+	.save-description-btn {
+		padding: 0.625rem 1.25rem;
+		background: var(--accent);
+		border: none;
+		border-radius: 6px;
+		color: white;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		margin-top: 0.5rem;
+	}
+
+	.save-description-btn:hover {
+		opacity: 0.9;
+	}
+
 	.settings-btn {
 		background: transparent;
 		border: none;
@@ -1501,7 +1455,22 @@
 
 	.context-menu-item:hover {
 		background: var(--accent);
-		color: var(--text-primary);
+		color: white;
+	}
+
+	.context-menu-item.danger {
+		color: #f44336;
+	}
+
+	.context-menu-item.danger:hover {
+		background: #f44336;
+		color: white;
+	}
+
+	.context-menu-separator {
+		height: 1px;
+		background: var(--border);
+		margin: 4px 0;
 	}
 
 	.pin-icon {
@@ -1634,28 +1603,6 @@
 			font-size: 0.8rem;
 		}
 
-		/* Temp user list mobile */
-		.temp-user-item {
-			padding: 0.5rem 0.75rem;
-			min-height: 52px;
-		}
-
-		.temp-user-avatar,
-		.temp-user-avatar-placeholder {
-			width: 36px;
-			height: 36px;
-		}
-
-		.temp-user-name {
-			font-size: 1rem;
-		}
-
-		.temp-action-btn {
-			width: 44px;
-			height: 44px;
-			font-size: 1.2rem;
-		}
-
 		/* Modal adjustments */
 		.modal-content {
 			width: 95%;
@@ -1726,93 +1673,5 @@
 			height: 40px;
 		}
 	}
-
-	/* ===== TEMPORARY: Quick User List Styles ===== */
-	.temp-user-list {
-		border-top: 1px solid var(--border);
-		padding: 0.5rem;
-		max-height: 200px;
-		overflow-y: auto;
-	}
-
-	.temp-section-header {
-		font-size: var(--text-xs);
-		font-weight: 600;
-		text-transform: uppercase;
-		color: var(--text-secondary);
-		padding: 0.5rem;
-	}
-
-	.temp-user-item {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0.375rem 0.5rem;
-		border-radius: 4px;
-		transition: background 0.2s;
-	}
-
-	.temp-user-item:hover {
-		background: var(--bg-secondary);
-	}
-
-	.temp-user-info {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		min-width: 0;
-		flex: 1;
-	}
-
-	.temp-user-avatar,
-	.temp-user-avatar-placeholder {
-		width: 24px;
-		height: 24px;
-		border-radius: 50%;
-		flex-shrink: 0;
-	}
-
-	.temp-user-avatar-placeholder {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: var(--text-xs);
-		font-weight: 600;
-		color: white;
-	}
-
-	.temp-user-name {
-		font-size: var(--text-sm);
-		color: var(--text-primary);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.temp-user-actions {
-		display: flex;
-		gap: 0.25rem;
-		flex-shrink: 0;
-	}
-
-	.temp-action-btn {
-		width: 28px;
-		height: 28px;
-		padding: 0;
-		background: transparent;
-		border: none;
-		border-radius: 4px;
-		cursor: pointer;
-		font-size: 1rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: background 0.2s;
-	}
-
-	.temp-action-btn:hover {
-		background: var(--accent);
-	}
-	/* ===== END TEMPORARY STYLES ===== */
 
 </style>

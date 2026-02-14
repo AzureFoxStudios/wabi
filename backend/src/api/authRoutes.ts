@@ -2,6 +2,7 @@ import { IncomingMessage, ServerResponse } from 'http';
 import { userRepository } from '../db/repositories/userRepository.js';
 import { sessionRepository } from '../db/repositories/sessionRepository.js';
 import { settingsRepository } from '../db/repositories/settingsRepository.js';
+import { encryptionKeyRepository } from '../db/repositories/encryptionKeyRepository.js';
 import { hashPassword, verifyPassword } from '../auth/passwordHash.js';
 import { generateToken, verifyToken } from '../auth/jwt.js';
 
@@ -19,6 +20,14 @@ function getAuthenticatedUserId(req: IncomingMessage): number | null {
 		if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
 			return null;
 		}
+
+		// Verify the user still exists in the database
+		const user = userRepository.findById(payload.userId);
+		if (!user) {
+			console.log('[Auth] User deleted but session still exists:', payload.userId);
+			return null;
+		}
+
 		return payload.userId;
 	} catch {
 		return null;
@@ -111,13 +120,24 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 		}
 
 		const body = await parseBody(req);
-		const { username, password } = body;
+		const { username, password, handle: rawHandle } = body;
 
 		// Validate input
 		const validation = validateInput(username, password);
 		if (!validation.valid) {
 			res.writeHead(400, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: validation.error }));
+			return;
+		}
+
+		// Validate and normalize handle
+		const handle = rawHandle
+			? rawHandle.replace(/^@/, '').toLowerCase()
+			: username.replace(/\s+/g, '').toLowerCase();
+
+		if (!/^[a-z][a-z0-9_]{1,31}$/.test(handle)) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Handle must start with a letter, be 2-32 chars, and contain only lowercase letters, numbers, and underscores' }));
 			return;
 		}
 
@@ -128,10 +148,18 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 			return;
 		}
 
+		// Check if handle already exists
+		if (userRepository.findByHandle(handle)) {
+			res.writeHead(409, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Handle already taken' }));
+			return;
+		}
+
 		// Hash password and create user
 		const passwordHash = await hashPassword(password);
 		const user = userRepository.create({
 			username,
+			handle,
 			password_hash: passwordHash,
 			created_at: Date.now(),
 			color: generateColor()
@@ -169,6 +197,7 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 				user: {
 					id: user.user_id,
 					username: user.username,
+					handle: user.handle,
 					color: user.color,
 					profilePicture: user.profile_picture,
 					isRegistered: true
@@ -177,8 +206,17 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 		);
 	} catch (error) {
 		console.error('[Auth] Register error:', error);
-		res.writeHead(500, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({ error: 'Registration failed' }));
+		const msg = error instanceof Error ? error.message : '';
+		if (msg.includes('UNIQUE constraint failed') && msg.includes('handle')) {
+			res.writeHead(409, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Handle already taken' }));
+		} else if (msg.includes('UNIQUE constraint failed') && msg.includes('username')) {
+			res.writeHead(409, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Username already taken' }));
+		} else {
+			res.writeHead(500, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Registration failed — please try again' }));
+		}
 	}
 }
 
@@ -197,24 +235,32 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 		const body = await parseBody(req);
 		const { username, password } = body;
 
+		console.log('[Auth] Login attempt for:', username);
+
 		// Validate input
 		if (!username || !password) {
+			console.log('[Auth] Missing username or password');
 			res.writeHead(400, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ error: 'Username and password required' }));
+			res.end(JSON.stringify({ error: 'Username or handle and password required' }));
 			return;
 		}
 
-		// Find user
-		const user = userRepository.findByUsername(username);
+		// Find user by handle or username
+		const user = userRepository.findByHandleOrUsername(username);
 		if (!user) {
+			console.log('[Auth] User not found for:', username);
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Invalid credentials' }));
 			return;
 		}
 
+		console.log('[Auth] User found:', user.user_id, user.username);
+
 		// Verify password
 		const isValid = await verifyPassword(password, user.password_hash);
+		console.log('[Auth] Password verification result:', isValid);
 		if (!isValid) {
+			console.log('[Auth] Password mismatch for user:', username);
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Invalid credentials' }));
 			return;
@@ -247,6 +293,7 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 				user: {
 					id: user.user_id,
 					username: user.username,
+					handle: user.handle,
 					color: user.color,
 					profilePicture: user.profile_picture,
 					isRegistered: true
@@ -255,8 +302,14 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 		);
 	} catch (error) {
 		console.error('[Auth] Login error:', error);
-		res.writeHead(500, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({ error: 'Login failed' }));
+		const msg = error instanceof Error ? error.message : '';
+		if (msg.includes('no such column') || msg.includes('handle')) {
+			res.writeHead(500, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Server database needs migration' }));
+		} else {
+			res.writeHead(500, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Login failed' }));
+		}
 	}
 }
 
@@ -294,10 +347,21 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 			return;
 		}
 
+		// Generate handle from username
+		const handle = tempSession.username.replace(/\s+/g, '').toLowerCase();
+
+		// Check if handle already taken
+		if (userRepository.findByHandle(handle)) {
+			res.writeHead(409, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Handle already taken — please register with a different username' }));
+			return;
+		}
+
 		// Hash password and create registered user
 		const passwordHash = await hashPassword(password);
 		const user = userRepository.create({
 			username: tempSession.username,
+			handle,
 			password_hash: passwordHash,
 			created_at: tempSession.created_at,
 			color: tempSession.color,
@@ -338,6 +402,7 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 				user: {
 					id: user.user_id,
 					username: user.username,
+					handle: user.handle,
 					color: user.color,
 					profilePicture: user.profile_picture,
 					isRegistered: true
@@ -373,6 +438,68 @@ export async function handleGetUserSettings(req: IncomingMessage, res: ServerRes
 		console.error('[Auth] Get settings error:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ error: 'Failed to load settings' }));
+	}
+}
+
+// Get public key for a user
+export async function handleGetPublicKey(req: IncomingMessage, res: ServerResponse, userId: number): Promise<void> {
+	try {
+		const authUserId = getAuthenticatedUserId(req);
+		if (!authUserId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Not authenticated' }));
+			return;
+		}
+
+		const publicKey = encryptionKeyRepository.getPublicKey(userId);
+		if (!publicKey) {
+			res.writeHead(404, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'No encryption keys found for this user' }));
+			return;
+		}
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ publicKey }));
+	} catch (error) {
+		console.error('[Auth] Get public key error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to get public key' }));
+	}
+}
+
+// Store or update encryption keys for the authenticated user
+export async function handleStoreEncryptionKeys(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		const userId = getAuthenticatedUserId(req);
+		if (!userId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Not authenticated' }));
+			return;
+		}
+
+		const body = await parseBody(req);
+		const { publicKey, privateKeyEncrypted } = body;
+
+		if (!publicKey || !privateKeyEncrypted) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'publicKey and privateKeyEncrypted are required' }));
+			return;
+		}
+
+		// Create or update encryption keys
+		if (encryptionKeyRepository.hasKeys(userId)) {
+			encryptionKeyRepository.update(userId, publicKey, privateKeyEncrypted);
+			res.writeHead(200, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ success: true }));
+		} else {
+			encryptionKeyRepository.create(userId, publicKey, privateKeyEncrypted);
+			res.writeHead(201, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ success: true }));
+		}
+	} catch (error) {
+		console.error('[Auth] Store encryption keys error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to store encryption keys' }));
 	}
 }
 

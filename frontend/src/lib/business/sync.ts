@@ -16,19 +16,21 @@ import {
 // Sync state
 let isSyncing = false;
 let isOnline = browser && navigator.onLine;
-let syncInterval: ReturnType<typeof setInterval> | null = null;
 let debounceTimeout: ReturnType<typeof setTimeout> | null = null;
-const SYNC_INTERVAL_MS = 30000; // Sync every 30 seconds when online
 const DEBOUNCE_MS = 1000; // Wait 1 second after last change before syncing
+
+function hasAuthToken(): boolean {
+	return browser && !!localStorage.getItem('authToken');
+}
 
 // Load business data from server
 export async function pullFromServer(): Promise<boolean> {
-	if (!browser || isSyncing) return false;
+	if (!browser || isSyncing || !hasAuthToken()) return false;
 
 	try {
 		isSyncing = true;
 		const serverUrl = getServerUrl();
-		const token = browser ? localStorage.getItem('authToken') : null;
+		const token = localStorage.getItem('authToken');
 
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort(), 8000);
@@ -82,13 +84,13 @@ export async function pullFromServer(): Promise<boolean> {
 
 // Push business data to server
 export async function pushToServer(): Promise<boolean> {
-	if (!browser || isSyncing) return false;
+	if (!browser || isSyncing || !hasAuthToken()) return false;
 
 	try {
 		isSyncing = true;
 		const serverUrl = getServerUrl();
-		const token = browser ? localStorage.getItem('authToken') : null;
-		const guestCode = browser ? sessionStorage.getItem('guestAccessCode') : null;
+		const token = localStorage.getItem('authToken');
+		const guestCode = sessionStorage.getItem('guestAccessCode');
 
 		const data = {
 			todos: get(todos),
@@ -142,8 +144,7 @@ export async function pushToServer(): Promise<boolean> {
 
 // Sync: push then pull (local changes take priority)
 export async function sync(pullFirst: boolean = false): Promise<boolean> {
-	if (!isOnline) {
-		console.log('⚠️ Offline - skipping sync');
+	if (!isOnline || !hasAuthToken()) {
 		return false;
 	}
 
@@ -155,8 +156,7 @@ export async function sync(pullFirst: boolean = false): Promise<boolean> {
 		const pushed = await pushToServer();
 		return pulled || pushed;
 	} else {
-		// During auto-sync, push first to save local changes
-		// This prevents losing local changes that haven't been synced yet
+		// Push local changes to server
 		const pushed = await pushToServer();
 		return pushed;
 	}
@@ -164,7 +164,7 @@ export async function sync(pullFirst: boolean = false): Promise<boolean> {
 
 // Trigger sync with debouncing - call this after any data change
 export function triggerSync(): void {
-	if (!browser || !isOnline) return;
+	if (!browser || !isOnline || !hasAuthToken()) return;
 
 	// Clear existing timeout
 	if (debounceTimeout) {
@@ -182,13 +182,11 @@ function handleOnline() {
 	console.log('🌐 Connection restored - syncing...');
 	isOnline = true;
 	sync(true); // Pull first when coming back online
-	startAutoSync();
 }
 
 function handleOffline() {
 	console.log('📡 Connection lost - working offline');
 	isOnline = false;
-	stopAutoSync();
 }
 
 // Socket.io listeners for real-time updates
@@ -235,30 +233,15 @@ function setupSocketListeners() {
 	}
 }
 
-// Auto-sync when online
-function startAutoSync() {
-	if (syncInterval) return; // Already running
-
-	syncInterval = setInterval(() => {
-		if (isOnline) {
-			sync();
-		}
-	}, SYNC_INTERVAL_MS);
-
-	console.log('🔄 Auto-sync started (every 30s)');
-}
-
-function stopAutoSync() {
-	if (syncInterval) {
-		clearInterval(syncInterval);
-		syncInterval = null;
-		console.log('⏸️ Auto-sync stopped');
-	}
-}
-
 // Initialize sync engine
 export function initSync() {
 	if (!browser) return;
+
+	// Skip sync entirely if not authenticated
+	if (!hasAuthToken()) {
+		console.log('⏭️ No auth token — skipping business sync init');
+		return;
+	}
 
 	// Set up online/offline listeners
 	window.addEventListener('online', handleOnline);
@@ -271,7 +254,6 @@ export function initSync() {
 	if (isOnline) {
 		console.log('🌐 Online - performing initial sync...');
 		sync(true); // Pull first on initial load to get server state
-		startAutoSync();
 	} else {
 		console.log('📡 Offline - working in offline mode');
 	}
@@ -283,7 +265,11 @@ export function cleanupSync() {
 
 	window.removeEventListener('online', handleOnline);
 	window.removeEventListener('offline', handleOffline);
-	stopAutoSync();
+
+	if (debounceTimeout) {
+		clearTimeout(debounceTimeout);
+		debounceTimeout = null;
+	}
 
 	// Clean up socket listeners
 	if (listenerCleanup) {

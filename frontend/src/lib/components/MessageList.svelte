@@ -411,6 +411,11 @@
 		enlargedImage = currentImageGallery[currentImageIndex];
 	}
 	function handleImageKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape' && contextMenuVisible) {
+			e.preventDefault();
+			contextMenuVisible = false;
+			return;
+		}
 		if (!enlargedImage) return;
 		if (e.key === 'ArrowLeft') {
 			e.preventDefault();
@@ -601,7 +606,19 @@
 						<span class="reply-username">
 							{replyToMsg.user}
 						</span>
-						<span class="reply-text">{replyToMsg.text.substring(0, 100)}{replyToMsg.text.length > 100 ? '...' : ''}</span>
+						<span class="reply-text">
+							{#if replyToMsg.text}
+								{replyToMsg.text.substring(0, 100)}{replyToMsg.text.length > 100 ? '...' : ''}
+							{:else if replyToMsg.type === 'gif'}
+								GIF
+							{:else if replyToMsg.type === 'emoji'}
+								:{replyToMsg.emojiName || 'sticker'}:
+							{:else if replyToMsg.fileUrl}
+								{replyToMsg.fileName || 'File'}
+							{:else}
+								Message
+							{/if}
+						</span>
 					</div>
 				</div>
 			{/if}

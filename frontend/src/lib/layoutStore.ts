@@ -1,6 +1,6 @@
 // frontend/src/lib/layoutStore.ts
 import { writable, readable, derived, get } from 'svelte/store';
-import type { User } from './socket-types';
+import type { User, Channel } from './socket-types';
 import { isInCall } from '$lib/calling';
 
 // State
@@ -15,44 +15,61 @@ const isMobile = readable(false, (set) => {
 	return () => mql.removeEventListener('change', listener);
 });
 
-type RightPanelView = 'none' | 'dm-list' | 'dm';
+type RightPanelView = 'none' | 'users' | 'dms';
 const rightPanelView = writable<RightPanelView>('none');
+const activeRightTab = writable<'users' | 'dms'>('users');
 const showMobileChannels = writable(false);
 
-const channelSidebarWidth = writable(240);
-const userPanelWidth = writable(250);
-const dmPanelWidth = writable(350);
+const channelSidebarWidth = writable(280);
+const rightPanelWidth = writable(320);
 
 const isResizingChannel = writable(false);
-const isResizingUser = writable(false);
-const isResizingDM = writable(false);
+const isResizingRight = writable(false);
 
-const dmChannelId = writable<string | null>(null);
+const selectedDmChannelId = writable<string | null>(null);
 const dmOtherUser = writable<User | null>(null);
+const selectedGroupChannel = writable<Channel | null>(null);
 
 // Actions
-const toggleDesktopUserPanel = () => {
+const toggleRightPanel = () => {
 	rightPanelView.update((current) => {
-		const newValue = current === 'dm-list' ? 'none' : 'dm-list';
-		console.log('[layoutStore] toggleDesktopUserPanel:', current, '->', newValue);
-		return newValue;
+		if (current === 'none') {
+			return get(activeRightTab);
+		}
+		return 'none';
 	});
 };
 
+const showUsersTab = () => {
+	activeRightTab.set('users');
+	rightPanelView.set('users');
+};
+
+const showDMsTab = () => {
+	activeRightTab.set('dms');
+	rightPanelView.set('dms');
+};
+
 const openDM = (channelIdStr: string, otherUserObj: User) => {
-	dmChannelId.set(channelIdStr);
+	selectedDmChannelId.set(channelIdStr);
 	dmOtherUser.set(otherUserObj);
-	rightPanelView.set('dm');
+	selectedGroupChannel.set(null);
+	activeRightTab.set('dms');
+	rightPanelView.set('dms');
+};
+
+const openGroupDM = (channelIdStr: string, channel: Channel) => {
+	selectedDmChannelId.set(channelIdStr);
+	dmOtherUser.set(null);
+	selectedGroupChannel.set(channel);
+	activeRightTab.set('dms');
+	rightPanelView.set('dms');
 };
 
 const closeDM = () => {
-	dmChannelId.set(null);
+	selectedDmChannelId.set(null);
 	dmOtherUser.set(null);
-	rightPanelView.update(current => get(isMobile) ? 'dm-list' : 'none');
-};
-
-const handleDMPanelBack = () => {
-	rightPanelView.set('dm-list');
+	selectedGroupChannel.set(null);
 };
 
 const toggleMobileChannels = () => {
@@ -64,76 +81,73 @@ const toggleMobileChannels = () => {
 
 const toggleMobileUsers = () => {
 	rightPanelView.update(current => {
-		if (current === 'dm-list' || current === 'dm') {
+		if (current !== 'none') {
 			return 'none';
 		} else {
 			showMobileChannels.set(false);
-			return 'dm-list';
+			return get(activeRightTab);
 		}
 	});
 };
 
 const resetPanelsOnDesktop = () => {
-    if(!get(isMobile)) {
-        rightPanelView.set('none');
-    }
-}
+	if (!get(isMobile)) {
+		rightPanelView.set('none');
+	}
+};
 
 // Derived stores
 const isResizing = derived(
-	[isResizingChannel, isResizingUser, isResizingDM],
-	([$isResizingChannel, $isResizingUser, $isResizingDM]) =>
-		$isResizingChannel || $isResizingUser || $isResizingDM
+	[isResizingChannel, isResizingRight],
+	([$isResizingChannel, $isResizingRight]) =>
+		$isResizingChannel || $isResizingRight
 );
 
 const layout = derived(
-	[isMobile, rightPanelView, showMobileChannels, userPanelWidth, dmPanelWidth, isInCall],
-	([$isMobile, $rightPanelView, $showMobileChannels, $userPanelWidth, $dmPanelWidth, $isInCall]) => {
-		const showDMListPanel = !$isMobile && $rightPanelView === 'dm-list';
-		const showDMPanel = !$isMobile && $rightPanelView === 'dm';
-
-		console.log('[layoutStore] derived:', {
-			isMobile: $isMobile,
-			rightPanelView: $rightPanelView,
-			showDMListPanel,
-			showDMPanel,
-			userPanelWidth: $userPanelWidth
-		});
+	[isMobile, rightPanelView, showMobileChannels, channelSidebarWidth, rightPanelWidth, isInCall, activeRightTab, selectedDmChannelId, dmOtherUser, selectedGroupChannel, isResizing],
+	([$isMobile, $rightPanelView, $showMobileChannels, $channelSidebarWidth, $rightPanelWidth, $isInCall, $activeRightTab, $selectedDmChannelId, $dmOtherUser, $selectedGroupChannel, $isResizing]) => {
+		const showRightPanel = !$isMobile && $rightPanelView !== 'none';
 
 		return {
 			isMobile: $isMobile,
 			isInCall: $isInCall,
 			rightPanelView: $rightPanelView,
+			activeRightTab: $activeRightTab,
 			showMobileChannels: $isMobile && $showMobileChannels,
-			showDMListPanel,
-			showDMPanel,
-			userPanelWidth: $userPanelWidth,
-			dmPanelWidth: $dmPanelWidth,
-			toggleButtonRight: (showDMListPanel ? $userPanelWidth : 0) + (showDMPanel ? $dmPanelWidth : 0)
+			showRightPanel,
+			channelSidebarWidth: $channelSidebarWidth,
+			rightPanelWidth: $rightPanelWidth,
+			toggleButtonRight: showRightPanel ? $rightPanelWidth : 0,
+			selectedDmChannelId: $selectedDmChannelId,
+			dmOtherUser: $dmOtherUser,
+			selectedGroupChannel: $selectedGroupChannel,
+			isResizing: $isResizing
 		};
 	}
 );
 
 export const layoutStore = {
 	subscribe: layout.subscribe,
-    isResizing: { subscribe: isResizing.subscribe },
+	isResizing: { subscribe: isResizing.subscribe },
 	channelSidebarWidth,
-	userPanelWidth,
-	dmPanelWidth,
+	rightPanelWidth,
 	isResizingChannel,
-	isResizingUser,
-	isResizingDM,
-	dmChannelId,
+	isResizingRight,
+	selectedDmChannelId,
 	dmOtherUser,
-    rightPanelView,
-    showMobileChannels,
+	selectedGroupChannel,
+	rightPanelView,
+	activeRightTab,
+	showMobileChannels,
 
 	// Actions
-	toggleDesktopUserPanel,
+	toggleRightPanel,
+	showUsersTab,
+	showDMsTab,
 	openDM,
+	openGroupDM,
 	closeDM,
-	handleDMPanelBack,
 	toggleMobileChannels,
 	toggleMobileUsers,
-    resetPanelsOnDesktop,
+	resetPanelsOnDesktop,
 };

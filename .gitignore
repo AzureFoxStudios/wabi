@@ -67,3 +67,8 @@ tmpclaude-*.cwd
 # TURN server files
 turn-server/certs/
 turn-server/turnserver.conf
+
+# Data files (per-instance, never commit)
+data/business/
+data/chat.db
+.env.save
