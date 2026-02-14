@@ -8,10 +8,22 @@
 	import RightPanel from '$lib/components/RightPanel.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
+	import { channelMessages, channelUnreadCounts, channels, currentUser, users, type Channel, type User } from '$lib/socket';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 
 	$: mobileRightVisible = $layoutStore.isMobile && $layoutStore.rightPanelView !== 'none';
+	$: showDesktopNotificationRail = !$layoutStore.isMobile && !$layoutStore.showRightPanel;
+	$: totalUnreadDMs = Object.entries($channelUnreadCounts)
+		.filter(([channelId, count]) => channelId.startsWith('dm-') && count > 0)
+		.reduce((sum, [, count]) => sum + count, 0);
+	$: unreadDMChannels = $channels
+		.filter(channel => {
+			if (channel.type !== 'dm' && channel.type !== 'group') return false;
+			return ($channelUnreadCounts[channel.id] || 0) > 0;
+		})
+		.sort((a, b) => getLastMessageTimestamp(b.id) - getLastMessageTimestamp(a.id))
+		.slice(0, 6);
 
 	let resizingChannel = false;
 	let resizingRight = false;
@@ -48,6 +60,39 @@
 		}
 		layoutStore.isResizingChannel.set(false);
 		layoutStore.isResizingRight.set(false);
+	}
+
+	function getLastMessageTimestamp(channelId: string): number {
+		const messages = $channelMessages[channelId] || [];
+		return messages.length > 0 ? messages[messages.length - 1].timestamp : 0;
+	}
+
+	function getChannelOtherUser(channel: Channel): User | null {
+		if (channel.otherUser) return channel.otherUser;
+		const myStableId = $currentUser?.dbUserId ? `user-${$currentUser.dbUserId}` : $currentUser?.id;
+		const otherStableId = (channel.members || []).find((id: string) => id !== myStableId);
+		if (!otherStableId) return null;
+		if (otherStableId.startsWith('user-')) {
+			const dbId = parseInt(otherStableId.substring(5), 10);
+			return $users.find(u => u.dbUserId === dbId) || null;
+		}
+		return $users.find(u => u.id === otherStableId) || null;
+	}
+
+	function openUnreadDM(channel: Channel) {
+		if (channel.type === 'group') {
+			layoutStore.openGroupDM(channel.id, channel);
+			return;
+		}
+		const other = getChannelOtherUser(channel);
+		if (other) {
+			layoutStore.openDM(channel.id, other);
+		}
+	}
+
+	function formatUnreadBadge(count: number): string {
+		if (count > 99) return '99+';
+		return `${count}`;
 	}
 </script>
 
@@ -124,6 +169,8 @@
 	{#if !$layoutStore.isMobile && !$layoutStore.showRightPanel}
 		<button
 			class="user-panel-toggle"
+			class:has-unread={totalUnreadDMs > 0}
+			data-unread={totalUnreadDMs > 99 ? '99+' : totalUnreadDMs}
 			on:click={layoutStore.toggleRightPanel}
 			title="Open side panel"
 		>
@@ -131,6 +178,37 @@
 				<polyline points="15 18 9 12 15 6"/>
 			</svg>
 		</button>
+
+		{#if showDesktopNotificationRail && unreadDMChannels.length > 0}
+			<div class="dm-notification-rail" aria-label="Unread direct messages">
+				{#each unreadDMChannels as channel, index (channel.id)}
+					<button
+						class="dm-notification-stub"
+						style={`animation-delay: ${index * 0.04}s`}
+						on:click={() => openUnreadDM(channel)}
+						title={channel.type === 'group' ? `Open ${channel.name}` : `Open DM with ${getChannelOtherUser(channel)?.username || 'user'}`}
+					>
+						{#if channel.type === 'group'}
+							{#if channel.avatar}
+								<img src={channel.avatar} alt={channel.name} class="dm-stub-avatar" />
+							{:else}
+								<div class="dm-stub-avatar dm-stub-fallback">{channel.name.charAt(0).toUpperCase()}</div>
+							{/if}
+						{:else}
+							{@const other = getChannelOtherUser(channel)}
+							{#if other?.profilePicture}
+								<img src={other.profilePicture} alt={other.username} class="dm-stub-avatar" />
+							{:else}
+								<div class="dm-stub-avatar dm-stub-fallback" style="background-color: {other?.roleColor || other?.color || 'var(--text-secondary)'}">
+									{other?.username?.charAt(0).toUpperCase() || '?'}
+								</div>
+							{/if}
+						{/if}
+						<span class="dm-stub-count">{formatUnreadBadge($channelUnreadCounts[channel.id] || 0)}</span>
+					</button>
+				{/each}
+			</div>
+		{/if}
 	{/if}
 </div>
 <CallModal />
@@ -223,6 +301,109 @@
 		align-items: center;
 		justify-content: center;
 	}
+
+	.user-panel-toggle.has-unread::after {
+		content: attr(data-unread);
+		position: absolute;
+		top: 6px;
+		left: 4px;
+		min-width: 16px;
+		height: 16px;
+		padding: 0 4px;
+		border-radius: 999px;
+		background: #ef4444;
+		color: #fff;
+		font-size: 0.68rem;
+		font-weight: 700;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		line-height: 1;
+	}
+
+	.dm-notification-rail {
+		position: absolute;
+		right: 32px;
+		top: 16px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		z-index: var(--z-sticky);
+		opacity: 0;
+		transform: translateX(22px);
+		pointer-events: none;
+		transition: opacity 0.2s ease, transform 0.2s ease;
+	}
+
+	.app-container:hover .dm-notification-rail,
+	.dm-notification-rail:hover {
+		opacity: 1;
+		transform: translateX(0);
+		pointer-events: auto;
+	}
+
+	.dm-notification-stub {
+		position: relative;
+		width: 40px;
+		height: 40px;
+		padding: 0;
+		border: 1px solid rgba(var(--border-rgb), var(--opacity-light));
+		border-radius: 12px;
+		background: rgba(var(--bg-secondary-rgb), 0.85);
+		backdrop-filter: blur(8px);
+		cursor: pointer;
+		overflow: hidden;
+		animation: stub-slide-in 0.22s ease both;
+	}
+
+	.dm-notification-stub:hover {
+		transform: translateX(-3px);
+		border-color: var(--accent);
+	}
+
+	.dm-stub-avatar {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.dm-stub-fallback {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-weight: 700;
+		color: #fff;
+		background: var(--text-secondary);
+	}
+
+	.dm-stub-count {
+		position: absolute;
+		top: -4px;
+		right: -4px;
+		min-width: 18px;
+		height: 18px;
+		padding: 0 4px;
+		border-radius: 999px;
+		background: #ef4444;
+		color: #fff;
+		font-size: 0.65rem;
+		font-weight: 700;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: 2px solid var(--bg-primary);
+	}
+
+	@keyframes stub-slide-in {
+		from {
+			opacity: 0;
+			transform: translateY(8px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
 	.user-panel-toggle:hover {
 		opacity: 1;
 		background: var(--accent);
@@ -243,6 +424,7 @@
 			height: 100dvh;
 		}
 		.user-panel-toggle, .resize-handle { display: none; }
+		.dm-notification-rail { display: none; }
 
 		.channel-sidebar-container,
 		.right-panel-container {
