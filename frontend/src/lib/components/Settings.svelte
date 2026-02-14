@@ -23,6 +23,7 @@
 		isTauriRuntime,
 		setMediaQualityMode,
 		setSrtGatewayEnabled,
+		syncMediaRuntimeFromServer,
 		type MediaQualityMode
 	} from '$lib/mediaRuntime';
 
@@ -65,7 +66,7 @@
 	let bulkEmojiFiles: { file: File; name: string; preview: string }[] = [];
 	let uploadingBulk = false;
 
-	// Load settings from localStorage
+	// Load settings from localStorage and enforce server policy
 	onMount(() => {
 		soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
 		notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
@@ -74,8 +75,14 @@
 		notificationSound = localStorage.getItem('notificationSound') || '/sounds/ProjectSound.ogg';
 		notificationVolume = parseFloat(localStorage.getItem('notificationVolume') || '0.5');
 		localAppRuntime = isTauriRuntime();
-		mediaQualityMode = getStoredMediaQualityMode();
-		srtGatewayEnabled = isSrtGatewayEnabled();
+
+		// Sync server policy first to prevent race condition with Tauri prefs
+		void (async () => {
+			await syncMediaRuntimeFromServer();
+			// After server sync, load local settings (will be constrained if needed)
+			mediaQualityMode = getStoredMediaQualityMode();
+			srtGatewayEnabled = isSrtGatewayEnabled();
+		})();
 	});
 
 	function toggleSound() {

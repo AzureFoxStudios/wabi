@@ -85,7 +85,7 @@ export function getCORSHeaders(origin: string | undefined): Record<string, strin
 
 	const headers: Record<string, string> = {
 		'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, DELETE',
-		'Access-Control-Allow-Headers': 'Content-Type, X-Requested-With, Authorization',
+		'Access-Control-Allow-Headers': 'Content-Type, X-Requested-With, Authorization, X-Media-Gateway-Key',
 		'Access-Control-Allow-Credentials': 'true',
 		'Access-Control-Max-Age': '86400'
 	};
