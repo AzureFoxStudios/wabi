@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Message } from './socket-types';
+import { isTauriRuntime } from './tauri-platform';
 
 export interface WabiData {
 	version: string;
@@ -145,7 +146,7 @@ export async function clearTauriData(): Promise<string> {
  * Check if running in Tauri
  */
 export function isRunningInTauri(): boolean {
-	return !!(window as any).__TAURI_CORE__;
+	return isTauriRuntime();
 }
 
 /**
