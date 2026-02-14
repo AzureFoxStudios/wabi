@@ -17,6 +17,7 @@ import { verifyToken } from "./auth/jwt.js";
 import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings } from "./api/authRoutes.js";
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
 import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApprove, handleGetAllRelays } from "./api/relayRoutes.js";
+import { handleGetMediaRuntime, handleMediaGatewayHeartbeat } from "./api/mediaRoutes.js";
 import { relayRepository } from "./db/repositories/relayRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
 import { channelRepository } from "./db/repositories/channelRepository.js";
@@ -840,6 +841,16 @@ server.on('request', async (req, res) => {
 
   if (url.pathname === "/api/relay/approve" && req.method === "POST") {
     await handleRelayApprove(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/media/runtime" && req.method === "GET") {
+    await handleGetMediaRuntime(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/media/gateway-heartbeat" && req.method === "POST") {
+    await handleMediaGatewayHeartbeat(req, res);
     return;
   }
 

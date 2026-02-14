@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { createEventDispatcher, onMount } from 'svelte';
+	import { browser } from '$app/environment';
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	import { channelMessages, users, currentUser, emojis, updateProfile } from '$lib/socket';
 	import StorageSettings from './StorageSettings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
@@ -16,6 +17,23 @@
 	import ThemeCustomizer from './ThemeCustomizer.svelte';
 	import UsernameFontCustomizer from './UsernameFontCustomizer.svelte';
 	import UniformFontMode from './UniformFontMode.svelte';
+	import {
+		getStoredMediaQualityMode,
+		isSrtGatewayEnabled,
+		isTauriRuntime,
+		syncMediaRuntimeFromServer,
+		setMediaQualityMode,
+		setSrtGatewayEnabled,
+		type MediaQualityMode
+	} from '$lib/mediaRuntime';
+	import {
+		getTauriMediaCapabilities,
+		getTauriSrtGatewayState,
+		loadTauriMediaPreferences,
+		saveTauriMediaPreferences,
+		startTauriSrtGatewaySimulation,
+		stopTauriSrtGatewaySimulation
+	} from '$lib/tauri-media';
 
 	const dispatch = createEventDispatcher();
 
@@ -27,6 +45,79 @@
 	let cameraEnabled = true;
 	let notificationSound = '/sounds/ProjectSound.ogg';
 	let notificationVolume = 0.5;
+	let mediaQualityMode: MediaQualityMode = 'web-baseline';
+	let srtGatewayEnabled = false;
+	let localAppRuntime = false;
+	let tauriMediaCapabilityNotice = '';
+	let gatewayServerNotice = '';
+	let gatewayMeta: { activeStreams?: number; version?: string | null; region?: string | null; lastSeenAt?: number | null } | null = null;
+	let tauriGatewayStateNotice = '';
+	let gatewayHeartbeatNotice = '';
+	let mediaGatewayKey = '';
+	let mediaGatewayRegion = 'local-app';
+	let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+	let gatewayHeartbeatIntervalMs = 15_000;
+
+
+	function saveGatewayKey(value: string) {
+		mediaGatewayKey = value;
+		localStorage.setItem('mediaGatewayKey', value);
+	}
+
+	function saveGatewayRegion(value: string) {
+		mediaGatewayRegion = value || 'local-app';
+		localStorage.setItem('mediaGatewayRegion', mediaGatewayRegion);
+	}
+
+	function stopGatewayHeartbeatLoop() {
+		if (heartbeatInterval) {
+			clearInterval(heartbeatInterval);
+			heartbeatInterval = null;
+		}
+	}
+
+	async function sendGatewayHeartbeat() {
+		const gatewayKey = mediaGatewayKey.trim();
+		if (!gatewayKey) {
+			gatewayHeartbeatNotice = 'Set Gateway Key in Settings to send gateway heartbeat from Local App.';
+			return;
+		}
+
+		try {
+			const response = await fetch(`${getServerUrl()}/api/media/gateway-heartbeat`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'X-Media-Gateway-Key': gatewayKey
+				},
+				body: JSON.stringify({
+					version: 'tauri-sim-1',
+					region: mediaGatewayRegion || 'local-app',
+					activeStreams: 1
+				})
+			});
+
+			if (response.ok) {
+				gatewayHeartbeatNotice = `Heartbeat sent at ${new Date().toLocaleTimeString()}`;
+			} else {
+				gatewayHeartbeatNotice = `Heartbeat failed (${response.status})`;
+				if (response.status === 401 || response.status === 403) {
+					stopGatewayHeartbeatLoop();
+					gatewayHeartbeatNotice = 'Heartbeat unauthorized. Update Gateway Key and restart SRT gateway.';
+				}
+			}
+		} catch (error) {
+			gatewayHeartbeatNotice = 'Heartbeat request failed (network or server unavailable).';
+		}
+	}
+
+	function startGatewayHeartbeatLoop() {
+		stopGatewayHeartbeatLoop();
+		void sendGatewayHeartbeat();
+		heartbeatInterval = setInterval(() => {
+			void sendGatewayHeartbeat();
+		}, gatewayHeartbeatIntervalMs);
+	}
 
 	// Theme saving state
 	let savingTheme = false;
@@ -61,6 +152,59 @@
 		cameraEnabled = localStorage.getItem('cameraEnabled') !== 'false';
 		notificationSound = localStorage.getItem('notificationSound') || '/sounds/ProjectSound.ogg';
 		notificationVolume = parseFloat(localStorage.getItem('notificationVolume') || '0.5');
+		mediaGatewayKey = localStorage.getItem('mediaGatewayKey') || '';
+		mediaGatewayRegion = localStorage.getItem('mediaGatewayRegion') || 'local-app';
+		localAppRuntime = isTauriRuntime();
+		void (async () => {
+			const runtime = await syncMediaRuntimeFromServer();
+			if (runtime?.media?.gateway) {
+				gatewayMeta = runtime.media.gateway;
+				const healthy = runtime.media.gateway.healthy;
+				gatewayServerNotice = healthy
+					? 'Gateway status: online and reporting.'
+					: 'Gateway status: offline or no recent heartbeat.';
+				if (typeof runtime.media.gateway.heartbeatTimeoutMs === 'number' && runtime.media.gateway.heartbeatTimeoutMs > 0) {
+					const derivedInterval = Math.floor(runtime.media.gateway.heartbeatTimeoutMs / 2);
+					gatewayHeartbeatIntervalMs = Math.max(5_000, Math.min(30_000, derivedInterval));
+				}
+			}
+		})();
+		mediaQualityMode = getStoredMediaQualityMode();
+		srtGatewayEnabled = isSrtGatewayEnabled();
+
+		if (localAppRuntime) {
+			void (async () => {
+				const capabilities = await getTauriMediaCapabilities();
+				if (capabilities) {
+					tauriMediaCapabilityNotice = capabilities.supports_srt_gateway
+						? 'Local App capabilities loaded: native audio + SRT gateway controls available.'
+						: 'Local App capabilities loaded: native audio path available.';
+				}
+
+				const prefs = await loadTauriMediaPreferences();
+				if (prefs) {
+					mediaQualityMode = prefs.quality_mode;
+					srtGatewayEnabled = prefs.srt_gateway_enabled;
+					setMediaQualityMode(mediaQualityMode);
+					setSrtGatewayEnabled(srtGatewayEnabled);
+				}
+
+				const gatewayState = await getTauriSrtGatewayState();
+				if (gatewayState) {
+					tauriGatewayStateNotice = gatewayState.running
+						? `Local App SRT simulation running (${gatewayState.mode})`
+						: `Local App SRT simulation stopped (${gatewayState.mode})`;
+
+					if (gatewayState.running && srtGatewayEnabled) {
+						startGatewayHeartbeatLoop();
+					}
+				}
+			})();
+		}
+	});
+
+	onDestroy(() => {
+		stopGatewayHeartbeatLoop();
 	});
 
 	function toggleSound() {
@@ -81,6 +225,49 @@
 	function toggleCamera() {
 		cameraEnabled = !cameraEnabled;
 		localStorage.setItem('cameraEnabled', cameraEnabled.toString());
+	}
+
+	function updateMediaQualityMode(mode: MediaQualityMode) {
+		mediaQualityMode = mode;
+		setMediaQualityMode(mode);
+		if (localAppRuntime) {
+			void saveTauriMediaPreferences({
+				quality_mode: mode,
+				srt_gateway_enabled: srtGatewayEnabled,
+				preferred_audio_bitrate: mode === 'local-enhanced' ? 96000 : 64000,
+				preferred_video_bitrate: mode === 'local-enhanced' ? 2_200_000 : 1_200_000
+			});
+		}
+	}
+
+	function toggleSrtGateway() {
+		if (!localAppRuntime) return;
+		srtGatewayEnabled = !srtGatewayEnabled;
+		setSrtGatewayEnabled(srtGatewayEnabled);
+		void saveTauriMediaPreferences({
+			quality_mode: mediaQualityMode,
+			srt_gateway_enabled: srtGatewayEnabled,
+			preferred_audio_bitrate: mediaQualityMode === 'local-enhanced' ? 96000 : 64000,
+			preferred_video_bitrate: mediaQualityMode === 'local-enhanced' ? 2_200_000 : 1_200_000
+		});
+
+		void (async () => {
+			const gatewayState = srtGatewayEnabled
+				? await startTauriSrtGatewaySimulation()
+				: await stopTauriSrtGatewaySimulation();
+
+			if (gatewayState) {
+				tauriGatewayStateNotice = gatewayState.running
+					? `Local App SRT simulation running (${gatewayState.mode})`
+					: `Local App SRT simulation stopped (${gatewayState.mode})`;
+
+				if (gatewayState.running) {
+					startGatewayHeartbeatLoop();
+				} else {
+					stopGatewayHeartbeatLoop();
+				}
+			}
+		})();
 	}
 
 	// Handle theme change
@@ -587,11 +774,93 @@
 							<span class="setting-label">Camera</span>
 							<span class="setting-description">Enable camera for video calls</span>
 						</div>
-						<button class="toggle-btn" class:active={cameraEnabled} on:click={toggleCamera}>
-							{cameraEnabled ? '📹' : '📷'}
+					<button class="toggle-btn" class:active={cameraEnabled} on:click={toggleCamera}>
+						{cameraEnabled ? '📹' : '📷'}
+					</button>
+				</div>
+				<div class="media-quality-notice" role="note">
+					<div class="notice-title">Call Quality Runtime Notice</div>
+					<div class="notice-body">
+						{#if localAppRuntime}
+							You are running the Local App runtime. Enhanced audio/video tuning is available, including optional SRT gateway controls.
+						{:else}
+							You are running Web runtime. Calls use compatibility-first media settings. For best audio quality, use the Local App.
+						{/if}
+					</div>
+
+					<div class="quality-mode-row">
+						<label for="media-quality-mode">Media Quality Mode</label>
+						<select
+							id="media-quality-mode"
+							class="theme-select"
+							value={mediaQualityMode}
+							on:change={(e) => updateMediaQualityMode(e.currentTarget.value as MediaQualityMode)}
+						>
+							<option value="web-baseline">Web Baseline</option>
+							<option value="local-enhanced" disabled={!localAppRuntime}>Local App Enhanced</option>
+						</select>
+					</div>
+
+					<div class="setting-item">
+						<div class="setting-info">
+							<span class="setting-label">SRT Gateway (Beta)</span>
+							<span class="setting-description">Requires Local App + self-hosted media gateway. Browser-only calls do not use SRT directly.</span>
+						</div>
+						<button class="toggle-btn" class:active={srtGatewayEnabled} on:click={toggleSrtGateway} disabled={!localAppRuntime}>
+							{srtGatewayEnabled ? 'ON' : 'OFF'}
 						</button>
 					</div>
+
+
+					<div class="gateway-config-grid">
+						<label class="gateway-config-label">
+							<span>Gateway Key</span>
+							<input
+								type="password"
+								class="theme-select"
+								placeholder="Set MEDIA_GATEWAY_KEY value"
+								value={mediaGatewayKey}
+								on:input={(e) => saveGatewayKey(e.currentTarget.value)}
+							/>
+						</label>
+						<label class="gateway-config-label">
+							<span>Gateway Region</span>
+							<input
+								type="text"
+								class="theme-select"
+								placeholder="local-app"
+								value={mediaGatewayRegion}
+								on:input={(e) => saveGatewayRegion(e.currentTarget.value)}
+							/>
+						</label>
+					</div>
+
+					{#if !localAppRuntime && browser}
+						<p class="runtime-note">Tip: install the Local App (Tauri) to unlock enhanced call quality mode.</p>
+					{:else if tauriMediaCapabilityNotice}
+						<p class="runtime-note">{tauriMediaCapabilityNotice}</p>
+					{/if}
+					{#if gatewayServerNotice}
+						<p class="runtime-note">{gatewayServerNotice}</p>
+					{/if}
+					{#if gatewayMeta}
+						<p class="runtime-note">
+							Streams: {gatewayMeta.activeStreams ?? 0}
+							{#if gatewayMeta.region} · Region: {gatewayMeta.region}{/if}
+							{#if gatewayMeta.version} · Version: {gatewayMeta.version}{/if}
+						</p>
+						{#if gatewayMeta.lastSeenAt}
+							<p class="runtime-note">Last heartbeat: {new Date(gatewayMeta.lastSeenAt).toLocaleString()}</p>
+						{/if}
+					{/if}
+					{#if tauriGatewayStateNotice}
+						<p class="runtime-note">{tauriGatewayStateNotice}</p>
+					{/if}
+					{#if gatewayHeartbeatNotice}
+						<p class="runtime-note">{gatewayHeartbeatNotice}</p>
+					{/if}
 				</div>
+			</div>
 
 				<!-- Notifications -->
 				<div class="settings-section">
@@ -1174,8 +1443,64 @@
 		margin-top: 1rem !important;
 	}
 
-	/* Notification Sound Settings */
-	.setting-item-full {
+	.media-quality-notice {
+		margin-top: 1rem;
+		padding: 0.9rem;
+		border-radius: 8px;
+		border: 1px solid rgba(var(--accent-rgb), 0.25);
+		background: rgba(var(--accent-rgb), 0.08);
+		display: flex;
+		flex-direction: column;
+		gap: 0.65rem;
+	}
+
+	.notice-title {
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	.notice-body {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		line-height: 1.4;
+	}
+
+	.quality-mode-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+
+	.quality-mode-row label {
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+
+	.gateway-config-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.6rem;
+	}
+
+	.gateway-config-label {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		font-size: 0.78rem;
+		color: var(--text-secondary);
+	}
+
+	.runtime-note {
+		margin: 0;
+		font-size: 0.78rem;
+		color: var(--text-tertiary);
+	}
+
+		/* Notification Sound Settings */
+		.setting-item-full {
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;

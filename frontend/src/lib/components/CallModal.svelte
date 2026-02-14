@@ -206,8 +206,8 @@
 		toggleMute();
 	}
 
-	function handleToggleVideo() {
-		toggleVideo();
+	async function handleToggleVideo() {
+		await toggleVideo($socket || undefined);
 	}
 
 	async function handleToggleScreenShare() {
@@ -297,6 +297,7 @@
 							autoplay
 							playsinline
 							class="video-element"
+							muted={$isDeafened}
 							class:video-hidden={!call.isVideoEnabled}
 						></video>
 						{#if !call.isVideoEnabled}
@@ -325,7 +326,7 @@
 								class="tile-video tile-video-contain"
 								autoplay
 								playsinline
-								muted={tile.kind === 'local-screen'}
+								muted={tile.kind === 'local-screen' || (tile.userId !== null && $isDeafened)}
 								use:bindTileVideo={tile.stream}
 							></video>
 						{:else if tile.kind === 'video' || tile.kind === 'local-camera'}
@@ -334,7 +335,7 @@
 								class="tile-video"
 								autoplay
 								playsinline
-								muted={tile.userId === null}
+								muted={tile.userId === null || $isDeafened}
 								use:bindTileVideo={tile.stream}
 							></video>
 						{:else}
@@ -359,7 +360,7 @@
 								class="focused-video focused-video-contain"
 								autoplay
 								playsinline
-								muted={focusedTile.kind === 'local-screen'}
+								muted={focusedTile.kind === 'local-screen' || (focusedTile.userId !== null && $isDeafened)}
 								use:bindTileVideo={focusedTile.stream}
 							></video>
 						{:else if focusedTile.kind === 'video' || focusedTile.kind === 'local-camera'}
@@ -368,7 +369,7 @@
 								class="focused-video"
 								autoplay
 								playsinline
-								muted={focusedTile.userId === null}
+								muted={focusedTile.userId === null || $isDeafened}
 								use:bindTileVideo={focusedTile.stream}
 							></video>
 						{:else}
@@ -407,7 +408,7 @@
 										class="thumbnail-video"
 										autoplay
 										playsinline
-										muted={thumb.userId === null}
+										muted={thumb.userId === null || $isDeafened}
 										use:bindTileVideo={thumb.stream}
 									></video>
 								{:else}
