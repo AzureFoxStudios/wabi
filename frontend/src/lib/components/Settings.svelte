@@ -19,12 +19,15 @@
 	import UniformFontMode from './UniformFontMode.svelte';
 	import {
 		getStoredMediaQualityMode,
+		getStoredScreenShareQualityPreset,
 		isSrtGatewayEnabled,
 		isTauriRuntime,
 		setMediaQualityMode,
+		setScreenShareQualityPreset,
 		setSrtGatewayEnabled,
 		syncMediaRuntimeFromServer,
-		type MediaQualityMode
+		type MediaQualityMode,
+		type ScreenShareQualityPreset
 	} from '$lib/mediaRuntime';
 
 	const dispatch = createEventDispatcher();
@@ -39,6 +42,7 @@
 	let notificationVolume = 0.5;
 	let mediaQualityMode: MediaQualityMode = 'web-baseline';
 	let srtGatewayEnabled = false;
+	let screenShareQualityPreset: ScreenShareQualityPreset = 'auto';
 	let localAppRuntime = false;
 
 	// Theme saving state
@@ -82,6 +86,7 @@
 			// After server sync, load local settings (will be constrained if needed)
 			mediaQualityMode = getStoredMediaQualityMode();
 			srtGatewayEnabled = isSrtGatewayEnabled();
+			screenShareQualityPreset = getStoredScreenShareQualityPreset();
 		})();
 	});
 
@@ -114,6 +119,11 @@
 		if (!localAppRuntime) return;
 		srtGatewayEnabled = !srtGatewayEnabled;
 		setSrtGatewayEnabled(srtGatewayEnabled);
+	}
+
+	function updateScreenShareQualityPreset(preset: ScreenShareQualityPreset) {
+		screenShareQualityPreset = preset;
+		setScreenShareQualityPreset(preset);
 	}
 
 	// Handle theme change
@@ -644,6 +654,22 @@
 						>
 							<option value="web-baseline">Web Baseline</option>
 							<option value="local-enhanced" disabled={!localAppRuntime}>Local App Enhanced</option>
+						</select>
+					</div>
+
+					<div class="quality-mode-row">
+						<label for="screen-share-quality">Screen Share Resolution</label>
+						<select
+							id="screen-share-quality"
+							class="theme-select"
+							value={screenShareQualityPreset}
+							on:change={(e) => updateScreenShareQualityPreset(e.currentTarget.value as ScreenShareQualityPreset)}
+						>
+							<option value="auto">Auto (Recommended)</option>
+							<option value="1080p">1080p</option>
+							<option value="720p">720p</option>
+							<option value="480p">480p</option>
+							<option value="144p-mobile">144p (Mobile / Low data)</option>
 						</select>
 					</div>
 
