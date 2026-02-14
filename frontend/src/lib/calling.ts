@@ -1,6 +1,19 @@
 import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { buildRTCConfig } from './turnConfig';
+import { getMediaRuntimeConfig } from './mediaRuntime';
+
+const CAMERA_CONSTRAINTS: MediaTrackConstraints = {
+	width: { ideal: 1280, max: 1920 },
+	height: { ideal: 720, max: 1080 },
+	frameRate: { ideal: 24, max: 30 }
+};
+
+const SCREEN_SHARE_CONSTRAINTS: MediaTrackConstraints = {
+	frameRate: { ideal: 12, max: 20 },
+	width: { ideal: 1920, max: 2560 },
+	height: { ideal: 1080, max: 1440 }
+};
 
 // ============================================================================
 // Types
@@ -44,6 +57,9 @@ interface PeerConnectionState {
 	iceCandidateQueue: RTCIceCandidateInit[];
 	hasRemoteDescription: boolean;
 }
+
+type SenderMediaKind = 'audio' | 'video';
+type VideoSource = 'camera' | 'screen-share';
 
 // ============================================================================
 // Stores
@@ -253,6 +269,77 @@ function createPeerConnection(
 	return pc;
 }
 
+function preferOpusForAudio(sender: RTCRtpSender, pc: RTCPeerConnection): void {
+	const transceiver = pc.getTransceivers().find(t => t.sender === sender);
+	if (!transceiver || typeof transceiver.setCodecPreferences !== 'function') {
+		return;
+	}
+
+	const capabilities = RTCRtpSender.getCapabilities?.('audio');
+	if (!capabilities?.codecs?.length) {
+		return;
+	}
+
+	const opusCodecs = capabilities.codecs.filter(codec => codec.mimeType.toLowerCase() === 'audio/opus');
+	if (!opusCodecs.length) {
+		return;
+	}
+
+	const otherCodecs = capabilities.codecs.filter(codec => codec.mimeType.toLowerCase() !== 'audio/opus');
+	transceiver.setCodecPreferences([...opusCodecs, ...otherCodecs]);
+}
+
+async function optimizeSender(sender: RTCRtpSender, pc: RTCPeerConnection, kind: SenderMediaKind, source: VideoSource = 'camera'): Promise<void> {
+	try {
+		if (kind === 'audio') {
+			preferOpusForAudio(sender, pc);
+		}
+
+		const params = sender.getParameters();
+		if (!params.encodings || params.encodings.length === 0) {
+			params.encodings = [{}];
+		}
+
+		const runtimeConfig = getMediaRuntimeConfig();
+
+		for (const encoding of params.encodings) {
+			if (kind === 'audio') {
+				encoding.maxBitrate = runtimeConfig.audioMaxBitrate;
+			} else {
+				encoding.maxBitrate = source === 'screen-share' ? runtimeConfig.screenShareMaxBitrate : runtimeConfig.videoMaxBitrate;
+				encoding.maxFramerate = source === 'screen-share' ? 18 : 24;
+				typeof encoding.scaleResolutionDownBy === 'number' || (encoding.scaleResolutionDownBy = 1);
+			}
+		}
+
+		await sender.setParameters(params);
+	} catch (error) {
+		console.warn('[WebRTC] Could not optimize sender parameters:', error);
+	}
+}
+
+async function addTrackWithOptimizations(pc: RTCPeerConnection, track: MediaStreamTrack, stream: MediaStream): Promise<void> {
+	const isScreenShareTrack = stream === get(localScreenStream);
+	if (track.kind === 'video') {
+		track.contentHint = isScreenShareTrack ? 'detail' : 'motion';
+	}
+
+	const sender = pc.addTrack(track, stream);
+	await optimizeSender(sender, pc, track.kind as SenderMediaKind, isScreenShareTrack ? 'screen-share' : 'camera');
+}
+
+async function renegotiateCallConnection(state: PeerConnectionState, socket: Socket): Promise<void> {
+	if (state.type !== 'call') return;
+
+	const offer = await state.pc.createOffer();
+	await state.pc.setLocalDescription(offer);
+
+	socket.emit('call-offer', {
+		offer,
+		targetId: state.targetId
+	});
+}
+
 function cleanupPeerConnection(key: string): void {
 	const state = peerConnections.get(key);
 	if (!state) return;
@@ -377,7 +464,7 @@ function updateRemoteTrackState(targetId: string, track: MediaStreamTrack, type:
 export async function startCall(socket: Socket, targetUserId: string, isVideoCall: boolean = false) {
 	try {
 		const stream = await navigator.mediaDevices.getUserMedia({
-			video: isVideoCall,
+			video: isVideoCall ? CAMERA_CONSTRAINTS : false,
 			audio: true
 		});
 		localStream.set(stream);
@@ -404,7 +491,7 @@ export async function startCall(socket: Socket, targetUserId: string, isVideoCal
 export async function answerCall(socket: Socket, callerId: string, isVideoCall: boolean = false) {
 	try {
 		const stream = await navigator.mediaDevices.getUserMedia({
-			video: isVideoCall,
+			video: isVideoCall ? CAMERA_CONSTRAINTS : false,
 			audio: true
 		});
 		localStream.set(stream);
@@ -502,14 +589,53 @@ export function toggleDeafen() {
 	// by setting audio elements to muted based on isDeafened store
 }
 
-export function toggleVideo() {
+export async function toggleVideo(socket?: Socket) {
 	const stream = get(localStream);
-	if (stream) {
-		const videoTrack = stream.getVideoTracks()[0];
-		if (videoTrack) {
-			videoTrack.enabled = !videoTrack.enabled;
-			isVideoOff.set(!videoTrack.enabled);
+	if (!stream) {
+		return;
+	}
+
+	const existingTrack = stream.getVideoTracks()[0];
+	if (existingTrack) {
+		existingTrack.enabled = !existingTrack.enabled;
+		isVideoOff.set(!existingTrack.enabled);
+		return;
+	}
+
+	try {
+		const cameraStream = await navigator.mediaDevices.getUserMedia({
+			video: CAMERA_CONSTRAINTS,
+			audio: false
+		});
+		const cameraTrack = cameraStream.getVideoTracks()[0];
+		if (!cameraTrack) {
+			return;
 		}
+
+		stream.addTrack(cameraTrack);
+
+		const renegotiationTasks: Promise<void>[] = [];
+		peerConnections.forEach(state => {
+			if (state.type !== 'call') return;
+
+			const existingSender = state.pc.getSenders().find(sender => sender.track?.kind === 'video');
+			if (existingSender) {
+				renegotiationTasks.push(existingSender.replaceTrack(cameraTrack));
+				renegotiationTasks.push(optimizeSender(existingSender, state.pc, 'video', 'camera'));
+			} else {
+				renegotiationTasks.push(addTrackWithOptimizations(state.pc, cameraTrack, stream));
+			}
+
+			if (socket) {
+				renegotiationTasks.push(renegotiateCallConnection(state, socket));
+			}
+		});
+
+		await Promise.all(renegotiationTasks);
+		isVideoOff.set(false);
+	} catch (error) {
+		console.error('[WebRTC] Could not enable camera track:', error);
+		handleMediaError(error as DOMException, 'starting');
 	}
 }
 
@@ -523,9 +649,9 @@ export async function createCallOffer(socket: Socket, targetId: string, username
 
 	const stream = get(localStream);
 	if (stream) {
-		stream.getTracks().forEach(track => {
-			pc.addTrack(track, stream);
-		});
+		for (const track of stream.getTracks()) {
+			await addTrackWithOptimizations(pc, track, stream);
+		}
 	}
 
 	try {
@@ -553,9 +679,9 @@ export async function handleCallOffer(
 
 	const stream = get(localStream);
 	if (stream) {
-		stream.getTracks().forEach(track => {
-			pc.addTrack(track, stream);
-		});
+		for (const track of stream.getTracks()) {
+			await addTrackWithOptimizations(pc, track, stream);
+		}
 	}
 
 	try {
@@ -610,7 +736,7 @@ export async function handleCallIceCandidate(senderId: string, candidate: RTCIce
 export async function startScreenShare(socket: Socket) {
 	try {
 		const stream = await navigator.mediaDevices.getDisplayMedia({
-			video: true,
+			video: SCREEN_SHARE_CONSTRAINTS,
 			audio: true
 		});
 
@@ -661,9 +787,9 @@ export async function createScreenShareOffer(socket: Socket, targetId: string) {
 
 	const stream = get(localScreenStream);
 	if (stream) {
-		stream.getTracks().forEach(track => {
-			pc.addTrack(track, stream);
-		});
+		for (const track of stream.getTracks()) {
+			await addTrackWithOptimizations(pc, track, stream);
+		}
 	}
 
 	try {
