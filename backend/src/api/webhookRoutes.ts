@@ -82,10 +82,10 @@ export async function handleCreateWebhook(req: IncomingMessage, res: ServerRespo
 
     const events = requestedEvents
       .filter((event: unknown): event is string => typeof event === 'string')
-      .filter((event) => WEBHOOK_EVENTS.includes(event as any));
+      .filter((event) => event === '*' || WEBHOOK_EVENTS.includes(event as any));
 
     if (events.length === 0) {
-      writeJson(res, 400, { success: false, error: `events must include at least one of: ${WEBHOOK_EVENTS.join(', ')}` });
+      writeJson(res, 400, { success: false, error: `events must include '*' or one of: ${WEBHOOK_EVENTS.join(', ')}` });
       return;
     }
 

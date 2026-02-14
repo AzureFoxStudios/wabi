@@ -57,19 +57,14 @@ export class WebhookRepository {
     const stmt = db.prepare('SELECT * FROM webhooks WHERE user_id = ? ORDER BY created_at DESC');
     return stmt.all(userId) as Webhook[];
   }
-
-  listEnabledByEvent(eventType: string): Webhook[] {
+  listEnabled(): Webhook[] {
     const stmt = db.prepare(`
       SELECT * FROM webhooks
       WHERE enabled = 1
-        AND (
-          event_filters LIKE '%"*"%'
-          OR event_filters LIKE ?
-        )
       ORDER BY created_at DESC
     `);
 
-    return stmt.all(`%"${eventType}"%`) as Webhook[];
+    return stmt.all() as Webhook[];
   }
 
   delete(id: number, userId: number): boolean {
@@ -89,18 +84,30 @@ export class WebhookRepository {
     return result.lastInsertRowid as number;
   }
 
-  markDeliverySuccess(deliveryId: number, responseCode: number): void {
+  markDeliveryAttempt(deliveryId: number, attemptCount: number): void {
+    const now = Date.now();
+    const stmt = db.prepare(`
+      UPDATE webhook_deliveries
+      SET attempt_count = ?,
+          updated_at = ?
+      WHERE id = ?
+    `);
+    stmt.run(attemptCount, now, deliveryId);
+  }
+
+  markDeliverySuccess(deliveryId: number, responseCode: number, attemptCount: number = 1): void {
     const now = Date.now();
     const stmt = db.prepare(`
       UPDATE webhook_deliveries
       SET status = 'success',
+          attempt_count = ?,
           response_code = ?,
           last_error = NULL,
           updated_at = ?,
           delivered_at = ?
       WHERE id = ?
     `);
-    stmt.run(responseCode, now, now, deliveryId);
+    stmt.run(attemptCount, responseCode, now, now, deliveryId);
   }
 
   markDeliveryFailure(deliveryId: number, attemptCount: number, error: string, responseCode?: number): void {
