@@ -213,9 +213,9 @@ export class PluginLoader {
 
   // Hook methods for core to call
   async triggerOnMessage(channelId: string, message: any) {
-    for (const { plugin } of this.plugins.values()) {
+    for (const [pluginId, { plugin }] of this.plugins.entries()) {
       try {
-        await plugin.onMessage?.(channelId, message, this.createContext(plugin.name));
+        await plugin.onMessage?.(channelId, message, this.createContext(pluginId));
       } catch (error) {
         console.error(`Error in plugin ${plugin.name} onMessage:`, error);
       }
@@ -223,9 +223,9 @@ export class PluginLoader {
   }
 
   async triggerOnChannelCreate(channel: any) {
-    for (const { plugin } of this.plugins.values()) {
+    for (const [pluginId, { plugin }] of this.plugins.entries()) {
       try {
-        await plugin.onChannelCreate?.(channel, this.createContext(plugin.name));
+        await plugin.onChannelCreate?.(channel, this.createContext(pluginId));
       } catch (error) {
         console.error(`Error in plugin ${plugin.name} onChannelCreate:`, error);
       }
@@ -233,9 +233,9 @@ export class PluginLoader {
   }
 
   async triggerOnUserJoin(user: any) {
-    for (const { plugin } of this.plugins.values()) {
+    for (const [pluginId, { plugin }] of this.plugins.entries()) {
       try {
-        await plugin.onUserJoin?.(user, this.createContext(plugin.name));
+        await plugin.onUserJoin?.(user, this.createContext(pluginId));
       } catch (error) {
         console.error(`Error in plugin ${plugin.name} onUserJoin:`, error);
       }
@@ -243,9 +243,9 @@ export class PluginLoader {
   }
 
   async triggerOnUserLeave(userId: string) {
-    for (const { plugin } of this.plugins.values()) {
+    for (const [pluginId, { plugin }] of this.plugins.entries()) {
       try {
-        await plugin.onUserLeave?.(userId, this.createContext(plugin.name));
+        await plugin.onUserLeave?.(userId, this.createContext(pluginId));
       } catch (error) {
         console.error(`Error in plugin ${plugin.name} onUserLeave:`, error);
       }
