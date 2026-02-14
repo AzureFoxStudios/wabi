@@ -2,6 +2,14 @@ import { browser } from '$app/environment';
 import { getServerUrl } from './serverUrl';
 
 export type MediaQualityMode = 'web-baseline' | 'local-enhanced';
+export type ScreenShareQualityPreset = 'auto' | '1080p' | '720p' | '480p' | '144p-mobile';
+
+export interface ScreenShareQualityProfile {
+	label: string;
+	constraints: MediaTrackConstraints;
+	maxBitrate: number;
+	maxFramerate: number;
+}
 
 export interface ServerMediaRuntimeResponse {
 	media?: {
@@ -34,7 +42,61 @@ export interface MediaRuntimeConfig {
 
 const STORAGE_KEYS = {
 	qualityMode: 'wabi_media_quality_mode',
-	srtGateway: 'wabi_enable_srt_gateway'
+	srtGateway: 'wabi_enable_srt_gateway',
+	screenShareQuality: 'wabi_screen_share_quality_preset'
+};
+
+const SCREEN_SHARE_QUALITY_PROFILES: Record<ScreenShareQualityPreset, ScreenShareQualityProfile> = {
+	auto: {
+		label: 'Auto (Recommended)',
+		constraints: {
+			frameRate: { ideal: 12, max: 20 },
+			width: { ideal: 1920, max: 2560 },
+			height: { ideal: 1080, max: 1440 }
+		},
+		maxBitrate: 1_600_000,
+		maxFramerate: 18
+	},
+	'1080p': {
+		label: '1080p',
+		constraints: {
+			frameRate: { ideal: 15, max: 24 },
+			width: { ideal: 1920, max: 1920 },
+			height: { ideal: 1080, max: 1080 }
+		},
+		maxBitrate: 2_200_000,
+		maxFramerate: 24
+	},
+	'720p': {
+		label: '720p',
+		constraints: {
+			frameRate: { ideal: 12, max: 20 },
+			width: { ideal: 1280, max: 1280 },
+			height: { ideal: 720, max: 720 }
+		},
+		maxBitrate: 1_200_000,
+		maxFramerate: 20
+	},
+	'480p': {
+		label: '480p',
+		constraints: {
+			frameRate: { ideal: 10, max: 15 },
+			width: { ideal: 854, max: 854 },
+			height: { ideal: 480, max: 480 }
+		},
+		maxBitrate: 700_000,
+		maxFramerate: 15
+	},
+	'144p-mobile': {
+		label: '144p (Mobile/Low Data)',
+		constraints: {
+			frameRate: { ideal: 8, max: 12 },
+			width: { ideal: 256, max: 256 },
+			height: { ideal: 144, max: 144 }
+		},
+		maxBitrate: 180_000,
+		maxFramerate: 12
+	}
 };
 
 export function isTauriRuntime(): boolean {
@@ -89,6 +151,25 @@ export function setMediaQualityMode(mode: MediaQualityMode): void {
 export function setSrtGatewayEnabled(enabled: boolean): void {
 	if (!browser) return;
 	localStorage.setItem(STORAGE_KEYS.srtGateway, String(enabled));
+}
+
+export function getStoredScreenShareQualityPreset(): ScreenShareQualityPreset {
+	if (!browser) return 'auto';
+	const stored = localStorage.getItem(STORAGE_KEYS.screenShareQuality);
+	if (stored && stored in SCREEN_SHARE_QUALITY_PROFILES) {
+		return stored as ScreenShareQualityPreset;
+	}
+	return 'auto';
+}
+
+export function setScreenShareQualityPreset(preset: ScreenShareQualityPreset): void {
+	if (!browser) return;
+	localStorage.setItem(STORAGE_KEYS.screenShareQuality, preset);
+}
+
+export function getScreenShareQualityProfile(): ScreenShareQualityProfile {
+	const preset = getStoredScreenShareQualityPreset();
+	return SCREEN_SHARE_QUALITY_PROFILES[preset];
 }
 
 export function getStoredMediaQualityMode(): MediaQualityMode {

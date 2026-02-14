@@ -1,18 +1,12 @@
 import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { buildRTCConfig } from './turnConfig';
-import { getMediaRuntimeConfig } from './mediaRuntime';
+import { getMediaRuntimeConfig, getScreenShareQualityProfile } from './mediaRuntime';
 
 const CAMERA_CONSTRAINTS: MediaTrackConstraints = {
 	width: { ideal: 1280, max: 1920 },
 	height: { ideal: 720, max: 1080 },
 	frameRate: { ideal: 24, max: 30 }
-};
-
-const SCREEN_SHARE_CONSTRAINTS: MediaTrackConstraints = {
-	frameRate: { ideal: 12, max: 20 },
-	width: { ideal: 1920, max: 2560 },
-	height: { ideal: 1080, max: 1440 }
 };
 
 // ============================================================================
@@ -306,8 +300,9 @@ async function optimizeSender(sender: RTCRtpSender, pc: RTCPeerConnection, kind:
 			if (kind === 'audio') {
 				encoding.maxBitrate = runtimeConfig.audioMaxBitrate;
 			} else {
-				encoding.maxBitrate = source === 'screen-share' ? runtimeConfig.screenShareMaxBitrate : runtimeConfig.videoMaxBitrate;
-				encoding.maxFramerate = source === 'screen-share' ? 18 : 24;
+				const screenShareQuality = getScreenShareQualityProfile();
+				encoding.maxBitrate = source === 'screen-share' ? Math.min(runtimeConfig.screenShareMaxBitrate, screenShareQuality.maxBitrate) : runtimeConfig.videoMaxBitrate;
+				encoding.maxFramerate = source === 'screen-share' ? screenShareQuality.maxFramerate : 24;
 				typeof encoding.scaleResolutionDownBy === 'number' || (encoding.scaleResolutionDownBy = 1);
 			}
 		}
@@ -735,8 +730,9 @@ export async function handleCallIceCandidate(senderId: string, candidate: RTCIce
 
 export async function startScreenShare(socket: Socket) {
 	try {
+		const screenShareQuality = getScreenShareQualityProfile();
 		const stream = await navigator.mediaDevices.getDisplayMedia({
-			video: SCREEN_SHARE_CONSTRAINTS,
+			video: screenShareQuality.constraints,
 			audio: true
 		});
 
