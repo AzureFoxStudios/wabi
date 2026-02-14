@@ -18,12 +18,14 @@ import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, hand
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
 import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApprove, handleGetAllRelays } from "./api/relayRoutes.js";
 import { handleGetMediaRuntime, handleMediaGatewayHeartbeat } from "./api/mediaRoutes.js";
+import { handleCreateWebhook, handleListWebhooks, handleDeleteWebhook, handleListWebhookDeliveries } from "./api/webhookRoutes.js";
 import { relayRepository } from "./db/repositories/relayRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
 import { channelRepository } from "./db/repositories/channelRepository.js";
 import { channelMemberRepository } from "./db/repositories/channelMemberRepository.js";
 import { messageRepository } from "./db/repositories/messageRepository.js";
 import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
+import { dispatchWebhookEvent } from "./webhooks/deliveryService.js";
 
 // Helper: get role info for a user (roles, highest role, display color)
 function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: string; roleColor: string | null } {
@@ -1003,6 +1005,27 @@ server.on('request', async (req, res) => {
 
   if (url.pathname === "/api/media/gateway-heartbeat" && req.method === "POST") {
     await handleMediaGatewayHeartbeat(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/webhooks" && req.method === "POST") {
+    await handleCreateWebhook(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/webhooks" && req.method === "GET") {
+    await handleListWebhooks(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/webhooks/deliveries" && req.method === "GET") {
+    await handleListWebhookDeliveries(req, res);
+    return;
+  }
+
+  const webhookDeleteMatch = url.pathname.match(/^\/api\/webhooks\/(\d+)$/);
+  if (webhookDeleteMatch && req.method === "DELETE") {
+    await handleDeleteWebhook(req, res, parseInt(webhookDeleteMatch[1], 10));
     return;
   }
 
@@ -2420,6 +2443,20 @@ io.on("connection", (socket) => {
           usernameFont
         });
 
+        const joinedUser = users.get(socket.id);
+        if (joinedUser) {
+          pluginLoader.triggerOnUserJoin(joinedUser).catch((error) => {
+            console.error('[Plugins] Failed to trigger onUserJoin hook:', error);
+          });
+          dispatchWebhookEvent('user.joined', {
+            id: joinedUser.id,
+            username: joinedUser.username,
+            dbUserId: joinedUser.dbUserId || null
+          }).catch((error) => {
+            console.error('[Webhooks] Failed to dispatch user.joined:', error);
+          });
+        }
+
         if (ENABLE_LOGGING) console.log(`${registeredUsername} joined as registered user`);
         return; // Exit early - don't create temp session
       }
@@ -2471,6 +2508,11 @@ io.on("connection", (socket) => {
       });
 
       if (ENABLE_LOGGING) console.log(`${session.username} re-joined the chat with a new socket`);
+      const rejoinedUser = users.get(socket.id);
+      if (rejoinedUser) {
+        pluginLoader.triggerOnUserJoin(rejoinedUser).catch((error) => console.error('[Plugins] Failed to trigger onUserJoin hook:', error));
+        dispatchWebhookEvent('user.joined', { id: rejoinedUser.id, username: rejoinedUser.username, dbUserId: rejoinedUser.dbUserId || null }).catch((error) => console.error('[Webhooks] Failed to dispatch user.joined:', error));
+      }
     } else {
       // No session exists, create a new one (guest user)
       const color = `#${Math.floor(Math.random()*16777215).toString(16)}`;
@@ -2510,6 +2552,12 @@ io.on("connection", (socket) => {
         status: 'active',
         profilePicture: undefined
       });
+
+      const newUser = users.get(socket.id);
+      if (newUser) {
+        pluginLoader.triggerOnUserJoin(newUser).catch((error) => console.error('[Plugins] Failed to trigger onUserJoin hook:', error));
+        dispatchWebhookEvent('user.joined', { id: newUser.id, username: newUser.username, dbUserId: newUser.dbUserId || null }).catch((error) => console.error('[Webhooks] Failed to dispatch user.joined:', error));
+      }
 
       if (ENABLE_LOGGING) console.log(`${username} joined the chat as guest`);
     }
@@ -2606,6 +2654,11 @@ io.on("connection", (socket) => {
       roleColor: rejoinUser?.roleColor,
       usernameFont: rejoinUser?.usernameFont
     });
+
+    if (rejoinUser) {
+      pluginLoader.triggerOnUserJoin(rejoinUser).catch((error) => console.error('[Plugins] Failed to trigger onUserJoin hook:', error));
+      dispatchWebhookEvent('user.joined', { id: rejoinUser.id, username: rejoinUser.username, dbUserId: rejoinUser.dbUserId || null }).catch((error) => console.error('[Webhooks] Failed to dispatch user.joined:', error));
+    }
 
     if (ENABLE_LOGGING) console.log(`${session.username} rejoined the chat`);
   });
@@ -2893,6 +2946,20 @@ io.on("connection", (socket) => {
     } catch (dbError) {
       console.error('[MessageRepository] Failed to persist message:', dbError);
     }
+
+    pluginLoader.triggerOnMessage(data.channelId, message).catch((error) => {
+      console.error('[Plugins] Failed to trigger onMessage hook:', error);
+    });
+    dispatchWebhookEvent('message.created', {
+      channelId: data.channelId,
+      messageId: message.id,
+      userId: senderStableId,
+      username: user.username,
+      type: data.type,
+      text: data.text
+    }).catch((error) => {
+      console.error('[Webhooks] Failed to dispatch message.created:', error);
+    });
 
     // Clear typing indicator for this channel
     if (typingUsers.has(socket.id)) {
@@ -3388,6 +3455,18 @@ io.on("connection", (socket) => {
     pinnedMessages.set(channelId, new Set());
 
     io.emit("channel-created", channel);
+
+    pluginLoader.triggerOnChannelCreate(channel).catch((error) => {
+      console.error('[Plugins] Failed to trigger onChannelCreate hook:', error);
+    });
+    dispatchWebhookEvent('channel.created', {
+      channelId: channel.id,
+      name: channel.name,
+      type: channel.type || 'public'
+    }).catch((error) => {
+      console.error('[Webhooks] Failed to dispatch channel.created:', error);
+    });
+
     if (ENABLE_LOGGING) console.log(`Channel created: ${channelName}`);
   });
 
@@ -3824,6 +3903,17 @@ io.on("connection", (socket) => {
       }
     });
 
+    pluginLoader.triggerOnChannelCreate(groupPayload).catch((error) => {
+      console.error('[Plugins] Failed to trigger onChannelCreate hook:', error);
+    });
+    dispatchWebhookEvent('channel.created', {
+      channelId: groupPayload.id,
+      name: groupPayload.name,
+      type: groupPayload.type
+    }).catch((error) => {
+      console.error('[Webhooks] Failed to dispatch channel.created:', error);
+    });
+
     if (ENABLE_LOGGING) console.log(`Group created: ${data.name} (${groupId}) by ${user.username}`);
   });
 
@@ -4174,6 +4264,17 @@ io.on("connection", (socket) => {
       socket.broadcast.emit("user-left", {
         id: socket.id,
         username: user.username
+      });
+
+      pluginLoader.triggerOnUserLeave(socket.id).catch((error) => {
+        console.error('[Plugins] Failed to trigger onUserLeave hook:', error);
+      });
+      dispatchWebhookEvent('user.left', {
+        id: socket.id,
+        username: user.username,
+        dbUserId: user.dbUserId || null
+      }).catch((error) => {
+        console.error('[Webhooks] Failed to dispatch user.left:', error);
       });
 
       if (ENABLE_LOGGING) console.log(`${user.username} left the chat`);

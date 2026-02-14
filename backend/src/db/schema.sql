@@ -217,3 +217,37 @@ CREATE TABLE IF NOT EXISTS relays (
 
 CREATE INDEX IF NOT EXISTS idx_relays_status ON relays(status);
 CREATE INDEX IF NOT EXISTS idx_relays_region ON relays(region);
+
+-- Outbound webhooks (user-managed event subscriptions)
+CREATE TABLE IF NOT EXISTS webhooks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  target_url TEXT NOT NULL,
+  secret TEXT NOT NULL,
+  event_filters TEXT NOT NULL, -- JSON array of event names
+  enabled INTEGER DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  webhook_id INTEGER NOT NULL,
+  event_type TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending', -- pending|success|failed
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  response_code INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  delivered_at INTEGER,
+  FOREIGN KEY (webhook_id) REFERENCES webhooks(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhooks_user ON webhooks(user_id);
+CREATE INDEX IF NOT EXISTS idx_webhooks_enabled ON webhooks(enabled);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook ON webhook_deliveries(webhook_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status ON webhook_deliveries(status, updated_at);
