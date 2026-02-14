@@ -1,51 +1,53 @@
 <!-- frontend/src/lib/components/MainLayout.svelte -->
 <script lang="ts">
 	import { layoutStore } from '$lib/layoutStore';
+	import { get } from 'svelte/store';
 	import Chat from '$lib/components/Chat.svelte';
 	import ScreenShareViewer from '$lib/components/ScreenShareViewer.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
+	import RightPanel from '$lib/components/RightPanel.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
-	import { users, currentUser, socket, createDM } from '$lib/socket';
-	import { startCall, startScreenShare } from '$lib/calling';
-	import type { User } from '$lib/socket';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 
-	$: mobileUsersVisible = $layoutStore.isMobile && ($layoutStore.rightPanelView === 'dm-list' || $layoutStore.rightPanelView === 'dm');
+	$: mobileRightVisible = $layoutStore.isMobile && $layoutStore.rightPanelView !== 'none';
 
-	function closeMobileUsers() {
-		layoutStore.rightPanelView.set('none');
-	}
+	let resizingChannel = false;
+	let resizingRight = false;
 
-	async function handleVoiceCall(user: User) {
-		if (!$socket || user.id === $currentUser?.id) return;
-		try { await startCall($socket, user.id, false); } catch { alert('Failed to start voice call.'); }
-	}
-
-	async function handleVideoCall(user: User) {
-		if (!$socket || user.id === $currentUser?.id) return;
-		try { await startCall($socket, user.id, true); } catch { alert('Failed to start video call.'); }
-	}
-
-	function handleDM(user: User) {
-		if (user.id === $currentUser?.id) return;
-		createDM(user.id);
-		closeMobileUsers();
-	}
-
-	let isResizingChannel = false;
-
-	layoutStore.isResizingChannel.subscribe(v => isResizingChannel = v);
+	layoutStore.isResizingChannel.subscribe(v => resizingChannel = v);
+	layoutStore.isResizingRight.subscribe(v => resizingRight = v);
 
 	function handleMouseMove(e: MouseEvent) {
-		if (isResizingChannel) {
-			layoutStore.channelSidebarWidth.set(Math.max(180, Math.min(e.clientX, 400)));
+		if (resizingChannel) {
+			layoutStore.channelSidebarWidth.set(Math.max(0, Math.min(e.clientX, 400)));
+		}
+		if (resizingRight) {
+			const rightEdge = window.innerWidth;
+			const newWidth = Math.max(0, Math.min(rightEdge - e.clientX, 500));
+			layoutStore.rightPanelWidth.set(newWidth);
 		}
 	}
 
 	function stopResize() {
+		if (resizingChannel) {
+			const w = get(layoutStore.channelSidebarWidth);
+			if (w < 30) layoutStore.channelSidebarWidth.set(0);
+			else if (w < 170) layoutStore.channelSidebarWidth.set(60);
+			else layoutStore.channelSidebarWidth.set(280);
+		}
+		if (resizingRight) {
+			const w = get(layoutStore.rightPanelWidth);
+			if (w < 30) {
+				layoutStore.rightPanelWidth.set(0);
+				layoutStore.rightPanelView.set('none');
+			} else if (w < 200) {
+				layoutStore.rightPanelWidth.set(250);
+			}
+		}
 		layoutStore.isResizingChannel.set(false);
+		layoutStore.isResizingRight.set(false);
 	}
 </script>
 
@@ -64,7 +66,7 @@
 			<svg width="24" height="24" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
 			<span>Channels</span>
 		</button>
-		<button class:active={$layoutStore.rightPanelView === 'dm-list' || $layoutStore.rightPanelView === 'dm'} on:click={layoutStore.toggleMobileUsers}>
+		<button class:active={$layoutStore.rightPanelView !== 'none'} on:click={layoutStore.toggleMobileUsers}>
 			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
 			<span>Users</span>
 		</button>
@@ -77,53 +79,23 @@
 
 <div class="app-container" class:resizing={$layoutStore.isResizing} class:in-call={$layoutStore.isMobile && $layoutStore.isInCall}>
 	<!-- Channel Sidebar (Left) -->
-	<div 
-		class="channel-sidebar-container" 
+	<div
+		class="channel-sidebar-container"
 		style:width="{$layoutStore.channelSidebarWidth}px"
 		class:mobile-visible={$layoutStore.showMobileChannels}
 	>
 		<ChannelSidebar on:close={() => layoutStore.showMobileChannels.set(false)} bind:activeView on:logout />
+		<!-- Channel resize handle -->
+		<div
+			class="resize-handle resize-handle-channel"
+			on:mousedown|preventDefault={() => layoutStore.isResizingChannel.set(true)}
+		></div>
 	</div>
 
-	<!-- Mobile User List Overlay -->
-	{#if mobileUsersVisible}
-		<div class="mobile-user-overlay">
-			<div class="mobile-user-header">
-				<h3>Users Online</h3>
-				<button class="mobile-close-btn" on:click={closeMobileUsers}>
-					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-				</button>
-			</div>
-			<div class="mobile-user-list">
-				{#each $users.filter(u => u.id !== $currentUser?.id) as user (user.id)}
-					<div class="mobile-user-item">
-						<div class="mobile-user-info">
-							{#if user.profilePicture}
-								<img src={user.profilePicture} alt={user.username} class="mobile-user-avatar" />
-							{:else}
-								<div class="mobile-user-avatar-placeholder" style="background-color: {user.color}">
-									{user.username.charAt(0).toUpperCase()}
-								</div>
-							{/if}
-							<span class="mobile-user-name">{user.username}</span>
-						</div>
-						<div class="mobile-user-actions">
-							<button class="mobile-action-btn" on:click={() => handleDM(user)} title="Message">
-								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-							</button>
-							<button class="mobile-action-btn" on:click={() => handleVoiceCall(user)} title="Voice call">
-								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-							</button>
-							<button class="mobile-action-btn" on:click={() => handleVideoCall(user)} title="Video call">
-								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-							</button>
-						</div>
-					</div>
-				{/each}
-				{#if $users.filter(u => u.id !== $currentUser?.id).length === 0}
-					<div class="mobile-user-empty">No other users online</div>
-				{/if}
-			</div>
+	<!-- Mobile Right Panel Overlay -->
+	{#if mobileRightVisible}
+		<div class="mobile-right-overlay">
+			<RightPanel />
 		</div>
 	{/if}
 
@@ -132,11 +104,38 @@
 		<div class:hidden={activeView !== 'chat'}><Chat on:logout /></div>
 		<div class:hidden={activeView !== 'screen'}><ScreenShareViewer bind:activeView /></div>
 	</div>
+
+	<!-- Desktop Right Panel -->
+	{#if $layoutStore.showRightPanel}
+		<div
+			class="right-panel-container"
+			style:width="{$layoutStore.rightPanelWidth}px"
+		>
+			<!-- Right panel resize handle -->
+			<div
+				class="resize-handle resize-handle-right"
+				on:mousedown|preventDefault={() => layoutStore.isResizingRight.set(true)}
+			></div>
+			<RightPanel />
+		</div>
+	{/if}
+
+	<!-- Desktop toggle button (visible when panel is closed) -->
+	{#if !$layoutStore.isMobile && !$layoutStore.showRightPanel}
+		<button
+			class="user-panel-toggle"
+			on:click={layoutStore.toggleRightPanel}
+			title="Open side panel"
+		>
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<polyline points="15 18 9 12 15 6"/>
+			</svg>
+		</button>
+	{/if}
 </div>
 <CallModal />
 
 <style>
-	/* All the styles from +page.svelte are moved here */
 	:global(body) {
 		overflow: hidden;
 	}
@@ -157,10 +156,10 @@
 		cursor: col-resize;
 		user-select: none;
 	}
-	
+
 	.main-content {
 		flex: 1;
-		min-width: 0; /* Prevents flexbox overflow */
+		min-width: 0;
 		position: relative;
 	}
 
@@ -173,50 +172,53 @@
 		border-right: 1px solid rgba(var(--border-rgb), var(--opacity-light));
 	}
 
-	.main-content {
-		border-right: 1px solid rgba(var(--border-rgb), var(--opacity-light));
+	/* Hide border when sidebar is collapsed */
+	.channel-sidebar-container[style*="width: 0px"],
+	.channel-sidebar-container[style*="width:0px"] {
+		border-right: none;
 	}
 
-	/* Desktop Panel Styles */
+	/* Desktop Right Panel */
 	.right-panel-container {
 		flex-shrink: 0;
 		position: relative;
-		overflow: hidden;
-		transition: width 0.2s ease-in-out;
-		will-change: width;
 		height: 100vh;
 		height: 100dvh;
 		background: var(--bg-secondary);
+		border-left: 1px solid rgba(var(--border-rgb), var(--opacity-light));
 	}
 
+	/* Resize handles */
 	.resize-handle {
 		position: absolute;
 		top: 0;
 		bottom: 0;
 		width: 6px;
 		cursor: col-resize;
-		z-index: 100;
+		z-index: var(--z-sticky);
 		transition: background 0.2s;
 	}
 	.resize-handle:hover { background: var(--accent); opacity: 0.5; }
 	.resize-handle-channel { right: -3px; }
 	.resize-handle-right { left: -3px; }
-	
+
+	/* Toggle button on right edge */
 	.user-panel-toggle {
 		position: absolute;
 		top: 50%;
+		right: 0;
 		transform: translateY(-50%);
-		width: 28px;
-		height: 80px;
+		width: 24px;
+		height: 64px;
 		background: var(--bg-secondary);
 		border: 1px solid var(--border);
-		border-radius: 8px 0 0 8px;
+		border-right: none;
+		border-radius: var(--radius-md) 0 0 var(--radius-md);
 		cursor: pointer;
-		font-size: 1.2rem;
 		color: var(--text-secondary);
-		transition: all 0.3s ease;
-		z-index: 999;
-		opacity: 0;
+		transition: all 0.2s ease;
+		z-index: var(--z-sticky);
+		opacity: 0.3;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -224,37 +226,13 @@
 	.user-panel-toggle:hover {
 		opacity: 1;
 		background: var(--accent);
-		color: var(--text-primary);
-	}
-
-	.art-nav-button {
-		position: absolute;
-		top: 12px;
-		right: 60px;
-		width: 40px;
-		height: 40px;
-		background: var(--bg-secondary);
-		border: 2px solid var(--border);
-		border-radius: 8px;
-		cursor: pointer;
-		font-size: 1.5rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		text-decoration: none;
-		transition: all 0.3s ease;
-		z-index: 500;
-	}
-	.art-nav-button:hover {
-		background: var(--accent);
-		border-color: var(--accent);
-		transform: scale(1.1);
+		color: white;
 	}
 
 	/* --- Mobile Styles --- */
 	.mobile-bottom-nav { display: none; }
-	.mobile-user-overlay { display: none; }
-	
+	.mobile-right-overlay { display: none; }
+
 	@media (max-width: 768px) {
 		.app-container {
 			height: calc(100vh - 56px);
@@ -268,20 +246,32 @@
 
 		.channel-sidebar-container,
 		.right-panel-container {
-			display: none; /* Hidden by default */
+			display: none;
 			position: fixed;
 			top: 0;
 			left: 0;
-			width: 100% !important; /* Override inline style */
+			width: 100% !important;
 			height: calc(100vh - 56px);
 			height: calc(100dvh - 56px);
-			z-index: 1500;
+			z-index: var(--z-modal);
 			background: var(--bg-primary);
 		}
 
-		.channel-sidebar-container.mobile-visible,
-		.right-panel-container.mobile-visible {
-			display: block; /* Shown when active */
+		.channel-sidebar-container.mobile-visible {
+			display: block;
+		}
+
+		.mobile-right-overlay {
+			display: flex;
+			flex-direction: column;
+			position: fixed;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: calc(100vh - 56px);
+			height: calc(100dvh - 56px);
+			z-index: var(--z-modal);
+			background: var(--bg-primary);
 		}
 
 		.mobile-bottom-nav {
@@ -295,7 +285,7 @@
 			height: 56px;
 			background: var(--bg-tertiary);
 			border-top: 1px solid var(--border);
-			z-index: 2000;
+			z-index: var(--z-toast);
 			padding: 0;
 			padding-bottom: env(safe-area-inset-bottom, 0);
 		}
@@ -308,7 +298,7 @@
 			background: transparent;
 			border: none;
 			color: var(--text-secondary);
-			font-size: 0.6rem;
+			font-size: 0.65rem;
 			padding: 0.375rem 0.5rem;
 			text-decoration: none;
 			transition: color 0.15s;
@@ -316,146 +306,5 @@
 		.mobile-bottom-nav button:hover, .mobile-bottom-nav .nav-link:hover { color: var(--text-primary); }
 		.mobile-bottom-nav button.active { color: var(--accent); }
 		.mobile-bottom-nav svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; }
-
-		/* Mobile User List Overlay */
-		.mobile-user-overlay {
-			display: flex;
-			flex-direction: column;
-			position: fixed;
-			top: 0;
-			left: 0;
-			width: 100%;
-			height: calc(100vh - 56px);
-			height: calc(100dvh - 56px);
-			z-index: 1500;
-			background: var(--bg-primary);
-		}
-
-		.mobile-user-header {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			padding: 0 1rem;
-			height: 52px;
-			flex-shrink: 0;
-			background: var(--bg-secondary);
-			border-bottom: 1px solid var(--border);
-		}
-
-		.mobile-user-header h3 {
-			margin: 0;
-			font-size: 1rem;
-			font-weight: 600;
-			color: var(--text-primary);
-		}
-
-		.mobile-close-btn {
-			width: 36px;
-			height: 36px;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			background: transparent;
-			border: none;
-			color: var(--text-secondary);
-			border-radius: 6px;
-			padding: 0;
-		}
-
-		.mobile-close-btn:hover {
-			background: var(--bg-hover);
-			color: var(--text-primary);
-		}
-
-		.mobile-user-list {
-			flex: 1;
-			overflow-y: auto;
-			-webkit-overflow-scrolling: touch;
-			padding: 0.5rem;
-		}
-
-		.mobile-user-item {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			padding: 0.75rem 0.5rem;
-			border-radius: 8px;
-			min-height: 56px;
-		}
-
-		.mobile-user-item:active {
-			background: var(--bg-secondary);
-		}
-
-		.mobile-user-info {
-			display: flex;
-			align-items: center;
-			gap: 0.75rem;
-			min-width: 0;
-			flex: 1;
-		}
-
-		.mobile-user-avatar,
-		.mobile-user-avatar-placeholder {
-			width: 36px;
-			height: 36px;
-			border-radius: 50%;
-			flex-shrink: 0;
-			object-fit: cover;
-		}
-
-		.mobile-user-avatar-placeholder {
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			font-size: 0.875rem;
-			font-weight: 600;
-			color: white;
-		}
-
-		.mobile-user-name {
-			font-size: 0.9375rem;
-			color: var(--text-primary);
-			overflow: hidden;
-			text-overflow: ellipsis;
-			white-space: nowrap;
-		}
-
-		.mobile-user-actions {
-			display: flex;
-			gap: 0.25rem;
-			flex-shrink: 0;
-		}
-
-		.mobile-action-btn {
-			width: 44px;
-			height: 44px;
-			padding: 0;
-			background: transparent;
-			border: none;
-			border-radius: 8px;
-			cursor: pointer;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			color: var(--text-secondary);
-		}
-
-		.mobile-action-btn:active {
-			background: var(--bg-hover);
-			color: var(--accent-hex, var(--text-primary));
-		}
-
-		.mobile-action-btn svg {
-			stroke: currentColor;
-			fill: none;
-		}
-
-		.mobile-user-empty {
-			text-align: center;
-			color: var(--text-secondary);
-			padding: 2rem 1rem;
-			font-size: 0.875rem;
-		}
 	}
 </style>

@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { onMount, tick, createEventDispatcher } from 'svelte';
-	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, users, dmPanelSignal, createDM, type Message, type Emoji } from '$lib/socket';
+	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, users, dmPanelSignal, createDM, getDMChannelIdForUser, type Message, type Emoji } from '$lib/socket';
 	import { resources, graphEdges } from '$lib/business/store';
 	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
 	import { pinChannel, unpinChannel } from '$lib/socket';
-	import GiphyPicker from './GiphyPicker.svelte';
 	import EmojiPicker from './EmojiPicker.svelte';
 	import MessageList from './MessageList.svelte';
 	import PinnedMessages from './PinnedMessages.svelte';
@@ -33,7 +32,6 @@
 	let typingTimeout: number;
 	let lastTypingEmit = 0;
 	const TYPING_THROTTLE_MS = 300; // Max one typing event per 300ms
-	let showGiphyPicker = false;
 	let showEmojiPicker = false;
 	let emojiPickerButton: HTMLButtonElement;
 	let replyingTo: Message | null = null;
@@ -482,9 +480,8 @@
 					return;
 				}
 
-				// Check if DM already exists
-				const memberIds = [$currentUser?.id, targetUser.id].sort();
-				const dmId = `dm-${memberIds.join('-')}`;
+				// Check if DM already exists using stable IDs
+				const dmId = getDMChannelIdForUser($currentUser, targetUser);
 				const existingDM = $channels.find(ch => ch.id === dmId);
 
 				if (existingDM) {
@@ -584,7 +581,7 @@
 			isSpoiler: markAsSpoiler
 		});
 		replyingTo = null;
-		showGiphyPicker = false;
+		showEmojiPicker = false;
 		textareaElement?.focus();
 	}
 
@@ -976,16 +973,10 @@
 			{/if}
 		</div>
 
-		{#if showGiphyPicker}
-			<GiphyPicker
-				on:select={handleGifSelect}
-				on:close={() => showGiphyPicker = false}
-			/>
-		{/if}
-
 		{#if showEmojiPicker}
 			<EmojiPicker
 				on:select={handleEmojiSelect}
+				on:gif={handleGifSelect}
 				on:close={() => showEmojiPicker = false}
 			/>
 		{/if}
@@ -1015,7 +1006,17 @@
 			<div class="reply-bar">
 				<div class="reply-info">
 					<span class="reply-label">Replying to {replyingTo.user}:</span>
-					<span class="reply-preview">{replyingTo.text.substring(0, 50)}{replyingTo.text.length > 50 ? '...' : ''}</span>
+					<span class="reply-preview">
+						{#if replyingTo.text}
+							{replyingTo.text.substring(0, 50)}{replyingTo.text.length > 50 ? '...' : ''}
+						{:else if replyingTo.type === 'gif'}
+							GIF
+						{:else if replyingTo.type === 'emoji'}
+							:{replyingTo.emojiName || 'sticker'}:
+						{:else}
+							Attachment
+						{/if}
+					</span>
 				</div>
 				<button class="cancel-reply" on:click={cancelReply}>✕</button>
 			</div>
@@ -1130,13 +1131,6 @@
 				rows="1"
 			></textarea>
 			<button
-				class="input-icon-button"
-				on:click={() => showGiphyPicker = !showGiphyPicker}
-				title="Add GIF"
-			>
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="7" x2="22" y2="7"></line><line x1="2" y1="17" x2="22" y2="17"></line></svg>
-			</button>
-			<button
 				bind:this={emojiPickerButton}
 				class="input-icon-button"
 				on:click|stopPropagation={() => {
@@ -1165,7 +1159,6 @@
 		flex-direction: column;
 		height: 100%;
 		position: relative;
-		isolation: isolate;
 		background: var(--bg-primary);
 		background-image: var(--background-image-url, none);
 		background-size: var(--background-image-size, cover);

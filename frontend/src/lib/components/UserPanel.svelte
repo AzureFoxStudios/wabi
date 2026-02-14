@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { users, currentUser, socket, channels, type User, createDM, channelUnreadCounts } from '$lib/socket';
+	import { users, currentUser, socket, channels, type User, createDM, getDMChannelIdForUser, channelUnreadCounts } from '$lib/socket';
 	import { startCall } from '$lib/calling';
 	import { startScreenShare } from '$lib/calling';
 	import UserPopout from './UserPopout.svelte';
@@ -10,15 +10,14 @@
 
 	const dispatch = createEventDispatcher();
 
-	// Helper function to get DM channel ID for a user
-	function getDMChannelId(userId: string): string {
-		const memberIds = [$currentUser?.id, userId].sort();
-		return `dm-${memberIds.join('-')}`;
+	// Helper function to get DM channel ID for a user (uses stable IDs)
+	function getDMChannelId(user: User): string {
+		return getDMChannelIdForUser($currentUser, user);
 	}
 
 	// Helper function to get unread count for a user's DM
-	function getUserUnreadCount(userId: string): number {
-		const dmId = getDMChannelId(userId);
+	function getUserUnreadCount(user: User): number {
+		const dmId = getDMChannelId(user);
 		return $channelUnreadCounts[dmId] || 0;
 	}
 
@@ -98,9 +97,8 @@
 
 		if (!user) return;
 
-		// Create DM and find the channel
-		const memberIds = [$currentUser?.id, user.id].sort();
-		const dmId = `dm-${memberIds.join('-')}`;
+		// Create DM and find the channel using stable IDs
+		const dmId = getDMChannelIdForUser($currentUser, user);
 
 		// Check if DM already exists
 		const existingDM = $channels.find(ch => ch.id === dmId);
@@ -114,9 +112,9 @@
 
 			// Subscribe to channels to wait for the new DM
 			const unsubscribe = channels.subscribe(chs => {
-				const newDM = chs.find(ch => ch.id === dmId);
+				const newDM = chs.find(ch => ch.id === dmId || (ch.type === 'dm' && ch.otherUser?.id === user.id));
 				if (newDM) {
-					dispatch('openDM', { channelId: dmId, otherUser: user });
+					dispatch('openDM', { channelId: newDM.id, otherUser: user });
 					unsubscribe();
 				}
 			});
@@ -253,8 +251,8 @@
 				</button>
 
 				<!-- Unread badge for DMs -->
-				{#if user.id !== $currentUser?.id && getUserUnreadCount(user.id) > 0}
-					<span class="unread-badge">{formatBadge(getUserUnreadCount(user.id))}</span>
+				{#if user.id !== $currentUser?.id && getUserUnreadCount(user) > 0}
+					<span class="unread-badge">{formatBadge(getUserUnreadCount(user))}</span>
 				{/if}
 
 				<!-- Call buttons (only show for other users) -->

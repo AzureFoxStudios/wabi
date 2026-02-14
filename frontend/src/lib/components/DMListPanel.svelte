@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { channels, channelMessages, currentChannel, users, currentUser, createDM, joinChannel, type User } from '$lib/socket';
+	import { channels, channelMessages, currentChannel, users, currentUser, createDM, getDMChannelIdForUser, joinChannel, type User } from '$lib/socket';
 	import { longpress } from '$lib/actions/longpress';
+	import GroupAvatar from './GroupAvatar.svelte';
 
 	// TEMPORARY: This is a temporary DM panel for the left sidebar
 	// TODO: Refactor DM system later, move to dedicated DM section
@@ -14,7 +15,7 @@
 	let contextMenuPosition = { x: 0, y: 0 };
 	let showContextMenu = false;
 
-	$: dmChannels = $channels.filter(ch => ch.type === 'dm').sort((a, b) => {
+	$: dmChannels = $channels.filter(ch => ch.type === 'dm' || ch.type === 'group').sort((a, b) => {
 		const aLastMsg = ($channelMessages[a.id] || []).length > 0
 			? ($channelMessages[a.id] || [])[$channelMessages[a.id].length - 1].timestamp
 			: 0;
@@ -32,9 +33,16 @@
 
 	function getOtherUser(channel: { otherUser?: User; members?: string[] }): User | null {
 		if (channel.otherUser) return channel.otherUser;
-		const otherUserId = (channel.members as string[] || []).find((id: string) => id !== $currentUser?.id);
-		if (!otherUserId) return null;
-		return $users.find(u => u.id === otherUserId) || null;
+		// Fallback: try to resolve from members using stable IDs
+		const myStableId = $currentUser?.dbUserId ? `user-${$currentUser.dbUserId}` : $currentUser?.id;
+		const otherStableId = (channel.members as string[] || []).find((id: string) => id !== myStableId);
+		if (!otherStableId) return null;
+		// Match by socket.id or by stable dbUserId
+		if (otherStableId.startsWith('user-')) {
+			const dbId = parseInt(otherStableId.substring(5), 10);
+			return $users.find(u => u.dbUserId === dbId) || null;
+		}
+		return $users.find(u => u.id === otherStableId) || null;
 	}
 
 	function getLastMessagePreview(channelId: string): string {
@@ -48,18 +56,19 @@
 	}
 
 	function startDMWithUser(user: User) {
-		const memberIds = [$currentUser?.id, user.id].sort();
-		const dmId = `dm-${memberIds.join('-')}`;
+		const dmId = getDMChannelIdForUser($currentUser, user);
 		const existingDM = $channels.find(ch => ch.id === dmId);
 
 		if (existingDM) {
 			joinChannel(dmId);
 		} else {
 			createDM(user.id);
+			// Listen for the DM to appear (server will assign the correct stable ID)
 			const unsubscribe = channels.subscribe(chs => {
-				const newDM = chs.find(ch => ch.id === dmId);
+				// Check by our computed ID or by otherUser match
+				const newDM = chs.find(ch => ch.id === dmId || (ch.type === 'dm' && ch.otherUser?.id === user.id));
 				if (newDM) {
-					joinChannel(dmId);
+					joinChannel(newDM.id);
 					unsubscribe();
 				}
 			});
@@ -182,8 +191,7 @@
 		{:else}
 			<div class="dm-list">
 				{#each dmChannels as channel (channel.id)}
-					{@const otherUser = getOtherUser(channel)}
-					{#if otherUser}
+					{#if channel.type === 'group'}
 						<button
 							class="dm-item"
 							class:active={$currentChannel === channel.id}
@@ -192,19 +200,38 @@
 							use:longpress={{ onLongPress: (e) => handleDMLongPress(e, channel) }}
 						>
 							<div class="dm-avatar">
-								{#if otherUser.profilePicture}
-									<img src={otherUser.profilePicture} alt={otherUser.username} />
-								{:else}
-									<div class="avatar-placeholder" style="background-color: {otherUser.color}">
-										{otherUser.username.charAt(0).toUpperCase()}
-									</div>
-								{/if}
+								<GroupAvatar {channel} size={40} />
 							</div>
 							<div class="dm-info">
-								<span class="dm-name">{otherUser.username}</span>
+								<span class="dm-name">{channel.name}</span>
 								<span class="dm-preview">{getLastMessagePreview(channel.id)}</span>
 							</div>
 						</button>
+					{:else}
+						{@const otherUser = getOtherUser(channel)}
+						{#if otherUser}
+							<button
+								class="dm-item"
+								class:active={$currentChannel === channel.id}
+								on:click={() => selectDM(channel.id)}
+								on:contextmenu={(e) => handleDMRightClick(e, channel)}
+								use:longpress={{ onLongPress: (e) => handleDMLongPress(e, channel) }}
+							>
+								<div class="dm-avatar">
+									{#if otherUser.profilePicture}
+										<img src={otherUser.profilePicture} alt={otherUser.username} />
+									{:else}
+										<div class="avatar-placeholder" style="background-color: {otherUser.color}">
+											{otherUser.username.charAt(0).toUpperCase()}
+										</div>
+									{/if}
+								</div>
+								<div class="dm-info">
+									<span class="dm-name">{otherUser.username}</span>
+									<span class="dm-preview">{getLastMessagePreview(channel.id)}</span>
+								</div>
+							</button>
+						{/if}
 					{/if}
 				{/each}
 			</div>

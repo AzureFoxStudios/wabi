@@ -2,6 +2,7 @@
 CREATE TABLE IF NOT EXISTS users (
   user_id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+  handle TEXT UNIQUE COLLATE NOCASE,
   password_hash TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   color TEXT NOT NULL,
@@ -83,6 +84,16 @@ CREATE TABLE IF NOT EXISTS user_roles (
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
+-- Role definitions
+CREATE TABLE IF NOT EXISTS roles (
+  role_name TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+  priority INTEGER NOT NULL DEFAULT 10,
+  color TEXT,
+  is_hoisted INTEGER DEFAULT 1,
+  created_at INTEGER DEFAULT (strftime('%s', 'now'))
+);
+
 -- Resource visibility and privacy
 CREATE TABLE IF NOT EXISTS resource_visibility (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,6 +130,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_offline_messages_to_user ON offline_messages(to_user_id, delivered);
 CREATE INDEX IF NOT EXISTS idx_offline_messages_expires_at ON offline_messages(expires_at);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_users_handle ON users(handle COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
 CREATE INDEX IF NOT EXISTS idx_resource_visibility_resource ON resource_visibility(resource_id);
 CREATE INDEX IF NOT EXISTS idx_guest_codes_active ON guest_codes(is_active);
@@ -132,10 +144,12 @@ CREATE TABLE IF NOT EXISTS channels (
   channel_id TEXT PRIMARY KEY,
   channel_type TEXT NOT NULL DEFAULT 'public',  -- 'public', 'dm', 'group'
   name TEXT NOT NULL,
+  description TEXT DEFAULT '',
   created_at INTEGER NOT NULL,
   created_by TEXT,
   persist_messages INTEGER DEFAULT 1,
-  is_archived INTEGER DEFAULT 0
+  is_archived INTEGER DEFAULT 0,
+  avatar TEXT
 );
 
 -- Channel members (for DMs and groups)

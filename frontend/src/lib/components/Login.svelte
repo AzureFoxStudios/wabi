@@ -2,6 +2,7 @@
 	import { createEventDispatcher, onMount } from 'svelte';
 	import QRCode from 'qrcode';
 	import { register, login, upgradeToRegistered } from '$lib/api';
+	import { initE2E } from '$lib/e2eManager';
 
 	const dispatch = createEventDispatcher<{
 		login: { username: string; token?: string; authMethod: 'guest' | 'registered' };
@@ -9,6 +10,7 @@
 
 	let tab: 'guest' | 'login' | 'register' = 'guest';
 	let username = '';
+	let handle = '';
 	let password = '';
 	let passwordConfirm = '';
 	let error = '';
@@ -24,10 +26,18 @@
 		: '';
 
 	// Tab switching helpers
+	// Auto-suggest handle from username
+	$: if (tab === 'register' && !handleManuallyEdited) {
+		handle = username.replace(/\s+/g, '').toLowerCase();
+	}
+	let handleManuallyEdited = false;
+
 	function switchTab(newTab: 'guest' | 'login' | 'register') {
 		tab = newTab;
 		error = '';
 		username = '';
+		handle = '';
+		handleManuallyEdited = false;
 		password = '';
 		passwordConfirm = '';
 	}
@@ -49,6 +59,11 @@
 			error = 'Username must be at least 2 characters';
 			return;
 		}
+		const cleanHandle = handle.replace(/^@/, '').toLowerCase();
+		if (!/^[a-z][a-z0-9_]{1,31}$/.test(cleanHandle)) {
+			error = 'Handle must start with a letter, be 2-32 chars, lowercase letters/numbers/underscores only';
+			return;
+		}
 		if (password.length < 8) {
 			error = 'Password must be at least 8 characters';
 			return;
@@ -61,8 +76,12 @@
 		loading = true;
 
 		try {
-			const result = await register(username, password);
+			const result = await register(username, password, cleanHandle);
 			localStorage.setItem('authToken', result.token);
+			if (result.user.id) {
+				localStorage.setItem('dbUserId', String(result.user.id));
+				initE2E(result.user.id, result.token, true);
+			}
 			dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered' });
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Registration failed';
@@ -85,6 +104,10 @@
 		try {
 			const result = await login(username, password);
 			localStorage.setItem('authToken', result.token);
+			if (result.user.id) {
+				localStorage.setItem('dbUserId', String(result.user.id));
+				initE2E(result.user.id, result.token, false);
+			}
 			dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered' });
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Login failed';
@@ -181,7 +204,7 @@
 				<input
 					type="text"
 					bind:value={username}
-					placeholder="Username"
+					placeholder="Username or @handle"
 					required
 					use:focusOnMount
 					disabled={loading}
@@ -205,13 +228,27 @@
 				<input
 					type="text"
 					bind:value={username}
-					placeholder="Choose username"
+					placeholder="Choose display name"
 					minlength="2"
 					maxlength="32"
 					required
 					use:focusOnMount
 					disabled={loading}
 				/>
+				<div class="handle-input-wrapper">
+					<span class="handle-prefix">@</span>
+					<input
+						type="text"
+						bind:value={handle}
+						on:input={() => { handleManuallyEdited = true; }}
+						placeholder="yourhandle"
+						minlength="2"
+						maxlength="32"
+						required
+						disabled={loading}
+						class="handle-input"
+					/>
+				</div>
 				<input
 					type="password"
 					bind:value={password}
@@ -282,6 +319,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		overflow-y: auto;
 		background: linear-gradient(135deg, var(--dark-bg-primary) 0%, var(--dark-bg-secondary) 100%);
 		padding: 1rem;
 	}
@@ -300,7 +338,7 @@
 	}
 
 	.logo {
-		height: 320px;
+		height: min(320px, 25vh);
 		margin-bottom: 2rem;
 		filter: invert(1) drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
 		animation: logoFadeIn 0.6s ease-out;
@@ -425,6 +463,31 @@
 		background: rgba(88, 101, 242, 0.1);
 	}
 
+	/* Handle input */
+	.handle-input-wrapper {
+		display: flex;
+		align-items: center;
+		background: var(--bg-tertiary);
+		border-radius: 12px;
+		margin-bottom: 1rem;
+		overflow: hidden;
+	}
+
+	.handle-prefix {
+		padding: 0 0 0 1rem;
+		font-size: 1.1rem;
+		color: var(--text-secondary);
+		font-weight: 600;
+		user-select: none;
+	}
+
+	.handle-input {
+		flex: 1;
+		margin-bottom: 0 !important;
+		border-radius: 0 !important;
+		padding-left: 0.25rem !important;
+	}
+
 	/* Error message */
 	.error-message {
 		background: rgba(239, 68, 68, 0.1);
@@ -505,6 +568,14 @@
 		color: var(--text-primary);
 	}
 
+	@media (max-height: 700px) {
+		.logo { height: 100px; margin-bottom: 0.5rem; }
+		.login-box { padding: 1.25rem; }
+		input { padding: 0.75rem; font-size: 1rem; margin-bottom: 0.75rem; }
+		.join-btn { padding: 0.75rem; font-size: 1rem; margin-bottom: 1rem; }
+		.tabs { margin-bottom: 1rem; }
+	}
+
 	/* Mobile styles */
 	@media (max-width: 768px) {
 		.login-container {
@@ -517,7 +588,7 @@
 		}
 
 		.logo {
-			height: 180px;
+			height: min(180px, 20vh);
 			margin-bottom: 1rem;
 		}
 

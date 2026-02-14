@@ -20,6 +20,8 @@ export interface Message {
   files?: FileAttachment[];
   isPinned?: boolean;
   isEdited?: boolean;
+  encrypted?: boolean;
+  iv?: string;
   replyTo?: string;
   isSpoiler?: boolean;
   reactions?: Record<string, string[]>;
@@ -31,16 +33,22 @@ export interface Emoji {
   url: string;
   category: string;
   isCustom: boolean;
+  type?: 'emoji' | 'sticker';
 }
 
 export interface User {
   id: string;
   username: string;
+  handle?: string;
   color: string;
-  status: 'active' | 'away' | 'busy';
+  status: 'active' | 'away' | 'busy' | 'offline';
   profilePicture?: string;
   bio?: string;
   joinedAt?: number;
+  dbUserId?: number; // Stable registered user ID (undefined for guests)
+  roles?: string[];
+  highestRole?: string;
+  roleColor?: string | null;
   usernameFont?: {
     family?: string;
     size?: string;
@@ -52,10 +60,13 @@ export interface User {
 export interface Channel {
   id: string;
   name: string;
+  description?: string;
   createdAt: number;
   type?: 'public' | 'dm' | 'group';
   members?: string[];
   otherUser?: User;
+  memberUsers?: User[];
+  avatar?: string | null;
   autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
   isTemporary?: boolean;
   persistMessages?: boolean;

@@ -7,6 +7,7 @@
 	import MainLayout from '$lib/components/MainLayout.svelte';
 	import type { PageData } from './$types';
 	import { layoutStore } from '$lib/layoutStore';
+	import { initE2E, clearE2EState } from '$lib/e2eManager';
 
 	// Theme system
 	import { initializeTheme, watchThemeChanges, syncThemeToLocalStorage } from '$lib/theme/initTheme';
@@ -27,7 +28,7 @@
 
 		const notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 		if (notificationsEnabled) await requestNotificationPermission();
-		
+
 		layoutStore.subscribe(state => {
 			if (state.isMobile) {
 				layoutStore.resetPanelsOnDesktop();
@@ -37,6 +38,25 @@
 		const savedUsername = localStorage.getItem('username');
 		const savedToken = localStorage.getItem('authToken');
 		if (savedUsername) {
+			// Initialize E2E encryption if registered user (before socket, to validate session)
+			if (savedToken) {
+				const dbUserId = localStorage.getItem('dbUserId');
+				if (dbUserId) {
+					try {
+						await initE2E(parseInt(dbUserId, 10), savedToken, false);
+					} catch (err) {
+						console.error('[App] Cached session invalid, clearing login:', err);
+						// User no longer exists or session is invalid - force logout
+						localStorage.removeItem('username');
+						localStorage.removeItem('authToken');
+						localStorage.removeItem('dbUserId');
+						localStorage.removeItem('sessionId');
+						loggedIn = false;
+						return; // Skip socket init
+					}
+				}
+			}
+
 			initSocket(savedUsername, savedToken || undefined);
 			loggedIn = true;
 		}
@@ -106,6 +126,7 @@
 
 	function handleLogout() {
 		disconnect();
+		clearE2EState();
 		loggedIn = false;
 		try {
 			localStorage.removeItem('username');

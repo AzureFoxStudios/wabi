@@ -126,12 +126,6 @@ Located in `plugins/agile-tools/`
 - Sprint planning
 - Burndown charts
 
-### Voice & Video
-Located in `plugins/voice-video/`
-- WebRTC voice calling
-- Video conferencing
-- Screen sharing
-
 ## 🎯 Performance Impact
 
 ### Base App (No Plugins)

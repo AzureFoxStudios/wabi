@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { get } from 'svelte/store';
 	import { currentUser } from '$lib/socket';
+	import { onMount } from 'svelte';
 	import {
 		todos,
 		projects,
@@ -13,6 +14,13 @@
 		type Todo
 	} from '$lib/business';
 	import type { TodoStatus, KanbanColumn } from '$lib/business/types';
+
+	interface RegisteredUser {
+		user_id: number;
+		username: string;
+		profile_picture?: string;
+		color: string;
+	}
 
 	// Props to track task panel state
 	export let showTaskPanel: boolean = false;
@@ -34,22 +42,55 @@
 	let formPriority: Todo['priority'] = 'medium';
 	let formProjectId: string | null = null;
 	let formDueDate = '';
+	let formAssigneeId: number | null = null;
 	let willSign = false;
+	let formVisibility: 'public' | 'private' = 'public';
+
+	// User and assignee state
+	let registeredUsers: RegisteredUser[] = [];
+	let filteredUsers: RegisteredUser[] = [];
+	let userSearchQuery = '';
+	let showUserDropdown = false;
 
 	// Filter state
 	let filterProject: string | null = null;
 	let filterPriority: Todo['priority'] | null = null;
 	let showColumnSettings = false;
 
-	// Reactive todos grouped by column - this ensures UI updates when todos change
-	$: todosByColumn = $todos.reduce((acc, todo) => {
-		if (!acc[todo.status]) acc[todo.status] = [];
-		// Apply filters
-		if (filterProject && todo.projectId !== filterProject) return acc;
-		if (filterPriority && todo.priority !== filterPriority) return acc;
-		acc[todo.status].push(todo);
-		return acc;
-	}, {} as Record<TodoStatus, Todo[]>);
+	// Column management state
+	let managingColumns = false;
+	let newColumnName = '';
+	let newColumnColor = '#3b82f6';
+
+	onMount(async () => {
+		try {
+			const response = await fetch('/api/users');
+			if (response.ok) {
+				const data = await response.json();
+				console.log('[KanbanBoard] Fetched users:', data);
+				registeredUsers = data;
+				filteredUsers = registeredUsers;
+			} else {
+				console.error('[KanbanBoard] Failed to fetch users:', response.status);
+			}
+		} catch (error) {
+			console.error('[KanbanBoard] Failed to fetch users:', error);
+		}
+	});
+
+	// Reactive todos grouped by column - this ensures UI updates when todos change and users load
+	$: todosByColumn = (() => {
+		// Reference registeredUsers to trigger re-render when users load
+		void registeredUsers;
+		return $todos.reduce((acc, todo) => {
+			if (!acc[todo.status]) acc[todo.status] = [];
+			// Apply filters
+			if (filterProject && todo.projectId !== filterProject) return acc;
+			if (filterPriority && todo.priority !== filterPriority) return acc;
+			acc[todo.status].push(todo);
+			return acc;
+		}, {} as Record<TodoStatus, Todo[]>);
+	})();
 
 	// Sort todos within each column
 	$: sortedTodosByColumn = Object.fromEntries(
@@ -182,7 +223,9 @@
 		formPriority = todo.priority;
 		formProjectId = todo.projectId || null;
 		formDueDate = todo.dueDate ? new Date(todo.dueDate).toISOString().split('T')[0] : '';
+		formAssigneeId = todo.assignedTo ? parseInt(String(todo.assignedTo), 10) : null;
 		willSign = !!todo.signedBy;
+		formVisibility = todo.visibility ?? 'public';
 		showAddModal = true;
 	}
 
@@ -192,13 +235,48 @@
 		resetForm();
 	}
 
+	function filterUsers(query: string) {
+		userSearchQuery = query;
+		if (!query.trim()) {
+			filteredUsers = registeredUsers;
+		} else {
+			const lowerQuery = query.toLowerCase();
+			filteredUsers = registeredUsers.filter(u =>
+				u.username.toLowerCase().includes(lowerQuery)
+			);
+		}
+	}
+
+	function selectUser(user: RegisteredUser) {
+		formAssigneeId = user.user_id;
+		showUserDropdown = false;
+		userSearchQuery = '';
+		filteredUsers = registeredUsers;
+	}
+
+	function clearAssignee() {
+		formAssigneeId = null;
+		userSearchQuery = '';
+		filteredUsers = registeredUsers;
+	}
+
+	function getAssigneeName(userId: number | undefined): string {
+		if (!userId) return '';
+		const user = registeredUsers.find(u => u.user_id === userId);
+		return user?.username || '';
+	}
+
 	function resetForm() {
 		formTitle = '';
 		formDescription = '';
 		formPriority = 'medium';
 		formProjectId = null;
 		formDueDate = '';
+		formAssigneeId = null;
+		userSearchQuery = '';
+		filteredUsers = registeredUsers;
 		willSign = false;
+		formVisibility = 'public';
 	}
 
 	function handleSubmit() {
@@ -211,8 +289,10 @@
 			projectId: formProjectId || undefined,
 			dueDate: formDueDate ? new Date(formDueDate).getTime() : undefined,
 			status: targetColumn,
+			assignedTo: formAssigneeId?.toString(),
 			createdBy: $currentUser?.id || 'unknown',
-			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined
+			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined,
+			visibility: formVisibility
 		};
 
 		if (editingTodo) {
@@ -231,6 +311,29 @@
 		}
 	}
 
+	// Column management functions
+	function addNewColumn() {
+		if (!newColumnName.trim()) return;
+
+		const newColumnId = newColumnName.toLowerCase().replace(/\s+/g, '_') as TodoStatus;
+		const newColumn: KanbanColumn = {
+			id: newColumnId,
+			label: newColumnName,
+			color: newColumnColor,
+			visible: true
+		};
+
+		kanbanColumns.update(cols => [...cols, newColumn]);
+		newColumnName = '';
+		newColumnColor = '#3b82f6';
+	}
+
+	function deleteColumn(columnId: TodoStatus) {
+		if (confirm(`Delete column "${columnId}"? Tasks in this column won't be deleted.`)) {
+			kanbanColumns.update(cols => cols.filter(col => col.id !== columnId));
+		}
+	}
+
 	// Helpers
 	function getPriorityColor(priority: Todo['priority']): string {
 		// Updated to use CSS variable values for consistency with theme system
@@ -239,7 +342,7 @@
 			case 'high': return 'var(--priority-high)';
 			case 'medium': return 'var(--priority-medium)';
 			case 'low': return 'var(--priority-low)';
-			default: return '#64748b'; // slate for unknown
+			default: return 'var(--biz-text-muted, #64748b)';
 		}
 	}
 
@@ -303,6 +406,16 @@
 					<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
 				</svg>
 			</button>
+			<button
+				class="settings-btn"
+				class:active={managingColumns}
+				on:click={() => managingColumns = !managingColumns}
+				title="Manage columns"
+			>
+				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M12 5v14M5 12h14"/>
+				</svg>
+			</button>
 		</div>
 	</header>
 
@@ -320,6 +433,68 @@
 					<span class="toggle-label" style="--col-color: {column.color}">{column.label}</span>
 				</label>
 			{/each}
+		</div>
+	{/if}
+
+	<!-- Column management panel -->
+	{#if managingColumns}
+		<div class="column-management">
+			<div class="management-header">
+				<h3>Manage Columns</h3>
+				<button class="close-btn" on:click={() => managingColumns = false}>×</button>
+			</div>
+
+			<!-- Add new column -->
+			<div class="add-column-form">
+				<h4>Add New Column</h4>
+				<input
+					type="text"
+					bind:value={newColumnName}
+					placeholder="Column name"
+					class="column-input"
+				/>
+				<div class="color-picker">
+					<label>Color:</label>
+					<input
+						type="color"
+						bind:value={newColumnColor}
+						class="color-input"
+					/>
+					<div class="color-preview" style="background-color: {newColumnColor}"></div>
+				</div>
+				<button
+					class="add-column-btn"
+					on:click={addNewColumn}
+					disabled={!newColumnName.trim()}
+				>
+					Add Column
+				</button>
+			</div>
+
+			<!-- Existing columns -->
+			<div class="existing-columns">
+				<h4>Existing Columns</h4>
+				<div class="columns-list">
+					{#each $kanbanColumns as column}
+						<div class="column-item">
+							<div class="column-info">
+								<div class="column-color" style="background-color: {column.color}"></div>
+								<span>{column.label}</span>
+								<span class="column-id">({column.id})</span>
+							</div>
+							{#if !['todo', 'done', 'in_progress'].includes(column.id)}
+								<button
+									class="delete-column-btn"
+									on:click={() => deleteColumn(column.id)}
+									title="Delete column"
+								>
+									🗑️
+								</button>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			</div>
 		</div>
 	{/if}
 
@@ -382,6 +557,12 @@
 									<p class="card-description">{todo.description.slice(0, 80)}{todo.description.length > 80 ? '...' : ''}</p>
 								{/if}
 								<div class="card-meta">
+									{#if todo.assignedTo}
+										<span class="assignee-chip-card">
+											<span class="assignee-dot" style="background-color: {registeredUsers.find(u => u.user_id === parseInt(String(todo.assignedTo), 10))?.color || '#888'}"></span>
+											<span>{getAssigneeName(parseInt(String(todo.assignedTo), 10))}</span>
+										</span>
+									{/if}
 									{#if todo.projectId}
 										<span class="card-project" style="background-color: {getProjectColor(todo.projectId)}20; color: {getProjectColor(todo.projectId)}">
 											{getProjectName(todo.projectId)}
@@ -441,13 +622,7 @@
 			role="button"
 			tabindex="0"
 			on:click|stopPropagation
-			on:keydown|stopPropagation={(event) => {
-				const tag = (event.target as HTMLElement).tagName;
-				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-				if (event.key === 'Enter' || event.key === ' ') {
-					event.preventDefault();
-				}
-			}}
+			on:keydown|stopPropagation={() => {}}
 		>
 			<div class="modal-header">
 				<h2>{editingTodo ? 'Edit Task' : 'Add Task'}</h2>
@@ -472,7 +647,46 @@
 						bind:value={formDescription}
 						placeholder="Add details..."
 						rows="3"
+						class="description-textarea"
 					></textarea>
+				</div>
+
+				<div class="form-group">
+					<label for="assignee">Assign to</label>
+					<div class="assignee-search-wrap">
+						{#if formAssigneeId}
+							<div class="assignee-chip">
+								<span class="assignee-dot" style="background-color: {registeredUsers.find(u => u.user_id === formAssigneeId)?.color || '#888'}"></span>
+								<span>{getAssigneeName(formAssigneeId)}</span>
+								<button type="button" class="chip-remove" on:click={clearAssignee} title="Clear assignee">×</button>
+							</div>
+						{:else}
+							<input
+								type="text"
+								id="assignee"
+								placeholder="Search user..."
+								value={userSearchQuery}
+								on:input={(e) => filterUsers(e.currentTarget.value)}
+								on:focus={() => showUserDropdown = true}
+								on:blur={() => setTimeout(() => showUserDropdown = false, 200)}
+								class="assignee-input"
+							/>
+							{#if showUserDropdown && filteredUsers.length > 0}
+								<div class="assignee-dropdown">
+									{#each filteredUsers as user (user.user_id)}
+										<button
+											type="button"
+											class="assignee-item"
+											on:click={() => selectUser(user)}
+										>
+											<span class="assignee-item-dot" style="background-color: {user.color}"></span>
+											<span>{user.username}</span>
+										</button>
+									{/each}
+								</div>
+							{/if}
+						{/if}
+					</div>
 				</div>
 
 				<div class="form-row">
@@ -517,6 +731,21 @@
 						<input type="checkbox" bind:checked={willSign} />
 						<span>Sign this task with my username</span>
 					</label>
+				</div>
+
+				<!-- Visibility toggle -->
+				<div class="form-group">
+					<label>Visibility</label>
+					<div class="radio-group">
+						<label class="radio-label">
+							<input type="radio" bind:group={formVisibility} value="public" />
+							<span>Public (visible to collaborators)</span>
+						</label>
+						<label class="radio-label">
+							<input type="radio" bind:group={formVisibility} value="private" />
+							<span>Private (only me)</span>
+						</label>
+					</div>
 				</div>
 
 				<div class="form-actions">
@@ -632,6 +861,189 @@
 		border-left: 3px solid var(--col-color);
 	}
 
+	.settings-btn.active {
+		background: var(--biz-accent, #f59e0b);
+		color: white;
+	}
+
+	/* Column Management Panel */
+	.column-management {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+		padding: 1.5rem;
+		background: var(--biz-bg-secondary, #1a2332);
+		border-radius: 8px;
+		margin-bottom: 1rem;
+		border: 2px solid var(--biz-accent, #f59e0b);
+	}
+
+	.management-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.management-header h3 {
+		margin: 0;
+		font-size: 1rem;
+		color: var(--biz-text-primary, #f1f5f9);
+		font-weight: 600;
+	}
+
+	.close-btn {
+		background: transparent;
+		border: none;
+		color: var(--biz-text-secondary, #94a3b8);
+		font-size: 1.5rem;
+		cursor: pointer;
+		padding: 0;
+		width: 24px;
+		height: 24px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.close-btn:hover {
+		color: var(--biz-text-primary, #f1f5f9);
+	}
+
+	.add-column-form {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		padding: 1rem;
+		background: var(--biz-bg-tertiary, #243044);
+		border-radius: 8px;
+	}
+
+	.add-column-form h4 {
+		margin: 0 0 0.5rem 0;
+		font-size: 0.9rem;
+		color: var(--biz-text-primary, #f1f5f9);
+		font-weight: 600;
+	}
+
+	.column-input {
+		padding: 0.6rem;
+		background: var(--biz-bg-primary, #0f1419);
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-radius: 6px;
+		color: var(--biz-text-primary, #f1f5f9);
+		font-size: 0.9rem;
+	}
+
+	.column-input:focus {
+		outline: none;
+		border-color: var(--biz-accent, #f59e0b);
+	}
+
+	.color-picker {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.color-picker label {
+		font-size: 0.85rem;
+		color: var(--biz-text-secondary, #94a3b8);
+		flex-shrink: 0;
+	}
+
+	.color-input {
+		width: 50px;
+		height: 40px;
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-radius: 6px;
+		cursor: pointer;
+	}
+
+	.color-preview {
+		width: 40px;
+		height: 40px;
+		border-radius: 6px;
+		border: 1px solid var(--biz-border, #2d3a4d);
+	}
+
+	.add-column-btn {
+		padding: 0.6rem 1rem;
+		background: var(--biz-accent, #f59e0b);
+		border: none;
+		border-radius: 6px;
+		color: white;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		margin-top: 0.5rem;
+	}
+
+	.add-column-btn:hover:not(:disabled) {
+		background: var(--biz-accent-hover, #d97706);
+	}
+
+	.add-column-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.existing-columns h4 {
+		margin: 0 0 0.75rem 0;
+		font-size: 0.9rem;
+		color: var(--biz-text-primary, #f1f5f9);
+		font-weight: 600;
+	}
+
+	.columns-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.column-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.75rem;
+		background: var(--biz-bg-primary, #0f1419);
+		border-radius: 6px;
+		border: 1px solid var(--biz-border, #2d3a4d);
+	}
+
+	.column-info {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex: 1;
+	}
+
+	.column-color {
+		width: 20px;
+		height: 20px;
+		border-radius: 4px;
+		flex-shrink: 0;
+		border: 1px solid var(--biz-border, #2d3a4d);
+	}
+
+	.column-id {
+		font-size: 0.75rem;
+		color: var(--biz-text-muted, #64748b);
+		margin-left: auto;
+	}
+
+	.delete-column-btn {
+		background: transparent;
+		border: none;
+		cursor: pointer;
+		padding: 0.25rem;
+		font-size: 1rem;
+		transition: all 0.2s;
+	}
+
+	.delete-column-btn:hover {
+		opacity: 0.7;
+	}
+
 	/* Kanban Board Wrapper */
 	.kanban-board-wrapper {
 		flex: 1;
@@ -706,7 +1118,8 @@
 		border-radius: 12px;
 		display: flex;
 		flex-direction: column;
-		max-height: 100%;
+		min-height: 0;
+		height: 100%;
 		border: 1px solid var(--biz-border, #2d3a4d);
 		transition: all 0.2s;
 	}
@@ -773,6 +1186,7 @@
 
 	.column-cards {
 		flex: 1;
+		min-height: 0;
 		overflow-y: auto;
 		padding: 0.5rem;
 		display: flex;
@@ -788,6 +1202,7 @@
 		cursor: grab;
 		transition: all 0.2s;
 		overflow: hidden;
+		flex-shrink: 0;
 	}
 
 	.kanban-card:hover {
@@ -810,6 +1225,15 @@
 		flex: 1;
 		padding: 0.75rem;
 		min-width: 0;
+	}
+
+	.card-assignee-badge {
+		font-size: 0.7rem;
+		color: var(--biz-accent, #f59e0b);
+		font-weight: 600;
+		margin-bottom: 0.25rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
 	}
 
 	.card-title {
@@ -872,7 +1296,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 1000;
+		z-index: var(--z-overlay);
 		backdrop-filter: blur(2px);
 		animation: fadeIn 0.2s ease-out;
 	}
@@ -983,6 +1407,127 @@
 		color: var(--biz-text-muted, #64748b);
 	}
 
+	.description-textarea {
+		resize: vertical;
+		min-height: 80px;
+	}
+
+	.assignee-search-wrap {
+		position: relative;
+	}
+
+	.assignee-input {
+		width: 100%;
+		padding: 0.75rem;
+		background: var(--biz-bg-secondary, #1a2332);
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-radius: 8px;
+		color: var(--biz-text-primary, #f1f5f9);
+		font-size: 0.9rem;
+		transition: all 0.2s;
+		font-family: inherit;
+	}
+
+	.assignee-input:focus {
+		outline: none;
+		border-color: var(--biz-accent, #f59e0b);
+		background: rgba(245, 158, 11, 0.05);
+		box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+	}
+
+	.assignee-dropdown {
+		position: absolute;
+		top: 100%;
+		left: 0;
+		right: 0;
+		background: var(--biz-bg-secondary, #1a2332);
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-top: none;
+		border-radius: 0 0 8px 8px;
+		max-height: 180px;
+		overflow-y: auto;
+		z-index: 50;
+		margin-top: -1px;
+	}
+
+	.assignee-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.6rem 0.75rem;
+		background: transparent;
+		border: none;
+		color: var(--biz-text-primary, #f1f5f9);
+		cursor: pointer;
+		text-align: left;
+		font-size: 0.9rem;
+		transition: all 0.2s;
+	}
+
+	.assignee-item:hover {
+		background: var(--biz-bg-tertiary, #243044);
+	}
+
+	.assignee-item-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.assignee-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		background: var(--biz-bg-tertiary, #243044);
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-radius: 20px;
+		color: var(--biz-text-primary, #f1f5f9);
+		font-size: 0.85rem;
+		white-space: nowrap;
+	}
+
+	.assignee-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.chip-remove {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		background: transparent;
+		border: none;
+		color: var(--biz-text-secondary, #94a3b8);
+		cursor: pointer;
+		font-size: 1.2rem;
+		padding: 0;
+		transition: all 0.2s;
+		margin-left: 0.25rem;
+	}
+
+	.chip-remove:hover {
+		color: var(--biz-text-primary, #f1f5f9);
+	}
+
+	.assignee-chip-card {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.15rem 0.5rem;
+		background: var(--biz-info-soft, rgba(59, 130, 246, 0.15));
+		color: var(--biz-info, #3b82f6);
+		border-radius: 4px;
+		font-size: 0.7rem;
+		white-space: nowrap;
+	}
+
 	.form-group input:focus,
 	.form-group textarea:focus,
 	.form-group select:focus {
@@ -1021,7 +1566,7 @@
 	}
 
 	.delete-btn:hover {
-		background: #dc2626;
+		background: var(--biz-danger-hover, #dc2626);
 		box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
 	}
 
@@ -1065,7 +1610,7 @@
 	}
 
 	.submit-btn:hover {
-		transform: translateY(-2px);
+		transform: translateY(-1px);
 		box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
 	}
 
@@ -1123,9 +1668,29 @@
 		cursor: pointer;
 	}
 
+	.radio-group {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 0.5rem 0;
+	}
+
+	.radio-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+		color: var(--biz-text-secondary, #94a3b8);
+		font-size: 0.95rem;
+	}
+
+	.radio-label input[type="radio"] {
+		cursor: pointer;
+	}
+
 	.signature {
 		font-size: 0.75rem;
-		color: #f59e0b;
+		color: var(--biz-accent, #f59e0b);
 		padding: 0.2rem 0.5rem;
 		border-radius: 4px;
 		background: rgba(245, 158, 11, 0.1);

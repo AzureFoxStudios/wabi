@@ -15,6 +15,7 @@ services:
       - PLUGINS_DIR=/app/plugins
     volumes:
       - ./data:/app/data
+      - ./uploads:/app/uploads
       - ./plugins:/app/plugins
     healthcheck:
       test: ["CMD", "node", "-e", "const http=require('http');const req=http.get('http://localhost:8080/health',res=>{process.exit(res.statusCode>=200&&res.statusCode<400?0:1)});req.on('error',()=>process.exit(1));"]
@@ -28,6 +29,15 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - VITE_TURN_SERVER=${VITE_TURN_SERVER}
+        - VITE_TURN_PORT=${VITE_TURN_PORT:-3478}
+        - VITE_TURN_USERNAME=${VITE_TURN_USERNAME}
+        - VITE_TURN_PASSWORD=${VITE_TURN_PASSWORD}
+        - VITE_USE_TURNS=${VITE_USE_TURNS:-false}
+        - VITE_ENABLE_GOOGLE_STUN=${VITE_ENABLE_GOOGLE_STUN:-true}
+        - VITE_SOCKET_URL=${VITE_SOCKET_URL:-}
+        - VITE_GIPHY_API_KEY=${VITE_GIPHY_API_KEY:-}
     container_name: wabi-frontend
     ports:
       - "3000:8080"

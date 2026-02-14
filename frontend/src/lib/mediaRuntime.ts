@@ -1,5 +1,4 @@
 import { browser } from '$app/environment';
-import { getServerUrl } from './serverUrl';
 
 export type MediaQualityMode = 'web-baseline' | 'local-enhanced';
 
@@ -10,26 +9,6 @@ export interface MediaRuntimeConfig {
 	audioMaxBitrate: number;
 	videoMaxBitrate: number;
 	screenShareMaxBitrate: number;
-}
-
-export interface ServerMediaRuntimeResponse {
-	media?: {
-		localEnhancedEnabled?: boolean;
-		srtGatewayEnabled?: boolean;
-		opus?: {
-			audioBitrateWeb?: number;
-			audioBitrateLocal?: number;
-		};
-		gateway?: {
-			heartbeatTimeoutMs?: number;
-			configured?: boolean;
-			healthy?: boolean;
-			lastSeenAt?: number | null;
-			activeStreams?: number;
-			version?: string | null;
-			region?: string | null;
-		};
-	};
 }
 
 const STORAGE_KEYS = {
@@ -79,34 +58,6 @@ export function getMediaRuntimeConfig(): MediaRuntimeConfig {
 		videoMaxBitrate: 1_200_000,
 		screenShareMaxBitrate: 1_600_000
 	};
-}
-
-export async function syncMediaRuntimeFromServer(): Promise<ServerMediaRuntimeResponse | null> {
-	if (!browser) return null;
-
-	try {
-		const response = await fetch(`${getServerUrl()}/api/media/runtime`, {
-			method: 'GET',
-			headers: { 'Content-Type': 'application/json' }
-		});
-
-		if (!response.ok) return null;
-		const data = (await response.json()) as ServerMediaRuntimeResponse;
-
-		const localEnhancedEnabled = data.media?.localEnhancedEnabled;
-		if (localEnhancedEnabled === false && getStoredMediaQualityMode() === 'local-enhanced') {
-			setMediaQualityMode('web-baseline');
-		}
-
-		if (typeof data.media?.srtGatewayEnabled === 'boolean' && data.media.srtGatewayEnabled === false) {
-			setSrtGatewayEnabled(false);
-		}
-
-		return data;
-	} catch (error) {
-		console.warn('[MediaRuntime] Could not sync server media runtime settings:', error);
-		return null;
-	}
 }
 
 export function setMediaQualityMode(mode: MediaQualityMode): void {

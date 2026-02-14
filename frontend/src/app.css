@@ -124,7 +124,7 @@
 	/* -- Radii -- */
 	--radius-sm: 4px;
 	--radius-md: 8px;
-	--radius-lg: 16px;
+	--radius-lg: 12px;
 	--radius-full: 9999px;
 
 	/* --------------------------------------------------------------------------
@@ -160,11 +160,22 @@
 	--opacity-strong: 0.5;    /* 50% - strong tint */
 	--opacity-heavy: 0.75;    /* 75% - very strong tint */
 
-	/* Legacy opacity variables for backward compatibility */
-	--opacity-10: 0.1;
-	--opacity-25: 0.25;
-	--opacity-50: 0.5;
-	--opacity-75: 0.75;
+	/* --------------------------------------------------------------------------
+	   ICON SIZES
+	   -------------------------------------------------------------------------- */
+	--icon-sm: 16px;      /* Inline with text, metadata, tab icons */
+	--icon-md: 20px;      /* Buttons, toolbar, navigation (default) */
+	--icon-lg: 24px;      /* Prominent actions, mobile nav, modal close */
+
+	/* --------------------------------------------------------------------------
+	   Z-INDEX LAYERING TIERS (see UI_GUIDE.md Section 9)
+	   -------------------------------------------------------------------------- */
+	--z-base: 0;          /* Default stacking context */
+	--z-sticky: 100;      /* Sticky headers, resize handles */
+	--z-dropdown: 200;    /* Dropdowns, mobile panel overlays */
+	--z-overlay: 1000;    /* Modals, popovers, context menus */
+	--z-modal: 1500;      /* Call modals, mobile panel overlays */
+	--z-toast: 2000;      /* Toasts, mobile bottom nav, top-level notifications */
 
 	/* --------------------------------------------------------------------------
 	   THEME-AWARE CSS VARIABLES (Applied by themeManager.ts)
@@ -297,7 +308,7 @@ a:hover {
 }
 
 ::-webkit-scrollbar-track {
-	background: rgba(var(--color-background-primary-rgb), var(--opacity-50));
+	background: rgba(var(--color-background-primary-rgb), var(--opacity-strong));
 }
 
 ::-webkit-scrollbar-thumb {
@@ -355,7 +366,7 @@ button:active {
 }
 
 button:disabled {
-	opacity: var(--opacity-50);
+	opacity: var(--opacity-strong);
 	cursor: not-allowed;
 	transform: none;
 }
@@ -366,7 +377,7 @@ button:disabled {
 .btn-primary {
 	background: var(--accent);
 	color: white;
-	padding: 0.625rem 1.25rem;
+	padding: var(--space-3) var(--space-5);
 	font-weight: var(--font-weight-semibold);
 }
 
@@ -381,7 +392,7 @@ button:disabled {
 	background: transparent;
 	color: var(--text-primary);
 	border: 1px solid var(--border);
-	padding: 0.625rem 1.25rem;
+	padding: var(--space-3) var(--space-5);
 }
 
 .btn-secondary:hover {
@@ -405,7 +416,7 @@ button:disabled {
 .btn-danger {
 	background: var(--color-danger);
 	color: white;
-	padding: 0.625rem 1.25rem;
+	padding: var(--space-3) var(--space-5);
 	font-weight: var(--font-weight-semibold);
 }
 
@@ -470,7 +481,7 @@ input:focus, textarea:focus {
 }
 
 .input-container .send-button:disabled {
-	opacity: var(--opacity-50);
+	opacity: var(--opacity-strong);
 }
 
 /* Spoiler styling - Nebula reveal mystery */
@@ -661,7 +672,7 @@ input:focus, textarea:focus {
 	/* Better touch feedback */
 	button:active,
 	[role="button"]:active {
-		opacity: var(--opacity-75);
+		opacity: var(--opacity-heavy);
 	}
 
 	/* Prevent horizontal scroll */

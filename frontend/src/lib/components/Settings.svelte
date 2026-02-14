@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+	import { createEventDispatcher, onMount } from 'svelte';
 	import { channelMessages, users, currentUser, emojis, updateProfile } from '$lib/socket';
 	import StorageSettings from './StorageSettings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
@@ -21,19 +21,10 @@
 		getStoredMediaQualityMode,
 		isSrtGatewayEnabled,
 		isTauriRuntime,
-		syncMediaRuntimeFromServer,
 		setMediaQualityMode,
 		setSrtGatewayEnabled,
 		type MediaQualityMode
 	} from '$lib/mediaRuntime';
-	import {
-		getTauriMediaCapabilities,
-		getTauriSrtGatewayState,
-		loadTauriMediaPreferences,
-		saveTauriMediaPreferences,
-		startTauriSrtGatewaySimulation,
-		stopTauriSrtGatewaySimulation
-	} from '$lib/tauri-media';
 
 	const dispatch = createEventDispatcher();
 
@@ -48,76 +39,6 @@
 	let mediaQualityMode: MediaQualityMode = 'web-baseline';
 	let srtGatewayEnabled = false;
 	let localAppRuntime = false;
-	let tauriMediaCapabilityNotice = '';
-	let gatewayServerNotice = '';
-	let gatewayMeta: { activeStreams?: number; version?: string | null; region?: string | null; lastSeenAt?: number | null } | null = null;
-	let tauriGatewayStateNotice = '';
-	let gatewayHeartbeatNotice = '';
-	let mediaGatewayKey = '';
-	let mediaGatewayRegion = 'local-app';
-	let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
-	let gatewayHeartbeatIntervalMs = 15_000;
-
-
-	function saveGatewayKey(value: string) {
-		mediaGatewayKey = value;
-		localStorage.setItem('mediaGatewayKey', value);
-	}
-
-	function saveGatewayRegion(value: string) {
-		mediaGatewayRegion = value || 'local-app';
-		localStorage.setItem('mediaGatewayRegion', mediaGatewayRegion);
-	}
-
-	function stopGatewayHeartbeatLoop() {
-		if (heartbeatInterval) {
-			clearInterval(heartbeatInterval);
-			heartbeatInterval = null;
-		}
-	}
-
-	async function sendGatewayHeartbeat() {
-		const gatewayKey = mediaGatewayKey.trim();
-		if (!gatewayKey) {
-			gatewayHeartbeatNotice = 'Set Gateway Key in Settings to send gateway heartbeat from Local App.';
-			return;
-		}
-
-		try {
-			const response = await fetch(`${getServerUrl()}/api/media/gateway-heartbeat`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'X-Media-Gateway-Key': gatewayKey
-				},
-				body: JSON.stringify({
-					version: 'tauri-sim-1',
-					region: mediaGatewayRegion || 'local-app',
-					activeStreams: 1
-				})
-			});
-
-			if (response.ok) {
-				gatewayHeartbeatNotice = `Heartbeat sent at ${new Date().toLocaleTimeString()}`;
-			} else {
-				gatewayHeartbeatNotice = `Heartbeat failed (${response.status})`;
-				if (response.status === 401 || response.status === 403) {
-					stopGatewayHeartbeatLoop();
-					gatewayHeartbeatNotice = 'Heartbeat unauthorized. Update Gateway Key and restart SRT gateway.';
-				}
-			}
-		} catch (error) {
-			gatewayHeartbeatNotice = 'Heartbeat request failed (network or server unavailable).';
-		}
-	}
-
-	function startGatewayHeartbeatLoop() {
-		stopGatewayHeartbeatLoop();
-		void sendGatewayHeartbeat();
-		heartbeatInterval = setInterval(() => {
-			void sendGatewayHeartbeat();
-		}, gatewayHeartbeatIntervalMs);
-	}
 
 	// Theme saving state
 	let savingTheme = false;
@@ -152,59 +73,9 @@
 		cameraEnabled = localStorage.getItem('cameraEnabled') !== 'false';
 		notificationSound = localStorage.getItem('notificationSound') || '/sounds/ProjectSound.ogg';
 		notificationVolume = parseFloat(localStorage.getItem('notificationVolume') || '0.5');
-		mediaGatewayKey = localStorage.getItem('mediaGatewayKey') || '';
-		mediaGatewayRegion = localStorage.getItem('mediaGatewayRegion') || 'local-app';
 		localAppRuntime = isTauriRuntime();
-		void (async () => {
-			const runtime = await syncMediaRuntimeFromServer();
-			if (runtime?.media?.gateway) {
-				gatewayMeta = runtime.media.gateway;
-				const healthy = runtime.media.gateway.healthy;
-				gatewayServerNotice = healthy
-					? 'Gateway status: online and reporting.'
-					: 'Gateway status: offline or no recent heartbeat.';
-				if (typeof runtime.media.gateway.heartbeatTimeoutMs === 'number' && runtime.media.gateway.heartbeatTimeoutMs > 0) {
-					const derivedInterval = Math.floor(runtime.media.gateway.heartbeatTimeoutMs / 2);
-					gatewayHeartbeatIntervalMs = Math.max(5_000, Math.min(30_000, derivedInterval));
-				}
-			}
-		})();
 		mediaQualityMode = getStoredMediaQualityMode();
 		srtGatewayEnabled = isSrtGatewayEnabled();
-
-		if (localAppRuntime) {
-			void (async () => {
-				const capabilities = await getTauriMediaCapabilities();
-				if (capabilities) {
-					tauriMediaCapabilityNotice = capabilities.supports_srt_gateway
-						? 'Local App capabilities loaded: native audio + SRT gateway controls available.'
-						: 'Local App capabilities loaded: native audio path available.';
-				}
-
-				const prefs = await loadTauriMediaPreferences();
-				if (prefs) {
-					mediaQualityMode = prefs.quality_mode;
-					srtGatewayEnabled = prefs.srt_gateway_enabled;
-					setMediaQualityMode(mediaQualityMode);
-					setSrtGatewayEnabled(srtGatewayEnabled);
-				}
-
-				const gatewayState = await getTauriSrtGatewayState();
-				if (gatewayState) {
-					tauriGatewayStateNotice = gatewayState.running
-						? `Local App SRT simulation running (${gatewayState.mode})`
-						: `Local App SRT simulation stopped (${gatewayState.mode})`;
-
-					if (gatewayState.running && srtGatewayEnabled) {
-						startGatewayHeartbeatLoop();
-					}
-				}
-			})();
-		}
-	});
-
-	onDestroy(() => {
-		stopGatewayHeartbeatLoop();
 	});
 
 	function toggleSound() {
@@ -230,44 +101,12 @@
 	function updateMediaQualityMode(mode: MediaQualityMode) {
 		mediaQualityMode = mode;
 		setMediaQualityMode(mode);
-		if (localAppRuntime) {
-			void saveTauriMediaPreferences({
-				quality_mode: mode,
-				srt_gateway_enabled: srtGatewayEnabled,
-				preferred_audio_bitrate: mode === 'local-enhanced' ? 96000 : 64000,
-				preferred_video_bitrate: mode === 'local-enhanced' ? 2_200_000 : 1_200_000
-			});
-		}
 	}
 
 	function toggleSrtGateway() {
 		if (!localAppRuntime) return;
 		srtGatewayEnabled = !srtGatewayEnabled;
 		setSrtGatewayEnabled(srtGatewayEnabled);
-		void saveTauriMediaPreferences({
-			quality_mode: mediaQualityMode,
-			srt_gateway_enabled: srtGatewayEnabled,
-			preferred_audio_bitrate: mediaQualityMode === 'local-enhanced' ? 96000 : 64000,
-			preferred_video_bitrate: mediaQualityMode === 'local-enhanced' ? 2_200_000 : 1_200_000
-		});
-
-		void (async () => {
-			const gatewayState = srtGatewayEnabled
-				? await startTauriSrtGatewaySimulation()
-				: await stopTauriSrtGatewaySimulation();
-
-			if (gatewayState) {
-				tauriGatewayStateNotice = gatewayState.running
-					? `Local App SRT simulation running (${gatewayState.mode})`
-					: `Local App SRT simulation stopped (${gatewayState.mode})`;
-
-				if (gatewayState.running) {
-					startGatewayHeartbeatLoop();
-				} else {
-					stopGatewayHeartbeatLoop();
-				}
-			}
-		})();
 	}
 
 	// Handle theme change
@@ -811,53 +650,8 @@
 						</button>
 					</div>
 
-
-					<div class="gateway-config-grid">
-						<label class="gateway-config-label">
-							<span>Gateway Key</span>
-							<input
-								type="password"
-								class="theme-select"
-								placeholder="Set MEDIA_GATEWAY_KEY value"
-								value={mediaGatewayKey}
-								on:input={(e) => saveGatewayKey(e.currentTarget.value)}
-							/>
-						</label>
-						<label class="gateway-config-label">
-							<span>Gateway Region</span>
-							<input
-								type="text"
-								class="theme-select"
-								placeholder="local-app"
-								value={mediaGatewayRegion}
-								on:input={(e) => saveGatewayRegion(e.currentTarget.value)}
-							/>
-						</label>
-					</div>
-
 					{#if !localAppRuntime && browser}
 						<p class="runtime-note">Tip: install the Local App (Tauri) to unlock enhanced call quality mode.</p>
-					{:else if tauriMediaCapabilityNotice}
-						<p class="runtime-note">{tauriMediaCapabilityNotice}</p>
-					{/if}
-					{#if gatewayServerNotice}
-						<p class="runtime-note">{gatewayServerNotice}</p>
-					{/if}
-					{#if gatewayMeta}
-						<p class="runtime-note">
-							Streams: {gatewayMeta.activeStreams ?? 0}
-							{#if gatewayMeta.region} · Region: {gatewayMeta.region}{/if}
-							{#if gatewayMeta.version} · Version: {gatewayMeta.version}{/if}
-						</p>
-						{#if gatewayMeta.lastSeenAt}
-							<p class="runtime-note">Last heartbeat: {new Date(gatewayMeta.lastSeenAt).toLocaleString()}</p>
-						{/if}
-					{/if}
-					{#if tauriGatewayStateNotice}
-						<p class="runtime-note">{tauriGatewayStateNotice}</p>
-					{/if}
-					{#if gatewayHeartbeatNotice}
-						<p class="runtime-note">{gatewayHeartbeatNotice}</p>
 					{/if}
 				</div>
 			</div>
@@ -1476,21 +1270,6 @@
 		font-size: 0.85rem;
 		font-weight: 600;
 		color: var(--text-primary);
-	}
-
-
-	.gateway-config-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 0.6rem;
-	}
-
-	.gateway-config-label {
-		display: flex;
-		flex-direction: column;
-		gap: 0.3rem;
-		font-size: 0.78rem;
-		color: var(--text-secondary);
 	}
 
 	.runtime-note {

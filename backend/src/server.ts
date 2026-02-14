@@ -14,7 +14,7 @@ import { settingsRepository } from "./db/repositories/settingsRepository.js";
 import { themeRepository } from "./db/repositories/themeRepository.js";
 import { guestCodeRepository } from "./db/repositories/guestCodeRepository.js";
 import { verifyToken } from "./auth/jwt.js";
-import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings } from "./api/authRoutes.js";
+import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings, handleGetPublicKey, handleStoreEncryptionKeys } from "./api/authRoutes.js";
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
 import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApprove, handleGetAllRelays } from "./api/relayRoutes.js";
 import { handleGetMediaRuntime, handleMediaGatewayHeartbeat } from "./api/mediaRoutes.js";
@@ -23,10 +23,30 @@ import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from
 import { channelRepository } from "./db/repositories/channelRepository.js";
 import { channelMemberRepository } from "./db/repositories/channelMemberRepository.js";
 import { messageRepository } from "./db/repositories/messageRepository.js";
+import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
+
+// Helper: get role info for a user (roles, highest role, display color)
+function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: string; roleColor: string | null } {
+  if (!dbUserId) return { roles: ['guest'], highestRole: 'guest', roleColor: '#888888' };
+
+  const roles = getUserRoles(dbUserId);
+  if (roles.length === 0) return { roles: ['member'], highestRole: 'member', roleColor: null };
+
+  // Get role priorities from DB
+  const roleRows = db.prepare(
+    'SELECT role_name, priority, color FROM roles WHERE role_name IN (' + roles.map(() => '?').join(',') + ') ORDER BY priority DESC'
+  ).all(...roles) as { role_name: string; priority: number; color: string | null }[];
+
+  const highestRole = roleRows[0]?.role_name || 'member';
+  const roleColor = roleRows.find(r => r.color)?.color || null;
+
+  return { roles: roles.length > 0 ? roles : ['member'], highestRole, roleColor };
+}
 // In-memory data store
 interface Channel {
   id: string;
   name: string;
+  description?: string;
   createdAt: number;
   type?: 'public' | 'dm' | 'group';
   members?: string[]; // User IDs for DMs and group chats
@@ -68,10 +88,15 @@ pinnedMessages.set('general', new Set());
 const users = new Map<string, {
   id: string;
   username: string;
+  handle?: string;
   color: string;
   status: 'active' | 'away' | 'busy';
   profilePicture?: string;
   workspaceId?: string; // Business workspace the user belongs to
+  dbUserId?: number; // Stable registered user ID from DB (null for guests)
+  roles?: string[];
+  highestRole?: string;
+  roleColor?: string | null;
   usernameFont?: {
     family?: string;
     size?: string;
@@ -80,8 +105,28 @@ const users = new Map<string, {
   };
 }>();
 
+// Reverse mapping: stable dbUserId -> current socket.id (for registered users only)
+const dbUserIdToSocketId = new Map<number, string>();
+
+// Helper: get the stable identity key for a user (dbUserId string for registered, socket.id for guests)
+function getStableUserId(socket: any): string {
+  if ((socket as any).isRegistered && (socket as any).dbUserId) {
+    return `user-${(socket as any).dbUserId}`;
+  }
+  return socket.id;
+}
+
+// Helper: resolve a stable user ID to the current socket.id for delivery
+function resolveSocketId(stableId: string): string | null {
+  if (stableId.startsWith('user-')) {
+    const dbId = parseInt(stableId.substring(5), 10);
+    return dbUserIdToSocketId.get(dbId) || null;
+  }
+  return stableId; // Already a socket.id (guest user)
+}
+
 // Session management for persistence across reconnects
-const sessions = new Map<string, { userId: string; username: string; color: string; profilePicture?: string; createdAt: number }>();
+const sessions = new Map<string, { userId: string; username: string; color: string; profilePicture?: string; createdAt: number; usernameFont?: any }>();
 
 // Generate a random session ID
 function generateSessionId(): string {
@@ -548,6 +593,101 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  // Group avatar upload endpoint
+  if (url.pathname === "/api/upload-group-avatar" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    let chunks: Buffer[] = [];
+
+    req.on('data', (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+
+    req.on('end', () => {
+      try {
+        const buffer = Buffer.concat(chunks);
+        const contentType = req.headers['content-type'];
+        const boundary = contentType?.split('boundary=')[1];
+
+        if (!boundary) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: 'Invalid content type' }));
+          return;
+        }
+
+        const parts = buffer.toString('binary').split(`--${boundary}`);
+        let avatarFile: Buffer | null = null;
+        let avatarFileName = '';
+        let channelId = '';
+
+        for (const part of parts) {
+          if (part.includes('Content-Disposition') && part.includes('name="channelId"')) {
+            const dataStart = part.indexOf('\r\n\r\n') + 4;
+            const dataEnd = part.lastIndexOf('\r\n');
+            channelId = part.substring(dataStart, dataEnd).trim();
+          }
+          if (part.includes('Content-Disposition') && part.includes('name="avatar"')) {
+            const filenameMatch = part.match(/filename="([^"]+)"/);
+            if (filenameMatch) {
+              avatarFileName = filenameMatch[1];
+              const dataStart = part.indexOf('\r\n\r\n') + 4;
+              const dataEnd = part.lastIndexOf('\r\n');
+              avatarFile = Buffer.from(part.substring(dataStart, dataEnd), 'binary');
+            }
+          }
+        }
+
+        if (!channelId) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: 'channelId is required' }));
+          return;
+        }
+
+        if (avatarFile && avatarFileName) {
+          const ext = avatarFileName.split('.').pop()?.toLowerCase();
+          if (!ext || !['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: 'Invalid file type. Only PNG, JPG, JPEG, GIF, WEBP are allowed.' }));
+            return;
+          }
+
+          const MAX_FILE_SIZE = 5 * 1024 * 1024;
+          if (avatarFile.length > MAX_FILE_SIZE) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: 'File too large. Maximum size is 5MB.' }));
+            return;
+          }
+
+          const fileId = `group-avatar-${Date.now()}-${avatarFileName}`;
+          const filePath = join(UPLOADS_DIR, fileId);
+
+          if (!existsSync(UPLOADS_DIR)) {
+            mkdirSync(UPLOADS_DIR, { recursive: true });
+          }
+          writeFileSync(filePath, avatarFile);
+
+          const avatarUrl = `/uploads/${fileId}`;
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: true, avatarUrl }));
+        } else {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: 'No avatar file found in request' }));
+        }
+      } catch (error) {
+        console.error('Group avatar upload error:', error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Internal server error during upload' }));
+      }
+    });
+    return;
+  }
+
   // Background image upload endpoint
   if (url.pathname === "/api/upload-background-image" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
@@ -802,6 +942,18 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  // Encryption key endpoints
+  const publicKeyMatch = url.pathname.match(/^\/api\/users\/(\d+)\/public-key$/);
+  if (publicKeyMatch && req.method === "GET") {
+    await handleGetPublicKey(req, res, parseInt(publicKeyMatch[1], 10));
+    return;
+  }
+
+  if (url.pathname === "/api/user/encryption-keys" && req.method === "POST") {
+    await handleStoreEncryptionKeys(req, res);
+    return;
+  }
+
   // Theme preferences endpoints
   if (url.pathname === "/api/user/theme" && req.method === "GET") {
     await handleGetThemePreferences(req, res);
@@ -887,6 +1039,27 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  // Get list of registered users for task assignment
+  if (url.pathname === "/api/users" && req.method === "GET") {
+    try {
+      const users = userRepository.getAll();
+      const sanitized = users.map(u => ({
+        user_id: u.user_id,
+        username: u.username,
+        profile_picture: u.profile_picture,
+        color: u.color
+      }));
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(sanitized));
+    } catch (error) {
+      console.error('Failed to fetch users:', error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Failed to fetch users' }));
+    }
+    return;
+  }
+
   // Toggle business private mode
   if (url.pathname === "/api/user/business-private-mode" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
@@ -917,6 +1090,18 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  // Filter business data by visibility for a requesting user
+  function filterForUser(data: BusinessData, requestingUserId: number | null): BusinessData {
+    return {
+      ...data,
+      todos: data.todos.filter(t => (t.visibility ?? 'public') === 'public'),
+      projects: data.projects.filter(p => (p.visibility ?? 'public') === 'public'),
+      sprints: data.sprints.filter(s => (s.visibility ?? 'public') === 'public'),
+      calendarEvents: data.calendarEvents.filter(e => (e.visibility ?? 'public') === 'public'),
+      diaryEntries: data.diaryEntries.filter(e => !e.isPrivate || (requestingUserId && e.createdBy === requestingUserId.toString()))
+    };
+  }
+
   // Business data sync endpoints
   // Get business data for a workspace
   if (url.pathname === "/api/business/get" && req.method === "GET") {
@@ -933,12 +1118,50 @@ server.on('request', async (req, res) => {
         }
       }
 
-      const data = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
+      let data = businessWorkspaces.get(workspaceId) || initializeWorkspace(workspaceId);
+
+      // If user is in private mode, also merge signed items from shared workspace
+      if (userId && workspaceId !== defaultWorkspaceId) {
+        const sharedData = businessWorkspaces.get(defaultWorkspaceId);
+        if (sharedData) {
+          // Merge signed items from shared workspace (don't overwrite private workspace items with same id)
+          const mergedData = { ...data };
+
+          // Add shared signed items that aren't already in private workspace
+          const privateIds = {
+            todos: new Set(data.todos.map(t => t.id)),
+            projects: new Set(data.projects.map(p => p.id)),
+            sprints: new Set(data.sprints.map(s => s.id)),
+            calendarEvents: new Set(data.calendarEvents.map(e => e.id))
+          };
+
+          mergedData.todos = [
+            ...data.todos,
+            ...sharedData.todos.filter(t => t.signedBy && !privateIds.todos.has(t.id))
+          ];
+          mergedData.projects = [
+            ...data.projects,
+            ...sharedData.projects.filter(p => p.signedBy && !privateIds.projects.has(p.id))
+          ];
+          mergedData.sprints = [
+            ...data.sprints,
+            ...sharedData.sprints.filter(s => s.signedBy && !privateIds.sprints.has(s.id))
+          ];
+          mergedData.calendarEvents = [
+            ...data.calendarEvents,
+            ...sharedData.calendarEvents.filter(e => e.signedBy && !privateIds.calendarEvents.has(e.id))
+          ];
+
+          data = mergedData;
+        }
+      }
+
+      const filteredData = filterForUser(data, userId);
 
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
         success: true,
-        data
+        data: filteredData
       }));
     } catch (error) {
       console.error('Get business data error:', error);
@@ -1003,6 +1226,65 @@ server.on('request', async (req, res) => {
 
         businessWorkspaces.set(workspaceId, businessData);
         saveBusinessData(workspaceId, businessData);
+
+        // If this is a private mode user, mirror signed items to the shared workspace
+        if (userId && workspaceId !== defaultWorkspaceId) {
+          const sharedData = businessWorkspaces.get(defaultWorkspaceId) || initializeWorkspace(defaultWorkspaceId);
+
+          // Extract signed items from this user's data
+          const signedTodos = todos?.filter((t: any) => t.signedBy) || [];
+          const signedProjects = projects?.filter((p: any) => p.signedBy) || [];
+          const signedSprints = sprints?.filter((s: any) => s.signedBy) || [];
+          const signedCalendarEvents = calendarEvents?.filter((e: any) => e.signedBy) || [];
+
+          // Merge signed items into shared workspace (upsert by id)
+          for (const item of signedTodos) {
+            const existingIdx = sharedData.todos.findIndex(t => t.id === item.id);
+            if (existingIdx >= 0) {
+              sharedData.todos[existingIdx] = item;
+            } else {
+              sharedData.todos.push(item);
+            }
+          }
+
+          for (const item of signedProjects) {
+            const existingIdx = sharedData.projects.findIndex(p => p.id === item.id);
+            if (existingIdx >= 0) {
+              sharedData.projects[existingIdx] = item;
+            } else {
+              sharedData.projects.push(item);
+            }
+          }
+
+          for (const item of signedSprints) {
+            const existingIdx = sharedData.sprints.findIndex(s => s.id === item.id);
+            if (existingIdx >= 0) {
+              sharedData.sprints[existingIdx] = item;
+            } else {
+              sharedData.sprints.push(item);
+            }
+          }
+
+          for (const item of signedCalendarEvents) {
+            const existingIdx = sharedData.calendarEvents.findIndex(e => e.id === item.id);
+            if (existingIdx >= 0) {
+              sharedData.calendarEvents[existingIdx] = item;
+            } else {
+              sharedData.calendarEvents.push(item);
+            }
+          }
+
+          // Remove unsigned items that this user previously signed (only if they created them)
+          const userIdStr = userId.toString();
+          sharedData.todos = sharedData.todos.filter(t => !(t.createdBy === userIdStr && !t.signedBy));
+          sharedData.projects = sharedData.projects.filter(p => !(p.createdBy === userIdStr && !p.signedBy));
+          sharedData.sprints = sharedData.sprints.filter(s => !(s.createdBy === userIdStr && !s.signedBy));
+          sharedData.calendarEvents = sharedData.calendarEvents.filter(e => !(e.createdBy === userIdStr && !e.signedBy));
+
+          sharedData.lastUpdated = Date.now();
+          businessWorkspaces.set(defaultWorkspaceId, sharedData);
+          saveBusinessData(defaultWorkspaceId, sharedData);
+        }
 
         // Broadcast update to all other connected users in this workspace
         // Only send workspaceId — clients call pullFromServer() to fetch their own data
@@ -1214,6 +1496,7 @@ server.on('request', async (req, res) => {
         let fileData: Buffer | null = null;
         let emojiName = '';
         let category = 'custom';
+        let emojiType: 'emoji' | 'sticker' = 'emoji';
 
         for (const part of parts) {
           if (part.includes('Content-Disposition')) {
@@ -1233,6 +1516,7 @@ server.on('request', async (req, res) => {
 
               if (fieldName === 'name') emojiName = value;
               if (fieldName === 'category') category = value;
+              if (fieldName === 'type' && (value === 'emoji' || value === 'sticker')) emojiType = value;
             }
           }
         }
@@ -1265,7 +1549,8 @@ server.on('request', async (req, res) => {
             name: emojiName,
             url: emojiUrl,
             category,
-            isCustom: true
+            isCustom: true,
+            type: emojiType
           };
 
           addCustomEmoji(newEmoji);
@@ -1286,6 +1571,169 @@ server.on('request', async (req, res) => {
       }
     });
 
+    return;
+  }
+
+  // URL preview endpoint - fetch OpenGraph metadata for link previews
+  if (url.pathname === "/api/url-preview" && req.method === "GET") {
+    const targetUrl = url.searchParams.get('url');
+    if (!targetUrl) {
+      res.writeHead(400, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.end(JSON.stringify({ error: 'Missing url parameter' }));
+      return;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+
+      const response = await fetch(targetUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)',
+          'Accept': 'text/html'
+        },
+        signal: controller.signal,
+        redirect: 'follow'
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+        res.end(JSON.stringify({ error: 'Failed to fetch URL' }));
+        return;
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('text/html')) {
+        res.writeHead(400, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+        res.end(JSON.stringify({ error: 'URL is not an HTML page' }));
+        return;
+      }
+
+      const html = await response.text();
+
+      // Parse OpenGraph and meta tags with simple regex (no dependency needed)
+      const decodeHtmlEntities = (str: string): string =>
+        str.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+
+      const getMeta = (property: string): string | null => {
+        // Try og: property first, then name attribute
+        const ogMatch = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${property}["'][^>]+content=["']([^"']*)["']`, 'i'))
+          || html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${property}["']`, 'i'));
+        return ogMatch ? decodeHtmlEntities(ogMatch[1]) : null;
+      };
+
+      let title = getMeta('og:title') || getMeta('twitter:title')
+        || (html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]) || null;
+      const description = getMeta('og:description') || getMeta('twitter:description')
+        || getMeta('description') || null;
+      const siteName = getMeta('og:site_name') || null;
+      const type = getMeta('og:type') || null;
+
+      // Video/player embed metadata
+      const videoUrl = getMeta('og:video:secure_url') || getMeta('og:video:url') || getMeta('og:video') || null;
+      const videoType = getMeta('og:video:type') || null;
+      const videoWidth = getMeta('og:video:width') || getMeta('twitter:player:width') || null;
+      let image = getMeta('og:image') || getMeta('twitter:image') || null;
+
+      const videoHeight = getMeta('og:video:height') || getMeta('twitter:player:height') || null;
+      const twitterCard = getMeta('twitter:card') || null;
+      const twitterPlayer = getMeta('twitter:player') || null;
+
+      // Extract YouTube video ID from URL
+      let youtubeId: string | null = null;
+      let channelName: string | null = null;
+      try {
+        const parsed = new URL(targetUrl);
+        if (parsed.hostname.includes('youtube.com')) {
+          youtubeId = parsed.searchParams.get('v') || null;
+          // Handle /embed/VIDEO_ID and /shorts/VIDEO_ID
+          if (!youtubeId) {
+            const segments = parsed.pathname.split('/').filter(Boolean);
+            if (segments.length >= 2 && (segments[0] === 'embed' || segments[0] === 'shorts')) {
+              youtubeId = segments[1];
+            }
+          }
+        } else if (parsed.hostname.includes('youtu.be')) {
+          youtubeId = parsed.pathname.slice(1) || null;
+        }
+      } catch {}
+
+      // For YouTube, use oEmbed API to get reliable title, channel name, and thumbnail
+      if (youtubeId) {
+        try {
+          const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${youtubeId}&format=json`);
+          if (oembedRes.ok) {
+            const oembed = await oembedRes.json() as { title?: string; author_name?: string; thumbnail_url?: string };
+            if (oembed.title) title = oembed.title;
+            channelName = oembed.author_name || null;
+            if (oembed.thumbnail_url && !image) image = oembed.thumbnail_url;
+          }
+        } catch {}
+        // Guarantee a high-res thumbnail
+        if (!image) {
+          image = `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`;
+        } else {
+          // Upgrade to maxresdefault if using ytimg
+          image = `https://i.ytimg.com/vi/${youtubeId}/maxresdefault.jpg`;
+        }
+      }
+
+      res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.end(JSON.stringify({
+        title, description, image, siteName, type, youtubeId, channelName,
+        video: videoUrl ? { url: videoUrl, type: videoType, width: videoWidth, height: videoHeight } : null,
+        twitterCard, twitterPlayer
+      }));
+    } catch (err) {
+      res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.end(JSON.stringify({ error: 'Failed to fetch URL preview' }));
+    }
+    return;
+  }
+
+  // Image proxy endpoint - proxy images to avoid hotlink protection (Instagram, etc.)
+  if (url.pathname === "/api/image-proxy" && req.method === "GET") {
+    const imageUrl = url.searchParams.get('url');
+    if (!imageUrl) {
+      res.writeHead(400, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.end(JSON.stringify({ error: 'Missing url parameter' }));
+      return;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+
+      const response = await fetch(imageUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)',
+          'Accept': 'image/*'
+        },
+        signal: controller.signal,
+        redirect: 'follow'
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+        res.end(JSON.stringify({ error: 'Failed to fetch image' }));
+        return;
+      }
+
+      const contentType = response.headers.get('content-type') || 'image/jpeg';
+      const buffer = Buffer.from(await response.arrayBuffer());
+
+      res.writeHead(200, {
+        "Content-Type": contentType,
+        "Cache-Control": "public, max-age=86400",
+        ...getCORSHeaders(req)
+      });
+      res.end(buffer);
+    } catch (err) {
+      res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.end(JSON.stringify({ error: 'Failed to proxy image' }));
+    }
     return;
   }
 
@@ -1505,6 +1953,14 @@ try {
   initializeDatabase();
   console.log('[Database] ✅ Initialized');
 
+  // Migration: add avatar column to channels if missing
+  try {
+    db.prepare('ALTER TABLE channels ADD COLUMN avatar TEXT').run();
+    console.log('[Database] Added avatar column to channels');
+  } catch (_) {
+    // Column already exists - ignore
+  }
+
   // Ensure general channel exists in DB and load public channels
   channelRepository.ensureGeneralExists();
   const dbChannels = channelRepository.getPublicChannels();
@@ -1513,6 +1969,7 @@ try {
       channels.set(ch.channel_id, {
         id: ch.channel_id,
         name: ch.name,
+        description: ch.description || '',
         createdAt: ch.created_at,
         type: ch.channel_type,
         persistMessages: ch.persist_messages === 1
@@ -1560,8 +2017,12 @@ function emitToChannel(channelId: string, event: string, data: any) {
 
   // For DMs and group chats, only emit to members
   if (channel.members && channel.members.length > 0) {
-    channel.members.forEach(memberId => {
-      io.to(memberId).emit(event, data);
+    channel.members.forEach(stableId => {
+      // Resolve stable ID (e.g. "user-5") to current socket.id
+      const socketId = resolveSocketId(stableId);
+      if (socketId) {
+        io.to(socketId).emit(event, data);
+      }
     });
   } else {
     // For public channels, broadcast to everyone
@@ -1636,26 +2097,29 @@ deleteMessageById = (channelId: string, messageId: string) => {
 // restoreMessageDeletionTimers() is not needed since messages start fresh on server restart
 
 // Helper function to load user's persisted DM/group channels from database
-// and ensure they exist in the in-memory maps
-function loadUserChannelsFromDB(userId: string): Channel[] {
+// and ensure they exist in the in-memory maps.
+// stableUserId is either "user-{dbId}" for registered users or socket.id for guests.
+function loadUserChannelsFromDB(stableUserId: string): Channel[] {
   try {
-    // Get channels where user is a member from DB
-    const userChannelRecords = channelMemberRepository.getUserChannels(userId);
+    // Get channels where user is a member from DB (using stable user_id)
+    const userChannelRecords = channelMemberRepository.getUserChannels(stableUserId);
 
     for (const record of userChannelRecords) {
       const dbChannel = channelRepository.findById(record.channel_id);
       if (dbChannel && !channels.has(dbChannel.channel_id)) {
-        // Get members for this channel
+        // Get members for this channel (these are stable IDs)
         const memberIds = channelMemberRepository.getMemberIds(dbChannel.channel_id);
 
         // Add to in-memory channels
         channels.set(dbChannel.channel_id, {
           id: dbChannel.channel_id,
           name: dbChannel.name,
+          description: dbChannel.description || '',
           createdAt: dbChannel.created_at,
           type: dbChannel.channel_type,
           members: memberIds,
-          persistMessages: dbChannel.persist_messages === 1
+          persistMessages: dbChannel.persist_messages === 1,
+          recipientNotified: true // Already persisted, so both sides know
         });
 
         // Initialize message array and load message history if not exists
@@ -1665,7 +2129,7 @@ function loadUserChannelsFromDB(userId: string): Channel[] {
             const dbMessages = messageRepository.getByChannel(dbChannel.channel_id, { limit: 50 });
             const clientMessages = dbMessages.map(msg => messageRepository.toClientFormat(msg));
             channelMessages.set(dbChannel.channel_id, clientMessages);
-            
+
             if (ENABLE_LOGGING && dbMessages.length > 0) {
               console.log(`[loadUserChannelsFromDB] Loaded ${dbMessages.length} messages for channel ${dbChannel.channel_id}`);
             }
@@ -1682,8 +2146,88 @@ function loadUserChannelsFromDB(userId: string): Channel[] {
 
   // Return all channels the user has access to
   return Array.from(channels.values()).filter(channel => {
+    // Public channels are accessible to everyone
     if (!channel.members || channel.members.length === 0) return true;
-    return channel.members.includes(userId);
+    // Check if user's stable ID is in the members list
+    return channel.members.includes(stableUserId);
+  });
+}
+
+// Helper: enrich DM channels with otherUser info for a given user's stable ID
+function enrichDMChannels(channelList: Channel[], myStableId: string): any[] {
+  return channelList.map(channel => {
+    if (channel.type === 'dm' && channel.members) {
+      const otherStableId = channel.members.find(m => m !== myStableId);
+      if (otherStableId) {
+        // Try to find the other user online (by resolving stable ID to socket)
+        const otherSocketId = resolveSocketId(otherStableId);
+        const onlineUser = otherSocketId ? users.get(otherSocketId) : null;
+
+        if (onlineUser) {
+          return { ...channel, otherUser: {
+            id: onlineUser.id,
+            username: onlineUser.username,
+            color: onlineUser.color,
+            status: onlineUser.status,
+            profilePicture: onlineUser.profilePicture,
+            dbUserId: onlineUser.dbUserId
+          }};
+        }
+
+        // Offline: resolve from DB if it's a registered user
+        if (otherStableId.startsWith('user-')) {
+          const dbId = parseInt(otherStableId.substring(5), 10);
+          const dbUser = userRepository.findById(dbId);
+          if (dbUser) {
+            return { ...channel, otherUser: {
+              id: otherStableId,
+              username: dbUser.username,
+              color: dbUser.color,
+              status: 'offline' as const,
+              profilePicture: dbUser.profile_picture,
+              dbUserId: dbId
+            }};
+          }
+        }
+
+        // Fallback: use channel_members username
+        const memberRecords = channelMemberRepository.getMembers(channel.id);
+        const otherMember = memberRecords.find(m => m.user_id === otherStableId);
+        if (otherMember) {
+          return { ...channel, otherUser: {
+            id: otherStableId,
+            username: otherMember.username,
+            color: '#888888',
+            status: 'offline' as const,
+            dbUserId: otherMember.registered_user_id
+          }};
+        }
+      }
+    }
+
+    // Enrich group channels with member user objects
+    if (channel.type === 'group' && channel.members) {
+      const dbChannel = channelRepository.findById(channel.id);
+      const memberUsers = channel.members.map(stableId => {
+        const socketId = resolveSocketId(stableId);
+        const onlineUser = socketId ? users.get(socketId) : null;
+        if (onlineUser) {
+          return { id: onlineUser.id, username: onlineUser.username, color: onlineUser.color, status: onlineUser.status, profilePicture: onlineUser.profilePicture, dbUserId: onlineUser.dbUserId };
+        }
+        if (stableId.startsWith('user-')) {
+          const dbId = parseInt(stableId.substring(5), 10);
+          const dbUser = userRepository.findById(dbId);
+          if (dbUser) {
+            return { id: stableId, username: dbUser.username, color: dbUser.color, status: 'offline' as const, profilePicture: dbUser.profile_picture, dbUserId: dbId };
+          }
+        }
+        return null;
+      }).filter(Boolean);
+
+      return { ...channel, memberUsers, avatar: dbChannel?.avatar || null };
+    }
+
+    return channel;
   });
 }
 
@@ -1820,21 +2364,38 @@ io.on("connection", (socket) => {
           }
         }
 
+        // Get handle and role info
+        const userRecord = dbSession.user_id ? userRepository.findById(dbSession.user_id) : null;
+        const registeredHandle = userRecord?.handle;
+        const roleInfo = getUserRoleInfo((socket as any).dbUserId);
+
         users.set(socket.id, {
           id: socket.id,
           username: registeredUsername,
+          handle: registeredHandle,
           color: registeredColor,
           status: 'active',
           profilePicture: registeredProfilePic,
+          dbUserId: (socket as any).dbUserId,
+          roles: roleInfo.roles,
+          highestRole: roleInfo.highestRole,
+          roleColor: roleInfo.roleColor,
           usernameFont
         });
 
-        // Load user's persisted DM/group channels from database
-        const userChannels = loadUserChannelsFromDB(socket.id);
+        // Update reverse mapping for registered users
+        if ((socket as any).dbUserId) {
+          dbUserIdToSocketId.set((socket as any).dbUserId, socket.id);
+        }
+
+        // Load user's persisted DM/group channels from database using stable ID
+        const stableId = getStableUserId(socket);
+        const userChannels = loadUserChannelsFromDB(stableId);
+        const enrichedChannels = enrichDMChannels(userChannels, stableId);
 
         const emojisData = getAllEmojis();
         socket.emit("init", {
-          channels: userChannels,
+          channels: enrichedChannels,
           users: Array.from(users.values()),
           excalidrawState,
           emotes: Array.from(emotes.values()),
@@ -1848,9 +2409,14 @@ io.on("connection", (socket) => {
         socket.broadcast.emit("user-joined", {
           id: socket.id,
           username: registeredUsername,
+          handle: registeredHandle,
           color: registeredColor,
           status: 'active',
           profilePicture: registeredProfilePic,
+          dbUserId: (socket as any).dbUserId,
+          roles: roleInfo.roles,
+          highestRole: roleInfo.highestRole,
+          roleColor: roleInfo.roleColor,
           usernameFont
         });
 
@@ -1883,12 +2449,12 @@ io.on("connection", (socket) => {
         profilePicture: session.profilePicture
       });
 
-      // Load user's persisted DM/group channels from database
-      const userChannels = loadUserChannelsFromDB(socket.id);
+      // Guest users use socket.id as their stable ID (ephemeral, expected)
+      const guestChannels = loadUserChannelsFromDB(socket.id);
 
       const emojisData = getAllEmojis();
       socket.emit("init", {
-        channels: userChannels,
+        channels: guestChannels,
         users: Array.from(users.values()),
         excalidrawState,
         emotes: Array.from(emotes.values()),
@@ -1924,16 +2490,16 @@ io.on("connection", (socket) => {
         profilePicture: undefined
       });
 
-      // Load user's persisted DM/group channels from database
-      const userChannels = loadUserChannelsFromDB(socket.id);
+      // Guest users use socket.id as their stable ID (ephemeral, expected)
+      const newGuestChannels = loadUserChannelsFromDB(socket.id);
 
-      const emojisData = getAllEmojis();
+      const emojisData2 = getAllEmojis();
       socket.emit("init", {
-        channels: userChannels,
+        channels: newGuestChannels,
         users: Array.from(users.values()),
         excalidrawState,
         emotes: Array.from(emotes.values()),
-        emojis: emojisData,
+        emojis: emojisData2,
         sessionId: sessionId
       });
 
@@ -1961,8 +2527,10 @@ io.on("connection", (socket) => {
     session.userId = socket.id;
     sessions.set(sessionId, session);
 
-    // Load usernameFont for registered users from the database
+    // Load usernameFont, handle, and role info for registered users from the database
     let usernameFont = session.usernameFont;
+    let rejoinHandle: string | undefined;
+    let rejoinRoleInfo: { roles: string[]; highestRole: string | undefined; roleColor: string | null | undefined } = { roles: [], highestRole: undefined, roleColor: undefined };
     if ((socket as any).isRegistered && (socket as any).sessionId) {
       const dbSession = sessionRepository.findById((socket as any).sessionId);
       if (dbSession?.user_id) {
@@ -1974,26 +2542,43 @@ io.on("connection", (socket) => {
             weight: userRecord.username_font_weight,
             style: userRecord.username_font_style
           };
+          rejoinHandle = userRecord.handle;
         }
       }
+    }
+    const rejoinDbUserId = (socket as any).isRegistered ? (socket as any).dbUserId : undefined;
+    if (rejoinDbUserId) {
+      rejoinRoleInfo = getUserRoleInfo(rejoinDbUserId);
     }
 
     // Create/update user object with existing session data
     users.set(socket.id, {
       id: socket.id,
       username: session.username,
+      handle: rejoinHandle,
       color: session.color,
       status: 'active',
       profilePicture: session.profilePicture,
+      dbUserId: rejoinDbUserId,
+      roles: rejoinRoleInfo.roles,
+      highestRole: rejoinRoleInfo.highestRole,
+      roleColor: rejoinRoleInfo.roleColor,
       usernameFont
     });
 
-    // Load user's persisted DM/group channels from database
-    const userChannels = loadUserChannelsFromDB(socket.id);
+    // Update reverse mapping for registered users
+    if (rejoinDbUserId) {
+      dbUserIdToSocketId.set(rejoinDbUserId, socket.id);
+    }
+
+    // Load user's persisted DM/group channels from database using stable ID
+    const rejoinStableId = getStableUserId(socket);
+    const rejoinChannels = loadUserChannelsFromDB(rejoinStableId);
+    const enrichedRejoinChannels = enrichDMChannels(rejoinChannels, rejoinStableId);
 
     const emojisData = getAllEmojis();
     socket.emit("init", {
-      channels: userChannels,
+      channels: enrichedRejoinChannels,
       users: Array.from(users.values()),
       excalidrawState,
       emotes: Array.from(emotes.values()),
@@ -2001,14 +2586,24 @@ io.on("connection", (socket) => {
       sessionId: sessionId
     });
 
+    // Deliver offline messages for registered user on rejoin
+    if (rejoinDbUserId) {
+      deliverOfflineMessages(socket, rejoinDbUserId);
+    }
+
     // Broadcast user rejoin
     const rejoinUser = users.get(socket.id);
     socket.broadcast.emit("user-joined", {
       id: socket.id,
       username: session.username,
+      handle: rejoinUser?.handle,
       color: rejoinUser?.color,
       status: 'active',
       profilePicture: rejoinUser?.profilePicture,
+      dbUserId: rejoinDbUserId,
+      roles: rejoinUser?.roles,
+      highestRole: rejoinUser?.highestRole,
+      roleColor: rejoinUser?.roleColor,
       usernameFont: rejoinUser?.usernameFont
     });
 
@@ -2086,6 +2681,7 @@ io.on("connection", (socket) => {
       color: user.color,
       status: user.status,
       profilePicture: user.profilePicture,
+      dbUserId: user.dbUserId,
       usernameFont: user.usernameFont
     });
 
@@ -2196,6 +2792,8 @@ io.on("connection", (socket) => {
     files?: { fileUrl: string; fileName: string; fileSize: number }[];
     replyTo?: string;
     isSpoiler?: boolean;
+    encrypted?: boolean;
+    iv?: string;
   }) => {
     const user = users.get(socket.id);
     if (!user) return;
@@ -2209,11 +2807,14 @@ io.on("connection", (socket) => {
       ? Date.now() + getAutoDeleteMs(channel.autoDeleteAfter)
       : Date.now() + DEFAULT_SERVER_EXPIRATION;
 
+    // Use stable user ID for message identity
+    const senderStableId = getStableUserId(socket);
+
     // Build minimal message object with only present fields
     const message: any = {
-      id: `${Date.now()}-${socket.id}`,
+      id: `${Date.now()}-${senderStableId}`,
       user: user.username,
-      userId: socket.id,
+      userId: socket.id, // Current socket.id for realtime identification
       text: data.text,
       timestamp: Date.now(),
       type: data.type,
@@ -2230,6 +2831,8 @@ io.on("connection", (socket) => {
     if (data.files) message.files = data.files;
     if (data.replyTo) message.replyTo = data.replyTo;
     if (data.isSpoiler) message.isSpoiler = data.isSpoiler;
+    if (data.encrypted) message.encrypted = true;
+    if (data.iv) message.iv = data.iv;
 
     // Add message to channel
     const messages = channelMessages.get(data.channelId) || [];
@@ -2238,18 +2841,23 @@ io.on("connection", (socket) => {
 
     // Notify DM recipient on first message (lazy channel delivery)
     if (channel.type === 'dm' && !channel.recipientNotified && channel.members) {
-      const recipientId = channel.members.find(m => m !== socket.id);
-      if (recipientId) {
-        io.to(recipientId).emit("dm-channel-added", {
-          channelId: data.channelId,
-          otherUser: {
-            id: user.id,
-            username: user.username,
-            color: user.color,
-            status: user.status,
-            profilePicture: user.profilePicture
-          }
-        });
+      const myStableId = getStableUserId(socket);
+      const recipientStableId = channel.members.find(m => m !== myStableId);
+      if (recipientStableId) {
+        const recipientSocketId = resolveSocketId(recipientStableId);
+        if (recipientSocketId) {
+          io.to(recipientSocketId).emit("dm-channel-added", {
+            channelId: data.channelId,
+            otherUser: {
+              id: user.id,
+              username: user.username,
+              color: user.color,
+              status: user.status,
+              profilePicture: user.profilePicture,
+              dbUserId: user.dbUserId
+            }
+          });
+        }
         channel.recipientNotified = true;
       }
     }
@@ -2260,12 +2868,12 @@ io.on("connection", (socket) => {
     const deletionDuration = channel.autoDeleteAfter || '24h';
     scheduleMessageDeletion(data.channelId, message.id, deletionDuration);
 
-    // Persist message to database
+    // Persist message to database with stable sender ID
     try {
       messageRepository.create({
         message_id: message.id,
         channel_id: data.channelId,
-        sender_id: socket.id,
+        sender_id: senderStableId,
         sender_username: user.username,
         sender_color: user.color,
         message_type: data.type,
@@ -2278,6 +2886,8 @@ io.on("connection", (socket) => {
         is_spoiler: data.isSpoiler ? 1 : 0,
         is_pinned: 0,
         is_edited: 0,
+        is_encrypted: data.encrypted ? 1 : 0,
+        encryption_iv: data.iv || undefined,
         created_at: message.timestamp
       });
     } catch (dbError) {
@@ -2305,7 +2915,14 @@ io.on("connection", (socket) => {
     if (!messages) return;
 
     const message = messages.find(m => m.id === data.messageId);
-    if (!message || message.userId !== socket.id) return;
+    if (!message) return;
+
+    // Allow edit if userId matches current socket.id OR stable user ID
+    const stableId = getStableUserId(socket);
+    if (message.userId !== socket.id && message.userId !== stableId) return;
+
+    // Block editing encrypted messages
+    if (message.encrypted) return;
 
     message.text = data.newText;
     message.isEdited = true;
@@ -2329,7 +2946,9 @@ io.on("connection", (socket) => {
     if (messageIndex === -1) return;
 
     const message = messages[messageIndex];
-    if (message.userId !== socket.id) return;
+    // Allow delete if userId matches current socket.id OR stable user ID
+    const stableId = getStableUserId(socket);
+    if (message.userId !== socket.id && message.userId !== stableId) return;
 
     // Delete associated files from filesystem
     if (message.fileUrl) {
@@ -2739,7 +3358,10 @@ io.on("connection", (socket) => {
   });
 
   // Channel management
-  socket.on("create-channel", (channelName: string) => {
+  socket.on("create-channel", (data: string | { name: string; description?: string }) => {
+    // Backward compat: accept plain string or object
+    const channelName = typeof data === 'string' ? data : data.name;
+    const channelDescription = typeof data === 'string' ? '' : (data.description || '');
     const channelId = channelName.toLowerCase().replace(/\s+/g, '-');
 
     // Check if channel already exists
@@ -2757,6 +3379,7 @@ io.on("connection", (socket) => {
     const channel: Channel = {
       id: channelId,
       name: channelName,
+      description: channelDescription,
       createdAt: Date.now()
     };
 
@@ -2793,6 +3416,7 @@ io.on("connection", (socket) => {
     channelId: string;
     autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
     persistMessages?: boolean;
+    description?: string;
   }) => {
     const channel = channels.get(data.channelId);
     if (!channel) {
@@ -2805,19 +3429,33 @@ io.on("connection", (socket) => {
     if (data.persistMessages !== undefined) {
       channel.persistMessages = data.persistMessages;
     }
+    if (data.description !== undefined) {
+      channel.description = data.description;
+    }
     channels.set(data.channelId, channel);
+
+    // Persist description to database
+    if (data.description !== undefined) {
+      try {
+        channelRepository.updateSettings(data.channelId, { description: data.description });
+      } catch (e) {
+        // Channel may not exist in DB yet (in-memory only)
+      }
+    }
 
     // Notify all clients about the update
     io.emit("channel-settings-updated", {
       channelId: data.channelId,
       autoDeleteAfter: data.autoDeleteAfter,
-      persistMessages: data.persistMessages
+      persistMessages: data.persistMessages,
+      description: data.description
     });
 
     if (ENABLE_LOGGING) {
       console.log(`Channel ${data.channelId} settings updated:`, {
         autoDeleteAfter: data.autoDeleteAfter || 'disabled',
-        persistMessages: data.persistMessages
+        persistMessages: data.persistMessages,
+        description: data.description
       });
     }
   });
@@ -2832,11 +3470,15 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // Create DM channel ID by sorting user IDs to ensure consistency
-    const memberIds = [socket.id, data.targetUserId].sort();
-    const dmId = `dm-${memberIds.join('-')}`;
+    // Use stable IDs for registered users, socket IDs for guests
+    const myStableId = getStableUserId(socket);
+    const targetStableId = targetUser.dbUserId ? `user-${targetUser.dbUserId}` : data.targetUserId;
 
-    // Check if DM already exists
+    // Create DM channel ID by sorting stable IDs to ensure consistency
+    const stableMemberIds = [myStableId, targetStableId].sort();
+    const dmId = `dm-${stableMemberIds.join('-')}`;
+
+    // Check if DM already exists (in-memory or database)
     if (channels.has(dmId)) {
       // DM exists, just notify the creator to switch to it
       socket.emit("dm-created", {
@@ -2846,19 +3488,56 @@ io.on("connection", (socket) => {
           username: targetUser.username,
           color: targetUser.color,
           status: targetUser.status,
-          profilePicture: targetUser.profilePicture
+          profilePicture: targetUser.profilePicture,
+          dbUserId: targetUser.dbUserId
         }
       });
       return;
     }
 
-    // Create new DM channel
+    // Also check the database for existing DM (may not be in memory yet)
+    if (channelRepository.exists(dmId)) {
+      // Load from DB into memory
+      const dbChannel = channelRepository.findById(dmId);
+      if (dbChannel) {
+        const memberIds = channelMemberRepository.getMemberIds(dmId);
+        const dmChannel: Channel = {
+          id: dmId,
+          name: dbChannel.name,
+          createdAt: dbChannel.created_at,
+          type: 'dm',
+          members: memberIds,
+          persistMessages: dbChannel.persist_messages === 1,
+          recipientNotified: true
+        };
+        channels.set(dmId, dmChannel);
+        if (!channelMessages.has(dmId)) {
+          const dbMessages = messageRepository.getByChannel(dmId, { limit: 50 });
+          channelMessages.set(dmId, dbMessages.map(msg => messageRepository.toClientFormat(msg)));
+        }
+
+        socket.emit("dm-created", {
+          channelId: dmId,
+          otherUser: {
+            id: targetUser.id,
+            username: targetUser.username,
+            color: targetUser.color,
+            status: targetUser.status,
+            profilePicture: targetUser.profilePicture,
+            dbUserId: targetUser.dbUserId
+          }
+        });
+        return;
+      }
+    }
+
+    // Create new DM channel with stable member IDs
     const dmChannel: Channel = {
       id: dmId,
       name: `${user.username}, ${targetUser.username}`,
       createdAt: Date.now(),
       type: 'dm',
-      members: memberIds,
+      members: stableMemberIds,
       persistMessages: true,
       recipientNotified: false
     };
@@ -2869,39 +3548,39 @@ io.on("connection", (socket) => {
 
     // Persist DM channel and members to database
     try {
-      if (!channelRepository.exists(dmId)) {
-        channelRepository.create({
-          channel_id: dmId,
-          channel_type: 'dm',
-          name: dmChannel.name,
-          created_at: dmChannel.createdAt,
-          created_by: socket.id,
-          persist_messages: 1
-        });
+      channelRepository.create({
+        channel_id: dmId,
+        channel_type: 'dm',
+        name: dmChannel.name,
+        created_at: dmChannel.createdAt,
+        created_by: myStableId,
+        persist_messages: 1
+      });
 
-        // Add both members
-        channelMemberRepository.addMembers([
-          {
-            channel_id: dmId,
-            user_id: socket.id,
-            username: user.username,
-            joined_at: Date.now(),
-            role: 'member'
-          },
-          {
-            channel_id: dmId,
-            user_id: data.targetUserId,
-            username: targetUser.username,
-            joined_at: Date.now(),
-            role: 'member'
-          }
-        ]);
-      }
+      // Add both members with stable IDs and registered_user_id where applicable
+      channelMemberRepository.addMembers([
+        {
+          channel_id: dmId,
+          user_id: myStableId,
+          username: user.username,
+          registered_user_id: user.dbUserId,
+          joined_at: Date.now(),
+          role: 'member'
+        },
+        {
+          channel_id: dmId,
+          user_id: targetStableId,
+          username: targetUser.username,
+          registered_user_id: targetUser.dbUserId,
+          joined_at: Date.now(),
+          role: 'member'
+        }
+      ]);
     } catch (dbError) {
       console.error('[ChannelRepository] Failed to persist DM:', dbError);
     }
 
-    // Notify both users about the DM
+    // Notify the creator about the DM
     socket.emit("dm-created", {
       channelId: dmId,
       otherUser: {
@@ -2909,11 +3588,129 @@ io.on("connection", (socket) => {
         username: targetUser.username,
         color: targetUser.color,
         status: targetUser.status,
-        profilePicture: targetUser.profilePicture
+        profilePicture: targetUser.profilePicture,
+        dbUserId: targetUser.dbUserId
       }
     });
 
     if (ENABLE_LOGGING) console.log(`DM created: ${dmId} between ${user.username} and ${targetUser.username}`);
+  });
+
+  // Delete DM
+  socket.on("delete-dm", (data: { channelId: string }) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    const channel = channels.get(data.channelId);
+    if (!channel || channel.type !== 'dm') {
+      socket.emit("channel-error", "DM channel not found");
+      return;
+    }
+
+    // Verify the requesting user is a member
+    const myStableId = getStableUserId(socket);
+    if (!channel.members?.includes(myStableId)) {
+      socket.emit("channel-error", "Not a member of this DM");
+      return;
+    }
+
+    // Remove from in-memory state
+    channels.delete(data.channelId);
+    channelMessages.delete(data.channelId);
+    pinnedMessages.delete(data.channelId);
+
+    // Remove from database (CASCADE deletes members + messages)
+    try {
+      channelRepository.delete(data.channelId);
+    } catch (e) {
+      console.error('[DM] Failed to delete from DB:', e);
+    }
+
+    // Notify both participants
+    for (const memberId of channel.members || []) {
+      const memberSocketId = resolveSocketId(memberId);
+      if (memberSocketId) {
+        io.to(memberSocketId).emit("dm-deleted", { channelId: data.channelId });
+      }
+    }
+
+    if (ENABLE_LOGGING) console.log(`DM deleted: ${data.channelId}`);
+  });
+
+  // Role management
+  socket.on("assign-role", (data: { targetUserId: number; roleName: string }) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId) return;
+
+    // Only admin/owner can assign roles
+    const myRoleInfo = getUserRoleInfo(user.dbUserId);
+    if (!['owner', 'admin'].includes(myRoleInfo.highestRole)) {
+      socket.emit("channel-error", "Insufficient permissions to assign roles");
+      return;
+    }
+
+    try {
+      assignRole(data.targetUserId, data.roleName as any);
+      const newRoleInfo = getUserRoleInfo(data.targetUserId);
+
+      // Find the target user's socket and update their info
+      for (const [sid, u] of users.entries()) {
+        if (u.dbUserId === data.targetUserId) {
+          u.roles = newRoleInfo.roles;
+          u.highestRole = newRoleInfo.highestRole;
+          u.roleColor = newRoleInfo.roleColor;
+          users.set(sid, u);
+
+          // Broadcast role change to all clients
+          io.emit("user-role-changed", {
+            userId: sid,
+            dbUserId: data.targetUserId,
+            roles: newRoleInfo.roles,
+            highestRole: newRoleInfo.highestRole,
+            roleColor: newRoleInfo.roleColor
+          });
+          break;
+        }
+      }
+    } catch (e) {
+      socket.emit("channel-error", "Failed to assign role");
+    }
+  });
+
+  socket.on("remove-role", (data: { targetUserId: number; roleName: string }) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId) return;
+
+    const myRoleInfo = getUserRoleInfo(user.dbUserId);
+    if (!['owner', 'admin'].includes(myRoleInfo.highestRole)) {
+      socket.emit("channel-error", "Insufficient permissions to remove roles");
+      return;
+    }
+
+    try {
+      removeRole(data.targetUserId, data.roleName as any, 'default-workspace');
+      const newRoleInfo = getUserRoleInfo(data.targetUserId);
+
+      for (const [sid, u] of users.entries()) {
+        if (u.dbUserId === data.targetUserId) {
+          u.roles = newRoleInfo.roles;
+          u.highestRole = newRoleInfo.highestRole;
+          u.roleColor = newRoleInfo.roleColor;
+          users.set(sid, u);
+
+          io.emit("user-role-changed", {
+            userId: sid,
+            dbUserId: data.targetUserId,
+            roles: newRoleInfo.roles,
+            highestRole: newRoleInfo.highestRole,
+            roleColor: newRoleInfo.roleColor
+          });
+          break;
+        }
+      }
+    } catch (e) {
+      socket.emit("channel-error", "Failed to remove role");
+    }
   });
 
   // Group chat creation
@@ -2922,16 +3719,18 @@ io.on("connection", (socket) => {
     if (!user) return;
 
     // Validate group name
-    if (!/^[a-zA-Z0-9\s-]+$/.test(data.name)) {
+    if (!/^[a-zA-Z0-9\s\-_]+$/.test(data.name)) {
       socket.emit("channel-error", "Group name must be alphanumeric");
       return;
     }
 
-    // Ensure creator is in the member list
-    const memberIds = [...new Set([socket.id, ...data.memberIds])];
+    const creatorStableId = getStableUserId(socket);
 
-    // Create group chat ID
-    const groupId = `group-${Date.now()}-${socket.id}`;
+    // Ensure creator is in the member list (memberIds should be stable IDs like "user-123")
+    const memberIds = [...new Set([creatorStableId, ...data.memberIds])];
+
+    // Create group chat ID using stable ID
+    const groupId = `group-${Date.now()}-${creatorStableId}`;
 
     const groupChannel: Channel = {
       id: groupId,
@@ -2945,6 +3744,38 @@ io.on("connection", (socket) => {
     channelMessages.set(groupId, []);
     pinnedMessages.set(groupId, new Set());
 
+    // Resolve member user objects for the emit payload
+    const memberUsers = memberIds.map(stableId => {
+      const socketId = resolveSocketId(stableId);
+      const memberUser = socketId ? users.get(socketId) : null;
+      if (memberUser) {
+        return {
+          id: memberUser.id,
+          username: memberUser.username,
+          color: memberUser.color,
+          status: memberUser.status,
+          profilePicture: memberUser.profilePicture,
+          dbUserId: memberUser.dbUserId
+        };
+      }
+      // Offline DB fallback
+      if (stableId.startsWith('user-')) {
+        const dbId = parseInt(stableId.substring(5), 10);
+        const dbUser = userRepository.findById(dbId);
+        if (dbUser) {
+          return {
+            id: stableId,
+            username: dbUser.username,
+            color: dbUser.color,
+            status: 'offline' as const,
+            profilePicture: dbUser.profile_picture,
+            dbUserId: dbId
+          };
+        }
+      }
+      return null;
+    }).filter(Boolean);
+
     // Persist group channel and members to database
     try {
       channelRepository.create({
@@ -2952,19 +3783,22 @@ io.on("connection", (socket) => {
         channel_type: 'group',
         name: data.name,
         created_at: groupChannel.createdAt,
-        created_by: socket.id,
+        created_by: creatorStableId,
         persist_messages: 1
       });
 
-      // Add all members
-      const memberRecords = memberIds.map(memberId => {
-        const memberUser = users.get(memberId);
+      // Add all members with proper stable IDs and registered_user_id
+      const memberRecords = memberIds.map(stableId => {
+        const socketId = resolveSocketId(stableId);
+        const memberUser = socketId ? users.get(socketId) : null;
+        const registeredUserId = stableId.startsWith('user-') ? parseInt(stableId.substring(5), 10) : undefined;
         return {
           channel_id: groupId,
-          user_id: memberId,
+          user_id: stableId,
           username: memberUser?.username || 'Unknown',
+          registered_user_id: registeredUserId,
           joined_at: Date.now(),
-          role: memberId === socket.id ? 'owner' as const : 'member' as const
+          role: stableId === creatorStableId ? 'owner' as const : 'member' as const
         };
       });
       channelMemberRepository.addMembers(memberRecords);
@@ -2973,26 +3807,252 @@ io.on("connection", (socket) => {
     }
 
     // Notify all members about the group
-    memberIds.forEach(memberId => {
-      io.to(memberId).emit("group-created", {
-        id: groupId,
-        name: data.name,
-        createdAt: groupChannel.createdAt,
-        type: 'group',
-        members: memberIds.map(id => {
-          const u = users.get(id);
-          return u ? {
-            id: u.id,
-            username: u.username,
-            color: u.color,
-            status: u.status,
-            profilePicture: u.profilePicture
-          } : null;
-        }).filter(Boolean)
-      });
+    const groupPayload = {
+      id: groupId,
+      name: data.name,
+      createdAt: groupChannel.createdAt,
+      type: 'group' as const,
+      members: memberIds,
+      memberUsers,
+      avatar: null
+    };
+
+    memberIds.forEach(stableId => {
+      const socketId = resolveSocketId(stableId);
+      if (socketId) {
+        io.to(socketId).emit("group-created", groupPayload);
+      }
     });
 
     if (ENABLE_LOGGING) console.log(`Group created: ${data.name} (${groupId}) by ${user.username}`);
+  });
+
+  // Leave group (silent)
+  socket.on("leave-group", (data: { channelId: string }) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    const stableId = getStableUserId(socket);
+    const channel = channels.get(data.channelId);
+    if (!channel || channel.type !== 'group') return;
+
+    // Verify membership
+    if (!channel.members?.includes(stableId)) {
+      socket.emit("channel-error", "You are not a member of this group");
+      return;
+    }
+
+    // Remove from DB
+    channelMemberRepository.removeMember(data.channelId, stableId);
+
+    // Update in-memory
+    channel.members = channel.members.filter(id => id !== stableId);
+
+    // Notify leaver
+    socket.emit("group-removed", { channelId: data.channelId });
+
+    // Notify remaining members
+    channel.members.forEach(memberId => {
+      const memberSocketId = resolveSocketId(memberId);
+      if (memberSocketId) {
+        io.to(memberSocketId).emit("group-member-removed", { channelId: data.channelId, userId: stableId });
+      }
+    });
+
+    // Archive if no members remain
+    if (channel.members.length === 0) {
+      channelRepository.archive(data.channelId);
+      channels.delete(data.channelId);
+    }
+
+    if (ENABLE_LOGGING) console.log(`User ${user.username} left group ${data.channelId}`);
+  });
+
+  // Kick group member
+  socket.on("kick-group-member", (data: { channelId: string; targetUserId: string }) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    const stableId = getStableUserId(socket);
+    const channel = channels.get(data.channelId);
+    if (!channel || channel.type !== 'group') return;
+
+    // Verify caller is owner or admin
+    const callerMember = channelMemberRepository.getMember(data.channelId, stableId);
+    if (!callerMember || (callerMember.role !== 'owner' && callerMember.role !== 'admin')) {
+      socket.emit("channel-error", "Only the owner or admin can kick members");
+      return;
+    }
+
+    // Verify target is a member and not the owner
+    const targetMember = channelMemberRepository.getMember(data.channelId, data.targetUserId);
+    if (!targetMember) {
+      socket.emit("channel-error", "User is not a member of this group");
+      return;
+    }
+    if (targetMember.role === 'owner') {
+      socket.emit("channel-error", "Cannot kick the group owner");
+      return;
+    }
+
+    // Remove from DB
+    channelMemberRepository.removeMember(data.channelId, data.targetUserId);
+
+    // Update in-memory
+    if (channel.members) {
+      channel.members = channel.members.filter(id => id !== data.targetUserId);
+    }
+
+    // Notify kicked user
+    const targetSocketId = resolveSocketId(data.targetUserId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("group-removed", { channelId: data.channelId });
+    }
+
+    // Notify remaining members
+    channel.members?.forEach(memberId => {
+      const memberSocketId = resolveSocketId(memberId);
+      if (memberSocketId) {
+        io.to(memberSocketId).emit("group-member-removed", { channelId: data.channelId, userId: data.targetUserId });
+      }
+    });
+
+    if (ENABLE_LOGGING) console.log(`User ${data.targetUserId} kicked from group ${data.channelId} by ${user.username}`);
+  });
+
+  // Add member to group
+  socket.on("add-group-member", (data: { channelId: string; userId: string }) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    const stableId = getStableUserId(socket);
+    const channel = channels.get(data.channelId);
+    if (!channel || channel.type !== 'group') return;
+
+    // Verify caller is owner or admin
+    const callerMember = channelMemberRepository.getMember(data.channelId, stableId);
+    if (!callerMember || (callerMember.role !== 'owner' && callerMember.role !== 'admin')) {
+      socket.emit("channel-error", "Only the owner or admin can add members");
+      return;
+    }
+
+    // Verify target not already a member
+    if (channel.members?.includes(data.userId)) {
+      socket.emit("channel-error", "User is already a member");
+      return;
+    }
+
+    // Resolve user info
+    const targetSocketId = resolveSocketId(data.userId);
+    const targetUser = targetSocketId ? users.get(targetSocketId) : null;
+    const registeredUserId = data.userId.startsWith('user-') ? parseInt(data.userId.substring(5), 10) : undefined;
+
+    // Add to DB
+    channelMemberRepository.addMember({
+      channel_id: data.channelId,
+      user_id: data.userId,
+      username: targetUser?.username || 'Unknown',
+      registered_user_id: registeredUserId,
+      joined_at: Date.now(),
+      role: 'member'
+    });
+
+    // Update in-memory
+    if (!channel.members) channel.members = [];
+    channel.members.push(data.userId);
+
+    // Build user info for emit
+    let addedUserInfo: any = null;
+    if (targetUser) {
+      addedUserInfo = {
+        id: targetUser.id,
+        username: targetUser.username,
+        color: targetUser.color,
+        status: targetUser.status,
+        profilePicture: targetUser.profilePicture,
+        dbUserId: targetUser.dbUserId
+      };
+    } else if (data.userId.startsWith('user-')) {
+      const dbId = parseInt(data.userId.substring(5), 10);
+      const dbUser = userRepository.findById(dbId);
+      if (dbUser) {
+        addedUserInfo = {
+          id: data.userId,
+          username: dbUser.username,
+          color: dbUser.color,
+          status: 'offline',
+          profilePicture: dbUser.profile_picture,
+          dbUserId: dbId
+        };
+      }
+    }
+
+    // Notify existing members
+    channel.members.forEach(memberId => {
+      if (memberId === data.userId) return;
+      const memberSocketId = resolveSocketId(memberId);
+      if (memberSocketId) {
+        io.to(memberSocketId).emit("group-member-added", { channelId: data.channelId, user: addedUserInfo });
+      }
+    });
+
+    // Notify the new member with full channel data (reuse group-created event)
+    const memberUsers = channel.members.map(mid => {
+      const sid = resolveSocketId(mid);
+      const mu = sid ? users.get(sid) : null;
+      if (mu) return { id: mu.id, username: mu.username, color: mu.color, status: mu.status, profilePicture: mu.profilePicture, dbUserId: mu.dbUserId };
+      if (mid.startsWith('user-')) {
+        const dbId = parseInt(mid.substring(5), 10);
+        const dbUser = userRepository.findById(dbId);
+        if (dbUser) return { id: mid, username: dbUser.username, color: dbUser.color, status: 'offline', profilePicture: dbUser.profile_picture, dbUserId: dbId };
+      }
+      return null;
+    }).filter(Boolean);
+
+    const dbChannel = channelRepository.findById(data.channelId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("group-created", {
+        id: data.channelId,
+        name: channel.name,
+        createdAt: channel.createdAt,
+        type: 'group',
+        members: channel.members,
+        memberUsers,
+        avatar: dbChannel?.avatar || null
+      });
+    }
+
+    if (ENABLE_LOGGING) console.log(`User ${data.userId} added to group ${data.channelId} by ${user.username}`);
+  });
+
+  // Update group avatar
+  socket.on("update-group-avatar", (data: { channelId: string; avatarUrl: string | null }) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    const stableId = getStableUserId(socket);
+    const channel = channels.get(data.channelId);
+    if (!channel || channel.type !== 'group') return;
+
+    // Verify caller is owner or admin
+    const callerMember = channelMemberRepository.getMember(data.channelId, stableId);
+    if (!callerMember || (callerMember.role !== 'owner' && callerMember.role !== 'admin')) {
+      socket.emit("channel-error", "Only the owner or admin can change the group avatar");
+      return;
+    }
+
+    // Update DB
+    channelRepository.updateAvatar(data.channelId, data.avatarUrl);
+
+    // Notify all members
+    channel.members?.forEach(memberId => {
+      const memberSocketId = resolveSocketId(memberId);
+      if (memberSocketId) {
+        io.to(memberSocketId).emit("group-avatar-updated", { channelId: data.channelId, avatar: data.avatarUrl });
+      }
+    });
+
+    if (ENABLE_LOGGING) console.log(`Group avatar updated for ${data.channelId} by ${user.username}`);
   });
 
   // Emote management
@@ -3078,6 +4138,14 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
 
     if (user) {
+      // Clean up reverse mapping for registered users
+      if (user.dbUserId) {
+        const currentSocketForUser = dbUserIdToSocketId.get(user.dbUserId);
+        if (currentSocketForUser === socket.id) {
+          dbUserIdToSocketId.delete(user.dbUserId);
+        }
+      }
+
       users.delete(socket.id);
       typingUsers.delete(socket.id);
 

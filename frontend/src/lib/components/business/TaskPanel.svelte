@@ -2,14 +2,120 @@
 	import { get } from 'svelte/store';
 	import { todos, projects, addTodo, updateTodo, deleteTodo, type Todo } from '$lib/business';
 
+	export let onClose: (() => void) | undefined = undefined;
+	import { onMount } from 'svelte';
+
+	interface RegisteredUser {
+		user_id: number;
+		username: string;
+		profile_picture?: string;
+		color: string;
+	}
+
 	let newTaskTitle = '';
+	let newTaskDescription = '';
 	let newTaskPriority: Todo['priority'] = 'medium';
 	let newTaskProject: string | null = null;
+	let newTaskAssignee: number | null = null;
+	let registeredUsers: RegisteredUser[] = [];
+	let filteredUsers: RegisteredUser[] = [];
+	let showUserDropdown = false;
+	let userSearchQuery = '';
 	let showAddForm = false;
+
+	// Edit mode state
+	let editingTaskId: string | null = null;
+	let editingTaskTitle = '';
+	let editingTaskDescription = '';
+	let editingTaskPriority: Todo['priority'] = 'medium';
+	let editingTaskProject: string | null = null;
+	let editingTaskAssignee: number | null = null;
 
 	// Filter options
 	type FilterType = 'all' | 'today' | 'overdue' | 'upcoming';
 	let activeFilter: FilterType = 'all';
+
+	onMount(async () => {
+		try {
+			const response = await fetch('/api/users');
+			if (response.ok) {
+				const data = await response.json();
+				console.log('[TaskPanel] Fetched users:', data);
+				registeredUsers = data;
+				filteredUsers = registeredUsers;
+			} else {
+				console.error('[TaskPanel] Failed to fetch users:', response.status);
+			}
+		} catch (error) {
+			console.error('[TaskPanel] Failed to fetch users:', error);
+		}
+	});
+
+	function filterUsers(query: string) {
+		userSearchQuery = query;
+		if (!query.trim()) {
+			filteredUsers = registeredUsers;
+		} else {
+			const lowerQuery = query.toLowerCase();
+			filteredUsers = registeredUsers.filter(u =>
+				u.username.toLowerCase().includes(lowerQuery)
+			);
+		}
+	}
+
+	function selectUser(user: RegisteredUser) {
+		newTaskAssignee = user.user_id;
+		showUserDropdown = false;
+		userSearchQuery = '';
+	}
+
+	function getAssigneeName(userId: number | undefined): string {
+		if (!userId) return '';
+		const user = registeredUsers.find(u => u.user_id === userId);
+		return user?.username || '';
+	}
+
+	function openEditMode(todo: Todo) {
+		editingTaskId = todo.id;
+		editingTaskTitle = todo.title;
+		editingTaskDescription = todo.description || '';
+		editingTaskPriority = todo.priority;
+		editingTaskProject = todo.projectId || null;
+		editingTaskAssignee = todo.assignedTo ? parseInt(String(todo.assignedTo), 10) : null;
+	}
+
+	function closeEditMode() {
+		editingTaskId = null;
+		editingTaskTitle = '';
+		editingTaskDescription = '';
+		editingTaskPriority = 'medium';
+		editingTaskProject = null;
+		editingTaskAssignee = null;
+	}
+
+	function saveEditedTask() {
+		if (!editingTaskId || !editingTaskTitle.trim()) return;
+		const todo = $todos.find(t => t.id === editingTaskId);
+		if (!todo) return;
+
+		updateTodo(editingTaskId, {
+			title: editingTaskTitle.trim(),
+			description: editingTaskDescription.trim() || undefined,
+			priority: editingTaskPriority,
+			projectId: editingTaskProject || undefined,
+			assignedTo: editingTaskAssignee?.toString()
+		});
+
+		closeEditMode();
+	}
+
+	function deleteEditingTask() {
+		if (!editingTaskId) return;
+		if (confirm('Delete this task?')) {
+			deleteTodo(editingTaskId);
+			closeEditMode();
+		}
+	}
 
 	$: filteredTodos = $todos.filter(todo => {
 		if (todo.status === 'done' || todo.status === 'archived') return false;
@@ -46,14 +152,18 @@
 
 		addTodo({
 			title: newTaskTitle.trim(),
+			description: newTaskDescription.trim() || undefined,
 			priority: newTaskPriority,
 			projectId: newTaskProject,
+			assignedTo: newTaskAssignee?.toString(),
 			status: 'todo'
 		});
 
 		newTaskTitle = '';
+		newTaskDescription = '';
 		newTaskPriority = 'medium';
 		newTaskProject = null;
+		newTaskAssignee = null;
 		showAddForm = false;
 	}
 
@@ -99,12 +209,22 @@
 <div class="task-panel-container">
 	<div class="panel-header">
 		<h2>Tasks</h2>
-		<button class="add-btn" on:click={() => showAddForm = !showAddForm} title="Add Task">
-			<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<line x1="12" y1="5" x2="12" y2="19"/>
-				<line x1="5" y1="12" x2="19" y2="12"/>
-			</svg>
-		</button>
+		<div class="header-buttons">
+			<button class="add-btn" on:click={() => showAddForm = !showAddForm} title="Add Task">
+				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<line x1="12" y1="5" x2="12" y2="19"/>
+					<line x1="5" y1="12" x2="19" y2="12"/>
+				</svg>
+			</button>
+			{#if onClose}
+				<button class="close-panel-btn" on:click={onClose} title="Close task panel">
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<line x1="18" y1="6" x2="6" y2="18"/>
+						<line x1="6" y1="6" x2="18" y2="18"/>
+					</svg>
+				</button>
+			{/if}
+		</div>
 	</div>
 
 	<!-- Filter Tabs -->
@@ -141,6 +261,12 @@
 				class="task-input"
 				autofocus
 			/>
+			<textarea
+				bind:value={newTaskDescription}
+				placeholder="Add details..."
+				class="description-input"
+				rows="2"
+			></textarea>
 			<div class="form-row">
 				<select bind:value={newTaskPriority} class="priority-select">
 					<option value="low">Low</option>
@@ -154,6 +280,43 @@
 						<option value={project.id}>{project.name}</option>
 					{/each}
 				</select>
+			</div>
+			<div class="assignee-field">
+				{#if newTaskAssignee}
+					<div class="assignee-chip">
+						<span class="assignee-dot" style="background-color: {registeredUsers.find(u => u.user_id === newTaskAssignee)?.color || '#888'}"></span>
+						<span>{getAssigneeName(newTaskAssignee)}</span>
+						<button type="button" class="chip-remove" on:click={() => newTaskAssignee = null} title="Clear assignee">×</button>
+					</div>
+				{:else}
+					<input
+						type="text"
+						placeholder="Assign to user..."
+						value={userSearchQuery}
+						on:input={(e) => filterUsers(e.currentTarget.value)}
+						on:focus={() => showUserDropdown = true}
+						on:blur={() => setTimeout(() => showUserDropdown = false, 200)}
+						class="assignee-input"
+					/>
+					{#if showUserDropdown && filteredUsers.length > 0}
+						<div class="assignee-dropdown">
+							{#each filteredUsers as user (user.user_id)}
+								<button
+									type="button"
+									class="assignee-item"
+									on:click={() => {
+										newTaskAssignee = user.user_id;
+										showUserDropdown = false;
+										userSearchQuery = '';
+									}}
+								>
+									<span class="assignee-item-dot" style="background-color: {user.color}"></span>
+									<span>{user.username}</span>
+								</button>
+							{/each}
+						</div>
+					{/if}
+				{/if}
 			</div>
 			<div class="form-actions">
 				<button type="button" class="cancel-btn" on:click={() => showAddForm = false}>Cancel</button>
@@ -174,33 +337,125 @@
 			</div>
 		{:else}
 			{#each filteredTodos as todo (todo.id)}
-				<div class="task-item {getPriorityClass(todo.priority)}">
-					<button
-						class="checkbox"
-						class:checked={todo.status === 'done'}
-						on:click={() => toggleTaskStatus(todo)}
-					>
-						{#if todo.status === 'done'}
-							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-								<polyline points="20 6 9 17 4 12"/>
-							</svg>
-						{/if}
-					</button>
-					<div class="task-content">
-						<span class="task-title" class:completed={todo.status === 'done'}>{todo.title}</span>
-						<div class="task-meta">
-							{#if todo.projectId}
-								<span class="project-tag">{getProjectName(todo.projectId)}</span>
-							{/if}
-							{#if todo.dueDate}
-								<span class="due-date" class:overdue={isOverdue(todo.dueDate)}>
-									{formatDueDate(todo.dueDate)}
-								</span>
+				{#if editingTaskId === todo.id}
+					<!-- Edit Mode -->
+					<form class="edit-task-form" on:submit|preventDefault={saveEditedTask}>
+						<div class="form-header">
+							<h3>Edit Task</h3>
+							<button type="button" class="close-btn" on:click={closeEditMode}>×</button>
+						</div>
+						<input
+							type="text"
+							bind:value={editingTaskTitle}
+							placeholder="Task title"
+							class="task-input"
+							required
+						/>
+						<textarea
+							bind:value={editingTaskDescription}
+							placeholder="Add details..."
+							class="description-input"
+							rows="2"
+						></textarea>
+						<div class="form-row">
+							<select bind:value={editingTaskPriority} class="priority-select">
+								<option value="low">Low</option>
+								<option value="medium">Medium</option>
+								<option value="high">High</option>
+								<option value="urgent">Urgent</option>
+							</select>
+							<select bind:value={editingTaskProject} class="project-select">
+								<option value={null}>No Project</option>
+								{#each $projects as project}
+									<option value={project.id}>{project.name}</option>
+								{/each}
+							</select>
+						</div>
+						<div class="assignee-field">
+							{#if editingTaskAssignee}
+								<div class="assignee-chip">
+									<span class="assignee-dot" style="background-color: {registeredUsers.find(u => u.user_id === editingTaskAssignee)?.color || '#888'}"></span>
+									<span>{getAssigneeName(editingTaskAssignee)}</span>
+									<button type="button" class="chip-remove" on:click={() => editingTaskAssignee = null} title="Clear assignee">×</button>
+								</div>
+							{:else}
+								<input
+									type="text"
+									placeholder="Assign to user..."
+									value={userSearchQuery}
+									on:input={(e) => filterUsers(e.currentTarget.value)}
+									on:focus={() => showUserDropdown = true}
+									on:blur={() => setTimeout(() => showUserDropdown = false, 200)}
+									class="assignee-input"
+								/>
+								{#if showUserDropdown && filteredUsers.length > 0}
+									<div class="assignee-dropdown">
+										{#each filteredUsers as user (user.user_id)}
+											<button
+												type="button"
+												class="assignee-item"
+												on:click={() => {
+													editingTaskAssignee = user.user_id;
+													showUserDropdown = false;
+													userSearchQuery = '';
+												}}
+											>
+												<span class="assignee-item-dot" style="background-color: {user.color}"></span>
+												<span>{user.username}</span>
+											</button>
+										{/each}
+									</div>
+								{/if}
 							{/if}
 						</div>
+						<div class="form-actions">
+							<button type="button" class="delete-btn" on:click={deleteEditingTask}>Delete</button>
+							<button type="button" class="cancel-btn" on:click={closeEditMode}>Cancel</button>
+							<button type="submit" class="submit-btn">Save</button>
+						</div>
+					</form>
+				{:else}
+					<!-- View Mode -->
+					<div class="task-item {getPriorityClass(todo.priority)}">
+						<button
+							class="checkbox"
+							class:checked={todo.status === 'done'}
+							on:click={() => toggleTaskStatus(todo)}
+						>
+							{#if todo.status === 'done'}
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+									<polyline points="20 6 9 17 4 12"/>
+								</svg>
+							{/if}
+						</button>
+						<div class="task-content">
+							<span class="task-title" class:completed={todo.status === 'done'}>{todo.title}</span>
+							<div class="task-meta">
+								{#if todo.assignedTo}
+									<span class="assignee-tag">
+										<span class="assignee-dot" style="background-color: {registeredUsers.find(u => u.user_id === parseInt(String(todo.assignedTo), 10))?.color || '#888'}"></span>
+										<span>{getAssigneeName(parseInt(String(todo.assignedTo), 10))}</span>
+									</span>
+								{/if}
+								{#if todo.projectId}
+									<span class="project-tag">{getProjectName(todo.projectId)}</span>
+								{/if}
+								{#if todo.dueDate}
+									<span class="due-date" class:overdue={isOverdue(todo.dueDate)}>
+										{formatDueDate(todo.dueDate)}
+									</span>
+								{/if}
+							</div>
+						</div>
+						<button class="edit-btn" on:click={() => openEditMode(todo)} title="Edit task">
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+								<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+							</svg>
+						</button>
+						<div class="priority-indicator"></div>
 					</div>
-					<div class="priority-indicator"></div>
-				</div>
+				{/if}
 			{/each}
 		{/if}
 	</div>
@@ -228,6 +483,12 @@
 		color: var(--biz-text-primary, #f1f5f9);
 	}
 
+	.header-buttons {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
 	.add-btn {
 		display: flex;
 		align-items: center;
@@ -245,6 +506,27 @@
 	.add-btn:hover {
 		background: var(--biz-accent-hover, #d97706);
 		transform: scale(1.05);
+	}
+
+	.close-panel-btn {
+		display: none;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		background: transparent;
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-radius: 8px;
+		color: var(--biz-text-secondary, #94a3b8);
+		cursor: pointer;
+		transition: all 0.2s;
+		padding: 0;
+	}
+
+	.close-panel-btn:hover {
+		background: var(--biz-bg-hover, #2a3a4d);
+		color: var(--biz-text-primary, #f1f5f9);
+		border-color: var(--biz-accent, #f59e0b);
 	}
 
 	/* Filter Tabs */
@@ -403,6 +685,123 @@
 		background: var(--biz-bg-hover, #2a3a4d);
 	}
 
+	.edit-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		background: transparent;
+		border: none;
+		color: var(--biz-text-secondary, #94a3b8);
+		cursor: pointer;
+		transition: all 0.2s;
+		flex-shrink: 0;
+		padding: 0;
+	}
+
+	.edit-btn:hover {
+		color: var(--biz-accent, #f59e0b);
+	}
+
+	.edit-task-form {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		padding: 1rem;
+		background: var(--biz-bg-tertiary, #243044);
+		border-radius: 8px;
+		margin-bottom: 0.5rem;
+		border: 1px solid var(--biz-accent, #f59e0b);
+	}
+
+	.form-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.5rem;
+	}
+
+	.form-header h3 {
+		margin: 0;
+		font-size: 0.9rem;
+		color: var(--biz-text-primary, #f1f5f9);
+		font-weight: 600;
+	}
+
+	.close-btn {
+		background: transparent;
+		border: none;
+		color: var(--biz-text-secondary, #94a3b8);
+		font-size: 1.5rem;
+		cursor: pointer;
+		padding: 0;
+		width: 24px;
+		height: 24px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.close-btn:hover {
+		color: var(--biz-text-primary, #f1f5f9);
+	}
+
+	.form-actions {
+		display: flex;
+		gap: 0.5rem;
+		justify-content: flex-end;
+		margin-top: 0.5rem;
+	}
+
+	.delete-btn {
+		padding: 0.4rem 0.8rem;
+		background: var(--biz-danger, #ef4444);
+		border: none;
+		border-radius: 6px;
+		color: white;
+		font-size: 0.8rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+		margin-right: auto;
+	}
+
+	.delete-btn:hover {
+		background: var(--biz-danger-hover, #dc2626);
+	}
+
+	.cancel-btn,
+	.submit-btn {
+		padding: 0.4rem 0.8rem;
+		border: none;
+		border-radius: 6px;
+		font-size: 0.8rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.cancel-btn {
+		background: transparent;
+		border: 1px solid var(--biz-border, #2d3a4d);
+		color: var(--biz-text-secondary, #94a3b8);
+	}
+
+	.cancel-btn:hover {
+		background: var(--biz-bg-hover, #2a3a4d);
+		color: var(--biz-text-primary, #f1f5f9);
+	}
+
+	.submit-btn {
+		background: var(--biz-accent, #f59e0b);
+		color: white;
+	}
+
+	.submit-btn:hover {
+		background: var(--biz-accent-hover, #d97706);
+	}
+
 	.task-item.priority-urgent { --priority-color: #ef4444; }
 	.task-item.priority-high { --priority-color: #f97316; }
 	.task-item.priority-medium { --priority-color: #eab308; }
@@ -436,6 +835,16 @@
 	.task-content {
 		flex: 1;
 		min-width: 0;
+	}
+
+	.task-assignee-badge {
+		font-size: 0.7rem;
+		color: var(--biz-accent, #f59e0b);
+		font-weight: 600;
+		margin-bottom: 0.2rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		display: block;
 	}
 
 	.task-title {
@@ -480,6 +889,138 @@
 		display: none;
 	}
 
+	.description-input {
+		width: 100%;
+		padding: 0.75rem;
+		background: var(--biz-bg-primary, #0f1419);
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-radius: 8px;
+		color: var(--biz-text-primary, #f1f5f9);
+		font-size: 0.9rem;
+		font-family: inherit;
+		resize: vertical;
+		min-height: 50px;
+	}
+
+	.description-input:focus {
+		outline: none;
+		border-color: var(--biz-accent, #f59e0b);
+	}
+
+	.assignee-field {
+		position: relative;
+	}
+
+	.assignee-input {
+		width: 100%;
+		padding: 0.5rem;
+		background: var(--biz-bg-primary, #0f1419);
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-radius: 6px;
+		color: var(--biz-text-primary, #f1f5f9);
+		font-size: 0.85rem;
+		font-family: inherit;
+	}
+
+	.assignee-input:focus {
+		outline: none;
+		border-color: var(--biz-accent, #f59e0b);
+	}
+
+	.assignee-dropdown {
+		position: absolute;
+		top: 100%;
+		left: 0;
+		right: 0;
+		background: var(--biz-bg-secondary, #1a2332);
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-top: none;
+		border-radius: 0 0 6px 6px;
+		max-height: 150px;
+		overflow-y: auto;
+		z-index: 50;
+		margin-top: -1px;
+	}
+
+	.assignee-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.5rem 0.75rem;
+		background: transparent;
+		border: none;
+		color: var(--biz-text-primary, #f1f5f9);
+		cursor: pointer;
+		text-align: left;
+		font-size: 0.85rem;
+		transition: all 0.2s;
+	}
+
+	.assignee-item:hover {
+		background: var(--biz-bg-tertiary, #243044);
+	}
+
+	.assignee-item-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.assignee-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.4rem 0.6rem;
+		background: var(--biz-bg-tertiary, #243044);
+		border: 1px solid var(--biz-border, #2d3a4d);
+		border-radius: 16px;
+		color: var(--biz-text-primary, #f1f5f9);
+		font-size: 0.8rem;
+		white-space: nowrap;
+		margin-bottom: 0.5rem;
+	}
+
+	.assignee-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.chip-remove {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 14px;
+		height: 14px;
+		background: transparent;
+		border: none;
+		color: var(--biz-text-secondary, #94a3b8);
+		cursor: pointer;
+		font-size: 1rem;
+		padding: 0;
+		transition: all 0.2s;
+		margin-left: 0.2rem;
+	}
+
+	.chip-remove:hover {
+		color: var(--biz-text-primary, #f1f5f9);
+	}
+
+	.assignee-tag {
+		font-size: 0.7rem;
+		padding: 0.15rem 0.5rem;
+		background: var(--biz-info-soft, rgba(59, 130, 246, 0.15));
+		color: var(--biz-info, #3b82f6);
+		border-radius: 4px;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		white-space: nowrap;
+	}
+
 	/* Mobile styles */
 	@media (max-width: 768px) {
 		.task-panel-container {
@@ -488,6 +1029,10 @@
 
 		.panel-header h2 {
 			font-size: 1rem;
+		}
+
+		.close-panel-btn {
+			display: flex;
 		}
 
 		.filter-tabs {

@@ -81,7 +81,17 @@ export {
 
 	// DM/Group operations
 	createDM,
+	deleteDM,
+	getDMChannelIdForUser,
 	createGroup,
+	leaveGroup,
+	kickGroupMember,
+	addGroupMember,
+	updateGroupAvatar,
+
+	// Role operations
+	assignRole,
+	removeUserRole,
 
 	// Emote operations
 	uploadEmote,
