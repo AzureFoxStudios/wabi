@@ -35,6 +35,7 @@
 
 	// Sidebar width from layout store - 3 modes: normal (280px), compact (60px), hidden (0px)
 	$: sidebarWidth = $layoutStore.channelSidebarWidth;
+	$: isCompactSidebar = sidebarWidth === 60;
 
 	// Context menu state
 	let contextMenuChannel: Channel | null = null;
@@ -184,7 +185,7 @@
 	<button class="expand-btn" on:click={toggleSidebar} title="Expand sidebar">›</button>
 {/if}
 
-<div class="channel-sidebar" style="width: {$layoutStore.channelSidebarWidth}px">
+<div class="channel-sidebar" class:compact={isCompactSidebar} style="width: {$layoutStore.channelSidebarWidth}px">
 	<div class="top-section">
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
 		<div class="logo">
@@ -614,20 +615,20 @@
 	}
 
 	/* Compact mode: show only letters */
-	.channel-sidebar[style*="width: 60px"] .logo-img {
+	.channel-sidebar.compact .logo-img {
 		height: 24px;
 		width: auto;
 	}
 
-	.channel-sidebar[style*="width: 60px"] .sidebar-header,
-	.channel-sidebar[style*="width: 60px"] .profile-card .user-details,
-	.channel-sidebar[style*="width: 60px"] .profile-controls,
-	.channel-sidebar[style*="width: 60px"] .status-popup,
-	.channel-sidebar[style*="width: 60px"] .create-channel {
+	.channel-sidebar.compact .sidebar-header,
+	.channel-sidebar.compact .profile-card .user-details,
+	.channel-sidebar.compact .profile-controls,
+	.channel-sidebar.compact .status-popup,
+	.channel-sidebar.compact .create-channel {
 		display: none;
 	}
 
-	.channel-sidebar[style*="width: 60px"] .channel-btn {
+	.channel-sidebar.compact .channel-btn {
 		font-size: 0;
 		justify-content: center;
 		position: relative;
@@ -635,29 +636,29 @@
 		height: 100%;
 	}
 
-	.channel-sidebar[style*="width: 60px"] .channel-btn::after {
+	.channel-sidebar.compact .channel-btn::after {
 		content: attr(data-abbrev);
 		font-size: 0.8rem;
 		font-weight: 600;
 		color: var(--text-secondary);
 	}
 
-	.channel-sidebar[style*="width: 60px"] .channel-item.active .channel-btn::after {
+	.channel-sidebar.compact .channel-item.active .channel-btn::after {
 		color: var(--text-primary);
 	}
 
-	.channel-sidebar[style*="width: 60px"] .channel-btn .hash,
-	.channel-sidebar[style*="width: 60px"] .channel-btn .group-icon {
+	.channel-sidebar.compact .channel-btn .hash,
+	.channel-sidebar.compact .channel-btn .group-icon {
 		font-size: 1rem;
 		margin: 0;
 	}
 
-	.channel-sidebar[style*="width: 60px"] .channel-item {
+	.channel-sidebar.compact .channel-item {
 		justify-content: center;
 		padding: 0.25rem;
 	}
 
-	.channel-sidebar[style*="width: 60px"] .channel-actions {
+	.channel-sidebar.compact .channel-actions {
 		display: none;
 	}
 
@@ -868,12 +869,12 @@
 		flex-direction: column;
 		flex: 1;
 		overflow-y: auto;
-		padding: 0.5rem 0;
+		padding: 0;
 	}
 
 	.channel-item {
 		display: flex;
-		align-items: flex-start;
+		align-items: center;
 		padding: 0 0.5rem;
 		position: relative;
 	}
@@ -898,6 +899,7 @@
 		transition: all 0.2s;
 		min-width: 0; /* Allows text to shrink and ellipsis */
 		height: fit-content;
+		justify-content: flex-start;
 	}
 
 	.channel-item.active .channel-btn {
@@ -1229,7 +1231,7 @@
 	}
 
 	/* Compact mode: maintain red indicator */
-	.channel-sidebar[style*="width: 60px"] .channel-item.has-timer {
+	.channel-sidebar.compact .channel-item.has-timer {
 		border-radius: 0;
 	}
 
