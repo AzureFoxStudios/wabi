@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
 import { getServerUrl } from './serverUrl';
+import { isDesktopTauri, isMobileTauri, isTauriRuntime as detectTauriRuntime } from './tauri-platform';
 
 export type MediaQualityMode = 'web-baseline' | 'local-enhanced';
 export type ScreenShareQualityPreset = 'auto' | '1080p' | '720p' | '480p' | '144p-mobile';
@@ -33,6 +34,8 @@ export interface ServerMediaRuntimeResponse {
 
 export interface MediaRuntimeConfig {
 	isTauri: boolean;
+	isMobileTauri: boolean;
+	isDesktopTauri: boolean;
 	qualityMode: MediaQualityMode;
 	enableSrtGateway: boolean;
 	audioMaxBitrate: number;
@@ -100,8 +103,7 @@ const SCREEN_SHARE_QUALITY_PROFILES: Record<ScreenShareQualityPreset, ScreenShar
 };
 
 export function isTauriRuntime(): boolean {
-	if (!browser) return false;
-	return Boolean((window as Window & { __TAURI_CORE__?: unknown }).__TAURI_CORE__);
+	return detectTauriRuntime();
 }
 
 function resolveQualityMode(isTauri: boolean): MediaQualityMode {
@@ -118,13 +120,17 @@ function resolveQualityMode(isTauri: boolean): MediaQualityMode {
 }
 
 export function getMediaRuntimeConfig(): MediaRuntimeConfig {
-	const isTauri = isTauriRuntime();
+	const isTauri = detectTauriRuntime();
+	const mobileTauri = isMobileTauri();
+	const desktopTauri = isDesktopTauri();
 	const qualityMode = resolveQualityMode(isTauri);
 	const enableSrtGateway = browser && localStorage.getItem(STORAGE_KEYS.srtGateway) === 'true';
 
 	if (qualityMode === 'local-enhanced') {
 		return {
 			isTauri,
+			isMobileTauri: mobileTauri,
+			isDesktopTauri: desktopTauri,
 			qualityMode,
 			enableSrtGateway,
 			audioMaxBitrate: 96000,
@@ -135,6 +141,8 @@ export function getMediaRuntimeConfig(): MediaRuntimeConfig {
 
 	return {
 		isTauri,
+		isMobileTauri: mobileTauri,
+		isDesktopTauri: desktopTauri,
 		qualityMode,
 		enableSrtGateway,
 		audioMaxBitrate: 64000,
@@ -173,7 +181,7 @@ export function getScreenShareQualityProfile(): ScreenShareQualityProfile {
 }
 
 export function getStoredMediaQualityMode(): MediaQualityMode {
-	return resolveQualityMode(isTauriRuntime());
+	return resolveQualityMode(detectTauriRuntime());
 }
 
 export function isSrtGatewayEnabled(): boolean {
