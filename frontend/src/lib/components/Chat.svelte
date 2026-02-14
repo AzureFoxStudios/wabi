@@ -21,6 +21,7 @@
 	$: pinnedMessages = messages.filter((m: Message) => m.isPinned);
 	$: currentChannelData = $channels.find(ch => ch.id === $currentChannel);
 	$: channelDisplayName = currentChannelData?.name || $currentChannel;
+	$: channelDescription = currentChannelData?.description?.trim() || '';
 
 	// Safeguard: DM channels should never be displayed in the main chat area
 	// They should only appear in the DM panel on the right side
@@ -940,9 +941,11 @@
 
 	<div class="chat-header" class:dm-channel={isDMChannel}>
 		<h2>
-			{channelDisplayName}
+			<span class="channel-title">{channelDisplayName}</span>
 			{#if isDMChannel}
 				<span class="dm-badge">Direct Message</span>
+			{:else if channelDescription}
+				<span class="channel-description">{channelDescription}</span>
 			{/if}
 		</h2>
 		<div class="search-container">
@@ -1197,8 +1200,25 @@
 		font-weight: var(--font-weight-semibold);
 		flex: 1;
 		display: flex;
-		align-items: center;
+		align-items: baseline;
 		gap: 0.5rem;
+		min-width: 0;
+	}
+
+	.channel-title {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.channel-description {
+		font-size: var(--text-sm);
+		font-weight: var(--font-weight-regular);
+		color: var(--text-secondary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.dm-badge {
