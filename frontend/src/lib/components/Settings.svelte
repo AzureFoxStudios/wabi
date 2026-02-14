@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { channelMessages, users, currentUser, emojis, updateProfile } from '$lib/socket';
 	import StorageSettings from './StorageSettings.svelte';
@@ -16,6 +17,14 @@
 	import ThemeCustomizer from './ThemeCustomizer.svelte';
 	import UsernameFontCustomizer from './UsernameFontCustomizer.svelte';
 	import UniformFontMode from './UniformFontMode.svelte';
+	import {
+		getStoredMediaQualityMode,
+		isSrtGatewayEnabled,
+		isTauriRuntime,
+		setMediaQualityMode,
+		setSrtGatewayEnabled,
+		type MediaQualityMode
+	} from '$lib/mediaRuntime';
 
 	const dispatch = createEventDispatcher();
 
@@ -27,6 +36,9 @@
 	let cameraEnabled = true;
 	let notificationSound = '/sounds/ProjectSound.ogg';
 	let notificationVolume = 0.5;
+	let mediaQualityMode: MediaQualityMode = 'web-baseline';
+	let srtGatewayEnabled = false;
+	let localAppRuntime = false;
 
 	// Theme saving state
 	let savingTheme = false;
@@ -61,6 +73,9 @@
 		cameraEnabled = localStorage.getItem('cameraEnabled') !== 'false';
 		notificationSound = localStorage.getItem('notificationSound') || '/sounds/ProjectSound.ogg';
 		notificationVolume = parseFloat(localStorage.getItem('notificationVolume') || '0.5');
+		localAppRuntime = isTauriRuntime();
+		mediaQualityMode = getStoredMediaQualityMode();
+		srtGatewayEnabled = isSrtGatewayEnabled();
 	});
 
 	function toggleSound() {
@@ -81,6 +96,17 @@
 	function toggleCamera() {
 		cameraEnabled = !cameraEnabled;
 		localStorage.setItem('cameraEnabled', cameraEnabled.toString());
+	}
+
+	function updateMediaQualityMode(mode: MediaQualityMode) {
+		mediaQualityMode = mode;
+		setMediaQualityMode(mode);
+	}
+
+	function toggleSrtGateway() {
+		if (!localAppRuntime) return;
+		srtGatewayEnabled = !srtGatewayEnabled;
+		setSrtGatewayEnabled(srtGatewayEnabled);
 	}
 
 	// Handle theme change
@@ -587,11 +613,48 @@
 							<span class="setting-label">Camera</span>
 							<span class="setting-description">Enable camera for video calls</span>
 						</div>
-						<button class="toggle-btn" class:active={cameraEnabled} on:click={toggleCamera}>
-							{cameraEnabled ? '📹' : '📷'}
+					<button class="toggle-btn" class:active={cameraEnabled} on:click={toggleCamera}>
+						{cameraEnabled ? '📹' : '📷'}
+					</button>
+				</div>
+				<div class="media-quality-notice" role="note">
+					<div class="notice-title">Call Quality Runtime Notice</div>
+					<div class="notice-body">
+						{#if localAppRuntime}
+							You are running the Local App runtime. Enhanced audio/video tuning is available, including optional SRT gateway controls.
+						{:else}
+							You are running Web runtime. Calls use compatibility-first media settings. For best audio quality, use the Local App.
+						{/if}
+					</div>
+
+					<div class="quality-mode-row">
+						<label for="media-quality-mode">Media Quality Mode</label>
+						<select
+							id="media-quality-mode"
+							class="theme-select"
+							value={mediaQualityMode}
+							on:change={(e) => updateMediaQualityMode(e.currentTarget.value as MediaQualityMode)}
+						>
+							<option value="web-baseline">Web Baseline</option>
+							<option value="local-enhanced" disabled={!localAppRuntime}>Local App Enhanced</option>
+						</select>
+					</div>
+
+					<div class="setting-item">
+						<div class="setting-info">
+							<span class="setting-label">SRT Gateway (Beta)</span>
+							<span class="setting-description">Requires Local App + self-hosted media gateway. Browser-only calls do not use SRT directly.</span>
+						</div>
+						<button class="toggle-btn" class:active={srtGatewayEnabled} on:click={toggleSrtGateway} disabled={!localAppRuntime}>
+							{srtGatewayEnabled ? 'ON' : 'OFF'}
 						</button>
 					</div>
+
+					{#if !localAppRuntime && browser}
+						<p class="runtime-note">Tip: install the Local App (Tauri) to unlock enhanced call quality mode.</p>
+					{/if}
 				</div>
+			</div>
 
 				<!-- Notifications -->
 				<div class="settings-section">
@@ -1174,8 +1237,49 @@
 		margin-top: 1rem !important;
 	}
 
-	/* Notification Sound Settings */
-	.setting-item-full {
+	.media-quality-notice {
+		margin-top: 1rem;
+		padding: 0.9rem;
+		border-radius: 8px;
+		border: 1px solid rgba(var(--accent-rgb), 0.25);
+		background: rgba(var(--accent-rgb), 0.08);
+		display: flex;
+		flex-direction: column;
+		gap: 0.65rem;
+	}
+
+	.notice-title {
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	.notice-body {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		line-height: 1.4;
+	}
+
+	.quality-mode-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+
+	.quality-mode-row label {
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.runtime-note {
+		margin: 0;
+		font-size: 0.78rem;
+		color: var(--text-tertiary);
+	}
+
+		/* Notification Sound Settings */
+		.setting-item-full {
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
