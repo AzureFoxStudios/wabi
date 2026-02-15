@@ -21,10 +21,12 @@
 		getStoredMediaQualityMode,
 		getStoredScreenShareQualityPreset,
 		isSrtGatewayEnabled,
+		isLegacyCallFallbackEnabled,
 		isTauriRuntime,
 		setMediaQualityMode,
 		setScreenShareQualityPreset,
 		setSrtGatewayEnabled,
+		setLegacyCallFallbackEnabled,
 		syncMediaRuntimeFromServer,
 		type MediaQualityMode,
 		type ScreenShareQualityPreset
@@ -43,6 +45,7 @@
 	let mediaQualityMode: MediaQualityMode = 'web-baseline';
 	let srtGatewayEnabled = false;
 	let screenShareQualityPreset: ScreenShareQualityPreset = 'auto';
+	let legacyCallFallbackEnabled = true;
 	let localAppRuntime = false;
 
 	// Theme saving state
@@ -87,6 +90,7 @@
 			mediaQualityMode = getStoredMediaQualityMode();
 			srtGatewayEnabled = isSrtGatewayEnabled();
 			screenShareQualityPreset = getStoredScreenShareQualityPreset();
+			legacyCallFallbackEnabled = isLegacyCallFallbackEnabled();
 		})();
 	});
 
@@ -124,6 +128,11 @@
 	function updateScreenShareQualityPreset(preset: ScreenShareQualityPreset) {
 		screenShareQualityPreset = preset;
 		setScreenShareQualityPreset(preset);
+	}
+
+	function toggleLegacyCallFallback() {
+		legacyCallFallbackEnabled = !legacyCallFallbackEnabled;
+		setLegacyCallFallbackEnabled(legacyCallFallbackEnabled);
 	}
 
 	// Handle theme change
@@ -680,6 +689,17 @@
 						</div>
 						<button class="toggle-btn" class:active={srtGatewayEnabled} on:click={toggleSrtGateway} disabled={!localAppRuntime}>
 							{srtGatewayEnabled ? 'ON' : 'OFF'}
+						</button>
+					</div>
+
+
+					<div class="setting-item">
+						<div class="setting-info">
+							<span class="setting-label">Legacy Call Fallback</span>
+							<span class="setting-description">If a video call fails to start, retry automatically as audio-only.</span>
+						</div>
+						<button class="toggle-btn" class:active={legacyCallFallbackEnabled} on:click={toggleLegacyCallFallback}>
+							{legacyCallFallbackEnabled ? 'ON' : 'OFF'}
 						</button>
 					</div>
 

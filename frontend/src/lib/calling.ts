@@ -1,7 +1,7 @@
 import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { buildRTCConfig } from './turnConfig';
-import { getMediaRuntimeConfig, getScreenShareQualityProfile } from './mediaRuntime';
+import { getMediaRuntimeConfig, getScreenShareQualityProfile, isLegacyCallFallbackEnabled } from './mediaRuntime';
 
 const CAMERA_CONSTRAINTS: MediaTrackConstraints = {
 	width: { ideal: 1280, max: 1920 },
@@ -456,21 +456,40 @@ function updateRemoteTrackState(targetId: string, track: MediaStreamTrack, type:
 // Call Functions
 // ============================================================================
 
-export async function startCall(socket: Socket, targetUserId: string, isVideoCall: boolean = false) {
+
+async function getCallStreamWithFallback(isVideoCall: boolean): Promise<{ stream: MediaStream; usedVideo: boolean }> {
 	try {
 		const stream = await navigator.mediaDevices.getUserMedia({
 			video: isVideoCall ? CAMERA_CONSTRAINTS : false,
 			audio: true
 		});
+		return { stream, usedVideo: isVideoCall };
+	} catch (error) {
+		if (!isVideoCall || !isLegacyCallFallbackEnabled()) {
+			throw error;
+		}
+
+		console.warn('[WebRTC] Video call setup failed, using audio-only fallback mode:', error);
+		const fallbackStream = await navigator.mediaDevices.getUserMedia({
+			video: false,
+			audio: true
+		});
+		return { stream: fallbackStream, usedVideo: false };
+	}
+}
+
+export async function startCall(socket: Socket, targetUserId: string, isVideoCall: boolean = false) {
+	try {
+		const { stream, usedVideo } = await getCallStreamWithFallback(isVideoCall);
 		localStream.set(stream);
 
 		isInCall.set(true);
 		isMuted.set(false);
-		isVideoOff.set(!isVideoCall);
+		isVideoOff.set(!usedVideo);
 
 		socket.emit('call-initiate', {
 			targetUserId,
-			isVideoCall
+			isVideoCall: usedVideo
 		});
 
 		return stream;
@@ -485,19 +504,16 @@ export async function startCall(socket: Socket, targetUserId: string, isVideoCal
 
 export async function answerCall(socket: Socket, callerId: string, isVideoCall: boolean = false) {
 	try {
-		const stream = await navigator.mediaDevices.getUserMedia({
-			video: isVideoCall ? CAMERA_CONSTRAINTS : false,
-			audio: true
-		});
+		const { stream, usedVideo } = await getCallStreamWithFallback(isVideoCall);
 		localStream.set(stream);
 
 		isInCall.set(true);
 		isMuted.set(false);
-		isVideoOff.set(!isVideoCall);
+		isVideoOff.set(!usedVideo);
 
 		socket.emit('call-answer', {
 			callerId,
-			isVideoCall
+			isVideoCall: usedVideo
 		});
 
 		incomingCall.set(null);

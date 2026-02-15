@@ -46,7 +46,8 @@ export interface MediaRuntimeConfig {
 const STORAGE_KEYS = {
 	qualityMode: 'wabi_media_quality_mode',
 	srtGateway: 'wabi_enable_srt_gateway',
-	screenShareQuality: 'wabi_screen_share_quality_preset'
+	screenShareQuality: 'wabi_screen_share_quality_preset',
+	legacyCallFallback: 'wabi_enable_legacy_call_fallback'
 };
 
 const SCREEN_SHARE_QUALITY_PROFILES: Record<ScreenShareQualityPreset, ScreenShareQualityProfile> = {
@@ -187,6 +188,18 @@ export function getStoredMediaQualityMode(): MediaQualityMode {
 export function isSrtGatewayEnabled(): boolean {
 	if (!browser) return false;
 	return localStorage.getItem(STORAGE_KEYS.srtGateway) === 'true';
+}
+
+export function setLegacyCallFallbackEnabled(enabled: boolean): void {
+	if (!browser) return;
+	localStorage.setItem(STORAGE_KEYS.legacyCallFallback, String(enabled));
+}
+
+export function isLegacyCallFallbackEnabled(): boolean {
+	if (!browser) return true;
+	const stored = localStorage.getItem(STORAGE_KEYS.legacyCallFallback);
+	if (stored === null) return true;
+	return stored === 'true';
 }
 
 export async function syncMediaRuntimeFromServer(): Promise<ServerMediaRuntimeResponse | null> {
