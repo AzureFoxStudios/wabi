@@ -7,18 +7,20 @@ import { writable } from 'svelte/store';
 
 export interface AuthError {
 	message: string;
-	type: 'session_expired' | 'invalid_token' | 'auth_failed' | 'connection_lost';
+	type: 'session_expired' | 'invalid_token' | 'auth_failed' | 'connection_lost' | 'appeal_required';
 	timestamp: number;
 }
 
 interface AuthState {
 	error: AuthError | null;
 	isAuthError: boolean;
+	appealRequired: boolean;
 }
 
 const initialState: AuthState = {
 	error: null,
-	isAuthError: false
+	isAuthError: false,
+	appealRequired: false
 };
 
 function createAuthStore() {
@@ -37,10 +39,27 @@ function createAuthStore() {
 					type,
 					timestamp: Date.now()
 				},
-				isAuthError: true
+				isAuthError: true,
+				appealRequired: false
 			});
 		},
 
+
+		setAppealRequired() {
+			set({
+				error: {
+					message: 'Account access restricted pending appeal.',
+					type: 'appeal_required',
+					timestamp: Date.now()
+				},
+				isAuthError: true,
+				appealRequired: true
+			});
+		},
+
+		clearAppealRequired() {
+			update(state => ({ ...state, appealRequired: false }));
+		},
 		/**
 		 * Clear the auth error
 		 */

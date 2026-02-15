@@ -18,6 +18,7 @@
 
 	let qrCanvas: HTMLCanvasElement;
 	let showQR = false;
+	export let appealRequired = false;
 	let customRoom = '';
 
 	// Auto-detect current origin
@@ -139,6 +140,16 @@
 		if (room) customRoom = room;
 	});
 </script>
+
+{#if appealRequired}
+	<div class="login-container">
+		<div class="login-box appeal-box">
+			<h2>Appeal Required</h2>
+			<p>Your account is currently restricted. Submit an appeal to restore access.</p>
+			<a class="appeal-link" href="mailto:appeals@wabi.chat?subject=Appeal%20Request">Submit Appeal</a>
+		</div>
+	</div>
+{:else}
 
 <div class="login-container">
 	<div class="login-box">
@@ -614,4 +625,21 @@
 			font-size: 0.85rem;
 		}
 	}
+
+	.appeal-box {
+		text-align: center;
+	}
+
+	.appeal-link {
+		display: inline-block;
+		margin-top: 0.75rem;
+		padding: 0.7rem 1rem;
+		border-radius: 8px;
+		background: #ff6b6b;
+		color: #fff;
+		text-decoration: none;
+		font-weight: 700;
+	}
 </style>
+
+{/if}

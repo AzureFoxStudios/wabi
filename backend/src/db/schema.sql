@@ -125,6 +125,16 @@ CREATE TABLE IF NOT EXISTS guest_codes (
   FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL
 );
 
+-- Sanctions / evasion tracking
+CREATE TABLE IF NOT EXISTS user_sanctions (
+  user_id INTEGER PRIMARY KEY,
+  is_sanctioned INTEGER NOT NULL DEFAULT 0,
+  evasion_count INTEGER NOT NULL DEFAULT 0,
+  appeal_required INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_offline_messages_to_user ON offline_messages(to_user_id, delivered);
@@ -134,6 +144,7 @@ CREATE INDEX IF NOT EXISTS idx_users_handle ON users(handle COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
 CREATE INDEX IF NOT EXISTS idx_resource_visibility_resource ON resource_visibility(resource_id);
 CREATE INDEX IF NOT EXISTS idx_guest_codes_active ON guest_codes(is_active);
+CREATE INDEX IF NOT EXISTS idx_user_sanctions_appeal_required ON user_sanctions(appeal_required);
 
 -- Initial guest code
 INSERT OR IGNORE INTO guest_codes (code, description, is_active)

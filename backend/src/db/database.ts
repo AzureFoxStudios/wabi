@@ -145,6 +145,23 @@ function runMigrations() {
 		// Columns may already exist
 	}
 
+
+	// Migration: Add sanctions table for evasion tracking
+	try {
+		db.exec(`
+			CREATE TABLE IF NOT EXISTS user_sanctions (
+				user_id INTEGER PRIMARY KEY,
+				is_sanctioned INTEGER NOT NULL DEFAULT 0,
+				evasion_count INTEGER NOT NULL DEFAULT 0,
+				appeal_required INTEGER NOT NULL DEFAULT 0,
+				updated_at INTEGER NOT NULL,
+				FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+			)
+		`);
+		db.exec('CREATE INDEX IF NOT EXISTS idx_user_sanctions_appeal_required ON user_sanctions(appeal_required)');
+	} catch (e) {
+		console.error('[Database] Migration error creating user_sanctions table:', e);
+	}
 	// Migration: Add encryption columns to messages table
 	try {
 		const cols = db.pragma('table_info(messages)') as { name: string }[];

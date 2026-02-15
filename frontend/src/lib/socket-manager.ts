@@ -117,6 +117,7 @@ export const channelOldestMessageId = writable<Record<string, string | null>>({}
 
 // Connection state for UI feedback
 export const connectionState = writable<ConnectionState>('disconnected');
+export const appealRequired = writable(false);
 
 // ============================================================================
 // SOCKET MANAGER CLASS - Singleton with State Machine
@@ -503,6 +504,27 @@ class SocketManager {
 			sock.emit('join', this.username);
 		});
 
+		sock.on('force-logout', () => {
+			console.warn('[SocketManager] Force logout received');
+			appealRequired.set(false);
+			authStore.clearAppealRequired();
+			this.safeLocalStorageRemove('appealRequired');
+			this.safeLocalStorageRemove('username');
+			this.safeLocalStorageRemove('sessionId');
+			this.safeLocalStorageRemove('authToken');
+			this.safeLocalStorageRemove('dbUserId');
+			authStore.setAuthError('Session terminated. Please log in again.', 'session_expired');
+			this.disconnect();
+		});
+
+		sock.on('appeal_required', () => {
+			console.warn('[SocketManager] Appeal required received');
+			appealRequired.set(true);
+			authStore.setAppealRequired();
+			this.safeLocalStorageSet('appealRequired', 'true');
+			this.disconnect();
+		});
+
 		sock.on('init', (data: {
 			channels: Channel[];
 			users: User[];
@@ -512,6 +534,9 @@ class SocketManager {
 			sessionId?: string;
 		}) => {
 			console.log('[SocketManager] Init received');
+			appealRequired.set(false);
+			authStore.clearAppealRequired();
+			this.safeLocalStorageRemove('appealRequired');
 
 			// Save session ID
 			if (data.sessionId) {
@@ -1062,6 +1087,17 @@ class SocketManager {
 
 	private classifyError(msg: string): { fatal: boolean; errorType: string; userMessage: string } {
 		const msgLower = msg.toLowerCase();
+
+		if (msgLower.includes('appeal_required')) {
+			appealRequired.set(true);
+			authStore.setAppealRequired();
+			this.safeLocalStorageSet('appealRequired', 'true');
+			return {
+				fatal: true,
+				errorType: 'appeal_required',
+				userMessage: 'Appeal required before account access can continue.'
+			};
+		}
 
 		// Auth errors - fatal, don't retry
 		if (msgLower.includes('session expired') || msgLower.includes('invalid token')) {

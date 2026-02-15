@@ -9,6 +9,7 @@ import { __dirname } from "./_dirname.js";
 import db, { initializeDatabase, closeDatabase } from "./db/database.js";
 import { userRepository } from "./db/repositories/userRepository.js";
 import { sessionRepository } from "./db/repositories/sessionRepository.js";
+import { userSanctionRepository } from "./db/repositories/userSanctionRepository.js";
 import { offlineMessageRepository } from "./db/repositories/offlineMessageRepository.js";
 import { settingsRepository } from "./db/repositories/settingsRepository.js";
 import { themeRepository } from "./db/repositories/themeRepository.js";
@@ -2273,6 +2274,32 @@ pluginLoader.loadAll().then(() => {
   console.error('❌ Failed to load plugins:', error);
 });
 
+interface SanctionCheckResult {
+  blocked: boolean;
+  reason?: 'force_logout' | 'appeal_required';
+}
+
+function processSanctionEvasion(dbUserId?: number, sessionId?: string): SanctionCheckResult {
+  if (!dbUserId) return { blocked: false };
+
+  const sanction = userSanctionRepository.findByUserId(dbUserId);
+  if (!sanction || !sanction.is_sanctioned) {
+    return { blocked: false };
+  }
+
+  const updatedSanction = userSanctionRepository.recordEvasionAttempt(dbUserId);
+
+  if (updatedSanction.evasion_count >= 2 || updatedSanction.appeal_required) {
+    return { blocked: true, reason: 'appeal_required' };
+  }
+
+  if (sessionId) {
+    sessionRepository.delete(sessionId);
+  }
+
+  return { blocked: true, reason: 'force_logout' };
+}
+
 // Socket.IO middleware to validate sessions (temp and registered users)
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
@@ -2286,6 +2313,11 @@ io.use((socket, next) => {
 
       if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
         return next(new Error('Session expired'));
+      }
+
+      const sanction = userSanctionRepository.findByUserId(payload.userId);
+      if (sanction?.is_sanctioned && sanction.appeal_required) {
+        return next(new Error('appeal_required'));
       }
 
       (socket as any).sessionId = payload.sessionId;
@@ -2368,6 +2400,17 @@ io.on("connection", (socket) => {
       const dbSession = sessionRepository.findById((socket as any).sessionId);
 
       if (dbSession) {
+        const sanctionCheck = processSanctionEvasion((socket as any).dbUserId, (socket as any).sessionId);
+        if (sanctionCheck.blocked) {
+          if (sanctionCheck.reason === 'appeal_required') {
+            socket.emit('appeal_required', { state: 'appeal_required' });
+          } else {
+            socket.emit('force-logout', { reason: 'sanction_evasion' });
+          }
+          socket.disconnect(true);
+          return;
+        }
+
         // Use the registered user's data from the database
         const registeredUsername = dbSession.username;
         const registeredColor = dbSession.color || `#${Math.floor(Math.random()*16777215).toString(16)}`;
@@ -2568,6 +2611,17 @@ io.on("connection", (socket) => {
     const session = sessions.get(sessionId);
     if (!session) {
       socket.emit("rejoin-failed", { reason: "Invalid session" });
+      return;
+    }
+
+    const rejoinSanctionCheck = processSanctionEvasion((socket as any).dbUserId, (socket as any).sessionId);
+    if (rejoinSanctionCheck.blocked) {
+      if (rejoinSanctionCheck.reason === 'appeal_required') {
+        socket.emit('appeal_required', { state: 'appeal_required' });
+      } else {
+        socket.emit('force-logout', { reason: 'sanction_evasion' });
+      }
+      socket.disconnect(true);
       return;
     }
 

@@ -41,6 +41,7 @@ export {
 	dmPanelSignal,
 	emojis,
 	connectionState,
+	appealRequired,
 
 	// Pagination stores (client-side)
 	channelLoadedArchives,

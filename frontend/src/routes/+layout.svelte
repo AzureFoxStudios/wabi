@@ -20,6 +20,13 @@
 	let cleanupAutoSave: (() => void) | null = null;
 
 	onMount(async () => {
+
+		const appealRequired = localStorage.getItem('appealRequired') === 'true';
+		if (appealRequired && window.location.pathname !== '/') {
+			window.location.href = '/';
+			return;
+		}
+
 		// Register service worker for PWA support
 		if ('serviceWorker' in navigator) {
 			navigator.serviceWorker.register('/sw.js').then((registration) => {
