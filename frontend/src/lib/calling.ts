@@ -81,6 +81,7 @@ const peerConnections = new Map<string, PeerConnectionState>();
 
 // Track call participants for targeted cleanup
 const callParticipants = new Set<string>();
+let activeVoiceChannelId: string | null = null;
 
 // Lazy-loaded RTC config (built on first use, not at module load)
 let rtcConfig: RTCConfiguration | null = null;
@@ -456,6 +457,93 @@ function updateRemoteTrackState(targetId: string, track: MediaStreamTrack, type:
 // Call Functions
 // ============================================================================
 
+async function ensureLocalAudioStream(): Promise<MediaStream> {
+	let stream = get(localStream);
+	if (!stream) {
+		stream = await navigator.mediaDevices.getUserMedia({
+			audio: true,
+			video: false
+		});
+		localStream.set(stream);
+		return stream;
+	}
+
+	const hasActiveAudioTrack = stream.getAudioTracks().some(track => track.readyState === 'live');
+	if (hasActiveAudioTrack) {
+		return stream;
+	}
+
+	const audioStream = await navigator.mediaDevices.getUserMedia({
+		audio: true,
+		video: false
+	});
+	const audioTrack = audioStream.getAudioTracks()[0];
+	if (audioTrack) {
+		stream.addTrack(audioTrack);
+	}
+	return stream;
+}
+
+export async function joinVoiceChannel(socket: Socket, channelId: string) {
+	if (activeVoiceChannelId === channelId) {
+		return get(localStream);
+	}
+
+	if (activeVoiceChannelId && activeVoiceChannelId !== channelId) {
+		await leaveVoiceChannel(socket, activeVoiceChannelId);
+	}
+
+	try {
+		const stream = await ensureLocalAudioStream();
+		activeVoiceChannelId = channelId;
+		isInCall.set(true);
+		isMuted.set(false);
+		isVideoOff.set(true);
+		socket.emit('join-voice-channel', { channelId });
+		return stream;
+	} catch (error) {
+		console.error('Error joining voice channel:', error);
+		handleMediaError(error as DOMException, 'starting');
+		isInCall.set(false);
+		throw error;
+	}
+}
+
+export async function leaveVoiceChannel(socket: Socket, channelId: string) {
+	if (activeVoiceChannelId !== channelId) {
+		socket.emit('leave-voice-channel', { channelId });
+		return;
+	}
+
+	socket.emit('leave-voice-channel', { channelId });
+	activeVoiceChannelId = null;
+
+	const stream = get(localStream);
+	if (stream) {
+		stream.getTracks().forEach(track => track.stop());
+		localStream.set(null);
+	}
+
+	isInCall.set(false);
+	isMuted.set(false);
+	isDeafened.set(false);
+	isVideoOff.set(false);
+
+	const callKeys: string[] = [];
+	peerConnections.forEach((state, key) => {
+		if (state.type === 'call') {
+			callKeys.push(key);
+		}
+	});
+	callKeys.forEach(key => cleanupPeerConnection(key));
+
+	activeCalls.set([]);
+	callParticipants.clear();
+	if (peerConnections.size === 0) {
+		connectionState.set('idle');
+	}
+}
+
 export async function startCall(socket: Socket, targetUserId: string, isVideoCall: boolean = false) {
 	try {
 		const stream = await navigator.mediaDevices.getUserMedia({
@@ -547,6 +635,7 @@ export function endCall(socket: Socket) {
 
 	activeCalls.set([]);
 	callParticipants.clear();
+	activeVoiceChannelId = null;
 	connectionState.set('idle');
 }
 
@@ -892,6 +981,7 @@ export function cleanupAllConnections() {
 
 	peerConnections.clear();
 	callParticipants.clear();
+	activeVoiceChannelId = null;
 
 	// Reset all stores
 	activeCalls.set([]);
