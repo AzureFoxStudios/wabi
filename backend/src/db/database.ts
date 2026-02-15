@@ -57,6 +57,7 @@ export function initializeDatabase() {
 
 	// Seed default roles
 	seedDefaultRoles();
+	seedDefaultRolePermissions();
 }
 
 function runMigrations() {
@@ -188,6 +189,25 @@ function seedDefaultRoles() {
 			).run(firstUser.user_id);
 			console.log(`[Database] Auto-assigned owner role to user_id ${firstUser.user_id}`);
 		}
+	}
+}
+
+
+function seedDefaultRolePermissions() {
+	const rolePermissionDefaults = [
+		{ role_name: 'owner', allow_bits: 127, deny_bits: 0 },
+		{ role_name: 'admin', allow_bits: 127, deny_bits: 0 },
+		{ role_name: 'mod', allow_bits: 87, deny_bits: 8 },
+		{ role_name: 'member', allow_bits: 3, deny_bits: 0 },
+		{ role_name: 'guest', allow_bits: 1, deny_bits: 2 }
+	];
+
+	const insertPermissions = db.prepare(
+		'INSERT OR IGNORE INTO role_base_permissions (role_name, workspace_id, allow_bits, deny_bits) VALUES (?, ?, ?, ?)'
+	);
+
+	for (const row of rolePermissionDefaults) {
+		insertPermissions.run(row.role_name, 'default-workspace', row.allow_bits, row.deny_bits);
 	}
 }
 

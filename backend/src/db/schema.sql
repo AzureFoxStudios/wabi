@@ -94,6 +94,60 @@ CREATE TABLE IF NOT EXISTS roles (
   created_at INTEGER DEFAULT (strftime('%s', 'now'))
 );
 
+-- Server role base permissions (bitset allow/deny)
+CREATE TABLE IF NOT EXISTS role_base_permissions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  role_name TEXT NOT NULL,
+  workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+  allow_bits INTEGER NOT NULL DEFAULT 0,
+  deny_bits INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER DEFAULT (strftime('%s', 'now')),
+  updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+  UNIQUE(role_name, workspace_id)
+);
+
+-- Category-level permission overwrites
+CREATE TABLE IF NOT EXISTS category_overwrites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  category_id TEXT NOT NULL,
+  subject_type TEXT NOT NULL, -- everyone | role | user
+  subject_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+  allow_bits INTEGER NOT NULL DEFAULT 0,
+  deny_bits INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER DEFAULT (strftime('%s', 'now')),
+  updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+  UNIQUE(category_id, subject_type, subject_id, workspace_id)
+);
+
+-- Channel-level permission overwrites
+CREATE TABLE IF NOT EXISTS channel_overwrites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  channel_id TEXT NOT NULL,
+  subject_type TEXT NOT NULL, -- everyone | role | user
+  subject_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+  allow_bits INTEGER NOT NULL DEFAULT 0,
+  deny_bits INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER DEFAULT (strftime('%s', 'now')),
+  updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+  UNIQUE(channel_id, subject_type, subject_id, workspace_id)
+);
+
+-- Tag/forum-level permission overwrites
+CREATE TABLE IF NOT EXISTS tag_forum_overwrites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tag_id TEXT NOT NULL,
+  subject_type TEXT NOT NULL, -- everyone | role | user
+  subject_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+  allow_bits INTEGER NOT NULL DEFAULT 0,
+  deny_bits INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER DEFAULT (strftime('%s', 'now')),
+  updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+  UNIQUE(tag_id, subject_type, subject_id, workspace_id)
+);
+
 -- Resource visibility and privacy
 CREATE TABLE IF NOT EXISTS resource_visibility (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -134,6 +188,10 @@ CREATE INDEX IF NOT EXISTS idx_users_handle ON users(handle COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
 CREATE INDEX IF NOT EXISTS idx_resource_visibility_resource ON resource_visibility(resource_id);
 CREATE INDEX IF NOT EXISTS idx_guest_codes_active ON guest_codes(is_active);
+CREATE INDEX IF NOT EXISTS idx_role_base_permissions_role ON role_base_permissions(role_name, workspace_id);
+CREATE INDEX IF NOT EXISTS idx_category_overwrites_category ON category_overwrites(category_id, workspace_id);
+CREATE INDEX IF NOT EXISTS idx_channel_overwrites_channel ON channel_overwrites(channel_id, workspace_id);
+CREATE INDEX IF NOT EXISTS idx_tag_forum_overwrites_tag ON tag_forum_overwrites(tag_id, workspace_id);
 
 -- Initial guest code
 INSERT OR IGNORE INTO guest_codes (code, description, is_active)

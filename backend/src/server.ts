@@ -25,6 +25,7 @@ import { channelRepository } from "./db/repositories/channelRepository.js";
 import { channelMemberRepository } from "./db/repositories/channelMemberRepository.js";
 import { messageRepository } from "./db/repositories/messageRepository.js";
 import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
+import { PermissionBits, getEffectivePermissions, hasPermission, sanitizeOverwriteBits, getRolePermissionsPreview } from "./auth/permissions.js";
 import { dispatchWebhookEvent } from "./webhooks/deliveryService.js";
 
 // Helper: get role info for a user (roles, highest role, display color)
@@ -43,6 +44,19 @@ function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: str
   const roleColor = roleRows.find(r => r.color)?.color || null;
 
   return { roles: roles.length > 0 ? roles : ['member'], highestRole, roleColor };
+}
+
+
+function canManageRoles(dbUserId: number): boolean {
+  return hasPermission(dbUserId, 'server', PermissionBits.MANAGE_ROLES, { workspaceId: 'default-workspace' });
+}
+
+function canManageChannelMembership(dbUserId: number, channelId: string): boolean {
+  return hasPermission(dbUserId, `channel:${channelId}`, PermissionBits.MANAGE_GROUP_MEMBERS, { workspaceId: 'default-workspace', channelId });
+}
+
+function canManageChannelAvatar(dbUserId: number, channelId: string): boolean {
+  return hasPermission(dbUserId, `channel:${channelId}`, PermissionBits.MANAGE_GROUP_AVATAR, { workspaceId: 'default-workspace', channelId });
 }
 // In-memory data store
 interface Channel {
@@ -3721,9 +3735,7 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
     if (!user || !user.dbUserId) return;
 
-    // Only admin/owner can assign roles
-    const myRoleInfo = getUserRoleInfo(user.dbUserId);
-    if (!['owner', 'admin'].includes(myRoleInfo.highestRole)) {
+    if (!canManageRoles(user.dbUserId)) {
       socket.emit("channel-error", "Insufficient permissions to assign roles");
       return;
     }
@@ -3760,8 +3772,7 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
     if (!user || !user.dbUserId) return;
 
-    const myRoleInfo = getUserRoleInfo(user.dbUserId);
-    if (!['owner', 'admin'].includes(myRoleInfo.highestRole)) {
+    if (!canManageRoles(user.dbUserId)) {
       socket.emit("channel-error", "Insufficient permissions to remove roles");
       return;
     }
@@ -3789,6 +3800,164 @@ io.on("connection", (socket) => {
       }
     } catch (e) {
       socket.emit("channel-error", "Failed to remove role");
+    }
+  });
+
+  socket.on("list-permission-overwrites", (data: { scope: 'category' | 'channel' | 'tag_forum'; resourceId: string; workspaceId?: string }, callback?: (response: any) => void) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId) {
+      callback?.({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    if (!hasPermission(user.dbUserId, 'server', PermissionBits.MANAGE_OVERWRITES, { workspaceId: data.workspaceId || 'default-workspace' })) {
+      callback?.({ success: false, error: 'Insufficient permissions' });
+      return;
+    }
+
+    try {
+      const tableName = data.scope === 'category' ? 'category_overwrites' : data.scope === 'channel' ? 'channel_overwrites' : 'tag_forum_overwrites';
+      const resourceColumn = data.scope === 'category' ? 'category_id' : data.scope === 'channel' ? 'channel_id' : 'tag_id';
+      const rows = db.prepare(
+        `SELECT id, subject_type, subject_id, allow_bits, deny_bits, workspace_id
+         FROM ${tableName}
+         WHERE workspace_id = ? AND ${resourceColumn} = ?
+         ORDER BY
+           CASE subject_type WHEN 'everyone' THEN 0 WHEN 'role' THEN 1 WHEN 'user' THEN 2 ELSE 3 END,
+           subject_id ASC`
+      ).all(data.workspaceId || 'default-workspace', data.resourceId);
+      callback?.({ success: true, overwrites: rows });
+    } catch (error) {
+      callback?.({ success: false, error: 'Failed to list overwrites' });
+    }
+  });
+
+  socket.on("upsert-permission-overwrite", (data: { scope: 'category' | 'channel' | 'tag_forum'; resourceId: string; subjectType: 'everyone' | 'role' | 'user'; subjectId: string; allowBits: number; denyBits: number; workspaceId?: string }, callback?: (response: any) => void) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId) {
+      callback?.({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    if (!hasPermission(user.dbUserId, 'server', PermissionBits.MANAGE_OVERWRITES, { workspaceId: data.workspaceId || 'default-workspace' })) {
+      callback?.({ success: false, error: 'Insufficient permissions' });
+      return;
+    }
+
+    try {
+      const normalized = sanitizeOverwriteBits(data.allowBits, data.denyBits);
+      const tableName = data.scope === 'category' ? 'category_overwrites' : data.scope === 'channel' ? 'channel_overwrites' : 'tag_forum_overwrites';
+      const resourceColumn = data.scope === 'category' ? 'category_id' : data.scope === 'channel' ? 'channel_id' : 'tag_id';
+
+      db.prepare(
+        `INSERT INTO ${tableName} (${resourceColumn}, subject_type, subject_id, workspace_id, allow_bits, deny_bits, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
+         ON CONFLICT(${resourceColumn}, subject_type, subject_id, workspace_id)
+         DO UPDATE SET allow_bits = excluded.allow_bits, deny_bits = excluded.deny_bits, updated_at = strftime('%s', 'now')`
+      ).run(data.resourceId, data.subjectType, data.subjectId, data.workspaceId || 'default-workspace', normalized.allowBits, normalized.denyBits);
+
+      callback?.({ success: true, normalized, warning: normalized.hadConflict ? 'Allow/deny overlap detected. Deny took precedence and overlap was removed from allow bits.' : undefined });
+    } catch (error) {
+      callback?.({ success: false, error: 'Failed to save overwrite' });
+    }
+  });
+
+  socket.on("delete-permission-overwrite", (data: { scope: 'category' | 'channel' | 'tag_forum'; resourceId: string; subjectType: 'everyone' | 'role' | 'user'; subjectId: string; workspaceId?: string }, callback?: (response: any) => void) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId) {
+      callback?.({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    if (!hasPermission(user.dbUserId, 'server', PermissionBits.MANAGE_OVERWRITES, { workspaceId: data.workspaceId || 'default-workspace' })) {
+      callback?.({ success: false, error: 'Insufficient permissions' });
+      return;
+    }
+
+    try {
+      const tableName = data.scope === 'category' ? 'category_overwrites' : data.scope === 'channel' ? 'channel_overwrites' : 'tag_forum_overwrites';
+      const resourceColumn = data.scope === 'category' ? 'category_id' : data.scope === 'channel' ? 'channel_id' : 'tag_id';
+      db.prepare(`DELETE FROM ${tableName} WHERE ${resourceColumn} = ? AND subject_type = ? AND subject_id = ? AND workspace_id = ?`).run(
+        data.resourceId,
+        data.subjectType,
+        data.subjectId,
+        data.workspaceId || 'default-workspace'
+      );
+      callback?.({ success: true });
+    } catch (error) {
+      callback?.({ success: false, error: 'Failed to delete overwrite' });
+    }
+  });
+
+  socket.on("upsert-role-base-permission", (data: { roleName: string; allowBits: number; denyBits: number; workspaceId?: string }, callback?: (response: any) => void) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId) {
+      callback?.({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    if (!hasPermission(user.dbUserId, 'server', PermissionBits.MANAGE_OVERWRITES, { workspaceId: data.workspaceId || 'default-workspace' })) {
+      callback?.({ success: false, error: 'Insufficient permissions' });
+      return;
+    }
+
+    try {
+      const normalized = sanitizeOverwriteBits(data.allowBits, data.denyBits);
+      db.prepare(
+        `INSERT INTO role_base_permissions (role_name, workspace_id, allow_bits, deny_bits, updated_at)
+         VALUES (?, ?, ?, ?, strftime('%s', 'now'))
+         ON CONFLICT(role_name, workspace_id)
+         DO UPDATE SET allow_bits = excluded.allow_bits, deny_bits = excluded.deny_bits, updated_at = strftime('%s', 'now')`
+      ).run(data.roleName, data.workspaceId || 'default-workspace', normalized.allowBits, normalized.denyBits);
+      callback?.({ success: true, normalized, warning: normalized.hadConflict ? 'Allow/deny overlap detected. Deny took precedence and overlap was removed from allow bits.' : undefined });
+    } catch (error) {
+      callback?.({ success: false, error: 'Failed to save role base permissions' });
+    }
+  });
+
+  socket.on("list-role-base-permissions", (data: { workspaceId?: string }, callback?: (response: any) => void) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId) {
+      callback?.({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    if (!hasPermission(user.dbUserId, 'server', PermissionBits.MANAGE_OVERWRITES, { workspaceId: data.workspaceId || 'default-workspace' })) {
+      callback?.({ success: false, error: 'Insufficient permissions' });
+      return;
+    }
+
+    try {
+      const rows = db.prepare('SELECT role_name, allow_bits, deny_bits FROM role_base_permissions WHERE workspace_id = ? ORDER BY role_name ASC').all(data.workspaceId || 'default-workspace');
+      callback?.({ success: true, rows });
+    } catch {
+      callback?.({ success: false, error: 'Failed to list role base permissions' });
+    }
+  });
+
+  socket.on("preview-effective-permissions", (data: { targetUserId?: number; roleNames?: string[]; resourceId: string; context?: { workspaceId?: string; categoryId?: string; channelId?: string; tagId?: string } }, callback?: (response: any) => void) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId) {
+      callback?.({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    if (!hasPermission(user.dbUserId, 'server', PermissionBits.MANAGE_OVERWRITES, { workspaceId: data.context?.workspaceId || 'default-workspace' })) {
+      callback?.({ success: false, error: 'Insufficient permissions' });
+      return;
+    }
+
+    try {
+      if (typeof data.targetUserId === 'number') {
+        const preview = getEffectivePermissions(data.targetUserId, data.resourceId, data.context);
+        callback?.({ success: true, preview });
+        return;
+      }
+
+      const preview = getRolePermissionsPreview(data.roleNames || [], data.resourceId, data.context);
+      callback?.({ success: true, preview });
+    } catch {
+      callback?.({ success: false, error: 'Failed to preview permissions' });
     }
   });
 
@@ -3967,10 +4136,9 @@ io.on("connection", (socket) => {
     const channel = channels.get(data.channelId);
     if (!channel || channel.type !== 'group') return;
 
-    // Verify caller is owner or admin
     const callerMember = channelMemberRepository.getMember(data.channelId, stableId);
-    if (!callerMember || (callerMember.role !== 'owner' && callerMember.role !== 'admin')) {
-      socket.emit("channel-error", "Only the owner or admin can kick members");
+    if (!callerMember || !user.dbUserId || !canManageChannelMembership(user.dbUserId, data.channelId)) {
+      socket.emit("channel-error", "Only users with channel member-management permission can kick members");
       return;
     }
 
@@ -4019,10 +4187,9 @@ io.on("connection", (socket) => {
     const channel = channels.get(data.channelId);
     if (!channel || channel.type !== 'group') return;
 
-    // Verify caller is owner or admin
     const callerMember = channelMemberRepository.getMember(data.channelId, stableId);
-    if (!callerMember || (callerMember.role !== 'owner' && callerMember.role !== 'admin')) {
-      socket.emit("channel-error", "Only the owner or admin can add members");
+    if (!callerMember || !user.dbUserId || !canManageChannelMembership(user.dbUserId, data.channelId)) {
+      socket.emit("channel-error", "Only users with channel member-management permission can add members");
       return;
     }
 
@@ -4124,10 +4291,9 @@ io.on("connection", (socket) => {
     const channel = channels.get(data.channelId);
     if (!channel || channel.type !== 'group') return;
 
-    // Verify caller is owner or admin
     const callerMember = channelMemberRepository.getMember(data.channelId, stableId);
-    if (!callerMember || (callerMember.role !== 'owner' && callerMember.role !== 'admin')) {
-      socket.emit("channel-error", "Only the owner or admin can change the group avatar");
+    if (!callerMember || !user.dbUserId || !canManageChannelAvatar(user.dbUserId, data.channelId)) {
+      socket.emit("channel-error", "Only users with channel avatar-management permission can change the group avatar");
       return;
     }
 

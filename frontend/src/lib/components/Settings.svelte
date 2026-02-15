@@ -8,6 +8,7 @@
 	import { getSocket } from '$lib/socket';
 	import { getServerUrl } from '$lib/serverUrl';
 	import AvatarEditor from './AvatarEditor.svelte'; // Import the AvatarEditor
+	import PermissionOverwriteAdmin from './PermissionOverwriteAdmin.svelte';
 
 	// Theme system
 	import { themeStore, currentTheme } from '$lib/theme/themeStore';
@@ -795,6 +796,8 @@
 						</button>
 					</div>
 				</div>
+
+				<PermissionOverwriteAdmin />
 
 				<!-- Custom Emojis -->
 				<div class="settings-section">
