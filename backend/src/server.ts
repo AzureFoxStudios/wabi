@@ -105,6 +105,8 @@ const users = new Map<string, {
     weight?: string;
     style?: string;
   };
+  serverMuted?: boolean;
+  serverDeafened?: boolean;
 }>();
 
 // Reverse mapping: stable dbUserId -> current socket.id (for registered users only)
@@ -166,6 +168,8 @@ const screenSharers = new Map<string, {
 
 // Track active call peers: socketId -> Set of partner socketIds
 const activeCallPeers = new Map<string, Set<string>>();
+const serverMutedUsers = new Set<number>();
+const serverDeafenedUsers = new Set<number>();
 
 function addCallPeer(socketId: string, peerId: string) {
   if (!activeCallPeers.has(socketId)) activeCallPeers.set(socketId, new Set());
@@ -182,6 +186,33 @@ function removeAllCallPeers(socketId: string): Set<string> {
   }
   activeCallPeers.delete(socketId);
   return peers;
+}
+
+function canModerateVoice(userDbId?: number): boolean {
+  if (!userDbId) return false;
+  const roleInfo = getUserRoleInfo(userDbId);
+  return ['owner', 'admin', 'mod'].includes(roleInfo.highestRole);
+}
+
+function applyVoiceModerationState(socketId: string): void {
+  const user = users.get(socketId);
+  if (!user?.dbUserId) return;
+
+  io.to(socketId).emit('server-voice-state-updated', {
+    userId: socketId,
+    dbUserId: user.dbUserId,
+    serverMuted: serverMutedUsers.has(user.dbUserId),
+    serverDeafened: serverDeafenedUsers.has(user.dbUserId)
+  });
+}
+
+function serializeUserForClient(user: any): any {
+  const dbUserId = user?.dbUserId;
+  return {
+    ...user,
+    serverMuted: dbUserId ? serverMutedUsers.has(dbUserId) : false,
+    serverDeafened: dbUserId ? serverDeafenedUsers.has(dbUserId) : false
+  };
 }
 
 // Excalidraw state
@@ -2403,7 +2434,9 @@ io.on("connection", (socket) => {
           roles: roleInfo.roles,
           highestRole: roleInfo.highestRole,
           roleColor: roleInfo.roleColor,
-          usernameFont
+          usernameFont,
+          serverMuted: (socket as any).dbUserId ? serverMutedUsers.has((socket as any).dbUserId) : false,
+          serverDeafened: (socket as any).dbUserId ? serverDeafenedUsers.has((socket as any).dbUserId) : false
         });
 
         // Update reverse mapping for registered users
@@ -2419,7 +2452,7 @@ io.on("connection", (socket) => {
         const emojisData = getAllEmojis();
         socket.emit("init", {
           channels: enrichedChannels,
-          users: Array.from(users.values()),
+          users: Array.from(users.values()).map(serializeUserForClient),
           excalidrawState,
           emotes: Array.from(emotes.values()),
           emojis: emojisData,
@@ -2428,6 +2461,7 @@ io.on("connection", (socket) => {
 
         // Deliver offline messages for registered user
         await deliverOfflineMessages(socket, (socket as any).dbUserId);
+        applyVoiceModerationState(socket.id);
 
         socket.broadcast.emit("user-joined", {
           id: socket.id,
@@ -2440,7 +2474,9 @@ io.on("connection", (socket) => {
           roles: roleInfo.roles,
           highestRole: roleInfo.highestRole,
           roleColor: roleInfo.roleColor,
-          usernameFont
+          usernameFont,
+          serverMuted: (socket as any).dbUserId ? serverMutedUsers.has((socket as any).dbUserId) : false,
+          serverDeafened: (socket as any).dbUserId ? serverDeafenedUsers.has((socket as any).dbUserId) : false
         });
 
         const joinedUser = users.get(socket.id);
@@ -2483,7 +2519,9 @@ io.on("connection", (socket) => {
         username: session.username,
         color: session.color,
         status: 'active',
-        profilePicture: session.profilePicture
+        profilePicture: session.profilePicture,
+      serverMuted: false,
+      serverDeafened: false
       });
 
       // Guest users use socket.id as their stable ID (ephemeral, expected)
@@ -2492,7 +2530,7 @@ io.on("connection", (socket) => {
       const emojisData = getAllEmojis();
       socket.emit("init", {
         channels: guestChannels,
-        users: Array.from(users.values()),
+        users: Array.from(users.values()).map(serializeUserForClient),
         excalidrawState,
         emotes: Array.from(emotes.values()),
         emojis: emojisData,
@@ -2504,7 +2542,9 @@ io.on("connection", (socket) => {
         username: session.username,
         color: session.color,
         status: 'active',
-        profilePicture: session.profilePicture
+        profilePicture: session.profilePicture,
+      serverMuted: false,
+      serverDeafened: false
       });
 
       if (ENABLE_LOGGING) console.log(`${session.username} re-joined the chat with a new socket`);
@@ -2529,7 +2569,9 @@ io.on("connection", (socket) => {
         username,
         color,
         status: 'active',
-        profilePicture: undefined
+        profilePicture: undefined,
+      serverMuted: false,
+      serverDeafened: false
       });
 
       // Guest users use socket.id as their stable ID (ephemeral, expected)
@@ -2538,7 +2580,7 @@ io.on("connection", (socket) => {
       const emojisData2 = getAllEmojis();
       socket.emit("init", {
         channels: newGuestChannels,
-        users: Array.from(users.values()),
+        users: Array.from(users.values()).map(serializeUserForClient),
         excalidrawState,
         emotes: Array.from(emotes.values()),
         emojis: emojisData2,
@@ -2550,7 +2592,9 @@ io.on("connection", (socket) => {
         username,
         color,
         status: 'active',
-        profilePicture: undefined
+        profilePicture: undefined,
+      serverMuted: false,
+      serverDeafened: false
       });
 
       const newUser = users.get(socket.id);
@@ -2627,7 +2671,7 @@ io.on("connection", (socket) => {
     const emojisData = getAllEmojis();
     socket.emit("init", {
       channels: enrichedRejoinChannels,
-      users: Array.from(users.values()),
+      users: Array.from(users.values()).map(serializeUserForClient),
       excalidrawState,
       emotes: Array.from(emotes.values()),
       emojis: emojisData,
@@ -2637,6 +2681,7 @@ io.on("connection", (socket) => {
     // Deliver offline messages for registered user on rejoin
     if (rejoinDbUserId) {
       deliverOfflineMessages(socket, rejoinDbUserId);
+      applyVoiceModerationState(socket.id);
     }
 
     // Broadcast user rejoin
@@ -2652,7 +2697,9 @@ io.on("connection", (socket) => {
       roles: rejoinUser?.roles,
       highestRole: rejoinUser?.highestRole,
       roleColor: rejoinUser?.roleColor,
-      usernameFont: rejoinUser?.usernameFont
+      usernameFont: rejoinUser?.usernameFont,
+      serverMuted: rejoinDbUserId ? serverMutedUsers.has(rejoinDbUserId) : false,
+      serverDeafened: rejoinDbUserId ? serverDeafenedUsers.has(rejoinDbUserId) : false
     });
 
     if (rejoinUser) {
@@ -3791,6 +3838,85 @@ io.on("connection", (socket) => {
       socket.emit("channel-error", "Failed to remove role");
     }
   });
+
+  socket.on("server-set-mute", (data: { targetUserId: number; muted: boolean }) => {
+    const user = users.get(socket.id);
+    if (!canModerateVoice(user?.dbUserId)) {
+      socket.emit("channel-error", "Insufficient permissions to server mute users");
+      return;
+    }
+
+    if (data.muted) {
+      serverMutedUsers.add(data.targetUserId);
+    } else {
+      serverMutedUsers.delete(data.targetUserId);
+    }
+
+    let targetSocketId: string | undefined;
+    for (const [sid, u] of users.entries()) {
+      if (u.dbUserId === data.targetUserId) {
+        u.serverMuted = data.muted;
+        users.set(sid, u);
+        targetSocketId = sid;
+        break;
+      }
+    }
+
+    io.emit("user-voice-moderation-updated", {
+      dbUserId: data.targetUserId,
+      serverMuted: data.muted,
+      serverDeafened: serverDeafenedUsers.has(data.targetUserId)
+    });
+
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("server-force-call-controls", {
+        serverMuted: data.muted,
+        serverDeafened: serverDeafenedUsers.has(data.targetUserId)
+      });
+      applyVoiceModerationState(targetSocketId);
+    }
+  });
+
+  socket.on("server-set-deafen", (data: { targetUserId: number; deafened: boolean }) => {
+    const user = users.get(socket.id);
+    if (!canModerateVoice(user?.dbUserId)) {
+      socket.emit("channel-error", "Insufficient permissions to server deafen users");
+      return;
+    }
+
+    if (data.deafened) {
+      serverDeafenedUsers.add(data.targetUserId);
+      serverMutedUsers.add(data.targetUserId);
+    } else {
+      serverDeafenedUsers.delete(data.targetUserId);
+    }
+
+    let targetSocketId: string | undefined;
+    for (const [sid, u] of users.entries()) {
+      if (u.dbUserId === data.targetUserId) {
+        u.serverDeafened = data.deafened;
+        if (data.deafened) u.serverMuted = true;
+        users.set(sid, u);
+        targetSocketId = sid;
+        break;
+      }
+    }
+
+    io.emit("user-voice-moderation-updated", {
+      dbUserId: data.targetUserId,
+      serverMuted: serverMutedUsers.has(data.targetUserId),
+      serverDeafened: data.deafened
+    });
+
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("server-force-call-controls", {
+        serverMuted: serverMutedUsers.has(data.targetUserId),
+        serverDeafened: data.deafened
+      });
+      applyVoiceModerationState(targetSocketId);
+    }
+  });
+
 
   // Group chat creation
   socket.on("create-group", (data: { name: string; memberIds: string[] }) => {

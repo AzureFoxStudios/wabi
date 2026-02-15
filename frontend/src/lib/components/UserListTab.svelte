@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { users, currentUser, createDM, socket } from '$lib/socket';
+	import { users, currentUser, createDM, socket, setServerMute, setServerDeafen } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { startCall } from '$lib/calling';
 	import type { User } from '$lib/socket';
@@ -37,6 +37,8 @@
 	$: sortedRoles = Object.keys(groupedUsers).sort(
 		(a, b) => (rolePriority[b] || 0) - (rolePriority[a] || 0)
 	);
+
+	$: canModerateVoice = ['owner', 'admin', 'mod'].includes($currentUser?.highestRole || '');
 
 	function handleUserClick(user: User) {
 		createDM(user.id);
@@ -76,6 +78,19 @@
 
 	function getDisplayColor(user: User): string {
 		return user.roleColor || user.color;
+	}
+
+
+	function handleServerMuteToggle() {
+		if (!contextMenuUser?.dbUserId) return;
+		setServerMute(contextMenuUser.dbUserId, !contextMenuUser.serverMuted);
+		closeContextMenu();
+	}
+
+	function handleServerDeafenToggle() {
+		if (!contextMenuUser?.dbUserId) return;
+		setServerDeafen(contextMenuUser.dbUserId, !contextMenuUser.serverDeafened);
+		closeContextMenu();
 	}
 
 	function getRoleBadge(user: User): string | null {
@@ -146,6 +161,15 @@
 			<button class="context-menu-item" on:click={handleContextVideoCall}>
 				Video Call
 			</button>
+
+			{#if canModerateVoice && contextMenuUser.dbUserId && contextMenuUser.id !== $currentUser?.id}
+				<button class="context-menu-item" on:click={handleServerMuteToggle}>
+					{contextMenuUser.serverMuted ? 'Remove Server Mute' : 'Server Mute'}
+				</button>
+				<button class="context-menu-item" on:click={handleServerDeafenToggle}>
+					{contextMenuUser.serverDeafened ? 'Remove Server Deafen' : 'Server Deafen'}
+				</button>
+			{/if}
 		</div>
 	{/if}
 </div>

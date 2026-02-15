@@ -7,6 +7,8 @@
 		isMuted,
 		isDeafened,
 		isVideoOff,
+		serverMuteLocked,
+		serverDeafenLocked,
 		localStream,
 		localScreenStream,
 		connectionState,
@@ -304,7 +306,8 @@
 						class="control-btn"
 						class:active={$isMuted}
 						on:click={handleToggleMute}
-						title={$isMuted ? 'Unmute' : 'Mute'}
+						disabled={$serverMuteLocked || $serverDeafenLocked}
+						title={$serverMuteLocked || $serverDeafenLocked ? 'Server muted' : ($isMuted ? 'Unmute' : 'Mute')}
 					>
 						{#if $isMuted}
 							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -328,7 +331,8 @@
 						class="control-btn"
 						class:active={$isDeafened}
 						on:click={handleToggleDeafen}
-						title={$isDeafened ? 'Undeafen' : 'Deafen'}
+						disabled={$serverDeafenLocked}
+						title={$serverDeafenLocked ? 'Server deafened' : ($isDeafened ? 'Undeafen' : 'Deafen')}
 					>
 						{#if $isDeafened}
 							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

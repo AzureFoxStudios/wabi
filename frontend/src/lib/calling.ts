@@ -66,6 +66,8 @@ export const isInCall = writable(false);
 export const isSharing = writable(false);
 export const isMuted = writable(false);
 export const isDeafened = writable(false);
+export const serverMuteLocked = writable(false);
+export const serverDeafenLocked = writable(false);
 export const isVideoOff = writable(false);
 export const localStream = writable<MediaStream | null>(null);
 export const localScreenStream = writable<MediaStream | null>(null);
@@ -530,6 +532,8 @@ export function endCall(socket: Socket) {
 	isMuted.set(false);
 	isDeafened.set(false);
 	isVideoOff.set(false);
+	serverMuteLocked.set(false);
+	serverDeafenLocked.set(false);
 
 	// Notify server with participant list for targeted cleanup
 	socket.emit('call-end', {
@@ -555,6 +559,7 @@ export function endCall(socket: Socket) {
 // ============================================================================
 
 export function toggleMute() {
+	if (get(serverMuteLocked) || get(serverDeafenLocked)) return;
 	const stream = get(localStream);
 	if (stream) {
 		const audioTrack = stream.getAudioTracks()[0];
@@ -566,6 +571,7 @@ export function toggleMute() {
 }
 
 export function toggleDeafen() {
+	if (get(serverDeafenLocked)) return;
 	const currentlyDeafened = get(isDeafened);
 	isDeafened.set(!currentlyDeafened);
 
@@ -631,6 +637,29 @@ export async function toggleVideo(socket?: Socket) {
 	} catch (error) {
 		console.error('[WebRTC] Could not enable camera track:', error);
 		handleMediaError(error as DOMException, 'starting');
+	}
+}
+
+
+export function setServerVoiceState(state: { serverMuted: boolean; serverDeafened: boolean }) {
+	serverMuteLocked.set(state.serverMuted);
+	serverDeafenLocked.set(state.serverDeafened);
+
+	if (state.serverDeafened) {
+		isDeafened.set(true);
+	}
+
+	if (state.serverMuted || state.serverDeafened) {
+		const stream = get(localStream);
+		if (stream) {
+			const audioTrack = stream.getAudioTracks()[0];
+			if (audioTrack) {
+				audioTrack.enabled = false;
+			}
+		}
+		isMuted.set(true);
+	} else if (!state.serverDeafened) {
+		isDeafened.set(false);
 	}
 }
 
@@ -901,6 +930,8 @@ export function cleanupAllConnections() {
 	isMuted.set(false);
 	isDeafened.set(false);
 	isVideoOff.set(false);
+	serverMuteLocked.set(false);
+	serverDeafenLocked.set(false);
 	connectionState.set('idle');
 }
 

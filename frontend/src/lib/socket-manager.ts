@@ -853,6 +853,34 @@ class SocketManager {
 			);
 		});
 
+		sock.on('user-voice-moderation-updated', (data: { dbUserId: number; serverMuted: boolean; serverDeafened: boolean }) => {
+			users.update(u => u.map(existing =>
+				existing.dbUserId === data.dbUserId
+					? { ...existing, serverMuted: data.serverMuted, serverDeafened: data.serverDeafened }
+					: existing
+			));
+
+			currentUser.update(cu => {
+				if (!cu || cu.dbUserId !== data.dbUserId) return cu;
+				calling.setServerVoiceState({ serverMuted: data.serverMuted, serverDeafened: data.serverDeafened });
+				return { ...cu, serverMuted: data.serverMuted, serverDeafened: data.serverDeafened };
+			});
+		});
+
+		sock.on('server-voice-state-updated', (data: { userId: string; dbUserId: number; serverMuted: boolean; serverDeafened: boolean }) => {
+			calling.setServerVoiceState({ serverMuted: data.serverMuted, serverDeafened: data.serverDeafened });
+			users.update(u => u.map(existing =>
+				existing.id === data.userId || existing.dbUserId === data.dbUserId
+					? { ...existing, serverMuted: data.serverMuted, serverDeafened: data.serverDeafened }
+					: existing
+			));
+			currentUser.update(cu => cu ? { ...cu, serverMuted: data.serverMuted, serverDeafened: data.serverDeafened } : cu);
+		});
+
+		sock.on('server-force-call-controls', (data: { serverMuted: boolean; serverDeafened: boolean }) => {
+			calling.setServerVoiceState(data);
+		});
+
 		sock.on('group-created', (group: Channel) => {
 			channels.update(chs => {
 				if (chs.some(ch => ch.id === group.id)) return chs;
@@ -1486,6 +1514,14 @@ export function assignRole(targetUserId: number, roleName: string): void {
 
 export function removeUserRole(targetUserId: number, roleName: string): void {
 	socketManager.emit('remove-role', { targetUserId, roleName });
+}
+
+export function setServerMute(targetUserId: number, muted: boolean): void {
+	socketManager.emit('server-set-mute', { targetUserId, muted });
+}
+
+export function setServerDeafen(targetUserId: number, deafened: boolean): void {
+	socketManager.emit('server-set-deafen', { targetUserId, deafened });
 }
 
 export function createGroup(name: string, memberIds: string[]): void {

@@ -92,6 +92,8 @@ export {
 	// Role operations
 	assignRole,
 	removeUserRole,
+	setServerMute,
+	setServerDeafen,
 
 	// Emote operations
 	uploadEmote,

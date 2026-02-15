@@ -55,6 +55,8 @@ export interface User {
     weight?: string;
     style?: string;
   };
+  serverMuted?: boolean;
+  serverDeafened?: boolean;
 }
 
 export interface Channel {
