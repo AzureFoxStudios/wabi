@@ -26,6 +26,7 @@ import { channelMemberRepository } from "./db/repositories/channelMemberReposito
 import { messageRepository } from "./db/repositories/messageRepository.js";
 import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
 import { dispatchWebhookEvent } from "./webhooks/deliveryService.js";
+import { MediaService, type MediaKind } from "./media/service.js";
 
 // Helper: get role info for a user (roles, highest role, display color)
 function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: string; roleColor: string | null } {
@@ -166,6 +167,8 @@ const screenSharers = new Map<string, {
 
 // Track active call peers: socketId -> Set of partner socketIds
 const activeCallPeers = new Map<string, Set<string>>();
+const mediaService = new MediaService();
+const enableDirectCallFallback = process.env.ENABLE_DIRECT_CALL_FALLBACK !== 'false';
 
 function addCallPeer(socketId: string, peerId: string) {
   if (!activeCallPeers.has(socketId)) activeCallPeers.set(socketId, new Set());
@@ -3267,7 +3270,127 @@ io.on("connection", (socket) => {
     emitToChannel(channelId, "typing", { channelId, usernames: typingUsernames });
   });
 
-  // WebRTC Signaling for screen sharing
+  // Media signaling (SFU-first)
+  socket.on("media-room-join", (data: { roomId: string }) => {
+    const user = users.get(socket.id);
+    if (!user || !data?.roomId) return;
+
+    const joined = mediaService.joinRoom(data.roomId, {
+      socketId: socket.id,
+      userId: user.id,
+      username: user.username,
+    });
+
+    socket.join(`media:${data.roomId}`);
+
+    socket.emit("media-room-joined", {
+      roomId: data.roomId,
+      self: joined.participant,
+      participants: joined.participants,
+      producers: joined.producers,
+    });
+
+    socket.to(`media:${data.roomId}`).emit("media-participant-joined", {
+      roomId: data.roomId,
+      participant: joined.participant,
+    });
+  });
+
+  socket.on("media-room-leave", () => {
+    const left = mediaService.leaveRoom(socket.id);
+    if (!left) return;
+
+    socket.leave(`media:${left.roomId}`);
+
+    socket.to(`media:${left.roomId}`).emit("media-participant-left", {
+      roomId: left.roomId,
+      participant: left.participant,
+      removedProducerIds: left.removedProducerIds,
+      removedConsumerIds: left.removedConsumerIds,
+    });
+  });
+
+  socket.on("media-track-publish", (data: { kind: MediaKind; label?: string; simulcastLayers?: string[] }) => {
+    const producer = mediaService.publishTrack(socket.id, data);
+    if (!producer) return;
+
+    socket.emit("media-track-published", producer);
+    socket.to(`media:${producer.roomId}`).emit("media-track-available", producer);
+  });
+
+  socket.on("media-track-unpublish", (data: { producerId: string }) => {
+    const result = mediaService.unpublishTrack(socket.id, data.producerId);
+    if (!result) return;
+
+    io.to(`media:${result.roomId}`).emit("media-track-unpublished", {
+      producerId: data.producerId,
+      removedConsumerIds: result.removedConsumerIds,
+    });
+  });
+
+  socket.on("media-consumer-create", (data: { producerId: string; preferredLayer?: string }) => {
+    const consumer = mediaService.createConsumer(socket.id, data);
+    if (!consumer) return;
+
+    socket.emit("media-consumer-created", consumer);
+    io.to(consumer.publisherSocketId).emit("media-consumer-request", {
+      consumerId: consumer.id,
+      producerId: consumer.producerId,
+      subscriberSocketId: consumer.subscriberSocketId,
+      preferredLayer: consumer.preferredLayer,
+    });
+  });
+
+  socket.on("media-consumer-layer", (data: { consumerId: string; preferredLayer?: string }) => {
+    const consumer = mediaService.updateConsumerLayer(socket.id, data.consumerId, data.preferredLayer);
+    if (!consumer) return;
+
+    io.to(consumer.publisherSocketId).emit("media-consumer-layer", {
+      consumerId: consumer.id,
+      preferredLayer: consumer.preferredLayer,
+      subscriberSocketId: consumer.subscriberSocketId,
+    });
+  });
+
+  socket.on("media-consumer-close", (data: { consumerId: string }) => {
+    const consumer = mediaService.closeConsumer(socket.id, data.consumerId);
+    if (!consumer) return;
+
+    socket.emit("media-consumer-closed", { consumerId: consumer.id });
+    io.to(consumer.publisherSocketId).emit("media-consumer-closed", {
+      consumerId: consumer.id,
+      subscriberSocketId: consumer.subscriberSocketId,
+    });
+  });
+
+  socket.on("media-subscriber-offer", (data: { targetId: string; producerId: string; consumerId: string; offer: RTCSessionDescriptionInit }) => {
+    const user = users.get(socket.id);
+    io.to(data.targetId).emit("media-subscriber-offer", {
+      offer: data.offer,
+      producerId: data.producerId,
+      consumerId: data.consumerId,
+      senderId: socket.id,
+      username: user?.username || 'Unknown',
+    });
+  });
+
+  socket.on("media-subscriber-answer", (data: { targetId: string; consumerId: string; answer: RTCSessionDescriptionInit }) => {
+    io.to(data.targetId).emit("media-subscriber-answer", {
+      answer: data.answer,
+      consumerId: data.consumerId,
+      senderId: socket.id,
+    });
+  });
+
+  socket.on("media-subscriber-ice-candidate", (data: { targetId: string; consumerId: string; candidate: RTCIceCandidateInit }) => {
+    io.to(data.targetId).emit("media-subscriber-ice-candidate", {
+      candidate: data.candidate,
+      consumerId: data.consumerId,
+      senderId: socket.id,
+    });
+  });
+
+  // Backward compatibility for direct screen-share signaling
   socket.on("start-screen-share", () => {
     const user = users.get(socket.id);
     if (!user) return;
@@ -3285,12 +3408,10 @@ io.on("connection", (socket) => {
 
   socket.on("stop-screen-share", () => {
     screenSharers.delete(socket.id);
-    // Fixed: emit object with userId, not just socket.id string
     socket.broadcast.emit("screen-share-stopped", { userId: socket.id });
   });
 
   socket.on("request-screen-share", (data: { sharerId: string }) => {
-    // Forward the request to the sharer so they can create an offer for this viewer
     io.to(data.sharerId).emit("screen-share-request", { viewerId: socket.id });
   });
 
@@ -3352,8 +3473,13 @@ io.on("connection", (socket) => {
     socket.broadcast.emit("excalidraw-update", state);
   });
 
-  // Voice/Video calling
+  // Voice/Video calling (direct-call fallback)
   socket.on("call-initiate", (data: { targetUserId: string; isVideoCall: boolean }) => {
+    if (!enableDirectCallFallback) {
+      socket.emit("call-fallback-disabled", { message: "Direct-call fallback is disabled" });
+      return;
+    }
+
     const user = users.get(socket.id);
     if (!user) return;
 
@@ -3365,6 +3491,11 @@ io.on("connection", (socket) => {
   });
 
   socket.on("call-answer", (data: { callerId: string; isVideoCall: boolean }) => {
+    if (!enableDirectCallFallback) {
+      socket.emit("call-fallback-disabled", { message: "Direct-call fallback is disabled" });
+      return;
+    }
+
     const user = users.get(socket.id);
     // Fixed: emit call-accepted with username for proper UI display
     io.to(data.callerId).emit("call-accepted", {
@@ -3376,12 +3507,22 @@ io.on("connection", (socket) => {
   });
 
   socket.on("call-reject", (data: { callerId: string }) => {
+    if (!enableDirectCallFallback) {
+      socket.emit("call-fallback-disabled", { message: "Direct-call fallback is disabled" });
+      return;
+    }
+
     io.to(data.callerId).emit("call-rejected", {
       userId: socket.id
     });
   });
 
   socket.on("call-end", (data?: { participants?: string[] }) => {
+    if (!enableDirectCallFallback) {
+      socket.emit("call-fallback-disabled", { message: "Direct-call fallback is disabled" });
+      return;
+    }
+
     // Clean up call peer tracking
     removeAllCallPeers(socket.id);
 
@@ -3402,6 +3543,11 @@ io.on("connection", (socket) => {
   });
 
   socket.on("call-offer", (data: { offer: RTCSessionDescriptionInit; targetId: string }) => {
+    if (!enableDirectCallFallback) {
+      socket.emit("call-fallback-disabled", { message: "Direct-call fallback is disabled" });
+      return;
+    }
+
     const user = users.get(socket.id);
     io.to(data.targetId).emit("call-offer", {
       offer: data.offer,
@@ -3411,6 +3557,11 @@ io.on("connection", (socket) => {
   });
 
   socket.on("call-answer-sdp", (data: { answer: RTCSessionDescriptionInit; targetId: string }) => {
+    if (!enableDirectCallFallback) {
+      socket.emit("call-fallback-disabled", { message: "Direct-call fallback is disabled" });
+      return;
+    }
+
     io.to(data.targetId).emit("call-answer-sdp", {
       answer: data.answer,
       senderId: socket.id
@@ -3418,6 +3569,11 @@ io.on("connection", (socket) => {
   });
 
   socket.on("call-ice-candidate", (data: { candidate: RTCIceCandidateInit; targetId: string }) => {
+    if (!enableDirectCallFallback) {
+      socket.emit("call-fallback-disabled", { message: "Direct-call fallback is disabled" });
+      return;
+    }
+
     io.to(data.targetId).emit("call-ice-candidate", {
       candidate: data.candidate,
       senderId: socket.id
@@ -4253,6 +4409,17 @@ io.on("connection", (socket) => {
         screenSharers.delete(socket.id);
         // Fixed: emit object with userId, not just socket.id string
         socket.broadcast.emit("screen-share-stopped", { userId: socket.id });
+      }
+
+      const mediaLeave = mediaService.leaveRoom(socket.id);
+      if (mediaLeave) {
+        socket.leave(`media:${mediaLeave.roomId}`);
+        socket.to(`media:${mediaLeave.roomId}`).emit("media-participant-left", {
+          roomId: mediaLeave.roomId,
+          participant: mediaLeave.participant,
+          removedProducerIds: mediaLeave.removedProducerIds,
+          removedConsumerIds: mediaLeave.removedConsumerIds,
+        });
       }
 
       // Clean up active calls — notify orphaned peers

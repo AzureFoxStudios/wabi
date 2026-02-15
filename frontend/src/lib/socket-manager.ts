@@ -23,6 +23,7 @@ import { showNotification } from './notifications';
 import { initEmotes, addEmote, removeEmote } from './markdown';
 import { chatStorage } from './storage';
 import * as calling from './calling';
+import * as sfuTransport from './sfuTransport';
 import type { FileAttachment, Message, Emoji, User, Channel } from './socket-types';
 import { emojis } from './emoji-store';
 import { getServerUrl } from './serverUrl';
@@ -451,6 +452,9 @@ class SocketManager {
 			console.log('[SocketManager] Disconnected:', reason, details);
 
 			this.stopHeartbeat();
+			if (sfuTransport.isSfuEnabled) {
+				sfuTransport.leaveMediaRoom(sock);
+			}
 
 			// Handle based on disconnect reason
 			// See: https://socket.io/docs/v4/client-socket-instance/#disconnect
@@ -973,73 +977,130 @@ class SocketManager {
 
 		// ==================== WEBRTC/CALLING EVENTS ====================
 
-		sock.on('call-incoming', (data: { userId: string; username: string; isVideoCall: boolean }) => {
-			console.log(`[SocketManager] Incoming call from ${data.username}`);
-			calling.incomingCall.set(data);
+		const useDirectCallFallback = import.meta.env.VITE_DIRECT_CALL_FALLBACK !== 'false';
+
+		if (sfuTransport.isSfuEnabled) {
+			sfuTransport.joinMediaRoom(sock, 'global-call');
+		}
+
+		sock.on('media-room-joined', (data: { participants: sfuTransport.MediaParticipant[]; producers: sfuTransport.ProducerTrack[] }) => {
+			sfuTransport.handleRoomJoined(sock, data);
 		});
 
-		sock.on('call-accepted', (data: { userId: string; username: string; isVideoCall: boolean }) => {
-			console.log(`[SocketManager] Call accepted by ${data.username}`);
-			calling.createCallOffer(sock, data.userId, data.username)
-				.catch(err => console.error('[SocketManager] createCallOffer failed:', err));
+		sock.on('media-participant-joined', (data: { participant: sfuTransport.MediaParticipant }) => {
+			sfuTransport.handleParticipantJoined(data);
 		});
 
-		sock.on('call-rejected', () => {
-			console.log('[SocketManager] Call rejected');
-			calling.endCall(sock);
+		sock.on('media-participant-left', (data: { participant?: sfuTransport.MediaParticipant | null; removedConsumerIds?: string[]; removedProducerIds?: string[] }) => {
+			sfuTransport.handleParticipantLeft(data);
 		});
 
-		sock.on('call-ended', (data: { userId: string }) => {
-			console.log(`[SocketManager] Call ended with ${data.userId}`);
-			calling.removeCall(data.userId);
-			calling.removeScreenShare(data.userId);
+		sock.on('media-track-published', (track: sfuTransport.ProducerTrack) => {
+			sfuTransport.handleTrackPublished(track);
 		});
 
-		sock.on('call-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string }) => {
-			console.log(`[SocketManager] Call offer from ${data.username}`);
-			calling.handleCallOffer(sock, data.senderId, data.username, data.offer)
-				.catch(err => console.error('[SocketManager] handleCallOffer failed:', err));
+		sock.on('media-track-available', (track: sfuTransport.ProducerTrack) => {
+			sfuTransport.handleTrackAvailable(sock, track);
 		});
 
-		sock.on('call-answer-sdp', (data: { answer: RTCSessionDescriptionInit; senderId: string }) => {
-			console.log(`[SocketManager] Call answer from ${data.senderId}`);
-			calling.handleCallAnswer(data.senderId, data.answer)
-				.catch(err => console.error('[SocketManager] handleCallAnswer failed:', err));
+		sock.on('media-track-unpublished', (data: { producerId: string; removedConsumerIds?: string[] }) => {
+			sfuTransport.handleTrackUnpublished(data);
 		});
 
-		sock.on('call-ice-candidate', (data: { candidate: RTCIceCandidateInit; senderId: string }) => {
-			calling.handleCallIceCandidate(data.senderId, data.candidate);
+		sock.on('media-consumer-created', (data: { id: string; producerId: string; publisherSocketId: string }) => {
+			sfuTransport.handleConsumerCreated(sock, data)
+				.catch(err => console.error('[SocketManager] handleConsumerCreated failed:', err));
 		});
 
-		sock.on('screen-share-started', (data: { userId: string; username: string }) => {
-			console.log(`[SocketManager] ${data.username} started screen sharing`);
-			sock.emit('request-screen-share', { sharerId: data.userId });
+		sock.on('media-consumer-request', (data: { consumerId: string; producerId: string; subscriberSocketId: string }) => {
+			sfuTransport.handleConsumerRequest(sock, data)
+				.catch(err => console.error('[SocketManager] handleConsumerRequest failed:', err));
 		});
 
-		sock.on('screen-share-request', (data: { viewerId: string }) => {
-			console.log(`[SocketManager] Screen share request from ${data.viewerId}`);
-			calling.createScreenShareOffer(sock, data.viewerId)
-				.catch(err => console.error('[SocketManager] createScreenShareOffer failed:', err));
+		sock.on('media-subscriber-offer', (data: { senderId: string; consumerId: string; offer: RTCSessionDescriptionInit }) => {
+			sfuTransport.handleSubscriberOffer(sock, data)
+				.catch(err => console.error('[SocketManager] handleSubscriberOffer failed:', err));
 		});
 
-		sock.on('screen-share-stopped', (data: { userId: string }) => {
-			console.log(`[SocketManager] Screen share stopped: ${data.userId}`);
-			calling.removeScreenShare(data.userId);
+		sock.on('media-subscriber-answer', (data: { consumerId: string; answer: RTCSessionDescriptionInit }) => {
+			sfuTransport.handleSubscriberAnswer(data)
+				.catch(err => console.error('[SocketManager] handleSubscriberAnswer failed:', err));
 		});
 
-		sock.on('webrtc-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string }) => {
-			calling.handleScreenShareOffer(sock, data.senderId, data.username, data.offer)
-				.catch(err => console.error('[SocketManager] handleScreenShareOffer failed:', err));
+		sock.on('media-subscriber-ice-candidate', (data: { senderId: string; consumerId: string; candidate: RTCIceCandidateInit }) => {
+			sfuTransport.handleSubscriberIceCandidate(data)
+				.catch(err => console.error('[SocketManager] handleSubscriberIceCandidate failed:', err));
 		});
 
-		sock.on('webrtc-answer', (data: { answer: RTCSessionDescriptionInit; senderId: string }) => {
-			calling.handleScreenShareAnswer(data.senderId, data.answer)
-				.catch(err => console.error('[SocketManager] handleScreenShareAnswer failed:', err));
-		});
+		if (useDirectCallFallback) {
+			sock.on('call-incoming', (data: { userId: string; username: string; isVideoCall: boolean }) => {
+				console.log(`[SocketManager] Incoming call from ${data.username}`);
+				calling.incomingCall.set(data);
+			});
 
-		sock.on('webrtc-ice-candidate', (data: { candidate: RTCIceCandidateInit; senderId: string }) => {
-			calling.handleScreenShareIceCandidate(data.senderId, data.candidate);
-		});
+			sock.on('call-accepted', (data: { userId: string; username: string; isVideoCall: boolean }) => {
+				console.log(`[SocketManager] Call accepted by ${data.username}`);
+				calling.createCallOffer(sock, data.userId, data.username)
+					.catch(err => console.error('[SocketManager] createCallOffer failed:', err));
+			});
+
+			sock.on('call-rejected', () => {
+				console.log('[SocketManager] Call rejected');
+				calling.endCall(sock);
+			});
+
+			sock.on('call-ended', (data: { userId: string }) => {
+				console.log(`[SocketManager] Call ended with ${data.userId}`);
+				calling.removeCall(data.userId);
+				calling.removeScreenShare(data.userId);
+			});
+
+			sock.on('call-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string }) => {
+				console.log(`[SocketManager] Call offer from ${data.username}`);
+				calling.handleCallOffer(sock, data.senderId, data.username, data.offer)
+					.catch(err => console.error('[SocketManager] handleCallOffer failed:', err));
+			});
+
+			sock.on('call-answer-sdp', (data: { answer: RTCSessionDescriptionInit; senderId: string }) => {
+				console.log(`[SocketManager] Call answer from ${data.senderId}`);
+				calling.handleCallAnswer(data.senderId, data.answer)
+					.catch(err => console.error('[SocketManager] handleCallAnswer failed:', err));
+			});
+
+			sock.on('call-ice-candidate', (data: { candidate: RTCIceCandidateInit; senderId: string }) => {
+				calling.handleCallIceCandidate(data.senderId, data.candidate);
+			});
+
+			sock.on('screen-share-started', (data: { userId: string; username: string }) => {
+				console.log(`[SocketManager] ${data.username} started screen sharing`);
+				sock.emit('request-screen-share', { sharerId: data.userId });
+			});
+
+			sock.on('screen-share-request', (data: { viewerId: string }) => {
+				console.log(`[SocketManager] Screen share request from ${data.viewerId}`);
+				calling.createScreenShareOffer(sock, data.viewerId)
+					.catch(err => console.error('[SocketManager] createScreenShareOffer failed:', err));
+			});
+
+			sock.on('screen-share-stopped', (data: { userId: string }) => {
+				console.log(`[SocketManager] Screen share stopped: ${data.userId}`);
+				calling.removeScreenShare(data.userId);
+			});
+
+			sock.on('webrtc-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string }) => {
+				calling.handleScreenShareOffer(sock, data.senderId, data.username, data.offer)
+					.catch(err => console.error('[SocketManager] handleScreenShareOffer failed:', err));
+			});
+
+			sock.on('webrtc-answer', (data: { answer: RTCSessionDescriptionInit; senderId: string }) => {
+				calling.handleScreenShareAnswer(data.senderId, data.answer)
+					.catch(err => console.error('[SocketManager] handleScreenShareAnswer failed:', err));
+			});
+
+			sock.on('webrtc-ice-candidate', (data: { candidate: RTCIceCandidateInit; senderId: string }) => {
+				calling.handleScreenShareIceCandidate(data.senderId, data.candidate);
+			});
+		}
 
 		// P2P file transfer signaling
 		sock.on('p2p-offer', (data: { transferId: string; senderId: string; senderUsername: string; offer: RTCSessionDescriptionInit; fileName: string; fileSize: number }) => {
