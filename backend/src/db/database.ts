@@ -145,6 +145,25 @@ function runMigrations() {
 		// Columns may already exist
 	}
 
+
+	// Migration: Add blocked_usernames table
+	try {
+		db.exec(`
+			CREATE TABLE IF NOT EXISTS blocked_usernames (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				normalized_name TEXT NOT NULL UNIQUE,
+				reason TEXT,
+				created_at INTEGER NOT NULL,
+				created_by INTEGER,
+				active INTEGER NOT NULL DEFAULT 1,
+				FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL
+			)
+		`);
+		db.exec('CREATE INDEX IF NOT EXISTS idx_blocked_usernames_active ON blocked_usernames(active)');
+	} catch (e) {
+		console.error('[Database] Migration error adding blocked_usernames table:', e);
+	}
+
 	// Migration: Add encryption columns to messages table
 	try {
 		const cols = db.pragma('table_info(messages)') as { name: string }[];

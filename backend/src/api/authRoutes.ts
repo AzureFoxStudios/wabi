@@ -3,8 +3,10 @@ import { userRepository } from '../db/repositories/userRepository.js';
 import { sessionRepository } from '../db/repositories/sessionRepository.js';
 import { settingsRepository } from '../db/repositories/settingsRepository.js';
 import { encryptionKeyRepository } from '../db/repositories/encryptionKeyRepository.js';
+import { blockedUsernameRepository, normalizeUsernameForBlocklist } from '../db/repositories/blockedUsernameRepository.js';
 import { hashPassword, verifyPassword } from '../auth/passwordHash.js';
 import { generateToken, verifyToken } from '../auth/jwt.js';
+import { hasRequiredRole } from '../auth/roleMiddleware.js';
 
 // Get authenticated user ID from request
 function getAuthenticatedUserId(req: IncomingMessage): number | null {
@@ -71,6 +73,18 @@ function validateInput(username: string, password: string): { valid: boolean; er
 	return { valid: true };
 }
 
+function validateUsernameOnly(username: string): { valid: boolean; error?: string } {
+	if (!username || username.trim().length < 2) {
+		return { valid: false, error: 'Username must be at least 2 characters' };
+	}
+
+	if (username.length > 32) {
+		return { valid: false, error: 'Username must be less than 32 characters' };
+	}
+
+	return { valid: true };
+}
+
 // Parse JSON body
 function parseBody(req: IncomingMessage): Promise<Record<string, any>> {
 	return new Promise((resolve, reject) => {
@@ -107,6 +121,29 @@ function generateColor(): string {
 	return colors[Math.floor(Math.random() * colors.length)];
 }
 
+function respondBlockedUsername(
+	res: ServerResponse,
+	blockedReason?: string | null,
+	normalizedName?: string
+): void {
+	res.writeHead(403, { 'Content-Type': 'application/json' });
+	res.end(
+		JSON.stringify({
+			error: 'username_blocked',
+			code: 'username_blocked',
+			reason: blockedReason || null,
+			normalizedName: normalizedName || null
+		})
+	);
+}
+
+function isAdminUser(req: IncomingMessage): number | null {
+	const userId = getAuthenticatedUserId(req);
+	if (!userId) return null;
+	if (hasRequiredRole(userId, ['admin', 'owner'])) return userId;
+	return null;
+}
+
 export async function handleRegister(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
 		const clientIp = req.socket.remoteAddress || 'unknown';
@@ -138,6 +175,12 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 		if (!/^[a-z][a-z0-9_]{1,31}$/.test(handle)) {
 			res.writeHead(400, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Handle must start with a letter, be 2-32 chars, and contain only lowercase letters, numbers, and underscores' }));
+			return;
+		}
+
+		const blockedCheck = blockedUsernameRepository.isBlocked(username);
+		if (blockedCheck.blocked) {
+			respondBlockedUsername(res, blockedCheck.entry?.reason, blockedCheck.normalizedName);
 			return;
 		}
 
@@ -341,6 +384,12 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 		}
 
 		// Check if username already registered
+		const blockedCheck = blockedUsernameRepository.isBlocked(tempSession.username);
+		if (blockedCheck.blocked) {
+			respondBlockedUsername(res, blockedCheck.entry?.reason, blockedCheck.normalizedName);
+			return;
+		}
+
 		if (userRepository.findByUsername(tempSession.username)) {
 			res.writeHead(409, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Username already taken' }));
@@ -413,6 +462,149 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 		console.error('[Auth] Upgrade error:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ error: 'Upgrade failed' }));
+	}
+}
+
+export async function handleRename(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		const userId = getAuthenticatedUserId(req);
+		if (!userId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Not authenticated' }));
+			return;
+		}
+
+		const body = await parseBody(req);
+		const newUsername = (body.username || '').trim();
+		const handleInput = (body.handle || '').trim();
+
+		const usernameValidation = validateUsernameOnly(newUsername);
+		if (!usernameValidation.valid) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: usernameValidation.error }));
+			return;
+		}
+
+		const blockedCheck = blockedUsernameRepository.isBlocked(newUsername);
+		if (blockedCheck.blocked) {
+			respondBlockedUsername(res, blockedCheck.entry?.reason, blockedCheck.normalizedName);
+			return;
+		}
+
+		const existing = userRepository.findByUsername(newUsername);
+		if (existing && existing.user_id !== userId) {
+			res.writeHead(409, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Username already taken' }));
+			return;
+		}
+
+		const normalizedHandle = handleInput
+			? handleInput.replace(/^@/, '').toLowerCase()
+			: newUsername.replace(/\s+/g, '').toLowerCase();
+
+		if (!/^[a-z][a-z0-9_]{1,31}$/.test(normalizedHandle)) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Handle must start with a letter, be 2-32 chars, and contain only lowercase letters, numbers, and underscores' }));
+			return;
+		}
+
+		const existingHandle = userRepository.findByHandle(normalizedHandle);
+		if (existingHandle && existingHandle.user_id !== userId) {
+			res.writeHead(409, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Handle already taken' }));
+			return;
+		}
+
+		userRepository.rename(userId, newUsername, normalizedHandle);
+		sessionRepository.renameByUserId(userId, newUsername);
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ success: true, username: newUsername, handle: normalizedHandle }));
+	} catch (error) {
+		console.error('[Auth] Rename error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to rename user' }));
+	}
+}
+
+export async function handleGetBlockedUsernames(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		if (!isAdminUser(req)) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Admin access required' }));
+			return;
+		}
+
+		const blocked = blockedUsernameRepository.listActive();
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ blocked }));
+	} catch (error) {
+		console.error('[Auth] Get blocked usernames error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to fetch blocked usernames' }));
+	}
+}
+
+export async function handleAddBlockedUsername(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		const adminUserId = isAdminUser(req);
+		if (!adminUserId) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Admin access required' }));
+			return;
+		}
+
+		const body = await parseBody(req);
+		const name = (body.name || '').trim();
+		const reason = (body.reason || '').trim();
+
+		if (!name) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'name is required' }));
+			return;
+		}
+
+		const normalizedName = normalizeUsernameForBlocklist(name);
+		if (!normalizedName) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'name does not produce a valid normalized key' }));
+			return;
+		}
+
+		const created = blockedUsernameRepository.upsert(name, reason || undefined, adminUserId);
+		res.writeHead(201, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ blocked: created }));
+	} catch (error) {
+		console.error('[Auth] Add blocked username error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to add blocked username' }));
+	}
+}
+
+export async function handleRemoveBlockedUsername(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		if (!isAdminUser(req)) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Admin access required' }));
+			return;
+		}
+
+		const body = await parseBody(req);
+		const name = (body.name || '').trim();
+
+		if (!name) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'name is required' }));
+			return;
+		}
+
+		blockedUsernameRepository.deactivateByName(name);
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ success: true }));
+	} catch (error) {
+		console.error('[Auth] Remove blocked username error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to remove blocked username' }));
 	}
 }
 

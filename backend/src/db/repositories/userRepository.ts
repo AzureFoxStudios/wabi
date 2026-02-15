@@ -110,6 +110,13 @@ export class UserRepository {
 		stmt.run(...values, userId);
 	}
 
+
+	// Rename user and handle
+	rename(userId: number, username: string, handle: string): void {
+		const stmt = db.prepare('UPDATE users SET username = ?, handle = ? WHERE user_id = ?');
+		stmt.run(username, handle, userId);
+	}
+
 	// Delete user
 	delete(userId: number): void {
 		const stmt = db.prepare('DELETE FROM users WHERE user_id = ?');

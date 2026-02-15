@@ -14,7 +14,19 @@ import { settingsRepository } from "./db/repositories/settingsRepository.js";
 import { themeRepository } from "./db/repositories/themeRepository.js";
 import { guestCodeRepository } from "./db/repositories/guestCodeRepository.js";
 import { verifyToken } from "./auth/jwt.js";
-import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings, handleGetPublicKey, handleStoreEncryptionKeys } from "./api/authRoutes.js";
+import {
+  handleRegister,
+  handleLogin,
+  handleUpgrade,
+  handleGetUserSettings,
+  handleSaveUserSettings,
+  handleGetPublicKey,
+  handleStoreEncryptionKeys,
+  handleRename,
+  handleGetBlockedUsernames,
+  handleAddBlockedUsername,
+  handleRemoveBlockedUsername
+} from "./api/authRoutes.js";
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
 import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApprove, handleGetAllRelays } from "./api/relayRoutes.js";
 import { handleGetMediaRuntime, handleMediaGatewayHeartbeat } from "./api/mediaRoutes.js";
@@ -930,6 +942,26 @@ server.on('request', async (req, res) => {
 
   if (url.pathname === "/api/auth/upgrade" && req.method === "POST") {
     await handleUpgrade(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/auth/rename" && req.method === "POST") {
+    await handleRename(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/admin/blocked-usernames" && req.method === "GET") {
+    await handleGetBlockedUsernames(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/admin/blocked-usernames" && req.method === "POST") {
+    await handleAddBlockedUsername(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/admin/blocked-usernames" && req.method === "DELETE") {
+    await handleRemoveBlockedUsername(req, res);
     return;
   }
 

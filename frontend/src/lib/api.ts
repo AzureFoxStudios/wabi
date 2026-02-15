@@ -28,6 +28,10 @@ export async function register(username: string, password: string, handle?: stri
 
 		if (!res.ok) {
 			const error = await res.json();
+			if (error?.code === 'username_blocked' || error?.error === 'username_blocked') {
+				const reason = error?.reason ? ` (${error.reason})` : '';
+				throw new Error(`Username is blocked${reason}`);
+			}
 			throw new Error(error.error || 'Registration failed');
 		}
 

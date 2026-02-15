@@ -61,6 +61,12 @@ export class SessionRepository {
 		stmt.run(...values, sessionId);
 	}
 
+
+	renameByUserId(userId: number, username: string): void {
+		const stmt = db.prepare('UPDATE sessions SET username = ? WHERE user_id = ?');
+		stmt.run(username, userId);
+	}
+
 	// Delete session
 	delete(sessionId: string): void {
 		const stmt = db.prepare('DELETE FROM sessions WHERE session_id = ?');

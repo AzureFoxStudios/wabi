@@ -125,6 +125,18 @@ CREATE TABLE IF NOT EXISTS guest_codes (
   FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL
 );
 
+
+-- Blocked usernames (for registration and rename checks)
+CREATE TABLE IF NOT EXISTS blocked_usernames (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  normalized_name TEXT NOT NULL UNIQUE,
+  reason TEXT,
+  created_at INTEGER NOT NULL,
+  created_by INTEGER,
+  active INTEGER NOT NULL DEFAULT 1,
+  FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_offline_messages_to_user ON offline_messages(to_user_id, delivered);
@@ -134,6 +146,7 @@ CREATE INDEX IF NOT EXISTS idx_users_handle ON users(handle COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
 CREATE INDEX IF NOT EXISTS idx_resource_visibility_resource ON resource_visibility(resource_id);
 CREATE INDEX IF NOT EXISTS idx_guest_codes_active ON guest_codes(is_active);
+CREATE INDEX IF NOT EXISTS idx_blocked_usernames_active ON blocked_usernames(active);
 
 -- Initial guest code
 INSERT OR IGNORE INTO guest_codes (code, description, is_active)

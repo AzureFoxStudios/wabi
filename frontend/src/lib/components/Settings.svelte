@@ -70,6 +70,24 @@
 	let bulkEmojiFiles: { file: File; name: string; preview: string }[] = [];
 	let uploadingBulk = false;
 
+
+	// Blocked username admin state
+	let blockedNameInput = '';
+	let blockedReasonInput = '';
+	let blockedNamePreview = '';
+	let blockedNames: Array<{ id?: number; normalized_name: string; reason?: string | null; created_at: number; created_by?: number | null; active: number }> = [];
+	let loadingBlockedNames = false;
+	let savingBlockedName = false;
+	let blockedNamesError = '';
+	let isAdminUser = false;
+	let hasLoadedBlockedNames = false;
+	$: isAdminUser = !!($currentUser?.roles?.includes('admin') || $currentUser?.roles?.includes('owner'));
+	$: blockedNamePreview = normalizeBlockedName(blockedNameInput);
+	$: if (isAdminUser && !hasLoadedBlockedNames) {
+		hasLoadedBlockedNames = true;
+		void loadBlockedNames();
+	}
+
 	// Load settings from localStorage and enforce server policy
 	onMount(() => {
 		soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
@@ -435,6 +453,85 @@
 		bulkEmojiFiles = bulkEmojiFiles.filter((_, i) => i !== index);
 	}
 
+
+	function normalizeBlockedName(value: string): string {
+		return value
+			.normalize('NFKC')
+			.trim()
+			.toLowerCase()
+			.replace(/^@+/, '')
+			.replace(/\s+/g, '')
+			.replace(/[^a-z0-9_]/g, '');
+	}
+
+	async function loadBlockedNames() {
+		if (!isAdminUser) return;
+		loadingBlockedNames = true;
+		blockedNamesError = '';
+		try {
+			const token = localStorage.getItem('authToken');
+			if (!token) throw new Error('Missing auth token');
+			const response = await fetch(`${getServerUrl()}/api/admin/blocked-usernames`, {
+				method: 'GET',
+				headers: { Authorization: `Bearer ${token}` }
+			});
+			const result = await response.json();
+			if (!response.ok) throw new Error(result.error || 'Failed to load blocked names');
+			blockedNames = result.blocked || [];
+		} catch (error) {
+			blockedNamesError = error instanceof Error ? error.message : 'Failed to load blocked names';
+		} finally {
+			loadingBlockedNames = false;
+		}
+	}
+
+	async function addBlockedName() {
+		if (!blockedNameInput.trim()) return;
+		savingBlockedName = true;
+		blockedNamesError = '';
+		try {
+			const token = localStorage.getItem('authToken');
+			if (!token) throw new Error('Missing auth token');
+			const response = await fetch(`${getServerUrl()}/api/admin/blocked-usernames`, {
+				method: 'POST',
+				headers: {
+					Authorization: `Bearer ${token}`,
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({ name: blockedNameInput, reason: blockedReasonInput })
+			});
+			const result = await response.json();
+			if (!response.ok) throw new Error(result.error || 'Failed to add blocked name');
+			blockedNameInput = '';
+			blockedReasonInput = '';
+			await loadBlockedNames();
+		} catch (error) {
+			blockedNamesError = error instanceof Error ? error.message : 'Failed to add blocked name';
+		} finally {
+			savingBlockedName = false;
+		}
+	}
+
+	async function removeBlockedName(name: string) {
+		try {
+			const token = localStorage.getItem('authToken');
+			if (!token) throw new Error('Missing auth token');
+			const response = await fetch(`${getServerUrl()}/api/admin/blocked-usernames`, {
+				method: 'DELETE',
+				headers: {
+					Authorization: `Bearer ${token}`,
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({ name })
+			});
+			const result = await response.json();
+			if (!response.ok) throw new Error(result.error || 'Failed to remove blocked name');
+			await loadBlockedNames();
+		} catch (error) {
+			blockedNamesError = error instanceof Error ? error.message : 'Failed to remove blocked name';
+		}
+	}
+
 	async function confirmClearServer() {
 
 		try {
@@ -781,6 +878,47 @@
 						<UniformFontMode />
 					</div>
 				</div>
+
+
+				{#if isAdminUser}
+					<div class="settings-section">
+						<h3>🚫 Blocked Usernames</h3>
+						<div class="setting-item-full">
+							<div class="setting-info">
+								<span class="setting-label">Add blocked name</span>
+								<span class="setting-description">Usernames normalize to lowercase letters/numbers/underscore with spaces removed.</span>
+							</div>
+							<input type="text" bind:value={blockedNameInput} placeholder="e.g. Admin Team" class="emoji-name-input" />
+							<input type="text" bind:value={blockedReasonInput} placeholder="Reason (optional)" class="emoji-name-input" />
+							<p class="emoji-hint">Stored key preview: <code>{blockedNamePreview || '—'}</code></p>
+							<button class="action-btn" on:click={addBlockedName} disabled={savingBlockedName || !blockedNamePreview}>
+								{savingBlockedName ? 'Saving…' : 'Add blocked name'}
+							</button>
+							{#if blockedNamesError}
+								<p class="runtime-note">{blockedNamesError}</p>
+							{/if}
+						</div>
+						<div class="emoji-list">
+							<h4>Active blocked names ({blockedNames.length})</h4>
+							{#if loadingBlockedNames}
+								<p class="emoji-hint">Loading…</p>
+							{:else if blockedNames.length === 0}
+								<p class="emoji-hint">No blocked usernames configured.</p>
+							{:else}
+								{#each blockedNames as item (item.normalized_name)}
+									<div class="setting-item">
+										<div class="setting-info">
+											<span class="setting-label"><code>{item.normalized_name}</code></span>
+											<span class="setting-description">{item.reason || 'No reason provided'}</span>
+										</div>
+										<button class="action-btn danger" on:click={() => removeBlockedName(item.normalized_name)}>Remove</button>
+									</div>
+								{/each}
+							{/if}
+						</div>
+					</div>
+				{/if}
+
 
 				<!-- Server Management -->
 				<div class="settings-section">
