@@ -137,6 +137,48 @@ function generateSessionId(): string {
 
 const typingUsers = new Set<string>();
 
+const messageRateLimitMap = new Map<string, { count: number; resetTime: number }>();
+
+function checkMessageRateLimit(userKey: string, raidModeActive: boolean): boolean {
+  const now = Date.now();
+  const windowMs = 10 * 1000;
+  const maxMessages = raidModeActive ? 5 : 20;
+  const entry = messageRateLimitMap.get(userKey);
+
+  if (!entry || now > entry.resetTime) {
+    messageRateLimitMap.set(userKey, { count: 1, resetTime: now + windowMs });
+    return true;
+  }
+
+  if (entry.count >= maxMessages) {
+    return false;
+  }
+
+  entry.count += 1;
+  return true;
+}
+
+function isStaffRole(role?: string): boolean {
+  return !!role && ['owner', 'admin', 'mod'].includes(role);
+}
+
+function isAdminRole(role?: string): boolean {
+  return !!role && ['owner', 'admin'].includes(role);
+}
+
+function getRaidModeState() {
+  const expired = settingsRepository.expireRaidModeIfNeeded();
+  if (expired) {
+    console.log('[RaidMode] Auto-expired raid mode due to timeout');
+  }
+
+  const appSettings = settingsRepository.getAppSettings();
+  return {
+    raidModeEnabled: appSettings.raid_mode_enabled === 1,
+    raidModeExpiresAt: appSettings.raid_mode_expires_at
+  };
+}
+
 // Business workspace data - for collaborative business features
 interface BusinessData {
   workspaceId: string;
@@ -1083,6 +1125,80 @@ server.on('request', async (req, res) => {
     return;
   }
 
+
+  // Update raid mode (admin-only)
+  if (url.pathname === "/api/admin/raid-mode" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    const roleInfo = getUserRoleInfo(userId);
+    if (!isAdminRole(roleInfo.highestRole)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return;
+    }
+
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on('end', () => {
+      try {
+        const parsed = JSON.parse(body || '{}');
+        const raidModeEnabled = !!parsed.raidModeEnabled;
+        const expiresAtRaw = parsed.raidModeExpiresAt;
+        const raidModeExpiresAt = typeof expiresAtRaw === 'number' && Number.isFinite(expiresAtRaw) ? expiresAtRaw : null;
+
+        const updated = settingsRepository.setAppSettings({
+          raid_mode_enabled: raidModeEnabled ? 1 : 0,
+          raid_mode_expires_at: raidModeEnabled ? raidModeExpiresAt : null
+        });
+
+        const payload = {
+          raidModeEnabled: updated.raid_mode_enabled === 1,
+          raidModeExpiresAt: updated.raid_mode_expires_at
+        };
+
+        emitRaidModeToStaffClients();
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, ...payload }));
+      } catch (error) {
+        console.error('Failed to update raid mode:', error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: 'Failed to update raid mode' }));
+      }
+    });
+    return;
+  }
+
+  // Read raid mode (admin/staff only)
+  if (url.pathname === "/api/admin/raid-mode" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    const roleInfo = getUserRoleInfo(userId);
+    if (!isStaffRole(roleInfo.highestRole)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return;
+    }
+
+    const payload = getRaidModeState();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(payload));
+    return;
+  }
+
   // Toggle business private mode
   if (url.pathname === "/api/user/business-private-mode" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
@@ -2003,6 +2119,11 @@ try {
     }
   });
   console.log(`[Database] ✅ Loaded ${dbChannels.length} channels from database`);
+
+
+  if (settingsRepository.expireRaidModeIfNeeded()) {
+    console.log('[RaidMode] Auto-expired raid mode during startup');
+  }
 } catch (error) {
   console.error('[Database] ❌ Initialization failed:', error);
   process.exit(1);
@@ -2021,6 +2142,16 @@ setInterval(() => {
     console.log(`[Cleanup] 🗑️ Purged ${purged} soft-deleted messages from DB`);
   }
 }, 60 * 60 * 1000); // 1 hour
+
+
+// Raid mode expiry tick (every minute)
+setInterval(() => {
+  const expired = settingsRepository.expireRaidModeIfNeeded();
+  if (expired) {
+    console.log('[RaidMode] Auto-expired raid mode on periodic tick');
+    emitRaidModeToStaffClients();
+  }
+}, 60 * 1000);
 
 // Cleanup on shutdown
 process.on('SIGINT', () => {
@@ -2050,6 +2181,16 @@ function emitToChannel(channelId: string, event: string, data: any) {
   } else {
     // For public channels, broadcast to everyone
     io.emit(event, data);
+  }
+}
+
+
+function emitRaidModeToStaffClients() {
+  const raidModeState = getRaidModeState();
+  for (const [socketId, user] of users.entries()) {
+    if (isStaffRole(user.highestRole)) {
+      io.to(socketId).emit('raid-mode-updated', raidModeState);
+    }
   }
 }
 
@@ -2426,6 +2567,10 @@ io.on("connection", (socket) => {
           sessionId: (socket as any).sessionId
         });
 
+        if (isStaffRole(roleInfo.highestRole)) {
+          socket.emit('raid-mode-updated', getRaidModeState());
+        }
+
         // Deliver offline messages for registered user
         await deliverOfflineMessages(socket, (socket as any).dbUserId);
 
@@ -2633,6 +2778,10 @@ io.on("connection", (socket) => {
       emojis: emojisData,
       sessionId: sessionId
     });
+
+    if (isStaffRole(rejoinRoleInfo.highestRole)) {
+      socket.emit('raid-mode-updated', getRaidModeState());
+    }
 
     // Deliver offline messages for registered user on rejoin
     if (rejoinDbUserId) {
@@ -2854,6 +3003,15 @@ io.on("connection", (socket) => {
     const channel = channels.get(data.channelId);
     if (!channel) return;
 
+    const senderStableId = getStableUserId(socket);
+    const raidModeActive = settingsRepository.isRaidModeActive();
+    if (!checkMessageRateLimit(senderStableId, raidModeActive)) {
+      socket.emit('channel-error', raidModeActive
+        ? 'Slow down: raid mode is active and message rate limits are stricter.'
+        : 'You are sending messages too quickly. Please slow down.');
+      return;
+    }
+
     // Calculate deletion time: use channel auto-delete setting, or default to 1 day
     const DEFAULT_SERVER_EXPIRATION = 24 * 60 * 60 * 1000; // 1 day in milliseconds
     const deletionTime = channel.autoDeleteAfter
@@ -2861,7 +3019,6 @@ io.on("connection", (socket) => {
       : Date.now() + DEFAULT_SERVER_EXPIRATION;
 
     // Use stable user ID for message identity
-    const senderStableId = getStableUserId(socket);
 
     // Build minimal message object with only present fields
     const message: any = {

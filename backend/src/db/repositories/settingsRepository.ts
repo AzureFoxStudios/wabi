@@ -7,7 +7,55 @@ export interface UserSettings {
 	business_private_mode?: number;
 }
 
+export interface AppSettings {
+	raid_mode_enabled: number;
+	raid_mode_expires_at: number | null;
+}
+
 export class SettingsRepository {
+	getAppSettings(): AppSettings {
+		const row = db
+			.prepare('SELECT raid_mode_enabled, raid_mode_expires_at FROM app_settings WHERE id = 1')
+			.get() as AppSettings | undefined;
+
+		if (!row) {
+			db.prepare('INSERT INTO app_settings (id, raid_mode_enabled, raid_mode_expires_at) VALUES (1, 0, NULL)').run();
+			return { raid_mode_enabled: 0, raid_mode_expires_at: null };
+		}
+
+		return row;
+	}
+
+	setAppSettings(settings: Partial<AppSettings>): AppSettings {
+		const fields = Object.keys(settings) as (keyof AppSettings)[];
+		if (fields.length === 0) return this.getAppSettings();
+
+		const setClause = fields.map((field) => `${field} = ?`).join(', ');
+		const values = fields.map((field) => settings[field]);
+
+		db.prepare(`UPDATE app_settings SET ${setClause} WHERE id = 1`).run(...values);
+		return this.getAppSettings();
+	}
+
+	isRaidModeActive(now = Date.now()): boolean {
+		const appSettings = this.getAppSettings();
+		if (appSettings.raid_mode_enabled !== 1) return false;
+		if (appSettings.raid_mode_expires_at && appSettings.raid_mode_expires_at <= now) {
+			this.setAppSettings({ raid_mode_enabled: 0, raid_mode_expires_at: null });
+			return false;
+		}
+		return true;
+	}
+
+	expireRaidModeIfNeeded(now = Date.now()): boolean {
+		const appSettings = this.getAppSettings();
+		if (appSettings.raid_mode_enabled === 1 && appSettings.raid_mode_expires_at && appSettings.raid_mode_expires_at <= now) {
+			this.setAppSettings({ raid_mode_enabled: 0, raid_mode_expires_at: null });
+			return true;
+		}
+		return false;
+	}
+
 	// Get settings for a user (create defaults if not exists)
 	get(userId: number): UserSettings {
 		let settings = this.findById(userId);

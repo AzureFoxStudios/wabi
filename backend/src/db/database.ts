@@ -156,6 +156,28 @@ function runMigrations() {
 	} catch (e) {
 		// Columns may already exist
 	}
+
+	// Migration: Ensure app settings table and raid-mode columns exist
+	try {
+		db.exec(`
+			CREATE TABLE IF NOT EXISTS app_settings (
+				id INTEGER PRIMARY KEY CHECK (id = 1),
+				raid_mode_enabled INTEGER DEFAULT 0,
+				raid_mode_expires_at INTEGER
+			)
+		`);
+		db.prepare('INSERT OR IGNORE INTO app_settings (id, raid_mode_enabled, raid_mode_expires_at) VALUES (1, 0, NULL)').run();
+		const appCols = db.pragma('table_info(app_settings)') as { name: string }[];
+		if (!appCols.some(c => c.name === 'raid_mode_enabled')) {
+			db.exec('ALTER TABLE app_settings ADD COLUMN raid_mode_enabled INTEGER DEFAULT 0');
+		}
+		if (!appCols.some(c => c.name === 'raid_mode_expires_at')) {
+			db.exec('ALTER TABLE app_settings ADD COLUMN raid_mode_expires_at INTEGER');
+		}
+	} catch (e) {
+		console.error('[Database] Migration error ensuring app_settings raid mode columns:', e);
+	}
+
 }
 
 function seedDefaultRoles() {

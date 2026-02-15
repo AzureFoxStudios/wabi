@@ -44,6 +44,9 @@
 	let srtGatewayEnabled = false;
 	let screenShareQualityPreset: ScreenShareQualityPreset = 'auto';
 	let localAppRuntime = false;
+	let raidModeEnabled = false;
+	let raidModeExpiresAtInput = '';
+	let savingRaidMode = false;
 
 	// Theme saving state
 	let savingTheme = false;
@@ -70,6 +73,67 @@
 	let bulkEmojiFiles: { file: File; name: string; preview: string }[] = [];
 	let uploadingBulk = false;
 
+
+	$: isStaff = ['owner', 'admin', 'mod'].includes($currentUser?.highestRole || '');
+	$: isRaidAdmin = ['owner', 'admin'].includes($currentUser?.highestRole || '');
+
+	function toDatetimeLocalValue(timestamp: number | null | undefined): string {
+		if (!timestamp) return '';
+		const d = new Date(timestamp);
+		d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+		return d.toISOString().slice(0, 16);
+	}
+
+	async function loadRaidModeState() {
+		if (!browser || !isStaff) return;
+		const authToken = localStorage.getItem('authToken');
+		if (!authToken) return;
+		try {
+			const res = await fetch(`${getServerUrl()}/api/admin/raid-mode`, {
+				method: 'GET',
+				headers: { Authorization: `Bearer ${authToken}` }
+			});
+			if (!res.ok) return;
+			const data = await res.json();
+			raidModeEnabled = !!data.raidModeEnabled;
+			raidModeExpiresAtInput = toDatetimeLocalValue(data.raidModeExpiresAt);
+		} catch (error) {
+			console.error('Failed to load raid mode state:', error);
+		}
+	}
+
+	async function saveRaidModeState() {
+		if (!browser || !isRaidAdmin) return;
+		const authToken = localStorage.getItem('authToken');
+		if (!authToken) return;
+
+		savingRaidMode = true;
+		try {
+			const raidModeExpiresAt = raidModeEnabled && raidModeExpiresAtInput
+				? new Date(raidModeExpiresAtInput).getTime()
+				: null;
+
+			const res = await fetch(`${getServerUrl()}/api/admin/raid-mode`, {
+				method: 'POST',
+				headers: {
+					Authorization: `Bearer ${authToken}`,
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({ raidModeEnabled, raidModeExpiresAt })
+			});
+
+			if (!res.ok) {
+				const data = await res.json();
+				throw new Error(data.error || 'Failed to save raid mode');
+			}
+		} catch (error) {
+			console.error('Failed to save raid mode state:', error);
+			alert('Failed to save raid mode state.');
+		} finally {
+			savingRaidMode = false;
+		}
+	}
+
 	// Load settings from localStorage and enforce server policy
 	onMount(() => {
 		soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
@@ -87,7 +151,19 @@
 			mediaQualityMode = getStoredMediaQualityMode();
 			srtGatewayEnabled = isSrtGatewayEnabled();
 			screenShareQualityPreset = getStoredScreenShareQualityPreset();
+			await loadRaidModeState();
 		})();
+
+		const socket = getSocket();
+		const onRaidModeUpdated = (payload: { raidModeEnabled: boolean; raidModeExpiresAt: number | null }) => {
+			raidModeEnabled = !!payload.raidModeEnabled;
+			raidModeExpiresAtInput = toDatetimeLocalValue(payload.raidModeExpiresAt);
+		};
+		socket?.on('raid-mode-updated', onRaidModeUpdated);
+
+		return () => {
+			socket?.off('raid-mode-updated', onRaidModeUpdated);
+		};
 	});
 
 	function toggleSound() {
@@ -781,6 +857,34 @@
 						<UniformFontMode />
 					</div>
 				</div>
+
+
+				{#if isStaff}
+					<div class="settings-section">
+						<h3>🛡️ Raid Mode (Staff)</h3>
+						<div class="setting-item">
+							<div class="setting-info">
+								<span class="setting-label">Enable Raid Mode</span>
+								<span class="setting-description">Blocks new registrations and increases message rate limiting.</span>
+							</div>
+							<button class="toggle-btn" class:active={raidModeEnabled} on:click={() => raidModeEnabled = !raidModeEnabled} disabled={!isRaidAdmin}>
+								{raidModeEnabled ? 'ON' : 'OFF'}
+							</button>
+						</div>
+						<div class="setting-item">
+							<div class="setting-info">
+								<span class="setting-label">Expiry</span>
+								<span class="setting-description">Optional auto-disable date/time for raid mode.</span>
+							</div>
+							<input type="datetime-local" bind:value={raidModeExpiresAtInput} disabled={!isRaidAdmin || !raidModeEnabled} />
+						</div>
+						{#if isRaidAdmin}
+							<button class="action-btn" on:click={saveRaidModeState} disabled={savingRaidMode}>
+								{savingRaidMode ? 'Saving…' : 'Save Raid Mode'}
+							</button>
+						{/if}
+					</div>
+				{/if}
 
 				<!-- Server Management -->
 				<div class="settings-section">

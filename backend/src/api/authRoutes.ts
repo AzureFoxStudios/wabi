@@ -119,6 +119,12 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 			return;
 		}
 
+		if (settingsRepository.isRaidModeActive()) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Registrations are temporarily disabled while raid mode is active.' }));
+			return;
+		}
+
 		const body = await parseBody(req);
 		const { username, password, handle: rawHandle } = body;
 
@@ -315,6 +321,12 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 
 export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
+		if (settingsRepository.isRaidModeActive()) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Account upgrades are temporarily disabled while raid mode is active.' }));
+			return;
+		}
+
 		const body = await parseBody(req);
 		const { sessionId, password } = body;
 

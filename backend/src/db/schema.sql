@@ -59,6 +59,16 @@ CREATE TABLE IF NOT EXISTS user_settings (
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
+-- App-wide settings
+CREATE TABLE IF NOT EXISTS app_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  raid_mode_enabled INTEGER DEFAULT 0,
+  raid_mode_expires_at INTEGER
+);
+
+INSERT OR IGNORE INTO app_settings (id, raid_mode_enabled, raid_mode_expires_at)
+VALUES (1, 0, NULL);
+
 -- Theme preferences (appearance customization)
 CREATE TABLE IF NOT EXISTS theme_preferences (
   user_id INTEGER PRIMARY KEY,
