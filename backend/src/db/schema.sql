@@ -125,6 +125,23 @@ CREATE TABLE IF NOT EXISTS guest_codes (
   FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL
 );
 
+
+-- Moderation triggers (content policy rules)
+CREATE TABLE IF NOT EXISTS moderation_triggers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pattern TEXT NOT NULL,
+  action TEXT NOT NULL CHECK(action IN ('timeout','ban')),
+  duration TEXT,
+  severity INTEGER NOT NULL DEFAULT 5,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_by INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_moderation_triggers_enabled ON moderation_triggers(enabled, severity DESC);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_offline_messages_to_user ON offline_messages(to_user_id, delivered);

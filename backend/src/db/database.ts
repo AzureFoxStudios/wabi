@@ -145,6 +145,28 @@ function runMigrations() {
 		// Columns may already exist
 	}
 
+
+	// Migration: Create moderation_triggers table
+	try {
+		db.exec(`
+			CREATE TABLE IF NOT EXISTS moderation_triggers (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				pattern TEXT NOT NULL,
+				action TEXT NOT NULL CHECK(action IN ('timeout','ban')),
+				duration TEXT,
+				severity INTEGER NOT NULL DEFAULT 5,
+				enabled INTEGER NOT NULL DEFAULT 1,
+				created_by INTEGER,
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL,
+				FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL
+			)
+		`);
+		db.exec('CREATE INDEX IF NOT EXISTS idx_moderation_triggers_enabled ON moderation_triggers(enabled, severity DESC)');
+	} catch (e) {
+		console.error('[Database] Migration error creating moderation_triggers:', e);
+	}
+
 	// Migration: Add encryption columns to messages table
 	try {
 		const cols = db.pragma('table_info(messages)') as { name: string }[];

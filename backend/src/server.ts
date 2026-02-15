@@ -19,6 +19,7 @@ import { handleGetThemePreferences, handleSaveThemePreferences, handleResetTheme
 import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApprove, handleGetAllRelays } from "./api/relayRoutes.js";
 import { handleGetMediaRuntime, handleMediaGatewayHeartbeat } from "./api/mediaRoutes.js";
 import { handleCreateWebhook, handleListWebhooks, handleDeleteWebhook, handleListWebhookDeliveries } from "./api/webhookRoutes.js";
+import { handleListModerationTriggers, handleCreateModerationTrigger, handleUpdateModerationTrigger, handleDeleteModerationTrigger } from "./api/moderationRoutes.js";
 import { relayRepository } from "./db/repositories/relayRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
 import { channelRepository } from "./db/repositories/channelRepository.js";
@@ -26,6 +27,8 @@ import { channelMemberRepository } from "./db/repositories/channelMemberReposito
 import { messageRepository } from "./db/repositories/messageRepository.js";
 import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
 import { dispatchWebhookEvent } from "./webhooks/deliveryService.js";
+import { moderationTriggerRepository } from "./db/repositories/moderationTriggerRepository.js";
+import { findTriggeredRule, parseDurationMs } from "./moderation/triggerMatcher.js";
 
 // Helper: get role info for a user (roles, highest role, display color)
 function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: string; roleColor: string | null } {
@@ -136,6 +139,35 @@ function generateSessionId(): string {
 }
 
 const typingUsers = new Set<string>();
+
+// Moderation runtime state
+const postingTimeouts = new Map<string, number>(); // stable user id -> timeout expiry (ms epoch)
+const bannedUsers = new Set<string>(); // stable user id
+const HIGH_SEVERITY_BAN_THRESHOLD = 8;
+
+function isUserTimedOut(stableUserId: string): { active: boolean; remainingMs?: number } {
+  const timeoutUntil = postingTimeouts.get(stableUserId);
+  if (!timeoutUntil) return { active: false };
+  if (Date.now() >= timeoutUntil) {
+    postingTimeouts.delete(stableUserId);
+    return { active: false };
+  }
+  return { active: true, remainingMs: timeoutUntil - Date.now() };
+}
+
+function isModeratorSocket(socketId: string): boolean {
+  const user = users.get(socketId);
+  const roles = user?.roles || [];
+  return roles.includes('owner') || roles.includes('admin') || roles.includes('mod');
+}
+
+function emitModerationNotification(details: Record<string, any>) {
+  for (const socketId of users.keys()) {
+    if (isModeratorSocket(socketId)) {
+      io.to(socketId).emit('moderation-trigger-hit', details);
+    }
+  }
+}
 
 // Business workspace data - for collaborative business features
 interface BusinessData {
@@ -1026,6 +1058,27 @@ server.on('request', async (req, res) => {
   const webhookDeleteMatch = url.pathname.match(/^\/api\/webhooks\/(\d+)$/);
   if (webhookDeleteMatch && req.method === "DELETE") {
     await handleDeleteWebhook(req, res, parseInt(webhookDeleteMatch[1], 10));
+    return;
+  }
+
+  if (url.pathname === '/api/moderation/triggers' && req.method === 'GET') {
+    await handleListModerationTriggers(req, res);
+    return;
+  }
+
+  if (url.pathname === '/api/moderation/triggers' && req.method === 'POST') {
+    await handleCreateModerationTrigger(req, res);
+    return;
+  }
+
+  const moderationTriggerMatch = url.pathname.match(/^\/api\/moderation\/triggers\/(\d+)$/);
+  if (moderationTriggerMatch && req.method === 'PUT') {
+    await handleUpdateModerationTrigger(req, res, parseInt(moderationTriggerMatch[1], 10));
+    return;
+  }
+
+  if (moderationTriggerMatch && req.method === 'DELETE') {
+    await handleDeleteModerationTrigger(req, res, parseInt(moderationTriggerMatch[1], 10));
     return;
   }
 
@@ -2832,7 +2885,7 @@ io.on("connection", (socket) => {
   });
 
   // Handle chat messages
-  socket.on("message", (data: {
+  const handleSendMessage = (data: {
     text: string;
     type: 'text' | 'gif' | 'file' | 'emoji';
     channelId: string;
@@ -2854,27 +2907,88 @@ io.on("connection", (socket) => {
     const channel = channels.get(data.channelId);
     if (!channel) return;
 
+    const senderStableId = getStableUserId(socket);
+    if (bannedUsers.has(senderStableId)) {
+      socket.emit('moderation-action-applied', {
+        action: 'ban',
+        reason: 'Account is banned from posting'
+      });
+      return;
+    }
+
+    const timeoutState = isUserTimedOut(senderStableId);
+    if (timeoutState.active) {
+      socket.emit('moderation-action-applied', {
+        action: 'timeout',
+        remainingMs: timeoutState.remainingMs,
+        reason: 'You are temporarily blocked from posting'
+      });
+      return;
+    }
+
+    const triggerMatch = findTriggeredRule(data.text, moderationTriggerRepository.listEnabled());
+    if (triggerMatch) {
+      const { trigger } = triggerMatch;
+      const canBan = trigger.action === 'ban' && trigger.severity >= HIGH_SEVERITY_BAN_THRESHOLD;
+      const appliedAction = canBan ? 'ban' : 'timeout';
+      const durationMs = parseDurationMs(trigger.duration);
+
+      if (appliedAction === 'ban') {
+        bannedUsers.add(senderStableId);
+        if ((socket as any).dbUserId) {
+          userRepository.update((socket as any).dbUserId, { is_active: 0 });
+        }
+      } else {
+        postingTimeouts.set(senderStableId, Date.now() + durationMs);
+      }
+
+      socket.emit('moderation-action-applied', {
+        action: appliedAction,
+        triggerId: trigger.id,
+        pattern: trigger.pattern,
+        severity: trigger.severity,
+        duration: trigger.duration,
+        durationMs
+      });
+
+      emitModerationNotification({
+        triggerId: trigger.id,
+        pattern: trigger.pattern,
+        strategy: triggerMatch.strategy,
+        severity: trigger.severity,
+        configuredAction: trigger.action,
+        appliedAction,
+        duration: trigger.duration,
+        messageText: data.text,
+        channelId: data.channelId,
+        userId: senderStableId,
+        username: user.username,
+        timestamp: Date.now()
+      });
+
+      if (appliedAction === 'ban') {
+        socket.emit('channel-error', 'Your account has been banned from posting.');
+      }
+      return;
+    }
+
     // Calculate deletion time: use channel auto-delete setting, or default to 1 day
     const DEFAULT_SERVER_EXPIRATION = 24 * 60 * 60 * 1000; // 1 day in milliseconds
     const deletionTime = channel.autoDeleteAfter
       ? Date.now() + getAutoDeleteMs(channel.autoDeleteAfter)
       : Date.now() + DEFAULT_SERVER_EXPIRATION;
 
-    // Use stable user ID for message identity
-    const senderStableId = getStableUserId(socket);
-
     // Build minimal message object with only present fields
     const message: any = {
       id: `${Date.now()}-${senderStableId}`,
       user: user.username,
-      userId: socket.id, // Current socket.id for realtime identification
+      userId: socket.id,
       text: data.text,
       timestamp: Date.now(),
       type: data.type,
       scheduledDeletionTime: deletionTime
     };
 
-    // Only add optional fields if they exist (reduces payload size by 30-40%)
     if (data.gifUrl) message.gifUrl = data.gifUrl;
     if (data.emojiUrl) message.emojiUrl = data.emojiUrl;
     if (data.emojiName) message.emojiName = data.emojiName;
@@ -2887,12 +3001,10 @@ io.on("connection", (socket) => {
     if (data.encrypted) message.encrypted = true;
     if (data.iv) message.iv = data.iv;
 
-    // Add message to channel
     const messages = channelMessages.get(data.channelId) || [];
     messages.push(message);
     channelMessages.set(data.channelId, messages);
 
-    // Notify DM recipient on first message (lazy channel delivery)
     if (channel.type === 'dm' && !channel.recipientNotified && channel.members) {
       const myStableId = getStableUserId(socket);
       const recipientStableId = channel.members.find(m => m !== myStableId);
@@ -2917,11 +3029,9 @@ io.on("connection", (socket) => {
 
     emitToChannel(data.channelId, "message", { channelId: data.channelId, message });
 
-    // Schedule auto-deletion for ALL messages (either custom time or default 1-day)
     const deletionDuration = channel.autoDeleteAfter || '24h';
     scheduleMessageDeletion(data.channelId, message.id, deletionDuration);
 
-    // Persist message to database with stable sender ID
     try {
       messageRepository.create({
         message_id: message.id,
@@ -2961,20 +3071,20 @@ io.on("connection", (socket) => {
       console.error('[Webhooks] Failed to dispatch message.created:', error);
     });
 
-    // Clear typing indicator for this channel
     if (typingUsers.has(socket.id)) {
       typingUsers.delete(socket.id);
 
-      // Also remove from channel-specific typing users
       const channelTyping = channelTypingUsers.get(data.channelId);
       if (channelTyping) {
         channelTyping.delete(socket.id);
-        // Emit updated typing list only to users in this channel
         const typingUsernames = Array.from(channelTyping).map(id => users.get(id)?.username).filter(Boolean);
         emitToChannel(data.channelId, "typing", { channelId: data.channelId, usernames: typingUsernames });
       }
     }
-  });
+  };
+
+  socket.on("message", handleSendMessage);
+  socket.on("send-message", handleSendMessage);
 
   // Handle message edit
   socket.on("edit-message", (data: { messageId: string; newText: string; channelId: string }) => {

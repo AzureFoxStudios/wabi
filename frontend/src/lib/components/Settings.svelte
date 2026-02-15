@@ -70,6 +70,33 @@
 	let bulkEmojiFiles: { file: File; name: string; preview: string }[] = [];
 	let uploadingBulk = false;
 
+
+	type ModerationTrigger = {
+		id: number;
+		pattern: string;
+		action: 'timeout' | 'ban';
+		duration: string | null;
+		severity: number;
+		enabled: number;
+	};
+
+	let moderationTriggers: ModerationTrigger[] = [];
+	let moderationLoading = false;
+	let moderationError = '';
+	let moderationPattern = '';
+	let moderationAction: 'timeout' | 'ban' = 'timeout';
+	let moderationDuration = '15m';
+	let moderationSeverity = 5;
+	let editingTriggerId: number | null = null;
+	$: canManageModeration = !!$currentUser?.roles?.some((r) => ['owner', 'admin', 'mod'].includes(r));
+	$: moderationActionPreview = moderationAction === 'ban' && moderationSeverity >= 8
+		? 'Preview: High-severity trigger will ban the sender.'
+		: `Preview: Sender will be timed out for ${moderationDuration || '15m'}.`;
+
+	$: if (isOpen && canManageModeration && !moderationLoading && moderationTriggers.length === 0) {
+		void loadModerationTriggers();
+	}
+
 	// Load settings from localStorage and enforce server policy
 	onMount(() => {
 		soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
@@ -87,6 +114,7 @@
 			mediaQualityMode = getStoredMediaQualityMode();
 			srtGatewayEnabled = isSrtGatewayEnabled();
 			screenShareQualityPreset = getStoredScreenShareQualityPreset();
+			if (canManageModeration) await loadModerationTriggers();
 		})();
 	});
 
@@ -206,6 +234,85 @@
 		}
 	}
 
+
+
+	async function loadModerationTriggers() {
+		if (!canManageModeration) return;
+		moderationLoading = true;
+		moderationError = '';
+		try {
+			const token = browser ? localStorage.getItem('authToken') : null;
+			const response = await fetch(`${getServerUrl()}/api/moderation/triggers`, {
+				headers: token ? { Authorization: `Bearer ${token}` } : {}
+			});
+			const data = await response.json();
+			if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load moderation triggers');
+			moderationTriggers = data.triggers;
+		} catch (error) {
+			moderationError = error instanceof Error ? error.message : 'Failed to load moderation triggers';
+		} finally {
+			moderationLoading = false;
+		}
+	}
+
+	function startEditTrigger(trigger: ModerationTrigger) {
+		editingTriggerId = trigger.id;
+		moderationPattern = trigger.pattern;
+		moderationAction = trigger.action;
+		moderationDuration = trigger.duration || '15m';
+		moderationSeverity = trigger.severity;
+	}
+
+	function resetModerationForm() {
+		editingTriggerId = null;
+		moderationPattern = '';
+		moderationAction = 'timeout';
+		moderationDuration = '15m';
+		moderationSeverity = 5;
+	}
+
+	async function saveModerationTrigger() {
+		const token = browser ? localStorage.getItem('authToken') : null;
+		if (!token || !moderationPattern.trim()) return;
+		const method = editingTriggerId ? 'PUT' : 'POST';
+		const endpoint = editingTriggerId
+			? `${getServerUrl()}/api/moderation/triggers/${editingTriggerId}`
+			: `${getServerUrl()}/api/moderation/triggers`;
+		const payload = {
+			pattern: moderationPattern.trim(),
+			action: moderationAction,
+			duration: moderationDuration.trim() || null,
+			severity: moderationSeverity,
+			enabled: true
+		};
+		const response = await fetch(endpoint, {
+			method,
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify(payload)
+		});
+		const data = await response.json();
+		if (!response.ok || !data.success) {
+			moderationError = data.error || 'Failed to save moderation trigger';
+			return;
+		}
+		resetModerationForm();
+		await loadModerationTriggers();
+	}
+
+	async function deleteModerationTrigger(id: number) {
+		const token = browser ? localStorage.getItem('authToken') : null;
+		if (!token) return;
+		const response = await fetch(`${getServerUrl()}/api/moderation/triggers/${id}`, {
+			method: 'DELETE',
+			headers: { Authorization: `Bearer ${token}` }
+		});
+		const data = await response.json();
+		if (!response.ok || !data.success) {
+			moderationError = data.error || 'Failed to delete moderation trigger';
+			return;
+		}
+		await loadModerationTriggers();
+	}
 	function clearAllData() {
 		showClearDataConfirm = true;
 	}
@@ -781,6 +888,44 @@
 						<UniformFontMode />
 					</div>
 				</div>
+
+
+				{#if canManageModeration}
+					<div class="settings-section">
+						<h3>🛡️ Moderation Triggers</h3>
+						<div class="setting-item moderation-form">
+							<input class="emoji-name-input" type="text" bind:value={moderationPattern} placeholder="Pattern to match" />
+							<select bind:value={moderationAction} class="emoji-category-select">
+								<option value="timeout">timeout</option>
+								<option value="ban">ban</option>
+							</select>
+							<input class="emoji-name-input duration-input" type="text" bind:value={moderationDuration} placeholder="Duration (e.g. 15m, 2h)" />
+							<input type="range" min="1" max="10" bind:value={moderationSeverity} />
+							<span class="setting-description">Severity: {moderationSeverity}</span>
+							<button class="action-btn" on:click={saveModerationTrigger} disabled={!moderationPattern.trim()}>
+								{editingTriggerId ? '💾 Update Rule' : '➕ Add Rule'}
+							</button>
+							{#if editingTriggerId}
+								<button class="action-btn" on:click={resetModerationForm}>Cancel</button>
+							{/if}
+						</div>
+						<p class="setting-description">{moderationActionPreview}</p>
+						{#if moderationError}<p class="setting-description" style="color: #ff6b6b;">{moderationError}</p>{/if}
+						{#if moderationLoading}
+							<p class="setting-description">Loading moderation rules…</p>
+						{:else}
+							<div class="emoji-list">
+								{#each moderationTriggers as trigger (trigger.id)}
+									<div class="emoji-item">
+										<span class="emoji-item-name">{trigger.pattern} → {trigger.action} ({trigger.duration || 'default'}, sev {trigger.severity})</span>
+										<button class="emoji-select-btn" on:click={() => startEditTrigger(trigger)}>Edit</button>
+										<button class="emoji-delete-btn" on:click={() => deleteModerationTrigger(trigger.id)}>🗑️</button>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/if}
 
 				<!-- Server Management -->
 				<div class="settings-section">
@@ -1790,4 +1935,14 @@
 		opacity: 1;
 		color: var(--color-danger);
 	}
+
+	.moderation-form {
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+
+	.duration-input {
+		max-width: 180px;
+	}
+
 </style>
