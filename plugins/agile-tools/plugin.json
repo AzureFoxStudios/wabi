@@ -5,7 +5,6 @@
   "description": "Sprint planning, task management, and burndown charts for agile teams",
   "author": "Community",
   "enabled": true,
-
   "backend": {
     "entry": "./backend/index.ts",
     "socketEvents": [
@@ -19,23 +18,32 @@
       "burndown:get"
     ]
   },
-
   "frontend": {
     "entry": "./frontend/index.ts",
     "extensions": {
       "sidebar": {
-        "icon": "📊",
+        "icon": "\ud83d\udcca",
         "label": "Agile",
         "component": "./frontend/AgilePanel.svelte",
         "position": 1
       },
-      "commands": ["/task", "/sprint"]
+      "commands": [
+        "/task",
+        "/sprint"
+      ]
     }
   },
-
   "permissions": [
     "channels:read",
     "messages:write"
   ],
-  "dependencies": []
+  "dependencies": [],
+  "security": {
+    "threatNotes": "Validates task/sprint event payloads on the server side; avoid exposing private workspace data over public channels."
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "checksum": "e9577005bbf5eafea914b56410ecd441b1b66f09ac0315e761332fb10b55646c",
+    "signature": "unsigned-local-dev"
+  }
 }

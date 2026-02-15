@@ -26,6 +26,15 @@ plugins/
   "description": "What your plugin does",
   "author": "Your Name",
   "enabled": true,
+  "permissions": ["channels:read"],
+  "security": {
+    "threatNotes": "Describe data exposure, privilege boundaries, and abuse cases."
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "checksum": "<sha256-package-checksum>",
+    "signature": "<optional-signature>"
+  },
 
   "backend": {
     "entry": "./backend/index.ts",
@@ -45,6 +54,8 @@ plugins/
 }
 ```
 
+> `permissions` and `security.threatNotes` are required for all plugins.
+
 ### 3. Backend Plugin (backend/index.ts)
 
 ```typescript
@@ -54,7 +65,7 @@ const plugin: BackendPlugin = {
   name: 'your-plugin-name',
 
   async onLoad(ctx) {
-    console.log('Plugin loaded!');
+    ctx.logger.info('Plugin loaded');
   },
 
   socketHandlers: {
@@ -91,54 +102,46 @@ The `ctx` object provides:
 
 ```typescript
 {
-  io: Server,                    // Socket.IO server
-  app: Express,                  // Express app
-  channels: Map<string, any>,    // All channels
-  users: Map<string, any>,       // All users
-  channelMessages: Map<...>,     // All messages
-  storage: PluginStorage,        // Persistent storage
-  emit: (event, data) => void,   // Broadcast to all
-  emitToChannel: (...) => void   // Emit to specific channel
+  io: Server,
+  httpServer: HttpServer,
+  channels: Map<string, any>,
+  users: Map<string, any>,
+  channelMessages: Map<...>,
+  storage: PluginStorage,
+  logger: PluginLogger,
+  emit: (event, data) => void,
+  emitToChannel: (...) => void
 }
 ```
 
 ### Plugin Storage
 
 ```typescript
-// Save data
 await ctx.storage.set('key', { your: 'data' });
-
-// Load data
 const data = await ctx.storage.get('key');
-
-// Delete data
 await ctx.storage.delete('key');
-
-// List all keys
 const keys = await ctx.storage.list();
 ```
 
-## 📊 Example Plugins
+## 🔒 Security Controls
 
-### Agile Tools
-Located in `plugins/agile-tools/`
-- Task management
-- Sprint planning
-- Burndown charts
+- Plugin package checksums are validated before enabling backend plugins.
+- Plugin lifecycle actions write structured audit events with actor, plugin/version, action, result, timestamp, and reason.
+- Plugin logs are namespaced as `plugin:<id>` and persisted for admin review.
+- Safe mode startup can disable third-party plugins if crash loops are detected.
 
-## 🎯 Performance Impact
+### ✅ Security Review Checklist (Required)
 
-### Base App (No Plugins)
-- Bundle: ~130KB
-- Memory: ~20-30MB
-- Features: Chat, channels, DMs
+Each plugin PR/release must include:
 
-### With All Plugins
-- Bundle: +150KB
-- Memory: +100MB
-- Features: Everything above + calls + tools
-
-**Users only load plugins they enable!**
+- [ ] Least-privilege `permissions` list in `plugin.json`.
+- [ ] `security.threatNotes` with abuse cases and mitigations.
+- [ ] `integrity.checksum` (sha256) updated for the packaged plugin.
+- [ ] Dependencies reviewed and pinned to known-safe versions.
+- [ ] Input validation for every socket event and API entrypoint.
+- [ ] Data-at-rest and data-in-transit handling documented.
+- [ ] Logging avoids secrets/PII and supports incident review.
+- [ ] Disable/uninstall behavior tested (plugin-off path).
 
 ## 🚀 Adding Your Plugin
 
@@ -154,21 +157,6 @@ Located in `plugins/agile-tools/`
 - Socket events should be namespaced (e.g., `task:create`)
 - Test with plugin disabled to ensure core works
 - Document your plugin's events and API
-
-## 🎨 UI Extensions
-
-Plugins can extend:
-- **Sidebar panels** - Add new sidebar items
-- **Channel views** - Custom channel types
-- **Commands** - Slash commands like `/task`
-- **Modals** - Pop-up interfaces
-
-## 🔒 Security Notes
-
-- Plugins run in the same process (no sandboxing yet)
-- Trust plugins you install
-- Review plugin code before enabling
-- Disable with `"enabled": false` in plugin.json
 
 ## 📝 Plugin Ideas
 
