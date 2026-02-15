@@ -3424,6 +3424,31 @@ io.on("connection", (socket) => {
     });
   });
 
+  socket.on("call-key-offer", (data: { targetId: string; callId: string; keyMaterial: string }) => {
+    io.to(data.targetId).emit("call-key-offer", {
+      senderId: socket.id,
+      callId: data.callId,
+      keyMaterial: data.keyMaterial
+    });
+  });
+
+  socket.on("call-key-answer", (data: { targetId: string; callId: string; keyMaterial: string; epoch: number }) => {
+    io.to(data.targetId).emit("call-key-answer", {
+      senderId: socket.id,
+      callId: data.callId,
+      keyMaterial: data.keyMaterial,
+      epoch: data.epoch
+    });
+  });
+
+  socket.on("call-key-rotate", (data: { targetId: string; callId: string; epoch: number }) => {
+    io.to(data.targetId).emit("call-key-rotate", {
+      senderId: socket.id,
+      callId: data.callId,
+      epoch: data.epoch
+    });
+  });
+
   // Channel management
   socket.on("create-channel", (data: string | { name: string; description?: string }) => {
     // Backward compat: accept plain string or object

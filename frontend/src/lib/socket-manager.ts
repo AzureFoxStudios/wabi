@@ -882,6 +882,9 @@ class SocketManager {
 					memberUsers: ch.memberUsers?.filter(u => u.id !== data.userId && `user-${u.dbUserId}` !== data.userId)
 				};
 			}));
+			calling.maybeRotateKeysForCurrentCall(sock).catch(err =>
+				console.error('[SocketManager] Key rotation after group-member-removed failed:', err)
+			);
 		});
 
 		sock.on('group-member-added', (data: { channelId: string; user: any }) => {
@@ -894,6 +897,9 @@ class SocketManager {
 					memberUsers: ch.memberUsers ? [...ch.memberUsers, data.user] : [data.user]
 				};
 			}));
+			calling.maybeRotateKeysForCurrentCall(sock).catch(err =>
+				console.error('[SocketManager] Key rotation after group-member-added failed:', err)
+			);
 		});
 
 		sock.on('group-avatar-updated', (data: { channelId: string; avatar: string | null }) => {
@@ -982,6 +988,21 @@ class SocketManager {
 			console.log(`[SocketManager] Call accepted by ${data.username}`);
 			calling.createCallOffer(sock, data.userId, data.username)
 				.catch(err => console.error('[SocketManager] createCallOffer failed:', err));
+		});
+
+		sock.on('call-key-offer', (data: { senderId: string; callId: string; keyMaterial: string }) => {
+			calling.handleCallKeyOffer(sock, data.senderId, data.callId, data.keyMaterial)
+				.catch(err => console.error('[SocketManager] handleCallKeyOffer failed:', err));
+		});
+
+		sock.on('call-key-answer', (data: { senderId: string; callId: string; keyMaterial: string; epoch: number }) => {
+			calling.handleCallKeyAnswer(data.senderId, data.callId, data.keyMaterial, data.epoch)
+				.catch(err => console.error('[SocketManager] handleCallKeyAnswer failed:', err));
+		});
+
+		sock.on('call-key-rotate', (data: { senderId: string; epoch: number }) => {
+			calling.handleCallKeyRotate(data.senderId, data.epoch)
+				.catch(err => console.error('[SocketManager] handleCallKeyRotate failed:', err));
 		});
 
 		sock.on('call-rejected', () => {

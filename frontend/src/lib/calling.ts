@@ -2,6 +2,8 @@ import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { buildRTCConfig } from './turnConfig';
 import { getMediaRuntimeConfig, getScreenShareQualityProfile } from './mediaRuntime';
+import { attachPeerConnectionE2EE, supportsMediaE2EE } from './media-e2ee';
+import { callKeyManager } from './callKeyManager';
 
 const CAMERA_CONSTRAINTS: MediaTrackConstraints = {
 	width: { ideal: 1280, max: 1920 },
@@ -81,6 +83,9 @@ const peerConnections = new Map<string, PeerConnectionState>();
 
 // Track call participants for targeted cleanup
 const callParticipants = new Set<string>();
+const callIdsByPeer = new Map<string, string>();
+const keyEpochByPeer = new Map<string, number>();
+const pendingRemoteOffers = new Map<string, { offer: RTCSessionDescriptionInit; username: string }>();
 
 // Lazy-loaded RTC config (built on first use, not at module load)
 let rtcConfig: RTCConfiguration | null = null;
@@ -104,6 +109,55 @@ function getConnectionKey(targetId: string, type: ConnectionKeyType): string {
 
 function keyTypeFromPCType(pcType: PeerConnectionState['type']): ConnectionKeyType {
 	return pcType === 'call' ? 'call' : 'screen';
+}
+
+function buildCallId(localId: string, remoteId: string): string {
+	return `call:${[localId, remoteId].sort().join(':')}`;
+}
+
+function rememberCallId(socket: Socket, peerId: string): string {
+	const existing = callIdsByPeer.get(peerId);
+	if (existing) return existing;
+	const callId = buildCallId(socket.id || 'unknown', peerId);
+	callIdsByPeer.set(peerId, callId);
+	return callId;
+}
+
+async function startKeyExchange(socket: Socket, peerId: string): Promise<void> {
+	const callId = rememberCallId(socket, peerId);
+	const offer = await callKeyManager.createOffer(callId, peerId);
+	socket.emit('call-key-offer', {
+		targetId: peerId,
+		callId: offer.callId,
+		keyMaterial: offer.keyMaterial
+	});
+}
+
+async function ensurePeerKey(socket: Socket, peerId: string): Promise<void> {
+	if (callKeyManager.isReady(peerId)) return;
+	await startKeyExchange(socket, peerId);
+	await callKeyManager.waitUntilReady(peerId);
+}
+
+function attachMediaEncryption(state: PeerConnectionState): void {
+	if (state.type !== 'call') return;
+	if (!supportsMediaE2EE(state.pc)) {
+		console.warn('[E2EE] Insertable streams unsupported on this browser; call will continue without media-frame encryption');
+		return;
+	}
+	attachPeerConnectionE2EE(
+		state.pc,
+		() => callKeyManager.getFrameKey(state.targetId),
+		() => keyEpochByPeer.get(state.targetId) || 1
+	);
+}
+
+async function rotatePeerKey(socket: Socket, peerId: string): Promise<void> {
+	if (!callKeyManager.isReady(peerId)) return;
+	const callId = rememberCallId(socket, peerId);
+	const epoch = await callKeyManager.rotate(callId, peerId);
+	keyEpochByPeer.set(peerId, epoch);
+	socket.emit('call-key-rotate', { targetId: peerId, callId, epoch });
 }
 
 // ============================================================================
@@ -181,6 +235,7 @@ function createPeerConnection(
 
 	peerConnections.set(key, state);
 	connectionState.set('signaling');
+	attachMediaEncryption(state);
 
 	// Connection state change handler
 	pc.onconnectionstatechange = () => {
@@ -352,6 +407,9 @@ function cleanupPeerConnection(key: string): void {
 	// Only clean the relevant store based on connection type
 	if (state.type === 'call') {
 		callParticipants.delete(state.targetId);
+		callIdsByPeer.delete(state.targetId);
+		keyEpochByPeer.delete(state.targetId);
+		callKeyManager.revoke(state.targetId);
 		activeCalls.update(calls => calls.filter(c => c.userId !== state.targetId));
 	} else {
 		screenShares.update(shares => shares.filter(s => s.userId !== state.targetId));
@@ -547,6 +605,8 @@ export function endCall(socket: Socket) {
 
 	activeCalls.set([]);
 	callParticipants.clear();
+	callIdsByPeer.clear();
+	keyEpochByPeer.clear();
 	connectionState.set('idle');
 }
 
@@ -641,6 +701,8 @@ export async function toggleVideo(socket?: Socket) {
 export async function createCallOffer(socket: Socket, targetId: string, username: string = '') {
 	const pc = createPeerConnection(targetId, username, 'call', socket);
 	const key = getConnectionKey(targetId, 'call');
+	await ensurePeerKey(socket, targetId);
+	keyEpochByPeer.set(targetId, keyEpochByPeer.get(targetId) || 1);
 
 	const stream = get(localStream);
 	if (stream) {
@@ -669,6 +731,11 @@ export async function handleCallOffer(
 	username: string,
 	offer: RTCSessionDescriptionInit
 ) {
+	if (!callKeyManager.isReady(senderId)) {
+		pendingRemoteOffers.set(senderId, { offer, username });
+		return;
+	}
+
 	const pc = createPeerConnection(senderId, username, 'call', socket);
 	const key = getConnectionKey(senderId, 'call');
 
@@ -717,6 +784,43 @@ export async function handleCallAnswer(senderId: string, answer: RTCSessionDescr
 	} catch (err) {
 		console.error(`[WebRTC] Failed to set remote description:`, err);
 	}
+}
+
+export async function handleCallKeyOffer(socket: Socket, senderId: string, callId: string, keyMaterial: string): Promise<void> {
+	callIdsByPeer.set(senderId, callId);
+	const response = await callKeyManager.acceptOffer(callId, senderId, keyMaterial);
+	keyEpochByPeer.set(senderId, response.epoch);
+	socket.emit('call-key-answer', {
+		targetId: senderId,
+		callId,
+		keyMaterial: response.keyMaterial,
+		epoch: response.epoch
+	});
+
+	const pending = pendingRemoteOffers.get(senderId);
+	if (pending) {
+		pendingRemoteOffers.delete(senderId);
+		await handleCallOffer(socket, senderId, pending.username, pending.offer);
+	}
+}
+
+export async function handleCallKeyAnswer(senderId: string, callId: string, keyMaterial: string, epoch: number): Promise<void> {
+	callIdsByPeer.set(senderId, callId);
+	await callKeyManager.acceptAnswer(callId, senderId, keyMaterial, epoch);
+	keyEpochByPeer.set(senderId, epoch);
+}
+
+export async function handleCallKeyRotate(senderId: string, epoch: number): Promise<void> {
+	callKeyManager.setRemoteEpoch(senderId, epoch);
+	keyEpochByPeer.set(senderId, epoch);
+}
+
+export async function maybeRotateKeysForCurrentCall(socket: Socket): Promise<void> {
+	const tasks: Promise<void>[] = [];
+	callParticipants.forEach(peerId => {
+		tasks.push(rotatePeerKey(socket, peerId));
+	});
+	await Promise.all(tasks);
 }
 
 export async function handleCallIceCandidate(senderId: string, candidate: RTCIceCandidateInit) {
