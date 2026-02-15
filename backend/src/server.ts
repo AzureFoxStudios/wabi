@@ -26,6 +26,7 @@ import { channelMemberRepository } from "./db/repositories/channelMemberReposito
 import { messageRepository } from "./db/repositories/messageRepository.js";
 import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
 import { dispatchWebhookEvent } from "./webhooks/deliveryService.js";
+import { resolvePluginPathConfig, validatePluginPathConfig, logPluginPathStartupSummary, getPluginPathSelfCheck } from "./config/pluginConfig.js";
 
 // Helper: get role info for a user (roles, highest role, display color)
 function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: string; roleColor: string | null } {
@@ -430,6 +431,18 @@ const PORT = process.env.PORT || 3000;
 const STATIC_DIR = process.env.STATIC_DIR || '/app/frontend/build';
 const EMOTES_DIR = join(STATIC_DIR, "emotes");
 const ENABLE_LOGGING = process.env.ENABLE_LOGGING === 'true';
+const pluginPathConfig = resolvePluginPathConfig();
+
+try {
+  validatePluginPathConfig(pluginPathConfig);
+} catch (error) {
+  console.error('❌ [PluginConfig] Invalid plugin path configuration.');
+  console.error(error);
+  process.exit(1);
+}
+
+logPluginPathStartupSummary(pluginPathConfig);
+
 
 // Ensure emotes directory exists
 if (!existsSync(EMOTES_DIR)) {
@@ -913,6 +926,21 @@ server.on('request', async (req, res) => {
       allowedOriginsEnv: process.env.ALLOWED_ORIGINS || '(not set)',
       requestOrigin: req.headers.origin || '(none)',
       isAllowed: isOriginAllowed(req.headers.origin as string, getAllowedOrigins())
+    }));
+    return;
+  }
+
+  if (url.pathname === "/health/plugins") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      config: {
+        appRoot: pluginPathConfig.appRoot,
+        configFilePath: pluginPathConfig.configFilePath,
+        pluginsDir: pluginPathConfig.pluginsDir,
+        pluginStorageDir: pluginPathConfig.pluginStorageDir,
+        installCacheDir: pluginPathConfig.installCacheDir
+      },
+      selfCheck: getPluginPathSelfCheck(pluginPathConfig)
     }));
     return;
   }
@@ -2264,7 +2292,7 @@ const pluginLoader = new PluginLoader(io, server as any, {
   users,
   channelMessages,
   emitToChannel
-});
+}, pluginPathConfig);
 
 // Load all plugins asynchronously
 pluginLoader.loadAll().then(() => {
