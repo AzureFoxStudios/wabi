@@ -1041,6 +1041,10 @@ class SocketManager {
 			calling.handleScreenShareIceCandidate(data.senderId, data.candidate);
 		});
 
+		sock.on('sfu-layer-policy', (data: { publisherId: string; selectedLayer: string; reason: string }) => {
+			calling.applyForwardingLayerPolicy(data.publisherId, data.selectedLayer, data.reason);
+		});
+
 		// P2P file transfer signaling
 		sock.on('p2p-offer', (data: { transferId: string; senderId: string; senderUsername: string; offer: RTCSessionDescriptionInit; fileName: string; fileSize: number }) => {
 			handleP2PIncomingOffer(data);

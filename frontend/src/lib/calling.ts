@@ -2,6 +2,14 @@ import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { buildRTCConfig } from './turnConfig';
 import { getMediaRuntimeConfig, getScreenShareQualityProfile } from './mediaRuntime';
+import {
+	registerDiagnosticsPeer,
+	unregisterDiagnosticsPeer,
+	reportSelectedLayer,
+	reportActiveSpeaker,
+	startDiagnostics,
+	stopDiagnostics
+} from './callDiagnostics';
 
 const CAMERA_CONSTRAINTS: MediaTrackConstraints = {
 	width: { ideal: 1280, max: 1920 },
@@ -54,6 +62,24 @@ interface PeerConnectionState {
 
 type SenderMediaKind = 'audio' | 'video';
 type VideoSource = 'camera' | 'screen-share';
+
+interface VideoEncodingLayer {
+	rid: string;
+	scaleResolutionDownBy: number;
+	maxBitrateRatio: number;
+	maxFramerate: number;
+}
+
+const CAMERA_SIMULCAST_LAYERS: VideoEncodingLayer[] = [
+	{ rid: 'q', scaleResolutionDownBy: 4, maxBitrateRatio: 0.2, maxFramerate: 15 },
+	{ rid: 'h', scaleResolutionDownBy: 2, maxBitrateRatio: 0.45, maxFramerate: 24 },
+	{ rid: 'f', scaleResolutionDownBy: 1, maxBitrateRatio: 1, maxFramerate: 30 }
+];
+
+const SCREEN_SHARE_SIMULCAST_LAYERS: VideoEncodingLayer[] = [
+	{ rid: 'q', scaleResolutionDownBy: 2, maxBitrateRatio: 0.35, maxFramerate: 10 },
+	{ rid: 'f', scaleResolutionDownBy: 1, maxBitrateRatio: 1, maxFramerate: 15 }
+];
 
 // ============================================================================
 // Stores
@@ -164,6 +190,7 @@ function createPeerConnection(
 	if (existing) {
 		console.log(`[WebRTC] Closing existing peer connection for ${key}`);
 		existing.pc.close();
+		unregisterDiagnosticsPeer(key);
 		peerConnections.delete(key);
 	}
 
@@ -180,6 +207,11 @@ function createPeerConnection(
 	};
 
 	peerConnections.set(key, state);
+	registerDiagnosticsPeer(key, pc, {
+		targetId,
+		type
+	});
+	startDiagnostics(socket, socket.id);
 	connectionState.set('signaling');
 
 	// Connection state change handler
@@ -255,12 +287,42 @@ function createPeerConnection(
 
 		if (type === 'call') {
 			addRemoteCallStream(targetId, username, stream);
+			reportSelectedLayer(targetId, 'auto', 'Track received');
 		} else if (type === 'screen-share-inbound') {
 			addRemoteScreenShare(targetId, username, stream);
 		}
 	};
 
 	return pc;
+}
+
+
+function supportsSimulcastEncodings(): boolean {
+	try {
+		const capabilities = RTCRtpSender.getCapabilities?.('video');
+		return Boolean(capabilities?.codecs?.length);
+	} catch {
+		return false;
+	}
+}
+
+function buildVideoEncodings(source: VideoSource, maxBitrate: number): RTCRtpEncodingParameters[] {
+	const layers = source === 'screen-share' ? SCREEN_SHARE_SIMULCAST_LAYERS : CAMERA_SIMULCAST_LAYERS;
+	if (!supportsSimulcastEncodings()) {
+		return [{
+			maxBitrate,
+			maxFramerate: source === 'screen-share' ? 15 : 24,
+			scalabilityMode: source === 'screen-share' ? 'L2T1' : 'L3T3'
+		} as RTCRtpEncodingParameters];
+	}
+
+	return layers.map(layer => ({
+		rid: layer.rid,
+		scaleResolutionDownBy: layer.scaleResolutionDownBy,
+		maxBitrate: Math.max(120_000, Math.floor(maxBitrate * layer.maxBitrateRatio)),
+		maxFramerate: layer.maxFramerate,
+		active: true
+	}));
 }
 
 function preferOpusForAudio(sender: RTCRtpSender, pc: RTCPeerConnection): void {
@@ -296,15 +358,16 @@ async function optimizeSender(sender: RTCRtpSender, pc: RTCPeerConnection, kind:
 
 		const runtimeConfig = getMediaRuntimeConfig();
 
-		for (const encoding of params.encodings) {
-			if (kind === 'audio') {
+		if (kind === 'audio') {
+			for (const encoding of params.encodings) {
 				encoding.maxBitrate = runtimeConfig.audioMaxBitrate;
-			} else {
-				const screenShareQuality = getScreenShareQualityProfile();
-				encoding.maxBitrate = source === 'screen-share' ? Math.min(runtimeConfig.screenShareMaxBitrate, screenShareQuality.maxBitrate) : runtimeConfig.videoMaxBitrate;
-				encoding.maxFramerate = source === 'screen-share' ? screenShareQuality.maxFramerate : 24;
-				typeof encoding.scaleResolutionDownBy === 'number' || (encoding.scaleResolutionDownBy = 1);
 			}
+		} else {
+			const screenShareQuality = getScreenShareQualityProfile();
+			const sourceBitrate = source === 'screen-share'
+				? Math.min(runtimeConfig.screenShareMaxBitrate, screenShareQuality.maxBitrate)
+				: runtimeConfig.videoMaxBitrate;
+			params.encodings = buildVideoEncodings(source, sourceBitrate);
 		}
 
 		await sender.setParameters(params);
@@ -347,6 +410,7 @@ function cleanupPeerConnection(key: string): void {
 		// Ignore close errors
 	}
 
+	unregisterDiagnosticsPeer(key);
 	peerConnections.delete(key);
 
 	// Only clean the relevant store based on connection type
@@ -359,6 +423,7 @@ function cleanupPeerConnection(key: string): void {
 
 	// Check if any connections remain
 	if (peerConnections.size === 0) {
+		stopDiagnostics();
 		connectionState.set('idle');
 	}
 }
@@ -561,6 +626,7 @@ export function toggleMute() {
 		if (audioTrack) {
 			audioTrack.enabled = !audioTrack.enabled;
 			isMuted.set(!audioTrack.enabled);
+			reportActiveSpeaker('local', audioTrack.enabled ? 0.35 : 0);
 		}
 	}
 }
@@ -907,6 +973,10 @@ export function cleanupAllConnections() {
 // ============================================================================
 // Utility Functions
 // ============================================================================
+export function applyForwardingLayerPolicy(targetId: string, selectedLayer: string, reason: string = 'SFU policy'): void {
+	reportSelectedLayer(targetId, selectedLayer, reason);
+}
+
 
 function handleMediaError(error: DOMException, action: string) {
 	if (error.name === 'NotAllowedError') {

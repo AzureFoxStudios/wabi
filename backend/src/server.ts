@@ -26,6 +26,7 @@ import { channelMemberRepository } from "./db/repositories/channelMemberReposito
 import { messageRepository } from "./db/repositories/messageRepository.js";
 import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
 import { dispatchWebhookEvent } from "./webhooks/deliveryService.js";
+import { SfuForwardingPolicyService } from "./services/sfuForwardingPolicy.js";
 
 // Helper: get role info for a user (roles, highest role, display color)
 function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: string; roleColor: string | null } {
@@ -157,6 +158,9 @@ const defaultWorkspaceId = 'default-workspace'; // Default workspace for all use
 const userCurrentChannel = new Map<string, string>();
 // Track typing users per channel: channelId -> Set of userIds
 const channelTypingUsers = new Map<string, Set<string>>();
+
+// SFU forwarding policy state
+const sfuForwardingPolicy = new SfuForwardingPolicyService();
 
 // WebRTC signaling state
 const screenSharers = new Map<string, {
@@ -3424,6 +3428,36 @@ io.on("connection", (socket) => {
     });
   });
 
+  socket.on("sfu-metrics", (data: { publisherId: string; subscriberId: string; metrics: { loss: number; jitterMs: number; rttMs: number; bitrateKbps: number; cpuPressure?: number } }) => {
+    const state = sfuForwardingPolicy.updateMetrics(data.publisherId, data.subscriberId || socket.id, data.metrics);
+    io.to(state.subscriberId).emit("sfu-layer-policy", {
+      publisherId: state.publisherId,
+      selectedLayer: state.selectedLayer,
+      reason: "network-cpu-policy",
+      metrics: state.metrics,
+      updatedAt: state.updatedAt
+    });
+  });
+
+  socket.on("sfu-viewport-priority", (data: { publisherId: string; subscriberId?: string; priority: number; isPinned?: boolean; isFullscreen?: boolean }) => {
+    const state = sfuForwardingPolicy.updateViewportPriority(data.publisherId, data.subscriberId || socket.id, {
+      priority: data.priority,
+      isPinned: data.isPinned,
+      isFullscreen: data.isFullscreen
+    });
+    io.to(state.subscriberId).emit("sfu-layer-policy", {
+      publisherId: state.publisherId,
+      selectedLayer: state.selectedLayer,
+      reason: "viewport-priority",
+      metrics: state.metrics,
+      updatedAt: state.updatedAt
+    });
+  });
+
+  socket.on("sfu-active-speaker", (data: { userId?: string; score: number }) => {
+    sfuForwardingPolicy.updateActiveSpeaker(data.userId || socket.id, data.score);
+  });
+
   // Channel management
   socket.on("create-channel", (data: string | { name: string; description?: string }) => {
     // Backward compat: accept plain string or object
@@ -4254,6 +4288,8 @@ io.on("connection", (socket) => {
         // Fixed: emit object with userId, not just socket.id string
         socket.broadcast.emit("screen-share-stopped", { userId: socket.id });
       }
+
+      sfuForwardingPolicy.removeUser(socket.id);
 
       // Clean up active calls — notify orphaned peers
       const callPeers = removeAllCallPeers(socket.id);
