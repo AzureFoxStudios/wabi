@@ -1,10 +1,6 @@
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
 import fs from 'fs';
 import path from 'path';
+import type { PluginPathConfig } from '../config/pluginConfig.js';
 import type { Server, Socket } from 'socket.io';
 import type { Server as HttpServer } from 'http';
 import type { BackendPlugin, PluginContext, PluginManifest, PluginStorage } from './types';
@@ -17,19 +13,11 @@ export class PluginLoader {
   constructor(
     private io: Server,
     private httpServer: HttpServer,
-    private context: any
+    private context: any,
+    pluginPathConfig: PluginPathConfig
   ) {
-    // Use environment variables or defaults
-    const dataDir = process.env.DATA_DIR || path.join(__dirname, '../../../data');
-    const pluginsBaseDir = process.env.PLUGINS_DIR || path.join(__dirname, '../../../plugins');
-
-    this.pluginsDir = pluginsBaseDir;
-    this.storageDir = path.join(dataDir, '.plugin-storage');
-
-    // Create storage directory if it doesn't exist
-    if (!fs.existsSync(this.storageDir)) {
-      fs.mkdirSync(this.storageDir, { recursive: true });
-    }
+    this.pluginsDir = pluginPathConfig.pluginsDir;
+    this.storageDir = pluginPathConfig.pluginStorageDir;
   }
 
   async loadAll() {
