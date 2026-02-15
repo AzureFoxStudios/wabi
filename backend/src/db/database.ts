@@ -145,6 +145,29 @@ function runMigrations() {
 		// Columns may already exist
 	}
 
+
+	// Migration: Create plugin_installations table
+	try {
+		db.exec(`
+			CREATE TABLE IF NOT EXISTS plugin_installations (
+				plugin_id TEXT PRIMARY KEY,
+				version TEXT NOT NULL,
+				enabled INTEGER NOT NULL DEFAULT 1,
+				install_source TEXT NOT NULL,
+				checksum TEXT,
+				installed_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL,
+				last_enabled_at INTEGER,
+				last_disabled_at INTEGER,
+				health_status TEXT,
+				health_updated_at INTEGER,
+				last_error TEXT
+			);
+			CREATE INDEX IF NOT EXISTS idx_plugin_installations_enabled ON plugin_installations(enabled);
+		`);
+	} catch (e) {
+		console.error('[Database] Migration error creating plugin_installations table:', e);
+	}
 	// Migration: Add encryption columns to messages table
 	try {
 		const cols = db.pragma('table_info(messages)') as { name: string }[];

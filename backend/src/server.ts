@@ -2,7 +2,7 @@ import { Server } from "socket.io";
 import { createServer } from "http";
 import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync, createReadStream } from "fs";
 import { join, basename } from "path";
-import { PluginLoader } from "./plugins/loader";
+import { PluginManager } from "./plugins/loader";
 import { getAllEmojis, getEmojiByName, addCustomEmoji, deleteCustomEmoji, type Emoji } from "./emojis";
 
 import { __dirname } from "./_dirname.js";
@@ -19,6 +19,7 @@ import { handleGetThemePreferences, handleSaveThemePreferences, handleResetTheme
 import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApprove, handleGetAllRelays } from "./api/relayRoutes.js";
 import { handleGetMediaRuntime, handleMediaGatewayHeartbeat } from "./api/mediaRoutes.js";
 import { handleCreateWebhook, handleListWebhooks, handleDeleteWebhook, handleListWebhookDeliveries } from "./api/webhookRoutes.js";
+import { handlePluginRoutes } from "./api/pluginRoutes.js";
 import { relayRepository } from "./db/repositories/relayRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
 import { channelRepository } from "./db/repositories/channelRepository.js";
@@ -1020,6 +1021,10 @@ server.on('request', async (req, res) => {
 
   if (url.pathname === "/api/webhooks/deliveries" && req.method === "GET") {
     await handleListWebhookDeliveries(req, res);
+    return;
+  }
+
+  if (await handlePluginRoutes(req, res, url, pluginManager)) {
     return;
   }
 
@@ -2259,7 +2264,7 @@ if (ENABLE_LOGGING) {
 }
 
 // Initialize plugin system
-const pluginLoader = new PluginLoader(io, server as any, {
+const pluginManager = new PluginManager(io, server as any, {
   channels,
   users,
   channelMessages,
@@ -2267,7 +2272,7 @@ const pluginLoader = new PluginLoader(io, server as any, {
 });
 
 // Load all plugins asynchronously
-pluginLoader.loadAll().then(() => {
+pluginManager.loadAll().then(() => {
   console.log('🔌 Plugin system ready');
 }).catch(error => {
   console.error('❌ Failed to load plugins:', error);
@@ -2359,6 +2364,7 @@ async function deliverOfflineMessages(socket: any, dbUserId: number | null) {
 
 io.on("connection", (socket) => {
   console.log(`🔌 WebSocket connection established: ${socket.id}`);
+  pluginManager.handleConnection(socket);
 
   // Handle user join
   socket.on("join", async (username: string) => {
@@ -2445,7 +2451,7 @@ io.on("connection", (socket) => {
 
         const joinedUser = users.get(socket.id);
         if (joinedUser) {
-          pluginLoader.triggerOnUserJoin(joinedUser).catch((error) => {
+          pluginManager.triggerOnUserJoin(joinedUser).catch((error) => {
             console.error('[Plugins] Failed to trigger onUserJoin hook:', error);
           });
           dispatchWebhookEvent('user.joined', {
@@ -2510,7 +2516,7 @@ io.on("connection", (socket) => {
       if (ENABLE_LOGGING) console.log(`${session.username} re-joined the chat with a new socket`);
       const rejoinedUser = users.get(socket.id);
       if (rejoinedUser) {
-        pluginLoader.triggerOnUserJoin(rejoinedUser).catch((error) => console.error('[Plugins] Failed to trigger onUserJoin hook:', error));
+        pluginManager.triggerOnUserJoin(rejoinedUser).catch((error) => console.error('[Plugins] Failed to trigger onUserJoin hook:', error));
         dispatchWebhookEvent('user.joined', { id: rejoinedUser.id, username: rejoinedUser.username, dbUserId: rejoinedUser.dbUserId || null }).catch((error) => console.error('[Webhooks] Failed to dispatch user.joined:', error));
       }
     } else {
@@ -2555,7 +2561,7 @@ io.on("connection", (socket) => {
 
       const newUser = users.get(socket.id);
       if (newUser) {
-        pluginLoader.triggerOnUserJoin(newUser).catch((error) => console.error('[Plugins] Failed to trigger onUserJoin hook:', error));
+        pluginManager.triggerOnUserJoin(newUser).catch((error) => console.error('[Plugins] Failed to trigger onUserJoin hook:', error));
         dispatchWebhookEvent('user.joined', { id: newUser.id, username: newUser.username, dbUserId: newUser.dbUserId || null }).catch((error) => console.error('[Webhooks] Failed to dispatch user.joined:', error));
       }
 
@@ -2656,7 +2662,7 @@ io.on("connection", (socket) => {
     });
 
     if (rejoinUser) {
-      pluginLoader.triggerOnUserJoin(rejoinUser).catch((error) => console.error('[Plugins] Failed to trigger onUserJoin hook:', error));
+      pluginManager.triggerOnUserJoin(rejoinUser).catch((error) => console.error('[Plugins] Failed to trigger onUserJoin hook:', error));
       dispatchWebhookEvent('user.joined', { id: rejoinUser.id, username: rejoinUser.username, dbUserId: rejoinUser.dbUserId || null }).catch((error) => console.error('[Webhooks] Failed to dispatch user.joined:', error));
     }
 
@@ -2947,7 +2953,7 @@ io.on("connection", (socket) => {
       console.error('[MessageRepository] Failed to persist message:', dbError);
     }
 
-    pluginLoader.triggerOnMessage(data.channelId, message).catch((error) => {
+    pluginManager.triggerOnMessage(data.channelId, message).catch((error) => {
       console.error('[Plugins] Failed to trigger onMessage hook:', error);
     });
     dispatchWebhookEvent('message.created', {
@@ -3456,7 +3462,7 @@ io.on("connection", (socket) => {
 
     io.emit("channel-created", channel);
 
-    pluginLoader.triggerOnChannelCreate(channel).catch((error) => {
+    pluginManager.triggerOnChannelCreate(channel).catch((error) => {
       console.error('[Plugins] Failed to trigger onChannelCreate hook:', error);
     });
     dispatchWebhookEvent('channel.created', {
@@ -3903,7 +3909,7 @@ io.on("connection", (socket) => {
       }
     });
 
-    pluginLoader.triggerOnChannelCreate(groupPayload).catch((error) => {
+    pluginManager.triggerOnChannelCreate(groupPayload).catch((error) => {
       console.error('[Plugins] Failed to trigger onChannelCreate hook:', error);
     });
     dispatchWebhookEvent('channel.created', {
@@ -4266,7 +4272,7 @@ io.on("connection", (socket) => {
         username: user.username
       });
 
-      pluginLoader.triggerOnUserLeave(socket.id).catch((error) => {
+      pluginManager.triggerOnUserLeave(socket.id).catch((error) => {
         console.error('[Plugins] Failed to trigger onUserLeave hook:', error);
       });
       dispatchWebhookEvent('user.left', {

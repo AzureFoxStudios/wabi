@@ -251,3 +251,21 @@ CREATE INDEX IF NOT EXISTS idx_webhooks_user ON webhooks(user_id);
 CREATE INDEX IF NOT EXISTS idx_webhooks_enabled ON webhooks(enabled);
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook ON webhook_deliveries(webhook_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status ON webhook_deliveries(status, updated_at);
+
+-- Plugin installation state
+CREATE TABLE IF NOT EXISTS plugin_installations (
+  plugin_id TEXT PRIMARY KEY,
+  version TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  install_source TEXT NOT NULL,
+  checksum TEXT,
+  installed_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  last_enabled_at INTEGER,
+  last_disabled_at INTEGER,
+  health_status TEXT,
+  health_updated_at INTEGER,
+  last_error TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_plugin_installations_enabled ON plugin_installations(enabled);

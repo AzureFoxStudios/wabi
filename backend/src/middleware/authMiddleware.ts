@@ -1,6 +1,7 @@
 import { IncomingMessage, ServerResponse } from 'http';
 import { verifyToken } from '../auth/jwt.js';
 import { sessionRepository } from '../db/repositories/sessionRepository.js';
+import { hasRequiredRole } from '../auth/roleMiddleware.js';
 
 /**
  * HTTP Authentication Middleware
@@ -89,4 +90,23 @@ export function getUserId(req: IncomingMessage): number | null {
  */
 export function getSessionId(req: IncomingMessage): string | null {
 	return (req as any).sessionId || null;
+}
+
+
+/**
+ * Require admin/owner privileges for a route.
+ */
+export function requireAdminAuth(req: IncomingMessage, res: ServerResponse): boolean {
+  if (!requireAuth(req, res)) {
+    return false;
+  }
+
+  const userId = getUserId(req);
+  if (!userId || !hasRequiredRole(userId, ['admin', 'owner'])) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Admin access required' }));
+    return false;
+  }
+
+  return true;
 }

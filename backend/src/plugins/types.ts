@@ -1,6 +1,8 @@
 import type { Server, Socket } from 'socket.io';
 import type { Server as HttpServer } from 'http';
 
+export type PluginStatus = 'loaded' | 'enabled' | 'disabled' | 'failed';
+
 export interface PluginContext {
   io: Server;
   httpServer: HttpServer;
@@ -19,27 +21,50 @@ export interface PluginStorage {
   list: () => Promise<string[]>;
 }
 
+export interface PluginSocketListenerHandle {
+  socketId: string;
+  event: string;
+  handler: (...args: any[]) => void;
+}
+
+export interface PluginHookRegistration {
+  hook: 'onMessage' | 'onChannelCreate' | 'onUserJoin' | 'onUserLeave';
+}
+
+export interface PluginHealth {
+  status?: 'healthy' | 'degraded' | 'unhealthy';
+  checkedAt?: number;
+}
+
+export interface PluginLifecycleMetadata {
+  status: PluginStatus;
+  socketListenerHandles: PluginSocketListenerHandle[];
+  hookRegistrations: PluginHookRegistration[];
+  health?: PluginHealth;
+  lastError?: string;
+  lastErrorAt?: number;
+  lastLoadedAt?: number;
+  lastEnabledAt?: number;
+  lastDisabledAt?: number;
+  logs: Array<{ level: 'info' | 'error'; message: string; timestamp: number }>;
+}
+
 export interface BackendPlugin {
   name: string;
 
-  // Lifecycle hooks
   onLoad?(ctx: PluginContext): void | Promise<void>;
   onUnload?(ctx: PluginContext): void | Promise<void>;
 
-  // Socket handlers
   onConnection?(socket: Socket, ctx: PluginContext): void;
   onDisconnect?(socket: Socket, ctx: PluginContext): void;
 
-  // Event hooks (tap into core events)
   onMessage?(channelId: string, message: any, ctx: PluginContext): void;
   onChannelCreate?(channel: any, ctx: PluginContext): void;
   onUserJoin?(user: any, ctx: PluginContext): void;
   onUserLeave?(userId: string, ctx: PluginContext): void;
 
-  // Custom socket event handlers
   socketHandlers?: Record<string, (socket: Socket, data: any, ctx: PluginContext) => void>;
 
-  // HTTP routes (optional)
   routes?: {
     method?: 'get' | 'post' | 'put' | 'delete';
     path: string;
@@ -76,4 +101,13 @@ export interface PluginManifest {
   permissions?: string[];
   dependencies?: string[];
   enabled?: boolean;
+}
+
+export interface LoadedPlugin {
+  plugin: BackendPlugin;
+  manifest: PluginManifest;
+  metadata: PluginLifecycleMetadata;
+  context: PluginContext;
+  pluginPath: string;
+  backendEntry: string;
 }
