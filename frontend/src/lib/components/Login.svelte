@@ -15,6 +15,8 @@
 	let passwordConfirm = '';
 	let error = '';
 	let loading = false;
+	let showBanAppeal = false;
+	let banAppealText = '';
 
 	let qrCanvas: HTMLCanvasElement;
 	let showQR = false;
@@ -110,7 +112,12 @@
 			}
 			dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered' });
 		} catch (err) {
-			error = err instanceof Error ? err.message : 'Login failed';
+			const msg = err instanceof Error ? err.message : 'Login failed';
+			error = msg;
+			if (msg.toLowerCase().includes('banned')) {
+				localStorage.setItem('wabi_ban_flag', '1');
+				showBanAppeal = true;
+			}
 		} finally {
 			loading = false;
 		}
@@ -137,6 +144,7 @@
 		const urlParams = new URLSearchParams(window.location.search);
 		const room = urlParams.get('room');
 		if (room) customRoom = room;
+		showBanAppeal = localStorage.getItem('wabi_ban_flag') === '1';
 	});
 </script>
 
@@ -172,6 +180,17 @@
 		<!-- Error Message -->
 		{#if error}
 			<div class="error-message">{error}</div>
+		{/if}
+
+		{#if showBanAppeal}
+			<div class="ban-appeal-box">
+				<strong>Ban Appeal</strong>
+				<p>Your account is restricted. If you want back in, send an appeal to moderators.</p>
+				<textarea bind:value={banAppealText} placeholder="Explain what happened and how you'll avoid repeating it."></textarea>
+				<button type="button" class="appeal-btn" on:click={() => {
+					error = 'Appeal recorded locally. Moderator review flow is next step.';
+				}}>Submit Appeal</button>
+			</div>
 		{/if}
 
 		<!-- GUEST TAB -->
@@ -614,4 +633,36 @@
 			font-size: 0.85rem;
 		}
 	}
+
+	.ban-appeal-box {
+		margin: 0.75rem 0;
+		padding: 0.75rem;
+		border: 1px solid var(--border, #444);
+		border-radius: 8px;
+		background: rgba(255, 85, 85, 0.08);
+	}
+
+	.ban-appeal-box p {
+		font-size: 0.85rem;
+		opacity: 0.9;
+		margin: 0.35rem 0 0.5rem;
+	}
+
+	.ban-appeal-box textarea {
+		width: 100%;
+		min-height: 72px;
+		border-radius: 6px;
+		padding: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.appeal-btn {
+		width: 100%;
+		padding: 0.55rem;
+		border-radius: 6px;
+		border: none;
+		cursor: pointer;
+		font-weight: 600;
+	}
+
 </style>

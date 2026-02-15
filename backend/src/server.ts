@@ -24,6 +24,10 @@ import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from
 import { channelRepository } from "./db/repositories/channelRepository.js";
 import { channelMemberRepository } from "./db/repositories/channelMemberRepository.js";
 import { messageRepository } from "./db/repositories/messageRepository.js";
+import { serverSettingsRepository } from "./db/repositories/serverSettingsRepository.js";
+import { blockedUsernameRepository } from "./db/repositories/blockedUsernameRepository.js";
+import { userSanctionRepository } from "./db/repositories/userSanctionRepository.js";
+import { moderationTriggerRepository } from "./db/repositories/moderationTriggerRepository.js";
 import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
 import { dispatchWebhookEvent } from "./webhooks/deliveryService.js";
 
@@ -43,6 +47,17 @@ function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: str
   const roleColor = roleRows.find(r => r.color)?.color || null;
 
   return { roles: roles.length > 0 ? roles : ['member'], highestRole, roleColor };
+}
+
+
+function hasStaffPower(dbUserId?: number): boolean {
+  if (!dbUserId) return false;
+  const roleInfo = getUserRoleInfo(dbUserId);
+  return ['owner', 'admin', 'mod'].includes(roleInfo.highestRole);
+}
+
+function normalizeName(value: string): string {
+  return value.trim().replace(/^@/, '').toLowerCase();
 }
 // In-memory data store
 interface Channel {
@@ -1760,12 +1775,227 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  // Server moderation settings
+  if (url.pathname === "/api/server-settings" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    if (!hasStaffPower(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Insufficient permissions' }));
+      return;
+    }
+
+    const settings = serverSettingsRepository.get();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      success: true,
+      registrationOpen: settings.registration_open === 1,
+      raidModeEnabled: settings.raid_mode_enabled === 1,
+      raidModeExpiresAt: settings.raid_mode_expires_at || null
+    }));
+    return;
+  }
+
+  if (url.pathname === "/api/server-settings" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    if (!hasStaffPower(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Insufficient permissions' }));
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      try {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+        const updates: any = {};
+        if (typeof body.registrationOpen === 'boolean') updates.registration_open = body.registrationOpen ? 1 : 0;
+        if (typeof body.raidModeEnabled === 'boolean') updates.raid_mode_enabled = body.raidModeEnabled ? 1 : 0;
+        if (body.raidModeExpiresAt === null || typeof body.raidModeExpiresAt === 'number') updates.raid_mode_expires_at = body.raidModeExpiresAt;
+        const settings = serverSettingsRepository.set(updates);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          registrationOpen: settings.registration_open === 1,
+          raidModeEnabled: settings.raid_mode_enabled === 1,
+          raidModeExpiresAt: settings.raid_mode_expires_at || null
+        }));
+      } catch (error) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Invalid JSON body' }));
+      }
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/blocked-usernames" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    if (!hasStaffPower(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Insufficient permissions' }));
+      return;
+    }
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ success: true, items: blockedUsernameRepository.list() }));
+    return;
+  }
+
+  if (url.pathname === "/api/blocked-usernames" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    if (!hasStaffPower(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Insufficient permissions' }));
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      try {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+        const value = String(body.value || '').trim();
+        if (!value) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: 'value is required' }));
+          return;
+        }
+        blockedUsernameRepository.add(normalizeName(value), body.reason, userId);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true }));
+      } catch {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Invalid JSON body' }));
+      }
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/blocked-usernames" && req.method === "DELETE") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    if (!hasStaffPower(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Insufficient permissions' }));
+      return;
+    }
+
+    const value = url.searchParams.get('value');
+    if (!value) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'value query param is required' }));
+      return;
+    }
+
+    blockedUsernameRepository.remove(value);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ success: true }));
+    return;
+  }
+
+  if (url.pathname === "/api/moderation-triggers" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    if (!hasStaffPower(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Insufficient permissions' }));
+      return;
+    }
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ success: true, items: moderationTriggerRepository.listActive() }));
+    return;
+  }
+
+  if (url.pathname === "/api/moderation-triggers" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    if (!hasStaffPower(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Insufficient permissions' }));
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      try {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+        if (!body.phrase || !body.action) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: 'phrase and action are required' }));
+          return;
+        }
+        moderationTriggerRepository.add({
+          phrase: String(body.phrase),
+          action: body.action === 'ban' ? 'ban' : 'timeout',
+          duration_minutes: Number.isFinite(Number(body.duration_minutes)) ? Number(body.duration_minutes) : 30,
+          severity: ['low','medium','high'].includes(body.severity) ? body.severity : 'medium',
+          is_active: 1,
+          created_by: userId
+        });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true }));
+      } catch {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Invalid JSON body' }));
+      }
+    });
+    return;
+  }
+
   // Delete all messages endpoint
   if (url.pathname === "/api/clear-messages" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
     if (!userId) {
       res.writeHead(401, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    const roleInfo = getUserRoleInfo(userId);
+    if (!['owner', 'admin'].includes(roleInfo.highestRole)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Insufficient permissions' }));
       return;
     }
 
@@ -2288,6 +2518,10 @@ io.use((socket, next) => {
         return next(new Error('Session expired'));
       }
 
+      if (userSanctionRepository.hasActiveType(payload.userId, 'ban')) {
+        return next(new Error('Account banned'));
+      }
+
       (socket as any).sessionId = payload.sessionId;
       (socket as any).userId = payload.userId;
       (socket as any).isRegistered = true;
@@ -2368,6 +2602,12 @@ io.on("connection", (socket) => {
       const dbSession = sessionRepository.findById((socket as any).sessionId);
 
       if (dbSession) {
+        if (userSanctionRepository.hasActiveType((socket as any).dbUserId, 'ban')) {
+          socket.emit('force-logout', { reason: 'Account banned', banned: true });
+          socket.disconnect(true);
+          return;
+        }
+
         // Use the registered user's data from the database
         const registeredUsername = dbSession.username;
         const registeredColor = dbSession.color || `#${Math.floor(Math.random()*16777215).toString(16)}`;
@@ -2854,6 +3094,35 @@ io.on("connection", (socket) => {
     const channel = channels.get(data.channelId);
     if (!channel) return;
 
+    if (user.dbUserId && userSanctionRepository.hasActiveType(user.dbUserId, 'ban')) {
+      socket.emit('force-logout', { reason: 'Account banned', banned: true });
+      socket.disconnect(true);
+      return;
+    }
+
+    if (user.dbUserId && userSanctionRepository.hasActiveType(user.dbUserId, 'timeout')) {
+      socket.emit('channel-error', 'You are timed out and cannot send messages right now.');
+      return;
+    }
+
+    const textForModeration = (data.text || '').toLowerCase();
+    if (user.dbUserId && textForModeration) {
+      const triggers = moderationTriggerRepository.listActive();
+      const hit = triggers.find(t => textForModeration.includes((t.phrase || '').toLowerCase()));
+      if (hit) {
+        if (hit.action === 'ban') {
+          userSanctionRepository.add(user.dbUserId, 'ban', `Triggered phrase: ${hit.phrase}`, null);
+          socket.emit('force-logout', { reason: 'Account banned by moderation trigger', banned: true });
+          socket.disconnect(true);
+          return;
+        }
+        const duration = hit.duration_minutes && hit.duration_minutes > 0 ? hit.duration_minutes : 30;
+        userSanctionRepository.add(user.dbUserId, 'timeout', `Triggered phrase: ${hit.phrase}`, null, duration);
+        socket.emit('channel-error', `You have been timed out for ${duration} minutes.`);
+        return;
+      }
+    }
+
     // Calculate deletion time: use channel auto-delete setting, or default to 1 day
     const DEFAULT_SERVER_EXPIRATION = 24 * 60 * 60 * 1000; // 1 day in milliseconds
     const deletionTime = channel.autoDeleteAfter
@@ -3013,9 +3282,11 @@ io.on("connection", (socket) => {
     if (messageIndex === -1) return;
 
     const message = messages[messageIndex];
-    // Allow delete if userId matches current socket.id OR stable user ID
+    const user = users.get(socket.id);
+    // Allow delete if userId matches current socket.id OR stable user ID or user has staff power
     const stableId = getStableUserId(socket);
-    if (message.userId !== socket.id && message.userId !== stableId) return;
+    const canModerateDelete = hasStaffPower(user?.dbUserId);
+    if (message.userId !== socket.id && message.userId !== stableId && !canModerateDelete) return;
 
     // Delete associated files from filesystem
     if (message.fileUrl) {
@@ -3790,6 +4061,55 @@ io.on("connection", (socket) => {
     } catch (e) {
       socket.emit("channel-error", "Failed to remove role");
     }
+  });
+
+  socket.on("mod-ban-user", (data: { targetUserId: number; reason?: string }) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId || !hasStaffPower(user.dbUserId)) {
+      socket.emit("channel-error", "Insufficient permissions to ban user");
+      return;
+    }
+
+    userSanctionRepository.add(data.targetUserId, 'ban', data.reason || 'Banned by moderator', user.dbUserId);
+
+    for (const [sid, u] of users.entries()) {
+      if (u.dbUserId === data.targetUserId) {
+        io.to(sid).emit('force-logout', { reason: 'Account banned', banned: true });
+        const targetSocket = io.sockets.sockets.get(sid);
+        targetSocket?.disconnect(true);
+      }
+    }
+  });
+
+  socket.on("mod-timeout-user", (data: { targetUserId: number; durationMinutes?: number; reason?: string }) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId || !hasStaffPower(user.dbUserId)) {
+      socket.emit("channel-error", "Insufficient permissions to timeout user");
+      return;
+    }
+
+    const duration = data.durationMinutes && data.durationMinutes > 0 ? data.durationMinutes : 30;
+    userSanctionRepository.add(data.targetUserId, 'timeout', data.reason || 'Timed out by moderator', user.dbUserId, duration);
+  });
+
+  socket.on("mod-unban-user", (data: { targetUserId: number }) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId || !hasStaffPower(user.dbUserId)) {
+      socket.emit("channel-error", "Insufficient permissions to unban user");
+      return;
+    }
+
+    userSanctionRepository.clearType(data.targetUserId, 'ban');
+  });
+
+  socket.on("mod-clear-timeout", (data: { targetUserId: number }) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId || !hasStaffPower(user.dbUserId)) {
+      socket.emit("channel-error", "Insufficient permissions to clear timeout");
+      return;
+    }
+
+    userSanctionRepository.clearType(data.targetUserId, 'timeout');
   });
 
   // Group chat creation

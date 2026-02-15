@@ -3,6 +3,9 @@ import { userRepository } from '../db/repositories/userRepository.js';
 import { sessionRepository } from '../db/repositories/sessionRepository.js';
 import { settingsRepository } from '../db/repositories/settingsRepository.js';
 import { encryptionKeyRepository } from '../db/repositories/encryptionKeyRepository.js';
+import { serverSettingsRepository } from '../db/repositories/serverSettingsRepository.js';
+import { blockedUsernameRepository } from '../db/repositories/blockedUsernameRepository.js';
+import { userSanctionRepository } from '../db/repositories/userSanctionRepository.js';
 import { hashPassword, verifyPassword } from '../auth/passwordHash.js';
 import { generateToken, verifyToken } from '../auth/jwt.js';
 
@@ -122,6 +125,12 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 		const body = await parseBody(req);
 		const { username, password, handle: rawHandle } = body;
 
+
+		if (!serverSettingsRepository.isRegistrationOpen()) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Registration is temporarily closed by server moderators.' }));
+			return;
+		}
 		// Validate input
 		const validation = validateInput(username, password);
 		if (!validation.valid) {
@@ -138,6 +147,13 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 		if (!/^[a-z][a-z0-9_]{1,31}$/.test(handle)) {
 			res.writeHead(400, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Handle must start with a letter, be 2-32 chars, and contain only lowercase letters, numbers, and underscores' }));
+			return;
+		}
+
+
+		if (blockedUsernameRepository.isBlocked(username) || blockedUsernameRepository.isBlocked(handle)) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'This username/handle is not available by server policy.' }));
 			return;
 		}
 
@@ -256,6 +272,13 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 
 		console.log('[Auth] User found:', user.user_id, user.username);
 
+		if (userSanctionRepository.hasActiveType(user.user_id!, 'ban')) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'This account is banned. Use ban appeal to request review.', code: 'account_banned' }));
+			return;
+		}
+
+
 		// Verify password
 		const isValid = await verifyPassword(password, user.password_hash);
 		console.log('[Auth] Password verification result:', isValid);
@@ -340,6 +363,13 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 			return;
 		}
 
+
+		if (!serverSettingsRepository.isRegistrationOpen()) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Registration is temporarily closed by server moderators.' }));
+			return;
+		}
+
 		// Check if username already registered
 		if (userRepository.findByUsername(tempSession.username)) {
 			res.writeHead(409, { 'Content-Type': 'application/json' });
@@ -349,6 +379,13 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 
 		// Generate handle from username
 		const handle = tempSession.username.replace(/\s+/g, '').toLowerCase();
+
+
+		if (blockedUsernameRepository.isBlocked(tempSession.username) || blockedUsernameRepository.isBlocked(handle)) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'This username/handle is not available by server policy.' }));
+			return;
+		}
 
 		// Check if handle already taken
 		if (userRepository.findByHandle(handle)) {

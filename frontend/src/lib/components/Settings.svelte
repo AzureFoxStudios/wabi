@@ -8,6 +8,7 @@
 	import { getSocket } from '$lib/socket';
 	import { getServerUrl } from '$lib/serverUrl';
 	import AvatarEditor from './AvatarEditor.svelte'; // Import the AvatarEditor
+	import { getServerModerationSettings, saveServerModerationSettings, getBlockedUsernames, addBlockedUsername, removeBlockedUsername, getModerationTriggers, addModerationTrigger } from '$lib/api';
 
 	// Theme system
 	import { themeStore, currentTheme } from '$lib/theme/themeStore';
@@ -69,6 +70,15 @@
 	let bulkEmojiFileInput: HTMLInputElement;
 	let bulkEmojiFiles: { file: File; name: string; preview: string }[] = [];
 	let uploadingBulk = false;
+	let registrationOpen = true;
+	let raidModeEnabled = false;
+	let blockedNames: { value: string; reason?: string }[] = [];
+	let newBlockedName = '';
+	let newBlockedReason = '';
+	let moderationTriggers: any[] = [];
+	let newTriggerPhrase = '';
+	let newTriggerAction: 'timeout' | 'ban' = 'timeout';
+	let newTriggerDuration = 30;
 
 	// Load settings from localStorage and enforce server policy
 	onMount(() => {
@@ -81,6 +91,8 @@
 		localAppRuntime = isTauriRuntime();
 
 		// Sync server policy first to prevent race condition with Tauri prefs
+		void loadModerationControls();
+
 		void (async () => {
 			await syncMediaRuntimeFromServer();
 			// After server sync, load local settings (will be constrained if needed)
@@ -247,6 +259,59 @@
 			emojiPreview = e.target?.result as string;
 		};
 		reader.readAsDataURL(file);
+	}
+
+
+	async function loadModerationControls() {
+		try {
+			const authToken = localStorage.getItem('authToken');
+			if (!authToken) return;
+			const settings = await getServerModerationSettings(authToken);
+			registrationOpen = settings.registrationOpen;
+			raidModeEnabled = settings.raidModeEnabled;
+			blockedNames = await getBlockedUsernames(authToken);
+			moderationTriggers = await getModerationTriggers(authToken);
+		} catch {
+			// ignore for non-staff users
+		}
+	}
+
+	async function saveModerationSettings() {
+		const authToken = localStorage.getItem('authToken');
+		if (!authToken) return;
+		await saveServerModerationSettings(authToken, { registrationOpen, raidModeEnabled });
+	}
+
+	async function addBlockedName() {
+		if (!newBlockedName.trim()) return;
+		const authToken = localStorage.getItem('authToken');
+		if (!authToken) return;
+		await addBlockedUsername(authToken, newBlockedName, newBlockedReason || undefined);
+		newBlockedName = '';
+		newBlockedReason = '';
+		await loadModerationControls();
+	}
+
+	async function removeBlockedName(value: string) {
+		const authToken = localStorage.getItem('authToken');
+		if (!authToken) return;
+		await removeBlockedUsername(authToken, value);
+		await loadModerationControls();
+	}
+
+	async function addWordTrap() {
+		if (!newTriggerPhrase.trim()) return;
+		const authToken = localStorage.getItem('authToken');
+		if (!authToken) return;
+		await addModerationTrigger(authToken, {
+			phrase: newTriggerPhrase,
+			action: newTriggerAction,
+			duration_minutes: newTriggerDuration,
+			severity: 'medium'
+		});
+		newTriggerPhrase = '';
+		newTriggerDuration = 30;
+		await loadModerationControls();
 	}
 
 	async function uploadEmoji() {
@@ -793,6 +858,56 @@
 						<button class="action-btn danger" on:click={clearServerMessages}>
 							🗑️ Clear Server
 						</button>
+					</div>
+				</div>
+
+				<!-- Moderation Controls -->
+				<div class="settings-section">
+					<h3>🛡️ Moderation Controls</h3>
+					<div class="setting-item">
+						<div class="setting-info">
+							<span class="setting-label">Open Registration</span>
+							<span class="setting-description">Allow new account registrations</span>
+						</div>
+						<input type="checkbox" bind:checked={registrationOpen} on:change={saveModerationSettings} />
+					</div>
+					<div class="setting-item">
+						<div class="setting-info">
+							<span class="setting-label">Raid Mode</span>
+							<span class="setting-description">Temporarily disables registration during raids</span>
+						</div>
+						<input type="checkbox" bind:checked={raidModeEnabled} on:change={saveModerationSettings} />
+					</div>
+					<div class="setting-item-full">
+						<div class="setting-info">
+							<span class="setting-label">Blocked Usernames</span>
+						</div>
+						<input type="text" bind:value={newBlockedName} placeholder="Name or @handle" />
+						<input type="text" bind:value={newBlockedReason} placeholder="Reason (optional)" />
+						<button class="action-btn" on:click={addBlockedName}>Add Block</button>
+						{#if blockedNames.length > 0}
+							<ul>
+								{#each blockedNames as item}
+									<li>{item.value} <button on:click={() => removeBlockedName(item.value)}>remove</button></li>
+								{/each}
+							</ul>
+						{/if}
+					</div>
+					<div class="setting-item-full">
+						<div class="setting-info">
+							<span class="setting-label">Word Trap Rules</span>
+						</div>
+						<input type="text" bind:value={newTriggerPhrase} placeholder="Trigger phrase" />
+						<select bind:value={newTriggerAction}><option value="timeout">Timeout</option><option value="ban">Ban</option></select>
+						<input type="number" min="1" bind:value={newTriggerDuration} />
+						<button class="action-btn" on:click={addWordTrap}>Add Rule</button>
+						{#if moderationTriggers.length > 0}
+							<ul>
+								{#each moderationTriggers as t}
+									<li>{t.phrase} → {t.action}</li>
+								{/each}
+							</ul>
+						{/if}
 					</div>
 				</div>
 

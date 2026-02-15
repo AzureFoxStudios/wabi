@@ -59,6 +59,19 @@ CREATE TABLE IF NOT EXISTS user_settings (
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
+-- Server-wide moderation settings
+CREATE TABLE IF NOT EXISTS server_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  registration_open INTEGER DEFAULT 1,
+  raid_mode_enabled INTEGER DEFAULT 0,
+  raid_mode_expires_at INTEGER,
+  created_at INTEGER DEFAULT (strftime('%s', 'now')),
+  updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+);
+
+INSERT OR IGNORE INTO server_settings (id, registration_open, raid_mode_enabled)
+VALUES (1, 1, 0);
+
 -- Theme preferences (appearance customization)
 CREATE TABLE IF NOT EXISTS theme_preferences (
   user_id INTEGER PRIMARY KEY,
@@ -125,6 +138,46 @@ CREATE TABLE IF NOT EXISTS guest_codes (
   FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL
 );
 
+-- Blocked usernames/handles
+CREATE TABLE IF NOT EXISTS blocked_usernames (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  value TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  reason TEXT,
+  is_active INTEGER DEFAULT 1,
+  created_by INTEGER,
+  created_at INTEGER DEFAULT (strftime('%s', 'now')),
+  FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+-- Moderation sanctions for users
+CREATE TABLE IF NOT EXISTS user_sanctions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  sanction_type TEXT NOT NULL, -- ban|timeout
+  reason TEXT,
+  is_active INTEGER DEFAULT 1,
+  expires_at INTEGER,
+  created_by INTEGER,
+  created_at INTEGER DEFAULT (strftime('%s', 'now')),
+  updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+-- Phrase trigger moderation rules
+CREATE TABLE IF NOT EXISTS moderation_triggers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  phrase TEXT NOT NULL,
+  action TEXT NOT NULL DEFAULT 'timeout', -- timeout|ban
+  duration_minutes INTEGER DEFAULT 30,
+  severity TEXT DEFAULT 'medium', -- low|medium|high
+  is_active INTEGER DEFAULT 1,
+  created_by INTEGER,
+  created_at INTEGER DEFAULT (strftime('%s', 'now')),
+  updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+  FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_offline_messages_to_user ON offline_messages(to_user_id, delivered);
@@ -134,6 +187,9 @@ CREATE INDEX IF NOT EXISTS idx_users_handle ON users(handle COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
 CREATE INDEX IF NOT EXISTS idx_resource_visibility_resource ON resource_visibility(resource_id);
 CREATE INDEX IF NOT EXISTS idx_guest_codes_active ON guest_codes(is_active);
+CREATE INDEX IF NOT EXISTS idx_blocked_usernames_active ON blocked_usernames(is_active);
+CREATE INDEX IF NOT EXISTS idx_user_sanctions_user ON user_sanctions(user_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_moderation_triggers_active ON moderation_triggers(is_active);
 
 -- Initial guest code
 INSERT OR IGNORE INTO guest_codes (code, description, is_active)

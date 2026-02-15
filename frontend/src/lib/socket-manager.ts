@@ -762,6 +762,17 @@ class SocketManager {
 			alert(error);
 		});
 
+		sock.on('force-logout', (data: { reason?: string; banned?: boolean }) => {
+			if (data?.banned) {
+				try { localStorage.setItem('wabi_ban_flag', '1'); } catch {}
+			}
+			try {
+				localStorage.removeItem('authToken');
+			} catch {}
+			alert(data?.reason || 'Your session was ended by moderation.');
+			window.location.reload();
+		});
+
 		sock.on('channel-settings-updated', (data: {
 			channelId: string;
 			autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
@@ -1486,6 +1497,22 @@ export function assignRole(targetUserId: number, roleName: string): void {
 
 export function removeUserRole(targetUserId: number, roleName: string): void {
 	socketManager.emit('remove-role', { targetUserId, roleName });
+}
+
+export function banUser(targetUserId: number, reason?: string): void {
+	socketManager.emit('mod-ban-user', { targetUserId, reason });
+}
+
+export function timeoutUser(targetUserId: number, durationMinutes?: number, reason?: string): void {
+	socketManager.emit('mod-timeout-user', { targetUserId, durationMinutes, reason });
+}
+
+export function unbanUser(targetUserId: number): void {
+	socketManager.emit('mod-unban-user', { targetUserId });
+}
+
+export function clearUserTimeout(targetUserId: number): void {
+	socketManager.emit('mod-clear-timeout', { targetUserId });
 }
 
 export function createGroup(name: string, memberIds: string[]): void {
