@@ -34,6 +34,7 @@
 	// Modal state
 	let showAddModal = false;
 	let editingTodo: Todo | null = null;
+	$: isSigningAgain = !!editingTodo?.signedBy;
 	let targetColumn: TodoStatus = 'todo';
 
 	// Form state
@@ -729,24 +730,26 @@
 				<div class="form-group checkbox-group">
 					<label class="checkbox-label">
 						<input type="checkbox" bind:checked={willSign} />
-						<span>Sign this task with my username</span>
+						<span>{isSigningAgain ? 'Sign again with my username' : 'Sign this task with my username'}</span>
 					</label>
 				</div>
 
-				<!-- Visibility toggle -->
-				<div class="form-group">
-					<label>Visibility</label>
-					<div class="radio-group">
-						<label class="radio-label">
-							<input type="radio" bind:group={formVisibility} value="public" />
-							<span>Public (visible to collaborators)</span>
-						</label>
-						<label class="radio-label">
-							<input type="radio" bind:group={formVisibility} value="private" />
-							<span>Private (only me)</span>
-						</label>
+				{#if !isSigningAgain}
+					<!-- Visibility toggle -->
+					<div class="form-group">
+						<label>Visibility</label>
+						<div class="radio-group">
+							<label class="radio-label">
+								<input type="radio" bind:group={formVisibility} value="public" />
+								<span>Public (visible to collaborators)</span>
+							</label>
+							<label class="radio-label">
+								<input type="radio" bind:group={formVisibility} value="private" />
+								<span>Private (only me)</span>
+							</label>
+						</div>
 					</div>
-				</div>
+				{/if}
 
 				<div class="form-actions">
 					{#if editingTodo}
