@@ -251,3 +251,18 @@ CREATE INDEX IF NOT EXISTS idx_webhooks_user ON webhooks(user_id);
 CREATE INDEX IF NOT EXISTS idx_webhooks_enabled ON webhooks(enabled);
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook ON webhook_deliveries(webhook_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status ON webhook_deliveries(status, updated_at);
+
+-- Admin async job queue
+CREATE TABLE IF NOT EXISTS admin_jobs (
+  job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued', -- queued|running|completed|failed
+  progress INTEGER NOT NULL DEFAULT 0,
+  created_by INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_jobs_status_created ON admin_jobs(status, created_at);

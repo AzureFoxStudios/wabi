@@ -44,6 +44,37 @@ function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: str
 
   return { roles: roles.length > 0 ? roles : ['member'], highestRole, roleColor };
 }
+
+
+type AdminJobStatus = 'queued' | 'running' | 'completed' | 'failed';
+type AdminJobType = 'bulk-role-update' | 'stale-structure-cleanup';
+
+interface AdminJobRecord {
+  job_id: number;
+  type: AdminJobType;
+  payload: string;
+  status: AdminJobStatus;
+  progress: number;
+  created_by: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+function isAdminUser(dbUserId?: number): boolean {
+  if (!dbUserId) return false;
+  const roleInfo = getUserRoleInfo(dbUserId);
+  return ['owner', 'admin'].includes(roleInfo.highestRole);
+}
+
+function emitAdminJobEvent(createdBy: number | null | undefined, event: string, payload: any) {
+  if (!createdBy) return;
+  const socketId = dbUserIdToSocketId.get(createdBy);
+  if (socketId) io.to(socketId).emit(event, payload);
+}
+
+function sleepTick(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 // In-memory data store
 interface Channel {
   id: string;
@@ -1080,6 +1111,62 @@ server.on('request', async (req, res) => {
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: 'Failed to fetch users' }));
     }
+    return;
+  }
+
+
+  // Admin channels list (paginated)
+  if (url.pathname === "/api/admin/channels" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isAdminUser(userId || undefined)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return;
+    }
+
+    const page = Math.max(1, Number(url.searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') || '50')));
+    const offset = (page - 1) * limit;
+
+    const totalRow = db.prepare('SELECT COUNT(*) as count FROM channels WHERE is_archived = 0').get() as { count: number };
+    const rows = db.prepare(`
+      SELECT channel_id, channel_type, name, description, created_at, created_by, persist_messages, avatar
+      FROM channels
+      WHERE is_archived = 0
+      ORDER BY created_at DESC
+      LIMIT ? OFFSET ?
+    `).all(limit, offset);
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ items: rows, page, limit, total: totalRow.count, hasMore: offset + rows.length < totalRow.count }));
+    return;
+  }
+
+  // Admin roles list (paginated)
+  if (url.pathname === "/api/admin/roles" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isAdminUser(userId || undefined)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return;
+    }
+
+    const page = Math.max(1, Number(url.searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') || '50')));
+    const offset = (page - 1) * limit;
+
+    const totalRow = db.prepare('SELECT COUNT(*) as count FROM roles').get() as { count: number };
+    const rows = db.prepare(`
+      SELECT r.role_name, r.workspace_id, r.priority, r.color, r.is_hoisted, COUNT(ur.id) as assigned_users
+      FROM roles r
+      LEFT JOIN user_roles ur ON ur.role_name = r.role_name AND ur.workspace_id = r.workspace_id
+      GROUP BY r.role_name, r.workspace_id, r.priority, r.color, r.is_hoisted
+      ORDER BY r.priority DESC, r.role_name ASC
+      LIMIT ? OFFSET ?
+    `).all(limit, offset);
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ items: rows, page, limit, total: totalRow.count, hasMore: offset + rows.length < totalRow.count }));
     return;
   }
 
@@ -2356,6 +2443,169 @@ async function deliverOfflineMessages(socket: any, dbUserId: number | null) {
     console.error('[Offline] Failed to deliver offline messages:', error);
   }
 }
+
+
+
+function createAdminJob(type: AdminJobType, payload: any, createdBy: number): number {
+  const now = Date.now();
+  const result = db.prepare(
+    'INSERT INTO admin_jobs (type, payload, status, progress, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(type, JSON.stringify(payload), 'queued', 0, createdBy, now, now);
+  return Number(result.lastInsertRowid);
+}
+
+function updateAdminJob(jobId: number, status: AdminJobStatus, progress: number) {
+  const now = Date.now();
+  db.prepare('UPDATE admin_jobs SET status = ?, progress = ?, updated_at = ? WHERE job_id = ?').run(status, Math.max(0, Math.min(100, progress)), now, jobId);
+}
+
+async function processBulkRoleUpdateJob(job: AdminJobRecord) {
+  const payload = JSON.parse(job.payload) as { operations: Array<{ targetUserId: number; roleName: string; action: 'assign' | 'remove' }> };
+  const total = payload.operations?.length || 0;
+  if (total === 0) {
+    updateAdminJob(job.job_id, 'completed', 100);
+    emitAdminJobEvent(job.created_by, 'admin-job-complete', { jobId: job.job_id, type: job.type, progress: 100, result: { processed: 0 } });
+    return;
+  }
+
+  updateAdminJob(job.job_id, 'running', 1);
+  const chunkSize = 25;
+  let processed = 0;
+  let failed = 0;
+
+  for (let i = 0; i < total; i += chunkSize) {
+    const batch = payload.operations.slice(i, i + chunkSize);
+    for (const op of batch) {
+      try {
+        if (op.action === 'remove') {
+          removeRole(op.targetUserId, op.roleName as any, 'default-workspace');
+        } else {
+          assignRole(op.targetUserId, op.roleName as any);
+        }
+
+        const newRoleInfo = getUserRoleInfo(op.targetUserId);
+        for (const [sid, u] of users.entries()) {
+          if (u.dbUserId === op.targetUserId) {
+            u.roles = newRoleInfo.roles;
+            u.highestRole = newRoleInfo.highestRole;
+            u.roleColor = newRoleInfo.roleColor;
+            users.set(sid, u);
+            io.emit('user-role-changed', {
+              userId: sid,
+              dbUserId: op.targetUserId,
+              roles: newRoleInfo.roles,
+              highestRole: newRoleInfo.highestRole,
+              roleColor: newRoleInfo.roleColor
+            });
+            break;
+          }
+        }
+      } catch {
+        failed++;
+      }
+      processed++;
+    }
+
+    const progress = Math.round((processed / total) * 100);
+    updateAdminJob(job.job_id, 'running', progress);
+    emitAdminJobEvent(job.created_by, 'admin-job-progress', { jobId: job.job_id, type: job.type, progress, result: { processed, total, failed } });
+    await sleepTick();
+  }
+
+  updateAdminJob(job.job_id, 'completed', 100);
+  emitAdminJobEvent(job.created_by, 'admin-job-complete', { jobId: job.job_id, type: job.type, progress: 100, result: { processed, total, failed } });
+}
+
+async function processStaleStructureCleanupJob(job: AdminJobRecord) {
+  const payload = JSON.parse(job.payload) as { mode: 'dry-run' | 'apply' };
+  const apply = payload.mode === 'apply';
+  updateAdminJob(job.job_id, 'running', 1);
+
+  const orphanMessageChannels = Array.from(channelMessages.keys()).filter((channelId) => !channels.has(channelId));
+  const orphanPinnedChannels = Array.from(pinnedMessages.keys()).filter((channelId) => !channels.has(channelId));
+  const missingDbChannels = Array.from(channels.keys()).filter((channelId) => {
+    if (channelId === 'general') return false;
+    return !channelRepository.exists(channelId);
+  });
+
+  const totalTasks = orphanMessageChannels.length + orphanPinnedChannels.length + missingDbChannels.length || 1;
+  let done = 0;
+
+  for (const channelId of orphanMessageChannels) {
+    if (apply) channelMessages.delete(channelId);
+    done++;
+    const progress = Math.round((done / totalTasks) * 100);
+    updateAdminJob(job.job_id, 'running', progress);
+    emitAdminJobEvent(job.created_by, 'admin-job-progress', { jobId: job.job_id, type: job.type, progress });
+    await sleepTick();
+  }
+
+  for (const channelId of orphanPinnedChannels) {
+    if (apply) pinnedMessages.delete(channelId);
+    done++;
+    const progress = Math.round((done / totalTasks) * 100);
+    updateAdminJob(job.job_id, 'running', progress);
+    emitAdminJobEvent(job.created_by, 'admin-job-progress', { jobId: job.job_id, type: job.type, progress });
+    await sleepTick();
+  }
+
+  for (const channelId of missingDbChannels) {
+    if (apply) channels.delete(channelId);
+    done++;
+    const progress = Math.round((done / totalTasks) * 100);
+    updateAdminJob(job.job_id, 'running', progress);
+    emitAdminJobEvent(job.created_by, 'admin-job-progress', { jobId: job.job_id, type: job.type, progress });
+    await sleepTick();
+  }
+
+  updateAdminJob(job.job_id, 'completed', 100);
+  emitAdminJobEvent(job.created_by, 'admin-job-complete', {
+    jobId: job.job_id,
+    type: job.type,
+    progress: 100,
+    result: {
+      mode: payload.mode,
+      orphanMessageChannels: orphanMessageChannels.length,
+      orphanPinnedChannels: orphanPinnedChannels.length,
+      missingDbChannels: missingDbChannels.length,
+      applied: apply
+    }
+  });
+}
+
+let processingAdminJobs = false;
+async function processNextAdminJob() {
+  if (processingAdminJobs) return;
+  processingAdminJobs = true;
+  try {
+    const job = db.prepare("SELECT * FROM admin_jobs WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1").get() as AdminJobRecord | undefined;
+    if (!job) return;
+
+    try {
+      if (job.type === 'bulk-role-update') {
+        await processBulkRoleUpdateJob(job);
+      } else if (job.type === 'stale-structure-cleanup') {
+        await processStaleStructureCleanupJob(job);
+      } else {
+        throw new Error(`Unsupported job type: ${job.type}`);
+      }
+    } catch (error: any) {
+      updateAdminJob(job.job_id, 'failed', 100);
+      emitAdminJobEvent(job.created_by, 'admin-job-failed', {
+        jobId: job.job_id,
+        type: job.type,
+        progress: 100,
+        error: error?.message || 'Job failed'
+      });
+    }
+  } finally {
+    processingAdminJobs = false;
+  }
+}
+
+setInterval(() => {
+  processNextAdminJob().catch((err) => console.error('[AdminJobs] Worker loop error:', err));
+}, 300);
 
 io.on("connection", (socket) => {
   console.log(`🔌 WebSocket connection established: ${socket.id}`);
@@ -3790,6 +4040,42 @@ io.on("connection", (socket) => {
     } catch (e) {
       socket.emit("channel-error", "Failed to remove role");
     }
+  });
+
+
+  socket.on("queue-bulk-role-update", (data: { operations: Array<{ targetUserId: number; roleName: string; action: 'assign' | 'remove' }> }) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId) return;
+
+    if (!isAdminUser(user.dbUserId)) {
+      socket.emit("channel-error", "Insufficient permissions to queue role updates");
+      return;
+    }
+
+    const operations = (data.operations || []).filter((op) => op && op.targetUserId && op.roleName && (op.action === 'assign' || op.action === 'remove'));
+    if (operations.length === 0) {
+      socket.emit("channel-error", "No valid role update operations");
+      return;
+    }
+
+    const jobId = createAdminJob('bulk-role-update', { operations }, user.dbUserId);
+    socket.emit('admin-job-progress', { jobId, type: 'bulk-role-update', progress: 0, queued: true });
+    processNextAdminJob().catch((err) => console.error('[AdminJobs] trigger error:', err));
+  });
+
+  socket.on("queue-stale-structure-cleanup", (data: { mode?: 'dry-run' | 'apply' }) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId) return;
+
+    if (!isAdminUser(user.dbUserId)) {
+      socket.emit("channel-error", "Insufficient permissions to queue cleanup");
+      return;
+    }
+
+    const mode = data?.mode === 'apply' ? 'apply' : 'dry-run';
+    const jobId = createAdminJob('stale-structure-cleanup', { mode }, user.dbUserId);
+    socket.emit('admin-job-progress', { jobId, type: 'stale-structure-cleanup', progress: 0, queued: true, mode });
+    processNextAdminJob().catch((err) => console.error('[AdminJobs] trigger error:', err));
   });
 
   // Group chat creation

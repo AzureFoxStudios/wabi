@@ -180,3 +180,57 @@ export async function saveUserSettings(
 		clearTimeout(timeout);
 	}
 }
+
+export interface PaginatedResponse<T> {
+	items: T[];
+	page: number;
+	limit: number;
+	total: number;
+	hasMore: boolean;
+}
+
+export interface AdminChannelListItem {
+	channel_id: string;
+	channel_type: 'public' | 'dm' | 'group';
+	name: string;
+	description: string;
+	created_at: number;
+	created_by?: string;
+	persist_messages: number;
+	avatar?: string | null;
+}
+
+export interface AdminRoleListItem {
+	role_name: string;
+	workspace_id: string;
+	priority: number;
+	color: string | null;
+	is_hoisted: number;
+	assigned_users: number;
+}
+
+export async function getAdminChannels(token: string, page = 1, limit = 50): Promise<PaginatedResponse<AdminChannelListItem>> {
+	const res = await fetch(`${SERVER_URL}/api/admin/channels?page=${page}&limit=${limit}`, {
+		method: 'GET',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+
+	if (!res.ok) {
+		throw new Error('Failed to load admin channels');
+	}
+
+	return res.json();
+}
+
+export async function getAdminRoles(token: string, page = 1, limit = 50): Promise<PaginatedResponse<AdminRoleListItem>> {
+	const res = await fetch(`${SERVER_URL}/api/admin/roles?page=${page}&limit=${limit}`, {
+		method: 'GET',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+
+	if (!res.ok) {
+		throw new Error('Failed to load admin roles');
+	}
+
+	return res.json();
+}

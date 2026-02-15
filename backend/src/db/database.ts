@@ -145,6 +145,27 @@ function runMigrations() {
 		// Columns may already exist
 	}
 
+
+	// Migration: Add admin_jobs table for async admin tasks
+	try {
+		db.exec(`
+			CREATE TABLE IF NOT EXISTS admin_jobs (
+				job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+				type TEXT NOT NULL,
+				payload TEXT NOT NULL,
+				status TEXT NOT NULL DEFAULT 'queued',
+				progress INTEGER NOT NULL DEFAULT 0,
+				created_by INTEGER,
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL,
+				FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE SET NULL
+			);
+			CREATE INDEX IF NOT EXISTS idx_admin_jobs_status_created ON admin_jobs(status, created_at);
+		`);
+	} catch (e) {
+		console.error('[Database] Migration error adding admin_jobs table:', e);
+	}
+
 	// Migration: Add encryption columns to messages table
 	try {
 		const cols = db.pragma('table_info(messages)') as { name: string }[];

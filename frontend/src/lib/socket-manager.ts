@@ -118,6 +118,18 @@ export const channelOldestMessageId = writable<Record<string, string | null>>({}
 // Connection state for UI feedback
 export const connectionState = writable<ConnectionState>('disconnected');
 
+export interface AdminJobEvent {
+	jobId: number;
+	type: 'bulk-role-update' | 'stale-structure-cleanup';
+	progress: number;
+	queued?: boolean;
+	mode?: 'dry-run' | 'apply';
+	result?: any;
+	error?: string;
+}
+
+export const adminJobEvents = writable<AdminJobEvent[]>([]);
+
 // ============================================================================
 // SOCKET MANAGER CLASS - Singleton with State Machine
 // ============================================================================
@@ -584,7 +596,7 @@ class SocketManager {
 
 			// Initialize pagination state from server response
 			if (data.hasMore !== undefined) {
-				channelHasMoreHistory.update(s => ({ ...s, [data.channelId]: data.hasMore }));
+				channelHasMoreHistory.update(s => ({ ...s, [data.channelId]: Boolean(data.hasMore) }));
 			}
 			if (data.messages.length > 0) {
 				channelOldestMessageId.update(s => ({ ...s, [data.channelId]: data.messages[0].id }));
@@ -622,7 +634,7 @@ class SocketManager {
 			});
 
 			// Update pagination state
-			channelHasMoreHistory.update(s => ({ ...s, [data.channelId]: data.hasMore }));
+			channelHasMoreHistory.update(s => ({ ...s, [data.channelId]: Boolean(data.hasMore) }));
 			channelHistoryLoading.update(s => ({ ...s, [data.channelId]: false }));
 
 			// Track oldest message for pagination
@@ -851,6 +863,20 @@ class SocketManager {
 					? { ...cu, roles: data.roles, highestRole: data.highestRole, roleColor: data.roleColor }
 					: cu
 			);
+		});
+
+
+		sock.on('admin-job-progress', (event: AdminJobEvent) => {
+			adminJobEvents.update((events) => [...events.slice(-49), event]);
+		});
+
+		sock.on('admin-job-complete', (event: AdminJobEvent) => {
+			adminJobEvents.update((events) => [...events.slice(-49), event]);
+		});
+
+		sock.on('admin-job-failed', (event: AdminJobEvent) => {
+			adminJobEvents.update((events) => [...events.slice(-49), event]);
+			alert(event.error || 'Admin job failed');
 		});
 
 		sock.on('group-created', (group: Channel) => {
@@ -1486,6 +1512,15 @@ export function assignRole(targetUserId: number, roleName: string): void {
 
 export function removeUserRole(targetUserId: number, roleName: string): void {
 	socketManager.emit('remove-role', { targetUserId, roleName });
+}
+
+
+export function queueBulkRoleUpdate(operations: Array<{ targetUserId: number; roleName: string; action: 'assign' | 'remove' }>): void {
+	socketManager.emit('queue-bulk-role-update', { operations });
+}
+
+export function queueStaleStructureCleanup(mode: 'dry-run' | 'apply' = 'dry-run'): void {
+	socketManager.emit('queue-stale-structure-cleanup', { mode });
 }
 
 export function createGroup(name: string, memberIds: string[]): void {
