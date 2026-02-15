@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, pinnedChannels, pinChannel, unpinChannel } from '$lib/socket';
+	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, pinnedChannels, pinChannel, unpinChannel, activeVoiceChannel, voiceChannelMembers, joinVoiceChannel, leaveVoiceChannel } from '$lib/socket';
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
@@ -70,6 +70,31 @@
 	function handleChannelClick(channelId: string) {
 		joinChannel(channelId);
 		dispatch('close'); // Close sidebar on mobile after channel selection
+	}
+
+
+	function getVoiceMembers(channelId: string) {
+		return $voiceChannelMembers[channelId] || [];
+	}
+
+	function isConnectedToVoice(channelId: string): boolean {
+		return $activeVoiceChannel === channelId;
+	}
+
+	function handleVoiceAction(channelId: string) {
+		if (isConnectedToVoice(channelId)) {
+			leaveVoiceChannel(channelId);
+			return;
+		}
+		joinVoiceChannel(channelId);
+	}
+
+	function voiceActionLabel(channelId: string): string {
+		return isConnectedToVoice(channelId) ? 'Leave Voice' : 'Join Voice';
+	}
+
+	function avatarTitle(username?: string): string {
+		return username || 'Voice participant';
 	}
 
 	function handleCreateChannel() {
@@ -247,6 +272,19 @@
 					{/if}
 				</button>
 				<div class="channel-actions">
+					<div class="voice-occupancy" title={`${getVoiceMembers(channel.id).length} in voice`}>
+						<span class="voice-count">🔊 {getVoiceMembers(channel.id).length}</span>
+						<div class="voice-avatars">
+							{#each getVoiceMembers(channel.id).slice(0, 3) as member}
+								{#if member.profilePicture}
+									<img class="voice-avatar" src={member.profilePicture} alt={avatarTitle(member.username)} title={avatarTitle(member.username)} />
+								{:else}
+									<span class="voice-avatar voice-avatar-fallback" title={avatarTitle(member.username)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
+								{/if}
+							{/each}
+						</div>
+					</div>
+					<button class="voice-btn" class:active={isConnectedToVoice(channel.id)} on:click|stopPropagation={() => handleVoiceAction(channel.id)}>{voiceActionLabel(channel.id)}</button>
 					<button class="settings-btn" on:click|stopPropagation={() => handleOpenChannelSettings(channel)} title="Channel settings">
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m3.08 3.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m3.08-3.08l4.24-4.24M19.78 19.78l-4.24-4.24m-3.08-3.08l-4.24-4.24M19.78 4.22l-4.24 4.24m-3.08 3.08l-4.24-4.24"></path></svg>
 <!-- Gear icon: circles with teeth around edges -->
@@ -279,6 +317,19 @@
 						{/if}
 					</button>
 					<div class="channel-actions">
+						<div class="voice-occupancy" title={`${getVoiceMembers(channel.id).length} in voice`}>
+							<span class="voice-count">🔊 {getVoiceMembers(channel.id).length}</span>
+							<div class="voice-avatars">
+								{#each getVoiceMembers(channel.id).slice(0, 3) as member}
+									{#if member.profilePicture}
+										<img class="voice-avatar" src={member.profilePicture} alt={avatarTitle(member.username)} title={avatarTitle(member.username)} />
+									{:else}
+										<span class="voice-avatar voice-avatar-fallback" title={avatarTitle(member.username)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
+									{/if}
+								{/each}
+							</div>
+						</div>
+						<button class="voice-btn" class:active={isConnectedToVoice(channel.id)} on:click|stopPropagation={() => handleVoiceAction(channel.id)}>{voiceActionLabel(channel.id)}</button>
 						<button class="settings-btn" on:click|stopPropagation={() => handleOpenChannelSettings(channel)} title="Channel settings">
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m3.08 3.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m3.08-3.08l4.24-4.24M19.78 19.78l-4.24-4.24m-3.08-3.08l-4.24-4.24M19.78 4.22l-4.24 4.24m-3.08 3.08l-4.24-4.24"></path></svg>
 <!-- Gear icon: circles with teeth around edges -->
@@ -662,6 +713,11 @@
 		display: none;
 	}
 
+	.channel-sidebar.compact .voice-occupancy,
+	.channel-sidebar.compact .voice-btn {
+		display: none;
+	}
+
 	.top-section {
 		display: flex;
 		align-items: center;
@@ -946,6 +1002,54 @@
 		align-items: center;
 		gap: 0.25rem;
 		height: fit-content;
+	}
+
+	.voice-occupancy {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		font-size: 0.7rem;
+		color: var(--text-secondary);
+	}
+
+	.voice-avatars {
+		display: flex;
+		align-items: center;
+		margin-left: 0.1rem;
+	}
+
+	.voice-avatar {
+		width: 16px;
+		height: 16px;
+		border-radius: 999px;
+		margin-left: -4px;
+		border: 1px solid var(--bg-tertiary);
+		object-fit: cover;
+		background: var(--bg-secondary);
+	}
+
+	.voice-avatar-fallback {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.6rem;
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	.voice-btn {
+		border: 1px solid var(--border);
+		background: var(--bg-secondary);
+		color: var(--text-secondary);
+		font-size: 0.65rem;
+		line-height: 1;
+		padding: 0.2rem 0.35rem;
+		cursor: pointer;
+	}
+
+	.voice-btn.active {
+		color: var(--text-primary);
+		border-color: var(--accent);
 	}
 
 	.pin-btn,

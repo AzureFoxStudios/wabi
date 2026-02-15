@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick, createEventDispatcher } from 'svelte';
-	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, users, dmPanelSignal, createDM, getDMChannelIdForUser, type Message, type Emoji } from '$lib/socket';
+	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, users, dmPanelSignal, createDM, getDMChannelIdForUser, activeVoiceChannel, voiceChannelMembers, joinVoiceChannel, leaveVoiceChannel, type Message, type Emoji } from '$lib/socket';
 	import { resources, graphEdges } from '$lib/business/store';
 	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
 	import { pinChannel, unpinChannel } from '$lib/socket';
@@ -22,6 +22,8 @@
 	$: currentChannelData = $channels.find(ch => ch.id === $currentChannel);
 	$: channelDisplayName = currentChannelData?.name || $currentChannel;
 	$: channelDescription = currentChannelData?.description?.trim() || '';
+	$: currentVoiceMembers = $voiceChannelMembers[$currentChannel] || [];
+	$: isVoiceConnectedHere = $activeVoiceChannel === $currentChannel;
 
 	// Safeguard: DM channels should never be displayed in the main chat area
 	// They should only appear in the DM panel on the right side
@@ -74,6 +76,15 @@
 	}
 
 	// Parse search syntax: by:username, has:image, has:video, has:file, has:link, and text content
+
+	function handleVoiceButtonClick() {
+		if (isVoiceConnectedHere) {
+			leaveVoiceChannel($currentChannel);
+			return;
+		}
+		joinVoiceChannel($currentChannel);
+	}
+
 	function parseSearchQuery(query: string): { text: string; byUser?: string; hasTypes: string[] } {
 		const byUserMatch = query.match(/by:(\S+)/);
 		const hasMatches = query.match(/has:(\S+)/g) || [];
@@ -959,6 +970,12 @@
 				<span class="search-results">{filteredMessages.length} result{filteredMessages.length !== 1 ? 's' : ''}</span>
 			{/if}
 		</div>
+		<div class="voice-header-controls">
+			<span class="voice-header-occupancy">🔊 {currentVoiceMembers.length}</span>
+			<button class="voice-header-btn" class:connected={isVoiceConnectedHere} on:click={handleVoiceButtonClick}>
+				{isVoiceConnectedHere ? 'Leave Voice' : 'Join Voice'}
+			</button>
+		</div>
 	</div>
 
 	<!-- TEMPORARY: DMs now render in center like channels -->
@@ -1294,6 +1311,31 @@
 		color: var(--text-secondary);
 		white-space: nowrap;
 		padding: 0 0.5rem;
+	}
+
+	.voice-header-controls {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.voice-header-occupancy {
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
+	}
+
+	.voice-header-btn {
+		padding: 0.35rem 0.55rem;
+		font-size: 0.75rem;
+		border: 1px solid var(--border);
+		background: var(--bg-secondary);
+		color: var(--text-secondary);
+		cursor: pointer;
+	}
+
+	.voice-header-btn.connected {
+		color: var(--text-primary);
+		border-color: var(--accent);
 	}
 
 	.messages {
