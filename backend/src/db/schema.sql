@@ -251,3 +251,45 @@ CREATE INDEX IF NOT EXISTS idx_webhooks_user ON webhooks(user_id);
 CREATE INDEX IF NOT EXISTS idx_webhooks_enabled ON webhooks(enabled);
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook ON webhook_deliveries(webhook_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status ON webhook_deliveries(status, updated_at);
+
+-- Media gateway control-plane runtime and durable stream lease state
+CREATE TABLE IF NOT EXISTS media_gateway_runtime (
+  gateway_id TEXT PRIMARY KEY,
+  instance_id TEXT,
+  status TEXT NOT NULL DEFAULT 'online',
+  readiness_state TEXT NOT NULL DEFAULT 'starting',
+  version TEXT,
+  region TEXT,
+  active_streams INTEGER NOT NULL DEFAULT 0,
+  last_seen_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS media_gateway_stream_leases (
+  stream_id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  owner_instance TEXT NOT NULL,
+  lease_token TEXT NOT NULL,
+  lease_expires_at INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS media_gateway_audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor_type TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  stream_id TEXT,
+  workspace_id TEXT,
+  channel_id TEXT,
+  metadata_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_gateway_stream_leases_expires
+  ON media_gateway_stream_leases(status, lease_expires_at);
+CREATE INDEX IF NOT EXISTS idx_media_gateway_audit_created
+  ON media_gateway_audit_log(created_at DESC);
