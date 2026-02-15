@@ -16,8 +16,10 @@ export interface MediaTransportPreferences {
 
 export interface SrtGatewayRuntimeState {
 	running: boolean;
-	mode: 'idle' | 'simulated';
+	mode: 'idle' | 'process';
 	updated_at: number;
+	pid?: number | null;
+	last_error?: string | null;
 }
 
 function isTauriAvailable(): boolean {
@@ -63,22 +65,22 @@ export async function getTauriSrtGatewayState(): Promise<SrtGatewayRuntimeState 
 	}
 }
 
-export async function startTauriSrtGatewaySimulation(): Promise<SrtGatewayRuntimeState | null> {
+export async function startTauriSrtGateway(): Promise<SrtGatewayRuntimeState | null> {
 	if (!isDesktopTauri()) return null;
 	try {
-		return await invoke<SrtGatewayRuntimeState>('start_srt_gateway_simulation');
+		return await invoke<SrtGatewayRuntimeState>('start_srt_gateway');
 	} catch (error) {
-		console.warn('[Tauri Media] Could not start SRT gateway simulation:', error);
+		console.warn('[Tauri Media] Could not start SRT gateway:', error);
 		return null;
 	}
 }
 
-export async function stopTauriSrtGatewaySimulation(): Promise<SrtGatewayRuntimeState | null> {
+export async function stopTauriSrtGateway(): Promise<SrtGatewayRuntimeState | null> {
 	if (!isDesktopTauri()) return null;
 	try {
-		return await invoke<SrtGatewayRuntimeState>('stop_srt_gateway_simulation');
+		return await invoke<SrtGatewayRuntimeState>('stop_srt_gateway');
 	} catch (error) {
-		console.warn('[Tauri Media] Could not stop SRT gateway simulation:', error);
+		console.warn('[Tauri Media] Could not stop SRT gateway:', error);
 		return null;
 	}
 }

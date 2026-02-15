@@ -17,7 +17,7 @@ import { verifyToken } from "./auth/jwt.js";
 import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings, handleGetPublicKey, handleStoreEncryptionKeys } from "./api/authRoutes.js";
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
 import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApprove, handleGetAllRelays } from "./api/relayRoutes.js";
-import { handleGetMediaRuntime, handleMediaGatewayHeartbeat } from "./api/mediaRoutes.js";
+import { handleGetMediaRuntime, handleMediaGatewayHeartbeat, handleListMediaPipelines, handleStartMediaPipeline, handleStopMediaPipeline, handleGetMediaMetrics } from "./api/mediaRoutes.js";
 import { handleCreateWebhook, handleListWebhooks, handleDeleteWebhook, handleListWebhookDeliveries } from "./api/webhookRoutes.js";
 import { relayRepository } from "./db/repositories/relayRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
@@ -1005,6 +1005,26 @@ server.on('request', async (req, res) => {
 
   if (url.pathname === "/api/media/gateway-heartbeat" && req.method === "POST") {
     await handleMediaGatewayHeartbeat(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/media/pipelines" && req.method === "GET") {
+    await handleListMediaPipelines(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/media/metrics" && req.method === "GET") {
+    await handleGetMediaMetrics(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/media/pipelines/start" && req.method === "POST") {
+    await handleStartMediaPipeline(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/media/pipelines/stop" && req.method === "POST") {
+    await handleStopMediaPipeline(req, res);
     return;
   }
 

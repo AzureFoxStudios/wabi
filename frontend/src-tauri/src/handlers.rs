@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
+use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 #[derive(Default)]
@@ -10,6 +12,9 @@ pub struct SrtGatewayState {
     pub running: bool,
     pub mode: String,
     pub updated_at: i64,
+    pub process: Option<Child>,
+    pub pid: Option<u32>,
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -32,6 +37,48 @@ pub struct SrtGatewayRuntimeState {
     pub running: bool,
     pub mode: String,
     pub updated_at: i64,
+    pub pid: Option<u32>,
+    pub last_error: Option<String>,
+}
+
+fn runtime_state_from_guard(guard: &SrtGatewayState) -> SrtGatewayRuntimeState {
+    SrtGatewayRuntimeState {
+        running: guard.running,
+        mode: guard.mode.clone(),
+        updated_at: guard.updated_at,
+        pid: guard.pid,
+        last_error: guard.last_error.clone(),
+    }
+}
+
+fn refresh_srt_gateway_state(guard: &mut SrtGatewayState) {
+    let mut exited = false;
+
+    if let Some(child) = guard.process.as_mut() {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                exited = true;
+                guard.last_error = if status.success() {
+                    None
+                } else {
+                    Some(format!("gateway process exited with status: {status}"))
+                };
+            }
+            Ok(None) => {}
+            Err(error) => {
+                exited = true;
+                guard.last_error = Some(format!("failed checking srt gateway process: {error}"));
+            }
+        }
+    }
+
+    if exited {
+        guard.process = None;
+        guard.pid = None;
+        guard.running = false;
+        guard.mode = "idle".to_string();
+        guard.updated_at = chrono::Utc::now().timestamp_millis();
+    }
 }
 
 fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -173,38 +220,67 @@ pub fn get_media_transport_preferences(app: AppHandle) -> Result<MediaTransportP
 
 #[tauri::command]
 pub fn get_srt_gateway_runtime_state(state: tauri::State<Mutex<SrtGatewayState>>) -> Result<SrtGatewayRuntimeState, String> {
-    let guard = state.lock().map_err(|_| "failed to lock srt gateway state".to_string())?;
-    Ok(SrtGatewayRuntimeState {
-        running: guard.running,
-        mode: guard.mode.clone(),
-        updated_at: guard.updated_at,
-    })
+    let mut guard = state.lock().map_err(|_| "failed to lock srt gateway state".to_string())?;
+    refresh_srt_gateway_state(&mut guard);
+    Ok(runtime_state_from_guard(&guard))
 }
 
 #[tauri::command]
-pub fn start_srt_gateway_simulation(state: tauri::State<Mutex<SrtGatewayState>>) -> Result<SrtGatewayRuntimeState, String> {
+pub fn start_srt_gateway(state: tauri::State<Mutex<SrtGatewayState>>) -> Result<SrtGatewayRuntimeState, String> {
     let mut guard = state.lock().map_err(|_| "failed to lock srt gateway state".to_string())?;
+    refresh_srt_gateway_state(&mut guard);
+    if guard.running {
+        return Ok(runtime_state_from_guard(&guard));
+    }
+
+    let executable = std::env::var("WABI_SRT_GATEWAY_BIN").unwrap_or_else(|_| "ffmpeg".to_string());
+    let input = std::env::var("WABI_SRT_GATEWAY_INPUT").unwrap_or_else(|_| "srt://0.0.0.0:9000?mode=listener".to_string());
+    let output = std::env::var("WABI_SRT_GATEWAY_OUTPUT").unwrap_or_else(|_| "srt://127.0.0.1:9001?mode=caller".to_string());
+
+    let child = Command::new(executable)
+        .args(["-re", "-i", input.as_str(), "-c", "copy", "-f", "mpegts", output.as_str()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("failed to spawn srt gateway process: {e}"))?;
+
+    guard.pid = Some(child.id());
+    guard.process = Some(child);
     guard.running = true;
-    guard.mode = "simulated".to_string();
+    guard.mode = "process".to_string();
     guard.updated_at = chrono::Utc::now().timestamp_millis();
+    guard.last_error = None;
 
-    Ok(SrtGatewayRuntimeState {
-        running: guard.running,
-        mode: guard.mode.clone(),
-        updated_at: guard.updated_at,
-    })
+    Ok(runtime_state_from_guard(&guard))
 }
 
 #[tauri::command]
-pub fn stop_srt_gateway_simulation(state: tauri::State<Mutex<SrtGatewayState>>) -> Result<SrtGatewayRuntimeState, String> {
+pub fn stop_srt_gateway(state: tauri::State<Mutex<SrtGatewayState>>) -> Result<SrtGatewayRuntimeState, String> {
     let mut guard = state.lock().map_err(|_| "failed to lock srt gateway state".to_string())?;
+    refresh_srt_gateway_state(&mut guard);
+
+    if let Some(mut child) = guard.process.take() {
+        match child.kill() {
+            Ok(_) => {
+                std::thread::sleep(Duration::from_millis(250));
+                if let Ok(None) = child.try_wait() {
+                    let _ = child.kill();
+                    guard.last_error = Some("srt gateway stop required force kill".to_string());
+                } else {
+                    guard.last_error = None;
+                }
+            }
+            Err(error) => {
+                guard.last_error = Some(format!("failed to stop srt gateway process: {error}"));
+            }
+        }
+    }
+
     guard.running = false;
     guard.mode = "idle".to_string();
     guard.updated_at = chrono::Utc::now().timestamp_millis();
+    guard.pid = None;
 
-    Ok(SrtGatewayRuntimeState {
-        running: guard.running,
-        mode: guard.mode.clone(),
-        updated_at: guard.updated_at,
-    })
+    Ok(runtime_state_from_guard(&guard))
 }

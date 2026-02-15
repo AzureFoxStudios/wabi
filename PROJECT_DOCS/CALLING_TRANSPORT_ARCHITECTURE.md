@@ -5,7 +5,7 @@
 - Enable higher-quality transport/features for Tauri-native targets without breaking web compatibility.
 - Keep memory/CPU budgets low with graceful degradation.
 
-> Important: this document describes the target architecture. The current implementation only includes WebRTC-side tuning and Opus preference hints; it does **not** include a full SRT media gateway implementation yet.
+> Important: this document describes the target architecture. The current implementation includes runtime policy/heartbeat hooks and early process controls, but it does **not** yet ship a production-ready full SRT media gateway implementation.
 
 ## Transport Modes
 
@@ -28,7 +28,8 @@
 
 ### Current Status
 - ✅ WebRTC baseline improvements shipped (deafen/video-toggle fixes, sender tuning, Opus preference attempt).
-- ⚠️ SRT gateway not yet shipped (design only in this phase).
+- ⚠️ Full SRT gateway not yet shipped (design + early control hooks only in this phase).
+- ✅ Control-plane hardening in place: pipeline preset validation, URL-scheme allow-list, optional stream token checks, max-concurrency guardrails, graceful-stop escalation behavior, persisted pipeline state snapshots with optional auto-restart policy hooks, and authenticated runtime metrics exposure (`/api/media/metrics`).
 
 ## Operational Requirements (SRT Gateway)
 - Explicit ports/TLS config in deployment docs.
@@ -40,7 +41,7 @@
 1. Fix call control bugs (deafen/video-on upgrade).
 2. Stabilize WebRTC sender tuning (Opus preference + bitrate caps).
 3. Add adaptive quality ladder (resolution/fps/bitrate).
-4. Introduce gateway control hooks for SRT mode (disabled by default).
+4. Harden gateway control hooks for SRT mode (authz, restart policy, stream lifecycle cleanup).
 5. Add Tauri capability gates for enhanced mode.
 
 ## Non-Goals
