@@ -25,6 +25,13 @@ export interface IncomingCall {
 	userId: string;
 	username: string;
 	isVideoCall: boolean;
+	channelId?: string;
+	channelName?: string;
+}
+
+export interface ActiveVoiceChannel {
+	id: string;
+	name: string;
 }
 
 export interface ScreenShare {
@@ -70,6 +77,9 @@ export const isVideoOff = writable(false);
 export const localStream = writable<MediaStream | null>(null);
 export const localScreenStream = writable<MediaStream | null>(null);
 export const connectionState = writable<ConnectionLifecycleState>('idle');
+export const activeVoiceChannel = writable<ActiveVoiceChannel | null>(null);
+export const callMode = writable<'direct' | 'channel' | null>(null);
+export const voiceChannelNotice = writable<{ id: number; text: string } | null>(null);
 
 // ============================================================================
 // Private State
@@ -387,6 +397,9 @@ function addRemoteCallStream(userId: string, username: string, stream: MediaStre
 			calls[existingIndex] = newCall;
 			return [...calls];
 		} else {
+			if (get(callMode) === 'channel' && username) {
+				pushVoiceChannelNotice(`${username} joined voice`);
+			}
 			return [...calls, newCall];
 		}
 	});
@@ -452,6 +465,35 @@ function updateRemoteTrackState(targetId: string, track: MediaStreamTrack, type:
 	});
 }
 
+let voiceChannelNoticeId = 0;
+
+function applyLocalTrackPreferences(stream: MediaStream): void {
+	const muted = get(isMuted);
+	const deafened = get(isDeafened);
+	const videoOff = get(isVideoOff);
+
+	const audioTrack = stream.getAudioTracks()[0];
+	if (audioTrack) {
+		audioTrack.enabled = !(muted || deafened);
+	}
+
+	const videoTrack = stream.getVideoTracks()[0];
+	if (videoTrack) {
+		videoTrack.enabled = !videoOff;
+	}
+}
+
+function pushVoiceChannelNotice(text: string): void {
+	voiceChannelNoticeId += 1;
+	const id = voiceChannelNoticeId;
+	voiceChannelNotice.set({ id, text });
+	setTimeout(() => {
+		if (get(voiceChannelNotice)?.id === id) {
+			voiceChannelNotice.set(null);
+		}
+	}, 2400);
+}
+
 // ============================================================================
 // Call Functions
 // ============================================================================
@@ -465,6 +507,8 @@ export async function startCall(socket: Socket, targetUserId: string, isVideoCal
 		localStream.set(stream);
 
 		isInCall.set(true);
+		callMode.set('direct');
+		activeVoiceChannel.set(null);
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);
 
@@ -492,6 +536,8 @@ export async function answerCall(socket: Socket, callerId: string, isVideoCall: 
 		localStream.set(stream);
 
 		isInCall.set(true);
+		callMode.set('direct');
+		activeVoiceChannel.set(null);
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);
 
@@ -512,6 +558,66 @@ export async function answerCall(socket: Socket, callerId: string, isVideoCall: 
 	}
 }
 
+export async function joinVoiceChannel(channelId: string, channelName: string): Promise<MediaStream> {
+	try {
+		let stream = get(localStream);
+
+		if (!stream) {
+			stream = await navigator.mediaDevices.getUserMedia({
+				video: false,
+				audio: true
+			});
+			localStream.set(stream);
+		}
+
+		applyLocalTrackPreferences(stream);
+		isInCall.set(true);
+		callMode.set('channel');
+		activeVoiceChannel.set({ id: channelId, name: channelName });
+		incomingCall.set(null);
+		pushVoiceChannelNotice(`Joined voice: ${channelName}`);
+
+		return stream;
+	} catch (error) {
+		console.error('Error joining voice channel:', error);
+		handleMediaError(error as DOMException, 'starting');
+		isInCall.set(false);
+		localStream.set(null);
+		throw error;
+	}
+}
+
+export function leaveVoiceChannel(): void {
+	const activeChannel = get(activeVoiceChannel);
+	if (activeChannel) {
+		pushVoiceChannelNotice(`Left voice: ${activeChannel.name}`);
+	}
+
+	const stream = get(localStream);
+	if (stream) {
+		stream.getTracks().forEach(track => track.stop());
+		localStream.set(null);
+	}
+
+	const callKeys: string[] = [];
+	peerConnections.forEach((state, key) => {
+		if (state.type === 'call') {
+			callKeys.push(key);
+		}
+	});
+	callKeys.forEach(key => cleanupPeerConnection(key));
+
+	activeCalls.set([]);
+	callParticipants.clear();
+	isInCall.set(false);
+	isMuted.set(false);
+	isDeafened.set(false);
+	isVideoOff.set(false);
+	activeVoiceChannel.set(null);
+	callMode.set(null);
+	connectionState.set('idle');
+}
+
 export function rejectCall(socket: Socket, callerId: string) {
 	socket.emit('call-reject', { callerId });
 	incomingCall.set(null);
@@ -530,6 +636,8 @@ export function endCall(socket: Socket) {
 	isMuted.set(false);
 	isDeafened.set(false);
 	isVideoOff.set(false);
+	activeVoiceChannel.set(null);
+	callMode.set(null);
 
 	// Notify server with participant list for targeted cleanup
 	socket.emit('call-end', {
@@ -861,6 +969,12 @@ export async function handleScreenShareIceCandidate(senderId: string, candidate:
 
 export function removeCall(userId: string) {
 	cleanupPeerConnection(getConnectionKey(userId, 'call'));
+	if (get(callMode) === 'channel') {
+		const call = get(activeCalls).find(c => c.userId === userId);
+		if (call?.username) {
+			pushVoiceChannelNotice(`${call.username} left voice`);
+		}
+	}
 }
 
 export function removeScreenShare(userId: string) {

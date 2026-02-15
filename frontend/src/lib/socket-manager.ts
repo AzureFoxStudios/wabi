@@ -973,7 +973,12 @@ class SocketManager {
 
 		// ==================== WEBRTC/CALLING EVENTS ====================
 
-		sock.on('call-incoming', (data: { userId: string; username: string; isVideoCall: boolean }) => {
+		sock.on('call-incoming', (data: { userId: string; username: string; isVideoCall: boolean; channelId?: string; channelName?: string }) => {
+			if (data.channelId) {
+				console.log(`[SocketManager] Voice channel join signal from ${data.username} for ${data.channelName || data.channelId}`);
+				return;
+			}
+
 			console.log(`[SocketManager] Incoming call from ${data.username}`);
 			calling.incomingCall.set(data);
 		});

@@ -9,6 +9,7 @@
 	import CallModal from '$lib/components/CallModal.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentUser, users, type Channel, type User } from '$lib/socket';
+	import { activeVoiceChannel, callMode, voiceChannelNotice, isMuted, isDeafened, toggleMute, toggleDeafen, leaveVoiceChannel } from '$lib/calling';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 
@@ -209,6 +210,24 @@
 				{/each}
 			</div>
 		{/if}
+	{/if}
+
+	{#if $callMode === 'channel' && $activeVoiceChannel}
+		<div class="voice-channel-strip" role="status" aria-live="polite">
+			<div class="voice-channel-meta">
+				<span class="dot"></span>
+				<span>In voice: <strong>{$activeVoiceChannel.name}</strong></span>
+			</div>
+			<div class="voice-channel-actions">
+				<button class:active={$isMuted} on:click={toggleMute} title={$isMuted ? 'Unmute' : 'Mute'}>{$isMuted ? 'Unmute' : 'Mute'}</button>
+				<button class:active={$isDeafened} on:click={toggleDeafen} title={$isDeafened ? 'Undeafen' : 'Deafen'}>{$isDeafened ? 'Undeafen' : 'Deafen'}</button>
+				<button class="leave" on:click={leaveVoiceChannel}>Leave</button>
+			</div>
+		</div>
+	{/if}
+
+	{#if $voiceChannelNotice}
+		<div class="voice-toast" role="status">{$voiceChannelNotice.text}</div>
 	{/if}
 </div>
 <CallModal />
@@ -489,4 +508,72 @@
 		.mobile-bottom-nav button.active { color: var(--accent); }
 		.mobile-bottom-nav svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; }
 	}
+
+	.voice-channel-strip {
+		position: absolute;
+		left: 50%;
+		bottom: 12px;
+		transform: translateX(-50%);
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.5rem 0.75rem;
+		border-radius: 999px;
+		background: rgba(0, 0, 0, 0.6);
+		border: 1px solid rgba(var(--border-rgb), var(--opacity-medium));
+		z-index: var(--z-toast);
+		backdrop-filter: blur(8px);
+	}
+
+	.voice-channel-meta {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		color: var(--text-primary);
+		font-size: 0.85rem;
+	}
+
+	.voice-channel-meta .dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: #22c55e;
+		box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.2);
+	}
+
+	.voice-channel-actions {
+		display: flex;
+		gap: 0.4rem;
+	}
+
+	.voice-channel-actions button {
+		background: rgba(255, 255, 255, 0.08);
+		border: 1px solid rgba(255, 255, 255, 0.18);
+		color: var(--text-primary);
+		border-radius: 999px;
+		padding: 0.25rem 0.55rem;
+		font-size: 0.75rem;
+	}
+
+	.voice-channel-actions button.active {
+		background: rgba(var(--accent-rgb), 0.32);
+	}
+
+	.voice-channel-actions button.leave {
+		background: rgba(239, 68, 68, 0.2);
+		border-color: rgba(239, 68, 68, 0.5);
+	}
+
+	.voice-toast {
+		position: absolute;
+		right: 16px;
+		bottom: 16px;
+		padding: 0.5rem 0.7rem;
+		border-radius: 8px;
+		background: rgba(0, 0, 0, 0.72);
+		color: var(--text-primary);
+		font-size: 0.8rem;
+		z-index: var(--z-toast);
+	}
+
 </style>

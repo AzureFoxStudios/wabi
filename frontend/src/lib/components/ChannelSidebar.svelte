@@ -1,6 +1,16 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, pinnedChannels, pinChannel, unpinChannel } from '$lib/socket';
+	import {
+		activeVoiceChannel,
+		callMode,
+		joinVoiceChannel,
+		leaveVoiceChannel,
+		isMuted,
+		isDeafened,
+		toggleMute,
+		toggleDeafen
+	} from '$lib/calling';
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
@@ -23,8 +33,6 @@
 	let newChannelDescription = '';
 	let showCreateInput = false;
 	let showSettings = false;
-	let isMuted = false;
-	let isDeafened = false;
 	let showDeleteConfirm = false;
 	let channelToDelete = '';
 	let showPinnedModal = false;
@@ -70,6 +78,18 @@
 	function handleChannelClick(channelId: string) {
 		joinChannel(channelId);
 		dispatch('close'); // Close sidebar on mobile after channel selection
+	}
+
+
+	async function handleVoiceChannelToggle(channel: Channel) {
+		if ($callMode === 'direct') return;
+
+		if ($activeVoiceChannel?.id === channel.id) {
+			leaveVoiceChannel();
+			return;
+		}
+
+		await joinVoiceChannel(channel.id, channel.name);
 	}
 
 	function handleCreateChannel() {
@@ -247,6 +267,15 @@
 					{/if}
 				</button>
 				<div class="channel-actions">
+					<button
+						class="voice-btn"
+						class:active={$activeVoiceChannel?.id === channel.id}
+						disabled={$callMode === 'direct'}
+						on:click|stopPropagation={() => handleVoiceChannelToggle(channel)}
+						title={$callMode === 'direct' ? 'Finish direct call first' : ($activeVoiceChannel?.id === channel.id ? 'Leave voice channel' : 'Join voice channel')}
+					>
+						🎙
+					</button>
 					<button class="settings-btn" on:click|stopPropagation={() => handleOpenChannelSettings(channel)} title="Channel settings">
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m3.08 3.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m3.08-3.08l4.24-4.24M19.78 19.78l-4.24-4.24m-3.08-3.08l-4.24-4.24M19.78 4.22l-4.24 4.24m-3.08 3.08l-4.24-4.24"></path></svg>
 <!-- Gear icon: circles with teeth around edges -->
@@ -279,6 +308,15 @@
 						{/if}
 					</button>
 					<div class="channel-actions">
+						<button
+							class="voice-btn"
+							class:active={$activeVoiceChannel?.id === channel.id}
+							disabled={$callMode === 'direct'}
+							on:click|stopPropagation={() => handleVoiceChannelToggle(channel)}
+							title={$callMode === 'direct' ? 'Finish direct call first' : ($activeVoiceChannel?.id === channel.id ? 'Leave voice channel' : 'Join voice channel')}
+						>
+							🎙
+						</button>
 						<button class="settings-btn" on:click|stopPropagation={() => handleOpenChannelSettings(channel)} title="Channel settings">
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m3.08 3.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m3.08-3.08l4.24-4.24M19.78 19.78l-4.24-4.24m-3.08-3.08l-4.24-4.24M19.78 4.22l-4.24 4.24m-3.08 3.08l-4.24-4.24"></path></svg>
 <!-- Gear icon: circles with teeth around edges -->
@@ -376,12 +414,12 @@
 			<div class="profile-controls">
 				<button
 					class="control-btn"
-					class:active={isMuted}
-					on:click={() => isMuted = !isMuted}
-					title={isMuted ? 'Unmute' : 'Mute'}
+					class:active={$isMuted}
+					on:click={toggleMute}
+					title={$isMuted ? 'Unmute' : 'Mute'}
 				>
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						{#if isMuted}
+						{#if $isMuted}
 							<line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12m14 0a7 7 0 0 1-13.46 3.4"></path><path d="M12 19c3.314 0 6-2.686 6-6v-3m0-6h.01M6 9a6 6 0 0 0 11.13 3.13"></path>
 						{:else}
 							<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
@@ -390,12 +428,12 @@
 				</button>
 				<button
 					class="control-btn"
-					class:active={isDeafened}
-					on:click={() => isDeafened = !isDeafened}
-					title={isDeafened ? 'Undeafen' : 'Deafen'}
+					class:active={$isDeafened}
+					on:click={toggleDeafen}
+					title={$isDeafened ? 'Undeafen' : 'Deafen'}
 				>
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						{#if isDeafened}
+						{#if $isDeafened}
 							<circle cx="12" cy="13" r="5"></circle><path d="M6.5 8.5c-1 1-2 2.5-2 4.5 0 5.523 4.477 10 10 10s10-4.477 10-10c0-2 -1-3.5-2-4.5"></path><path d="M12 5V2"></path>
 						{:else}
 							<path d="M6 9v6"></path><circle cx="12" cy="13" r="5"></circle><path d="M18 9v6"></path><line x1="12" y1="2" x2="12" y2="5"></line>
@@ -948,6 +986,7 @@
 		height: fit-content;
 	}
 
+	.voice-btn,
 	.pin-btn,
 	.delete-btn {
 		opacity: 0;
@@ -974,6 +1013,7 @@
 		stroke-width: 2;
 	}
 
+	.channel-item:hover .voice-btn,
 	.channel-item:hover .pin-btn,
 	.channel-item:hover .delete-btn {
 		opacity: 1;
@@ -982,6 +1022,23 @@
 	.pin-btn:hover {
 		background: var(--pinned-border);
 		color: var(--text-primary);
+	}
+
+
+	.voice-btn:hover {
+		background: rgba(var(--accent-rgb), 0.2);
+		color: var(--text-primary);
+	}
+
+	.voice-btn.active {
+		opacity: 1;
+		background: rgba(var(--accent-rgb), 0.28);
+		color: var(--text-primary);
+	}
+
+	.voice-btn:disabled {
+		opacity: 0.35;
+		cursor: not-allowed;
 	}
 
 	.delete-btn {
