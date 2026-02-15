@@ -163,6 +163,30 @@ Plugins can extend:
 - **Commands** - Slash commands like `/task`
 - **Modals** - Pop-up interfaces
 
+
+## ⚙️ Plugin Path Environment Variables
+
+In production, set explicit plugin paths so plugin loading does not depend on the process launch directory:
+
+- `APP_ROOT` (default: `process.cwd()`)
+- `PLUGINS_DIR`
+- `PLUGIN_STORAGE_DIR`
+- `PLUGIN_INSTALL_CACHE_DIR`
+- `PLUGIN_CONFIG_FILE` (optional JSON file, default: `config/plugins.json` relative to `APP_ROOT`)
+
+Resolution precedence is: **environment variables → config file → repo-relative fallback**.
+
+Example:
+
+```bash
+APP_ROOT=/app
+PLUGINS_DIR=/app/plugins
+PLUGIN_STORAGE_DIR=/app/data/.plugin-storage
+PLUGIN_INSTALL_CACHE_DIR=/app/data/.plugin-install-cache
+```
+
+At startup, Wabi validates these directories and exits if any path is invalid or not writable. Use `/health/plugins` to inspect resolved paths and writability.
+
 ## 🔒 Security Notes
 
 - Plugins run in the same process (no sandboxing yet)

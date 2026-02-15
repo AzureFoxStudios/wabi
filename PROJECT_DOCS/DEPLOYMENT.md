@@ -108,7 +108,45 @@ Expected output:
 | `ALLOWED_ORIGINS` | Explicit CORS whitelist (optional) | `https://wabi.chat` |
 | `NODE_ENV` | Node environment | `production` |
 | `PORT` | Backend listen port | `8080` |
+| `APP_ROOT` | Base directory used to resolve plugin paths | `/app` |
+| `PLUGIN_CONFIG_FILE` | Optional JSON file for plugin path settings | `/app/config/plugins.json` |
+| `PLUGINS_DIR` | Directory containing installed plugins | `/app/plugins` |
+| `PLUGIN_STORAGE_DIR` | Persistent storage for plugin key/value state | `/app/data/.plugin-storage` |
+| `PLUGIN_INSTALL_CACHE_DIR` | Writable cache for plugin install artifacts | `/app/data/.plugin-install-cache` |
 | `TURN_*` | WebRTC TURN server config | See `.env.example` |
+
+
+## Plugin Path Configuration (Production)
+
+Plugin directories are resolved with this precedence:
+1. Environment variables (`PLUGINS_DIR`, `PLUGIN_STORAGE_DIR`, `PLUGIN_INSTALL_CACHE_DIR`)
+2. JSON config file (`PLUGIN_CONFIG_FILE`, default: `config/plugins.json` relative to `APP_ROOT`)
+3. Safe fallback paths relative to `APP_ROOT`/`process.cwd()`
+
+Minimum recommended production config:
+
+```bash
+APP_ROOT=/app
+PLUGINS_DIR=/app/plugins
+PLUGIN_STORAGE_DIR=/app/data/.plugin-storage
+PLUGIN_INSTALL_CACHE_DIR=/app/data/.plugin-install-cache
+```
+
+Optional config file (`/app/config/plugins.json`):
+
+```json
+{
+  "pluginsDir": "plugins",
+  "pluginStorageDir": "data/.plugin-storage",
+  "installCacheDir": "data/.plugin-install-cache"
+}
+```
+
+Startup now validates all three directories and exits fatally if any path cannot be created or written. You can verify runtime resolution with:
+
+```bash
+curl http://localhost:8080/health/plugins
+```
 
 ## Troubleshooting
 
