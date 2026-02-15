@@ -57,6 +57,9 @@ interface Channel {
   persistMessages?: boolean; // Opt-in flag for message persistence
   pinnedBy?: string[]; // Array of user IDs who have pinned this channel
   recipientNotified?: boolean;
+  voiceSettings?: {
+    bitrateMode?: 'auto' | 'low' | 'standard' | 'high';
+  };
 }
 
 const channels = new Map<string, Channel>();
@@ -127,6 +130,17 @@ function resolveSocketId(stableId: string): string | null {
   return stableId; // Already a socket.id (guest user)
 }
 
+function parseVoiceSettings(raw: string | null | undefined): Channel['voiceSettings'] {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch (error) {
+    console.warn('[Voice] Invalid channel voice settings JSON; ignoring persisted value');
+  }
+  return undefined;
+}
+
 // Session management for persistence across reconnects
 const sessions = new Map<string, { userId: string; username: string; color: string; profilePicture?: string; createdAt: number; usernameFont?: any }>();
 
@@ -166,6 +180,37 @@ const screenSharers = new Map<string, {
 
 // Track active call peers: socketId -> Set of partner socketIds
 const activeCallPeers = new Map<string, Set<string>>();
+
+// Voice channel runtime state (transient, never persisted)
+const voiceChannelParticipants = new Map<string, Set<string>>(); // channelId -> stable user IDs
+const voicePeerGraph = new Map<string, Set<string>>(); // stable user ID -> negotiated peer stable user IDs
+
+function addVoicePeerLink(stableA: string, stableB: string) {
+  if (stableA === stableB) return;
+  if (!voicePeerGraph.has(stableA)) voicePeerGraph.set(stableA, new Set());
+  if (!voicePeerGraph.has(stableB)) voicePeerGraph.set(stableB, new Set());
+  voicePeerGraph.get(stableA)!.add(stableB);
+  voicePeerGraph.get(stableB)!.add(stableA);
+}
+
+function removeVoicePeerLink(stableA: string, stableB: string) {
+  voicePeerGraph.get(stableA)?.delete(stableB);
+  if ((voicePeerGraph.get(stableA)?.size || 0) === 0) voicePeerGraph.delete(stableA);
+  voicePeerGraph.get(stableB)?.delete(stableA);
+  if ((voicePeerGraph.get(stableB)?.size || 0) === 0) voicePeerGraph.delete(stableB);
+}
+
+function removeAllVoicePeerLinks(stableId: string): Set<string> {
+  const peers = new Set(voicePeerGraph.get(stableId) || []);
+  for (const peerStableId of peers) {
+    voicePeerGraph.get(peerStableId)?.delete(stableId);
+    if ((voicePeerGraph.get(peerStableId)?.size || 0) === 0) {
+      voicePeerGraph.delete(peerStableId);
+    }
+  }
+  voicePeerGraph.delete(stableId);
+  return peers;
+}
 
 function addCallPeer(socketId: string, peerId: string) {
   if (!activeCallPeers.has(socketId)) activeCallPeers.set(socketId, new Set());
@@ -1995,7 +2040,8 @@ try {
         description: ch.description || '',
         createdAt: ch.created_at,
         type: ch.channel_type,
-        persistMessages: ch.persist_messages === 1
+        persistMessages: ch.persist_messages === 1,
+        voiceSettings: parseVoiceSettings(ch.voice_settings_json)
       });
       if (!channelMessages.has(ch.channel_id)) {
         channelMessages.set(ch.channel_id, []);
@@ -2142,6 +2188,7 @@ function loadUserChannelsFromDB(stableUserId: string): Channel[] {
           type: dbChannel.channel_type,
           members: memberIds,
           persistMessages: dbChannel.persist_messages === 1,
+          voiceSettings: parseVoiceSettings(dbChannel.voice_settings_json),
           recipientNotified: true // Already persisted, so both sides know
         });
 
@@ -3352,6 +3399,64 @@ io.on("connection", (socket) => {
     socket.broadcast.emit("excalidraw-update", state);
   });
 
+  // Voice channel occupancy + peer graph
+  socket.on("voice-channel-join", (data: { channelId: string }) => {
+    const user = users.get(socket.id);
+    if (!user || !data.channelId) return;
+
+    const stableUserId = getStableUserId(socket);
+    let participants = voiceChannelParticipants.get(data.channelId);
+    if (!participants) {
+      participants = new Set<string>();
+      voiceChannelParticipants.set(data.channelId, participants);
+    }
+
+    if (participants.has(stableUserId)) return;
+
+    participants.add(stableUserId);
+    emitToChannel(data.channelId, "voice-channel-user-joined", {
+      channelId: data.channelId,
+      userId: stableUserId
+    });
+  });
+
+  socket.on("voice-channel-leave", (data: { channelId: string }) => {
+    const user = users.get(socket.id);
+    if (!user || !data.channelId) return;
+
+    const stableUserId = getStableUserId(socket);
+    const participants = voiceChannelParticipants.get(data.channelId);
+    if (!participants || !participants.has(stableUserId)) return;
+
+    participants.delete(stableUserId);
+    if (participants.size === 0) {
+      voiceChannelParticipants.delete(data.channelId);
+    }
+
+    emitToChannel(data.channelId, "voice-channel-user-left", {
+      channelId: data.channelId,
+      userId: stableUserId
+    });
+
+    removeAllVoicePeerLinks(stableUserId);
+  });
+
+  socket.on("voice-peer-link", (data: { peerStableUserId: string }) => {
+    const user = users.get(socket.id);
+    if (!user || !data.peerStableUserId) return;
+
+    const stableUserId = getStableUserId(socket);
+    addVoicePeerLink(stableUserId, data.peerStableUserId);
+  });
+
+  socket.on("voice-peer-unlink", (data: { peerStableUserId: string }) => {
+    const user = users.get(socket.id);
+    if (!user || !data.peerStableUserId) return;
+
+    const stableUserId = getStableUserId(socket);
+    removeVoicePeerLink(stableUserId, data.peerStableUserId);
+  });
+
   // Voice/Video calling
   socket.on("call-initiate", (data: { targetUserId: string; isVideoCall: boolean }) => {
     const user = users.get(socket.id);
@@ -3373,6 +3478,11 @@ io.on("connection", (socket) => {
       isVideoCall: data.isVideoCall
     });
     addCallPeer(socket.id, data.callerId);
+
+    const myStableId = getStableUserId(socket);
+    const callerUser = users.get(data.callerId);
+    const callerStableId = callerUser?.dbUserId ? `user-${callerUser.dbUserId}` : data.callerId;
+    addVoicePeerLink(myStableId, callerStableId);
   });
 
   socket.on("call-reject", (data: { callerId: string }) => {
@@ -3384,6 +3494,17 @@ io.on("connection", (socket) => {
   socket.on("call-end", (data?: { participants?: string[] }) => {
     // Clean up call peer tracking
     removeAllCallPeers(socket.id);
+
+    const myStableId = getStableUserId(socket);
+    if (data?.participants && data.participants.length > 0) {
+      data.participants.forEach(participantId => {
+        const participant = users.get(participantId);
+        const participantStableId = participant?.dbUserId ? `user-${participant.dbUserId}` : participantId;
+        removeVoicePeerLink(myStableId, participantStableId);
+      });
+    } else {
+      removeAllVoicePeerLinks(myStableId);
+    }
 
     // Fixed: only notify call participants, not broadcast to everyone
     if (data?.participants && data.participants.length > 0) {
@@ -3496,6 +3617,9 @@ io.on("connection", (socket) => {
     autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
     persistMessages?: boolean;
     description?: string;
+    voiceSettings?: {
+      bitrateMode?: 'auto' | 'low' | 'standard' | 'high';
+    };
   }) => {
     const channel = channels.get(data.channelId);
     if (!channel) {
@@ -3511,12 +3635,18 @@ io.on("connection", (socket) => {
     if (data.description !== undefined) {
       channel.description = data.description;
     }
+    if (data.voiceSettings !== undefined) {
+      channel.voiceSettings = data.voiceSettings;
+    }
     channels.set(data.channelId, channel);
 
-    // Persist description to database
-    if (data.description !== undefined) {
+    // Persist channel settings metadata to database (never transient voice occupancy)
+    if (data.description !== undefined || data.voiceSettings !== undefined) {
       try {
-        channelRepository.updateSettings(data.channelId, { description: data.description });
+        channelRepository.updateSettings(data.channelId, {
+          description: data.description,
+          voice_settings_json: data.voiceSettings !== undefined ? JSON.stringify(data.voiceSettings) : undefined
+        });
       } catch (e) {
         // Channel may not exist in DB yet (in-memory only)
       }
@@ -3527,14 +3657,16 @@ io.on("connection", (socket) => {
       channelId: data.channelId,
       autoDeleteAfter: data.autoDeleteAfter,
       persistMessages: data.persistMessages,
-      description: data.description
+      description: data.description,
+      voiceSettings: data.voiceSettings
     });
 
     if (ENABLE_LOGGING) {
       console.log(`Channel ${data.channelId} settings updated:`, {
         autoDeleteAfter: data.autoDeleteAfter || 'disabled',
         persistMessages: data.persistMessages,
-        description: data.description
+        description: data.description,
+        voiceSettings: data.voiceSettings
       });
     }
   });
@@ -4260,6 +4392,23 @@ io.on("connection", (socket) => {
       for (const peerId of callPeers) {
         io.to(peerId).emit("call-ended", { userId: socket.id });
       }
+
+      // Remove user from all voice channels and emit leave events
+      const stableUserId = getStableUserId(socket);
+      for (const [voiceChannelId, participants] of voiceChannelParticipants.entries()) {
+        if (!participants.has(stableUserId)) continue;
+
+        participants.delete(stableUserId);
+        if (participants.size === 0) {
+          voiceChannelParticipants.delete(voiceChannelId);
+        }
+
+        emitToChannel(voiceChannelId, "voice-channel-user-left", {
+          channelId: voiceChannelId,
+          userId: stableUserId
+        });
+      }
+      removeAllVoicePeerLinks(stableUserId);
 
       socket.broadcast.emit("user-left", {
         id: socket.id,
