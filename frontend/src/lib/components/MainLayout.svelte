@@ -9,6 +9,7 @@
 	import CallModal from '$lib/components/CallModal.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentUser, users, type Channel, type User } from '$lib/socket';
+	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 
@@ -130,6 +131,9 @@
 		class:mobile-visible={$layoutStore.showMobileChannels}
 	>
 		<ChannelSidebar on:close={() => layoutStore.showMobileChannels.set(false)} bind:activeView on:logout />
+		<div class="plugin-sidebar-slot">
+			<PluginSlot point="sidebar" />
+		</div>
 		<!-- Channel resize handle -->
 		<div
 			class="resize-handle resize-handle-channel"
@@ -147,6 +151,9 @@
 	<!-- Main Content -->
 	<div class="main-content">
 		<div class:hidden={activeView !== 'chat'}><Chat on:logout /></div>
+		<div class="plugin-channel-slot">
+			<PluginSlot point="channelViews" />
+		</div>
 		<div class:hidden={activeView !== 'screen'}><ScreenShareViewer bind:activeView /></div>
 	</div>
 
@@ -256,6 +263,19 @@
 		border-right: none;
 	}
 
+
+	.plugin-sidebar-slot {
+		padding: 0.5rem;
+		border-top: 1px solid rgba(var(--border-rgb), var(--opacity-light));
+	}
+
+	.plugin-channel-slot {
+		position: absolute;
+		right: 0.5rem;
+		top: 0.5rem;
+		z-index: 8;
+		max-width: 320px;
+	}
 	/* Desktop Right Panel */
 	.right-panel-container {
 		flex-shrink: 0;
