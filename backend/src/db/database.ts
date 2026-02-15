@@ -156,6 +156,39 @@ function runMigrations() {
 	} catch (e) {
 		// Columns may already exist
 	}
+
+	// Migration: Add restriction_reason column to users
+	try {
+		const cols = db.pragma('table_info(users)') as { name: string }[];
+		if (!cols.some(c => c.name === 'restriction_reason')) {
+			db.exec('ALTER TABLE users ADD COLUMN restriction_reason TEXT');
+			console.log('[Database] Migration: added restriction_reason to users');
+		}
+	} catch (e) {
+		// Column may already exist
+	}
+
+	// Migration: Create ban_appeals table for older DBs
+	try {
+		db.exec(`
+			CREATE TABLE IF NOT EXISTS ban_appeals (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				user_id INTEGER NOT NULL,
+				status TEXT NOT NULL DEFAULT 'pending',
+				message TEXT NOT NULL,
+				created_at INTEGER NOT NULL,
+				reviewed_by INTEGER,
+				reviewed_at INTEGER,
+				decision_note TEXT,
+				FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+				FOREIGN KEY (reviewed_by) REFERENCES users(user_id) ON DELETE SET NULL
+			)
+		`);
+		db.exec('CREATE INDEX IF NOT EXISTS idx_ban_appeals_user ON ban_appeals(user_id, created_at DESC)');
+		db.exec('CREATE INDEX IF NOT EXISTS idx_ban_appeals_status ON ban_appeals(status, created_at ASC)');
+	} catch (e) {
+		console.error('[Database] Migration error creating ban_appeals table:', e);
+	}
 }
 
 function seedDefaultRoles() {

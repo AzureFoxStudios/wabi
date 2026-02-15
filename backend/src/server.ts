@@ -15,6 +15,7 @@ import { themeRepository } from "./db/repositories/themeRepository.js";
 import { guestCodeRepository } from "./db/repositories/guestCodeRepository.js";
 import { verifyToken } from "./auth/jwt.js";
 import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings, handleGetPublicKey, handleStoreEncryptionKeys } from "./api/authRoutes.js";
+import { handleGetBanAppeals, handleReviewBanAppeal, handleSubmitBanAppeal } from "./api/banAppealRoutes.js";
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
 import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApprove, handleGetAllRelays } from "./api/relayRoutes.js";
 import { handleGetMediaRuntime, handleMediaGatewayHeartbeat } from "./api/mediaRoutes.js";
@@ -930,6 +931,21 @@ server.on('request', async (req, res) => {
 
   if (url.pathname === "/api/auth/upgrade" && req.method === "POST") {
     await handleUpgrade(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/ban-appeals/submit" && req.method === "POST") {
+    await handleSubmitBanAppeal(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/ban-appeals" && req.method === "GET") {
+    await handleGetBanAppeals(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/ban-appeals/review" && req.method === "POST") {
+    await handleReviewBanAppeal(req, res);
     return;
   }
 

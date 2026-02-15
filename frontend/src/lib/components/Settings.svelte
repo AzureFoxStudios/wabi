@@ -17,6 +17,7 @@
 	import ThemeCustomizer from './ThemeCustomizer.svelte';
 	import UsernameFontCustomizer from './UsernameFontCustomizer.svelte';
 	import UniformFontMode from './UniformFontMode.svelte';
+	import { getPendingBanAppeals, reviewBanAppeal } from '$lib/api';
 	import {
 		getStoredMediaQualityMode,
 		getStoredScreenShareQualityPreset,
@@ -69,6 +70,11 @@
 	let bulkEmojiFileInput: HTMLInputElement;
 	let bulkEmojiFiles: { file: File; name: string; preview: string }[] = [];
 	let uploadingBulk = false;
+	let pendingAppeals: any[] = [];
+	let loadingAppeals = false;
+	let appealNote: Record<number, string> = {};
+	let appealCooldownSeconds: Record<number, number> = {};
+	let canModerateAppeals = false;
 
 	// Load settings from localStorage and enforce server policy
 	onMount(() => {
@@ -88,7 +94,45 @@
 			srtGatewayEnabled = isSrtGatewayEnabled();
 			screenShareQualityPreset = getStoredScreenShareQualityPreset();
 		})();
+
 	});
+
+	$: canModerateAppeals = ['owner', 'admin', 'mod'].includes($currentUser?.highestRole || '');
+	$: if (canModerateAppeals && pendingAppeals.length === 0 && !loadingAppeals && isOpen) {
+		void loadPendingAppeals();
+	}
+
+	async function loadPendingAppeals() {
+		if (!canModerateAppeals) return;
+		const token = localStorage.getItem('authToken');
+		if (!token) return;
+
+		loadingAppeals = true;
+		try {
+			pendingAppeals = await getPendingBanAppeals(token);
+		} catch (error) {
+			console.error('[Settings] Failed to load ban appeals', error);
+		} finally {
+			loadingAppeals = false;
+		}
+	}
+
+	async function handleReviewAppeal(appealId: number, decision: 'approved' | 'denied') {
+		const token = localStorage.getItem('authToken');
+		if (!token) return;
+
+		try {
+			await reviewBanAppeal(token, {
+				appealId,
+				decision,
+				decisionNote: appealNote[appealId] || '',
+				cooldownSeconds: decision === 'denied' ? (appealCooldownSeconds[appealId] || 0) : 0
+			});
+			pendingAppeals = pendingAppeals.filter(a => a.id !== appealId);
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to review appeal');
+		}
+	}
 
 	function toggleSound() {
 		soundEnabled = !soundEnabled;
@@ -796,6 +840,31 @@
 					</div>
 				</div>
 
+				{#if canModerateAppeals}
+					<div class="settings-section">
+						<h3>🛡️ Ban Appeals (Moderator)</h3>
+						<button class="action-btn" on:click={loadPendingAppeals} disabled={loadingAppeals}>
+							{loadingAppeals ? 'Refreshing...' : 'Refresh Appeals'}
+						</button>
+						{#if pendingAppeals.length === 0}
+							<p style="margin-top:0.75rem;opacity:0.8;">No pending appeals.</p>
+						{:else}
+							{#each pendingAppeals as appeal (appeal.id)}
+								<div class="appeal-card">
+									<div><strong>{appeal.user?.username || `User #${appeal.user_id}`}</strong> — {new Date(appeal.created_at).toLocaleString()}</div>
+									<div class="appeal-message">{appeal.message}</div>
+									<textarea rows="2" placeholder="Decision note (optional)" bind:value={appealNote[appeal.id]}></textarea>
+									<div class="appeal-actions">
+										<input type="number" min="0" step="60" placeholder="Cooldown seconds" bind:value={appealCooldownSeconds[appeal.id]} />
+										<button class="action-btn" on:click={() => handleReviewAppeal(appeal.id, 'approved')}>Approve</button>
+										<button class="action-btn danger" on:click={() => handleReviewAppeal(appeal.id, 'denied')}>Deny</button>
+									</div>
+								</div>
+							{/each}
+						{/if}
+					</div>
+				{/if}
+
 				<!-- Custom Emojis -->
 				<div class="settings-section">
 					<h3>🎨 Custom Emojis</h3>
@@ -978,6 +1047,36 @@
 		justify-content: center;
 		z-index: 1000;
 		backdrop-filter: blur(4px);
+	}
+
+	.appeal-card {
+		margin-top: 0.75rem;
+		padding: 0.75rem;
+		border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15));
+		border-radius: 10px;
+		background: rgba(255, 255, 255, 0.03);
+	}
+
+	.appeal-message {
+		margin: 0.5rem 0;
+		opacity: 0.95;
+	}
+
+	.appeal-card textarea {
+		width: 100%;
+		margin-bottom: 0.5rem;
+		padding: 0.5rem;
+		border-radius: 8px;
+	}
+
+	.appeal-actions {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+	}
+
+	.appeal-actions input {
+		max-width: 180px;
 	}
 
 	.modal-content {

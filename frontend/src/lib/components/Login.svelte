@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import QRCode from 'qrcode';
-	import { register, login, upgradeToRegistered } from '$lib/api';
+	import { register, login, submitBanAppeal, upgradeToRegistered } from '$lib/api';
 	import { initE2E } from '$lib/e2eManager';
 
 	const dispatch = createEventDispatcher<{
@@ -15,6 +15,10 @@
 	let passwordConfirm = '';
 	let error = '';
 	let loading = false;
+	let restrictedLoginPayload: { username: string; password: string } | null = null;
+	let appealMessage = '';
+	let appealStatus = '';
+	let appealSubmitting = false;
 
 	let qrCanvas: HTMLCanvasElement;
 	let showQR = false;
@@ -104,6 +108,9 @@
 		try {
 			const result = await login(username, password);
 			localStorage.setItem('authToken', result.token);
+			if (result.notice) {
+				alert(result.notice);
+			}
 			if (result.user.id) {
 				localStorage.setItem('dbUserId', String(result.user.id));
 				initE2E(result.user.id, result.token, false);
@@ -111,8 +118,36 @@
 			dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered' });
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Login failed';
+			if (error.toLowerCase().includes('restricted')) {
+				restrictedLoginPayload = { username, password };
+				appealStatus = '';
+			}
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function handleSubmitAppeal() {
+		if (!restrictedLoginPayload) {
+			appealStatus = 'Please attempt login with your restricted account first.';
+			return;
+		}
+
+		if (appealMessage.trim().length < 10) {
+			appealStatus = 'Please provide at least 10 characters.';
+			return;
+		}
+
+		appealSubmitting = true;
+		appealStatus = '';
+		try {
+			await submitBanAppeal(restrictedLoginPayload.username, restrictedLoginPayload.password, appealMessage);
+			appealStatus = 'Appeal submitted. A moderator will review it.';
+			appealMessage = '';
+		} catch (err) {
+			appealStatus = err instanceof Error ? err.message : 'Failed to submit appeal';
+		} finally {
+			appealSubmitting = false;
 		}
 	}
 
@@ -173,6 +208,23 @@
 		{#if error}
 			<div class="error-message">{error}</div>
 		{/if}
+
+		<div class="appeal-panel">
+			<h3>Ban Appeal</h3>
+			<p class="appeal-help">If your account is restricted, log in once, then submit your appeal here.</p>
+			<textarea
+				bind:value={appealMessage}
+				placeholder="Explain why your restriction should be removed"
+				rows="3"
+				disabled={appealSubmitting}
+			></textarea>
+			<button class="join-btn" type="button" on:click={handleSubmitAppeal} disabled={appealSubmitting}>
+				{appealSubmitting ? 'Submitting Appeal...' : 'Submit Appeal'}
+			</button>
+			{#if appealStatus}
+				<div class="appeal-status">{appealStatus}</div>
+			{/if}
+		</div>
 
 		<!-- GUEST TAB -->
 		{#if tab === 'guest'}
@@ -497,6 +549,42 @@
 		border-radius: 8px;
 		margin-bottom: 1rem;
 		font-size: 0.9rem;
+	}
+
+	.appeal-panel {
+		margin: 1rem 0;
+		padding: 0.9rem;
+		border: 1px solid rgba(255,255,255,0.12);
+		border-radius: 10px;
+		text-align: left;
+	}
+
+	.appeal-panel h3 {
+		margin: 0 0 0.5rem;
+		font-size: 0.95rem;
+	}
+
+	.appeal-help {
+		margin: 0 0 0.5rem;
+		font-size: 0.8rem;
+		opacity: 0.8;
+	}
+
+	.appeal-panel textarea {
+		width: 100%;
+		margin-bottom: 0.5rem;
+		padding: 0.6rem;
+		border-radius: 8px;
+		background: rgba(255,255,255,0.06);
+		border: 1px solid rgba(255,255,255,0.1);
+		color: var(--text-primary, #fff);
+		resize: vertical;
+	}
+
+	.appeal-status {
+		margin-top: 0.4rem;
+		font-size: 0.8rem;
+		opacity: 0.95;
 	}
 
 	/* QR Modal */

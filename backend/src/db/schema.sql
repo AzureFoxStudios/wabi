@@ -12,7 +12,22 @@ CREATE TABLE IF NOT EXISTS users (
   username_font_family TEXT DEFAULT 'inherit',
   username_font_size TEXT DEFAULT 'inherit',
   username_font_weight TEXT DEFAULT '600',
-  username_font_style TEXT DEFAULT 'normal'
+  username_font_style TEXT DEFAULT 'normal',
+  restriction_reason TEXT
+);
+
+-- Ban appeals
+CREATE TABLE IF NOT EXISTS ban_appeals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending', -- pending | approved | denied
+  message TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  reviewed_by INTEGER,
+  reviewed_at INTEGER,
+  decision_note TEXT,
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  FOREIGN KEY (reviewed_by) REFERENCES users(user_id) ON DELETE SET NULL
 );
 
 -- Unified sessions (temp + registered)
@@ -131,6 +146,8 @@ CREATE INDEX IF NOT EXISTS idx_offline_messages_to_user ON offline_messages(to_u
 CREATE INDEX IF NOT EXISTS idx_offline_messages_expires_at ON offline_messages(expires_at);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_users_handle ON users(handle COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_ban_appeals_user ON ban_appeals(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ban_appeals_status ON ban_appeals(status, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
 CREATE INDEX IF NOT EXISTS idx_resource_visibility_resource ON resource_visibility(resource_id);
 CREATE INDEX IF NOT EXISTS idx_guest_codes_active ON guest_codes(is_active);

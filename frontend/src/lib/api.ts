@@ -5,6 +5,7 @@ const SERVER_URL = getServerUrl();
 
 export interface AuthResponse {
 	token: string;
+	notice?: string;
 	user: {
 		id: number;
 		username: string;
@@ -13,6 +14,22 @@ export interface AuthResponse {
 		profilePicture?: string;
 		isRegistered: boolean;
 	};
+}
+
+export interface BanAppeal {
+	id: number;
+	user_id: number;
+	status: 'pending' | 'approved' | 'denied';
+	message: string;
+	created_at: number;
+	reviewed_by?: number | null;
+	reviewed_at?: number | null;
+	decision_note?: string | null;
+	user?: {
+		user_id: number;
+		username: string;
+		handle?: string;
+	} | null;
 }
 
 export async function register(username: string, password: string, handle?: string): Promise<AuthResponse> {
@@ -178,5 +195,54 @@ export async function saveUserSettings(
 		}
 	} finally {
 		clearTimeout(timeout);
+	}
+}
+
+export async function submitBanAppeal(username: string, password: string, message: string): Promise<{ success: boolean; appeal: BanAppeal }> {
+	const res = await fetch(`${SERVER_URL}/api/ban-appeals/submit`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ username, password, message })
+	});
+
+	if (!res.ok) {
+		const error = await res.json();
+		throw new Error(error.error || 'Failed to submit appeal');
+	}
+
+	return res.json();
+}
+
+export async function getPendingBanAppeals(token: string): Promise<BanAppeal[]> {
+	const res = await fetch(`${SERVER_URL}/api/ban-appeals`, {
+		method: 'GET',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+
+	if (!res.ok) {
+		const error = await res.json();
+		throw new Error(error.error || 'Failed to load ban appeals');
+	}
+
+	const data = await res.json();
+	return data.appeals || [];
+}
+
+export async function reviewBanAppeal(
+	token: string,
+	payload: { appealId: number; decision: 'approved' | 'denied'; decisionNote?: string; cooldownSeconds?: number }
+): Promise<void> {
+	const res = await fetch(`${SERVER_URL}/api/ban-appeals/review`, {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(payload)
+	});
+
+	if (!res.ok) {
+		const error = await res.json();
+		throw new Error(error.error || 'Failed to review appeal');
 	}
 }

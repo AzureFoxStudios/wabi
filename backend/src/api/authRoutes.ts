@@ -5,6 +5,8 @@ import { settingsRepository } from '../db/repositories/settingsRepository.js';
 import { encryptionKeyRepository } from '../db/repositories/encryptionKeyRepository.js';
 import { hashPassword, verifyPassword } from '../auth/passwordHash.js';
 import { generateToken, verifyToken } from '../auth/jwt.js';
+import { banAppealRepository } from '../db/repositories/banAppealRepository.js';
+import { getAppealCooldownInfo } from './banAppealRoutes.js';
 
 // Get authenticated user ID from request
 function getAuthenticatedUserId(req: IncomingMessage): number | null {
@@ -256,6 +258,21 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 
 		console.log('[Auth] User found:', user.user_id, user.username);
 
+		if (user.is_active === 0) {
+			const latestAppeal = banAppealRepository.getLatestForUser(user.user_id!);
+			const cooldown = getAppealCooldownInfo(user.user_id!);
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({
+				error: 'This account is restricted. You can submit a ban appeal from the login screen.',
+				errorCode: 'account_restricted',
+				canAppeal: cooldown.canAppeal,
+				nextAppealAt: cooldown.nextAppealAt,
+				latestAppealStatus: latestAppeal?.status || null,
+				latestDecisionNote: latestAppeal?.decision_note || null
+			}));
+			return;
+		}
+
 		// Verify password
 		const isValid = await verifyPassword(password, user.password_hash);
 		console.log('[Auth] Password verification result:', isValid);
@@ -290,6 +307,9 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 		res.end(
 			JSON.stringify({
 				token,
+				notice: banAppealRepository.getLatestForUser(user.user_id!)?.status === 'approved'
+					? 'Your ban appeal has been approved. Welcome back.'
+					: undefined,
 				user: {
 					id: user.user_id,
 					username: user.username,
