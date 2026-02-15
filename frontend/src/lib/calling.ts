@@ -2,6 +2,7 @@ import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { buildRTCConfig } from './turnConfig';
 import { getMediaRuntimeConfig, getScreenShareQualityProfile } from './mediaRuntime';
+import { verifyParticipantIdentity, type SignalingParticipantIdentity } from './mediaIdentity';
 
 const CAMERA_CONSTRAINTS: MediaTrackConstraints = {
 	width: { ideal: 1280, max: 1920 },
@@ -667,8 +668,14 @@ export async function handleCallOffer(
 	socket: Socket,
 	senderId: string,
 	username: string,
-	offer: RTCSessionDescriptionInit
+	offer: RTCSessionDescriptionInit,
+	participantIdentity?: SignalingParticipantIdentity
 ) {
+	const verification = verifyParticipantIdentity(senderId, participantIdentity);
+	if (!verification.ok) {
+		console.warn(`[WebRTC] Rejected call offer from ${senderId}: ${verification.reason}`);
+		return;
+	}
 	const pc = createPeerConnection(senderId, username, 'call', socket);
 	const key = getConnectionKey(senderId, 'call');
 
@@ -702,7 +709,12 @@ export async function handleCallOffer(
 	}
 }
 
-export async function handleCallAnswer(senderId: string, answer: RTCSessionDescriptionInit) {
+export async function handleCallAnswer(senderId: string, answer: RTCSessionDescriptionInit, participantIdentity?: SignalingParticipantIdentity) {
+	const verification = verifyParticipantIdentity(senderId, participantIdentity);
+	if (!verification.ok) {
+		console.warn(`[WebRTC] Rejected call answer from ${senderId}: ${verification.reason}`);
+		return;
+	}
 	const key = getConnectionKey(senderId, 'call');
 	const state = peerConnections.get(key);
 	if (!state) {
@@ -806,8 +818,14 @@ export async function handleScreenShareOffer(
 	socket: Socket,
 	senderId: string,
 	username: string,
-	offer: RTCSessionDescriptionInit
+	offer: RTCSessionDescriptionInit,
+	participantIdentity?: SignalingParticipantIdentity
 ) {
+	const verification = verifyParticipantIdentity(senderId, participantIdentity);
+	if (!verification.ok) {
+		console.warn(`[WebRTC] Rejected screen-share offer from ${senderId}: ${verification.reason}`);
+		return;
+	}
 	const pc = createPeerConnection(senderId, username, 'screen-share-inbound', socket);
 	const key = getConnectionKey(senderId, 'screen');
 
@@ -833,7 +851,12 @@ export async function handleScreenShareOffer(
 	}
 }
 
-export async function handleScreenShareAnswer(senderId: string, answer: RTCSessionDescriptionInit) {
+export async function handleScreenShareAnswer(senderId: string, answer: RTCSessionDescriptionInit, participantIdentity?: SignalingParticipantIdentity) {
+	const verification = verifyParticipantIdentity(senderId, participantIdentity);
+	if (!verification.ok) {
+		console.warn(`[WebRTC] Rejected screen-share answer from ${senderId}: ${verification.reason}`);
+		return;
+	}
 	const key = getConnectionKey(senderId, 'screen');
 	const state = peerConnections.get(key);
 	if (!state) {

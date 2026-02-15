@@ -28,6 +28,7 @@ import { emojis } from './emoji-store';
 import { getServerUrl } from './serverUrl';
 import { authStore } from './authStore';
 import { encryptDMMessage, decryptDMMessage, isE2EAvailable } from './e2eManager';
+import { initializeLocalMediaIdentity, triggerImmediateGroupRekey, type SignalingParticipantIdentity } from './mediaIdentity';
 
 /**
  * Decrypt an array of messages for a DM channel (in-place mutation of text field).
@@ -497,6 +498,12 @@ class SocketManager {
 
 		// ==================== SESSION EVENTS ====================
 
+		sock.on('media-identity-bind-result', (data: { success: boolean; reason?: string }) => {
+			if (!data.success) {
+				console.warn('[SocketManager] Media identity bind rejected:', data.reason);
+			}
+		});
+
 		sock.on('rejoin-failed', (data: { reason: string }) => {
 			console.log('[SocketManager] Rejoin failed:', data.reason);
 			this.safeLocalStorageRemove('sessionId');
@@ -549,6 +556,9 @@ class SocketManager {
 			if (user) {
 				currentUser.set(user);
 				this.updatePinnedChannels();
+				initializeLocalMediaIdentity(sock, user).catch(err =>
+					console.error('[SocketManager] Failed to bind local media identity:', err)
+				);
 			}
 
 			// On reconnect, sync newer messages for the current channel
@@ -902,6 +912,14 @@ class SocketManager {
 			));
 		});
 
+		sock.on('group-membership-changed', (data: { channelId: string; membersVersion: number; changeType: 'join' | 'leave' | 'kick' }) => {
+			triggerImmediateGroupRekey(data.channelId, data.changeType, data.membersVersion);
+		});
+
+		sock.on('group-rekey-required', (data: { channelId: string; membersVersion: number; reason: string }) => {
+			triggerImmediateGroupRekey(data.channelId, data.reason, data.membersVersion);
+		});
+
 		// ==================== EMOTE/EMOJI EVENTS ====================
 
 		sock.on('emote-added', (emote: any) => addEmote(emote));
@@ -995,15 +1013,15 @@ class SocketManager {
 			calling.removeScreenShare(data.userId);
 		});
 
-		sock.on('call-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string }) => {
+		sock.on('call-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string; participantIdentity?: SignalingParticipantIdentity }) => {
 			console.log(`[SocketManager] Call offer from ${data.username}`);
-			calling.handleCallOffer(sock, data.senderId, data.username, data.offer)
+			calling.handleCallOffer(sock, data.senderId, data.username, data.offer, data.participantIdentity)
 				.catch(err => console.error('[SocketManager] handleCallOffer failed:', err));
 		});
 
-		sock.on('call-answer-sdp', (data: { answer: RTCSessionDescriptionInit; senderId: string }) => {
+		sock.on('call-answer-sdp', (data: { answer: RTCSessionDescriptionInit; senderId: string; participantIdentity?: SignalingParticipantIdentity }) => {
 			console.log(`[SocketManager] Call answer from ${data.senderId}`);
-			calling.handleCallAnswer(data.senderId, data.answer)
+			calling.handleCallAnswer(data.senderId, data.answer, data.participantIdentity)
 				.catch(err => console.error('[SocketManager] handleCallAnswer failed:', err));
 		});
 
@@ -1027,13 +1045,13 @@ class SocketManager {
 			calling.removeScreenShare(data.userId);
 		});
 
-		sock.on('webrtc-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string }) => {
-			calling.handleScreenShareOffer(sock, data.senderId, data.username, data.offer)
+		sock.on('webrtc-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string; participantIdentity?: SignalingParticipantIdentity }) => {
+			calling.handleScreenShareOffer(sock, data.senderId, data.username, data.offer, data.participantIdentity)
 				.catch(err => console.error('[SocketManager] handleScreenShareOffer failed:', err));
 		});
 
-		sock.on('webrtc-answer', (data: { answer: RTCSessionDescriptionInit; senderId: string }) => {
-			calling.handleScreenShareAnswer(data.senderId, data.answer)
+		sock.on('webrtc-answer', (data: { answer: RTCSessionDescriptionInit; senderId: string; participantIdentity?: SignalingParticipantIdentity }) => {
+			calling.handleScreenShareAnswer(data.senderId, data.answer, data.participantIdentity)
 				.catch(err => console.error('[SocketManager] handleScreenShareAnswer failed:', err));
 		});
 

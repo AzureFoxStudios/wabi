@@ -164,6 +164,74 @@ const screenSharers = new Map<string, {
   username: string;
 }>();
 
+interface ParticipantIdentityBinding {
+  socketId: string;
+  stableUserId: string;
+  dbUserId: number | null;
+  sessionId: string | null;
+  authenticated: boolean;
+  mediaKeyFingerprint: string;
+  mediaKeyVersion: number;
+  boundAt: number;
+}
+
+const mediaIdentityBindings = new Map<string, ParticipantIdentityBinding>();
+const groupMembershipEpoch = new Map<string, number>();
+
+function getParticipantIdentityBinding(socket: any): Omit<ParticipantIdentityBinding, 'mediaKeyFingerprint' | 'mediaKeyVersion' | 'boundAt'> {
+  return {
+    socketId: socket.id,
+    stableUserId: getStableUserId(socket),
+    dbUserId: (socket as any).dbUserId || null,
+    sessionId: (socket as any).sessionId || null,
+    authenticated: Boolean((socket as any).isRegistered && (socket as any).sessionId)
+  };
+}
+
+function buildSignalingIdentity(socket: any) {
+  const binding = mediaIdentityBindings.get(socket.id);
+  const identity = getParticipantIdentityBinding(socket);
+
+  return {
+    ...identity,
+    mediaKeyFingerprint: binding?.mediaKeyFingerprint || null,
+    mediaKeyVersion: binding?.mediaKeyVersion ?? null,
+    boundAt: binding?.boundAt ?? null
+  };
+}
+
+function emitGroupMembershipChange(channelId: string, payload: {
+  changeType: 'join' | 'leave' | 'kick';
+  actorUserId: string;
+  targetUserId: string;
+}) {
+  const channel = channels.get(channelId);
+  if (!channel || channel.type !== 'group') return;
+
+  const nextEpoch = (groupMembershipEpoch.get(channelId) || 0) + 1;
+  groupMembershipEpoch.set(channelId, nextEpoch);
+
+  const eventPayload = {
+    channelId,
+    membersVersion: nextEpoch,
+    occurredAt: Date.now(),
+    ...payload
+  };
+
+  channel.members?.forEach(memberId => {
+    const memberSocketId = resolveSocketId(memberId);
+    if (memberSocketId) {
+      io.to(memberSocketId).emit('group-membership-changed', eventPayload);
+      io.to(memberSocketId).emit('group-rekey-required', {
+        channelId,
+        membersVersion: nextEpoch,
+        reason: payload.changeType,
+        occurredAt: eventPayload.occurredAt
+      });
+    }
+  });
+}
+
 // Track active call peers: socketId -> Set of partner socketIds
 const activeCallPeers = new Map<string, Set<string>>();
 
@@ -3267,6 +3335,36 @@ io.on("connection", (socket) => {
     emitToChannel(channelId, "typing", { channelId, usernames: typingUsernames });
   });
 
+  socket.on("bind-media-identity", (data: { mediaKeyFingerprint: string; mediaKeyVersion?: number }) => {
+    const fingerprint = (data?.mediaKeyFingerprint || "").trim();
+    if (!fingerprint) {
+      socket.emit("media-identity-bind-result", { success: false, reason: "missing_fingerprint" });
+      return;
+    }
+
+    const identity = getParticipantIdentityBinding(socket);
+    const binding: ParticipantIdentityBinding = {
+      ...identity,
+      mediaKeyFingerprint: fingerprint,
+      mediaKeyVersion: Number.isFinite(data?.mediaKeyVersion) ? Number(data.mediaKeyVersion) : 1,
+      boundAt: Date.now()
+    };
+
+    mediaIdentityBindings.set(socket.id, binding);
+
+    socket.emit("media-identity-bind-result", {
+      success: true,
+      identity: {
+        stableUserId: binding.stableUserId,
+        dbUserId: binding.dbUserId,
+        authenticated: binding.authenticated,
+        mediaKeyFingerprint: binding.mediaKeyFingerprint,
+        mediaKeyVersion: binding.mediaKeyVersion,
+        boundAt: binding.boundAt
+      }
+    });
+  });
+
   // WebRTC Signaling for screen sharing
   socket.on("start-screen-share", () => {
     const user = users.get(socket.id);
@@ -3299,14 +3397,16 @@ io.on("connection", (socket) => {
     io.to(data.targetId).emit("webrtc-offer", {
       offer: data.offer,
       senderId: socket.id,
-      username: user?.username || 'Unknown'
+      username: user?.username || 'Unknown',
+      participantIdentity: buildSignalingIdentity(socket)
     });
   });
 
   socket.on("webrtc-answer", (data: { answer: RTCSessionDescriptionInit; targetId: string }) => {
     io.to(data.targetId).emit("webrtc-answer", {
       answer: data.answer,
-      senderId: socket.id
+      senderId: socket.id,
+      participantIdentity: buildSignalingIdentity(socket)
     });
   });
 
@@ -3406,14 +3506,16 @@ io.on("connection", (socket) => {
     io.to(data.targetId).emit("call-offer", {
       offer: data.offer,
       senderId: socket.id,
-      username: user?.username || 'Unknown'
+      username: user?.username || 'Unknown',
+      participantIdentity: buildSignalingIdentity(socket)
     });
   });
 
   socket.on("call-answer-sdp", (data: { answer: RTCSessionDescriptionInit; targetId: string }) => {
     io.to(data.targetId).emit("call-answer-sdp", {
       answer: data.answer,
-      senderId: socket.id
+      senderId: socket.id,
+      participantIdentity: buildSignalingIdentity(socket)
     });
   });
 
@@ -3949,6 +4051,12 @@ io.on("connection", (socket) => {
       }
     });
 
+    emitGroupMembershipChange(data.channelId, {
+      changeType: "leave",
+      actorUserId: stableId,
+      targetUserId: stableId
+    });
+
     // Archive if no members remain
     if (channel.members.length === 0) {
       channelRepository.archive(data.channelId);
@@ -4005,6 +4113,12 @@ io.on("connection", (socket) => {
       if (memberSocketId) {
         io.to(memberSocketId).emit("group-member-removed", { channelId: data.channelId, userId: data.targetUserId });
       }
+    });
+
+    emitGroupMembershipChange(data.channelId, {
+      changeType: "kick",
+      actorUserId: stableId,
+      targetUserId: data.targetUserId
     });
 
     if (ENABLE_LOGGING) console.log(`User ${data.targetUserId} kicked from group ${data.channelId} by ${user.username}`);
@@ -4111,6 +4225,12 @@ io.on("connection", (socket) => {
         avatar: dbChannel?.avatar || null
       });
     }
+
+    emitGroupMembershipChange(data.channelId, {
+      changeType: "join",
+      actorUserId: stableId,
+      targetUserId: data.userId
+    });
 
     if (ENABLE_LOGGING) console.log(`User ${data.userId} added to group ${data.channelId} by ${user.username}`);
   });
@@ -4236,6 +4356,7 @@ io.on("connection", (socket) => {
         }
       }
 
+      mediaIdentityBindings.delete(socket.id);
       users.delete(socket.id);
       typingUsers.delete(socket.id);
 
