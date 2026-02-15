@@ -167,6 +167,78 @@ const screenSharers = new Map<string, {
 // Track active call peers: socketId -> Set of partner socketIds
 const activeCallPeers = new Map<string, Set<string>>();
 
+interface VoiceMediaState {
+  audio: boolean;
+  video?: boolean;
+}
+
+interface VoiceChannelParticipant {
+  stableUserId: string;
+  socketId: string;
+  username: string;
+  dbUserId?: number;
+  media: VoiceMediaState;
+  speaking?: boolean;
+  muted?: boolean;
+}
+
+// Voice channel state: channelId -> (stableUserId -> participant)
+const voiceChannelParticipants = new Map<string, Map<string, VoiceChannelParticipant>>();
+// Reverse index for disconnect cleanup: socketId -> Set<channelId>
+const socketVoiceChannels = new Map<string, Set<string>>();
+
+function getVoiceRoomId(channelId: string): string {
+  return `voice:${channelId}`;
+}
+
+function serializeVoiceChannelState(channelId: string): VoiceChannelParticipant[] {
+  return Array.from(voiceChannelParticipants.get(channelId)?.values() ?? []);
+}
+
+function trackSocketVoiceChannel(socketId: string, channelId: string) {
+  if (!socketVoiceChannels.has(socketId)) {
+    socketVoiceChannels.set(socketId, new Set());
+  }
+  socketVoiceChannels.get(socketId)!.add(channelId);
+}
+
+function untrackSocketVoiceChannel(socketId: string, channelId: string) {
+  const channels = socketVoiceChannels.get(socketId);
+  if (!channels) return;
+  channels.delete(channelId);
+  if (channels.size === 0) socketVoiceChannels.delete(socketId);
+}
+
+function removeSocketFromVoiceChannels(ioServer: Server, socketId: string): VoiceChannelParticipant[] {
+  const removed: VoiceChannelParticipant[] = [];
+  const joinedChannels = Array.from(socketVoiceChannels.get(socketId) ?? []);
+
+  for (const channelId of joinedChannels) {
+    const participants = voiceChannelParticipants.get(channelId);
+    if (!participants) continue;
+
+    for (const [stableUserId, participant] of participants.entries()) {
+      if (participant.socketId !== socketId) continue;
+
+      participants.delete(stableUserId);
+      removed.push(participant);
+
+      ioServer.to(getVoiceRoomId(channelId)).emit("voice-channel-user-left", {
+        channelId,
+        participant,
+        participants: serializeVoiceChannelState(channelId)
+      });
+    }
+
+    if (participants.size === 0) {
+      voiceChannelParticipants.delete(channelId);
+    }
+  }
+
+  socketVoiceChannels.delete(socketId);
+  return removed;
+}
+
 function addCallPeer(socketId: string, peerId: string) {
   if (!activeCallPeers.has(socketId)) activeCallPeers.set(socketId, new Set());
   if (!activeCallPeers.has(peerId)) activeCallPeers.set(peerId, new Set());
@@ -3424,6 +3496,113 @@ io.on("connection", (socket) => {
     });
   });
 
+  // Voice room channels (channel-scoped, backward compatible with existing DM call events)
+  socket.on("voice-join-channel", (data: { channelId: string; media: { audio: true; video?: false } }) => {
+    const user = users.get(socket.id);
+    if (!user || !data?.channelId || !data?.media?.audio) return;
+
+    const stableUserId = getStableUserId(socket);
+    const channelId = data.channelId;
+    const roomId = getVoiceRoomId(channelId);
+
+    if (!voiceChannelParticipants.has(channelId)) {
+      voiceChannelParticipants.set(channelId, new Map());
+    }
+
+    const participants = voiceChannelParticipants.get(channelId)!;
+    const existing = participants.get(stableUserId);
+    const participant: VoiceChannelParticipant = {
+      stableUserId,
+      socketId: socket.id,
+      username: user.username,
+      dbUserId: user.dbUserId,
+      media: {
+        audio: true,
+        video: data.media.video
+      },
+      speaking: existing?.speaking,
+      muted: existing?.muted
+    };
+
+    participants.set(stableUserId, participant);
+    trackSocketVoiceChannel(socket.id, channelId);
+    socket.join(roomId);
+
+    if (existing) {
+      io.to(roomId).emit("voice-channel-presence-updated", {
+        channelId,
+        participant,
+        participants: serializeVoiceChannelState(channelId)
+      });
+    } else {
+      io.to(roomId).emit("voice-channel-user-joined", {
+        channelId,
+        participant,
+        participants: serializeVoiceChannelState(channelId)
+      });
+    }
+  });
+
+  socket.on("voice-leave-channel", (data: { channelId: string }) => {
+    const channelId = data?.channelId;
+    if (!channelId) return;
+
+    const stableUserId = getStableUserId(socket);
+    const participants = voiceChannelParticipants.get(channelId);
+    if (!participants) return;
+
+    const participant = participants.get(stableUserId);
+    if (!participant) return;
+
+    participants.delete(stableUserId);
+    untrackSocketVoiceChannel(socket.id, channelId);
+    socket.leave(getVoiceRoomId(channelId));
+
+    io.to(getVoiceRoomId(channelId)).emit("voice-channel-user-left", {
+      channelId,
+      participant,
+      participants: serializeVoiceChannelState(channelId)
+    });
+
+    if (participants.size === 0) {
+      voiceChannelParticipants.delete(channelId);
+    }
+  });
+
+  socket.on("voice-channel-state-request", (data: { channelId: string }) => {
+    const channelId = data?.channelId;
+    if (!channelId) return;
+
+    socket.emit("voice-channel-state", {
+      channelId,
+      participants: serializeVoiceChannelState(channelId)
+    });
+  });
+
+  socket.on("voice-channel-presence-updated", (data: { channelId: string; speaking?: boolean; muted?: boolean; media?: { audio?: boolean; video?: boolean } }) => {
+    const channelId = data?.channelId;
+    if (!channelId) return;
+
+    const stableUserId = getStableUserId(socket);
+    const participants = voiceChannelParticipants.get(channelId);
+    const participant = participants?.get(stableUserId);
+    if (!participants || !participant) return;
+
+    if (typeof data.speaking === 'boolean') participant.speaking = data.speaking;
+    if (typeof data.muted === 'boolean') participant.muted = data.muted;
+    if (data.media) {
+      if (typeof data.media.audio === 'boolean') participant.media.audio = data.media.audio;
+      if (typeof data.media.video === 'boolean') participant.media.video = data.media.video;
+    }
+    participant.socketId = socket.id;
+
+    io.to(getVoiceRoomId(channelId)).emit("voice-channel-presence-updated", {
+      channelId,
+      participant,
+      participants: serializeVoiceChannelState(channelId)
+    });
+  });
+
   // Channel management
   socket.on("create-channel", (data: string | { name: string; description?: string }) => {
     // Backward compat: accept plain string or object
@@ -4260,6 +4439,9 @@ io.on("connection", (socket) => {
       for (const peerId of callPeers) {
         io.to(peerId).emit("call-ended", { userId: socket.id });
       }
+
+      // Clean up voice channel presence
+      removeSocketFromVoiceChannels(io, socket.id);
 
       socket.broadcast.emit("user-left", {
         id: socket.id,
