@@ -1011,6 +1011,22 @@ class SocketManager {
 			calling.handleCallIceCandidate(data.senderId, data.candidate);
 		});
 
+		sock.on('voice-channel-user-joined', (data: { channelId: string; userId: string; username: string }) => {
+			const me = get(currentUser);
+			if (me?.id === data.userId) {
+				return;
+			}
+
+			console.log(`[SocketManager] Voice participant joined ${data.channelId}: ${data.username}`);
+			calling.createCallOffer(sock, data.userId, data.username)
+				.catch(err => console.error('[SocketManager] voice-channel createCallOffer failed:', err));
+		});
+
+		sock.on('voice-channel-user-left', (data: { channelId: string; userId: string }) => {
+			console.log(`[SocketManager] Voice participant left ${data.channelId}: ${data.userId}`);
+			calling.removeCall(data.userId);
+		});
+
 		sock.on('screen-share-started', (data: { userId: string; username: string }) => {
 			console.log(`[SocketManager] ${data.username} started screen sharing`);
 			sock.emit('request-screen-share', { sharerId: data.userId });
@@ -1269,6 +1285,22 @@ export function switchChannel(channelId: string): void {
 	socketManager.emit('join-channel', channelId);
 	currentChannel.set(channelId);
 	markChannelAsRead(channelId);
+}
+
+export async function joinVoiceChannel(channelId: string): Promise<void> {
+	const sock = socketManager.getSocket();
+	if (!sock) {
+		throw new Error('Socket not connected');
+	}
+	await calling.joinVoiceChannel(sock, channelId);
+}
+
+export async function leaveVoiceChannel(channelId: string): Promise<void> {
+	const sock = socketManager.getSocket();
+	if (!sock) {
+		return;
+	}
+	await calling.leaveVoiceChannel(sock, channelId);
 }
 
 export function createChannel(channelName: string, description?: string): void {
