@@ -29,7 +29,10 @@ plugins/
 
   "backend": {
     "entry": "./backend/index.ts",
-    "socketEvents": ["event:name"]
+    "socketEvents": ["your:event"],
+    "socketEventPermissions": {
+      "your:event": ["events.emit"]
+    }
   },
 
   "frontend": {
@@ -41,7 +44,9 @@ plugins/
         "component": "./frontend/Panel.svelte"
       }
     }
-  }
+  },
+
+  "permissions": ["events.emit", "users.read"]
 }
 ```
 
@@ -60,7 +65,7 @@ const plugin: BackendPlugin = {
   socketHandlers: {
     'your:event': async (socket, data, ctx) => {
       // Handle socket event
-      ctx.emit('response:event', { result: 'success' });
+      ctx.emit?.('response:event', { result: 'success' });
     }
   },
 
@@ -73,6 +78,39 @@ const plugin: BackendPlugin = {
 export default plugin;
 ```
 
+## 🔐 Permission Model
+
+Plugins are now capability-gated. The backend only exposes context methods/data when the plugin declares matching permissions.
+
+### Available permissions
+
+- `messages.read` — read channel messages through `ctx.messages`.
+- `messages.write` — reserved for future message mutation APIs.
+- `users.read` — read user data through `ctx.users`.
+- `channels.read` — read channel data through `ctx.channels`.
+- `channels.manage` — reserved for future channel mutation APIs.
+- `events.emit` — broadcast events through `ctx.emit` and `ctx.emitToChannel`.
+
+### Context services (permission-gated)
+
+Instead of direct mutable maps, plugins receive narrow service wrappers:
+
+- `ctx.users?.list()`
+- `ctx.users?.getBySocketId(socketId)`
+- `ctx.channels?.list()`
+- `ctx.channels?.getById(channelId)`
+- `ctx.messages?.listByChannel(channelId)`
+- `ctx.emit?.(...)`
+- `ctx.emitToChannel?.(...)`
+- `ctx.hasPermission(permission)`
+
+### Validation and safety
+
+- Unknown permissions are rejected at load time.
+- Unsafe permission formats are rejected at load time.
+- `backend.socketEventPermissions` is validated; unknown entries fail plugin load.
+- If a socket handler requires permissions the plugin did not request, handler registration is denied and surfaced in plugin status/admin APIs.
+
 ## 🔌 Available Hooks
 
 ### Backend Hooks
@@ -84,23 +122,6 @@ export default plugin;
 - `onChannelCreate(channel, ctx)` - Called on channel creation
 - `onUserJoin(user, ctx)` - Called when user joins
 - `socketHandlers` - Custom socket event handlers
-
-### Plugin Context
-
-The `ctx` object provides:
-
-```typescript
-{
-  io: Server,                    // Socket.IO server
-  app: Express,                  // Express app
-  channels: Map<string, any>,    // All channels
-  users: Map<string, any>,       // All users
-  channelMessages: Map<...>,     // All messages
-  storage: PluginStorage,        // Persistent storage
-  emit: (event, data) => void,   // Broadcast to all
-  emitToChannel: (...) => void   // Emit to specific channel
-}
-```
 
 ### Plugin Storage
 
@@ -118,6 +139,22 @@ await ctx.storage.delete('key');
 const keys = await ctx.storage.list();
 ```
 
+## 🔁 Migration Guide for Existing Plugins
+
+If your plugin predates permission gating, migrate as follows:
+
+1. **Update permission naming** to dot notation (`users.read`, not `users:read`).
+2. **Declare required permissions** in `plugin.json > permissions`.
+3. **Add per-socket-handler requirements** in `backend.socketEventPermissions`.
+4. **Replace direct map access**:
+   - `ctx.users.get(id)` → `ctx.users?.getBySocketId(id)`
+   - `ctx.channels.get(id)` → `ctx.channels?.getById(id)`
+   - `ctx.channelMessages.get(id)` → `ctx.messages?.listByChannel(id)`
+5. **Guard emits**:
+   - `ctx.emit(...)` → `ctx.emit?.(...)`
+   - `ctx.emitToChannel(...)` → `ctx.emitToChannel?.(...)`
+6. **Optional safety checks** with `ctx.hasPermission(...)` before using gated APIs.
+
 ## 📊 Example Plugins
 
 ### Agile Tools
@@ -125,20 +162,6 @@ Located in `plugins/agile-tools/`
 - Task management
 - Sprint planning
 - Burndown charts
-
-## 🎯 Performance Impact
-
-### Base App (No Plugins)
-- Bundle: ~130KB
-- Memory: ~20-30MB
-- Features: Chat, channels, DMs
-
-### With All Plugins
-- Bundle: +150KB
-- Memory: +100MB
-- Features: Everything above + calls + tools
-
-**Users only load plugins they enable!**
 
 ## 🚀 Adding Your Plugin
 
@@ -155,32 +178,12 @@ Located in `plugins/agile-tools/`
 - Test with plugin disabled to ensure core works
 - Document your plugin's events and API
 
-## 🎨 UI Extensions
-
-Plugins can extend:
-- **Sidebar panels** - Add new sidebar items
-- **Channel views** - Custom channel types
-- **Commands** - Slash commands like `/task`
-- **Modals** - Pop-up interfaces
-
 ## 🔒 Security Notes
 
 - Plugins run in the same process (no sandboxing yet)
 - Trust plugins you install
 - Review plugin code before enabling
+- Denied permission errors are surfaced in plugin status/admin APIs
 - Disable with `"enabled": false` in plugin.json
-
-## 📝 Plugin Ideas
-
-- Polls & surveys
-- File sharing with preview
-- Code snippet formatting
-- Translation bot
-- Game integration (chess, trivia)
-- Calendar & events
-- Music sharing
-- Drawing board
-- Code collaboration
-- Crypto wallet integration
 
 **The system is yours - build whatever you want!**

@@ -1,15 +1,41 @@
 import type { Server, Socket } from 'socket.io';
 import type { Server as HttpServer } from 'http';
 
+export const PLUGIN_PERMISSIONS = {
+  MESSAGES_READ: 'messages.read',
+  MESSAGES_WRITE: 'messages.write',
+  USERS_READ: 'users.read',
+  CHANNELS_READ: 'channels.read',
+  CHANNELS_MANAGE: 'channels.manage',
+  EVENTS_EMIT: 'events.emit'
+} as const;
+
+export type PluginPermission = typeof PLUGIN_PERMISSIONS[keyof typeof PLUGIN_PERMISSIONS];
+
+export interface PluginUsersService {
+  list: () => any[];
+  getBySocketId: (socketId: string) => any | null;
+}
+
+export interface PluginChannelsService {
+  list: () => any[];
+  getById: (channelId: string) => any | null;
+}
+
+export interface PluginMessagesService {
+  listByChannel: (channelId: string) => any[];
+}
+
 export interface PluginContext {
   io: Server;
   httpServer: HttpServer;
-  channels: Map<string, any>;
-  users: Map<string, any>;
-  channelMessages: Map<string, any[]>;
+  users?: PluginUsersService;
+  channels?: PluginChannelsService;
+  messages?: PluginMessagesService;
   storage: PluginStorage;
-  emit: (event: string, data: any) => void;
-  emitToChannel: (channelId: string, event: string, data: any) => void;
+  emit?: (event: string, data: any) => void;
+  emitToChannel?: (channelId: string, event: string, data: any) => void;
+  hasPermission: (permission: PluginPermission) => boolean;
 }
 
 export interface PluginStorage {
@@ -57,6 +83,7 @@ export interface PluginManifest {
   backend?: {
     entry: string;
     socketEvents?: string[];
+    socketEventPermissions?: Record<string, PluginPermission[]>;
   };
 
   frontend?: {
@@ -73,7 +100,7 @@ export interface PluginManifest {
     };
   };
 
-  permissions?: string[];
+  permissions?: PluginPermission[];
   dependencies?: string[];
   enabled?: boolean;
 }

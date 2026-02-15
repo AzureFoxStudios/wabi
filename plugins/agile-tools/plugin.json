@@ -17,7 +17,14 @@
       "sprint:start",
       "sprint:end",
       "burndown:get"
-    ]
+    ],
+    "socketEventPermissions": {
+      "task:create": ["users.read", "events.emit"],
+      "task:update": ["events.emit"],
+      "task:delete": ["events.emit"],
+      "sprint:create": ["users.read", "events.emit"],
+      "sprint:start": ["events.emit"]
+    }
   },
 
   "frontend": {
@@ -34,8 +41,8 @@
   },
 
   "permissions": [
-    "channels:read",
-    "messages:write"
+    "users.read",
+    "events.emit"
   ],
   "dependencies": []
 }

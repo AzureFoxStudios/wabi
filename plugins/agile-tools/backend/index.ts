@@ -48,7 +48,7 @@ const plugin: BackendPlugin = {
 
   socketHandlers: {
     'task:create': async (socket: Socket, data: Partial<Task>, ctx: PluginContext) => {
-      const user = ctx.users.get(socket.id);
+      const user = ctx.users?.getBySocketId(socket.id);
       if (!user) return;
 
       const task: Task = {
@@ -71,7 +71,7 @@ const plugin: BackendPlugin = {
       await ctx.storage.set('tasks', tasks);
 
       // Broadcast to all users
-      ctx.emit('task:created', task);
+      ctx.emit?.('task:created', task);
 
       console.log(`✅ Task created: ${task.title} by ${user.username}`);
     },
@@ -92,7 +92,7 @@ const plugin: BackendPlugin = {
       };
 
       await ctx.storage.set('tasks', tasks);
-      ctx.emit('task:updated', tasks[taskIndex]);
+      ctx.emit?.('task:updated', tasks[taskIndex]);
 
       console.log(`✏️  Task updated: ${tasks[taskIndex].id}`);
     },
@@ -107,7 +107,7 @@ const plugin: BackendPlugin = {
       }
 
       await ctx.storage.set('tasks', filteredTasks);
-      ctx.emit('task:deleted', { id: data.id });
+      ctx.emit?.('task:deleted', { id: data.id });
 
       console.log(`🗑️  Task deleted: ${data.id}`);
     },
@@ -118,7 +118,7 @@ const plugin: BackendPlugin = {
     },
 
     'sprint:create': async (socket: Socket, data: { name: string }, ctx: PluginContext) => {
-      const user = ctx.users.get(socket.id);
+      const user = ctx.users?.getBySocketId(socket.id);
       if (!user) return;
 
       const sprint: Sprint = {
@@ -134,7 +134,7 @@ const plugin: BackendPlugin = {
       sprints.push(sprint);
       await ctx.storage.set('sprints', sprints);
 
-      ctx.emit('sprint:created', sprint);
+      ctx.emit?.('sprint:created', sprint);
       console.log(`🏃 Sprint created: ${sprint.name}`);
     },
 
@@ -151,7 +151,7 @@ const plugin: BackendPlugin = {
       sprint.startDate = Date.now();
 
       await ctx.storage.set('sprints', sprints);
-      ctx.emit('sprint:started', sprint);
+      ctx.emit?.('sprint:started', sprint);
 
       console.log(`▶️  Sprint started: ${sprint.name}`);
     },
