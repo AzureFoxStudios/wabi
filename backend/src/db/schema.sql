@@ -145,6 +145,7 @@ CREATE TABLE IF NOT EXISTS channels (
   channel_type TEXT NOT NULL DEFAULT 'public',  -- 'public', 'dm', 'group'
   name TEXT NOT NULL,
   description TEXT DEFAULT '',
+  voice_settings_json TEXT,
   created_at INTEGER NOT NULL,
   created_by TEXT,
   persist_messages INTEGER DEFAULT 1,

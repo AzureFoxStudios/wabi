@@ -5,6 +5,7 @@ export interface DbChannel {
 	channel_type: 'public' | 'dm' | 'group';
 	name: string;
 	description: string;
+	voice_settings_json?: string | null;
 	created_at: number;
 	created_by?: string;
 	persist_messages: number;
@@ -99,7 +100,7 @@ export class ChannelRepository {
 	}
 
 	// Update channel settings
-	updateSettings(channelId: string, settings: { persist_messages?: number; description?: string }): void {
+	updateSettings(channelId: string, settings: { persist_messages?: number; description?: string; voice_settings_json?: string | null }): void {
 		const updates: string[] = [];
 		const values: any[] = [];
 
@@ -111,6 +112,11 @@ export class ChannelRepository {
 		if (settings.description !== undefined) {
 			updates.push('description = ?');
 			values.push(settings.description);
+		}
+
+		if (settings.voice_settings_json !== undefined) {
+			updates.push('voice_settings_json = ?');
+			values.push(settings.voice_settings_json);
 		}
 
 		if (updates.length === 0) return;
