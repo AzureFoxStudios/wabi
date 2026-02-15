@@ -853,6 +853,32 @@ class SocketManager {
 			);
 		});
 
+		sock.on('user-moderation-updated', (data: {
+			dbUserId: number;
+			isTimedOut: boolean;
+			isBanned: boolean;
+			isShadowRestricted: boolean;
+		}) => {
+			users.update(u => u.map(existing =>
+				existing.dbUserId === data.dbUserId
+					? { ...existing, isTimedOut: data.isTimedOut, isBanned: data.isBanned, isShadowRestricted: data.isShadowRestricted }
+					: existing
+			));
+			currentUser.update(cu =>
+				cu && cu.dbUserId === data.dbUserId
+					? { ...cu, isTimedOut: data.isTimedOut, isBanned: data.isBanned, isShadowRestricted: data.isShadowRestricted }
+					: cu
+			);
+		});
+
+		sock.on('forced-logout', (data: { reason?: string }) => {
+			const reason = data?.reason || 'Your session was closed by a staff member.';
+			authStore.setAuthError(reason, 'session_expired');
+			this.safeLocalStorageRemove('sessionId');
+			this.safeLocalStorageRemove('authToken');
+			this.disconnect();
+		});
+
 		sock.on('group-created', (group: Channel) => {
 			channels.update(chs => {
 				if (chs.some(ch => ch.id === group.id)) return chs;
@@ -1486,6 +1512,34 @@ export function assignRole(targetUserId: number, roleName: string): void {
 
 export function removeUserRole(targetUserId: number, roleName: string): void {
 	socketManager.emit('remove-role', { targetUserId, roleName });
+}
+
+export function forceLogoutUser(targetUserId: number, callback?: (response: { success: boolean; error?: string }) => void): void {
+	socketManager.emit('force-logout-user', { targetUserId }, callback);
+}
+
+export function applyUserTimeout(targetUserId: number, durationMinutes: number, callback?: (response: { success: boolean; error?: string }) => void): void {
+	socketManager.emit('apply-user-timeout', { targetUserId, durationMinutes }, callback);
+}
+
+export function removeUserTimeout(targetUserId: number, callback?: (response: { success: boolean; error?: string }) => void): void {
+	socketManager.emit('remove-user-timeout', { targetUserId }, callback);
+}
+
+export function applyUserBan(targetUserId: number, callback?: (response: { success: boolean; error?: string }) => void): void {
+	socketManager.emit('apply-user-ban', { targetUserId }, callback);
+}
+
+export function removeUserBan(targetUserId: number, callback?: (response: { success: boolean; error?: string }) => void): void {
+	socketManager.emit('remove-user-ban', { targetUserId }, callback);
+}
+
+export function applyShadowRestriction(targetUserId: number, callback?: (response: { success: boolean; error?: string }) => void): void {
+	socketManager.emit('apply-shadow-restriction', { targetUserId }, callback);
+}
+
+export function removeShadowRestriction(targetUserId: number, callback?: (response: { success: boolean; error?: string }) => void): void {
+	socketManager.emit('remove-shadow-restriction', { targetUserId }, callback);
 }
 
 export function createGroup(name: string, memberIds: string[]): void {

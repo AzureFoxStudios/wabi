@@ -92,6 +92,13 @@ export {
 	// Role operations
 	assignRole,
 	removeUserRole,
+	forceLogoutUser,
+	applyUserTimeout,
+	removeUserTimeout,
+	applyUserBan,
+	removeUserBan,
+	applyShadowRestriction,
+	removeShadowRestriction,
 
 	// Emote operations
 	uploadEmote,

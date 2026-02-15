@@ -44,6 +44,76 @@ function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: str
 
   return { roles: roles.length > 0 ? roles : ['member'], highestRole, roleColor };
 }
+
+
+type ModerationPermission = 'user.force_logout' | 'user.timeout' | 'user.ban' | 'user.shadow_restrict';
+
+const ROLE_PERMISSION_GRANTS: Record<string, ModerationPermission[]> = {
+  owner: ['user.force_logout', 'user.timeout', 'user.ban', 'user.shadow_restrict'],
+  admin: ['user.force_logout', 'user.timeout', 'user.ban', 'user.shadow_restrict'],
+  mod: ['user.force_logout', 'user.timeout', 'user.shadow_restrict']
+};
+
+const timedOutUsers = new Map<number, number>();
+const bannedUsers = new Set<number>();
+const shadowRestrictedUsers = new Set<number>();
+
+function getHighestRolePriority(dbUserId?: number): number {
+  if (!dbUserId) return 0;
+  const row = db.prepare(
+    `SELECT MAX(r.priority) as maxPriority
+     FROM user_roles ur
+     LEFT JOIN roles r ON ur.role_name = r.role_name
+     WHERE ur.user_id = ? AND ur.workspace_id = 'default-workspace'`
+  ).get(dbUserId) as { maxPriority: number | null } | undefined;
+  return row?.maxPriority || 0;
+}
+
+function getEffectivePermissions(dbUserId?: number): Set<ModerationPermission> {
+  if (!dbUserId) return new Set();
+  const roleInfo = getUserRoleInfo(dbUserId);
+  const grants = new Set<ModerationPermission>();
+
+  for (const role of roleInfo.roles) {
+    for (const permission of ROLE_PERMISSION_GRANTS[role] || []) {
+      grants.add(permission);
+    }
+  }
+
+  return grants;
+}
+
+function hasModerationPermission(dbUserId: number | undefined, permission: ModerationPermission): boolean {
+  return getEffectivePermissions(dbUserId).has(permission);
+}
+
+function canModerateTarget(actorDbUserId: number | undefined, targetDbUserId: number, permission: ModerationPermission): boolean {
+  if (!actorDbUserId || actorDbUserId === targetDbUserId) return false;
+  if (!hasModerationPermission(actorDbUserId, permission)) return false;
+
+  return getHighestRolePriority(actorDbUserId) > getHighestRolePriority(targetDbUserId);
+}
+
+function getModerationFlags(dbUserId?: number): { isTimedOut: boolean; isBanned: boolean; isShadowRestricted: boolean } {
+  if (!dbUserId) return { isTimedOut: false, isBanned: false, isShadowRestricted: false };
+
+  const timeoutUntil = timedOutUsers.get(dbUserId);
+  const isTimedOut = typeof timeoutUntil === 'number' && timeoutUntil > Date.now();
+  if (timeoutUntil && timeoutUntil <= Date.now()) timedOutUsers.delete(dbUserId);
+
+  return {
+    isTimedOut,
+    isBanned: bannedUsers.has(dbUserId),
+    isShadowRestricted: shadowRestrictedUsers.has(dbUserId)
+  };
+}
+
+function emitModerationUpdate(dbUserId: number): void {
+  io.emit('user-moderation-updated', {
+    dbUserId,
+    ...getModerationFlags(dbUserId)
+  });
+}
 // In-memory data store
 interface Channel {
   id: string;
@@ -99,6 +169,9 @@ const users = new Map<string, {
   roles?: string[];
   highestRole?: string;
   roleColor?: string | null;
+  isTimedOut?: boolean;
+  isBanned?: boolean;
+  isShadowRestricted?: boolean;
   usernameFont?: {
     family?: string;
     size?: string;
@@ -2392,6 +2465,13 @@ io.on("connection", (socket) => {
         const registeredHandle = userRecord?.handle;
         const roleInfo = getUserRoleInfo((socket as any).dbUserId);
 
+        const moderationFlags = getModerationFlags((socket as any).dbUserId);
+        if (moderationFlags.isBanned) {
+          socket.emit('forced-logout', { reason: 'Your account is currently banned.' });
+          socket.disconnect(true);
+          return;
+        }
+
         users.set(socket.id, {
           id: socket.id,
           username: registeredUsername,
@@ -2403,6 +2483,7 @@ io.on("connection", (socket) => {
           roles: roleInfo.roles,
           highestRole: roleInfo.highestRole,
           roleColor: roleInfo.roleColor,
+          ...moderationFlags,
           usernameFont
         });
 
@@ -2440,6 +2521,7 @@ io.on("connection", (socket) => {
           roles: roleInfo.roles,
           highestRole: roleInfo.highestRole,
           roleColor: roleInfo.roleColor,
+          ...moderationFlags,
           usernameFont
         });
 
@@ -2595,8 +2677,15 @@ io.on("connection", (socket) => {
       }
     }
     const rejoinDbUserId = (socket as any).isRegistered ? (socket as any).dbUserId : undefined;
+    let rejoinModerationFlags = { isTimedOut: false, isBanned: false, isShadowRestricted: false };
     if (rejoinDbUserId) {
       rejoinRoleInfo = getUserRoleInfo(rejoinDbUserId);
+      rejoinModerationFlags = getModerationFlags(rejoinDbUserId);
+      if (rejoinModerationFlags.isBanned) {
+        socket.emit('forced-logout', { reason: 'Your account is currently banned.' });
+        socket.disconnect(true);
+        return;
+      }
     }
 
     // Create/update user object with existing session data
@@ -2611,6 +2700,7 @@ io.on("connection", (socket) => {
       roles: rejoinRoleInfo.roles,
       highestRole: rejoinRoleInfo.highestRole,
       roleColor: rejoinRoleInfo.roleColor,
+      ...rejoinModerationFlags,
       usernameFont
     });
 
@@ -2652,6 +2742,9 @@ io.on("connection", (socket) => {
       roles: rejoinUser?.roles,
       highestRole: rejoinUser?.highestRole,
       roleColor: rejoinUser?.roleColor,
+      isTimedOut: rejoinUser?.isTimedOut,
+      isBanned: rejoinUser?.isBanned,
+      isShadowRestricted: rejoinUser?.isShadowRestricted,
       usernameFont: rejoinUser?.usernameFont
     });
 
@@ -2854,6 +2947,20 @@ io.on("connection", (socket) => {
     const channel = channels.get(data.channelId);
     if (!channel) return;
 
+    if (user.dbUserId) {
+      const moderationFlags = getModerationFlags(user.dbUserId);
+      if (moderationFlags.isBanned) {
+        socket.emit('forced-logout', { reason: 'Your account is currently banned.' });
+        socket.disconnect(true);
+        return;
+      }
+
+      if (moderationFlags.isTimedOut) {
+        socket.emit('channel-error', 'You are currently timed out and cannot send messages.');
+        return;
+      }
+    }
+
     // Calculate deletion time: use channel auto-delete setting, or default to 1 day
     const DEFAULT_SERVER_EXPIRATION = 24 * 60 * 60 * 1000; // 1 day in milliseconds
     const deletionTime = channel.autoDeleteAfter
@@ -2915,7 +3022,12 @@ io.on("connection", (socket) => {
       }
     }
 
-    emitToChannel(data.channelId, "message", { channelId: data.channelId, message });
+    const moderationFlags = user.dbUserId ? getModerationFlags(user.dbUserId) : { isShadowRestricted: false, isTimedOut: false, isBanned: false };
+    if (moderationFlags.isShadowRestricted) {
+      socket.emit("message", { channelId: data.channelId, message });
+    } else {
+      emitToChannel(data.channelId, "message", { channelId: data.channelId, message });
+    }
 
     // Schedule auto-deletion for ALL messages (either custom time or default 1-day)
     const deletionDuration = channel.autoDeleteAfter || '24h';
@@ -3714,6 +3826,111 @@ io.on("connection", (socket) => {
     }
 
     if (ENABLE_LOGGING) console.log(`DM deleted: ${data.channelId}`);
+  });
+
+  // Moderation management
+  socket.on("force-logout-user", (data: { targetUserId: number }, callback?: (response: { success: boolean; error?: string }) => void) => {
+    const actor = users.get(socket.id);
+    if (!actor?.dbUserId) return callback?.({ success: false, error: 'You must be signed in to perform this action.' });
+
+    if (!canModerateTarget(actor.dbUserId, data.targetUserId, 'user.force_logout')) {
+      return callback?.({ success: false, error: 'You do not have permission to force logout this user.' });
+    }
+
+    const targetSocketId = dbUserIdToSocketId.get(data.targetUserId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('forced-logout', { reason: 'A staff member ended your session.' });
+      io.sockets.sockets.get(targetSocketId)?.disconnect(true);
+    }
+
+    callback?.({ success: true });
+  });
+
+  socket.on("apply-user-timeout", (data: { targetUserId: number; durationMinutes?: number }, callback?: (response: { success: boolean; error?: string }) => void) => {
+    const actor = users.get(socket.id);
+    if (!actor?.dbUserId) return callback?.({ success: false, error: 'You must be signed in to perform this action.' });
+
+    if (!canModerateTarget(actor.dbUserId, data.targetUserId, 'user.timeout')) {
+      return callback?.({ success: false, error: 'You do not have permission to timeout this user.' });
+    }
+
+    const durationMinutes = Math.max(1, Math.min(10080, Number(data.durationMinutes || 10)));
+    timedOutUsers.set(data.targetUserId, Date.now() + durationMinutes * 60 * 1000);
+    emitModerationUpdate(data.targetUserId);
+    callback?.({ success: true });
+  });
+
+  socket.on("remove-user-timeout", (data: { targetUserId: number }, callback?: (response: { success: boolean; error?: string }) => void) => {
+    const actor = users.get(socket.id);
+    if (!actor?.dbUserId) return callback?.({ success: false, error: 'You must be signed in to perform this action.' });
+
+    if (!canModerateTarget(actor.dbUserId, data.targetUserId, 'user.timeout')) {
+      return callback?.({ success: false, error: 'You do not have permission to remove timeout for this user.' });
+    }
+
+    timedOutUsers.delete(data.targetUserId);
+    emitModerationUpdate(data.targetUserId);
+    callback?.({ success: true });
+  });
+
+  socket.on("apply-user-ban", (data: { targetUserId: number }, callback?: (response: { success: boolean; error?: string }) => void) => {
+    const actor = users.get(socket.id);
+    if (!actor?.dbUserId) return callback?.({ success: false, error: 'You must be signed in to perform this action.' });
+
+    if (!canModerateTarget(actor.dbUserId, data.targetUserId, 'user.ban')) {
+      return callback?.({ success: false, error: 'You do not have permission to ban this user.' });
+    }
+
+    bannedUsers.add(data.targetUserId);
+    timedOutUsers.delete(data.targetUserId);
+    emitModerationUpdate(data.targetUserId);
+
+    const targetSocketId = dbUserIdToSocketId.get(data.targetUserId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('forced-logout', { reason: 'Your account has been banned by staff.' });
+      io.sockets.sockets.get(targetSocketId)?.disconnect(true);
+    }
+
+    callback?.({ success: true });
+  });
+
+  socket.on("remove-user-ban", (data: { targetUserId: number }, callback?: (response: { success: boolean; error?: string }) => void) => {
+    const actor = users.get(socket.id);
+    if (!actor?.dbUserId) return callback?.({ success: false, error: 'You must be signed in to perform this action.' });
+
+    if (!canModerateTarget(actor.dbUserId, data.targetUserId, 'user.ban')) {
+      return callback?.({ success: false, error: 'You do not have permission to unban this user.' });
+    }
+
+    bannedUsers.delete(data.targetUserId);
+    emitModerationUpdate(data.targetUserId);
+    callback?.({ success: true });
+  });
+
+  socket.on("apply-shadow-restriction", (data: { targetUserId: number }, callback?: (response: { success: boolean; error?: string }) => void) => {
+    const actor = users.get(socket.id);
+    if (!actor?.dbUserId) return callback?.({ success: false, error: 'You must be signed in to perform this action.' });
+
+    if (!canModerateTarget(actor.dbUserId, data.targetUserId, 'user.shadow_restrict')) {
+      return callback?.({ success: false, error: 'You do not have permission to shadow restrict this user.' });
+    }
+
+    shadowRestrictedUsers.add(data.targetUserId);
+    emitModerationUpdate(data.targetUserId);
+    callback?.({ success: true });
+  });
+
+  socket.on("remove-shadow-restriction", (data: { targetUserId: number }, callback?: (response: { success: boolean; error?: string }) => void) => {
+    const actor = users.get(socket.id);
+    if (!actor?.dbUserId) return callback?.({ success: false, error: 'You must be signed in to perform this action.' });
+
+    if (!canModerateTarget(actor.dbUserId, data.targetUserId, 'user.shadow_restrict')) {
+      return callback?.({ success: false, error: 'You do not have permission to remove shadow restriction for this user.' });
+    }
+
+    shadowRestrictedUsers.delete(data.targetUserId);
+    emitModerationUpdate(data.targetUserId);
+    callback?.({ success: true });
   });
 
   // Role management

@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { currentUser, socket, type User, channels, createDM, getDMChannelIdForUser, dmPanelSignal } from '$lib/socket';
+	import { currentUser, socket, type User, channels, createDM, getDMChannelIdForUser, dmPanelSignal, forceLogoutUser, applyUserTimeout, removeUserTimeout, applyUserBan, removeUserBan, applyShadowRestriction, removeShadowRestriction } from '$lib/socket';
 	import { startCall } from '$lib/calling';
 	import { startScreenShare } from '$lib/calling';
 	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
 	import { onMount, onDestroy } from 'svelte';
+	import { canModerateTarget } from '$lib/moderationPermissions';
 
 	export let user: User | null = null;
 	export let isOpen = false;
@@ -17,6 +18,8 @@
 	let popoutElement: HTMLElement;
 	let position = { top: 0, left: 0 };
 	let userNote = '';
+	let moderationToast = '';
+	let moderationToastType: 'success' | 'error' = 'success';
 
 	$: if (user && browser) {
 		loadUserNote();
@@ -161,6 +164,26 @@
 		}
 	}
 
+
+	$: canForceLogout = canModerateTarget($currentUser, user, 'user.force_logout');
+	$: canTimeout = canModerateTarget($currentUser, user, 'user.timeout');
+	$: canBan = canModerateTarget($currentUser, user, 'user.ban');
+	$: canShadowRestrict = canModerateTarget($currentUser, user, 'user.shadow_restrict');
+	$: showStaffActions = !!user && !isOwnProfile && !!user.dbUserId && (canForceLogout || canTimeout || canBan || canShadowRestrict);
+
+	function showModerationToast(message: string, type: 'success' | 'error') {
+		moderationToast = message;
+		moderationToastType = type;
+		setTimeout(() => (moderationToast = ''), 3000);
+	}
+
+	function runModerationAction(label: string, fn: (cb: (response: { success: boolean; error?: string }) => void) => void) {
+		fn((response) => {
+			if (response.success) showModerationToast(`${label} succeeded.`, 'success');
+			else showModerationToast(response.error || `${label} failed.`, 'error');
+		});
+	}
+
 	onMount(() => {
 		if (browser) {
 			document.addEventListener('click', handleClickOutside);
@@ -209,6 +232,7 @@
 				<span class="username-tag">#{user.id.slice(-4)}</span>
 			</div>
 
+			{#if moderationToast}<div class="moderation-toast {moderationToastType}">{moderationToast}</div>{/if}
 			<div class="status-section">
 				<span class="status-indicator" style="background-color: {getStatusColor(user.status)}"></span>
 				<span class="status-label">{getStatusLabel(user.status)}</span>
@@ -279,6 +303,39 @@
 						</svg>
 						Screen Share
 					</button>
+				</div>
+			{/if}
+
+			{#if showStaffActions}
+				<div class="divider"></div>
+				<div class="section">
+					<h4 class="section-title">Staff Actions</h4>
+					<div class="staff-actions">
+						{#if canForceLogout}
+							<button class="context-btn danger" on:click={() => confirm(`Force logout ${user.username}?`) && runModerationAction('Force logout', cb => forceLogoutUser(user.dbUserId!, cb))}>Force Logout</button>
+						{/if}
+						{#if canTimeout}
+							{#if user.isTimedOut}
+								<button class="context-btn" on:click={() => runModerationAction('Remove timeout', cb => removeUserTimeout(user.dbUserId!, cb))}>Remove Timeout</button>
+							{:else}
+								<button class="context-btn" on:click={() => { const v = Number(prompt('Timeout duration in minutes', '10') || 10); if (v > 0) runModerationAction('Apply timeout', cb => applyUserTimeout(user.dbUserId!, v, cb)); }}>Apply Timeout</button>
+							{/if}
+						{/if}
+						{#if canBan}
+							{#if user.isBanned}
+								<button class="context-btn" on:click={() => runModerationAction('Remove ban', cb => removeUserBan(user.dbUserId!, cb))}>Remove Ban</button>
+							{:else}
+								<button class="context-btn danger" on:click={() => confirm(`Ban ${user.username}? This will disconnect them.`) && runModerationAction('Apply ban', cb => applyUserBan(user.dbUserId!, cb))}>Apply Ban</button>
+							{/if}
+						{/if}
+						{#if canShadowRestrict}
+							{#if user.isShadowRestricted}
+								<button class="context-btn" on:click={() => runModerationAction('Remove shadow restriction', cb => removeShadowRestriction(user.dbUserId!, cb))}>Remove Shadow Restriction</button>
+							{:else}
+								<button class="context-btn" on:click={() => confirm(`Apply shadow restriction to ${user.username}?`) && runModerationAction('Apply shadow restriction', cb => applyShadowRestriction(user.dbUserId!, cb))}>Apply Shadow Restriction</button>
+							{/if}
+						{/if}
+					</div>
 				</div>
 			{/if}
 
@@ -549,4 +606,32 @@
 	.call-btn.screen-share:hover {
 		background: var(--color-warning, #faa61a);
 	}
+
+	.moderation-toast {
+		margin: 0.5rem 0;
+		padding: 0.45rem 0.6rem;
+		border-radius: 6px;
+		font-size: 0.82rem;
+	}
+
+	.moderation-toast.success {
+		background: #1f6f43;
+		color: #fff;
+	}
+
+	.moderation-toast.error {
+		background: #8f2d38;
+		color: #fff;
+	}
+
+	.staff-actions {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.context-btn.danger {
+		color: #ff8f99;
+	}
 </style>
+

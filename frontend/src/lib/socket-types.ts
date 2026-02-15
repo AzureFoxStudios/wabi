@@ -49,6 +49,9 @@ export interface User {
   roles?: string[];
   highestRole?: string;
   roleColor?: string | null;
+  isTimedOut?: boolean;
+  isBanned?: boolean;
+  isShadowRestricted?: boolean;
   usernameFont?: {
     family?: string;
     size?: string;

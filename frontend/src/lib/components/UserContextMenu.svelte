@@ -1,213 +1,111 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import type { User } from '$lib/socket';
+	import {
+		type User,
+		currentUser,
+		forceLogoutUser,
+		applyUserTimeout,
+		removeUserTimeout,
+		applyUserBan,
+		removeUserBan,
+		applyShadowRestriction,
+		removeShadowRestriction
+	} from '$lib/socket';
+	import { canModerateTarget } from '$lib/moderationPermissions';
 
 	export let user: User;
 	export let x: number;
 	export let y: number;
 	export let isOwnProfile: boolean;
 
-	const dispatch = createEventDispatcher<{
-		close: void;
-		voiceCall: void;
-		videoCall: void;
-		screenShare: void;
-		openDM: { user: User };
-		viewProfile: void;
-	}>();
-
+	const dispatch = createEventDispatcher();
 	let menuElement: HTMLDivElement;
+	let toastMessage = '';
+	let toastType: 'success' | 'error' = 'success';
 
-	// Adjust position to keep menu on screen
-	$: adjustedX = (() => {
-		if (!menuElement) return x;
-		const menuWidth = menuElement.offsetWidth || 200;
-		const windowWidth = window.innerWidth;
-		// If menu would go off right edge, flip to left
-		if (x + menuWidth > windowWidth) {
-			return x - menuWidth;
-		}
-		return x;
-	})();
+	$: me = $currentUser;
+	$: canForceLogout = canModerateTarget(me, user, 'user.force_logout');
+	$: canTimeout = canModerateTarget(me, user, 'user.timeout');
+	$: canBan = canModerateTarget(me, user, 'user.ban');
+	$: canShadowRestrict = canModerateTarget(me, user, 'user.shadow_restrict');
+	$: showStaffActions = !isOwnProfile && !!user.dbUserId && (canForceLogout || canTimeout || canBan || canShadowRestrict);
 
-	$: adjustedY = (() => {
-		if (!menuElement) return y;
-		const menuHeight = menuElement.offsetHeight || 300;
-		const windowHeight = window.innerHeight;
-		// If menu would go off bottom edge, flip to top
-		if (y + menuHeight > windowHeight) {
-			return y - menuHeight;
-		}
-		return y;
-	})();
+	$: adjustedX = menuElement && x + (menuElement.offsetWidth || 200) > window.innerWidth ? x - (menuElement.offsetWidth || 200) : x;
+	$: adjustedY = menuElement && y + (menuElement.offsetHeight || 300) > window.innerHeight ? y - (menuElement.offsetHeight || 300) : y;
 
-	function handleClickOutside(event: MouseEvent) {
-		dispatch('close');
+	function showToast(message: string, type: 'success' | 'error') {
+		toastMessage = message;
+		toastType = type;
+		setTimeout(() => (toastMessage = ''), 3000);
 	}
 
-	function handleVoiceCall() {
-		dispatch('voiceCall');
-		dispatch('close');
+	function performAction(actionName: string, fn: (cb: (r: { success: boolean; error?: string }) => void) => void) {
+		fn((response) => {
+			if (response.success) {
+				showToast(`${actionName} completed for ${user.username}.`, 'success');
+			} else {
+				showToast(response.error || `${actionName} failed. Please try again.`, 'error');
+			}
+		});
 	}
 
-	function handleVideoCall() {
-		dispatch('videoCall');
-		dispatch('close');
-	}
-
-	function handleScreenShare() {
-		dispatch('screenShare');
-		dispatch('close');
-	}
-
-	function handleOpenDM() {
-		dispatch('openDM', { user });
-		dispatch('close');
-	}
-
-	function handleViewProfile() {
-		dispatch('viewProfile');
-		dispatch('close');
+	function confirmAndRun(message: string, run: () => void) {
+		if (confirm(message)) run();
 	}
 </script>
 
-<svelte:window on:click={handleClickOutside} />
-
-<div
-	bind:this={menuElement}
-	class="context-menu"
-	style="left: {adjustedX}px; top: {adjustedY}px;"
-	role="button"
-	tabindex="0"
-	on:click|stopPropagation
-	on:keydown|stopPropagation={(event) => {
-		if (event.key === 'Enter' || event.key === ' ') {
-			event.preventDefault();
-		}
-	}}
->
-	<div class="menu-header">
-		<div class="user-info">
-			{#if user.profilePicture}
-				<img src={user.profilePicture} alt={user.username} class="avatar" />
-			{:else}
-				<div class="avatar-placeholder" style="background-color: {user.color}">
-					{user.username.charAt(0).toUpperCase()}
-				</div>
-			{/if}
-			<span class="username">{user.username}</span>
-		</div>
-	</div>
-
+<svelte:window on:click={() => dispatch('close')} />
+<div bind:this={menuElement} class="context-menu" style="left: {adjustedX}px; top: {adjustedY}px;" role="button" tabindex="0" on:click|stopPropagation>
+	{#if toastMessage}
+		<div class="toast {toastType}">{toastMessage}</div>
+	{/if}
+	<div class="menu-header"><div class="user-info"><span class="username">{user.username}</span></div></div>
 	<div class="menu-divider"></div>
 
 	{#if !isOwnProfile}
-		<button class="menu-item" on:click={handleOpenDM}>
-			<span class="icon">💬</span>
-			<span>Send Message</span>
-		</button>
-
-		<button class="menu-item" on:click={handleVoiceCall}>
-			<span class="icon">📞</span>
-			<span>Voice Call</span>
-		</button>
-
-		<button class="menu-item" on:click={handleVideoCall}>
-			<span class="icon">📹</span>
-			<span>Video Call</span>
-		</button>
-
-		<button class="menu-item" on:click={handleScreenShare}>
-			<span class="icon">📺</span>
-			<span>Screen Share</span>
-		</button>
-
+		<button class="menu-item" on:click={() => dispatch('openDM', { user })}>💬 Send Message</button>
+		<button class="menu-item" on:click={() => dispatch('voiceCall')}>📞 Voice Call</button>
+		<button class="menu-item" on:click={() => dispatch('videoCall')}>📹 Video Call</button>
+		<button class="menu-item" on:click={() => dispatch('screenShare')}>📺 Screen Share</button>
 		<div class="menu-divider"></div>
 	{/if}
 
-	<button class="menu-item" on:click={handleViewProfile}>
-		<span class="icon">👤</span>
-		<span>View Profile</span>
-	</button>
+	<button class="menu-item" on:click={() => dispatch('viewProfile')}>👤 View Profile</button>
+
+	{#if showStaffActions}
+		<div class="menu-divider"></div>
+		<div class="menu-label">Staff Actions</div>
+		{#if canForceLogout}
+			<button class="menu-item destructive" on:click={() => confirmAndRun(`Force logout ${user.username}?`, () => performAction('Force logout', cb => forceLogoutUser(user.dbUserId!, cb)))}>🚪 Force Logout</button>
+		{/if}
+		{#if canTimeout}
+			{#if user.isTimedOut}
+				<button class="menu-item" on:click={() => performAction('Remove timeout', cb => removeUserTimeout(user.dbUserId!, cb))}>⏱️ Remove Timeout</button>
+			{:else}
+				<button class="menu-item" on:click={() => {
+					const input = prompt('Timeout duration in minutes', '10');
+					const duration = Number(input || 10);
+					if (!Number.isNaN(duration) && duration > 0) performAction('Apply timeout', cb => applyUserTimeout(user.dbUserId!, duration, cb));
+				}}>⏱️ Apply Timeout</button>
+			{/if}
+		{/if}
+		{#if canBan}
+			{#if user.isBanned}
+				<button class="menu-item" on:click={() => performAction('Remove ban', cb => removeUserBan(user.dbUserId!, cb))}>✅ Remove Ban</button>
+			{:else}
+				<button class="menu-item destructive" on:click={() => confirmAndRun(`Ban ${user.username}? This will immediately end their session.`, () => performAction('Apply ban', cb => applyUserBan(user.dbUserId!, cb)))}>🔨 Apply Ban</button>
+			{/if}
+		{/if}
+		{#if canShadowRestrict}
+			{#if user.isShadowRestricted}
+				<button class="menu-item" on:click={() => performAction('Remove shadow restriction', cb => removeShadowRestriction(user.dbUserId!, cb))}>👁️ Remove Shadow Restriction</button>
+			{:else}
+				<button class="menu-item" on:click={() => confirmAndRun(`Apply shadow restriction to ${user.username}?`, () => performAction('Apply shadow restriction', cb => applyShadowRestriction(user.dbUserId!, cb)))}>👁️ Apply Shadow Restriction</button>
+			{/if}
+		{/if}
+	{/if}
 </div>
 
 <style>
-	.context-menu {
-		position: fixed;
-		background: #2b2d31;
-		border: 2px solid #5865f2;
-		border-radius: 8px;
-		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-		min-width: 200px;
-		z-index: 1000;
-		padding: 0.5rem 0;
-	}
-
-	.menu-header {
-		padding: 0.75rem 1rem;
-		background: #1e1f22;
-	}
-
-	.user-info {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-	}
-
-	.avatar {
-		width: 32px;
-		height: 32px;
-		border: 2px solid #5865f2;
-	}
-
-	.avatar-placeholder {
-		width: 32px;
-		height: 32px;
-		font-weight: bold;
-		color: white;
-		font-size: 0.875rem;
-		border: 2px solid #5865f2;
-	}
-
-	.username {
-		font-weight: 700;
-		color: #ffffff;
-		font-size: 0.95rem;
-	}
-
-	.menu-divider {
-		height: 2px;
-		background: #404249;
-		margin: 0.5rem 0;
-	}
-
-	.menu-item {
-		width: 100%;
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 0.75rem 1rem;
-		background: transparent;
-		border: none;
-		color: #dbdee1;
-		font-size: 0.95rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.15s ease;
-		text-align: left;
-	}
-
-	.menu-item:hover {
-		background: #5865f2;
-		color: #ffffff;
-		font-weight: 600;
-	}
-
-	.icon {
-		font-size: 1.2rem;
-		width: 24px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
+.context-menu{position:fixed;background:#2b2d31;border:2px solid #5865f2;border-radius:8px;min-width:220px;z-index:1000;padding:.5rem 0}.menu-item{width:100%;padding:.65rem 1rem;background:transparent;border:none;color:#dbdee1;text-align:left}.menu-item:hover{background:#5865f2;color:#fff}.menu-divider{height:1px;background:#404249;margin:.4rem 0}.menu-label{padding:.3rem 1rem;color:#8ea1e1;font-size:.75rem;text-transform:uppercase}.destructive{color:#ff9ea3}.toast{margin:.25rem .5rem;padding:.4rem .6rem;border-radius:6px;font-size:.8rem}.toast.success{background:#1f6f43}.toast.error{background:#8f2d38}
 </style>
