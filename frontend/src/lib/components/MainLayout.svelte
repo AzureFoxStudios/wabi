@@ -321,6 +321,7 @@
 
 	:global(:root) {
 		--dm-rail-top: calc(env(safe-area-inset-top, 0px) + 86px);
+		--mobile-nav-height: calc(56px + env(safe-area-inset-bottom, 0px));
 	}
 	.app-container {
 		display: flex;
@@ -523,8 +524,8 @@
 
 	@media (max-width: 768px) {
 		.app-container {
-			height: calc(100vh - 56px);
-			height: calc(100dvh - 56px);
+			height: calc(100vh - var(--mobile-nav-height));
+			height: calc(100dvh - var(--mobile-nav-height));
 		}
 		.app-container.in-call {
 			height: 100vh;
@@ -540,8 +541,8 @@
 			top: 0;
 			left: 0;
 			width: 100% !important;
-			height: calc(100vh - 56px);
-			height: calc(100dvh - 56px);
+			height: calc(100vh - var(--mobile-nav-height));
+			height: calc(100dvh - var(--mobile-nav-height));
 			z-index: var(--z-modal);
 			background: var(--bg-primary);
 		}
@@ -557,8 +558,8 @@
 			top: 0;
 			left: 0;
 			width: 100%;
-			height: calc(100vh - 56px);
-			height: calc(100dvh - 56px);
+			height: calc(100vh - var(--mobile-nav-height));
+			height: calc(100dvh - var(--mobile-nav-height));
 			z-index: var(--z-modal);
 			background: var(--bg-primary);
 		}
@@ -571,7 +572,7 @@
 			bottom: 0;
 			left: 0;
 			right: 0;
-			height: 56px;
+			height: var(--mobile-nav-height);
 			background: var(--bg-tertiary);
 			border-top: 1px solid var(--border);
 			z-index: var(--z-toast);
@@ -749,6 +750,39 @@
 		color: var(--text-primary);
 		font-size: 0.8rem;
 		z-index: var(--z-toast);
+	}
+
+	@media (max-width: 768px) {
+		.voice-channel-strip {
+			left: 8px;
+			right: 8px;
+			bottom: calc(var(--mobile-nav-height) + 8px);
+			min-width: 0;
+			width: auto;
+			max-height: min(58dvh, 420px);
+			overflow-y: auto;
+			padding: 0.6rem;
+			gap: 0.55rem;
+		}
+
+		.voice-debug-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.voice-channel-actions button {
+			flex: 1 1 calc(50% - 0.2rem);
+			min-height: 40px;
+		}
+
+		.voice-channel-actions button.leave {
+			flex: 1 1 100%;
+		}
+
+		.voice-toast {
+			right: 8px;
+			bottom: calc(var(--mobile-nav-height) + 8px);
+			max-width: calc(100vw - 16px);
+		}
 	}
 
 </style>

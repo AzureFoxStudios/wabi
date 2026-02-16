@@ -356,6 +356,26 @@
 	}
 
 	@media (max-width: 768px) {
+		.context-menu-surface {
+			left: 8px !important;
+			right: 8px;
+			top: auto !important;
+			bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+			width: auto;
+			max-width: none;
+			min-width: 0 !important;
+			max-height: min(70dvh, 560px);
+			overflow-y: auto;
+			border-radius: 12px;
+		}
+
+		.menu-header {
+			position: sticky;
+			top: 0;
+			background: var(--bg-secondary, #2b2d31);
+			z-index: 1;
+		}
+
 		.menu-item {
 			min-height: 44px;
 			font-size: 1rem;

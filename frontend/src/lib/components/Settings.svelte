@@ -2198,18 +2198,35 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	}
 
 	@media (max-width: 768px) {
+		.modal-overlay {
+			align-items: flex-end;
+		}
+
+		.modal-content {
+			width: 100%;
+			max-width: 100%;
+			height: calc(100dvh - env(safe-area-inset-top, 0px));
+			max-height: calc(100dvh - env(safe-area-inset-top, 0px));
+			border-radius: 14px 14px 0 0;
+		}
+
 		.settings-layout {
 			flex-direction: column;
 		}
 
 		.settings-tabs {
 			width: 100%;
+			position: sticky;
+			top: 0;
 			flex-direction: row;
 			overflow-x: auto;
+			-webkit-overflow-scrolling: touch;
 			border-right: none;
 			border-bottom: 1px solid var(--border);
 			padding: 0.375rem;
 			gap: 0.25rem;
+			z-index: 1;
+			background: var(--bg-tertiary);
 		}
 
 		.settings-tabs-spacer {
@@ -2238,11 +2255,7 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 
 		.settings-content {
 			padding: 1rem;
-		}
-
-		.modal-content {
-			max-height: 90vh;
-			max-height: 90dvh;
+			padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
 		}
 	}
 </style>

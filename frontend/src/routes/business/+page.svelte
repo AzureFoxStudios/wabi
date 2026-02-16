@@ -845,7 +845,7 @@
 			right: 0;
 			background: var(--biz-bg-secondary, #1a2332);
 			border-top: 1px solid var(--biz-border, #2d3a4d);
-			padding: 0.5rem 0.25rem;
+			padding: 0.5rem 0.25rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
 			justify-content: space-around;
 			z-index: var(--z-sticky);
 		}
@@ -864,18 +864,28 @@
 		}
 
 		.dashboard-body {
-			padding-bottom: 70px;
+			padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px));
 		}
 
 		.main-content {
 			padding: 0.75rem;
 		}
 
+		.chat-panel-business {
+			position: fixed;
+			right: 0;
+			top: 52px;
+			bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+			width: 100% !important;
+			max-width: 100%;
+			z-index: var(--z-sticky);
+		}
+
 		.task-panel {
 			position: fixed;
 			right: 0;
 			top: 52px;
-			bottom: 70px;
+			bottom: calc(70px + env(safe-area-inset-bottom, 0px));
 			width: 100% !important;
 			max-width: 100%;
 			z-index: var(--z-dropdown);
