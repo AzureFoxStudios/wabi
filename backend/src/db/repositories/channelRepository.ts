@@ -2,7 +2,7 @@ import db from '../database.js';
 
 export interface DbChannel {
 	channel_id: string;
-	channel_type: 'public' | 'dm' | 'group';
+	channel_type: 'text' | 'voice' | 'public' | 'dm' | 'group';
 	name: string;
 	description: string;
 	voice_settings_json?: string | null;
@@ -67,11 +67,11 @@ export class ChannelRepository {
 		return (stmt.get(dmId) as DbChannel) || null;
 	}
 
-	// Get all public channels
-	getPublicChannels(): DbChannel[] {
+	// Get all workspace channels (text/voice plus legacy public)
+	getWorkspaceChannels(): DbChannel[] {
 		const stmt = db.prepare(`
 			SELECT * FROM channels
-			WHERE channel_type = 'public' AND is_archived = 0
+			WHERE channel_type IN ('text', 'voice', 'public') AND is_archived = 0
 			ORDER BY created_at ASC
 		`);
 		return stmt.all() as DbChannel[];
@@ -83,19 +83,42 @@ export class ChannelRepository {
 		stmt.run(channelId);
 	}
 
-	// Ensure general channel exists
-	ensureGeneralExists(): void {
+	// Ensure default base channels exist (1 text + 1 voice)
+	ensureBaseChannelsExist(): void {
 		const existing = this.findById('general');
 		if (!existing) {
 			this.create({
 				channel_id: 'general',
-				channel_type: 'public',
+				channel_type: 'text',
 				name: 'general',
 				created_at: Date.now(),
 				created_by: 'system',
 				persist_messages: 1
 			});
-			console.log('[ChannelRepository] Created general channel');
+			console.log('[ChannelRepository] Created default text channel: general');
+		} else if (existing.channel_type !== 'text') {
+			// Canonicalize legacy base channel type to explicit text
+			const stmt = db.prepare('UPDATE channels SET channel_type = ?, persist_messages = ? WHERE channel_id = ?');
+			stmt.run('text', 1, 'general');
+			console.log(`[ChannelRepository] Normalized base channel type: general (${existing.channel_type} -> text)`);
+		}
+
+		const existingVoice = this.findById('voice');
+		if (!existingVoice) {
+			this.create({
+				channel_id: 'voice',
+				channel_type: 'voice',
+				name: 'voice',
+				created_at: Date.now(),
+				created_by: 'system',
+				persist_messages: 0
+			});
+			console.log('[ChannelRepository] Created default voice channel: voice');
+		} else if (existingVoice.channel_type !== 'voice') {
+			// Canonicalize legacy/mis-typed base voice channel
+			const stmt = db.prepare('UPDATE channels SET channel_type = ?, persist_messages = ? WHERE channel_id = ?');
+			stmt.run('voice', 0, 'voice');
+			console.log(`[ChannelRepository] Normalized base channel type: voice (${existingVoice.channel_type} -> voice)`);
 		}
 	}
 
