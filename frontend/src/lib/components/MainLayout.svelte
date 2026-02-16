@@ -348,8 +348,8 @@
 
 	.dm-notification-rail {
 		position: absolute;
-		right: 32px;
-		top: 16px;
+		right: 0;
+		top: calc(env(safe-area-inset-top, 0px) + 72px);
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
@@ -373,16 +373,16 @@
 		height: 40px;
 		padding: 0;
 		border: 1px solid rgba(var(--border-rgb), var(--opacity-light));
-		border-radius: 12px;
-		background: rgba(var(--bg-secondary-rgb), 0.85);
-		backdrop-filter: blur(8px);
+		border-right: none;
+		border-radius: 12px 0 0 12px;
+		background: var(--bg-secondary);
 		cursor: pointer;
 		overflow: hidden;
 		animation: stub-slide-in 0.22s ease both;
 	}
 
 	.dm-notification-stub:hover {
-		transform: translateX(-3px);
+		transform: translateX(-4px);
 		border-color: var(--accent);
 	}
 
