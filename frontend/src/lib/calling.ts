@@ -1,6 +1,7 @@
 import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { buildRTCConfig, prefetchTurnCredentials } from './turnConfig';
+import { playCallActionSound } from './callSounds';
 import {
 	getMediaRuntimeConfig,
 	getScreenShareQualityProfile,
@@ -25,6 +26,7 @@ export interface Call {
 	stream: MediaStream;
 	isVideoEnabled: boolean;
 	isAudioEnabled: boolean;
+	isSpeaking: boolean;
 }
 
 export interface IncomingCall {
@@ -80,6 +82,7 @@ export const isSharing = writable(false);
 export const isMuted = writable(false);
 export const isDeafened = writable(false);
 export const isVideoOff = writable(false);
+export const isLocalSpeaking = writable(false);
 export const localStream = writable<MediaStream | null>(null);
 export const localScreenStream = writable<MediaStream | null>(null);
 export const connectionState = writable<ConnectionLifecycleState>('idle');
@@ -110,6 +113,17 @@ export const callTransportState = writable<{
 // Single map for ALL peer connections (calls and screen shares)
 // Keys are composite: `${targetId}:call` or `${targetId}:screen`
 const peerConnections = new Map<string, PeerConnectionState>();
+interface SpeakingMonitor {
+	intervalId: number;
+	analyser: AnalyserNode;
+	source: MediaStreamAudioSourceNode;
+	data: Uint8Array;
+}
+const remoteSpeakingMonitors = new Map<string, SpeakingMonitor>();
+let localSpeakingMonitor: SpeakingMonitor | null = null;
+let speakingAudioContext: AudioContext | null = null;
+const SPEAKING_RMS_THRESHOLD = 0.045;
+const SPEAKING_POLL_INTERVAL_MS = 120;
 
 // Track call participants for targeted cleanup
 const callParticipants = new Set<string>();
@@ -117,6 +131,146 @@ let activeVoiceChannelId: string | null = null;
 
 function getRTCConfig(): RTCConfiguration {
 	return buildRTCConfig();
+}
+
+function ensureSpeakingAudioContext(): AudioContext | null {
+	if (typeof window === 'undefined') return null;
+	if (speakingAudioContext) return speakingAudioContext;
+	try {
+		speakingAudioContext = new (window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)();
+		return speakingAudioContext;
+	} catch (error) {
+		console.warn('[WebRTC] Speaking detection unavailable:', error);
+		return null;
+	}
+}
+
+function computeRms(data: Uint8Array): number {
+	let sumSquares = 0;
+	for (let i = 0; i < data.length; i += 1) {
+		const normalized = (data[i] - 128) / 128;
+		sumSquares += normalized * normalized;
+	}
+	return Math.sqrt(sumSquares / data.length);
+}
+
+function setRemoteSpeakingState(userId: string, isSpeaking: boolean): void {
+	activeCalls.update(calls =>
+		calls.map(call => (call.userId === userId ? { ...call, isSpeaking } : call))
+	);
+}
+
+function stopRemoteSpeakingMonitor(userId: string): void {
+	const monitor = remoteSpeakingMonitors.get(userId);
+	if (!monitor) return;
+	clearInterval(monitor.intervalId);
+	try {
+		monitor.source.disconnect();
+		monitor.analyser.disconnect();
+	} catch {
+		// no-op
+	}
+	remoteSpeakingMonitors.delete(userId);
+	setRemoteSpeakingState(userId, false);
+}
+
+function stopAllRemoteSpeakingMonitors(): void {
+	for (const userId of remoteSpeakingMonitors.keys()) {
+		stopRemoteSpeakingMonitor(userId);
+	}
+}
+
+function startRemoteSpeakingMonitor(userId: string, stream: MediaStream): void {
+	stopRemoteSpeakingMonitor(userId);
+
+	const audioTrack = stream.getAudioTracks()[0];
+	if (!audioTrack || audioTrack.readyState !== 'live') {
+		setRemoteSpeakingState(userId, false);
+		return;
+	}
+
+	const ctx = ensureSpeakingAudioContext();
+	if (!ctx) return;
+
+	void ctx.resume().catch(() => undefined);
+
+	const analyser = ctx.createAnalyser();
+	analyser.fftSize = 1024;
+	analyser.smoothingTimeConstant = 0.5;
+	const source = ctx.createMediaStreamSource(stream);
+	source.connect(analyser);
+	const data = new Uint8Array(analyser.frequencyBinCount);
+
+	const intervalId = window.setInterval(() => {
+		if (audioTrack.readyState !== 'live' || !audioTrack.enabled || audioTrack.muted) {
+			setRemoteSpeakingState(userId, false);
+			return;
+		}
+		analyser.getByteTimeDomainData(data);
+		const speaking = computeRms(data) > SPEAKING_RMS_THRESHOLD;
+		setRemoteSpeakingState(userId, speaking);
+	}, SPEAKING_POLL_INTERVAL_MS);
+
+	remoteSpeakingMonitors.set(userId, {
+		intervalId,
+		analyser,
+		source,
+		data
+	});
+}
+
+function stopLocalSpeakingMonitor(): void {
+	if (!localSpeakingMonitor) {
+		isLocalSpeaking.set(false);
+		return;
+	}
+	clearInterval(localSpeakingMonitor.intervalId);
+	try {
+		localSpeakingMonitor.source.disconnect();
+		localSpeakingMonitor.analyser.disconnect();
+	} catch {
+		// no-op
+	}
+	localSpeakingMonitor = null;
+	isLocalSpeaking.set(false);
+}
+
+function startLocalSpeakingMonitor(stream: MediaStream): void {
+	stopLocalSpeakingMonitor();
+
+	const audioTrack = stream.getAudioTracks()[0];
+	if (!audioTrack || audioTrack.readyState !== 'live') {
+		isLocalSpeaking.set(false);
+		return;
+	}
+
+	const ctx = ensureSpeakingAudioContext();
+	if (!ctx) return;
+
+	void ctx.resume().catch(() => undefined);
+
+	const analyser = ctx.createAnalyser();
+	analyser.fftSize = 1024;
+	analyser.smoothingTimeConstant = 0.5;
+	const source = ctx.createMediaStreamSource(stream);
+	source.connect(analyser);
+	const data = new Uint8Array(analyser.frequencyBinCount);
+
+	const intervalId = window.setInterval(() => {
+		if (audioTrack.readyState !== 'live' || !audioTrack.enabled || audioTrack.muted || get(isMuted) || get(isDeafened)) {
+			isLocalSpeaking.set(false);
+			return;
+		}
+		analyser.getByteTimeDomainData(data);
+		isLocalSpeaking.set(computeRms(data) > SPEAKING_RMS_THRESHOLD);
+	}, SPEAKING_POLL_INTERVAL_MS);
+
+	localSpeakingMonitor = {
+		intervalId,
+		analyser,
+		source,
+		data
+	};
 }
 
 // ============================================================================
@@ -378,6 +532,7 @@ function cleanupPeerConnection(key: string): void {
 
 	// Only clean the relevant store based on connection type
 	if (state.type === 'call') {
+		stopRemoteSpeakingMonitor(state.targetId);
 		callParticipants.delete(state.targetId);
 		activeCalls.update(calls => calls.filter(c => c.userId !== state.targetId));
 	} else {
@@ -407,7 +562,8 @@ function addRemoteCallStream(userId: string, username: string, stream: MediaStre
 			username: username || 'Unknown',
 			stream,
 			isVideoEnabled: videoTrack ? videoTrack.enabled : false,
-			isAudioEnabled: audioTrack ? audioTrack.enabled : false
+			isAudioEnabled: audioTrack ? audioTrack.enabled : false,
+			isSpeaking: false
 		};
 
 		if (existingIndex >= 0) {
@@ -422,6 +578,7 @@ function addRemoteCallStream(userId: string, username: string, stream: MediaStre
 	});
 
 	callParticipants.add(userId);
+	startRemoteSpeakingMonitor(userId, stream);
 }
 
 function addRemoteScreenShare(userId: string, username: string, stream: MediaStream): void {
@@ -452,7 +609,7 @@ function handleRemoteTrackEnded(targetId: string, key: string, track: MediaStrea
 					if (track.kind === 'video') {
 						return { ...call, isVideoEnabled: false };
 					} else if (track.kind === 'audio') {
-						return { ...call, isAudioEnabled: false };
+						return { ...call, isAudioEnabled: false, isSpeaking: false };
 					}
 				}
 				return call;
@@ -474,7 +631,8 @@ function updateRemoteTrackState(targetId: string, track: MediaStreamTrack, type:
 				if (track.kind === 'video') {
 					return { ...call, isVideoEnabled: !track.muted && track.enabled };
 				} else if (track.kind === 'audio') {
-					return { ...call, isAudioEnabled: !track.muted && track.enabled };
+					const isAudioEnabled = !track.muted && track.enabled;
+					return { ...call, isAudioEnabled, isSpeaking: isAudioEnabled ? call.isSpeaking : false };
 				}
 			}
 			return call;
@@ -551,6 +709,7 @@ async function ensureLocalAudioStream(): Promise<MediaStream> {
 			video: false
 		});
 		localStream.set(stream);
+		startLocalSpeakingMonitor(stream);
 		return stream;
 	}
 
@@ -567,6 +726,7 @@ async function ensureLocalAudioStream(): Promise<MediaStream> {
 	if (audioTrack) {
 		stream.addTrack(audioTrack);
 	}
+	startLocalSpeakingMonitor(stream);
 	return stream;
 }
 
@@ -592,6 +752,8 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		isInCall.set(true);
 		isMuted.set(false);
 		isVideoOff.set(true);
+		startLocalSpeakingMonitor(stream);
+		playCallActionSound('join');
 		socket.emit('voice-channel-join', { channelId });
 		return stream;
 	} catch (error) {
@@ -611,6 +773,7 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 	socket.emit('voice-channel-leave', { channelId });
 	activeVoiceChannelId = null;
 	pushVoiceChannelNotice(`Left voice: ${channelId}`);
+	playCallActionSound('leave');
 
 	const stream = get(localStream);
 	if (stream) {
@@ -636,6 +799,8 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 
 	activeCalls.set([]);
 	callParticipants.clear();
+	stopAllRemoteSpeakingMonitors();
+	stopLocalSpeakingMonitor();
 	screenShares.set([]);
 	if (peerConnections.size === 0) {
 		connectionState.set('idle');
@@ -658,6 +823,8 @@ export async function startCall(socket: Socket, targetUserId: string, isVideoCal
 		activeVoiceChannel.set(null);
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);
+		startLocalSpeakingMonitor(stream);
+		playCallActionSound('join');
 
 		socket.emit('call-initiate', {
 			targetUserId,
@@ -690,6 +857,8 @@ export async function answerCall(socket: Socket, callerId: string, isVideoCall: 
 		activeVoiceChannel.set(null);
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);
+		startLocalSpeakingMonitor(stream);
+		playCallActionSound('join');
 
 		socket.emit('call-answer', {
 			callerId,
@@ -714,6 +883,8 @@ export function rejectCall(socket: Socket, callerId: string) {
 }
 
 export function endCall(socket: Socket) {
+	playCallActionSound('leave');
+
 	// Stop local media tracks
 	const stream = get(localStream);
 	if (stream) {
@@ -747,6 +918,8 @@ export function endCall(socket: Socket) {
 	activeCalls.set([]);
 	callParticipants.clear();
 	activeVoiceChannelId = null;
+	stopAllRemoteSpeakingMonitors();
+	stopLocalSpeakingMonitor();
 	connectionState.set('idle');
 }
 
@@ -760,7 +933,12 @@ export function toggleMute() {
 		const audioTrack = stream.getAudioTracks()[0];
 		if (audioTrack) {
 			audioTrack.enabled = !audioTrack.enabled;
-			isMuted.set(!audioTrack.enabled);
+			const nextMuted = !audioTrack.enabled;
+			isMuted.set(nextMuted);
+			if (nextMuted) {
+				isLocalSpeaking.set(false);
+			}
+			playCallActionSound(nextMuted ? 'mute' : 'unmute');
 		}
 	}
 }
@@ -768,6 +946,7 @@ export function toggleMute() {
 export function toggleDeafen() {
 	const currentlyDeafened = get(isDeafened);
 	isDeafened.set(!currentlyDeafened);
+	playCallActionSound(currentlyDeafened ? 'undeafen' : 'deafen');
 
 	if (!currentlyDeafened) {
 		// Becoming deafened - also mute self
@@ -777,6 +956,7 @@ export function toggleDeafen() {
 			if (audioTrack) {
 				audioTrack.enabled = false;
 				isMuted.set(true);
+				isLocalSpeaking.set(false);
 			}
 		}
 	}
@@ -1104,6 +1284,8 @@ export function cleanupAllConnections() {
 	peerConnections.clear();
 	callParticipants.clear();
 	activeVoiceChannelId = null;
+	stopAllRemoteSpeakingMonitors();
+	stopLocalSpeakingMonitor();
 
 	// Reset all stores
 	activeCalls.set([]);
@@ -1113,6 +1295,7 @@ export function cleanupAllConnections() {
 	isMuted.set(false);
 	isDeafened.set(false);
 	isVideoOff.set(false);
+	isLocalSpeaking.set(false);
 	channelCallPanelOpen.set(false);
 	connectionState.set('idle');
 }

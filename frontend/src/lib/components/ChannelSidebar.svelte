@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, pinnedChannels, pinChannel, unpinChannel, activeVoiceChannel, voiceChannelMembers, joinVoiceChannel, leaveVoiceChannel } from '$lib/socket';
+	import { activeCalls, isLocalSpeaking } from '$lib/calling';
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
@@ -112,6 +113,17 @@
 
 	function avatarTitle(username?: string): string {
 		return username || 'Voice participant';
+	}
+
+	function isMemberSpeaking(member: { userId: string }): boolean {
+		const remoteCall = $activeCalls.find(call => call.userId === member.userId);
+		if (remoteCall) {
+			return remoteCall.isSpeaking;
+		}
+		if ($currentUser && member.userId === $currentUser.id) {
+			return $isLocalSpeaking;
+		}
+		return false;
 	}
 
 	function toggleSection(section: 'text' | 'voice') {
@@ -380,9 +392,9 @@
 						<div class="voice-avatars">
 							{#each members.slice(0, 3) as member}
 								{#if member.profilePicture}
-									<img class="voice-avatar" src={member.profilePicture} alt={avatarTitle(member.username)} title={avatarTitle(member.username)} />
+									<img class="voice-avatar" class:speaking={isMemberSpeaking(member)} src={member.profilePicture} alt={avatarTitle(member.username)} title={avatarTitle(member.username)} />
 								{:else}
-									<span class="voice-avatar voice-avatar-fallback" title={avatarTitle(member.username)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
+									<span class="voice-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member)} title={avatarTitle(member.username)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 								{/if}
 							{/each}
 						</div>
@@ -393,11 +405,11 @@
 			{#if members.length > 0}
 				<div class="voice-member-list">
 					{#each members as member (member.userId)}
-						<div class="voice-member-item">
+						<div class="voice-member-item" class:speaking={isMemberSpeaking(member)}>
 							{#if member.profilePicture}
-								<img class="voice-member-avatar" src={member.profilePicture} alt={avatarTitle(member.username)} />
+								<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member)} src={member.profilePicture} alt={avatarTitle(member.username)} />
 							{:else}
-								<span class="voice-member-avatar voice-avatar-fallback">{(member.username || '?').charAt(0).toUpperCase()}</span>
+								<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 							{/if}
 							<span class="voice-member-name">{member.username || 'Unknown user'}</span>
 						</div>
@@ -1231,11 +1243,31 @@
 		background: var(--bg-secondary);
 	}
 
+	.voice-avatar.speaking,
+	.voice-member-avatar.speaking {
+		border-color: #22c55e;
+		box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.35);
+		animation: voice-ring-pulse 1.1s ease-in-out infinite;
+	}
+
 	.voice-member-name {
 		min-width: 0;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+
+	.voice-member-item.speaking .voice-member-name {
+		color: var(--text-primary);
+	}
+
+	@keyframes voice-ring-pulse {
+		0% {
+			box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55);
+		}
+		100% {
+			box-shadow: 0 0 0 5px rgba(34, 197, 94, 0);
+		}
 	}
 
 	.voice-channel-item .voice-occupancy {
