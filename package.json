@@ -8,7 +8,8 @@
     "preview": "cd frontend && bun run preview",
     "start": "cd backend && bun run start",
     "build:frontend": "cd frontend && bun run build",
-    "pr:auto": "powershell -ExecutionPolicy Bypass -File scripts/pr-auto.ps1"
+    "pr:auto": "powershell -ExecutionPolicy Bypass -File scripts/pr-auto.ps1",
+    "pr:cleanup": "powershell -ExecutionPolicy Bypass -File scripts/pr-cleanup.ps1"
   },
   "keywords": [
     "chat",
