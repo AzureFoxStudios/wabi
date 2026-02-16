@@ -252,19 +252,19 @@
 			{
 				id: 'pin-channel',
 				label: isChannelPinned(channel) ? 'Unpin Channel' : 'Pin Channel',
-				leading: '📌',
+				icon: 'pin',
 				onSelect: togglePinChannel
 			},
 			{
 				id: 'pinned-messages',
 				label: 'Pinned Messages',
-				leading: '📌',
+				icon: 'pin',
 				onSelect: () => handleShowPinnedMessages(channel.id)
 			},
 			{
 				id: 'channel-settings',
 				label: 'Channel Settings',
-				leading: '⚙',
+				icon: 'settings',
 				onSelect: () => handleOpenChannelSettings(channel)
 			}
 		];
@@ -274,7 +274,7 @@
 			items.push({
 				id: 'delete-channel',
 				label: 'Delete Channel',
-				leading: '🗑',
+				icon: 'trash-2',
 				danger: true,
 				onSelect: () => handleDeleteChannel(channel.id)
 			});
@@ -372,9 +372,6 @@
 					<button class="pin-btn" on:click|stopPropagation={() => handleShowPinnedMessages(channel.id)} title="View pinned messages">
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg>
 				</button>
-					{#if channel.id !== 'general'}
-						<button class="delete-btn" on:click|stopPropagation={() => handleDeleteChannel(channel.id)}>×</button>
-					{/if}
 				</div>
 			</div>
 		{/each}
@@ -403,7 +400,6 @@
 						<button class="pin-btn" on:click|stopPropagation={() => handleShowPinnedMessages(channel.id)} title="View pinned messages">
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg>
 				</button>
-						<button class="delete-btn" on:click|stopPropagation={() => handleDeleteChannel(channel.id)}>×</button>
 					</div>
 				</div>
 			{/each}
@@ -454,9 +450,6 @@
 						</div>
 					</div>
 					<button class="voice-btn" class:active={isConnectedToVoice(channel.id)} on:click|stopPropagation={() => handleVoiceAction(channel.id)}>{voiceActionLabel(channel.id)}</button>
-					{#if channel.id !== 'voice'}
-						<button class="delete-btn" on:click|stopPropagation={() => handleDeleteChannel(channel.id)} title="Delete channel">×</button>
-					{/if}
 				</div>
 			</div>
 			{#if members.length > 0}
@@ -1371,8 +1364,7 @@
 		transform: translateX(0);
 	}
 
-	.pin-btn,
-	.delete-btn {
+	.pin-btn {
 		opacity: 0;
 		width: 24px;
 		height: 24px;
@@ -1397,22 +1389,12 @@
 		stroke-width: 2;
 	}
 
-	.channel-item:hover .pin-btn,
-	.channel-item:hover .delete-btn {
+	.channel-item:hover .pin-btn {
 		opacity: 1;
 	}
 
 	.pin-btn:hover {
 		background: var(--pinned-border);
-		color: var(--text-primary);
-	}
-
-	.delete-btn {
-		font-size: 1.25rem;
-	}
-
-	.delete-btn:hover {
-		background: var(--color-danger);
 		color: var(--text-primary);
 	}
 
@@ -1937,7 +1919,6 @@
 		}
 
 		.pin-btn,
-		.delete-btn,
 		.settings-btn {
 			min-width: 44px;
 			min-height: 44px;

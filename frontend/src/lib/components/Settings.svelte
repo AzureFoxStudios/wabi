@@ -48,6 +48,8 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	let notificationsEnabled = true;
 	let micEnabled = true;
 	let cameraEnabled = true;
+	let suppressEveryoneHereMentions = false;
+	let suppressRoleMentions = false;
 	let notificationSound = '/sounds/ProjectSound.ogg';
 	let notificationVolume = 0.5;
 	let mediaQualityMode: MediaQualityMode = 'web-baseline';
@@ -96,6 +98,8 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 		notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 		micEnabled = localStorage.getItem('micEnabled') !== 'false';
 		cameraEnabled = localStorage.getItem('cameraEnabled') !== 'false';
+		suppressEveryoneHereMentions = localStorage.getItem('suppressEveryoneHereMentions') === 'true';
+		suppressRoleMentions = localStorage.getItem('suppressRoleMentions') === 'true';
 		notificationSound = localStorage.getItem('notificationSound') || '/sounds/ProjectSound.ogg';
 		notificationVolume = parseFloat(localStorage.getItem('notificationVolume') || '0.5');
 		localAppRuntime = isTauriRuntime();
@@ -134,6 +138,16 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	function toggleCamera() {
 		cameraEnabled = !cameraEnabled;
 		localStorage.setItem('cameraEnabled', cameraEnabled.toString());
+	}
+
+	function toggleSuppressEveryoneHereMentions() {
+		suppressEveryoneHereMentions = !suppressEveryoneHereMentions;
+		localStorage.setItem('suppressEveryoneHereMentions', suppressEveryoneHereMentions.toString());
+	}
+
+	function toggleSuppressRoleMentions() {
+		suppressRoleMentions = !suppressRoleMentions;
+		localStorage.setItem('suppressRoleMentions', suppressRoleMentions.toString());
 	}
 
 	function updateMediaQualityMode(mode: MediaQualityMode) {
@@ -890,6 +904,26 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 								</div>
 								<button class="action-btn" class:active={notificationsEnabled} on:click={requestNotificationPermission}>
 									{notificationsEnabled ? 'Enabled' : 'Enable'}
+								</button>
+							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Suppress @everyone and @here</span>
+									<span class="setting-description">Do not notify when broad mentions are used</span>
+								</div>
+								<button class="toggle-btn" class:active={suppressEveryoneHereMentions} on:click={toggleSuppressEveryoneHereMentions}>
+									{suppressEveryoneHereMentions ? 'ON' : 'OFF'}
+								</button>
+							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Suppress All Role @mentions</span>
+									<span class="setting-description">Do not notify when role mentions are used</span>
+								</div>
+								<button class="toggle-btn" class:active={suppressRoleMentions} on:click={toggleSuppressRoleMentions}>
+									{suppressRoleMentions ? 'ON' : 'OFF'}
 								</button>
 							</div>
 

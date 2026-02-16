@@ -5,6 +5,38 @@ let notificationAudio: HTMLAudioElement | null = null;
 let audioContext: AudioContext | null = null;
 let ringtoneTimeout: NodeJS.Timeout | null = null;
 
+function getNotificationSquelchSettings() {
+	if (!browser) {
+		return {
+			suppressEveryoneHere: false,
+			suppressRoleMentions: false
+		};
+	}
+
+	return {
+		suppressEveryoneHere: localStorage.getItem('suppressEveryoneHereMentions') === 'true',
+		suppressRoleMentions: localStorage.getItem('suppressRoleMentions') === 'true'
+	};
+}
+
+function shouldSquelchNotification(message: Message): boolean {
+	const text = String(message?.text || '');
+	if (!text) return false;
+
+	const { suppressEveryoneHere, suppressRoleMentions } = getNotificationSquelchSettings();
+
+	if (suppressEveryoneHere && /\B@(everyone|here)\b/i.test(text)) {
+		return true;
+	}
+
+	// Support common role-mention syntaxes.
+	if (suppressRoleMentions && (/<@&\d+>/.test(text) || /\B@&[\w-]+\b/.test(text))) {
+		return true;
+	}
+
+	return false;
+}
+
 function initAudio() {
 	if (audioContext) return;
 	try {
@@ -152,6 +184,10 @@ export function showNotification(message: Message, isCurrentUser: boolean, chann
 	const notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 	if (!notificationsEnabled) {
 		console.log('Notifications disabled in settings');
+		return;
+	}
+
+	if (shouldSquelchNotification(message)) {
 		return;
 	}
 
