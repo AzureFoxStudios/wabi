@@ -265,7 +265,7 @@
 					<span class="hash">#</span>
 					{channel.name}
 					{#if isChannelPinned(channel)}
-						<svg class="pin-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" title="Pinned"><path d="M12 17V5M9 8h6"></path></svg>
+						<svg class="pin-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V5M9 8h6"></path></svg>
 					{/if}
 					{#if $channelUnreadCounts[channel.id] && $currentChannel !== channel.id}
 						<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
@@ -310,7 +310,7 @@
 						<svg class="group-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
 						{channel.name}
 						{#if isChannelPinned(channel)}
-							<svg class="pin-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" title="Pinned"><path d="M12 17V5M9 8h6"></path></svg>
+							<svg class="pin-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V5M9 8h6"></path></svg>
 						{/if}
 						{#if $channelUnreadCounts[channel.id] && $currentChannel !== channel.id}
 							<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>

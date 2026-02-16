@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Message, User } from '$lib/socket';
-	import { users, togglePinMessage } from '$lib/socket';
+	import { users, currentChannel, togglePinMessage } from '$lib/socket';
 
 	export let pinnedMessages: Message[];
 
@@ -22,7 +22,7 @@
 	}
 
 	function handleUnpin(messageId: string) {
-		togglePinMessage(messageId);
+		togglePinMessage($currentChannel, messageId);
 	}
 </script>
 

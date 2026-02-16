@@ -119,6 +119,18 @@
 		}
 		return colors[Math.abs(hash) % colors.length];
 	}
+
+	function streamBinding(node: HTMLVideoElement, stream?: MediaStream) {
+		node.srcObject = stream ?? null;
+		return {
+			update(nextStream?: MediaStream) {
+				node.srcObject = nextStream ?? null;
+			},
+			destroy() {
+				node.srcObject = null;
+			}
+		};
+	}
 </script>
 
 {#if hasActiveMedia}
@@ -133,7 +145,7 @@
 								autoplay
 								playsinline
 								muted={$isDeafened}
-								bind:srcObject={share.stream}
+								use:streamBinding={share.stream}
 							></video>
 							<div class="stream-label">{share.username}'s Screen</div>
 						</div>
@@ -149,7 +161,7 @@
 									autoplay
 									playsinline
 									muted={participant.isLocal || $isDeafened}
-									bind:srcObject={participant.stream}
+									use:streamBinding={participant.stream}
 								></video>
 							{:else}
 								<div
@@ -179,7 +191,7 @@
 								autoplay
 								playsinline
 								muted={$isDeafened}
-								bind:srcObject={share.stream}
+								use:streamBinding={share.stream}
 							></video>
 							<div class="stream-label">{share.username}'s Screen</div>
 						</div>
@@ -212,7 +224,7 @@
 							autoplay
 							playsinline
 							muted
-							bind:srcObject={$localStream}
+							use:streamBinding={$localStream}
 							class:hidden={$isVideoOff}
 						></video>
 						{#if $isVideoOff}
@@ -237,7 +249,7 @@
 								autoplay
 								playsinline
 								muted={$isDeafened}
-								bind:srcObject={call.stream}
+								use:streamBinding={call.stream}
 								class:hidden={!call.isVideoEnabled}
 							></video>
 							{#if !call.isVideoEnabled}

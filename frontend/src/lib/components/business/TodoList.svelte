@@ -352,7 +352,7 @@
 							<td>
 								<select
 									value={todo.status}
-									on:change={(e) => handleStatusChange(todo, e.target.value)}
+									on:change={(e) => handleStatusChange(todo, (e.target as HTMLSelectElement).value as Todo['status'])}
 									class="status-select"
 								>
 									{#each $kanbanColumns as column}

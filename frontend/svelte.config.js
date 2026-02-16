@@ -1,5 +1,3 @@
-import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
-
 const isTauri = !!process.env.TAURI_ENV_PLATFORM;
 
 const adapter = isTauri
@@ -10,7 +8,7 @@ const adapter = isTauri
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
-	preprocess: vitePreprocess(),
+	preprocess: [],
 	kit: {
 		adapter,
 		...(isTauri

@@ -22,54 +22,8 @@
 	let unsubscribeLocalStorageSync: (() => void) | null = null;
 
 	// --- Lifecycle ---
-	onMount(async () => {
-		showLoadingScreen = false;
-		isInitialLoad = false;
-
-		const notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
-		if (notificationsEnabled) await requestNotificationPermission();
-
-		layoutStore.subscribe(state => {
-			if (state.isMobile) {
-				layoutStore.resetPanelsOnDesktop();
-			}
-		});
-
-		const savedUsername = localStorage.getItem('username');
-		const savedToken = localStorage.getItem('authToken');
-		if (savedUsername) {
-			// Initialize E2E encryption if registered user (before socket, to validate session)
-			if (savedToken) {
-				const dbUserId = localStorage.getItem('dbUserId');
-				if (dbUserId) {
-					try {
-						await initE2E(parseInt(dbUserId, 10), savedToken, false);
-					} catch (err) {
-						console.error('[App] Cached session invalid, clearing login:', err);
-						// User no longer exists or session is invalid - force logout
-						localStorage.removeItem('username');
-						localStorage.removeItem('authToken');
-						localStorage.removeItem('dbUserId');
-						localStorage.removeItem('sessionId');
-						loggedIn = false;
-						return; // Skip socket init
-					}
-				}
-			}
-
-			initSocket(savedUsername, savedToken || undefined);
-			loggedIn = true;
-		}
-
-		const isRegistered = !!savedToken;
-		await initializeTheme(isRegistered);
-
-		unsubscribeThemeWatcher = watchThemeChanges();
-
-		if (!isRegistered) {
-			unsubscribeLocalStorageSync = syncThemeToLocalStorage();
-		}
-
+	onMount(() => {
+		let disposed = false;
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (e.ctrlKey && e.shiftKey && e.key === '1') {
 				e.preventDefault();
@@ -80,9 +34,59 @@
 				handleLogout();
 			}
 		};
+
+		(async () => {
+			showLoadingScreen = false;
+			isInitialLoad = false;
+
+			const notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
+			if (notificationsEnabled) await requestNotificationPermission();
+
+			layoutStore.subscribe(state => {
+				if (state.isMobile) {
+					layoutStore.resetPanelsOnDesktop();
+				}
+			});
+
+			const savedUsername = localStorage.getItem('username');
+			const savedToken = localStorage.getItem('authToken');
+			if (savedUsername) {
+				// Initialize E2E encryption if registered user (before socket, to validate session)
+				if (savedToken) {
+					const dbUserId = localStorage.getItem('dbUserId');
+					if (dbUserId) {
+						try {
+							await initE2E(parseInt(dbUserId, 10), savedToken, false);
+						} catch (err) {
+							console.error('[App] Cached session invalid, clearing login:', err);
+							localStorage.removeItem('username');
+							localStorage.removeItem('authToken');
+							localStorage.removeItem('dbUserId');
+							localStorage.removeItem('sessionId');
+							loggedIn = false;
+							return;
+						}
+					}
+				}
+
+				initSocket(savedUsername, savedToken || undefined);
+				loggedIn = true;
+			}
+
+			const isRegistered = !!savedToken;
+			await initializeTheme(isRegistered);
+			if (disposed) return;
+
+			unsubscribeThemeWatcher = watchThemeChanges();
+			if (!isRegistered) {
+				unsubscribeLocalStorageSync = syncThemeToLocalStorage();
+			}
+		})();
+
 		window.addEventListener('keydown', handleKeyDown);
-		
+
 		return () => {
+			disposed = true;
 			window.removeEventListener('keydown', handleKeyDown);
 			unsubscribeThemeWatcher?.();
 			unsubscribeLocalStorageSync?.();

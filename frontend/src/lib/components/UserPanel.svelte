@@ -47,10 +47,10 @@
 	let contextMenuX = 0;
 	let contextMenuY = 0;
 
-	function openProfile(user: User, anchorEl: HTMLElement) {
+	function openProfile(user: User, anchorEl?: HTMLElement | null) {
 		popoutUser = user;
 		popoutIsOwnProfile = user.id === $currentUser?.id;
-		popoutAnchorElement = anchorEl;
+		popoutAnchorElement = anchorEl || null;
 		showUserPopout = true;
 	}
 
@@ -217,7 +217,7 @@
 				use:longpress={{ onLongPress: (e) => handleUserLongPress(e, user) }}
 			>
 				<!-- Profile Picture or Placeholder -->
-				<button class="user-avatar-button" on:click|stopPropagation={(e) => openProfile(user, e.currentTarget)}>
+				<button class="user-avatar-button" on:click|stopPropagation={(e) => openProfile(user, e.currentTarget as HTMLElement)}>
 					{#if user.profilePicture}
 						<img src={user.profilePicture} alt={user.username} class="user-avatar" />
 					{:else}
@@ -234,7 +234,7 @@
 						if (user.id !== $currentUser?.id) {
 							handleOpenDM(user);
 						} else {
-							openProfile(user, e.currentTarget);
+							openProfile(user, e.currentTarget as HTMLElement);
 						}
 					}}
 				>

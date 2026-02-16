@@ -830,7 +830,6 @@
 									controls
 									class="embedded-media embedded-video {message.isSpoiler ? 'spoiler' : ''}"
 									data-spoiler={message.isSpoiler ? 'true' : 'false'}
-									loading="lazy"
 								>
 									<source src={url} />
 									Your browser does not support the video tag.

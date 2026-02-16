@@ -3,7 +3,7 @@
 	import { onMount } from 'svelte';
 
 	let showPopup = false;
-	let currentStatus: 'active' | 'away' | 'busy' = 'active';
+	let currentStatus: 'active' | 'away' | 'busy' | 'offline' = 'active';
 
 	$: if ($currentUser) {
 		currentStatus = $currentUser.status;

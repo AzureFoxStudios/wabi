@@ -3,6 +3,7 @@
 	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, users, dmPanelSignal, createDM, getDMChannelIdForUser, activeVoiceChannel, voiceChannelMembers, joinVoiceChannel, leaveVoiceChannel, type Message, type Emoji } from '$lib/socket';
 	import { resources, graphEdges } from '$lib/business/store';
 	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
+	import type { Resource } from '$lib/business/types';
 	import { pinChannel, unpinChannel } from '$lib/socket';
 	import EmojiPicker from './EmojiPicker.svelte';
 	import MessageList from './MessageList.svelte';
@@ -259,16 +260,19 @@
 					return;
 				}
 
-				const newResource = {
-					id: `res-${Date.now()}`,
-					name: resourceName,
-					type: parsed.flags['type'] as string || 'reference',
-					createdAt: new Date().toISOString(),
-					createdBy: parsed.flags['a'] ? 'Anonymous' : ($currentUser?.username || 'Unknown'),
-					isAnonymous: !!parsed.flags['a'],
-					tags: parsed.flags['tag'] ? [parsed.flags['tag']] : [],
-					preview: null
-				};
+					const tag = typeof parsed.flags['tag'] === 'string' ? parsed.flags['tag'] : undefined;
+					const newResource: Resource = {
+						id: `res-${Date.now()}`,
+						name: resourceName,
+						type: 'note',
+						storageType: 'inline',
+						createdAt: Date.now(),
+						updatedAt: Date.now(),
+						createdBy: parsed.flags['a'] ? 'Anonymous' : ($currentUser?.username || 'Unknown'),
+						isAnonymous: !!parsed.flags['a'],
+						visibilityType: 'public',
+						tags: tag ? [tag] : []
+					};
 
 				resources.update(r => [...r, newResource]);
 				alert(`Resource "${resourceName}" created!`);

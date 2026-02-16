@@ -1,4 +1,4 @@
-import type { Resource, GraphEdge } from '$lib/business/store';
+import type { Resource, GraphEdge } from '$lib/business/types';
 
 export interface Position {
 	x: number;

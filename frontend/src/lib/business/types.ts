@@ -51,6 +51,7 @@ export interface DiaryEntry {
 	id: string;
 	date: number; // timestamp for the day
 	content: string; // markdown content
+	mood?: 'great' | 'good' | 'neutral' | 'bad' | 'awful';
 	images?: string[]; // base64 encoded images or URLs for physical notes photos
 	tags?: string[];
 	createdBy: string;
@@ -89,9 +90,9 @@ export interface Sprint {
 
 export interface BurnChartDataPoint {
 	date: number;
-	totalPoints: number | Int32Array; // Using Int32Array for efficient storage in Tauri
-	completedPoints: number | Int32Array;
-	remainingPoints: number | Int32Array;
+	totalPoints: number;
+	completedPoints: number;
+	remainingPoints: number;
 }
 
 // View types for the dashboard

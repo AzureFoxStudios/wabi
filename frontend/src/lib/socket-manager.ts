@@ -1384,11 +1384,14 @@ export function deleteChannel(channelId: string): void {
 	socketManager.emit('delete-channel', channelId);
 }
 
-export async function sendMessage(channelId: string, text: string, type: 'text' | 'gif' | 'file' = 'text', options?: {
+export async function sendMessage(channelId: string, text: string, type: 'text' | 'gif' | 'file' | 'emoji' = 'text', options?: {
 	gifUrl?: string;
+	emojiUrl?: string;
+	emojiName?: string;
 	fileUrl?: string;
 	fileName?: string;
 	fileSize?: number;
+	files?: FileAttachment[];
 	replyTo?: string;
 	isSpoiler?: boolean;
 }): Promise<void> {
