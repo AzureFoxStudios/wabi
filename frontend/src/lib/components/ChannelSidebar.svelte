@@ -367,16 +367,18 @@
 		</button>
 		{#if isVoiceSectionExpanded}
 		{#each voiceChannels as channel (channel.id)}
+			{@const members = getVoiceMembers(channel.id)}
 			<div class="channel-item voice-channel-item" class:active={isConnectedToVoice(channel.id)}>
 				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleVoiceChannelClick(channel.id)}>
 					<span class="hash">🔊</span>
-					{channel.name}
+					<span class="voice-channel-name">{channel.name}</span>
+					<span class="voice-inline-count">{members.length}</span>
 				</button>
 				<div class="channel-actions">
-					<div class="voice-occupancy" title={`${getVoiceMembers(channel.id).length} in voice`}>
-						<span class="voice-count">🔊 {getVoiceMembers(channel.id).length}</span>
+					<div class="voice-occupancy" title={`${members.length} in voice`}>
+						<span class="voice-count">🔊 {members.length}</span>
 						<div class="voice-avatars">
-							{#each getVoiceMembers(channel.id).slice(0, 3) as member}
+							{#each members.slice(0, 3) as member}
 								{#if member.profilePicture}
 									<img class="voice-avatar" src={member.profilePicture} alt={avatarTitle(member.username)} title={avatarTitle(member.username)} />
 								{:else}
@@ -388,6 +390,20 @@
 					<button class="voice-btn" class:active={isConnectedToVoice(channel.id)} on:click|stopPropagation={() => handleVoiceAction(channel.id)}>{voiceActionLabel(channel.id)}</button>
 				</div>
 			</div>
+			{#if members.length > 0}
+				<div class="voice-member-list">
+					{#each members as member (member.userId)}
+						<div class="voice-member-item">
+							{#if member.profilePicture}
+								<img class="voice-member-avatar" src={member.profilePicture} alt={avatarTitle(member.username)} />
+							{:else}
+								<span class="voice-member-avatar voice-avatar-fallback">{(member.username || '?').charAt(0).toUpperCase()}</span>
+							{/if}
+							<span class="voice-member-name">{member.username || 'Unknown user'}</span>
+						</div>
+					{/each}
+				</div>
+			{/if}
 		{/each}
 		{/if}
 	</div>
@@ -772,7 +788,9 @@
 	}
 
 	.channel-sidebar.compact .voice-occupancy,
-	.channel-sidebar.compact .voice-btn {
+	.channel-sidebar.compact .voice-btn,
+	.channel-sidebar.compact .voice-inline-count,
+	.channel-sidebar.compact .voice-member-list {
 		display: none;
 	}
 
@@ -1116,6 +1134,23 @@
 		color: var(--text-secondary);
 	}
 
+	.voice-channel-name {
+		min-width: 0;
+		flex: 1;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.voice-inline-count {
+		margin-left: auto;
+		font-size: 0.68rem;
+		color: var(--text-secondary);
+		background: rgba(var(--border-rgb), var(--opacity-light));
+		padding: 0.05rem 0.35rem;
+		border-radius: 999px;
+	}
+
 	.voice-avatars {
 		display: flex;
 		align-items: center;
@@ -1170,6 +1205,37 @@
 	.voice-channel-item .channel-btn {
 		padding-top: 0.3rem;
 		padding-bottom: 0.3rem;
+	}
+
+	.voice-member-list {
+		margin: -0.1rem 0 0.25rem 1.9rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+
+	.voice-member-item {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		color: var(--text-secondary);
+		font-size: 0.72rem;
+	}
+
+	.voice-member-avatar {
+		width: 18px;
+		height: 18px;
+		border-radius: 999px;
+		object-fit: cover;
+		border: 1px solid var(--bg-tertiary);
+		background: var(--bg-secondary);
+	}
+
+	.voice-member-name {
+		min-width: 0;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.voice-channel-item .voice-occupancy {
