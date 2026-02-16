@@ -952,7 +952,7 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 
 							<div class="setting-item">
 								<div class="setting-info">
-									<span class="setting-label">Suppress @everyone and @here</span>
+									<span class="setting-label">Suppress @everyone, @here, and @all</span>
 									<span class="setting-description">Do not notify when broad mentions are used</span>
 								</div>
 								<button class="toggle-btn" class:active={suppressEveryoneHereMentions} on:click={toggleSuppressEveryoneHereMentions}>

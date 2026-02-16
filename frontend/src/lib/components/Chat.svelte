@@ -51,6 +51,11 @@
 	let isDragging = false;
 	let dragCounter = 0;
 	let textareaElement: HTMLTextAreaElement;
+	let mentionMenuContainer: HTMLElement | null = null;
+	let showMentionSuggestions = false;
+	let mentionSuggestions: { key: string; label: string; value: string; kind: 'special' | 'user' }[] = [];
+	let mentionSelectedIndex = 0;
+	let mentionTokenStart = -1;
 
 	// Command palette
 	let commandPalette: CommandPalette;
@@ -208,12 +213,113 @@
 		// Show command palette if input starts with /
 		if (messageInput.startsWith('/')) {
 			showCommandPalette = getMatchingCommands(messageInput).length > 0;
+			showMentionSuggestions = false;
 		} else {
 			showCommandPalette = false;
+			updateMentionSuggestions();
 		}
 	}
 
+	function updateMentionSuggestions() {
+		if (!textareaElement) {
+			showMentionSuggestions = false;
+			return;
+		}
+
+		const caret = textareaElement.selectionStart ?? messageInput.length;
+		const beforeCaret = messageInput.slice(0, caret);
+		const atIndex = beforeCaret.lastIndexOf('@');
+		if (atIndex < 0) {
+			showMentionSuggestions = false;
+			return;
+		}
+
+		const prefixChar = atIndex > 0 ? beforeCaret[atIndex - 1] : '';
+		if (prefixChar && !/\s|\(/.test(prefixChar)) {
+			showMentionSuggestions = false;
+			return;
+		}
+
+		const query = beforeCaret.slice(atIndex + 1);
+		if (/\s/.test(query)) {
+			showMentionSuggestions = false;
+			return;
+		}
+
+		const normalizedQuery = query.toLowerCase();
+		const specials = [
+			{ key: 'special-all', label: '@all', value: 'all', kind: 'special' as const },
+			{ key: 'special-here', label: '@here', value: 'here', kind: 'special' as const },
+			{ key: 'special-everyone', label: '@everyone', value: 'everyone', kind: 'special' as const }
+		].filter((entry) => entry.value.startsWith(normalizedQuery));
+
+		const userEntries = $users
+			.filter((u) => u.id !== $currentUser?.id)
+			.sort((a, b) => a.username.localeCompare(b.username))
+			.map((u) => ({
+				key: `user-${u.id}`,
+				label: `@${u.username}`,
+				value: u.username,
+				kind: 'user' as const
+			}))
+			.filter((entry) => entry.value.toLowerCase().startsWith(normalizedQuery));
+
+		const nextSuggestions = [...specials, ...userEntries].slice(0, 8);
+		if (nextSuggestions.length === 0) {
+			showMentionSuggestions = false;
+			return;
+		}
+
+		mentionTokenStart = atIndex;
+		mentionSuggestions = nextSuggestions;
+		mentionSelectedIndex = 0;
+		showMentionSuggestions = true;
+	}
+
+	async function applyMentionSuggestion(index: number) {
+		if (!textareaElement || index < 0 || index >= mentionSuggestions.length || mentionTokenStart < 0) return;
+		const selected = mentionSuggestions[index];
+		const caret = textareaElement.selectionStart ?? messageInput.length;
+		const before = messageInput.slice(0, mentionTokenStart);
+		const after = messageInput.slice(caret);
+		const mentionText = `@${selected.value}`;
+		const needsTrailingSpace = after.length === 0 || !/^[\s.,!?;:)]/.test(after);
+		const insertion = needsTrailingSpace ? `${mentionText} ` : mentionText;
+		const nextCursor = (before + insertion).length;
+
+		messageInput = before + insertion + after;
+		showMentionSuggestions = false;
+		mentionTokenStart = -1;
+
+		await tick();
+		textareaElement.focus();
+		textareaElement.setSelectionRange(nextCursor, nextCursor);
+	}
+
 	function handleKeyDown(e: KeyboardEvent) {
+		if (showMentionSuggestions) {
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				mentionSelectedIndex = (mentionSelectedIndex + 1) % mentionSuggestions.length;
+				return;
+			}
+			if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				mentionSelectedIndex = (mentionSelectedIndex - 1 + mentionSuggestions.length) % mentionSuggestions.length;
+				return;
+			}
+			if (e.key === 'Enter' || e.key === 'Tab') {
+				e.preventDefault();
+				void applyMentionSuggestion(mentionSelectedIndex);
+				return;
+			}
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				showMentionSuggestions = false;
+				return;
+			}
+		}
+
 		// Command palette navigation
 		if (showCommandPalette && commandPalette) {
 			const handled = commandPalette.handleKeyDown(e.key);
@@ -593,6 +699,7 @@
 				replyingTo = null;
 			}
 			messageInput = '';
+			showMentionSuggestions = false;
 			showMediaMenu = false;
 			sendTyping(false, $currentChannel);
 
@@ -994,8 +1101,10 @@
 			const target = event.target as Node | null;
 			if (target && emojiPickerContainer?.contains(target)) return;
 			if (target && mediaMenuContainer?.contains(target)) return;
+			if (target && mentionMenuContainer?.contains(target)) return;
 			showMediaMenu = false;
 			showEmojiPicker = false;
+			showMentionSuggestions = false;
 		};
 
 		document.addEventListener('click', handleGlobalClick);
@@ -1124,6 +1233,21 @@
 		{/if}
 
 		<div class="input-wrapper">
+		{#if showMentionSuggestions && mentionSuggestions.length > 0}
+			<div class="mention-suggestions" bind:this={mentionMenuContainer}>
+				{#each mentionSuggestions as suggestion, index (suggestion.key)}
+					<button
+						type="button"
+						class="mention-suggestion"
+						class:selected={index === mentionSelectedIndex}
+						on:mousedown|preventDefault={() => applyMentionSuggestion(index)}
+					>
+						<span class="mention-label">{suggestion.label}</span>
+						<span class="mention-kind">{suggestion.kind === 'special' ? 'Mention' : 'User'}</span>
+					</button>
+				{/each}
+			</div>
+		{/if}
 		{#if filePreviews.length > 0 && !isUploading}
 			<div class="file-gallery">
 				<div class="gallery-header">
@@ -1552,6 +1676,53 @@
 
 	.media-menu-container {
 		position: relative;
+	}
+
+	.mention-suggestions {
+		position: absolute;
+		left: 0.5rem;
+		right: 0.5rem;
+		bottom: calc(100% + 0.25rem);
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 0.35rem;
+		box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+		z-index: 25;
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+
+	.mention-suggestion {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		width: 100%;
+		border: none;
+		background: transparent;
+		color: var(--text-primary);
+		padding: 0.5rem 0.55rem;
+		border-radius: 6px;
+		cursor: pointer;
+		text-align: left;
+		font-size: 0.85rem;
+	}
+
+	.mention-suggestion:hover,
+	.mention-suggestion.selected {
+		background: var(--accent);
+		color: #fff;
+	}
+
+	.mention-label {
+		font-weight: 600;
+	}
+
+	.mention-kind {
+		font-size: 0.72rem;
+		opacity: 0.85;
 	}
 
 	.media-menu {

@@ -25,7 +25,7 @@ function shouldSquelchNotification(message: Message): boolean {
 
 	const { suppressEveryoneHere, suppressRoleMentions } = getNotificationSquelchSettings();
 
-	if (suppressEveryoneHere && /\B@(everyone|here)\b/i.test(text)) {
+	if (suppressEveryoneHere && /\B@(everyone|here|all)\b/i.test(text)) {
 		return true;
 	}
 

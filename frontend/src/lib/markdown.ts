@@ -93,6 +93,12 @@ export function parseMessage(text: string): string {
   // Replace with span that can be clicked to reveal
   text = text.replace(/\|\|(.+?)\|\|/g, '<span class="spoiler" data-spoiler="true">$1</span>');
 
+  // Highlight plain-text mentions in chat content.
+  text = text.replace(
+    /(^|[\s(])@(everyone|here|all|[a-zA-Z0-9._-]{2,32})\b/g,
+    (_match, prefix: string, mention: string) => `${prefix}<span class="mention-token">@${mention}</span>`
+  );
+
   // Discord-style code block preprocessing: ensure closing ``` is on its own line
   // Matches: ```lang\ncode``` and converts to: ```lang\ncode\n```
   text = text.replace(/```(\w+)\n([\s\S]*?)```/g, (match, lang, code) => {

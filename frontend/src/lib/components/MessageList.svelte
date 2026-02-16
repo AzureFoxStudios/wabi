@@ -1379,6 +1379,15 @@
 		color: var(--color-info-hover);
 	}
 
+	.markdown-content :global(.mention-token) {
+		display: inline-block;
+		padding: 0.05rem 0.34rem;
+		border-radius: 0.4rem;
+		background: color-mix(in srgb, var(--accent) 20%, transparent);
+		color: color-mix(in srgb, var(--accent) 70%, var(--text-primary) 30%);
+		font-weight: 600;
+	}
+
 	.markdown-content :global(code) {
 		word-wrap: break-word;
 		word-break: break-all;
