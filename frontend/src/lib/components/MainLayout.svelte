@@ -239,8 +239,20 @@
 				<span>In voice: <strong>{$activeVoiceChannel.name}</strong></span>
 			</div>
 			<div class="voice-channel-actions">
-				<button class:active={$isMuted} on:click={toggleMute} title={$isMuted ? 'Unmute' : 'Mute'}>{$isMuted ? 'Unmute' : 'Mute'}</button>
-				<button class:active={$isDeafened} on:click={toggleDeafen} title={$isDeafened ? 'Undeafen' : 'Deafen'}>{$isDeafened ? 'Undeafen' : 'Deafen'}</button>
+				<button class:active={$isMuted} on:click={toggleMute} title={$isMuted ? 'Unmute' : 'Mute'} aria-label={$isMuted ? 'Unmute' : 'Mute'}>
+					{#if $isMuted}
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+					{:else}
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+					{/if}
+				</button>
+				<button class:active={$isDeafened} on:click={toggleDeafen} title={$isDeafened ? 'Undeafen' : 'Deafen'} aria-label={$isDeafened ? 'Undeafen' : 'Deafen'}>
+					{#if $isDeafened}
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
+					{:else}
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+					{/if}
+				</button>
 				<button class:active={!$isVideoOff} on:click={handleToggleVideoFromStrip} title={$isVideoOff ? 'Turn on camera' : 'Turn off camera'}>
 					{$isVideoOff ? 'Camera' : 'Camera On'}
 				</button>
@@ -594,6 +606,16 @@
 		border-radius: 999px;
 		padding: 0.25rem 0.55rem;
 		font-size: 0.75rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.35rem;
+	}
+
+	.voice-channel-actions button svg {
+		width: 14px;
+		height: 14px;
+		display: block;
 	}
 
 	.voice-channel-actions button.active {

@@ -44,7 +44,7 @@
 						<span class="pinned-time">{formatTime(message.timestamp)}</span>
 					</div>
 					<button class="unpin-btn" on:click={() => handleUnpin(message.id)} title="Unpin message">
-						×
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"></line><path d="M5 3l14 9-4 1-3 7-3-7-4-1z"></path><line x1="4" y1="4" x2="20" y2="20"></line></svg>
 					</button>
 				</div>
 			{/each}
@@ -145,7 +145,6 @@
 		background: none;
 		border: none;
 		color: var(--color-warning-hover);
-		font-size: 1.5rem;
 		cursor: pointer;
 		width: 28px;
 		height: 28px;
@@ -155,6 +154,11 @@
 		border-radius: 4px;
 		transition: all 0.2s;
 		flex-shrink: 0;
+	}
+
+	.unpin-btn svg {
+		width: 14px;
+		height: 14px;
 	}
 
 	.unpin-btn:hover {
