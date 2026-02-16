@@ -215,6 +215,17 @@
 		showContextMenu = true;
 	}
 
+	function isEditableTarget(target: EventTarget | null): boolean {
+		if (!(target instanceof HTMLElement)) return false;
+		const tag = target.tagName;
+		return (
+			target.isContentEditable ||
+			tag === 'INPUT' ||
+			tag === 'TEXTAREA' ||
+			tag === 'SELECT'
+		);
+	}
+
 	function closeContextMenu() {
 		showContextMenu = false;
 		contextMenuChannel = null;
@@ -573,6 +584,7 @@
 	tabindex="0"
 	on:click={() => showChannelSettingsModal = false}
 	on:keydown={(event) => {
+		if (isEditableTarget(event.target)) return;
 		if (event.key === 'Enter' || event.key === ' ') {
 			event.preventDefault();
 			showChannelSettingsModal = false;
@@ -585,6 +597,7 @@
 		tabindex="0"
 		on:click|stopPropagation
 		on:keydown|stopPropagation={(event) => {
+			if (isEditableTarget(event.target)) return;
 			if (event.key === 'Enter' || event.key === ' ') {
 				event.preventDefault();
 			}
