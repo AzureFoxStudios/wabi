@@ -145,7 +145,7 @@
 					id: 'voice',
 					label: 'Voice Call',
 					title: `Voice call ${other.username}`,
-					leading: 'VC',
+					leading: '📞',
 					showInline: true,
 					onSelect: () => startDMQuickCall(other, false)
 				},
@@ -153,7 +153,7 @@
 					id: 'video',
 					label: 'Video Call',
 					title: `Video call ${other.username}`,
-					leading: 'VD',
+					leading: '🎥',
 					showInline: true,
 					onSelect: () => startDMQuickCall(other, true)
 				}
@@ -164,7 +164,7 @@
 			id: 'remove',
 			label: channel.type === 'group' ? 'Leave Group' : 'Delete Conversation',
 			title: channel.type === 'group' ? 'Leave group' : 'Delete conversation',
-			leading: 'X',
+			leading: channel.type === 'group' ? '🚪' : '🗑',
 			danger: true,
 			showInline: true,
 			onSelect: () => handleDeleteOrLeave(channel)
@@ -218,7 +218,7 @@
 			{
 				id: 'open',
 				label: 'Open Conversation',
-				leading: 'O',
+				leading: '💬',
 				onSelect: () => selectConversation(contextMenuChannel as Channel)
 			}
 		];

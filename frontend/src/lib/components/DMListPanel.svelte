@@ -171,20 +171,20 @@
 			{
 				id: 'open-dm',
 				label: 'Open',
-				leading: 'O',
+				leading: '💬',
 				onSelect: () => selectDM(contextMenuDM.id)
 			},
 			{
 				id: 'archive-dm',
 				label: archiveLabel,
-				leading: 'A',
+				leading: isArchived ? '📂' : '🗄',
 				onSelect: toggleArchiveDM
 			},
 			{ id: 'danger-divider', type: 'separator' },
 			{
 				id: 'delete-dm',
 				label: contextMenuDM.type === 'group' ? 'Leave Group' : 'Delete Conversation',
-				leading: 'X',
+				leading: contextMenuDM.type === 'group' ? '🚪' : '🗑',
 				danger: true,
 				onSelect: removeConversation
 			}

@@ -83,19 +83,19 @@
 			{
 				id: 'message',
 				label: 'Message',
-				leading: 'M',
+				leading: '💬',
 				onSelect: handleContextMessage
 			},
 			{
 				id: 'voice',
 				label: 'Voice Call',
-				leading: 'VC',
+				leading: '📞',
 				onSelect: handleContextVoiceCall
 			},
 			{
 				id: 'video',
 				label: 'Video Call',
-				leading: 'VD',
+				leading: '🎥',
 				onSelect: handleContextVideoCall
 			}
 		];
