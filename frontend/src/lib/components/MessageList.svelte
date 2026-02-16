@@ -577,7 +577,7 @@
 					{/if}
 					<span class="timestamp">{formatTime(message.timestamp)}</span>
 					{#if message.isPinned}
-						<span class="pin-badge" title="Pinned message">📌</span>
+						<span class="pin-badge" title="Pinned message"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"></line><path d="M5 3l14 9-4 1-3 7-3-7-4-1z"></path></svg></span>
 					{/if}
 					{#if message.isEdited}
 						<span class="edited-badge" title="Edited">(edited)</span>
@@ -1200,8 +1200,14 @@
 	}
 
 	.pin-badge {
-		font-size: var(--text-sm);
+		display: inline-flex;
+		align-items: center;
 		margin-left: 0.25rem;
+	}
+
+	.pin-badge svg {
+		width: 14px;
+		height: 14px;
 	}
 
 	.edited-badge {
@@ -2006,7 +2012,13 @@
 
 		/* Pin badge */
 		.pin-badge {
-			font-size: 0.7rem;
+			display: inline-flex;
+			align-items: center;
+		}
+
+		.pin-badge svg {
+			width: 12px;
+			height: 12px;
 		}
 
 		.edited-badge {

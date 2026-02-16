@@ -90,7 +90,7 @@
 			}}
 		>
 			<div class="modal-header">
-				<h2>📌 Pinned Messages in #{channelName}</h2>
+				<h2><svg class="header-pin-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"></line><path d="M5 3l14 9-4 1-3 7-3-7-4-1z"></path></svg> Pinned Messages in #{channelName}</h2>
 				<button class="close-btn" on:click={closeModal}>&times;</button>
 			</div>
 
@@ -183,6 +183,15 @@
 		font-size: 1.1rem;
 		font-weight: 600;
 		color: var(--pinned-text-dark);
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.header-pin-icon {
+		width: 18px;
+		height: 18px;
+		flex-shrink: 0;
 	}
 
 	.close-btn {

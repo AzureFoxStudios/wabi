@@ -29,7 +29,7 @@
 {#if pinnedMessages.length > 0}
 	<div class="pinned-container">
 		<div class="pinned-header">
-			<span class="pinned-icon">📌</span>
+			<svg class="pinned-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"></line><path d="M5 3l14 9-4 1-3 7-3-7-4-1z"></path></svg>
 			<span class="pinned-title">Pinned Messages</span>
 			<span class="pinned-count">({pinnedMessages.length})</span>
 		</div>
@@ -74,7 +74,9 @@
 	}
 
 	.pinned-icon {
-		font-size: 1rem;
+		width: 16px;
+		height: 16px;
+		flex-shrink: 0;
 	}
 
 	.pinned-title {
