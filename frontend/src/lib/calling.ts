@@ -1,7 +1,13 @@
 import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { buildRTCConfig } from './turnConfig';
-import { getMediaRuntimeConfig, getScreenShareQualityProfile } from './mediaRuntime';
+import {
+	getMediaRuntimeConfig,
+	getScreenShareQualityProfile,
+	resolveCallTransportPlan,
+	type EffectiveCallTransport,
+	type CallTransportMode
+} from './mediaRuntime';
 
 const CAMERA_CONSTRAINTS: MediaTrackConstraints = {
 	width: { ideal: 1280, max: 1920 },
@@ -80,6 +86,21 @@ export const connectionState = writable<ConnectionLifecycleState>('idle');
 export const activeVoiceChannel = writable<ActiveVoiceChannel | null>(null);
 export const callMode = writable<'direct' | 'channel' | null>(null);
 export const voiceChannelNotice = writable<{ id: number; text: string } | null>(null);
+export const callTransportState = writable<{
+	mode: CallTransportMode;
+	activeTransport: EffectiveCallTransport;
+	isFallback: boolean;
+	reason: string | null;
+	gatewayHealthy: boolean;
+	checkedAt: number | null;
+}>({
+	mode: 'auto',
+	activeTransport: 'p2p',
+	isFallback: false,
+	reason: null,
+	gatewayHealthy: false,
+	checkedAt: null
+});
 
 // ============================================================================
 // Private State
@@ -495,6 +516,34 @@ function pushVoiceChannelNotice(text: string): void {
 	}, 2400);
 }
 
+async function resolveActiveTransport(): Promise<EffectiveCallTransport> {
+	const plan = await resolveCallTransportPlan();
+	callTransportState.set({
+		mode: plan.mode,
+		activeTransport: plan.effective,
+		isFallback: plan.fallbackApplied,
+		reason: plan.reason,
+		gatewayHealthy: plan.gatewayHealthy,
+		checkedAt: plan.checkedAt
+	});
+
+	// SFU control hooks exist, but client media-plane SFU wiring is not live yet.
+	// Fall back to P2P while preserving explicit degraded-mode state.
+	if (plan.effective === 'sfu') {
+		callTransportState.set({
+			mode: plan.mode,
+			activeTransport: 'p2p',
+			isFallback: true,
+			reason: 'sfu_path_not_implemented_client',
+			gatewayHealthy: plan.gatewayHealthy,
+			checkedAt: plan.checkedAt
+		});
+		return 'p2p';
+	}
+
+	return 'p2p';
+}
+
 // ============================================================================
 // Call Functions
 // ============================================================================
@@ -536,6 +585,7 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 	}
 
 	try {
+		await resolveActiveTransport();
 		const stream = await ensureLocalAudioStream();
 		activeVoiceChannelId = channelId;
 		callMode.set('channel');
@@ -596,6 +646,7 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 
 export async function startCall(socket: Socket, targetUserId: string, isVideoCall: boolean = false) {
 	try {
+		await resolveActiveTransport();
 		const stream = await navigator.mediaDevices.getUserMedia({
 			video: isVideoCall ? CAMERA_CONSTRAINTS : false,
 			audio: true
@@ -625,6 +676,7 @@ export async function startCall(socket: Socket, targetUserId: string, isVideoCal
 
 export async function answerCall(socket: Socket, callerId: string, isVideoCall: boolean = false) {
 	try {
+		await resolveActiveTransport();
 		const stream = await navigator.mediaDevices.getUserMedia({
 			video: isVideoCall ? CAMERA_CONSTRAINTS : false,
 			audio: true

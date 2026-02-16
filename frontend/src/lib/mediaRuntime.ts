@@ -4,6 +4,8 @@ import { isDesktopTauri, isMobileTauri, isTauriRuntime as detectTauriRuntime } f
 
 export type MediaQualityMode = 'web-baseline' | 'local-enhanced';
 export type ScreenShareQualityPreset = 'auto' | '1080p' | '720p' | '480p' | '144p-mobile';
+export type CallTransportMode = 'auto' | 'p2p-only' | 'sfu-preferred';
+export type EffectiveCallTransport = 'p2p' | 'sfu';
 
 export interface ScreenShareQualityProfile {
 	label: string;
@@ -43,11 +45,23 @@ export interface MediaRuntimeConfig {
 	screenShareMaxBitrate: number;
 }
 
+export interface CallTransportPlan {
+	mode: CallTransportMode;
+	effective: EffectiveCallTransport;
+	fallbackApplied: boolean;
+	reason: string | null;
+	gatewayHealthy: boolean;
+	checkedAt: number;
+}
+
 const STORAGE_KEYS = {
 	qualityMode: 'wabi_media_quality_mode',
 	srtGateway: 'wabi_enable_srt_gateway',
-	screenShareQuality: 'wabi_screen_share_quality_preset'
+	screenShareQuality: 'wabi_screen_share_quality_preset',
+	callTransportMode: 'wabi_call_transport_mode'
 };
+
+let lastRuntimeSnapshot: ServerMediaRuntimeResponse | null = null;
 
 const SCREEN_SHARE_QUALITY_PROFILES: Record<ScreenShareQualityPreset, ScreenShareQualityProfile> = {
 	auto: {
@@ -175,6 +189,20 @@ export function setScreenShareQualityPreset(preset: ScreenShareQualityPreset): v
 	localStorage.setItem(STORAGE_KEYS.screenShareQuality, preset);
 }
 
+export function getStoredCallTransportMode(): CallTransportMode {
+	if (!browser) return 'auto';
+	const stored = localStorage.getItem(STORAGE_KEYS.callTransportMode);
+	if (stored === 'auto' || stored === 'p2p-only' || stored === 'sfu-preferred') {
+		return stored;
+	}
+	return 'auto';
+}
+
+export function setCallTransportMode(mode: CallTransportMode): void {
+	if (!browser) return;
+	localStorage.setItem(STORAGE_KEYS.callTransportMode, mode);
+}
+
 export function getScreenShareQualityProfile(): ScreenShareQualityProfile {
 	const preset = getStoredScreenShareQualityPreset();
 	return SCREEN_SHARE_QUALITY_PROFILES[preset];
@@ -210,9 +238,81 @@ export async function syncMediaRuntimeFromServer(): Promise<ServerMediaRuntimeRe
 			setSrtGatewayEnabled(false);
 		}
 
+		lastRuntimeSnapshot = data;
 		return data;
 	} catch (error) {
 		console.warn('[MediaRuntime] Could not sync server media runtime settings:', error);
+		lastRuntimeSnapshot = null;
 		return null;
 	}
+}
+
+function isGatewayHealthy(runtime: ServerMediaRuntimeResponse | null): boolean {
+	const media = runtime?.media;
+	const gateway = media?.gateway;
+	if (!gateway) return false;
+	if (media?.srtGatewayEnabled === false) return false;
+	return Boolean(gateway.configured && gateway.healthy);
+}
+
+export async function resolveCallTransportPlan(): Promise<CallTransportPlan> {
+	const mode = getStoredCallTransportMode();
+	const runtime = (await syncMediaRuntimeFromServer()) || lastRuntimeSnapshot;
+	const gatewayHealthy = isGatewayHealthy(runtime || null);
+	const srtToggleEnabled = isSrtGatewayEnabled();
+	const checkedAt = Date.now();
+
+	if (mode === 'p2p-only') {
+		return {
+			mode,
+			effective: 'p2p',
+			fallbackApplied: false,
+			reason: null,
+			gatewayHealthy,
+			checkedAt
+		};
+	}
+
+	if (mode === 'sfu-preferred') {
+		if (gatewayHealthy && srtToggleEnabled) {
+			return {
+				mode,
+				effective: 'sfu',
+				fallbackApplied: false,
+				reason: null,
+				gatewayHealthy,
+				checkedAt
+			};
+		}
+
+		return {
+			mode,
+			effective: 'p2p',
+			fallbackApplied: true,
+			reason: !srtToggleEnabled ? 'srt_gateway_disabled' : 'gateway_unhealthy_or_unconfigured',
+			gatewayHealthy,
+			checkedAt
+		};
+	}
+
+	// auto
+	if (gatewayHealthy && srtToggleEnabled) {
+		return {
+			mode,
+			effective: 'sfu',
+			fallbackApplied: false,
+			reason: null,
+			gatewayHealthy,
+			checkedAt
+		};
+	}
+
+	return {
+		mode,
+		effective: 'p2p',
+		fallbackApplied: false,
+		reason: null,
+		gatewayHealthy,
+		checkedAt
+	};
 }

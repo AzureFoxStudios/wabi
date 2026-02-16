@@ -18,14 +18,17 @@
 	import UsernameFontCustomizer from './UsernameFontCustomizer.svelte';
 	import UniformFontMode from './UniformFontMode.svelte';
 	import {
+		getStoredCallTransportMode,
 		getStoredMediaQualityMode,
 		getStoredScreenShareQualityPreset,
 		isSrtGatewayEnabled,
 		isTauriRuntime,
+		setCallTransportMode,
 		setMediaQualityMode,
 		setScreenShareQualityPreset,
 		setSrtGatewayEnabled,
 		syncMediaRuntimeFromServer,
+		type CallTransportMode,
 		type MediaQualityMode,
 		type ScreenShareQualityPreset
 	} from '$lib/mediaRuntime';
@@ -41,6 +44,7 @@
 	let notificationSound = '/sounds/ProjectSound.ogg';
 	let notificationVolume = 0.5;
 	let mediaQualityMode: MediaQualityMode = 'web-baseline';
+	let callTransportMode: CallTransportMode = 'auto';
 	let srtGatewayEnabled = false;
 	let screenShareQualityPreset: ScreenShareQualityPreset = 'auto';
 	let localAppRuntime = false;
@@ -85,6 +89,7 @@
 			await syncMediaRuntimeFromServer();
 			// After server sync, load local settings (will be constrained if needed)
 			mediaQualityMode = getStoredMediaQualityMode();
+			callTransportMode = getStoredCallTransportMode();
 			srtGatewayEnabled = isSrtGatewayEnabled();
 			screenShareQualityPreset = getStoredScreenShareQualityPreset();
 		})();
@@ -113,6 +118,11 @@
 	function updateMediaQualityMode(mode: MediaQualityMode) {
 		mediaQualityMode = mode;
 		setMediaQualityMode(mode);
+	}
+
+	function updateCallTransportMode(mode: CallTransportMode) {
+		callTransportMode = mode;
+		setCallTransportMode(mode);
 	}
 
 	function toggleSrtGateway() {
@@ -670,6 +680,20 @@
 							<option value="720p">720p</option>
 							<option value="480p">480p</option>
 							<option value="144p-mobile">144p (Mobile / Low data)</option>
+						</select>
+					</div>
+
+					<div class="quality-mode-row">
+						<label for="call-transport-mode">Call Transport Strategy</label>
+						<select
+							id="call-transport-mode"
+							class="theme-select"
+							value={callTransportMode}
+							on:change={(e) => updateCallTransportMode(e.currentTarget.value as CallTransportMode)}
+						>
+							<option value="auto">Auto (Fallback Enabled)</option>
+							<option value="p2p-only">P2P/TURN Only</option>
+							<option value="sfu-preferred">SFU Preferred (Fallback to P2P)</option>
 						</select>
 					</div>
 

@@ -10,6 +10,7 @@
 		localStream,
 		localScreenStream,
 		connectionState,
+		callTransportState,
 		stopScreenShare,
 		endCall,
 		toggleMute,
@@ -304,6 +305,13 @@
 
 		<!-- Controls bar -->
 		<div class="controls-bar">
+			<div class="transport-badge" class:degraded={$callTransportState.isFallback}>
+				Transport: {$callTransportState.activeTransport.toUpperCase()}
+				{#if $callTransportState.isFallback}
+					<span class="transport-note">fallback active</span>
+				{/if}
+			</div>
+
 			{#if $connectionState && $connectionState !== 'idle' && $connectionState !== 'connected'}
 				<div class="connection-badge" class:warning={$connectionState === 'connecting' || $connectionState === 'signaling'} class:error={$connectionState === 'failed'}>
 					{$connectionState}
@@ -738,6 +746,30 @@
 		padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
 		background: var(--bg-secondary, #16213e);
 		border-top: 1px solid var(--border, #333);
+	}
+
+	.transport-badge {
+		padding: 0.35rem 0.65rem;
+		border-radius: 999px;
+		font-size: 0.72rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		text-transform: uppercase;
+		background: rgba(16, 185, 129, 0.18);
+		color: #ecfdf5;
+		border: 1px solid rgba(16, 185, 129, 0.45);
+	}
+
+	.transport-badge.degraded {
+		background: rgba(245, 158, 11, 0.2);
+		border-color: rgba(245, 158, 11, 0.55);
+		color: #fffbeb;
+	}
+
+	.transport-note {
+		margin-left: 0.35rem;
+		font-weight: 600;
+		text-transform: none;
 	}
 
 	.connection-badge {
