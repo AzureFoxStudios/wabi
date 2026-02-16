@@ -61,6 +61,13 @@
 			return a.name.localeCompare(b.name);
 		});
 	$: groupChannels = $channels.filter(ch => ch.type === 'group');
+	$: voiceChannels = $channels
+		.filter(ch => ch.type !== 'dm')
+		.sort((a, b) => {
+			if (a.id === 'general') return -1;
+			if (b.id === 'general') return 1;
+			return a.name.localeCompare(b.name);
+		});
 
 	// Clear unread count when switching to chat view
 	$: if (activeView === 'chat') {
@@ -258,7 +265,8 @@
 	{/if}
 
 	<div class="channel-list">
-		<!-- Public Channels -->
+		<div class="section-header">Text Channels</div>
+		<!-- Public text channels -->
 		{#each publicChannels as channel (channel.id)}
 			<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)} use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}>
 				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
@@ -271,20 +279,7 @@
 						<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
 					{/if}
 				</button>
-				<div class="channel-actions">
-					<div class="voice-occupancy" title={`${getVoiceMembers(channel.id).length} in voice`}>
-						<span class="voice-count">🔊 {getVoiceMembers(channel.id).length}</span>
-						<div class="voice-avatars">
-							{#each getVoiceMembers(channel.id).slice(0, 3) as member}
-								{#if member.profilePicture}
-									<img class="voice-avatar" src={member.profilePicture} alt={avatarTitle(member.username)} title={avatarTitle(member.username)} />
-								{:else}
-									<span class="voice-avatar voice-avatar-fallback" title={avatarTitle(member.username)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
-								{/if}
-							{/each}
-						</div>
-					</div>
-					<button class="voice-btn" class:active={isConnectedToVoice(channel.id)} on:click|stopPropagation={() => handleVoiceAction(channel.id)}>{voiceActionLabel(channel.id)}</button>
+				<div class="channel-actions text-channel-actions">
 					<button class="settings-btn" on:click|stopPropagation={() => handleOpenChannelSettings(channel)} title="Channel settings">
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m3.08 3.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m3.08-3.08l4.24-4.24M19.78 19.78l-4.24-4.24m-3.08-3.08l-4.24-4.24M19.78 4.22l-4.24 4.24m-3.08 3.08l-4.24-4.24"></path></svg>
 <!-- Gear icon: circles with teeth around edges -->
@@ -301,7 +296,7 @@
 
 		<!-- DMs removed from sidebar - now accessible via UserPanel -->
 
-		<!-- Group Chats -->
+		<!-- Group text channels -->
 		{#if groupChannels.length > 0}
 			<div class="section-header">Group Chats</div>
 			{#each groupChannels as channel (channel.id)}
@@ -316,20 +311,7 @@
 							<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
 						{/if}
 					</button>
-					<div class="channel-actions">
-						<div class="voice-occupancy" title={`${getVoiceMembers(channel.id).length} in voice`}>
-							<span class="voice-count">🔊 {getVoiceMembers(channel.id).length}</span>
-							<div class="voice-avatars">
-								{#each getVoiceMembers(channel.id).slice(0, 3) as member}
-									{#if member.profilePicture}
-										<img class="voice-avatar" src={member.profilePicture} alt={avatarTitle(member.username)} title={avatarTitle(member.username)} />
-									{:else}
-										<span class="voice-avatar voice-avatar-fallback" title={avatarTitle(member.username)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
-									{/if}
-								{/each}
-							</div>
-						</div>
-						<button class="voice-btn" class:active={isConnectedToVoice(channel.id)} on:click|stopPropagation={() => handleVoiceAction(channel.id)}>{voiceActionLabel(channel.id)}</button>
+					<div class="channel-actions text-channel-actions">
 						<button class="settings-btn" on:click|stopPropagation={() => handleOpenChannelSettings(channel)} title="Channel settings">
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m3.08 3.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m3.08-3.08l4.24-4.24M19.78 19.78l-4.24-4.24m-3.08-3.08l-4.24-4.24M19.78 4.22l-4.24 4.24m-3.08 3.08l-4.24-4.24"></path></svg>
 <!-- Gear icon: circles with teeth around edges -->
@@ -342,6 +324,31 @@
 				</div>
 			{/each}
 		{/if}
+
+		<div class="section-header">Voice Channels</div>
+		{#each voiceChannels as channel (channel.id)}
+			<div class="channel-item voice-channel-item" class:active={isConnectedToVoice(channel.id)}>
+				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleVoiceAction(channel.id)}>
+					<span class="hash">🔊</span>
+					{channel.name}
+				</button>
+				<div class="channel-actions">
+					<div class="voice-occupancy" title={`${getVoiceMembers(channel.id).length} in voice`}>
+						<span class="voice-count">🔊 {getVoiceMembers(channel.id).length}</span>
+						<div class="voice-avatars">
+							{#each getVoiceMembers(channel.id).slice(0, 3) as member}
+								{#if member.profilePicture}
+									<img class="voice-avatar" src={member.profilePicture} alt={avatarTitle(member.username)} title={avatarTitle(member.username)} />
+								{:else}
+									<span class="voice-avatar voice-avatar-fallback" title={avatarTitle(member.username)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
+								{/if}
+							{/each}
+						</div>
+					</div>
+					<button class="voice-btn" class:active={isConnectedToVoice(channel.id)} on:click|stopPropagation={() => handleVoiceAction(channel.id)}>{voiceActionLabel(channel.id)}</button>
+				</div>
+			</div>
+		{/each}
 	</div>
 
 	{#if showContextMenu && contextMenuChannel}
