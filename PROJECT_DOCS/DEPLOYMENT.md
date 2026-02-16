@@ -35,7 +35,7 @@ Replace `wabi.chat` with your actual domain.
 ### 3. Start Services
 
 ```bash
-docker-compose up -d
+./scripts/deploy-clean.sh
 ```
 
 Services:
@@ -119,7 +119,7 @@ Expected output:
 **Check**:
 1. Verify `FRONTEND_URL` matches your domain:
    ```bash
-   docker-compose exec backend curl http://localhost:8080/health/cors
+   docker compose exec backend curl http://localhost:8080/health/cors
    ```
 
 2. Check Caddy is forwarding WebSocket headers:
@@ -147,7 +147,7 @@ PUBLIC_URL=https://your.domain
 
 Restart backend:
 ```bash
-docker-compose restart backend
+docker compose restart backend
 ```
 
 ### Caddy SSL Issues
@@ -177,7 +177,7 @@ caddy run --config Caddyfile --debug
 - [ ] Domain pointing to server IP
 - [ ] Firewall allows ports 80, 443, 8080, 3000
 - [ ] `.env` configured with production domain
-- [ ] `TURN_PASSWORD` changed from default
+- [ ] `TURN_SHARED_SECRET` is long, random, and not reused
 - [ ] Backups configured for `/app/data` volume
 - [ ] Caddy running under systemd/supervisor
 - [ ] Log rotation configured for Docker containers
@@ -195,8 +195,8 @@ Requires=docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=/root/wabi
-ExecStart=/usr/bin/docker-compose up -d
-ExecStop=/usr/bin/docker-compose down
+ExecStart=/root/wabi/scripts/deploy-clean.sh
+ExecStop=/usr/bin/docker compose -f /root/wabi/docker-compose.yml stop
 RemainAfterExit=yes
 
 [Install]
@@ -212,7 +212,7 @@ sudo systemctl start wabi-docker
 ## Support
 
 - Check `/app/data/chat.db` for database issues
-- Docker logs: `docker-compose logs -f backend`
+- Docker logs: `docker compose logs -f backend`
 - Test page: `https://wabi.chat/test`
 
 ---

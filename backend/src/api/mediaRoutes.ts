@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http';
+import { createHmac } from 'crypto';
 
 function boolFromEnv(value: string | undefined, fallback: boolean = false): boolean {
 	if (value == null) return fallback;
@@ -9,6 +10,12 @@ function numberFromEnv(value: string | undefined, fallback: number): number {
 	if (!value) return fallback;
 	const parsed = Number(value);
 	return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function getTurnCredentialTtlSeconds(): number {
+	const configured = numberFromEnv(process.env.TURN_CREDENTIAL_TTL_SECONDS, 3600);
+	// Guardrail against unreasonable values.
+	return Math.min(Math.max(configured, 60), 86400);
 }
 
 interface GatewayHeartbeatState {
@@ -27,6 +34,32 @@ function isGatewayAuthorized(req: IncomingMessage): boolean {
 	if (!configuredKey) return false;
 	const provided = req.headers['x-media-gateway-key'];
 	return typeof provided === 'string' && provided === configuredKey;
+}
+
+interface MintedTurnCredentials {
+	username: string;
+	credential: string;
+	expiresAt: number;
+	ttlSeconds: number;
+}
+
+function mintTurnCredentials(userId: number): MintedTurnCredentials | null {
+	const sharedSecret = process.env.TURN_SHARED_SECRET;
+	if (!sharedSecret) {
+		return null;
+	}
+
+	const ttlSeconds = getTurnCredentialTtlSeconds();
+	const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
+	const username = `${expiresAt}:${userId}`;
+	const credential = createHmac('sha1', sharedSecret).update(username).digest('base64');
+
+	return {
+		username,
+		credential,
+		expiresAt,
+		ttlSeconds
+	};
 }
 
 
@@ -66,6 +99,45 @@ export async function handleGetMediaRuntime(req: IncomingMessage, res: ServerRes
 		console.error('[MediaRuntime] Failed to return media runtime config:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ error: 'Failed to read media runtime configuration' }));
+	}
+}
+
+// GET /api/media/turn-credentials
+// Returns short-lived TURN REST credentials for authenticated users.
+export async function handleGetTurnCredentials(req: IncomingMessage, res: ServerResponse, userId: number): Promise<void> {
+	try {
+		const turnServer = process.env.TURN_EXTERNAL_IP || null;
+		const turnRealm = process.env.TURN_REALM || null;
+		const turnPort = numberFromEnv(process.env.TURN_PORT, 3478);
+		const useTurns = boolFromEnv(process.env.TURN_USE_TLS, false);
+
+		if (!turnServer || !turnRealm) {
+			res.writeHead(503, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'TURN server is not configured' }));
+			return;
+		}
+
+		const minted = mintTurnCredentials(userId);
+		if (!minted) {
+			res.writeHead(503, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'TURN shared secret is not configured' }));
+			return;
+		}
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({
+			turn: {
+				server: turnServer,
+				port: turnPort,
+				realm: turnRealm,
+				useTurns,
+				...minted
+			}
+		}));
+	} catch (error) {
+		console.error('[TURN] Failed to mint TURN credentials:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to mint TURN credentials' }));
 	}
 }
 
