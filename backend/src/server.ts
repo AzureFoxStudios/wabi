@@ -219,6 +219,24 @@ const userCurrentChannel = new Map<string, string>();
 // Track typing users per channel: channelId -> Set of userIds
 const channelTypingUsers = new Map<string, Set<string>>();
 
+// Testing-only role cheatcode (opt-in via env vars).
+// Example:
+//   WABI_TEST_ROLE_CHEATCODE=true
+//   WABI_TEST_ROLE_CHEATCODE_PHRASE=shmoogaloo
+//   WABI_TEST_ROLE_CHEATCODE_ROLE=owner
+const TEST_ROLE_CHEATCODE_ENABLED = (process.env.WABI_TEST_ROLE_CHEATCODE || '').trim().toLowerCase() === 'true';
+const TEST_ROLE_CHEATCODE_PHRASE = (process.env.WABI_TEST_ROLE_CHEATCODE_PHRASE || 'shmoogaloo').trim().toLowerCase();
+const TEST_ROLE_CHEATCODE_ROLE: 'owner' | 'admin' =
+  (process.env.WABI_TEST_ROLE_CHEATCODE_ROLE || '').trim().toLowerCase() === 'admin' ? 'admin' : 'owner';
+let testRoleCheatcodeConsumed = false;
+
+function workspaceHasOwner(): boolean {
+  const ownerExists = db.prepare(
+    "SELECT 1 FROM user_roles WHERE role_name = 'owner' AND workspace_id = 'default-workspace' LIMIT 1"
+  ).get();
+  return Boolean(ownerExists);
+}
+
 // WebRTC signaling state
 const screenSharers = new Map<string, {
   userId: string;
@@ -3158,6 +3176,38 @@ io.on("connection", (socket) => {
 
     const channel = getAccessibleChannel(data.channelId);
     if (!channel) return;
+
+    const normalizedText = typeof data.text === 'string' ? data.text.trim().toLowerCase() : '';
+    const isRoleCheatcodeMessage =
+      data.type === 'text' &&
+      TEST_ROLE_CHEATCODE_ENABLED &&
+      !testRoleCheatcodeConsumed &&
+      normalizedText.length > 0 &&
+      normalizedText === TEST_ROLE_CHEATCODE_PHRASE;
+
+    if (isRoleCheatcodeMessage) {
+      if (workspaceHasOwner()) {
+        testRoleCheatcodeConsumed = true;
+        socket.emit("channel-error", "Testing role cheatcode is disabled because an owner already exists.");
+        return;
+      }
+
+      if (!user.dbUserId) {
+        socket.emit("channel-error", "Testing role cheatcode only works for registered users.");
+        return;
+      }
+
+      try {
+        assignRole(user.dbUserId, TEST_ROLE_CHEATCODE_ROLE as any, 'default-workspace');
+        syncDbUserRoleState(user.dbUserId);
+        testRoleCheatcodeConsumed = true;
+        socket.emit("channel-error", `[TEST] Role granted: ${TEST_ROLE_CHEATCODE_ROLE}. Cheatcode is now disabled.`);
+        console.log(`[RoleCheatcode] Granted ${TEST_ROLE_CHEATCODE_ROLE} to user_id ${user.dbUserId}; cheatcode disabled.`);
+      } catch (error) {
+        socket.emit("channel-error", "Failed to apply testing role cheatcode.");
+      }
+      return;
+    }
 
     // Calculate deletion time: use channel auto-delete setting, or default to 1 day
     const DEFAULT_SERVER_EXPIRATION = 24 * 60 * 60 * 1000; // 1 day in milliseconds
