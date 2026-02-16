@@ -1,9 +1,15 @@
 <script lang="ts">
 	import { layoutStore } from '$lib/layoutStore';
+	import { currentUser } from '$lib/socket';
 	import UserListTab from './UserListTab.svelte';
 	import DMTab from './DMTab.svelte';
+	import AdminTab from './AdminTab.svelte';
 
 	$: activeTab = $layoutStore.activeRightTab;
+	$: canAccessAdminTab = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin' || $currentUser?.highestRole === 'mod';
+	$: if (!canAccessAdminTab && activeTab === 'admin') {
+		layoutStore.showUsersTab();
+	}
 </script>
 
 <div class="right-panel">
@@ -31,6 +37,19 @@
 			</svg>
 			<span>DMs</span>
 		</button>
+		{#if canAccessAdminTab}
+			<button
+				class="tab-btn"
+				class:active={activeTab === 'admin'}
+				on:click={layoutStore.showAdminTab}
+			>
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M12 2l8 4v6c0 5.25-3.5 9.74-8 11-4.5-1.26-8-5.75-8-11V6l8-4z"/>
+					<path d="M9 12l2 2 4-4"/>
+				</svg>
+				<span>Admin</span>
+			</button>
+		{/if}
 		<div class="tab-spacer"></div>
 		<button class="tab-close" on:click={layoutStore.toggleRightPanel} title="Close panel">
 			<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -45,6 +64,8 @@
 			<UserListTab />
 		{:else if activeTab === 'dms'}
 			<DMTab />
+		{:else if activeTab === 'admin'}
+			<AdminTab />
 		{/if}
 	</div>
 </div>

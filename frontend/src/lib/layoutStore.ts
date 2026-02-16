@@ -15,9 +15,9 @@ const isMobile = readable(false, (set) => {
 	return () => mql.removeEventListener('change', listener);
 });
 
-type RightPanelView = 'none' | 'users' | 'dms';
+type RightPanelView = 'none' | 'users' | 'dms' | 'admin';
 const rightPanelView = writable<RightPanelView>('none');
-const activeRightTab = writable<'users' | 'dms'>('users');
+const activeRightTab = writable<'users' | 'dms' | 'admin'>('users');
 const showMobileChannels = writable(false);
 
 const channelSidebarWidth = writable(280);
@@ -48,6 +48,11 @@ const showUsersTab = () => {
 const showDMsTab = () => {
 	activeRightTab.set('dms');
 	rightPanelView.set('dms');
+};
+
+const showAdminTab = () => {
+	activeRightTab.set('admin');
+	rightPanelView.set('admin');
 };
 
 const openDM = (channelIdStr: string, otherUserObj: User) => {
@@ -144,6 +149,7 @@ export const layoutStore = {
 	toggleRightPanel,
 	showUsersTab,
 	showDMsTab,
+	showAdminTab,
 	openDM,
 	openGroupDM,
 	closeDM,
