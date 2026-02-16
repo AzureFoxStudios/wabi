@@ -3,6 +3,8 @@
 	import {
 		incomingCall,
 		isInCall,
+		callMode,
+		channelCallPanelOpen,
 		isMuted,
 		isDeafened,
 		isVideoOff,
@@ -19,7 +21,8 @@
 		startScreenShare,
 		stopScreenShare,
 		localStream,
-		connectionState
+		connectionState,
+		closeChannelCallPanel
 	} from '$lib/calling';
 	import { showCallNotification, playCallRingtone, stopCallRingtone } from '$lib/notifications';
 	import { onDestroy } from 'svelte';
@@ -55,6 +58,7 @@
 	}
 
 	$: layoutMode = determineLayout($screenShares, $activeCalls, $isSharing, focusedTileId);
+	$: showActiveCallModal = $isInCall && ($callMode === 'direct' || ($callMode === 'channel' && $channelCallPanelOpen));
 
 	// ---- Build tile list ----
 	function buildTiles(
@@ -264,7 +268,7 @@
 {/if}
 
 <!-- Active Call UI -->
-{#if $isInCall}
+{#if showActiveCallModal}
 	<div class="active-call-container">
 		{#if layoutMode === 'voice-only' || layoutMode === 'video-call'}
 			<!-- Original grid layout for voice/video calls without screen shares -->
@@ -426,6 +430,14 @@
 
 		<!-- Controls bar -->
 		<div class="call-controls">
+			{#if $callMode === 'channel'}
+				<button class="control-btn" on:click={closeChannelCallPanel} title="Back to chat">
+					<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<polyline points="15 18 9 12 15 6"></polyline>
+					</svg>
+				</button>
+			{/if}
+
 			<button
 				class="control-btn"
 				class:active={$isMuted}

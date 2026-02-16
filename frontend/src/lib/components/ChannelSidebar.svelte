@@ -98,6 +98,14 @@
 		joinVoiceChannel(channelId);
 	}
 
+	function handleVoiceChannelClick(channelId: string) {
+		if (isConnectedToVoice(channelId)) {
+			handleChannelClick(channelId);
+			return;
+		}
+		joinVoiceChannel(channelId);
+	}
+
 	function voiceActionLabel(channelId: string): string {
 		return isConnectedToVoice(channelId) ? 'Leave Voice' : 'Join Voice';
 	}
@@ -360,7 +368,7 @@
 		{#if isVoiceSectionExpanded}
 		{#each voiceChannels as channel (channel.id)}
 			<div class="channel-item voice-channel-item" class:active={isConnectedToVoice(channel.id)}>
-				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleVoiceAction(channel.id)}>
+				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleVoiceChannelClick(channel.id)}>
 					<span class="hash">🔊</span>
 					{channel.name}
 				</button>

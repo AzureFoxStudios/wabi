@@ -85,6 +85,7 @@ export const localScreenStream = writable<MediaStream | null>(null);
 export const connectionState = writable<ConnectionLifecycleState>('idle');
 export const activeVoiceChannel = writable<ActiveVoiceChannel | null>(null);
 export const callMode = writable<'direct' | 'channel' | null>(null);
+export const channelCallPanelOpen = writable(false);
 export const voiceChannelNotice = writable<{ id: number; text: string } | null>(null);
 export const callTransportState = writable<{
 	mode: CallTransportMode;
@@ -584,6 +585,7 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		const stream = await ensureLocalAudioStream();
 		activeVoiceChannelId = channelId;
 		callMode.set('channel');
+		channelCallPanelOpen.set(false);
 		activeVoiceChannel.set({ id: channelId, name: channelId });
 		incomingCall.set(null);
 		pushVoiceChannelNotice(`Joined voice: ${channelId}`);
@@ -620,6 +622,7 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 	isMuted.set(false);
 	isDeafened.set(false);
 	isVideoOff.set(false);
+	channelCallPanelOpen.set(false);
 	activeVoiceChannel.set(null);
 	callMode.set(null);
 
@@ -651,6 +654,7 @@ export async function startCall(socket: Socket, targetUserId: string, isVideoCal
 
 		isInCall.set(true);
 		callMode.set('direct');
+		channelCallPanelOpen.set(false);
 		activeVoiceChannel.set(null);
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);
@@ -682,6 +686,7 @@ export async function answerCall(socket: Socket, callerId: string, isVideoCall: 
 
 		isInCall.set(true);
 		callMode.set('direct');
+		channelCallPanelOpen.set(false);
 		activeVoiceChannel.set(null);
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);
@@ -721,6 +726,7 @@ export function endCall(socket: Socket) {
 	isMuted.set(false);
 	isDeafened.set(false);
 	isVideoOff.set(false);
+	channelCallPanelOpen.set(false);
 	activeVoiceChannel.set(null);
 	callMode.set(null);
 
@@ -1107,7 +1113,20 @@ export function cleanupAllConnections() {
 	isMuted.set(false);
 	isDeafened.set(false);
 	isVideoOff.set(false);
+	channelCallPanelOpen.set(false);
 	connectionState.set('idle');
+}
+
+export function openChannelCallPanel(): void {
+	channelCallPanelOpen.set(true);
+}
+
+export function closeChannelCallPanel(): void {
+	channelCallPanelOpen.set(false);
+}
+
+export function toggleChannelCallPanel(): void {
+	channelCallPanelOpen.update((open) => !open);
 }
 
 // ============================================================================
