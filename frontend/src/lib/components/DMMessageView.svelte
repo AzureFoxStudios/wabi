@@ -231,6 +231,7 @@
 		align-items: center;
 		gap: 0.5rem;
 		min-width: 0;
+		flex: 1;
 	}
 
 	.dm-content {
@@ -276,10 +277,15 @@
 	.dm-header-text {
 		display: flex;
 		flex-direction: column;
+		align-items: flex-start;
+		text-align: left;
 		min-width: 0;
 	}
 
 	.dm-header-name {
+		display: block;
+		width: 100%;
+		text-align: left;
 		font-size: 0.85rem;
 		font-weight: 600;
 		color: var(--text-primary);
