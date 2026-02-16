@@ -40,7 +40,7 @@
 			{
 				id: 'reply',
 				label: 'Reply',
-				leading: '💬',
+				icon: 'message-circle',
 				onSelect: onReply
 			}
 		];
@@ -49,7 +49,7 @@
 			list.push({
 				id: 'react',
 				label: 'Add Reaction',
-				leading: '🙂',
+				icon: 'smile',
 				onSelect: onAddReaction
 			});
 		}
@@ -58,7 +58,7 @@
 			list.push({
 				id: 'download',
 				label: 'Download',
-				leading: '⬇',
+				icon: 'download',
 				onSelect: onDownload
 			});
 		}
@@ -67,7 +67,7 @@
 			list.push({
 				id: 'forward',
 				label: 'Forward',
-				leading: '↪',
+				icon: 'forward',
 				onSelect: onForward
 			});
 		}
@@ -76,7 +76,7 @@
 			list.push({
 				id: 'edit',
 				label: 'Edit Message',
-				leading: '✎',
+				icon: 'edit',
 				onSelect: onEdit
 			});
 		}
@@ -84,14 +84,14 @@
 		list.push({
 			id: 'pin',
 			label: message.isPinned ? 'Unpin Message' : 'Pin Message',
-			leading: '📌',
+			icon: 'pin',
 			onSelect: onPin
 		});
 
 		list.push({
 			id: 'copy',
 			label: 'Copy Text',
-			leading: '📋',
+			icon: 'copy',
 			disabled: !canCopyText,
 			onSelect: copyText
 		});
@@ -101,7 +101,7 @@
 			list.push({
 				id: 'delete',
 				label: 'Delete Message',
-				leading: '🗑',
+				icon: 'trash-2',
 				danger: true,
 				onSelect: onDelete
 			});

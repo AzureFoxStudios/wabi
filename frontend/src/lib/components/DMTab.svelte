@@ -4,7 +4,7 @@
 	import { startCall } from '$lib/calling';
 	import { longpress } from '$lib/actions/longpress';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
-	import type { ContextMenuItem } from '$lib/context-menu/types';
+	import type { ContextMenuIcon, ContextMenuItem } from '$lib/context-menu/types';
 	import DMMessageView from './DMMessageView.svelte';
 	import KeepNotesView from './KeepNotesView.svelte';
 	import GroupAvatar from './GroupAvatar.svelte';
@@ -15,7 +15,7 @@
 		id: 'voice' | 'video' | 'remove';
 		label: string;
 		title: string;
-		leading: string;
+		icon: ContextMenuIcon;
 		danger?: boolean;
 		showInline?: boolean;
 		onSelect: () => void | Promise<void>;
@@ -145,7 +145,7 @@
 					id: 'voice',
 					label: 'Voice Call',
 					title: `Voice call ${other.username}`,
-					leading: '📞',
+					icon: 'phone',
 					showInline: true,
 					onSelect: () => startDMQuickCall(other, false)
 				},
@@ -153,7 +153,7 @@
 					id: 'video',
 					label: 'Video Call',
 					title: `Video call ${other.username}`,
-					leading: '🎥',
+					icon: 'video',
 					showInline: true,
 					onSelect: () => startDMQuickCall(other, true)
 				}
@@ -164,7 +164,7 @@
 			id: 'remove',
 			label: channel.type === 'group' ? 'Leave Group' : 'Delete Conversation',
 			title: channel.type === 'group' ? 'Leave group' : 'Delete conversation',
-			leading: channel.type === 'group' ? '🚪' : '🗑',
+			icon: channel.type === 'group' ? 'log-out' : 'trash-2',
 			danger: true,
 			showInline: true,
 			onSelect: () => handleDeleteOrLeave(channel)
@@ -218,7 +218,7 @@
 			{
 				id: 'open',
 				label: 'Open Conversation',
-				leading: '💬',
+				icon: 'message-circle',
 				onSelect: () => selectConversation(contextMenuChannel as Channel)
 			}
 		];
@@ -229,7 +229,7 @@
 			items.push({
 				id: action.id,
 				label: action.label,
-				leading: action.leading,
+				icon: action.icon,
 				danger: action.danger,
 				onSelect: action.onSelect
 			});

@@ -32,7 +32,7 @@
 				{
 					id: 'message',
 					label: 'Send Message',
-					leading: '💬',
+					icon: 'message-circle',
 					onSelect: () => {
 						dispatch('openDM', { user });
 					}
@@ -40,7 +40,7 @@
 				{
 					id: 'voice-call',
 					label: 'Voice Call',
-					leading: '📞',
+					icon: 'phone',
 					onSelect: () => {
 						dispatch('voiceCall');
 					}
@@ -48,7 +48,7 @@
 				{
 					id: 'video-call',
 					label: 'Video Call',
-					leading: '🎥',
+					icon: 'video',
 					onSelect: () => {
 						dispatch('videoCall');
 					}
@@ -56,7 +56,7 @@
 				{
 					id: 'screen-share',
 					label: 'Screen Share',
-					leading: '🖥',
+					icon: 'monitor',
 					onSelect: () => {
 						dispatch('screenShare');
 					}
@@ -68,7 +68,7 @@
 		menuItems.push({
 			id: 'view-profile',
 			label: 'View Profile',
-			leading: '👤',
+			icon: 'user',
 			onSelect: () => {
 				dispatch('viewProfile');
 			}

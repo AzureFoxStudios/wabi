@@ -249,12 +249,14 @@
 
 	function buildChannelMenuItems(channel: Channel): ContextMenuItem[] {
 		const items: ContextMenuItem[] = [
-			{
-				id: 'pin-channel',
-				label: isChannelPinned(channel) ? 'Unpin Channel' : 'Pin Channel',
-				icon: 'pin',
-				onSelect: togglePinChannel
-			},
+			// TODO(mod/admin-perms): Re-enable pin/unpin channel action once role-based
+			// permissions are wired into channel context menu visibility.
+			// {
+			// 	id: 'pin-channel',
+			// 	label: isChannelPinned(channel) ? 'Unpin Channel' : 'Pin Channel',
+			// 	icon: 'pin',
+			// 	onSelect: togglePinChannel
+			// },
 			{
 				id: 'pinned-messages',
 				label: 'Pinned Messages',
