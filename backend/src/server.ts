@@ -193,6 +193,47 @@ const activeCallPeers = new Map<string, Set<string>>();
 const voiceChannelParticipants = new Map<string, Set<string>>(); // channelId -> stable user IDs
 const voicePeerGraph = new Map<string, Set<string>>(); // stable user ID -> negotiated peer stable user IDs
 
+function findUserByStableId(stableUserId: string): User | undefined {
+	if (stableUserId.startsWith('user-')) {
+		const dbUserId = parseInt(stableUserId.substring(5), 10);
+		if (!Number.isNaN(dbUserId)) {
+			return Array.from(users.values()).find(user => user.dbUserId === dbUserId);
+		}
+	}
+	return users.get(stableUserId);
+}
+
+function buildVoiceParticipant(stableUserId: string): { userId: string; socketId: string; username?: string; profilePicture?: string } {
+	const user = findUserByStableId(stableUserId);
+	return {
+		userId: stableUserId,
+		socketId: resolveSocketId(stableUserId) || stableUserId,
+		username: user?.username,
+		profilePicture: user?.profilePicture
+	};
+}
+
+function getVoiceChannelMembers(channelId: string): Array<{ userId: string; socketId: string; username?: string; profilePicture?: string }> {
+	const participants = voiceChannelParticipants.get(channelId);
+	if (!participants || participants.size === 0) return [];
+	return Array.from(participants).map(buildVoiceParticipant);
+}
+
+function getVoiceStatePayload(): Record<string, Array<{ userId: string; socketId: string; username?: string; profilePicture?: string }>> {
+	const payload: Record<string, Array<{ userId: string; socketId: string; username?: string; profilePicture?: string }>> = {};
+	for (const channelId of voiceChannelParticipants.keys()) {
+		payload[channelId] = getVoiceChannelMembers(channelId);
+	}
+	return payload;
+}
+
+function emitVoiceChannelState(channelId: string): void {
+	emitToChannel(channelId, "voice-channel-state", {
+		channelId,
+		members: getVoiceChannelMembers(channelId)
+	});
+}
+
 function addVoicePeerLink(stableA: string, stableB: string) {
   if (stableA === stableB) return;
   if (!voicePeerGraph.has(stableA)) voicePeerGraph.set(stableA, new Set());
@@ -2537,6 +2578,7 @@ io.on("connection", (socket) => {
         socket.emit("init", {
           channels: enrichedChannels,
           users: Array.from(users.values()),
+          voiceState: getVoiceStatePayload(),
           excalidrawState,
           emotes: Array.from(emotes.values()),
           emojis: emojisData,
@@ -2610,6 +2652,7 @@ io.on("connection", (socket) => {
       socket.emit("init", {
         channels: guestChannels,
         users: Array.from(users.values()),
+        voiceState: getVoiceStatePayload(),
         excalidrawState,
         emotes: Array.from(emotes.values()),
         emojis: emojisData,
@@ -2656,6 +2699,7 @@ io.on("connection", (socket) => {
       socket.emit("init", {
         channels: newGuestChannels,
         users: Array.from(users.values()),
+        voiceState: getVoiceStatePayload(),
         excalidrawState,
         emotes: Array.from(emotes.values()),
         emojis: emojisData2,
@@ -2745,6 +2789,7 @@ io.on("connection", (socket) => {
     socket.emit("init", {
       channels: enrichedRejoinChannels,
       users: Array.from(users.values()),
+      voiceState: getVoiceStatePayload(),
       excalidrawState,
       emotes: Array.from(emotes.values()),
       emojis: emojisData,
@@ -3490,6 +3535,7 @@ io.on("connection", (socket) => {
     if (participants.has(stableUserId)) return;
 
     participants.add(stableUserId);
+    emitVoiceChannelState(data.channelId);
     emitToChannel(data.channelId, "voice-channel-user-joined", {
       channelId: data.channelId,
       userId: stableUserId,
@@ -3511,6 +3557,7 @@ io.on("connection", (socket) => {
       voiceChannelParticipants.delete(data.channelId);
     }
 
+    emitVoiceChannelState(data.channelId);
     emitToChannel(data.channelId, "voice-channel-user-left", {
       channelId: data.channelId,
       userId: stableUserId,
@@ -4510,6 +4557,7 @@ io.on("connection", (socket) => {
           voiceChannelParticipants.delete(voiceChannelId);
         }
 
+        emitVoiceChannelState(voiceChannelId);
         emitToChannel(voiceChannelId, "voice-channel-user-left", {
           channelId: voiceChannelId,
           userId: stableUserId,

@@ -105,6 +105,7 @@ export const channelUnreadCounts = writable<Record<string, number>>({});
 export const dmPanelSignal = writable<{ channelId: string; otherUser: User } | null>(null);
 export interface VoiceChannelParticipant {
 	userId: string;
+	socketId?: string;
 	username?: string;
 	profilePicture?: string;
 }
