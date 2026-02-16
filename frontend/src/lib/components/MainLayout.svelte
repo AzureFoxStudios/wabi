@@ -1,5 +1,6 @@
 <!-- frontend/src/lib/components/MainLayout.svelte -->
 <script lang="ts">
+	import { fly } from 'svelte/transition';
 	import { layoutStore } from '$lib/layoutStore';
 	import { get } from 'svelte/store';
 	import Chat from '$lib/components/Chat.svelte';
@@ -9,7 +10,7 @@
 	import CallModal from '$lib/components/CallModal.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, type Channel, type User } from '$lib/socket';
-	import { activeVoiceChannel, callMode, voiceChannelNotice, isMuted, isDeafened, isVideoOff, isSharing, channelCallPanelOpen, toggleMute, toggleDeafen, toggleVideo, startScreenShare, stopScreenShare, toggleChannelCallPanel } from '$lib/calling';
+	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, voiceChannelNotice, isMuted, isDeafened, isVideoOff, isSharing, channelCallPanelOpen, toggleMute, toggleDeafen, toggleVideo, startScreenShare, stopScreenShare, toggleChannelCallPanel } from '$lib/calling';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 
@@ -28,6 +29,7 @@
 
 	let resizingChannel = false;
 	let resizingRight = false;
+	let showVoiceDebugDetails = false;
 
 	layoutStore.isResizingChannel.subscribe(v => resizingChannel = v);
 	layoutStore.isResizingRight.subscribe(v => resizingRight = v);
@@ -114,6 +116,15 @@
 
 	async function handleToggleVideoFromStrip() {
 		await toggleVideo(getSocket() || undefined);
+	}
+
+	function formatDiag(value: number | null, unit = ''): string {
+		if (value == null || Number.isNaN(value)) return '--';
+		return `${value}${unit}`;
+	}
+
+	$: if ($callMode !== 'channel' || !$activeVoiceChannel) {
+		showVoiceDebugDetails = false;
 	}
 </script>
 
@@ -233,10 +244,40 @@
 	{/if}
 
 	{#if $callMode === 'channel' && $activeVoiceChannel}
-		<div class="voice-channel-strip" role="status" aria-live="polite">
+		<div class="voice-channel-strip" role="status" aria-live="polite" transition:fly={{ y: 20, duration: 220 }}>
+			<button
+				class="voice-status-header"
+				type="button"
+				on:click={() => (showVoiceDebugDetails = !showVoiceDebugDetails)}
+				aria-expanded={showVoiceDebugDetails}
+				title="Toggle call diagnostics"
+			>
+				<span class="status-leading">
+					<span class="dot"></span>
+					<span class="voice-status-text">
+						<strong>Voice Connected</strong>
+						<small>{$activeVoiceChannel.name} / {$connectionState}</small>
+					</span>
+				</span>
+				<span class="status-chevron">{showVoiceDebugDetails ? 'v' : '>'}</span>
+			</button>
+
+			{#if showVoiceDebugDetails}
+				<div class="voice-debug-grid">
+					<div class="debug-item"><span>Ping</span><strong>{formatDiag($callConnectionDiagnostics.pingMs, 'ms')}</strong></div>
+					<div class="debug-item"><span>Jitter</span><strong>{formatDiag($callConnectionDiagnostics.jitterMs, 'ms')}</strong></div>
+					<div class="debug-item"><span>Inbound Loss</span><strong>{formatDiag($callConnectionDiagnostics.inboundPacketLossPct, '%')}</strong></div>
+					<div class="debug-item"><span>Outbound Loss</span><strong>{formatDiag($callConnectionDiagnostics.outboundPacketLossPct, '%')}</strong></div>
+					<div class="debug-item"><span>Inbound Rate</span><strong>{formatDiag($callConnectionDiagnostics.inboundKbps, 'kbps')}</strong></div>
+					<div class="debug-item"><span>Outbound Rate</span><strong>{formatDiag($callConnectionDiagnostics.outboundKbps, 'kbps')}</strong></div>
+					<div class="debug-item"><span>Transport</span><strong>{$callTransportState.activeTransport.toUpperCase()}</strong></div>
+					<div class="debug-item"><span>Participants</span><strong>{1 + $activeCalls.length}</strong></div>
+				</div>
+			{/if}
+
 			<div class="voice-channel-meta">
-				<span class="dot"></span>
-				<span>In voice: <strong>{$activeVoiceChannel.name}</strong></span>
+				<span class="voice-channel-name-label">In voice:</span>
+				<strong>{$activeVoiceChannel.name}</strong>
 			</div>
 			<div class="voice-channel-actions">
 				<button class:active={$isMuted} on:click={toggleMute} title={$isMuted ? 'Unmute' : 'Mute'} aria-label={$isMuted ? 'Unmute' : 'Mute'}>
@@ -564,26 +605,93 @@
 
 	.voice-channel-strip {
 		position: absolute;
-		left: 50%;
+		left: 16px;
 		bottom: 12px;
-		transform: translateX(-50%);
 		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 0.5rem 0.75rem;
-		border-radius: 999px;
-		background: rgba(0, 0, 0, 0.6);
+		flex-direction: column;
+		gap: 0.65rem;
+		padding: 0.7rem;
+		border-radius: 12px;
+		min-width: 340px;
+		background: rgba(0, 0, 0, 0.72);
 		border: 1px solid rgba(var(--border-rgb), var(--opacity-medium));
 		z-index: var(--z-toast);
 		backdrop-filter: blur(8px);
 	}
 
-	.voice-channel-meta {
+	.voice-status-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		width: 100%;
+		background: transparent;
+		border: none;
+		color: var(--text-primary);
+		padding: 0;
+		cursor: pointer;
+	}
+
+	.status-leading {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+	}
+
+	.voice-status-text {
+		display: inline-flex;
+		flex-direction: column;
+		line-height: 1.15;
+		text-align: left;
+	}
+
+	.voice-status-text small {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+	}
+
+	.status-chevron {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.voice-debug-grid {
+		width: 100%;
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.45rem 0.7rem;
+		padding: 0.5rem 0.55rem;
+		border-radius: 9px;
+		background: rgba(255, 255, 255, 0.06);
+	}
+
+	.debug-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		font-size: 0.72rem;
+	}
+
+	.debug-item span {
+		color: var(--text-secondary);
+	}
+
+	.debug-item strong {
+		color: var(--text-primary);
+		font-size: 0.74rem;
+	}
+
+	.voice-channel-meta {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
 		color: var(--text-primary);
 		font-size: 0.85rem;
+		width: 100%;
+	}
+
+	.voice-channel-name-label {
+		color: var(--text-secondary);
+		font-size: 0.8rem;
 	}
 
 	.voice-channel-meta .dot {
@@ -597,6 +705,8 @@
 	.voice-channel-actions {
 		display: flex;
 		gap: 0.4rem;
+		width: 100%;
+		flex-wrap: wrap;
 	}
 
 	.voice-channel-actions button {
@@ -610,6 +720,7 @@
 		align-items: center;
 		justify-content: center;
 		gap: 0.35rem;
+		flex: 1 1 auto;
 	}
 
 	.voice-channel-actions button svg {
@@ -625,6 +736,7 @@
 	.voice-channel-actions button.leave {
 		background: rgba(239, 68, 68, 0.2);
 		border-color: rgba(239, 68, 68, 0.5);
+		flex: 0 0 auto;
 	}
 
 	.voice-toast {
