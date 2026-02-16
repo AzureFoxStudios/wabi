@@ -529,6 +529,14 @@ function getAuthenticatedUserId(req: any): number | null {
   }
 }
 
+function getGuestSessionId(req: any): string | null {
+  const sessionHeader = req.headers['x-session-id'];
+  if (typeof sessionHeader === 'string' && sessionHeader.trim().length > 0) {
+    return sessionHeader.trim();
+  }
+  return null;
+}
+
 // Request handler
 server.on('request', async (req, res) => {
   // Skip Socket.IO requests - Socket.IO handles them at a lower level
@@ -827,7 +835,10 @@ server.on('request', async (req, res) => {
   // File upload endpoint
   if (url.pathname === "/api/upload" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
-    if (!userId) {
+    const guestSessionId = getGuestSessionId(req);
+    const isGuestSessionValid = !!guestSessionId && sessions.has(guestSessionId);
+
+    if (!userId && !isGuestSessionValid) {
       res.writeHead(401, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
       return;

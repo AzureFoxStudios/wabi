@@ -875,6 +875,11 @@
 					const authToken = localStorage.getItem('authToken');
 					if (authToken) {
 						xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+					} else {
+						const sessionId = localStorage.getItem('sessionId');
+						if (sessionId) {
+							xhr.setRequestHeader('X-Session-Id', sessionId);
+						}
 					}
 
 					console.log('Sending FormData with file:', file.name);
