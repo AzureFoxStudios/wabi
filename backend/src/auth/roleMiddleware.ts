@@ -127,10 +127,14 @@ export function assignRole(
 ): void {
 	const stmt = db.prepare(`
 		INSERT INTO user_roles (user_id, role_name, workspace_id)
-		VALUES (?, ?, ?)
+		SELECT ?, ?, ?
+		WHERE NOT EXISTS (
+			SELECT 1 FROM user_roles
+			WHERE user_id = ? AND role_name = ? AND workspace_id = ?
+		)
 	`);
 
-	stmt.run(userId, role, workspaceId);
+	stmt.run(userId, role, workspaceId, userId, role, workspaceId);
 }
 
 /**

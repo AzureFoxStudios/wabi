@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 import { createEventDispatcher, onDestroy, onMount } from 'svelte';
-	import { channelMessages, users, currentUser, emojis, updateProfile } from '$lib/socket';
+	import { channelMessages, users, currentUser, emojis, updateProfile, assignRole, removeUserRole } from '$lib/socket';
 	import StorageSettings from './StorageSettings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import { playNotificationSound } from '$lib/notifications';
@@ -41,7 +41,7 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	const dispatch = createEventDispatcher();
 
 	export let isOpen = false;
-	type SettingsTab = 'profile' | 'audio' | 'notifications' | 'appearance' | 'server' | 'emojis' | 'storage' | 'about';
+	type SettingsTab = 'profile' | 'audio' | 'notifications' | 'appearance' | 'server' | 'emojis' | 'storage' | 'admin' | 'about';
 	let activeSettingsTab: SettingsTab = 'profile';
 
 	let soundEnabled = true;
@@ -91,6 +91,14 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	let bulkEmojiFileInput: HTMLInputElement;
 	let bulkEmojiFiles: { file: File; name: string; preview: string }[] = [];
 	let uploadingBulk = false;
+
+	$: canManageAdmin = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
+	$: sortedAdminUsers = [...$users].sort((a, b) => {
+		const aPriority = a.highestRole === 'owner' ? 3 : a.highestRole === 'admin' ? 2 : a.highestRole === 'mod' ? 1 : 0;
+		const bPriority = b.highestRole === 'owner' ? 3 : b.highestRole === 'admin' ? 2 : b.highestRole === 'mod' ? 1 : 0;
+		if (aPriority !== bPriority) return bPriority - aPriority;
+		return a.username.localeCompare(b.username);
+	});
 
 	// Load settings from localStorage and enforce server policy
 	onMount(() => {
@@ -148,6 +156,38 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	function toggleSuppressRoleMentions() {
 		suppressRoleMentions = !suppressRoleMentions;
 		localStorage.setItem('suppressRoleMentions', suppressRoleMentions.toString());
+	}
+
+	function userHasRole(user: { roles?: string[]; highestRole?: string }, role: 'admin' | 'mod' | 'owner'): boolean {
+		return user.highestRole === role || (user.roles || []).includes(role);
+	}
+
+	function isProtectedOwner(user: { highestRole?: string }): boolean {
+		return user.highestRole === 'owner';
+	}
+
+	function canManageTargetUser(user: { id: string; dbUserId?: number; highestRole?: string }): boolean {
+		if (!canManageAdmin) return false;
+		if (!user.dbUserId) return false;
+		if (!$currentUser || user.id === $currentUser.id) return false;
+		if (isProtectedOwner(user)) return false;
+		return true;
+	}
+
+	function promoteUser(user: { dbUserId?: number }, role: 'admin' | 'mod') {
+		if (!user.dbUserId) return;
+		assignRole(user.dbUserId, role);
+	}
+
+	function removeRoleFromUser(user: { dbUserId?: number }, role: 'admin' | 'mod') {
+		if (!user.dbUserId) return;
+		removeUserRole(user.dbUserId, role);
+	}
+
+	function resetUserToMember(user: { dbUserId?: number }) {
+		if (!user.dbUserId) return;
+		removeUserRole(user.dbUserId, 'admin');
+		removeUserRole(user.dbUserId, 'mod');
 	}
 
 	function updateMediaQualityMode(mode: MediaQualityMode) {
@@ -707,6 +747,9 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 					<button class="settings-tab" class:active={activeSettingsTab === 'server'} on:click={() => activeSettingsTab = 'server'}>Server</button>
 					<button class="settings-tab" class:active={activeSettingsTab === 'emojis'} on:click={() => activeSettingsTab = 'emojis'}>Emojis</button>
 					<button class="settings-tab" class:active={activeSettingsTab === 'storage'} on:click={() => activeSettingsTab = 'storage'}>Storage</button>
+					{#if canManageAdmin}
+						<button class="settings-tab" class:active={activeSettingsTab === 'admin'} on:click={() => activeSettingsTab = 'admin'}>Admin</button>
+					{/if}
 					<button class="settings-tab" class:active={activeSettingsTab === 'about'} on:click={() => activeSettingsTab = 'about'}>About</button>
 					<div class="settings-tabs-spacer"></div>
 					<button class="settings-tab logout-tab" on:click={handleLogout}>Logout</button>
@@ -1139,6 +1182,62 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 							<StorageSettings />
 						</div>
 
+					{:else if activeSettingsTab === 'admin'}
+						<div class="settings-section">
+							<h3>Admin Panel</h3>
+							<p class="admin-help">Manage live user roles from here or from user right-click menus.</p>
+							<div class="admin-user-list">
+								{#each sortedAdminUsers as user (user.id)}
+									<div class="admin-user-item">
+										<div class="admin-user-meta">
+											<span class="admin-user-name">{user.username}</span>
+											<span class="admin-role-badge">{user.highestRole || 'member'}</span>
+											{#if !user.dbUserId}
+												<span class="admin-guest-badge">guest session</span>
+											{/if}
+										</div>
+										<div class="admin-user-actions">
+											<button
+												class="action-btn"
+												disabled={!canManageTargetUser(user) || userHasRole(user, 'admin')}
+												on:click={() => promoteUser(user, 'admin')}
+											>
+												Make Admin
+											</button>
+											<button
+												class="action-btn"
+												disabled={!canManageTargetUser(user) || !userHasRole(user, 'admin')}
+												on:click={() => removeRoleFromUser(user, 'admin')}
+											>
+												Remove Admin
+											</button>
+											<button
+												class="action-btn"
+												disabled={!canManageTargetUser(user) || userHasRole(user, 'mod')}
+												on:click={() => promoteUser(user, 'mod')}
+											>
+												Make Mod
+											</button>
+											<button
+												class="action-btn"
+												disabled={!canManageTargetUser(user) || !userHasRole(user, 'mod')}
+												on:click={() => removeRoleFromUser(user, 'mod')}
+											>
+												Remove Mod
+											</button>
+											<button
+												class="action-btn danger"
+												disabled={!canManageTargetUser(user) || (!userHasRole(user, 'admin') && !userHasRole(user, 'mod'))}
+												on:click={() => resetUserToMember(user)}
+											>
+												Reset to Member
+											</button>
+										</div>
+									</div>
+								{/each}
+							</div>
+						</div>
+
 					{:else if activeSettingsTab === 'about'}
 						<div class="settings-section">
 							<h3>About</h3>
@@ -1488,6 +1587,64 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	.action-btn.danger:hover {
 		background: var(--color-danger-hover);
 		transform: translateY(-2px);
+	}
+
+	.admin-help {
+		margin: 0 0 0.75rem;
+		color: var(--text-secondary);
+		font-size: 0.85rem;
+	}
+
+	.admin-user-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.admin-user-item {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		padding: 0.625rem 0.75rem;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: var(--bg-secondary);
+	}
+
+	.admin-user-meta {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		min-width: 0;
+	}
+
+	.admin-user-name {
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.admin-role-badge,
+	.admin-guest-badge {
+		font-size: 0.68rem;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		padding: 0.15rem 0.4rem;
+		border-radius: 999px;
+		border: 1px solid var(--border);
+		color: var(--text-secondary);
+	}
+
+	.admin-guest-badge {
+		background: rgba(255, 193, 7, 0.12);
+		border-color: rgba(255, 193, 7, 0.35);
+	}
+
+	.admin-user-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
 	}
 
 	.about-info {

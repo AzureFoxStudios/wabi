@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { users, currentUser, createDM, socket } from '$lib/socket';
+	import { users, currentUser, createDM, socket, assignRole, removeUserRole } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { startCall } from '$lib/calling';
 	import type { User } from '$lib/socket';
@@ -76,10 +76,41 @@
 		closeContextMenu();
 	}
 
+	function canManageRoles(): boolean {
+		const myRole = $currentUser?.highestRole;
+		return myRole === 'owner' || myRole === 'admin';
+	}
+
+	function canManageContextUserRoles(): boolean {
+		if (!contextMenuUser || !canManageRoles()) return false;
+		if (!$currentUser || contextMenuUser.id === $currentUser.id) return false;
+		if (!contextMenuUser.dbUserId) return false;
+		return contextMenuUser.highestRole !== 'owner';
+	}
+
+	function handleAssignContextRole(roleName: 'admin' | 'mod') {
+		if (!contextMenuUser?.dbUserId) return;
+		assignRole(contextMenuUser.dbUserId, roleName);
+		closeContextMenu();
+	}
+
+	function handleRemoveContextRole(roleName: 'admin' | 'mod') {
+		if (!contextMenuUser?.dbUserId) return;
+		removeUserRole(contextMenuUser.dbUserId, roleName);
+		closeContextMenu();
+	}
+
+	function handleResetContextUserToMember() {
+		if (!contextMenuUser?.dbUserId) return;
+		removeUserRole(contextMenuUser.dbUserId, 'admin');
+		removeUserRole(contextMenuUser.dbUserId, 'mod');
+		closeContextMenu();
+	}
+
 	$: userMenuItems = contextMenuUser ? buildUserMenuItems() : [];
 
 	function buildUserMenuItems(): ContextMenuItem[] {
-		return [
+		const items: ContextMenuItem[] = [
 			{
 				id: 'message',
 				label: 'Message',
@@ -99,6 +130,60 @@
 				onSelect: handleContextVideoCall
 			}
 		];
+
+		if (canManageContextUserRoles() && contextMenuUser) {
+			const roles = contextMenuUser.roles || [];
+			const isAdmin = roles.includes('admin') || contextMenuUser.highestRole === 'admin';
+			const isMod = roles.includes('mod') || contextMenuUser.highestRole === 'mod';
+
+			items.push({ id: 'role-divider', type: 'separator' });
+
+			if (!isAdmin) {
+				items.push({
+					id: 'make-admin',
+					label: 'Make Admin',
+					icon: 'settings',
+					onSelect: () => handleAssignContextRole('admin')
+				});
+			} else {
+				items.push({
+					id: 'remove-admin',
+					label: 'Remove Admin',
+					icon: 'settings',
+					danger: true,
+					onSelect: () => handleRemoveContextRole('admin')
+				});
+			}
+
+			if (!isMod) {
+				items.push({
+					id: 'make-mod',
+					label: 'Make Moderator',
+					icon: 'settings',
+					onSelect: () => handleAssignContextRole('mod')
+				});
+			} else {
+				items.push({
+					id: 'remove-mod',
+					label: 'Remove Moderator',
+					icon: 'settings',
+					danger: true,
+					onSelect: () => handleRemoveContextRole('mod')
+				});
+			}
+
+			if (isAdmin || isMod) {
+				items.push({
+					id: 'reset-member',
+					label: 'Reset to Member',
+					icon: 'settings',
+					danger: true,
+					onSelect: handleResetContextUserToMember
+				});
+			}
+		}
+
+		return items;
 	}
 
 	function getDisplayColor(user: User): string {
