@@ -43,6 +43,13 @@
 	let reactionPickerX = 0;
 	let reactionPickerY = 0;
 	let reactionPickerMessageId: string | null = null;
+	let reactionPickerChannelId: string | null = null;
+
+	function closeReactionPicker() {
+		showReactionPicker = false;
+		reactionPickerMessageId = null;
+		reactionPickerChannelId = null;
+	}
 	function formatTime(timestamp: number): string {
 		const date = new Date(timestamp);
 		return date.toLocaleTimeString('en-US', {
@@ -176,6 +183,7 @@
 		if (!contextMenuMessage) return;
 		// Open emoji picker at the context menu position
 		reactionPickerMessageId = contextMenuMessage.id;
+		reactionPickerChannelId = $currentChannel;
 		reactionPickerX = contextMenuX;
 		reactionPickerY = contextMenuY;
 		showReactionPicker = true;
@@ -184,15 +192,15 @@
 	function openReactionPicker(event: MouseEvent, messageId: string) {
 		event.stopPropagation();
 		reactionPickerMessageId = messageId;
+		reactionPickerChannelId = $currentChannel;
 		reactionPickerX = event.clientX;
 		reactionPickerY = event.clientY;
 		showReactionPicker = true;
 	}
 	function handleReactionSelect(event: CustomEvent<{ emoji: Emoji }>) {
-		if (!reactionPickerMessageId) return;
-		addReaction($currentChannel, reactionPickerMessageId, event.detail.emoji.id);
-		showReactionPicker = false;
-		reactionPickerMessageId = null;
+		if (!reactionPickerMessageId || !reactionPickerChannelId) return;
+		addReaction(reactionPickerChannelId, reactionPickerMessageId, event.detail.emoji.id);
+		closeReactionPicker();
 	}
 	function toggleReaction(messageId: string, emojiId: string) {
 		const message = messages.find(m => m.id === messageId);
@@ -206,6 +214,9 @@
 		} else {
 			addReaction($currentChannel, messageId, emojiId);
 		}
+	}
+	$: if (showReactionPicker && reactionPickerChannelId && $currentChannel !== reactionPickerChannelId) {
+		closeReactionPicker();
 	}
 	function getEmojiById(emojiId: string): Emoji | undefined {
 		return $emojis.find(e => e.id === emojiId);
@@ -898,7 +909,7 @@
 {#if showReactionPicker}
 	<EmojiPicker
 		on:select={handleReactionSelect}
-		on:close={() => showReactionPicker = false}
+		on:close={closeReactionPicker}
 	/>
 {/if}
 

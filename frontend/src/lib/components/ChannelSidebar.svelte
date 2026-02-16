@@ -258,7 +258,7 @@
 			{
 				id: 'pinned-messages',
 				label: 'Pinned Messages',
-				leading: '📍',
+				leading: '📌',
 				onSelect: () => handleShowPinnedMessages(channel.id)
 			},
 			{

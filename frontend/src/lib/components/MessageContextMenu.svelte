@@ -40,7 +40,7 @@
 			{
 				id: 'reply',
 				label: 'Reply',
-				leading: '↩',
+				leading: '💬',
 				onSelect: onReply
 			}
 		];

@@ -635,9 +635,11 @@
 		showEmojiPicker = false;
 		showMediaMenu = false;
 
-		// Insert emoji syntax and auto-send
-		messageInput = messageInput.trim() ? messageInput + `:${emoji.name}:` : `:${emoji.name}:`;
-		handleSubmit();
+		// Insert emoji syntax into the composer and let the user send explicitly.
+		const emojiToken = `:${emoji.name}:`;
+		const shouldAddSpace = messageInput.length > 0 && !/\s$/.test(messageInput);
+		messageInput = shouldAddSpace ? `${messageInput} ${emojiToken}` : `${messageInput}${emojiToken}`;
+		textareaElement?.focus();
 	}
 
 	function handleReply(message: Message) {
