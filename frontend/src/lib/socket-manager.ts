@@ -811,8 +811,14 @@ class SocketManager {
 					}
 				}
 			}
-			channels.update(chs => [...chs, processedChannel]);
-			channelMessages.update(msgs => ({ ...msgs, [processedChannel.id]: [] }));
+			channels.update(chs => {
+				if (chs.some(existing => existing.id === processedChannel.id)) return chs;
+				return [...chs, processedChannel];
+			});
+			channelMessages.update(msgs => ({
+				...msgs,
+				[processedChannel.id]: msgs[processedChannel.id] || []
+			}));
 		});
 
 		sock.on('channel-deleted', (channelId: string) => {
@@ -1392,6 +1398,20 @@ export async function leaveVoiceChannel(channelId: string): Promise<void> {
 
 export function createChannel(channelName: string, description?: string, channelType: 'text' | 'voice' = 'text'): void {
 	socketManager.emit('create-channel', { name: channelName, description: description || '', channelType });
+}
+
+export function createThread(parentChannelId: string, name: string, options?: {
+	parentMessageId?: string;
+	privateThread?: boolean;
+	autoArchiveMinutes?: number;
+}): void {
+	socketManager.emit('thread:create', {
+		parentChannelId,
+		name,
+		parentMessageId: options?.parentMessageId,
+		privateThread: options?.privateThread || false,
+		autoArchiveMinutes: options?.autoArchiveMinutes
+	});
 }
 
 export function deleteChannel(channelId: string): void {

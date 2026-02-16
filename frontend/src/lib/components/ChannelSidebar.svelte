@@ -6,6 +6,7 @@
 		currentChannel,
 		joinChannel,
 		createChannel,
+		createThread,
 		deleteChannel,
 		markMessagesAsRead,
 		currentUser,
@@ -101,6 +102,16 @@
 			return a.name.localeCompare(b.name);
 		});
 	$: groupChannels = $channels.filter(ch => ch.type === 'group');
+	$: threadChannels = $channels
+		.filter(ch => ch.type === 'thread_public' || ch.type === 'thread_private')
+		.sort((a, b) => (b.threadLastActivityAt || b.createdAt || 0) - (a.threadLastActivityAt || a.createdAt || 0));
+	$: threadChannelsByParent = threadChannels.reduce((acc: Record<string, Channel[]>, thread) => {
+		const parentId = thread.parentChannelId;
+		if (!parentId) return acc;
+		if (!acc[parentId]) acc[parentId] = [];
+		acc[parentId].push(thread);
+		return acc;
+	}, {});
 	$: voiceChannels = $channels
 		.filter(ch => ch.type === 'voice')
 		.sort((a, b) => {
@@ -117,6 +128,14 @@
 	function handleChannelClick(channelId: string) {
 		joinChannel(channelId);
 		dispatch('close'); // Close sidebar on mobile after channel selection
+	}
+
+	function handleCreateThread(parentChannel: Channel) {
+		const rawName = window.prompt(`Create a thread in #${parentChannel.name}`, `${parentChannel.name} thread`);
+		if (!rawName) return;
+		const name = rawName.trim();
+		if (!name) return;
+		createThread(parentChannel.id, name);
 	}
 
 
@@ -357,6 +376,15 @@
 			}
 		];
 
+		if (channel.type === 'text' || channel.type === 'public' || !channel.type) {
+			items.splice(1, 0, {
+				id: 'create-thread',
+				label: 'Create Thread',
+				icon: 'message-circle',
+				onSelect: () => handleCreateThread(channel)
+			});
+		}
+
 		if (channel.id !== 'general' && channel.id !== 'voice') {
 			items.push({ id: 'danger-divider', type: 'separator' });
 			items.push({
@@ -460,6 +488,27 @@
 				</button>
 				</div>
 			</div>
+			{#if (threadChannelsByParent[channel.id] || []).length > 0}
+				<div class="thread-list">
+					{#each threadChannelsByParent[channel.id] as thread (thread.id)}
+						<button
+							class="thread-btn"
+							class:active={$currentChannel === thread.id}
+							on:click={() => handleChannelClick(thread.id)}
+							title={thread.type === 'thread_private' ? 'Private thread' : 'Thread'}
+						>
+							<span class="thread-prefix">&gt;</span>
+							<span class="thread-name">{thread.name}</span>
+							{#if thread.type === 'thread_private'}
+								<span class="thread-privacy">Private</span>
+							{/if}
+							{#if $channelUnreadCounts[thread.id] && $currentChannel !== thread.id}
+								<span class="unread-badge">{formatBadge($channelUnreadCounts[thread.id])}</span>
+							{/if}
+						</button>
+					{/each}
+				</div>
+			{/if}
 		{/each}
 
 		<!-- DMs removed from sidebar - now accessible via UserPanel -->
@@ -965,7 +1014,8 @@
 
 	.channel-sidebar.compact .voice-occupancy,
 	.channel-sidebar.compact .voice-inline-count,
-	.channel-sidebar.compact .voice-member-list {
+	.channel-sidebar.compact .voice-member-list,
+	.channel-sidebar.compact .thread-list {
 		display: none;
 	}
 
@@ -1345,6 +1395,55 @@
 		background: rgba(var(--border-rgb), var(--opacity-light));
 		padding: 0.05rem 0.35rem;
 		border-radius: 999px;
+	}
+
+	.thread-list {
+		margin: -0.05rem 0 0.2rem 1.35rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+
+	.thread-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		background: transparent;
+		border: none;
+		color: var(--text-secondary);
+		font-size: 0.72rem;
+		padding: 0.14rem 0.2rem;
+		border-radius: 6px;
+		cursor: pointer;
+		min-width: 0;
+		text-align: left;
+	}
+
+	.thread-btn:hover,
+	.thread-btn.active {
+		background: rgba(var(--border-rgb), var(--opacity-light));
+		color: var(--text-primary);
+	}
+
+	.thread-prefix {
+		font-size: 0.72rem;
+		color: var(--text-muted);
+	}
+
+	.thread-name {
+		min-width: 0;
+		flex: 1;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.thread-privacy {
+		font-size: 0.62rem;
+		color: var(--text-secondary);
+		border: 1px solid rgba(var(--border-rgb), var(--opacity-medium));
+		border-radius: 999px;
+		padding: 0.02rem 0.35rem;
 	}
 
 	.voice-avatars {

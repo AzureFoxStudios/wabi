@@ -63,11 +63,17 @@ export interface Channel {
   description?: string;
   minRole?: string;
   createdAt: number;
-  type?: 'text' | 'voice' | 'dm' | 'group' | 'public';
+  type?: 'text' | 'voice' | 'dm' | 'group' | 'public' | 'thread_public' | 'thread_private';
   members?: string[];
   otherUser?: User;
   memberUsers?: User[];
   avatar?: string | null;
+  parentChannelId?: string;
+  parentMessageId?: string;
+  threadArchived?: boolean;
+  threadLocked?: boolean;
+  threadAutoArchiveMinutes?: number;
+  threadLastActivityAt?: number;
   autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
   isTemporary?: boolean;
   persistMessages?: boolean;

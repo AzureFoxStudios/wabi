@@ -143,7 +143,7 @@ VALUES ('VIP2026', 'Default VIP guest access code', 1);
 -- Channels table (DMs, groups, public)
 CREATE TABLE IF NOT EXISTS channels (
   channel_id TEXT PRIMARY KEY,
-  channel_type TEXT NOT NULL DEFAULT 'text',  -- 'text', 'voice', 'dm', 'group' (legacy 'public' supported)
+  channel_type TEXT NOT NULL DEFAULT 'text',  -- 'text', 'voice', 'dm', 'group', 'thread_public', 'thread_private' (legacy 'public' supported)
   name TEXT NOT NULL,
   description TEXT DEFAULT '',
   min_role TEXT DEFAULT 'guest',
@@ -152,7 +152,13 @@ CREATE TABLE IF NOT EXISTS channels (
   created_by TEXT,
   persist_messages INTEGER DEFAULT 1,
   is_archived INTEGER DEFAULT 0,
-  avatar TEXT
+  avatar TEXT,
+  parent_channel_id TEXT,
+  parent_message_id TEXT,
+  thread_archived INTEGER DEFAULT 0,
+  thread_locked INTEGER DEFAULT 0,
+  thread_auto_archive_minutes INTEGER DEFAULT 1440,
+  thread_last_activity_at INTEGER
 );
 
 -- Emoji-triggered role automation rules
@@ -205,6 +211,7 @@ CREATE TABLE IF NOT EXISTS messages (
 
 -- Indexes for new tables
 CREATE INDEX IF NOT EXISTS idx_channels_type ON channels(channel_type);
+CREATE INDEX IF NOT EXISTS idx_channels_parent ON channels(parent_channel_id);
 CREATE INDEX IF NOT EXISTS idx_channel_members_channel ON channel_members(channel_id);
 CREATE INDEX IF NOT EXISTS idx_channel_members_user ON channel_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at);

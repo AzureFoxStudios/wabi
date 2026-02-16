@@ -2,7 +2,7 @@ import db from '../database.js';
 
 export interface DbChannel {
 	channel_id: string;
-	channel_type: 'text' | 'voice' | 'public' | 'dm' | 'group';
+	channel_type: 'text' | 'voice' | 'public' | 'dm' | 'group' | 'thread_public' | 'thread_private';
 	name: string;
 	description: string;
 	min_role?: string;
@@ -12,14 +12,24 @@ export interface DbChannel {
 	persist_messages: number;
 	is_archived: number;
 	avatar?: string;
+	parent_channel_id?: string | null;
+	parent_message_id?: string | null;
+	thread_archived?: number;
+	thread_locked?: number;
+	thread_auto_archive_minutes?: number;
+	thread_last_activity_at?: number | null;
 }
 
 export class ChannelRepository {
 	// Create a new channel
 	create(channel: Omit<DbChannel, 'is_archived'>): DbChannel {
 		const stmt = db.prepare(`
-			INSERT INTO channels (channel_id, channel_type, name, description, min_role, created_at, created_by, persist_messages, is_archived)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+			INSERT INTO channels (
+				channel_id, channel_type, name, description, min_role, created_at, created_by, persist_messages,
+				is_archived, parent_channel_id, parent_message_id, thread_archived, thread_locked,
+				thread_auto_archive_minutes, thread_last_activity_at
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
 		`);
 
 		stmt.run(
@@ -30,7 +40,13 @@ export class ChannelRepository {
 			channel.min_role || 'guest',
 			channel.created_at,
 			channel.created_by || null,
-			channel.persist_messages ?? 1
+			channel.persist_messages ?? 1,
+			channel.parent_channel_id || null,
+			channel.parent_message_id || null,
+			channel.thread_archived ?? 0,
+			channel.thread_locked ?? 0,
+			channel.thread_auto_archive_minutes ?? 1440,
+			channel.thread_last_activity_at ?? channel.created_at
 		);
 
 		return {
@@ -73,7 +89,7 @@ export class ChannelRepository {
 	getWorkspaceChannels(): DbChannel[] {
 		const stmt = db.prepare(`
 			SELECT * FROM channels
-			WHERE channel_type IN ('text', 'voice', 'public') AND is_archived = 0
+			WHERE channel_type IN ('text', 'voice', 'public', 'thread_public') AND is_archived = 0
 			ORDER BY created_at ASC
 		`);
 		return stmt.all() as DbChannel[];

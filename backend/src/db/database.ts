@@ -153,6 +153,18 @@ function runMigrations() {
 
 	// Migration: add min_role to channels
 	addColumnIfMissing('channels', 'min_role', "TEXT DEFAULT 'guest'");
+	addColumnIfMissing('channels', 'parent_channel_id', 'TEXT');
+	addColumnIfMissing('channels', 'parent_message_id', 'TEXT');
+	addColumnIfMissing('channels', 'thread_archived', 'INTEGER DEFAULT 0');
+	addColumnIfMissing('channels', 'thread_locked', 'INTEGER DEFAULT 0');
+	addColumnIfMissing('channels', 'thread_auto_archive_minutes', 'INTEGER DEFAULT 1440');
+	addColumnIfMissing('channels', 'thread_last_activity_at', 'INTEGER');
+
+	try {
+		db.exec('CREATE INDEX IF NOT EXISTS idx_channels_parent ON channels(parent_channel_id)');
+	} catch (e) {
+		console.error('[Database] Migration error creating idx_channels_parent:', e);
+	}
 
 	// Migration: add display_name to roles
 	addColumnIfMissing('roles', 'display_name', 'TEXT');

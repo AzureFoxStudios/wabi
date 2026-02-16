@@ -60,6 +60,7 @@ export {
 	joinVoiceChannel,
 	leaveVoiceChannel,
 	createChannel,
+	createThread,
 	deleteChannel,
 	pinChannel,
 	unpinChannel,

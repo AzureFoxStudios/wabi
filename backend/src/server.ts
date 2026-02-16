@@ -89,8 +89,14 @@ interface Channel {
   description?: string;
   minRole?: string;
   createdAt: number;
-  type?: 'text' | 'voice' | 'dm' | 'group' | 'public';
+  type?: 'text' | 'voice' | 'dm' | 'group' | 'public' | 'thread_public' | 'thread_private';
   members?: string[]; // User IDs for DMs and group chats
+  parentChannelId?: string;
+  parentMessageId?: string;
+  threadArchived?: boolean;
+  threadLocked?: boolean;
+  threadAutoArchiveMinutes?: number;
+  threadLastActivityAt?: number;
   autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
   isTemporary?: boolean;
   persistMessages?: boolean; // Opt-in flag for message persistence
@@ -101,8 +107,8 @@ interface Channel {
   };
 }
 
-function normalizeChannelType(raw?: string): 'text' | 'voice' | 'dm' | 'group' {
-  if (raw === 'voice' || raw === 'dm' || raw === 'group' || raw === 'text') return raw;
+function normalizeChannelType(raw?: string): 'text' | 'voice' | 'dm' | 'group' | 'thread_public' | 'thread_private' {
+  if (raw === 'voice' || raw === 'dm' || raw === 'group' || raw === 'text' || raw === 'thread_public' || raw === 'thread_private') return raw;
   return 'text'; // legacy 'public' and undefined map to text
 }
 
@@ -2185,6 +2191,12 @@ try {
       minRole: ch.min_role || 'guest',
       createdAt: ch.created_at,
       type: normalizeChannelType(ch.channel_type),
+      parentChannelId: ch.parent_channel_id || undefined,
+      parentMessageId: ch.parent_message_id || undefined,
+      threadArchived: ch.thread_archived === 1,
+      threadLocked: ch.thread_locked === 1,
+      threadAutoArchiveMinutes: ch.thread_auto_archive_minutes || 1440,
+      threadLastActivityAt: ch.thread_last_activity_at || ch.created_at,
       persistMessages: ch.persist_messages === 1,
       voiceSettings: parseVoiceSettings(ch.voice_settings_json)
     });
@@ -2335,6 +2347,12 @@ function loadUserChannelsFromDB(stableUserId: string): Channel[] {
           createdAt: dbChannel.created_at,
           type: normalizeChannelType(dbChannel.channel_type),
           members: memberIds,
+          parentChannelId: dbChannel.parent_channel_id || undefined,
+          parentMessageId: dbChannel.parent_message_id || undefined,
+          threadArchived: dbChannel.thread_archived === 1,
+          threadLocked: dbChannel.thread_locked === 1,
+          threadAutoArchiveMinutes: dbChannel.thread_auto_archive_minutes || 1440,
+          threadLastActivityAt: dbChannel.thread_last_activity_at || dbChannel.created_at,
           persistMessages: dbChannel.persist_messages === 1,
           voiceSettings: parseVoiceSettings(dbChannel.voice_settings_json),
           recipientNotified: true // Already persisted, so both sides know
@@ -3956,6 +3974,133 @@ io.on("connection", (socket) => {
     if (ENABLE_LOGGING) console.log(`Channel created: ${channelName}`);
   });
 
+  socket.on("thread:create", (data: {
+    parentChannelId: string;
+    name: string;
+    parentMessageId?: string;
+    privateThread?: boolean;
+    autoArchiveMinutes?: number;
+  }) => {
+    const parentChannel = channels.get(data.parentChannelId);
+    if (!parentChannel) {
+      socket.emit("channel-error", "Parent channel does not exist");
+      return;
+    }
+
+    if (!canAccessChannel(parentChannel)) {
+      socket.emit("channel-error", "Access denied to parent channel");
+      return;
+    }
+
+    if (parentChannel.type !== 'text' && parentChannel.type !== 'public') {
+      socket.emit("channel-error", "Threads can only be created from text channels");
+      return;
+    }
+
+    const rawName = (data.name || '').trim();
+    if (!rawName) {
+      socket.emit("channel-error", "Thread name is required");
+      return;
+    }
+    if (rawName.length > 64) {
+      socket.emit("channel-error", "Thread name must be 64 characters or fewer");
+      return;
+    }
+
+    const slug = rawName
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-');
+    const fallbackSlug = `thread-${Date.now().toString(36)}`;
+    const baseSlug = slug || fallbackSlug;
+
+    let channelId = `${parentChannel.id}-thread-${baseSlug}`;
+    let dedupeCounter = 1;
+    while (channels.has(channelId)) {
+      dedupeCounter += 1;
+      channelId = `${parentChannel.id}-thread-${baseSlug}-${dedupeCounter}`;
+    }
+
+    const now = Date.now();
+    const requestedArchiveMinutes = data.autoArchiveMinutes ?? 1440;
+    const threadAutoArchiveMinutes = Math.min(10080, Math.max(60, requestedArchiveMinutes));
+    const threadType: Channel['type'] = data.privateThread ? 'thread_private' : 'thread_public';
+    const stableCreatorId = getSocketStableId();
+
+    const threadChannel: Channel = {
+      id: channelId,
+      name: rawName,
+      description: '',
+      minRole: parentChannel.minRole || 'guest',
+      createdAt: now,
+      type: threadType,
+      members: data.privateThread ? [stableCreatorId] : undefined,
+      parentChannelId: parentChannel.id,
+      parentMessageId: data.parentMessageId,
+      threadArchived: false,
+      threadLocked: false,
+      threadAutoArchiveMinutes,
+      threadLastActivityAt: now,
+      persistMessages: parentChannel.persistMessages ?? true
+    };
+
+    channels.set(channelId, threadChannel);
+    channelMessages.set(channelId, []);
+    pinnedMessages.set(channelId, new Set());
+
+    try {
+      channelRepository.create({
+        channel_id: channelId,
+        channel_type: threadType === 'thread_private' ? 'thread_private' : 'thread_public',
+        name: rawName,
+        description: '',
+        min_role: threadChannel.minRole || 'guest',
+        created_at: now,
+        created_by: stableCreatorId,
+        persist_messages: threadChannel.persistMessages ? 1 : 0,
+        parent_channel_id: parentChannel.id,
+        parent_message_id: data.parentMessageId || null,
+        thread_archived: 0,
+        thread_locked: 0,
+        thread_auto_archive_minutes: threadAutoArchiveMinutes,
+        thread_last_activity_at: now
+      });
+
+      if (threadChannel.members && threadChannel.members.length > 0) {
+        channelMemberRepository.addMember({
+          channel_id: channelId,
+          user_id: stableCreatorId,
+          username: users.get(socket.id)?.username || 'Unknown',
+          registered_user_id: users.get(socket.id)?.dbUserId,
+          joined_at: now
+        });
+      }
+    } catch (dbError) {
+      console.error('[ChannelRepository] Failed to persist thread channel:', dbError);
+    }
+
+    if (threadType === 'thread_private') {
+      socket.emit("channel-created", threadChannel);
+    } else {
+      io.emit("channel-created", threadChannel);
+    }
+
+    pluginLoader.triggerOnChannelCreate(threadChannel).catch((error) => {
+      console.error('[Plugins] Failed to trigger onChannelCreate hook:', error);
+    });
+    dispatchWebhookEvent('channel.created', {
+      channelId: threadChannel.id,
+      name: threadChannel.name,
+      type: threadChannel.type || 'text'
+    }).catch((error) => {
+      console.error('[Webhooks] Failed to dispatch channel.created:', error);
+    });
+
+    if (ENABLE_LOGGING) console.log(`Thread created: ${threadChannel.name} (${threadChannel.id})`);
+  });
+
   socket.on("delete-channel", (channelId: string) => {
     // Prevent deletion of general channel
     if (channelId === 'general' || channelId === 'voice') {
@@ -3966,6 +4111,21 @@ io.on("connection", (socket) => {
     if (!channels.has(channelId)) {
       socket.emit("channel-error", "Channel does not exist");
       return;
+    }
+
+    const childThreadIds = Array.from(channels.values())
+      .filter((channel) => channel.parentChannelId === channelId)
+      .map((channel) => channel.id);
+    for (const threadId of childThreadIds) {
+      channels.delete(threadId);
+      channelMessages.delete(threadId);
+      pinnedMessages.delete(threadId);
+      try {
+        channelRepository.delete(threadId);
+      } catch (dbError) {
+        console.error('[ChannelRepository] Failed to delete child thread from DB:', dbError);
+      }
+      io.emit("channel-deleted", threadId);
     }
 
     channels.delete(channelId);
