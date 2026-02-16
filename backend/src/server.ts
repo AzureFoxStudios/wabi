@@ -2419,6 +2419,28 @@ async function deliverOfflineMessages(socket: any, dbUserId: number | null) {
 io.on("connection", (socket) => {
   console.log(`🔌 WebSocket connection established: ${socket.id}`);
 
+  const getSocketStableId = (): string => getStableUserId(socket);
+
+  const canAccessChannel = (channel: Channel): boolean => {
+    // Public channels are accessible to everyone
+    if (!channel.members || channel.members.length === 0) return true;
+    // DM/group channels use stable IDs ("user-{dbId}" for registered users)
+    return channel.members.includes(getSocketStableId());
+  };
+
+  const getAccessibleChannel = (channelId: string): Channel | null => {
+    const channel = channels.get(channelId);
+    if (!channel) {
+      socket.emit("channel-error", `Channel ${channelId} does not exist`);
+      return null;
+    }
+    if (!canAccessChannel(channel)) {
+      socket.emit("channel-error", "Access denied to this channel");
+      return null;
+    }
+    return channel;
+  };
+
   // Handle user join
   socket.on("join", async (username: string) => {
     // Check if this is a registered user (authenticated via JWT in middleware)
@@ -2803,10 +2825,9 @@ io.on("connection", (socket) => {
 
   // Handle joining a channel
   socket.on("join-channel", (channelId: string) => {
-    const channel = channels.get(channelId);
+    const channel = getAccessibleChannel(channelId);
     if (!channel) {
-      console.error(`[join-channel] Channel ${channelId} not found for user ${socket.id}`);
-      socket.emit("channel-error", `Channel ${channelId} does not exist`);
+      console.error(`[join-channel] Access denied or missing channel ${channelId} for user ${socket.id}`);
       return;
     }
 
@@ -2851,12 +2872,9 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // Check membership for DMs and groups
-    if (channel.members && channel.members.length > 0) {
-      if (!channel.members.includes(socket.id)) {
-        socket.emit("channel-error", "Access denied to this channel");
-        return;
-      }
+    if (!canAccessChannel(channel)) {
+      socket.emit("channel-error", "Access denied to this channel");
+      return;
     }
 
     try {
@@ -2910,7 +2928,7 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
     if (!user) return;
 
-    const channel = channels.get(data.channelId);
+    const channel = getAccessibleChannel(data.channelId);
     if (!channel) return;
 
     // Calculate deletion time: use channel auto-delete setting, or default to 1 day
@@ -3037,6 +3055,8 @@ io.on("connection", (socket) => {
 
   // Handle message edit
   socket.on("edit-message", (data: { messageId: string; newText: string; channelId: string }) => {
+    if (!getAccessibleChannel(data.channelId)) return;
+
     const messages = channelMessages.get(data.channelId);
     if (!messages) return;
 
@@ -3065,6 +3085,8 @@ io.on("connection", (socket) => {
 
   // Handle message delete
   socket.on("delete-message", (data: { messageId: string; channelId: string }) => {
+    if (!getAccessibleChannel(data.channelId)) return;
+
     const messages = channelMessages.get(data.channelId);
     if (!messages) return;
 
@@ -3129,6 +3151,8 @@ io.on("connection", (socket) => {
 
   // Handle message pin/unpin
   socket.on("toggle-pin-message", (data: { messageId: string; channelId: string }) => {
+    if (!getAccessibleChannel(data.channelId)) return;
+
     const messages = channelMessages.get(data.channelId);
     if (!messages) return;
 
@@ -3196,6 +3220,8 @@ io.on("connection", (socket) => {
 
   // Handle emoji reactions
   socket.on("add-reaction", (data: { messageId: string; channelId: string; emojiId: string }) => {
+    if (!getAccessibleChannel(data.channelId)) return;
+
     const messages = channelMessages.get(data.channelId);
     if (!messages) return;
 
@@ -3237,6 +3263,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("remove-reaction", (data: { messageId: string; channelId: string; emojiId: string }) => {
+    if (!getAccessibleChannel(data.channelId)) return;
+
     const messages = channelMessages.get(data.channelId);
     if (!messages) return;
 

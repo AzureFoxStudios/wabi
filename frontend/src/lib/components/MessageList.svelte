@@ -13,6 +13,7 @@
 	import '$lib/prism-theme.css';
 	import { longpress } from '$lib/actions/longpress';
 	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
+	import { getServerUrl } from '$lib/serverUrl';
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
@@ -232,17 +233,8 @@
 		if ($relayEnabled) {
 			return getRelayFileUrl(fileUrl);
 		}
-		// Otherwise, prepend the backend server URL
-		let serverUrl: string;
-		if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
-			serverUrl = 'http://localhost:3000';
-		} else if (window.location.origin.includes(':3000')) {
-			// Docker deployment: if on port 3000 (frontend), connect to port 8080 (backend)
-			serverUrl = window.location.origin.replace(':3000', ':8080');
-		} else {
-			serverUrl = window.location.origin;
-		}
-		return `${serverUrl}${fileUrl}`;
+		// Otherwise, prepend the resolved backend server URL
+		return `${getServerUrl()}${fileUrl}`;
 	}
 	function getReplyToMessage(replyToId?: string): Message | undefined {
 		if (!replyToId) return undefined;
