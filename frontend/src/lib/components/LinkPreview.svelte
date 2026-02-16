@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { getServerUrl } from '$lib/serverUrl';
 
 	export let url: string;
 
@@ -10,8 +11,7 @@
 
 	onMount(async () => {
 		try {
-			// Use current server origin instead of hardcoded ngrok URL
-			const serverUrl = window.location.origin;
+			const serverUrl = getServerUrl();
 
 			// Add timeout to prevent infinite loading
 			const controller = new AbortController();
@@ -40,7 +40,7 @@
 	});
 
 	function proxyImage(imageUrl: string): string {
-		const serverUrl = window.location.origin;
+		const serverUrl = getServerUrl();
 		return `${serverUrl}/api/image-proxy?url=${encodeURIComponent(imageUrl)}`;
 	}
 

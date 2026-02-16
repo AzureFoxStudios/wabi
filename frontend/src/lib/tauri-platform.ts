@@ -2,9 +2,31 @@ import { browser } from '$app/environment';
 
 export type TauriPlatform = 'desktop' | 'android' | 'ios' | 'unknown';
 
+type TauriWindowSignals = Window & {
+	__TAURI__?: unknown;
+	__TAURI_CORE__?: unknown;
+	__TAURI_INTERNALS__?: unknown;
+};
+
 export function isTauriRuntime(): boolean {
 	if (!browser) return false;
-	return Boolean((window as Window & { __TAURI_CORE__?: unknown }).__TAURI_CORE__);
+
+	const w = window as TauriWindowSignals;
+
+	// Tauri globals vary by runtime version/build flags.
+	if (w.__TAURI__ || w.__TAURI_CORE__ || w.__TAURI_INTERNALS__) {
+		return true;
+	}
+
+	// Fallbacks for environments where globals are not exposed.
+	const protocol = window.location.protocol;
+	const hostname = window.location.hostname;
+	if (protocol === 'tauri:' || protocol === 'asset:' || hostname === 'tauri.localhost') {
+		return true;
+	}
+
+	// Desktop WebView user agent commonly includes "Tauri".
+	return navigator.userAgent.toLowerCase().includes('tauri');
 }
 
 function getUserAgent(): string {
