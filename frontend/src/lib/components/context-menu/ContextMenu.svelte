@@ -113,6 +113,9 @@
 
 	function handleWindowContextMenu(event: MouseEvent) {
 		if (!open || !menuElement) return;
+		// If another handler already claimed this event (e.g. opening a new menu),
+		// don't interfere with that flow.
+		if (event.defaultPrevented) return;
 		if (event.target instanceof Node && menuElement.contains(event.target)) return;
 		event.preventDefault();
 		closeMenu();

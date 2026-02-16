@@ -740,8 +740,6 @@
 	</div>
 {/if}
 
-<svelte:window on:click={closeContextMenu} />
-
 <style>
 	.expand-btn {
 		position: fixed;
