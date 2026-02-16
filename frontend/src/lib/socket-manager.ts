@@ -1376,8 +1376,8 @@ export async function leaveVoiceChannel(channelId: string): Promise<void> {
 	await calling.leaveVoiceChannel(sock, channelId);
 }
 
-export function createChannel(channelName: string, description?: string): void {
-	socketManager.emit('create-channel', { name: channelName, description: description || '' });
+export function createChannel(channelName: string, description?: string, channelType: 'text' | 'voice' = 'text'): void {
+	socketManager.emit('create-channel', { name: channelName, description: description || '', channelType });
 }
 
 export function deleteChannel(channelId: string): void {

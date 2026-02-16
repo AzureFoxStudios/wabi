@@ -11,6 +11,15 @@
 	import GroupSettingsPanel from './GroupSettingsPanel.svelte';
 	import CreateGroupModal from './CreateGroupModal.svelte';
 	import type { User, Channel } from '$lib/socket';
+	type ConversationAction = {
+		id: 'voice' | 'video' | 'remove';
+		label: string;
+		title: string;
+		leading: string;
+		danger?: boolean;
+		showInline?: boolean;
+		onSelect: () => void | Promise<void>;
+	};
 
 	let searchQuery = '';
 	let showNewDM = false;
@@ -27,6 +36,7 @@
 	$: dmOther = $layoutStore.dmOtherUser;
 	$: selectedGroup = $layoutStore.selectedGroupChannel;
 	$: isKeepNotesSelected = selectedDmId === KEEP_NOTES_ID;
+	$: selectedDmChannel = selectedDmId ? $channels.find(ch => ch.id === selectedDmId) || null : null;
 
 	// Keep selectedGroup in sync with channels store (so avatar/member changes reflect)
 	$: activeGroup = selectedGroup ? $channels.find(ch => ch.id === selectedGroup.id) || selectedGroup : null;
@@ -115,24 +125,6 @@
 		if (selectedDmId === channel.id) layoutStore.closeDM();
 	}
 
-	async function startDMHeaderVoiceCall() {
-		if (!$socket || !dmOther) return;
-		try {
-			await startCall($socket, dmOther.id, false);
-		} catch (error) {
-			alert('Failed to start voice call. Please check microphone permissions.');
-		}
-	}
-
-	async function startDMHeaderVideoCall() {
-		if (!$socket || !dmOther) return;
-		try {
-			await startCall($socket, dmOther.id, true);
-		} catch (error) {
-			alert('Failed to start video call. Please check camera and microphone permissions.');
-		}
-	}
-
 	async function startDMQuickCall(user: User, withVideo: boolean) {
 		if (!$socket || !user) return;
 		try {
@@ -143,6 +135,51 @@
 				: 'Failed to start voice call. Please check microphone permissions.');
 		}
 	}
+
+	function buildConversationActions(channel: Channel, other: User | null): ConversationAction[] {
+		const actions: ConversationAction[] = [];
+
+		if (channel.type === 'dm' && other) {
+			actions.push(
+				{
+					id: 'voice',
+					label: 'Voice Call',
+					title: `Voice call ${other.username}`,
+					leading: 'VC',
+					showInline: true,
+					onSelect: () => startDMQuickCall(other, false)
+				},
+				{
+					id: 'video',
+					label: 'Video Call',
+					title: `Video call ${other.username}`,
+					leading: 'VD',
+					showInline: true,
+					onSelect: () => startDMQuickCall(other, true)
+				}
+			);
+		}
+
+		actions.push({
+			id: 'remove',
+			label: channel.type === 'group' ? 'Leave Group' : 'Delete Conversation',
+			title: channel.type === 'group' ? 'Leave group' : 'Delete conversation',
+			leading: 'X',
+			danger: true,
+			showInline: true,
+			onSelect: () => handleDeleteOrLeave(channel)
+		});
+
+		return actions;
+	}
+
+	function getInlineActions(channel: Channel, other: User | null): ConversationAction[] {
+		return buildConversationActions(channel, other).filter((action) => action.showInline);
+	}
+
+	$: headerActions = selectedDmChannel ? getInlineActions(selectedDmChannel, dmOther) : [];
+	$: headerCallActions = headerActions.filter((action) => action.id === 'voice' || action.id === 'video');
+	$: headerRemoveAction = headerActions.find((action) => action.id === 'remove');
 
 	function openContextMenu(event: MouseEvent, channel: Channel, other: User | null = null) {
 		event.preventDefault();
@@ -175,6 +212,7 @@
 
 	function buildContextMenuItems(): ContextMenuItem[] {
 		if (!contextMenuChannel) return [];
+		const actions = buildConversationActions(contextMenuChannel, contextMenuUser);
 
 		const items: ContextMenuItem[] = [
 			{
@@ -184,32 +222,18 @@
 				onSelect: () => selectConversation(contextMenuChannel as Channel)
 			}
 		];
-
-		if (contextMenuChannel.type === 'dm' && contextMenuUser) {
-			items.push(
-				{
-					id: 'voice',
-					label: 'Voice Call',
-					leading: 'VC',
-					onSelect: () => startDMQuickCall(contextMenuUser as User, false)
-				},
-				{
-					id: 'video',
-					label: 'Video Call',
-					leading: 'VD',
-					onSelect: () => startDMQuickCall(contextMenuUser as User, true)
-				}
-			);
+		for (const action of actions) {
+			if (action.danger) {
+				items.push({ id: 'danger-divider', type: 'separator' });
+			}
+			items.push({
+				id: action.id,
+				label: action.label,
+				leading: action.leading,
+				danger: action.danger,
+				onSelect: action.onSelect
+			});
 		}
-
-		items.push({ id: 'danger-divider', type: 'separator' });
-		items.push({
-			id: 'remove',
-			label: contextMenuChannel.type === 'group' ? 'Leave Group' : 'Delete Conversation',
-			leading: 'X',
-			danger: true,
-			onSelect: () => handleDeleteOrLeave(contextMenuChannel as Channel)
-		});
 
 		return items;
 	}
@@ -224,16 +248,18 @@
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
 					<span>All DMs</span>
 				</button>
-				{#if dmOther}
+				{#if headerCallActions.length > 0}
 					<div class="dm-call-actions">
-						<button class="dm-call-btn" on:click={startDMHeaderVoiceCall} title="Voice call {dmOther.username}">
-							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-							Call
-						</button>
-						<button class="dm-call-btn" on:click={startDMHeaderVideoCall} title="Video call {dmOther.username}">
-							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-							Video
-						</button>
+						{#each headerCallActions as action (action.id)}
+							<button class="dm-call-btn" on:click={action.onSelect} title={action.title}>
+								{#if action.id === 'voice'}
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+								{:else}
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+								{/if}
+								{action.id === 'voice' ? 'Call' : 'Video'}
+							</button>
+						{/each}
 					</div>
 				{/if}
 				{#if activeGroup}
@@ -242,8 +268,8 @@
 					</button>
 				{:else if isKeepNotesSelected}
 					<div class="dm-header-pill">Private</div>
-				{:else}
-					<button class="dm-delete-btn" on:click={() => { if (selectedDmId) { deleteDM(selectedDmId); layoutStore.closeDM(); } }} title="Delete conversation">
+				{:else if headerRemoveAction}
+					<button class="dm-delete-btn" on:click={headerRemoveAction.onSelect} title={headerRemoveAction.title}>
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
 					</button>
 				{/if}
@@ -352,13 +378,24 @@
 								<span class="dm-conv-preview">{channel.members?.length || 0} members - {getLastPreview(channel.id)}</span>
 							</div>
 							<div class="dm-conv-actions">
-								<button
-									class="dm-conv-close-btn"
-									on:click|stopPropagation={() => handleDeleteOrLeave(channel)}
-									title="Leave group"
-								>
-									<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-								</button>
+								{#each getInlineActions(channel, null) as action (action.id)}
+									<button
+										class:dm-conv-action-btn={action.id !== 'remove'}
+										class:dm-conv-close-btn={action.id === 'remove'}
+										on:click|stopPropagation={action.onSelect}
+										title={action.title}
+									>
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											{#if action.id === 'voice'}
+												<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+											{:else if action.id === 'video'}
+												<path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+											{:else}
+												<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>
+											{/if}
+										</svg>
+									</button>
+								{/each}
 							</div>
 						</div>
 					{:else}
@@ -390,27 +427,24 @@
 									<span class="dm-conv-preview">{getLastPreview(channel.id)}</span>
 								</div>
 								<div class="dm-conv-actions">
-									<button
-										class="dm-conv-action-btn"
-										on:click|stopPropagation={() => startDMQuickCall(other, false)}
-										title="Voice call {other.username}"
-									>
-										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-									</button>
-									<button
-										class="dm-conv-action-btn"
-										on:click|stopPropagation={() => startDMQuickCall(other, true)}
-										title="Video call {other.username}"
-									>
-										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-									</button>
-									<button
-										class="dm-conv-close-btn"
-										on:click|stopPropagation={() => handleDeleteOrLeave(channel)}
-										title="Delete conversation"
-									>
-										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-									</button>
+									{#each getInlineActions(channel, other) as action (action.id)}
+										<button
+											class:dm-conv-action-btn={action.id !== 'remove'}
+											class:dm-conv-close-btn={action.id === 'remove'}
+											on:click|stopPropagation={action.onSelect}
+											title={action.title}
+										>
+											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+												{#if action.id === 'voice'}
+													<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+												{:else if action.id === 'video'}
+													<path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+												{:else}
+													<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>
+												{/if}
+											</svg>
+										</button>
+									{/each}
 								</div>
 							</div>
 						{/if}
