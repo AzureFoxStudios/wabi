@@ -3458,6 +3458,7 @@ io.on("connection", (socket) => {
 
     const user = users.get(socket.id);
     if (!user) return;
+    const stableReactionUserId = getStableUserId(socket);
 
     // Initialize reactions object if needed
     if (!message.reactions) {
@@ -3469,10 +3470,17 @@ io.on("connection", (socket) => {
       message.reactions[data.emojiId] = [];
     }
 
-    // Add user to reaction if not already present
-    if (!message.reactions[data.emojiId].includes(user.id)) {
-      message.reactions[data.emojiId].push(user.id);
+    // Use stable IDs for registered users so reactions survive reconnects.
+    const reactionUserIds = message.reactions[data.emojiId];
+    const hasStableReaction = reactionUserIds.includes(stableReactionUserId);
+    const hasLegacySocketReaction = reactionUserIds.includes(user.id);
+
+    if (!hasStableReaction && !hasLegacySocketReaction) {
+      reactionUserIds.push(stableReactionUserId);
       applyEmojiRoleRules(user.dbUserId, data.emojiId, false);
+    } else if (!hasStableReaction && hasLegacySocketReaction) {
+      message.reactions[data.emojiId] = reactionUserIds.filter(id => id !== user.id);
+      message.reactions[data.emojiId].push(stableReactionUserId);
     }
 
     // Persist reactions to database
@@ -3486,7 +3494,7 @@ io.on("connection", (socket) => {
       channelId: data.channelId,
       messageId: data.messageId,
       emojiId: data.emojiId,
-      userId: user.id,
+      userId: stableReactionUserId,
       reactions: message.reactions
     });
   });
@@ -3502,11 +3510,16 @@ io.on("connection", (socket) => {
 
     const user = users.get(socket.id);
     if (!user) return;
+    const stableReactionUserId = getStableUserId(socket);
 
     // Remove user from reaction
     if (message.reactions[data.emojiId]) {
-      const hadReaction = message.reactions[data.emojiId].includes(user.id);
-      message.reactions[data.emojiId] = message.reactions[data.emojiId].filter(id => id !== user.id);
+      const hadReaction =
+        message.reactions[data.emojiId].includes(stableReactionUserId) ||
+        message.reactions[data.emojiId].includes(user.id);
+      message.reactions[data.emojiId] = message.reactions[data.emojiId].filter(
+        id => id !== stableReactionUserId && id !== user.id
+      );
       if (hadReaction) {
         applyEmojiRoleRules(user.dbUserId, data.emojiId, true);
       }
@@ -3528,7 +3541,7 @@ io.on("connection", (socket) => {
       channelId: data.channelId,
       messageId: data.messageId,
       emojiId: data.emojiId,
-      userId: user.id,
+      userId: stableReactionUserId,
       reactions: message.reactions
     });
   });

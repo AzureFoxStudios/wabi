@@ -202,13 +202,39 @@
 		addReaction(reactionPickerChannelId, reactionPickerMessageId, event.detail.emoji.id);
 		closeReactionPicker();
 	}
+	function getCurrentReactionIdentityIds(): string[] {
+		if (!$currentUser) return [];
+		const ids: string[] = [];
+		if ($currentUser.id) ids.push($currentUser.id);
+		if ($currentUser.dbUserId) ids.push(`user-${$currentUser.dbUserId}`);
+		return ids;
+	}
+	function hasCurrentUserReaction(userIds?: string[]): boolean {
+		if (!userIds || userIds.length === 0) return false;
+		const currentIds = getCurrentReactionIdentityIds();
+		return currentIds.some(id => userIds.includes(id));
+	}
+	function getReactionUsername(userId: string): string {
+		if (userId.startsWith('user-')) {
+			const dbUserId = Number(userId.substring(5));
+			if (!Number.isNaN(dbUserId)) {
+				const userByDbId = $users.find(u => u.dbUserId === dbUserId);
+				if (userByDbId?.username) return userByDbId.username;
+			}
+		}
+		const userBySocketId = $users.find(u => u.id === userId);
+		return userBySocketId?.username || 'Unknown user';
+	}
+	function getReactionTooltip(userIds: string[]): string {
+		return userIds.map(getReactionUsername).filter(Boolean).join(', ');
+	}
 	function toggleReaction(messageId: string, emojiId: string) {
 		const message = messages.find(m => m.id === messageId);
 		if (!message || !message.reactions) {
 			addReaction($currentChannel, messageId, emojiId);
 			return;
 		}
-		const userReacted = message.reactions[emojiId]?.includes($currentUser?.id || '');
+		const userReacted = hasCurrentUserReaction(message.reactions[emojiId]);
 		if (userReacted) {
 			removeReaction($currentChannel, messageId, emojiId);
 		} else {
@@ -880,12 +906,12 @@
 					{#each Object.entries(message.reactions) as [emojiId, userIds]}
 						{@const emoji = getEmojiById(emojiId)}
 						{#if emoji && userIds.length > 0}
-							{@const userReacted = userIds.includes($currentUser?.id || '')}
+							{@const userReacted = hasCurrentUserReaction(userIds)}
 							<button
 								class="reaction-btn"
 								class:user-reacted={userReacted}
 								on:click={() => toggleReaction(message.id, emojiId)}
-								title={userIds.map(id => $users.find(u => u.id === id)?.username).filter(Boolean).join(', ')}
+								title={getReactionTooltip(userIds)}
 							>
 								<img src={emoji.url} alt={emoji.name} class="reaction-emoji" />
 								<span class="reaction-count">{userIds.length}</span>
