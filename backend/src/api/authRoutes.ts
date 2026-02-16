@@ -5,6 +5,7 @@ import { settingsRepository } from '../db/repositories/settingsRepository.js';
 import { encryptionKeyRepository } from '../db/repositories/encryptionKeyRepository.js';
 import { hashPassword, verifyPassword } from '../auth/passwordHash.js';
 import { generateToken, verifyToken } from '../auth/jwt.js';
+import { assignRole } from '../auth/roleMiddleware.js';
 
 // Get authenticated user ID from request
 function getAuthenticatedUserId(req: IncomingMessage): number | null {
@@ -107,6 +108,22 @@ function generateColor(): string {
 	return colors[Math.floor(Math.random() * colors.length)];
 }
 
+function getTestingAutoRole(): 'owner' | 'admin' | null {
+	const configuredRole = (process.env.WABI_TEST_AUTO_ROLE || '').trim().toLowerCase();
+	if (configuredRole === 'owner' || configuredRole === 'admin') {
+		return configuredRole;
+	}
+	return null;
+}
+
+function maybeAutoAssignTestingRole(userId: number, username: string): void {
+	const autoRole = getTestingAutoRole();
+	if (!autoRole) return;
+
+	assignRole(userId, autoRole, 'default-workspace');
+	console.log(`[Auth] [TEST] Auto-assigned '${autoRole}' role to ${username} (user_id=${userId})`);
+}
+
 export async function handleRegister(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
 		const clientIp = req.socket.remoteAddress || 'unknown';
@@ -167,6 +184,7 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 			created_at: Date.now(),
 			color: generateColor()
 		});
+		maybeAutoAssignTestingRole(user.user_id!, user.username);
 
 		// Create settings with defaults
 		settingsRepository.set(user.user_id!, {
@@ -372,6 +390,7 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 			color: tempSession.color,
 			profile_picture: tempSession.profile_picture
 		});
+		maybeAutoAssignTestingRole(user.user_id!, user.username);
 
 		// Create settings with defaults
 		settingsRepository.set(user.user_id!, {

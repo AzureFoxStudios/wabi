@@ -69,6 +69,7 @@
 	// Photo and audio capture
 	let showCameraCapture = false;
 	let showAudioRecorder = false;
+	let visibleTypingUsers: string[] = [];
 
 	// Format typing users list with proper grammar
 	function formatTypingUsers(users: string[]): string {
@@ -81,6 +82,29 @@
 		const allButLast = users.slice(0, -1).join(', ');
 		const lastUser = users[users.length - 1];
 		return `${allButLast}, and ${lastUser} are typing...`;
+	}
+
+	function getTypingUserPriority(username: string): number {
+		const user = $users.find((u) => u.username.toLowerCase() === username.toLowerCase());
+		const role = (user?.highestRole || '').toLowerCase();
+
+		if (role.includes('owner')) return 4;
+		if (role.includes('admin')) return 3;
+		if (role.includes('mod')) return 2;
+		if (role.includes('staff')) return 1;
+		return 0;
+	}
+
+	function getVisibleTypingUsers(names: string[]): string[] {
+		const currentUsername = ($currentUser?.username || '').toLowerCase();
+		const deduped = Array.from(new Set(names.filter(Boolean)));
+		const othersOnly = deduped.filter((name) => name.toLowerCase() !== currentUsername);
+
+		return othersOnly.sort((a, b) => {
+			const priorityDiff = getTypingUserPriority(b) - getTypingUserPriority(a);
+			if (priorityDiff !== 0) return priorityDiff;
+			return a.localeCompare(b);
+		});
 	}
 
 	function getDMOtherUser(channel?: Channel): User | null {
@@ -166,6 +190,7 @@
 
 	// Reactive search
 	$: filteredMessages = filterMessages(messages, searchInput);
+	$: visibleTypingUsers = getVisibleTypingUsers($typingUsers[$currentChannel] || []);
 
 	async function scrollToBottom() {
 		await tick();
@@ -1173,10 +1198,10 @@
 			{/if}
 			<MessageList messages={filteredMessages} onReply={handleReply} firstUnreadMessageId={$lastReadMessageId} />
 
-			{#if ($typingUsers[$currentChannel] || []).length > 0}
+			{#if visibleTypingUsers.length > 0}
 				<div class="typing-indicator">
 					<span class="typing-dots"></span>
-					<span>{formatTypingUsers($typingUsers[$currentChannel] || [])}</span>
+					<span>{formatTypingUsers(visibleTypingUsers)}</span>
 				</div>
 			{/if}
 		</div>

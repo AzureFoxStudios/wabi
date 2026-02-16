@@ -173,11 +173,23 @@
 	}
 	let showForwardDialog = false;
 	let forwardMessage: Message | null = null;
+	const MESSAGE_GROUP_WINDOW_MS = 7 * 60 * 1000;
 	function handleForward() {
 		if (!contextMenuMessage) return;
 		forwardMessage = contextMenuMessage;
 		showForwardDialog = true;
 		contextMenuVisible = false;
+	}
+	function isGroupedWithPrevious(index: number): boolean {
+		if (index <= 0) return false;
+		const current = messages[index];
+		const previous = messages[index - 1];
+		if (!current || !previous) return false;
+		if (firstUnreadMessageId === current.id) return false;
+		if (current.user !== previous.user) return false;
+		if (current.replyTo || previous.replyTo) return false;
+		const delta = current.timestamp - previous.timestamp;
+		return delta >= 0 && delta <= MESSAGE_GROUP_WINDOW_MS;
 	}
 	function handleAddReaction() {
 		if (!contextMenuMessage) return;
@@ -569,9 +581,10 @@
 	</div>
 {/if}
 
-{#each messages as message (message.id)}
+{#each messages as message, index (message.id)}
 	{@const user = getUserByUsername(message.user)}
 	{@const replyToMsg = getReplyToMessage(message.replyTo)}
+	{@const groupedWithPrevious = isGroupedWithPrevious(index)}
 
 	<!-- New Messages Divider -->
 	{#if firstUnreadMessageId === message.id}
@@ -583,7 +596,7 @@
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		id="message-{message.id}"
-		class="message {message.isPinned ? 'pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''}"
+		class="message {message.isPinned ? 'pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''}"
 		on:contextmenu={(e) => handleContextMenu(e, message)}
 		use:longpress={{ onLongPress: (e) => handleMessageLongPress(e, message) }}
 	>
@@ -600,39 +613,45 @@
 		</div>
 
 		<!-- Profile Picture -->
-			<!-- svelte-ignore a11y-click-events-have-key-events -->
-			<!-- svelte-ignore a11y-no-static-element-interactions -->
-			<div class="message-avatar">
-				{#if user?.profilePicture}
-					<img src={user.profilePicture} alt={message.user} class="avatar" />
-				{:else}
-					<div class="avatar-placeholder" style="background-color: {getUserColor(message.user)}">
-						{message.user.charAt(0).toUpperCase()}
-					</div>
-				{/if}
-			</div>
-		<!-- Message Content -->
-		<div class="message-body">
-			<div class="message-header">
-				<div class="header-left">
-					{#if user}
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<!-- svelte-ignore a11y-no-static-element-interactions -->
-						<span class="username" style="color: {getUserColor(message.user)}; {getUsernameStyle(message.user, $themeStore)}">
-							{message.user}
-						</span>
+		{#if groupedWithPrevious}
+			<div class="message-avatar message-avatar-spacer" aria-hidden="true"></div>
+		{:else}
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
+				<!-- svelte-ignore a11y-no-static-element-interactions -->
+				<div class="message-avatar">
+					{#if user?.profilePicture}
+						<img src={user.profilePicture} alt={message.user} class="avatar" />
 					{:else}
-						<span class="username">{message.user}</span>
-					{/if}
-					<span class="timestamp">{formatTime(message.timestamp)}</span>
-					{#if message.isPinned}
-						<span class="pin-badge" title="Pinned message"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg></span>
-					{/if}
-					{#if message.isEdited}
-						<span class="edited-badge" title="Edited">(edited)</span>
+						<div class="avatar-placeholder" style="background-color: {getUserColor(message.user)}">
+							{message.user.charAt(0).toUpperCase()}
+						</div>
 					{/if}
 				</div>
-			</div>
+		{/if}
+		<!-- Message Content -->
+		<div class="message-body">
+			{#if !groupedWithPrevious}
+				<div class="message-header">
+					<div class="header-left">
+						{#if user}
+							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<span class="username" style="color: {getUserColor(message.user)}; {getUsernameStyle(message.user, $themeStore)}">
+								{message.user}
+							</span>
+						{:else}
+							<span class="username">{message.user}</span>
+						{/if}
+						<span class="timestamp">{formatTime(message.timestamp)}</span>
+						{#if message.isPinned}
+							<span class="pin-badge" title="Pinned message"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg></span>
+						{/if}
+						{#if message.isEdited}
+							<span class="edited-badge" title="Edited">(edited)</span>
+						{/if}
+					</div>
+				</div>
+			{/if}
 
 			<!-- Reply Preview -->
 			{#if replyToMsg}
@@ -1083,6 +1102,12 @@
 		background: rgba(var(--bg-secondary-rgb), var(--opacity-medium));
 	}
 
+	.message.continuation {
+		padding-top: 0.2rem;
+		padding-bottom: 0.2rem;
+		margin-bottom: 0.1rem;
+	}
+
 	.message.highlighted {
 		background: rgba(var(--accent-rgb), var(--opacity-light));
 		animation: highlight-pulse 2s ease-out;
@@ -1129,6 +1154,14 @@
 		flex-shrink: 0;
 		cursor: pointer;
 		margin-top: 0.35rem;
+	}
+
+	.message-avatar-spacer {
+		width: 40px;
+		height: 1px;
+		cursor: default;
+		margin-top: 0;
+		pointer-events: none;
 	}
 
 	.avatar {
