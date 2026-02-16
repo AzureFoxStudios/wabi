@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { channels, channelMessages, currentUser, users, createDM, deleteDM, leaveGroup, getDMChannelIdForUser } from '$lib/socket';
+	import { channels, channelMessages, currentUser, users, createDM, deleteDM, leaveGroup } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import DMMessageView from './DMMessageView.svelte';
+	import KeepNotesView from './KeepNotesView.svelte';
 	import GroupAvatar from './GroupAvatar.svelte';
 	import GroupSettingsPanel from './GroupSettingsPanel.svelte';
 	import CreateGroupModal from './CreateGroupModal.svelte';
@@ -11,10 +12,12 @@
 	let showNewDM = false;
 	let showCreateGroup = false;
 	let showGroupSettings = false;
+	const KEEP_NOTES_ID = '__keep_notes__';
 
 	$: selectedDmId = $layoutStore.selectedDmChannelId;
 	$: dmOther = $layoutStore.dmOtherUser;
 	$: selectedGroup = $layoutStore.selectedGroupChannel;
+	$: isKeepNotesSelected = selectedDmId === KEEP_NOTES_ID;
 
 	// Keep selectedGroup in sync with channels store (so avatar/member changes reflect)
 	$: activeGroup = selectedGroup ? $channels.find(ch => ch.id === selectedGroup.id) || selectedGroup : null;
@@ -77,6 +80,17 @@
 		}
 	}
 
+	function openKeepNotes() {
+		const keepUser: User = {
+			id: 'keep-notes',
+			username: 'Keep Notes',
+			color: '#28b463',
+			status: 'active'
+		};
+		showGroupSettings = false;
+		layoutStore.openDM(KEEP_NOTES_ID, keepUser);
+	}
+
 	function startDMWith(user: User) {
 		createDM(user.id);
 		showNewDM = false;
@@ -94,7 +108,7 @@
 </script>
 
 <div class="dm-tab">
-	{#if selectedDmId && (dmOther || activeGroup)}
+	{#if selectedDmId && (isKeepNotesSelected || dmOther || activeGroup)}
 		<!-- Active conversation -->
 		<div class="dm-tab-active">
 			<div class="dm-active-header">
@@ -106,6 +120,8 @@
 					<button class="dm-settings-btn" on:click={() => { showGroupSettings = !showGroupSettings; }} title="Group settings">
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
 					</button>
+				{:else if isKeepNotesSelected}
+					<div class="dm-header-pill">Private</div>
 				{:else}
 					<button class="dm-delete-btn" on:click={() => { if (selectedDmId) { deleteDM(selectedDmId); layoutStore.closeDM(); } }} title="Delete conversation">
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -118,7 +134,9 @@
 				</div>
 			{:else}
 				<div class="dm-tab-messages">
-					{#if activeGroup}
+					{#if isKeepNotesSelected}
+						<KeepNotesView />
+					{:else if activeGroup}
 						<DMMessageView channelId={selectedDmId} otherUser={activeGroup.memberUsers?.[0] || { id: '', username: activeGroup.name, color: '#888', status: 'offline' }} channel={activeGroup} />
 					{:else if dmOther}
 						<DMMessageView channelId={selectedDmId} otherUser={dmOther} />
@@ -172,6 +190,26 @@
 			{/if}
 
 			<div class="dm-conversations">
+				<div
+					class="dm-conv-item dm-conv-keep"
+					class:selected={isKeepNotesSelected}
+					role="button"
+					tabindex="0"
+					on:click={openKeepNotes}
+					on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openKeepNotes(); } }}
+				>
+					<div class="dm-conv-avatar-wrap">
+						<div class="dm-conv-avatar-ph dm-conv-keep-avatar">
+							K
+						</div>
+					</div>
+					<div class="dm-conv-info">
+						<div class="dm-conv-top">
+							<span class="dm-conv-name">Keep Notes</span>
+						</div>
+						<span class="dm-conv-preview">Private notes and reminders</span>
+					</div>
+				</div>
 				{#each dmChannels as channel (channel.id)}
 					{#if channel.type === 'group'}
 						<div
@@ -314,6 +352,17 @@
 	.dm-settings-btn:hover {
 		color: var(--text-primary);
 		background: var(--bg-hover);
+	}
+
+	.dm-header-pill {
+		margin-right: 0.65rem;
+		padding: 0.2rem 0.45rem;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		font-size: 0.68rem;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		color: var(--text-secondary);
 	}
 
 	.dm-tab-messages {
@@ -475,6 +524,14 @@
 	}
 
 	.dm-conv-item:hover { background: var(--bg-hover); }
+
+	.dm-conv-item.selected {
+		background: rgba(88, 101, 242, 0.12);
+	}
+
+	.dm-conv-keep-avatar {
+		background: linear-gradient(135deg, #3bc779, #1fae62);
+	}
 
 	.dm-conv-close-btn {
 		position: absolute;
