@@ -894,7 +894,7 @@ class SocketManager {
 			channels.update(chs => chs.filter(ch => ch.id !== data.channelId));
 			channelMessages.update(msgs => {
 				const newMsgs = { ...msgs };
-				delete newMsgs[data.channelId];
+				delete newMsgs[channelId];
 				return newMsgs;
 			});
 			currentChannel.update(ch => ch === data.channelId ? 'general' : ch);
@@ -1080,6 +1080,22 @@ class SocketManager {
 
 		sock.on('call-ice-candidate', (data: { candidate: RTCIceCandidateInit; senderId: string }) => {
 			calling.handleCallIceCandidate(data.senderId, data.candidate);
+		});
+
+		sock.on('voice-channel-user-joined', (data: { channelId: string; userId: string; username: string }) => {
+			const me = get(currentUser);
+			if (me?.id === data.userId) {
+				return;
+			}
+
+			console.log(`[SocketManager] Voice participant joined ${data.channelId}: ${data.username}`);
+			calling.createCallOffer(sock, data.userId, data.username)
+				.catch(err => console.error('[SocketManager] voice-channel createCallOffer failed:', err));
+		});
+
+		sock.on('voice-channel-user-left', (data: { channelId: string; userId: string }) => {
+			console.log(`[SocketManager] Voice participant left ${data.channelId}: ${data.userId}`);
+			calling.removeCall(data.userId);
 		});
 
 		sock.on('screen-share-started', (data: { userId: string; username: string }) => {
@@ -1342,14 +1358,20 @@ export function switchChannel(channelId: string): void {
 	markChannelAsRead(channelId);
 }
 
-export function joinVoiceChannel(channelId: string): void {
-	socketManager.emit('join-voice-channel', { channelId });
+export async function joinVoiceChannel(channelId: string): Promise<void> {
+	const sock = socketManager.getSocket();
+	if (!sock) {
+		throw new Error('Socket not connected');
+	}
+	await calling.joinVoiceChannel(sock, channelId);
 }
 
-export function leaveVoiceChannel(channelId?: string): void {
-	const targetChannelId = channelId || get(activeVoiceChannel);
-	if (!targetChannelId) return;
-	socketManager.emit('leave-voice-channel', { channelId: targetChannelId });
+export async function leaveVoiceChannel(channelId: string): Promise<void> {
+	const sock = socketManager.getSocket();
+	if (!sock) {
+		return;
+	}
+	await calling.leaveVoiceChannel(sock, channelId);
 }
 
 export function createChannel(channelName: string, description?: string): void {
