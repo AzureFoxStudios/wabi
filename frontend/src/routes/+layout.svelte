@@ -20,8 +20,8 @@
 	let cleanupAutoSave: (() => void) | null = null;
 
 	onMount(async () => {
-		// Register service worker for PWA support
-		if ('serviceWorker' in navigator) {
+		// Register service worker for PWA support (browser/PWA only, not Tauri webview)
+		if ('serviceWorker' in navigator && !isRunningInTauri()) {
 			navigator.serviceWorker.register('/sw.js').then((registration) => {
 				console.log('✅ Service Worker registered:', registration);
 			}).catch((error) => {

@@ -145,8 +145,12 @@ if (browser) {
 		initSync();
 	});
 
-	// Initialize sample data if empty
-	initializeSampleData();
+	// Initialize sample data only when explicitly enabled in development.
+	// This prevents accidental overwrites/noise in real business workspaces.
+	const enableSampleData = import.meta.env.DEV && localStorage.getItem('enableBusinessSampleData') === 'true';
+	if (enableSampleData) {
+		initializeSampleData();
+	}
 }
 
 // Helper function to generate IDs

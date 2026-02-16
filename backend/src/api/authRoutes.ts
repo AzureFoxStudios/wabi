@@ -121,9 +121,12 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 
 		const body = await parseBody(req);
 		const { username, password, handle: rawHandle } = body;
+		const normalizedUsername = typeof username === 'string' ? username.trim() : '';
+		const normalizedPassword = typeof password === 'string' ? password : '';
+		const normalizedRawHandle = typeof rawHandle === 'string' ? rawHandle.trim() : '';
 
 		// Validate input
-		const validation = validateInput(username, password);
+		const validation = validateInput(normalizedUsername, normalizedPassword);
 		if (!validation.valid) {
 			res.writeHead(400, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: validation.error }));
@@ -131,9 +134,9 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 		}
 
 		// Validate and normalize handle
-		const handle = rawHandle
-			? rawHandle.replace(/^@/, '').toLowerCase()
-			: username.replace(/\s+/g, '').toLowerCase();
+		const handle = (normalizedRawHandle || normalizedUsername.replace(/\s+/g, ''))
+			.replace(/^@/, '')
+			.toLowerCase();
 
 		if (!/^[a-z][a-z0-9_]{1,31}$/.test(handle)) {
 			res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -142,7 +145,7 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 		}
 
 		// Check if username already exists
-		if (userRepository.findByUsername(username)) {
+		if (userRepository.findByUsername(normalizedUsername)) {
 			res.writeHead(409, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Username already taken' }));
 			return;
@@ -156,9 +159,9 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 		}
 
 		// Hash password and create user
-		const passwordHash = await hashPassword(password);
+		const passwordHash = await hashPassword(normalizedPassword);
 		const user = userRepository.create({
-			username,
+			username: normalizedUsername,
 			handle,
 			password_hash: passwordHash,
 			created_at: Date.now(),
@@ -234,11 +237,13 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 
 		const body = await parseBody(req);
 		const { username, password } = body;
+		const normalizedUsername = typeof username === 'string' ? username.trim() : '';
+		const normalizedPassword = typeof password === 'string' ? password : '';
 
-		console.log('[Auth] Login attempt for:', username);
+		console.log('[Auth] Login attempt for:', normalizedUsername);
 
 		// Validate input
-		if (!username || !password) {
+		if (!normalizedUsername || !normalizedPassword) {
 			console.log('[Auth] Missing username or password');
 			res.writeHead(400, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Username or handle and password required' }));
@@ -246,9 +251,9 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 		}
 
 		// Find user by handle or username
-		const user = userRepository.findByHandleOrUsername(username);
+		const user = userRepository.findByHandleOrUsername(normalizedUsername);
 		if (!user) {
-			console.log('[Auth] User not found for:', username);
+			console.log('[Auth] User not found for:', normalizedUsername);
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Invalid credentials' }));
 			return;
@@ -257,10 +262,10 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 		console.log('[Auth] User found:', user.user_id, user.username);
 
 		// Verify password
-		const isValid = await verifyPassword(password, user.password_hash);
+		const isValid = await verifyPassword(normalizedPassword, user.password_hash);
 		console.log('[Auth] Password verification result:', isValid);
 		if (!isValid) {
-			console.log('[Auth] Password mismatch for user:', username);
+			console.log('[Auth] Password mismatch for user:', normalizedUsername);
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Invalid credentials' }));
 			return;
