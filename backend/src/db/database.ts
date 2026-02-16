@@ -132,6 +132,17 @@ function runMigrations() {
 		// Column may already exist
 	}
 
+	// Migration: Add optional voice settings column to channels table
+	try {
+		const cols = db.pragma('table_info(channels)') as { name: string }[];
+		if (!cols.some(c => c.name === 'voice_settings_json')) {
+			db.exec('ALTER TABLE channels ADD COLUMN voice_settings_json TEXT');
+			console.log('[Database] Migration: added voice_settings_json column to channels');
+		}
+	} catch (e) {
+		// Column may already exist
+	}
+
 	// Migration: Add priority/color/is_hoisted to user_roles
 	try {
 		const cols = db.pragma('table_info(user_roles)') as { name: string }[];
