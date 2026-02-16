@@ -36,7 +36,10 @@
 	let lastTypingEmit = 0;
 	const TYPING_THROTTLE_MS = 300; // Max one typing event per 300ms
 	let showEmojiPicker = false;
+	let showMediaMenu = false;
 	let emojiPickerButton: HTMLButtonElement;
+	let emojiPickerContainer: HTMLElement | null = null;
+	let mediaMenuContainer: HTMLElement | null = null;
 	let replyingTo: Message | null = null;
 	let fileInput: HTMLInputElement;
 	let editingMessage: Message | null = null;
@@ -590,6 +593,7 @@
 				replyingTo = null;
 			}
 			messageInput = '';
+			showMediaMenu = false;
 			sendTyping(false, $currentChannel);
 
 			if (typingTimeout) {
@@ -622,12 +626,14 @@
 		});
 		replyingTo = null;
 		showEmojiPicker = false;
+		showMediaMenu = false;
 		textareaElement?.focus();
 	}
 
 	function handleEmojiSelect(event: CustomEvent<{ emoji: Emoji }>) {
 		const emoji = event.detail.emoji;
 		showEmojiPicker = false;
+		showMediaMenu = false;
 
 		// Insert emoji syntax and auto-send
 		messageInput = messageInput.trim() ? messageInput + `:${emoji.name}:` : `:${emoji.name}:`;
@@ -938,6 +944,7 @@
 		selectedFiles = [file];
 		await uploadSelectedFiles();
 		showCameraCapture = false;
+		showMediaMenu = false;
 	}
 
 	// Handle audio recording
@@ -955,6 +962,22 @@
 		selectedFiles = [file];
 		await uploadSelectedFiles();
 		showAudioRecorder = false;
+		showMediaMenu = false;
+	}
+
+	function handleOpenFilePicker() {
+		showMediaMenu = false;
+		fileInput?.click();
+	}
+
+	function handleOpenCameraCapture() {
+		showMediaMenu = false;
+		showCameraCapture = true;
+	}
+
+	function handleOpenAudioRecorder() {
+		showMediaMenu = false;
+		showAudioRecorder = true;
 	}
 
 	// Check if browser supports media capture
@@ -964,6 +987,19 @@
 
 	onMount(() => {
 		scrollToBottom();
+
+		const handleGlobalClick = (event: MouseEvent) => {
+			const target = event.target as Node | null;
+			if (target && emojiPickerContainer?.contains(target)) return;
+			if (target && mediaMenuContainer?.contains(target)) return;
+			showMediaMenu = false;
+			showEmojiPicker = false;
+		};
+
+		document.addEventListener('click', handleGlobalClick);
+		return () => {
+			document.removeEventListener('click', handleGlobalClick);
+		};
 	});
 </script>
 
@@ -1035,11 +1071,13 @@
 		</div>
 
 		{#if showEmojiPicker}
-			<EmojiPicker
-				on:select={handleEmojiSelect}
-				on:gif={handleGifSelect}
-				on:close={() => showEmojiPicker = false}
-			/>
+			<div class="emoji-picker-container" bind:this={emojiPickerContainer}>
+				<EmojiPicker
+					on:select={handleEmojiSelect}
+					on:gif={handleGifSelect}
+					on:close={() => showEmojiPicker = false}
+				/>
+			</div>
 		{/if}
 
 		<CameraCapture
@@ -1154,29 +1192,27 @@
 				onSelect={handleCommandSelect}
 			/>
 			<div class="input-buttons-left">
-				<button
-					class="input-icon-button"
-					on:click={() => fileInput?.click()}
-					title="Attach file"
-				>
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-				</button>
-				{#if supportsMediaCapture()}
+				<div class="media-menu-container" bind:this={mediaMenuContainer}>
 					<button
 						class="input-icon-button"
-						on:click={() => showCameraCapture = true}
-						title="Take photo"
+						on:click|stopPropagation={() => {
+							showMediaMenu = !showMediaMenu;
+							if (showMediaMenu) showEmojiPicker = false;
+						}}
+						title="Add media"
 					>
-						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
 					</button>
-					<button
-						class="input-icon-button"
-						on:click={() => showAudioRecorder = true}
-						title="Record voice message"
-					>
-						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-					</button>
-				{/if}
+					{#if showMediaMenu}
+						<div class="media-menu">
+							<button class="media-menu-item" on:click={handleOpenFilePicker}>Upload file</button>
+							{#if supportsMediaCapture()}
+								<button class="media-menu-item" on:click={handleOpenCameraCapture}>Take photo</button>
+								<button class="media-menu-item" on:click={handleOpenAudioRecorder}>Record audio</button>
+							{/if}
+						</div>
+					{/if}
+				</div>
 			</div>
 			<textarea
 				bind:this={textareaElement}
@@ -1196,6 +1232,7 @@
 				class="input-icon-button"
 				on:click|stopPropagation={() => {
 				showEmojiPicker = !showEmojiPicker;
+				if (showEmojiPicker) showMediaMenu = false;
 			}}
 				title="Add emoji"
 			>
@@ -1509,6 +1546,42 @@
 	.input-buttons-left {
 		display: flex;
 		align-items: center;
+	}
+
+	.media-menu-container {
+		position: relative;
+	}
+
+	.media-menu {
+		position: absolute;
+		left: 0;
+		bottom: calc(100% + 0.4rem);
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		min-width: 10rem;
+		padding: 0.35rem;
+		border: 1px solid var(--border);
+		border-radius: 0.6rem;
+		background: var(--bg-secondary);
+		box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+		z-index: 20;
+	}
+
+	.media-menu-item {
+		border: none;
+		background: transparent;
+		color: var(--text-primary);
+		text-align: left;
+		padding: 0.45rem 0.55rem;
+		border-radius: 0.4rem;
+		cursor: pointer;
+		font-size: 0.85rem;
+	}
+
+	.media-menu-item:hover {
+		background: var(--bg-hover);
+		color: var(--accent);
 	}
 
 	.input-icon-button {
