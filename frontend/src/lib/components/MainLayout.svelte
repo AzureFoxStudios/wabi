@@ -242,6 +242,10 @@
 	:global(body) {
 		overflow: hidden;
 	}
+
+	:global(:root) {
+		--dm-rail-top: calc(env(safe-area-inset-top, 0px) + 86px);
+	}
 	.app-container {
 		display: flex;
 		height: 100vh;
@@ -349,7 +353,9 @@
 	.dm-notification-rail {
 		position: absolute;
 		right: 0;
-		top: calc(env(safe-area-inset-top, 0px) + 72px);
+		top: var(--dm-rail-top);
+		max-height: calc(100% - var(--dm-rail-top) - 84px);
+		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
@@ -513,6 +519,12 @@
 		.mobile-bottom-nav button:hover, .mobile-bottom-nav .nav-link:hover { color: var(--text-primary); }
 		.mobile-bottom-nav button.active { color: var(--accent); }
 		.mobile-bottom-nav svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; }
+	}
+
+	@media (max-width: 1280px) {
+		:global(:root) {
+			--dm-rail-top: calc(env(safe-area-inset-top, 0px) + 96px);
+		}
 	}
 
 	.voice-channel-strip {
