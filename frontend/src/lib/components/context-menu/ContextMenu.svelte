@@ -241,6 +241,7 @@
 		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 		outline: none;
 		max-width: min(360px, calc(100vw - 16px));
+		color: var(--text-primary, #f2f3f5);
 	}
 
 	.menu-header {
@@ -258,6 +259,7 @@
 	.menu-header-sub {
 		font-size: 0.75rem;
 		color: var(--text-secondary, #b5bac1);
+		color: color-mix(in srgb, var(--text-primary, #f2f3f5) 72%, transparent);
 		margin-top: 2px;
 	}
 
@@ -310,6 +312,7 @@
 	.menu-hint {
 		font-size: 0.75rem;
 		color: var(--text-secondary, #b5bac1);
+		color: color-mix(in srgb, var(--text-primary, #f2f3f5) 70%, transparent);
 	}
 
 	.menu-item:hover,
@@ -334,8 +337,10 @@
 	}
 
 	.menu-item:disabled {
-		opacity: 0.5;
+		opacity: 0.75;
 		cursor: not-allowed;
+		color: var(--text-secondary, #b5bac1);
+		color: color-mix(in srgb, var(--text-primary, #f2f3f5) 60%, transparent);
 	}
 
 	.menu-item:disabled:hover,

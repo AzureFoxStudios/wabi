@@ -11,10 +11,9 @@
 	import KanbanBoard from '$lib/components/business/KanbanBoard.svelte';
 	import TaskPanel from '$lib/components/business/TaskPanel.svelte';
 	import BusinessPrivacyToggle from '$lib/components/BusinessPrivacyToggle.svelte';
-	import PinnedChannelsSidebar from '$lib/components/PinnedChannelsSidebar.svelte';
 	import Chat from '$lib/components/Chat.svelte';
 	import GuestCodePrompt from '$lib/components/GuestCodePrompt.svelte';
-	import { pinnedChannels, channels, currentChannel, joinChannel } from '$lib/socket';
+	import { channels, currentChannel, joinChannel } from '$lib/socket';
 
 	type MainView = 'calendar' | 'journal' | 'projects' | 'kanban';
 	let activeView: MainView = 'calendar';
@@ -327,12 +326,14 @@
 	{/if}
 
 	<div class="dashboard-body">
-		<!-- Left Pinned Channels Sidebar -->
+		<!-- TODO(mod/admin-perms): Re-enable pinned channels sidebar behind role-based visibility. -->
+		<!--
 		{#if $pinnedChannels.length > 0}
 			<div class="pinned-sidebar-wrapper">
 				<PinnedChannelsSidebar />
 			</div>
 		{/if}
+		-->
 
 		<main class="main-content" class:panel-open={showTaskPanel}>
 			{#if activeView === 'calendar'}
@@ -618,11 +619,6 @@
 		overflow: hidden;
 	}
 
-	.pinned-sidebar-wrapper {
-		flex-shrink: 0;
-		overflow: hidden;
-	}
-
 	.main-content {
 		flex: 1;
 		overflow-y: auto;
@@ -869,10 +865,6 @@
 
 		.dashboard-body {
 			padding-bottom: 70px;
-		}
-
-		.pinned-sidebar-wrapper {
-			display: none;
 		}
 
 		.main-content {

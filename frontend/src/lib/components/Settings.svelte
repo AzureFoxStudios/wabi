@@ -1810,7 +1810,8 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	/* Profile Picture Upload Styles */
 	.pfp-upload-section {
 		display: flex;
-		align-items: flex-start;
+		align-items: center;
+		flex-wrap: wrap;
 		gap: 1.5rem;
 		padding: 1rem;
 		background: var(--bg-tertiary);
@@ -1845,7 +1846,10 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 		flex: 1;
 		display: flex;
 		flex-direction: column;
+		justify-content: center;
+		align-items: flex-start;
 		gap: 0.75rem;
+		min-height: 80px;
 	}
 
 	.pfp-preview {
@@ -1862,6 +1866,9 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 
 	.pfp-select-btn,
 	.pfp-upload-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		padding: 0.75rem;
 		border-radius: 8px;
 		border: none;

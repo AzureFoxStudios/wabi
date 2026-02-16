@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { fly } from 'svelte/transition';
-	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, pinnedChannels, pinChannel, unpinChannel, activeVoiceChannel, voiceChannelMembers, joinVoiceChannel, leaveVoiceChannel } from '$lib/socket';
-	import { activeCalls, isLocalSpeaking } from '$lib/calling';
+	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, activeVoiceChannel, voiceChannelMembers, joinVoiceChannel, leaveVoiceChannel } from '$lib/socket';
+	import { activeCalls, isLocalSpeaking, openChannelCallPanel } from '$lib/calling';
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
@@ -105,7 +105,8 @@
 
 	function handleVoiceChannelClick(channelId: string) {
 		if (isConnectedToVoice(channelId)) {
-			handleChannelClick(channelId);
+			openChannelCallPanel();
+			dispatch('close'); // Close sidebar on mobile after opening call view
 			return;
 		}
 		joinVoiceChannel(channelId);
@@ -231,20 +232,6 @@
 		contextMenuChannel = null;
 	}
 
-	function isChannelPinned(channel: Channel): boolean {
-		return $pinnedChannels.some(ch => ch.id === channel.id);
-	}
-
-	async function togglePinChannel() {
-		if (!contextMenuChannel) return;
-
-		if (isChannelPinned(contextMenuChannel)) {
-			unpinChannel(contextMenuChannel.id);
-		} else {
-			pinChannel(contextMenuChannel.id);
-		}
-	}
-
 	$: channelMenuItems = contextMenuChannel ? buildChannelMenuItems(contextMenuChannel) : [];
 
 	function buildChannelMenuItems(channel: Channel): ContextMenuItem[] {
@@ -360,9 +347,7 @@
 				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
 					<span class="hash">#</span>
 					{channel.name}
-					{#if isChannelPinned(channel)}
-						<svg class="pin-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg>
-					{/if}
+					<!-- TODO(mod/admin-perms): Restore channel-pin indicator when channel pinning is role-gated. -->
 					{#if $channelUnreadCounts[channel.id] && $currentChannel !== channel.id}
 						<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
 					{/if}
@@ -388,9 +373,7 @@
 					<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
 						<svg class="group-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
 						{channel.name}
-						{#if isChannelPinned(channel)}
-							<svg class="pin-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg>
-						{/if}
+						<!-- TODO(mod/admin-perms): Restore channel-pin indicator when channel pinning is role-gated. -->
 						{#if $channelUnreadCounts[channel.id] && $currentChannel !== channel.id}
 							<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
 						{/if}
@@ -1120,13 +1103,6 @@
 		stroke-width: 2;
 	}
 
-	.pin-icon {
-		width: 16px;
-		height: 16px;
-		stroke: currentColor;
-		stroke-width: 2;
-	}
-
 	.section-toggle {
 		display: flex;
 		align-items: center;
@@ -1844,12 +1820,6 @@
 		line-height: 1;
 		min-width: 44px;
 		min-height: 44px;
-	}
-
-	.pin-icon {
-		margin-left: auto;
-		opacity: 0.7;
-		font-size: 0.9em;
 	}
 
 	/* ========== MOBILE STYLES ========== */
