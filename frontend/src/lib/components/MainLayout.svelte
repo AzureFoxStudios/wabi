@@ -8,8 +8,8 @@
 	import RightPanel from '$lib/components/RightPanel.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
-	import { channelMessages, channelUnreadCounts, channels, currentUser, users, type Channel, type User } from '$lib/socket';
-	import { activeVoiceChannel, callMode, voiceChannelNotice, isMuted, isDeafened, toggleMute, toggleDeafen, leaveVoiceChannel } from '$lib/calling';
+	import { channelMessages, channelUnreadCounts, channels, currentUser, users, leaveVoiceChannel as leaveSocketVoiceChannel, type Channel, type User } from '$lib/socket';
+	import { activeVoiceChannel, callMode, voiceChannelNotice, isMuted, isDeafened, toggleMute, toggleDeafen } from '$lib/calling';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 
@@ -94,6 +94,12 @@
 	function formatUnreadBadge(count: number): string {
 		if (count > 99) return '99+';
 		return `${count}`;
+	}
+
+	function handleLeaveVoiceChannel() {
+		const channel = get(activeVoiceChannel);
+		if (!channel) return;
+		void leaveSocketVoiceChannel(channel.id);
 	}
 </script>
 
@@ -221,7 +227,7 @@
 			<div class="voice-channel-actions">
 				<button class:active={$isMuted} on:click={toggleMute} title={$isMuted ? 'Unmute' : 'Mute'}>{$isMuted ? 'Unmute' : 'Mute'}</button>
 				<button class:active={$isDeafened} on:click={toggleDeafen} title={$isDeafened ? 'Undeafen' : 'Deafen'}>{$isDeafened ? 'Undeafen' : 'Deafen'}</button>
-				<button class="leave" on:click={leaveVoiceChannel}>Leave</button>
+				<button class="leave" on:click={handleLeaveVoiceChannel}>Leave</button>
 			</div>
 		</div>
 	{/if}

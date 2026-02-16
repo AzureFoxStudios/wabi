@@ -538,10 +538,14 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 	try {
 		const stream = await ensureLocalAudioStream();
 		activeVoiceChannelId = channelId;
+		callMode.set('channel');
+		activeVoiceChannel.set({ id: channelId, name: channelId });
+		incomingCall.set(null);
+		pushVoiceChannelNotice(`Joined voice: ${channelId}`);
 		isInCall.set(true);
 		isMuted.set(false);
 		isVideoOff.set(true);
-		socket.emit('join-voice-channel', { channelId });
+		socket.emit('voice-channel-join', { channelId });
 		return stream;
 	} catch (error) {
 		console.error('Error joining voice channel:', error);
@@ -553,12 +557,13 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 
 export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 	if (activeVoiceChannelId !== channelId) {
-		socket.emit('leave-voice-channel', { channelId });
+		socket.emit('voice-channel-leave', { channelId });
 		return;
 	}
 
-	socket.emit('leave-voice-channel', { channelId });
+	socket.emit('voice-channel-leave', { channelId });
 	activeVoiceChannelId = null;
+	pushVoiceChannelNotice(`Left voice: ${channelId}`);
 
 	const stream = get(localStream);
 	if (stream) {
@@ -570,6 +575,8 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 	isMuted.set(false);
 	isDeafened.set(false);
 	isVideoOff.set(false);
+	activeVoiceChannel.set(null);
+	callMode.set(null);
 
 	const callKeys: string[] = [];
 	peerConnections.forEach((state, key) => {
@@ -581,6 +588,7 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 
 	activeCalls.set([]);
 	callParticipants.clear();
+	screenShares.set([]);
 	if (peerConnections.size === 0) {
 		connectionState.set('idle');
 	}
@@ -644,66 +652,6 @@ export async function answerCall(socket: Socket, callerId: string, isVideoCall: 
 		localStream.set(null);
 		throw error;
 	}
-}
-
-export async function joinVoiceChannel(channelId: string, channelName: string): Promise<MediaStream> {
-	try {
-		let stream = get(localStream);
-
-		if (!stream) {
-			stream = await navigator.mediaDevices.getUserMedia({
-				video: false,
-				audio: true
-			});
-			localStream.set(stream);
-		}
-
-		applyLocalTrackPreferences(stream);
-		isInCall.set(true);
-		callMode.set('channel');
-		activeVoiceChannel.set({ id: channelId, name: channelName });
-		incomingCall.set(null);
-		pushVoiceChannelNotice(`Joined voice: ${channelName}`);
-
-		return stream;
-	} catch (error) {
-		console.error('Error joining voice channel:', error);
-		handleMediaError(error as DOMException, 'starting');
-		isInCall.set(false);
-		localStream.set(null);
-		throw error;
-	}
-}
-
-export function leaveVoiceChannel(): void {
-	const activeChannel = get(activeVoiceChannel);
-	if (activeChannel) {
-		pushVoiceChannelNotice(`Left voice: ${activeChannel.name}`);
-	}
-
-	const stream = get(localStream);
-	if (stream) {
-		stream.getTracks().forEach(track => track.stop());
-		localStream.set(null);
-	}
-
-	const callKeys: string[] = [];
-	peerConnections.forEach((state, key) => {
-		if (state.type === 'call') {
-			callKeys.push(key);
-		}
-	});
-	callKeys.forEach(key => cleanupPeerConnection(key));
-
-	activeCalls.set([]);
-	callParticipants.clear();
-	isInCall.set(false);
-	isMuted.set(false);
-	isDeafened.set(false);
-	isVideoOff.set(false);
-	activeVoiceChannel.set(null);
-	callMode.set(null);
-	connectionState.set('idle');
 }
 
 export function rejectCall(socket: Socket, callerId: string) {

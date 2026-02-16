@@ -3416,7 +3416,9 @@ io.on("connection", (socket) => {
     participants.add(stableUserId);
     emitToChannel(data.channelId, "voice-channel-user-joined", {
       channelId: data.channelId,
-      userId: stableUserId
+      userId: stableUserId,
+      socketId: socket.id,
+      username: user.username
     });
   });
 
@@ -3435,7 +3437,8 @@ io.on("connection", (socket) => {
 
     emitToChannel(data.channelId, "voice-channel-user-left", {
       channelId: data.channelId,
-      userId: stableUserId
+      userId: stableUserId,
+      socketId: socket.id
     });
 
     removeAllVoicePeerLinks(stableUserId);
@@ -4405,7 +4408,8 @@ io.on("connection", (socket) => {
 
         emitToChannel(voiceChannelId, "voice-channel-user-left", {
           channelId: voiceChannelId,
-          userId: stableUserId
+          userId: stableUserId,
+          socketId: socket.id
         });
       }
       removeAllVoicePeerLinks(stableUserId);

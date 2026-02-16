@@ -894,7 +894,7 @@ class SocketManager {
 			channels.update(chs => chs.filter(ch => ch.id !== data.channelId));
 			channelMessages.update(msgs => {
 				const newMsgs = { ...msgs };
-				delete newMsgs[channelId];
+				delete newMsgs[data.channelId];
 				return newMsgs;
 			});
 			currentChannel.update(ch => ch === data.channelId ? 'general' : ch);
@@ -1082,20 +1082,22 @@ class SocketManager {
 			calling.handleCallIceCandidate(data.senderId, data.candidate);
 		});
 
-		sock.on('voice-channel-user-joined', (data: { channelId: string; userId: string; username: string }) => {
+		sock.on('voice-channel-user-joined', (data: { channelId: string; userId: string; socketId?: string; username?: string }) => {
 			const me = get(currentUser);
-			if (me?.id === data.userId) {
+			if (me?.id === data.userId || sock.id === data.socketId) {
 				return;
 			}
 
-			console.log(`[SocketManager] Voice participant joined ${data.channelId}: ${data.username}`);
-			calling.createCallOffer(sock, data.userId, data.username)
+			const targetId = data.socketId || data.userId;
+			console.log(`[SocketManager] Voice participant joined ${data.channelId}: ${data.username || data.userId}`);
+			calling.createCallOffer(sock, targetId, data.username || '')
 				.catch(err => console.error('[SocketManager] voice-channel createCallOffer failed:', err));
 		});
 
-		sock.on('voice-channel-user-left', (data: { channelId: string; userId: string }) => {
-			console.log(`[SocketManager] Voice participant left ${data.channelId}: ${data.userId}`);
-			calling.removeCall(data.userId);
+		sock.on('voice-channel-user-left', (data: { channelId: string; userId: string; socketId?: string }) => {
+			const targetId = data.socketId || data.userId;
+			console.log(`[SocketManager] Voice participant left ${data.channelId}: ${targetId}`);
+			calling.removeCall(targetId);
 		});
 
 		sock.on('screen-share-started', (data: { userId: string; username: string }) => {
