@@ -3,7 +3,7 @@ import { getServerUrl } from './serverUrl';
 import { isDesktopTauri, isMobileTauri, isTauriRuntime as detectTauriRuntime } from './tauri-platform';
 
 export type MediaQualityMode = 'web-baseline' | 'local-enhanced';
-export type AudioProcessingMode = 'noise-suppression' | 'studio-quality';
+export type AudioProcessingMode = 'auto' | 'dsp' | 'rnn' | 'studio';
 export type ScreenShareQualityPreset = 'auto' | '1080p' | '720p' | '480p' | '144p-mobile';
 export type CallTransportMode = 'auto' | 'p2p-only' | 'sfu-preferred';
 export type EffectiveCallTransport = 'p2p' | 'sfu';
@@ -190,12 +190,19 @@ export function setSrtGatewayEnabled(enabled: boolean): void {
 }
 
 export function getStoredAudioProcessingMode(): AudioProcessingMode {
-	if (!browser) return 'noise-suppression';
+	if (!browser) return 'auto';
 	const stored = localStorage.getItem(STORAGE_KEYS.audioProcessingMode);
-	if (stored === 'noise-suppression' || stored === 'studio-quality') {
+	// Backward compatibility for older persisted values.
+	if (stored === 'noise-suppression') {
+		return 'auto';
+	}
+	if (stored === 'studio-quality') {
+		return 'studio';
+	}
+	if (stored === 'auto' || stored === 'dsp' || stored === 'rnn' || stored === 'studio') {
 		return stored;
 	}
-	return 'noise-suppression';
+	return 'auto';
 }
 
 export function setAudioProcessingMode(mode: AudioProcessingMode): void {
@@ -204,9 +211,20 @@ export function setAudioProcessingMode(mode: AudioProcessingMode): void {
 }
 
 export function getAudioCaptureConstraints(mode: AudioProcessingMode = getStoredAudioProcessingMode()): MediaTrackConstraints {
-	if (mode === 'studio-quality') {
+	if (mode === 'studio') {
 		return {
-			// Preserve fidelity for good mics/quiet rooms; disable aggressive DSP.
+			// Raw/studio input path: keep browser processing off.
+			echoCancellation: false,
+			noiseSuppression: false,
+			autoGainControl: false,
+			sampleRate: 48000,
+			channelCount: 1
+		};
+	}
+
+	if (mode === 'dsp') {
+		return {
+			// Keep AEC to avoid feedback loops, but disable browser denoise/AGC.
 			echoCancellation: true,
 			noiseSuppression: false,
 			autoGainControl: false,
@@ -216,7 +234,7 @@ export function getAudioCaptureConstraints(mode: AudioProcessingMode = getStored
 	}
 
 	return {
-		// Compatibility-first mode that prioritizes intelligibility in noisy spaces.
+		// Auto + RNN mode rely on browser/OS suppression where available.
 		echoCancellation: true,
 		noiseSuppression: true,
 		autoGainControl: true,

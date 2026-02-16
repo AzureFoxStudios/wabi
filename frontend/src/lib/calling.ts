@@ -4,9 +4,11 @@ import { buildRTCConfig, prefetchTurnCredentials } from './turnConfig';
 import { playCallActionSound } from './callSounds';
 import {
 	getAudioCaptureConstraints,
+	getStoredAudioProcessingMode,
 	getMediaRuntimeConfig,
 	getScreenShareQualityProfile,
 	resolveCallTransportPlan,
+	type AudioProcessingMode,
 	type EffectiveCallTransport,
 	type CallTransportMode
 } from './mediaRuntime';
@@ -58,6 +60,17 @@ type ConnectionLifecycleState =
 	| 'disconnected'
 	| 'failed';
 
+export interface CallConnectionDiagnostics {
+	pingMs: number | null;
+	jitterMs: number | null;
+	outboundPacketLossPct: number | null;
+	inboundPacketLossPct: number | null;
+	outboundKbps: number | null;
+	inboundKbps: number | null;
+	connectionState: ConnectionLifecycleState;
+	updatedAt: number | null;
+}
+
 interface PeerConnectionState {
 	pc: RTCPeerConnection;
 	type: 'call' | 'screen-share-outbound' | 'screen-share-inbound';
@@ -87,10 +100,31 @@ export const isLocalSpeaking = writable(false);
 export const localStream = writable<MediaStream | null>(null);
 export const localScreenStream = writable<MediaStream | null>(null);
 export const connectionState = writable<ConnectionLifecycleState>('idle');
+export const callConnectionDiagnostics = writable<CallConnectionDiagnostics>({
+	pingMs: null,
+	jitterMs: null,
+	outboundPacketLossPct: null,
+	inboundPacketLossPct: null,
+	outboundKbps: null,
+	inboundKbps: null,
+	connectionState: 'idle',
+	updatedAt: null
+});
 export const activeVoiceChannel = writable<ActiveVoiceChannel | null>(null);
 export const callMode = writable<'direct' | 'channel' | null>(null);
 export const channelCallPanelOpen = writable(false);
 export const voiceChannelNotice = writable<{ id: number; text: string } | null>(null);
+export const audioProcessingRuntimeStatus = writable<{
+	selected: AudioProcessingMode;
+	effective: EffectiveAudioProcessingMode;
+	fallbackActive: boolean;
+	reason: string | null;
+}>({
+	selected: getStoredAudioProcessingMode(),
+	effective: 'dsp',
+	fallbackActive: false,
+	reason: null
+});
 export const callTransportState = writable<{
 	mode: CallTransportMode;
 	activeTransport: EffectiveCallTransport;
@@ -129,9 +163,269 @@ const SPEAKING_POLL_INTERVAL_MS = 120;
 // Track call participants for targeted cleanup
 const callParticipants = new Set<string>();
 let activeVoiceChannelId: string | null = null;
+let runtimeAudioModeOverride: EffectiveAudioProcessingMode | null = null;
+let performanceGuardInterval: number | null = null;
+let performanceLagStrikeCount = 0;
+let performanceFallbackApplied = false;
+const PERFORMANCE_GUARD_SAMPLE_MS = 1000;
+const PERFORMANCE_GUARD_LAG_THRESHOLD_MS = 220;
+const PERFORMANCE_GUARD_REQUIRED_STRIKES = 3;
+let diagnosticsPollInterval: number | null = null;
+let diagnosticsPrevBytesSample: { bytesSent: number; bytesReceived: number; timestamp: number } | null = null;
+
+type EffectiveAudioProcessingMode = 'dsp' | 'rnn' | 'studio';
+
+interface DspAudioPipeline {
+	context: AudioContext;
+	sourceNode: MediaStreamAudioSourceNode;
+	highPass: BiquadFilterNode;
+	lowPass: BiquadFilterNode;
+	notch: BiquadFilterNode;
+	compressor: DynamicsCompressorNode;
+	destination: MediaStreamAudioDestinationNode;
+	outputTrack: MediaStreamTrack;
+}
+
+interface LocalAudioCaptureSession {
+	sourceStream: MediaStream;
+	outputTrack: MediaStreamTrack;
+	mode: EffectiveAudioProcessingMode;
+	pipeline?: DspAudioPipeline;
+}
+
+let activeAudioCaptureSession: LocalAudioCaptureSession | null = null;
 
 function getRTCConfig(): RTCConfiguration {
 	return buildRTCConfig();
+}
+
+function supportsNoiseSuppressionConstraint(): boolean {
+	if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getSupportedConstraints) return false;
+	const supported = navigator.mediaDevices.getSupportedConstraints();
+	return supported.noiseSuppression === true;
+}
+
+function resolveEffectiveAudioProcessingMode(
+	requested: AudioProcessingMode = getStoredAudioProcessingMode()
+): EffectiveAudioProcessingMode {
+	audioProcessingRuntimeStatus.update(state => ({
+		...state,
+		selected: requested
+	}));
+
+	if (runtimeAudioModeOverride) {
+		audioProcessingRuntimeStatus.update(state => ({
+			...state,
+			effective: runtimeAudioModeOverride as EffectiveAudioProcessingMode,
+			fallbackActive: true,
+			reason: 'performance_guard'
+		}));
+		return runtimeAudioModeOverride;
+	}
+
+	if (requested === 'auto') {
+		const effective = supportsNoiseSuppressionConstraint() ? 'rnn' : 'dsp';
+		audioProcessingRuntimeStatus.update(state => ({
+			...state,
+			effective,
+			fallbackActive: false,
+			reason: effective === 'dsp' ? 'native_not_supported' : null
+		}));
+		return effective;
+	}
+	if (requested === 'rnn' && !supportsNoiseSuppressionConstraint()) {
+		audioProcessingRuntimeStatus.update(state => ({
+			...state,
+			effective: 'dsp',
+			fallbackActive: true,
+			reason: 'native_not_supported'
+		}));
+		return 'dsp';
+	}
+	audioProcessingRuntimeStatus.update(state => ({
+		...state,
+		effective: requested,
+		fallbackActive: false,
+		reason: null
+	}));
+	return requested;
+}
+
+function startPerformanceGuard(): void {
+	if (typeof window === 'undefined') return;
+	if (performanceGuardInterval !== null) return;
+
+	let lastSampleAt = performance.now();
+	performanceGuardInterval = window.setInterval(() => {
+		const selectedMode = getStoredAudioProcessingMode();
+		if (selectedMode !== 'auto') {
+			performanceLagStrikeCount = 0;
+			return;
+		}
+
+		const sessionMode = activeAudioCaptureSession?.mode;
+		if (sessionMode !== 'rnn') {
+			performanceLagStrikeCount = 0;
+			return;
+		}
+
+		const now = performance.now();
+		const lag = now - lastSampleAt - PERFORMANCE_GUARD_SAMPLE_MS;
+		lastSampleAt = now;
+
+		if (lag > PERFORMANCE_GUARD_LAG_THRESHOLD_MS) {
+			performanceLagStrikeCount += 1;
+		} else {
+			performanceLagStrikeCount = Math.max(0, performanceLagStrikeCount - 1);
+		}
+
+		if (performanceLagStrikeCount >= PERFORMANCE_GUARD_REQUIRED_STRIKES && !performanceFallbackApplied) {
+			performanceFallbackApplied = true;
+			runtimeAudioModeOverride = 'dsp';
+			void applyCurrentAudioProcessingToLocalTrack().finally(() => {
+				pushVoiceChannelNotice('Auto audio fallback: switched to DSP for performance');
+			});
+		}
+	}, PERFORMANCE_GUARD_SAMPLE_MS);
+}
+
+function stopPerformanceGuard(): void {
+	if (performanceGuardInterval !== null) {
+		clearInterval(performanceGuardInterval);
+		performanceGuardInterval = null;
+	}
+	performanceLagStrikeCount = 0;
+	performanceFallbackApplied = false;
+}
+
+export function clearAudioPerformanceFallbackOverride(): void {
+	runtimeAudioModeOverride = null;
+	performanceFallbackApplied = false;
+	audioProcessingRuntimeStatus.update(state => ({
+		...state,
+		fallbackActive: false,
+		reason: null
+	}));
+}
+
+function createDspAudioPipeline(sourceStream: MediaStream): DspAudioPipeline {
+	const context = new AudioContext({ sampleRate: 48000 });
+	const sourceNode = context.createMediaStreamSource(sourceStream);
+	const highPass = context.createBiquadFilter();
+	highPass.type = 'highpass';
+	highPass.frequency.value = 90;
+	highPass.Q.value = 0.8;
+
+	const notch = context.createBiquadFilter();
+	notch.type = 'notch';
+	notch.frequency.value = 60;
+	notch.Q.value = 10;
+
+	const lowPass = context.createBiquadFilter();
+	lowPass.type = 'lowpass';
+	lowPass.frequency.value = 11000;
+	lowPass.Q.value = 0.7;
+
+	const compressor = context.createDynamicsCompressor();
+	compressor.threshold.value = -24;
+	compressor.knee.value = 20;
+	compressor.ratio.value = 3;
+	compressor.attack.value = 0.003;
+	compressor.release.value = 0.18;
+
+	const destination = context.createMediaStreamDestination();
+	sourceNode.connect(highPass);
+	highPass.connect(notch);
+	notch.connect(lowPass);
+	lowPass.connect(compressor);
+	compressor.connect(destination);
+
+	const outputTrack = destination.stream.getAudioTracks()[0];
+	if (!outputTrack) {
+		throw new Error('DSP pipeline did not produce an audio track');
+	}
+
+	return {
+		context,
+		sourceNode,
+		highPass,
+		lowPass,
+		notch,
+		compressor,
+		destination,
+		outputTrack
+	};
+}
+
+function disposeDspAudioPipeline(pipeline: DspAudioPipeline): void {
+	try {
+		pipeline.sourceNode.disconnect();
+		pipeline.highPass.disconnect();
+		pipeline.notch.disconnect();
+		pipeline.lowPass.disconnect();
+		pipeline.compressor.disconnect();
+	} catch {
+		// no-op
+	}
+	try {
+		pipeline.outputTrack.stop();
+	} catch {
+		// no-op
+	}
+	void pipeline.context.close().catch(() => undefined);
+}
+
+function disposeAudioCaptureSession(session: LocalAudioCaptureSession): void {
+	if (session.pipeline) {
+		disposeDspAudioPipeline(session.pipeline);
+	} else {
+		try {
+			session.outputTrack.stop();
+		} catch {
+			// no-op
+		}
+	}
+	try {
+		session.sourceStream.getTracks().forEach(track => track.stop());
+	} catch {
+		// no-op
+	}
+}
+
+function clearActiveAudioCaptureSession(): void {
+	if (!activeAudioCaptureSession) return;
+	disposeAudioCaptureSession(activeAudioCaptureSession);
+	activeAudioCaptureSession = null;
+}
+
+async function createAudioCaptureSession(): Promise<LocalAudioCaptureSession> {
+	const mode = resolveEffectiveAudioProcessingMode();
+	const sourceStream = await navigator.mediaDevices.getUserMedia({
+		audio: getAudioCaptureConstraints(mode as AudioProcessingMode),
+		video: false
+	});
+
+	if (mode === 'dsp') {
+		const pipeline = createDspAudioPipeline(sourceStream);
+		return {
+			sourceStream,
+			outputTrack: pipeline.outputTrack,
+			mode,
+			pipeline
+		};
+	}
+
+	const outputTrack = sourceStream.getAudioTracks()[0];
+	if (!outputTrack) {
+		sourceStream.getTracks().forEach(track => track.stop());
+		throw new Error('Microphone stream has no audio track');
+	}
+
+	return {
+		sourceStream,
+		outputTrack,
+		mode
+	};
 }
 
 function ensureSpeakingAudioContext(): AudioContext | null {
@@ -329,6 +623,168 @@ async function flushIceCandidateQueue(key: string): Promise<void> {
 	}
 }
 
+function resetCallConnectionDiagnostics(state: ConnectionLifecycleState = 'idle'): void {
+	diagnosticsPrevBytesSample = null;
+	callConnectionDiagnostics.set({
+		pingMs: null,
+		jitterMs: null,
+		outboundPacketLossPct: null,
+		inboundPacketLossPct: null,
+		outboundKbps: null,
+		inboundKbps: null,
+		connectionState: state,
+		updatedAt: null
+	});
+}
+
+function roundMetric(value: number | null, digits = 1): number | null {
+	if (value == null || !Number.isFinite(value)) return null;
+	const factor = 10 ** digits;
+	return Math.round(value * factor) / factor;
+}
+
+async function sampleCallConnectionDiagnostics(): Promise<void> {
+	try {
+		const callStates = [...peerConnections.values()].filter((state) => state.type === 'call');
+		if (!callStates.length) {
+			resetCallConnectionDiagnostics(get(connectionState));
+			return;
+		}
+
+		const preferredState = callStates.find((state) => state.pc.connectionState === 'connected') || callStates[0];
+		const stats = await preferredState.pc.getStats();
+
+		let pingMs: number | null = null;
+		let jitterMs: number | null = null;
+		let outboundPacketLossPct: number | null = null;
+		let inboundPacketLossPct: number | null = null;
+
+		let bytesSent = 0;
+		let bytesReceived = 0;
+		let packetsSent = 0;
+		let packetsLostOutbound = 0;
+		let packetsReceived = 0;
+		let packetsLostInbound = 0;
+
+		let selectedPair: RTCStats | null = null;
+		stats.forEach((report) => {
+			if (report.type === 'transport') {
+				const selectedCandidatePairId = (report as RTCTransportStats).selectedCandidatePairId;
+				if (selectedCandidatePairId) {
+					const pair = stats.get(selectedCandidatePairId);
+					if (pair) {
+						selectedPair = pair;
+					}
+				}
+			}
+		});
+
+		if (!selectedPair) {
+			stats.forEach((report) => {
+				if (report.type === 'candidate-pair') {
+					const pair = report as RTCStats & {
+						selected?: boolean;
+						nominated?: boolean;
+						state?: string;
+						currentRoundTripTime?: number;
+					};
+					if ((pair.selected || pair.nominated) && pair.state === 'succeeded') {
+						selectedPair = report;
+					}
+				}
+			});
+		}
+
+		if (selectedPair) {
+			const pair = selectedPair as RTCStats & { currentRoundTripTime?: number };
+			if (typeof pair.currentRoundTripTime === 'number') {
+				pingMs = pair.currentRoundTripTime * 1000;
+			}
+		}
+
+		stats.forEach((report) => {
+			if (report.type === 'outbound-rtp') {
+				const outbound = report as RTCOutboundRtpStreamStats & { isRemote?: boolean; packetsLost?: number };
+				if (outbound.isRemote) return;
+				bytesSent += outbound.bytesSent || 0;
+				if (typeof outbound.packetsSent === 'number') {
+					packetsSent += outbound.packetsSent;
+				}
+				if (typeof outbound.packetsLost === 'number') {
+					packetsLostOutbound += outbound.packetsLost;
+				}
+			}
+
+			if (report.type === 'inbound-rtp') {
+				const inbound = report as RTCInboundRtpStreamStats & { isRemote?: boolean };
+				if (inbound.isRemote) return;
+				bytesReceived += inbound.bytesReceived || 0;
+				if (typeof inbound.packetsReceived === 'number') {
+					packetsReceived += inbound.packetsReceived;
+				}
+				if (typeof inbound.packetsLost === 'number') {
+					packetsLostInbound += inbound.packetsLost;
+				}
+				if (typeof inbound.jitter === 'number' && inbound.kind === 'audio') {
+					jitterMs = inbound.jitter * 1000;
+				}
+			}
+		});
+
+		const outboundPacketTotal = packetsSent + packetsLostOutbound;
+		if (outboundPacketTotal > 0) {
+			outboundPacketLossPct = (packetsLostOutbound / outboundPacketTotal) * 100;
+		}
+
+		const inboundPacketTotal = packetsReceived + packetsLostInbound;
+		if (inboundPacketTotal > 0) {
+			inboundPacketLossPct = (packetsLostInbound / inboundPacketTotal) * 100;
+		}
+
+		const now = Date.now();
+		let outboundKbps: number | null = null;
+		let inboundKbps: number | null = null;
+		if (diagnosticsPrevBytesSample) {
+			const elapsedSec = (now - diagnosticsPrevBytesSample.timestamp) / 1000;
+			if (elapsedSec > 0) {
+				outboundKbps = ((bytesSent - diagnosticsPrevBytesSample.bytesSent) * 8) / elapsedSec / 1000;
+				inboundKbps = ((bytesReceived - diagnosticsPrevBytesSample.bytesReceived) * 8) / elapsedSec / 1000;
+			}
+		}
+		diagnosticsPrevBytesSample = { bytesSent, bytesReceived, timestamp: now };
+
+		callConnectionDiagnostics.set({
+			pingMs: roundMetric(pingMs, 0),
+			jitterMs: roundMetric(jitterMs, 1),
+			outboundPacketLossPct: roundMetric(outboundPacketLossPct, 2),
+			inboundPacketLossPct: roundMetric(inboundPacketLossPct, 2),
+			outboundKbps: roundMetric(outboundKbps, 1),
+			inboundKbps: roundMetric(inboundKbps, 1),
+			connectionState: get(connectionState),
+			updatedAt: now
+		});
+	} catch (error) {
+		console.warn('[WebRTC] Failed to sample connection diagnostics:', error);
+	}
+}
+
+function startCallDiagnosticsPolling(): void {
+	if (typeof window === 'undefined') return;
+	if (diagnosticsPollInterval !== null) return;
+	diagnosticsPollInterval = window.setInterval(() => {
+		void sampleCallConnectionDiagnostics();
+	}, 2000);
+	void sampleCallConnectionDiagnostics();
+}
+
+function stopCallDiagnosticsPolling(state: ConnectionLifecycleState = 'idle'): void {
+	if (diagnosticsPollInterval !== null) {
+		clearInterval(diagnosticsPollInterval);
+		diagnosticsPollInterval = null;
+	}
+	resetCallConnectionDiagnostics(state);
+}
+
 // ============================================================================
 // Peer Connection Management
 // ============================================================================
@@ -363,6 +819,9 @@ function createPeerConnection(
 
 	peerConnections.set(key, state);
 	connectionState.set('signaling');
+	if (type === 'call') {
+		startCallDiagnosticsPolling();
+	}
 
 	// Connection state change handler
 	pc.onconnectionstatechange = () => {
@@ -372,14 +831,17 @@ function createPeerConnection(
 			case 'connected':
 				state.lifecycleState = 'connected';
 				connectionState.set('connected');
+				callConnectionDiagnostics.update((current) => ({ ...current, connectionState: 'connected' }));
 				break;
 			case 'disconnected':
 				state.lifecycleState = 'disconnected';
 				connectionState.set('disconnected');
+				callConnectionDiagnostics.update((current) => ({ ...current, connectionState: 'disconnected' }));
 				break;
 			case 'failed':
 				state.lifecycleState = 'failed';
 				connectionState.set('failed');
+				callConnectionDiagnostics.update((current) => ({ ...current, connectionState: 'failed' }));
 				break;
 			case 'closed':
 				cleanupPeerConnection(key);
@@ -394,6 +856,7 @@ function createPeerConnection(
 		if (pc.iceConnectionState === 'checking') {
 			state.lifecycleState = 'connecting';
 			connectionState.set('connecting');
+			callConnectionDiagnostics.update((current) => ({ ...current, connectionState: 'connecting' }));
 		}
 	};
 
@@ -543,6 +1006,7 @@ function cleanupPeerConnection(key: string): void {
 	// Check if any connections remain
 	if (peerConnections.size === 0) {
 		connectionState.set('idle');
+		stopCallDiagnosticsPolling('idle');
 	}
 }
 
@@ -705,11 +1169,15 @@ async function resolveActiveTransport(): Promise<EffectiveCallTransport> {
 async function ensureLocalAudioStream(): Promise<MediaStream> {
 	let stream = get(localStream);
 	if (!stream) {
-		stream = await navigator.mediaDevices.getUserMedia({
-			audio: getAudioCaptureConstraints(),
-			video: false
-		});
+		const nextSession = await createAudioCaptureSession();
+		const previousSession = activeAudioCaptureSession;
+		activeAudioCaptureSession = nextSession;
+		if (previousSession) {
+			disposeAudioCaptureSession(previousSession);
+		}
+		stream = new MediaStream([nextSession.outputTrack]);
 		localStream.set(stream);
+		applyLocalTrackPreferences(stream);
 		startLocalSpeakingMonitor(stream);
 		return stream;
 	}
@@ -719,14 +1187,22 @@ async function ensureLocalAudioStream(): Promise<MediaStream> {
 		return stream;
 	}
 
-	const audioStream = await navigator.mediaDevices.getUserMedia({
-		audio: getAudioCaptureConstraints(),
-		video: false
+	const nextSession = await createAudioCaptureSession();
+	const previousSession = activeAudioCaptureSession;
+	activeAudioCaptureSession = nextSession;
+	stream.getAudioTracks().forEach(track => {
+		stream.removeTrack(track);
+		try {
+			track.stop();
+		} catch {
+			// no-op
+		}
 	});
-	const audioTrack = audioStream.getAudioTracks()[0];
-	if (audioTrack) {
-		stream.addTrack(audioTrack);
+	stream.addTrack(nextSession.outputTrack);
+	if (previousSession) {
+		disposeAudioCaptureSession(previousSession);
 	}
+	applyLocalTrackPreferences(stream);
 	startLocalSpeakingMonitor(stream);
 	return stream;
 }
@@ -754,6 +1230,7 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		isMuted.set(false);
 		isVideoOff.set(true);
 		startLocalSpeakingMonitor(stream);
+		startPerformanceGuard();
 		playCallActionSound('join');
 		socket.emit('voice-channel-join', { channelId });
 		return stream;
@@ -781,6 +1258,7 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 		stream.getTracks().forEach(track => track.stop());
 		localStream.set(null);
 	}
+	clearActiveAudioCaptureSession();
 
 	isInCall.set(false);
 	isMuted.set(false);
@@ -806,17 +1284,26 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 	if (peerConnections.size === 0) {
 		connectionState.set('idle');
 	}
+	stopPerformanceGuard();
+	clearAudioPerformanceFallbackOverride();
+	stopCallDiagnosticsPolling('idle');
 }
 
 export async function startCall(socket: Socket, targetUserId: string, isVideoCall: boolean = false) {
 	try {
 		await prefetchTurnCredentials();
 		await resolveActiveTransport();
-		const stream = await navigator.mediaDevices.getUserMedia({
-			video: isVideoCall ? CAMERA_CONSTRAINTS : false,
-			audio: getAudioCaptureConstraints()
-		});
-		localStream.set(stream);
+		const stream = await ensureLocalAudioStream();
+		if (isVideoCall && !stream.getVideoTracks()[0]) {
+			const cameraStream = await navigator.mediaDevices.getUserMedia({
+				video: CAMERA_CONSTRAINTS,
+				audio: false
+			});
+			const cameraTrack = cameraStream.getVideoTracks()[0];
+			if (cameraTrack) {
+				stream.addTrack(cameraTrack);
+			}
+		}
 
 		isInCall.set(true);
 		callMode.set('direct');
@@ -825,6 +1312,7 @@ export async function startCall(socket: Socket, targetUserId: string, isVideoCal
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);
 		startLocalSpeakingMonitor(stream);
+		startPerformanceGuard();
 		playCallActionSound('join');
 
 		socket.emit('call-initiate', {
@@ -846,11 +1334,17 @@ export async function answerCall(socket: Socket, callerId: string, isVideoCall: 
 	try {
 		await prefetchTurnCredentials();
 		await resolveActiveTransport();
-		const stream = await navigator.mediaDevices.getUserMedia({
-			video: isVideoCall ? CAMERA_CONSTRAINTS : false,
-			audio: getAudioCaptureConstraints()
-		});
-		localStream.set(stream);
+		const stream = await ensureLocalAudioStream();
+		if (isVideoCall && !stream.getVideoTracks()[0]) {
+			const cameraStream = await navigator.mediaDevices.getUserMedia({
+				video: CAMERA_CONSTRAINTS,
+				audio: false
+			});
+			const cameraTrack = cameraStream.getVideoTracks()[0];
+			if (cameraTrack) {
+				stream.addTrack(cameraTrack);
+			}
+		}
 
 		isInCall.set(true);
 		callMode.set('direct');
@@ -859,6 +1353,7 @@ export async function answerCall(socket: Socket, callerId: string, isVideoCall: 
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);
 		startLocalSpeakingMonitor(stream);
+		startPerformanceGuard();
 		playCallActionSound('join');
 
 		socket.emit('call-answer', {
@@ -892,6 +1387,7 @@ export function endCall(socket: Socket) {
 		stream.getTracks().forEach(track => track.stop());
 		localStream.set(null);
 	}
+	clearActiveAudioCaptureSession();
 
 	// Reset call state
 	isInCall.set(false);
@@ -921,6 +1417,8 @@ export function endCall(socket: Socket) {
 	activeVoiceChannelId = null;
 	stopAllRemoteSpeakingMonitors();
 	stopLocalSpeakingMonitor();
+	stopPerformanceGuard();
+	clearAudioPerformanceFallbackOverride();
 	connectionState.set('idle');
 }
 
@@ -946,14 +1444,38 @@ export function toggleMute() {
 
 export async function applyCurrentAudioProcessingToLocalTrack(): Promise<void> {
 	const stream = get(localStream);
-	const audioTrack = stream?.getAudioTracks()?.[0];
-	if (!audioTrack || audioTrack.readyState !== 'live') return;
+	if (!stream) return;
+	const existingAudioTrack = stream.getAudioTracks()[0];
+	if (!existingAudioTrack || existingAudioTrack.readyState !== 'live') return;
 
+	const previousSession = activeAudioCaptureSession;
+	const nextSession = await createAudioCaptureSession();
+	stream.removeTrack(existingAudioTrack);
+	stream.addTrack(nextSession.outputTrack);
+	applyLocalTrackPreferences(stream);
+	startLocalSpeakingMonitor(stream);
+
+	activeAudioCaptureSession = nextSession;
+	if (previousSession) {
+		disposeAudioCaptureSession(previousSession);
+	}
 	try {
-		await audioTrack.applyConstraints(getAudioCaptureConstraints());
-	} catch (error) {
-		// Some browsers/devices ignore or reject individual DSP constraints.
-		console.warn('[WebRTC] Could not apply updated audio processing constraints:', error);
+		existingAudioTrack.stop();
+	} catch {
+		// no-op
+	}
+
+	const tasks: Promise<unknown>[] = [];
+	peerConnections.forEach((state) => {
+		if (state.type !== 'call') return;
+		const sender = state.pc.getSenders().find(s => s.track?.kind === 'audio');
+		if (!sender) return;
+		tasks.push(sender.replaceTrack(nextSession.outputTrack));
+		tasks.push(optimizeSender(sender, state.pc, 'audio'));
+	});
+	const results = await Promise.allSettled(tasks);
+	if (results.some(result => result.status === 'rejected')) {
+		console.warn('[WebRTC] Audio mode switched locally, but one or more peer senders failed to update.');
 	}
 }
 
@@ -1279,6 +1801,7 @@ export function cleanupAllConnections() {
 		stream.getTracks().forEach(track => track.stop());
 		localStream.set(null);
 	}
+	clearActiveAudioCaptureSession();
 
 	const screenStream = get(localScreenStream);
 	if (screenStream) {
@@ -1300,6 +1823,8 @@ export function cleanupAllConnections() {
 	activeVoiceChannelId = null;
 	stopAllRemoteSpeakingMonitors();
 	stopLocalSpeakingMonitor();
+	stopPerformanceGuard();
+	clearAudioPerformanceFallbackOverride();
 
 	// Reset all stores
 	activeCalls.set([]);

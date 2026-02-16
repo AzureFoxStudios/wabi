@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { createEventDispatcher, onMount } from 'svelte';
+import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	import { channelMessages, users, currentUser, emojis, updateProfile } from '$lib/socket';
 	import StorageSettings from './StorageSettings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
@@ -18,6 +18,7 @@
 	import UsernameFontCustomizer from './UsernameFontCustomizer.svelte';
 	import UniformFontMode from './UniformFontMode.svelte';
 	import {
+		getAudioCaptureConstraints,
 		getStoredAudioProcessingMode,
 		getStoredCallTransportMode,
 		getStoredMediaQualityMode,
@@ -35,7 +36,7 @@
 		type MediaQualityMode,
 		type ScreenShareQualityPreset
 	} from '$lib/mediaRuntime';
-	import { applyCurrentAudioProcessingToLocalTrack } from '$lib/calling';
+	import { applyCurrentAudioProcessingToLocalTrack, audioProcessingRuntimeStatus, clearAudioPerformanceFallbackOverride } from '$lib/calling';
 
 	const dispatch = createEventDispatcher();
 
@@ -50,11 +51,19 @@
 	let notificationSound = '/sounds/ProjectSound.ogg';
 	let notificationVolume = 0.5;
 	let mediaQualityMode: MediaQualityMode = 'web-baseline';
-	let audioProcessingMode: AudioProcessingMode = 'noise-suppression';
+	let audioProcessingMode: AudioProcessingMode = 'auto';
 	let callTransportMode: CallTransportMode = 'auto';
 	let srtGatewayEnabled = false;
 	let screenShareQualityPreset: ScreenShareQualityPreset = 'auto';
 	let localAppRuntime = false;
+	let micTestStream: MediaStream | null = null;
+	let micTestRecorder: MediaRecorder | null = null;
+	let micTestAudioContext: AudioContext | null = null;
+	let micTestAnalyser: AnalyserNode | null = null;
+	let micTestLevelInterval: number | null = null;
+	let micTestAudioUrl: string | null = null;
+	let micTestLevel = 0;
+	let micTestState: 'idle' | 'recording' | 'ready' = 'idle';
 
 	// Theme saving state
 	let savingTheme = false;
@@ -103,6 +112,10 @@
 		})();
 	});
 
+	onDestroy(() => {
+		cleanupMicTest();
+	});
+
 	function toggleSound() {
 		soundEnabled = !soundEnabled;
 		localStorage.setItem('soundEnabled', soundEnabled.toString());
@@ -131,7 +144,87 @@
 	function updateAudioProcessingMode(mode: AudioProcessingMode) {
 		audioProcessingMode = mode;
 		setAudioProcessingMode(mode);
+		clearAudioPerformanceFallbackOverride();
 		void applyCurrentAudioProcessingToLocalTrack();
+	}
+
+	function cleanupMicTest() {
+		if (micTestLevelInterval !== null) {
+			clearInterval(micTestLevelInterval);
+			micTestLevelInterval = null;
+		}
+		if (micTestRecorder && micTestRecorder.state !== 'inactive') {
+			micTestRecorder.stop();
+		}
+		micTestRecorder = null;
+		if (micTestStream) {
+			micTestStream.getTracks().forEach(track => track.stop());
+			micTestStream = null;
+		}
+		if (micTestAudioContext) {
+			void micTestAudioContext.close().catch(() => undefined);
+			micTestAudioContext = null;
+		}
+		micTestAnalyser = null;
+		micTestLevel = 0;
+	}
+
+	async function runMicTest() {
+		cleanupMicTest();
+		if (micTestAudioUrl) {
+			URL.revokeObjectURL(micTestAudioUrl);
+			micTestAudioUrl = null;
+		}
+
+		const chunks: Blob[] = [];
+		micTestState = 'recording';
+
+		try {
+			micTestStream = await navigator.mediaDevices.getUserMedia({
+				audio: getAudioCaptureConstraints(audioProcessingMode),
+				video: false
+			});
+
+			micTestAudioContext = new AudioContext();
+			const source = micTestAudioContext.createMediaStreamSource(micTestStream);
+			micTestAnalyser = micTestAudioContext.createAnalyser();
+			micTestAnalyser.fftSize = 1024;
+			source.connect(micTestAnalyser);
+			const data = new Uint8Array(micTestAnalyser.frequencyBinCount);
+			micTestLevelInterval = window.setInterval(() => {
+				if (!micTestAnalyser) return;
+				micTestAnalyser.getByteTimeDomainData(data);
+				let sum = 0;
+				for (let i = 0; i < data.length; i += 1) {
+					const n = (data[i] - 128) / 128;
+					sum += n * n;
+				}
+				const rms = Math.sqrt(sum / data.length);
+				micTestLevel = Math.min(1, rms * 8);
+			}, 80);
+
+			micTestRecorder = new MediaRecorder(micTestStream);
+			micTestRecorder.ondataavailable = (event) => {
+				if (event.data.size > 0) chunks.push(event.data);
+			};
+			micTestRecorder.onstop = () => {
+				const blob = new Blob(chunks, { type: micTestRecorder?.mimeType || 'audio/webm' });
+				micTestAudioUrl = URL.createObjectURL(blob);
+				micTestState = 'ready';
+				cleanupMicTest();
+			};
+			micTestRecorder.start();
+			setTimeout(() => {
+				if (micTestRecorder && micTestRecorder.state === 'recording') {
+					micTestRecorder.stop();
+				}
+			}, 4000);
+		} catch (error) {
+			console.error('Mic test failed:', error);
+			micTestState = 'idle';
+			cleanupMicTest();
+			alert('Mic test failed. Please check microphone permissions.');
+		}
 	}
 
 	function updateCallTransportMode(mode: CallTransportMode) {
@@ -495,6 +588,7 @@
 	}
 
 	function closeModal() {
+		cleanupMicTest();
 		isOpen = false;
 	}
 
@@ -688,9 +782,43 @@
 										value={audioProcessingMode}
 										on:change={(e) => updateAudioProcessingMode(e.currentTarget.value as AudioProcessingMode)}
 									>
-										<option value="noise-suppression">Noise Suppression (Recommended)</option>
-										<option value="studio-quality">Studio Quality</option>
+										<option value="auto">Automatic (Recommended)</option>
+										<option value="dsp">DSP (Low CPU)</option>
+										<option value="rnn">RNN / Native Suppression</option>
+										<option value="studio">Studio / Raw</option>
 									</select>
+								</div>
+								{#if $audioProcessingRuntimeStatus.fallbackActive || $audioProcessingRuntimeStatus.reason}
+									<div class="runtime-note">
+										Effective mode: <strong>{$audioProcessingRuntimeStatus.effective.toUpperCase()}</strong>
+										{#if $audioProcessingRuntimeStatus.reason === 'performance_guard'}
+											(performance fallback)
+										{:else if $audioProcessingRuntimeStatus.reason === 'native_not_supported'}
+											(native suppression not supported on this runtime)
+										{/if}
+									</div>
+								{/if}
+
+								<div class="setting-item-full">
+									<div class="setting-info">
+										<span class="setting-label">Mic Test</span>
+										<span class="setting-description">Record 4 seconds with the selected audio mode, then play it back.</span>
+									</div>
+									<button
+										class="action-btn"
+										on:click={runMicTest}
+										disabled={micTestState === 'recording'}
+									>
+										{micTestState === 'recording' ? 'Recording...' : 'Record 4s Sample'}
+									</button>
+									<div class="volume-slider" aria-label="Mic input level">
+										<div style="height: 8px; border-radius: 6px; background: var(--bg-secondary); overflow: hidden;">
+											<div style="height: 100%; width: {Math.round(micTestLevel * 100)}%; background: var(--accent); transition: width 80ms linear;"></div>
+										</div>
+									</div>
+									{#if micTestAudioUrl}
+										<audio src={micTestAudioUrl} controls></audio>
+									{/if}
 								</div>
 
 								<div class="quality-mode-row">
