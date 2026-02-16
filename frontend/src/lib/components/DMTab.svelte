@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { channels, channelMessages, currentUser, users, createDM, deleteDM, leaveGroup, socket } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { startCall } from '$lib/calling';
@@ -31,6 +32,13 @@
 	let contextMenuY = 0;
 	let contextMenuChannel: Channel | null = null;
 	let contextMenuUser: User | null = null;
+	let showHeaderActionMenu = false;
+	let headerActionMenuX = 0;
+	let headerActionMenuY = 0;
+	let activeHeaderElement: HTMLElement | null = null;
+	let headerResizeObserver: ResizeObserver | null = null;
+	let showCompactHeaderActions = false;
+	const HEADER_INLINE_ACTION_BREAKPOINT = 370;
 
 	$: selectedDmId = $layoutStore.selectedDmChannelId;
 	$: dmOther = $layoutStore.dmOtherUser;
@@ -180,10 +188,20 @@
 	$: headerActions = selectedDmChannel ? getInlineActions(selectedDmChannel, dmOther) : [];
 	$: headerCallActions = headerActions.filter((action) => action.id === 'voice' || action.id === 'video');
 	$: headerRemoveAction = headerActions.find((action) => action.id === 'remove');
+	$: activeHeaderTitle = activeGroup?.name || (isKeepNotesSelected ? 'Keep Notes' : dmOther?.username || 'Direct Message');
+	$: hasHeaderActions = headerCallActions.length > 0 || !!activeGroup || !!headerRemoveAction;
+	$: if (!showCompactHeaderActions && showHeaderActionMenu) {
+		showHeaderActionMenu = false;
+	}
+	$: if (activeHeaderElement) {
+		startHeaderResizeObserver();
+		updateHeaderActionLayout();
+	}
 
 	function openContextMenu(event: MouseEvent, channel: Channel, other: User | null = null) {
 		event.preventDefault();
 		event.stopPropagation();
+		showHeaderActionMenu = false;
 		contextMenuChannel = channel;
 		contextMenuUser = other;
 		contextMenuX = event.clientX;
@@ -208,7 +226,49 @@
 		contextMenuUser = null;
 	}
 
+	function updateHeaderActionLayout() {
+		if (!activeHeaderElement) return;
+		showCompactHeaderActions = activeHeaderElement.clientWidth < HEADER_INLINE_ACTION_BREAKPOINT;
+	}
+
+	function startHeaderResizeObserver() {
+		if (!activeHeaderElement || typeof ResizeObserver === 'undefined') return;
+		if (!headerResizeObserver) {
+			headerResizeObserver = new ResizeObserver(() => updateHeaderActionLayout());
+		}
+		headerResizeObserver.disconnect();
+		headerResizeObserver.observe(activeHeaderElement);
+	}
+
+	onDestroy(() => {
+		if (headerResizeObserver) {
+			headerResizeObserver.disconnect();
+			headerResizeObserver = null;
+		}
+	});
+
+	function openHeaderActionMenu(event: MouseEvent) {
+		event.preventDefault();
+		event.stopPropagation();
+		closeContextMenu();
+		const target = event.currentTarget as HTMLElement | null;
+		if (!target) return;
+		const rect = target.getBoundingClientRect();
+		headerActionMenuX = rect.right;
+		headerActionMenuY = rect.bottom + 6;
+		showHeaderActionMenu = true;
+	}
+
+	function closeHeaderActionMenu() {
+		showHeaderActionMenu = false;
+	}
+
+	function toggleGroupSettings() {
+		showGroupSettings = !showGroupSettings;
+	}
+
 	$: contextMenuItems = buildContextMenuItems();
+	$: headerActionMenuItems = buildHeaderActionMenuItems();
 
 	function buildContextMenuItems(): ContextMenuItem[] {
 		if (!contextMenuChannel) return [];
@@ -237,41 +297,97 @@
 
 		return items;
 	}
+
+	function buildHeaderActionMenuItems(): ContextMenuItem[] {
+		if (!hasHeaderActions) return [];
+		const items: ContextMenuItem[] = [];
+
+		for (const action of headerCallActions) {
+			items.push({
+				id: `header-${action.id}`,
+				label: action.label,
+				icon: action.icon,
+				onSelect: action.onSelect
+			});
+		}
+
+		if (activeGroup) {
+			if (items.length > 0) items.push({ id: 'header-divider-1', type: 'separator' });
+			items.push({
+				id: 'header-group-settings',
+				label: showGroupSettings ? 'Back to Messages' : 'Group Settings',
+				icon: 'settings',
+				onSelect: toggleGroupSettings
+			});
+		}
+
+		if (headerRemoveAction) {
+			items.push({ id: 'header-danger-divider', type: 'separator' });
+			items.push({
+				id: 'header-remove',
+				label: headerRemoveAction.label,
+				icon: headerRemoveAction.icon,
+				danger: true,
+				onSelect: headerRemoveAction.onSelect
+			});
+		}
+
+		return items;
+	}
 </script>
 
 <div class="dm-tab">
 	{#if selectedDmId && (isKeepNotesSelected || dmOther || activeGroup)}
 		<!-- Active conversation -->
 		<div class="dm-tab-active">
-			<div class="dm-active-header">
-				<button class="dm-back-btn" on:click={() => { showGroupSettings = false; layoutStore.closeDM(); }}>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-					<span>All DMs</span>
-				</button>
-				{#if headerCallActions.length > 0}
-					<div class="dm-call-actions">
-						{#each headerCallActions as action (action.id)}
-							<button class="dm-call-btn" on:click={action.onSelect} title={action.title}>
-								{#if action.id === 'voice'}
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-								{:else}
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-								{/if}
-								{action.id === 'voice' ? 'Call' : 'Video'}
-							</button>
-						{/each}
+			<div class="dm-active-header" bind:this={activeHeaderElement}>
+				<div class="dm-header-primary">
+					<button class="dm-back-btn" on:click={() => { showGroupSettings = false; layoutStore.closeDM(); }} title="Back to all DMs" aria-label="Back to all DMs">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+					</button>
+					<div class="dm-header-title-wrap">
+						<span class="dm-header-title">{activeHeaderTitle}</span>
+						{#if isKeepNotesSelected}
+							<span class="dm-header-pill">Private</span>
+						{/if}
 					</div>
-				{/if}
-				{#if activeGroup}
-					<button class="dm-settings-btn" on:click={() => { showGroupSettings = !showGroupSettings; }} title="Group settings">
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-					</button>
-				{:else if isKeepNotesSelected}
-					<div class="dm-header-pill">Private</div>
-				{:else if headerRemoveAction}
-					<button class="dm-delete-btn" on:click={headerRemoveAction.onSelect} title={headerRemoveAction.title}>
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-					</button>
+				</div>
+				{#if hasHeaderActions}
+					{#if showCompactHeaderActions}
+						<button class="dm-header-menu-btn" on:click={openHeaderActionMenu} title="Conversation actions" aria-label="Conversation actions">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+								<circle cx="12" cy="5" r="2"></circle>
+								<circle cx="12" cy="12" r="2"></circle>
+								<circle cx="12" cy="19" r="2"></circle>
+							</svg>
+						</button>
+					{:else}
+						<div class="dm-header-actions-inline">
+							{#if headerCallActions.length > 0}
+								<div class="dm-call-actions">
+									{#each headerCallActions as action (action.id)}
+										<button class="dm-call-btn" on:click={action.onSelect} title={action.title}>
+											{#if action.id === 'voice'}
+												<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+											{:else}
+												<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+											{/if}
+											{action.id === 'voice' ? 'Call' : 'Video'}
+										</button>
+									{/each}
+								</div>
+							{/if}
+							{#if activeGroup}
+								<button class="dm-settings-btn" on:click={toggleGroupSettings} title="Group settings">
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+								</button>
+							{:else if headerRemoveAction}
+								<button class="dm-delete-btn" on:click={headerRemoveAction.onSelect} title={headerRemoveAction.title}>
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+								</button>
+							{/if}
+						</div>
+					{/if}
 				{/if}
 			</div>
 			{#if showGroupSettings && activeGroup}
@@ -470,6 +586,16 @@
 		headerLabel={contextMenuChannel?.type === 'group' ? contextMenuChannel?.name || null : contextMenuUser?.username || null}
 		on:close={closeContextMenu}
 	/>
+
+	<ContextMenu
+		open={showHeaderActionMenu && !!selectedDmId && hasHeaderActions}
+		x={headerActionMenuX}
+		y={headerActionMenuY}
+		items={headerActionMenuItems}
+		ariaLabel="DM header actions"
+		headerLabel={activeHeaderTitle}
+		on:close={closeHeaderActionMenu}
+	/>
 </div>
 
 <CreateGroupModal bind:isOpen={showCreateGroup} />
@@ -493,17 +619,71 @@
 	.dm-active-header {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		gap: 0.35rem;
+		padding: 0.3rem 0.5rem;
 		border-bottom: 1px solid var(--border);
 		flex-shrink: 0;
+	}
+
+	.dm-header-primary {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		min-width: 0;
+		flex: 1;
+	}
+
+	.dm-header-title-wrap {
+		display: flex;
+		align-items: center;
+		justify-content: flex-start;
+		gap: 0.45rem;
+		min-width: 0;
+		flex: 1;
+		text-align: left;
+	}
+
+	.dm-header-title {
+		display: block;
+		text-align: left;
+		font-size: 0.86rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.dm-header-actions-inline {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		margin-left: auto;
+	}
+
+	.dm-header-menu-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		margin-left: auto;
+		background: none;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		color: var(--text-secondary);
+		cursor: pointer;
+	}
+
+	.dm-header-menu-btn:hover {
+		color: var(--text-primary);
+		background: var(--bg-hover);
 	}
 
 	.dm-call-actions {
 		display: flex;
 		align-items: center;
 		gap: 0.35rem;
-		margin-left: auto;
-		margin-right: 0.45rem;
 	}
 
 	.dm-call-btn {
@@ -537,13 +717,15 @@
 	.dm-back-btn {
 		display: flex;
 		align-items: center;
-		gap: 0.375rem;
-		padding: 0.5rem 0.75rem;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		padding: 0;
 		background: none;
-		border: none;
+		border: 1px solid var(--border);
+		border-radius: 6px;
 		color: var(--text-secondary);
 		cursor: pointer;
-		font-size: 0.8rem;
 	}
 
 	.dm-back-btn:hover {
@@ -558,12 +740,11 @@
 		justify-content: center;
 		width: 28px;
 		height: 28px;
-		margin-right: 0.5rem;
 		background: none;
-		border: none;
+		border: 1px solid var(--border);
 		color: var(--text-secondary);
 		cursor: pointer;
-		border-radius: 4px;
+		border-radius: 6px;
 	}
 
 	.dm-delete-btn:hover {
@@ -577,14 +758,14 @@
 	}
 
 	.dm-header-pill {
-		margin-right: 0.65rem;
-		padding: 0.2rem 0.45rem;
+		padding: 0.15rem 0.4rem;
 		border: 1px solid var(--border);
 		border-radius: 999px;
-		font-size: 0.68rem;
+		font-size: 0.62rem;
 		text-transform: uppercase;
 		letter-spacing: 0.03em;
 		color: var(--text-secondary);
+		white-space: nowrap;
 	}
 
 	.dm-tab-messages {
