@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { fly } from 'svelte/transition';
-	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, activeVoiceChannel, voiceChannelMembers, joinVoiceChannel, leaveVoiceChannel } from '$lib/socket';
+	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, activeVoiceChannel, voiceChannelMembers, joinVoiceChannel } from '$lib/socket';
 	import { activeCalls, isLocalSpeaking, openChannelCallPanel } from '$lib/calling';
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
@@ -95,14 +95,6 @@
 		return $activeVoiceChannel === channelId;
 	}
 
-	function handleVoiceAction(channelId: string) {
-		if (isConnectedToVoice(channelId)) {
-			leaveVoiceChannel(channelId);
-			return;
-		}
-		joinVoiceChannel(channelId);
-	}
-
 	function handleVoiceChannelClick(channelId: string) {
 		if (isConnectedToVoice(channelId)) {
 			openChannelCallPanel();
@@ -110,10 +102,6 @@
 			return;
 		}
 		joinVoiceChannel(channelId);
-	}
-
-	function voiceActionLabel(channelId: string): string {
-		return isConnectedToVoice(channelId) ? 'Leave Voice' : 'Join Voice';
 	}
 
 	function avatarTitle(username?: string): string {
@@ -408,10 +396,11 @@
 			<div
 				class="channel-item voice-channel-item"
 				class:active={isConnectedToVoice(channel.id)}
+				on:click={() => handleVoiceChannelClick(channel.id)}
 				on:contextmenu={(e) => handleChannelRightClick(e, channel)}
 				use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}
 			>
-				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleVoiceChannelClick(channel.id)}>
+				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()}>
 					<span class="hash voice-icon" aria-hidden="true">
 						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
 					</span>
@@ -434,7 +423,6 @@
 							{/each}
 						</div>
 					</div>
-					<button class="voice-btn" class:active={isConnectedToVoice(channel.id)} on:click|stopPropagation={() => handleVoiceAction(channel.id)}>{voiceActionLabel(channel.id)}</button>
 				</div>
 			</div>
 			{#if members.length > 0}
@@ -818,7 +806,6 @@
 	}
 
 	.channel-sidebar.compact .voice-occupancy,
-	.channel-sidebar.compact .voice-btn,
 	.channel-sidebar.compact .voice-inline-count,
 	.channel-sidebar.compact .voice-member-list {
 		display: none;
@@ -1227,21 +1214,6 @@
 		color: var(--text-primary);
 	}
 
-	.voice-btn {
-		border: 1px solid var(--border);
-		background: var(--bg-secondary);
-		color: var(--text-secondary);
-		font-size: 0.65rem;
-		line-height: 1;
-		padding: 0.2rem 0.35rem;
-		cursor: pointer;
-	}
-
-	.voice-btn.active {
-		color: var(--text-primary);
-		border-color: var(--accent);
-	}
-
 	.text-channel-actions .settings-btn {
 		opacity: 0;
 		pointer-events: none;
@@ -1326,20 +1298,6 @@
 		max-width: 72px;
 		opacity: 1;
 		margin-left: 0.15rem;
-	}
-
-	.voice-channel-item .voice-btn {
-		opacity: 0;
-		pointer-events: none;
-		transform: translateX(3px);
-		transition: opacity 0.16s ease, transform 0.16s ease;
-	}
-
-	.voice-channel-item:hover .voice-btn,
-	.voice-channel-item.active .voice-btn {
-		opacity: 1;
-		pointer-events: auto;
-		transform: translateX(0);
 	}
 
 	.pin-btn {
