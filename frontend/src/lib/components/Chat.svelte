@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick, createEventDispatcher } from 'svelte';
-	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, users, dmPanelSignal, createDM, getDMChannelIdForUser, type Message, type Emoji } from '$lib/socket';
+	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, users, dmPanelSignal, createDM, getDMChannelIdForUser, socket, type Message, type Emoji, type User, type Channel } from '$lib/socket';
 	import { resources, graphEdges } from '$lib/business/store';
 	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
 	import type { Resource } from '$lib/business/types';
@@ -13,7 +13,7 @@
 	import CameraCapture from './CameraCapture.svelte';
 	import { parseCommand, formatCommandHelp, getMatchingCommands, type Command } from '$lib/commands';
 	import { layoutStore } from '$lib/layoutStore';
-	import { isInCall } from '$lib/calling';
+	import { isInCall, startCall } from '$lib/calling';
 	import { getServerUrl } from '$lib/serverUrl';
 
 	const dispatch = createEventDispatcher();
@@ -28,6 +28,7 @@
 	// They should only appear in the DM panel on the right side
 	// This check prevents accidental rendering of DMs in the middle chat
 	$: isDMChannel = currentChannelData?.type === 'dm';
+	$: dmCallTargetUser = getDMOtherUser(currentChannelData);
 
 	let messageInput = '';
 	let chatContainer: HTMLElement;
@@ -72,6 +73,39 @@
 		const allButLast = users.slice(0, -1).join(', ');
 		const lastUser = users[users.length - 1];
 		return `${allButLast}, and ${lastUser} are typing...`;
+	}
+
+	function getDMOtherUser(channel?: Channel): User | null {
+		if (!channel || channel.type !== 'dm') return null;
+		if (channel.otherUser) return channel.otherUser;
+
+		const myStableId = $currentUser?.dbUserId ? `user-${$currentUser.dbUserId}` : $currentUser?.id;
+		const otherStableId = (channel.members || []).find((id: string) => id !== myStableId);
+		if (!otherStableId) return null;
+
+		if (otherStableId.startsWith('user-')) {
+			const dbId = parseInt(otherStableId.substring(5), 10);
+			return $users.find(u => u.dbUserId === dbId) || null;
+		}
+		return $users.find(u => u.id === otherStableId) || null;
+	}
+
+	async function startDMVoiceCall() {
+		if (!$socket || !dmCallTargetUser) return;
+		try {
+			await startCall($socket, dmCallTargetUser.id, false);
+		} catch (error) {
+			alert('Failed to start voice call. Please check microphone permissions.');
+		}
+	}
+
+	async function startDMVideoCall() {
+		if (!$socket || !dmCallTargetUser) return;
+		try {
+			await startCall($socket, dmCallTargetUser.id, true);
+		} catch (error) {
+			alert('Failed to start video call. Please check camera and microphone permissions.');
+		}
 	}
 
 	// Parse search syntax: by:username, has:image, has:video, has:file, has:link, and text content
@@ -953,7 +987,20 @@
 				<span class="channel-description">{channelDescription}</span>
 			{/if}
 		</h2>
-		<div class="search-container">
+		<div class="header-actions">
+			{#if isDMChannel && dmCallTargetUser}
+				<div class="dm-call-actions">
+					<button class="dm-call-btn" on:click={startDMVoiceCall} title="Voice call {dmCallTargetUser.username}">
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+						<span>Call</span>
+					</button>
+					<button class="dm-call-btn" on:click={startDMVideoCall} title="Video call {dmCallTargetUser.username}">
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+						<span>Video</span>
+					</button>
+				</div>
+			{/if}
+			<div class="search-container">
 			<input
 				type="text"
 				bind:value={searchInput}
@@ -963,6 +1010,7 @@
 			{#if searchInput}
 				<span class="search-results">{filteredMessages.length} result{filteredMessages.length !== 1 ? 's' : ''}</span>
 			{/if}
+			</div>
 		</div>
 	</div>
 
@@ -1264,6 +1312,43 @@
 		margin: 0;
 		font-size: var(--text-sm);
 		max-width: 300px;
+	}
+
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.dm-call-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.dm-call-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.35rem 0.6rem;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border);
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		font-size: var(--text-sm);
+		font-weight: var(--font-weight-medium);
+		cursor: pointer;
+		transition: all var(--duration-fast);
+	}
+
+	.dm-call-btn svg {
+		width: 14px;
+		height: 14px;
+	}
+
+	.dm-call-btn:hover {
+		border-color: var(--accent);
+		background: var(--bg-tertiary);
 	}
 
 	.search-container {
