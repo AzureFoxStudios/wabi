@@ -32,13 +32,10 @@ max-port=65535
 #  AUTHENTICATION & SECURITY
 # ---------------------------------------------------------------------------
 
-# Use the 'long-term' authentication mechanism, where clients provide a username and password.
-lt-cred-mech
-
-# Define a static user account via environment variables.
-# Set TURN_USERNAME and TURN_PASSWORD in your environment or .env file.
-# DO NOT hard-code credentials here - use environment variables instead!
-user=${TURN_USERNAME}:${TURN_PASSWORD}
+# Use TURN REST API shared-secret mode.
+# Backend mints short-lived credentials signed with this secret.
+use-auth-secret
+static-auth-secret=${TURN_SHARED_SECRET}
 
 # The "realm" distinguishes this TURN server from others.
 # It can be a domain name you own or any descriptive name.

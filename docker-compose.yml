@@ -13,6 +13,8 @@ services:
       - PORT=8080
       - DATA_DIR=/app/data
       - PLUGINS_DIR=/app/plugins
+      - TURN_SHARED_SECRET=${TURN_SHARED_SECRET}
+      - TURN_CREDENTIAL_TTL_SECONDS=${TURN_CREDENTIAL_TTL_SECONDS:-3600}
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads
@@ -32,8 +34,6 @@ services:
       args:
         - VITE_TURN_SERVER=${VITE_TURN_SERVER}
         - VITE_TURN_PORT=${VITE_TURN_PORT:-3478}
-        - VITE_TURN_USERNAME=${VITE_TURN_USERNAME}
-        - VITE_TURN_PASSWORD=${VITE_TURN_PASSWORD}
         - VITE_USE_TURNS=${VITE_USE_TURNS:-false}
         - VITE_ENABLE_GOOGLE_STUN=${VITE_ENABLE_GOOGLE_STUN:-true}
         - VITE_SOCKET_URL=${VITE_SOCKET_URL:-}
@@ -70,6 +70,5 @@ services:
     environment:
       - TURN_EXTERNAL_IP=${TURN_EXTERNAL_IP:-127.0.0.1}
       - TURN_REALM=${TURN_REALM:-wabi.local}
-      - TURN_USERNAME=${TURN_USERNAME:-wabi}
-      - TURN_PASSWORD=${TURN_PASSWORD:-change_this_password}
+      - TURN_SHARED_SECRET=${TURN_SHARED_SECRET}
     restart: unless-stopped

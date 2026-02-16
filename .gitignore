@@ -71,4 +71,5 @@ turn-server/turnserver.conf
 # Data files (per-instance, never commit)
 data/business/
 data/chat.db
+data/.plugin-storage/
 .env.save

@@ -1,6 +1,6 @@
 import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
-import { buildRTCConfig } from './turnConfig';
+import { buildRTCConfig, prefetchTurnCredentials } from './turnConfig';
 import {
 	getMediaRuntimeConfig,
 	getScreenShareQualityProfile,
@@ -114,14 +114,8 @@ const peerConnections = new Map<string, PeerConnectionState>();
 const callParticipants = new Set<string>();
 let activeVoiceChannelId: string | null = null;
 
-// Lazy-loaded RTC config (built on first use, not at module load)
-let rtcConfig: RTCConfiguration | null = null;
-
 function getRTCConfig(): RTCConfiguration {
-	if (!rtcConfig) {
-		rtcConfig = buildRTCConfig();
-	}
-	return rtcConfig;
+	return buildRTCConfig();
 }
 
 // ============================================================================
@@ -585,6 +579,7 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 	}
 
 	try {
+		await prefetchTurnCredentials();
 		await resolveActiveTransport();
 		const stream = await ensureLocalAudioStream();
 		activeVoiceChannelId = channelId;
@@ -646,6 +641,7 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 
 export async function startCall(socket: Socket, targetUserId: string, isVideoCall: boolean = false) {
 	try {
+		await prefetchTurnCredentials();
 		await resolveActiveTransport();
 		const stream = await navigator.mediaDevices.getUserMedia({
 			video: isVideoCall ? CAMERA_CONSTRAINTS : false,
@@ -676,6 +672,7 @@ export async function startCall(socket: Socket, targetUserId: string, isVideoCal
 
 export async function answerCall(socket: Socket, callerId: string, isVideoCall: boolean = false) {
 	try {
+		await prefetchTurnCredentials();
 		await resolveActiveTransport();
 		const stream = await navigator.mediaDevices.getUserMedia({
 			video: isVideoCall ? CAMERA_CONSTRAINTS : false,
@@ -836,6 +833,7 @@ export async function toggleVideo(socket?: Socket) {
 // ============================================================================
 
 export async function createCallOffer(socket: Socket, targetId: string, username: string = '') {
+	await prefetchTurnCredentials();
 	const pc = createPeerConnection(targetId, username, 'call', socket);
 	const key = getConnectionKey(targetId, 'call');
 
@@ -866,6 +864,7 @@ export async function handleCallOffer(
 	username: string,
 	offer: RTCSessionDescriptionInit
 ) {
+	await prefetchTurnCredentials();
 	const pc = createPeerConnection(senderId, username, 'call', socket);
 	const key = getConnectionKey(senderId, 'call');
 
@@ -927,6 +926,7 @@ export async function handleCallIceCandidate(senderId: string, candidate: RTCIce
 
 export async function startScreenShare(socket: Socket) {
 	try {
+		await prefetchTurnCredentials();
 		const screenShareQuality = getScreenShareQualityProfile();
 		const stream = await navigator.mediaDevices.getDisplayMedia({
 			video: screenShareQuality.constraints,
@@ -975,6 +975,7 @@ export function stopScreenShare(socket: Socket) {
 }
 
 export async function createScreenShareOffer(socket: Socket, targetId: string) {
+	await prefetchTurnCredentials();
 	const pc = createPeerConnection(targetId, '', 'screen-share-outbound', socket);
 	const key = getConnectionKey(targetId, 'screen');
 
@@ -1005,6 +1006,7 @@ export async function handleScreenShareOffer(
 	username: string,
 	offer: RTCSessionDescriptionInit
 ) {
+	await prefetchTurnCredentials();
 	const pc = createPeerConnection(senderId, username, 'screen-share-inbound', socket);
 	const key = getConnectionKey(senderId, 'screen');
 

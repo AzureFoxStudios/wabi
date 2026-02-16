@@ -7,7 +7,11 @@ envsubst < /etc/coturn/turnserver.conf.template > /etc/coturn/turnserver.conf
 echo "=== Coturn Configuration Generated ==="
 echo "External IP: ${TURN_EXTERNAL_IP}"
 echo "Realm: ${TURN_REALM}"
-echo "Username: ${TURN_USERNAME}"
+if [ -n "${TURN_SHARED_SECRET}" ]; then
+  echo "TURN shared secret: configured"
+else
+  echo "TURN shared secret: MISSING"
+fi
 echo "======================================"
 
 # Start coturn with the generated configuration

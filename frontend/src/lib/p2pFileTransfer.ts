@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store';
-import { buildRTCConfig } from './turnConfig';
+import { buildRTCConfig, prefetchTurnCredentials } from './turnConfig';
 
 const CHUNK_SIZE = 64 * 1024; // 64KB chunks
 
@@ -52,6 +52,7 @@ export async function sendFileP2P(
 	targetUserId: string,
 	file: File
 ): Promise<string> {
+	await prefetchTurnCredentials();
 	const transferId = `p2p-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 	const transfer: FileTransfer = {
@@ -183,6 +184,7 @@ export function handleP2PIncomingOffer(data: {
 }
 
 export async function acceptFileTransfer(socket: any): Promise<void> {
+	await prefetchTurnCredentials();
 	const offer = get(incomingFileOffer);
 	if (!offer) return;
 
