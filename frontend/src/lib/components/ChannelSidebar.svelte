@@ -32,6 +32,8 @@
 	let showStatusPopup = false;
 	let showChannelSettingsModal = false;
 	let selectedChannelForSettings: Channel | null = null;
+	let isTextSectionExpanded = true;
+	let isVoiceSectionExpanded = true;
 
 	// Sidebar width from layout store - 3 modes: normal (280px), compact (60px), hidden (0px)
 	$: sidebarWidth = $layoutStore.channelSidebarWidth;
@@ -102,6 +104,14 @@
 
 	function avatarTitle(username?: string): string {
 		return username || 'Voice participant';
+	}
+
+	function toggleSection(section: 'text' | 'voice') {
+		if (section === 'text') {
+			isTextSectionExpanded = !isTextSectionExpanded;
+			return;
+		}
+		isVoiceSectionExpanded = !isVoiceSectionExpanded;
 	}
 
 	function handleCreateChannel() {
@@ -265,7 +275,17 @@
 	{/if}
 
 	<div class="channel-list">
-		<div class="section-header">Text Channels</div>
+		<button
+			class="section-toggle"
+			type="button"
+			aria-expanded={isTextSectionExpanded}
+			on:click={() => toggleSection('text')}
+		>
+			<span class="section-chevron">&gt;</span>
+			<span class="section-toggle-label">Text Channels</span>
+			<span class="section-count">{publicChannels.length + groupChannels.length}</span>
+		</button>
+		{#if isTextSectionExpanded}
 		<!-- Public text channels -->
 		{#each publicChannels as channel (channel.id)}
 			<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)} use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}>
@@ -298,7 +318,7 @@
 
 		<!-- Group text channels -->
 		{#if groupChannels.length > 0}
-			<div class="section-header">Group Chats</div>
+			<div class="section-header section-subheader">Group Chats</div>
 			{#each groupChannels as channel (channel.id)}
 				<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)} use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}>
 					<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
@@ -325,7 +345,19 @@
 			{/each}
 		{/if}
 
-		<div class="section-header">Voice Channels</div>
+		{/if}
+
+		<button
+			class="section-toggle"
+			type="button"
+			aria-expanded={isVoiceSectionExpanded}
+			on:click={() => toggleSection('voice')}
+		>
+			<span class="section-chevron">&gt;</span>
+			<span class="section-toggle-label">Voice Channels</span>
+			<span class="section-count">{voiceChannels.length}</span>
+		</button>
+		{#if isVoiceSectionExpanded}
 		{#each voiceChannels as channel (channel.id)}
 			<div class="channel-item voice-channel-item" class:active={isConnectedToVoice(channel.id)}>
 				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleVoiceAction(channel.id)}>
@@ -349,6 +381,7 @@
 				</div>
 			</div>
 		{/each}
+		{/if}
 	</div>
 
 	{#if showContextMenu && contextMenuChannel}
@@ -716,6 +749,16 @@
 		padding: 0.25rem;
 	}
 
+	.channel-sidebar.compact .section-toggle {
+		justify-content: center;
+		padding: 0.45rem 0.25rem;
+	}
+
+	.channel-sidebar.compact .section-toggle-label,
+	.channel-sidebar.compact .section-count {
+		display: none;
+	}
+
 	.channel-sidebar.compact .channel-actions {
 		display: none;
 	}
@@ -938,7 +981,7 @@
 	.channel-item {
 		display: flex;
 		align-items: center;
-		padding: 0 0.5rem;
+		padding: 0 0.375rem;
 		position: relative;
 	}
 
@@ -951,7 +994,7 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		padding: 0.5rem;
+		padding: 0.4rem 0.5rem;
 		background: none;
 		border: none;
 		color: var(--text-secondary);
@@ -995,6 +1038,47 @@
 		stroke-width: 2;
 	}
 
+	.section-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		width: 100%;
+		background: transparent;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		padding: 0.75rem 1rem 0.35rem;
+		text-transform: uppercase;
+		font-size: 0.75rem;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+	}
+
+	.section-toggle:hover {
+		color: var(--text-primary);
+	}
+
+	.section-chevron {
+		display: inline-block;
+		font-size: 0.72rem;
+		transform-origin: center;
+		transition: transform 0.18s ease;
+	}
+
+	.section-toggle[aria-expanded='true'] .section-chevron {
+		transform: rotate(90deg);
+	}
+
+	.section-toggle-label {
+		flex: 1;
+		text-align: left;
+	}
+
+	.section-count {
+		font-size: 0.68rem;
+		opacity: 0.75;
+	}
+
 	.section-header {
 		padding: 1rem 1rem 0.5rem 1rem;
 		font-size: 0.75rem;
@@ -1004,10 +1088,15 @@
 		margin-top: 0.5rem;
 	}
 
+	.section-subheader {
+		padding-top: 0.5rem;
+		margin-top: 0.15rem;
+	}
+
 	.channel-actions {
 		display: flex;
 		align-items: center;
-		gap: 0.25rem;
+		gap: 0.2rem;
 		height: fit-content;
 	}
 
@@ -1057,6 +1146,55 @@
 	.voice-btn.active {
 		color: var(--text-primary);
 		border-color: var(--accent);
+	}
+
+	.text-channel-actions .settings-btn {
+		opacity: 0;
+		pointer-events: none;
+	}
+
+	.channel-item:hover .text-channel-actions .settings-btn,
+	.channel-item.active .text-channel-actions .settings-btn {
+		opacity: 1;
+		pointer-events: auto;
+	}
+
+	.voice-channel-item .channel-btn {
+		padding-top: 0.3rem;
+		padding-bottom: 0.3rem;
+	}
+
+	.voice-channel-item .voice-occupancy {
+		opacity: 0.7;
+	}
+
+	.voice-channel-item .voice-avatars {
+		max-width: 0;
+		opacity: 0;
+		overflow: hidden;
+		margin-left: 0;
+		transition: max-width 0.16s ease, opacity 0.16s ease, margin-left 0.16s ease;
+	}
+
+	.voice-channel-item:hover .voice-avatars,
+	.voice-channel-item.active .voice-avatars {
+		max-width: 72px;
+		opacity: 1;
+		margin-left: 0.15rem;
+	}
+
+	.voice-channel-item .voice-btn {
+		opacity: 0;
+		pointer-events: none;
+		transform: translateX(3px);
+		transition: opacity 0.16s ease, transform 0.16s ease;
+	}
+
+	.voice-channel-item:hover .voice-btn,
+	.voice-channel-item.active .voice-btn {
+		opacity: 1;
+		pointer-events: auto;
+		transform: translateX(0);
 	}
 
 	.pin-btn,
@@ -1711,9 +1849,14 @@
 		}
 
 		/* Section headers */
+		.section-toggle,
 		.section-header {
 			padding: 0.75rem 0.75rem 0.375rem;
 			font-size: 0.8rem;
+		}
+
+		.section-count {
+			font-size: 0.72rem;
 		}
 
 		/* Modal adjustments */
