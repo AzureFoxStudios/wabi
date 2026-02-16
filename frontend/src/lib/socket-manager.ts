@@ -19,7 +19,7 @@
 import { writable, get } from 'svelte/store';
 import { io, Socket } from 'socket.io-client';
 import { browser } from '$app/environment';
-import { showNotification } from './notifications';
+import { showNotification, messageMentionsUser } from './notifications';
 import { initEmotes, addEmote, removeEmote } from './markdown';
 import { chatStorage } from './storage';
 import * as calling from './calling';
@@ -728,8 +728,13 @@ class SocketManager {
 			const isCurrentUser = data.message.userId === sock.id;
 			const currentChannelId = get(currentChannel);
 			const isCurrentChannelActive = currentChannelId === data.channelId;
+			const myUsername = get(currentUser)?.username || null;
+			const isMention = messageMentionsUser(data.message, myUsername);
 
-			showNotification(data.message, isCurrentUser, channel?.name);
+			showNotification(data.message, isCurrentUser, channel?.name, {
+				isMention,
+				isCurrentChannelActive
+			});
 
 			if (!isCurrentUser && (!isCurrentChannelActive || document.hidden)) {
 				this.incrementUnreadCount(data.channelId, data.message.id);
@@ -834,6 +839,7 @@ class SocketManager {
 			autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
 			persistMessages?: boolean;
 			description?: string;
+			minRole?: string;
 		}) => {
 			channels.update(chs => chs.map(ch =>
 				ch.id === data.channelId
@@ -841,6 +847,7 @@ class SocketManager {
 						...ch,
 						autoDeleteAfter: data.autoDeleteAfter,
 						persistMessages: data.persistMessages,
+						...(data.minRole !== undefined ? { minRole: data.minRole } : {}),
 						...(data.description !== undefined ? { description: data.description } : {})
 					}
 					: ch
@@ -1621,6 +1628,7 @@ export function updateChannelSettings(channelId: string, settings: {
 	autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
 	persistMessages?: boolean;
 	description?: string;
+	minRole?: string;
 }): void {
 	socketManager.emit('update-channel-settings', { channelId, ...settings });
 }

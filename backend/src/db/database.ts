@@ -151,6 +151,30 @@ function runMigrations() {
 		// Column may already exist
 	}
 
+	// Migration: add min_role to channels
+	addColumnIfMissing('channels', 'min_role', "TEXT DEFAULT 'guest'");
+
+	// Migration: add display_name to roles
+	addColumnIfMissing('roles', 'display_name', 'TEXT');
+
+	// Migration: emoji-role automation table
+	try {
+		db.exec(`
+			CREATE TABLE IF NOT EXISTS emoji_role_rules (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				emoji_id TEXT NOT NULL,
+				role_name TEXT NOT NULL,
+				remove_on_unreact INTEGER DEFAULT 0,
+				workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+				enabled INTEGER DEFAULT 1,
+				created_at INTEGER DEFAULT (strftime('%s', 'now'))
+			)
+		`);
+		db.exec('CREATE INDEX IF NOT EXISTS idx_emoji_role_rules_emoji ON emoji_role_rules(emoji_id, workspace_id)');
+	} catch (e) {
+		console.error('[Database] Migration error creating emoji_role_rules:', e);
+	}
+
 	// Migration: Add priority/color/is_hoisted to user_roles
 	try {
 		const cols = db.pragma('table_info(user_roles)') as { name: string }[];
@@ -179,19 +203,23 @@ function runMigrations() {
 
 function seedDefaultRoles() {
 	const defaultRoles = [
-		{ role_name: 'owner', priority: 100, color: '#FFD700', is_hoisted: 1 },
-		{ role_name: 'admin', priority: 90, color: '#FF4444', is_hoisted: 1 },
-		{ role_name: 'mod', priority: 70, color: '#44FF44', is_hoisted: 1 },
-		{ role_name: 'member', priority: 10, color: null, is_hoisted: 0 },
-		{ role_name: 'guest', priority: 0, color: '#888888', is_hoisted: 0 }
+		{ role_name: 'owner', display_name: 'Owner', priority: 100, color: '#FFD700', is_hoisted: 1 },
+		{ role_name: 'admin', display_name: 'Admin', priority: 90, color: '#FF4444', is_hoisted: 1 },
+		{ role_name: 'mod', display_name: 'Moderator', priority: 70, color: '#44FF44', is_hoisted: 1 },
+		{ role_name: 'member', display_name: 'Member', priority: 10, color: null, is_hoisted: 0 },
+		{ role_name: 'guest', display_name: 'Guest', priority: 0, color: '#888888', is_hoisted: 0 }
 	];
 
 	const insertRole = db.prepare(
-		'INSERT OR IGNORE INTO roles (role_name, workspace_id, priority, color, is_hoisted) VALUES (?, ?, ?, ?, ?)'
+		'INSERT OR IGNORE INTO roles (role_name, workspace_id, display_name, priority, color, is_hoisted) VALUES (?, ?, ?, ?, ?, ?)'
+	);
+	const updateDisplayName = db.prepare(
+		'UPDATE roles SET display_name = COALESCE(display_name, ?) WHERE role_name = ? AND workspace_id = ?'
 	);
 
 	for (const role of defaultRoles) {
-		insertRole.run(role.role_name, 'default-workspace', role.priority, role.color, role.is_hoisted);
+		insertRole.run(role.role_name, 'default-workspace', role.display_name, role.priority, role.color, role.is_hoisted);
+		updateDisplayName.run(role.display_name, role.role_name, 'default-workspace');
 	}
 
 	// Auto-assign owner to the first registered user if no owner exists

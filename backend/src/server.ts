@@ -44,11 +44,50 @@ function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: str
 
   return { roles: roles.length > 0 ? roles : ['member'], highestRole, roleColor };
 }
+
+function getRoleDefinitions(workspaceId: string = 'default-workspace'): Array<{
+  roleName: string;
+  displayName: string;
+  priority: number;
+  color: string | null;
+  isHoisted: boolean;
+}> {
+  const rows = db.prepare(`
+    SELECT role_name, COALESCE(display_name, role_name) as display_name, priority, color, is_hoisted
+    FROM roles
+    WHERE workspace_id = ?
+    ORDER BY priority DESC
+  `).all(workspaceId) as Array<{
+    role_name: string;
+    display_name: string;
+    priority: number;
+    color: string | null;
+    is_hoisted: number;
+  }>;
+
+  return rows.map(row => ({
+    roleName: row.role_name,
+    displayName: row.display_name,
+    priority: row.priority,
+    color: row.color,
+    isHoisted: row.is_hoisted === 1
+  }));
+}
+
+function getRolePriority(roleName: string, workspaceId: string = 'default-workspace'): number {
+  const row = db.prepare(`
+    SELECT priority FROM roles
+    WHERE role_name = ? AND workspace_id = ?
+    LIMIT 1
+  `).get(roleName, workspaceId) as { priority?: number } | undefined;
+  return row?.priority ?? 0;
+}
 // In-memory data store
 interface Channel {
   id: string;
   name: string;
   description?: string;
+  minRole?: string;
   createdAt: number;
   type?: 'text' | 'voice' | 'dm' | 'group' | 'public';
   members?: string[]; // User IDs for DMs and group chats
@@ -2125,6 +2164,7 @@ try {
       id: ch.channel_id,
       name: ch.name,
       description: ch.description || '',
+      minRole: ch.min_role || 'guest',
       createdAt: ch.created_at,
       type: normalizeChannelType(ch.channel_type),
       persistMessages: ch.persist_messages === 1,
@@ -2273,6 +2313,7 @@ function loadUserChannelsFromDB(stableUserId: string): Channel[] {
           id: dbChannel.channel_id,
           name: dbChannel.name,
           description: dbChannel.description || '',
+          minRole: dbChannel.min_role || 'guest',
           createdAt: dbChannel.created_at,
           type: normalizeChannelType(dbChannel.channel_type),
           members: memberIds,
@@ -2305,8 +2346,15 @@ function loadUserChannelsFromDB(stableUserId: string): Channel[] {
 
   // Return all channels the user has access to
   return Array.from(channels.values()).filter(channel => {
-    // Public channels are accessible to everyone
-    if (!channel.members || channel.members.length === 0) return true;
+    // Public channels honor minimum role requirement
+    if (!channel.members || channel.members.length === 0) {
+      const requiredRole = channel.minRole || 'guest';
+      if (requiredRole === 'guest') return true;
+      const userRole = stableUserId.startsWith('user-')
+        ? getUserRoleInfo(parseInt(stableUserId.substring(5), 10)).highestRole
+        : 'guest';
+      return getRolePriority(userRole) >= getRolePriority(requiredRole);
+    }
     // Check if user's stable ID is in the members list
     return channel.members.includes(stableUserId);
   });
@@ -2497,10 +2545,23 @@ io.on("connection", (socket) => {
   console.log(`🔌 WebSocket connection established: ${socket.id}`);
 
   const getSocketStableId = (): string => getStableUserId(socket);
+  const getSocketHighestRole = (): string => {
+    const user = users.get(socket.id);
+    return user?.highestRole || 'guest';
+  };
+  const socketMeetsRoleRequirement = (minRole?: string): boolean => {
+    const requiredRole = minRole || 'guest';
+    if (requiredRole === 'guest') return true;
+    const myPriority = getRolePriority(getSocketHighestRole());
+    const requiredPriority = getRolePriority(requiredRole);
+    return myPriority >= requiredPriority;
+  };
 
   const canAccessChannel = (channel: Channel): boolean => {
-    // Public channels are accessible to everyone
-    if (!channel.members || channel.members.length === 0) return true;
+    // Public channels are accessible based on minimum role gate
+    if (!channel.members || channel.members.length === 0) {
+      return socketMeetsRoleRequirement(channel.minRole);
+    }
     // DM/group channels use stable IDs ("user-{dbId}" for registered users)
     return channel.members.includes(getSocketStableId());
   };
@@ -2516,6 +2577,88 @@ io.on("connection", (socket) => {
       return null;
     }
     return channel;
+  };
+
+  const emitRoleDefinitions = (targetSocketId?: string) => {
+    const payload = { roles: getRoleDefinitions('default-workspace') };
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("role-definitions-updated", payload);
+    } else {
+      io.emit("role-definitions-updated", payload);
+    }
+  };
+
+  const syncDbUserRoleState = (dbUserId: number) => {
+    const newRoleInfo = getUserRoleInfo(dbUserId);
+    for (const [sid, u] of users.entries()) {
+      if (u.dbUserId === dbUserId) {
+        u.roles = newRoleInfo.roles;
+        u.highestRole = newRoleInfo.highestRole;
+        u.roleColor = newRoleInfo.roleColor;
+        users.set(sid, u);
+        io.emit("user-role-changed", {
+          userId: sid,
+          dbUserId,
+          roles: newRoleInfo.roles,
+          highestRole: newRoleInfo.highestRole,
+          roleColor: newRoleInfo.roleColor
+        });
+      }
+    }
+  };
+
+  const getEmojiRoleRules = () => {
+    return db.prepare(`
+      SELECT id, emoji_id, role_name, remove_on_unreact, enabled
+      FROM emoji_role_rules
+      WHERE workspace_id = ?
+      ORDER BY id DESC
+    `).all('default-workspace') as Array<{
+      id: number;
+      emoji_id: string;
+      role_name: string;
+      remove_on_unreact: number;
+      enabled: number;
+    }>;
+  };
+
+  const emitEmojiRoleRules = (targetSocketId?: string) => {
+    const rules = getEmojiRoleRules().map(rule => ({
+      id: rule.id,
+      emojiId: rule.emoji_id,
+      roleName: rule.role_name,
+      removeOnUnreact: rule.remove_on_unreact === 1,
+      enabled: rule.enabled === 1
+    }));
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("emoji-role-rules-updated", { rules });
+    } else {
+      io.emit("emoji-role-rules-updated", { rules });
+    }
+  };
+
+  const applyEmojiRoleRules = (targetDbUserId: number | undefined, emojiId: string, removed: boolean) => {
+    if (!targetDbUserId) return;
+    const rules = db.prepare(`
+      SELECT role_name, remove_on_unreact
+      FROM emoji_role_rules
+      WHERE workspace_id = ? AND enabled = 1 AND emoji_id = ?
+    `).all('default-workspace', emojiId) as Array<{ role_name: string; remove_on_unreact: number }>;
+
+    if (rules.length === 0) return;
+
+    for (const rule of rules) {
+      if (rule.role_name === 'owner') continue;
+      if (removed) {
+        if (rule.remove_on_unreact === 1) {
+          removeRole(targetDbUserId, rule.role_name as any, 'default-workspace');
+        }
+      } else {
+        assignRole(targetDbUserId, rule.role_name as any, 'default-workspace');
+      }
+    }
+
+    syncDbUserRoleState(targetDbUserId);
   };
 
   // Handle user join
@@ -2582,6 +2725,7 @@ io.on("connection", (socket) => {
           excalidrawState,
           emotes: Array.from(emotes.values()),
           emojis: emojisData,
+          roleDefinitions: getRoleDefinitions('default-workspace'),
           sessionId: (socket as any).sessionId
         });
 
@@ -2656,6 +2800,7 @@ io.on("connection", (socket) => {
         excalidrawState,
         emotes: Array.from(emotes.values()),
         emojis: emojisData,
+        roleDefinitions: getRoleDefinitions('default-workspace'),
         sessionId: sessionId
       });
 
@@ -2703,6 +2848,7 @@ io.on("connection", (socket) => {
         excalidrawState,
         emotes: Array.from(emotes.values()),
         emojis: emojisData2,
+        roleDefinitions: getRoleDefinitions('default-workspace'),
         sessionId: sessionId
       });
 
@@ -2793,6 +2939,7 @@ io.on("connection", (socket) => {
       excalidrawState,
       emotes: Array.from(emotes.values()),
       emojis: emojisData,
+      roleDefinitions: getRoleDefinitions('default-workspace'),
       sessionId: sessionId
     });
 
@@ -3325,6 +3472,7 @@ io.on("connection", (socket) => {
     // Add user to reaction if not already present
     if (!message.reactions[data.emojiId].includes(user.id)) {
       message.reactions[data.emojiId].push(user.id);
+      applyEmojiRoleRules(user.dbUserId, data.emojiId, false);
     }
 
     // Persist reactions to database
@@ -3357,7 +3505,11 @@ io.on("connection", (socket) => {
 
     // Remove user from reaction
     if (message.reactions[data.emojiId]) {
+      const hadReaction = message.reactions[data.emojiId].includes(user.id);
       message.reactions[data.emojiId] = message.reactions[data.emojiId].filter(id => id !== user.id);
+      if (hadReaction) {
+        applyEmojiRoleRules(user.dbUserId, data.emojiId, true);
+      }
 
       // Remove emoji key if no users left
       if (message.reactions[data.emojiId].length === 0) {
@@ -3672,7 +3824,7 @@ io.on("connection", (socket) => {
   });
 
   // Channel management
-  socket.on("create-channel", (data: string | { name: string; description?: string; channelType?: 'text' | 'voice'; type?: 'text' | 'voice'; channel_type?: 'text' | 'voice' }) => {
+  socket.on("create-channel", (data: string | { name: string; description?: string; channelType?: 'text' | 'voice'; type?: 'text' | 'voice'; channel_type?: 'text' | 'voice'; minRole?: string }) => {
     // Backward compat: accept plain string or object
     const channelName = typeof data === 'string' ? data : data.name;
     const channelDescription = typeof data === 'string' ? '' : (data.description || '');
@@ -3699,6 +3851,7 @@ io.on("connection", (socket) => {
       id: channelId,
       name: channelName,
       description: channelDescription,
+      minRole: 'guest',
       createdAt: Date.now(),
       type: channelType,
       persistMessages: channelType === 'voice' ? false : true
@@ -3715,6 +3868,7 @@ io.on("connection", (socket) => {
         channel_type: channelType,
         name: channelName,
         description: channelDescription,
+        min_role: 'guest',
         created_at: channel.createdAt,
         created_by: getStableUserId(socket),
         persist_messages: channel.persistMessages ? 1 : 0
@@ -3771,6 +3925,7 @@ io.on("connection", (socket) => {
     autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
     persistMessages?: boolean;
     description?: string;
+    minRole?: string;
     voiceSettings?: {
       bitrateMode?: 'auto' | 'low' | 'standard' | 'high';
     };
@@ -3781,6 +3936,22 @@ io.on("connection", (socket) => {
       return;
     }
 
+    let validatedMinRole: string | undefined = data.minRole;
+    if (data.minRole !== undefined) {
+      const user = users.get(socket.id);
+      const roleInfo = getUserRoleInfo(user?.dbUserId);
+      if (!['owner', 'admin'].includes(roleInfo.highestRole)) {
+        socket.emit("channel-error", "Only owner/admin can change channel role access");
+        return;
+      }
+      const roleExists = db.prepare('SELECT 1 FROM roles WHERE role_name = ? AND workspace_id = ? LIMIT 1')
+        .get(data.minRole, 'default-workspace');
+      if (!roleExists) {
+        socket.emit("channel-error", "Invalid minimum role");
+        return;
+      }
+    }
+
     // Update channel settings
     channel.autoDeleteAfter = data.autoDeleteAfter;
     if (data.persistMessages !== undefined) {
@@ -3789,16 +3960,20 @@ io.on("connection", (socket) => {
     if (data.description !== undefined) {
       channel.description = data.description;
     }
+    if (validatedMinRole !== undefined) {
+      channel.minRole = validatedMinRole;
+    }
     if (data.voiceSettings !== undefined) {
       channel.voiceSettings = data.voiceSettings;
     }
     channels.set(data.channelId, channel);
 
     // Persist channel settings metadata to database (never transient voice occupancy)
-    if (data.description !== undefined || data.voiceSettings !== undefined) {
+    if (data.description !== undefined || data.voiceSettings !== undefined || data.minRole !== undefined) {
       try {
         channelRepository.updateSettings(data.channelId, {
           description: data.description,
+          min_role: validatedMinRole,
           voice_settings_json: data.voiceSettings !== undefined ? JSON.stringify(data.voiceSettings) : undefined
         });
       } catch (e) {
@@ -3812,6 +3987,7 @@ io.on("connection", (socket) => {
       autoDeleteAfter: data.autoDeleteAfter,
       persistMessages: data.persistMessages,
       description: data.description,
+      minRole: data.minRole,
       voiceSettings: data.voiceSettings
     });
 
@@ -3820,6 +3996,7 @@ io.on("connection", (socket) => {
         autoDeleteAfter: data.autoDeleteAfter || 'disabled',
         persistMessages: data.persistMessages,
         description: data.description,
+        minRole: data.minRole,
         voiceSettings: data.voiceSettings
       });
     }
@@ -4016,27 +4193,7 @@ io.on("connection", (socket) => {
 
     try {
       assignRole(data.targetUserId, data.roleName as any);
-      const newRoleInfo = getUserRoleInfo(data.targetUserId);
-
-      // Find the target user's socket and update their info
-      for (const [sid, u] of users.entries()) {
-        if (u.dbUserId === data.targetUserId) {
-          u.roles = newRoleInfo.roles;
-          u.highestRole = newRoleInfo.highestRole;
-          u.roleColor = newRoleInfo.roleColor;
-          users.set(sid, u);
-
-          // Broadcast role change to all clients
-          io.emit("user-role-changed", {
-            userId: sid,
-            dbUserId: data.targetUserId,
-            roles: newRoleInfo.roles,
-            highestRole: newRoleInfo.highestRole,
-            roleColor: newRoleInfo.roleColor
-          });
-          break;
-        }
-      }
+      syncDbUserRoleState(data.targetUserId);
     } catch (e) {
       socket.emit("channel-error", "Failed to assign role");
     }
@@ -4054,27 +4211,99 @@ io.on("connection", (socket) => {
 
     try {
       removeRole(data.targetUserId, data.roleName as any, 'default-workspace');
-      const newRoleInfo = getUserRoleInfo(data.targetUserId);
-
-      for (const [sid, u] of users.entries()) {
-        if (u.dbUserId === data.targetUserId) {
-          u.roles = newRoleInfo.roles;
-          u.highestRole = newRoleInfo.highestRole;
-          u.roleColor = newRoleInfo.roleColor;
-          users.set(sid, u);
-
-          io.emit("user-role-changed", {
-            userId: sid,
-            dbUserId: data.targetUserId,
-            roles: newRoleInfo.roles,
-            highestRole: newRoleInfo.highestRole,
-            roleColor: newRoleInfo.roleColor
-          });
-          break;
-        }
-      }
+      syncDbUserRoleState(data.targetUserId);
     } catch (e) {
       socket.emit("channel-error", "Failed to remove role");
+    }
+  });
+
+  socket.on("get-role-definitions", () => {
+    socket.emit("role-definitions-updated", { roles: getRoleDefinitions('default-workspace') });
+  });
+
+  socket.on("set-role-display-name", (data: { roleName: string; displayName: string }) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId) return;
+    const myRoleInfo = getUserRoleInfo(user.dbUserId);
+    if (!['owner', 'admin'].includes(myRoleInfo.highestRole)) {
+      socket.emit("channel-error", "Insufficient permissions to rename roles");
+      return;
+    }
+
+    const nextDisplay = (data.displayName || '').trim();
+    if (nextDisplay.length < 1 || nextDisplay.length > 40) {
+      socket.emit("channel-error", "Role display names must be 1-40 characters");
+      return;
+    }
+
+    try {
+      db.prepare(`
+        UPDATE roles
+        SET display_name = ?
+        WHERE role_name = ? AND workspace_id = ?
+      `).run(nextDisplay, data.roleName, 'default-workspace');
+      emitRoleDefinitions();
+    } catch (error) {
+      socket.emit("channel-error", "Failed to update role display name");
+    }
+  });
+
+  socket.on("get-emoji-role-rules", () => {
+    emitEmojiRoleRules(socket.id);
+  });
+
+  socket.on("set-emoji-role-rule", (data: { emojiId: string; roleName: string; removeOnUnreact?: boolean }) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId) return;
+    const myRoleInfo = getUserRoleInfo(user.dbUserId);
+    if (!['owner', 'admin'].includes(myRoleInfo.highestRole)) {
+      socket.emit("channel-error", "Insufficient permissions to manage emoji role rules");
+      return;
+    }
+
+    if (!data.emojiId || !data.roleName) {
+      socket.emit("channel-error", "Emoji and role are required");
+      return;
+    }
+
+    if (data.roleName === 'owner') {
+      socket.emit("channel-error", "Owner role cannot be automated");
+      return;
+    }
+
+    const roleExists = db.prepare('SELECT 1 FROM roles WHERE role_name = ? AND workspace_id = ? LIMIT 1')
+      .get(data.roleName, 'default-workspace');
+    if (!roleExists) {
+      socket.emit("channel-error", "Unknown role");
+      return;
+    }
+
+    try {
+      db.prepare(`
+        INSERT INTO emoji_role_rules (emoji_id, role_name, remove_on_unreact, workspace_id, enabled)
+        VALUES (?, ?, ?, ?, 1)
+      `).run(data.emojiId, data.roleName, data.removeOnUnreact ? 1 : 0, 'default-workspace');
+      emitEmojiRoleRules();
+    } catch (error) {
+      socket.emit("channel-error", "Failed to add emoji role rule");
+    }
+  });
+
+  socket.on("delete-emoji-role-rule", (data: { ruleId: number }) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId) return;
+    const myRoleInfo = getUserRoleInfo(user.dbUserId);
+    if (!['owner', 'admin'].includes(myRoleInfo.highestRole)) {
+      socket.emit("channel-error", "Insufficient permissions to manage emoji role rules");
+      return;
+    }
+
+    try {
+      db.prepare('DELETE FROM emoji_role_rules WHERE id = ? AND workspace_id = ?')
+        .run(data.ruleId, 'default-workspace');
+      emitEmojiRoleRules();
+    } catch (error) {
+      socket.emit("channel-error", "Failed to delete emoji role rule");
     }
   });
 

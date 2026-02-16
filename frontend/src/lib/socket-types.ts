@@ -61,6 +61,7 @@ export interface Channel {
   id: string;
   name: string;
   description?: string;
+  minRole?: string;
   createdAt: number;
   type?: 'text' | 'voice' | 'dm' | 'group' | 'public';
   members?: string[];

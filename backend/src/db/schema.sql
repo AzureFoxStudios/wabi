@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS user_roles (
 CREATE TABLE IF NOT EXISTS roles (
   role_name TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+  display_name TEXT,
   priority INTEGER NOT NULL DEFAULT 10,
   color TEXT,
   is_hoisted INTEGER DEFAULT 1,
@@ -145,12 +146,24 @@ CREATE TABLE IF NOT EXISTS channels (
   channel_type TEXT NOT NULL DEFAULT 'text',  -- 'text', 'voice', 'dm', 'group' (legacy 'public' supported)
   name TEXT NOT NULL,
   description TEXT DEFAULT '',
+  min_role TEXT DEFAULT 'guest',
   voice_settings_json TEXT,
   created_at INTEGER NOT NULL,
   created_by TEXT,
   persist_messages INTEGER DEFAULT 1,
   is_archived INTEGER DEFAULT 0,
   avatar TEXT
+);
+
+-- Emoji-triggered role automation rules
+CREATE TABLE IF NOT EXISTS emoji_role_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  emoji_id TEXT NOT NULL,
+  role_name TEXT NOT NULL,
+  remove_on_unreact INTEGER DEFAULT 0,
+  workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+  enabled INTEGER DEFAULT 1,
+  created_at INTEGER DEFAULT (strftime('%s', 'now'))
 );
 
 -- Channel members (for DMs and groups)
@@ -196,6 +209,7 @@ CREATE INDEX IF NOT EXISTS idx_channel_members_channel ON channel_members(channe
 CREATE INDEX IF NOT EXISTS idx_channel_members_user ON channel_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(message_id);
+CREATE INDEX IF NOT EXISTS idx_emoji_role_rules_emoji ON emoji_role_rules(emoji_id, workspace_id);
 
 -- Relay servers (community-hosted file CDN nodes)
 CREATE TABLE IF NOT EXISTS relays (

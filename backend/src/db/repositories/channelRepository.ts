@@ -5,6 +5,7 @@ export interface DbChannel {
 	channel_type: 'text' | 'voice' | 'public' | 'dm' | 'group';
 	name: string;
 	description: string;
+	min_role?: string;
 	voice_settings_json?: string | null;
 	created_at: number;
 	created_by?: string;
@@ -17,8 +18,8 @@ export class ChannelRepository {
 	// Create a new channel
 	create(channel: Omit<DbChannel, 'is_archived'>): DbChannel {
 		const stmt = db.prepare(`
-			INSERT INTO channels (channel_id, channel_type, name, description, created_at, created_by, persist_messages, is_archived)
-			VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+			INSERT INTO channels (channel_id, channel_type, name, description, min_role, created_at, created_by, persist_messages, is_archived)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
 		`);
 
 		stmt.run(
@@ -26,6 +27,7 @@ export class ChannelRepository {
 			channel.channel_type,
 			channel.name,
 			channel.description || '',
+			channel.min_role || 'guest',
 			channel.created_at,
 			channel.created_by || null,
 			channel.persist_messages ?? 1
@@ -123,7 +125,7 @@ export class ChannelRepository {
 	}
 
 	// Update channel settings
-	updateSettings(channelId: string, settings: { persist_messages?: number; description?: string; voice_settings_json?: string | null }): void {
+	updateSettings(channelId: string, settings: { persist_messages?: number; description?: string; min_role?: string; voice_settings_json?: string | null }): void {
 		const updates: string[] = [];
 		const values: any[] = [];
 
@@ -135,6 +137,11 @@ export class ChannelRepository {
 		if (settings.description !== undefined) {
 			updates.push('description = ?');
 			values.push(settings.description);
+		}
+
+		if (settings.min_role !== undefined) {
+			updates.push('min_role = ?');
+			values.push(settings.min_role);
 		}
 
 		if (settings.voice_settings_json !== undefined) {
