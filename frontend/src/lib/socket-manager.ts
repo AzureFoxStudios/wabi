@@ -103,6 +103,13 @@ export const unreadCount = writable(0);
 export const lastReadMessageId = writable<string | null>(null);
 export const channelUnreadCounts = writable<Record<string, number>>({});
 export const dmPanelSignal = writable<{ channelId: string; otherUser: User } | null>(null);
+export interface VoiceChannelParticipant {
+	userId: string;
+	username?: string;
+	profilePicture?: string;
+}
+export const activeVoiceChannel = writable<string | null>(null);
+export const voiceChannelMembers = writable<Record<string, VoiceChannelParticipant[]>>({});
 export { emojis };
 
 // Pagination stores (client-side archive-based)
@@ -145,6 +152,20 @@ class SocketManager {
 
 	// Listener tracking for clean rebinding
 	private boundListeners: Set<string> = new Set();
+
+	private applyVoiceState(state: Record<string, VoiceChannelParticipant[]> | undefined): void {
+		if (!state) return;
+		voiceChannelMembers.set(state);
+
+		const currentUserId = get(currentUser)?.id;
+		if (!currentUserId) return;
+
+		const connectedChannel = Object.entries(state).find(([, members]) =>
+			members.some(member => member.userId === currentUserId)
+		)?.[0] || null;
+
+		activeVoiceChannel.set(connectedChannel);
+	}
 
 	// ==================== STATE MACHINE ====================
 
@@ -261,6 +282,8 @@ class SocketManager {
 		this.authToken = null;
 		this.reconnectAttempts = 0;
 		this.transition('disconnected');
+		activeVoiceChannel.set(null);
+		voiceChannelMembers.set({});
 	}
 
 	/**
@@ -275,6 +298,8 @@ class SocketManager {
 		connectionState.set('disconnected');
 		connected.set(false);
 		this.reconnectAttempts = 0;
+		activeVoiceChannel.set(null);
+		voiceChannelMembers.set({});
 	}
 
 	/**
@@ -509,6 +534,7 @@ class SocketManager {
 			excalidrawState: any;
 			emotes: any[];
 			emojis: Emoji[];
+			voiceState?: Record<string, VoiceChannelParticipant[]>;
 			sessionId?: string;
 		}) => {
 			console.log('[SocketManager] Init received');
@@ -544,6 +570,7 @@ class SocketManager {
 
 			if (data.emotes) initEmotes(data.emotes);
 			if (data.emojis) emojis.set(data.emojis);
+			this.applyVoiceState(data.voiceState);
 
 			const user = data.users.find(u => u.id === sock.id);
 			if (user) {
@@ -567,6 +594,45 @@ class SocketManager {
 			}
 
 			sock.emit('join-channel', 'general');
+		});
+
+		sock.on('voice-state', (data: { voiceState: Record<string, VoiceChannelParticipant[]> }) => {
+			this.applyVoiceState(data.voiceState);
+		});
+
+		sock.on('voice-channel-state', (data: { channelId: string; members: VoiceChannelParticipant[] }) => {
+			voiceChannelMembers.update(state => ({
+				...state,
+				[data.channelId]: data.members || []
+			}));
+			this.applyVoiceState(get(voiceChannelMembers));
+		});
+
+		sock.on('voice-channel-joined', (data: { channelId: string; members?: VoiceChannelParticipant[]; user?: VoiceChannelParticipant }) => {
+			voiceChannelMembers.update(state => {
+				if (data.members) {
+					return { ...state, [data.channelId]: data.members };
+				}
+				if (!data.user) return state;
+				const existing = state[data.channelId] || [];
+				if (existing.some(member => member.userId === data.user?.userId)) return state;
+				return { ...state, [data.channelId]: [...existing, data.user] };
+			});
+			this.applyVoiceState(get(voiceChannelMembers));
+		});
+
+		sock.on('voice-channel-left', (data: { channelId: string; userId: string; members?: VoiceChannelParticipant[] }) => {
+			voiceChannelMembers.update(state => {
+				if (data.members) {
+					return { ...state, [data.channelId]: data.members };
+				}
+				const existing = state[data.channelId] || [];
+				return {
+					...state,
+					[data.channelId]: existing.filter(member => member.userId !== data.userId)
+				};
+			});
+			this.applyVoiceState(get(voiceChannelMembers));
 		});
 
 		// ==================== MESSAGE EVENTS ====================
@@ -1274,6 +1340,16 @@ export function switchChannel(channelId: string): void {
 	socketManager.emit('join-channel', channelId);
 	currentChannel.set(channelId);
 	markChannelAsRead(channelId);
+}
+
+export function joinVoiceChannel(channelId: string): void {
+	socketManager.emit('join-voice-channel', { channelId });
+}
+
+export function leaveVoiceChannel(channelId?: string): void {
+	const targetChannelId = channelId || get(activeVoiceChannel);
+	if (!targetChannelId) return;
+	socketManager.emit('leave-voice-channel', { channelId: targetChannelId });
 }
 
 export function createChannel(channelName: string, description?: string): void {

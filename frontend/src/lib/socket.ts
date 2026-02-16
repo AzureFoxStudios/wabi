@@ -39,6 +39,8 @@ export {
 	lastReadMessageId,
 	channelUnreadCounts,
 	dmPanelSignal,
+	activeVoiceChannel,
+	voiceChannelMembers,
 	emojis,
 	connectionState,
 
@@ -55,6 +57,8 @@ export {
 	// Channel operations
 	joinChannel,
 	switchChannel,
+	joinVoiceChannel,
+	leaveVoiceChannel,
 	createChannel,
 	deleteChannel,
 	pinChannel,
