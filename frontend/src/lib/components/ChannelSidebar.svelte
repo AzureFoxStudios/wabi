@@ -1,8 +1,42 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { fly } from 'svelte/transition';
-	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, activeVoiceChannel, voiceChannelMembers, joinVoiceChannel } from '$lib/socket';
-	import { activeCalls, isLocalSpeaking, openChannelCallPanel } from '$lib/calling';
+	import {
+		channels,
+		currentChannel,
+		joinChannel,
+		createChannel,
+		deleteChannel,
+		markMessagesAsRead,
+		currentUser,
+		updateChannelSettings,
+		channelUnreadCounts,
+		updateProfile,
+		activeVoiceChannel as activeVoiceChannelId,
+		voiceChannelMembers,
+		joinVoiceChannel,
+		leaveVoiceChannel,
+		getSocket
+	} from '$lib/socket';
+	import {
+		activeCalls,
+		isLocalSpeaking,
+		openChannelCallPanel,
+		callMode,
+		connectionState as callConnectionState,
+		callConnectionDiagnostics,
+		callTransportState,
+		channelCallPanelOpen,
+		isMuted as callMuted,
+		isDeafened as callDeafened,
+		isVideoOff,
+		isSharing,
+		toggleMute,
+		toggleDeafen,
+		toggleVideo,
+		startScreenShare,
+		stopScreenShare
+	} from '$lib/calling';
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
@@ -28,8 +62,7 @@
 	let newChannelType: 'text' | 'voice' = 'text';
 	let showCreateInput = false;
 	let showSettings = false;
-	let isMuted = false;
-	let isDeafened = false;
+	let showVoiceDebugDetails = false;
 	let showDeleteConfirm = false;
 	let channelToDelete = '';
 	let showPinnedModal = false;
@@ -88,20 +121,60 @@
 
 
 	function getVoiceMembers(channelId: string) {
-		return $voiceChannelMembers[channelId] || [];
+		const members = [...($voiceChannelMembers[channelId] || [])];
+		if (!isConnectedToVoice(channelId) || !$currentUser) return members;
+
+		const currentStableId = $currentUser.dbUserId ? `user-${$currentUser.dbUserId}` : null;
+		const hasSelf = members.some(
+			(member) =>
+				member.socketId === $currentUser.id ||
+				member.userId === $currentUser.id ||
+				(currentStableId ? member.userId === currentStableId : false)
+		);
+		if (!hasSelf) {
+			members.push({
+				userId: currentStableId || $currentUser.id,
+				socketId: $currentUser.id,
+				username: $currentUser.username,
+				profilePicture: $currentUser.profilePicture
+			});
+		}
+
+		return members;
 	}
 
 	function isConnectedToVoice(channelId: string): boolean {
-		return $activeVoiceChannel === channelId;
+		return $activeVoiceChannelId === channelId;
 	}
 
-	function handleVoiceChannelClick(channelId: string) {
+	function isCurrentVoiceMember(member: { userId: string; socketId?: string }): boolean {
+		if (!$currentUser) return false;
+		const stableId = $currentUser.dbUserId ? `user-${$currentUser.dbUserId}` : null;
+		return (
+			member.userId === $currentUser.id ||
+			member.socketId === $currentUser.id ||
+			(stableId ? member.userId === stableId : false)
+		);
+	}
+
+	function getMemberLabel(member: { userId: string; socketId?: string; username?: string }): string {
+		if (isCurrentVoiceMember(member)) return 'You';
+		return member.username || 'Unknown user';
+	}
+
+	async function handleVoiceChannelClick(channelId: string) {
 		if (isConnectedToVoice(channelId)) {
 			openChannelCallPanel();
 			dispatch('close'); // Close sidebar on mobile after opening call view
 			return;
 		}
-		joinVoiceChannel(channelId);
+		try {
+			await joinVoiceChannel(channelId);
+			openChannelCallPanel();
+			dispatch('close');
+		} catch (error) {
+			console.error('Failed to join voice channel:', error);
+		}
 	}
 
 	function avatarTitle(username?: string): string {
@@ -109,14 +182,41 @@
 	}
 
 	function isMemberSpeaking(member: { userId: string; socketId?: string }): boolean {
-		const remoteCall = $activeCalls.find(call => call.userId === (member.socketId || member.userId));
-		if (remoteCall) {
-			return remoteCall.isSpeaking;
+		if (isCurrentVoiceMember(member)) return $isLocalSpeaking && !$callMuted && !$callDeafened;
+		const remoteCall = $activeCalls.find(
+			(call) => call.userId === (member.socketId || member.userId) || call.userId === member.userId
+		);
+		return Boolean(remoteCall?.isSpeaking && remoteCall?.isAudioEnabled);
+	}
+
+	function formatDiag(value: number | null, unit = ''): string {
+		if (value == null || Number.isNaN(value)) return '--';
+		return `${value}${unit}`;
+	}
+
+	function getCurrentVoiceChannelName(): string {
+		if (!$activeVoiceChannelId) return '';
+		const match = voiceChannels.find((channel) => channel.id === $activeVoiceChannelId);
+		return match?.name || $activeVoiceChannelId;
+	}
+
+	function handleLeaveActiveVoiceChannel() {
+		if (!$activeVoiceChannelId) return;
+		void leaveVoiceChannel($activeVoiceChannelId);
+	}
+
+	async function handleToggleVideoInSidebar() {
+		await toggleVideo(getSocket() || undefined);
+	}
+
+	async function handleToggleScreenShareInSidebar() {
+		const sock = getSocket();
+		if (!sock) return;
+		if ($isSharing) {
+			stopScreenShare(sock);
+		} else {
+			await startScreenShare(sock);
 		}
-		if ($currentUser && (member.userId === $currentUser.id || member.socketId === $currentUser.id)) {
-			return $isLocalSpeaking;
-		}
-		return false;
 	}
 
 	function toggleSection(section: 'text' | 'voice') {
@@ -450,7 +550,10 @@
 							{:else}
 								<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 							{/if}
-							<span class="voice-member-name">{member.username || 'Unknown user'}</span>
+							<span class="voice-member-name">{getMemberLabel(member)}</span>
+							{#if isMemberSpeaking(member)}
+								<span class="voice-speaking-pill">Speaking</span>
+							{/if}
 						</div>
 					{/each}
 				</div>
@@ -468,6 +571,48 @@
 		headerLabel={contextMenuChannel ? `#${contextMenuChannel.name}` : null}
 		on:close={closeContextMenu}
 	/>
+
+	{#if $callMode === 'channel' && $activeVoiceChannelId && !isCompactSidebar}
+		<div class="voice-usercard">
+			<button
+				type="button"
+				class="voice-usercard-header"
+				on:click={() => (showVoiceDebugDetails = !showVoiceDebugDetails)}
+				aria-expanded={showVoiceDebugDetails}
+			>
+				<div class="voice-usercard-title">
+					<span class="voice-online-dot"></span>
+					<div>
+						<strong>Voice Connected</strong>
+						<small>{getCurrentVoiceChannelName()} / {$callConnectionState}</small>
+					</div>
+				</div>
+				<span class="voice-chevron">{showVoiceDebugDetails ? 'v' : '>'}</span>
+			</button>
+
+			{#if showVoiceDebugDetails}
+				<div class="voice-usercard-debug">
+					<div><span>Ping</span><strong>{formatDiag($callConnectionDiagnostics.pingMs, 'ms')}</strong></div>
+					<div><span>Jitter</span><strong>{formatDiag($callConnectionDiagnostics.jitterMs, 'ms')}</strong></div>
+					<div><span>In Loss</span><strong>{formatDiag($callConnectionDiagnostics.inboundPacketLossPct, '%')}</strong></div>
+					<div><span>Out Loss</span><strong>{formatDiag($callConnectionDiagnostics.outboundPacketLossPct, '%')}</strong></div>
+					<div><span>In Rate</span><strong>{formatDiag($callConnectionDiagnostics.inboundKbps, 'kbps')}</strong></div>
+					<div><span>Out Rate</span><strong>{formatDiag($callConnectionDiagnostics.outboundKbps, 'kbps')}</strong></div>
+					<div><span>Transport</span><strong>{$callTransportState.activeTransport.toUpperCase()}</strong></div>
+					<div><span>Participants</span><strong>{1 + $activeCalls.length}</strong></div>
+				</div>
+			{/if}
+
+			<div class="voice-usercard-actions">
+				<button class:active={$callMuted} on:click={toggleMute} title={$callMuted ? 'Unmute' : 'Mute'}>Mic</button>
+				<button class:active={$callDeafened} on:click={toggleDeafen} title={$callDeafened ? 'Undeafen' : 'Deafen'}>Headset</button>
+				<button class:active={!$isVideoOff} on:click={handleToggleVideoInSidebar} title={$isVideoOff ? 'Turn on camera' : 'Turn off camera'}>Camera</button>
+				<button class:active={$isSharing} on:click={handleToggleScreenShareInSidebar} title={$isSharing ? 'Stop sharing' : 'Share screen'}>Share</button>
+				<button class:active={$channelCallPanelOpen} on:click={openChannelCallPanel} title="Open call view">Open View</button>
+				<button class="leave-btn" on:click={handleLeaveActiveVoiceChannel}>Leave</button>
+			</div>
+		</div>
+	{/if}
 
 	{#if $currentUser}
 		<div class="profile-card">
@@ -522,12 +667,12 @@
 			<div class="profile-controls">
 				<button
 					class="control-btn"
-					class:active={isMuted}
-					on:click={() => isMuted = !isMuted}
-					title={isMuted ? 'Unmute' : 'Mute'}
+					class:active={$callMuted}
+					on:click={toggleMute}
+					title={$callMuted ? 'Unmute' : 'Mute'}
 				>
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						{#if isMuted}
+						{#if $callMuted}
 							<line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12m14 0a7 7 0 0 1-13.46 3.4"></path><path d="M12 19c3.314 0 6-2.686 6-6v-3m0-6h.01M6 9a6 6 0 0 0 11.13 3.13"></path>
 						{:else}
 							<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line>
@@ -536,12 +681,12 @@
 				</button>
 				<button
 					class="control-btn"
-					class:active={isDeafened}
-					on:click={() => isDeafened = !isDeafened}
-					title={isDeafened ? 'Undeafen' : 'Deafen'}
+					class:active={$callDeafened}
+					on:click={toggleDeafen}
+					title={$callDeafened ? 'Undeafen' : 'Deafen'}
 				>
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						{#if isDeafened}
+						{#if $callDeafened}
 							<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line>
 						{:else}
 							<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
@@ -1285,6 +1430,17 @@
 		color: var(--text-primary);
 	}
 
+	.voice-speaking-pill {
+		margin-left: auto;
+		font-size: 0.62rem;
+		font-weight: 700;
+		color: #16a34a;
+		background: rgba(22, 163, 74, 0.14);
+		border: 1px solid rgba(22, 163, 74, 0.3);
+		border-radius: 999px;
+		padding: 0.05rem 0.35rem;
+	}
+
 	@keyframes voice-ring-pulse {
 		0% {
 			box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55);
@@ -1311,6 +1467,105 @@
 		max-width: 72px;
 		opacity: 1;
 		margin-left: 0.15rem;
+	}
+
+	.voice-usercard {
+		margin: 0.6rem;
+		padding: 0.55rem;
+		border-radius: 10px;
+		background: var(--bg-secondary);
+		border: 1px solid rgba(var(--border-rgb), var(--opacity-light));
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.voice-usercard-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		background: transparent;
+		border: none;
+		color: var(--text-primary);
+		padding: 0;
+		cursor: pointer;
+	}
+
+	.voice-usercard-title {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		text-align: left;
+	}
+
+	.voice-usercard-title small {
+		display: block;
+		color: var(--text-secondary);
+		font-size: 0.72rem;
+	}
+
+	.voice-online-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: #22c55e;
+		box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.22);
+	}
+
+	.voice-chevron {
+		color: var(--text-secondary);
+		font-size: 0.78rem;
+	}
+
+	.voice-usercard-debug {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.3rem 0.6rem;
+		background: rgba(var(--border-rgb), 0.12);
+		border-radius: 8px;
+		padding: 0.5rem;
+		font-size: 0.7rem;
+	}
+
+	.voice-usercard-debug div {
+		display: flex;
+		justify-content: space-between;
+		gap: 0.4rem;
+	}
+
+	.voice-usercard-debug span {
+		color: var(--text-secondary);
+	}
+
+	.voice-usercard-debug strong {
+		color: var(--text-primary);
+	}
+
+	.voice-usercard-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+	}
+
+	.voice-usercard-actions button {
+		background: rgba(var(--border-rgb), 0.2);
+		border: 1px solid rgba(var(--border-rgb), 0.4);
+		color: var(--text-primary);
+		border-radius: 999px;
+		padding: 0.25rem 0.55rem;
+		font-size: 0.72rem;
+		cursor: pointer;
+	}
+
+	.voice-usercard-actions button.active {
+		background: color-mix(in srgb, var(--accent) 26%, transparent);
+		border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+	}
+
+	.voice-usercard-actions .leave-btn {
+		background: rgba(239, 68, 68, 0.15);
+		border-color: rgba(239, 68, 68, 0.45);
+		color: #fda4af;
 	}
 
 	.pin-btn {

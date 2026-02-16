@@ -243,7 +243,7 @@
 		{/if}
 	{/if}
 
-	{#if $callMode === 'channel' && $activeVoiceChannel}
+	{#if $layoutStore.isMobile && $callMode === 'channel' && $activeVoiceChannel}
 		<div class="voice-channel-strip" role="status" aria-live="polite" transition:fly={{ y: 20, duration: 220 }}>
 			<button
 				class="voice-status-header"

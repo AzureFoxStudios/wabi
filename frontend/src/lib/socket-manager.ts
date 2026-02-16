@@ -158,11 +158,17 @@ class SocketManager {
 		if (!state) return;
 		voiceChannelMembers.set(state);
 
-		const currentUserId = get(currentUser)?.id;
+		const me = get(currentUser);
+		const currentUserId = me?.id;
+		const currentStableId = me?.dbUserId ? `user-${me.dbUserId}` : null;
 		if (!currentUserId) return;
 
 		const connectedChannel = Object.entries(state).find(([, members]) =>
-			members.some(member => member.userId === currentUserId)
+			members.some(member =>
+				member.userId === currentUserId ||
+				member.socketId === currentUserId ||
+				(currentStableId ? member.userId === currentStableId : false)
+			)
 		)?.[0] || null;
 
 		activeVoiceChannel.set(connectedChannel);
