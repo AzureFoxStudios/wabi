@@ -60,16 +60,23 @@ export function initializeDatabase() {
 }
 
 function runMigrations() {
-	// Migration: Add handle column to users table
-	try {
-		const cols = db.pragma('table_info(users)') as { name: string }[];
-		if (!cols.some(c => c.name === 'handle')) {
-			db.exec('ALTER TABLE users ADD COLUMN handle TEXT UNIQUE COLLATE NOCASE');
-			console.log('[Database] Migration: added handle column to users');
+	const addColumnIfMissing = (table: string, column: string, definition: string) => {
+		try {
+			const cols = db.pragma(`table_info(${table})`) as { name: string }[];
+			if (!cols.some(c => c.name === column)) {
+				db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+				console.log(`[Database] Migration: added ${table}.${column}`);
+			}
+		} catch (e) {
+			console.error(`[Database] Migration error adding ${table}.${column}:`, e);
 		}
-	} catch (e) {
-		console.error('[Database] Migration error adding handle column:', e);
-	}
+	};
+
+	// Migration: Add handle column to users table
+	addColumnIfMissing('users', 'handle', 'TEXT UNIQUE COLLATE NOCASE');
+	addColumnIfMissing('users', 'profile_picture', 'TEXT');
+	addColumnIfMissing('users', 'bio', 'TEXT');
+	addColumnIfMissing('users', 'is_active', 'INTEGER DEFAULT 1');
 
 	// Backfill handles for users that don't have one
 	try {
@@ -108,18 +115,19 @@ function runMigrations() {
 	}
 
 	// Migration: Add username font columns to users table
-	try {
-		const cols = db.pragma('table_info(users)') as { name: string }[];
-		if (!cols.some(c => c.name === 'username_font_family')) {
-			db.exec('ALTER TABLE users ADD COLUMN username_font_family TEXT DEFAULT "inherit"');
-			db.exec('ALTER TABLE users ADD COLUMN username_font_size TEXT DEFAULT "inherit"');
-			db.exec('ALTER TABLE users ADD COLUMN username_font_weight TEXT DEFAULT "600"');
-			db.exec('ALTER TABLE users ADD COLUMN username_font_style TEXT DEFAULT "normal"');
-			console.log('[Database] Migration: added username font columns to users');
-		}
-	} catch (e) {
-		// Columns may already exist
-	}
+	addColumnIfMissing('users', 'username_font_family', "TEXT DEFAULT 'inherit'");
+	addColumnIfMissing('users', 'username_font_size', "TEXT DEFAULT 'inherit'");
+	addColumnIfMissing('users', 'username_font_weight', "TEXT DEFAULT '600'");
+	addColumnIfMissing('users', 'username_font_style', "TEXT DEFAULT 'normal'");
+
+	// Migration: Session columns used by current session repository
+	addColumnIfMissing('sessions', 'profile_picture', 'TEXT');
+	addColumnIfMissing('sessions', 'socket_id', 'TEXT');
+	addColumnIfMissing('sessions', 'last_seen', 'INTEGER');
+
+	// Migration: user_settings columns used by current settings repository
+	addColumnIfMissing('user_settings', 'allow_temp_user_messages', 'INTEGER DEFAULT 1');
+	addColumnIfMissing('user_settings', 'business_private_mode', 'INTEGER DEFAULT 0');
 
 	// Migration: Add description column to channels table
 	try {
