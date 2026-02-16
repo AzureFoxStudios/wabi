@@ -79,6 +79,7 @@ export interface Project {
 export interface Sprint {
 	id: string;
 	projectId: string;
+	createdBy?: string;
 	name: string;
 	startDate: number;
 	endDate: number;
