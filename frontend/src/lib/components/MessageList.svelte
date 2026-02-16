@@ -14,6 +14,7 @@
 	import { longpress } from '$lib/actions/longpress';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
+	import { getServerUrl } from '$lib/serverUrl';
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
@@ -253,7 +254,7 @@
 		if ($relayEnabled) {
 			return getRelayFileUrl(fileUrl);
 		}
-
+		// Otherwise, prepend the resolved backend server URL
 		return `${getServerUrl()}${fileUrl}`;
 	}
 	function getReplyToMessage(replyToId?: string): Message | undefined {

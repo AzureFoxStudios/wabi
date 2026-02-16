@@ -129,14 +129,5 @@ export function getRelayFileUrl(relativePath: string): string {
 }
 
 function getOriginFileUrl(relativePath: string): string {
-	if (
-		window.location.origin.includes(':5173') ||
-		window.location.origin.includes('tauri.localhost')
-	) {
-		return `http://localhost:3000${relativePath}`;
-	} else if (window.location.origin.includes(':3000')) {
-		return `${window.location.origin.replace(':3000', ':8080')}${relativePath}`;
-	} else {
-		return `${window.location.origin}${relativePath}`;
-	}
+	return `${getServerUrl()}${relativePath}`;
 }
