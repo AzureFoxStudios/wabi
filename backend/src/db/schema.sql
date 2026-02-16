@@ -142,7 +142,7 @@ VALUES ('VIP2026', 'Default VIP guest access code', 1);
 -- Channels table (DMs, groups, public)
 CREATE TABLE IF NOT EXISTS channels (
   channel_id TEXT PRIMARY KEY,
-  channel_type TEXT NOT NULL DEFAULT 'public',  -- 'public', 'dm', 'group'
+  channel_type TEXT NOT NULL DEFAULT 'text',  -- 'text', 'voice', 'dm', 'group' (legacy 'public' supported)
   name TEXT NOT NULL,
   description TEXT DEFAULT '',
   voice_settings_json TEXT,

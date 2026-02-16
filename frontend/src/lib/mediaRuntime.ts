@@ -56,6 +56,7 @@ export interface CallTransportPlan {
 
 const STORAGE_KEYS = {
 	qualityMode: 'wabi_media_quality_mode',
+	qualityModeAutoMigrated: 'wabi_media_quality_mode_auto_migrated',
 	srtGateway: 'wabi_enable_srt_gateway',
 	screenShareQuality: 'wabi_screen_share_quality_preset',
 	callTransportMode: 'wabi_call_transport_mode'
@@ -127,6 +128,17 @@ function resolveQualityMode(isTauri: boolean): MediaQualityMode {
 
 	const stored = localStorage.getItem(STORAGE_KEYS.qualityMode);
 	if (stored === 'web-baseline' || stored === 'local-enhanced') {
+		// One-time recovery path: older builds could mis-detect Tauri and persist web-baseline.
+		// If this client is now Tauri, auto-upgrade once; user can still switch back manually.
+		if (
+			isTauri &&
+			stored === 'web-baseline' &&
+			localStorage.getItem(STORAGE_KEYS.qualityModeAutoMigrated) !== 'true'
+		) {
+			localStorage.setItem(STORAGE_KEYS.qualityMode, 'local-enhanced');
+			localStorage.setItem(STORAGE_KEYS.qualityModeAutoMigrated, 'true');
+			return 'local-enhanced';
+		}
 		return stored;
 	}
 

@@ -62,7 +62,7 @@ export interface Channel {
   name: string;
   description?: string;
   createdAt: number;
-  type?: 'public' | 'dm' | 'group';
+  type?: 'text' | 'voice' | 'dm' | 'group' | 'public';
   members?: string[];
   otherUser?: User;
   memberUsers?: User[];

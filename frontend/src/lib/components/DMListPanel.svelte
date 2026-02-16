@@ -1,7 +1,10 @@
 <script lang="ts">
-	import { channels, channelMessages, currentChannel, users, currentUser, createDM, getDMChannelIdForUser, joinChannel, type User } from '$lib/socket';
+	import { onMount } from 'svelte';
+	import { channels, channelMessages, currentChannel, users, currentUser, createDM, deleteDM, leaveGroup, getDMChannelIdForUser, joinChannel, type User, type Channel } from '$lib/socket';
 	import { longpress } from '$lib/actions/longpress';
 	import GroupAvatar from './GroupAvatar.svelte';
+	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
+	import type { ContextMenuItem } from '$lib/context-menu/types';
 
 	// TEMPORARY: This is a temporary DM panel for the left sidebar
 	// TODO: Refactor DM system later, move to dedicated DM section
@@ -9,9 +12,11 @@
 	let isExpanded = true;
 	let showCreateDM = false;
 	let searchQuery = '';
+	const ARCHIVE_STORAGE_KEY = 'wabi_archived_dm_channels';
+	let archivedChannelIds = new Set<string>();
 
 	// TEMPORARY: Context menu for DMs
-	let contextMenuDM: any = null;
+	let contextMenuDM: Channel | null = null;
 	let contextMenuPosition = { x: 0, y: 0 };
 	let showContextMenu = false;
 
@@ -24,6 +29,7 @@
 			: 0;
 		return bLastMsg - aLastMsg;
 	});
+	$: visibleDMChannels = dmChannels.filter(ch => !archivedChannelIds.has(ch.id));
 
 	$: onlineUsers = $users.filter(u => u.id !== $currentUser?.id);
 
@@ -81,7 +87,7 @@
 		joinChannel(channelId);
 	}
 
-	function handleDMLongPress(event: TouchEvent, dmChannel: any) {
+	function handleDMLongPress(event: TouchEvent, dmChannel: Channel) {
 		const touch = event.touches?.[0] || event.changedTouches?.[0];
 		if (!touch) return;
 		const syntheticEvent = new MouseEvent('contextmenu', {
@@ -93,7 +99,7 @@
 	}
 
 	// TEMPORARY: Context menu handlers
-	function handleDMRightClick(event: MouseEvent, dmChannel: any) {
+	function handleDMRightClick(event: MouseEvent, dmChannel: Channel) {
 		event.preventDefault();
 		contextMenuDM = dmChannel;
 		contextMenuPosition = { x: event.clientX, y: event.clientY };
@@ -105,19 +111,84 @@
 		contextMenuDM = null;
 	}
 
-	function deleteDM() {
+	function removeConversation() {
 		if (!contextMenuDM) return;
-		// TODO: Implement delete DM on backend
-		// For now, just remove from local state by leaving the channel
-		console.log('Delete DM:', contextMenuDM.id);
+		archivedChannelIds.delete(contextMenuDM.id);
+		persistArchivedChannels();
+		if (contextMenuDM.type === 'group') {
+			leaveGroup(contextMenuDM.id);
+		} else {
+			deleteDM(contextMenuDM.id);
+		}
 		closeContextMenu();
 	}
 
-	function archiveDM() {
+	function toggleArchiveDM() {
 		if (!contextMenuDM) return;
-		// TODO: Implement archive DM on backend
-		console.log('Archive DM:', contextMenuDM.id);
+		if (archivedChannelIds.has(contextMenuDM.id)) {
+			archivedChannelIds.delete(contextMenuDM.id);
+		} else {
+			archivedChannelIds.add(contextMenuDM.id);
+		}
+		archivedChannelIds = new Set(archivedChannelIds);
+		persistArchivedChannels();
 		closeContextMenu();
+	}
+
+	$: dmMenuItems = contextMenuDM ? buildDMMenuItems() : [];
+
+	onMount(() => {
+		loadArchivedChannels();
+	});
+
+	function loadArchivedChannels() {
+		try {
+			const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+			if (!raw) return;
+			const parsed = JSON.parse(raw);
+			if (Array.isArray(parsed)) {
+				archivedChannelIds = new Set(parsed.filter((id) => typeof id === 'string'));
+			}
+		} catch (error) {
+			console.error('Failed to load archived DM channels:', error);
+		}
+	}
+
+	function persistArchivedChannels() {
+		try {
+			localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(Array.from(archivedChannelIds)));
+		} catch (error) {
+			console.error('Failed to save archived DM channels:', error);
+		}
+	}
+
+	function buildDMMenuItems(): ContextMenuItem[] {
+		if (!contextMenuDM) return [];
+		const isArchived = archivedChannelIds.has(contextMenuDM.id);
+		const archiveLabel = isArchived ? 'Unarchive' : 'Archive';
+
+		return [
+			{
+				id: 'open-dm',
+				label: 'Open',
+				leading: 'O',
+				onSelect: () => selectDM(contextMenuDM.id)
+			},
+			{
+				id: 'archive-dm',
+				label: archiveLabel,
+				leading: 'A',
+				onSelect: toggleArchiveDM
+			},
+			{ id: 'danger-divider', type: 'separator' },
+			{
+				id: 'delete-dm',
+				label: contextMenuDM.type === 'group' ? 'Leave Group' : 'Delete Conversation',
+				leading: 'X',
+				danger: true,
+				onSelect: removeConversation
+			}
+		];
 	}
 </script>
 
@@ -181,7 +252,7 @@
 			</div>
 		{/if}
 
-		{#if dmChannels.length === 0}
+		{#if visibleDMChannels.length === 0}
 			<div class="empty-state">
 				<p>No DMs yet</p>
 				<button class="start-dm-btn" on:click={() => (showCreateDM = true)}>
@@ -190,7 +261,7 @@
 			</div>
 		{:else}
 			<div class="dm-list">
-				{#each dmChannels as channel (channel.id)}
+				{#each visibleDMChannels as channel (channel.id)}
 					{#if channel.type === 'group'}
 						<button
 							class="dm-item"
@@ -238,23 +309,15 @@
 		{/if}
 	{/if}
 
-	<!-- TEMPORARY: Context menu for DMs -->
-	{#if showContextMenu && contextMenuDM}
-		<div
-			class="context-menu"
-			style:left="{contextMenuPosition.x}px"
-			style:top="{contextMenuPosition.y}px"
-			on:click={closeContextMenu}
-			on:contextmenu|preventDefault
-		>
-			<button class="context-menu-item" on:click={archiveDM}>
-				📦 Archive
-			</button>
-			<button class="context-menu-item" on:click={deleteDM}>
-				🗑️ Delete
-			</button>
-		</div>
-	{/if}
+	<ContextMenu
+		open={showContextMenu && !!contextMenuDM}
+		x={contextMenuPosition.x}
+		y={contextMenuPosition.y}
+		items={dmMenuItems}
+		ariaLabel="DM actions"
+		headerLabel={contextMenuDM?.name || 'Direct Message'}
+		on:close={closeContextMenu}
+	/>
 </div>
 
 <style>
@@ -475,42 +538,6 @@
 		text-overflow: ellipsis;
 	}
 
-	/* TEMPORARY: Context menu styles */
-	.context-menu {
-		position: fixed;
-		background: var(--bg-secondary);
-		border: 1px solid var(--border-color);
-		border-radius: var(--radius-md);
-		z-index: 1000;
-		min-width: 150px;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-	}
-
-	.context-menu-item {
-		display: block;
-		width: 100%;
-		padding: 0.5rem 1rem;
-		border: none;
-		background: none;
-		color: var(--text-primary);
-		cursor: pointer;
-		text-align: left;
-		font-size: var(--text-sm);
-		transition: background 0.2s;
-	}
-
-	.context-menu-item:hover {
-		background: var(--bg-hover);
-	}
-
-	.context-menu-item:first-child {
-		border-radius: var(--radius-md) var(--radius-md) 0 0;
-	}
-
-	.context-menu-item:last-child {
-		border-radius: 0 0 var(--radius-md) var(--radius-md);
-	}
-
 	/* ========== MOBILE STYLES ========== */
 	@media (max-width: 768px) {
 		.dm-header {
@@ -594,15 +621,6 @@
 			border-radius: 8px;
 		}
 
-		.context-menu {
-			min-width: 200px;
-		}
-
-		.context-menu-item {
-			padding: 0.75rem 1rem;
-			min-height: 44px;
-			font-size: 1rem;
-		}
 	}
 
 	/* Extra small screens */
@@ -628,3 +646,5 @@
 		}
 	}
 </style>
+
+

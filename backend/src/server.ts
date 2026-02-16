@@ -50,7 +50,7 @@ interface Channel {
   name: string;
   description?: string;
   createdAt: number;
-  type?: 'public' | 'dm' | 'group';
+  type?: 'text' | 'voice' | 'dm' | 'group' | 'public';
   members?: string[]; // User IDs for DMs and group chats
   autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
   isTemporary?: boolean;
@@ -62,8 +62,14 @@ interface Channel {
   };
 }
 
+function normalizeChannelType(raw?: string): 'text' | 'voice' | 'dm' | 'group' {
+  if (raw === 'voice' || raw === 'dm' || raw === 'group' || raw === 'text') return raw;
+  return 'text'; // legacy 'public' and undefined map to text
+}
+
 const channels = new Map<string, Channel>();
-channels.set('general', { id: 'general', name: 'general', createdAt: Date.now(), type: 'public' });
+channels.set('general', { id: 'general', name: 'general', createdAt: Date.now(), type: 'text' });
+channels.set('voice', { id: 'voice', name: 'voice', createdAt: Date.now(), type: 'voice' });
 
 const channelMessages = new Map<string, Array<{
   id: string;
@@ -86,9 +92,11 @@ const channelMessages = new Map<string, Array<{
 
 // Initialize general channel with empty messages
 channelMessages.set('general', []);
+channelMessages.set('voice', []);
 
 const pinnedMessages = new Map<string, Set<string>>(); // channelId -> Set of messageIds
 pinnedMessages.set('general', new Set());
+pinnedMessages.set('voice', new Set());
 
 const users = new Map<string, {
   id: string;
@@ -529,6 +537,14 @@ function getAuthenticatedUserId(req: any): number | null {
   }
 }
 
+function getGuestSessionId(req: any): string | null {
+  const sessionHeader = req.headers['x-session-id'];
+  if (typeof sessionHeader === 'string' && sessionHeader.trim().length > 0) {
+    return sessionHeader.trim();
+  }
+  return null;
+}
+
 // Request handler
 server.on('request', async (req, res) => {
   // Skip Socket.IO requests - Socket.IO handles them at a lower level
@@ -827,7 +843,10 @@ server.on('request', async (req, res) => {
   // File upload endpoint
   if (url.pathname === "/api/upload" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
-    if (!userId) {
+    const guestSessionId = getGuestSessionId(req);
+    const isGuestSessionValid = !!guestSessionId && sessions.has(guestSessionId);
+
+    if (!userId && !isGuestSessionValid) {
       res.writeHead(401, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
       return;
@@ -1172,12 +1191,28 @@ server.on('request', async (req, res) => {
 
   // Filter business data by visibility for a requesting user
   function filterForUser(data: BusinessData, requestingUserId: number | null): BusinessData {
+    const canUserSeeItem = (item: any): boolean => {
+      // Signed items are always considered shared.
+      if (item?.signedBy) return true;
+
+      const visibility = item?.visibility ?? 'public';
+      if (visibility === 'public') return true;
+      if (!requestingUserId) return false;
+
+      // Private items are visible to their creator.
+      const createdBy = item?.createdBy;
+      if (createdBy === undefined || createdBy === null) return false;
+      const createdByStr = String(createdBy);
+      const requesterStr = String(requestingUserId);
+      return createdByStr === requesterStr || createdByStr === `user-${requestingUserId}`;
+    };
+
     return {
       ...data,
-      todos: data.todos.filter(t => (t.visibility ?? 'public') === 'public'),
-      projects: data.projects.filter(p => (p.visibility ?? 'public') === 'public'),
-      sprints: data.sprints.filter(s => (s.visibility ?? 'public') === 'public'),
-      calendarEvents: data.calendarEvents.filter(e => (e.visibility ?? 'public') === 'public'),
+      todos: data.todos.filter(canUserSeeItem),
+      projects: data.projects.filter(canUserSeeItem),
+      sprints: data.sprints.filter(canUserSeeItem),
+      calendarEvents: data.calendarEvents.filter(canUserSeeItem),
       diaryEntries: data.diaryEntries.filter(e => !e.isPrivate || (requestingUserId && e.createdBy === requestingUserId.toString()))
     };
   }
@@ -2041,23 +2076,24 @@ try {
     // Column already exists - ignore
   }
 
-  // Ensure general channel exists in DB and load public channels
-  channelRepository.ensureGeneralExists();
-  const dbChannels = channelRepository.getPublicChannels();
+  // Ensure base channels exist in DB and load text/voice channels
+  channelRepository.ensureBaseChannelsExist();
+  const dbChannels = channelRepository.getWorkspaceChannels();
   dbChannels.forEach(ch => {
-    if (!channels.has(ch.channel_id)) {
-      channels.set(ch.channel_id, {
-        id: ch.channel_id,
-        name: ch.name,
-        description: ch.description || '',
-        createdAt: ch.created_at,
-        type: ch.channel_type,
-        persistMessages: ch.persist_messages === 1,
-        voiceSettings: parseVoiceSettings(ch.voice_settings_json)
-      });
-      if (!channelMessages.has(ch.channel_id)) {
-        channelMessages.set(ch.channel_id, []);
-      }
+    channels.set(ch.channel_id, {
+      id: ch.channel_id,
+      name: ch.name,
+      description: ch.description || '',
+      createdAt: ch.created_at,
+      type: normalizeChannelType(ch.channel_type),
+      persistMessages: ch.persist_messages === 1,
+      voiceSettings: parseVoiceSettings(ch.voice_settings_json)
+    });
+    if (!channelMessages.has(ch.channel_id)) {
+      channelMessages.set(ch.channel_id, []);
+    }
+    if (!pinnedMessages.has(ch.channel_id)) {
+      pinnedMessages.set(ch.channel_id, new Set());
     }
   });
   console.log(`[Database] ✅ Loaded ${dbChannels.length} channels from database`);
@@ -2197,7 +2233,7 @@ function loadUserChannelsFromDB(stableUserId: string): Channel[] {
           name: dbChannel.name,
           description: dbChannel.description || '',
           createdAt: dbChannel.created_at,
-          type: dbChannel.channel_type,
+          type: normalizeChannelType(dbChannel.channel_type),
           members: memberIds,
           persistMessages: dbChannel.persist_messages === 1,
           voiceSettings: parseVoiceSettings(dbChannel.voice_settings_json),
@@ -3589,10 +3625,15 @@ io.on("connection", (socket) => {
   });
 
   // Channel management
-  socket.on("create-channel", (data: string | { name: string; description?: string }) => {
+  socket.on("create-channel", (data: string | { name: string; description?: string; channelType?: 'text' | 'voice'; type?: 'text' | 'voice'; channel_type?: 'text' | 'voice' }) => {
     // Backward compat: accept plain string or object
     const channelName = typeof data === 'string' ? data : data.name;
     const channelDescription = typeof data === 'string' ? '' : (data.description || '');
+    const requestedType =
+      typeof data === 'string'
+        ? 'text'
+        : (data.channelType || data.type || data.channel_type || 'text');
+    const channelType: 'text' | 'voice' = requestedType === 'voice' ? 'voice' : 'text';
     const channelId = channelName.toLowerCase().replace(/\s+/g, '-');
 
     // Check if channel already exists
@@ -3611,12 +3652,29 @@ io.on("connection", (socket) => {
       id: channelId,
       name: channelName,
       description: channelDescription,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      type: channelType,
+      persistMessages: channelType === 'voice' ? false : true
     };
 
     channels.set(channelId, channel);
     channelMessages.set(channelId, []);
     pinnedMessages.set(channelId, new Set());
+
+    // Persist to DB for restart durability
+    try {
+      channelRepository.create({
+        channel_id: channelId,
+        channel_type: channelType,
+        name: channelName,
+        description: channelDescription,
+        created_at: channel.createdAt,
+        created_by: getStableUserId(socket),
+        persist_messages: channel.persistMessages ? 1 : 0
+      });
+    } catch (dbError) {
+      console.error('[ChannelRepository] Failed to persist channel:', dbError);
+    }
 
     io.emit("channel-created", channel);
 
@@ -3626,7 +3684,7 @@ io.on("connection", (socket) => {
     dispatchWebhookEvent('channel.created', {
       channelId: channel.id,
       name: channel.name,
-      type: channel.type || 'public'
+      type: channel.type || 'text'
     }).catch((error) => {
       console.error('[Webhooks] Failed to dispatch channel.created:', error);
     });
@@ -3636,8 +3694,8 @@ io.on("connection", (socket) => {
 
   socket.on("delete-channel", (channelId: string) => {
     // Prevent deletion of general channel
-    if (channelId === 'general') {
-      socket.emit("channel-error", "Cannot delete general channel");
+    if (channelId === 'general' || channelId === 'voice') {
+      socket.emit("channel-error", "Cannot delete base channels");
       return;
     }
 
@@ -3649,6 +3707,12 @@ io.on("connection", (socket) => {
     channels.delete(channelId);
     channelMessages.delete(channelId);
     pinnedMessages.delete(channelId);
+
+    try {
+      channelRepository.delete(channelId);
+    } catch (dbError) {
+      console.error('[ChannelRepository] Failed to delete channel from DB:', dbError);
+    }
 
     io.emit("channel-deleted", channelId);
     if (ENABLE_LOGGING) console.log(`Channel deleted: ${channelId}`);

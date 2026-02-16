@@ -3,6 +3,8 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { startCall } from '$lib/calling';
 	import type { User } from '$lib/socket';
+	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
+	import type { ContextMenuItem } from '$lib/context-menu/types';
 
 	let contextMenuUser: User | null = null;
 	let contextMenuPosition = { x: 0, y: 0 };
@@ -74,6 +76,31 @@
 		closeContextMenu();
 	}
 
+	$: userMenuItems = contextMenuUser ? buildUserMenuItems() : [];
+
+	function buildUserMenuItems(): ContextMenuItem[] {
+		return [
+			{
+				id: 'message',
+				label: 'Message',
+				leading: 'M',
+				onSelect: handleContextMessage
+			},
+			{
+				id: 'voice',
+				label: 'Voice Call',
+				leading: 'VC',
+				onSelect: handleContextVoiceCall
+			},
+			{
+				id: 'video',
+				label: 'Video Call',
+				leading: 'VD',
+				onSelect: handleContextVideoCall
+			}
+		];
+	}
+
 	function getDisplayColor(user: User): string {
 		return user.roleColor || user.color;
 	}
@@ -86,8 +113,6 @@
 		return null;
 	}
 </script>
-
-<svelte:window on:click={closeContextMenu} />
 
 <div class="user-list-tab">
 	{#if otherUsers.length === 0}
@@ -131,23 +156,15 @@
 		{/each}
 	{/if}
 
-	{#if showContextMenu && contextMenuUser}
-		<div
-			class="context-menu"
-			style:left="{contextMenuPosition.x}px"
-			style:top="{contextMenuPosition.y}px"
-		>
-			<button class="context-menu-item" on:click={handleContextMessage}>
-				Message
-			</button>
-			<button class="context-menu-item" on:click={handleContextVoiceCall}>
-				Voice Call
-			</button>
-			<button class="context-menu-item" on:click={handleContextVideoCall}>
-				Video Call
-			</button>
-		</div>
-	{/if}
+	<ContextMenu
+		open={showContextMenu && !!contextMenuUser}
+		x={contextMenuPosition.x}
+		y={contextMenuPosition.y}
+		items={userMenuItems}
+		ariaLabel="User list actions"
+		headerLabel={contextMenuUser?.username || null}
+		on:close={closeContextMenu}
+	/>
 </div>
 
 <style>
@@ -266,35 +283,6 @@
 		text-overflow: ellipsis;
 	}
 
-	.context-menu {
-		position: fixed;
-		background: var(--bg-secondary);
-		border: 1px solid var(--border);
-		border-radius: 8px;
-		padding: 4px;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-		z-index: 10000;
-		min-width: 150px;
-	}
-
-	.context-menu-item {
-		width: 100%;
-		padding: 8px 12px;
-		background: transparent;
-		border: none;
-		text-align: left;
-		cursor: pointer;
-		border-radius: 4px;
-		color: var(--text-primary);
-		font-size: 0.85rem;
-		transition: background 0.15s;
-	}
-
-	.context-menu-item:hover {
-		background: var(--accent);
-		color: white;
-	}
-
 	@media (max-width: 768px) {
 		.user-row {
 			padding: 0.625rem 0.75rem;
@@ -315,11 +303,5 @@
 		.user-display-name { font-size: 1rem; }
 		.user-handle { font-size: 0.8rem; }
 
-		.context-menu { min-width: 200px; }
-		.context-menu-item {
-			padding: 0.75rem 1rem;
-			min-height: 44px;
-			font-size: 1rem;
-		}
 	}
 </style>

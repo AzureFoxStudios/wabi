@@ -710,7 +710,7 @@
 											{/if}
 										</div>
 									{:else}
-										<a href={getFileUrl(fileAttachment.fileUrl)} download={fileAttachment.fileName} class="gallery-file-item file-link">
+										<a href={getFileUrl(fileAttachment.fileUrl)} target="_blank" rel="noopener noreferrer" download={fileAttachment.fileName} class="gallery-file-item file-link">
 											<div class="gallery-file-icon-large">{getFileIcon(fileAttachment.fileName)}</div>
 											<div class="gallery-file-overlay">
 												<span class="file-name-truncate">{fileAttachment.fileName}</span>
@@ -735,7 +735,7 @@
 									on:contextmenu={(e) => handleImageContextMenu(e, message)}
 									title="Click to enlarge, right-click for options"
 								/>
-								<a href={getFileUrl(message.fileUrl)} download={message.fileName} class="image-download-link">
+								<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="image-download-link">
 									<span class="file-icon">{getFileIcon(message.fileName)}</span>
 									{message.fileName}
 									<span class="file-size">({formatFileSize(message.fileSize)})</span>
@@ -762,7 +762,7 @@
 									<source src={getFileUrl(message.fileUrl)} type="video/{message.fileName?.split('.').pop()}" />
 									Your browser does not support the video tag.
 								</video>
-								<a href={getFileUrl(message.fileUrl)} download={message.fileName} class="video-download-link">
+								<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="video-download-link">
 									<span class="file-icon">{getFileIcon(message.fileName)}</span>
 									{message.fileName}
 									<span class="file-size">({formatFileSize(message.fileSize)})</span>
@@ -787,7 +787,7 @@
 							</div>
 						{:else}
 							<!-- Display other files as download link -->
-							<a href={getFileUrl(message.fileUrl)} download={message.fileName} class="file-attachment">
+							<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="file-attachment">
 								<span class="file-icon">{getFileIcon(message.fileName)}</span>
 								<div class="file-info">
 									<span class="file-name">{message.fileName}</span>

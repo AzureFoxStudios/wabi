@@ -7,6 +7,7 @@
 		isMuted,
 		isDeafened,
 		isVideoOff,
+		isLocalSpeaking,
 		localStream,
 		localScreenStream,
 		connectionState,
@@ -57,7 +58,7 @@
 				id: $currentUser.id,
 				username: $currentUser.username,
 				isLocal: true,
-				isSpeaking: !$isMuted,
+				isSpeaking: $isLocalSpeaking && !$isMuted && !$isDeafened,
 				stream: $localStream || undefined
 			});
 		}
@@ -68,7 +69,7 @@
 				id: call.userId,
 				username: call.username || 'Unknown',
 				isLocal: false,
-				isSpeaking: call.isAudioEnabled,
+				isSpeaking: call.isSpeaking && call.isAudioEnabled,
 				stream: call.stream
 			});
 		}
@@ -245,7 +246,7 @@
 				<!-- Remote videos -->
 				<div class="remote-videos">
 					{#each $activeCalls as call (call.userId)}
-						<div class="video-tile" transition:scale>
+						<div class="video-tile" class:speaking={call.isSpeaking && call.isAudioEnabled && !$isDeafened} transition:scale>
 							<video
 								autoplay
 								playsinline
@@ -617,6 +618,10 @@
 		border-radius: 8px;
 		overflow: hidden;
 		aspect-ratio: 16 / 9;
+	}
+
+	.video-tile.speaking {
+		box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.5);
 	}
 
 	.video-tile video {

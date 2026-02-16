@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { channels, currentChannel, joinChannel, createChannel, deleteChannel, markMessagesAsRead, currentUser, updateChannelSettings, channelUnreadCounts, updateProfile, pinnedChannels, pinChannel, unpinChannel, activeVoiceChannel, voiceChannelMembers, joinVoiceChannel, leaveVoiceChannel } from '$lib/socket';
+	import { activeCalls, isLocalSpeaking } from '$lib/calling';
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
+	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
+	import type { ContextMenuItem } from '$lib/context-menu/types';
 	import type { Channel } from '$lib/socket';
 	import { longpress } from '$lib/actions/longpress';
 	import { layoutStore } from '$lib/layoutStore';
@@ -21,6 +24,7 @@
 
 	let newChannelName = '';
 	let newChannelDescription = '';
+	let newChannelType: 'text' | 'voice' = 'text';
 	let showCreateInput = false;
 	let showSettings = false;
 	let isMuted = false;
@@ -55,8 +59,8 @@
 
 	// Separate channels by type
 	// Note: DMs are excluded from sidebar - only accessible via UserPanel
-	$: publicChannels = $channels
-		.filter(ch => !ch.type || ch.type === 'public')
+	$: textChannels = $channels
+		.filter(ch => !ch.type || ch.type === 'public' || ch.type === 'text')
 		.sort((a, b) => {
 			if (a.id === 'general') return -1;
 			if (b.id === 'general') return 1;
@@ -64,10 +68,10 @@
 		});
 	$: groupChannels = $channels.filter(ch => ch.type === 'group');
 	$: voiceChannels = $channels
-		.filter(ch => ch.type !== 'dm')
+		.filter(ch => ch.type === 'voice')
 		.sort((a, b) => {
-			if (a.id === 'general') return -1;
-			if (b.id === 'general') return 1;
+			if (a.id === 'voice') return -1;
+			if (b.id === 'voice') return 1;
 			return a.name.localeCompare(b.name);
 		});
 
@@ -98,12 +102,31 @@
 		joinVoiceChannel(channelId);
 	}
 
+	function handleVoiceChannelClick(channelId: string) {
+		if (isConnectedToVoice(channelId)) {
+			handleChannelClick(channelId);
+			return;
+		}
+		joinVoiceChannel(channelId);
+	}
+
 	function voiceActionLabel(channelId: string): string {
 		return isConnectedToVoice(channelId) ? 'Leave Voice' : 'Join Voice';
 	}
 
 	function avatarTitle(username?: string): string {
 		return username || 'Voice participant';
+	}
+
+	function isMemberSpeaking(member: { userId: string }): boolean {
+		const remoteCall = $activeCalls.find(call => call.userId === member.userId);
+		if (remoteCall) {
+			return remoteCall.isSpeaking;
+		}
+		if ($currentUser && member.userId === $currentUser.id) {
+			return $isLocalSpeaking;
+		}
+		return false;
 	}
 
 	function toggleSection(section: 'text' | 'voice') {
@@ -116,9 +139,10 @@
 
 	function handleCreateChannel() {
 		if (newChannelName.trim()) {
-			createChannel(newChannelName.trim(), newChannelDescription.trim());
+			createChannel(newChannelName.trim(), newChannelDescription.trim(), newChannelType);
 			newChannelName = '';
 			newChannelDescription = '';
+			newChannelType = 'text';
 			showCreateInput = false;
 		}
 	}
@@ -218,7 +242,44 @@
 		} else {
 			pinChannel(contextMenuChannel.id);
 		}
-		closeContextMenu();
+	}
+
+	$: channelMenuItems = contextMenuChannel ? buildChannelMenuItems(contextMenuChannel) : [];
+
+	function buildChannelMenuItems(channel: Channel): ContextMenuItem[] {
+		const items: ContextMenuItem[] = [
+			{
+				id: 'pin-channel',
+				label: isChannelPinned(channel) ? 'Unpin Channel' : 'Pin Channel',
+				leading: 'P',
+				onSelect: togglePinChannel
+			},
+			{
+				id: 'pinned-messages',
+				label: 'Pinned Messages',
+				leading: 'PM',
+				onSelect: () => handleShowPinnedMessages(channel.id)
+			},
+			{
+				id: 'channel-settings',
+				label: 'Channel Settings',
+				leading: 'S',
+				onSelect: () => handleOpenChannelSettings(channel)
+			}
+		];
+
+		if (channel.id !== 'general' && channel.id !== 'voice') {
+			items.push({ id: 'danger-divider', type: 'separator' });
+			items.push({
+				id: 'delete-channel',
+				label: 'Delete Channel',
+				leading: 'X',
+				danger: true,
+				onSelect: () => handleDeleteChannel(channel.id)
+			});
+		}
+
+		return items;
 	}
 
 </script>
@@ -270,6 +331,10 @@
 				placeholder="Description (optional)"
 				on:keydown={(e) => e.key === 'Enter' && handleCreateChannel()}
 			/>
+			<select bind:value={newChannelType}>
+				<option value="text">Text Channel</option>
+				<option value="voice">Voice Channel</option>
+			</select>
 			<button on:click={handleCreateChannel}>Create</button>
 		</div>
 	{/if}
@@ -283,11 +348,11 @@
 		>
 			<span class="section-chevron">&gt;</span>
 			<span class="section-toggle-label">Text Channels</span>
-			<span class="section-count">{publicChannels.length + groupChannels.length}</span>
+			<span class="section-count">{textChannels.length + groupChannels.length}</span>
 		</button>
 		{#if isTextSectionExpanded}
 		<!-- Public text channels -->
-		{#each publicChannels as channel (channel.id)}
+		{#each textChannels as channel (channel.id)}
 			<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)} use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}>
 				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
 					<span class="hash">#</span>
@@ -359,60 +424,64 @@
 		</button>
 		{#if isVoiceSectionExpanded}
 		{#each voiceChannels as channel (channel.id)}
-			<div class="channel-item voice-channel-item" class:active={isConnectedToVoice(channel.id)}>
-				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleVoiceAction(channel.id)}>
+			{@const members = getVoiceMembers(channel.id)}
+			<div
+				class="channel-item voice-channel-item"
+				class:active={isConnectedToVoice(channel.id)}
+				on:contextmenu={(e) => handleChannelRightClick(e, channel)}
+				use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}
+			>
+				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleVoiceChannelClick(channel.id)}>
 					<span class="hash">🔊</span>
-					{channel.name}
+					<span class="voice-channel-name">{channel.name}</span>
+					<span class="voice-inline-count">{members.length}</span>
 				</button>
 				<div class="channel-actions">
-					<div class="voice-occupancy" title={`${getVoiceMembers(channel.id).length} in voice`}>
-						<span class="voice-count">🔊 {getVoiceMembers(channel.id).length}</span>
+					<div class="voice-occupancy" title={`${members.length} in voice`}>
+						<span class="voice-count">🔊 {members.length}</span>
 						<div class="voice-avatars">
-							{#each getVoiceMembers(channel.id).slice(0, 3) as member}
+							{#each members.slice(0, 3) as member}
 								{#if member.profilePicture}
-									<img class="voice-avatar" src={member.profilePicture} alt={avatarTitle(member.username)} title={avatarTitle(member.username)} />
+									<img class="voice-avatar" class:speaking={isMemberSpeaking(member)} src={member.profilePicture} alt={avatarTitle(member.username)} title={avatarTitle(member.username)} />
 								{:else}
-									<span class="voice-avatar voice-avatar-fallback" title={avatarTitle(member.username)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
+									<span class="voice-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member)} title={avatarTitle(member.username)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 								{/if}
 							{/each}
 						</div>
 					</div>
 					<button class="voice-btn" class:active={isConnectedToVoice(channel.id)} on:click|stopPropagation={() => handleVoiceAction(channel.id)}>{voiceActionLabel(channel.id)}</button>
+					{#if channel.id !== 'voice'}
+						<button class="delete-btn" on:click|stopPropagation={() => handleDeleteChannel(channel.id)} title="Delete channel">×</button>
+					{/if}
 				</div>
 			</div>
+			{#if members.length > 0}
+				<div class="voice-member-list">
+					{#each members as member (member.userId)}
+						<div class="voice-member-item" class:speaking={isMemberSpeaking(member)}>
+							{#if member.profilePicture}
+								<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member)} src={member.profilePicture} alt={avatarTitle(member.username)} />
+							{:else}
+								<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
+							{/if}
+							<span class="voice-member-name">{member.username || 'Unknown user'}</span>
+						</div>
+					{/each}
+				</div>
+			{/if}
 		{/each}
 		{/if}
 	</div>
 
-	{#if showContextMenu && contextMenuChannel}
-		<div
-			class="context-menu"
-			style:left="{contextMenuPosition.x}px"
-			style:top="{contextMenuPosition.y}px"
-			on:click={closeContextMenu}
-			on:contextmenu|preventDefault
-		>
-			<button class="context-menu-item" on:click={togglePinChannel}>
-				{#if isChannelPinned(contextMenuChannel)}
-					Unpin Channel
-				{:else}
-					Pin Channel
-				{/if}
-			</button>
-			<button class="context-menu-item" on:click={() => { if (contextMenuChannel) handleShowPinnedMessages(contextMenuChannel.id); closeContextMenu(); }}>
-				Pinned Messages
-			</button>
-			<button class="context-menu-item" on:click={() => { if (contextMenuChannel) handleOpenChannelSettings(contextMenuChannel); closeContextMenu(); }}>
-				Channel Settings
-			</button>
-			{#if contextMenuChannel.id !== 'general'}
-				<div class="context-menu-separator"></div>
-				<button class="context-menu-item danger" on:click={() => { if (contextMenuChannel) handleDeleteChannel(contextMenuChannel.id); closeContextMenu(); }}>
-					Delete Channel
-				</button>
-			{/if}
-		</div>
-	{/if}
+	<ContextMenu
+		open={showContextMenu && !!contextMenuChannel}
+		x={contextMenuPosition.x}
+		y={contextMenuPosition.y}
+		items={channelMenuItems}
+		ariaLabel="Channel actions"
+		headerLabel={contextMenuChannel ? `#${contextMenuChannel.name}` : null}
+		on:close={closeContextMenu}
+	/>
 
 	{#if $currentUser}
 		<div class="profile-card">
@@ -764,7 +833,9 @@
 	}
 
 	.channel-sidebar.compact .voice-occupancy,
-	.channel-sidebar.compact .voice-btn {
+	.channel-sidebar.compact .voice-btn,
+	.channel-sidebar.compact .voice-inline-count,
+	.channel-sidebar.compact .voice-member-list {
 		display: none;
 	}
 
@@ -959,6 +1030,16 @@
 		color: var(--text-primary);
 	}
 
+	.create-channel select {
+		width: 100%;
+		padding: 0.5rem;
+		font-size: var(--text-base);
+		border: none;
+		border-radius: 0;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+	}
+
 	.create-channel button {
 		padding: 0.5rem;
 		font-size: var(--text-base);
@@ -1108,6 +1189,23 @@
 		color: var(--text-secondary);
 	}
 
+	.voice-channel-name {
+		min-width: 0;
+		flex: 1;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.voice-inline-count {
+		margin-left: auto;
+		font-size: 0.68rem;
+		color: var(--text-secondary);
+		background: rgba(var(--border-rgb), var(--opacity-light));
+		padding: 0.05rem 0.35rem;
+		border-radius: 999px;
+	}
+
 	.voice-avatars {
 		display: flex;
 		align-items: center;
@@ -1162,6 +1260,57 @@
 	.voice-channel-item .channel-btn {
 		padding-top: 0.3rem;
 		padding-bottom: 0.3rem;
+	}
+
+	.voice-member-list {
+		margin: -0.1rem 0 0.25rem 1.9rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+
+	.voice-member-item {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		color: var(--text-secondary);
+		font-size: 0.72rem;
+	}
+
+	.voice-member-avatar {
+		width: 18px;
+		height: 18px;
+		border-radius: 999px;
+		object-fit: cover;
+		border: 1px solid var(--bg-tertiary);
+		background: var(--bg-secondary);
+	}
+
+	.voice-avatar.speaking,
+	.voice-member-avatar.speaking {
+		border-color: #22c55e;
+		box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.35);
+		animation: voice-ring-pulse 1.1s ease-in-out infinite;
+	}
+
+	.voice-member-name {
+		min-width: 0;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.voice-member-item.speaking .voice-member-name {
+		color: var(--text-primary);
+	}
+
+	@keyframes voice-ring-pulse {
+		0% {
+			box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55);
+		}
+		100% {
+			box-shadow: 0 0 0 5px rgba(34, 197, 94, 0);
+		}
 	}
 
 	.voice-channel-item .voice-occupancy {
@@ -1679,51 +1828,6 @@
 		min-height: 44px;
 	}
 
-	/* Context Menu Styles */
-	.context-menu {
-		position: fixed;
-		background: var(--bg-secondary);
-		border: 1px solid var(--border);
-		border-radius: 8px;
-		padding: 4px;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-		z-index: 10000;
-		min-width: 160px;
-	}
-
-	.context-menu-item {
-		width: 100%;
-		padding: 8px 12px;
-		background: transparent;
-		border: none;
-		text-align: left;
-		cursor: pointer;
-		border-radius: 4px;
-		color: var(--text-primary);
-		font-size: var(--channel-btn-font-size);
-		transition: background 0.15s;
-	}
-
-	.context-menu-item:hover {
-		background: var(--accent);
-		color: white;
-	}
-
-	.context-menu-item.danger {
-		color: #f44336;
-	}
-
-	.context-menu-item.danger:hover {
-		background: #f44336;
-		color: white;
-	}
-
-	.context-menu-separator {
-		height: 1px;
-		background: var(--border);
-		margin: 4px 0;
-	}
-
 	.pin-icon {
 		margin-left: auto;
 		opacity: 0.7;
@@ -1819,6 +1923,13 @@
 			border-radius: 8px;
 		}
 
+		.create-channel select {
+			padding: 0.75rem;
+			font-size: 16px;
+			min-height: 44px;
+			border-radius: 8px;
+		}
+
 		.create-channel button {
 			padding: 0.75rem;
 			min-height: 44px;
@@ -1885,16 +1996,6 @@
 			min-height: 44px;
 		}
 
-		/* Context menu mobile */
-		.context-menu {
-			min-width: 200px;
-		}
-
-		.context-menu-item {
-			padding: 0.75rem 1rem;
-			min-height: 44px;
-			font-size: 1rem;
-		}
 	}
 
 	/* Extra small screens */

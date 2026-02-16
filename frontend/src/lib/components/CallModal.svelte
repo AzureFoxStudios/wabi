@@ -3,9 +3,12 @@
 	import {
 		incomingCall,
 		isInCall,
+		callMode,
+		channelCallPanelOpen,
 		isMuted,
 		isDeafened,
 		isVideoOff,
+		isLocalSpeaking,
 		activeCalls,
 		screenShares,
 		isSharing,
@@ -19,7 +22,8 @@
 		startScreenShare,
 		stopScreenShare,
 		localStream,
-		connectionState
+		connectionState,
+		closeChannelCallPanel
 	} from '$lib/calling';
 	import { showCallNotification, playCallRingtone, stopCallRingtone } from '$lib/notifications';
 	import { onDestroy } from 'svelte';
@@ -55,6 +59,7 @@
 	}
 
 	$: layoutMode = determineLayout($screenShares, $activeCalls, $isSharing, focusedTileId);
+	$: showActiveCallModal = $isInCall && ($callMode === 'direct' || ($callMode === 'channel' && $channelCallPanelOpen));
 
 	// ---- Build tile list ----
 	function buildTiles(
@@ -173,11 +178,14 @@
 	}
 
 	// ---- Bind tile video elements ----
-	function bindTileVideo(node: HTMLVideoElement, stream: MediaStream | null) {
-		if (stream) node.srcObject = stream;
+	function bindMediaStream(node: HTMLMediaElement, stream: MediaStream | null) {
+		node.srcObject = stream ?? null;
 		return {
 			update(newStream: MediaStream | null) {
-				if (newStream) node.srcObject = newStream;
+				node.srcObject = newStream ?? null;
+			},
+			destroy() {
+				node.srcObject = null;
 			}
 		};
 	}
@@ -234,6 +242,21 @@
 			focusedTileId = null;
 		}
 	}
+
+	function isRemoteSpeaking(userId: string): boolean {
+		if ($isDeafened) return false;
+		const call = $activeCalls.find(item => item.userId === userId);
+		return Boolean(call?.isAudioEnabled && call?.isSpeaking);
+	}
+
+	function isTileSpeaking(tile: Tile): boolean {
+		if ($isDeafened) return false;
+		if (tile.userId === null) {
+			return $isLocalSpeaking && !$isMuted;
+		}
+		const call = $activeCalls.find(item => item.userId === tile.userId);
+		return Boolean(call?.isAudioEnabled && call?.isSpeaking);
+	}
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -263,14 +286,28 @@
 	</div>
 {/if}
 
+<!-- Keep remote audio alive even when channel call panel is hidden -->
+{#if $isInCall && $activeCalls.length > 0}
+	<div class="remote-audio-sink" aria-hidden="true">
+		{#each $activeCalls as call (call.userId)}
+			<audio
+				autoplay
+				playsinline
+				muted={$isDeafened || showActiveCallModal}
+				use:bindMediaStream={call.stream}
+			></audio>
+		{/each}
+	</div>
+{/if}
+
 <!-- Active Call UI -->
-{#if $isInCall}
+{#if showActiveCallModal}
 	<div class="active-call-container">
 		{#if layoutMode === 'voice-only' || layoutMode === 'video-call'}
 			<!-- Original grid layout for voice/video calls without screen shares -->
 			<div class="video-grid">
 				<!-- Local video -->
-				<div class="video-wrapper local-video">
+				<div class="video-wrapper local-video" class:speaking={$isLocalSpeaking && !$isMuted && !$isDeafened}>
 					<!-- svelte-ignore a11y-media-has-caption -->
 					<video
 						bind:this={localVideoElement}
@@ -290,7 +327,7 @@
 
 				<!-- Remote videos -->
 				{#each $activeCalls as call (call.userId)}
-					<div class="video-wrapper remote-video">
+					<div class="video-wrapper remote-video" class:speaking={isRemoteSpeaking(call.userId)}>
 						<!-- svelte-ignore a11y-media-has-caption -->
 						<video
 							bind:this={remoteVideoElements[call.userId]}
@@ -318,6 +355,7 @@
 					<button
 						class="tile"
 						class:tile-screen={tile.kind === 'screen-share' || tile.kind === 'local-screen'}
+						class:speaking={isTileSpeaking(tile)}
 						on:click={() => handleTileClick(tile.id)}
 					>
 						{#if tile.kind === 'screen-share' || tile.kind === 'local-screen'}
@@ -327,7 +365,7 @@
 								autoplay
 								playsinline
 								muted={tile.kind === 'local-screen' || (tile.userId !== null && $isDeafened)}
-								use:bindTileVideo={tile.stream}
+								use:bindMediaStream={tile.stream}
 							></video>
 						{:else if tile.kind === 'video' || tile.kind === 'local-camera'}
 							<!-- svelte-ignore a11y-media-has-caption -->
@@ -336,7 +374,7 @@
 								autoplay
 								playsinline
 								muted={tile.userId === null || $isDeafened}
-								use:bindTileVideo={tile.stream}
+								use:bindMediaStream={tile.stream}
 							></video>
 						{:else}
 							<div class="tile-avatar">
@@ -353,7 +391,7 @@
 			<div class="focused-layout">
 				<div class="focused-main">
 					<!-- Focused tile -->
-					<button class="focused-tile" on:click={() => handleTileClick(focusedTile.id)}>
+					<button class="focused-tile" class:speaking={isTileSpeaking(focusedTile)} on:click={() => handleTileClick(focusedTile.id)}>
 						{#if focusedTile.kind === 'screen-share' || focusedTile.kind === 'local-screen'}
 							<!-- svelte-ignore a11y-media-has-caption -->
 							<video
@@ -361,7 +399,7 @@
 								autoplay
 								playsinline
 								muted={focusedTile.kind === 'local-screen' || (focusedTile.userId !== null && $isDeafened)}
-								use:bindTileVideo={focusedTile.stream}
+								use:bindMediaStream={focusedTile.stream}
 							></video>
 						{:else if focusedTile.kind === 'video' || focusedTile.kind === 'local-camera'}
 							<!-- svelte-ignore a11y-media-has-caption -->
@@ -370,7 +408,7 @@
 								autoplay
 								playsinline
 								muted={focusedTile.userId === null || $isDeafened}
-								use:bindTileVideo={focusedTile.stream}
+								use:bindMediaStream={focusedTile.stream}
 							></video>
 						{:else}
 							<div class="focused-avatar">
@@ -400,6 +438,7 @@
 						{#each thumbnailTiles as thumb (thumb.id)}
 							<button
 								class="thumbnail"
+								class:speaking={isTileSpeaking(thumb)}
 								on:click={() => handleTileClick(thumb.id)}
 							>
 								{#if thumb.kind === 'screen-share' || thumb.kind === 'local-screen' || thumb.kind === 'video' || thumb.kind === 'local-camera'}
@@ -409,7 +448,7 @@
 										autoplay
 										playsinline
 										muted={thumb.userId === null || $isDeafened}
-										use:bindTileVideo={thumb.stream}
+										use:bindMediaStream={thumb.stream}
 									></video>
 								{:else}
 									<div class="thumbnail-avatar">
@@ -426,6 +465,14 @@
 
 		<!-- Controls bar -->
 		<div class="call-controls">
+			{#if $callMode === 'channel'}
+				<button class="control-btn" on:click={closeChannelCallPanel} title="Back to chat">
+					<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<polyline points="15 18 9 12 15 6"></polyline>
+					</svg>
+				</button>
+			{/if}
+
 			<button
 				class="control-btn"
 				class:active={$isMuted}
@@ -525,6 +572,14 @@
 {/if}
 
 <style>
+	.remote-audio-sink {
+		position: absolute;
+		width: 0;
+		height: 0;
+		overflow: hidden;
+		pointer-events: none;
+	}
+
 	/* ================================================================
 	   Incoming Call Modal
 	   ================================================================ */
@@ -710,6 +765,10 @@
 		aspect-ratio: 16 / 9;
 	}
 
+	.video-wrapper.speaking {
+		box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.45);
+	}
+
 	.local-video {
 		max-width: 300px;
 		position: absolute;
@@ -794,6 +853,11 @@
 		border-color: var(--accent, #5865F2);
 	}
 
+	.tile.speaking {
+		border-color: rgba(34, 197, 94, 0.75);
+		box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.35);
+	}
+
 	.tile-screen {
 		/* Screen shares get priority sizing in the grid */
 		grid-column: span 1;
@@ -864,6 +928,10 @@
 		padding: 0;
 		color: white;
 		font-family: inherit;
+	}
+
+	.focused-tile.speaking {
+		box-shadow: inset 0 0 0 3px rgba(34, 197, 94, 0.45);
 	}
 
 	.focused-video {
@@ -963,6 +1031,10 @@
 
 	.thumbnail:hover {
 		border-color: var(--accent, #5865F2);
+	}
+
+	.thumbnail.speaking {
+		border-color: rgba(34, 197, 94, 0.75);
 	}
 
 	.thumbnail-video {

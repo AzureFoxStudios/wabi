@@ -74,6 +74,12 @@ const renderer = {
     }
     const escaped = code.replace(/</g, '&lt;').replace(/>/g, '&gt;');
     return `<pre><code>${escaped}</code></pre>`;
+  },
+  link(token: any) {
+    const href = token?.href || '';
+    const title = token?.title ? ` title="${String(token.title).replace(/"/g, '&quot;')}"` : '';
+    const text = token?.text || href;
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer"${title}>${text}</a>`;
   }
 };
 

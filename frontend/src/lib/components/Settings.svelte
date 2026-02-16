@@ -36,6 +36,8 @@
 	const dispatch = createEventDispatcher();
 
 	export let isOpen = false;
+	type SettingsTab = 'profile' | 'audio' | 'notifications' | 'appearance' | 'server' | 'emojis' | 'storage' | 'about';
+	let activeSettingsTab: SettingsTab = 'profile';
 
 	let soundEnabled = true;
 	let notificationsEnabled = true;
@@ -432,7 +434,7 @@
 			bulkEmojiFiles = [];
 			if (bulkEmojiFileInput) bulkEmojiFileInput.value = '';
 
-			alert(`Upload complete!\n✅ ${successCount} successful\n❌ ${failCount} failed`);
+			alert(`Upload complete!\n\u2705 ${successCount} successful\n\u274C ${failCount} failed`);
 		} catch (error) {
 			console.error('Bulk upload error:', error);
 			alert('Failed to upload emojis. Please try again.');
@@ -573,395 +575,395 @@
 				<svg class="header-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
 				Settings
 			</h2>
-				<button class="close-btn" on:click={closeModal}>✕</button>
+				<button class="close-btn" on:click={closeModal}>&#x2715;</button>
 			</div>
 
-			<div class="settings-sections">
-				<!-- Profile Picture -->
-				<div class="settings-section">
-					<h3>🎨 Profile Picture</h3>
-					<div class="pfp-upload-section">
-						<div class="current-pfp">
-							{#if $currentUser?.profilePicture}
-								<img src={$currentUser.profilePicture} alt="Current PFP" class="pfp-current-img" />
-							{:else}
-								<div class="pfp-placeholder" style="background-color: var(--accent);">
-									{$currentUser?.username?.charAt(0).toUpperCase() || '?'}
+			<div class="settings-layout">
+				<div class="settings-tabs">
+					<button class="settings-tab" class:active={activeSettingsTab === 'profile'} on:click={() => activeSettingsTab = 'profile'}>Profile</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'audio'} on:click={() => activeSettingsTab = 'audio'}>Audio and Video</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'notifications'} on:click={() => activeSettingsTab = 'notifications'}>Notifications</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'appearance'} on:click={() => activeSettingsTab = 'appearance'}>Appearance</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'server'} on:click={() => activeSettingsTab = 'server'}>Server</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'emojis'} on:click={() => activeSettingsTab = 'emojis'}>Emojis</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'storage'} on:click={() => activeSettingsTab = 'storage'}>Storage</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'about'} on:click={() => activeSettingsTab = 'about'}>About</button>
+					<div class="settings-tabs-spacer"></div>
+					<button class="settings-tab logout-tab" on:click={handleLogout}>Logout</button>
+				</div>
+
+				<div class="settings-content">
+					{#if activeSettingsTab === 'profile'}
+						<div class="settings-section">
+							<h3>Profile Picture</h3>
+							<div class="pfp-upload-section">
+								<div class="current-pfp">
+									{#if $currentUser?.profilePicture}
+										<img src={$currentUser.profilePicture} alt="Current PFP" class="pfp-current-img" />
+									{:else}
+										<div class="pfp-placeholder" style="background-color: var(--accent);">
+											{$currentUser?.username?.charAt(0).toUpperCase() || '?'}
+										</div>
+									{/if}
 								</div>
-							{/if}
-						</div>
-						<div class="pfp-upload-form">
-							<button class="pfp-select-btn" on:click={() => showAvatarEditor = true}>
-								Change Profile Picture
-							</button>
-							{#if uploadingAvatar}
-								<p>Uploading...</p>
-							{/if}
-						</div>
-					</div>
-				</div>
-
-				<!-- Username Font -->
-				<div class="settings-section">
-					<UsernameFontCustomizer />
-				</div>
-
-				<!-- Audio & Video Settings -->
-				<div class="settings-section">
-					<h3>🎤 Audio & Video</h3>
-					<div class="setting-item">
-						<div class="setting-info">
-							<span class="setting-label">Sound Effects</span>
-							<span class="setting-description">Play sounds for messages and notifications</span>
-						</div>
-						<button class="toggle-btn" class:active={soundEnabled} on:click={toggleSound}>
-							{#if soundEnabled}
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
-							{:else}
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
-							{/if}
-						</button>
-					</div>
-					<div class="setting-item">
-						<div class="setting-info">
-							<span class="setting-label">Microphone</span>
-							<span class="setting-description">Enable microphone for voice calls</span>
-						</div>
-						<button class="toggle-btn" class:active={micEnabled} on:click={toggleMic}>
-							{#if micEnabled}
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-							{:else}
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12m14 0a7 7 0 0 1-13.46 3.4"></path></svg>
-							{/if}
-						</button>
-					</div>
-					<div class="setting-item">
-						<div class="setting-info">
-							<span class="setting-label">Camera</span>
-							<span class="setting-description">Enable camera for video calls</span>
-						</div>
-					<button class="toggle-btn" class:active={cameraEnabled} on:click={toggleCamera}>
-						{cameraEnabled ? '📹' : '📷'}
-					</button>
-				</div>
-				<div class="media-quality-notice" role="note">
-					<div class="notice-title">Call Quality Runtime Notice</div>
-					<div class="notice-body">
-						{#if localAppRuntime}
-							You are running the Local App runtime. Enhanced audio/video tuning is available, including optional SRT gateway controls.
-						{:else}
-							You are running Web runtime. Calls use compatibility-first media settings. For best audio quality, use the Local App.
-						{/if}
-					</div>
-
-					<div class="quality-mode-row">
-						<label for="media-quality-mode">Media Quality Mode</label>
-						<select
-							id="media-quality-mode"
-							class="theme-select"
-							value={mediaQualityMode}
-							on:change={(e) => updateMediaQualityMode(e.currentTarget.value as MediaQualityMode)}
-						>
-							<option value="web-baseline">Web Baseline</option>
-							<option value="local-enhanced" disabled={!localAppRuntime}>Local App Enhanced</option>
-						</select>
-					</div>
-
-					<div class="quality-mode-row">
-						<label for="screen-share-quality">Screen Share Resolution</label>
-						<select
-							id="screen-share-quality"
-							class="theme-select"
-							value={screenShareQualityPreset}
-							on:change={(e) => updateScreenShareQualityPreset(e.currentTarget.value as ScreenShareQualityPreset)}
-						>
-							<option value="auto">Auto (Recommended)</option>
-							<option value="1080p">1080p</option>
-							<option value="720p">720p</option>
-							<option value="480p">480p</option>
-							<option value="144p-mobile">144p (Mobile / Low data)</option>
-						</select>
-					</div>
-
-					<div class="quality-mode-row">
-						<label for="call-transport-mode">Call Transport Strategy</label>
-						<select
-							id="call-transport-mode"
-							class="theme-select"
-							value={callTransportMode}
-							on:change={(e) => updateCallTransportMode(e.currentTarget.value as CallTransportMode)}
-						>
-							<option value="auto">Auto (Fallback Enabled)</option>
-							<option value="p2p-only">P2P/TURN Only</option>
-							<option value="sfu-preferred">SFU Preferred (Fallback to P2P)</option>
-						</select>
-					</div>
-
-					<div class="setting-item">
-						<div class="setting-info">
-							<span class="setting-label">SRT Gateway (Beta)</span>
-							<span class="setting-description">Requires Local App + self-hosted media gateway. Browser-only calls do not use SRT directly.</span>
-						</div>
-						<button class="toggle-btn" class:active={srtGatewayEnabled} on:click={toggleSrtGateway} disabled={!localAppRuntime}>
-							{srtGatewayEnabled ? 'ON' : 'OFF'}
-						</button>
-					</div>
-
-					{#if !localAppRuntime && browser}
-						<p class="runtime-note">Tip: install the Local App (Tauri) to unlock enhanced call quality mode.</p>
-					{/if}
-				</div>
-			</div>
-
-				<!-- Notifications -->
-				<div class="settings-section">
-					<h3>🔔 Notifications</h3>
-					<div class="setting-item">
-						<div class="setting-info">
-							<span class="setting-label">Desktop Notifications</span>
-							<span class="setting-description">Get notified when you receive new messages</span>
-						</div>
-						<button class="action-btn" class:active={notificationsEnabled} on:click={requestNotificationPermission}>
-							{notificationsEnabled ? '✅ Enabled' : '🔔 Enable'}
-						</button>
-					</div>
-
-					<!-- Notification Sound -->
-					<div class="setting-item-full">
-						<div class="setting-info">
-							<span class="setting-label">
-							<svg class="setting-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-							Notification Sound
-						</span>
-							<span class="setting-description">Choose which sound to play for notifications</span>
-						</div>
-						<div class="sound-options">
-							<button
-								class="sound-option"
-								class:active={notificationSound === '/sounds/ProjectSound.ogg'}
-								on:click={() => updateNotificationSound('/sounds/ProjectSound.ogg')}
-							>
-								ProjectSound.ogg
-							</button>
-							<!-- Add more sound options here as you add more .ogg files -->
-						</div>
-						<button class="test-sound-btn" on:click={testNotificationSound}>
-							🎵 Test Sound
-						</button>
-					</div>
-
-					<!-- Notification Volume -->
-					<div class="setting-item-full">
-						<div class="setting-info">
-							<span class="setting-label">🔉 Notification Volume</span>
-							<span class="setting-description">Adjust the volume of notification sounds ({Math.round(notificationVolume * 100)}%)</span>
-						</div>
-						<input
-							type="range"
-							min="0"
-							max="1"
-							step="0.05"
-							bind:value={notificationVolume}
-							on:input={(e) => updateNotificationVolume(parseFloat(e.currentTarget.value))}
-							class="volume-slider"
-						/>
-					</div>
-				</div>
-
-				<!-- Appearance -->
-				<div class="settings-section">
-					<h3>🎨 Appearance</h3>
-					<div class="setting-item">
-						<div class="setting-info">
-							<span class="setting-label">Theme</span>
-							<span class="setting-description">Choose your preferred theme</span>
-						</div>
-						<select
-							class="theme-select"
-							value={$themeStore.themeId}
-							on:change={(e) => handleThemeChange(e.currentTarget.value)}
-							disabled={savingTheme}
-						>
-							{#each Object.values(THEMES) as theme}
-								<option value={theme.id}>
-									{theme.name}
-								</option>
-							{/each}
-						</select>
-					</div>
-					{#if savingTheme}
-						<div class="save-indicator">
-							<span class="spinner">⏳</span> Saving theme...
-						</div>
-					{/if}
-
-					<!-- Theme Customizer -->
-					<div class="customizer-container">
-						<ThemeCustomizer />
-					</div>
-
-					<!-- Uniform Font Mode -->
-					<div class="customizer-container">
-						<UniformFontMode />
-					</div>
-				</div>
-
-				<!-- Server Management -->
-				<div class="settings-section">
-					<h3>🖥️ Server Management</h3>
-					<div class="setting-item">
-						<div class="setting-info">
-							<span class="setting-label">Clear All Server Messages</span>
-							<span class="setting-description">Delete all messages from the server for all users (cannot be undone)</span>
-						</div>
-						<button class="action-btn danger" on:click={clearServerMessages}>
-							🗑️ Clear Server
-						</button>
-					</div>
-				</div>
-
-				<!-- Custom Emojis -->
-				<div class="settings-section">
-					<h3>🎨 Custom Emojis</h3>
-
-					<!-- Single Upload Form -->
-					<div class="emoji-upload-form">
-						<input
-							type="file"
-							bind:this={emojiFileInput}
-							on:change={handleEmojiFileSelect}
-							accept="image/*"
-							style="display: none;"
-						/>
-
-						{#if emojiPreview}
-							<div class="emoji-preview">
-								<img src={emojiPreview} alt="Preview" />
+								<div class="pfp-upload-form">
+									<button class="pfp-select-btn" on:click={() => showAvatarEditor = true}>
+										Change Profile Picture
+									</button>
+									{#if uploadingAvatar}
+										<p>Uploading...</p>
+									{/if}
+								</div>
 							</div>
-						{/if}
+						</div>
+						<div class="settings-section">
+							<UsernameFontCustomizer />
+						</div>
 
-						<button class="emoji-select-btn" on:click={() => emojiFileInput?.click()}>
-							{emojiPreview ? '📷 Change Image' : '📁 Select Image'}
-						</button>
-
-						<input
-							type="text"
-							bind:value={emojiName}
-							placeholder="Emoji name (e.g., parrot)"
-							maxlength="30"
-							class="emoji-name-input"
-						/>
-
-						<select bind:value={emojiCategory} class="emoji-category-select">
-							<option value="custom">Custom</option>
-							<option value="animated">Animated</option>
-							<option value="art">Art</option>
-							<option value="memes">Memes</option>
-						</select>
-
-						<button
-							class="emoji-upload-btn"
-							on:click={uploadEmoji}
-							disabled={uploadingEmoji || !selectedEmojiFile || !emojiName.trim()}
-						>
-							{uploadingEmoji ? '⏳ Uploading...' : '⬆️ Upload Emoji'}
-						</button>
-
-						<p class="emoji-hint">Supports PNG, GIF (animated), JPG. Max 2MB.</p>
-					</div>
-
-					<!-- Bulk Upload Form -->
-					<div class="emoji-upload-form bulk">
-						<h4>📦 Bulk Upload</h4>
-						<input
-							type="file"
-							bind:this={bulkEmojiFileInput}
-							on:change={handleBulkEmojiFileSelect}
-							accept="image/*"
-							multiple
-							style="display: none;"
-						/>
-
-						<button class="emoji-select-btn" on:click={() => bulkEmojiFileInput?.click()}>
-							📂 Select Multiple Images
-						</button>
-
-						{#if bulkEmojiFiles.length > 0}
-							<div class="bulk-emoji-list">
-								<p class="bulk-count">{bulkEmojiFiles.length} file(s) selected</p>
-								{#each bulkEmojiFiles as item, index (index)}
-									<div class="bulk-emoji-item">
-										<img src={item.preview} alt="Preview" class="bulk-preview" />
-										<input
-											type="text"
-											bind:value={item.name}
-											placeholder="emoji_name"
-											maxlength="30"
-											class="bulk-name-input"
-										/>
-										<button
-											class="bulk-remove-btn"
-											on:click={() => removeBulkEmoji(index)}
-											title="Remove"
-										>
-											✕
-										</button>
-									</div>
-								{/each}
-								<button
-									class="emoji-upload-btn"
-									on:click={uploadBulkEmojis}
-									disabled={uploadingBulk || bulkEmojiFiles.length === 0}
-								>
-									{uploadingBulk ? '⏳ Uploading...' : `⬆️ Upload ${bulkEmojiFiles.length} Emoji${bulkEmojiFiles.length > 1 ? 's' : ''}`}
+					{:else if activeSettingsTab === 'audio'}
+						<div class="settings-section">
+							<h3>Audio and Video</h3>
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Sound Effects</span>
+									<span class="setting-description">Play sounds for messages and notifications</span>
+								</div>
+								<button class="toggle-btn" class:active={soundEnabled} on:click={toggleSound}>
+									{#if soundEnabled}
+										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+									{:else}
+										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
+									{/if}
 								</button>
 							</div>
-						{/if}
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Microphone</span>
+									<span class="setting-description">Enable microphone for voice calls</span>
+								</div>
+								<button class="toggle-btn" class:active={micEnabled} on:click={toggleMic}>
+									{#if micEnabled}
+										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+									{:else}
+										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12m14 0a7 7 0 0 1-13.46 3.4"></path></svg>
+									{/if}
+								</button>
+							</div>
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Camera</span>
+									<span class="setting-description">Enable camera for video calls</span>
+								</div>
+								<button class="toggle-btn" class:active={cameraEnabled} on:click={toggleCamera}>
+									{cameraEnabled ? 'On' : 'Off'}
+								</button>
+							</div>
+							<div class="media-quality-notice" role="note">
+								<div class="notice-title">Call Quality Runtime Notice</div>
+								<div class="notice-body">
+									{#if localAppRuntime}
+										You are running the Local App runtime. Enhanced audio/video tuning is available, including optional SRT gateway controls.
+									{:else}
+										You are running Web runtime. Calls use compatibility-first media settings. For best audio quality, use the Local App.
+									{/if}
+								</div>
 
-						<p class="emoji-hint">Auto-names from filenames. Edit names before uploading.</p>
-					</div>
-
-					<!-- Emoji List -->
-					<div class="emoji-list">
-						<h4>Your Custom Emojis ({$emojis.filter(e => e.isCustom).length})</h4>
-						<div class="emoji-grid-list">
-							{#each $emojis.filter(e => e.isCustom) as emoji (emoji.id)}
-								<div class="emoji-item">
-									<img src={emoji.url} alt={emoji.name} class="emoji-thumb" />
-									<span class="emoji-item-name">:{emoji.name}:</span>
-									<button
-										class="emoji-delete-btn"
-										on:click={() => deleteEmoji(emoji.name)}
-										title="Delete emoji"
+								<div class="quality-mode-row">
+									<label for="media-quality-mode">Media Quality Mode</label>
+									<select
+										id="media-quality-mode"
+										class="theme-select"
+										value={mediaQualityMode}
+										on:change={(e) => updateMediaQualityMode(e.currentTarget.value as MediaQualityMode)}
 									>
-										🗑️
+										<option value="web-baseline">Web Baseline</option>
+										<option value="local-enhanced" disabled={!localAppRuntime}>Local App Enhanced</option>
+									</select>
+								</div>
+
+								<div class="quality-mode-row">
+									<label for="screen-share-quality">Screen Share Resolution</label>
+									<select
+										id="screen-share-quality"
+										class="theme-select"
+										value={screenShareQualityPreset}
+										on:change={(e) => updateScreenShareQualityPreset(e.currentTarget.value as ScreenShareQualityPreset)}
+									>
+										<option value="auto">Auto (Recommended)</option>
+										<option value="1080p">1080p</option>
+										<option value="720p">720p</option>
+										<option value="480p">480p</option>
+										<option value="144p-mobile">144p (Mobile / Low data)</option>
+									</select>
+								</div>
+
+								<div class="quality-mode-row">
+									<label for="call-transport-mode">Call Transport Strategy</label>
+									<select
+										id="call-transport-mode"
+										class="theme-select"
+										value={callTransportMode}
+										on:change={(e) => updateCallTransportMode(e.currentTarget.value as CallTransportMode)}
+									>
+										<option value="auto">Auto (Fallback Enabled)</option>
+										<option value="p2p-only">P2P/TURN Only</option>
+										<option value="sfu-preferred">SFU Preferred (Fallback to P2P)</option>
+									</select>
+								</div>
+
+								<div class="setting-item">
+									<div class="setting-info">
+										<span class="setting-label">SRT Gateway (Beta)</span>
+										<span class="setting-description">Requires Local App + self-hosted media gateway. Browser-only calls do not use SRT directly.</span>
+									</div>
+									<button class="toggle-btn" class:active={srtGatewayEnabled} on:click={toggleSrtGateway} disabled={!localAppRuntime}>
+										{srtGatewayEnabled ? 'ON' : 'OFF'}
 									</button>
 								</div>
-							{/each}
+
+								{#if !localAppRuntime && browser}
+									<p class="runtime-note">Tip: install the Local App (Tauri) to unlock enhanced call quality mode.</p>
+								{/if}
+							</div>
 						</div>
-					</div>
-				</div>
 
-				<!-- Local Storage Settings -->
-				<div class="settings-section">
-					<StorageSettings />
-				</div>
+					{:else if activeSettingsTab === 'notifications'}
+						<div class="settings-section">
+							<h3>Notifications</h3>
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Desktop Notifications</span>
+									<span class="setting-description">Get notified when you receive new messages</span>
+								</div>
+								<button class="action-btn" class:active={notificationsEnabled} on:click={requestNotificationPermission}>
+									{notificationsEnabled ? 'Enabled' : 'Enable'}
+								</button>
+							</div>
 
-				<!-- About -->
-				<div class="settings-section">
-					<h3>ℹ️ About</h3>
-					<div class="about-info">
-						<p><strong>Wabi Chat</strong></p>
-						<p>Privacy-first ephemeral chat. No tracking. No data collection.</p>
-						<p>Server stores nothing permanently. You control your data.</p>
-						<p class="version">Version 1.0.0</p>
-					</div>
-				</div>
-			</div>
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">
+										<svg class="setting-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+										Notification Sound
+									</span>
+									<span class="setting-description">Choose which sound to play for notifications</span>
+								</div>
+								<div class="sound-options">
+									<button
+										class="sound-option"
+										class:active={notificationSound === '/sounds/ProjectSound.ogg'}
+										on:click={() => updateNotificationSound('/sounds/ProjectSound.ogg')}
+									>
+										ProjectSound.ogg
+									</button>
+								</div>
+								<button class="test-sound-btn" on:click={testNotificationSound}>
+									Test Sound
+								</button>
+							</div>
 
-			<!-- Logout -->
-			<div class="settings-section">
-				<button class="logout-btn" on:click={handleLogout}>🚪 Logout & Change Name</button>
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">Notification Volume</span>
+									<span class="setting-description">Adjust the volume of notification sounds ({Math.round(notificationVolume * 100)}%)</span>
+								</div>
+								<input
+									type="range"
+									min="0"
+									max="1"
+									step="0.05"
+									bind:value={notificationVolume}
+									on:input={(e) => updateNotificationVolume(parseFloat(e.currentTarget.value))}
+									class="volume-slider"
+								/>
+							</div>
+						</div>
+
+					{:else if activeSettingsTab === 'appearance'}
+						<div class="settings-section">
+							<h3>Appearance</h3>
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Theme</span>
+									<span class="setting-description">Choose your preferred theme</span>
+								</div>
+								<select
+									class="theme-select"
+									value={$themeStore.themeId}
+									on:change={(e) => handleThemeChange(e.currentTarget.value)}
+									disabled={savingTheme}
+								>
+									{#each Object.values(THEMES) as theme}
+										<option value={theme.id}>
+											{theme.name}
+										</option>
+									{/each}
+								</select>
+							</div>
+							{#if savingTheme}
+								<div class="save-indicator">
+									<span class="spinner">...</span> Saving theme...
+								</div>
+							{/if}
+
+							<div class="customizer-container">
+								<ThemeCustomizer />
+							</div>
+
+							<div class="customizer-container">
+								<UniformFontMode />
+							</div>
+						</div>
+
+					{:else if activeSettingsTab === 'server'}
+						<div class="settings-section">
+							<h3>Server Management</h3>
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Clear All Server Messages</span>
+									<span class="setting-description">Delete all messages from the server for all users (cannot be undone)</span>
+								</div>
+								<button class="action-btn danger" on:click={clearServerMessages}>
+									Clear Server
+								</button>
+							</div>
+						</div>
+
+					{:else if activeSettingsTab === 'emojis'}
+						<div class="settings-section">
+							<h3>Custom Emojis</h3>
+							<div class="emoji-upload-form">
+								<input
+									type="file"
+									bind:this={emojiFileInput}
+									on:change={handleEmojiFileSelect}
+									accept="image/*"
+									style="display: none;"
+								/>
+
+								{#if emojiPreview}
+									<div class="emoji-preview">
+										<img src={emojiPreview} alt="Preview" />
+									</div>
+								{/if}
+
+								<button class="emoji-select-btn" on:click={() => emojiFileInput?.click()}>
+									{emojiPreview ? 'Change Image' : 'Select Image'}
+								</button>
+
+								<input
+									type="text"
+									bind:value={emojiName}
+									placeholder="Emoji name (e.g., parrot)"
+									maxlength="30"
+									class="emoji-name-input"
+								/>
+
+								<select bind:value={emojiCategory} class="emoji-category-select">
+									<option value="custom">Custom</option>
+									<option value="animated">Animated</option>
+									<option value="art">Art</option>
+									<option value="memes">Memes</option>
+								</select>
+
+								<button
+									class="emoji-upload-btn"
+									on:click={uploadEmoji}
+									disabled={uploadingEmoji || !selectedEmojiFile || !emojiName.trim()}
+								>
+									{uploadingEmoji ? 'Uploading...' : 'Upload Emoji'}
+								</button>
+
+								<p class="emoji-hint">Supports PNG, GIF (animated), JPG. Max 2MB.</p>
+							</div>
+
+							<div class="emoji-upload-form bulk">
+								<h4>Bulk Upload</h4>
+								<input
+									type="file"
+									bind:this={bulkEmojiFileInput}
+									on:change={handleBulkEmojiFileSelect}
+									accept="image/*"
+									multiple
+									style="display: none;"
+								/>
+
+								<button class="emoji-select-btn" on:click={() => bulkEmojiFileInput?.click()}>
+									Select Multiple Images
+								</button>
+
+								{#if bulkEmojiFiles.length > 0}
+									<div class="bulk-emoji-list">
+										<p class="bulk-count">{bulkEmojiFiles.length} file(s) selected</p>
+										{#each bulkEmojiFiles as item, index (index)}
+											<div class="bulk-emoji-item">
+												<img src={item.preview} alt="Preview" class="bulk-preview" />
+												<input
+													type="text"
+													bind:value={item.name}
+													placeholder="emoji_name"
+													maxlength="30"
+													class="bulk-name-input"
+												/>
+												<button
+													class="bulk-remove-btn"
+													on:click={() => removeBulkEmoji(index)}
+													title="Remove"
+												>
+													×
+												</button>
+											</div>
+										{/each}
+										<button
+											class="emoji-upload-btn"
+											on:click={uploadBulkEmojis}
+											disabled={uploadingBulk || bulkEmojiFiles.length === 0}
+										>
+											{uploadingBulk ? 'Uploading...' : `Upload ${bulkEmojiFiles.length} Emoji${bulkEmojiFiles.length > 1 ? 's' : ''}`}
+										</button>
+									</div>
+								{/if}
+
+								<p class="emoji-hint">Auto-names from filenames. Edit names before uploading.</p>
+							</div>
+
+							<div class="emoji-list">
+								<h4>Your Custom Emojis ({$emojis.filter(e => e.isCustom).length})</h4>
+								<div class="emoji-grid-list">
+									{#each $emojis.filter(e => e.isCustom) as emoji (emoji.id)}
+										<div class="emoji-item">
+											<img src={emoji.url} alt={emoji.name} class="emoji-thumb" />
+											<span class="emoji-item-name">:{emoji.name}:</span>
+											<button
+												class="emoji-delete-btn"
+												on:click={() => deleteEmoji(emoji.name)}
+												title="Delete emoji"
+											>
+												X
+											</button>
+										</div>
+									{/each}
+								</div>
+							</div>
+						</div>
+
+					{:else if activeSettingsTab === 'storage'}
+						<div class="settings-section">
+							<StorageSettings />
+						</div>
+
+					{:else if activeSettingsTab === 'about'}
+						<div class="settings-section">
+							<h3>About</h3>
+							<div class="about-info">
+								<p><strong>Wabi Chat</strong></p>
+								<p>Privacy-first ephemeral chat. No tracking. No data collection.</p>
+								<p>Server stores nothing permanently. You control your data.</p>
+								<p class="version">Version 1.0.0</p>
+							</div>
+						</div>
+					{/if}
+				</div>
 			</div>
 		</div>
 	</div>
@@ -1008,9 +1010,9 @@
 		background: var(--bg-secondary);
 		border-radius: 12px;
 		width: 90%;
-		max-width: 600px;
+		max-width: 800px;
 		max-height: 80vh;
-		overflow-y: auto;
+		overflow: hidden;
 		box-shadow: none;
 		display: flex;
 		flex-direction: column;
@@ -1069,36 +1071,65 @@
 		transform: scale(1.1);
 	}
 
-	/* Logout button section - always visible at bottom */
-	.modal-content > .settings-section:last-child {
+	.settings-layout {
+		display: flex;
+		flex: 1;
+		min-height: 0;
+	}
+
+	.settings-tabs {
+		width: 180px;
 		flex-shrink: 0;
-		border-top: 1px solid var(--border);
-		padding-top: 1rem;
-		margin-top: auto;
-		background: var(--bg-secondary);
-		position: sticky;
-		bottom: 0;
+		display: flex;
+		flex-direction: column;
+		padding: 0.5rem;
+		border-right: 1px solid var(--border);
+		background: var(--bg-tertiary);
+		overflow-y: auto;
 	}
 
-	.logout-btn {
+	.settings-tabs-spacer {
+		flex: 1;
+	}
+
+	.settings-tab {
+		display: block;
 		width: 100%;
-		padding: 1rem;
-		background: rgba(255, 87, 87, 0.1);
-		border: 1px solid #ff5757;
-		color: #ff5757;
-		border-radius: 8px;
-		font-size: 1rem;
-		font-weight: 600;
+		padding: 0.625rem 0.75rem;
+		background: transparent;
+		border: none;
+		border-left: 3px solid transparent;
+		border-radius: 0 6px 6px 0;
+		color: var(--text-secondary);
+		font-size: 0.875rem;
+		font-weight: 500;
+		text-align: left;
 		cursor: pointer;
-		transition: all 0.2s;
+		transition: all 0.15s;
 	}
 
-	.logout-btn:hover {
-		background: rgba(255, 87, 87, 0.2);
-		transform: translateY(-2px);
+	.settings-tab:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
 	}
 
-	.settings-sections {
+	.settings-tab.active {
+		background: rgba(var(--accent-rgb), 0.15);
+		border-left-color: var(--accent);
+		color: var(--text-primary);
+	}
+
+	.settings-tab.logout-tab {
+		margin-top: 0.5rem;
+		color: #ff7575;
+	}
+
+	.settings-tab.logout-tab:hover {
+		background: rgba(255, 87, 87, 0.15);
+		color: #ff9d9d;
+	}
+
+	.settings-content {
 		padding: 1.5rem;
 		display: flex;
 		flex-direction: column;
@@ -1814,4 +1845,54 @@
 		opacity: 1;
 		color: var(--color-danger);
 	}
+
+	@media (max-width: 768px) {
+		.settings-layout {
+			flex-direction: column;
+		}
+
+		.settings-tabs {
+			width: 100%;
+			flex-direction: row;
+			overflow-x: auto;
+			border-right: none;
+			border-bottom: 1px solid var(--border);
+			padding: 0.375rem;
+			gap: 0.25rem;
+		}
+
+		.settings-tabs-spacer {
+			display: none;
+		}
+
+		.settings-tab {
+			border-left: none;
+			border-bottom: 3px solid transparent;
+			border-radius: 6px 6px 0 0;
+			padding: 0.5rem 0.75rem;
+			white-space: nowrap;
+			font-size: 0.8rem;
+			text-align: center;
+		}
+
+		.settings-tab.active {
+			border-left-color: transparent;
+			border-bottom-color: var(--accent);
+		}
+
+		.settings-tab.logout-tab {
+			margin-top: 0;
+			margin-left: auto;
+		}
+
+		.settings-content {
+			padding: 1rem;
+		}
+
+		.modal-content {
+			max-height: 90vh;
+			max-height: 90dvh;
+		}
+	}
 </style>
+
