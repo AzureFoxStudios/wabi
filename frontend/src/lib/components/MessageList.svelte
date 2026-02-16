@@ -12,6 +12,7 @@
 	import { parseMessage } from '$lib/markdown';
 	import '$lib/prism-theme.css';
 	import { longpress } from '$lib/actions/longpress';
+	import { getServerUrl } from '$lib/serverUrl';
 	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
@@ -224,25 +225,36 @@
 	}
 	function getFileUrl(fileUrl?: string): string {
 		if (!fileUrl) return '';
-		// If it's already a full URL (data: or http:), return as-is
-		if (fileUrl.startsWith('data:') || fileUrl.startsWith('http:') || fileUrl.startsWith('https:')) {
+		if (fileUrl.startsWith('data:')) {
 			return fileUrl;
 		}
+
+		if (fileUrl.startsWith('http:') || fileUrl.startsWith('https:')) {
+			try {
+				const absoluteUrl = new URL(fileUrl);
+				const isLocalUpload =
+					(absoluteUrl.hostname === 'localhost' || absoluteUrl.hostname === '127.0.0.1') &&
+					absoluteUrl.pathname.startsWith('/uploads/');
+
+				if (isLocalUpload) {
+					const normalizedPath = `${absoluteUrl.pathname}${absoluteUrl.search}${absoluteUrl.hash}`;
+					if ($relayEnabled) {
+						return getRelayFileUrl(normalizedPath);
+					}
+					return `${getServerUrl()}${normalizedPath}`;
+				}
+			} catch {
+				// Fall through and return original URL if parsing fails.
+			}
+			return fileUrl;
+		}
+
 		// Use relay if enabled and available
 		if ($relayEnabled) {
 			return getRelayFileUrl(fileUrl);
 		}
-		// Otherwise, prepend the backend server URL
-		let serverUrl: string;
-		if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
-			serverUrl = 'http://localhost:3000';
-		} else if (window.location.origin.includes(':3000')) {
-			// Docker deployment: if on port 3000 (frontend), connect to port 8080 (backend)
-			serverUrl = window.location.origin.replace(':3000', ':8080');
-		} else {
-			serverUrl = window.location.origin;
-		}
-		return `${serverUrl}${fileUrl}`;
+
+		return `${getServerUrl()}${fileUrl}`;
 	}
 	function getReplyToMessage(replyToId?: string): Message | undefined {
 		if (!replyToId) return undefined;

@@ -12,15 +12,19 @@
 	onMount(async () => {
 		try {
 			const serverUrl = getServerUrl();
+			const headers: Record<string, string> = {};
+
+			// Only needed when the backend is behind ngrok.
+			if (serverUrl.includes('ngrok')) {
+				headers['ngrok-skip-browser-warning'] = 'true';
+			}
 
 			// Add timeout to prevent infinite loading
 			const controller = new AbortController();
 			const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
 			const response = await fetch(`${serverUrl}/api/url-preview?url=${encodeURIComponent(url)}`, {
-				headers: {
-					'ngrok-skip-browser-warning': 'true'
-				},
+				headers,
 				signal: controller.signal
 			});
 
