@@ -3,6 +3,7 @@ import { getServerUrl } from './serverUrl';
 import { isDesktopTauri, isMobileTauri, isTauriRuntime as detectTauriRuntime } from './tauri-platform';
 
 export type MediaQualityMode = 'web-baseline' | 'local-enhanced';
+export type AudioProcessingMode = 'noise-suppression' | 'studio-quality';
 export type ScreenShareQualityPreset = 'auto' | '1080p' | '720p' | '480p' | '144p-mobile';
 export type CallTransportMode = 'auto' | 'p2p-only' | 'sfu-preferred';
 export type EffectiveCallTransport = 'p2p' | 'sfu';
@@ -57,6 +58,7 @@ export interface CallTransportPlan {
 const STORAGE_KEYS = {
 	qualityMode: 'wabi_media_quality_mode',
 	qualityModeAutoMigrated: 'wabi_media_quality_mode_auto_migrated',
+	audioProcessingMode: 'wabi_audio_processing_mode',
 	srtGateway: 'wabi_enable_srt_gateway',
 	screenShareQuality: 'wabi_screen_share_quality_preset',
 	callTransportMode: 'wabi_call_transport_mode'
@@ -185,6 +187,42 @@ export function setMediaQualityMode(mode: MediaQualityMode): void {
 export function setSrtGatewayEnabled(enabled: boolean): void {
 	if (!browser) return;
 	localStorage.setItem(STORAGE_KEYS.srtGateway, String(enabled));
+}
+
+export function getStoredAudioProcessingMode(): AudioProcessingMode {
+	if (!browser) return 'noise-suppression';
+	const stored = localStorage.getItem(STORAGE_KEYS.audioProcessingMode);
+	if (stored === 'noise-suppression' || stored === 'studio-quality') {
+		return stored;
+	}
+	return 'noise-suppression';
+}
+
+export function setAudioProcessingMode(mode: AudioProcessingMode): void {
+	if (!browser) return;
+	localStorage.setItem(STORAGE_KEYS.audioProcessingMode, mode);
+}
+
+export function getAudioCaptureConstraints(mode: AudioProcessingMode = getStoredAudioProcessingMode()): MediaTrackConstraints {
+	if (mode === 'studio-quality') {
+		return {
+			// Preserve fidelity for good mics/quiet rooms; disable aggressive DSP.
+			echoCancellation: true,
+			noiseSuppression: false,
+			autoGainControl: false,
+			sampleRate: 48000,
+			channelCount: 1
+		};
+	}
+
+	return {
+		// Compatibility-first mode that prioritizes intelligibility in noisy spaces.
+		echoCancellation: true,
+		noiseSuppression: true,
+		autoGainControl: true,
+		sampleRate: 48000,
+		channelCount: 1
+	};
 }
 
 export function getStoredScreenShareQualityPreset(): ScreenShareQualityPreset {

@@ -18,20 +18,24 @@
 	import UsernameFontCustomizer from './UsernameFontCustomizer.svelte';
 	import UniformFontMode from './UniformFontMode.svelte';
 	import {
+		getStoredAudioProcessingMode,
 		getStoredCallTransportMode,
 		getStoredMediaQualityMode,
 		getStoredScreenShareQualityPreset,
 		isSrtGatewayEnabled,
 		isTauriRuntime,
+		setAudioProcessingMode,
 		setCallTransportMode,
 		setMediaQualityMode,
 		setScreenShareQualityPreset,
 		setSrtGatewayEnabled,
 		syncMediaRuntimeFromServer,
+		type AudioProcessingMode,
 		type CallTransportMode,
 		type MediaQualityMode,
 		type ScreenShareQualityPreset
 	} from '$lib/mediaRuntime';
+	import { applyCurrentAudioProcessingToLocalTrack } from '$lib/calling';
 
 	const dispatch = createEventDispatcher();
 
@@ -46,6 +50,7 @@
 	let notificationSound = '/sounds/ProjectSound.ogg';
 	let notificationVolume = 0.5;
 	let mediaQualityMode: MediaQualityMode = 'web-baseline';
+	let audioProcessingMode: AudioProcessingMode = 'noise-suppression';
 	let callTransportMode: CallTransportMode = 'auto';
 	let srtGatewayEnabled = false;
 	let screenShareQualityPreset: ScreenShareQualityPreset = 'auto';
@@ -91,6 +96,7 @@
 			await syncMediaRuntimeFromServer();
 			// After server sync, load local settings (will be constrained if needed)
 			mediaQualityMode = getStoredMediaQualityMode();
+			audioProcessingMode = getStoredAudioProcessingMode();
 			callTransportMode = getStoredCallTransportMode();
 			srtGatewayEnabled = isSrtGatewayEnabled();
 			screenShareQualityPreset = getStoredScreenShareQualityPreset();
@@ -120,6 +126,12 @@
 	function updateMediaQualityMode(mode: MediaQualityMode) {
 		mediaQualityMode = mode;
 		setMediaQualityMode(mode);
+	}
+
+	function updateAudioProcessingMode(mode: AudioProcessingMode) {
+		audioProcessingMode = mode;
+		setAudioProcessingMode(mode);
+		void applyCurrentAudioProcessingToLocalTrack();
 	}
 
 	function updateCallTransportMode(mode: CallTransportMode) {
@@ -666,6 +678,19 @@
 									{:else}
 										You are running Web runtime. Calls use compatibility-first media settings. For best audio quality, use the Local App.
 									{/if}
+								</div>
+
+								<div class="quality-mode-row">
+									<label for="audio-processing-mode">Audio Processing</label>
+									<select
+										id="audio-processing-mode"
+										class="theme-select"
+										value={audioProcessingMode}
+										on:change={(e) => updateAudioProcessingMode(e.currentTarget.value as AudioProcessingMode)}
+									>
+										<option value="noise-suppression">Noise Suppression (Recommended)</option>
+										<option value="studio-quality">Studio Quality</option>
+									</select>
 								</div>
 
 								<div class="quality-mode-row">

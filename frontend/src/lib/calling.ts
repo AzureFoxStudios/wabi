@@ -3,6 +3,7 @@ import type { Socket } from 'socket.io-client';
 import { buildRTCConfig, prefetchTurnCredentials } from './turnConfig';
 import { playCallActionSound } from './callSounds';
 import {
+	getAudioCaptureConstraints,
 	getMediaRuntimeConfig,
 	getScreenShareQualityProfile,
 	resolveCallTransportPlan,
@@ -705,7 +706,7 @@ async function ensureLocalAudioStream(): Promise<MediaStream> {
 	let stream = get(localStream);
 	if (!stream) {
 		stream = await navigator.mediaDevices.getUserMedia({
-			audio: true,
+			audio: getAudioCaptureConstraints(),
 			video: false
 		});
 		localStream.set(stream);
@@ -719,7 +720,7 @@ async function ensureLocalAudioStream(): Promise<MediaStream> {
 	}
 
 	const audioStream = await navigator.mediaDevices.getUserMedia({
-		audio: true,
+		audio: getAudioCaptureConstraints(),
 		video: false
 	});
 	const audioTrack = audioStream.getAudioTracks()[0];
@@ -813,7 +814,7 @@ export async function startCall(socket: Socket, targetUserId: string, isVideoCal
 		await resolveActiveTransport();
 		const stream = await navigator.mediaDevices.getUserMedia({
 			video: isVideoCall ? CAMERA_CONSTRAINTS : false,
-			audio: true
+			audio: getAudioCaptureConstraints()
 		});
 		localStream.set(stream);
 
@@ -847,7 +848,7 @@ export async function answerCall(socket: Socket, callerId: string, isVideoCall: 
 		await resolveActiveTransport();
 		const stream = await navigator.mediaDevices.getUserMedia({
 			video: isVideoCall ? CAMERA_CONSTRAINTS : false,
-			audio: true
+			audio: getAudioCaptureConstraints()
 		});
 		localStream.set(stream);
 
@@ -940,6 +941,19 @@ export function toggleMute() {
 			}
 			playCallActionSound(nextMuted ? 'mute' : 'unmute');
 		}
+	}
+}
+
+export async function applyCurrentAudioProcessingToLocalTrack(): Promise<void> {
+	const stream = get(localStream);
+	const audioTrack = stream?.getAudioTracks()?.[0];
+	if (!audioTrack || audioTrack.readyState !== 'live') return;
+
+	try {
+		await audioTrack.applyConstraints(getAudioCaptureConstraints());
+	} catch (error) {
+		// Some browsers/devices ignore or reject individual DSP constraints.
+		console.warn('[WebRTC] Could not apply updated audio processing constraints:', error);
 	}
 }
 
