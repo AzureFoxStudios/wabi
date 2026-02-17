@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { channels, currentUser, createDM, assignRole, removeUserRole, type User, updateChannelSettings } from '$lib/socket';
+	import { channels, currentUser, createDM, assignRole, removeUserRole, type User, updateChannelSettings, sendMessage, channelMessages } from '$lib/socket';
 	import { users } from '$lib/socket';
 	import { emojis } from '$lib/emoji-store';
 	import { getSocket } from '$lib/socket';
@@ -16,6 +16,8 @@
 
 	type EmojiRoleRule = {
 		id: number;
+		channelId: string;
+		messageId: string;
 		emojiId: string;
 		roleName: string;
 		removeOnUnreact: boolean;
@@ -26,15 +28,41 @@
 	let roleDefinitions: RoleDefinition[] = [];
 	let roleLabelDrafts: Record<string, string> = {};
 	let emojiRoleRules: EmojiRoleRule[] = [];
+	let roleGateChannelId = '';
+	let roleGateTitle = '';
+	let roleGateDescription = '';
+	let roleGatePersist = true;
+	let selectedRuleChannelId = '';
+	let selectedRuleMessageId = '';
 	let selectedRuleEmojiId = '';
 	let selectedRuleRoleName = '';
 	let selectedRuleRemoveOnUnreact = false;
+	const fallbackRoleLabels: Record<string, string> = {
+		owner: 'Owner',
+		admin: 'Admin',
+		mod: 'Moderator',
+		member: 'Member',
+		guest: 'Guest'
+	};
 
 	$: canManageRoles = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
 	$: canModerate = canManageRoles || $currentUser?.highestRole === 'mod';
 	$: channelRoleOptions = roleDefinitions.filter((role) => role.roleName !== 'owner');
 	$: assignableRoleOptions = roleDefinitions.filter((role) => !['owner', 'guest'].includes(role.roleName));
 	$: customChannels = $channels.filter((ch) => ch.type === 'text' || ch.type === 'voice' || ch.type === 'public');
+	$: gateChannels = customChannels.filter((ch) => ch.type === 'text' || ch.type === 'public');
+	$: if (!roleGateChannelId && gateChannels.length > 0) roleGateChannelId = gateChannels[0].id;
+	$: if (!selectedRuleChannelId && gateChannels.length > 0) selectedRuleChannelId = gateChannels[0].id;
+	$: availableRoleGatePosts = (($channelMessages[selectedRuleChannelId] || [])
+		.filter((message) => message.type === 'role_gate')
+		.slice(-40)
+		.reverse());
+	$: if (!selectedRuleMessageId && availableRoleGatePosts.length > 0) {
+		selectedRuleMessageId = availableRoleGatePosts[0].id;
+	}
+	$: if (selectedRuleMessageId && !availableRoleGatePosts.some((message) => message.id === selectedRuleMessageId)) {
+		selectedRuleMessageId = availableRoleGatePosts[0]?.id || '';
+	}
 	$: visibleUsers = $users.filter((u) => {
 		const q = searchQuery.trim().toLowerCase();
 		if (!q) return true;
@@ -56,6 +84,12 @@
 		if (!roleName) return 0;
 		const found = roleDefinitions.find((r) => r.roleName === roleName);
 		return found?.priority ?? 0;
+	}
+
+	function getRoleLabel(roleName?: string): string {
+		if (!roleName) return fallbackRoleLabels.member;
+		const found = roleDefinitions.find((r) => r.roleName === roleName);
+		return found?.displayName || fallbackRoleLabels[roleName] || roleName;
 	}
 
 	function userHasRole(user: User, role: string): boolean {
@@ -114,12 +148,32 @@
 	function addEmojiRoleRule() {
 		const sock = getSocket();
 		if (!sock || !canManageRoles) return;
-		if (!selectedRuleEmojiId || !selectedRuleRoleName) return;
+		if (!selectedRuleChannelId || !selectedRuleMessageId || !selectedRuleEmojiId || !selectedRuleRoleName) return;
 		sock.emit('set-emoji-role-rule', {
+			channelId: selectedRuleChannelId,
+			messageId: selectedRuleMessageId,
 			emojiId: selectedRuleEmojiId,
 			roleName: selectedRuleRoleName,
 			removeOnUnreact: selectedRuleRemoveOnUnreact
 		});
+	}
+
+	async function createRoleGatePost() {
+		if (!canManageRoles) return;
+		if (!roleGateChannelId) return;
+		const title = roleGateTitle.trim();
+		const description = roleGateDescription.trim();
+		if (!title) return;
+
+		const content = description ? `${title}\n${description}` : title;
+		await sendMessage(roleGateChannelId, content, 'role_gate', { roleGatePersist: roleGatePersist });
+		roleGateTitle = '';
+		roleGateDescription = '';
+		selectedRuleChannelId = roleGateChannelId;
+	}
+
+	function getChannelName(channelId: string): string {
+		return $channels.find((channel) => channel.id === channelId)?.name || channelId;
 	}
 
 	function deleteEmojiRoleRule(ruleId: number) {
@@ -160,7 +214,7 @@
 	<div class="admin-header">
 		<div class="admin-title-row">
 			<h3>Admin Dashboard</h3>
-			<span class="admin-role-indicator">You: {$currentUser?.highestRole || 'member'}</span>
+			<span class="admin-role-indicator">You: {getRoleLabel($currentUser?.highestRole || 'member')}</span>
 		</div>
 		<p class="admin-subtitle">
 			{#if canManageRoles}
@@ -209,9 +263,9 @@
 							value={channel.minRole || 'guest'}
 							on:change={(e) => setChannelMinRole(channel.id, e.currentTarget.value)}
 						>
-							<option value="guest">guest</option>
+							<option value="guest">{getRoleLabel('guest')}</option>
 							{#each channelRoleOptions as role (role.roleName)}
-								<option value={role.roleName}>{role.roleName}</option>
+								<option value={role.roleName}>{getRoleLabel(role.roleName)}</option>
 							{/each}
 						</select>
 					</div>
@@ -220,8 +274,48 @@
 		</div>
 
 		<div class="admin-section">
+			<h4>Role Gate Posts</h4>
+			<div class="emoji-rule-create">
+				<select bind:value={roleGateChannelId} class="admin-select">
+					<option value="" disabled selected>Select channel</option>
+					{#each gateChannels as channel (channel.id)}
+						<option value={channel.id}>#{channel.name}</option>
+					{/each}
+				</select>
+				<input
+					class="role-input"
+					placeholder="Role gate title (example: 18+ Access)"
+					bind:value={roleGateTitle}
+				/>
+				<input
+					class="role-input"
+					placeholder="Optional description/instructions"
+					bind:value={roleGateDescription}
+				/>
+				<label class="rule-checkbox">
+					<input type="checkbox" bind:checked={roleGatePersist} />
+					Persist gate post
+				</label>
+				<button class="admin-btn" on:click={createRoleGatePost}>Create Gate Post</button>
+			</div>
+			<div class="admin-empty">Only reactions on these dedicated gate posts can assign/remove roles.</div>
+		</div>
+
+		<div class="admin-section">
 			<h4>Emoji Role Automation</h4>
 			<div class="emoji-rule-create">
+				<select bind:value={selectedRuleChannelId} class="admin-select">
+					<option value="" disabled selected>Select gate channel</option>
+					{#each gateChannels as channel (channel.id)}
+						<option value={channel.id}>#{channel.name}</option>
+					{/each}
+				</select>
+				<select bind:value={selectedRuleMessageId} class="admin-select">
+					<option value="" disabled selected>Select role-gate message</option>
+					{#each availableRoleGatePosts as post (post.id)}
+						<option value={post.id}>{post.id.slice(0, 18)}... | {post.text.slice(0, 42)}</option>
+					{/each}
+				</select>
 				<select bind:value={selectedRuleEmojiId} class="admin-select">
 					<option value="" disabled selected>Select emoji</option>
 					{#each $emojis as emoji (emoji.id)}
@@ -231,7 +325,7 @@
 				<select bind:value={selectedRuleRoleName} class="admin-select">
 					<option value="" disabled selected>Select role</option>
 					{#each assignableRoleOptions as role (role.roleName)}
-						<option value={role.roleName}>{role.roleName}</option>
+						<option value={role.roleName}>{getRoleLabel(role.roleName)}</option>
 					{/each}
 				</select>
 				<label class="rule-checkbox">
@@ -243,11 +337,11 @@
 			<div class="emoji-rule-list">
 				{#each emojiRoleRules as rule (rule.id)}
 					<div class="emoji-rule-item">
-						<span>{rule.emojiId} -> {rule.roleName}{rule.removeOnUnreact ? ' (reversible)' : ''}</span>
+						<span>#{getChannelName(rule.channelId)} | {rule.messageId.slice(0, 18)}... | {rule.emojiId} -> {getRoleLabel(rule.roleName)}{rule.removeOnUnreact ? ' (reversible)' : ''}</span>
 						<button class="admin-btn danger" on:click={() => deleteEmojiRoleRule(rule.id)}>Delete</button>
 					</div>
 				{:else}
-					<div class="admin-empty">No emoji role rules yet.</div>
+					<div class="admin-empty">No role-gate rules yet.</div>
 				{/each}
 			</div>
 		</div>
@@ -268,9 +362,9 @@
 				<div class="admin-user-item">
 					<div class="admin-user-meta">
 						<span class="admin-user-name">{user.username}</span>
-						<span class="admin-role-badge">{user.highestRole || 'member'}</span>
+						<span class="admin-role-badge">{getRoleLabel(user.highestRole || 'member')}</span>
 						{#if !user.dbUserId}
-							<span class="admin-guest-badge">guest</span>
+							<span class="admin-guest-badge">{getRoleLabel('guest')}</span>
 						{/if}
 					</div>
 					<div class="admin-actions">

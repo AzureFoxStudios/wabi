@@ -73,3 +73,9 @@ data/business/
 data/chat.db
 data/.plugin-storage/
 .env.save
+
+# Generated OpenMoji assets (fetched at build/runtime)
+frontend/static/openmoji/png/
+frontend/static/openmoji/manifest.json
+assets/vendor/openmoji/
+backend/openmoji/

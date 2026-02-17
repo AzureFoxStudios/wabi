@@ -2,9 +2,15 @@ FROM node:24-slim AS builder
 
 WORKDIR /app
 
+# Download tools for OpenMoji fetch during image build
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl unzip ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 # Copy package files
 COPY package.json ./
 COPY package-lock.json ./
+COPY scripts/fetch-openmoji.sh ./scripts/fetch-openmoji.sh
 
 # Install dependencies with npm
 RUN npm ci
@@ -19,12 +25,20 @@ ARG VITE_USE_TURNS=false
 ARG VITE_ENABLE_GOOGLE_STUN=true
 ARG VITE_SOCKET_URL
 ARG VITE_GIPHY_API_KEY
+ARG OPENMOJI_VERSION=15.1.0
+ARG OPENMOJI_72_SHA256=
 ENV VITE_TURN_SERVER=$VITE_TURN_SERVER
 ENV VITE_TURN_PORT=$VITE_TURN_PORT
 ENV VITE_USE_TURNS=$VITE_USE_TURNS
 ENV VITE_ENABLE_GOOGLE_STUN=$VITE_ENABLE_GOOGLE_STUN
 ENV VITE_SOCKET_URL=$VITE_SOCKET_URL
 ENV VITE_GIPHY_API_KEY=$VITE_GIPHY_API_KEY
+ENV OPENMOJI_VERSION=$OPENMOJI_VERSION
+ENV OPENMOJI_72_SHA256=$OPENMOJI_72_SHA256
+
+# Fetch pinned OpenMoji assets into static path used by the frontend runtime.
+RUN chmod +x ./scripts/fetch-openmoji.sh \
+  && ./scripts/fetch-openmoji.sh ./static/openmoji/png
 
 # Build the frontend with adapter-node
 RUN npm run build

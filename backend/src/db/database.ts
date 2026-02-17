@@ -154,6 +154,8 @@ function runMigrations() {
 	// Migration: add min_role to channels
 	addColumnIfMissing('channels', 'min_role', "TEXT DEFAULT 'guest'");
 	addColumnIfMissing('channels', 'parent_channel_id', 'TEXT');
+	addColumnIfMissing('channels', 'is_breakout', 'INTEGER DEFAULT 0');
+	addColumnIfMissing('channels', 'breakout_index', 'INTEGER');
 	addColumnIfMissing('channels', 'parent_message_id', 'TEXT');
 	addColumnIfMissing('channels', 'thread_archived', 'INTEGER DEFAULT 0');
 	addColumnIfMissing('channels', 'thread_locked', 'INTEGER DEFAULT 0');
@@ -174,6 +176,8 @@ function runMigrations() {
 		db.exec(`
 			CREATE TABLE IF NOT EXISTS emoji_role_rules (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				channel_id TEXT,
+				message_id TEXT,
 				emoji_id TEXT NOT NULL,
 				role_name TEXT NOT NULL,
 				remove_on_unreact INTEGER DEFAULT 0,
@@ -182,7 +186,19 @@ function runMigrations() {
 				created_at INTEGER DEFAULT (strftime('%s', 'now'))
 			)
 		`);
-		db.exec('CREATE INDEX IF NOT EXISTS idx_emoji_role_rules_emoji ON emoji_role_rules(emoji_id, workspace_id)');
+		addColumnIfMissing('emoji_role_rules', 'channel_id', 'TEXT');
+		addColumnIfMissing('emoji_role_rules', 'message_id', 'TEXT');
+		db.exec('CREATE INDEX IF NOT EXISTS idx_emoji_role_rules_lookup ON emoji_role_rules(channel_id, message_id, emoji_id, workspace_id)');
+
+		// Cleanup migration: remove legacy global emoji-role rules that were not scoped
+		// to a dedicated role-gate message.
+		const cleanupInfo = db.prepare(`
+			DELETE FROM emoji_role_rules
+			WHERE channel_id IS NULL OR channel_id = '' OR message_id IS NULL OR message_id = ''
+		`).run();
+		if ((cleanupInfo.changes || 0) > 0) {
+			console.log(`[Database] Migration: removed ${cleanupInfo.changes} legacy global emoji-role rules`);
+		}
 	} catch (e) {
 		console.error('[Database] Migration error creating emoji_role_rules:', e);
 	}
@@ -207,6 +223,14 @@ function runMigrations() {
 			db.exec('ALTER TABLE messages ADD COLUMN is_encrypted INTEGER DEFAULT 0');
 			db.exec('ALTER TABLE messages ADD COLUMN encryption_iv TEXT');
 			console.log('[Database] Migration: added encryption columns to messages');
+		}
+		if (!cols.some(c => c.name === 'attachment_encryption_json')) {
+			db.exec('ALTER TABLE messages ADD COLUMN attachment_encryption_json TEXT');
+			console.log('[Database] Migration: added attachment_encryption_json to messages');
+		}
+		if (!cols.some(c => c.name === 'files_json')) {
+			db.exec('ALTER TABLE messages ADD COLUMN files_json TEXT');
+			console.log('[Database] Migration: added files_json to messages');
 		}
 	} catch (e) {
 		// Columns may already exist

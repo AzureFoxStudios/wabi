@@ -91,6 +91,13 @@ const VALID_TRANSITIONS: Record<ConnectionState, ConnectionState[]> = {
 // ============================================================================
 
 export const socket = writable<Socket | null>(null);
+export interface RoleDefinition {
+	roleName: string;
+	displayName: string;
+	priority: number;
+	color: string | null;
+	isHoisted: boolean;
+}
 export const channels = writable<Channel[]>([]);
 export const pinnedChannels = writable<Channel[]>([]);
 export const currentChannel = writable<string>('general');
@@ -111,6 +118,7 @@ export interface VoiceChannelParticipant {
 }
 export const activeVoiceChannel = writable<string | null>(null);
 export const voiceChannelMembers = writable<Record<string, VoiceChannelParticipant[]>>({});
+export const roleDefinitions = writable<RoleDefinition[]>([]);
 export { emojis };
 
 // Pagination stores (client-side archive-based)
@@ -541,6 +549,7 @@ class SocketManager {
 			excalidrawState: any;
 			emotes: any[];
 			emojis: Emoji[];
+			roleDefinitions?: RoleDefinition[];
 			voiceState?: Record<string, VoiceChannelParticipant[]>;
 			sessionId?: string;
 		}) => {
@@ -577,6 +586,7 @@ class SocketManager {
 
 			if (data.emotes) initEmotes(data.emotes);
 			if (data.emojis) emojis.set(data.emojis);
+			if (data.roleDefinitions) roleDefinitions.set(data.roleDefinitions);
 			this.applyVoiceState(data.voiceState);
 
 			const user = data.users.find(u => u.id === sock.id);
@@ -601,6 +611,11 @@ class SocketManager {
 			}
 
 			sock.emit('join-channel', 'general');
+			sock.emit('get-role-definitions');
+		});
+
+		sock.on('role-definitions-updated', (data: { roles: RoleDefinition[] }) => {
+			roleDefinitions.set(data.roles || []);
 		});
 
 		sock.on('voice-state', (data: { voiceState: Record<string, VoiceChannelParticipant[]> }) => {
@@ -1400,6 +1415,18 @@ export function createChannel(channelName: string, description?: string, channel
 	socketManager.emit('create-channel', { name: channelName, description: description || '', channelType });
 }
 
+export function createBreakoutRooms(parentChannelId: string, roomCount = 2, autoAssign = true): void {
+	socketManager.emit('create-breakout-rooms', { parentChannelId, roomCount, autoAssign });
+}
+
+export function closeBreakoutRooms(parentChannelId: string): void {
+	socketManager.emit('close-breakout-rooms', { parentChannelId });
+}
+
+export function moveUserToBreakout(parentChannelId: string, targetUserId: string, toChannelId: string): void {
+	socketManager.emit('move-user-to-breakout', { parentChannelId, targetUserId, toChannelId });
+}
+
 export function createThread(parentChannelId: string, name: string, options?: {
 	parentMessageId?: string;
 	privateThread?: boolean;
@@ -1418,7 +1445,7 @@ export function deleteChannel(channelId: string): void {
 	socketManager.emit('delete-channel', channelId);
 }
 
-export async function sendMessage(channelId: string, text: string, type: 'text' | 'gif' | 'file' | 'emoji' = 'text', options?: {
+export async function sendMessage(channelId: string, text: string, type: 'text' | 'gif' | 'file' | 'emoji' | 'role_gate' = 'text', options?: {
 	gifUrl?: string;
 	emojiUrl?: string;
 	emojiName?: string;
@@ -1426,8 +1453,15 @@ export async function sendMessage(channelId: string, text: string, type: 'text' 
 	fileName?: string;
 	fileSize?: number;
 	files?: FileAttachment[];
+	attachmentEncryption?: {
+		scheme: 'dm-e2ee-v1';
+		iv: string;
+		mimeType?: string;
+		originalSize?: number;
+	};
 	replyTo?: string;
 	isSpoiler?: boolean;
+	roleGatePersist?: boolean;
 }): Promise<void> {
 	const payload: Record<string, any> = { channelId, text, type, ...options };
 
@@ -1667,8 +1701,13 @@ export function removeReaction(channelId: string, messageId: string, emojiId: st
 	socketManager.emit('remove-reaction', { channelId, messageId, emojiId });
 }
 
-export function uploadEmoji(name: string, url: string, category: string): void {
-	socketManager.emit('upload-emoji', { name, url, category });
+export function uploadEmoji(
+	name: string,
+	url: string,
+	category: string,
+	options?: { displayName?: string; artist?: string; type?: 'emoji' | 'sticker' }
+): void {
+	socketManager.emit('upload-emoji', { name, url, category, ...options });
 }
 
 export function deleteEmoji(emojiName: string): void {

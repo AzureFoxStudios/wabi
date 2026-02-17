@@ -10,10 +10,12 @@
 	import EmojiPicker from './EmojiPicker.svelte';
 	import LinkPreview from './LinkPreview.svelte';
 	import { parseMessage } from '$lib/markdown';
+	import { resolveUserDisplayColor } from '$lib/accessibility';
 	import '$lib/prism-theme.css';
 	import { longpress } from '$lib/actions/longpress';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
+	import { decryptDMFileBuffer, isE2EAvailable } from '$lib/e2eManager';
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
@@ -62,7 +64,7 @@
 	}
 	function getUserColor(username: string): string {
 		const user = getUserByUsername(username);
-		return user?.color || 'var(--status-offline)';
+		return resolveUserDisplayColor(user?.roleColor, user?.color);
 	}
 
 	function getUsernameStyle(username: string, themeState: any): string {
@@ -155,17 +157,11 @@
 	async function handleDownload() {
 		if (!contextMenuMessage?.fileUrl || !contextMenuMessage?.fileName) return;
 		try {
-			const fileUrl = getFileUrl(contextMenuMessage.fileUrl);
-			const response = await fetch(fileUrl);
-			const blob = await response.blob();
-			const url = window.URL.createObjectURL(blob);
-			const link = document.createElement('a');
-			link.href = url;
-			link.download = contextMenuMessage.fileName;
-			document.body.appendChild(link);
-			link.click();
-			document.body.removeChild(link);
-			window.URL.revokeObjectURL(url);
+			await downloadAttachment(
+				contextMenuMessage.fileUrl,
+				contextMenuMessage.fileName,
+				contextMenuMessage.attachmentEncryption
+			);
 		} catch (error) {
 			console.error('Download failed:', error);
 		}
@@ -305,6 +301,65 @@
 		// Otherwise, prepend the resolved backend server URL
 		return `${getServerUrl()}${fileUrl}`;
 	}
+
+	function isEncryptedAttachment(attachment: { attachmentEncryption?: { scheme: 'dm-e2ee-v1'; iv: string } }): boolean {
+		return attachment?.attachmentEncryption?.scheme === 'dm-e2ee-v1' && !!attachment?.attachmentEncryption?.iv;
+	}
+
+	async function downloadAttachment(
+		fileUrl: string,
+		fileName: string,
+		attachmentEncryption?: { scheme: 'dm-e2ee-v1'; iv: string; mimeType?: string; originalSize?: number }
+	): Promise<void> {
+		const resolvedUrl = getFileUrl(fileUrl);
+		const response = await fetch(resolvedUrl);
+		if (!response.ok) throw new Error(`Failed to download attachment (${response.status})`);
+
+		if (!attachmentEncryption || attachmentEncryption.scheme !== 'dm-e2ee-v1') {
+			const blob = await response.blob();
+			const url = window.URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = fileName;
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+			window.URL.revokeObjectURL(url);
+			return;
+		}
+
+		const channel = $channels.find((ch) => ch.id === $currentChannel);
+		const otherDbUserId = channel?.type === 'dm' ? channel.otherUser?.dbUserId : undefined;
+		const authToken = localStorage.getItem('authToken');
+		if (!otherDbUserId || !authToken || !isE2EAvailable()) {
+			alert('Cannot decrypt this attachment in the current session.');
+			return;
+		}
+
+		const encryptedBuffer = await response.arrayBuffer();
+		const decrypted = await decryptDMFileBuffer(
+			encryptedBuffer,
+			attachmentEncryption.iv,
+			otherDbUserId,
+			authToken
+		);
+		if (!decrypted) {
+			alert('Failed to decrypt attachment.');
+			return;
+		}
+
+		const blob = new Blob([decrypted], {
+			type: attachmentEncryption.mimeType || 'application/octet-stream'
+		});
+		const url = window.URL.createObjectURL(blob);
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = fileName;
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+		window.URL.revokeObjectURL(url);
+	}
 	function getReplyToMessage(replyToId?: string): Message | undefined {
 		if (!replyToId) return undefined;
 		return messages.find(m => m.id === replyToId);
@@ -421,6 +476,16 @@
 			'sketch': '🎨',
 		};
 		return iconMap[ext] || '📎';
+	}
+
+	function parseRoleGateText(text: string): { title: string; description: string } {
+		const normalized = (text || '').trim();
+		if (!normalized) return { title: 'Role Gate', description: '' };
+		const [firstLine, ...rest] = normalized.split('\n');
+		return {
+			title: firstLine.trim() || 'Role Gate',
+			description: rest.join('\n').trim()
+		};
 	}
 	function isImage(fileName?: string): boolean {
 		if (!fileName) return false;
@@ -715,7 +780,17 @@
 				</div>
 			{:else}
 				<div class="message-content">
-					{#if message.type === 'gif' && message.gifUrl}
+					{#if message.type === 'role_gate'}
+						{@const gate = parseRoleGateText(message.text)}
+						<div class="role-gate-card">
+							<div class="role-gate-label">Role Gate</div>
+							<div class="role-gate-title">{gate.title}</div>
+							{#if gate.description}
+								<div class="role-gate-description">{gate.description}</div>
+							{/if}
+							<div class="role-gate-hint">React below to opt in/out of this access role.</div>
+						</div>
+					{:else if message.type === 'gif' && message.gifUrl}
 						<img src={message.gifUrl} alt="GIF" class="gif {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} />
 					{:else if message.type === 'emoji' && message.emojiUrl}
 						<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} />
@@ -724,7 +799,7 @@
 							<!-- Multiple files gallery -->
 							<div class="files-gallery" class:has-more={message.files.length > 4}>
 								{#each message.files.slice(0, 4) as fileAttachment, index}
-									{#if isImage(fileAttachment.fileName)}
+									{#if isImage(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
 										<!-- svelte-ignore a11y-click-events-have-key-events -->
 										<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 										<div class="gallery-file-item" class:last-item={index === 3 && message.files.length > 4}>
@@ -749,7 +824,7 @@
 												</div>
 											{/if}
 										</div>
-									{:else if isVideo(fileAttachment.fileName)}
+									{:else if isVideo(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
 										<!-- svelte-ignore a11y-media-has-caption -->
 										<!-- svelte-ignore a11y-click-events-have-key-events -->
 										<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
@@ -768,7 +843,7 @@
 												</div>
 											{/if}
 										</div>
-									{:else if isAudio(fileAttachment.fileName)}
+									{:else if isAudio(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
 										<!-- svelte-ignore a11y-media-has-caption -->
 										<div class="gallery-file-item audio-item" class:last-item={index === 3 && message.files.length > 4}>
 											<audio
@@ -786,18 +861,28 @@
 											{/if}
 										</div>
 									{:else}
-										<a href={getFileUrl(fileAttachment.fileUrl)} target="_blank" rel="noopener noreferrer" download={fileAttachment.fileName} class="gallery-file-item file-link">
+										<a
+											href={getFileUrl(fileAttachment.fileUrl)}
+											target="_blank"
+											rel="noopener noreferrer"
+											download={fileAttachment.fileName}
+											class="gallery-file-item file-link"
+											on:click|preventDefault={() => downloadAttachment(fileAttachment.fileUrl, fileAttachment.fileName, fileAttachment.attachmentEncryption)}
+										>
 											<div class="gallery-file-icon-large">{getFileIcon(fileAttachment.fileName)}</div>
 											<div class="gallery-file-overlay">
 												<span class="file-name-truncate">{fileAttachment.fileName}</span>
 												<span class="file-size-small">({formatFileSize(fileAttachment.fileSize)})</span>
+												{#if isEncryptedAttachment(fileAttachment)}
+													<span class="file-size-small">(encrypted)</span>
+												{/if}
 											</div>
 										</a>
 									{/if}
 								{/each}
 							</div>
 						{:else if message.fileUrl}
-							{#if isImage(message.fileName)}
+							{#if isImage(message.fileName) && !isEncryptedAttachment(message)}
 							<!-- Display image inline -->
 							<div class="image-container">
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -817,7 +902,7 @@
 									<span class="file-size">({formatFileSize(message.fileSize)})</span>
 								</a>
 							</div>
-						{:else if isVideo(message.fileName)}
+						{:else if isVideo(message.fileName) && !isEncryptedAttachment(message)}
 							<!-- Display video with player -->
 							<div class="video-container">
 								<!-- svelte-ignore a11y-media-has-caption -->
@@ -844,7 +929,7 @@
 									<span class="file-size">({formatFileSize(message.fileSize)})</span>
 								</a>
 							</div>
-						{:else if isAudio(message.fileName)}
+						{:else if isAudio(message.fileName) && !isEncryptedAttachment(message)}
 							<!-- Display audio with player -->
 							<div class="audio-container">
 								<!-- svelte-ignore a11y-media-has-caption -->
@@ -863,11 +948,18 @@
 							</div>
 						{:else}
 							<!-- Display other files as download link -->
-							<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="file-attachment">
+							<a
+								href={getFileUrl(message.fileUrl)}
+								target="_blank"
+								rel="noopener noreferrer"
+								download={message.fileName}
+								class="file-attachment"
+								on:click|preventDefault={() => message.fileUrl && message.fileName && downloadAttachment(message.fileUrl, message.fileName, message.attachmentEncryption)}
+							>
 								<span class="file-icon">{getFileIcon(message.fileName)}</span>
 								<div class="file-info">
 									<span class="file-name">{message.fileName}</span>
-									<span class="file-size">{formatFileSize(message.fileSize)}</span>
+									<span class="file-size">{formatFileSize(message.fileSize)}{message.attachmentEncryption ? ' (encrypted)' : ''}</span>
 								</div>
 							</a>
 						{/if}
@@ -1410,6 +1502,39 @@
 		word-wrap: break-word;
 		word-break: break-word;
 		overflow-wrap: break-word;
+	}
+
+	.role-gate-card {
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		padding: 0.65rem 0.75rem;
+		background: var(--bg-tertiary);
+	}
+
+	.role-gate-label {
+		font-size: 0.68rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--text-secondary);
+		margin-bottom: 0.3rem;
+	}
+
+	.role-gate-title {
+		font-size: 0.92rem;
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	.role-gate-description {
+		margin-top: 0.25rem;
+		white-space: pre-wrap;
+		color: var(--text-primary);
+	}
+
+	.role-gate-hint {
+		margin-top: 0.45rem;
+		font-size: 0.72rem;
+		color: var(--text-secondary);
 	}
 
 	.markdown-content :global(p) {

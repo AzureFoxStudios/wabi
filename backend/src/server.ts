@@ -1,7 +1,8 @@
 import { Server } from "socket.io";
 import { createServer } from "http";
-import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync, createReadStream } from "fs";
+import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync, createReadStream, openSync, closeSync, writeSync } from "fs";
 import { join, basename } from "path";
+import { createHmac, randomBytes, timingSafeEqual, createCipheriv, createDecipheriv, createHash } from "crypto";
 import { PluginLoader } from "./plugins/loader";
 import { getAllEmojis, getEmojiByName, addCustomEmoji, deleteCustomEmoji, type Emoji } from "./emojis";
 
@@ -92,6 +93,8 @@ interface Channel {
   type?: 'text' | 'voice' | 'dm' | 'group' | 'public' | 'thread_public' | 'thread_private';
   members?: string[]; // User IDs for DMs and group chats
   parentChannelId?: string;
+  isBreakout?: boolean;
+  breakoutIndex?: number;
   parentMessageId?: string;
   threadArchived?: boolean;
   threadLocked?: boolean;
@@ -122,7 +125,7 @@ const channelMessages = new Map<string, Array<{
   userId: string;
   text: string;
   timestamp: number;
-  type: 'text' | 'gif' | 'file';
+  type: 'text' | 'gif' | 'file' | 'emoji' | 'role_gate';
   gifUrl?: string;
   fileUrl?: string;
   fileName?: string;
@@ -294,6 +297,59 @@ function emitVoiceChannelState(channelId: string): void {
 	emitToChannel(channelId, "voice-channel-state", {
 		channelId,
 		members: getVoiceChannelMembers(channelId)
+	});
+}
+
+function getBreakoutChannelsForParent(parentChannelId: string): Channel[] {
+	return Array.from(channels.values())
+		.filter(channel => channel.type === 'voice' && channel.parentChannelId === parentChannelId)
+		.sort((a, b) => (a.breakoutIndex || 0) - (b.breakoutIndex || 0));
+}
+
+function resolveStableUserIdFromAny(rawId: string): string | null {
+	if (!rawId) return null;
+	if (rawId.startsWith('user-')) return rawId;
+	const user = users.get(rawId);
+	if (user?.dbUserId) return `user-${user.dbUserId}`;
+	if (users.has(rawId)) return rawId;
+	return null;
+}
+
+function moveVoiceParticipant(stableUserId: string, fromChannelId: string, toChannelId: string): void {
+	if (fromChannelId === toChannelId) return;
+	const fromParticipants = voiceChannelParticipants.get(fromChannelId);
+	if (!fromParticipants || !fromParticipants.has(stableUserId)) return;
+
+	let toParticipants = voiceChannelParticipants.get(toChannelId);
+	if (!toParticipants) {
+		toParticipants = new Set<string>();
+		voiceChannelParticipants.set(toChannelId, toParticipants);
+	}
+	if (toParticipants.has(stableUserId)) return;
+
+	const memberUser = findUserByStableId(stableUserId);
+	const memberSocketId = resolveSocketId(stableUserId) || stableUserId;
+
+	fromParticipants.delete(stableUserId);
+	if (fromParticipants.size === 0) {
+		voiceChannelParticipants.delete(fromChannelId);
+	}
+
+	toParticipants.add(stableUserId);
+
+	emitVoiceChannelState(fromChannelId);
+	emitVoiceChannelState(toChannelId);
+
+	emitToChannel(fromChannelId, "voice-channel-user-left", {
+		channelId: fromChannelId,
+		userId: stableUserId,
+		socketId: memberSocketId
+	});
+	emitToChannel(toChannelId, "voice-channel-user-joined", {
+		channelId: toChannelId,
+		userId: stableUserId,
+		socketId: memberSocketId,
+		username: memberUser?.username
 	});
 }
 
@@ -597,6 +653,182 @@ if (!existsSync(EMOTES_DIR)) {
 const UPLOADS_DIR = '/app/uploads';
 if (!existsSync(UPLOADS_DIR)) {
   mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+const RESUMABLE_UPLOADS_DIR = join(UPLOADS_DIR, '.resumable');
+if (!existsSync(RESUMABLE_UPLOADS_DIR)) {
+  mkdirSync(RESUMABLE_UPLOADS_DIR, { recursive: true });
+}
+
+interface ResumableUploadMeta {
+  uploadId: string;
+  ownerKey: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  channelId: string;
+  createdAt: number;
+  updatedAt: number;
+  status: 'uploading' | 'completed';
+  fileUrl?: string;
+}
+
+interface AttachmentEncryptionMeta {
+  scheme: 'dm-e2ee-v1';
+  iv: string;
+  mimeType?: string;
+  originalSize?: number;
+}
+
+function createUploadId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+const AT_REST_MAGIC = Buffer.from('WABIENC1');
+const FILE_ENCRYPTION_SECRET = process.env.FILE_ENCRYPTION_KEY || '';
+const FILE_ENCRYPTION_KEY = FILE_ENCRYPTION_SECRET
+  ? createHash('sha256').update(FILE_ENCRYPTION_SECRET).digest()
+  : null;
+const UPLOAD_TOKEN_SECRET = process.env.UPLOAD_TOKEN_SECRET || process.env.JWT_SECRET || process.env.SESSION_SECRET || 'wabi-upload-secret-change-me';
+const UPLOAD_TOKEN_TTL_MS = 15 * 60 * 1000;
+
+function base64UrlEncodeBuffer(buf: Buffer): string {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function base64UrlDecodeToBuffer(input: string): Buffer {
+  const padded = input.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((input.length + 3) % 4);
+  return Buffer.from(padded, 'base64');
+}
+
+function signUploadToken(uploadId: string, ownerKey: string): string {
+  const payload = {
+    uploadId,
+    ownerKey,
+    exp: Date.now() + UPLOAD_TOKEN_TTL_MS,
+    nonce: randomBytes(6).toString('hex')
+  };
+  const payloadB64 = base64UrlEncodeBuffer(Buffer.from(JSON.stringify(payload)));
+  const sig = createHmac('sha256', UPLOAD_TOKEN_SECRET).update(payloadB64).digest();
+  return `${payloadB64}.${base64UrlEncodeBuffer(sig)}`;
+}
+
+function verifyUploadToken(token: string, uploadId: string, ownerKey: string): boolean {
+  if (!token || token.indexOf('.') === -1) return false;
+  const [payloadB64, sigB64] = token.split('.', 2);
+  if (!payloadB64 || !sigB64) return false;
+  try {
+    const expectedSig = createHmac('sha256', UPLOAD_TOKEN_SECRET).update(payloadB64).digest();
+    const providedSig = base64UrlDecodeToBuffer(sigB64);
+    if (providedSig.length !== expectedSig.length || !timingSafeEqual(providedSig, expectedSig)) {
+      return false;
+    }
+    const payload = JSON.parse(base64UrlDecodeToBuffer(payloadB64).toString('utf8')) as {
+      uploadId: string;
+      ownerKey: string;
+      exp: number;
+    };
+    if (payload.uploadId !== uploadId) return false;
+    if (payload.ownerKey !== ownerKey) return false;
+    if (!payload.exp || payload.exp < Date.now()) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function maybeEncryptForAtRest(plain: Buffer): Buffer {
+  if (!FILE_ENCRYPTION_KEY) return plain;
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', FILE_ENCRYPTION_KEY, iv);
+  const encrypted = Buffer.concat([cipher.update(plain), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([AT_REST_MAGIC, iv, tag, encrypted]);
+}
+
+function maybeDecryptFromAtRest(buffer: Buffer): Buffer {
+  if (!buffer.slice(0, AT_REST_MAGIC.length).equals(AT_REST_MAGIC)) {
+    return buffer;
+  }
+  if (!FILE_ENCRYPTION_KEY) {
+    throw new Error('Encrypted upload payload found but FILE_ENCRYPTION_KEY is not configured');
+  }
+  const headerEnd = AT_REST_MAGIC.length + 12 + 16;
+  if (buffer.length < headerEnd) {
+    throw new Error('Invalid encrypted upload payload');
+  }
+  const iv = buffer.slice(AT_REST_MAGIC.length, AT_REST_MAGIC.length + 12);
+  const tag = buffer.slice(AT_REST_MAGIC.length + 12, headerEnd);
+  const ciphertext = buffer.slice(headerEnd);
+  const decipher = createDecipheriv('aes-256-gcm', FILE_ENCRYPTION_KEY, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+}
+
+function writeUploadFile(filePath: string, payload: Buffer): void {
+  writeFileSync(filePath, maybeEncryptForAtRest(payload));
+}
+
+function sanitizeUploadFileName(fileName: string): string {
+  const base = basename(fileName || 'upload.bin');
+  return base.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+}
+
+function getUploadOwnerKey(userId: number | null, guestSessionId: string | null): string | null {
+  if (userId) return `user:${userId}`;
+  if (guestSessionId && sessions.has(guestSessionId)) return `guest:${guestSessionId}`;
+  return null;
+}
+
+function getResumableMetaPath(uploadId: string): string {
+  return join(RESUMABLE_UPLOADS_DIR, `${uploadId}.json`);
+}
+
+function getResumablePartPath(uploadId: string): string {
+  return join(RESUMABLE_UPLOADS_DIR, `${uploadId}.part`);
+}
+
+function loadResumableMeta(uploadId: string): ResumableUploadMeta | null {
+  const metaPath = getResumableMetaPath(uploadId);
+  if (!existsSync(metaPath)) return null;
+  try {
+    const raw = readFileSync(metaPath, 'utf8');
+    return JSON.parse(raw) as ResumableUploadMeta;
+  } catch {
+    return null;
+  }
+}
+
+function saveResumableMeta(meta: ResumableUploadMeta): void {
+  const metaPath = getResumableMetaPath(meta.uploadId);
+  writeFileSync(metaPath, JSON.stringify(meta));
+}
+
+function getUploadedBytes(uploadId: string): number {
+  const partPath = getResumablePartPath(uploadId);
+  if (!existsSync(partPath)) return 0;
+  try {
+    return statSync(partPath).size;
+  } catch {
+    return 0;
+  }
+}
+
+function readRequestBuffer(req: any): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', (err: Error) => reject(err));
+  });
+}
+
+function getUploadTokenFromRequest(req: any, url: URL): string {
+  const headerToken = req.headers['x-upload-token'];
+  if (typeof headerToken === 'string' && headerToken.trim()) {
+    return headerToken.trim();
+  }
+  const queryToken = url.searchParams.get('uploadToken');
+  return queryToken?.trim() || '';
 }
 
 // Create HTTP server using Node.js http module (Bun compatible)
@@ -945,6 +1177,313 @@ server.on('request', async (req, res) => {
   }
 
   // File upload endpoint
+  if (url.pathname === "/api/upload/resumable/init" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    const guestSessionId = getGuestSessionId(req);
+    const ownerKey = getUploadOwnerKey(userId, guestSessionId);
+    if (!ownerKey) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    try {
+      const payload = JSON.parse((await readRequestBuffer(req)).toString() || '{}') as {
+        uploadId?: string;
+        fileName?: string;
+        fileSize?: number;
+        mimeType?: string;
+        channelId?: string;
+      };
+
+      const fileName = sanitizeUploadFileName(payload.fileName || '');
+      const fileSize = Number(payload.fileSize || 0);
+      const mimeType = (payload.mimeType || 'application/octet-stream').slice(0, 100);
+      const channelId = (payload.channelId || '').slice(0, 100);
+
+      if (!fileName || !fileSize || fileSize <= 0 || !Number.isFinite(fileSize)) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Invalid file metadata' }));
+        return;
+      }
+
+      let uploadId = (payload.uploadId || '').trim();
+      let meta: ResumableUploadMeta | null = null;
+
+      if (uploadId) {
+        meta = loadResumableMeta(uploadId);
+        if (!meta || meta.ownerKey !== ownerKey || meta.fileSize !== fileSize || meta.fileName !== fileName) {
+          uploadId = '';
+          meta = null;
+        }
+      }
+
+      if (!uploadId) {
+        uploadId = createUploadId();
+        meta = {
+          uploadId,
+          ownerKey,
+          fileName,
+          fileSize,
+          mimeType,
+          channelId,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          status: 'uploading'
+        };
+        saveResumableMeta(meta);
+      }
+
+      const uploadedBytes = getUploadedBytes(uploadId);
+      const completed = !!meta?.fileUrl || (meta?.status === 'completed' && typeof meta.fileUrl === 'string');
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        uploadId,
+        uploadedBytes,
+        completed,
+        fileUrl: meta?.fileUrl || null,
+        uploadToken: signUploadToken(uploadId, ownerKey)
+      }));
+    } catch (error) {
+      console.error('Resumable upload init error:', error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Failed to initialize resumable upload' }));
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/upload/resumable/status" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    const guestSessionId = getGuestSessionId(req);
+    const ownerKey = getUploadOwnerKey(userId, guestSessionId);
+    if (!ownerKey) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    const uploadId = (url.searchParams.get('uploadId') || '').trim();
+    if (!uploadId) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'uploadId is required' }));
+      return;
+    }
+
+    const meta = loadResumableMeta(uploadId);
+    if (!meta || meta.ownerKey !== ownerKey) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Upload session not found' }));
+      return;
+    }
+    const uploadToken = getUploadTokenFromRequest(req, url);
+    if (!verifyUploadToken(uploadToken, uploadId, ownerKey)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Invalid or expired upload token' }));
+      return;
+    }
+
+    const uploadedBytes = getUploadedBytes(uploadId);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      success: true,
+      uploadId,
+      uploadedBytes,
+      fileSize: meta.fileSize,
+      completed: meta.status === 'completed',
+      fileUrl: meta.fileUrl || null,
+      uploadToken: signUploadToken(uploadId, ownerKey)
+    }));
+    return;
+  }
+
+  if (url.pathname === "/api/upload/resumable/chunk" && req.method === "PUT") {
+    const userId = getAuthenticatedUserId(req);
+    const guestSessionId = getGuestSessionId(req);
+    const ownerKey = getUploadOwnerKey(userId, guestSessionId);
+    if (!ownerKey) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    const uploadId = (url.searchParams.get('uploadId') || '').trim();
+    const offset = Number(url.searchParams.get('offset') || '0');
+    if (!uploadId || !Number.isFinite(offset) || offset < 0) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Invalid uploadId or offset' }));
+      return;
+    }
+
+    const meta = loadResumableMeta(uploadId);
+    if (!meta || meta.ownerKey !== ownerKey) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Upload session not found' }));
+      return;
+    }
+    const uploadToken = getUploadTokenFromRequest(req, url);
+    if (!verifyUploadToken(uploadToken, uploadId, ownerKey)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Invalid or expired upload token' }));
+      return;
+    }
+    if (meta.status === 'completed') {
+      res.writeHead(409, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Upload already completed', fileUrl: meta.fileUrl || null }));
+      return;
+    }
+
+    try {
+      const chunk = await readRequestBuffer(req);
+      if (!chunk.length) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Empty chunk' }));
+        return;
+      }
+
+      const currentSize = getUploadedBytes(uploadId);
+      if (offset > currentSize) {
+        res.writeHead(409, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: false,
+          error: 'Offset mismatch',
+          expectedOffset: currentSize,
+          uploadToken: signUploadToken(uploadId, ownerKey)
+        }));
+        return;
+      }
+
+      if (offset < currentSize) {
+        const alreadyCovered = (offset + chunk.length) <= currentSize;
+        if (alreadyCovered) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: true, uploadedBytes: currentSize, uploadToken: signUploadToken(uploadId, ownerKey) }));
+          return;
+        }
+        res.writeHead(409, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: false,
+          error: 'Overlapping chunk',
+          expectedOffset: currentSize,
+          uploadToken: signUploadToken(uploadId, ownerKey)
+        }));
+        return;
+      }
+
+      if ((currentSize + chunk.length) > meta.fileSize) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Chunk exceeds declared file size' }));
+        return;
+      }
+
+      const partPath = getResumablePartPath(uploadId);
+      const fd = openSync(partPath, 'a+');
+      try {
+        writeSync(fd, chunk, 0, chunk.length, offset);
+      } finally {
+        closeSync(fd);
+      }
+
+      meta.updatedAt = Date.now();
+      saveResumableMeta(meta);
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        uploadedBytes: currentSize + chunk.length,
+        uploadToken: signUploadToken(uploadId, ownerKey)
+      }));
+    } catch (error) {
+      console.error('Resumable upload chunk error:', error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Failed to upload chunk' }));
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/upload/resumable/complete" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    const guestSessionId = getGuestSessionId(req);
+    const ownerKey = getUploadOwnerKey(userId, guestSessionId);
+    if (!ownerKey) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    try {
+      const payload = JSON.parse((await readRequestBuffer(req)).toString() || '{}') as { uploadId?: string; uploadToken?: string };
+      const uploadId = (payload.uploadId || '').trim();
+      if (!uploadId) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'uploadId is required' }));
+        return;
+      }
+
+      const meta = loadResumableMeta(uploadId);
+      if (!meta || meta.ownerKey !== ownerKey) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Upload session not found' }));
+        return;
+      }
+      if (!verifyUploadToken((payload.uploadToken || '').trim(), uploadId, ownerKey)) {
+        res.writeHead(403, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Invalid or expired upload token' }));
+        return;
+      }
+
+      if (meta.status === 'completed' && meta.fileUrl) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          fileUrl: meta.fileUrl,
+          fileName: meta.fileName,
+          fileSize: meta.fileSize
+        }));
+        return;
+      }
+
+      const uploadedBytes = getUploadedBytes(uploadId);
+      if (uploadedBytes !== meta.fileSize) {
+        res.writeHead(409, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: false,
+          error: 'Upload incomplete',
+          uploadedBytes,
+          expectedBytes: meta.fileSize
+        }));
+        return;
+      }
+
+      const fileId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${meta.fileName}`;
+      const filePath = join(UPLOADS_DIR, fileId);
+      const partPath = getResumablePartPath(uploadId);
+      const finalPlain = readFileSync(partPath);
+      writeUploadFile(filePath, finalPlain);
+      unlinkSync(partPath);
+
+      meta.status = 'completed';
+      meta.fileUrl = `/uploads/${fileId}`;
+      meta.updatedAt = Date.now();
+      saveResumableMeta(meta);
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        fileUrl: meta.fileUrl,
+        fileName: meta.fileName,
+        fileSize: meta.fileSize
+      }));
+    } catch (error) {
+      console.error('Resumable upload complete error:', error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Failed to finalize upload' }));
+    }
+    return;
+  }
+
+  // File upload endpoint
   if (url.pathname === "/api/upload" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
     const guestSessionId = getGuestSessionId(req);
@@ -983,7 +1522,7 @@ server.on('request', async (req, res) => {
           }
           // Convert base64 to buffer and save
           const fileBuffer = Buffer.from(fileData.split(',')[1], 'base64');
-          writeFileSync(filePath, fileBuffer);
+          writeUploadFile(filePath, fileBuffer);
 
           const fileUrl = `/uploads/${fileId}`;
 
@@ -1033,7 +1572,7 @@ server.on('request', async (req, res) => {
             if (!existsSync(UPLOADS_DIR)) {
               mkdirSync(UPLOADS_DIR, { recursive: true });
             }
-            writeFileSync(filePath, fileData);
+            writeUploadFile(filePath, fileData);
 
             const fileUrl = `/uploads/${fileId}`;
 
@@ -1714,6 +2253,8 @@ server.on('request', async (req, res) => {
         let fileName = '';
         let fileData: Buffer | null = null;
         let emojiName = '';
+        let displayName = '';
+        let artist = '';
         let category = 'custom';
         let emojiType: 'emoji' | 'sticker' = 'emoji';
 
@@ -1734,6 +2275,8 @@ server.on('request', async (req, res) => {
               const value = part.substring(dataStart, dataEnd);
 
               if (fieldName === 'name') emojiName = value;
+              if (fieldName === 'displayName') displayName = value;
+              if (fieldName === 'artist') artist = value;
               if (fieldName === 'category') category = value;
               if (fieldName === 'type' && (value === 'emoji' || value === 'sticker')) emojiType = value;
             }
@@ -1766,10 +2309,13 @@ server.on('request', async (req, res) => {
           const newEmoji: Emoji = {
             id: emojiName,
             name: emojiName,
+            displayName: displayName.trim() || undefined,
+            artist: artist.trim() || undefined,
             url: emojiUrl,
             category,
             isCustom: true,
-            type: emojiType
+            type: emojiType,
+            source: 'custom'
           };
 
           addCustomEmoji(newEmoji);
@@ -1982,8 +2528,12 @@ server.on('request', async (req, res) => {
         let deletedCount = 0;
         for (const file of files) {
           try {
-            unlinkSync(join(UPLOADS_DIR, file));
-            deletedCount++;
+            const filePath = join(UPLOADS_DIR, file);
+            const fileStats = statSync(filePath);
+            if (fileStats.isFile()) {
+              unlinkSync(filePath);
+              deletedCount++;
+            }
           } catch (err) {
             console.error(`Failed to delete file ${file}:`, err);
           }
@@ -2036,14 +2586,31 @@ server.on('request', async (req, res) => {
         'zip': 'application/zip'
       };
       const contentType = contentTypes[ext || ''] || 'application/octet-stream';
-      const etag = `"${stat.size}-${Math.floor(stat.mtimeMs)}"`;
+      let encryptedAtRest = false;
+      let decryptedBuffer: Buffer | null = null;
+      let responseSize = stat.size;
+      try {
+        const head = readFileSync(filePath);
+        if (head.slice(0, AT_REST_MAGIC.length).equals(AT_REST_MAGIC)) {
+          encryptedAtRest = true;
+          decryptedBuffer = maybeDecryptFromAtRest(head);
+          responseSize = decryptedBuffer.length;
+        }
+      } catch (error) {
+        console.error('Upload read/decrypt error:', error);
+        res.writeHead(500);
+        res.end("Failed to read upload");
+        return;
+      }
+
+      const etag = `"${responseSize}-${Math.floor(stat.mtimeMs)}"`;
 
       const headers: Record<string, string | number> = {
         'Content-Type': contentType,
         'Cache-Control': 'public, max-age=31536000, immutable',
         'ETag': etag,
         'Last-Modified': stat.mtime.toUTCString(),
-        'Accept-Ranges': 'bytes',
+        'Accept-Ranges': encryptedAtRest ? 'none' : 'bytes',
         'X-Content-Type-Options': 'nosniff',
       };
 
@@ -2063,17 +2630,17 @@ server.on('request', async (req, res) => {
 
       // Range request support (video seeking, download resume)
       const rangeHeader = req.headers.range;
-      if (rangeHeader) {
+      if (rangeHeader && !encryptedAtRest) {
         const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
         if (match) {
           const start = parseInt(match[1], 10);
-          const end = match[2] ? parseInt(match[2], 10) : stat.size - 1;
-          if (start >= stat.size || end >= stat.size || start > end) {
-            res.writeHead(416, { 'Content-Range': `bytes */${stat.size}` });
+          const end = match[2] ? parseInt(match[2], 10) : responseSize - 1;
+          if (start >= responseSize || end >= responseSize || start > end) {
+            res.writeHead(416, { 'Content-Range': `bytes */${responseSize}` });
             res.end();
             return;
           }
-          headers['Content-Range'] = `bytes ${start}-${end}/${stat.size}`;
+          headers['Content-Range'] = `bytes ${start}-${end}/${responseSize}`;
           headers['Content-Length'] = end - start + 1;
           res.writeHead(206, headers);
           createReadStream(filePath, { start, end }).pipe(res);
@@ -2081,10 +2648,14 @@ server.on('request', async (req, res) => {
         }
       }
 
-      // Full response with streaming
-      headers['Content-Length'] = stat.size;
+      // Full response
+      headers['Content-Length'] = responseSize;
       res.writeHead(200, headers);
-      createReadStream(filePath).pipe(res);
+      if (encryptedAtRest && decryptedBuffer) {
+        res.end(decryptedBuffer);
+      } else {
+        createReadStream(filePath).pipe(res);
+      }
       return;
     } else {
       res.writeHead(404);
@@ -2192,6 +2763,8 @@ try {
       createdAt: ch.created_at,
       type: normalizeChannelType(ch.channel_type),
       parentChannelId: ch.parent_channel_id || undefined,
+      isBreakout: ch.is_breakout === 1,
+      breakoutIndex: ch.breakout_index || undefined,
       parentMessageId: ch.parent_message_id || undefined,
       threadArchived: ch.thread_archived === 1,
       threadLocked: ch.thread_locked === 1,
@@ -2348,6 +2921,8 @@ function loadUserChannelsFromDB(stableUserId: string): Channel[] {
           type: normalizeChannelType(dbChannel.channel_type),
           members: memberIds,
           parentChannelId: dbChannel.parent_channel_id || undefined,
+          isBreakout: dbChannel.is_breakout === 1,
+          breakoutIndex: dbChannel.breakout_index || undefined,
           parentMessageId: dbChannel.parent_message_id || undefined,
           threadArchived: dbChannel.thread_archived === 1,
           threadLocked: dbChannel.thread_locked === 1,
@@ -2593,6 +3168,11 @@ io.on("connection", (socket) => {
     return myPriority >= requiredPriority;
   };
 
+  const canManageVoiceBreakouts = (): boolean => {
+    const highestRole = getSocketHighestRole();
+    return ['owner', 'admin', 'mod'].includes(highestRole);
+  };
+
   const canAccessChannel = (channel: Channel): boolean => {
     // Public channels are accessible based on minimum role gate
     if (!channel.members || channel.members.length === 0) {
@@ -2645,12 +3225,16 @@ io.on("connection", (socket) => {
 
   const getEmojiRoleRules = () => {
     return db.prepare(`
-      SELECT id, emoji_id, role_name, remove_on_unreact, enabled
+      SELECT id, channel_id, message_id, emoji_id, role_name, remove_on_unreact, enabled
       FROM emoji_role_rules
       WHERE workspace_id = ?
+        AND channel_id IS NOT NULL AND channel_id != ''
+        AND message_id IS NOT NULL AND message_id != ''
       ORDER BY id DESC
     `).all('default-workspace') as Array<{
       id: number;
+      channel_id: string | null;
+      message_id: string | null;
       emoji_id: string;
       role_name: string;
       remove_on_unreact: number;
@@ -2661,6 +3245,8 @@ io.on("connection", (socket) => {
   const emitEmojiRoleRules = (targetSocketId?: string) => {
     const rules = getEmojiRoleRules().map(rule => ({
       id: rule.id,
+      channelId: rule.channel_id || '',
+      messageId: rule.message_id || '',
       emojiId: rule.emoji_id,
       roleName: rule.role_name,
       removeOnUnreact: rule.remove_on_unreact === 1,
@@ -2673,13 +3259,23 @@ io.on("connection", (socket) => {
     }
   };
 
-  const applyEmojiRoleRules = (targetDbUserId: number | undefined, emojiId: string, removed: boolean) => {
+  const applyEmojiRoleRules = (
+    targetDbUserId: number | undefined,
+    channelId: string,
+    messageId: string,
+    emojiId: string,
+    removed: boolean
+  ) => {
     if (!targetDbUserId) return;
+    const channelMessagesList = channelMessages.get(channelId) || [];
+    const targetMessage = channelMessagesList.find(msg => msg.id === messageId);
+    if (!targetMessage || targetMessage.type !== 'role_gate') return;
+
     const rules = db.prepare(`
       SELECT role_name, remove_on_unreact
       FROM emoji_role_rules
-      WHERE workspace_id = ? AND enabled = 1 AND emoji_id = ?
-    `).all('default-workspace', emojiId) as Array<{ role_name: string; remove_on_unreact: number }>;
+      WHERE workspace_id = ? AND enabled = 1 AND channel_id = ? AND message_id = ? AND emoji_id = ?
+    `).all('default-workspace', channelId, messageId, emojiId) as Array<{ role_name: string; remove_on_unreact: number }>;
 
     if (rules.length === 0) return;
 
@@ -3175,7 +3771,7 @@ io.on("connection", (socket) => {
   // Handle chat messages
   socket.on("message", (data: {
     text: string;
-    type: 'text' | 'gif' | 'file' | 'emoji';
+    type: 'text' | 'gif' | 'file' | 'emoji' | 'role_gate';
     channelId: string;
     gifUrl?: string;
     emojiUrl?: string;
@@ -3183,11 +3779,13 @@ io.on("connection", (socket) => {
     fileUrl?: string;
     fileName?: string;
     fileSize?: number;
-    files?: { fileUrl: string; fileName: string; fileSize: number }[];
+    files?: { fileUrl: string; fileName: string; fileSize: number; attachmentEncryption?: AttachmentEncryptionMeta }[];
+    attachmentEncryption?: AttachmentEncryptionMeta;
     replyTo?: string;
     isSpoiler?: boolean;
     encrypted?: boolean;
     iv?: string;
+    roleGatePersist?: boolean;
   }) => {
     const user = users.get(socket.id);
     if (!user) return;
@@ -3227,6 +3825,22 @@ io.on("connection", (socket) => {
       return;
     }
 
+    if (data.type === 'role_gate') {
+      if (!user.dbUserId) {
+        socket.emit("channel-error", "Only registered admins can create role-gate posts");
+        return;
+      }
+      const myRoleInfo = getUserRoleInfo(user.dbUserId);
+      if (!['owner', 'admin'].includes(myRoleInfo.highestRole)) {
+        socket.emit("channel-error", "Only owner/admin can create role-gate posts");
+        return;
+      }
+      if (!data.text || !data.text.trim()) {
+        socket.emit("channel-error", "Role-gate post content cannot be empty");
+        return;
+      }
+    }
+
     // Calculate deletion time: use channel auto-delete setting, or default to 1 day
     const DEFAULT_SERVER_EXPIRATION = 24 * 60 * 60 * 1000; // 1 day in milliseconds
     const deletionTime = channel.autoDeleteAfter
@@ -3255,6 +3869,7 @@ io.on("connection", (socket) => {
     if (data.fileName) message.fileName = data.fileName;
     if (data.fileSize) message.fileSize = data.fileSize;
     if (data.files) message.files = data.files;
+    if (data.attachmentEncryption) message.attachmentEncryption = data.attachmentEncryption;
     if (data.replyTo) message.replyTo = data.replyTo;
     if (data.isSpoiler) message.isSpoiler = data.isSpoiler;
     if (data.encrypted) message.encrypted = true;
@@ -3294,30 +3909,35 @@ io.on("connection", (socket) => {
     const deletionDuration = channel.autoDeleteAfter || '24h';
     scheduleMessageDeletion(data.channelId, message.id, deletionDuration);
 
-    // Persist message to database with stable sender ID
-    try {
-      messageRepository.create({
-        message_id: message.id,
-        channel_id: data.channelId,
-        sender_id: senderStableId,
-        sender_username: user.username,
-        sender_color: user.color,
-        message_type: data.type,
-        content: data.text,
-        gif_url: data.gifUrl,
+    const shouldPersistMessage = !(data.type === 'role_gate' && data.roleGatePersist === false);
+    if (shouldPersistMessage) {
+      // Persist message to database with stable sender ID
+      try {
+        messageRepository.create({
+          message_id: message.id,
+          channel_id: data.channelId,
+          sender_id: senderStableId,
+          sender_username: user.username,
+          sender_color: user.color,
+          message_type: data.type,
+          content: data.text,
+          gif_url: data.gifUrl,
         file_url: data.fileUrl,
         file_name: data.fileName,
         file_size: data.fileSize,
+        files_json: data.files ? JSON.stringify(data.files) : undefined,
+        attachment_encryption_json: data.attachmentEncryption ? JSON.stringify(data.attachmentEncryption) : undefined,
         reply_to_id: data.replyTo,
-        is_spoiler: data.isSpoiler ? 1 : 0,
-        is_pinned: 0,
-        is_edited: 0,
-        is_encrypted: data.encrypted ? 1 : 0,
-        encryption_iv: data.iv || undefined,
-        created_at: message.timestamp
-      });
-    } catch (dbError) {
-      console.error('[MessageRepository] Failed to persist message:', dbError);
+          is_spoiler: data.isSpoiler ? 1 : 0,
+          is_pinned: 0,
+          is_edited: 0,
+          is_encrypted: data.encrypted ? 1 : 0,
+          encryption_iv: data.iv || undefined,
+          created_at: message.timestamp
+        });
+      } catch (dbError) {
+        console.error('[MessageRepository] Failed to persist message:', dbError);
+      }
     }
 
     pluginLoader.triggerOnMessage(data.channelId, message).catch((error) => {
@@ -3545,7 +4165,7 @@ io.on("connection", (socket) => {
 
     if (!hasStableReaction && !hasLegacySocketReaction) {
       reactionUserIds.push(stableReactionUserId);
-      applyEmojiRoleRules(user.dbUserId, data.emojiId, false);
+      applyEmojiRoleRules(user.dbUserId, data.channelId, data.messageId, data.emojiId, false);
     } else if (!hasStableReaction && hasLegacySocketReaction) {
       message.reactions[data.emojiId] = reactionUserIds.filter(id => id !== user.id);
       message.reactions[data.emojiId].push(stableReactionUserId);
@@ -3589,7 +4209,7 @@ io.on("connection", (socket) => {
         id => id !== stableReactionUserId && id !== user.id
       );
       if (hadReaction) {
-        applyEmojiRoleRules(user.dbUserId, data.emojiId, true);
+        applyEmojiRoleRules(user.dbUserId, data.channelId, data.messageId, data.emojiId, true);
       }
 
       // Remove emoji key if no users left
@@ -3619,13 +4239,24 @@ io.on("connection", (socket) => {
     socket.emit("emojis-list", getAllEmojis());
   });
 
-  socket.on("upload-emoji", (data: { name: string; url: string; category: string }) => {
+  socket.on("upload-emoji", (data: {
+    name: string;
+    url: string;
+    category: string;
+    displayName?: string;
+    artist?: string;
+    type?: 'emoji' | 'sticker';
+  }) => {
     const emoji: Emoji = {
       id: `custom_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       name: data.name,
+      displayName: data.displayName?.trim() || undefined,
+      artist: data.artist?.trim() || undefined,
       url: data.url,
       category: data.category,
-      isCustom: true
+      isCustom: true,
+      type: data.type === 'sticker' ? 'sticker' : 'emoji',
+      source: 'custom'
     };
 
     addCustomEmoji(emoji);
@@ -3905,7 +4536,17 @@ io.on("connection", (socket) => {
   });
 
   // Channel management
-  socket.on("create-channel", (data: string | { name: string; description?: string; channelType?: 'text' | 'voice'; type?: 'text' | 'voice'; channel_type?: 'text' | 'voice'; minRole?: string }) => {
+  socket.on("create-channel", (data: string | {
+    name: string;
+    description?: string;
+    channelType?: 'text' | 'voice';
+    type?: 'text' | 'voice';
+    channel_type?: 'text' | 'voice';
+    minRole?: string;
+    parentChannelId?: string;
+    isBreakout?: boolean;
+    breakoutIndex?: number;
+  }) => {
     // Backward compat: accept plain string or object
     const channelName = typeof data === 'string' ? data : data.name;
     const channelDescription = typeof data === 'string' ? '' : (data.description || '');
@@ -3935,6 +4576,9 @@ io.on("connection", (socket) => {
       minRole: 'guest',
       createdAt: Date.now(),
       type: channelType,
+      parentChannelId: typeof data === 'string' ? undefined : data.parentChannelId,
+      isBreakout: typeof data === 'string' ? false : data.isBreakout === true,
+      breakoutIndex: typeof data === 'string' ? undefined : data.breakoutIndex,
       persistMessages: channelType === 'voice' ? false : true
     };
 
@@ -3952,6 +4596,9 @@ io.on("connection", (socket) => {
         min_role: 'guest',
         created_at: channel.createdAt,
         created_by: getStableUserId(socket),
+        parent_channel_id: channel.parentChannelId || null,
+        is_breakout: channel.isBreakout ? 1 : 0,
+        breakout_index: channel.breakoutIndex || null,
         persist_messages: channel.persistMessages ? 1 : 0
       });
     } catch (dbError) {
@@ -3972,6 +4619,175 @@ io.on("connection", (socket) => {
     });
 
     if (ENABLE_LOGGING) console.log(`Channel created: ${channelName}`);
+  });
+
+  socket.on("create-breakout-rooms", (data: { parentChannelId: string; roomCount?: number; autoAssign?: boolean }) => {
+    const parentChannel = channels.get(data.parentChannelId);
+    if (!parentChannel || parentChannel.type !== 'voice' || parentChannel.isBreakout) {
+      socket.emit("channel-error", "Breakout rooms require a parent voice channel");
+      return;
+    }
+    if (!canAccessChannel(parentChannel)) {
+      socket.emit("channel-error", "Access denied to this voice channel");
+      return;
+    }
+    if (!canManageVoiceBreakouts()) {
+      socket.emit("channel-error", "Only owner/admin/mod can manage breakout rooms");
+      return;
+    }
+
+    const existingBreakouts = getBreakoutChannelsForParent(parentChannel.id);
+    if (existingBreakouts.length > 0) {
+      socket.emit("channel-error", "Close existing breakout rooms before creating a new set");
+      return;
+    }
+
+    const roomCount = Math.max(2, Math.min(20, Math.floor(data.roomCount || 2)));
+    const createdRooms: Channel[] = [];
+    const creatorStableId = getStableUserId(socket);
+
+    for (let i = 0; i < roomCount; i += 1) {
+      const index = i + 1;
+      let channelId = `${parentChannel.id}-breakout-${index}`;
+      let suffix = 1;
+      while (channels.has(channelId)) {
+        suffix += 1;
+        channelId = `${parentChannel.id}-breakout-${index}-${suffix}`;
+      }
+
+      const breakoutChannel: Channel = {
+        id: channelId,
+        name: `${parentChannel.name} Room ${index}`,
+        description: `Breakout room ${index} for ${parentChannel.name}`,
+        minRole: parentChannel.minRole || 'guest',
+        createdAt: Date.now(),
+        type: 'voice',
+        parentChannelId: parentChannel.id,
+        isBreakout: true,
+        breakoutIndex: index,
+        persistMessages: false
+      };
+
+      channels.set(channelId, breakoutChannel);
+      channelMessages.set(channelId, []);
+      pinnedMessages.set(channelId, new Set());
+
+      try {
+        channelRepository.create({
+          channel_id: breakoutChannel.id,
+          channel_type: 'voice',
+          name: breakoutChannel.name,
+          description: breakoutChannel.description || '',
+          min_role: breakoutChannel.minRole || 'guest',
+          created_at: breakoutChannel.createdAt,
+          created_by: creatorStableId,
+          parent_channel_id: breakoutChannel.parentChannelId || null,
+          is_breakout: 1,
+          breakout_index: breakoutChannel.breakoutIndex || null,
+          persist_messages: 0
+        });
+      } catch (dbError) {
+        console.error('[ChannelRepository] Failed to persist breakout channel:', dbError);
+      }
+
+      createdRooms.push(breakoutChannel);
+      io.emit("channel-created", breakoutChannel);
+    }
+
+    if (data.autoAssign !== false && createdRooms.length > 0) {
+      const parentParticipants = Array.from(voiceChannelParticipants.get(parentChannel.id) || []);
+      parentParticipants.forEach((stableUserId, idx) => {
+        const targetRoom = createdRooms[idx % createdRooms.length];
+        moveVoiceParticipant(stableUserId, parentChannel.id, targetRoom.id);
+      });
+    }
+
+    io.emit("voice-breakouts-updated", {
+      parentChannelId: parentChannel.id,
+      breakoutChannelIds: createdRooms.map(room => room.id)
+    });
+  });
+
+  socket.on("close-breakout-rooms", (data: { parentChannelId: string }) => {
+    const parentChannel = channels.get(data.parentChannelId);
+    if (!parentChannel || parentChannel.type !== 'voice' || parentChannel.isBreakout) {
+      socket.emit("channel-error", "Breakout parent voice channel not found");
+      return;
+    }
+    if (!canAccessChannel(parentChannel)) {
+      socket.emit("channel-error", "Access denied to this voice channel");
+      return;
+    }
+    if (!canManageVoiceBreakouts()) {
+      socket.emit("channel-error", "Only owner/admin/mod can manage breakout rooms");
+      return;
+    }
+
+    const breakoutChannels = getBreakoutChannelsForParent(parentChannel.id);
+    if (breakoutChannels.length === 0) return;
+
+    breakoutChannels.forEach((breakoutChannel) => {
+      const participants = Array.from(voiceChannelParticipants.get(breakoutChannel.id) || []);
+      participants.forEach((stableUserId) => moveVoiceParticipant(stableUserId, breakoutChannel.id, parentChannel.id));
+
+      voiceChannelParticipants.delete(breakoutChannel.id);
+
+      channels.delete(breakoutChannel.id);
+      channelMessages.delete(breakoutChannel.id);
+      pinnedMessages.delete(breakoutChannel.id);
+      channelRepository.delete(breakoutChannel.id);
+      io.emit("channel-deleted", breakoutChannel.id);
+    });
+
+    emitVoiceChannelState(parentChannel.id);
+    io.emit("voice-breakouts-updated", {
+      parentChannelId: parentChannel.id,
+      breakoutChannelIds: []
+    });
+  });
+
+  socket.on("move-user-to-breakout", (data: { parentChannelId: string; targetUserId: string; toChannelId: string }) => {
+    const parentChannel = channels.get(data.parentChannelId);
+    if (!parentChannel || parentChannel.type !== 'voice') {
+      socket.emit("channel-error", "Breakout parent voice channel not found");
+      return;
+    }
+    if (!canAccessChannel(parentChannel)) {
+      socket.emit("channel-error", "Access denied to this voice channel");
+      return;
+    }
+    if (!canManageVoiceBreakouts()) {
+      socket.emit("channel-error", "Only owner/admin/mod can move users between breakout rooms");
+      return;
+    }
+
+    const targetChannel = channels.get(data.toChannelId);
+    if (!targetChannel || targetChannel.type !== 'voice') {
+      socket.emit("channel-error", "Target breakout channel not found");
+      return;
+    }
+    if (targetChannel.id !== parentChannel.id && targetChannel.parentChannelId !== parentChannel.id) {
+      socket.emit("channel-error", "Target channel is not part of this breakout set");
+      return;
+    }
+
+    const stableUserId = resolveStableUserIdFromAny(data.targetUserId);
+    if (!stableUserId) {
+      socket.emit("channel-error", "Target user not found");
+      return;
+    }
+
+    const familyChannels = [parentChannel, ...getBreakoutChannelsForParent(parentChannel.id)];
+    const fromChannel = familyChannels.find(channel => {
+      const participants = voiceChannelParticipants.get(channel.id);
+      return participants?.has(stableUserId);
+    });
+    if (!fromChannel) {
+      socket.emit("channel-error", "Target user is not connected to this voice channel set");
+      return;
+    }
+
+    moveVoiceParticipant(stableUserId, fromChannel.id, targetChannel.id);
   });
 
   socket.on("thread:create", (data: {
@@ -4475,7 +5291,13 @@ io.on("connection", (socket) => {
     emitEmojiRoleRules(socket.id);
   });
 
-  socket.on("set-emoji-role-rule", (data: { emojiId: string; roleName: string; removeOnUnreact?: boolean }) => {
+  socket.on("set-emoji-role-rule", (data: {
+    channelId: string;
+    messageId: string;
+    emojiId: string;
+    roleName: string;
+    removeOnUnreact?: boolean;
+  }) => {
     const user = users.get(socket.id);
     if (!user || !user.dbUserId) return;
     const myRoleInfo = getUserRoleInfo(user.dbUserId);
@@ -4484,8 +5306,8 @@ io.on("connection", (socket) => {
       return;
     }
 
-    if (!data.emojiId || !data.roleName) {
-      socket.emit("channel-error", "Emoji and role are required");
+    if (!data.channelId || !data.messageId || !data.emojiId || !data.roleName) {
+      socket.emit("channel-error", "Channel, role-gate message, emoji, and role are required");
       return;
     }
 
@@ -4501,11 +5323,25 @@ io.on("connection", (socket) => {
       return;
     }
 
+    const gateMessages = channelMessages.get(data.channelId) || [];
+    const gateMessage = gateMessages.find((message) => message.id === data.messageId);
+    if (!gateMessage || gateMessage.type !== 'role_gate') {
+      socket.emit("channel-error", "Selected message is not a role-gate post");
+      return;
+    }
+
     try {
       db.prepare(`
-        INSERT INTO emoji_role_rules (emoji_id, role_name, remove_on_unreact, workspace_id, enabled)
-        VALUES (?, ?, ?, ?, 1)
-      `).run(data.emojiId, data.roleName, data.removeOnUnreact ? 1 : 0, 'default-workspace');
+        INSERT INTO emoji_role_rules (channel_id, message_id, emoji_id, role_name, remove_on_unreact, workspace_id, enabled)
+        VALUES (?, ?, ?, ?, ?, ?, 1)
+      `).run(
+        data.channelId,
+        data.messageId,
+        data.emojiId,
+        data.roleName,
+        data.removeOnUnreact ? 1 : 0,
+        'default-workspace'
+      );
       emitEmojiRoleRules();
     } catch (error) {
       socket.emit("channel-error", "Failed to add emoji role rule");

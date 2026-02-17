@@ -7,12 +7,14 @@ export interface DbMessage {
 	sender_id: string;
 	sender_username: string;
 	sender_color?: string;
-	message_type: 'text' | 'gif' | 'file' | 'emoji';
+	message_type: 'text' | 'gif' | 'file' | 'emoji' | 'role_gate';
 	content: string;
 	gif_url?: string;
 	file_url?: string;
 	file_name?: string;
 	file_size?: number;
+	files_json?: string;
+	attachment_encryption_json?: string;
 	reply_to_id?: string;
 	is_spoiler: number;
 	is_pinned: number;
@@ -36,11 +38,13 @@ export interface ClientMessage {
 	userId: string;
 	text: string;
 	timestamp: number;
-	type: 'text' | 'gif' | 'file' | 'emoji';
+	type: 'text' | 'gif' | 'file' | 'emoji' | 'role_gate';
 	gifUrl?: string;
 	fileUrl?: string;
 	fileName?: string;
 	fileSize?: number;
+	files?: { fileUrl: string; fileName: string; fileSize: number; attachmentEncryption?: { scheme: 'dm-e2ee-v1'; iv: string; mimeType?: string; originalSize?: number } }[];
+	attachmentEncryption?: { scheme: 'dm-e2ee-v1'; iv: string; mimeType?: string; originalSize?: number };
 	replyTo?: string;
 	isSpoiler?: boolean;
 	isPinned?: boolean;
@@ -57,11 +61,11 @@ export class MessageRepository {
 		const stmt = db.prepare(`
 			INSERT INTO messages (
 				message_id, channel_id, sender_id, sender_username, sender_color,
-				message_type, content, gif_url, file_url, file_name, file_size,
+				message_type, content, gif_url, file_url, file_name, file_size, files_json, attachment_encryption_json,
 				reply_to_id, is_spoiler, is_pinned, is_edited, reactions_json,
 				is_encrypted, encryption_iv, created_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`);
 
 		const info = stmt.run(
@@ -76,6 +80,8 @@ export class MessageRepository {
 			message.file_url || null,
 			message.file_name || null,
 			message.file_size || null,
+			message.files_json || null,
+			message.attachment_encryption_json || null,
 			message.reply_to_id || null,
 			message.is_spoiler || 0,
 			message.is_pinned || 0,
@@ -200,6 +206,20 @@ export class MessageRepository {
 		if (dbMsg.file_url) msg.fileUrl = dbMsg.file_url;
 		if (dbMsg.file_name) msg.fileName = dbMsg.file_name;
 		if (dbMsg.file_size) msg.fileSize = dbMsg.file_size;
+		if (dbMsg.files_json) {
+			try {
+				msg.files = JSON.parse(dbMsg.files_json);
+			} catch {
+				// Ignore parse errors
+			}
+		}
+		if (dbMsg.attachment_encryption_json) {
+			try {
+				msg.attachmentEncryption = JSON.parse(dbMsg.attachment_encryption_json);
+			} catch {
+				// Ignore parse errors
+			}
+		}
 		if (dbMsg.reply_to_id) msg.replyTo = dbMsg.reply_to_id;
 		if (dbMsg.is_spoiler) msg.isSpoiler = true;
 		if (dbMsg.is_pinned) msg.isPinned = true;
