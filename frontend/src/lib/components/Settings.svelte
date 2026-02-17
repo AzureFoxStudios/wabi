@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-import { createEventDispatcher, onDestroy, onMount } from 'svelte';
-	import { channelMessages, users, currentUser, emojis, updateProfile, assignRole, removeUserRole } from '$lib/socket';
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+	import { channelMessages, users, currentUser, emojis, updateProfile, assignRole, removeUserRole, roleDefinitions } from '$lib/socket';
 	import StorageSettings from './StorageSettings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import { playNotificationSound } from '$lib/notifications';
@@ -37,11 +37,16 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 		type ScreenShareQualityPreset
 	} from '$lib/mediaRuntime';
 	import { applyCurrentAudioProcessingToLocalTrack, audioProcessingRuntimeStatus, clearAudioPerformanceFallbackOverride } from '$lib/calling';
+	import {
+		getStoredAccessibilitySettings,
+		updateAccessibilitySettings,
+		type RoleColorMode
+	} from '$lib/accessibility';
 
 	const dispatch = createEventDispatcher();
 
 	export let isOpen = false;
-	type SettingsTab = 'profile' | 'audio' | 'notifications' | 'appearance' | 'server' | 'emojis' | 'storage' | 'admin' | 'about';
+	type SettingsTab = 'profile' | 'audio' | 'notifications' | 'accessibility' | 'appearance' | 'server' | 'emojis' | 'storage' | 'admin' | 'about';
 	let activeSettingsTab: SettingsTab = 'profile';
 
 	let soundEnabled = true;
@@ -57,6 +62,12 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	let callTransportMode: CallTransportMode = 'auto';
 	let srtGatewayEnabled = false;
 	let screenShareQualityPreset: ScreenShareQualityPreset = 'auto';
+	let textScale = 1;
+	let colorAssistEnabled = false;
+	let saturation = 1;
+	let contrast = 1;
+	let reducedMotion = false;
+	let roleColorMode: RoleColorMode = 'full';
 	let localAppRuntime = false;
 	let micTestStream: MediaStream | null = null;
 	let micTestRecorder: MediaRecorder | null = null;
@@ -82,15 +93,33 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	// Emoji upload state
 	let emojiFileInput: HTMLInputElement;
 	let emojiName = '';
+	let emojiDisplayName = '';
+	let emojiArtist = '';
 	let emojiCategory = 'custom';
+	let emojiType: 'emoji' | 'sticker' = 'emoji';
 	let selectedEmojiFile: File | null = null;
 	let emojiPreview: string | null = null;
 	let uploadingEmoji = false;
 
 	// Bulk emoji upload state
 	let bulkEmojiFileInput: HTMLInputElement;
-	let bulkEmojiFiles: { file: File; name: string; preview: string }[] = [];
+	let bulkEmojiArtist = '';
+	let bulkEmojiFiles: { file: File; name: string; displayName: string; preview: string }[] = [];
 	let uploadingBulk = false;
+	const fallbackRoleLabels: Record<string, string> = {
+		owner: 'Owner',
+		admin: 'Admin',
+		mod: 'Moderator',
+		member: 'Member',
+		guest: 'Guest'
+	};
+	$: roleLabelMap = (() => {
+		const labels: Record<string, string> = { ...fallbackRoleLabels };
+		for (const role of $roleDefinitions) {
+			labels[role.roleName] = role.displayName;
+		}
+		return labels;
+	})();
 
 	$: canManageAdmin = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
 	$: sortedAdminUsers = [...$users].sort((a, b) => {
@@ -102,6 +131,13 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 
 	// Load settings from localStorage and enforce server policy
 	onMount(() => {
+		const accessibilitySettings = getStoredAccessibilitySettings();
+		textScale = accessibilitySettings.textScale;
+		colorAssistEnabled = accessibilitySettings.colorAssistEnabled;
+		saturation = accessibilitySettings.saturation;
+		contrast = accessibilitySettings.contrast;
+		reducedMotion = accessibilitySettings.reducedMotion;
+		roleColorMode = accessibilitySettings.roleColorMode;
 		soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
 		notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 		micEnabled = localStorage.getItem('micEnabled') !== 'false';
@@ -172,6 +208,11 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 		if (!$currentUser || user.id === $currentUser.id) return false;
 		if (isProtectedOwner(user)) return false;
 		return true;
+	}
+
+	function getRoleLabel(roleName?: string): string {
+		if (!roleName) return roleLabelMap.member;
+		return roleLabelMap[roleName] || roleName;
 	}
 
 	function promoteUser(user: { dbUserId?: number }, role: 'admin' | 'mod') {
@@ -335,6 +376,55 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 		playNotificationSound();
 	}
 
+	function updateTextScale(value: number) {
+		const next = updateAccessibilitySettings({ textScale: value });
+		textScale = next.textScale;
+	}
+
+	function resetTextScale() {
+		updateTextScale(1);
+	}
+
+	function toggleColorAssistEnabled() {
+		const next = updateAccessibilitySettings({ colorAssistEnabled: !colorAssistEnabled });
+		colorAssistEnabled = next.colorAssistEnabled;
+	}
+
+	function updateSaturation(value: number) {
+		const next = updateAccessibilitySettings({ saturation: value });
+		saturation = next.saturation;
+	}
+
+	function updateContrast(value: number) {
+		const next = updateAccessibilitySettings({ contrast: value });
+		contrast = next.contrast;
+	}
+
+	function toggleReducedMotion() {
+		const next = updateAccessibilitySettings({ reducedMotion: !reducedMotion });
+		reducedMotion = next.reducedMotion;
+	}
+
+	function updateRoleColorMode(mode: RoleColorMode) {
+		const next = updateAccessibilitySettings({ roleColorMode: mode });
+		roleColorMode = next.roleColorMode;
+	}
+
+	function resetAccessibilityVisuals() {
+		const next = updateAccessibilitySettings({
+			colorAssistEnabled: false,
+			saturation: 1,
+			contrast: 1,
+			reducedMotion: false,
+			roleColorMode: 'full'
+		});
+		colorAssistEnabled = next.colorAssistEnabled;
+		saturation = next.saturation;
+		contrast = next.contrast;
+		reducedMotion = next.reducedMotion;
+		roleColorMode = next.roleColorMode;
+	}
+
 	function exportData() {
 		const data = {
 			channelMessages: $channelMessages,
@@ -435,7 +525,10 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 			const formData = new FormData();
 			formData.append('file', selectedEmojiFile);
 			formData.append('name', emojiName.trim());
+			formData.append('displayName', emojiDisplayName.trim());
+			formData.append('artist', emojiArtist.trim());
 			formData.append('category', emojiCategory);
+			formData.append('type', emojiType);
 
 			// Get auth token from localStorage
 			const authToken = localStorage.getItem('authToken');
@@ -455,6 +548,7 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 			}
 
 			const result = await response.json();
+			const uploadedType = emojiType;
 
 			// Emit socket event to notify all clients
 			const socket = getSocket();
@@ -462,12 +556,15 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 
 			// Reset form
 			emojiName = '';
+			emojiDisplayName = '';
+			emojiArtist = '';
 			emojiCategory = 'custom';
+			emojiType = 'emoji';
 			selectedEmojiFile = null;
 			emojiPreview = null;
 			if (emojiFileInput) emojiFileInput.value = '';
 
-			alert(`Emoji "${result.emoji.name}" uploaded successfully!`);
+			alert(`${uploadedType === 'sticker' ? 'Sticker' : 'Emoji'} "${result.emoji.displayName || result.emoji.name}" uploaded successfully!`);
 		} catch (error) {
 			console.error('Emoji upload error:', error);
 			alert('Failed to upload emoji. Please try again.');
@@ -515,14 +612,19 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 				});
 
 				// Auto-generate name from filename (remove extension, sanitize)
-				const autoName = file.name
-					.replace(/\.[^/.]+$/, '') // Remove extension
+				const baseName = file.name.replace(/\.[^/.]+$/, '');
+				const autoName = baseName
 					.toLowerCase()
 					.replace(/[^a-z0-9_]/g, '_') // Replace non-alphanumeric with underscore
 					.replace(/_+/g, '_') // Replace multiple underscores with single
 					.replace(/^_|_$/g, ''); // Remove leading/trailing underscores
 
-				return { file, name: autoName, preview };
+				const displayName = baseName
+					.replace(/[_-]+/g, ' ')
+					.replace(/\s+/g, ' ')
+					.trim();
+
+				return { file, name: autoName, displayName, preview };
 			})
 		);
 
@@ -561,7 +663,10 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 					const formData = new FormData();
 					formData.append('file', item.file);
 					formData.append('name', item.name.trim());
+					formData.append('displayName', item.displayName.trim());
+					formData.append('artist', bulkEmojiArtist.trim());
 					formData.append('category', emojiCategory);
+					formData.append('type', emojiType);
 
 					const response = await fetch(`${serverUrl}/api/emoji/upload`, {
 						method: 'POST',
@@ -591,6 +696,7 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 
 			// Reset form
 			bulkEmojiFiles = [];
+			bulkEmojiArtist = '';
 			if (bulkEmojiFileInput) bulkEmojiFileInput.value = '';
 
 			alert(`Upload complete!\n\u2705 ${successCount} successful\n\u274C ${failCount} failed`);
@@ -743,6 +849,7 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 					<button class="settings-tab" class:active={activeSettingsTab === 'profile'} on:click={() => activeSettingsTab = 'profile'}>Profile</button>
 					<button class="settings-tab" class:active={activeSettingsTab === 'audio'} on:click={() => activeSettingsTab = 'audio'}>Audio and Video</button>
 					<button class="settings-tab" class:active={activeSettingsTab === 'notifications'} on:click={() => activeSettingsTab = 'notifications'}>Notifications</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'accessibility'} on:click={() => activeSettingsTab = 'accessibility'}>Accessibility</button>
 					<button class="settings-tab" class:active={activeSettingsTab === 'appearance'} on:click={() => activeSettingsTab = 'appearance'}>Appearance</button>
 					<button class="settings-tab" class:active={activeSettingsTab === 'server'} on:click={() => activeSettingsTab = 'server'}>Server</button>
 					<button class="settings-tab" class:active={activeSettingsTab === 'emojis'} on:click={() => activeSettingsTab = 'emojis'}>Emojis</button>
@@ -1009,6 +1116,107 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 							</div>
 						</div>
 
+					{:else if activeSettingsTab === 'accessibility'}
+						<div class="settings-section">
+							<h3>Accessibility</h3>
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">Text Size</span>
+									<span class="setting-description">Scale interface text size ({Math.round(textScale * 100)}%)</span>
+								</div>
+								<input
+									type="range"
+									min="0.85"
+									max="1.35"
+									step="0.05"
+									bind:value={textScale}
+									on:input={(e) => updateTextScale(parseFloat(e.currentTarget.value))}
+									class="volume-slider"
+								/>
+								<div class="font-scale-presets">
+									<button type="button" class="sound-option" class:active={Math.abs(textScale - 0.9) < 0.01} on:click={() => updateTextScale(0.9)}>Small</button>
+									<button type="button" class="sound-option" class:active={Math.abs(textScale - 1) < 0.01} on:click={() => updateTextScale(1)}>Default</button>
+									<button type="button" class="sound-option" class:active={Math.abs(textScale - 1.15) < 0.01} on:click={() => updateTextScale(1.15)}>Large</button>
+									<button type="button" class="sound-option" class:active={Math.abs(textScale - 1.3) < 0.01} on:click={() => updateTextScale(1.3)}>XL</button>
+									<button type="button" class="sound-option" on:click={resetTextScale}>Reset Text Size</button>
+								</div>
+							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Color Assist</span>
+									<span class="setting-description">Enable saturation/contrast filters for color accessibility tuning</span>
+								</div>
+								<button class="toggle-btn" class:active={colorAssistEnabled} on:click={toggleColorAssistEnabled}>
+									{colorAssistEnabled ? 'ON' : 'OFF'}
+								</button>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">Saturation</span>
+									<span class="setting-description">{Math.round(saturation * 100)}%</span>
+								</div>
+								<input
+									type="range"
+									min="0.6"
+									max="1.8"
+									step="0.05"
+									bind:value={saturation}
+									on:input={(e) => updateSaturation(parseFloat(e.currentTarget.value))}
+									class="volume-slider"
+									disabled={!colorAssistEnabled}
+								/>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">Contrast</span>
+									<span class="setting-description">{Math.round(contrast * 100)}%</span>
+								</div>
+								<input
+									type="range"
+									min="0.8"
+									max="1.4"
+									step="0.05"
+									bind:value={contrast}
+									on:input={(e) => updateContrast(parseFloat(e.currentTarget.value))}
+									class="volume-slider"
+									disabled={!colorAssistEnabled}
+								/>
+							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Reduce Motion</span>
+									<span class="setting-description">Minimize animations and transitions</span>
+								</div>
+								<button class="toggle-btn" class:active={reducedMotion} on:click={toggleReducedMotion}>
+									{reducedMotion ? 'ON' : 'OFF'}
+								</button>
+							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Role Color Display</span>
+									<span class="setting-description">Control how role colors are shown on usernames</span>
+								</div>
+								<select
+									class="theme-select"
+									value={roleColorMode}
+									on:change={(e) => updateRoleColorMode(e.currentTarget.value as RoleColorMode)}
+								>
+									<option value="full">Full color in names</option>
+									<option value="dot">Dot/badge only</option>
+									<option value="off">Off</option>
+								</select>
+							</div>
+
+							<div class="setting-item-full">
+								<button type="button" class="action-btn" on:click={resetAccessibilityVisuals}>Reset Accessibility Visuals</button>
+							</div>
+						</div>
+
 					{:else if activeSettingsTab === 'appearance'}
 						<div class="settings-section">
 							<h3>Appearance</h3>
@@ -1084,10 +1292,31 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 								<input
 									type="text"
 									bind:value={emojiName}
-									placeholder="Emoji name (e.g., parrot)"
+									placeholder="Shortcode (e.g., tabi_wave)"
 									maxlength="30"
 									class="emoji-name-input"
 								/>
+
+								<input
+									type="text"
+									bind:value={emojiDisplayName}
+									placeholder="Display name (e.g., Tabi Wave)"
+									maxlength="60"
+									class="emoji-name-input"
+								/>
+
+								<input
+									type="text"
+									bind:value={emojiArtist}
+									placeholder="Artist / pack creator (e.g., Tabi)"
+									maxlength="60"
+									class="emoji-name-input"
+								/>
+
+								<select bind:value={emojiType} class="emoji-category-select">
+									<option value="emoji">Emoji</option>
+									<option value="sticker">Sticker</option>
+								</select>
 
 								<select bind:value={emojiCategory} class="emoji-category-select">
 									<option value="custom">Custom</option>
@@ -1122,6 +1351,19 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 									Select Multiple Images
 								</button>
 
+								<input
+									type="text"
+									bind:value={bulkEmojiArtist}
+									placeholder="Artist / pack creator for this batch (e.g., Tabi)"
+									maxlength="60"
+									class="emoji-name-input"
+								/>
+
+								<select bind:value={emojiType} class="emoji-category-select">
+									<option value="emoji">Emoji</option>
+									<option value="sticker">Sticker</option>
+								</select>
+
 								{#if bulkEmojiFiles.length > 0}
 									<div class="bulk-emoji-list">
 										<p class="bulk-count">{bulkEmojiFiles.length} file(s) selected</p>
@@ -1133,6 +1375,13 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 													bind:value={item.name}
 													placeholder="emoji_name"
 													maxlength="30"
+													class="bulk-name-input"
+												/>
+												<input
+													type="text"
+													bind:value={item.displayName}
+													placeholder="Display name"
+													maxlength="60"
 													class="bulk-name-input"
 												/>
 												<button
@@ -1149,12 +1398,12 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 											on:click={uploadBulkEmojis}
 											disabled={uploadingBulk || bulkEmojiFiles.length === 0}
 										>
-											{uploadingBulk ? 'Uploading...' : `Upload ${bulkEmojiFiles.length} Emoji${bulkEmojiFiles.length > 1 ? 's' : ''}`}
+											{uploadingBulk ? 'Uploading...' : `Upload ${bulkEmojiFiles.length} ${emojiType === 'sticker' ? 'Sticker' : 'Emoji'}${bulkEmojiFiles.length > 1 ? 's' : ''}`}
 										</button>
 									</div>
 								{/if}
 
-								<p class="emoji-hint">Auto-names from filenames. Edit names before uploading.</p>
+								<p class="emoji-hint">Set shortcode + display names for search. Artist metadata is searchable in picker.</p>
 							</div>
 
 							<div class="emoji-list">
@@ -1163,7 +1412,15 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 									{#each $emojis.filter(e => e.isCustom) as emoji (emoji.id)}
 										<div class="emoji-item">
 											<img src={emoji.url} alt={emoji.name} class="emoji-thumb" />
-											<span class="emoji-item-name">:{emoji.name}:</span>
+											<div class="emoji-item-meta">
+												<span class="emoji-item-name">:{emoji.name}:</span>
+												{#if emoji.displayName}
+													<span class="emoji-item-sub">{emoji.displayName}</span>
+												{/if}
+												{#if emoji.artist}
+													<span class="emoji-item-sub">by {emoji.artist}</span>
+												{/if}
+											</div>
 											<button
 												class="emoji-delete-btn"
 												on:click={() => deleteEmoji(emoji.name)}
@@ -1191,9 +1448,9 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 									<div class="admin-user-item">
 										<div class="admin-user-meta">
 											<span class="admin-user-name">{user.username}</span>
-											<span class="admin-role-badge">{user.highestRole || 'member'}</span>
+											<span class="admin-role-badge">{getRoleLabel(user.highestRole || 'member')}</span>
 											{#if !user.dbUserId}
-												<span class="admin-guest-badge">guest session</span>
+												<span class="admin-guest-badge">{getRoleLabel('guest')} session</span>
 											{/if}
 										</div>
 										<div class="admin-user-actions">
@@ -1726,6 +1983,12 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 		gap: 0.5rem;
 	}
 
+	.font-scale-presets {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+
 	.sound-option {
 		padding: 0.5rem 1rem;
 		background: var(--bg-secondary);
@@ -2096,6 +2359,14 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 		position: relative;
 	}
 
+	.emoji-item-meta {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+		min-width: 0;
+	}
+
 	.emoji-thumb {
 		width: 32px;
 		height: 32px;
@@ -2104,10 +2375,17 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	}
 
 	.emoji-item-name {
-		flex: 1;
 		font-size: 0.875rem;
 		font-family: monospace;
 		color: var(--text-primary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.emoji-item-sub {
+		font-size: 0.72rem;
+		color: var(--text-secondary);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -2155,6 +2433,7 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	.bulk-emoji-item {
 		display: flex;
 		align-items: center;
+		flex-wrap: wrap;
 		gap: 0.75rem;
 		padding: 0.75rem;
 		background: var(--bg-tertiary);
@@ -2171,7 +2450,7 @@ import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	}
 
 	.bulk-name-input {
-		flex: 1;
+		flex: 1 1 180px;
 		padding: 0.5rem;
 		border-radius: 4px;
 		border: 1px solid var(--border);

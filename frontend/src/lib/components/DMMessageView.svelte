@@ -6,6 +6,7 @@
 	import NotesWorkspace from './NotesWorkspace.svelte';
 	import type { User, Message, Channel } from '$lib/socket';
 	import { onMount, afterUpdate, tick } from 'svelte';
+	import { resolveUserDisplayColor } from '$lib/accessibility';
 
 	export let channelId: string;
 	export let otherUser: User;
@@ -64,18 +65,18 @@
 
 	function getMsgColor(msg: Message): string {
 		if (msg.userId === $currentUser?.id) {
-			return $currentUser?.roleColor || $currentUser?.color || '#fff';
+			return resolveUserDisplayColor($currentUser?.roleColor, $currentUser?.color || '#fff');
 		}
 		if (isGroup) {
 			// Find the sender in the users store
 			const sender = $users.find(u => u.id === msg.userId);
-			if (sender) return sender.roleColor || sender.color;
+			if (sender) return resolveUserDisplayColor(sender.roleColor, sender.color);
 			// Try memberUsers
 			const memberUser = channel?.memberUsers?.find(u => u.id === msg.userId);
-			if (memberUser) return memberUser.roleColor || memberUser.color;
+			if (memberUser) return resolveUserDisplayColor(memberUser.roleColor, memberUser.color);
 			return '#888';
 		}
-		return otherUser.roleColor || otherUser.color;
+		return resolveUserDisplayColor(otherUser.roleColor, otherUser.color);
 	}
 
 	$: placeholderText = isGroup ? `Message ${channel?.name}...` : `Message ${otherUser.username}...`;

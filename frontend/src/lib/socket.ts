@@ -41,6 +41,7 @@ export {
 	dmPanelSignal,
 	activeVoiceChannel,
 	voiceChannelMembers,
+	roleDefinitions,
 	emojis,
 	connectionState,
 
@@ -60,6 +61,9 @@ export {
 	joinVoiceChannel,
 	leaveVoiceChannel,
 	createChannel,
+	createBreakoutRooms,
+	closeBreakoutRooms,
+	moveUserToBreakout,
 	createThread,
 	deleteChannel,
 	pinChannel,

@@ -161,3 +161,84 @@ export function clearE2EState(): void {
 	sharedKeyCache.clear();
 	publicKeyCache.clear();
 }
+
+function arrayBufferToBase64(buffer: ArrayBuffer | Uint8Array): string {
+	const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+	let binary = '';
+	for (let i = 0; i < bytes.byteLength; i++) {
+		binary += String.fromCharCode(bytes[i]);
+	}
+	return btoa(binary);
+}
+
+function base64ToUint8Array(base64: string): Uint8Array {
+	const binary = atob(base64);
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) {
+		bytes[i] = binary.charCodeAt(i);
+	}
+	return bytes;
+}
+
+export async function encryptDMFile(
+	file: File,
+	otherDbUserId: number,
+	token: string
+): Promise<{ encryptedFile: File; iv: string; mimeType: string; originalSize: number } | null> {
+	if (!isE2EAvailable()) return null;
+	currentToken = token;
+
+	const sharedKey = await getSharedKey(otherDbUserId);
+	if (!sharedKey) return null;
+
+	try {
+		const ivBytes = window.crypto.getRandomValues(new Uint8Array(12));
+		const plain = await file.arrayBuffer();
+		const encrypted = await window.crypto.subtle.encrypt(
+			{ name: 'AES-GCM', iv: ivBytes },
+			sharedKey,
+			plain
+		);
+		const encryptedFile = new File([new Uint8Array(encrypted)], file.name, {
+			type: 'application/octet-stream',
+			lastModified: file.lastModified
+		});
+		return {
+			encryptedFile,
+			iv: arrayBufferToBase64(ivBytes),
+			mimeType: file.type || 'application/octet-stream',
+			originalSize: file.size
+		};
+	} catch (err) {
+		console.error('[E2E] File encryption failed:', err);
+		return null;
+	}
+}
+
+export async function decryptDMFileBuffer(
+	encryptedBuffer: ArrayBuffer,
+	ivBase64: string,
+	otherDbUserId: number,
+	token: string
+): Promise<ArrayBuffer | null> {
+	if (!isE2EAvailable()) return null;
+	currentToken = token;
+
+	const sharedKey = await getSharedKey(otherDbUserId);
+	if (!sharedKey) return null;
+
+	try {
+		const ivBytes = base64ToUint8Array(ivBase64);
+		const iv = new Uint8Array(ivBytes.length);
+		iv.set(ivBytes);
+		const decrypted = await window.crypto.subtle.decrypt(
+			{ name: 'AES-GCM', iv },
+			sharedKey,
+			encryptedBuffer
+		);
+		return decrypted;
+	} catch (err) {
+		console.error('[E2E] File decryption failed:', err);
+		return null;
+	}
+}

@@ -1,23 +1,43 @@
 <script lang="ts">
-	import { users, currentUser, createDM, socket, assignRole, removeUserRole } from '$lib/socket';
+	import { users, currentUser, createDM, socket, assignRole, removeUserRole, roleDefinitions } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { startCall } from '$lib/calling';
 	import type { User } from '$lib/socket';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
 	import type { ContextMenuItem } from '$lib/context-menu/types';
+	import { resolveUserDisplayColor } from '$lib/accessibility';
 
 	let contextMenuUser: User | null = null;
 	let contextMenuPosition = { x: 0, y: 0 };
 	let showContextMenu = false;
 
-	// Role priority for sorting groups
-	const rolePriority: Record<string, number> = {
+	const fallbackRolePriority: Record<string, number> = {
 		owner: 100, admin: 90, mod: 70, member: 10, guest: 0
 	};
 
-	const roleLabels: Record<string, string> = {
-		owner: 'Owner', admin: 'Admin', mod: 'Moderator', member: 'Online', guest: 'Guest'
+	const fallbackRoleLabels: Record<string, string> = {
+		owner: 'Owner', admin: 'Admin', mod: 'Moderator', member: 'Member', guest: 'Guest'
 	};
+
+	$: rolePriority = (() => {
+		const map: Record<string, number> = { ...fallbackRolePriority };
+		for (const role of $roleDefinitions) {
+			map[role.roleName] = role.priority;
+		}
+		return map;
+	})();
+
+	$: roleLabelMap = (() => {
+		const map: Record<string, string> = { ...fallbackRoleLabels };
+		for (const role of $roleDefinitions) {
+			map[role.roleName] = role.displayName;
+		}
+		return map;
+	})();
+
+	function getRoleLabel(role: string): string {
+		return roleLabelMap[role] || role;
+	}
 
 	// Group users by highest hoisted role
 	$: otherUsers = $users.filter(u => u.id !== $currentUser?.id);
@@ -187,7 +207,7 @@
 	}
 
 	function getDisplayColor(user: User): string {
-		return user.roleColor || user.color;
+		return resolveUserDisplayColor(user.roleColor, user.color);
 	}
 
 	function getRoleBadge(user: User): string | null {
@@ -206,7 +226,7 @@
 		{#each sortedRoles as role}
 			<div class="role-group">
 				<div class="role-header">
-					{roleLabels[role] || role} - {groupedUsers[role].length}
+					{getRoleLabel(role)} - {groupedUsers[role].length}
 				</div>
 				{#each groupedUsers[role] as user (user.id)}
 					<button

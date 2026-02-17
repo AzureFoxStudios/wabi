@@ -17,6 +17,8 @@
 		voiceChannelMembers,
 		joinVoiceChannel,
 		leaveVoiceChannel,
+		createBreakoutRooms,
+		closeBreakoutRooms,
 		getSocket
 	} from '$lib/socket';
 	import {
@@ -112,13 +114,25 @@
 		acc[parentId].push(thread);
 		return acc;
 	}, {});
-	$: voiceChannels = $channels
+	$: allVoiceChannels = $channels
 		.filter(ch => ch.type === 'voice')
 		.sort((a, b) => {
 			if (a.id === 'voice') return -1;
 			if (b.id === 'voice') return 1;
 			return a.name.localeCompare(b.name);
 		});
+	$: breakoutChannelsByParent = allVoiceChannels
+		.filter(ch => ch.isBreakout && ch.parentChannelId)
+		.reduce((acc: Record<string, Channel[]>, channel) => {
+			const parentId = channel.parentChannelId!;
+			if (!acc[parentId]) acc[parentId] = [];
+			acc[parentId].push(channel);
+			return acc;
+		}, {});
+	$: Object.values(breakoutChannelsByParent).forEach((rooms) =>
+		rooms.sort((a, b) => (a.breakoutIndex || 0) - (b.breakoutIndex || 0))
+	);
+	$: voiceChannels = allVoiceChannels.filter(ch => !ch.isBreakout);
 
 	// Clear unread count when switching to chat view
 	$: if (activeView === 'chat') {
@@ -196,6 +210,23 @@
 		}
 	}
 
+	function hasBreakoutRooms(parentChannelId: string): boolean {
+		return (breakoutChannelsByParent[parentChannelId] || []).length > 0;
+	}
+
+	function handleCreateBreakoutRooms(channel: Channel) {
+		const suggestedRooms = Math.max(2, Math.ceil(getVoiceMembers(channel.id).length / 2));
+		const raw = window.prompt(`Create breakout rooms for ${channel.name} (2-20):`, String(suggestedRooms));
+		if (raw === null) return;
+		const parsed = Number.parseInt(raw, 10);
+		if (!Number.isFinite(parsed)) return;
+		createBreakoutRooms(channel.id, parsed, true);
+	}
+
+	function handleCloseBreakoutRooms(channel: Channel) {
+		closeBreakoutRooms(channel.id);
+	}
+
 	function avatarTitle(username?: string): string {
 		return username || 'Voice participant';
 	}
@@ -215,7 +246,7 @@
 
 	function getCurrentVoiceChannelName(): string {
 		if (!$activeVoiceChannelId) return '';
-		const match = voiceChannels.find((channel) => channel.id === $activeVoiceChannelId);
+		const match = allVoiceChannels.find((channel) => channel.id === $activeVoiceChannelId);
 		return match?.name || $activeVoiceChannelId;
 	}
 
@@ -385,7 +416,26 @@
 			});
 		}
 
-		if (channel.id !== 'general' && channel.id !== 'voice') {
+		if (channel.type === 'voice' && !channel.isBreakout) {
+			items.push({ id: 'voice-divider', type: 'separator' });
+			if (hasBreakoutRooms(channel.id)) {
+				items.push({
+					id: 'close-breakout-rooms',
+					label: 'Close Breakout Rooms',
+					icon: 'archive-restore',
+					onSelect: () => handleCloseBreakoutRooms(channel)
+				});
+			} else {
+				items.push({
+					id: 'create-breakout-rooms',
+					label: 'Create Breakout Rooms',
+					icon: 'archive',
+					onSelect: () => handleCreateBreakoutRooms(channel)
+				});
+			}
+		}
+
+		if (channel.id !== 'general' && channel.id !== 'voice' && !channel.isBreakout) {
 			items.push({ id: 'danger-divider', type: 'separator' });
 			items.push({
 				id: 'delete-channel',
@@ -548,7 +598,7 @@
 		>
 			<span class="section-chevron">&gt;</span>
 			<span class="section-toggle-label">Voice Channels</span>
-			<span class="section-count">{voiceChannels.length}</span>
+			<span class="section-count">{allVoiceChannels.length}</span>
 		</button>
 		{#if isVoiceSectionExpanded}
 		{#each voiceChannels as channel (channel.id)}
@@ -607,6 +657,61 @@
 					{/each}
 				</div>
 			{/if}
+			{#each breakoutChannelsByParent[channel.id] || [] as breakout (breakout.id)}
+				{@const breakoutMembers = getVoiceMembers(breakout.id)}
+				<div
+					class="channel-item voice-channel-item breakout-channel-item"
+					class:active={isConnectedToVoice(breakout.id)}
+					on:click={() => handleVoiceChannelClick(breakout.id)}
+					on:contextmenu={(e) => handleChannelRightClick(e, breakout)}
+					use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, breakout) }}
+				>
+					<button class="channel-btn" data-abbrev={breakout.name.charAt(0).toUpperCase()}>
+						<span class="breakout-prefix" aria-hidden="true">&gt;</span>
+						<span class="voice-channel-name">{breakout.name}</span>
+						<span class="voice-inline-count">{breakoutMembers.length}</span>
+					</button>
+					<div class="channel-actions">
+						<div class="voice-occupancy" title={`${breakoutMembers.length} in voice`}>
+							<span class="voice-count">
+								<svg class="voice-count-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+								{breakoutMembers.length}
+							</span>
+							<div class="voice-avatars">
+								{#each breakoutMembers.slice(0, 3) as member}
+									{#if member.profilePicture}
+										<img class="voice-avatar" class:speaking={isMemberSpeaking(member)} src={member.profilePicture} alt={avatarTitle(member.username)} title={avatarTitle(member.username)} />
+									{:else}
+										<span class="voice-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member)} title={avatarTitle(member.username)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
+									{/if}
+								{/each}
+							</div>
+						</div>
+					</div>
+				</div>
+				{#if breakoutMembers.length > 0}
+					<div class="voice-member-list breakout-member-list">
+						{#each breakoutMembers as member (member.userId)}
+							<div
+								class="voice-member-item"
+								class:speaking={isMemberSpeaking(member)}
+								in:fly={{ y: -6, duration: 160, opacity: 0.2 }}
+								out:fly={{ y: -4, duration: 130, opacity: 0.2 }}
+							>
+								{#if member.profilePicture}
+									<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member)} src={member.profilePicture} alt={avatarTitle(member.username)} />
+								{:else}
+									<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
+								{/if}
+								<span class="voice-member-name">{getMemberLabel(member)}</span>
+								{#if isMemberSpeaking(member)}
+									<span class="voice-speaking-pill">Speaking</span>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{/if}
+			{/each}
 		{/each}
 		{/if}
 	</div>
@@ -1487,11 +1592,24 @@
 		padding-bottom: 0.3rem;
 	}
 
+	.breakout-channel-item {
+		margin-left: 1rem;
+	}
+
+	.breakout-prefix {
+		color: var(--text-muted);
+		font-size: 0.72rem;
+	}
+
 	.voice-member-list {
 		margin: -0.1rem 0 0.25rem 1.9rem;
 		display: flex;
 		flex-direction: column;
 		gap: 0.2rem;
+	}
+
+	.breakout-member-list {
+		margin-left: 2.7rem;
 	}
 
 	.voice-member-item {

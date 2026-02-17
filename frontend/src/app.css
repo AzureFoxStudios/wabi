@@ -68,23 +68,26 @@
 	--font-family-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', Monaco, monospace;
 
 	/* -- Font Sizes (Modular Scale) -- */
-	--font-size-1: 0.75rem;  /* 12px */
-	--font-size-2: 0.875rem; /* 14px */
-	--font-size-3: 1rem;     /* 16px (base) */
-	--font-size-4: 1.125rem; /* 18px */
-	--font-size-5: 1.25rem;  /* 20px */
-	--font-size-6: 1.5rem;   /* 24px */
+	--app-font-scale: 1;
+	--app-saturation: 1;
+	--app-contrast: 1;
+	--font-size-1: calc(0.75rem * var(--app-font-scale));  /* 12px */
+	--font-size-2: calc(0.875rem * var(--app-font-scale)); /* 14px */
+	--font-size-3: calc(1rem * var(--app-font-scale));     /* 16px (base) */
+	--font-size-4: calc(1.125rem * var(--app-font-scale)); /* 18px */
+	--font-size-5: calc(1.25rem * var(--app-font-scale));  /* 20px */
+	--font-size-6: calc(1.5rem * var(--app-font-scale));   /* 24px */
 
 	/* -- Text Size Aliases (per UI Guide) -- */
-	--text-xs: 11px;      /* Timestamps, metadata */
-	--text-sm: 13px;      /* Secondary info, captions */
-	--text-base: 14px;    /* Body text, messages (default) */
-	--text-lg: 16px;      /* Usernames, headings */
-	--text-xl: 20px;      /* Modal titles, page headings */
-	--text-2xl: 24px;     /* Hero elements (rare) */
+	--text-xs: calc(11px * var(--app-font-scale));      /* Timestamps, metadata */
+	--text-sm: calc(13px * var(--app-font-scale));      /* Secondary info, captions */
+	--text-base: calc(14px * var(--app-font-scale));    /* Body text, messages (default) */
+	--text-lg: calc(16px * var(--app-font-scale));      /* Usernames, headings */
+	--text-xl: calc(20px * var(--app-font-scale));      /* Modal titles, page headings */
+	--text-2xl: calc(24px * var(--app-font-scale));     /* Hero elements (rare) */
 
 	/* -- Component-specific Font Sizes -- */
-	--channel-btn-font-size: 0.9rem; /* Channel list items */
+	--channel-btn-font-size: calc(0.9rem * var(--app-font-scale)); /* Channel list items */
 
 	/* -- Font Weights -- */
 	--font-weight-regular: 400;
@@ -265,6 +268,10 @@ body {
 	/* Mobile: Use dynamic viewport height for iOS keyboard */
 	height: 100vh;
 	height: 100dvh;
+}
+
+:root[data-color-assist='true'] body {
+	filter: saturate(var(--app-saturation)) contrast(var(--app-contrast));
 }
 
 /* Headings */
@@ -843,4 +850,13 @@ input:focus, textarea:focus {
 		animation-iteration-count: 1 !important;
 		transition-duration: 0.01ms !important;
 	}
+}
+
+:root[data-reduce-motion='true'] *,
+:root[data-reduce-motion='true'] *::before,
+:root[data-reduce-motion='true'] *::after {
+	animation-duration: 0.01ms !important;
+	animation-iteration-count: 1 !important;
+	transition-duration: 0.01ms !important;
+	scroll-behavior: auto !important;
 }

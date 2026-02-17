@@ -172,6 +172,19 @@ const PERFORMANCE_GUARD_LAG_THRESHOLD_MS = 220;
 const PERFORMANCE_GUARD_REQUIRED_STRIKES = 3;
 let diagnosticsPollInterval: number | null = null;
 let diagnosticsPrevBytesSample: { bytesSent: number; bytesReceived: number; timestamp: number } | null = null;
+let remoteVideoMuteDebounceTimers = new Map<string, number>();
+
+type VideoQualityTier = 'high' | 'medium' | 'low' | 'audio-priority';
+
+const VIDEO_QUALITY_TIER_PARAMS: Record<VideoQualityTier, { maxBitrate: number; maxFramerate: number; scaleResolutionDownBy: number }> = {
+	high: { maxBitrate: 1_200_000, maxFramerate: 24, scaleResolutionDownBy: 1 },
+	medium: { maxBitrate: 750_000, maxFramerate: 20, scaleResolutionDownBy: 1.25 },
+	low: { maxBitrate: 420_000, maxFramerate: 15, scaleResolutionDownBy: 1.6 },
+	'audio-priority': { maxBitrate: 220_000, maxFramerate: 10, scaleResolutionDownBy: 2 }
+};
+
+let activeVideoQualityTier: VideoQualityTier = 'high';
+let lastVideoQualityNoticeAt = 0;
 
 type EffectiveAudioProcessingMode = 'dsp' | 'rnn' | 'studio';
 
@@ -643,6 +656,58 @@ function roundMetric(value: number | null, digits = 1): number | null {
 	return Math.round(value * factor) / factor;
 }
 
+function getVideoQualityTierForNetwork(
+	jitterMs: number | null,
+	outboundPacketLossPct: number | null,
+	inboundPacketLossPct: number | null
+): VideoQualityTier {
+	const jitter = jitterMs ?? 0;
+	const worstLoss = Math.max(outboundPacketLossPct ?? 0, inboundPacketLossPct ?? 0);
+
+	if (jitter >= 80 || worstLoss >= 8) return 'audio-priority';
+	if (jitter >= 45 || worstLoss >= 4) return 'low';
+	if (jitter >= 25 || worstLoss >= 2) return 'medium';
+	return 'high';
+}
+
+async function applyAdaptiveVideoQualityTier(nextTier: VideoQualityTier): Promise<void> {
+	if (nextTier === activeVideoQualityTier) return;
+
+	const params = VIDEO_QUALITY_TIER_PARAMS[nextTier];
+	const callStates = [...peerConnections.values()].filter((state) => state.type === 'call');
+
+	for (const state of callStates) {
+		for (const sender of state.pc.getSenders()) {
+			if (sender.track?.kind !== 'video') continue;
+			try {
+				const current = sender.getParameters();
+				if (!current.encodings || current.encodings.length === 0) {
+					current.encodings = [{}];
+				}
+				for (const encoding of current.encodings) {
+					encoding.maxBitrate = params.maxBitrate;
+					encoding.maxFramerate = params.maxFramerate;
+					encoding.scaleResolutionDownBy = params.scaleResolutionDownBy;
+				}
+				await sender.setParameters(current);
+			} catch (error) {
+				console.warn('[WebRTC] Failed to apply adaptive video tier:', error);
+			}
+		}
+	}
+
+	activeVideoQualityTier = nextTier;
+	const now = Date.now();
+	if (now - lastVideoQualityNoticeAt > 12_000) {
+		if (nextTier === 'audio-priority') {
+			pushVoiceChannelNotice('Network unstable: prioritizing audio over video');
+		} else if (nextTier === 'low') {
+			pushVoiceChannelNotice('Network adapting: reducing video quality');
+		}
+		lastVideoQualityNoticeAt = now;
+	}
+}
+
 async function sampleCallConnectionDiagnostics(): Promise<void> {
 	try {
 		const callStates = [...peerConnections.values()].filter((state) => state.type === 'call');
@@ -763,6 +828,9 @@ async function sampleCallConnectionDiagnostics(): Promise<void> {
 			connectionState: get(connectionState),
 			updatedAt: now
 		});
+
+		const nextTier = getVideoQualityTierForNetwork(jitterMs, outboundPacketLossPct, inboundPacketLossPct);
+		await applyAdaptiveVideoQualityTier(nextTier);
 	} catch (error) {
 		console.warn('[WebRTC] Failed to sample connection diagnostics:', error);
 	}
@@ -783,6 +851,7 @@ function stopCallDiagnosticsPolling(state: ConnectionLifecycleState = 'idle'): v
 		diagnosticsPollInterval = null;
 	}
 	resetCallConnectionDiagnostics(state);
+	activeVideoQualityTier = 'high';
 }
 
 // ============================================================================
@@ -996,6 +1065,12 @@ function cleanupPeerConnection(key: string): void {
 
 	// Only clean the relevant store based on connection type
 	if (state.type === 'call') {
+		const videoTimerKey = `${state.targetId}:video`;
+		const pendingVideoTimer = remoteVideoMuteDebounceTimers.get(videoTimerKey);
+		if (pendingVideoTimer != null) {
+			clearTimeout(pendingVideoTimer);
+			remoteVideoMuteDebounceTimers.delete(videoTimerKey);
+		}
 		stopRemoteSpeakingMonitor(state.targetId);
 		callParticipants.delete(state.targetId);
 		activeCalls.update(calls => calls.filter(c => c.userId !== state.targetId));
@@ -1067,6 +1142,14 @@ function addRemoteScreenShare(userId: string, username: string, stream: MediaStr
 
 function handleRemoteTrackEnded(targetId: string, key: string, track: MediaStreamTrack, type: PeerConnectionState['type']): void {
 	if (type === 'call') {
+		if (track.kind === 'video') {
+			const timerKey = `${targetId}:video`;
+			const pendingTimer = remoteVideoMuteDebounceTimers.get(timerKey);
+			if (pendingTimer != null) {
+				clearTimeout(pendingTimer);
+				remoteVideoMuteDebounceTimers.delete(timerKey);
+			}
+		}
 		// Update call state to reflect ended track
 		activeCalls.update(calls => {
 			return calls.map(call => {
@@ -1089,6 +1172,27 @@ function handleRemoteTrackEnded(targetId: string, key: string, track: MediaStrea
 
 function updateRemoteTrackState(targetId: string, track: MediaStreamTrack, type: PeerConnectionState['type']): void {
 	if (type !== 'call') return;
+	const timerKey = `${targetId}:${track.kind}`;
+
+	// Avoid transient network hiccups causing rapid video flicker.
+	if (track.kind === 'video' && track.muted) {
+		if (remoteVideoMuteDebounceTimers.has(timerKey)) return;
+		const timeoutId = window.setTimeout(() => {
+			remoteVideoMuteDebounceTimers.delete(timerKey);
+			activeCalls.update(calls => calls.map(call =>
+				call.userId === targetId ? { ...call, isVideoEnabled: !track.muted && track.enabled } : call
+			));
+		}, 900);
+		remoteVideoMuteDebounceTimers.set(timerKey, timeoutId);
+		return;
+	}
+	if (track.kind === 'video') {
+		const pendingTimer = remoteVideoMuteDebounceTimers.get(timerKey);
+		if (pendingTimer != null) {
+			clearTimeout(pendingTimer);
+			remoteVideoMuteDebounceTimers.delete(timerKey);
+		}
+	}
 
 	activeCalls.update(calls => {
 		return calls.map(call => {
@@ -1277,6 +1381,10 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 	callKeys.forEach(key => cleanupPeerConnection(key));
 
 	activeCalls.set([]);
+	for (const timerId of remoteVideoMuteDebounceTimers.values()) {
+		clearTimeout(timerId);
+	}
+	remoteVideoMuteDebounceTimers.clear();
 	callParticipants.clear();
 	stopAllRemoteSpeakingMonitors();
 	stopLocalSpeakingMonitor();
@@ -1413,6 +1521,10 @@ export function endCall(socket: Socket) {
 	callKeys.forEach(key => cleanupPeerConnection(key));
 
 	activeCalls.set([]);
+	for (const timerId of remoteVideoMuteDebounceTimers.values()) {
+		clearTimeout(timerId);
+	}
+	remoteVideoMuteDebounceTimers.clear();
 	callParticipants.clear();
 	activeVoiceChannelId = null;
 	stopAllRemoteSpeakingMonitors();
@@ -1819,6 +1931,10 @@ export function cleanupAllConnections() {
 	});
 
 	peerConnections.clear();
+	for (const timerId of remoteVideoMuteDebounceTimers.values()) {
+		clearTimeout(timerId);
+	}
+	remoteVideoMuteDebounceTimers.clear();
 	callParticipants.clear();
 	activeVoiceChannelId = null;
 	stopAllRemoteSpeakingMonitors();

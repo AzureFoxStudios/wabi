@@ -8,6 +8,7 @@
 	import type { PageData } from './$types';
 	import { layoutStore } from '$lib/layoutStore';
 	import { initE2E, clearE2EState } from '$lib/e2eManager';
+	import { initializeAccessibilitySettings } from '$lib/accessibility';
 
 	// Theme system
 	import { initializeTheme, watchThemeChanges, syncThemeToLocalStorage } from '$lib/theme/initTheme';
@@ -24,6 +25,7 @@
 	// --- Lifecycle ---
 	onMount(() => {
 		let disposed = false;
+		initializeAccessibilitySettings();
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (e.ctrlKey && e.shiftKey && e.key === '1') {
 				e.preventDefault();

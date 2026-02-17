@@ -13,6 +13,8 @@ export interface DbChannel {
 	is_archived: number;
 	avatar?: string;
 	parent_channel_id?: string | null;
+	is_breakout?: number;
+	breakout_index?: number | null;
 	parent_message_id?: string | null;
 	thread_archived?: number;
 	thread_locked?: number;
@@ -26,10 +28,10 @@ export class ChannelRepository {
 		const stmt = db.prepare(`
 			INSERT INTO channels (
 				channel_id, channel_type, name, description, min_role, created_at, created_by, persist_messages,
-				is_archived, parent_channel_id, parent_message_id, thread_archived, thread_locked,
+				is_archived, parent_channel_id, is_breakout, breakout_index, parent_message_id, thread_archived, thread_locked,
 				thread_auto_archive_minutes, thread_last_activity_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
 		`);
 
 		stmt.run(
@@ -42,6 +44,8 @@ export class ChannelRepository {
 			channel.created_by || null,
 			channel.persist_messages ?? 1,
 			channel.parent_channel_id || null,
+			channel.is_breakout ?? 0,
+			channel.breakout_index ?? null,
 			channel.parent_message_id || null,
 			channel.thread_archived ?? 0,
 			channel.thread_locked ?? 0,

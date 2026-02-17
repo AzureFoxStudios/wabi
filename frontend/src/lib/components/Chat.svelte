@@ -15,6 +15,7 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { isInCall, startCall } from '$lib/calling';
 	import { getServerUrl } from '$lib/serverUrl';
+	import { encryptDMFile, isE2EAvailable } from '$lib/e2eManager';
 
 	const dispatch = createEventDispatcher();
 
@@ -56,6 +57,8 @@
 	let mentionSuggestions: { key: string; label: string; value: string; kind: 'special' | 'user' }[] = [];
 	let mentionSelectedIndex = 0;
 	let mentionTokenStart = -1;
+	const RESUMABLE_UPLOAD_CHUNK_SIZE = 1024 * 1024; // 1MB
+	const RESUMABLE_UPLOAD_MAX_RETRIES = 4;
 
 	// Command palette
 	let commandPalette: CommandPalette;
@@ -960,73 +963,58 @@
 			console.log('Upload URL will be:', `${serverUrl}/api/upload`);
 
 			// Upload all files and collect their URLs
-			const uploadedFiles: { fileUrl: string; fileName: string; fileSize: number }[] = [];
+			const uploadedFiles: {
+				fileUrl: string;
+				fileName: string;
+				fileSize: number;
+				attachmentEncryption?: {
+					scheme: 'dm-e2ee-v1';
+					iv: string;
+					mimeType?: string;
+					originalSize?: number;
+				};
+			}[] = [];
+
+			const activeChannel = $channels.find(ch => ch.id === $currentChannel);
+			const canEncryptDmAttachment =
+				activeChannel?.type === 'dm' &&
+				!!activeChannel.otherUser?.dbUserId &&
+				isE2EAvailable();
+			const authToken = localStorage.getItem('authToken');
 
 			for (const file of selectedFiles) {
-				const result = await new Promise<{ fileUrl: string; fileName: string; fileSize: number }>((resolve, reject) => {
-					const formData = new FormData();
-					formData.append('file', file);
-					formData.append('channelId', $currentChannel);
+				let uploadFile = file;
+				let attachmentEncryption:
+					| { scheme: 'dm-e2ee-v1'; iv: string; mimeType?: string; originalSize?: number }
+					| undefined;
+				let persistentResume = true;
 
-					console.log('Uploading file:', file.name, 'to channel:', $currentChannel);
-
-					const xhr = new XMLHttpRequest();
-
-					// Track upload progress
-					xhr.upload.addEventListener('progress', (e) => {
-						if (e.lengthComputable) {
-							const fileProgress = (e.loaded / e.total) * 100;
-							const overallProgress = ((completedFiles + fileProgress / 100) / totalFiles) * 100;
-							uploadProgress = Math.round(overallProgress);
-						}
-					});
-
-					// Handle completion
-					xhr.addEventListener('load', () => {
-						if (xhr.status === 200) {
-							try {
-								const uploadResult = JSON.parse(xhr.responseText);
-								completedFiles++;
-								resolve({
-									fileUrl: uploadResult.fileUrl,
-									fileName: file.name,
-									fileSize: file.size
-								});
-							} catch (parseError) {
-								console.error('Failed to parse upload response:', xhr.responseText);
-								reject(new Error(`Invalid server response: ${xhr.responseText.substring(0, 100)}`));
-							}
-						} else {
-							console.error('Upload failed with status', xhr.status, xhr.responseText);
-							reject(new Error(`Upload failed with status ${xhr.status}`));
-						}
-					});
-
-					xhr.addEventListener('error', () => {
-						console.error('XHR error event');
-						reject(new Error('Upload network error'));
-					});
-
-					const uploadUrl = `${serverUrl}/api/upload`;
-					console.log('Opening XHR POST to:', uploadUrl);
-					xhr.open('POST', uploadUrl);
-
-					// Add authentication header
-					const authToken = localStorage.getItem('authToken');
-					if (authToken) {
-						xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
-					} else {
-						const sessionId = localStorage.getItem('sessionId');
-						if (sessionId) {
-							xhr.setRequestHeader('X-Session-Id', sessionId);
-						}
+				if (canEncryptDmAttachment && authToken && activeChannel?.otherUser?.dbUserId) {
+					const encrypted = await encryptDMFile(file, activeChannel.otherUser.dbUserId, authToken);
+					if (encrypted) {
+						uploadFile = encrypted.encryptedFile;
+						attachmentEncryption = {
+							scheme: 'dm-e2ee-v1',
+							iv: encrypted.iv,
+							mimeType: encrypted.mimeType,
+							originalSize: encrypted.originalSize
+						};
+						// Ciphertext is randomized; cross-reload resume can't safely assume identical bytes.
+						persistentResume = false;
 					}
+				}
 
-					console.log('Sending FormData with file:', file.name);
-					xhr.send(formData);
+				const result = await uploadFileResumable(uploadFile, $currentChannel, (fileProgressPercent) => {
+					const overallProgress = ((completedFiles + fileProgressPercent / 100) / totalFiles) * 100;
+					uploadProgress = Math.round(overallProgress);
+				}, persistentResume);
+				completedFiles++;
+				uploadedFiles.push({
+					fileUrl: result.fileUrl,
+					fileName: file.name,
+					fileSize: file.size,
+					attachmentEncryption
 				});
-
-				uploadedFiles.push(result);
 			}
 
 			// Send a single message with all uploaded files
@@ -1036,6 +1024,7 @@
 					fileUrl: uploadedFiles[0].fileUrl,
 					fileName: uploadedFiles[0].fileName,
 					fileSize: uploadedFiles[0].fileSize,
+					attachmentEncryption: uploadedFiles[0].attachmentEncryption,
 					replyTo: replyingTo?.id,
 					isSpoiler: markAsSpoiler
 				});
@@ -1062,6 +1051,164 @@
 			isUploading = false;
 			uploadProgress = 0;
 		}
+	}
+
+	function getUploadAuthHeaders(includeJsonContentType = false): Record<string, string> {
+		const headers: Record<string, string> = {};
+		if (includeJsonContentType) {
+			headers['Content-Type'] = 'application/json';
+		}
+		const authToken = localStorage.getItem('authToken');
+		if (authToken) {
+			headers['Authorization'] = `Bearer ${authToken}`;
+			return headers;
+		}
+		const sessionId = localStorage.getItem('sessionId');
+		if (sessionId) {
+			headers['X-Session-Id'] = sessionId;
+		}
+		return headers;
+	}
+
+	function getResumeStorageKey(channelId: string, file: File): string {
+		return `upload-resume:${channelId}:${file.name}:${file.size}:${file.lastModified}`;
+	}
+
+	async function uploadFileResumable(
+		file: File,
+		channelId: string,
+		onProgress: (fileProgressPercent: number) => void,
+		allowPersistentResume = true
+	): Promise<{ fileUrl: string; fileName: string; fileSize: number }> {
+		const serverUrl = getServerUrl();
+		const resumeKey = getResumeStorageKey(channelId, file);
+		const previousUploadId = allowPersistentResume ? (localStorage.getItem(resumeKey) || undefined) : undefined;
+
+		const initResponse = await fetch(`${serverUrl}/api/upload/resumable/init`, {
+			method: 'POST',
+			headers: getUploadAuthHeaders(true),
+			body: JSON.stringify({
+				uploadId: previousUploadId,
+				fileName: file.name,
+				fileSize: file.size,
+				mimeType: file.type || 'application/octet-stream',
+				channelId
+			})
+		});
+		if (!initResponse.ok) {
+			throw new Error(`Resumable init failed (${initResponse.status})`);
+		}
+
+		const initResult = await initResponse.json();
+		const uploadId = initResult.uploadId as string;
+		let uploadToken = initResult.uploadToken as string;
+		if (allowPersistentResume) {
+			localStorage.setItem(resumeKey, uploadId);
+		}
+
+		if (initResult.completed && initResult.fileUrl) {
+			if (allowPersistentResume) localStorage.removeItem(resumeKey);
+			return {
+				fileUrl: initResult.fileUrl as string,
+				fileName: file.name,
+				fileSize: file.size
+			};
+		}
+
+		let uploadedBytes = Number(initResult.uploadedBytes || 0);
+		onProgress((uploadedBytes / Math.max(file.size, 1)) * 100);
+
+		while (uploadedBytes < file.size) {
+			const chunkEnd = Math.min(uploadedBytes + RESUMABLE_UPLOAD_CHUNK_SIZE, file.size);
+			const chunkBlob = file.slice(uploadedBytes, chunkEnd);
+
+			let uploadedThisChunk = false;
+			let attempt = 0;
+			while (!uploadedThisChunk && attempt < RESUMABLE_UPLOAD_MAX_RETRIES) {
+				attempt++;
+				try {
+					const chunkResponse = await fetch(
+						`${serverUrl}/api/upload/resumable/chunk?uploadId=${encodeURIComponent(uploadId)}&offset=${uploadedBytes}&uploadToken=${encodeURIComponent(uploadToken)}`,
+						{
+							method: 'PUT',
+							headers: getUploadAuthHeaders(),
+							body: chunkBlob
+						}
+					);
+					if (chunkResponse.status === 403) {
+						const refreshResponse = await fetch(`${serverUrl}/api/upload/resumable/init`, {
+							method: 'POST',
+							headers: getUploadAuthHeaders(true),
+							body: JSON.stringify({
+								uploadId,
+								fileName: file.name,
+								fileSize: file.size,
+								mimeType: file.type || 'application/octet-stream',
+								channelId
+							})
+						});
+						if (!refreshResponse.ok) {
+							throw new Error(`Upload token refresh failed (${refreshResponse.status})`);
+						}
+						const refresh = await refreshResponse.json();
+						uploadToken = refresh.uploadToken as string;
+						uploadedBytes = Number(refresh.uploadedBytes || uploadedBytes);
+						onProgress((uploadedBytes / Math.max(file.size, 1)) * 100);
+						uploadedThisChunk = true;
+						break;
+					}
+
+					if (chunkResponse.status === 409) {
+						const conflict = await chunkResponse.json();
+						const expectedOffset = Number(conflict.expectedOffset);
+						if (Number.isFinite(expectedOffset) && expectedOffset >= 0) {
+							uploadedBytes = expectedOffset;
+							if (conflict.uploadToken) {
+								uploadToken = conflict.uploadToken as string;
+							}
+							onProgress((uploadedBytes / Math.max(file.size, 1)) * 100);
+							uploadedThisChunk = true;
+							break;
+						}
+					}
+
+					if (!chunkResponse.ok) {
+						throw new Error(`Chunk upload failed (${chunkResponse.status})`);
+					}
+
+					const chunkResult = await chunkResponse.json();
+					uploadedBytes = Number(chunkResult.uploadedBytes || uploadedBytes);
+					if (chunkResult.uploadToken) {
+						uploadToken = chunkResult.uploadToken as string;
+					}
+					onProgress((uploadedBytes / Math.max(file.size, 1)) * 100);
+					uploadedThisChunk = true;
+				} catch (error) {
+					if (attempt >= RESUMABLE_UPLOAD_MAX_RETRIES) {
+						throw error;
+					}
+					await new Promise((resolve) => setTimeout(resolve, attempt * 400));
+				}
+			}
+		}
+
+		const completeResponse = await fetch(`${serverUrl}/api/upload/resumable/complete`, {
+			method: 'POST',
+			headers: getUploadAuthHeaders(true),
+			body: JSON.stringify({ uploadId, uploadToken })
+		});
+		if (!completeResponse.ok) {
+			throw new Error(`Resumable complete failed (${completeResponse.status})`);
+		}
+
+		const completeResult = await completeResponse.json();
+		if (allowPersistentResume) localStorage.removeItem(resumeKey);
+
+		return {
+			fileUrl: completeResult.fileUrl as string,
+			fileName: file.name,
+			fileSize: file.size
+		};
 	}
 
 	// Handle photo capture
