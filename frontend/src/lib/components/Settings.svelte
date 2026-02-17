@@ -97,6 +97,15 @@
 	let micTestAudioUrl: string | null = null;
 	let micTestLevel = 0;
 	let micTestState: 'idle' | 'recording' | 'ready' = 'idle';
+	const isDevBuild = import.meta.env.DEV;
+	const MEMORY_TELEMETRY_KEY = 'wabi_debug_memory_telemetry';
+	let memoryTelemetryEnabled = false;
+	let memoryTelemetrySupported = false;
+	let memoryTelemetryInterval: number | null = null;
+	let memoryUsedMb = 0;
+	let memoryTotalMb = 0;
+	let memoryLimitMb = 0;
+	let memoryUsedPct = 0;
 
 	// Theme saving state
 	let savingTheme = false;
@@ -185,10 +194,19 @@
 			spatialAudioWarningsMuted = spatial.warningMuted;
 			spatialAudioQuickToggleVisible = spatial.quickToggleVisible;
 		})();
+
+		memoryTelemetrySupported = typeof performance !== 'undefined' && Boolean((performance as Performance & { memory?: unknown }).memory);
+		if (isDevBuild) {
+			memoryTelemetryEnabled = localStorage.getItem(MEMORY_TELEMETRY_KEY) === 'true';
+			if (memoryTelemetryEnabled) {
+				startMemoryTelemetry();
+			}
+		}
 	});
 
 	onDestroy(() => {
 		cleanupMicTest();
+		stopMemoryTelemetry();
 	});
 
 	function toggleSound() {
@@ -363,6 +381,41 @@
 	function updateScreenShareQualityPreset(preset: ScreenShareQualityPreset) {
 		screenShareQualityPreset = preset;
 		setScreenShareQualityPreset(preset);
+	}
+
+	function sampleMemoryTelemetry() {
+		const mem = (performance as Performance & {
+			memory?: { usedJSHeapSize: number; totalJSHeapSize: number; jsHeapSizeLimit: number };
+		}).memory;
+		if (!mem) return;
+		memoryUsedMb = mem.usedJSHeapSize / (1024 * 1024);
+		memoryTotalMb = mem.totalJSHeapSize / (1024 * 1024);
+		memoryLimitMb = mem.jsHeapSizeLimit / (1024 * 1024);
+		memoryUsedPct = memoryTotalMb > 0 ? (memoryUsedMb / memoryTotalMb) * 100 : 0;
+	}
+
+	function startMemoryTelemetry() {
+		if (!isDevBuild || !memoryTelemetrySupported) return;
+		stopMemoryTelemetry();
+		sampleMemoryTelemetry();
+		memoryTelemetryInterval = window.setInterval(sampleMemoryTelemetry, 2000);
+	}
+
+	function stopMemoryTelemetry() {
+		if (memoryTelemetryInterval !== null) {
+			clearInterval(memoryTelemetryInterval);
+			memoryTelemetryInterval = null;
+		}
+	}
+
+	function toggleMemoryTelemetry() {
+		memoryTelemetryEnabled = !memoryTelemetryEnabled;
+		localStorage.setItem(MEMORY_TELEMETRY_KEY, memoryTelemetryEnabled ? 'true' : 'false');
+		if (memoryTelemetryEnabled) {
+			startMemoryTelemetry();
+		} else {
+			stopMemoryTelemetry();
+		}
 	}
 
 	function toggleSpatialAudio() {
@@ -1656,6 +1709,27 @@
 								<p>Server stores nothing permanently. You control your data.</p>
 								<p class="version">Version 1.0.0</p>
 							</div>
+							{#if isDevBuild}
+								<div class="setting-item">
+									<div class="setting-info">
+										<span class="setting-label">Debug Memory Telemetry</span>
+										<span class="setting-description">DEV only: samples browser JS heap every 2s.</span>
+									</div>
+									<button class="toggle-btn" class:active={memoryTelemetryEnabled} on:click={toggleMemoryTelemetry} disabled={!memoryTelemetrySupported}>
+										{memoryTelemetryEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+								{#if memoryTelemetryEnabled && memoryTelemetrySupported}
+									<div class="runtime-note">
+										Heap Used: <strong>{memoryUsedMb.toFixed(1)} MB</strong> /
+										Total: <strong>{memoryTotalMb.toFixed(1)} MB</strong> /
+										Limit: <strong>{memoryLimitMb.toFixed(0)} MB</strong>
+										({memoryUsedPct.toFixed(1)}%)
+									</div>
+								{:else if !memoryTelemetrySupported}
+									<div class="runtime-note">Telemetry unavailable on this runtime.</div>
+								{/if}
+							{/if}
 						</div>
 					{/if}
 				</div>

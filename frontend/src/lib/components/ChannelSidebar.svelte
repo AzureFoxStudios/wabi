@@ -921,7 +921,9 @@
 	{/if}
 </div>
 
-<Settings bind:isOpen={showSettings} on:logout={handleLogout} />
+{#if showSettings}
+	<Settings bind:isOpen={showSettings} on:logout={handleLogout} />
+{/if}
 
 <ConfirmDialog
 	isOpen={showDeleteConfirm}

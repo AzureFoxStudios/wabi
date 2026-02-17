@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount, tick, createEventDispatcher } from 'svelte';
+	import { onMount, onDestroy, tick, createEventDispatcher } from 'svelte';
+	import { get } from 'svelte/store';
 	import {
 		channelMessages,
 		channels,
@@ -100,6 +101,13 @@
 	const MESSAGE_WORKING_SET_LIMIT_PERSISTENT_SEARCH = 5000;
 	const SEARCH_BACKFILL_THROTTLE_MS = 700;
 	let lastSearchBackfillAt = 0;
+	let isFullHistorySearchRunning = false;
+	let fullHistorySearchAbortRequested = false;
+	let fullHistorySearchPagesLoaded = 0;
+	let fullHistorySearchStatus = '';
+	const MAX_FULL_HISTORY_SEARCH_PAGES = 80;
+	const MAX_FILE_PREVIEW_IMAGES = 8;
+	let lastPreviewChannelId: string | null = null;
 
 	// Photo and audio capture
 	let showCameraCapture = false;
@@ -238,12 +246,15 @@
 	// Reactive search
 	$: filteredMessages = filterMessages(messages, searchInput, getWorkingSetLimit());
 	$: visibleTypingUsers = getVisibleTypingUsers($typingUsers[$currentChannel] || []);
+	$: if (!searchInput.trim()) {
+		fullHistorySearchStatus = '';
+	}
 	$: searchBackfillBusy =
 		Boolean(searchInput.trim()) &&
 		Boolean(currentChannelData?.persistMessages) &&
 		(($channelHistoryLoading[$currentChannel] || false) || ($channelLoadingOlder[$currentChannel] || false));
 	$: {
-		if (searchInput.trim() && currentChannelData?.persistMessages && $currentChannel) {
+		if (searchInput.trim() && currentChannelData?.persistMessages && $currentChannel && !isFullHistorySearchRunning) {
 			const now = Date.now();
 			if (now - lastSearchBackfillAt >= SEARCH_BACKFILL_THROTTLE_MS) {
 				const hasMoreServerHistory = $channelHasMoreHistory[$currentChannel] ?? false;
@@ -263,6 +274,10 @@
 				}
 			}
 		}
+	}
+	$: if (lastPreviewChannelId !== $currentChannel) {
+		lastPreviewChannelId = $currentChannel;
+		clearFilePreviews();
 	}
 
 	async function scrollToBottom() {
@@ -856,6 +871,43 @@
 		replyingTo = null;
 	}
 
+	function revokePreviewUrl(preview?: string): void {
+		if (!preview || !preview.startsWith('blob:')) return;
+		try {
+			URL.revokeObjectURL(preview);
+		} catch {
+			// no-op
+		}
+	}
+
+	function clearFilePreviews(): void {
+		for (const item of filePreviews) {
+			revokePreviewUrl(item.preview);
+		}
+		filePreviews = [];
+		selectedFiles = [];
+	}
+
+	function enforcePreviewBudget(): void {
+		if (filePreviews.length <= MAX_FILE_PREVIEW_IMAGES) return;
+		const overflow = filePreviews.slice(0, filePreviews.length - MAX_FILE_PREVIEW_IMAGES);
+		for (const item of overflow) {
+			revokePreviewUrl(item.preview);
+		}
+		filePreviews = filePreviews.slice(-MAX_FILE_PREVIEW_IMAGES);
+		selectedFiles = selectedFiles.slice(-MAX_FILE_PREVIEW_IMAGES);
+	}
+
+	function buildPreviewEntries(files: File[]): { file: File; preview?: string }[] {
+		return files.map((file) => {
+			if (file.type.startsWith('image/')) {
+				const preview = URL.createObjectURL(file);
+				return { file, preview };
+			}
+			return { file };
+		});
+	}
+
 	async function handleFileSelect(event: Event) {
 		const input = event.target as HTMLInputElement;
 		const files = Array.from(input.files || []);
@@ -878,33 +930,24 @@
 		}
 
 		// Store selected files and generate previews for images
+		clearFilePreviews();
 		selectedFiles = files;
-		filePreviews = await Promise.all(
-			files.map(async (file) => {
-				if (file.type.startsWith('image/')) {
-					const preview = await new Promise<string>((resolve) => {
-						const reader = new FileReader();
-						reader.onload = (e) => resolve(e.target?.result as string);
-						reader.readAsDataURL(file);
-					});
-					return { file, preview };
-				}
-				return { file };
-			})
-		);
+		filePreviews = buildPreviewEntries(files);
+		enforcePreviewBudget();
 
 		input.value = '';
 		return;
 	}
 
 	function removeFile(index: number) {
+		const removed = filePreviews[index];
+		revokePreviewUrl(removed?.preview);
 		selectedFiles = selectedFiles.filter((_, i) => i !== index);
 		filePreviews = filePreviews.filter((_, i) => i !== index);
 	}
 
 	function cancelUpload() {
-		selectedFiles = [];
-		filePreviews = [];
+		clearFilePreviews();
 	}
 
 	function handleDragEnter(e: DragEvent) {
@@ -949,20 +992,10 @@
 		}
 
 		// Store selected files and generate previews
+		clearFilePreviews();
 		selectedFiles = files;
-		filePreviews = await Promise.all(
-			files.map(async (file) => {
-				if (file.type.startsWith('image/')) {
-					const preview = await new Promise<string>((resolve) => {
-						const reader = new FileReader();
-						reader.onload = (e) => resolve(e.target?.result as string);
-						reader.readAsDataURL(file);
-					});
-					return { file, preview };
-				}
-				return { file };
-			})
-		);
+		filePreviews = buildPreviewEntries(files);
+		enforcePreviewBudget();
 	}
 
 	async function handlePaste(e: ClipboardEvent) {
@@ -994,19 +1027,8 @@
 			}
 
 			selectedFiles = [...selectedFiles, ...files];
-			filePreviews = await Promise.all(
-				files.map(async (file) => {
-					if (file.type.startsWith('image/')) {
-						const preview = await new Promise<string>((resolve) => {
-							const reader = new FileReader();
-							reader.onload = (e) => resolve(e.target?.result as string);
-							reader.readAsDataURL(file);
-						});
-						return { file, preview };
-					}
-					return { file };
-				})
-			);
+			filePreviews = [...filePreviews, ...buildPreviewEntries(files)];
+			enforcePreviewBudget();
 			return;
 		}
 
@@ -1110,8 +1132,7 @@
 			console.log('All files uploaded');
 			messageInput = '';
 			replyingTo = null;
-			selectedFiles = [];
-			filePreviews = [];
+			clearFilePreviews();
 			isUploading = false;
 			uploadProgress = 0;
 			textareaElement?.focus();
@@ -1292,7 +1313,9 @@
 			return;
 		}
 
+		clearFilePreviews();
 		selectedFiles = [file];
+		filePreviews = buildPreviewEntries([file]);
 		await uploadSelectedFiles();
 		showCameraCapture = false;
 		showMediaMenu = false;
@@ -1310,7 +1333,9 @@
 			return;
 		}
 
+		clearFilePreviews();
 		selectedFiles = [file];
+		filePreviews = buildPreviewEntries([file]);
 		await uploadSelectedFiles();
 		showAudioRecorder = false;
 		showMediaMenu = false;
@@ -1336,6 +1361,81 @@
 		return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 	}
 
+	function wait(ms: number): Promise<void> {
+		return new Promise((resolve) => setTimeout(resolve, ms));
+	}
+
+	function getChannelHistoryFlags(channelId: string): {
+		hasMoreServer: boolean;
+		serverLoading: boolean;
+		hasMoreArchive: boolean;
+		archiveLoading: boolean;
+	} {
+		const hasMoreServer = get(channelHasMoreHistory)[channelId] ?? false;
+		const serverLoading = get(channelHistoryLoading)[channelId] || false;
+		const availableArchives = get(channelAvailableArchives)[channelId] || [];
+		const loadedArchives = get(channelLoadedArchives)[channelId] || new Set<string>();
+		const hasMoreArchive = availableArchives.length > loadedArchives.size;
+		const archiveLoading = get(channelLoadingOlder)[channelId] || false;
+		return { hasMoreServer, serverLoading, hasMoreArchive, archiveLoading };
+	}
+
+	async function waitForHistoryIdle(channelId: string, timeoutMs = 12_000): Promise<void> {
+		const startedAt = Date.now();
+		while (Date.now() - startedAt < timeoutMs) {
+			const { serverLoading, archiveLoading } = getChannelHistoryFlags(channelId);
+			if (!serverLoading && !archiveLoading) return;
+			await wait(120);
+		}
+	}
+
+	async function runFullHistorySearchBackfill(): Promise<void> {
+		if (!searchInput.trim() || !currentChannelData?.persistMessages || !$currentChannel) return;
+		if (isFullHistorySearchRunning) return;
+		const channelId = $currentChannel;
+		const querySnapshot = searchInput.trim();
+		isFullHistorySearchRunning = true;
+		fullHistorySearchAbortRequested = false;
+		fullHistorySearchPagesLoaded = 0;
+		fullHistorySearchStatus = 'Scanning full history...';
+
+		try {
+			for (let i = 0; i < MAX_FULL_HISTORY_SEARCH_PAGES; i += 1) {
+				if (fullHistorySearchAbortRequested) {
+					fullHistorySearchStatus = 'Stopped.';
+					return;
+				}
+				if ($currentChannel !== channelId || searchInput.trim() !== querySnapshot) {
+					fullHistorySearchStatus = 'Search query/channel changed.';
+					return;
+				}
+
+				const flags = getChannelHistoryFlags(channelId);
+				if (flags.serverLoading || flags.archiveLoading) {
+					await waitForHistoryIdle(channelId);
+					continue;
+				}
+
+				if (flags.hasMoreServer) {
+					loadOlderHistory(channelId);
+					fullHistorySearchPagesLoaded += 1;
+				} else if (flags.hasMoreArchive) {
+					await loadOlderMessages(channelId);
+					fullHistorySearchPagesLoaded += 1;
+				} else {
+					fullHistorySearchStatus = 'Full history loaded for this channel.';
+					return;
+				}
+
+				await waitForHistoryIdle(channelId);
+				await tick();
+			}
+			fullHistorySearchStatus = 'Reached safety page limit. Narrow search to continue.';
+		} finally {
+			isFullHistorySearchRunning = false;
+		}
+	}
+
 	onMount(() => {
 		scrollToBottom();
 
@@ -1353,6 +1453,10 @@
 		return () => {
 			document.removeEventListener('click', handleGlobalClick);
 		};
+	});
+
+	onDestroy(() => {
+		clearFilePreviews();
 	});
 </script>
 
@@ -1406,6 +1510,24 @@
 			{/if}
 			{#if searchBackfillBusy}
 				<span class="search-results">Loading older history...</span>
+			{/if}
+			{#if searchInput && currentChannelData?.persistMessages}
+				<button
+					type="button"
+					class="search-history-btn"
+					on:click={() => {
+						if (isFullHistorySearchRunning) {
+							fullHistorySearchAbortRequested = true;
+						} else {
+							void runFullHistorySearchBackfill();
+						}
+					}}
+				>
+					{isFullHistorySearchRunning ? `Stop (${fullHistorySearchPagesLoaded})` : 'Search Full History'}
+				</button>
+				{#if fullHistorySearchStatus}
+					<span class="search-results">{fullHistorySearchStatus}</span>
+				{/if}
 			{/if}
 			</div>
 		</div>
@@ -1797,6 +1919,22 @@
 		color: var(--text-secondary);
 		white-space: nowrap;
 		padding: 0 0.5rem;
+	}
+
+	.search-history-btn {
+		border: none;
+		border-radius: 10px;
+		padding: 0.2rem 0.55rem;
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+		background: var(--bg-tertiary);
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.search-history-btn:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
 	}
 
 	.messages {
