@@ -1,6 +1,33 @@
 <script lang="ts">
 	import { onMount, tick, createEventDispatcher } from 'svelte';
-	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, users, dmPanelSignal, createDM, getDMChannelIdForUser, socket, type Message, type Emoji, type User, type Channel } from '$lib/socket';
+	import {
+		channelMessages,
+		channels,
+		currentChannel,
+		typingUsers,
+		sendMessage,
+		sendTyping,
+		lastReadMessageId,
+		editMessage,
+		currentUser,
+		emojis,
+		users,
+		dmPanelSignal,
+		createDM,
+		getDMChannelIdForUser,
+		socket,
+		loadOlderHistory,
+		channelHasMoreHistory,
+		channelHistoryLoading,
+		loadOlderMessages,
+		channelAvailableArchives,
+		channelLoadedArchives,
+		channelLoadingOlder,
+		type Message,
+		type Emoji,
+		type User,
+		type Channel
+	} from '$lib/socket';
 	import { resources, graphEdges } from '$lib/business/store';
 	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
 	import type { Resource } from '$lib/business/types';
@@ -68,7 +95,11 @@
 	// Search functionality
 	let searchInput = '';
 	let filteredMessages: Message[] = [];
-	const MESSAGE_WORKING_SET_LIMIT = 600;
+	const MESSAGE_WORKING_SET_LIMIT_EPHEMERAL = 600;
+	const MESSAGE_WORKING_SET_LIMIT_PERSISTENT_IDLE = 1200;
+	const MESSAGE_WORKING_SET_LIMIT_PERSISTENT_SEARCH = 5000;
+	const SEARCH_BACKFILL_THROTTLE_MS = 700;
+	let lastSearchBackfillAt = 0;
 
 	// Photo and audio capture
 	let showCameraCapture = false;
@@ -159,9 +190,9 @@
 	}
 
 	// Filter messages based on search query
-	function filterMessages(msgs: Message[], query: string): Message[] {
-		const workingSet = msgs.length > MESSAGE_WORKING_SET_LIMIT
-			? msgs.slice(-MESSAGE_WORKING_SET_LIMIT)
+	function filterMessages(msgs: Message[], query: string, workingSetLimit: number): Message[] {
+		const workingSet = msgs.length > workingSetLimit
+			? msgs.slice(-workingSetLimit)
 			: msgs;
 		if (!query.trim()) return workingSet;
 
@@ -195,9 +226,44 @@
 		});
 	}
 
+	function getWorkingSetLimit(): number {
+		if (currentChannelData?.persistMessages) {
+			return searchInput.trim()
+				? MESSAGE_WORKING_SET_LIMIT_PERSISTENT_SEARCH
+				: MESSAGE_WORKING_SET_LIMIT_PERSISTENT_IDLE;
+		}
+		return MESSAGE_WORKING_SET_LIMIT_EPHEMERAL;
+	}
+
 	// Reactive search
-	$: filteredMessages = filterMessages(messages, searchInput);
+	$: filteredMessages = filterMessages(messages, searchInput, getWorkingSetLimit());
 	$: visibleTypingUsers = getVisibleTypingUsers($typingUsers[$currentChannel] || []);
+	$: searchBackfillBusy =
+		Boolean(searchInput.trim()) &&
+		Boolean(currentChannelData?.persistMessages) &&
+		(($channelHistoryLoading[$currentChannel] || false) || ($channelLoadingOlder[$currentChannel] || false));
+	$: {
+		if (searchInput.trim() && currentChannelData?.persistMessages && $currentChannel) {
+			const now = Date.now();
+			if (now - lastSearchBackfillAt >= SEARCH_BACKFILL_THROTTLE_MS) {
+				const hasMoreServerHistory = $channelHasMoreHistory[$currentChannel] ?? false;
+				const isServerLoading = $channelHistoryLoading[$currentChannel] || false;
+				if (hasMoreServerHistory && !isServerLoading) {
+					lastSearchBackfillAt = now;
+					loadOlderHistory($currentChannel);
+				} else {
+					const availableArchives = $channelAvailableArchives[$currentChannel] || [];
+					const loadedArchives = $channelLoadedArchives[$currentChannel] || new Set<string>();
+					const hasMoreArchiveHistory = availableArchives.length > loadedArchives.size;
+					const isArchiveLoading = $channelLoadingOlder[$currentChannel] || false;
+					if (hasMoreArchiveHistory && !isArchiveLoading) {
+						lastSearchBackfillAt = now;
+						void loadOlderMessages($currentChannel);
+					}
+				}
+			}
+		}
+	}
 
 	async function scrollToBottom() {
 		await tick();
@@ -1337,6 +1403,9 @@
 			/>
 			{#if searchInput}
 				<span class="search-results">{filteredMessages.length} result{filteredMessages.length !== 1 ? 's' : ''}</span>
+			{/if}
+			{#if searchBackfillBusy}
+				<span class="search-results">Loading older history...</span>
 			{/if}
 			</div>
 		</div>
