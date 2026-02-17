@@ -657,6 +657,14 @@ class SocketManager {
 			this.applyVoiceState(get(voiceChannelMembers));
 		});
 
+		sock.on('voice-channel-subscribed', (data: { channelId: string; members?: VoiceChannelParticipant[] }) => {
+			voiceChannelMembers.update(state => ({
+				...state,
+				[data.channelId]: data.members || state[data.channelId] || []
+			}));
+			this.applyVoiceState(get(voiceChannelMembers));
+		});
+
 		// ==================== MESSAGE EVENTS ====================
 
 		sock.on('channel-messages', async (data: { channelId: string; messages: Message[]; hasMore?: boolean }) => {
@@ -1101,9 +1109,9 @@ class SocketManager {
 			calling.removeScreenShare(data.userId);
 		});
 
-		sock.on('call-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string }) => {
+		sock.on('call-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string; channelId?: string }) => {
 			console.log(`[SocketManager] Call offer from ${data.username}`);
-			calling.handleCallOffer(sock, data.senderId, data.username, data.offer)
+			calling.handleCallOffer(sock, data.senderId, data.username, data.offer, data.channelId)
 				.catch(err => console.error('[SocketManager] handleCallOffer failed:', err));
 		});
 
@@ -1122,10 +1130,13 @@ class SocketManager {
 			if (me?.id === data.userId || sock.id === data.socketId) {
 				return;
 			}
+			if (!get(calling.listeningVoiceChannels).includes(data.channelId)) {
+				return;
+			}
 
 			const targetId = data.socketId || data.userId;
 			console.log(`[SocketManager] Voice participant joined ${data.channelId}: ${data.username || data.userId}`);
-			calling.createCallOffer(sock, targetId, data.username || '')
+			calling.createCallOffer(sock, targetId, data.username || '', { channelId: data.channelId })
 				.catch(err => console.error('[SocketManager] voice-channel createCallOffer failed:', err));
 		});
 
@@ -1409,6 +1420,22 @@ export async function leaveVoiceChannel(channelId: string): Promise<void> {
 		return;
 	}
 	await calling.leaveVoiceChannel(sock, channelId);
+}
+
+export function subscribeVoiceChannel(channelId: string): void {
+	const sock = socketManager.getSocket();
+	if (!sock) return;
+	calling.addVoiceChannelListen(sock, channelId);
+}
+
+export function unsubscribeVoiceChannel(channelId: string): void {
+	const sock = socketManager.getSocket();
+	if (!sock) return;
+	calling.removeVoiceChannelListen(sock, channelId);
+}
+
+export function setVoiceTransmitMode(mode: 'primary' | 'all-listening'): void {
+	calling.setVoiceTransmitRoutingMode(mode);
 }
 
 export function createChannel(channelName: string, description?: string, channelType: 'text' | 'voice' = 'text'): void {

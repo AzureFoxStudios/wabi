@@ -257,6 +257,8 @@ const activeCallPeers = new Map<string, Set<string>>();
 
 // Voice channel runtime state (transient, never persisted)
 const voiceChannelParticipants = new Map<string, Set<string>>(); // channelId -> stable user IDs
+const voiceChannelSubscribers = new Map<string, Set<string>>(); // channelId -> socket IDs listening to updates/media
+const socketVoiceSubscriptions = new Map<string, Set<string>>(); // socket ID -> channel IDs
 const voicePeerGraph = new Map<string, Set<string>>(); // stable user ID -> negotiated peer stable user IDs
 
 function findUserByStableId(stableUserId: string): User | undefined {
@@ -285,6 +287,76 @@ function getVoiceChannelMembers(channelId: string): Array<{ userId: string; sock
 	return Array.from(participants).map(buildVoiceParticipant);
 }
 
+function addVoiceSubscription(socketId: string, channelId: string): void {
+	let channelSubscribers = voiceChannelSubscribers.get(channelId);
+	if (!channelSubscribers) {
+		channelSubscribers = new Set<string>();
+		voiceChannelSubscribers.set(channelId, channelSubscribers);
+	}
+	channelSubscribers.add(socketId);
+
+	let socketSubscriptions = socketVoiceSubscriptions.get(socketId);
+	if (!socketSubscriptions) {
+		socketSubscriptions = new Set<string>();
+		socketVoiceSubscriptions.set(socketId, socketSubscriptions);
+	}
+	socketSubscriptions.add(channelId);
+}
+
+function removeVoiceSubscription(socketId: string, channelId: string): void {
+	const channelSubscribers = voiceChannelSubscribers.get(channelId);
+	if (channelSubscribers) {
+		channelSubscribers.delete(socketId);
+		if (channelSubscribers.size === 0) {
+			voiceChannelSubscribers.delete(channelId);
+		}
+	}
+
+	const socketSubscriptions = socketVoiceSubscriptions.get(socketId);
+	if (socketSubscriptions) {
+		socketSubscriptions.delete(channelId);
+		if (socketSubscriptions.size === 0) {
+			socketVoiceSubscriptions.delete(socketId);
+		}
+	}
+}
+
+function removeAllVoiceSubscriptionsForSocket(socketId: string): void {
+	const channels = Array.from(socketVoiceSubscriptions.get(socketId) || []);
+	for (const channelId of channels) {
+		removeVoiceSubscription(socketId, channelId);
+	}
+}
+
+function getVoiceAudienceSocketIds(channelId: string): Set<string> {
+	const audience = new Set<string>();
+
+	const participants = voiceChannelParticipants.get(channelId);
+	if (participants) {
+		for (const stableUserId of participants) {
+			const participantSocketId = resolveSocketId(stableUserId);
+			if (participantSocketId) {
+				audience.add(participantSocketId);
+			}
+		}
+	}
+
+	const subscribers = voiceChannelSubscribers.get(channelId);
+	if (subscribers) {
+		for (const subscriberSocketId of subscribers) {
+			audience.add(subscriberSocketId);
+		}
+	}
+
+	return audience;
+}
+
+function emitToVoiceAudience(channelId: string, event: string, data: any): void {
+	for (const socketId of getVoiceAudienceSocketIds(channelId)) {
+		io.to(socketId).emit(event, data);
+	}
+}
+
 function getVoiceStatePayload(): Record<string, Array<{ userId: string; socketId: string; username?: string; profilePicture?: string }>> {
 	const payload: Record<string, Array<{ userId: string; socketId: string; username?: string; profilePicture?: string }>> = {};
 	for (const channelId of voiceChannelParticipants.keys()) {
@@ -294,7 +366,7 @@ function getVoiceStatePayload(): Record<string, Array<{ userId: string; socketId
 }
 
 function emitVoiceChannelState(channelId: string): void {
-	emitToChannel(channelId, "voice-channel-state", {
+	emitToVoiceAudience(channelId, "voice-channel-state", {
 		channelId,
 		members: getVoiceChannelMembers(channelId)
 	});
@@ -340,12 +412,12 @@ function moveVoiceParticipant(stableUserId: string, fromChannelId: string, toCha
 	emitVoiceChannelState(fromChannelId);
 	emitVoiceChannelState(toChannelId);
 
-	emitToChannel(fromChannelId, "voice-channel-user-left", {
+	emitToVoiceAudience(fromChannelId, "voice-channel-user-left", {
 		channelId: fromChannelId,
 		userId: stableUserId,
 		socketId: memberSocketId
 	});
-	emitToChannel(toChannelId, "voice-channel-user-joined", {
+	emitToVoiceAudience(toChannelId, "voice-channel-user-joined", {
 		channelId: toChannelId,
 		userId: stableUserId,
 		socketId: memberSocketId,
@@ -4388,6 +4460,9 @@ io.on("connection", (socket) => {
   socket.on("voice-channel-join", (data: { channelId: string }) => {
     const user = users.get(socket.id);
     if (!user || !data.channelId) return;
+    const voiceChannel = channels.get(data.channelId);
+    if (!voiceChannel || voiceChannel.type !== 'voice') return;
+    if (!canAccessChannel(voiceChannel)) return;
 
     const stableUserId = getStableUserId(socket);
     let participants = voiceChannelParticipants.get(data.channelId);
@@ -4399,13 +4474,29 @@ io.on("connection", (socket) => {
     if (participants.has(stableUserId)) return;
 
     participants.add(stableUserId);
+    addVoiceSubscription(socket.id, data.channelId);
     emitVoiceChannelState(data.channelId);
-    emitToChannel(data.channelId, "voice-channel-user-joined", {
+    emitToVoiceAudience(data.channelId, "voice-channel-user-joined", {
       channelId: data.channelId,
       userId: stableUserId,
       socketId: socket.id,
       username: user.username
     });
+  });
+
+  socket.on("voice-channel-subscribe", (data: { channelId: string }) => {
+    const user = users.get(socket.id);
+    if (!user || !data.channelId) return;
+    const voiceChannel = channels.get(data.channelId);
+    if (!voiceChannel || voiceChannel.type !== 'voice') return;
+    if (!canAccessChannel(voiceChannel)) return;
+
+    addVoiceSubscription(socket.id, data.channelId);
+    socket.emit("voice-channel-subscribed", {
+      channelId: data.channelId,
+      members: getVoiceChannelMembers(data.channelId)
+    });
+    emitVoiceChannelState(data.channelId);
   });
 
   socket.on("voice-channel-leave", (data: { channelId: string }) => {
@@ -4422,13 +4513,20 @@ io.on("connection", (socket) => {
     }
 
     emitVoiceChannelState(data.channelId);
-    emitToChannel(data.channelId, "voice-channel-user-left", {
+    emitToVoiceAudience(data.channelId, "voice-channel-user-left", {
       channelId: data.channelId,
       userId: stableUserId,
       socketId: socket.id
     });
 
     removeAllVoicePeerLinks(stableUserId);
+    removeVoiceSubscription(socket.id, data.channelId);
+  });
+
+  socket.on("voice-channel-unsubscribe", (data: { channelId: string }) => {
+    const user = users.get(socket.id);
+    if (!user || !data.channelId) return;
+    removeVoiceSubscription(socket.id, data.channelId);
   });
 
   socket.on("voice-peer-link", (data: { peerStableUserId: string }) => {
@@ -4512,12 +4610,23 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("call-offer", (data: { offer: RTCSessionDescriptionInit; targetId: string }) => {
+  socket.on("call-offer", (data: { offer: RTCSessionDescriptionInit; targetId: string; channelId?: string }) => {
+    if (data.channelId) {
+      const channel = channels.get(data.channelId);
+      if (!channel || channel.type !== 'voice') {
+        return;
+      }
+      const audience = getVoiceAudienceSocketIds(data.channelId);
+      if (!audience.has(socket.id) || !audience.has(data.targetId)) {
+        return;
+      }
+    }
     const user = users.get(socket.id);
     io.to(data.targetId).emit("call-offer", {
       offer: data.offer,
       senderId: socket.id,
-      username: user?.username || 'Unknown'
+      username: user?.username || 'Unknown',
+      channelId: data.channelId
     });
   });
 
@@ -5846,13 +5955,14 @@ io.on("connection", (socket) => {
         }
 
         emitVoiceChannelState(voiceChannelId);
-        emitToChannel(voiceChannelId, "voice-channel-user-left", {
+        emitToVoiceAudience(voiceChannelId, "voice-channel-user-left", {
           channelId: voiceChannelId,
           userId: stableUserId,
           socketId: socket.id
         });
       }
       removeAllVoicePeerLinks(stableUserId);
+      removeAllVoiceSubscriptionsForSocket(socket.id);
 
       socket.broadcast.emit("user-left", {
         id: socket.id,

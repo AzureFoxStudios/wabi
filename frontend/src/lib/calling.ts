@@ -76,6 +76,7 @@ interface PeerConnectionState {
 	type: 'call' | 'screen-share-outbound' | 'screen-share-inbound';
 	targetId: string;
 	username: string;
+	channelId?: string;
 	lifecycleState: ConnectionLifecycleState;
 	iceCandidateQueue: RTCIceCandidateInit[];
 	hasRemoteDescription: boolean;
@@ -140,6 +141,8 @@ export const callTransportState = writable<{
 	gatewayHealthy: false,
 	checkedAt: null
 });
+export const listeningVoiceChannels = writable<string[]>([]);
+export const voiceTransmitMode = writable<'primary' | 'all-listening'>('primary');
 
 // ============================================================================
 // Private State
@@ -1037,6 +1040,29 @@ async function addTrackWithOptimizations(pc: RTCPeerConnection, track: MediaStre
 	await optimizeSender(sender, pc, track.kind as SenderMediaKind, isScreenShareTrack ? 'screen-share' : 'camera');
 }
 
+function shouldTransmitToChannel(channelId?: string): boolean {
+	if (!channelId) return true;
+	if (get(voiceTransmitMode) === 'all-listening') return true;
+	return activeVoiceChannelId === channelId;
+}
+
+async function setPeerAudioSendEnabled(pc: RTCPeerConnection, enabled: boolean): Promise<void> {
+	const audioSenders = pc.getSenders().filter((sender) => sender.track?.kind === 'audio');
+	await Promise.all(audioSenders.map(async (sender) => {
+		try {
+			const params = sender.getParameters();
+			if (!params.encodings || params.encodings.length === 0) {
+				params.encodings = [{ active: enabled }];
+			} else {
+				params.encodings = params.encodings.map((encoding) => ({ ...encoding, active: enabled }));
+			}
+			await sender.setParameters(params);
+		} catch (error) {
+			console.warn('[WebRTC] Could not adjust peer audio sender parameters:', error);
+		}
+	}));
+}
+
 async function renegotiateCallConnection(state: PeerConnectionState, socket: Socket): Promise<void> {
 	if (state.type !== 'call') return;
 
@@ -1313,6 +1339,10 @@ async function ensureLocalAudioStream(): Promise<MediaStream> {
 
 export async function joinVoiceChannel(socket: Socket, channelId: string) {
 	if (activeVoiceChannelId === channelId) {
+		listeningVoiceChannels.update((channels) => (
+			channels.includes(channelId) ? channels : [...channels, channelId]
+		));
+		socket.emit('voice-channel-subscribe', { channelId });
 		return get(localStream);
 	}
 
@@ -1328,6 +1358,7 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		callMode.set('channel');
 		channelCallPanelOpen.set(false);
 		activeVoiceChannel.set({ id: channelId, name: channelId });
+		listeningVoiceChannels.set([channelId]);
 		incomingCall.set(null);
 		pushVoiceChannelNotice(`Joined voice: ${channelId}`);
 		isInCall.set(true);
@@ -1337,6 +1368,7 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		startPerformanceGuard();
 		playCallActionSound('join');
 		socket.emit('voice-channel-join', { channelId });
+		socket.emit('voice-channel-subscribe', { channelId });
 		return stream;
 	} catch (error) {
 		console.error('Error joining voice channel:', error);
@@ -1349,11 +1381,15 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 	if (activeVoiceChannelId !== channelId) {
 		socket.emit('voice-channel-leave', { channelId });
+		socket.emit('voice-channel-unsubscribe', { channelId });
+		listeningVoiceChannels.update((channels) => channels.filter((id) => id !== channelId));
 		return;
 	}
 
 	socket.emit('voice-channel-leave', { channelId });
+	socket.emit('voice-channel-unsubscribe', { channelId });
 	activeVoiceChannelId = null;
+	listeningVoiceChannels.set([]);
 	pushVoiceChannelNotice(`Left voice: ${channelId}`);
 	playCallActionSound('leave');
 
@@ -1527,6 +1563,7 @@ export function endCall(socket: Socket) {
 	remoteVideoMuteDebounceTimers.clear();
 	callParticipants.clear();
 	activeVoiceChannelId = null;
+	listeningVoiceChannels.set([]);
 	stopAllRemoteSpeakingMonitors();
 	stopLocalSpeakingMonitor();
 	stopPerformanceGuard();
@@ -1666,10 +1703,19 @@ export async function toggleVideo(socket?: Socket) {
 // WebRTC Signaling Handlers (called from socket.ts)
 // ============================================================================
 
-export async function createCallOffer(socket: Socket, targetId: string, username: string = '') {
+export async function createCallOffer(
+	socket: Socket,
+	targetId: string,
+	username: string = '',
+	options?: { channelId?: string }
+) {
 	await prefetchTurnCredentials();
 	const pc = createPeerConnection(targetId, username, 'call', socket);
 	const key = getConnectionKey(targetId, 'call');
+	const state = peerConnections.get(key);
+	if (state && options?.channelId) {
+		state.channelId = options.channelId;
+	}
 
 	const stream = get(localStream);
 	if (stream) {
@@ -1677,6 +1723,7 @@ export async function createCallOffer(socket: Socket, targetId: string, username
 			await addTrackWithOptimizations(pc, track, stream);
 		}
 	}
+	await setPeerAudioSendEnabled(pc, shouldTransmitToChannel(options?.channelId));
 
 	try {
 		const offer = await pc.createOffer();
@@ -1684,7 +1731,8 @@ export async function createCallOffer(socket: Socket, targetId: string, username
 
 		socket.emit('call-offer', {
 			offer,
-			targetId
+			targetId,
+			channelId: options?.channelId
 		});
 	} catch (err) {
 		console.error('[WebRTC] Failed to create call offer:', err);
@@ -1696,11 +1744,16 @@ export async function handleCallOffer(
 	socket: Socket,
 	senderId: string,
 	username: string,
-	offer: RTCSessionDescriptionInit
+	offer: RTCSessionDescriptionInit,
+	channelId?: string
 ) {
 	await prefetchTurnCredentials();
 	const pc = createPeerConnection(senderId, username, 'call', socket);
 	const key = getConnectionKey(senderId, 'call');
+	const offerState = peerConnections.get(key);
+	if (offerState && channelId) {
+		offerState.channelId = channelId;
+	}
 
 	const stream = get(localStream);
 	if (stream) {
@@ -1708,6 +1761,7 @@ export async function handleCallOffer(
 			await addTrackWithOptimizations(pc, track, stream);
 		}
 	}
+	await setPeerAudioSendEnabled(pc, shouldTransmitToChannel(channelId));
 
 	try {
 		await pc.setRemoteDescription(offer);
@@ -1937,6 +1991,7 @@ export function cleanupAllConnections() {
 	remoteVideoMuteDebounceTimers.clear();
 	callParticipants.clear();
 	activeVoiceChannelId = null;
+	listeningVoiceChannels.set([]);
 	stopAllRemoteSpeakingMonitors();
 	stopLocalSpeakingMonitor();
 	stopPerformanceGuard();
@@ -1965,6 +2020,28 @@ export function closeChannelCallPanel(): void {
 
 export function toggleChannelCallPanel(): void {
 	channelCallPanelOpen.update((open) => !open);
+}
+
+export function setVoiceTransmitRoutingMode(mode: 'primary' | 'all-listening'): void {
+	voiceTransmitMode.set(mode);
+	peerConnections.forEach((state) => {
+		if (state.type !== 'call') return;
+		void setPeerAudioSendEnabled(state.pc, shouldTransmitToChannel(state.channelId));
+	});
+}
+
+export function addVoiceChannelListen(socket: Socket, channelId: string): void {
+	if (!channelId) return;
+	socket.emit('voice-channel-subscribe', { channelId });
+	listeningVoiceChannels.update((channels) => (
+		channels.includes(channelId) ? channels : [...channels, channelId]
+	));
+}
+
+export function removeVoiceChannelListen(socket: Socket, channelId: string): void {
+	if (!channelId) return;
+	socket.emit('voice-channel-unsubscribe', { channelId });
+	listeningVoiceChannels.update((channels) => channels.filter((id) => id !== channelId));
 }
 
 // ============================================================================

@@ -17,6 +17,9 @@
 		voiceChannelMembers,
 		joinVoiceChannel,
 		leaveVoiceChannel,
+		subscribeVoiceChannel,
+		unsubscribeVoiceChannel,
+		setVoiceTransmitMode,
 		createBreakoutRooms,
 		closeBreakoutRooms,
 		getSocket
@@ -30,6 +33,8 @@
 		callConnectionDiagnostics,
 		callTransportState,
 		channelCallPanelOpen,
+		listeningVoiceChannels,
+		voiceTransmitMode,
 		isMuted as callMuted,
 		isDeafened as callDeafened,
 		isVideoOff,
@@ -253,6 +258,24 @@
 	function handleLeaveActiveVoiceChannel() {
 		if (!$activeVoiceChannelId) return;
 		void leaveVoiceChannel($activeVoiceChannelId);
+	}
+
+	function isListeningToChannel(channelId: string): boolean {
+		return $listeningVoiceChannels.includes(channelId);
+	}
+
+	function handleToggleListenChannel(channelId: string) {
+		if (channelId === $activeVoiceChannelId) return;
+		if (isListeningToChannel(channelId)) {
+			unsubscribeVoiceChannel(channelId);
+			return;
+		}
+		subscribeVoiceChannel(channelId);
+	}
+
+	function handleTransmitModeChange(event: Event) {
+		const value = (event.currentTarget as HTMLSelectElement).value as 'primary' | 'all-listening';
+		setVoiceTransmitMode(value);
 	}
 
 	async function handleToggleVideoInSidebar() {
@@ -764,6 +787,32 @@
 				<button class:active={$isSharing} on:click={handleToggleScreenShareInSidebar} title={$isSharing ? 'Stop sharing' : 'Share screen'}>Share</button>
 				<button class:active={$channelCallPanelOpen} on:click={openChannelCallPanel} title="Open call view">Open View</button>
 				<button class="leave-btn" on:click={handleLeaveActiveVoiceChannel}>Leave</button>
+			</div>
+
+			<div class="voice-route-controls">
+				<label for="voice-transmit-mode">Transmit</label>
+				<select id="voice-transmit-mode" on:change={handleTransmitModeChange} value={$voiceTransmitMode}>
+					<option value="primary">Primary channel</option>
+					<option value="all-listening">All listening channels</option>
+				</select>
+			</div>
+
+			<div class="voice-listen-controls">
+				<div class="voice-listen-title">Listen In</div>
+				<div class="voice-listen-list">
+					{#each voiceChannels as voiceChannel (voiceChannel.id)}
+						<button
+							type="button"
+							class="voice-listen-chip"
+							class:active={isListeningToChannel(voiceChannel.id)}
+							class:locked={voiceChannel.id === $activeVoiceChannelId}
+							on:click={() => handleToggleListenChannel(voiceChannel.id)}
+							title={voiceChannel.id === $activeVoiceChannelId ? 'Primary voice channel' : isListeningToChannel(voiceChannel.id) ? 'Stop listening' : 'Start listening'}
+						>
+							{voiceChannel.name}
+						</button>
+					{/each}
+				</div>
 			</div>
 		</div>
 	{/if}
@@ -1783,6 +1832,70 @@
 		background: rgba(239, 68, 68, 0.15);
 		border-color: rgba(239, 68, 68, 0.45);
 		color: #fda4af;
+	}
+
+	.voice-route-controls {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.45rem;
+		font-size: 0.72rem;
+	}
+
+	.voice-route-controls label {
+		color: var(--text-secondary);
+	}
+
+	.voice-route-controls select {
+		flex: 1;
+		min-width: 0;
+		background: rgba(var(--border-rgb), 0.16);
+		border: 1px solid rgba(var(--border-rgb), 0.35);
+		color: var(--text-primary);
+		border-radius: 8px;
+		padding: 0.2rem 0.35rem;
+		font-size: 0.72rem;
+	}
+
+	.voice-listen-controls {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.voice-listen-title {
+		font-size: 0.68rem;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+	}
+
+	.voice-listen-list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+	}
+
+	.voice-listen-chip {
+		background: rgba(var(--border-rgb), 0.15);
+		border: 1px solid rgba(var(--border-rgb), 0.35);
+		color: var(--text-secondary);
+		border-radius: 999px;
+		padding: 0.18rem 0.48rem;
+		font-size: 0.68rem;
+		line-height: 1.2;
+		cursor: pointer;
+	}
+
+	.voice-listen-chip.active {
+		color: var(--text-primary);
+		background: color-mix(in srgb, var(--accent) 24%, transparent);
+		border-color: color-mix(in srgb, var(--accent) 52%, transparent);
+	}
+
+	.voice-listen-chip.locked {
+		opacity: 0.92;
+		cursor: default;
 	}
 
 	.pin-btn {
