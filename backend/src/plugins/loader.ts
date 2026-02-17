@@ -15,6 +15,9 @@ interface PluginRecord {
   version: string;
   checksum?: string;
   signature?: string;
+  signerKeyId?: string;
+  signatureStatus?: 'verified' | 'invalid' | 'unsigned' | 'skipped';
+  signerTrust?: 'trusted' | 'unknown' | 'n/a';
   lastVerificationResult: 'pass' | 'fail' | 'skipped';
   lastVerifiedAt: string;
 }
@@ -43,12 +46,22 @@ interface PluginLogEntry {
 }
 
 const CRASH_LOOP_THRESHOLD = 3;
+type PluginSignaturePolicy = 'warn-allow' | 'signed-only' | 'curated-only';
+
+interface TrustedSignerRecord {
+  keyId: string;
+  publicKey: string;
+  trustedAt: string;
+  trustedBy: string;
+  note?: string;
+}
 
 export class PluginLoader {
   private plugins: Map<string, { plugin: BackendPlugin; manifest: PluginManifest }> = new Map();
   private pluginsDir: string;
   private storageDir: string;
   private pluginRecordsFile: string;
+  private trustedSignersFile: string;
   private auditLogFile: string;
   private crashStateFile: string;
   private pluginLogDir: string;
@@ -65,6 +78,7 @@ export class PluginLoader {
     this.pluginsDir = pluginsBaseDir;
     this.storageDir = path.join(dataDir, '.plugin-storage');
     this.pluginRecordsFile = path.join(this.storageDir, 'plugin-records.json');
+    this.trustedSignersFile = path.join(this.storageDir, 'trusted-signers.json');
     this.auditLogFile = path.join(this.storageDir, 'plugin-audit.jsonl');
     this.crashStateFile = path.join(this.storageDir, 'plugin-crash-state.json');
     this.pluginLogDir = path.join(this.storageDir, 'logs');
@@ -206,18 +220,28 @@ export class PluginLoader {
       }
 
       const integrity = this.verifyPluginIntegrity(pluginId, pluginPath, manifest);
+      const signature = this.verifyPluginSignature(manifest, integrity.calculatedChecksum);
+      const combinedVerificationPassed = integrity.passed && signature.passed;
+      const combinedVerificationReason = integrity.passed
+        ? signature.reason
+        : `${integrity.reason}; ${signature.reason}`;
       this.writeAuditEvent({
         actor: 'system',
         pluginId,
         version: manifest.version,
         action: 'verify',
-        result: integrity.passed ? 'success' : 'failure',
-        reason: integrity.reason
+        result: combinedVerificationPassed ? 'success' : 'failure',
+        reason: combinedVerificationReason
       });
-      this.upsertPluginRecord(manifest, integrity.passed ? 'pass' : 'fail', integrity.calculatedChecksum);
+      this.upsertPluginRecord(
+        manifest,
+        combinedVerificationPassed ? 'pass' : 'fail',
+        integrity.calculatedChecksum,
+        signature
+      );
 
-      if (!integrity.passed) {
-        console.error(`❌ Plugin integrity check failed for ${pluginId}: ${integrity.reason}`);
+      if (!combinedVerificationPassed) {
+        console.error(`❌ Plugin verification failed for ${pluginId}: ${combinedVerificationReason}`);
         this.recordCrash(pluginId);
         return;
       }
@@ -439,6 +463,112 @@ export class PluginLoader {
     };
   }
 
+  private getSignaturePolicy(): PluginSignaturePolicy {
+    const raw = (process.env.PLUGIN_SIGNATURE_POLICY || 'warn-allow').trim().toLowerCase();
+    if (raw === 'signed-only' || raw === 'curated-only') return raw;
+    return 'warn-allow';
+  }
+
+  private verifyPluginSignature(
+    manifest: PluginManifest,
+    calculatedChecksum: string
+  ): { passed: boolean; reason: string; status: PluginRecord['signatureStatus']; signerTrust: PluginRecord['signerTrust'] } {
+    const policy = this.getSignaturePolicy();
+    const isCurated = manifest.firstParty === true;
+    const rawSignature = manifest.integrity?.signature;
+    const signature = rawSignature && rawSignature !== 'unsigned-local-dev' ? rawSignature : undefined;
+    const publicKeyPem = manifest.signer?.publicKey;
+    const keyId = manifest.signer?.keyId;
+    const trustedSigners = this.readTrustedSigners();
+    const trustedByKeyId = keyId ? trustedSigners.find((entry) => entry.keyId === keyId) : null;
+    const trustedByPublicKey = publicKeyPem ? trustedSigners.find((entry) => entry.publicKey === publicKeyPem) : null;
+    const trustedSigner = trustedByKeyId || trustedByPublicKey;
+
+    if (policy === 'curated-only' && !isCurated) {
+      return {
+        passed: false,
+        reason: 'Signature policy requires curated/first-party plugins only',
+        status: 'skipped',
+        signerTrust: 'n/a'
+      };
+    }
+
+    if (!signature) {
+      if (policy === 'signed-only') {
+        return {
+          passed: false,
+          reason: 'Missing signature under signed-only policy',
+          status: 'unsigned',
+          signerTrust: 'n/a'
+        };
+      }
+      return {
+        passed: true,
+        reason: 'Unsigned plugin allowed under warn-allow policy',
+        status: 'unsigned',
+        signerTrust: 'n/a'
+      };
+    }
+
+    if (!publicKeyPem) {
+      if (policy === 'warn-allow') {
+        return {
+          passed: true,
+          reason: 'Signer public key missing; treating plugin as unsigned under warn-allow policy',
+          status: 'unsigned',
+          signerTrust: 'n/a'
+        };
+      }
+      return {
+        passed: false,
+        reason: 'Signature present but signer.publicKey is missing',
+        status: 'invalid',
+        signerTrust: 'unknown'
+      };
+    }
+
+    try {
+      const publicKey = crypto.createPublicKey(publicKeyPem);
+      const verified = crypto.verify(
+        null,
+        Buffer.from(calculatedChecksum, 'utf-8'),
+        publicKey,
+        Buffer.from(signature, 'base64')
+      );
+      if (!verified) {
+        return {
+          passed: false,
+          reason: 'Signature verification failed',
+          status: 'invalid',
+          signerTrust: trustedSigner ? 'trusted' : 'unknown'
+        };
+      }
+    } catch (error) {
+      return {
+        passed: false,
+        reason: `Signature verification error: ${error instanceof Error ? error.message : String(error)}`,
+        status: 'invalid',
+        signerTrust: trustedSigner ? 'trusted' : 'unknown'
+      };
+    }
+
+    if (policy === 'signed-only' && !trustedSigner && !isCurated) {
+      return {
+        passed: false,
+        reason: 'Signer is not trusted under signed-only policy',
+        status: 'verified',
+        signerTrust: 'unknown'
+      };
+    }
+
+    return {
+      passed: true,
+      reason: trustedSigner ? 'Signature verified with trusted signer' : 'Signature verified (unknown signer)',
+      status: 'verified',
+      signerTrust: trustedSigner ? 'trusted' : 'unknown'
+    };
+  }
+
   private calculatePluginChecksum(pluginPath: string): string {
     const hash = crypto.createHash('sha256');
     const files = this.collectPluginFiles(pluginPath);
@@ -475,13 +605,21 @@ export class PluginLoader {
     return files;
   }
 
-  private upsertPluginRecord(manifest: PluginManifest, result: PluginRecord['lastVerificationResult'], calculatedChecksum: string) {
+  private upsertPluginRecord(
+    manifest: PluginManifest,
+    result: PluginRecord['lastVerificationResult'],
+    calculatedChecksum: string,
+    signature?: { status: PluginRecord['signatureStatus']; signerTrust: PluginRecord['signerTrust'] }
+  ) {
     const records = this.readPluginRecords();
     records[manifest.id] = {
       id: manifest.id,
       version: manifest.version,
       checksum: manifest.integrity?.checksum || calculatedChecksum || undefined,
       signature: manifest.integrity?.signature,
+      signerKeyId: manifest.signer?.keyId,
+      signatureStatus: signature?.status,
+      signerTrust: signature?.signerTrust,
       lastVerificationResult: result,
       lastVerifiedAt: new Date().toISOString()
     };
@@ -498,6 +636,53 @@ export class PluginLoader {
     } catch {
       return {};
     }
+  }
+
+  private readTrustedSigners(): TrustedSignerRecord[] {
+    if (!fs.existsSync(this.trustedSignersFile)) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(fs.readFileSync(this.trustedSignersFile, 'utf-8'));
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((entry: any) =>
+        entry && typeof entry.keyId === 'string' && typeof entry.publicKey === 'string'
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  private writeTrustedSigners(signers: TrustedSignerRecord[]): void {
+    fs.writeFileSync(this.trustedSignersFile, JSON.stringify(signers, null, 2));
+  }
+
+  getTrustedSigners(): TrustedSignerRecord[] {
+    return this.readTrustedSigners();
+  }
+
+  trustSigner(input: { keyId: string; publicKey: string; trustedBy?: string; note?: string }): void {
+    const signers = this.readTrustedSigners();
+    const existingIndex = signers.findIndex((entry) => entry.keyId === input.keyId || entry.publicKey === input.publicKey);
+    const nextRecord: TrustedSignerRecord = {
+      keyId: input.keyId,
+      publicKey: input.publicKey,
+      trustedAt: new Date().toISOString(),
+      trustedBy: input.trustedBy || 'system',
+      note: input.note
+    };
+    if (existingIndex >= 0) {
+      signers[existingIndex] = nextRecord;
+    } else {
+      signers.push(nextRecord);
+    }
+    this.writeTrustedSigners(signers);
+  }
+
+  untrustSigner(keyId: string): void {
+    const signers = this.readTrustedSigners().filter((entry) => entry.keyId !== keyId);
+    this.writeTrustedSigners(signers);
   }
 
   private writeAuditEvent(event: Omit<PluginAuditEvent, 'timestamp'>) {
@@ -567,11 +752,15 @@ export class PluginLoader {
   }
 
   getLoadedPlugins() {
+    const records = this.readPluginRecords();
     return Array.from(this.plugins.entries()).map(([id, { manifest }]) => ({
       id,
       name: manifest.name,
       version: manifest.version,
-      description: manifest.description
+      description: manifest.description,
+      signerKeyId: manifest.signer?.keyId || null,
+      signatureStatus: records[id]?.signatureStatus || 'skipped',
+      signerTrust: records[id]?.signerTrust || 'n/a'
     }));
   }
 

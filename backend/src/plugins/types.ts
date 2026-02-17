@@ -92,5 +92,18 @@ export interface PluginManifest {
     checksum?: string;
     signature?: string;
   };
+  signer?: {
+    keyId?: string;
+    publicKey?: string;
+    algorithm?: 'ed25519';
+  };
+  distribution?: {
+    source?: 'local' | 'zip' | 'registry';
+    registryUrl?: string;
+  };
+  capabilities?: {
+    tier?: 'ui-only' | 'network-limited' | 'tauri-unsafe';
+    notes?: string;
+  };
   enabled?: boolean;
 }

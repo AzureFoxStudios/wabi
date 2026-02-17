@@ -35,6 +35,17 @@ plugins/
     "checksum": "<sha256-package-checksum>",
     "signature": "<optional-signature>"
   },
+  "signer": {
+    "keyId": "ed25519:<short-fingerprint>",
+    "publicKey": "<pem-public-key>",
+    "algorithm": "ed25519"
+  },
+  "distribution": {
+    "source": "local"
+  },
+  "capabilities": {
+    "tier": "ui-only"
+  },
 
   "backend": {
     "entry": "./backend/index.ts",
@@ -126,9 +137,26 @@ const keys = await ctx.storage.list();
 ## 🔒 Security Controls
 
 - Plugin package checksums are validated before enabling backend plugins.
+- Optional Ed25519 signatures are verified when signer metadata is present.
+- Trusted signer allowlist is managed by server admins via `/api/plugins/signers`.
 - Plugin lifecycle actions write structured audit events with actor, plugin/version, action, result, timestamp, and reason.
 - Plugin logs are namespaced as `plugin:<id>` and persisted for admin review.
 - Safe mode startup can disable third-party plugins if crash loops are detected.
+
+### Plugin Signing Tooling
+
+Run from repo root:
+
+```bash
+npm run plugin:keygen -- --out-dir .wabi-keys
+npm run plugin:sign -- --plugin plugins/your-plugin-name --private-key .wabi-keys/<key-id>.private.pem
+npm run plugin:verify -- --plugin plugins/your-plugin-name --strict
+```
+
+Server admins can choose policy with `PLUGIN_SIGNATURE_POLICY`:
+- `warn-allow` (default)
+- `signed-only`
+- `curated-only`
 
 ### ✅ Security Review Checklist (Required)
 

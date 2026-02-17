@@ -945,6 +945,13 @@ function getAuthenticatedUserId(req: any): number | null {
   }
 }
 
+function isPluginAdmin(userId: number | null): boolean {
+  if (!userId) return false;
+  if (userId === 1) return true;
+  const roles = getUserRoles(userId, 'default-workspace');
+  return roles.includes('owner') || roles.includes('admin');
+}
+
 function getGuestSessionId(req: any): string | null {
   const sessionHeader = req.headers['x-session-id'];
   if (typeof sessionHeader === 'string' && sessionHeader.trim().length > 0) {
@@ -972,6 +979,134 @@ server.on('request', async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
+    return;
+  }
+
+  // Plugin admin APIs
+  if (url.pathname === "/api/plugins" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    try {
+      const plugins = pluginLoader.getLoadedPlugins();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, plugins }));
+    } catch (error) {
+      console.error("[Plugins] Failed to fetch plugin list:", error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Failed to list plugins" }));
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/plugins/audit" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    try {
+      const rawLimit = Number(url.searchParams.get("limit") || "200");
+      const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(1000, Math.floor(rawLimit))) : 200;
+      const events = pluginLoader.getAuditEvents(limit);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, events }));
+    } catch (error) {
+      console.error("[Plugins] Failed to fetch audit log:", error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Failed to fetch plugin audit log" }));
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/plugins/signers" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    try {
+      const signers = pluginLoader.getTrustedSigners();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, signers }));
+    } catch (error) {
+      console.error("[Plugins] Failed to fetch trusted signers:", error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Failed to fetch trusted signers" }));
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/plugins/signers" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    try {
+      const bodyBuffer = await readRequestBuffer(req);
+      const body = JSON.parse(bodyBuffer.toString("utf-8"));
+      const keyId = typeof body?.keyId === "string" ? body.keyId.trim() : "";
+      const publicKey = typeof body?.publicKey === "string" ? body.publicKey.trim() : "";
+      const note = typeof body?.note === "string" ? body.note.trim() : undefined;
+
+      if (!keyId || !publicKey) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "keyId and publicKey are required" }));
+        return;
+      }
+
+      pluginLoader.trustSigner({
+        keyId,
+        publicKey,
+        trustedBy: `user:${userId}`,
+        note
+      });
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, signers: pluginLoader.getTrustedSigners() }));
+    } catch (error) {
+      console.error("[Plugins] Failed to trust signer:", error);
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Invalid request payload" }));
+    }
+    return;
+  }
+
+  if (url.pathname.startsWith("/api/plugins/signers/") && req.method === "DELETE") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    try {
+      const keyId = decodeURIComponent(url.pathname.replace("/api/plugins/signers/", "")).trim();
+      if (!keyId) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "keyId is required" }));
+        return;
+      }
+
+      pluginLoader.untrustSigner(keyId);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, signers: pluginLoader.getTrustedSigners() }));
+    } catch (error) {
+      console.error("[Plugins] Failed to remove trusted signer:", error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Failed to remove trusted signer" }));
+    }
     return;
   }
 
