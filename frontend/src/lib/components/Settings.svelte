@@ -23,20 +23,34 @@
 		getStoredCallTransportMode,
 		getStoredMediaQualityMode,
 		getStoredScreenShareQualityPreset,
+		getStoredSpatialAudioSettings,
 		isSrtGatewayEnabled,
 		isTauriRuntime,
 		setAudioProcessingMode,
 		setCallTransportMode,
 		setMediaQualityMode,
 		setScreenShareQualityPreset,
+		setSpatialAudioDistanceScale,
+		setSpatialAudioEnabled,
+		setSpatialAudioMasterStrength,
+		setSpatialAudioMode,
+		setSpatialAudioQuickToggleVisible,
+		setSpatialAudioWarningMuted,
 		setSrtGatewayEnabled,
 		syncMediaRuntimeFromServer,
 		type AudioProcessingMode,
 		type CallTransportMode,
 		type MediaQualityMode,
-		type ScreenShareQualityPreset
+		type ScreenShareQualityPreset,
+		type SpatialAudioMode
 	} from '$lib/mediaRuntime';
-	import { applyCurrentAudioProcessingToLocalTrack, audioProcessingRuntimeStatus, clearAudioPerformanceFallbackOverride } from '$lib/calling';
+	import {
+		applyCurrentAudioProcessingToLocalTrack,
+		audioProcessingRuntimeStatus,
+		clearAudioPerformanceFallbackOverride,
+		refreshSpatialAudioRuntime,
+		spatialAudioRuntimeStatus
+	} from '$lib/calling';
 	import {
 		getStoredAccessibilitySettings,
 		updateAccessibilitySettings,
@@ -62,6 +76,12 @@
 	let callTransportMode: CallTransportMode = 'auto';
 	let srtGatewayEnabled = false;
 	let screenShareQualityPreset: ScreenShareQualityPreset = 'auto';
+	let spatialAudioEnabled = false;
+	let spatialAudioMode: SpatialAudioMode = 'auto';
+	let spatialAudioStrength = 0.85;
+	let spatialAudioDistanceScale = 1;
+	let spatialAudioWarningsMuted = false;
+	let spatialAudioQuickToggleVisible = true;
 	let textScale = 1;
 	let colorAssistEnabled = false;
 	let saturation = 1;
@@ -157,6 +177,13 @@
 			callTransportMode = getStoredCallTransportMode();
 			srtGatewayEnabled = isSrtGatewayEnabled();
 			screenShareQualityPreset = getStoredScreenShareQualityPreset();
+			const spatial = getStoredSpatialAudioSettings();
+			spatialAudioEnabled = spatial.enabled;
+			spatialAudioMode = spatial.mode;
+			spatialAudioStrength = spatial.masterStrength;
+			spatialAudioDistanceScale = spatial.distanceScale;
+			spatialAudioWarningsMuted = spatial.warningMuted;
+			spatialAudioQuickToggleVisible = spatial.quickToggleVisible;
 		})();
 	});
 
@@ -336,6 +363,42 @@
 	function updateScreenShareQualityPreset(preset: ScreenShareQualityPreset) {
 		screenShareQualityPreset = preset;
 		setScreenShareQualityPreset(preset);
+	}
+
+	function toggleSpatialAudio() {
+		spatialAudioEnabled = !spatialAudioEnabled;
+		setSpatialAudioEnabled(spatialAudioEnabled);
+		refreshSpatialAudioRuntime();
+	}
+
+	function updateSpatialAudioMode(mode: SpatialAudioMode) {
+		spatialAudioMode = mode;
+		setSpatialAudioMode(mode);
+		refreshSpatialAudioRuntime();
+	}
+
+	function updateSpatialAudioStrength(value: number) {
+		spatialAudioStrength = value;
+		setSpatialAudioMasterStrength(value);
+		refreshSpatialAudioRuntime();
+	}
+
+	function updateSpatialAudioDistanceScale(value: number) {
+		spatialAudioDistanceScale = value;
+		setSpatialAudioDistanceScale(value);
+		refreshSpatialAudioRuntime();
+	}
+
+	function toggleSpatialWarningsMuted() {
+		spatialAudioWarningsMuted = !spatialAudioWarningsMuted;
+		setSpatialAudioWarningMuted(spatialAudioWarningsMuted);
+		refreshSpatialAudioRuntime();
+	}
+
+	function toggleSpatialQuickToggleVisible() {
+		spatialAudioQuickToggleVisible = !spatialAudioQuickToggleVisible;
+		setSpatialAudioQuickToggleVisible(spatialAudioQuickToggleVisible);
+		refreshSpatialAudioRuntime();
 	}
 
 	// Handle theme change
@@ -959,6 +1022,95 @@
 											(performance fallback)
 										{:else if $audioProcessingRuntimeStatus.reason === 'native_not_supported'}
 											(native suppression not supported on this runtime)
+										{/if}
+									</div>
+								{/if}
+
+								<div class="setting-item">
+									<div class="setting-info">
+										<span class="setting-label">Spatial Audio</span>
+										<span class="setting-description">Position call participants in stereo/3D space.</span>
+									</div>
+									<button class="toggle-btn" class:active={spatialAudioEnabled} on:click={toggleSpatialAudio}>
+										{spatialAudioEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+
+								<div class="quality-mode-row">
+									<label for="spatial-audio-mode">Spatial Rendering</label>
+									<select
+										id="spatial-audio-mode"
+										class="theme-select"
+										value={spatialAudioMode}
+										on:change={(e) => updateSpatialAudioMode(e.currentTarget.value as SpatialAudioMode)}
+										disabled={!spatialAudioEnabled}
+									>
+										<option value="auto">Auto (Recommended)</option>
+										<option value="pan_distance">Stereo Pan + Distance</option>
+										<option value="full_3d">Full 3D (HRTF)</option>
+										<option value="off">Off</option>
+									</select>
+								</div>
+
+								<div class="setting-item-full">
+									<div class="setting-info">
+										<span class="setting-label">Spatial Strength</span>
+										<span class="setting-description">{Math.round(spatialAudioStrength * 100)}%</span>
+									</div>
+									<input
+										type="range"
+										min="0"
+										max="1"
+										step="0.05"
+										bind:value={spatialAudioStrength}
+										on:input={(e) => updateSpatialAudioStrength(parseFloat(e.currentTarget.value))}
+										class="volume-slider"
+										disabled={!spatialAudioEnabled}
+									/>
+								</div>
+
+								<div class="setting-item-full">
+									<div class="setting-info">
+										<span class="setting-label">Spatial Distance Scale</span>
+										<span class="setting-description">{spatialAudioDistanceScale.toFixed(2)}x</span>
+									</div>
+									<input
+										type="range"
+										min="0.4"
+										max="4"
+										step="0.1"
+										bind:value={spatialAudioDistanceScale}
+										on:input={(e) => updateSpatialAudioDistanceScale(parseFloat(e.currentTarget.value))}
+										class="volume-slider"
+										disabled={!spatialAudioEnabled}
+									/>
+								</div>
+
+								<div class="setting-item">
+									<div class="setting-info">
+										<span class="setting-label">Mute Spatial Warnings</span>
+										<span class="setting-description">Hide one-time fallback notices during calls.</span>
+									</div>
+									<button class="toggle-btn" class:active={spatialAudioWarningsMuted} on:click={toggleSpatialWarningsMuted}>
+										{spatialAudioWarningsMuted ? 'ON' : 'OFF'}
+									</button>
+								</div>
+
+								<div class="setting-item">
+									<div class="setting-info">
+										<span class="setting-label">Show In-Call Spatial Toggle</span>
+										<span class="setting-description">Display quick enable/disable button in call controls.</span>
+									</div>
+									<button class="toggle-btn" class:active={spatialAudioQuickToggleVisible} on:click={toggleSpatialQuickToggleVisible}>
+										{spatialAudioQuickToggleVisible ? 'ON' : 'OFF'}
+									</button>
+								</div>
+
+								{#if $spatialAudioRuntimeStatus.active || $spatialAudioRuntimeStatus.fallbackReason}
+									<div class="runtime-note">
+										Spatial runtime: <strong>{$spatialAudioRuntimeStatus.effectiveMode.toUpperCase()}</strong>
+										{#if $spatialAudioRuntimeStatus.fallbackReason}
+											({$spatialAudioRuntimeStatus.fallbackReason.replace('_', ' ')})
 										{/if}
 									</div>
 								{/if}

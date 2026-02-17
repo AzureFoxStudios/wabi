@@ -7,6 +7,7 @@ export type AudioProcessingMode = 'auto' | 'dsp' | 'rnn' | 'studio';
 export type ScreenShareQualityPreset = 'auto' | '1080p' | '720p' | '480p' | '144p-mobile';
 export type CallTransportMode = 'auto' | 'p2p-only' | 'sfu-preferred';
 export type EffectiveCallTransport = 'p2p' | 'sfu';
+export type SpatialAudioMode = 'auto' | 'pan_distance' | 'full_3d' | 'off';
 
 export interface ScreenShareQualityProfile {
 	label: string;
@@ -55,13 +56,28 @@ export interface CallTransportPlan {
 	checkedAt: number;
 }
 
+export interface SpatialAudioSettings {
+	enabled: boolean;
+	mode: SpatialAudioMode;
+	masterStrength: number;
+	distanceScale: number;
+	warningMuted: boolean;
+	quickToggleVisible: boolean;
+}
+
 const STORAGE_KEYS = {
 	qualityMode: 'wabi_media_quality_mode',
 	qualityModeAutoMigrated: 'wabi_media_quality_mode_auto_migrated',
 	audioProcessingMode: 'wabi_audio_processing_mode',
 	srtGateway: 'wabi_enable_srt_gateway',
 	screenShareQuality: 'wabi_screen_share_quality_preset',
-	callTransportMode: 'wabi_call_transport_mode'
+	callTransportMode: 'wabi_call_transport_mode',
+	spatialEnabled: 'wabi_spatial_enabled',
+	spatialMode: 'wabi_spatial_mode',
+	spatialStrength: 'wabi_spatial_strength',
+	spatialDistanceScale: 'wabi_spatial_distance_scale',
+	spatialWarningMuted: 'wabi_spatial_warning_muted',
+	spatialQuickToggleVisible: 'wabi_spatial_quick_toggle_visible'
 };
 
 let lastRuntimeSnapshot: ServerMediaRuntimeResponse | null = null;
@@ -269,6 +285,72 @@ export function getStoredCallTransportMode(): CallTransportMode {
 export function setCallTransportMode(mode: CallTransportMode): void {
 	if (!browser) return;
 	localStorage.setItem(STORAGE_KEYS.callTransportMode, mode);
+}
+
+function clamp(value: number, min: number, max: number): number {
+	return Math.min(max, Math.max(min, value));
+}
+
+export function getStoredSpatialAudioSettings(): SpatialAudioSettings {
+	if (!browser) {
+		return {
+			enabled: false,
+			mode: 'auto',
+			masterStrength: 0.85,
+			distanceScale: 1,
+			warningMuted: false,
+			quickToggleVisible: true
+		};
+	}
+
+	const enabled = localStorage.getItem(STORAGE_KEYS.spatialEnabled) === 'true';
+	const modeStored = localStorage.getItem(STORAGE_KEYS.spatialMode);
+	const mode: SpatialAudioMode = modeStored === 'auto' || modeStored === 'pan_distance' || modeStored === 'full_3d' || modeStored === 'off'
+		? modeStored
+		: 'auto';
+	const masterStrength = clamp(parseFloat(localStorage.getItem(STORAGE_KEYS.spatialStrength) || '0.85') || 0.85, 0, 1);
+	const distanceScale = clamp(parseFloat(localStorage.getItem(STORAGE_KEYS.spatialDistanceScale) || '1') || 1, 0.4, 4);
+	const warningMuted = localStorage.getItem(STORAGE_KEYS.spatialWarningMuted) === 'true';
+	const quickToggleVisible = localStorage.getItem(STORAGE_KEYS.spatialQuickToggleVisible) !== 'false';
+
+	return {
+		enabled,
+		mode,
+		masterStrength,
+		distanceScale,
+		warningMuted,
+		quickToggleVisible
+	};
+}
+
+export function setSpatialAudioEnabled(enabled: boolean): void {
+	if (!browser) return;
+	localStorage.setItem(STORAGE_KEYS.spatialEnabled, String(enabled));
+}
+
+export function setSpatialAudioMode(mode: SpatialAudioMode): void {
+	if (!browser) return;
+	localStorage.setItem(STORAGE_KEYS.spatialMode, mode);
+}
+
+export function setSpatialAudioMasterStrength(value: number): void {
+	if (!browser) return;
+	localStorage.setItem(STORAGE_KEYS.spatialStrength, String(clamp(value, 0, 1)));
+}
+
+export function setSpatialAudioDistanceScale(value: number): void {
+	if (!browser) return;
+	localStorage.setItem(STORAGE_KEYS.spatialDistanceScale, String(clamp(value, 0.4, 4)));
+}
+
+export function setSpatialAudioWarningMuted(muted: boolean): void {
+	if (!browser) return;
+	localStorage.setItem(STORAGE_KEYS.spatialWarningMuted, String(muted));
+}
+
+export function setSpatialAudioQuickToggleVisible(visible: boolean): void {
+	if (!browser) return;
+	localStorage.setItem(STORAGE_KEYS.spatialQuickToggleVisible, String(visible));
 }
 
 export function getScreenShareQualityProfile(): ScreenShareQualityProfile {

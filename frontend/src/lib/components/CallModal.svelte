@@ -23,7 +23,9 @@
 		stopScreenShare,
 		localStream,
 		connectionState,
-		closeChannelCallPanel
+		closeChannelCallPanel,
+		spatialAudioRuntimeStatus,
+		toggleSpatialAudioEnabled
 	} from '$lib/calling';
 	import { showCallNotification, playCallRingtone, stopCallRingtone } from '$lib/notifications';
 	import { onDestroy } from 'svelte';
@@ -60,6 +62,8 @@
 
 	$: layoutMode = determineLayout($screenShares, $activeCalls, $isSharing, focusedTileId);
 	$: showActiveCallModal = $isInCall && ($callMode === 'direct' || ($callMode === 'channel' && $channelCallPanelOpen));
+	$: spatialAudioActive = $spatialAudioRuntimeStatus.active;
+	$: spatialQuickToggleVisible = $spatialAudioRuntimeStatus.quickToggleVisible;
 
 	// ---- Build tile list ----
 	function buildTiles(
@@ -293,7 +297,7 @@
 			<audio
 				autoplay
 				playsinline
-				muted={$isDeafened || showActiveCallModal}
+				muted={$isDeafened || showActiveCallModal || spatialAudioActive}
 				use:bindMediaStream={call.stream}
 			></audio>
 		{/each}
@@ -334,7 +338,7 @@
 							autoplay
 							playsinline
 							class="video-element"
-							muted={$isDeafened}
+							muted={$isDeafened || spatialAudioActive}
 							class:video-hidden={!call.isVideoEnabled}
 						></video>
 						{#if !call.isVideoEnabled}
@@ -364,7 +368,7 @@
 								class="tile-video tile-video-contain"
 								autoplay
 								playsinline
-								muted={tile.kind === 'local-screen' || (tile.userId !== null && $isDeafened)}
+								muted={tile.kind === 'local-screen' || (tile.userId !== null && ($isDeafened || spatialAudioActive))}
 								use:bindMediaStream={tile.stream}
 							></video>
 						{:else if tile.kind === 'video' || tile.kind === 'local-camera'}
@@ -373,7 +377,7 @@
 								class="tile-video"
 								autoplay
 								playsinline
-								muted={tile.userId === null || $isDeafened}
+								muted={tile.userId === null || $isDeafened || (tile.userId !== null && spatialAudioActive)}
 								use:bindMediaStream={tile.stream}
 							></video>
 						{:else}
@@ -398,7 +402,7 @@
 								class="focused-video focused-video-contain"
 								autoplay
 								playsinline
-								muted={focusedTile.kind === 'local-screen' || (focusedTile.userId !== null && $isDeafened)}
+								muted={focusedTile.kind === 'local-screen' || (focusedTile.userId !== null && ($isDeafened || spatialAudioActive))}
 								use:bindMediaStream={focusedTile.stream}
 							></video>
 						{:else if focusedTile.kind === 'video' || focusedTile.kind === 'local-camera'}
@@ -407,7 +411,7 @@
 								class="focused-video"
 								autoplay
 								playsinline
-								muted={focusedTile.userId === null || $isDeafened}
+								muted={focusedTile.userId === null || $isDeafened || (focusedTile.userId !== null && spatialAudioActive)}
 								use:bindMediaStream={focusedTile.stream}
 							></video>
 						{:else}
@@ -447,7 +451,7 @@
 										class="thumbnail-video"
 										autoplay
 										playsinline
-										muted={thumb.userId === null || $isDeafened}
+										muted={thumb.userId === null || $isDeafened || (thumb.userId !== null && spatialAudioActive)}
 										use:bindMediaStream={thumb.stream}
 									></video>
 								{:else}
@@ -512,6 +516,23 @@
 					{/if}
 				</svg>
 			</button>
+
+			{#if spatialQuickToggleVisible}
+				<button
+					class="control-btn"
+					class:active={spatialAudioActive}
+					on:click={toggleSpatialAudioEnabled}
+					title={spatialAudioActive ? 'Disable spatial audio' : 'Enable spatial audio'}
+				>
+					<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M12 3v18"></path>
+						<path d="M5.64 7.64a9 9 0 0 0 0 8.72"></path>
+						<path d="M18.36 7.64a9 9 0 0 1 0 8.72"></path>
+						<path d="M2.5 12h1.5"></path>
+						<path d="M20 12h1.5"></path>
+					</svg>
+				</button>
+			{/if}
 
 			<button
 				class="control-btn"

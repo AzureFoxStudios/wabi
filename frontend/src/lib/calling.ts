@@ -8,10 +8,14 @@ import {
 	getMediaRuntimeConfig,
 	getScreenShareQualityProfile,
 	resolveCallTransportPlan,
+	getStoredSpatialAudioSettings,
+	setSpatialAudioEnabled,
 	type AudioProcessingMode,
 	type EffectiveCallTransport,
-	type CallTransportMode
+	type CallTransportMode,
+	type SpatialAudioMode
 } from './mediaRuntime';
+import { SpatialAudioEngine, type SpatialRenderMode, type SpatialPosition } from './audio/spatialEngine';
 
 const CAMERA_CONSTRAINTS: MediaTrackConstraints = {
 	width: { ideal: 1280, max: 1920 },
@@ -143,6 +147,21 @@ export const callTransportState = writable<{
 });
 export const listeningVoiceChannels = writable<string[]>([]);
 export const voiceTransmitMode = writable<'primary' | 'all-listening'>('primary');
+export const spatialAudioRuntimeStatus = writable<{
+	active: boolean;
+	requestedMode: SpatialAudioMode;
+	effectiveMode: 'off' | 'pan_distance' | 'full_3d' | 'stereo';
+	fallbackReason: string | null;
+	warningMuted: boolean;
+	quickToggleVisible: boolean;
+}>({
+	active: false,
+	requestedMode: getStoredSpatialAudioSettings().mode,
+	effectiveMode: 'off',
+	fallbackReason: null,
+	warningMuted: getStoredSpatialAudioSettings().warningMuted,
+	quickToggleVisible: getStoredSpatialAudioSettings().quickToggleVisible
+});
 
 // ============================================================================
 // Private State
@@ -176,6 +195,8 @@ const PERFORMANCE_GUARD_REQUIRED_STRIKES = 3;
 let diagnosticsPollInterval: number | null = null;
 let diagnosticsPrevBytesSample: { bytesSent: number; bytesReceived: number; timestamp: number } | null = null;
 let remoteVideoMuteDebounceTimers = new Map<string, number>();
+let spatialAudioEngine: SpatialAudioEngine | null = null;
+let spatialFallbackNoticeShown = false;
 
 type VideoQualityTier = 'high' | 'medium' | 'low' | 'audio-priority';
 
@@ -1109,6 +1130,7 @@ function cleanupPeerConnection(key: string): void {
 		connectionState.set('idle');
 		stopCallDiagnosticsPolling('idle');
 	}
+	syncSpatialAudioGraph();
 }
 
 // ============================================================================
@@ -1145,6 +1167,7 @@ function addRemoteCallStream(userId: string, username: string, stream: MediaStre
 
 	callParticipants.add(userId);
 	startRemoteSpeakingMonitor(userId, stream);
+	syncSpatialAudioGraph();
 }
 
 function addRemoteScreenShare(userId: string, username: string, stream: MediaStream): void {
@@ -1194,6 +1217,7 @@ function handleRemoteTrackEnded(targetId: string, key: string, track: MediaStrea
 		screenShares.update(shares => shares.filter(s => s.userId !== targetId));
 		cleanupPeerConnection(key);
 	}
+	syncSpatialAudioGraph();
 }
 
 function updateRemoteTrackState(targetId: string, track: MediaStreamTrack, type: PeerConnectionState['type']): void {
@@ -1233,6 +1257,7 @@ function updateRemoteTrackState(targetId: string, track: MediaStreamTrack, type:
 			return call;
 		});
 	});
+	syncSpatialAudioGraph();
 }
 
 let voiceChannelNoticeId = 0;
@@ -1262,6 +1287,161 @@ function pushVoiceChannelNotice(text: string): void {
 			voiceChannelNotice.set(null);
 		}
 	}, 2400);
+}
+
+function normalizeSpatialMode(mode: SpatialAudioMode, isDesktopLike: boolean): SpatialRenderMode | 'off' {
+	if (mode === 'off') return 'off';
+	if (mode === 'pan_distance') return 'pan_distance';
+	if (mode === 'full_3d') return 'full_3d';
+	// auto
+	return isDesktopLike ? 'full_3d' : 'pan_distance';
+}
+
+function isLowPowerRuntime(): boolean {
+	if (typeof navigator === 'undefined') return false;
+	const cores = navigator.hardwareConcurrency || 4;
+	return cores <= 4;
+}
+
+function resolveSpatialRuntimeMode(requested: SpatialAudioMode): { effective: SpatialRenderMode | 'off'; reason: string | null } {
+	const isDesktopLike = typeof window !== 'undefined' && !/Mobi|Android|iPhone|iPad/i.test(window.navigator.userAgent || '');
+	const desired = normalizeSpatialMode(requested, isDesktopLike);
+	if (desired === 'off') {
+		return { effective: 'off', reason: null };
+	}
+	if (desired === 'full_3d' && isLowPowerRuntime()) {
+		return { effective: 'pan_distance', reason: 'weak_device' };
+	}
+	return { effective: desired, reason: null };
+}
+
+function computeSpatialPosition(index: number, total: number, emphasisFront = false): SpatialPosition {
+	const safeTotal = Math.max(total, 1);
+	const angle = (Math.PI * 2 * index) / safeTotal;
+	const radius = safeTotal <= 2 ? 2.2 : 3.3;
+	const baseX = Math.sin(angle) * radius;
+	const baseZ = -Math.cos(angle) * radius;
+	return {
+		x: baseX,
+		y: 0,
+		z: emphasisFront ? Math.min(baseZ + 1.2, -0.4) : baseZ
+	};
+}
+
+function disposeSpatialAudioEngine(): void {
+	if (!spatialAudioEngine) return;
+	spatialAudioEngine.dispose();
+	spatialAudioEngine = null;
+}
+
+function syncSpatialAudioGraph(): void {
+	const settings = getStoredSpatialAudioSettings();
+	spatialAudioRuntimeStatus.update((state) => ({
+		...state,
+		requestedMode: settings.mode,
+		warningMuted: settings.warningMuted,
+		quickToggleVisible: settings.quickToggleVisible
+	}));
+
+	if (!get(isInCall) || !settings.enabled || get(isDeafened)) {
+		disposeSpatialAudioEngine();
+		spatialAudioRuntimeStatus.update((state) => ({
+			...state,
+			active: false,
+			effectiveMode: 'off',
+			fallbackReason: null
+		}));
+		return;
+	}
+
+	const resolved = resolveSpatialRuntimeMode(settings.mode);
+	if (resolved.effective === 'off') {
+		disposeSpatialAudioEngine();
+		spatialAudioRuntimeStatus.update((state) => ({
+			...state,
+			active: false,
+			effectiveMode: 'off',
+			fallbackReason: resolved.reason
+		}));
+		return;
+	}
+
+	if (!spatialAudioEngine || spatialAudioEngine.getMode() !== resolved.effective) {
+		disposeSpatialAudioEngine();
+		try {
+			spatialAudioEngine = new SpatialAudioEngine(resolved.effective, {
+				masterStrength: settings.masterStrength,
+				distanceScale: settings.distanceScale
+			});
+		} catch (error) {
+			disposeSpatialAudioEngine();
+			spatialAudioRuntimeStatus.update((state) => ({
+				...state,
+				active: false,
+				effectiveMode: 'off',
+				fallbackReason: 'unsupported'
+			}));
+			if (!settings.warningMuted && !spatialFallbackNoticeShown) {
+				spatialFallbackNoticeShown = true;
+				pushVoiceChannelNotice('Spatial audio unavailable on this device.');
+			}
+			return;
+		}
+	}
+
+	spatialAudioEngine.setOptions({
+		masterStrength: settings.masterStrength,
+		distanceScale: settings.distanceScale
+	});
+	void spatialAudioEngine.resume().catch(() => undefined);
+
+	const remoteCalls = get(activeCalls);
+	const remoteShares = get(screenShares);
+	const nextSourceIds = new Set<string>();
+	const callTotal = remoteCalls.length;
+	remoteCalls.forEach((call, index) => {
+		const sourceId = `call:${call.userId}`;
+		nextSourceIds.add(sourceId);
+		spatialAudioEngine?.attachSource(sourceId, call.stream, computeSpatialPosition(index, callTotal));
+	});
+
+	const shareTotal = remoteShares.length;
+	remoteShares.forEach((share, index) => {
+		if (!share.stream.getAudioTracks().length) return;
+		const sourceId = `share:${share.userId}`;
+		nextSourceIds.add(sourceId);
+		spatialAudioEngine?.attachSource(sourceId, share.stream, computeSpatialPosition(index, shareTotal, true));
+	});
+	for (const sourceId of spatialAudioEngine?.getSourceIds() || []) {
+		if (!nextSourceIds.has(sourceId)) {
+			spatialAudioEngine?.detachSource(sourceId);
+		}
+	}
+
+	spatialAudioRuntimeStatus.update((state) => ({
+		...state,
+		active: true,
+		effectiveMode: resolved.effective,
+		fallbackReason: resolved.reason
+	}));
+
+	if (resolved.reason && !settings.warningMuted && !spatialFallbackNoticeShown) {
+		spatialFallbackNoticeShown = true;
+		pushVoiceChannelNotice(`Spatial audio fallback active (${resolved.reason.replace('_', ' ')})`);
+	}
+}
+
+export function refreshSpatialAudioRuntime(): void {
+	syncSpatialAudioGraph();
+}
+
+export function toggleSpatialAudioEnabled(): void {
+	const current = getStoredSpatialAudioSettings();
+	setSpatialAudioEnabled(!current.enabled);
+	if (current.enabled) {
+		spatialFallbackNoticeShown = false;
+	}
+	syncSpatialAudioGraph();
 }
 
 async function resolveActiveTransport(): Promise<EffectiveCallTransport> {
@@ -1366,6 +1546,7 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		isVideoOff.set(true);
 		startLocalSpeakingMonitor(stream);
 		startPerformanceGuard();
+		syncSpatialAudioGraph();
 		playCallActionSound('join');
 		socket.emit('voice-channel-join', { channelId });
 		socket.emit('voice-channel-subscribe', { channelId });
@@ -1431,6 +1612,14 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 	stopPerformanceGuard();
 	clearAudioPerformanceFallbackOverride();
 	stopCallDiagnosticsPolling('idle');
+	disposeSpatialAudioEngine();
+	spatialFallbackNoticeShown = false;
+	spatialAudioRuntimeStatus.update((state) => ({
+		...state,
+		active: false,
+		effectiveMode: 'off',
+		fallbackReason: null
+	}));
 }
 
 export async function startCall(socket: Socket, targetUserId: string, isVideoCall: boolean = false) {
@@ -1457,6 +1646,7 @@ export async function startCall(socket: Socket, targetUserId: string, isVideoCal
 		isVideoOff.set(!isVideoCall);
 		startLocalSpeakingMonitor(stream);
 		startPerformanceGuard();
+		syncSpatialAudioGraph();
 		playCallActionSound('join');
 
 		socket.emit('call-initiate', {
@@ -1498,6 +1688,7 @@ export async function answerCall(socket: Socket, callerId: string, isVideoCall: 
 		isVideoOff.set(!isVideoCall);
 		startLocalSpeakingMonitor(stream);
 		startPerformanceGuard();
+		syncSpatialAudioGraph();
 		playCallActionSound('join');
 
 		socket.emit('call-answer', {
@@ -1569,6 +1760,14 @@ export function endCall(socket: Socket) {
 	stopPerformanceGuard();
 	clearAudioPerformanceFallbackOverride();
 	connectionState.set('idle');
+	disposeSpatialAudioEngine();
+	spatialFallbackNoticeShown = false;
+	spatialAudioRuntimeStatus.update((state) => ({
+		...state,
+		active: false,
+		effectiveMode: 'off',
+		fallbackReason: null
+	}));
 }
 
 // ============================================================================
@@ -1647,6 +1846,7 @@ export function toggleDeafen() {
 	}
 	// Note: Actual deafen (muting remote audio) is handled in the UI component
 	// by setting audio elements to muted based on isDeafened store
+	syncSpatialAudioGraph();
 }
 
 export async function toggleVideo(socket?: Socket) {
@@ -1860,6 +2060,7 @@ export function stopScreenShare(socket: Socket) {
 		}
 	});
 	outboundKeys.forEach(key => cleanupPeerConnection(key));
+	syncSpatialAudioGraph();
 }
 
 export async function createScreenShareOffer(socket: Socket, targetId: string) {
@@ -1996,6 +2197,8 @@ export function cleanupAllConnections() {
 	stopLocalSpeakingMonitor();
 	stopPerformanceGuard();
 	clearAudioPerformanceFallbackOverride();
+	disposeSpatialAudioEngine();
+	spatialFallbackNoticeShown = false;
 
 	// Reset all stores
 	activeCalls.set([]);
@@ -2008,6 +2211,12 @@ export function cleanupAllConnections() {
 	isLocalSpeaking.set(false);
 	channelCallPanelOpen.set(false);
 	connectionState.set('idle');
+	spatialAudioRuntimeStatus.update((state) => ({
+		...state,
+		active: false,
+		effectiveMode: 'off',
+		fallbackReason: null
+	}));
 }
 
 export function openChannelCallPanel(): void {
@@ -2091,4 +2300,5 @@ export function updateCallUsername(userId: string, username: string) {
 			return share;
 		});
 	});
+	syncSpatialAudioGraph();
 }
