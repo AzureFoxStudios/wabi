@@ -19,8 +19,8 @@
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
-	const MESSAGE_RENDER_BATCH = 250;
-	const MESSAGE_RENDER_MAX = 900;
+	const MESSAGE_RENDER_BATCH = 120;
+	const MESSAGE_RENDER_MAX = 360;
 	let messageRenderLimit = MESSAGE_RENDER_BATCH;
 	let lastChannelForRenderWindow: string | null = null;
 	// User popout state

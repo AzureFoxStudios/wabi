@@ -13,7 +13,8 @@
 	let selectedSource: 'all' | 'default' | 'openmoji' | 'custom' = 'all';
 	let selectedCategory = 'all';
 	let searchQuery = '';
-	const EMOJI_PAGE_SIZE = 180;
+	const EMOJI_PAGE_SIZE = 80;
+	const GIF_PAGE_SIZE = 12;
 	let emojiRenderLimit = EMOJI_PAGE_SIZE;
 
 	// GIF state
@@ -95,7 +96,7 @@
 		if (!gf) return;
 		gifLoading = true;
 		try {
-			const { data } = await gf.trending({ limit: 20 });
+			const { data } = await gf.trending({ limit: GIF_PAGE_SIZE });
 			gifs = data;
 		} catch (error) {
 			console.error('Error fetching trending GIFs:', error);
@@ -112,7 +113,7 @@
 		}
 		gifLoading = true;
 		try {
-			const { data } = await gf.search(gifSearchQuery, { limit: 20 });
+			const { data } = await gf.search(gifSearchQuery, { limit: GIF_PAGE_SIZE });
 			gifs = data;
 		} catch (error) {
 			console.error('Error fetching GIFs:', error);

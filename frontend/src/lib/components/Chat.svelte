@@ -68,6 +68,7 @@
 	// Search functionality
 	let searchInput = '';
 	let filteredMessages: Message[] = [];
+	const MESSAGE_WORKING_SET_LIMIT = 600;
 
 	// Photo and audio capture
 	let showCameraCapture = false;
@@ -159,11 +160,14 @@
 
 	// Filter messages based on search query
 	function filterMessages(msgs: Message[], query: string): Message[] {
-		if (!query.trim()) return msgs;
+		const workingSet = msgs.length > MESSAGE_WORKING_SET_LIMIT
+			? msgs.slice(-MESSAGE_WORKING_SET_LIMIT)
+			: msgs;
+		if (!query.trim()) return workingSet;
 
 		const { text, byUser, hasTypes } = parseSearchQuery(query);
 
-		return msgs.filter(msg => {
+		return workingSet.filter(msg => {
 			// Filter by user
 			if (byUser && msg.user.toLowerCase() !== byUser.toLowerCase()) {
 				return false;
