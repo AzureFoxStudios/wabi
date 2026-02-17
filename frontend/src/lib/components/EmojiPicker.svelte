@@ -13,6 +13,8 @@
 	let selectedSource: 'all' | 'default' | 'openmoji' | 'custom' = 'all';
 	let selectedCategory = 'all';
 	let searchQuery = '';
+	const EMOJI_PAGE_SIZE = 180;
+	let emojiRenderLimit = EMOJI_PAGE_SIZE;
 
 	// GIF state
 	let gifs: any[] = [];
@@ -49,12 +51,17 @@
 			(emoji.artist?.toLowerCase().includes(query) ?? false);
 		return matchesCategory && matchesSearch;
 	});
+	$: visibleEmojis = filteredEmojis.slice(0, emojiRenderLimit);
+	$: if (pickerMode !== 'gif') {
+		emojiRenderLimit = Math.min(Math.max(EMOJI_PAGE_SIZE, emojiRenderLimit), filteredEmojis.length || EMOJI_PAGE_SIZE);
+	}
 
 	// Reset filters when switching modes
 	function setMode(mode: 'emoji' | 'sticker' | 'gif') {
 		pickerMode = mode;
 		selectedSource = 'all';
 		selectedCategory = 'all';
+		emojiRenderLimit = EMOJI_PAGE_SIZE;
 		if (mode === 'gif' && gifs.length === 0) {
 			loadTrendingGifs();
 		}
@@ -63,6 +70,7 @@
 	function setSource(source: 'all' | 'default' | 'openmoji' | 'custom') {
 		selectedSource = source;
 		selectedCategory = 'all';
+		emojiRenderLimit = EMOJI_PAGE_SIZE;
 	}
 
 	function formatLabel(value: string): string {
@@ -72,6 +80,14 @@
 
 	function handleEmojiClick(emoji: Emoji) {
 		dispatch('select', { emoji });
+	}
+
+	function handleEmojiGridScroll(event: Event) {
+		const target = event.currentTarget as HTMLElement;
+		const nearBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - 160;
+		if (nearBottom && emojiRenderLimit < filteredEmojis.length) {
+			emojiRenderLimit = Math.min(filteredEmojis.length, emojiRenderLimit + EMOJI_PAGE_SIZE);
+		}
 	}
 
 	// GIF functions
@@ -123,6 +139,7 @@
 				type="text"
 				placeholder="Search {pickerMode === 'sticker' ? 'stickers' : 'emojis'} (name/artist)..."
 				bind:value={searchQuery}
+				on:input={() => (emojiRenderLimit = EMOJI_PAGE_SIZE)}
 			/>
 		{/if}
 		<button on:click={() => dispatch('close')} class="close-btn">Close</button>
@@ -157,7 +174,7 @@
 			{:else}
 				{#each gifs as gif (gif.id)}
 					<button class="gif-item" on:click={() => selectGif(gif)}>
-						<img src={gif.images.fixed_height_small.url} alt={gif.title} />
+						<img src={gif.images.fixed_height_small.url} alt={gif.title} loading="lazy" decoding="async" />
 					</button>
 				{/each}
 			{/if}
@@ -192,7 +209,10 @@
 				<button
 					class="category-tab"
 					class:active={selectedCategory === category}
-					on:click={() => selectedCategory = category}
+					on:click={() => {
+						selectedCategory = category;
+						emojiRenderLimit = EMOJI_PAGE_SIZE;
+					}}
 					title={category}
 				>
 					{formatLabel(category)}
@@ -201,20 +221,25 @@
 		</div>
 
 		<!-- Emoji/Sticker grid -->
-		<div class="emoji-grid" class:sticker-grid={pickerMode === 'sticker'}>
+		<div class="emoji-grid" class:sticker-grid={pickerMode === 'sticker'} on:scroll={handleEmojiGridScroll}>
 			{#if filteredEmojis.length === 0}
 				<div class="no-emojis">No {pickerMode === 'sticker' ? 'stickers' : 'emojis'} found</div>
 			{:else}
-				{#each filteredEmojis as emoji (emoji.id)}
+				{#each visibleEmojis as emoji (emoji.id)}
 					<button
 						class="emoji-btn"
 						class:sticker-btn={pickerMode === 'sticker'}
 						on:click={() => handleEmojiClick(emoji)}
 						title={`${emoji.displayName || emoji.name}${emoji.artist ? ` by ${emoji.artist}` : ''}`}
 					>
-						<img src={emoji.url} alt={emoji.name} class="emoji-img" class:sticker-img={pickerMode === 'sticker'} />
+						<img src={emoji.url} alt={emoji.name} class="emoji-img" class:sticker-img={pickerMode === 'sticker'} loading="lazy" decoding="async" />
 					</button>
 				{/each}
+				{#if emojiRenderLimit < filteredEmojis.length}
+					<button class="emoji-load-more" on:click={() => (emojiRenderLimit = Math.min(filteredEmojis.length, emojiRenderLimit + EMOJI_PAGE_SIZE))}>
+						Load more ({filteredEmojis.length - emojiRenderLimit} remaining)
+					</button>
+				{/if}
 			{/if}
 		</div>
 	{/if}
@@ -407,6 +432,21 @@
 		padding: 2rem;
 		color: var(--text-secondary);
 		font-size: 0.875rem;
+	}
+
+	.emoji-load-more {
+		grid-column: 1 / -1;
+		border: none;
+		background: var(--bg-tertiary);
+		color: var(--text-secondary);
+		border-radius: 8px;
+		padding: 0.5rem 0.75rem;
+		font-size: 0.78rem;
+	}
+
+	.emoji-load-more:hover {
+		background: var(--bg-hover, var(--bg-secondary));
+		color: var(--text-primary);
 	}
 
 	/* GIF grid */

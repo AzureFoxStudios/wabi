@@ -19,6 +19,10 @@
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
+	const MESSAGE_RENDER_BATCH = 250;
+	const MESSAGE_RENDER_MAX = 900;
+	let messageRenderLimit = MESSAGE_RENDER_BATCH;
+	let lastChannelForRenderWindow: string | null = null;
 	// User popout state
 	let showUserPopout = false;
 	let popoutUser: User | null = null;
@@ -585,6 +589,8 @@
 	// Server-side history pagination state
 	let hasMoreServerHistory = false;
 	let isLoadingServerHistory = false;
+	let visibleMessages: Message[] = [];
+	let visibleMessageStart = 0;
 
 	// Reactive statements to compute pagination state based on current channel
 	$: {
@@ -604,9 +610,23 @@
 		hasMoreServerHistory = $channelHasMoreHistory[$currentChannel] ?? false; // Hidden until server confirms
 		isLoadingServerHistory = $channelHistoryLoading[$currentChannel] || false;
 	}
+	$: if (lastChannelForRenderWindow !== $currentChannel) {
+		lastChannelForRenderWindow = $currentChannel;
+		messageRenderLimit = MESSAGE_RENDER_BATCH;
+	}
+	$: {
+		const boundedLimit = Math.min(Math.max(messageRenderLimit, MESSAGE_RENDER_BATCH), MESSAGE_RENDER_MAX);
+		messageRenderLimit = boundedLimit;
+		visibleMessageStart = Math.max(0, messages.length - boundedLimit);
+		visibleMessages = messages.slice(visibleMessageStart);
+	}
 
 	async function handleLoadMore() {
 		if (!$currentChannel) return;
+		if (visibleMessageStart > 0) {
+			messageRenderLimit = Math.min(MESSAGE_RENDER_MAX, messageRenderLimit + MESSAGE_RENDER_BATCH);
+			return;
+		}
 		// Prefer server-side history loading
 		if (hasMoreServerHistory && !isLoadingServerHistory) {
 			loadOlderHistory($currentChannel);
@@ -630,11 +650,13 @@
 <svelte:window on:keydown={handleImageKeydown} on:click={dismissMobileActions} />
 
 <!-- Load More Messages Button -->
-{#if (hasMoreServerHistory || hasMoreMessages) && messages.length >= 50}
+{#if visibleMessageStart > 0 || ((hasMoreServerHistory || hasMoreMessages) && messages.length >= 50)}
 	<div class="load-more-container">
 		<button class="load-more-btn" on:click={handleLoadMore} disabled={isLoadingServerHistory || isLoadingOlder}>
 			{#if isLoadingServerHistory || isLoadingOlder}
 				<span class="spinner"></span> Loading...
+			{:else if visibleMessageStart > 0}
+				Show Older Loaded Messages
 			{:else}
 				Load Older Messages
 			{/if}
@@ -646,7 +668,8 @@
 	</div>
 {/if}
 
-{#each messages as message, index (message.id)}
+{#each visibleMessages as message, localIndex (message.id)}
+	{@const index = visibleMessageStart + localIndex}
 	{@const user = getUserByUsername(message.user)}
 	{@const replyToMsg = getReplyToMessage(message.replyTo)}
 	{@const groupedWithPrevious = isGroupedWithPrevious(index)}
@@ -685,7 +708,7 @@
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<div class="message-avatar">
 					{#if user?.profilePicture}
-						<img src={user.profilePicture} alt={message.user} class="avatar" />
+						<img src={user.profilePicture} alt={message.user} class="avatar" loading="lazy" decoding="async" />
 					{:else}
 						<div class="avatar-placeholder" style="background-color: {getUserColor(message.user)}">
 							{message.user.charAt(0).toUpperCase()}
@@ -791,9 +814,9 @@
 							<div class="role-gate-hint">React below to opt in/out of this access role.</div>
 						</div>
 					{:else if message.type === 'gif' && message.gifUrl}
-						<img src={message.gifUrl} alt="GIF" class="gif {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} />
+						<img src={message.gifUrl} alt="GIF" class="gif {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
 					{:else if message.type === 'emoji' && message.emojiUrl}
-						<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} />
+						<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
 					{:else if message.type === 'file' && (message.fileUrl || message.files)}
 						{#if message.files && message.files.length > 1}
 							<!-- Multiple files gallery -->
@@ -1024,7 +1047,7 @@
 								on:click={() => toggleReaction(message.id, emojiId)}
 								title={getReactionTooltip(userIds)}
 							>
-								<img src={emoji.url} alt={emoji.name} class="reaction-emoji" />
+								<img src={emoji.url} alt={emoji.name} class="reaction-emoji" loading="lazy" decoding="async" />
 								<span class="reaction-count">{userIds.length}</span>
 							</button>
 						{/if}

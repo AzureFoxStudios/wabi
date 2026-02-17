@@ -80,6 +80,7 @@
 	let selectedChannelForSettings: Channel | null = null;
 	let isTextSectionExpanded = true;
 	let isVoiceSectionExpanded = true;
+	const VOICE_MEMBER_RENDER_LIMIT = 12;
 
 	// Sidebar width from layout store - 3 modes: normal (280px), compact (60px), hidden (0px)
 	$: sidebarWidth = $layoutStore.channelSidebarWidth;
@@ -179,6 +180,10 @@
 		}
 
 		return members;
+	}
+
+	function getVisibleVoiceMembers<T>(members: T[]): T[] {
+		return members.slice(0, VOICE_MEMBER_RENDER_LIMIT);
 	}
 
 	function isConnectedToVoice(channelId: string): boolean {
@@ -660,7 +665,7 @@
 			</div>
 			{#if members.length > 0}
 				<div class="voice-member-list">
-					{#each members as member (member.userId)}
+					{#each getVisibleVoiceMembers(members) as member (member.userId)}
 						<div
 							class="voice-member-item"
 							class:speaking={isMemberSpeaking(member)}
@@ -678,6 +683,9 @@
 							{/if}
 						</div>
 					{/each}
+					{#if members.length > VOICE_MEMBER_RENDER_LIMIT}
+						<div class="voice-member-overflow">+{members.length - VOICE_MEMBER_RENDER_LIMIT} more</div>
+					{/if}
 				</div>
 			{/if}
 			{#each breakoutChannelsByParent[channel.id] || [] as breakout (breakout.id)}
@@ -714,7 +722,7 @@
 				</div>
 				{#if breakoutMembers.length > 0}
 					<div class="voice-member-list breakout-member-list">
-						{#each breakoutMembers as member (member.userId)}
+						{#each getVisibleVoiceMembers(breakoutMembers) as member (member.userId)}
 							<div
 								class="voice-member-item"
 								class:speaking={isMemberSpeaking(member)}
@@ -732,6 +740,9 @@
 								{/if}
 							</div>
 						{/each}
+						{#if breakoutMembers.length > VOICE_MEMBER_RENDER_LIMIT}
+							<div class="voice-member-overflow">+{breakoutMembers.length - VOICE_MEMBER_RENDER_LIMIT} more</div>
+						{/if}
 					</div>
 				{/if}
 			{/each}
@@ -1667,6 +1678,12 @@
 		gap: 0.35rem;
 		color: var(--text-secondary);
 		font-size: 0.72rem;
+	}
+
+	.voice-member-overflow {
+		color: var(--text-muted);
+		font-size: 0.68rem;
+		padding-left: 0.3rem;
 	}
 
 	.voice-member-avatar {
