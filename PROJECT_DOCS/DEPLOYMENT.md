@@ -38,6 +38,19 @@ Replace `wabi.chat` with your actual domain.
 ./scripts/deploy-clean.sh
 ```
 
+### Normal vs Community
+
+| Mode | DB | Default Runtime | Optional Runtime |
+|----------|---------|---------|---------|
+| `normal` | SQLite | Node | Bun |
+| `community` | Postgres | Node | Bun |
+
+Runtime/mode are selected from `.env` (`WABI_MODE`, `WABI_RUNTIME`) and can be overridden:
+
+```bash
+WABI_MODE=community WABI_RUNTIME=bun ./scripts/deploy-clean.sh
+```
+
 Services:
 - **Backend**: `http://localhost:8080` (internal)
 - **Frontend**: `http://localhost:3000` (internal)
@@ -108,6 +121,9 @@ Expected output:
 | `ALLOWED_ORIGINS` | Explicit CORS whitelist (optional) | `https://wabi.chat` |
 | `NODE_ENV` | Node environment | `production` |
 | `PORT` | Backend listen port | `8080` |
+| `WABI_MODE` | Deployment mode | `normal` or `community` |
+| `WABI_RUNTIME` | Backend runtime | `node` or `bun` |
+| `DB_MODE` | Database mode | `sqlite` or `postgres` |
 | `TURN_*` | WebRTC TURN server config | See `.env.example` |
 
 ## Troubleshooting

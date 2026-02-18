@@ -1,0 +1,29 @@
+services:
+  backend:
+    environment:
+      - DB_MODE=postgres
+      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/wabi}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: wabi-postgres
+    environment:
+      - POSTGRES_DB=wabi
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - wabi_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wabi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  wabi_pg_data:

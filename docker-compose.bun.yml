@@ -1,0 +1,10 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.bun
+      args:
+        - OPENMOJI_VERSION=${OPENMOJI_VERSION:-15.1.0}
+        - OPENMOJI_72_SHA256=${OPENMOJI_72_SHA256:-}
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const http=require('http');const req=http.get('http://localhost:8080/health',res=>{process.exit(res.statusCode>=200&&res.statusCode<400?0:1)});req.on('error',()=>process.exit(1));"]
