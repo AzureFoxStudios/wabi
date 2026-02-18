@@ -199,6 +199,7 @@ export function showNotification(
 	options?: {
 		isMention?: boolean;
 		isCurrentChannelActive?: boolean;
+		onClick?: () => void;
 	}
 ) {
 	if (!browser) return;
@@ -271,6 +272,7 @@ export function showNotification(
 	// Click notification to focus window
 	notification.onclick = () => {
 		window.focus();
+		options?.onClick?.();
 		notification.close();
 	};
 

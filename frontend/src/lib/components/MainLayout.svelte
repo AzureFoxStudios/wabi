@@ -308,6 +308,13 @@
 		</div>
 	{/if}
 
+	{#if $layoutStore.isInCall && $callMode === 'direct' && !$channelCallPanelOpen}
+		<div class="voice-toast" role="status">
+			Direct call active.
+			<button class="voice-toast-action" on:click={toggleChannelCallPanel}>Return to call</button>
+		</div>
+	{/if}
+
 	{#if $voiceChannelNotice}
 		<div class="voice-toast" role="status">{$voiceChannelNotice.text}</div>
 	{/if}
@@ -750,6 +757,17 @@
 		color: var(--text-primary);
 		font-size: 0.8rem;
 		z-index: var(--z-toast);
+	}
+
+	.voice-toast-action {
+		margin-left: 0.5rem;
+		border: none;
+		border-radius: 999px;
+		padding: 0.25rem 0.55rem;
+		font-size: 0.75rem;
+		background: rgba(var(--accent-rgb), 0.32);
+		color: var(--text-primary);
+		cursor: pointer;
 	}
 
 	@media (max-width: 768px) {

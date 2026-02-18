@@ -3812,11 +3812,35 @@ io.on("connection", (socket) => {
   });
 
   // Handle profile updates
-  socket.on("update-profile", (data: { status?: 'active' | 'away' | 'busy'; profilePicture?: string; usernameFont?: { family?: string; size?: string; weight?: string; style?: string } }, callback?: (response: { success: boolean; error?: string }) => void) => {
+  socket.on("update-profile", (data: { status?: 'active' | 'away' | 'busy'; profilePicture?: string; username?: string; usernameFont?: { family?: string; size?: string; weight?: string; style?: string } }, callback?: (response: { success: boolean; error?: string }) => void) => {
     const user = users.get(socket.id);
     if (!user) {
       if (callback) callback({ success: false, error: 'User not found' });
       return;
+    }
+
+    if (data.username !== undefined) {
+      const nextUsername = data.username.trim();
+      if (nextUsername.length < 2 || nextUsername.length > 32) {
+        if (callback) callback({ success: false, error: 'Display name must be 2-32 characters' });
+        return;
+      }
+
+      const duplicateOnline = Array.from(users.entries()).find(([id, existing]) =>
+        id !== socket.id && existing.username.toLowerCase() === nextUsername.toLowerCase()
+      );
+      if (duplicateOnline) {
+        if (callback) callback({ success: false, error: 'That display name is already in use' });
+        return;
+      }
+
+      const existingRegistered = userRepository.findByUsername(nextUsername);
+      if (existingRegistered && existingRegistered.user_id !== user.dbUserId) {
+        if (callback) callback({ success: false, error: 'That display name is already registered' });
+        return;
+      }
+
+      user.username = nextUsername;
     }
 
     if (data.status) {
@@ -3838,12 +3862,14 @@ io.on("connection", (socket) => {
         if (dbSession) {
           // Update session with new profile picture
           sessionRepository.update((socket as any).sessionId, {
+            username: user.username,
             profile_picture: user.profilePicture || null
           });
 
           // Also update the user's main profile
           if (dbSession.user_id) {
             const userUpdateData: any = {
+              username: user.username,
               profile_picture: user.profilePicture || null
             };
             if (user.usernameFont) {
@@ -3868,6 +3894,7 @@ io.on("connection", (socket) => {
     const sessions_array = Array.from(sessions.entries());
     for (const [sessionId, session] of sessions_array) {
       if (session.userId === socket.id) {
+        session.username = user.username;
         session.profilePicture = user.profilePicture;
         session.usernameFont = user.usernameFont;
         sessions.set(sessionId, session);

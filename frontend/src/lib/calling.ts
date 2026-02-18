@@ -1640,7 +1640,7 @@ export async function startCall(socket: Socket, targetUserId: string, isVideoCal
 
 		isInCall.set(true);
 		callMode.set('direct');
-		channelCallPanelOpen.set(false);
+		channelCallPanelOpen.set(true);
 		activeVoiceChannel.set(null);
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);
@@ -1682,7 +1682,7 @@ export async function answerCall(socket: Socket, callerId: string, isVideoCall: 
 
 		isInCall.set(true);
 		callMode.set('direct');
-		channelCallPanelOpen.set(false);
+		channelCallPanelOpen.set(true);
 		activeVoiceChannel.set(null);
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);

@@ -118,6 +118,8 @@
 	let selectedAvatarFile: File | null = null;
 	let selectedAvatarPreview: string | null = null;
 	let uploadingAvatar = false;
+	let displayNameDraft = '';
+	let updatingDisplayName = false;
 
 	// Emoji upload state
 	let emojiFileInput: HTMLInputElement;
@@ -202,7 +204,13 @@
 				startMemoryTelemetry();
 			}
 		}
+
+		displayNameDraft = $currentUser?.username || '';
 	});
+
+	$: if (!updatingDisplayName && $currentUser?.username && displayNameDraft === '') {
+		displayNameDraft = $currentUser.username;
+	}
 
 	onDestroy(() => {
 		cleanupMicTest();
@@ -926,6 +934,29 @@
 			selectedAvatarPreview = null;
 		}
 	}
+
+	function updateDisplayName() {
+		const nextName = displayNameDraft.trim();
+		if (!nextName) {
+			alert('Display name cannot be empty.');
+			return;
+		}
+		if (nextName.length < 2 || nextName.length > 32) {
+			alert('Display name must be between 2 and 32 characters.');
+			return;
+		}
+		if (nextName === ($currentUser?.username || '')) {
+			return;
+		}
+
+		updatingDisplayName = true;
+		updateProfile(undefined, undefined, undefined, nextName, (response) => {
+			updatingDisplayName = false;
+			if (!response.success) {
+				alert(response.error || 'Failed to update display name.');
+			}
+		});
+	}
 </script>
 
 {#if isOpen}
@@ -980,6 +1011,25 @@
 
 				<div class="settings-content">
 					{#if activeSettingsTab === 'profile'}
+						<div class="settings-section">
+							<h3>Display Name</h3>
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">Your display name</span>
+									<span class="setting-description">Shown in chat, calls, and notifications.</span>
+								</div>
+								<input
+									type="text"
+									class="emoji-name-input"
+									maxlength="32"
+									bind:value={displayNameDraft}
+									placeholder="Enter display name"
+								/>
+								<button class="pfp-upload-btn" on:click={updateDisplayName} disabled={updatingDisplayName}>
+									{updatingDisplayName ? 'Saving...' : 'Save Display Name'}
+								</button>
+							</div>
+						</div>
 						<div class="settings-section">
 							<h3>Profile Picture</h3>
 							<div class="pfp-upload-section">

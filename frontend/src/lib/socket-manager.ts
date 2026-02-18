@@ -759,10 +759,29 @@ class SocketManager {
 			const isCurrentChannelActive = currentChannelId === data.channelId;
 			const myUsername = get(currentUser)?.username || null;
 			const isMention = messageMentionsUser(data.message, myUsername);
+			const dmClickTarget = (() => {
+				if (!channel || channel.type !== 'dm') return null;
+				if (channel.otherUser) return channel.otherUser;
+				const me = get(currentUser);
+				const myStableId = me?.dbUserId ? `user-${me.dbUserId}` : me?.id;
+				const otherStableId = (channel.members || []).find(id => id !== myStableId);
+				if (!otherStableId) return null;
+				if (otherStableId.startsWith('user-')) {
+					const dbId = parseInt(otherStableId.substring(5), 10);
+					return get(users).find(u => u.dbUserId === dbId) || null;
+				}
+				return get(users).find(u => u.id === otherStableId) || null;
+			})();
 
 			showNotification(data.message, isCurrentUser, channel?.name, {
 				isMention,
-				isCurrentChannelActive
+				isCurrentChannelActive,
+				onClick: dmClickTarget
+					? () => {
+						currentChannel.set(data.channelId);
+						dmPanelSignal.set({ channelId: data.channelId, otherUser: dmClickTarget });
+					}
+					: undefined
 			});
 
 			if (!isCurrentUser && (!isCurrentChannelActive || document.hidden)) {
@@ -815,6 +834,10 @@ class SocketManager {
 		sock.on('profile-updated', (user: User) => {
 			users.update(u => u.map(existing => existing.id === user.id ? user : existing));
 			currentUser.update(cu => cu && cu.id === user.id ? user : cu);
+			if (user.id === sock.id) {
+				this.username = user.username;
+				this.safeLocalStorageSet('username', user.username);
+			}
 		});
 
 		// ==================== CHANNEL EVENTS ====================
@@ -1537,8 +1560,14 @@ export function sendTyping(isTyping: boolean, channelId?: string): void {
 	socketManager.emit('typing', { isTyping, channelId: chan });
 }
 
-export function updateProfile(status?: 'active' | 'away' | 'busy', profilePicture?: string, bannerUrl?: string): void {
-	socketManager.emit('update-profile', { status, profilePicture, bannerUrl });
+export function updateProfile(
+	status?: 'active' | 'away' | 'busy',
+	profilePicture?: string,
+	bannerUrl?: string,
+	username?: string,
+	callback?: (response: { success: boolean; error?: string }) => void
+): void {
+	socketManager.emit('update-profile', { status, profilePicture, bannerUrl, username }, callback);
 }
 
 export function markMessagesAsRead(): void {
