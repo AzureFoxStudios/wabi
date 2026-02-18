@@ -25,6 +25,7 @@ import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from
 import { channelRepository } from "./db/repositories/channelRepository.js";
 import { channelMemberRepository } from "./db/repositories/channelMemberRepository.js";
 import { messageRepository } from "./db/repositories/messageRepository.js";
+import { appPolicyRepository } from "./db/repositories/appPolicyRepository.js";
 import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
 import { dispatchWebhookEvent } from "./webhooks/deliveryService.js";
 
@@ -82,6 +83,198 @@ function getRolePriority(roleName: string, workspaceId: string = 'default-worksp
     LIMIT 1
   `).get(roleName, workspaceId) as { priority?: number } | undefined;
   return row?.priority ?? 0;
+}
+
+type RolePolicyTier = 'new' | 'trusted' | 'moderator' | 'admin' | 'owner';
+type UploadLimitBytes = number | null;
+
+interface UploadLimitConfig {
+  perRoleBytes: Record<RolePolicyTier, UploadLimitBytes>;
+  globalUploadCapBytes: UploadLimitBytes;
+}
+
+interface DownloadLimitConfig {
+  perRoleBytes: Record<RolePolicyTier, UploadLimitBytes>;
+  globalDownloadCapBytes: UploadLimitBytes;
+}
+
+type PolicyKey = 'upload_limits' | 'download_limits';
+const UPLOAD_LIMITS_POLICY_KEY: PolicyKey = 'upload_limits';
+const MB = 1024 * 1024;
+const GB = 1024 * MB;
+
+const DEFAULT_UPLOAD_LIMIT_CONFIG: UploadLimitConfig = {
+  perRoleBytes: {
+    new: 10 * MB,
+    trusted: 1 * GB,
+    moderator: 30 * GB,
+    admin: null,
+    owner: null
+  },
+  globalUploadCapBytes: null
+};
+
+const DEFAULT_DOWNLOAD_LIMIT_CONFIG: DownloadLimitConfig = {
+  perRoleBytes: {
+    new: 10 * MB,
+    trusted: 1 * GB,
+    moderator: 30 * GB,
+    admin: null,
+    owner: null
+  },
+  globalDownloadCapBytes: null
+};
+
+function cloneDefaultUploadLimits(): UploadLimitConfig {
+  return {
+    perRoleBytes: { ...DEFAULT_UPLOAD_LIMIT_CONFIG.perRoleBytes },
+    globalUploadCapBytes: DEFAULT_UPLOAD_LIMIT_CONFIG.globalUploadCapBytes
+  };
+}
+
+function cloneDefaultDownloadLimits(): DownloadLimitConfig {
+  return {
+    perRoleBytes: { ...DEFAULT_DOWNLOAD_LIMIT_CONFIG.perRoleBytes },
+    globalDownloadCapBytes: DEFAULT_DOWNLOAD_LIMIT_CONFIG.globalDownloadCapBytes
+  };
+}
+
+function normalizeLimitValue(value: unknown): UploadLimitBytes {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.floor(n);
+}
+
+function sanitizeUploadLimitConfig(raw: unknown): UploadLimitConfig {
+  const config = cloneDefaultUploadLimits();
+  if (!raw || typeof raw !== 'object') return config;
+
+  const input = raw as Partial<UploadLimitConfig>;
+  const perRole = input.perRoleBytes as Partial<Record<RolePolicyTier, unknown>> | undefined;
+  if (perRole && typeof perRole === 'object') {
+    for (const tier of ['new', 'trusted', 'moderator', 'admin', 'owner'] as RolePolicyTier[]) {
+      if (Object.prototype.hasOwnProperty.call(perRole, tier)) {
+        config.perRoleBytes[tier] = normalizeLimitValue(perRole[tier]);
+      }
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, 'globalUploadCapBytes')) {
+    config.globalUploadCapBytes = normalizeLimitValue(input.globalUploadCapBytes);
+  }
+
+  return config;
+}
+
+function sanitizeDownloadLimitConfig(raw: unknown): DownloadLimitConfig {
+  const config = cloneDefaultDownloadLimits();
+  if (!raw || typeof raw !== 'object') return config;
+
+  const input = raw as Partial<DownloadLimitConfig>;
+  const perRole = input.perRoleBytes as Partial<Record<RolePolicyTier, unknown>> | undefined;
+  if (perRole && typeof perRole === 'object') {
+    for (const tier of ['new', 'trusted', 'moderator', 'admin', 'owner'] as RolePolicyTier[]) {
+      if (Object.prototype.hasOwnProperty.call(perRole, tier)) {
+        config.perRoleBytes[tier] = normalizeLimitValue(perRole[tier]);
+      }
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, 'globalDownloadCapBytes')) {
+    config.globalDownloadCapBytes = normalizeLimitValue(input.globalDownloadCapBytes);
+  }
+
+  return config;
+}
+
+interface PolicyDefinition<TValue> {
+  defaultValue: TValue;
+  sanitize: (raw: unknown) => TValue;
+}
+
+const POLICY_DEFINITIONS: Record<PolicyKey, PolicyDefinition<unknown>> = {
+  upload_limits: {
+    defaultValue: cloneDefaultUploadLimits(),
+    sanitize: sanitizeUploadLimitConfig
+  },
+  download_limits: {
+    defaultValue: cloneDefaultDownloadLimits(),
+    sanitize: sanitizeDownloadLimitConfig
+  }
+};
+
+function isKnownPolicyKey(value: string): value is PolicyKey {
+  return Object.prototype.hasOwnProperty.call(POLICY_DEFINITIONS, value);
+}
+
+function getPolicyValue<TValue>(key: PolicyKey): TValue {
+  const definition = POLICY_DEFINITIONS[key] as PolicyDefinition<TValue>;
+  const raw = appPolicyRepository.getRaw(`policy:${key}`);
+  if (!raw) return definition.defaultValue;
+  try {
+    return definition.sanitize(JSON.parse(raw));
+  } catch (error) {
+    console.warn(`[Policies] Failed to parse policy '${key}'; falling back to defaults`);
+    return definition.defaultValue;
+  }
+}
+
+function savePolicyValue<TValue>(key: PolicyKey, rawInput: unknown): TValue {
+  const definition = POLICY_DEFINITIONS[key] as PolicyDefinition<TValue>;
+  const sanitized = definition.sanitize(rawInput);
+  appPolicyRepository.setRaw(`policy:${key}`, JSON.stringify(sanitized));
+  return sanitized;
+}
+
+function getPolicyDefaults<TValue>(key: PolicyKey): TValue {
+  const definition = POLICY_DEFINITIONS[key] as PolicyDefinition<TValue>;
+  return definition.defaultValue;
+}
+
+function resolveUploadRoleTier(userId: number | null, guestSessionId: string | null): RolePolicyTier {
+  if (!userId) return guestSessionId ? 'new' : 'new';
+  const roles = getUserRoles(userId, 'default-workspace');
+  if (roles.includes('owner')) return 'owner';
+  if (roles.includes('admin')) return 'admin';
+  if (roles.includes('mod')) return 'moderator';
+  return 'trusted';
+}
+
+function getEffectiveUploadCapBytes(roleTier: RolePolicyTier, config: UploadLimitConfig): UploadLimitBytes {
+  const roleCap = normalizeLimitValue(config.perRoleBytes[roleTier]);
+  const globalCap = normalizeLimitValue(config.globalUploadCapBytes);
+  if (roleCap === null) return globalCap;
+  if (globalCap === null) return roleCap;
+  return Math.min(roleCap, globalCap);
+}
+
+function enforceUploadLimit(
+  res: any,
+  userId: number | null,
+  guestSessionId: string | null,
+  fileSize: number,
+  fileName: string,
+  source: 'direct-upload' | 'resumable-init' | 'resumable-chunk'
+): boolean {
+  const tier = resolveUploadRoleTier(userId, guestSessionId);
+  const config = getPolicyValue<UploadLimitConfig>(UPLOAD_LIMITS_POLICY_KEY);
+  const capBytes = getEffectiveUploadCapBytes(tier, config);
+  if (capBytes !== null && fileSize > capBytes) {
+    console.warn(`[Uploads] Rejected ${source} (${fileName}) size=${fileSize} tier=${tier} cap=${capBytes} userId=${userId ?? 'guest'}`);
+    res.writeHead(413, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        success: false,
+        error: 'File exceeds upload limit for your role',
+        roleTier: tier,
+        fileSizeBytes: fileSize,
+        limitBytes: capBytes
+      })
+    );
+    return false;
+  }
+  return true;
 }
 // In-memory data store
 interface Channel {
@@ -1083,6 +1276,100 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  const policyPathMatch = url.pathname.match(/^\/api\/admin\/policies\/([^/]+)$/);
+  if (policyPathMatch && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    const requestedKey = decodeURIComponent(policyPathMatch[1]);
+    if (!isKnownPolicyKey(requestedKey)) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Unknown policy key" }));
+      return;
+    }
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        success: true,
+        key: requestedKey,
+        config: getPolicyValue(requestedKey),
+        defaults: getPolicyDefaults(requestedKey)
+      })
+    );
+    return;
+  }
+
+  if (policyPathMatch && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    const requestedKey = decodeURIComponent(policyPathMatch[1]);
+    if (!isKnownPolicyKey(requestedKey)) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Unknown policy key" }));
+      return;
+    }
+
+    try {
+      const rawBody = JSON.parse((await readRequestBuffer(req)).toString() || '{}');
+      const config = savePolicyValue(requestedKey, rawBody);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, key: requestedKey, config }));
+    } catch (error) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Invalid policy payload" }));
+    }
+    return;
+  }
+
+  // Compatibility alias for older clients
+  if (url.pathname === "/api/admin/upload-limits" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        success: true,
+        config: getPolicyValue<UploadLimitConfig>(UPLOAD_LIMITS_POLICY_KEY),
+        defaults: getPolicyDefaults<UploadLimitConfig>(UPLOAD_LIMITS_POLICY_KEY)
+      })
+    );
+    return;
+  }
+
+  if (url.pathname === "/api/admin/upload-limits" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    try {
+      const rawBody = JSON.parse((await readRequestBuffer(req)).toString() || '{}');
+      const config = savePolicyValue<UploadLimitConfig>(UPLOAD_LIMITS_POLICY_KEY, rawBody);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, config }));
+    } catch (error) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Invalid upload limit payload" }));
+    }
+    return;
+  }
+
   if (url.pathname.startsWith("/api/plugins/signers/") && req.method === "DELETE") {
     const userId = getAuthenticatedUserId(req);
     if (!isPluginAdmin(userId)) {
@@ -1413,6 +1700,9 @@ server.on('request', async (req, res) => {
         res.end(JSON.stringify({ success: false, error: 'Invalid file metadata' }));
         return;
       }
+      if (!enforceUploadLimit(res, userId, guestSessionId, fileSize, fileName, 'resumable-init')) {
+        return;
+      }
 
       let uploadId = (payload.uploadId || '').trim();
       let meta: ResumableUploadMeta | null = null;
@@ -1538,6 +1828,9 @@ server.on('request', async (req, res) => {
     if (meta.status === 'completed') {
       res.writeHead(409, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: false, error: 'Upload already completed', fileUrl: meta.fileUrl || null }));
+      return;
+    }
+    if (!enforceUploadLimit(res, userId, guestSessionId, meta.fileSize, meta.fileName, 'resumable-chunk')) {
       return;
     }
 
@@ -1729,6 +2022,9 @@ server.on('request', async (req, res) => {
           }
           // Convert base64 to buffer and save
           const fileBuffer = Buffer.from(fileData.split(',')[1], 'base64');
+          if (!enforceUploadLimit(res, userId, guestSessionId, fileBuffer.length, fileName, 'direct-upload')) {
+            return;
+          }
           writeUploadFile(filePath, fileBuffer);
 
           const fileUrl = `/uploads/${fileId}`;
@@ -1773,6 +2069,9 @@ server.on('request', async (req, res) => {
           }
 
           if (fileData && fileName) {
+            if (!enforceUploadLimit(res, userId, guestSessionId, fileData.length, fileName, 'direct-upload')) {
+              return;
+            }
             const fileId = `${Date.now()}-${fileName}`;
             const filePath = join(UPLOADS_DIR, fileId);
             // Ensure uploads dir exists (may have been wiped by redeploy)
