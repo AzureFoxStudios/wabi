@@ -47,12 +47,24 @@ while [[ $# -gt 0 ]]; do
       PRUNE_STOPPED_CONTAINERS=true
       ;;
     --mode)
-      WABI_MODE="${2:-}"
-      shift
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        echo "Missing value for --mode (expected normal|community)" >&2
+        usage
+        exit 1
+      fi
+      WABI_MODE="$2"
+      shift 2
+      continue
       ;;
     --runtime)
-      WABI_RUNTIME="${2:-}"
-      shift
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        echo "Missing value for --runtime (expected node|bun)" >&2
+        usage
+        exit 1
+      fi
+      WABI_RUNTIME="$2"
+      shift 2
+      continue
       ;;
     -h|--help)
       usage

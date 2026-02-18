@@ -72,10 +72,20 @@ MODE_CHOICE="${MODE_CHOICE:-1}"
 if [[ "$MODE_CHOICE" == "2" ]]; then
   WABI_MODE="community"
   DB_MODE="postgres"
-  DATABASE_URL="postgres://postgres:postgres@postgres:5432/wabi"
+  POSTGRES_DB="wabi"
+  POSTGRES_USER="wabi"
+  if command -v openssl >/dev/null 2>&1; then
+    POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+  else
+    POSTGRES_PASSWORD="$(generate_secret | tr -dc 'A-Za-z0-9' | cut -c1-48)"
+  fi
+  DATABASE_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
 else
   WABI_MODE="normal"
   DB_MODE="sqlite"
+  POSTGRES_DB=""
+  POSTGRES_USER=""
+  POSTGRES_PASSWORD=""
   DATABASE_URL=""
 fi
 
@@ -114,6 +124,9 @@ WABI_RUNTIME=$WABI_RUNTIME
 DB_MODE=$DB_MODE
 DATABASE_PATH=/app/data/chat.db
 DATABASE_URL=$DATABASE_URL
+POSTGRES_DB=$POSTGRES_DB
+POSTGRES_USER=$POSTGRES_USER
+POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 
 JWT_SECRET=$JWT_SECRET
 

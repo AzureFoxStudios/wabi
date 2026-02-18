@@ -2,7 +2,7 @@ services:
   backend:
     environment:
       - DB_MODE=postgres
-      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/wabi}
+      - DATABASE_URL=${DATABASE_URL}
     depends_on:
       postgres:
         condition: service_healthy
@@ -11,15 +11,13 @@ services:
     image: postgres:16-alpine
     container_name: wabi-postgres
     environment:
-      - POSTGRES_DB=wabi
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-    ports:
-      - "5432:5432"
+      - POSTGRES_DB=${POSTGRES_DB:-wabi}
+      - POSTGRES_USER=${POSTGRES_USER:-wabi}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env for community mode}
     volumes:
       - wabi_pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d wabi"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5

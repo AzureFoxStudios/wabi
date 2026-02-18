@@ -124,6 +124,10 @@ Expected output:
 | `WABI_MODE` | Deployment mode | `normal` or `community` |
 | `WABI_RUNTIME` | Backend runtime | `node` or `bun` |
 | `DB_MODE` | Database mode | `sqlite` or `postgres` |
+| `POSTGRES_DB` | Community mode database name | `wabi` |
+| `POSTGRES_USER` | Community mode database user | `wabi` |
+| `POSTGRES_PASSWORD` | Community mode database password | long random value |
+| `DATABASE_URL` | Community mode backend DB URL | `postgres://wabi:***@postgres:5432/wabi` |
 | `TURN_*` | WebRTC TURN server config | See `.env.example` |
 
 ## Troubleshooting
