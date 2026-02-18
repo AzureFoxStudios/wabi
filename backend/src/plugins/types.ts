@@ -8,8 +8,16 @@ export interface PluginContext {
   users: Map<string, any>;
   channelMessages: Map<string, any[]>;
   storage: PluginStorage;
+  logger: PluginLogger;
   emit: (event: string, data: any) => void;
   emitToChannel: (channelId: string, event: string, data: any) => void;
+}
+
+export interface PluginLogger {
+  debug: (message: string, meta?: Record<string, any>) => void;
+  info: (message: string, meta?: Record<string, any>) => void;
+  warn: (message: string, meta?: Record<string, any>) => void;
+  error: (message: string, meta?: Record<string, any>) => void;
 }
 
 export interface PluginStorage {
@@ -75,5 +83,27 @@ export interface PluginManifest {
 
   permissions?: string[];
   dependencies?: string[];
+  firstParty?: boolean;
+  security?: {
+    threatNotes?: string;
+  };
+  integrity?: {
+    algorithm?: 'sha256';
+    checksum?: string;
+    signature?: string;
+  };
+  signer?: {
+    keyId?: string;
+    publicKey?: string;
+    algorithm?: 'ed25519';
+  };
+  distribution?: {
+    source?: 'local' | 'zip' | 'registry';
+    registryUrl?: string;
+  };
+  capabilities?: {
+    tier?: 'ui-only' | 'network-limited' | 'tauri-unsafe';
+    notes?: string;
+  };
   enabled?: boolean;
 }

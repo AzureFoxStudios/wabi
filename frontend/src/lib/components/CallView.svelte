@@ -7,9 +7,11 @@
 		isMuted,
 		isDeafened,
 		isVideoOff,
+		isLocalSpeaking,
 		localStream,
 		localScreenStream,
 		connectionState,
+		callTransportState,
 		stopScreenShare,
 		endCall,
 		toggleMute,
@@ -56,7 +58,7 @@
 				id: $currentUser.id,
 				username: $currentUser.username,
 				isLocal: true,
-				isSpeaking: !$isMuted,
+				isSpeaking: $isLocalSpeaking && !$isMuted && !$isDeafened,
 				stream: $localStream || undefined
 			});
 		}
@@ -67,7 +69,7 @@
 				id: call.userId,
 				username: call.username || 'Unknown',
 				isLocal: false,
-				isSpeaking: call.isAudioEnabled,
+				isSpeaking: call.isSpeaking && call.isAudioEnabled,
 				stream: call.stream
 			});
 		}
@@ -119,6 +121,18 @@
 		}
 		return colors[Math.abs(hash) % colors.length];
 	}
+
+	function streamBinding(node: HTMLVideoElement, stream?: MediaStream) {
+		node.srcObject = stream ?? null;
+		return {
+			update(nextStream?: MediaStream) {
+				node.srcObject = nextStream ?? null;
+			},
+			destroy() {
+				node.srcObject = null;
+			}
+		};
+	}
 </script>
 
 {#if hasActiveMedia}
@@ -133,7 +147,7 @@
 								autoplay
 								playsinline
 								muted={$isDeafened}
-								bind:srcObject={share.stream}
+								use:streamBinding={share.stream}
 							></video>
 							<div class="stream-label">{share.username}'s Screen</div>
 						</div>
@@ -149,7 +163,7 @@
 									autoplay
 									playsinline
 									muted={participant.isLocal || $isDeafened}
-									bind:srcObject={participant.stream}
+									use:streamBinding={participant.stream}
 								></video>
 							{:else}
 								<div
@@ -179,7 +193,7 @@
 								autoplay
 								playsinline
 								muted={$isDeafened}
-								bind:srcObject={share.stream}
+								use:streamBinding={share.stream}
 							></video>
 							<div class="stream-label">{share.username}'s Screen</div>
 						</div>
@@ -212,7 +226,7 @@
 							autoplay
 							playsinline
 							muted
-							bind:srcObject={$localStream}
+							use:streamBinding={$localStream}
 							class:hidden={$isVideoOff}
 						></video>
 						{#if $isVideoOff}
@@ -232,12 +246,12 @@
 				<!-- Remote videos -->
 				<div class="remote-videos">
 					{#each $activeCalls as call (call.userId)}
-						<div class="video-tile" transition:scale>
+						<div class="video-tile" class:speaking={call.isSpeaking && call.isAudioEnabled && !$isDeafened} transition:scale>
 							<video
 								autoplay
 								playsinline
 								muted={$isDeafened}
-								bind:srcObject={call.stream}
+								use:streamBinding={call.stream}
 								class:hidden={!call.isVideoEnabled}
 							></video>
 							{#if !call.isVideoEnabled}
@@ -292,6 +306,13 @@
 
 		<!-- Controls bar -->
 		<div class="controls-bar">
+			<div class="transport-badge" class:degraded={$callTransportState.isFallback}>
+				Transport: {$callTransportState.activeTransport.toUpperCase()}
+				{#if $callTransportState.isFallback}
+					<span class="transport-note">fallback active</span>
+				{/if}
+			</div>
+
 			{#if $connectionState && $connectionState !== 'idle' && $connectionState !== 'connected'}
 				<div class="connection-badge" class:warning={$connectionState === 'connecting' || $connectionState === 'signaling'} class:error={$connectionState === 'failed'}>
 					{$connectionState}
@@ -599,6 +620,10 @@
 		aspect-ratio: 16 / 9;
 	}
 
+	.video-tile.speaking {
+		box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.5);
+	}
+
 	.video-tile video {
 		width: 100%;
 		height: 100%;
@@ -726,6 +751,30 @@
 		padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
 		background: var(--bg-secondary, #16213e);
 		border-top: 1px solid var(--border, #333);
+	}
+
+	.transport-badge {
+		padding: 0.35rem 0.65rem;
+		border-radius: 999px;
+		font-size: 0.72rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		text-transform: uppercase;
+		background: rgba(16, 185, 129, 0.18);
+		color: #ecfdf5;
+		border: 1px solid rgba(16, 185, 129, 0.45);
+	}
+
+	.transport-badge.degraded {
+		background: rgba(245, 158, 11, 0.2);
+		border-color: rgba(245, 158, 11, 0.55);
+		color: #fffbeb;
+	}
+
+	.transport-note {
+		margin-left: 0.35rem;
+		font-weight: 600;
+		text-transform: none;
 	}
 
 	.connection-badge {

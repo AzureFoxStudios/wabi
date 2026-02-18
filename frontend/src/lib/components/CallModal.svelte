@@ -3,9 +3,12 @@
 	import {
 		incomingCall,
 		isInCall,
+		callMode,
+		channelCallPanelOpen,
 		isMuted,
 		isDeafened,
 		isVideoOff,
+		isLocalSpeaking,
 		activeCalls,
 		screenShares,
 		isSharing,
@@ -19,7 +22,10 @@
 		startScreenShare,
 		stopScreenShare,
 		localStream,
-		connectionState
+		connectionState,
+		closeChannelCallPanel,
+		spatialAudioRuntimeStatus,
+		toggleSpatialAudioEnabled
 	} from '$lib/calling';
 	import { showCallNotification, playCallRingtone, stopCallRingtone } from '$lib/notifications';
 	import { onDestroy } from 'svelte';
@@ -55,6 +61,9 @@
 	}
 
 	$: layoutMode = determineLayout($screenShares, $activeCalls, $isSharing, focusedTileId);
+	$: showActiveCallModal = $isInCall && ($callMode === 'direct' || ($callMode === 'channel' && $channelCallPanelOpen));
+	$: spatialAudioActive = $spatialAudioRuntimeStatus.active;
+	$: spatialQuickToggleVisible = $spatialAudioRuntimeStatus.quickToggleVisible;
 
 	// ---- Build tile list ----
 	function buildTiles(
@@ -173,11 +182,14 @@
 	}
 
 	// ---- Bind tile video elements ----
-	function bindTileVideo(node: HTMLVideoElement, stream: MediaStream | null) {
-		if (stream) node.srcObject = stream;
+	function bindMediaStream(node: HTMLMediaElement, stream: MediaStream | null) {
+		node.srcObject = stream ?? null;
 		return {
 			update(newStream: MediaStream | null) {
-				if (newStream) node.srcObject = newStream;
+				node.srcObject = newStream ?? null;
+			},
+			destroy() {
+				node.srcObject = null;
 			}
 		};
 	}
@@ -234,6 +246,21 @@
 			focusedTileId = null;
 		}
 	}
+
+	function isRemoteSpeaking(userId: string): boolean {
+		if ($isDeafened) return false;
+		const call = $activeCalls.find(item => item.userId === userId);
+		return Boolean(call?.isAudioEnabled && call?.isSpeaking);
+	}
+
+	function isTileSpeaking(tile: Tile): boolean {
+		if ($isDeafened) return false;
+		if (tile.userId === null) {
+			return $isLocalSpeaking && !$isMuted;
+		}
+		const call = $activeCalls.find(item => item.userId === tile.userId);
+		return Boolean(call?.isAudioEnabled && call?.isSpeaking);
+	}
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -263,14 +290,28 @@
 	</div>
 {/if}
 
+<!-- Keep remote audio alive even when channel call panel is hidden -->
+{#if $isInCall && $activeCalls.length > 0}
+	<div class="remote-audio-sink" aria-hidden="true">
+		{#each $activeCalls as call (call.userId)}
+			<audio
+				autoplay
+				playsinline
+				muted={$isDeafened || showActiveCallModal || spatialAudioActive}
+				use:bindMediaStream={call.stream}
+			></audio>
+		{/each}
+	</div>
+{/if}
+
 <!-- Active Call UI -->
-{#if $isInCall}
+{#if showActiveCallModal}
 	<div class="active-call-container">
 		{#if layoutMode === 'voice-only' || layoutMode === 'video-call'}
 			<!-- Original grid layout for voice/video calls without screen shares -->
 			<div class="video-grid">
 				<!-- Local video -->
-				<div class="video-wrapper local-video">
+				<div class="video-wrapper local-video" class:speaking={$isLocalSpeaking && !$isMuted && !$isDeafened}>
 					<!-- svelte-ignore a11y-media-has-caption -->
 					<video
 						bind:this={localVideoElement}
@@ -290,14 +331,14 @@
 
 				<!-- Remote videos -->
 				{#each $activeCalls as call (call.userId)}
-					<div class="video-wrapper remote-video">
+					<div class="video-wrapper remote-video" class:speaking={isRemoteSpeaking(call.userId)}>
 						<!-- svelte-ignore a11y-media-has-caption -->
 						<video
 							bind:this={remoteVideoElements[call.userId]}
 							autoplay
 							playsinline
 							class="video-element"
-							muted={$isDeafened}
+							muted={$isDeafened || spatialAudioActive}
 							class:video-hidden={!call.isVideoEnabled}
 						></video>
 						{#if !call.isVideoEnabled}
@@ -318,6 +359,7 @@
 					<button
 						class="tile"
 						class:tile-screen={tile.kind === 'screen-share' || tile.kind === 'local-screen'}
+						class:speaking={isTileSpeaking(tile)}
 						on:click={() => handleTileClick(tile.id)}
 					>
 						{#if tile.kind === 'screen-share' || tile.kind === 'local-screen'}
@@ -326,8 +368,8 @@
 								class="tile-video tile-video-contain"
 								autoplay
 								playsinline
-								muted={tile.kind === 'local-screen' || (tile.userId !== null && $isDeafened)}
-								use:bindTileVideo={tile.stream}
+								muted={tile.kind === 'local-screen' || (tile.userId !== null && ($isDeafened || spatialAudioActive))}
+								use:bindMediaStream={tile.stream}
 							></video>
 						{:else if tile.kind === 'video' || tile.kind === 'local-camera'}
 							<!-- svelte-ignore a11y-media-has-caption -->
@@ -335,8 +377,8 @@
 								class="tile-video"
 								autoplay
 								playsinline
-								muted={tile.userId === null || $isDeafened}
-								use:bindTileVideo={tile.stream}
+								muted={tile.userId === null || $isDeafened || (tile.userId !== null && spatialAudioActive)}
+								use:bindMediaStream={tile.stream}
 							></video>
 						{:else}
 							<div class="tile-avatar">
@@ -353,15 +395,15 @@
 			<div class="focused-layout">
 				<div class="focused-main">
 					<!-- Focused tile -->
-					<button class="focused-tile" on:click={() => handleTileClick(focusedTile.id)}>
+					<button class="focused-tile" class:speaking={isTileSpeaking(focusedTile)} on:click={() => handleTileClick(focusedTile.id)}>
 						{#if focusedTile.kind === 'screen-share' || focusedTile.kind === 'local-screen'}
 							<!-- svelte-ignore a11y-media-has-caption -->
 							<video
 								class="focused-video focused-video-contain"
 								autoplay
 								playsinline
-								muted={focusedTile.kind === 'local-screen' || (focusedTile.userId !== null && $isDeafened)}
-								use:bindTileVideo={focusedTile.stream}
+								muted={focusedTile.kind === 'local-screen' || (focusedTile.userId !== null && ($isDeafened || spatialAudioActive))}
+								use:bindMediaStream={focusedTile.stream}
 							></video>
 						{:else if focusedTile.kind === 'video' || focusedTile.kind === 'local-camera'}
 							<!-- svelte-ignore a11y-media-has-caption -->
@@ -369,8 +411,8 @@
 								class="focused-video"
 								autoplay
 								playsinline
-								muted={focusedTile.userId === null || $isDeafened}
-								use:bindTileVideo={focusedTile.stream}
+								muted={focusedTile.userId === null || $isDeafened || (focusedTile.userId !== null && spatialAudioActive)}
+								use:bindMediaStream={focusedTile.stream}
 							></video>
 						{:else}
 							<div class="focused-avatar">
@@ -400,6 +442,7 @@
 						{#each thumbnailTiles as thumb (thumb.id)}
 							<button
 								class="thumbnail"
+								class:speaking={isTileSpeaking(thumb)}
 								on:click={() => handleTileClick(thumb.id)}
 							>
 								{#if thumb.kind === 'screen-share' || thumb.kind === 'local-screen' || thumb.kind === 'video' || thumb.kind === 'local-camera'}
@@ -408,8 +451,8 @@
 										class="thumbnail-video"
 										autoplay
 										playsinline
-										muted={thumb.userId === null || $isDeafened}
-										use:bindTileVideo={thumb.stream}
+										muted={thumb.userId === null || $isDeafened || (thumb.userId !== null && spatialAudioActive)}
+										use:bindMediaStream={thumb.stream}
 									></video>
 								{:else}
 									<div class="thumbnail-avatar">
@@ -426,6 +469,14 @@
 
 		<!-- Controls bar -->
 		<div class="call-controls">
+			{#if $callMode === 'channel'}
+				<button class="control-btn" on:click={closeChannelCallPanel} title="Back to chat">
+					<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<polyline points="15 18 9 12 15 6"></polyline>
+					</svg>
+				</button>
+			{/if}
+
 			<button
 				class="control-btn"
 				class:active={$isMuted}
@@ -436,8 +487,14 @@
 					{#if $isMuted}
 						<line x1="1" y1="1" x2="23" y2="23"></line>
 						<path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path>
+						<path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path>
+						<line x1="12" y1="19" x2="12" y2="23"></line>
+						<line x1="8" y1="23" x2="16" y2="23"></line>
 					{:else}
-						<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+						<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+						<path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+						<line x1="12" y1="19" x2="12" y2="23"></line>
+						<line x1="8" y1="23" x2="16" y2="23"></line>
 					{/if}
 				</svg>
 			</button>
@@ -450,16 +507,32 @@
 			>
 				<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					{#if $isDeafened}
-						<line x1="1" y1="1" x2="23" y2="23"></line>
-						<path d="M6 18.7V21a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-2.3"></path>
-						<path d="M18 9v3a6 6 0 0 1-.3 1.8"></path>
-						<path d="M6 12V9a6 6 0 0 1 11.5-2.3"></path>
+						<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+						<line x1="23" y1="9" x2="17" y2="15"></line>
+						<line x1="17" y1="9" x2="23" y2="15"></line>
 					{:else}
-						<path d="M3 18v3h18v-3"></path>
-						<path d="M12 3a6 6 0 0 1 6 6v3a6 6 0 0 1-12 0V9a6 6 0 0 1 6-6z"></path>
+						<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+						<path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
 					{/if}
 				</svg>
 			</button>
+
+			{#if spatialQuickToggleVisible}
+				<button
+					class="control-btn"
+					class:active={spatialAudioActive}
+					on:click={toggleSpatialAudioEnabled}
+					title={spatialAudioActive ? 'Disable spatial audio' : 'Enable spatial audio'}
+				>
+					<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M12 3v18"></path>
+						<path d="M5.64 7.64a9 9 0 0 0 0 8.72"></path>
+						<path d="M18.36 7.64a9 9 0 0 1 0 8.72"></path>
+						<path d="M2.5 12h1.5"></path>
+						<path d="M20 12h1.5"></path>
+					</svg>
+				</button>
+			{/if}
 
 			<button
 				class="control-btn"
@@ -520,6 +593,14 @@
 {/if}
 
 <style>
+	.remote-audio-sink {
+		position: absolute;
+		width: 0;
+		height: 0;
+		overflow: hidden;
+		pointer-events: none;
+	}
+
 	/* ================================================================
 	   Incoming Call Modal
 	   ================================================================ */
@@ -705,6 +786,10 @@
 		aspect-ratio: 16 / 9;
 	}
 
+	.video-wrapper.speaking {
+		box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.45);
+	}
+
 	.local-video {
 		max-width: 300px;
 		position: absolute;
@@ -789,6 +874,11 @@
 		border-color: var(--accent, #5865F2);
 	}
 
+	.tile.speaking {
+		border-color: rgba(34, 197, 94, 0.75);
+		box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.35);
+	}
+
 	.tile-screen {
 		/* Screen shares get priority sizing in the grid */
 		grid-column: span 1;
@@ -859,6 +949,10 @@
 		padding: 0;
 		color: white;
 		font-family: inherit;
+	}
+
+	.focused-tile.speaking {
+		box-shadow: inset 0 0 0 3px rgba(34, 197, 94, 0.45);
 	}
 
 	.focused-video {
@@ -958,6 +1052,10 @@
 
 	.thumbnail:hover {
 		border-color: var(--accent, #5865F2);
+	}
+
+	.thumbnail.speaking {
+		border-color: rgba(34, 197, 94, 0.75);
 	}
 
 	.thumbnail-video {

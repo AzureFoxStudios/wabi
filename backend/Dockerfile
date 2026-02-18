@@ -2,9 +2,15 @@ FROM node:24-slim
 
 WORKDIR /app
 
+# Download tools for OpenMoji fetch during image build
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl unzip ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 # Copy package files
 COPY package.json ./
 COPY package-lock.json ./
+COPY scripts/fetch-openmoji.sh ./scripts/fetch-openmoji.sh
 
 # Install all dependencies (including devDependencies)
 RUN npm ci
@@ -14,6 +20,18 @@ RUN npm rebuild esbuild || npm install esbuild@latest
 
 # Copy backend source code
 COPY . .
+
+# Fetch pinned OpenMoji assets so backend can build emoji index without
+# depending on frontend container filesystem.
+ARG OPENMOJI_VERSION=15.1.0
+ARG OPENMOJI_72_SHA256=
+ENV OPENMOJI_VERSION=$OPENMOJI_VERSION
+ENV OPENMOJI_72_SHA256=$OPENMOJI_72_SHA256
+# Strip Windows CRLF line-endings that Git may introduce on Windows hosts,
+# then make executable and run.  This is a no-op on files already in LF.
+RUN sed -i 's/\r$//' ./scripts/fetch-openmoji.sh \
+  && chmod +x ./scripts/fetch-openmoji.sh \
+  && ./scripts/fetch-openmoji.sh /app/openmoji/png
 
 # Build the backend with ESM format to support import.meta
 RUN npm run build
@@ -32,6 +50,7 @@ ENV NODE_ENV=production
 ENV PORT=8080
 ENV DATA_DIR=/app/data
 ENV PLUGINS_DIR=/app/plugins
+ENV OPENMOJI_DIR=/app/openmoji/png
 
 # Expose backend port
 EXPOSE 8080

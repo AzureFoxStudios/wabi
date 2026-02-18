@@ -5,6 +5,56 @@ let notificationAudio: HTMLAudioElement | null = null;
 let audioContext: AudioContext | null = null;
 let ringtoneTimeout: NodeJS.Timeout | null = null;
 
+function getNotificationSquelchSettings() {
+	if (!browser) {
+		return {
+			suppressEveryoneHere: false,
+			suppressRoleMentions: false
+		};
+	}
+
+	return {
+		suppressEveryoneHere: localStorage.getItem('suppressEveryoneHereMentions') === 'true',
+		suppressRoleMentions: localStorage.getItem('suppressRoleMentions') === 'true'
+	};
+}
+
+function shouldSquelchNotification(message: Message): boolean {
+	const text = String(message?.text || '');
+	if (!text) return false;
+
+	const { suppressEveryoneHere, suppressRoleMentions } = getNotificationSquelchSettings();
+
+	if (suppressEveryoneHere && /\B@(everyone|here|all)\b/i.test(text)) {
+		return true;
+	}
+
+	// Support common role-mention syntaxes.
+	if (suppressRoleMentions && (/<@&\d+>/.test(text) || /\B@&[\w-]+\b/.test(text))) {
+		return true;
+	}
+
+	return false;
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function messageMentionsUser(message: Message, username?: string | null): boolean {
+	const text = String(message?.text || '');
+	if (!text) return false;
+
+	// Broad mentions count as mention pings for everyone.
+	if (/\B@(everyone|here|all)\b/i.test(text)) {
+		return true;
+	}
+
+	if (!username) return false;
+	const userPattern = new RegExp(`(^|[\\s(])@${escapeRegExp(username)}\\b`, 'i');
+	return userPattern.test(text);
+}
+
 function initAudio() {
 	if (audioContext) return;
 	try {
@@ -142,7 +192,15 @@ export function stopCallRingtone() {
     }
 }
 
-export function showNotification(message: Message, isCurrentUser: boolean, channelName?: string) {
+export function showNotification(
+	message: Message,
+	isCurrentUser: boolean,
+	channelName?: string,
+	options?: {
+		isMention?: boolean;
+		isCurrentChannelActive?: boolean;
+	}
+) {
 	if (!browser) return;
 
 	// Don't notify for own messages
@@ -155,14 +213,23 @@ export function showNotification(message: Message, isCurrentUser: boolean, chann
 		return;
 	}
 
+	if (shouldSquelchNotification(message)) {
+		return;
+	}
+
+	const isMention = options?.isMention ?? false;
+	const isCurrentChannelActive = options?.isCurrentChannelActive ?? false;
+	const shouldPlaySound = document.hidden || !isCurrentChannelActive || isMention;
+
 	// Check if permission is granted
 	if (Notification.permission !== 'granted') {
 		console.log('Notification permission not granted:', Notification.permission);
 		return;
 	}
 
-	// Play sound regardless of visibility
-	playNotificationSound();
+	if (shouldPlaySound) {
+		playNotificationSound();
+	}
 
 	// Only show desktop notification if window is not focused (user is in another tab/app)
 	if (!document.hidden) {
@@ -179,7 +246,7 @@ export function showNotification(message: Message, isCurrentUser: boolean, chann
 
 	switch (message.type) {
 		case 'text':
-			title = userPrefix;
+			title = isMention ? `Mention from ${userPrefix}` : userPrefix;
 			body = message.text;
 			break;
 		case 'gif':

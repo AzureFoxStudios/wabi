@@ -36,7 +36,7 @@ export async function migrateTauriData(): Promise<boolean> {
 		const migrationData: WabiData = {
 			version: '1.0',
 			exported_at: Date.now(),
-			messages: indexedDbMessages,
+			messages: indexedDbMessages.messages,
 			settings: {
 				channels: channelsList,
 				migrated_from: 'indexeddb',

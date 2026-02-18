@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { get } from 'svelte/store';
+	import { currentUser } from '$lib/socket';
 	import { todos, projects, addTodo, updateTodo, deleteTodo, type Todo } from '$lib/business';
 
 	export let onClose: (() => void) | undefined = undefined;
@@ -156,7 +157,8 @@
 			priority: newTaskPriority,
 			projectId: newTaskProject,
 			assignedTo: newTaskAssignee?.toString(),
-			status: 'todo'
+			status: 'todo',
+			createdBy: $currentUser?.id || 'unknown'
 		});
 
 		newTaskTitle = '';

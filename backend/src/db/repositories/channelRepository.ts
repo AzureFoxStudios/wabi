@@ -2,22 +2,36 @@ import db from '../database.js';
 
 export interface DbChannel {
 	channel_id: string;
-	channel_type: 'public' | 'dm' | 'group';
+	channel_type: 'text' | 'voice' | 'public' | 'dm' | 'group' | 'thread_public' | 'thread_private';
 	name: string;
 	description: string;
+	min_role?: string;
+	voice_settings_json?: string | null;
 	created_at: number;
 	created_by?: string;
 	persist_messages: number;
 	is_archived: number;
 	avatar?: string;
+	parent_channel_id?: string | null;
+	is_breakout?: number;
+	breakout_index?: number | null;
+	parent_message_id?: string | null;
+	thread_archived?: number;
+	thread_locked?: number;
+	thread_auto_archive_minutes?: number;
+	thread_last_activity_at?: number | null;
 }
 
 export class ChannelRepository {
 	// Create a new channel
 	create(channel: Omit<DbChannel, 'is_archived'>): DbChannel {
 		const stmt = db.prepare(`
-			INSERT INTO channels (channel_id, channel_type, name, description, created_at, created_by, persist_messages, is_archived)
-			VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+			INSERT INTO channels (
+				channel_id, channel_type, name, description, min_role, created_at, created_by, persist_messages,
+				is_archived, parent_channel_id, is_breakout, breakout_index, parent_message_id, thread_archived, thread_locked,
+				thread_auto_archive_minutes, thread_last_activity_at
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
 		`);
 
 		stmt.run(
@@ -25,9 +39,18 @@ export class ChannelRepository {
 			channel.channel_type,
 			channel.name,
 			channel.description || '',
+			channel.min_role || 'guest',
 			channel.created_at,
 			channel.created_by || null,
-			channel.persist_messages ?? 1
+			channel.persist_messages ?? 1,
+			channel.parent_channel_id || null,
+			channel.is_breakout ?? 0,
+			channel.breakout_index ?? null,
+			channel.parent_message_id || null,
+			channel.thread_archived ?? 0,
+			channel.thread_locked ?? 0,
+			channel.thread_auto_archive_minutes ?? 1440,
+			channel.thread_last_activity_at ?? channel.created_at
 		);
 
 		return {
@@ -66,11 +89,11 @@ export class ChannelRepository {
 		return (stmt.get(dmId) as DbChannel) || null;
 	}
 
-	// Get all public channels
-	getPublicChannels(): DbChannel[] {
+	// Get all workspace channels (text/voice plus legacy public)
+	getWorkspaceChannels(): DbChannel[] {
 		const stmt = db.prepare(`
 			SELECT * FROM channels
-			WHERE channel_type = 'public' AND is_archived = 0
+			WHERE channel_type IN ('text', 'voice', 'public', 'thread_public') AND is_archived = 0
 			ORDER BY created_at ASC
 		`);
 		return stmt.all() as DbChannel[];
@@ -82,24 +105,47 @@ export class ChannelRepository {
 		stmt.run(channelId);
 	}
 
-	// Ensure general channel exists
-	ensureGeneralExists(): void {
+	// Ensure default base channels exist (1 text + 1 voice)
+	ensureBaseChannelsExist(): void {
 		const existing = this.findById('general');
 		if (!existing) {
 			this.create({
 				channel_id: 'general',
-				channel_type: 'public',
+				channel_type: 'text',
 				name: 'general',
 				created_at: Date.now(),
 				created_by: 'system',
 				persist_messages: 1
 			});
-			console.log('[ChannelRepository] Created general channel');
+			console.log('[ChannelRepository] Created default text channel: general');
+		} else if (existing.channel_type !== 'text') {
+			// Canonicalize legacy base channel type to explicit text
+			const stmt = db.prepare('UPDATE channels SET channel_type = ?, persist_messages = ? WHERE channel_id = ?');
+			stmt.run('text', 1, 'general');
+			console.log(`[ChannelRepository] Normalized base channel type: general (${existing.channel_type} -> text)`);
+		}
+
+		const existingVoice = this.findById('voice');
+		if (!existingVoice) {
+			this.create({
+				channel_id: 'voice',
+				channel_type: 'voice',
+				name: 'voice',
+				created_at: Date.now(),
+				created_by: 'system',
+				persist_messages: 0
+			});
+			console.log('[ChannelRepository] Created default voice channel: voice');
+		} else if (existingVoice.channel_type !== 'voice') {
+			// Canonicalize legacy/mis-typed base voice channel
+			const stmt = db.prepare('UPDATE channels SET channel_type = ?, persist_messages = ? WHERE channel_id = ?');
+			stmt.run('voice', 0, 'voice');
+			console.log(`[ChannelRepository] Normalized base channel type: voice (${existingVoice.channel_type} -> voice)`);
 		}
 	}
 
 	// Update channel settings
-	updateSettings(channelId: string, settings: { persist_messages?: number; description?: string }): void {
+	updateSettings(channelId: string, settings: { persist_messages?: number; description?: string; min_role?: string; voice_settings_json?: string | null }): void {
 		const updates: string[] = [];
 		const values: any[] = [];
 
@@ -111,6 +157,16 @@ export class ChannelRepository {
 		if (settings.description !== undefined) {
 			updates.push('description = ?');
 			values.push(settings.description);
+		}
+
+		if (settings.min_role !== undefined) {
+			updates.push('min_role = ?');
+			values.push(settings.min_role);
+		}
+
+		if (settings.voice_settings_json !== undefined) {
+			updates.push('voice_settings_json = ?');
+			values.push(settings.voice_settings_json);
 		}
 
 		if (updates.length === 0) return;

@@ -11,10 +11,9 @@
 	import KanbanBoard from '$lib/components/business/KanbanBoard.svelte';
 	import TaskPanel from '$lib/components/business/TaskPanel.svelte';
 	import BusinessPrivacyToggle from '$lib/components/BusinessPrivacyToggle.svelte';
-	import PinnedChannelsSidebar from '$lib/components/PinnedChannelsSidebar.svelte';
 	import Chat from '$lib/components/Chat.svelte';
 	import GuestCodePrompt from '$lib/components/GuestCodePrompt.svelte';
-	import { pinnedChannels, channels, currentChannel, joinChannel } from '$lib/socket';
+	import { channels, currentChannel, joinChannel } from '$lib/socket';
 
 	type MainView = 'calendar' | 'journal' | 'projects' | 'kanban';
 	let activeView: MainView = 'calendar';
@@ -327,12 +326,14 @@
 	{/if}
 
 	<div class="dashboard-body">
-		<!-- Left Pinned Channels Sidebar -->
+		<!-- TODO(mod/admin-perms): Re-enable pinned channels sidebar behind role-based visibility. -->
+		<!--
 		{#if $pinnedChannels.length > 0}
 			<div class="pinned-sidebar-wrapper">
 				<PinnedChannelsSidebar />
 			</div>
 		{/if}
+		-->
 
 		<main class="main-content" class:panel-open={showTaskPanel}>
 			{#if activeView === 'calendar'}
@@ -618,11 +619,6 @@
 		overflow: hidden;
 	}
 
-	.pinned-sidebar-wrapper {
-		flex-shrink: 0;
-		overflow: hidden;
-	}
-
 	.main-content {
 		flex: 1;
 		overflow-y: auto;
@@ -849,7 +845,7 @@
 			right: 0;
 			background: var(--biz-bg-secondary, #1a2332);
 			border-top: 1px solid var(--biz-border, #2d3a4d);
-			padding: 0.5rem 0.25rem;
+			padding: 0.5rem 0.25rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
 			justify-content: space-around;
 			z-index: var(--z-sticky);
 		}
@@ -868,22 +864,28 @@
 		}
 
 		.dashboard-body {
-			padding-bottom: 70px;
-		}
-
-		.pinned-sidebar-wrapper {
-			display: none;
+			padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px));
 		}
 
 		.main-content {
 			padding: 0.75rem;
 		}
 
+		.chat-panel-business {
+			position: fixed;
+			right: 0;
+			top: 52px;
+			bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+			width: 100% !important;
+			max-width: 100%;
+			z-index: var(--z-sticky);
+		}
+
 		.task-panel {
 			position: fixed;
 			right: 0;
 			top: 52px;
-			bottom: 70px;
+			bottom: calc(70px + env(safe-area-inset-bottom, 0px));
 			width: 100% !important;
 			max-width: 100%;
 			z-index: var(--z-dropdown);

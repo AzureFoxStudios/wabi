@@ -1,8 +1,37 @@
 <script lang="ts">
-	import { onMount, tick, createEventDispatcher } from 'svelte';
-	import { channelMessages, channels, currentChannel, typingUsers, sendMessage, sendTyping, lastReadMessageId, editMessage, currentUser, emojis, users, dmPanelSignal, createDM, getDMChannelIdForUser, type Message, type Emoji } from '$lib/socket';
+	import { onMount, onDestroy, tick, createEventDispatcher } from 'svelte';
+	import { get } from 'svelte/store';
+	import {
+		channelMessages,
+		channels,
+		currentChannel,
+		typingUsers,
+		sendMessage,
+		sendTyping,
+		lastReadMessageId,
+		editMessage,
+		currentUser,
+		emojis,
+		users,
+		dmPanelSignal,
+		createDM,
+		getDMChannelIdForUser,
+		socket,
+		loadOlderHistory,
+		channelHasMoreHistory,
+		channelHistoryLoading,
+		loadOlderMessages,
+		channelAvailableArchives,
+		channelLoadedArchives,
+		channelLoadingOlder,
+		type Message,
+		type Emoji,
+		type User,
+		type Channel
+	} from '$lib/socket';
 	import { resources, graphEdges } from '$lib/business/store';
 	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
+	import type { Resource } from '$lib/business/types';
 	import { pinChannel, unpinChannel } from '$lib/socket';
 	import EmojiPicker from './EmojiPicker.svelte';
 	import MessageList from './MessageList.svelte';
@@ -12,8 +41,9 @@
 	import CameraCapture from './CameraCapture.svelte';
 	import { parseCommand, formatCommandHelp, getMatchingCommands, type Command } from '$lib/commands';
 	import { layoutStore } from '$lib/layoutStore';
-	import { isInCall } from '$lib/calling';
+	import { isInCall, startCall } from '$lib/calling';
 	import { getServerUrl } from '$lib/serverUrl';
+	import { encryptDMFile, isE2EAvailable } from '$lib/e2eManager';
 
 	const dispatch = createEventDispatcher();
 
@@ -21,11 +51,13 @@
 	$: pinnedMessages = messages.filter((m: Message) => m.isPinned);
 	$: currentChannelData = $channels.find(ch => ch.id === $currentChannel);
 	$: channelDisplayName = currentChannelData?.name || $currentChannel;
+	$: channelDescription = currentChannelData?.description?.trim() || '';
 
 	// Safeguard: DM channels should never be displayed in the main chat area
 	// They should only appear in the DM panel on the right side
 	// This check prevents accidental rendering of DMs in the middle chat
 	$: isDMChannel = currentChannelData?.type === 'dm';
+	$: dmCallTargetUser = getDMOtherUser(currentChannelData);
 
 	let messageInput = '';
 	let chatContainer: HTMLElement;
@@ -33,7 +65,10 @@
 	let lastTypingEmit = 0;
 	const TYPING_THROTTLE_MS = 300; // Max one typing event per 300ms
 	let showEmojiPicker = false;
+	let showMediaMenu = false;
 	let emojiPickerButton: HTMLButtonElement;
+	let emojiPickerContainer: HTMLElement | null = null;
+	let mediaMenuContainer: HTMLElement | null = null;
 	let replyingTo: Message | null = null;
 	let fileInput: HTMLInputElement;
 	let editingMessage: Message | null = null;
@@ -45,6 +80,13 @@
 	let isDragging = false;
 	let dragCounter = 0;
 	let textareaElement: HTMLTextAreaElement;
+	let mentionMenuContainer: HTMLElement | null = null;
+	let showMentionSuggestions = false;
+	let mentionSuggestions: { key: string; label: string; value: string; kind: 'special' | 'user' }[] = [];
+	let mentionSelectedIndex = 0;
+	let mentionTokenStart = -1;
+	const RESUMABLE_UPLOAD_CHUNK_SIZE = 1024 * 1024; // 1MB
+	const RESUMABLE_UPLOAD_MAX_RETRIES = 4;
 
 	// Command palette
 	let commandPalette: CommandPalette;
@@ -54,10 +96,23 @@
 	// Search functionality
 	let searchInput = '';
 	let filteredMessages: Message[] = [];
+	const MESSAGE_WORKING_SET_LIMIT_EPHEMERAL = 600;
+	const MESSAGE_WORKING_SET_LIMIT_PERSISTENT_IDLE = 1200;
+	const MESSAGE_WORKING_SET_LIMIT_PERSISTENT_SEARCH = 5000;
+	const SEARCH_BACKFILL_THROTTLE_MS = 700;
+	let lastSearchBackfillAt = 0;
+	let isFullHistorySearchRunning = false;
+	let fullHistorySearchAbortRequested = false;
+	let fullHistorySearchPagesLoaded = 0;
+	let fullHistorySearchStatus = '';
+	const MAX_FULL_HISTORY_SEARCH_PAGES = 80;
+	const MAX_FILE_PREVIEW_IMAGES = 8;
+	let lastPreviewChannelId: string | null = null;
 
 	// Photo and audio capture
 	let showCameraCapture = false;
 	let showAudioRecorder = false;
+	let visibleTypingUsers: string[] = [];
 
 	// Format typing users list with proper grammar
 	function formatTypingUsers(users: string[]): string {
@@ -72,7 +127,64 @@
 		return `${allButLast}, and ${lastUser} are typing...`;
 	}
 
+	function getTypingUserPriority(username: string): number {
+		const user = $users.find((u) => u.username.toLowerCase() === username.toLowerCase());
+		const role = (user?.highestRole || '').toLowerCase();
+
+		if (role.includes('owner')) return 4;
+		if (role.includes('admin')) return 3;
+		if (role.includes('mod')) return 2;
+		if (role.includes('staff')) return 1;
+		return 0;
+	}
+
+	function getVisibleTypingUsers(names: string[]): string[] {
+		const currentUsername = ($currentUser?.username || '').toLowerCase();
+		const deduped = Array.from(new Set(names.filter(Boolean)));
+		const othersOnly = deduped.filter((name) => name.toLowerCase() !== currentUsername);
+
+		return othersOnly.sort((a, b) => {
+			const priorityDiff = getTypingUserPriority(b) - getTypingUserPriority(a);
+			if (priorityDiff !== 0) return priorityDiff;
+			return a.localeCompare(b);
+		});
+	}
+
+	function getDMOtherUser(channel?: Channel): User | null {
+		if (!channel || channel.type !== 'dm') return null;
+		if (channel.otherUser) return channel.otherUser;
+
+		const myStableId = $currentUser?.dbUserId ? `user-${$currentUser.dbUserId}` : $currentUser?.id;
+		const otherStableId = (channel.members || []).find((id: string) => id !== myStableId);
+		if (!otherStableId) return null;
+
+		if (otherStableId.startsWith('user-')) {
+			const dbId = parseInt(otherStableId.substring(5), 10);
+			return $users.find(u => u.dbUserId === dbId) || null;
+		}
+		return $users.find(u => u.id === otherStableId) || null;
+	}
+
+	async function startDMVoiceCall() {
+		if (!$socket || !dmCallTargetUser) return;
+		try {
+			await startCall($socket, dmCallTargetUser.id, false);
+		} catch (error) {
+			alert('Failed to start voice call. Please check microphone permissions.');
+		}
+	}
+
+	async function startDMVideoCall() {
+		if (!$socket || !dmCallTargetUser) return;
+		try {
+			await startCall($socket, dmCallTargetUser.id, true);
+		} catch (error) {
+			alert('Failed to start video call. Please check camera and microphone permissions.');
+		}
+	}
+
 	// Parse search syntax: by:username, has:image, has:video, has:file, has:link, and text content
+
 	function parseSearchQuery(query: string): { text: string; byUser?: string; hasTypes: string[] } {
 		const byUserMatch = query.match(/by:(\S+)/);
 		const hasMatches = query.match(/has:(\S+)/g) || [];
@@ -86,12 +198,15 @@
 	}
 
 	// Filter messages based on search query
-	function filterMessages(msgs: Message[], query: string): Message[] {
-		if (!query.trim()) return msgs;
+	function filterMessages(msgs: Message[], query: string, workingSetLimit: number): Message[] {
+		const workingSet = msgs.length > workingSetLimit
+			? msgs.slice(-workingSetLimit)
+			: msgs;
+		if (!query.trim()) return workingSet;
 
 		const { text, byUser, hasTypes } = parseSearchQuery(query);
 
-		return msgs.filter(msg => {
+		return workingSet.filter(msg => {
 			// Filter by user
 			if (byUser && msg.user.toLowerCase() !== byUser.toLowerCase()) {
 				return false;
@@ -119,8 +234,51 @@
 		});
 	}
 
+	function getWorkingSetLimit(): number {
+		if (currentChannelData?.persistMessages) {
+			return searchInput.trim()
+				? MESSAGE_WORKING_SET_LIMIT_PERSISTENT_SEARCH
+				: MESSAGE_WORKING_SET_LIMIT_PERSISTENT_IDLE;
+		}
+		return MESSAGE_WORKING_SET_LIMIT_EPHEMERAL;
+	}
+
 	// Reactive search
-	$: filteredMessages = filterMessages(messages, searchInput);
+	$: filteredMessages = filterMessages(messages, searchInput, getWorkingSetLimit());
+	$: visibleTypingUsers = getVisibleTypingUsers($typingUsers[$currentChannel] || []);
+	$: if (!searchInput.trim()) {
+		fullHistorySearchStatus = '';
+	}
+	$: searchBackfillBusy =
+		Boolean(searchInput.trim()) &&
+		Boolean(currentChannelData?.persistMessages) &&
+		(($channelHistoryLoading[$currentChannel] || false) || ($channelLoadingOlder[$currentChannel] || false));
+	$: {
+		if (searchInput.trim() && currentChannelData?.persistMessages && $currentChannel && !isFullHistorySearchRunning) {
+			const now = Date.now();
+			if (now - lastSearchBackfillAt >= SEARCH_BACKFILL_THROTTLE_MS) {
+				const hasMoreServerHistory = $channelHasMoreHistory[$currentChannel] ?? false;
+				const isServerLoading = $channelHistoryLoading[$currentChannel] || false;
+				if (hasMoreServerHistory && !isServerLoading) {
+					lastSearchBackfillAt = now;
+					loadOlderHistory($currentChannel);
+				} else {
+					const availableArchives = $channelAvailableArchives[$currentChannel] || [];
+					const loadedArchives = $channelLoadedArchives[$currentChannel] || new Set<string>();
+					const hasMoreArchiveHistory = availableArchives.length > loadedArchives.size;
+					const isArchiveLoading = $channelLoadingOlder[$currentChannel] || false;
+					if (hasMoreArchiveHistory && !isArchiveLoading) {
+						lastSearchBackfillAt = now;
+						void loadOlderMessages($currentChannel);
+					}
+				}
+			}
+		}
+	}
+	$: if (lastPreviewChannelId !== $currentChannel) {
+		lastPreviewChannelId = $currentChannel;
+		clearFilePreviews();
+	}
 
 	async function scrollToBottom() {
 		await tick();
@@ -168,12 +326,113 @@
 		// Show command palette if input starts with /
 		if (messageInput.startsWith('/')) {
 			showCommandPalette = getMatchingCommands(messageInput).length > 0;
+			showMentionSuggestions = false;
 		} else {
 			showCommandPalette = false;
+			updateMentionSuggestions();
 		}
 	}
 
+	function updateMentionSuggestions() {
+		if (!textareaElement) {
+			showMentionSuggestions = false;
+			return;
+		}
+
+		const caret = textareaElement.selectionStart ?? messageInput.length;
+		const beforeCaret = messageInput.slice(0, caret);
+		const atIndex = beforeCaret.lastIndexOf('@');
+		if (atIndex < 0) {
+			showMentionSuggestions = false;
+			return;
+		}
+
+		const prefixChar = atIndex > 0 ? beforeCaret[atIndex - 1] : '';
+		if (prefixChar && !/\s|\(/.test(prefixChar)) {
+			showMentionSuggestions = false;
+			return;
+		}
+
+		const query = beforeCaret.slice(atIndex + 1);
+		if (/\s/.test(query)) {
+			showMentionSuggestions = false;
+			return;
+		}
+
+		const normalizedQuery = query.toLowerCase();
+		const specials = [
+			{ key: 'special-all', label: '@all', value: 'all', kind: 'special' as const },
+			{ key: 'special-here', label: '@here', value: 'here', kind: 'special' as const },
+			{ key: 'special-everyone', label: '@everyone', value: 'everyone', kind: 'special' as const }
+		].filter((entry) => entry.value.startsWith(normalizedQuery));
+
+		const userEntries = $users
+			.filter((u) => u.id !== $currentUser?.id)
+			.sort((a, b) => a.username.localeCompare(b.username))
+			.map((u) => ({
+				key: `user-${u.id}`,
+				label: `@${u.username}`,
+				value: u.username,
+				kind: 'user' as const
+			}))
+			.filter((entry) => entry.value.toLowerCase().startsWith(normalizedQuery));
+
+		const nextSuggestions = [...specials, ...userEntries].slice(0, 8);
+		if (nextSuggestions.length === 0) {
+			showMentionSuggestions = false;
+			return;
+		}
+
+		mentionTokenStart = atIndex;
+		mentionSuggestions = nextSuggestions;
+		mentionSelectedIndex = 0;
+		showMentionSuggestions = true;
+	}
+
+	async function applyMentionSuggestion(index: number) {
+		if (!textareaElement || index < 0 || index >= mentionSuggestions.length || mentionTokenStart < 0) return;
+		const selected = mentionSuggestions[index];
+		const caret = textareaElement.selectionStart ?? messageInput.length;
+		const before = messageInput.slice(0, mentionTokenStart);
+		const after = messageInput.slice(caret);
+		const mentionText = `@${selected.value}`;
+		const needsTrailingSpace = after.length === 0 || !/^[\s.,!?;:)]/.test(after);
+		const insertion = needsTrailingSpace ? `${mentionText} ` : mentionText;
+		const nextCursor = (before + insertion).length;
+
+		messageInput = before + insertion + after;
+		showMentionSuggestions = false;
+		mentionTokenStart = -1;
+
+		await tick();
+		textareaElement.focus();
+		textareaElement.setSelectionRange(nextCursor, nextCursor);
+	}
+
 	function handleKeyDown(e: KeyboardEvent) {
+		if (showMentionSuggestions) {
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				mentionSelectedIndex = (mentionSelectedIndex + 1) % mentionSuggestions.length;
+				return;
+			}
+			if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				mentionSelectedIndex = (mentionSelectedIndex - 1 + mentionSuggestions.length) % mentionSuggestions.length;
+				return;
+			}
+			if (e.key === 'Enter' || e.key === 'Tab') {
+				e.preventDefault();
+				void applyMentionSuggestion(mentionSelectedIndex);
+				return;
+			}
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				showMentionSuggestions = false;
+				return;
+			}
+		}
+
 		// Command palette navigation
 		if (showCommandPalette && commandPalette) {
 			const handled = commandPalette.handleKeyDown(e.key);
@@ -247,16 +506,19 @@
 					return;
 				}
 
-				const newResource = {
-					id: `res-${Date.now()}`,
-					name: resourceName,
-					type: parsed.flags['type'] as string || 'reference',
-					createdAt: new Date().toISOString(),
-					createdBy: parsed.flags['a'] ? 'Anonymous' : ($currentUser?.username || 'Unknown'),
-					isAnonymous: !!parsed.flags['a'],
-					tags: parsed.flags['tag'] ? [parsed.flags['tag']] : [],
-					preview: null
-				};
+					const tag = typeof parsed.flags['tag'] === 'string' ? parsed.flags['tag'] : undefined;
+					const newResource: Resource = {
+						id: `res-${Date.now()}`,
+						name: resourceName,
+						type: 'note',
+						storageType: 'inline',
+						createdAt: Date.now(),
+						updatedAt: Date.now(),
+						createdBy: parsed.flags['a'] ? 'Anonymous' : ($currentUser?.username || 'Unknown'),
+						isAnonymous: !!parsed.flags['a'],
+						visibilityType: 'public',
+						tags: tag ? [tag] : []
+					};
 
 				resources.update(r => [...r, newResource]);
 				alert(`Resource "${resourceName}" created!`);
@@ -550,6 +812,8 @@
 				replyingTo = null;
 			}
 			messageInput = '';
+			showMentionSuggestions = false;
+			showMediaMenu = false;
 			sendTyping(false, $currentChannel);
 
 			if (typingTimeout) {
@@ -582,16 +846,20 @@
 		});
 		replyingTo = null;
 		showEmojiPicker = false;
+		showMediaMenu = false;
 		textareaElement?.focus();
 	}
 
 	function handleEmojiSelect(event: CustomEvent<{ emoji: Emoji }>) {
 		const emoji = event.detail.emoji;
 		showEmojiPicker = false;
+		showMediaMenu = false;
 
-		// Insert emoji syntax and auto-send
-		messageInput = messageInput.trim() ? messageInput + `:${emoji.name}:` : `:${emoji.name}:`;
-		handleSubmit();
+		// Insert emoji syntax into the composer and let the user send explicitly.
+		const emojiToken = `:${emoji.name}:`;
+		const shouldAddSpace = messageInput.length > 0 && !/\s$/.test(messageInput);
+		messageInput = shouldAddSpace ? `${messageInput} ${emojiToken}` : `${messageInput}${emojiToken}`;
+		textareaElement?.focus();
 	}
 
 	function handleReply(message: Message) {
@@ -601,6 +869,43 @@
 
 	function cancelReply() {
 		replyingTo = null;
+	}
+
+	function revokePreviewUrl(preview?: string): void {
+		if (!preview || !preview.startsWith('blob:')) return;
+		try {
+			URL.revokeObjectURL(preview);
+		} catch {
+			// no-op
+		}
+	}
+
+	function clearFilePreviews(): void {
+		for (const item of filePreviews) {
+			revokePreviewUrl(item.preview);
+		}
+		filePreviews = [];
+		selectedFiles = [];
+	}
+
+	function enforcePreviewBudget(): void {
+		if (filePreviews.length <= MAX_FILE_PREVIEW_IMAGES) return;
+		const overflow = filePreviews.slice(0, filePreviews.length - MAX_FILE_PREVIEW_IMAGES);
+		for (const item of overflow) {
+			revokePreviewUrl(item.preview);
+		}
+		filePreviews = filePreviews.slice(-MAX_FILE_PREVIEW_IMAGES);
+		selectedFiles = selectedFiles.slice(-MAX_FILE_PREVIEW_IMAGES);
+	}
+
+	function buildPreviewEntries(files: File[]): { file: File; preview?: string }[] {
+		return files.map((file) => {
+			if (file.type.startsWith('image/')) {
+				const preview = URL.createObjectURL(file);
+				return { file, preview };
+			}
+			return { file };
+		});
 	}
 
 	async function handleFileSelect(event: Event) {
@@ -625,33 +930,24 @@
 		}
 
 		// Store selected files and generate previews for images
+		clearFilePreviews();
 		selectedFiles = files;
-		filePreviews = await Promise.all(
-			files.map(async (file) => {
-				if (file.type.startsWith('image/')) {
-					const preview = await new Promise<string>((resolve) => {
-						const reader = new FileReader();
-						reader.onload = (e) => resolve(e.target?.result as string);
-						reader.readAsDataURL(file);
-					});
-					return { file, preview };
-				}
-				return { file };
-			})
-		);
+		filePreviews = buildPreviewEntries(files);
+		enforcePreviewBudget();
 
 		input.value = '';
 		return;
 	}
 
 	function removeFile(index: number) {
+		const removed = filePreviews[index];
+		revokePreviewUrl(removed?.preview);
 		selectedFiles = selectedFiles.filter((_, i) => i !== index);
 		filePreviews = filePreviews.filter((_, i) => i !== index);
 	}
 
 	function cancelUpload() {
-		selectedFiles = [];
-		filePreviews = [];
+		clearFilePreviews();
 	}
 
 	function handleDragEnter(e: DragEvent) {
@@ -696,20 +992,10 @@
 		}
 
 		// Store selected files and generate previews
+		clearFilePreviews();
 		selectedFiles = files;
-		filePreviews = await Promise.all(
-			files.map(async (file) => {
-				if (file.type.startsWith('image/')) {
-					const preview = await new Promise<string>((resolve) => {
-						const reader = new FileReader();
-						reader.onload = (e) => resolve(e.target?.result as string);
-						reader.readAsDataURL(file);
-					});
-					return { file, preview };
-				}
-				return { file };
-			})
-		);
+		filePreviews = buildPreviewEntries(files);
+		enforcePreviewBudget();
 	}
 
 	async function handlePaste(e: ClipboardEvent) {
@@ -741,19 +1027,8 @@
 			}
 
 			selectedFiles = [...selectedFiles, ...files];
-			filePreviews = await Promise.all(
-				files.map(async (file) => {
-					if (file.type.startsWith('image/')) {
-						const preview = await new Promise<string>((resolve) => {
-							const reader = new FileReader();
-							reader.onload = (e) => resolve(e.target?.result as string);
-							reader.readAsDataURL(file);
-						});
-						return { file, preview };
-					}
-					return { file };
-				})
-			);
+			filePreviews = [...filePreviews, ...buildPreviewEntries(files)];
+			enforcePreviewBudget();
 			return;
 		}
 
@@ -780,68 +1055,58 @@
 			console.log('Upload URL will be:', `${serverUrl}/api/upload`);
 
 			// Upload all files and collect their URLs
-			const uploadedFiles: { fileUrl: string; fileName: string; fileSize: number }[] = [];
+			const uploadedFiles: {
+				fileUrl: string;
+				fileName: string;
+				fileSize: number;
+				attachmentEncryption?: {
+					scheme: 'dm-e2ee-v1';
+					iv: string;
+					mimeType?: string;
+					originalSize?: number;
+				};
+			}[] = [];
+
+			const activeChannel = $channels.find(ch => ch.id === $currentChannel);
+			const canEncryptDmAttachment =
+				activeChannel?.type === 'dm' &&
+				!!activeChannel.otherUser?.dbUserId &&
+				isE2EAvailable();
+			const authToken = localStorage.getItem('authToken');
 
 			for (const file of selectedFiles) {
-				const result = await new Promise<{ fileUrl: string; fileName: string; fileSize: number }>((resolve, reject) => {
-					const formData = new FormData();
-					formData.append('file', file);
-					formData.append('channelId', $currentChannel);
+				let uploadFile = file;
+				let attachmentEncryption:
+					| { scheme: 'dm-e2ee-v1'; iv: string; mimeType?: string; originalSize?: number }
+					| undefined;
+				let persistentResume = true;
 
-					console.log('Uploading file:', file.name, 'to channel:', $currentChannel);
-
-					const xhr = new XMLHttpRequest();
-
-					// Track upload progress
-					xhr.upload.addEventListener('progress', (e) => {
-						if (e.lengthComputable) {
-							const fileProgress = (e.loaded / e.total) * 100;
-							const overallProgress = ((completedFiles + fileProgress / 100) / totalFiles) * 100;
-							uploadProgress = Math.round(overallProgress);
-						}
-					});
-
-					// Handle completion
-					xhr.addEventListener('load', () => {
-						if (xhr.status === 200) {
-							try {
-								const uploadResult = JSON.parse(xhr.responseText);
-								completedFiles++;
-								resolve({
-									fileUrl: uploadResult.fileUrl,
-									fileName: file.name,
-									fileSize: file.size
-								});
-							} catch (parseError) {
-								console.error('Failed to parse upload response:', xhr.responseText);
-								reject(new Error(`Invalid server response: ${xhr.responseText.substring(0, 100)}`));
-							}
-						} else {
-							console.error('Upload failed with status', xhr.status, xhr.responseText);
-							reject(new Error(`Upload failed with status ${xhr.status}`));
-						}
-					});
-
-					xhr.addEventListener('error', () => {
-						console.error('XHR error event');
-						reject(new Error('Upload network error'));
-					});
-
-					const uploadUrl = `${serverUrl}/api/upload`;
-					console.log('Opening XHR POST to:', uploadUrl);
-					xhr.open('POST', uploadUrl);
-
-					// Add authentication header
-					const authToken = localStorage.getItem('authToken');
-					if (authToken) {
-						xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+				if (canEncryptDmAttachment && authToken && activeChannel?.otherUser?.dbUserId) {
+					const encrypted = await encryptDMFile(file, activeChannel.otherUser.dbUserId, authToken);
+					if (encrypted) {
+						uploadFile = encrypted.encryptedFile;
+						attachmentEncryption = {
+							scheme: 'dm-e2ee-v1',
+							iv: encrypted.iv,
+							mimeType: encrypted.mimeType,
+							originalSize: encrypted.originalSize
+						};
+						// Ciphertext is randomized; cross-reload resume can't safely assume identical bytes.
+						persistentResume = false;
 					}
+				}
 
-					console.log('Sending FormData with file:', file.name);
-					xhr.send(formData);
+				const result = await uploadFileResumable(uploadFile, $currentChannel, (fileProgressPercent) => {
+					const overallProgress = ((completedFiles + fileProgressPercent / 100) / totalFiles) * 100;
+					uploadProgress = Math.round(overallProgress);
+				}, persistentResume);
+				completedFiles++;
+				uploadedFiles.push({
+					fileUrl: result.fileUrl,
+					fileName: file.name,
+					fileSize: file.size,
+					attachmentEncryption
 				});
-
-				uploadedFiles.push(result);
 			}
 
 			// Send a single message with all uploaded files
@@ -851,6 +1116,7 @@
 					fileUrl: uploadedFiles[0].fileUrl,
 					fileName: uploadedFiles[0].fileName,
 					fileSize: uploadedFiles[0].fileSize,
+					attachmentEncryption: uploadedFiles[0].attachmentEncryption,
 					replyTo: replyingTo?.id,
 					isSpoiler: markAsSpoiler
 				});
@@ -866,8 +1132,7 @@
 			console.log('All files uploaded');
 			messageInput = '';
 			replyingTo = null;
-			selectedFiles = [];
-			filePreviews = [];
+			clearFilePreviews();
 			isUploading = false;
 			uploadProgress = 0;
 			textareaElement?.focus();
@@ -877,6 +1142,164 @@
 			isUploading = false;
 			uploadProgress = 0;
 		}
+	}
+
+	function getUploadAuthHeaders(includeJsonContentType = false): Record<string, string> {
+		const headers: Record<string, string> = {};
+		if (includeJsonContentType) {
+			headers['Content-Type'] = 'application/json';
+		}
+		const authToken = localStorage.getItem('authToken');
+		if (authToken) {
+			headers['Authorization'] = `Bearer ${authToken}`;
+			return headers;
+		}
+		const sessionId = localStorage.getItem('sessionId');
+		if (sessionId) {
+			headers['X-Session-Id'] = sessionId;
+		}
+		return headers;
+	}
+
+	function getResumeStorageKey(channelId: string, file: File): string {
+		return `upload-resume:${channelId}:${file.name}:${file.size}:${file.lastModified}`;
+	}
+
+	async function uploadFileResumable(
+		file: File,
+		channelId: string,
+		onProgress: (fileProgressPercent: number) => void,
+		allowPersistentResume = true
+	): Promise<{ fileUrl: string; fileName: string; fileSize: number }> {
+		const serverUrl = getServerUrl();
+		const resumeKey = getResumeStorageKey(channelId, file);
+		const previousUploadId = allowPersistentResume ? (localStorage.getItem(resumeKey) || undefined) : undefined;
+
+		const initResponse = await fetch(`${serverUrl}/api/upload/resumable/init`, {
+			method: 'POST',
+			headers: getUploadAuthHeaders(true),
+			body: JSON.stringify({
+				uploadId: previousUploadId,
+				fileName: file.name,
+				fileSize: file.size,
+				mimeType: file.type || 'application/octet-stream',
+				channelId
+			})
+		});
+		if (!initResponse.ok) {
+			throw new Error(`Resumable init failed (${initResponse.status})`);
+		}
+
+		const initResult = await initResponse.json();
+		const uploadId = initResult.uploadId as string;
+		let uploadToken = initResult.uploadToken as string;
+		if (allowPersistentResume) {
+			localStorage.setItem(resumeKey, uploadId);
+		}
+
+		if (initResult.completed && initResult.fileUrl) {
+			if (allowPersistentResume) localStorage.removeItem(resumeKey);
+			return {
+				fileUrl: initResult.fileUrl as string,
+				fileName: file.name,
+				fileSize: file.size
+			};
+		}
+
+		let uploadedBytes = Number(initResult.uploadedBytes || 0);
+		onProgress((uploadedBytes / Math.max(file.size, 1)) * 100);
+
+		while (uploadedBytes < file.size) {
+			const chunkEnd = Math.min(uploadedBytes + RESUMABLE_UPLOAD_CHUNK_SIZE, file.size);
+			const chunkBlob = file.slice(uploadedBytes, chunkEnd);
+
+			let uploadedThisChunk = false;
+			let attempt = 0;
+			while (!uploadedThisChunk && attempt < RESUMABLE_UPLOAD_MAX_RETRIES) {
+				attempt++;
+				try {
+					const chunkResponse = await fetch(
+						`${serverUrl}/api/upload/resumable/chunk?uploadId=${encodeURIComponent(uploadId)}&offset=${uploadedBytes}&uploadToken=${encodeURIComponent(uploadToken)}`,
+						{
+							method: 'PUT',
+							headers: getUploadAuthHeaders(),
+							body: chunkBlob
+						}
+					);
+					if (chunkResponse.status === 403) {
+						const refreshResponse = await fetch(`${serverUrl}/api/upload/resumable/init`, {
+							method: 'POST',
+							headers: getUploadAuthHeaders(true),
+							body: JSON.stringify({
+								uploadId,
+								fileName: file.name,
+								fileSize: file.size,
+								mimeType: file.type || 'application/octet-stream',
+								channelId
+							})
+						});
+						if (!refreshResponse.ok) {
+							throw new Error(`Upload token refresh failed (${refreshResponse.status})`);
+						}
+						const refresh = await refreshResponse.json();
+						uploadToken = refresh.uploadToken as string;
+						uploadedBytes = Number(refresh.uploadedBytes || uploadedBytes);
+						onProgress((uploadedBytes / Math.max(file.size, 1)) * 100);
+						uploadedThisChunk = true;
+						break;
+					}
+
+					if (chunkResponse.status === 409) {
+						const conflict = await chunkResponse.json();
+						const expectedOffset = Number(conflict.expectedOffset);
+						if (Number.isFinite(expectedOffset) && expectedOffset >= 0) {
+							uploadedBytes = expectedOffset;
+							if (conflict.uploadToken) {
+								uploadToken = conflict.uploadToken as string;
+							}
+							onProgress((uploadedBytes / Math.max(file.size, 1)) * 100);
+							uploadedThisChunk = true;
+							break;
+						}
+					}
+
+					if (!chunkResponse.ok) {
+						throw new Error(`Chunk upload failed (${chunkResponse.status})`);
+					}
+
+					const chunkResult = await chunkResponse.json();
+					uploadedBytes = Number(chunkResult.uploadedBytes || uploadedBytes);
+					if (chunkResult.uploadToken) {
+						uploadToken = chunkResult.uploadToken as string;
+					}
+					onProgress((uploadedBytes / Math.max(file.size, 1)) * 100);
+					uploadedThisChunk = true;
+				} catch (error) {
+					if (attempt >= RESUMABLE_UPLOAD_MAX_RETRIES) {
+						throw error;
+					}
+					await new Promise((resolve) => setTimeout(resolve, attempt * 400));
+				}
+			}
+		}
+
+		const completeResponse = await fetch(`${serverUrl}/api/upload/resumable/complete`, {
+			method: 'POST',
+			headers: getUploadAuthHeaders(true),
+			body: JSON.stringify({ uploadId, uploadToken })
+		});
+		if (!completeResponse.ok) {
+			throw new Error(`Resumable complete failed (${completeResponse.status})`);
+		}
+
+		const completeResult = await completeResponse.json();
+		if (allowPersistentResume) localStorage.removeItem(resumeKey);
+
+		return {
+			fileUrl: completeResult.fileUrl as string,
+			fileName: file.name,
+			fileSize: file.size
+		};
 	}
 
 	// Handle photo capture
@@ -890,9 +1313,12 @@
 			return;
 		}
 
+		clearFilePreviews();
 		selectedFiles = [file];
+		filePreviews = buildPreviewEntries([file]);
 		await uploadSelectedFiles();
 		showCameraCapture = false;
+		showMediaMenu = false;
 	}
 
 	// Handle audio recording
@@ -907,9 +1333,27 @@
 			return;
 		}
 
+		clearFilePreviews();
 		selectedFiles = [file];
+		filePreviews = buildPreviewEntries([file]);
 		await uploadSelectedFiles();
 		showAudioRecorder = false;
+		showMediaMenu = false;
+	}
+
+	function handleOpenFilePicker() {
+		showMediaMenu = false;
+		fileInput?.click();
+	}
+
+	function handleOpenCameraCapture() {
+		showMediaMenu = false;
+		showCameraCapture = true;
+	}
+
+	function handleOpenAudioRecorder() {
+		showMediaMenu = false;
+		showAudioRecorder = true;
 	}
 
 	// Check if browser supports media capture
@@ -917,8 +1361,102 @@
 		return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 	}
 
+	function wait(ms: number): Promise<void> {
+		return new Promise((resolve) => setTimeout(resolve, ms));
+	}
+
+	function getChannelHistoryFlags(channelId: string): {
+		hasMoreServer: boolean;
+		serverLoading: boolean;
+		hasMoreArchive: boolean;
+		archiveLoading: boolean;
+	} {
+		const hasMoreServer = get(channelHasMoreHistory)[channelId] ?? false;
+		const serverLoading = get(channelHistoryLoading)[channelId] || false;
+		const availableArchives = get(channelAvailableArchives)[channelId] || [];
+		const loadedArchives = get(channelLoadedArchives)[channelId] || new Set<string>();
+		const hasMoreArchive = availableArchives.length > loadedArchives.size;
+		const archiveLoading = get(channelLoadingOlder)[channelId] || false;
+		return { hasMoreServer, serverLoading, hasMoreArchive, archiveLoading };
+	}
+
+	async function waitForHistoryIdle(channelId: string, timeoutMs = 12_000): Promise<void> {
+		const startedAt = Date.now();
+		while (Date.now() - startedAt < timeoutMs) {
+			const { serverLoading, archiveLoading } = getChannelHistoryFlags(channelId);
+			if (!serverLoading && !archiveLoading) return;
+			await wait(120);
+		}
+	}
+
+	async function runFullHistorySearchBackfill(): Promise<void> {
+		if (!searchInput.trim() || !currentChannelData?.persistMessages || !$currentChannel) return;
+		if (isFullHistorySearchRunning) return;
+		const channelId = $currentChannel;
+		const querySnapshot = searchInput.trim();
+		isFullHistorySearchRunning = true;
+		fullHistorySearchAbortRequested = false;
+		fullHistorySearchPagesLoaded = 0;
+		fullHistorySearchStatus = 'Scanning full history...';
+
+		try {
+			for (let i = 0; i < MAX_FULL_HISTORY_SEARCH_PAGES; i += 1) {
+				if (fullHistorySearchAbortRequested) {
+					fullHistorySearchStatus = 'Stopped.';
+					return;
+				}
+				if ($currentChannel !== channelId || searchInput.trim() !== querySnapshot) {
+					fullHistorySearchStatus = 'Search query/channel changed.';
+					return;
+				}
+
+				const flags = getChannelHistoryFlags(channelId);
+				if (flags.serverLoading || flags.archiveLoading) {
+					await waitForHistoryIdle(channelId);
+					continue;
+				}
+
+				if (flags.hasMoreServer) {
+					loadOlderHistory(channelId);
+					fullHistorySearchPagesLoaded += 1;
+				} else if (flags.hasMoreArchive) {
+					await loadOlderMessages(channelId);
+					fullHistorySearchPagesLoaded += 1;
+				} else {
+					fullHistorySearchStatus = 'Full history loaded for this channel.';
+					return;
+				}
+
+				await waitForHistoryIdle(channelId);
+				await tick();
+			}
+			fullHistorySearchStatus = 'Reached safety page limit. Narrow search to continue.';
+		} finally {
+			isFullHistorySearchRunning = false;
+		}
+	}
+
 	onMount(() => {
 		scrollToBottom();
+
+		const handleGlobalClick = (event: MouseEvent) => {
+			const target = event.target as Node | null;
+			if (target && emojiPickerContainer?.contains(target)) return;
+			if (target && mediaMenuContainer?.contains(target)) return;
+			if (target && mentionMenuContainer?.contains(target)) return;
+			showMediaMenu = false;
+			showEmojiPicker = false;
+			showMentionSuggestions = false;
+		};
+
+		document.addEventListener('click', handleGlobalClick);
+		return () => {
+			document.removeEventListener('click', handleGlobalClick);
+		};
+	});
+
+	onDestroy(() => {
+		clearFilePreviews();
 	});
 </script>
 
@@ -940,12 +1478,27 @@
 
 	<div class="chat-header" class:dm-channel={isDMChannel}>
 		<h2>
-			{channelDisplayName}
+			<span class="channel-title">{channelDisplayName}</span>
 			{#if isDMChannel}
 				<span class="dm-badge">Direct Message</span>
+			{:else if channelDescription}
+				<span class="channel-description">{channelDescription}</span>
 			{/if}
 		</h2>
-		<div class="search-container">
+		<div class="header-actions">
+			{#if isDMChannel && dmCallTargetUser}
+				<div class="dm-call-actions">
+					<button class="dm-call-btn" on:click={startDMVoiceCall} title="Voice call {dmCallTargetUser.username}">
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+						<span>Call</span>
+					</button>
+					<button class="dm-call-btn" on:click={startDMVideoCall} title="Video call {dmCallTargetUser.username}">
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+						<span>Video</span>
+					</button>
+				</div>
+			{/if}
+			<div class="search-container">
 			<input
 				type="text"
 				bind:value={searchInput}
@@ -955,6 +1508,28 @@
 			{#if searchInput}
 				<span class="search-results">{filteredMessages.length} result{filteredMessages.length !== 1 ? 's' : ''}</span>
 			{/if}
+			{#if searchBackfillBusy}
+				<span class="search-results">Loading older history...</span>
+			{/if}
+			{#if searchInput && currentChannelData?.persistMessages}
+				<button
+					type="button"
+					class="search-history-btn"
+					on:click={() => {
+						if (isFullHistorySearchRunning) {
+							fullHistorySearchAbortRequested = true;
+						} else {
+							void runFullHistorySearchBackfill();
+						}
+					}}
+				>
+					{isFullHistorySearchRunning ? `Stop (${fullHistorySearchPagesLoaded})` : 'Search Full History'}
+				</button>
+				{#if fullHistorySearchStatus}
+					<span class="search-results">{fullHistorySearchStatus}</span>
+				{/if}
+			{/if}
+			</div>
 		</div>
 	</div>
 
@@ -965,20 +1540,22 @@
 			{/if}
 			<MessageList messages={filteredMessages} onReply={handleReply} firstUnreadMessageId={$lastReadMessageId} />
 
-			{#if ($typingUsers[$currentChannel] || []).length > 0}
+			{#if visibleTypingUsers.length > 0}
 				<div class="typing-indicator">
 					<span class="typing-dots"></span>
-					<span>{formatTypingUsers($typingUsers[$currentChannel] || [])}</span>
+					<span>{formatTypingUsers(visibleTypingUsers)}</span>
 				</div>
 			{/if}
 		</div>
 
 		{#if showEmojiPicker}
-			<EmojiPicker
-				on:select={handleEmojiSelect}
-				on:gif={handleGifSelect}
-				on:close={() => showEmojiPicker = false}
-			/>
+			<div class="emoji-picker-container" bind:this={emojiPickerContainer}>
+				<EmojiPicker
+					on:select={handleEmojiSelect}
+					on:gif={handleGifSelect}
+					on:close={() => showEmojiPicker = false}
+				/>
+			</div>
 		{/if}
 
 		<CameraCapture
@@ -1023,6 +1600,21 @@
 		{/if}
 
 		<div class="input-wrapper">
+		{#if showMentionSuggestions && mentionSuggestions.length > 0}
+			<div class="mention-suggestions" bind:this={mentionMenuContainer}>
+				{#each mentionSuggestions as suggestion, index (suggestion.key)}
+					<button
+						type="button"
+						class="mention-suggestion"
+						class:selected={index === mentionSelectedIndex}
+						on:mousedown|preventDefault={() => applyMentionSuggestion(index)}
+					>
+						<span class="mention-label">{suggestion.label}</span>
+						<span class="mention-kind">{suggestion.kind === 'special' ? 'Mention' : 'User'}</span>
+					</button>
+				{/each}
+			</div>
+		{/if}
 		{#if filePreviews.length > 0 && !isUploading}
 			<div class="file-gallery">
 				<div class="gallery-header">
@@ -1093,29 +1685,27 @@
 				onSelect={handleCommandSelect}
 			/>
 			<div class="input-buttons-left">
-				<button
-					class="input-icon-button"
-					on:click={() => fileInput?.click()}
-					title="Attach file"
-				>
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-				</button>
-				{#if supportsMediaCapture()}
+				<div class="media-menu-container" bind:this={mediaMenuContainer}>
 					<button
 						class="input-icon-button"
-						on:click={() => showCameraCapture = true}
-						title="Take photo"
+						on:click|stopPropagation={() => {
+							showMediaMenu = !showMediaMenu;
+							if (showMediaMenu) showEmojiPicker = false;
+						}}
+						title="Add media"
 					>
-						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
 					</button>
-					<button
-						class="input-icon-button"
-						on:click={() => showAudioRecorder = true}
-						title="Record voice message"
-					>
-						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-					</button>
-				{/if}
+					{#if showMediaMenu}
+						<div class="media-menu">
+							<button class="media-menu-item" on:click={handleOpenFilePicker}>Upload file</button>
+							{#if supportsMediaCapture()}
+								<button class="media-menu-item" on:click={handleOpenCameraCapture}>Take photo</button>
+								<button class="media-menu-item" on:click={handleOpenAudioRecorder}>Record audio</button>
+							{/if}
+						</div>
+					{/if}
+				</div>
 			</div>
 			<textarea
 				bind:this={textareaElement}
@@ -1135,6 +1725,7 @@
 				class="input-icon-button"
 				on:click|stopPropagation={() => {
 				showEmojiPicker = !showEmojiPicker;
+				if (showEmojiPicker) showMediaMenu = false;
 			}}
 				title="Add emoji"
 			>
@@ -1197,8 +1788,25 @@
 		font-weight: var(--font-weight-semibold);
 		flex: 1;
 		display: flex;
-		align-items: center;
+		align-items: baseline;
 		gap: 0.5rem;
+		min-width: 0;
+	}
+
+	.channel-title {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.channel-description {
+		font-size: var(--text-sm);
+		font-weight: var(--font-weight-regular);
+		color: var(--text-secondary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.dm-badge {
@@ -1241,6 +1849,43 @@
 		max-width: 300px;
 	}
 
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.dm-call-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.dm-call-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.35rem 0.6rem;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border);
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		font-size: var(--text-sm);
+		font-weight: var(--font-weight-medium);
+		cursor: pointer;
+		transition: all var(--duration-fast);
+	}
+
+	.dm-call-btn svg {
+		width: 14px;
+		height: 14px;
+	}
+
+	.dm-call-btn:hover {
+		border-color: var(--accent);
+		background: var(--bg-tertiary);
+	}
+
 	.search-container {
 		display: flex;
 		gap: 0.5rem;
@@ -1274,6 +1919,22 @@
 		color: var(--text-secondary);
 		white-space: nowrap;
 		padding: 0 0.5rem;
+	}
+
+	.search-history-btn {
+		border: none;
+		border-radius: 10px;
+		padding: 0.2rem 0.55rem;
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+		background: var(--bg-tertiary);
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.search-history-btn:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
 	}
 
 	.messages {
@@ -1394,6 +2055,89 @@
 	.input-buttons-left {
 		display: flex;
 		align-items: center;
+	}
+
+	.media-menu-container {
+		position: relative;
+	}
+
+	.mention-suggestions {
+		position: absolute;
+		left: 0.5rem;
+		right: 0.5rem;
+		bottom: calc(100% + 0.25rem);
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 0.35rem;
+		box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+		z-index: 25;
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+
+	.mention-suggestion {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		width: 100%;
+		border: none;
+		background: transparent;
+		color: var(--text-primary);
+		padding: 0.5rem 0.55rem;
+		border-radius: 6px;
+		cursor: pointer;
+		text-align: left;
+		font-size: 0.85rem;
+	}
+
+	.mention-suggestion:hover,
+	.mention-suggestion.selected {
+		background: var(--accent);
+		color: #fff;
+	}
+
+	.mention-label {
+		font-weight: 600;
+	}
+
+	.mention-kind {
+		font-size: 0.72rem;
+		opacity: 0.85;
+	}
+
+	.media-menu {
+		position: absolute;
+		left: 0;
+		bottom: calc(100% + 0.4rem);
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		min-width: 10rem;
+		padding: 0.35rem;
+		border: 1px solid var(--border);
+		border-radius: 0.6rem;
+		background: var(--bg-secondary);
+		box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+		z-index: 20;
+	}
+
+	.media-menu-item {
+		border: none;
+		background: transparent;
+		color: var(--text-primary);
+		text-align: left;
+		padding: 0.45rem 0.55rem;
+		border-radius: 0.4rem;
+		cursor: pointer;
+		font-size: 0.85rem;
+	}
+
+	.media-menu-item:hover {
+		background: var(--bg-hover);
+		color: var(--accent);
 	}
 
 	.input-icon-button {

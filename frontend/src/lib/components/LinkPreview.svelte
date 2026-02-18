@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { getServerUrl } from '$lib/serverUrl';
 
 	export let url: string;
 
@@ -10,17 +11,20 @@
 
 	onMount(async () => {
 		try {
-			// Use current server origin instead of hardcoded ngrok URL
-			const serverUrl = window.location.origin;
+			const serverUrl = getServerUrl();
+			const headers: Record<string, string> = {};
+
+			// Only needed when the backend is behind ngrok.
+			if (serverUrl.includes('ngrok')) {
+				headers['ngrok-skip-browser-warning'] = 'true';
+			}
 
 			// Add timeout to prevent infinite loading
 			const controller = new AbortController();
 			const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
 			const response = await fetch(`${serverUrl}/api/url-preview?url=${encodeURIComponent(url)}`, {
-				headers: {
-					'ngrok-skip-browser-warning': 'true'
-				},
+				headers,
 				signal: controller.signal
 			});
 
@@ -40,7 +44,7 @@
 	});
 
 	function proxyImage(imageUrl: string): string {
-		const serverUrl = window.location.origin;
+		const serverUrl = getServerUrl();
 		return `${serverUrl}/api/image-proxy?url=${encodeURIComponent(imageUrl)}`;
 	}
 

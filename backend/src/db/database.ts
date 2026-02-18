@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
+import { DEFAULT_WORKSPACE_ID } from '../constants.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -60,16 +61,23 @@ export function initializeDatabase() {
 }
 
 function runMigrations() {
-	// Migration: Add handle column to users table
-	try {
-		const cols = db.pragma('table_info(users)') as { name: string }[];
-		if (!cols.some(c => c.name === 'handle')) {
-			db.exec('ALTER TABLE users ADD COLUMN handle TEXT UNIQUE COLLATE NOCASE');
-			console.log('[Database] Migration: added handle column to users');
+	const addColumnIfMissing = (table: string, column: string, definition: string) => {
+		try {
+			const cols = db.pragma(`table_info(${table})`) as { name: string }[];
+			if (!cols.some(c => c.name === column)) {
+				db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+				console.log(`[Database] Migration: added ${table}.${column}`);
+			}
+		} catch (e) {
+			console.error(`[Database] Migration error adding ${table}.${column}:`, e);
 		}
-	} catch (e) {
-		console.error('[Database] Migration error adding handle column:', e);
-	}
+	};
+
+	// Migration: Add handle column to users table
+	addColumnIfMissing('users', 'handle', 'TEXT UNIQUE COLLATE NOCASE');
+	addColumnIfMissing('users', 'profile_picture', 'TEXT');
+	addColumnIfMissing('users', 'bio', 'TEXT');
+	addColumnIfMissing('users', 'is_active', 'INTEGER DEFAULT 1');
 
 	// Backfill handles for users that don't have one
 	try {
@@ -108,18 +116,19 @@ function runMigrations() {
 	}
 
 	// Migration: Add username font columns to users table
-	try {
-		const cols = db.pragma('table_info(users)') as { name: string }[];
-		if (!cols.some(c => c.name === 'username_font_family')) {
-			db.exec('ALTER TABLE users ADD COLUMN username_font_family TEXT DEFAULT "inherit"');
-			db.exec('ALTER TABLE users ADD COLUMN username_font_size TEXT DEFAULT "inherit"');
-			db.exec('ALTER TABLE users ADD COLUMN username_font_weight TEXT DEFAULT "600"');
-			db.exec('ALTER TABLE users ADD COLUMN username_font_style TEXT DEFAULT "normal"');
-			console.log('[Database] Migration: added username font columns to users');
-		}
-	} catch (e) {
-		// Columns may already exist
-	}
+	addColumnIfMissing('users', 'username_font_family', "TEXT DEFAULT 'inherit'");
+	addColumnIfMissing('users', 'username_font_size', "TEXT DEFAULT 'inherit'");
+	addColumnIfMissing('users', 'username_font_weight', "TEXT DEFAULT '600'");
+	addColumnIfMissing('users', 'username_font_style', "TEXT DEFAULT 'normal'");
+
+	// Migration: Session columns used by current session repository
+	addColumnIfMissing('sessions', 'profile_picture', 'TEXT');
+	addColumnIfMissing('sessions', 'socket_id', 'TEXT');
+	addColumnIfMissing('sessions', 'last_seen', 'INTEGER');
+
+	// Migration: user_settings columns used by current settings repository
+	addColumnIfMissing('user_settings', 'allow_temp_user_messages', 'INTEGER DEFAULT 1');
+	addColumnIfMissing('user_settings', 'business_private_mode', 'INTEGER DEFAULT 0');
 
 	// Migration: Add description column to channels table
 	try {
@@ -130,6 +139,69 @@ function runMigrations() {
 		}
 	} catch (e) {
 		// Column may already exist
+	}
+
+	// Migration: Add optional voice settings column to channels table
+	try {
+		const cols = db.pragma('table_info(channels)') as { name: string }[];
+		if (!cols.some(c => c.name === 'voice_settings_json')) {
+			db.exec('ALTER TABLE channels ADD COLUMN voice_settings_json TEXT');
+			console.log('[Database] Migration: added voice_settings_json column to channels');
+		}
+	} catch (e) {
+		// Column may already exist
+	}
+
+	// Migration: add min_role to channels
+	addColumnIfMissing('channels', 'min_role', "TEXT DEFAULT 'guest'");
+	addColumnIfMissing('channels', 'parent_channel_id', 'TEXT');
+	addColumnIfMissing('channels', 'is_breakout', 'INTEGER DEFAULT 0');
+	addColumnIfMissing('channels', 'breakout_index', 'INTEGER');
+	addColumnIfMissing('channels', 'parent_message_id', 'TEXT');
+	addColumnIfMissing('channels', 'thread_archived', 'INTEGER DEFAULT 0');
+	addColumnIfMissing('channels', 'thread_locked', 'INTEGER DEFAULT 0');
+	addColumnIfMissing('channels', 'thread_auto_archive_minutes', 'INTEGER DEFAULT 1440');
+	addColumnIfMissing('channels', 'thread_last_activity_at', 'INTEGER');
+
+	try {
+		db.exec('CREATE INDEX IF NOT EXISTS idx_channels_parent ON channels(parent_channel_id)');
+	} catch (e) {
+		console.error('[Database] Migration error creating idx_channels_parent:', e);
+	}
+
+	// Migration: add display_name to roles
+	addColumnIfMissing('roles', 'display_name', 'TEXT');
+
+	// Migration: emoji-role automation table
+	try {
+		db.exec(`
+			CREATE TABLE IF NOT EXISTS emoji_role_rules (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				channel_id TEXT,
+				message_id TEXT,
+				emoji_id TEXT NOT NULL,
+				role_name TEXT NOT NULL,
+				remove_on_unreact INTEGER DEFAULT 0,
+				workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+				enabled INTEGER DEFAULT 1,
+				created_at INTEGER DEFAULT (strftime('%s', 'now'))
+			)
+		`);
+		addColumnIfMissing('emoji_role_rules', 'channel_id', 'TEXT');
+		addColumnIfMissing('emoji_role_rules', 'message_id', 'TEXT');
+		db.exec('CREATE INDEX IF NOT EXISTS idx_emoji_role_rules_lookup ON emoji_role_rules(channel_id, message_id, emoji_id, workspace_id)');
+
+		// Cleanup migration: remove legacy global emoji-role rules that were not scoped
+		// to a dedicated role-gate message.
+		const cleanupInfo = db.prepare(`
+			DELETE FROM emoji_role_rules
+			WHERE channel_id IS NULL OR channel_id = '' OR message_id IS NULL OR message_id = ''
+		`).run();
+		if ((cleanupInfo.changes || 0) > 0) {
+			console.log(`[Database] Migration: removed ${cleanupInfo.changes} legacy global emoji-role rules`);
+		}
+	} catch (e) {
+		console.error('[Database] Migration error creating emoji_role_rules:', e);
 	}
 
 	// Migration: Add priority/color/is_hoisted to user_roles
@@ -153,6 +225,14 @@ function runMigrations() {
 			db.exec('ALTER TABLE messages ADD COLUMN encryption_iv TEXT');
 			console.log('[Database] Migration: added encryption columns to messages');
 		}
+		if (!cols.some(c => c.name === 'attachment_encryption_json')) {
+			db.exec('ALTER TABLE messages ADD COLUMN attachment_encryption_json TEXT');
+			console.log('[Database] Migration: added attachment_encryption_json to messages');
+		}
+		if (!cols.some(c => c.name === 'files_json')) {
+			db.exec('ALTER TABLE messages ADD COLUMN files_json TEXT');
+			console.log('[Database] Migration: added files_json to messages');
+		}
 	} catch (e) {
 		// Columns may already exist
 	}
@@ -160,32 +240,36 @@ function runMigrations() {
 
 function seedDefaultRoles() {
 	const defaultRoles = [
-		{ role_name: 'owner', priority: 100, color: '#FFD700', is_hoisted: 1 },
-		{ role_name: 'admin', priority: 90, color: '#FF4444', is_hoisted: 1 },
-		{ role_name: 'mod', priority: 70, color: '#44FF44', is_hoisted: 1 },
-		{ role_name: 'member', priority: 10, color: null, is_hoisted: 0 },
-		{ role_name: 'guest', priority: 0, color: '#888888', is_hoisted: 0 }
+		{ role_name: 'owner', display_name: 'Owner', priority: 100, color: '#FFD700', is_hoisted: 1 },
+		{ role_name: 'admin', display_name: 'Admin', priority: 90, color: '#FF4444', is_hoisted: 1 },
+		{ role_name: 'mod', display_name: 'Moderator', priority: 70, color: '#44FF44', is_hoisted: 1 },
+		{ role_name: 'member', display_name: 'Member', priority: 10, color: null, is_hoisted: 0 },
+		{ role_name: 'guest', display_name: 'Guest', priority: 0, color: '#888888', is_hoisted: 0 }
 	];
 
 	const insertRole = db.prepare(
-		'INSERT OR IGNORE INTO roles (role_name, workspace_id, priority, color, is_hoisted) VALUES (?, ?, ?, ?, ?)'
+		'INSERT OR IGNORE INTO roles (role_name, workspace_id, display_name, priority, color, is_hoisted) VALUES (?, ?, ?, ?, ?, ?)'
+	);
+	const updateDisplayName = db.prepare(
+		'UPDATE roles SET display_name = COALESCE(display_name, ?) WHERE role_name = ? AND workspace_id = ?'
 	);
 
 	for (const role of defaultRoles) {
-		insertRole.run(role.role_name, 'default-workspace', role.priority, role.color, role.is_hoisted);
+		insertRole.run(role.role_name, DEFAULT_WORKSPACE_ID, role.display_name, role.priority, role.color, role.is_hoisted);
+		updateDisplayName.run(role.display_name, role.role_name, DEFAULT_WORKSPACE_ID);
 	}
 
 	// Auto-assign owner to the first registered user if no owner exists
 	const ownerExists = db.prepare(
-		"SELECT 1 FROM user_roles WHERE role_name = 'owner' AND workspace_id = 'default-workspace' LIMIT 1"
-	).get();
+		`SELECT 1 FROM user_roles WHERE role_name = 'owner' AND workspace_id = ? LIMIT 1`
+	).get(DEFAULT_WORKSPACE_ID);
 
 	if (!ownerExists) {
 		const firstUser = db.prepare('SELECT user_id FROM users ORDER BY user_id ASC LIMIT 1').get() as { user_id: number } | undefined;
 		if (firstUser) {
 			db.prepare(
-				"INSERT OR IGNORE INTO user_roles (user_id, role_name, workspace_id) VALUES (?, 'owner', 'default-workspace')"
-			).run(firstUser.user_id);
+				`INSERT OR IGNORE INTO user_roles (user_id, role_name, workspace_id) VALUES (?, 'owner', ?)`
+			).run(firstUser.user_id, DEFAULT_WORKSPACE_ID);
 			console.log(`[Database] Auto-assigned owner role to user_id ${firstUser.user_id}`);
 		}
 	}

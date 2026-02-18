@@ -33,7 +33,6 @@
 	let formProjectId = '';
 	let formTags = '';
 	let willSign = false;
-	let formVisibility: 'public' | 'private' = 'public';
 
 	// Filter state
 	let filterStatus: TodoStatus | '' = '';
@@ -49,7 +48,6 @@
 		formProjectId = '';
 		formTags = '';
 		willSign = false;
-		formVisibility = 'public';
 		editingTodo = null;
 	}
 
@@ -68,7 +66,6 @@
 		formProjectId = todo.projectId || '';
 		formTags = todo.tags?.join(', ') || '';
 		willSign = !!todo.signedBy;
-		formVisibility = todo.visibility ?? 'public';
 		showAddModal = true;
 	}
 
@@ -88,9 +85,9 @@
 			dueDate: formDueDate ? new Date(formDueDate).getTime() : undefined,
 			projectId: formProjectId || undefined,
 			tags: formTags ? formTags.split(',').map(t => t.trim()).filter(Boolean) : undefined,
-			createdBy: $currentUser?.id || 'unknown',
+			createdBy: $currentUser?.dbUserId ? String($currentUser.dbUserId) : ($currentUser?.id || 'unknown'),
 			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined,
-			visibility: formVisibility
+			visibility: willSign ? ('public' as const) : ('private' as const)
 		};
 
 		if (editingTodo) {
@@ -179,21 +176,41 @@
 
 	// Drag and drop
 	let draggedTodo: Todo | null = null;
+	let suppressCardClick = false;
 
-	function handleDragStart(todo: Todo) {
+	function handleDragStart(e: DragEvent, todo: Todo) {
+		if (isReadOnly) return;
 		draggedTodo = todo;
+		suppressCardClick = true;
+		if (e.dataTransfer) {
+			e.dataTransfer.effectAllowed = 'move';
+			e.dataTransfer.setData('text/plain', todo.id);
+		}
 	}
 
 	function handleDragOver(e: DragEvent) {
 		e.preventDefault();
+		if (e.dataTransfer) {
+			e.dataTransfer.dropEffect = 'move';
+		}
 	}
 
 	function handleDrop(e: DragEvent, status: Todo['status']) {
 		e.preventDefault();
+		e.stopPropagation();
+		if (isReadOnly) return;
 		if (draggedTodo && draggedTodo.status !== status) {
 			handleStatusChange(draggedTodo, status);
 		}
 		draggedTodo = null;
+		setTimeout(() => {
+			suppressCardClick = false;
+		}, 0);
+	}
+
+	function handleCardClick(todo: Todo) {
+		if (suppressCardClick) return;
+		openEditModal(todo);
 	}
 </script>
 
@@ -290,7 +307,14 @@
 								class="todo-card"
 								class:overdue={isOverdue(todo)}
 								draggable="true"
-								on:dragstart={() => handleDragStart(todo)}
+								on:dragstart={(e) => handleDragStart(e, todo)}
+								on:dragend={() => {
+									draggedTodo = null;
+									setTimeout(() => {
+										suppressCardClick = false;
+									}, 0);
+								}}
+								on:click={() => handleCardClick(todo)}
 							>
 								<div class="card-header">
 									<span class="priority-badge" style="background-color: {getPriorityColor(todo.priority)}">
@@ -352,7 +376,7 @@
 							<td>
 								<select
 									value={todo.status}
-									on:change={(e) => handleStatusChange(todo, e.target.value)}
+									on:change={(e) => handleStatusChange(todo, (e.target as HTMLSelectElement).value as Todo['status'])}
 									class="status-select"
 								>
 									{#each $kanbanColumns as column}
@@ -509,21 +533,6 @@
 						<input type="checkbox" bind:checked={willSign} />
 						<span>Sign this task with my username</span>
 					</label>
-				</div>
-
-				<!-- Visibility toggle -->
-				<div class="form-group">
-					<label>Visibility</label>
-					<div class="radio-group">
-						<label class="radio-label">
-							<input type="radio" bind:group={formVisibility} value="public" />
-							<span>Public (visible to collaborators)</span>
-						</label>
-						<label class="radio-label">
-							<input type="radio" bind:group={formVisibility} value="private" />
-							<span>Private (only me)</span>
-						</label>
-					</div>
 				</div>
 
 				<div class="form-actions">
@@ -1082,26 +1091,6 @@
 		cursor: pointer;
 		width: 18px;
 		height: 18px;
-	}
-
-	.radio-group {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		padding: 0.5rem 0;
-	}
-
-	.radio-label {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		cursor: pointer;
-		color: var(--text-secondary, #aaa);
-		font-size: 0.95rem;
-	}
-
-	.radio-label input[type="radio"] {
-		cursor: pointer;
 	}
 
 	.signature {

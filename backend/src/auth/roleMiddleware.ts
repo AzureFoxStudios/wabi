@@ -1,5 +1,6 @@
 import db from '../db/database.js';
 import { userRepository } from '../db/repositories/userRepository.js';
+import { DEFAULT_WORKSPACE_ID } from '../constants.js';
 
 export type UserRole = 'admin' | 'mod' | 'contributor' | 'viewer' | 'owner';
 
@@ -15,7 +16,7 @@ export interface UserWithRoles {
 /**
  * Get all roles for a user in a workspace
  */
-export function getUserRoles(userId: number, workspaceId: string = 'default-workspace'): UserRole[] {
+export function getUserRoles(userId: number, workspaceId: string = DEFAULT_WORKSPACE_ID): UserRole[] {
 	const user = userRepository.findById(userId);
 	if (!user) return [];
 
@@ -37,7 +38,7 @@ export function getUserRoles(userId: number, workspaceId: string = 'default-work
 export function hasRequiredRole(
 	userId: number | undefined,
 	requiredRoles: UserRole[],
-	workspaceId: string = 'default-workspace'
+	workspaceId: string = DEFAULT_WORKSPACE_ID
 ): boolean {
 	if (!userId) return false;
 
@@ -71,7 +72,7 @@ export function getResourceMinRole(resourceId: string): UserRole {
 export function canViewResource(
 	userId: number | undefined,
 	resourceId: string,
-	workspaceId: string = 'default-workspace'
+	workspaceId: string = DEFAULT_WORKSPACE_ID
 ): boolean {
 	if (!userId) return false;
 
@@ -107,7 +108,7 @@ export function canViewResource(
 export function filterResourcesByRole<T extends { id: string }>(
 	resources: T[],
 	userId: number | undefined,
-	workspaceId: string = 'default-workspace'
+	workspaceId: string = DEFAULT_WORKSPACE_ID
 ): T[] {
 	if (!userId) return resources;
 
@@ -122,15 +123,19 @@ export function filterResourcesByRole<T extends { id: string }>(
 export function assignRole(
 	userId: number,
 	role: UserRole,
-	workspaceId: string = 'default-workspace',
+	workspaceId: string = DEFAULT_WORKSPACE_ID,
 	assignedBy?: number
 ): void {
 	const stmt = db.prepare(`
 		INSERT INTO user_roles (user_id, role_name, workspace_id)
-		VALUES (?, ?, ?)
+		SELECT ?, ?, ?
+		WHERE NOT EXISTS (
+			SELECT 1 FROM user_roles
+			WHERE user_id = ? AND role_name = ? AND workspace_id = ?
+		)
 	`);
 
-	stmt.run(userId, role, workspaceId);
+	stmt.run(userId, role, workspaceId, userId, role, workspaceId);
 }
 
 /**
@@ -148,7 +153,7 @@ export function removeRole(userId: number, role: UserRole, workspaceId: string):
 /**
  * Get all users with their roles
  */
-export function getAllUsersWithRoles(workspaceId: string = 'default-workspace'): UserWithRoles[] {
+export function getAllUsersWithRoles(workspaceId: string = DEFAULT_WORKSPACE_ID): UserWithRoles[] {
 	const users = userRepository.getAll();
 
 	return users.map(user => ({

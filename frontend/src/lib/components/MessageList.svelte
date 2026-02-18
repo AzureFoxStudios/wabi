@@ -10,12 +10,19 @@
 	import EmojiPicker from './EmojiPicker.svelte';
 	import LinkPreview from './LinkPreview.svelte';
 	import { parseMessage } from '$lib/markdown';
+	import { resolveUserDisplayColor } from '$lib/accessibility';
 	import '$lib/prism-theme.css';
 	import { longpress } from '$lib/actions/longpress';
+	import { getServerUrl } from '$lib/serverUrl';
 	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
+	import { decryptDMFileBuffer, isE2EAvailable } from '$lib/e2eManager';
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
+	const MESSAGE_RENDER_BATCH = 120;
+	const MESSAGE_RENDER_MAX = 360;
+	let messageRenderLimit = MESSAGE_RENDER_BATCH;
+	let lastChannelForRenderWindow: string | null = null;
 	// User popout state
 	let showUserPopout = false;
 	let popoutUser: User | null = null;
@@ -42,6 +49,13 @@
 	let reactionPickerX = 0;
 	let reactionPickerY = 0;
 	let reactionPickerMessageId: string | null = null;
+	let reactionPickerChannelId: string | null = null;
+
+	function closeReactionPicker() {
+		showReactionPicker = false;
+		reactionPickerMessageId = null;
+		reactionPickerChannelId = null;
+	}
 	function formatTime(timestamp: number): string {
 		const date = new Date(timestamp);
 		return date.toLocaleTimeString('en-US', {
@@ -54,7 +68,7 @@
 	}
 	function getUserColor(username: string): string {
 		const user = getUserByUsername(username);
-		return user?.color || 'var(--status-offline)';
+		return resolveUserDisplayColor(user?.roleColor, user?.color);
 	}
 
 	function getUsernameStyle(username: string, themeState: any): string {
@@ -147,17 +161,11 @@
 	async function handleDownload() {
 		if (!contextMenuMessage?.fileUrl || !contextMenuMessage?.fileName) return;
 		try {
-			const fileUrl = getFileUrl(contextMenuMessage.fileUrl);
-			const response = await fetch(fileUrl);
-			const blob = await response.blob();
-			const url = window.URL.createObjectURL(blob);
-			const link = document.createElement('a');
-			link.href = url;
-			link.download = contextMenuMessage.fileName;
-			document.body.appendChild(link);
-			link.click();
-			document.body.removeChild(link);
-			window.URL.revokeObjectURL(url);
+			await downloadAttachment(
+				contextMenuMessage.fileUrl,
+				contextMenuMessage.fileName,
+				contextMenuMessage.attachmentEncryption
+			);
 		} catch (error) {
 			console.error('Download failed:', error);
 		}
@@ -165,16 +173,29 @@
 	}
 	let showForwardDialog = false;
 	let forwardMessage: Message | null = null;
+	const MESSAGE_GROUP_WINDOW_MS = 7 * 60 * 1000;
 	function handleForward() {
 		if (!contextMenuMessage) return;
 		forwardMessage = contextMenuMessage;
 		showForwardDialog = true;
 		contextMenuVisible = false;
 	}
+	function isGroupedWithPrevious(index: number): boolean {
+		if (index <= 0) return false;
+		const current = messages[index];
+		const previous = messages[index - 1];
+		if (!current || !previous) return false;
+		if (firstUnreadMessageId === current.id) return false;
+		if (current.user !== previous.user) return false;
+		if (current.replyTo || previous.replyTo) return false;
+		const delta = current.timestamp - previous.timestamp;
+		return delta >= 0 && delta <= MESSAGE_GROUP_WINDOW_MS;
+	}
 	function handleAddReaction() {
 		if (!contextMenuMessage) return;
 		// Open emoji picker at the context menu position
 		reactionPickerMessageId = contextMenuMessage.id;
+		reactionPickerChannelId = $currentChannel;
 		reactionPickerX = contextMenuX;
 		reactionPickerY = contextMenuY;
 		showReactionPicker = true;
@@ -183,15 +204,41 @@
 	function openReactionPicker(event: MouseEvent, messageId: string) {
 		event.stopPropagation();
 		reactionPickerMessageId = messageId;
+		reactionPickerChannelId = $currentChannel;
 		reactionPickerX = event.clientX;
 		reactionPickerY = event.clientY;
 		showReactionPicker = true;
 	}
 	function handleReactionSelect(event: CustomEvent<{ emoji: Emoji }>) {
-		if (!reactionPickerMessageId) return;
-		addReaction($currentChannel, reactionPickerMessageId, event.detail.emoji.id);
-		showReactionPicker = false;
-		reactionPickerMessageId = null;
+		if (!reactionPickerMessageId || !reactionPickerChannelId) return;
+		addReaction(reactionPickerChannelId, reactionPickerMessageId, event.detail.emoji.id);
+		closeReactionPicker();
+	}
+	function getCurrentReactionIdentityIds(): string[] {
+		if (!$currentUser) return [];
+		const ids: string[] = [];
+		if ($currentUser.id) ids.push($currentUser.id);
+		if ($currentUser.dbUserId) ids.push(`user-${$currentUser.dbUserId}`);
+		return ids;
+	}
+	function hasCurrentUserReaction(userIds?: string[]): boolean {
+		if (!userIds || userIds.length === 0) return false;
+		const currentIds = getCurrentReactionIdentityIds();
+		return currentIds.some(id => userIds.includes(id));
+	}
+	function getReactionUsername(userId: string): string {
+		if (userId.startsWith('user-')) {
+			const dbUserId = Number(userId.substring(5));
+			if (!Number.isNaN(dbUserId)) {
+				const userByDbId = $users.find(u => u.dbUserId === dbUserId);
+				if (userByDbId?.username) return userByDbId.username;
+			}
+		}
+		const userBySocketId = $users.find(u => u.id === userId);
+		return userBySocketId?.username || 'Unknown user';
+	}
+	function getReactionTooltip(userIds: string[]): string {
+		return userIds.map(getReactionUsername).filter(Boolean).join(', ');
 	}
 	function toggleReaction(messageId: string, emojiId: string) {
 		const message = messages.find(m => m.id === messageId);
@@ -199,12 +246,15 @@
 			addReaction($currentChannel, messageId, emojiId);
 			return;
 		}
-		const userReacted = message.reactions[emojiId]?.includes($currentUser?.id || '');
+		const userReacted = hasCurrentUserReaction(message.reactions[emojiId]);
 		if (userReacted) {
 			removeReaction($currentChannel, messageId, emojiId);
 		} else {
 			addReaction($currentChannel, messageId, emojiId);
 		}
+	}
+	$: if (showReactionPicker && reactionPickerChannelId && $currentChannel !== reactionPickerChannelId) {
+		closeReactionPicker();
 	}
 	function getEmojiById(emojiId: string): Emoji | undefined {
 		return $emojis.find(e => e.id === emojiId);
@@ -224,25 +274,95 @@
 	}
 	function getFileUrl(fileUrl?: string): string {
 		if (!fileUrl) return '';
-		// If it's already a full URL (data: or http:), return as-is
-		if (fileUrl.startsWith('data:') || fileUrl.startsWith('http:') || fileUrl.startsWith('https:')) {
+		if (fileUrl.startsWith('data:')) {
 			return fileUrl;
 		}
+
+		if (fileUrl.startsWith('http:') || fileUrl.startsWith('https:')) {
+			try {
+				const absoluteUrl = new URL(fileUrl);
+				const isLocalUpload =
+					(absoluteUrl.hostname === 'localhost' || absoluteUrl.hostname === '127.0.0.1') &&
+					absoluteUrl.pathname.startsWith('/uploads/');
+
+				if (isLocalUpload) {
+					const normalizedPath = `${absoluteUrl.pathname}${absoluteUrl.search}${absoluteUrl.hash}`;
+					if ($relayEnabled) {
+						return getRelayFileUrl(normalizedPath);
+					}
+					return `${getServerUrl()}${normalizedPath}`;
+				}
+			} catch {
+				// Fall through and return original URL if parsing fails.
+			}
+			return fileUrl;
+		}
+
 		// Use relay if enabled and available
 		if ($relayEnabled) {
 			return getRelayFileUrl(fileUrl);
 		}
-		// Otherwise, prepend the backend server URL
-		let serverUrl: string;
-		if (window.location.origin.includes(':5173') || window.location.origin.includes('tauri.localhost')) {
-			serverUrl = 'http://localhost:3000';
-		} else if (window.location.origin.includes(':3000')) {
-			// Docker deployment: if on port 3000 (frontend), connect to port 8080 (backend)
-			serverUrl = window.location.origin.replace(':3000', ':8080');
-		} else {
-			serverUrl = window.location.origin;
+		// Otherwise, prepend the resolved backend server URL
+		return `${getServerUrl()}${fileUrl}`;
+	}
+
+	function isEncryptedAttachment(attachment: { attachmentEncryption?: { scheme: 'dm-e2ee-v1'; iv: string } }): boolean {
+		return attachment?.attachmentEncryption?.scheme === 'dm-e2ee-v1' && !!attachment?.attachmentEncryption?.iv;
+	}
+
+	async function downloadAttachment(
+		fileUrl: string,
+		fileName: string,
+		attachmentEncryption?: { scheme: 'dm-e2ee-v1'; iv: string; mimeType?: string; originalSize?: number }
+	): Promise<void> {
+		const resolvedUrl = getFileUrl(fileUrl);
+		const response = await fetch(resolvedUrl);
+		if (!response.ok) throw new Error(`Failed to download attachment (${response.status})`);
+
+		if (!attachmentEncryption || attachmentEncryption.scheme !== 'dm-e2ee-v1') {
+			const blob = await response.blob();
+			const url = window.URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = fileName;
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+			window.URL.revokeObjectURL(url);
+			return;
 		}
-		return `${serverUrl}${fileUrl}`;
+
+		const channel = $channels.find((ch) => ch.id === $currentChannel);
+		const otherDbUserId = channel?.type === 'dm' ? channel.otherUser?.dbUserId : undefined;
+		const authToken = localStorage.getItem('authToken');
+		if (!otherDbUserId || !authToken || !isE2EAvailable()) {
+			alert('Cannot decrypt this attachment in the current session.');
+			return;
+		}
+
+		const encryptedBuffer = await response.arrayBuffer();
+		const decrypted = await decryptDMFileBuffer(
+			encryptedBuffer,
+			attachmentEncryption.iv,
+			otherDbUserId,
+			authToken
+		);
+		if (!decrypted) {
+			alert('Failed to decrypt attachment.');
+			return;
+		}
+
+		const blob = new Blob([decrypted], {
+			type: attachmentEncryption.mimeType || 'application/octet-stream'
+		});
+		const url = window.URL.createObjectURL(blob);
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = fileName;
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+		window.URL.revokeObjectURL(url);
 	}
 	function getReplyToMessage(replyToId?: string): Message | undefined {
 		if (!replyToId) return undefined;
@@ -361,6 +481,16 @@
 		};
 		return iconMap[ext] || '📎';
 	}
+
+	function parseRoleGateText(text: string): { title: string; description: string } {
+		const normalized = (text || '').trim();
+		if (!normalized) return { title: 'Role Gate', description: '' };
+		const [firstLine, ...rest] = normalized.split('\n');
+		return {
+			title: firstLine.trim() || 'Role Gate',
+			description: rest.join('\n').trim()
+		};
+	}
 	function isImage(fileName?: string): boolean {
 		if (!fileName) return false;
 		const ext = fileName.toLowerCase().split('.').pop() || '';
@@ -459,6 +589,8 @@
 	// Server-side history pagination state
 	let hasMoreServerHistory = false;
 	let isLoadingServerHistory = false;
+	let visibleMessages: Message[] = [];
+	let visibleMessageStart = 0;
 
 	// Reactive statements to compute pagination state based on current channel
 	$: {
@@ -478,9 +610,23 @@
 		hasMoreServerHistory = $channelHasMoreHistory[$currentChannel] ?? false; // Hidden until server confirms
 		isLoadingServerHistory = $channelHistoryLoading[$currentChannel] || false;
 	}
+	$: if (lastChannelForRenderWindow !== $currentChannel) {
+		lastChannelForRenderWindow = $currentChannel;
+		messageRenderLimit = MESSAGE_RENDER_BATCH;
+	}
+	$: {
+		const boundedLimit = Math.min(Math.max(messageRenderLimit, MESSAGE_RENDER_BATCH), MESSAGE_RENDER_MAX);
+		messageRenderLimit = boundedLimit;
+		visibleMessageStart = Math.max(0, messages.length - boundedLimit);
+		visibleMessages = messages.slice(visibleMessageStart);
+	}
 
 	async function handleLoadMore() {
 		if (!$currentChannel) return;
+		if (visibleMessageStart > 0) {
+			messageRenderLimit = Math.min(MESSAGE_RENDER_MAX, messageRenderLimit + MESSAGE_RENDER_BATCH);
+			return;
+		}
 		// Prefer server-side history loading
 		if (hasMoreServerHistory && !isLoadingServerHistory) {
 			loadOlderHistory($currentChannel);
@@ -504,11 +650,13 @@
 <svelte:window on:keydown={handleImageKeydown} on:click={dismissMobileActions} />
 
 <!-- Load More Messages Button -->
-{#if (hasMoreServerHistory || hasMoreMessages) && messages.length >= 50}
+{#if visibleMessageStart > 0 || ((hasMoreServerHistory || hasMoreMessages) && messages.length >= 50)}
 	<div class="load-more-container">
 		<button class="load-more-btn" on:click={handleLoadMore} disabled={isLoadingServerHistory || isLoadingOlder}>
 			{#if isLoadingServerHistory || isLoadingOlder}
 				<span class="spinner"></span> Loading...
+			{:else if visibleMessageStart > 0}
+				Show Older Loaded Messages
 			{:else}
 				Load Older Messages
 			{/if}
@@ -520,9 +668,11 @@
 	</div>
 {/if}
 
-{#each messages as message (message.id)}
+{#each visibleMessages as message, localIndex (message.id)}
+	{@const index = visibleMessageStart + localIndex}
 	{@const user = getUserByUsername(message.user)}
 	{@const replyToMsg = getReplyToMessage(message.replyTo)}
+	{@const groupedWithPrevious = isGroupedWithPrevious(index)}
 
 	<!-- New Messages Divider -->
 	{#if firstUnreadMessageId === message.id}
@@ -534,7 +684,7 @@
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		id="message-{message.id}"
-		class="message {message.isPinned ? 'pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''}"
+		class="message {message.isPinned ? 'pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''}"
 		on:contextmenu={(e) => handleContextMenu(e, message)}
 		use:longpress={{ onLongPress: (e) => handleMessageLongPress(e, message) }}
 	>
@@ -551,39 +701,45 @@
 		</div>
 
 		<!-- Profile Picture -->
-			<!-- svelte-ignore a11y-click-events-have-key-events -->
-			<!-- svelte-ignore a11y-no-static-element-interactions -->
-			<div class="message-avatar">
-				{#if user?.profilePicture}
-					<img src={user.profilePicture} alt={message.user} class="avatar" />
-				{:else}
-					<div class="avatar-placeholder" style="background-color: {getUserColor(message.user)}">
-						{message.user.charAt(0).toUpperCase()}
-					</div>
-				{/if}
-			</div>
-		<!-- Message Content -->
-		<div class="message-body">
-			<div class="message-header">
-				<div class="header-left">
-					{#if user}
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<!-- svelte-ignore a11y-no-static-element-interactions -->
-						<span class="username" style="color: {getUserColor(message.user)}; {getUsernameStyle(message.user, $themeStore)}">
-							{message.user}
-						</span>
+		{#if groupedWithPrevious}
+			<div class="message-avatar message-avatar-spacer" aria-hidden="true"></div>
+		{:else}
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
+				<!-- svelte-ignore a11y-no-static-element-interactions -->
+				<div class="message-avatar">
+					{#if user?.profilePicture}
+						<img src={user.profilePicture} alt={message.user} class="avatar" loading="lazy" decoding="async" />
 					{:else}
-						<span class="username">{message.user}</span>
-					{/if}
-					<span class="timestamp">{formatTime(message.timestamp)}</span>
-					{#if message.isPinned}
-						<span class="pin-badge" title="Pinned message">📌</span>
-					{/if}
-					{#if message.isEdited}
-						<span class="edited-badge" title="Edited">(edited)</span>
+						<div class="avatar-placeholder" style="background-color: {getUserColor(message.user)}">
+							{message.user.charAt(0).toUpperCase()}
+						</div>
 					{/if}
 				</div>
-			</div>
+		{/if}
+		<!-- Message Content -->
+		<div class="message-body">
+			{#if !groupedWithPrevious}
+				<div class="message-header">
+					<div class="header-left">
+						{#if user}
+							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<span class="username" style="color: {getUserColor(message.user)}; {getUsernameStyle(message.user, $themeStore)}">
+								{message.user}
+							</span>
+						{:else}
+							<span class="username">{message.user}</span>
+						{/if}
+						<span class="timestamp">{formatTime(message.timestamp)}</span>
+						{#if message.isPinned}
+							<span class="pin-badge" title="Pinned message"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg></span>
+						{/if}
+						{#if message.isEdited}
+							<span class="edited-badge" title="Edited">(edited)</span>
+						{/if}
+					</div>
+				</div>
+			{/if}
 
 			<!-- Reply Preview -->
 			{#if replyToMsg}
@@ -647,16 +803,26 @@
 				</div>
 			{:else}
 				<div class="message-content">
-					{#if message.type === 'gif' && message.gifUrl}
-						<img src={message.gifUrl} alt="GIF" class="gif {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} />
+					{#if message.type === 'role_gate'}
+						{@const gate = parseRoleGateText(message.text)}
+						<div class="role-gate-card">
+							<div class="role-gate-label">Role Gate</div>
+							<div class="role-gate-title">{gate.title}</div>
+							{#if gate.description}
+								<div class="role-gate-description">{gate.description}</div>
+							{/if}
+							<div class="role-gate-hint">React below to opt in/out of this access role.</div>
+						</div>
+					{:else if message.type === 'gif' && message.gifUrl}
+						<img src={message.gifUrl} alt="GIF" class="gif {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
 					{:else if message.type === 'emoji' && message.emojiUrl}
-						<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} />
+						<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
 					{:else if message.type === 'file' && (message.fileUrl || message.files)}
 						{#if message.files && message.files.length > 1}
 							<!-- Multiple files gallery -->
 							<div class="files-gallery" class:has-more={message.files.length > 4}>
 								{#each message.files.slice(0, 4) as fileAttachment, index}
-									{#if isImage(fileAttachment.fileName)}
+									{#if isImage(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
 										<!-- svelte-ignore a11y-click-events-have-key-events -->
 										<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 										<div class="gallery-file-item" class:last-item={index === 3 && message.files.length > 4}>
@@ -681,7 +847,7 @@
 												</div>
 											{/if}
 										</div>
-									{:else if isVideo(fileAttachment.fileName)}
+									{:else if isVideo(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
 										<!-- svelte-ignore a11y-media-has-caption -->
 										<!-- svelte-ignore a11y-click-events-have-key-events -->
 										<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
@@ -700,7 +866,7 @@
 												</div>
 											{/if}
 										</div>
-									{:else if isAudio(fileAttachment.fileName)}
+									{:else if isAudio(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
 										<!-- svelte-ignore a11y-media-has-caption -->
 										<div class="gallery-file-item audio-item" class:last-item={index === 3 && message.files.length > 4}>
 											<audio
@@ -718,18 +884,28 @@
 											{/if}
 										</div>
 									{:else}
-										<a href={getFileUrl(fileAttachment.fileUrl)} download={fileAttachment.fileName} class="gallery-file-item file-link">
+										<a
+											href={getFileUrl(fileAttachment.fileUrl)}
+											target="_blank"
+											rel="noopener noreferrer"
+											download={fileAttachment.fileName}
+											class="gallery-file-item file-link"
+											on:click|preventDefault={() => downloadAttachment(fileAttachment.fileUrl, fileAttachment.fileName, fileAttachment.attachmentEncryption)}
+										>
 											<div class="gallery-file-icon-large">{getFileIcon(fileAttachment.fileName)}</div>
 											<div class="gallery-file-overlay">
 												<span class="file-name-truncate">{fileAttachment.fileName}</span>
 												<span class="file-size-small">({formatFileSize(fileAttachment.fileSize)})</span>
+												{#if isEncryptedAttachment(fileAttachment)}
+													<span class="file-size-small">(encrypted)</span>
+												{/if}
 											</div>
 										</a>
 									{/if}
 								{/each}
 							</div>
 						{:else if message.fileUrl}
-							{#if isImage(message.fileName)}
+							{#if isImage(message.fileName) && !isEncryptedAttachment(message)}
 							<!-- Display image inline -->
 							<div class="image-container">
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -743,13 +919,13 @@
 									on:contextmenu={(e) => handleImageContextMenu(e, message)}
 									title="Click to enlarge, right-click for options"
 								/>
-								<a href={getFileUrl(message.fileUrl)} download={message.fileName} class="image-download-link">
+								<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="image-download-link">
 									<span class="file-icon">{getFileIcon(message.fileName)}</span>
 									{message.fileName}
 									<span class="file-size">({formatFileSize(message.fileSize)})</span>
 								</a>
 							</div>
-						{:else if isVideo(message.fileName)}
+						{:else if isVideo(message.fileName) && !isEncryptedAttachment(message)}
 							<!-- Display video with player -->
 							<div class="video-container">
 								<!-- svelte-ignore a11y-media-has-caption -->
@@ -770,13 +946,13 @@
 									<source src={getFileUrl(message.fileUrl)} type="video/{message.fileName?.split('.').pop()}" />
 									Your browser does not support the video tag.
 								</video>
-								<a href={getFileUrl(message.fileUrl)} download={message.fileName} class="video-download-link">
+								<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="video-download-link">
 									<span class="file-icon">{getFileIcon(message.fileName)}</span>
 									{message.fileName}
 									<span class="file-size">({formatFileSize(message.fileSize)})</span>
 								</a>
 							</div>
-						{:else if isAudio(message.fileName)}
+						{:else if isAudio(message.fileName) && !isEncryptedAttachment(message)}
 							<!-- Display audio with player -->
 							<div class="audio-container">
 								<!-- svelte-ignore a11y-media-has-caption -->
@@ -795,11 +971,18 @@
 							</div>
 						{:else}
 							<!-- Display other files as download link -->
-							<a href={getFileUrl(message.fileUrl)} download={message.fileName} class="file-attachment">
+							<a
+								href={getFileUrl(message.fileUrl)}
+								target="_blank"
+								rel="noopener noreferrer"
+								download={message.fileName}
+								class="file-attachment"
+								on:click|preventDefault={() => message.fileUrl && message.fileName && downloadAttachment(message.fileUrl, message.fileName, message.attachmentEncryption)}
+							>
 								<span class="file-icon">{getFileIcon(message.fileName)}</span>
 								<div class="file-info">
 									<span class="file-name">{message.fileName}</span>
-									<span class="file-size">{formatFileSize(message.fileSize)}</span>
+									<span class="file-size">{formatFileSize(message.fileSize)}{message.attachmentEncryption ? ' (encrypted)' : ''}</span>
 								</div>
 							</a>
 						{/if}
@@ -830,7 +1013,6 @@
 									controls
 									class="embedded-media embedded-video {message.isSpoiler ? 'spoiler' : ''}"
 									data-spoiler={message.isSpoiler ? 'true' : 'false'}
-									loading="lazy"
 								>
 									<source src={url} />
 									Your browser does not support the video tag.
@@ -858,14 +1040,14 @@
 					{#each Object.entries(message.reactions) as [emojiId, userIds]}
 						{@const emoji = getEmojiById(emojiId)}
 						{#if emoji && userIds.length > 0}
-							{@const userReacted = userIds.includes($currentUser?.id || '')}
+							{@const userReacted = hasCurrentUserReaction(userIds)}
 							<button
 								class="reaction-btn"
 								class:user-reacted={userReacted}
 								on:click={() => toggleReaction(message.id, emojiId)}
-								title={userIds.map(id => $users.find(u => u.id === id)?.username).filter(Boolean).join(', ')}
+								title={getReactionTooltip(userIds)}
 							>
-								<img src={emoji.url} alt={emoji.name} class="reaction-emoji" />
+								<img src={emoji.url} alt={emoji.name} class="reaction-emoji" loading="lazy" decoding="async" />
 								<span class="reaction-count">{userIds.length}</span>
 							</button>
 						{/if}
@@ -887,7 +1069,7 @@
 {#if showReactionPicker}
 	<EmojiPicker
 		on:select={handleReactionSelect}
-		on:close={() => showReactionPicker = false}
+		on:close={closeReactionPicker}
 	/>
 {/if}
 
@@ -1035,6 +1217,12 @@
 		background: rgba(var(--bg-secondary-rgb), var(--opacity-medium));
 	}
 
+	.message.continuation {
+		padding-top: 0.2rem;
+		padding-bottom: 0.2rem;
+		margin-bottom: 0.1rem;
+	}
+
 	.message.highlighted {
 		background: rgba(var(--accent-rgb), var(--opacity-light));
 		animation: highlight-pulse 2s ease-out;
@@ -1081,6 +1269,14 @@
 		flex-shrink: 0;
 		cursor: pointer;
 		margin-top: 0.35rem;
+	}
+
+	.message-avatar-spacer {
+		width: 40px;
+		height: 1px;
+		cursor: default;
+		margin-top: 0;
+		pointer-events: none;
 	}
 
 	.avatar {
@@ -1201,8 +1397,14 @@
 	}
 
 	.pin-badge {
-		font-size: var(--text-sm);
+		display: inline-flex;
+		align-items: center;
 		margin-left: 0.25rem;
+	}
+
+	.pin-badge svg {
+		width: 14px;
+		height: 14px;
 	}
 
 	.edited-badge {
@@ -1325,6 +1527,39 @@
 		overflow-wrap: break-word;
 	}
 
+	.role-gate-card {
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		padding: 0.65rem 0.75rem;
+		background: var(--bg-tertiary);
+	}
+
+	.role-gate-label {
+		font-size: 0.68rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--text-secondary);
+		margin-bottom: 0.3rem;
+	}
+
+	.role-gate-title {
+		font-size: 0.92rem;
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	.role-gate-description {
+		margin-top: 0.25rem;
+		white-space: pre-wrap;
+		color: var(--text-primary);
+	}
+
+	.role-gate-hint {
+		margin-top: 0.45rem;
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+	}
+
 	.markdown-content :global(p) {
 		margin: 0;
 		line-height: 1.5;
@@ -1349,6 +1584,15 @@
 
 	.markdown-content :global(a:hover) {
 		color: var(--color-info-hover);
+	}
+
+	.markdown-content :global(.mention-token) {
+		display: inline-block;
+		padding: 0.05rem 0.34rem;
+		border-radius: 0.4rem;
+		background: color-mix(in srgb, var(--accent) 20%, transparent);
+		color: color-mix(in srgb, var(--accent) 70%, var(--text-primary) 30%);
+		font-weight: 600;
 	}
 
 	.markdown-content :global(code) {
@@ -2007,7 +2251,13 @@
 
 		/* Pin badge */
 		.pin-badge {
-			font-size: 0.7rem;
+			display: inline-flex;
+			align-items: center;
+		}
+
+		.pin-badge svg {
+			width: 12px;
+			height: 12px;
 		}
 
 		.edited-badge {

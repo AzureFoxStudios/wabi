@@ -19,7 +19,7 @@
 import { writable, get } from 'svelte/store';
 import { io, Socket } from 'socket.io-client';
 import { browser } from '$app/environment';
-import { showNotification } from './notifications';
+import { showNotification, messageMentionsUser } from './notifications';
 import { initEmotes, addEmote, removeEmote } from './markdown';
 import { chatStorage } from './storage';
 import * as calling from './calling';
@@ -56,6 +56,9 @@ async function decryptMessagesForChannel(channelId: string, messages: Message[])
 
 import { handleP2PIncomingOffer, handleP2PAnswer, handleP2PIceCandidate } from './p2pFileTransfer';
 
+/** The base browser tab title. Update this constant if the app is renamed. */
+const APP_TITLE = 'Wabi Chat';
+
 
 // ============================================================================
 // CONNECTION STATE MACHINE
@@ -91,6 +94,13 @@ const VALID_TRANSITIONS: Record<ConnectionState, ConnectionState[]> = {
 // ============================================================================
 
 export const socket = writable<Socket | null>(null);
+export interface RoleDefinition {
+	roleName: string;
+	displayName: string;
+	priority: number;
+	color: string | null;
+	isHoisted: boolean;
+}
 export const channels = writable<Channel[]>([]);
 export const pinnedChannels = writable<Channel[]>([]);
 export const currentChannel = writable<string>('general');
@@ -103,6 +113,15 @@ export const unreadCount = writable(0);
 export const lastReadMessageId = writable<string | null>(null);
 export const channelUnreadCounts = writable<Record<string, number>>({});
 export const dmPanelSignal = writable<{ channelId: string; otherUser: User } | null>(null);
+export interface VoiceChannelParticipant {
+	userId: string;
+	socketId?: string;
+	username?: string;
+	profilePicture?: string;
+}
+export const activeVoiceChannel = writable<string | null>(null);
+export const voiceChannelMembers = writable<Record<string, VoiceChannelParticipant[]>>({});
+export const roleDefinitions = writable<RoleDefinition[]>([]);
 export { emojis };
 
 // Pagination stores (client-side archive-based)
@@ -145,6 +164,26 @@ class SocketManager {
 
 	// Listener tracking for clean rebinding
 	private boundListeners: Set<string> = new Set();
+
+	private applyVoiceState(state: Record<string, VoiceChannelParticipant[]> | undefined): void {
+		if (!state) return;
+		voiceChannelMembers.set(state);
+
+		const me = get(currentUser);
+		const currentUserId = me?.id;
+		const currentStableId = me?.dbUserId ? `user-${me.dbUserId}` : null;
+		if (!currentUserId) return;
+
+		const connectedChannel = Object.entries(state).find(([, members]) =>
+			members.some(member =>
+				member.userId === currentUserId ||
+				member.socketId === currentUserId ||
+				(currentStableId ? member.userId === currentStableId : false)
+			)
+		)?.[0] || null;
+
+		activeVoiceChannel.set(connectedChannel);
+	}
 
 	// ==================== STATE MACHINE ====================
 
@@ -261,6 +300,8 @@ class SocketManager {
 		this.authToken = null;
 		this.reconnectAttempts = 0;
 		this.transition('disconnected');
+		activeVoiceChannel.set(null);
+		voiceChannelMembers.set({});
 	}
 
 	/**
@@ -275,6 +316,8 @@ class SocketManager {
 		connectionState.set('disconnected');
 		connected.set(false);
 		this.reconnectAttempts = 0;
+		activeVoiceChannel.set(null);
+		voiceChannelMembers.set({});
 	}
 
 	/**
@@ -509,6 +552,8 @@ class SocketManager {
 			excalidrawState: any;
 			emotes: any[];
 			emojis: Emoji[];
+			roleDefinitions?: RoleDefinition[];
+			voiceState?: Record<string, VoiceChannelParticipant[]>;
 			sessionId?: string;
 		}) => {
 			console.log('[SocketManager] Init received');
@@ -544,6 +589,8 @@ class SocketManager {
 
 			if (data.emotes) initEmotes(data.emotes);
 			if (data.emojis) emojis.set(data.emojis);
+			if (data.roleDefinitions) roleDefinitions.set(data.roleDefinitions);
+			this.applyVoiceState(data.voiceState);
 
 			const user = data.users.find(u => u.id === sock.id);
 			if (user) {
@@ -567,6 +614,58 @@ class SocketManager {
 			}
 
 			sock.emit('join-channel', 'general');
+			sock.emit('get-role-definitions');
+		});
+
+		sock.on('role-definitions-updated', (data: { roles: RoleDefinition[] }) => {
+			roleDefinitions.set(data.roles || []);
+		});
+
+		sock.on('voice-state', (data: { voiceState: Record<string, VoiceChannelParticipant[]> }) => {
+			this.applyVoiceState(data.voiceState);
+		});
+
+		sock.on('voice-channel-state', (data: { channelId: string; members: VoiceChannelParticipant[] }) => {
+			voiceChannelMembers.update(state => ({
+				...state,
+				[data.channelId]: data.members || []
+			}));
+			this.applyVoiceState(get(voiceChannelMembers));
+		});
+
+		sock.on('voice-channel-joined', (data: { channelId: string; members?: VoiceChannelParticipant[]; user?: VoiceChannelParticipant }) => {
+			voiceChannelMembers.update(state => {
+				if (data.members) {
+					return { ...state, [data.channelId]: data.members };
+				}
+				if (!data.user) return state;
+				const existing = state[data.channelId] || [];
+				if (existing.some(member => member.userId === data.user?.userId)) return state;
+				return { ...state, [data.channelId]: [...existing, data.user] };
+			});
+			this.applyVoiceState(get(voiceChannelMembers));
+		});
+
+		sock.on('voice-channel-left', (data: { channelId: string; userId: string; members?: VoiceChannelParticipant[] }) => {
+			voiceChannelMembers.update(state => {
+				if (data.members) {
+					return { ...state, [data.channelId]: data.members };
+				}
+				const existing = state[data.channelId] || [];
+				return {
+					...state,
+					[data.channelId]: existing.filter(member => member.userId !== data.userId)
+				};
+			});
+			this.applyVoiceState(get(voiceChannelMembers));
+		});
+
+		sock.on('voice-channel-subscribed', (data: { channelId: string; members?: VoiceChannelParticipant[] }) => {
+			voiceChannelMembers.update(state => ({
+				...state,
+				[data.channelId]: data.members || state[data.channelId] || []
+			}));
+			this.applyVoiceState(get(voiceChannelMembers));
 		});
 
 		// ==================== MESSAGE EVENTS ====================
@@ -661,8 +760,13 @@ class SocketManager {
 			const isCurrentUser = data.message.userId === sock.id;
 			const currentChannelId = get(currentChannel);
 			const isCurrentChannelActive = currentChannelId === data.channelId;
+			const myUsername = get(currentUser)?.username || null;
+			const isMention = messageMentionsUser(data.message, myUsername);
 
-			showNotification(data.message, isCurrentUser, channel?.name);
+			showNotification(data.message, isCurrentUser, channel?.name, {
+				isMention,
+				isCurrentChannelActive
+			});
 
 			if (!isCurrentUser && (!isCurrentChannelActive || document.hidden)) {
 				this.incrementUnreadCount(data.channelId, data.message.id);
@@ -733,8 +837,14 @@ class SocketManager {
 					}
 				}
 			}
-			channels.update(chs => [...chs, processedChannel]);
-			channelMessages.update(msgs => ({ ...msgs, [processedChannel.id]: [] }));
+			channels.update(chs => {
+				if (chs.some(existing => existing.id === processedChannel.id)) return chs;
+				return [...chs, processedChannel];
+			});
+			channelMessages.update(msgs => ({
+				...msgs,
+				[processedChannel.id]: msgs[processedChannel.id] || []
+			}));
 		});
 
 		sock.on('channel-deleted', (channelId: string) => {
@@ -767,6 +877,7 @@ class SocketManager {
 			autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
 			persistMessages?: boolean;
 			description?: string;
+			minRole?: string;
 		}) => {
 			channels.update(chs => chs.map(ch =>
 				ch.id === data.channelId
@@ -774,6 +885,7 @@ class SocketManager {
 						...ch,
 						autoDeleteAfter: data.autoDeleteAfter,
 						persistMessages: data.persistMessages,
+						...(data.minRole !== undefined ? { minRole: data.minRole } : {}),
 						...(data.description !== undefined ? { description: data.description } : {})
 					}
 					: ch
@@ -973,7 +1085,12 @@ class SocketManager {
 
 		// ==================== WEBRTC/CALLING EVENTS ====================
 
-		sock.on('call-incoming', (data: { userId: string; username: string; isVideoCall: boolean }) => {
+		sock.on('call-incoming', (data: { userId: string; username: string; isVideoCall: boolean; channelId?: string; channelName?: string }) => {
+			if (data.channelId) {
+				console.log(`[SocketManager] Voice channel join signal from ${data.username} for ${data.channelName || data.channelId}`);
+				return;
+			}
+
 			console.log(`[SocketManager] Incoming call from ${data.username}`);
 			calling.incomingCall.set(data);
 		});
@@ -995,9 +1112,9 @@ class SocketManager {
 			calling.removeScreenShare(data.userId);
 		});
 
-		sock.on('call-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string }) => {
+		sock.on('call-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string; channelId?: string }) => {
 			console.log(`[SocketManager] Call offer from ${data.username}`);
-			calling.handleCallOffer(sock, data.senderId, data.username, data.offer)
+			calling.handleCallOffer(sock, data.senderId, data.username, data.offer, data.channelId)
 				.catch(err => console.error('[SocketManager] handleCallOffer failed:', err));
 		});
 
@@ -1009,6 +1126,27 @@ class SocketManager {
 
 		sock.on('call-ice-candidate', (data: { candidate: RTCIceCandidateInit; senderId: string }) => {
 			calling.handleCallIceCandidate(data.senderId, data.candidate);
+		});
+
+		sock.on('voice-channel-user-joined', (data: { channelId: string; userId: string; socketId?: string; username?: string }) => {
+			const me = get(currentUser);
+			if (me?.id === data.userId || sock.id === data.socketId) {
+				return;
+			}
+			if (!get(calling.listeningVoiceChannels).includes(data.channelId)) {
+				return;
+			}
+
+			const targetId = data.socketId || data.userId;
+			console.log(`[SocketManager] Voice participant joined ${data.channelId}: ${data.username || data.userId}`);
+			calling.createCallOffer(sock, targetId, data.username || '', { channelId: data.channelId })
+				.catch(err => console.error('[SocketManager] voice-channel createCallOffer failed:', err));
+		});
+
+		sock.on('voice-channel-user-left', (data: { channelId: string; userId: string; socketId?: string }) => {
+			const targetId = data.socketId || data.userId;
+			console.log(`[SocketManager] Voice participant left ${data.channelId}: ${targetId}`);
+			calling.removeCall(targetId);
 		});
 
 		sock.on('screen-share-started', (data: { userId: string; username: string }) => {
@@ -1194,20 +1332,7 @@ class SocketManager {
 			return n + 1;
 		});
 
-		this.updateBrowserTitle();
-	}
-
-	private updateBrowserTitle(): void {
-		if (!browser) return;
-		const total = get(unreadCount);
-
-		if (total === 0) {
-			document.title = 'Wabi Chat';
-		} else if (total <= 10) {
-			document.title = `(${total}) Wabi Chat`;
-		} else {
-			document.title = '(•) Wabi Chat';
-		}
+		updateBrowserTitle();
 	}
 }
 
@@ -1271,21 +1396,89 @@ export function switchChannel(channelId: string): void {
 	markChannelAsRead(channelId);
 }
 
-export function createChannel(channelName: string, description?: string): void {
-	socketManager.emit('create-channel', { name: channelName, description: description || '' });
+export async function joinVoiceChannel(channelId: string): Promise<void> {
+	const sock = socketManager.getSocket();
+	if (!sock) {
+		throw new Error('Socket not connected');
+	}
+	await calling.joinVoiceChannel(sock, channelId);
+}
+
+export async function leaveVoiceChannel(channelId: string): Promise<void> {
+	const sock = socketManager.getSocket();
+	if (!sock) {
+		return;
+	}
+	await calling.leaveVoiceChannel(sock, channelId);
+}
+
+export function subscribeVoiceChannel(channelId: string): void {
+	const sock = socketManager.getSocket();
+	if (!sock) return;
+	calling.addVoiceChannelListen(sock, channelId);
+}
+
+export function unsubscribeVoiceChannel(channelId: string): void {
+	const sock = socketManager.getSocket();
+	if (!sock) return;
+	calling.removeVoiceChannelListen(sock, channelId);
+}
+
+export function setVoiceTransmitMode(mode: 'primary' | 'all-listening'): void {
+	calling.setVoiceTransmitRoutingMode(mode);
+}
+
+export function createChannel(channelName: string, description?: string, channelType: 'text' | 'voice' = 'text'): void {
+	socketManager.emit('create-channel', { name: channelName, description: description || '', channelType });
+}
+
+export function createBreakoutRooms(parentChannelId: string, roomCount = 2, autoAssign = true): void {
+	socketManager.emit('create-breakout-rooms', { parentChannelId, roomCount, autoAssign });
+}
+
+export function closeBreakoutRooms(parentChannelId: string): void {
+	socketManager.emit('close-breakout-rooms', { parentChannelId });
+}
+
+export function moveUserToBreakout(parentChannelId: string, targetUserId: string, toChannelId: string): void {
+	socketManager.emit('move-user-to-breakout', { parentChannelId, targetUserId, toChannelId });
+}
+
+export function createThread(parentChannelId: string, name: string, options?: {
+	parentMessageId?: string;
+	privateThread?: boolean;
+	autoArchiveMinutes?: number;
+}): void {
+	socketManager.emit('thread:create', {
+		parentChannelId,
+		name,
+		parentMessageId: options?.parentMessageId,
+		privateThread: options?.privateThread || false,
+		autoArchiveMinutes: options?.autoArchiveMinutes
+	});
 }
 
 export function deleteChannel(channelId: string): void {
 	socketManager.emit('delete-channel', channelId);
 }
 
-export async function sendMessage(channelId: string, text: string, type: 'text' | 'gif' | 'file' = 'text', options?: {
+export async function sendMessage(channelId: string, text: string, type: 'text' | 'gif' | 'file' | 'emoji' | 'role_gate' = 'text', options?: {
 	gifUrl?: string;
+	emojiUrl?: string;
+	emojiName?: string;
 	fileUrl?: string;
 	fileName?: string;
 	fileSize?: number;
+	files?: FileAttachment[];
+	attachmentEncryption?: {
+		scheme: 'dm-e2ee-v1';
+		iv: string;
+		mimeType?: string;
+		originalSize?: number;
+	};
 	replyTo?: string;
 	isSpoiler?: boolean;
+	roleGatePersist?: boolean;
 }): Promise<void> {
 	const payload: Record<string, any> = { channelId, text, type, ...options };
 
@@ -1365,16 +1558,21 @@ export function markChannelAsRead(channelId: string): void {
 	updateBrowserTitle();
 }
 
+/**
+ * Updates the browser tab title to reflect unread message count.
+ * Single source of truth — called by both the SocketManager class and
+ * the public helper functions (markMessagesAsRead, markChannelAsRead).
+ */
 function updateBrowserTitle(): void {
 	if (!browser) return;
 	const total = get(unreadCount);
 
 	if (total === 0) {
-		document.title = 'Wabi Chat';
+		document.title = APP_TITLE;
 	} else if (total <= 10) {
-		document.title = `(${total}) Wabi Chat`;
+		document.title = `(${total}) ${APP_TITLE}`;
 	} else {
-		document.title = '(•) Wabi Chat';
+		document.title = `(•) ${APP_TITLE}`;
 	}
 }
 
@@ -1512,6 +1710,7 @@ export function updateChannelSettings(channelId: string, settings: {
 	autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
 	persistMessages?: boolean;
 	description?: string;
+	minRole?: string;
 }): void {
 	socketManager.emit('update-channel-settings', { channelId, ...settings });
 }
@@ -1524,8 +1723,13 @@ export function removeReaction(channelId: string, messageId: string, emojiId: st
 	socketManager.emit('remove-reaction', { channelId, messageId, emojiId });
 }
 
-export function uploadEmoji(name: string, url: string, category: string): void {
-	socketManager.emit('upload-emoji', { name, url, category });
+export function uploadEmoji(
+	name: string,
+	url: string,
+	category: string,
+	options?: { displayName?: string; artist?: string; type?: 'emoji' | 'sticker' }
+): void {
+	socketManager.emit('upload-emoji', { name, url, category, ...options });
 }
 
 export function deleteEmoji(emojiName: string): void {

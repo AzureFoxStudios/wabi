@@ -18,20 +18,17 @@
 	let nodes: any[] = [];
 	let edges: any[] = [];
 	let selectedNodeId: string | null = null;
-	let fitViewOnInit = true;
 
-	function getNodePosition(nodeId: string): { x: number; y: number } {
-		const $resources = get(resources);
+	function getNodePosition(nodeId: string, allResources: any[] = get(resources)): { x: number; y: number } {
 
 		if (layout === 'community') {
-			return computeCommunityPosition(nodeId, $resources);
+			return computeCommunityPosition(nodeId, allResources);
 		} else if (layout === 'radial') {
 			return { x: Math.random() * 1600, y: Math.random() * 1200 };
 		} else if (layout === 'force-directed') {
 			return { x: Math.random() * 1600, y: Math.random() * 1200 };
 		} else { // timeline
-			const resource = $resources.find((r: any) => r.id === nodeId);
-			const index = $resources.findIndex((r: any) => r.id === nodeId);
+			const index = allResources.findIndex((r: any) => r.id === nodeId);
 			const angle = index * 0.5;
 			const radius = 200 + (index * 20);
 			return {
@@ -72,10 +69,6 @@
 			x: 800 + Math.cos(angle) * radius,
 			y: 600 + Math.sin(angle) * radius
 		};
-	}
-
-	function onNodeClick(event: any, node: any) {
-		selectedNodeId = node.id;
 	}
 
 	$: if (highlightNodeId && highlightNodeId !== selectedNodeId) {
@@ -132,12 +125,7 @@
 	<SvelteFlow
 		bind:nodes
 		bind:edges
-		{nodes}
-		{edges}
-		on:nodeclick={onNodeClick}
-		fitViewOnInit={fitViewOnInit}
 		class="art-graph"
-		nodeTypes="resourceNode,tagNode"
 	>
 		<Background />
 		<Controls />

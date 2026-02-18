@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Wabi",
-  "version": "0.2.0",
-  "identifier": "com.wabi.app",
+  "version": "0.2.3",
+  "identifier": "com.wabi.desktop",
   "build": {
-    "beforeBuildCommand": "bun run build",
-    "beforeDevCommand": "bun run dev",
+    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
     "frontendDist": "../build"
   },
@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://wabi.chat wss://wabi.chat https://*.giphy.com; img-src 'self' https: data: blob:; media-src 'self' blob:; font-src 'self' data:"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://wabi.chat wss://wabi.chat https://*.giphy.com http://localhost:3000 http://127.0.0.1:3000 ws://localhost:3000 ws://127.0.0.1:3000; img-src 'self' https: data: blob: http://localhost:3000 http://127.0.0.1:3000; media-src 'self' blob: http://localhost:3000 http://127.0.0.1:3000; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; font-src 'self' data:"
     }
   },
   "bundle": {

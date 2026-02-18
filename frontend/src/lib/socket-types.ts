@@ -2,6 +2,12 @@ export interface FileAttachment {
   fileUrl: string;
   fileName: string;
   fileSize: number;
+  attachmentEncryption?: {
+    scheme: 'dm-e2ee-v1';
+    iv: string;
+    mimeType?: string;
+    originalSize?: number;
+  };
 }
 
 export interface Message {
@@ -10,7 +16,7 @@ export interface Message {
   userId: string;
   text: string;
   timestamp: number;
-  type: 'text' | 'gif' | 'file' | 'emoji';
+  type: 'text' | 'gif' | 'file' | 'emoji' | 'role_gate';
   gifUrl?: string;
   emojiUrl?: string;
   emojiName?: string;
@@ -18,6 +24,12 @@ export interface Message {
   fileName?: string;
   fileSize?: number;
   files?: FileAttachment[];
+  attachmentEncryption?: {
+    scheme: 'dm-e2ee-v1';
+    iv: string;
+    mimeType?: string;
+    originalSize?: number;
+  };
   isPinned?: boolean;
   isEdited?: boolean;
   encrypted?: boolean;
@@ -30,10 +42,13 @@ export interface Message {
 export interface Emoji {
   id: string;
   name: string;
+  displayName?: string;
+  artist?: string;
   url: string;
   category: string;
   isCustom: boolean;
   type?: 'emoji' | 'sticker';
+  source?: 'default' | 'openmoji' | 'custom';
 }
 
 export interface User {
@@ -61,12 +76,21 @@ export interface Channel {
   id: string;
   name: string;
   description?: string;
+  minRole?: string;
   createdAt: number;
-  type?: 'public' | 'dm' | 'group';
+  type?: 'text' | 'voice' | 'dm' | 'group' | 'public' | 'thread_public' | 'thread_private';
+  isBreakout?: boolean;
+  breakoutIndex?: number;
   members?: string[];
   otherUser?: User;
   memberUsers?: User[];
   avatar?: string | null;
+  parentChannelId?: string;
+  parentMessageId?: string;
+  threadArchived?: boolean;
+  threadLocked?: boolean;
+  threadAutoArchiveMinutes?: number;
+  threadLastActivityAt?: number;
   autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
   isTemporary?: boolean;
   persistMessages?: boolean;

@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { browser } from '$app/environment';
+import { isDesktopTauri, isTauriRuntime } from './tauri-platform';
 
 export interface MediaRuntimeCapabilities {
 	supports_native_audio_pipeline: boolean;
@@ -21,7 +21,7 @@ export interface SrtGatewayRuntimeState {
 }
 
 function isTauriAvailable(): boolean {
-	return browser && Boolean((window as Window & { __TAURI_CORE__?: unknown }).__TAURI_CORE__);
+	return isTauriRuntime();
 }
 
 export async function getTauriMediaCapabilities(): Promise<MediaRuntimeCapabilities | null> {
@@ -64,7 +64,7 @@ export async function getTauriSrtGatewayState(): Promise<SrtGatewayRuntimeState 
 }
 
 export async function startTauriSrtGatewaySimulation(): Promise<SrtGatewayRuntimeState | null> {
-	if (!isTauriAvailable()) return null;
+	if (!isDesktopTauri()) return null;
 	try {
 		return await invoke<SrtGatewayRuntimeState>('start_srt_gateway_simulation');
 	} catch (error) {
@@ -74,7 +74,7 @@ export async function startTauriSrtGatewaySimulation(): Promise<SrtGatewayRuntim
 }
 
 export async function stopTauriSrtGatewaySimulation(): Promise<SrtGatewayRuntimeState | null> {
-	if (!isTauriAvailable()) return null;
+	if (!isDesktopTauri()) return null;
 	try {
 		return await invoke<SrtGatewayRuntimeState>('stop_srt_gateway_simulation');
 	} catch (error) {

@@ -30,6 +30,7 @@
 	// Drag and drop state
 	let draggingTodo: Todo | null = null;
 	let dragOverColumn: TodoStatus | null = null;
+	let suppressCardClick = false;
 
 	// Modal state
 	let showAddModal = false;
@@ -44,7 +45,6 @@
 	let formDueDate = '';
 	let formAssigneeId: number | null = null;
 	let willSign = false;
-	let formVisibility: 'public' | 'private' = 'public';
 
 	// User and assignee state
 	let registeredUsers: RegisteredUser[] = [];
@@ -115,17 +115,29 @@
 	let showRightScroll = false;
 
 	// Drag handlers
-	function handleDragStart(todo: Todo) {
+	function handleDragStart(e: DragEvent, todo: Todo) {
+		if (isReadOnly) return;
 		draggingTodo = todo;
+		suppressCardClick = true;
+		if (e.dataTransfer) {
+			e.dataTransfer.effectAllowed = 'move';
+			e.dataTransfer.setData('text/plain', todo.id);
+		}
 	}
 
 	function handleDragEnd() {
 		draggingTodo = null;
 		dragOverColumn = null;
+		setTimeout(() => {
+			suppressCardClick = false;
+		}, 0);
 	}
 
 	function handleDragOver(e: DragEvent, status: TodoStatus) {
 		e.preventDefault();
+		if (e.dataTransfer) {
+			e.dataTransfer.dropEffect = 'move';
+		}
 		dragOverColumn = status;
 	}
 
@@ -197,7 +209,11 @@
 		}
 	}
 
-	function handleDrop(status: TodoStatus) {
+	function handleDrop(e: DragEvent, status: TodoStatus) {
+		e.preventDefault();
+		e.stopPropagation();
+		if (isReadOnly) return;
+
 		if (draggingTodo && draggingTodo.status !== status) {
 			updateTodo(draggingTodo.id, {
 				status,
@@ -206,6 +222,11 @@
 		}
 		draggingTodo = null;
 		dragOverColumn = null;
+	}
+
+	function handleCardClick(todo: Todo) {
+		if (suppressCardClick) return;
+		openEditModal(todo);
 	}
 
 	// Modal handlers
@@ -225,7 +246,6 @@
 		formDueDate = todo.dueDate ? new Date(todo.dueDate).toISOString().split('T')[0] : '';
 		formAssigneeId = todo.assignedTo ? parseInt(String(todo.assignedTo), 10) : null;
 		willSign = !!todo.signedBy;
-		formVisibility = todo.visibility ?? 'public';
 		showAddModal = true;
 	}
 
@@ -276,7 +296,6 @@
 		userSearchQuery = '';
 		filteredUsers = registeredUsers;
 		willSign = false;
-		formVisibility = 'public';
 	}
 
 	function handleSubmit() {
@@ -290,9 +309,9 @@
 			dueDate: formDueDate ? new Date(formDueDate).getTime() : undefined,
 			status: targetColumn,
 			assignedTo: formAssigneeId?.toString(),
-			createdBy: $currentUser?.id || 'unknown',
+			createdBy: $currentUser?.dbUserId ? String($currentUser.dbUserId) : ($currentUser?.id || 'unknown'),
 			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined,
-			visibility: formVisibility
+			visibility: willSign ? ('public' as const) : ('private' as const)
 		};
 
 		if (editingTodo) {
@@ -525,7 +544,7 @@
 				class:drag-over={dragOverColumn === column.id}
 				on:dragover={(e) => handleDragOver(e, column.id)}
 				on:dragleave={handleDragLeave}
-				on:drop={() => handleDrop(column.id)}
+				on:drop={(e) => handleDrop(e, column.id)}
 			>
 				<div class="column-header" style="--col-color: {column.color}">
 					<div class="column-title">
@@ -546,9 +565,9 @@
 							class="kanban-card"
 							class:dragging={draggingTodo?.id === todo.id}
 							draggable="true"
-							on:dragstart={() => handleDragStart(todo)}
+							on:dragstart={(e) => handleDragStart(e, todo)}
 							on:dragend={handleDragEnd}
-							on:click={() => openEditModal(todo)}
+							on:click={() => handleCardClick(todo)}
 						>
 							<div class="card-priority" style="background-color: {getPriorityColor(todo.priority)}"></div>
 							<div class="card-content">
@@ -731,21 +750,6 @@
 						<input type="checkbox" bind:checked={willSign} />
 						<span>Sign this task with my username</span>
 					</label>
-				</div>
-
-				<!-- Visibility toggle -->
-				<div class="form-group">
-					<label>Visibility</label>
-					<div class="radio-group">
-						<label class="radio-label">
-							<input type="radio" bind:group={formVisibility} value="public" />
-							<span>Public (visible to collaborators)</span>
-						</label>
-						<label class="radio-label">
-							<input type="radio" bind:group={formVisibility} value="private" />
-							<span>Private (only me)</span>
-						</label>
-					</div>
 				</div>
 
 				<div class="form-actions">
@@ -1665,26 +1669,6 @@
 	}
 
 	.checkbox-label input[type="checkbox"] {
-		cursor: pointer;
-	}
-
-	.radio-group {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		padding: 0.5rem 0;
-	}
-
-	.radio-label {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		cursor: pointer;
-		color: var(--biz-text-secondary, #94a3b8);
-		font-size: 0.95rem;
-	}
-
-	.radio-label input[type="radio"] {
 		cursor: pointer;
 	}
 

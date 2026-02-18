@@ -6,11 +6,123 @@
  *
  * Configuration is loaded from environment variables (VITE_* prefixed).
  */
+import { browser } from '$app/environment';
+import { getServerUrl } from './serverUrl';
 
 interface TurnServerConfig {
 	urls: string[];
 	username: string;
 	credential: string;
+}
+
+interface CachedTurnCredentials {
+	server: string;
+	port: string;
+	useTurns: boolean;
+	username: string;
+	credential: string;
+	expiresAt: number; // unix seconds
+}
+
+const TURN_REFRESH_SKEW_SECONDS = 30;
+let cachedTurnCredentials: CachedTurnCredentials | null = null;
+let inFlightTurnFetch: Promise<void> | null = null;
+
+function buildTurnUrls(server: string, port: string, useTurns: boolean): string[] {
+	const protocol = useTurns ? 'turns' : 'turn';
+	return [
+		`${protocol}:${server}:${port}`,
+		`${protocol}:${server}:${port}?transport=udp`,
+		`${protocol}:${server}:${port}?transport=tcp`
+	];
+}
+
+function hasValidCachedTurnCredentials(): boolean {
+	if (!cachedTurnCredentials) return false;
+	const now = Math.floor(Date.now() / 1000);
+	return cachedTurnCredentials.expiresAt - now > TURN_REFRESH_SKEW_SECONDS;
+}
+
+function getStaticTurnFallback(): TurnServerConfig | null {
+	const server = import.meta.env.VITE_TURN_SERVER;
+	const port = import.meta.env.VITE_TURN_PORT || '3478';
+	const username = import.meta.env.VITE_TURN_USERNAME;
+	const password = import.meta.env.VITE_TURN_PASSWORD;
+	const useTurns = import.meta.env.VITE_USE_TURNS === 'true';
+
+	if (!server || !username || !password) {
+		return null;
+	}
+
+	return {
+		urls: buildTurnUrls(server, port, useTurns),
+		username,
+		credential: password
+	};
+}
+
+async function fetchEphemeralTurnCredentials(): Promise<void> {
+	if (!browser) return;
+
+	const token = localStorage.getItem('authToken');
+	if (!token) return;
+
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 5000);
+	try {
+		const response = await fetch(`${getServerUrl()}/api/media/turn-credentials`, {
+			method: 'GET',
+			headers: {
+				Authorization: `Bearer ${token}`
+			},
+			signal: controller.signal
+		});
+
+		if (!response.ok) {
+			if (response.status !== 401 && response.status !== 503) {
+				console.warn(`[TURN Config] TURN credential endpoint returned ${response.status}`);
+			}
+			return;
+		}
+
+		const payload = await response.json();
+		const turn = payload?.turn;
+		if (!turn) return;
+
+		const server = typeof turn.server === 'string' ? turn.server : import.meta.env.VITE_TURN_SERVER;
+		const port = turn.port ? String(turn.port) : (import.meta.env.VITE_TURN_PORT || '3478');
+		const useTurns = typeof turn.useTurns === 'boolean' ? turn.useTurns : import.meta.env.VITE_USE_TURNS === 'true';
+		const username = typeof turn.username === 'string' ? turn.username : '';
+		const credential = typeof turn.credential === 'string' ? turn.credential : '';
+		const expiresAt = typeof turn.expiresAt === 'number' ? turn.expiresAt : 0;
+
+		if (!server || !username || !credential || !expiresAt) {
+			return;
+		}
+
+		cachedTurnCredentials = {
+			server,
+			port,
+			useTurns,
+			username,
+			credential,
+			expiresAt
+		};
+	} catch (error) {
+		console.warn('[TURN Config] Failed to fetch ephemeral TURN credentials, using fallback if available', error);
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+export async function prefetchTurnCredentials(): Promise<void> {
+	if (hasValidCachedTurnCredentials()) return;
+	if (!inFlightTurnFetch) {
+		inFlightTurnFetch = fetchEphemeralTurnCredentials().finally(() => {
+			inFlightTurnFetch = null;
+		});
+	}
+	await inFlightTurnFetch;
 }
 
 /**
@@ -20,32 +132,22 @@ interface TurnServerConfig {
  * @returns TURN server configuration object or null if not configured
  */
 export function getTurnConfig(): TurnServerConfig | null {
-	const server = import.meta.env.VITE_TURN_SERVER;
-	const port = import.meta.env.VITE_TURN_PORT || '3478';
-	const username = import.meta.env.VITE_TURN_USERNAME;
-	const password = import.meta.env.VITE_TURN_PASSWORD;
-	const useTurns = import.meta.env.VITE_USE_TURNS === 'true';
-
-	// Validate required configuration
-	if (!server || !username || !password) {
-		console.warn('[TURN Config] TURN server not configured. Set VITE_TURN_SERVER, VITE_TURN_USERNAME, and VITE_TURN_PASSWORD in .env');
-		return null;
+	if (hasValidCachedTurnCredentials() && cachedTurnCredentials) {
+		return {
+			urls: buildTurnUrls(cachedTurnCredentials.server, cachedTurnCredentials.port, cachedTurnCredentials.useTurns),
+			username: cachedTurnCredentials.username,
+			credential: cachedTurnCredentials.credential
+		};
 	}
 
-	const protocol = useTurns ? 'turns' : 'turn';
+	const fallback = getStaticTurnFallback();
+	if (fallback) {
+		console.warn('[TURN Config] Using static TURN credentials fallback');
+		return fallback;
+	}
 
-	// Build TURN URLs with different transport options
-	const urls = [
-		`${protocol}:${server}:${port}`,
-		`${protocol}:${server}:${port}?transport=udp`,
-		`${protocol}:${server}:${port}?transport=tcp`
-	];
-
-	return {
-		urls,
-		username,
-		credential: password
-	};
+	console.warn('[TURN Config] TURN server not configured and no ephemeral credentials available');
+	return null;
 }
 
 /**

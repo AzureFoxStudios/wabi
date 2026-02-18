@@ -40,5 +40,10 @@ export interface CustomTheme {
 export interface ThemePreferences {
 	theme_id: string;
 	custom_theme?: CustomTheme | null;
+	uniform_font_enabled?: 0 | 1;
+	uniform_font_family?: string;
+	uniform_font_size?: string;
+	uniform_font_weight?: string;
+	uniform_font_style?: string;
 	updated_at?: number;
 }
