@@ -27,6 +27,18 @@ import { channelMemberRepository } from "./db/repositories/channelMemberReposito
 import { messageRepository } from "./db/repositories/messageRepository.js";
 import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
 import { dispatchWebhookEvent } from "./webhooks/deliveryService.js";
+import {
+  DEFAULT_WORKSPACE_ID,
+  DEFAULT_TEXT_CHANNEL_ID,
+  DEFAULT_VOICE_CHANNEL_ID,
+  DATA_DIR,
+  UPLOADS_DIR,
+  DEFAULT_STATIC_DIR,
+  BUSINESS_DATA_DIR_NAME,
+  ROLES,
+  PRIVILEGED_ROLES,
+  MODERATOR_ROLES,
+} from "./constants.js";
 
 // Helper: get role info for a user (roles, highest role, display color)
 function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: string; roleColor: string | null } {
@@ -570,9 +582,8 @@ function cancelMessageDeletion(messageId: string) {
 }
 
 // Message persistence functions
-const DATA_DIR = '/app/data';
 const MESSAGES_FILE = join(DATA_DIR, 'messages.json');
-const BUSINESS_DATA_DIR = join(DATA_DIR, 'business');
+const BUSINESS_DATA_DIR = join(DATA_DIR, BUSINESS_DATA_DIR_NAME);
 
 // Ensure data directories exist
 if (!existsSync(DATA_DIR)) {
@@ -721,8 +732,7 @@ if (!existsSync(EMOTES_DIR)) {
   mkdirSync(EMOTES_DIR, { recursive: true });
 }
 
-// File upload storage - OUTSIDE build folder to persist across rebuilds
-const UPLOADS_DIR = '/app/uploads';
+// Ensure uploads directory exists (imported from constants.ts)
 if (!existsSync(UPLOADS_DIR)) {
   mkdirSync(UPLOADS_DIR, { recursive: true });
 }

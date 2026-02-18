@@ -56,6 +56,9 @@ async function decryptMessagesForChannel(channelId: string, messages: Message[])
 
 import { handleP2PIncomingOffer, handleP2PAnswer, handleP2PIceCandidate } from './p2pFileTransfer';
 
+/** The base browser tab title. Update this constant if the app is renamed. */
+const APP_TITLE = 'Wabi Chat';
+
 
 // ============================================================================
 // CONNECTION STATE MACHINE
@@ -1329,20 +1332,7 @@ class SocketManager {
 			return n + 1;
 		});
 
-		this.updateBrowserTitle();
-	}
-
-	private updateBrowserTitle(): void {
-		if (!browser) return;
-		const total = get(unreadCount);
-
-		if (total === 0) {
-			document.title = 'Wabi Chat';
-		} else if (total <= 10) {
-			document.title = `(${total}) Wabi Chat`;
-		} else {
-			document.title = '(•) Wabi Chat';
-		}
+		updateBrowserTitle();
 	}
 }
 
@@ -1568,16 +1558,21 @@ export function markChannelAsRead(channelId: string): void {
 	updateBrowserTitle();
 }
 
+/**
+ * Updates the browser tab title to reflect unread message count.
+ * Single source of truth — called by both the SocketManager class and
+ * the public helper functions (markMessagesAsRead, markChannelAsRead).
+ */
 function updateBrowserTitle(): void {
 	if (!browser) return;
 	const total = get(unreadCount);
 
 	if (total === 0) {
-		document.title = 'Wabi Chat';
+		document.title = APP_TITLE;
 	} else if (total <= 10) {
-		document.title = `(${total}) Wabi Chat`;
+		document.title = `(${total}) ${APP_TITLE}`;
 	} else {
-		document.title = '(•) Wabi Chat';
+		document.title = `(•) ${APP_TITLE}`;
 	}
 }
 

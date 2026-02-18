@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
+import { DEFAULT_WORKSPACE_ID } from '../constants.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -254,21 +255,21 @@ function seedDefaultRoles() {
 	);
 
 	for (const role of defaultRoles) {
-		insertRole.run(role.role_name, 'default-workspace', role.display_name, role.priority, role.color, role.is_hoisted);
-		updateDisplayName.run(role.display_name, role.role_name, 'default-workspace');
+		insertRole.run(role.role_name, DEFAULT_WORKSPACE_ID, role.display_name, role.priority, role.color, role.is_hoisted);
+		updateDisplayName.run(role.display_name, role.role_name, DEFAULT_WORKSPACE_ID);
 	}
 
 	// Auto-assign owner to the first registered user if no owner exists
 	const ownerExists = db.prepare(
-		"SELECT 1 FROM user_roles WHERE role_name = 'owner' AND workspace_id = 'default-workspace' LIMIT 1"
-	).get();
+		`SELECT 1 FROM user_roles WHERE role_name = 'owner' AND workspace_id = ? LIMIT 1`
+	).get(DEFAULT_WORKSPACE_ID);
 
 	if (!ownerExists) {
 		const firstUser = db.prepare('SELECT user_id FROM users ORDER BY user_id ASC LIMIT 1').get() as { user_id: number } | undefined;
 		if (firstUser) {
 			db.prepare(
-				"INSERT OR IGNORE INTO user_roles (user_id, role_name, workspace_id) VALUES (?, 'owner', 'default-workspace')"
-			).run(firstUser.user_id);
+				`INSERT OR IGNORE INTO user_roles (user_id, role_name, workspace_id) VALUES (?, 'owner', ?)`
+			).run(firstUser.user_id, DEFAULT_WORKSPACE_ID);
 			console.log(`[Database] Auto-assigned owner role to user_id ${firstUser.user_id}`);
 		}
 	}

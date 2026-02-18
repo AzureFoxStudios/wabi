@@ -27,7 +27,10 @@ ARG OPENMOJI_VERSION=15.1.0
 ARG OPENMOJI_72_SHA256=
 ENV OPENMOJI_VERSION=$OPENMOJI_VERSION
 ENV OPENMOJI_72_SHA256=$OPENMOJI_72_SHA256
-RUN chmod +x ./scripts/fetch-openmoji.sh \
+# Strip Windows CRLF line-endings that Git may introduce on Windows hosts,
+# then make executable and run.  This is a no-op on files already in LF.
+RUN sed -i 's/\r$//' ./scripts/fetch-openmoji.sh \
+  && chmod +x ./scripts/fetch-openmoji.sh \
   && ./scripts/fetch-openmoji.sh /app/openmoji/png
 
 # Build the backend with ESM format to support import.meta
