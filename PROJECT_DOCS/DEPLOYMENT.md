@@ -374,6 +374,18 @@ sudo systemctl start wabi
 - Health check: `curl http://localhost:8080/health`
 - CORS check: `curl http://localhost:8080/health/cors`
 
+## Relay Network (Phase 1)
+
+Relay nodes for file delivery are implemented in-repo and can be rolled out separately from core app deploys.
+
+- Relay node code: `relay-node/`
+- Relay runbook: `PROJECT_DOCS/RELAY_PHASE1_SERVER_RUNBOOK.md`
+- Relay admin helper: `scripts/relay-admin.sh`
+- Relay validation helper: `scripts/relay-phase1-check.mjs`
+- Frontend toggle: `VITE_ENABLE_RELAYS=true`
+
+SRT media gateway remains Phase 2.
+
 ---
 
 **Last updated**: 2026-02-18

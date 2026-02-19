@@ -3,6 +3,52 @@ import { relayRepository } from '../db/repositories/relayRepository.js';
 import { verifyToken } from '../auth/jwt.js';
 import { sessionRepository } from '../db/repositories/sessionRepository.js';
 
+interface RateBucket {
+	count: number;
+	windowStartMs: number;
+}
+
+const rateBuckets = new Map<string, RateBucket>();
+let lastRateCleanupMs = 0;
+
+function getClientIp(req: IncomingMessage): string {
+	const xfwd = req.headers['x-forwarded-for'];
+	if (typeof xfwd === 'string' && xfwd.trim()) {
+		return xfwd.split(',')[0].trim();
+	}
+	return req.socket.remoteAddress || 'unknown';
+}
+
+function isRateLimited(
+	req: IncomingMessage,
+	keyPrefix: string,
+	maxRequests: number,
+	windowMs: number
+): boolean {
+	const ip = getClientIp(req);
+	const key = `${keyPrefix}:${ip}`;
+	const now = Date.now();
+
+	if (now - lastRateCleanupMs > 5 * 60_000) {
+		for (const [bucketKey, bucket] of rateBuckets.entries()) {
+			if (now - bucket.windowStartMs > 10 * windowMs) {
+				rateBuckets.delete(bucketKey);
+			}
+		}
+		lastRateCleanupMs = now;
+	}
+
+	const existing = rateBuckets.get(key);
+
+	if (!existing || now - existing.windowStartMs >= windowMs) {
+		rateBuckets.set(key, { count: 1, windowStartMs: now });
+		return false;
+	}
+
+	existing.count += 1;
+	return existing.count > maxRequests;
+}
+
 // Parse JSON body (same pattern as themeRoutes.ts)
 function parseBody(req: IncomingMessage): Promise<Record<string, any>> {
 	return new Promise((resolve, reject) => {
@@ -71,6 +117,12 @@ export async function handleGetRelays(req: IncomingMessage, res: ServerResponse)
 // POST /api/relay/register — Relay self-registers with origin
 export async function handleRelayRegister(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
+		if (isRateLimited(req, 'relay-register', 15, 60_000)) {
+			res.writeHead(429, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Too many relay registration requests. Try again shortly.' }));
+			return;
+		}
+
 		let body: any;
 		try {
 			body = await parseBody(req);
@@ -89,11 +141,22 @@ export async function handleRelayRegister(req: IncomingMessage, res: ServerRespo
 		}
 
 		// Validate URL format
+		let parsedUrl: URL;
 		try {
-			new URL(url);
+			parsedUrl = new URL(url);
 		} catch {
 			res.writeHead(400, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Invalid URL format' }));
+			return;
+		}
+		if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Relay URL must use http or https' }));
+			return;
+		}
+		if (name.length > 120 || region.length > 64) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'name or region too long' }));
 			return;
 		}
 
@@ -134,6 +197,12 @@ export async function handleRelayRegister(req: IncomingMessage, res: ServerRespo
 // POST /api/relay/health — Authenticated relay reports health
 export async function handleRelayHealth(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
+		if (isRateLimited(req, 'relay-health', 240, 60_000)) {
+			res.writeHead(429, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Too many relay health updates. Slow down heartbeat interval.' }));
+			return;
+		}
+
 		const relayId = await authenticateRelay(req);
 		if (!relayId) {
 			res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -242,5 +311,40 @@ export async function handleGetAllRelays(req: IncomingMessage, res: ServerRespon
 		console.error('[Relay] Admin list error:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ error: 'Failed to fetch relays' }));
+	}
+}
+
+// DELETE /api/relay/:relayId â€” Admin delete relay
+export async function handleRelayDelete(req: IncomingMessage, res: ServerResponse, relayId: number): Promise<void> {
+	try {
+		const userId = getAuthenticatedUserId(req);
+		if (!userId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Authentication required' }));
+			return;
+		}
+
+		const adminIds = (process.env.RELAY_ADMIN_USER_IDS || '1').split(',').map(id => parseInt(id.trim(), 10));
+		if (!adminIds.includes(userId)) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Admin access required' }));
+			return;
+		}
+
+		const relay = relayRepository.findById(relayId);
+		if (!relay) {
+			res.writeHead(404, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Relay not found' }));
+			return;
+		}
+
+		relayRepository.delete(relayId);
+		console.log(`[Relay] Relay deleted by admin: ${relay.name} (${relay.url})`);
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ success: true, relay_id: relayId, deleted: true }));
+	} catch (error) {
+		console.error('[Relay] Delete error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to delete relay' }));
 	}
 }

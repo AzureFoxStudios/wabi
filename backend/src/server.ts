@@ -17,7 +17,7 @@ import { guestCodeRepository } from "./db/repositories/guestCodeRepository.js";
 import { verifyToken } from "./auth/jwt.js";
 import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings, handleGetPublicKey, handleStoreEncryptionKeys } from "./api/authRoutes.js";
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
-import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApprove, handleGetAllRelays } from "./api/relayRoutes.js";
+import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApprove, handleGetAllRelays, handleRelayDelete } from "./api/relayRoutes.js";
 import { handleGetMediaRuntime, handleGetTurnCredentials, handleMediaGatewayHeartbeat } from "./api/mediaRoutes.js";
 import { handleCreateWebhook, handleListWebhooks, handleDeleteWebhook, handleListWebhookDeliveries } from "./api/webhookRoutes.js";
 import { relayRepository } from "./db/repositories/relayRepository.js";
@@ -2218,6 +2218,12 @@ server.on('request', async (req, res) => {
 
   if (url.pathname === "/api/relay/approve" && req.method === "POST") {
     await handleRelayApprove(req, res);
+    return;
+  }
+
+  const relayDeleteMatch = url.pathname.match(/^\/api\/relay\/(\d+)$/);
+  if (relayDeleteMatch && req.method === "DELETE") {
+    await handleRelayDelete(req, res, parseInt(relayDeleteMatch[1], 10));
     return;
   }
 

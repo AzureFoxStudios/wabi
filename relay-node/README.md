@@ -7,6 +7,8 @@ Current capabilities:
 - auto-registration with origin via `/api/relay/register`
 - periodic health pings via `/api/relay/health`
 - cached proxy for file paths (default: `/uploads/`, `/emotes/`)
+- cache budget enforcement (max items + max bytes + TTL pruning)
+- graceful shutdown on `SIGINT` / `SIGTERM`
 
 This is Phase 1 (file relay network). SRT media gateway is Phase 2.
 
@@ -33,6 +35,12 @@ Or:
 npm start
 ```
 
+Docker Compose:
+```bash
+cp relay-node.env.example .env
+docker compose up -d --build
+```
+
 ## First Registration Flow
 
 On first startup, relay node calls origin `POST /api/relay/register`.
@@ -47,7 +55,15 @@ If origin returns `409` duplicate URL:
 - Health endpoint: `GET /health`
 - Heartbeat interval default: 60s
 - Cache is local disk-based and path-prefix scoped
+- Cache prune runs periodically and keeps data under configured budgets
 - CORS headers are added (`Access-Control-Allow-Origin: *`) for browser file fetches
+
+Useful env controls:
+- `RELAY_MAX_CACHE_TOTAL_BYTES`
+- `RELAY_MAX_CACHE_ITEMS`
+- `RELAY_CACHE_CLEAN_INTERVAL_MS`
+- `RELAY_ORIGIN_FETCH_TIMEOUT_MS`
+- `RELAY_CORS_ALLOW_ORIGIN`
 
 ## Recommended Reverse Proxy
 

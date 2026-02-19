@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { extname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -16,11 +16,16 @@ const STATE_FILE = join(STATE_DIR, 'registration.json');
 const HEARTBEAT_INTERVAL_MS = Number(process.env.RELAY_HEARTBEAT_INTERVAL_MS || 60000);
 const CACHE_TTL_SECONDS = Number(process.env.RELAY_CACHE_TTL_SECONDS || 3600);
 const MAX_CACHE_BYTES = Number(process.env.RELAY_MAX_CACHE_BYTES || 50 * 1024 * 1024);
+const MAX_CACHE_TOTAL_BYTES = Number(process.env.RELAY_MAX_CACHE_TOTAL_BYTES || 2 * 1024 * 1024 * 1024);
+const MAX_CACHE_ITEMS = Number(process.env.RELAY_MAX_CACHE_ITEMS || 5000);
+const CACHE_CLEAN_INTERVAL_MS = Number(process.env.RELAY_CACHE_CLEAN_INTERVAL_MS || 5 * 60 * 1000);
+const ORIGIN_FETCH_TIMEOUT_MS = Number(process.env.RELAY_ORIGIN_FETCH_TIMEOUT_MS || 20_000);
 const CACHE_PATH_PREFIXES = (process.env.RELAY_CACHE_PATH_PREFIXES || '/uploads/,/emotes/')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
 const STARTUP_DELAY_MS = Number(process.env.RELAY_STARTUP_DELAY_MS || 3000);
+const CORS_ALLOW_ORIGIN = process.env.RELAY_CORS_ALLOW_ORIGIN || '*';
 
 const bandwidth = parseOptionalInt(process.env.RELAY_BANDWIDTH_MBPS);
 const storageGb = parseOptionalInt(process.env.RELAY_STORAGE_GB);
@@ -42,6 +47,19 @@ const state = {
   relayId: null,
   apiKey: null,
   registeredAt: null
+};
+
+const runtimeStats = {
+  cacheHits: 0,
+  cacheMisses: 0,
+  cacheWrites: 0,
+  cacheWriteErrors: 0,
+  cacheEvictions: 0,
+  proxiedRequests: 0,
+  proxiedErrors: 0,
+  heartbeatsOk: 0,
+  heartbeatsFailed: 0,
+  registrationAttempts: 0
 };
 
 function parseOptionalInt(value) {
@@ -84,7 +102,7 @@ function guessExtension(contentType = '') {
 }
 
 function setCorsHeaders(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', CORS_ALLOW_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,Range,If-None-Match,If-Modified-Since');
 }
@@ -127,6 +145,7 @@ async function saveState() {
 
 async function registerRelayIfNeeded() {
   if (state.relayId && state.apiKey) return;
+  runtimeStats.registrationAttempts += 1;
 
   const payload = {
     url: PUBLIC_URL,
@@ -202,9 +221,11 @@ async function sendHeartbeat() {
   if (!response.ok) {
     const body = await safeJson(response);
     console.warn(`[relay-node] Heartbeat failed (${response.status}): ${body?.error || response.statusText}`);
+    runtimeStats.heartbeatsFailed += 1;
     return;
   }
 
+  runtimeStats.heartbeatsOk += 1;
   console.log('[relay-node] Heartbeat ok.');
 }
 
@@ -227,6 +248,79 @@ async function writeCache(cachePaths, metadata, buffer) {
   await writeFile(cachePaths.metaPath, JSON.stringify(metadata), 'utf8');
 }
 
+async function getCacheInventory() {
+  const entries = await readdir(CACHE_DIR, { withFileTypes: true });
+  const bodyFiles = entries
+    .filter((entry) => entry.isFile() && !entry.name.endsWith('.meta.json') && !entry.name.endsWith('.tmp'))
+    .map((entry) => entry.name);
+
+  const files = [];
+  let totalBytes = 0;
+
+  for (const fileName of bodyFiles) {
+    const bodyPath = join(CACHE_DIR, fileName);
+    const key = fileName.replace(extname(fileName), '');
+    const metaPath = join(CACHE_DIR, `${key}.meta.json`);
+    let metadata = null;
+    try {
+      metadata = JSON.parse(await readFile(metaPath, 'utf8'));
+    } catch {
+      metadata = null;
+    }
+
+    let fileStat;
+    try {
+      fileStat = await stat(bodyPath);
+    } catch {
+      continue;
+    }
+    totalBytes += fileStat.size;
+    files.push({
+      key,
+      bodyPath,
+      metaPath,
+      size: fileStat.size,
+      mtimeMs: fileStat.mtimeMs,
+      expiresAt: metadata?.expiresAt || 0
+    });
+  }
+
+  files.sort((a, b) => a.mtimeMs - b.mtimeMs);
+  return { files, totalBytes };
+}
+
+async function evictCacheFile(fileInfo, reason) {
+  await Promise.allSettled([
+    rm(fileInfo.bodyPath, { force: true }),
+    rm(fileInfo.metaPath, { force: true })
+  ]);
+  runtimeStats.cacheEvictions += 1;
+  console.log(`[relay-node] Cache evict (${reason}): ${fileInfo.key}`);
+}
+
+async function pruneCache() {
+  const now = Date.now();
+  const inventory = await getCacheInventory();
+  let { files, totalBytes } = inventory;
+
+  // Remove expired entries first.
+  for (const fileInfo of [...files]) {
+    if (fileInfo.expiresAt > 0 && now > fileInfo.expiresAt) {
+      await evictCacheFile(fileInfo, 'expired');
+      files = files.filter((f) => f.key !== fileInfo.key);
+      totalBytes -= fileInfo.size;
+    }
+  }
+
+  // Evict oldest until within size/item budgets.
+  while (files.length > MAX_CACHE_ITEMS || totalBytes > MAX_CACHE_TOTAL_BYTES) {
+    const oldest = files.shift();
+    if (!oldest) break;
+    await evictCacheFile(oldest, 'budget');
+    totalBytes -= oldest.size;
+  }
+}
+
 function shouldAttemptCache(pathname, reqMethod, upstreamStatus, contentLength, hasRangeHeader) {
   if (reqMethod !== 'GET') return false;
   if (upstreamStatus !== 200) return false;
@@ -237,6 +331,7 @@ function shouldAttemptCache(pathname, reqMethod, upstreamStatus, contentLength, 
 }
 
 async function proxyRequest(req, res, url) {
+  runtimeStats.proxiedRequests += 1;
   const upstreamUrl = `${ORIGIN_BASE_URL}${url.pathname}${url.search}`;
   const requestHeaders = {
     'Accept': req.headers.accept || '*/*',
@@ -245,10 +340,18 @@ async function proxyRequest(req, res, url) {
     'Range': req.headers.range || ''
   };
 
-  const upstream = await fetch(upstreamUrl, {
-    method: req.method,
-    headers: requestHeaders
-  });
+  const abort = new AbortController();
+  const timeout = setTimeout(() => abort.abort(), ORIGIN_FETCH_TIMEOUT_MS);
+  let upstream;
+  try {
+    upstream = await fetch(upstreamUrl, {
+      method: req.method,
+      headers: requestHeaders,
+      signal: abort.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const headersToForward = ['content-type', 'content-length', 'etag', 'last-modified', 'cache-control', 'accept-ranges'];
   for (const key of headersToForward) {
@@ -292,8 +395,11 @@ async function proxyRequest(req, res, url) {
     };
     try {
       await writeCache(cachePaths, metadata, buffer);
+      runtimeStats.cacheWrites += 1;
       console.log(`[relay-node] Cache write: ${url.pathname}`);
+      await pruneCache();
     } catch (error) {
+      runtimeStats.cacheWriteErrors += 1;
       console.warn(`[relay-node] Cache write failed for ${url.pathname}:`, error.message);
     }
   }
@@ -312,6 +418,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === '/health') {
+    const inventory = await getCacheInventory().catch(() => ({ files: [], totalBytes: 0 }));
     setCorsHeaders(res);
     res.setHeader('Content-Type', 'application/json');
     res.statusCode = 200;
@@ -321,7 +428,14 @@ const server = createServer(async (req, res) => {
       region: RELAY_REGION,
       relayId: state.relayId,
       registered: Boolean(state.relayId && state.apiKey),
-      uptimeSeconds: Math.floor(process.uptime())
+      uptimeSeconds: Math.floor(process.uptime()),
+      cache: {
+        items: inventory.files.length,
+        totalBytes: inventory.totalBytes,
+        maxItems: MAX_CACHE_ITEMS,
+        maxTotalBytes: MAX_CACHE_TOTAL_BYTES
+      },
+      stats: runtimeStats
     }));
     return;
   }
@@ -339,6 +453,7 @@ const server = createServer(async (req, res) => {
     const cached = await readCache(cachePaths.metaPath, cachePaths.bodyPath).catch(() => null);
 
     if (cached && isCacheablePath(url.pathname) && !req.headers.range) {
+      runtimeStats.cacheHits += 1;
       setCorsHeaders(res);
       res.setHeader('Content-Type', cached.meta.contentType || 'application/octet-stream');
       if (cached.meta.etag) res.setHeader('ETag', cached.meta.etag);
@@ -355,8 +470,10 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    runtimeStats.cacheMisses += 1;
     await proxyRequest(req, res, url);
   } catch (error) {
+    runtimeStats.proxiedErrors += 1;
     setCorsHeaders(res);
     res.statusCode = 502;
     res.setHeader('Content-Type', 'application/json');
@@ -364,9 +481,21 @@ const server = createServer(async (req, res) => {
   }
 });
 
+function shutdown(signal) {
+  console.log(`[relay-node] Received ${signal}, shutting down...`);
+  server.close(() => {
+    console.log('[relay-node] HTTP server closed.');
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+
 async function main() {
   await ensureDirs();
   await loadState();
+  await pruneCache().catch((error) => {
+    console.warn('[relay-node] Initial cache prune failed:', error.message);
+  });
 
   if (STARTUP_DELAY_MS > 0) {
     await delay(STARTUP_DELAY_MS);
@@ -388,13 +517,25 @@ async function main() {
     }
   }, HEARTBEAT_INTERVAL_MS).unref();
 
+  setInterval(async () => {
+    try {
+      await pruneCache();
+    } catch (error) {
+      console.warn('[relay-node] Cache prune failed:', error.message);
+    }
+  }, CACHE_CLEAN_INTERVAL_MS).unref();
+
   server.listen(PORT, HOST, () => {
     console.log(`[relay-node] Listening on http://${HOST}:${PORT}`);
     console.log(`[relay-node] Origin: ${ORIGIN_BASE_URL}`);
     console.log(`[relay-node] Public URL: ${PUBLIC_URL}`);
     console.log(`[relay-node] Cache prefixes: ${CACHE_PATH_PREFIXES.join(', ')}`);
+    console.log(`[relay-node] Cache budgets: items<=${MAX_CACHE_ITEMS} totalBytes<=${MAX_CACHE_TOTAL_BYTES}`);
   });
 }
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 main().catch((error) => {
   console.error('[relay-node] Fatal error:', error);

@@ -41,6 +41,11 @@ Required variables:
 node --env-file=.env src/server.mjs
 ```
 
+Or with Docker:
+```bash
+docker compose -f relay-node/docker-compose.yml up -d --build
+```
+
 4. Verify relay health:
 ```bash
 curl -i https://relay-volunteer-domain/health
@@ -61,6 +66,8 @@ export WABI_ORIGIN_URL=https://YOUR_ORIGIN
 export WABI_ADMIN_TOKEN=YOUR_ADMIN_BEARER_TOKEN
 ./scripts/relay-admin.sh list
 ./scripts/relay-admin.sh approve 3
+./scripts/relay-admin.sh list-pending
+./scripts/relay-admin.sh delete 3
 ```
 
 After approval, relay appears in public `GET /api/relays`.
@@ -80,6 +87,14 @@ curl -I https://relay-volunteer-domain/uploads/<known-file>
 3. Frontend behavior checks:
 - Relay enabled: downloads resolve to relay URL.
 - Relay unavailable: fallback to origin URL.
+
+4. Run validation helper:
+```bash
+WABI_ORIGIN_URL=https://YOUR_ORIGIN \
+WABI_ADMIN_TOKEN=YOUR_ADMIN_BEARER_TOKEN \
+RELAY_EXPECTED_PUBLIC_URL=https://relay-volunteer-domain \
+node scripts/relay-phase1-check.mjs
+```
 
 ## 5. Caddy Example (relay server)
 
