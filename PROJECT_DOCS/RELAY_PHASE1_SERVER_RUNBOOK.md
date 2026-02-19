@@ -111,7 +111,49 @@ relay-volunteer-domain {
 3. Stop relay nodes.
 4. Existing clients will fall back to origin file URLs.
 
-## 7. Phase 2 Hand-off (SRT)
+## 7. Production Readiness Checklist
+
+### Required for Production Deployment
+
+**Backend Requirements:**
+- ✅ Use Node 20-slim or later for better-sqlite3 compatibility
+  - See backend/Dockerfile commit bc35ffe: "Fix backend Docker build: use Node 20-slim and rebuild native modules"
+  - Ensures native module compilation (better-sqlite3) works correctly
+  - Build tools (build-essential, python3) required in Dockerfile
+
+**Relay Configuration:**
+- ✅ RELAY_ORIGIN_URL must use HTTPS (e.g., `https://wabi.example.com`)
+- ✅ RELAY_PUBLIC_URL must use HTTPS (e.g., `https://relay-us-west.example.com`)
+- ✅ Both URLs must be publicly reachable over HTTPS
+
+**Admin Approval Workflow:**
+- ✅ MUST use API admin flow via `scripts/relay-admin.sh` — NOT direct database updates
+  - Set environment: `export WABI_ORIGIN_URL=https://origin` and `export WABI_ADMIN_TOKEN=<token>`
+  - List pending: `./scripts/relay-admin.sh list-pending`
+  - Approve: `./scripts/relay-admin.sh approve <relay_id>`
+  - Verify: `./scripts/relay-admin.sh list-active`
+- ❌ DO NOT use direct SQLite updates (`UPDATE relays SET approved=1`) — testing only
+  - This bypasses admin authentication; production requires proper auth flow
+
+**Frontend Deployment:**
+- ✅ Set `VITE_ENABLE_RELAYS=true` in build environment
+- ✅ Rebuild/redeploy frontend after enabling
+- ✅ Verify active relay list: `curl -s https://YOUR_ORIGIN/api/relays`
+
+### Creating First Admin User
+
+The first account created (user ID 1) automatically becomes admin. To create an admin account:
+
+```bash
+# 1. Visit web UI and create account — first user is admin
+# 2. Log in and copy JWT token from browser localStorage ('token' key)
+# 3. Use token in admin scripts:
+export WABI_ADMIN_TOKEN=<token>
+export WABI_ORIGIN_URL=https://your-origin
+./scripts/relay-admin.sh list-pending
+```
+
+## 8. Phase 2 Hand-off (SRT)
 
 Phase 2 requires a separate server-side media gateway track:
 - gateway service deployment
