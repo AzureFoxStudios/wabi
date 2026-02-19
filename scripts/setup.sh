@@ -280,13 +280,8 @@ ok ".env"
 # Write Caddyfile
 # ---------------------------------------------------------------------------
 if $USE_DOMAIN; then
-  CADDY_ADDRESS="${DOMAIN}"
-else
-  CADDY_ADDRESS=":80"
-fi
-
-cat > "${WABI_DIR}/Caddyfile" <<CADDYFILE
-${CADDY_ADDRESS} {
+  cat > "${WABI_DIR}/Caddyfile" <<CADDYFILE
+${DOMAIN} {
     # API, WebSocket, uploads, and health checks -> backend
     @backend {
         path /socket.io/* /api/* /uploads/* /health /health/*
@@ -296,14 +291,37 @@ ${CADDY_ADDRESS} {
     # Everything else -> frontend
     reverse_proxy localhost:3000
 }
+
+gateway.${DOMAIN} {
+    # SRT gateway control-plane (Phase 2 MVP)
+    reverse_proxy localhost:8095
+}
 CADDYFILE
 
-if $USE_DOMAIN; then
   ok "Caddyfile (HTTPS via ${DOMAIN})"
+  ok "Gateway host added (HTTPS via gateway.${DOMAIN})"
 else
-  ok "Caddyfile (HTTP-only — no domain)"
-fi
+  cat > "${WABI_DIR}/Caddyfile" <<CADDYFILE
+:80 {
+    # API, WebSocket, uploads, and health checks -> backend
+    @backend {
+        path /socket.io/* /api/* /uploads/* /health /health/*
+    }
+    reverse_proxy @backend localhost:8080
 
+    # Everything else -> frontend
+    reverse_proxy localhost:3000
+}
+
+# Optional SRT gateway host (domain required for clean HTTPS):
+# gateway.example.com {
+#     reverse_proxy localhost:8095
+# }
+CADDYFILE
+
+  ok "Caddyfile (HTTP-only - no domain)"
+  warn "SRT gateway host block left as template (set a domain, then enable gateway.example.com)."
+fi
 # ---------------------------------------------------------------------------
 # Caddy installation helper
 # ---------------------------------------------------------------------------
