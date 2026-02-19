@@ -6,11 +6,61 @@ Wabi Chat is designed to be self-deployable on bare-metal Linux. This guide cove
 
 ## Prerequisites
 
-- Docker & Docker Compose
-- Caddy (as reverse proxy)
-- Linux server with domain name
+- Docker & Docker Compose (v2)
+- A Linux server (VPS recommended) with a public IP
+- A domain name pointed at your server (recommended for HTTPS)
+- Caddy (reverse proxy — the setup wizard can install it for you)
 
-## Quick Start
+## Quick Start (Setup Wizard)
+
+The fastest way to get running. The wizard asks a few questions, generates your config, and tells you exactly what to do.
+
+```bash
+git clone https://github.com/AzureFoxStudios/wabi.git
+cd wabi
+./scripts/setup.sh
+```
+
+The wizard will:
+- Check that Docker is installed
+- Ask for your domain (or fall back to IP-only)
+- Detect your public IP
+- Generate secure secrets automatically
+- Write your `.env` and `Caddyfile`
+- Offer to install Caddy if it's missing
+- Print step-by-step instructions to start everything
+
+After the wizard finishes, follow its instructions (typically: start Caddy, then `docker compose up -d --build`).
+
+## Normal vs Community
+
+| Mode | Database | Compose files | Typical use |
+|---|---|---|---|
+| `normal` | SQLite (`DB_MODE=sqlite`) | `docker-compose.yml` | Single-host default deployment, simplest operations |
+| `community` | Postgres (`DB_MODE=postgres`) | `docker-compose.yml` + `docker-compose.community.yml` | Multi-node/community deployments needing Postgres durability |
+
+`scripts/setup.sh` remains the first-run entry point and generates a default `.env` for `normal` mode on Node + SQLite.
+
+## Runtime Matrix
+
+Runtime is independent from deployment mode:
+
+| Combination | Compose invocation |
+|---|---|
+| `normal + node` | `docker compose -f docker-compose.yml up -d --build` |
+| `normal + bun` | `docker compose -f docker-compose.yml -f docker-compose.bun.yml up -d --build` |
+| `community + node` | `docker compose -f docker-compose.yml -f docker-compose.community.yml up -d --build` |
+| `community + bun` | `docker compose -f docker-compose.yml -f docker-compose.community.yml -f docker-compose.bun.yml up -d --build` |
+
+If you use the deploy helper, overlays are selected automatically from environment:
+
+```bash
+WABI_MODE=community WABI_RUNTIME=bun ./scripts/deploy-clean.sh
+```
+
+## Manual Setup
+
+If you prefer to configure things by hand:
 
 ### 1. Clone & Configure
 
@@ -22,93 +72,200 @@ cp .env.example .env
 
 ### 2. Edit `.env` for Your Domain
 
+At minimum, update these values:
+
 ```bash
-# .env
-FRONTEND_URL=https://wabi.chat
-PUBLIC_URL=https://wabi.chat
-ALLOWED_ORIGINS=https://wabi.chat
-NODE_ENV=production
+FRONTEND_URL=https://your-domain.com
+PUBLIC_URL=https://your-domain.com
+ALLOWED_ORIGINS=https://your-domain.com,https://tauri.localhost,tauri://localhost
+
+TURN_EXTERNAL_IP=<your server's public IP>
+TURN_REALM=your-domain.com
+TURN_SHARED_SECRET=<generate with: openssl rand -base64 32>
+
+JWT_SECRET=<generate with: openssl rand -base64 32>
+
+VITE_TURN_SERVER=<your server's public IP>
 ```
 
-Replace `wabi.chat` with your actual domain.
+The `VITE_*` variables are used by Docker Compose as build arguments for the frontend container.
 
-### 3. Start Services
+### 3. Set Up Caddy Reverse Proxy
+
+Copy the example and replace the domain:
+
+```bash
+cp Caddyfile.example Caddyfile
+# Edit Caddyfile — replace YOUR_DOMAIN with your actual domain
+sudo cp Caddyfile /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+The Caddyfile routes requests to the correct Docker container:
+
+```caddyfile
+your-domain.com {
+    # API, WebSocket, uploads, health checks -> backend
+    @backend {
+        path /socket.io/* /api/* /uploads/* /health /health/*
+    }
+    reverse_proxy @backend localhost:8080
+
+    # Everything else -> frontend
+    reverse_proxy localhost:3000
+}
+```
+
+Caddy will automatically obtain an SSL certificate via Let's Encrypt.
+
+**Without a domain** (IP-only, no SSL):
+
+```caddyfile
+:80 {
+    @backend {
+        path /socket.io/* /api/* /uploads/* /health /health/*
+    }
+    reverse_proxy @backend localhost:8080
+    reverse_proxy localhost:3000
+}
+```
+
+### 4. Start Services
+
+```bash
+# With voice/video calling (TURN server):
+docker compose --profile turn up -d --build
+
+# Without TURN:
+docker compose up -d --build
+```
+
+Or use the deploy script for zero-downtime rebuilds:
 
 ```bash
 ./scripts/deploy-clean.sh
 ```
 
-Services:
-- **Backend**: `http://localhost:8080` (internal)
-- **Frontend**: `http://localhost:3000` (internal)
-- **TURN server**: Optional, use `--profile turn` to enable
-
-### 4. Configure Caddy Reverse Proxy
-
-Caddy automatically handles WebSocket upgrades and SSL certificates. Create a `Caddyfile`:
-
-```caddyfile
-wabi.chat {
-  # Serve frontend static files
-  root * /var/www/wabi-frontend
-
-  # Proxy /socket.io to backend (WebSocket)
-  reverse_proxy /socket.io http://localhost:8080 {
-    header_uri -X-Forwarded-Prefix /socket.io
-  }
-
-  # Proxy /api and other endpoints to backend
-  reverse_proxy /api http://localhost:8080
-  reverse_proxy /uploads http://localhost:8080
-  reverse_proxy /emotes http://localhost:8080
-  reverse_proxy /health http://localhost:8080
-
-  # Serve frontend app for all other routes (SPA)
-  try_files {path} /index.html
-}
-```
-
-Or use the auto-generated Caddyfile from your deployment script.
-
-Start Caddy:
-```bash
-caddy run --config Caddyfile
-```
-
-Caddy will:
-- Automatically obtain SSL certificate
-- Forward `Upgrade` and `Connection` headers for WebSocket
-- Proxy all traffic to Docker services
-
 ### 5. Verify Connection
 
-Visit: `https://wabi.chat`
+Visit your domain (e.g. `https://your-domain.com`). The first account you create will be the admin.
 
-Check diagnostics page:
+Check diagnostics:
 ```bash
-curl https://wabi.chat/health/cors
+curl https://your-domain.com/health/cors
 ```
 
 Expected output:
 ```json
 {
-  "allowedOrigins": ["https://wabi.chat"],
+  "allowedOrigins": ["https://your-domain.com"],
   "isAllowed": true,
-  "requestOrigin": "https://wabi.chat",
+  "requestOrigin": "https://your-domain.com",
   "nodeEnv": "production"
 }
 ```
+
+## Domain vs IP-Only
+
+| | Domain | IP-Only |
+|---|---|---|
+| HTTPS | Automatic (Caddy + Let's Encrypt) | Not available |
+| Voice/video calls | Works | Requires HTTPS — won't work without a domain |
+| Screen sharing | Works | Requires HTTPS — won't work without a domain |
+| Setup | Need DNS A record pointing to server | Just use the IP |
+
+**Recommendation**: Use a domain. Even a cheap one works. HTTPS is required for WebRTC features (voice, video, screen sharing).
 
 ## Environment Variables
 
 | Variable | Purpose | Example |
 |----------|---------|---------|
+| `WABI_MODE` | Deployment profile selector (`normal` or `community`) | `normal` |
+| `WABI_RUNTIME` | Runtime selector (`node` or `bun`) | `node` |
+| `DB_MODE` | Backend DB engine selector (`sqlite` or `postgres`) | `sqlite` |
+| `DATABASE_PATH` | SQLite DB path override | `/app/data/chat.db` |
+| `POSTGRES_HOST` | Postgres host (community mode) | `postgres` |
+| `POSTGRES_PORT` | Postgres port | `5432` |
+| `POSTGRES_USER` | Postgres user | `wabi` |
+| `POSTGRES_PASSWORD` | Postgres password | `<secret>` |
+| `POSTGRES_DB` | Postgres database | `wabi` |
+| `DATABASE_URL` | Optional full Postgres DSN override | `postgresql://wabi:secret@postgres:5432/wabi` |
 | `FRONTEND_URL` | Frontend domain (CORS origin) | `https://wabi.chat` |
 | `PUBLIC_URL` | File upload base URL | `https://wabi.chat` |
-| `ALLOWED_ORIGINS` | Explicit CORS whitelist (optional) | `https://wabi.chat` |
+| `ALLOWED_ORIGINS` | CORS whitelist (comma-separated) | `https://wabi.chat,https://tauri.localhost` |
+| `JWT_SECRET` | Auth token signing key | `<random base64>` |
 | `NODE_ENV` | Node environment | `production` |
 | `PORT` | Backend listen port | `8080` |
-| `TURN_*` | WebRTC TURN server config | See `.env.example` |
+| `TURN_EXTERNAL_IP` | Public IP for TURN relay | `203.0.113.10` |
+| `TURN_REALM` | TURN server realm | `your-domain.com` |
+| `TURN_SHARED_SECRET` | TURN auth secret (must match coturn) | `<random base64>` |
+| `VITE_TURN_SERVER` | TURN IP for frontend (build arg) | `203.0.113.10` |
+| `VITE_GIPHY_API_KEY` | Optional Giphy key for GIFs | `<your key>` |
+
+## Mode Switch And Migration
+
+### One-shot SQLite to Postgres migration
+
+Run from `backend/` with the target Postgres values exported in your shell:
+
+```bash
+cd backend
+node scripts/migrate-sqlite-to-postgres.mjs \
+  --sqlite ../data/chat.db \
+  --database-url "postgresql://wabi:<password>@127.0.0.1:5432/wabi"
+```
+
+Dry-run mode:
+
+```bash
+cd backend
+node scripts/migrate-sqlite-to-postgres.mjs --sqlite ../data/chat.db --dry-run
+```
+
+The tool bootstraps `schema.postgres.sql`, then copies core auth/chat/role/channel/message/file-metadata tables.
+
+### Safe switch to community mode (Postgres)
+
+1. Snapshot current SQLite file.
+2. Start Postgres stack (`docker-compose.community.yml`) and run migration.
+3. Set `.env`: `WABI_MODE=community`, `DB_MODE=postgres` (runtime stays `node` or `bun`).
+4. Restart with community compose files.
+
+### Rollback and export paths
+
+Snapshot SQLite:
+
+```bash
+mkdir -p backups
+cp data/chat.db "backups/chat-$(date -u +%Y%m%d-%H%M%S).db"
+```
+
+Dump Postgres:
+
+```bash
+mkdir -p backups
+docker compose -f docker-compose.yml -f docker-compose.community.yml exec -T postgres \
+  pg_dump -U "${POSTGRES_USER:-wabi}" "${POSTGRES_DB:-wabi}" \
+  > "backups/postgres-$(date -u +%Y%m%d-%H%M%S).sql"
+```
+
+Revert to previous normal mode safely:
+
+1. Stop current stack: `docker compose -f docker-compose.yml -f docker-compose.community.yml down`
+2. Restore SQLite backup to `data/chat.db` if needed.
+3. Set `.env`: `WABI_MODE=normal`, `DB_MODE=sqlite`.
+4. Start again with `docker compose -f docker-compose.yml up -d --build`.
+
+## Firewall Ports
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 80 | TCP | HTTP — Caddy uses this for certificate validation |
+| 443 | TCP | HTTPS — all public traffic |
+| 3478 | TCP+UDP | TURN signaling (voice/video) |
+| 49152-65535 | UDP | TURN media relay range |
+
+Ports 3000 (frontend) and 8080 (backend) only need to be reachable from localhost (Caddy proxies to them).
 
 ## Troubleshooting
 
@@ -127,8 +284,8 @@ Expected output:
    curl -i -N \
      -H "Connection: Upgrade" \
      -H "Upgrade: websocket" \
-     -H "Origin: https://wabi.chat" \
-     "https://wabi.chat/socket.io/?EIO=4&transport=websocket"
+     -H "Origin: https://your-domain.com" \
+     "https://your-domain.com/socket.io/?EIO=4&transport=websocket"
    # Should return: HTTP/1.1 101 Switching Protocols
    ```
 
@@ -140,9 +297,8 @@ Expected output:
 
 **Fix**: Ensure `.env` has correct domain:
 ```bash
-# .env
-FRONTEND_URL=https://your.domain
-PUBLIC_URL=https://your.domain
+FRONTEND_URL=https://your-domain.com
+PUBLIC_URL=https://your-domain.com
 ```
 
 Restart backend:
@@ -157,34 +313,35 @@ docker compose restart backend
 **Cause**:
 - Domain DNS not pointing to server
 - Port 80/443 blocked by firewall
-- Caddy not running with `--agree-tos`
+- Another process using port 80 or 443
 
 **Fix**:
 ```bash
-# Test DNS resolution
-nslookup wabi.chat
+# Check DNS
+dig +short your-domain.com
 
-# Ensure ports open
+# Make sure ports are open
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
 
-# Restart Caddy with verbose logging
-caddy run --config Caddyfile --debug
+# Check Caddy logs
+sudo journalctl -u caddy --no-pager -n 50
 ```
 
 ## Production Checklist
 
-- [ ] Domain pointing to server IP
-- [ ] Firewall allows ports 80, 443, 8080, 3000
+- [ ] Domain DNS A record pointing to server IP
+- [ ] Firewall allows ports 80, 443, 3478, 49152-65535
 - [ ] `.env` configured with production domain
-- [ ] `TURN_SHARED_SECRET` is long, random, and not reused
-- [ ] Backups configured for `/app/data` volume
-- [ ] Caddy running under systemd/supervisor
-- [ ] Log rotation configured for Docker containers
+- [ ] `JWT_SECRET` is a unique random value
+- [ ] `TURN_SHARED_SECRET` is a unique random value
+- [ ] Caddy running and serving HTTPS
+- [ ] Backups configured for `data/` directory
+- [ ] Docker set to start on boot (`sudo systemctl enable docker`)
 
 ## Systemd Service (Optional)
 
-Create `/etc/systemd/system/wabi-docker.service`:
+Create `/etc/systemd/system/wabi.service`:
 
 ```ini
 [Unit]
@@ -195,8 +352,8 @@ Requires=docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=/root/wabi
-ExecStart=/root/wabi/scripts/deploy-clean.sh
-ExecStop=/usr/bin/docker compose -f /root/wabi/docker-compose.yml stop
+ExecStart=/usr/bin/docker compose --profile turn up -d
+ExecStop=/usr/bin/docker compose stop
 RemainAfterExit=yes
 
 [Install]
@@ -205,17 +362,19 @@ WantedBy=multi-user.target
 
 Enable and start:
 ```bash
-sudo systemctl enable wabi-docker
-sudo systemctl start wabi-docker
+sudo systemctl enable wabi
+sudo systemctl start wabi
 ```
 
 ## Support
 
-- Check `/app/data/chat.db` for database issues
 - Docker logs: `docker compose logs -f backend`
-- Test page: `https://wabi.chat/test`
+- Frontend logs: `docker compose logs -f frontend`
+- TURN logs: `docker compose logs -f coturn`
+- Health check: `curl http://localhost:8080/health`
+- CORS check: `curl http://localhost:8080/health/cors`
 
 ---
 
-**Last updated**: 2026-01-26
-**Tested on**: Ubuntu 22.04 LTS with Docker Compose 2.x and Caddy 2.7.x
+**Last updated**: 2026-02-18
+**Tested on**: Ubuntu 22.04 LTS with Docker Compose 2.x and Caddy 2.7+
