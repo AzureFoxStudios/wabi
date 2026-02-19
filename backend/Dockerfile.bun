@@ -1,0 +1,48 @@
+FROM oven/bun:1.2.22
+
+WORKDIR /app
+
+# Download tools for OpenMoji fetch during image build
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl unzip ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+# Copy package files and install all dependencies (including devDependencies)
+COPY package.json ./
+RUN bun install
+
+# Copy backend source code
+COPY . .
+
+# Fetch pinned OpenMoji assets so backend can build emoji index without
+# depending on frontend container filesystem.
+ARG OPENMOJI_VERSION=15.1.0
+ARG OPENMOJI_72_SHA256=
+ENV OPENMOJI_VERSION=$OPENMOJI_VERSION
+ENV OPENMOJI_72_SHA256=$OPENMOJI_72_SHA256
+RUN sed -i 's/\r$//' ./scripts/fetch-openmoji.sh \
+  && chmod +x ./scripts/fetch-openmoji.sh \
+  && ./scripts/fetch-openmoji.sh /app/openmoji/png
+
+# Build backend bundle
+RUN bun run build
+RUN test -f dist/server.js || (echo "ERROR: build file not created" && ls -la && exit 1)
+
+# Keep runtime footprint lean
+RUN bun install --production
+
+# Create runtime data directories
+RUN mkdir -p /app/data /app/plugins
+
+ENV NODE_ENV=production
+ENV PORT=8080
+ENV DATA_DIR=/app/data
+ENV PLUGINS_DIR=/app/plugins
+ENV OPENMOJI_DIR=/app/openmoji/png
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD bun -e "fetch('http://localhost:8080/health').then(r=>{process.exit(r.status>=200&&r.status<400?0:1)}).catch(()=>process.exit(1));"
+
+CMD ["bun", "dist/server.js"]

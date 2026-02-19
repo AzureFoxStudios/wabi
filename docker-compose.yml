@@ -16,6 +16,9 @@ services:
       - PORT=8080
       - DATA_DIR=/app/data
       - PLUGINS_DIR=/app/plugins
+      - DB_MODE=${DB_MODE:-sqlite}
+      - WABI_MODE=${WABI_MODE:-normal}
+      - WABI_RUNTIME=${WABI_RUNTIME:-node}
       - TURN_SHARED_SECRET=${TURN_SHARED_SECRET}
       - TURN_CREDENTIAL_TTL_SECONDS=${TURN_CREDENTIAL_TTL_SECONDS:-3600}
     volumes:
@@ -49,6 +52,8 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=8080
+      - WABI_MODE=${WABI_MODE:-normal}
+      - WABI_RUNTIME=${WABI_RUNTIME:-node}
     depends_on:
       - backend
     healthcheck:

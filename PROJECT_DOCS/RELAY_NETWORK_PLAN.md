@@ -1,6 +1,6 @@
 # Wabi Self-Hosted Relay Network Plan
 **Last Updated**: 2026-02-05
-**Status**: Planning Phase
+**Status**: Phase 1 in progress (file relay network implementation underway; SRT remains Phase 2)
 **Goal**: Improve file download speeds for US users through community-hosted relay network
 
 ---

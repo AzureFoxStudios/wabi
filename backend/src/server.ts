@@ -21,17 +21,13 @@ import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApp
 import { handleGetMediaRuntime, handleGetTurnCredentials, handleMediaGatewayHeartbeat } from "./api/mediaRoutes.js";
 import { handleCreateWebhook, handleListWebhooks, handleDeleteWebhook, handleListWebhookDeliveries } from "./api/webhookRoutes.js";
 import { relayRepository } from "./db/repositories/relayRepository.js";
-import { getUserRoleInfo, getRoleDefinitions, getRolePriority, workspaceHasOwner } from "./db/repositories/roleRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
 import { channelRepository } from "./db/repositories/channelRepository.js";
 import { channelMemberRepository } from "./db/repositories/channelMemberRepository.js";
 import { messageRepository } from "./db/repositories/messageRepository.js";
+import { appPolicyRepository } from "./db/repositories/appPolicyRepository.js";
 import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
 import { dispatchWebhookEvent } from "./webhooks/deliveryService.js";
-import { maybeEncryptForAtRest, maybeDecryptFromAtRest, writeUploadFile } from "./services/fileEncryptionService.js";
-import { signUploadToken, verifyUploadToken } from "./services/uploadTokenService.js";
-// Note: messageExpiryService.ts exists but the existing inline implementation works
-// and doesn't require passing Maps as parameters. Keeping inline for simplicity.
 import {
   DEFAULT_WORKSPACE_ID,
   DEFAULT_TEXT_CHANNEL_ID,
@@ -44,6 +40,254 @@ import {
   PRIVILEGED_ROLES,
   MODERATOR_ROLES,
 } from "./constants.js";
+
+// Helper: get role info for a user (roles, highest role, display color)
+function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: string; roleColor: string | null } {
+  if (!dbUserId) return { roles: ['guest'], highestRole: 'guest', roleColor: '#888888' };
+
+  const roles = getUserRoles(dbUserId);
+  if (roles.length === 0) return { roles: ['member'], highestRole: 'member', roleColor: null };
+
+  // Get role priorities from DB
+  const roleRows = db.prepare(
+    'SELECT role_name, priority, color FROM roles WHERE role_name IN (' + roles.map(() => '?').join(',') + ') ORDER BY priority DESC'
+  ).all(...roles) as { role_name: string; priority: number; color: string | null }[];
+
+  const highestRole = roleRows[0]?.role_name || 'member';
+  const roleColor = roleRows.find(r => r.color)?.color || null;
+
+  return { roles: roles.length > 0 ? roles : ['member'], highestRole, roleColor };
+}
+
+function getRoleDefinitions(workspaceId: string = 'default-workspace'): Array<{
+  roleName: string;
+  displayName: string;
+  priority: number;
+  color: string | null;
+  isHoisted: boolean;
+}> {
+  const rows = db.prepare(`
+    SELECT role_name, COALESCE(display_name, role_name) as display_name, priority, color, is_hoisted
+    FROM roles
+    WHERE workspace_id = ?
+    ORDER BY priority DESC
+  `).all(workspaceId) as Array<{
+    role_name: string;
+    display_name: string;
+    priority: number;
+    color: string | null;
+    is_hoisted: number;
+  }>;
+
+  return rows.map(row => ({
+    roleName: row.role_name,
+    displayName: row.display_name,
+    priority: row.priority,
+    color: row.color,
+    isHoisted: row.is_hoisted === 1
+  }));
+}
+
+function getRolePriority(roleName: string, workspaceId: string = 'default-workspace'): number {
+  const row = db.prepare(`
+    SELECT priority FROM roles
+    WHERE role_name = ? AND workspace_id = ?
+    LIMIT 1
+  `).get(roleName, workspaceId) as { priority?: number } | undefined;
+  return row?.priority ?? 0;
+}
+
+type RolePolicyTier = 'new' | 'trusted' | 'moderator' | 'admin' | 'owner';
+type UploadLimitBytes = number | null;
+
+interface UploadLimitConfig {
+  perRoleBytes: Record<RolePolicyTier, UploadLimitBytes>;
+  globalUploadCapBytes: UploadLimitBytes;
+}
+
+interface DownloadLimitConfig {
+  perRoleBytes: Record<RolePolicyTier, UploadLimitBytes>;
+  globalDownloadCapBytes: UploadLimitBytes;
+}
+
+type PolicyKey = 'upload_limits' | 'download_limits';
+const UPLOAD_LIMITS_POLICY_KEY: PolicyKey = 'upload_limits';
+const MB = 1024 * 1024;
+const GB = 1024 * MB;
+
+const DEFAULT_UPLOAD_LIMIT_CONFIG: UploadLimitConfig = {
+  perRoleBytes: {
+    new: 10 * MB,
+    trusted: 1 * GB,
+    moderator: 30 * GB,
+    admin: null,
+    owner: null
+  },
+  globalUploadCapBytes: null
+};
+
+const DEFAULT_DOWNLOAD_LIMIT_CONFIG: DownloadLimitConfig = {
+  perRoleBytes: {
+    new: 10 * MB,
+    trusted: 1 * GB,
+    moderator: 30 * GB,
+    admin: null,
+    owner: null
+  },
+  globalDownloadCapBytes: null
+};
+
+function cloneDefaultUploadLimits(): UploadLimitConfig {
+  return {
+    perRoleBytes: { ...DEFAULT_UPLOAD_LIMIT_CONFIG.perRoleBytes },
+    globalUploadCapBytes: DEFAULT_UPLOAD_LIMIT_CONFIG.globalUploadCapBytes
+  };
+}
+
+function cloneDefaultDownloadLimits(): DownloadLimitConfig {
+  return {
+    perRoleBytes: { ...DEFAULT_DOWNLOAD_LIMIT_CONFIG.perRoleBytes },
+    globalDownloadCapBytes: DEFAULT_DOWNLOAD_LIMIT_CONFIG.globalDownloadCapBytes
+  };
+}
+
+function normalizeLimitValue(value: unknown): UploadLimitBytes {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.floor(n);
+}
+
+function sanitizeUploadLimitConfig(raw: unknown): UploadLimitConfig {
+  const config = cloneDefaultUploadLimits();
+  if (!raw || typeof raw !== 'object') return config;
+
+  const input = raw as Partial<UploadLimitConfig>;
+  const perRole = input.perRoleBytes as Partial<Record<RolePolicyTier, unknown>> | undefined;
+  if (perRole && typeof perRole === 'object') {
+    for (const tier of ['new', 'trusted', 'moderator', 'admin', 'owner'] as RolePolicyTier[]) {
+      if (Object.prototype.hasOwnProperty.call(perRole, tier)) {
+        config.perRoleBytes[tier] = normalizeLimitValue(perRole[tier]);
+      }
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, 'globalUploadCapBytes')) {
+    config.globalUploadCapBytes = normalizeLimitValue(input.globalUploadCapBytes);
+  }
+
+  return config;
+}
+
+function sanitizeDownloadLimitConfig(raw: unknown): DownloadLimitConfig {
+  const config = cloneDefaultDownloadLimits();
+  if (!raw || typeof raw !== 'object') return config;
+
+  const input = raw as Partial<DownloadLimitConfig>;
+  const perRole = input.perRoleBytes as Partial<Record<RolePolicyTier, unknown>> | undefined;
+  if (perRole && typeof perRole === 'object') {
+    for (const tier of ['new', 'trusted', 'moderator', 'admin', 'owner'] as RolePolicyTier[]) {
+      if (Object.prototype.hasOwnProperty.call(perRole, tier)) {
+        config.perRoleBytes[tier] = normalizeLimitValue(perRole[tier]);
+      }
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, 'globalDownloadCapBytes')) {
+    config.globalDownloadCapBytes = normalizeLimitValue(input.globalDownloadCapBytes);
+  }
+
+  return config;
+}
+
+interface PolicyDefinition<TValue> {
+  defaultValue: TValue;
+  sanitize: (raw: unknown) => TValue;
+}
+
+const POLICY_DEFINITIONS: Record<PolicyKey, PolicyDefinition<unknown>> = {
+  upload_limits: {
+    defaultValue: cloneDefaultUploadLimits(),
+    sanitize: sanitizeUploadLimitConfig
+  },
+  download_limits: {
+    defaultValue: cloneDefaultDownloadLimits(),
+    sanitize: sanitizeDownloadLimitConfig
+  }
+};
+
+function isKnownPolicyKey(value: string): value is PolicyKey {
+  return Object.prototype.hasOwnProperty.call(POLICY_DEFINITIONS, value);
+}
+
+function getPolicyValue<TValue>(key: PolicyKey): TValue {
+  const definition = POLICY_DEFINITIONS[key] as PolicyDefinition<TValue>;
+  const raw = appPolicyRepository.getRaw(`policy:${key}`);
+  if (!raw) return definition.defaultValue;
+  try {
+    return definition.sanitize(JSON.parse(raw));
+  } catch (error) {
+    console.warn(`[Policies] Failed to parse policy '${key}'; falling back to defaults`);
+    return definition.defaultValue;
+  }
+}
+
+function savePolicyValue<TValue>(key: PolicyKey, rawInput: unknown): TValue {
+  const definition = POLICY_DEFINITIONS[key] as PolicyDefinition<TValue>;
+  const sanitized = definition.sanitize(rawInput);
+  appPolicyRepository.setRaw(`policy:${key}`, JSON.stringify(sanitized));
+  return sanitized;
+}
+
+function getPolicyDefaults<TValue>(key: PolicyKey): TValue {
+  const definition = POLICY_DEFINITIONS[key] as PolicyDefinition<TValue>;
+  return definition.defaultValue;
+}
+
+function resolveUploadRoleTier(userId: number | null, guestSessionId: string | null): RolePolicyTier {
+  if (!userId) return guestSessionId ? 'new' : 'new';
+  const roles = getUserRoles(userId, 'default-workspace');
+  if (roles.includes('owner')) return 'owner';
+  if (roles.includes('admin')) return 'admin';
+  if (roles.includes('mod')) return 'moderator';
+  return 'trusted';
+}
+
+function getEffectiveUploadCapBytes(roleTier: RolePolicyTier, config: UploadLimitConfig): UploadLimitBytes {
+  const roleCap = normalizeLimitValue(config.perRoleBytes[roleTier]);
+  const globalCap = normalizeLimitValue(config.globalUploadCapBytes);
+  if (roleCap === null) return globalCap;
+  if (globalCap === null) return roleCap;
+  return Math.min(roleCap, globalCap);
+}
+
+function enforceUploadLimit(
+  res: any,
+  userId: number | null,
+  guestSessionId: string | null,
+  fileSize: number,
+  fileName: string,
+  source: 'direct-upload' | 'resumable-init' | 'resumable-chunk'
+): boolean {
+  const tier = resolveUploadRoleTier(userId, guestSessionId);
+  const config = getPolicyValue<UploadLimitConfig>(UPLOAD_LIMITS_POLICY_KEY);
+  const capBytes = getEffectiveUploadCapBytes(tier, config);
+  if (capBytes !== null && fileSize > capBytes) {
+    console.warn(`[Uploads] Rejected ${source} (${fileName}) size=${fileSize} tier=${tier} cap=${capBytes} userId=${userId ?? 'guest'}`);
+    res.writeHead(413, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        success: false,
+        error: 'File exceeds upload limit for your role',
+        roleTier: tier,
+        fileSizeBytes: fileSize,
+        limitBytes: capBytes
+      })
+    );
+    return false;
+  }
+  return true;
+}
 // In-memory data store
 interface Channel {
   id: string;
@@ -200,7 +444,12 @@ const TEST_ROLE_CHEATCODE_ROLE: 'owner' | 'admin' =
   (process.env.WABI_TEST_ROLE_CHEATCODE_ROLE || '').trim().toLowerCase() === 'admin' ? 'admin' : 'owner';
 let testRoleCheatcodeConsumed = false;
 
-// workspaceHasOwner is imported from roleRepository.ts
+function workspaceHasOwner(): boolean {
+  const ownerExists = db.prepare(
+    "SELECT 1 FROM user_roles WHERE role_name = 'owner' AND workspace_id = 'default-workspace' LIMIT 1"
+  ).get();
+  return Boolean(ownerExists);
+}
 
 // WebRTC signaling state
 const screenSharers = new Map<string, {
@@ -502,7 +751,7 @@ function scheduleMessageDeletion(channelId: string, messageId: string, duration:
     channelMessages.set(channelId, messages);
 
     // Soft-delete from database
-    try { messageRepository.softDelete(messageId); } catch (err) { console.error('[MessageRepository] Failed to soft-delete message:', err); }
+    try { messageRepository.softDelete(messageId); } catch {}
 
     // Notify clients
     emitToChannel(channelId, "message-deleted", { channelId, messageId });
@@ -1037,6 +1286,100 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  const policyPathMatch = url.pathname.match(/^\/api\/admin\/policies\/([^/]+)$/);
+  if (policyPathMatch && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    const requestedKey = decodeURIComponent(policyPathMatch[1]);
+    if (!isKnownPolicyKey(requestedKey)) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Unknown policy key" }));
+      return;
+    }
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        success: true,
+        key: requestedKey,
+        config: getPolicyValue(requestedKey),
+        defaults: getPolicyDefaults(requestedKey)
+      })
+    );
+    return;
+  }
+
+  if (policyPathMatch && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    const requestedKey = decodeURIComponent(policyPathMatch[1]);
+    if (!isKnownPolicyKey(requestedKey)) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Unknown policy key" }));
+      return;
+    }
+
+    try {
+      const rawBody = JSON.parse((await readRequestBuffer(req)).toString() || '{}');
+      const config = savePolicyValue(requestedKey, rawBody);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, key: requestedKey, config }));
+    } catch (error) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Invalid policy payload" }));
+    }
+    return;
+  }
+
+  // Compatibility alias for older clients
+  if (url.pathname === "/api/admin/upload-limits" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        success: true,
+        config: getPolicyValue<UploadLimitConfig>(UPLOAD_LIMITS_POLICY_KEY),
+        defaults: getPolicyDefaults<UploadLimitConfig>(UPLOAD_LIMITS_POLICY_KEY)
+      })
+    );
+    return;
+  }
+
+  if (url.pathname === "/api/admin/upload-limits" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    try {
+      const rawBody = JSON.parse((await readRequestBuffer(req)).toString() || '{}');
+      const config = savePolicyValue<UploadLimitConfig>(UPLOAD_LIMITS_POLICY_KEY, rawBody);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, config }));
+    } catch (error) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Invalid upload limit payload" }));
+    }
+    return;
+  }
+
   if (url.pathname.startsWith("/api/plugins/signers/") && req.method === "DELETE") {
     const userId = getAuthenticatedUserId(req);
     if (!isPluginAdmin(userId)) {
@@ -1367,6 +1710,9 @@ server.on('request', async (req, res) => {
         res.end(JSON.stringify({ success: false, error: 'Invalid file metadata' }));
         return;
       }
+      if (!enforceUploadLimit(res, userId, guestSessionId, fileSize, fileName, 'resumable-init')) {
+        return;
+      }
 
       let uploadId = (payload.uploadId || '').trim();
       let meta: ResumableUploadMeta | null = null;
@@ -1492,6 +1838,9 @@ server.on('request', async (req, res) => {
     if (meta.status === 'completed') {
       res.writeHead(409, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: false, error: 'Upload already completed', fileUrl: meta.fileUrl || null }));
+      return;
+    }
+    if (!enforceUploadLimit(res, userId, guestSessionId, meta.fileSize, meta.fileName, 'resumable-chunk')) {
       return;
     }
 
@@ -1683,6 +2032,9 @@ server.on('request', async (req, res) => {
           }
           // Convert base64 to buffer and save
           const fileBuffer = Buffer.from(fileData.split(',')[1], 'base64');
+          if (!enforceUploadLimit(res, userId, guestSessionId, fileBuffer.length, fileName, 'direct-upload')) {
+            return;
+          }
           writeUploadFile(filePath, fileBuffer);
 
           const fileUrl = `/uploads/${fileId}`;
@@ -1727,6 +2079,9 @@ server.on('request', async (req, res) => {
           }
 
           if (fileData && fileName) {
+            if (!enforceUploadLimit(res, userId, guestSessionId, fileData.length, fileName, 'direct-upload')) {
+              return;
+            }
             const fileId = `${Date.now()}-${fileName}`;
             const filePath = join(UPLOADS_DIR, fileId);
             // Ensure uploads dir exists (may have been wiped by redeploy)
@@ -2595,17 +2950,14 @@ server.on('request', async (req, res) => {
             channelName = oembed.author_name || null;
             if (oembed.thumbnail_url && !image) image = oembed.thumbnail_url;
           }
-        } catch (err) { console.error('[URL Preview] Failed to fetch YouTube oEmbed:', err); }
-        
+        } catch {}
         // Guarantee a high-res thumbnail
-        try {
-          if (!image) {
-            image = `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`;
-          } else {
-            // Upgrade to maxresdefault if using ytimg
-            image = `https://i.ytimg.com/vi/${youtubeId}/maxresdefault.jpg`;
-          }
-        } catch (err) { console.error('[URL Preview] Failed to generate fallback thumbnail URL:', err); }
+        if (!image) {
+          image = `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`;
+        } else {
+          // Upgrade to maxresdefault if using ytimg
+          image = `https://i.ytimg.com/vi/${youtubeId}/maxresdefault.jpg`;
+        }
       }
 
       res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req) });
@@ -2951,7 +3303,7 @@ try {
 }
 
 // Start background job for expired offline message cleanup (hourly)
-setInterval(() => {
+const cleanupInterval = setInterval(() => {
   const deleted = offlineMessageRepository.deleteExpired();
   if (deleted > 0) {
     console.log(`[Cleanup] 🗑️ Deleted ${deleted} expired offline messages`);
@@ -2964,12 +3316,34 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000); // 1 hour
 
-// Cleanup on shutdown
-process.on('SIGINT', () => {
-  console.log('\n[Server] Shutting down...');
-  closeDatabase();
-  process.exit(0);
-});
+let shuttingDown = false;
+const shutdown = (signal: 'SIGINT' | 'SIGTERM') => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  console.log(`\n[Server] ${signal} received. Shutting down...`);
+  clearInterval(cleanupInterval);
+
+  const forceExitTimer = setTimeout(() => {
+    console.error('[Server] Forced shutdown after timeout');
+    process.exit(1);
+  }, 10_000);
+  forceExitTimer.unref();
+
+  server.close(() => {
+    try {
+      closeDatabase();
+      console.log('[Server] ✅ Shutdown complete');
+      process.exit(0);
+    } catch (error) {
+      console.error('[Server] ❌ Shutdown failed:', error);
+      process.exit(1);
+    }
+  });
+};
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 // Start HTTP server
 server.listen(PORT, '0.0.0.0');
@@ -3769,11 +4143,35 @@ io.on("connection", (socket) => {
   });
 
   // Handle profile updates
-  socket.on("update-profile", (data: { status?: 'active' | 'away' | 'busy'; profilePicture?: string; usernameFont?: { family?: string; size?: string; weight?: string; style?: string } }, callback?: (response: { success: boolean; error?: string }) => void) => {
+  socket.on("update-profile", (data: { status?: 'active' | 'away' | 'busy'; profilePicture?: string; username?: string; usernameFont?: { family?: string; size?: string; weight?: string; style?: string } }, callback?: (response: { success: boolean; error?: string }) => void) => {
     const user = users.get(socket.id);
     if (!user) {
       if (callback) callback({ success: false, error: 'User not found' });
       return;
+    }
+
+    if (data.username !== undefined) {
+      const nextUsername = data.username.trim();
+      if (nextUsername.length < 2 || nextUsername.length > 32) {
+        if (callback) callback({ success: false, error: 'Display name must be 2-32 characters' });
+        return;
+      }
+
+      const duplicateOnline = Array.from(users.entries()).find(([id, existing]) =>
+        id !== socket.id && existing.username.toLowerCase() === nextUsername.toLowerCase()
+      );
+      if (duplicateOnline) {
+        if (callback) callback({ success: false, error: 'That display name is already in use' });
+        return;
+      }
+
+      const existingRegistered = userRepository.findByUsername(nextUsername);
+      if (existingRegistered && existingRegistered.user_id !== user.dbUserId) {
+        if (callback) callback({ success: false, error: 'That display name is already registered' });
+        return;
+      }
+
+      user.username = nextUsername;
     }
 
     if (data.status) {
@@ -3795,12 +4193,14 @@ io.on("connection", (socket) => {
         if (dbSession) {
           // Update session with new profile picture
           sessionRepository.update((socket as any).sessionId, {
+            username: user.username,
             profile_picture: user.profilePicture || null
           });
 
           // Also update the user's main profile
           if (dbSession.user_id) {
             const userUpdateData: any = {
+              username: user.username,
               profile_picture: user.profilePicture || null
             };
             if (user.usernameFont) {
@@ -3825,6 +4225,7 @@ io.on("connection", (socket) => {
     const sessions_array = Array.from(sessions.entries());
     for (const [sessionId, session] of sessions_array) {
       if (session.userId === socket.id) {
+        session.username = user.username;
         session.profilePicture = user.profilePicture;
         session.usernameFont = user.usernameFont;
         sessions.set(sessionId, session);

@@ -228,10 +228,16 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 	} catch (error) {
 		console.error('[Auth] Register error:', error);
 		const msg = error instanceof Error ? error.message : '';
-		if (msg.includes('UNIQUE constraint failed') && msg.includes('handle')) {
+		if (
+			(msg.includes('UNIQUE constraint failed') && msg.includes('handle')) ||
+			msg.includes('users_handle_key')
+		) {
 			res.writeHead(409, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Handle already taken' }));
-		} else if (msg.includes('UNIQUE constraint failed') && msg.includes('username')) {
+		} else if (
+			(msg.includes('UNIQUE constraint failed') && msg.includes('username')) ||
+			msg.includes('users_username_key')
+		) {
 			res.writeHead(409, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Username already taken' }));
 		} else {
