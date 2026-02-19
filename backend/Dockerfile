@@ -1,10 +1,10 @@
-FROM node:24-slim
+FROM node:20-slim
 
 WORKDIR /app
 
-# Download tools for OpenMoji fetch during image build
+# Download tools for OpenMoji fetch and building native modules
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl unzip ca-certificates \
+  && apt-get install -y --no-install-recommends curl unzip ca-certificates build-essential python3 \
   && rm -rf /var/lib/apt/lists/*
 
 # Copy package files
@@ -15,7 +15,8 @@ COPY scripts/fetch-openmoji.sh ./scripts/fetch-openmoji.sh
 # Install all dependencies (including devDependencies)
 RUN npm ci
 
-# Ensure esbuild binary is properly built for this platform
+# Rebuild native modules for this Node.js version with build tools
+RUN npm rebuild better-sqlite3
 RUN npm rebuild esbuild || npm install esbuild@latest
 
 # Copy backend source code
