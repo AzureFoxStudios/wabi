@@ -38,12 +38,9 @@
 		isMuted as callMuted,
 		isDeafened as callDeafened,
 		isVideoOff,
-		isSharing,
 		toggleMute,
 		toggleDeafen,
-		toggleVideo,
-		startScreenShare,
-		stopScreenShare
+		toggleVideo
 	} from '$lib/calling';
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
@@ -286,16 +283,6 @@
 		await toggleVideo(getSocket() || undefined);
 	}
 
-	async function handleToggleScreenShareInSidebar() {
-		const sock = getSocket();
-		if (!sock) return;
-		if ($isSharing) {
-			stopScreenShare(sock);
-		} else {
-			await startScreenShare(sock);
-		}
-	}
-
 	function toggleSection(section: 'text' | 'voice') {
 		if (section === 'text') {
 			isTextSectionExpanded = !isTextSectionExpanded;
@@ -489,14 +476,6 @@
 			<img src="/wabi-logo-small.webp" alt="Wabi" class="logo-img" />
 		</div>
 		<div class="header-buttons">
-			<button
-				class="screen-share-icon-btn"
-				class:active={activeView === 'screen'}
-				on:click={() => activeView = 'screen'}
-				title="Screen Share"
-			>
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-			</button>
 			{#if sidebarWidth < 170}
 				<button
 					class="control-btn compact-settings-btn"
@@ -506,7 +485,6 @@
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
 				</button>
 			{/if}
-			<button class="add-btn" on:click={() => showCreateInput = !showCreateInput} title="Create channel">+</button>
 		</div>
 	</div>
 
@@ -528,22 +506,35 @@
 			<select bind:value={newChannelType}>
 				<option value="text">Text Channel</option>
 				<option value="voice">Voice Channel</option>
+				<option value="forum" disabled>Forum Channel (coming soon)</option>
 			</select>
+			<p class="create-channel-hint">Forum channels are planned but not supported yet.</p>
 			<button on:click={handleCreateChannel}>Create</button>
 		</div>
 	{/if}
 
 	<div class="channel-list">
-		<button
-			class="section-toggle"
-			type="button"
-			aria-expanded={isTextSectionExpanded}
-			on:click={() => toggleSection('text')}
-		>
-			<span class="section-chevron">&gt;</span>
-			<span class="section-toggle-label">Text Channels</span>
-			<span class="section-count">{textChannels.length + groupChannels.length}</span>
-		</button>
+		<div class="section-heading-row">
+			<button
+				class="section-toggle"
+				type="button"
+				aria-expanded={isTextSectionExpanded}
+				on:click={() => toggleSection('text')}
+			>
+				<span class="section-chevron">&gt;</span>
+				<span class="section-toggle-label">Text Channels</span>
+				<span class="section-count">{textChannels.length + groupChannels.length}</span>
+			</button>
+			<button
+				class="section-add-btn"
+				class:active={showCreateInput}
+				on:click={() => showCreateInput = !showCreateInput}
+				title="Create channel"
+				aria-label="Create channel"
+			>
+				+
+			</button>
+		</div>
 		{#if isTextSectionExpanded}
 		<!-- Public text channels -->
 		{#each textChannels as channel (channel.id)}
@@ -617,16 +608,27 @@
 
 		{/if}
 
-		<button
-			class="section-toggle"
-			type="button"
-			aria-expanded={isVoiceSectionExpanded}
-			on:click={() => toggleSection('voice')}
-		>
-			<span class="section-chevron">&gt;</span>
-			<span class="section-toggle-label">Voice Channels</span>
-			<span class="section-count">{allVoiceChannels.length}</span>
-		</button>
+		<div class="section-heading-row">
+			<button
+				class="section-toggle"
+				type="button"
+				aria-expanded={isVoiceSectionExpanded}
+				on:click={() => toggleSection('voice')}
+			>
+				<span class="section-chevron">&gt;</span>
+				<span class="section-toggle-label">Voice Channels</span>
+				<span class="section-count">{allVoiceChannels.length}</span>
+			</button>
+			<button
+				class="section-add-btn"
+				class:active={showCreateInput}
+				on:click={() => showCreateInput = !showCreateInput}
+				title="Create channel"
+				aria-label="Create channel"
+			>
+				+
+			</button>
+		</div>
 		{#if isVoiceSectionExpanded}
 		{#each voiceChannels as channel (channel.id)}
 			{@const members = getVoiceMembers(channel.id)}
@@ -794,8 +796,6 @@
 				<button class:active={$callMuted} on:click={toggleMute} title={$callMuted ? 'Unmute' : 'Mute'}>Mic</button>
 				<button class:active={$callDeafened} on:click={toggleDeafen} title={$callDeafened ? 'Undeafen' : 'Deafen'}>Headset</button>
 				<button class:active={!$isVideoOff} on:click={handleToggleVideoInSidebar} title={$isVideoOff ? 'Turn on camera' : 'Turn off camera'}>Camera</button>
-				<button class:active={$isSharing} on:click={handleToggleScreenShareInSidebar} title={$isSharing ? 'Stop sharing' : 'Share screen'}>Share</button>
-				<button class:active={$channelCallPanelOpen} on:click={openChannelCallPanel} title="Open call view">Open View</button>
 				<button class="leave-btn" on:click={handleLeaveActiveVoiceChannel}>Leave</button>
 			</div>
 
@@ -823,21 +823,6 @@
 						</button>
 					{/each}
 				</div>
-			</div>
-		</div>
-	{/if}
-
-	{#if $layoutStore.isInCall && !$channelCallPanelOpen && !isCompactSidebar}
-		<div class="voice-inline-notice" role="status">
-			<div class="voice-inline-copy">
-				{#if $callMode === 'channel' && $activeVoiceChannelId}
-					Voice call active in {getCurrentVoiceChannelName()}.
-				{:else}
-					Direct call active.
-				{/if}
-			</div>
-			<div class="voice-inline-actions">
-				<button type="button" on:click={openChannelCallPanel}>Return to call</button>
 			</div>
 		</div>
 	{/if}
@@ -1304,45 +1289,6 @@
 		flex-shrink: 0;
 	}
 
-	.screen-share-icon-btn,
-	.add-btn {
-		width: 32px;
-		height: 32px;
-		border-radius: 4px;
-		background: none;
-		border: none;
-		color: var(--text-secondary);
-		font-size: 1.25rem;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: all 0.2s;
-		opacity: 0.7;
-		padding: 0;
-	}
-
-	.screen-share-icon-btn svg,
-	.add-btn {
-		width: 18px;
-		height: 18px;
-		stroke: currentColor;
-		stroke-width: 2;
-	}
-
-	.screen-share-icon-btn:hover,
-	.add-btn:hover {
-		background: var(--bg-secondary);
-		color: var(--text-primary);
-		opacity: 1;
-	}
-
-	.screen-share-icon-btn.active {
-		background: var(--accent);
-		color: var(--text-primary);
-		opacity: 1;
-	}
-
 	.compact-settings-btn {
 		width: 32px;
 		height: 32px;
@@ -1410,6 +1356,12 @@
 		border-radius: 0;
 		cursor: pointer;
 		width: 100%;
+	}
+
+	.create-channel-hint {
+		margin: 0;
+		font-size: 0.72rem;
+		color: var(--text-secondary);
 	}
 
 	.channel-list {
@@ -1493,6 +1445,37 @@
 		font-size: 0.75rem;
 		font-weight: 700;
 		letter-spacing: 0.04em;
+	}
+
+	.section-heading-row {
+		display: flex;
+		align-items: center;
+		padding-right: 0.5rem;
+	}
+
+	.section-add-btn {
+		width: 24px;
+		height: 24px;
+		border-radius: 6px;
+		border: 1px solid transparent;
+		background: transparent;
+		color: var(--text-secondary);
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.95rem;
+		font-weight: 700;
+		opacity: 0.45;
+		transition: all 0.18s ease;
+	}
+
+	.section-heading-row:hover .section-add-btn,
+	.section-add-btn.active {
+		opacity: 1;
+		color: var(--text-primary);
+		background: rgba(var(--border-rgb), 0.18);
+		border-color: rgba(var(--border-rgb), 0.32);
 	}
 
 	.section-toggle:hover {
@@ -1890,34 +1873,6 @@
 		font-size: 0.72rem;
 	}
 
-	.voice-inline-notice {
-		margin: 0.6rem 0.6rem 0;
-		padding: 0.5rem 0.55rem;
-		border-radius: 10px;
-		background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary) 88%);
-		border: 1px solid color-mix(in srgb, var(--accent) 30%, rgba(var(--border-rgb), var(--opacity-medium)) 70%);
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.5rem;
-	}
-
-	.voice-inline-copy {
-		font-size: 0.74rem;
-		color: var(--text-secondary);
-	}
-
-	.voice-inline-actions button {
-		background: color-mix(in srgb, var(--accent) 28%, transparent);
-		border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
-		color: var(--text-primary);
-		border-radius: 999px;
-		padding: 0.23rem 0.55rem;
-		font-size: 0.71rem;
-		cursor: pointer;
-		white-space: nowrap;
-	}
-
 	.voice-listen-controls {
 		display: flex;
 		flex-direction: column;
@@ -1991,41 +1946,6 @@
 	.pin-btn:hover {
 		background: var(--pinned-border);
 		color: var(--text-primary);
-	}
-
-	.screen-share-section {
-		padding: 0.5rem;
-		border-bottom: 1px solid var(--border);
-	}
-
-	.screen-share-btn {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.625rem;
-		background: transparent;
-		border: none;
-		color: var(--text-secondary);
-		cursor: pointer;
-		border-radius: 0;
-		transition: all 0.2s;
-		font-size: var(--channel-btn-font-size);
-		width: 100%;
-		text-align: left;
-	}
-
-	.screen-share-btn:hover {
-		background: var(--bg-secondary);
-		color: var(--text-primary);
-	}
-
-	.screen-share-btn.active {
-		background: var(--accent);
-		color: var(--text-primary);
-	}
-
-	.screen-share-btn .icon {
-		font-size: 1.1rem;
 	}
 
 	.profile-card {
@@ -2478,12 +2398,11 @@
 			letter-spacing: 0.05em;
 		}
 
-		/* Touch-friendly header buttons */
-		.screen-share-icon-btn,
-		.add-btn {
+		/* Touch-friendly section add button */
+		.section-add-btn {
 			width: 44px;
 			height: 44px;
-			font-size: 1.3rem;
+			font-size: 1.2rem;
 		}
 
 		/* Spacious channel items */

@@ -4,13 +4,12 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { get } from 'svelte/store';
 	import Chat from '$lib/components/Chat.svelte';
-	import ScreenShareViewer from '$lib/components/ScreenShareViewer.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
 	import RightPanel from '$lib/components/RightPanel.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, type Channel, type User } from '$lib/socket';
-	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, voiceChannelNotice, isMuted, isDeafened, isVideoOff, isSharing, channelCallPanelOpen, toggleMute, toggleDeafen, toggleVideo, startScreenShare, stopScreenShare, toggleChannelCallPanel, openChannelCallPanel } from '$lib/calling';
+	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, isVideoOff, toggleVideo } from '$lib/calling';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 
@@ -104,29 +103,8 @@
 		void leaveSocketVoiceChannel(channel.id);
 	}
 
-	async function handleToggleScreenShareFromStrip() {
-		const sock = getSocket();
-		if (!sock) return;
-		if (get(isSharing)) {
-			stopScreenShare(sock);
-		} else {
-			await startScreenShare(sock);
-		}
-	}
-
 	async function handleToggleVideoFromStrip() {
 		await toggleVideo(getSocket() || undefined);
-	}
-
-	async function handleOpenCallFullscreen() {
-		openChannelCallPanel();
-		if (!document.fullscreenElement) {
-			try {
-				await document.documentElement.requestFullscreen();
-			} catch (error) {
-				console.warn('Failed to enter fullscreen mode:', error);
-			}
-		}
 	}
 
 	function formatDiag(value: number | null, unit = ''): string {
@@ -189,8 +167,7 @@
 
 	<!-- Main Content -->
 	<div class="main-content">
-		<div class:hidden={activeView !== 'chat'}><Chat on:logout /></div>
-		<div class:hidden={activeView !== 'screen'}><ScreenShareViewer bind:activeView /></div>
+		<Chat on:logout />
 	</div>
 
 	<!-- Desktop Right Panel -->
@@ -291,49 +268,23 @@
 				<strong>{$activeVoiceChannel.name}</strong>
 			</div>
 			<div class="voice-channel-actions">
-				<button class:active={$isMuted} on:click={toggleMute} title={$isMuted ? 'Unmute' : 'Mute'} aria-label={$isMuted ? 'Unmute' : 'Mute'}>
-					{#if $isMuted}
-						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-					{:else}
-						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-					{/if}
+				<button class:active={!$isVideoOff} on:click={handleToggleVideoFromStrip} title={$isVideoOff ? 'Turn on camera' : 'Turn off camera'} aria-label={$isVideoOff ? 'Turn on camera' : 'Turn off camera'}>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+						<path d="M23 7l-7 5 7 5V7z"></path>
+						<rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+					</svg>
 				</button>
-				<button class:active={$isDeafened} on:click={toggleDeafen} title={$isDeafened ? 'Undeafen' : 'Deafen'} aria-label={$isDeafened ? 'Undeafen' : 'Deafen'}>
-					{#if $isDeafened}
-						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
-					{:else}
-						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-					{/if}
+				<button class="leave icon-only" on:click={handleLeaveVoiceChannel} title="Leave voice" aria-label="Leave voice">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+						<path d="M14 3h7v18h-7"></path>
+						<path d="M10 17l5-5-5-5"></path>
+						<path d="M15 12H3"></path>
+					</svg>
 				</button>
-				<button class:active={!$isVideoOff} on:click={handleToggleVideoFromStrip} title={$isVideoOff ? 'Turn on camera' : 'Turn off camera'}>
-					{$isVideoOff ? 'Camera' : 'Camera On'}
-				</button>
-				<button class:active={$isSharing} on:click={handleToggleScreenShareFromStrip} title={$isSharing ? 'Stop sharing' : 'Share screen'}>
-					{$isSharing ? 'Stop Share' : 'Share'}
-				</button>
-				<button class:active={$channelCallPanelOpen} on:click={toggleChannelCallPanel} title={$channelCallPanelOpen ? 'Hide call view' : 'Open call view'}>
-					{$channelCallPanelOpen ? 'Hide View' : 'Open View'}
-				</button>
-				<button class="leave" on:click={handleLeaveVoiceChannel}>Leave</button>
 			</div>
 		</div>
 	{/if}
 
-	{#if $layoutStore.isInCall && !$channelCallPanelOpen && $layoutStore.isMobile}
-		<div class="voice-toast" role="status">
-			{#if $callMode === 'channel' && $activeVoiceChannel}
-				Voice call active in {$activeVoiceChannel.name}.
-			{:else}
-				Direct call active.
-			{/if}
-			<button class="voice-toast-action" on:click={openChannelCallPanel}>Return to call</button>
-			<button class="voice-toast-action" on:click={handleOpenCallFullscreen}>Full Screen</button>
-		</div>
-	{/if}
-
-	{#if $voiceChannelNotice}
-		<div class="voice-toast" role="status">{$voiceChannelNotice.text}</div>
-	{/if}
 </div>
 <CallModal />
 
@@ -763,29 +714,6 @@
 		flex: 0 0 auto;
 	}
 
-	.voice-toast {
-		position: absolute;
-		right: 16px;
-		bottom: 16px;
-		padding: 0.5rem 0.7rem;
-		border-radius: 8px;
-		background: rgba(0, 0, 0, 0.72);
-		color: var(--text-primary);
-		font-size: 0.8rem;
-		z-index: var(--z-toast);
-	}
-
-	.voice-toast-action {
-		margin-left: 0.5rem;
-		border: none;
-		border-radius: 999px;
-		padding: 0.25rem 0.55rem;
-		font-size: 0.75rem;
-		background: rgba(var(--accent-rgb), 0.32);
-		color: var(--text-primary);
-		cursor: pointer;
-	}
-
 	@media (max-width: 768px) {
 		.voice-channel-strip {
 			left: 8px;
@@ -812,11 +740,6 @@
 			flex: 1 1 100%;
 		}
 
-		.voice-toast {
-			right: 8px;
-			bottom: calc(var(--mobile-nav-height) + 8px);
-			max-width: calc(100vw - 16px);
-		}
 	}
 
 </style>
