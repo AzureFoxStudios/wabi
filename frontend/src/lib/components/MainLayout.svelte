@@ -319,7 +319,7 @@
 		</div>
 	{/if}
 
-	{#if $layoutStore.isInCall && !$channelCallPanelOpen}
+	{#if $layoutStore.isInCall && !$channelCallPanelOpen && $layoutStore.isMobile}
 		<div class="voice-toast" role="status">
 			{#if $callMode === 'channel' && $activeVoiceChannel}
 				Voice call active in {$activeVoiceChannel.name}.

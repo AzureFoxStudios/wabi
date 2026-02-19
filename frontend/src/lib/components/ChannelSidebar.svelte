@@ -827,6 +827,21 @@
 		</div>
 	{/if}
 
+	{#if $layoutStore.isInCall && !$channelCallPanelOpen && !isCompactSidebar}
+		<div class="voice-inline-notice" role="status">
+			<div class="voice-inline-copy">
+				{#if $callMode === 'channel' && $activeVoiceChannelId}
+					Voice call active in {getCurrentVoiceChannelName()}.
+				{:else}
+					Direct call active.
+				{/if}
+			</div>
+			<div class="voice-inline-actions">
+				<button type="button" on:click={openChannelCallPanel}>Return to call</button>
+			</div>
+		</div>
+	{/if}
+
 	{#if $currentUser}
 		<div class="profile-card">
 			<div class="profile-info">
@@ -1873,6 +1888,34 @@
 		border-radius: 8px;
 		padding: 0.2rem 0.35rem;
 		font-size: 0.72rem;
+	}
+
+	.voice-inline-notice {
+		margin: 0.6rem 0.6rem 0;
+		padding: 0.5rem 0.55rem;
+		border-radius: 10px;
+		background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary) 88%);
+		border: 1px solid color-mix(in srgb, var(--accent) 30%, rgba(var(--border-rgb), var(--opacity-medium)) 70%);
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+	}
+
+	.voice-inline-copy {
+		font-size: 0.74rem;
+		color: var(--text-secondary);
+	}
+
+	.voice-inline-actions button {
+		background: color-mix(in srgb, var(--accent) 28%, transparent);
+		border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+		color: var(--text-primary);
+		border-radius: 999px;
+		padding: 0.23rem 0.55rem;
+		font-size: 0.71rem;
+		cursor: pointer;
+		white-space: nowrap;
 	}
 
 	.voice-listen-controls {
