@@ -61,7 +61,7 @@
 	}
 
 	$: layoutMode = determineLayout($screenShares, $activeCalls, $isSharing, focusedTileId);
-	$: showActiveCallModal = $isInCall && ($callMode === 'direct' || ($callMode === 'channel' && $channelCallPanelOpen));
+	$: showActiveCallModal = $isInCall && $channelCallPanelOpen;
 	$: spatialAudioActive = $spatialAudioRuntimeStatus.active;
 	$: spatialQuickToggleVisible = $spatialAudioRuntimeStatus.quickToggleVisible;
 
@@ -261,6 +261,18 @@
 		const call = $activeCalls.find(item => item.userId === tile.userId);
 		return Boolean(call?.isAudioEnabled && call?.isSpeaking);
 	}
+
+	async function handleFullscreenToggle() {
+		try {
+			if (document.fullscreenElement) {
+				await document.exitFullscreen();
+			} else {
+				await document.documentElement.requestFullscreen();
+			}
+		} catch (error) {
+			console.warn('Failed to toggle fullscreen mode:', error);
+		}
+	}
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -384,6 +396,14 @@
 							<div class="tile-avatar">
 								<div class="avatar-circle">{tile.label.charAt(0).toUpperCase()}</div>
 							</div>
+							{#if tile.userId !== null}
+								<audio
+									autoplay
+									playsinline
+									muted={$isDeafened || spatialAudioActive}
+									use:bindMediaStream={tile.stream}
+								></audio>
+							{/if}
 						{/if}
 						<div class="tile-label">{tile.label}</div>
 					</button>
@@ -418,6 +438,14 @@
 							<div class="focused-avatar">
 								<div class="avatar-circle avatar-circle-lg">{focusedTile.label.charAt(0).toUpperCase()}</div>
 							</div>
+							{#if focusedTile.userId !== null}
+								<audio
+									autoplay
+									playsinline
+									muted={$isDeafened || spatialAudioActive}
+									use:bindMediaStream={focusedTile.stream}
+								></audio>
+							{/if}
 						{/if}
 						<div class="focused-label">{focusedTile.label}</div>
 					</button>
@@ -458,6 +486,14 @@
 									<div class="thumbnail-avatar">
 										<div class="avatar-circle avatar-circle-sm">{thumb.label.charAt(0).toUpperCase()}</div>
 									</div>
+									{#if thumb.userId !== null}
+										<audio
+											autoplay
+											playsinline
+											muted={$isDeafened || spatialAudioActive}
+											use:bindMediaStream={thumb.stream}
+										></audio>
+									{/if}
 								{/if}
 								<div class="thumbnail-label">{thumb.label}</div>
 							</button>
@@ -469,11 +505,17 @@
 
 		<!-- Controls bar -->
 		<div class="call-controls">
-			{#if $callMode === 'channel'}
+			{#if $isInCall}
 				<button class="control-btn" on:click={closeChannelCallPanel} title="Back to chat">
 					<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<polyline points="15 18 9 12 15 6"></polyline>
 					</svg>
+				</button>
+				<button class="control-btn" on:click={closeChannelCallPanel} title="Show chat">
+					<span class="control-text-btn">Chat</span>
+				</button>
+				<button class="control-btn" on:click={handleFullscreenToggle} title="Toggle full screen">
+					<span class="control-text-btn">Full</span>
 				</button>
 			{/if}
 
@@ -1147,6 +1189,13 @@
 		display: block;
 		width: 22px;
 		height: 22px;
+	}
+
+	.control-text-btn {
+		font-size: 0.72rem;
+		font-weight: 600;
+		line-height: 1;
+		letter-spacing: 0.01em;
 	}
 
 	.control-btn svg {

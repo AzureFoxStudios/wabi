@@ -130,6 +130,19 @@ function runMigrations() {
 	addColumnIfMissing('user_settings', 'allow_temp_user_messages', 'INTEGER DEFAULT 1');
 	addColumnIfMissing('user_settings', 'business_private_mode', 'INTEGER DEFAULT 0');
 
+	// Migration: app_settings table for global owner/admin-configurable values
+	try {
+		db.exec(`
+			CREATE TABLE IF NOT EXISTS app_settings (
+				key TEXT PRIMARY KEY,
+				value TEXT NOT NULL,
+				updated_at INTEGER NOT NULL
+			)
+		`);
+	} catch (e) {
+		console.error('[Database] Migration error creating app_settings:', e);
+	}
+
 	// Migration: Add description column to channels table
 	try {
 		const cols = db.pragma('table_info(channels)') as { name: string }[];

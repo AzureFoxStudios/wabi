@@ -59,6 +59,13 @@ CREATE TABLE IF NOT EXISTS user_settings (
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
+-- Application-wide settings (owner/admin managed)
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 -- Theme preferences (appearance customization)
 CREATE TABLE IF NOT EXISTS theme_preferences (
   user_id INTEGER PRIMARY KEY,

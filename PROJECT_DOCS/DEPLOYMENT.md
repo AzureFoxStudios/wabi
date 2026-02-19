@@ -12,15 +12,38 @@ Wabi Chat is designed to be self-deployable on bare-metal Linux. This guide cove
 
 ## Quick Start
 
-### 1. Clone & Configure
+### 1. Clone
 
 ```bash
 git clone https://github.com/AzureFoxStudios/wabi.git
 cd wabi
-cp .env.example .env
 ```
 
-### 2. Edit `.env` for Your Domain
+### 2. Launch (First Run + Normal Start)
+
+Run one command:
+
+```bash
+./scripts/launch.sh
+```
+
+Windows (PowerShell + WSL):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\launch-forWindows.ps1
+```
+
+`scripts/launch.sh` behavior:
+- First run: auto-generates `.env` and `frontend/.env` with sane defaults.
+- Existing deployment: uses current config and updates running services.
+
+Optional first-run overrides (advanced):
+
+```bash
+WABI_DOMAIN=chat.example.com WABI_MODE=community WABI_RUNTIME=node ./scripts/launch.sh
+```
+
+### 3. Edit `.env` for Your Domain (If Needed)
 
 ```bash
 # .env
@@ -32,10 +55,17 @@ NODE_ENV=production
 
 Replace `wabi.chat` with your actual domain.
 
-### 3. Start Services
+### Normal vs Community
+
+| Mode | DB | Default Runtime | Optional Runtime |
+|----------|---------|---------|---------|
+| `normal` | SQLite | Node | Bun |
+| `community` | Postgres | Node | Bun |
+
+Runtime/mode are selected from `.env` (`WABI_MODE`, `WABI_RUNTIME`) and can be overridden:
 
 ```bash
-./scripts/deploy-clean.sh
+WABI_MODE=community WABI_RUNTIME=bun ./scripts/launch.sh
 ```
 
 Services:
@@ -108,6 +138,13 @@ Expected output:
 | `ALLOWED_ORIGINS` | Explicit CORS whitelist (optional) | `https://wabi.chat` |
 | `NODE_ENV` | Node environment | `production` |
 | `PORT` | Backend listen port | `8080` |
+| `WABI_MODE` | Deployment mode | `normal` or `community` |
+| `WABI_RUNTIME` | Backend runtime | `node` or `bun` |
+| `DB_MODE` | Database mode | `sqlite` or `postgres` |
+| `POSTGRES_DB` | Community mode database name | `wabi` |
+| `POSTGRES_USER` | Community mode database user | `wabi` |
+| `POSTGRES_PASSWORD` | Community mode database password | long random value |
+| `DATABASE_URL` | Community mode backend DB URL | `postgres://wabi:***@postgres:5432/wabi` |
 | `TURN_*` | WebRTC TURN server config | See `.env.example` |
 
 ## Troubleshooting
@@ -195,7 +232,7 @@ Requires=docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=/root/wabi
-ExecStart=/root/wabi/scripts/deploy-clean.sh
+ExecStart=/root/wabi/scripts/launch.sh
 ExecStop=/usr/bin/docker compose -f /root/wabi/docker-compose.yml stop
 RemainAfterExit=yes
 
@@ -214,6 +251,16 @@ sudo systemctl start wabi-docker
 - Check `/app/data/chat.db` for database issues
 - Docker logs: `docker compose logs -f backend`
 - Test page: `https://wabi.chat/test`
+
+## Relay Network (Phase 1)
+
+Volunteer relay nodes for file delivery are now tracked as Phase 1.
+
+- Relay node code: `relay-node/`
+- Server handoff runbook: `PROJECT_DOCS/RELAY_PHASE1_SERVER_RUNBOOK.md`
+- Frontend toggle: `VITE_ENABLE_RELAYS=true` (default is false)
+
+SRT media gateway remains Phase 2 and is not part of the file relay rollout.
 
 ---
 

@@ -149,3 +149,76 @@ export async function saveUserSettings(
 		throw new Error('Failed to save settings');
 	}
 }
+
+export type UploadRoleTier = 'new' | 'trusted' | 'moderator' | 'admin' | 'owner';
+
+export interface UploadLimitConfig {
+	perRoleBytes: Record<UploadRoleTier, number | null>;
+	globalUploadCapBytes: number | null;
+}
+
+export interface DownloadLimitConfig {
+	perRoleBytes: Record<UploadRoleTier, number | null>;
+	globalDownloadCapBytes: number | null;
+}
+
+export type AdminPolicyKey = 'upload_limits' | 'download_limits';
+
+export async function getAdminPolicy<T>(token: string, key: AdminPolicyKey): Promise<{
+	key: AdminPolicyKey;
+	config: T;
+	defaults: T;
+}> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 8000);
+	try {
+		const res = await fetch(`${SERVER_URL}/api/admin/policies/${encodeURIComponent(key)}`, {
+			method: 'GET',
+			headers: { Authorization: `Bearer ${token}` },
+			signal: controller.signal
+		});
+		if (!res.ok) {
+			const error = await res.json().catch(() => ({}));
+			throw new Error(error.error || `Failed to load policy: ${key}`);
+		}
+		return res.json();
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+export async function saveAdminPolicy<T>(token: string, key: AdminPolicyKey, config: T): Promise<T> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 8000);
+	try {
+		const res = await fetch(`${SERVER_URL}/api/admin/policies/${encodeURIComponent(key)}`, {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${token}`,
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify(config),
+			signal: controller.signal
+		});
+		if (!res.ok) {
+			const error = await res.json().catch(() => ({}));
+			throw new Error(error.error || `Failed to save policy: ${key}`);
+		}
+		const data = await res.json();
+		return data.config;
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+export async function getAdminUploadLimits(token: string): Promise<{
+	config: UploadLimitConfig;
+	defaults: UploadLimitConfig;
+}> {
+	const data = await getAdminPolicy<UploadLimitConfig>(token, 'upload_limits');
+	return { config: data.config, defaults: data.defaults };
+}
+
+export async function saveAdminUploadLimits(token: string, config: UploadLimitConfig): Promise<UploadLimitConfig> {
+	return saveAdminPolicy<UploadLimitConfig>(token, 'upload_limits', config);
+}

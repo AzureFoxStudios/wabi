@@ -8,6 +8,7 @@
 	import { getSocket } from '$lib/socket';
 	import { getServerUrl } from '$lib/serverUrl';
 	import AvatarEditor from './AvatarEditor.svelte'; // Import the AvatarEditor
+	import { getAdminUploadLimits, saveAdminUploadLimits, type UploadRoleTier, type UploadLimitConfig } from '$lib/api';
 
 	// Theme system
 	import { themeStore, currentTheme } from '$lib/theme/themeStore';
@@ -58,6 +59,7 @@
 	} from '$lib/accessibility';
 
 	const dispatch = createEventDispatcher();
+	const MB = 1024 * 1024;
 
 	export let isOpen = false;
 	type SettingsTab = 'profile' | 'audio' | 'notifications' | 'accessibility' | 'appearance' | 'server' | 'emojis' | 'storage' | 'admin' | 'about';
@@ -118,6 +120,8 @@
 	let selectedAvatarFile: File | null = null;
 	let selectedAvatarPreview: string | null = null;
 	let uploadingAvatar = false;
+	let displayNameDraft = '';
+	let updatingDisplayName = false;
 
 	// Emoji upload state
 	let emojiFileInput: HTMLInputElement;
@@ -157,6 +161,29 @@
 		if (aPriority !== bPriority) return bPriority - aPriority;
 		return a.username.localeCompare(b.username);
 	});
+	const uploadRoleOrder: UploadRoleTier[] = ['new', 'trusted', 'moderator', 'admin', 'owner'];
+	const uploadRoleLabels: Record<UploadRoleTier, string> = {
+		new: 'New',
+		trusted: 'Trusted',
+		moderator: 'Moderator',
+		admin: 'Admin',
+		owner: 'Owner'
+	};
+	let uploadLimitConfig: UploadLimitConfig = {
+		perRoleBytes: { new: 10 * MB, trusted: 1024 * MB, moderator: 30 * 1024 * MB, admin: null, owner: null },
+		globalUploadCapBytes: null
+	};
+	let uploadLimitInputs: Record<UploadRoleTier, string> = {
+		new: '10',
+		trusted: '1024',
+		moderator: '30720',
+		admin: '',
+		owner: ''
+	};
+	let globalUploadLimitInput = '';
+	let loadingUploadLimits = false;
+	let savingUploadLimits = false;
+	let uploadLimitsLoaded = false;
 
 	// Load settings from localStorage and enforce server policy
 	onMount(() => {
@@ -202,12 +229,96 @@
 				startMemoryTelemetry();
 			}
 		}
+
+		displayNameDraft = $currentUser?.username || '';
 	});
+
+	$: if (!updatingDisplayName && $currentUser?.username && displayNameDraft === '') {
+		displayNameDraft = $currentUser.username;
+	}
 
 	onDestroy(() => {
 		cleanupMicTest();
 		stopMemoryTelemetry();
 	});
+
+	function bytesToMbInput(bytes: number | null): string {
+		if (bytes === null) return '';
+		const mb = Math.floor(bytes / MB);
+		return mb > 0 ? String(mb) : '1';
+	}
+
+	function syncUploadLimitInputsFromConfig(config: UploadLimitConfig) {
+		uploadLimitInputs = {
+			new: bytesToMbInput(config.perRoleBytes.new),
+			trusted: bytesToMbInput(config.perRoleBytes.trusted),
+			moderator: bytesToMbInput(config.perRoleBytes.moderator),
+			admin: bytesToMbInput(config.perRoleBytes.admin),
+			owner: bytesToMbInput(config.perRoleBytes.owner)
+		};
+		globalUploadLimitInput = bytesToMbInput(config.globalUploadCapBytes);
+	}
+
+	function parseMbInput(value: string): number | null {
+		const trimmed = value.trim();
+		if (!trimmed) return null;
+		const mb = Number(trimmed);
+		if (!Number.isFinite(mb) || mb <= 0) {
+			throw new Error('Limits must be positive MB values or blank for unlimited.');
+		}
+		return Math.floor(mb * MB);
+	}
+
+	async function loadUploadLimits() {
+		if (!canManageAdmin || loadingUploadLimits) return;
+		const token = localStorage.getItem('authToken');
+		if (!token) return;
+		loadingUploadLimits = true;
+		try {
+			const { config } = await getAdminUploadLimits(token);
+			uploadLimitConfig = config;
+			syncUploadLimitInputsFromConfig(config);
+			uploadLimitsLoaded = true;
+		} catch (error) {
+			console.error('Failed to load upload limits:', error);
+		} finally {
+			loadingUploadLimits = false;
+		}
+	}
+
+	async function saveUploadLimits() {
+		if (!canManageAdmin || savingUploadLimits) return;
+		const token = localStorage.getItem('authToken');
+		if (!token) {
+			alert('You are not authenticated.');
+			return;
+		}
+		try {
+			const nextConfig: UploadLimitConfig = {
+				perRoleBytes: {
+					new: parseMbInput(uploadLimitInputs.new),
+					trusted: parseMbInput(uploadLimitInputs.trusted),
+					moderator: parseMbInput(uploadLimitInputs.moderator),
+					admin: parseMbInput(uploadLimitInputs.admin),
+					owner: parseMbInput(uploadLimitInputs.owner)
+				},
+				globalUploadCapBytes: parseMbInput(globalUploadLimitInput)
+			};
+			savingUploadLimits = true;
+			const saved = await saveAdminUploadLimits(token, nextConfig);
+			uploadLimitConfig = saved;
+			syncUploadLimitInputsFromConfig(saved);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Failed to save upload limits.';
+			alert(message);
+		} finally {
+			savingUploadLimits = false;
+		}
+	}
+
+	$: if (isOpen && canManageAdmin && !uploadLimitsLoaded && !loadingUploadLimits) {
+		void loadUploadLimits();
+	}
 
 	function toggleSound() {
 		soundEnabled = !soundEnabled;
@@ -926,6 +1037,29 @@
 			selectedAvatarPreview = null;
 		}
 	}
+
+	function updateDisplayName() {
+		const nextName = displayNameDraft.trim();
+		if (!nextName) {
+			alert('Display name cannot be empty.');
+			return;
+		}
+		if (nextName.length < 2 || nextName.length > 32) {
+			alert('Display name must be between 2 and 32 characters.');
+			return;
+		}
+		if (nextName === ($currentUser?.username || '')) {
+			return;
+		}
+
+		updatingDisplayName = true;
+		updateProfile(undefined, undefined, undefined, nextName, (response) => {
+			updatingDisplayName = false;
+			if (!response.success) {
+				alert(response.error || 'Failed to update display name.');
+			}
+		});
+	}
 </script>
 
 {#if isOpen}
@@ -980,6 +1114,25 @@
 
 				<div class="settings-content">
 					{#if activeSettingsTab === 'profile'}
+						<div class="settings-section">
+							<h3>Display Name</h3>
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">Your display name</span>
+									<span class="setting-description">Shown in chat, calls, and notifications.</span>
+								</div>
+								<input
+									type="text"
+									class="emoji-name-input"
+									maxlength="32"
+									bind:value={displayNameDraft}
+									placeholder="Enter display name"
+								/>
+								<button class="pfp-upload-btn" on:click={updateDisplayName} disabled={updatingDisplayName}>
+									{updatingDisplayName ? 'Saving...' : 'Save Display Name'}
+								</button>
+							</div>
+						</div>
 						<div class="settings-section">
 							<h3>Profile Picture</h3>
 							<div class="pfp-upload-section">
@@ -1648,6 +1801,39 @@
 						<div class="settings-section">
 							<h3>Admin Panel</h3>
 							<p class="admin-help">Manage live user roles from here or from user right-click menus.</p>
+							<div class="upload-limits-panel">
+								<h4>Upload Limits (MB)</h4>
+								<p class="admin-help">Leave a field blank for unlimited. These limits are enforced on the backend.</p>
+								<div class="upload-limit-grid">
+									{#each uploadRoleOrder as tier}
+										<label class="upload-limit-row">
+											<span>{uploadRoleLabels[tier]}</span>
+											<input
+												type="number"
+												min="1"
+												step="1"
+												placeholder="Unlimited"
+												bind:value={uploadLimitInputs[tier]}
+												disabled={!canManageAdmin || loadingUploadLimits || savingUploadLimits}
+											/>
+										</label>
+									{/each}
+									<label class="upload-limit-row">
+										<span>Global Cap</span>
+										<input
+											type="number"
+											min="1"
+											step="1"
+											placeholder="Unlimited"
+											bind:value={globalUploadLimitInput}
+											disabled={!canManageAdmin || loadingUploadLimits || savingUploadLimits}
+										/>
+									</label>
+								</div>
+								<button class="action-btn" on:click={saveUploadLimits} disabled={!canManageAdmin || loadingUploadLimits || savingUploadLimits}>
+									{savingUploadLimits ? 'Saving...' : 'Save Upload Limits'}
+								</button>
+							</div>
 							<div class="admin-user-list">
 								{#each sortedAdminUsers as user (user.id)}
 									<div class="admin-user-item">
@@ -2076,6 +2262,41 @@
 		margin: 0 0 0.75rem;
 		color: var(--text-secondary);
 		font-size: 0.85rem;
+	}
+
+	.upload-limits-panel {
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		padding: 0.75rem;
+		margin-bottom: 1rem;
+	}
+
+	.upload-limits-panel h4 {
+		margin: 0 0 0.5rem;
+		font-size: 0.95rem;
+	}
+
+	.upload-limit-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+		gap: 0.5rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.upload-limit-row {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	.upload-limit-row input {
+		padding: 0.45rem 0.55rem;
+		border-radius: 8px;
+		border: 1px solid var(--border);
+		background: var(--bg-primary);
+		color: var(--text-primary);
 	}
 
 	.admin-user-list {
