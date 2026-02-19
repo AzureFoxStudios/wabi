@@ -558,7 +558,7 @@ function scheduleMessageDeletion(channelId: string, messageId: string, duration:
     channelMessages.set(channelId, messages);
 
     // Soft-delete from database
-    try { messageRepository.softDelete(messageId); } catch {}
+    try { messageRepository.softDelete(messageId); } catch (err) { console.error('[MessageRepository] Failed to soft-delete message:', err); }
 
     // Notify clients
     emitToChannel(channelId, "message-deleted", { channelId, messageId });
@@ -2651,14 +2651,17 @@ server.on('request', async (req, res) => {
             channelName = oembed.author_name || null;
             if (oembed.thumbnail_url && !image) image = oembed.thumbnail_url;
           }
-        } catch {}
+        } catch (err) { console.error('[URL Preview] Failed to fetch YouTube oEmbed:', err); }
+        
         // Guarantee a high-res thumbnail
-        if (!image) {
-          image = `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`;
-        } else {
-          // Upgrade to maxresdefault if using ytimg
-          image = `https://i.ytimg.com/vi/${youtubeId}/maxresdefault.jpg`;
-        }
+        try {
+          if (!image) {
+            image = `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`;
+          } else {
+            // Upgrade to maxresdefault if using ytimg
+            image = `https://i.ytimg.com/vi/${youtubeId}/maxresdefault.jpg`;
+          }
+        } catch (err) { console.error('[URL Preview] Failed to generate fallback thumbnail URL:', err); }
       }
 
       res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req) });
