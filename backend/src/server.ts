@@ -30,6 +30,8 @@ import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
 import { dispatchWebhookEvent } from "./webhooks/deliveryService.js";
 import { maybeEncryptForAtRest, maybeDecryptFromAtRest, writeUploadFile } from "./services/fileEncryptionService.js";
 import { signUploadToken, verifyUploadToken } from "./services/uploadTokenService.js";
+// Note: messageExpiryService.ts exists but the existing inline implementation works
+// and doesn't require passing Maps as parameters. Keeping inline for simplicity.
 import {
   DEFAULT_WORKSPACE_ID,
   DEFAULT_TEXT_CHANNEL_ID,
