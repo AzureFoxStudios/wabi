@@ -12,15 +12,38 @@ Wabi Chat is designed to be self-deployable on bare-metal Linux. This guide cove
 
 ## Quick Start
 
-### 1. Clone & Configure
+### 1. Clone
 
 ```bash
 git clone https://github.com/AzureFoxStudios/wabi.git
 cd wabi
-cp .env.example .env
 ```
 
-### 2. Edit `.env` for Your Domain
+### 2. Launch (First Run + Normal Start)
+
+Run one command:
+
+```bash
+./scripts/launch.sh
+```
+
+Windows (PowerShell + WSL):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\launch-forWindows.ps1
+```
+
+`scripts/launch.sh` behavior:
+- First run: auto-generates `.env` and `frontend/.env` with sane defaults.
+- Existing deployment: uses current config and updates running services.
+
+Optional first-run overrides (advanced):
+
+```bash
+WABI_DOMAIN=chat.example.com WABI_MODE=community WABI_RUNTIME=node ./scripts/launch.sh
+```
+
+### 3. Edit `.env` for Your Domain (If Needed)
 
 ```bash
 # .env
@@ -32,12 +55,6 @@ NODE_ENV=production
 
 Replace `wabi.chat` with your actual domain.
 
-### 3. Start Services
-
-```bash
-./scripts/deploy-clean.sh
-```
-
 ### Normal vs Community
 
 | Mode | DB | Default Runtime | Optional Runtime |
@@ -48,7 +65,7 @@ Replace `wabi.chat` with your actual domain.
 Runtime/mode are selected from `.env` (`WABI_MODE`, `WABI_RUNTIME`) and can be overridden:
 
 ```bash
-WABI_MODE=community WABI_RUNTIME=bun ./scripts/deploy-clean.sh
+WABI_MODE=community WABI_RUNTIME=bun ./scripts/launch.sh
 ```
 
 Services:
@@ -215,7 +232,7 @@ Requires=docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=/root/wabi
-ExecStart=/root/wabi/scripts/deploy-clean.sh
+ExecStart=/root/wabi/scripts/launch.sh
 ExecStop=/usr/bin/docker compose -f /root/wabi/docker-compose.yml stop
 RemainAfterExit=yes
 

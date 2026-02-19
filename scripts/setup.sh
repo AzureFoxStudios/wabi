@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "[setup] Configuration wizard only. For normal use run: ./scripts/launch.sh"
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$ROOT_DIR/.env"
 FRONTEND_ENV_FILE="$ROOT_DIR/frontend/.env"

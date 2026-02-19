@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "[deploy-clean] Legacy entrypoint. Prefer: ./scripts/launch.sh"
+
 # Clean Docker Compose deployment without full downtime.
 # - Rebuilds and recreates only app services.
 # - Removes orphaned compose containers.
