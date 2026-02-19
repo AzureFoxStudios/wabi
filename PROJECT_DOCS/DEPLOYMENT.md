@@ -252,6 +252,16 @@ sudo systemctl start wabi-docker
 - Docker logs: `docker compose logs -f backend`
 - Test page: `https://wabi.chat/test`
 
+## Relay Network (Phase 1)
+
+Volunteer relay nodes for file delivery are now tracked as Phase 1.
+
+- Relay node code: `relay-node/`
+- Server handoff runbook: `PROJECT_DOCS/RELAY_PHASE1_SERVER_RUNBOOK.md`
+- Frontend toggle: `VITE_ENABLE_RELAYS=true` (default is false)
+
+SRT media gateway remains Phase 2 and is not part of the file relay rollout.
+
 ---
 
 **Last updated**: 2026-01-26
