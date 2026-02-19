@@ -44,6 +44,18 @@ You also need the latest version of [Docker](https://www.docker.com/products/doc
 
 # Setting Up Wabi
 
+## Quick Start (Self-Hosted Server)
+
+The setup wizard handles configuration for you — just answer a few questions:
+
+```bash
+git clone https://github.com/AzureFoxStudios/wabi
+cd wabi
+./scripts/setup.sh
+```
+
+It will generate your `.env` and `Caddyfile`, offer to install Caddy, and tell you exactly what commands to run. See [DEPLOYMENT.md](DEPLOYMENT.md) for the full deployment guide.
+
 ## Quick Start (Local Development)
 
 1. Clone the repository:
@@ -60,7 +72,7 @@ You also need the latest version of [Docker](https://www.docker.com/products/doc
 
 3. Start all services with Docker Compose:
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
 The application will be available at:
@@ -196,7 +208,7 @@ docker run -p 3000:3000 community-chat
 
 Or use Docker Compose:
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ## Configuration

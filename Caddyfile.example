@@ -1,0 +1,22 @@
+# Wabi Caddyfile — Reverse proxy for Docker Compose deployment
+#
+# Replace YOUR_DOMAIN with your actual domain (e.g. chat.example.com).
+# Caddy will automatically get an SSL certificate for it.
+#
+# If you don't have a domain, use ":80" instead of the domain name
+# to listen on plain HTTP (no SSL).
+#
+# Usage:
+#   sudo cp Caddyfile /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+
+YOUR_DOMAIN {
+    # API, WebSocket, uploads, and health checks -> backend container
+    @backend {
+        path /socket.io/* /api/* /uploads/* /health /health/*
+    }
+    reverse_proxy @backend localhost:8080
+
+    # Everything else -> frontend container
+    reverse_proxy localhost:3000
+}

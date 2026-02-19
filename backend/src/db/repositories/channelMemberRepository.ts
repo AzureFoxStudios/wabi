@@ -110,20 +110,16 @@ export class ChannelMemberRepository {
 			VALUES (?, ?, ?, ?, ?, ?)
 		`);
 
-		const insertMany = db.transaction((membersToAdd: Omit<DbChannelMember, 'id'>[]) => {
-			for (const member of membersToAdd) {
-				stmt.run(
-					member.channel_id,
-					member.user_id,
-					member.username,
-					member.registered_user_id || null,
-					member.joined_at,
-					member.role || 'member'
-				);
-			}
-		});
-
-		insertMany(members);
+		for (const member of members) {
+			stmt.run(
+				member.channel_id,
+				member.user_id,
+				member.username,
+				member.registered_user_id || null,
+				member.joined_at,
+				member.role || 'member'
+			);
+		}
 	}
 }
 

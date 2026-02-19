@@ -3303,7 +3303,7 @@ try {
 }
 
 // Start background job for expired offline message cleanup (hourly)
-setInterval(() => {
+const cleanupInterval = setInterval(() => {
   const deleted = offlineMessageRepository.deleteExpired();
   if (deleted > 0) {
     console.log(`[Cleanup] 🗑️ Deleted ${deleted} expired offline messages`);
@@ -3316,12 +3316,34 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000); // 1 hour
 
-// Cleanup on shutdown
-process.on('SIGINT', () => {
-  console.log('\n[Server] Shutting down...');
-  closeDatabase();
-  process.exit(0);
-});
+let shuttingDown = false;
+const shutdown = (signal: 'SIGINT' | 'SIGTERM') => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  console.log(`\n[Server] ${signal} received. Shutting down...`);
+  clearInterval(cleanupInterval);
+
+  const forceExitTimer = setTimeout(() => {
+    console.error('[Server] Forced shutdown after timeout');
+    process.exit(1);
+  }, 10_000);
+  forceExitTimer.unref();
+
+  server.close(() => {
+    try {
+      closeDatabase();
+      console.log('[Server] ✅ Shutdown complete');
+      process.exit(0);
+    } catch (error) {
+      console.error('[Server] ❌ Shutdown failed:', error);
+      process.exit(1);
+    }
+  });
+};
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 // Start HTTP server
 server.listen(PORT, '0.0.0.0');
