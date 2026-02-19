@@ -21,12 +21,15 @@ import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApp
 import { handleGetMediaRuntime, handleGetTurnCredentials, handleMediaGatewayHeartbeat } from "./api/mediaRoutes.js";
 import { handleCreateWebhook, handleListWebhooks, handleDeleteWebhook, handleListWebhookDeliveries } from "./api/webhookRoutes.js";
 import { relayRepository } from "./db/repositories/relayRepository.js";
+import { getUserRoleInfo, getRoleDefinitions, getRolePriority, workspaceHasOwner } from "./db/repositories/roleRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
 import { channelRepository } from "./db/repositories/channelRepository.js";
 import { channelMemberRepository } from "./db/repositories/channelMemberRepository.js";
 import { messageRepository } from "./db/repositories/messageRepository.js";
 import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
 import { dispatchWebhookEvent } from "./webhooks/deliveryService.js";
+import { maybeEncryptForAtRest, maybeDecryptFromAtRest, writeUploadFile } from "./services/fileEncryptionService.js";
+import { signUploadToken, verifyUploadToken } from "./services/uploadTokenService.js";
 import {
   DEFAULT_WORKSPACE_ID,
   DEFAULT_TEXT_CHANNEL_ID,
@@ -39,62 +42,6 @@ import {
   PRIVILEGED_ROLES,
   MODERATOR_ROLES,
 } from "./constants.js";
-
-// Helper: get role info for a user (roles, highest role, display color)
-function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: string; roleColor: string | null } {
-  if (!dbUserId) return { roles: ['guest'], highestRole: 'guest', roleColor: '#888888' };
-
-  const roles = getUserRoles(dbUserId);
-  if (roles.length === 0) return { roles: ['member'], highestRole: 'member', roleColor: null };
-
-  // Get role priorities from DB
-  const roleRows = db.prepare(
-    'SELECT role_name, priority, color FROM roles WHERE role_name IN (' + roles.map(() => '?').join(',') + ') ORDER BY priority DESC'
-  ).all(...roles) as { role_name: string; priority: number; color: string | null }[];
-
-  const highestRole = roleRows[0]?.role_name || 'member';
-  const roleColor = roleRows.find(r => r.color)?.color || null;
-
-  return { roles: roles.length > 0 ? roles : ['member'], highestRole, roleColor };
-}
-
-function getRoleDefinitions(workspaceId: string = 'default-workspace'): Array<{
-  roleName: string;
-  displayName: string;
-  priority: number;
-  color: string | null;
-  isHoisted: boolean;
-}> {
-  const rows = db.prepare(`
-    SELECT role_name, COALESCE(display_name, role_name) as display_name, priority, color, is_hoisted
-    FROM roles
-    WHERE workspace_id = ?
-    ORDER BY priority DESC
-  `).all(workspaceId) as Array<{
-    role_name: string;
-    display_name: string;
-    priority: number;
-    color: string | null;
-    is_hoisted: number;
-  }>;
-
-  return rows.map(row => ({
-    roleName: row.role_name,
-    displayName: row.display_name,
-    priority: row.priority,
-    color: row.color,
-    isHoisted: row.is_hoisted === 1
-  }));
-}
-
-function getRolePriority(roleName: string, workspaceId: string = 'default-workspace'): number {
-  const row = db.prepare(`
-    SELECT priority FROM roles
-    WHERE role_name = ? AND workspace_id = ?
-    LIMIT 1
-  `).get(roleName, workspaceId) as { priority?: number } | undefined;
-  return row?.priority ?? 0;
-}
 // In-memory data store
 interface Channel {
   id: string;
@@ -251,12 +198,7 @@ const TEST_ROLE_CHEATCODE_ROLE: 'owner' | 'admin' =
   (process.env.WABI_TEST_ROLE_CHEATCODE_ROLE || '').trim().toLowerCase() === 'admin' ? 'admin' : 'owner';
 let testRoleCheatcodeConsumed = false;
 
-function workspaceHasOwner(): boolean {
-  const ownerExists = db.prepare(
-    "SELECT 1 FROM user_roles WHERE role_name = 'owner' AND workspace_id = 'default-workspace' LIMIT 1"
-  ).get();
-  return Boolean(ownerExists);
-}
+// workspaceHasOwner is imported from roleRepository.ts
 
 // WebRTC signaling state
 const screenSharers = new Map<string, {
