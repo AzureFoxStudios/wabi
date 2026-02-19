@@ -14,6 +14,19 @@ This is Phase 1 (file relay network). SRT media gateway is Phase 2.
 
 ## Quick Start
 
+Linux/macOS wizard:
+```bash
+chmod +x setup.sh
+./setup.sh
+docker compose up -d --build
+```
+
+Windows wizard:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup-forWindows.ps1
+docker compose up -d --build
+```
+
 1. Copy environment template:
 ```bash
 cp relay-node.env.example .env
