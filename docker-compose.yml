@@ -82,3 +82,26 @@ services:
       - TURN_REALM=${TURN_REALM:-wabi.local}
       - TURN_SHARED_SECRET=${TURN_SHARED_SECRET}
     restart: unless-stopped
+
+  media-gateway:
+    build:
+      context: ./media-gateway
+      dockerfile: Dockerfile
+    container_name: wabi-media-gateway
+    profiles:
+      - srt-gateway
+    ports:
+      - "8095:8095"
+    env_file:
+      - .env
+    environment:
+      - WABI_ORIGIN_URL=${MEDIA_GATEWAY_ORIGIN_URL:-http://backend:8080}
+      - MEDIA_GATEWAY_KEY=${MEDIA_GATEWAY_KEY}
+      - MEDIA_GATEWAY_REGION=${MEDIA_GATEWAY_REGION:-local}
+      - GATEWAY_HOST=0.0.0.0
+      - GATEWAY_PORT=8095
+      - MEDIA_GATEWAY_HEARTBEAT_INTERVAL_MS=${MEDIA_GATEWAY_HEARTBEAT_INTERVAL_MS:-15000}
+      - MEDIA_GATEWAY_SESSION_SYNC_INTERVAL_MS=${MEDIA_GATEWAY_SESSION_SYNC_INTERVAL_MS:-10000}
+    depends_on:
+      - backend
+    restart: unless-stopped

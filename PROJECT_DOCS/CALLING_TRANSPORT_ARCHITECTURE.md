@@ -5,7 +5,7 @@
 - Enable higher-quality transport/features for Tauri-native targets without breaking web compatibility.
 - Keep memory/CPU budgets low with graceful degradation.
 
-> Important: this document describes the target architecture. The current implementation only includes WebRTC-side tuning and Opus preference hints; it does **not** include a full SRT media gateway implementation yet.
+Important: SRT media-plane bridging is still in progress. Phase 2 MVP control-plane is implemented (gateway daemon + heartbeats + session lifecycle API), while browser call media remains WebRTC.
 
 ## Transport Modes
 
@@ -24,11 +24,15 @@
   - ingest/relay,
   - recording,
   - distribution pipelines.
-- Gateway must expose a control interface to app backend and preserve auth boundaries.
+- Gateway exposes a control interface to app backend and preserves auth boundaries.
 
-### Current Status
-- ✅ WebRTC baseline improvements shipped (deafen/video-toggle fixes, sender tuning, Opus preference attempt).
-- ⚠️ SRT gateway not yet shipped (design only in this phase).
+## Current Status
+- WebRTC baseline improvements shipped (deafen/video-toggle fixes, sender tuning, Opus preference attempt).
+- Phase 2 MVP control-plane shipped:
+  - gateway heartbeat endpoint,
+  - gateway session lifecycle endpoints,
+  - gateway daemon (`media-gateway/`) for deployable heartbeat/session reconciliation.
+- Full SRT media-plane bridge/transcoding is not shipped yet.
 
 ## Operational Requirements (SRT Gateway)
 - Explicit ports/TLS config in deployment docs.
@@ -40,7 +44,7 @@
 1. Fix call control bugs (deafen/video-on upgrade).
 2. Stabilize WebRTC sender tuning (Opus preference + bitrate caps).
 3. Add adaptive quality ladder (resolution/fps/bitrate).
-4. Introduce gateway control hooks for SRT mode (disabled by default).
+4. Integrate full media-plane gateway bridging on top of shipped control hooks.
 5. Add Tauri capability gates for enhanced mode.
 
 ## Non-Goals

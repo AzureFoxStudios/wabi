@@ -2,6 +2,7 @@ import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { buildRTCConfig, prefetchTurnCredentials } from './turnConfig';
 import { playCallActionSound } from './callSounds';
+import { createMediaGatewaySession, closeMediaGatewaySession } from './mediaGateway';
 import {
 	getAudioCaptureConstraints,
 	getStoredAudioProcessingMode,
@@ -197,6 +198,7 @@ let diagnosticsPrevBytesSample: { bytesSent: number; bytesReceived: number; time
 let remoteVideoMuteDebounceTimers = new Map<string, number>();
 let spatialAudioEngine: SpatialAudioEngine | null = null;
 let spatialFallbackNoticeShown = false;
+let activeMediaGatewaySessionId: string | null = null;
 
 type VideoQualityTier = 'high' | 'medium' | 'low' | 'audio-priority';
 
@@ -1444,7 +1446,7 @@ export function toggleSpatialAudioEnabled(): void {
 	syncSpatialAudioGraph();
 }
 
-async function resolveActiveTransport(): Promise<EffectiveCallTransport> {
+async function resolveActiveTransport(channelId?: string): Promise<EffectiveCallTransport> {
 	const plan = await resolveCallTransportPlan();
 	callTransportState.set({
 		mode: plan.mode,
@@ -1455,14 +1457,42 @@ async function resolveActiveTransport(): Promise<EffectiveCallTransport> {
 		checkedAt: plan.checkedAt
 	});
 
-	// SFU control hooks exist, but client media-plane SFU wiring is not live yet.
-	// Fall back to P2P while preserving explicit degraded-mode state.
+	// Phase-2 MVP: establish gateway session control-plane for channel voice calls.
+	// Direct media stays WebRTC until full media-plane integration lands.
 	if (plan.effective === 'sfu') {
+		if (!channelId) {
+			callTransportState.set({
+				mode: plan.mode,
+				activeTransport: 'p2p',
+				isFallback: true,
+				reason: 'sfu_requires_channel_context',
+				gatewayHealthy: plan.gatewayHealthy,
+				checkedAt: plan.checkedAt
+			});
+			return 'p2p';
+		}
+
+		try {
+			const session = await createMediaGatewaySession(channelId, 'voice');
+			activeMediaGatewaySessionId = session.sessionId;
+			callTransportState.set({
+				mode: plan.mode,
+				activeTransport: 'sfu',
+				isFallback: false,
+				reason: 'srt_gateway_session_established',
+				gatewayHealthy: plan.gatewayHealthy,
+				checkedAt: Date.now()
+			});
+			return 'sfu';
+		} catch (error) {
+			console.warn('[MediaGateway] Falling back to P2P transport:', error);
+		}
+
 		callTransportState.set({
 			mode: plan.mode,
 			activeTransport: 'p2p',
 			isFallback: true,
-			reason: 'sfu_path_not_implemented_client',
+			reason: 'srt_gateway_session_create_failed',
 			gatewayHealthy: plan.gatewayHealthy,
 			checkedAt: plan.checkedAt
 		});
@@ -1532,7 +1562,7 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 
 	try {
 		await prefetchTurnCredentials();
-		await resolveActiveTransport();
+		await resolveActiveTransport(channelId);
 		const stream = await ensureLocalAudioStream();
 		activeVoiceChannelId = channelId;
 		callMode.set('channel');
@@ -1553,6 +1583,12 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		return stream;
 	} catch (error) {
 		console.error('Error joining voice channel:', error);
+		if (activeMediaGatewaySessionId) {
+			void closeMediaGatewaySession(activeMediaGatewaySessionId).catch((closeError) => {
+				console.warn('[MediaGateway] Failed closing session after join failure:', closeError);
+			});
+			activeMediaGatewaySessionId = null;
+		}
 		handleMediaError(error as DOMException, 'starting');
 		isInCall.set(false);
 		throw error;
@@ -1620,6 +1656,13 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 		effectiveMode: 'off',
 		fallbackReason: null
 	}));
+
+	if (activeMediaGatewaySessionId) {
+		void closeMediaGatewaySession(activeMediaGatewaySessionId).catch((error) => {
+			console.warn('[MediaGateway] Failed to close session on leave:', error);
+		});
+		activeMediaGatewaySessionId = null;
+	}
 }
 
 export async function startCall(socket: Socket, targetUserId: string, isVideoCall: boolean = false) {

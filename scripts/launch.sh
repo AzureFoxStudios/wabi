@@ -8,6 +8,7 @@ COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 
 RECONFIGURE=false
 USE_TURN_PROFILE="${USE_TURN_PROFILE:-true}"
+USE_SRT_GATEWAY_PROFILE="${USE_SRT_GATEWAY_PROFILE:-auto}"
 PRUNE_DANGLING_IMAGES="${PRUNE_DANGLING_IMAGES:-true}"
 PRUNE_STOPPED_CONTAINERS="${PRUNE_STOPPED_CONTAINERS:-false}"
 
@@ -22,6 +23,8 @@ Options:
   --runtime <node|bun>        Override WABI_RUNTIME.
   --reconfigure            Regenerate .env and frontend/.env using setup defaults.
   --no-turn-profile        Do not deploy coturn profile.
+  --srt-gateway            Force deploy media-gateway profile.
+  --no-srt-gateway         Force skip media-gateway profile.
   --no-prune-images        Skip dangling image prune.
   --prune-stopped          Also prune all stopped containers.
   -h, --help               Show help.
@@ -33,6 +36,7 @@ Advanced environment overrides:
   TURN_EXTERNAL_IP=<ip>                (default: auto-detect or 127.0.0.1)
   GIPHY_KEY=<key>                      (default: empty)
   USE_TURN_PROFILE=true|false          (default: true)
+  USE_SRT_GATEWAY_PROFILE=auto|true|false (default: auto; true when MEDIA_SRT_GATEWAY_ENABLED=true)
   PRUNE_DANGLING_IMAGES=true|false     (default: true)
   PRUNE_STOPPED_CONTAINERS=true|false  (default: false)
 EOF
@@ -157,6 +161,12 @@ MEDIA_SRT_GATEWAY_ENABLED=false
 MEDIA_SRT_GATEWAY_URL=
 MEDIA_GATEWAY_HEARTBEAT_TIMEOUT_MS=45000
 MEDIA_GATEWAY_KEY=
+MEDIA_SRT_SESSION_TTL_SECONDS=900
+MEDIA_SRT_BASE_PORT=7000
+MEDIA_GATEWAY_ORIGIN_URL=http://backend:8080
+MEDIA_GATEWAY_REGION=local
+MEDIA_GATEWAY_HEARTBEAT_INTERVAL_MS=15000
+MEDIA_GATEWAY_SESSION_SYNC_INTERVAL_MS=10000
 
 OPENMOJI_VERSION=15.1.0
 EOF
@@ -207,6 +217,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-turn-profile)
       USE_TURN_PROFILE=false
+      ;;
+    --srt-gateway)
+      USE_SRT_GATEWAY_PROFILE=true
+      ;;
+    --no-srt-gateway)
+      USE_SRT_GATEWAY_PROFILE=false
       ;;
     --no-prune-images)
       PRUNE_DANGLING_IMAGES=false
@@ -291,6 +307,20 @@ echo "[launch] Building and updating backend/frontend..."
 if [[ "$USE_TURN_PROFILE" == "true" ]]; then
   echo "[launch] Updating coturn profile service..."
   "${compose[@]}" --profile turn up -d --build --remove-orphans coturn
+fi
+
+effective_srt_profile="$USE_SRT_GATEWAY_PROFILE"
+if [[ "$effective_srt_profile" == "auto" ]]; then
+  if [[ "${MEDIA_SRT_GATEWAY_ENABLED:-false}" == "true" ]]; then
+    effective_srt_profile="true"
+  else
+    effective_srt_profile="false"
+  fi
+fi
+
+if [[ "$effective_srt_profile" == "true" ]]; then
+  echo "[launch] Updating media-gateway profile service..."
+  "${compose[@]}" --profile srt-gateway up -d --build --remove-orphans media-gateway
 fi
 
 if [[ "$PRUNE_DANGLING_IMAGES" == "true" ]]; then

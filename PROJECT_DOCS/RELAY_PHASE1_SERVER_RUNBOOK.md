@@ -4,7 +4,7 @@ This runbook is for deploying and validating volunteer relay nodes (file deliver
 
 Phase split:
 - Phase 1: file relay network (this runbook)
-- Phase 2: SRT media gateway transport (not included here)
+- Phase 2: SRT media gateway transport (MVP control-plane now available; full media-plane still pending)
 
 ## 1. Origin Server Checklist
 
@@ -155,8 +155,20 @@ export WABI_ORIGIN_URL=https://your-origin
 
 ## 8. Phase 2 Hand-off (SRT)
 
-Phase 2 requires a separate server-side media gateway track:
-- gateway service deployment
-- authenticated control plane integration
-- gateway session lifecycle in backend
-- frontend transport selection tied to real gateway sessions
+Phase 2 status:
+- Implemented now:
+  - gateway service deployment track (`media-gateway/`)
+  - authenticated control-plane integration (`MEDIA_GATEWAY_KEY`)
+  - gateway session lifecycle in backend (`/api/media/gateway/session*`)
+  - frontend transport selection now attempts gateway session establishment for channel calls
+- Remaining:
+  - full SRT media-plane bridge/transcoding path behind those control-plane hooks
+
+Quick validation (Phase 2 MVP control-plane):
+
+```bash
+export WABI_ORIGIN_URL=https://YOUR_ORIGIN
+export WABI_AUTH_TOKEN=YOUR_USER_OR_ADMIN_TOKEN
+export WABI_MEDIA_GATEWAY_KEY=YOUR_MEDIA_GATEWAY_KEY
+node scripts/srt-phase2-check.mjs
+```

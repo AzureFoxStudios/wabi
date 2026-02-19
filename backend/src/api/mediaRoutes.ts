@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { createHmac } from 'crypto';
+import { randomBytes } from 'crypto';
 
 function boolFromEnv(value: string | undefined, fallback: boolean = false): boolean {
 	if (value == null) return fallback;
@@ -29,11 +30,140 @@ const gatewayHeartbeat: GatewayHeartbeatState = {
 	lastSeenAt: 0
 };
 
+type GatewaySessionKind = 'voice' | 'screen' | 'recording';
+type GatewaySessionStatus = 'open' | 'closed';
+
+interface GatewaySessionRecord {
+	sessionId: string;
+	userId: number;
+	channelId: string | null;
+	kind: GatewaySessionKind;
+	status: GatewaySessionStatus;
+	createdAt: number;
+	updatedAt: number;
+	expiresAt: number;
+	transport: 'srt';
+	gatewayUrl: string;
+	publishUrl: string;
+	playbackUrl: string;
+	accessToken: string;
+}
+
+const gatewaySessions = new Map<string, GatewaySessionRecord>();
+let gatewayPortOffset = 0;
+
 function isGatewayAuthorized(req: IncomingMessage): boolean {
 	const configuredKey = process.env.MEDIA_GATEWAY_KEY;
 	if (!configuredKey) return false;
 	const provided = req.headers['x-media-gateway-key'];
 	return typeof provided === 'string' && provided === configuredKey;
+}
+
+function clampInt(value: number, min: number, max: number): number {
+	return Math.min(Math.max(Math.floor(value), min), max);
+}
+
+function getGatewayHeartbeatTimeoutMs(): number {
+	return clampInt(numberFromEnv(process.env.MEDIA_GATEWAY_HEARTBEAT_TIMEOUT_MS, 45_000), 10_000, 600_000);
+}
+
+function getGatewaySessionDefaultTtlSeconds(): number {
+	return clampInt(numberFromEnv(process.env.MEDIA_SRT_SESSION_TTL_SECONDS, 900), 60, 86_400);
+}
+
+function getGatewaySessionBasePort(): number {
+	return clampInt(numberFromEnv(process.env.MEDIA_SRT_BASE_PORT, 7000), 1024, 65535);
+}
+
+function getGatewayUrl(): string | null {
+	const value = (process.env.MEDIA_SRT_GATEWAY_URL || '').trim();
+	if (!value) return null;
+	return value.replace(/\/+$/, '');
+}
+
+function isSrtGatewayEnabledByConfig(): boolean {
+	return boolFromEnv(process.env.MEDIA_SRT_GATEWAY_ENABLED, false);
+}
+
+function isGatewayHealthyNow(): boolean {
+	const timeoutMs = getGatewayHeartbeatTimeoutMs();
+	return gatewayHeartbeat.lastSeenAt > 0 && Date.now() - gatewayHeartbeat.lastSeenAt < timeoutMs;
+}
+
+function buildSrtEndpoint(sessionId: string, accessToken: string, mode: 'caller' | 'listener', port: number): string {
+	const gatewayUrl = getGatewayUrl();
+	const host = gatewayUrl ? new URL(gatewayUrl).hostname : 'localhost';
+	const streamId = mode === 'caller' ? `publish:${sessionId}:${accessToken}` : `playback:${sessionId}:${accessToken}`;
+	return `srt://${host}:${port}?mode=${mode}&streamid=${encodeURIComponent(streamId)}`;
+}
+
+function pruneExpiredGatewaySessions(now = Date.now()): void {
+	for (const [sessionId, session] of gatewaySessions.entries()) {
+		if (session.expiresAt <= now || session.status !== 'open') {
+			gatewaySessions.delete(sessionId);
+		}
+	}
+}
+
+function sanitizeSessionForClient(session: GatewaySessionRecord) {
+	return {
+		sessionId: session.sessionId,
+		channelId: session.channelId,
+		kind: session.kind,
+		status: session.status,
+		transport: session.transport,
+		gatewayUrl: session.gatewayUrl,
+		publishUrl: session.publishUrl,
+		playbackUrl: session.playbackUrl,
+		accessToken: session.accessToken,
+		createdAt: session.createdAt,
+		updatedAt: session.updatedAt,
+		expiresAt: session.expiresAt
+	};
+}
+
+function sanitizeSessionForGateway(session: GatewaySessionRecord) {
+	return {
+		sessionId: session.sessionId,
+		channelId: session.channelId,
+		kind: session.kind,
+		status: session.status,
+		createdAt: session.createdAt,
+		updatedAt: session.updatedAt,
+		expiresAt: session.expiresAt,
+		publishUrl: session.publishUrl,
+		playbackUrl: session.playbackUrl
+	};
+}
+
+async function parseJsonBody(req: IncomingMessage, res: ServerResponse): Promise<Record<string, unknown> | null> {
+	let body = '';
+	try {
+		await new Promise<void>((resolve, reject) => {
+			req.on('data', chunk => {
+				body += chunk.toString();
+			});
+			req.on('end', () => resolve());
+			req.on('error', reject);
+		});
+	} catch (error) {
+		console.error('[MediaGateway] Failed reading request body:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to read request body' }));
+		return null;
+	}
+
+	if (!body) return {};
+
+	try {
+		const parsed = JSON.parse(body);
+		if (!parsed || typeof parsed !== 'object') return {};
+		return parsed as Record<string, unknown>;
+	} catch {
+		res.writeHead(400, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+		return null;
+	}
 }
 
 interface MintedTurnCredentials {
@@ -67,7 +197,7 @@ function mintTurnCredentials(userId: number): MintedTurnCredentials | null {
 // Provides server runtime hints for media quality transport paths.
 export async function handleGetMediaRuntime(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
-		const srtGatewayEnabled = boolFromEnv(process.env.MEDIA_SRT_GATEWAY_ENABLED, false);
+		const srtGatewayEnabled = isSrtGatewayEnabledByConfig();
 		const localEnhancedEnabled = boolFromEnv(process.env.MEDIA_LOCAL_ENHANCED_ENABLED, true);
 
 		res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -75,15 +205,15 @@ export async function handleGetMediaRuntime(req: IncomingMessage, res: ServerRes
 			media: {
 				localEnhancedEnabled,
 				srtGatewayEnabled,
-				srtGatewayUrl: process.env.MEDIA_SRT_GATEWAY_URL || null,
+				srtGatewayUrl: getGatewayUrl(),
 				opus: {
 					audioBitrateWeb: numberFromEnv(process.env.MEDIA_OPUS_AUDIO_WEB_BITRATE, 64000),
 					audioBitrateLocal: numberFromEnv(process.env.MEDIA_OPUS_AUDIO_LOCAL_BITRATE, 96000)
 				},
 				gateway: {
-					configured: Boolean(process.env.MEDIA_SRT_GATEWAY_URL),
-					heartbeatTimeoutMs: numberFromEnv(process.env.MEDIA_GATEWAY_HEARTBEAT_TIMEOUT_MS, 45_000),
-					healthy: gatewayHeartbeat.lastSeenAt > 0 && Date.now() - gatewayHeartbeat.lastSeenAt < numberFromEnv(process.env.MEDIA_GATEWAY_HEARTBEAT_TIMEOUT_MS, 45_000),
+					configured: Boolean(getGatewayUrl()),
+					heartbeatTimeoutMs: getGatewayHeartbeatTimeoutMs(),
+					healthy: isGatewayHealthyNow(),
 					lastSeenAt: gatewayHeartbeat.lastSeenAt || null,
 					activeStreams: gatewayHeartbeat.activeStreams ?? 0,
 					version: gatewayHeartbeat.version || null,
@@ -151,31 +281,193 @@ export async function handleMediaGatewayHeartbeat(req: IncomingMessage, res: Ser
 		return;
 	}
 
-	let body = '';
-	await new Promise<void>((resolve, reject) => {
-		req.on('data', chunk => {
-			body += chunk.toString();
-		});
-		req.on('end', () => resolve());
-		req.on('error', reject);
-	});
-
-	let payload: Record<string, unknown> = {};
-	if (body) {
-		try {
-			payload = JSON.parse(body);
-		} catch {
-			res.writeHead(400, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ error: 'Invalid JSON in gateway heartbeat' }));
-			return;
-		}
-	}
+	const payload = await parseJsonBody(req, res);
+	if (payload == null) return;
 
 	gatewayHeartbeat.lastSeenAt = Date.now();
 	gatewayHeartbeat.version = typeof payload.version === 'string' ? payload.version : undefined;
 	gatewayHeartbeat.region = typeof payload.region === 'string' ? payload.region : undefined;
 	gatewayHeartbeat.activeStreams = typeof payload.activeStreams === 'number' ? payload.activeStreams : 0;
 
+	const activeSessionIds = Array.isArray(payload.activeSessionIds) ? payload.activeSessionIds : [];
+	for (const sessionId of activeSessionIds) {
+		if (typeof sessionId !== 'string') continue;
+		const session = gatewaySessions.get(sessionId);
+		if (!session) continue;
+		session.updatedAt = Date.now();
+		gatewaySessions.set(sessionId, session);
+	}
+	pruneExpiredGatewaySessions();
+
 	res.writeHead(200, { 'Content-Type': 'application/json' });
 	res.end(JSON.stringify({ ok: true }));
+}
+
+// POST /api/media/gateway/session
+// Authenticated clients request an SRT gateway session for control-plane orchestration.
+export async function handleCreateMediaGatewaySession(
+	req: IncomingMessage,
+	res: ServerResponse,
+	userId: number
+): Promise<void> {
+	if (!isSrtGatewayEnabledByConfig()) {
+		res.writeHead(503, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'SRT gateway mode is disabled' }));
+		return;
+	}
+
+	const gatewayUrl = getGatewayUrl();
+	if (!gatewayUrl) {
+		res.writeHead(503, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'SRT gateway URL is not configured' }));
+		return;
+	}
+
+	if (!isGatewayHealthyNow()) {
+		res.writeHead(503, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'SRT gateway is unavailable (no fresh heartbeat)' }));
+		return;
+	}
+
+	const payload = await parseJsonBody(req, res);
+	if (payload == null) return;
+
+	const kindRaw = payload.kind;
+	const kind: GatewaySessionKind = kindRaw === 'screen' || kindRaw === 'recording' ? kindRaw : 'voice';
+	const channelIdRaw = payload.channelId;
+	const channelId = typeof channelIdRaw === 'string' && channelIdRaw.trim().length > 0 ? channelIdRaw.trim() : null;
+	const requestedTtl = typeof payload.ttlSeconds === 'number' ? payload.ttlSeconds : getGatewaySessionDefaultTtlSeconds();
+	const ttlSeconds = clampInt(requestedTtl, 60, 86_400);
+
+	pruneExpiredGatewaySessions();
+
+	const sessionId = randomBytes(16).toString('hex');
+	const accessToken = randomBytes(24).toString('hex');
+	const basePort = getGatewaySessionBasePort();
+	const port = basePort + (gatewayPortOffset % 1000);
+	gatewayPortOffset += 1;
+
+	const now = Date.now();
+	const session: GatewaySessionRecord = {
+		sessionId,
+		userId,
+		channelId,
+		kind,
+		status: 'open',
+		createdAt: now,
+		updatedAt: now,
+		expiresAt: now + (ttlSeconds * 1000),
+		transport: 'srt',
+		gatewayUrl,
+		publishUrl: buildSrtEndpoint(sessionId, accessToken, 'caller', port),
+		playbackUrl: buildSrtEndpoint(sessionId, accessToken, 'listener', port),
+		accessToken
+	};
+
+	gatewaySessions.set(sessionId, session);
+
+	res.writeHead(201, { 'Content-Type': 'application/json' });
+	res.end(JSON.stringify({
+		session: sanitizeSessionForClient(session),
+		gateway: {
+			healthy: isGatewayHealthyNow(),
+			lastSeenAt: gatewayHeartbeat.lastSeenAt || null,
+			region: gatewayHeartbeat.region || null,
+			version: gatewayHeartbeat.version || null
+		}
+	}));
+}
+
+// GET /api/media/gateway/sessions
+// Returns open sessions for the authenticated user.
+export async function handleListMediaGatewaySessions(
+	_req: IncomingMessage,
+	res: ServerResponse,
+	userId: number
+): Promise<void> {
+	pruneExpiredGatewaySessions();
+	const sessions = [...gatewaySessions.values()]
+		.filter((session) => session.userId === userId && session.status === 'open')
+		.map(sanitizeSessionForClient);
+
+	res.writeHead(200, { 'Content-Type': 'application/json' });
+	res.end(JSON.stringify({ sessions }));
+}
+
+// GET /api/media/gateway/session/:sessionId
+export async function handleGetMediaGatewaySession(
+	_req: IncomingMessage,
+	res: ServerResponse,
+	userId: number,
+	sessionId: string
+): Promise<void> {
+	pruneExpiredGatewaySessions();
+	const session = gatewaySessions.get(sessionId);
+	if (!session || session.status !== 'open') {
+		res.writeHead(404, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Session not found' }));
+		return;
+	}
+
+	if (session.userId !== userId) {
+		res.writeHead(403, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Not allowed to access this session' }));
+		return;
+	}
+
+	res.writeHead(200, { 'Content-Type': 'application/json' });
+	res.end(JSON.stringify({ session: sanitizeSessionForClient(session) }));
+}
+
+// POST /api/media/gateway/session/:sessionId/close
+export async function handleCloseMediaGatewaySession(
+	_req: IncomingMessage,
+	res: ServerResponse,
+	userId: number,
+	sessionId: string
+): Promise<void> {
+	pruneExpiredGatewaySessions();
+	const session = gatewaySessions.get(sessionId);
+	if (!session) {
+		res.writeHead(404, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Session not found' }));
+		return;
+	}
+
+	if (session.userId !== userId) {
+		res.writeHead(403, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Not allowed to close this session' }));
+		return;
+	}
+
+	session.status = 'closed';
+	session.updatedAt = Date.now();
+	gatewaySessions.delete(sessionId);
+
+	res.writeHead(200, { 'Content-Type': 'application/json' });
+	res.end(JSON.stringify({ ok: true, sessionId }));
+}
+
+// GET /api/media/gateway/control/sessions
+// Consumed by the gateway daemon (key-authenticated) to reconcile desired sessions.
+export async function handleGetMediaGatewayControlSessions(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	if (!isGatewayAuthorized(req)) {
+		res.writeHead(401, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Unauthorized' }));
+		return;
+	}
+
+	pruneExpiredGatewaySessions();
+	const sessions = [...gatewaySessions.values()]
+		.filter((session) => session.status === 'open')
+		.map(sanitizeSessionForGateway);
+
+	res.writeHead(200, { 'Content-Type': 'application/json' });
+	res.end(JSON.stringify({
+		sessions,
+		gateway: {
+			healthy: isGatewayHealthyNow(),
+			lastSeenAt: gatewayHeartbeat.lastSeenAt || null
+		}
+	}));
 }

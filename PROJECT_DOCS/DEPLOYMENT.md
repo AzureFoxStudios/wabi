@@ -384,7 +384,18 @@ Relay nodes for file delivery are implemented in-repo and can be rolled out sepa
 - Relay validation helper: `scripts/relay-phase1-check.mjs`
 - Frontend toggle: `VITE_ENABLE_RELAYS=true`
 
-SRT media gateway remains Phase 2.
+SRT media gateway Phase 2 MVP control-plane is now available (`media-gateway/` + `/api/media/gateway/session*`), while full media-plane bridging remains pending.
+
+To deploy gateway with launch script:
+
+```bash
+# enable in .env:
+# MEDIA_SRT_GATEWAY_ENABLED=true
+# MEDIA_SRT_GATEWAY_URL=https://your-gateway-domain
+# MEDIA_GATEWAY_KEY=shared_secret
+
+./scripts/launch.sh --srt-gateway
+```
 
 ---
 

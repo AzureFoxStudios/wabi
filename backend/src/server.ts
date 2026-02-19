@@ -18,7 +18,16 @@ import { verifyToken } from "./auth/jwt.js";
 import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings, handleGetPublicKey, handleStoreEncryptionKeys } from "./api/authRoutes.js";
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
 import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApprove, handleGetAllRelays, handleRelayDelete } from "./api/relayRoutes.js";
-import { handleGetMediaRuntime, handleGetTurnCredentials, handleMediaGatewayHeartbeat } from "./api/mediaRoutes.js";
+import {
+  handleGetMediaRuntime,
+  handleGetTurnCredentials,
+  handleMediaGatewayHeartbeat,
+  handleCreateMediaGatewaySession,
+  handleListMediaGatewaySessions,
+  handleGetMediaGatewaySession,
+  handleCloseMediaGatewaySession,
+  handleGetMediaGatewayControlSessions
+} from "./api/mediaRoutes.js";
 import { handleCreateWebhook, handleListWebhooks, handleDeleteWebhook, handleListWebhookDeliveries } from "./api/webhookRoutes.js";
 import { relayRepository } from "./db/repositories/relayRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
@@ -2246,6 +2255,57 @@ server.on('request', async (req, res) => {
 
   if (url.pathname === "/api/media/gateway-heartbeat" && req.method === "POST") {
     await handleMediaGatewayHeartbeat(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/media/gateway/control/sessions" && req.method === "GET") {
+    await handleGetMediaGatewayControlSessions(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/media/gateway/session" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Missing or invalid authorization' }));
+      return;
+    }
+    await handleCreateMediaGatewaySession(req, res, userId);
+    return;
+  }
+
+  if (url.pathname === "/api/media/gateway/sessions" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Missing or invalid authorization' }));
+      return;
+    }
+    await handleListMediaGatewaySessions(req, res, userId);
+    return;
+  }
+
+  const mediaGatewaySessionMatch = url.pathname.match(/^\/api\/media\/gateway\/session\/([a-f0-9]{16,64})$/);
+  if (mediaGatewaySessionMatch && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Missing or invalid authorization' }));
+      return;
+    }
+    await handleGetMediaGatewaySession(req, res, userId, mediaGatewaySessionMatch[1]);
+    return;
+  }
+
+  const mediaGatewaySessionCloseMatch = url.pathname.match(/^\/api\/media\/gateway\/session\/([a-f0-9]{16,64})\/close$/);
+  if (mediaGatewaySessionCloseMatch && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Missing or invalid authorization' }));
+      return;
+    }
+    await handleCloseMediaGatewaySession(req, res, userId, mediaGatewaySessionCloseMatch[1]);
     return;
   }
 
