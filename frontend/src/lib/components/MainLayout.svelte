@@ -10,7 +10,7 @@
 	import CallModal from '$lib/components/CallModal.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, type Channel, type User } from '$lib/socket';
-	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, voiceChannelNotice, isMuted, isDeafened, isVideoOff, isSharing, channelCallPanelOpen, toggleMute, toggleDeafen, toggleVideo, startScreenShare, stopScreenShare, toggleChannelCallPanel } from '$lib/calling';
+	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, voiceChannelNotice, isMuted, isDeafened, isVideoOff, isSharing, channelCallPanelOpen, toggleMute, toggleDeafen, toggleVideo, startScreenShare, stopScreenShare, toggleChannelCallPanel, openChannelCallPanel } from '$lib/calling';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 
@@ -116,6 +116,17 @@
 
 	async function handleToggleVideoFromStrip() {
 		await toggleVideo(getSocket() || undefined);
+	}
+
+	async function handleOpenCallFullscreen() {
+		openChannelCallPanel();
+		if (!document.fullscreenElement) {
+			try {
+				await document.documentElement.requestFullscreen();
+			} catch (error) {
+				console.warn('Failed to enter fullscreen mode:', error);
+			}
+		}
 	}
 
 	function formatDiag(value: number | null, unit = ''): string {
@@ -308,10 +319,15 @@
 		</div>
 	{/if}
 
-	{#if $layoutStore.isInCall && $callMode === 'direct' && !$channelCallPanelOpen}
+	{#if $layoutStore.isInCall && !$channelCallPanelOpen}
 		<div class="voice-toast" role="status">
-			Direct call active.
-			<button class="voice-toast-action" on:click={toggleChannelCallPanel}>Return to call</button>
+			{#if $callMode === 'channel' && $activeVoiceChannel}
+				Voice call active in {$activeVoiceChannel.name}.
+			{:else}
+				Direct call active.
+			{/if}
+			<button class="voice-toast-action" on:click={openChannelCallPanel}>Return to call</button>
+			<button class="voice-toast-action" on:click={handleOpenCallFullscreen}>Full Screen</button>
 		</div>
 	{/if}
 

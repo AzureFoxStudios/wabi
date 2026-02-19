@@ -213,7 +213,6 @@
 		}
 		try {
 			await joinVoiceChannel(channelId);
-			openChannelCallPanel();
 			dispatch('close');
 		} catch (error) {
 			console.error('Failed to join voice channel:', error);
