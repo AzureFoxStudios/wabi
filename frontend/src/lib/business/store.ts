@@ -1,5 +1,6 @@
 import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
+import { startupMark, startupMeasure } from '$lib/startupProfiler';
 import type {
 	Todo,
 	TodoStatus,
@@ -146,8 +147,11 @@ if (browser) {
 		if (syncInitScheduled) return;
 		syncInitScheduled = true;
 		const run = () => {
+			startupMark('business:sync:init:start');
 			import('./sync').then(({ initSync }) => {
 				initSync();
+				startupMark('business:sync:init:end');
+				startupMeasure('business:sync:init', 'business:sync:init:start', 'business:sync:init:end');
 			});
 		};
 		const ric = (window as Window & {

@@ -8,6 +8,7 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { initE2E, clearE2EState } from '$lib/e2eManager';
 	import { initializeAccessibilitySettings } from '$lib/accessibility';
+	import { startupMark, startupMeasure, startupScheduleReport } from '$lib/startupProfiler';
 
 	// Theme system
 	import { initializeTheme, watchThemeChanges, syncThemeToLocalStorage } from '$lib/theme/initTheme';
@@ -33,7 +34,10 @@
 	// --- Lifecycle ---
 	onMount(() => {
 		let disposed = false;
+		startupMark('page:onMount:start');
 		initializeAccessibilitySettings();
+		startupMark('page:accessibility:ready');
+		startupMeasure('page:accessibility:init', 'page:onMount:start', 'page:accessibility:ready');
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (e.ctrlKey && e.shiftKey && e.key === '1') {
 				e.preventDefault();
@@ -46,8 +50,11 @@
 		};
 
 		(async () => {
+			startupMark('page:bootstrap:start');
 			showLoadingScreen = false;
 			isInitialLoad = false;
+			startupMark('page:ui:unblocked');
+			startupMeasure('page:to-ui-unblocked', 'page:onMount:start', 'page:ui:unblocked');
 
 			const notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 			if (notificationsEnabled && Notification.permission === 'default') {
@@ -72,7 +79,10 @@
 					const dbUserId = localStorage.getItem('dbUserId');
 					if (dbUserId) {
 						try {
+							startupMark('page:e2e:init:start');
 							await initE2E(parseInt(dbUserId, 10), savedToken, false);
+							startupMark('page:e2e:init:end');
+							startupMeasure('page:e2e:init', 'page:e2e:init:start', 'page:e2e:init:end');
 						} catch (err) {
 							console.error('[App] Cached session invalid, clearing login:', err);
 							localStorage.removeItem('username');
@@ -85,19 +95,30 @@
 					}
 				}
 
+				startupMark('page:socket:init:start');
 				initSocket(savedUsername, savedToken || undefined);
+				startupMark('page:socket:init:end');
+				startupMeasure('page:socket:init:call', 'page:socket:init:start', 'page:socket:init:end');
 				loggedIn = true;
 			}
 
 			const isRegistered = !!savedToken;
 			// Theme fetch can hit network; don't block startup path.
-			void initializeTheme(isRegistered);
+			startupMark('page:theme:init:start');
+			void initializeTheme(isRegistered).finally(() => {
+				startupMark('page:theme:init:end');
+				startupMeasure('page:theme:init', 'page:theme:init:start', 'page:theme:init:end');
+			});
 			if (disposed) return;
 
 			unsubscribeThemeWatcher = watchThemeChanges();
 			if (!isRegistered) {
 				unsubscribeLocalStorageSync = syncThemeToLocalStorage();
 			}
+			startupMark('page:bootstrap:end');
+			startupMeasure('page:bootstrap', 'page:bootstrap:start', 'page:bootstrap:end');
+			startupMeasure('page:total-to-bootstrap', 'page:onMount:start', 'page:bootstrap:end');
+			startupScheduleReport('initial-load', 400);
 		})();
 
 		window.addEventListener('keydown', handleKeyDown);

@@ -7,6 +7,7 @@ import { themeStore, currentTheme } from './themeStore';
 import { applyTheme, loadThemeFromLocalStorage, saveThemeToLocalStorage } from './themeManager';
 import { fetchThemePreferences } from './themeApi';
 import { get } from 'svelte/store';
+import { startupMark, startupMeasure } from '$lib/startupProfiler';
 
 /**
  * Initialize theme system
@@ -15,6 +16,7 @@ import { get } from 'svelte/store';
  * - Apply theme to DOM
  */
 export async function initializeTheme(isRegistered: boolean = false): Promise<void> {
+	startupMark('theme:initialize:start');
 	try {
 		themeStore.setLoading(true);
 
@@ -22,13 +24,18 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 			// Try to load from server for registered users
 			try {
 				console.log('[Theme] Attempting to load preferences from server (registered user)...');
+				startupMark('theme:fetch:start');
 				const prefs = await fetchThemePreferences();
+				startupMark('theme:fetch:end');
+				startupMeasure('theme:fetch', 'theme:fetch:start', 'theme:fetch:end');
 				themeStore.load(prefs);
 				console.log('[Theme] ✅ Successfully loaded preferences from server:', {
 					theme_id: prefs.theme_id,
 					uniform_font_enabled: prefs.uniform_font_enabled
 				});
 			} catch (error) {
+				startupMark('theme:fetch:end');
+				startupMeasure('theme:fetch', 'theme:fetch:start', 'theme:fetch:end');
 				console.warn('[Theme] ❌ Failed to load from server:', error instanceof Error ? error.message : error);
 				console.log('[Theme] Falling back to localStorage...');
 				// Fallback to localStorage
@@ -66,6 +73,8 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 
 		themeStore.setLoading(false);
 	console.log('[Theme] ✅ Theme initialization complete');
+		startupMark('theme:initialize:end');
+		startupMeasure('theme:initialize', 'theme:initialize:start', 'theme:initialize:end');
 	} catch (error) {
 		console.error('[Theme] ❌ Initialization error:', error instanceof Error ? error.message : error);
 		themeStore.setError('Failed to initialize theme');
@@ -81,6 +90,8 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 			weight: state.uniformFontWeight,
 			style: state.uniformFontStyle
 		});
+		startupMark('theme:initialize:end');
+		startupMeasure('theme:initialize', 'theme:initialize:start', 'theme:initialize:end');
 	}
 }
 

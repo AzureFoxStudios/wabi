@@ -11,6 +11,7 @@
 
 	import { updated } from '$app/stores';
 	import { initRelaySelector } from '$lib/relaySelector';
+	import { startupMark, startupMeasure } from '$lib/startupProfiler';
 
 	let cleanupAutoSave: (() => void) | null = null;
 	let relayInitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -26,18 +27,28 @@
 	}
 
 	onMount(async () => {
+		startupMark('layout:onMount:start');
 		// Register service worker for PWA support (browser/PWA only, not Tauri webview)
 		if (import.meta.env.PROD && 'serviceWorker' in navigator && !isRunningInTauri()) {
+			startupMark('layout:sw:register:start');
 			navigator.serviceWorker.register('/sw.js').then((registration) => {
 				console.log('✅ Service Worker registered:', registration);
+				startupMark('layout:sw:register:end');
+				startupMeasure('layout:sw:register', 'layout:sw:register:start', 'layout:sw:register:end');
 			}).catch((error) => {
 				console.error('❌ Service Worker registration failed:', error);
+				startupMark('layout:sw:register:end');
+				startupMeasure('layout:sw:register', 'layout:sw:register:start', 'layout:sw:register:end');
 			});
 		}
 
 		// Initialize relay selector in idle time (can trigger network+latency probes).
 		scheduleNonCritical(() => {
-			void initRelaySelector();
+			startupMark('layout:relay:init:start');
+			void initRelaySelector().finally(() => {
+				startupMark('layout:relay:init:end');
+				startupMeasure('layout:relay:init', 'layout:relay:init:start', 'layout:relay:init:end');
+			});
 		});
 
 		// NOTE: Socket initialization is handled ONLY by +page.svelte
@@ -46,6 +57,7 @@
 		// Initialize Tauri features if running in Tauri
 		if (isRunningInTauri()) {
 			console.log('[Layout] Tauri detected');
+			startupMark('layout:tauri:init:start');
 
 			// Check if user has enabled Tauri storage
 			const tauriStorageEnabled = localStorage.getItem('tauriStorageEnabled') === 'true';
@@ -83,7 +95,11 @@
 			} else {
 				console.log('[Layout] Tauri storage not enabled - skipping auto-save');
 			}
+			startupMark('layout:tauri:init:end');
+			startupMeasure('layout:tauri:init', 'layout:tauri:init:start', 'layout:tauri:init:end');
 		}
+		startupMark('layout:onMount:end');
+		startupMeasure('layout:onMount', 'layout:onMount:start', 'layout:onMount:end');
 	});
 
 	onDestroy(() => {
