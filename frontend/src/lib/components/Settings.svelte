@@ -64,7 +64,7 @@
 	const MB = 1024 * 1024;
 
 	export let isOpen = false;
-	type SettingsTab = 'profile' | 'audio' | 'notifications' | 'accessibility' | 'appearance' | 'server' | 'emojis' | 'storage' | 'admin' | 'about';
+	type SettingsTab = 'profile' | 'audio' | 'notifications' | 'accessibility' | 'appearance' | 'server' | 'addons' | 'emojis' | 'storage' | 'admin' | 'about';
 	let activeSettingsTab: SettingsTab = 'profile';
 
 	let soundEnabled = true;
@@ -93,6 +93,7 @@
 	let contrast = 1;
 	let reducedMotion = false;
 	let roleColorMode: RoleColorMode = 'full';
+	let ownMessagesOnRight = false;
 	let localAppRuntime = false;
 	let micTestStream: MediaStream | null = null;
 	let micTestRecorder: MediaRecorder | null = null;
@@ -117,6 +118,31 @@
 
 	let showClearDataConfirm = false;
 	let showClearServerConfirm = false;
+	let addonsImportInput: HTMLInputElement;
+	type AddonRuntimeSide = 'frontend' | 'backend';
+	interface DetectedAddon {
+		id: string;
+		name: string;
+		version: string;
+		source: string;
+		side: AddonRuntimeSide;
+	}
+	interface PluginApiRecord {
+		id?: string;
+		name?: string;
+		version?: string;
+		signerKeyId?: string | null;
+		frontendEntry?: string | null;
+		backendEntry?: string | null;
+		hasFrontend?: boolean;
+		hasBackend?: boolean;
+	}
+	let frontendAddons: DetectedAddon[] = [];
+	let backendAddons: DetectedAddon[] = [];
+	let addonsLastDetectedAt = '';
+	let addonsLoading = false;
+	let addonsImportPreview: { importedAt?: string; frontend?: unknown[]; backend?: unknown[] } | null = null;
+	const frontendAddonModules = import.meta.glob('./plugins/*.svelte');
 
 	// Profile Picture upload state
 	let showAvatarEditor = false;
@@ -197,6 +223,7 @@
 		contrast = accessibilitySettings.contrast;
 		reducedMotion = accessibilitySettings.reducedMotion;
 		roleColorMode = accessibilitySettings.roleColorMode;
+		ownMessagesOnRight = accessibilitySettings.ownMessagesOnRight;
 		soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
 		notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 		micEnabled = localStorage.getItem('micEnabled') !== 'false';
@@ -322,6 +349,14 @@
 
 	$: if (isOpen && canManageAdmin && !uploadLimitsLoaded && !loadingUploadLimits) {
 		void loadUploadLimits();
+	}
+
+	$: if (isOpen && activeSettingsTab === 'addons' && !addonsLoading && !addonsLastDetectedAt) {
+		void refreshAddonDetection();
+	}
+
+	$: if (!isOpen) {
+		addonsLastDetectedAt = '';
 	}
 
 	function toggleSound() {
@@ -646,19 +681,145 @@
 		roleColorMode = next.roleColorMode;
 	}
 
+	function toggleOwnMessagesOnRight() {
+		const next = updateAccessibilitySettings({ ownMessagesOnRight: !ownMessagesOnRight });
+		ownMessagesOnRight = next.ownMessagesOnRight;
+	}
+
 	function resetAccessibilityVisuals() {
 		const next = updateAccessibilitySettings({
 			colorAssistEnabled: false,
 			saturation: 1,
 			contrast: 1,
 			reducedMotion: false,
-			roleColorMode: 'full'
+			roleColorMode: 'full',
+			ownMessagesOnRight: false
 		});
 		colorAssistEnabled = next.colorAssistEnabled;
 		saturation = next.saturation;
 		contrast = next.contrast;
 		reducedMotion = next.reducedMotion;
 		roleColorMode = next.roleColorMode;
+		ownMessagesOnRight = next.ownMessagesOnRight;
+	}
+
+	function toAddonNameFromComponentFile(fileName: string): string {
+		return fileName
+			.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+			.replace(/[-_]/g, ' ')
+			.trim();
+	}
+
+	function detectFrontendAddons(): DetectedAddon[] {
+		const keys = Object.keys(frontendAddonModules);
+		if (keys.length === 0) return [];
+
+		const addons = keys.map((path) => {
+			const fileName = path.split('/').pop()?.replace('.svelte', '') || path;
+			const addonId = fileName
+				.replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+				.replace(/[_\s]+/g, '-')
+				.toLowerCase();
+			return {
+				id: addonId,
+				name: toAddonNameFromComponentFile(fileName),
+				version: 'local',
+				source: path,
+				side: 'frontend' as const
+			};
+		});
+
+		return addons.sort((a, b) => a.name.localeCompare(b.name));
+	}
+
+	async function fetchPluginInventory(): Promise<PluginApiRecord[] | null> {
+		const token = localStorage.getItem('authToken');
+		if (!token) return null;
+
+		try {
+			const response = await fetch(`${getServerUrl()}/api/plugins`, {
+				headers: { Authorization: `Bearer ${token}` }
+			});
+			if (!response.ok) return null;
+			const payload = await response.json();
+			return Array.isArray(payload?.plugins) ? payload.plugins : [];
+		} catch (error) {
+			console.warn('[Addons] Failed to detect backend add-ons:', error);
+			return null;
+		}
+	}
+
+	async function refreshAddonDetection(): Promise<void> {
+		addonsLoading = true;
+		try {
+			const plugins = await fetchPluginInventory();
+			if (plugins) {
+				frontendAddons = plugins
+					.filter((plugin) => Boolean(plugin.hasFrontend || plugin.frontendEntry))
+					.map((plugin) => ({
+						id: String(plugin.id || 'unknown'),
+						name: String(plugin.name || plugin.id || 'Unknown Plugin'),
+						version: String(plugin.version || 'unknown'),
+						source: String(plugin.frontendEntry || 'plugin-manifest'),
+						side: 'frontend' as const
+					}))
+					.sort((a, b) => a.name.localeCompare(b.name));
+				backendAddons = plugins
+					.filter((plugin) => Boolean(plugin.hasBackend || plugin.backendEntry))
+					.map((plugin) => ({
+						id: String(plugin.id || 'unknown'),
+						name: String(plugin.name || plugin.id || 'Unknown Plugin'),
+						version: String(plugin.version || 'unknown'),
+						source: plugin.signerKeyId ? `signer:${plugin.signerKeyId}` : String(plugin.backendEntry || 'plugin-manifest'),
+						side: 'backend' as const
+					}))
+					.sort((a, b) => a.name.localeCompare(b.name));
+			} else {
+				frontendAddons = detectFrontendAddons();
+				backendAddons = [];
+			}
+			addonsLastDetectedAt = new Date().toLocaleString();
+		} finally {
+			addonsLoading = false;
+		}
+	}
+
+	function exportAddonManifest(): void {
+		const data = {
+			exportedAt: new Date().toISOString(),
+			frontend: frontendAddons,
+			backend: backendAddons
+		};
+		const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `wabi-addons-manifest-${Date.now()}.json`;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
+	function triggerAddonImport(): void {
+		addonsImportInput?.click();
+	}
+
+	async function importAddonManifest(event: Event): Promise<void> {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+		try {
+			const raw = await file.text();
+			const parsed = JSON.parse(raw);
+			addonsImportPreview = {
+				importedAt: parsed?.exportedAt,
+				frontend: Array.isArray(parsed?.frontend) ? parsed.frontend : [],
+				backend: Array.isArray(parsed?.backend) ? parsed.backend : []
+			};
+		} catch {
+			alert('Invalid add-ons manifest JSON file.');
+		} finally {
+			input.value = '';
+		}
 	}
 
 	function exportData() {
@@ -1111,6 +1272,7 @@
 					<button class="settings-tab" class:active={activeSettingsTab === 'accessibility'} on:click={() => activeSettingsTab = 'accessibility'}>Accessibility</button>
 					<button class="settings-tab" class:active={activeSettingsTab === 'appearance'} on:click={() => activeSettingsTab = 'appearance'}>Appearance</button>
 					<button class="settings-tab" class:active={activeSettingsTab === 'server'} on:click={() => activeSettingsTab = 'server'}>Server</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'addons'} on:click={() => activeSettingsTab = 'addons'}>Add-ons</button>
 					<button class="settings-tab" class:active={activeSettingsTab === 'emojis'} on:click={() => activeSettingsTab = 'emojis'}>Emojis</button>
 					<button class="settings-tab" class:active={activeSettingsTab === 'storage'} on:click={() => activeSettingsTab = 'storage'}>Storage</button>
 					{#if canManageAdmin}
@@ -1634,6 +1796,16 @@
 							<div class="customizer-container">
 								<UniformFontMode />
 							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Own Messages on Right</span>
+									<span class="setting-description">Align your messages to the right side of chat</span>
+								</div>
+								<button class="toggle-btn" class:active={ownMessagesOnRight} on:click={toggleOwnMessagesOnRight}>
+									{ownMessagesOnRight ? 'ON' : 'OFF'}
+								</button>
+							</div>
 						</div>
 
 					{:else if activeSettingsTab === 'server'}
@@ -1647,6 +1819,79 @@
 								<button class="action-btn danger" on:click={clearServerMessages}>
 									Clear Server
 								</button>
+							</div>
+						</div>
+
+					{:else if activeSettingsTab === 'addons'}
+						<div class="settings-section">
+							<h3>Add-ons</h3>
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">Import / Export Add-ons Manifest</span>
+									<span class="setting-description">Export a snapshot of detected frontend/backend add-ons, or import a saved manifest for comparison.</span>
+								</div>
+								<div class="addons-actions">
+									<button class="action-btn export" on:click={exportAddonManifest}>Export Add-ons JSON</button>
+									<button class="action-btn import" on:click={triggerAddonImport}>Import Add-ons JSON</button>
+									<button class="action-btn" on:click={refreshAddonDetection} disabled={addonsLoading}>
+										{addonsLoading ? 'Detecting...' : 'Refresh Detection'}
+									</button>
+								</div>
+								<input
+									type="file"
+									accept=".json,application/json"
+									bind:this={addonsImportInput}
+									on:change={importAddonManifest}
+									style="display: none;"
+								/>
+								{#if addonsLastDetectedAt}
+									<div class="runtime-note">Last detected: {addonsLastDetectedAt}</div>
+								{/if}
+								{#if addonsImportPreview}
+									<div class="runtime-note">
+										Imported manifest
+										{#if addonsImportPreview.importedAt}
+											from {new Date(addonsImportPreview.importedAt).toLocaleString()}
+										{/if}
+										(frontend: {addonsImportPreview.frontend?.length || 0}, backend: {addonsImportPreview.backend?.length || 0})
+									</div>
+								{/if}
+							</div>
+
+							<div class="addons-runtime-grid">
+								<div class="settings-section">
+									<h3>Frontend Add-ons (Detected)</h3>
+									{#if frontendAddons.length === 0}
+										<div class="runtime-note">No frontend add-ons detected.</div>
+									{:else}
+										<div class="addons-list">
+											{#each frontendAddons as addon (addon.id + addon.source)}
+												<div class="addon-row">
+													<div class="addon-name">{addon.name}</div>
+													<div class="addon-meta">id: {addon.id} - version: {addon.version}</div>
+													<div class="addon-source">{addon.source}</div>
+												</div>
+											{/each}
+										</div>
+									{/if}
+								</div>
+
+								<div class="settings-section">
+									<h3>Backend Add-ons (Detected)</h3>
+									{#if backendAddons.length === 0}
+										<div class="runtime-note">No backend add-ons detected (or plugin API access is unavailable for this account/session).</div>
+									{:else}
+										<div class="addons-list">
+											{#each backendAddons as addon (addon.id + addon.version)}
+												<div class="addon-row">
+													<div class="addon-name">{addon.name}</div>
+													<div class="addon-meta">id: {addon.id} - version: {addon.version}</div>
+													<div class="addon-source">{addon.source}</div>
+												</div>
+											{/each}
+										</div>
+									{/if}
+								</div>
 							</div>
 						</div>
 
@@ -2242,6 +2487,51 @@
 		gap: 0.75rem;
 	}
 
+	.addons-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.6rem;
+	}
+
+	.addons-runtime-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+		gap: 1rem;
+	}
+
+	.addons-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.55rem;
+	}
+
+	.addon-row {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		padding: 0.65rem 0.75rem;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: var(--bg-tertiary);
+	}
+
+	.addon-name {
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.addon-meta {
+		font-size: 0.78rem;
+		color: var(--text-secondary);
+	}
+
+	.addon-source {
+		font-family: monospace;
+		font-size: 0.72rem;
+		color: var(--text-tertiary);
+		word-break: break-all;
+	}
+
 	.action-btn {
 		padding: 0.875rem 1.25rem;
 		border-radius: 8px;
@@ -2598,6 +2888,7 @@
 		object-fit: cover;
 		border: 2px solid var(--accent);
 	}
+
 
 	.pfp-select-btn,
 	.pfp-upload-btn {
