@@ -193,7 +193,12 @@
 {/if}
 
 {#if isBootstrapping}
-	<div class="boot-placeholder" aria-hidden="true"></div>
+	<div class="boot-placeholder" aria-hidden="true">
+		<div class="boot-center">
+			<img src="/wabi-logo.webp" alt="Wabi" class="boot-logo" />
+			<div class="boot-title">Starting Wabi</div>
+		</div>
+	</div>
 {:else if !loggedIn}
 	{#if isInitialLoad}
 		<Login on:login={handleLogin} />
@@ -224,5 +229,35 @@
 	.boot-placeholder {
 		min-height: 100vh;
 		background: var(--gradient-loading-dark);
+		display: grid;
+		place-items: center;
+	}
+
+	.boot-center {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1rem;
+	}
+
+	.boot-logo {
+		width: 86px;
+		height: 86px;
+		object-fit: contain;
+		filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.28));
+		animation: boot-spin 2.1s linear infinite;
+	}
+
+	.boot-title {
+		font-size: 0.95rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: rgba(255, 255, 255, 0.88);
+		font-weight: 600;
+	}
+
+	@keyframes boot-spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
 	}
 </style>
