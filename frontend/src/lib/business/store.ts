@@ -47,6 +47,7 @@ export const todoFilters = writable<TodoFilters>({});
 
 // Local storage persistence
 const STORAGE_KEY = 'business_data';
+let syncInitScheduled = false;
 
 function loadFromStorage() {
 	if (!browser) return;
@@ -140,10 +141,25 @@ if (browser) {
 	// All subscriptions registered and storage loaded — enable sync
 	ready = true;
 
-	// Initialize sync engine for server sync
-	import('./sync').then(({ initSync }) => {
-		initSync();
-	});
+	// Initialize sync engine during idle time so first paint/socket init stay responsive.
+	const scheduleSyncInit = () => {
+		if (syncInitScheduled) return;
+		syncInitScheduled = true;
+		const run = () => {
+			import('./sync').then(({ initSync }) => {
+				initSync();
+			});
+		};
+		const ric = (window as Window & {
+			requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+		}).requestIdleCallback;
+		if (ric) {
+			ric(run, { timeout: 2500 });
+			return;
+		}
+		setTimeout(run, 800);
+	};
+	scheduleSyncInit();
 
 	// Initialize sample data only when explicitly enabled in development.
 	// This prevents accidental overwrites/noise in real business workspaces.

@@ -5,7 +5,6 @@
 	import { requestNotificationPermission } from '$lib/notifications';
 	import Login from '$lib/components/Login.svelte';
 	import MainLayout from '$lib/components/MainLayout.svelte';
-	import type { PageData } from './$types';
 	import { layoutStore } from '$lib/layoutStore';
 	import { initE2E, clearE2EState } from '$lib/e2eManager';
 	import { initializeAccessibilitySettings } from '$lib/accessibility';
@@ -13,14 +12,23 @@
 	// Theme system
 	import { initializeTheme, watchThemeChanges, syncThemeToLocalStorage } from '$lib/theme/initTheme';
 
-	export let data: PageData;
-
 	let loggedIn = typeof window !== 'undefined' && !!localStorage.getItem('username');
 	let isInitialLoad = true;
 	let showLoadingScreen = true;
 
 	let unsubscribeThemeWatcher: (() => void) | null = null;
 	let unsubscribeLocalStorageSync: (() => void) | null = null;
+	let unsubscribeLayoutStore: (() => void) | null = null;
+
+	function scheduleNonCritical(task: () => void, timeout = 1500): void {
+		if (typeof window === 'undefined') return;
+		const ric = (window as Window & { requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number }).requestIdleCallback;
+		if (ric) {
+			ric(task, { timeout });
+			return;
+		}
+		window.setTimeout(task, 0);
+	}
 
 	// --- Lifecycle ---
 	onMount(() => {
@@ -42,9 +50,15 @@
 			isInitialLoad = false;
 
 			const notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
-			if (notificationsEnabled) await requestNotificationPermission();
+			if (notificationsEnabled && Notification.permission === 'default') {
+				scheduleNonCritical(() => {
+					requestNotificationPermission().catch(() => {
+						// No-op: permission prompts are best-effort.
+					});
+				});
+			}
 
-			layoutStore.subscribe(state => {
+			unsubscribeLayoutStore = layoutStore.subscribe(state => {
 				if (state.isMobile) {
 					layoutStore.resetPanelsOnDesktop();
 				}
@@ -76,7 +90,8 @@
 			}
 
 			const isRegistered = !!savedToken;
-			await initializeTheme(isRegistered);
+			// Theme fetch can hit network; don't block startup path.
+			void initializeTheme(isRegistered);
 			if (disposed) return;
 
 			unsubscribeThemeWatcher = watchThemeChanges();
@@ -92,6 +107,7 @@
 			window.removeEventListener('keydown', handleKeyDown);
 			unsubscribeThemeWatcher?.();
 			unsubscribeLocalStorageSync?.();
+			unsubscribeLayoutStore?.();
 		};
 	});
 	

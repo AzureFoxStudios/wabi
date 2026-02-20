@@ -1,7 +1,6 @@
 <script lang="ts">
 	import '../app.css';
 	import '$lib/prism-theme.css';
-	import type { PageData } from './$types';
 	import { onMount, onDestroy } from 'svelte';
 	import { channelMessages, channels } from '$lib/socket';
 	import PureRefViewer from '$lib/components/PureRefViewer.svelte';
@@ -13,15 +12,22 @@
 	import { updated } from '$app/stores';
 	import { initRelaySelector } from '$lib/relaySelector';
 
-
-	// Accept data prop to suppress warning (we don't use it in root layout)
-	export let data: PageData;
-
 	let cleanupAutoSave: (() => void) | null = null;
+	let relayInitTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function scheduleNonCritical(task: () => void, timeout = 1500): void {
+		if (typeof window === 'undefined') return;
+		const ric = (window as Window & { requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number }).requestIdleCallback;
+		if (ric) {
+			ric(task, { timeout });
+			return;
+		}
+		relayInitTimer = setTimeout(task, 0);
+	}
 
 	onMount(async () => {
 		// Register service worker for PWA support (browser/PWA only, not Tauri webview)
-		if ('serviceWorker' in navigator && !isRunningInTauri()) {
+		if (import.meta.env.PROD && 'serviceWorker' in navigator && !isRunningInTauri()) {
 			navigator.serviceWorker.register('/sw.js').then((registration) => {
 				console.log('✅ Service Worker registered:', registration);
 			}).catch((error) => {
@@ -29,8 +35,10 @@
 			});
 		}
 
-		// Initialize relay selector for file CDN
-		initRelaySelector();
+		// Initialize relay selector in idle time (can trigger network+latency probes).
+		scheduleNonCritical(() => {
+			void initRelaySelector();
+		});
 
 		// NOTE: Socket initialization is handled ONLY by +page.svelte
 		// This prevents duplicate connections when both layout and page mount
@@ -82,6 +90,10 @@
 		// Clean up auto-save on app shutdown
 		if (cleanupAutoSave) {
 			cleanupAutoSave();
+		}
+		if (relayInitTimer) {
+			clearTimeout(relayInitTimer);
+			relayInitTimer = null;
 		}
 	});
 </script>
