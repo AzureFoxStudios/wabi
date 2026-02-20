@@ -15,6 +15,7 @@
 
 	let loggedIn = typeof window !== 'undefined' && !!localStorage.getItem('username');
 	let isInitialLoad = true;
+	let isBootstrapping = true;
 	let showLoadingScreen = true;
 
 	let unsubscribeThemeWatcher: (() => void) | null = null;
@@ -51,8 +52,8 @@
 
 		(async () => {
 			startupMark('page:bootstrap:start');
-			showLoadingScreen = false;
-			isInitialLoad = false;
+			showLoadingScreen = true;
+			isInitialLoad = true;
 			startupMark('page:ui:unblocked');
 			startupMeasure('page:to-ui-unblocked', 'page:onMount:start', 'page:ui:unblocked');
 
@@ -90,6 +91,9 @@
 							localStorage.removeItem('dbUserId');
 							localStorage.removeItem('sessionId');
 							loggedIn = false;
+							isBootstrapping = false;
+							showLoadingScreen = false;
+							isInitialLoad = false;
 							return;
 						}
 					}
@@ -119,6 +123,9 @@
 			startupMeasure('page:bootstrap', 'page:bootstrap:start', 'page:bootstrap:end');
 			startupMeasure('page:total-to-bootstrap', 'page:onMount:start', 'page:bootstrap:end');
 			startupScheduleReport('initial-load', 400);
+			isBootstrapping = false;
+			showLoadingScreen = false;
+			isInitialLoad = false;
 		})();
 
 		window.addEventListener('keydown', handleKeyDown);
@@ -185,7 +192,9 @@
 	<div class="loading-screen" transition:fade={{ duration: 400 }}></div>
 {/if}
 
-{#if !loggedIn}
+{#if isBootstrapping}
+	<div class="boot-placeholder" aria-hidden="true"></div>
+{:else if !loggedIn}
 	{#if isInitialLoad}
 		<Login on:login={handleLogin} />
 	{:else}
@@ -210,5 +219,10 @@
 		background: var(--gradient-loading-dark);
 		z-index: 10000;
 		pointer-events: none;
+	}
+
+	.boot-placeholder {
+		min-height: 100vh;
+		background: var(--gradient-loading-dark);
 	}
 </style>
