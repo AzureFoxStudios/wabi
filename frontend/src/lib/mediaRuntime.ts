@@ -4,7 +4,7 @@ import { isDesktopTauri, isMobileTauri, isTauriRuntime as detectTauriRuntime } f
 
 export type MediaQualityMode = 'web-baseline' | 'local-enhanced';
 export type AudioProcessingMode = 'auto' | 'dsp' | 'rnn' | 'studio';
-export type ScreenShareQualityPreset = 'auto' | '1080p' | '720p' | '480p' | '144p-mobile';
+export type ScreenShareQualityPreset = 'auto' | '1080p' | 'source-unbounded' | '720p' | '480p' | '144p-mobile';
 export type CallTransportMode = 'auto' | 'p2p-only' | 'sfu-preferred';
 export type EffectiveCallTransport = 'p2p' | 'sfu';
 export type SpatialAudioMode = 'auto' | 'pan_distance' | 'full_3d' | 'off';
@@ -12,7 +12,7 @@ export type SpatialAudioMode = 'auto' | 'pan_distance' | 'full_3d' | 'off';
 export interface ScreenShareQualityProfile {
 	label: string;
 	constraints: MediaTrackConstraints;
-	maxBitrate: number;
+	maxBitrate: number | null;
 	maxFramerate: number;
 }
 
@@ -71,6 +71,7 @@ const STORAGE_KEYS = {
 	audioProcessingMode: 'wabi_audio_processing_mode',
 	srtGateway: 'wabi_enable_srt_gateway',
 	screenShareQuality: 'wabi_screen_share_quality_preset',
+	screenShareBitrateKbps: 'wabi_screen_share_bitrate_kbps',
 	callTransportMode: 'wabi_call_transport_mode',
 	spatialEnabled: 'wabi_spatial_enabled',
 	spatialMode: 'wabi_spatial_mode',
@@ -86,22 +87,32 @@ const SCREEN_SHARE_QUALITY_PROFILES: Record<ScreenShareQualityPreset, ScreenShar
 	auto: {
 		label: 'Auto (Recommended)',
 		constraints: {
-			frameRate: { ideal: 12, max: 20 },
+			frameRate: { ideal: 24, max: 30 },
 			width: { ideal: 1920, max: 2560 },
 			height: { ideal: 1080, max: 1440 }
 		},
-		maxBitrate: 1_600_000,
-		maxFramerate: 18
+		maxBitrate: 5_000_000,
+		maxFramerate: 30
 	},
 	'1080p': {
 		label: '1080p',
 		constraints: {
-			frameRate: { ideal: 15, max: 24 },
+			frameRate: { ideal: 24, max: 30 },
 			width: { ideal: 1920, max: 1920 },
 			height: { ideal: 1080, max: 1080 }
 		},
-		maxBitrate: 2_200_000,
-		maxFramerate: 24
+		maxBitrate: 8_000_000,
+		maxFramerate: 30
+	},
+	'source-unbounded': {
+		label: 'Source (Unbounded Bitrate)',
+		constraints: {
+			frameRate: { ideal: 30, max: 60 },
+			width: { ideal: 2560, max: 3840 },
+			height: { ideal: 1440, max: 2160 }
+		},
+		maxBitrate: null,
+		maxFramerate: 60
 	},
 	'720p': {
 		label: '720p',
@@ -178,8 +189,8 @@ export function getMediaRuntimeConfig(): MediaRuntimeConfig {
 			qualityMode,
 			enableSrtGateway,
 			audioMaxBitrate: 96000,
-			videoMaxBitrate: 2_200_000,
-			screenShareMaxBitrate: 2_600_000
+			videoMaxBitrate: 8_000_000,
+			screenShareMaxBitrate: 20_000_000
 		};
 	}
 
@@ -190,8 +201,8 @@ export function getMediaRuntimeConfig(): MediaRuntimeConfig {
 		qualityMode,
 		enableSrtGateway,
 		audioMaxBitrate: 64000,
-		videoMaxBitrate: 1_200_000,
-		screenShareMaxBitrate: 1_600_000
+		videoMaxBitrate: 3_000_000,
+		screenShareMaxBitrate: 8_000_000
 	};
 }
 
@@ -261,7 +272,12 @@ export function getAudioCaptureConstraints(mode: AudioProcessingMode = getStored
 
 export function getStoredScreenShareQualityPreset(): ScreenShareQualityPreset {
 	if (!browser) return 'auto';
-	const stored = localStorage.getItem(STORAGE_KEYS.screenShareQuality);
+	const storedRaw = localStorage.getItem(STORAGE_KEYS.screenShareQuality);
+	const stored = storedRaw === '1080p-crisp' || storedRaw === '1080p-high-bitrate'
+		? '1080p'
+		: storedRaw === 'source-unlocked'
+			? 'source-unbounded'
+			: storedRaw;
 	if (stored && stored in SCREEN_SHARE_QUALITY_PROFILES) {
 		return stored as ScreenShareQualityPreset;
 	}
@@ -271,6 +287,31 @@ export function getStoredScreenShareQualityPreset(): ScreenShareQualityPreset {
 export function setScreenShareQualityPreset(preset: ScreenShareQualityPreset): void {
 	if (!browser) return;
 	localStorage.setItem(STORAGE_KEYS.screenShareQuality, preset);
+}
+
+export function getStoredScreenShareBitrateKbps(): number | null {
+	if (!browser) return null;
+	const raw = localStorage.getItem(STORAGE_KEYS.screenShareBitrateKbps);
+	if (!raw) return null;
+	const parsed = Number(raw);
+	if (!Number.isFinite(parsed)) return null;
+	if (parsed <= 0) return null;
+	return clamp(Math.floor(parsed), 250, 200_000);
+}
+
+export function setScreenShareBitrateKbps(value: number | null): void {
+	if (!browser) return;
+	if (value == null || !Number.isFinite(value) || value <= 0) {
+		localStorage.removeItem(STORAGE_KEYS.screenShareBitrateKbps);
+		return;
+	}
+	localStorage.setItem(STORAGE_KEYS.screenShareBitrateKbps, String(clamp(Math.floor(value), 250, 200_000)));
+}
+
+export function getScreenShareBitrateOverrideBps(): number | null {
+	const kbps = getStoredScreenShareBitrateKbps();
+	if (kbps == null) return null;
+	return kbps * 1000;
 }
 
 export function getStoredCallTransportMode(): CallTransportMode {

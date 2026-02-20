@@ -8,6 +8,7 @@ import {
 	getStoredAudioProcessingMode,
 	getMediaRuntimeConfig,
 	getScreenShareQualityProfile,
+	getScreenShareBitrateOverrideBps,
 	resolveCallTransportPlan,
 	getStoredSpatialAudioSettings,
 	setSpatialAudioEnabled,
@@ -1041,7 +1042,18 @@ async function optimizeSender(sender: RTCRtpSender, pc: RTCPeerConnection, kind:
 				encoding.maxBitrate = runtimeConfig.audioMaxBitrate;
 			} else {
 				const screenShareQuality = getScreenShareQualityProfile();
-				encoding.maxBitrate = source === 'screen-share' ? Math.min(runtimeConfig.screenShareMaxBitrate, screenShareQuality.maxBitrate) : runtimeConfig.videoMaxBitrate;
+				if (source === 'screen-share') {
+					const overrideBitrate = getScreenShareBitrateOverrideBps();
+					if (overrideBitrate != null) {
+						encoding.maxBitrate = overrideBitrate;
+					} else if (screenShareQuality.maxBitrate == null) {
+						delete encoding.maxBitrate;
+					} else {
+						encoding.maxBitrate = Math.min(runtimeConfig.screenShareMaxBitrate, screenShareQuality.maxBitrate);
+					}
+				} else {
+					encoding.maxBitrate = runtimeConfig.videoMaxBitrate;
+				}
 				encoding.maxFramerate = source === 'screen-share' ? screenShareQuality.maxFramerate : 24;
 				typeof encoding.scaleResolutionDownBy === 'number' || (encoding.scaleResolutionDownBy = 1);
 			}

@@ -24,6 +24,7 @@
 		getStoredCallTransportMode,
 		getStoredMediaQualityMode,
 		getStoredScreenShareQualityPreset,
+		getStoredScreenShareBitrateKbps,
 		getStoredSpatialAudioSettings,
 		isSrtGatewayEnabled,
 		isTauriRuntime,
@@ -31,6 +32,7 @@
 		setCallTransportMode,
 		setMediaQualityMode,
 		setScreenShareQualityPreset,
+		setScreenShareBitrateKbps,
 		setSpatialAudioDistanceScale,
 		setSpatialAudioEnabled,
 		setSpatialAudioMasterStrength,
@@ -78,6 +80,7 @@
 	let callTransportMode: CallTransportMode = 'auto';
 	let srtGatewayEnabled = false;
 	let screenShareQualityPreset: ScreenShareQualityPreset = 'auto';
+	let screenShareBitrateKbps = 0;
 	let spatialAudioEnabled = false;
 	let spatialAudioMode: SpatialAudioMode = 'auto';
 	let spatialAudioStrength = 0.85;
@@ -213,6 +216,7 @@
 			callTransportMode = getStoredCallTransportMode();
 			srtGatewayEnabled = isSrtGatewayEnabled();
 			screenShareQualityPreset = getStoredScreenShareQualityPreset();
+			screenShareBitrateKbps = getStoredScreenShareBitrateKbps() ?? 0;
 			const spatial = getStoredSpatialAudioSettings();
 			spatialAudioEnabled = spatial.enabled;
 			spatialAudioMode = spatial.mode;
@@ -492,6 +496,11 @@
 	function updateScreenShareQualityPreset(preset: ScreenShareQualityPreset) {
 		screenShareQualityPreset = preset;
 		setScreenShareQualityPreset(preset);
+	}
+
+	function updateScreenShareBitrateKbps(value: number) {
+		screenShareBitrateKbps = value;
+		setScreenShareBitrateKbps(value > 0 ? value : null);
 	}
 
 	function sampleMemoryTelemetry() {
@@ -1366,10 +1375,26 @@
 									>
 										<option value="auto">Auto (Recommended)</option>
 										<option value="1080p">1080p</option>
+										<option value="source-unbounded">Source (Unbounded Bitrate)</option>
 										<option value="720p">720p</option>
 										<option value="480p">480p</option>
 										<option value="144p-mobile">144p (Mobile / Low data)</option>
 									</select>
+								</div>
+
+								<div class="quality-mode-row">
+									<label for="screen-share-bitrate-kbps">Screen Share Bitrate (kbps)</label>
+									<input
+										id="screen-share-bitrate-kbps"
+										class="theme-select"
+										type="number"
+										min="0"
+										max="200000"
+										step="250"
+										value={screenShareBitrateKbps}
+										on:change={(e) => updateScreenShareBitrateKbps(parseInt(e.currentTarget.value || '0', 10) || 0)}
+									/>
+									<div class="runtime-note">Set `0` to use preset bitrate behavior. Any value above `0` is applied directly.</div>
 								</div>
 
 								<div class="quality-mode-row">
@@ -2985,4 +3010,3 @@
 		}
 	}
 </style>
-

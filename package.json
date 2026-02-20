@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"cd frontend && bun run dev\" \"cd backend && bun run dev\"",
+    "dev:local": "bash ./scripts/local-dev.sh",
+    "dev:local:windows": "powershell -ExecutionPolicy Bypass -File scripts/local-dev.ps1",
     "preview": "cd frontend && bun run preview",
     "start": "cd backend && bun run start",
     "build:frontend": "cd frontend && bun run build",

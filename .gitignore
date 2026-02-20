@@ -59,6 +59,7 @@ nul
 # Misc
 static/_app/immutable/
 backend/uploads/
+backend/data/
 bun.lock
 
 # Claude Code temporary files

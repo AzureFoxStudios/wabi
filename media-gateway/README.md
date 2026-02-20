@@ -1,13 +1,12 @@
-# Wabi Media Gateway (Phase 2 MVP)
-
-This service is the SRT gateway control-plane daemon for Wabi Phase 2.
+# Wabi Media Gateway
 
 Current MVP responsibilities:
 - Pull desired gateway sessions from origin (`GET /api/media/gateway/control/sessions`)
 - Send health + active stream heartbeats to origin (`POST /api/media/gateway-heartbeat`)
 - Expose local health/session visibility endpoints (`/health`, `/sessions`)
+- Optionally orchestrate per-session media workers (spawn/stop child processes per active gateway session)
 
-It does not yet run a full media-plane transcoder/bridge. It is the deployable control-plane foundation.
+The built-in service is still control-plane first. Media-plane work is delegated to worker processes you configure.
 
 ## Required environment
 
@@ -21,12 +20,57 @@ Optional:
 - `MEDIA_GATEWAY_HEARTBEAT_INTERVAL_MS` (default `15000`)
 - `MEDIA_GATEWAY_SESSION_SYNC_INTERVAL_MS` (default `10000`)
 
+Worker orchestration (optional):
+- `MEDIA_GATEWAY_WORKER_ENABLED` (`true|false`, default `false`)
+- `MEDIA_GATEWAY_WORKER_CMD` (binary/script path when enabled)
+- `MEDIA_GATEWAY_WORKER_ARGS_JSON` (JSON array; template tokens allowed)
+- `MEDIA_GATEWAY_WORKER_ENV_PASSTHROUGH` (comma-separated env keys to pass through)
+- `MEDIA_GATEWAY_WORKER_SHUTDOWN_TIMEOUT_MS` (default `8000`)
+
+Template tokens for `MEDIA_GATEWAY_WORKER_ARGS_JSON`:
+- `{{sessionId}}`
+- `{{channelId}}`
+- `{{kind}}`
+- `{{publishUrl}}`
+- `{{playbackUrl}}`
+- `{{expiresAt}}`
+
+Example worker args:
+
+```json
+["--session-id","{{sessionId}}","--publish-url","{{publishUrl}}","--playback-url","{{playbackUrl}}"]
+```
+
 ## Run (local)
 
 ```bash
 cd media-gateway
 WABI_ORIGIN_URL=http://localhost:8080 \
 MEDIA_GATEWAY_KEY=replace_me \
+node src/server.mjs
+```
+
+With worker orchestration:
+
+```bash
+cd media-gateway
+WABI_ORIGIN_URL=http://localhost:8080 \
+MEDIA_GATEWAY_KEY=replace_me \
+MEDIA_GATEWAY_WORKER_ENABLED=true \
+MEDIA_GATEWAY_WORKER_CMD=node \
+MEDIA_GATEWAY_WORKER_ARGS_JSON='["workers/ffmpeg-srt-bridge.mjs","--session-id","{{sessionId}}","--publish-url","{{publishUrl}}","--playback-url","{{playbackUrl}}"]' \
+node src/server.mjs
+```
+
+Direct custom worker example:
+
+```bash
+cd media-gateway
+WABI_ORIGIN_URL=http://localhost:8080 \
+MEDIA_GATEWAY_KEY=replace_me \
+MEDIA_GATEWAY_WORKER_ENABLED=true \
+MEDIA_GATEWAY_WORKER_CMD=/usr/local/bin/your-srt-worker \
+MEDIA_GATEWAY_WORKER_ARGS_JSON='["--session-id","{{sessionId}}","--publish-url","{{publishUrl}}","--playback-url","{{playbackUrl}}"]' \
 node src/server.mjs
 ```
 

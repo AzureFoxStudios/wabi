@@ -925,7 +925,7 @@ function initializeWorkspace(workspaceId: string): BusinessData {
 initializeWorkspace(defaultWorkspaceId);
 
 const PORT = process.env.PORT || 3000;
-const STATIC_DIR = process.env.STATIC_DIR || '/app/frontend/build';
+const STATIC_DIR = process.env.STATIC_DIR || DEFAULT_STATIC_DIR;
 const EMOTES_DIR = join(STATIC_DIR, "emotes");
 const ENABLE_LOGGING = process.env.ENABLE_LOGGING === 'true';
 

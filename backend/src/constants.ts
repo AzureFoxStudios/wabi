@@ -4,6 +4,7 @@
  * All magic strings and hardcoded values should be defined here.
  * Import from this file instead of using inline string literals.
  */
+import { join } from 'path';
 
 // ─── Workspace ────────────────────────────────────────────────────────────────
 
@@ -21,13 +22,13 @@ export const DEFAULT_VOICE_CHANNEL_ID = 'voice';
 // ─── File system paths ────────────────────────────────────────────────────────
 
 /** Root directory for all server-side persistent data (messages, business data). */
-export const DATA_DIR = process.env.DATA_DIR || '/app/data';
+export const DATA_DIR = process.env.DATA_DIR || join(process.cwd(), 'data');
 
 /** Root directory for uploaded files (profile pictures, attachments, emojis). */
-export const UPLOADS_DIR = process.env.UPLOADS_DIR || '/app/uploads';
+export const UPLOADS_DIR = process.env.UPLOADS_DIR || join(process.cwd(), 'uploads');
 
 /** Default directory for the compiled frontend static assets. */
-export const DEFAULT_STATIC_DIR = '/app/frontend/build';
+export const DEFAULT_STATIC_DIR = join(process.cwd(), '..', 'frontend', 'build');
 
 /** Sub-directory name (under DATA_DIR) for business workspace JSON files. */
 export const BUSINESS_DATA_DIR_NAME = 'business';
