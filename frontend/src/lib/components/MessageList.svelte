@@ -9,6 +9,7 @@
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import EmojiPicker from './EmojiPicker.svelte';
 	import LinkPreview from './LinkPreview.svelte';
+	import ModelViewer3D from './plugins/ModelViewer3D.svelte';
 	import { parseMessage } from '$lib/markdown';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
 	import '$lib/prism-theme.css';
@@ -39,6 +40,32 @@
 	// Delete confirmation state
 	let showDeleteConfirm = false;
 	let messageToDelete: Message | null = null;
+	let showBlendImportSettings = false;
+	let blendImportSourcePath = '';
+	let blendImportFileName = '';
+	let blendImportSubmitting = false;
+	let BlendImportSettingsModalComponent: any = null;
+
+	type BlendImportSettingsPayload = Record<string, unknown>;
+	const blendImportSettingsModalModules = import.meta.glob('./plugins/BlendImportSettingsModal.svelte');
+
+	async function ensureBlendImportSettingsModalLoaded(): Promise<boolean> {
+		if (BlendImportSettingsModalComponent) return true;
+		const loader = blendImportSettingsModalModules['./plugins/BlendImportSettingsModal.svelte'];
+		if (!loader) {
+			return false;
+		}
+
+		try {
+			const module: any = await loader();
+			BlendImportSettingsModalComponent = module?.default || null;
+			return !!BlendImportSettingsModalComponent;
+		} catch (error) {
+			console.warn('[BlendImport] Settings modal is unavailable:', error);
+			BlendImportSettingsModalComponent = null;
+			return false;
+		}
+	}
 	// Emoji picker for reactions
 	// TODO: Add emoji reactions feature
 	// - Right-click message → "Add Reaction" → Opens emoji picker
@@ -191,6 +218,11 @@
 		const delta = current.timestamp - previous.timestamp;
 		return delta >= 0 && delta <= MESSAGE_GROUP_WINDOW_MS;
 	}
+
+	function isGroupedWithNext(index: number): boolean {
+		if (index < 0 || index >= messages.length - 1) return false;
+		return isGroupedWithPrevious(index + 1);
+	}
 	function handleAddReaction() {
 		if (!contextMenuMessage) return;
 		// Open emoji picker at the context menu position
@@ -214,12 +246,23 @@
 		addReaction(reactionPickerChannelId, reactionPickerMessageId, event.detail.emoji.id);
 		closeReactionPicker();
 	}
-	function getCurrentReactionIdentityIds(): string[] {
+	function getCurrentIdentityIds(): string[] {
 		if (!$currentUser) return [];
 		const ids: string[] = [];
 		if ($currentUser.id) ids.push($currentUser.id);
 		if ($currentUser.dbUserId) ids.push(`user-${$currentUser.dbUserId}`);
 		return ids;
+	}
+
+	function isOwnMessage(message: Message): boolean {
+		if (!$currentUser) return false;
+		if (message.user === $currentUser.username) return true;
+		const ids = getCurrentIdentityIds();
+		return ids.includes(message.userId);
+	}
+
+	function getCurrentReactionIdentityIds(): string[] {
+		return getCurrentIdentityIds();
 	}
 	function hasCurrentUserReaction(userIds?: string[]): boolean {
 		if (!userIds || userIds.length === 0) return false;
@@ -388,8 +431,8 @@
 		return matches || [];
 	}
 
-	// TEMPORARY: Detect media URLs (images, videos, audio)
-	function getMediaType(url: string): 'image' | 'video' | 'audio' | null {
+	// TEMPORARY: Detect media URLs (images, videos, audio, 3D models)
+	function getMediaType(url: string): 'image' | 'video' | 'audio' | 'model' | null {
 		try {
 			const urlObj = new URL(url);
 			const pathname = urlObj.pathname.toLowerCase();
@@ -405,6 +448,10 @@
 			// Audio extensions
 			if (/\.(mp3|wav|ogg|m4a|flac|aac|wma)(\?|#|$)/i.test(pathname)) {
 				return 'audio';
+			}
+			// 3D model extensions
+			if (/\.(glb|gltf|obj|stl)(\?|#|$)/i.test(pathname)) {
+				return 'model';
 			}
 		} catch (e) {
 			// Invalid URL
@@ -506,8 +553,62 @@
 		const ext = fileName.toLowerCase().split('.').pop() || '';
 		return ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma', 'webm'].includes(ext);
 	}
+	function isModelFile(fileName?: string): boolean {
+		if (!fileName) return false;
+		const ext = fileName.toLowerCase().split('.').pop() || '';
+		return ['glb', 'gltf', 'obj', 'stl'].includes(ext);
+	}
+	function isBlendFile(fileName?: string): boolean {
+		if (!fileName) return false;
+		return fileName.toLowerCase().endsWith('.blend');
+	}
+
+	async function openBlendImportSettings(sourcePath: string, fileName: string): Promise<void> {
+		const modalReady = await ensureBlendImportSettingsModalLoaded();
+		if (!modalReady) {
+			alert('Blend import UI is unavailable. Ensure the model-viewer plugin frontend files are installed.');
+			return;
+		}
+
+		blendImportSourcePath = sourcePath;
+		blendImportFileName = fileName;
+		showBlendImportSettings = true;
+	}
+
+	async function queueBlendImport(event: CustomEvent<BlendImportSettingsPayload>): Promise<void> {
+		if (blendImportSubmitting) return;
+		blendImportSubmitting = true;
+		try {
+			const authToken = localStorage.getItem('authToken');
+			const response = await fetch(`${getServerUrl()}/api/plugins/runtime/model-viewer/blend/jobs`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+				},
+				body: JSON.stringify({
+					channelId: $currentChannel,
+					...event.detail
+				})
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok || payload?.success === false) {
+				throw new Error(payload?.error || `Failed to queue import (${response.status})`);
+			}
+			alert(`Blend import queued${payload?.job?.id ? `: ${payload.job.id}` : ''}`);
+			showBlendImportSettings = false;
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to queue blend import');
+		} finally {
+			blendImportSubmitting = false;
+		}
+	}
 	// Mobile long-press message actions
 	let mobileActionsMessageId: string | null = null;
+
+	onMount(() => {
+		void ensureBlendImportSettingsModalLoaded();
+	});
 
 	function handleMessageLongPress(event: TouchEvent, message: Message) {
 		mobileActionsMessageId = message.id;
@@ -673,6 +774,8 @@
 	{@const user = getUserByUsername(message.user)}
 	{@const replyToMsg = getReplyToMessage(message.replyTo)}
 	{@const groupedWithPrevious = isGroupedWithPrevious(index)}
+	{@const groupedWithNext = isGroupedWithNext(index)}
+	{@const ownMessage = isOwnMessage(message)}
 
 	<!-- New Messages Divider -->
 	{#if firstUnreadMessageId === message.id}
@@ -684,7 +787,7 @@
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		id="message-{message.id}"
-		class="message {message.isPinned ? 'pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''}"
+		class="message {message.isPinned ? 'pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''} {groupedWithNext ? 'has-continuation' : ''} {ownMessage ? 'own-message' : ''}"
 		on:contextmenu={(e) => handleContextMenu(e, message)}
 		use:longpress={{ onLongPress: (e) => handleMessageLongPress(e, message) }}
 	>
@@ -883,6 +986,24 @@
 												</div>
 											{/if}
 										</div>
+									{:else if isBlendFile(fileAttachment.fileName)}
+										<div class="gallery-file-item blend-item" class:last-item={index === 3 && message.files.length > 4}>
+											<div class="gallery-file-icon-large">{getFileIcon(fileAttachment.fileName)}</div>
+											<div class="gallery-file-overlay">
+												<span class="file-name-truncate">{fileAttachment.fileName}</span>
+												<span class="file-size-small">({formatFileSize(fileAttachment.fileSize)})</span>
+											</div>
+											<div class="blend-actions">
+												<button class="blend-import-btn" on:click={() => openBlendImportSettings(fileAttachment.fileUrl, fileAttachment.fileName)}>
+													Import Settings
+												</button>
+											</div>
+											{#if index === 3 && message.files.length > 4}
+												<div class="more-overlay">
+													<span class="more-count">+{message.files.length - 4}</span>
+												</div>
+											{/if}
+										</div>
 									{:else}
 										<a
 											href={getFileUrl(fileAttachment.fileUrl)}
@@ -905,7 +1026,16 @@
 								{/each}
 							</div>
 						{:else if message.fileUrl}
-							{#if isImage(message.fileName) && !isEncryptedAttachment(message)}
+							{#if isModelFile(message.fileName) && !isEncryptedAttachment(message)}
+							<div class="model-container">
+								<ModelViewer3D src={getFileUrl(message.fileUrl)} fileName={message.fileName || '3D model'} />
+								<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="image-download-link">
+									<span class="file-icon">{getFileIcon(message.fileName)}</span>
+									{message.fileName}
+									<span class="file-size">({formatFileSize(message.fileSize)})</span>
+								</a>
+							</div>
+							{:else if isImage(message.fileName) && !isEncryptedAttachment(message)}
 							<!-- Display image inline -->
 							<div class="image-container">
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -969,6 +1099,24 @@
 									<span class="file-size">({formatFileSize(message.fileSize)})</span>
 								</div>
 							</div>
+						{:else if isBlendFile(message.fileName) && !isEncryptedAttachment(message)}
+							<div class="blend-file-card">
+								<div class="blend-file-head">
+									<span class="file-icon">{getFileIcon(message.fileName)}</span>
+									<div class="file-info">
+										<span class="file-name">{message.fileName}</span>
+										<span class="file-size">{formatFileSize(message.fileSize)}</span>
+									</div>
+								</div>
+								<div class="blend-file-actions">
+									<button class="blend-import-btn" on:click={() => message.fileUrl && message.fileName && openBlendImportSettings(message.fileUrl, message.fileName)}>
+										Import Settings
+									</button>
+									<button class="blend-download-btn" on:click={() => message.fileUrl && message.fileName && downloadAttachment(message.fileUrl, message.fileName, message.attachmentEncryption)}>
+										Download .blend
+									</button>
+								</div>
+							</div>
 						{:else}
 							<!-- Display other files as download link -->
 							<a
@@ -1026,6 +1174,10 @@
 									<source src={url} />
 									Your browser does not support the audio element.
 								</audio>
+							{:else if mediaType === 'model'}
+								<div class="embedded-model-container">
+									<ModelViewer3D src={url} fileName={url.split('/').pop() || '3D model'} height={280} />
+								</div>
 							{:else}
 								<!-- Regular link preview for non-media URLs -->
 								<LinkPreview {url} />
@@ -1100,6 +1252,20 @@
 	onConfirm={confirmDeleteMessage}
 	onCancel={() => showDeleteConfirm = false}
 />
+
+{#if BlendImportSettingsModalComponent}
+	<svelte:component
+		this={BlendImportSettingsModalComponent}
+		isOpen={showBlendImportSettings}
+		sourcePath={blendImportSourcePath}
+		fileName={blendImportFileName}
+		isSubmitting={blendImportSubmitting}
+		on:close={() => {
+			if (!blendImportSubmitting) showBlendImportSettings = false;
+		}}
+		on:submit={queueBlendImport}
+	/>
+{/if}
 
 {#if enlargedImage}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -1213,6 +1379,10 @@
 		padding-left: calc(0.75rem + 9999px);
 	}
 
+	.message.has-continuation {
+		margin-bottom: 0.1rem;
+	}
+
 	.message:hover {
 		background: rgba(var(--bg-secondary-rgb), var(--opacity-medium));
 	}
@@ -1220,7 +1390,27 @@
 	.message.continuation {
 		padding-top: 0.2rem;
 		padding-bottom: 0.2rem;
-		margin-bottom: 0.1rem;
+		margin-bottom: 0.05rem;
+	}
+
+	:global(html[data-own-messages-right='true']) .message.own-message {
+		flex-direction: row-reverse;
+	}
+
+	:global(html[data-own-messages-right='true']) .message.own-message .message-body {
+		text-align: right;
+	}
+
+	:global(html[data-own-messages-right='true']) .message.own-message .message-header {
+		justify-content: flex-end;
+	}
+
+	:global(html[data-own-messages-right='true']) .message.own-message .header-left {
+		justify-content: flex-end;
+	}
+
+	:global(html[data-own-messages-right='true']) .message.own-message .reactions {
+		justify-content: flex-end;
 	}
 
 	.message.highlighted {
@@ -2000,9 +2190,15 @@
 	}
 
 	.image-container,
-	.video-container {
+	.video-container,
+	.model-container {
 		margin-top: 0.5rem;
 		margin-bottom: 0.25rem;
+	}
+
+	.embedded-model-container {
+		margin: 0.5rem 0;
+		max-width: 560px;
 	}
 
 	/* ========== MOBILE STYLES ========== */
