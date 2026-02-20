@@ -188,7 +188,7 @@
 	}
 </script>
 
-{#if showLoadingScreen}
+{#if showLoadingScreen && !isBootstrapping}
 	<div class="loading-screen" transition:fade={{ duration: 400 }}></div>
 {/if}
 
