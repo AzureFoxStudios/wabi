@@ -63,6 +63,7 @@ cd wabi
 cp .env.example .env
 cp frontend/.env.example frontend/.env
 ```
+(Don't worry about populating the .env files yet. The setup scripts will do this for you.)
 
 3. Start core services:
 
