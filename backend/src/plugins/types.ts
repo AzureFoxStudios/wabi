@@ -48,6 +48,7 @@ export interface BackendPlugin {
   socketHandlers?: Record<string, (socket: Socket, data: any, ctx: PluginContext) => void>;
 
   // HTTP routes (optional)
+  // Mounted under /api/plugins/runtime/:pluginId
   routes?: {
     method?: 'get' | 'post' | 'put' | 'delete';
     path: string;

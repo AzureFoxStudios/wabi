@@ -134,11 +134,56 @@ await ctx.storage.delete('key');
 const keys = await ctx.storage.list();
 ```
 
+### HTTP Routes
+
+Backend plugins can expose HTTP endpoints through `routes`.
+Routes are mounted under:
+
+`/api/plugins/runtime/:pluginId`
+
+Example:
+
+```typescript
+const plugin: BackendPlugin = {
+  name: 'my-plugin',
+  routes: [
+    {
+      method: 'get',
+      path: '/health',
+      handler: async (req, res) => {
+        res.json({
+          ok: true,
+          plugin: req.params.pluginId,
+          query: req.query
+        });
+      }
+    },
+    {
+      method: 'post',
+      path: '/echo',
+      handler: async (req, res) => {
+        const body = await req.json();
+        res.status(200).json({ body });
+      }
+    }
+  ]
+};
+```
+
+The plugin API surface provided to route handlers includes:
+- `req.query`, `req.params`, `req.path`, `req.headers`, `req.method`
+- `await req.json()`, `await req.text()`, `await req.buffer()`
+- `res.status(code).json(payload)`, `res.send(payload)`, `res.set(name, value)`, `res.end()`
+
+Request body size for plugin routes is capped by `PLUGIN_ROUTE_MAX_BODY_BYTES` (default: `2097152`).
+
 ## 🔒 Security Controls
 
 - Plugin package checksums are validated before enabling backend plugins.
 - Optional Ed25519 signatures are verified when signer metadata is present.
 - Trusted signer allowlist is managed by server admins via `/api/plugins/signers`.
+- Optional malware scanning can gate plugin load using `PLUGIN_SCAN_POLICY=off|warn|enforce`.
+- Scanner integration is command-based via `PLUGIN_SCANNER_CMD` (for example: ClamAV).
 - Plugin lifecycle actions write structured audit events with actor, plugin/version, action, result, timestamp, and reason.
 - Plugin logs are namespaced as `plugin:<id>` and persisted for admin review.
 - Safe mode startup can disable third-party plugins if crash loops are detected.

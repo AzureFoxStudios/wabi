@@ -6,6 +6,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { spawnSync } from 'child_process';
 import type { Server, Socket } from 'socket.io';
 import type { Server as HttpServer } from 'http';
 import type { BackendPlugin, PluginContext, PluginLogger, PluginManifest, PluginStorage } from './types';
@@ -18,6 +19,9 @@ interface PluginRecord {
   signerKeyId?: string;
   signatureStatus?: 'verified' | 'invalid' | 'unsigned' | 'skipped';
   signerTrust?: 'trusted' | 'unknown' | 'n/a';
+  scanStatus?: 'clean' | 'suspicious' | 'error' | 'skipped';
+  scanReason?: string;
+  lastScannedAt?: string;
   lastVerificationResult: 'pass' | 'fail' | 'skipped';
   lastVerifiedAt: string;
 }
@@ -26,7 +30,7 @@ interface PluginAuditEvent {
   actor: string;
   pluginId: string;
   version: string;
-  action: 'discover' | 'verify' | 'load' | 'enable' | 'disable' | 'unload';
+  action: 'discover' | 'verify' | 'scan' | 'load' | 'enable' | 'disable' | 'unload';
   result: 'success' | 'failure' | 'skipped';
   timestamp: string;
   reason?: string;
@@ -47,6 +51,16 @@ interface PluginLogEntry {
 
 const CRASH_LOOP_THRESHOLD = 3;
 type PluginSignaturePolicy = 'warn-allow' | 'signed-only' | 'curated-only';
+type PluginScanPolicy = 'off' | 'warn' | 'enforce';
+const PLUGIN_HTTP_ROUTE_PREFIX = '/api/plugins/runtime';
+const DEFAULT_PLUGIN_ROUTE_BODY_LIMIT_BYTES = 2 * 1024 * 1024;
+const DEFAULT_PLUGIN_SCAN_TIMEOUT_MS = 120_000;
+
+interface PluginScanResult {
+  passed: boolean;
+  status: PluginRecord['scanStatus'];
+  reason: string;
+}
 
 interface TrustedSignerRecord {
   keyId: string;
@@ -56,8 +70,16 @@ interface TrustedSignerRecord {
   note?: string;
 }
 
+interface RegisteredPluginRoute {
+  pluginId: string;
+  method: 'get' | 'post' | 'put' | 'delete';
+  path: string;
+  handler: (req: any, res: any) => void | Promise<void>;
+}
+
 export class PluginLoader {
   private plugins: Map<string, { plugin: BackendPlugin; manifest: PluginManifest }> = new Map();
+  private pluginRoutes: RegisteredPluginRoute[] = [];
   private pluginsDir: string;
   private storageDir: string;
   private pluginRecordsFile: string;
@@ -233,18 +255,49 @@ export class PluginLoader {
         result: combinedVerificationPassed ? 'success' : 'failure',
         reason: combinedVerificationReason
       });
-      this.upsertPluginRecord(
-        manifest,
-        combinedVerificationPassed ? 'pass' : 'fail',
-        integrity.calculatedChecksum,
-        signature
-      );
 
       if (!combinedVerificationPassed) {
+        this.upsertPluginRecord(
+          manifest,
+          'fail',
+          integrity.calculatedChecksum,
+          signature
+        );
         console.error(`❌ Plugin verification failed for ${pluginId}: ${combinedVerificationReason}`);
         this.recordCrash(pluginId);
         return;
       }
+
+      const scanResult = this.scanPluginPackage(pluginPath, pluginId);
+      this.writeAuditEvent({
+        actor: 'system',
+        pluginId,
+        version: manifest.version,
+        action: 'scan',
+        result: scanResult.status === 'skipped' ? 'skipped' : (scanResult.passed ? 'success' : 'failure'),
+        reason: scanResult.reason
+      });
+
+      if (!scanResult.passed) {
+        this.upsertPluginRecord(
+          manifest,
+          'fail',
+          integrity.calculatedChecksum,
+          signature,
+          scanResult
+        );
+        console.error(`❌ Plugin scanner gate failed for ${pluginId}: ${scanResult.reason}`);
+        this.recordCrash(pluginId);
+        return;
+      }
+
+      this.upsertPluginRecord(
+        manifest,
+        'pass',
+        integrity.calculatedChecksum,
+        signature,
+        scanResult
+      );
 
       const pluginModule = await import(backendEntry);
       const plugin: BackendPlugin = pluginModule.default || pluginModule;
@@ -300,9 +353,7 @@ export class PluginLoader {
         console.log(`  🔌 Socket events: ${manifest.backend.socketEvents.join(', ')}`);
       }
 
-      if (plugin.routes && plugin.routes.length > 0) {
-        console.warn(`  ⚠️  Plugin ${manifest.name} defines routes but Express is not available`);
-      }
+      this.registerPluginRoutes(pluginId, manifest.name, plugin.routes);
     } catch (error) {
       const version = this.readManifestVersion(manifestPath);
       this.writeAuditEvent({
@@ -316,6 +367,194 @@ export class PluginLoader {
       this.recordCrash(pluginId);
       console.error(`❌ Failed to load plugin ${pluginId}:`, error);
     }
+  }
+
+  private registerPluginRoutes(
+    pluginId: string,
+    pluginName: string,
+    routes: BackendPlugin['routes'] | undefined
+  ): void {
+    if (!routes || routes.length === 0) return;
+
+    for (const route of routes) {
+      if (!route?.path || typeof route.path !== 'string' || typeof route.handler !== 'function') {
+        console.warn(`  ⚠️  Plugin ${pluginName} has an invalid route declaration and it was skipped`);
+        continue;
+      }
+
+      const method = (route.method || 'get').toLowerCase() as RegisteredPluginRoute['method'];
+      if (!['get', 'post', 'put', 'delete'].includes(method)) {
+        console.warn(`  ⚠️  Plugin ${pluginName} route ${route.path} uses unsupported method ${route.method}`);
+        continue;
+      }
+
+      const normalizedPath = route.path.startsWith('/') ? route.path : `/${route.path}`;
+      this.pluginRoutes.push({
+        pluginId,
+        method,
+        path: normalizedPath,
+        handler: route.handler
+      });
+    }
+
+    console.log(`  🌐 Plugin HTTP routes mounted at ${PLUGIN_HTTP_ROUTE_PREFIX}/${pluginId}/*`);
+  }
+
+  async handleHttpRoute(req: any, res: any, url: URL): Promise<boolean> {
+    if (!url.pathname.startsWith(`${PLUGIN_HTTP_ROUTE_PREFIX}/`)) {
+      return false;
+    }
+
+    const suffix = url.pathname.slice(`${PLUGIN_HTTP_ROUTE_PREFIX}/`.length);
+    const slashIndex = suffix.indexOf('/');
+    const pluginId = decodeURIComponent((slashIndex >= 0 ? suffix.slice(0, slashIndex) : suffix).trim());
+    const routePath = slashIndex >= 0 ? suffix.slice(slashIndex) : '/';
+    const method = (req.method || 'GET').toLowerCase();
+
+    if (!pluginId) {
+      this.writeJson(res, 400, { success: false, error: 'Plugin id is required' });
+      return true;
+    }
+
+    if (!this.plugins.has(pluginId)) {
+      this.writeJson(res, 404, { success: false, error: `Plugin '${pluginId}' is not loaded` });
+      return true;
+    }
+
+    const route = this.pluginRoutes.find((candidate) =>
+      candidate.pluginId === pluginId &&
+      candidate.method === method &&
+      this.matchesPluginRoute(routePath, candidate.path)
+    );
+
+    if (!route) {
+      this.writeJson(res, 404, { success: false, error: 'Plugin route not found' });
+      return true;
+    }
+
+    try {
+      const bodyReaders = this.createRequestBodyReaders(req);
+      const pluginReq = {
+        raw: req,
+        method: req.method || 'GET',
+        headers: req.headers,
+        url: req.url || '',
+        path: routePath,
+        query: Object.fromEntries(url.searchParams.entries()),
+        params: { pluginId, path: routePath },
+        json: bodyReaders.json,
+        text: bodyReaders.text,
+        buffer: bodyReaders.buffer
+      };
+      const pluginRes = this.createPluginResponse(res);
+
+      await route.handler(pluginReq, pluginRes);
+    } catch (error) {
+      console.error(`[Plugins] Route handler failed for ${pluginId} ${method.toUpperCase()} ${routePath}:`, error);
+      if (!res.headersSent && !res.writableEnded) {
+        this.writeJson(res, 500, { success: false, error: 'Plugin route handler failed' });
+      }
+    }
+
+    return true;
+  }
+
+  private matchesPluginRoute(actualPath: string, routePath: string): boolean {
+    if (routePath === actualPath) return true;
+    if (routePath === '*' || routePath === '/*') return true;
+
+    if (routePath.endsWith('/*')) {
+      const base = routePath.slice(0, -1);
+      return actualPath === base.slice(0, -1) || actualPath.startsWith(base);
+    }
+
+    return false;
+  }
+
+  private createRequestBodyReaders(req: any): {
+    json: () => Promise<any>;
+    text: () => Promise<string>;
+    buffer: () => Promise<Buffer>;
+  } {
+    let bodyPromise: Promise<Buffer> | null = null;
+    const maxBytes = Number(process.env.PLUGIN_ROUTE_MAX_BODY_BYTES || DEFAULT_PLUGIN_ROUTE_BODY_LIMIT_BYTES);
+
+    const getBody = (): Promise<Buffer> => {
+      if (bodyPromise) return bodyPromise;
+
+      bodyPromise = new Promise((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        let total = 0;
+
+        req.on('data', (chunk: Buffer) => {
+          total += chunk.length;
+          if (total > maxBytes) {
+            reject(new Error(`Plugin route body exceeded ${maxBytes} bytes`));
+            req.destroy();
+            return;
+          }
+          chunks.push(chunk);
+        });
+        req.on('end', () => resolve(Buffer.concat(chunks)));
+        req.on('error', (error: Error) => reject(error));
+      });
+
+      return bodyPromise;
+    };
+
+    return {
+      buffer: async () => getBody(),
+      text: async () => (await getBody()).toString('utf-8'),
+      json: async () => {
+        const raw = (await getBody()).toString('utf-8').trim();
+        if (!raw) return {};
+        return JSON.parse(raw);
+      }
+    };
+  }
+
+  private createPluginResponse(res: any): any {
+    const pluginRes: any = {
+      raw: res,
+      status: (code: number) => {
+        res.statusCode = code;
+        return pluginRes;
+      },
+      setHeader: (name: string, value: string) => {
+        res.setHeader(name, value);
+        return pluginRes;
+      },
+      set: (name: string, value: string) => {
+        res.setHeader(name, value);
+        return pluginRes;
+      },
+      json: (payload: any) => {
+        if (!res.headersSent) {
+          res.setHeader('Content-Type', 'application/json');
+        }
+        res.end(JSON.stringify(payload));
+      },
+      send: (payload: any) => {
+        if (Buffer.isBuffer(payload) || typeof payload === 'string') {
+          res.end(payload);
+          return;
+        }
+        if (!res.headersSent) {
+          res.setHeader('Content-Type', 'application/json');
+        }
+        res.end(JSON.stringify(payload));
+      },
+      end: (payload?: any) => {
+        res.end(payload);
+      }
+    };
+
+    return pluginRes;
+  }
+
+  private writeJson(res: any, statusCode: number, payload: any): void {
+    res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(payload));
   }
 
   handleNewConnection(socket: Socket) {
@@ -469,6 +708,67 @@ export class PluginLoader {
     return 'warn-allow';
   }
 
+  private getScanPolicy(): PluginScanPolicy {
+    const raw = (process.env.PLUGIN_SCAN_POLICY || 'warn').trim().toLowerCase();
+    if (raw === 'off' || raw === 'enforce') return raw;
+    return 'warn';
+  }
+
+  private scanPluginPackage(pluginPath: string, pluginId: string): PluginScanResult {
+    const policy = this.getScanPolicy();
+    if (policy === 'off') {
+      return { passed: true, status: 'skipped', reason: 'Plugin scanning disabled (policy=off)' };
+    }
+
+    const scannerTemplate = (process.env.PLUGIN_SCANNER_CMD || '').trim();
+    if (!scannerTemplate) {
+      const reason = 'PLUGIN_SCANNER_CMD not configured';
+      if (policy === 'enforce') {
+        return { passed: false, status: 'error', reason: `${reason}; enforce policy blocks plugin load` };
+      }
+      return { passed: true, status: 'skipped', reason: `${reason}; warn policy allows plugin load` };
+    }
+
+    const quotedPath = `"${pluginPath.replace(/"/g, '\\"')}"`;
+    const quotedPluginId = `"${pluginId.replace(/"/g, '\\"')}"`;
+    let command = scannerTemplate
+      .replaceAll('{{pluginPath}}', quotedPath)
+      .replaceAll('{{pluginId}}', quotedPluginId);
+    if (!scannerTemplate.includes('{{pluginPath}}')) {
+      command = `${command} ${quotedPath}`;
+    }
+
+    const timeoutMs = Number(process.env.PLUGIN_SCANNER_TIMEOUT_MS || DEFAULT_PLUGIN_SCAN_TIMEOUT_MS);
+    const result = spawnSync(command, {
+      shell: true,
+      encoding: 'utf-8',
+      timeout: Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.floor(timeoutMs) : DEFAULT_PLUGIN_SCAN_TIMEOUT_MS
+    });
+
+    if (result.error) {
+      const reason = `Scanner execution error: ${result.error.message}`;
+      if (policy === 'enforce') {
+        return { passed: false, status: 'error', reason };
+      }
+      return { passed: true, status: 'error', reason: `${reason}; warn policy allows plugin load` };
+    }
+
+    const exitCode = typeof result.status === 'number' ? result.status : -1;
+    if (exitCode === 0) {
+      return { passed: true, status: 'clean', reason: `Scanner command passed (exit code ${exitCode})` };
+    }
+
+    const stderr = (result.stderr || '').toString().trim();
+    const stdout = (result.stdout || '').toString().trim();
+    const detail = stderr || stdout || 'no scanner output';
+    const reason = `Scanner reported suspicious result (exit code ${exitCode}): ${detail}`;
+    if (policy === 'enforce') {
+      return { passed: false, status: 'suspicious', reason };
+    }
+
+    return { passed: true, status: 'suspicious', reason: `${reason}; warn policy allows plugin load` };
+  }
+
   private verifyPluginSignature(
     manifest: PluginManifest,
     calculatedChecksum: string
@@ -609,7 +909,8 @@ export class PluginLoader {
     manifest: PluginManifest,
     result: PluginRecord['lastVerificationResult'],
     calculatedChecksum: string,
-    signature?: { status: PluginRecord['signatureStatus']; signerTrust: PluginRecord['signerTrust'] }
+    signature?: { status: PluginRecord['signatureStatus']; signerTrust: PluginRecord['signerTrust'] },
+    scan?: PluginScanResult
   ) {
     const records = this.readPluginRecords();
     records[manifest.id] = {
@@ -620,6 +921,9 @@ export class PluginLoader {
       signerKeyId: manifest.signer?.keyId,
       signatureStatus: signature?.status,
       signerTrust: signature?.signerTrust,
+      scanStatus: scan?.status,
+      scanReason: scan?.reason,
+      lastScannedAt: scan ? new Date().toISOString() : records[manifest.id]?.lastScannedAt,
       lastVerificationResult: result,
       lastVerifiedAt: new Date().toISOString()
     };
@@ -760,7 +1064,8 @@ export class PluginLoader {
       description: manifest.description,
       signerKeyId: manifest.signer?.keyId || null,
       signatureStatus: records[id]?.signatureStatus || 'skipped',
-      signerTrust: records[id]?.signerTrust || 'n/a'
+      signerTrust: records[id]?.signerTrust || 'n/a',
+      scanStatus: records[id]?.scanStatus || 'skipped'
     }));
   }
 

@@ -1194,6 +1194,11 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  // Plugin runtime HTTP routes (namespaced under /api/plugins/runtime/:pluginId/*)
+  if (await pluginLoader.handleHttpRoute(req, res, url)) {
+    return;
+  }
+
   // Plugin admin APIs
   if (url.pathname === "/api/plugins" && req.method === "GET") {
     const userId = getAuthenticatedUserId(req);
