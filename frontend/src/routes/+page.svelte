@@ -248,12 +248,24 @@
 		animation: boot-spin 2.1s linear infinite;
 	}
 
+	:root[data-theme="dark"] .boot-logo,
+	:root[data-theme="midnight-blue"] .boot-logo,
+	:root[data-theme="vscode-high-contrast"] .boot-logo {
+		filter: invert(1) drop-shadow(0 10px 24px rgba(0, 0, 0, 0.35));
+	}
+
 	.boot-title {
 		font-size: 0.95rem;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
 		color: rgba(255, 255, 255, 0.88);
 		font-weight: 600;
+	}
+
+	:root[data-theme="dark"] .boot-title,
+	:root[data-theme="midnight-blue"] .boot-title,
+	:root[data-theme="vscode-high-contrast"] .boot-title {
+		color: rgba(255, 255, 255, 0.96);
 	}
 
 	@keyframes boot-spin {
