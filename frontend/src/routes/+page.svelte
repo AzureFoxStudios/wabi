@@ -21,24 +21,6 @@
 	let unsubscribeThemeWatcher: (() => void) | null = null;
 	let unsubscribeLocalStorageSync: (() => void) | null = null;
 	let unsubscribeLayoutStore: (() => void) | null = null;
-	const BOOT_INVERT_THEMES = new Set(['dark', 'midnight-blue', 'vscode-high-contrast']);
-
-	function readBootThemeId(): string | null {
-		if (typeof window === 'undefined') return null;
-		const attrTheme = document.documentElement.getAttribute('data-theme');
-		if (attrTheme) return attrTheme;
-		try {
-			const raw = localStorage.getItem('wabi-theme');
-			if (!raw) return null;
-			const parsed = JSON.parse(raw);
-			return typeof parsed?.theme_id === 'string' ? parsed.theme_id : null;
-		} catch {
-			return null;
-		}
-	}
-
-	let bootThemeId: string | null = readBootThemeId();
-	$: bootUseInvertedLogo = BOOT_INVERT_THEMES.has(bootThemeId || '');
 
 	function scheduleNonCritical(task: () => void, timeout = 1500): void {
 		if (typeof window === 'undefined') return;
@@ -53,7 +35,6 @@
 	// --- Lifecycle ---
 	onMount(() => {
 		let disposed = false;
-		bootThemeId = readBootThemeId();
 		startupMark('page:onMount:start');
 		initializeAccessibilitySettings();
 		startupMark('page:accessibility:ready');
@@ -214,8 +195,8 @@
 {#if isBootstrapping}
 	<div class="boot-placeholder" aria-hidden="true">
 		<div class="boot-center">
-			<img src="/wabi-logo.webp" alt="Wabi" class="boot-logo" class:boot-logo-inverted={bootUseInvertedLogo} />
-			<div class="boot-title" class:boot-title-bright={bootUseInvertedLogo}>Starting Wabi</div>
+			<img src="/wabi-logo.webp" alt="Wabi" class="boot-logo" />
+			<div class="boot-title">Starting Wabi</div>
 		</div>
 	</div>
 {:else if !loggedIn}
@@ -240,14 +221,14 @@
 	.loading-screen {
 		position: fixed;
 		inset: 0;
-		background: var(--gradient-loading-dark);
+		background: linear-gradient(180deg, #0f172a 0%, #0b1220 55%, #060b14 100%);
 		z-index: 10000;
 		pointer-events: none;
 	}
 
 	.boot-placeholder {
 		min-height: 100vh;
-		background: var(--gradient-loading-dark);
+		background: linear-gradient(180deg, #0f172a 0%, #0b1220 55%, #060b14 100%);
 		display: grid;
 		place-items: center;
 	}
@@ -260,16 +241,12 @@
 	}
 
 	.boot-logo {
-		--boot-base-filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.28));
+		--boot-base-filter: invert(1) drop-shadow(0 10px 24px rgba(0, 0, 0, 0.35));
 		width: 86px;
 		height: 86px;
 		object-fit: contain;
 		filter: var(--boot-base-filter);
 		animation: boot-spin 2.1s linear infinite, boot-filter-rotate 900ms ease-out 1;
-	}
-
-	.boot-logo-inverted {
-		--boot-base-filter: invert(1) drop-shadow(0 10px 24px rgba(0, 0, 0, 0.35));
 	}
 
 	.boot-title {
@@ -278,10 +255,6 @@
 		text-transform: uppercase;
 		color: rgba(255, 255, 255, 0.88);
 		font-weight: 600;
-	}
-
-	.boot-title-bright {
-		color: rgba(255, 255, 255, 0.96);
 	}
 
 	@keyframes boot-spin {
