@@ -3093,7 +3093,7 @@ server.on('request', async (req, res) => {
   if (url.pathname === "/api/clear-messages" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
     if (!userId) {
-      res.writeHead(401, { "Content-Type": "application/json" });
+      res.writeHead(401, { "Content-Type": "application/json", ...getCORSHeaders(req) });
       res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
       return;
     }
@@ -3108,6 +3108,13 @@ server.on('request', async (req, res) => {
       pinnedMessages.forEach((pins, channelId) => {
         pinnedMessages.set(channelId, new Set());
       });
+
+      // Cancel and clear all pending deletion timers
+      messageDeletionTimers.forEach((timer) => clearTimeout(timer));
+      messageDeletionTimers.clear();
+
+      // Clear persisted messages from database
+      const deletedDbMessages = messageRepository.clearAll();
 
       // Delete all files from uploads directory
       if (existsSync(UPLOADS_DIR)) {
@@ -3128,14 +3135,18 @@ server.on('request', async (req, res) => {
         if (ENABLE_LOGGING) console.log(`Deleted ${deletedCount} files from uploads directory`);
       }
 
-      res.writeHead(200, { "Content-Type": "application/json" });
+      // Notify all connected clients to clear local in-memory message lists
+      io.emit("messages-cleared", { scope: "all" });
+
+      res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req) });
       res.end(JSON.stringify({
         success: true,
-        message: "All messages and files cleared from server"
+        message: "All messages and files cleared from server",
+        deletedDbMessages
       }));
     } catch (error) {
       console.error('Clear messages error:', error);
-      res.writeHead(500, { "Content-Type": "application/json" });
+      res.writeHead(500, { "Content-Type": "application/json", ...getCORSHeaders(req) });
       res.end(JSON.stringify({ success: false, error: 'Failed to clear messages' }));
     }
     return;

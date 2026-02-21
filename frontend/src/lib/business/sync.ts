@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { browser } from '$app/environment';
-import { socket, getSocket } from '$lib/socket';
+import { getSocket } from '$lib/socket';
 import { getServerUrl } from '$lib/serverUrl';
 import {
 	todos,
@@ -13,17 +13,46 @@ import {
 	graphEdges
 } from './store';
 
+type BusinessSyncMode = 'manual' | 'auto';
+
 // Sync state
 let isSyncing = false;
 let isOnline = browser && navigator.onLine;
 let debounceTimeout: ReturnType<typeof setTimeout> | null = null;
-const DEBOUNCE_MS = 1000; // Wait 1 second after last change before syncing
+const DEBOUNCE_MS = 1000;
+const BUSINESS_SYNC_MODE_KEY = 'wabi_business_sync_mode';
+const BUSINESS_SYNC_DEBUG_KEY = 'wabi_debug_business_sync';
+let pendingRemoteUpdate = false;
+
+function logSync(...args: unknown[]): void {
+	if (!browser) return;
+	if (localStorage.getItem(BUSINESS_SYNC_DEBUG_KEY) !== 'true') return;
+	console.log(...args);
+}
+
+export function getBusinessSyncMode(): BusinessSyncMode {
+	if (!browser) return 'manual';
+	const mode = localStorage.getItem(BUSINESS_SYNC_MODE_KEY);
+	return mode === 'auto' ? 'auto' : 'manual';
+}
+
+export function setBusinessSyncMode(mode: BusinessSyncMode): void {
+	if (!browser) return;
+	localStorage.setItem(BUSINESS_SYNC_MODE_KEY, mode);
+}
+
+function isManualSyncMode(): boolean {
+	return getBusinessSyncMode() === 'manual';
+}
+
+export function hasPendingRemoteBusinessUpdate(): boolean {
+	return pendingRemoteUpdate;
+}
 
 function hasAuthToken(): boolean {
 	return browser && !!localStorage.getItem('authToken');
 }
 
-// Load business data from server
 export async function pullFromServer(): Promise<boolean> {
 	if (!browser || isSyncing || !hasAuthToken()) return false;
 
@@ -40,7 +69,7 @@ export async function pullFromServer(): Promise<boolean> {
 				method: 'GET',
 				headers: {
 					'Content-Type': 'application/json',
-					...(token ? { 'Authorization': `Bearer ${token}` } : {})
+					...(token ? { Authorization: `Bearer ${token}` } : {})
 				},
 				signal: controller.signal
 			});
@@ -57,32 +86,29 @@ export async function pullFromServer(): Promise<boolean> {
 		if (result.success && result.data) {
 			const serverData = result.data;
 
-			// Update stores with server data - only if data exists
 			if (serverData.todos) todos.set(serverData.todos);
 			if (serverData.calendarEvents) calendarEvents.set(serverData.calendarEvents);
 			if (serverData.diaryEntries) diaryEntries.set(serverData.diaryEntries);
 			if (serverData.projects) projects.set(serverData.projects);
 			if (serverData.sprints) sprints.set(serverData.sprints);
-
-			// Art Portal data - sync if server provides an array (including empty arrays)
 			if (Array.isArray(serverData.resources)) resources.set(serverData.resources);
 			if (Array.isArray(serverData.tags)) tags.set(serverData.tags);
 			if (Array.isArray(serverData.graphEdges)) graphEdges.set(serverData.graphEdges);
 
-			console.log('✅ Pulled business data from server');
+			pendingRemoteUpdate = false;
+			logSync('[BusinessSync] Pulled business data from server');
 			return true;
 		}
 
 		return false;
 	} catch (error) {
-		console.error('❌ Failed to pull from server:', error);
+		console.error('[BusinessSync] Failed to pull from server:', error);
 		return false;
 	} finally {
 		isSyncing = false;
 	}
 }
 
-// Push business data to server
 export async function pushToServer(): Promise<boolean> {
 	if (!browser || isSyncing || !hasAuthToken()) return false;
 
@@ -98,7 +124,6 @@ export async function pushToServer(): Promise<boolean> {
 			diaryEntries: get(diaryEntries),
 			projects: get(projects),
 			sprints: get(sprints),
-			// Art Portal data
 			resources: get(resources),
 			tags: get(tags),
 			graphEdges: get(graphEdges)
@@ -112,7 +137,7 @@ export async function pushToServer(): Promise<boolean> {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
-					...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+					...(token ? { Authorization: `Bearer ${token}` } : {}),
 					...(guestCode && !token ? { 'X-Guest-Code': guestCode } : {})
 				},
 				body: JSON.stringify(data),
@@ -127,70 +152,62 @@ export async function pushToServer(): Promise<boolean> {
 		}
 
 		const result = await response.json();
-
 		if (result.success) {
-			console.log('✅ Pushed business data to server');
+			logSync('[BusinessSync] Pushed business data to server');
 			return true;
 		}
 
 		return false;
 	} catch (error) {
-		console.error('❌ Failed to push to server:', error);
+		console.error('[BusinessSync] Failed to push to server:', error);
 		return false;
 	} finally {
 		isSyncing = false;
 	}
 }
 
-// Sync: push then pull (local changes take priority)
-export async function sync(pullFirst: boolean = false): Promise<boolean> {
+export async function sync(pullFirst = false): Promise<boolean> {
 	if (!isOnline || !hasAuthToken()) {
 		return false;
 	}
 
-	console.log('🔄 Syncing business data...');
+	logSync('[BusinessSync] Syncing business data', { pullFirst });
 
 	if (pullFirst) {
-		// On initial sync, pull first to get server state
 		const pulled = await pullFromServer();
 		const pushed = await pushToServer();
 		return pulled || pushed;
-	} else {
-		// Push local changes to server
-		const pushed = await pushToServer();
-		return pushed;
 	}
+
+	const pushed = await pushToServer();
+	return pushed;
 }
 
-// Trigger sync with debouncing - call this after any data change
 export function triggerSync(): void {
-	if (!browser || !isOnline || !hasAuthToken()) return;
+	if (!browser || !isOnline || !hasAuthToken() || isManualSyncMode()) return;
 
-	// Clear existing timeout
 	if (debounceTimeout) {
 		clearTimeout(debounceTimeout);
 	}
 
-	// Schedule sync after debounce period
 	debounceTimeout = setTimeout(() => {
-		sync(false); // Push changes immediately
+		sync(false);
 	}, DEBOUNCE_MS);
 }
 
-// Online/offline detection
 function handleOnline() {
-	console.log('🌐 Connection restored - syncing...');
 	isOnline = true;
-	sync(true); // Pull first when coming back online
+	logSync('[BusinessSync] Connection restored');
+	if (!isManualSyncMode()) {
+		sync(true);
+	}
 }
 
 function handleOffline() {
-	console.log('📡 Connection lost - working offline');
 	isOnline = false;
+	logSync('[BusinessSync] Connection lost, working offline');
 }
 
-// Socket.io listeners for real-time updates
-// Track current socket instance to detect recreation
 let currentSocketId: string | null = null;
 let listenerCleanup: (() => void) | null = null;
 
@@ -201,65 +218,56 @@ function setupSocketListeners() {
 		const sock = getSocket();
 		if (!sock) return;
 
-		// Check if this is the same socket we already set up
 		if (currentSocketId === sock.id && listenerCleanup) {
-			return; // Already set up for this socket
+			return;
 		}
 
-		// Clean up previous listener if socket changed
 		if (listenerCleanup) {
 			listenerCleanup();
 			listenerCleanup = null;
 		}
 
-		// Define the handler
-		const handleBusinessUpdate = (data: any) => {
-			console.log('📡 Real-time business data update received', data);
-			pullFromServer();
+		const handleBusinessUpdate = (data: unknown) => {
+			logSync('[BusinessSync] Real-time business update received', data);
+			pendingRemoteUpdate = true;
+			if (!isManualSyncMode()) {
+				pullFromServer();
+			}
 		};
 
-		// Attach listener
 		sock.on('business-data-updated', handleBusinessUpdate);
 
-		// Store cleanup function
 		listenerCleanup = () => {
 			sock.off('business-data-updated', handleBusinessUpdate);
 		};
 
 		currentSocketId = sock.id;
-		console.log('✅ Socket.io business listeners initialized for socket:', sock.id);
+		logSync('[BusinessSync] Socket listeners initialized for socket', sock.id);
 	} catch (error) {
-		console.error('Failed to setup Socket.io listeners:', error);
+		console.error('[BusinessSync] Failed to setup Socket.io listeners:', error);
 	}
 }
 
-// Initialize sync engine
 export function initSync() {
 	if (!browser) return;
 
-	// Skip sync entirely if not authenticated
 	if (!hasAuthToken()) {
-		console.log('⏭️ No auth token — skipping business sync init');
+		logSync('[BusinessSync] No auth token, skipping sync init');
 		return;
 	}
 
-	// Set up online/offline listeners
 	window.addEventListener('online', handleOnline);
 	window.addEventListener('offline', handleOffline);
-
-	// Set up Socket.io listeners for real-time updates
 	setupSocketListeners();
 
-	// Initial sync if online
-	if (isOnline) {
-		console.log('🌐 Online - performing initial sync...');
-		sync(true); // Pull first on initial load to get server state
+	if (isOnline && !isManualSyncMode()) {
+		logSync('[BusinessSync] Online - performing initial sync');
+		sync(true);
 	} else {
-		console.log('📡 Offline - working in offline mode');
+		logSync('[BusinessSync] Manual mode enabled or offline - not auto-syncing on init');
 	}
 }
 
-// Cleanup function
 export function cleanupSync() {
 	if (!browser) return;
 
@@ -271,7 +279,6 @@ export function cleanupSync() {
 		debounceTimeout = null;
 	}
 
-	// Clean up socket listeners
 	if (listenerCleanup) {
 		listenerCleanup();
 		listenerCleanup = null;

@@ -185,6 +185,52 @@ class SocketManager {
 		activeVoiceChannel.set(connectedChannel);
 	}
 
+	private getStoredDbUserId(): number | null {
+		const raw = this.safeLocalStorageGet('dbUserId');
+		if (!raw) return null;
+		const parsed = Number.parseInt(raw, 10);
+		return Number.isNaN(parsed) ? null : parsed;
+	}
+
+	private resolveCurrentUser(userList: User[], socketId?: string): User | null {
+		if (socketId) {
+			const bySocketId = userList.find(user => user.id === socketId);
+			if (bySocketId) return bySocketId;
+		}
+
+		const existingCurrentUser = get(currentUser);
+		if (existingCurrentUser?.dbUserId) {
+			const byCurrentDbUserId = userList.find(user => user.dbUserId === existingCurrentUser.dbUserId);
+			if (byCurrentDbUserId) return byCurrentDbUserId;
+		}
+
+		if (existingCurrentUser?.id) {
+			const byCurrentId = userList.find(user => user.id === existingCurrentUser.id);
+			if (byCurrentId) return byCurrentId;
+		}
+
+		const storedDbUserId = this.getStoredDbUserId();
+		if (storedDbUserId) {
+			const byStoredDbUserId = userList.find(user => user.dbUserId === storedDbUserId);
+			if (byStoredDbUserId) return byStoredDbUserId;
+		}
+
+		if (this.username) {
+			const byUsername = userList.filter(user => user.username === this.username);
+			if (byUsername.length === 1) return byUsername[0];
+		}
+
+		return null;
+	}
+
+	private isSameUserIdentity(candidate: User, reference: User | null, socketId?: string): boolean {
+		if (socketId && candidate.id === socketId) return true;
+		if (!reference) return false;
+		if (candidate.id === reference.id) return true;
+		if (candidate.dbUserId && reference.dbUserId && candidate.dbUserId === reference.dbUserId) return true;
+		return false;
+	}
+
 	// ==================== STATE MACHINE ====================
 
 	private canTransition(to: ConnectionState): boolean {
@@ -592,10 +638,12 @@ class SocketManager {
 			if (data.roleDefinitions) roleDefinitions.set(data.roleDefinitions);
 			this.applyVoiceState(data.voiceState);
 
-			const user = data.users.find(u => u.id === sock.id);
+			const user = this.resolveCurrentUser(data.users, sock.id);
 			if (user) {
 				currentUser.set(user);
 				this.updatePinnedChannels();
+			} else {
+				console.warn('[SocketManager] Could not resolve current user from init payload');
 			}
 
 			// On reconnect, sync newer messages for the current channel
@@ -808,6 +856,19 @@ class SocketManager {
 			}));
 		});
 
+		sock.on('messages-cleared', () => {
+			channelMessages.update(msgs => {
+				const cleared: Record<string, Message[]> = {};
+				for (const key of Object.keys(msgs)) {
+					cleared[key] = [];
+				}
+				if (!('general' in cleared)) {
+					cleared.general = [];
+				}
+				return cleared;
+			});
+		});
+
 		sock.on('message-pin-toggled', (data: { channelId: string; messageId: string; isPinned: boolean }) => {
 			channelMessages.update(msgs => ({
 				...msgs,
@@ -820,7 +881,18 @@ class SocketManager {
 		// ==================== USER EVENTS ====================
 
 		sock.on('user-joined', (user: User) => {
-			users.update(u => [...u, user]);
+			users.update(existingUsers => {
+				const existingIndex = existingUsers.findIndex(existing =>
+					existing.id === user.id ||
+					(!!user.dbUserId && existing.dbUserId === user.dbUserId)
+				);
+				if (existingIndex === -1) return [...existingUsers, user];
+				return existingUsers.map((existing, index) => index === existingIndex ? user : existing);
+			});
+
+			currentUser.update(existingCurrentUser =>
+				this.isSameUserIdentity(user, existingCurrentUser, sock.id) ? user : existingCurrentUser
+			);
 		});
 
 		sock.on('user-left', (data: { id: string; username: string }) => {
@@ -835,11 +907,22 @@ class SocketManager {
 		});
 
 		sock.on('profile-updated', (user: User) => {
-			users.update(u => u.map(existing => existing.id === user.id ? user : existing));
-			currentUser.update(cu => cu && cu.id === user.id ? user : cu);
-			if (user.id === sock.id) {
+			users.update(existingUsers => existingUsers.map(existing =>
+				existing.id === user.id ||
+				(!!user.dbUserId && existing.dbUserId === user.dbUserId)
+					? user
+					: existing
+			));
+
+			const isCurrentUser = this.isSameUserIdentity(user, get(currentUser), sock.id);
+			if (isCurrentUser) {
+				currentUser.set(user);
 				this.username = user.username;
 				this.safeLocalStorageSet('username', user.username);
+			} else {
+				currentUser.update(existingCurrentUser =>
+					this.isSameUserIdentity(user, existingCurrentUser, sock.id) ? user : existingCurrentUser
+				);
 			}
 		});
 
@@ -977,12 +1060,13 @@ class SocketManager {
 			roleColor: string | null;
 		}) => {
 			users.update(u => u.map(existing =>
-				existing.id === data.userId
+				existing.id === data.userId ||
+				(!!existing.dbUserId && existing.dbUserId === data.dbUserId)
 					? { ...existing, roles: data.roles, highestRole: data.highestRole, roleColor: data.roleColor }
 					: existing
 			));
 			currentUser.update(cu =>
-				cu && cu.id === data.userId
+				cu && (cu.id === data.userId || (!!cu.dbUserId && cu.dbUserId === data.dbUserId))
 					? { ...cu, roles: data.roles, highestRole: data.highestRole, roleColor: data.roleColor }
 					: cu
 			);
@@ -1589,7 +1673,7 @@ export function markChannelAsRead(channelId: string): void {
 
 /**
  * Updates the browser tab title to reflect unread message count.
- * Single source of truth — called by both the SocketManager class and
+ * Single source of truth â€” called by both the SocketManager class and
  * the public helper functions (markMessagesAsRead, markChannelAsRead).
  */
 function updateBrowserTitle(): void {
@@ -1601,7 +1685,7 @@ function updateBrowserTitle(): void {
 	} else if (total <= 10) {
 		document.title = `(${total}) ${APP_TITLE}`;
 	} else {
-		document.title = `(•) ${APP_TITLE}`;
+		document.title = `(â€¢) ${APP_TITLE}`;
 	}
 }
 

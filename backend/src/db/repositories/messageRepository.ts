@@ -276,6 +276,12 @@ export class MessageRepository {
 		const stmt = db.prepare('DELETE FROM messages WHERE deleted_at IS NOT NULL AND deleted_at < ?');
 		return stmt.run(cutoff).changes;
 	}
+
+	// Delete all persisted messages (admin/server maintenance)
+	clearAll(): number {
+		const stmt = db.prepare('DELETE FROM messages');
+		return stmt.run().changes;
+	}
 }
 
 export const messageRepository = new MessageRepository();

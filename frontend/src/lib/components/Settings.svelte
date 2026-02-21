@@ -9,6 +9,12 @@
 	import { getServerUrl } from '$lib/serverUrl';
 	import AvatarEditor from './AvatarEditor.svelte'; // Import the AvatarEditor
 	import { getAdminUploadLimits, saveAdminUploadLimits, type UploadRoleTier, type UploadLimitConfig } from '$lib/api';
+	import {
+		getBusinessSyncMode,
+		setBusinessSyncMode,
+		sync as syncBusinessData,
+		hasPendingRemoteBusinessUpdate
+	} from '$lib/business/sync';
 
 	// Theme system
 	import { themeStore, currentTheme } from '$lib/theme/themeStore';
@@ -57,7 +63,8 @@
 	import {
 		getStoredAccessibilitySettings,
 		updateAccessibilitySettings,
-		type RoleColorMode
+		type RoleColorMode,
+		type ChatAvatarMode
 	} from '$lib/accessibility';
 
 	const dispatch = createEventDispatcher();
@@ -94,6 +101,7 @@
 	let reducedMotion = false;
 	let roleColorMode: RoleColorMode = 'full';
 	let ownMessagesOnRight = false;
+	let chatAvatarMode: ChatAvatarMode = 'all';
 	let localAppRuntime = false;
 	let micTestStream: MediaStream | null = null;
 	let micTestRecorder: MediaRecorder | null = null;
@@ -213,6 +221,9 @@
 	let loadingUploadLimits = false;
 	let savingUploadLimits = false;
 	let uploadLimitsLoaded = false;
+	let businessSyncMode: 'manual' | 'auto' = 'manual';
+	let businessSyncInFlight = false;
+	let businessSyncStatus = '';
 
 	// Load settings from localStorage and enforce server policy
 	onMount(() => {
@@ -224,6 +235,7 @@
 		reducedMotion = accessibilitySettings.reducedMotion;
 		roleColorMode = accessibilitySettings.roleColorMode;
 		ownMessagesOnRight = accessibilitySettings.ownMessagesOnRight;
+		chatAvatarMode = accessibilitySettings.chatAvatarMode;
 		soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
 		notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 		micEnabled = localStorage.getItem('micEnabled') !== 'false';
@@ -233,6 +245,7 @@
 		notificationSound = localStorage.getItem('notificationSound') || '/sounds/ProjectSound.ogg';
 		notificationVolume = parseFloat(localStorage.getItem('notificationVolume') || '0.5');
 		localAppRuntime = isTauriRuntime();
+		businessSyncMode = getBusinessSyncMode();
 
 		// Sync server policy first to prevent race condition with Tauri prefs
 		void (async () => {
@@ -263,6 +276,32 @@
 
 		displayNameDraft = $currentUser?.username || '';
 	});
+
+	async function runBusinessSyncNow() {
+		if (businessSyncInFlight) return;
+		businessSyncInFlight = true;
+		businessSyncStatus = 'Syncing now...';
+		try {
+			const ok = await syncBusinessData(true);
+			const pending = hasPendingRemoteBusinessUpdate();
+			businessSyncStatus = ok
+				? (pending ? 'Synced. New remote updates may still be pending.' : 'Sync complete.')
+				: 'No sync performed (offline or not authenticated).';
+		} catch (error) {
+			businessSyncStatus = 'Sync failed.';
+			console.error('Manual business sync failed:', error);
+		} finally {
+			businessSyncInFlight = false;
+		}
+	}
+
+	function toggleBusinessSyncMode() {
+		businessSyncMode = businessSyncMode === 'manual' ? 'auto' : 'manual';
+		setBusinessSyncMode(businessSyncMode);
+		businessSyncStatus = businessSyncMode === 'manual'
+			? 'Manual mode enabled. Use Sync Now when needed.'
+			: 'Auto mode enabled.';
+	}
 
 	$: if (!updatingDisplayName && $currentUser?.username && displayNameDraft === '') {
 		displayNameDraft = $currentUser.username;
@@ -686,6 +725,11 @@
 		ownMessagesOnRight = next.ownMessagesOnRight;
 	}
 
+	function updateChatAvatarMode(mode: ChatAvatarMode) {
+		const next = updateAccessibilitySettings({ chatAvatarMode: mode });
+		chatAvatarMode = next.chatAvatarMode;
+	}
+
 	function resetAccessibilityVisuals() {
 		const next = updateAccessibilitySettings({
 			colorAssistEnabled: false,
@@ -693,7 +737,8 @@
 			contrast: 1,
 			reducedMotion: false,
 			roleColorMode: 'full',
-			ownMessagesOnRight: false
+			ownMessagesOnRight: false,
+			chatAvatarMode: 'all'
 		});
 		colorAssistEnabled = next.colorAssistEnabled;
 		saturation = next.saturation;
@@ -701,6 +746,7 @@
 		reducedMotion = next.reducedMotion;
 		roleColorMode = next.roleColorMode;
 		ownMessagesOnRight = next.ownMessagesOnRight;
+		chatAvatarMode = next.chatAvatarMode;
 	}
 
 	function toAddonNameFromComponentFile(fileName: string): string {
@@ -1131,8 +1177,17 @@
 			const result = await response.json();
 
 			if (result.success) {
-				// Also clear local data
-				channelMessages.set({ general: [] });
+				// Also clear local in-memory messages for every known channel key
+				channelMessages.update((msgs) => {
+					const cleared: Record<string, any[]> = {};
+					for (const key of Object.keys(msgs)) {
+						cleared[key] = [];
+					}
+					if (!('general' in cleared)) {
+						cleared.general = [];
+					}
+					return cleared as any;
+				});
 				alert('All server messages have been deleted successfully!');
 			} else {
 				alert('Failed to clear server messages: ' + (result.error || 'Unknown error'));
@@ -1767,6 +1822,32 @@
 							<h3>Appearance</h3>
 							<div class="setting-item">
 								<div class="setting-info">
+									<span class="setting-label">Chat Avatars</span>
+									<span class="setting-description">Choose how profile pictures are shown in chat</span>
+								</div>
+								<select
+									class="theme-select"
+									value={chatAvatarMode}
+									on:change={(e) => updateChatAvatarMode(e.currentTarget.value as ChatAvatarMode)}
+								>
+									<option value="off">Off</option>
+									<option value="user">User Only (Others)</option>
+									<option value="all">All</option>
+								</select>
+							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Own Messages on Right</span>
+									<span class="setting-description">Align your messages to the right side of chat</span>
+								</div>
+								<button class="toggle-btn" class:active={ownMessagesOnRight} on:click={toggleOwnMessagesOnRight}>
+									{ownMessagesOnRight ? 'ON' : 'OFF'}
+								</button>
+							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
 									<span class="setting-label">Theme</span>
 									<span class="setting-description">Choose your preferred theme</span>
 								</div>
@@ -1796,21 +1877,32 @@
 							<div class="customizer-container">
 								<UniformFontMode />
 							</div>
-
-							<div class="setting-item">
-								<div class="setting-info">
-									<span class="setting-label">Own Messages on Right</span>
-									<span class="setting-description">Align your messages to the right side of chat</span>
-								</div>
-								<button class="toggle-btn" class:active={ownMessagesOnRight} on:click={toggleOwnMessagesOnRight}>
-									{ownMessagesOnRight ? 'ON' : 'OFF'}
-								</button>
-							</div>
 						</div>
 
 					{:else if activeSettingsTab === 'server'}
 						<div class="settings-section">
 							<h3>Server Management</h3>
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Business Data Sync Mode</span>
+									<span class="setting-description">Manual mode reduces background sync chatter. Auto mode continuously syncs business data.</span>
+								</div>
+								<button class="toggle-btn" class:active={businessSyncMode === 'auto'} on:click={toggleBusinessSyncMode}>
+									{businessSyncMode === 'auto' ? 'AUTO' : 'MANUAL'}
+								</button>
+							</div>
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Sync Business Data Now</span>
+									<span class="setting-description">Pull latest server state, then push your local business updates.</span>
+								</div>
+								<button class="action-btn" on:click={runBusinessSyncNow} disabled={businessSyncInFlight}>
+									{businessSyncInFlight ? 'Syncing...' : 'Sync Now'}
+								</button>
+							</div>
+							{#if businessSyncStatus}
+								<div class="runtime-note">{businessSyncStatus}</div>
+							{/if}
 							<div class="setting-item">
 								<div class="setting-info">
 									<span class="setting-label">Clear All Server Messages</span>
