@@ -3,6 +3,7 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 const isTauri = process.env.TAURI_ENV_PLATFORM ? true : false;
+const enablePwaInDev = process.env.VITE_PWA_DEV === 'true';
 
 export default defineConfig({
 	// Tauri requires specific builder config
@@ -31,7 +32,7 @@ export default defineConfig({
 		...(isTauri ? [] : [VitePWA({
 			registerType: 'autoUpdate',
 			devOptions: {
-				enabled: true // This enables PWA features in dev mode
+				enabled: enablePwaInDev
 			},
 			workbox: {
 				navigateFallback: undefined,
