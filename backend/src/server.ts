@@ -3115,6 +3115,16 @@ server.on('request', async (req, res) => {
 
       // Clear persisted messages from database
       const deletedDbMessages = messageRepository.clearAll();
+      const deletedOfflineMessages = offlineMessageRepository.clearAll();
+
+      // Remove legacy disk message cache if present.
+      if (existsSync(MESSAGES_FILE)) {
+        try {
+          unlinkSync(MESSAGES_FILE);
+        } catch (err) {
+          console.error('Failed to delete legacy messages.json:', err);
+        }
+      }
 
       // Delete all files from uploads directory
       if (existsSync(UPLOADS_DIR)) {
@@ -3142,7 +3152,8 @@ server.on('request', async (req, res) => {
       res.end(JSON.stringify({
         success: true,
         message: "All messages and files cleared from server",
-        deletedDbMessages
+        deletedDbMessages,
+        deletedOfflineMessages
       }));
     } catch (error) {
       console.error('Clear messages error:', error);

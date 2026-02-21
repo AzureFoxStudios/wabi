@@ -73,6 +73,12 @@ export class OfflineMessageRepository {
 		return info.changes;
 	}
 
+	// Delete all offline queued messages (admin/server maintenance)
+	clearAll(): number {
+		const stmt = db.prepare('DELETE FROM offline_messages');
+		return stmt.run().changes;
+	}
+
 	// Get message count for a user
 	getCountByRecipient(toUserId: number): number {
 		const stmt = db.prepare('SELECT COUNT(*) as count FROM offline_messages WHERE to_user_id = ? AND delivered = 0');
