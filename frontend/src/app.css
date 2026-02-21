@@ -179,6 +179,7 @@
 	--z-overlay: 1000;    /* Modals, popovers, context menus */
 	--z-modal: 1500;      /* Call modals, mobile panel overlays */
 	--z-toast: 2000;      /* Toasts, mobile bottom nav, top-level notifications */
+	--z-lightbox: 12000;  /* Fullscreen media focus mode, above all app chrome */
 
 	/* --------------------------------------------------------------------------
 	   THEME-AWARE CSS VARIABLES (Applied by themeManager.ts)

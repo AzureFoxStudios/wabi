@@ -1947,7 +1947,6 @@
 		min-height: 0; /* Important for flex overflow */
 		background: transparent;
 		position: relative;
-		z-index: 1;
 	}
 
 	.typing-indicator {
