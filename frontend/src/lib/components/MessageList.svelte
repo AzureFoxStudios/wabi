@@ -90,6 +90,56 @@
 			minute: '2-digit'
 		});
 	}
+	const AUTO_DELETE_DURATION_MS: Record<string, number> = {
+		'1h': 60 * 60 * 1000,
+		'6h': 6 * 60 * 60 * 1000,
+		'12h': 12 * 60 * 60 * 1000,
+		'24h': 24 * 60 * 60 * 1000,
+		'3d': 3 * 24 * 60 * 60 * 1000,
+		'7d': 7 * 24 * 60 * 60 * 1000,
+		'14d': 14 * 24 * 60 * 60 * 1000,
+		'30d': 30 * 24 * 60 * 60 * 1000
+	};
+	let nowMs = Date.now();
+
+	function formatDurationCompact(durationMs: number): string {
+		const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+		if (totalSeconds < 60) return `${totalSeconds}s`;
+		const totalMinutes = Math.floor(totalSeconds / 60);
+		if (totalMinutes < 60) return `${totalMinutes}m`;
+		const totalHours = Math.floor(totalMinutes / 60);
+		if (totalHours < 24) {
+			const minutes = totalMinutes % 60;
+			return minutes > 0 ? `${totalHours}h ${minutes}m` : `${totalHours}h`;
+		}
+		const days = Math.floor(totalHours / 24);
+		const hours = totalHours % 24;
+		return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+	}
+
+	function getChannelDeleteDurationMs(channelId: string): number | null {
+		const channel = $channels.find((ch) => ch.id === channelId);
+		const duration = channel?.autoDeleteAfter || null;
+		if (!duration) return null;
+		return AUTO_DELETE_DURATION_MS[duration] ?? null;
+	}
+
+	function getMessageDeletionDeadline(message: Message): number | null {
+		if (typeof message.scheduledDeletionTime === 'number') {
+			return message.scheduledDeletionTime;
+		}
+		const channelDurationMs = getChannelDeleteDurationMs($currentChannel);
+		if (!channelDurationMs) return null;
+		return message.timestamp + channelDurationMs;
+	}
+
+	function getMessageDeletionLabel(message: Message): string | null {
+		const deadline = getMessageDeletionDeadline(message);
+		if (!deadline) return null;
+		const remaining = deadline - nowMs;
+		if (remaining <= 0) return 'Deleting...';
+		return `Deletes in ${formatDurationCompact(remaining)}`;
+	}
 	function getUserByUsername(username: string): User | undefined {
 		return $users.find(u => u.username === username);
 	}
@@ -609,6 +659,14 @@
 	onMount(() => {
 		void ensureBlendImportSettingsModalLoaded();
 	});
+	onMount(() => {
+		const timer = window.setInterval(() => {
+			nowMs = Date.now();
+		}, 1000);
+		return () => {
+			window.clearInterval(timer);
+		};
+	});
 
 	function handleMessageLongPress(event: TouchEvent, message: Message) {
 		mobileActionsMessageId = message.id;
@@ -776,6 +834,7 @@
 	{@const groupedWithPrevious = isGroupedWithPrevious(index)}
 	{@const groupedWithNext = isGroupedWithNext(index)}
 	{@const ownMessage = isOwnMessage(message)}
+	{@const deletionLabel = getMessageDeletionLabel(message)}
 
 	<!-- New Messages Divider -->
 	{#if firstUnreadMessageId === message.id}
@@ -834,6 +893,11 @@
 							<span class="username">{message.user}</span>
 						{/if}
 						<span class="timestamp">{formatTime(message.timestamp)}</span>
+						{#if deletionLabel}
+							<span class="deletion-timer" title="This message is scheduled for auto-deletion">
+								{deletionLabel}
+							</span>
+						{/if}
 						{#if message.isPinned}
 							<span class="pin-badge" title="Pinned message"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg></span>
 						{/if}
@@ -841,6 +905,13 @@
 							<span class="edited-badge" title="Edited">(edited)</span>
 						{/if}
 					</div>
+				</div>
+			{/if}
+			{#if groupedWithPrevious && deletionLabel}
+				<div class="grouped-deletion-meta">
+					<span class="deletion-timer" title="This message is scheduled for auto-deletion">
+						{deletionLabel}
+					</span>
 				</div>
 			{/if}
 
@@ -1380,7 +1451,8 @@
 	}
 
 	.message.has-continuation {
-		margin-bottom: 0.1rem;
+		margin-bottom: 0.04rem;
+		padding-bottom: 0.04rem;
 	}
 
 	.message:hover {
@@ -1388,9 +1460,48 @@
 	}
 
 	.message.continuation {
-		padding-top: 0.2rem;
-		padding-bottom: 0.2rem;
-		margin-bottom: 0.05rem;
+		padding-top: 0.04rem;
+		padding-bottom: 0.06rem;
+		margin-bottom: 0.02rem;
+	}
+
+	.message.continuation .message-content {
+		min-height: 0;
+	}
+
+	.message.has-continuation + .message.continuation {
+		margin-top: -0.02rem;
+	}
+
+	/* Hard override: tightly stack merged consecutive messages */
+	.message.has-continuation {
+		margin-bottom: 0 !important;
+		padding-bottom: 0 !important;
+	}
+
+	.message.continuation {
+		margin-top: 0 !important;
+		margin-bottom: 0 !important;
+		padding-top: 0 !important;
+		padding-bottom: 0 !important;
+	}
+
+	.message.continuation .message-avatar-spacer {
+		height: 0;
+	}
+
+	/* Continuation rows should read as tightly stacked chat lines */
+	.message.continuation .message-body {
+		margin-top: -0.08rem;
+	}
+
+	.message.continuation .markdown-content {
+		line-height: 1.25;
+	}
+
+	.message.continuation .markdown-content :global(p) {
+		line-height: 1.25;
+		margin: 0 !important;
 	}
 
 	:global(html[data-own-messages-right='true']) .message.own-message {
@@ -1522,6 +1633,20 @@
 		color: var(--text-secondary);
 		margin-left: 0.5rem;
 		opacity: 0.7;
+	}
+
+	.deletion-timer {
+		font-size: var(--text-xs);
+		color: rgba(255, 164, 120, 0.95);
+		background: rgba(255, 140, 92, 0.12);
+		border: 1px solid rgba(255, 140, 92, 0.28);
+		padding: 0.1rem 0.35rem;
+		border-radius: 999px;
+		white-space: nowrap;
+	}
+
+	.grouped-deletion-meta {
+		margin-bottom: 0.25rem;
 	}
 
 	.message-actions {
@@ -1711,7 +1836,7 @@
 	}
 
 	.message-content {
-		min-height: 24px; /* Ensure minimum height for message content */
+		min-height: 0;
 		word-wrap: break-word;
 		word-break: break-word;
 		overflow-wrap: break-word;
@@ -2612,6 +2737,40 @@
         padding-top: 0.6rem;
         padding-bottom: 0.6rem;
     }
+    .message.has-continuation {
+        margin-bottom: 0.03rem;
+        padding-bottom: 0.03rem;
+    }
+    .message.continuation {
+        padding-top: 0.02rem;
+        padding-bottom: 0.03rem;
+        margin-bottom: 0.01rem;
+    }
+    .message.has-continuation + .message.continuation {
+        margin-top: -0.01rem;
+    }
+
+    /* Keep compact stack in mobile overrides too */
+    .message.has-continuation {
+        margin-bottom: 0 !important;
+        padding-bottom: 0 !important;
+    }
+    .message.continuation {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+
+    .message.continuation .message-body {
+        margin-top: -0.06rem;
+    }
+
+    .message.continuation .markdown-content,
+    .message.continuation .markdown-content :global(p) {
+        line-height: 1.2;
+        margin: 0 !important;
+    }
 }
 
 /* TEMPORARY: Embedded media styles */
@@ -2660,5 +2819,93 @@
 	display: block;
 	width: 100%;
 	margin: 0.5rem 0;
+}
+
+/* Avatar visibility modes */
+:global(html[data-chat-avatar-mode='off']) .message {
+	gap: 0.3rem !important;
+}
+
+:global(html[data-chat-avatar-mode='off']) .message-avatar,
+:global(html[data-chat-avatar-mode='off']) .message-avatar-spacer {
+	display: none !important;
+	width: 0 !important;
+	height: 0 !important;
+	margin: 0 !important;
+}
+
+:global(html[data-chat-avatar-mode='user']) .message.own-message {
+	gap: 0.3rem !important;
+}
+
+:global(html[data-chat-avatar-mode='user']) .message.own-message .message-avatar,
+:global(html[data-chat-avatar-mode='user']) .message.own-message .message-avatar-spacer {
+	display: none !important;
+	width: 0 !important;
+	height: 0 !important;
+	margin: 0 !important;
+}
+
+/* Discord-like compact stacked message spacing */
+.message {
+	padding-top: 0.22rem !important;
+	padding-bottom: 0.22rem !important;
+	margin-bottom: 0 !important;
+}
+
+.message .message-header {
+	margin-bottom: 0.12rem !important;
+}
+
+.message .markdown-content,
+.message .markdown-content :global(p) {
+	line-height: 1.35 !important;
+	margin: 0 !important;
+}
+
+.message.has-continuation {
+	padding-bottom: 0 !important;
+	margin-bottom: 0 !important;
+}
+
+.message.continuation {
+	padding-top: 0 !important;
+	padding-bottom: 0 !important;
+	margin-top: 0 !important;
+	margin-bottom: 0 !important;
+}
+
+.message.has-continuation + .message.continuation .message-body {
+	margin-top: -0.04rem !important;
+}
+
+@media (max-width: 768px) {
+	.message {
+		padding-top: 0.18rem !important;
+		padding-bottom: 0.18rem !important;
+		margin-bottom: 0 !important;
+	}
+
+	.message .message-header {
+		margin-bottom: 0.08rem !important;
+	}
+
+	.message .markdown-content,
+	.message .markdown-content :global(p) {
+		line-height: 1.3 !important;
+		margin: 0 !important;
+	}
+
+	.message.has-continuation {
+		padding-bottom: 0 !important;
+		margin-bottom: 0 !important;
+	}
+
+	.message.continuation {
+		padding-top: 0 !important;
+		padding-bottom: 0 !important;
+		margin-top: 0 !important;
+		margin-bottom: 0 !important;
+	}
 }
 </style>

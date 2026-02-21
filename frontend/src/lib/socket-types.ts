@@ -16,6 +16,7 @@ export interface Message {
   userId: string;
   text: string;
   timestamp: number;
+  scheduledDeletionTime?: number;
   type: 'text' | 'gif' | 'file' | 'emoji' | 'role_gate';
   gifUrl?: string;
   emojiUrl?: string;
