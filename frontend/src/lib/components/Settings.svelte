@@ -2,6 +2,7 @@
 	import { browser } from '$app/environment';
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	import { channelMessages, users, currentUser, emojis, updateProfile, assignRole, removeUserRole, roleDefinitions } from '$lib/socket';
+	import { chatStorage } from '$lib/storage';
 	import StorageSettings from './StorageSettings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import { playNotificationSound } from '$lib/notifications';
@@ -1177,6 +1178,9 @@
 			const result = await response.json();
 
 			if (result.success) {
+				// Clear browser archive storage so old messages cannot rehydrate on reload.
+				await chatStorage.clearAllHistory();
+
 				// Also clear local in-memory messages for every known channel key
 				channelMessages.update((msgs) => {
 					const cleared: Record<string, any[]> = {};
@@ -1188,6 +1192,13 @@
 					}
 					return cleared as any;
 				});
+				try {
+					localStorage.removeItem('channelUnreadCounts');
+					localStorage.removeItem('unreadCount');
+					localStorage.removeItem('lastReadMessageId');
+				} catch {
+					// ignore localStorage failures
+				}
 				alert('All server messages have been deleted successfully!');
 			} else {
 				alert('Failed to clear server messages: ' + (result.error || 'Unknown error'));

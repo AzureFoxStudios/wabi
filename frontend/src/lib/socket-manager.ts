@@ -867,6 +867,26 @@ class SocketManager {
 				}
 				return cleared;
 			});
+			channelAvailableArchives.set({});
+			channelLoadedArchives.set({});
+			channelHasMoreHistory.set({});
+			channelOldestMessageId.set({});
+			channelUnreadCounts.set({});
+			unreadCount.set(0);
+			lastReadMessageId.set(null);
+
+			// Keep browser persistence aligned with server purge across all connected clients.
+			void (async () => {
+				try {
+					await chatStorage.clearAllHistory();
+				} catch (error) {
+					console.warn('[SocketManager] Failed to clear IndexedDB after messages-cleared:', error);
+				}
+			})();
+
+			this.safeLocalStorageRemove('channelUnreadCounts');
+			this.safeLocalStorageRemove('unreadCount');
+			this.safeLocalStorageRemove('lastReadMessageId');
 		});
 
 		sock.on('message-pin-toggled', (data: { channelId: string; messageId: string; isPinned: boolean }) => {
