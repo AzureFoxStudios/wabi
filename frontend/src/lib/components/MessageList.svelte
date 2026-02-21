@@ -1956,7 +1956,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 2500;
+		z-index: 10000;
 		padding: 2rem;
 	}
 
@@ -1978,7 +1978,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 2500;
+		z-index: 10000;
 		padding: 2rem;
 	}
 
