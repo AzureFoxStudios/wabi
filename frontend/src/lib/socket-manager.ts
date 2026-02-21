@@ -58,6 +58,7 @@ import { handleP2PIncomingOffer, handleP2PAnswer, handleP2PIceCandidate } from '
 
 /** The base browser tab title. Update this constant if the app is renamed. */
 const APP_TITLE = 'Wabi Chat';
+const MESSAGE_PURGE_VERSION_KEY = 'messagePurgeVersion';
 
 
 // ============================================================================
@@ -592,7 +593,7 @@ class SocketManager {
 			sock.emit('join', this.username);
 		});
 
-		sock.on('init', (data: {
+		sock.on('init', async (data: {
 			channels: Channel[];
 			users: User[];
 			excalidrawState: any;
@@ -601,6 +602,7 @@ class SocketManager {
 			roleDefinitions?: RoleDefinition[];
 			voiceState?: Record<string, VoiceChannelParticipant[]>;
 			sessionId?: string;
+			messagePurgeVersion?: number;
 		}) => {
 			console.log('[SocketManager] Init received');
 
@@ -631,6 +633,7 @@ class SocketManager {
 			});
 
 			channels.set(processedChannels);
+			await this.reconcileMessagePurgeVersion(data.messagePurgeVersion);
 			this.loadMessagesWithPagination(processedChannels);
 
 			if (data.emotes) initEmotes(data.emotes);
@@ -856,7 +859,7 @@ class SocketManager {
 			}));
 		});
 
-		sock.on('messages-cleared', () => {
+		sock.on('messages-cleared', (data?: { scope?: string; messagePurgeVersion?: number }) => {
 			channelMessages.update(msgs => {
 				const cleared: Record<string, Message[]> = {};
 				for (const key of Object.keys(msgs)) {
@@ -887,6 +890,9 @@ class SocketManager {
 			this.safeLocalStorageRemove('channelUnreadCounts');
 			this.safeLocalStorageRemove('unreadCount');
 			this.safeLocalStorageRemove('lastReadMessageId');
+			if (typeof data?.messagePurgeVersion === 'number' && Number.isFinite(data.messagePurgeVersion)) {
+				this.setStoredMessagePurgeVersion(data.messagePurgeVersion);
+			}
 		});
 
 		sock.on('message-pin-toggled', (data: { channelId: string; messageId: string; isPinned: boolean }) => {
@@ -1405,6 +1411,52 @@ class SocketManager {
 		} catch (e) {
 			console.warn(`[SocketManager] Failed to remove ${key}:`, e);
 		}
+	}
+
+	private getStoredMessagePurgeVersion(): number {
+		if (!browser) return 0;
+		try {
+			const raw = localStorage.getItem(MESSAGE_PURGE_VERSION_KEY);
+			const parsed = raw ? Number.parseInt(raw, 10) : 0;
+			return Number.isFinite(parsed) ? parsed : 0;
+		} catch {
+			return 0;
+		}
+	}
+
+	private setStoredMessagePurgeVersion(version: number): void {
+		if (!browser) return;
+		try {
+			localStorage.setItem(MESSAGE_PURGE_VERSION_KEY, String(version));
+		} catch (e) {
+			console.warn('[SocketManager] Failed to persist message purge version:', e);
+		}
+	}
+
+	private async reconcileMessagePurgeVersion(serverVersion?: number): Promise<void> {
+		if (!browser || typeof serverVersion !== 'number' || !Number.isFinite(serverVersion)) return;
+		const localVersion = this.getStoredMessagePurgeVersion();
+		if (localVersion >= serverVersion) return;
+
+		try {
+			await chatStorage.clearAllHistory();
+		} catch (error) {
+			console.warn('[SocketManager] Failed to clear IndexedDB during purge-version reconcile:', error);
+		}
+
+		channelMessages.set({ general: [] });
+		channelAvailableArchives.set({});
+		channelLoadedArchives.set({});
+		channelHasMoreHistory.set({});
+		channelOldestMessageId.set({});
+		channelUnreadCounts.set({});
+		unreadCount.set(0);
+		lastReadMessageId.set(null);
+
+		this.safeLocalStorageRemove('channelUnreadCounts');
+		this.safeLocalStorageRemove('unreadCount');
+		this.safeLocalStorageRemove('lastReadMessageId');
+		this.setStoredMessagePurgeVersion(serverVersion);
 	}
 
 	private updatePinnedChannels(): void {

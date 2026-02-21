@@ -414,6 +414,20 @@ function parseVoiceSettings(raw: string | null | undefined): Channel['voiceSetti
 // Session management for persistence across reconnects
 const sessions = new Map<string, { userId: string; username: string; color: string; profilePicture?: string; createdAt: number; usernameFont?: any }>();
 
+const MESSAGE_PURGE_VERSION_KEY = 'message_purge_version';
+
+function getMessagePurgeVersion(): number {
+  const raw = appPolicyRepository.getRaw(MESSAGE_PURGE_VERSION_KEY);
+  const parsed = raw ? Number.parseInt(raw, 10) : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function bumpMessagePurgeVersion(): number {
+  const next = Date.now();
+  appPolicyRepository.setRaw(MESSAGE_PURGE_VERSION_KEY, String(next));
+  return next;
+}
+
 // Generate a random session ID
 function generateSessionId(): string {
 	return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
@@ -1106,6 +1120,38 @@ function readRequestBuffer(req: any): Promise<Buffer> {
   });
 }
 
+function readMultipartSingleFile(
+  contentTypeHeader: string | undefined,
+  body: Buffer,
+  expectedFieldName: string
+): { fileName: string; data: Buffer } | null {
+  const boundary = contentTypeHeader?.split('boundary=')[1];
+  if (!boundary) return null;
+
+  const parts = body.toString('binary').split(`--${boundary}`);
+  for (const part of parts) {
+    if (!part.includes('Content-Disposition')) continue;
+    const fieldMatch = part.match(/name="([^"]+)"/);
+    const fieldName = fieldMatch?.[1] || '';
+    if (fieldName !== expectedFieldName) continue;
+
+    const filenameMatch = part.match(/filename="([^"]+)"/);
+    const fileName = filenameMatch?.[1] || '';
+    if (!fileName) continue;
+
+    const dataStart = part.indexOf('\r\n\r\n') + 4;
+    const dataEnd = part.lastIndexOf('\r\n');
+    if (dataStart < 4 || dataEnd <= dataStart) continue;
+
+    return {
+      fileName,
+      data: Buffer.from(part.substring(dataStart, dataEnd), 'binary')
+    };
+  }
+
+  return null;
+}
+
 function getUploadTokenFromRequest(req: any, url: URL): string {
   const headerToken = req.headers['x-upload-token'];
   if (typeof headerToken === 'string' && headerToken.trim()) {
@@ -1296,6 +1342,57 @@ server.on('request', async (req, res) => {
       console.error("[Plugins] Failed to trust signer:", error);
       res.writeHead(400, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: false, error: "Invalid request payload" }));
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/plugins/install" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    try {
+      const bodyBuffer = await readRequestBuffer(req);
+      const uploaded = readMultipartSingleFile(req.headers['content-type'], bodyBuffer, 'pluginPackage');
+      if (!uploaded) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "pluginPackage file is required (multipart/form-data)" }));
+        return;
+      }
+
+      if (uploaded.data.length > 100 * 1024 * 1024) {
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "Plugin package is too large (max 100MB)" }));
+        return;
+      }
+
+      const lowerName = uploaded.fileName.toLowerCase();
+      if (!lowerName.endsWith('.zip') && !lowerName.endsWith('.wabi-plugin')) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "Plugin package must be a .zip or .wabi-plugin file" }));
+        return;
+      }
+
+      const result = await pluginLoader.installPluginFromArchive(uploaded.data, {
+        uploadedBy: `user:${userId}`,
+        fileName: uploaded.fileName
+      });
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, plugin: result }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to install plugin package";
+      const isClientError =
+        message.includes('already installed') ||
+        message.includes('No plugin.json') ||
+        message.includes('Plugin manifest') ||
+        message.includes('Unsafe archive') ||
+        message.includes('Plugin id');
+      res.writeHead(isClientError ? 400 : 500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: message }));
     }
     return;
   }
@@ -3090,6 +3187,44 @@ server.on('request', async (req, res) => {
   }
 
   // Delete all messages endpoint
+  if (url.pathname === "/api/debug/message-stats" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    try {
+      const dbMessagesCount = (db.prepare('SELECT COUNT(*) as count FROM messages').get() as { count: number }).count;
+      const dbOfflineMessagesCount = (db.prepare('SELECT COUNT(*) as count FROM offline_messages').get() as { count: number }).count;
+      let inMemoryMessagesCount = 0;
+      const nonEmptyChannels: Array<{ channelId: string; count: number }> = [];
+      channelMessages.forEach((messages, channelId) => {
+        const count = messages.length;
+        inMemoryMessagesCount += count;
+        if (count > 0) {
+          nonEmptyChannels.push({ channelId, count });
+        }
+      });
+
+      res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.end(JSON.stringify({
+        success: true,
+        messagePurgeVersion: getMessagePurgeVersion(),
+        dbMessagesCount,
+        dbOfflineMessagesCount,
+        inMemoryMessagesCount,
+        nonEmptyChannels
+      }));
+    } catch (error) {
+      console.error('Message stats error:', error);
+      res.writeHead(500, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.end(JSON.stringify({ success: false, error: 'Failed to read message stats' }));
+    }
+    return;
+  }
+
   if (url.pathname === "/api/clear-messages" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
     if (!userId) {
@@ -3145,15 +3280,18 @@ server.on('request', async (req, res) => {
         if (ENABLE_LOGGING) console.log(`Deleted ${deletedCount} files from uploads directory`);
       }
 
-      // Notify all connected clients to clear local in-memory message lists
-      io.emit("messages-cleared", { scope: "all" });
+      const messagePurgeVersion = bumpMessagePurgeVersion();
+
+      // Notify all connected clients to clear local in-memory + persisted message state.
+      io.emit("messages-cleared", { scope: "all", messagePurgeVersion });
 
       res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req) });
       res.end(JSON.stringify({
         success: true,
         message: "All messages and files cleared from server",
         deletedDbMessages,
-        deletedOfflineMessages
+        deletedOfflineMessages,
+        messagePurgeVersion
       }));
     } catch (error) {
       console.error('Clear messages error:', error);
@@ -3989,7 +4127,8 @@ io.on("connection", (socket) => {
           emotes: Array.from(emotes.values()),
           emojis: emojisData,
           roleDefinitions: getRoleDefinitions('default-workspace'),
-          sessionId: (socket as any).sessionId
+          sessionId: (socket as any).sessionId,
+          messagePurgeVersion: getMessagePurgeVersion()
         });
 
         // Deliver offline messages for registered user
@@ -4064,7 +4203,8 @@ io.on("connection", (socket) => {
         emotes: Array.from(emotes.values()),
         emojis: emojisData,
         roleDefinitions: getRoleDefinitions('default-workspace'),
-        sessionId: sessionId
+        sessionId: sessionId,
+        messagePurgeVersion: getMessagePurgeVersion()
       });
 
       socket.broadcast.emit("user-joined", {
@@ -4112,7 +4252,8 @@ io.on("connection", (socket) => {
         emotes: Array.from(emotes.values()),
         emojis: emojisData2,
         roleDefinitions: getRoleDefinitions('default-workspace'),
-        sessionId: sessionId
+        sessionId: sessionId,
+        messagePurgeVersion: getMessagePurgeVersion()
       });
 
       socket.broadcast.emit("user-joined", {
@@ -4203,7 +4344,8 @@ io.on("connection", (socket) => {
       emotes: Array.from(emotes.values()),
       emojis: emojisData,
       roleDefinitions: getRoleDefinitions('default-workspace'),
-      sessionId: sessionId
+      sessionId: sessionId,
+      messagePurgeVersion: getMessagePurgeVersion()
     });
 
     // Deliver offline messages for registered user on rejoin
