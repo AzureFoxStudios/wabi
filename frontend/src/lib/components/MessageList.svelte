@@ -596,12 +596,12 @@
 	function isVideo(fileName?: string): boolean {
 		if (!fileName) return false;
 		const ext = fileName.toLowerCase().split('.').pop() || '';
-		return ['mp4', 'mov', 'avi', 'mkv', 'flv'].includes(ext);
+		return ['mp4', 'mov', 'avi', 'mkv', 'flv', 'webm', 'm4v'].includes(ext);
 	}
 	function isAudio(fileName?: string): boolean {
 		if (!fileName) return false;
 		const ext = fileName.toLowerCase().split('.').pop() || '';
-		return ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma', 'webm'].includes(ext);
+		return ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma'].includes(ext);
 	}
 	function isModelFile(fileName?: string): boolean {
 		if (!fileName) return false;
@@ -1956,7 +1956,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 1000;
+		z-index: 2500;
 		padding: 2rem;
 	}
 
@@ -1978,7 +1978,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 1000;
+		z-index: 2500;
 		padding: 2rem;
 	}
 
