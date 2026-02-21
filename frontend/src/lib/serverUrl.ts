@@ -10,7 +10,7 @@ export function getServerUrl(): string {
 
 export function resolveServerUrl(): { url: string; source: string } {
 	if (!browser) {
-		return { url: 'http://localhost:3000', source: 'ssr_default' };
+		return { url: 'http://localhost:8080', source: 'ssr_default' };
 	}
 
 	// 1. Explicit env override (baked at build time)
@@ -26,14 +26,14 @@ export function resolveServerUrl(): { url: string; source: string } {
 	// 2. Tauri (Windows uses https://tauri.localhost, macOS/Linux use tauri://localhost)
 	if (hostname === 'tauri.localhost' || window.location.protocol === 'tauri:') {
 		if (import.meta.env.DEV) {
-			return { url: 'http://localhost:3000', source: 'dev_tauri' };
+			return { url: 'http://localhost:8080', source: 'dev_tauri' };
 		}
 		return { url: 'https://wabi.chat', source: 'prod_tauri' };
 	}
 
 	// 3. Vite dev server
 	if (port === '5173') {
-		return { url: 'http://localhost:3000', source: 'dev_vite' };
+		return { url: 'http://localhost:8080', source: 'dev_vite' };
 	}
 
 	// 4. Docker: frontend on :3000, backend on :8080 (localhost only)
