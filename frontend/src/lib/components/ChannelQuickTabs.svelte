@@ -456,7 +456,7 @@
 							}
 						}}
 					>
-						×
+						x
 					</span>
 				</button>
 			{/each}
@@ -681,9 +681,7 @@
 		transition: opacity 0.12s ease, background 0.12s ease;
 	}
 
-	.queue-tab:hover .tab-detach,
-	.queue-tab:focus-within .tab-detach,
-	.queue-tab.active .tab-detach {
+	.queue-tab:hover .tab-detach {
 		opacity: 1;
 		pointer-events: auto;
 	}
@@ -692,9 +690,7 @@
 		background: rgba(255, 255, 255, 0.26);
 	}
 
-	.queue-tab:hover .tab-close,
-	.queue-tab:focus-within .tab-close,
-	.queue-tab.active .tab-close {
+	.queue-tab:hover .tab-close {
 		opacity: 1;
 		pointer-events: auto;
 	}
@@ -727,4 +723,5 @@
 		}
 	}
 </style>
+
 
