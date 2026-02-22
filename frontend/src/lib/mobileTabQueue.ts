@@ -14,6 +14,7 @@ export type MobileQueueTab =
 
 const channelQueue = writable<string[]>([]);
 const addonTabs = writable<AddonTabSpec[]>([]);
+const openAddonQueue = writable<string[]>([]);
 const activeTabId = writable<string | null>(null);
 
 function toChannelTabId(channelId: string): string {
@@ -60,10 +61,12 @@ function registerAddonTab(spec: AddonTabSpec): void {
 		const filtered = tabs.filter((tab) => tab.id !== spec.id);
 		return [...filtered, spec];
 	});
+	openAddonQueue.update((queue) => ensureInQueue(queue, spec.id));
 }
 
 function unregisterAddonTab(addonId: string): void {
 	addonTabs.update((tabs) => tabs.filter((tab) => tab.id !== addonId));
+	openAddonQueue.update((queue) => queue.filter((id) => id !== addonId));
 	const currentActive = get(activeTabId);
 	if (currentActive === toAddonTabId(addonId)) {
 		const fallback = get(channelQueue)[0];
@@ -77,7 +80,33 @@ function setActiveTab(tabId: string): void {
 	if (tabId.startsWith('channel:')) {
 		const channelId = tabId.slice('channel:'.length);
 		enqueueChannel(channelId);
+		return;
 	}
+	if (tabId.startsWith('addon:')) {
+		const addonId = tabId.slice('addon:'.length);
+		openAddonQueue.update((queue) => ensureInQueue(queue, addonId));
+	}
+}
+
+function closeAddonTab(addonId: string): void {
+	if (!addonId) return;
+	openAddonQueue.update((queue) => queue.filter((id) => id !== addonId));
+	const currentActive = get(activeTabId);
+	if (currentActive === toAddonTabId(addonId)) {
+		const fallbackChannel = get(channelQueue)[0];
+		if (fallbackChannel) {
+			activeTabId.set(toChannelTabId(fallbackChannel));
+			return;
+		}
+		const fallbackAddon = get(openAddonQueue)[0];
+		activeTabId.set(fallbackAddon ? toAddonTabId(fallbackAddon) : null);
+	}
+}
+
+function openAddonTab(addonId: string): void {
+	if (!addonId) return;
+	openAddonQueue.update((queue) => ensureInQueue(queue, addonId));
+	activeTabId.set(toAddonTabId(addonId));
 }
 
 function closeChannelTab(channelId: string): void {
@@ -111,17 +140,19 @@ function reorderChannelTab(
 	});
 }
 
-const tabs = derived([channelQueue, addonTabs], ([$channelQueue, $addonTabs]): MobileQueueTab[] => {
+const tabs = derived([channelQueue, addonTabs, openAddonQueue], ([$channelQueue, $addonTabs, $openAddonQueue]): MobileQueueTab[] => {
 	const channelTabItems = $channelQueue.map((channelId) => ({
 		id: toChannelTabId(channelId),
 		type: 'channel' as const,
 		channelId
 	}));
-	const addonTabItems = $addonTabs.map((tab) => ({
+	const addonTabItems = $addonTabs
+		.filter((tab) => $openAddonQueue.includes(tab.id))
+		.map((tab) => ({
 		id: toAddonTabId(tab.id),
 		type: 'addon' as const,
 		addonId: tab.id
-	}));
+		}));
 	return [...channelTabItems, ...addonTabItems];
 });
 
@@ -134,6 +165,8 @@ export const mobileTabQueue = {
 	setActiveChannel,
 	enqueueChannel,
 	closeChannelTab,
+	openAddonTab,
+	closeAddonTab,
 	reorderChannelTab,
 	pruneChannels,
 	registerAddonTab,

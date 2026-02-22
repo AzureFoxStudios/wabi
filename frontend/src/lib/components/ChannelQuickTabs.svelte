@@ -239,6 +239,11 @@
 				joinChannel(fallbackChannel);
 			}
 			mobileTabQueue.closeChannelTab(tab.channelId);
+			return;
+		}
+
+		if (tab.type === 'addon' && tab.addonId) {
+			mobileTabQueue.closeAddonTab(tab.addonId);
 		}
 	}
 
@@ -432,27 +437,27 @@
 						>
 							↗
 						</span>
-						<span
-							class="tab-close"
-							role="button"
-							tabindex="0"
-							aria-label={`Close ${tab.label}`}
-							title={`Close ${tab.label}`}
-							on:pointerdown={(event) => {
-								event.preventDefault();
-								event.stopPropagation();
-							}}
-							on:click={(event) => handleCloseTab(tab, event)}
-							on:keydown={(event) => {
-								if (event.key === 'Enter' || event.key === ' ') {
-									event.preventDefault();
-									handleCloseTab(tab, event);
-								}
-							}}
-						>
-							×
-						</span>
 					{/if}
+					<span
+						class="tab-close"
+						role="button"
+						tabindex="0"
+						aria-label={`Close ${tab.label}`}
+						title={`Close ${tab.label}`}
+						on:pointerdown={(event) => {
+							event.preventDefault();
+							event.stopPropagation();
+						}}
+						on:click={(event) => handleCloseTab(tab, event)}
+						on:keydown={(event) => {
+							if (event.key === 'Enter' || event.key === ' ') {
+								event.preventDefault();
+								handleCloseTab(tab, event);
+							}
+						}}
+					>
+						×
+					</span>
 				</button>
 			{/each}
 		</div>
@@ -722,3 +727,4 @@
 		}
 	}
 </style>
+
