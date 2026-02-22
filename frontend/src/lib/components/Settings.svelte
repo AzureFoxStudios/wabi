@@ -103,6 +103,7 @@
 	let roleColorMode: RoleColorMode = 'full';
 	let ownMessagesOnRight = false;
 	let chatAvatarMode: ChatAvatarMode = 'all';
+	let tabShadeStrength = 0.06;
 	let localAppRuntime = false;
 	let micTestStream: MediaStream | null = null;
 	let micTestRecorder: MediaRecorder | null = null;
@@ -240,6 +241,7 @@
 		roleColorMode = accessibilitySettings.roleColorMode;
 		ownMessagesOnRight = accessibilitySettings.ownMessagesOnRight;
 		chatAvatarMode = accessibilitySettings.chatAvatarMode;
+		tabShadeStrength = accessibilitySettings.tabShadeStrength;
 		soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
 		notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 		micEnabled = localStorage.getItem('micEnabled') !== 'false';
@@ -734,6 +736,11 @@
 		chatAvatarMode = next.chatAvatarMode;
 	}
 
+	function updateTabShadeStrength(value: number) {
+		const next = updateAccessibilitySettings({ tabShadeStrength: value });
+		tabShadeStrength = next.tabShadeStrength;
+	}
+
 	function resetAccessibilityVisuals() {
 		const next = updateAccessibilitySettings({
 			colorAssistEnabled: false,
@@ -742,7 +749,8 @@
 			reducedMotion: false,
 			roleColorMode: 'full',
 			ownMessagesOnRight: false,
-			chatAvatarMode: 'all'
+			chatAvatarMode: 'all',
+			tabShadeStrength: 0.06
 		});
 		colorAssistEnabled = next.colorAssistEnabled;
 		saturation = next.saturation;
@@ -751,6 +759,7 @@
 		roleColorMode = next.roleColorMode;
 		ownMessagesOnRight = next.ownMessagesOnRight;
 		chatAvatarMode = next.chatAvatarMode;
+		tabShadeStrength = next.tabShadeStrength;
 	}
 
 	function toAddonNameFromComponentFile(fileName: string): string {
@@ -1914,6 +1923,24 @@
 								</button>
 							</div>
 
+							<div class="setting-item setting-item-stack">
+								<div class="setting-info">
+									<span class="setting-label">Tab Shade Strength</span>
+									<span class="setting-description">
+										Controls how much each new queued tab shifts shade ({Math.round(tabShadeStrength * 100)}%)
+									</span>
+								</div>
+								<input
+									type="range"
+									min="0"
+									max="0.14"
+									step="0.01"
+									bind:value={tabShadeStrength}
+									on:input={(e) => updateTabShadeStrength(parseFloat(e.currentTarget.value))}
+									class="volume-slider"
+								/>
+							</div>
+
 							<div class="setting-item">
 								<div class="setting-info">
 									<span class="setting-label">Theme</span>
@@ -2562,6 +2589,12 @@
 
 	.setting-item:hover {
 		background: var(--bg-hover);
+	}
+
+	.setting-item-stack {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.8rem;
 	}
 
 	.setting-info {

@@ -322,20 +322,20 @@
 			const effectiveRailWidth = railWidth;
 			const firstWidth = Math.max(EDGE_FIRST_MIN, Math.min(EDGE_FIRST_MAX, Math.floor(effectiveRailWidth * EDGE_FIRST_RATIO)));
 			const middleWidth = Math.max(TAB_MIN_WIDTH, Math.min(TAB_MAX_WIDTH, tabWidthPx));
-			if (tabIndex === 0) return `width: ${firstWidth}px; --tab-order: ${order};`;
+			if (tabIndex === 0) return `width: ${firstWidth}px; --tab-order: ${order}; --tab-depth: ${tabIndex};`;
 			if (tabIndex === tabCount - 1) {
 				const middleCount = Math.max(0, tabCount - 2);
 				const usedWidth = firstWidth + (middleCount * middleWidth) - ((tabCount - 1) * TAB_OVERLAP);
 				const fillWidth = Math.floor(effectiveRailWidth - usedWidth);
 				// Fill to the right edge when there is room; otherwise fall back to standard width.
 				if (fillWidth >= EDGE_LAST_MIN) {
-					return `width: ${fillWidth}px; max-width: none; --tab-order: ${order};`;
+					return `width: ${fillWidth}px; max-width: none; --tab-order: ${order}; --tab-depth: ${tabIndex};`;
 				}
-				return `width: ${middleWidth}px; --tab-order: ${order};`;
+				return `width: ${middleWidth}px; --tab-order: ${order}; --tab-depth: ${tabIndex};`;
 			}
-			return `width: ${middleWidth}px; --tab-order: ${order};`;
+			return `width: ${middleWidth}px; --tab-order: ${order}; --tab-depth: ${tabIndex};`;
 		}
-		return `width: ${tabWidthPx}px; --tab-order: ${order};`;
+		return `width: ${tabWidthPx}px; --tab-order: ${order}; --tab-depth: ${tabIndex};`;
 	}
 
 	function ensureActiveTabVisible(): void {
@@ -534,12 +534,14 @@
 	}
 
 	.queue-tab {
+		--tab-darken: min(82%, calc(var(--tab-depth, 0) * var(--tab-shade-strength, 0.06) * 100%));
 		height: 31px;
 		min-height: 31px;
 		max-width: 168px;
 		border-radius: 999px;
 		border: none;
 		background: #383838;
+		background: color-mix(in srgb, var(--bg-tertiary, #383838) calc(100% - var(--tab-darken)), black var(--tab-darken));
 		color: #f3f4f6;
 		display: inline-flex;
 		align-items: center;
@@ -584,6 +586,7 @@
 	.queue-tab.active {
 		color: #ffffff;
 		background: #1e1e1e;
+		background: color-mix(in srgb, var(--bg-primary, #1e1e1e) 86%, black 14%);
 		transform: none;
 		border-radius: 999px;
 		z-index: calc(var(--tab-order, 1) + 120);
