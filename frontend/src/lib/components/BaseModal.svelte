@@ -37,6 +37,7 @@
 		on:click={handleOverlayClick}
 		role="dialog"
 		aria-modal="true"
+		tabindex="-1"
 	>
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<!-- svelte-ignore a11y-no-static-element-interactions -->

@@ -439,6 +439,78 @@ export class ChatStorage {
 		console.log(`🗑️ Deleted archive: ${periodKey}`);
 	}
 
+	// Delete a single message across all archives for a channel
+	async deleteMessage(channelId: string, messageId: string): Promise<void> {
+		if (!browser) return;
+		await this.ensureInit();
+
+		const archives = await this.db.getAllArchives();
+		for (const archive of archives) {
+			const data = archive.data || {};
+			const channelMessages = data[channelId] as Message[] | undefined;
+			if (!Array.isArray(channelMessages) || channelMessages.length === 0) continue;
+
+			const filtered = channelMessages.filter((m) => m.id !== messageId);
+			if (filtered.length === channelMessages.length) continue;
+
+			if (filtered.length > 0) {
+				data[channelId] = filtered;
+				await this.db.setArchive(archive.period, data);
+				continue;
+			}
+
+			delete data[channelId];
+			if (Object.keys(data).length === 0) {
+				await this.db.deleteArchive(archive.period);
+			} else {
+				await this.db.setArchive(archive.period, data);
+			}
+		}
+	}
+
+	// Reconcile local cache with server-authoritative channel snapshot.
+	// Keeps older history before snapshot window, but removes stale/zombie entries
+	// inside the snapshot window that are not present on the server.
+	async reconcileChannelWindow(channelId: string, serverMessages: Message[]): Promise<void> {
+		if (!browser) return;
+		await this.ensureInit();
+
+		const serverIds = new Set(serverMessages.map((m) => m.id));
+		const minServerTimestamp = serverMessages.length > 0
+			? Math.min(...serverMessages.map((m) => m.timestamp))
+			: Number.POSITIVE_INFINITY;
+
+		const archives = await this.db.getAllArchives();
+		for (const archive of archives) {
+			const data = archive.data || {};
+			const channelMessages = data[channelId] as Message[] | undefined;
+			if (!Array.isArray(channelMessages) || channelMessages.length === 0) continue;
+
+			const filtered = channelMessages.filter((m) => {
+				// Empty server snapshot means channel currently has no messages.
+				if (serverMessages.length === 0) return false;
+				// Keep strictly older history outside snapshot window.
+				if (m.timestamp < minServerTimestamp) return true;
+				// Keep only server-confirmed messages inside window.
+				return serverIds.has(m.id);
+			});
+
+			if (filtered.length === channelMessages.length) continue;
+
+			if (filtered.length > 0) {
+				data[channelId] = filtered;
+				await this.db.setArchive(archive.period, data);
+				continue;
+			}
+
+			delete data[channelId];
+			if (Object.keys(data).length === 0) {
+				await this.db.deleteArchive(archive.period);
+			} else {
+				await this.db.setArchive(archive.period, data);
+			}
+		}
+	}
 	// Clear all history
 	async clearAllHistory() {
 		if (!browser) return;
@@ -518,3 +590,4 @@ export class ChatStorage {
 }
 
 export const chatStorage = new ChatStorage();
+

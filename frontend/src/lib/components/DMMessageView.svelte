@@ -320,10 +320,10 @@
 	.dm-messages {
 		flex: 1;
 		overflow-y: auto;
-		padding: 0.5rem;
+		padding: 0.45rem 0.6rem;
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
+		gap: 0.05rem;
 	}
 
 	.dm-empty {
@@ -336,14 +336,23 @@
 	}
 
 	.dm-msg {
-		padding: 0.25rem 0;
+		padding: 0.12rem 0;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		max-width: min(74ch, 86%);
+	}
+
+	.dm-msg.own {
+		align-self: flex-end;
+		align-items: flex-end;
 	}
 
 	.dm-msg-header {
 		display: flex;
 		align-items: baseline;
 		gap: 0.375rem;
-		margin-bottom: 1px;
+		margin-bottom: 0.08rem;
 	}
 
 	.dm-msg-author {
@@ -369,6 +378,18 @@
 		color: var(--text-primary);
 		word-wrap: break-word;
 		line-height: 1.35;
+		display: inline-block;
+		width: fit-content;
+		max-width: 100%;
+		padding: 0.34rem 0.9rem;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--bg-tertiary) 78%, #000 22%);
+		border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+	}
+
+	.dm-msg + .dm-msg {
+		margin-top: -0.06rem;
 	}
 
 	.dm-input-area {

@@ -13,7 +13,27 @@
 	let avatarInput: HTMLInputElement;
 
 	$: myStableId = $currentUser?.dbUserId ? `user-${$currentUser.dbUserId}` : $currentUser?.id;
-	$: memberRecords = channel.memberUsers || [];
+	$: memberRecords = (channel.members || []).map((stableId) => {
+		const fromChannel = (channel.memberUsers || []).find((member) => {
+			const memberStableId = member.dbUserId ? `user-${member.dbUserId}` : member.id;
+			return memberStableId === stableId;
+		});
+		if (fromChannel) return fromChannel;
+
+		const fromOnlineUsers = $users.find((user) => {
+			const userStableId = user.dbUserId ? `user-${user.dbUserId}` : user.id;
+			return userStableId === stableId;
+		});
+		if (fromOnlineUsers) return fromOnlineUsers;
+
+		const fallbackName = stableId.startsWith('user-') ? `User ${stableId.slice(5)}` : stableId;
+		return {
+			id: stableId,
+			username: fallbackName,
+			color: '#888888',
+			status: 'offline' as const
+		};
+	});
 	$: isOwner = channel.members && myStableId ? isUserOwner(myStableId) : false;
 
 	function isUserOwner(stableId: string): boolean {

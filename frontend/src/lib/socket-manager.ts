@@ -727,9 +727,20 @@ class SocketManager {
 
 			channelMessages.update(msgs => {
 				const existing = msgs[data.channelId] || [];
-				const existingIds = new Set(existing.map(m => m.id));
-				const newMsgs = data.messages.filter(m => !existingIds.has(m.id));
-				return { ...msgs, [data.channelId]: [...existing, ...newMsgs] };
+				if (data.messages.length === 0) {
+					return { ...msgs, [data.channelId]: [] };
+				}
+
+				// Server channel-messages payload is authoritative for latest window.
+				// Keep older local history, replace overlapping window with server snapshot.
+				const serverIds = new Set(data.messages.map(m => m.id));
+				const minServerTs = Math.min(...data.messages.map(m => m.timestamp));
+				const olderLocal = existing.filter(m => m.timestamp < minServerTs && !serverIds.has(m.id));
+				return { ...msgs, [data.channelId]: [...olderLocal, ...data.messages] };
+			});
+
+			void chatStorage.reconcileChannelWindow(data.channelId, data.messages).catch((error) => {
+				console.warn('[SocketManager] Failed snapshot reconciliation in IndexedDB:', error);
 			});
 
 			// Initialize pagination state from server response
@@ -857,6 +868,10 @@ class SocketManager {
 				...msgs,
 				[data.channelId]: (msgs[data.channelId] || []).filter(msg => msg.id !== data.messageId)
 			}));
+
+			void chatStorage.deleteMessage(data.channelId, data.messageId).catch((error) => {
+				console.warn('[SocketManager] Failed to remove deleted message from IndexedDB:', error);
+			});
 		});
 
 		sock.on('messages-cleared', (data?: { scope?: string; messagePurgeVersion?: number }) => {
@@ -1006,7 +1021,7 @@ class SocketManager {
 
 		sock.on('channel-settings-updated', (data: {
 			channelId: string;
-			autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
+			autoDeleteAfter?: '5s' | '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
 			persistMessages?: boolean;
 			description?: string;
 			minRole?: string;
@@ -1129,14 +1144,28 @@ class SocketManager {
 			}));
 		});
 
-		sock.on('group-member-added', (data: { channelId: string; user: any }) => {
+		sock.on('group-member-added', (data: { channelId: string; userId?: string; user?: any }) => {
 			channels.update(chs => chs.map(ch => {
 				if (ch.id !== data.channelId) return ch;
-				const stableId = data.user?.dbUserId ? `user-${data.user.dbUserId}` : data.user?.id;
+				const stableId =
+					data.user?.dbUserId ? `user-${data.user.dbUserId}` :
+					(data.userId || data.user?.id);
+				const existingMembers = ch.members || [];
+				const nextMembers = stableId && !existingMembers.includes(stableId)
+					? [...existingMembers, stableId]
+					: existingMembers;
+				const nextMemberUsers = data.user
+					? (ch.memberUsers?.some(u =>
+						u.id === data.user.id ||
+						(!!u.dbUserId && !!data.user.dbUserId && u.dbUserId === data.user.dbUserId)
+					)
+						? ch.memberUsers
+						: [...(ch.memberUsers || []), data.user])
+					: ch.memberUsers;
 				return {
 					...ch,
-					members: ch.members ? [...ch.members, stableId] : [stableId],
-					memberUsers: ch.memberUsers ? [...ch.memberUsers, data.user] : [data.user]
+					members: nextMembers,
+					memberUsers: nextMemberUsers
 				};
 			}));
 		});
@@ -1892,7 +1921,7 @@ export function updateGroupAvatar(channelId: string, avatarUrl: string | null): 
 }
 
 export function updateChannelSettings(channelId: string, settings: {
-	autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
+	autoDeleteAfter?: '5s' | '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
 	persistMessages?: boolean;
 	description?: string;
 	minRole?: string;

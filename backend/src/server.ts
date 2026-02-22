@@ -314,7 +314,7 @@ interface Channel {
   threadLocked?: boolean;
   threadAutoArchiveMinutes?: number;
   threadLastActivityAt?: number;
-  autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
+  autoDeleteAfter?: '5s' | '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
   isTemporary?: boolean;
   persistMessages?: boolean; // Opt-in flag for message persistence
   pinnedBy?: string[]; // Array of user IDs who have pinned this channel
@@ -715,6 +715,7 @@ const messageDeletionTimers = new Map<string, NodeJS.Timeout>(); // messageId ->
 // Helper function to convert auto-delete duration to milliseconds
 function getAutoDeleteMs(duration: string): number {
   const durations: Record<string, number> = {
+    '5s': 5 * 1000,
     '1h': 60 * 60 * 1000,
     '6h': 6 * 60 * 60 * 1000,
     '12h': 12 * 60 * 60 * 1000,
@@ -1248,16 +1249,22 @@ server.on('request', async (req, res) => {
   // Plugin admin APIs
   if (url.pathname === "/api/plugins" && req.method === "GET") {
     const userId = getAuthenticatedUserId(req);
-    if (!isPluginAdmin(userId)) {
-      res.writeHead(403, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
-      return;
-    }
+    const isAdmin = isPluginAdmin(userId);
 
     try {
       const plugins = pluginLoader.getLoadedPlugins();
+      const responsePlugins = isAdmin
+        ? plugins
+        : plugins.map((plugin) => ({
+            id: plugin.id,
+            name: plugin.name,
+            version: plugin.version,
+            description: plugin.description,
+            hasFrontend: plugin.hasFrontend,
+            hasBackend: plugin.hasBackend
+          }));
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, plugins }));
+      res.end(JSON.stringify({ success: true, plugins: responsePlugins, scope: isAdmin ? "admin" : "public" }));
     } catch (error) {
       console.error("[Plugins] Failed to fetch plugin list:", error);
       res.writeHead(500, { "Content-Type": "application/json" });
@@ -4655,6 +4662,7 @@ io.on("connection", (socket) => {
       id: `${Date.now()}-${senderStableId}`,
       user: user.username,
       userId: socket.id, // Current socket.id for realtime identification
+      senderStableId, // Stable ownership check across reconnects
       text: data.text,
       timestamp: Date.now(),
       type: data.type,
@@ -4810,9 +4818,20 @@ io.on("connection", (socket) => {
     if (messageIndex === -1) return;
 
     const message = messages[messageIndex];
-    // Allow delete if userId matches current socket.id OR stable user ID
+    // Allow delete for current socket, stable identity, or DB-authoritative sender.
     const stableId = getStableUserId(socket);
-    if (message.userId !== socket.id && message.userId !== stableId) return;
+    let canDelete = message.userId === socket.id || message.userId === stableId || message.senderStableId === stableId;
+    if (!canDelete) {
+      try {
+        const dbMessage = messageRepository.findByMessageId(data.messageId);
+        if (dbMessage?.sender_id === stableId) {
+          canDelete = true;
+        }
+      } catch (error) {
+        console.error('[MessageRepository] Failed ownership check for delete-message:', error);
+      }
+    }
+    if (!canDelete) return;
 
     // Delete associated files from filesystem
     if (message.fileUrl) {
@@ -5798,7 +5817,7 @@ io.on("connection", (socket) => {
   // Update channel auto-delete settings
   socket.on("update-channel-settings", (data: {
     channelId: string;
-    autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
+    autoDeleteAfter?: '5s' | '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
     persistMessages?: boolean;
     description?: string;
     minRole?: string;
@@ -6493,7 +6512,11 @@ io.on("connection", (socket) => {
       if (memberId === data.userId) return;
       const memberSocketId = resolveSocketId(memberId);
       if (memberSocketId) {
-        io.to(memberSocketId).emit("group-member-added", { channelId: data.channelId, user: addedUserInfo });
+        io.to(memberSocketId).emit("group-member-added", {
+          channelId: data.channelId,
+          userId: data.userId,
+          user: addedUserInfo
+        });
       }
     });
 

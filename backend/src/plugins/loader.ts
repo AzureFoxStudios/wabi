@@ -1,4 +1,4 @@
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { dirname } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { spawnSync } from 'child_process';
+import AdmZip from 'adm-zip';
 import type { Server, Socket } from 'socket.io';
 import type { Server as HttpServer } from 'http';
 import type { BackendPlugin, PluginContext, PluginLogger, PluginManifest, PluginStorage } from './types';
@@ -299,7 +300,8 @@ export class PluginLoader {
         scanResult
       );
 
-      const pluginModule = await import(backendEntry);
+      const backendEntryUrl = pathToFileURL(backendEntry).href;
+      const pluginModule = await import(backendEntryUrl);
       const plugin: BackendPlugin = pluginModule.default || pluginModule;
       const ctx = this.createContext(pluginId);
 
@@ -367,6 +369,121 @@ export class PluginLoader {
       this.recordCrash(pluginId);
       console.error(`❌ Failed to load plugin ${pluginId}:`, error);
     }
+  }
+
+  async installPluginFromArchive(
+    archiveBuffer: Buffer,
+    options: { uploadedBy?: string; fileName?: string } = {}
+  ): Promise<{ pluginId: string; name: string; version: string }> {
+    const actor = options.uploadedBy || 'system';
+    const fileName = options.fileName || 'plugin.zip';
+    const installTempRoot = path.join(this.storageDir, 'install-tmp');
+    const installTempDir = path.join(
+      installTempRoot,
+      `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`
+    );
+    const extractDir = path.join(installTempDir, 'extract');
+
+    fs.mkdirSync(extractDir, { recursive: true });
+
+    try {
+      const zip = new AdmZip(archiveBuffer);
+      const entries = zip.getEntries();
+      if (entries.length === 0) {
+        throw new Error('Archive is empty');
+      }
+
+      for (const entry of entries) {
+        const normalizedEntryName = entry.entryName.replace(/\\/g, '/');
+        if (!normalizedEntryName || normalizedEntryName.startsWith('/') || normalizedEntryName.includes('..')) {
+          throw new Error(`Unsafe archive path detected: ${entry.entryName}`);
+        }
+
+        const outputPath = path.join(extractDir, normalizedEntryName);
+        const resolvedOutputPath = path.resolve(outputPath);
+        const resolvedExtractDir = path.resolve(extractDir);
+        if (!resolvedOutputPath.startsWith(`${resolvedExtractDir}${path.sep}`) && resolvedOutputPath !== resolvedExtractDir) {
+          throw new Error(`Unsafe archive extraction target: ${entry.entryName}`);
+        }
+
+        if (entry.isDirectory) {
+          fs.mkdirSync(outputPath, { recursive: true });
+          continue;
+        }
+
+        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+        fs.writeFileSync(outputPath, entry.getData());
+      }
+
+      const manifestCandidates = this.findPluginManifestCandidates(extractDir);
+      if (manifestCandidates.length === 0) {
+        throw new Error('No plugin.json found in archive');
+      }
+
+      manifestCandidates.sort((a, b) => a.length - b.length);
+      const manifestPath = manifestCandidates[0];
+      const pluginRoot = path.dirname(manifestPath);
+
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as PluginManifest;
+      const pluginId = typeof manifest.id === 'string' ? manifest.id.trim() : '';
+      if (!pluginId) {
+        throw new Error('Plugin manifest is missing a valid id');
+      }
+      if (!/^[a-z0-9][a-z0-9-_]{0,63}$/i.test(pluginId)) {
+        throw new Error('Plugin id must be alphanumeric and may include hyphens/underscores (max 64 chars)');
+      }
+
+      const pluginTargetDir = path.join(this.pluginsDir, pluginId);
+      if (fs.existsSync(pluginTargetDir)) {
+        throw new Error(`Plugin '${pluginId}' is already installed`);
+      }
+
+      fs.mkdirSync(this.pluginsDir, { recursive: true });
+      fs.cpSync(pluginRoot, pluginTargetDir, { recursive: true, errorOnExist: true, force: false });
+
+      this.writeAuditEvent({
+        actor,
+        pluginId,
+        version: manifest.version || 'unknown',
+        action: 'discover',
+        result: 'success',
+        reason: `Plugin archive uploaded (${fileName})`
+      });
+
+      await this.loadPlugin(pluginId);
+      if (!this.plugins.has(pluginId)) {
+        throw new Error(`Plugin '${pluginId}' was copied but failed to load; check backend logs`);
+      }
+
+      return {
+        pluginId,
+        name: manifest.name || pluginId,
+        version: manifest.version || 'unknown'
+      };
+    } finally {
+      if (fs.existsSync(installTempDir)) {
+        fs.rmSync(installTempDir, { recursive: true, force: true });
+      }
+    }
+  }
+
+  private findPluginManifestCandidates(rootDir: string): string[] {
+    const found: string[] = [];
+    const walk = (currentDir: string): void => {
+      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        if (entry.isFile() && entry.name.toLowerCase() === 'plugin.json') {
+          found.push(fullPath);
+        }
+      }
+    };
+    walk(rootDir);
+    return found;
   }
 
   private registerPluginRoutes(

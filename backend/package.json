@@ -9,6 +9,7 @@
     "migrate:sqlite-to-postgres": "node scripts/migrate-sqlite-to-postgres.mjs"
   },
   "dependencies": {
+    "adm-zip": "^0.5.16",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.6.0",
     "jsonwebtoken": "^9.0.3",

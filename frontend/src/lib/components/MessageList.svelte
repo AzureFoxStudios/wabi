@@ -10,6 +10,7 @@
 	import EmojiPicker from './EmojiPicker.svelte';
 	import LinkPreview from './LinkPreview.svelte';
 	import ModelViewer3D from './plugins/ModelViewer3D.svelte';
+	import BlendImportSettingsModal, { type BlendImportSettingsPayload } from './plugins/BlendImportSettingsModal.svelte';
 	import { parseMessage } from '$lib/markdown';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
 	import '$lib/prism-theme.css';
@@ -44,28 +45,6 @@
 	let blendImportSourcePath = '';
 	let blendImportFileName = '';
 	let blendImportSubmitting = false;
-	let BlendImportSettingsModalComponent: any = null;
-
-	type BlendImportSettingsPayload = Record<string, unknown>;
-	const blendImportSettingsModalModules = import.meta.glob('./plugins/BlendImportSettingsModal.svelte');
-
-	async function ensureBlendImportSettingsModalLoaded(): Promise<boolean> {
-		if (BlendImportSettingsModalComponent) return true;
-		const loader = blendImportSettingsModalModules['./plugins/BlendImportSettingsModal.svelte'];
-		if (!loader) {
-			return false;
-		}
-
-		try {
-			const module: any = await loader();
-			BlendImportSettingsModalComponent = module?.default || null;
-			return !!BlendImportSettingsModalComponent;
-		} catch (error) {
-			console.warn('[BlendImport] Settings modal is unavailable:', error);
-			BlendImportSettingsModalComponent = null;
-			return false;
-		}
-	}
 	// Emoji picker for reactions
 	// TODO: Add emoji reactions feature
 	// - Right-click message → "Add Reaction" → Opens emoji picker
@@ -613,13 +592,7 @@
 		return fileName.toLowerCase().endsWith('.blend');
 	}
 
-	async function openBlendImportSettings(sourcePath: string, fileName: string): Promise<void> {
-		const modalReady = await ensureBlendImportSettingsModalLoaded();
-		if (!modalReady) {
-			alert('Blend import UI is unavailable. Ensure the model-viewer plugin frontend files are installed.');
-			return;
-		}
-
+	function openBlendImportSettings(sourcePath: string, fileName: string): void {
 		blendImportSourcePath = sourcePath;
 		blendImportFileName = fileName;
 		showBlendImportSettings = true;
@@ -657,9 +630,6 @@
 	let mobileActionsMessageId: string | null = null;
 
 	onMount(() => {
-		void ensureBlendImportSettingsModalLoaded();
-	});
-	onMount(() => {
 		const timer = window.setInterval(() => {
 			nowMs = Date.now();
 		}, 1000);
@@ -680,15 +650,140 @@
 	let enlargedVideo: string | null = null;
 	let currentImageGallery: string[] = [];
 	let currentImageIndex: number = 0;
+	let imageZoom = 1;
+	let imageMenuOpen = false;
+	let imageMeta: { name: string; width: number | null; height: number | null; sizeBytes: number | null } = {
+		name: '',
+		width: null,
+		height: null,
+		sizeBytes: null
+	};
+
+	function getFileNameFromUrl(url: string): string {
+		try {
+			const pathname = new URL(url, window.location.origin).pathname;
+			const lastSegment = pathname.split('/').pop() || 'image';
+			return decodeURIComponent(lastSegment);
+		} catch {
+			return 'image';
+		}
+	}
+
+	function formatBytes(bytes: number | null): string {
+		if (bytes === null || Number.isNaN(bytes)) return 'Unknown';
+		if (bytes < 1024) return `${bytes} B`;
+		const kb = bytes / 1024;
+		if (kb < 1024) return `${kb.toFixed(1)} KB`;
+		const mb = kb / 1024;
+		if (mb < 1024) return `${mb.toFixed(1)} MB`;
+		const gb = mb / 1024;
+		return `${gb.toFixed(2)} GB`;
+	}
+
+	function resetImageOverlayState(url: string) {
+		imageZoom = 1;
+		imageMenuOpen = false;
+		imageMeta = {
+			name: getFileNameFromUrl(url),
+			width: null,
+			height: null,
+			sizeBytes: null
+		};
+		void resolveImageSize(url);
+	}
+
+	async function resolveImageSize(url: string) {
+		try {
+			const response = await fetch(url);
+			if (!response.ok) return;
+			const blob = await response.blob();
+			imageMeta = { ...imageMeta, sizeBytes: blob.size };
+		} catch {
+			// Ignore metadata failures for external/CORS-protected URLs.
+		}
+	}
+
+	function setImageZoom(nextZoom: number) {
+		imageZoom = Math.max(0.25, Math.min(5, nextZoom));
+	}
+
+	function zoomIn() {
+		setImageZoom(imageZoom + 0.25);
+	}
+
+	function zoomOut() {
+		setImageZoom(imageZoom - 0.25);
+	}
+
+	function resetZoom() {
+		imageZoom = 1;
+	}
+
+	function toggleImageMenu() {
+		imageMenuOpen = !imageMenuOpen;
+	}
+
+	function onEnlargedImageLoad(event: Event) {
+		const imageEl = event.currentTarget as HTMLImageElement;
+		imageMeta = {
+			...imageMeta,
+			width: imageEl.naturalWidth || null,
+			height: imageEl.naturalHeight || null
+		};
+	}
+
+	async function copyCurrentImageLink() {
+		if (!enlargedImage || !navigator.clipboard) return;
+		try {
+			await navigator.clipboard.writeText(enlargedImage);
+		} catch (error) {
+			console.warn('Failed to copy image link:', error);
+		}
+		imageMenuOpen = false;
+	}
+
+	async function copyCurrentImage() {
+		if (!enlargedImage || !navigator.clipboard || typeof ClipboardItem === 'undefined') {
+			await copyCurrentImageLink();
+			return;
+		}
+		try {
+			const response = await fetch(enlargedImage);
+			if (!response.ok) throw new Error(`Failed to fetch image (${response.status})`);
+			const blob = await response.blob();
+			await navigator.clipboard.write([new ClipboardItem({ [blob.type || 'image/png']: blob })]);
+		} catch (error) {
+			console.warn('Failed to copy image, falling back to link copy:', error);
+			await copyCurrentImageLink();
+		}
+		imageMenuOpen = false;
+	}
+
+	async function forwardCurrentImage() {
+		if (!enlargedImage) return;
+		const nav = navigator as Navigator & { share?: (data: ShareData) => Promise<void> };
+		if (nav.share) {
+			try {
+				await nav.share({ url: enlargedImage, title: imageMeta.name });
+				return;
+			} catch {
+				// Share dialog dismissed or unavailable for this payload.
+			}
+		}
+		await copyCurrentImageLink();
+	}
+
 	function enlargeImage(imageUrl: string, gallery: string[] = []) {
 		enlargedImage = imageUrl;
 		currentImageGallery = gallery.length > 0 ? gallery : [imageUrl];
 		currentImageIndex = currentImageGallery.indexOf(imageUrl);
+		resetImageOverlayState(imageUrl);
 	}
 	function closeEnlargedImage() {
 		enlargedImage = null;
 		currentImageGallery = [];
 		currentImageIndex = 0;
+		imageMenuOpen = false;
 	}
 	function navigateImage(direction: 'prev' | 'next') {
 		if (currentImageGallery.length === 0) return;
@@ -698,6 +793,7 @@
 			currentImageIndex = (currentImageIndex + 1) % currentImageGallery.length;
 		}
 		enlargedImage = currentImageGallery[currentImageIndex];
+		if (enlargedImage) resetImageOverlayState(enlargedImage);
 	}
 	function handleImageKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape' && contextMenuVisible) {
@@ -715,6 +811,15 @@
 		} else if (e.key === 'Escape') {
 			e.preventDefault();
 			closeEnlargedImage();
+		} else if (e.key === '+' || e.key === '=') {
+			e.preventDefault();
+			zoomIn();
+		} else if (e.key === '-') {
+			e.preventDefault();
+			zoomOut();
+		} else if (e.key === '0') {
+			e.preventDefault();
+			resetZoom();
 		}
 	}
 	function enlargeVideo(videoUrl: string) {
@@ -1057,6 +1162,20 @@
 												</div>
 											{/if}
 										</div>
+									{:else if isModelFile(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
+										<div class="gallery-file-item model-item" class:last-item={index === 3 && message.files.length > 4}>
+											<ModelViewer3D src={getFileUrl(fileAttachment.fileUrl)} fileName={fileAttachment.fileName || '3D model'} height={220} />
+											<a href={getFileUrl(fileAttachment.fileUrl)} target="_blank" rel="noopener noreferrer" download={fileAttachment.fileName} class="image-download-link">
+												<span class="file-icon">{getFileIcon(fileAttachment.fileName)}</span>
+												{fileAttachment.fileName}
+												<span class="file-size-small">({formatFileSize(fileAttachment.fileSize)})</span>
+											</a>
+											{#if index === 3 && message.files.length > 4}
+												<div class="more-overlay">
+													<span class="more-count">+{message.files.length - 4}</span>
+												</div>
+											{/if}
+										</div>
 									{:else if isBlendFile(fileAttachment.fileName)}
 										<div class="gallery-file-item blend-item" class:last-item={index === 3 && message.files.length > 4}>
 											<div class="gallery-file-icon-large">{getFileIcon(fileAttachment.fileName)}</div>
@@ -1324,19 +1443,16 @@
 	onCancel={() => showDeleteConfirm = false}
 />
 
-{#if BlendImportSettingsModalComponent}
-	<svelte:component
-		this={BlendImportSettingsModalComponent}
-		isOpen={showBlendImportSettings}
-		sourcePath={blendImportSourcePath}
-		fileName={blendImportFileName}
-		isSubmitting={blendImportSubmitting}
-		on:close={() => {
-			if (!blendImportSubmitting) showBlendImportSettings = false;
-		}}
-		on:submit={queueBlendImport}
-	/>
-{/if}
+<BlendImportSettingsModal
+	isOpen={showBlendImportSettings}
+	sourcePath={blendImportSourcePath}
+	fileName={blendImportFileName}
+	isSubmitting={blendImportSubmitting}
+	on:close={() => {
+		if (!blendImportSubmitting) showBlendImportSettings = false;
+	}}
+	on:submit={queueBlendImport}
+/>
 
 {#if enlargedImage}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -1360,25 +1476,78 @@
 			alt="Enlarged"
 			class="enlarged-image"
 			on:click|stopPropagation
+			on:load={onEnlargedImageLoad}
+			style={`transform: scale(${imageZoom});`}
 		/>
 
 		<!-- Navigation arrows (only show if multiple images) -->
 		{#if currentImageGallery.length > 1}
-			<button class="nav-arrow nav-prev" on:click|stopPropagation={() => navigateImage('prev')} title="Previous (←)">
-				‹
+			<button class="nav-arrow nav-prev" on:click|stopPropagation={() => navigateImage('prev')} title="Previous (left arrow)">
+				&lt;
 			</button>
-			<button class="nav-arrow nav-next" on:click|stopPropagation={() => navigateImage('next')} title="Next (→)">
-				›
+			<button class="nav-arrow nav-next" on:click|stopPropagation={() => navigateImage('next')} title="Next (right arrow)">
+				&gt;
 			</button>
 			<div class="image-counter">
 				{currentImageIndex + 1} / {currentImageGallery.length}
 			</div>
 		{/if}
 
-		<button class="close-modal" on:click={closeEnlargedImage}>✕</button>
-		<a href={enlargedImage} target="_blank" rel="noopener noreferrer" class="open-new-tab">
-			Open in new tab
-		</a>
+		<div class="lightbox-toolbar-wrap" on:click|stopPropagation>
+			<div class="lightbox-toolbar">
+				<a
+					href={enlargedImage}
+					target="_blank"
+					rel="noopener noreferrer"
+					class="toolbar-btn"
+					title="Open in new tab"
+					aria-label="Open in new tab"
+				>
+					<svg class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M14 3h7v7" />
+						<path d="M10 14 21 3" />
+						<path d="M21 14v7h-7" />
+						<path d="M3 10V3h7" />
+						<path d="M3 21h7v-7" />
+					</svg>
+				</a>
+				<button class="toolbar-btn" on:click={forwardCurrentImage} title="Forward / Share" aria-label="Forward or share image">
+					<svg class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M5 12h14" />
+						<path d="m13 5 7 7-7 7" />
+					</svg>
+				</button>
+				<button class="toolbar-btn" on:click={zoomOut} title="Zoom out" aria-label="Zoom out">
+					-
+				</button>
+				<button class="toolbar-btn zoom-level" on:click={resetZoom} title="Reset zoom" aria-label="Reset zoom">
+					{Math.round(imageZoom * 100)}%
+				</button>
+				<button class="toolbar-btn" on:click={zoomIn} title="Zoom in" aria-label="Zoom in">
+					+
+				</button>
+				<div class="toolbar-more-wrap">
+					<button class="toolbar-btn" on:click={toggleImageMenu} title="More" aria-label="More actions">
+						...
+					</button>
+					{#if imageMenuOpen}
+						<div class="toolbar-menu" role="menu">
+							<button class="toolbar-menu-item" on:click={copyCurrentImageLink}>Copy image link</button>
+							<button class="toolbar-menu-item" on:click={copyCurrentImage}>Copy image</button>
+							<div class="toolbar-menu-item details-hover-row">
+								Image details
+								<div class="image-details-popout" role="note">
+									<div><strong>Name:</strong> {imageMeta.name}</div>
+									<div><strong>Dimensions:</strong> {imageMeta.width ?? '?'} x {imageMeta.height ?? '?'}</div>
+									<div><strong>Size:</strong> {formatBytes(imageMeta.sizeBytes)}</div>
+								</div>
+							</div>
+						</div>
+					{/if}
+				</div>
+			</div>
+			<button class="close-modal" on:click={closeEnlargedImage} aria-label="Close image viewer">X</button>
+		</div>
 	</div>
 {/if}
 
@@ -1409,7 +1578,7 @@
 			<source src={enlargedVideo} />
 			Your browser does not support the video tag.
 		</video>
-		<button class="close-modal" on:click={closeEnlargedVideo}>✕</button>
+		<button class="close-modal" on:click={closeEnlargedVideo}>X</button>
 		<a href={enlargedVideo} target="_blank" rel="noopener noreferrer" class="open-new-tab">
 			Open in new tab
 		</a>
@@ -1439,15 +1608,15 @@
 	.message {
 		display: flex;
 		align-items: flex-start;
-		gap: 0.75rem;
-		padding: 0.75rem;
+		gap: 0.5rem;
+		padding: 0.4rem 0.6rem;
 		border-radius: 0;
 		background: transparent;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.2rem;
 		transition: all 0.25s ease;
 		position: relative;
 		margin-left: -9999px;
-		padding-left: calc(0.75rem + 9999px);
+		padding-left: calc(0.6rem + 9999px);
 	}
 
 	.message.has-continuation {
@@ -1569,11 +1738,11 @@
 	.message-avatar {
 		flex-shrink: 0;
 		cursor: pointer;
-		margin-top: 0.35rem;
+		margin-top: 0.1rem;
 	}
 
 	.message-avatar-spacer {
-		width: 40px;
+		width: 34px;
 		height: 1px;
 		cursor: default;
 		margin-top: 0;
@@ -1581,22 +1750,22 @@
 	}
 
 	.avatar {
-		width: 40px;
-		height: 40px;
+		width: 34px;
+		height: 34px;
 		border-radius: 50%;
 		object-fit: cover;
 	}
 
 	.avatar-placeholder {
-		width: 40px;
-		height: 40px;
+		width: 34px;
+		height: 34px;
 		border-radius: 50%;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		font-weight: bold;
 		color: var(--text-primary);
-		font-size: var(--text-lg);
+		font-size: var(--text-sm);
 	}
 
 	.message-body {
@@ -1609,7 +1778,7 @@
 		display: flex;
 		justify-content: flex-start;
 		align-items: center;
-		margin-bottom: 0.375rem;
+		margin-bottom: 0.1rem;
 		gap: 0;
 	}
 
@@ -1881,7 +2050,7 @@
 	}
 
 	.markdown-content :global(p:not(:last-child)) {
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.2rem;
 	}
 
 	.markdown-content :global(strong) {
@@ -1961,11 +2130,13 @@
 	}
 
 	.enlarged-image {
-		max-width: 85vw;
-		max-height: 85vh;
+		max-width: 80vw;
+		max-height: 80vh;
 		object-fit: contain;
 		border-radius: 8px;
 		cursor: default;
+		transform-origin: center center;
+		transition: transform 0.15s ease;
 	}
 
 	.video-modal {
@@ -2010,6 +2181,137 @@
 	.close-modal:hover {
 		background: rgba(var(--text-primary-rgb), var(--opacity-medium));
 		transform: scale(1.1);
+	}
+
+	.lightbox-toolbar-wrap {
+		position: absolute;
+		top: 1rem;
+		right: 1rem;
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+	}
+
+	.lightbox-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.35rem;
+		border-radius: 10px;
+		background: rgba(17, 23, 35, 0.86);
+		border: 1px solid rgba(255, 255, 255, 0.18);
+		backdrop-filter: blur(8px);
+	}
+
+	.toolbar-btn {
+		min-width: 36px;
+		height: 32px;
+		padding: 0 0.55rem;
+		border-radius: 8px;
+		border: 1px solid rgba(255, 255, 255, 0.22);
+		background: rgba(255, 255, 255, 0.08);
+		color: #fff;
+		font-size: 0.75rem;
+		font-weight: 700;
+		text-decoration: none;
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		transition: background 0.15s ease;
+	}
+
+	.toolbar-btn:hover {
+		background: rgba(255, 255, 255, 0.17);
+	}
+
+	.toolbar-icon {
+		width: 16px;
+		height: 16px;
+		pointer-events: none;
+	}
+
+	.zoom-level {
+		min-width: 54px;
+	}
+
+	.toolbar-more-wrap {
+		position: relative;
+	}
+
+	.toolbar-menu {
+		position: absolute;
+		right: 0;
+		top: calc(100% + 0.4rem);
+		display: flex;
+		flex-direction: column;
+		min-width: 180px;
+		padding: 0.35rem;
+		border-radius: 10px;
+		background: rgba(14, 20, 30, 0.95);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
+	}
+
+	.toolbar-menu-item {
+		height: 32px;
+		border: none;
+		background: transparent;
+		color: #fff;
+		text-align: left;
+		padding: 0 0.55rem;
+		border-radius: 7px;
+		cursor: pointer;
+	}
+
+	.toolbar-menu-item:hover {
+		background: rgba(255, 255, 255, 0.12);
+	}
+
+	.lightbox-toolbar-wrap .close-modal {
+		position: static;
+		top: auto;
+		right: auto;
+		width: 36px;
+		height: 32px;
+		min-width: 36px;
+		border-radius: 8px;
+		border: 1px solid rgba(255, 255, 255, 0.22);
+		background: rgba(17, 23, 35, 0.86);
+		color: #fff;
+		font-size: 0.9rem;
+		transform: none;
+	}
+
+	.lightbox-toolbar-wrap .close-modal:hover {
+		background: rgba(255, 255, 255, 0.17);
+		transform: none;
+	}
+
+	.details-hover-row {
+		position: relative;
+		display: flex;
+		align-items: center;
+	}
+
+	.image-details-popout {
+		display: none;
+		position: absolute;
+		right: calc(100% + 0.45rem);
+		top: 0;
+		min-width: 250px;
+		gap: 0.35rem;
+		padding: 0.8rem;
+		border-radius: 10px;
+		background: rgba(14, 20, 30, 0.92);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		color: #fff;
+		font-size: var(--text-sm);
+		pointer-events: none;
+	}
+
+	.details-hover-row:hover .image-details-popout {
+		display: grid;
 	}
 
 	.nav-arrow {
@@ -2102,6 +2404,15 @@
 
 	.gallery-file-item:hover {
 		transform: scale(1.02);
+	}
+
+	.gallery-file-item.model-item {
+		aspect-ratio: auto;
+		min-height: 220px;
+		grid-column: span 2;
+		padding: 0.25rem;
+		gap: 0.25rem;
+		background: var(--bg-secondary);
 	}
 
 	.gallery-file-image {
@@ -2504,6 +2815,35 @@
 			font-size: 1.25rem;
 		}
 
+		.lightbox-toolbar-wrap {
+			top: 0.25rem;
+			right: 0.25rem;
+			gap: 0.35rem;
+		}
+
+		.lightbox-toolbar {
+			gap: 0.25rem;
+			padding: 0.25rem;
+		}
+
+		.toolbar-btn {
+			min-width: 34px;
+			height: 30px;
+			padding: 0 0.4rem;
+			font-size: 0.65rem;
+		}
+
+		.zoom-level {
+			min-width: 52px;
+		}
+
+		.image-details-popout {
+			right: calc(100% + 0.25rem);
+			top: -0.2rem;
+			min-width: 210px;
+			font-size: 0.72rem;
+		}
+
 		.nav-arrow {
 			width: 36px;
 			height: 36px;
@@ -2711,10 +3051,10 @@
 
 /* --- Refined Mobile/Desktop Readability Styles --- */
 
-/* Apply padding for desktop hover actions */
+/* Keep a minimal right inset; avoid large reserved gutter */
 @media (min-width: 769px) {
     .message-body {
-        padding-right: 90px;
+        padding-right: 0.75rem;
     }
 }
 
@@ -2734,8 +3074,8 @@
         padding-right: 0.5rem;
     }
     .message {
-        padding-top: 0.6rem;
-        padding-bottom: 0.6rem;
+        padding-top: 0.24rem;
+        padding-bottom: 0.24rem;
     }
     .message.has-continuation {
         margin-bottom: 0.03rem;
@@ -2908,4 +3248,5 @@
 		margin-bottom: 0 !important;
 	}
 }
+
 </style>

@@ -43,7 +43,6 @@
   },
   "integrity": {
     "algorithm": "sha256",
-    "checksum": "e9577005bbf5eafea914b56410ecd441b1b66f09ac0315e761332fb10b55646c",
-    "signature": "unsigned-local-dev"
+    "checksum": "05f6ed3acbd31d797a9e45b2848d1defd32e2d054298b66d5d916d4b95d7e7bd"
   }
 }

@@ -13,6 +13,8 @@
     "plugin:keygen": "node scripts/plugin-keygen.mjs",
     "plugin:sign": "node scripts/plugin-sign.mjs",
     "plugin:verify": "node scripts/plugin-verify.mjs",
+    "plugin:install:test": "node scripts/install-test-plugin.mjs",
+    "plugin:install:test:windows": "node scripts/install-test-plugin.mjs",
     "openmoji:fetch": "powershell -ExecutionPolicy Bypass -File scripts/fetch-openmoji.ps1",
     "pr:auto": "powershell -ExecutionPolicy Bypass -File scripts/pr-auto.ps1",
     "pr:cleanup": "powershell -ExecutionPolicy Bypass -File scripts/pr-cleanup.ps1"

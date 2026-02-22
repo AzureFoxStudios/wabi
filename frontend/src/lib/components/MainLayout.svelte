@@ -4,6 +4,7 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { get } from 'svelte/store';
 	import Chat from '$lib/components/Chat.svelte';
+	import ChannelQuickTabs from '$lib/components/ChannelQuickTabs.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
 	import RightPanel from '$lib/components/RightPanel.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
@@ -167,7 +168,12 @@
 
 	<!-- Main Content -->
 	<div class="main-content">
-		<Chat on:logout />
+		<div class="chat-stack">
+			<ChannelQuickTabs />
+			<div class="chat-surface">
+				<Chat on:logout />
+			</div>
+		</div>
 	</div>
 
 	<!-- Desktop Right Panel -->
@@ -319,10 +325,23 @@
 		flex: 1;
 		min-width: 0;
 		position: relative;
+		min-height: 0;
 	}
 
-	.main-content > div { height: 100%; width: 100%; }
+	.chat-stack {
+		height: 100%;
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
+
+	.chat-surface {
+		flex: 1;
+		min-height: 0;
+	}
 	.hidden { display: none !important; }
+
 
 	.channel-sidebar-container {
 		flex-shrink: 0;
@@ -676,6 +695,7 @@
 		background: #22c55e;
 		box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.2);
 	}
+
 
 	.voice-channel-actions {
 		display: flex;

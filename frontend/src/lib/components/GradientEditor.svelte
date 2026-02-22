@@ -9,7 +9,6 @@
 	let startColor = '#ff00ff';
 	let endColor = '#ff69b4';
 	let angle = 90;
-	let direction = 'right';
 
 	// Parse gradient on mount
 	$: {
@@ -63,13 +62,13 @@
 
 <div class="gradient-editor-wrapper">
 	<div class="editor-header">
-		<label class="editor-label">{label}</label>
+		<span class="editor-label">{label}</span>
 		<button class="toggle-btn" on:click={() => (showEditor = !showEditor)}>
 			{showEditor ? '▼' : '▶'}
 		</button>
 	</div>
 
-	<div class="gradient-preview" style="background: {value}" />
+	<div class="gradient-preview" style="background: {value}"></div>
 
 	{#if showEditor}
 		<div class="editor-content">

@@ -39,8 +39,15 @@
 		return roleLabelMap[role] || role;
 	}
 
+	function isCurrentUserEntry(user: User): boolean {
+		if (!$currentUser) return false;
+		if (user.id === $currentUser.id) return true;
+		if (user.dbUserId && $currentUser.dbUserId && user.dbUserId === $currentUser.dbUserId) return true;
+		return false;
+	}
+
 	// Group users by highest hoisted role
-	$: otherUsers = $users.filter(u => u.id !== $currentUser?.id);
+	$: otherUsers = $users.filter(u => !isCurrentUserEntry(u));
 
 	$: groupedUsers = (() => {
 		const groups: Record<string, User[]> = {};
@@ -103,7 +110,7 @@
 
 	function canManageContextUserRoles(): boolean {
 		if (!contextMenuUser || !canManageRoles()) return false;
-		if (!$currentUser || contextMenuUser.id === $currentUser.id) return false;
+		if (!$currentUser || isCurrentUserEntry(contextMenuUser)) return false;
 		if (!contextMenuUser.dbUserId) return false;
 		return contextMenuUser.highestRole !== 'owner';
 	}

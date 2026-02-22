@@ -15,6 +15,13 @@
 		return getDMChannelIdForUser($currentUser, user);
 	}
 
+	function isCurrentUserEntry(user: User): boolean {
+		if (!$currentUser) return false;
+		if (user.id === $currentUser.id) return true;
+		if (user.dbUserId && $currentUser.dbUserId && user.dbUserId === $currentUser.dbUserId) return true;
+		return false;
+	}
+
 	// Helper function to get unread count for a user's DM
 	function getUserUnreadCount(user: User): number {
 		const dmId = getDMChannelId(user);
@@ -49,7 +56,7 @@
 
 	function openProfile(user: User, anchorEl?: HTMLElement | null) {
 		popoutUser = user;
-		popoutIsOwnProfile = user.id === $currentUser?.id;
+		popoutIsOwnProfile = isCurrentUserEntry(user);
 		popoutAnchorElement = anchorEl || null;
 		showUserPopout = true;
 	}
@@ -156,7 +163,7 @@
 	async function handleVoiceCall(event?: MouseEvent, user?: User) {
 		if (event) event.stopPropagation();
 		const targetUser = user || contextMenuUser;
-		if (!$socket || !targetUser || targetUser.id === $currentUser?.id) return;
+		if (!$socket || !targetUser || isCurrentUserEntry(targetUser)) return;
 		try {
 			await startCall($socket, targetUser.id, false);
 		} catch (error) {
@@ -167,7 +174,7 @@
 	async function handleVideoCall(event?: MouseEvent, user?: User) {
 		if (event) event.stopPropagation();
 		const targetUser = user || contextMenuUser;
-		if (!$socket || !targetUser || targetUser.id === $currentUser?.id) return;
+		if (!$socket || !targetUser || isCurrentUserEntry(targetUser)) return;
 		try {
 			await startCall($socket, targetUser.id, true);
 		} catch (error) {
@@ -178,7 +185,7 @@
 	async function handleScreenShare(event?: MouseEvent, user?: User) {
 		if (event) event.stopPropagation();
 		const targetUser = user || contextMenuUser;
-		if (!$socket || !targetUser || targetUser.id === $currentUser?.id) return;
+		if (!$socket || !targetUser || isCurrentUserEntry(targetUser)) return;
 		try {
 			// In this app, screen sharing is not directed to a specific user,
 			// it's broadcast to the current channel.
@@ -231,7 +238,7 @@
 				<button
 					class="user-info-button"
 					on:click={(e) => {
-						if (user.id !== $currentUser?.id) {
+						if (!isCurrentUserEntry(user)) {
 							handleOpenDM(user);
 						} else {
 							openProfile(user, e.currentTarget as HTMLElement);
@@ -241,7 +248,7 @@
 					<div class="user-info">
 						<span class="user-name">
 							{user.username}
-							{#if user.id === $currentUser?.id}<span class="you-badge">(you)</span>{/if}
+							{#if isCurrentUserEntry(user)}<span class="you-badge">(you)</span>{/if}
 						</span>
 						<div class="user-status">
 							<span class="status-dot" style="background-color: {getStatusColor(user.status)}"></span>
@@ -251,12 +258,12 @@
 				</button>
 
 				<!-- Unread badge for DMs -->
-				{#if user.id !== $currentUser?.id && getUserUnreadCount(user) > 0}
+				{#if !isCurrentUserEntry(user) && getUserUnreadCount(user) > 0}
 					<span class="unread-badge">{formatBadge(getUserUnreadCount(user))}</span>
 				{/if}
 
 				<!-- Call buttons (only show for other users) -->
-				{#if user.id !== $currentUser?.id}
+				{#if !isCurrentUserEntry(user)}
 					<div class="call-buttons">
 						<button
 							class="call-btn voice-call"
@@ -299,7 +306,7 @@
 		user={contextMenuUser}
 		x={contextMenuX}
 		y={contextMenuY}
-		isOwnProfile={contextMenuUser.id === $currentUser?.id}
+		isOwnProfile={isCurrentUserEntry(contextMenuUser)}
 		on:close={closeContextMenu}
 		on:voiceCall={() => handleVoiceCall()}
 		on:videoCall={() => handleVideoCall()}

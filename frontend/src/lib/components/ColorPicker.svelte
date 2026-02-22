@@ -39,13 +39,31 @@
 			hexInput = value;
 		}
 	}
+
+	function togglePicker() {
+		showPicker = !showPicker;
+	}
+
+	function handlePreviewKeydown(event: KeyboardEvent) {
+		if (event.key === 'Enter' || event.key === ' ') {
+			event.preventDefault();
+			togglePicker();
+		}
+	}
 </script>
 
 <div class="color-picker-wrapper">
 	<div class="picker-header">
-		<label class="picker-label">{label}</label>
+		<label class="picker-label" for="color-{label}">{label}</label>
 		<div class="picker-controls">
-			<div class="color-preview" style="background-color: {value}" on:click={() => (showPicker = !showPicker)} />
+			<button
+				type="button"
+				class="color-preview"
+				style="background-color: {value}"
+				on:click={togglePicker}
+				on:keydown={handlePreviewKeydown}
+				aria-label="Toggle {label} color picker"
+			></button>
 			<input
 				type="color"
 				class="color-input"

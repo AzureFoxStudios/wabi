@@ -7,6 +7,16 @@
 let cachedOrigins: string[] | null = null;
 let corsLoggedAtStartup = false;
 
+function isLoopbackOrigin(value: string | undefined): boolean {
+	if (!value) return false;
+	try {
+		const u = new URL(value);
+		return u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname.endsWith('.localhost');
+	} catch {
+		return false;
+	}
+}
+
 /**
  * Get list of allowed origins from environment or use defaults
  * Cached for performance - recomputed only once at startup
@@ -69,6 +79,13 @@ export function isOriginAllowed(origin: string | undefined, allowedOrigins: stri
 
 	// In development, allow localhost variations
 	if (process.env.NODE_ENV !== 'production' && origin.includes('localhost')) {
+		return true;
+	}
+
+	// Local self-host convenience:
+	// If any configured allowed origin is loopback, allow loopback port variations.
+	// This prevents local prod-like runs from breaking when frontend/backend ports differ.
+	if (isLoopbackOrigin(origin) && allowedOrigins.some((o) => isLoopbackOrigin(o))) {
 		return true;
 	}
 

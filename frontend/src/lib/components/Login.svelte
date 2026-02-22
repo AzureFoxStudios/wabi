@@ -287,6 +287,7 @@
 				role="dialog"
 				aria-modal="true"
 				aria-label="QR code to join chat"
+				tabindex="-1"
 				on:click|stopPropagation
 				on:keydown|stopPropagation
 			>

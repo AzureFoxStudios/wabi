@@ -128,6 +128,7 @@
 	let showClearDataConfirm = false;
 	let showClearServerConfirm = false;
 	let addonsImportInput: HTMLInputElement;
+	let addonsPackageInput: HTMLInputElement;
 	type AddonRuntimeSide = 'frontend' | 'backend';
 	interface DetectedAddon {
 		id: string;
@@ -150,6 +151,8 @@
 	let backendAddons: DetectedAddon[] = [];
 	let addonsLastDetectedAt = '';
 	let addonsLoading = false;
+	let addonInstallLoading = false;
+	let addonInstallStatus = '';
 	let addonsImportPreview: { importedAt?: string; frontend?: unknown[]; backend?: unknown[] } | null = null;
 	const frontendAddonModules = import.meta.glob('./plugins/*.svelte');
 
@@ -850,6 +853,10 @@
 		addonsImportInput?.click();
 	}
 
+	function triggerAddonPackageInstall(): void {
+		addonsPackageInput?.click();
+	}
+
 	async function importAddonManifest(event: Event): Promise<void> {
 		const input = event.target as HTMLInputElement;
 		const file = input.files?.[0];
@@ -865,6 +872,56 @@
 		} catch {
 			alert('Invalid add-ons manifest JSON file.');
 		} finally {
+			input.value = '';
+		}
+	}
+
+	async function installAddonPackage(event: Event): Promise<void> {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+
+		const token = localStorage.getItem('authToken');
+		if (!token) {
+			alert('Please log in with an admin account to install plugins.');
+			input.value = '';
+			return;
+		}
+
+		const lowerName = file.name.toLowerCase();
+		if (!lowerName.endsWith('.zip') && !lowerName.endsWith('.wabi-plugin')) {
+			alert('Please select a .zip or .wabi-plugin file.');
+			input.value = '';
+			return;
+		}
+
+		const formData = new FormData();
+		formData.append('pluginPackage', file);
+
+		addonInstallLoading = true;
+		addonInstallStatus = `Installing ${file.name}...`;
+		try {
+			const response = await fetch(`${getServerUrl()}/api/plugins/install`, {
+				method: 'POST',
+				headers: { Authorization: `Bearer ${token}` },
+				body: formData
+			});
+
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok || !payload?.success) {
+				throw new Error(String(payload?.error || 'Plugin install failed'));
+			}
+
+			const pluginName = String(payload?.plugin?.name || payload?.plugin?.pluginId || 'plugin');
+			const pluginVersion = String(payload?.plugin?.version || 'unknown');
+			addonInstallStatus = `Installed ${pluginName} (v${pluginVersion}).`;
+			await refreshAddonDetection();
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Plugin install failed';
+			addonInstallStatus = `Install failed: ${message}`;
+			alert(`Plugin install failed: ${message}`);
+		} finally {
+			addonInstallLoading = false;
 			input.value = '';
 		}
 	}
@@ -1936,6 +1993,9 @@
 								<div class="addons-actions">
 									<button class="action-btn export" on:click={exportAddonManifest}>Export Add-ons JSON</button>
 									<button class="action-btn import" on:click={triggerAddonImport}>Import Add-ons JSON</button>
+									<button class="action-btn install" on:click={triggerAddonPackageInstall} disabled={addonInstallLoading}>
+										{addonInstallLoading ? 'Installing Plugin...' : 'Install Plugin Package'}
+									</button>
 									<button class="action-btn" on:click={refreshAddonDetection} disabled={addonsLoading}>
 										{addonsLoading ? 'Detecting...' : 'Refresh Detection'}
 									</button>
@@ -1947,8 +2007,18 @@
 									on:change={importAddonManifest}
 									style="display: none;"
 								/>
+								<input
+									type="file"
+									accept=".zip,.wabi-plugin,application/zip,application/x-zip-compressed"
+									bind:this={addonsPackageInput}
+									on:change={installAddonPackage}
+									style="display: none;"
+								/>
 								{#if addonsLastDetectedAt}
 									<div class="runtime-note">Last detected: {addonsLastDetectedAt}</div>
+								{/if}
+								{#if addonInstallStatus}
+									<div class="runtime-note">{addonInstallStatus}</div>
 								{/if}
 								{#if addonsImportPreview}
 									<div class="runtime-note">
@@ -2663,6 +2733,17 @@
 
 	.action-btn.import:hover {
 		background: var(--color-success-hover);
+		transform: translateY(-2px);
+	}
+
+	.action-btn.install {
+		background: rgba(var(--accent-rgb), 0.2);
+		color: var(--text-primary);
+		border: 1px solid rgba(var(--accent-rgb), 0.35);
+	}
+
+	.action-btn.install:hover {
+		background: rgba(var(--accent-rgb), 0.28);
 		transform: translateY(-2px);
 	}
 

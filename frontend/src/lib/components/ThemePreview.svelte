@@ -52,19 +52,19 @@
 		<!-- Color Swatches -->
 		<div class="swatches">
 			<div class="swatch">
-				<div class="swatch-color" style="background-color: {theme.colors.bgPrimary}" />
+				<div class="swatch-color" style="background-color: {theme.colors.bgPrimary}"></div>
 				<span>Background</span>
 			</div>
 			<div class="swatch">
-				<div class="swatch-color" style="background-color: {theme.colors.textPrimary}" />
+				<div class="swatch-color" style="background-color: {theme.colors.textPrimary}"></div>
 				<span>Text</span>
 			</div>
 			<div class="swatch">
-				<div class="swatch-color" style="background-color: {theme.colors.accentHex}" />
+				<div class="swatch-color" style="background-color: {theme.colors.accentHex}"></div>
 				<span>Accent</span>
 			</div>
 			<div class="swatch">
-				<div class="swatch-color" style="background-color: {theme.colors.statusOnline}" />
+				<div class="swatch-color" style="background-color: {theme.colors.statusOnline}"></div>
 				<span>Online</span>
 			</div>
 		</div>

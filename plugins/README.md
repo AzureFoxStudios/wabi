@@ -223,6 +223,13 @@ Each plugin PR/release must include:
 3. Implement backend/frontend
 4. Restart server - it auto-loads!
 
+### Quick install for test plugins
+
+If a plugin lives under `TEST/<plugin-name>`, install it into `plugins/` first:
+
+- Any OS: `npm run plugin:install:test`
+- Optional plugin name: `npm run plugin:install:test -- <plugin-name>`
+
 ## 🔥 Pro Tips
 
 - Keep plugins self-contained

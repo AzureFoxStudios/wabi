@@ -11,6 +11,7 @@ const MIN_CONTRAST = 0.8;
 const MAX_CONTRAST = 1.4;
 
 export type RoleColorMode = 'full' | 'dot' | 'off';
+export type ChatAvatarMode = 'off' | 'user' | 'all';
 
 export interface AccessibilitySettings {
 	textScale: number;
@@ -19,6 +20,8 @@ export interface AccessibilitySettings {
 	contrast: number;
 	reducedMotion: boolean;
 	roleColorMode: RoleColorMode;
+	ownMessagesOnRight: boolean;
+	chatAvatarMode: ChatAvatarMode;
 }
 
 const DEFAULT_SETTINGS: AccessibilitySettings = {
@@ -27,8 +30,15 @@ const DEFAULT_SETTINGS: AccessibilitySettings = {
 	saturation: 1,
 	contrast: 1,
 	reducedMotion: false,
-	roleColorMode: 'full'
+	roleColorMode: 'full',
+	ownMessagesOnRight: false,
+	chatAvatarMode: 'all'
 };
+
+function normalizeChatAvatarMode(value: string | undefined): ChatAvatarMode {
+	if (value === 'off' || value === 'user' || value === 'all') return value;
+	return 'all';
+}
 
 let currentSettings: AccessibilitySettings = { ...DEFAULT_SETTINGS };
 
@@ -59,7 +69,15 @@ function normalizeSettings(raw: Partial<AccessibilitySettings> | null | undefine
 		saturation: clampSaturation(raw?.saturation ?? DEFAULT_SETTINGS.saturation),
 		contrast: clampContrast(raw?.contrast ?? DEFAULT_SETTINGS.contrast),
 		reducedMotion: raw?.reducedMotion === true,
-		roleColorMode: normalizeRoleColorMode(raw?.roleColorMode)
+		roleColorMode: normalizeRoleColorMode(raw?.roleColorMode),
+		ownMessagesOnRight: raw?.ownMessagesOnRight === true,
+		chatAvatarMode: normalizeChatAvatarMode(
+			(typeof (raw as any)?.chatAvatarMode === 'string'
+				? (raw as any).chatAvatarMode
+				: (raw as any)?.showChatProfilePictures === false
+					? 'off'
+					: 'all')
+		)
 	};
 }
 
@@ -118,6 +136,8 @@ export function applyAccessibilitySettings(settings: AccessibilitySettings): voi
 	root.setAttribute('data-reduce-motion', currentSettings.reducedMotion ? 'true' : 'false');
 	root.setAttribute('data-role-color-mode', currentSettings.roleColorMode);
 	root.setAttribute('data-color-assist', currentSettings.colorAssistEnabled ? 'true' : 'false');
+	root.setAttribute('data-own-messages-right', currentSettings.ownMessagesOnRight ? 'true' : 'false');
+	root.setAttribute('data-chat-avatar-mode', currentSettings.chatAvatarMode);
 }
 
 export function updateAccessibilitySettings(partial: Partial<AccessibilitySettings>): AccessibilitySettings {

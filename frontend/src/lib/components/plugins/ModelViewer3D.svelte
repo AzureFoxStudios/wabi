@@ -14,6 +14,7 @@
   let disposed = false;
   let threadMode: ThreadMode = 'auto';
   let threadingNotice = '';
+  const THREE_BASE = 'https://esm.sh/three@0.181.1';
 
   function getThreadMode(): ThreadMode {
     const raw = localStorage.getItem(THREAD_MODE_KEY);
@@ -117,8 +118,8 @@
       try {
         const loadModule = async (url: string): Promise<any> => import(/* @vite-ignore */ url);
 
-        const THREE = await loadModule('https://cdn.jsdelivr.net/npm/three@0.181.1/build/three.module.js');
-        const { OrbitControls } = await loadModule('https://cdn.jsdelivr.net/npm/three@0.181.1/examples/jsm/controls/OrbitControls.js');
+        const THREE = await loadModule(THREE_BASE);
+        const { OrbitControls } = await loadModule(`${THREE_BASE}/examples/jsm/controls/OrbitControls`);
 
         if (disposed) return;
 
@@ -159,7 +160,7 @@
           if (threadMode === 'always') {
             threadingNotice = 'Worker parse not available for this format. Falling back to main-thread.';
           }
-          const { GLTFLoader } = await loadModule('https://cdn.jsdelivr.net/npm/three@0.181.1/examples/jsm/loaders/GLTFLoader.js');
+          const { GLTFLoader } = await loadModule(`${THREE_BASE}/examples/jsm/loaders/GLTFLoader`);
           const loader = new GLTFLoader();
           const gltf = await loader.loadAsync(src);
           if (disposed) return;
@@ -168,7 +169,7 @@
           if (threadMode === 'always') {
             threadingNotice = 'Worker parse not available for this format. Falling back to main-thread.';
           }
-          const { OBJLoader } = await loadModule('https://cdn.jsdelivr.net/npm/three@0.181.1/examples/jsm/loaders/OBJLoader.js');
+          const { OBJLoader } = await loadModule(`${THREE_BASE}/examples/jsm/loaders/OBJLoader`);
           const loader = new OBJLoader();
           const obj = await loader.loadAsync(src);
           if (disposed) return;
@@ -209,7 +210,7 @@
             scene.add(mesh);
             fitCameraToObject(mesh, THREE);
           } else {
-            const { STLLoader } = await loadModule('https://cdn.jsdelivr.net/npm/three@0.181.1/examples/jsm/loaders/STLLoader.js');
+            const { STLLoader } = await loadModule(`${THREE_BASE}/examples/jsm/loaders/STLLoader`);
             const loader = new STLLoader();
             const geometry = await loader.loadAsync(src);
             if (disposed) return;

@@ -92,7 +92,7 @@ export interface Channel {
   threadLocked?: boolean;
   threadAutoArchiveMinutes?: number;
   threadLastActivityAt?: number;
-  autoDeleteAfter?: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
+  autoDeleteAfter?: '5s' | '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
   isTemporary?: boolean;
   persistMessages?: boolean;
   pinnedBy?: string[];

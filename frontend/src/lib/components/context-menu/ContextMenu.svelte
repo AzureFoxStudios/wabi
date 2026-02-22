@@ -189,7 +189,7 @@
 
 			{#each visibleItems as item}
 				{#if item.type === 'separator'}
-					<div class="menu-separator" role="separator" />
+					<div class="menu-separator" role="separator"></div>
 				{:else}
 					{@const actionableIndex = actionableItems.findIndex((entry) => entry.id === item.id)}
 					<button

@@ -22,7 +22,8 @@
 		setVoiceTransmitMode,
 		createBreakoutRooms,
 		closeBreakoutRooms,
-		getSocket
+		getSocket,
+		roleDefinitions
 	} from '$lib/socket';
 	import {
 		activeCalls,
@@ -78,6 +79,20 @@
 	let isTextSectionExpanded = true;
 	let isVoiceSectionExpanded = true;
 	const VOICE_MEMBER_RENDER_LIMIT = 12;
+	const fallbackRoleLabels: Record<string, string> = {
+		owner: 'Owner',
+		admin: 'Admin',
+		mod: 'Moderator',
+		member: 'Member',
+		guest: 'Guest'
+	};
+
+	$: currentUserRoleLabel = (() => {
+		if (!$currentUser) return '';
+		const roleName = $currentUser.highestRole || ($currentUser.dbUserId ? 'member' : 'guest');
+		const roleDefinition = $roleDefinitions.find(role => role.roleName === roleName);
+		return roleDefinition?.displayName || fallbackRoleLabels[roleName] || roleName;
+	})();
 
 	// Sidebar width from layout store - 3 modes: normal (280px), compact (60px), hidden (0px)
 	$: sidebarWidth = $layoutStore.channelSidebarWidth;
@@ -326,7 +341,7 @@
 		showChannelSettingsModal = true;
 	}
 
-	function handleUpdateAutoDelete(autoDeleteAfter: '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null) {
+	function handleUpdateAutoDelete(autoDeleteAfter: '5s' | '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null) {
 		if (selectedChannelForSettings) {
 			updateChannelSettings(selectedChannelForSettings.id, {
 				autoDeleteAfter,
@@ -855,7 +870,8 @@
 							}
 						}}
 					>
-						{$currentUser.username}
+						<span class="username-text">{$currentUser.username}</span>
+						<span class="self-role-badge">{currentUserRoleLabel}</span>
 					</div>
 					<div class="user-tag">{$currentUser.handle ? `@${$currentUser.handle}` : `#${$currentUser.id.slice(-4)}`}</div>
 				</div>
@@ -996,6 +1012,13 @@
 								on:click={() => handleUpdateAutoDelete(null)}
 							>
 								Disabled
+							</button>
+							<button
+								class="auto-delete-btn"
+								class:active={selectedChannelForSettings.autoDeleteAfter === '5s'}
+								on:click={() => handleUpdateAutoDelete('5s')}
+							>
+								5 Seconds
 							</button>
 							<button
 								class="auto-delete-btn"
@@ -2029,11 +2052,32 @@
 		font-size: var(--text-base);
 		font-weight: 600;
 		color: var(--text-primary);
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		cursor: pointer;
+		transition: color 0.2s;
+		min-width: 0;
+	}
+
+	.username-text {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		cursor: pointer;
-		transition: color 0.2s;
+	}
+
+	.self-role-badge {
+		font-size: 10px;
+		line-height: 1;
+		padding: 0.15rem 0.35rem;
+		border-radius: 999px;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+		color: var(--text-secondary);
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
+		flex-shrink: 0;
 	}
 
 	.username:hover {

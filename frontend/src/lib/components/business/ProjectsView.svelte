@@ -1929,4 +1929,5 @@
 		gap: 0.25rem;
 		white-space: nowrap;
 	}
+
 </style>

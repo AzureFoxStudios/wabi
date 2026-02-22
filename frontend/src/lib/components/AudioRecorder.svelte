@@ -384,7 +384,7 @@
 
 {#if isOpen}
   <div class="modal-backdrop" on:click={close} role="presentation">
-    <div class="modal" on:click|stopPropagation role="dialog" aria-labelledby="modal-title" aria-modal="true">
+    <div class="modal" on:click|stopPropagation role="dialog" aria-labelledby="modal-title" aria-modal="true" tabindex="-1">
       <div class="modal-header">
         <h2 id="modal-title">Record Voice Message</h2>
         <button class="close-btn" on:click={close} aria-label="Close">
@@ -444,7 +444,7 @@
             height="100"
             class="waveform-canvas"
             class:recording={state === 'recording'}
-          />
+          ></canvas>
           {#if state === 'idle' || state === 'stopped'}
             <div class="placeholder-text">
               {state === 'idle' ? 'Ready to record' : 'Recording stopped'}
@@ -454,7 +454,7 @@
 
         {#if state === 'preview' && audioUrl}
           <div class="preview-player">
-            <audio bind:this={audioElement} src={audioUrl} controls />
+            <audio bind:this={audioElement} src={audioUrl} controls></audio>
           </div>
         {/if}
 

@@ -188,7 +188,7 @@
 
 {#if isOpen}
   <div class="modal-backdrop" on:click={close} role="presentation">
-    <div class="modal" on:click|stopPropagation role="dialog" aria-labelledby="modal-title" aria-modal="true">
+    <div class="modal" on:click|stopPropagation role="dialog" aria-labelledby="modal-title" aria-modal="true" tabindex="-1">
       <div class="modal-header">
         <h2 id="modal-title">Take Photo</h2>
         <button class="close-btn" on:click={close} aria-label="Close">
@@ -217,7 +217,7 @@
               playsinline
               class="camera-preview"
               class:hidden={!stream}
-            />
+            ></video>
             {#if hasMultipleCameras && !error && !permissionDenied}
               <button class="camera-toggle" on:click={toggleCamera} aria-label="Switch camera">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

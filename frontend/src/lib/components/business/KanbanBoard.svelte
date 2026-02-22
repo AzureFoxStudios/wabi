@@ -1240,6 +1240,7 @@
 		letter-spacing: 0.5px;
 	}
 
+
 	.card-title {
 		margin: 0 0 0.35rem 0;
 		font-size: 0.9rem;
@@ -1683,4 +1684,5 @@
 		gap: 0.25rem;
 		white-space: nowrap;
 	}
+
 </style>
