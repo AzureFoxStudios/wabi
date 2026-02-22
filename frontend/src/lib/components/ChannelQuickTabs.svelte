@@ -35,6 +35,10 @@
 	let dropTargetChannelId: string | null = null;
 	let dropPosition: 'before' | 'after' = 'before';
 	let suppressSelectUntil = 0;
+	let contextMenuVisible = false;
+	let contextMenuX = 0;
+	let contextMenuY = 0;
+	let contextMenuTab: RenderTab | null = null;
 
 	const TAB_MIN_WIDTH = 88;
 	const TAB_MAX_WIDTH = 168;
@@ -229,6 +233,10 @@
 	function handleCloseTab(tab: RenderTab, event: Event): void {
 		event.preventDefault();
 		event.stopPropagation();
+		closeTab(tab);
+	}
+
+	function closeTab(tab: RenderTab): void {
 		if (tab.type === 'channel' && tab.channelId) {
 			const closingActive = $currentChannel === tab.channelId;
 			const fallbackChannel = renderTabs
@@ -250,6 +258,10 @@
 	async function handleDetachTab(tab: RenderTab, event: Event): Promise<void> {
 		event.preventDefault();
 		event.stopPropagation();
+		await detachTab(tab);
+	}
+
+	async function detachTab(tab: RenderTab): Promise<void> {
 		if (tab.type !== 'channel' || !tab.channelId) return;
 
 		const rawName = tab.label.replace(/^#\s*/, '').trim();
@@ -258,8 +270,44 @@
 			channelId: tab.channelId,
 			channelName: rawName || undefined
 		});
+		closeTab(tab);
+	}
 
-		handleCloseTab(tab, event);
+	function closeTabContextMenu(): void {
+		contextMenuVisible = false;
+		contextMenuTab = null;
+	}
+
+	function openTabContextMenu(tab: RenderTab, event: MouseEvent): void {
+		event.preventDefault();
+		event.stopPropagation();
+		const menuWidth = 176;
+		const menuHeight = 84;
+		const maxX = Math.max(8, window.innerWidth - menuWidth - 8);
+		const maxY = Math.max(8, window.innerHeight - menuHeight - 8);
+		contextMenuX = Math.max(8, Math.min(event.clientX, maxX));
+		contextMenuY = Math.max(8, Math.min(event.clientY, maxY));
+		contextMenuTab = tab;
+		contextMenuVisible = true;
+	}
+
+	async function handleContextDetach(): Promise<void> {
+		if (!contextMenuTab) return;
+		if (contextMenuTab.type !== 'channel') return;
+		await detachTab(contextMenuTab);
+		closeTabContextMenu();
+	}
+
+	function handleContextClose(): void {
+		if (!contextMenuTab) return;
+		closeTab(contextMenuTab);
+		closeTabContextMenu();
+	}
+
+	function handleWindowKeydown(event: KeyboardEvent): void {
+		if (event.key === 'Escape') {
+			closeTabContextMenu();
+		}
 	}
 
 	function activateRelative(direction: -1 | 1): void {
@@ -367,6 +415,8 @@
 	});
 </script>
 
+<svelte:window on:click={closeTabContextMenu} on:keydown={handleWindowKeydown} />
+
 {#if showCallParticipants}
 	<div class="call-participants-strip" aria-label="Active voice participants">
 		{#each callParticipants.slice(0, 5) as member (member.key)}
@@ -407,6 +457,7 @@
 					on:dragover={(event) => handleDragOver(tab, event)}
 					on:drop={(event) => handleDrop(tab, event)}
 					on:dragend={handleDragEnd}
+					on:contextmenu={(event) => openTabContextMenu(tab, event)}
 					on:click={(event) => handleSelectTab(tab, event)}
 					title={tab.label}
 				>
@@ -461,6 +512,31 @@
 				</button>
 			{/each}
 		</div>
+	</div>
+{/if}
+
+{#if contextMenuVisible && contextMenuTab}
+	<div
+		class="tab-context-menu"
+		style="left: {contextMenuX}px; top: {contextMenuY}px;"
+		role="menu"
+		on:click|stopPropagation
+		on:contextmenu|preventDefault
+	>
+		<button type="button" class="tab-context-item" role="menuitem" on:click={handleContextClose}>
+			Close Tab
+		</button>
+		<button
+			type="button"
+			class="tab-context-item"
+			role="menuitem"
+			disabled={contextMenuTab.type !== 'channel'}
+			on:click={() => {
+				void handleContextDetach();
+			}}
+		>
+			Detach Tab
+		</button>
 	</div>
 {/if}
 
@@ -721,6 +797,40 @@
 			font-size: 0.72rem;
 			margin-left: -10px;
 		}
+	}
+
+	.tab-context-menu {
+		position: fixed;
+		z-index: 2200;
+		min-width: 172px;
+		padding: 0.3rem;
+		background: var(--bg-secondary, #20222f);
+		border: 1px solid rgba(255, 255, 255, 0.14);
+		border-radius: 10px;
+		box-shadow: 0 10px 24px rgba(0, 0, 0, 0.36);
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+
+	.tab-context-item {
+		border: none;
+		background: transparent;
+		color: var(--text-primary, #f3f4f6);
+		border-radius: 7px;
+		padding: 0.5rem 0.6rem;
+		text-align: left;
+		font-size: 0.82rem;
+		cursor: pointer;
+	}
+
+	.tab-context-item:hover:not(:disabled) {
+		background: rgba(255, 255, 255, 0.1);
+	}
+
+	.tab-context-item:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
 	}
 </style>
 
