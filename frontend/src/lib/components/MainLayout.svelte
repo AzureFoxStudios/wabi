@@ -4,6 +4,7 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { get } from 'svelte/store';
 	import Chat from '$lib/components/Chat.svelte';
+	import ModelViewportTab from '$lib/components/ModelViewportTab.svelte';
 	import ChannelQuickTabs from '$lib/components/ChannelQuickTabs.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
 	import RightPanel from '$lib/components/RightPanel.svelte';
@@ -11,6 +12,8 @@
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, type Channel, type User } from '$lib/socket';
 	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, isVideoOff, toggleVideo } from '$lib/calling';
+	import { mobileTabQueue } from '$lib/mobileTabQueue';
+	import { onDestroy, onMount } from 'svelte';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 
@@ -30,9 +33,25 @@
 	let resizingChannel = false;
 	let resizingRight = false;
 	let showVoiceDebugDetails = false;
+	const { activeTabId } = mobileTabQueue;
+	const MODEL_VIEWPORT_TAB_ID = 'model-viewport';
+	const MODEL_VIEWPORT_TAB_TOKEN = mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_TAB_ID);
+	$: isModelViewportTabActive = $activeTabId === MODEL_VIEWPORT_TAB_TOKEN;
 
 	layoutStore.isResizingChannel.subscribe(v => resizingChannel = v);
 	layoutStore.isResizingRight.subscribe(v => resizingRight = v);
+
+	onMount(() => {
+		mobileTabQueue.registerAddonTab({
+			id: MODEL_VIEWPORT_TAB_ID,
+			label: '3D Viewport',
+			shortLabel: '3D View'
+		});
+	});
+
+	onDestroy(() => {
+		mobileTabQueue.unregisterAddonTab(MODEL_VIEWPORT_TAB_ID);
+	});
 
 	function handleMouseMove(e: MouseEvent) {
 		if (resizingChannel) {
@@ -171,7 +190,11 @@
 		<div class="chat-stack">
 			<ChannelQuickTabs />
 			<div class="chat-surface">
-				<Chat on:logout />
+				{#if isModelViewportTabActive}
+					<ModelViewportTab />
+				{:else}
+					<Chat on:logout />
+				{/if}
 			</div>
 		</div>
 	</div>

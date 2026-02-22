@@ -18,6 +18,8 @@
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
 	import { decryptDMFileBuffer, isE2EAvailable } from '$lib/e2eManager';
+	import { openModelViewport } from '$lib/modelViewportTab';
+	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
@@ -56,11 +58,17 @@
 	let reactionPickerY = 0;
 	let reactionPickerMessageId: string | null = null;
 	let reactionPickerChannelId: string | null = null;
+	const MODEL_VIEWPORT_TAB_TOKEN = mobileTabQueue.toAddonTabId('model-viewport');
 
 	function closeReactionPicker() {
 		showReactionPicker = false;
 		reactionPickerMessageId = null;
 		reactionPickerChannelId = null;
+	}
+
+	function openModelInDedicatedTab(src: string, fileName: string): void {
+		openModelViewport(src, fileName);
+		mobileTabQueue.setActiveTab(MODEL_VIEWPORT_TAB_TOKEN);
 	}
 	function formatTime(timestamp: number): string {
 		const date = new Date(timestamp);
@@ -1165,6 +1173,12 @@
 									{:else if isModelFile(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
 										<div class="gallery-file-item model-item" class:last-item={index === 3 && message.files.length > 4}>
 											<ModelViewer3D src={getFileUrl(fileAttachment.fileUrl)} fileName={fileAttachment.fileName || '3D model'} height={220} />
+											<button
+												class="open-viewport-btn"
+												on:click={() => openModelInDedicatedTab(getFileUrl(fileAttachment.fileUrl), fileAttachment.fileName || '3D model')}
+											>
+												Open 3D Tab
+											</button>
 											<a href={getFileUrl(fileAttachment.fileUrl)} target="_blank" rel="noopener noreferrer" download={fileAttachment.fileName} class="image-download-link">
 												<span class="file-icon">{getFileIcon(fileAttachment.fileName)}</span>
 												{fileAttachment.fileName}
@@ -1219,6 +1233,12 @@
 							{#if isModelFile(message.fileName) && !isEncryptedAttachment(message)}
 							<div class="model-container">
 								<ModelViewer3D src={getFileUrl(message.fileUrl)} fileName={message.fileName || '3D model'} />
+								<button
+									class="open-viewport-btn"
+									on:click={() => message.fileUrl && openModelInDedicatedTab(getFileUrl(message.fileUrl), message.fileName || '3D model')}
+								>
+									Open 3D Tab
+								</button>
 								<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="image-download-link">
 									<span class="file-icon">{getFileIcon(message.fileName)}</span>
 									{message.fileName}
@@ -1367,6 +1387,12 @@
 							{:else if mediaType === 'model'}
 								<div class="embedded-model-container">
 									<ModelViewer3D src={url} fileName={url.split('/').pop() || '3D model'} height={280} />
+									<button
+										class="open-viewport-btn"
+										on:click={() => openModelInDedicatedTab(url, url.split('/').pop() || '3D model')}
+									>
+										Open 3D Tab
+									</button>
 								</div>
 							{:else}
 								<!-- Regular link preview for non-media URLs -->
@@ -2486,6 +2512,23 @@
 		transition: all 0.3s ease;
 		cursor: pointer;
 		box-shadow: 0 2px 8px rgba(var(--accent-rgb), var(--opacity-subtle));
+	}
+
+	.open-viewport-btn {
+		border: 1px solid rgba(var(--accent-rgb), var(--opacity-light));
+		background: var(--bg-secondary);
+		color: var(--accent-hex);
+		border-radius: 4px;
+		padding: 0.32rem 0.55rem;
+		font-size: var(--text-xs);
+		font-weight: 600;
+		cursor: pointer;
+		width: fit-content;
+		margin-top: 0.35rem;
+	}
+
+	.open-viewport-btn:hover {
+		background: var(--bg-tertiary);
 	}
 
 	.image-download-link:hover,

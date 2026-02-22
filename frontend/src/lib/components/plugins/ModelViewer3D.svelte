@@ -4,17 +4,30 @@
   export let src: string;
   export let fileName = '3D model';
   export let height = 320;
+  export let fullBleed = false;
   type ThreadMode = 'auto' | 'always' | 'off';
+  type RenderMode = 'normal' | 'wireframe';
   const THREAD_MODE_KEY = 'wabi:model-viewer-thread-mode';
   const AUTO_WORKER_THRESHOLD_BYTES = 8 * 1024 * 1024;
 
   let host: HTMLDivElement;
   let canvas: HTMLCanvasElement;
+  let viewerHintEl: HTMLDivElement | undefined;
+  let threadingNoteEl: HTMLDivElement | undefined;
   let error: string | null = null;
   let disposed = false;
   let threadMode: ThreadMode = 'auto';
+  let renderMode: RenderMode = 'normal';
+  let showGrid = true;
+  let showAxes = false;
+  let autoRotate = false;
   let threadingNotice = '';
   const THREE_BASE = 'https://esm.sh/three@0.181.1';
+  let applyRenderModeRuntime: ((mode: RenderMode) => void) | null = null;
+  let toggleGridRuntime: ((visible: boolean) => void) | null = null;
+  let toggleAxesRuntime: ((visible: boolean) => void) | null = null;
+  let setAutoRotateRuntime: ((enabled: boolean) => void) | null = null;
+  let resetViewRuntime: (() => void) | null = null;
 
   function getThreadMode(): ThreadMode {
     const raw = localStorage.getItem(THREAD_MODE_KEY);
@@ -71,12 +84,40 @@
     persistThreadMode(value);
   }
 
+  function setRenderMode(mode: RenderMode): void {
+    renderMode = mode;
+    applyRenderModeRuntime?.(mode);
+  }
+
+  function toggleGrid(): void {
+    showGrid = !showGrid;
+    toggleGridRuntime?.(showGrid);
+  }
+
+  function toggleAxes(): void {
+    showAxes = !showAxes;
+    toggleAxesRuntime?.(showAxes);
+  }
+
+  function toggleAutoRotate(): void {
+    autoRotate = !autoRotate;
+    setAutoRotateRuntime?.(autoRotate);
+  }
+
+  function resetView(): void {
+    resetViewRuntime?.();
+  }
+
   onMount(() => {
     threadMode = getThreadMode();
     let renderer: any;
     let scene: any;
     let camera: any;
     let controls: any;
+    let grid: any;
+    let axes: any;
+    let loadedRoot: any = null;
+    let fitCameraToObjectRef: ((object: any, THREE: any) => void) | null = null;
     let frameHandle = 0;
     let worker: Worker | null = null;
     const meshes: any[] = [];
@@ -95,6 +136,11 @@
       }
       renderer?.dispose?.();
       worker?.terminate?.();
+      applyRenderModeRuntime = null;
+      toggleGridRuntime = null;
+      toggleAxesRuntime = null;
+      setAutoRotateRuntime = null;
+      resetViewRuntime = null;
     };
 
     const fitCameraToObject = (object: any, THREE: any) => {
@@ -136,24 +182,60 @@
         key.position.set(3, 5, 2);
         scene.add(hemi, key);
 
-        const grid = new THREE.GridHelper(20, 20, 0x364150, 0x202833);
+        grid = new THREE.GridHelper(20, 20, 0x364150, 0x202833);
         grid.position.y = -0.01;
+        grid.visible = showGrid;
         scene.add(grid);
+
+        axes = new THREE.AxesHelper(3);
+        axes.visible = showAxes;
+        scene.add(axes);
 
         controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.07;
         controls.minDistance = 0.1;
         controls.maxDistance = 200;
+        controls.autoRotate = autoRotate;
+        controls.autoRotateSpeed = 1.0;
 
         const ext = (fileName.split('.').pop() || '').toLowerCase();
         threadingNotice = '';
         const addLoadedObject = (object: any) => {
+          loadedRoot = object;
           scene.add(object);
           object.traverse?.((child: any) => {
             if (child?.isMesh) meshes.push(child);
           });
           fitCameraToObject(object, THREE);
+        };
+        fitCameraToObjectRef = fitCameraToObject;
+
+        applyRenderModeRuntime = (mode: RenderMode) => {
+          for (const mesh of meshes) {
+            const material = mesh.material;
+            if (Array.isArray(material)) {
+              for (const mat of material) {
+                if (mat && 'wireframe' in mat) mat.wireframe = mode === 'wireframe';
+              }
+            } else if (material && 'wireframe' in material) {
+              material.wireframe = mode === 'wireframe';
+            }
+          }
+        };
+        toggleGridRuntime = (visible: boolean) => {
+          if (grid) grid.visible = visible;
+        };
+        toggleAxesRuntime = (visible: boolean) => {
+          if (axes) axes.visible = visible;
+        };
+        setAutoRotateRuntime = (enabled: boolean) => {
+          if (controls) controls.autoRotate = enabled;
+        };
+        resetViewRuntime = () => {
+          if (loadedRoot && fitCameraToObjectRef) {
+            fitCameraToObjectRef(loadedRoot, THREE);
+          }
         };
 
         if (ext === 'glb' || ext === 'gltf') {
@@ -224,11 +306,16 @@
           error = `Unsupported model format: .${ext || 'unknown'}`;
           return;
         }
+        applyRenderModeRuntime?.(renderMode);
 
         const resize = () => {
           if (!host || !renderer || !camera) return;
           const width = Math.max(host.clientWidth, 1);
-          const nextHeight = Math.max(height, 180);
+          const hintHeight = viewerHintEl?.offsetHeight ?? 0;
+          const noteHeight = threadingNoteEl?.offsetHeight ?? 0;
+          const nextHeight = fullBleed
+            ? Math.max(host.clientHeight - hintHeight - noteHeight, 180)
+            : Math.max(height, 180);
           renderer.setSize(width, nextHeight, false);
           camera.aspect = width / nextHeight;
           camera.updateProjectionMatrix();
@@ -264,24 +351,50 @@
   });
 </script>
 
-<div class="model-viewer" bind:this={host}>
+<div class="model-viewer" class:full-bleed={fullBleed} bind:this={host}>
   {#if error}
     <div class="model-error">{error}</div>
   {:else}
     <canvas bind:this={canvas} aria-label={`3D model viewer for ${fileName}`}></canvas>
-    <div class="viewer-hint">
-      <span>Drag to rotate, wheel to zoom, right-drag to pan</span>
-      <label class="thread-mode-control">
-        <span>Threading</span>
-        <select bind:value={threadMode} on:change={handleThreadModeChange}>
-          <option value="auto">Auto</option>
-          <option value="always">Always Multi-thread</option>
-          <option value="off">Off</option>
-        </select>
-      </label>
+    <div class="viewer-hint" bind:this={viewerHintEl}>
+      <div class="viewer-controls-row">
+        <span>Drag to rotate, wheel to zoom, right-drag to pan</span>
+      </div>
+      <div class="viewer-controls-row">
+        <div class="view-mode-controls">
+          <button
+            type="button"
+            class="view-btn"
+            class:active={renderMode === 'normal'}
+            on:click={() => setRenderMode('normal')}
+          >
+            Normal
+          </button>
+          <button
+            type="button"
+            class="view-btn"
+            class:active={renderMode === 'wireframe'}
+            on:click={() => setRenderMode('wireframe')}
+          >
+            Wireframe
+          </button>
+          <button type="button" class="view-btn" class:active={showGrid} on:click={toggleGrid}>Grid</button>
+          <button type="button" class="view-btn" class:active={showAxes} on:click={toggleAxes}>Axes</button>
+          <button type="button" class="view-btn" class:active={autoRotate} on:click={toggleAutoRotate}>Auto-rotate</button>
+          <button type="button" class="view-btn" on:click={resetView}>Reset View</button>
+        </div>
+        <label class="thread-mode-control">
+          <span>Threading</span>
+          <select bind:value={threadMode} on:change={handleThreadModeChange}>
+            <option value="auto">Auto</option>
+            <option value="always">Always Multi-thread</option>
+            <option value="off">Off</option>
+          </select>
+        </label>
+      </div>
     </div>
     {#if threadingNotice}
-      <div class="threading-note">{threadingNotice}</div>
+      <div class="threading-note" bind:this={threadingNoteEl}>{threadingNotice}</div>
     {/if}
   {/if}
 </div>
@@ -296,6 +409,13 @@
     background: #0f1218;
   }
 
+  .model-viewer.full-bleed {
+    max-width: none;
+    height: 100%;
+    border: none;
+    border-radius: 0;
+  }
+
   canvas {
     width: 100%;
     display: block;
@@ -304,14 +424,44 @@
 
   .viewer-hint {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.4rem;
     padding: 0.35rem 0.55rem;
     font-size: 0.72rem;
     color: #c8d2dc;
     background: #141a24;
     border-top: 1px solid #273041;
+  }
+
+  .viewer-controls-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
+
+  .view-mode-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+  }
+
+  .view-btn {
+    border: 1px solid #2d394d;
+    background: #0f141d;
+    color: #d9e4ef;
+    border-radius: 5px;
+    padding: 0.14rem 0.44rem;
+    font-size: 0.7rem;
+    cursor: pointer;
+  }
+
+  .view-btn.active {
+    background: #1b2d45;
+    border-color: #3f5f8a;
   }
 
   .thread-mode-control {
