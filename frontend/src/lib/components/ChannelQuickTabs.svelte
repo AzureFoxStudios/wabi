@@ -4,6 +4,7 @@
 	import { activeVoiceChannel, callMode } from '$lib/calling';
 	import { layoutStore } from '$lib/layoutStore';
 	import { mobileTabQueue, type AddonTabSpec, type MobileQueueTab } from '$lib/mobileTabQueue';
+	import { openDetachedPanel } from '$lib/detachedPanels';
 
 	type RenderTab = {
 		id: string;
@@ -241,6 +242,21 @@
 		}
 	}
 
+	async function handleDetachTab(tab: RenderTab, event: Event): Promise<void> {
+		event.preventDefault();
+		event.stopPropagation();
+		if (tab.type !== 'channel' || !tab.channelId) return;
+
+		const rawName = tab.label.replace(/^#\s*/, '').trim();
+		await openDetachedPanel({
+			kind: 'channel-chat',
+			channelId: tab.channelId,
+			channelName: rawName || undefined
+		});
+
+		handleCloseTab(tab, event);
+	}
+
 	function activateRelative(direction: -1 | 1): void {
 		if (renderTabs.length <= 1) return;
 		const activeIndex = Math.max(0, renderTabs.findIndex((tab) => tab.active));
@@ -394,6 +410,28 @@
 						<span class="tab-badge">{tab.badgeCount > 99 ? '99+' : tab.badgeCount}</span>
 					{/if}
 					{#if tab.type === 'channel'}
+						<span
+							class="tab-detach"
+							role="button"
+							tabindex="0"
+							aria-label={`Detach ${tab.label}`}
+							title={`Detach ${tab.label} to new window`}
+							on:pointerdown={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+							}}
+							on:click={(event) => {
+								void handleDetachTab(tab, event);
+							}}
+							on:keydown={(event) => {
+								if (event.key === 'Enter' || event.key === ' ') {
+									event.preventDefault();
+									void handleDetachTab(tab, event);
+								}
+							}}
+						>
+							↗
+						</span>
 						<span
 							class="tab-close"
 							role="button"
@@ -611,6 +649,39 @@
 		padding: 0;
 		margin-left: 0.2rem;
 		transition: opacity 0.12s ease, background 0.12s ease;
+	}
+
+	.tab-detach {
+		position: absolute;
+		right: 24px;
+		top: 50%;
+		transform: translateY(-50%);
+		opacity: 0;
+		pointer-events: none;
+		width: 16px;
+		height: 16px;
+		border: none;
+		border-radius: 50%;
+		background: rgba(255, 255, 255, 0.14);
+		color: #fff;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.66rem;
+		line-height: 1;
+		padding: 0;
+		transition: opacity 0.12s ease, background 0.12s ease;
+	}
+
+	.queue-tab:hover .tab-detach,
+	.queue-tab:focus-within .tab-detach,
+	.queue-tab.active .tab-detach {
+		opacity: 1;
+		pointer-events: auto;
+	}
+
+	.tab-detach:hover {
+		background: rgba(255, 255, 255, 0.26);
 	}
 
 	.queue-tab:hover .tab-close,
