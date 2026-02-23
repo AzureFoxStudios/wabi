@@ -1671,6 +1671,34 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/api/admin/compression-config" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      success: true,
+      config: {
+        httpTextCompression: {
+          enabled: HTTP_TEXT_COMPRESSION_ENABLED,
+          minBytes: HTTP_TEXT_COMPRESSION_MIN_BYTES,
+          brotliQuality: HTTP_TEXT_COMPRESSION_BROTLI_QUALITY,
+          gzipLevel: HTTP_TEXT_COMPRESSION_GZIP_LEVEL
+        },
+        uploadCompression: {
+          enabled: UPLOAD_COMPRESSION_ENABLED,
+          minBytes: UPLOAD_COMPRESSION_MIN_BYTES,
+          gzipLevel: UPLOAD_COMPRESSION_GZIP_LEVEL
+        }
+      }
+    }));
+    return;
+  }
+
   if (url.pathname === "/api/admin/compression-metrics/reset" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
     if (!isPluginAdmin(userId)) {
