@@ -1,7 +1,16 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
-	import { _ as t, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
+	import {
+		_ as t,
+		availableLocales,
+		currentLocale,
+		setAppLocale,
+		learningModeEnabled,
+		learningTargetPercent,
+		setLearningModeEnabled,
+		setLearningTargetPercent
+	} from '$lib/i18n';
 	import { channelMessages, users, currentUser, emojis, updateProfile, assignRole, removeUserRole, roleDefinitions } from '$lib/socket';
 	import { chatStorage } from '$lib/storage';
 	import StorageSettings from './StorageSettings.svelte';
@@ -130,6 +139,8 @@
 	let showClearDataConfirm = false;
 	let showClearServerConfirm = false;
 	let selectedLocale = 'en';
+	let uiLearningModeEnabled = false;
+	let uiLearningTargetPercent = 100;
 	let addonsImportInput: HTMLInputElement;
 	let addonsPackageInput: HTMLInputElement;
 	type AddonRuntimeSide = 'frontend' | 'backend';
@@ -158,6 +169,15 @@
 	let addonInstallStatus = '';
 	let addonsImportPreview: { importedAt?: string; frontend?: unknown[]; backend?: unknown[] } | null = null;
 	const frontendAddonModules = import.meta.glob('./plugins/*.svelte');
+	const TRANSLATOR_SETTINGS_KEY = 'addon.translator_assist.settings';
+	type TranslatorMode = 'off' | 'on-demand' | 'mixed';
+	let translatorMode: TranslatorMode = 'off';
+	let translatorProviderUrl = '';
+	let translatorSourceLang = 'auto';
+	let translatorTargetLang = 'en';
+	let translatorUseProxy = false;
+	let translatorSettingsSavedAt = '';
+	let translatorAddonDetected = false;
 
 	// Profile Picture upload state
 	let showAvatarEditor = false;
@@ -284,8 +304,11 @@
 		}
 
 		displayNameDraft = $currentUser?.username || '';
+		loadTranslatorAddonSettings();
 	});
 	$: selectedLocale = $currentLocale || 'en';
+	$: uiLearningModeEnabled = $learningModeEnabled;
+	$: uiLearningTargetPercent = $learningTargetPercent;
 
 	async function runBusinessSyncNow() {
 		if (businessSyncInFlight) return;
@@ -407,6 +430,7 @@
 	$: if (!isOpen) {
 		addonsLastDetectedAt = '';
 	}
+	$: translatorAddonDetected = [...frontendAddons, ...backendAddons].some((addon) => addon.id === 'translator-assist');
 
 	function toggleSound() {
 		soundEnabled = !soundEnabled;
@@ -426,6 +450,16 @@
 	function toggleCamera() {
 		cameraEnabled = !cameraEnabled;
 		localStorage.setItem('cameraEnabled', cameraEnabled.toString());
+	}
+
+	function toggleUiLearningMode() {
+		setLearningModeEnabled(!uiLearningModeEnabled);
+	}
+
+	function handleUiLearningPercentChange(value: string) {
+		const next = Number(value);
+		if (!Number.isFinite(next)) return;
+		setLearningTargetPercent(next);
 	}
 
 	function toggleSuppressEveryoneHereMentions() {
@@ -870,6 +904,33 @@
 		addonsPackageInput?.click();
 	}
 
+	function loadTranslatorAddonSettings(): void {
+		try {
+			const raw = localStorage.getItem(TRANSLATOR_SETTINGS_KEY);
+			if (!raw) return;
+			const parsed = JSON.parse(raw);
+			translatorMode = parsed?.mode === 'mixed' ? 'mixed' : parsed?.mode === 'on-demand' ? 'on-demand' : 'off';
+			translatorProviderUrl = typeof parsed?.providerUrl === 'string' ? parsed.providerUrl : '';
+			translatorSourceLang = typeof parsed?.sourceLang === 'string' ? parsed.sourceLang : 'auto';
+			translatorTargetLang = typeof parsed?.targetLang === 'string' ? parsed.targetLang : 'en';
+			translatorUseProxy = parsed?.useProxy === true;
+		} catch {
+			// Ignore malformed local settings
+		}
+	}
+
+	function saveTranslatorAddonSettings(): void {
+		const payload = {
+			mode: translatorMode,
+			providerUrl: translatorProviderUrl.trim(),
+			sourceLang: translatorSourceLang.trim() || 'auto',
+			targetLang: translatorTargetLang.trim() || 'en',
+			useProxy: translatorUseProxy
+		};
+		localStorage.setItem(TRANSLATOR_SETTINGS_KEY, JSON.stringify(payload));
+		translatorSettingsSavedAt = new Date().toLocaleTimeString();
+	}
+
 	async function importAddonManifest(event: Event): Promise<void> {
 		const input = event.target as HTMLInputElement;
 		const file = input.files?.[0];
@@ -902,8 +963,8 @@
 		}
 
 		const lowerName = file.name.toLowerCase();
-		if (!lowerName.endsWith('.zip') && !lowerName.endsWith('.wabi-plugin')) {
-			alert('Please select a .zip or .wabi-plugin file.');
+		if (!lowerName.endsWith('.zip') && !lowerName.endsWith('.wabi-plugin') && !lowerName.endsWith('.wabip')) {
+			alert('Please select a .zip, .wabi-plugin, or .wabip file.');
 			input.value = '';
 			return;
 		}
@@ -929,6 +990,7 @@
 			const pluginVersion = String(payload?.plugin?.version || 'unknown');
 			addonInstallStatus = `Installed ${pluginName} (v${pluginVersion}).`;
 			await refreshAddonDetection();
+			loadTranslatorAddonSettings();
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Plugin install failed';
 			addonInstallStatus = `Install failed: ${message}`;
@@ -1942,6 +2004,35 @@
 
 							<div class="setting-item setting-item-stack">
 								<div class="setting-info">
+									<span class="setting-label">{$t('settings.language_learning.label')}</span>
+									<span class="setting-description">{$t('settings.language_learning.description')}</span>
+								</div>
+								<div class="quality-mode-row">
+									<label for="ui-learning-target">{$t('settings.language_learning.target_percent', { values: { percent: uiLearningTargetPercent } })}</label>
+									<button class="toggle-btn" class:active={uiLearningModeEnabled} on:click={toggleUiLearningMode}>
+										{uiLearningModeEnabled ? $t('common.on') : $t('common.off')}
+									</button>
+								</div>
+								<input
+									id="ui-learning-target"
+									type="range"
+									min="0"
+									max="100"
+									step="5"
+									value={uiLearningTargetPercent}
+									on:input={(e) => handleUiLearningPercentChange(e.currentTarget.value)}
+									class="volume-slider"
+									disabled={!uiLearningModeEnabled || selectedLocale === 'en'}
+								/>
+								<div class="runtime-note">
+									{selectedLocale === 'en'
+										? $t('settings.language_learning.select_non_english')
+										: $t('settings.language_learning.hint')}
+								</div>
+							</div>
+
+							<div class="setting-item setting-item-stack">
+								<div class="setting-info">
 									<span class="setting-label">Tab Shade Strength</span>
 									<span class="setting-description">
 										Controls how much each new queued tab shifts shade ({Math.round(tabShadeStrength * 100)}%)
@@ -2053,7 +2144,7 @@
 								/>
 								<input
 									type="file"
-									accept=".zip,.wabi-plugin,application/zip,application/x-zip-compressed"
+									accept=".zip,.wabi-plugin,.wabip,application/zip,application/x-zip-compressed"
 									bind:this={addonsPackageInput}
 									on:change={installAddonPackage}
 									style="display: none;"
@@ -2110,6 +2201,58 @@
 									{/if}
 								</div>
 							</div>
+
+							{#if translatorAddonDetected}
+								<div class="setting-item-full">
+									<div class="setting-info">
+										<span class="setting-label">Translator Assist Settings</span>
+										<span class="setting-description">Per-user translation mode and endpoint. This addon is view-only and does not rewrite original messages.</span>
+									</div>
+									<div class="upload-limit-grid">
+										<label class="upload-limit-row">
+											<span>Mode</span>
+											<select bind:value={translatorMode} class="theme-select">
+												<option value="off">Off</option>
+												<option value="on-demand">On-demand only</option>
+												<option value="mixed">Mixed view</option>
+											</select>
+										</label>
+										<label class="upload-limit-row">
+											<span>Source language</span>
+											<input type="text" maxlength="16" bind:value={translatorSourceLang} placeholder="auto" />
+										</label>
+										<label class="upload-limit-row">
+											<span>Target language</span>
+											<input type="text" maxlength="16" bind:value={translatorTargetLang} placeholder="en" />
+										</label>
+									</div>
+									<label class="upload-limit-row">
+										<span>Provider URL (LibreTranslate endpoint)</span>
+										<input
+											type="text"
+											maxlength="500"
+											bind:value={translatorProviderUrl}
+											placeholder="http://localhost:5000/translate"
+										/>
+									</label>
+									<div class="setting-item">
+										<div class="setting-info">
+											<span class="setting-label">Use backend proxy route</span>
+											<span class="setting-description">If enabled, frontend can call /api/plugins/runtime/translator-assist/translate instead of direct endpoint.</span>
+										</div>
+										<button class="toggle-btn" class:active={translatorUseProxy} on:click={() => (translatorUseProxy = !translatorUseProxy)}>
+											{translatorUseProxy ? 'ON' : 'OFF'}
+										</button>
+									</div>
+									<div class="addons-actions">
+										<button class="action-btn" on:click={saveTranslatorAddonSettings}>Save Translator Settings</button>
+									</div>
+									<div class="runtime-note">A restart is recommended after addon install/update before using translator features.</div>
+									{#if translatorSettingsSavedAt}
+										<div class="runtime-note">Saved at {translatorSettingsSavedAt}</div>
+									{/if}
+								</div>
+							{/if}
 						</div>
 
 					{:else if activeSettingsTab === 'emojis'}

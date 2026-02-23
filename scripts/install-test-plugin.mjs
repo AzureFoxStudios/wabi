@@ -10,6 +10,15 @@ const destDir = path.join(rootDir, 'plugins', pluginName);
 const sourceManifest = path.join(sourceDir, 'plugin.json');
 const destManifest = path.join(destDir, 'plugin.json');
 
+function stripUtf8Bom(raw) {
+  return raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+}
+
+function readJsonFile(filePath) {
+  const raw = fs.readFileSync(filePath, 'utf8');
+  return JSON.parse(stripUtf8Bom(raw));
+}
+
 function fail(message) {
   console.error(`[plugin-install] ${message}`);
   process.exit(1);
@@ -35,6 +44,6 @@ if (!fs.existsSync(destManifest)) {
   fail(`Install failed: destination plugin.json missing at ${destManifest}`);
 }
 
-const manifest = JSON.parse(fs.readFileSync(destManifest, 'utf8'));
+const manifest = readJsonFile(destManifest);
 console.log(`[plugin-install] Installed: id=${manifest.id} version=${manifest.version}`);
 console.log('[plugin-install] Next: restart backend to load plugin.');

@@ -587,6 +587,29 @@ function runSqliteMigrations(): void {
 	addColumnIfMissing('messages', 'attachment_encryption_json', 'TEXT');
 	addColumnIfMissing('messages', 'files_json', 'TEXT');
 	addColumnIfMissing('messages', 'attachment_storage_json', 'TEXT');
+
+	try {
+		dbClient.exec(`
+			CREATE TABLE IF NOT EXISTS dictionary_entries (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+				term TEXT NOT NULL,
+				term_normalized TEXT NOT NULL,
+				definition TEXT NOT NULL,
+				language TEXT NOT NULL DEFAULT 'en',
+				created_by_user_id INTEGER,
+				created_by_username TEXT,
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL,
+				votes INTEGER DEFAULT 0,
+				UNIQUE(workspace_id, language, term_normalized)
+			)
+		`);
+		dbClient.exec('CREATE INDEX IF NOT EXISTS idx_dictionary_lookup ON dictionary_entries(workspace_id, language, term_normalized)');
+		dbClient.exec('CREATE INDEX IF NOT EXISTS idx_dictionary_recent ON dictionary_entries(workspace_id, updated_at DESC)');
+	} catch (e) {
+		console.error('[Database] Migration error creating dictionary_entries:', e);
+	}
 }
 
 function runPostgresMigrations(): void {
@@ -678,6 +701,30 @@ function runPostgresMigrations(): void {
 	addColumnIfMissing('messages', 'attachment_encryption_json', 'TEXT');
 	addColumnIfMissing('messages', 'files_json', 'TEXT');
 	addColumnIfMissing('messages', 'attachment_storage_json', 'TEXT');
+
+	try {
+		dbClient.exec(`
+			CREATE TABLE IF NOT EXISTS dictionary_entries (
+				id BIGSERIAL PRIMARY KEY,
+				workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+				term TEXT NOT NULL,
+				term_normalized TEXT NOT NULL,
+				definition TEXT NOT NULL,
+				language TEXT NOT NULL DEFAULT 'en',
+				created_by_user_id BIGINT,
+				created_by_username TEXT,
+				created_at BIGINT NOT NULL,
+				updated_at BIGINT NOT NULL,
+				votes INTEGER DEFAULT 0,
+				UNIQUE(workspace_id, language, term_normalized),
+				FOREIGN KEY (created_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+			)
+		`);
+		dbClient.exec('CREATE INDEX IF NOT EXISTS idx_dictionary_lookup ON dictionary_entries(workspace_id, language, term_normalized)');
+		dbClient.exec('CREATE INDEX IF NOT EXISTS idx_dictionary_recent ON dictionary_entries(workspace_id, updated_at DESC)');
+	} catch (error) {
+		console.error('[Database] Migration error creating dictionary_entries:', error);
+	}
 
 	try {
 		const cleanupInfo = dbClient

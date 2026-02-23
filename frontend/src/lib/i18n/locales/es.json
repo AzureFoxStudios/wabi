@@ -50,6 +50,13 @@
       "clear_server_title": "Limpiar mensajes del servidor",
       "clear_server_message": "Seguro que deseas eliminar TODOS los mensajes del servidor? Esto afecta a todos los usuarios y no se puede deshacer.",
       "clear_server_confirm": "Eliminar todo"
+    },
+    "language_learning": {
+      "label": "Aprendizaje progresivo de interfaz",
+      "description": "Mezcla tu idioma seleccionado en la interfaz poco a poco.",
+      "target_percent": "Idioma objetivo en la interfaz: {percent}%",
+      "hint": "Valores bajos mantienen mas ingles. Sube gradualmente mientras aprendes.",
+      "select_non_english": "Selecciona un idioma de aplicacion distinto de ingles para activar la mezcla progresiva."
     }
   },
   "login": {

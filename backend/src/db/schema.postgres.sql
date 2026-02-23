@@ -277,6 +277,26 @@ CREATE INDEX IF NOT EXISTS idx_webhooks_enabled ON webhooks(enabled);
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook ON webhook_deliveries(webhook_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status ON webhook_deliveries(status, updated_at);
 
+-- Community dictionary entries (language-learning helpers)
+CREATE TABLE IF NOT EXISTS dictionary_entries (
+  id BIGSERIAL PRIMARY KEY,
+  workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+  term TEXT NOT NULL,
+  term_normalized TEXT NOT NULL,
+  definition TEXT NOT NULL,
+  language TEXT NOT NULL DEFAULT 'en',
+  created_by_user_id BIGINT,
+  created_by_username TEXT,
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL,
+  votes INTEGER DEFAULT 0,
+  UNIQUE(workspace_id, language, term_normalized),
+  FOREIGN KEY (created_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_dictionary_lookup ON dictionary_entries(workspace_id, language, term_normalized);
+CREATE INDEX IF NOT EXISTS idx_dictionary_recent ON dictionary_entries(workspace_id, updated_at DESC);
+
 -- Initial guest code
 INSERT INTO guest_codes (code, description, is_active)
 VALUES ('VIP2026', 'Default VIP guest access code', 1)

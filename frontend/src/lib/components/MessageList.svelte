@@ -8,6 +8,7 @@
 	import ForwardDialog from './ForwardDialog.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import ModelViewer3D from './plugins/ModelViewer3D.svelte';
+	import YouTubeWatchEmbed from './plugins/YouTubeWatchEmbed.svelte';
 	import type { BlendImportSettingsPayload } from './plugins/BlendImportSettingsModal.svelte';
 	import { parseMessage } from '$lib/markdown';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
@@ -558,6 +559,18 @@
 
 	function isMediaUrl(url: string): boolean {
 		return getMediaType(url) !== null;
+	}
+
+	function isYouTubeUrl(url: string): boolean {
+		try {
+			const parsed = new URL(url);
+			return (
+				parsed.hostname.includes('youtube.com') ||
+				parsed.hostname.includes('youtu.be')
+			);
+		} catch {
+			return false;
+		}
 	}
 
 	function getFileIcon(fileName?: string): string {
@@ -1421,6 +1434,9 @@
 					{#if message.text}
 						{@const urls = extractUrls(message.text)}
 						{#each urls as url}
+							{#if isYouTubeUrl(url)}
+								<YouTubeWatchEmbed url={url} channelId={$currentChannel} />
+							{:else}
 							{@const mediaType = getMediaType(url)}
 							{#if mediaType === 'image'}
 								<img
@@ -1467,6 +1483,7 @@
 									{@const _linkPreviewRequested = (ensureLinkPreviewLoaded(), true)}
 									<a href={url} target="_blank" rel="noopener noreferrer" class="plain-link-fallback">{url}</a>
 								{/if}
+							{/if}
 							{/if}
 						{/each}
 					{/if}
@@ -3382,6 +3399,56 @@
 		padding-bottom: 0 !important;
 		margin-top: 0 !important;
 		margin-bottom: 0 !important;
+	}
+}
+
+/* Final mobile density pass: closer to compact chat rhythm */
+@media (max-width: 768px) {
+	.message {
+		padding: 0.22rem 0.42rem !important;
+		gap: 0.34rem !important;
+		margin-bottom: 0 !important;
+		border-radius: 0 !important;
+	}
+
+	.message:hover {
+		background: rgba(var(--bg-secondary-rgb), 0.28) !important;
+	}
+
+	.avatar,
+	.avatar-placeholder {
+		width: 30px !important;
+		height: 30px !important;
+		font-size: 0.78rem !important;
+	}
+
+	.message-avatar-spacer {
+		width: 30px !important;
+	}
+
+	.message-header {
+		margin-bottom: 0.04rem !important;
+	}
+
+	.username {
+		font-size: 0.9rem !important;
+		font-weight: 700 !important;
+	}
+
+	.timestamp {
+		font-size: 0.72rem !important;
+		opacity: 0.72 !important;
+		margin-left: 0.32rem !important;
+	}
+
+	.message .markdown-content,
+	.message .markdown-content :global(p) {
+		line-height: 1.24 !important;
+		font-size: 0.97rem !important;
+	}
+
+	.message.continuation .message-body {
+		margin-top: -0.02rem !important;
 	}
 }
 

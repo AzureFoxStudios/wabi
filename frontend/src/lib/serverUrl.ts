@@ -1,5 +1,10 @@
 import { browser } from '$app/environment';
 
+function isLocalHost(value: string): boolean {
+	const normalized = value.toLowerCase();
+	return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1' || normalized === 'tauri.localhost';
+}
+
 export function getServerUrl(): string {
 	const result = resolveServerUrl();
 	if (browser) {
@@ -16,6 +21,19 @@ export function resolveServerUrl(): { url: string; source: string } {
 	// 1. Explicit env override (baked at build time)
 	const envUrl = import.meta.env.VITE_SOCKET_URL;
 	if (envUrl) {
+		// Safety guard: never let dev sessions accidentally point to production.
+		// Override can be bypassed only with explicit VITE_ALLOW_REMOTE_DEV=true.
+		if (import.meta.env.DEV && import.meta.env.VITE_ALLOW_REMOTE_DEV !== 'true') {
+			try {
+				const parsed = new URL(envUrl);
+				if (!isLocalHost(parsed.hostname)) {
+					return { url: 'http://localhost:8080', source: 'env_override_dev_rewrite' };
+				}
+			} catch {
+				// Invalid URL in dev override -> fail safe to local backend.
+				return { url: 'http://localhost:8080', source: 'env_override_dev_rewrite_invalid' };
+			}
+		}
 		return { url: envUrl, source: 'env_override' };
 	}
 

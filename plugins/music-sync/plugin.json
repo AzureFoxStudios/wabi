@@ -1,0 +1,37 @@
+{
+  "id": "music-sync",
+  "name": "Music Sync",
+  "version": "0.1.0",
+  "description": "Shared playlist and synchronized playback state for rooms.",
+  "author": "Community",
+  "enabled": true,
+  "backend": {
+    "entry": "./backend/index.ts",
+    "socketEvents": [
+      "music:get-state",
+      "music:enqueue",
+      "music:play",
+      "music:pause",
+      "music:skip"
+    ]
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "extensions": {
+      "commands": [
+        "/music"
+      ]
+    }
+  },
+  "permissions": [
+    "channels:read",
+    "messages:write"
+  ],
+  "security": {
+    "threatNotes": "Only sync metadata is exchanged; no direct media transport or credential storage."
+  },
+  "capabilities": {
+    "tier": "network-limited",
+    "notes": "Co-listening state sync scaffold."
+  }
+}

@@ -1648,9 +1648,9 @@ server.on('request', async (req, res) => {
       }
 
       const lowerName = uploaded.fileName.toLowerCase();
-      if (!lowerName.endsWith('.zip') && !lowerName.endsWith('.wabi-plugin')) {
+      if (!lowerName.endsWith('.zip') && !lowerName.endsWith('.wabi-plugin') && !lowerName.endsWith('.wabip')) {
         res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ success: false, error: "Plugin package must be a .zip or .wabi-plugin file" }));
+        res.end(JSON.stringify({ success: false, error: "Plugin package must be a .zip, .wabi-plugin, or .wabip file" }));
         return;
       }
 

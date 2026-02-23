@@ -43,7 +43,8 @@
 	import { isInCall, startCall } from '$lib/calling';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { encryptDMFile, isE2EAvailable } from '$lib/e2eManager';
-	import { _ } from '$lib/i18n';
+	import { _, currentLocale } from '$lib/i18n';
+	import { lookupDictionary, upsertDictionaryEntry, deleteDictionaryEntry } from '$lib/api';
 
 	const dispatch = createEventDispatcher();
 
@@ -494,7 +495,55 @@
 		textareaElement?.focus();
 	}
 
-	function executeCommand(commandInput: string) {
+	function parseWordCommandPayload(rawInput: string): {
+		action: 'add' | 'view' | 'remove' | 'help';
+		term?: string;
+		definition?: string;
+		language?: string;
+	} {
+		const withoutPrefix = rawInput.trim().replace(/^\/word\s*/i, '');
+		if (!withoutPrefix) {
+			return { action: 'help' };
+		}
+		const firstSpace = withoutPrefix.indexOf(' ');
+		const actionRaw = (firstSpace >= 0 ? withoutPrefix.slice(0, firstSpace) : withoutPrefix).trim().toLowerCase();
+		const rest = firstSpace >= 0 ? withoutPrefix.slice(firstSpace + 1).trim() : '';
+		const action = actionRaw === 'add' || actionRaw === 'view' || actionRaw === 'remove' ? actionRaw : 'help';
+		if (action === 'help') return { action: 'help' };
+
+		if (action === 'add') {
+			const parts = rest.split('|').map((part) => part.trim()).filter(Boolean);
+			return {
+				action,
+				term: parts[0],
+				definition: parts[1],
+				language: (parts[2] || $currentLocale || 'en').toLowerCase()
+			};
+		}
+
+		const parts = rest.split('|').map((part) => part.trim()).filter(Boolean);
+		return {
+			action,
+			term: parts[0],
+			language: (parts[1] || $currentLocale || 'en').toLowerCase()
+		};
+	}
+
+	function getWordCommandHelp(): string {
+		return [
+			'Word Dictionary Commands:',
+			'',
+			'/word add <term> | <definition> | [language]',
+			'Example: /word add がんばって | to cheer / do your best | ja',
+			'',
+			'/word view <term> | [language]',
+			'Example: /word view がんばって | ja',
+			'',
+			'/word remove <term> | [language]'
+		].join('\n');
+	}
+
+	async function executeCommand(commandInput: string) {
 		const parsed = parseCommand(commandInput);
 
 		if (parsed.error) {
@@ -781,6 +830,73 @@
 				break;
 			}
 
+			case 'word':
+			case 'dict':
+			case 'dictionary': {
+				const payload = parseWordCommandPayload(commandInput);
+				if (payload.action === 'help' || !payload.term) {
+					alert(getWordCommandHelp());
+					break;
+				}
+
+				if (payload.action === 'view') {
+					try {
+						const entries = await lookupDictionary(payload.term, payload.language || 'en', 5);
+						if (entries.length === 0) {
+							alert(`No dictionary entry found for "${payload.term}" (${payload.language || 'en'}).`);
+							break;
+						}
+						const lines = entries.map((entry, index) => {
+							const editor = entry.createdByUsername ? ` (by ${entry.createdByUsername})` : '';
+							return `${index + 1}. ${entry.term} [${entry.language}] -> ${entry.definition}${editor}`;
+						});
+						alert(lines.join('\n'));
+					} catch (error) {
+						alert(error instanceof Error ? error.message : 'Failed to lookup dictionary entry.');
+					}
+					break;
+				}
+
+				if (payload.action === 'add') {
+					if (!payload.definition) {
+						alert(getWordCommandHelp());
+						break;
+					}
+					const authToken = localStorage.getItem('authToken');
+					if (!authToken) {
+						alert('Login is required to add dictionary entries.');
+						break;
+					}
+					try {
+						const saved = await upsertDictionaryEntry(
+							authToken,
+							payload.term,
+							payload.definition,
+							payload.language || 'en'
+						);
+						alert(`Saved: ${saved.term} [${saved.language}] -> ${saved.definition}`);
+					} catch (error) {
+						alert(error instanceof Error ? error.message : 'Failed to save dictionary entry.');
+					}
+					break;
+				}
+
+				if (payload.action === 'remove') {
+					const authToken = localStorage.getItem('authToken');
+					if (!authToken) {
+						alert('Login is required to remove dictionary entries.');
+						break;
+					}
+					try {
+						await deleteDictionaryEntry(authToken, payload.term, payload.language || 'en');
+						alert(`Removed dictionary entry for "${payload.term}" (${payload.language || 'en'}).`);
+					} catch (error) {
+						alert(error instanceof Error ? error.message : 'Failed to remove dictionary entry.');
+					}
+				}
+				break;
+			}
+
 			default:
 				console.warn(`Unknown command: ${commandName}`);
 		}
@@ -797,7 +913,7 @@
 
 				// Check if it's a command
 				if (trimmedMessage.startsWith('/')) {
-					executeCommand(trimmedMessage);
+					void executeCommand(trimmedMessage);
 					messageInput = '';
 					return;
 				}
@@ -2417,53 +2533,77 @@
 		}
 
 		.chat-header {
-			padding: 0.75rem 1rem;
-			height: 52px;
+			padding: 0.55rem 0.8rem;
+			height: 50px;
+			gap: 0.5rem;
 		}
 
 		.chat-header h2 {
-			font-size: 1rem;
+			font-size: 0.96rem;
+			min-width: 0;
+		}
+
+		.channel-description,
+		.dm-badge {
+			display: none;
+		}
+
+		.header-actions {
+			flex: 1;
+			justify-content: flex-end;
+			min-width: 0;
 		}
 
 		.search-container {
-			flex-direction: column;
-			gap: 0.25rem;
+			flex-direction: row;
+			align-items: center;
+			gap: 0.35rem;
+			min-width: 0;
+			width: min(56vw, 230px);
 		}
 
 		.search-input {
 			min-width: unset;
 			width: 100%;
-			font-size: 0.85rem;
-			padding: 0.4rem 0.5rem;
+			font-size: 0.84rem;
+			padding: 0.36rem 0.55rem;
+			border-radius: 10px;
+		}
+
+		.search-results,
+		.search-history-btn,
+		.dm-call-actions {
+			display: none;
 		}
 
 		.messages {
-			padding: 0.5rem;
+			padding: 0.4rem 0.4rem 0.25rem;
+			gap: 0.2rem;
 		}
 
 		.input-wrapper {
-			padding: 0.5rem;
-			padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+			padding: 0.38rem 0.45rem;
+			padding-bottom: calc(0.38rem + env(safe-area-inset-bottom));
 			border-top: 1px solid var(--border);
 			background: var(--bg-secondary);
 		}
 
 		.input-container {
-			padding: 0.25rem;
-			gap: 0.25rem;
-			background: var(--bg-tertiary);
-			border-radius: 8px;
+			padding: 0.2rem 0.25rem;
+			gap: 0.22rem;
+			background: color-mix(in srgb, var(--bg-tertiary) 90%, black 10%);
+			border-radius: 12px;
 		}
 
 		textarea {
 			font-size: 16px; /* Prevents iOS auto-zoom */
-			padding: 0.75rem 0.5rem;
-			min-height: 40px;
+			padding: 0.58rem 0.45rem;
+			min-height: 36px;
 		}
 
 		.input-icon-button {
-			width: 40px;
-			height: 40px;
+			width: 34px;
+			height: 34px;
 			flex-shrink: 0;
 		}
 
@@ -2473,13 +2613,15 @@
 		}
 
 		.send-button {
-			height: 40px;
-			padding: 0 1rem;
+			height: 34px;
+			width: 34px;
+			padding: 0;
 			flex-shrink: 0;
+			border-radius: 9px;
 		}
 
 		.edit-bar, .reply-bar {
-			padding: 0.375rem 0.75rem;
+			padding: 0.32rem 0.62rem;
 		}
 	}
 </style>

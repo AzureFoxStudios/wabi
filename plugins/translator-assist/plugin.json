@@ -1,0 +1,32 @@
+{
+  "id": "translator-assist",
+  "name": "Translator Assist",
+  "version": "0.1.0",
+  "description": "User-side message translation helper with per-user endpoint settings.",
+  "author": "Community",
+  "enabled": true,
+  "backend": {
+    "entry": "./backend/index.ts",
+    "socketEvents": [
+      "translator:capabilities"
+    ]
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "extensions": {
+      "commands": [
+        "/translate"
+      ]
+    }
+  },
+  "permissions": [
+    "channels:read"
+  ],
+  "security": {
+    "threatNotes": "Translation is opt-in and view-only; original message content is never mutated by this plugin."
+  },
+  "capabilities": {
+    "tier": "network-limited",
+    "notes": "Frontend-first plugin. Users can choose local or remote translation endpoints."
+  }
+}

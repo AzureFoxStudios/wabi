@@ -34,10 +34,20 @@
 	let resizingChannel = false;
 	let resizingRight = false;
 	let showVoiceDebugDetails = false;
+	let mobileNavVisible = false;
+	let touchStartX = 0;
+	let touchStartY = 0;
+	let touchStartTime = 0;
+	let touchGestureEnabled = false;
 	const { activeTabId } = mobileTabQueue;
 	const MODEL_VIEWPORT_TAB_ID = 'model-viewport';
 	const MODEL_VIEWPORT_TAB_TOKEN = mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_TAB_ID);
 	$: isModelViewportTabActive = $activeTabId === MODEL_VIEWPORT_TAB_TOKEN;
+	const MOBILE_EDGE_SWIPE_MIN_X_PX = 56;
+	const MOBILE_EDGE_SWIPE_MAX_Y_PX = 72;
+	const MOBILE_EDGE_SWIPE_MAX_MS = 700;
+	const MOBILE_NAV_REVEAL_ZONE_PX = 88;
+	const MOBILE_NAV_SWIPE_MIN_Y_PX = 46;
 
 	layoutStore.isResizingChannel.subscribe(v => resizingChannel = v);
 	layoutStore.isResizingRight.subscribe(v => resizingRight = v);
@@ -133,18 +143,155 @@
 		return `${value}${unit}`;
 	}
 
+	function resetTouchSwipe(): void {
+		touchStartX = 0;
+		touchStartY = 0;
+		touchStartTime = 0;
+		touchGestureEnabled = false;
+	}
+
+	function handleTouchStart(event: TouchEvent): void {
+		if (!$layoutStore.isMobile || event.touches.length !== 1) {
+			resetTouchSwipe();
+			return;
+		}
+
+		const target = event.target as HTMLElement | null;
+		// Don't hijack gestures inside horizontally-draggable rails or form controls.
+		if (
+			target?.closest('.tab-rail-viewport') ||
+			target?.closest('textarea, input, select, button, a, [contenteditable="true"]')
+		) {
+			resetTouchSwipe();
+			return;
+		}
+
+		const touch = event.touches[0];
+		touchStartX = touch.clientX;
+		touchStartY = touch.clientY;
+		touchStartTime = Date.now();
+		touchGestureEnabled = true;
+	}
+
+	function handleTouchEnd(event: TouchEvent): void {
+		if (!$layoutStore.isMobile || !touchGestureEnabled || event.changedTouches.length === 0) {
+			resetTouchSwipe();
+			return;
+		}
+
+		const touch = event.changedTouches[0];
+		const deltaX = touch.clientX - touchStartX;
+		const deltaY = touch.clientY - touchStartY;
+		const elapsedMs = Date.now() - touchStartTime;
+		const isVerticalSwipe =
+			Math.abs(deltaY) >= MOBILE_NAV_SWIPE_MIN_Y_PX &&
+			Math.abs(deltaY) > Math.abs(deltaX) &&
+			elapsedMs <= MOBILE_EDGE_SWIPE_MAX_MS;
+
+		if (isVerticalSwipe) {
+			const startedNearBottom = touchStartY >= window.innerHeight - MOBILE_NAV_REVEAL_ZONE_PX;
+			const swipeUp = deltaY < 0;
+			const swipeDown = deltaY > 0;
+
+			if (!mobileNavVisible && startedNearBottom && swipeUp) {
+				mobileNavVisible = true;
+				resetTouchSwipe();
+				return;
+			}
+
+			if (mobileNavVisible && swipeDown) {
+				mobileNavVisible = false;
+				resetTouchSwipe();
+				return;
+			}
+		}
+
+		const isHorizontalSwipe =
+			Math.abs(deltaX) >= MOBILE_EDGE_SWIPE_MIN_X_PX &&
+			Math.abs(deltaY) <= MOBILE_EDGE_SWIPE_MAX_Y_PX &&
+			Math.abs(deltaX) > Math.abs(deltaY) &&
+			elapsedMs <= MOBILE_EDGE_SWIPE_MAX_MS;
+
+		if (!isHorizontalSwipe) {
+			resetTouchSwipe();
+			return;
+		}
+
+		const swipeLeft = deltaX < 0;
+		const swipeRight = deltaX > 0;
+		const channelsOpen = $layoutStore.showMobileChannels;
+		const usersOpen = $layoutStore.rightPanelView !== 'none';
+
+		// Stage navigation: Channels <-> Chat <-> Users
+		if (channelsOpen && swipeLeft) {
+			layoutStore.showMobileChannels.set(false);
+			layoutStore.rightPanelView.set('none');
+			resetTouchSwipe();
+			return;
+		}
+
+		if (!channelsOpen && !usersOpen && swipeLeft) {
+			layoutStore.showUsersTab();
+			layoutStore.showMobileChannels.set(false);
+			resetTouchSwipe();
+			return;
+		}
+
+		if (usersOpen && swipeRight) {
+			layoutStore.rightPanelView.set('none');
+			layoutStore.showMobileChannels.set(false);
+			resetTouchSwipe();
+			return;
+		}
+
+		if (!channelsOpen && !usersOpen && swipeRight) {
+			layoutStore.showMobileChannels.set(true);
+			layoutStore.rightPanelView.set('none');
+			resetTouchSwipe();
+			return;
+		}
+
+		resetTouchSwipe();
+	}
+
+	function showMobileNav(): void {
+		if (!$layoutStore.isMobile) return;
+		mobileNavVisible = true;
+	}
+
 	$: if ($callMode !== 'channel' || !$activeVoiceChannel) {
 		showVoiceDebugDetails = false;
 	}
+
+	$: if (!$layoutStore.isMobile || $layoutStore.isInCall) {
+		mobileNavVisible = false;
+	}
 </script>
 
-<svelte:window on:mousemove={handleMouseMove} on:mouseup={stopResize} />
+<svelte:window
+	on:mousemove={handleMouseMove}
+	on:mouseup={stopResize}
+	on:touchstart={handleTouchStart}
+	on:touchend={handleTouchEnd}
+	on:touchcancel={resetTouchSwipe}
+/>
 
 <AuthErrorBanner />
 
 {#if $layoutStore.isMobile && !$layoutStore.isInCall}
+	{#if !mobileNavVisible}
+		<button
+			type="button"
+			class="mobile-nav-grabber"
+			on:click={showMobileNav}
+			aria-label="Show mobile menu"
+			title="Swipe up for menu"
+		>
+			<span></span>
+		</button>
+	{/if}
 	<!-- Mobile Bottom Navigation Bar -->
-	<nav class="mobile-bottom-nav">
+	<nav class="mobile-bottom-nav" class:visible={mobileNavVisible}>
 		<button class:active={!$layoutStore.showMobileChannels && $layoutStore.rightPanelView === 'none'} on:click={() => { layoutStore.showMobileChannels.set(false); layoutStore.rightPanelView.set('none'); }}>
 			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
 			<span>{$_('shell.mobile.chat')}</span>
@@ -157,14 +304,15 @@
 			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
 			<span>{$_('shell.mobile.users')}</span>
 		</button>
-		<a href="/business" class="nav-link">
-			<svg width="24" height="24" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-			<span>{$_('shell.mobile.hub')}</span>
-		</a>
 	</nav>
 {/if}
 
-<div class="app-container" class:resizing={$layoutStore.isResizing} class:in-call={$layoutStore.isMobile && $layoutStore.isInCall}>
+<div
+	class="app-container"
+	class:resizing={$layoutStore.isResizing}
+	class:in-call={$layoutStore.isMobile && $layoutStore.isInCall}
+	class:mobile-nav-visible={mobileNavVisible && $layoutStore.isMobile && !$layoutStore.isInCall}
+>
 	<!-- Channel Sidebar (Left) -->
 	<div
 		class="channel-sidebar-container"
@@ -540,9 +688,14 @@
 	/* --- Mobile Styles --- */
 	.mobile-bottom-nav { display: none; }
 	.mobile-right-overlay { display: none; }
+	.mobile-nav-grabber { display: none; }
 
 	@media (max-width: 768px) {
 		.app-container {
+			height: 100vh;
+			height: 100dvh;
+		}
+		.app-container.mobile-nav-visible {
 			height: calc(100vh - var(--mobile-nav-height));
 			height: calc(100dvh - var(--mobile-nav-height));
 		}
@@ -592,29 +745,63 @@
 			left: 0;
 			right: 0;
 			height: var(--mobile-nav-height);
-			background: var(--bg-tertiary);
+			background: color-mix(in srgb, var(--bg-tertiary) 88%, black 12%);
 			border-top: 1px solid var(--border);
 			z-index: var(--z-toast);
 			padding: 0;
 			padding-bottom: env(safe-area-inset-bottom, 0);
+			transform: translateY(100%);
+			opacity: 0;
+			pointer-events: none;
+			transition: transform 0.2s ease, opacity 0.2s ease;
 		}
-		.mobile-bottom-nav button, .mobile-bottom-nav .nav-link {
+		.mobile-bottom-nav.visible {
+			transform: translateY(0);
+			opacity: 1;
+			pointer-events: auto;
+		}
+		.mobile-bottom-nav button {
 			display: flex;
 			flex-direction: column;
 			align-items: center;
 			justify-content: center;
+			flex: 1;
 			gap: 0.125rem;
 			background: transparent;
 			border: none;
 			color: var(--text-secondary);
-			font-size: 0.65rem;
-			padding: 0.375rem 0.5rem;
-			text-decoration: none;
+			font-size: 0.62rem;
+			padding: 0.34rem 0.45rem;
 			transition: color 0.15s;
 		}
-		.mobile-bottom-nav button:hover, .mobile-bottom-nav .nav-link:hover { color: var(--text-primary); }
+		.mobile-bottom-nav button:hover { color: var(--text-primary); }
 		.mobile-bottom-nav button.active { color: var(--accent); }
-		.mobile-bottom-nav svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; }
+		.mobile-bottom-nav svg { width: 19px; height: 19px; stroke: currentColor; fill: none; stroke-width: 2; }
+
+		.mobile-nav-grabber {
+			display: flex;
+			position: fixed;
+			left: 50%;
+			bottom: calc(env(safe-area-inset-bottom, 0) + 6px);
+			transform: translateX(-50%);
+			width: 62px;
+			height: 24px;
+			border: none;
+			border-radius: 999px;
+			background: color-mix(in srgb, var(--bg-tertiary) 88%, black 12%);
+			box-shadow: 0 4px 14px rgba(0, 0, 0, 0.24);
+			align-items: center;
+			justify-content: center;
+			z-index: var(--z-toast);
+		}
+
+		.mobile-nav-grabber span {
+			display: block;
+			width: 26px;
+			height: 3px;
+			border-radius: 999px;
+			background: color-mix(in srgb, var(--text-secondary) 80%, white 20%);
+		}
 	}
 
 	@media (max-width: 1280px) {

@@ -796,11 +796,30 @@
 	}
 
 	@media (max-width: 768px) {
+		.tab-rail-viewport {
+			background: #505050;
+			border-bottom: none;
+		}
+
+		.tab-rail-track.edge-layout {
+			min-height: 31px;
+		}
+
 		.queue-tab {
 			height: 31px;
 			min-height: 31px;
-			font-size: 0.72rem;
-			margin-left: -10px;
+			font-size: 0.75rem;
+			margin-left: -11px;
+			padding: 0 1.5rem 0 0.75rem;
+		}
+
+		.tab-rail-track.edge-layout .queue-tab.first-tab {
+			border-radius: 0;
+		}
+
+		.tab-rail-track.edge-layout .queue-tab.last-tab {
+			border-radius: 999px 0 0 999px;
+			margin-right: 0;
 		}
 	}
 

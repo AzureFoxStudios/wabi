@@ -50,6 +50,13 @@
       "clear_server_title": "Clear Server Messages",
       "clear_server_message": "Are you sure you want to delete ALL messages from the server? This will clear messages for all users and cannot be undone!",
       "clear_server_confirm": "Delete All"
+    },
+    "language_learning": {
+      "label": "Progressive UI Learning",
+      "description": "Blend your selected language into the UI over time.",
+      "target_percent": "Target language in UI: {percent}%",
+      "hint": "Lower values keep more English. Raise gradually as you learn.",
+      "select_non_english": "Select a non-English app language to enable progressive blending."
     }
   },
   "login": {
