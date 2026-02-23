@@ -2,6 +2,14 @@ export interface FileAttachment {
   fileUrl: string;
   fileName: string;
   fileSize: number;
+  attachmentStorage?: {
+    scheme: 'wabi-storage-v1';
+    compressed: boolean;
+    codec: 'identity' | 'gzip';
+    originalSize: number;
+    storedSize: number;
+    atRestEncrypted: boolean;
+  };
   attachmentEncryption?: {
     scheme: 'dm-e2ee-v1';
     iv: string;
@@ -30,6 +38,14 @@ export interface Message {
     iv: string;
     mimeType?: string;
     originalSize?: number;
+  };
+  attachmentStorage?: {
+    scheme: 'wabi-storage-v1';
+    compressed: boolean;
+    codec: 'identity' | 'gzip';
+    originalSize: number;
+    storedSize: number;
+    atRestEncrypted: boolean;
   };
   isPinned?: boolean;
   isEdited?: boolean;

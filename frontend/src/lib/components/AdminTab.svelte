@@ -436,6 +436,10 @@
 						<span class="v">{compressionConfig.uploadCompression.enabled ? 'Enabled' : 'Disabled'}</span>
 					</div>
 					<div class="compression-stat">
+						<span class="k">Upload Rollout</span>
+						<span class="v">{compressionConfig.uploadCompression.rolloutPercent}%</span>
+					</div>
+					<div class="compression-stat">
 						<span class="k">Uploads</span>
 						<span class="v">{compressionMetrics.counters.uploadCount}</span>
 					</div>

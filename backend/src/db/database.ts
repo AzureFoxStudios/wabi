@@ -586,6 +586,7 @@ function runSqliteMigrations(): void {
 	addColumnIfMissing('messages', 'encryption_iv', 'TEXT');
 	addColumnIfMissing('messages', 'attachment_encryption_json', 'TEXT');
 	addColumnIfMissing('messages', 'files_json', 'TEXT');
+	addColumnIfMissing('messages', 'attachment_storage_json', 'TEXT');
 }
 
 function runPostgresMigrations(): void {
@@ -676,6 +677,7 @@ function runPostgresMigrations(): void {
 	addColumnIfMissing('messages', 'encryption_iv', 'TEXT');
 	addColumnIfMissing('messages', 'attachment_encryption_json', 'TEXT');
 	addColumnIfMissing('messages', 'files_json', 'TEXT');
+	addColumnIfMissing('messages', 'attachment_storage_json', 'TEXT');
 
 	try {
 		const cleanupInfo = dbClient

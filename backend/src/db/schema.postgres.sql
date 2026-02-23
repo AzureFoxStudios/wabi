@@ -193,6 +193,7 @@ CREATE TABLE IF NOT EXISTS messages (
   file_size BIGINT,
   files_json TEXT,
   attachment_encryption_json TEXT,
+  attachment_storage_json TEXT,
   reply_to_id TEXT,
   is_spoiler INTEGER DEFAULT 0,
   is_pinned INTEGER DEFAULT 0,

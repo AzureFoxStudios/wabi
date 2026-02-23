@@ -175,6 +175,7 @@ export interface AdminCompressionConfig {
 		enabled: boolean;
 		minBytes: number;
 		gzipLevel: number;
+		rolloutPercent: number;
 	};
 }
 

@@ -976,6 +976,7 @@ interface ResumableUploadMeta {
   updatedAt: number;
   status: 'uploading' | 'completed';
   fileUrl?: string;
+  attachmentStorage?: AttachmentStorageMeta;
 }
 
 interface AttachmentEncryptionMeta {
@@ -983,6 +984,15 @@ interface AttachmentEncryptionMeta {
   iv: string;
   mimeType?: string;
   originalSize?: number;
+}
+
+interface AttachmentStorageMeta {
+  scheme: 'wabi-storage-v1';
+  compressed: boolean;
+  codec: 'identity' | 'gzip';
+  originalSize: number;
+  storedSize: number;
+  atRestEncrypted: boolean;
 }
 
 function createUploadId(): string {
@@ -1077,6 +1087,8 @@ function writeUploadFile(filePath: string, payload: Buffer): void {
 const UPLOAD_COMPRESSION_ENABLED = (process.env.UPLOAD_COMPRESSION_ENABLED || 'false') === 'true';
 const UPLOAD_COMPRESSION_MIN_BYTES = Math.max(1024, Number(process.env.UPLOAD_COMPRESSION_MIN_BYTES || 4096));
 const UPLOAD_COMPRESSION_GZIP_LEVEL = Math.min(9, Math.max(1, Number(process.env.UPLOAD_COMPRESSION_GZIP_LEVEL || 6)));
+const UPLOAD_COMPRESSION_ROLLOUT_PERCENT = Math.max(0, Math.min(100, Number(process.env.UPLOAD_COMPRESSION_ROLLOUT_PERCENT || 100)));
+const UPLOAD_COMPRESSION_ROLLOUT_SALT = process.env.UPLOAD_COMPRESSION_ROLLOUT_SALT || 'wabi-upload-rollout';
 const UPLOAD_COMP_MAGIC = Buffer.from('WBZ1');
 const UPLOAD_COMP_CODEC_GZIP = 1;
 const UPLOAD_COMP_HEADER_SIZE = UPLOAD_COMP_MAGIC.length + 1 + 4;
@@ -1172,29 +1184,60 @@ function shouldCompressUploadPayload(fileName: string, mimeType: string, payload
   return false;
 }
 
-function maybeCompressUploadPayload(fileName: string, mimeType: string, payload: Buffer): Buffer {
+function isUploadCompressionInRollout(rolloutKey: string): boolean {
+  if (UPLOAD_COMPRESSION_ROLLOUT_PERCENT <= 0) return false;
+  if (UPLOAD_COMPRESSION_ROLLOUT_PERCENT >= 100) return true;
+  const digest = createHash('sha1').update(`${UPLOAD_COMPRESSION_ROLLOUT_SALT}:${rolloutKey}`).digest();
+  const bucket = digest.readUInt32BE(0) % 100;
+  return bucket < UPLOAD_COMPRESSION_ROLLOUT_PERCENT;
+}
+
+function maybeCompressUploadPayload(fileName: string, mimeType: string, payload: Buffer, rolloutKey: string): { payload: Buffer; meta: AttachmentStorageMeta } {
+  const identityMeta = (): AttachmentStorageMeta => ({
+    scheme: 'wabi-storage-v1',
+    compressed: false,
+    codec: 'identity',
+    originalSize: payload.length,
+    storedSize: payload.length,
+    atRestEncrypted: Boolean(FILE_ENCRYPTION_KEY)
+  });
+
   if (!shouldCompressUploadPayload(fileName, mimeType, payload.length)) {
-    return payload;
+    return { payload, meta: identityMeta() };
+  }
+  if (!isUploadCompressionInRollout(rolloutKey)) {
+    return { payload, meta: identityMeta() };
   }
 
   if (payload.length > 0xffffffff) {
-    return payload;
+    return { payload, meta: identityMeta() };
   }
 
   try {
     const compressed = gzipSync(payload, { level: UPLOAD_COMPRESSION_GZIP_LEVEL });
     if (compressed.length >= payload.length) {
-      return payload;
+      return { payload, meta: identityMeta() };
     }
 
     const header = Buffer.alloc(UPLOAD_COMP_HEADER_SIZE);
     UPLOAD_COMP_MAGIC.copy(header, 0);
     header.writeUInt8(UPLOAD_COMP_CODEC_GZIP, UPLOAD_COMP_MAGIC.length);
     header.writeUInt32BE(payload.length, UPLOAD_COMP_MAGIC.length + 1);
-    return Buffer.concat([header, compressed]);
+    const encoded = Buffer.concat([header, compressed]);
+    return {
+      payload: encoded,
+      meta: {
+        scheme: 'wabi-storage-v1',
+        compressed: true,
+        codec: 'gzip',
+        originalSize: payload.length,
+        storedSize: encoded.length,
+        atRestEncrypted: Boolean(FILE_ENCRYPTION_KEY)
+      }
+    };
   } catch (error) {
     console.warn('[UploadCompression] Failed to compress upload payload; storing uncompressed', error);
-    return payload;
+    return { payload, meta: identityMeta() };
   }
 }
 
@@ -1692,7 +1735,8 @@ server.on('request', async (req, res) => {
         uploadCompression: {
           enabled: UPLOAD_COMPRESSION_ENABLED,
           minBytes: UPLOAD_COMPRESSION_MIN_BYTES,
-          gzipLevel: UPLOAD_COMPRESSION_GZIP_LEVEL
+          gzipLevel: UPLOAD_COMPRESSION_GZIP_LEVEL,
+          rolloutPercent: UPLOAD_COMPRESSION_ROLLOUT_PERCENT
         }
       }
     }));
@@ -2283,7 +2327,8 @@ server.on('request', async (req, res) => {
           success: true,
           fileUrl: meta.fileUrl,
           fileName: meta.fileName,
-          fileSize: meta.fileSize
+          fileSize: meta.fileSize,
+          attachmentStorage: meta.attachmentStorage
         }));
         return;
       }
@@ -2304,15 +2349,15 @@ server.on('request', async (req, res) => {
       const filePath = join(UPLOADS_DIR, fileId);
       const partPath = getResumablePartPath(uploadId);
       const finalPlain = readFileSync(partPath);
-      const storagePayload = maybeCompressUploadPayload(meta.fileName, meta.mimeType || 'application/octet-stream', finalPlain);
-      writeUploadFile(filePath, storagePayload);
+      const storageResult = maybeCompressUploadPayload(meta.fileName, meta.mimeType || 'application/octet-stream', finalPlain, `${ownerKey}:${meta.fileName}:${meta.fileSize}`);
+      writeUploadFile(filePath, storageResult.payload);
       const storedBytes = statSync(filePath).size;
       recordCompressionUploadSample({
         timestamp: Date.now(),
         source: 'resumable-complete',
         fileExt: getFileExtension(meta.fileName),
         mimeType: meta.mimeType || 'application/octet-stream',
-        originalBytes: finalPlain.length,
+        originalBytes: storageResult.meta.originalSize,
         storedBytes,
         durationMs: Date.now() - uploadStartedAt,
         atRestEncrypted: Boolean(FILE_ENCRYPTION_KEY)
@@ -2321,6 +2366,7 @@ server.on('request', async (req, res) => {
 
       meta.status = 'completed';
       meta.fileUrl = `/uploads/${fileId}`;
+      meta.attachmentStorage = { ...storageResult.meta, storedSize: storedBytes };
       meta.updatedAt = Date.now();
       saveResumableMeta(meta);
 
@@ -2329,7 +2375,8 @@ server.on('request', async (req, res) => {
         success: true,
         fileUrl: meta.fileUrl,
         fileName: meta.fileName,
-        fileSize: meta.fileSize
+        fileSize: meta.fileSize,
+        attachmentStorage: meta.attachmentStorage
       }));
     } catch (error) {
       console.error('Resumable upload complete error:', error);
@@ -2344,6 +2391,7 @@ server.on('request', async (req, res) => {
     const userId = getAuthenticatedUserId(req);
     const guestSessionId = getGuestSessionId(req);
     const isGuestSessionValid = !!guestSessionId && sessions.has(guestSessionId);
+    const ownerKey = getUploadOwnerKey(userId, guestSessionId) || `anon:${Date.now()}`;
     const uploadStartedAt = Date.now();
 
     if (!userId && !isGuestSessionValid) {
@@ -2367,7 +2415,7 @@ server.on('request', async (req, res) => {
         if (!boundary) {
           // Handle JSON upload (base64)
           const data = JSON.parse(buffer.toString());
-          const { fileName, fileData, channelId, userId, username } = data;
+          const { fileName, fileData } = data;
 
           // Save file
           const fileId = `${Date.now()}-${fileName}`;
@@ -2383,15 +2431,15 @@ server.on('request', async (req, res) => {
             return;
           }
           const mimeType = getMimeTypeFromDataUrl(fileData || '');
-          const storagePayload = maybeCompressUploadPayload(fileName, mimeType, fileBuffer);
-          writeUploadFile(filePath, storagePayload);
+          const storageResult = maybeCompressUploadPayload(fileName, mimeType, fileBuffer, `${ownerKey}:${fileName}:${fileBuffer.length}`);
+          writeUploadFile(filePath, storageResult.payload);
           const storedBytes = statSync(filePath).size;
           recordCompressionUploadSample({
             timestamp: Date.now(),
             source: 'direct-upload-json',
             fileExt: getFileExtension(fileName),
             mimeType,
-            originalBytes: fileBuffer.length,
+            originalBytes: storageResult.meta.originalSize,
             storedBytes,
             durationMs: Date.now() - uploadStartedAt,
             atRestEncrypted: Boolean(FILE_ENCRYPTION_KEY)
@@ -2404,16 +2452,14 @@ server.on('request', async (req, res) => {
             success: true,
             fileUrl,
             fileName,
-            fileSize: fileBuffer.length
+            fileSize: fileBuffer.length,
+            attachmentStorage: { ...storageResult.meta, storedSize: storedBytes }
           }));
         } else {
           // Handle multipart/form-data upload
           const parts = buffer.toString('binary').split(`--${boundary}`);
           let fileName = '';
           let fileData: Buffer | null = null;
-          let channelId = '';
-          let userId = '';
-          let username = '';
 
           for (const part of parts) {
             if (part.includes('Content-Disposition')) {
@@ -2426,14 +2472,7 @@ server.on('request', async (req, res) => {
                 const dataEnd = part.lastIndexOf('\r\n');
                 fileData = Buffer.from(part.substring(dataStart, dataEnd), 'binary');
               } else if (nameMatch) {
-                const fieldName = nameMatch[1];
-                const dataStart = part.indexOf('\r\n\r\n') + 4;
-                const dataEnd = part.lastIndexOf('\r\n');
-                const value = part.substring(dataStart, dataEnd);
-
-                if (fieldName === 'channelId') channelId = value;
-                if (fieldName === 'userId') userId = value;
-                if (fieldName === 'username') username = value;
+                // Ignore non-file form fields for now.
               }
             }
           }
@@ -2448,15 +2487,15 @@ server.on('request', async (req, res) => {
             if (!existsSync(UPLOADS_DIR)) {
               mkdirSync(UPLOADS_DIR, { recursive: true });
             }
-            const storagePayload = maybeCompressUploadPayload(fileName, 'application/octet-stream', fileData);
-            writeUploadFile(filePath, storagePayload);
+            const storageResult = maybeCompressUploadPayload(fileName, 'application/octet-stream', fileData, `${ownerKey}:${fileName}:${fileData.length}`);
+            writeUploadFile(filePath, storageResult.payload);
             const storedBytes = statSync(filePath).size;
             recordCompressionUploadSample({
               timestamp: Date.now(),
               source: 'direct-upload-multipart',
               fileExt: getFileExtension(fileName),
               mimeType: 'application/octet-stream',
-              originalBytes: fileData.length,
+              originalBytes: storageResult.meta.originalSize,
               storedBytes,
               durationMs: Date.now() - uploadStartedAt,
               atRestEncrypted: Boolean(FILE_ENCRYPTION_KEY)
@@ -2469,7 +2508,8 @@ server.on('request', async (req, res) => {
               success: true,
               fileUrl,
               fileName,
-              fileSize: fileData.length
+              fileSize: fileData.length,
+              attachmentStorage: { ...storageResult.meta, storedSize: storedBytes }
             }));
           } else {
             res.writeHead(400, { "Content-Type": "application/json" });
@@ -4962,8 +5002,9 @@ io.on("connection", (socket) => {
     fileUrl?: string;
     fileName?: string;
     fileSize?: number;
-    files?: { fileUrl: string; fileName: string; fileSize: number; attachmentEncryption?: AttachmentEncryptionMeta }[];
+    files?: { fileUrl: string; fileName: string; fileSize: number; attachmentEncryption?: AttachmentEncryptionMeta; attachmentStorage?: AttachmentStorageMeta }[];
     attachmentEncryption?: AttachmentEncryptionMeta;
+    attachmentStorage?: AttachmentStorageMeta;
     replyTo?: string;
     isSpoiler?: boolean;
     encrypted?: boolean;
@@ -5054,6 +5095,7 @@ io.on("connection", (socket) => {
     if (data.fileSize) message.fileSize = data.fileSize;
     if (data.files) message.files = data.files;
     if (data.attachmentEncryption) message.attachmentEncryption = data.attachmentEncryption;
+    if (data.attachmentStorage) message.attachmentStorage = data.attachmentStorage;
     if (data.replyTo) message.replyTo = data.replyTo;
     if (data.isSpoiler) message.isSpoiler = data.isSpoiler;
     if (data.encrypted) message.encrypted = true;
@@ -5113,6 +5155,7 @@ io.on("connection", (socket) => {
         file_size: data.fileSize,
         files_json: data.files ? JSON.stringify(data.files) : undefined,
         attachment_encryption_json: data.attachmentEncryption ? JSON.stringify(data.attachmentEncryption) : undefined,
+        attachment_storage_json: data.attachmentStorage ? JSON.stringify(data.attachmentStorage) : undefined,
         reply_to_id: data.replyTo,
           is_spoiler: data.isSpoiler ? 1 : 0,
           is_pinned: 0,

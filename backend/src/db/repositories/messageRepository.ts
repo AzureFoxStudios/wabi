@@ -15,6 +15,7 @@ export interface DbMessage {
 	file_size?: number;
 	files_json?: string;
 	attachment_encryption_json?: string;
+	attachment_storage_json?: string;
 	reply_to_id?: string;
 	is_spoiler: number;
 	is_pinned: number;
@@ -43,8 +44,9 @@ export interface ClientMessage {
 	fileUrl?: string;
 	fileName?: string;
 	fileSize?: number;
-	files?: { fileUrl: string; fileName: string; fileSize: number; attachmentEncryption?: { scheme: 'dm-e2ee-v1'; iv: string; mimeType?: string; originalSize?: number } }[];
+	files?: { fileUrl: string; fileName: string; fileSize: number; attachmentEncryption?: { scheme: 'dm-e2ee-v1'; iv: string; mimeType?: string; originalSize?: number }; attachmentStorage?: { scheme: 'wabi-storage-v1'; compressed: boolean; codec: 'identity' | 'gzip'; originalSize: number; storedSize: number; atRestEncrypted: boolean } }[];
 	attachmentEncryption?: { scheme: 'dm-e2ee-v1'; iv: string; mimeType?: string; originalSize?: number };
+	attachmentStorage?: { scheme: 'wabi-storage-v1'; compressed: boolean; codec: 'identity' | 'gzip'; originalSize: number; storedSize: number; atRestEncrypted: boolean };
 	replyTo?: string;
 	isSpoiler?: boolean;
 	isPinned?: boolean;
@@ -62,10 +64,11 @@ export class MessageRepository {
 			INSERT INTO messages (
 				message_id, channel_id, sender_id, sender_username, sender_color,
 				message_type, content, gif_url, file_url, file_name, file_size, files_json, attachment_encryption_json,
+				attachment_storage_json,
 				reply_to_id, is_spoiler, is_pinned, is_edited, reactions_json,
 				is_encrypted, encryption_iv, created_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`);
 
 		const info = stmt.run(
@@ -82,6 +85,7 @@ export class MessageRepository {
 			message.file_size || null,
 			message.files_json || null,
 			message.attachment_encryption_json || null,
+			message.attachment_storage_json || null,
 			message.reply_to_id || null,
 			message.is_spoiler || 0,
 			message.is_pinned || 0,
@@ -216,6 +220,13 @@ export class MessageRepository {
 		if (dbMsg.attachment_encryption_json) {
 			try {
 				msg.attachmentEncryption = JSON.parse(dbMsg.attachment_encryption_json);
+			} catch {
+				// Ignore parse errors
+			}
+		}
+		if (dbMsg.attachment_storage_json) {
+			try {
+				msg.attachmentStorage = JSON.parse(dbMsg.attachment_storage_json);
 			} catch {
 				// Ignore parse errors
 			}

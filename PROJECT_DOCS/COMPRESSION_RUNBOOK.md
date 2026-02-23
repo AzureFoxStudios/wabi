@@ -15,6 +15,8 @@
 - `UPLOAD_COMPRESSION_ENABLED=false` (default off for controlled rollout)
 - `UPLOAD_COMPRESSION_MIN_BYTES=4096`
 - `UPLOAD_COMPRESSION_GZIP_LEVEL=6`
+- `UPLOAD_COMPRESSION_ROLLOUT_PERCENT=100` (set lower for canary)
+- `UPLOAD_COMPRESSION_ROLLOUT_SALT=wabi-upload-rollout`
 
 ## Validation Commands
 1. Build backend:
@@ -29,13 +31,18 @@ cd ..
 npm run bench:compression -- --dir uploads --max-files 500 --max-bytes 8388608
 ```
 
-3. Read live compression config (admin auth required):
+3. Smoke-check storage codec layering (compression + at-rest encryption):
+```bash
+npm run check:compression-storage
+```
+
+4. Read live compression config (admin auth required):
 - `GET /api/admin/compression-config`
 
-4. Read live telemetry (admin auth required):
+5. Read live telemetry (admin auth required):
 - `GET /api/admin/compression-metrics`
 
-5. Reset telemetry window (admin auth required):
+6. Reset telemetry window (admin auth required):
 - `POST /api/admin/compression-metrics/reset`
 
 ## Rollout Sequence

@@ -1076,6 +1076,14 @@
 				fileUrl: string;
 				fileName: string;
 				fileSize: number;
+				attachmentStorage?: {
+					scheme: 'wabi-storage-v1';
+					compressed: boolean;
+					codec: 'identity' | 'gzip';
+					originalSize: number;
+					storedSize: number;
+					atRestEncrypted: boolean;
+				};
 				attachmentEncryption?: {
 					scheme: 'dm-e2ee-v1';
 					iv: string;
@@ -1122,6 +1130,7 @@
 					fileUrl: result.fileUrl,
 					fileName: file.name,
 					fileSize: file.size,
+					attachmentStorage: result.attachmentStorage,
 					attachmentEncryption
 				});
 			}
@@ -1133,6 +1142,7 @@
 					fileUrl: uploadedFiles[0].fileUrl,
 					fileName: uploadedFiles[0].fileName,
 					fileSize: uploadedFiles[0].fileSize,
+					attachmentStorage: uploadedFiles[0].attachmentStorage,
 					attachmentEncryption: uploadedFiles[0].attachmentEncryption,
 					replyTo: replyingTo?.id,
 					isSpoiler: markAsSpoiler
@@ -1187,7 +1197,19 @@
 		channelId: string,
 		onProgress: (fileProgressPercent: number) => void,
 		allowPersistentResume = true
-	): Promise<{ fileUrl: string; fileName: string; fileSize: number }> {
+	): Promise<{
+		fileUrl: string;
+		fileName: string;
+		fileSize: number;
+		attachmentStorage?: {
+			scheme: 'wabi-storage-v1';
+			compressed: boolean;
+			codec: 'identity' | 'gzip';
+			originalSize: number;
+			storedSize: number;
+			atRestEncrypted: boolean;
+		};
+	}> {
 		const serverUrl = getServerUrl();
 		const resumeKey = getResumeStorageKey(channelId, file);
 		const previousUploadId = allowPersistentResume ? (localStorage.getItem(resumeKey) || undefined) : undefined;
@@ -1219,7 +1241,17 @@
 			return {
 				fileUrl: initResult.fileUrl as string,
 				fileName: file.name,
-				fileSize: file.size
+				fileSize: file.size,
+				attachmentStorage: initResult.attachmentStorage as
+					| {
+							scheme: 'wabi-storage-v1';
+							compressed: boolean;
+							codec: 'identity' | 'gzip';
+							originalSize: number;
+							storedSize: number;
+							atRestEncrypted: boolean;
+					  }
+					| undefined
 			};
 		}
 
@@ -1315,7 +1347,17 @@
 		return {
 			fileUrl: completeResult.fileUrl as string,
 			fileName: file.name,
-			fileSize: file.size
+			fileSize: file.size,
+			attachmentStorage: completeResult.attachmentStorage as
+				| {
+						scheme: 'wabi-storage-v1';
+						compressed: boolean;
+						codec: 'identity' | 'gzip';
+						originalSize: number;
+						storedSize: number;
+						atRestEncrypted: boolean;
+				  }
+				| undefined
 		};
 	}
 
