@@ -164,6 +164,53 @@ export interface DownloadLimitConfig {
 
 export type AdminPolicyKey = 'upload_limits' | 'download_limits';
 
+export interface AdminCompressionConfig {
+	httpTextCompression: {
+		enabled: boolean;
+		minBytes: number;
+		brotliQuality: number;
+		gzipLevel: number;
+	};
+	uploadCompression: {
+		enabled: boolean;
+		minBytes: number;
+		gzipLevel: number;
+	};
+}
+
+export interface AdminCompressionMetrics {
+	counters: {
+		uploadCount: number;
+		downloadCount: number;
+		uploadOriginalBytes: number;
+		uploadStoredBytes: number;
+		downloadStoredBytes: number;
+		downloadResponseBytes: number;
+		uploadStoredToOriginalRatio: number | null;
+		downloadResponseToStoredRatio: number | null;
+	};
+	summaryByExt: {
+		uploads: Array<{
+			fileExt: string;
+			count: number;
+			originalBytes: number;
+			storedBytes: number;
+			responseBytes: number;
+		}>;
+		downloads: Array<{
+			fileExt: string;
+			count: number;
+			originalBytes: number;
+			storedBytes: number;
+			responseBytes: number;
+		}>;
+	};
+	recentSamples: {
+		uploads: Array<Record<string, unknown>>;
+		downloads: Array<Record<string, unknown>>;
+	};
+}
+
 export async function getAdminPolicy<T>(token: string, key: AdminPolicyKey): Promise<{
 	key: AdminPolicyKey;
 	config: T;
@@ -221,4 +268,41 @@ export async function getAdminUploadLimits(token: string): Promise<{
 
 export async function saveAdminUploadLimits(token: string, config: UploadLimitConfig): Promise<UploadLimitConfig> {
 	return saveAdminPolicy<UploadLimitConfig>(token, 'upload_limits', config);
+}
+
+export async function getAdminCompressionConfig(token: string): Promise<AdminCompressionConfig> {
+	const res = await fetchWithTimeout(`${SERVER_URL}/api/admin/compression-config`, {
+		method: 'GET',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to load compression config');
+	}
+	const data = await res.json();
+	return data.config as AdminCompressionConfig;
+}
+
+export async function getAdminCompressionMetrics(token: string): Promise<AdminCompressionMetrics> {
+	const res = await fetchWithTimeout(`${SERVER_URL}/api/admin/compression-metrics`, {
+		method: 'GET',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to load compression metrics');
+	}
+	const data = await res.json();
+	return data.metrics as AdminCompressionMetrics;
+}
+
+export async function resetAdminCompressionMetrics(token: string): Promise<void> {
+	const res = await fetchWithTimeout(`${SERVER_URL}/api/admin/compression-metrics/reset`, {
+		method: 'POST',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to reset compression metrics');
+	}
 }

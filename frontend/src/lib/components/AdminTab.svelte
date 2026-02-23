@@ -6,6 +6,13 @@
 	import { getSocket } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { _ } from '$lib/i18n';
+	import {
+		getAdminCompressionConfig,
+		getAdminCompressionMetrics,
+		resetAdminCompressionMetrics,
+		type AdminCompressionConfig,
+		type AdminCompressionMetrics
+	} from '$lib/api';
 
 	type RoleDefinition = {
 		roleName: string;
@@ -38,6 +45,12 @@
 	let selectedRuleEmojiId = '';
 	let selectedRuleRoleName = '';
 	let selectedRuleRemoveOnUnreact = false;
+	let compressionConfig: AdminCompressionConfig | null = null;
+	let compressionMetrics: AdminCompressionMetrics | null = null;
+	let compressionLoading = false;
+	let compressionLoaded = false;
+	let compressionAttempted = false;
+	let compressionError = '';
 	const fallbackRoleLabels: Record<string, string> = {
 		owner: 'Owner',
 		admin: 'Admin',
@@ -80,6 +93,9 @@
 	$: adminCount = $users.filter((u) => u.highestRole === 'admin').length;
 	$: modCount = $users.filter((u) => u.highestRole === 'mod').length;
 	$: guestCount = $users.filter((u) => !u.dbUserId).length;
+	$: if (canManageRoles && !compressionLoaded && !compressionLoading && !compressionAttempted) {
+		void refreshCompressionPanel();
+	}
 
 	function getRolePriority(roleName?: string): number {
 		if (!roleName) return 0;
@@ -181,6 +197,54 @@
 		const sock = getSocket();
 		if (!sock || !canManageRoles) return;
 		sock.emit('delete-emoji-role-rule', { ruleId });
+	}
+
+	function formatBytes(bytes: number): string {
+		if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+		if (bytes < 1024) return `${bytes} B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+		if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+		return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+	}
+
+	function formatRatio(value: number | null): string {
+		if (value == null || !Number.isFinite(value)) return 'n/a';
+		return value.toFixed(3);
+	}
+
+	async function refreshCompressionPanel() {
+		const token = localStorage.getItem('authToken');
+		if (!token) return;
+		compressionAttempted = true;
+		compressionLoading = true;
+		compressionError = '';
+		try {
+			const [config, metrics] = await Promise.all([
+				getAdminCompressionConfig(token),
+				getAdminCompressionMetrics(token)
+			]);
+			compressionConfig = config;
+			compressionMetrics = metrics;
+			compressionLoaded = true;
+		} catch (error) {
+			compressionError = (error as Error).message || 'Failed to load compression panel';
+		} finally {
+			compressionLoading = false;
+		}
+	}
+
+	async function resetCompressionPanelMetrics() {
+		const token = localStorage.getItem('authToken');
+		if (!token) return;
+		compressionLoading = true;
+		compressionError = '';
+		try {
+			await resetAdminCompressionMetrics(token);
+			await refreshCompressionPanel();
+		} catch (error) {
+			compressionError = (error as Error).message || 'Failed to reset compression metrics';
+			compressionLoading = false;
+		}
 	}
 
 	onMount(() => {
@@ -346,6 +410,60 @@
 				{/each}
 			</div>
 		</div>
+
+		<div class="admin-section">
+			<div class="compression-header">
+				<h4>Compression Observability</h4>
+				<div class="compression-actions">
+					<button class="admin-btn" disabled={compressionLoading} on:click={refreshCompressionPanel}>
+						{compressionLoading ? 'Loading...' : 'Refresh'}
+					</button>
+					<button class="admin-btn danger" disabled={compressionLoading} on:click={resetCompressionPanelMetrics}>
+						Reset Metrics
+					</button>
+				</div>
+			</div>
+			{#if compressionError}
+				<div class="admin-empty">{compressionError}</div>
+			{:else if compressionConfig && compressionMetrics}
+				<div class="compression-grid">
+					<div class="compression-stat">
+						<span class="k">HTTP Text</span>
+						<span class="v">{compressionConfig.httpTextCompression.enabled ? 'Enabled' : 'Disabled'}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Upload Compression</span>
+						<span class="v">{compressionConfig.uploadCompression.enabled ? 'Enabled' : 'Disabled'}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Uploads</span>
+						<span class="v">{compressionMetrics.counters.uploadCount}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Downloads</span>
+						<span class="v">{compressionMetrics.counters.downloadCount}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Upload Ratio</span>
+						<span class="v">{formatRatio(compressionMetrics.counters.uploadStoredToOriginalRatio)}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Download Ratio</span>
+						<span class="v">{formatRatio(compressionMetrics.counters.downloadResponseToStoredRatio)}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Upload Bytes</span>
+						<span class="v">{formatBytes(compressionMetrics.counters.uploadStoredBytes)} / {formatBytes(compressionMetrics.counters.uploadOriginalBytes)}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Download Bytes</span>
+						<span class="v">{formatBytes(compressionMetrics.counters.downloadResponseBytes)} / {formatBytes(compressionMetrics.counters.downloadStoredBytes)}</span>
+					</div>
+				</div>
+			{:else}
+				<div class="admin-empty">No compression metrics yet.</div>
+			{/if}
+		</div>
 	{/if}
 
 	<div class="admin-section">
@@ -429,6 +547,12 @@
 	.admin-stat .v { font-size: 0.9rem; font-weight: 700; color: var(--text-primary); }
 	.admin-section { border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem; background: var(--bg-secondary); display: flex; flex-direction: column; gap: 0.45rem; }
 	.admin-section h4 { margin: 0; font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
+	.compression-header { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; }
+	.compression-actions { display: inline-flex; gap: 0.35rem; }
+	.compression-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.35rem; }
+	.compression-stat { display: flex; flex-direction: column; gap: 0.15rem; padding: 0.4rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-tertiary); }
+	.compression-stat .k { font-size: 0.64rem; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.03em; }
+	.compression-stat .v { font-size: 0.78rem; color: var(--text-primary); font-weight: 600; }
 	.role-list, .channel-role-list, .emoji-rule-list, .admin-user-list { display: flex; flex-direction: column; gap: 0.35rem; }
 	.role-item, .channel-role-item, .emoji-rule-item, .admin-user-item { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.45rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-tertiary); }
 	.role-key { width: 80px; font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; }
