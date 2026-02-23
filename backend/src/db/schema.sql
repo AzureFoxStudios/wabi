@@ -157,7 +157,7 @@ CREATE TABLE IF NOT EXISTS channels (
   voice_settings_json TEXT,
   created_at INTEGER NOT NULL,
   created_by TEXT,
-  persist_messages INTEGER DEFAULT 1,
+  persist_messages INTEGER DEFAULT 0,
   is_archived INTEGER DEFAULT 0,
   avatar TEXT,
   parent_channel_id TEXT,

@@ -186,6 +186,7 @@ If you just want to host Wabi, you can ignore plugins at first.
 - Overview: `PROJECT_DOCS/README.md`
 - Architecture: `PROJECT_DOCS/ARCHITECTURE.md`
 - Deployment: `PROJECT_DOCS/DEPLOYMENT.md`
+- Translation guide: `TRANSLATION_GUIDE.md`
 - TURN setup: `PROJECT_DOCS/TURN_SETUP.md`
 - TURN REST auth: `PROJECT_DOCS/TURN_REST_AUTH.md`
 - Calling transport: `PROJECT_DOCS/CALLING_TRANSPORT_ARCHITECTURE.md`

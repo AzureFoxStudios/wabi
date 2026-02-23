@@ -8,6 +8,7 @@ export interface Todo {
 	description?: string;
 	status: TodoStatus;
 	priority: 'low' | 'medium' | 'high' | 'urgent';
+	estimatedMinutes?: number; // Optional estimate used for burndown time tracking
 	dueDate?: number; // timestamp
 	createdAt: number;
 	updatedAt: number;

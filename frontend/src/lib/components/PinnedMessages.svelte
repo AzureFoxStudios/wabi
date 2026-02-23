@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Message, User } from '$lib/socket';
 	import { users, currentChannel, togglePinMessage } from '$lib/socket';
+	import { _ } from '$lib/i18n';
 
 	export let pinnedMessages: Message[];
 
@@ -30,7 +31,7 @@
 	<div class="pinned-container">
 		<div class="pinned-header">
 			<svg class="pinned-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg>
-			<span class="pinned-title">Pinned Messages</span>
+			<span class="pinned-title">{$_('pinned.summary.title')}</span>
 			<span class="pinned-count">({pinnedMessages.length})</span>
 		</div>
 		<div class="pinned-messages">
@@ -43,7 +44,7 @@
 						<span class="pinned-text">{message.text.substring(0, 100)}{message.text.length > 100 ? '...' : ''}</span>
 						<span class="pinned-time">{formatTime(message.timestamp)}</span>
 					</div>
-					<button class="unpin-btn" on:click={() => handleUnpin(message.id)} title="Unpin message">
+					<button class="unpin-btn" on:click={() => handleUnpin(message.id)} title={$_('pinned.actions.unpin_title')}>
 						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"></line><path d="M5 3l14 9-4 1-3 7-3-7-4-1z"></path><line x1="4" y1="4" x2="20" y2="20"></line></svg>
 					</button>
 				</div>

@@ -338,9 +338,8 @@ export class ChatStorage {
 			}
 		}
 	}
-
 	// Load all messages from all archives
-	// Always loads saved messages, regardless of global setting (persistence is per-channel)
+	// When channel configs are provided, only channels with persistMessages=true are loaded.
 	// RAM OPTIMIZATION: Only loads most recent messages per channel to limit memory usage
 	// PAGINATION: Tracks available archives for channels with persistMessages enabled
 	async loadAllMessages(channels?: Channel[]): Promise<LoadMessagesResult> {
@@ -349,6 +348,9 @@ export class ChatStorage {
 
 		const allMessages: Record<string, Message[]> = {};
 		const availableArchives: Record<string, string[]> = {};
+		const persistByChannel = channels
+			? new Map(channels.map((channel) => [channel.id, channel.persistMessages === true]))
+			: null;
 
 		const archives = await this.db.getAllArchives();
 
@@ -356,40 +358,31 @@ export class ChatStorage {
 		for (const archive of archives) {
 			const periodData = archive.data || {};
 
-			// Merge all channels
 			Object.entries(periodData).forEach(([channel, messages]) => {
+				// If caller supplied channel configs, only hydrate channels marked persistent.
+				if (persistByChannel && persistByChannel.get(channel) !== true) {
+					return;
+				}
+
 				if (!allMessages[channel]) allMessages[channel] = [];
 				allMessages[channel].push(...(messages as Message[]));
 
-				// Track available archives for each channel
 				if (!availableArchives[channel]) availableArchives[channel] = [];
 				availableArchives[channel].push(archive.period);
 			});
 		}
 
-		// Sort by timestamp and conditionally prune based on persistMessages flag
+		// Sort by timestamp and keep recent messages in memory
 		Object.keys(allMessages).forEach((channel) => {
 			allMessages[channel].sort((a, b) => a.timestamp - b.timestamp);
 
-			// Check if this channel has persistence enabled
-			const channelConfig = channels?.find((ch) => ch.id === channel);
-			const shouldPersist = channelConfig?.persistMessages === true;
-
-			if (!shouldPersist && allMessages[channel].length > MAX_MESSAGES_PER_CHANNEL) {
-				// Non-persistent channels: prune to 2000 (old behavior)
-				console.log(
-					`📊 Pruning ${channel}: keeping last ${MAX_MESSAGES_PER_CHANNEL} of ${allMessages[channel].length} messages`
-				);
-				allMessages[channel] = allMessages[channel].slice(-MAX_MESSAGES_PER_CHANNEL);
-			} else if (shouldPersist && allMessages[channel].length > MAX_MESSAGES_PER_CHANNEL) {
-				// Persistent channels: keep recent 2000, track available archives for pagination
+			if (allMessages[channel].length > MAX_MESSAGES_PER_CHANNEL) {
 				console.log(
 					`📚 Pagination enabled for ${channel}: loading recent ${MAX_MESSAGES_PER_CHANNEL} of ${allMessages[channel].length} messages (${allMessages[channel].length - MAX_MESSAGES_PER_CHANNEL} available via pagination)`
 				);
 				allMessages[channel] = allMessages[channel].slice(-MAX_MESSAGES_PER_CHANNEL);
 			}
 
-			// Sort available archives oldest-first for pagination
 			if (availableArchives[channel]) {
 				availableArchives[channel].sort();
 			}

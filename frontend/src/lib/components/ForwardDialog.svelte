@@ -1,6 +1,7 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import type { Message } from '$lib/socket';
 	import { channels, currentChannel, socket } from '$lib/socket';
+	import { _ } from '$lib/i18n';
 
 	export let visible: boolean = false;
 	export let message: Message | null = null;
@@ -8,7 +9,6 @@
 	function forwardToChannel(channelId: string) {
 		if (!message || !$socket) return;
 
-		// Send the message to the selected channel
 		$socket.emit('message', {
 			channelId,
 			text: message.text,
@@ -53,12 +53,12 @@
 			}}
 		>
 			<div class="dialog-header">
-				<h3>Forward Message</h3>
-				<button class="close-button" on:click={closeDialog}>✕</button>
+				<h3>{$_('forward_dialog.title')}</h3>
+				<button class="close-button" on:click={closeDialog} aria-label={$_('forward_dialog.close')}>x</button>
 			</div>
 
 			<div class="dialog-content">
-				<p class="dialog-description">Choose a channel to forward this message to:</p>
+				<p class="dialog-description">{$_('forward_dialog.description')}</p>
 
 				<div class="channel-list">
 					{#each $channels as channel}
@@ -69,7 +69,7 @@
 							>
 								<span class="channel-icon">
 									{#if channel.type === 'dm'}
-										💬
+										DM
 									{:else}
 										#
 									{/if}
@@ -127,7 +127,7 @@
 	.close-button {
 		background: none;
 		border: none;
-		font-size: 1.5rem;
+		font-size: 1.2rem;
 		color: var(--modal-text-secondary);
 		cursor: pointer;
 		padding: 0;
@@ -138,6 +138,7 @@
 		justify-content: center;
 		border-radius: 4px;
 		transition: background-color 0.2s;
+		text-transform: uppercase;
 	}
 
 	.close-button:hover {
@@ -181,10 +182,11 @@
 	}
 
 	.channel-icon {
-		font-size: 1.25rem;
+		font-size: 0.95rem;
 		width: 24px;
 		display: inline-block;
 		text-align: center;
+		font-weight: 700;
 	}
 
 	.channel-name {

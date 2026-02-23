@@ -1,8 +1,10 @@
 <script lang="ts">
 	import type { Message } from '$lib/socket';
 	import { currentUser } from '$lib/socket';
+	import { get } from 'svelte/store';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
 	import type { ContextMenuItem } from '$lib/context-menu/types';
+	import { _ } from '$lib/i18n';
 
 	export let message: Message;
 	export let x = 0;
@@ -39,7 +41,7 @@
 		const list: ContextMenuItem[] = [
 			{
 				id: 'reply',
-				label: 'Reply',
+				label: get(_)('context_menu.reply'),
 				icon: 'message-circle',
 				onSelect: onReply
 			}
@@ -48,7 +50,7 @@
 		if (onAddReaction) {
 			list.push({
 				id: 'react',
-				label: 'Add Reaction',
+				label: get(_)('context_menu.add_reaction'),
 				icon: 'smile',
 				onSelect: onAddReaction
 			});
@@ -57,7 +59,7 @@
 		if (hasFile && onDownload) {
 			list.push({
 				id: 'download',
-				label: 'Download',
+				label: get(_)('context_menu.download'),
 				icon: 'download',
 				onSelect: onDownload
 			});
@@ -66,7 +68,7 @@
 		if (onForward) {
 			list.push({
 				id: 'forward',
-				label: 'Forward',
+				label: get(_)('context_menu.forward'),
 				icon: 'forward',
 				onSelect: onForward
 			});
@@ -75,7 +77,7 @@
 		if (isOwnMessage) {
 			list.push({
 				id: 'edit',
-				label: 'Edit Message',
+				label: get(_)('context_menu.edit_message'),
 				icon: 'edit',
 				onSelect: onEdit
 			});
@@ -83,14 +85,14 @@
 
 		list.push({
 			id: 'pin',
-			label: message.isPinned ? 'Unpin Message' : 'Pin Message',
+			label: message.isPinned ? get(_)('context_menu.unpin_message') : get(_)('context_menu.pin_message'),
 			icon: 'pin',
 			onSelect: onPin
 		});
 
 		list.push({
 			id: 'copy',
-			label: 'Copy Text',
+			label: get(_)('context_menu.copy_text'),
 			icon: 'copy',
 			disabled: !canCopyText,
 			onSelect: copyText
@@ -100,7 +102,7 @@
 			list.push({ id: 'danger-divider', type: 'separator' });
 			list.push({
 				id: 'delete',
-				label: 'Delete Message',
+				label: get(_)('context_menu.delete_message'),
 				icon: 'trash-2',
 				danger: true,
 				onSelect: onDelete
@@ -116,6 +118,6 @@
 	{x}
 	{y}
 	{items}
-	ariaLabel="Message actions"
+	ariaLabel={$_('context_menu.aria_label')}
 	on:close={closeMenu}
 />

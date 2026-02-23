@@ -44,6 +44,8 @@
 	let formProjectId: string | null = null;
 	let formDueDate = '';
 	let formAssigneeId: number | null = null;
+	let formHasTimeEstimate = false;
+	let formEstimatedHours = '1';
 	let willSign = false;
 
 	// User and assignee state
@@ -245,6 +247,8 @@
 		formProjectId = todo.projectId || null;
 		formDueDate = todo.dueDate ? new Date(todo.dueDate).toISOString().split('T')[0] : '';
 		formAssigneeId = todo.assignedTo ? parseInt(String(todo.assignedTo), 10) : null;
+		formHasTimeEstimate = typeof todo.estimatedMinutes === 'number' && todo.estimatedMinutes > 0;
+		formEstimatedHours = formHasTimeEstimate ? (todo.estimatedMinutes! / 60).toString() : '1';
 		willSign = !!todo.signedBy;
 		showAddModal = true;
 	}
@@ -295,19 +299,30 @@
 		formAssigneeId = null;
 		userSearchQuery = '';
 		filteredUsers = registeredUsers;
+		formHasTimeEstimate = false;
+		formEstimatedHours = '1';
 		willSign = false;
 	}
 
 	function handleSubmit() {
 		if (!formTitle.trim()) return;
+		const parsedHours = Number.parseFloat(formEstimatedHours);
+		const estimatedMinutes = formHasTimeEstimate && Number.isFinite(parsedHours) && parsedHours > 0
+			? Math.max(1, Math.round(parsedHours * 60))
+			: undefined;
+		const completedAt = targetColumn === 'done'
+			? (editingTodo?.completedAt || Date.now())
+			: undefined;
 
 		const todoData = {
 			title: formTitle.trim(),
 			description: formDescription.trim() || undefined,
 			priority: formPriority,
+			estimatedMinutes,
 			projectId: formProjectId || undefined,
 			dueDate: formDueDate ? new Date(formDueDate).getTime() : undefined,
 			status: targetColumn,
+			completedAt,
 			assignedTo: formAssigneeId?.toString(),
 			createdBy: $currentUser?.dbUserId ? String($currentUser.dbUserId) : ($currentUser?.id || 'unknown'),
 			signedBy: willSign ? ($currentUser?.username || 'Guest') : undefined,
@@ -391,6 +406,11 @@
 		if (diffDays <= 7) return `${diffDays}d`;
 
 		return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+	}
+
+	function formatEstimateHours(minutes: number | undefined): string {
+		if (!minutes || minutes <= 0) return '';
+		return `${(minutes / 60).toFixed(1)}h`;
 	}
 
 	function isOverdue(timestamp: number | undefined): boolean {
@@ -576,6 +596,9 @@
 									<p class="card-description">{todo.description.slice(0, 80)}{todo.description.length > 80 ? '...' : ''}</p>
 								{/if}
 								<div class="card-meta">
+									{#if todo.estimatedMinutes}
+										<span class="card-estimate">{formatEstimateHours(todo.estimatedMinutes)}</span>
+									{/if}
 									{#if todo.assignedTo}
 										<span class="assignee-chip-card">
 											<span class="assignee-dot" style="background-color: {registeredUsers.find(u => u.user_id === parseInt(String(todo.assignedTo), 10))?.color || '#888'}"></span>
@@ -743,6 +766,26 @@
 						<input id="dueDate" type="date" bind:value={formDueDate} />
 					</div>
 				</div>
+
+				<div class="form-group checkbox-group">
+					<label class="checkbox-label">
+						<input type="checkbox" bind:checked={formHasTimeEstimate} />
+						<span>Track time estimate for burndown</span>
+					</label>
+				</div>
+
+				{#if formHasTimeEstimate}
+					<div class="form-group">
+						<label for="estimatedHours">Estimated Time (hours)</label>
+						<input
+							id="estimatedHours"
+							type="number"
+							min="0.25"
+							step="0.25"
+							bind:value={formEstimatedHours}
+						/>
+					</div>
+				{/if}
 
 				<!-- Signature checkbox -->
 				<div class="form-group checkbox-group">
@@ -1260,6 +1303,15 @@
 		display: flex;
 		gap: 0.5rem;
 		flex-wrap: wrap;
+	}
+
+	.card-estimate {
+		font-size: 0.7rem;
+		padding: 0.15rem 0.5rem;
+		border-radius: 4px;
+		font-weight: 600;
+		color: var(--biz-accent, #f59e0b);
+		background: color-mix(in srgb, var(--biz-accent, #f59e0b) 15%, transparent);
 	}
 
 	.card-project {

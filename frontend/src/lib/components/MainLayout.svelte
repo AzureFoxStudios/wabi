@@ -14,6 +14,7 @@
 	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, isVideoOff, toggleVideo } from '$lib/calling';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { onDestroy, onMount } from 'svelte';
+	import { _ } from '$lib/i18n';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 
@@ -146,19 +147,19 @@
 	<nav class="mobile-bottom-nav">
 		<button class:active={!$layoutStore.showMobileChannels && $layoutStore.rightPanelView === 'none'} on:click={() => { layoutStore.showMobileChannels.set(false); layoutStore.rightPanelView.set('none'); }}>
 			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-			<span>Chat</span>
+			<span>{$_('shell.mobile.chat')}</span>
 		</button>
 		<button class:active={$layoutStore.showMobileChannels} on:click={layoutStore.toggleMobileChannels}>
 			<svg width="24" height="24" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
-			<span>Channels</span>
+			<span>{$_('shell.mobile.channels')}</span>
 		</button>
 		<button class:active={$layoutStore.rightPanelView !== 'none'} on:click={layoutStore.toggleMobileUsers}>
 			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-			<span>Users</span>
+			<span>{$_('shell.mobile.users')}</span>
 		</button>
 		<a href="/business" class="nav-link">
 			<svg width="24" height="24" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-			<span>Hub</span>
+			<span>{$_('shell.mobile.hub')}</span>
 		</a>
 	</nav>
 {/if}
@@ -221,7 +222,7 @@
 			class:has-unread={totalUnreadDMs > 0}
 			data-unread={totalUnreadDMs > 99 ? '99+' : totalUnreadDMs}
 			on:click={layoutStore.toggleRightPanel}
-			title="Open side panel"
+			title={$_('shell.open_side_panel')}
 		>
 			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<polyline points="15 18 9 12 15 6"/>
@@ -229,13 +230,15 @@
 		</button>
 
 		{#if showDesktopNotificationRail && unreadDMChannels.length > 0}
-			<div class="dm-notification-rail" aria-label="Unread direct messages">
+			<div class="dm-notification-rail" aria-label={$_('shell.unread_dms')}>
 				{#each unreadDMChannels as channel, index (channel.id)}
 					<button
 						class="dm-notification-stub"
 						style={`animation-delay: ${index * 0.04}s`}
 						on:click={() => openUnreadDM(channel)}
-						title={channel.type === 'group' ? `Open ${channel.name}` : `Open DM with ${getChannelOtherUser(channel)?.username || 'user'}`}
+						title={channel.type === 'group'
+							? $_('shell.open_group', { values: { name: channel.name } })
+							: $_('shell.open_dm_with', { values: { user: getChannelOtherUser(channel)?.username || $_('shell.user_fallback') } })}
 					>
 						{#if channel.type === 'group'}
 							{#if channel.avatar}
@@ -267,12 +270,12 @@
 				type="button"
 				on:click={() => (showVoiceDebugDetails = !showVoiceDebugDetails)}
 				aria-expanded={showVoiceDebugDetails}
-				title="Toggle call diagnostics"
+				title={$_('shell.call.toggle_diagnostics')}
 			>
 				<span class="status-leading">
 					<span class="dot"></span>
 					<span class="voice-status-text">
-						<strong>Voice Connected</strong>
+						<strong>{$_('shell.call.voice_connected')}</strong>
 						<small>{$activeVoiceChannel.name} / {$connectionState}</small>
 					</span>
 				</span>
@@ -293,17 +296,17 @@
 			{/if}
 
 			<div class="voice-channel-meta">
-				<span class="voice-channel-name-label">In voice:</span>
+				<span class="voice-channel-name-label">{$_('shell.call.in_voice')}</span>
 				<strong>{$activeVoiceChannel.name}</strong>
 			</div>
 			<div class="voice-channel-actions">
-				<button class:active={!$isVideoOff} on:click={handleToggleVideoFromStrip} title={$isVideoOff ? 'Turn on camera' : 'Turn off camera'} aria-label={$isVideoOff ? 'Turn on camera' : 'Turn off camera'}>
+				<button class:active={!$isVideoOff} on:click={handleToggleVideoFromStrip} title={$isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera')} aria-label={$isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera')}>
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
 						<path d="M23 7l-7 5 7 5V7z"></path>
 						<rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
 					</svg>
 				</button>
-				<button class="leave icon-only" on:click={handleLeaveVoiceChannel} title="Leave voice" aria-label="Leave voice">
+				<button class="leave icon-only" on:click={handleLeaveVoiceChannel} title={$_('shell.call.leave_voice')} aria-label={$_('shell.call.leave_voice')}>
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
 						<path d="M14 3h7v18h-7"></path>
 						<path d="M10 17l5-5-5-5"></path>

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import type { Message, User } from '$lib/socket';
 	import { users, channels, channelMessages, togglePinMessage } from '$lib/socket';
+	import { _ } from '$lib/i18n';
 
 	export let isOpen = false;
 	export let channelId = '';
@@ -90,15 +91,15 @@
 			}}
 		>
 			<div class="modal-header">
-				<h2><svg class="header-pin-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg> Pinned Messages in #{channelName}</h2>
-				<button class="close-btn" on:click={closeModal}>&times;</button>
+				<h2><svg class="header-pin-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg> {$_('pinned.modal.title', { values: { channel: channelName } })}</h2>
+				<button class="close-btn" on:click={closeModal} aria-label={$_('common.close')}>&times;</button>
 			</div>
 
 			<div class="modal-body">
 				{#if pinnedMessages.length === 0}
 					<div class="empty-state">
-						<p>No pinned messages in this channel</p>
-						<p class="hint">Right-click a message and select "Pin Message" to pin it here.</p>
+						<p>{$_('pinned.modal.empty')}</p>
+						<p class="hint">{$_('pinned.modal.hint')}</p>
 					</div>
 				{:else}
 					<div class="pinned-messages-list">
@@ -112,11 +113,11 @@
 										<span class="timestamp">{formatTime(message.timestamp)}</span>
 									</div>
 									<div class="action-buttons">
-										<button class="jump-btn" on:click={() => jumpToMessage(message.id)} title="Jump to message">
-											Jump to
+										<button class="jump-btn" on:click={() => jumpToMessage(message.id)} title={$_('pinned.actions.jump_title')}>
+											{$_('pinned.actions.jump')}
 										</button>
-										<button class="unpin-btn" on:click={() => handleUnpin(message.id)} title="Unpin message">
-											Unpin
+										<button class="unpin-btn" on:click={() => handleUnpin(message.id)} title={$_('pinned.actions.unpin_title')}>
+											{$_('pinned.actions.unpin')}
 										</button>
 									</div>
 								</div>

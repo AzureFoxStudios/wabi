@@ -5,6 +5,7 @@
 	import { emojis } from '$lib/emoji-store';
 	import { getSocket } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
+	import { _ } from '$lib/i18n';
 
 	type RoleDefinition = {
 		roleName: string;
@@ -213,44 +214,44 @@
 <div class="admin-tab">
 	<div class="admin-header">
 		<div class="admin-title-row">
-			<h3>Admin Dashboard</h3>
-			<span class="admin-role-indicator">You: {getRoleLabel($currentUser?.highestRole || 'member')}</span>
+			<h3>{$_('admin.title')}</h3>
+			<span class="admin-role-indicator">{$_('admin.you')}: {getRoleLabel($currentUser?.highestRole || 'member')}</span>
 		</div>
 		<p class="admin-subtitle">
 			{#if canManageRoles}
-				Manage roles, channel access, and role automations from one panel.
+				{$_('admin.subtitle.manage')}
 			{:else if canModerate}
-				Moderator view: monitor users and start moderation DMs quickly.
+				{$_('admin.subtitle.moderate')}
 			{:else}
-				No moderation privileges detected.
+				{$_('admin.subtitle.none')}
 			{/if}
 		</p>
 	</div>
 
 	<div class="admin-stats">
-		<div class="admin-stat"><span class="k">Users</span><span class="v">{$users.length}</span></div>
-		<div class="admin-stat"><span class="k">Owners</span><span class="v">{ownerCount}</span></div>
-		<div class="admin-stat"><span class="k">Admins</span><span class="v">{adminCount}</span></div>
-		<div class="admin-stat"><span class="k">Mods</span><span class="v">{modCount}</span></div>
-		<div class="admin-stat"><span class="k">Guests</span><span class="v">{guestCount}</span></div>
+		<div class="admin-stat"><span class="k">{$_('admin.stats.users')}</span><span class="v">{$users.length}</span></div>
+		<div class="admin-stat"><span class="k">{$_('admin.stats.owners')}</span><span class="v">{ownerCount}</span></div>
+		<div class="admin-stat"><span class="k">{$_('admin.stats.admins')}</span><span class="v">{adminCount}</span></div>
+		<div class="admin-stat"><span class="k">{$_('admin.stats.mods')}</span><span class="v">{modCount}</span></div>
+		<div class="admin-stat"><span class="k">{$_('admin.stats.guests')}</span><span class="v">{guestCount}</span></div>
 	</div>
 
 	{#if canManageRoles}
 		<div class="admin-section">
-			<h4>Role Names</h4>
+			<h4>{$_('admin.sections.role_names')}</h4>
 			<div class="role-list">
 				{#each roleDefinitions as role (role.roleName)}
 					<div class="role-item">
 						<span class="role-key">{role.roleName}</span>
 						<input class="role-input" bind:value={roleLabelDrafts[role.roleName]} />
-						<button class="admin-btn" on:click={() => saveRoleDisplayName(role.roleName)}>Save</button>
+						<button class="admin-btn" on:click={() => saveRoleDisplayName(role.roleName)}>{$_('common.save')}</button>
 					</div>
 				{/each}
 			</div>
 		</div>
 
 		<div class="admin-section">
-			<h4>Channel Access by Role</h4>
+			<h4>{$_('admin.sections.channel_access')}</h4>
 			<div class="channel-role-list">
 				{#each customChannels as channel (channel.id)}
 					<div class="channel-role-item">
@@ -274,86 +275,86 @@
 		</div>
 
 		<div class="admin-section">
-			<h4>Role Gate Posts</h4>
+			<h4>{$_('admin.sections.role_gate_posts')}</h4>
 			<div class="emoji-rule-create">
 				<select bind:value={roleGateChannelId} class="admin-select">
-					<option value="" disabled selected>Select channel</option>
+					<option value="" disabled selected>{$_('admin.select.channel')}</option>
 					{#each gateChannels as channel (channel.id)}
 						<option value={channel.id}>#{channel.name}</option>
 					{/each}
 				</select>
 				<input
 					class="role-input"
-					placeholder="Role gate title (example: 18+ Access)"
+					placeholder={$_('admin.placeholders.role_gate_title')}
 					bind:value={roleGateTitle}
 				/>
 				<input
 					class="role-input"
-					placeholder="Optional description/instructions"
+					placeholder={$_('admin.placeholders.role_gate_description')}
 					bind:value={roleGateDescription}
 				/>
 				<label class="rule-checkbox">
 					<input type="checkbox" bind:checked={roleGatePersist} />
-					Persist gate post
+					{$_('admin.role_gate.persist')}
 				</label>
-				<button class="admin-btn" on:click={createRoleGatePost}>Create Gate Post</button>
+				<button class="admin-btn" on:click={createRoleGatePost}>{$_('admin.role_gate.create')}</button>
 			</div>
-			<div class="admin-empty">Only reactions on these dedicated gate posts can assign/remove roles.</div>
+			<div class="admin-empty">{$_('admin.role_gate.note')}</div>
 		</div>
 
 		<div class="admin-section">
-			<h4>Emoji Role Automation</h4>
+			<h4>{$_('admin.sections.emoji_role_automation')}</h4>
 			<div class="emoji-rule-create">
 				<select bind:value={selectedRuleChannelId} class="admin-select">
-					<option value="" disabled selected>Select gate channel</option>
+					<option value="" disabled selected>{$_('admin.select.gate_channel')}</option>
 					{#each gateChannels as channel (channel.id)}
 						<option value={channel.id}>#{channel.name}</option>
 					{/each}
 				</select>
 				<select bind:value={selectedRuleMessageId} class="admin-select">
-					<option value="" disabled selected>Select role-gate message</option>
+					<option value="" disabled selected>{$_('admin.select.role_gate_message')}</option>
 					{#each availableRoleGatePosts as post (post.id)}
 						<option value={post.id}>{post.id.slice(0, 18)}... | {post.text.slice(0, 42)}</option>
 					{/each}
 				</select>
 				<select bind:value={selectedRuleEmojiId} class="admin-select">
-					<option value="" disabled selected>Select emoji</option>
+					<option value="" disabled selected>{$_('admin.select.emoji')}</option>
 					{#each $emojis as emoji (emoji.id)}
 						<option value={emoji.id}>{emoji.name}</option>
 					{/each}
 				</select>
 				<select bind:value={selectedRuleRoleName} class="admin-select">
-					<option value="" disabled selected>Select role</option>
+					<option value="" disabled selected>{$_('admin.select.role')}</option>
 					{#each assignableRoleOptions as role (role.roleName)}
 						<option value={role.roleName}>{getRoleLabel(role.roleName)}</option>
 					{/each}
 				</select>
 				<label class="rule-checkbox">
 					<input type="checkbox" bind:checked={selectedRuleRemoveOnUnreact} />
-					Remove on unreact
+					{$_('admin.emoji_rules.remove_on_unreact')}
 				</label>
-				<button class="admin-btn" on:click={addEmojiRoleRule}>Add Rule</button>
+				<button class="admin-btn" on:click={addEmojiRoleRule}>{$_('admin.emoji_rules.add_rule')}</button>
 			</div>
 			<div class="emoji-rule-list">
 				{#each emojiRoleRules as rule (rule.id)}
 					<div class="emoji-rule-item">
-						<span>#{getChannelName(rule.channelId)} | {rule.messageId.slice(0, 18)}... | {rule.emojiId} -> {getRoleLabel(rule.roleName)}{rule.removeOnUnreact ? ' (reversible)' : ''}</span>
-						<button class="admin-btn danger" on:click={() => deleteEmojiRoleRule(rule.id)}>Delete</button>
+						<span>#{getChannelName(rule.channelId)} | {rule.messageId.slice(0, 18)}... | {rule.emojiId} -> {getRoleLabel(rule.roleName)}{rule.removeOnUnreact ? ` (${$_('admin.emoji_rules.reversible')})` : ''}</span>
+						<button class="admin-btn danger" on:click={() => deleteEmojiRoleRule(rule.id)}>{$_('admin.actions.delete')}</button>
 					</div>
 				{:else}
-					<div class="admin-empty">No role-gate rules yet.</div>
+					<div class="admin-empty">{$_('admin.emoji_rules.empty')}</div>
 				{/each}
 			</div>
 		</div>
 	{/if}
 
 	<div class="admin-section">
-		<h4>Users</h4>
+		<h4>{$_('admin.sections.users')}</h4>
 		<div class="admin-search-wrap">
 			<input
 				type="text"
 				class="admin-search"
-				placeholder="Search users by name or handle..."
+				placeholder={$_('admin.placeholders.search_users')}
 				bind:value={searchQuery}
 			/>
 		</div>
@@ -368,48 +369,48 @@
 						{/if}
 					</div>
 					<div class="admin-actions">
-						<button class="admin-btn" on:click={() => handleMessage(user)}>Message</button>
+						<button class="admin-btn" on:click={() => handleMessage(user)}>{$_('admin.actions.message')}</button>
 						{#if canManageRoles}
 							<button
 								class="admin-btn"
 								disabled={!canManageTargetUser(user) || userHasRole(user, 'admin')}
 								on:click={() => promoteUser(user, 'admin')}
 							>
-								Make Admin
+								{$_('admin.actions.make_admin')}
 							</button>
 							<button
 								class="admin-btn"
 								disabled={!canManageTargetUser(user) || !userHasRole(user, 'admin')}
 								on:click={() => removeRoleFromUser(user, 'admin')}
 							>
-								Remove Admin
+								{$_('admin.actions.remove_admin')}
 							</button>
 							<button
 								class="admin-btn"
 								disabled={!canManageTargetUser(user) || userHasRole(user, 'mod')}
 								on:click={() => promoteUser(user, 'mod')}
 							>
-								Make Mod
+								{$_('admin.actions.make_mod')}
 							</button>
 							<button
 								class="admin-btn"
 								disabled={!canManageTargetUser(user) || !userHasRole(user, 'mod')}
 								on:click={() => removeRoleFromUser(user, 'mod')}
 							>
-								Remove Mod
+								{$_('admin.actions.remove_mod')}
 							</button>
 							<button
 								class="admin-btn danger"
 								disabled={!canManageTargetUser(user) || (!userHasRole(user, 'admin') && !userHasRole(user, 'mod'))}
 								on:click={() => resetToMember(user)}
 							>
-								Reset
+								{$_('admin.actions.reset')}
 							</button>
 						{/if}
 					</div>
 				</div>
 			{:else}
-				<div class="admin-empty">No users match your search.</div>
+				<div class="admin-empty">{$_('admin.empty.search')}</div>
 			{/each}
 		</div>
 	</div>

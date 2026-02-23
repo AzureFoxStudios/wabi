@@ -142,11 +142,22 @@
 	}
 
 	// Get burn chart data for selected project
+	let burnRangeSprint: Sprint | null = null;
+	$: {
+		void $sprints;
+		burnRangeSprint = selectedProject ? getActiveOrNextSprint(selectedProject.id) : null;
+	}
 	$: burnChartData = selectedProject ? generateBurnChartData(
 		selectedProject.id,
-		selectedProject.startDate || selectedProject.createdAt,
-		selectedProject.targetEndDate || Date.now()
+		burnRangeSprint?.startDate || selectedProject.startDate || selectedProject.createdAt,
+		burnRangeSprint?.endDate || selectedProject.targetEndDate || Date.now()
 	) : [];
+	$: latestBurnPoint = burnChartData.length ? burnChartData[burnChartData.length - 1] : null;
+
+	function formatHours(value: number | undefined): string {
+		const hours = value || 0;
+		return `${hours.toFixed(1)}h`;
+	}
 
 	// SVG chart dimensions
 	const chartWidth = 600;
@@ -600,6 +611,17 @@
 					<div class="tab-content">
 						{#if burnChartData.length > 1}
 							<div class="chart-container">
+								<div class="burn-summary">
+									<span>
+										Remaining: <strong>{formatHours(latestBurnPoint?.remainingPoints)}</strong>
+									</span>
+									<span>
+										Total Scope: <strong>{formatHours(burnChartData[0]?.totalPoints)}</strong>
+									</span>
+									{#if burnRangeSprint}
+										<span class="burn-range-label">Sprint: {burnRangeSprint.name}</span>
+									{/if}
+								</div>
 								<svg width="100%" viewBox="0 0 {chartWidth} {chartHeight}" preserveAspectRatio="xMidYMid meet">
 									<!-- Grid lines -->
 									<g class="grid-lines">
@@ -661,11 +683,11 @@
 								<div class="chart-legend">
 									<div class="legend-item">
 										<span class="legend-color" style="background: #ef4444"></span>
-										<span>Remaining</span>
+										<span>Remaining Time</span>
 									</div>
 									<div class="legend-item">
 										<span class="legend-color" style="background: #3ba55d"></span>
-										<span>Completed</span>
+										<span>Burned Time</span>
 									</div>
 									<div class="legend-item">
 										<span class="legend-line"></span>
@@ -675,7 +697,7 @@
 							</div>
 						{:else}
 							<div class="no-chart-data">
-								<p>Add tasks to this project to see the burn chart</p>
+								<p>Add tasks with optional time estimates to see the burndown</p>
 							</div>
 						{/if}
 					</div>
@@ -1279,6 +1301,24 @@
 
 	.chart-container {
 		padding: 1rem;
+	}
+
+	.burn-summary {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1rem;
+		margin-bottom: 0.75rem;
+		font-size: 0.85rem;
+		color: var(--biz-text-secondary, #94a3b8);
+	}
+
+	.burn-summary strong {
+		color: var(--biz-text-primary, #f1f5f9);
+	}
+
+	.burn-range-label {
+		color: var(--biz-accent, #f59e0b);
+		font-weight: 600;
 	}
 
 	.chart-legend {

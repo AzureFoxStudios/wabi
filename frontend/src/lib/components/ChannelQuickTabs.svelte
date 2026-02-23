@@ -66,7 +66,12 @@
 	$: mobileTabQueue.pruneChannels(eligibleChannelIds);
 
 	$: if ($currentChannel && $currentChannel !== lastSyncedChannelId && eligibleChannelSet.has($currentChannel)) {
-		mobileTabQueue.setActiveChannel($currentChannel);
+		// Keep channel queue synced, but do not steal focus from addon tabs.
+		if ($activeTabId?.startsWith('addon:')) {
+			mobileTabQueue.enqueueChannel($currentChannel);
+		} else {
+			mobileTabQueue.setActiveChannel($currentChannel);
+		}
 		lastSyncedChannelId = $currentChannel;
 	}
 

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { projects, sprints, todos } from '$lib/business/store';
-	import type { Project, Sprint, Todo } from '$lib/business/types';
+	import type { Project, Sprint } from '$lib/business/types';
 
 	export let selectedProjectId: string | null = null;
 
@@ -9,20 +9,68 @@
 		? $projects.filter(p => p.id === selectedProjectId)
 		: $projects.filter(p => !p.parentId); // Root projects only
 
-	// Calculate timeline bounds
-	$: {
-		const allDates = displayProjects.flatMap(p => [
-			p.startDate || p.createdAt,
-			p.targetEndDate || Date.now()
-		]);
-		minDate = Math.min(...allDates);
-		maxDate = Math.max(...allDates);
+	let minDate = Date.now();
+	let maxDate = Date.now();
+	let monthLabels: Date[] = [];
+	const PIXELS_PER_DAY = 3;
+
+	function getProjectStartDate(project: Project): number {
+		return project.startDate || project.createdAt;
 	}
 
-	let minDate: number;
-	let maxDate: number;
-	const PIXELS_PER_DAY = 3;
-	const ROW_HEIGHT = 40;
+	function getProjectEndDate(project: Project): number {
+		return project.targetEndDate || Date.now();
+	}
+
+	function startOfMonth(timestamp: number): number {
+		const d = new Date(timestamp);
+		return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+	}
+
+	function endOfMonth(timestamp: number): number {
+		const d = new Date(timestamp);
+		return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999).getTime();
+	}
+
+	function buildMonthLabels(start: number, end: number): Date[] {
+		const labels: Date[] = [];
+		const cursor = new Date(start);
+		cursor.setDate(1);
+		cursor.setHours(0, 0, 0, 0);
+
+		const hardStop = new Date(end);
+		hardStop.setDate(1);
+		hardStop.setHours(0, 0, 0, 0);
+
+		while (cursor.getTime() <= hardStop.getTime()) {
+			labels.push(new Date(cursor));
+			cursor.setMonth(cursor.getMonth() + 1);
+		}
+
+		return labels;
+	}
+
+	// Calculate timeline bounds from both project bars and sprint markers
+	$: {
+		const timelineDates: number[] = [];
+		for (const project of displayProjects) {
+			timelineDates.push(getProjectStartDate(project), getProjectEndDate(project));
+			for (const sprint of getSprintsForProject(project.id)) {
+				timelineDates.push(sprint.startDate, sprint.endDate);
+			}
+		}
+
+		if (timelineDates.length === 0) {
+			const now = Date.now();
+			minDate = startOfMonth(now);
+			maxDate = endOfMonth(now);
+		} else {
+			minDate = startOfMonth(Math.min(...timelineDates));
+			maxDate = endOfMonth(Math.max(...timelineDates));
+		}
+
+		monthLabels = buildMonthLabels(minDate, maxDate);
+	}
 
 	// Format date for display
 	function formatDate(timestamp: number): string {
@@ -36,8 +84,9 @@
 	function calculateBar(startDate: number | undefined, endDate: number | undefined) {
 		const start = startDate || minDate;
 		const end = endDate || maxDate;
-		const left = ((start - minDate) / (maxDate - minDate)) * 100;
-		const width = Math.max(2, ((end - start) / (maxDate - minDate)) * 100);
+		const totalRange = Math.max(1, maxDate - minDate);
+		const left = ((start - minDate) / totalRange) * 100;
+		const width = Math.max(2, ((Math.max(end, start) - start) / totalRange) * 100);
 		return { left, width };
 	}
 
@@ -87,9 +136,7 @@
 				<div class="gantt-labels"></div>
 				<div class="gantt-bars">
 					<div class="timeline-months">
-						{#each Array.from({ length: 13 }) as _, i}
-							{@const date = new Date(minDate)}
-							{@const monthDate = new Date(date.getFullYear(), date.getMonth() + i, 1)}
+						{#each monthLabels as monthDate}
 							<div class="month-label">
 								{monthDate.toLocaleDateString('en-US', {
 									month: 'short',
@@ -103,11 +150,12 @@
 
 			<!-- Project rows -->
 			{#each displayProjects as project (project.id)}
+				{@const projectBar = calculateBar(getProjectStartDate(project), getProjectEndDate(project))}
 				<div class="gantt-row">
 					<div class="gantt-label">
 						<div class="project-title">{project.name}</div>
 						<div class="project-meta">
-							{getProgress(project.id)}% • {$todos.filter(t => t.projectId === project.id).length} tasks
+							{getProgress(project.id)}% - {$todos.filter(t => t.projectId === project.id).length} tasks
 						</div>
 					</div>
 
@@ -115,16 +163,13 @@
 						<!-- Main project bar -->
 						<div
 							class="gantt-bar-container"
-							style="left: {calculateBar(project.startDate, project.targetEndDate).left}%;
-                                   width: {calculateBar(project.startDate, project.targetEndDate).width}%"
+							style="left: {projectBar.left}%; width: {projectBar.width}%"
 						>
 							<div
 								class="gantt-bar"
 								class:complete={getProgress(project.id) === 100}
 								style="background-color: {getProgressColor(project)}"
-								title="{formatDate(project.startDate || project.createdAt)} → {formatDate(
-									project.targetEndDate || Date.now()
-								)}"
+								title="{formatDate(getProjectStartDate(project))} -> {formatDate(getProjectEndDate(project))}"
 							>
 								<span class="progress-label">{getProgress(project.id)}%</span>
 							</div>
@@ -293,7 +338,7 @@
 	}
 
 	.gantt-bar.complete::after {
-		content: '✓';
+		content: 'v';
 		position: absolute;
 		right: 4px;
 		color: white;

@@ -9,9 +9,15 @@
 	import { initE2E, clearE2EState } from '$lib/e2eManager';
 	import { initializeAccessibilitySettings } from '$lib/accessibility';
 	import { startupMark, startupMeasure, startupScheduleReport } from '$lib/startupProfiler';
+	import { _ } from '$lib/i18n';
 
 	// Theme system
 	import { initializeTheme, watchThemeChanges, syncThemeToLocalStorage } from '$lib/theme/initTheme';
+
+	// Apply layout-affecting accessibility preferences before first render to avoid CLS.
+	if (typeof window !== 'undefined') {
+		initializeAccessibilitySettings();
+	}
 
 	let loggedIn = typeof window !== 'undefined' && !!localStorage.getItem('username');
 	let isInitialLoad = true;
@@ -36,7 +42,6 @@
 	onMount(() => {
 		let disposed = false;
 		startupMark('page:onMount:start');
-		initializeAccessibilitySettings();
 		startupMark('page:accessibility:ready');
 		startupMeasure('page:accessibility:init', 'page:onMount:start', 'page:accessibility:ready');
 		const handleKeyDown = (e: KeyboardEvent) => {
@@ -75,35 +80,29 @@
 			const savedUsername = localStorage.getItem('username');
 			const savedToken = localStorage.getItem('authToken');
 			if (savedUsername) {
-				// Initialize E2E encryption if registered user (before socket, to validate session)
-				if (savedToken) {
-					const dbUserId = localStorage.getItem('dbUserId');
-					if (dbUserId) {
-						try {
-							startupMark('page:e2e:init:start');
-							await initE2E(parseInt(dbUserId, 10), savedToken, false);
-							startupMark('page:e2e:init:end');
-							startupMeasure('page:e2e:init', 'page:e2e:init:start', 'page:e2e:init:end');
-						} catch (err) {
-							console.error('[App] Cached session invalid, clearing login:', err);
-							localStorage.removeItem('username');
-							localStorage.removeItem('authToken');
-							localStorage.removeItem('dbUserId');
-							localStorage.removeItem('sessionId');
-							loggedIn = false;
-							isBootstrapping = false;
-							showLoadingScreen = false;
-							isInitialLoad = false;
-							return;
-						}
-					}
-				}
-
 				startupMark('page:socket:init:start');
 				initSocket(savedUsername, savedToken || undefined);
 				startupMark('page:socket:init:end');
 				startupMeasure('page:socket:init:call', 'page:socket:init:start', 'page:socket:init:end');
 				loggedIn = true;
+
+				// Initialize E2E in background so it doesn't block initial render and socket startup.
+				if (savedToken) {
+					const dbUserId = localStorage.getItem('dbUserId');
+					if (dbUserId) {
+						scheduleNonCritical(() => {
+							startupMark('page:e2e:init:start');
+							void initE2E(parseInt(dbUserId, 10), savedToken, false)
+								.catch((err) => {
+									console.warn('[App] E2E init failed in background; continuing without E2E for now:', err);
+								})
+								.finally(() => {
+									startupMark('page:e2e:init:end');
+									startupMeasure('page:e2e:init', 'page:e2e:init:start', 'page:e2e:init:end');
+								});
+						});
+					}
+				}
 			}
 
 			const isRegistered = !!savedToken;
@@ -196,7 +195,7 @@
 	<div class="boot-placeholder" aria-hidden="true">
 		<div class="boot-center">
 			<img src="/wabi-logo.webp" alt="Wabi" class="boot-logo" />
-			<div class="boot-title">Starting Wabi</div>
+			<div class="boot-title">{$_('app.starting')}</div>
 		</div>
 	</div>
 {:else if !loggedIn}

@@ -32,6 +32,8 @@
 	let formDueDate = '';
 	let formProjectId = '';
 	let formTags = '';
+	let formHasTimeEstimate = false;
+	let formEstimatedHours = '1';
 	let willSign = false;
 
 	// Filter state
@@ -47,6 +49,8 @@
 		formDueDate = '';
 		formProjectId = '';
 		formTags = '';
+		formHasTimeEstimate = false;
+		formEstimatedHours = '1';
 		willSign = false;
 		editingTodo = null;
 	}
@@ -65,6 +69,8 @@
 		formDueDate = todo.dueDate ? new Date(todo.dueDate).toISOString().split('T')[0] : '';
 		formProjectId = todo.projectId || '';
 		formTags = todo.tags?.join(', ') || '';
+		formHasTimeEstimate = typeof todo.estimatedMinutes === 'number' && todo.estimatedMinutes > 0;
+		formEstimatedHours = formHasTimeEstimate ? (todo.estimatedMinutes! / 60).toString() : '1';
 		willSign = !!todo.signedBy;
 		showAddModal = true;
 	}
@@ -76,12 +82,17 @@
 
 	function handleSubmit() {
 		if (!formTitle.trim()) return;
+		const parsedHours = Number.parseFloat(formEstimatedHours);
+		const estimatedMinutes = formHasTimeEstimate && Number.isFinite(parsedHours) && parsedHours > 0
+			? Math.max(1, Math.round(parsedHours * 60))
+			: undefined;
 
 		const todoData = {
 			title: formTitle.trim(),
 			description: formDescription.trim() || undefined,
 			priority: formPriority,
 			status: formStatus,
+			estimatedMinutes,
 			dueDate: formDueDate ? new Date(formDueDate).getTime() : undefined,
 			projectId: formProjectId || undefined,
 			tags: formTags ? formTags.split(',').map(t => t.trim()).filter(Boolean) : undefined,
@@ -109,7 +120,7 @@
 		if (newStatus === 'done') {
 			completeTodo(todo.id);
 		} else {
-			updateTodo(todo.id, { status: newStatus });
+			updateTodo(todo.id, { status: newStatus, completedAt: undefined });
 		}
 	}
 
@@ -118,6 +129,11 @@
 			month: 'short',
 			day: 'numeric'
 		});
+	}
+
+	function formatEstimateHours(minutes: number | undefined): string {
+		if (!minutes || minutes <= 0) return '';
+		return `${(minutes / 60).toFixed(1)}h`;
 	}
 
 	function isOverdue(todo: Todo): boolean {
@@ -330,6 +346,9 @@
 									<p class="card-desc">{todo.description}</p>
 								{/if}
 								<div class="card-footer">
+									{#if todo.estimatedMinutes}
+										<span class="time-estimate">{formatEstimateHours(todo.estimatedMinutes)}</span>
+									{/if}
 									{#if todo.dueDate}
 										<span class="due-date" class:overdue={isOverdue(todo)}>
 											📅 {formatDate(todo.dueDate)}
@@ -366,6 +385,7 @@
 						<th>Status</th>
 						<th>Title</th>
 						<th>Priority</th>
+						<th>Est.</th>
 						<th>Due Date</th>
 						<th>Actions</th>
 					</tr>
@@ -394,6 +414,13 @@
 								<span class="priority-badge small" style="background-color: {getPriorityColor(todo.priority)}">
 									{todo.priority}
 								</span>
+							</td>
+							<td>
+								{#if todo.estimatedMinutes}
+									<span class="time-estimate">{formatEstimateHours(todo.estimatedMinutes)}</span>
+								{:else}
+									-
+								{/if}
 							</td>
 							<td>
 								{#if todo.dueDate}
@@ -516,6 +543,26 @@
 						</div>
 					{/if}
 				</div>
+
+				<div class="form-group checkbox-group">
+					<label class="checkbox-label">
+						<input type="checkbox" bind:checked={formHasTimeEstimate} />
+						<span>Track time estimate for burndown</span>
+					</label>
+				</div>
+
+				{#if formHasTimeEstimate}
+					<div class="form-group">
+						<label for="estimatedHours">Estimated Time (hours)</label>
+						<input
+							id="estimatedHours"
+							type="number"
+							min="0.25"
+							step="0.25"
+							bind:value={formEstimatedHours}
+						/>
+					</div>
+				{/if}
 
 				<div class="form-group">
 					<label for="tags">Tags (comma separated)</label>
@@ -843,6 +890,12 @@
 	.due-date {
 		font-size: 0.75rem;
 		color: var(--text-secondary, #888);
+	}
+
+	.time-estimate {
+		font-size: 0.75rem;
+		color: var(--accent, #5865f2);
+		font-weight: 600;
 	}
 
 	.due-date.overdue {

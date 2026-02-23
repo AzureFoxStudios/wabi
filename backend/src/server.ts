@@ -4501,21 +4501,29 @@ io.on("connection", (socket) => {
     // Track which channel the user is in
     userCurrentChannel.set(socket.id, channelId);
 
-    // Serve from DB (authoritative) instead of volatile in-memory Map
-    try {
-      const dbMessages = messageRepository.getByChannel(channelId, { limit: 50 });
-      const clientMessages = dbMessages.map(m => messageRepository.toClientFormat(m));
-      const totalCount = messageRepository.getChannelMessageCount(channelId);
-      socket.emit("channel-messages", {
-        channelId,
-        messages: clientMessages,
-        hasMore: totalCount > 50
-      });
-    } catch (err) {
-      // Fallback to in-memory on DB error
-      console.error(`[join-channel] DB query failed for ${channelId}:`, err);
+    if (channel.persistMessages === true) {
+      // Persistent channels: serve from DB (authoritative)
+      try {
+        const dbMessages = messageRepository.getByChannel(channelId, { limit: 50 });
+        const clientMessages = dbMessages.map(m => messageRepository.toClientFormat(m));
+        const totalCount = messageRepository.getChannelMessageCount(channelId);
+        socket.emit("channel-messages", {
+          channelId,
+          messages: clientMessages,
+          hasMore: totalCount > 50
+        });
+      } catch (err) {
+        // Fallback to in-memory on DB error
+        console.error(`[join-channel] DB query failed for ${channelId}:`, err);
+        const messages = channelMessages.get(channelId) || [];
+        const recent = messages.slice(-50);
+        socket.emit("channel-messages", { channelId, messages: recent, hasMore: messages.length > 50 });
+      }
+    } else {
+      // Non-persistent channels: serve only volatile in-memory messages
       const messages = channelMessages.get(channelId) || [];
-      socket.emit("channel-messages", { channelId, messages, hasMore: false });
+      const recent = messages.slice(-50);
+      socket.emit("channel-messages", { channelId, messages: recent, hasMore: messages.length > 50 });
     }
 
     if (ENABLE_LOGGING) console.log(`User ${socket.id} joined channel ${channelId}`);
@@ -4546,24 +4554,58 @@ io.on("connection", (socket) => {
 
     try {
       const limit = data.limit || 50;
-      const dbMessages = messageRepository.getByChannel(data.channelId, {
-        limit,
-        beforeMessageId: data.beforeMessageId,
-        afterMessageId: data.afterMessageId
-      });
 
-      const clientMessages = dbMessages.map(m => messageRepository.toClientFormat(m));
+      if (channel.persistMessages === true) {
+        const dbMessages = messageRepository.getByChannel(data.channelId, {
+          limit,
+          beforeMessageId: data.beforeMessageId,
+          afterMessageId: data.afterMessageId
+        });
+
+        const clientMessages = dbMessages.map(m => messageRepository.toClientFormat(m));
+
+        socket.emit("history-loaded", {
+          channelId: data.channelId,
+          messages: clientMessages,
+          hasMore: dbMessages.length === limit,
+          direction: data.beforeMessageId ? 'older' : data.afterMessageId ? 'newer' : 'initial'
+        });
+
+        if (ENABLE_LOGGING) {
+          console.log(`[load-history] Loaded ${clientMessages.length} messages for ${data.channelId}`);
+        }
+        return;
+      }
+
+      // Non-persistent channels: paginate from in-memory data only.
+      const messages = channelMessages.get(data.channelId) || [];
+      let resultMessages: typeof messages = [];
+      let hasMore = false;
+
+      if (data.beforeMessageId) {
+        const endIndex = messages.findIndex((m) => m.id === data.beforeMessageId);
+        if (endIndex > 0) {
+          const startIndex = Math.max(0, endIndex - limit);
+          resultMessages = messages.slice(startIndex, endIndex);
+          hasMore = startIndex > 0;
+        }
+      } else if (data.afterMessageId) {
+        const startIndex = messages.findIndex((m) => m.id === data.afterMessageId);
+        if (startIndex >= 0) {
+          resultMessages = messages.slice(startIndex + 1, startIndex + 1 + limit);
+          hasMore = startIndex + 1 + limit < messages.length;
+        }
+      } else {
+        resultMessages = messages.slice(-limit);
+        hasMore = messages.length > limit;
+      }
 
       socket.emit("history-loaded", {
         channelId: data.channelId,
-        messages: clientMessages,
-        hasMore: dbMessages.length === limit,
+        messages: resultMessages,
+        hasMore,
         direction: data.beforeMessageId ? 'older' : data.afterMessageId ? 'newer' : 'initial'
       });
-
-      if (ENABLE_LOGGING) {
-        console.log(`[load-history] Loaded ${clientMessages.length} messages for ${data.channelId}`);
-      }
     } catch (error) {
       console.error('[load-history] Failed to load history:', error);
       socket.emit("history-loaded", {
@@ -4717,7 +4759,9 @@ io.on("connection", (socket) => {
     const deletionDuration = channel.autoDeleteAfter || '24h';
     scheduleMessageDeletion(data.channelId, message.id, deletionDuration);
 
-    const shouldPersistMessage = !(data.type === 'role_gate' && data.roleGatePersist === false);
+    const shouldPersistMessage =
+      channel.persistMessages === true &&
+      !(data.type === 'role_gate' && data.roleGatePersist === false);
     if (shouldPersistMessage) {
       // Persist message to database with stable sender ID
       try {
@@ -5435,7 +5479,7 @@ io.on("connection", (socket) => {
       parentChannelId: typeof data === 'string' ? undefined : data.parentChannelId,
       isBreakout: typeof data === 'string' ? false : data.isBreakout === true,
       breakoutIndex: typeof data === 'string' ? undefined : data.breakoutIndex,
-      persistMessages: channelType === 'voice' ? false : true
+      persistMessages: false
     };
 
     channels.set(channelId, channel);
@@ -5715,7 +5759,7 @@ io.on("connection", (socket) => {
       threadLocked: false,
       threadAutoArchiveMinutes,
       threadLastActivityAt: now,
-      persistMessages: parentChannel.persistMessages ?? true
+      persistMessages: parentChannel.persistMessages ?? false
     };
 
     channels.set(channelId, threadChannel);
@@ -5975,7 +6019,7 @@ io.on("connection", (socket) => {
       createdAt: Date.now(),
       type: 'dm',
       members: stableMemberIds,
-      persistMessages: true,
+      persistMessages: false,
       recipientNotified: false
     };
 
@@ -5991,7 +6035,7 @@ io.on("connection", (socket) => {
         name: dmChannel.name,
         created_at: dmChannel.createdAt,
         created_by: myStableId,
-        persist_messages: 1
+        persist_messages: 0
       });
 
       // Add both members with stable IDs and registered_user_id where applicable
@@ -6293,7 +6337,7 @@ io.on("connection", (socket) => {
         name: data.name,
         created_at: groupChannel.createdAt,
         created_by: creatorStableId,
-        persist_messages: 1
+        persist_messages: 0
       });
 
       // Add all members with proper stable IDs and registered_user_id
