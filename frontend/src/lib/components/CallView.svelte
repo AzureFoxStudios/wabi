@@ -16,7 +16,8 @@
 		endCall,
 		toggleMute,
 		toggleDeafen,
-		toggleVideo
+		toggleVideo,
+		isLocalSpeaking
 	} from '$lib/calling';
 	import { getSocket, users, currentUser } from '$lib/socket';
 	import { fade, scale } from 'svelte/transition';
@@ -157,7 +158,11 @@
 				<!-- Participant strip at bottom -->
 				<div class="participant-strip">
 					{#each participants as participant (participant.id)}
-						<div class="participant-thumb" class:speaking={participant.isSpeaking && !participant.isLocal}>
+						<div
+							class="participant-thumb"
+							class:speaking={participant.isSpeaking && !participant.isLocal}
+							transition:scale={{ duration: 200 }}
+						>
 							{#if participant.stream && participant.stream.getVideoTracks().length > 0}
 								<video
 									autoplay
@@ -202,7 +207,11 @@
 
 				<div class="participant-strip">
 					{#each participants as participant (participant.id)}
-						<div class="participant-thumb" class:speaking={participant.isSpeaking && !participant.isLocal}>
+						<div
+							class="participant-thumb"
+							class:speaking={participant.isSpeaking && !participant.isLocal}
+							transition:scale={{ duration: 200 }}
+						>
 							<div
 								class="avatar-thumb"
 								style="background-color: {getAvatarColor(participant.username)}"
@@ -487,6 +496,16 @@
 
 	.participant-thumb.speaking {
 		box-shadow: 0 0 0 3px var(--accent, #4ade80);
+		animation: speakingPulse 1.5s ease-in-out infinite;
+	}
+
+	@keyframes speakingPulse {
+		0%, 100% {
+			box-shadow: 0 0 0 3px var(--accent, #4ade80);
+		}
+		50% {
+			box-shadow: 0 0 0 6px rgba(74, 222, 128, 0.5);
+		}
 	}
 
 	.participant-thumb video {
@@ -705,6 +724,7 @@
 
 	.voice-tile.speaking {
 		box-shadow: 0 0 0 3px var(--accent, #4ade80);
+		animation: speakingPulse 1.5s ease-in-out infinite;
 	}
 
 	.avatar-voice {
