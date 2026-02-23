@@ -181,6 +181,18 @@ Wabi has a modular plugin system in `plugins/` with:
 Plugin authoring guide: `plugins/README.md`  
 If you just want to host Wabi, you can ignore plugins at first.
 
+### Plugin Safe Mode Recovery
+
+If you see logs like `Safe mode: skipping third-party plugin ...`, plugin crash-loop safe mode is active.
+
+To clear previous crash history:
+
+```powershell
+Set-Content -Path backend/data/.plugin-storage/plugin-crash-state.json -Value "{}"
+```
+
+Then restart the backend server and run add-on detection again from Settings if needed.
+
 ## Key docs
 
 - Overview: `PROJECT_DOCS/README.md`

@@ -34,6 +34,7 @@
 	import type { Resource } from '$lib/business/types';
 	import { pinChannel, unpinChannel } from '$lib/socket';
 	import MessageList from './MessageList.svelte';
+	import ChannelQuickTabs from './ChannelQuickTabs.svelte';
 	import PinnedMessages from './PinnedMessages.svelte';
 	import CommandPalette from './CommandPalette.svelte';
 	import AudioRecorder from './AudioRecorder.svelte';
@@ -1722,6 +1723,10 @@
 		</div>
 	</div>
 
+	<div class="chat-tabs-row">
+		<ChannelQuickTabs />
+	</div>
+
 	<!-- TEMPORARY: DMs now render in center like channels -->
 	<div class="messages" bind:this={chatContainer}>
 			{#if !searchInput}
@@ -2146,6 +2151,13 @@
 		color: var(--text-primary);
 	}
 
+	.chat-tabs-row {
+		flex-shrink: 0;
+		background: #505050;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+		z-index: 2;
+	}
+
 	.messages {
 		flex: 1;
 		overflow-y: auto;
@@ -2536,11 +2548,19 @@
 			padding: 0.55rem 0.8rem;
 			height: 50px;
 			gap: 0.5rem;
+			position: relative;
+			justify-content: flex-start;
 		}
 
 		.chat-header h2 {
 			font-size: 0.96rem;
 			min-width: 0;
+			position: absolute;
+			left: 50%;
+			transform: translateX(-50%);
+			width: clamp(120px, 44vw, 260px);
+			justify-content: center;
+			pointer-events: none;
 		}
 
 		.channel-description,
@@ -2548,10 +2568,16 @@
 			display: none;
 		}
 
+		.channel-title {
+			text-align: center;
+			width: 100%;
+		}
+
 		.header-actions {
-			flex: 1;
-			justify-content: flex-end;
+			flex: 0 1 auto;
+			justify-content: flex-start;
 			min-width: 0;
+			width: min(58vw, 250px);
 		}
 
 		.search-container {
@@ -2559,7 +2585,7 @@
 			align-items: center;
 			gap: 0.35rem;
 			min-width: 0;
-			width: min(56vw, 230px);
+			width: 100%;
 		}
 
 		.search-input {

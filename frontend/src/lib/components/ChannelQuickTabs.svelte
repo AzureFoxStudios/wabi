@@ -194,6 +194,10 @@
 	}
 
 	function handleDragStart(tab: RenderTab, event: DragEvent): void {
+		if ($layoutStore.isMobile) {
+			event.preventDefault();
+			return;
+		}
 		if (tab.type !== 'channel' || !tab.channelId) {
 			event.preventDefault();
 			return;
@@ -207,6 +211,7 @@
 	}
 
 	function handleDragOver(tab: RenderTab, event: DragEvent): void {
+		if ($layoutStore.isMobile) return;
 		if (!draggedChannelId || tab.type !== 'channel' || !tab.channelId) return;
 		event.preventDefault();
 		if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
@@ -220,6 +225,10 @@
 	}
 
 	function handleDrop(tab: RenderTab, event: DragEvent): void {
+		if ($layoutStore.isMobile) {
+			event.preventDefault();
+			return;
+		}
 		event.preventDefault();
 		if (!draggedChannelId || tab.type !== 'channel' || !tab.channelId) return;
 		mobileTabQueue.reorderChannelTab(draggedChannelId, tab.channelId, dropPosition);
@@ -267,6 +276,7 @@
 	}
 
 	async function detachTab(tab: RenderTab): Promise<void> {
+		if ($layoutStore.isMobile) return;
 		if (tab.type !== 'channel' || !tab.channelId) return;
 
 		const rawName = tab.label.replace(/^#\s*/, '').trim();
@@ -284,6 +294,7 @@
 	}
 
 	function openTabContextMenu(tab: RenderTab, event: MouseEvent): void {
+		if ($layoutStore.isMobile) return;
 		event.preventDefault();
 		event.stopPropagation();
 		const menuWidth = 176;
@@ -313,6 +324,14 @@
 		if (event.key === 'Escape') {
 			closeTabContextMenu();
 		}
+	}
+
+	function canDragTab(tab: RenderTab): boolean {
+		return !$layoutStore.isMobile && tab.type === 'channel';
+	}
+
+	function canDetachTab(tab: RenderTab): boolean {
+		return !$layoutStore.isMobile && tab.type === 'channel';
 	}
 
 	function activateRelative(direction: -1 | 1): void {
@@ -457,7 +476,7 @@
 					class:last-tab={tabCount >= 2 && tabIndex === tabCount - 1}
 					style={tabInlineStyle(tabIndex)}
 					data-tab-id={tab.id}
-					draggable={tab.type === 'channel'}
+					draggable={canDragTab(tab)}
 					on:dragstart={(event) => handleDragStart(tab, event)}
 					on:dragover={(event) => handleDragOver(tab, event)}
 					on:drop={(event) => handleDrop(tab, event)}
@@ -470,7 +489,7 @@
 					{#if tab.badgeCount > 0}
 						<span class="tab-badge">{tab.badgeCount > 99 ? '99+' : tab.badgeCount}</span>
 					{/if}
-					{#if tab.type === 'channel'}
+					{#if canDetachTab(tab)}
 						<span
 							class="tab-detach"
 							role="button"

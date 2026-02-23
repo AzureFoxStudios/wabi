@@ -37,9 +37,8 @@
 	let contextMenuX = 0;
 	let contextMenuY = 0;
 	let contextMenuMessage: Message | null = null;
-	type TranslatorMode = 'off' | 'on-demand' | 'mixed';
 	type TranslatorSettings = {
-		mode: TranslatorMode;
+		model: string;
 		providerUrl: string;
 		sourceLang: string;
 		targetLang: string;
@@ -339,23 +338,54 @@
 		contextMenuVisible = false;
 	}
 
+	function resolveTranslatorProviderUrl(model: string): string {
+		if (model === 'libretranslate-public') return 'https://libretranslate.com/translate';
+		return 'http://127.0.0.1:5000/translate';
+	}
+
 	function getTranslatorSettings(): TranslatorSettings {
 		if (typeof window === 'undefined') {
-			return { mode: 'off', providerUrl: '', sourceLang: 'auto', targetLang: 'en', useProxy: false };
+			return {
+				model: 'libretranslate-local',
+				providerUrl: resolveTranslatorProviderUrl('libretranslate-local'),
+				sourceLang: 'auto',
+				targetLang: 'en',
+				useProxy: true
+			};
 		}
 		try {
 			const raw = localStorage.getItem(TRANSLATOR_SETTINGS_KEY);
-			if (!raw) return { mode: 'off', providerUrl: '', sourceLang: 'auto', targetLang: 'en', useProxy: false };
+			if (!raw) {
+				return {
+					model: 'libretranslate-local',
+					providerUrl: resolveTranslatorProviderUrl('libretranslate-local'),
+					sourceLang: 'auto',
+					targetLang: 'en',
+					useProxy: true
+				};
+			}
 			const parsed = JSON.parse(raw);
+			const model = typeof parsed?.model === 'string' && parsed.model.trim()
+				? parsed.model.trim()
+				: 'libretranslate-local';
+			const resolvedProviderUrl = typeof parsed?.providerUrl === 'string' && parsed.providerUrl.trim()
+				? parsed.providerUrl.trim()
+				: resolveTranslatorProviderUrl(model);
 			return {
-				mode: parsed?.mode === 'mixed' ? 'mixed' : parsed?.mode === 'on-demand' ? 'on-demand' : 'off',
-				providerUrl: typeof parsed?.providerUrl === 'string' ? parsed.providerUrl.trim() : '',
-				sourceLang: typeof parsed?.sourceLang === 'string' && parsed.sourceLang.trim() ? parsed.sourceLang.trim() : 'auto',
+				model,
+				providerUrl: resolvedProviderUrl,
+				sourceLang: 'auto',
 				targetLang: typeof parsed?.targetLang === 'string' && parsed.targetLang.trim() ? parsed.targetLang.trim() : 'en',
-				useProxy: parsed?.useProxy === true
+				useProxy: parsed?.useProxy !== false
 			};
 		} catch {
-			return { mode: 'off', providerUrl: '', sourceLang: 'auto', targetLang: 'en', useProxy: false };
+			return {
+				model: 'libretranslate-local',
+				providerUrl: resolveTranslatorProviderUrl('libretranslate-local'),
+				sourceLang: 'auto',
+				targetLang: 'en',
+				useProxy: true
+			};
 		}
 	}
 
@@ -414,13 +444,8 @@
 		if (!contextMenuMessage?.text?.trim()) return;
 		const targetMessage = contextMenuMessage;
 		const settings = getTranslatorSettings();
-		if (settings.mode === 'off') {
-			alert('Translator is off. Enable it in Settings > Add-ons > Translator Assist.');
-			contextMenuVisible = false;
-			return;
-		}
 		if (!settings.providerUrl) {
-			alert('Set a translator provider URL in Settings > Add-ons > Translator Assist.');
+			alert('Select a translator model in Settings > Add-ons > Translator Assist.');
 			contextMenuVisible = false;
 			return;
 		}

@@ -170,12 +170,13 @@
 	let addonsImportPreview: { importedAt?: string; frontend?: unknown[]; backend?: unknown[] } | null = null;
 	const frontendAddonModules = import.meta.glob('./plugins/*.svelte');
 	const TRANSLATOR_SETTINGS_KEY = 'addon.translator_assist.settings';
-	type TranslatorMode = 'off' | 'on-demand' | 'mixed';
-	let translatorMode: TranslatorMode = 'off';
-	let translatorProviderUrl = '';
-	let translatorSourceLang = 'auto';
+	type TranslatorModelId = 'libretranslate-local' | 'libretranslate-public';
+	const TRANSLATOR_MODEL_OPTIONS: Array<{ id: TranslatorModelId; label: string; providerUrl: string }> = [
+		{ id: 'libretranslate-local', label: 'LibreTranslate (Local)', providerUrl: 'http://127.0.0.1:5000/translate' },
+		{ id: 'libretranslate-public', label: 'LibreTranslate (Public)', providerUrl: 'https://libretranslate.com/translate' }
+	];
+	let translatorModel: TranslatorModelId = 'libretranslate-local';
 	let translatorTargetLang = 'en';
-	let translatorUseProxy = false;
 	let translatorSettingsSavedAt = '';
 	let translatorAddonDetected = false;
 
@@ -305,6 +306,7 @@
 
 		displayNameDraft = $currentUser?.username || '';
 		loadTranslatorAddonSettings();
+		saveTranslatorAddonSettings();
 	});
 	$: selectedLocale = $currentLocale || 'en';
 	$: uiLearningModeEnabled = $learningModeEnabled;
@@ -909,23 +911,32 @@
 			const raw = localStorage.getItem(TRANSLATOR_SETTINGS_KEY);
 			if (!raw) return;
 			const parsed = JSON.parse(raw);
-			translatorMode = parsed?.mode === 'mixed' ? 'mixed' : parsed?.mode === 'on-demand' ? 'on-demand' : 'off';
-			translatorProviderUrl = typeof parsed?.providerUrl === 'string' ? parsed.providerUrl : '';
-			translatorSourceLang = typeof parsed?.sourceLang === 'string' ? parsed.sourceLang : 'auto';
+			const parsedModel = typeof parsed?.model === 'string' ? parsed.model : '';
+			if (parsedModel === 'libretranslate-local' || parsedModel === 'libretranslate-public') {
+				translatorModel = parsedModel;
+			} else {
+				const providerUrl = typeof parsed?.providerUrl === 'string' ? parsed.providerUrl.trim() : '';
+				if (providerUrl === 'https://libretranslate.com/translate') {
+					translatorModel = 'libretranslate-public';
+				} else {
+					translatorModel = 'libretranslate-local';
+				}
+			}
 			translatorTargetLang = typeof parsed?.targetLang === 'string' ? parsed.targetLang : 'en';
-			translatorUseProxy = parsed?.useProxy === true;
 		} catch {
 			// Ignore malformed local settings
 		}
 	}
 
 	function saveTranslatorAddonSettings(): void {
+		const selectedModel = TRANSLATOR_MODEL_OPTIONS.find((option) => option.id === translatorModel) || TRANSLATOR_MODEL_OPTIONS[0];
 		const payload = {
-			mode: translatorMode,
-			providerUrl: translatorProviderUrl.trim(),
-			sourceLang: translatorSourceLang.trim() || 'auto',
+			mode: 'on-demand',
+			model: selectedModel.id,
+			providerUrl: selectedModel.providerUrl,
+			sourceLang: 'auto',
 			targetLang: translatorTargetLang.trim() || 'en',
-			useProxy: translatorUseProxy
+			useProxy: true
 		};
 		localStorage.setItem(TRANSLATOR_SETTINGS_KEY, JSON.stringify(payload));
 		translatorSettingsSavedAt = new Date().toLocaleTimeString();
@@ -2206,48 +2217,23 @@
 								<div class="setting-item-full">
 									<div class="setting-info">
 										<span class="setting-label">Translator Assist Settings</span>
-										<span class="setting-description">Per-user translation mode and endpoint. This addon is view-only and does not rewrite original messages.</span>
+										<span class="setting-description">Pick a translator model and target language. Source language is auto-detected.</span>
 									</div>
 									<div class="upload-limit-grid">
 										<label class="upload-limit-row">
-											<span>Mode</span>
-											<select bind:value={translatorMode} class="theme-select">
-												<option value="off">Off</option>
-												<option value="on-demand">On-demand only</option>
-												<option value="mixed">Mixed view</option>
+											<span>Model</span>
+											<select bind:value={translatorModel} class="theme-select" on:change={saveTranslatorAddonSettings}>
+												{#each TRANSLATOR_MODEL_OPTIONS as modelOption}
+													<option value={modelOption.id}>{modelOption.label}</option>
+												{/each}
 											</select>
 										</label>
 										<label class="upload-limit-row">
-											<span>Source language</span>
-											<input type="text" maxlength="16" bind:value={translatorSourceLang} placeholder="auto" />
-										</label>
-										<label class="upload-limit-row">
 											<span>Target language</span>
-											<input type="text" maxlength="16" bind:value={translatorTargetLang} placeholder="en" />
+											<input type="text" maxlength="16" bind:value={translatorTargetLang} placeholder="en" on:blur={saveTranslatorAddonSettings} />
 										</label>
 									</div>
-									<label class="upload-limit-row">
-										<span>Provider URL (LibreTranslate endpoint)</span>
-										<input
-											type="text"
-											maxlength="500"
-											bind:value={translatorProviderUrl}
-											placeholder="http://localhost:5000/translate"
-										/>
-									</label>
-									<div class="setting-item">
-										<div class="setting-info">
-											<span class="setting-label">Use backend proxy route</span>
-											<span class="setting-description">If enabled, frontend can call /api/plugins/runtime/translator-assist/translate instead of direct endpoint.</span>
-										</div>
-										<button class="toggle-btn" class:active={translatorUseProxy} on:click={() => (translatorUseProxy = !translatorUseProxy)}>
-											{translatorUseProxy ? 'ON' : 'OFF'}
-										</button>
-									</div>
-									<div class="addons-actions">
-										<button class="action-btn" on:click={saveTranslatorAddonSettings}>Save Translator Settings</button>
-									</div>
-									<div class="runtime-note">A restart is recommended after addon install/update before using translator features.</div>
+									<div class="runtime-note">Settings save automatically.</div>
 									{#if translatorSettingsSavedAt}
 										<div class="runtime-note">Saved at {translatorSettingsSavedAt}</div>
 									{/if}

@@ -5,7 +5,6 @@
 	import { get } from 'svelte/store';
 	import Chat from '$lib/components/Chat.svelte';
 	import ModelViewportTab from '$lib/components/ModelViewportTab.svelte';
-	import ChannelQuickTabs from '$lib/components/ChannelQuickTabs.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
 	import RightPanel from '$lib/components/RightPanel.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
@@ -35,10 +34,17 @@
 	let resizingRight = false;
 	let showVoiceDebugDetails = false;
 	let mobileNavVisible = false;
+	let mobileNavIdleTimer: ReturnType<typeof setTimeout> | null = null;
+	let navTouchStartY = 0;
+	let navTouchDragging = false;
 	let touchStartX = 0;
 	let touchStartY = 0;
 	let touchStartTime = 0;
 	let touchGestureEnabled = false;
+	let touchMovedEnough = false;
+	let swipePreviewActive = false;
+	let swipePreviewTarget: 'none' | 'channels' | 'users' = 'none';
+	let swipePreviewOffsetX = 0;
 	const { activeTabId } = mobileTabQueue;
 	const MODEL_VIEWPORT_TAB_ID = 'model-viewport';
 	const MODEL_VIEWPORT_TAB_TOKEN = mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_TAB_ID);
@@ -48,6 +54,8 @@
 	const MOBILE_EDGE_SWIPE_MAX_MS = 700;
 	const MOBILE_NAV_REVEAL_ZONE_PX = 88;
 	const MOBILE_NAV_SWIPE_MIN_Y_PX = 46;
+	const MOBILE_NAV_IDLE_HIDE_MS = 2200;
+	const MOBILE_NAV_PULL_DOWN_HIDE_PX = 26;
 
 	layoutStore.isResizingChannel.subscribe(v => resizingChannel = v);
 	layoutStore.isResizingRight.subscribe(v => resizingRight = v);
@@ -62,6 +70,10 @@
 
 	onDestroy(() => {
 		mobileTabQueue.unregisterAddonTab(MODEL_VIEWPORT_TAB_ID);
+		if (mobileNavIdleTimer) {
+			clearTimeout(mobileNavIdleTimer);
+			mobileNavIdleTimer = null;
+		}
 	});
 
 	function handleMouseMove(e: MouseEvent) {
@@ -148,6 +160,10 @@
 		touchStartY = 0;
 		touchStartTime = 0;
 		touchGestureEnabled = false;
+		touchMovedEnough = false;
+		swipePreviewActive = false;
+		swipePreviewTarget = 'none';
+		swipePreviewOffsetX = 0;
 	}
 
 	function handleTouchStart(event: TouchEvent): void {
@@ -171,10 +187,65 @@
 		touchStartY = touch.clientY;
 		touchStartTime = Date.now();
 		touchGestureEnabled = true;
+		touchMovedEnough = false;
+	}
+
+	function handleTouchMove(event: TouchEvent): void {
+		if (!$layoutStore.isMobile || !touchGestureEnabled || event.touches.length === 0) return;
+		const touch = event.touches[0];
+		const deltaX = touch.clientX - touchStartX;
+		const deltaY = touch.clientY - touchStartY;
+		// Ignore taps and tiny jitter.
+		if (Math.hypot(deltaX, deltaY) >= 14) {
+			touchMovedEnough = true;
+		}
+
+		const mostlyHorizontal = Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) >= 18;
+		if (!mostlyHorizontal) {
+			swipePreviewActive = false;
+			swipePreviewTarget = 'none';
+			swipePreviewOffsetX = 0;
+			return;
+		}
+
+		const channelsOpen = $layoutStore.showMobileChannels;
+		const usersOpen = $layoutStore.rightPanelView !== 'none';
+		const width = Math.max(window.innerWidth, 1);
+
+		if (channelsOpen) {
+			// Drag left to close channels back to chat.
+			swipePreviewTarget = 'channels';
+			swipePreviewOffsetX = Math.max(-width, Math.min(0, deltaX));
+			swipePreviewActive = true;
+			return;
+		}
+
+		if (usersOpen) {
+			// Drag right to close users back to chat.
+			swipePreviewTarget = 'users';
+			swipePreviewOffsetX = Math.max(0, Math.min(width, deltaX));
+			swipePreviewActive = true;
+			return;
+		}
+
+		// Chat stage: preview opening whichever side user drags toward.
+		if (deltaX > 0) {
+			swipePreviewTarget = 'channels';
+			swipePreviewOffsetX = Math.max(0, Math.min(width, deltaX));
+			swipePreviewActive = true;
+			return;
+		}
+
+		if (deltaX < 0) {
+			swipePreviewTarget = 'users';
+			swipePreviewOffsetX = Math.max(-width, Math.min(0, deltaX));
+			swipePreviewActive = true;
+			return;
+		}
 	}
 
 	function handleTouchEnd(event: TouchEvent): void {
-		if (!$layoutStore.isMobile || !touchGestureEnabled || event.changedTouches.length === 0) {
+		if (!$layoutStore.isMobile || !touchGestureEnabled || !touchMovedEnough || event.changedTouches.length === 0) {
 			resetTouchSwipe();
 			return;
 		}
@@ -183,8 +254,10 @@
 		const deltaX = touch.clientX - touchStartX;
 		const deltaY = touch.clientY - touchStartY;
 		const elapsedMs = Date.now() - touchStartTime;
+		const horizontalMin = Math.max(96, Math.floor(window.innerWidth * 0.22));
+		const verticalMin = Math.max(78, Math.floor(window.innerHeight * 0.09));
 		const isVerticalSwipe =
-			Math.abs(deltaY) >= MOBILE_NAV_SWIPE_MIN_Y_PX &&
+			Math.abs(deltaY) >= Math.max(MOBILE_NAV_SWIPE_MIN_Y_PX, verticalMin) &&
 			Math.abs(deltaY) > Math.abs(deltaX) &&
 			elapsedMs <= MOBILE_EDGE_SWIPE_MAX_MS;
 
@@ -207,7 +280,7 @@
 		}
 
 		const isHorizontalSwipe =
-			Math.abs(deltaX) >= MOBILE_EDGE_SWIPE_MIN_X_PX &&
+			Math.abs(deltaX) >= Math.max(MOBILE_EDGE_SWIPE_MIN_X_PX, horizontalMin) &&
 			Math.abs(deltaY) <= MOBILE_EDGE_SWIPE_MAX_Y_PX &&
 			Math.abs(deltaX) > Math.abs(deltaY) &&
 			elapsedMs <= MOBILE_EDGE_SWIPE_MAX_MS;
@@ -257,6 +330,70 @@
 	function showMobileNav(): void {
 		if (!$layoutStore.isMobile) return;
 		mobileNavVisible = true;
+		scheduleMobileNavIdleHide();
+	}
+
+	function scheduleMobileNavIdleHide(): void {
+		if (!$layoutStore.isMobile || !mobileNavVisible || $layoutStore.isInCall) return;
+		if (mobileNavIdleTimer) clearTimeout(mobileNavIdleTimer);
+		mobileNavIdleTimer = setTimeout(() => {
+			mobileNavVisible = false;
+			mobileNavIdleTimer = null;
+		}, MOBILE_NAV_IDLE_HIDE_MS);
+	}
+
+	function hideMobileNavNow(): void {
+		mobileNavVisible = false;
+		if (mobileNavIdleTimer) {
+			clearTimeout(mobileNavIdleTimer);
+			mobileNavIdleTimer = null;
+		}
+	}
+
+	function handleMobileNavTouchStart(event: TouchEvent): void {
+		if (!$layoutStore.isMobile || !mobileNavVisible || event.touches.length !== 1) return;
+		navTouchStartY = event.touches[0].clientY;
+		navTouchDragging = true;
+		scheduleMobileNavIdleHide();
+	}
+
+	function handleMobileNavTouchMove(event: TouchEvent): void {
+		if (!navTouchDragging || event.touches.length !== 1) return;
+		const deltaY = event.touches[0].clientY - navTouchStartY;
+		if (deltaY >= MOBILE_NAV_PULL_DOWN_HIDE_PX) {
+			hideMobileNavNow();
+			navTouchDragging = false;
+		}
+	}
+
+	function handleMobileNavTouchEnd(): void {
+		navTouchDragging = false;
+		if (mobileNavVisible) scheduleMobileNavIdleHide();
+	}
+
+	function getChannelPreviewTransform(): string {
+		const channelsOpen = $layoutStore.showMobileChannels;
+		if (!swipePreviewActive || swipePreviewTarget !== 'channels') return 'translateX(0)';
+		if (channelsOpen) {
+			return `translateX(${swipePreviewOffsetX}px)`;
+		}
+		return `translateX(calc(-100% + ${Math.max(0, swipePreviewOffsetX)}px))`;
+	}
+
+	function getUsersPreviewTransform(): string {
+		const usersOpen = $layoutStore.rightPanelView !== 'none';
+		if (!swipePreviewActive || swipePreviewTarget !== 'users') return 'translateX(0)';
+		if (usersOpen) {
+			return `translateX(${Math.max(0, swipePreviewOffsetX)}px)`;
+		}
+		return `translateX(calc(100% + ${Math.min(0, swipePreviewOffsetX)}px))`;
+	}
+
+	function getPreviewOpacity(): number {
+		if (!swipePreviewActive || swipePreviewTarget === 'none') return 1;
+		const width = Math.max(window.innerWidth, 1);
+		const p = Math.min(1, Math.abs(swipePreviewOffsetX) / (width * 0.34));
+		return 0.35 + (p * 0.65);
 	}
 
 	$: if ($callMode !== 'channel' || !$activeVoiceChannel) {
@@ -265,6 +402,14 @@
 
 	$: if (!$layoutStore.isMobile || $layoutStore.isInCall) {
 		mobileNavVisible = false;
+		if (mobileNavIdleTimer) {
+			clearTimeout(mobileNavIdleTimer);
+			mobileNavIdleTimer = null;
+		}
+	}
+
+	$: if (mobileNavVisible && $layoutStore.isMobile && !$layoutStore.isInCall) {
+		scheduleMobileNavIdleHide();
 	}
 </script>
 
@@ -272,6 +417,7 @@
 	on:mousemove={handleMouseMove}
 	on:mouseup={stopResize}
 	on:touchstart={handleTouchStart}
+	on:touchmove={handleTouchMove}
 	on:touchend={handleTouchEnd}
 	on:touchcancel={resetTouchSwipe}
 />
@@ -292,15 +438,33 @@
 	{/if}
 	<!-- Mobile Bottom Navigation Bar -->
 	<nav class="mobile-bottom-nav" class:visible={mobileNavVisible}>
-		<button class:active={!$layoutStore.showMobileChannels && $layoutStore.rightPanelView === 'none'} on:click={() => { layoutStore.showMobileChannels.set(false); layoutStore.rightPanelView.set('none'); }}>
+		<button
+			class:active={!$layoutStore.showMobileChannels && $layoutStore.rightPanelView === 'none'}
+			on:click={() => { layoutStore.showMobileChannels.set(false); layoutStore.rightPanelView.set('none'); scheduleMobileNavIdleHide(); }}
+			on:touchstart={handleMobileNavTouchStart}
+			on:touchmove={handleMobileNavTouchMove}
+			on:touchend={handleMobileNavTouchEnd}
+		>
 			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
 			<span>{$_('shell.mobile.chat')}</span>
 		</button>
-		<button class:active={$layoutStore.showMobileChannels} on:click={layoutStore.toggleMobileChannels}>
+		<button
+			class:active={$layoutStore.showMobileChannels}
+			on:click={() => { layoutStore.toggleMobileChannels(); scheduleMobileNavIdleHide(); }}
+			on:touchstart={handleMobileNavTouchStart}
+			on:touchmove={handleMobileNavTouchMove}
+			on:touchend={handleMobileNavTouchEnd}
+		>
 			<svg width="24" height="24" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
 			<span>{$_('shell.mobile.channels')}</span>
 		</button>
-		<button class:active={$layoutStore.rightPanelView !== 'none'} on:click={layoutStore.toggleMobileUsers}>
+		<button
+			class:active={$layoutStore.rightPanelView !== 'none'}
+			on:click={() => { layoutStore.toggleMobileUsers(); scheduleMobileNavIdleHide(); }}
+			on:touchstart={handleMobileNavTouchStart}
+			on:touchmove={handleMobileNavTouchMove}
+			on:touchend={handleMobileNavTouchEnd}
+		>
 			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
 			<span>{$_('shell.mobile.users')}</span>
 		</button>
@@ -318,6 +482,10 @@
 		class="channel-sidebar-container"
 		style:width="{$layoutStore.channelSidebarWidth}px"
 		class:mobile-visible={$layoutStore.showMobileChannels}
+		class:preview-visible={$layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'channels'}
+		style:transform={getChannelPreviewTransform()}
+		style:opacity={getPreviewOpacity()}
+		style:transition={swipePreviewActive ? 'none' : undefined}
 	>
 		<ChannelSidebar on:close={() => layoutStore.showMobileChannels.set(false)} bind:activeView on:logout />
 		<!-- Channel resize handle -->
@@ -328,8 +496,14 @@
 	</div>
 
 	<!-- Mobile Right Panel Overlay -->
-	{#if mobileRightVisible}
-		<div class="mobile-right-overlay">
+	{#if mobileRightVisible || ($layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'users')}
+		<div
+			class="mobile-right-overlay"
+			class:preview-visible={$layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'users'}
+			style:transform={getUsersPreviewTransform()}
+			style:opacity={getPreviewOpacity()}
+			style:transition={swipePreviewActive ? 'none' : undefined}
+		>
 			<RightPanel />
 		</div>
 	{/if}
@@ -337,7 +511,6 @@
 	<!-- Main Content -->
 	<div class="main-content">
 		<div class="chat-stack">
-			<ChannelQuickTabs />
 			<div class="chat-surface">
 				{#if isModelViewportTabActive}
 					<ModelViewportTab />
@@ -723,6 +896,11 @@
 			display: block;
 		}
 
+		.channel-sidebar-container.preview-visible {
+			display: block;
+			pointer-events: none;
+		}
+
 		.mobile-right-overlay {
 			display: flex;
 			flex-direction: column;
@@ -736,6 +914,11 @@
 			background: var(--bg-primary);
 			-ms-overflow-style: none;
 			scrollbar-width: none;
+		}
+
+		.mobile-right-overlay.preview-visible {
+			display: flex;
+			pointer-events: none;
 		}
 
 		.mobile-right-overlay::-webkit-scrollbar {
