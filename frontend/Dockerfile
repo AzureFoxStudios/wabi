@@ -13,7 +13,7 @@ COPY package-lock.json ./
 COPY scripts/fetch-openmoji.sh ./scripts/fetch-openmoji.sh
 
 # Install dependencies with npm
-RUN npm ci
+RUN npm install
 
 # Copy source code
 COPY . .

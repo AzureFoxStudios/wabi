@@ -13,7 +13,7 @@ COPY package-lock.json ./
 COPY scripts/fetch-openmoji.sh ./scripts/fetch-openmoji.sh
 
 # Install all dependencies (including devDependencies)
-RUN npm ci
+RUN npm install
 
 # Rebuild native modules for this Node.js version with build tools
 RUN npm rebuild better-sqlite3
