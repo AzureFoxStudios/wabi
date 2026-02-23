@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync, createReadStream, openSync, closeSync, writeSync } from "fs";
 import { join, basename } from "path";
 import { createHmac, randomBytes, timingSafeEqual, createCipheriv, createDecipheriv, createHash } from "crypto";
+import { brotliCompressSync, constants as zlibConstants, gzipSync, gunzipSync } from "zlib";
 import { PluginLoader } from "./plugins/loader";
 import { getAllEmojis, getEmojiByName, addCustomEmoji, deleteCustomEmoji, type Emoji } from "./emojis";
 
@@ -1073,6 +1074,72 @@ function writeUploadFile(filePath: string, payload: Buffer): void {
   writeFileSync(filePath, maybeEncryptForAtRest(payload));
 }
 
+const UPLOAD_COMPRESSION_ENABLED = (process.env.UPLOAD_COMPRESSION_ENABLED || 'false') === 'true';
+const UPLOAD_COMPRESSION_MIN_BYTES = Math.max(1024, Number(process.env.UPLOAD_COMPRESSION_MIN_BYTES || 4096));
+const UPLOAD_COMPRESSION_GZIP_LEVEL = Math.min(9, Math.max(1, Number(process.env.UPLOAD_COMPRESSION_GZIP_LEVEL || 6)));
+const UPLOAD_COMP_MAGIC = Buffer.from('WBZ1');
+const UPLOAD_COMP_CODEC_GZIP = 1;
+const UPLOAD_COMP_HEADER_SIZE = UPLOAD_COMP_MAGIC.length + 1 + 4;
+const ALREADY_COMPRESSED_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'webm', 'zip', 'pdf', 'gz', 'br', '7z', 'rar']);
+
+const HTTP_TEXT_COMPRESSION_ENABLED = (process.env.HTTP_TEXT_COMPRESSION_ENABLED || 'true') === 'true';
+const HTTP_TEXT_COMPRESSION_MIN_BYTES = Math.max(0, Number(process.env.HTTP_TEXT_COMPRESSION_MIN_BYTES || 1024));
+const HTTP_TEXT_COMPRESSION_BROTLI_QUALITY = Math.min(11, Math.max(1, Number(process.env.HTTP_TEXT_COMPRESSION_BROTLI_QUALITY || 5)));
+const HTTP_TEXT_COMPRESSION_GZIP_LEVEL = Math.min(9, Math.max(1, Number(process.env.HTTP_TEXT_COMPRESSION_GZIP_LEVEL || 6)));
+
+function isCompressibleContentType(contentType: string): boolean {
+  const normalized = (contentType || '').toLowerCase();
+  return (
+    normalized.startsWith('text/') ||
+    normalized.includes('application/json') ||
+    normalized.includes('application/javascript') ||
+    normalized.includes('application/xml') ||
+    normalized.includes('image/svg+xml')
+  );
+}
+
+function chooseEncoding(acceptEncodingHeader: string | string[] | undefined): 'br' | 'gzip' | null {
+  const rawValue = Array.isArray(acceptEncodingHeader)
+    ? acceptEncodingHeader.join(',')
+    : (acceptEncodingHeader || '');
+  const raw = rawValue.toLowerCase();
+  if (!raw) return null;
+  if (raw.includes('br')) return 'br';
+  if (raw.includes('gzip')) return 'gzip';
+  return null;
+}
+
+function maybeCompressTextResponse(
+  req: any,
+  contentType: string,
+  payload: Buffer
+): { payload: Buffer; contentEncoding: 'br' | 'gzip' | null } {
+  if (!HTTP_TEXT_COMPRESSION_ENABLED) return { payload, contentEncoding: null };
+  if (req.method === 'HEAD') return { payload, contentEncoding: null };
+  if (payload.length < HTTP_TEXT_COMPRESSION_MIN_BYTES) return { payload, contentEncoding: null };
+  if (!isCompressibleContentType(contentType)) return { payload, contentEncoding: null };
+
+  const encoding = chooseEncoding(req.headers['accept-encoding']);
+  if (!encoding) return { payload, contentEncoding: null };
+
+  try {
+    const compressed = encoding === 'br'
+      ? brotliCompressSync(payload, {
+        params: {
+          [zlibConstants.BROTLI_PARAM_QUALITY]: HTTP_TEXT_COMPRESSION_BROTLI_QUALITY
+        }
+      })
+      : gzipSync(payload, { level: HTTP_TEXT_COMPRESSION_GZIP_LEVEL });
+    if (compressed.length >= payload.length) {
+      return { payload, contentEncoding: null };
+    }
+    return { payload: compressed, contentEncoding: encoding };
+  } catch (error) {
+    console.warn('[Compression] Failed to compress response, falling back to identity:', error);
+    return { payload, contentEncoding: null };
+  }
+}
+
 function getFileExtension(fileName: string): string {
   const clean = sanitizeUploadFileName(fileName || '');
   const idx = clean.lastIndexOf('.');
@@ -1084,6 +1151,77 @@ function getMimeTypeFromDataUrl(input: string): string {
   if (!input || !input.startsWith('data:')) return 'application/octet-stream';
   const match = input.match(/^data:([^;,]+)[;,]/);
   return match?.[1] || 'application/octet-stream';
+}
+
+function shouldCompressUploadPayload(fileName: string, mimeType: string, payloadSize: number): boolean {
+  if (!UPLOAD_COMPRESSION_ENABLED) return false;
+  if (!Number.isFinite(payloadSize) || payloadSize < UPLOAD_COMPRESSION_MIN_BYTES) return false;
+  const ext = getFileExtension(fileName);
+  if (ALREADY_COMPRESSED_EXTENSIONS.has(ext)) return false;
+  const mime = (mimeType || '').toLowerCase();
+  if (!mime || mime === 'application/octet-stream') return false;
+  if (
+    mime.startsWith('text/') ||
+    mime.includes('application/json') ||
+    mime.includes('application/javascript') ||
+    mime.includes('application/xml') ||
+    mime.includes('image/svg+xml')
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function maybeCompressUploadPayload(fileName: string, mimeType: string, payload: Buffer): Buffer {
+  if (!shouldCompressUploadPayload(fileName, mimeType, payload.length)) {
+    return payload;
+  }
+
+  if (payload.length > 0xffffffff) {
+    return payload;
+  }
+
+  try {
+    const compressed = gzipSync(payload, { level: UPLOAD_COMPRESSION_GZIP_LEVEL });
+    if (compressed.length >= payload.length) {
+      return payload;
+    }
+
+    const header = Buffer.alloc(UPLOAD_COMP_HEADER_SIZE);
+    UPLOAD_COMP_MAGIC.copy(header, 0);
+    header.writeUInt8(UPLOAD_COMP_CODEC_GZIP, UPLOAD_COMP_MAGIC.length);
+    header.writeUInt32BE(payload.length, UPLOAD_COMP_MAGIC.length + 1);
+    return Buffer.concat([header, compressed]);
+  } catch (error) {
+    console.warn('[UploadCompression] Failed to compress upload payload; storing uncompressed', error);
+    return payload;
+  }
+}
+
+function maybeDecompressUploadPayload(buffer: Buffer): { payload: Buffer; compressed: boolean } {
+  if (buffer.length < UPLOAD_COMP_HEADER_SIZE) return { payload: buffer, compressed: false };
+  if (!buffer.slice(0, UPLOAD_COMP_MAGIC.length).equals(UPLOAD_COMP_MAGIC)) {
+    return { payload: buffer, compressed: false };
+  }
+
+  const codec = buffer.readUInt8(UPLOAD_COMP_MAGIC.length);
+  const originalSize = buffer.readUInt32BE(UPLOAD_COMP_MAGIC.length + 1);
+  const payload = buffer.slice(UPLOAD_COMP_HEADER_SIZE);
+
+  try {
+    if (codec === UPLOAD_COMP_CODEC_GZIP) {
+      const decompressed = gunzipSync(payload);
+      if (decompressed.length !== originalSize) {
+        throw new Error(`Size mismatch after gzip decode: expected=${originalSize}, actual=${decompressed.length}`);
+      }
+      return { payload: decompressed, compressed: true };
+    }
+  } catch (error) {
+    console.warn('[UploadCompression] Failed to decompress upload payload; returning stored bytes', error);
+    return { payload: buffer, compressed: false };
+  }
+
+  return { payload: buffer, compressed: false };
 }
 
 function sanitizeUploadFileName(fileName: string): string {
@@ -2138,7 +2276,8 @@ server.on('request', async (req, res) => {
       const filePath = join(UPLOADS_DIR, fileId);
       const partPath = getResumablePartPath(uploadId);
       const finalPlain = readFileSync(partPath);
-      writeUploadFile(filePath, finalPlain);
+      const storagePayload = maybeCompressUploadPayload(meta.fileName, meta.mimeType || 'application/octet-stream', finalPlain);
+      writeUploadFile(filePath, storagePayload);
       const storedBytes = statSync(filePath).size;
       recordCompressionUploadSample({
         timestamp: Date.now(),
@@ -2215,13 +2354,15 @@ server.on('request', async (req, res) => {
           if (!enforceUploadLimit(res, userId, guestSessionId, fileBuffer.length, fileName, 'direct-upload')) {
             return;
           }
-          writeUploadFile(filePath, fileBuffer);
+          const mimeType = getMimeTypeFromDataUrl(fileData || '');
+          const storagePayload = maybeCompressUploadPayload(fileName, mimeType, fileBuffer);
+          writeUploadFile(filePath, storagePayload);
           const storedBytes = statSync(filePath).size;
           recordCompressionUploadSample({
             timestamp: Date.now(),
             source: 'direct-upload-json',
             fileExt: getFileExtension(fileName),
-            mimeType: getMimeTypeFromDataUrl(fileData || ''),
+            mimeType,
             originalBytes: fileBuffer.length,
             storedBytes,
             durationMs: Date.now() - uploadStartedAt,
@@ -2279,7 +2420,8 @@ server.on('request', async (req, res) => {
             if (!existsSync(UPLOADS_DIR)) {
               mkdirSync(UPLOADS_DIR, { recursive: true });
             }
-            writeUploadFile(filePath, fileData);
+            const storagePayload = maybeCompressUploadPayload(fileName, 'application/octet-stream', fileData);
+            writeUploadFile(filePath, storagePayload);
             const storedBytes = statSync(filePath).size;
             recordCompressionUploadSample({
               timestamp: Date.now(),
@@ -3427,13 +3569,26 @@ server.on('request', async (req, res) => {
       const contentType = contentTypes[ext || ''] || 'application/octet-stream';
       let encryptedAtRest = false;
       let decryptedBuffer: Buffer | null = null;
+      let responseBuffer: Buffer | null = null;
+      let compressedAtRest = false;
       let responseSize = stat.size;
       try {
-        const head = readFileSync(filePath);
-        if (head.slice(0, AT_REST_MAGIC.length).equals(AT_REST_MAGIC)) {
+        const storedBuffer = readFileSync(filePath);
+        let plainBuffer = storedBuffer;
+        if (storedBuffer.slice(0, AT_REST_MAGIC.length).equals(AT_REST_MAGIC)) {
           encryptedAtRest = true;
-          decryptedBuffer = maybeDecryptFromAtRest(head);
-          responseSize = decryptedBuffer.length;
+          decryptedBuffer = maybeDecryptFromAtRest(storedBuffer);
+          plainBuffer = decryptedBuffer;
+        }
+
+        const maybeDecompressed = maybeDecompressUploadPayload(plainBuffer);
+        if (maybeDecompressed.compressed) {
+          compressedAtRest = true;
+        }
+        responseBuffer = maybeDecompressed.payload;
+        responseSize = responseBuffer.length;
+        if (encryptedAtRest) {
+          decryptedBuffer = responseBuffer;
         }
       } catch (error) {
         console.error('Upload read/decrypt error:', error);
@@ -3449,7 +3604,7 @@ server.on('request', async (req, res) => {
         'Cache-Control': 'public, max-age=31536000, immutable',
         'ETag': etag,
         'Last-Modified': stat.mtime.toUTCString(),
-        'Accept-Ranges': encryptedAtRest ? 'none' : 'bytes',
+        'Accept-Ranges': (encryptedAtRest || compressedAtRest) ? 'none' : 'bytes',
         'X-Content-Type-Options': 'nosniff',
       };
 
@@ -3469,7 +3624,7 @@ server.on('request', async (req, res) => {
 
       // Range request support (video seeking, download resume)
       const rangeHeader = req.headers.range;
-      if (rangeHeader && !encryptedAtRest) {
+      if (rangeHeader && !encryptedAtRest && !compressedAtRest) {
         const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
         if (match) {
           const start = parseInt(match[1], 10);
@@ -3502,20 +3657,20 @@ server.on('request', async (req, res) => {
       // Full response
       headers['Content-Length'] = responseSize;
       res.writeHead(200, headers);
-      if (encryptedAtRest && decryptedBuffer) {
+      if ((encryptedAtRest || compressedAtRest) && responseBuffer) {
         recordCompressionDownloadSample({
           timestamp: Date.now(),
           fileExt: getFileExtension(fileName),
           mimeType: contentType,
           storedBytes: stat.size,
-          responseBytes: decryptedBuffer.length,
+          responseBytes: responseBuffer.length,
           durationMs: Date.now() - downloadStartedAt,
-          decryptedAtRest: true,
+          decryptedAtRest: encryptedAtRest || compressedAtRest,
           rangeRequest: false,
           streamed: false,
           statusCode: 200
         });
-        res.end(decryptedBuffer);
+        res.end(responseBuffer);
       } else {
         recordCompressionDownloadSample({
           timestamp: Date.now(),
@@ -3555,8 +3710,18 @@ server.on('request', async (req, res) => {
           const indexPath = join(filePath, 'index.html');
           if (existsSync(indexPath)) {
             const file = readFileSync(indexPath);
-            res.writeHead(200, { "Content-Type": 'text/html' });
-            res.end(file);
+            const contentType = 'text/html';
+            const compressed = maybeCompressTextResponse(req, contentType, file);
+            const headers: Record<string, string | number> = {
+              "Content-Type": contentType,
+              "Content-Length": compressed.payload.length
+            };
+            if (compressed.contentEncoding) {
+              headers['Content-Encoding'] = compressed.contentEncoding;
+              headers['Vary'] = 'Accept-Encoding';
+            }
+            res.writeHead(200, headers);
+            res.end(compressed.payload);
             return;
           }
           // Directory exists but no index.html inside
@@ -3592,8 +3757,18 @@ server.on('request', async (req, res) => {
         'zip': 'application/zip'
       };
 
-      res.writeHead(200, { "Content-Type": contentTypes[ext || 'html'] || 'application/octet-stream' });
-      res.end(file);
+      const contentType = contentTypes[ext || 'html'] || 'application/octet-stream';
+      const compressed = maybeCompressTextResponse(req, contentType, file);
+      const headers: Record<string, string | number> = {
+        "Content-Type": contentType,
+        "Content-Length": compressed.payload.length
+      };
+      if (compressed.contentEncoding) {
+        headers['Content-Encoding'] = compressed.contentEncoding;
+        headers['Vary'] = 'Accept-Encoding';
+      }
+      res.writeHead(200, headers);
+      res.end(compressed.payload);
       return;
     }
 
@@ -3602,8 +3777,18 @@ server.on('request', async (req, res) => {
       const indexPath = join(STATIC_DIR, "index.html");
       if (existsSync(indexPath)) {
         const file = readFileSync(indexPath);
-        res.writeHead(200, { "Content-Type": "text/html" });
-        res.end(file);
+        const contentType = "text/html";
+        const compressed = maybeCompressTextResponse(req, contentType, file);
+        const headers: Record<string, string | number> = {
+          "Content-Type": contentType,
+          "Content-Length": compressed.payload.length
+        };
+        if (compressed.contentEncoding) {
+          headers['Content-Encoding'] = compressed.contentEncoding;
+          headers['Vary'] = 'Accept-Encoding';
+        }
+        res.writeHead(200, headers);
+        res.end(compressed.payload);
         return;
       }
     }
