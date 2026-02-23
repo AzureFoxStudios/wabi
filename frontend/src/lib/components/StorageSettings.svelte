@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { chatStorage, type RotationPeriod, type StorageStats } from '$lib/storage';
 	import { onMount } from 'svelte';
+	import { get } from 'svelte/store';
+	import { _ } from '$lib/i18n';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import {
 		isRunningInTauri,
@@ -26,6 +28,10 @@
 	let tauriDataPath = '';
 	let tauriExporting = false;
 	let showTauriClearConfirm = false;
+	function t(key: string, values?: Record<string, unknown>): string {
+		if (values) return get(_)(key, { values } as any);
+		return get(_)(key);
+	}
 
 	function formatBytes(bytes: number): string {
 		if (bytes === 0) return '0 B';
@@ -121,9 +127,9 @@
 		tauriExporting = true;
 		try {
 			const zipPath = await exportTauriDataAsZip();
-			alert(`✅ Data exported successfully!\n\nLocation: ${zipPath}`);
+			alert(t('storage.alerts.export_success', { path: zipPath }));
 		} catch (error) {
-			alert(`❌ Export failed: ${error}`);
+			alert(t('storage.alerts.export_failed', { error: String(error) }));
 		} finally {
 			tauriExporting = false;
 		}
@@ -137,9 +143,9 @@
 		try {
 			await clearTauriData();
 			showTauriClearConfirm = false;
-			alert('✅ Tauri data cleared successfully');
+			alert(t('storage.alerts.tauri_clear_success'));
 		} catch (error) {
-			alert(`❌ Clear failed: ${error}`);
+			alert(t('storage.alerts.clear_failed', { error: String(error) }));
 		}
 	}
 
@@ -148,13 +154,13 @@
 		try {
 			localStorage.setItem('tauriStorageEnabled', String(tauriStorageEnabled));
 			if (tauriStorageEnabled) {
-				alert('✅ Tauri storage enabled! Your data will auto-save every 30 seconds.');
+				alert(t('storage.alerts.tauri_enabled'));
 			} else {
-				alert('⚠️ Tauri storage disabled. Your data will not be auto-saved.');
+				alert(t('storage.alerts.tauri_disabled'));
 			}
 		} catch (error) {
 			console.error('Failed to save Tauri storage setting:', error);
-			alert('Failed to save setting');
+			alert(t('storage.alerts.save_setting_failed'));
 		}
 	}
 
@@ -180,9 +186,9 @@
 	{#if isTauri}
 		<div class="tauri-section">
 			<div class="header">
-				<h3>🖥️ Tauri Desktop Storage</h3>
+				<h3>🖥️ {$_('storage.tauri.title')}</h3>
 				<p class="subtitle">
-					Your data is stored in organized sidecar files that you can manage, backup, and export.
+					{$_('storage.tauri.subtitle')}
 					{#if tauriDataPath}
 						<br />
 						<code class="path">{tauriDataPath}</code>
@@ -193,11 +199,10 @@
 			<div class="setting-group">
 				<label class="toggle-setting">
 					<input type="checkbox" bind:checked={tauriStorageEnabled} on:change={toggleTauriStorage} />
-					<span class="toggle-label">Enable Tauri Desktop Storage (auto-save every 30s)</span>
+					<span class="toggle-label">{$_('storage.tauri.enable_toggle')}</span>
 				</label>
 				<p class="hint">
-					When enabled, your messages are automatically saved to %APPDATA%/Wabi every 30 seconds in organized yearly files.
-					You can disable this anytime without losing existing data.
+					{$_('storage.tauri.enable_hint')}
 				</p>
 			</div>
 
@@ -209,10 +214,10 @@
 						on:click={exportTauriData}
 						disabled={tauriExporting}
 					>
-						{tauriExporting ? '📦 Exporting...' : '📦 Export as ZIP'}
+						{tauriExporting ? $_('storage.tauri.exporting') : $_('storage.tauri.export_zip')}
 					</button>
 					<p class="hint">
-						Download all your messages and attachments as a portable ZIP file. Perfect for backups!
+						{$_('storage.tauri.export_hint')}
 					</p>
 				</div>
 			</div>
@@ -220,9 +225,9 @@
 			<div class="setting-group">
 				<div class="tauri-actions">
 					<button class="btn-danger" on:click={confirmTauriClear}>
-						🗑️ Clear All Tauri Data
+						🗑️ {$_('storage.tauri.clear_all')}
 					</button>
-					<p class="hint">Delete all locally stored data. This cannot be undone.</p>
+					<p class="hint">{$_('storage.tauri.clear_hint')}</p>
 				</div>
 			</div>
 			{/if}
@@ -232,63 +237,63 @@
 	{/if}
 
 	<div class="header">
-		<h3>💾 Browser Storage</h3>
-		<p class="subtitle">Your chat history is saved only on your device. The server stores nothing permanently.</p>
+		<h3>💾 {$_('storage.browser.title')}</h3>
+		<p class="subtitle">{$_('storage.browser.subtitle')}</p>
 	</div>
 
 	<div class="setting-group">
 		<label class="toggle-setting">
 			<input type="checkbox" bind:checked={saveHistory} on:change={toggleStorage} />
-			<span class="toggle-label">Save chat history locally</span>
+			<span class="toggle-label">{$_('storage.browser.save_toggle')}</span>
 		</label>
-		<p class="hint">When enabled, messages are stored in your browser. You control your data.</p>
+		<p class="hint">{$_('storage.browser.save_hint')}</p>
 	</div>
 
 	{#if saveHistory}
 		<div class="stats-panel">
 			<div class="stat">
-				<div class="stat-label">Total Messages</div>
+				<div class="stat-label">{$_('storage.stats.total_messages')}</div>
 				<div class="stat-value">{stats.totalMessages.toLocaleString()}</div>
 			</div>
 			<div class="stat">
-				<div class="stat-label">Storage Used</div>
+				<div class="stat-label">{$_('storage.stats.storage_used')}</div>
 				<div class="stat-value">{formatBytes(stats.totalSize)}</div>
 			</div>
 			<div class="stat">
-				<div class="stat-label">Archives</div>
+				<div class="stat-label">{$_('storage.stats.archives')}</div>
 				<div class="stat-value">{stats.archives.length}</div>
 			</div>
 		</div>
 
 		<div class="setting-group">
 			<label>
-				<span class="label">Rotation Period</span>
+				<span class="label">{$_('storage.browser.rotation_period')}</span>
 				<select bind:value={rotationPeriod} on:change={updateRotationPeriod}>
-					<option value="week">Weekly</option>
-					<option value="month">Monthly</option>
-					<option value="half-year">Every 6 Months</option>
-					<option value="year">Yearly</option>
+					<option value="week">{$_('storage.rotation.weekly')}</option>
+					<option value="month">{$_('storage.rotation.monthly')}</option>
+					<option value="half-year">{$_('storage.rotation.half_year')}</option>
+					<option value="year">{$_('storage.rotation.yearly')}</option>
 				</select>
 			</label>
-			<p class="hint">How often to create a new archive file (like changing batteries)</p>
+			<p class="hint">{$_('storage.browser.rotation_hint')}</p>
 		</div>
 
 		<div class="setting-group">
 			<label>
-				<span class="label">Keep Last</span>
+				<span class="label">{$_('storage.browser.keep_last')}</span>
 				<div class="number-input-group">
 					<input type="number" bind:value={maxArchives} on:change={updateMaxArchives} min="1" max="52" />
-					<span class="unit">archives</span>
+					<span class="unit">{$_('storage.browser.archives_unit')}</span>
 				</div>
 			</label>
-			<p class="hint">Older archives are automatically deleted to save space</p>
+			<p class="hint">{$_('storage.browser.keep_last_hint')}</p>
 		</div>
 
 		{#if stats.archives.length > 0}
 			<div class="archives-section">
 				<div class="section-header">
-					<h4>Archive History</h4>
-					<button class="btn-small" on:click={exportAll}>📦 Export All</button>
+					<h4>{$_('storage.browser.archive_history')}</h4>
+					<button class="btn-small" on:click={exportAll}>📦 {$_('storage.actions.export_all')}</button>
 				</div>
 				<div class="archive-list">
 					{#each stats.archives as archive}
@@ -296,14 +301,14 @@
 							<div class="archive-info">
 								<span class="archive-period">{formatPeriod(archive.period)}</span>
 								<span class="archive-meta">
-									{formatBytes(archive.size)} • {archive.messageCount.toLocaleString()} messages
+									{$_('storage.browser.archive_meta', { values: { size: formatBytes(archive.size), count: archive.messageCount.toLocaleString() } })}
 								</span>
 							</div>
 							<div class="archive-actions">
-								<button class="btn-icon" on:click={() => exportArchive(archive.period)} title="Export">
+								<button class="btn-icon" on:click={() => exportArchive(archive.period)} title={$_('storage.actions.export')}>
 									💾
 								</button>
-								<button class="btn-icon danger" on:click={() => deleteArchive(archive.period)} title="Delete">
+								<button class="btn-icon danger" on:click={() => deleteArchive(archive.period)} title={$_('storage.actions.delete')}>
 									🗑️
 								</button>
 							</div>
@@ -313,13 +318,13 @@
 			</div>
 		{:else}
 			<div class="empty-state">
-				<p>No archives yet. Messages will be saved as you chat.</p>
+				<p>{$_('storage.browser.no_archives')}</p>
 			</div>
 		{/if}
 
 		<div class="actions">
 			<button class="btn-danger" on:click={clearAll}>
-				🗑️ Clear All History
+				🗑️ {$_('storage.actions.clear_all_history')}
 			</button>
 		</div>
 	{/if}
@@ -327,9 +332,9 @@
 
 <ConfirmDialog
 	isOpen={showDisableStorageConfirm}
-	title="Disable Local Storage"
-	message="Disable local storage? Your saved history will remain until you clear it manually."
-	confirmText="Disable"
+	title={$_('storage.confirm.disable_local_title')}
+	message={$_('storage.confirm.disable_local_message')}
+	confirmText={$_('storage.confirm.disable_local_confirm')}
 	variant="warning"
 	onConfirm={confirmDisableStorage}
 	onCancel={cancelDisableStorage}
@@ -337,9 +342,9 @@
 
 <ConfirmDialog
 	isOpen={showDeleteArchiveConfirm}
-	title="Delete Archive"
-	message={`Delete archive "${formatPeriod(archiveToDelete)}"?`}
-	confirmText="Delete"
+	title={$_('storage.confirm.delete_archive_title')}
+	message={$_('storage.confirm.delete_archive_message', { values: { period: formatPeriod(archiveToDelete) } })}
+	confirmText={$_('storage.confirm.delete_archive_confirm')}
 	variant="danger"
 	onConfirm={confirmDeleteArchive}
 	onCancel={() => showDeleteArchiveConfirm = false}
@@ -347,9 +352,9 @@
 
 <ConfirmDialog
 	isOpen={showDeleteAllConfirm}
-	title="Delete All History"
-	message="Delete ALL saved chat history? This cannot be undone!"
-	confirmText="Delete All"
+	title={$_('storage.confirm.delete_all_title')}
+	message={$_('storage.confirm.delete_all_message')}
+	confirmText={$_('storage.confirm.delete_all_confirm')}
 	variant="danger"
 	onConfirm={confirmClearAll}
 	onCancel={() => showDeleteAllConfirm = false}
@@ -358,9 +363,9 @@
 {#if isTauri}
 	<ConfirmDialog
 		isOpen={showTauriClearConfirm}
-		title="Clear Tauri Data"
-		message="Delete ALL locally stored data? This includes all messages and attachments. This cannot be undone!"
-		confirmText="Clear All"
+		title={$_('storage.confirm.clear_tauri_title')}
+		message={$_('storage.confirm.clear_tauri_message')}
+		confirmText={$_('storage.confirm.clear_tauri_confirm')}
 		variant="danger"
 		onConfirm={confirmClearTauriData}
 		onCancel={() => (showTauriClearConfirm = false)}

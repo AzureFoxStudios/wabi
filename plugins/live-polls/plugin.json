@@ -1,0 +1,36 @@
+{
+  "id": "live-polls",
+  "name": "Live Polls",
+  "version": "0.1.0",
+  "description": "Quick polls for channels, DMs, and group DMs.",
+  "author": "Community",
+  "enabled": true,
+  "backend": {
+    "entry": "./backend/index.ts",
+    "socketEvents": [
+      "poll:create",
+      "poll:vote",
+      "poll:close",
+      "poll:get-state"
+    ]
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "extensions": {
+      "commands": [
+        "/poll"
+      ]
+    }
+  },
+  "permissions": [
+    "channels:read",
+    "messages:write"
+  ],
+  "security": {
+    "threatNotes": "Poll payloads are validated and kept in plugin storage; no elevated permissions are required."
+  },
+  "capabilities": {
+    "tier": "ui-only",
+    "notes": "Lightweight engagement feature for chat surfaces."
+  }
+}

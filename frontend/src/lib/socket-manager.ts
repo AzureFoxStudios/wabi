@@ -1678,6 +1678,14 @@ export async function sendMessage(channelId: string, text: string, type: 'text' 
 	fileName?: string;
 	fileSize?: number;
 	files?: FileAttachment[];
+	attachmentStorage?: {
+		scheme: 'wabi-storage-v1';
+		compressed: boolean;
+		codec: 'identity' | 'gzip';
+		originalSize: number;
+		storedSize: number;
+		atRestEncrypted: boolean;
+	};
 	attachmentEncryption?: {
 		scheme: 'dm-e2ee-v1';
 		iv: string;

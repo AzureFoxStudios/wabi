@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { on } from 'svelte/events';
+  import { get } from 'svelte/store';
+  import { _ } from '$lib/i18n';
 
   export let isOpen = false;
 
@@ -20,6 +22,7 @@
   let error: string | null = null;
   let permissionDenied = false;
   let hasMultipleCameras = false;
+  const t = (key: string) => get(_)(key);
 
   // Start camera
   async function startCamera() {
@@ -47,12 +50,12 @@
       console.error('Camera access denied:', err);
       if (err instanceof Error) {
         if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-          error = 'Camera access required. Please enable in browser settings.';
+          error = t('camera.errors.access_required');
           permissionDenied = true;
         } else if (err.name === 'NotFoundError') {
-          error = 'No camera found on this device.';
+          error = t('camera.errors.not_found');
         } else {
-          error = 'Failed to access camera. Please try again.';
+          error = t('camera.errors.access_failed');
         }
       }
     }
@@ -79,7 +82,7 @@
 
     const ctx = canvas.getContext('2d');
     if (!ctx) {
-      error = 'Failed to capture photo. Please try again.';
+      error = t('camera.errors.capture_failed');
       return;
     }
 
@@ -90,7 +93,7 @@
         if (blob) {
           // Check file size (10MB limit)
           if (blob.size > 10 * 1024 * 1024) {
-            error = 'Photo too large (max 10MB). Please try again with lower resolution.';
+            error = t('camera.errors.photo_too_large');
             return;
           }
 
@@ -99,7 +102,7 @@
           state = 'captured';
           stopCamera();
         } else {
-          error = 'Failed to capture photo. Please try again.';
+          error = t('camera.errors.capture_failed');
         }
       },
       'image/jpeg',
@@ -190,8 +193,8 @@
   <div class="modal-backdrop" on:click={close} role="presentation">
     <div class="modal" on:click|stopPropagation role="dialog" aria-labelledby="modal-title" aria-modal="true" tabindex="-1">
       <div class="modal-header">
-        <h2 id="modal-title">Take Photo</h2>
-        <button class="close-btn" on:click={close} aria-label="Close">
+        <h2 id="modal-title">{$_('camera.title')}</h2>
+        <button class="close-btn" on:click={close} aria-label={$_('common.close')}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6L6 18M6 6l12 12" />
           </svg>
@@ -219,7 +222,7 @@
               class:hidden={!stream}
             ></video>
             {#if hasMultipleCameras && !error && !permissionDenied}
-              <button class="camera-toggle" on:click={toggleCamera} aria-label="Switch camera">
+              <button class="camera-toggle" on:click={toggleCamera} aria-label={$_('camera.switch_camera')}>
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
                   <polyline points="7.5 4.21 12 6.81 16.5 4.21" />
@@ -231,20 +234,20 @@
               </button>
             {/if}
           {:else if state === 'captured' && capturedImage}
-            <img src={capturedImage} alt="Captured" class="captured-preview" />
+            <img src={capturedImage} alt={$_('camera.captured_alt')} class="captured-preview" />
           {/if}
 
           {#if !stream && !error && !permissionDenied}
             <div class="loading-indicator">
               <div class="spinner"></div>
-              <p>Accessing camera...</p>
+              <p>{$_('camera.accessing')}</p>
             </div>
           {/if}
         </div>
 
         <div class="controls">
           {#if state === 'preview' && stream && !error}
-            <button class="btn-capture" on:click={capturePhoto} aria-label="Take photo">
+            <button class="btn-capture" on:click={capturePhoto} aria-label={$_('camera.take_photo')}>
               <div class="capture-ring">
                 <div class="capture-circle"></div>
               </div>
@@ -257,19 +260,19 @@
                 <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
                 <path d="M3 3v5h5" />
               </svg>
-              Retake
+              {$_('camera.retake')}
             </button>
-            <button class="btn-secondary" on:click={close}>Cancel</button>
+            <button class="btn-secondary" on:click={close}>{$_('common.cancel')}</button>
             <button class="btn-primary" on:click={sendPhoto}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
               </svg>
-              Send
+              {$_('camera.send')}
             </button>
           {/if}
 
           {#if error}
-            <button class="btn-secondary" on:click={close}>Close</button>
+            <button class="btn-secondary" on:click={close}>{$_('common.close')}</button>
           {/if}
         </div>
       </div>

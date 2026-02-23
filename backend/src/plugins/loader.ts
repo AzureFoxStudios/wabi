@@ -115,6 +115,15 @@ export class PluginLoader {
     }
   }
 
+  private stripUtf8Bom(raw: string): string {
+    return raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  }
+
+  private readJsonFile<T>(filePath: string): T {
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    return JSON.parse(this.stripUtf8Bom(raw)) as T;
+  }
+
   async loadAll() {
     console.log('🔌 Loading plugins from:', this.pluginsDir);
 
@@ -169,7 +178,7 @@ export class PluginLoader {
         return;
       }
 
-      const manifest: PluginManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      const manifest = this.readJsonFile<PluginManifest>(manifestPath);
 
       if (this.safeModeEnabled && manifest.firstParty !== true) {
         this.writeAuditEvent({
@@ -424,7 +433,7 @@ export class PluginLoader {
       const manifestPath = manifestCandidates[0];
       const pluginRoot = path.dirname(manifestPath);
 
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as PluginManifest;
+      const manifest = this.readJsonFile<PluginManifest>(manifestPath);
       const pluginId = typeof manifest.id === 'string' ? manifest.id.trim() : '';
       if (!pluginId) {
         throw new Error('Plugin manifest is missing a valid id');
@@ -623,7 +632,7 @@ export class PluginLoader {
       buffer: async () => getBody(),
       text: async () => (await getBody()).toString('utf-8'),
       json: async () => {
-        const raw = (await getBody()).toString('utf-8').trim();
+        const raw = this.stripUtf8Bom((await getBody()).toString('utf-8')).trim();
         if (!raw) return {};
         return JSON.parse(raw);
       }
@@ -754,7 +763,7 @@ export class PluginLoader {
       get: async (key: string) => {
         const filePath = path.join(pluginStorageDir, `${key}.json`);
         if (fs.existsSync(filePath)) {
-          return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+          return this.readJsonFile(filePath);
         }
         return null;
       },
@@ -1053,7 +1062,7 @@ export class PluginLoader {
     }
 
     try {
-      return JSON.parse(fs.readFileSync(this.pluginRecordsFile, 'utf-8'));
+      return this.readJsonFile(this.pluginRecordsFile);
     } catch {
       return {};
     }
@@ -1065,7 +1074,7 @@ export class PluginLoader {
     }
 
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.trustedSignersFile, 'utf-8'));
+      const parsed = this.readJsonFile<any>(this.trustedSignersFile);
       if (!Array.isArray(parsed)) return [];
       return parsed.filter((entry: any) =>
         entry && typeof entry.keyId === 'string' && typeof entry.publicKey === 'string'
@@ -1134,7 +1143,7 @@ export class PluginLoader {
     }
 
     try {
-      return JSON.parse(fs.readFileSync(this.crashStateFile, 'utf-8'));
+      return this.readJsonFile(this.crashStateFile);
     } catch {
       return {};
     }
@@ -1165,7 +1174,7 @@ export class PluginLoader {
       if (!fs.existsSync(manifestPath)) {
         return 'unknown';
       }
-      const manifest: PluginManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      const manifest = this.readJsonFile<PluginManifest>(manifestPath);
       return manifest.version;
     } catch {
       return 'unknown';

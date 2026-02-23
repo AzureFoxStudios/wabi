@@ -86,17 +86,24 @@ async function deliverWithRetry(webhook: { id: number; target_url: string; secre
   webhookRepository.markDeliveryFailure(deliveryId, attempt, lastError);
 }
 
-export async function dispatchWebhookEvent(eventType: WebhookEventType, payload: Record<string, any>): Promise<void> {
-  const webhooks = webhookRepository.listEnabled().filter((webhook) => shouldDispatchWebhook(webhook, eventType));
-  if (webhooks.length === 0) return;
-
+export async function deliverWebhookEventToTarget(
+  webhook: { id: number; target_url: string; secret: string },
+  eventType: WebhookEventType,
+  payload: Record<string, any>
+): Promise<void> {
   const body = JSON.stringify({
     event: eventType,
     timestamp: Date.now(),
     data: payload
   });
+  await deliverWithRetry(webhook, eventType, body);
+}
+
+export async function dispatchWebhookEvent(eventType: WebhookEventType, payload: Record<string, any>): Promise<void> {
+  const webhooks = webhookRepository.listEnabled().filter((webhook) => shouldDispatchWebhook(webhook, eventType));
+  if (webhooks.length === 0) return;
 
   await Promise.allSettled(
-    webhooks.map((webhook) => deliverWithRetry(webhook, eventType, body))
+    webhooks.map((webhook) => deliverWebhookEventToTarget(webhook, eventType, payload))
   );
 }

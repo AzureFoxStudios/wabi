@@ -18,6 +18,8 @@
 	let newTaskPriority: Todo['priority'] = 'medium';
 	let newTaskProject: string | null = null;
 	let newTaskAssignee: number | null = null;
+	let newTaskHasTimeEstimate = false;
+	let newTaskEstimatedHours = '1';
 	let registeredUsers: RegisteredUser[] = [];
 	let filteredUsers: RegisteredUser[] = [];
 	let showUserDropdown = false;
@@ -31,6 +33,8 @@
 	let editingTaskPriority: Todo['priority'] = 'medium';
 	let editingTaskProject: string | null = null;
 	let editingTaskAssignee: number | null = null;
+	let editingTaskHasTimeEstimate = false;
+	let editingTaskEstimatedHours = '1';
 
 	// Filter options
 	type FilterType = 'all' | 'today' | 'overdue' | 'upcoming';
@@ -83,6 +87,11 @@
 		editingTaskPriority = todo.priority;
 		editingTaskProject = todo.projectId || null;
 		editingTaskAssignee = todo.assignedTo ? parseInt(String(todo.assignedTo), 10) : null;
+		editingTaskHasTimeEstimate =
+			typeof todo.estimatedMinutes === 'number' && todo.estimatedMinutes > 0;
+		editingTaskEstimatedHours = editingTaskHasTimeEstimate
+			? (todo.estimatedMinutes! / 60).toString()
+			: '1';
 	}
 
 	function closeEditMode() {
@@ -92,6 +101,8 @@
 		editingTaskPriority = 'medium';
 		editingTaskProject = null;
 		editingTaskAssignee = null;
+		editingTaskHasTimeEstimate = false;
+		editingTaskEstimatedHours = '1';
 	}
 
 	function saveEditedTask() {
@@ -103,6 +114,12 @@
 			title: editingTaskTitle.trim(),
 			description: editingTaskDescription.trim() || undefined,
 			priority: editingTaskPriority,
+			estimatedMinutes:
+				editingTaskHasTimeEstimate &&
+				Number.isFinite(Number.parseFloat(editingTaskEstimatedHours)) &&
+				Number.parseFloat(editingTaskEstimatedHours) > 0
+					? Math.max(1, Math.round(Number.parseFloat(editingTaskEstimatedHours) * 60))
+					: undefined,
 			projectId: editingTaskProject || undefined,
 			assignedTo: editingTaskAssignee?.toString()
 		});
@@ -155,6 +172,12 @@
 			title: newTaskTitle.trim(),
 			description: newTaskDescription.trim() || undefined,
 			priority: newTaskPriority,
+			estimatedMinutes:
+				newTaskHasTimeEstimate &&
+				Number.isFinite(Number.parseFloat(newTaskEstimatedHours)) &&
+				Number.parseFloat(newTaskEstimatedHours) > 0
+					? Math.max(1, Math.round(Number.parseFloat(newTaskEstimatedHours) * 60))
+					: undefined,
 			projectId: newTaskProject,
 			assignedTo: newTaskAssignee?.toString(),
 			status: 'todo',
@@ -166,12 +189,17 @@
 		newTaskPriority = 'medium';
 		newTaskProject = null;
 		newTaskAssignee = null;
+		newTaskHasTimeEstimate = false;
+		newTaskEstimatedHours = '1';
 		showAddForm = false;
 	}
 
 	function toggleTaskStatus(todo: Todo) {
 		const newStatus = todo.status === 'done' ? 'todo' : 'done';
-		updateTodo(todo.id, { status: newStatus });
+		updateTodo(todo.id, {
+			status: newStatus,
+			completedAt: newStatus === 'done' ? Date.now() : undefined
+		});
 	}
 
 	function getProjectName(projectId: string | null | undefined): string {
@@ -198,6 +226,11 @@
 		if (diffDays <= 7) return `${diffDays}d`;
 
 		return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+	}
+
+	function formatEstimateHours(minutes: number | undefined): string {
+		if (!minutes || minutes <= 0) return '';
+		return `${(minutes / 60).toFixed(1)}h`;
 	}
 
 	function isOverdue(timestamp: number | null | undefined): boolean {
@@ -283,6 +316,20 @@
 					{/each}
 				</select>
 			</div>
+			<label class="time-toggle">
+				<input type="checkbox" bind:checked={newTaskHasTimeEstimate} />
+				<span>Track time estimate for burndown</span>
+			</label>
+			{#if newTaskHasTimeEstimate}
+				<input
+					type="number"
+					min="0.25"
+					step="0.25"
+					bind:value={newTaskEstimatedHours}
+					class="task-input"
+					placeholder="Estimated hours"
+				/>
+			{/if}
 			<div class="assignee-field">
 				{#if newTaskAssignee}
 					<div class="assignee-chip">
@@ -373,6 +420,20 @@
 								{/each}
 							</select>
 						</div>
+						<label class="time-toggle">
+							<input type="checkbox" bind:checked={editingTaskHasTimeEstimate} />
+							<span>Track time estimate for burndown</span>
+						</label>
+						{#if editingTaskHasTimeEstimate}
+							<input
+								type="number"
+								min="0.25"
+								step="0.25"
+								bind:value={editingTaskEstimatedHours}
+								class="task-input"
+								placeholder="Estimated hours"
+							/>
+						{/if}
 						<div class="assignee-field">
 							{#if editingTaskAssignee}
 								<div class="assignee-chip">
@@ -433,6 +494,9 @@
 						<div class="task-content">
 							<span class="task-title" class:completed={todo.status === 'done'}>{todo.title}</span>
 							<div class="task-meta">
+								{#if todo.estimatedMinutes}
+									<span class="estimate-tag">{formatEstimateHours(todo.estimatedMinutes)}</span>
+								{/if}
 								{#if todo.assignedTo}
 									<span class="assignee-tag">
 										<span class="assignee-dot" style="background-color: {registeredUsers.find(u => u.user_id === parseInt(String(todo.assignedTo), 10))?.color || '#888'}"></span>
@@ -591,6 +655,14 @@
 	.form-row {
 		display: flex;
 		gap: 0.5rem;
+	}
+
+	.time-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.8rem;
+		color: var(--biz-text-secondary, #94a3b8);
 	}
 
 	.priority-select,
@@ -867,6 +939,15 @@
 		flex-wrap: wrap;
 		gap: 0.5rem;
 		margin-top: 0.35rem;
+	}
+
+	.estimate-tag {
+		font-size: 0.7rem;
+		padding: 0.15rem 0.5rem;
+		background: var(--biz-accent-soft, rgba(245, 158, 11, 0.15));
+		color: var(--biz-accent, #f59e0b);
+		border-radius: 4px;
+		font-weight: 600;
 	}
 
 	.project-tag {

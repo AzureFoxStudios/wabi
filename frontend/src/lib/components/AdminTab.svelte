@@ -5,6 +5,19 @@
 	import { emojis } from '$lib/emoji-store';
 	import { getSocket } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
+	import { _ } from '$lib/i18n';
+	import {
+		getAdminPolicy,
+		getAdminCompressionConfig,
+		getAdminCompressionMetrics,
+		getAdminRuntimeGuardrails,
+		resetAdminCompressionMetrics,
+		saveAdminPolicy,
+		type AdminCompressionConfig,
+		type AdminCompressionMetrics,
+		type AdminRuntimeGuardrailsResponse,
+		type RuntimeTuningConfig
+	} from '$lib/api';
 
 	type RoleDefinition = {
 		roleName: string;
@@ -37,6 +50,25 @@
 	let selectedRuleEmojiId = '';
 	let selectedRuleRoleName = '';
 	let selectedRuleRemoveOnUnreact = false;
+	let compressionConfig: AdminCompressionConfig | null = null;
+	let compressionMetrics: AdminCompressionMetrics | null = null;
+	let compressionLoading = false;
+	let compressionLoaded = false;
+	let compressionAttempted = false;
+	let compressionError = '';
+	let runtimePanel: AdminRuntimeGuardrailsResponse | null = null;
+	let runtimeTuningDraft: RuntimeTuningConfig = {
+		applyOnRestart: true,
+		threadPoolSize: null,
+		heavyProfilingEnabled: false,
+		heavyProfilingSampleRate: 0.1
+	};
+	let runtimeLoading = false;
+	let runtimeSaving = false;
+	let runtimeLoaded = false;
+	let runtimeAttempted = false;
+	let runtimeError = '';
+	let runtimeSaveStatus = '';
 	const fallbackRoleLabels: Record<string, string> = {
 		owner: 'Owner',
 		admin: 'Admin',
@@ -79,6 +111,12 @@
 	$: adminCount = $users.filter((u) => u.highestRole === 'admin').length;
 	$: modCount = $users.filter((u) => u.highestRole === 'mod').length;
 	$: guestCount = $users.filter((u) => !u.dbUserId).length;
+	$: if (canManageRoles && !compressionLoaded && !compressionLoading && !compressionAttempted) {
+		void refreshCompressionPanel();
+	}
+	$: if (canManageRoles && !runtimeLoaded && !runtimeLoading && !runtimeAttempted) {
+		void refreshRuntimePanel();
+	}
 
 	function getRolePriority(roleName?: string): number {
 		if (!roleName) return 0;
@@ -182,6 +220,98 @@
 		sock.emit('delete-emoji-role-rule', { ruleId });
 	}
 
+	function formatBytes(bytes: number): string {
+		if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+		if (bytes < 1024) return `${bytes} B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+		if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+		return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+	}
+
+	function formatRatio(value: number | null): string {
+		if (value == null || !Number.isFinite(value)) return 'n/a';
+		return value.toFixed(3);
+	}
+
+	function formatNumber(value: number | null, digits = 2): string {
+		if (value == null || !Number.isFinite(value)) return 'n/a';
+		return Number(value).toFixed(digits);
+	}
+
+	async function refreshCompressionPanel() {
+		const token = localStorage.getItem('authToken');
+		if (!token) return;
+		compressionAttempted = true;
+		compressionLoading = true;
+		compressionError = '';
+		try {
+			const [config, metrics] = await Promise.all([
+				getAdminCompressionConfig(token),
+				getAdminCompressionMetrics(token)
+			]);
+			compressionConfig = config;
+			compressionMetrics = metrics;
+			compressionLoaded = true;
+		} catch (error) {
+			compressionError = (error as Error).message || 'Failed to load compression panel';
+		} finally {
+			compressionLoading = false;
+		}
+	}
+
+	async function resetCompressionPanelMetrics() {
+		const token = localStorage.getItem('authToken');
+		if (!token) return;
+		compressionLoading = true;
+		compressionError = '';
+		try {
+			await resetAdminCompressionMetrics(token);
+			await refreshCompressionPanel();
+		} catch (error) {
+			compressionError = (error as Error).message || 'Failed to reset compression metrics';
+			compressionLoading = false;
+		}
+	}
+
+	async function refreshRuntimePanel() {
+		const token = localStorage.getItem('authToken');
+		if (!token) return;
+		runtimeAttempted = true;
+		runtimeLoading = true;
+		runtimeError = '';
+		try {
+			const [policy, guardrails] = await Promise.all([
+				getAdminPolicy<RuntimeTuningConfig>(token, 'runtime_tuning'),
+				getAdminRuntimeGuardrails(token)
+			]);
+			runtimeTuningDraft = { ...policy.config };
+			runtimePanel = guardrails;
+			runtimeLoaded = true;
+		} catch (error) {
+			runtimeError = (error as Error).message || 'Failed to load runtime settings';
+		} finally {
+			runtimeLoading = false;
+		}
+	}
+
+	async function saveRuntimeTuning() {
+		const token = localStorage.getItem('authToken');
+		if (!token) return;
+		runtimeSaving = true;
+		runtimeSaveStatus = '';
+		runtimeError = '';
+		try {
+			const saved = await saveAdminPolicy<RuntimeTuningConfig>(token, 'runtime_tuning', runtimeTuningDraft);
+			runtimeTuningDraft = { ...saved };
+			runtimeSaveStatus = 'Saved. Restart required to apply.';
+			await refreshRuntimePanel();
+		} catch (error) {
+			runtimeError = (error as Error).message || 'Failed to save runtime settings';
+		} finally {
+			runtimeSaving = false;
+		}
+	}
+
 	onMount(() => {
 		const sock = getSocket();
 		if (!sock) return;
@@ -213,44 +343,44 @@
 <div class="admin-tab">
 	<div class="admin-header">
 		<div class="admin-title-row">
-			<h3>Admin Dashboard</h3>
-			<span class="admin-role-indicator">You: {getRoleLabel($currentUser?.highestRole || 'member')}</span>
+			<h3>{$_('admin.title')}</h3>
+			<span class="admin-role-indicator">{$_('admin.you')}: {getRoleLabel($currentUser?.highestRole || 'member')}</span>
 		</div>
 		<p class="admin-subtitle">
 			{#if canManageRoles}
-				Manage roles, channel access, and role automations from one panel.
+				{$_('admin.subtitle.manage')}
 			{:else if canModerate}
-				Moderator view: monitor users and start moderation DMs quickly.
+				{$_('admin.subtitle.moderate')}
 			{:else}
-				No moderation privileges detected.
+				{$_('admin.subtitle.none')}
 			{/if}
 		</p>
 	</div>
 
 	<div class="admin-stats">
-		<div class="admin-stat"><span class="k">Users</span><span class="v">{$users.length}</span></div>
-		<div class="admin-stat"><span class="k">Owners</span><span class="v">{ownerCount}</span></div>
-		<div class="admin-stat"><span class="k">Admins</span><span class="v">{adminCount}</span></div>
-		<div class="admin-stat"><span class="k">Mods</span><span class="v">{modCount}</span></div>
-		<div class="admin-stat"><span class="k">Guests</span><span class="v">{guestCount}</span></div>
+		<div class="admin-stat"><span class="k">{$_('admin.stats.users')}</span><span class="v">{$users.length}</span></div>
+		<div class="admin-stat"><span class="k">{$_('admin.stats.owners')}</span><span class="v">{ownerCount}</span></div>
+		<div class="admin-stat"><span class="k">{$_('admin.stats.admins')}</span><span class="v">{adminCount}</span></div>
+		<div class="admin-stat"><span class="k">{$_('admin.stats.mods')}</span><span class="v">{modCount}</span></div>
+		<div class="admin-stat"><span class="k">{$_('admin.stats.guests')}</span><span class="v">{guestCount}</span></div>
 	</div>
 
 	{#if canManageRoles}
 		<div class="admin-section">
-			<h4>Role Names</h4>
+			<h4>{$_('admin.sections.role_names')}</h4>
 			<div class="role-list">
 				{#each roleDefinitions as role (role.roleName)}
 					<div class="role-item">
 						<span class="role-key">{role.roleName}</span>
 						<input class="role-input" bind:value={roleLabelDrafts[role.roleName]} />
-						<button class="admin-btn" on:click={() => saveRoleDisplayName(role.roleName)}>Save</button>
+						<button class="admin-btn" on:click={() => saveRoleDisplayName(role.roleName)}>{$_('common.save')}</button>
 					</div>
 				{/each}
 			</div>
 		</div>
 
 		<div class="admin-section">
-			<h4>Channel Access by Role</h4>
+			<h4>{$_('admin.sections.channel_access')}</h4>
 			<div class="channel-role-list">
 				{#each customChannels as channel (channel.id)}
 					<div class="channel-role-item">
@@ -274,86 +404,225 @@
 		</div>
 
 		<div class="admin-section">
-			<h4>Role Gate Posts</h4>
+			<h4>{$_('admin.sections.role_gate_posts')}</h4>
 			<div class="emoji-rule-create">
 				<select bind:value={roleGateChannelId} class="admin-select">
-					<option value="" disabled selected>Select channel</option>
+					<option value="" disabled selected>{$_('admin.select.channel')}</option>
 					{#each gateChannels as channel (channel.id)}
 						<option value={channel.id}>#{channel.name}</option>
 					{/each}
 				</select>
 				<input
 					class="role-input"
-					placeholder="Role gate title (example: 18+ Access)"
+					placeholder={$_('admin.placeholders.role_gate_title')}
 					bind:value={roleGateTitle}
 				/>
 				<input
 					class="role-input"
-					placeholder="Optional description/instructions"
+					placeholder={$_('admin.placeholders.role_gate_description')}
 					bind:value={roleGateDescription}
 				/>
 				<label class="rule-checkbox">
 					<input type="checkbox" bind:checked={roleGatePersist} />
-					Persist gate post
+					{$_('admin.role_gate.persist')}
 				</label>
-				<button class="admin-btn" on:click={createRoleGatePost}>Create Gate Post</button>
+				<button class="admin-btn" on:click={createRoleGatePost}>{$_('admin.role_gate.create')}</button>
 			</div>
-			<div class="admin-empty">Only reactions on these dedicated gate posts can assign/remove roles.</div>
+			<div class="admin-empty">{$_('admin.role_gate.note')}</div>
 		</div>
 
 		<div class="admin-section">
-			<h4>Emoji Role Automation</h4>
+			<h4>{$_('admin.sections.emoji_role_automation')}</h4>
 			<div class="emoji-rule-create">
 				<select bind:value={selectedRuleChannelId} class="admin-select">
-					<option value="" disabled selected>Select gate channel</option>
+					<option value="" disabled selected>{$_('admin.select.gate_channel')}</option>
 					{#each gateChannels as channel (channel.id)}
 						<option value={channel.id}>#{channel.name}</option>
 					{/each}
 				</select>
 				<select bind:value={selectedRuleMessageId} class="admin-select">
-					<option value="" disabled selected>Select role-gate message</option>
+					<option value="" disabled selected>{$_('admin.select.role_gate_message')}</option>
 					{#each availableRoleGatePosts as post (post.id)}
 						<option value={post.id}>{post.id.slice(0, 18)}... | {post.text.slice(0, 42)}</option>
 					{/each}
 				</select>
 				<select bind:value={selectedRuleEmojiId} class="admin-select">
-					<option value="" disabled selected>Select emoji</option>
+					<option value="" disabled selected>{$_('admin.select.emoji')}</option>
 					{#each $emojis as emoji (emoji.id)}
 						<option value={emoji.id}>{emoji.name}</option>
 					{/each}
 				</select>
 				<select bind:value={selectedRuleRoleName} class="admin-select">
-					<option value="" disabled selected>Select role</option>
+					<option value="" disabled selected>{$_('admin.select.role')}</option>
 					{#each assignableRoleOptions as role (role.roleName)}
 						<option value={role.roleName}>{getRoleLabel(role.roleName)}</option>
 					{/each}
 				</select>
 				<label class="rule-checkbox">
 					<input type="checkbox" bind:checked={selectedRuleRemoveOnUnreact} />
-					Remove on unreact
+					{$_('admin.emoji_rules.remove_on_unreact')}
 				</label>
-				<button class="admin-btn" on:click={addEmojiRoleRule}>Add Rule</button>
+				<button class="admin-btn" on:click={addEmojiRoleRule}>{$_('admin.emoji_rules.add_rule')}</button>
 			</div>
 			<div class="emoji-rule-list">
 				{#each emojiRoleRules as rule (rule.id)}
 					<div class="emoji-rule-item">
-						<span>#{getChannelName(rule.channelId)} | {rule.messageId.slice(0, 18)}... | {rule.emojiId} -> {getRoleLabel(rule.roleName)}{rule.removeOnUnreact ? ' (reversible)' : ''}</span>
-						<button class="admin-btn danger" on:click={() => deleteEmojiRoleRule(rule.id)}>Delete</button>
+						<span>#{getChannelName(rule.channelId)} | {rule.messageId.slice(0, 18)}... | {rule.emojiId} -> {getRoleLabel(rule.roleName)}{rule.removeOnUnreact ? ` (${$_('admin.emoji_rules.reversible')})` : ''}</span>
+						<button class="admin-btn danger" on:click={() => deleteEmojiRoleRule(rule.id)}>{$_('admin.actions.delete')}</button>
 					</div>
 				{:else}
-					<div class="admin-empty">No role-gate rules yet.</div>
+					<div class="admin-empty">{$_('admin.emoji_rules.empty')}</div>
 				{/each}
 			</div>
+		</div>
+
+		<div class="admin-section">
+			<div class="compression-header">
+				<h4>Compression Observability</h4>
+				<div class="compression-actions">
+					<button class="admin-btn" disabled={compressionLoading} on:click={refreshCompressionPanel}>
+						{compressionLoading ? 'Loading...' : 'Refresh'}
+					</button>
+					<button class="admin-btn danger" disabled={compressionLoading} on:click={resetCompressionPanelMetrics}>
+						Reset Metrics
+					</button>
+				</div>
+			</div>
+			{#if compressionError}
+				<div class="admin-empty">{compressionError}</div>
+			{:else if compressionConfig && compressionMetrics}
+				<div class="compression-grid">
+					<div class="compression-stat">
+						<span class="k">HTTP Text</span>
+						<span class="v">{compressionConfig.httpTextCompression.enabled ? 'Enabled' : 'Disabled'}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Upload Compression</span>
+						<span class="v">{compressionConfig.uploadCompression.enabled ? 'Enabled' : 'Disabled'}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Upload Rollout</span>
+						<span class="v">{compressionConfig.uploadCompression.rolloutPercent}%</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Uploads</span>
+						<span class="v">{compressionMetrics.counters.uploadCount}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Downloads</span>
+						<span class="v">{compressionMetrics.counters.downloadCount}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Upload Ratio</span>
+						<span class="v">{formatRatio(compressionMetrics.counters.uploadStoredToOriginalRatio)}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Download Ratio</span>
+						<span class="v">{formatRatio(compressionMetrics.counters.downloadResponseToStoredRatio)}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Upload Bytes</span>
+						<span class="v">{formatBytes(compressionMetrics.counters.uploadStoredBytes)} / {formatBytes(compressionMetrics.counters.uploadOriginalBytes)}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Download Bytes</span>
+						<span class="v">{formatBytes(compressionMetrics.counters.downloadResponseBytes)} / {formatBytes(compressionMetrics.counters.downloadStoredBytes)}</span>
+					</div>
+				</div>
+			{:else}
+				<div class="admin-empty">No compression metrics yet.</div>
+			{/if}
+		</div>
+
+		<div class="admin-section">
+			<div class="compression-header">
+				<h4>Runtime Tuning (Restart Applied)</h4>
+				<div class="compression-actions">
+					<button class="admin-btn" disabled={runtimeLoading || runtimeSaving} on:click={refreshRuntimePanel}>
+						{runtimeLoading ? 'Loading...' : 'Refresh'}
+					</button>
+					<button class="admin-btn" disabled={runtimeLoading || runtimeSaving} on:click={saveRuntimeTuning}>
+						{runtimeSaving ? 'Saving...' : 'Save'}
+					</button>
+				</div>
+			</div>
+
+			{#if runtimeError}
+				<div class="admin-empty">{runtimeError}</div>
+			{:else if runtimePanel}
+				<div class="runtime-form-grid">
+					<label>
+						Thread Pool Size
+						<input
+							type="number"
+							min="1"
+							max="64"
+							placeholder="auto"
+							bind:value={runtimeTuningDraft.threadPoolSize}
+						/>
+					</label>
+					<label>
+						Heavy Profiling Sample Rate
+						<input
+							type="number"
+							min="0.01"
+							max="1"
+							step="0.01"
+							bind:value={runtimeTuningDraft.heavyProfilingSampleRate}
+						/>
+					</label>
+					<label class="runtime-checkbox">
+						<input type="checkbox" bind:checked={runtimeTuningDraft.heavyProfilingEnabled} />
+						Enable heavy profiling
+					</label>
+				</div>
+
+				<div class="runtime-hint">
+					Restart required after save. Lightweight counters stay active; heavy profiling loads only when enabled.
+				</div>
+				{#if runtimeSaveStatus}
+					<div class="runtime-hint">{runtimeSaveStatus}</div>
+				{/if}
+
+				<div class="compression-grid">
+					<div class="compression-stat">
+						<span class="k">Restart Required</span>
+						<span class="v">{runtimePanel.runtimeTuning.restartRequired ? 'Yes' : 'No'}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Effective UV Pool</span>
+						<span class="v">{runtimePanel.runtimeTuning.effective.uvThreadpoolSize ?? 'auto'}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">RSS</span>
+						<span class="v">{formatBytes(runtimePanel.guardrails.memory.rssBytes)}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Heap Used</span>
+						<span class="v">{formatBytes(runtimePanel.guardrails.memory.heapUsedBytes)}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">CPU User (ms)</span>
+						<span class="v">{formatNumber(runtimePanel.guardrails.cpu.userMicros / 1000)}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">EL Delay P95 (ms)</span>
+						<span class="v">{formatNumber(runtimePanel.guardrails.heavyProfiling.eventLoopDelayP95Ms)}</span>
+					</div>
+				</div>
+			{:else}
+				<div class="admin-empty">No runtime tuning data yet.</div>
+			{/if}
 		</div>
 	{/if}
 
 	<div class="admin-section">
-		<h4>Users</h4>
+		<h4>{$_('admin.sections.users')}</h4>
 		<div class="admin-search-wrap">
 			<input
 				type="text"
 				class="admin-search"
-				placeholder="Search users by name or handle..."
+				placeholder={$_('admin.placeholders.search_users')}
 				bind:value={searchQuery}
 			/>
 		</div>
@@ -368,48 +637,48 @@
 						{/if}
 					</div>
 					<div class="admin-actions">
-						<button class="admin-btn" on:click={() => handleMessage(user)}>Message</button>
+						<button class="admin-btn" on:click={() => handleMessage(user)}>{$_('admin.actions.message')}</button>
 						{#if canManageRoles}
 							<button
 								class="admin-btn"
 								disabled={!canManageTargetUser(user) || userHasRole(user, 'admin')}
 								on:click={() => promoteUser(user, 'admin')}
 							>
-								Make Admin
+								{$_('admin.actions.make_admin')}
 							</button>
 							<button
 								class="admin-btn"
 								disabled={!canManageTargetUser(user) || !userHasRole(user, 'admin')}
 								on:click={() => removeRoleFromUser(user, 'admin')}
 							>
-								Remove Admin
+								{$_('admin.actions.remove_admin')}
 							</button>
 							<button
 								class="admin-btn"
 								disabled={!canManageTargetUser(user) || userHasRole(user, 'mod')}
 								on:click={() => promoteUser(user, 'mod')}
 							>
-								Make Mod
+								{$_('admin.actions.make_mod')}
 							</button>
 							<button
 								class="admin-btn"
 								disabled={!canManageTargetUser(user) || !userHasRole(user, 'mod')}
 								on:click={() => removeRoleFromUser(user, 'mod')}
 							>
-								Remove Mod
+								{$_('admin.actions.remove_mod')}
 							</button>
 							<button
 								class="admin-btn danger"
 								disabled={!canManageTargetUser(user) || (!userHasRole(user, 'admin') && !userHasRole(user, 'mod'))}
 								on:click={() => resetToMember(user)}
 							>
-								Reset
+								{$_('admin.actions.reset')}
 							</button>
 						{/if}
 					</div>
 				</div>
 			{:else}
-				<div class="admin-empty">No users match your search.</div>
+				<div class="admin-empty">{$_('admin.empty.search')}</div>
 			{/each}
 		</div>
 	</div>
@@ -428,6 +697,17 @@
 	.admin-stat .v { font-size: 0.9rem; font-weight: 700; color: var(--text-primary); }
 	.admin-section { border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem; background: var(--bg-secondary); display: flex; flex-direction: column; gap: 0.45rem; }
 	.admin-section h4 { margin: 0; font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
+	.compression-header { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; }
+	.compression-actions { display: inline-flex; gap: 0.35rem; }
+	.compression-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.35rem; }
+	.compression-stat { display: flex; flex-direction: column; gap: 0.15rem; padding: 0.4rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-tertiary); }
+	.compression-stat .k { font-size: 0.64rem; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.03em; }
+	.compression-stat .v { font-size: 0.78rem; color: var(--text-primary); font-weight: 600; }
+	.runtime-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.45rem; }
+	.runtime-form-grid label { display: flex; flex-direction: column; gap: 0.28rem; font-size: 0.72rem; color: var(--text-secondary); }
+	.runtime-form-grid input[type='number'] { height: 28px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); border-radius: 7px; padding: 0 0.45rem; font-size: 0.76rem; }
+	.runtime-checkbox { grid-column: 1 / -1; flex-direction: row !important; align-items: center; gap: 0.45rem !important; }
+	.runtime-hint { font-size: 0.72rem; color: var(--text-secondary); }
 	.role-list, .channel-role-list, .emoji-rule-list, .admin-user-list { display: flex; flex-direction: column; gap: 0.35rem; }
 	.role-item, .channel-role-item, .emoji-rule-item, .admin-user-item { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.45rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-tertiary); }
 	.role-key { width: 80px; font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; }
@@ -451,5 +731,8 @@
 	.admin-search-wrap { padding: 0.1rem 0; }
 	.admin-search { width: 100%; height: 30px; padding: 0 0.55rem; }
 	.admin-empty { padding: 0.8rem; text-align: center; color: var(--text-secondary); font-size: 0.78rem; }
-	@media (max-width: 768px) { .admin-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+	@media (max-width: 768px) {
+		.admin-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+		.runtime-form-grid { grid-template-columns: 1fr; }
+	}
 </style>

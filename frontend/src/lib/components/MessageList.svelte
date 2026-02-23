@@ -1,16 +1,15 @@
 <script lang="ts">
 	import { onMount, afterUpdate } from 'svelte';
+	import { get } from 'svelte/store';
 	import type { Message, User, Emoji, Channel } from '$lib/socket';
 	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder, loadOlderHistory, channelHistoryLoading, channelHasMoreHistory } from '$lib/socket';
 	import { themeStore } from '$lib/theme/themeStore';
 	import MessageContextMenu from './MessageContextMenu.svelte';
-	import UserPopout from './UserPopout.svelte';
 	import ForwardDialog from './ForwardDialog.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
-	import EmojiPicker from './EmojiPicker.svelte';
-	import LinkPreview from './LinkPreview.svelte';
 	import ModelViewer3D from './plugins/ModelViewer3D.svelte';
-	import BlendImportSettingsModal, { type BlendImportSettingsPayload } from './plugins/BlendImportSettingsModal.svelte';
+	import YouTubeWatchEmbed from './plugins/YouTubeWatchEmbed.svelte';
+	import type { BlendImportSettingsPayload } from './plugins/BlendImportSettingsModal.svelte';
 	import { parseMessage } from '$lib/markdown';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
 	import '$lib/prism-theme.css';
@@ -18,6 +17,9 @@
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
 	import { decryptDMFileBuffer, isE2EAvailable } from '$lib/e2eManager';
+	import { openModelViewport } from '$lib/modelViewportTab';
+	import { mobileTabQueue } from '$lib/mobileTabQueue';
+	import { _ } from '$lib/i18n';
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
@@ -35,6 +37,16 @@
 	let contextMenuX = 0;
 	let contextMenuY = 0;
 	let contextMenuMessage: Message | null = null;
+	type TranslatorSettings = {
+		model: string;
+		providerUrl: string;
+		sourceLang: string;
+		targetLang: string;
+		useProxy: boolean;
+	};
+	const TRANSLATOR_SETTINGS_KEY = 'addon.translator_assist.settings';
+	let translatedMessages: Record<string, string> = {};
+	let translatingMessageIds = new Set<string>();
 	// Edit mode state
 	let editingMessageId: string | null = null;
 	let editText = '';
@@ -45,6 +57,62 @@
 	let blendImportSourcePath = '';
 	let blendImportFileName = '';
 	let blendImportSubmitting = false;
+	let EmojiPickerComponent: typeof import('./EmojiPicker.svelte').default | null = null;
+	let UserPopoutComponent: typeof import('./UserPopout.svelte').default | null = null;
+	let LinkPreviewComponent: typeof import('./LinkPreview.svelte').default | null = null;
+	let BlendImportSettingsModalComponent: typeof import('./plugins/BlendImportSettingsModal.svelte').default | null = null;
+	let emojiPickerLoadPromise: Promise<void> | null = null;
+	let userPopoutLoadPromise: Promise<void> | null = null;
+	let linkPreviewLoadPromise: Promise<void> | null = null;
+	let blendImportModalLoadPromise: Promise<void> | null = null;
+
+	function ensureEmojiPickerLoaded(): void {
+		if (EmojiPickerComponent || emojiPickerLoadPromise) return;
+		emojiPickerLoadPromise = import('./EmojiPicker.svelte')
+			.then((mod) => {
+				EmojiPickerComponent = mod.default;
+			})
+			.catch((error) => console.error('Failed to load EmojiPicker:', error))
+			.finally(() => {
+				emojiPickerLoadPromise = null;
+			});
+	}
+
+	function ensureUserPopoutLoaded(): void {
+		if (UserPopoutComponent || userPopoutLoadPromise) return;
+		userPopoutLoadPromise = import('./UserPopout.svelte')
+			.then((mod) => {
+				UserPopoutComponent = mod.default;
+			})
+			.catch((error) => console.error('Failed to load UserPopout:', error))
+			.finally(() => {
+				userPopoutLoadPromise = null;
+			});
+	}
+
+	function ensureLinkPreviewLoaded(): void {
+		if (LinkPreviewComponent || linkPreviewLoadPromise) return;
+		linkPreviewLoadPromise = import('./LinkPreview.svelte')
+			.then((mod) => {
+				LinkPreviewComponent = mod.default;
+			})
+			.catch((error) => console.error('Failed to load LinkPreview:', error))
+			.finally(() => {
+				linkPreviewLoadPromise = null;
+			});
+	}
+
+	function ensureBlendImportSettingsModalLoaded(): void {
+		if (BlendImportSettingsModalComponent || blendImportModalLoadPromise) return;
+		blendImportModalLoadPromise = import('./plugins/BlendImportSettingsModal.svelte')
+			.then((mod) => {
+				BlendImportSettingsModalComponent = mod.default;
+			})
+			.catch((error) => console.error('Failed to load BlendImportSettingsModal:', error))
+			.finally(() => {
+				blendImportModalLoadPromise = null;
+			});
+	}
 	// Emoji picker for reactions
 	// TODO: Add emoji reactions feature
 	// - Right-click message → "Add Reaction" → Opens emoji picker
@@ -56,11 +124,17 @@
 	let reactionPickerY = 0;
 	let reactionPickerMessageId: string | null = null;
 	let reactionPickerChannelId: string | null = null;
+	const MODEL_VIEWPORT_TAB_TOKEN = mobileTabQueue.toAddonTabId('model-viewport');
 
 	function closeReactionPicker() {
 		showReactionPicker = false;
 		reactionPickerMessageId = null;
 		reactionPickerChannelId = null;
+	}
+
+	function openModelInDedicatedTab(src: string, fileName: string): void {
+		openModelViewport(src, fileName);
+		mobileTabQueue.setActiveTab(MODEL_VIEWPORT_TAB_TOKEN);
 	}
 	function formatTime(timestamp: number): string {
 		const date = new Date(timestamp);
@@ -116,8 +190,8 @@
 		const deadline = getMessageDeletionDeadline(message);
 		if (!deadline) return null;
 		const remaining = deadline - nowMs;
-		if (remaining <= 0) return 'Deleting...';
-		return `Deletes in ${formatDurationCompact(remaining)}`;
+		if (remaining <= 0) return get(_)('messages.deletion.deleting');
+		return get(_)('messages.deletion.deletes_in', { values: { duration: formatDurationCompact(remaining) } });
 	}
 	function getUserByUsername(username: string): User | undefined {
 		return $users.find(u => u.username === username);
@@ -259,15 +333,154 @@
 		reactionPickerChannelId = $currentChannel;
 		reactionPickerX = contextMenuX;
 		reactionPickerY = contextMenuY;
+		ensureEmojiPickerLoaded();
 		showReactionPicker = true;
 		contextMenuVisible = false;
 	}
+
+	function resolveTranslatorProviderUrl(model: string): string {
+		if (model === 'libretranslate-public') return 'https://libretranslate.com/translate';
+		return 'http://127.0.0.1:5000/translate';
+	}
+
+	function getTranslatorSettings(): TranslatorSettings {
+		if (typeof window === 'undefined') {
+			return {
+				model: 'libretranslate-local',
+				providerUrl: resolveTranslatorProviderUrl('libretranslate-local'),
+				sourceLang: 'auto',
+				targetLang: 'en',
+				useProxy: true
+			};
+		}
+		try {
+			const raw = localStorage.getItem(TRANSLATOR_SETTINGS_KEY);
+			if (!raw) {
+				return {
+					model: 'libretranslate-local',
+					providerUrl: resolveTranslatorProviderUrl('libretranslate-local'),
+					sourceLang: 'auto',
+					targetLang: 'en',
+					useProxy: true
+				};
+			}
+			const parsed = JSON.parse(raw);
+			const model = typeof parsed?.model === 'string' && parsed.model.trim()
+				? parsed.model.trim()
+				: 'libretranslate-local';
+			const resolvedProviderUrl = typeof parsed?.providerUrl === 'string' && parsed.providerUrl.trim()
+				? parsed.providerUrl.trim()
+				: resolveTranslatorProviderUrl(model);
+			return {
+				model,
+				providerUrl: resolvedProviderUrl,
+				sourceLang: 'auto',
+				targetLang: typeof parsed?.targetLang === 'string' && parsed.targetLang.trim() ? parsed.targetLang.trim() : 'en',
+				useProxy: parsed?.useProxy !== false
+			};
+		} catch {
+			return {
+				model: 'libretranslate-local',
+				providerUrl: resolveTranslatorProviderUrl('libretranslate-local'),
+				sourceLang: 'auto',
+				targetLang: 'en',
+				useProxy: true
+			};
+		}
+	}
+
+	async function requestTranslation(text: string, settings: TranslatorSettings): Promise<string> {
+		if (settings.useProxy) {
+			const response = await fetch(`${getServerUrl()}/api/plugins/runtime/translator-assist/translate`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					providerUrl: settings.providerUrl,
+					text,
+					sourceLang: settings.sourceLang,
+					targetLang: settings.targetLang
+				})
+			});
+			if (!response.ok) {
+				const detail = await response.text();
+				throw new Error(`Proxy translate failed (${response.status}) ${detail.slice(0, 180)}`);
+			}
+			const data = await response.json();
+			const translated = typeof data?.translatedText === 'string' ? data.translatedText.trim() : '';
+			if (!translated) throw new Error('No translated text returned');
+			return translated;
+		}
+
+		const response = await fetch(settings.providerUrl, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				q: text,
+				source: settings.sourceLang,
+				target: settings.targetLang,
+				format: 'text'
+			})
+		});
+		const raw = await response.text();
+		if (!response.ok) {
+			throw new Error(`Translator failed (${response.status}) ${raw.slice(0, 180)}`);
+		}
+		try {
+			const parsed = JSON.parse(raw);
+			const translated =
+				typeof parsed?.translatedText === 'string' ? parsed.translatedText :
+				typeof parsed?.translation === 'string' ? parsed.translation :
+				typeof parsed?.data?.translatedText === 'string' ? parsed.data.translatedText :
+				'';
+			if (translated.trim()) return translated.trim();
+		} catch {
+			// Non-JSON response may already be translated text.
+		}
+		if (raw.trim()) return raw.trim();
+		throw new Error('No translated text returned');
+	}
+
+	async function handleTranslate() {
+		if (!contextMenuMessage?.text?.trim()) return;
+		const targetMessage = contextMenuMessage;
+		const settings = getTranslatorSettings();
+		if (!settings.providerUrl) {
+			alert('Select a translator model in Settings > Add-ons > Translator Assist.');
+			contextMenuVisible = false;
+			return;
+		}
+
+		if (translatedMessages[targetMessage.id]) {
+			const next = { ...translatedMessages };
+			delete next[targetMessage.id];
+			translatedMessages = next;
+			contextMenuVisible = false;
+			return;
+		}
+
+		translatedMessages = { ...translatedMessages, [targetMessage.id]: '...' };
+		translatingMessageIds = new Set([...translatingMessageIds, targetMessage.id]);
+		contextMenuVisible = false;
+		try {
+			const translated = await requestTranslation(targetMessage.text, settings);
+			translatedMessages = { ...translatedMessages, [targetMessage.id]: translated };
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Translation failed';
+			translatedMessages = { ...translatedMessages, [targetMessage.id]: `(${message})` };
+		} finally {
+			const next = new Set(translatingMessageIds);
+			next.delete(targetMessage.id);
+			translatingMessageIds = next;
+		}
+	}
+
 	function openReactionPicker(event: MouseEvent, messageId: string) {
 		event.stopPropagation();
 		reactionPickerMessageId = messageId;
 		reactionPickerChannelId = $currentChannel;
 		reactionPickerX = event.clientX;
 		reactionPickerY = event.clientY;
+		ensureEmojiPickerLoaded();
 		showReactionPicker = true;
 	}
 	function handleReactionSelect(event: CustomEvent<{ emoji: Emoji }>) {
@@ -307,7 +520,7 @@
 			}
 		}
 		const userBySocketId = $users.find(u => u.id === userId);
-		return userBySocketId?.username || 'Unknown user';
+		return userBySocketId?.username || get(_)('messages.unknown_user');
 	}
 	function getReactionTooltip(userIds: string[]): string {
 		return userIds.map(getReactionUsername).filter(Boolean).join(', ');
@@ -327,6 +540,9 @@
 	}
 	$: if (showReactionPicker && reactionPickerChannelId && $currentChannel !== reactionPickerChannelId) {
 		closeReactionPicker();
+	}
+	$: if (showUserPopout) {
+		ensureUserPopoutLoaded();
 	}
 	function getEmojiById(emojiId: string): Emoji | undefined {
 		return $emojis.find(e => e.id === emojiId);
@@ -408,7 +624,7 @@
 		const otherDbUserId = channel?.type === 'dm' ? channel.otherUser?.dbUserId : undefined;
 		const authToken = localStorage.getItem('authToken');
 		if (!otherDbUserId || !authToken || !isE2EAvailable()) {
-			alert('Cannot decrypt this attachment in the current session.');
+			alert(get(_)('messages.errors.cannot_decrypt_session'));
 			return;
 		}
 
@@ -420,7 +636,7 @@
 			authToken
 		);
 		if (!decrypted) {
-			alert('Failed to decrypt attachment.');
+			alert(get(_)('messages.errors.decrypt_failed'));
 			return;
 		}
 
@@ -492,6 +708,18 @@
 		return getMediaType(url) !== null;
 	}
 
+	function isYouTubeUrl(url: string): boolean {
+		try {
+			const parsed = new URL(url);
+			return (
+				parsed.hostname.includes('youtube.com') ||
+				parsed.hostname.includes('youtu.be')
+			);
+		} catch {
+			return false;
+		}
+	}
+
 	function getFileIcon(fileName?: string): string {
 		if (!fileName) return '📎';
 		const ext = fileName.toLowerCase().split('.').pop() || '';
@@ -560,10 +788,10 @@
 
 	function parseRoleGateText(text: string): { title: string; description: string } {
 		const normalized = (text || '').trim();
-		if (!normalized) return { title: 'Role Gate', description: '' };
+		if (!normalized) return { title: get(_)('messages.role_gate.title'), description: '' };
 		const [firstLine, ...rest] = normalized.split('\n');
 		return {
-			title: firstLine.trim() || 'Role Gate',
+			title: firstLine.trim() || get(_)('messages.role_gate.title'),
 			description: rest.join('\n').trim()
 		};
 	}
@@ -595,6 +823,7 @@
 	function openBlendImportSettings(sourcePath: string, fileName: string): void {
 		blendImportSourcePath = sourcePath;
 		blendImportFileName = fileName;
+		ensureBlendImportSettingsModalLoaded();
 		showBlendImportSettings = true;
 	}
 
@@ -618,10 +847,14 @@
 			if (!response.ok || payload?.success === false) {
 				throw new Error(payload?.error || `Failed to queue import (${response.status})`);
 			}
-			alert(`Blend import queued${payload?.job?.id ? `: ${payload.job.id}` : ''}`);
+			alert(
+				payload?.job?.id
+					? get(_)('messages.blend.queued_with_id', { values: { id: payload.job.id } })
+					: get(_)('messages.blend.queued')
+			);
 			showBlendImportSettings = false;
 		} catch (error) {
-			alert(error instanceof Error ? error.message : 'Failed to queue blend import');
+			alert(error instanceof Error ? error.message : get(_)('messages.blend.queue_failed'));
 		} finally {
 			blendImportSubmitting = false;
 		}
@@ -918,17 +1151,17 @@
 	<div class="load-more-container">
 		<button class="load-more-btn" on:click={handleLoadMore} disabled={isLoadingServerHistory || isLoadingOlder}>
 			{#if isLoadingServerHistory || isLoadingOlder}
-				<span class="spinner"></span> Loading...
+				<span class="spinner"></span> {$_('messages.pagination.loading')}
 			{:else if visibleMessageStart > 0}
-				Show Older Loaded Messages
+				{$_('messages.pagination.show_older_loaded')}
 			{:else}
-				Load Older Messages
+				{$_('messages.pagination.load_older')}
 			{/if}
 		</button>
 	</div>
 {:else if messages.length > 0}
 	<div class="load-more-container">
-		<div class="no-more-messages">Beginning of conversation</div>
+		<div class="no-more-messages">{$_('messages.pagination.beginning')}</div>
 	</div>
 {/if}
 
@@ -940,11 +1173,13 @@
 	{@const groupedWithNext = isGroupedWithNext(index)}
 	{@const ownMessage = isOwnMessage(message)}
 	{@const deletionLabel = getMessageDeletionLabel(message)}
+	{@const translatedText = translatedMessages[message.id]}
+	{@const translationLoading = translatingMessageIds.has(message.id)}
 
 	<!-- New Messages Divider -->
 	{#if firstUnreadMessageId === message.id}
 		<div class="new-messages-divider">
-			<span>New Messages</span>
+			<span>{$_('messages.new_messages')}</span>
 		</div>
 	{/if}
 
@@ -956,13 +1191,13 @@
 		use:longpress={{ onLongPress: (e) => handleMessageLongPress(e, message) }}
 	>
 		<div class="message-actions" class:mobile-visible={mobileActionsMessageId === message.id}>
-			<button class="action-btn" title="Add Reaction" on:click={(e) => openReactionPicker(e, message.id)}>
+			<button class="action-btn" title={$_('messages.add_reaction')} on:click={(e) => openReactionPicker(e, message.id)}>
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
 			</button>
-			<button class="action-btn" title="Reply" on:click={() => handleReply(message)}>
+			<button class="action-btn" title={$_('messages.actions.reply')} on:click={() => handleReply(message)}>
 				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
 			</button>
-			<button class="action-btn" title="More" on:click={(e) => handleContextMenu(e, message)}>
+			<button class="action-btn" title={$_('messages.actions.more')} on:click={(e) => handleContextMenu(e, message)}>
 				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
 			</button>
 		</div>
@@ -999,22 +1234,22 @@
 						{/if}
 						<span class="timestamp">{formatTime(message.timestamp)}</span>
 						{#if deletionLabel}
-							<span class="deletion-timer" title="This message is scheduled for auto-deletion">
+							<span class="deletion-timer" title={$_('messages.deletion.scheduled_title')}>
 								{deletionLabel}
 							</span>
 						{/if}
 						{#if message.isPinned}
-							<span class="pin-badge" title="Pinned message"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg></span>
+							<span class="pin-badge" title={$_('messages.pinned_title')}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg></span>
 						{/if}
 						{#if message.isEdited}
-							<span class="edited-badge" title="Edited">(edited)</span>
+							<span class="edited-badge" title={$_('messages.edited_title')}>({$_('messages.edited')})</span>
 						{/if}
 					</div>
 				</div>
 			{/if}
 			{#if groupedWithPrevious && deletionLabel}
 				<div class="grouped-deletion-meta">
-					<span class="deletion-timer" title="This message is scheduled for auto-deletion">
+					<span class="deletion-timer" title={$_('messages.deletion.scheduled_title')}>
 						{deletionLabel}
 					</span>
 				</div>
@@ -1049,9 +1284,9 @@
 							{:else if replyToMsg.type === 'emoji'}
 								:{replyToMsg.emojiName || 'sticker'}:
 							{:else if replyToMsg.fileUrl}
-								{replyToMsg.fileName || 'File'}
+								{replyToMsg.fileName || $_('messages.file')}
 							{:else}
-								Message
+								{$_('messages.message')}
 							{/if}
 						</span>
 					</div>
@@ -1076,8 +1311,8 @@
 						}}
 					></textarea>
 					<div class="edit-actions">
-						<button class="edit-cancel" on:click={cancelEdit}>Cancel</button>
-						<button class="edit-save" on:click={() => saveEdit(message.id)}>Save</button>
+						<button class="edit-cancel" on:click={cancelEdit}>{$_('common.cancel')}</button>
+						<button class="edit-save" on:click={() => saveEdit(message.id)}>{$_('common.save')}</button>
 					</div>
 				</div>
 			{:else}
@@ -1085,12 +1320,12 @@
 					{#if message.type === 'role_gate'}
 						{@const gate = parseRoleGateText(message.text)}
 						<div class="role-gate-card">
-							<div class="role-gate-label">Role Gate</div>
+							<div class="role-gate-label">{$_('messages.role_gate.title')}</div>
 							<div class="role-gate-title">{gate.title}</div>
 							{#if gate.description}
 								<div class="role-gate-description">{gate.description}</div>
 							{/if}
-							<div class="role-gate-hint">React below to opt in/out of this access role.</div>
+							<div class="role-gate-hint">{$_('messages.role_gate.hint')}</div>
 						</div>
 					{:else if message.type === 'gif' && message.gifUrl}
 						<img src={message.gifUrl} alt="GIF" class="gif {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
@@ -1118,7 +1353,7 @@
 														enlargeImage(getFileUrl(fileAttachment.fileUrl), imageGallery);
 													}
 												}}
-												title="Click to enlarge"
+												title={$_('messages.media.click_enlarge')}
 											/>
 											{#if index === 3 && message.files.length > 4}
 												<div class="more-overlay">
@@ -1135,7 +1370,7 @@
 												class="gallery-file-video {message.isSpoiler ? 'spoiler' : ''}"
 												data-spoiler={message.isSpoiler ? 'true' : 'false'}
 												on:click={(e) => e.button === 0 && enlargeVideo(getFileUrl(fileAttachment.fileUrl))}
-												title="Click to enlarge"
+												title={$_('messages.media.click_enlarge')}
 											>
 												<source src={getFileUrl(fileAttachment.fileUrl)} />
 											</video>
@@ -1153,7 +1388,7 @@
 												class="gallery-file-audio"
 											>
 												<source src={getFileUrl(fileAttachment.fileUrl)} type="audio/{fileAttachment.fileName?.split('.').pop()}" />
-												Your browser does not support the audio element.
+												{$_('messages.media.audio_not_supported')}
 											</audio>
 											<div class="audio-file-name">{fileAttachment.fileName}</div>
 											{#if index === 3 && message.files.length > 4}
@@ -1164,7 +1399,13 @@
 										</div>
 									{:else if isModelFile(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
 										<div class="gallery-file-item model-item" class:last-item={index === 3 && message.files.length > 4}>
-											<ModelViewer3D src={getFileUrl(fileAttachment.fileUrl)} fileName={fileAttachment.fileName || '3D model'} height={220} />
+											<ModelViewer3D src={getFileUrl(fileAttachment.fileUrl)} fileName={fileAttachment.fileName || $_('messages.media.model_fallback_name')} height={220} />
+											<button
+												class="open-viewport-btn"
+												on:click={() => openModelInDedicatedTab(getFileUrl(fileAttachment.fileUrl), fileAttachment.fileName || $_('messages.media.model_fallback_name'))}
+											>
+												{$_('messages.media.open_3d_tab')}
+											</button>
 											<a href={getFileUrl(fileAttachment.fileUrl)} target="_blank" rel="noopener noreferrer" download={fileAttachment.fileName} class="image-download-link">
 												<span class="file-icon">{getFileIcon(fileAttachment.fileName)}</span>
 												{fileAttachment.fileName}
@@ -1185,7 +1426,7 @@
 											</div>
 											<div class="blend-actions">
 												<button class="blend-import-btn" on:click={() => openBlendImportSettings(fileAttachment.fileUrl, fileAttachment.fileName)}>
-													Import Settings
+													{$_('messages.blend.import_settings')}
 												</button>
 											</div>
 											{#if index === 3 && message.files.length > 4}
@@ -1218,7 +1459,13 @@
 						{:else if message.fileUrl}
 							{#if isModelFile(message.fileName) && !isEncryptedAttachment(message)}
 							<div class="model-container">
-								<ModelViewer3D src={getFileUrl(message.fileUrl)} fileName={message.fileName || '3D model'} />
+								<ModelViewer3D src={getFileUrl(message.fileUrl)} fileName={message.fileName || $_('messages.media.model_fallback_name')} />
+								<button
+									class="open-viewport-btn"
+									on:click={() => message.fileUrl && openModelInDedicatedTab(getFileUrl(message.fileUrl), message.fileName || $_('messages.media.model_fallback_name'))}
+								>
+									{$_('messages.media.open_3d_tab')}
+								</button>
 								<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="image-download-link">
 									<span class="file-icon">{getFileIcon(message.fileName)}</span>
 									{message.fileName}
@@ -1237,7 +1484,7 @@
 									data-spoiler={message.isSpoiler ? 'true' : 'false'}
 									on:click={(e) => e.button === 0 && message.fileUrl && enlargeImage(getFileUrl(message.fileUrl))}
 									on:contextmenu={(e) => handleImageContextMenu(e, message)}
-									title="Click to enlarge, right-click for options"
+									title={$_('messages.media.click_enlarge_with_options')}
 								/>
 								<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="image-download-link">
 									<span class="file-icon">{getFileIcon(message.fileName)}</span>
@@ -1261,10 +1508,10 @@
 										}
 									}}
 									on:contextmenu={(e) => handleImageContextMenu(e, message)}
-									title="Click to enlarge, right-click for options"
+									title={$_('messages.media.click_enlarge_with_options')}
 								>
 									<source src={getFileUrl(message.fileUrl)} type="video/{message.fileName?.split('.').pop()}" />
-									Your browser does not support the video tag.
+									{$_('messages.viewer.video_not_supported')}
 								</video>
 								<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="video-download-link">
 									<span class="file-icon">{getFileIcon(message.fileName)}</span>
@@ -1281,7 +1528,7 @@
 									class="inline-audio"
 								>
 									<source src={getFileUrl(message.fileUrl)} type="audio/{message.fileName?.split('.').pop()}" />
-									Your browser does not support the audio element.
+									{$_('messages.media.audio_not_supported')}
 								</audio>
 								<div class="audio-file-info">
 									<span class="file-icon">{getFileIcon(message.fileName)}</span>
@@ -1300,10 +1547,10 @@
 								</div>
 								<div class="blend-file-actions">
 									<button class="blend-import-btn" on:click={() => message.fileUrl && message.fileName && openBlendImportSettings(message.fileUrl, message.fileName)}>
-										Import Settings
+										{$_('messages.blend.import_settings')}
 									</button>
 									<button class="blend-download-btn" on:click={() => message.fileUrl && message.fileName && downloadAttachment(message.fileUrl, message.fileName, message.attachmentEncryption)}>
-										Download .blend
+										{$_('messages.blend.download')}
 									</button>
 								</div>
 							</div>
@@ -1320,7 +1567,7 @@
 								<span class="file-icon">{getFileIcon(message.fileName)}</span>
 								<div class="file-info">
 									<span class="file-name">{message.fileName}</span>
-									<span class="file-size">{formatFileSize(message.fileSize)}{message.attachmentEncryption ? ' (encrypted)' : ''}</span>
+									<span class="file-size">{formatFileSize(message.fileSize)}{message.attachmentEncryption ? ` (${$_('messages.encrypted')})` : ''}</span>
 								</div>
 							</a>
 						{/if}
@@ -1331,16 +1578,25 @@
 					{:else}
 						<div class="markdown-content">{@html parseMessage(message.text)}</div>
 					{/if}
+					{#if translatedText}
+						<div class="translated-content" class:loading={translationLoading}>
+							<span class="translated-label">{$_('messages.translated_label')}</span>
+							<div class="translated-text">{translatedText}</div>
+						</div>
+					{/if}
 
 					<!-- TEMPORARY: Media URLs and Link Previews -->
 					{#if message.text}
 						{@const urls = extractUrls(message.text)}
 						{#each urls as url}
+							{#if isYouTubeUrl(url)}
+								<YouTubeWatchEmbed url={url} channelId={$currentChannel} />
+							{:else}
 							{@const mediaType = getMediaType(url)}
 							{#if mediaType === 'image'}
 								<img
 									src={url}
-									alt="Embedded image"
+									alt={$_('messages.media.embedded_image_alt')}
 									class="embedded-media embedded-image {message.isSpoiler ? 'spoiler' : ''}"
 									data-spoiler={message.isSpoiler ? 'true' : 'false'}
 									loading="lazy"
@@ -1353,7 +1609,7 @@
 									data-spoiler={message.isSpoiler ? 'true' : 'false'}
 								>
 									<source src={url} />
-									Your browser does not support the video tag.
+									{$_('messages.viewer.video_not_supported')}
 								</video>
 							{:else if mediaType === 'audio'}
 								<!-- svelte-ignore a11y-media-has-caption -->
@@ -1362,15 +1618,27 @@
 									class="embedded-media embedded-audio"
 								>
 									<source src={url} />
-									Your browser does not support the audio element.
+									{$_('messages.media.audio_not_supported')}
 								</audio>
 							{:else if mediaType === 'model'}
 								<div class="embedded-model-container">
-									<ModelViewer3D src={url} fileName={url.split('/').pop() || '3D model'} height={280} />
+									<ModelViewer3D src={url} fileName={url.split('/').pop() || $_('messages.media.model_fallback_name')} height={280} />
+									<button
+										class="open-viewport-btn"
+										on:click={() => openModelInDedicatedTab(url, url.split('/').pop() || $_('messages.media.model_fallback_name'))}
+									>
+										{$_('messages.media.open_3d_tab')}
+									</button>
 								</div>
 							{:else}
 								<!-- Regular link preview for non-media URLs -->
-								<LinkPreview {url} />
+								{#if LinkPreviewComponent}
+									<svelte:component this={LinkPreviewComponent} {url} />
+								{:else}
+									{@const _linkPreviewRequested = (ensureLinkPreviewLoaded(), true)}
+									<a href={url} target="_blank" rel="noopener noreferrer" class="plain-link-fallback">{url}</a>
+								{/if}
+							{/if}
 							{/if}
 						{/each}
 					{/if}
@@ -1400,19 +1668,27 @@
 	</div>
 {/each}
 
-<UserPopout
-	bind:isOpen={showUserPopout}
-	bind:user={popoutUser}
-	anchorElement={popoutAnchorElement}
-	isOwnProfile={popoutIsOwnProfile}
-	on:close={() => showUserPopout = false}
-/>
+{#if UserPopoutComponent}
+	<svelte:component
+		this={UserPopoutComponent}
+		bind:isOpen={showUserPopout}
+		bind:user={popoutUser}
+		anchorElement={popoutAnchorElement}
+		isOwnProfile={popoutIsOwnProfile}
+		on:close={() => showUserPopout = false}
+	/>
+{/if}
 
 {#if showReactionPicker}
-	<EmojiPicker
-		on:select={handleReactionSelect}
-		on:close={closeReactionPicker}
-	/>
+	{#if EmojiPickerComponent}
+		<svelte:component
+			this={EmojiPickerComponent}
+			on:select={handleReactionSelect}
+			on:close={closeReactionPicker}
+		/>
+	{:else}
+		<div class="emoji-picker-loading">{$_('emoji_picker.loading')}</div>
+	{/if}
 {/if}
 
 {#if contextMenuMessage}
@@ -1428,6 +1704,7 @@
 		onDownload={handleDownload}
 		onForward={handleForward}
 		onAddReaction={handleAddReaction}
+		onTranslate={handleTranslate}
 	/>
 {/if}
 
@@ -1435,24 +1712,27 @@
 
 <ConfirmDialog
 	isOpen={showDeleteConfirm}
-	title="Delete Message"
-	message="Are you sure you want to delete this message?"
-	confirmText="Delete"
+	title={$_('messages.confirm.delete_title')}
+	message={$_('messages.confirm.delete_message')}
+	confirmText={$_('messages.confirm.delete_confirm')}
 	variant="danger"
 	onConfirm={confirmDeleteMessage}
 	onCancel={() => showDeleteConfirm = false}
 />
 
-<BlendImportSettingsModal
-	isOpen={showBlendImportSettings}
-	sourcePath={blendImportSourcePath}
-	fileName={blendImportFileName}
-	isSubmitting={blendImportSubmitting}
-	on:close={() => {
-		if (!blendImportSubmitting) showBlendImportSettings = false;
-	}}
-	on:submit={queueBlendImport}
-/>
+{#if BlendImportSettingsModalComponent}
+	<svelte:component
+		this={BlendImportSettingsModalComponent}
+		isOpen={showBlendImportSettings}
+		sourcePath={blendImportSourcePath}
+		fileName={blendImportFileName}
+		isSubmitting={blendImportSubmitting}
+		on:close={() => {
+			if (!blendImportSubmitting) showBlendImportSettings = false;
+		}}
+		on:submit={queueBlendImport}
+	/>
+{/if}
 
 {#if enlargedImage}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -1473,7 +1753,7 @@
 		<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 		<img
 			src={enlargedImage}
-			alt="Enlarged"
+			alt={$_('messages.viewer.enlarged_alt')}
 			class="enlarged-image"
 			on:click|stopPropagation
 			on:load={onEnlargedImageLoad}
@@ -1482,10 +1762,10 @@
 
 		<!-- Navigation arrows (only show if multiple images) -->
 		{#if currentImageGallery.length > 1}
-			<button class="nav-arrow nav-prev" on:click|stopPropagation={() => navigateImage('prev')} title="Previous (left arrow)">
+			<button class="nav-arrow nav-prev" on:click|stopPropagation={() => navigateImage('prev')} title={$_('messages.viewer.previous')}>
 				&lt;
 			</button>
-			<button class="nav-arrow nav-next" on:click|stopPropagation={() => navigateImage('next')} title="Next (right arrow)">
+			<button class="nav-arrow nav-next" on:click|stopPropagation={() => navigateImage('next')} title={$_('messages.viewer.next')}>
 				&gt;
 			</button>
 			<div class="image-counter">
@@ -1500,8 +1780,8 @@
 					target="_blank"
 					rel="noopener noreferrer"
 					class="toolbar-btn"
-					title="Open in new tab"
-					aria-label="Open in new tab"
+					title={$_('messages.viewer.open_new_tab')}
+					aria-label={$_('messages.viewer.open_new_tab')}
 				>
 					<svg class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M14 3h7v7" />
@@ -1511,42 +1791,42 @@
 						<path d="M3 21h7v-7" />
 					</svg>
 				</a>
-				<button class="toolbar-btn" on:click={forwardCurrentImage} title="Forward / Share" aria-label="Forward or share image">
+				<button class="toolbar-btn" on:click={forwardCurrentImage} title={$_('messages.viewer.forward_share')} aria-label={$_('messages.viewer.forward_share')}>
 					<svg class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M5 12h14" />
 						<path d="m13 5 7 7-7 7" />
 					</svg>
 				</button>
-				<button class="toolbar-btn" on:click={zoomOut} title="Zoom out" aria-label="Zoom out">
+				<button class="toolbar-btn" on:click={zoomOut} title={$_('messages.viewer.zoom_out')} aria-label={$_('messages.viewer.zoom_out')}>
 					-
 				</button>
-				<button class="toolbar-btn zoom-level" on:click={resetZoom} title="Reset zoom" aria-label="Reset zoom">
+				<button class="toolbar-btn zoom-level" on:click={resetZoom} title={$_('messages.viewer.reset_zoom')} aria-label={$_('messages.viewer.reset_zoom')}>
 					{Math.round(imageZoom * 100)}%
 				</button>
-				<button class="toolbar-btn" on:click={zoomIn} title="Zoom in" aria-label="Zoom in">
+				<button class="toolbar-btn" on:click={zoomIn} title={$_('messages.viewer.zoom_in')} aria-label={$_('messages.viewer.zoom_in')}>
 					+
 				</button>
 				<div class="toolbar-more-wrap">
-					<button class="toolbar-btn" on:click={toggleImageMenu} title="More" aria-label="More actions">
+					<button class="toolbar-btn" on:click={toggleImageMenu} title={$_('messages.viewer.more')} aria-label={$_('messages.viewer.more_actions')}>
 						...
 					</button>
 					{#if imageMenuOpen}
 						<div class="toolbar-menu" role="menu">
-							<button class="toolbar-menu-item" on:click={copyCurrentImageLink}>Copy image link</button>
-							<button class="toolbar-menu-item" on:click={copyCurrentImage}>Copy image</button>
+							<button class="toolbar-menu-item" on:click={copyCurrentImageLink}>{$_('messages.viewer.copy_image_link')}</button>
+							<button class="toolbar-menu-item" on:click={copyCurrentImage}>{$_('messages.viewer.copy_image')}</button>
 							<div class="toolbar-menu-item details-hover-row">
-								Image details
+								{$_('messages.viewer.image_details')}
 								<div class="image-details-popout" role="note">
-									<div><strong>Name:</strong> {imageMeta.name}</div>
-									<div><strong>Dimensions:</strong> {imageMeta.width ?? '?'} x {imageMeta.height ?? '?'}</div>
-									<div><strong>Size:</strong> {formatBytes(imageMeta.sizeBytes)}</div>
+									<div><strong>{$_('messages.viewer.details_name')}:</strong> {imageMeta.name}</div>
+									<div><strong>{$_('messages.viewer.details_dimensions')}:</strong> {imageMeta.width ?? '?'} x {imageMeta.height ?? '?'}</div>
+									<div><strong>{$_('messages.viewer.details_size')}:</strong> {formatBytes(imageMeta.sizeBytes)}</div>
 								</div>
 							</div>
 						</div>
 					{/if}
 				</div>
 			</div>
-			<button class="close-modal" on:click={closeEnlargedImage} aria-label="Close image viewer">X</button>
+			<button class="close-modal" on:click={closeEnlargedImage} aria-label={$_('messages.viewer.close')}>X</button>
 		</div>
 	</div>
 {/if}
@@ -1576,11 +1856,11 @@
 			on:click|stopPropagation
 		>
 			<source src={enlargedVideo} />
-			Your browser does not support the video tag.
+			{$_('messages.viewer.video_not_supported')}
 		</video>
 		<button class="close-modal" on:click={closeEnlargedVideo}>X</button>
 		<a href={enlargedVideo} target="_blank" rel="noopener noreferrer" class="open-new-tab">
-			Open in new tab
+			{$_('messages.viewer.open_new_tab')}
 		</a>
 	</div>
 {/if}
@@ -1603,6 +1883,18 @@
 		flex: 1;
 		height: 1px;
 		background: var(--color-danger-hover);
+	}
+
+	.plain-link-fallback {
+		color: var(--color-info);
+		text-decoration: underline;
+		word-break: break-all;
+	}
+
+	.emoji-picker-loading {
+		padding: 0.6rem;
+		color: var(--text-secondary);
+		font-size: var(--text-sm);
 	}
 
 	.message {
@@ -2009,6 +2301,34 @@
 		word-wrap: break-word;
 		word-break: break-word;
 		overflow-wrap: break-word;
+	}
+
+	.translated-content {
+		margin-top: 0.35rem;
+		padding: 0.4rem 0.5rem;
+		border: 1px dashed var(--border);
+		border-radius: 8px;
+		background: color-mix(in srgb, var(--bg-tertiary) 90%, var(--accent) 10%);
+	}
+
+	.translated-content.loading {
+		opacity: 0.8;
+	}
+
+	.translated-label {
+		display: inline-block;
+		font-size: 0.65rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--text-secondary);
+		margin-bottom: 0.2rem;
+	}
+
+	.translated-text {
+		font-size: 0.88rem;
+		line-height: 1.45;
+		color: var(--text-primary);
+		white-space: pre-wrap;
 	}
 
 	.role-gate-card {
@@ -2486,6 +2806,23 @@
 		transition: all 0.3s ease;
 		cursor: pointer;
 		box-shadow: 0 2px 8px rgba(var(--accent-rgb), var(--opacity-subtle));
+	}
+
+	.open-viewport-btn {
+		border: 1px solid rgba(var(--accent-rgb), var(--opacity-light));
+		background: var(--bg-secondary);
+		color: var(--accent-hex);
+		border-radius: 4px;
+		padding: 0.32rem 0.55rem;
+		font-size: var(--text-xs);
+		font-weight: 600;
+		cursor: pointer;
+		width: fit-content;
+		margin-top: 0.35rem;
+	}
+
+	.open-viewport-btn:hover {
+		background: var(--bg-tertiary);
 	}
 
 	.image-download-link:hover,
@@ -3246,6 +3583,56 @@
 		padding-bottom: 0 !important;
 		margin-top: 0 !important;
 		margin-bottom: 0 !important;
+	}
+}
+
+/* Final mobile density pass: closer to compact chat rhythm */
+@media (max-width: 768px) {
+	.message {
+		padding: 0.22rem 0.42rem !important;
+		gap: 0.34rem !important;
+		margin-bottom: 0 !important;
+		border-radius: 0 !important;
+	}
+
+	.message:hover {
+		background: rgba(var(--bg-secondary-rgb), 0.28) !important;
+	}
+
+	.avatar,
+	.avatar-placeholder {
+		width: 30px !important;
+		height: 30px !important;
+		font-size: 0.78rem !important;
+	}
+
+	.message-avatar-spacer {
+		width: 30px !important;
+	}
+
+	.message-header {
+		margin-bottom: 0.04rem !important;
+	}
+
+	.username {
+		font-size: 0.9rem !important;
+		font-weight: 700 !important;
+	}
+
+	.timestamp {
+		font-size: 0.72rem !important;
+		opacity: 0.72 !important;
+		margin-left: 0.32rem !important;
+	}
+
+	.message .markdown-content,
+	.message .markdown-content :global(p) {
+		line-height: 1.24 !important;
+		font-size: 0.97rem !important;
+	}
+
+	.message.continuation .message-body {
+		margin-top: -0.02rem !important;
 	}
 }
 

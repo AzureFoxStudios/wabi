@@ -1,0 +1,506 @@
+{
+  "app": {
+    "starting": "Iniciando Wabi"
+  },
+  "common": {
+    "close": "Cerrar",
+    "regenerate": "Regenerar",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "on": "On",
+    "off": "Off"
+  },
+  "settings": {
+    "title": "Configuracion",
+    "language": "Idioma",
+    "tabs": {
+      "profile": "Perfil",
+      "audio": "Audio y video",
+      "notifications": "Notificaciones",
+      "accessibility": "Accesibilidad",
+      "appearance": "Apariencia",
+      "server": "Servidor",
+      "addons": "Add-ons",
+      "emojis": "Emojis",
+      "storage": "Almacenamiento",
+      "admin": "Admin",
+      "about": "Acerca de",
+      "logout": "Cerrar sesion"
+    },
+    "sections": {
+      "display_name": "Nombre visible",
+      "profile_picture": "Foto de perfil",
+      "audio": "Audio y video",
+      "notifications": "Notificaciones",
+      "accessibility": "Accesibilidad",
+      "appearance": "Apariencia",
+      "server_management": "Gestion del servidor",
+      "addons": "Add-ons",
+      "custom_emojis": "Emojis personalizados",
+      "admin_panel": "Panel admin",
+      "about": "Acerca de"
+    },
+    "actions": {
+      "clear_server": "Limpiar servidor"
+    },
+    "confirm": {
+      "clear_local_title": "Limpiar datos locales",
+      "clear_local_message": "Seguro que deseas borrar todos los datos del chat? Esta accion no se puede deshacer.",
+      "clear_local_confirm": "Limpiar datos",
+      "clear_server_title": "Limpiar mensajes del servidor",
+      "clear_server_message": "Seguro que deseas eliminar TODOS los mensajes del servidor? Esto afecta a todos los usuarios y no se puede deshacer.",
+      "clear_server_confirm": "Eliminar todo"
+    },
+    "language_learning": {
+      "label": "Aprendizaje progresivo de interfaz",
+      "description": "Mezcla tu idioma seleccionado en la interfaz poco a poco.",
+      "target_percent": "Idioma objetivo en la interfaz: {percent}%",
+      "hint": "Valores bajos mantienen mas ingles. Sube gradualmente mientras aprendes.",
+      "select_non_english": "Selecciona un idioma de aplicacion distinto de ingles para activar la mezcla progresiva."
+    }
+  },
+  "login": {
+    "tabs": {
+      "guest": "Invitado",
+      "login": "Iniciar sesión",
+      "register": "Registrarse"
+    },
+    "language": {
+      "label": "Idioma"
+    },
+    "guest": {
+      "name_placeholder": "Escribe tu nombre",
+      "joining": "Entrando...",
+      "join_button": "Entrar como invitado",
+      "join_qr_button": "Unirse con código QR",
+      "business_hub": "Centro de negocios"
+    },
+    "auth": {
+      "username_or_handle_placeholder": "Usuario o @handle",
+      "password_placeholder": "Contraseña",
+      "logging_in": "Iniciando sesión...",
+      "login_button": "Iniciar sesión",
+      "display_name_placeholder": "Nombre visible",
+      "handle_placeholder": "tuhandle",
+      "password_rules_placeholder": "Contraseña (8+ caracteres)",
+      "confirm_password_placeholder": "Confirmar contraseña",
+      "creating_account": "Creando cuenta...",
+      "create_account_button": "Crear cuenta"
+    },
+    "errors": {
+      "username_min": "El nombre de usuario debe tener al menos 2 caracteres",
+      "handle_invalid": "El handle debe empezar con una letra, tener 2-32 caracteres y usar solo minúsculas/números/guion bajo",
+      "password_min": "La contraseña debe tener al menos 8 caracteres",
+      "password_mismatch": "Las contraseñas no coinciden",
+      "registration_failed": "No se pudo completar el registro",
+      "username_password_required": "Usuario y contraseña son obligatorios",
+      "login_failed": "No se pudo iniciar sesión"
+    },
+    "qr": {
+      "open_modal": "Unirse con código QR",
+      "title": "Escanear para unirse",
+      "url_placeholder": "Nombre de sala opcional (ej. cocina)",
+      "close_modal_aria": "Cerrar modal del código QR",
+      "dialog_aria": "Código QR para unirse al chat"
+    }
+  },
+  "chat": {
+    "drag": {
+      "drop_to_upload": "Suelta archivos aqui para subir"
+    },
+    "dm": {
+      "badge": "Mensaje directo",
+      "call": "Llamar",
+      "video": "Video",
+      "voice_call_title": "Llamada de voz a {user}",
+      "video_call_title": "Videollamada a {user}"
+    },
+    "typing": {
+      "one": "{user} esta escribiendo...",
+      "two": "{user1} y {user2} estan escribiendo...",
+      "many": "Muchos usuarios estan escribiendo...",
+      "multi": "{users}, y {lastUser} estan escribiendo..."
+    },
+    "search": {
+      "placeholder": "Buscar (by:usuario, has:image, etc.)",
+      "results_one": "{count} resultado",
+      "results_many": "{count} resultados",
+      "loading_older": "Cargando historial anterior...",
+      "full_history": "Buscar en todo el historial",
+      "stop": "Detener ({count})",
+      "status": {
+        "scanning": "Escaneando historial completo...",
+        "stopped": "Detenido.",
+        "changed": "Cambio la consulta o canal de busqueda.",
+        "loaded": "Historial completo cargado para este canal.",
+        "limit": "Se alcanzo el limite de seguridad. Reduce la busqueda para continuar."
+      }
+    },
+    "compose": {
+      "editing": "Editando mensaje",
+      "escape_to_cancel": "Presiona Escape para cancelar",
+      "replying_to": "Respondiendo a {user}:",
+      "attachment": "Adjunto",
+      "placeholder": "Escribe un mensaje... o /help para comandos (Shift+Enter para nueva linea)",
+      "add_media": "Agregar contenido",
+      "upload_file": "Subir archivo",
+      "take_photo": "Tomar foto",
+      "record_audio": "Grabar audio",
+      "add_emoji": "Agregar emoji",
+      "send_message": "Enviar mensaje"
+    },
+    "mentions": {
+      "kind_mention": "Mencion",
+      "kind_user": "Usuario"
+    },
+    "upload": {
+      "files_selected_one": "{count} archivo seleccionado",
+      "files_selected_many": "{count} archivos seleccionados",
+      "mark_spoiler": "Marcar como spoiler",
+      "spoiler_hint": "El contenido sensible se ocultara hasta hacer clic",
+      "upload_files_one": "Subir {count} archivo",
+      "upload_files_many": "Subir {count} archivos",
+      "uploading": "Subiendo archivos..."
+    }
+  },
+  "messages": {
+    "new_messages": "Mensajes nuevos",
+    "add_reaction": "Agregar reaccion",
+    "encrypted": "cifrado",
+    "unknown_user": "Usuario desconocido",
+    "file": "Archivo",
+    "message": "Mensaje",
+    "actions": {
+      "reply": "Responder",
+      "more": "Mas"
+    },
+    "errors": {
+      "cannot_decrypt_session": "No se puede descifrar este adjunto en la sesion actual.",
+      "decrypt_failed": "No se pudo descifrar el adjunto."
+    },
+    "blend": {
+      "queued": "Importacion de Blend en cola",
+      "queued_with_id": "Importacion de Blend en cola: {id}",
+      "queue_failed": "No se pudo encolar la importacion de Blend",
+      "import_settings": "Importar configuracion",
+      "download": "Descargar .blend"
+    },
+    "media": {
+      "click_enlarge": "Clic para ampliar",
+      "click_enlarge_with_options": "Clic para ampliar, clic derecho para opciones",
+      "audio_not_supported": "Tu navegador no soporta el elemento de audio.",
+      "embedded_image_alt": "Imagen incrustada",
+      "model_fallback_name": "modelo 3D",
+      "open_3d_tab": "Abrir pestaña 3D"
+    },
+    "pinned_title": "Mensaje fijado",
+    "edited_title": "Editado",
+    "edited": "editado",
+    "translated_label": "Traducido",
+    "deletion": {
+      "scheduled_title": "Este mensaje esta programado para borrado automatico",
+      "deleting": "Borrando...",
+      "deletes_in": "Se borra en {duration}"
+    },
+    "pagination": {
+      "loading": "Cargando...",
+      "show_older_loaded": "Mostrar mensajes antiguos ya cargados",
+      "load_older": "Cargar mensajes anteriores",
+      "beginning": "Inicio de la conversacion"
+    },
+    "confirm": {
+      "delete_title": "Eliminar mensaje",
+      "delete_message": "Seguro que deseas eliminar este mensaje?",
+      "delete_confirm": "Eliminar"
+    },
+    "role_gate": {
+      "title": "Control de rol",
+      "hint": "Reacciona abajo para entrar o salir de este rol de acceso."
+    },
+    "viewer": {
+      "open_new_tab": "Abrir en nueva pestana",
+      "forward_share": "Reenviar / Compartir",
+      "zoom_out": "Alejar",
+      "reset_zoom": "Restablecer zoom",
+      "zoom_in": "Acercar",
+      "more": "Mas",
+      "more_actions": "Mas acciones",
+      "copy_image_link": "Copiar enlace de imagen",
+      "copy_image": "Copiar imagen",
+      "image_details": "Detalles de imagen",
+      "details_name": "Nombre",
+      "details_dimensions": "Dimensiones",
+      "details_size": "Tamano",
+      "close": "Cerrar visor de imagen",
+      "video_not_supported": "Tu navegador no soporta la etiqueta de video.",
+      "enlarged_alt": "Ampliada",
+      "previous": "Anterior",
+      "next": "Siguiente"
+    }
+  },
+  "context_menu": {
+    "aria_label": "Acciones del mensaje",
+    "reply": "Responder",
+    "add_reaction": "Agregar reaccion",
+    "translate": "Traducir",
+    "download": "Descargar",
+    "forward": "Reenviar",
+    "edit_message": "Editar mensaje",
+    "pin_message": "Fijar mensaje",
+    "unpin_message": "Desfijar mensaje",
+    "copy_text": "Copiar texto",
+    "delete_message": "Eliminar mensaje"
+  },
+  "forward_dialog": {
+    "title": "Reenviar mensaje",
+    "description": "Elige un canal para reenviar este mensaje:",
+    "close": "Cerrar"
+  },
+  "camera": {
+    "title": "Tomar foto",
+    "switch_camera": "Cambiar camara",
+    "captured_alt": "Foto capturada",
+    "accessing": "Accediendo a la camara...",
+    "take_photo": "Tomar foto",
+    "retake": "Repetir",
+    "send": "Enviar",
+    "errors": {
+      "access_required": "Se requiere acceso a la camara. Habilitalo en la configuracion del navegador.",
+      "not_found": "No se encontro camara en este dispositivo.",
+      "access_failed": "No se pudo acceder a la camara. Intenta de nuevo.",
+      "capture_failed": "No se pudo capturar la foto. Intenta de nuevo.",
+      "photo_too_large": "Foto demasiado grande (max 10MB). Intenta de nuevo con menor resolucion."
+    }
+  },
+  "audio": {
+    "title": "Grabar mensaje de voz",
+    "microphone_label": "Microfono:",
+    "microphone_fallback": "Microfono {index}",
+    "ready": "Listo para grabar",
+    "recording_stopped": "Grabacion detenida",
+    "record": "Grabar",
+    "stop": "Detener",
+    "rerecord": "Volver a grabar",
+    "send": "Enviar",
+    "errors": {
+      "access_required": "Se requiere acceso al microfono. Habilitalo en la configuracion del navegador.",
+      "not_found": "No se encontro microfono en este dispositivo.",
+      "start_failed": "No se pudo iniciar la grabacion. Intenta de nuevo.",
+      "no_audio": "No se grabo audio. Intenta de nuevo.",
+      "too_large": "Audio demasiado grande (max 10MB). Graba un mensaje mas corto.",
+      "cannot_switch_while_recording": "No se puede cambiar de microfono mientras se graba. Deten primero."
+    }
+  },
+  "pinned": {
+    "summary": {
+      "title": "Mensajes fijados"
+    },
+    "modal": {
+      "title": "Mensajes fijados en #{channel}",
+      "empty": "No hay mensajes fijados en este canal",
+      "hint": "Haz clic derecho en un mensaje y elige \"Fijar mensaje\" para fijarlo aqui."
+    },
+    "actions": {
+      "jump": "Ir a",
+      "jump_title": "Ir al mensaje",
+      "unpin": "Desfijar",
+      "unpin_title": "Desfijar mensaje"
+    }
+  },
+  "emoji_picker": {
+    "search_gifs_placeholder": "Buscar GIFs...",
+    "search_stickers_placeholder": "Buscar stickers (nombre/artista)...",
+    "search_emojis_placeholder": "Buscar emojis (nombre/artista)...",
+    "tabs": {
+      "emojis": "Emojis",
+      "stickers": "Stickers",
+      "gifs": "GIFs"
+    },
+    "filters": {
+      "all": "Todo",
+      "default": "Por defecto",
+      "openmoji": "OpenMoji",
+      "custom": "Personalizado"
+    },
+    "loading": "Cargando...",
+    "no_gifs": "No se encontraron GIFs",
+    "no_stickers": "No se encontraron stickers",
+    "no_emojis": "No se encontraron emojis",
+    "load_more": "Cargar mas ({remaining} restantes)"
+  },
+  "admin": {
+    "title": "Panel de administracion",
+    "you": "Tu",
+    "subtitle": {
+      "manage": "Administra roles, acceso de canales y automatizaciones de roles desde un solo panel.",
+      "moderate": "Vista de moderador: supervisa usuarios e inicia DMs de moderacion rapido.",
+      "none": "No se detectaron privilegios de moderacion."
+    },
+    "stats": {
+      "users": "Usuarios",
+      "owners": "Owners",
+      "admins": "Admins",
+      "mods": "Mods",
+      "guests": "Invitados"
+    },
+    "sections": {
+      "role_names": "Nombres de roles",
+      "channel_access": "Acceso de canal por rol",
+      "role_gate_posts": "Posts de control de rol",
+      "emoji_role_automation": "Automatizacion de roles con emoji",
+      "users": "Usuarios"
+    },
+    "select": {
+      "channel": "Seleccionar canal",
+      "gate_channel": "Seleccionar canal de control",
+      "role_gate_message": "Seleccionar mensaje de control",
+      "emoji": "Seleccionar emoji",
+      "role": "Seleccionar rol"
+    },
+    "placeholders": {
+      "role_gate_title": "Titulo del control de rol (ejemplo: Acceso 18+)",
+      "role_gate_description": "Descripcion/instrucciones opcionales",
+      "search_users": "Buscar usuarios por nombre o handle..."
+    },
+    "role_gate": {
+      "persist": "Persistir post de control",
+      "create": "Crear post de control",
+      "note": "Solo las reacciones en estos posts de control pueden asignar o quitar roles."
+    },
+    "emoji_rules": {
+      "remove_on_unreact": "Quitar al quitar reaccion",
+      "add_rule": "Agregar regla",
+      "reversible": "reversible",
+      "empty": "Aun no hay reglas de control de rol."
+    },
+    "actions": {
+      "message": "Mensaje",
+      "make_admin": "Hacer admin",
+      "remove_admin": "Quitar admin",
+      "make_mod": "Hacer mod",
+      "remove_mod": "Quitar mod",
+      "reset": "Restablecer",
+      "delete": "Eliminar"
+    },
+    "empty": {
+      "search": "No hay usuarios que coincidan con tu busqueda."
+    }
+  },
+  "storage": {
+    "tauri": {
+      "title": "Almacenamiento de escritorio Tauri",
+      "subtitle": "Tus datos se guardan en archivos sidecar organizados que puedes administrar, respaldar y exportar.",
+      "enable_toggle": "Habilitar almacenamiento de escritorio Tauri (auto-guardado cada 30s)",
+      "enable_hint": "Cuando esta activo, tus mensajes se guardan automaticamente en %APPDATA%/Wabi cada 30 segundos en archivos anuales organizados. Puedes desactivarlo en cualquier momento sin perder datos existentes.",
+      "exporting": "Exportando...",
+      "export_zip": "Exportar como ZIP",
+      "export_hint": "Descarga todos tus mensajes y adjuntos como un archivo ZIP portable. Perfecto para respaldos.",
+      "clear_all": "Limpiar todos los datos de Tauri",
+      "clear_hint": "Eliminar todos los datos almacenados localmente. Esta accion no se puede deshacer."
+    },
+    "browser": {
+      "title": "Almacenamiento del navegador",
+      "subtitle": "Tu historial de chat se guarda solo en tu dispositivo. El servidor no guarda nada de forma permanente.",
+      "save_toggle": "Guardar historial del chat localmente",
+      "save_hint": "Cuando esta activo, los mensajes se guardan en tu navegador. Tu controlas tus datos.",
+      "rotation_period": "Periodo de rotacion",
+      "rotation_hint": "Con que frecuencia crear un nuevo archivo de historial",
+      "keep_last": "Conservar ultimos",
+      "archives_unit": "archivos",
+      "keep_last_hint": "Los archivos antiguos se eliminan automaticamente para ahorrar espacio",
+      "archive_history": "Historial de archivos",
+      "archive_meta": "{size} • {count} mensajes",
+      "no_archives": "Aun no hay archivos. Los mensajes se guardaran mientras chateas."
+    },
+    "rotation": {
+      "weekly": "Semanal",
+      "monthly": "Mensual",
+      "half_year": "Cada 6 meses",
+      "yearly": "Anual"
+    },
+    "stats": {
+      "total_messages": "Mensajes totales",
+      "storage_used": "Almacenamiento usado",
+      "archives": "Archivos"
+    },
+    "actions": {
+      "export_all": "Exportar todo",
+      "export": "Exportar",
+      "delete": "Eliminar",
+      "clear_all_history": "Limpiar todo el historial"
+    },
+    "confirm": {
+      "disable_local_title": "Desactivar almacenamiento local",
+      "disable_local_message": "Desactivar almacenamiento local? Tu historial guardado permanecera hasta que lo borres manualmente.",
+      "disable_local_confirm": "Desactivar",
+      "delete_archive_title": "Eliminar archivo",
+      "delete_archive_message": "Eliminar archivo \"{period}\"?",
+      "delete_archive_confirm": "Eliminar",
+      "delete_all_title": "Eliminar todo el historial",
+      "delete_all_message": "Eliminar TODO el historial guardado del chat? Esta accion no se puede deshacer.",
+      "delete_all_confirm": "Eliminar todo",
+      "clear_tauri_title": "Limpiar datos de Tauri",
+      "clear_tauri_message": "Eliminar TODOS los datos almacenados localmente? Esto incluye todos los mensajes y adjuntos. Esta accion no se puede deshacer.",
+      "clear_tauri_confirm": "Limpiar todo"
+    },
+    "alerts": {
+      "export_success": "Datos exportados correctamente!\n\nUbicacion: {path}",
+      "export_failed": "Fallo la exportacion: {error}",
+      "tauri_clear_success": "Datos de Tauri limpiados correctamente",
+      "clear_failed": "Fallo al limpiar: {error}",
+      "tauri_enabled": "Almacenamiento Tauri habilitado! Tus datos se guardaran automaticamente cada 30 segundos.",
+      "tauri_disabled": "Almacenamiento Tauri deshabilitado. Tus datos no se guardaran automaticamente.",
+      "save_setting_failed": "No se pudo guardar la configuracion"
+    }
+  },
+  "shell": {
+    "mobile": {
+      "chat": "Chat",
+      "channels": "Canales",
+      "users": "Usuarios",
+      "hub": "Hub"
+    },
+    "open_side_panel": "Abrir panel lateral",
+    "unread_dms": "Mensajes directos sin leer",
+    "open_group": "Abrir {name}",
+    "open_dm_with": "Abrir DM con {user}",
+    "user_fallback": "usuario",
+    "call": {
+      "toggle_diagnostics": "Alternar diagnostico de llamada",
+      "voice_connected": "Voz conectada",
+      "in_voice": "En voz:",
+      "turn_on_camera": "Encender camara",
+      "turn_off_camera": "Apagar camara",
+      "leave_voice": "Salir de voz"
+    }
+  },
+  "user": {
+    "online": "En linea ({count})",
+    "you": "tu",
+    "start_dm": "Iniciar DM",
+    "logout_change_name": "Cerrar sesion y cambiar nombre",
+    "voice_call": "Llamada de voz",
+    "video_call": "Videollamada",
+    "screen_share": "Compartir pantalla",
+    "status": {
+      "online": "En linea",
+      "away": "Ausente",
+      "busy": "No molestar",
+      "offline": "Desconectado"
+    },
+    "errors": {
+      "voice_call_failed": "No se pudo iniciar la llamada de voz. Revisa los permisos del microfono.",
+      "video_call_failed": "No se pudo iniciar la videollamada. Revisa los permisos de camara y microfono.",
+      "screen_share_failed": "No se pudo iniciar la pantalla compartida. Otorga permisos de compartir pantalla."
+    },
+    "popout": {
+      "about_me": "Sobre mi",
+      "note": "Nota",
+      "member_since": "Miembro desde",
+      "message": "Mensaje",
+      "edit_profile": "Editar perfil",
+      "view_full_profile": "Ver perfil completo",
+      "copy_user_id": "Copiar ID de usuario"
+    }
+  }
+}

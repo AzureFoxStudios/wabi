@@ -1,0 +1,506 @@
+{
+  "app": {
+    "starting": "Starting Wabi"
+  },
+  "common": {
+    "close": "Close",
+    "regenerate": "Regenerate",
+    "cancel": "Cancel",
+    "save": "Save",
+    "on": "On",
+    "off": "Off"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "tabs": {
+      "profile": "Profile",
+      "audio": "Audio and Video",
+      "notifications": "Notifications",
+      "accessibility": "Accessibility",
+      "appearance": "Appearance",
+      "server": "Server",
+      "addons": "Add-ons",
+      "emojis": "Emojis",
+      "storage": "Storage",
+      "admin": "Admin",
+      "about": "About",
+      "logout": "Logout"
+    },
+    "sections": {
+      "display_name": "Display Name",
+      "profile_picture": "Profile Picture",
+      "audio": "Audio and Video",
+      "notifications": "Notifications",
+      "accessibility": "Accessibility",
+      "appearance": "Appearance",
+      "server_management": "Server Management",
+      "addons": "Add-ons",
+      "custom_emojis": "Custom Emojis",
+      "admin_panel": "Admin Panel",
+      "about": "About"
+    },
+    "actions": {
+      "clear_server": "Clear Server"
+    },
+    "confirm": {
+      "clear_local_title": "Clear Local Data",
+      "clear_local_message": "Are you sure you want to clear all chat data? This cannot be undone.",
+      "clear_local_confirm": "Clear Data",
+      "clear_server_title": "Clear Server Messages",
+      "clear_server_message": "Are you sure you want to delete ALL messages from the server? This will clear messages for all users and cannot be undone!",
+      "clear_server_confirm": "Delete All"
+    },
+    "language_learning": {
+      "label": "Progressive UI Learning",
+      "description": "Blend your selected language into the UI over time.",
+      "target_percent": "Target language in UI: {percent}%",
+      "hint": "Lower values keep more English. Raise gradually as you learn.",
+      "select_non_english": "Select a non-English app language to enable progressive blending."
+    }
+  },
+  "login": {
+    "tabs": {
+      "guest": "Guest",
+      "login": "Login",
+      "register": "Register"
+    },
+    "language": {
+      "label": "Language"
+    },
+    "guest": {
+      "name_placeholder": "Enter your name",
+      "joining": "Joining...",
+      "join_button": "Join as Guest",
+      "join_qr_button": "Join via QR Code",
+      "business_hub": "Business Hub"
+    },
+    "auth": {
+      "username_or_handle_placeholder": "Username or @handle",
+      "password_placeholder": "Password",
+      "logging_in": "Logging in...",
+      "login_button": "Login",
+      "display_name_placeholder": "Choose display name",
+      "handle_placeholder": "yourhandle",
+      "password_rules_placeholder": "Password (8+ characters)",
+      "confirm_password_placeholder": "Confirm password",
+      "creating_account": "Creating account...",
+      "create_account_button": "Create Account"
+    },
+    "errors": {
+      "username_min": "Username must be at least 2 characters",
+      "handle_invalid": "Handle must start with a letter, be 2-32 chars, lowercase letters/numbers/underscores only",
+      "password_min": "Password must be at least 8 characters",
+      "password_mismatch": "Passwords do not match",
+      "registration_failed": "Registration failed",
+      "username_password_required": "Username and password required",
+      "login_failed": "Login failed"
+    },
+    "qr": {
+      "open_modal": "Join via QR Code",
+      "title": "Scan to Join",
+      "url_placeholder": "Optional room name (e.g. kitchen)",
+      "close_modal_aria": "Close QR code modal",
+      "dialog_aria": "QR code to join chat"
+    }
+  },
+  "chat": {
+    "drag": {
+      "drop_to_upload": "Drop files here to upload"
+    },
+    "dm": {
+      "badge": "Direct Message",
+      "call": "Call",
+      "video": "Video",
+      "voice_call_title": "Voice call {user}",
+      "video_call_title": "Video call {user}"
+    },
+    "typing": {
+      "one": "{user} is typing...",
+      "two": "{user1} and {user2} are typing...",
+      "many": "Many users are typing...",
+      "multi": "{users}, and {lastUser} are typing..."
+    },
+    "search": {
+      "placeholder": "Search (by:username, has:image, etc.)",
+      "results_one": "{count} result",
+      "results_many": "{count} results",
+      "loading_older": "Loading older history...",
+      "full_history": "Search Full History",
+      "stop": "Stop ({count})",
+      "status": {
+        "scanning": "Scanning full history...",
+        "stopped": "Stopped.",
+        "changed": "Search query/channel changed.",
+        "loaded": "Full history loaded for this channel.",
+        "limit": "Reached safety page limit. Narrow search to continue."
+      }
+    },
+    "compose": {
+      "editing": "Editing message",
+      "escape_to_cancel": "Press Escape to cancel",
+      "replying_to": "Replying to {user}:",
+      "attachment": "Attachment",
+      "placeholder": "Type a message... or /help for commands (Shift+Enter for new line)",
+      "add_media": "Add media",
+      "upload_file": "Upload file",
+      "take_photo": "Take photo",
+      "record_audio": "Record audio",
+      "add_emoji": "Add emoji",
+      "send_message": "Send message"
+    },
+    "mentions": {
+      "kind_mention": "Mention",
+      "kind_user": "User"
+    },
+    "upload": {
+      "files_selected_one": "{count} file selected",
+      "files_selected_many": "{count} files selected",
+      "mark_spoiler": "Mark as spoiler",
+      "spoiler_hint": "Sensitive content will be hidden until clicked",
+      "upload_files_one": "Upload {count} file",
+      "upload_files_many": "Upload {count} files",
+      "uploading": "Uploading files..."
+    }
+  },
+  "messages": {
+    "new_messages": "New Messages",
+    "add_reaction": "Add Reaction",
+    "encrypted": "encrypted",
+    "unknown_user": "Unknown user",
+    "file": "File",
+    "message": "Message",
+    "actions": {
+      "reply": "Reply",
+      "more": "More"
+    },
+    "errors": {
+      "cannot_decrypt_session": "Cannot decrypt this attachment in the current session.",
+      "decrypt_failed": "Failed to decrypt attachment."
+    },
+    "blend": {
+      "queued": "Blend import queued",
+      "queued_with_id": "Blend import queued: {id}",
+      "queue_failed": "Failed to queue blend import",
+      "import_settings": "Import Settings",
+      "download": "Download .blend"
+    },
+    "media": {
+      "click_enlarge": "Click to enlarge",
+      "click_enlarge_with_options": "Click to enlarge, right-click for options",
+      "audio_not_supported": "Your browser does not support the audio element.",
+      "embedded_image_alt": "Embedded image",
+      "model_fallback_name": "3D model",
+      "open_3d_tab": "Open 3D Tab"
+    },
+    "pinned_title": "Pinned message",
+    "edited_title": "Edited",
+    "edited": "edited",
+    "translated_label": "Translated",
+    "deletion": {
+      "scheduled_title": "This message is scheduled for auto-deletion",
+      "deleting": "Deleting...",
+      "deletes_in": "Deletes in {duration}"
+    },
+    "pagination": {
+      "loading": "Loading...",
+      "show_older_loaded": "Show Older Loaded Messages",
+      "load_older": "Load Older Messages",
+      "beginning": "Beginning of conversation"
+    },
+    "confirm": {
+      "delete_title": "Delete Message",
+      "delete_message": "Are you sure you want to delete this message?",
+      "delete_confirm": "Delete"
+    },
+    "role_gate": {
+      "title": "Role Gate",
+      "hint": "React below to opt in/out of this access role."
+    },
+    "viewer": {
+      "open_new_tab": "Open in new tab",
+      "forward_share": "Forward / Share",
+      "zoom_out": "Zoom out",
+      "reset_zoom": "Reset zoom",
+      "zoom_in": "Zoom in",
+      "more": "More",
+      "more_actions": "More actions",
+      "copy_image_link": "Copy image link",
+      "copy_image": "Copy image",
+      "image_details": "Image details",
+      "details_name": "Name",
+      "details_dimensions": "Dimensions",
+      "details_size": "Size",
+      "close": "Close image viewer",
+      "video_not_supported": "Your browser does not support the video tag.",
+      "enlarged_alt": "Enlarged",
+      "previous": "Previous",
+      "next": "Next"
+    }
+  },
+  "context_menu": {
+    "aria_label": "Message actions",
+    "reply": "Reply",
+    "add_reaction": "Add Reaction",
+    "translate": "Translate",
+    "download": "Download",
+    "forward": "Forward",
+    "edit_message": "Edit Message",
+    "pin_message": "Pin Message",
+    "unpin_message": "Unpin Message",
+    "copy_text": "Copy Text",
+    "delete_message": "Delete Message"
+  },
+  "forward_dialog": {
+    "title": "Forward Message",
+    "description": "Choose a channel to forward this message to:",
+    "close": "Close"
+  },
+  "camera": {
+    "title": "Take Photo",
+    "switch_camera": "Switch camera",
+    "captured_alt": "Captured photo",
+    "accessing": "Accessing camera...",
+    "take_photo": "Take photo",
+    "retake": "Retake",
+    "send": "Send",
+    "errors": {
+      "access_required": "Camera access required. Please enable in browser settings.",
+      "not_found": "No camera found on this device.",
+      "access_failed": "Failed to access camera. Please try again.",
+      "capture_failed": "Failed to capture photo. Please try again.",
+      "photo_too_large": "Photo too large (max 10MB). Please try again with lower resolution."
+    }
+  },
+  "audio": {
+    "title": "Record Voice Message",
+    "microphone_label": "Microphone:",
+    "microphone_fallback": "Microphone {index}",
+    "ready": "Ready to record",
+    "recording_stopped": "Recording stopped",
+    "record": "Record",
+    "stop": "Stop",
+    "rerecord": "Re-record",
+    "send": "Send",
+    "errors": {
+      "access_required": "Microphone access required. Please enable in browser settings.",
+      "not_found": "No microphone found on this device.",
+      "start_failed": "Failed to start recording. Please try again.",
+      "no_audio": "No audio recorded. Please try again.",
+      "too_large": "Audio too large (max 10MB). Please record a shorter message.",
+      "cannot_switch_while_recording": "Cannot switch microphones while recording. Please stop first."
+    }
+  },
+  "pinned": {
+    "summary": {
+      "title": "Pinned Messages"
+    },
+    "modal": {
+      "title": "Pinned Messages in #{channel}",
+      "empty": "No pinned messages in this channel",
+      "hint": "Right-click a message and select \"Pin Message\" to pin it here."
+    },
+    "actions": {
+      "jump": "Jump to",
+      "jump_title": "Jump to message",
+      "unpin": "Unpin",
+      "unpin_title": "Unpin message"
+    }
+  },
+  "emoji_picker": {
+    "search_gifs_placeholder": "Search GIFs...",
+    "search_stickers_placeholder": "Search stickers (name/artist)...",
+    "search_emojis_placeholder": "Search emojis (name/artist)...",
+    "tabs": {
+      "emojis": "Emojis",
+      "stickers": "Stickers",
+      "gifs": "GIFs"
+    },
+    "filters": {
+      "all": "All",
+      "default": "Default",
+      "openmoji": "OpenMoji",
+      "custom": "Custom"
+    },
+    "loading": "Loading...",
+    "no_gifs": "No GIFs found",
+    "no_stickers": "No stickers found",
+    "no_emojis": "No emojis found",
+    "load_more": "Load more ({remaining} remaining)"
+  },
+  "admin": {
+    "title": "Admin Dashboard",
+    "you": "You",
+    "subtitle": {
+      "manage": "Manage roles, channel access, and role automations from one panel.",
+      "moderate": "Moderator view: monitor users and start moderation DMs quickly.",
+      "none": "No moderation privileges detected."
+    },
+    "stats": {
+      "users": "Users",
+      "owners": "Owners",
+      "admins": "Admins",
+      "mods": "Mods",
+      "guests": "Guests"
+    },
+    "sections": {
+      "role_names": "Role Names",
+      "channel_access": "Channel Access by Role",
+      "role_gate_posts": "Role Gate Posts",
+      "emoji_role_automation": "Emoji Role Automation",
+      "users": "Users"
+    },
+    "select": {
+      "channel": "Select channel",
+      "gate_channel": "Select gate channel",
+      "role_gate_message": "Select role-gate message",
+      "emoji": "Select emoji",
+      "role": "Select role"
+    },
+    "placeholders": {
+      "role_gate_title": "Role gate title (example: 18+ Access)",
+      "role_gate_description": "Optional description/instructions",
+      "search_users": "Search users by name or handle..."
+    },
+    "role_gate": {
+      "persist": "Persist gate post",
+      "create": "Create Gate Post",
+      "note": "Only reactions on these dedicated gate posts can assign/remove roles."
+    },
+    "emoji_rules": {
+      "remove_on_unreact": "Remove on unreact",
+      "add_rule": "Add Rule",
+      "reversible": "reversible",
+      "empty": "No role-gate rules yet."
+    },
+    "actions": {
+      "message": "Message",
+      "make_admin": "Make Admin",
+      "remove_admin": "Remove Admin",
+      "make_mod": "Make Mod",
+      "remove_mod": "Remove Mod",
+      "reset": "Reset",
+      "delete": "Delete"
+    },
+    "empty": {
+      "search": "No users match your search."
+    }
+  },
+  "storage": {
+    "tauri": {
+      "title": "Tauri Desktop Storage",
+      "subtitle": "Your data is stored in organized sidecar files that you can manage, backup, and export.",
+      "enable_toggle": "Enable Tauri Desktop Storage (auto-save every 30s)",
+      "enable_hint": "When enabled, your messages are automatically saved to %APPDATA%/Wabi every 30 seconds in organized yearly files. You can disable this anytime without losing existing data.",
+      "exporting": "Exporting...",
+      "export_zip": "Export as ZIP",
+      "export_hint": "Download all your messages and attachments as a portable ZIP file. Perfect for backups!",
+      "clear_all": "Clear All Tauri Data",
+      "clear_hint": "Delete all locally stored data. This cannot be undone."
+    },
+    "browser": {
+      "title": "Browser Storage",
+      "subtitle": "Your chat history is saved only on your device. The server stores nothing permanently.",
+      "save_toggle": "Save chat history locally",
+      "save_hint": "When enabled, messages are stored in your browser. You control your data.",
+      "rotation_period": "Rotation Period",
+      "rotation_hint": "How often to create a new archive file (like changing batteries)",
+      "keep_last": "Keep Last",
+      "archives_unit": "archives",
+      "keep_last_hint": "Older archives are automatically deleted to save space",
+      "archive_history": "Archive History",
+      "archive_meta": "{size} • {count} messages",
+      "no_archives": "No archives yet. Messages will be saved as you chat."
+    },
+    "rotation": {
+      "weekly": "Weekly",
+      "monthly": "Monthly",
+      "half_year": "Every 6 Months",
+      "yearly": "Yearly"
+    },
+    "stats": {
+      "total_messages": "Total Messages",
+      "storage_used": "Storage Used",
+      "archives": "Archives"
+    },
+    "actions": {
+      "export_all": "Export All",
+      "export": "Export",
+      "delete": "Delete",
+      "clear_all_history": "Clear All History"
+    },
+    "confirm": {
+      "disable_local_title": "Disable Local Storage",
+      "disable_local_message": "Disable local storage? Your saved history will remain until you clear it manually.",
+      "disable_local_confirm": "Disable",
+      "delete_archive_title": "Delete Archive",
+      "delete_archive_message": "Delete archive \"{period}\"?",
+      "delete_archive_confirm": "Delete",
+      "delete_all_title": "Delete All History",
+      "delete_all_message": "Delete ALL saved chat history? This cannot be undone!",
+      "delete_all_confirm": "Delete All",
+      "clear_tauri_title": "Clear Tauri Data",
+      "clear_tauri_message": "Delete ALL locally stored data? This includes all messages and attachments. This cannot be undone!",
+      "clear_tauri_confirm": "Clear All"
+    },
+    "alerts": {
+      "export_success": "Data exported successfully!\n\nLocation: {path}",
+      "export_failed": "Export failed: {error}",
+      "tauri_clear_success": "Tauri data cleared successfully",
+      "clear_failed": "Clear failed: {error}",
+      "tauri_enabled": "Tauri storage enabled! Your data will auto-save every 30 seconds.",
+      "tauri_disabled": "Tauri storage disabled. Your data will not be auto-saved.",
+      "save_setting_failed": "Failed to save setting"
+    }
+  },
+  "shell": {
+    "mobile": {
+      "chat": "Chat",
+      "channels": "Channels",
+      "users": "Users",
+      "hub": "Hub"
+    },
+    "open_side_panel": "Open side panel",
+    "unread_dms": "Unread direct messages",
+    "open_group": "Open {name}",
+    "open_dm_with": "Open DM with {user}",
+    "user_fallback": "user",
+    "call": {
+      "toggle_diagnostics": "Toggle call diagnostics",
+      "voice_connected": "Voice Connected",
+      "in_voice": "In voice:",
+      "turn_on_camera": "Turn on camera",
+      "turn_off_camera": "Turn off camera",
+      "leave_voice": "Leave voice"
+    }
+  },
+  "user": {
+    "online": "Online ({count})",
+    "you": "you",
+    "start_dm": "Start a DM",
+    "logout_change_name": "Logout and change name",
+    "voice_call": "Voice call",
+    "video_call": "Video call",
+    "screen_share": "Screen share",
+    "status": {
+      "online": "Online",
+      "away": "Away",
+      "busy": "Do Not Disturb",
+      "offline": "Offline"
+    },
+    "errors": {
+      "voice_call_failed": "Failed to start voice call. Please check microphone permissions.",
+      "video_call_failed": "Failed to start video call. Please check camera and microphone permissions.",
+      "screen_share_failed": "Failed to start screen share. Please grant screen sharing permissions."
+    },
+    "popout": {
+      "about_me": "About Me",
+      "note": "Note",
+      "member_since": "Member Since",
+      "message": "Message",
+      "edit_profile": "Edit Profile",
+      "view_full_profile": "View Full Profile",
+      "copy_user_id": "Copy User ID"
+    }
+  }
+}

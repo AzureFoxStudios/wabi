@@ -33,8 +33,8 @@
 	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
 	import type { Resource } from '$lib/business/types';
 	import { pinChannel, unpinChannel } from '$lib/socket';
-	import EmojiPicker from './EmojiPicker.svelte';
 	import MessageList from './MessageList.svelte';
+	import ChannelQuickTabs from './ChannelQuickTabs.svelte';
 	import PinnedMessages from './PinnedMessages.svelte';
 	import CommandPalette from './CommandPalette.svelte';
 	import AudioRecorder from './AudioRecorder.svelte';
@@ -44,6 +44,8 @@
 	import { isInCall, startCall } from '$lib/calling';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { encryptDMFile, isE2EAvailable } from '$lib/e2eManager';
+	import { _, currentLocale } from '$lib/i18n';
+	import { lookupDictionary, upsertDictionaryEntry, deleteDictionaryEntry } from '$lib/api';
 
 	const dispatch = createEventDispatcher();
 
@@ -85,6 +87,22 @@
 	let mentionSuggestions: { key: string; label: string; value: string; kind: 'special' | 'user' }[] = [];
 	let mentionSelectedIndex = 0;
 	let mentionTokenStart = -1;
+	let EmojiPickerComponent: typeof import('./EmojiPicker.svelte').default | null = null;
+	let emojiPickerLoadPromise: Promise<void> | null = null;
+
+	function ensureEmojiPickerLoaded(): void {
+		if (EmojiPickerComponent || emojiPickerLoadPromise) return;
+		emojiPickerLoadPromise = import('./EmojiPicker.svelte')
+			.then((mod) => {
+				EmojiPickerComponent = mod.default;
+			})
+			.catch((error) => {
+				console.error('Failed to load EmojiPicker:', error);
+			})
+			.finally(() => {
+				emojiPickerLoadPromise = null;
+			});
+	}
 	const RESUMABLE_UPLOAD_CHUNK_SIZE = 1024 * 1024; // 1MB
 	const RESUMABLE_UPLOAD_MAX_RETRIES = 4;
 
@@ -116,15 +134,16 @@
 
 	// Format typing users list with proper grammar
 	function formatTypingUsers(users: string[]): string {
+		const t = get(_);
 		if (users.length === 0) return '';
-		if (users.length === 1) return `${users[0]} is typing...`;
-		if (users.length === 2) return `${users[0]} and ${users[1]} are typing...`;
-		if (users.length >= 6) return 'Many users are typing...';
+		if (users.length === 1) return t('chat.typing.one', { values: { user: users[0] } });
+		if (users.length === 2) return t('chat.typing.two', { values: { user1: users[0], user2: users[1] } });
+		if (users.length >= 6) return t('chat.typing.many');
 
 		// 3-5 users: "User1, User2, and User3 are typing..."
 		const allButLast = users.slice(0, -1).join(', ');
 		const lastUser = users[users.length - 1];
-		return `${allButLast}, and ${lastUser} are typing...`;
+		return t('chat.typing.multi', { values: { users: allButLast, lastUser } });
 	}
 
 	function getTypingUserPriority(username: string): number {
@@ -477,7 +496,55 @@
 		textareaElement?.focus();
 	}
 
-	function executeCommand(commandInput: string) {
+	function parseWordCommandPayload(rawInput: string): {
+		action: 'add' | 'view' | 'remove' | 'help';
+		term?: string;
+		definition?: string;
+		language?: string;
+	} {
+		const withoutPrefix = rawInput.trim().replace(/^\/word\s*/i, '');
+		if (!withoutPrefix) {
+			return { action: 'help' };
+		}
+		const firstSpace = withoutPrefix.indexOf(' ');
+		const actionRaw = (firstSpace >= 0 ? withoutPrefix.slice(0, firstSpace) : withoutPrefix).trim().toLowerCase();
+		const rest = firstSpace >= 0 ? withoutPrefix.slice(firstSpace + 1).trim() : '';
+		const action = actionRaw === 'add' || actionRaw === 'view' || actionRaw === 'remove' ? actionRaw : 'help';
+		if (action === 'help') return { action: 'help' };
+
+		if (action === 'add') {
+			const parts = rest.split('|').map((part) => part.trim()).filter(Boolean);
+			return {
+				action,
+				term: parts[0],
+				definition: parts[1],
+				language: (parts[2] || $currentLocale || 'en').toLowerCase()
+			};
+		}
+
+		const parts = rest.split('|').map((part) => part.trim()).filter(Boolean);
+		return {
+			action,
+			term: parts[0],
+			language: (parts[1] || $currentLocale || 'en').toLowerCase()
+		};
+	}
+
+	function getWordCommandHelp(): string {
+		return [
+			'Word Dictionary Commands:',
+			'',
+			'/word add <term> | <definition> | [language]',
+			'Example: /word add がんばって | to cheer / do your best | ja',
+			'',
+			'/word view <term> | [language]',
+			'Example: /word view がんばって | ja',
+			'',
+			'/word remove <term> | [language]'
+		].join('\n');
+	}
+
+	async function executeCommand(commandInput: string) {
 		const parsed = parseCommand(commandInput);
 
 		if (parsed.error) {
@@ -764,6 +831,73 @@
 				break;
 			}
 
+			case 'word':
+			case 'dict':
+			case 'dictionary': {
+				const payload = parseWordCommandPayload(commandInput);
+				if (payload.action === 'help' || !payload.term) {
+					alert(getWordCommandHelp());
+					break;
+				}
+
+				if (payload.action === 'view') {
+					try {
+						const entries = await lookupDictionary(payload.term, payload.language || 'en', 5);
+						if (entries.length === 0) {
+							alert(`No dictionary entry found for "${payload.term}" (${payload.language || 'en'}).`);
+							break;
+						}
+						const lines = entries.map((entry, index) => {
+							const editor = entry.createdByUsername ? ` (by ${entry.createdByUsername})` : '';
+							return `${index + 1}. ${entry.term} [${entry.language}] -> ${entry.definition}${editor}`;
+						});
+						alert(lines.join('\n'));
+					} catch (error) {
+						alert(error instanceof Error ? error.message : 'Failed to lookup dictionary entry.');
+					}
+					break;
+				}
+
+				if (payload.action === 'add') {
+					if (!payload.definition) {
+						alert(getWordCommandHelp());
+						break;
+					}
+					const authToken = localStorage.getItem('authToken');
+					if (!authToken) {
+						alert('Login is required to add dictionary entries.');
+						break;
+					}
+					try {
+						const saved = await upsertDictionaryEntry(
+							authToken,
+							payload.term,
+							payload.definition,
+							payload.language || 'en'
+						);
+						alert(`Saved: ${saved.term} [${saved.language}] -> ${saved.definition}`);
+					} catch (error) {
+						alert(error instanceof Error ? error.message : 'Failed to save dictionary entry.');
+					}
+					break;
+				}
+
+				if (payload.action === 'remove') {
+					const authToken = localStorage.getItem('authToken');
+					if (!authToken) {
+						alert('Login is required to remove dictionary entries.');
+						break;
+					}
+					try {
+						await deleteDictionaryEntry(authToken, payload.term, payload.language || 'en');
+						alert(`Removed dictionary entry for "${payload.term}" (${payload.language || 'en'}).`);
+					} catch (error) {
+						alert(error instanceof Error ? error.message : 'Failed to remove dictionary entry.');
+					}
+				}
+				break;
+			}
+
 			default:
 				console.warn(`Unknown command: ${commandName}`);
 		}
@@ -780,7 +914,7 @@
 
 				// Check if it's a command
 				if (trimmedMessage.startsWith('/')) {
-					executeCommand(trimmedMessage);
+					void executeCommand(trimmedMessage);
 					messageInput = '';
 					return;
 				}
@@ -1059,6 +1193,14 @@
 				fileUrl: string;
 				fileName: string;
 				fileSize: number;
+				attachmentStorage?: {
+					scheme: 'wabi-storage-v1';
+					compressed: boolean;
+					codec: 'identity' | 'gzip';
+					originalSize: number;
+					storedSize: number;
+					atRestEncrypted: boolean;
+				};
 				attachmentEncryption?: {
 					scheme: 'dm-e2ee-v1';
 					iv: string;
@@ -1105,6 +1247,7 @@
 					fileUrl: result.fileUrl,
 					fileName: file.name,
 					fileSize: file.size,
+					attachmentStorage: result.attachmentStorage,
 					attachmentEncryption
 				});
 			}
@@ -1116,6 +1259,7 @@
 					fileUrl: uploadedFiles[0].fileUrl,
 					fileName: uploadedFiles[0].fileName,
 					fileSize: uploadedFiles[0].fileSize,
+					attachmentStorage: uploadedFiles[0].attachmentStorage,
 					attachmentEncryption: uploadedFiles[0].attachmentEncryption,
 					replyTo: replyingTo?.id,
 					isSpoiler: markAsSpoiler
@@ -1170,7 +1314,19 @@
 		channelId: string,
 		onProgress: (fileProgressPercent: number) => void,
 		allowPersistentResume = true
-	): Promise<{ fileUrl: string; fileName: string; fileSize: number }> {
+	): Promise<{
+		fileUrl: string;
+		fileName: string;
+		fileSize: number;
+		attachmentStorage?: {
+			scheme: 'wabi-storage-v1';
+			compressed: boolean;
+			codec: 'identity' | 'gzip';
+			originalSize: number;
+			storedSize: number;
+			atRestEncrypted: boolean;
+		};
+	}> {
 		const serverUrl = getServerUrl();
 		const resumeKey = getResumeStorageKey(channelId, file);
 		const previousUploadId = allowPersistentResume ? (localStorage.getItem(resumeKey) || undefined) : undefined;
@@ -1202,7 +1358,17 @@
 			return {
 				fileUrl: initResult.fileUrl as string,
 				fileName: file.name,
-				fileSize: file.size
+				fileSize: file.size,
+				attachmentStorage: initResult.attachmentStorage as
+					| {
+							scheme: 'wabi-storage-v1';
+							compressed: boolean;
+							codec: 'identity' | 'gzip';
+							originalSize: number;
+							storedSize: number;
+							atRestEncrypted: boolean;
+					  }
+					| undefined
 			};
 		}
 
@@ -1298,7 +1464,17 @@
 		return {
 			fileUrl: completeResult.fileUrl as string,
 			fileName: file.name,
-			fileSize: file.size
+			fileSize: file.size,
+			attachmentStorage: completeResult.attachmentStorage as
+				| {
+						scheme: 'wabi-storage-v1';
+						compressed: boolean;
+						codec: 'identity' | 'gzip';
+						originalSize: number;
+						storedSize: number;
+						atRestEncrypted: boolean;
+				  }
+				| undefined
 		};
 	}
 
@@ -1397,16 +1573,16 @@
 		isFullHistorySearchRunning = true;
 		fullHistorySearchAbortRequested = false;
 		fullHistorySearchPagesLoaded = 0;
-		fullHistorySearchStatus = 'Scanning full history...';
+		fullHistorySearchStatus = get(_)('chat.search.status.scanning');
 
 		try {
 			for (let i = 0; i < MAX_FULL_HISTORY_SEARCH_PAGES; i += 1) {
 				if (fullHistorySearchAbortRequested) {
-					fullHistorySearchStatus = 'Stopped.';
+					fullHistorySearchStatus = get(_)('chat.search.status.stopped');
 					return;
 				}
 				if ($currentChannel !== channelId || searchInput.trim() !== querySnapshot) {
-					fullHistorySearchStatus = 'Search query/channel changed.';
+					fullHistorySearchStatus = get(_)('chat.search.status.changed');
 					return;
 				}
 
@@ -1423,14 +1599,14 @@
 					await loadOlderMessages(channelId);
 					fullHistorySearchPagesLoaded += 1;
 				} else {
-					fullHistorySearchStatus = 'Full history loaded for this channel.';
+					fullHistorySearchStatus = get(_)('chat.search.status.loaded');
 					return;
 				}
 
 				await waitForHistoryIdle(channelId);
 				await tick();
 			}
-			fullHistorySearchStatus = 'Reached safety page limit. Narrow search to continue.';
+			fullHistorySearchStatus = get(_)('chat.search.status.limit');
 		} finally {
 			isFullHistorySearchRunning = false;
 		}
@@ -1471,7 +1647,7 @@
 		<div class="drag-overlay">
 			<div class="drag-overlay-content">
 				<div class="drag-icon">📁</div>
-				<div class="drag-text">Drop files here to upload</div>
+				<div class="drag-text">{$_('chat.drag.drop_to_upload')}</div>
 			</div>
 		</div>
 	{/if}
@@ -1480,7 +1656,7 @@
 		<h2>
 			<span class="channel-title">{channelDisplayName}</span>
 			{#if isDMChannel}
-				<span class="dm-badge">Direct Message</span>
+				<span class="dm-badge">{$_('chat.dm.badge')}</span>
 			{:else if channelDescription}
 				<span class="channel-description">{channelDescription}</span>
 			{/if}
@@ -1488,13 +1664,21 @@
 		<div class="header-actions">
 			{#if isDMChannel && dmCallTargetUser}
 				<div class="dm-call-actions">
-					<button class="dm-call-btn" on:click={startDMVoiceCall} title="Voice call {dmCallTargetUser.username}">
+					<button
+						class="dm-call-btn"
+						on:click={startDMVoiceCall}
+						title={$_('chat.dm.voice_call_title', { values: { user: dmCallTargetUser.username } })}
+					>
 						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-						<span>Call</span>
+						<span>{$_('chat.dm.call')}</span>
 					</button>
-					<button class="dm-call-btn" on:click={startDMVideoCall} title="Video call {dmCallTargetUser.username}">
+					<button
+						class="dm-call-btn"
+						on:click={startDMVideoCall}
+						title={$_('chat.dm.video_call_title', { values: { user: dmCallTargetUser.username } })}
+					>
 						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-						<span>Video</span>
+						<span>{$_('chat.dm.video')}</span>
 					</button>
 				</div>
 			{/if}
@@ -1502,14 +1686,18 @@
 			<input
 				type="text"
 				bind:value={searchInput}
-				placeholder="Search (by:username, has:image, etc.)"
+				placeholder={$_('chat.search.placeholder')}
 				class="search-input"
 			/>
 			{#if searchInput}
-				<span class="search-results">{filteredMessages.length} result{filteredMessages.length !== 1 ? 's' : ''}</span>
+				<span class="search-results">
+					{filteredMessages.length === 1
+						? $_('chat.search.results_one', { values: { count: filteredMessages.length } })
+						: $_('chat.search.results_many', { values: { count: filteredMessages.length } })}
+				</span>
 			{/if}
 			{#if searchBackfillBusy}
-				<span class="search-results">Loading older history...</span>
+				<span class="search-results">{$_('chat.search.loading_older')}</span>
 			{/if}
 			{#if searchInput && currentChannelData?.persistMessages}
 				<button
@@ -1523,7 +1711,9 @@
 						}
 					}}
 				>
-					{isFullHistorySearchRunning ? `Stop (${fullHistorySearchPagesLoaded})` : 'Search Full History'}
+					{isFullHistorySearchRunning
+						? $_('chat.search.stop', { values: { count: fullHistorySearchPagesLoaded } })
+						: $_('chat.search.full_history')}
 				</button>
 				{#if fullHistorySearchStatus}
 					<span class="search-results">{fullHistorySearchStatus}</span>
@@ -1531,6 +1721,10 @@
 			{/if}
 			</div>
 		</div>
+	</div>
+
+	<div class="chat-tabs-row">
+		<ChannelQuickTabs />
 	</div>
 
 	<!-- TEMPORARY: DMs now render in center like channels -->
@@ -1550,11 +1744,16 @@
 
 		{#if showEmojiPicker}
 			<div class="emoji-picker-container" bind:this={emojiPickerContainer}>
-				<EmojiPicker
-					on:select={handleEmojiSelect}
-					on:gif={handleGifSelect}
-					on:close={() => showEmojiPicker = false}
-				/>
+				{#if EmojiPickerComponent}
+					<svelte:component
+						this={EmojiPickerComponent}
+						on:select={handleEmojiSelect}
+						on:gif={handleGifSelect}
+						on:close={() => showEmojiPicker = false}
+					/>
+				{:else}
+					<div class="emoji-picker-loading">{$_('emoji_picker.loading')}</div>
+				{/if}
 			</div>
 		{/if}
 
@@ -1574,15 +1773,15 @@
 		{#if editingMessage}
 			<div class="edit-bar">
 				<div class="edit-info">
-					<span class="edit-label">Editing message</span>
-					<span class="edit-hint">Press Escape to cancel</span>
+					<span class="edit-label">{$_('chat.compose.editing')}</span>
+					<span class="edit-hint">{$_('chat.compose.escape_to_cancel')}</span>
 				</div>
 				<button class="cancel-edit" on:click={cancelEdit}>✕</button>
 			</div>
 		{:else if replyingTo}
 			<div class="reply-bar">
 				<div class="reply-info">
-					<span class="reply-label">Replying to {replyingTo.user}:</span>
+					<span class="reply-label">{$_('chat.compose.replying_to', { values: { user: replyingTo.user } })}</span>
 					<span class="reply-preview">
 						{#if replyingTo.text}
 							{replyingTo.text.substring(0, 50)}{replyingTo.text.length > 50 ? '...' : ''}
@@ -1591,7 +1790,7 @@
 						{:else if replyingTo.type === 'emoji'}
 							:{replyingTo.emojiName || 'sticker'}:
 						{:else}
-							Attachment
+							{$_('chat.compose.attachment')}
 						{/if}
 					</span>
 				</div>
@@ -1610,7 +1809,7 @@
 						on:mousedown|preventDefault={() => applyMentionSuggestion(index)}
 					>
 						<span class="mention-label">{suggestion.label}</span>
-						<span class="mention-kind">{suggestion.kind === 'special' ? 'Mention' : 'User'}</span>
+						<span class="mention-kind">{suggestion.kind === 'special' ? $_('chat.mentions.kind_mention') : $_('chat.mentions.kind_user')}</span>
 					</button>
 				{/each}
 			</div>
@@ -1618,7 +1817,11 @@
 		{#if filePreviews.length > 0 && !isUploading}
 			<div class="file-gallery">
 				<div class="gallery-header">
-					<span>{filePreviews.length} file{filePreviews.length > 1 ? 's' : ''} selected</span>
+					<span>
+						{filePreviews.length === 1
+							? $_('chat.upload.files_selected_one', { values: { count: filePreviews.length } })
+							: $_('chat.upload.files_selected_many', { values: { count: filePreviews.length } })}
+					</span>
 					<button class="cancel-gallery" on:click={cancelUpload}>✕</button>
 				</div>
 				<div class="gallery-grid">
@@ -1648,12 +1851,14 @@
 				<div class="spoiler-checkbox-container">
 					<label class="spoiler-checkbox-label">
 						<input type="checkbox" bind:checked={markAsSpoiler} class="spoiler-checkbox" />
-						<span>Mark as spoiler</span>
+						<span>{$_('chat.upload.mark_spoiler')}</span>
 					</label>
-					<span class="spoiler-hint" title="Sensitive content will be hidden until clicked">⚠️</span>
+					<span class="spoiler-hint" title={$_('chat.upload.spoiler_hint')}>⚠️</span>
 				</div>
 				<button class="upload-files-btn" on:click={uploadSelectedFiles}>
-					Upload {filePreviews.length} file{filePreviews.length > 1 ? 's' : ''}
+					{filePreviews.length === 1
+						? $_('chat.upload.upload_files_one', { values: { count: filePreviews.length } })
+						: $_('chat.upload.upload_files_many', { values: { count: filePreviews.length } })}
 				</button>
 			</div>
 		{/if}
@@ -1661,7 +1866,7 @@
 		{#if isUploading}
 			<div class="upload-progress-bar">
 				<div class="upload-progress-info">
-					<span>Uploading files...</span>
+					<span>{$_('chat.upload.uploading')}</span>
 					<span>{uploadProgress}%</span>
 				</div>
 				<div class="progress-bar">
@@ -1692,16 +1897,16 @@
 							showMediaMenu = !showMediaMenu;
 							if (showMediaMenu) showEmojiPicker = false;
 						}}
-						title="Add media"
+						title={$_('chat.compose.add_media')}
 					>
 						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
 					</button>
 					{#if showMediaMenu}
 						<div class="media-menu">
-							<button class="media-menu-item" on:click={handleOpenFilePicker}>Upload file</button>
+							<button class="media-menu-item" on:click={handleOpenFilePicker}>{$_('chat.compose.upload_file')}</button>
 							{#if supportsMediaCapture()}
-								<button class="media-menu-item" on:click={handleOpenCameraCapture}>Take photo</button>
-								<button class="media-menu-item" on:click={handleOpenAudioRecorder}>Record audio</button>
+								<button class="media-menu-item" on:click={handleOpenCameraCapture}>{$_('chat.compose.take_photo')}</button>
+								<button class="media-menu-item" on:click={handleOpenAudioRecorder}>{$_('chat.compose.record_audio')}</button>
 							{/if}
 						</div>
 					{/if}
@@ -1716,26 +1921,29 @@
 					handleInputChange();
 				}}
 				on:keydown={handleKeyDown}
-				placeholder="Type a message... or /help for commands (Shift+Enter for new line)"
+				placeholder={$_('chat.compose.placeholder')}
 				maxlength="2000"
 				rows="1"
 			></textarea>
-			<button
-				bind:this={emojiPickerButton}
-				class="input-icon-button"
-				on:click|stopPropagation={() => {
-				showEmojiPicker = !showEmojiPicker;
-				if (showEmojiPicker) showMediaMenu = false;
-			}}
-				title="Add emoji"
-			>
+				<button
+					bind:this={emojiPickerButton}
+					class="input-icon-button"
+					on:click|stopPropagation={() => {
+						showEmojiPicker = !showEmojiPicker;
+						if (showEmojiPicker) {
+							ensureEmojiPickerLoaded();
+							showMediaMenu = false;
+						}
+					}}
+					title={$_('chat.compose.add_emoji')}
+				>
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
 			</button>
 			<button
 				class="send-button"
 				on:click={handleSubmit}
 				disabled={!messageInput.trim()}
-				title="Send message"
+				title={$_('chat.compose.send_message')}
 			>
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
 			</button>
@@ -1791,6 +1999,12 @@
 		align-items: baseline;
 		gap: 0.5rem;
 		min-width: 0;
+	}
+
+	.emoji-picker-loading {
+		padding: 0.75rem;
+		color: var(--text-secondary);
+		font-size: var(--text-sm);
 	}
 
 	.channel-title {
@@ -1935,6 +2149,13 @@
 	.search-history-btn:hover {
 		background: var(--bg-hover);
 		color: var(--text-primary);
+	}
+
+	.chat-tabs-row {
+		flex-shrink: 0;
+		background: #505050;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+		z-index: 2;
 	}
 
 	.messages {
@@ -2324,53 +2545,99 @@
 		}
 
 		.chat-header {
-			padding: 0.75rem 1rem;
-			height: 52px;
+			padding: 0.55rem 0.8rem;
+			height: 50px;
+			gap: 0.5rem;
+			position: relative;
+			justify-content: flex-start;
 		}
 
 		.chat-header h2 {
-			font-size: 1rem;
+			font-size: 0.96rem;
+			min-width: 0;
+			position: absolute;
+			left: 50%;
+			transform: translateX(-50%);
+			width: clamp(120px, 44vw, 260px);
+			justify-content: center;
+			pointer-events: none;
+		}
+
+		.channel-description,
+		.dm-badge {
+			display: none;
+		}
+
+		.channel-title {
+			text-align: center;
+			width: 100%;
+		}
+
+		.header-actions {
+			flex: 0 1 auto;
+			justify-content: flex-start;
+			min-width: 0;
+			width: min(58vw, 250px);
 		}
 
 		.search-container {
-			flex-direction: column;
-			gap: 0.25rem;
+			flex-direction: row;
+			align-items: center;
+			gap: 0.35rem;
+			min-width: 0;
+			width: 100%;
 		}
 
 		.search-input {
 			min-width: unset;
 			width: 100%;
-			font-size: 0.85rem;
-			padding: 0.4rem 0.5rem;
+			font-size: 0.84rem;
+			padding: 0.36rem 0.55rem;
+			border-radius: 10px;
+		}
+
+		.search-results,
+		.search-history-btn,
+		.dm-call-actions {
+			display: none;
 		}
 
 		.messages {
-			padding: 0.5rem;
+			padding: 0.4rem 0.4rem 0.25rem;
+			gap: 0.2rem;
+			-ms-overflow-style: none;
+			scrollbar-width: none;
+		}
+
+		.messages::-webkit-scrollbar {
+			display: none;
+			width: 0;
+			height: 0;
 		}
 
 		.input-wrapper {
-			padding: 0.5rem;
-			padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+			padding: 0.38rem 0.45rem;
+			padding-bottom: calc(0.38rem + env(safe-area-inset-bottom));
 			border-top: 1px solid var(--border);
 			background: var(--bg-secondary);
 		}
 
 		.input-container {
-			padding: 0.25rem;
-			gap: 0.25rem;
-			background: var(--bg-tertiary);
-			border-radius: 8px;
+			padding: 0.2rem 0.25rem;
+			gap: 0.22rem;
+			background: color-mix(in srgb, var(--bg-tertiary) 90%, black 10%);
+			border-radius: 12px;
 		}
 
 		textarea {
 			font-size: 16px; /* Prevents iOS auto-zoom */
-			padding: 0.75rem 0.5rem;
-			min-height: 40px;
+			padding: 0.58rem 0.45rem;
+			min-height: 36px;
 		}
 
 		.input-icon-button {
-			width: 40px;
-			height: 40px;
+			width: 34px;
+			height: 34px;
 			flex-shrink: 0;
 		}
 
@@ -2380,13 +2647,15 @@
 		}
 
 		.send-button {
-			height: 40px;
-			padding: 0 1rem;
+			height: 34px;
+			width: 34px;
+			padding: 0;
 			flex-shrink: 0;
+			border-radius: 9px;
 		}
 
 		.edit-bar, .reply-bar {
-			padding: 0.375rem 0.75rem;
+			padding: 0.32rem 0.62rem;
 		}
 	}
 </style>

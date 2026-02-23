@@ -4,21 +4,51 @@
   export let src: string;
   export let fileName = '3D model';
   export let height = 320;
+  export let fullBleed = false;
+  export let lazyLoad = true;
+
   type ThreadMode = 'auto' | 'always' | 'off';
+  type ViewMode = 'textured' | 'normal' | 'wireframe-lines';
+  type AnimationLoopMode = 'repeat' | 'once' | 'pingpong';
+
   const THREAD_MODE_KEY = 'wabi:model-viewer-thread-mode';
   const AUTO_WORKER_THRESHOLD_BYTES = 8 * 1024 * 1024;
+  const THREE_BASE = 'https://esm.sh/three@0.181.1';
 
   let host: HTMLDivElement;
   let canvas: HTMLCanvasElement;
   let error: string | null = null;
   let disposed = false;
+  let hasStarted = false;
+  let loadingViewer = false;
+  let menuOpen = false;
   let threadMode: ThreadMode = 'auto';
   let threadingNotice = '';
-  const THREE_BASE = 'https://esm.sh/three@0.181.1';
+  let viewMode: ViewMode = 'textured';
+  let showGrid = true;
+  let showAxes = false;
+  let showRig = false;
+  let autoRotate = false;
+  let animationClipOptions: Array<{ index: number; name: string; duration: number }> = [];
+  let selectedAnimationIndex = 0;
+  let animationPlaying = true;
+  let animationSpeed = 1;
+  let animationLoopMode: AnimationLoopMode = 'repeat';
+
+  let applyViewModeRuntime: ((mode: ViewMode) => void) | null = null;
+  let toggleGridRuntime: ((visible: boolean) => void) | null = null;
+  let toggleAxesRuntime: ((visible: boolean) => void) | null = null;
+  let toggleRigRuntime: ((visible: boolean) => void) | null = null;
+  let setAutoRotateRuntime: ((enabled: boolean) => void) | null = null;
+  let resetViewRuntime: (() => void) | null = null;
+  let setAnimationClipRuntime: ((index: number) => void) | null = null;
+  let setAnimationPlayingRuntime: ((playing: boolean) => void) | null = null;
+  let setAnimationSpeedRuntime: ((speed: number) => void) | null = null;
+  let setAnimationLoopRuntime: ((mode: AnimationLoopMode) => void) | null = null;
+  let startViewer: () => void = () => {};
 
   function getThreadMode(): ThreadMode {
     const raw = localStorage.getItem(THREAD_MODE_KEY);
-    // Backwards compatibility with legacy "single" key value.
     if (raw === 'single') return 'off';
     if (raw === 'always' || raw === 'off' || raw === 'auto') return raw;
     return 'auto';
@@ -49,7 +79,6 @@
     if (threadMode === 'off') return false;
     if (threadMode === 'always') return true;
 
-    // Auto mode: main thread for smaller models, worker for larger models.
     const sizeBytes = await getRemoteFileSize(src);
     if (sizeBytes === null) {
       threadingNotice = 'Auto mode could not determine file size. Using main-thread path.';
@@ -71,37 +100,271 @@
     persistThreadMode(value);
   }
 
+  function setViewMode(mode: ViewMode): void {
+    viewMode = mode;
+    applyViewModeRuntime?.(mode);
+  }
+
+  function toggleGrid(): void {
+    showGrid = !showGrid;
+    toggleGridRuntime?.(showGrid);
+  }
+
+  function toggleAxes(): void {
+    showAxes = !showAxes;
+    toggleAxesRuntime?.(showAxes);
+  }
+
+  function toggleRig(): void {
+    showRig = !showRig;
+    toggleRigRuntime?.(showRig);
+  }
+
+  function toggleAutoRotate(): void {
+    autoRotate = !autoRotate;
+    setAutoRotateRuntime?.(autoRotate);
+  }
+
+  function handleAnimationClipChange(event: Event): void {
+    const value = Number.parseInt((event.target as HTMLSelectElement).value, 10);
+    if (!Number.isFinite(value)) return;
+    selectedAnimationIndex = value;
+    setAnimationClipRuntime?.(value);
+  }
+
+  function toggleAnimationPlayback(): void {
+    animationPlaying = !animationPlaying;
+    setAnimationPlayingRuntime?.(animationPlaying);
+  }
+
+  function handleAnimationSpeedChange(event: Event): void {
+    const value = Number.parseFloat((event.target as HTMLInputElement).value);
+    if (!Number.isFinite(value)) return;
+    animationSpeed = value;
+    setAnimationSpeedRuntime?.(value);
+  }
+
+  function handleAnimationLoopModeChange(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value as AnimationLoopMode;
+    if (value !== 'repeat' && value !== 'once' && value !== 'pingpong') return;
+    animationLoopMode = value;
+    setAnimationLoopRuntime?.(value);
+  }
+
+  function resetView(): void {
+    resetViewRuntime?.();
+  }
+
+  function handleWindowClick(): void {
+    if (menuOpen) menuOpen = false;
+  }
+
   onMount(() => {
     threadMode = getThreadMode();
+
     let renderer: any;
     let scene: any;
     let camera: any;
     let controls: any;
+    let grid: any;
+    let axes: any;
+    let clock: any;
+    let mixer: any = null;
+    let activeAction: any = null;
+    let animationClips: any[] = [];
+    const skeletonHelpers: any[] = [];
     let frameHandle = 0;
     let worker: Worker | null = null;
+    let loadedRoot: any = null;
+    let fitCameraToObjectRef: ((object: any, THREE: any) => void) | null = null;
+    let THREE: any = null;
+    let sourceMaterialsCaptured = false;
     const meshes: any[] = [];
+    const sourceMaterials: any[] = [];
+    const runtimeMaterials: any[] = [];
+    const overlayLines: Array<{ line: any; geometry: any; material: any }> = [];
+
+    const clearSkeletonHelpers = () => {
+      for (const helper of skeletonHelpers) {
+        helper?.parent?.remove?.(helper);
+        helper?.geometry?.dispose?.();
+        helper?.material?.dispose?.();
+      }
+      skeletonHelpers.length = 0;
+    };
+
+    const disposeMaterialLike = (materialLike: any) => {
+      if (Array.isArray(materialLike)) {
+        for (const mat of materialLike) mat?.dispose?.();
+      } else {
+        materialLike?.dispose?.();
+      }
+    };
+
+    const clearOverlayLines = () => {
+      for (const overlay of overlayLines) {
+        overlay.line?.parent?.remove?.(overlay.line);
+        overlay.geometry?.dispose?.();
+        overlay.material?.dispose?.();
+      }
+      overlayLines.length = 0;
+    };
+
+    const disposeRuntimeMaterials = () => {
+      for (const material of runtimeMaterials) {
+        material?.dispose?.();
+      }
+      runtimeMaterials.length = 0;
+    };
+
+    const createFaceDirectionMaterial = () => {
+      const material = new THREE.ShaderMaterial({
+        side: THREE.DoubleSide,
+        toneMapped: false,
+        vertexShader: `
+          varying vec3 vNormal;
+          void main() {
+            vNormal = normalize(normalMatrix * normal);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          varying vec3 vNormal;
+          void main() {
+            vec3 n = normalize(vNormal);
+            vec3 frontColor = 0.5 * (n + 1.0);
+            vec3 backColor = vec3(1.0, 0.22, 0.22);
+            vec3 outColor = gl_FrontFacing ? frontColor : backColor;
+            gl_FragColor = vec4(outColor, 1.0);
+          }
+        `
+      });
+      runtimeMaterials.push(material);
+      return material;
+    };
+
+    const createWireframeOnlyMaterial = () => {
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x0a0a0a,
+        wireframe: true
+      });
+      runtimeMaterials.push(material);
+      return material;
+    };
+
+    // Wireframe overlay mode has been intentionally disabled for now.
+    // const createWireframeOverlayBaseMaterial = () => {
+    //   const material = new THREE.MeshStandardMaterial({
+    //     color: 0x99a8ba,
+    //     metalness: 0.08,
+    //     roughness: 0.7
+    //   });
+    //   runtimeMaterials.push(material);
+    //   return material;
+    // };
+
+    const applyViewMode = (mode: ViewMode) => {
+      if (!THREE || meshes.length === 0) return;
+      if (!sourceMaterialsCaptured) {
+        for (const mesh of meshes) {
+          sourceMaterials.push(mesh.material);
+        }
+        sourceMaterialsCaptured = true;
+      }
+
+      clearOverlayLines();
+      disposeRuntimeMaterials();
+
+      for (let meshIndex = 0; meshIndex < meshes.length; meshIndex += 1) {
+        const mesh = meshes[meshIndex];
+        if (mode === 'textured') {
+          mesh.material = sourceMaterials[meshIndex];
+          continue;
+        }
+
+        if (mode === 'normal') {
+          mesh.material = createFaceDirectionMaterial();
+          continue;
+        }
+
+        if (mode === 'wireframe-lines') {
+          mesh.material = createWireframeOnlyMaterial();
+          continue;
+        }
+      }
+
+      // Wireframe overlay mode has been intentionally disabled for now.
+      // if (mode === 'wireframe-overlay') { ... }
+    };
+
+    const applyAnimationLoopModeToAction = (action: any, mode: AnimationLoopMode) => {
+      if (!action || !THREE) return;
+      if (mode === 'once') {
+        action.setLoop(THREE.LoopOnce, 1);
+        action.clampWhenFinished = true;
+        return;
+      }
+      if (mode === 'pingpong') {
+        action.setLoop(THREE.LoopPingPong, Infinity);
+        action.clampWhenFinished = false;
+        return;
+      }
+      action.setLoop(THREE.LoopRepeat, Infinity);
+      action.clampWhenFinished = false;
+    };
+
+    const playAnimationClip = (clipIndex: number) => {
+      if (!mixer || animationClips.length === 0) return;
+      const nextClip = animationClips[clipIndex];
+      if (!nextClip) return;
+
+      if (activeAction) {
+        activeAction.stop();
+      }
+
+      selectedAnimationIndex = clipIndex;
+      activeAction = mixer.clipAction(nextClip);
+      applyAnimationLoopModeToAction(activeAction, animationLoopMode);
+      activeAction.reset();
+      activeAction.setEffectiveTimeScale(animationSpeed);
+      activeAction.play();
+      activeAction.paused = !animationPlaying;
+    };
 
     const dispose = () => {
       disposed = true;
       if (frameHandle) cancelAnimationFrame(frameHandle);
       controls?.dispose?.();
+      clearOverlayLines();
+      clearSkeletonHelpers();
+      disposeRuntimeMaterials();
+      for (const material of sourceMaterials) {
+        disposeMaterialLike(material);
+      }
       for (const mesh of meshes) {
         mesh.geometry?.dispose?.();
-        if (Array.isArray(mesh.material)) {
-          mesh.material.forEach((m: any) => m?.dispose?.());
-        } else {
-          mesh.material?.dispose?.();
-        }
+        disposeMaterialLike(mesh.material);
       }
       renderer?.dispose?.();
       worker?.terminate?.();
+      mixer?.stopAllAction?.();
+      applyViewModeRuntime = null;
+      toggleGridRuntime = null;
+      toggleAxesRuntime = null;
+      toggleRigRuntime = null;
+      setAutoRotateRuntime = null;
+      resetViewRuntime = null;
+      setAnimationClipRuntime = null;
+      setAnimationPlayingRuntime = null;
+      setAnimationSpeedRuntime = null;
+      setAnimationLoopRuntime = null;
     };
 
-    const fitCameraToObject = (object: any, THREE: any) => {
-      const box = new THREE.Box3().setFromObject(object);
+    const fitCameraToObject = (object: any, ThreeNs: any) => {
+      const box = new ThreeNs.Box3().setFromObject(object);
       if (box.isEmpty()) return;
-      const size = box.getSize(new THREE.Vector3());
-      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new ThreeNs.Vector3());
+      const center = box.getCenter(new ThreeNs.Vector3());
       const maxSize = Math.max(size.x, size.y, size.z);
       const distance = maxSize * 1.6 || 2;
 
@@ -118,7 +381,7 @@
       try {
         const loadModule = async (url: string): Promise<any> => import(/* @vite-ignore */ url);
 
-        const THREE = await loadModule(THREE_BASE);
+        THREE = await loadModule(THREE_BASE);
         const { OrbitControls } = await loadModule(`${THREE_BASE}/examples/jsm/controls/OrbitControls`);
 
         if (disposed) return;
@@ -130,30 +393,80 @@
         renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
         renderer.outputColorSpace = THREE.SRGBColorSpace;
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        clock = new THREE.Clock();
 
         const hemi = new THREE.HemisphereLight(0xffffff, 0x263238, 1.2);
         const key = new THREE.DirectionalLight(0xffffff, 1.1);
         key.position.set(3, 5, 2);
         scene.add(hemi, key);
 
-        const grid = new THREE.GridHelper(20, 20, 0x364150, 0x202833);
+        grid = new THREE.GridHelper(20, 20, 0x364150, 0x202833);
         grid.position.y = -0.01;
+        grid.visible = showGrid;
         scene.add(grid);
+
+        axes = new THREE.AxesHelper(3);
+        axes.visible = showAxes;
+        scene.add(axes);
 
         controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.07;
         controls.minDistance = 0.1;
         controls.maxDistance = 200;
+        controls.autoRotate = autoRotate;
+        controls.autoRotateSpeed = 1.0;
 
         const ext = (fileName.split('.').pop() || '').toLowerCase();
         threadingNotice = '';
         const addLoadedObject = (object: any) => {
+          loadedRoot = object;
           scene.add(object);
           object.traverse?.((child: any) => {
-            if (child?.isMesh) meshes.push(child);
+            if (child?.isMesh) {
+              meshes.push(child);
+              if (child?.isSkinnedMesh) {
+                const helper = new THREE.SkeletonHelper(child);
+                helper.visible = showRig;
+                scene.add(helper);
+                skeletonHelpers.push(helper);
+              }
+            }
           });
           fitCameraToObject(object, THREE);
+        };
+        fitCameraToObjectRef = fitCameraToObject;
+
+        applyViewModeRuntime = (mode: ViewMode) => applyViewMode(mode);
+        toggleGridRuntime = (visible: boolean) => {
+          if (grid) grid.visible = visible;
+        };
+        toggleAxesRuntime = (visible: boolean) => {
+          if (axes) axes.visible = visible;
+        };
+        toggleRigRuntime = (visible: boolean) => {
+          for (const helper of skeletonHelpers) helper.visible = visible;
+        };
+        setAutoRotateRuntime = (enabled: boolean) => {
+          if (controls) controls.autoRotate = enabled;
+        };
+        resetViewRuntime = () => {
+          if (loadedRoot && fitCameraToObjectRef) fitCameraToObjectRef(loadedRoot, THREE);
+        };
+        setAnimationClipRuntime = (index: number) => {
+          playAnimationClip(index);
+        };
+        setAnimationPlayingRuntime = (playing: boolean) => {
+          if (!activeAction) return;
+          activeAction.paused = !playing;
+        };
+        setAnimationSpeedRuntime = (speed: number) => {
+          if (!activeAction) return;
+          activeAction.setEffectiveTimeScale(speed);
+        };
+        setAnimationLoopRuntime = (mode: AnimationLoopMode) => {
+          if (!activeAction) return;
+          applyAnimationLoopModeToAction(activeAction, mode);
         };
 
         if (ext === 'glb' || ext === 'gltf') {
@@ -165,6 +478,18 @@
           const gltf = await loader.loadAsync(src);
           if (disposed) return;
           addLoadedObject(gltf.scene);
+          animationClips = Array.isArray(gltf.animations) ? gltf.animations : [];
+          animationClipOptions = animationClips.map((clip: any, index: number) => ({
+            index,
+            name: clip?.name || `Animation ${index + 1}`,
+            duration: Number.isFinite(clip?.duration) ? clip.duration : 0
+          }));
+          if (animationClipOptions.length > 0) {
+            mixer = new THREE.AnimationMixer(gltf.scene);
+            selectedAnimationIndex = 0;
+            animationPlaying = true;
+            playAnimationClip(0);
+          }
         } else if (ext === 'obj') {
           if (threadMode === 'always') {
             threadingNotice = 'Worker parse not available for this format. Falling back to main-thread.';
@@ -187,9 +512,7 @@
             if (!workerResult?.ok) {
               throw new Error(workerResult?.error || 'Worker STL parse failed');
             }
-            if (threadMode === 'always') {
-              threadingNotice = 'Worker mode enabled.';
-            }
+            if (threadMode === 'always') threadingNotice = 'Worker mode enabled.';
 
             const geometry = new THREE.BufferGeometry();
             const position = new Float32Array(workerResult.position);
@@ -204,9 +527,9 @@
               geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(workerResult.index), 1));
             }
 
-            const material = new THREE.MeshStandardMaterial({ color: 0x9ad1ff, metalness: 0.1, roughness: 0.65 });
-            const mesh = new THREE.Mesh(geometry, material);
+            const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
             meshes.push(mesh);
+            loadedRoot = mesh;
             scene.add(mesh);
             fitCameraToObject(mesh, THREE);
           } else {
@@ -214,9 +537,9 @@
             const loader = new STLLoader();
             const geometry = await loader.loadAsync(src);
             if (disposed) return;
-            const material = new THREE.MeshStandardMaterial({ color: 0x9ad1ff, metalness: 0.1, roughness: 0.65 });
-            const mesh = new THREE.Mesh(geometry, material);
+            const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
             meshes.push(mesh);
+            loadedRoot = mesh;
             scene.add(mesh);
             fitCameraToObject(mesh, THREE);
           }
@@ -225,10 +548,12 @@
           return;
         }
 
+        applyViewMode(viewMode);
+
         const resize = () => {
           if (!host || !renderer || !camera) return;
           const width = Math.max(host.clientWidth, 1);
-          const nextHeight = Math.max(height, 180);
+          const nextHeight = fullBleed ? Math.max(host.clientHeight, 180) : Math.max(height, 180);
           renderer.setSize(width, nextHeight, false);
           camera.aspect = width / nextHeight;
           camera.updateProjectionMatrix();
@@ -237,6 +562,10 @@
         const animate = () => {
           if (disposed) return;
           frameHandle = requestAnimationFrame(animate);
+          if (mixer && clock) {
+            const delta = clock.getDelta();
+            mixer.update(delta);
+          }
           controls?.update?.();
           renderer?.render?.(scene, camera);
         };
@@ -253,33 +582,148 @@
     };
 
     let stopResizeWatch: (() => void) | undefined;
-    start().then((cleanup) => {
-      if (typeof cleanup === 'function') stopResizeWatch = cleanup;
-    });
+    const runStart = () => {
+      if (hasStarted || loadingViewer) return;
+      hasStarted = true;
+      loadingViewer = true;
+      start()
+        .then((cleanup) => {
+          if (typeof cleanup === 'function') stopResizeWatch = cleanup;
+        })
+        .finally(() => {
+          loadingViewer = false;
+        });
+    };
+    startViewer = runStart;
+
+    if (!lazyLoad) {
+      runStart();
+    }
 
     return () => {
+      startViewer = () => {};
       stopResizeWatch?.();
       dispose();
     };
   });
 </script>
 
-<div class="model-viewer" bind:this={host}>
+<svelte:window on:click={handleWindowClick} />
+
+<div class="model-viewer" class:full-bleed={fullBleed} bind:this={host}>
   {#if error}
     <div class="model-error">{error}</div>
   {:else}
     <canvas bind:this={canvas} aria-label={`3D model viewer for ${fileName}`}></canvas>
-    <div class="viewer-hint">
-      <span>Drag to rotate, wheel to zoom, right-drag to pan</span>
-      <label class="thread-mode-control">
-        <span>Threading</span>
-        <select bind:value={threadMode} on:change={handleThreadModeChange}>
-          <option value="auto">Auto</option>
-          <option value="always">Always Multi-thread</option>
-          <option value="off">Off</option>
-        </select>
-      </label>
+    {#if !hasStarted}
+      <button
+        type="button"
+        class="activation-overlay"
+        on:click={startViewer}
+      >
+        <span class="activation-title">Click to load 3D preview</span>
+        <span class="activation-subtitle">{fileName}</span>
+      </button>
+    {/if}
+    {#if loadingViewer}
+      <div class="loading-overlay">Loading 3D preview...</div>
+    {/if}
+
+    {#if hasStarted}
+    <div class="overlay-controls overlay-left" on:click|stopPropagation>
+      <button
+        type="button"
+        class="view-btn"
+        class:active={viewMode === 'textured'}
+        on:click={() => setViewMode('textured')}
+      >
+        Textured
+      </button>
+      <button
+        type="button"
+        class="view-btn"
+        class:active={viewMode === 'normal'}
+        on:click={() => setViewMode('normal')}
+      >
+        Normal
+      </button>
+      <button
+        type="button"
+        class="view-btn"
+        class:active={viewMode === 'wireframe-lines'}
+        on:click={() => setViewMode('wireframe-lines')}
+      >
+        Wireframe Lines
+      </button>
+      <!-- Wireframe overlay mode intentionally disabled for now. -->
     </div>
+
+    <div class="overlay-controls overlay-right" on:click|stopPropagation>
+      <button
+        type="button"
+        class="settings-fab"
+        aria-expanded={menuOpen}
+        aria-haspopup="menu"
+        on:click={() => (menuOpen = !menuOpen)}
+      >
+        View Settings
+      </button>
+      {#if menuOpen}
+        <div class="settings-menu" role="menu">
+          <button type="button" class="menu-item" class:active={autoRotate} on:click={toggleAutoRotate}>Auto-rotate</button>
+          <button type="button" class="menu-item" on:click={resetView}>Reset View</button>
+      <button type="button" class="menu-item" class:active={showGrid} on:click={toggleGrid}>Grid</button>
+      <button type="button" class="menu-item" class:active={showAxes} on:click={toggleAxes}>Axes</button>
+      <button type="button" class="menu-item" class:active={showRig} on:click={toggleRig}>Bones / Controllers</button>
+          {#if animationClipOptions.length > 0}
+            <div class="menu-section">
+              <div class="menu-section-title">Animation</div>
+              <label class="menu-item clip-control">
+                <span>Clip</span>
+                <select bind:value={selectedAnimationIndex} on:change={handleAnimationClipChange}>
+                  {#each animationClipOptions as clip}
+                    <option value={clip.index}>{clip.name}</option>
+                  {/each}
+                </select>
+              </label>
+              <button type="button" class="menu-item" class:active={animationPlaying} on:click={toggleAnimationPlayback}>
+                {animationPlaying ? 'Pause' : 'Play'}
+              </button>
+              <label class="menu-item clip-control">
+                <span>Loop</span>
+                <select bind:value={animationLoopMode} on:change={handleAnimationLoopModeChange}>
+                  <option value="repeat">Repeat</option>
+                  <option value="once">Once</option>
+                  <option value="pingpong">Ping Pong</option>
+                </select>
+              </label>
+              <label class="menu-item speed-control">
+                <span>Speed {animationSpeed.toFixed(1)}x</span>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="2.5"
+                  step="0.1"
+                  value={animationSpeed}
+                  on:input={handleAnimationSpeedChange}
+                />
+              </label>
+            </div>
+          {/if}
+          <label class="menu-item thread-mode-control">
+            <span>Threading</span>
+            <select bind:value={threadMode} on:change={handleThreadModeChange}>
+              <option value="auto">Auto</option>
+              <option value="always">Always Multi-thread</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+        </div>
+      {/if}
+    </div>
+    {/if}
+
+    <div class="viewer-hint">Drag to rotate, wheel to zoom, right-drag to pan</div>
     {#if threadingNotice}
       <div class="threading-note">{threadingNotice}</div>
     {/if}
@@ -294,6 +738,14 @@
     border-radius: 8px;
     overflow: hidden;
     background: #0f1218;
+    position: relative;
+  }
+
+  .model-viewer.full-bleed {
+    max-width: none;
+    height: 100%;
+    border: none;
+    border-radius: 0;
   }
 
   canvas {
@@ -302,23 +754,157 @@
     min-height: 180px;
   }
 
-  .viewer-hint {
+  .activation-overlay {
+    position: absolute;
+    inset: 0;
+    border: none;
+    background:
+      radial-gradient(circle at 20% 15%, rgba(120, 150, 190, 0.24), transparent 42%),
+      linear-gradient(155deg, rgba(22, 28, 40, 0.9), rgba(10, 14, 22, 0.95));
+    color: #e6edf5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    cursor: pointer;
+    z-index: 4;
+  }
+
+  .activation-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+  }
+
+  .activation-subtitle {
+    max-width: min(76vw, 520px);
+    font-size: 0.72rem;
+    color: #b8c6d4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .loading-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #dce7f2;
+    font-size: 0.82rem;
+    background: rgba(8, 12, 18, 0.62);
+    z-index: 5;
+    pointer-events: none;
+  }
+
+  .overlay-controls {
+    position: absolute;
+    top: 0.55rem;
+    display: inline-flex;
+    gap: 0.35rem;
+    z-index: 3;
+  }
+
+  .overlay-left {
+    left: 0.55rem;
+    flex-wrap: wrap;
+    max-width: min(72vw, 700px);
+  }
+
+  .overlay-right {
+    right: 0.55rem;
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
+  .view-btn,
+  .settings-fab,
+  .menu-item {
+    border: 1px solid #2d394d;
+    background: rgba(15, 20, 30, 0.9);
+    color: #d9e4ef;
+    border-radius: 6px;
+    padding: 0.22rem 0.5rem;
+    font-size: 0.72rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .view-btn.active,
+  .menu-item.active,
+  .settings-fab[aria-expanded="true"] {
+    background: #1b2d45;
+    border-color: #3f5f8a;
+  }
+
+  .settings-menu {
+    margin-top: 0.3rem;
+    width: 220px;
+    padding: 0.45rem;
+    border-radius: 8px;
+    border: 1px solid #31445d;
+    background: rgba(10, 14, 22, 0.96);
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    backdrop-filter: blur(5px);
+  }
+
+  .menu-item {
+    text-align: left;
+  }
+
+  .thread-mode-control {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
-    padding: 0.35rem 0.55rem;
-    font-size: 0.72rem;
-    color: #c8d2dc;
-    background: #141a24;
-    border-top: 1px solid #273041;
   }
 
-  .thread-mode-control {
-    display: inline-flex;
+  .menu-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    border-top: 1px solid rgba(82, 108, 141, 0.4);
+    padding-top: 0.35rem;
+  }
+
+  .menu-section-title {
+    color: #9bb5d0;
+    font-size: 0.66rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    padding: 0 0.2rem;
+  }
+
+  .clip-control {
+    display: flex;
     align-items: center;
-    gap: 0.4rem;
-    white-space: nowrap;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .clip-control select {
+    border: 1px solid #2d394d;
+    background: #0f141d;
+    color: #d9e4ef;
+    border-radius: 5px;
+    padding: 0.12rem 0.35rem;
+    font-size: 0.72rem;
+    width: 132px;
+  }
+
+  .speed-control {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.35rem;
+  }
+
+  .speed-control input[type='range'] {
+    width: 100%;
+    accent-color: #5c8fcb;
   }
 
   .thread-mode-control select {
@@ -328,14 +914,35 @@
     border-radius: 5px;
     padding: 0.12rem 0.35rem;
     font-size: 0.72rem;
+    width: 132px;
+  }
+
+  .viewer-hint {
+    position: absolute;
+    left: 0.55rem;
+    bottom: 0.55rem;
+    color: #c8d2dc;
+    background: rgba(15, 20, 30, 0.82);
+    border: 1px solid rgba(62, 79, 102, 0.85);
+    border-radius: 6px;
+    padding: 0.22rem 0.45rem;
+    font-size: 0.7rem;
+    z-index: 2;
+    pointer-events: none;
   }
 
   .threading-note {
-    padding: 0.25rem 0.55rem 0.45rem;
+    position: absolute;
+    right: 0.55rem;
+    bottom: 0.55rem;
+    max-width: min(46vw, 460px);
+    color: #b8cbde;
+    background: rgba(15, 20, 30, 0.84);
+    border: 1px solid rgba(62, 79, 102, 0.85);
+    border-radius: 6px;
+    padding: 0.22rem 0.45rem;
     font-size: 0.68rem;
-    color: #9db2c7;
-    background: #141a24;
-    border-top: 1px solid rgba(39, 48, 65, 0.55);
+    z-index: 2;
   }
 
   .model-error {
@@ -343,5 +950,21 @@
     font-size: 0.82rem;
     padding: 0.6rem 0.75rem;
     background: #2a1010;
+  }
+
+  @media (max-width: 768px) {
+    .settings-menu {
+      width: 200px;
+    }
+
+    .overlay-left {
+      max-width: min(78vw, 620px);
+    }
+
+    .view-btn,
+    .settings-fab,
+    .menu-item {
+      font-size: 0.68rem;
+    }
   }
 </style>

@@ -162,7 +162,95 @@ export interface DownloadLimitConfig {
 	globalDownloadCapBytes: number | null;
 }
 
-export type AdminPolicyKey = 'upload_limits' | 'download_limits';
+export type AdminPolicyKey = 'upload_limits' | 'download_limits' | 'runtime_tuning';
+
+export interface RuntimeTuningConfig {
+	applyOnRestart: true;
+	threadPoolSize: number | null;
+	heavyProfilingEnabled: boolean;
+	heavyProfilingSampleRate: number;
+}
+
+export interface AdminCompressionConfig {
+	httpTextCompression: {
+		enabled: boolean;
+		minBytes: number;
+		brotliQuality: number;
+		gzipLevel: number;
+	};
+	uploadCompression: {
+		enabled: boolean;
+		minBytes: number;
+		gzipLevel: number;
+		rolloutPercent: number;
+	};
+}
+
+export interface AdminCompressionMetrics {
+	counters: {
+		uploadCount: number;
+		downloadCount: number;
+		uploadOriginalBytes: number;
+		uploadStoredBytes: number;
+		downloadStoredBytes: number;
+		downloadResponseBytes: number;
+		uploadStoredToOriginalRatio: number | null;
+		downloadResponseToStoredRatio: number | null;
+	};
+	summaryByExt: {
+		uploads: Array<{
+			fileExt: string;
+			count: number;
+			originalBytes: number;
+			storedBytes: number;
+			responseBytes: number;
+		}>;
+		downloads: Array<{
+			fileExt: string;
+			count: number;
+			originalBytes: number;
+			storedBytes: number;
+			responseBytes: number;
+		}>;
+	};
+	recentSamples: {
+		uploads: Array<Record<string, unknown>>;
+		downloads: Array<Record<string, unknown>>;
+	};
+}
+
+export interface RuntimeGuardrailsSnapshot {
+	uptimeSeconds: number;
+	memory: {
+		rssBytes: number;
+		heapUsedBytes: number;
+		heapTotalBytes: number;
+		externalBytes: number;
+		arrayBuffersBytes: number;
+	};
+	cpu: {
+		userMicros: number;
+		systemMicros: number;
+	};
+	heavyProfiling: {
+		enabled: boolean;
+		eventLoopDelayP95Ms: number | null;
+		eventLoopDelayMaxMs: number | null;
+	};
+}
+
+export interface AdminRuntimeGuardrailsResponse {
+	runtimeTuning: {
+		configured: RuntimeTuningConfig;
+		startupApplied: RuntimeTuningConfig;
+		restartRequired: boolean;
+		effective: {
+			uvThreadpoolSize: number | null;
+			heavyProfilingEnabled: boolean;
+		};
+	};
+	guardrails: RuntimeGuardrailsSnapshot;
+}
 
 export async function getAdminPolicy<T>(token: string, key: AdminPolicyKey): Promise<{
 	key: AdminPolicyKey;
@@ -221,4 +309,121 @@ export async function getAdminUploadLimits(token: string): Promise<{
 
 export async function saveAdminUploadLimits(token: string, config: UploadLimitConfig): Promise<UploadLimitConfig> {
 	return saveAdminPolicy<UploadLimitConfig>(token, 'upload_limits', config);
+}
+
+export async function getAdminCompressionConfig(token: string): Promise<AdminCompressionConfig> {
+	const res = await fetchWithTimeout(`${SERVER_URL}/api/admin/compression-config`, {
+		method: 'GET',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to load compression config');
+	}
+	const data = await res.json();
+	return data.config as AdminCompressionConfig;
+}
+
+export async function getAdminCompressionMetrics(token: string): Promise<AdminCompressionMetrics> {
+	const res = await fetchWithTimeout(`${SERVER_URL}/api/admin/compression-metrics`, {
+		method: 'GET',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to load compression metrics');
+	}
+	const data = await res.json();
+	return data.metrics as AdminCompressionMetrics;
+}
+
+export async function resetAdminCompressionMetrics(token: string): Promise<void> {
+	const res = await fetchWithTimeout(`${SERVER_URL}/api/admin/compression-metrics/reset`, {
+		method: 'POST',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to reset compression metrics');
+	}
+}
+
+export async function getAdminRuntimeGuardrails(token: string): Promise<AdminRuntimeGuardrailsResponse> {
+	const res = await fetchWithTimeout(`${SERVER_URL}/api/admin/runtime-guardrails`, {
+		method: 'GET',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to load runtime guardrails');
+	}
+	const data = await res.json();
+	return {
+		runtimeTuning: data.runtimeTuning as AdminRuntimeGuardrailsResponse['runtimeTuning'],
+		guardrails: data.guardrails as RuntimeGuardrailsSnapshot
+	};
+}
+
+export interface DictionaryEntry {
+	id?: number;
+	term: string;
+	definition: string;
+	language: string;
+	createdByUserId?: number | null;
+	createdByUsername?: string | null;
+	createdAt: number;
+	updatedAt: number;
+	votes: number;
+}
+
+export async function lookupDictionary(term: string, language = 'en', limit = 8): Promise<DictionaryEntry[]> {
+	const params = new URLSearchParams({
+		term,
+		language,
+		limit: String(limit)
+	});
+	const res = await fetchWithTimeout(`${SERVER_URL}/api/dictionary?${params.toString()}`, { method: 'GET' });
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to lookup dictionary entry');
+	}
+	const data = await res.json();
+	return Array.isArray(data.entries) ? data.entries : [];
+}
+
+export async function upsertDictionaryEntry(
+	token: string,
+	term: string,
+	definition: string,
+	language = 'en'
+): Promise<DictionaryEntry> {
+	const res = await fetchWithTimeout(`${SERVER_URL}/api/dictionary`, {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ term, definition, language })
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to save dictionary entry');
+	}
+	const data = await res.json();
+	return data.entry as DictionaryEntry;
+}
+
+export async function deleteDictionaryEntry(token: string, term: string, language = 'en'): Promise<void> {
+	const res = await fetchWithTimeout(`${SERVER_URL}/api/dictionary`, {
+		method: 'DELETE',
+		headers: {
+			Authorization: `Bearer ${token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ term, language })
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to delete dictionary entry');
+	}
 }

@@ -619,21 +619,29 @@ export function generateBurnChartData(
 	endDate: number
 ): BurnChartDataPoint[] {
 	const projectTodos = get(todos).filter(t => t.projectId === projectId);
-	const totalPoints = projectTodos.length; // Simple: 1 todo = 1 point
+	const getEstimatedHours = (todo: Todo): number => {
+		if (typeof todo.estimatedMinutes === 'number' && todo.estimatedMinutes > 0) {
+			return todo.estimatedMinutes / 60;
+		}
+		// Stable fallback for legacy tasks so mixed backlogs do not suddenly shrink.
+		return 1;
+	};
+
+	const totalPoints = projectTodos.reduce((sum, todo) => sum + getEstimatedHours(todo), 0);
 
 	const data: BurnChartDataPoint[] = [];
 	const dayMs = 24 * 60 * 60 * 1000;
 
 	for (let date = startDate; date <= endDate; date += dayMs) {
-		const completedByDate = projectTodos.filter(
-			t => t.completedAt && t.completedAt <= date
-		).length;
+		const completedByDate = projectTodos
+			.filter(t => t.completedAt && t.completedAt <= date)
+			.reduce((sum, todo) => sum + getEstimatedHours(todo), 0);
 
 		data.push({
 			date,
-			totalPoints,
+			totalPoints: Math.max(0, Number(totalPoints.toFixed(2))),
 			completedPoints: completedByDate,
-			remainingPoints: totalPoints - completedByDate
+			remainingPoints: Math.max(0, Number((totalPoints - completedByDate).toFixed(2)))
 		});
 	}
 

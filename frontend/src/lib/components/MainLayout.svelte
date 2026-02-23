@@ -4,13 +4,16 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { get } from 'svelte/store';
 	import Chat from '$lib/components/Chat.svelte';
-	import ChannelQuickTabs from '$lib/components/ChannelQuickTabs.svelte';
+	import ModelViewportTab from '$lib/components/ModelViewportTab.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
 	import RightPanel from '$lib/components/RightPanel.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, type Channel, type User } from '$lib/socket';
 	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, isVideoOff, toggleVideo } from '$lib/calling';
+	import { mobileTabQueue } from '$lib/mobileTabQueue';
+	import { onDestroy, onMount } from 'svelte';
+	import { _ } from '$lib/i18n';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 
@@ -30,9 +33,48 @@
 	let resizingChannel = false;
 	let resizingRight = false;
 	let showVoiceDebugDetails = false;
+	let mobileNavVisible = false;
+	let mobileNavIdleTimer: ReturnType<typeof setTimeout> | null = null;
+	let navTouchStartY = 0;
+	let navTouchDragging = false;
+	let touchStartX = 0;
+	let touchStartY = 0;
+	let touchStartTime = 0;
+	let touchGestureEnabled = false;
+	let touchMovedEnough = false;
+	let swipePreviewActive = false;
+	let swipePreviewTarget: 'none' | 'channels' | 'users' = 'none';
+	let swipePreviewOffsetX = 0;
+	const { activeTabId } = mobileTabQueue;
+	const MODEL_VIEWPORT_TAB_ID = 'model-viewport';
+	const MODEL_VIEWPORT_TAB_TOKEN = mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_TAB_ID);
+	$: isModelViewportTabActive = $activeTabId === MODEL_VIEWPORT_TAB_TOKEN;
+	const MOBILE_EDGE_SWIPE_MIN_X_PX = 56;
+	const MOBILE_EDGE_SWIPE_MAX_Y_PX = 72;
+	const MOBILE_EDGE_SWIPE_MAX_MS = 700;
+	const MOBILE_NAV_REVEAL_ZONE_PX = 88;
+	const MOBILE_NAV_SWIPE_MIN_Y_PX = 46;
+	const MOBILE_NAV_IDLE_HIDE_MS = 2200;
+	const MOBILE_NAV_PULL_DOWN_HIDE_PX = 26;
 
 	layoutStore.isResizingChannel.subscribe(v => resizingChannel = v);
 	layoutStore.isResizingRight.subscribe(v => resizingRight = v);
+
+	onMount(() => {
+		mobileTabQueue.registerAddonTab({
+			id: MODEL_VIEWPORT_TAB_ID,
+			label: '3D Viewport',
+			shortLabel: '3D View'
+		});
+	});
+
+	onDestroy(() => {
+		mobileTabQueue.unregisterAddonTab(MODEL_VIEWPORT_TAB_ID);
+		if (mobileNavIdleTimer) {
+			clearTimeout(mobileNavIdleTimer);
+			mobileNavIdleTimer = null;
+		}
+	});
 
 	function handleMouseMove(e: MouseEvent) {
 		if (resizingChannel) {
@@ -113,43 +155,337 @@
 		return `${value}${unit}`;
 	}
 
+	function resetTouchSwipe(): void {
+		touchStartX = 0;
+		touchStartY = 0;
+		touchStartTime = 0;
+		touchGestureEnabled = false;
+		touchMovedEnough = false;
+		swipePreviewActive = false;
+		swipePreviewTarget = 'none';
+		swipePreviewOffsetX = 0;
+	}
+
+	function handleTouchStart(event: TouchEvent): void {
+		if (!$layoutStore.isMobile || event.touches.length !== 1) {
+			resetTouchSwipe();
+			return;
+		}
+
+		const target = event.target as HTMLElement | null;
+		// Don't hijack gestures inside horizontally-draggable rails or form controls.
+		if (
+			target?.closest('.tab-rail-viewport') ||
+			target?.closest('textarea, input, select, button, a, [contenteditable="true"]')
+		) {
+			resetTouchSwipe();
+			return;
+		}
+
+		const touch = event.touches[0];
+		touchStartX = touch.clientX;
+		touchStartY = touch.clientY;
+		touchStartTime = Date.now();
+		touchGestureEnabled = true;
+		touchMovedEnough = false;
+	}
+
+	function handleTouchMove(event: TouchEvent): void {
+		if (!$layoutStore.isMobile || !touchGestureEnabled || event.touches.length === 0) return;
+		const touch = event.touches[0];
+		const deltaX = touch.clientX - touchStartX;
+		const deltaY = touch.clientY - touchStartY;
+		// Ignore taps and tiny jitter.
+		if (Math.hypot(deltaX, deltaY) >= 14) {
+			touchMovedEnough = true;
+		}
+
+		const mostlyHorizontal = Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) >= 18;
+		if (!mostlyHorizontal) {
+			swipePreviewActive = false;
+			swipePreviewTarget = 'none';
+			swipePreviewOffsetX = 0;
+			return;
+		}
+
+		const channelsOpen = $layoutStore.showMobileChannels;
+		const usersOpen = $layoutStore.rightPanelView !== 'none';
+		const width = Math.max(window.innerWidth, 1);
+
+		if (channelsOpen) {
+			// Drag left to close channels back to chat.
+			swipePreviewTarget = 'channels';
+			swipePreviewOffsetX = Math.max(-width, Math.min(0, deltaX));
+			swipePreviewActive = true;
+			return;
+		}
+
+		if (usersOpen) {
+			// Drag right to close users back to chat.
+			swipePreviewTarget = 'users';
+			swipePreviewOffsetX = Math.max(0, Math.min(width, deltaX));
+			swipePreviewActive = true;
+			return;
+		}
+
+		// Chat stage: preview opening whichever side user drags toward.
+		if (deltaX > 0) {
+			swipePreviewTarget = 'channels';
+			swipePreviewOffsetX = Math.max(0, Math.min(width, deltaX));
+			swipePreviewActive = true;
+			return;
+		}
+
+		if (deltaX < 0) {
+			swipePreviewTarget = 'users';
+			swipePreviewOffsetX = Math.max(-width, Math.min(0, deltaX));
+			swipePreviewActive = true;
+			return;
+		}
+	}
+
+	function handleTouchEnd(event: TouchEvent): void {
+		if (!$layoutStore.isMobile || !touchGestureEnabled || !touchMovedEnough || event.changedTouches.length === 0) {
+			resetTouchSwipe();
+			return;
+		}
+
+		const touch = event.changedTouches[0];
+		const deltaX = touch.clientX - touchStartX;
+		const deltaY = touch.clientY - touchStartY;
+		const elapsedMs = Date.now() - touchStartTime;
+		const horizontalMin = Math.max(96, Math.floor(window.innerWidth * 0.22));
+		const verticalMin = Math.max(78, Math.floor(window.innerHeight * 0.09));
+		const isVerticalSwipe =
+			Math.abs(deltaY) >= Math.max(MOBILE_NAV_SWIPE_MIN_Y_PX, verticalMin) &&
+			Math.abs(deltaY) > Math.abs(deltaX) &&
+			elapsedMs <= MOBILE_EDGE_SWIPE_MAX_MS;
+
+		if (isVerticalSwipe) {
+			const startedNearBottom = touchStartY >= window.innerHeight - MOBILE_NAV_REVEAL_ZONE_PX;
+			const swipeUp = deltaY < 0;
+			const swipeDown = deltaY > 0;
+
+			if (!mobileNavVisible && startedNearBottom && swipeUp) {
+				mobileNavVisible = true;
+				resetTouchSwipe();
+				return;
+			}
+
+			if (mobileNavVisible && swipeDown) {
+				mobileNavVisible = false;
+				resetTouchSwipe();
+				return;
+			}
+		}
+
+		const isHorizontalSwipe =
+			Math.abs(deltaX) >= Math.max(MOBILE_EDGE_SWIPE_MIN_X_PX, horizontalMin) &&
+			Math.abs(deltaY) <= MOBILE_EDGE_SWIPE_MAX_Y_PX &&
+			Math.abs(deltaX) > Math.abs(deltaY) &&
+			elapsedMs <= MOBILE_EDGE_SWIPE_MAX_MS;
+
+		if (!isHorizontalSwipe) {
+			resetTouchSwipe();
+			return;
+		}
+
+		const swipeLeft = deltaX < 0;
+		const swipeRight = deltaX > 0;
+		const channelsOpen = $layoutStore.showMobileChannels;
+		const usersOpen = $layoutStore.rightPanelView !== 'none';
+
+		// Stage navigation: Channels <-> Chat <-> Users
+		if (channelsOpen && swipeLeft) {
+			layoutStore.showMobileChannels.set(false);
+			layoutStore.rightPanelView.set('none');
+			resetTouchSwipe();
+			return;
+		}
+
+		if (!channelsOpen && !usersOpen && swipeLeft) {
+			layoutStore.showUsersTab();
+			layoutStore.showMobileChannels.set(false);
+			resetTouchSwipe();
+			return;
+		}
+
+		if (usersOpen && swipeRight) {
+			layoutStore.rightPanelView.set('none');
+			layoutStore.showMobileChannels.set(false);
+			resetTouchSwipe();
+			return;
+		}
+
+		if (!channelsOpen && !usersOpen && swipeRight) {
+			layoutStore.showMobileChannels.set(true);
+			layoutStore.rightPanelView.set('none');
+			resetTouchSwipe();
+			return;
+		}
+
+		resetTouchSwipe();
+	}
+
+	function showMobileNav(): void {
+		if (!$layoutStore.isMobile) return;
+		mobileNavVisible = true;
+		scheduleMobileNavIdleHide();
+	}
+
+	function scheduleMobileNavIdleHide(): void {
+		if (!$layoutStore.isMobile || !mobileNavVisible || $layoutStore.isInCall) return;
+		if (mobileNavIdleTimer) clearTimeout(mobileNavIdleTimer);
+		mobileNavIdleTimer = setTimeout(() => {
+			mobileNavVisible = false;
+			mobileNavIdleTimer = null;
+		}, MOBILE_NAV_IDLE_HIDE_MS);
+	}
+
+	function hideMobileNavNow(): void {
+		mobileNavVisible = false;
+		if (mobileNavIdleTimer) {
+			clearTimeout(mobileNavIdleTimer);
+			mobileNavIdleTimer = null;
+		}
+	}
+
+	function handleMobileNavTouchStart(event: TouchEvent): void {
+		if (!$layoutStore.isMobile || !mobileNavVisible || event.touches.length !== 1) return;
+		navTouchStartY = event.touches[0].clientY;
+		navTouchDragging = true;
+		scheduleMobileNavIdleHide();
+	}
+
+	function handleMobileNavTouchMove(event: TouchEvent): void {
+		if (!navTouchDragging || event.touches.length !== 1) return;
+		const deltaY = event.touches[0].clientY - navTouchStartY;
+		if (deltaY >= MOBILE_NAV_PULL_DOWN_HIDE_PX) {
+			hideMobileNavNow();
+			navTouchDragging = false;
+		}
+	}
+
+	function handleMobileNavTouchEnd(): void {
+		navTouchDragging = false;
+		if (mobileNavVisible) scheduleMobileNavIdleHide();
+	}
+
+	function getChannelPreviewTransform(): string {
+		const channelsOpen = $layoutStore.showMobileChannels;
+		if (!swipePreviewActive || swipePreviewTarget !== 'channels') return 'translateX(0)';
+		if (channelsOpen) {
+			return `translateX(${swipePreviewOffsetX}px)`;
+		}
+		return `translateX(calc(-100% + ${Math.max(0, swipePreviewOffsetX)}px))`;
+	}
+
+	function getUsersPreviewTransform(): string {
+		const usersOpen = $layoutStore.rightPanelView !== 'none';
+		if (!swipePreviewActive || swipePreviewTarget !== 'users') return 'translateX(0)';
+		if (usersOpen) {
+			return `translateX(${Math.max(0, swipePreviewOffsetX)}px)`;
+		}
+		return `translateX(calc(100% + ${Math.min(0, swipePreviewOffsetX)}px))`;
+	}
+
+	function getPreviewOpacity(): number {
+		if (!swipePreviewActive || swipePreviewTarget === 'none') return 1;
+		const width = Math.max(window.innerWidth, 1);
+		const p = Math.min(1, Math.abs(swipePreviewOffsetX) / (width * 0.34));
+		return 0.35 + (p * 0.65);
+	}
+
 	$: if ($callMode !== 'channel' || !$activeVoiceChannel) {
 		showVoiceDebugDetails = false;
 	}
+
+	$: if (!$layoutStore.isMobile || $layoutStore.isInCall) {
+		mobileNavVisible = false;
+		if (mobileNavIdleTimer) {
+			clearTimeout(mobileNavIdleTimer);
+			mobileNavIdleTimer = null;
+		}
+	}
+
+	$: if (mobileNavVisible && $layoutStore.isMobile && !$layoutStore.isInCall) {
+		scheduleMobileNavIdleHide();
+	}
 </script>
 
-<svelte:window on:mousemove={handleMouseMove} on:mouseup={stopResize} />
+<svelte:window
+	on:mousemove={handleMouseMove}
+	on:mouseup={stopResize}
+	on:touchstart={handleTouchStart}
+	on:touchmove={handleTouchMove}
+	on:touchend={handleTouchEnd}
+	on:touchcancel={resetTouchSwipe}
+/>
 
 <AuthErrorBanner />
 
 {#if $layoutStore.isMobile && !$layoutStore.isInCall}
+	{#if !mobileNavVisible}
+		<button
+			type="button"
+			class="mobile-nav-grabber"
+			on:click={showMobileNav}
+			aria-label="Show mobile menu"
+			title="Swipe up for menu"
+		>
+			<span></span>
+		</button>
+	{/if}
 	<!-- Mobile Bottom Navigation Bar -->
-	<nav class="mobile-bottom-nav">
-		<button class:active={!$layoutStore.showMobileChannels && $layoutStore.rightPanelView === 'none'} on:click={() => { layoutStore.showMobileChannels.set(false); layoutStore.rightPanelView.set('none'); }}>
+	<nav class="mobile-bottom-nav" class:visible={mobileNavVisible}>
+		<button
+			class:active={!$layoutStore.showMobileChannels && $layoutStore.rightPanelView === 'none'}
+			on:click={() => { layoutStore.showMobileChannels.set(false); layoutStore.rightPanelView.set('none'); scheduleMobileNavIdleHide(); }}
+			on:touchstart={handleMobileNavTouchStart}
+			on:touchmove={handleMobileNavTouchMove}
+			on:touchend={handleMobileNavTouchEnd}
+		>
 			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-			<span>Chat</span>
+			<span>{$_('shell.mobile.chat')}</span>
 		</button>
-		<button class:active={$layoutStore.showMobileChannels} on:click={layoutStore.toggleMobileChannels}>
+		<button
+			class:active={$layoutStore.showMobileChannels}
+			on:click={() => { layoutStore.toggleMobileChannels(); scheduleMobileNavIdleHide(); }}
+			on:touchstart={handleMobileNavTouchStart}
+			on:touchmove={handleMobileNavTouchMove}
+			on:touchend={handleMobileNavTouchEnd}
+		>
 			<svg width="24" height="24" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
-			<span>Channels</span>
+			<span>{$_('shell.mobile.channels')}</span>
 		</button>
-		<button class:active={$layoutStore.rightPanelView !== 'none'} on:click={layoutStore.toggleMobileUsers}>
+		<button
+			class:active={$layoutStore.rightPanelView !== 'none'}
+			on:click={() => { layoutStore.toggleMobileUsers(); scheduleMobileNavIdleHide(); }}
+			on:touchstart={handleMobileNavTouchStart}
+			on:touchmove={handleMobileNavTouchMove}
+			on:touchend={handleMobileNavTouchEnd}
+		>
 			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-			<span>Users</span>
+			<span>{$_('shell.mobile.users')}</span>
 		</button>
-		<a href="/business" class="nav-link">
-			<svg width="24" height="24" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-			<span>Hub</span>
-		</a>
 	</nav>
 {/if}
 
-<div class="app-container" class:resizing={$layoutStore.isResizing} class:in-call={$layoutStore.isMobile && $layoutStore.isInCall}>
+<div
+	class="app-container"
+	class:resizing={$layoutStore.isResizing}
+	class:in-call={$layoutStore.isMobile && $layoutStore.isInCall}
+	class:mobile-nav-visible={mobileNavVisible && $layoutStore.isMobile && !$layoutStore.isInCall}
+>
 	<!-- Channel Sidebar (Left) -->
 	<div
 		class="channel-sidebar-container"
 		style:width="{$layoutStore.channelSidebarWidth}px"
 		class:mobile-visible={$layoutStore.showMobileChannels}
+		class:preview-visible={$layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'channels'}
+		style:transform={getChannelPreviewTransform()}
+		style:opacity={getPreviewOpacity()}
+		style:transition={swipePreviewActive ? 'none' : undefined}
 	>
 		<ChannelSidebar on:close={() => layoutStore.showMobileChannels.set(false)} bind:activeView on:logout />
 		<!-- Channel resize handle -->
@@ -160,8 +496,14 @@
 	</div>
 
 	<!-- Mobile Right Panel Overlay -->
-	{#if mobileRightVisible}
-		<div class="mobile-right-overlay">
+	{#if mobileRightVisible || ($layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'users')}
+		<div
+			class="mobile-right-overlay"
+			class:preview-visible={$layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'users'}
+			style:transform={getUsersPreviewTransform()}
+			style:opacity={getPreviewOpacity()}
+			style:transition={swipePreviewActive ? 'none' : undefined}
+		>
 			<RightPanel />
 		</div>
 	{/if}
@@ -169,9 +511,12 @@
 	<!-- Main Content -->
 	<div class="main-content">
 		<div class="chat-stack">
-			<ChannelQuickTabs />
 			<div class="chat-surface">
-				<Chat on:logout />
+				{#if isModelViewportTabActive}
+					<ModelViewportTab />
+				{:else}
+					<Chat on:logout />
+				{/if}
 			</div>
 		</div>
 	</div>
@@ -198,7 +543,7 @@
 			class:has-unread={totalUnreadDMs > 0}
 			data-unread={totalUnreadDMs > 99 ? '99+' : totalUnreadDMs}
 			on:click={layoutStore.toggleRightPanel}
-			title="Open side panel"
+			title={$_('shell.open_side_panel')}
 		>
 			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<polyline points="15 18 9 12 15 6"/>
@@ -206,13 +551,15 @@
 		</button>
 
 		{#if showDesktopNotificationRail && unreadDMChannels.length > 0}
-			<div class="dm-notification-rail" aria-label="Unread direct messages">
+			<div class="dm-notification-rail" aria-label={$_('shell.unread_dms')}>
 				{#each unreadDMChannels as channel, index (channel.id)}
 					<button
 						class="dm-notification-stub"
 						style={`animation-delay: ${index * 0.04}s`}
 						on:click={() => openUnreadDM(channel)}
-						title={channel.type === 'group' ? `Open ${channel.name}` : `Open DM with ${getChannelOtherUser(channel)?.username || 'user'}`}
+						title={channel.type === 'group'
+							? $_('shell.open_group', { values: { name: channel.name } })
+							: $_('shell.open_dm_with', { values: { user: getChannelOtherUser(channel)?.username || $_('shell.user_fallback') } })}
 					>
 						{#if channel.type === 'group'}
 							{#if channel.avatar}
@@ -244,12 +591,12 @@
 				type="button"
 				on:click={() => (showVoiceDebugDetails = !showVoiceDebugDetails)}
 				aria-expanded={showVoiceDebugDetails}
-				title="Toggle call diagnostics"
+				title={$_('shell.call.toggle_diagnostics')}
 			>
 				<span class="status-leading">
 					<span class="dot"></span>
 					<span class="voice-status-text">
-						<strong>Voice Connected</strong>
+						<strong>{$_('shell.call.voice_connected')}</strong>
 						<small>{$activeVoiceChannel.name} / {$connectionState}</small>
 					</span>
 				</span>
@@ -270,17 +617,17 @@
 			{/if}
 
 			<div class="voice-channel-meta">
-				<span class="voice-channel-name-label">In voice:</span>
+				<span class="voice-channel-name-label">{$_('shell.call.in_voice')}</span>
 				<strong>{$activeVoiceChannel.name}</strong>
 			</div>
 			<div class="voice-channel-actions">
-				<button class:active={!$isVideoOff} on:click={handleToggleVideoFromStrip} title={$isVideoOff ? 'Turn on camera' : 'Turn off camera'} aria-label={$isVideoOff ? 'Turn on camera' : 'Turn off camera'}>
+				<button class:active={!$isVideoOff} on:click={handleToggleVideoFromStrip} title={$isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera')} aria-label={$isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera')}>
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
 						<path d="M23 7l-7 5 7 5V7z"></path>
 						<rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
 					</svg>
 				</button>
-				<button class="leave icon-only" on:click={handleLeaveVoiceChannel} title="Leave voice" aria-label="Leave voice">
+				<button class="leave icon-only" on:click={handleLeaveVoiceChannel} title={$_('shell.call.leave_voice')} aria-label={$_('shell.call.leave_voice')}>
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
 						<path d="M14 3h7v18h-7"></path>
 						<path d="M10 17l5-5-5-5"></path>
@@ -514,9 +861,14 @@
 	/* --- Mobile Styles --- */
 	.mobile-bottom-nav { display: none; }
 	.mobile-right-overlay { display: none; }
+	.mobile-nav-grabber { display: none; }
 
 	@media (max-width: 768px) {
 		.app-container {
+			height: 100vh;
+			height: 100dvh;
+		}
+		.app-container.mobile-nav-visible {
 			height: calc(100vh - var(--mobile-nav-height));
 			height: calc(100dvh - var(--mobile-nav-height));
 		}
@@ -544,6 +896,11 @@
 			display: block;
 		}
 
+		.channel-sidebar-container.preview-visible {
+			display: block;
+			pointer-events: none;
+		}
+
 		.mobile-right-overlay {
 			display: flex;
 			flex-direction: column;
@@ -555,6 +912,19 @@
 			height: calc(100dvh - var(--mobile-nav-height));
 			z-index: var(--z-modal);
 			background: var(--bg-primary);
+			-ms-overflow-style: none;
+			scrollbar-width: none;
+		}
+
+		.mobile-right-overlay.preview-visible {
+			display: flex;
+			pointer-events: none;
+		}
+
+		.mobile-right-overlay::-webkit-scrollbar {
+			display: none;
+			width: 0;
+			height: 0;
 		}
 
 		.mobile-bottom-nav {
@@ -566,29 +936,64 @@
 			left: 0;
 			right: 0;
 			height: var(--mobile-nav-height);
-			background: var(--bg-tertiary);
+			background: color-mix(in srgb, var(--bg-tertiary) 88%, black 12%);
 			border-top: 1px solid var(--border);
 			z-index: var(--z-toast);
 			padding: 0;
 			padding-bottom: env(safe-area-inset-bottom, 0);
+			transform: translateY(100%);
+			opacity: 0;
+			pointer-events: none;
+			transition: transform 0.2s ease, opacity 0.2s ease;
 		}
-		.mobile-bottom-nav button, .mobile-bottom-nav .nav-link {
+		.mobile-bottom-nav.visible {
+			transform: translateY(0);
+			opacity: 1;
+			pointer-events: auto;
+		}
+		.mobile-bottom-nav button {
 			display: flex;
 			flex-direction: column;
 			align-items: center;
 			justify-content: center;
+			flex: 1;
 			gap: 0.125rem;
 			background: transparent;
 			border: none;
 			color: var(--text-secondary);
-			font-size: 0.65rem;
-			padding: 0.375rem 0.5rem;
-			text-decoration: none;
+			font-size: 0.62rem;
+			padding: 0.34rem 0.45rem;
 			transition: color 0.15s;
 		}
-		.mobile-bottom-nav button:hover, .mobile-bottom-nav .nav-link:hover { color: var(--text-primary); }
+		.mobile-bottom-nav button:hover { color: var(--text-primary); }
 		.mobile-bottom-nav button.active { color: var(--accent); }
-		.mobile-bottom-nav svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; }
+		.mobile-bottom-nav svg { width: 19px; height: 19px; stroke: currentColor; fill: none; stroke-width: 2; }
+
+		.mobile-nav-grabber {
+			display: flex;
+			position: fixed;
+			right: 8px;
+			top: calc(env(safe-area-inset-top, 0) + 56px);
+			width: 34px;
+			height: 34px;
+			border: none;
+			border-radius: 10px;
+			background: color-mix(in srgb, var(--bg-tertiary) 88%, black 12%);
+			box-shadow: 0 4px 14px rgba(0, 0, 0, 0.24);
+			align-items: center;
+			justify-content: center;
+			z-index: var(--z-toast);
+			opacity: 0.88;
+		}
+
+		.mobile-nav-grabber span {
+			display: block;
+			width: 14px;
+			height: 14px;
+			border-radius: 999px;
+			background: color-mix(in srgb, var(--text-secondary) 78%, white 22%);
+			mask: linear-gradient(135deg, transparent 42%, #000 42% 58%, transparent 58%) center / 90% 90% no-repeat;
+		}
 	}
 
 	@media (max-width: 1280px) {
@@ -745,6 +1150,14 @@
 			overflow-y: auto;
 			padding: 0.6rem;
 			gap: 0.55rem;
+			-ms-overflow-style: none;
+			scrollbar-width: none;
+		}
+
+		.voice-channel-strip::-webkit-scrollbar {
+			display: none;
+			width: 0;
+			height: 0;
 		}
 
 		.voice-debug-grid {

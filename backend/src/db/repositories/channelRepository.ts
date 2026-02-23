@@ -42,7 +42,7 @@ export class ChannelRepository {
 			channel.min_role || 'guest',
 			channel.created_at,
 			channel.created_by || null,
-			channel.persist_messages ?? 1,
+			channel.persist_messages ?? 0,
 			channel.parent_channel_id || null,
 			channel.is_breakout ?? 0,
 			channel.breakout_index ?? null,
@@ -115,13 +115,13 @@ export class ChannelRepository {
 				name: 'general',
 				created_at: Date.now(),
 				created_by: 'system',
-				persist_messages: 1
+				persist_messages: 0
 			});
 			console.log('[ChannelRepository] Created default text channel: general');
 		} else if (existing.channel_type !== 'text') {
 			// Canonicalize legacy base channel type to explicit text
 			const stmt = db.prepare('UPDATE channels SET channel_type = ?, persist_messages = ? WHERE channel_id = ?');
-			stmt.run('text', 1, 'general');
+			stmt.run('text', 0, 'general');
 			console.log(`[ChannelRepository] Normalized base channel type: general (${existing.channel_type} -> text)`);
 		}
 

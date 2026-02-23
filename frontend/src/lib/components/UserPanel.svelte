@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { get } from 'svelte/store';
 	import { users, currentUser, socket, channels, type User, createDM, getDMChannelIdForUser, channelUnreadCounts } from '$lib/socket';
 	import { startCall } from '$lib/calling';
 	import { startScreenShare } from '$lib/calling';
@@ -7,6 +8,7 @@
 	import UserContextMenu from './UserContextMenu.svelte';
 	import { longpress } from '$lib/actions/longpress';
 	import CreateDMModal from './CreateDMModal.svelte';
+	import { _ } from '$lib/i18n';
 
 	const dispatch = createEventDispatcher();
 
@@ -167,7 +169,7 @@
 		try {
 			await startCall($socket, targetUser.id, false);
 		} catch (error) {
-			alert('Failed to start voice call. Please check microphone permissions.');
+			alert(get(_)('user.errors.voice_call_failed'));
 		}
 	}
 
@@ -178,7 +180,7 @@
 		try {
 			await startCall($socket, targetUser.id, true);
 		} catch (error) {
-			alert('Failed to start video call. Please check camera and microphone permissions.');
+			alert(get(_)('user.errors.video_call_failed'));
 		}
 	}
 
@@ -191,7 +193,7 @@
 			// it's broadcast to the current channel.
 			await startScreenShare($socket);
 		} catch (error) {
-			alert('Failed to start screen share. Please grant screen sharing permissions.');
+			alert(get(_)('user.errors.screen_share_failed'));
 		}
 	}
 </script>
@@ -199,19 +201,19 @@
 <aside class="user-panel">
 	<div class="panel-header">
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
-		<h3>Online ({$users.length})</h3>
+		<h3>{$_('user.online', { values: { count: $users.length } })}</h3>
 		<div class="header-buttons">
 			<button
 				class="dm-btn"
 				class:has-unread={totalUnreadDMs > 0}
 				data-unread={totalUnreadDMs > 99 ? '99+' : totalUnreadDMs}
 				on:click={openDMModal}
-				title="Start a DM"
+				title={$_('user.start_dm')}
 			>💬</button>
 			<button
 				class="logout-btn"
 				on:click={handleLogout}
-				title="Logout and change name"
+				title={$_('user.logout_change_name')}
 			>🚪</button>
 		</div>
 	</div>
@@ -248,7 +250,7 @@
 					<div class="user-info">
 						<span class="user-name">
 							{user.username}
-							{#if isCurrentUserEntry(user)}<span class="you-badge">(you)</span>{/if}
+							{#if isCurrentUserEntry(user)}<span class="you-badge">({$_('user.you')})</span>{/if}
 						</span>
 						<div class="user-status">
 							<span class="status-dot" style="background-color: {getStatusColor(user.status)}"></span>
@@ -268,21 +270,21 @@
 						<button
 							class="call-btn voice-call"
 							on:click={(e) => handleVoiceCall(e, user)}
-							title="Voice call"
+							title={$_('user.voice_call')}
 						>
 							📞
 						</button>
 						<button
 							class="call-btn video-call"
 							on:click={(e) => handleVideoCall(e, user)}
-							title="Video call"
+							title={$_('user.video_call')}
 						>
 							📹
 						</button>
 						<button
 							class="call-btn screen-share"
 							on:click={(e) => handleScreenShare(e, user)}
-							title="Screen share"
+							title={$_('user.screen_share')}
 						>
 							📺
 						</button>

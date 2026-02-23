@@ -8,10 +8,13 @@
 	import { migrateTauriData, loadMigratedTauriData } from '$lib/tauri-migration';
 	import { chatStorage } from '$lib/storage';
 	import { get } from 'svelte/store';
+	import { initI18n } from '$lib/i18n';
 
 	import { updated } from '$app/stores';
 	import { initRelaySelector } from '$lib/relaySelector';
 	import { startupMark, startupMeasure } from '$lib/startupProfiler';
+
+	initI18n();
 
 	let cleanupAutoSave: (() => void) | null = null;
 	let relayInitTimer: ReturnType<typeof setTimeout> | null = null;

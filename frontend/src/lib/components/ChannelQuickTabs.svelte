@@ -4,6 +4,7 @@
 	import { activeVoiceChannel, callMode } from '$lib/calling';
 	import { layoutStore } from '$lib/layoutStore';
 	import { mobileTabQueue, type AddonTabSpec, type MobileQueueTab } from '$lib/mobileTabQueue';
+	import { openDetachedPanel } from '$lib/detachedPanels';
 
 	type RenderTab = {
 		id: string;
@@ -34,6 +35,10 @@
 	let dropTargetChannelId: string | null = null;
 	let dropPosition: 'before' | 'after' = 'before';
 	let suppressSelectUntil = 0;
+	let contextMenuVisible = false;
+	let contextMenuX = 0;
+	let contextMenuY = 0;
+	let contextMenuTab: RenderTab | null = null;
 
 	const TAB_MIN_WIDTH = 88;
 	const TAB_MAX_WIDTH = 168;
@@ -61,7 +66,12 @@
 	$: mobileTabQueue.pruneChannels(eligibleChannelIds);
 
 	$: if ($currentChannel && $currentChannel !== lastSyncedChannelId && eligibleChannelSet.has($currentChannel)) {
-		mobileTabQueue.setActiveChannel($currentChannel);
+		// Keep channel queue synced, but do not steal focus from addon tabs.
+		if ($activeTabId?.startsWith('addon:')) {
+			mobileTabQueue.enqueueChannel($currentChannel);
+		} else {
+			mobileTabQueue.setActiveChannel($currentChannel);
+		}
 		lastSyncedChannelId = $currentChannel;
 	}
 
@@ -184,6 +194,10 @@
 	}
 
 	function handleDragStart(tab: RenderTab, event: DragEvent): void {
+		if ($layoutStore.isMobile) {
+			event.preventDefault();
+			return;
+		}
 		if (tab.type !== 'channel' || !tab.channelId) {
 			event.preventDefault();
 			return;
@@ -197,6 +211,7 @@
 	}
 
 	function handleDragOver(tab: RenderTab, event: DragEvent): void {
+		if ($layoutStore.isMobile) return;
 		if (!draggedChannelId || tab.type !== 'channel' || !tab.channelId) return;
 		event.preventDefault();
 		if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
@@ -210,6 +225,10 @@
 	}
 
 	function handleDrop(tab: RenderTab, event: DragEvent): void {
+		if ($layoutStore.isMobile) {
+			event.preventDefault();
+			return;
+		}
 		event.preventDefault();
 		if (!draggedChannelId || tab.type !== 'channel' || !tab.channelId) return;
 		mobileTabQueue.reorderChannelTab(draggedChannelId, tab.channelId, dropPosition);
@@ -228,6 +247,10 @@
 	function handleCloseTab(tab: RenderTab, event: Event): void {
 		event.preventDefault();
 		event.stopPropagation();
+		closeTab(tab);
+	}
+
+	function closeTab(tab: RenderTab): void {
 		if (tab.type === 'channel' && tab.channelId) {
 			const closingActive = $currentChannel === tab.channelId;
 			const fallbackChannel = renderTabs
@@ -238,7 +261,77 @@
 				joinChannel(fallbackChannel);
 			}
 			mobileTabQueue.closeChannelTab(tab.channelId);
+			return;
 		}
+
+		if (tab.type === 'addon' && tab.addonId) {
+			mobileTabQueue.closeAddonTab(tab.addonId);
+		}
+	}
+
+	async function handleDetachTab(tab: RenderTab, event: Event): Promise<void> {
+		event.preventDefault();
+		event.stopPropagation();
+		await detachTab(tab);
+	}
+
+	async function detachTab(tab: RenderTab): Promise<void> {
+		if ($layoutStore.isMobile) return;
+		if (tab.type !== 'channel' || !tab.channelId) return;
+
+		const rawName = tab.label.replace(/^#\s*/, '').trim();
+		await openDetachedPanel({
+			kind: 'channel-chat',
+			channelId: tab.channelId,
+			channelName: rawName || undefined
+		});
+		closeTab(tab);
+	}
+
+	function closeTabContextMenu(): void {
+		contextMenuVisible = false;
+		contextMenuTab = null;
+	}
+
+	function openTabContextMenu(tab: RenderTab, event: MouseEvent): void {
+		if ($layoutStore.isMobile) return;
+		event.preventDefault();
+		event.stopPropagation();
+		const menuWidth = 176;
+		const menuHeight = 84;
+		const maxX = Math.max(8, window.innerWidth - menuWidth - 8);
+		const maxY = Math.max(8, window.innerHeight - menuHeight - 8);
+		contextMenuX = Math.max(8, Math.min(event.clientX, maxX));
+		contextMenuY = Math.max(8, Math.min(event.clientY, maxY));
+		contextMenuTab = tab;
+		contextMenuVisible = true;
+	}
+
+	async function handleContextDetach(): Promise<void> {
+		if (!contextMenuTab) return;
+		if (contextMenuTab.type !== 'channel') return;
+		await detachTab(contextMenuTab);
+		closeTabContextMenu();
+	}
+
+	function handleContextClose(): void {
+		if (!contextMenuTab) return;
+		closeTab(contextMenuTab);
+		closeTabContextMenu();
+	}
+
+	function handleWindowKeydown(event: KeyboardEvent): void {
+		if (event.key === 'Escape') {
+			closeTabContextMenu();
+		}
+	}
+
+	function canDragTab(tab: RenderTab): boolean {
+		return !$layoutStore.isMobile && tab.type === 'channel';
+	}
+
+	function canDetachTab(tab: RenderTab): boolean {
+		return !$layoutStore.isMobile && tab.type === 'channel';
 	}
 
 	function activateRelative(direction: -1 | 1): void {
@@ -306,20 +399,20 @@
 			const effectiveRailWidth = railWidth;
 			const firstWidth = Math.max(EDGE_FIRST_MIN, Math.min(EDGE_FIRST_MAX, Math.floor(effectiveRailWidth * EDGE_FIRST_RATIO)));
 			const middleWidth = Math.max(TAB_MIN_WIDTH, Math.min(TAB_MAX_WIDTH, tabWidthPx));
-			if (tabIndex === 0) return `width: ${firstWidth}px; --tab-order: ${order};`;
+			if (tabIndex === 0) return `width: ${firstWidth}px; --tab-order: ${order}; --tab-depth: ${tabIndex};`;
 			if (tabIndex === tabCount - 1) {
 				const middleCount = Math.max(0, tabCount - 2);
 				const usedWidth = firstWidth + (middleCount * middleWidth) - ((tabCount - 1) * TAB_OVERLAP);
 				const fillWidth = Math.floor(effectiveRailWidth - usedWidth);
 				// Fill to the right edge when there is room; otherwise fall back to standard width.
 				if (fillWidth >= EDGE_LAST_MIN) {
-					return `width: ${fillWidth}px; max-width: none; --tab-order: ${order};`;
+					return `width: ${fillWidth}px; max-width: none; --tab-order: ${order}; --tab-depth: ${tabIndex};`;
 				}
-				return `width: ${middleWidth}px; --tab-order: ${order};`;
+				return `width: ${middleWidth}px; --tab-order: ${order}; --tab-depth: ${tabIndex};`;
 			}
-			return `width: ${middleWidth}px; --tab-order: ${order};`;
+			return `width: ${middleWidth}px; --tab-order: ${order}; --tab-depth: ${tabIndex};`;
 		}
-		return `width: ${tabWidthPx}px; --tab-order: ${order};`;
+		return `width: ${tabWidthPx}px; --tab-order: ${order}; --tab-depth: ${tabIndex};`;
 	}
 
 	function ensureActiveTabVisible(): void {
@@ -345,6 +438,8 @@
 		isPointerDragging = false;
 	});
 </script>
+
+<svelte:window on:click={closeTabContextMenu} on:keydown={handleWindowKeydown} />
 
 {#if showCallParticipants}
 	<div class="call-participants-strip" aria-label="Active voice participants">
@@ -381,11 +476,12 @@
 					class:last-tab={tabCount >= 2 && tabIndex === tabCount - 1}
 					style={tabInlineStyle(tabIndex)}
 					data-tab-id={tab.id}
-					draggable={tab.type === 'channel'}
+					draggable={canDragTab(tab)}
 					on:dragstart={(event) => handleDragStart(tab, event)}
 					on:dragover={(event) => handleDragOver(tab, event)}
 					on:drop={(event) => handleDrop(tab, event)}
 					on:dragend={handleDragEnd}
+					on:contextmenu={(event) => openTabContextMenu(tab, event)}
 					on:click={(event) => handleSelectTab(tab, event)}
 					title={tab.label}
 				>
@@ -393,31 +489,78 @@
 					{#if tab.badgeCount > 0}
 						<span class="tab-badge">{tab.badgeCount > 99 ? '99+' : tab.badgeCount}</span>
 					{/if}
-					{#if tab.type === 'channel'}
+					{#if canDetachTab(tab)}
 						<span
-							class="tab-close"
+							class="tab-detach"
 							role="button"
 							tabindex="0"
-							aria-label={`Close ${tab.label}`}
-							title={`Close ${tab.label}`}
+							aria-label={`Detach ${tab.label}`}
+							title={`Detach ${tab.label} to new window`}
 							on:pointerdown={(event) => {
 								event.preventDefault();
 								event.stopPropagation();
 							}}
-							on:click={(event) => handleCloseTab(tab, event)}
+							on:click={(event) => {
+								void handleDetachTab(tab, event);
+							}}
 							on:keydown={(event) => {
 								if (event.key === 'Enter' || event.key === ' ') {
 									event.preventDefault();
-									handleCloseTab(tab, event);
+									void handleDetachTab(tab, event);
 								}
 							}}
 						>
-							×
+							↗
 						</span>
 					{/if}
+					<span
+						class="tab-close"
+						role="button"
+						tabindex="0"
+						aria-label={`Close ${tab.label}`}
+						title={`Close ${tab.label}`}
+						on:pointerdown={(event) => {
+							event.preventDefault();
+							event.stopPropagation();
+						}}
+						on:click={(event) => handleCloseTab(tab, event)}
+						on:keydown={(event) => {
+							if (event.key === 'Enter' || event.key === ' ') {
+								event.preventDefault();
+								handleCloseTab(tab, event);
+							}
+						}}
+					>
+						x
+					</span>
 				</button>
 			{/each}
 		</div>
+	</div>
+{/if}
+
+{#if contextMenuVisible && contextMenuTab}
+	<div
+		class="tab-context-menu"
+		style="left: {contextMenuX}px; top: {contextMenuY}px;"
+		role="menu"
+		on:click|stopPropagation
+		on:contextmenu|preventDefault
+	>
+		<button type="button" class="tab-context-item" role="menuitem" on:click={handleContextClose}>
+			Close Tab
+		</button>
+		<button
+			type="button"
+			class="tab-context-item"
+			role="menuitem"
+			disabled={contextMenuTab.type !== 'channel'}
+			on:click={() => {
+				void handleContextDetach();
+			}}
+		>
+			Detach Tab
+		</button>
 	</div>
 {/if}
 
@@ -496,12 +639,14 @@
 	}
 
 	.queue-tab {
+		--tab-darken: min(82%, calc(var(--tab-depth, 0) * var(--tab-shade-strength, 0.06) * 100%));
 		height: 31px;
 		min-height: 31px;
 		max-width: 168px;
 		border-radius: 999px;
 		border: none;
 		background: #383838;
+		background: color-mix(in srgb, var(--bg-tertiary, #383838) calc(100% - var(--tab-darken)), black var(--tab-darken));
 		color: #f3f4f6;
 		display: inline-flex;
 		align-items: center;
@@ -546,6 +691,7 @@
 	.queue-tab.active {
 		color: #ffffff;
 		background: #1e1e1e;
+		background: color-mix(in srgb, var(--bg-primary, #1e1e1e) 86%, black 14%);
 		transform: none;
 		border-radius: 999px;
 		z-index: calc(var(--tab-order, 1) + 120);
@@ -613,9 +759,38 @@
 		transition: opacity 0.12s ease, background 0.12s ease;
 	}
 
-	.queue-tab:hover .tab-close,
-	.queue-tab:focus-within .tab-close,
-	.queue-tab.active .tab-close {
+	.tab-detach {
+		position: absolute;
+		right: 24px;
+		top: 50%;
+		transform: translateY(-50%);
+		opacity: 0;
+		pointer-events: none;
+		width: 16px;
+		height: 16px;
+		border: none;
+		border-radius: 50%;
+		background: rgba(255, 255, 255, 0.14);
+		color: #fff;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.66rem;
+		line-height: 1;
+		padding: 0;
+		transition: opacity 0.12s ease, background 0.12s ease;
+	}
+
+	.queue-tab:hover .tab-detach {
+		opacity: 1;
+		pointer-events: auto;
+	}
+
+	.tab-detach:hover {
+		background: rgba(255, 255, 255, 0.26);
+	}
+
+	.queue-tab:hover .tab-close {
 		opacity: 1;
 		pointer-events: auto;
 	}
@@ -640,11 +815,66 @@
 	}
 
 	@media (max-width: 768px) {
+		.tab-rail-viewport {
+			background: #505050;
+			border-bottom: none;
+		}
+
+		.tab-rail-track.edge-layout {
+			min-height: 31px;
+		}
+
 		.queue-tab {
 			height: 31px;
 			min-height: 31px;
-			font-size: 0.72rem;
-			margin-left: -10px;
+			font-size: 0.75rem;
+			margin-left: -11px;
+			padding: 0 1.5rem 0 0.75rem;
+		}
+
+		.tab-rail-track.edge-layout .queue-tab.first-tab {
+			border-radius: 0;
+		}
+
+		.tab-rail-track.edge-layout .queue-tab.last-tab {
+			border-radius: 999px 0 0 999px;
+			margin-right: 0;
 		}
 	}
+
+	.tab-context-menu {
+		position: fixed;
+		z-index: 2200;
+		min-width: 172px;
+		padding: 0.3rem;
+		background: var(--bg-secondary, #20222f);
+		border: 1px solid rgba(255, 255, 255, 0.14);
+		border-radius: 10px;
+		box-shadow: 0 10px 24px rgba(0, 0, 0, 0.36);
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+
+	.tab-context-item {
+		border: none;
+		background: transparent;
+		color: var(--text-primary, #f3f4f6);
+		border-radius: 7px;
+		padding: 0.5rem 0.6rem;
+		text-align: left;
+		font-size: 0.82rem;
+		cursor: pointer;
+	}
+
+	.tab-context-item:hover:not(:disabled) {
+		background: rgba(255, 255, 255, 0.1);
+	}
+
+	.tab-context-item:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
 </style>
+
+

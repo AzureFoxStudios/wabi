@@ -123,6 +123,15 @@ export const COMMANDS: Command[] = [
 		execute: (args, flags) => {
 			// Implementation in Chat component
 		}
+	},
+	{
+		name: 'word',
+		description: 'Community dictionary tools (add/view/remove)',
+		usage: '/word add <term> | <definition> | [language]',
+		aliases: ['dict', 'dictionary'],
+		execute: (args, flags) => {
+			// Implementation in Chat component
+		}
 	}
 ];
 

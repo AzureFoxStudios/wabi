@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { on } from 'svelte/events';
+  import { get } from 'svelte/store';
+  import { _ } from '$lib/i18n';
 
   export let isOpen = false;
 
@@ -34,6 +36,7 @@
   let availableDevices: MediaDeviceInfo[] = [];
   let selectedDeviceId: string = '';
   let devicesLoaded = false;
+  const t = (key: string) => get(_)(key);
 
   // Format duration as MM:SS
   function formatTime(seconds: number): string {
@@ -72,7 +75,7 @@
 
   // Get display label for device (fallback for empty labels)
   function getDeviceLabel(device: MediaDeviceInfo, index: number): string {
-    return device.label || `Microphone ${index + 1}`;
+    return device.label || get(_)('audio.microphone_fallback', { values: { index: index + 1 } });
   }
 
   // Start recording
@@ -121,12 +124,12 @@
       console.error('Failed to start recording:', err);
       if (err instanceof Error) {
         if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-          error = 'Microphone access required. Please enable in browser settings.';
+          error = t('audio.errors.access_required');
           permissionDenied = true;
         } else if (err.name === 'NotFoundError') {
-          error = 'No microphone found on this device.';
+          error = t('audio.errors.not_found');
         } else {
-          error = 'Failed to start recording. Please try again.';
+          error = t('audio.errors.start_failed');
         }
       }
     }
@@ -145,7 +148,7 @@
   // Handle recording completion
   function handleRecordingComplete() {
     if (chunks.length === 0) {
-      error = 'No audio recorded. Please try again.';
+      error = t('audio.errors.no_audio');
       cleanup();
       return;
     }
@@ -155,7 +158,7 @@
 
     // Check file size (10MB limit)
     if (audioBlob.size > 10 * 1024 * 1024) {
-      error = 'Audio too large (max 10MB). Please record a shorter message.';
+      error = t('audio.errors.too_large');
       cleanup();
       return;
     }
@@ -265,7 +268,7 @@
     const newDeviceId = select.value;
 
     if (state === 'recording') {
-      error = 'Cannot switch microphones while recording. Please stop first.';
+      error = t('audio.errors.cannot_switch_while_recording');
       setTimeout(() => error = null, 3000);
       return;
     }
@@ -386,8 +389,8 @@
   <div class="modal-backdrop" on:click={close} role="presentation">
     <div class="modal" on:click|stopPropagation role="dialog" aria-labelledby="modal-title" aria-modal="true" tabindex="-1">
       <div class="modal-header">
-        <h2 id="modal-title">Record Voice Message</h2>
-        <button class="close-btn" on:click={close} aria-label="Close">
+        <h2 id="modal-title">{$_('audio.title')}</h2>
+        <button class="close-btn" on:click={close} aria-label={$_('common.close')}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6L6 18M6 6l12 12" />
           </svg>
@@ -404,7 +407,7 @@
                 <line x1="12" y1="19" x2="12" y2="23"></line>
                 <line x1="8" y1="23" x2="16" y2="23"></line>
               </svg>
-              Microphone:
+              {$_('audio.microphone_label')}
             </label>
             <select
               id="mic-select"
@@ -447,7 +450,7 @@
           ></canvas>
           {#if state === 'idle' || state === 'stopped'}
             <div class="placeholder-text">
-              {state === 'idle' ? 'Ready to record' : 'Recording stopped'}
+              {state === 'idle' ? $_('audio.ready') : $_('audio.recording_stopped')}
             </div>
           {/if}
         </div>
@@ -464,7 +467,7 @@
               <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                 <circle cx="12" cy="12" r="8" />
               </svg>
-              Record
+              {$_('audio.record')}
             </button>
           {/if}
 
@@ -473,7 +476,7 @@
               <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                 <rect x="6" y="6" width="12" height="12" rx="2" />
               </svg>
-              Stop
+              {$_('audio.stop')}
             </button>
           {/if}
 
@@ -483,19 +486,19 @@
                 <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
                 <path d="M3 3v5h5" />
               </svg>
-              Re-record
+              {$_('audio.rerecord')}
             </button>
-            <button class="btn-secondary" on:click={close}>Cancel</button>
+            <button class="btn-secondary" on:click={close}>{$_('common.cancel')}</button>
             <button class="btn-primary" on:click={sendAudio}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
               </svg>
-              Send
+              {$_('audio.send')}
             </button>
           {/if}
 
           {#if error}
-            <button class="btn-secondary" on:click={close}>Close</button>
+            <button class="btn-secondary" on:click={close}>{$_('common.close')}</button>
           {/if}
         </div>
       </div>

@@ -2563,6 +2563,17 @@
 			min-height: 44px;
 		}
 
+		.channel-list {
+			-ms-overflow-style: none;
+			scrollbar-width: none;
+		}
+
+		.channel-list::-webkit-scrollbar {
+			display: none;
+			width: 0;
+			height: 0;
+		}
+
 	}
 
 	/* Extra small screens */

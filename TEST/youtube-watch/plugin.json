@@ -1,0 +1,43 @@
+﻿{
+  "id": "youtube-watch",
+  "name": "YouTube Watch",
+  "version": "0.1.0",
+  "description": "Channel-level synchronized YouTube watch rooms with queue, presenter mode, and voting controls.",
+  "author": "Community",
+  "enabled": true,
+  "backend": {
+    "entry": "./backend/index.ts",
+    "socketEvents": [
+      "watch:get-state",
+      "watch:add",
+      "watch:play",
+      "watch:pause",
+      "watch:seek",
+      "watch:skip",
+      "watch:mode:set",
+      "watch:presenter:set",
+      "watch:vote:start",
+      "watch:vote:cast",
+      "watch:sync:ping"
+    ]
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "extensions": {
+      "commands": [
+        "/watch"
+      ]
+    }
+  },
+  "permissions": [
+    "channels:read",
+    "messages:write"
+  ],
+  "security": {
+    "threatNotes": "Embeds provider-hosted media only; plugin synchronizes control events and queue metadata, not media transport."
+  },
+  "capabilities": {
+    "tier": "network-limited",
+    "notes": "Sync-oriented co-watch plugin without SFU."
+  }
+}

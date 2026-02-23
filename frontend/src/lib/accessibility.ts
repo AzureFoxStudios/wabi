@@ -9,6 +9,9 @@ const MIN_SATURATION = 0.6;
 const MAX_SATURATION = 1.8;
 const MIN_CONTRAST = 0.8;
 const MAX_CONTRAST = 1.4;
+const MIN_TAB_SHADE_STRENGTH = 0;
+const MAX_TAB_SHADE_STRENGTH = 0.14;
+const DEFAULT_TAB_SHADE_STRENGTH = 0.06;
 
 export type RoleColorMode = 'full' | 'dot' | 'off';
 export type ChatAvatarMode = 'off' | 'user' | 'all';
@@ -22,6 +25,7 @@ export interface AccessibilitySettings {
 	roleColorMode: RoleColorMode;
 	ownMessagesOnRight: boolean;
 	chatAvatarMode: ChatAvatarMode;
+	tabShadeStrength: number;
 }
 
 const DEFAULT_SETTINGS: AccessibilitySettings = {
@@ -32,7 +36,8 @@ const DEFAULT_SETTINGS: AccessibilitySettings = {
 	reducedMotion: false,
 	roleColorMode: 'full',
 	ownMessagesOnRight: false,
-	chatAvatarMode: 'all'
+	chatAvatarMode: 'all',
+	tabShadeStrength: DEFAULT_TAB_SHADE_STRENGTH
 };
 
 function normalizeChatAvatarMode(value: string | undefined): ChatAvatarMode {
@@ -57,6 +62,11 @@ function clampContrast(value: number): number {
 	return Math.min(MAX_CONTRAST, Math.max(MIN_CONTRAST, value));
 }
 
+function clampTabShadeStrength(value: number): number {
+	if (!Number.isFinite(value)) return DEFAULT_TAB_SHADE_STRENGTH;
+	return Math.min(MAX_TAB_SHADE_STRENGTH, Math.max(MIN_TAB_SHADE_STRENGTH, value));
+}
+
 function normalizeRoleColorMode(value: string | undefined): RoleColorMode {
 	if (value === 'dot' || value === 'off' || value === 'full') return value;
 	return 'full';
@@ -77,6 +87,11 @@ function normalizeSettings(raw: Partial<AccessibilitySettings> | null | undefine
 				: (raw as any)?.showChatProfilePictures === false
 					? 'off'
 					: 'all')
+		),
+		tabShadeStrength: clampTabShadeStrength(
+			typeof (raw as any)?.tabShadeStrength === 'number'
+				? (raw as any).tabShadeStrength
+				: DEFAULT_TAB_SHADE_STRENGTH
 		)
 	};
 }
@@ -138,6 +153,7 @@ export function applyAccessibilitySettings(settings: AccessibilitySettings): voi
 	root.setAttribute('data-color-assist', currentSettings.colorAssistEnabled ? 'true' : 'false');
 	root.setAttribute('data-own-messages-right', currentSettings.ownMessagesOnRight ? 'true' : 'false');
 	root.setAttribute('data-chat-avatar-mode', currentSettings.chatAvatarMode);
+	root.style.setProperty('--tab-shade-strength', String(currentSettings.tabShadeStrength));
 }
 
 export function updateAccessibilitySettings(partial: Partial<AccessibilitySettings>): AccessibilitySettings {

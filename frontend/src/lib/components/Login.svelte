@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
+	import { get } from 'svelte/store';
 	import QRCode from 'qrcode';
 	import { register, login, upgradeToRegistered } from '$lib/api';
 	import { initE2E } from '$lib/e2eManager';
+	import { _, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
 
 	const dispatch = createEventDispatcher<{
 		login: { username: string; token?: string; authMethod: 'guest' | 'registered' };
@@ -19,6 +21,10 @@
 	let qrCanvas: HTMLCanvasElement;
 	let showQR = false;
 	let customRoom = '';
+	let selectedLocale = 'en';
+	$: selectedLocale = $currentLocale || 'en';
+
+	const t = (key: string): string => get(_)(key) as string;
 
 	// Auto-detect current origin
 	$: serverUrl = typeof window !== 'undefined'
@@ -56,20 +62,20 @@
 
 		// Validation
 		if (username.length < 2) {
-			error = 'Username must be at least 2 characters';
+			error = t('login.errors.username_min');
 			return;
 		}
 		const cleanHandle = handle.replace(/^@/, '').toLowerCase();
 		if (!/^[a-z][a-z0-9_]{1,31}$/.test(cleanHandle)) {
-			error = 'Handle must start with a letter, be 2-32 chars, lowercase letters/numbers/underscores only';
+			error = t('login.errors.handle_invalid');
 			return;
 		}
 		if (password.length < 8) {
-			error = 'Password must be at least 8 characters';
+			error = t('login.errors.password_min');
 			return;
 		}
 		if (password !== passwordConfirm) {
-			error = 'Passwords do not match';
+			error = t('login.errors.password_mismatch');
 			return;
 		}
 
@@ -84,7 +90,7 @@
 			}
 			dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered' });
 		} catch (err) {
-			error = err instanceof Error ? err.message : 'Registration failed';
+			error = err instanceof Error ? err.message : t('login.errors.registration_failed');
 		} finally {
 			loading = false;
 		}
@@ -95,7 +101,7 @@
 		error = '';
 
 		if (!username || !password) {
-			error = 'Username and password required';
+			error = t('login.errors.username_password_required');
 			return;
 		}
 
@@ -110,7 +116,7 @@
 			}
 			dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered' });
 		} catch (err) {
-			error = err instanceof Error ? err.message : 'Login failed';
+			error = err instanceof Error ? err.message : t('login.errors.login_failed');
 		} finally {
 			loading = false;
 		}
@@ -151,22 +157,35 @@
 				class:active={tab === 'guest'}
 				on:click={() => switchTab('guest')}
 			>
-				Guest
+				{$_('login.tabs.guest')}
 			</button>
 			<button
 				class="tab-btn"
 				class:active={tab === 'login'}
 				on:click={() => switchTab('login')}
 			>
-				Login
+				{$_('login.tabs.login')}
 			</button>
 			<button
 				class="tab-btn"
 				class:active={tab === 'register'}
 				on:click={() => switchTab('register')}
 			>
-				Register
+				{$_('login.tabs.register')}
 			</button>
+		</div>
+
+		<div class="locale-row">
+			<label for="locale-picker">{$_('login.language.label')}</label>
+			<select
+				id="locale-picker"
+				bind:value={selectedLocale}
+				on:change={(event) => setAppLocale((event.currentTarget as HTMLSelectElement).value)}
+			>
+				{#each availableLocales as localeOption}
+					<option value={localeOption.code}>{localeOption.label}</option>
+				{/each}
+			</select>
 		</div>
 
 		<!-- Error Message -->
@@ -180,22 +199,22 @@
 				<input
 					type="text"
 					bind:value={username}
-					placeholder="Enter your name"
+					placeholder={$_('login.guest.name_placeholder')}
 					maxlength="20"
 					required
 					use:focusOnMount
 					disabled={loading}
 				/>
 				<button type="submit" class="join-btn" disabled={loading}>
-					{loading ? 'Joining...' : 'Join as Guest'}
+					{loading ? $_('login.guest.joining') : $_('login.guest.join_button')}
 				</button>
 			</form>
 
 			<button type="button" on:click={generateQR} class="qr-btn" disabled={loading}>
-				Join via QR Code
+				{$_('login.guest.join_qr_button')}
 			</button>
 
-			<a href="/business" class="hub-btn">Business Hub</a>
+			<a href="/business" class="hub-btn">{$_('login.guest.business_hub')}</a>
 		{/if}
 
 		<!-- LOGIN TAB -->
@@ -204,7 +223,7 @@
 				<input
 					type="text"
 					bind:value={username}
-					placeholder="Username or @handle"
+					placeholder={$_('login.auth.username_or_handle_placeholder')}
 					required
 					use:focusOnMount
 					disabled={loading}
@@ -212,12 +231,12 @@
 				<input
 					type="password"
 					bind:value={password}
-					placeholder="Password"
+					placeholder={$_('login.auth.password_placeholder')}
 					required
 					disabled={loading}
 				/>
 				<button type="submit" class="join-btn" disabled={loading}>
-					{loading ? 'Logging in...' : 'Login'}
+					{loading ? $_('login.auth.logging_in') : $_('login.auth.login_button')}
 				</button>
 			</form>
 		{/if}
@@ -228,7 +247,7 @@
 				<input
 					type="text"
 					bind:value={username}
-					placeholder="Choose display name"
+					placeholder={$_('login.auth.display_name_placeholder')}
 					minlength="2"
 					maxlength="32"
 					required
@@ -241,7 +260,7 @@
 						type="text"
 						bind:value={handle}
 						on:input={() => { handleManuallyEdited = true; }}
-						placeholder="yourhandle"
+						placeholder={$_('login.auth.handle_placeholder')}
 						minlength="2"
 						maxlength="32"
 						required
@@ -252,7 +271,7 @@
 				<input
 					type="password"
 					bind:value={password}
-					placeholder="Password (8+ characters)"
+					placeholder={$_('login.auth.password_rules_placeholder')}
 					minlength="8"
 					required
 					disabled={loading}
@@ -260,13 +279,13 @@
 				<input
 					type="password"
 					bind:value={passwordConfirm}
-					placeholder="Confirm password"
+					placeholder={$_('login.auth.confirm_password_placeholder')}
 					minlength="8"
 					required
 					disabled={loading}
 				/>
 				<button type="submit" class="join-btn" disabled={loading}>
-					{loading ? 'Creating account...' : 'Create Account'}
+					{loading ? $_('login.auth.creating_account') : $_('login.auth.create_account_button')}
 				</button>
 			</form>
 		{/if}
@@ -278,7 +297,7 @@
 			class="qr-overlay"
 			role="button"
 			tabindex="0"
-			aria-label="Close QR code modal"
+			aria-label={$_('login.qr.close_modal_aria')}
 			on:click={() => (showQR = false)}
 			on:keydown={(e) => (e.key === 'Escape' || e.key === ' ') && (showQR = false)}
 		>
@@ -286,12 +305,12 @@
 				class="qr-modal"
 				role="dialog"
 				aria-modal="true"
-				aria-label="QR code to join chat"
+				aria-label={$_('login.qr.dialog_aria')}
 				tabindex="-1"
 				on:click|stopPropagation
 				on:keydown|stopPropagation
 			>
-				<h2>Scan to Join</h2>
+				<h2>{$_('login.qr.title')}</h2>
 				<canvas bind:this={qrCanvas}></canvas>
 
 				<p class="url">{serverUrl}</p>
@@ -300,14 +319,14 @@
 					<input
 						type="text"
 						bind:value={customRoom}
-						placeholder="Optional room name (e.g. kitchen)"
+						placeholder={$_('login.qr.url_placeholder')}
 						on:input={() => setTimeout(generateQR, 300)}
 					/>
 				</div>
 
 				<div class="qr-actions">
-					<button on:click={generateQR}>Regenerate</button>
-					<button on:click={() => (showQR = false)}>Close</button>
+					<button on:click={generateQR}>{$_('common.regenerate')}</button>
+					<button on:click={() => (showQR = false)}>{$_('common.close')}</button>
 				</div>
 			</div>
 		</div>
@@ -384,6 +403,28 @@
 	.tab-btn.active {
 		color: var(--accent);
 		border-bottom-color: var(--accent);
+	}
+
+	.locale-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		margin-bottom: 1rem;
+	}
+
+	.locale-row label {
+		color: var(--text-secondary);
+		font-size: 0.85rem;
+	}
+
+	.locale-row select {
+		background: var(--bg-tertiary);
+		color: var(--text-primary);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 0.4rem 0.6rem;
+		font-size: 0.85rem;
 	}
 
 	input {

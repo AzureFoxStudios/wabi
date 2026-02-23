@@ -14,7 +14,8 @@ export type ContextMenuIcon =
 	| 'copy'
 	| 'archive'
 	| 'archive-restore'
-	| 'log-out';
+	| 'log-out'
+	| 'languages';
 
 export type ContextMenuItem = {
 	id: string;

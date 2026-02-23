@@ -1,6 +1,16 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+	import {
+		_ as t,
+		availableLocales,
+		currentLocale,
+		setAppLocale,
+		learningModeEnabled,
+		learningTargetPercent,
+		setLearningModeEnabled,
+		setLearningTargetPercent
+	} from '$lib/i18n';
 	import { channelMessages, users, currentUser, emojis, updateProfile, assignRole, removeUserRole, roleDefinitions } from '$lib/socket';
 	import { chatStorage } from '$lib/storage';
 	import StorageSettings from './StorageSettings.svelte';
@@ -103,6 +113,7 @@
 	let roleColorMode: RoleColorMode = 'full';
 	let ownMessagesOnRight = false;
 	let chatAvatarMode: ChatAvatarMode = 'all';
+	let tabShadeStrength = 0.06;
 	let localAppRuntime = false;
 	let micTestStream: MediaStream | null = null;
 	let micTestRecorder: MediaRecorder | null = null;
@@ -127,6 +138,9 @@
 
 	let showClearDataConfirm = false;
 	let showClearServerConfirm = false;
+	let selectedLocale = 'en';
+	let uiLearningModeEnabled = false;
+	let uiLearningTargetPercent = 100;
 	let addonsImportInput: HTMLInputElement;
 	let addonsPackageInput: HTMLInputElement;
 	type AddonRuntimeSide = 'frontend' | 'backend';
@@ -155,6 +169,16 @@
 	let addonInstallStatus = '';
 	let addonsImportPreview: { importedAt?: string; frontend?: unknown[]; backend?: unknown[] } | null = null;
 	const frontendAddonModules = import.meta.glob('./plugins/*.svelte');
+	const TRANSLATOR_SETTINGS_KEY = 'addon.translator_assist.settings';
+	type TranslatorModelId = 'libretranslate-local' | 'libretranslate-public';
+	const TRANSLATOR_MODEL_OPTIONS: Array<{ id: TranslatorModelId; label: string; providerUrl: string }> = [
+		{ id: 'libretranslate-local', label: 'LibreTranslate (Local)', providerUrl: 'http://127.0.0.1:5000/translate' },
+		{ id: 'libretranslate-public', label: 'LibreTranslate (Public)', providerUrl: 'https://libretranslate.com/translate' }
+	];
+	let translatorModel: TranslatorModelId = 'libretranslate-local';
+	let translatorTargetLang = 'en';
+	let translatorSettingsSavedAt = '';
+	let translatorAddonDetected = false;
 
 	// Profile Picture upload state
 	let showAvatarEditor = false;
@@ -231,6 +255,7 @@
 
 	// Load settings from localStorage and enforce server policy
 	onMount(() => {
+		selectedLocale = $currentLocale || 'en';
 		const accessibilitySettings = getStoredAccessibilitySettings();
 		textScale = accessibilitySettings.textScale;
 		colorAssistEnabled = accessibilitySettings.colorAssistEnabled;
@@ -240,6 +265,7 @@
 		roleColorMode = accessibilitySettings.roleColorMode;
 		ownMessagesOnRight = accessibilitySettings.ownMessagesOnRight;
 		chatAvatarMode = accessibilitySettings.chatAvatarMode;
+		tabShadeStrength = accessibilitySettings.tabShadeStrength;
 		soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
 		notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 		micEnabled = localStorage.getItem('micEnabled') !== 'false';
@@ -279,7 +305,12 @@
 		}
 
 		displayNameDraft = $currentUser?.username || '';
+		loadTranslatorAddonSettings();
+		saveTranslatorAddonSettings();
 	});
+	$: selectedLocale = $currentLocale || 'en';
+	$: uiLearningModeEnabled = $learningModeEnabled;
+	$: uiLearningTargetPercent = $learningTargetPercent;
 
 	async function runBusinessSyncNow() {
 		if (businessSyncInFlight) return;
@@ -401,6 +432,7 @@
 	$: if (!isOpen) {
 		addonsLastDetectedAt = '';
 	}
+	$: translatorAddonDetected = [...frontendAddons, ...backendAddons].some((addon) => addon.id === 'translator-assist');
 
 	function toggleSound() {
 		soundEnabled = !soundEnabled;
@@ -420,6 +452,16 @@
 	function toggleCamera() {
 		cameraEnabled = !cameraEnabled;
 		localStorage.setItem('cameraEnabled', cameraEnabled.toString());
+	}
+
+	function toggleUiLearningMode() {
+		setLearningModeEnabled(!uiLearningModeEnabled);
+	}
+
+	function handleUiLearningPercentChange(value: string) {
+		const next = Number(value);
+		if (!Number.isFinite(next)) return;
+		setLearningTargetPercent(next);
 	}
 
 	function toggleSuppressEveryoneHereMentions() {
@@ -734,6 +776,11 @@
 		chatAvatarMode = next.chatAvatarMode;
 	}
 
+	function updateTabShadeStrength(value: number) {
+		const next = updateAccessibilitySettings({ tabShadeStrength: value });
+		tabShadeStrength = next.tabShadeStrength;
+	}
+
 	function resetAccessibilityVisuals() {
 		const next = updateAccessibilitySettings({
 			colorAssistEnabled: false,
@@ -742,7 +789,8 @@
 			reducedMotion: false,
 			roleColorMode: 'full',
 			ownMessagesOnRight: false,
-			chatAvatarMode: 'all'
+			chatAvatarMode: 'all',
+			tabShadeStrength: 0.06
 		});
 		colorAssistEnabled = next.colorAssistEnabled;
 		saturation = next.saturation;
@@ -751,6 +799,7 @@
 		roleColorMode = next.roleColorMode;
 		ownMessagesOnRight = next.ownMessagesOnRight;
 		chatAvatarMode = next.chatAvatarMode;
+		tabShadeStrength = next.tabShadeStrength;
 	}
 
 	function toAddonNameFromComponentFile(fileName: string): string {
@@ -857,6 +906,42 @@
 		addonsPackageInput?.click();
 	}
 
+	function loadTranslatorAddonSettings(): void {
+		try {
+			const raw = localStorage.getItem(TRANSLATOR_SETTINGS_KEY);
+			if (!raw) return;
+			const parsed = JSON.parse(raw);
+			const parsedModel = typeof parsed?.model === 'string' ? parsed.model : '';
+			if (parsedModel === 'libretranslate-local' || parsedModel === 'libretranslate-public') {
+				translatorModel = parsedModel;
+			} else {
+				const providerUrl = typeof parsed?.providerUrl === 'string' ? parsed.providerUrl.trim() : '';
+				if (providerUrl === 'https://libretranslate.com/translate') {
+					translatorModel = 'libretranslate-public';
+				} else {
+					translatorModel = 'libretranslate-local';
+				}
+			}
+			translatorTargetLang = typeof parsed?.targetLang === 'string' ? parsed.targetLang : 'en';
+		} catch {
+			// Ignore malformed local settings
+		}
+	}
+
+	function saveTranslatorAddonSettings(): void {
+		const selectedModel = TRANSLATOR_MODEL_OPTIONS.find((option) => option.id === translatorModel) || TRANSLATOR_MODEL_OPTIONS[0];
+		const payload = {
+			mode: 'on-demand',
+			model: selectedModel.id,
+			providerUrl: selectedModel.providerUrl,
+			sourceLang: 'auto',
+			targetLang: translatorTargetLang.trim() || 'en',
+			useProxy: true
+		};
+		localStorage.setItem(TRANSLATOR_SETTINGS_KEY, JSON.stringify(payload));
+		translatorSettingsSavedAt = new Date().toLocaleTimeString();
+	}
+
 	async function importAddonManifest(event: Event): Promise<void> {
 		const input = event.target as HTMLInputElement;
 		const file = input.files?.[0];
@@ -889,8 +974,8 @@
 		}
 
 		const lowerName = file.name.toLowerCase();
-		if (!lowerName.endsWith('.zip') && !lowerName.endsWith('.wabi-plugin')) {
-			alert('Please select a .zip or .wabi-plugin file.');
+		if (!lowerName.endsWith('.zip') && !lowerName.endsWith('.wabi-plugin') && !lowerName.endsWith('.wabip')) {
+			alert('Please select a .zip, .wabi-plugin, or .wabip file.');
 			input.value = '';
 			return;
 		}
@@ -916,6 +1001,7 @@
 			const pluginVersion = String(payload?.plugin?.version || 'unknown');
 			addonInstallStatus = `Installed ${pluginName} (v${pluginVersion}).`;
 			await refreshAddonDetection();
+			loadTranslatorAddonSettings();
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Plugin install failed';
 			addonInstallStatus = `Install failed: ${message}`;
@@ -1382,34 +1468,47 @@
 			<div class="modal-header">
 				<h2>
 				<svg class="header-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-				Settings
+				{$t('settings.title')}
 			</h2>
-				<button class="close-btn" on:click={closeModal}>&#x2715;</button>
+				<div class="header-actions">
+					<label for="settings-locale" class="header-locale-label">{$t('settings.language')}</label>
+					<select
+						id="settings-locale"
+						class="header-locale-select"
+						bind:value={selectedLocale}
+						on:change={(event) => setAppLocale((event.currentTarget as HTMLSelectElement).value)}
+					>
+						{#each availableLocales as localeOption}
+							<option value={localeOption.code}>{localeOption.label}</option>
+						{/each}
+					</select>
+					<button class="close-btn" on:click={closeModal} aria-label={$t('common.close')}>&#x2715;</button>
+				</div>
 			</div>
 
 			<div class="settings-layout">
 				<div class="settings-tabs">
-					<button class="settings-tab" class:active={activeSettingsTab === 'profile'} on:click={() => activeSettingsTab = 'profile'}>Profile</button>
-					<button class="settings-tab" class:active={activeSettingsTab === 'audio'} on:click={() => activeSettingsTab = 'audio'}>Audio and Video</button>
-					<button class="settings-tab" class:active={activeSettingsTab === 'notifications'} on:click={() => activeSettingsTab = 'notifications'}>Notifications</button>
-					<button class="settings-tab" class:active={activeSettingsTab === 'accessibility'} on:click={() => activeSettingsTab = 'accessibility'}>Accessibility</button>
-					<button class="settings-tab" class:active={activeSettingsTab === 'appearance'} on:click={() => activeSettingsTab = 'appearance'}>Appearance</button>
-					<button class="settings-tab" class:active={activeSettingsTab === 'server'} on:click={() => activeSettingsTab = 'server'}>Server</button>
-					<button class="settings-tab" class:active={activeSettingsTab === 'addons'} on:click={() => activeSettingsTab = 'addons'}>Add-ons</button>
-					<button class="settings-tab" class:active={activeSettingsTab === 'emojis'} on:click={() => activeSettingsTab = 'emojis'}>Emojis</button>
-					<button class="settings-tab" class:active={activeSettingsTab === 'storage'} on:click={() => activeSettingsTab = 'storage'}>Storage</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'profile'} on:click={() => activeSettingsTab = 'profile'}>{$t('settings.tabs.profile')}</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'audio'} on:click={() => activeSettingsTab = 'audio'}>{$t('settings.tabs.audio')}</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'notifications'} on:click={() => activeSettingsTab = 'notifications'}>{$t('settings.tabs.notifications')}</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'accessibility'} on:click={() => activeSettingsTab = 'accessibility'}>{$t('settings.tabs.accessibility')}</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'appearance'} on:click={() => activeSettingsTab = 'appearance'}>{$t('settings.tabs.appearance')}</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'server'} on:click={() => activeSettingsTab = 'server'}>{$t('settings.tabs.server')}</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'addons'} on:click={() => activeSettingsTab = 'addons'}>{$t('settings.tabs.addons')}</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'emojis'} on:click={() => activeSettingsTab = 'emojis'}>{$t('settings.tabs.emojis')}</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'storage'} on:click={() => activeSettingsTab = 'storage'}>{$t('settings.tabs.storage')}</button>
 					{#if canManageAdmin}
-						<button class="settings-tab" class:active={activeSettingsTab === 'admin'} on:click={() => activeSettingsTab = 'admin'}>Admin</button>
+						<button class="settings-tab" class:active={activeSettingsTab === 'admin'} on:click={() => activeSettingsTab = 'admin'}>{$t('settings.tabs.admin')}</button>
 					{/if}
-					<button class="settings-tab" class:active={activeSettingsTab === 'about'} on:click={() => activeSettingsTab = 'about'}>About</button>
+					<button class="settings-tab" class:active={activeSettingsTab === 'about'} on:click={() => activeSettingsTab = 'about'}>{$t('settings.tabs.about')}</button>
 					<div class="settings-tabs-spacer"></div>
-					<button class="settings-tab logout-tab" on:click={handleLogout}>Logout</button>
+					<button class="settings-tab logout-tab" on:click={handleLogout}>{$t('settings.tabs.logout')}</button>
 				</div>
 
 				<div class="settings-content">
 					{#if activeSettingsTab === 'profile'}
 						<div class="settings-section">
-							<h3>Display Name</h3>
+							<h3>{$t('settings.sections.display_name')}</h3>
 							<div class="setting-item-full">
 								<div class="setting-info">
 									<span class="setting-label">Your display name</span>
@@ -1428,7 +1527,7 @@
 							</div>
 						</div>
 						<div class="settings-section">
-							<h3>Profile Picture</h3>
+							<h3>{$t('settings.sections.profile_picture')}</h3>
 							<div class="pfp-upload-section">
 								<div class="current-pfp">
 									{#if $currentUser?.profilePicture}
@@ -1455,7 +1554,7 @@
 
 					{:else if activeSettingsTab === 'audio'}
 						<div class="settings-section">
-							<h3>Audio and Video</h3>
+							<h3>{$t('settings.sections.audio')}</h3>
 							<div class="setting-item">
 								<div class="setting-info">
 									<span class="setting-label">Sound Effects</span>
@@ -1488,7 +1587,7 @@
 									<span class="setting-description">Enable camera for video calls</span>
 								</div>
 								<button class="toggle-btn" class:active={cameraEnabled} on:click={toggleCamera}>
-									{cameraEnabled ? 'On' : 'Off'}
+									{cameraEnabled ? $t('common.on') : $t('common.off')}
 								</button>
 							</div>
 							<div class="media-quality-notice" role="note">
@@ -1714,7 +1813,7 @@
 
 					{:else if activeSettingsTab === 'notifications'}
 						<div class="settings-section">
-							<h3>Notifications</h3>
+							<h3>{$t('settings.sections.notifications')}</h3>
 							<div class="setting-item">
 								<div class="setting-info">
 									<span class="setting-label">Desktop Notifications</span>
@@ -1786,7 +1885,7 @@
 
 					{:else if activeSettingsTab === 'accessibility'}
 						<div class="settings-section">
-							<h3>Accessibility</h3>
+							<h3>{$t('settings.sections.accessibility')}</h3>
 							<div class="setting-item-full">
 								<div class="setting-info">
 									<span class="setting-label">Text Size</span>
@@ -1887,7 +1986,7 @@
 
 					{:else if activeSettingsTab === 'appearance'}
 						<div class="settings-section">
-							<h3>Appearance</h3>
+							<h3>{$t('settings.sections.appearance')}</h3>
 							<div class="setting-item">
 								<div class="setting-info">
 									<span class="setting-label">Chat Avatars</span>
@@ -1912,6 +2011,53 @@
 								<button class="toggle-btn" class:active={ownMessagesOnRight} on:click={toggleOwnMessagesOnRight}>
 									{ownMessagesOnRight ? 'ON' : 'OFF'}
 								</button>
+							</div>
+
+							<div class="setting-item setting-item-stack">
+								<div class="setting-info">
+									<span class="setting-label">{$t('settings.language_learning.label')}</span>
+									<span class="setting-description">{$t('settings.language_learning.description')}</span>
+								</div>
+								<div class="quality-mode-row">
+									<label for="ui-learning-target">{$t('settings.language_learning.target_percent', { values: { percent: uiLearningTargetPercent } })}</label>
+									<button class="toggle-btn" class:active={uiLearningModeEnabled} on:click={toggleUiLearningMode}>
+										{uiLearningModeEnabled ? $t('common.on') : $t('common.off')}
+									</button>
+								</div>
+								<input
+									id="ui-learning-target"
+									type="range"
+									min="0"
+									max="100"
+									step="5"
+									value={uiLearningTargetPercent}
+									on:input={(e) => handleUiLearningPercentChange(e.currentTarget.value)}
+									class="volume-slider"
+									disabled={!uiLearningModeEnabled || selectedLocale === 'en'}
+								/>
+								<div class="runtime-note">
+									{selectedLocale === 'en'
+										? $t('settings.language_learning.select_non_english')
+										: $t('settings.language_learning.hint')}
+								</div>
+							</div>
+
+							<div class="setting-item setting-item-stack">
+								<div class="setting-info">
+									<span class="setting-label">Tab Shade Strength</span>
+									<span class="setting-description">
+										Controls how much each new queued tab shifts shade ({Math.round(tabShadeStrength * 100)}%)
+									</span>
+								</div>
+								<input
+									type="range"
+									min="0"
+									max="0.14"
+									step="0.01"
+									bind:value={tabShadeStrength}
+									on:input={(e) => updateTabShadeStrength(parseFloat(e.currentTarget.value))}
+									class="volume-slider"
+								/>
 							</div>
 
 							<div class="setting-item">
@@ -1949,7 +2095,7 @@
 
 					{:else if activeSettingsTab === 'server'}
 						<div class="settings-section">
-							<h3>Server Management</h3>
+							<h3>{$t('settings.sections.server_management')}</h3>
 							<div class="setting-item">
 								<div class="setting-info">
 									<span class="setting-label">Business Data Sync Mode</span>
@@ -1977,14 +2123,14 @@
 									<span class="setting-description">Delete all messages from the server for all users (cannot be undone)</span>
 								</div>
 								<button class="action-btn danger" on:click={clearServerMessages}>
-									Clear Server
+									{$t('settings.actions.clear_server')}
 								</button>
 							</div>
 						</div>
 
 					{:else if activeSettingsTab === 'addons'}
 						<div class="settings-section">
-							<h3>Add-ons</h3>
+							<h3>{$t('settings.sections.addons')}</h3>
 							<div class="setting-item-full">
 								<div class="setting-info">
 									<span class="setting-label">Import / Export Add-ons Manifest</span>
@@ -2009,7 +2155,7 @@
 								/>
 								<input
 									type="file"
-									accept=".zip,.wabi-plugin,application/zip,application/x-zip-compressed"
+									accept=".zip,.wabi-plugin,.wabip,application/zip,application/x-zip-compressed"
 									bind:this={addonsPackageInput}
 									on:change={installAddonPackage}
 									style="display: none;"
@@ -2066,11 +2212,38 @@
 									{/if}
 								</div>
 							</div>
+
+							{#if translatorAddonDetected}
+								<div class="setting-item-full">
+									<div class="setting-info">
+										<span class="setting-label">Translator Assist Settings</span>
+										<span class="setting-description">Pick a translator model and target language. Source language is auto-detected.</span>
+									</div>
+									<div class="upload-limit-grid">
+										<label class="upload-limit-row">
+											<span>Model</span>
+											<select bind:value={translatorModel} class="theme-select" on:change={saveTranslatorAddonSettings}>
+												{#each TRANSLATOR_MODEL_OPTIONS as modelOption}
+													<option value={modelOption.id}>{modelOption.label}</option>
+												{/each}
+											</select>
+										</label>
+										<label class="upload-limit-row">
+											<span>Target language</span>
+											<input type="text" maxlength="16" bind:value={translatorTargetLang} placeholder="en" on:blur={saveTranslatorAddonSettings} />
+										</label>
+									</div>
+									<div class="runtime-note">Settings save automatically.</div>
+									{#if translatorSettingsSavedAt}
+										<div class="runtime-note">Saved at {translatorSettingsSavedAt}</div>
+									{/if}
+								</div>
+							{/if}
 						</div>
 
 					{:else if activeSettingsTab === 'emojis'}
 						<div class="settings-section">
-							<h3>Custom Emojis</h3>
+							<h3>{$t('settings.sections.custom_emojis')}</h3>
 							<div class="emoji-upload-form">
 								<input
 									type="file"
@@ -2242,7 +2415,7 @@
 
 					{:else if activeSettingsTab === 'admin'}
 						<div class="settings-section">
-							<h3>Admin Panel</h3>
+							<h3>{$t('settings.sections.admin_panel')}</h3>
 							<p class="admin-help">Manage live user roles from here or from user right-click menus.</p>
 							<div class="upload-limits-panel">
 								<h4>Upload Limits (MB)</h4>
@@ -2331,7 +2504,7 @@
 
 					{:else if activeSettingsTab === 'about'}
 						<div class="settings-section">
-							<h3>About</h3>
+							<h3>{$t('settings.sections.about')}</h3>
 							<div class="about-info">
 								<p><strong>Wabi Chat</strong></p>
 								<p>Privacy-first ephemeral chat. No tracking. No data collection.</p>
@@ -2371,9 +2544,9 @@
 
 <ConfirmDialog
 	isOpen={showClearDataConfirm}
-	title="Clear Local Data"
-	message="Are you sure you want to clear all chat data? This cannot be undone."
-	confirmText="Clear Data"
+	title={$t('settings.confirm.clear_local_title')}
+	message={$t('settings.confirm.clear_local_message')}
+	confirmText={$t('settings.confirm.clear_local_confirm')}
 	variant="danger"
 	onConfirm={confirmClearData}
 	onCancel={() => showClearDataConfirm = false}
@@ -2381,9 +2554,9 @@
 
 <ConfirmDialog
 	isOpen={showClearServerConfirm}
-	title="Clear Server Messages"
-	message="Are you sure you want to delete ALL messages from the server? This will clear messages for all users and cannot be undone!"
-	confirmText="Delete All"
+	title={$t('settings.confirm.clear_server_title')}
+	message={$t('settings.confirm.clear_server_message')}
+	confirmText={$t('settings.confirm.clear_server_confirm')}
 	variant="danger"
 	onConfirm={confirmClearServer}
 	onCancel={() => showClearServerConfirm = false}
@@ -2462,6 +2635,26 @@
 		color: var(--text-secondary);
 		padding: 0.25rem 0.5rem;
 		transition: all 0.2s;
+	}
+
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.header-locale-label {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.header-locale-select {
+		background: var(--bg-primary);
+		color: var(--text-primary);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 0.3rem 0.45rem;
+		font-size: 0.8rem;
 	}
 
 	.close-btn:hover {
@@ -2562,6 +2755,12 @@
 
 	.setting-item:hover {
 		background: var(--bg-hover);
+	}
+
+	.setting-item-stack {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.8rem;
 	}
 
 	.setting-info {

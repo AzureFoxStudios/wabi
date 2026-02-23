@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { emojis, type Emoji } from '$lib/socket';
-	import { GiphyFetch } from '@giphy/js-fetch-api';
+	import { _ } from '$lib/i18n';
 
 	const dispatch = createEventDispatcher<{
 		select: { emoji: Emoji };
@@ -20,11 +20,23 @@
 	// GIF state
 	let gifs: any[] = [];
 	let gifLoading = false;
-	let gf: GiphyFetch | null = null;
+	let gf: { trending: (args: { limit: number }) => Promise<{ data: any[] }>; search: (query: string, args: { limit: number }) => Promise<{ data: any[] }> } | null = null;
+	let giphyInitPromise: Promise<void> | null = null;
 	let gifSearchQuery = '';
 
-	if (import.meta.env.VITE_GIPHY_API_KEY) {
-		gf = new GiphyFetch(import.meta.env.VITE_GIPHY_API_KEY);
+	async function ensureGiphyClient(): Promise<void> {
+		if (gf || giphyInitPromise || !import.meta.env.VITE_GIPHY_API_KEY) return;
+		giphyInitPromise = import('@giphy/js-fetch-api')
+			.then((mod) => {
+				gf = new mod.GiphyFetch(import.meta.env.VITE_GIPHY_API_KEY);
+			})
+			.catch((error) => {
+				console.error('Failed to load GIPHY SDK:', error);
+			})
+			.finally(() => {
+				giphyInitPromise = null;
+			});
+		await giphyInitPromise;
 	}
 
 	// Filter emojis by current mode first
@@ -75,7 +87,7 @@
 	}
 
 	function formatLabel(value: string): string {
-		if (value === 'all') return 'All';
+		if (value === 'all') return $_('emoji_picker.filters.all');
 		return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, ' ');
 	}
 
@@ -93,6 +105,7 @@
 
 	// GIF functions
 	async function loadTrendingGifs() {
+		await ensureGiphyClient();
 		if (!gf) return;
 		gifLoading = true;
 		try {
@@ -106,6 +119,7 @@
 	}
 
 	async function searchGifs() {
+		await ensureGiphyClient();
 		if (!gf) return;
 		if (!gifSearchQuery.trim()) {
 			loadTrendingGifs();
@@ -131,19 +145,19 @@
 		{#if pickerMode === 'gif'}
 			<input
 				type="text"
-				placeholder="Search GIFs..."
+				placeholder={$_('emoji_picker.search_gifs_placeholder')}
 				bind:value={gifSearchQuery}
 				on:input={searchGifs}
 			/>
 		{:else}
 			<input
 				type="text"
-				placeholder="Search {pickerMode === 'sticker' ? 'stickers' : 'emojis'} (name/artist)..."
+				placeholder={pickerMode === 'sticker' ? $_('emoji_picker.search_stickers_placeholder') : $_('emoji_picker.search_emojis_placeholder')}
 				bind:value={searchQuery}
 				on:input={() => (emojiRenderLimit = EMOJI_PAGE_SIZE)}
 			/>
 		{/if}
-		<button on:click={() => dispatch('close')} class="close-btn">Close</button>
+		<button on:click={() => dispatch('close')} class="close-btn">{$_('common.close')}</button>
 	</div>
 
 	<!-- Mode toggle tabs -->
@@ -152,26 +166,26 @@
 			class="mode-tab"
 			class:active={pickerMode === 'emoji'}
 			on:click={() => setMode('emoji')}
-		>Emojis</button>
+		>{$_('emoji_picker.tabs.emojis')}</button>
 		<button
 			class="mode-tab"
 			class:active={pickerMode === 'sticker'}
 			on:click={() => setMode('sticker')}
-		>Stickers</button>
+		>{$_('emoji_picker.tabs.stickers')}</button>
 		<button
 			class="mode-tab"
 			class:active={pickerMode === 'gif'}
 			on:click={() => setMode('gif')}
-		>GIFs</button>
+		>{$_('emoji_picker.tabs.gifs')}</button>
 	</div>
 
 	{#if pickerMode === 'gif'}
 		<!-- GIF grid -->
 		<div class="gif-grid">
 			{#if gifLoading}
-				<div class="no-emojis">Loading...</div>
+				<div class="no-emojis">{$_('emoji_picker.loading')}</div>
 			{:else if gifs.length === 0}
-				<div class="no-emojis">No GIFs found</div>
+				<div class="no-emojis">{$_('emoji_picker.no_gifs')}</div>
 			{:else}
 				{#each gifs as gif (gif.id)}
 					<button class="gif-item" on:click={() => selectGif(gif)}>
@@ -186,22 +200,22 @@
 				class="source-tab"
 				class:active={selectedSource === 'all'}
 				on:click={() => setSource('all')}
-			>All</button>
+			>{$_('emoji_picker.filters.all')}</button>
 			<button
 				class="source-tab"
 				class:active={selectedSource === 'default'}
 				on:click={() => setSource('default')}
-			>Default</button>
+			>{$_('emoji_picker.filters.default')}</button>
 			<button
 				class="source-tab"
 				class:active={selectedSource === 'openmoji'}
 				on:click={() => setSource('openmoji')}
-			>OpenMoji</button>
+			>{$_('emoji_picker.filters.openmoji')}</button>
 			<button
 				class="source-tab"
 				class:active={selectedSource === 'custom'}
 				on:click={() => setSource('custom')}
-			>Custom</button>
+			>{$_('emoji_picker.filters.custom')}</button>
 		</div>
 
 		<!-- Category tabs -->
@@ -224,7 +238,9 @@
 		<!-- Emoji/Sticker grid -->
 		<div class="emoji-grid" class:sticker-grid={pickerMode === 'sticker'} on:scroll={handleEmojiGridScroll}>
 			{#if filteredEmojis.length === 0}
-				<div class="no-emojis">No {pickerMode === 'sticker' ? 'stickers' : 'emojis'} found</div>
+				<div class="no-emojis">
+					{pickerMode === 'sticker' ? $_('emoji_picker.no_stickers') : $_('emoji_picker.no_emojis')}
+				</div>
 			{:else}
 				{#each visibleEmojis as emoji (emoji.id)}
 					<button
@@ -238,7 +254,7 @@
 				{/each}
 				{#if emojiRenderLimit < filteredEmojis.length}
 					<button class="emoji-load-more" on:click={() => (emojiRenderLimit = Math.min(filteredEmojis.length, emojiRenderLimit + EMOJI_PAGE_SIZE))}>
-						Load more ({filteredEmojis.length - emojiRenderLimit} remaining)
+						{$_('emoji_picker.load_more', { values: { remaining: filteredEmojis.length - emojiRenderLimit } })}
 					</button>
 				{/if}
 			{/if}

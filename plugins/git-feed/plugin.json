@@ -1,0 +1,33 @@
+{
+  "id": "git-feed",
+  "name": "Git Feed",
+  "version": "0.1.0",
+  "description": "Formats incoming Git webhook events into cleaner room updates.",
+  "author": "Community",
+  "enabled": true,
+  "backend": {
+    "entry": "./backend/index.ts",
+    "socketEvents": [
+      "gitfeed:get-state"
+    ]
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "extensions": {
+      "commands": [
+        "/gitfeed"
+      ]
+    }
+  },
+  "permissions": [
+    "channels:read",
+    "messages:write"
+  ],
+  "security": {
+    "threatNotes": "Webhook payloads are sanitized and optionally protected via shared secret."
+  },
+  "capabilities": {
+    "tier": "network-limited",
+    "notes": "Display-layer enhancement for existing webhook workflows."
+  }
+}
