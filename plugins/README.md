@@ -2,6 +2,10 @@
 
 The chat app uses a modular plugin system that allows anyone to add features without modifying core code.
 
+Note:
+- `plugins/` is the active runtime install directory.
+- Bundled sample add-ons are stored in `addons/` until installed.
+
 ## 📦 Creating a Plugin
 
 ### 1. Create Plugin Directory

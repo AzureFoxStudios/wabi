@@ -172,13 +172,14 @@ If you are new to this, start with `./scripts/setup.sh` and only edit advanced v
 
 ## Plugins
 
-Wabi has a modular plugin system in `plugins/` with:
+Wabi has a modular plugin system (runtime install dir: `plugins/`) with:
 - manifest-based capabilities and permissions
 - integrity checksum support
 - optional signing + trusted signer policy
 - audit/logging hooks
 
 Plugin authoring guide: `plugins/README.md`  
+Bundled test add-ons (not installed by default): `addons/README.md`  
 If you just want to host Wabi, you can ignore plugins at first.
 
 ### Plugin Safe Mode Recovery
