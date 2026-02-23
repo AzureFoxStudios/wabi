@@ -29,7 +29,17 @@ import {
   handleCloseMediaGatewaySession,
   handleGetMediaGatewayControlSessions
 } from "./api/mediaRoutes.js";
-import { handleCreateWebhook, handleListWebhooks, handleDeleteWebhook, handleListWebhookDeliveries } from "./api/webhookRoutes.js";
+import {
+  handleCreateWebhook,
+  handleListWebhooks,
+  handleDeleteWebhook,
+  handleListWebhookDeliveries,
+  handleUpdateWebhook,
+  handleRotateWebhookSecret,
+  handleTestWebhook,
+  handleGetWebhookDelivery,
+  handleRetryWebhookDelivery
+} from "./api/webhookRoutes.js";
 import { handleDictionaryLookup, handleDictionaryUpsert, handleDictionaryDelete } from "./api/dictionaryRoutes.js";
 import { relayRepository } from "./db/repositories/relayRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
@@ -2824,6 +2834,36 @@ server.on('request', async (req, res) => {
 
   if (url.pathname === "/api/webhooks/deliveries" && req.method === "GET") {
     await handleListWebhookDeliveries(req, res);
+    return;
+  }
+
+  const webhookDeliveryMatch = url.pathname.match(/^\/api\/webhooks\/deliveries\/(\d+)$/);
+  if (webhookDeliveryMatch && req.method === "GET") {
+    await handleGetWebhookDelivery(req, res, parseInt(webhookDeliveryMatch[1], 10));
+    return;
+  }
+
+  const webhookDeliveryRetryMatch = url.pathname.match(/^\/api\/webhooks\/deliveries\/(\d+)\/retry$/);
+  if (webhookDeliveryRetryMatch && req.method === "POST") {
+    await handleRetryWebhookDelivery(req, res, parseInt(webhookDeliveryRetryMatch[1], 10));
+    return;
+  }
+
+  const webhookPatchMatch = url.pathname.match(/^\/api\/webhooks\/(\d+)$/);
+  if (webhookPatchMatch && req.method === "PATCH") {
+    await handleUpdateWebhook(req, res, parseInt(webhookPatchMatch[1], 10));
+    return;
+  }
+
+  const webhookRotateMatch = url.pathname.match(/^\/api\/webhooks\/(\d+)\/rotate-secret$/);
+  if (webhookRotateMatch && req.method === "POST") {
+    await handleRotateWebhookSecret(req, res, parseInt(webhookRotateMatch[1], 10));
+    return;
+  }
+
+  const webhookTestMatch = url.pathname.match(/^\/api\/webhooks\/(\d+)\/test$/);
+  if (webhookTestMatch && req.method === "POST") {
+    await handleTestWebhook(req, res, parseInt(webhookTestMatch[1], 10));
     return;
   }
 

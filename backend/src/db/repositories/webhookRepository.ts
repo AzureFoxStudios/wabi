@@ -53,6 +53,11 @@ export class WebhookRepository {
     return (stmt.get(id) as Webhook) || null;
   }
 
+  findByIdForUser(id: number, userId: number): Webhook | null {
+    const stmt = db.prepare('SELECT * FROM webhooks WHERE id = ? AND user_id = ?');
+    return (stmt.get(id, userId) as Webhook) || null;
+  }
+
   listByUser(userId: number): Webhook[] {
     const stmt = db.prepare('SELECT * FROM webhooks WHERE user_id = ? ORDER BY created_at DESC');
     return stmt.all(userId) as Webhook[];
@@ -70,6 +75,56 @@ export class WebhookRepository {
   delete(id: number, userId: number): boolean {
     const stmt = db.prepare('DELETE FROM webhooks WHERE id = ? AND user_id = ?');
     const result = stmt.run(id, userId);
+    return result.changes > 0;
+  }
+
+  update(
+    id: number,
+    userId: number,
+    updates: {
+      name?: string;
+      target_url?: string;
+      event_filters?: string[];
+      enabled?: number;
+    }
+  ): boolean {
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    if (typeof updates.name === 'string') {
+      fields.push('name = ?');
+      values.push(updates.name);
+    }
+    if (typeof updates.target_url === 'string') {
+      fields.push('target_url = ?');
+      values.push(updates.target_url);
+    }
+    if (Array.isArray(updates.event_filters)) {
+      fields.push('event_filters = ?');
+      values.push(JSON.stringify(updates.event_filters));
+    }
+    if (typeof updates.enabled === 'number') {
+      fields.push('enabled = ?');
+      values.push(updates.enabled ? 1 : 0);
+    }
+
+    if (fields.length === 0) return false;
+    fields.push('updated_at = ?');
+    values.push(Date.now());
+    values.push(id, userId);
+
+    const stmt = db.prepare(`UPDATE webhooks SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`);
+    const result = stmt.run(...values);
+    return result.changes > 0;
+  }
+
+  rotateSecret(id: number, userId: number, secret: string): boolean {
+    const stmt = db.prepare(`
+      UPDATE webhooks
+      SET secret = ?, updated_at = ?
+      WHERE id = ? AND user_id = ?
+    `);
+    const result = stmt.run(secret, Date.now(), id, userId);
     return result.changes > 0;
   }
 
@@ -134,6 +189,17 @@ export class WebhookRepository {
       LIMIT ?
     `);
     return stmt.all(userId, limit) as Array<WebhookDelivery & { webhook_name: string }>;
+  }
+
+  findDeliveryForUser(deliveryId: number, userId: number): (WebhookDelivery & { webhook_name: string; target_url: string; secret: string }) | null {
+    const stmt = db.prepare(`
+      SELECT d.*, w.name as webhook_name, w.target_url, w.secret
+      FROM webhook_deliveries d
+      JOIN webhooks w ON d.webhook_id = w.id
+      WHERE d.id = ? AND w.user_id = ?
+      LIMIT 1
+    `);
+    return (stmt.get(deliveryId, userId) as (WebhookDelivery & { webhook_name: string; target_url: string; secret: string })) || null;
   }
 }
 
