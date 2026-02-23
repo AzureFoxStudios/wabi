@@ -19,10 +19,12 @@
 		startScreenShare,
 		stopScreenShare,
 		localStream,
-		connectionState
+		connectionState,
+		isLocalSpeaking
 	} from '$lib/calling';
 	import { showCallNotification, playCallRingtone, stopCallRingtone } from '$lib/notifications';
 	import { onDestroy } from 'svelte';
+	import { scale } from 'svelte/transition';
 
 	// ---- Tile types ----
 	interface Tile {
@@ -290,7 +292,7 @@
 
 				<!-- Remote videos -->
 				{#each $activeCalls as call (call.userId)}
-					<div class="video-wrapper remote-video">
+					<div class="video-wrapper remote-video" transition:scale={{ duration: 250 }}>
 						<!-- svelte-ignore a11y-media-has-caption -->
 						<video
 							bind:this={remoteVideoElements[call.userId]}
@@ -401,6 +403,7 @@
 							<button
 								class="thumbnail"
 								on:click={() => handleTileClick(thumb.id)}
+								transition:scale={{ duration: 200 }}
 							>
 								{#if thumb.kind === 'screen-share' || thumb.kind === 'local-screen' || thumb.kind === 'video' || thumb.kind === 'local-camera'}
 									<!-- svelte-ignore a11y-media-has-caption -->

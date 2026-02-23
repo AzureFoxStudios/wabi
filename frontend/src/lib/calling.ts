@@ -19,6 +19,7 @@ export interface Call {
 	stream: MediaStream;
 	isVideoEnabled: boolean;
 	isAudioEnabled: boolean;
+	isSpeaking: boolean;
 }
 
 export interface IncomingCall {
@@ -70,6 +71,8 @@ export const isVideoOff = writable(false);
 export const localStream = writable<MediaStream | null>(null);
 export const localScreenStream = writable<MediaStream | null>(null);
 export const connectionState = writable<ConnectionLifecycleState>('idle');
+export const speakingUsers = writable<Set<string>>(new Set());
+export const isLocalSpeaking = writable(false);
 
 // ============================================================================
 // Private State
@@ -90,6 +93,129 @@ function getRTCConfig(): RTCConfiguration {
 		rtcConfig = buildRTCConfig();
 	}
 	return rtcConfig;
+}
+
+// ============================================================================
+// Audio Level Detection
+// ============================================================================
+
+const SPEAKING_THRESHOLD = 25; // Adjust based on testing (0-255)
+const SPEAKING_DEBOUNCE_MS = 300;
+
+interface AudioAnalyzer {
+	context: AudioContext;
+	analyzer: AnalyserNode;
+	dataArray: Uint8Array;
+	rafId: number | null;
+	debounceTimer: number | null;
+}
+
+const audioAnalyzers = new Map<string, AudioAnalyzer>();
+
+function startAudioMonitoring(userId: string, stream: MediaStream, isLocal: boolean = false): void {
+	// Don't monitor if already monitoring
+	if (audioAnalyzers.has(userId)) return;
+
+	const audioTrack = stream.getAudioTracks()[0];
+	if (!audioTrack) return;
+
+	try {
+		const context = new AudioContext();
+		const analyzer = context.createAnalyser();
+		analyzer.fftSize = 512;
+		analyzer.smoothingTimeConstant = 0.8;
+
+		const source = context.createMediaStreamSource(stream);
+		source.connect(analyzer);
+
+		const dataArray = new Uint8Array(analyzer.frequencyBinCount);
+
+		const analyzerState: AudioAnalyzer = {
+			context,
+			analyzer,
+			dataArray,
+			rafId: null,
+			debounceTimer: null
+		};
+
+		audioAnalyzers.set(userId, analyzerState);
+
+		let lastSpeaking = false;
+
+		function checkAudioLevel() {
+			analyzer.getByteFrequencyData(dataArray);
+
+			// Calculate average volume
+			const average = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
+			const isSpeaking = average > SPEAKING_THRESHOLD;
+
+			// Only update if state changed
+			if (isSpeaking !== lastSpeaking) {
+				// Clear existing debounce timer
+				if (analyzerState.debounceTimer) {
+					clearTimeout(analyzerState.debounceTimer);
+				}
+
+				// Debounce the update
+				analyzerState.debounceTimer = window.setTimeout(() => {
+					if (isLocal) {
+						isLocalSpeaking.set(isSpeaking);
+					} else {
+						speakingUsers.update(users => {
+							const newSet = new Set(users);
+							if (isSpeaking) {
+								newSet.add(userId);
+							} else {
+								newSet.delete(userId);
+							}
+							return newSet;
+						});
+
+						// Update the activeCalls store
+						activeCalls.update(calls => {
+							return calls.map(call => {
+								if (call.userId === userId) {
+									return { ...call, isSpeaking };
+								}
+								return call;
+							});
+						});
+					}
+					lastSpeaking = isSpeaking;
+				}, SPEAKING_DEBOUNCE_MS);
+			}
+
+			analyzerState.rafId = requestAnimationFrame(checkAudioLevel);
+		}
+
+		checkAudioLevel();
+		console.log(`[AudioMonitoring] Started monitoring for ${userId}`);
+	} catch (error) {
+		console.error(`[AudioMonitoring] Failed to start monitoring for ${userId}:`, error);
+	}
+}
+
+function stopAudioMonitoring(userId: string): void {
+	const analyzerState = audioAnalyzers.get(userId);
+	if (!analyzerState) return;
+
+	if (analyzerState.rafId) {
+		cancelAnimationFrame(analyzerState.rafId);
+	}
+	if (analyzerState.debounceTimer) {
+		clearTimeout(analyzerState.debounceTimer);
+	}
+	analyzerState.context.close();
+	audioAnalyzers.delete(userId);
+
+	// Clean up speaking state
+	speakingUsers.update(users => {
+		const newSet = new Set(users);
+		newSet.delete(userId);
+		return newSet;
+	});
+
+	console.log(`[AudioMonitoring] Stopped monitoring for ${userId}`);
 }
 
 // ============================================================================
@@ -341,6 +467,11 @@ function cleanupPeerConnection(key: string): void {
 
 	console.log(`[WebRTC] Cleaning up peer connection for ${key}`);
 
+	// Stop audio monitoring if this is a call
+	if (state.type === 'call') {
+		stopAudioMonitoring(state.targetId);
+	}
+
 	try {
 		state.pc.close();
 	} catch (e) {
@@ -380,7 +511,8 @@ function addRemoteCallStream(userId: string, username: string, stream: MediaStre
 			username: username || 'Unknown',
 			stream,
 			isVideoEnabled: videoTrack ? videoTrack.enabled : false,
-			isAudioEnabled: audioTrack ? audioTrack.enabled : false
+			isAudioEnabled: audioTrack ? audioTrack.enabled : false,
+			isSpeaking: false
 		};
 
 		if (existingIndex >= 0) {
@@ -392,6 +524,9 @@ function addRemoteCallStream(userId: string, username: string, stream: MediaStre
 	});
 
 	callParticipants.add(userId);
+
+	// Start audio monitoring for this remote user
+	startAudioMonitoring(userId, stream, false);
 }
 
 function addRemoteScreenShare(userId: string, username: string, stream: MediaStream): void {
@@ -468,6 +603,9 @@ export async function startCall(socket: Socket, targetUserId: string, isVideoCal
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);
 
+		// Start monitoring local audio
+		startAudioMonitoring('local', stream, true);
+
 		socket.emit('call-initiate', {
 			targetUserId,
 			isVideoCall
@@ -494,6 +632,9 @@ export async function answerCall(socket: Socket, callerId: string, isVideoCall: 
 		isInCall.set(true);
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);
+
+		// Start monitoring local audio
+		startAudioMonitoring('local', stream, true);
 
 		socket.emit('call-answer', {
 			callerId,
@@ -524,6 +665,10 @@ export function endCall(socket: Socket) {
 		stream.getTracks().forEach(track => track.stop());
 		localStream.set(null);
 	}
+
+	// Stop local audio monitoring
+	stopAudioMonitoring('local');
+	isLocalSpeaking.set(false);
 
 	// Reset call state
 	isInCall.set(false);
