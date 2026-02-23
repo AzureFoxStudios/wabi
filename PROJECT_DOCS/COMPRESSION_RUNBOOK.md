@@ -45,6 +45,11 @@ npm run check:compression-storage
 6. Reset telemetry window (admin auth required):
 - `POST /api/admin/compression-metrics/reset`
 
+7. Runtime guardrails + restart-applied tuning (admin auth required):
+- `GET /api/admin/runtime-guardrails`
+- `GET /api/admin/policies/runtime_tuning`
+- `POST /api/admin/policies/runtime_tuning`
+
 ## Rollout Sequence
 1. Enable only HTTP text compression first.
 2. Observe p95 latency and CPU for 24h.

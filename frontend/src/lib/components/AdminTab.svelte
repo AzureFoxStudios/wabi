@@ -7,11 +7,16 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { _ } from '$lib/i18n';
 	import {
+		getAdminPolicy,
 		getAdminCompressionConfig,
 		getAdminCompressionMetrics,
+		getAdminRuntimeGuardrails,
 		resetAdminCompressionMetrics,
+		saveAdminPolicy,
 		type AdminCompressionConfig,
-		type AdminCompressionMetrics
+		type AdminCompressionMetrics,
+		type AdminRuntimeGuardrailsResponse,
+		type RuntimeTuningConfig
 	} from '$lib/api';
 
 	type RoleDefinition = {
@@ -51,6 +56,19 @@
 	let compressionLoaded = false;
 	let compressionAttempted = false;
 	let compressionError = '';
+	let runtimePanel: AdminRuntimeGuardrailsResponse | null = null;
+	let runtimeTuningDraft: RuntimeTuningConfig = {
+		applyOnRestart: true,
+		threadPoolSize: null,
+		heavyProfilingEnabled: false,
+		heavyProfilingSampleRate: 0.1
+	};
+	let runtimeLoading = false;
+	let runtimeSaving = false;
+	let runtimeLoaded = false;
+	let runtimeAttempted = false;
+	let runtimeError = '';
+	let runtimeSaveStatus = '';
 	const fallbackRoleLabels: Record<string, string> = {
 		owner: 'Owner',
 		admin: 'Admin',
@@ -95,6 +113,9 @@
 	$: guestCount = $users.filter((u) => !u.dbUserId).length;
 	$: if (canManageRoles && !compressionLoaded && !compressionLoading && !compressionAttempted) {
 		void refreshCompressionPanel();
+	}
+	$: if (canManageRoles && !runtimeLoaded && !runtimeLoading && !runtimeAttempted) {
+		void refreshRuntimePanel();
 	}
 
 	function getRolePriority(roleName?: string): number {
@@ -212,6 +233,11 @@
 		return value.toFixed(3);
 	}
 
+	function formatNumber(value: number | null, digits = 2): string {
+		if (value == null || !Number.isFinite(value)) return 'n/a';
+		return Number(value).toFixed(digits);
+	}
+
 	async function refreshCompressionPanel() {
 		const token = localStorage.getItem('authToken');
 		if (!token) return;
@@ -244,6 +270,45 @@
 		} catch (error) {
 			compressionError = (error as Error).message || 'Failed to reset compression metrics';
 			compressionLoading = false;
+		}
+	}
+
+	async function refreshRuntimePanel() {
+		const token = localStorage.getItem('authToken');
+		if (!token) return;
+		runtimeAttempted = true;
+		runtimeLoading = true;
+		runtimeError = '';
+		try {
+			const [policy, guardrails] = await Promise.all([
+				getAdminPolicy<RuntimeTuningConfig>(token, 'runtime_tuning'),
+				getAdminRuntimeGuardrails(token)
+			]);
+			runtimeTuningDraft = { ...policy.config };
+			runtimePanel = guardrails;
+			runtimeLoaded = true;
+		} catch (error) {
+			runtimeError = (error as Error).message || 'Failed to load runtime settings';
+		} finally {
+			runtimeLoading = false;
+		}
+	}
+
+	async function saveRuntimeTuning() {
+		const token = localStorage.getItem('authToken');
+		if (!token) return;
+		runtimeSaving = true;
+		runtimeSaveStatus = '';
+		runtimeError = '';
+		try {
+			const saved = await saveAdminPolicy<RuntimeTuningConfig>(token, 'runtime_tuning', runtimeTuningDraft);
+			runtimeTuningDraft = { ...saved };
+			runtimeSaveStatus = 'Saved. Restart required to apply.';
+			await refreshRuntimePanel();
+		} catch (error) {
+			runtimeError = (error as Error).message || 'Failed to save runtime settings';
+		} finally {
+			runtimeSaving = false;
 		}
 	}
 
@@ -468,6 +533,87 @@
 				<div class="admin-empty">No compression metrics yet.</div>
 			{/if}
 		</div>
+
+		<div class="admin-section">
+			<div class="compression-header">
+				<h4>Runtime Tuning (Restart Applied)</h4>
+				<div class="compression-actions">
+					<button class="admin-btn" disabled={runtimeLoading || runtimeSaving} on:click={refreshRuntimePanel}>
+						{runtimeLoading ? 'Loading...' : 'Refresh'}
+					</button>
+					<button class="admin-btn" disabled={runtimeLoading || runtimeSaving} on:click={saveRuntimeTuning}>
+						{runtimeSaving ? 'Saving...' : 'Save'}
+					</button>
+				</div>
+			</div>
+
+			{#if runtimeError}
+				<div class="admin-empty">{runtimeError}</div>
+			{:else if runtimePanel}
+				<div class="runtime-form-grid">
+					<label>
+						Thread Pool Size
+						<input
+							type="number"
+							min="1"
+							max="64"
+							placeholder="auto"
+							bind:value={runtimeTuningDraft.threadPoolSize}
+						/>
+					</label>
+					<label>
+						Heavy Profiling Sample Rate
+						<input
+							type="number"
+							min="0.01"
+							max="1"
+							step="0.01"
+							bind:value={runtimeTuningDraft.heavyProfilingSampleRate}
+						/>
+					</label>
+					<label class="runtime-checkbox">
+						<input type="checkbox" bind:checked={runtimeTuningDraft.heavyProfilingEnabled} />
+						Enable heavy profiling
+					</label>
+				</div>
+
+				<div class="runtime-hint">
+					Restart required after save. Lightweight counters stay active; heavy profiling loads only when enabled.
+				</div>
+				{#if runtimeSaveStatus}
+					<div class="runtime-hint">{runtimeSaveStatus}</div>
+				{/if}
+
+				<div class="compression-grid">
+					<div class="compression-stat">
+						<span class="k">Restart Required</span>
+						<span class="v">{runtimePanel.runtimeTuning.restartRequired ? 'Yes' : 'No'}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Effective UV Pool</span>
+						<span class="v">{runtimePanel.runtimeTuning.effective.uvThreadpoolSize ?? 'auto'}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">RSS</span>
+						<span class="v">{formatBytes(runtimePanel.guardrails.memory.rssBytes)}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">Heap Used</span>
+						<span class="v">{formatBytes(runtimePanel.guardrails.memory.heapUsedBytes)}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">CPU User (ms)</span>
+						<span class="v">{formatNumber(runtimePanel.guardrails.cpu.userMicros / 1000)}</span>
+					</div>
+					<div class="compression-stat">
+						<span class="k">EL Delay P95 (ms)</span>
+						<span class="v">{formatNumber(runtimePanel.guardrails.heavyProfiling.eventLoopDelayP95Ms)}</span>
+					</div>
+				</div>
+			{:else}
+				<div class="admin-empty">No runtime tuning data yet.</div>
+			{/if}
+		</div>
 	{/if}
 
 	<div class="admin-section">
@@ -557,6 +703,11 @@
 	.compression-stat { display: flex; flex-direction: column; gap: 0.15rem; padding: 0.4rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-tertiary); }
 	.compression-stat .k { font-size: 0.64rem; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.03em; }
 	.compression-stat .v { font-size: 0.78rem; color: var(--text-primary); font-weight: 600; }
+	.runtime-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.45rem; }
+	.runtime-form-grid label { display: flex; flex-direction: column; gap: 0.28rem; font-size: 0.72rem; color: var(--text-secondary); }
+	.runtime-form-grid input[type='number'] { height: 28px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); border-radius: 7px; padding: 0 0.45rem; font-size: 0.76rem; }
+	.runtime-checkbox { grid-column: 1 / -1; flex-direction: row !important; align-items: center; gap: 0.45rem !important; }
+	.runtime-hint { font-size: 0.72rem; color: var(--text-secondary); }
 	.role-list, .channel-role-list, .emoji-rule-list, .admin-user-list { display: flex; flex-direction: column; gap: 0.35rem; }
 	.role-item, .channel-role-item, .emoji-rule-item, .admin-user-item { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.45rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-tertiary); }
 	.role-key { width: 80px; font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; }
@@ -580,5 +731,8 @@
 	.admin-search-wrap { padding: 0.1rem 0; }
 	.admin-search { width: 100%; height: 30px; padding: 0 0.55rem; }
 	.admin-empty { padding: 0.8rem; text-align: center; color: var(--text-secondary); font-size: 0.78rem; }
-	@media (max-width: 768px) { .admin-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+	@media (max-width: 768px) {
+		.admin-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+		.runtime-form-grid { grid-template-columns: 1fr; }
+	}
 </style>

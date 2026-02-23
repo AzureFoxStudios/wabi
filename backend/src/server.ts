@@ -30,6 +30,7 @@ import {
   handleGetMediaGatewayControlSessions
 } from "./api/mediaRoutes.js";
 import { handleCreateWebhook, handleListWebhooks, handleDeleteWebhook, handleListWebhookDeliveries } from "./api/webhookRoutes.js";
+import { handleDictionaryLookup, handleDictionaryUpsert, handleDictionaryDelete } from "./api/dictionaryRoutes.js";
 import { relayRepository } from "./db/repositories/relayRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
 import { channelRepository } from "./db/repositories/channelRepository.js";
@@ -44,6 +45,10 @@ import {
   recordCompressionUploadSample,
   resetCompressionMetrics
 } from "./observability/compressionMetrics.js";
+import {
+  getRuntimeGuardrailsSnapshot,
+  initRuntimeGuardrails
+} from "./observability/runtimeGuardrails.js";
 import {
   DEFAULT_WORKSPACE_ID,
   DEFAULT_TEXT_CHANNEL_ID,
@@ -126,8 +131,16 @@ interface DownloadLimitConfig {
   globalDownloadCapBytes: UploadLimitBytes;
 }
 
-type PolicyKey = 'upload_limits' | 'download_limits';
+interface RuntimeTuningConfig {
+  applyOnRestart: true;
+  threadPoolSize: number | null;
+  heavyProfilingEnabled: boolean;
+  heavyProfilingSampleRate: number;
+}
+
+type PolicyKey = 'upload_limits' | 'download_limits' | 'runtime_tuning';
 const UPLOAD_LIMITS_POLICY_KEY: PolicyKey = 'upload_limits';
+const RUNTIME_TUNING_POLICY_KEY: PolicyKey = 'runtime_tuning';
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
 
@@ -153,6 +166,13 @@ const DEFAULT_DOWNLOAD_LIMIT_CONFIG: DownloadLimitConfig = {
   globalDownloadCapBytes: null
 };
 
+const DEFAULT_RUNTIME_TUNING_CONFIG: RuntimeTuningConfig = {
+  applyOnRestart: true,
+  threadPoolSize: null,
+  heavyProfilingEnabled: false,
+  heavyProfilingSampleRate: 0.1
+};
+
 function cloneDefaultUploadLimits(): UploadLimitConfig {
   return {
     perRoleBytes: { ...DEFAULT_UPLOAD_LIMIT_CONFIG.perRoleBytes },
@@ -164,6 +184,12 @@ function cloneDefaultDownloadLimits(): DownloadLimitConfig {
   return {
     perRoleBytes: { ...DEFAULT_DOWNLOAD_LIMIT_CONFIG.perRoleBytes },
     globalDownloadCapBytes: DEFAULT_DOWNLOAD_LIMIT_CONFIG.globalDownloadCapBytes
+  };
+}
+
+function cloneDefaultRuntimeTuning(): RuntimeTuningConfig {
+  return {
+    ...DEFAULT_RUNTIME_TUNING_CONFIG
   };
 }
 
@@ -216,6 +242,29 @@ function sanitizeDownloadLimitConfig(raw: unknown): DownloadLimitConfig {
   return config;
 }
 
+function normalizeThreadPoolSize(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const int = Math.floor(n);
+  if (int < 1) return null;
+  return Math.min(64, int);
+}
+
+function sanitizeRuntimeTuningConfig(raw: unknown): RuntimeTuningConfig {
+  const config = cloneDefaultRuntimeTuning();
+  if (!raw || typeof raw !== 'object') return config;
+  const input = raw as Partial<Record<keyof RuntimeTuningConfig, unknown>>;
+  config.threadPoolSize = normalizeThreadPoolSize(input.threadPoolSize);
+  config.heavyProfilingEnabled = Boolean(input.heavyProfilingEnabled);
+  const sampleRate = Number(input.heavyProfilingSampleRate);
+  config.heavyProfilingSampleRate = Number.isFinite(sampleRate)
+    ? Math.max(0.01, Math.min(1, sampleRate))
+    : DEFAULT_RUNTIME_TUNING_CONFIG.heavyProfilingSampleRate;
+  config.applyOnRestart = true;
+  return config;
+}
+
 interface PolicyDefinition<TValue> {
   defaultValue: TValue;
   sanitize: (raw: unknown) => TValue;
@@ -229,6 +278,10 @@ const POLICY_DEFINITIONS: Record<PolicyKey, PolicyDefinition<unknown>> = {
   download_limits: {
     defaultValue: cloneDefaultDownloadLimits(),
     sanitize: sanitizeDownloadLimitConfig
+  },
+  runtime_tuning: {
+    defaultValue: cloneDefaultRuntimeTuning(),
+    sanitize: sanitizeRuntimeTuningConfig
   }
 };
 
@@ -259,6 +312,14 @@ function getPolicyDefaults<TValue>(key: PolicyKey): TValue {
   const definition = POLICY_DEFINITIONS[key] as PolicyDefinition<TValue>;
   return definition.defaultValue;
 }
+
+const startupRuntimeTuning = getPolicyValue<RuntimeTuningConfig>(RUNTIME_TUNING_POLICY_KEY);
+if (!process.env.UV_THREADPOOL_SIZE && startupRuntimeTuning.threadPoolSize) {
+  process.env.UV_THREADPOOL_SIZE = String(startupRuntimeTuning.threadPoolSize);
+}
+void initRuntimeGuardrails({
+  heavyProfilingEnabled: startupRuntimeTuning.heavyProfilingEnabled
+});
 
 function resolveUploadRoleTier(userId: number | null, guestSessionId: string | null): RolePolicyTier {
   if (!userId) return guestSessionId ? 'new' : 'new';
@@ -1651,7 +1712,12 @@ server.on('request', async (req, res) => {
       const rawBody = JSON.parse((await readRequestBuffer(req)).toString() || '{}');
       const config = savePolicyValue(requestedKey, rawBody);
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, key: requestedKey, config }));
+      res.end(JSON.stringify({
+        success: true,
+        key: requestedKey,
+        config,
+        restartRequired: requestedKey === RUNTIME_TUNING_POLICY_KEY
+      }));
     } catch (error) {
       res.writeHead(400, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: false, error: "Invalid policy payload" }));
@@ -1739,6 +1805,40 @@ server.on('request', async (req, res) => {
           rolloutPercent: UPLOAD_COMPRESSION_ROLLOUT_PERCENT
         }
       }
+    }));
+    return;
+  }
+
+  if (url.pathname === "/api/admin/runtime-guardrails" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    const configured = getPolicyValue<RuntimeTuningConfig>(RUNTIME_TUNING_POLICY_KEY);
+    const runtimeSnapshot = getRuntimeGuardrailsSnapshot();
+    const currentUvThreadpoolSize = process.env.UV_THREADPOOL_SIZE
+      ? Number(process.env.UV_THREADPOOL_SIZE)
+      : null;
+    const restartRequired = JSON.stringify(configured) !== JSON.stringify(startupRuntimeTuning);
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      success: true,
+      runtimeTuning: {
+        configured,
+        startupApplied: startupRuntimeTuning,
+        restartRequired,
+        effective: {
+          uvThreadpoolSize: Number.isFinite(currentUvThreadpoolSize as number)
+            ? currentUvThreadpoolSize
+            : null,
+          heavyProfilingEnabled: runtimeSnapshot.heavyProfiling.enabled
+        }
+      },
+      guardrails: runtimeSnapshot
     }));
     return;
   }
@@ -2784,6 +2884,35 @@ server.on('request', async (req, res) => {
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: 'Failed to fetch users' }));
     }
+    return;
+  }
+
+  if (url.pathname === "/api/dictionary" && req.method === "GET") {
+    await handleDictionaryLookup(req, res, url);
+    return;
+  }
+
+  if (url.pathname === "/api/dictionary" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+    await handleDictionaryUpsert(req, res, userId);
+    return;
+  }
+
+  if (url.pathname === "/api/dictionary" && req.method === "DELETE") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+    const roles = getUserRoles(userId, 'default-workspace');
+    const canModerate = roles.includes('owner') || roles.includes('admin') || roles.includes('mod');
+    await handleDictionaryDelete(req, res, userId, canModerate);
     return;
   }
 
