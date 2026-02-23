@@ -38,6 +38,12 @@ import { appPolicyRepository } from "./db/repositories/appPolicyRepository.js";
 import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
 import { dispatchWebhookEvent } from "./webhooks/deliveryService.js";
 import {
+  getCompressionMetricsSnapshot,
+  recordCompressionDownloadSample,
+  recordCompressionUploadSample,
+  resetCompressionMetrics
+} from "./observability/compressionMetrics.js";
+import {
   DEFAULT_WORKSPACE_ID,
   DEFAULT_TEXT_CHANNEL_ID,
   DEFAULT_VOICE_CHANNEL_ID,
@@ -1067,6 +1073,19 @@ function writeUploadFile(filePath: string, payload: Buffer): void {
   writeFileSync(filePath, maybeEncryptForAtRest(payload));
 }
 
+function getFileExtension(fileName: string): string {
+  const clean = sanitizeUploadFileName(fileName || '');
+  const idx = clean.lastIndexOf('.');
+  if (idx < 0 || idx === clean.length - 1) return 'unknown';
+  return clean.substring(idx + 1).toLowerCase();
+}
+
+function getMimeTypeFromDataUrl(input: string): string {
+  if (!input || !input.startsWith('data:')) return 'application/octet-stream';
+  const match = input.match(/^data:([^;,]+)[;,]/);
+  return match?.[1] || 'application/octet-stream';
+}
+
 function sanitizeUploadFileName(fileName: string): string {
   const base = basename(fileName || 'upload.bin');
   return base.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
@@ -1495,6 +1514,36 @@ server.on('request', async (req, res) => {
       res.writeHead(400, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: false, error: "Invalid upload limit payload" }));
     }
+    return;
+  }
+
+  if (url.pathname === "/api/admin/compression-metrics" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      success: true,
+      metrics: getCompressionMetricsSnapshot()
+    }));
+    return;
+  }
+
+  if (url.pathname === "/api/admin/compression-metrics/reset" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    resetCompressionMetrics();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ success: true }));
     return;
   }
 
@@ -2034,6 +2083,7 @@ server.on('request', async (req, res) => {
     const userId = getAuthenticatedUserId(req);
     const guestSessionId = getGuestSessionId(req);
     const ownerKey = getUploadOwnerKey(userId, guestSessionId);
+    const uploadStartedAt = Date.now();
     if (!ownerKey) {
       res.writeHead(401, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
@@ -2089,6 +2139,17 @@ server.on('request', async (req, res) => {
       const partPath = getResumablePartPath(uploadId);
       const finalPlain = readFileSync(partPath);
       writeUploadFile(filePath, finalPlain);
+      const storedBytes = statSync(filePath).size;
+      recordCompressionUploadSample({
+        timestamp: Date.now(),
+        source: 'resumable-complete',
+        fileExt: getFileExtension(meta.fileName),
+        mimeType: meta.mimeType || 'application/octet-stream',
+        originalBytes: finalPlain.length,
+        storedBytes,
+        durationMs: Date.now() - uploadStartedAt,
+        atRestEncrypted: Boolean(FILE_ENCRYPTION_KEY)
+      });
       unlinkSync(partPath);
 
       meta.status = 'completed';
@@ -2116,6 +2177,7 @@ server.on('request', async (req, res) => {
     const userId = getAuthenticatedUserId(req);
     const guestSessionId = getGuestSessionId(req);
     const isGuestSessionValid = !!guestSessionId && sessions.has(guestSessionId);
+    const uploadStartedAt = Date.now();
 
     if (!userId && !isGuestSessionValid) {
       res.writeHead(401, { "Content-Type": "application/json" });
@@ -2154,6 +2216,17 @@ server.on('request', async (req, res) => {
             return;
           }
           writeUploadFile(filePath, fileBuffer);
+          const storedBytes = statSync(filePath).size;
+          recordCompressionUploadSample({
+            timestamp: Date.now(),
+            source: 'direct-upload-json',
+            fileExt: getFileExtension(fileName),
+            mimeType: getMimeTypeFromDataUrl(fileData || ''),
+            originalBytes: fileBuffer.length,
+            storedBytes,
+            durationMs: Date.now() - uploadStartedAt,
+            atRestEncrypted: Boolean(FILE_ENCRYPTION_KEY)
+          });
 
           const fileUrl = `/uploads/${fileId}`;
 
@@ -2207,6 +2280,17 @@ server.on('request', async (req, res) => {
               mkdirSync(UPLOADS_DIR, { recursive: true });
             }
             writeUploadFile(filePath, fileData);
+            const storedBytes = statSync(filePath).size;
+            recordCompressionUploadSample({
+              timestamp: Date.now(),
+              source: 'direct-upload-multipart',
+              fileExt: getFileExtension(fileName),
+              mimeType: 'application/octet-stream',
+              originalBytes: fileData.length,
+              storedBytes,
+              durationMs: Date.now() - uploadStartedAt,
+              atRestEncrypted: Boolean(FILE_ENCRYPTION_KEY)
+            });
 
             const fileUrl = `/uploads/${fileId}`;
 
@@ -3310,6 +3394,7 @@ server.on('request', async (req, res) => {
 
   // Serve uploaded files from dedicated uploads directory
   if (url.pathname.startsWith('/uploads/')) {
+    const downloadStartedAt = Date.now();
     const pathSegment = decodeURIComponent(url.pathname.replace('/uploads/', ''));
 
     // Security: Prevent path traversal attacks
@@ -3397,6 +3482,18 @@ server.on('request', async (req, res) => {
           headers['Content-Range'] = `bytes ${start}-${end}/${responseSize}`;
           headers['Content-Length'] = end - start + 1;
           res.writeHead(206, headers);
+          recordCompressionDownloadSample({
+            timestamp: Date.now(),
+            fileExt: getFileExtension(fileName),
+            mimeType: contentType,
+            storedBytes: stat.size,
+            responseBytes: end - start + 1,
+            durationMs: Date.now() - downloadStartedAt,
+            decryptedAtRest: false,
+            rangeRequest: true,
+            streamed: true,
+            statusCode: 206
+          });
           createReadStream(filePath, { start, end }).pipe(res);
           return;
         }
@@ -3406,8 +3503,32 @@ server.on('request', async (req, res) => {
       headers['Content-Length'] = responseSize;
       res.writeHead(200, headers);
       if (encryptedAtRest && decryptedBuffer) {
+        recordCompressionDownloadSample({
+          timestamp: Date.now(),
+          fileExt: getFileExtension(fileName),
+          mimeType: contentType,
+          storedBytes: stat.size,
+          responseBytes: decryptedBuffer.length,
+          durationMs: Date.now() - downloadStartedAt,
+          decryptedAtRest: true,
+          rangeRequest: false,
+          streamed: false,
+          statusCode: 200
+        });
         res.end(decryptedBuffer);
       } else {
+        recordCompressionDownloadSample({
+          timestamp: Date.now(),
+          fileExt: getFileExtension(fileName),
+          mimeType: contentType,
+          storedBytes: stat.size,
+          responseBytes: responseSize,
+          durationMs: Date.now() - downloadStartedAt,
+          decryptedAtRest: false,
+          rangeRequest: false,
+          streamed: true,
+          statusCode: 200
+        });
         createReadStream(filePath).pipe(res);
       }
       return;
