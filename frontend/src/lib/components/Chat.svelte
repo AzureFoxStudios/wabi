@@ -2579,6 +2579,14 @@
 		.messages {
 			padding: 0.4rem 0.4rem 0.25rem;
 			gap: 0.2rem;
+			-ms-overflow-style: none;
+			scrollbar-width: none;
+		}
+
+		.messages::-webkit-scrollbar {
+			display: none;
+			width: 0;
+			height: 0;
 		}
 
 		.input-wrapper {
