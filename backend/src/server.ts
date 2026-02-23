@@ -323,6 +323,9 @@ function getPolicyDefaults<TValue>(key: PolicyKey): TValue {
   return definition.defaultValue;
 }
 
+// Initialize database before any policy/settings queries
+initializeDatabase();
+
 const startupRuntimeTuning = getPolicyValue<RuntimeTuningConfig>(RUNTIME_TUNING_POLICY_KEY);
 if (!process.env.UV_THREADPOOL_SIZE && startupRuntimeTuning.threadPoolSize) {
   process.env.UV_THREADPOOL_SIZE = String(startupRuntimeTuning.threadPoolSize);
