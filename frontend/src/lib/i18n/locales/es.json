@@ -196,6 +196,7 @@
     "pinned_title": "Mensaje fijado",
     "edited_title": "Editado",
     "edited": "editado",
+    "translated_label": "Traducido",
     "deletion": {
       "scheduled_title": "Este mensaje esta programado para borrado automatico",
       "deleting": "Borrando...",
@@ -241,6 +242,7 @@
     "aria_label": "Acciones del mensaje",
     "reply": "Responder",
     "add_reaction": "Agregar reaccion",
+    "translate": "Traducir",
     "download": "Descargar",
     "forward": "Reenviar",
     "edit_message": "Editar mensaje",

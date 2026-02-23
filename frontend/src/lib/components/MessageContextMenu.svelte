@@ -17,6 +17,7 @@
 	export let onDownload: (() => void) | undefined = undefined;
 	export let onForward: (() => void) | undefined = undefined;
 	export let onAddReaction: (() => void) | undefined = undefined;
+	export let onTranslate: (() => void) | undefined = undefined;
 
 	$: isOwnMessage = message.userId === $currentUser?.id;
 	$: hasFile = message.type === 'file' && message.fileUrl;
@@ -53,6 +54,15 @@
 				label: get(_)('context_menu.add_reaction'),
 				icon: 'smile',
 				onSelect: onAddReaction
+			});
+		}
+
+		if (onTranslate && canCopyText) {
+			list.push({
+				id: 'translate',
+				label: get(_)('context_menu.translate'),
+				icon: 'languages',
+				onSelect: onTranslate
 			});
 		}
 

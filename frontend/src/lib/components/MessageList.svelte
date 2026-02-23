@@ -37,6 +37,17 @@
 	let contextMenuX = 0;
 	let contextMenuY = 0;
 	let contextMenuMessage: Message | null = null;
+	type TranslatorMode = 'off' | 'on-demand' | 'mixed';
+	type TranslatorSettings = {
+		mode: TranslatorMode;
+		providerUrl: string;
+		sourceLang: string;
+		targetLang: string;
+		useProxy: boolean;
+	};
+	const TRANSLATOR_SETTINGS_KEY = 'addon.translator_assist.settings';
+	let translatedMessages: Record<string, string> = {};
+	let translatingMessageIds = new Set<string>();
 	// Edit mode state
 	let editingMessageId: string | null = null;
 	let editText = '';
@@ -327,6 +338,117 @@
 		showReactionPicker = true;
 		contextMenuVisible = false;
 	}
+
+	function getTranslatorSettings(): TranslatorSettings {
+		if (typeof window === 'undefined') {
+			return { mode: 'off', providerUrl: '', sourceLang: 'auto', targetLang: 'en', useProxy: false };
+		}
+		try {
+			const raw = localStorage.getItem(TRANSLATOR_SETTINGS_KEY);
+			if (!raw) return { mode: 'off', providerUrl: '', sourceLang: 'auto', targetLang: 'en', useProxy: false };
+			const parsed = JSON.parse(raw);
+			return {
+				mode: parsed?.mode === 'mixed' ? 'mixed' : parsed?.mode === 'on-demand' ? 'on-demand' : 'off',
+				providerUrl: typeof parsed?.providerUrl === 'string' ? parsed.providerUrl.trim() : '',
+				sourceLang: typeof parsed?.sourceLang === 'string' && parsed.sourceLang.trim() ? parsed.sourceLang.trim() : 'auto',
+				targetLang: typeof parsed?.targetLang === 'string' && parsed.targetLang.trim() ? parsed.targetLang.trim() : 'en',
+				useProxy: parsed?.useProxy === true
+			};
+		} catch {
+			return { mode: 'off', providerUrl: '', sourceLang: 'auto', targetLang: 'en', useProxy: false };
+		}
+	}
+
+	async function requestTranslation(text: string, settings: TranslatorSettings): Promise<string> {
+		if (settings.useProxy) {
+			const response = await fetch(`${getServerUrl()}/api/plugins/runtime/translator-assist/translate`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					providerUrl: settings.providerUrl,
+					text,
+					sourceLang: settings.sourceLang,
+					targetLang: settings.targetLang
+				})
+			});
+			if (!response.ok) {
+				const detail = await response.text();
+				throw new Error(`Proxy translate failed (${response.status}) ${detail.slice(0, 180)}`);
+			}
+			const data = await response.json();
+			const translated = typeof data?.translatedText === 'string' ? data.translatedText.trim() : '';
+			if (!translated) throw new Error('No translated text returned');
+			return translated;
+		}
+
+		const response = await fetch(settings.providerUrl, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				q: text,
+				source: settings.sourceLang,
+				target: settings.targetLang,
+				format: 'text'
+			})
+		});
+		const raw = await response.text();
+		if (!response.ok) {
+			throw new Error(`Translator failed (${response.status}) ${raw.slice(0, 180)}`);
+		}
+		try {
+			const parsed = JSON.parse(raw);
+			const translated =
+				typeof parsed?.translatedText === 'string' ? parsed.translatedText :
+				typeof parsed?.translation === 'string' ? parsed.translation :
+				typeof parsed?.data?.translatedText === 'string' ? parsed.data.translatedText :
+				'';
+			if (translated.trim()) return translated.trim();
+		} catch {
+			// Non-JSON response may already be translated text.
+		}
+		if (raw.trim()) return raw.trim();
+		throw new Error('No translated text returned');
+	}
+
+	async function handleTranslate() {
+		if (!contextMenuMessage?.text?.trim()) return;
+		const targetMessage = contextMenuMessage;
+		const settings = getTranslatorSettings();
+		if (settings.mode === 'off') {
+			alert('Translator is off. Enable it in Settings > Add-ons > Translator Assist.');
+			contextMenuVisible = false;
+			return;
+		}
+		if (!settings.providerUrl) {
+			alert('Set a translator provider URL in Settings > Add-ons > Translator Assist.');
+			contextMenuVisible = false;
+			return;
+		}
+
+		if (translatedMessages[targetMessage.id]) {
+			const next = { ...translatedMessages };
+			delete next[targetMessage.id];
+			translatedMessages = next;
+			contextMenuVisible = false;
+			return;
+		}
+
+		translatedMessages = { ...translatedMessages, [targetMessage.id]: '...' };
+		translatingMessageIds = new Set([...translatingMessageIds, targetMessage.id]);
+		contextMenuVisible = false;
+		try {
+			const translated = await requestTranslation(targetMessage.text, settings);
+			translatedMessages = { ...translatedMessages, [targetMessage.id]: translated };
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Translation failed';
+			translatedMessages = { ...translatedMessages, [targetMessage.id]: `(${message})` };
+		} finally {
+			const next = new Set(translatingMessageIds);
+			next.delete(targetMessage.id);
+			translatingMessageIds = next;
+		}
+	}
+
 	function openReactionPicker(event: MouseEvent, messageId: string) {
 		event.stopPropagation();
 		reactionPickerMessageId = messageId;
@@ -1026,6 +1148,8 @@
 	{@const groupedWithNext = isGroupedWithNext(index)}
 	{@const ownMessage = isOwnMessage(message)}
 	{@const deletionLabel = getMessageDeletionLabel(message)}
+	{@const translatedText = translatedMessages[message.id]}
+	{@const translationLoading = translatingMessageIds.has(message.id)}
 
 	<!-- New Messages Divider -->
 	{#if firstUnreadMessageId === message.id}
@@ -1429,6 +1553,12 @@
 					{:else}
 						<div class="markdown-content">{@html parseMessage(message.text)}</div>
 					{/if}
+					{#if translatedText}
+						<div class="translated-content" class:loading={translationLoading}>
+							<span class="translated-label">{$_('messages.translated_label')}</span>
+							<div class="translated-text">{translatedText}</div>
+						</div>
+					{/if}
 
 					<!-- TEMPORARY: Media URLs and Link Previews -->
 					{#if message.text}
@@ -1549,6 +1679,7 @@
 		onDownload={handleDownload}
 		onForward={handleForward}
 		onAddReaction={handleAddReaction}
+		onTranslate={handleTranslate}
 	/>
 {/if}
 
@@ -2145,6 +2276,34 @@
 		word-wrap: break-word;
 		word-break: break-word;
 		overflow-wrap: break-word;
+	}
+
+	.translated-content {
+		margin-top: 0.35rem;
+		padding: 0.4rem 0.5rem;
+		border: 1px dashed var(--border);
+		border-radius: 8px;
+		background: color-mix(in srgb, var(--bg-tertiary) 90%, var(--accent) 10%);
+	}
+
+	.translated-content.loading {
+		opacity: 0.8;
+	}
+
+	.translated-label {
+		display: inline-block;
+		font-size: 0.65rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--text-secondary);
+		margin-bottom: 0.2rem;
+	}
+
+	.translated-text {
+		font-size: 0.88rem;
+		line-height: 1.45;
+		color: var(--text-primary);
+		white-space: pre-wrap;
 	}
 
 	.role-gate-card {

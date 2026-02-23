@@ -196,6 +196,7 @@
     "pinned_title": "Pinned message",
     "edited_title": "Edited",
     "edited": "edited",
+    "translated_label": "Translated",
     "deletion": {
       "scheduled_title": "This message is scheduled for auto-deletion",
       "deleting": "Deleting...",
@@ -241,6 +242,7 @@
     "aria_label": "Message actions",
     "reply": "Reply",
     "add_reaction": "Add Reaction",
+    "translate": "Translate",
     "download": "Download",
     "forward": "Forward",
     "edit_message": "Edit Message",
