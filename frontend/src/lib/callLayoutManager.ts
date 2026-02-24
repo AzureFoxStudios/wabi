@@ -230,8 +230,14 @@ export function computeCallLayout(input: CallLayoutInput): CallLayoutResult {
 	const videoTileIds = videoParticipantIds.map((participantId) => toVideoTileId(participantId));
 	const allMediaTileIds = [...shareTileIds, ...videoTileIds];
 	const avatarTileIds = participants.map((participant) => toAvatarTileId(participant.id));
+	const nonVideoAvatarTileIds = participants
+		.filter((participant) => !participant.hasVideo)
+		.map((participant) => toAvatarTileId(participant.id));
 
-	const sourceTileIds = allMediaTileIds.length > 0 ? allMediaTileIds : avatarTileIds;
+	// Keep non-video participants visible as avatar tiles even when media tiles are present.
+	const sourceTileIds = allMediaTileIds.length > 0
+		? [...allMediaTileIds, ...nonVideoAvatarTileIds]
+		: avatarTileIds;
 	const knownTiles = new Set(sourceTileIds);
 	const pinnedTileIds = normalizePins(input.pins, knownTiles);
 	const orderedTileIds = orderTiles(sourceTileIds, pinnedTileIds);

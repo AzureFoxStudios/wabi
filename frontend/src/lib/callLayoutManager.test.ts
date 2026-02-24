@@ -73,6 +73,29 @@ export function runCallLayoutManagerTests(): LayoutTestResult[] {
 	}
 
 	try {
+		const layout = computeCallLayout({
+			participants: [
+				{ id: 'local', hasVideo: false },
+				{ id: 'u2', hasVideo: true }
+			],
+			shares: [],
+			pins: [],
+			activeSpeakerLevels: {},
+			nowMs: 0,
+			activeSpeakerState: DEFAULT_ACTIVE_SPEAKER_STATE
+		});
+		assert(layout.template === 'single-hero', 'single remote video should keep single-hero template');
+		assert(layout.tileIds.includes('avatar:local'), 'non-video local participant should still render as avatar tile');
+		results.push({ name: 'non-video participants stay visible beside media tiles', passed: true });
+	} catch (error) {
+		results.push({
+			name: 'non-video participants stay visible beside media tiles',
+			passed: false,
+			error: error instanceof Error ? error.message : String(error)
+		});
+	}
+
+	try {
 		const layout = computeCallLayout(makeInput(2));
 		assert(layout.template === 'split', '2 videos should use split template');
 		assert(layout.heroIds.length === 0, 'split template should not force heroes');

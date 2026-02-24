@@ -250,6 +250,7 @@
 	function buildRenderTiles(participantsList: ParticipantMedia[], shareList: ShareMedia[]): RenderTile[] {
 		const hasShares = shareList.length > 0;
 		const videoParticipants = participantsList.filter((participant) => participant.hasVideo);
+		const avatarParticipants = participantsList.filter((participant) => !participant.hasVideo);
 		const hasVideoTiles = videoParticipants.length > 0;
 		const tiles: RenderTile[] = [];
 
@@ -270,6 +271,16 @@
 					participantId: participant.id,
 					label: participant.label,
 					kind: 'video',
+					stream: participant.stream,
+					isLocal: participant.isLocal
+				});
+			}
+			for (const participant of avatarParticipants) {
+				tiles.push({
+					id: `avatar:${participant.id}`,
+					participantId: participant.id,
+					label: participant.label,
+					kind: 'avatar',
 					stream: participant.stream,
 					isLocal: participant.isLocal
 				});
