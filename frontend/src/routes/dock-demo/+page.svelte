@@ -134,11 +134,9 @@
 				<div class="hint">Try docking nav left/right, collapse, resize, and save/load workspaces.</div>
 			</main>
 
-			{#if $layoutStore.rightPanelView !== 'none'}
-				<div slot="right" class="panel right">
-					<div class="module">Right Panel ({$layoutStore.activeRightTab})</div>
-				</div>
-			{/if}
+			<div slot="right" class="panel right">
+				<div class="module">Right Panel ({$layoutStore.activeRightTab})</div>
+			</div>
 		</DockContainer>
 	</div>
 
