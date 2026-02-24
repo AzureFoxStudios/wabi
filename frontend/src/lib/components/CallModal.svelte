@@ -33,7 +33,7 @@
 		type ActiveSpeakerState
 	} from '$lib/callLayoutManager';
 	import { showCallNotification, playCallRingtone, stopCallRingtone } from '$lib/notifications';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, afterUpdate } from 'svelte';
 
 	type CallViewportMode = 'embedded' | 'focus' | 'docked';
 	type RenderTileKind = 'video' | 'screen' | 'avatar';
@@ -109,11 +109,11 @@
 		activeSpeakerState
 	});
 
-	$: {
+	afterUpdate(() => {
 		if (!isSameSpeakerState(activeSpeakerState, layoutResult.nextActiveSpeakerState)) {
 			activeSpeakerState = layoutResult.nextActiveSpeakerState;
 		}
-	}
+	});
 
 	$: orderedTiles = layoutResult.tileIds
 		.map((tileId) => tileById.get(tileId))

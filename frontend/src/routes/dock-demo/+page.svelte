@@ -135,7 +135,9 @@
 			</main>
 
 			<div slot="right" class="panel right">
-				<div class="module">Right Panel ({$layoutStore.activeRightTab})</div>
+				{#if $layoutStore.rightPanelView !== 'none'}
+					<div class="module">Right Panel ({$layoutStore.activeRightTab})</div>
+				{/if}
 			</div>
 		</DockContainer>
 	</div>
