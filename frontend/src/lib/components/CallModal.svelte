@@ -23,7 +23,6 @@
 		stopScreenShare,
 		localStream,
 		connectionState,
-		isLocalSpeaking,
 		closeChannelCallPanel,
 		spatialAudioRuntimeStatus,
 		toggleSpatialAudioEnabled

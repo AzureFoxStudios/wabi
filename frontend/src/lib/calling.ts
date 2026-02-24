@@ -108,7 +108,6 @@ export const localStream = writable<MediaStream | null>(null);
 export const localScreenStream = writable<MediaStream | null>(null);
 export const connectionState = writable<ConnectionLifecycleState>('idle');
 export const speakingUsers = writable<Set<string>>(new Set());
-export const isLocalSpeaking = writable(false);
 export const callConnectionDiagnostics = writable<CallConnectionDiagnostics>({
 	pingMs: null,
 	jitterMs: null,
