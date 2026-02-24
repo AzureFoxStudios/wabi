@@ -107,6 +107,7 @@ export const pinnedChannels = writable<Channel[]>([]);
 export const currentChannel = writable<string>('general');
 export const channelMessages = writable<Record<string, Message[]>>({ general: [] });
 export const users = writable<User[]>([]);
+export const serverMembers = writable<User[]>([]);
 export const typingUsers = writable<Record<string, string[]>>({});
 export const currentUser = writable<User | null>(null);
 export const connected = writable(false);
@@ -596,6 +597,7 @@ class SocketManager {
 		sock.on('init', async (data: {
 			channels: Channel[];
 			users: User[];
+			serverMembers?: User[];
 			excalidrawState: any;
 			emotes: any[];
 			emojis: Emoji[];
@@ -612,6 +614,7 @@ class SocketManager {
 			}
 
 			users.set(data.users);
+			if (data.serverMembers) serverMembers.set(data.serverMembers);
 
 			// Process channels - server now enriches DM channels with otherUser
 			const processedChannels = data.channels.map(channel => {
@@ -954,6 +957,13 @@ class SocketManager {
 					? user
 					: existing
 			));
+			if (user.dbUserId) {
+				serverMembers.update(members => members.map(m =>
+					m.dbUserId === user.dbUserId
+						? { ...m, username: user.username, handle: user.handle, color: user.color, profilePicture: user.profilePicture, roles: user.roles, highestRole: user.highestRole, roleColor: user.roleColor }
+						: m
+				));
+			}
 
 			const isCurrentUser = this.isSameUserIdentity(user, get(currentUser), sock.id);
 			if (isCurrentUser) {

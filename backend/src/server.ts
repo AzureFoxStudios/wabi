@@ -4672,9 +4672,26 @@ io.on("connection", (socket) => {
         const enrichedChannels = enrichDMChannels(userChannels, stableId);
 
         const emojisData = getAllEmojis();
+        const allDbUsers = userRepository.getAll();
+        const serverMembers = allDbUsers.map(u => {
+          const roleInfo = getUserRoleInfo(u.user_id);
+          return {
+            id: `user-${u.user_id}`,
+            dbUserId: u.user_id,
+            username: u.username,
+            handle: u.handle,
+            color: u.color,
+            profilePicture: u.profile_picture,
+            status: 'offline' as const,
+            roles: roleInfo.roles,
+            highestRole: roleInfo.highestRole,
+            roleColor: roleInfo.roleColor
+          };
+        });
         socket.emit("init", {
           channels: enrichedChannels,
           users: Array.from(users.values()),
+          serverMembers,
           voiceState: getVoiceStatePayload(),
           excalidrawState,
           emotes: Array.from(emotes.values()),

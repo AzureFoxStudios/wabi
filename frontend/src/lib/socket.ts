@@ -32,6 +32,7 @@ export {
 	currentChannel,
 	channelMessages,
 	users,
+	serverMembers,
 	typingUsers,
 	currentUser,
 	connected,

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { users, currentUser, createDM, socket, assignRole, removeUserRole, roleDefinitions } from '$lib/socket';
+	import { users, serverMembers, currentUser, createDM, socket, assignRole, removeUserRole, roleDefinitions } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { startCall } from '$lib/calling';
 	import type { User } from '$lib/socket';
@@ -46,17 +46,16 @@
 		return false;
 	}
 
-	// Group users by highest hoisted role
-	$: otherUsers = $users.filter(u => !isCurrentUserEntry(u));
+	// Group online users by highest hoisted role (excluding self)
+	$: onlineOtherUsers = $users.filter(u => !isCurrentUserEntry(u));
 
 	$: groupedUsers = (() => {
 		const groups: Record<string, User[]> = {};
-		for (const user of otherUsers) {
+		for (const user of onlineOtherUsers) {
 			const role = user.highestRole || 'member';
 			if (!groups[role]) groups[role] = [];
 			groups[role].push(user);
 		}
-		// Sort users alphabetically within each group
 		for (const role of Object.keys(groups)) {
 			groups[role].sort((a, b) => a.username.localeCompare(b.username));
 		}
@@ -66,6 +65,14 @@
 	$: sortedRoles = Object.keys(groupedUsers).sort(
 		(a, b) => (rolePriority[b] || 0) - (rolePriority[a] || 0)
 	);
+
+	// Offline members: in serverMembers but not in the online users list
+	$: offlineUsers = (() => {
+		const onlineDbIds = new Set($users.map(u => u.dbUserId).filter(Boolean));
+		return $serverMembers
+			.filter(m => !onlineDbIds.has(m.dbUserId))
+			.sort((a, b) => a.username.localeCompare(b.username));
+	})();
 
 	function handleUserClick(user: User) {
 		createDM(user.id);
@@ -227,45 +234,105 @@
 </script>
 
 <div class="user-list-tab">
-	{#if otherUsers.length === 0}
-		<div class="empty-state">No other users online</div>
-	{:else}
-		{#each sortedRoles as role}
-			<div class="role-group">
-				<div class="role-header">
-					{getRoleLabel(role)} - {groupedUsers[role].length}
+	{#if $currentUser}
+		<div class="role-group">
+			<div class="role-header">You</div>
+			<div class="user-row self">
+				<div class="user-avatar-wrap">
+					{#if $currentUser.profilePicture}
+						<img src={$currentUser.profilePicture} alt={$currentUser.username} class="user-avatar" />
+					{:else}
+						<div class="user-avatar-placeholder" style="background-color: {$currentUser.color}">
+							{$currentUser.username.charAt(0).toUpperCase()}
+						</div>
+					{/if}
+					<span class="presence-dot" class:active={$currentUser.status === 'active'} class:away={$currentUser.status === 'away'} class:busy={$currentUser.status === 'busy'}></span>
 				</div>
-				{#each groupedUsers[role] as user (user.id)}
-					<button
-						class="user-row"
-						on:click={() => handleUserClick(user)}
-						on:contextmenu={(e) => handleRightClick(e, user)}
-					>
-						<div class="user-avatar-wrap">
-							{#if user.profilePicture}
-								<img src={user.profilePicture} alt={user.username} class="user-avatar" />
-							{:else}
-								<div class="user-avatar-placeholder" style="background-color: {user.color}">
-									{user.username.charAt(0).toUpperCase()}
-								</div>
-							{/if}
-							<span class="presence-dot" class:active={user.status === 'active'} class:away={user.status === 'away'} class:busy={user.status === 'busy'}></span>
-						</div>
-						<div class="user-info">
-							<span class="user-display-name" style="color: {getDisplayColor(user)}">
-								{user.username}
-								{#if getRoleBadge(user)}
-									<span class="role-badge">{getRoleBadge(user)}</span>
-								{/if}
-							</span>
-							{#if user.handle}
-								<span class="user-handle">@{user.handle}</span>
-							{/if}
-						</div>
-					</button>
-				{/each}
+				<div class="user-info">
+					<span class="user-display-name" style="color: {getDisplayColor($currentUser)}">
+						{$currentUser.username}
+						{#if getRoleBadge($currentUser)}
+							<span class="role-badge">{getRoleBadge($currentUser)}</span>
+						{/if}
+					</span>
+					{#if $currentUser.handle}
+						<span class="user-handle">@{$currentUser.handle}</span>
+					{/if}
+				</div>
 			</div>
-		{/each}
+		</div>
+	{/if}
+
+	{#each sortedRoles as role}
+		<div class="role-group">
+			<div class="role-header">
+				{getRoleLabel(role)} - {groupedUsers[role].length}
+			</div>
+			{#each groupedUsers[role] as user (user.id)}
+				<button
+					class="user-row"
+					on:click={() => handleUserClick(user)}
+					on:contextmenu={(e) => handleRightClick(e, user)}
+				>
+					<div class="user-avatar-wrap">
+						{#if user.profilePicture}
+							<img src={user.profilePicture} alt={user.username} class="user-avatar" />
+						{:else}
+							<div class="user-avatar-placeholder" style="background-color: {user.color}">
+								{user.username.charAt(0).toUpperCase()}
+							</div>
+						{/if}
+						<span class="presence-dot" class:active={user.status === 'active'} class:away={user.status === 'away'} class:busy={user.status === 'busy'}></span>
+					</div>
+					<div class="user-info">
+						<span class="user-display-name" style="color: {getDisplayColor(user)}">
+							{user.username}
+							{#if getRoleBadge(user)}
+								<span class="role-badge">{getRoleBadge(user)}</span>
+							{/if}
+						</span>
+						{#if user.handle}
+							<span class="user-handle">@{user.handle}</span>
+						{/if}
+					</div>
+				</button>
+			{/each}
+		</div>
+	{/each}
+
+	{#if offlineUsers.length > 0}
+		<div class="role-group">
+			<div class="role-header">Offline - {offlineUsers.length}</div>
+			{#each offlineUsers as user (user.dbUserId)}
+				<button
+					class="user-row offline"
+					on:click={() => handleUserClick(user)}
+					on:contextmenu={(e) => handleRightClick(e, user)}
+				>
+					<div class="user-avatar-wrap">
+						{#if user.profilePicture}
+							<img src={user.profilePicture} alt={user.username} class="user-avatar" />
+						{:else}
+							<div class="user-avatar-placeholder" style="background-color: {user.color}">
+								{user.username.charAt(0).toUpperCase()}
+							</div>
+						{/if}
+						<span class="presence-dot"></span>
+					</div>
+					<div class="user-info">
+						<span class="user-display-name" style="color: {getDisplayColor(user)}">
+							{user.username}
+							{#if getRoleBadge(user)}
+								<span class="role-badge">{getRoleBadge(user)}</span>
+							{/if}
+						</span>
+						{#if user.handle}
+							<span class="user-handle">@{user.handle}</span>
+						{/if}
+					</div>
+				</button>
+			{/each}
+		</div>
 	{/if}
 
 	<ContextMenu
@@ -323,6 +390,14 @@
 
 	.user-row:hover {
 		background: var(--bg-hover);
+	}
+
+	.user-row.offline {
+		opacity: 0.5;
+	}
+
+	.user-row.self {
+		cursor: default;
 	}
 
 	.user-avatar-wrap {
