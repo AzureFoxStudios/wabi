@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { socket, getSocket } from '$lib/socket';
+	import { layoutStore } from '$lib/layoutStore';
 	import {
 		incomingCall,
 		isInCall,
-		callMode,
 		channelCallPanelOpen,
 		isMuted,
 		isDeafened,
@@ -23,180 +23,324 @@
 		stopScreenShare,
 		localStream,
 		connectionState,
-		closeChannelCallPanel,
 		spatialAudioRuntimeStatus,
 		toggleSpatialAudioEnabled
 	} from '$lib/calling';
+	import {
+		computeCallLayout,
+		DEFAULT_ACTIVE_SPEAKER_STATE,
+		tileOwnerParticipantId,
+		type ActiveSpeakerState
+	} from '$lib/callLayoutManager';
 	import { showCallNotification, playCallRingtone, stopCallRingtone } from '$lib/notifications';
 	import { onDestroy } from 'svelte';
-	import { scale } from 'svelte/transition';
 
-	// ---- Tile types ----
-	interface Tile {
+	type CallViewportMode = 'embedded' | 'focus' | 'docked';
+	type RenderTileKind = 'video' | 'screen' | 'avatar';
+
+	interface ParticipantMedia {
 		id: string;
-		kind: 'screen-share' | 'video' | 'avatar' | 'local-screen' | 'local-camera';
 		label: string;
+		isLocal: boolean;
+		hasVideo: boolean;
 		stream: MediaStream | null;
-		userId: string | null;
-		isVideoEnabled: boolean;
 	}
 
-	let localVideoElement: HTMLVideoElement;
-	let remoteVideoElements: Record<string, HTMLVideoElement> = {};
+	interface ShareMedia {
+		id: string;
+		participantId: string;
+		label: string;
+		isLocal: boolean;
+		stream: MediaStream | null;
+	}
+
+	interface RenderTile {
+		id: string;
+		participantId: string;
+		label: string;
+		kind: RenderTileKind;
+		stream: MediaStream | null;
+		isLocal: boolean;
+	}
+
 	let callNotification: Notification | null = null;
-	let focusedTileId: string | null = null;
+	let lastIncomingCallToken: string | null = null;
+	let callViewportMode: CallViewportMode = 'embedded';
+	let hatchOpen = false;
+	let pinnedTileIds: string[] = [];
+	let activeSpeakerState: ActiveSpeakerState = { ...DEFAULT_ACTIVE_SPEAKER_STATE };
+	let wasInCall = false;
 
-	// ---- Layout mode ----
-	type LayoutMode = 'voice-only' | 'video-call' | 'tiled' | 'focused';
-
-	function determineLayout(
-		shares: typeof $screenShares,
-		calls: typeof $activeCalls,
-		sharing: boolean,
-		focused: string | null
-	): LayoutMode {
-		if (focused !== null) return 'focused';
-		if (shares.length > 0 || sharing) return 'tiled';
-		if (calls.some(c => c.isVideoEnabled) || !$isVideoOff) return 'video-call';
-		return 'voice-only';
-	}
-
-	$: layoutMode = determineLayout($screenShares, $activeCalls, $isSharing, focusedTileId);
-	$: showActiveCallModal = $isInCall && $channelCallPanelOpen;
 	$: spatialAudioActive = $spatialAudioRuntimeStatus.active;
 	$: spatialQuickToggleVisible = $spatialAudioRuntimeStatus.quickToggleVisible;
+	$: showDockedBar = $isInCall && callViewportMode === 'docked';
+	$: showCallShell = $isInCall && callViewportMode !== 'docked';
+	$: showHatchToggle = $isInCall && callViewportMode === 'focus';
+	$: focusHatchInsetLeft = !$layoutStore.isMobile && $layoutStore.navDock === 'left' ? $layoutStore.channelSidebarWidth : 0;
+	$: focusHatchInsetRight = !$layoutStore.isMobile
+		? ($layoutStore.navDock === 'right' ? $layoutStore.channelSidebarWidth : 0) + ($layoutStore.showRightPanel ? $layoutStore.rightPanelWidth : 0)
+		: 0;
 
-	// ---- Build tile list ----
-	function buildTiles(
-		shares: typeof $screenShares,
-		calls: typeof $activeCalls,
-		sharing: boolean,
-		screenStream: MediaStream | null,
-		myStream: MediaStream | null,
-		videoOff: boolean
-	): Tile[] {
-		const tiles: Tile[] = [];
+	$: participants = buildParticipants($activeCalls, $isInCall, $localStream, $isVideoOff);
+	$: shares = buildShares($screenShares, $isSharing, $localScreenStream);
+	$: renderTiles = buildRenderTiles(participants, shares);
+	$: tileById = new Map(renderTiles.map((tile) => [tile.id, tile]));
+	$: activeSpeakerLevels = buildActiveSpeakerLevels(participants, $activeCalls, $isLocalSpeaking, $isMuted, $isDeafened);
 
-		// Remote screen shares first (most important)
-		for (const s of shares) {
-			tiles.push({
-				id: `screen-${s.userId}`,
-				kind: 'screen-share',
-				label: `${s.username}'s Screen`,
-				stream: s.stream,
-				userId: s.userId,
-				isVideoEnabled: true
-			});
+	$: {
+		const nextPins = sanitizePinnedIds(pinnedTileIds, tileById);
+		if (!isSameIdList(nextPins, pinnedTileIds)) {
+			pinnedTileIds = nextPins;
 		}
+	}
 
-		// Local screen share preview
-		if (sharing && screenStream) {
-			tiles.push({
-				id: 'local-screen',
-				kind: 'local-screen',
-				label: 'Your Screen',
-				stream: screenStream,
-				userId: null,
-				isVideoEnabled: true
-			});
+	$: layoutResult = computeCallLayout({
+		participants: participants.map((participant) => ({
+			id: participant.id,
+			hasVideo: participant.hasVideo
+		})),
+		shares: shares.map((share) => ({
+			id: share.id,
+			participantId: share.participantId
+		})),
+		pins: pinnedTileIds,
+		activeSpeakerLevels,
+		nowMs: Date.now(),
+		activeSpeakerState
+	});
+
+	$: {
+		if (!isSameSpeakerState(activeSpeakerState, layoutResult.nextActiveSpeakerState)) {
+			activeSpeakerState = layoutResult.nextActiveSpeakerState;
 		}
+	}
 
-		// Remote participant tiles
-		for (const c of calls) {
-			tiles.push({
-				id: `call-${c.userId}`,
-				kind: c.isVideoEnabled ? 'video' : 'avatar',
-				label: c.username || 'User',
-				stream: c.stream,
-				userId: c.userId,
-				isVideoEnabled: c.isVideoEnabled
-			});
+	$: orderedTiles = layoutResult.tileIds
+		.map((tileId) => tileById.get(tileId))
+		.filter((tile): tile is RenderTile => Boolean(tile));
+
+	$: {
+		if ($isInCall && !wasInCall) {
+			callViewportMode = 'embedded';
+			channelCallPanelOpen.set(true);
+			hatchOpen = false;
+			pinnedTileIds = [];
+			activeSpeakerState = { ...DEFAULT_ACTIVE_SPEAKER_STATE };
 		}
-
-		// Local camera tile
-		tiles.push({
-			id: 'local-camera',
-			kind: !videoOff ? 'local-camera' : 'avatar',
-			label: 'You',
-			stream: myStream,
-			userId: null,
-			isVideoEnabled: !videoOff
-		});
-
-		return tiles;
+		if (!$isInCall && wasInCall) {
+			callViewportMode = 'embedded';
+			hatchOpen = false;
+			pinnedTileIds = [];
+			activeSpeakerState = { ...DEFAULT_ACTIVE_SPEAKER_STATE };
+		}
+		wasInCall = $isInCall;
 	}
 
-	$: tiles = buildTiles($screenShares, $activeCalls, $isSharing, $localScreenStream, $localStream, $isVideoOff);
-
-	// Validate focusedTileId still exists
-	$: if (focusedTileId && !tiles.find(t => t.id === focusedTileId)) {
-		focusedTileId = null;
+	$: if ($isInCall && $channelCallPanelOpen && callViewportMode === 'docked') {
+		callViewportMode = 'embedded';
 	}
 
-	$: focusedTile = focusedTileId ? tiles.find(t => t.id === focusedTileId) ?? null : null;
-	$: thumbnailTiles = focusedTileId ? tiles.filter(t => t.id !== focusedTileId) : [];
-
-	// Focused mode navigation
-	function focusPrev() {
-		if (!focusedTileId) return;
-		const idx = tiles.findIndex(t => t.id === focusedTileId);
-		const prev = (idx - 1 + tiles.length) % tiles.length;
-		focusedTileId = tiles[prev].id;
-	}
-
-	function focusNext() {
-		if (!focusedTileId) return;
-		const idx = tiles.findIndex(t => t.id === focusedTileId);
-		const next = (idx + 1) % tiles.length;
-		focusedTileId = tiles[next].id;
-	}
-
-	// ---- Incoming call handling ----
-	$: if ($incomingCall) {
-		playRingtone();
-		callNotification = showCallNotification(
-			$incomingCall.username,
-			$incomingCall.isVideoCall,
-			() => handleAnswer(),
-			() => handleReject()
-		);
-	} else {
-		stopCallRingtone();
-		if (callNotification) {
-			callNotification.close();
+	$: {
+		const incomingToken = $incomingCall
+			? `${$incomingCall.userId}:${$incomingCall.isVideoCall ? 'video' : 'voice'}`
+			: null;
+		if (incomingToken && incomingToken !== lastIncomingCallToken) {
+			playCallRingtone();
+			callNotification?.close();
+			callNotification = showCallNotification(
+				$incomingCall!.username,
+				$incomingCall!.isVideoCall,
+				() => void handleAnswer(),
+				() => handleReject()
+			);
+		}
+		if (!incomingToken && lastIncomingCallToken) {
+			stopCallRingtone();
+			callNotification?.close();
 			callNotification = null;
 		}
+		lastIncomingCallToken = incomingToken;
 	}
 
-	// ---- Bind video elements reactively ----
-	$: if ($isInCall && localVideoElement && $localStream) {
-		localVideoElement.srcObject = $localStream;
+	function sanitizePinnedIds(pinned: string[], tiles: Map<string, RenderTile>): string[] {
+		const next: string[] = [];
+		for (const tileId of pinned) {
+			if (next.length >= 2) break;
+			if (!tiles.has(tileId)) continue;
+			if (next.includes(tileId)) continue;
+			next.push(tileId);
+		}
+		return next;
 	}
 
-	$: if ($activeCalls.length > 0) {
-		$activeCalls.forEach(call => {
-			const videoElement = remoteVideoElements[call.userId];
-			if (videoElement && call.stream) {
-				videoElement.srcObject = call.stream;
+	function isSameIdList(a: string[], b: string[]): boolean {
+		if (a.length !== b.length) return false;
+		for (let i = 0; i < a.length; i += 1) {
+			if (a[i] !== b[i]) return false;
+		}
+		return true;
+	}
+
+	function isSameSpeakerState(a: ActiveSpeakerState, b: ActiveSpeakerState): boolean {
+		return (
+			a.heroParticipantId === b.heroParticipantId &&
+			a.candidateParticipantId === b.candidateParticipantId &&
+			a.candidateSinceMs === b.candidateSinceMs &&
+			a.lastSwitchAtMs === b.lastSwitchAtMs
+		);
+	}
+
+	function buildParticipants(
+		calls: typeof $activeCalls,
+		inCall: boolean,
+		myStream: MediaStream | null,
+		localVideoOff: boolean
+	): ParticipantMedia[] {
+		const list: ParticipantMedia[] = [];
+		if (inCall) {
+			const hasLocalVideo = Boolean(!localVideoOff && myStream?.getVideoTracks().length);
+			list.push({
+				id: 'local',
+				label: 'You',
+				isLocal: true,
+				hasVideo: hasLocalVideo,
+				stream: myStream
+			});
+		}
+		for (const call of calls) {
+			list.push({
+				id: call.userId,
+				label: call.username || 'User',
+				isLocal: false,
+				hasVideo: Boolean(call.isVideoEnabled && call.stream?.getVideoTracks().length),
+				stream: call.stream
+			});
+		}
+		return list.sort((a, b) => a.id.localeCompare(b.id));
+	}
+
+	function buildShares(
+		remoteShares: typeof $screenShares,
+		sharing: boolean,
+		localShare: MediaStream | null
+	): ShareMedia[] {
+		const list: ShareMedia[] = remoteShares
+			.map((share) => ({
+				id: share.userId,
+				participantId: share.userId,
+				label: `${share.username}'s Screen`,
+				isLocal: false,
+				stream: share.stream
+			}))
+			.sort((a, b) => a.id.localeCompare(b.id));
+
+		if (sharing && localShare) {
+			list.push({
+				id: 'local',
+				participantId: 'local',
+				label: 'Your Screen',
+				isLocal: true,
+				stream: localShare
+			});
+		}
+
+		return list;
+	}
+
+	function buildRenderTiles(participantsList: ParticipantMedia[], shareList: ShareMedia[]): RenderTile[] {
+		const hasShares = shareList.length > 0;
+		const videoParticipants = participantsList.filter((participant) => participant.hasVideo);
+		const hasVideoTiles = videoParticipants.length > 0;
+		const tiles: RenderTile[] = [];
+
+		if (hasShares || hasVideoTiles) {
+			for (const share of shareList) {
+				tiles.push({
+					id: `share:${share.id}`,
+					participantId: share.participantId,
+					label: share.label,
+					kind: 'screen',
+					stream: share.stream,
+					isLocal: share.isLocal
+				});
 			}
-		});
+			for (const participant of videoParticipants) {
+				tiles.push({
+					id: `video:${participant.id}`,
+					participantId: participant.id,
+					label: participant.label,
+					kind: 'video',
+					stream: participant.stream,
+					isLocal: participant.isLocal
+				});
+			}
+			return tiles.sort((a, b) => a.id.localeCompare(b.id));
+		}
+
+		for (const participant of participantsList) {
+			tiles.push({
+				id: `avatar:${participant.id}`,
+				participantId: participant.id,
+				label: participant.label,
+				kind: 'avatar',
+				stream: participant.stream,
+				isLocal: participant.isLocal
+			});
+		}
+		return tiles.sort((a, b) => a.id.localeCompare(b.id));
 	}
 
-	// ---- Bind tile video elements ----
+	function buildActiveSpeakerLevels(
+		participantsList: ParticipantMedia[],
+		calls: typeof $activeCalls,
+		localSpeaking: boolean,
+		muted: boolean,
+		deafened: boolean
+	): Record<string, number> {
+		const levels: Record<string, number> = {};
+		for (const participant of participantsList) {
+			if (participant.isLocal) {
+				levels[participant.id] = !deafened && !muted && localSpeaking ? 1 : 0;
+				continue;
+			}
+			const call = calls.find((entry) => entry.userId === participant.id);
+			levels[participant.id] = call?.isAudioEnabled && call?.isSpeaking ? 1 : 0;
+		}
+		return levels;
+	}
+
+	function getInitial(label: string): string {
+		return label.trim().charAt(0).toUpperCase() || '?';
+	}
+
+	function hashString(value: string): number {
+		let hash = 0;
+		for (let i = 0; i < value.length; i += 1) {
+			hash = value.charCodeAt(i) + ((hash << 5) - hash);
+		}
+		return Math.abs(hash);
+	}
+
+	function bubbleStyle(tileId: string): string {
+		const seed = hashString(tileId);
+		const angle = (seed % 360) * (Math.PI / 180);
+		const radius = 24 + (seed % 16);
+		const x = Math.max(10, Math.min(90, 50 + Math.cos(angle) * radius));
+		const y = Math.max(15, Math.min(85, 50 + Math.sin(angle) * radius));
+		const size = 78 + (seed % 24);
+		return `left:${x}%; top:${y}%; width:${size}px; height:${size}px;`;
+	}
+
 	function bindMediaStream(node: HTMLMediaElement, stream: MediaStream | null) {
 		node.srcObject = stream ?? null;
 		return {
-			update(newStream: MediaStream | null) {
-				node.srcObject = newStream ?? null;
+			update(nextStream: MediaStream | null) {
+				node.srcObject = nextStream ?? null;
 			},
 			destroy() {
 				node.srcObject = null;
 			}
 		};
-	}
-
-	function playRingtone() {
-		playCallRingtone();
 	}
 
 	async function handleAnswer() {
@@ -210,13 +354,19 @@
 	}
 
 	function handleEndCall() {
-		if (!$socket) return;
-		endCall($socket);
-		focusedTileId = null;
+		const sock = $socket || getSocket();
+		if (!sock) return;
+		endCall(sock);
+		hatchOpen = false;
+		pinnedTileIds = [];
 	}
 
 	function handleToggleMute() {
 		toggleMute();
+	}
+
+	function handleToggleDeafen() {
+		toggleDeafen();
 	}
 
 	async function handleToggleVideo() {
@@ -232,411 +382,222 @@
 		}
 	}
 
-	function handleTileClick(tileId: string) {
-		if (layoutMode === 'focused' && focusedTileId === tileId) {
-			// Click focused tile again → back to tiled
-			focusedTileId = null;
-		} else {
-			focusedTileId = tileId;
+	function setViewportMode(mode: CallViewportMode): void {
+		callViewportMode = mode;
+		if (mode === 'docked') {
+			channelCallPanelOpen.set(false);
+			hatchOpen = false;
+			return;
+		}
+		channelCallPanelOpen.set(true);
+		if (mode !== 'focus') {
+			hatchOpen = false;
 		}
 	}
 
-	// Keyboard: Escape exits focused mode
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && focusedTileId) {
-			focusedTileId = null;
-		}
+	function toggleHatch(): void {
+		if (callViewportMode !== 'focus') return;
+		hatchOpen = !hatchOpen;
 	}
 
-	function isRemoteSpeaking(userId: string): boolean {
+	function closeHatch(): void {
+		hatchOpen = false;
+	}
+
+	function togglePin(tileId: string): void {
+		if (pinnedTileIds.includes(tileId)) {
+			pinnedTileIds = pinnedTileIds.filter((id) => id !== tileId);
+			return;
+		}
+		if (pinnedTileIds.length < 2) {
+			pinnedTileIds = [...pinnedTileIds, tileId];
+			return;
+		}
+		// Future hook: allow explicit pin-slot selection instead of evicting oldest.
+		pinnedTileIds = [pinnedTileIds[1], tileId];
+	}
+
+	function isTilePinned(tileId: string): boolean {
+		return pinnedTileIds.includes(tileId);
+	}
+
+	function isTileSpeaking(tile: RenderTile): boolean {
 		if ($isDeafened) return false;
-		const call = $activeCalls.find(item => item.userId === userId);
+		if (tile.isLocal) return $isLocalSpeaking && !$isMuted;
+		const call = $activeCalls.find((entry) => entry.userId === tileOwnerParticipantId(tile.id));
 		return Boolean(call?.isAudioEnabled && call?.isSpeaking);
 	}
 
-	function isTileSpeaking(tile: Tile): boolean {
-		if ($isDeafened) return false;
-		if (tile.userId === null) {
-			return $isLocalSpeaking && !$isMuted;
+	function handleKeydown(event: KeyboardEvent): void {
+		if (event.key === 'Escape' && hatchOpen) {
+			event.preventDefault();
+			closeHatch();
 		}
-		const call = $activeCalls.find(item => item.userId === tile.userId);
-		return Boolean(call?.isAudioEnabled && call?.isSpeaking);
 	}
 
-	async function handleFullscreenToggle() {
-		try {
-			if (document.fullscreenElement) {
-				await document.exitFullscreen();
-			} else {
-				await document.documentElement.requestFullscreen();
-			}
-		} catch (error) {
-			console.warn('Failed to toggle fullscreen mode:', error);
-		}
-	}
+	onDestroy(() => {
+		stopCallRingtone();
+		callNotification?.close();
+	});
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
 
-<!-- Incoming Call Modal -->
 {#if $incomingCall}
 	<div class="call-modal-overlay">
 		<div class="incoming-call-modal">
 			<div class="caller-info">
-				<div class="caller-avatar">
-					{$incomingCall.username.charAt(0).toUpperCase()}
-				</div>
+				<div class="caller-avatar">{$incomingCall.username.charAt(0).toUpperCase()}</div>
 				<h2>{$incomingCall.username}</h2>
-				<p class="call-type">
-					{$incomingCall.isVideoCall ? 'Video' : 'Voice'} Call
-				</p>
+				<p class="call-type">{$incomingCall.isVideoCall ? 'Video' : 'Voice'} Call</p>
 			</div>
 			<div class="call-actions">
-				<button class="answer-btn" on:click={handleAnswer}>
-					Answer
-				</button>
-				<button class="reject-btn" on:click={handleReject}>
-					Decline
-				</button>
+				<button class="answer-btn" on:click={handleAnswer}>Answer</button>
+				<button class="reject-btn" on:click={handleReject}>Decline</button>
 			</div>
 		</div>
 	</div>
 {/if}
 
-<!-- Keep remote audio alive even when channel call panel is hidden -->
 {#if $isInCall && $activeCalls.length > 0}
 	<div class="remote-audio-sink" aria-hidden="true">
 		{#each $activeCalls as call (call.userId)}
 			<audio
 				autoplay
 				playsinline
-				muted={$isDeafened || showActiveCallModal || spatialAudioActive}
+				muted={$isDeafened || spatialAudioActive}
 				use:bindMediaStream={call.stream}
 			></audio>
 		{/each}
 	</div>
 {/if}
 
-<!-- Active Call UI -->
-{#if showActiveCallModal}
-	<div class="active-call-container">
-		{#if layoutMode === 'voice-only' || layoutMode === 'video-call'}
-			<!-- Original grid layout for voice/video calls without screen shares -->
-			<div class="video-grid">
-				<!-- Local video -->
-				<div class="video-wrapper local-video" class:speaking={$isLocalSpeaking && !$isMuted && !$isDeafened}>
-					<!-- svelte-ignore a11y-media-has-caption -->
-					<video
-						bind:this={localVideoElement}
-						autoplay
-						muted
-						playsinline
-						class="video-element"
-						class:video-hidden={$isVideoOff}
-					></video>
-					{#if $isVideoOff}
-						<div class="video-placeholder">
-							<div class="avatar-circle">You</div>
-						</div>
-					{/if}
-					<div class="video-label">You</div>
-				</div>
+{#if showDockedBar}
+	<div class="docked-bar" role="region" aria-label="Docked call controls">
+		<div class="docked-title">Call in progress ({1 + $activeCalls.length})</div>
+		<div class="docked-actions">
+			<button class="dock-btn" on:click={() => setViewportMode('embedded')} title="Open embedded call">Open</button>
+			<button class="dock-btn" on:click={() => setViewportMode('focus')} title="Focus call">Focus</button>
+			<button class="dock-btn" class:active={$isMuted} on:click={handleToggleMute} title={$isMuted ? 'Unmute' : 'Mute'}>Mute</button>
+			<button class="dock-btn end" on:click={handleEndCall} title="End call">End</button>
+		</div>
+	</div>
+{/if}
 
-				<!-- Remote videos -->
-				{#each $activeCalls as call (call.userId)}
-					<div
-						class="video-wrapper remote-video"
-						class:speaking={isRemoteSpeaking(call.userId)}
-						transition:scale={{ duration: 250 }}
-					>
-						<!-- svelte-ignore a11y-media-has-caption -->
-						<video
-							bind:this={remoteVideoElements[call.userId]}
-							autoplay
-							playsinline
-							class="video-element"
-							muted={$isDeafened || spatialAudioActive}
-							class:video-hidden={!call.isVideoEnabled}
-						></video>
-						{#if !call.isVideoEnabled}
-							<div class="video-placeholder">
-								<div class="avatar-circle">{(call.username || 'U').charAt(0).toUpperCase()}</div>
-								<span class="placeholder-name">{call.username || 'User'}</span>
-							</div>
-						{/if}
-						<div class="video-label">{call.username || 'User'}</div>
-					</div>
-				{/each}
-			</div>
+{#if showCallShell}
+	<div
+		class="call-shell"
+		class:mode-embedded={callViewportMode === 'embedded'}
+		class:mode-focus={callViewportMode === 'focus'}
+		class:hatch-open={callViewportMode === 'focus' && hatchOpen}
+		style={`--hatch-left: ${focusHatchInsetLeft}px; --hatch-right: ${focusHatchInsetRight}px;`}
+	>
+		{#if callViewportMode === 'focus'}
+			<button
+				type="button"
+				class="hatch-scrim"
+				class:visible={hatchOpen}
+				on:click={closeHatch}
+				aria-label="Close hatch"
+			></button>
+		{/if}
 
-		{:else if layoutMode === 'tiled'}
-			<!-- Tiled layout: all tiles in auto-fit grid -->
-			<div class="tile-grid">
-				{#each tiles as tile (tile.id)}
-					<button
-						class="tile"
-						class:tile-screen={tile.kind === 'screen-share' || tile.kind === 'local-screen'}
-						class:speaking={isTileSpeaking(tile)}
-						on:click={() => handleTileClick(tile.id)}
-					>
-						{#if tile.kind === 'screen-share' || tile.kind === 'local-screen'}
-							<!-- svelte-ignore a11y-media-has-caption -->
-							<video
-								class="tile-video tile-video-contain"
-								autoplay
-								playsinline
-								muted={tile.kind === 'local-screen' || (tile.userId !== null && ($isDeafened || spatialAudioActive))}
-								use:bindMediaStream={tile.stream}
-							></video>
-						{:else if tile.kind === 'video' || tile.kind === 'local-camera'}
-							<!-- svelte-ignore a11y-media-has-caption -->
-							<video
-								class="tile-video"
-								autoplay
-								playsinline
-								muted={tile.userId === null || $isDeafened || (tile.userId !== null && spatialAudioActive)}
-								use:bindMediaStream={tile.stream}
-							></video>
-						{:else}
-							<div class="tile-avatar">
-								<div class="avatar-circle">{tile.label.charAt(0).toUpperCase()}</div>
-							</div>
-							{#if tile.userId !== null}
-								<audio
-									autoplay
-									playsinline
-									muted={$isDeafened || spatialAudioActive}
-									use:bindMediaStream={tile.stream}
-								></audio>
-							{/if}
-						{/if}
-						<div class="tile-label">{tile.label}</div>
-					</button>
-				{/each}
-			</div>
+		{#if showHatchToggle}
+			<button
+				type="button"
+				class="hatch-toggle"
+				on:click={toggleHatch}
+				title={hatchOpen ? 'Close hatch' : 'Open hatch'}
+			>
+				{hatchOpen ? 'Close Hatch' : 'Open Hatch'}
+			</button>
+		{/if}
 
-		{:else if layoutMode === 'focused' && focusedTile}
-			<!-- Focused layout: one tile maximized, rest as thumbnails -->
-			<div class="focused-layout">
-				<div class="focused-main">
-					<!-- Focused tile -->
-					<button class="focused-tile" class:speaking={isTileSpeaking(focusedTile)} on:click={() => handleTileClick(focusedTile.id)}>
-						{#if focusedTile.kind === 'screen-share' || focusedTile.kind === 'local-screen'}
-							<!-- svelte-ignore a11y-media-has-caption -->
-							<video
-								class="focused-video focused-video-contain"
-								autoplay
-								playsinline
-								muted={focusedTile.kind === 'local-screen' || (focusedTile.userId !== null && ($isDeafened || spatialAudioActive))}
-								use:bindMediaStream={focusedTile.stream}
-							></video>
-						{:else if focusedTile.kind === 'video' || focusedTile.kind === 'local-camera'}
-							<!-- svelte-ignore a11y-media-has-caption -->
-							<video
-								class="focused-video"
-								autoplay
-								playsinline
-								muted={focusedTile.userId === null || $isDeafened || (focusedTile.userId !== null && spatialAudioActive)}
-								use:bindMediaStream={focusedTile.stream}
-							></video>
-						{:else}
-							<div class="focused-avatar">
-								<div class="avatar-circle avatar-circle-lg">{focusedTile.label.charAt(0).toUpperCase()}</div>
-							</div>
-							{#if focusedTile.userId !== null}
-								<audio
-									autoplay
-									playsinline
-									muted={$isDeafened || spatialAudioActive}
-									use:bindMediaStream={focusedTile.stream}
-								></audio>
-							{/if}
-						{/if}
-						<div class="focused-label">{focusedTile.label}</div>
-					</button>
-
-					<!-- Overlay controls -->
-					<div class="focused-controls-overlay">
-						<button class="overlay-btn" on:click={focusPrev} title="Previous tile">
-							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-						</button>
-						<button class="overlay-btn" on:click={() => { focusedTileId = null; }} title="Back to tiles">
-							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-						</button>
-						<button class="overlay-btn" on:click={focusNext} title="Next tile">
-							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-						</button>
-					</div>
-				</div>
-
-				<!-- Thumbnail strip -->
-				{#if thumbnailTiles.length > 0}
-					<div class="thumbnail-strip">
-						{#each thumbnailTiles as thumb (thumb.id)}
-							<button
-								class="thumbnail"
-								class:speaking={isTileSpeaking(thumb)}
-								on:click={() => handleTileClick(thumb.id)}
-								transition:scale={{ duration: 200 }}
+		<div class="active-call-container">
+			<div class="call-stage">
+				{#if layoutResult.template === 'floating-bubbles'}
+					<div class="bubble-stage">
+						{#each orderedTiles as tile (tile.id)}
+							<div
+								class="bubble-tile"
+								class:pinned={isTilePinned(tile.id)}
+								class:speaking={isTileSpeaking(tile)}
+								style={bubbleStyle(tile.id)}
 							>
-								{#if thumb.kind === 'screen-share' || thumb.kind === 'local-screen' || thumb.kind === 'video' || thumb.kind === 'local-camera'}
-									<!-- svelte-ignore a11y-media-has-caption -->
+								<button
+									type="button"
+									class="pin-btn"
+									on:click|stopPropagation={() => togglePin(tile.id)}
+									title={isTilePinned(tile.id) ? 'Unpin tile' : 'Pin tile'}
+								>
+									{isTilePinned(tile.id) ? 'Unpin' : 'Pin'}
+								</button>
+								<div class="bubble-avatar">{getInitial(tile.label)}</div>
+								<div class="bubble-label">{tile.label}</div>
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<div class="tile-layout template-{layoutResult.template}">
+						{#each orderedTiles as tile (tile.id)}
+							<article
+								class="media-tile"
+								class:hero={layoutResult.heroIds.includes(tile.id)}
+								class:pinned={isTilePinned(tile.id)}
+								class:speaking={isTileSpeaking(tile)}
+							>
+								<button
+									type="button"
+									class="pin-btn"
+									on:click|stopPropagation={() => togglePin(tile.id)}
+									title={isTilePinned(tile.id) ? 'Unpin tile' : 'Pin tile'}
+								>
+									{isTilePinned(tile.id) ? 'Unpin' : 'Pin'}
+								</button>
+								{#if tile.kind === 'avatar' || !tile.stream}
+									<div class="tile-avatar">
+										<div class="avatar-circle">{getInitial(tile.label)}</div>
+									</div>
+								{:else}
 									<video
-										class="thumbnail-video"
+										class="tile-video"
+										class:contain={tile.kind === 'screen'}
 										autoplay
 										playsinline
-										muted={thumb.userId === null || $isDeafened || (thumb.userId !== null && spatialAudioActive)}
-										use:bindMediaStream={thumb.stream}
+										muted
+										use:bindMediaStream={tile.stream}
 									></video>
-								{:else}
-									<div class="thumbnail-avatar">
-										<div class="avatar-circle avatar-circle-sm">{thumb.label.charAt(0).toUpperCase()}</div>
-									</div>
-									{#if thumb.userId !== null}
-										<audio
-											autoplay
-											playsinline
-											muted={$isDeafened || spatialAudioActive}
-											use:bindMediaStream={thumb.stream}
-										></audio>
-									{/if}
 								{/if}
-								<div class="thumbnail-label">{thumb.label}</div>
-							</button>
+								<div class="tile-label">{tile.label}</div>
+							</article>
 						{/each}
 					</div>
 				{/if}
 			</div>
-		{/if}
 
-		<!-- Controls bar -->
-		<div class="call-controls">
-			{#if $isInCall}
-				<button class="control-btn" on:click={closeChannelCallPanel} title="Back to chat">
-					<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<polyline points="15 18 9 12 15 6"></polyline>
-					</svg>
-				</button>
-				<button class="control-btn" on:click={closeChannelCallPanel} title="Show chat">
-					<span class="control-text-btn">Chat</span>
-				</button>
-				<button class="control-btn" on:click={handleFullscreenToggle} title="Toggle full screen">
-					<span class="control-text-btn">Full</span>
-				</button>
-			{/if}
+			<div class="call-controls">
+				<div class="mode-controls" role="group" aria-label="Call view mode">
+					<button class="mode-btn" class:active={callViewportMode === 'embedded'} on:click={() => setViewportMode('embedded')}>Embedded</button>
+					<button class="mode-btn" class:active={callViewportMode === 'focus'} on:click={() => setViewportMode('focus')}>Focus</button>
+					<button class="mode-btn" class:active={callViewportMode === 'docked'} on:click={() => setViewportMode('docked')}>Dock</button>
+				</div>
 
-			<button
-				class="control-btn"
-				class:active={$isMuted}
-				on:click={handleToggleMute}
-				title={$isMuted ? 'Unmute' : 'Mute'}
-			>
-				<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					{#if $isMuted}
-						<line x1="1" y1="1" x2="23" y2="23"></line>
-						<path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path>
-						<path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path>
-						<line x1="12" y1="19" x2="12" y2="23"></line>
-						<line x1="8" y1="23" x2="16" y2="23"></line>
-					{:else}
-						<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-						<path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-						<line x1="12" y1="19" x2="12" y2="23"></line>
-						<line x1="8" y1="23" x2="16" y2="23"></line>
+				<div class="control-actions">
+					<button class="control-btn" class:active={$isMuted} on:click={handleToggleMute} title={$isMuted ? 'Unmute' : 'Mute'}>Mute</button>
+					<button class="control-btn" class:active={$isDeafened} on:click={handleToggleDeafen} title={$isDeafened ? 'Undeafen' : 'Deafen'}>Deafen</button>
+					{#if spatialQuickToggleVisible}
+						<button class="control-btn" class:active={spatialAudioActive} on:click={toggleSpatialAudioEnabled} title={spatialAudioActive ? 'Disable spatial audio' : 'Enable spatial audio'}>Spatial</button>
 					{/if}
-				</svg>
-			</button>
+					<button class="control-btn" class:active={$isVideoOff} on:click={handleToggleVideo} title={$isVideoOff ? 'Turn on camera' : 'Turn off camera'}>Video</button>
+					<button class="control-btn" class:active={$isSharing} on:click={handleToggleScreenShare} title={$isSharing ? 'Stop sharing' : 'Share screen'}>{$isSharing ? 'Stop Share' : 'Share'}</button>
+					<button class="control-btn end" on:click={handleEndCall} title="End call">End</button>
+				</div>
+			</div>
 
-			<button
-				class="control-btn"
-				class:active={$isDeafened}
-				on:click={() => toggleDeafen()}
-				title={$isDeafened ? 'Undeafen' : 'Deafen'}
-			>
-				<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					{#if $isDeafened}
-						<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-						<line x1="23" y1="9" x2="17" y2="15"></line>
-						<line x1="17" y1="9" x2="23" y2="15"></line>
-					{:else}
-						<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-						<path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-					{/if}
-				</svg>
-			</button>
-
-			{#if spatialQuickToggleVisible}
-				<button
-					class="control-btn"
-					class:active={spatialAudioActive}
-					on:click={toggleSpatialAudioEnabled}
-					title={spatialAudioActive ? 'Disable spatial audio' : 'Enable spatial audio'}
-				>
-					<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<path d="M12 3v18"></path>
-						<path d="M5.64 7.64a9 9 0 0 0 0 8.72"></path>
-						<path d="M18.36 7.64a9 9 0 0 1 0 8.72"></path>
-						<path d="M2.5 12h1.5"></path>
-						<path d="M20 12h1.5"></path>
-					</svg>
-				</button>
+			{#if $connectionState && $connectionState !== 'idle'}
+				<div class="connection-status">Connection: {$connectionState}</div>
 			{/if}
-
-			<button
-				class="control-btn"
-				class:active={$isVideoOff}
-				on:click={handleToggleVideo}
-				title={$isVideoOff ? 'Turn on camera' : 'Turn off camera'}
-			>
-				<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					{#if $isVideoOff}
-						<line x1="1" y1="1" x2="23" y2="23"></line>
-						<path d="M7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3m0-11l5-5h6a2 2 0 0 1 2 2v9.34a2 2 0 0 1-.46 1.32"></path>
-					{:else}
-						<path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-					{/if}
-				</svg>
-			</button>
-
-			<!-- Screen Share button -->
-			{#if $isSharing}
-				<button
-					class="control-btn screen-share-stop"
-					on:click={handleToggleScreenShare}
-					title="Stop sharing"
-				>
-					<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-						<line x1="8" y1="21" x2="16" y2="21"></line>
-						<line x1="12" y1="17" x2="12" y2="21"></line>
-						<line x1="2" y1="3" x2="22" y2="17"></line>
-					</svg>
-				</button>
-			{:else}
-				<button
-					class="control-btn"
-					on:click={handleToggleScreenShare}
-					title="Share screen"
-				>
-					<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-						<line x1="8" y1="21" x2="16" y2="21"></line>
-						<line x1="12" y1="17" x2="12" y2="21"></line>
-					</svg>
-				</button>
-			{/if}
-
-			<button class="control-btn end-call-btn" on:click={handleEndCall} title="End call">
-				<svg class="control-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
-					<line x1="1" y1="1" x2="23" y2="23"></line>
-				</svg>
-			</button>
 		</div>
-
-		{#if $connectionState && $connectionState !== 'idle'}
-			<div class="connection-status">Connection: {$connectionState}</div>
-		{/if}
 	</div>
 {/if}
 
@@ -649,20 +610,14 @@
 		pointer-events: none;
 	}
 
-	/* ================================================================
-	   Incoming Call Modal
-	   ================================================================ */
 	.call-modal-overlay {
 		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
+		inset: 0;
 		background-color: rgba(0, 0, 0, 0.7);
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 2000;
+		z-index: 2300;
 		backdrop-filter: blur(8px);
 	}
 
@@ -670,266 +625,274 @@
 		background: white;
 		border-radius: 16px;
 		padding: 2rem;
-		width: 90%;
-		max-width: 400px;
-		box-shadow: none;
-		animation: slideUp 0.3s ease-out;
-	}
-
-	@keyframes slideUp {
-		from {
-			transform: translateY(100px);
-			opacity: 0;
-		}
-		to {
-			transform: translateY(0);
-			opacity: 1;
-		}
+		width: min(420px, 92vw);
 	}
 
 	.caller-info {
 		text-align: center;
-		margin-bottom: 2rem;
+		margin-bottom: 1.5rem;
 	}
 
 	.caller-avatar {
-		width: 100px;
-		height: 100px;
+		width: 92px;
+		height: 92px;
 		border-radius: 50%;
 		background: var(--accent);
 		color: white;
-		font-size: 3rem;
-		font-weight: bold;
+		font-size: 2.5rem;
+		font-weight: 700;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		margin: 0 auto 1rem;
-		animation: pulse 2s infinite;
-	}
-
-	@keyframes pulse {
-		0%, 100% {
-			transform: scale(1);
-		}
-		50% {
-			transform: scale(1.05);
-		}
-	}
-
-	.caller-info h2 {
-		margin: 0 0 0.5rem;
-		font-size: 1.5rem;
-		color: var(--modal-text);
+		margin: 0 auto 0.75rem;
 	}
 
 	.call-type {
-		color: var(--modal-text-secondary);
-		font-size: 1rem;
 		margin: 0;
+		opacity: 0.75;
 	}
 
 	.call-actions {
 		display: flex;
-		gap: 1rem;
-		justify-content: center;
+		gap: 0.75rem;
 	}
 
 	.answer-btn,
 	.reject-btn {
 		flex: 1;
-		padding: 1rem;
+		padding: 0.8rem 1rem;
 		border: none;
-		border-radius: 12px;
-		font-size: 1rem;
+		border-radius: 10px;
 		font-weight: 600;
 		cursor: pointer;
-		transition: all 0.2s;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0.5rem;
 	}
 
 	.answer-btn {
-		background: var(--color-success);
-		color: white;
-	}
-
-	.answer-btn:hover {
-		background: var(--color-success-hover);
-		transform: translateY(-2px);
+		background: var(--color-success, #16a34a);
+		color: #fff;
 	}
 
 	.reject-btn {
-		background: var(--color-danger-hover);
-		color: white;
+		background: var(--color-danger-hover, #d83c3e);
+		color: #fff;
 	}
 
-	.reject-btn:hover {
-		background: var(--color-danger-dark);
-		transform: translateY(-2px);
-	}
-
-	/* ================================================================
-	   Active Call Container
-	   ================================================================ */
-	.active-call-container {
+	.docked-bar {
 		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: var(--dark-bg-primary);
-		z-index: 1500;
-		display: flex;
-		flex-direction: column;
-	}
-
-	/* ================================================================
-	   Avatar Circle (shared)
-	   ================================================================ */
-	.avatar-circle {
-		width: 80px;
-		height: 80px;
-		border-radius: 50%;
-		background: var(--accent, #5865F2);
-		color: white;
-		font-size: 2rem;
-		font-weight: bold;
+		right: 1rem;
+		bottom: 1rem;
+		z-index: 1800;
 		display: flex;
 		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
+		gap: 0.75rem;
+		padding: 0.65rem 0.8rem;
+		border-radius: 12px;
+		background: color-mix(in srgb, var(--dark-bg-secondary, #111827) 88%, black 12%);
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		box-shadow: 0 12px 28px rgba(0, 0, 0, 0.42);
 	}
 
-	.avatar-circle-lg {
-		width: 120px;
-		height: 120px;
-		font-size: 3rem;
+	.docked-title {
+		font-size: 0.78rem;
+		font-weight: 600;
+		color: rgba(255, 255, 255, 0.88);
 	}
 
-	.avatar-circle-sm {
-		width: 36px;
-		height: 36px;
-		font-size: 1rem;
+	.docked-actions {
+		display: flex;
+		gap: 0.45rem;
 	}
 
-	/* ================================================================
-	   Voice-Only / Video-Call Grid (original layout)
-	   ================================================================ */
-	.video-grid {
+	.dock-btn {
+		padding: 0.4rem 0.65rem;
+		border-radius: 8px;
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		background: rgba(255, 255, 255, 0.08);
+		color: #fff;
+		font-size: 0.72rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.dock-btn.active {
+		background: var(--accent, #5865f2);
+	}
+
+	.dock-btn.end {
+		background: var(--color-danger-hover, #d83c3e);
+		border-color: transparent;
+	}
+
+	.call-shell {
+		pointer-events: none;
+		z-index: 1600;
+	}
+
+	.call-shell.mode-embedded {
+		position: absolute;
+		inset: 0;
+	}
+
+	.call-shell.mode-focus {
+		position: fixed;
+		inset: 0;
+		z-index: 1700;
+	}
+
+	.hatch-scrim {
+		position: fixed;
+		inset: 0;
+		border: none;
+		background: rgba(8, 10, 17, 0.46);
+		backdrop-filter: blur(6px);
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 180ms ease;
+		z-index: 0;
+	}
+
+	.hatch-scrim.visible {
+		opacity: 1;
+		pointer-events: auto;
+	}
+
+	.hatch-toggle {
+		position: fixed;
+		top: 1rem;
+		right: 1rem;
+		z-index: 1802;
+		padding: 0.5rem 0.75rem;
+		border-radius: 10px;
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		background: rgba(0, 0, 0, 0.55);
+		color: #fff;
+		font-size: 0.75rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.active-call-container {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		flex-direction: column;
+		background: var(--dark-bg-primary, #0b1020);
+		pointer-events: auto;
+		transition:
+			inset 220ms ease,
+			transform 220ms ease,
+			border-radius 220ms ease,
+			box-shadow 220ms ease;
+	}
+
+	.call-shell.mode-focus .active-call-container {
+		position: fixed;
+		inset: 0;
+		z-index: 1;
+	}
+
+	.call-shell.mode-focus.hatch-open .active-call-container {
+		inset: 0.7rem calc(var(--hatch-right) + 0.7rem) 0.7rem calc(var(--hatch-left) + 0.7rem);
+		border-radius: 18px;
+		transform: scale(0.988);
+		box-shadow: 0 16px 40px rgba(0, 0, 0, 0.48);
+	}
+
+	.call-stage {
 		flex: 1;
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-		gap: 1rem;
-		padding: 1rem;
-		overflow-y: auto;
+		min-height: 0;
 	}
 
-	.video-wrapper {
+	.tile-layout {
+		height: 100%;
+		display: grid;
+		gap: 0.65rem;
+		padding: 0.65rem;
+		overflow: auto;
+		align-content: start;
+	}
+
+	.template-screen-hero,
+	.template-single-hero {
+		grid-template-columns: repeat(12, minmax(0, 1fr));
+		grid-auto-rows: minmax(92px, auto);
+	}
+
+	.template-screen-hero .media-tile.hero,
+	.template-single-hero .media-tile.hero {
+		grid-column: 1 / -1;
+		grid-row: 1;
+		min-height: min(68vh, 100%);
+		aspect-ratio: auto;
+	}
+
+	.template-screen-hero .media-tile:not(.hero),
+	.template-single-hero .media-tile:not(.hero) {
+		grid-column: span 3;
+	}
+
+	.template-split {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.template-hero-stack {
+		grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+		grid-auto-rows: minmax(120px, 1fr);
+	}
+
+	.template-hero-stack .media-tile.hero {
+		grid-column: 1;
+		grid-row: 1 / span 2;
+		aspect-ratio: auto;
+		min-height: 0;
+	}
+
+	.template-grid-2x2 {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.template-double-hero-triple {
+		grid-template-columns: repeat(6, minmax(0, 1fr));
+	}
+
+	.template-double-hero-triple .media-tile.hero {
+		grid-column: span 3;
+		aspect-ratio: 16 / 9;
+	}
+
+	.template-double-hero-triple .media-tile:not(.hero) {
+		grid-column: span 2;
+	}
+
+	.template-uniform-grid {
+		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	}
+
+	.template-scroll-grid {
+		grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+	}
+
+	.media-tile {
 		position: relative;
-		background: var(--dark-bg-secondary);
 		border-radius: 12px;
 		overflow: hidden;
+		background: color-mix(in srgb, var(--dark-bg-secondary, #111827) 90%, black 10%);
 		aspect-ratio: 16 / 9;
-	}
-
-	.video-wrapper.speaking {
-		box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.45);
-	}
-
-	.local-video {
-		max-width: 300px;
-		position: absolute;
-		bottom: 1rem;
-		right: 1rem;
-		z-index: 10;
-		border: none;
-	}
-
-	.video-element {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
-	.video-hidden {
-		display: none;
-	}
-
-	.video-placeholder {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		background: var(--dark-bg-secondary);
-		color: white;
-		gap: 0.5rem;
-	}
-
-	.placeholder-name {
-		font-size: 0.875rem;
-		opacity: 0.8;
-	}
-
-	.video-label {
-		position: absolute;
-		bottom: 0.75rem;
-		left: 0.75rem;
-		background: rgba(0, 0, 0, 0.7);
-		color: white;
-		padding: 0.5rem 0.75rem;
-		border-radius: 6px;
-		font-size: 0.875rem;
-		font-weight: 500;
-	}
-
-	/* ================================================================
-	   Tiled Layout
-	   ================================================================ */
-	.tile-grid {
-		flex: 1;
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
-		gap: 0.5rem;
-		padding: 0.5rem;
-		overflow-y: auto;
-	}
-
-	.tile {
-		position: relative;
-		background: var(--dark-bg-secondary);
-		border-radius: 8px;
-		overflow: hidden;
-		cursor: pointer;
 		border: 2px solid transparent;
-		transition: border-color 0.15s;
-		aspect-ratio: 16 / 9;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0;
-		color: white;
-		font-family: inherit;
+		min-height: 120px;
 	}
 
-	.tile:hover {
-		border-color: var(--accent, #5865F2);
+	.media-tile.hero {
+		border-color: rgba(255, 255, 255, 0.2);
 	}
 
-	.tile.speaking {
-		border-color: rgba(34, 197, 94, 0.75);
+	.media-tile.speaking {
+		border-color: rgba(34, 197, 94, 0.82);
 		box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.35);
 	}
 
-	.tile-screen {
-		/* Screen shares get priority sizing in the grid */
-		grid-column: span 1;
+	.media-tile.pinned {
+		border-color: rgba(250, 204, 21, 0.88);
 	}
 
 	.tile-video {
@@ -938,316 +901,211 @@
 		object-fit: cover;
 	}
 
-	.tile-video-contain {
+	.tile-video.contain {
 		object-fit: contain;
 		background: #000;
 	}
 
 	.tile-avatar {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
 		width: 100%;
 		height: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: linear-gradient(160deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.92));
+	}
+
+	.avatar-circle {
+		width: 84px;
+		height: 84px;
+		border-radius: 50%;
+		background: var(--accent, #5865f2);
+		color: #fff;
+		font-size: 1.9rem;
+		font-weight: 700;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.tile-label {
 		position: absolute;
-		bottom: 0.5rem;
-		left: 0.5rem;
-		background: rgba(0, 0, 0, 0.7);
-		color: white;
-		padding: 0.25rem 0.5rem;
-		border-radius: 4px;
-		font-size: 0.75rem;
-		font-weight: 500;
+		left: 0.55rem;
+		bottom: 0.55rem;
+		background: rgba(0, 0, 0, 0.64);
+		color: #fff;
+		padding: 0.25rem 0.45rem;
+		border-radius: 6px;
+		font-size: 0.72rem;
+		font-weight: 600;
 		pointer-events: none;
 	}
 
-	/* ================================================================
-	   Focused Layout
-	   ================================================================ */
-	.focused-layout {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
+	.pin-btn {
+		position: absolute;
+		top: 0.45rem;
+		right: 0.45rem;
+		z-index: 3;
+		padding: 0.2rem 0.4rem;
+		border-radius: 999px;
+		border: 1px solid rgba(255, 255, 255, 0.24);
+		background: rgba(0, 0, 0, 0.56);
+		color: #fff;
+		font-size: 0.64rem;
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	.bubble-stage {
+		position: relative;
+		height: 100%;
+		background: radial-gradient(circle at 20% 15%, rgba(56, 189, 248, 0.16), transparent 45%),
+			radial-gradient(circle at 80% 75%, rgba(59, 130, 246, 0.16), transparent 45%),
+			var(--dark-bg-primary, #0b1020);
 		overflow: hidden;
 	}
 
-	.focused-main {
-		flex: 1;
-		position: relative;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 0;
-	}
-
-	.focused-tile {
-		width: 100%;
-		height: 100%;
-		background: #000;
-		border: none;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		position: relative;
-		padding: 0;
-		color: white;
-		font-family: inherit;
-	}
-
-	.focused-tile.speaking {
-		box-shadow: inset 0 0 0 3px rgba(34, 197, 94, 0.45);
-	}
-
-	.focused-video {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
-	.focused-video-contain {
-		object-fit: contain;
-	}
-
-	.focused-avatar {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		width: 100%;
-		height: 100%;
-		background: var(--dark-bg-secondary);
-	}
-
-	.focused-label {
+	.bubble-tile {
 		position: absolute;
-		bottom: 1rem;
-		left: 1rem;
-		background: rgba(0, 0, 0, 0.7);
-		color: white;
-		padding: 0.5rem 0.75rem;
-		border-radius: 6px;
-		font-size: 0.875rem;
-		font-weight: 500;
-		pointer-events: none;
-	}
-
-	.focused-controls-overlay {
-		position: absolute;
-		top: 0.75rem;
-		right: 0.75rem;
-		display: flex;
-		gap: 0.5rem;
-		z-index: 10;
-	}
-
-	.overlay-btn {
-		width: 36px;
-		height: 36px;
-		border-radius: 8px;
-		border: none;
-		background: rgba(0, 0, 0, 0.6);
-		color: white;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: background 0.15s;
-		padding: 0;
-	}
-
-	.overlay-btn:hover {
-		background: rgba(0, 0, 0, 0.85);
-	}
-
-	.overlay-btn svg {
-		width: 18px;
-		height: 18px;
-	}
-
-	/* ---- Thumbnail strip ---- */
-	.thumbnail-strip {
-		display: flex;
-		gap: 0.5rem;
-		padding: 0.5rem;
-		overflow-x: auto;
-		background: var(--dark-bg-secondary);
-		flex-shrink: 0;
-	}
-
-	.thumbnail {
-		position: relative;
-		width: 120px;
-		height: 80px;
-		flex-shrink: 0;
-		border-radius: 6px;
-		overflow: hidden;
-		cursor: pointer;
+		transform: translate(-50%, -50%);
+		display: grid;
+		place-items: center;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--dark-bg-secondary, #111827) 86%, black 14%);
 		border: 2px solid transparent;
-		transition: border-color 0.15s;
-		background: var(--dark-bg-primary);
+		padding: 0.35rem;
+	}
+
+	.bubble-tile.speaking {
+		border-color: rgba(34, 197, 94, 0.9);
+		box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.28);
+	}
+
+	.bubble-tile.pinned {
+		border-color: rgba(250, 204, 21, 0.92);
+	}
+
+	.bubble-avatar {
+		width: 100%;
+		height: 100%;
+		border-radius: 999px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 0;
-		color: white;
-		font-family: inherit;
+		font-size: 1.35rem;
+		font-weight: 700;
+		color: #fff;
+		background: linear-gradient(145deg, rgba(88, 101, 242, 0.92), rgba(67, 56, 202, 0.9));
 	}
 
-	.thumbnail:hover {
-		border-color: var(--accent, #5865F2);
-	}
-
-	.thumbnail.speaking {
-		border-color: rgba(34, 197, 94, 0.75);
-	}
-
-	.thumbnail-video {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
-	.thumbnail-avatar {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 100%;
-		height: 100%;
-	}
-
-	.thumbnail-label {
+	.bubble-label {
 		position: absolute;
-		bottom: 2px;
-		left: 2px;
-		background: rgba(0, 0, 0, 0.7);
-		color: white;
-		padding: 1px 4px;
-		border-radius: 3px;
-		font-size: 0.625rem;
-		font-weight: 500;
-		pointer-events: none;
-		max-width: calc(100% - 4px);
-		overflow: hidden;
-		text-overflow: ellipsis;
+		bottom: -1.15rem;
+		left: 50%;
+		transform: translateX(-50%);
+		font-size: 0.68rem;
+		font-weight: 600;
+		color: rgba(255, 255, 255, 0.88);
 		white-space: nowrap;
 	}
 
-	/* ================================================================
-	   Controls Bar
-	   ================================================================ */
 	.call-controls {
 		display: flex;
-		gap: 1rem;
-		padding: 1.5rem;
-		padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
-		background: var(--dark-bg-secondary);
-		justify-content: center;
-		border-top: 1px solid rgba(255, 255, 255, 0.1);
-		flex-shrink: 0;
-	}
-
-	.control-btn {
-		width: 52px;
-		height: 52px;
-		border-radius: 50%;
-		border: none;
-		background: rgba(255, 255, 255, 0.15);
-		color: white;
-		font-size: 1.5rem;
-		cursor: pointer;
-		transition: all 0.2s;
-		display: flex;
+		justify-content: space-between;
 		align-items: center;
-		justify-content: center;
+		gap: 0.9rem;
+		padding: 0.8rem;
+		padding-bottom: calc(0.8rem + env(safe-area-inset-bottom, 0px));
+		background: color-mix(in srgb, var(--dark-bg-secondary, #111827) 90%, black 10%);
+		border-top: 1px solid rgba(255, 255, 255, 0.08);
 	}
 
-	.control-btn:hover {
-		background: rgba(255, 255, 255, 0.25);
-		transform: scale(1.1);
+	.mode-controls,
+	.control-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
 	}
 
-	.control-btn.active {
-		background: var(--color-danger-hover, #d83c3e);
-	}
-
-	.end-call-btn {
-		background: var(--color-danger-hover, #d83c3e);
-	}
-
-	.end-call-btn:hover {
-		background: var(--color-danger-dark, #a12d2f);
-	}
-
-	.screen-share-stop {
-		background: var(--color-danger-hover, #d83c3e);
-	}
-
-	.screen-share-stop:hover {
-		background: var(--color-danger-dark, #a12d2f);
-	}
-
-	.control-icon {
-		display: block;
-		width: 22px;
-		height: 22px;
-	}
-
-	.control-text-btn {
+	.mode-btn,
+	.control-btn {
+		padding: 0.45rem 0.68rem;
+		border-radius: 8px;
+		border: 1px solid rgba(255, 255, 255, 0.14);
+		background: rgba(255, 255, 255, 0.08);
+		color: #fff;
 		font-size: 0.72rem;
-		font-weight: 600;
-		line-height: 1;
-		letter-spacing: 0.01em;
+		font-weight: 700;
+		cursor: pointer;
 	}
 
-	.control-btn svg {
-		width: 22px;
-		height: 22px;
-		stroke: currentColor;
-		stroke-width: 2;
+	.mode-btn.active,
+	.control-btn.active {
+		background: var(--accent, #5865f2);
+		border-color: transparent;
+	}
+
+	.control-btn.end {
+		background: var(--color-danger-hover, #d83c3e);
+		border-color: transparent;
 	}
 
 	.connection-status {
 		position: absolute;
-		top: 1rem;
+		top: 0.6rem;
 		left: 50%;
 		transform: translateX(-50%);
-		background: rgba(0, 0, 0, 0.7);
-		color: white;
-		padding: 0.5rem 1rem;
-		border-radius: 6px;
-		font-size: 0.875rem;
-		font-weight: 500;
+		background: rgba(0, 0, 0, 0.62);
+		padding: 0.35rem 0.6rem;
+		border-radius: 8px;
+		font-size: 0.7rem;
+		font-weight: 700;
 		text-transform: capitalize;
+		z-index: 3;
 	}
 
-	@media (max-width: 768px) {
-		.control-btn {
-			width: 44px;
-			height: 44px;
+	@media (max-width: 900px) {
+		.call-shell.mode-focus.hatch-open .active-call-container {
+			inset: 0.45rem;
+			border-radius: 14px;
 		}
 
 		.call-controls {
-			gap: 0.75rem;
-			padding: 1rem;
-			padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+			flex-direction: column;
+			align-items: stretch;
 		}
 
-		.video-grid {
-			grid-template-columns: 1fr;
+		.template-screen-hero .media-tile:not(.hero),
+		.template-single-hero .media-tile:not(.hero) {
+			grid-column: span 4;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.docked-bar {
+			left: 0.6rem;
+			right: 0.6rem;
+			bottom: 0.6rem;
+			flex-direction: column;
+			align-items: stretch;
 		}
 
-		.tile-grid {
-			grid-template-columns: 1fr;
+		.docked-actions {
+			justify-content: space-between;
 		}
 
-		.thumbnail {
-			width: 90px;
-			height: 60px;
+		.hatch-toggle {
+			top: 0.7rem;
+			right: 0.7rem;
+		}
+
+		.tile-layout {
+			grid-template-columns: 1fr !important;
+		}
+
+		.template-hero-stack .media-tile.hero {
+			grid-row: auto;
+			aspect-ratio: 16 / 9;
 		}
 	}
 </style>

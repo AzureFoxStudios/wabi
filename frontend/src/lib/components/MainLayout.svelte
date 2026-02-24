@@ -78,10 +78,15 @@
 
 	function handleMouseMove(e: MouseEvent) {
 		if (resizingChannel) {
-			layoutStore.channelSidebarWidth.set(Math.max(0, Math.min(e.clientX, 400)));
+			const isRightDock = !$layoutStore.isMobile && $layoutStore.navDock === 'right';
+			const width = isRightDock ? window.innerWidth - e.clientX : e.clientX;
+			layoutStore.channelSidebarWidth.set(Math.max(0, Math.min(width, 400)));
 		}
 		if (resizingRight) {
-			const rightEdge = window.innerWidth;
+			const navOffset = !$layoutStore.isMobile && $layoutStore.navDock === 'right'
+				? $layoutStore.channelSidebarWidth
+				: 0;
+			const rightEdge = window.innerWidth - navOffset;
 			const newWidth = Math.max(0, Math.min(rightEdge - e.clientX, 500));
 			layoutStore.rightPanelWidth.set(newWidth);
 		}
@@ -476,6 +481,7 @@
 	class:resizing={$layoutStore.isResizing}
 	class:in-call={$layoutStore.isMobile && $layoutStore.isInCall}
 	class:mobile-nav-visible={mobileNavVisible && $layoutStore.isMobile && !$layoutStore.isInCall}
+	class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
 >
 	<!-- Channel Sidebar (Left) -->
 	<div
@@ -483,6 +489,7 @@
 		style:width="{$layoutStore.channelSidebarWidth}px"
 		class:mobile-visible={$layoutStore.showMobileChannels}
 		class:preview-visible={$layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'channels'}
+		class:dock-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
 		style:transform={getChannelPreviewTransform()}
 		style:opacity={getPreviewOpacity()}
 		style:transition={swipePreviewActive ? 'none' : undefined}
@@ -518,6 +525,7 @@
 					<Chat on:logout />
 				{/if}
 			</div>
+			<CallModal />
 		</div>
 	</div>
 
@@ -542,6 +550,7 @@
 			class="user-panel-toggle"
 			class:has-unread={totalUnreadDMs > 0}
 			data-unread={totalUnreadDMs > 99 ? '99+' : totalUnreadDMs}
+			style:right={!$layoutStore.isMobile && $layoutStore.navDock === 'right' ? `${$layoutStore.channelSidebarWidth}px` : '0px'}
 			on:click={layoutStore.toggleRightPanel}
 			title={$_('shell.open_side_panel')}
 		>
@@ -551,7 +560,11 @@
 		</button>
 
 		{#if showDesktopNotificationRail && unreadDMChannels.length > 0}
-			<div class="dm-notification-rail" aria-label={$_('shell.unread_dms')}>
+			<div
+				class="dm-notification-rail"
+				style:right={!$layoutStore.isMobile && $layoutStore.navDock === 'right' ? `${$layoutStore.channelSidebarWidth}px` : '0px'}
+				aria-label={$_('shell.unread_dms')}
+			>
 				{#each unreadDMChannels as channel, index (channel.id)}
 					<button
 						class="dm-notification-stub"
@@ -639,7 +652,6 @@
 	{/if}
 
 </div>
-<CallModal />
 
 <style>
 	:global(body) {
@@ -696,10 +708,29 @@
 		border-right: 1px solid rgba(var(--border-rgb), var(--opacity-light));
 	}
 
+	.app-container.nav-right .channel-sidebar-container {
+		order: 3;
+		border-right: none;
+		border-left: 1px solid rgba(var(--border-rgb), var(--opacity-light));
+	}
+
+	.app-container.nav-right .main-content {
+		order: 1;
+	}
+
+	.app-container.nav-right .right-panel-container {
+		order: 2;
+	}
+
 	/* Hide border when sidebar is collapsed */
 	.channel-sidebar-container[style*="width: 0px"],
 	.channel-sidebar-container[style*="width:0px"] {
 		border-right: none;
+	}
+
+	.app-container.nav-right .channel-sidebar-container[style*="width: 0px"],
+	.app-container.nav-right .channel-sidebar-container[style*="width:0px"] {
+		border-left: none;
 	}
 
 	/* Desktop Right Panel */
@@ -725,6 +756,11 @@
 	.resize-handle:hover { background: var(--accent); opacity: 0.5; }
 	.resize-handle-channel { right: -3px; }
 	.resize-handle-right { left: -3px; }
+
+	.app-container.nav-right .resize-handle-channel {
+		right: auto;
+		left: -3px;
+	}
 
 	/* Toggle button on right edge */
 	.user-panel-toggle {

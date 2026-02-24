@@ -7,6 +7,7 @@ use handlers::{
     delete_reminders, get_data_stats, clear_binary_data,
     get_media_runtime_capabilities, set_media_transport_preferences, get_media_transport_preferences,
     get_srt_gateway_runtime_state, start_srt_gateway_simulation, stop_srt_gateway_simulation,
+    save_layout_state, load_layout_state,
     SrtGatewayState
 };
 use std::sync::Mutex;
@@ -32,7 +33,9 @@ fn main() {
             get_media_transport_preferences,
             get_srt_gateway_runtime_state,
             start_srt_gateway_simulation,
-            stop_srt_gateway_simulation
+            stop_srt_gateway_simulation,
+            save_layout_state,
+            load_layout_state
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

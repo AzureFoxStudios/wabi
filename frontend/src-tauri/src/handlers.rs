@@ -208,3 +208,21 @@ pub fn stop_srt_gateway_simulation(state: tauri::State<Mutex<SrtGatewayState>>) 
         updated_at: guard.updated_at,
     })
 }
+
+#[tauri::command]
+pub fn save_layout_state(app: AppHandle, layout_json: String) -> Result<String, String> {
+    let path = app_data_dir(&app)?.join("dock_layout_state.json");
+    fs::write(path, layout_json).map_err(|e| format!("failed writing layout state: {e}"))?;
+    Ok("layout state saved".to_string())
+}
+
+#[tauri::command]
+pub fn load_layout_state(app: AppHandle) -> Result<Option<String>, String> {
+    let path = app_data_dir(&app)?.join("dock_layout_state.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(path).map_err(|e| format!("failed reading layout state: {e}"))?;
+    Ok(Some(content))
+}

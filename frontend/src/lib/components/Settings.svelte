@@ -35,6 +35,7 @@
 	import ThemeCustomizer from './ThemeCustomizer.svelte';
 	import UsernameFontCustomizer from './UsernameFontCustomizer.svelte';
 	import UniformFontMode from './UniformFontMode.svelte';
+	import { layoutStore } from '$lib/layoutStore';
 	import {
 		getAudioCaptureConstraints,
 		getStoredAudioProcessingMode,
@@ -800,6 +801,55 @@
 		ownMessagesOnRight = next.ownMessagesOnRight;
 		chatAvatarMode = next.chatAvatarMode;
 		tabShadeStrength = next.tabShadeStrength;
+	}
+
+	function updateDockSide(side: 'left' | 'right') {
+		layoutStore.setNavDock(side);
+	}
+
+	function toggleDockNavCollapsed() {
+		layoutStore.toggleNavCollapsed();
+	}
+
+	function loadWorkspaceByName(name: string) {
+		layoutStore.loadWorkspace(name);
+	}
+
+	function saveWorkspaceAsPrompt() {
+		const suggested = `${$layoutStore.activeWorkspace}-copy`;
+		const name = window.prompt('Save workspace as', suggested);
+		if (!name) return;
+		layoutStore.saveWorkspace(name);
+	}
+
+	function renameWorkspacePrompt() {
+		const current = $layoutStore.activeWorkspace;
+		const nextName = window.prompt('Rename workspace', current);
+		if (!nextName) return;
+		layoutStore.renameWorkspace(current, nextName);
+	}
+
+	function resetActiveWorkspace() {
+		layoutStore.resetWorkspace($layoutStore.activeWorkspace);
+	}
+
+	async function exportWorkspaceJson() {
+		const json = layoutStore.exportLayoutJson();
+		if (navigator.clipboard?.writeText) {
+			await navigator.clipboard.writeText(json);
+			alert('Workspace JSON copied to clipboard.');
+			return;
+		}
+		window.prompt('Copy workspace JSON:', json);
+	}
+
+	function importWorkspaceJsonPrompt() {
+		const pasted = window.prompt('Paste workspace JSON');
+		if (!pasted) return;
+		const ok = layoutStore.importLayoutJson(pasted);
+		if (!ok) {
+			alert('Invalid workspace JSON.');
+		}
 	}
 
 	function toAddonNameFromComponentFile(fileName: string): string {
@@ -2013,6 +2063,59 @@
 								</button>
 							</div>
 
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Navigation Dock Side</span>
+									<span class="setting-description">Choose whether the navigation module is docked left or right</span>
+								</div>
+								<select
+									class="theme-select"
+									value={$layoutStore.navDock}
+									on:change={(e) => updateDockSide(e.currentTarget.value as 'left' | 'right')}
+								>
+									<option value="left">Left</option>
+									<option value="right">Right</option>
+								</select>
+							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Navigation Collapse</span>
+									<span class="setting-description">Collapse or expand the navigation dock</span>
+								</div>
+								<button class="toggle-btn" class:active={$layoutStore.isNavCollapsed} on:click={toggleDockNavCollapsed}>
+									{$layoutStore.isNavCollapsed ? 'COLLAPSED' : 'EXPANDED'}
+								</button>
+							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Workspace Preset</span>
+									<span class="setting-description">Load or save docking presets for different workflows</span>
+								</div>
+								<select
+									class="theme-select"
+									value={$layoutStore.activeWorkspace}
+									on:change={(e) => loadWorkspaceByName(e.currentTarget.value)}
+								>
+									{#each $layoutStore.workspaces as workspaceName}
+										<option value={workspaceName}>{workspaceName}</option>
+									{/each}
+								</select>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="settings-row-actions">
+									<button type="button" class="action-btn" on:click={saveWorkspaceAsPrompt}>Save Workspace As...</button>
+									<button type="button" class="action-btn secondary" on:click={renameWorkspacePrompt}>Rename Workspace...</button>
+									<button type="button" class="action-btn danger" on:click={resetActiveWorkspace}>Reset Workspace</button>
+								</div>
+								<div class="settings-row-actions">
+									<button type="button" class="action-btn secondary" on:click={exportWorkspaceJson}>Export Workspace JSON</button>
+									<button type="button" class="action-btn secondary" on:click={importWorkspaceJsonPrompt}>Import Workspace JSON</button>
+								</div>
+							</div>
+
 							<div class="setting-item setting-item-stack">
 								<div class="setting-info">
 									<span class="setting-label">{$t('settings.language_learning.label')}</span>
@@ -2913,6 +3016,24 @@
 		cursor: pointer;
 		transition: all 0.2s;
 		text-align: left;
+	}
+
+	.action-btn.secondary {
+		background: var(--bg-tertiary);
+		color: var(--text-primary);
+		border: 1px solid var(--border);
+	}
+
+	.action-btn.secondary:hover {
+		background: var(--bg-hover);
+		transform: translateY(-1px);
+	}
+
+	.settings-row-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.55rem;
+		margin-bottom: 0.55rem;
 	}
 
 	.action-btn.export {
