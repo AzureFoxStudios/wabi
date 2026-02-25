@@ -2275,8 +2275,8 @@
 
 	.chat-tabs-row {
 		flex-shrink: 0;
-		background: #505050;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+		background: var(--bg-secondary);
+		border-bottom: 1px solid var(--border);
 		z-index: 2;
 	}
 

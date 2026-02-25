@@ -538,7 +538,7 @@
 		border-radius: 12px;
 		border: none;
 		background: var(--bg-tertiary);
-		color: white;
+		color: var(--text-primary);
 		margin-bottom: 1rem;
 	}
 
@@ -692,7 +692,7 @@
 		border-radius: 12px;
 		border: none;
 		background: var(--bg-tertiary);
-		color: white;
+		color: var(--text-primary);
 		margin: 1rem 0;
 		font-size: 1rem;
 	}
