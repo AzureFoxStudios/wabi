@@ -462,13 +462,463 @@ export const professionalTheme: Theme = {
 	}
 };
 
+// ===== CATPPUCCIN MOCHA THEME =====
+export const catppuccinMochaTheme: Theme = {
+	id: 'catppuccin-mocha',
+	name: 'Catppuccin Mocha',
+	description: 'Soothing dark pastel palette. One of the most popular Discord themes ever made.',
+	colors: {
+		bgPrimary: 'linear-gradient(to right, #181825 0%, #1e1e2e 100%)',
+		bgSecondary: '#181825',
+		bgTertiary: '#313244',
+		bgHover: '#45475a',
+
+		bgPrimaryRgb: '24, 24, 37',
+		bgSecondaryRgb: '24, 24, 37',
+		bgTertiaryRgb: '49, 50, 68',
+
+		textPrimary: '#cdd6f4',
+		textSecondary: '#bac2de',
+		textTertiary: '#a6adc8',
+
+		textPrimaryRgb: '205, 214, 244',
+		textSecondaryRgb: '186, 194, 222',
+		textTertiaryRgb: '166, 173, 200',
+
+		accent: 'linear-gradient(to right, #cba6f7 0%, #b4befe 100%)',
+		accentHex: '#cba6f7',
+		accentRgb: '203, 166, 247',
+		accentHover: 'linear-gradient(to right, #b4befe 0%, #cba6f7 100%)',
+
+		uiBgLight: '#45475a',
+		uiBgLighter: '#313244',
+		uiText: '#bac2de',
+		uiTextDark: '#cdd6f4',
+
+		statusOnline: '#a6e3a1',
+		statusAway: '#f9e2af',
+		statusBusy: '#f38ba8',
+		statusOffline: '#6c7086',
+
+		colorSuccess: '#a6e3a1',
+		colorInfo: '#89dceb',
+		colorWarning: '#f9e2af',
+		colorDanger: '#f38ba8',
+
+		modalBg: '#181825',
+		modalHeaderBg: '#313244',
+		modalText: '#cdd6f4',
+		modalOverlay: 'rgba(0, 0, 0, 0.6)',
+		modalBorder: 'rgba(203, 166, 247, 0.15)',
+
+		darkBgPrimary: '#11111b',
+		darkBgSecondary: '#181825',
+
+		error: '#f38ba8',
+
+		border: '#45475a',
+		borderRgb: '69, 71, 90'
+	},
+	gradients: {
+		primary: 'linear-gradient(to right, #181825 0%, #1e1e2e 100%)',
+		accent: 'linear-gradient(to right, #cba6f7 0%, #b4befe 100%)',
+		accentHover: 'linear-gradient(to right, #b4befe 0%, #cba6f7 100%)',
+		dialogDark: 'linear-gradient(135deg, #181825 0%, #313244 100%)',
+		fadeBottomDark: 'linear-gradient(to bottom, rgba(49, 50, 68, 0.8), rgba(24, 24, 37, 0.6))',
+		fadeRightTransparent: 'linear-gradient(to right, transparent, #181825)',
+		lineGlow: 'linear-gradient(90deg, transparent, rgba(203, 166, 247, 0.1), transparent)',
+		fadeTopDark: 'linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent)',
+		accentSubtle: 'linear-gradient(135deg, rgba(203, 166, 247, 0.1) 0%, rgba(180, 190, 254, 0.1) 100%)',
+		accentMedium: 'linear-gradient(135deg, rgba(203, 166, 247, 0.25) 0%, rgba(180, 190, 254, 0.25) 100%)',
+		scrollbar: 'linear-gradient(to bottom, #cba6f7 0%, #b4befe 100%)',
+		scrollbarHover: 'linear-gradient(to bottom, #b4befe 0%, #cba6f7 100%)',
+		loadingDark: 'linear-gradient(135deg, #11111b 0%, #1e1e2e 100%)'
+	}
+};
+
+// ===== DRACULA THEME =====
+export const draculaTheme: Theme = {
+	id: 'dracula',
+	name: 'Dracula',
+	description: 'The iconic dark theme. Deep purple-gray with vampire pink and vivid neon greens.',
+	colors: {
+		bgPrimary: 'linear-gradient(to right, #21222c 0%, #282a36 100%)',
+		bgSecondary: '#21222c',
+		bgTertiary: '#343746',
+		bgHover: '#44475a',
+
+		bgPrimaryRgb: '33, 34, 44',
+		bgSecondaryRgb: '33, 34, 44',
+		bgTertiaryRgb: '52, 55, 70',
+
+		textPrimary: '#f8f8f2',
+		textSecondary: '#cfcfcf',
+		textTertiary: '#9999a0',
+
+		textPrimaryRgb: '248, 248, 242',
+		textSecondaryRgb: '207, 207, 207',
+		textTertiaryRgb: '153, 153, 160',
+
+		accent: 'linear-gradient(to right, #bd93f9 0%, #ff79c6 100%)',
+		accentHex: '#bd93f9',
+		accentRgb: '189, 147, 249',
+		accentHover: 'linear-gradient(to right, #ff79c6 0%, #ff92d0 100%)',
+
+		uiBgLight: '#44475a',
+		uiBgLighter: '#343746',
+		uiText: '#cfcfcf',
+		uiTextDark: '#f8f8f2',
+
+		statusOnline: '#50fa7b',
+		statusAway: '#f1fa8c',
+		statusBusy: '#ff5555',
+		statusOffline: '#6272a4',
+
+		colorSuccess: '#50fa7b',
+		colorInfo: '#8be9fd',
+		colorWarning: '#f1fa8c',
+		colorDanger: '#ff5555',
+
+		modalBg: '#21222c',
+		modalHeaderBg: '#343746',
+		modalText: '#f8f8f2',
+		modalOverlay: 'rgba(0, 0, 0, 0.65)',
+		modalBorder: 'rgba(189, 147, 249, 0.15)',
+
+		darkBgPrimary: '#191a21',
+		darkBgSecondary: '#21222c',
+
+		error: '#ff5555',
+
+		border: '#44475a',
+		borderRgb: '68, 71, 90'
+	},
+	gradients: {
+		primary: 'linear-gradient(to right, #21222c 0%, #282a36 100%)',
+		accent: 'linear-gradient(to right, #bd93f9 0%, #ff79c6 100%)',
+		accentHover: 'linear-gradient(to right, #ff79c6 0%, #ff92d0 100%)',
+		dialogDark: 'linear-gradient(135deg, #21222c 0%, #343746 100%)',
+		fadeBottomDark: 'linear-gradient(to bottom, rgba(52, 55, 70, 0.8), rgba(33, 34, 44, 0.6))',
+		fadeRightTransparent: 'linear-gradient(to right, transparent, #21222c)',
+		lineGlow: 'linear-gradient(90deg, transparent, rgba(189, 147, 249, 0.1), transparent)',
+		fadeTopDark: 'linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent)',
+		accentSubtle: 'linear-gradient(135deg, rgba(189, 147, 249, 0.1) 0%, rgba(255, 121, 198, 0.1) 100%)',
+		accentMedium: 'linear-gradient(135deg, rgba(189, 147, 249, 0.25) 0%, rgba(255, 121, 198, 0.25) 100%)',
+		scrollbar: 'linear-gradient(to bottom, #bd93f9 0%, #ff79c6 100%)',
+		scrollbarHover: 'linear-gradient(to bottom, #ff79c6 0%, #ff92d0 100%)',
+		loadingDark: 'linear-gradient(135deg, #191a21 0%, #282a36 100%)'
+	}
+};
+
+// ===== NORD THEME =====
+export const nordTheme: Theme = {
+	id: 'nord',
+	name: 'Nord',
+	description: 'Arctic, north-bluish palette. Calm and clean with a Scandinavian feel.',
+	colors: {
+		bgPrimary: 'linear-gradient(to right, #242933 0%, #2e3440 100%)',
+		bgSecondary: '#242933',
+		bgTertiary: '#3b4252',
+		bgHover: '#434c5e',
+
+		bgPrimaryRgb: '36, 41, 51',
+		bgSecondaryRgb: '36, 41, 51',
+		bgTertiaryRgb: '59, 66, 82',
+
+		textPrimary: '#eceff4',
+		textSecondary: '#e5e9f0',
+		textTertiary: '#d8dee9',
+
+		textPrimaryRgb: '236, 239, 244',
+		textSecondaryRgb: '229, 233, 240',
+		textTertiaryRgb: '216, 222, 233',
+
+		accent: 'linear-gradient(to right, #88c0d0 0%, #81a1c1 100%)',
+		accentHex: '#88c0d0',
+		accentRgb: '136, 192, 208',
+		accentHover: 'linear-gradient(to right, #81a1c1 0%, #5e81ac 100%)',
+
+		uiBgLight: '#434c5e',
+		uiBgLighter: '#3b4252',
+		uiText: '#e5e9f0',
+		uiTextDark: '#eceff4',
+
+		statusOnline: '#a3be8c',
+		statusAway: '#ebcb8b',
+		statusBusy: '#bf616a',
+		statusOffline: '#4c566a',
+
+		colorSuccess: '#a3be8c',
+		colorInfo: '#88c0d0',
+		colorWarning: '#ebcb8b',
+		colorDanger: '#bf616a',
+
+		modalBg: '#242933',
+		modalHeaderBg: '#3b4252',
+		modalText: '#eceff4',
+		modalOverlay: 'rgba(0, 0, 0, 0.6)',
+		modalBorder: 'rgba(136, 192, 208, 0.15)',
+
+		darkBgPrimary: '#1a1f27',
+		darkBgSecondary: '#242933',
+
+		error: '#bf616a',
+
+		border: '#434c5e',
+		borderRgb: '67, 76, 94'
+	},
+	gradients: {
+		primary: 'linear-gradient(to right, #242933 0%, #2e3440 100%)',
+		accent: 'linear-gradient(to right, #88c0d0 0%, #81a1c1 100%)',
+		accentHover: 'linear-gradient(to right, #81a1c1 0%, #5e81ac 100%)',
+		dialogDark: 'linear-gradient(135deg, #242933 0%, #3b4252 100%)',
+		fadeBottomDark: 'linear-gradient(to bottom, rgba(59, 66, 82, 0.8), rgba(36, 41, 51, 0.6))',
+		fadeRightTransparent: 'linear-gradient(to right, transparent, #242933)',
+		lineGlow: 'linear-gradient(90deg, transparent, rgba(136, 192, 208, 0.1), transparent)',
+		fadeTopDark: 'linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent)',
+		accentSubtle: 'linear-gradient(135deg, rgba(136, 192, 208, 0.1) 0%, rgba(129, 161, 193, 0.1) 100%)',
+		accentMedium: 'linear-gradient(135deg, rgba(136, 192, 208, 0.25) 0%, rgba(129, 161, 193, 0.25) 100%)',
+		scrollbar: 'linear-gradient(to bottom, #88c0d0 0%, #81a1c1 100%)',
+		scrollbarHover: 'linear-gradient(to bottom, #81a1c1 0%, #5e81ac 100%)',
+		loadingDark: 'linear-gradient(135deg, #1a1f27 0%, #2e3440 100%)'
+	}
+};
+
+// ===== TOKYO NIGHT THEME =====
+export const tokyoNightTheme: Theme = {
+	id: 'tokyo-night',
+	name: 'Tokyo Night',
+	description: 'City lights at midnight. Cool blues and lavenders with neon accents.',
+	colors: {
+		bgPrimary: 'linear-gradient(to right, #16161e 0%, #1a1b26 100%)',
+		bgSecondary: '#16161e',
+		bgTertiary: '#24283b',
+		bgHover: '#2f3347',
+
+		bgPrimaryRgb: '22, 22, 30',
+		bgSecondaryRgb: '22, 22, 30',
+		bgTertiaryRgb: '36, 40, 59',
+
+		textPrimary: '#c0caf5',
+		textSecondary: '#a9b1d6',
+		textTertiary: '#787c99',
+
+		textPrimaryRgb: '192, 202, 245',
+		textSecondaryRgb: '169, 177, 214',
+		textTertiaryRgb: '120, 124, 153',
+
+		accent: 'linear-gradient(to right, #7aa2f7 0%, #bb9af7 100%)',
+		accentHex: '#7aa2f7',
+		accentRgb: '122, 162, 247',
+		accentHover: 'linear-gradient(to right, #bb9af7 0%, #c678dd 100%)',
+
+		uiBgLight: '#2f3347',
+		uiBgLighter: '#24283b',
+		uiText: '#a9b1d6',
+		uiTextDark: '#c0caf5',
+
+		statusOnline: '#9ece6a',
+		statusAway: '#e0af68',
+		statusBusy: '#f7768e',
+		statusOffline: '#565f89',
+
+		colorSuccess: '#9ece6a',
+		colorInfo: '#7dcfff',
+		colorWarning: '#e0af68',
+		colorDanger: '#f7768e',
+
+		modalBg: '#16161e',
+		modalHeaderBg: '#24283b',
+		modalText: '#c0caf5',
+		modalOverlay: 'rgba(0, 0, 0, 0.65)',
+		modalBorder: 'rgba(122, 162, 247, 0.15)',
+
+		darkBgPrimary: '#0f0f14',
+		darkBgSecondary: '#16161e',
+
+		error: '#f7768e',
+
+		border: '#2f3347',
+		borderRgb: '47, 51, 71'
+	},
+	gradients: {
+		primary: 'linear-gradient(to right, #16161e 0%, #1a1b26 100%)',
+		accent: 'linear-gradient(to right, #7aa2f7 0%, #bb9af7 100%)',
+		accentHover: 'linear-gradient(to right, #bb9af7 0%, #c678dd 100%)',
+		dialogDark: 'linear-gradient(135deg, #16161e 0%, #24283b 100%)',
+		fadeBottomDark: 'linear-gradient(to bottom, rgba(36, 40, 59, 0.8), rgba(22, 22, 30, 0.6))',
+		fadeRightTransparent: 'linear-gradient(to right, transparent, #16161e)',
+		lineGlow: 'linear-gradient(90deg, transparent, rgba(122, 162, 247, 0.1), transparent)',
+		fadeTopDark: 'linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent)',
+		accentSubtle: 'linear-gradient(135deg, rgba(122, 162, 247, 0.1) 0%, rgba(187, 154, 247, 0.1) 100%)',
+		accentMedium: 'linear-gradient(135deg, rgba(122, 162, 247, 0.25) 0%, rgba(187, 154, 247, 0.25) 100%)',
+		scrollbar: 'linear-gradient(to bottom, #7aa2f7 0%, #bb9af7 100%)',
+		scrollbarHover: 'linear-gradient(to bottom, #bb9af7 0%, #c678dd 100%)',
+		loadingDark: 'linear-gradient(135deg, #0f0f14 0%, #1a1b26 100%)'
+	}
+};
+
+// ===== FOREST THEME (Green Gradient) =====
+export const forestTheme: Theme = {
+	id: 'forest',
+	name: 'Forest',
+	description: 'Lush emerald greens with a deep woodland gradient. Natural and grounding.',
+	colors: {
+		bgPrimary: 'linear-gradient(to right, #0a1a0a 0%, #0f2a18 100%)',
+		bgSecondary: '#0d1f0d',
+		bgTertiary: '#162616',
+		bgHover: '#1e3320',
+
+		bgPrimaryRgb: '10, 26, 10',
+		bgSecondaryRgb: '13, 31, 13',
+		bgTertiaryRgb: '22, 38, 22',
+
+		textPrimary: '#d4edda',
+		textSecondary: '#a7d7b0',
+		textTertiary: '#6aab75',
+
+		textPrimaryRgb: '212, 237, 218',
+		textSecondaryRgb: '167, 215, 176',
+		textTertiaryRgb: '106, 171, 117',
+
+		accent: 'linear-gradient(to right, #2ecc71 0%, #1abc9c 100%)',
+		accentHex: '#2ecc71',
+		accentRgb: '46, 204, 113',
+		accentHover: 'linear-gradient(to right, #1abc9c 0%, #27ae60 100%)',
+
+		uiBgLight: '#1e3320',
+		uiBgLighter: '#162616',
+		uiText: '#a7d7b0',
+		uiTextDark: '#d4edda',
+
+		statusOnline: '#2ecc71',
+		statusAway: '#f39c12',
+		statusBusy: '#e74c3c',
+		statusOffline: '#55776a',
+
+		colorSuccess: '#2ecc71',
+		colorInfo: '#1abc9c',
+		colorWarning: '#f39c12',
+		colorDanger: '#e74c3c',
+
+		modalBg: '#0a1a0a',
+		modalHeaderBg: '#162616',
+		modalText: '#d4edda',
+		modalOverlay: 'rgba(0, 0, 0, 0.65)',
+		modalBorder: 'rgba(46, 204, 113, 0.15)',
+
+		darkBgPrimary: '#050e05',
+		darkBgSecondary: '#0a1a0a',
+
+		error: '#e74c3c',
+
+		border: '#1e3320',
+		borderRgb: '30, 51, 32'
+	},
+	gradients: {
+		primary: 'linear-gradient(to right, #0a1a0a 0%, #0f2a18 100%)',
+		accent: 'linear-gradient(to right, #2ecc71 0%, #1abc9c 100%)',
+		accentHover: 'linear-gradient(to right, #1abc9c 0%, #27ae60 100%)',
+		dialogDark: 'linear-gradient(135deg, #0d1f0d 0%, #162616 100%)',
+		fadeBottomDark: 'linear-gradient(to bottom, rgba(22, 38, 22, 0.8), rgba(13, 31, 13, 0.6))',
+		fadeRightTransparent: 'linear-gradient(to right, transparent, #0d1f0d)',
+		lineGlow: 'linear-gradient(90deg, transparent, rgba(46, 204, 113, 0.1), transparent)',
+		fadeTopDark: 'linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent)',
+		accentSubtle: 'linear-gradient(135deg, rgba(46, 204, 113, 0.1) 0%, rgba(26, 188, 156, 0.1) 100%)',
+		accentMedium: 'linear-gradient(135deg, rgba(46, 204, 113, 0.25) 0%, rgba(26, 188, 156, 0.25) 100%)',
+		scrollbar: 'linear-gradient(to bottom, #2ecc71 0%, #1abc9c 100%)',
+		scrollbarHover: 'linear-gradient(to bottom, #1abc9c 0%, #27ae60 100%)',
+		loadingDark: 'linear-gradient(135deg, #050e05 0%, #0f2a18 100%)'
+	}
+};
+
+// ===== EMBER THEME (Warm sunset/orange gradient) =====
+export const emberTheme: Theme = {
+	id: 'ember',
+	name: 'Ember',
+	description: 'Warm sunset tones. Fiery orange and amber for a cozy, glowing vibe.',
+	colors: {
+		bgPrimary: 'linear-gradient(to right, #1a0a00 0%, #2a1200 100%)',
+		bgSecondary: '#1f0f00',
+		bgTertiary: '#2d1800',
+		bgHover: '#3d2200',
+
+		bgPrimaryRgb: '26, 10, 0',
+		bgSecondaryRgb: '31, 15, 0',
+		bgTertiaryRgb: '45, 24, 0',
+
+		textPrimary: '#fde8cc',
+		textSecondary: '#f5c98a',
+		textTertiary: '#d4924c',
+
+		textPrimaryRgb: '253, 232, 204',
+		textSecondaryRgb: '245, 201, 138',
+		textTertiaryRgb: '212, 146, 76',
+
+		accent: 'linear-gradient(to right, #f97316 0%, #fb923c 100%)',
+		accentHex: '#f97316',
+		accentRgb: '249, 115, 22',
+		accentHover: 'linear-gradient(to right, #ea6c0c 0%, #f97316 100%)',
+
+		uiBgLight: '#3d2200',
+		uiBgLighter: '#2d1800',
+		uiText: '#f5c98a',
+		uiTextDark: '#fde8cc',
+
+		statusOnline: '#4ade80',
+		statusAway: '#fbbf24',
+		statusBusy: '#ef4444',
+		statusOffline: '#78716c',
+
+		colorSuccess: '#4ade80',
+		colorInfo: '#60a5fa',
+		colorWarning: '#fbbf24',
+		colorDanger: '#ef4444',
+
+		modalBg: '#1a0a00',
+		modalHeaderBg: '#2d1800',
+		modalText: '#fde8cc',
+		modalOverlay: 'rgba(0, 0, 0, 0.65)',
+		modalBorder: 'rgba(249, 115, 22, 0.15)',
+
+		darkBgPrimary: '#100500',
+		darkBgSecondary: '#1a0a00',
+
+		error: '#ef4444',
+
+		border: '#3d2200',
+		borderRgb: '61, 34, 0'
+	},
+	gradients: {
+		primary: 'linear-gradient(to right, #1a0a00 0%, #2a1200 100%)',
+		accent: 'linear-gradient(to right, #f97316 0%, #fb923c 100%)',
+		accentHover: 'linear-gradient(to right, #ea6c0c 0%, #f97316 100%)',
+		dialogDark: 'linear-gradient(135deg, #1f0f00 0%, #2d1800 100%)',
+		fadeBottomDark: 'linear-gradient(to bottom, rgba(45, 24, 0, 0.8), rgba(31, 15, 0, 0.6))',
+		fadeRightTransparent: 'linear-gradient(to right, transparent, #1f0f00)',
+		lineGlow: 'linear-gradient(90deg, transparent, rgba(249, 115, 22, 0.1), transparent)',
+		fadeTopDark: 'linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent)',
+		accentSubtle: 'linear-gradient(135deg, rgba(249, 115, 22, 0.1) 0%, rgba(251, 146, 60, 0.1) 100%)',
+		accentMedium: 'linear-gradient(135deg, rgba(249, 115, 22, 0.25) 0%, rgba(251, 146, 60, 0.25) 100%)',
+		scrollbar: 'linear-gradient(to bottom, #f97316 0%, #fb923c 100%)',
+		scrollbarHover: 'linear-gradient(to bottom, #ea6c0c 0%, #f97316 100%)',
+		loadingDark: 'linear-gradient(135deg, #100500 0%, #2a1200 100%)'
+	}
+};
+
 // ===== ALL THEMES REGISTRY =====
 export const THEMES: Record<string, Theme> = {
 	dark: darkTheme,
 	light: lightTheme,
 	'midnight-blue': midnightBlueTheme,
 	'vscode-high-contrast': vscodeHighContrastTheme,
-	professional: professionalTheme
+	professional: professionalTheme,
+	'catppuccin-mocha': catppuccinMochaTheme,
+	dracula: draculaTheme,
+	nord: nordTheme,
+	'tokyo-night': tokyoNightTheme,
+	forest: forestTheme,
+	ember: emberTheme
 };
 
 // Default theme: Nebula Cosmic (darkTheme)
