@@ -8,6 +8,7 @@
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
 	import RightPanel from '$lib/components/RightPanel.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
+	import Settings from '$lib/components/Settings.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, type Channel, type User } from '$lib/socket';
 	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, isVideoOff, toggleVideo } from '$lib/calling';
@@ -16,6 +17,7 @@
 	import { _ } from '$lib/i18n';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
+	let showSettings = false;
 
 	$: mobileRightVisible = $layoutStore.isMobile && $layoutStore.rightPanelView !== 'none';
 	$: showDesktopNotificationRail = !$layoutStore.isMobile && !$layoutStore.showRightPanel;
@@ -495,7 +497,7 @@
 		style:opacity={getPreviewOpacity()}
 		style:transition={swipePreviewActive ? 'none' : undefined}
 	>
-		<ChannelSidebar on:close={() => layoutStore.showMobileChannels.set(false)} bind:activeView on:logout />
+		<ChannelSidebar on:close={() => layoutStore.showMobileChannels.set(false)} bind:activeView on:logout on:openSettings={() => showSettings = true} />
 		<!-- Channel resize handle -->
 		<div
 			class="resize-handle resize-handle-channel"
@@ -653,6 +655,10 @@
 	{/if}
 
 </div>
+
+{#if showSettings}
+	<Settings bind:isOpen={showSettings} on:logout />
+{/if}
 
 <style>
 	:global(body) {

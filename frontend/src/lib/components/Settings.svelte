@@ -471,8 +471,16 @@
 	async function loadMediaDevices() {
 		if (!browser || !navigator.mediaDevices?.enumerateDevices) return;
 		try {
-			// Request permission first so labels are populated
-			await navigator.mediaDevices.getUserMedia({ audio: true, video: true }).then(s => s.getTracks().forEach(t => t.stop())).catch(() => {});
+			// Prime device labels only for already-granted permissions
+			const micPerm = await navigator.permissions.query({ name: 'microphone' as PermissionName }).catch(() => ({ state: 'prompt' }));
+			const camPerm = await navigator.permissions.query({ name: 'camera' as PermissionName }).catch(() => ({ state: 'prompt' }));
+			if (micPerm.state === 'granted' || camPerm.state === 'granted') {
+				const constraints: MediaStreamConstraints = {
+					audio: micPerm.state === 'granted',
+					video: camPerm.state === 'granted'
+				};
+				await navigator.mediaDevices.getUserMedia(constraints).then(s => s.getTracks().forEach(t => t.stop())).catch(() => {});
+			}
 			const devices = await navigator.mediaDevices.enumerateDevices();
 			audioInputDevices = devices.filter(d => d.kind === 'audioinput');
 			videoInputDevices = devices.filter(d => d.kind === 'videoinput');
