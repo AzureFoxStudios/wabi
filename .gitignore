@@ -18,6 +18,9 @@ frontend/src-tauri/
 !frontend/src-tauri/icons/
 frontend/src-tauri.zip
 frontend/src-tauri.tar.gz
+tauri-app/
+tauri-app.zip
+tauri-app.tar.gz
 
 # Backend binaries (NEVER commit these!)
 backend/community-chat-server

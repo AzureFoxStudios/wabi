@@ -1,0 +1,11 @@
+node_modules
+build
+dist
+.svelte-kit
+*.log
+.env
+.env.local
+
+# Tauri/Desktop assets are not required for web container builds.
+src-tauri
+target

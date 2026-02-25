@@ -44,3 +44,6 @@ backend/uploads
 # Tauri/Desktop app (not needed for web deployment)
 src-tauri
 target
+frontend/src-tauri
+tauri-app
+tauri-app/**
