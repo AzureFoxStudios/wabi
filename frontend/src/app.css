@@ -142,7 +142,7 @@
 	--shadow-focus-ring: 0 0 0 3px rgba(var(--color-accent-primary-rgb), 0.4);
 
 	/* --------------------------------------------------------------------------
-	   MOTION & TRANSITIONS (as per UI_GUIDE.md)
+	   MOTION & TRANSITIONS
 	   -------------------------------------------------------------------------- */
 	--duration-instant: 100ms;    /* Micro-interactions (hover, focus, button press) */
 	--duration-fast: 150ms;        /* Micro-interactions (original) */
@@ -155,7 +155,7 @@
 	--ease-in-out: cubic-bezier(0.4, 0, 0.2, 1); /* Position changes */
 
 	/* --------------------------------------------------------------------------
-	   OPACITY SCALE (as per UI_GUIDE.md)
+	   OPACITY SCALE
 	   -------------------------------------------------------------------------- */
 	--opacity-subtle: 0.1;    /* 10% - very light, barely visible */
 	--opacity-light: 0.15;    /* 15% - light tint */
@@ -171,7 +171,7 @@
 	--icon-lg: 24px;      /* Prominent actions, mobile nav, modal close */
 
 	/* --------------------------------------------------------------------------
-	   Z-INDEX LAYERING TIERS (see UI_GUIDE.md Section 9)
+	   Z-INDEX LAYERING TIERS
 	   -------------------------------------------------------------------------- */
 	--z-base: 0;          /* Default stacking context */
 	--z-sticky: 100;      /* Sticky headers, resize handles */

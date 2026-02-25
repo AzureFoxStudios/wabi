@@ -1,8 +1,7 @@
 $files = @(
     'backend/scripts/fetch-openmoji.sh',
     'frontend/scripts/fetch-openmoji.sh',
-    'turn-server/docker-entrypoint.sh',
-    'build.sh'
+    'turn-server/docker-entrypoint.sh'
 )
 
 foreach ($f in $files) {

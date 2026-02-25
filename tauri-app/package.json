@@ -1,0 +1,16 @@
+{
+  "name": "tauri-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node -e \"console.log('Static app: edit dist/index.html for UI changes.')\"",
+    "build": "node -e \"console.log('Static app: dist/ is already build output.')\"",
+    "tauri": "node ../frontend/node_modules/@tauri-apps/cli/tauri.js",
+    "tauri:dev": "node ../frontend/node_modules/@tauri-apps/cli/tauri.js dev",
+    "tauri:build": "node ../frontend/node_modules/@tauri-apps/cli/tauri.js build",
+    "tauri:android:init": "node ../frontend/node_modules/@tauri-apps/cli/tauri.js android init",
+    "tauri:android:build": "node ../frontend/node_modules/@tauri-apps/cli/tauri.js android build --apk true --aab true",
+    "tauri:android:dev": "node ../frontend/node_modules/@tauri-apps/cli/tauri.js android dev"
+  }
+}

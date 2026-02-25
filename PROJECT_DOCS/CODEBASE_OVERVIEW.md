@@ -140,7 +140,7 @@ The application is designed to be deployed using Docker.
 -   **Reverse Proxy:** Caddy is the recommended reverse proxy for handling SSL certificates and routing traffic, including WebSocket connections, to the correct services. See `DEPLOYMENT.md` for a sample `Caddyfile`.
 -   **Environment Configuration:** The application is configured via `.env` files in the root, `frontend`, and `backend` directories. These control database paths, CORS settings, TURN server credentials, and more.
 -   **DigitalOcean:** The project is actively deployed on the DigitalOcean App Platform. The `.do/app.yaml` file defines the infrastructure.
--   **Zero-Downtime Goal:** There is a recognized need to move towards a zero-downtime deployment strategy. `claude_Notes.txt` outlines a plan to use `docker-rollout` and SvelteKit's `updated` store to provide seamless updates to users.
+-   **Zero-Downtime Goal:** There is a recognized need to move towards a zero-downtime deployment strategy, including safer container rollouts and client update signaling.
 
 ---
 

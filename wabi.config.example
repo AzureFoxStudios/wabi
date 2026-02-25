@@ -1,0 +1,33 @@
+# Minimal operator config for scripts/launch.sh
+# Copy to wabi.config and edit only what you need.
+#
+# PROFILE:
+#   starter   -> normal mode (SQLite)
+#   community -> community mode (Postgres)
+PROFILE=starter
+
+# RUNTIME:
+#   node (default, recommended)
+#   bun  (advanced)
+RUNTIME=node
+
+# Public host users will open (domain preferred for HTTPS).
+# Use localhost only for local testing.
+DOMAIN=localhost
+
+# CALLS:
+#   off              -> no self-hosted coturn profile
+#   self_hosted_turn -> deploy coturn profile locally
+#   external_turn    -> skip coturn profile (external TURN provider)
+CALLS=off
+
+# Advanced media flags (off by default).
+ENABLE_RELAYS=false
+ENABLE_MEDIA_GATEWAY=false
+
+# Plugin system safety defaults.
+PLUGINS_ENABLED=false
+PLUGINS_ALLOW_INSTALL=false
+
+# Optional.
+GIPHY_API_KEY=

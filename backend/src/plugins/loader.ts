@@ -57,6 +57,18 @@ const PLUGIN_HTTP_ROUTE_PREFIX = '/api/plugins/runtime';
 const DEFAULT_PLUGIN_ROUTE_BODY_LIMIT_BYTES = 2 * 1024 * 1024;
 const DEFAULT_PLUGIN_SCAN_TIMEOUT_MS = 120_000;
 
+function boolFromEnv(value: string | undefined, fallback: boolean): boolean {
+  if (value == null) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on') {
+    return true;
+  }
+  if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') {
+    return false;
+  }
+  return fallback;
+}
+
 interface PluginScanResult {
   passed: boolean;
   status: PluginRecord['scanStatus'];
@@ -89,6 +101,8 @@ export class PluginLoader {
   private crashStateFile: string;
   private pluginLogDir: string;
   private safeModeEnabled = false;
+  private pluginsEnabled: boolean;
+  private pluginInstallEnabled: boolean;
 
   constructor(
     private io: Server,
@@ -105,6 +119,8 @@ export class PluginLoader {
     this.auditLogFile = path.join(this.storageDir, 'plugin-audit.jsonl');
     this.crashStateFile = path.join(this.storageDir, 'plugin-crash-state.json');
     this.pluginLogDir = path.join(this.storageDir, 'logs');
+    this.pluginsEnabled = boolFromEnv(process.env.PLUGINS_ENABLED, false);
+    this.pluginInstallEnabled = boolFromEnv(process.env.PLUGINS_ALLOW_INSTALL, false);
 
     if (!fs.existsSync(this.storageDir)) {
       fs.mkdirSync(this.storageDir, { recursive: true });
@@ -124,7 +140,20 @@ export class PluginLoader {
     return JSON.parse(this.stripUtf8Bom(raw)) as T;
   }
 
+  isSystemEnabled(): boolean {
+    return this.pluginsEnabled;
+  }
+
+  isInstallEnabled(): boolean {
+    return this.pluginInstallEnabled;
+  }
+
   async loadAll() {
+    if (!this.pluginsEnabled) {
+      console.log('[Plugins] Plugin system disabled (PLUGINS_ENABLED=false); skipping plugin load.');
+      return;
+    }
+
     console.log('🔌 Loading plugins from:', this.pluginsDir);
 
     if (!fs.existsSync(this.pluginsDir)) {
@@ -152,6 +181,10 @@ export class PluginLoader {
   }
 
   async loadPlugin(pluginId: string) {
+    if (!this.pluginsEnabled) {
+      return;
+    }
+
     const pluginPath = path.join(this.pluginsDir, pluginId);
     const manifestPath = path.join(pluginPath, 'plugin.json');
 
@@ -384,6 +417,13 @@ export class PluginLoader {
     archiveBuffer: Buffer,
     options: { uploadedBy?: string; fileName?: string } = {}
   ): Promise<{ pluginId: string; name: string; version: string }> {
+    if (!this.pluginsEnabled) {
+      throw new Error('Plugin system is disabled by operator configuration');
+    }
+    if (!this.pluginInstallEnabled) {
+      throw new Error('Plugin installation is disabled by operator configuration');
+    }
+
     const actor = options.uploadedBy || 'system';
     const fileName = options.fileName || 'plugin.zip';
     const installTempRoot = path.join(this.storageDir, 'install-tmp');
@@ -529,6 +569,11 @@ export class PluginLoader {
   async handleHttpRoute(req: any, res: any, url: URL): Promise<boolean> {
     if (!url.pathname.startsWith(`${PLUGIN_HTTP_ROUTE_PREFIX}/`)) {
       return false;
+    }
+
+    if (!this.pluginsEnabled) {
+      this.writeJson(res, 503, { success: false, error: 'Plugin system is disabled' });
+      return true;
     }
 
     const suffix = url.pathname.slice(`${PLUGIN_HTTP_ROUTE_PREFIX}/`.length);

@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$ROOT_DIR/.env"
 FRONTEND_ENV_FILE="$ROOT_DIR/frontend/.env"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
+WABI_CONFIG_FILE="${WABI_CONFIG_FILE:-$ROOT_DIR/wabi.config}"
+PROFILE_LOCK_FILE="${PROFILE_LOCK_FILE:-$ROOT_DIR/.wabi-profile}"
 
 RECONFIGURE=false
 USE_TURN_PROFILE="${USE_TURN_PROFILE:-true}"
@@ -17,6 +19,7 @@ usage() {
 Usage: scripts/launch.sh [options]
 
 Single command for first-run setup + normal deployment updates.
+If wabi.config exists in repo root, it is applied before CLI args.
 
 Options:
   --mode <normal|community>   Override WABI_MODE.
@@ -39,6 +42,7 @@ Advanced environment overrides:
   USE_SRT_GATEWAY_PROFILE=auto|true|false (default: auto; true when MEDIA_SRT_GATEWAY_ENABLED=true)
   PRUNE_DANGLING_IMAGES=true|false     (default: true)
   PRUNE_STOPPED_CONTAINERS=true|false  (default: false)
+  WABI_CONFIG_FILE=<path>              (default: ./wabi.config)
 EOF
 }
 
@@ -82,14 +86,190 @@ normalize_domain() {
   echo "${raw:-localhost}"
 }
 
+trim() {
+  local value="${1-}"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+normalize_bool() {
+  local raw
+  raw="$(trim "${1-}")"
+  case "${raw,,}" in
+    1|true|yes|on)
+      echo "true"
+      ;;
+    0|false|no|off)
+      echo "false"
+      ;;
+    *)
+      echo "${2:-false}"
+      ;;
+  esac
+}
+
+to_wabi_mode() {
+  case "${1,,}" in
+    starter|normal)
+      echo "normal"
+      ;;
+    community)
+      echo "community"
+      ;;
+    *)
+      echo ""
+      ;;
+  esac
+}
+
+to_calls_mode() {
+  case "${1,,}" in
+    off|none|disabled)
+      echo "off"
+      ;;
+    self_hosted_turn|self-hosted-turn|self_turn|self-hosted)
+      echo "self_hosted_turn"
+      ;;
+    external_turn|external-turn|external)
+      echo "external_turn"
+      ;;
+    *)
+      echo ""
+      ;;
+  esac
+}
+
+apply_calls_mode() {
+  local calls_mode="$1"
+  case "$calls_mode" in
+    off|external_turn)
+      USE_TURN_PROFILE=false
+      ;;
+    self_hosted_turn)
+      USE_TURN_PROFILE=true
+      ;;
+  esac
+}
+
+load_wabi_config() {
+  if [[ ! -f "$WABI_CONFIG_FILE" ]]; then
+    return
+  fi
+
+  echo "[launch] Loading operator config from $WABI_CONFIG_FILE"
+  while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+    local line key value mode bool_value calls_mode
+    line="${raw_line%%#*}"
+    line="$(trim "$line")"
+    [[ -z "$line" ]] && continue
+
+    if [[ "$line" != *=* ]]; then
+      echo "[launch] Ignoring malformed config line: $raw_line"
+      continue
+    fi
+
+    key="$(trim "${line%%=*}")"
+    value="$(trim "${line#*=}")"
+
+    if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+
+    case "${key^^}" in
+      PROFILE)
+        mode="$(to_wabi_mode "$value")"
+        if [[ -n "$mode" ]]; then
+          WABI_MODE="$mode"
+        fi
+        ;;
+      RUNTIME)
+        case "${value,,}" in
+          node|bun) WABI_RUNTIME="${value,,}" ;;
+        esac
+        ;;
+      DOMAIN)
+        WABI_DOMAIN="$value"
+        ;;
+      CALLS)
+        calls_mode="$(to_calls_mode "$value")"
+        if [[ -n "$calls_mode" ]]; then
+          WABI_CALLS_MODE="$calls_mode"
+          apply_calls_mode "$calls_mode"
+        fi
+        ;;
+      ENABLE_RELAYS)
+        bool_value="$(normalize_bool "$value" "false")"
+        VITE_ENABLE_RELAYS="$bool_value"
+        ;;
+      ENABLE_MEDIA_GATEWAY)
+        bool_value="$(normalize_bool "$value" "false")"
+        MEDIA_SRT_GATEWAY_ENABLED="$bool_value"
+        if [[ "$bool_value" == "true" ]]; then
+          USE_SRT_GATEWAY_PROFILE=true
+        else
+          USE_SRT_GATEWAY_PROFILE=false
+        fi
+        ;;
+      GIPHY_API_KEY)
+        GIPHY_KEY="$value"
+        ;;
+      PLUGINS_ENABLED)
+        PLUGINS_ENABLED="$(normalize_bool "$value" "false")"
+        ;;
+      PLUGINS_ALLOW_INSTALL)
+        PLUGINS_ALLOW_INSTALL="$(normalize_bool "$value" "false")"
+        ;;
+    esac
+  done < "$WABI_CONFIG_FILE"
+}
+
+enforce_profile_lock() {
+  local locked_mode locked_runtime
+
+  if [[ -f "$PROFILE_LOCK_FILE" ]]; then
+    locked_mode="$(grep -E '^WABI_MODE=' "$PROFILE_LOCK_FILE" | head -1 | cut -d= -f2- || true)"
+    locked_runtime="$(grep -E '^WABI_RUNTIME=' "$PROFILE_LOCK_FILE" | head -1 | cut -d= -f2- || true)"
+
+    if [[ -n "$locked_mode" && "$locked_mode" != "$WABI_MODE" ]]; then
+      echo "[launch] Profile lock mismatch: locked mode=$locked_mode, requested mode=$WABI_MODE" >&2
+      echo "[launch] Explicit migration is required before changing deployment mode." >&2
+      exit 1
+    fi
+    if [[ -n "$locked_runtime" && "$locked_runtime" != "$WABI_RUNTIME" ]]; then
+      echo "[launch] Profile lock mismatch: locked runtime=$locked_runtime, requested runtime=$WABI_RUNTIME" >&2
+      echo "[launch] Explicit migration is required before changing runtime." >&2
+      exit 1
+    fi
+    return
+  fi
+
+  cat > "$PROFILE_LOCK_FILE" <<EOF
+WABI_MODE=$WABI_MODE
+WABI_RUNTIME=$WABI_RUNTIME
+EOF
+  echo "[launch] Wrote profile lock: $PROFILE_LOCK_FILE"
+}
+
 configure_defaults() {
   local domain mode runtime public_ip frontend_url public_url turn_realm turn_secret jwt_secret
   local db_mode postgres_db postgres_user postgres_password database_url giphy_key
+  local relay_enabled plugins_enabled plugins_allow_install srt_gateway_enabled
 
   domain="$(normalize_domain "${WABI_DOMAIN:-localhost}")"
   mode="${WABI_MODE:-normal}"
   runtime="${WABI_RUNTIME:-node}"
   giphy_key="${GIPHY_KEY:-${VITE_GIPHY_API_KEY:-}}"
+  relay_enabled="$(normalize_bool "${VITE_ENABLE_RELAYS:-false}" "false")"
+  plugins_enabled="$(normalize_bool "${PLUGINS_ENABLED:-false}" "false")"
+  plugins_allow_install="$(normalize_bool "${PLUGINS_ALLOW_INSTALL:-false}" "false")"
+  srt_gateway_enabled="$(normalize_bool "${MEDIA_SRT_GATEWAY_ENABLED:-false}" "false")"
+
+  if [[ "$plugins_enabled" != "true" ]]; then
+    plugins_allow_install="false"
+  fi
 
   if [[ "$mode" != "normal" && "$mode" != "community" ]]; then
     echo "[launch] Invalid WABI_MODE: $mode (expected normal|community)" >&2
@@ -149,6 +329,8 @@ JWT_SECRET=$jwt_secret
 
 DATA_DIR=/app/data
 PLUGINS_DIR=/app/plugins
+PLUGINS_ENABLED=$plugins_enabled
+PLUGINS_ALLOW_INSTALL=$plugins_allow_install
 STATIC_DIR=/app/frontend/build
 
 TURN_EXTERNAL_IP=$public_ip
@@ -157,7 +339,7 @@ TURN_SHARED_SECRET=$turn_secret
 TURN_CREDENTIAL_TTL_SECONDS=3600
 
 MEDIA_LOCAL_ENHANCED_ENABLED=true
-MEDIA_SRT_GATEWAY_ENABLED=false
+MEDIA_SRT_GATEWAY_ENABLED=$srt_gateway_enabled
 MEDIA_SRT_GATEWAY_URL=
 MEDIA_GATEWAY_HEARTBEAT_TIMEOUT_MS=45000
 MEDIA_GATEWAY_KEY=
@@ -178,7 +360,7 @@ VITE_TURN_SERVER=$public_ip
 VITE_TURN_PORT=3478
 VITE_USE_TURNS=false
 VITE_ENABLE_GOOGLE_STUN=true
-VITE_ENABLE_RELAYS=false
+VITE_ENABLE_RELAYS=$relay_enabled
 EOF
 
   echo "[launch] Generated config:"
@@ -189,6 +371,8 @@ EOF
 is_config_missing() {
   [[ ! -s "$ENV_FILE" || ! -s "$FRONTEND_ENV_FILE" ]]
 }
+
+load_wabi_config
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -280,6 +464,8 @@ if [[ "$WABI_RUNTIME" != "node" && "$WABI_RUNTIME" != "bun" ]]; then
   echo "[launch] Invalid WABI_RUNTIME: $WABI_RUNTIME (expected node|bun)" >&2
   exit 1
 fi
+
+enforce_profile_lock
 
 compose_files=("$COMPOSE_FILE")
 if [[ "$WABI_MODE" == "community" ]]; then
