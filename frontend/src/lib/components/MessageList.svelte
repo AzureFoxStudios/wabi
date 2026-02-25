@@ -3980,7 +3980,6 @@
 :global(html[data-message-density='compact']) .message .markdown-content,
 :global(html[data-message-density='compact']) .message .markdown-content :global(p) {
 	line-height: 1.3 !important;
-	display: inline !important;
 	font-size: 0.82rem !important;
 }
 
