@@ -3927,22 +3927,38 @@
 	display: flex !important;
 	flex-direction: row !important;
 	align-items: baseline !important;
-	gap: 0.4rem !important;
+	gap: 0.25rem !important;
 	flex-wrap: nowrap !important;
 }
 
-/* Header is fixed, doesn't grow */
+/* Compact header: narrow, fixed layout, no growing */
 :global(html[data-message-density='compact']) .message-header {
 	flex-shrink: 0 !important;
-	white-space: nowrap !important;
 	margin-bottom: 0 !important;
+	white-space: nowrap !important;
 }
 
-/* Timestamp before username in regular first-message headers */
-:global(html[data-message-density='compact']) .message-header:not(.compact-only-header) .header-left .timestamp {
-	order: -1 !important;
+/* Tighten the header-left flex gap in compact */
+:global(html[data-message-density='compact']) .message-header .header-left {
+	gap: 0.2rem !important;
+}
+
+/* Timestamp: narrow fixed-width column, right-aligned, muted */
+:global(html[data-message-density='compact']) .message-header .timestamp {
+	min-width: 3.2rem !important;
+	text-align: right !important;
 	margin-left: 0 !important;
 	margin-right: 0 !important;
+	font-size: 0.68rem !important;
+	order: -1 !important;
+}
+
+/* Username: cap width so it doesn't eat all the horizontal space */
+:global(html[data-message-density='compact']) .message-header .username {
+	max-width: 9rem !important;
+	overflow: hidden !important;
+	text-overflow: ellipsis !important;
+	font-size: 0.8rem !important;
 }
 
 /* Show compact-only continuation headers */
@@ -3965,6 +3981,7 @@
 :global(html[data-message-density='compact']) .message .markdown-content :global(p) {
 	line-height: 1.3 !important;
 	display: inline !important;
+	font-size: 0.82rem !important;
 }
 
 </style>
