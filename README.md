@@ -20,7 +20,7 @@ Positioning references:
 - Saves data by default (SQLite), with optional Postgres mode for larger/community setups
 - Theme customization and saved user preferences
 - Plugin system with integrity/signature policy controls
-- Optional `relay-node` (file delivery network phase) and `media-gateway` (SRT control-plane phase)
+- Optional `relay-node` (file delivery network phase) and `media-gateway` (SRT gateway daemon + worker bridge)
 
 ## Feature table
 
@@ -33,7 +33,7 @@ Positioning references:
 | Persistence | Available | SQLite default, Postgres community mode |
 | Theming | Available | Saved user theme/preferences |
 | Relay network | Optional/Phase 1 | `relay-node/` for file delivery relays |
-| SRT media gateway | Optional (Phase 2 MVP) | `media-gateway/` control-plane foundation |
+| SRT media gateway | Optional | `media-gateway/` daemon with control-plane sync + worker orchestration |
 | Plugin system | In progress | Core framework is live (integrity/signing). Plugin mode completion is on roadmap. |
 
 ## Architecture at a glance
@@ -42,7 +42,7 @@ Positioning references:
 - `backend/`: Node.js + Socket.IO API/server, auth, policy, persistence, plugins
 - `turn-server/`: Dockerized coturn for TURN REST auth
 - `relay-node/`: Volunteer-hosted relay node for file delivery
-- `media-gateway/`: Phase 2 SRT gateway control plane
+- `media-gateway/`: SRT gateway daemon (control-plane + worker orchestration)
 
 See full architecture and deep technical docs in `PROJECT_DOCS/ARCHITECTURE.md` and `PROJECT_DOCS/CODEBASE_OVERVIEW.md`.
 
@@ -97,6 +97,14 @@ Windows launcher (requires WSL):
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/launch-forWindows.ps1
 ```
+
+Optional operator config (used by `scripts/launch.sh`):
+
+```bash
+cp wabi.config.example wabi.config
+```
+
+`wabi.config` lets you keep a small set of top-level choices (`PROFILE`, `RUNTIME`, `CALLS`) while `launch.sh` generates full env files.
 
 ## Development
 
@@ -166,6 +174,7 @@ Important settings to review before production:
 - `JWT_SECRET`
 - `TURN_EXTERNAL_IP`, `TURN_REALM`, `TURN_SHARED_SECRET`
 - `WABI_MODE`, `WABI_RUNTIME`, `DB_MODE`
+- `PLUGINS_ENABLED`, `PLUGINS_ALLOW_INSTALL` (both default to `false`)
 - Postgres settings if using community mode
 
 If you are new to this, start with `./scripts/setup.sh` and only edit advanced variables later.

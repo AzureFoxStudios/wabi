@@ -1,12 +1,12 @@
 # Wabi Media Gateway
 
-Current MVP responsibilities:
+Current gateway responsibilities:
 - Pull desired gateway sessions from origin (`GET /api/media/gateway/control/sessions`)
 - Send health + active stream heartbeats to origin (`POST /api/media/gateway-heartbeat`)
 - Expose local health/session visibility endpoints (`/health`, `/sessions`)
 - Optionally orchestrate per-session media workers (spawn/stop child processes per active gateway session)
 
-The built-in service is still control-plane first. Media-plane work is delegated to worker processes you configure.
+The built-in service is control-plane first. Media-plane work is delegated to worker processes you configure.
 
 ## Required environment
 

@@ -1847,8 +1847,8 @@
 
 								<div class="setting-item">
 									<div class="setting-info">
-										<span class="setting-label">SRT Gateway (Beta)</span>
-										<span class="setting-description">Requires Local App + self-hosted media gateway. Browser-only calls do not use SRT directly.</span>
+										<span class="setting-label">SRT Gateway</span>
+										<span class="setting-description">Requires Local App + self-hosted media gateway with worker mode enabled. Browser-only calls do not use SRT directly.</span>
 									</div>
 									<button class="toggle-btn" class:active={srtGatewayEnabled} on:click={toggleSrtGateway} disabled={!localAppRuntime}>
 										{srtGatewayEnabled ? 'ON' : 'OFF'}

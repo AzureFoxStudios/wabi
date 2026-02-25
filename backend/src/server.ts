@@ -27,6 +27,7 @@ import {
   handleListMediaGatewaySessions,
   handleGetMediaGatewaySession,
   handleCloseMediaGatewaySession,
+  handleRenewMediaGatewaySession,
   handleGetMediaGatewayControlSessions
 } from "./api/mediaRoutes.js";
 import {
@@ -1017,6 +1018,18 @@ function initializeWorkspace(workspaceId: string): BusinessData {
   return data;
 }
 
+function envFlag(value: string | undefined, fallback: boolean): boolean {
+  if (value == null) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on') {
+    return true;
+  }
+  if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') {
+    return false;
+  }
+  return fallback;
+}
+
 // Initialize default workspace on startup
 initializeWorkspace(defaultWorkspaceId);
 
@@ -1024,6 +1037,8 @@ const PORT = process.env.PORT || 3000;
 const STATIC_DIR = process.env.STATIC_DIR || DEFAULT_STATIC_DIR;
 const EMOTES_DIR = join(STATIC_DIR, "emotes");
 const ENABLE_LOGGING = process.env.ENABLE_LOGGING === 'true';
+const PLUGINS_ENABLED = envFlag(process.env.PLUGINS_ENABLED, false);
+const PLUGINS_ALLOW_INSTALL = envFlag(process.env.PLUGINS_ALLOW_INSTALL, false);
 
 // Ensure emotes directory exists
 if (!existsSync(EMOTES_DIR)) {
@@ -1525,6 +1540,20 @@ server.on('request', async (req, res) => {
     const userId = getAuthenticatedUserId(req);
     const isAdmin = isPluginAdmin(userId);
 
+    if (!pluginLoader.isSystemEnabled()) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          success: true,
+          plugins: [],
+          scope: isAdmin ? "admin" : "public",
+          enabled: false,
+          installEnabled: false
+        })
+      );
+      return;
+    }
+
     try {
       const plugins = pluginLoader.getLoadedPlugins();
       const responsePlugins = isAdmin
@@ -1548,6 +1577,12 @@ server.on('request', async (req, res) => {
   }
 
   if (url.pathname === "/api/plugins/audit" && req.method === "GET") {
+    if (!pluginLoader.isSystemEnabled()) {
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Plugin system is disabled by operator" }));
+      return;
+    }
+
     const userId = getAuthenticatedUserId(req);
     if (!isPluginAdmin(userId)) {
       res.writeHead(403, { "Content-Type": "application/json" });
@@ -1570,6 +1605,12 @@ server.on('request', async (req, res) => {
   }
 
   if (url.pathname === "/api/plugins/signers" && req.method === "GET") {
+    if (!pluginLoader.isSystemEnabled()) {
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Plugin system is disabled by operator" }));
+      return;
+    }
+
     const userId = getAuthenticatedUserId(req);
     if (!isPluginAdmin(userId)) {
       res.writeHead(403, { "Content-Type": "application/json" });
@@ -1590,6 +1631,12 @@ server.on('request', async (req, res) => {
   }
 
   if (url.pathname === "/api/plugins/signers" && req.method === "POST") {
+    if (!pluginLoader.isSystemEnabled()) {
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Plugin system is disabled by operator" }));
+      return;
+    }
+
     const userId = getAuthenticatedUserId(req);
     if (!isPluginAdmin(userId)) {
       res.writeHead(403, { "Content-Type": "application/json" });
@@ -1628,6 +1675,18 @@ server.on('request', async (req, res) => {
   }
 
   if (url.pathname === "/api/plugins/install" && req.method === "POST") {
+    if (!pluginLoader.isSystemEnabled()) {
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Plugin system is disabled by operator" }));
+      return;
+    }
+
+    if (!pluginLoader.isInstallEnabled()) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Plugin install is disabled by operator" }));
+      return;
+    }
+
     const userId = getAuthenticatedUserId(req);
     if (!isPluginAdmin(userId)) {
       res.writeHead(403, { "Content-Type": "application/json" });
@@ -1871,6 +1930,12 @@ server.on('request', async (req, res) => {
   }
 
   if (url.pathname.startsWith("/api/plugins/signers/") && req.method === "DELETE") {
+    if (!pluginLoader.isSystemEnabled()) {
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Plugin system is disabled by operator" }));
+      return;
+    }
+
     const userId = getAuthenticatedUserId(req);
     if (!isPluginAdmin(userId)) {
       res.writeHead(403, { "Content-Type": "application/json" });
@@ -2822,6 +2887,18 @@ server.on('request', async (req, res) => {
       return;
     }
     await handleCloseMediaGatewaySession(req, res, userId, mediaGatewaySessionCloseMatch[1]);
+    return;
+  }
+
+  const mediaGatewaySessionRenewMatch = url.pathname.match(/^\/api\/media\/gateway\/session\/([a-f0-9]{16,64})\/renew$/);
+  if (mediaGatewaySessionRenewMatch && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Missing or invalid authorization' }));
+      return;
+    }
+    await handleRenewMediaGatewaySession(req, res, userId, mediaGatewaySessionRenewMatch[1]);
     return;
   }
 
@@ -7358,3 +7435,5 @@ setInterval(() => {
 console.log(`🚀 Community Chat server running on port ${PORT}`);
 console.log(`📁 Serving static files from: ${STATIC_DIR}`);
 console.log(`💚 Health check available at: http://localhost:${PORT}/health`);
+
+console.log(`[Plugins] System: ${PLUGINS_ENABLED ? 'enabled' : 'disabled'} | Install API: ${PLUGINS_ALLOW_INSTALL ? 'enabled' : 'disabled'}`);

@@ -32,6 +32,15 @@ The wizard will:
 
 After the wizard finishes, follow its instructions (typically: start Caddy, then `docker compose up -d --build`).
 
+Operator-config flow (small config + generated env):
+
+```bash
+cp wabi.config.example wabi.config
+./scripts/launch.sh --reconfigure
+```
+
+`launch.sh` reads `wabi.config` first, then writes `.env` / `frontend/.env`. It also writes `.wabi-profile` to prevent silent mode/runtime swaps on later runs.
+
 ## Normal vs Community
 
 | Mode | Database | Compose files | Typical use |
@@ -194,6 +203,8 @@ Expected output:
 | `PUBLIC_URL` | File upload base URL | `https://wabi.chat` |
 | `ALLOWED_ORIGINS` | CORS whitelist (comma-separated) | `https://wabi.chat,https://tauri.localhost` |
 | `JWT_SECRET` | Auth token signing key | `<random base64>` |
+| `PLUGINS_ENABLED` | Enable backend plugin loading at boot | `false` |
+| `PLUGINS_ALLOW_INSTALL` | Allow plugin install API uploads | `false` |
 | `NODE_ENV` | Node environment | `production` |
 | `PORT` | Backend listen port | `8080` |
 | `TURN_EXTERNAL_IP` | Public IP for TURN relay | `203.0.113.10` |
@@ -384,7 +395,25 @@ Relay nodes for file delivery are implemented in-repo and can be rolled out sepa
 - Relay validation helper: `scripts/relay-phase1-check.mjs`
 - Frontend toggle: `VITE_ENABLE_RELAYS=true`
 
-SRT media gateway Phase 2 MVP control-plane is now available (`media-gateway/` + `/api/media/gateway/session*`), while full media-plane bridging remains pending.
+SRT media gateway is deployable with control-plane + worker orchestration (`media-gateway/` + `/api/media/gateway/session*`).
+
+Operational requirements for SRT gateway mode:
+
+```bash
+# backend/.env
+MEDIA_SRT_GATEWAY_ENABLED=true
+MEDIA_SRT_GATEWAY_URL=https://gateway.your-domain.com
+MEDIA_GATEWAY_KEY=<shared_secret>
+MEDIA_SRT_SESSION_TTL_SECONDS=900
+MEDIA_SRT_BASE_PORT=7000
+```
+
+```bash
+# media-gateway service env
+MEDIA_GATEWAY_WORKER_ENABLED=true
+MEDIA_GATEWAY_WORKER_CMD=node
+MEDIA_GATEWAY_WORKER_ARGS_JSON=["workers/ffmpeg-srt-bridge.mjs","--session-id","{{sessionId}}","--publish-url","{{publishUrl}}","--playback-url","{{playbackUrl}}"]
+```
 
 To deploy gateway with launch script:
 
@@ -395,6 +424,15 @@ To deploy gateway with launch script:
 # MEDIA_GATEWAY_KEY=shared_secret
 
 ./scripts/launch.sh --srt-gateway
+```
+
+To validate gateway readiness and session lifecycle:
+
+```bash
+WABI_ORIGIN_URL=https://your-domain.com \
+WABI_AUTH_TOKEN=<bearer_token> \
+WABI_MEDIA_GATEWAY_KEY=<shared_secret> \
+node scripts/srt-phase2-check.mjs
 ```
 
 ---

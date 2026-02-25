@@ -2,15 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
-
-#[derive(Default)]
-pub struct SrtGatewayState {
-    pub running: bool,
-    pub mode: String,
-    pub updated_at: i64,
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MediaRuntimeCapabilities {
@@ -25,13 +17,6 @@ pub struct MediaTransportPreferences {
     pub srt_gateway_enabled: bool,
     pub preferred_audio_bitrate: u32,
     pub preferred_video_bitrate: u32,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SrtGatewayRuntimeState {
-    pub running: bool,
-    pub mode: String,
-    pub updated_at: i64,
 }
 
 fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -169,44 +154,6 @@ pub fn get_media_transport_preferences(app: AppHandle) -> Result<MediaTransportP
 
     let value = read_json_file(&path)?;
     serde_json::from_value(value).map_err(|e| format!("failed decoding preferences: {e}"))
-}
-
-#[tauri::command]
-pub fn get_srt_gateway_runtime_state(state: tauri::State<Mutex<SrtGatewayState>>) -> Result<SrtGatewayRuntimeState, String> {
-    let guard = state.lock().map_err(|_| "failed to lock srt gateway state".to_string())?;
-    Ok(SrtGatewayRuntimeState {
-        running: guard.running,
-        mode: guard.mode.clone(),
-        updated_at: guard.updated_at,
-    })
-}
-
-#[tauri::command]
-pub fn start_srt_gateway_simulation(state: tauri::State<Mutex<SrtGatewayState>>) -> Result<SrtGatewayRuntimeState, String> {
-    let mut guard = state.lock().map_err(|_| "failed to lock srt gateway state".to_string())?;
-    guard.running = true;
-    guard.mode = "simulated".to_string();
-    guard.updated_at = chrono::Utc::now().timestamp_millis();
-
-    Ok(SrtGatewayRuntimeState {
-        running: guard.running,
-        mode: guard.mode.clone(),
-        updated_at: guard.updated_at,
-    })
-}
-
-#[tauri::command]
-pub fn stop_srt_gateway_simulation(state: tauri::State<Mutex<SrtGatewayState>>) -> Result<SrtGatewayRuntimeState, String> {
-    let mut guard = state.lock().map_err(|_| "failed to lock srt gateway state".to_string())?;
-    guard.running = false;
-    guard.mode = "idle".to_string();
-    guard.updated_at = chrono::Utc::now().timestamp_millis();
-
-    Ok(SrtGatewayRuntimeState {
-        running: guard.running,
-        mode: guard.mode.clone(),
-        updated_at: guard.updated_at,
-    })
 }
 
 #[tauri::command]

@@ -24,6 +24,7 @@ interface GatewayHeartbeatState {
 	version?: string;
 	region?: string;
 	activeStreams?: number;
+	mediaPlaneReady?: boolean;
 }
 
 const gatewayHeartbeat: GatewayHeartbeatState = {
@@ -88,6 +89,10 @@ function isSrtGatewayEnabledByConfig(): boolean {
 function isGatewayHealthyNow(): boolean {
 	const timeoutMs = getGatewayHeartbeatTimeoutMs();
 	return gatewayHeartbeat.lastSeenAt > 0 && Date.now() - gatewayHeartbeat.lastSeenAt < timeoutMs;
+}
+
+function isGatewayMediaPlaneReadyNow(): boolean {
+	return gatewayHeartbeat.mediaPlaneReady === true;
 }
 
 function buildSrtEndpoint(sessionId: string, accessToken: string, mode: 'caller' | 'listener', port: number): string {
@@ -214,6 +219,7 @@ export async function handleGetMediaRuntime(req: IncomingMessage, res: ServerRes
 					configured: Boolean(getGatewayUrl()),
 					heartbeatTimeoutMs: getGatewayHeartbeatTimeoutMs(),
 					healthy: isGatewayHealthyNow(),
+					mediaPlaneReady: isGatewayMediaPlaneReadyNow(),
 					lastSeenAt: gatewayHeartbeat.lastSeenAt || null,
 					activeStreams: gatewayHeartbeat.activeStreams ?? 0,
 					version: gatewayHeartbeat.version || null,
@@ -288,6 +294,7 @@ export async function handleMediaGatewayHeartbeat(req: IncomingMessage, res: Ser
 	gatewayHeartbeat.version = typeof payload.version === 'string' ? payload.version : undefined;
 	gatewayHeartbeat.region = typeof payload.region === 'string' ? payload.region : undefined;
 	gatewayHeartbeat.activeStreams = typeof payload.activeStreams === 'number' ? payload.activeStreams : 0;
+	gatewayHeartbeat.mediaPlaneReady = payload.mediaPlaneReady === true;
 
 	const activeSessionIds = Array.isArray(payload.activeSessionIds) ? payload.activeSessionIds : [];
 	for (const sessionId of activeSessionIds) {
@@ -326,6 +333,11 @@ export async function handleCreateMediaGatewaySession(
 	if (!isGatewayHealthyNow()) {
 		res.writeHead(503, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ error: 'SRT gateway is unavailable (no fresh heartbeat)' }));
+		return;
+	}
+	if (!isGatewayMediaPlaneReadyNow()) {
+		res.writeHead(503, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'SRT gateway media plane is not ready' }));
 		return;
 	}
 
@@ -371,6 +383,7 @@ export async function handleCreateMediaGatewaySession(
 		session: sanitizeSessionForClient(session),
 		gateway: {
 			healthy: isGatewayHealthyNow(),
+			mediaPlaneReady: isGatewayMediaPlaneReadyNow(),
 			lastSeenAt: gatewayHeartbeat.lastSeenAt || null,
 			region: gatewayHeartbeat.region || null,
 			version: gatewayHeartbeat.version || null
@@ -446,6 +459,41 @@ export async function handleCloseMediaGatewaySession(
 
 	res.writeHead(200, { 'Content-Type': 'application/json' });
 	res.end(JSON.stringify({ ok: true, sessionId }));
+}
+
+// POST /api/media/gateway/session/:sessionId/renew
+export async function handleRenewMediaGatewaySession(
+	req: IncomingMessage,
+	res: ServerResponse,
+	userId: number,
+	sessionId: string
+): Promise<void> {
+	pruneExpiredGatewaySessions();
+	const session = gatewaySessions.get(sessionId);
+	if (!session || session.status !== 'open') {
+		res.writeHead(404, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Session not found' }));
+		return;
+	}
+
+	if (session.userId !== userId) {
+		res.writeHead(403, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Not allowed to renew this session' }));
+		return;
+	}
+
+	const payload = await parseJsonBody(req, res);
+	if (payload == null) return;
+
+	const requestedTtl = typeof payload.ttlSeconds === 'number' ? payload.ttlSeconds : getGatewaySessionDefaultTtlSeconds();
+	const ttlSeconds = clampInt(requestedTtl, 60, 86_400);
+	const now = Date.now();
+	session.updatedAt = now;
+	session.expiresAt = now + (ttlSeconds * 1000);
+	gatewaySessions.set(sessionId, session);
+
+	res.writeHead(200, { 'Content-Type': 'application/json' });
+	res.end(JSON.stringify({ session: sanitizeSessionForClient(session) }));
 }
 
 // GET /api/media/gateway/control/sessions

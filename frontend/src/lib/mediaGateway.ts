@@ -60,3 +60,19 @@ export async function closeMediaGatewaySession(sessionId: string): Promise<void>
 		throw new Error(error.error || `Failed to close media gateway session (${response.status})`);
 	}
 }
+
+export async function renewMediaGatewaySession(sessionId: string, ttlSeconds?: number): Promise<MediaGatewaySession> {
+	const response = await fetch(`${getServerUrl()}/api/media/gateway/session/${encodeURIComponent(sessionId)}/renew`, {
+		method: 'POST',
+		headers: getAuthHeaders(),
+		body: JSON.stringify(typeof ttlSeconds === 'number' ? { ttlSeconds } : {})
+	});
+
+	if (!response.ok) {
+		const error = await response.json().catch(() => ({}));
+		throw new Error(error.error || `Failed to renew media gateway session (${response.status})`);
+	}
+
+	const body = await response.json() as { session: MediaGatewaySession };
+	return body.session;
+}

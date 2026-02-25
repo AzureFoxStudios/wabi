@@ -15,6 +15,7 @@ const WORKER_CMD = (process.env.MEDIA_GATEWAY_WORKER_CMD || '').trim();
 const WORKER_ARGS_JSON = (process.env.MEDIA_GATEWAY_WORKER_ARGS_JSON || '').trim();
 const WORKER_ENV_PASSTHROUGH = (process.env.MEDIA_GATEWAY_WORKER_ENV_PASSTHROUGH || '').trim();
 const WORKER_SHUTDOWN_TIMEOUT_MS = Number(process.env.MEDIA_GATEWAY_WORKER_SHUTDOWN_TIMEOUT_MS || 8000);
+const MEDIA_PLANE_READY = WORKER_ENABLED && Boolean(WORKER_CMD);
 
 if (!ORIGIN_URL) {
   console.error('[media-gateway] WABI_ORIGIN_URL is required.');
@@ -290,6 +291,7 @@ async function sendHeartbeat() {
       body: JSON.stringify({
         version: VERSION,
         region: GATEWAY_REGION,
+        mediaPlaneReady: MEDIA_PLANE_READY,
         activeStreams: activeSessionIds.length,
         activeSessionIds
       })
@@ -320,6 +322,7 @@ const server = http.createServer((req, res) => {
       status: 'ok',
       version: VERSION,
       region: GATEWAY_REGION,
+      mediaPlaneReady: MEDIA_PLANE_READY,
       sessions: {
         active: sessions.size
       },

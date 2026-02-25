@@ -4,15 +4,16 @@ const ORIGIN = (process.env.WABI_ORIGIN_URL || 'http://localhost:8080').replace(
 const TOKEN = process.env.WABI_AUTH_TOKEN || process.env.WABI_ADMIN_TOKEN || '';
 const GATEWAY_KEY = process.env.WABI_MEDIA_GATEWAY_KEY || process.env.MEDIA_GATEWAY_KEY || '';
 const CHANNEL_ID = process.env.WABI_TEST_CHANNEL_ID || 'voice';
+const EXPECT_MEDIA_PLANE_READY = (process.env.WABI_EXPECT_MEDIA_PLANE_READY || 'true').toLowerCase() !== 'false';
 
 function fail(message, detail = '') {
-  console.error(`[srt-phase2-check] FAIL: ${message}`);
+  console.error(`[srt-gateway-check] FAIL: ${message}`);
   if (detail) console.error(detail);
   process.exit(1);
 }
 
 function log(message) {
-  console.log(`[srt-phase2-check] ${message}`);
+  console.log(`[srt-gateway-check] ${message}`);
 }
 
 async function fetchJson(path, options = {}) {
@@ -36,6 +37,10 @@ if (!runtime.response.ok) {
 }
 log(`Runtime gateway configured: ${Boolean(runtime.body?.media?.gateway?.configured)}`);
 log(`Runtime gateway healthy: ${Boolean(runtime.body?.media?.gateway?.healthy)}`);
+log(`Runtime media plane ready: ${Boolean(runtime.body?.media?.gateway?.mediaPlaneReady)}`);
+if (EXPECT_MEDIA_PLANE_READY && runtime.body?.media?.gateway?.mediaPlaneReady !== true) {
+  fail('Gateway heartbeat is healthy but media plane is not ready. Enable worker orchestration for operational SRT.');
+}
 
 const create = await fetchJson('/api/media/gateway/session', {
   method: 'POST',

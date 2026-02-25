@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { isDesktopTauri, isTauriRuntime } from './tauri-platform';
+import { isTauriRuntime } from './tauri-platform';
 
 export interface MediaRuntimeCapabilities {
 	supports_native_audio_pipeline: boolean;
@@ -12,12 +12,6 @@ export interface MediaTransportPreferences {
 	srt_gateway_enabled: boolean;
 	preferred_audio_bitrate: number;
 	preferred_video_bitrate: number;
-}
-
-export interface SrtGatewayRuntimeState {
-	running: boolean;
-	mode: 'idle' | 'simulated';
-	updated_at: number;
 }
 
 function isTauriAvailable(): boolean {
@@ -50,35 +44,5 @@ export async function saveTauriMediaPreferences(prefs: MediaTransportPreferences
 		await invoke<string>('set_media_transport_preferences', { preferences: prefs });
 	} catch (error) {
 		console.warn('[Tauri Media] Could not save media preferences:', error);
-	}
-}
-
-export async function getTauriSrtGatewayState(): Promise<SrtGatewayRuntimeState | null> {
-	if (!isTauriAvailable()) return null;
-	try {
-		return await invoke<SrtGatewayRuntimeState>('get_srt_gateway_runtime_state');
-	} catch (error) {
-		console.warn('[Tauri Media] Could not get SRT gateway state:', error);
-		return null;
-	}
-}
-
-export async function startTauriSrtGatewaySimulation(): Promise<SrtGatewayRuntimeState | null> {
-	if (!isDesktopTauri()) return null;
-	try {
-		return await invoke<SrtGatewayRuntimeState>('start_srt_gateway_simulation');
-	} catch (error) {
-		console.warn('[Tauri Media] Could not start SRT gateway simulation:', error);
-		return null;
-	}
-}
-
-export async function stopTauriSrtGatewaySimulation(): Promise<SrtGatewayRuntimeState | null> {
-	if (!isDesktopTauri()) return null;
-	try {
-		return await invoke<SrtGatewayRuntimeState>('stop_srt_gateway_simulation');
-	} catch (error) {
-		console.warn('[Tauri Media] Could not stop SRT gateway simulation:', error);
-		return null;
 	}
 }

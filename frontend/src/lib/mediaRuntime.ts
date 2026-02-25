@@ -28,6 +28,7 @@ export interface ServerMediaRuntimeResponse {
 			heartbeatTimeoutMs?: number;
 			configured?: boolean;
 			healthy?: boolean;
+			mediaPlaneReady?: boolean;
 			lastSeenAt?: number | null;
 			activeStreams?: number;
 			version?: string | null;
@@ -443,7 +444,18 @@ function isGatewayHealthy(runtime: ServerMediaRuntimeResponse | null): boolean {
 	const gateway = media?.gateway;
 	if (!gateway) return false;
 	if (media?.srtGatewayEnabled === false) return false;
-	return Boolean(gateway.configured && gateway.healthy);
+	return Boolean(gateway.configured && gateway.healthy && gateway.mediaPlaneReady);
+}
+
+function getGatewayFallbackReason(runtime: ServerMediaRuntimeResponse | null, srtToggleEnabled: boolean): string {
+	if (!srtToggleEnabled) return 'srt_gateway_disabled';
+	const media = runtime?.media;
+	const gateway = media?.gateway;
+	if (!gateway) return 'gateway_runtime_unknown';
+	if (!gateway.configured) return 'gateway_unconfigured';
+	if (!gateway.healthy) return 'gateway_unhealthy';
+	if (gateway.mediaPlaneReady !== true) return 'gateway_media_plane_not_ready';
+	return 'gateway_unhealthy_or_unconfigured';
 }
 
 export async function resolveCallTransportPlan(): Promise<CallTransportPlan> {
@@ -480,7 +492,7 @@ export async function resolveCallTransportPlan(): Promise<CallTransportPlan> {
 			mode,
 			effective: 'p2p',
 			fallbackApplied: true,
-			reason: !srtToggleEnabled ? 'srt_gateway_disabled' : 'gateway_unhealthy_or_unconfigured',
+			reason: getGatewayFallbackReason(runtime || null, srtToggleEnabled),
 			gatewayHealthy,
 			checkedAt
 		};

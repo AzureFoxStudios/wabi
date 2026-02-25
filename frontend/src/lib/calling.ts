@@ -2,7 +2,7 @@ import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { buildRTCConfig, prefetchTurnCredentials } from './turnConfig';
 import { playCallActionSound } from './callSounds';
-import { createMediaGatewaySession, closeMediaGatewaySession } from './mediaGateway';
+import { createMediaGatewaySession, closeMediaGatewaySession, renewMediaGatewaySession } from './mediaGateway';
 import {
 	getAudioCaptureConstraints,
 	getStoredAudioProcessingMode,
@@ -201,6 +201,28 @@ let remoteVideoMuteDebounceTimers = new Map<string, number>();
 let spatialAudioEngine: SpatialAudioEngine | null = null;
 let spatialFallbackNoticeShown = false;
 let activeMediaGatewaySessionId: string | null = null;
+let mediaGatewayRenewInterval: number | null = null;
+const MEDIA_GATEWAY_RENEW_MS = 120_000;
+
+function stopMediaGatewaySessionRenewal(): void {
+	if (mediaGatewayRenewInterval !== null) {
+		clearInterval(mediaGatewayRenewInterval);
+		mediaGatewayRenewInterval = null;
+	}
+}
+
+function startMediaGatewaySessionRenewal(): void {
+	stopMediaGatewaySessionRenewal();
+	if (typeof window === 'undefined') return;
+	if (!activeMediaGatewaySessionId) return;
+	mediaGatewayRenewInterval = window.setInterval(() => {
+		const sessionId = activeMediaGatewaySessionId;
+		if (!sessionId) return;
+		void renewMediaGatewaySession(sessionId).catch((error) => {
+			console.warn('[MediaGateway] Session renewal failed:', error);
+		});
+	}, MEDIA_GATEWAY_RENEW_MS);
+}
 
 type VideoQualityTier = 'high' | 'medium' | 'low' | 'audio-priority';
 
@@ -1601,10 +1623,10 @@ async function resolveActiveTransport(channelId?: string): Promise<EffectiveCall
 		checkedAt: plan.checkedAt
 	});
 
-	// Phase-2 MVP: establish gateway session control-plane for channel voice calls.
-	// Direct media stays WebRTC until full media-plane integration lands.
+	// Establish an SRT gateway session for channel voice transport orchestration.
 	if (plan.effective === 'sfu') {
 		if (!channelId) {
+			stopMediaGatewaySessionRenewal();
 			callTransportState.set({
 				mode: plan.mode,
 				activeTransport: 'p2p',
@@ -1617,8 +1639,27 @@ async function resolveActiveTransport(channelId?: string): Promise<EffectiveCall
 		}
 
 		try {
+			if (activeMediaGatewaySessionId) {
+				void closeMediaGatewaySession(activeMediaGatewaySessionId).catch((error) => {
+					console.warn('[MediaGateway] Failed to close previous session before creating a new one:', error);
+				});
+				stopMediaGatewaySessionRenewal();
+				activeMediaGatewaySessionId = null;
+			}
 			const session = await createMediaGatewaySession(channelId, 'voice');
+			const sessionLooksValid =
+				session.transport === 'srt' &&
+				typeof session.sessionId === 'string' &&
+				session.sessionId.length > 0 &&
+				typeof session.publishUrl === 'string' &&
+				session.publishUrl.startsWith('srt://') &&
+				typeof session.playbackUrl === 'string' &&
+				session.playbackUrl.startsWith('srt://');
+			if (!sessionLooksValid) {
+				throw new Error('Gateway returned an invalid SRT session payload');
+			}
 			activeMediaGatewaySessionId = session.sessionId;
+			startMediaGatewaySessionRenewal();
 			callTransportState.set({
 				mode: plan.mode,
 				activeTransport: 'sfu',
@@ -1640,9 +1681,11 @@ async function resolveActiveTransport(channelId?: string): Promise<EffectiveCall
 			gatewayHealthy: plan.gatewayHealthy,
 			checkedAt: plan.checkedAt
 		});
+		stopMediaGatewaySessionRenewal();
 		return 'p2p';
 	}
 
+	stopMediaGatewaySessionRenewal();
 	return 'p2p';
 }
 
@@ -1731,6 +1774,7 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 			void closeMediaGatewaySession(activeMediaGatewaySessionId).catch((closeError) => {
 				console.warn('[MediaGateway] Failed closing session after join failure:', closeError);
 			});
+			stopMediaGatewaySessionRenewal();
 			activeMediaGatewaySessionId = null;
 		}
 		handleMediaError(error as DOMException, 'starting');
@@ -1805,6 +1849,7 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 		void closeMediaGatewaySession(activeMediaGatewaySessionId).catch((error) => {
 			console.warn('[MediaGateway] Failed to close session on leave:', error);
 		});
+		stopMediaGatewaySessionRenewal();
 		activeMediaGatewaySessionId = null;
 	}
 }
@@ -1965,6 +2010,13 @@ export function endCall(socket: Socket) {
 		effectiveMode: 'off',
 		fallbackReason: null
 	}));
+	if (activeMediaGatewaySessionId) {
+		void closeMediaGatewaySession(activeMediaGatewaySessionId).catch((error) => {
+			console.warn('[MediaGateway] Failed to close session on endCall:', error);
+		});
+		stopMediaGatewaySessionRenewal();
+		activeMediaGatewaySessionId = null;
+	}
 }
 
 // ============================================================================
@@ -2414,6 +2466,13 @@ export function cleanupAllConnections() {
 		effectiveMode: 'off',
 		fallbackReason: null
 	}));
+	if (activeMediaGatewaySessionId) {
+		void closeMediaGatewaySession(activeMediaGatewaySessionId).catch((error) => {
+			console.warn('[MediaGateway] Failed to close session on cleanupAllConnections:', error);
+		});
+		stopMediaGatewaySessionRenewal();
+		activeMediaGatewaySessionId = null;
+	}
 }
 
 export function openChannelCallPanel(): void {

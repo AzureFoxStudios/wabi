@@ -243,6 +243,8 @@ NODE_ENV=production
 JWT_SECRET=${JWT_SECRET}
 DATA_DIR=/app/data
 PLUGINS_DIR=/app/plugins
+PLUGINS_ENABLED=false
+PLUGINS_ALLOW_INSTALL=false
 STATIC_DIR=/app/frontend/build
 
 # --- Deployment mode/runtime -----------------------------------------------
@@ -293,7 +295,7 @@ ${DOMAIN} {
 }
 
 gateway.${DOMAIN} {
-    # SRT gateway control-plane (Phase 2 MVP)
+    # SRT gateway daemon endpoint
     reverse_proxy localhost:8095
 }
 CADDYFILE
