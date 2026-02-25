@@ -15,12 +15,13 @@
 	export let onPin: () => void;
 	export let onReply: () => void;
 	export let onDownload: (() => void) | undefined = undefined;
+	export let onAddToAlbum: (() => void) | undefined = undefined;
 	export let onForward: (() => void) | undefined = undefined;
 	export let onAddReaction: (() => void) | undefined = undefined;
 	export let onTranslate: (() => void) | undefined = undefined;
 
 	$: isOwnMessage = message.userId === $currentUser?.id;
-	$: hasFile = message.type === 'file' && message.fileUrl;
+	$: hasFile = message.type === 'file' && (Boolean(message.fileUrl) || (message.files?.length ?? 0) > 0);
 	$: canCopyText = !!message.text?.trim();
 
 	function closeMenu() {
@@ -72,6 +73,15 @@
 				label: get(_)('context_menu.download'),
 				icon: 'download',
 				onSelect: onDownload
+			});
+		}
+
+		if (hasFile && onAddToAlbum) {
+			list.push({
+				id: 'add-to-album',
+				label: get(_)('context_menu.add_to_album'),
+				icon: 'archive',
+				onSelect: onAddToAlbum
 			});
 		}
 

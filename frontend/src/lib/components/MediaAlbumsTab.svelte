@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { channels, currentChannel } from '$lib/socket';
+	import { channels, currentChannel, currentUser } from '$lib/socket';
+	import { getServerUrl } from '$lib/serverUrl';
 	import {
 		addMediaAlbumItem,
 		createMediaAlbum,
@@ -35,7 +36,17 @@
 	let draftAttachmentName = '';
 	let draftAttachmentMime = '';
 	let draftCaption = '';
+	let draftUploadCaption = '';
+	let draftUploadFile: File | null = null;
+	let uploadInputElement: HTMLInputElement | null = null;
 	let lastScopeKey = '';
+	let isUploadingAlbumFile = false;
+	let itemSearchQuery = '';
+	let itemSortMode: 'newest' | 'oldest' | 'name' = 'newest';
+	let itemViewMode: 'list' | 'grid' = 'grid';
+	let currentItemsPage = 1;
+	let lastItemsControlKey = '';
+	const ITEMS_PER_PAGE = 24;
 
 	function getAuthToken(): string | null {
 		if (typeof window === 'undefined') return null;
@@ -56,6 +67,152 @@
 			return new Date(timestamp).toLocaleString();
 		} catch {
 			return 'unknown';
+		}
+	}
+
+	function formatBytes(bytes: number): string {
+		if (bytes < 1024) return `${bytes} B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+		return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+	}
+
+	function currentUserDbId(): number | null {
+		return typeof $currentUser?.dbUserId === 'number' ? $currentUser.dbUserId : null;
+	}
+
+	function canModerateAlbums(): boolean {
+		const role = ($currentUser?.highestRole || '').toLowerCase();
+		return role === 'owner' || role === 'admin' || role === 'mod';
+	}
+
+	function canDeleteAlbum(album: MediaAlbum | null): boolean {
+		if (!album) return false;
+		const dbUserId = currentUserDbId();
+		if (dbUserId !== null && album.createdBy === dbUserId) return true;
+		return canModerateAlbums();
+	}
+
+	function canDeleteItem(item: MediaAlbumItem, album: MediaAlbum | null): boolean {
+		const dbUserId = currentUserDbId();
+		if (dbUserId !== null && item.uploadedBy === dbUserId) return true;
+		if (dbUserId !== null && album && album.createdBy === dbUserId) return true;
+		return canModerateAlbums();
+	}
+
+	$: selectedAlbumValue = selectedAlbum();
+	$: normalizedItemSearch = itemSearchQuery.trim().toLowerCase();
+	$: filteredAlbumItems = albumItems
+		.filter((item) => {
+			if (!normalizedItemSearch) return true;
+			return (
+				item.attachmentName.toLowerCase().includes(normalizedItemSearch) ||
+				(item.caption || '').toLowerCase().includes(normalizedItemSearch)
+			);
+		})
+		.slice()
+		.sort((a, b) => {
+			if (itemSortMode === 'name') {
+				return a.attachmentName.localeCompare(b.attachmentName);
+			}
+			if (itemSortMode === 'oldest') {
+				return a.uploadedAt - b.uploadedAt;
+			}
+			return b.uploadedAt - a.uploadedAt;
+		});
+	$: totalItemPages = Math.max(1, Math.ceil(filteredAlbumItems.length / ITEMS_PER_PAGE));
+	$: pagedAlbumItems = filteredAlbumItems.slice(
+		(currentItemsPage - 1) * ITEMS_PER_PAGE,
+		currentItemsPage * ITEMS_PER_PAGE
+	);
+	$: if (currentItemsPage > totalItemPages) {
+		currentItemsPage = totalItemPages;
+	}
+	$: {
+		const key = `${selectedAlbumId ?? 'none'}::${itemSearchQuery}::${itemSortMode}`;
+		if (key !== lastItemsControlKey) {
+			lastItemsControlKey = key;
+			currentItemsPage = 1;
+		}
+	}
+
+	function handleAlbumFileChange(event: Event): void {
+		const input = event.target as HTMLInputElement;
+		draftUploadFile = input.files?.[0] || null;
+	}
+
+	function resetUploadDraft(): void {
+		draftUploadFile = null;
+		draftUploadCaption = '';
+		if (uploadInputElement) {
+			uploadInputElement.value = '';
+		}
+	}
+
+	async function uploadAlbumFile(token: string, file: File): Promise<{
+		fileUrl: string;
+		fileName: string;
+		fileSize: number;
+	}> {
+		const formData = new FormData();
+		formData.append('file', file, file.name);
+
+		const response = await fetch(`${getServerUrl()}/api/upload`, {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${token}`
+			},
+			body: formData
+		});
+
+		if (!response.ok) {
+			let detail = '';
+			try {
+				const payload = await response.json();
+				detail = payload?.error || '';
+			} catch {
+				detail = await response.text();
+			}
+			throw new Error(detail || `Upload failed (${response.status})`);
+		}
+
+		const payload = await response.json();
+		const fileUrl = typeof payload?.fileUrl === 'string' ? payload.fileUrl : '';
+		if (!fileUrl) {
+			throw new Error('Upload did not return a file URL.');
+		}
+
+		return {
+			fileUrl,
+			fileName: typeof payload?.fileName === 'string' ? payload.fileName : file.name,
+			fileSize:
+				typeof payload?.fileSize === 'number' && Number.isFinite(payload.fileSize)
+					? payload.fileSize
+					: file.size
+		};
+	}
+
+	async function addUploadedFileItem(): Promise<void> {
+		const token = getAuthToken();
+		if (!token || !selectedAlbumId || isUploadingAlbumFile || !draftUploadFile) return;
+
+		isUploadingAlbumFile = true;
+		clearError();
+		try {
+			const uploaded = await uploadAlbumFile(token, draftUploadFile);
+			await addMediaAlbumItem(token, selectedAlbumId, {
+				attachmentUrl: uploaded.fileUrl,
+				attachmentName: uploaded.fileName,
+				attachmentSize: uploaded.fileSize,
+				attachmentMime: draftUploadFile.type || null,
+				caption: draftUploadCaption.trim() || null
+			});
+			resetUploadDraft();
+			await loadAlbumItems(selectedAlbumId);
+			await refreshAlbums(false);
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : 'Failed to upload album file';
+		} finally {
+			isUploadingAlbumFile = false;
 		}
 	}
 
@@ -179,6 +336,10 @@
 		const token = getAuthToken();
 		if (!token || !selectedAlbumId || isDeletingAlbum) return;
 		const album = selectedAlbum();
+		if (!canDeleteAlbum(album)) {
+			errorMessage = 'Only album owner or moderators can delete this album.';
+			return;
+		}
 		const label = album?.name || `#${selectedAlbumId}`;
 		if (!confirm(`Delete album "${label}"? This removes all album items.`)) return;
 
@@ -200,6 +361,14 @@
 		const token = getAuthToken();
 		if (!token || !selectedAlbumId || deletingItemId !== null) return;
 		const item = albumItems.find((entry) => entry.id === itemId);
+		if (!item) {
+			errorMessage = 'Album item not found.';
+			return;
+		}
+		if (!canDeleteItem(item, selectedAlbum())) {
+			errorMessage = 'Only item owner, album owner, or moderators can delete this item.';
+			return;
+		}
 		const label = item?.attachmentName || `item #${itemId}`;
 		if (!confirm(`Delete "${label}" from this album?`)) return;
 
@@ -296,25 +465,56 @@
 			{/if}
 		</div>
 
-		{#if selectedAlbum()}
+		{#if selectedAlbumValue}
 			<div class="items-section">
 				<div class="items-header">
 					<div class="items-header-title">
-						<strong>{selectedAlbum()?.name}</strong>
+						<strong>{selectedAlbumValue.name}</strong>
 						<span>{albumItems.length} loaded</span>
 					</div>
 					<button
 						class="danger-btn"
 						on:click={() => void removeSelectedAlbum()}
-						disabled={isDeletingAlbum}
+						disabled={isDeletingAlbum || !canDeleteAlbum(selectedAlbumValue)}
 						title="Delete this album"
 					>
 						{isDeletingAlbum ? 'Deleting...' : 'Delete album'}
 					</button>
 				</div>
+				{#if !canDeleteAlbum(selectedAlbumValue)}
+					<div class="permission-hint">Only the album owner or moderators can delete this album.</div>
+				{/if}
+
+				<div class="upload-local-item">
+					<div class="upload-local-row">
+						<input
+							type="file"
+							bind:this={uploadInputElement}
+							on:change={handleAlbumFileChange}
+							accept="image/*,video/*,audio/*,.zip,.pdf,.txt,.md"
+						/>
+						<button
+							on:click={() => void addUploadedFileItem()}
+							disabled={isUploadingAlbumFile || !draftUploadFile}
+						>
+							{isUploadingAlbumFile ? 'Uploading...' : 'Upload to album'}
+						</button>
+					</div>
+					{#if draftUploadFile}
+						<div class="upload-local-meta">
+							<span>{draftUploadFile.name}</span>
+							<span>{formatBytes(draftUploadFile.size)}</span>
+						</div>
+					{/if}
+					<input
+						type="text"
+						bind:value={draftUploadCaption}
+						placeholder="Caption for uploaded file (optional)"
+					/>
+				</div>
 
 				<details class="debug-add-item">
-					<summary>Debug add item</summary>
+					<summary>Advanced: add item by URL</summary>
 					<div class="debug-form">
 						<input type="text" bind:value={draftAttachmentUrl} placeholder="Attachment URL" />
 						<input type="text" bind:value={draftAttachmentName} placeholder="Attachment name" />
@@ -329,13 +529,40 @@
 					</div>
 				</details>
 
-				<div class="item-list">
+				<div class="item-toolbar">
+					<div class="item-toolbar-left">
+						<input
+							type="search"
+							bind:value={itemSearchQuery}
+							placeholder="Search album items..."
+						/>
+					</div>
+					<div class="item-toolbar-right">
+						<select bind:value={itemSortMode}>
+							<option value="newest">Newest first</option>
+							<option value="oldest">Oldest first</option>
+							<option value="name">Name (A-Z)</option>
+						</select>
+						<div class="view-toggle">
+							<button class:active={itemViewMode === 'grid'} on:click={() => (itemViewMode = 'grid')}>Grid</button>
+							<button class:active={itemViewMode === 'list'} on:click={() => (itemViewMode = 'list')}>List</button>
+						</div>
+					</div>
+				</div>
+
+				<div class="item-toolbar-summary">
+					Showing {pagedAlbumItems.length} of {filteredAlbumItems.length} items
+				</div>
+
+				<div class="item-list" class:grid-view={itemViewMode === 'grid'}>
 					{#if isLoadingItems}
 						<div class="empty-state">Loading items...</div>
 					{:else if albumItems.length === 0}
 						<div class="empty-state">No items in this album yet.</div>
+					{:else if filteredAlbumItems.length === 0}
+						<div class="empty-state">No items match this search.</div>
 					{:else}
-						{#each albumItems as item}
+						{#each pagedAlbumItems as item}
 							<div class="item-row">
 								<div class="item-main">
 									<a href={item.attachmentUrl} target="_blank" rel="noreferrer">
@@ -353,7 +580,7 @@
 									<button
 										class="item-delete-btn"
 										on:click={() => void removeItem(item.id)}
-										disabled={deletingItemId !== null}
+										disabled={deletingItemId !== null || !canDeleteItem(item, selectedAlbumValue)}
 										title="Delete item from album"
 									>
 										{deletingItemId === item.id ? 'Deleting...' : 'Delete'}
@@ -363,6 +590,17 @@
 						{/each}
 					{/if}
 				</div>
+				{#if !isLoadingItems && filteredAlbumItems.length > ITEMS_PER_PAGE}
+					<div class="pagination-row">
+						<button on:click={() => currentItemsPage = Math.max(1, currentItemsPage - 1)} disabled={currentItemsPage <= 1}>
+							Previous
+						</button>
+						<span>Page {currentItemsPage} / {totalItemPages}</span>
+						<button on:click={() => currentItemsPage = Math.min(totalItemPages, currentItemsPage + 1)} disabled={currentItemsPage >= totalItemPages}>
+							Next
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	{/if}
@@ -428,8 +666,34 @@
 		gap: 0.45rem;
 	}
 
+	.upload-local-item {
+		display: grid;
+		gap: 0.45rem;
+		padding: 0.55rem;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		background: rgba(255, 255, 255, 0.02);
+	}
+
+	.upload-local-row {
+		display: grid;
+		grid-template-columns: 1fr auto;
+		gap: 0.45rem;
+		align-items: center;
+	}
+
+	.upload-local-meta {
+		display: flex;
+		justify-content: space-between;
+		font-size: 0.74rem;
+		color: var(--text-secondary);
+		gap: 0.5rem;
+		word-break: break-all;
+	}
+
 	.create-row input,
-	.debug-form input {
+	.debug-form input,
+	.upload-local-item input {
 		width: 100%;
 		border: 1px solid var(--border);
 		background: var(--bg-secondary);
@@ -437,6 +701,16 @@
 		border-radius: 8px;
 		padding: 0.46rem 0.55rem;
 		font-size: 0.8rem;
+	}
+
+	.item-toolbar input,
+	.item-toolbar select {
+		border: 1px solid var(--border);
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		border-radius: 8px;
+		padding: 0.4rem 0.5rem;
+		font-size: 0.77rem;
 	}
 
 	.error-banner {
@@ -492,6 +766,14 @@
 		gap: 0.45rem;
 	}
 
+	.permission-hint {
+		font-size: 0.74rem;
+		color: var(--text-secondary);
+		padding: 0.45rem 0.5rem;
+		border: 1px dashed var(--border);
+		border-radius: 8px;
+	}
+
 	.items-header {
 		display: flex;
 		align-items: center;
@@ -538,6 +820,54 @@
 		gap: 0.4rem;
 	}
 
+	.item-toolbar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+	}
+
+	.item-toolbar-left {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.item-toolbar-left input {
+		width: 100%;
+	}
+
+	.item-toolbar-right {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+	}
+
+	.view-toggle {
+		display: inline-flex;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		overflow: hidden;
+	}
+
+	.view-toggle button {
+		border: none;
+		background: transparent;
+		color: var(--text-secondary);
+		font-size: 0.74rem;
+		padding: 0.35rem 0.5rem;
+		cursor: pointer;
+	}
+
+	.view-toggle button.active {
+		background: rgba(var(--accent-rgb), 0.2);
+		color: var(--text-primary);
+	}
+
+	.item-toolbar-summary {
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+	}
+
 	.item-row {
 		border: 1px solid var(--border);
 		border-radius: 9px;
@@ -545,6 +875,23 @@
 		display: flex;
 		justify-content: space-between;
 		gap: 0.65rem;
+	}
+
+	.item-list.grid-view {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+		gap: 0.45rem;
+	}
+
+	.item-list.grid-view .item-row {
+		flex-direction: column;
+		align-items: flex-start;
+	}
+
+	.item-list.grid-view .item-meta {
+		width: 100%;
+		align-items: flex-start;
+		text-align: left;
 	}
 
 	.item-main {
@@ -592,6 +939,30 @@
 
 	.item-delete-btn:disabled {
 		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.pagination-row {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		font-size: 0.74rem;
+		color: var(--text-secondary);
+	}
+
+	.pagination-row button {
+		border: 1px solid var(--border);
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		border-radius: 8px;
+		padding: 0.3rem 0.48rem;
+		font-size: 0.74rem;
+		cursor: pointer;
+	}
+
+	.pagination-row button:disabled {
+		opacity: 0.55;
 		cursor: not-allowed;
 	}
 

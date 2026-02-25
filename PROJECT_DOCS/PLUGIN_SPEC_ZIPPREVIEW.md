@@ -4,7 +4,7 @@
 - Plugin Name: ZipPreview
 - Source Link(s): `https://betterdiscord.app/plugin/ZipPreview`
 - Wabi Target Version: `0.4.x+`
-- Status: `Planned`
+- Status: `In Progress (Phase 2)`
 
 ## Plugin Grade
 - User Impact (1-5): `5`
@@ -53,20 +53,21 @@ Users share `.zip` files and cannot inspect contents quickly. They need lightwei
 
 ## Phase Plan
 ### Phase 0 - Discovery
-- [ ] Locate exact attachment render path in current chat component.
-- [ ] Define parser library/approach (native parser vs small dependency).
-- [ ] Lock initial limits (size, entries, timeout).
+- [x] Locate exact attachment render path in current chat component.
+- [x] Define parser library/approach (native parser vs small dependency).
+- [x] Lock initial limits (size, entries, timeout).
 
 ### Phase 1 - MVP
-- [ ] ZIP attachment detection.
-- [ ] Metadata parse from fetched bytes.
-- [ ] Basic tree/list UI with expand/collapse.
-- [ ] Error/fallback states.
+- [x] ZIP attachment detection.
+- [x] Metadata parse from fetched bytes.
+- [x] Basic tree/list UI with expand/collapse.
+- [x] Error/fallback states.
+- [ ] Manual smoke validation on malformed/oversized fixtures.
 
 ### Phase 2 - Harden
-- [ ] Metadata caching keyed by attachment URL/hash.
-- [ ] File name search/filter.
-- [ ] Stronger malformed archive handling.
+- [x] Metadata caching keyed by attachment URL/hash.
+- [x] File name search/filter.
+- [x] Stronger malformed archive handling.
 
 ### Phase 3 - Polish
 - [ ] Optional inline preview for safe text/image entries.
@@ -92,3 +93,20 @@ Users share `.zip` files and cannot inspect contents quickly. They need lightwei
 1. Should parser run in main thread or Web Worker for large archives?
 2. Do we want backend-assisted parsing for very large files later?
 3. Should previews support password-protected archives (likely no)?
+
+## Current Implementation Snapshot (2026-02-25)
+- Frontend integration:
+  - `frontend/src/lib/components/MessageList.svelte`
+  - `frontend/src/lib/components/ZipPreviewPanel.svelte`
+  - `frontend/src/lib/zip/zipPreview.ts`
+- MVP limits currently enforced:
+  - max archive bytes for preview: `25 MB`
+  - max rendered entries: `200`
+  - fetch timeout: `4 seconds`
+- Hardening implemented:
+  - LRU-style in-memory cache with TTL (`url + size` key)
+  - in-panel filename search/filter with result count
+  - parser checks for multi-disk/split archives and central-directory inconsistencies
+- Explicitly unsupported in MVP:
+  - encrypted attachments
+  - ZIP64 preview parsing

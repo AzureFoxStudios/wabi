@@ -1286,6 +1286,9 @@ class SocketManager {
 		});
 
 		sock.on('call-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string; channelId?: string }) => {
+			if (data.channelId && calling.isSfuMediaTransportActive()) {
+				return;
+			}
 			console.log(`[SocketManager] Call offer from ${data.username}`);
 			calling.handleCallOffer(sock, data.senderId, data.username, data.offer, data.channelId)
 				.catch(err => console.error('[SocketManager] handleCallOffer failed:', err));
@@ -1302,6 +1305,9 @@ class SocketManager {
 		});
 
 		sock.on('voice-channel-user-joined', (data: { channelId: string; userId: string; socketId?: string; username?: string }) => {
+			if (calling.isSfuMediaTransportActive()) {
+				return;
+			}
 			const me = get(currentUser);
 			if (me?.id === data.userId || sock.id === data.socketId) {
 				return;
@@ -1317,17 +1323,26 @@ class SocketManager {
 		});
 
 		sock.on('voice-channel-user-left', (data: { channelId: string; userId: string; socketId?: string }) => {
+			if (calling.isSfuMediaTransportActive()) {
+				return;
+			}
 			const targetId = data.socketId || data.userId;
 			console.log(`[SocketManager] Voice participant left ${data.channelId}: ${targetId}`);
 			calling.removeCall(targetId);
 		});
 
 		sock.on('screen-share-started', (data: { userId: string; username: string }) => {
+			if (calling.isSfuMediaTransportActive()) {
+				return;
+			}
 			console.log(`[SocketManager] ${data.username} started screen sharing`);
 			sock.emit('request-screen-share', { sharerId: data.userId });
 		});
 
 		sock.on('screen-share-request', (data: { viewerId: string }) => {
+			if (calling.isSfuMediaTransportActive()) {
+				return;
+			}
 			console.log(`[SocketManager] Screen share request from ${data.viewerId}`);
 			calling.createScreenShareOffer(sock, data.viewerId)
 				.catch(err => console.error('[SocketManager] createScreenShareOffer failed:', err));
@@ -1339,16 +1354,25 @@ class SocketManager {
 		});
 
 		sock.on('webrtc-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string }) => {
+			if (calling.isSfuMediaTransportActive()) {
+				return;
+			}
 			calling.handleScreenShareOffer(sock, data.senderId, data.username, data.offer)
 				.catch(err => console.error('[SocketManager] handleScreenShareOffer failed:', err));
 		});
 
 		sock.on('webrtc-answer', (data: { answer: RTCSessionDescriptionInit; senderId: string }) => {
+			if (calling.isSfuMediaTransportActive()) {
+				return;
+			}
 			calling.handleScreenShareAnswer(data.senderId, data.answer)
 				.catch(err => console.error('[SocketManager] handleScreenShareAnswer failed:', err));
 		});
 
 		sock.on('webrtc-ice-candidate', (data: { candidate: RTCIceCandidateInit; senderId: string }) => {
+			if (calling.isSfuMediaTransportActive()) {
+				return;
+			}
 			calling.handleScreenShareIceCandidate(data.senderId, data.candidate);
 		});
 

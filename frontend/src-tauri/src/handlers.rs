@@ -29,6 +29,14 @@ fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+fn ensure_sidecar_admin(is_admin: bool) -> Result<(), String> {
+    if is_admin {
+        Ok(())
+    } else {
+        Err("sidecar deletion requires owner/admin privileges".to_string())
+    }
+}
+
 fn read_json_file(path: &PathBuf) -> Result<Value, String> {
     if !path.exists() {
         return Ok(json!({}));
@@ -120,6 +128,28 @@ pub fn clear_binary_data(app: AppHandle) -> Result<String, String> {
         }
     }
     Ok("binary data cleared".to_string())
+}
+
+#[tauri::command]
+pub fn clear_wabi_data(app: AppHandle, is_admin: bool) -> Result<String, String> {
+    ensure_sidecar_admin(is_admin)?;
+
+    let dir = app_data_dir(&app)?;
+    for entry in fs::read_dir(&dir).map_err(|e| format!("failed reading app dir: {e}"))? {
+        let entry = entry.map_err(|e| format!("failed reading entry: {e}"))?;
+        let path = entry.path();
+        let metadata = entry
+            .metadata()
+            .map_err(|e| format!("failed reading metadata: {e}"))?;
+
+        if metadata.is_file() {
+            fs::remove_file(&path).map_err(|e| format!("failed removing file: {e}"))?;
+        } else if metadata.is_dir() {
+            fs::remove_dir_all(&path).map_err(|e| format!("failed removing directory: {e}"))?;
+        }
+    }
+
+    Ok("wabi sidecar data cleared".to_string())
 }
 
 #[tauri::command]

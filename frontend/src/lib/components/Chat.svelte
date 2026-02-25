@@ -48,6 +48,15 @@
 	import { _, currentLocale } from '$lib/i18n';
 	import { lookupDictionary, upsertDictionaryEntry, deleteDictionaryEntry } from '$lib/api';
 	import { isTauriRuntime } from '$lib/tauri-platform';
+	import {
+		compressVideoFileForUpload,
+		isVideoFile,
+		type VideoCompressionPresetId
+	} from '$lib/video/videoCompressor';
+	import {
+		getDefaultVideoCompressionPreset,
+		isVideoCompressionEnabled
+	} from '$lib/video/videoCompressionSettings';
 
 	const dispatch = createEventDispatcher();
 
@@ -79,6 +88,15 @@
 	let editingMessage: Message | null = null;
 	let uploadProgress = 0;
 	let isUploading = false;
+	let uploadStatusLabel = '';
+	let compressionDialogOpen = false;
+	let compressionDialogFile: File | null = null;
+	let compressionDialogPreset: VideoCompressionPresetId = 'balanced_720p';
+	let compressionDialogError = '';
+	let compressionDialogProgress = 0;
+	let compressionDialogBusy = false;
+	let compressionDialogResolve: ((value: File | null) => void) | null = null;
+	let compressionAbortController: AbortController | null = null;
 	let selectedFiles: File[] = [];
 	let filePreviews: { file: File; preview?: string }[] = [];
 	let markAsSpoiler = false;
@@ -108,6 +126,9 @@
 	}
 	const RESUMABLE_UPLOAD_CHUNK_SIZE = 1024 * 1024; // 1MB
 	const RESUMABLE_UPLOAD_MAX_RETRIES = 4;
+	const MAX_UPLOAD_FILE_BYTES = 1024 * 1024 * 1024; // 1GB
+	const VIDEO_COMPRESSION_PROMPT_BYTES = 45 * 1024 * 1024; // 45MB
+	const VIDEO_COMPRESSION_TIMEOUT_MS = 3 * 60 * 1000;
 
 	// Command palette
 	let commandPalette: CommandPalette;
@@ -1046,6 +1067,135 @@
 		});
 	}
 
+	function formatFileMb(bytes: number): string {
+		return (bytes / 1024 / 1024).toFixed(1);
+	}
+
+	function resetCompressionDialogState(): void {
+		if (compressionAbortController) {
+			try {
+				compressionAbortController.abort();
+			} catch {
+				// no-op
+			}
+		}
+		compressionDialogOpen = false;
+		compressionDialogFile = null;
+		compressionDialogError = '';
+		compressionDialogProgress = 0;
+		compressionDialogBusy = false;
+		compressionAbortController = null;
+		compressionDialogResolve = null;
+	}
+
+	function resolveCompressionDialog(result: File | null): void {
+		const resolve = compressionDialogResolve;
+		resetCompressionDialogState();
+		resolve?.(result);
+	}
+
+	function openCompressionDialog(file: File): Promise<File | null> {
+		return new Promise((resolve) => {
+			if (compressionDialogResolve) {
+				resolveCompressionDialog(null);
+			}
+			compressionDialogOpen = true;
+			compressionDialogFile = file;
+			compressionDialogPreset = getDefaultVideoCompressionPreset();
+			compressionDialogError = '';
+			compressionDialogProgress = 0;
+			compressionDialogBusy = false;
+			compressionDialogResolve = resolve;
+		});
+	}
+
+	function keepOriginalVideoFile(): void {
+		resolveCompressionDialog(compressionDialogFile);
+	}
+
+	function removeVideoFileFromQueue(): void {
+		resolveCompressionDialog(null);
+	}
+
+	function cancelCompressionRun(): void {
+		if (!compressionDialogBusy) return;
+		compressionAbortController?.abort();
+	}
+
+	async function runVideoCompression(): Promise<void> {
+		if (!compressionDialogFile || compressionDialogBusy) return;
+		compressionDialogBusy = true;
+		compressionDialogError = '';
+		compressionDialogProgress = 0;
+		const inputFile = compressionDialogFile;
+		const abortController = new AbortController();
+		compressionAbortController = abortController;
+
+		try {
+			const compressed = await compressVideoFileForUpload(inputFile, {
+				preset: compressionDialogPreset,
+				timeoutMs: VIDEO_COMPRESSION_TIMEOUT_MS,
+				signal: abortController.signal,
+				onProgress: (percent) => {
+					compressionDialogProgress = Math.min(100, Math.max(0, Math.round(percent)));
+				}
+			});
+			resolveCompressionDialog(compressed);
+			return;
+		} catch (error) {
+			if (abortController.signal.aborted) {
+				compressionDialogError = 'Compression was cancelled.';
+			} else {
+				compressionDialogError = error instanceof Error ? error.message : 'Compression failed.';
+			}
+		} finally {
+			if (compressionAbortController === abortController) {
+				compressionAbortController = null;
+			}
+			compressionDialogBusy = false;
+		}
+	}
+
+	async function maybeCompressVideoFile(file: File): Promise<File | null> {
+		if (!isTauriRuntime()) return file;
+		if (!isVideoCompressionEnabled()) return file;
+		if (!isVideoFile(file)) return file;
+		if (file.size < VIDEO_COMPRESSION_PROMPT_BYTES) return file;
+		return openCompressionDialog(file);
+	}
+
+	async function prepareIncomingFiles(files: File[]): Promise<File[]> {
+		for (const file of files) {
+			if (file.size > MAX_UPLOAD_FILE_BYTES) {
+				alert(
+					`File too large! Maximum size is 1GB per file. "${file.name}" is ${formatFileMb(file.size)}MB`
+				);
+				return [];
+			}
+		}
+
+		const prepared: File[] = [];
+		for (const file of files) {
+			const candidate = await maybeCompressVideoFile(file);
+			if (candidate) prepared.push(candidate);
+		}
+		return prepared;
+	}
+
+	function applySelectedFiles(files: File[], mode: 'replace' | 'append'): void {
+		if (mode === 'replace') {
+			clearFilePreviews();
+			selectedFiles = files;
+			filePreviews = buildPreviewEntries(files);
+			enforcePreviewBudget();
+			return;
+		}
+
+		selectedFiles = [...selectedFiles, ...files];
+		filePreviews = [...filePreviews, ...buildPreviewEntries(files)];
+		enforcePreviewBudget();
+	}
+
 	async function handleFileSelect(event: Event) {
 		const input = event.target as HTMLInputElement;
 		const files = Array.from(input.files || []);
@@ -1056,22 +1206,10 @@
 		}
 
 		console.log('Files selected:', files.length);
-
-		// Check file sizes (1GB limit per file)
-		const maxSize = 1024 * 1024 * 1024; // 1GB
-		for (const file of files) {
-			if (file.size > maxSize) {
-				alert(`File too large! Maximum size is 1GB per file. "${file.name}" is ${(file.size / 1024 / 1024).toFixed(2)}MB`);
-				input.value = '';
-				return;
-			}
+		const preparedFiles = await prepareIncomingFiles(files);
+		if (preparedFiles.length > 0) {
+			applySelectedFiles(preparedFiles, 'replace');
 		}
-
-		// Store selected files and generate previews for images
-		clearFilePreviews();
-		selectedFiles = files;
-		filePreviews = buildPreviewEntries(files);
-		enforcePreviewBudget();
 
 		input.value = '';
 		return;
@@ -1119,21 +1257,10 @@
 
 		const files = Array.from(e.dataTransfer?.files || []);
 		if (files.length === 0) return;
-
-		// Check file sizes
-		const maxSize = 1024 * 1024 * 1024; // 1GB
-		for (const file of files) {
-			if (file.size > maxSize) {
-				alert(`File too large! Maximum size is 1GB per file. "${file.name}" is ${(file.size / 1024 / 1024).toFixed(2)}MB`);
-				return;
-			}
+		const preparedFiles = await prepareIncomingFiles(files);
+		if (preparedFiles.length > 0) {
+			applySelectedFiles(preparedFiles, 'replace');
 		}
-
-		// Store selected files and generate previews
-		clearFilePreviews();
-		selectedFiles = files;
-		filePreviews = buildPreviewEntries(files);
-		enforcePreviewBudget();
 	}
 
 	async function handlePaste(e: ClipboardEvent) {
@@ -1155,18 +1282,10 @@
 
 		// If files found, add to selectedFiles (reuse existing upload logic)
 		if (files.length > 0) {
-			// Check file sizes
-			const maxSize = 1024 * 1024 * 1024; // 1GB
-			for (const file of files) {
-				if (file.size > maxSize) {
-					alert(`File too large! Maximum size is 1GB per file. "${file.name}" is ${(file.size / 1024 / 1024).toFixed(2)}MB`);
-					return;
-				}
+			const preparedFiles = await prepareIncomingFiles(files);
+			if (preparedFiles.length > 0) {
+				applySelectedFiles(preparedFiles, 'append');
 			}
-
-			selectedFiles = [...selectedFiles, ...files];
-			filePreviews = [...filePreviews, ...buildPreviewEntries(files)];
-			enforcePreviewBudget();
 			return;
 		}
 
@@ -1194,6 +1313,7 @@
 		}
 
 		isUploading = true;
+		uploadStatusLabel = get(_)('chat.upload.uploading');
 		const totalFiles = selectedFiles.length;
 		let completedFiles = 0;
 
@@ -1242,6 +1362,7 @@
 					if (!encrypted) {
 						alert('This DM is in sealed/private mode. Encryption failed, so upload was cancelled.');
 						isUploading = false;
+						uploadStatusLabel = '';
 						uploadProgress = 0;
 						return;
 					}
@@ -1296,12 +1417,14 @@
 			replyingTo = null;
 			clearFilePreviews();
 			isUploading = false;
+			uploadStatusLabel = '';
 			uploadProgress = 0;
 			textareaElement?.focus();
 		} catch (error) {
 			console.error('Upload error:', error);
 			alert('Failed to upload files. Please try again.');
 			isUploading = false;
+			uploadStatusLabel = '';
 			uploadProgress = 0;
 		}
 	}
@@ -1669,6 +1792,9 @@
 
 	onDestroy(() => {
 		clearFilePreviews();
+		if (compressionDialogResolve) {
+			resolveCompressionDialog(null);
+		}
 	});
 </script>
 
@@ -1922,7 +2048,7 @@
 		{#if isUploading}
 			<div class="upload-progress-bar">
 				<div class="upload-progress-info">
-					<span>{$_('chat.upload.uploading')}</span>
+					<span>{uploadStatusLabel || $_('chat.upload.uploading')}</span>
 					<span>{uploadProgress}%</span>
 				</div>
 				<div class="progress-bar">
@@ -2008,6 +2134,54 @@
 			{/if}
 	</div>
 
+	{#if compressionDialogOpen && compressionDialogFile}
+		<div class="compression-modal-backdrop" role="presentation">
+			<div class="compression-modal" role="dialog" aria-modal="true" aria-labelledby="video-compress-title">
+				<h3 id="video-compress-title">Compress Video Before Upload</h3>
+				<p class="compression-copy">
+					"{compressionDialogFile.name}" is {formatFileMb(compressionDialogFile.size)} MB. Compress now or keep the original file.
+				</p>
+				<div class="compression-preset-row">
+					<label for="compression-preset-select">Preset</label>
+					<select
+						id="compression-preset-select"
+						bind:value={compressionDialogPreset}
+						disabled={compressionDialogBusy}
+					>
+						<option value="balanced_720p">Balanced 720p (smaller files)</option>
+						<option value="quality_1080p">Quality 1080p (higher quality)</option>
+					</select>
+				</div>
+				{#if compressionDialogBusy}
+					<div class="compression-progress">
+						<div class="compression-progress-info">
+							<span>Compressing...</span>
+							<span>{compressionDialogProgress}%</span>
+						</div>
+						<div class="progress-bar">
+							<div class="progress-fill" style="width: {compressionDialogProgress}%"></div>
+						</div>
+					</div>
+				{:else if compressionDialogError}
+					<div class="compression-error">{compressionDialogError}</div>
+				{/if}
+				<div class="compression-actions">
+					{#if compressionDialogBusy}
+						<button type="button" class="compression-btn secondary" on:click={cancelCompressionRun}>Cancel Compression</button>
+					{:else if compressionDialogError}
+						<button type="button" class="compression-btn" on:click={() => void runVideoCompression()}>Retry</button>
+						<button type="button" class="compression-btn secondary" on:click={keepOriginalVideoFile}>Keep Original</button>
+						<button type="button" class="compression-btn danger" on:click={removeVideoFileFromQueue}>Remove File</button>
+					{:else}
+						<button type="button" class="compression-btn" on:click={() => void runVideoCompression()}>Compress</button>
+						<button type="button" class="compression-btn secondary" on:click={keepOriginalVideoFile}>Keep Original</button>
+						<button type="button" class="compression-btn danger" on:click={removeVideoFileFromQueue}>Remove File</button>
+					{/if}
+				</div>
+			</div>
+		</div>
+	{/if}
+
 	<div class="debug-version-footer" aria-hidden="true">
 		Version {runtimeVersionLabel} - for debugging reasons only
 	</div>
@@ -2039,6 +2213,110 @@
 			pointer-events: none;
 			z-index: 20;
 			white-space: nowrap;
+		}
+
+		.compression-modal-backdrop {
+			position: absolute;
+			inset: 0;
+			background: rgba(0, 0, 0, 0.56);
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			padding: 1rem;
+			z-index: 30;
+		}
+
+		.compression-modal {
+			width: min(92vw, 420px);
+			border: 1px solid var(--border);
+			background: var(--bg-secondary);
+			border-radius: 12px;
+			padding: 0.9rem;
+			display: flex;
+			flex-direction: column;
+			gap: 0.65rem;
+		}
+
+		.compression-modal h3 {
+			margin: 0;
+			font-size: 0.95rem;
+		}
+
+		.compression-copy {
+			margin: 0;
+			font-size: 0.8rem;
+			color: var(--text-secondary);
+			word-break: break-word;
+		}
+
+		.compression-preset-row {
+			display: flex;
+			flex-direction: column;
+			gap: 0.3rem;
+		}
+
+		.compression-preset-row label {
+			font-size: 0.74rem;
+			color: var(--text-secondary);
+		}
+
+		.compression-preset-row select {
+			border: 1px solid var(--border);
+			background: var(--bg-primary);
+			color: var(--text-primary);
+			border-radius: 8px;
+			padding: 0.42rem 0.5rem;
+			font-size: 0.8rem;
+		}
+
+		.compression-progress {
+			display: flex;
+			flex-direction: column;
+			gap: 0.35rem;
+		}
+
+		.compression-progress-info {
+			display: flex;
+			justify-content: space-between;
+			font-size: 0.74rem;
+			color: var(--text-secondary);
+		}
+
+		.compression-error {
+			border: 1px solid rgba(220, 38, 38, 0.45);
+			background: rgba(220, 38, 38, 0.14);
+			color: #fecaca;
+			border-radius: 8px;
+			padding: 0.5rem;
+			font-size: 0.75rem;
+			word-break: break-word;
+		}
+
+		.compression-actions {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.45rem;
+		}
+
+		.compression-btn {
+			border: 1px solid rgba(var(--accent-rgb), 0.5);
+			background: rgba(var(--accent-rgb), 0.2);
+			color: var(--text-primary);
+			border-radius: 8px;
+			padding: 0.4rem 0.56rem;
+			font-size: 0.78rem;
+			cursor: pointer;
+		}
+
+		.compression-btn.secondary {
+			border-color: var(--border);
+			background: rgba(255, 255, 255, 0.04);
+		}
+
+		.compression-btn.danger {
+			border-color: rgba(220, 38, 38, 0.6);
+			background: rgba(220, 38, 38, 0.16);
+			color: #fecaca;
 		}
 
 	.chat-container::before {

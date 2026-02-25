@@ -82,6 +82,29 @@ Default local endpoints:
 - Backend: `http://localhost:8080`
 - Health check: `http://localhost:8080/health`
 
+## Public Access Without Port Forwarding
+
+Wabi supports two tunnel paths out of the box:
+
+1. Domainless quick tunnel (free, temporary URL):
+
+```bash
+docker compose --profile tunnel --profile tunnel-quick up -d --build
+docker logs -f wabi-cloudflared-quick
+```
+
+Use the `https://*.trycloudflare.com` URL printed in logs.
+
+2. Named tunnel (your own domain, stable URL):
+
+```bash
+# Set in .env first:
+# CLOUDFLARE_TUNNEL_TOKEN=<token from Cloudflare Zero Trust>
+docker compose --profile tunnel --profile tunnel-named up -d --build
+```
+
+In both modes, Wabi routes frontend + backend through `Caddyfile.tunnel` so `/api` and `/socket.io` stay on one origin.
+
 ## Guided setup (self-hosted Linux)
 
 For first-time server provisioning, use:

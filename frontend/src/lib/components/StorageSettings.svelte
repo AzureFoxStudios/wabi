@@ -10,7 +10,7 @@
 		clearTauriData,
 		getTauriDataPath
 	} from '$lib/tauri-storage';
-	import { channelMessages, users, currentUser } from '$lib/socket';
+	import { currentUser } from '$lib/socket';
 
 	let saveHistory = false;
 	let rotationPeriod = chatStorage.getRotationPeriod();
@@ -28,6 +28,8 @@
 	let tauriDataPath = '';
 	let tauriExporting = false;
 	let showTauriClearConfirm = false;
+	$: canClearSidecarData = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
+
 	function t(key: string, values?: Record<string, unknown>): string {
 		if (values) return get(_)(key, { values } as any);
 		return get(_)(key);
@@ -136,12 +138,16 @@
 	}
 
 	function confirmTauriClear() {
+		if (!canClearSidecarData) {
+			alert(t('storage.tauri.clear_admin_only'));
+			return;
+		}
 		showTauriClearConfirm = true;
 	}
 
 	async function confirmClearTauriData() {
 		try {
-			await clearTauriData();
+			await clearTauriData(canClearSidecarData);
 			showTauriClearConfirm = false;
 			alert(t('storage.alerts.tauri_clear_success'));
 		} catch (error) {
@@ -224,10 +230,13 @@
 
 			<div class="setting-group">
 				<div class="tauri-actions">
-					<button class="btn-danger" on:click={confirmTauriClear}>
+					<button class="btn-danger" on:click={confirmTauriClear} disabled={!canClearSidecarData}>
 						🗑️ {$_('storage.tauri.clear_all')}
 					</button>
 					<p class="hint">{$_('storage.tauri.clear_hint')}</p>
+					{#if !canClearSidecarData}
+						<p class="hint warning-hint">{$_('storage.tauri.clear_admin_only')}</p>
+					{/if}
 				</div>
 			</div>
 			{/if}
@@ -419,6 +428,10 @@
 		color: var(--text-secondary);
 		font-style: italic;
 		margin: 0.5rem 0 0 0;
+	}
+
+	.warning-hint {
+		color: #ff8a8a;
 	}
 
 	.stats-panel {

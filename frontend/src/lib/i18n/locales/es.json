@@ -193,6 +193,30 @@
       "model_fallback_name": "modelo 3D",
       "open_3d_tab": "Abrir pestaña 3D"
     },
+    "zip_preview": {
+      "show": "Previsualizar contenido ZIP",
+      "hide": "Ocultar contenido ZIP",
+      "loading": "Leyendo metadatos ZIP...",
+      "retry": "Intentar de nuevo",
+      "entries": "{count} entradas",
+      "uncompressed": "Sin comprimir: {size}",
+      "compressed": "Comprimido: {size}",
+      "filter_placeholder": "Filtrar entradas del archivo...",
+      "filter_results": "Mostrando {shown} de {total} entradas.",
+      "no_matches": "No hay entradas que coincidan con ese filtro.",
+      "encrypted_entries": "Contiene {count} entradas cifradas.",
+      "empty": "Este archivo no tiene entradas.",
+      "truncated": "Mostrando las primeras {count} entradas.",
+      "method_store": "Sin compresion",
+      "method_deflate": "Deflate",
+      "method_other": "Metodo {method}",
+      "errors": {
+        "failed": "No se pudo cargar la vista previa ZIP.",
+        "timeout": "La vista previa ZIP agoto el tiempo.",
+        "encrypted": "No se admiten vistas previas ZIP cifradas.",
+        "too_large": "El limite de vista previa ZIP es {limit}."
+      }
+    },
     "pinned_title": "Mensaje fijado",
     "edited_title": "Editado",
     "edited": "editado",
@@ -244,6 +268,7 @@
     "add_reaction": "Agregar reaccion",
     "translate": "Traducir",
     "download": "Descargar",
+    "add_to_album": "Agregar al album",
     "forward": "Reenviar",
     "edit_message": "Editar mensaje",
     "pin_message": "Fijar mensaje",
@@ -396,7 +421,8 @@
       "export_zip": "Exportar como ZIP",
       "export_hint": "Descarga todos tus mensajes y adjuntos como un archivo ZIP portable. Perfecto para respaldos.",
       "clear_all": "Limpiar todos los datos de Tauri",
-      "clear_hint": "Eliminar todos los datos almacenados localmente. Esta accion no se puede deshacer."
+      "clear_hint": "Eliminar todos los datos almacenados localmente. Esta accion no se puede deshacer.",
+      "clear_admin_only": "Solo admins y owners pueden borrar datos sidecar."
     },
     "browser": {
       "title": "Almacenamiento del navegador",

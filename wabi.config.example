@@ -24,6 +24,15 @@ CALLS=off
 # Advanced media flags (off by default).
 ENABLE_RELAYS=false
 ENABLE_MEDIA_GATEWAY=false
+# SFU plugin provider:
+#   none    -> disable SFU module (default)
+#   livekit -> enable LiveKit SFU module
+SFU_PROVIDER=none
+# Legacy compatibility toggle: ENABLE_SFU=true maps to SFU_PROVIDER=livekit.
+ENABLE_SFU=false
+LIVEKIT_URL=
+LIVEKIT_API_KEY=
+LIVEKIT_API_SECRET=
 
 # Plugin system safety defaults.
 PLUGINS_ENABLED=false

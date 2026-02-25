@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, afterUpdate } from 'svelte';
 	import { get } from 'svelte/store';
-	import type { Message, User, Emoji, Channel } from '$lib/socket';
+	import type { Message, User, Emoji, Channel, FileAttachment } from '$lib/socket';
 	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder, loadOlderHistory, channelHistoryLoading, channelHasMoreHistory } from '$lib/socket';
 	import { themeStore } from '$lib/theme/themeStore';
 	import MessageContextMenu from './MessageContextMenu.svelte';
@@ -21,6 +21,7 @@
 	import { openModelViewport } from '$lib/modelViewportTab';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { _ } from '$lib/i18n';
+	import { addMediaAlbumItem, createMediaAlbum, listMediaAlbums, type MediaAlbumScopeType } from '$lib/api';
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
@@ -38,6 +39,10 @@
 	let contextMenuX = 0;
 	let contextMenuY = 0;
 	let contextMenuMessage: Message | null = null;
+	type MessageAttachmentActionItem = Pick<
+		FileAttachment,
+		'fileUrl' | 'fileName' | 'fileSize' | 'attachmentEncryption'
+	>;
 	type TranslatorSettings = {
 		model: string;
 		providerUrl: string;
@@ -289,18 +294,181 @@
 		onReply(targetMessage);
 		contextMenuVisible = false;
 	}
+
+	function getAuthToken(): string | null {
+		if (typeof window === 'undefined') return null;
+		return localStorage.getItem('authToken');
+	}
+
+	function getMessageAttachmentActionItems(message: Message): MessageAttachmentActionItem[] {
+		const multi = (message.files || [])
+			.filter((entry) => Boolean(entry?.fileUrl && entry?.fileName))
+			.map((entry) => ({
+				fileUrl: entry.fileUrl,
+				fileName: entry.fileName,
+				fileSize: typeof entry.fileSize === 'number' ? entry.fileSize : 0,
+				attachmentEncryption: entry.attachmentEncryption
+			}));
+		if (multi.length > 0) {
+			return multi;
+		}
+		if (!message.fileUrl || !message.fileName) {
+			return [];
+		}
+		return [
+			{
+				fileUrl: message.fileUrl,
+				fileName: message.fileName,
+				fileSize: typeof message.fileSize === 'number' ? message.fileSize : 0,
+				attachmentEncryption: message.attachmentEncryption
+			}
+		];
+	}
+
+	function selectAttachmentActionItems(items: MessageAttachmentActionItem[]): MessageAttachmentActionItem[] | null {
+		if (items.length <= 1) return items;
+		const choices = items
+			.map((item, index) => `${index + 1}. ${item.fileName}`)
+			.slice(0, 20)
+			.join('\n');
+		const raw = prompt(
+			`Select file to use:\n${choices}${items.length > 20 ? '\n...more files not listed' : ''}\n\nEnter a number (1-${items.length}) or "all".`,
+			'all'
+		);
+		if (raw === null) return null;
+		const value = raw.trim().toLowerCase();
+		if (!value || value === 'all' || value === '*') return items;
+		const index = Number.parseInt(value, 10);
+		if (!Number.isInteger(index) || index < 1 || index > items.length) {
+			alert(`Invalid selection. Enter a number between 1 and ${items.length}, or "all".`);
+			return null;
+		}
+		return [items[index - 1]];
+	}
+
+	async function resolveTargetAlbum(
+		token: string,
+		scopeType: MediaAlbumScopeType,
+		scopeId: string
+	): Promise<{ id: number; name: string } | null> {
+		const albums = await listMediaAlbums(token, scopeType, scopeId, 200);
+		if (albums.length === 0) {
+			const name = prompt('No albums found in this channel. Enter a new album name:', 'General');
+			if (!name || !name.trim()) return null;
+			const created = await createMediaAlbum(token, {
+				scopeType,
+				scopeId,
+				name: name.trim()
+			});
+			return { id: created.id, name: created.name };
+		}
+
+		const options = albums
+			.map((album, index) => `${index + 1}. ${album.name} (${album.itemCount} items)`)
+			.slice(0, 25)
+			.join('\n');
+		const raw = prompt(
+			`Choose an album:\n${options}${albums.length > 25 ? '\n...more albums not listed' : ''}\n\nEnter a number, or type "new" to create one.`,
+			'1'
+		);
+		if (raw === null) return null;
+		const value = raw.trim().toLowerCase();
+		if (value === 'new' || value === 'n') {
+			const name = prompt('Enter a new album name:', 'General');
+			if (!name || !name.trim()) return null;
+			const created = await createMediaAlbum(token, {
+				scopeType,
+				scopeId,
+				name: name.trim()
+			});
+			return { id: created.id, name: created.name };
+		}
+
+		const index = Number.parseInt(value, 10);
+		if (!Number.isInteger(index) || index < 1 || index > albums.length) {
+			throw new Error(`Invalid album selection. Enter a number between 1 and ${albums.length}.`);
+		}
+		const selected = albums[index - 1];
+		return { id: selected.id, name: selected.name };
+	}
+
+	function getAlbumScopeFromCurrentChannel(): { scopeType: MediaAlbumScopeType; scopeId: string } | null {
+		const activeChannel = $channels.find((channel) => channel.id === $currentChannel);
+		if (!activeChannel?.id) return null;
+		const scopeType: MediaAlbumScopeType =
+			activeChannel.type === 'dm' || activeChannel.type === 'group' ? 'dm' : 'channel';
+		return {
+			scopeType,
+			scopeId: activeChannel.id
+		};
+	}
+
 	async function handleDownload() {
-		if (!contextMenuMessage?.fileUrl || !contextMenuMessage?.fileName) return;
+		if (!contextMenuMessage) return;
 		try {
-			await downloadAttachment(
-				contextMenuMessage.fileUrl,
-				contextMenuMessage.fileName,
-				contextMenuMessage.attachmentEncryption
-			);
+			const attachmentItems = getMessageAttachmentActionItems(contextMenuMessage);
+			const selectedItems = selectAttachmentActionItems(attachmentItems);
+			if (!selectedItems || selectedItems.length === 0) return;
+			for (const item of selectedItems) {
+				await downloadAttachment(item.fileUrl, item.fileName, item.attachmentEncryption);
+			}
 		} catch (error) {
 			console.error('Download failed:', error);
 		}
 		contextMenuVisible = false;
+	}
+
+	async function handleAddToAlbum(): Promise<void> {
+		if (!contextMenuMessage) return;
+
+		const token = getAuthToken();
+		if (!token) {
+			alert('Login is required to add files to albums.');
+			contextMenuVisible = false;
+			return;
+		}
+
+		const attachmentItems = getMessageAttachmentActionItems(contextMenuMessage);
+		if (attachmentItems.length === 0) {
+			contextMenuVisible = false;
+			return;
+		}
+		const selectedItems = selectAttachmentActionItems(attachmentItems);
+		if (!selectedItems || selectedItems.length === 0) {
+			contextMenuVisible = false;
+			return;
+		}
+
+		const scope = getAlbumScopeFromCurrentChannel();
+		if (!scope) {
+			alert('Cannot determine active album scope.');
+			contextMenuVisible = false;
+			return;
+		}
+
+		try {
+			const targetAlbum = await resolveTargetAlbum(token, scope.scopeType, scope.scopeId);
+			if (!targetAlbum) return;
+
+			let addedCount = 0;
+			for (const item of selectedItems) {
+				await addMediaAlbumItem(token, targetAlbum.id, {
+					attachmentUrl: item.fileUrl,
+					attachmentName: item.fileName,
+					attachmentSize: item.fileSize,
+					messageId: contextMenuMessage.id
+				});
+				addedCount += 1;
+			}
+
+			if (addedCount > 0) {
+				alert(`Added ${addedCount} file${addedCount === 1 ? '' : 's'} to "${targetAlbum.name}".`);
+			}
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to add file(s) to album.');
+		} finally {
+			contextMenuVisible = false;
+		}
 	}
 	let showForwardDialog = false;
 	let forwardMessage: Message | null = null;
@@ -1729,6 +1897,7 @@
 		onPin={handlePin}
 		onReply={handleReply}
 		onDownload={handleDownload}
+		onAddToAlbum={handleAddToAlbum}
 		onForward={handleForward}
 		onAddReaction={handleAddReaction}
 		onTranslate={handleTranslate}

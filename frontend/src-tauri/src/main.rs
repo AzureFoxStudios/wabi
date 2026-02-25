@@ -4,7 +4,7 @@ mod handlers;
 
 use handlers::{
     save_burndown_chart, load_burndown_chart, save_reminders, load_reminders,
-    delete_reminders, get_data_stats, clear_binary_data,
+    delete_reminders, get_data_stats, clear_binary_data, clear_wabi_data,
     get_media_runtime_capabilities, set_media_transport_preferences, get_media_transport_preferences,
     save_layout_state, load_layout_state
 };
@@ -20,6 +20,7 @@ fn main() {
             delete_reminders,
             get_data_stats,
             clear_binary_data,
+            clear_wabi_data,
             get_media_runtime_capabilities,
             set_media_transport_preferences,
             get_media_transport_preferences,

@@ -12,6 +12,9 @@
 		localScreenStream,
 		connectionState,
 		callTransportState,
+		spatialAudioRuntimeStatus,
+		spatialAudioDiagnostics,
+		spatialSeatDebugState,
 		stopScreenShare,
 		endCall,
 		toggleMute,
@@ -20,6 +23,7 @@
 	} from '$lib/calling';
 	import { getSocket, users, currentUser } from '$lib/socket';
 	import { fade, scale } from 'svelte/transition';
+	import type { SpatialPosition } from '$lib/audio/spatialEngine';
 
 	// Determine layout mode based on active media
 	$: layoutMode = determineLayoutMode($screenShares.length, $activeCalls.length);
@@ -45,6 +49,10 @@
 	}
 
 	$: hasActiveMedia = $activeCalls.length > 0 || $screenShares.length > 0 || $isSharing || $isInCall;
+	let showSpatialDebugOverlay = false;
+	$: if (!$isInCall && showSpatialDebugOverlay) {
+		showSpatialDebugOverlay = false;
+	}
 
 	// Get participants for voice-only display
 	$: participants = getParticipants();
@@ -132,6 +140,20 @@
 				node.srcObject = null;
 			}
 		};
+	}
+
+	function toggleSpatialDebugOverlay(): void {
+		showSpatialDebugOverlay = !showSpatialDebugOverlay;
+	}
+
+	function clamp(value: number, min: number, max: number): number {
+		return Math.min(max, Math.max(min, value));
+	}
+
+	function debugSeatStyle(position: SpatialPosition): string {
+		const left = clamp(50 + (position.x / 4) * 42, 8, 92);
+		const top = clamp(50 + (position.z / 4) * 42, 8, 92);
+		return `left:${left}%; top:${top}%;`;
 	}
 </script>
 
@@ -312,6 +334,38 @@
 			</div>
 		{/if}
 
+		{#if showSpatialDebugOverlay && $isInCall}
+			<div class="spatial-debug-overlay" transition:fade={{ duration: 140 }}>
+				<div class="spatial-debug-header">
+					<strong>Spatial Debug</strong>
+					<span>{$spatialSeatDebugState.entries.length} sources</span>
+				</div>
+				<div class="spatial-debug-map">
+					<div class="spatial-debug-center" aria-hidden="true"></div>
+					{#each $spatialSeatDebugState.entries as seat (seat.sourceId)}
+						<div
+							class="spatial-seat"
+							class:share={seat.sourceType === 'share'}
+							class:speaking={seat.isSpeaking}
+							style={debugSeatStyle(seat.position)}
+							title={`${seat.username} (${seat.sourceType}) seat ${seat.seatIndex + 1}/${seat.slotCount}`}
+						>
+							{seat.username.charAt(0).toUpperCase()}
+						</div>
+					{/each}
+				</div>
+				<div class="spatial-debug-list">
+					{#each $spatialSeatDebugState.entries as seat (seat.sourceId)}
+						<div class="spatial-debug-row">
+							<span class="spatial-debug-type">{seat.sourceType}</span>
+							<span>{seat.username}</span>
+							<span>S{seat.seatIndex + 1}/{seat.slotCount}</span>
+						</div>
+					{/each}
+				</div>
+			</div>
+		{/if}
+
 		<!-- Controls bar -->
 		<div class="controls-bar">
 			<div class="transport-badge" class:degraded={$callTransportState.isFallback}>
@@ -319,6 +373,19 @@
 				{#if $callTransportState.isFallback}
 					<span class="transport-note">fallback active</span>
 				{/if}
+				{#if $callTransportState.gatewayControlPlaneStatus !== 'idle'}
+					<span class="transport-note">gateway {$callTransportState.gatewayControlPlaneStatus}</span>
+				{/if}
+				{#if $callTransportState.gatewayMediaPlaneStatus !== 'idle'}
+					<span class="transport-note">media {$callTransportState.gatewayMediaPlaneStatus}</span>
+				{/if}
+				{#if $callTransportState.gatewayActiveStreams !== null}
+					<span class="transport-note">streams {$callTransportState.gatewayActiveStreams}</span>
+				{/if}
+			</div>
+			<div class="transport-badge">
+				Spatial: {$spatialAudioRuntimeStatus.effectiveMode.toUpperCase()}
+				<span class="transport-note">src {$spatialAudioDiagnostics.totalSources}</span>
 			</div>
 
 			{#if $connectionState && $connectionState !== 'idle' && $connectionState !== 'connected'}
@@ -329,6 +396,19 @@
 
 			<div class="controls-group">
 				{#if $isInCall}
+					<button
+						class="control-btn debug-toggle"
+						class:active={showSpatialDebugOverlay}
+						on:click={toggleSpatialDebugOverlay}
+						title="Spatial Debug Overlay"
+					>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<circle cx="12" cy="12" r="9"></circle>
+							<circle cx="12" cy="12" r="2"></circle>
+							<path d="M12 3v2M12 19v2M3 12h2M19 12h2"></path>
+						</svg>
+					</button>
+
 					<button
 						class="control-btn"
 						class:active={$isMuted}
@@ -760,6 +840,95 @@
 		color: var(--text-secondary, #888);
 	}
 
+	.spatial-debug-overlay {
+		position: absolute;
+		left: 1rem;
+		bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+		width: min(320px, calc(100vw - 2rem));
+		background: rgba(9, 14, 28, 0.88);
+		border: 1px solid rgba(148, 163, 184, 0.32);
+		border-radius: 12px;
+		padding: 0.6rem;
+		backdrop-filter: blur(8px);
+		z-index: 1600;
+	}
+
+	.spatial-debug-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		font-size: 0.75rem;
+		color: #dbeafe;
+		margin-bottom: 0.45rem;
+	}
+
+	.spatial-debug-map {
+		position: relative;
+		aspect-ratio: 1 / 1;
+		width: 100%;
+		border-radius: 10px;
+		border: 1px dashed rgba(148, 163, 184, 0.35);
+		background: radial-gradient(circle at 50% 50%, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.75));
+		margin-bottom: 0.45rem;
+	}
+
+	.spatial-debug-center {
+		position: absolute;
+		left: 50%;
+		top: 50%;
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		background: #f8fafc;
+		border: 1px solid #1e293b;
+		transform: translate(-50%, -50%);
+	}
+
+	.spatial-seat {
+		position: absolute;
+		transform: translate(-50%, -50%);
+		width: 24px;
+		height: 24px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.72rem;
+		font-weight: 700;
+		color: #fff;
+		background: #3b82f6;
+		border: 1px solid rgba(255, 255, 255, 0.7);
+	}
+
+	.spatial-seat.share {
+		background: #f97316;
+	}
+
+	.spatial-seat.speaking {
+		box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.85);
+	}
+
+	.spatial-debug-list {
+		display: grid;
+		gap: 0.2rem;
+		max-height: 96px;
+		overflow: auto;
+	}
+
+	.spatial-debug-row {
+		display: grid;
+		grid-template-columns: 44px 1fr auto;
+		gap: 0.5rem;
+		font-size: 0.72rem;
+		color: #e2e8f0;
+	}
+
+	.spatial-debug-type {
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		color: #94a3b8;
+	}
+
 	/* Controls Bar */
 	.controls-bar {
 		display: flex;
@@ -842,6 +1011,10 @@
 
 	.control-btn.active {
 		background: var(--color-danger, #ef4444);
+	}
+
+	.control-btn.debug-toggle.active {
+		background: #0ea5e9;
 	}
 
 	.control-btn svg {

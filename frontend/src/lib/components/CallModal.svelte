@@ -13,6 +13,7 @@
 		screenShares,
 		isSharing,
 		localScreenStream,
+		callMode,
 		answerCall,
 		rejectCall,
 		endCall,

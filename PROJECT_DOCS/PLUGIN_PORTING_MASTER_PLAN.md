@@ -52,7 +52,7 @@ Grade each candidate before implementation so effort stays focused on high-value
 ## Plugin Queue
 | Plugin | Priority | Grade | Score | Track | Status | Current Phase | Owner Notes |
 |---|---|---|---|---|---|---|---|
-| ZipPreview | P0 | A+ | 88 | Core | Planned | Phase 0 | First target |
+| ZipPreview | P0 | A+ | 88 | Core | In Progress | Phase 2 | MVP + hardening landed (cache TTL/LRU, filename filter, stricter malformed checks); smoke/build validation pending |
 | VideoCompressor | P0 | B+ | 79 | Core | Planned | Phase 0 | Second target (desktop-first) |
 | ImageFolder | P0 | B+ | 81 | Core | Approved | Phase 0 | Include shared persistent albums |
 | MoreQuickReacts | P1 | C+ | 67 | Core | Backlog | - | Lower strategic value but core per `+` rule |
@@ -86,6 +86,19 @@ Grade each candidate before implementation so effort stays focused on high-value
 - Optional inline preview for safe text/image files.
 - Better sorting and icons.
 - Settings toggles.
+
+### ZipPreview Progress Update (2026-02-25)
+- Implemented in `frontend`:
+  - ZIP detection in message attachments.
+  - Reusable `ZipPreviewPanel` with expand/collapse.
+  - In-browser central-directory parsing (`parseZipPreviewMetadata`).
+  - Guardrails: archive-size cap, entry render cap, fetch timeout, encrypted-file fallback.
+  - In-memory metadata cache keyed by URL+size with TTL + simple LRU eviction.
+  - Entry-name filter/search in preview panel.
+  - Parser hardening for split/multi-disk ZIP rejection and central-directory consistency checks.
+- Pending for Phase 1 completion:
+  - Manual smoke pass on real ZIP fixtures (valid, malformed, oversized).
+  - Desktop packaged-app validation pass once current unrelated frontend check errors are cleared.
 
 ## VideoCompressor Initial Breakdown
 ### Phase 0 - Discovery

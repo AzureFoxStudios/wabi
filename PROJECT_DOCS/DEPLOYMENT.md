@@ -174,6 +174,40 @@ Expected output:
 }
 ```
 
+## Cloudflare Tunnel (No Port Forwarding)
+
+For MVP/self-hosted setups where you do not want router port forwarding, use the built-in tunnel profiles.
+
+### Option A: Domainless Quick Tunnel
+
+Creates a temporary `trycloudflare.com` URL (no domain required):
+
+```bash
+docker compose --profile tunnel --profile tunnel-quick up -d --build
+docker logs -f wabi-cloudflared-quick
+```
+
+### Option B: Named Tunnel (Your Domain)
+
+For stable domain routing (`wabi.chat`, `www.wabi.chat`, etc):
+
+1. Create a named tunnel in Cloudflare Zero Trust and copy its token.
+2. Set `.env`:
+
+```bash
+CLOUDFLARE_TUNNEL_TOKEN=<your-token>
+```
+
+3. Start:
+
+```bash
+docker compose --profile tunnel --profile tunnel-named up -d --build
+```
+
+Both modes use `Caddyfile.tunnel` to route:
+- `/api`, `/socket.io`, `/uploads`, `/health` -> backend
+- everything else -> frontend
+
 ## Domain vs IP-Only
 
 | | Domain | IP-Only |

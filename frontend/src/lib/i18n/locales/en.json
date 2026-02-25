@@ -193,6 +193,30 @@
       "model_fallback_name": "3D model",
       "open_3d_tab": "Open 3D Tab"
     },
+    "zip_preview": {
+      "show": "Preview ZIP contents",
+      "hide": "Hide ZIP contents",
+      "loading": "Reading ZIP metadata...",
+      "retry": "Try again",
+      "entries": "{count} entries",
+      "uncompressed": "Uncompressed: {size}",
+      "compressed": "Compressed: {size}",
+      "filter_placeholder": "Filter archive entries...",
+      "filter_results": "Showing {shown} of {total} entries.",
+      "no_matches": "No entries match that filter.",
+      "encrypted_entries": "Contains {count} encrypted entries.",
+      "empty": "This archive has no entries.",
+      "truncated": "Showing first {count} entries.",
+      "method_store": "Stored",
+      "method_deflate": "Deflated",
+      "method_other": "Method {method}",
+      "errors": {
+        "failed": "Could not load ZIP preview.",
+        "timeout": "ZIP preview timed out.",
+        "encrypted": "Encrypted ZIP previews are not supported.",
+        "too_large": "ZIP preview limit is {limit}."
+      }
+    },
     "pinned_title": "Pinned message",
     "edited_title": "Edited",
     "edited": "edited",
@@ -244,6 +268,7 @@
     "add_reaction": "Add Reaction",
     "translate": "Translate",
     "download": "Download",
+    "add_to_album": "Add to Album",
     "forward": "Forward",
     "edit_message": "Edit Message",
     "pin_message": "Pin Message",
@@ -396,7 +421,8 @@
       "export_zip": "Export as ZIP",
       "export_hint": "Download all your messages and attachments as a portable ZIP file. Perfect for backups!",
       "clear_all": "Clear All Tauri Data",
-      "clear_hint": "Delete all locally stored data. This cannot be undone."
+      "clear_hint": "Delete all locally stored data. This cannot be undone.",
+      "clear_admin_only": "Only admins and owners can clear sidecar data."
     },
     "browser": {
       "title": "Browser Storage",

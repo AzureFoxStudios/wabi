@@ -11,6 +11,7 @@ PROFILE_LOCK_FILE="${PROFILE_LOCK_FILE:-$ROOT_DIR/.wabi-profile}"
 RECONFIGURE=false
 USE_TURN_PROFILE="${USE_TURN_PROFILE:-true}"
 USE_SRT_GATEWAY_PROFILE="${USE_SRT_GATEWAY_PROFILE:-auto}"
+USE_SFU_PROFILE="${USE_SFU_PROFILE:-auto}"
 PRUNE_DANGLING_IMAGES="${PRUNE_DANGLING_IMAGES:-true}"
 PRUNE_STOPPED_CONTAINERS="${PRUNE_STOPPED_CONTAINERS:-false}"
 
@@ -40,6 +41,8 @@ Advanced environment overrides:
   GIPHY_KEY=<key>                      (default: empty)
   USE_TURN_PROFILE=true|false          (default: true)
   USE_SRT_GATEWAY_PROFILE=auto|true|false (default: auto; true when MEDIA_SRT_GATEWAY_ENABLED=true)
+  USE_SFU_PROFILE=auto|true|false      (default: auto; true when SFU_PROVIDER=livekit and LIVEKIT_URL/API_KEY/API_SECRET are set)
+  SFU_PROVIDER=none|livekit            (default: none)
   PRUNE_DANGLING_IMAGES=true|false     (default: true)
   PRUNE_STOPPED_CONTAINERS=true|false  (default: false)
   WABI_CONFIG_FILE=<path>              (default: ./wabi.config)
@@ -213,6 +216,32 @@ load_wabi_config() {
           USE_SRT_GATEWAY_PROFILE=false
         fi
         ;;
+      ENABLE_SFU)
+        bool_value="$(normalize_bool "$value" "false")"
+        if [[ "$bool_value" == "true" ]]; then
+          USE_SFU_PROFILE=true
+          SFU_PROVIDER="livekit"
+        else
+          USE_SFU_PROFILE=false
+          SFU_PROVIDER="none"
+        fi
+        ;;
+      SFU_PROVIDER)
+        case "${value,,}" in
+          livekit|none)
+            SFU_PROVIDER="${value,,}"
+            ;;
+        esac
+        ;;
+      LIVEKIT_URL)
+        LIVEKIT_URL="$value"
+        ;;
+      LIVEKIT_API_KEY)
+        LIVEKIT_API_KEY="$value"
+        ;;
+      LIVEKIT_API_SECRET)
+        LIVEKIT_API_SECRET="$value"
+        ;;
       GIPHY_API_KEY)
         GIPHY_KEY="$value"
         ;;
@@ -256,7 +285,8 @@ EOF
 configure_defaults() {
   local domain mode runtime public_ip frontend_url public_url turn_realm turn_secret jwt_secret
   local db_mode postgres_db postgres_user postgres_password database_url giphy_key
-  local relay_enabled plugins_enabled plugins_allow_install srt_gateway_enabled
+  local relay_enabled plugins_enabled plugins_allow_install srt_gateway_enabled sfu_provider
+  local livekit_url livekit_api_key livekit_api_secret
 
   domain="$(normalize_domain "${WABI_DOMAIN:-localhost}")"
   mode="${WABI_MODE:-normal}"
@@ -266,6 +296,15 @@ configure_defaults() {
   plugins_enabled="$(normalize_bool "${PLUGINS_ENABLED:-false}" "false")"
   plugins_allow_install="$(normalize_bool "${PLUGINS_ALLOW_INSTALL:-false}" "false")"
   srt_gateway_enabled="$(normalize_bool "${MEDIA_SRT_GATEWAY_ENABLED:-false}" "false")"
+  sfu_provider="${SFU_PROVIDER:-none}"
+  livekit_url="${LIVEKIT_URL:-}"
+  livekit_api_key="${LIVEKIT_API_KEY:-}"
+  livekit_api_secret="${LIVEKIT_API_SECRET:-}"
+
+  case "${sfu_provider,,}" in
+    livekit|none) ;;
+    *) sfu_provider="none" ;;
+  esac
 
   if [[ "$plugins_enabled" != "true" ]]; then
     plugins_allow_install="false"
@@ -349,6 +388,10 @@ MEDIA_GATEWAY_ORIGIN_URL=http://backend:8080
 MEDIA_GATEWAY_REGION=local
 MEDIA_GATEWAY_HEARTBEAT_INTERVAL_MS=15000
 MEDIA_GATEWAY_SESSION_SYNC_INTERVAL_MS=10000
+SFU_PROVIDER=$sfu_provider
+LIVEKIT_URL=$livekit_url
+LIVEKIT_API_KEY=$livekit_api_key
+LIVEKIT_API_SECRET=$livekit_api_secret
 
 OPENMOJI_VERSION=15.1.0
 EOF
@@ -507,6 +550,20 @@ fi
 if [[ "$effective_srt_profile" == "true" ]]; then
   echo "[launch] Updating media-gateway profile service..."
   "${compose[@]}" --profile srt-gateway up -d --build --remove-orphans media-gateway
+fi
+
+effective_sfu_profile="$USE_SFU_PROFILE"
+if [[ "$effective_sfu_profile" == "auto" ]]; then
+  if [[ "${SFU_PROVIDER:-none}" == "livekit" && -n "${LIVEKIT_URL:-}" && -n "${LIVEKIT_API_KEY:-}" && -n "${LIVEKIT_API_SECRET:-}" ]]; then
+    effective_sfu_profile="true"
+  else
+    effective_sfu_profile="false"
+  fi
+fi
+
+if [[ "$effective_sfu_profile" == "true" ]]; then
+  echo "[launch] Updating livekit SFU profile service..."
+  "${compose[@]}" --profile sfu up -d --build --remove-orphans livekit
 fi
 
 if [[ "$PRUNE_DANGLING_IMAGES" == "true" ]]; then

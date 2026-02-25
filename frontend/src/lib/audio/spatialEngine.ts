@@ -9,6 +9,7 @@ export interface SpatialPosition {
 interface SpatialSourceNodes {
 	id: string;
 	stream: MediaStream;
+	streamSignature: string;
 	sourceNode: MediaStreamAudioSourceNode;
 	gainNode: GainNode;
 	pannerNode: PannerNode | StereoPannerNode | null;
@@ -22,6 +23,10 @@ interface SpatialEngineOptions {
 
 function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
+}
+
+function buildStreamSignature(stream: MediaStream): string {
+	return stream.getTracks().map((track) => `${track.kind}:${track.id}`).sort().join('|');
 }
 
 export class SpatialAudioEngine {
@@ -101,6 +106,12 @@ export class SpatialAudioEngine {
 	}
 
 	attachSource(id: string, stream: MediaStream, position: SpatialPosition): void {
+		const existing = this.sources.get(id);
+		const incomingSignature = buildStreamSignature(stream);
+		if (existing && existing.streamSignature === incomingSignature) {
+			this.updateSourcePosition(id, position);
+			return;
+		}
 		this.detachSource(id);
 		const liveAudio = stream.getAudioTracks().some((track) => track.readyState === 'live');
 		if (!liveAudio) return;
@@ -135,6 +146,7 @@ export class SpatialAudioEngine {
 		const nodes: SpatialSourceNodes = {
 			id,
 			stream,
+			streamSignature: incomingSignature,
 			sourceNode,
 			gainNode,
 			pannerNode,
@@ -148,6 +160,8 @@ export class SpatialAudioEngine {
 		const nodes = this.sources.get(id);
 		if (!nodes) return;
 		nodes.position = position;
+		const now = this.context.currentTime;
+		const transitionWindow = 0.08;
 
 		const scaledX = clamp(position.x * this.options.distanceScale, -20, 20);
 		const scaledY = clamp(position.y * this.options.distanceScale, -8, 8);
@@ -160,16 +174,21 @@ export class SpatialAudioEngine {
 
 		if ('positionX' in nodes.pannerNode) {
 			const panner = nodes.pannerNode as PannerNode;
-			panner.positionX.value = scaledX;
-			panner.positionY.value = scaledY;
-			panner.positionZ.value = scaledZ;
+			panner.positionX.cancelScheduledValues(now);
+			panner.positionY.cancelScheduledValues(now);
+			panner.positionZ.cancelScheduledValues(now);
+			panner.positionX.linearRampToValueAtTime(scaledX, now + transitionWindow);
+			panner.positionY.linearRampToValueAtTime(scaledY, now + transitionWindow);
+			panner.positionZ.linearRampToValueAtTime(scaledZ, now + transitionWindow);
 			return;
 		}
 
 		const stereo = nodes.pannerNode as StereoPannerNode;
-		stereo.pan.value = clamp(scaledX / 6, -1, 1);
+		stereo.pan.cancelScheduledValues(now);
+		stereo.pan.linearRampToValueAtTime(clamp(scaledX / 6, -1, 1), now + transitionWindow);
 		const distance = Math.sqrt((scaledX * scaledX) + (scaledZ * scaledZ));
-		nodes.gainNode.gain.value = clamp(1 - (distance / 24), 0.45, 1);
+		nodes.gainNode.gain.cancelScheduledValues(now);
+		nodes.gainNode.gain.linearRampToValueAtTime(clamp(1 - (distance / 24), 0.45, 1), now + transitionWindow);
 	}
 
 	detachSource(id: string): void {

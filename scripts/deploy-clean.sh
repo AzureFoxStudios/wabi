@@ -8,6 +8,7 @@ set -euo pipefail
 
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 USE_TURN_PROFILE="${USE_TURN_PROFILE:-true}"
+USE_SFU_PROFILE="${USE_SFU_PROFILE:-auto}"
 PRUNE_DANGLING_IMAGES="${PRUNE_DANGLING_IMAGES:-true}"
 PRUNE_STOPPED_CONTAINERS="${PRUNE_STOPPED_CONTAINERS:-false}"
 WABI_MODE="${WABI_MODE:-normal}"
@@ -45,6 +46,8 @@ Environment overrides:
   WABI_MODE=normal|community             (default: normal)
   WABI_RUNTIME=node|bun                  (default: node)
   USE_TURN_PROFILE=true|false            (default: true)
+  USE_SFU_PROFILE=auto|true|false        (default: auto; true when SFU_PROVIDER=livekit and LIVEKIT_URL/API_KEY/API_SECRET are set)
+  SFU_PROVIDER=none|livekit              (default: none)
   PRUNE_DANGLING_IMAGES=true|false       (default: true)
   PRUNE_STOPPED_CONTAINERS=true|false    (default: false)
 EOF
@@ -160,6 +163,20 @@ echo "[deploy] Building and updating app services (no full down)..."
 if [[ "$USE_TURN_PROFILE" == "true" ]]; then
   echo "[deploy] Updating coturn profile service..."
   "${compose[@]}" --profile turn up -d --build --remove-orphans coturn
+fi
+
+effective_sfu_profile="$USE_SFU_PROFILE"
+if [[ "$effective_sfu_profile" == "auto" ]]; then
+  if [[ "${SFU_PROVIDER:-none}" == "livekit" && -n "${LIVEKIT_URL:-}" && -n "${LIVEKIT_API_KEY:-}" && -n "${LIVEKIT_API_SECRET:-}" ]]; then
+    effective_sfu_profile="true"
+  else
+    effective_sfu_profile="false"
+  fi
+fi
+
+if [[ "$effective_sfu_profile" == "true" ]]; then
+  echo "[deploy] Updating livekit SFU profile service..."
+  "${compose[@]}" --profile sfu up -d --build --remove-orphans livekit
 fi
 
 if [[ "$PRUNE_DANGLING_IMAGES" == "true" ]]; then

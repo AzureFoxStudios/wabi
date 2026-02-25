@@ -22,6 +22,7 @@ import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApp
 import {
   handleGetMediaRuntime,
   handleGetTurnCredentials,
+  handleCreateLivekitToken,
   handleMediaGatewayHeartbeat,
   handleCreateMediaGatewaySession,
   handleListMediaGatewaySessions,
@@ -2839,6 +2840,18 @@ server.on('request', async (req, res) => {
     }
 
     await handleGetTurnCredentials(req, res, userId);
+    return;
+  }
+
+  if (url.pathname === "/api/media/livekit/token" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Missing or invalid authorization' }));
+      return;
+    }
+
+    await handleCreateLivekitToken(req, res, userId);
     return;
   }
 

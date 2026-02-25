@@ -1,8 +1,9 @@
 import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
+import { Room, RoomEvent, Track } from 'livekit-client';
 import { buildRTCConfig, prefetchTurnCredentials } from './turnConfig';
 import { playCallActionSound } from './callSounds';
-import { createMediaGatewaySession, closeMediaGatewaySession, renewMediaGatewaySession } from './mediaGateway';
+import { closeMediaGatewaySession, renewMediaGatewaySession, getMediaGatewaySession, createLivekitAccessToken } from './mediaGateway';
 import {
 	getAudioCaptureConstraints,
 	getStoredAudioProcessingMode,
@@ -10,6 +11,7 @@ import {
 	getScreenShareQualityProfile,
 	getScreenShareBitrateOverrideBps,
 	resolveCallTransportPlan,
+	syncMediaRuntimeFromServer,
 	getStoredSpatialAudioSettings,
 	setSpatialAudioEnabled,
 	getPreferredMicDeviceId,
@@ -142,13 +144,23 @@ export const callTransportState = writable<{
 	reason: string | null;
 	gatewayHealthy: boolean;
 	checkedAt: number | null;
+	gatewaySessionId: string | null;
+	gatewayControlPlaneStatus: 'idle' | 'ready' | 'degraded' | 'lost';
+	gatewayMediaPlaneStatus: 'idle' | 'pending' | 'ready' | 'degraded' | 'lost';
+	gatewayActiveStreams: number | null;
+	gatewayLastSeenAt: number | null;
 }>({
 	mode: 'auto',
 	activeTransport: 'p2p',
 	isFallback: false,
 	reason: null,
 	gatewayHealthy: false,
-	checkedAt: null
+	checkedAt: null,
+	gatewaySessionId: null,
+	gatewayControlPlaneStatus: 'idle',
+	gatewayMediaPlaneStatus: 'idle',
+	gatewayActiveStreams: null,
+	gatewayLastSeenAt: null
 });
 export const listeningVoiceChannels = writable<string[]>([]);
 export const voiceTransmitMode = writable<'primary' | 'all-listening'>('primary');
@@ -167,6 +179,41 @@ export const spatialAudioRuntimeStatus = writable<{
 	warningMuted: getStoredSpatialAudioSettings().warningMuted,
 	quickToggleVisible: getStoredSpatialAudioSettings().quickToggleVisible
 });
+export const spatialAudioDiagnostics = writable<{
+	callSources: number;
+	shareSources: number;
+	totalSources: number;
+	callSeatSlots: number;
+	shareSeatSlots: number;
+	syncCount: number;
+	lastUpdatedAt: number | null;
+}>({
+	callSources: 0,
+	shareSources: 0,
+	totalSources: 0,
+	callSeatSlots: 0,
+	shareSeatSlots: 0,
+	syncCount: 0,
+	lastUpdatedAt: null
+});
+export const spatialSeatDebugState = writable<{
+	entries: Array<{
+		sourceId: string;
+		sourceType: 'call' | 'share';
+		userId: string;
+		username: string;
+		seatIndex: number;
+		slotCount: number;
+		position: SpatialPosition;
+		hasAudio: boolean;
+		isSpeaking: boolean;
+	}>;
+	updatedAt: number | null;
+}>({
+	entries: [],
+	updatedAt: null
+});
+export const sfuMediaActive = writable(false);
 
 // ============================================================================
 // Private State
@@ -202,28 +249,168 @@ let diagnosticsPrevBytesSample: { bytesSent: number; bytesReceived: number; time
 let remoteVideoMuteDebounceTimers = new Map<string, number>();
 let spatialAudioEngine: SpatialAudioEngine | null = null;
 let spatialFallbackNoticeShown = false;
+const callSpatialSeatMap = new Map<string, number>();
+const shareSpatialSeatMap = new Map<string, number>();
 let activeMediaGatewaySessionId: string | null = null;
 let mediaGatewayRenewInterval: number | null = null;
 const MEDIA_GATEWAY_RENEW_MS = 120_000;
+let mediaGatewayRenewFailureCount = 0;
+let mediaGatewayWatchdogInterval: number | null = null;
+const MEDIA_GATEWAY_RENEW_FAILURE_LIMIT = 2;
+const MEDIA_GATEWAY_WATCHDOG_MS = 30000;
+let mediaGatewayRuntimePollInterval: number | null = null;
+const MEDIA_GATEWAY_RUNTIME_POLL_MS = 20_000;
+let livekitRoom: Room | null = null;
+let livekitChannelId: string | null = null;
+const livekitParticipantMedia = new Map<string, {
+	username: string;
+	audioTrack: MediaStreamTrack | null;
+	videoTrack: MediaStreamTrack | null;
+	screenAudioTrack: MediaStreamTrack | null;
+	screenVideoTrack: MediaStreamTrack | null;
+	isSpeaking: boolean;
+}>();
+
+async function refreshGatewayRuntimeTelemetry(): Promise<void> {
+	const runtime = await syncMediaRuntimeFromServer().catch(() => null);
+	const gateway = runtime?.media?.gateway;
+	if (!gateway) {
+		callTransportState.update((state) => ({
+			...state,
+			gatewayMediaPlaneStatus: state.gatewaySessionId ? 'degraded' : 'idle',
+			gatewayActiveStreams: null,
+			gatewayLastSeenAt: null
+		}));
+		return;
+	}
+
+	const healthy = gateway.healthy === true;
+	const mediaPlaneReady = gateway.mediaPlaneReady === true;
+	const nextStatus: 'idle' | 'pending' | 'ready' | 'degraded' | 'lost' =
+		!activeMediaGatewaySessionId
+			? 'idle'
+			: healthy && mediaPlaneReady
+				? 'ready'
+				: healthy
+					? 'pending'
+					: 'degraded';
+
+	callTransportState.update((state) => ({
+		...state,
+		gatewayMediaPlaneStatus: nextStatus,
+		gatewayActiveStreams: typeof gateway.activeStreams === 'number' ? gateway.activeStreams : null,
+		gatewayLastSeenAt: typeof gateway.lastSeenAt === 'number' ? gateway.lastSeenAt : null
+	}));
+}
+
+function stopMediaGatewayRuntimePolling(): void {
+	if (mediaGatewayRuntimePollInterval !== null) {
+		clearInterval(mediaGatewayRuntimePollInterval);
+		mediaGatewayRuntimePollInterval = null;
+	}
+}
+
+function startMediaGatewayRuntimePolling(): void {
+	stopMediaGatewayRuntimePolling();
+	if (typeof window === 'undefined') return;
+	void refreshGatewayRuntimeTelemetry();
+	mediaGatewayRuntimePollInterval = window.setInterval(() => {
+		void refreshGatewayRuntimeTelemetry();
+	}, MEDIA_GATEWAY_RUNTIME_POLL_MS);
+}
 
 function stopMediaGatewaySessionRenewal(): void {
 	if (mediaGatewayRenewInterval !== null) {
 		clearInterval(mediaGatewayRenewInterval);
 		mediaGatewayRenewInterval = null;
 	}
+	if (mediaGatewayWatchdogInterval !== null) {
+		clearInterval(mediaGatewayWatchdogInterval);
+		mediaGatewayWatchdogInterval = null;
+	}
+	stopMediaGatewayRuntimePolling();
+	mediaGatewayRenewFailureCount = 0;
+	callTransportState.update((state) => ({
+		...state,
+		gatewaySessionId: activeMediaGatewaySessionId,
+		gatewayControlPlaneStatus: activeMediaGatewaySessionId ? 'idle' : 'idle',
+		gatewayMediaPlaneStatus: activeMediaGatewaySessionId ? 'pending' : 'idle',
+		gatewayActiveStreams: null,
+		gatewayLastSeenAt: null
+	}));
 }
 
 function startMediaGatewaySessionRenewal(): void {
 	stopMediaGatewaySessionRenewal();
 	if (typeof window === 'undefined') return;
 	if (!activeMediaGatewaySessionId) return;
+	startMediaGatewayRuntimePolling();
 	mediaGatewayRenewInterval = window.setInterval(() => {
 		const sessionId = activeMediaGatewaySessionId;
 		if (!sessionId) return;
-		void renewMediaGatewaySession(sessionId).catch((error) => {
-			console.warn('[MediaGateway] Session renewal failed:', error);
-		});
+		void renewMediaGatewaySession(sessionId)
+			.then(() => {
+				mediaGatewayRenewFailureCount = 0;
+				callTransportState.update((state) => ({
+					...state,
+					gatewaySessionId: sessionId,
+					gatewayControlPlaneStatus: 'ready',
+					gatewayMediaPlaneStatus: state.gatewayMediaPlaneStatus === 'idle' ? 'pending' : state.gatewayMediaPlaneStatus,
+					reason: state.reason === 'sfu_control_plane_degraded' ? 'sfu_control_plane_ready_media_plane_pending' : state.reason
+				}));
+			})
+			.catch((error) => {
+				mediaGatewayRenewFailureCount += 1;
+				console.warn('[MediaGateway] Session renewal failed:', error);
+				callTransportState.update((state) => ({
+					...state,
+					gatewaySessionId: sessionId,
+					gatewayControlPlaneStatus: mediaGatewayRenewFailureCount >= MEDIA_GATEWAY_RENEW_FAILURE_LIMIT ? 'lost' : 'degraded',
+					gatewayMediaPlaneStatus: mediaGatewayRenewFailureCount >= MEDIA_GATEWAY_RENEW_FAILURE_LIMIT ? 'lost' : 'degraded',
+					reason: 'sfu_control_plane_degraded'
+				}));
+
+				if (mediaGatewayRenewFailureCount >= MEDIA_GATEWAY_RENEW_FAILURE_LIMIT) {
+					void closeMediaGatewaySession(sessionId).catch(() => undefined);
+					activeMediaGatewaySessionId = null;
+					stopMediaGatewaySessionRenewal();
+				}
+			});
 	}, MEDIA_GATEWAY_RENEW_MS);
+
+	mediaGatewayWatchdogInterval = window.setInterval(() => {
+		const sessionId = activeMediaGatewaySessionId;
+		if (!sessionId) return;
+		void getMediaGatewaySession(sessionId)
+			.then((session) => {
+				if (!session || session.status !== 'open') {
+					callTransportState.update((state) => ({
+						...state,
+						gatewaySessionId: sessionId,
+						gatewayControlPlaneStatus: 'lost',
+						gatewayMediaPlaneStatus: 'lost',
+						reason: 'sfu_control_plane_lost'
+					}));
+					activeMediaGatewaySessionId = null;
+					stopMediaGatewaySessionRenewal();
+					return;
+				}
+				callTransportState.update((state) => ({
+					...state,
+					gatewaySessionId: sessionId,
+					gatewayControlPlaneStatus: 'ready'
+				}));
+			})
+			.catch(() => {
+				callTransportState.update((state) => ({
+					...state,
+					gatewaySessionId: sessionId,
+					gatewayControlPlaneStatus: 'degraded',
+					gatewayMediaPlaneStatus: 'degraded',
+					reason: 'sfu_control_plane_degraded'
+				}));
+			});
+	}, MEDIA_GATEWAY_WATCHDOG_MS);
 }
 
 type VideoQualityTier = 'high' | 'medium' | 'low' | 'audio-priority';
@@ -518,6 +705,15 @@ function computeRms(data: Uint8Array): number {
 }
 
 function setRemoteSpeakingState(userId: string, isSpeaking: boolean): void {
+	speakingUsers.update((users) => {
+		const next = new Set(users);
+		if (isSpeaking) {
+			next.add(userId);
+		} else {
+			next.delete(userId);
+		}
+		return next;
+	});
 	activeCalls.update(calls =>
 		calls.map(call => (call.userId === userId ? { ...call, isSpeaking } : call))
 	);
@@ -1267,11 +1463,6 @@ function cleanupPeerConnection(key: string): void {
 
 	console.log(`[WebRTC] Cleaning up peer connection for ${key}`);
 
-	// Stop audio monitoring if this is a call
-	if (state.type === 'call') {
-		stopAudioMonitoring(state.targetId);
-	}
-
 	try {
 		state.pc.close();
 	} catch (e) {
@@ -1337,8 +1528,7 @@ function addRemoteCallStream(userId: string, username: string, stream: MediaStre
 
 	callParticipants.add(userId);
 
-	// Start audio monitoring for this remote user
-	startAudioMonitoring(userId, stream, false);
+	// Use the lower-overhead RMS monitor for remote speaking state.
 	startRemoteSpeakingMonitor(userId, stream);
 	syncSpatialAudioGraph();
 }
@@ -1360,6 +1550,7 @@ function addRemoteScreenShare(userId: string, username: string, stream: MediaStr
 			return [...shares, newShare];
 		}
 	});
+	syncSpatialAudioGraph();
 }
 
 function handleRemoteTrackEnded(targetId: string, key: string, track: MediaStreamTrack, type: PeerConnectionState['type']): void {
@@ -1501,6 +1692,39 @@ function computeSpatialPosition(index: number, total: number, emphasisFront = fa
 	};
 }
 
+function sortByUserId<T extends { userId: string }>(items: T[]): T[] {
+	return [...items].sort((a, b) => a.userId.localeCompare(b.userId));
+}
+
+function assignStableSeatOrder(ids: string[], seatMap: Map<string, number>): { orderedIds: string[]; slotCount: number } {
+	const active = new Set(ids);
+	for (const key of Array.from(seatMap.keys())) {
+		if (!active.has(key)) {
+			seatMap.delete(key);
+		}
+	}
+	const usedSeats = new Set<number>();
+	for (const id of ids) {
+		const seat = seatMap.get(id);
+		if (typeof seat === 'number') {
+			usedSeats.add(seat);
+		}
+	}
+	let nextSeat = 0;
+	for (const id of ids) {
+		if (seatMap.has(id)) continue;
+		while (usedSeats.has(nextSeat)) nextSeat += 1;
+		seatMap.set(id, nextSeat);
+		usedSeats.add(nextSeat);
+	}
+	const orderedIds = [...ids].sort((a, b) => (seatMap.get(a) ?? 0) - (seatMap.get(b) ?? 0));
+	const highestSeat = usedSeats.size ? Math.max(...usedSeats) : -1;
+	return {
+		orderedIds,
+		slotCount: Math.max(ids.length, highestSeat + 1, 1)
+	};
+}
+
 function disposeSpatialAudioEngine(): void {
 	if (!spatialAudioEngine) return;
 	spatialAudioEngine.dispose();
@@ -1518,6 +1742,22 @@ function syncSpatialAudioGraph(): void {
 
 	if (!get(isInCall) || !settings.enabled || get(isDeafened)) {
 		disposeSpatialAudioEngine();
+		callSpatialSeatMap.clear();
+		shareSpatialSeatMap.clear();
+		spatialSeatDebugState.set({
+			entries: [],
+			updatedAt: Date.now()
+		});
+		spatialAudioDiagnostics.update((diag) => ({
+			...diag,
+			callSources: 0,
+			shareSources: 0,
+			totalSources: 0,
+			callSeatSlots: 0,
+			shareSeatSlots: 0,
+			lastUpdatedAt: Date.now(),
+			syncCount: diag.syncCount + 1
+		}));
 		spatialAudioRuntimeStatus.update((state) => ({
 			...state,
 			active: false,
@@ -1530,6 +1770,22 @@ function syncSpatialAudioGraph(): void {
 	const resolved = resolveSpatialRuntimeMode(settings.mode);
 	if (resolved.effective === 'off') {
 		disposeSpatialAudioEngine();
+		callSpatialSeatMap.clear();
+		shareSpatialSeatMap.clear();
+		spatialSeatDebugState.set({
+			entries: [],
+			updatedAt: Date.now()
+		});
+		spatialAudioDiagnostics.update((diag) => ({
+			...diag,
+			callSources: 0,
+			shareSources: 0,
+			totalSources: 0,
+			callSeatSlots: 0,
+			shareSeatSlots: 0,
+			lastUpdatedAt: Date.now(),
+			syncCount: diag.syncCount + 1
+		}));
 		spatialAudioRuntimeStatus.update((state) => ({
 			...state,
 			active: false,
@@ -1571,25 +1827,84 @@ function syncSpatialAudioGraph(): void {
 	const remoteCalls = get(activeCalls);
 	const remoteShares = get(screenShares);
 	const nextSourceIds = new Set<string>();
-	const callTotal = remoteCalls.length;
-	remoteCalls.forEach((call, index) => {
+	const sortedCalls = sortByUserId(remoteCalls);
+	const callSeatPlan = assignStableSeatOrder(sortedCalls.map((call) => call.userId), callSpatialSeatMap);
+	const callsById = new Map(sortedCalls.map((call) => [call.userId, call]));
+	const seatDebugEntries: Array<{
+		sourceId: string;
+		sourceType: 'call' | 'share';
+		userId: string;
+		username: string;
+		seatIndex: number;
+		slotCount: number;
+		position: SpatialPosition;
+		hasAudio: boolean;
+		isSpeaking: boolean;
+	}> = [];
+	callSeatPlan.orderedIds.forEach((userId) => {
+		const call = callsById.get(userId);
+		if (!call) return;
+		const seatIndex = callSpatialSeatMap.get(userId) ?? 0;
+		const position = computeSpatialPosition(seatIndex, callSeatPlan.slotCount);
 		const sourceId = `call:${call.userId}`;
 		nextSourceIds.add(sourceId);
-		spatialAudioEngine?.attachSource(sourceId, call.stream, computeSpatialPosition(index, callTotal));
+		spatialAudioEngine?.attachSource(sourceId, call.stream, position);
+		seatDebugEntries.push({
+			sourceId,
+			sourceType: 'call',
+			userId: call.userId,
+			username: call.username,
+			seatIndex,
+			slotCount: callSeatPlan.slotCount,
+			position,
+			hasAudio: call.stream.getAudioTracks().length > 0,
+			isSpeaking: call.isSpeaking
+		});
 	});
 
-	const shareTotal = remoteShares.length;
-	remoteShares.forEach((share, index) => {
+	const sortedShares = sortByUserId(remoteShares);
+	const shareSeatPlan = assignStableSeatOrder(sortedShares.map((share) => share.userId), shareSpatialSeatMap);
+	const sharesById = new Map(sortedShares.map((share) => [share.userId, share]));
+	shareSeatPlan.orderedIds.forEach((userId) => {
+		const share = sharesById.get(userId);
+		if (!share) return;
 		if (!share.stream.getAudioTracks().length) return;
+		const seatIndex = shareSpatialSeatMap.get(userId) ?? 0;
+		const position = computeSpatialPosition(seatIndex, shareSeatPlan.slotCount, true);
 		const sourceId = `share:${share.userId}`;
 		nextSourceIds.add(sourceId);
-		spatialAudioEngine?.attachSource(sourceId, share.stream, computeSpatialPosition(index, shareTotal, true));
+		spatialAudioEngine?.attachSource(sourceId, share.stream, position);
+		seatDebugEntries.push({
+			sourceId,
+			sourceType: 'share',
+			userId: share.userId,
+			username: share.username,
+			seatIndex,
+			slotCount: shareSeatPlan.slotCount,
+			position,
+			hasAudio: share.stream.getAudioTracks().length > 0,
+			isSpeaking: false
+		});
 	});
 	for (const sourceId of spatialAudioEngine?.getSourceIds() || []) {
 		if (!nextSourceIds.has(sourceId)) {
 			spatialAudioEngine?.detachSource(sourceId);
 		}
 	}
+	spatialAudioDiagnostics.update((diag) => ({
+		...diag,
+		callSources: sortedCalls.length,
+		shareSources: sortedShares.filter((share) => share.stream.getAudioTracks().length > 0).length,
+		totalSources: nextSourceIds.size,
+		callSeatSlots: callSeatPlan.slotCount,
+		shareSeatSlots: shareSeatPlan.slotCount,
+		lastUpdatedAt: Date.now(),
+		syncCount: diag.syncCount + 1
+	}));
+	spatialSeatDebugState.set({
+		entries: seatDebugEntries,
+		updatedAt: Date.now()
+	});
 
 	spatialAudioRuntimeStatus.update((state) => ({
 		...state,
@@ -1619,79 +1934,260 @@ export function toggleSpatialAudioEnabled(): void {
 
 async function resolveActiveTransport(channelId?: string): Promise<EffectiveCallTransport> {
 	const plan = await resolveCallTransportPlan();
+	const runtime = await syncMediaRuntimeFromServer().catch(() => null);
+	const sfuProvider = runtime?.media?.sfu?.provider === 'livekit' ? 'livekit' : plan.sfuProvider;
+	const livekitReady = Boolean(
+		sfuProvider === 'livekit' &&
+		runtime?.media?.livekit?.configured &&
+		runtime?.media?.livekit?.url
+	);
 	callTransportState.set({
 		mode: plan.mode,
 		activeTransport: plan.effective,
 		isFallback: plan.fallbackApplied,
 		reason: plan.reason,
 		gatewayHealthy: plan.gatewayHealthy,
-		checkedAt: plan.checkedAt
+		checkedAt: plan.checkedAt,
+		gatewaySessionId: activeMediaGatewaySessionId,
+		gatewayControlPlaneStatus: 'idle',
+		gatewayMediaPlaneStatus: activeMediaGatewaySessionId ? 'pending' : 'idle',
+		gatewayActiveStreams: null,
+		gatewayLastSeenAt: null
 	});
 
-	// Establish an SRT gateway session for channel voice transport orchestration.
-	if (plan.effective === 'sfu') {
-		if (!channelId) {
-			stopMediaGatewaySessionRenewal();
-			callTransportState.set({
-				mode: plan.mode,
-				activeTransport: 'p2p',
-				isFallback: true,
-				reason: 'sfu_requires_channel_context',
-				gatewayHealthy: plan.gatewayHealthy,
-				checkedAt: plan.checkedAt
-			});
-			return 'p2p';
-		}
-
-		try {
-			if (activeMediaGatewaySessionId) {
-				void closeMediaGatewaySession(activeMediaGatewaySessionId).catch((error) => {
-					console.warn('[MediaGateway] Failed to close previous session before creating a new one:', error);
-				});
-				stopMediaGatewaySessionRenewal();
-				activeMediaGatewaySessionId = null;
-			}
-			const session = await createMediaGatewaySession(channelId, 'voice');
-			const sessionLooksValid =
-				session.transport === 'srt' &&
-				typeof session.sessionId === 'string' &&
-				session.sessionId.length > 0 &&
-				typeof session.publishUrl === 'string' &&
-				session.publishUrl.startsWith('srt://') &&
-				typeof session.playbackUrl === 'string' &&
-				session.playbackUrl.startsWith('srt://');
-			if (!sessionLooksValid) {
-				throw new Error('Gateway returned an invalid SRT session payload');
-			}
-			activeMediaGatewaySessionId = session.sessionId;
-			startMediaGatewaySessionRenewal();
-			callTransportState.set({
-				mode: plan.mode,
-				activeTransport: 'sfu',
-				isFallback: false,
-				reason: 'srt_gateway_session_established',
-				gatewayHealthy: plan.gatewayHealthy,
-				checkedAt: Date.now()
-			});
-			return 'sfu';
-		} catch (error) {
-			console.warn('[MediaGateway] Falling back to P2P transport:', error);
-		}
-
+	if (plan.effective === 'sfu' && sfuProvider !== 'livekit') {
+		stopMediaGatewaySessionRenewal();
 		callTransportState.set({
 			mode: plan.mode,
 			activeTransport: 'p2p',
 			isFallback: true,
-			reason: 'srt_gateway_session_create_failed',
-			gatewayHealthy: plan.gatewayHealthy,
-			checkedAt: plan.checkedAt
+			reason: 'sfu_plugin_disabled',
+			gatewayHealthy: false,
+			checkedAt: Date.now(),
+			gatewaySessionId: null,
+			gatewayControlPlaneStatus: 'idle',
+			gatewayMediaPlaneStatus: 'idle',
+			gatewayActiveStreams: null,
+			gatewayLastSeenAt: null
 		});
+		return 'p2p';
+	}
+
+	if (plan.effective === 'sfu' && livekitReady && channelId) {
 		stopMediaGatewaySessionRenewal();
+		callTransportState.set({
+			mode: plan.mode,
+			activeTransport: 'sfu',
+			isFallback: false,
+			reason: 'sfu_livekit_ready',
+			gatewayHealthy: plan.gatewayHealthy,
+			checkedAt: Date.now(),
+			gatewaySessionId: null,
+			gatewayControlPlaneStatus: 'idle',
+			gatewayMediaPlaneStatus: 'pending',
+			gatewayActiveStreams: null,
+			gatewayLastSeenAt: null
+		});
+		return 'sfu';
+	}
+
+	if (plan.effective === 'sfu') {
+		stopMediaGatewaySessionRenewal();
+		callTransportState.set({
+			mode: plan.mode,
+			activeTransport: 'p2p',
+			isFallback: true,
+			reason: plan.reason || 'livekit_unavailable',
+			gatewayHealthy: plan.gatewayHealthy,
+			checkedAt: Date.now(),
+			gatewaySessionId: null,
+			gatewayControlPlaneStatus: 'idle',
+			gatewayMediaPlaneStatus: 'idle',
+			gatewayActiveStreams: null,
+			gatewayLastSeenAt: null
+		});
 		return 'p2p';
 	}
 
 	stopMediaGatewaySessionRenewal();
 	return 'p2p';
+}
+
+function normalizeLivekitIdentity(identity: string): string {
+	if (identity.startsWith('user:')) {
+		return identity.slice('user:'.length);
+	}
+	return identity;
+}
+
+function rebuildLivekitRemoteStores(): void {
+	const calls: Call[] = [];
+	const shares: ScreenShare[] = [];
+	for (const [identity, media] of livekitParticipantMedia.entries()) {
+		const userId = normalizeLivekitIdentity(identity);
+		const username = media.username || `User ${userId}`;
+		const callTracks = [media.audioTrack, media.videoTrack].filter((track): track is MediaStreamTrack => Boolean(track));
+		if (callTracks.length > 0) {
+			calls.push({
+				userId,
+				username,
+				stream: new MediaStream(callTracks),
+				isVideoEnabled: Boolean(media.videoTrack),
+				isAudioEnabled: Boolean(media.audioTrack),
+				isSpeaking: media.isSpeaking
+			});
+		}
+
+		const shareTracks = [media.screenVideoTrack, media.screenAudioTrack].filter((track): track is MediaStreamTrack => Boolean(track));
+		if (shareTracks.length > 0) {
+			shares.push({
+				userId,
+				username,
+				stream: new MediaStream(shareTracks)
+			});
+		}
+	}
+	activeCalls.set(calls);
+	screenShares.set(shares);
+	syncSpatialAudioGraph();
+}
+
+function setLivekitParticipantSpeaking(identity: string, isSpeaking: boolean): void {
+	const current = livekitParticipantMedia.get(identity);
+	if (!current) return;
+	current.isSpeaking = isSpeaking;
+	livekitParticipantMedia.set(identity, current);
+	rebuildLivekitRemoteStores();
+}
+
+function upsertLivekitTrack(
+	identity: string,
+	username: string,
+	source: Track.Source,
+	track: MediaStreamTrack | null
+): void {
+	const current = livekitParticipantMedia.get(identity) ?? {
+		username,
+		audioTrack: null,
+		videoTrack: null,
+		screenAudioTrack: null,
+		screenVideoTrack: null,
+		isSpeaking: false
+	};
+	current.username = username || current.username;
+	if (source === Track.Source.Camera) {
+		current.videoTrack = track;
+	} else if (source === Track.Source.Microphone) {
+		current.audioTrack = track;
+	} else if (source === Track.Source.ScreenShare) {
+		current.screenVideoTrack = track;
+	} else if (source === Track.Source.ScreenShareAudio) {
+		current.screenAudioTrack = track;
+	}
+	livekitParticipantMedia.set(identity, current);
+	rebuildLivekitRemoteStores();
+}
+
+function removeLivekitTrack(identity: string, source: Track.Source): void {
+	const current = livekitParticipantMedia.get(identity);
+	if (!current) return;
+	if (source === Track.Source.Camera) {
+		current.videoTrack = null;
+	} else if (source === Track.Source.Microphone) {
+		current.audioTrack = null;
+	} else if (source === Track.Source.ScreenShare) {
+		current.screenVideoTrack = null;
+	} else if (source === Track.Source.ScreenShareAudio) {
+		current.screenAudioTrack = null;
+	}
+	if (!current.audioTrack && !current.videoTrack && !current.screenAudioTrack && !current.screenVideoTrack) {
+		livekitParticipantMedia.delete(identity);
+	} else {
+		livekitParticipantMedia.set(identity, current);
+	}
+	rebuildLivekitRemoteStores();
+}
+
+async function disconnectLivekitSfu(): Promise<void> {
+	if (!livekitRoom) {
+		sfuMediaActive.set(false);
+		livekitChannelId = null;
+		livekitParticipantMedia.clear();
+		return;
+	}
+	try {
+		await livekitRoom.disconnect();
+	} catch {
+		// no-op
+	}
+	livekitRoom = null;
+	livekitChannelId = null;
+	livekitParticipantMedia.clear();
+	activeCalls.set([]);
+	screenShares.set([]);
+	sfuMediaActive.set(false);
+	connectionState.set('idle');
+	callTransportState.update((state) => ({
+		...state,
+		activeTransport: 'p2p',
+		reason: state.reason === 'livekit_connected' ? 'livekit_disconnected' : state.reason
+	}));
+	syncSpatialAudioGraph();
+}
+
+async function connectLivekitSfu(channelId: string, localDisplayName: string): Promise<void> {
+	if (livekitRoom && livekitChannelId === channelId && get(sfuMediaActive)) {
+		return;
+	}
+	await disconnectLivekitSfu();
+	const tokenResponse = await createLivekitAccessToken(channelId, localDisplayName);
+	const room = new Room({
+		dynacast: true,
+		stopLocalTrackOnUnpublish: false
+	});
+	room.on(RoomEvent.TrackSubscribed, (remoteTrack, publication, participant) => {
+		upsertLivekitTrack(
+			participant.identity,
+			participant.name || participant.identity,
+			publication.source,
+			remoteTrack.mediaStreamTrack
+		);
+	});
+	room.on(RoomEvent.TrackUnsubscribed, (_remoteTrack, publication, participant) => {
+		removeLivekitTrack(participant.identity, publication.source);
+	});
+	room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+		livekitParticipantMedia.delete(participant.identity);
+		rebuildLivekitRemoteStores();
+	});
+	room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+		const activeIds = new Set(speakers.map((speaker) => speaker.identity));
+		for (const identity of livekitParticipantMedia.keys()) {
+			setLivekitParticipantSpeaking(identity, activeIds.has(identity));
+		}
+	});
+	room.on(RoomEvent.Disconnected, () => {
+		void disconnectLivekitSfu();
+	});
+	connectionState.set('connecting');
+	await room.connect(tokenResponse.url, tokenResponse.token, {
+		autoSubscribe: true
+	});
+	await room.localParticipant.setMicrophoneEnabled(!get(isMuted));
+	if (!get(isVideoOff)) {
+		await room.localParticipant.setCameraEnabled(true);
+	}
+	livekitRoom = room;
+	livekitChannelId = channelId;
+	sfuMediaActive.set(true);
+	connectionState.set('connected');
+	callTransportState.update((state) => ({
+		...state,
+		activeTransport: 'sfu',
+		isFallback: false,
+		reason: 'livekit_connected',
+		gatewayMediaPlaneStatus: 'ready'
+	}));
 }
 
 // ============================================================================
@@ -1754,7 +2250,7 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 
 	try {
 		await prefetchTurnCredentials();
-		await resolveActiveTransport(channelId);
+		const activeTransport = await resolveActiveTransport(channelId);
 		const stream = await ensureLocalAudioStream();
 		activeVoiceChannelId = channelId;
 		callMode.set('channel');
@@ -1768,6 +2264,9 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		isVideoOff.set(true);
 		startLocalSpeakingMonitor(stream);
 		startPerformanceGuard();
+		if (activeTransport === 'sfu') {
+			await connectLivekitSfu(channelId, 'Wabi User');
+		}
 		syncSpatialAudioGraph();
 		playCallActionSound('join');
 		socket.emit('voice-channel-join', { channelId });
@@ -1775,6 +2274,7 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		return stream;
 	} catch (error) {
 		console.error('Error joining voice channel:', error);
+		void disconnectLivekitSfu();
 		if (activeMediaGatewaySessionId) {
 			void closeMediaGatewaySession(activeMediaGatewaySessionId).catch((closeError) => {
 				console.warn('[MediaGateway] Failed closing session after join failure:', closeError);
@@ -1857,6 +2357,7 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 		stopMediaGatewaySessionRenewal();
 		activeMediaGatewaySessionId = null;
 	}
+	void disconnectLivekitSfu();
 }
 
 export async function startCall(socket: Socket, targetUserId: string, isVideoCall: boolean = false) {
@@ -2035,6 +2536,7 @@ export function endCall(socket: Socket) {
 		stopMediaGatewaySessionRenewal();
 		activeMediaGatewaySessionId = null;
 	}
+	void disconnectLivekitSfu();
 }
 
 // ============================================================================
@@ -2042,6 +2544,16 @@ export function endCall(socket: Socket) {
 // ============================================================================
 
 export function toggleMute() {
+	if (livekitRoom && get(sfuMediaActive)) {
+		const nextMuted = !get(isMuted);
+		void livekitRoom.localParticipant.setMicrophoneEnabled(!nextMuted).catch(() => undefined);
+		isMuted.set(nextMuted);
+		if (nextMuted) {
+			isLocalSpeaking.set(false);
+		}
+		playCallActionSound(nextMuted ? 'mute' : 'unmute');
+		return;
+	}
 	const stream = get(localStream);
 	if (stream) {
 		const audioTrack = stream.getAudioTracks()[0];
@@ -2117,6 +2629,12 @@ export function toggleDeafen() {
 }
 
 export async function toggleVideo(socket?: Socket) {
+	if (livekitRoom && get(sfuMediaActive)) {
+		const nextVideoOff = !get(isVideoOff);
+		await livekitRoom.localParticipant.setCameraEnabled(!nextVideoOff);
+		isVideoOff.set(nextVideoOff);
+		return;
+	}
 	const stream = get(localStream);
 	if (!stream) {
 		return;
@@ -2280,6 +2798,11 @@ export async function handleCallIceCandidate(senderId: string, candidate: RTCIce
 // ============================================================================
 
 export async function startScreenShare(socket: Socket) {
+	if (livekitRoom && get(sfuMediaActive)) {
+		await livekitRoom.localParticipant.setScreenShareEnabled(true);
+		isSharing.set(true);
+		return null;
+	}
 	try {
 		await prefetchTurnCredentials();
 		const screenShareQuality = getScreenShareQualityProfile();
@@ -2310,6 +2833,12 @@ export async function startScreenShare(socket: Socket) {
 }
 
 export function stopScreenShare(socket: Socket) {
+	if (livekitRoom && get(sfuMediaActive)) {
+		void livekitRoom.localParticipant.setScreenShareEnabled(false).catch(() => undefined);
+		isSharing.set(false);
+		syncSpatialAudioGraph();
+		return;
+	}
 	const stream = get(localScreenStream);
 	if (stream) {
 		stream.getTracks().forEach(track => track.stop());
@@ -2491,6 +3020,7 @@ export function cleanupAllConnections() {
 		stopMediaGatewaySessionRenewal();
 		activeMediaGatewaySessionId = null;
 	}
+	void disconnectLivekitSfu();
 }
 
 export function openChannelCallPanel(): void {
@@ -2525,6 +3055,10 @@ export function removeVoiceChannelListen(socket: Socket, channelId: string): voi
 	if (!channelId) return;
 	socket.emit('voice-channel-unsubscribe', { channelId });
 	listeningVoiceChannels.update((channels) => channels.filter((id) => id !== channelId));
+}
+
+export function isSfuMediaTransportActive(): boolean {
+	return get(sfuMediaActive);
 }
 
 // ============================================================================

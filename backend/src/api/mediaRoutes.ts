@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { createHmac } from 'crypto';
 import { randomBytes } from 'crypto';
+import jwt from 'jsonwebtoken';
 
 function boolFromEnv(value: string | undefined, fallback: boolean = false): boolean {
 	if (value == null) return fallback;
@@ -50,6 +51,24 @@ interface GatewaySessionRecord {
 	accessToken: string;
 }
 
+interface LivekitAccessTokenPayload {
+	iss: string;
+	sub: string;
+	nbf: number;
+	exp: number;
+	video: {
+		roomJoin: boolean;
+		room: string;
+		canPublish: boolean;
+		canSubscribe: boolean;
+		canPublishData: boolean;
+	};
+	name?: string;
+	metadata?: string;
+}
+
+type SfuProvider = 'none' | 'livekit';
+
 const gatewaySessions = new Map<string, GatewaySessionRecord>();
 let gatewayPortOffset = 0;
 
@@ -80,6 +99,22 @@ function getGatewayUrl(): string | null {
 	const value = (process.env.MEDIA_SRT_GATEWAY_URL || '').trim();
 	if (!value) return null;
 	return value.replace(/\/+$/, '');
+}
+
+function getLivekitUrl(): string | null {
+	const value = (process.env.LIVEKIT_URL || '').trim();
+	if (!value) return null;
+	return value.replace(/\/+$/, '');
+}
+
+function isLivekitConfigured(): boolean {
+	return Boolean(getLivekitUrl() && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET);
+}
+
+function getSfuProvider(): SfuProvider {
+	const raw = (process.env.SFU_PROVIDER || '').trim().toLowerCase();
+	if (raw === 'livekit') return 'livekit';
+	return 'none';
 }
 
 function isSrtGatewayEnabledByConfig(): boolean {
@@ -224,6 +259,14 @@ export async function handleGetMediaRuntime(req: IncomingMessage, res: ServerRes
 					activeStreams: gatewayHeartbeat.activeStreams ?? 0,
 					version: gatewayHeartbeat.version || null,
 					region: gatewayHeartbeat.region || null
+				},
+				livekit: {
+					configured: isLivekitConfigured(),
+					url: getLivekitUrl()
+				},
+				sfu: {
+					provider: getSfuProvider(),
+					enabled: getSfuProvider() !== 'none'
 				}
 			},
 			notes: {
@@ -275,6 +318,68 @@ export async function handleGetTurnCredentials(req: IncomingMessage, res: Server
 		res.writeHead(500, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ error: 'Failed to mint TURN credentials' }));
 	}
+}
+
+// POST /api/media/livekit/token
+// Returns a short-lived access token for joining a LiveKit room.
+export async function handleCreateLivekitToken(
+	req: IncomingMessage,
+	res: ServerResponse,
+	userId: number
+): Promise<void> {
+	if (getSfuProvider() !== 'livekit') {
+		res.writeHead(503, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'LiveKit provider is not enabled' }));
+		return;
+	}
+	const livekitUrl = getLivekitUrl();
+	const apiKey = process.env.LIVEKIT_API_KEY;
+	const apiSecret = process.env.LIVEKIT_API_SECRET;
+	if (!livekitUrl || !apiKey || !apiSecret) {
+		res.writeHead(503, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'LiveKit is not configured' }));
+		return;
+	}
+
+	const payload = await parseJsonBody(req, res);
+	if (payload == null) return;
+	const channelIdRaw = payload.channelId;
+	const displayNameRaw = payload.displayName;
+	const roomName = typeof channelIdRaw === 'string' && channelIdRaw.trim().length > 0
+		? channelIdRaw.trim()
+		: '';
+	if (!roomName) {
+		res.writeHead(400, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'channelId is required' }));
+		return;
+	}
+
+	const now = Math.floor(Date.now() / 1000);
+	const identity = `user:${userId}`;
+	const tokenPayload: LivekitAccessTokenPayload = {
+		iss: apiKey,
+		sub: identity,
+		nbf: now - 10,
+		exp: now + 3600,
+		video: {
+			roomJoin: true,
+			room: roomName,
+			canPublish: true,
+			canSubscribe: true,
+			canPublishData: true
+		},
+		name: typeof displayNameRaw === 'string' && displayNameRaw.trim().length > 0 ? displayNameRaw.trim() : undefined,
+		metadata: JSON.stringify({ userId })
+	};
+	const token = jwt.sign(tokenPayload, apiSecret, { algorithm: 'HS256' });
+
+	res.writeHead(200, { 'Content-Type': 'application/json' });
+	res.end(JSON.stringify({
+		token,
+		url: livekitUrl,
+		roomName,
+		identity
+	}));
 }
 
 

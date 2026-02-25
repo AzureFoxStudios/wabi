@@ -7,6 +7,7 @@ export type AudioProcessingMode = 'auto' | 'dsp' | 'rnn' | 'studio';
 export type ScreenShareQualityPreset = 'auto' | '1080p' | 'source-unbounded' | '720p' | '480p' | '144p-mobile';
 export type CallTransportMode = 'auto' | 'p2p-only' | 'sfu-preferred';
 export type EffectiveCallTransport = 'p2p' | 'sfu';
+export type SfuProvider = 'none' | 'livekit';
 export type SpatialAudioMode = 'auto' | 'pan_distance' | 'full_3d' | 'off';
 
 export interface ScreenShareQualityProfile {
@@ -34,6 +35,14 @@ export interface ServerMediaRuntimeResponse {
 			version?: string | null;
 			region?: string | null;
 		};
+		livekit?: {
+			configured?: boolean;
+			url?: string | null;
+		};
+		sfu?: {
+			provider?: SfuProvider;
+			enabled?: boolean;
+		};
 	};
 }
 
@@ -54,6 +63,7 @@ export interface CallTransportPlan {
 	fallbackApplied: boolean;
 	reason: string | null;
 	gatewayHealthy: boolean;
+	sfuProvider: SfuProvider;
 	checkedAt: number;
 }
 
@@ -464,29 +474,36 @@ export async function syncMediaRuntimeFromServer(): Promise<ServerMediaRuntimeRe
 }
 
 function isGatewayHealthy(runtime: ServerMediaRuntimeResponse | null): boolean {
-	const media = runtime?.media;
-	const gateway = media?.gateway;
-	if (!gateway) return false;
-	if (media?.srtGatewayEnabled === false) return false;
-	return Boolean(gateway.configured && gateway.healthy && gateway.mediaPlaneReady);
+	return isLivekitReady(runtime);
 }
 
-function getGatewayFallbackReason(runtime: ServerMediaRuntimeResponse | null, srtToggleEnabled: boolean): string {
-	if (!srtToggleEnabled) return 'srt_gateway_disabled';
-	const media = runtime?.media;
-	const gateway = media?.gateway;
-	if (!gateway) return 'gateway_runtime_unknown';
-	if (!gateway.configured) return 'gateway_unconfigured';
-	if (!gateway.healthy) return 'gateway_unhealthy';
-	if (gateway.mediaPlaneReady !== true) return 'gateway_media_plane_not_ready';
-	return 'gateway_unhealthy_or_unconfigured';
+function getSfuProvider(runtime: ServerMediaRuntimeResponse | null): SfuProvider {
+	const provider = runtime?.media?.sfu?.provider;
+	if (provider === 'livekit') return 'livekit';
+	return 'none';
+}
+
+function isLivekitReady(runtime: ServerMediaRuntimeResponse | null): boolean {
+	if (getSfuProvider(runtime) !== 'livekit') return false;
+	const livekit = runtime?.media?.livekit;
+	return Boolean(livekit?.configured && livekit?.url);
+}
+
+function getSfuFallbackReason(runtime: ServerMediaRuntimeResponse | null): string {
+	const provider = getSfuProvider(runtime);
+	if (provider === 'none') return 'sfu_plugin_disabled';
+	const livekit = runtime?.media?.livekit;
+	if (!livekit?.configured || !livekit?.url) return 'livekit_unconfigured';
+	return 'livekit_connect_failed';
 }
 
 export async function resolveCallTransportPlan(): Promise<CallTransportPlan> {
 	const mode = getStoredCallTransportMode();
 	const runtime = (await syncMediaRuntimeFromServer()) || lastRuntimeSnapshot;
+	const sfuProvider = getSfuProvider(runtime || null);
 	const gatewayHealthy = isGatewayHealthy(runtime || null);
-	const srtToggleEnabled = isSrtGatewayEnabled();
+	const livekitReady = isLivekitReady(runtime || null);
+	const canUseSfu = sfuProvider === 'livekit' && livekitReady;
 	const checkedAt = Date.now();
 
 	if (mode === 'p2p-only') {
@@ -496,18 +513,20 @@ export async function resolveCallTransportPlan(): Promise<CallTransportPlan> {
 			fallbackApplied: false,
 			reason: null,
 			gatewayHealthy,
+			sfuProvider,
 			checkedAt
 		};
 	}
 
 	if (mode === 'sfu-preferred') {
-		if (gatewayHealthy && srtToggleEnabled) {
+		if (canUseSfu) {
 			return {
 				mode,
 				effective: 'sfu',
 				fallbackApplied: false,
 				reason: null,
 				gatewayHealthy,
+				sfuProvider,
 				checkedAt
 			};
 		}
@@ -516,20 +535,22 @@ export async function resolveCallTransportPlan(): Promise<CallTransportPlan> {
 			mode,
 			effective: 'p2p',
 			fallbackApplied: true,
-			reason: getGatewayFallbackReason(runtime || null, srtToggleEnabled),
+			reason: getSfuFallbackReason(runtime || null),
 			gatewayHealthy,
+			sfuProvider,
 			checkedAt
 		};
 	}
 
 	// auto
-	if (gatewayHealthy && srtToggleEnabled) {
+	if (canUseSfu) {
 		return {
 			mode,
 			effective: 'sfu',
 			fallbackApplied: false,
 			reason: null,
 			gatewayHealthy,
+			sfuProvider,
 			checkedAt
 		};
 	}
@@ -540,6 +561,7 @@ export async function resolveCallTransportPlan(): Promise<CallTransportPlan> {
 		fallbackApplied: false,
 		reason: null,
 		gatewayHealthy,
+		sfuProvider,
 		checkedAt
 	};
 }

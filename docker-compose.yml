@@ -22,6 +22,10 @@ services:
       - WABI_RUNTIME=${WABI_RUNTIME:-node}
       - TURN_SHARED_SECRET=${TURN_SHARED_SECRET}
       - TURN_CREDENTIAL_TTL_SECONDS=${TURN_CREDENTIAL_TTL_SECONDS:-3600}
+      - SFU_PROVIDER=${SFU_PROVIDER:-none}
+      - LIVEKIT_URL=${LIVEKIT_URL:-}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-}
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads
@@ -105,4 +109,52 @@ services:
       - MEDIA_GATEWAY_SESSION_SYNC_INTERVAL_MS=${MEDIA_GATEWAY_SESSION_SYNC_INTERVAL_MS:-10000}
     depends_on:
       - backend
+    restart: unless-stopped
+
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: wabi-livekit
+    profiles:
+      - sfu
+    command: >
+      --dev
+      --bind 0.0.0.0
+      --keys ${LIVEKIT_API_KEY}:${LIVEKIT_API_SECRET}
+    ports:
+      - "7880:7880"
+      - "7881:7881/udp"
+    restart: unless-stopped
+
+  caddy-tunnel:
+    image: caddy:2
+    container_name: wabi-tunnel-caddy
+    profiles:
+      - tunnel
+    volumes:
+      - ./Caddyfile.tunnel:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+
+  cloudflared-quick:
+    image: cloudflare/cloudflared:latest
+    container_name: wabi-cloudflared-quick
+    profiles:
+      - tunnel
+      - tunnel-quick
+    command: tunnel --no-autoupdate --url http://caddy-tunnel:8088
+    depends_on:
+      - caddy-tunnel
+    restart: unless-stopped
+
+  cloudflared-named:
+    image: cloudflare/cloudflared:latest
+    container_name: wabi-cloudflared-named
+    profiles:
+      - tunnel
+      - tunnel-named
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - caddy-tunnel
     restart: unless-stopped
