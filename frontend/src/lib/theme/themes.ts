@@ -773,13 +773,13 @@ export const forestTheme: Theme = {
 		bgSecondaryRgb: '13, 31, 13',
 		bgTertiaryRgb: '22, 38, 22',
 
-		textPrimary: '#d4edda',
-		textSecondary: '#a7d7b0',
-		textTertiary: '#6aab75',
+		textPrimary: '#f0faf2',
+		textSecondary: '#c8e6cc',
+		textTertiary: '#96d4a0',
 
-		textPrimaryRgb: '212, 237, 218',
-		textSecondaryRgb: '167, 215, 176',
-		textTertiaryRgb: '106, 171, 117',
+		textPrimaryRgb: '240, 250, 242',
+		textSecondaryRgb: '200, 230, 204',
+		textTertiaryRgb: '150, 212, 160',
 
 		accent: 'linear-gradient(to right, #2ecc71 0%, #1abc9c 100%)',
 		accentHex: '#2ecc71',

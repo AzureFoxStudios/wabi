@@ -1420,6 +1420,22 @@
 						{/if}
 					</div>
 				</div>
+			{:else}
+				<!-- Compact-mode inline header for continuation messages (hidden in cozy) -->
+				<div class="message-header compact-only-header">
+					<div class="header-left">
+						<span class="timestamp">{formatTime(message.timestamp)}</span>
+						{#if user}
+							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<span class="username" style="color: {getUserColor(message.user)}; {getUsernameStyle(message.user, $themeStore)}">
+								{message.user}
+							</span>
+						{:else}
+							<span class="username">{message.user}</span>
+						{/if}
+					</div>
+				</div>
 			{/if}
 			{#if groupedWithPrevious && deletionLabel}
 				<div class="grouped-deletion-meta">
@@ -3885,20 +3901,18 @@
 	margin-bottom: 0.25rem !important;
 }
 
-/* COMPACT: IRC-style — no avatar column, ultra-tight spacing */
+/* COMPACT: IRC-style — flat, every line: [timestamp] [name] [message] */
 :global(html[data-message-density='compact']) .message {
-	padding-top: 0.06rem !important;
-	padding-bottom: 0.06rem !important;
-	gap: 0.35rem !important;
+	padding-top: 0.05rem !important;
+	padding-bottom: 0.05rem !important;
+	gap: 0 !important;
 }
 
-:global(html[data-message-density='compact']) .message.continuation {
-	padding-top: 0.03rem !important;
-	padding-bottom: 0.03rem !important;
-}
-
+:global(html[data-message-density='compact']) .message.continuation,
 :global(html[data-message-density='compact']) .message.has-continuation {
-	padding-bottom: 0.03rem !important;
+	padding-top: 0.05rem !important;
+	padding-bottom: 0.05rem !important;
+	margin: 0 !important;
 }
 
 :global(html[data-message-density='compact']) .message-avatar,
@@ -3908,13 +3922,49 @@
 	height: 0 !important;
 }
 
-:global(html[data-message-density='compact']) .message .markdown-content,
-:global(html[data-message-density='compact']) .message .markdown-content :global(p) {
-	line-height: 1.25 !important;
+/* Each message is a horizontal row: [header] [content] */
+:global(html[data-message-density='compact']) .message-body {
+	display: flex !important;
+	flex-direction: row !important;
+	align-items: baseline !important;
+	gap: 0.4rem !important;
+	flex-wrap: nowrap !important;
 }
 
-:global(html[data-message-density='compact']) .message .message-header {
-	margin-bottom: 0.05rem !important;
+/* Header is fixed, doesn't grow */
+:global(html[data-message-density='compact']) .message-header {
+	flex-shrink: 0 !important;
+	white-space: nowrap !important;
+	margin-bottom: 0 !important;
+}
+
+/* Timestamp before username in regular first-message headers */
+:global(html[data-message-density='compact']) .message-header:not(.compact-only-header) .header-left .timestamp {
+	order: -1 !important;
+	margin-left: 0 !important;
+	margin-right: 0 !important;
+}
+
+/* Show compact-only continuation headers */
+:global(html[data-message-density='compact']) .compact-only-header {
+	display: flex !important;
+}
+
+/* Hide compact-only headers in cozy/default mode */
+.compact-only-header {
+	display: none;
+}
+
+/* Content fills remaining space */
+:global(html[data-message-density='compact']) .message-content {
+	flex: 1 !important;
+	min-width: 0 !important;
+}
+
+:global(html[data-message-density='compact']) .message .markdown-content,
+:global(html[data-message-density='compact']) .message .markdown-content :global(p) {
+	line-height: 1.3 !important;
+	display: inline !important;
 }
 
 </style>
