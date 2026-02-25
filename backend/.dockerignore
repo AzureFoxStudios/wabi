@@ -5,3 +5,8 @@ npm-debug.log
 .env
 .env.local
 .DS_Store
+data
+uploads
+build
+community-chat-server
+*.md
