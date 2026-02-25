@@ -12,7 +12,11 @@ function Quote-BashArg {
     return "''"
   }
 
-  return "'" + ($Value -replace "'", "'\"'\"'") + "'"
+  # Escape single quotes for bash: ' becomes '\''
+  # In PowerShell, we use doubled single quotes '' inside single-quoted strings
+  # to represent a literal single quote
+  $escaped = $Value -replace "'", "''"
+  return "'$escaped'"
 }
 
 function Convert-WindowsPathToWsl {
