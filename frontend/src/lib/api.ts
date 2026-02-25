@@ -1,7 +1,7 @@
 import { getServerUrl } from './serverUrl';
 import { authStore } from './authStore';
 
-const SERVER_URL = getServerUrl();
+const getApiBase = () => getServerUrl();
 
 /** Default timeout for all API requests (ms). */
 const API_TIMEOUT_MS = 8000;
@@ -34,7 +34,7 @@ export interface AuthResponse {
 }
 
 export async function register(username: string, password: string, handle?: string): Promise<AuthResponse> {
-	const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/register`, {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/auth/register`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ username, password, handle })
@@ -49,7 +49,7 @@ export async function register(username: string, password: string, handle?: stri
 }
 
 export async function login(username: string, password: string): Promise<AuthResponse> {
-	const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/login`, {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/auth/login`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ username, password })
@@ -64,7 +64,7 @@ export async function login(username: string, password: string): Promise<AuthRes
 }
 
 export async function upgradeToRegistered(sessionId: string, password: string): Promise<AuthResponse> {
-	const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/upgrade`, {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/auth/upgrade`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ sessionId, password })
@@ -79,7 +79,7 @@ export async function upgradeToRegistered(sessionId: string, password: string): 
 }
 
 export async function storeEncryptionKeys(token: string, publicKey: string, privateKeyEncrypted: string): Promise<void> {
-	const res = await fetchWithTimeout(`${SERVER_URL}/api/user/encryption-keys`, {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/user/encryption-keys`, {
 		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${token}`,
@@ -97,7 +97,7 @@ export async function storeEncryptionKeys(token: string, publicKey: string, priv
 }
 
 export async function getPublicKey(token: string, userId: number): Promise<string | null> {
-	const res = await fetchWithTimeout(`${SERVER_URL}/api/users/${userId}/public-key`, {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/users/${userId}/public-key`, {
 		method: 'GET',
 		headers: { Authorization: `Bearer ${token}` }
 	});
@@ -111,7 +111,7 @@ export async function getPublicKey(token: string, userId: number): Promise<strin
 }
 
 export async function getUserSettings(token: string): Promise<any> {
-	const res = await fetchWithTimeout(`${SERVER_URL}/api/user/settings`, {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/user/settings`, {
 		method: 'GET',
 		headers: { Authorization: `Bearer ${token}` }
 	});
@@ -133,7 +133,7 @@ export async function saveUserSettings(
 		allow_temp_user_messages?: boolean;
 	}
 ): Promise<void> {
-	const res = await fetchWithTimeout(`${SERVER_URL}/api/user/settings`, {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/user/settings`, {
 		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${token}`,
@@ -260,7 +260,7 @@ export async function getAdminPolicy<T>(token: string, key: AdminPolicyKey): Pro
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), 8000);
 	try {
-		const res = await fetch(`${SERVER_URL}/api/admin/policies/${encodeURIComponent(key)}`, {
+		const res = await fetch(`${getApiBase()}/api/admin/policies/${encodeURIComponent(key)}`, {
 			method: 'GET',
 			headers: { Authorization: `Bearer ${token}` },
 			signal: controller.signal
@@ -279,7 +279,7 @@ export async function saveAdminPolicy<T>(token: string, key: AdminPolicyKey, con
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), 8000);
 	try {
-		const res = await fetch(`${SERVER_URL}/api/admin/policies/${encodeURIComponent(key)}`, {
+		const res = await fetch(`${getApiBase()}/api/admin/policies/${encodeURIComponent(key)}`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${token}`,
@@ -312,7 +312,7 @@ export async function saveAdminUploadLimits(token: string, config: UploadLimitCo
 }
 
 export async function getAdminCompressionConfig(token: string): Promise<AdminCompressionConfig> {
-	const res = await fetchWithTimeout(`${SERVER_URL}/api/admin/compression-config`, {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/compression-config`, {
 		method: 'GET',
 		headers: { Authorization: `Bearer ${token}` }
 	});
@@ -325,7 +325,7 @@ export async function getAdminCompressionConfig(token: string): Promise<AdminCom
 }
 
 export async function getAdminCompressionMetrics(token: string): Promise<AdminCompressionMetrics> {
-	const res = await fetchWithTimeout(`${SERVER_URL}/api/admin/compression-metrics`, {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/compression-metrics`, {
 		method: 'GET',
 		headers: { Authorization: `Bearer ${token}` }
 	});
@@ -338,7 +338,7 @@ export async function getAdminCompressionMetrics(token: string): Promise<AdminCo
 }
 
 export async function resetAdminCompressionMetrics(token: string): Promise<void> {
-	const res = await fetchWithTimeout(`${SERVER_URL}/api/admin/compression-metrics/reset`, {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/compression-metrics/reset`, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${token}` }
 	});
@@ -349,7 +349,7 @@ export async function resetAdminCompressionMetrics(token: string): Promise<void>
 }
 
 export async function getAdminRuntimeGuardrails(token: string): Promise<AdminRuntimeGuardrailsResponse> {
-	const res = await fetchWithTimeout(`${SERVER_URL}/api/admin/runtime-guardrails`, {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/runtime-guardrails`, {
 		method: 'GET',
 		headers: { Authorization: `Bearer ${token}` }
 	});
@@ -382,7 +382,7 @@ export async function lookupDictionary(term: string, language = 'en', limit = 8)
 		language,
 		limit: String(limit)
 	});
-	const res = await fetchWithTimeout(`${SERVER_URL}/api/dictionary?${params.toString()}`, { method: 'GET' });
+	const res = await fetchWithTimeout(`${getApiBase()}/api/dictionary?${params.toString()}`, { method: 'GET' });
 	if (!res.ok) {
 		const error = await res.json().catch(() => ({}));
 		throw new Error(error.error || 'Failed to lookup dictionary entry');
@@ -397,7 +397,7 @@ export async function upsertDictionaryEntry(
 	definition: string,
 	language = 'en'
 ): Promise<DictionaryEntry> {
-	const res = await fetchWithTimeout(`${SERVER_URL}/api/dictionary`, {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/dictionary`, {
 		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${token}`,
@@ -414,7 +414,7 @@ export async function upsertDictionaryEntry(
 }
 
 export async function deleteDictionaryEntry(token: string, term: string, language = 'en'): Promise<void> {
-	const res = await fetchWithTimeout(`${SERVER_URL}/api/dictionary`, {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/dictionary`, {
 		method: 'DELETE',
 		headers: {
 			Authorization: `Bearer ${token}`,
@@ -426,4 +426,126 @@ export async function deleteDictionaryEntry(token: string, term: string, languag
 		const error = await res.json().catch(() => ({}));
 		throw new Error(error.error || 'Failed to delete dictionary entry');
 	}
+}
+
+export type MediaAlbumScopeType = 'channel' | 'dm';
+
+export interface MediaAlbum {
+	id: number;
+	scopeType: MediaAlbumScopeType;
+	scopeId: string;
+	name: string;
+	createdBy: number;
+	createdAt: number;
+	updatedAt: number;
+	itemCount: number;
+}
+
+export interface MediaAlbumItem {
+	id: number;
+	albumId: number;
+	attachmentUrl: string;
+	attachmentName: string;
+	attachmentSize: number | null;
+	attachmentMime: string | null;
+	messageId: string | null;
+	caption: string | null;
+	uploadedBy: number;
+	uploadedAt: number;
+}
+
+export async function listMediaAlbums(
+	token: string,
+	scopeType: MediaAlbumScopeType,
+	scopeId: string,
+	limit = 100
+): Promise<MediaAlbum[]> {
+	const params = new URLSearchParams({
+		scopeType,
+		scopeId,
+		limit: String(limit)
+	});
+	const res = await fetchWithTimeout(`${getApiBase()}/api/albums?${params.toString()}`, {
+		method: 'GET',
+		headers: {
+			Authorization: `Bearer ${token}`
+		}
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to list media albums');
+	}
+	const data = await res.json();
+	return Array.isArray(data.albums) ? (data.albums as MediaAlbum[]) : [];
+}
+
+export async function createMediaAlbum(
+	token: string,
+	payload: { scopeType: MediaAlbumScopeType; scopeId: string; name: string }
+): Promise<MediaAlbum> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/albums`, {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(payload)
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to create media album');
+	}
+	const data = await res.json();
+	return data.album as MediaAlbum;
+}
+
+export async function listMediaAlbumItems(
+	token: string,
+	albumId: number,
+	limit = 300
+): Promise<{ album: MediaAlbum; items: MediaAlbumItem[] }> {
+	const params = new URLSearchParams({ limit: String(limit) });
+	const res = await fetchWithTimeout(`${getApiBase()}/api/albums/${albumId}/items?${params.toString()}`, {
+		method: 'GET',
+		headers: {
+			Authorization: `Bearer ${token}`
+		}
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to list media album items');
+	}
+	const data = await res.json();
+	return {
+		album: data.album as MediaAlbum,
+		items: Array.isArray(data.items) ? (data.items as MediaAlbumItem[]) : []
+	};
+}
+
+export async function addMediaAlbumItem(
+	token: string,
+	albumId: number,
+	payload: {
+		attachmentUrl: string;
+		attachmentName: string;
+		attachmentSize?: number | null;
+		attachmentMime?: string | null;
+		messageId?: string | null;
+		caption?: string | null;
+	}
+): Promise<MediaAlbumItem> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/albums/${albumId}/items`, {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(payload)
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to add media album item');
+	}
+	const data = await res.json();
+	return data.item as MediaAlbumItem;
 }

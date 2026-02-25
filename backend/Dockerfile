@@ -44,6 +44,7 @@ ENV PLUGINS_DIR=/app/plugins
 ENV OPENMOJI_DIR=/app/openmoji/png
 
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/src/db/schema.sql /app/src/db/schema.postgres.sql ./src/db/
 COPY --from=build /app/openmoji ./openmoji
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/node_modules ./node_modules

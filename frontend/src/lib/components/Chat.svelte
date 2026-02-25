@@ -41,11 +41,13 @@
 	import CameraCapture from './CameraCapture.svelte';
 	import { parseCommand, formatCommandHelp, getMatchingCommands, type Command } from '$lib/commands';
 	import { layoutStore } from '$lib/layoutStore';
-	import { isInCall, startCall } from '$lib/calling';
+	import { callMode, isInCall, startCall } from '$lib/calling';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { encryptDMFile, isE2EAvailable } from '$lib/e2eManager';
+	import { getDMPrivacyMode } from '$lib/dmPrivacyMode';
 	import { _, currentLocale } from '$lib/i18n';
 	import { lookupDictionary, upsertDictionaryEntry, deleteDictionaryEntry } from '$lib/api';
+	import { isTauriRuntime } from '$lib/tauri-platform';
 
 	const dispatch = createEventDispatcher();
 
@@ -60,6 +62,7 @@
 	// This check prevents accidental rendering of DMs in the middle chat
 	$: isDMChannel = currentChannelData?.type === 'dm';
 	$: dmCallTargetUser = getDMOtherUser(currentChannelData);
+	$: dmDirectCallActive = $isInCall && $callMode === 'direct';
 
 	let messageInput = '';
 	let chatContainer: HTMLElement;
@@ -123,6 +126,7 @@
 	let fullHistorySearchAbortRequested = false;
 	let fullHistorySearchPagesLoaded = 0;
 	let fullHistorySearchStatus = '';
+	let runtimeVersionLabel = 'unknown';
 	const MAX_FULL_HISTORY_SEARCH_PAGES = 80;
 	const MAX_FILE_PREVIEW_IMAGES = 8;
 	let lastPreviewChannelId: string | null = null;
@@ -185,7 +189,7 @@
 	}
 
 	async function startDMVoiceCall() {
-		if (!$socket || !dmCallTargetUser) return;
+		if (!$socket || !dmCallTargetUser || dmDirectCallActive) return;
 		try {
 			await startCall($socket, dmCallTargetUser.id, false);
 		} catch (error) {
@@ -194,7 +198,7 @@
 	}
 
 	async function startDMVideoCall() {
-		if (!$socket || !dmCallTargetUser) return;
+		if (!$socket || !dmCallTargetUser || dmDirectCallActive) return;
 		try {
 			await startCall($socket, dmCallTargetUser.id, true);
 		} catch (error) {
@@ -1178,6 +1182,17 @@
 	async function uploadSelectedFiles() {
 		if (selectedFiles.length === 0) return;
 
+		const activeChannel = $channels.find(ch => ch.id === $currentChannel);
+		const authToken = localStorage.getItem('authToken');
+		const dmPrivacyMode = activeChannel?.type === 'dm' ? getDMPrivacyMode(activeChannel.id) : null;
+		const requiresEncryptedDmAttachment = activeChannel?.type === 'dm' && dmPrivacyMode !== 'open';
+		if (requiresEncryptedDmAttachment) {
+			if (!activeChannel?.otherUser?.dbUserId || !authToken || !isE2EAvailable()) {
+				alert('This DM is in sealed/private mode. File upload requires E2E encryption and was blocked.');
+				return;
+			}
+		}
+
 		isUploading = true;
 		const totalFiles = selectedFiles.length;
 		let completedFiles = 0;
@@ -1209,12 +1224,11 @@
 				};
 			}[] = [];
 
-			const activeChannel = $channels.find(ch => ch.id === $currentChannel);
 			const canEncryptDmAttachment =
-				activeChannel?.type === 'dm' &&
-				!!activeChannel.otherUser?.dbUserId &&
+				requiresEncryptedDmAttachment &&
+				!!activeChannel?.otherUser?.dbUserId &&
+				!!authToken &&
 				isE2EAvailable();
-			const authToken = localStorage.getItem('authToken');
 
 			for (const file of selectedFiles) {
 				let uploadFile = file;
@@ -1225,17 +1239,21 @@
 
 				if (canEncryptDmAttachment && authToken && activeChannel?.otherUser?.dbUserId) {
 					const encrypted = await encryptDMFile(file, activeChannel.otherUser.dbUserId, authToken);
-					if (encrypted) {
-						uploadFile = encrypted.encryptedFile;
-						attachmentEncryption = {
-							scheme: 'dm-e2ee-v1',
-							iv: encrypted.iv,
-							mimeType: encrypted.mimeType,
-							originalSize: encrypted.originalSize
-						};
-						// Ciphertext is randomized; cross-reload resume can't safely assume identical bytes.
-						persistentResume = false;
+					if (!encrypted) {
+						alert('This DM is in sealed/private mode. Encryption failed, so upload was cancelled.');
+						isUploading = false;
+						uploadProgress = 0;
+						return;
 					}
+					uploadFile = encrypted.encryptedFile;
+					attachmentEncryption = {
+						scheme: 'dm-e2ee-v1',
+						iv: encrypted.iv,
+						mimeType: encrypted.mimeType,
+						originalSize: encrypted.originalSize
+					};
+					// Ciphertext is randomized; cross-reload resume can't safely assume identical bytes.
+					persistentResume = false;
 				}
 
 				const result = await uploadFileResumable(uploadFile, $currentChannel, (fileProgressPercent) => {
@@ -1615,6 +1633,24 @@
 	onMount(() => {
 		scrollToBottom();
 
+		void (async () => {
+			const env = import.meta.env as Record<string, string | undefined>;
+			const fallbackVersion =
+				env.PUBLIC_APP_VERSION ||
+				env.VITE_APP_VERSION ||
+				env.npm_package_version ||
+				'dev';
+			runtimeVersionLabel = fallbackVersion;
+
+			if (!isTauriRuntime()) return;
+			try {
+				const { getVersion } = await import('@tauri-apps/api/app');
+				runtimeVersionLabel = await getVersion();
+			} catch {
+				// Keep fallback version label when Tauri API is unavailable.
+			}
+		})();
+
 		const handleGlobalClick = (event: MouseEvent) => {
 			const target = event.target as Node | null;
 			if (target && emojiPickerContainer?.contains(target)) return;
@@ -1662,11 +1698,29 @@
 			{/if}
 		</h2>
 		<div class="header-actions">
+			<button
+				class="albums-open-btn"
+				type="button"
+				on:click={() => layoutStore.showMediaTab()}
+				title="Open media albums panel"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<rect x="3" y="3" width="18" height="18" rx="2"></rect>
+					<circle cx="8.5" cy="8.5" r="1.5"></circle>
+					<polyline points="21 15 16 10 5 21"></polyline>
+				</svg>
+				<span>Albums</span>
+			</button>
 			{#if isDMChannel && dmCallTargetUser}
 				<div class="dm-call-actions">
+					{#if dmDirectCallActive}
+						<span class="dm-call-live" role="status" aria-live="polite">Call active</span>
+					{/if}
 					<button
 						class="dm-call-btn"
+						class:active={dmDirectCallActive}
 						on:click={startDMVoiceCall}
+						disabled={dmDirectCallActive}
 						title={$_('chat.dm.voice_call_title', { values: { user: dmCallTargetUser.username } })}
 					>
 						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
@@ -1674,7 +1728,9 @@
 					</button>
 					<button
 						class="dm-call-btn"
+						class:active={dmDirectCallActive}
 						on:click={startDMVideoCall}
+						disabled={dmDirectCallActive}
 						title={$_('chat.dm.video_call_title', { values: { user: dmCallTargetUser.username } })}
 					>
 						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
@@ -1949,13 +2005,17 @@
 			</button>
 		</div>
 	</div>
-		{/if}
-</div>
+			{/if}
+	</div>
+
+	<div class="debug-version-footer" aria-hidden="true">
+		Version {runtimeVersionLabel} - for debugging reasons only
+	</div>
 
 <style>
-	.chat-container {
-		display: flex;
-		flex-direction: column;
+		.chat-container {
+			display: flex;
+			flex-direction: column;
 		height: 100%;
 		position: relative;
 		background: var(--bg-primary);
@@ -1964,8 +2024,22 @@
 		background-position: var(--background-image-position, center);
 		background-repeat: var(--background-image-repeat, no-repeat);
 		background-blend-mode: var(--background-image-blend, overlay);
-		overflow: hidden;
-	}
+			overflow: hidden;
+		}
+
+		.debug-version-footer {
+			position: absolute;
+			left: 50%;
+			bottom: 4px;
+			transform: translateX(-50%);
+			font-size: 0.66rem;
+			letter-spacing: 0.03em;
+			color: var(--text-secondary);
+			opacity: 0.5;
+			pointer-events: none;
+			z-index: 20;
+			white-space: nowrap;
+		}
 
 	.chat-container::before {
 		content: '';
@@ -2069,10 +2143,48 @@
 		gap: 0.75rem;
 	}
 
+	.albums-open-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.35rem 0.6rem;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border);
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		font-size: var(--text-sm);
+		font-weight: var(--font-weight-medium);
+		cursor: pointer;
+		transition: all var(--duration-fast);
+	}
+
+	.albums-open-btn svg {
+		width: 14px;
+		height: 14px;
+	}
+
+	.albums-open-btn:hover {
+		border-color: var(--accent);
+		background: var(--bg-tertiary);
+	}
+
 	.dm-call-actions {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+	}
+
+	.dm-call-live {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.25rem 0.55rem;
+		border-radius: 999px;
+		border: 1px solid color-mix(in srgb, var(--status-online, #44b700) 65%, transparent);
+		background: color-mix(in srgb, var(--status-online, #44b700) 12%, transparent);
+		color: var(--status-online, #44b700);
+		font-size: var(--text-xs);
+		font-weight: var(--font-weight-semibold);
+		letter-spacing: 0.01em;
 	}
 
 	.dm-call-btn {
@@ -2098,6 +2210,16 @@
 	.dm-call-btn:hover {
 		border-color: var(--accent);
 		background: var(--bg-tertiary);
+	}
+
+	.dm-call-btn.active {
+		border-color: color-mix(in srgb, var(--status-online, #44b700) 60%, var(--border));
+		background: color-mix(in srgb, var(--status-online, #44b700) 14%, var(--bg-secondary));
+	}
+
+	.dm-call-btn:disabled {
+		opacity: 0.75;
+		cursor: default;
 	}
 
 	.search-container {
@@ -2599,6 +2721,15 @@
 		.search-results,
 		.search-history-btn,
 		.dm-call-actions {
+			display: none;
+		}
+
+		.albums-open-btn {
+			padding: 0.25rem 0.45rem;
+			font-size: 0.78rem;
+		}
+
+		.albums-open-btn span {
 			display: none;
 		}
 

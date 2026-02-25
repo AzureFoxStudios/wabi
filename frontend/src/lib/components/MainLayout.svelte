@@ -476,13 +476,14 @@
 	</nav>
 {/if}
 
-<div
-	class="app-container"
-	class:resizing={$layoutStore.isResizing}
-	class:in-call={$layoutStore.isMobile && $layoutStore.isInCall}
-	class:mobile-nav-visible={mobileNavVisible && $layoutStore.isMobile && !$layoutStore.isInCall}
-	class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
->
+	<div
+		class="app-container"
+		class:resizing={$layoutStore.isResizing}
+		class:in-call={$layoutStore.isMobile && $layoutStore.isInCall}
+		class:mobile-nav-visible={mobileNavVisible && $layoutStore.isMobile && !$layoutStore.isInCall}
+		class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
+		class:obvious-grab-rails={$layoutStore.obviousGrabRails}
+	>
 	<!-- Channel Sidebar (Left) -->
 	<div
 		class="channel-sidebar-container"
@@ -756,6 +757,33 @@
 	.resize-handle:hover { background: var(--accent); opacity: 0.5; }
 	.resize-handle-channel { right: -3px; }
 	.resize-handle-right { left: -3px; }
+
+	.app-container.obvious-grab-rails .resize-handle {
+		background: rgba(255, 176, 32, 0.35);
+		outline: 1px solid rgba(255, 176, 32, 0.95);
+		outline-offset: 0;
+		box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45);
+		opacity: 1;
+	}
+
+	.app-container.obvious-grab-rails .resize-handle::after {
+		content: '6px grab';
+		position: absolute;
+		top: 10px;
+		left: 50%;
+		transform: translateX(-50%) rotate(90deg);
+		transform-origin: center;
+		padding: 2px 5px;
+		border-radius: 4px;
+		font-size: 10px;
+		line-height: 1;
+		font-weight: 700;
+		letter-spacing: 0.03em;
+		color: #2f2200;
+		background: rgba(255, 222, 122, 0.95);
+		white-space: nowrap;
+		pointer-events: none;
+	}
 
 	.app-container.nav-right .resize-handle-channel {
 		right: auto;

@@ -119,6 +119,7 @@
 	let ownMessagesOnRight = false;
 	let chatAvatarMode: ChatAvatarMode = 'all';
 	let tabShadeStrength = 0.06;
+	let appChromeOpacity = 1;
 	let localAppRuntime = false;
 	let micTestStream: MediaStream | null = null;
 	let micTestRecorder: MediaRecorder | null = null;
@@ -275,6 +276,7 @@
 		ownMessagesOnRight = accessibilitySettings.ownMessagesOnRight;
 		chatAvatarMode = accessibilitySettings.chatAvatarMode;
 		tabShadeStrength = accessibilitySettings.tabShadeStrength;
+		appChromeOpacity = accessibilitySettings.appChromeOpacity;
 		soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
 		notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 		micEnabled = localStorage.getItem('micEnabled') !== 'false';
@@ -816,6 +818,11 @@
 		tabShadeStrength = next.tabShadeStrength;
 	}
 
+	function updateAppChromeOpacity(value: number) {
+		const next = updateAccessibilitySettings({ appChromeOpacity: value });
+		appChromeOpacity = next.appChromeOpacity;
+	}
+
 	function resetAccessibilityVisuals() {
 		const next = updateAccessibilitySettings({
 			colorAssistEnabled: false,
@@ -825,7 +832,8 @@
 			roleColorMode: 'full',
 			ownMessagesOnRight: false,
 			chatAvatarMode: 'all',
-			tabShadeStrength: 0.06
+			tabShadeStrength: 0.06,
+			appChromeOpacity: 1
 		});
 		colorAssistEnabled = next.colorAssistEnabled;
 		saturation = next.saturation;
@@ -835,6 +843,7 @@
 		ownMessagesOnRight = next.ownMessagesOnRight;
 		chatAvatarMode = next.chatAvatarMode;
 		tabShadeStrength = next.tabShadeStrength;
+		appChromeOpacity = next.appChromeOpacity;
 	}
 
 	function updateDockSide(side: 'left' | 'right') {
@@ -843,6 +852,10 @@
 
 	function toggleDockNavCollapsed() {
 		layoutStore.toggleNavCollapsed();
+	}
+
+	function toggleObviousGrabRails() {
+		layoutStore.setObviousGrabRails(!$layoutStore.obviousGrabRails);
 	}
 
 	function loadWorkspaceByName(name: string) {
@@ -2155,11 +2168,11 @@
 								</button>
 							</div>
 
-							<div class="setting-item">
-								<div class="setting-info">
-									<span class="setting-label">Workspace Preset</span>
-									<span class="setting-description">Load or save docking presets for different workflows</span>
-								</div>
+								<div class="setting-item">
+									<div class="setting-info">
+										<span class="setting-label">Workspace Preset</span>
+										<span class="setting-description">Load or save docking presets for different workflows</span>
+									</div>
 								<select
 									class="theme-select"
 									value={$layoutStore.activeWorkspace}
@@ -2168,8 +2181,18 @@
 									{#each $layoutStore.workspaces as workspaceName}
 										<option value={workspaceName}>{workspaceName}</option>
 									{/each}
-								</select>
-							</div>
+									</select>
+								</div>
+
+								<div class="setting-item">
+									<div class="setting-info">
+										<span class="setting-label">Obvious Grab Rails</span>
+										<span class="setting-description">Debug mode: draw exact draggable resize hitboxes</span>
+									</div>
+									<button class="toggle-btn" class:active={$layoutStore.obviousGrabRails} on:click={toggleObviousGrabRails}>
+										{$layoutStore.obviousGrabRails ? 'ON' : 'OFF'}
+									</button>
+								</div>
 
 							<div class="setting-item-full">
 								<div class="settings-row-actions">
@@ -2226,6 +2249,24 @@
 									step="0.01"
 									bind:value={tabShadeStrength}
 									on:input={(e) => updateTabShadeStrength(parseFloat(e.currentTarget.value))}
+									class="volume-slider"
+								/>
+							</div>
+
+							<div class="setting-item setting-item-stack">
+								<div class="setting-info">
+									<span class="setting-label">Window Chrome Opacity (Tauri)</span>
+									<span class="setting-description">
+										Make UI panels transparent while keeping text readable ({Math.round(appChromeOpacity * 100)}%)
+									</span>
+								</div>
+								<input
+									type="range"
+									min="0.2"
+									max="1"
+									step="0.05"
+									bind:value={appChromeOpacity}
+									on:input={(e) => updateAppChromeOpacity(parseFloat(e.currentTarget.value))}
 									class="volume-slider"
 								/>
 							</div>

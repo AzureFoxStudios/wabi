@@ -1,8 +1,65 @@
 import { browser } from '$app/environment';
 
+const PERSISTED_URL_KEY = 'wabi.serverUrl';
+const PERSISTED_REMEMBER_KEY = 'wabi.serverUrlRemember';
+const SESSION_URL_KEY = 'wabi.serverUrlSession';
+
 function isLocalHost(value: string): boolean {
 	const normalized = value.toLowerCase();
 	return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1' || normalized === 'tauri.localhost';
+}
+
+export function normalizeServerUrl(value: string): string | null {
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+
+	const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+	try {
+		const parsed = new URL(withProtocol);
+		if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+		const normalizedPath = parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/+$/, '');
+		return `${parsed.origin}${normalizedPath}`;
+	} catch {
+		return null;
+	}
+}
+
+export function getConfiguredServerUrl(): string | null {
+	if (!browser) return null;
+	try {
+		const remembered = localStorage.getItem(PERSISTED_REMEMBER_KEY) === 'true';
+		if (remembered) {
+			const persisted = localStorage.getItem(PERSISTED_URL_KEY);
+			if (persisted) return persisted;
+		}
+
+		const sessionValue = sessionStorage.getItem(SESSION_URL_KEY);
+		if (sessionValue) return sessionValue;
+	} catch {
+		// Storage is best effort; fallback to auto-resolved URL.
+	}
+	return null;
+}
+
+export function setConfiguredServerUrl(value: string, remember: boolean): string {
+	const normalized = normalizeServerUrl(value);
+	if (!normalized) {
+		throw new Error('Enter a valid domain, for example wabi.chat or https://staging.wabi.chat');
+	}
+
+	if (browser) {
+		if (remember) {
+			localStorage.setItem(PERSISTED_URL_KEY, normalized);
+			localStorage.setItem(PERSISTED_REMEMBER_KEY, 'true');
+			sessionStorage.removeItem(SESSION_URL_KEY);
+		} else {
+			sessionStorage.setItem(SESSION_URL_KEY, normalized);
+			localStorage.removeItem(PERSISTED_URL_KEY);
+			localStorage.setItem(PERSISTED_REMEMBER_KEY, 'false');
+		}
+	}
+
+	return normalized;
 }
 
 export function getServerUrl(): string {
@@ -16,6 +73,11 @@ export function getServerUrl(): string {
 export function resolveServerUrl(): { url: string; source: string } {
 	if (!browser) {
 		return { url: 'http://localhost:8080', source: 'ssr_default' };
+	}
+
+	const configured = getConfiguredServerUrl();
+	if (configured) {
+		return { url: configured, source: 'user_configured' };
 	}
 
 	// 1. Explicit env override (baked at build time)
@@ -40,9 +102,12 @@ export function resolveServerUrl(): { url: string; source: string } {
 	const origin = window.location.origin;
 	const hostname = window.location.hostname;
 	const port = window.location.port;
+	const protocol = window.location.protocol;
+	const hasTauriBridge =
+		typeof (window as any).__TAURI__ !== 'undefined' || typeof (window as any).__TAURI_INTERNALS__ !== 'undefined';
 
-	// 2. Tauri (Windows uses https://tauri.localhost, macOS/Linux use tauri://localhost)
-	if (hostname === 'tauri.localhost' || window.location.protocol === 'tauri:') {
+	// 2. Tauri runtime (Windows often uses https://tauri.localhost, but runtime can vary by platform/build)
+	if (hasTauriBridge || hostname === 'tauri.localhost' || protocol === 'tauri:') {
 		if (import.meta.env.DEV) {
 			return { url: 'http://localhost:8080', source: 'dev_tauri' };
 		}

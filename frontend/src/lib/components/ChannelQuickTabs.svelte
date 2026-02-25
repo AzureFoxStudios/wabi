@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
-	import { channelUnreadCounts, channels, currentChannel, currentUser, joinChannel, voiceChannelMembers } from '$lib/socket';
+	import { channelUnreadCounts, channels, currentChannel, currentUser, joinChannel, pinnedChannels, unpinChannel, voiceChannelMembers } from '$lib/socket';
 	import { activeVoiceChannel, callMode } from '$lib/calling';
 	import { layoutStore } from '$lib/layoutStore';
 	import { mobileTabQueue, type AddonTabSpec, type MobileQueueTab } from '$lib/mobileTabQueue';
@@ -30,7 +30,6 @@
 	let pointerLastDeltaX = 0;
 	let pointerType: 'mouse' | 'touch' | 'pen' | '' = '';
 	let suppressClick = false;
-	let lastSyncedChannelId: string | null = null;
 	let draggedChannelId: string | null = null;
 	let dropTargetChannelId: string | null = null;
 	let dropPosition: 'before' | 'after' = 'before';
@@ -61,23 +60,15 @@
 	$: eligibleChannelIds = eligibleChannels.map((channel) => channel.id);
 	$: eligibleChannelSet = new Set(eligibleChannelIds);
 	$: channelById = new Map(eligibleChannels.map((channel) => [channel.id, channel] as const));
+	$: bookmarkedChannelIds = $pinnedChannels
+		.filter((channel) => eligibleChannelSet.has(channel.id))
+		.map((channel) => channel.id);
 	$: addonById = new Map($addonTabs.map((addon) => [addon.id, addon] as const));
+	$: addonQueueTabs = $queueTabs.filter((item): item is Extract<MobileQueueTab, { type: 'addon' }> => item.type === 'addon');
 
-	$: mobileTabQueue.pruneChannels(eligibleChannelIds);
+	$: mobileTabQueue.setChannelTabs(bookmarkedChannelIds);
 
-	$: if ($currentChannel && $currentChannel !== lastSyncedChannelId && eligibleChannelSet.has($currentChannel)) {
-		// Keep channel queue synced, but do not steal focus from addon tabs.
-		if ($activeTabId?.startsWith('addon:')) {
-			mobileTabQueue.enqueueChannel($currentChannel);
-		} else {
-			mobileTabQueue.setActiveChannel($currentChannel);
-		}
-		lastSyncedChannelId = $currentChannel;
-	}
-
-	// Keep queue deterministic: only channels the user explicitly visits are queued.
-
-	$: renderTabs = buildRenderTabs($queueTabs, channelById, addonById);
+	$: renderTabs = buildRenderTabs(bookmarkedChannelIds, addonQueueTabs, channelById, addonById);
 	$: tabCount = renderTabs.length;
 	$: showRail = tabCount >= 2;
 
@@ -108,26 +99,25 @@
 	$: extraCallCount = Math.max(0, callParticipants.length - 5);
 
 	function buildRenderTabs(
-		items: MobileQueueTab[],
+		channelIds: string[],
+		addonItems: Array<Extract<MobileQueueTab, { type: 'addon' }>>,
 		channelLookup: Map<string, (typeof eligibleChannels)[number]>,
 		addonLookup: Map<string, AddonTabSpec>
 	): RenderTab[] {
 		const result: RenderTab[] = [];
-		for (const item of items) {
-			if (item.type === 'channel') {
-				const channel = channelLookup.get(item.channelId);
-				if (!channel) continue;
-				result.push({
-					id: item.id,
-					type: 'channel',
-					label: `# ${channel.name}`,
-					channelId: channel.id,
-					badgeCount: $channelUnreadCounts[channel.id] || 0,
-					active: $currentChannel === channel.id
-				});
-				continue;
-			}
-
+		for (const channelId of channelIds) {
+			const channel = channelLookup.get(channelId);
+			if (!channel) continue;
+			result.push({
+				id: mobileTabQueue.toChannelTabId(channel.id),
+				type: 'channel',
+				label: `# ${channel.name}`,
+				channelId: channel.id,
+				badgeCount: $channelUnreadCounts[channel.id] || 0,
+				active: $currentChannel === channel.id
+			});
+		}
+		for (const item of addonItems) {
 			const addon = addonLookup.get(item.addonId);
 			if (!addon) continue;
 			result.push({
@@ -260,7 +250,7 @@
 			if (closingActive && fallbackChannel) {
 				joinChannel(fallbackChannel);
 			}
-			mobileTabQueue.closeChannelTab(tab.channelId);
+			unpinChannel(tab.channelId);
 			return;
 		}
 
@@ -285,7 +275,6 @@
 			channelId: tab.channelId,
 			channelName: rawName || undefined
 		});
-		closeTab(tab);
 	}
 
 	function closeTabContextMenu(): void {
@@ -327,7 +316,7 @@
 	}
 
 	function canDragTab(tab: RenderTab): boolean {
-		return !$layoutStore.isMobile && tab.type === 'channel';
+		return false;
 	}
 
 	function canDetachTab(tab: RenderTab): boolean {
@@ -876,5 +865,4 @@
 		cursor: not-allowed;
 	}
 </style>
-
 

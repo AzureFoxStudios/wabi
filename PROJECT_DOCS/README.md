@@ -24,6 +24,17 @@ This folder contains the current, supported documentation set for Wabi.
 
 - `RELAY_PHASE1_SERVER_RUNBOOK.md`
 
+## Plugin Porting
+
+- `PLUGIN_PORTING_MASTER_PLAN.md`
+- `FEATURE_SPEC_MEDIA_ALBUMS.md`
+- `PLUGIN_SPEC_TEMPLATE.md`
+- `PLUGIN_SPEC_ZIPPREVIEW.md`
+- `PLUGIN_SPEC_VIDEOCOMPRESSOR.md`
+- `PLUGIN_GRADING_ROUND1.md`
+- `PLUGIN_GRADING_ROUND2_BETTERDISCORDPLUGINS.md`
+- `PLUGIN_CROSS_ANALYSIS_BETTERDISCORD.md`
+
 ## Scope
 
 Legacy planning/audit/archive docs were removed during repository cleanup to keep onboarding and operator guidance focused.

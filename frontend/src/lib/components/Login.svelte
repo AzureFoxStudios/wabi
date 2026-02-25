@@ -5,6 +5,7 @@
 	import { register, login, upgradeToRegistered } from '$lib/api';
 	import { initE2E } from '$lib/e2eManager';
 	import { _, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
+	import { getConfiguredServerUrl, getServerUrl, resolveServerUrl, setConfiguredServerUrl } from '$lib/serverUrl';
 
 	const dispatch = createEventDispatcher<{
 		login: { username: string; token?: string; authMethod: 'guest' | 'registered' };
@@ -17,6 +18,10 @@
 	let passwordConfirm = '';
 	let error = '';
 	let loading = false;
+	let connectionError = '';
+	let showConnectionPrompt = true;
+	let serverDomain = '';
+	let rememberServer = true;
 
 	let qrCanvas: HTMLCanvasElement;
 	let showQR = false;
@@ -26,9 +31,9 @@
 
 	const t = (key: string): string => get(_)(key) as string;
 
-	// Auto-detect current origin
+	// Effective server target for QR / diagnostics.
 	$: serverUrl = typeof window !== 'undefined'
-		? `${window.location.origin}${import.meta.env.BASE_URL || ''}`
+		? getServerUrl()
 		: '';
 
 	// Tab switching helpers
@@ -46,6 +51,17 @@
 		handleManuallyEdited = false;
 		password = '';
 		passwordConfirm = '';
+	}
+
+	function applyServerDomain() {
+		connectionError = '';
+		try {
+			const normalized = setConfiguredServerUrl(serverDomain, rememberServer);
+			serverDomain = normalized;
+			showConnectionPrompt = false;
+		} catch (err) {
+			connectionError = err instanceof Error ? err.message : 'Invalid domain';
+		}
 	}
 
 	// Guest login
@@ -143,6 +159,16 @@
 		const urlParams = new URLSearchParams(window.location.search);
 		const room = urlParams.get('room');
 		if (room) customRoom = room;
+
+		const configured = getConfiguredServerUrl();
+		if (configured) {
+			serverDomain = configured;
+			showConnectionPrompt = false;
+			return;
+		}
+
+		serverDomain = resolveServerUrl().url;
+		showConnectionPrompt = true;
 	});
 </script>
 
@@ -150,144 +176,170 @@
 	<div class="login-box">
 		<img src="/wabi-logo.webp" alt="Wabi" class="logo" />
 
-		<!-- Tab Navigation -->
-		<div class="tabs">
-			<button
-				class="tab-btn"
-				class:active={tab === 'guest'}
-				on:click={() => switchTab('guest')}
-			>
-				{$_('login.tabs.guest')}
-			</button>
-			<button
-				class="tab-btn"
-				class:active={tab === 'login'}
-				on:click={() => switchTab('login')}
-			>
-				{$_('login.tabs.login')}
-			</button>
-			<button
-				class="tab-btn"
-				class:active={tab === 'register'}
-				on:click={() => switchTab('register')}
-			>
-				{$_('login.tabs.register')}
-			</button>
-		</div>
-
-		<div class="locale-row">
-			<label for="locale-picker">{$_('login.language.label')}</label>
-			<select
-				id="locale-picker"
-				bind:value={selectedLocale}
-				on:change={(event) => setAppLocale((event.currentTarget as HTMLSelectElement).value)}
-			>
-				{#each availableLocales as localeOption}
-					<option value={localeOption.code}>{localeOption.label}</option>
-				{/each}
-			</select>
-		</div>
-
-		<!-- Error Message -->
-		{#if error}
-			<div class="error-message">{error}</div>
-		{/if}
-
-		<!-- GUEST TAB -->
-		{#if tab === 'guest'}
-			<form on:submit|preventDefault={handleGuestLogin}>
+		{#if showConnectionPrompt}
+			<div class="connection-box">
+				<h3>Connect to Wabi Domain</h3>
 				<input
 					type="text"
-					bind:value={username}
-					placeholder={$_('login.guest.name_placeholder')}
-					maxlength="20"
-					required
+					bind:value={serverDomain}
+					placeholder="wabi.chat or https://staging.wabi.chat"
 					use:focusOnMount
 					disabled={loading}
 				/>
-				<button type="submit" class="join-btn" disabled={loading}>
-					{loading ? $_('login.guest.joining') : $_('login.guest.join_button')}
+				<label class="remember-row">
+					<input type="checkbox" bind:checked={rememberServer} />
+					<span>Remember this domain on this device</span>
+				</label>
+				{#if connectionError}
+					<div class="error-message">{connectionError}</div>
+				{/if}
+				<button type="button" class="join-btn" on:click={applyServerDomain}>Continue</button>
+			</div>
+		{:else}
+			<div class="server-target">
+				<span>Server: {serverUrl}</span>
+				<button type="button" class="server-change" on:click={() => (showConnectionPrompt = true)}>Change</button>
+			</div>
+
+			<!-- Tab Navigation -->
+			<div class="tabs">
+				<button
+					class="tab-btn"
+					class:active={tab === 'guest'}
+					on:click={() => switchTab('guest')}
+				>
+					{$_('login.tabs.guest')}
 				</button>
-			</form>
-
-			<button type="button" on:click={generateQR} class="qr-btn" disabled={loading}>
-				{$_('login.guest.join_qr_button')}
-			</button>
-
-			<a href="/business" class="hub-btn">{$_('login.guest.business_hub')}</a>
-		{/if}
-
-		<!-- LOGIN TAB -->
-		{#if tab === 'login'}
-			<form on:submit|preventDefault={handleLogin}>
-				<input
-					type="text"
-					bind:value={username}
-					placeholder={$_('login.auth.username_or_handle_placeholder')}
-					required
-					use:focusOnMount
-					disabled={loading}
-				/>
-				<input
-					type="password"
-					bind:value={password}
-					placeholder={$_('login.auth.password_placeholder')}
-					required
-					disabled={loading}
-				/>
-				<button type="submit" class="join-btn" disabled={loading}>
-					{loading ? $_('login.auth.logging_in') : $_('login.auth.login_button')}
+				<button
+					class="tab-btn"
+					class:active={tab === 'login'}
+					on:click={() => switchTab('login')}
+				>
+					{$_('login.tabs.login')}
 				</button>
-			</form>
-		{/if}
+				<button
+					class="tab-btn"
+					class:active={tab === 'register'}
+					on:click={() => switchTab('register')}
+				>
+					{$_('login.tabs.register')}
+				</button>
+			</div>
 
-		<!-- REGISTER TAB -->
-		{#if tab === 'register'}
-			<form on:submit|preventDefault={handleRegister}>
-				<input
-					type="text"
-					bind:value={username}
-					placeholder={$_('login.auth.display_name_placeholder')}
-					minlength="2"
-					maxlength="32"
-					required
-					use:focusOnMount
-					disabled={loading}
-				/>
-				<div class="handle-input-wrapper">
-					<span class="handle-prefix">@</span>
+			<div class="locale-row">
+				<label for="locale-picker">{$_('login.language.label')}</label>
+				<select
+					id="locale-picker"
+					bind:value={selectedLocale}
+					on:change={(event) => setAppLocale((event.currentTarget as HTMLSelectElement).value)}
+				>
+					{#each availableLocales as localeOption}
+						<option value={localeOption.code}>{localeOption.label}</option>
+					{/each}
+				</select>
+			</div>
+
+			<!-- Error Message -->
+			{#if error}
+				<div class="error-message">{error}</div>
+			{/if}
+
+			<!-- GUEST TAB -->
+			{#if tab === 'guest'}
+				<form on:submit|preventDefault={handleGuestLogin}>
 					<input
 						type="text"
-						bind:value={handle}
-						on:input={() => { handleManuallyEdited = true; }}
-						placeholder={$_('login.auth.handle_placeholder')}
+						bind:value={username}
+						placeholder={$_('login.guest.name_placeholder')}
+						maxlength="20"
+						required
+						use:focusOnMount
+						disabled={loading}
+					/>
+					<button type="submit" class="join-btn" disabled={loading}>
+						{loading ? $_('login.guest.joining') : $_('login.guest.join_button')}
+					</button>
+				</form>
+
+				<button type="button" on:click={generateQR} class="qr-btn" disabled={loading}>
+					{$_('login.guest.join_qr_button')}
+				</button>
+
+				<a href="/business" class="hub-btn">{$_('login.guest.business_hub')}</a>
+			{/if}
+
+			<!-- LOGIN TAB -->
+			{#if tab === 'login'}
+				<form on:submit|preventDefault={handleLogin}>
+					<input
+						type="text"
+						bind:value={username}
+						placeholder={$_('login.auth.username_or_handle_placeholder')}
+						required
+						use:focusOnMount
+						disabled={loading}
+					/>
+					<input
+						type="password"
+						bind:value={password}
+						placeholder={$_('login.auth.password_placeholder')}
+						required
+						disabled={loading}
+					/>
+					<button type="submit" class="join-btn" disabled={loading}>
+						{loading ? $_('login.auth.logging_in') : $_('login.auth.login_button')}
+					</button>
+				</form>
+			{/if}
+
+			<!-- REGISTER TAB -->
+			{#if tab === 'register'}
+				<form on:submit|preventDefault={handleRegister}>
+					<input
+						type="text"
+						bind:value={username}
+						placeholder={$_('login.auth.display_name_placeholder')}
 						minlength="2"
 						maxlength="32"
 						required
+						use:focusOnMount
 						disabled={loading}
-						class="handle-input"
 					/>
-				</div>
-				<input
-					type="password"
-					bind:value={password}
-					placeholder={$_('login.auth.password_rules_placeholder')}
-					minlength="8"
-					required
-					disabled={loading}
-				/>
-				<input
-					type="password"
-					bind:value={passwordConfirm}
-					placeholder={$_('login.auth.confirm_password_placeholder')}
-					minlength="8"
-					required
-					disabled={loading}
-				/>
-				<button type="submit" class="join-btn" disabled={loading}>
-					{loading ? $_('login.auth.creating_account') : $_('login.auth.create_account_button')}
-				</button>
-			</form>
+					<div class="handle-input-wrapper">
+						<span class="handle-prefix">@</span>
+						<input
+							type="text"
+							bind:value={handle}
+							on:input={() => { handleManuallyEdited = true; }}
+							placeholder={$_('login.auth.handle_placeholder')}
+							minlength="2"
+							maxlength="32"
+							required
+							disabled={loading}
+							class="handle-input"
+						/>
+					</div>
+					<input
+						type="password"
+						bind:value={password}
+						placeholder={$_('login.auth.password_rules_placeholder')}
+						minlength="8"
+						required
+						disabled={loading}
+					/>
+					<input
+						type="password"
+						bind:value={passwordConfirm}
+						placeholder={$_('login.auth.confirm_password_placeholder')}
+						minlength="8"
+						required
+						disabled={loading}
+					/>
+					<button type="submit" class="join-btn" disabled={loading}>
+						{loading ? $_('login.auth.creating_account') : $_('login.auth.create_account_button')}
+					</button>
+				</form>
+			{/if}
 		{/if}
 	</div>
 
@@ -425,6 +477,58 @@
 		border-radius: 8px;
 		padding: 0.4rem 0.6rem;
 		font-size: 0.85rem;
+	}
+
+	.connection-box {
+		text-align: left;
+	}
+
+	.connection-box h3 {
+		margin: 0 0 0.75rem 0;
+		color: var(--text-primary);
+		font-size: 1rem;
+	}
+
+	.remember-row {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		margin: 0.1rem 0 1rem 0;
+		color: var(--text-secondary);
+		font-size: 0.9rem;
+	}
+
+	.remember-row input[type="checkbox"] {
+		width: 16px;
+		height: 16px;
+		margin: 0;
+		padding: 0;
+	}
+
+	.server-target {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		margin-bottom: 0.75rem;
+		color: var(--text-secondary);
+		font-size: 0.8rem;
+	}
+
+	.server-target span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.server-change {
+		border: 1px solid var(--border);
+		background: transparent;
+		color: var(--text-secondary);
+		border-radius: 8px;
+		padding: 0.25rem 0.6rem;
+		cursor: pointer;
+		font-size: 0.75rem;
 	}
 
 	input {

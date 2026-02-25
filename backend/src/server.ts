@@ -42,6 +42,12 @@ import {
   handleRetryWebhookDelivery
 } from "./api/webhookRoutes.js";
 import { handleDictionaryLookup, handleDictionaryUpsert, handleDictionaryDelete } from "./api/dictionaryRoutes.js";
+import {
+  handleListAlbums,
+  handleCreateAlbum,
+  handleListAlbumItems,
+  handleAddAlbumItem
+} from "./api/albumRoutes.js";
 import { relayRepository } from "./db/repositories/relayRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
 import { channelRepository } from "./db/repositories/channelRepository.js";
@@ -3009,6 +3015,51 @@ server.on('request', async (req, res) => {
 
   if (url.pathname === "/api/dictionary" && req.method === "GET") {
     await handleDictionaryLookup(req, res, url);
+    return;
+  }
+
+  if (url.pathname === "/api/albums" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+    await handleListAlbums(req, res, url, userId);
+    return;
+  }
+
+  if (url.pathname === "/api/albums" && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+    await handleCreateAlbum(req, res, userId);
+    return;
+  }
+
+  const albumItemsMatch = url.pathname.match(/^\/api\/albums\/(\d+)\/items$/);
+  if (albumItemsMatch && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+    await handleListAlbumItems(req, res, url, userId, albumItemsMatch[1]);
+    return;
+  }
+
+  if (albumItemsMatch && req.method === "POST") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+    await handleAddAlbumItem(req, res, userId, albumItemsMatch[1]);
     return;
   }
 

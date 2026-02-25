@@ -12,6 +12,7 @@
 	import GroupSettingsPanel from './GroupSettingsPanel.svelte';
 	import CreateGroupModal from './CreateGroupModal.svelte';
 	import type { User, Channel } from '$lib/socket';
+	import { dmPrivacyModes, setDMPrivacyMode, type DMPrivacyMode } from '$lib/dmPrivacyMode';
 	type ConversationAction = {
 		id: 'voice' | 'video' | 'remove';
 		label: string;
@@ -45,6 +46,9 @@
 	$: selectedGroup = $layoutStore.selectedGroupChannel;
 	$: isKeepNotesSelected = selectedDmId === KEEP_NOTES_ID;
 	$: selectedDmChannel = selectedDmId ? $channels.find(ch => ch.id === selectedDmId) || null : null;
+	$: selectedDmPrivacyMode = selectedDmChannel?.type === 'dm'
+		? getConversationPrivacyMode(selectedDmChannel.id)
+		: null;
 
 	// Keep selectedGroup in sync with channels store (so avatar/member changes reflect)
 	$: activeGroup = selectedGroup ? $channels.find(ch => ch.id === selectedGroup.id) || selectedGroup : null;
@@ -93,6 +97,27 @@
 		if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
 		if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`;
 		return `${Math.floor(diff / 86400000)}d`;
+	}
+
+	function getConversationPrivacyMode(channelId: string): DMPrivacyMode {
+		return $dmPrivacyModes[channelId] ?? 'sealed';
+	}
+
+	function getPrivacyModeLabel(mode: DMPrivacyMode): string {
+		if (mode === 'open') return 'Open';
+		if (mode === 'private') return 'Private';
+		return 'Sealed';
+	}
+
+	function changeDMPrivacyMode(channel: Channel, mode: DMPrivacyMode): void {
+		if (channel.type !== 'dm') return;
+		if (mode === 'open') {
+			const confirmed = window.confirm(
+				'Open mode sends this DM without end-to-end encryption and stores plaintext on the server. Continue?'
+			);
+			if (!confirmed) return;
+		}
+		setDMPrivacyMode(channel.id, mode);
 	}
 
 	function selectConversation(channel: Channel) {
@@ -282,6 +307,38 @@
 				onSelect: () => selectConversation(contextMenuChannel as Channel)
 			}
 		];
+		if (contextMenuChannel.type === 'dm') {
+			const currentMode = getConversationPrivacyMode(contextMenuChannel.id);
+			items.push({ id: 'privacy-divider', type: 'separator' });
+			items.push({
+				id: 'privacy-current',
+				label: `Privacy Mode: ${getPrivacyModeLabel(currentMode)}`,
+				icon: 'settings',
+				disabled: true
+			});
+			items.push({
+				id: 'privacy-sealed',
+				label: 'Set Mode: Sealed',
+				icon: 'settings',
+				disabled: currentMode === 'sealed',
+				onSelect: () => changeDMPrivacyMode(contextMenuChannel as Channel, 'sealed')
+			});
+			items.push({
+				id: 'privacy-private',
+				label: 'Set Mode: Private',
+				icon: 'settings',
+				disabled: currentMode === 'private',
+				onSelect: () => changeDMPrivacyMode(contextMenuChannel as Channel, 'private')
+			});
+			items.push({
+				id: 'privacy-open',
+				label: 'Set Mode: Open (Public)',
+				icon: 'settings',
+				danger: true,
+				disabled: currentMode === 'open',
+				onSelect: () => changeDMPrivacyMode(contextMenuChannel as Channel, 'open')
+			});
+		}
 		for (const action of actions) {
 			if (action.danger) {
 				items.push({ id: 'danger-divider', type: 'separator' });
@@ -349,6 +406,15 @@
 						<span class="dm-header-title">{activeHeaderTitle}</span>
 						{#if isKeepNotesSelected}
 							<span class="dm-header-pill">Private</span>
+						{:else if selectedDmPrivacyMode === 'open'}
+							<span class="dm-header-pill dm-header-pill-open">
+								<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+									<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3l-8.47-14.14a2 2 0 0 0-3.42 0z"></path>
+									<line x1="12" y1="9" x2="12" y2="13"></line>
+									<circle cx="12" cy="17" r="1"></circle>
+								</svg>
+								Open
+							</span>
 						{/if}
 					</div>
 				</div>
@@ -533,6 +599,15 @@
 										<div class="dm-conv-avatar-ph" style="background-color: {other.roleColor || other.color}">
 											{other.username.charAt(0).toUpperCase()}
 										</div>
+									{/if}
+									{#if getConversationPrivacyMode(channel.id) === 'open'}
+										<span class="dm-open-mode-badge" title="Open mode: plaintext DM">
+											<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+												<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3l-8.47-14.14a2 2 0 0 0-3.42 0z"></path>
+												<line x1="12" y1="9" x2="12" y2="13"></line>
+												<circle cx="12" cy="17" r="1"></circle>
+											</svg>
+										</span>
 									{/if}
 								</div>
 								<div class="dm-conv-info">
@@ -768,6 +843,15 @@
 		white-space: nowrap;
 	}
 
+	.dm-header-pill-open {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		color: #ff8a80;
+		border-color: rgba(255, 138, 128, 0.45);
+		background: rgba(255, 82, 82, 0.14);
+	}
+
 	.dm-tab-messages {
 		flex: 1;
 		min-height: 0;
@@ -994,6 +1078,7 @@
 		flex-shrink: 0;
 		width: 36px;
 		height: 36px;
+		position: relative;
 	}
 
 	.dm-conv-avatar,
@@ -1011,6 +1096,22 @@
 		font-size: 0.8rem;
 		font-weight: 600;
 		color: white;
+	}
+
+	.dm-open-mode-badge {
+		position: absolute;
+		right: -2px;
+		bottom: -2px;
+		width: 15px;
+		height: 15px;
+		border-radius: 50%;
+		background: #b71c1c;
+		color: #fff;
+		border: 1px solid rgba(0, 0, 0, 0.45);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 	}
 
 	.dm-conv-info {

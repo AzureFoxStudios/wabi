@@ -38,6 +38,7 @@ ENV OPENMOJI_72_SHA256=$OPENMOJI_72_SHA256
 
 # Fetch pinned OpenMoji assets into static path used by the frontend runtime.
 RUN chmod +x ./scripts/fetch-openmoji.sh \
+  && sed -i 's/\r$//' ./scripts/fetch-openmoji.sh \
   && ./scripts/fetch-openmoji.sh ./static/openmoji/png
 
 # Build the frontend with adapter-node

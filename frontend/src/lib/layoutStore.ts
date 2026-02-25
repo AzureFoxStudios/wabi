@@ -24,8 +24,8 @@ import {
 	persistLayoutState
 } from '$lib/docking/layoutPersistence';
 
-type RightPanelView = 'none' | 'users' | 'dms' | 'admin';
-type RightPanelTab = 'users' | 'dms' | 'admin';
+type RightPanelView = 'none' | 'users' | 'dms' | 'admin' | 'media';
+type RightPanelTab = 'users' | 'dms' | 'admin' | 'media';
 
 const isMobile = readable(false, (set) => {
 	if (typeof window === 'undefined') {
@@ -41,6 +41,7 @@ const isMobile = readable(false, (set) => {
 const DEFAULT_NAV_WIDTH = 280;
 const DEFAULT_RIGHT_WIDTH = 320;
 const MIN_RIGHT_WIDTH = 220;
+const OBVIOUS_GRAB_RAILS_KEY = 'wabi:obvious-grab-rails';
 
 const layoutState = writable<LayoutStateV1>(createDefaultLayoutState());
 const activeWorkspace = writable('default');
@@ -57,6 +58,7 @@ const isResizingRight = writable(false);
 const selectedDmChannelId = writable<string | null>(null);
 const dmOtherUser = writable<User | null>(null);
 const selectedGroupChannel = writable<Channel | null>(null);
+const obviousGrabRails = writable(false);
 
 let isApplyingLayout = false;
 let layoutLoaded = false;
@@ -164,7 +166,20 @@ async function loadLayoutState(): Promise<void> {
 }
 
 if (browser) {
+	try {
+		obviousGrabRails.set(localStorage.getItem(OBVIOUS_GRAB_RAILS_KEY) === 'true');
+	} catch {
+		obviousGrabRails.set(false);
+	}
 	void loadLayoutState();
+
+	obviousGrabRails.subscribe((enabled) => {
+		try {
+			localStorage.setItem(OBVIOUS_GRAB_RAILS_KEY, enabled ? 'true' : 'false');
+		} catch {
+			// Best effort only.
+		}
+	});
 }
 
 layoutState.subscribe((state) => {
@@ -202,6 +217,11 @@ const showDMsTab = () => {
 const showAdminTab = () => {
 	activeRightTab.set('admin');
 	rightPanelView.set('admin');
+};
+
+const showMediaTab = () => {
+	activeRightTab.set('media');
+	rightPanelView.set('media');
 };
 
 const openDM = (channelIdStr: string, otherUserObj: User) => {
@@ -426,7 +446,7 @@ const isResizing = derived([isResizingChannel, isResizingRight], ([$isResizingCh
 });
 
 const layout = derived(
-	[
+		[
 		isMobile,
 		rightPanelView,
 		showMobileChannels,
@@ -439,10 +459,11 @@ const layout = derived(
 		selectedGroupChannel,
 		isResizing,
 		navDock,
-		activeWorkspace,
-		layoutState
-	],
-	([
+			activeWorkspace,
+			layoutState,
+			obviousGrabRails
+		],
+		([
 		$isMobile,
 		$rightPanelView,
 		$showMobileChannels,
@@ -454,10 +475,11 @@ const layout = derived(
 		$dmOtherUser,
 		$selectedGroupChannel,
 		$isResizing,
-		$navDock,
-		$activeWorkspace,
-		$layoutState
-	]) => {
+			$navDock,
+			$activeWorkspace,
+			$layoutState,
+			$obviousGrabRails
+		]) => {
 		const showRightPanel = !$isMobile && $rightPanelView !== 'none';
 
 		return {
@@ -476,12 +498,13 @@ const layout = derived(
 			isResizing: $isResizing,
 			navDock: $navDock,
 			isNavCollapsed: $channelSidebarWidth <= 0,
-			activeWorkspace: $activeWorkspace,
-			workspaces: Object.keys($layoutState.workspaces),
-			layoutVersion: $layoutState.layoutVersion
-		};
-	}
-);
+				activeWorkspace: $activeWorkspace,
+				workspaces: Object.keys($layoutState.workspaces),
+				layoutVersion: $layoutState.layoutVersion,
+				obviousGrabRails: $obviousGrabRails
+			};
+		}
+	);
 
 export const layoutStore = {
 	subscribe: layout.subscribe,
@@ -500,12 +523,14 @@ export const layoutStore = {
 	rightPanelView,
 	activeRightTab,
 	showMobileChannels,
+	obviousGrabRails,
 
 	// Existing actions
 	toggleRightPanel,
 	showUsersTab,
 	showDMsTab,
 	showAdminTab,
+	showMediaTab,
 	openDM,
 	openGroupDM,
 	closeDM,
@@ -525,5 +550,6 @@ export const layoutStore = {
 	resetWorkspace,
 	resetAllLayouts,
 	exportLayoutJson,
-	importLayoutJson
+	importLayoutJson,
+	setObviousGrabRails: (enabled: boolean) => obviousGrabRails.set(Boolean(enabled))
 };

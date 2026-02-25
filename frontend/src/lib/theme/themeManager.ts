@@ -5,6 +5,7 @@
 
 import type { Theme } from './themes';
 import type { BackgroundImage } from '../types/theme';
+import { applyAccessibilitySettings, getStoredAccessibilitySettings } from '../accessibility';
 
 /**
  * Convert color name from camelCase to kebab-case CSS variable name
@@ -75,6 +76,7 @@ export function applyTheme(theme: Theme, backgroundImage?: BackgroundImage, unif
 
 	// Set data-theme attribute for CSS selectors
 	root.setAttribute('data-theme', theme.id);
+	applyAccessibilitySettings(getStoredAccessibilitySettings());
 
 	console.log(`[ThemeManager] Applied theme: ${theme.name} (${theme.id})`);
 }

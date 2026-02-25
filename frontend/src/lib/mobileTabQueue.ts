@@ -55,6 +55,19 @@ function pruneChannels(validChannelIds: string[]): void {
 	}
 }
 
+function setChannelTabs(channelIds: string[]): void {
+	const ordered = channelIds.filter((id, index, list) => Boolean(id) && list.indexOf(id) === index);
+	channelQueue.set(ordered);
+
+	const currentActive = get(activeTabId);
+	if (currentActive?.startsWith('channel:')) {
+		const activeChannelId = currentActive.slice('channel:'.length);
+		if (!ordered.includes(activeChannelId)) {
+			activeTabId.set(ordered[0] ? toChannelTabId(ordered[0]) : null);
+		}
+	}
+}
+
 function registerAddonTab(spec: AddonTabSpec): void {
 	if (!spec?.id || !spec.label) return;
 	addonTabs.update((tabs) => {
@@ -169,6 +182,7 @@ export const mobileTabQueue = {
 	closeAddonTab,
 	reorderChannelTab,
 	pruneChannels,
+	setChannelTabs,
 	registerAddonTab,
 	unregisterAddonTab,
 	toChannelTabId,

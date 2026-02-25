@@ -206,6 +206,35 @@ CREATE TABLE IF NOT EXISTS messages (
   FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE CASCADE
 );
 
+-- Shared media albums (persistent per channel/DM scope)
+CREATE TABLE IF NOT EXISTS albums (
+  id BIGSERIAL PRIMARY KEY,
+  scope_type TEXT NOT NULL,
+  scope_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  created_by BIGINT NOT NULL,
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL,
+  is_archived INTEGER DEFAULT 0,
+  FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+-- Items inside shared media albums
+CREATE TABLE IF NOT EXISTS album_items (
+  id BIGSERIAL PRIMARY KEY,
+  album_id BIGINT NOT NULL,
+  attachment_url TEXT NOT NULL,
+  attachment_name TEXT NOT NULL,
+  attachment_size BIGINT,
+  attachment_mime TEXT,
+  message_id TEXT,
+  caption TEXT,
+  uploaded_by BIGINT NOT NULL,
+  uploaded_at BIGINT NOT NULL,
+  FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
+  FOREIGN KEY (uploaded_by) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
 -- Relay servers (community-hosted file CDN nodes)
 CREATE TABLE IF NOT EXISTS relays (
   relay_id BIGSERIAL PRIMARY KEY,
@@ -270,6 +299,10 @@ CREATE INDEX IF NOT EXISTS idx_channel_members_user ON channel_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(message_id);
 CREATE INDEX IF NOT EXISTS idx_emoji_role_rules_lookup ON emoji_role_rules(channel_id, message_id, emoji_id, workspace_id);
+CREATE INDEX IF NOT EXISTS idx_albums_scope ON albums(scope_type, scope_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_albums_created_by ON albums(created_by, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_album_items_album ON album_items(album_id, uploaded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_album_items_uploader ON album_items(uploaded_by, uploaded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_relays_status ON relays(status);
 CREATE INDEX IF NOT EXISTS idx_relays_region ON relays(region);
 CREATE INDEX IF NOT EXISTS idx_webhooks_user ON webhooks(user_id);

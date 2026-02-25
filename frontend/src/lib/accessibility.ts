@@ -12,6 +12,9 @@ const MAX_CONTRAST = 1.4;
 const MIN_TAB_SHADE_STRENGTH = 0;
 const MAX_TAB_SHADE_STRENGTH = 0.14;
 const DEFAULT_TAB_SHADE_STRENGTH = 0.06;
+const MIN_APP_CHROME_OPACITY = 0.2;
+const MAX_APP_CHROME_OPACITY = 1;
+const DEFAULT_APP_CHROME_OPACITY = 1;
 
 export type RoleColorMode = 'full' | 'dot' | 'off';
 export type ChatAvatarMode = 'off' | 'user' | 'all';
@@ -26,6 +29,7 @@ export interface AccessibilitySettings {
 	ownMessagesOnRight: boolean;
 	chatAvatarMode: ChatAvatarMode;
 	tabShadeStrength: number;
+	appChromeOpacity: number;
 }
 
 const DEFAULT_SETTINGS: AccessibilitySettings = {
@@ -37,7 +41,8 @@ const DEFAULT_SETTINGS: AccessibilitySettings = {
 	roleColorMode: 'full',
 	ownMessagesOnRight: false,
 	chatAvatarMode: 'all',
-	tabShadeStrength: DEFAULT_TAB_SHADE_STRENGTH
+	tabShadeStrength: DEFAULT_TAB_SHADE_STRENGTH,
+	appChromeOpacity: DEFAULT_APP_CHROME_OPACITY
 };
 
 function normalizeChatAvatarMode(value: string | undefined): ChatAvatarMode {
@@ -67,6 +72,11 @@ function clampTabShadeStrength(value: number): number {
 	return Math.min(MAX_TAB_SHADE_STRENGTH, Math.max(MIN_TAB_SHADE_STRENGTH, value));
 }
 
+function clampAppChromeOpacity(value: number): number {
+	if (!Number.isFinite(value)) return DEFAULT_APP_CHROME_OPACITY;
+	return Math.min(MAX_APP_CHROME_OPACITY, Math.max(MIN_APP_CHROME_OPACITY, value));
+}
+
 function normalizeRoleColorMode(value: string | undefined): RoleColorMode {
 	if (value === 'dot' || value === 'off' || value === 'full') return value;
 	return 'full';
@@ -92,8 +102,37 @@ function normalizeSettings(raw: Partial<AccessibilitySettings> | null | undefine
 			typeof (raw as any)?.tabShadeStrength === 'number'
 				? (raw as any).tabShadeStrength
 				: DEFAULT_TAB_SHADE_STRENGTH
+		),
+		appChromeOpacity: clampAppChromeOpacity(
+			typeof (raw as any)?.appChromeOpacity === 'number'
+				? (raw as any).appChromeOpacity
+				: DEFAULT_APP_CHROME_OPACITY
 		)
 	};
+}
+
+function readRgbVariable(root: HTMLElement, variableName: string, fallback: string): string {
+	const value = getComputedStyle(root).getPropertyValue(variableName).trim();
+	return value || fallback;
+}
+
+function applyAppChromeOpacity(root: HTMLElement, opacity: number): void {
+	const clamped = clampAppChromeOpacity(opacity);
+	const bgPrimaryRgb = readRgbVariable(root, '--bg-primary-rgb', '15, 12, 41');
+	const bgSecondaryRgb = readRgbVariable(root, '--bg-secondary-rgb', '26, 26, 46');
+	const bgTertiaryRgb = readRgbVariable(root, '--bg-tertiary-rgb', '36, 36, 62');
+	const borderRgb = readRgbVariable(root, '--border-rgb', '48, 43, 99');
+
+	root.style.setProperty('--app-chrome-opacity', String(clamped));
+	root.style.setProperty('--bg-primary', `rgba(${bgPrimaryRgb}, ${clamped})`);
+	root.style.setProperty('--bg-secondary', `rgba(${bgSecondaryRgb}, ${clamped})`);
+	root.style.setProperty('--bg-tertiary', `rgba(${bgTertiaryRgb}, ${clamped})`);
+	root.style.setProperty('--bg-hover', `rgba(${bgTertiaryRgb}, ${Math.min(1, clamped + 0.08)})`);
+	root.style.setProperty('--ui-bg-light', `rgba(${bgTertiaryRgb}, ${clamped})`);
+	root.style.setProperty('--ui-bg-lighter', `rgba(${bgSecondaryRgb}, ${clamped})`);
+	root.style.setProperty('--modal-bg', `rgba(${bgPrimaryRgb}, ${Math.min(1, clamped + 0.1)})`);
+	root.style.setProperty('--modal-header-bg', `rgba(${bgSecondaryRgb}, ${Math.min(1, clamped + 0.08)})`);
+	root.style.setProperty('--border', `rgba(${borderRgb}, ${Math.max(0.25, clamped)})`);
 }
 
 function saveSettings(settings: AccessibilitySettings): void {
@@ -154,6 +193,7 @@ export function applyAccessibilitySettings(settings: AccessibilitySettings): voi
 	root.setAttribute('data-own-messages-right', currentSettings.ownMessagesOnRight ? 'true' : 'false');
 	root.setAttribute('data-chat-avatar-mode', currentSettings.chatAvatarMode);
 	root.style.setProperty('--tab-shade-strength', String(currentSettings.tabShadeStrength));
+	applyAppChromeOpacity(root, currentSettings.appChromeOpacity);
 }
 
 export function updateAccessibilitySettings(partial: Partial<AccessibilitySettings>): AccessibilitySettings {

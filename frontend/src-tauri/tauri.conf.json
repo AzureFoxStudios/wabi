@@ -20,11 +20,11 @@
         "resizable": true,
         "fullscreen": false,
         "decorations": true,
-        "transparent": false
+        "transparent": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://wabi.chat wss://wabi.chat https://*.giphy.com http://localhost:3000 http://127.0.0.1:3000 ws://localhost:3000 ws://127.0.0.1:3000; img-src 'self' https: data: blob: http://localhost:3000 http://127.0.0.1:3000; media-src 'self' blob: http://localhost:3000 http://127.0.0.1:3000; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; font-src 'self' data:"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://ipc.localhost https://wabi.chat wss://wabi.chat https://*.giphy.com http://localhost:3000 http://127.0.0.1:3000 ws://localhost:3000 ws://127.0.0.1:3000; img-src 'self' https: data: blob: http://localhost:3000 http://127.0.0.1:3000; media-src 'self' blob: http://localhost:3000 http://127.0.0.1:3000; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; font-src 'self' data:"
     }
   },
   "bundle": {

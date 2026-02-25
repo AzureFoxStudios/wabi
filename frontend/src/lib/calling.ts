@@ -1958,6 +1958,19 @@ export function rejectCall(socket: Socket, callerId: string) {
 
 export function endCall(socket: Socket) {
 	playCallActionSound('leave');
+	const endingMode = get(callMode);
+	const endingVoiceChannelId = activeVoiceChannelId;
+	const endingListeningChannels = get(listeningVoiceChannels);
+
+	// If this is a channel voice call, explicitly leave/unsubscribe server-side.
+	if (endingMode === 'channel') {
+		if (endingVoiceChannelId) {
+			socket.emit('voice-channel-leave', { channelId: endingVoiceChannelId });
+		}
+		for (const channelId of endingListeningChannels) {
+			socket.emit('voice-channel-unsubscribe', { channelId });
+		}
+	}
 
 	// Stop local media tracks
 	const stream = get(localStream);

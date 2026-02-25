@@ -119,6 +119,8 @@ const INSERT_ID_COLUMN_BY_TABLE: Record<string, string> = {
 	messages: 'id',
 	offline_messages: 'message_id',
 	channel_members: 'id',
+	albums: 'id',
+	album_items: 'id',
 	relays: 'relay_id',
 	webhooks: 'id',
 	webhook_deliveries: 'id',

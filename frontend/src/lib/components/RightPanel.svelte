@@ -4,6 +4,7 @@
 	import UserListTab from './UserListTab.svelte';
 	import DMTab from './DMTab.svelte';
 	import AdminTab from './AdminTab.svelte';
+	import MediaAlbumsTab from './MediaAlbumsTab.svelte';
 
 	$: activeTab = $layoutStore.activeRightTab;
 	$: canAccessAdminTab = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin' || $currentUser?.highestRole === 'mod';
@@ -37,6 +38,18 @@
 			</svg>
 			<span>DMs</span>
 		</button>
+		<button
+			class="tab-btn"
+			class:active={activeTab === 'media'}
+			on:click={layoutStore.showMediaTab}
+		>
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<rect x="3" y="3" width="18" height="18" rx="2"></rect>
+				<circle cx="8.5" cy="8.5" r="1.5"></circle>
+				<polyline points="21 15 16 10 5 21"></polyline>
+			</svg>
+			<span>Albums</span>
+		</button>
 		{#if canAccessAdminTab}
 			<button
 				class="tab-btn"
@@ -64,6 +77,8 @@
 			<UserListTab />
 		{:else if activeTab === 'dms'}
 			<DMTab />
+		{:else if activeTab === 'media'}
+			<MediaAlbumsTab />
 		{:else if activeTab === 'admin'}
 			<AdminTab />
 		{/if}

@@ -28,6 +28,7 @@ import { emojis } from './emoji-store';
 import { getServerUrl } from './serverUrl';
 import { authStore } from './authStore';
 import { encryptDMMessage, decryptDMMessage, isE2EAvailable } from './e2eManager';
+import { getDMPrivacyMode } from './dmPrivacyMode';
 
 /**
  * Decrypt an array of messages for a DM channel (in-place mutation of text field).
@@ -1707,21 +1708,48 @@ export async function sendMessage(channelId: string, text: string, type: 'text' 
 	roleGatePersist?: boolean;
 }): Promise<void> {
 	const payload: Record<string, any> = { channelId, text, type, ...options };
+	const channel = get(channels).find(ch => ch.id === channelId);
+	const isDM = channel?.type === 'dm';
+	const dmPrivacyMode = isDM ? getDMPrivacyMode(channelId) : 'sealed';
 
-	// Attempt E2E encryption for text DMs
-	if (type === 'text' && isE2EAvailable()) {
-		const channelList = get(channels);
-		const channel = channelList.find(ch => ch.id === channelId);
-		if (channel?.type === 'dm' && channel.otherUser?.dbUserId) {
-			const token = browser ? localStorage.getItem('authToken') : null;
-			if (token) {
-				const encrypted = await encryptDMMessage(text, channel.otherUser.dbUserId, token);
-				if (encrypted) {
-					payload.text = encrypted.text;
-					payload.encrypted = encrypted.encrypted;
-					payload.iv = encrypted.iv;
-				}
+	// DM text in sealed/private mode is fail-closed (no plaintext fallback).
+	if (type === 'text' && isDM && dmPrivacyMode !== 'open') {
+		if (!channel?.otherUser?.dbUserId || !isE2EAvailable()) {
+			if (browser) {
+				alert('This DM requires encryption (sealed/private mode). Encryption is unavailable, so the message was not sent.');
 			}
+			return;
+		}
+		const token = browser ? localStorage.getItem('authToken') : null;
+		if (!token) {
+			if (browser) {
+				alert('This DM requires encryption (sealed/private mode). Please log in again and retry.');
+			}
+			return;
+		}
+		const encrypted = await encryptDMMessage(text, channel.otherUser.dbUserId, token);
+		if (!encrypted) {
+			if (browser) {
+				alert('Encryption failed in sealed/private mode. Message was not sent.');
+			}
+			return;
+		}
+		payload.text = encrypted.text;
+		payload.encrypted = encrypted.encrypted;
+		payload.iv = encrypted.iv;
+	}
+
+	// DM files in sealed/private mode must include attachment encryption metadata.
+	if (type === 'file' && isDM && dmPrivacyMode !== 'open') {
+		const singleEncrypted = !!options?.attachmentEncryption;
+		const multiEncrypted = Array.isArray(options?.files) && options.files.length > 0
+			? options.files.every((file) => !!file.attachmentEncryption)
+			: false;
+		if (!singleEncrypted && !multiEncrypted) {
+			if (browser) {
+				alert('This DM requires encrypted file upload (sealed/private mode). Upload was blocked.');
+			}
+			return;
 		}
 	}
 

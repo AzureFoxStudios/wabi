@@ -71,6 +71,7 @@
 	--app-font-scale: 1;
 	--app-saturation: 1;
 	--app-contrast: 1;
+	--app-chrome-opacity: 1;
 	--font-size-1: calc(0.75rem * var(--app-font-scale));  /* 12px */
 	--font-size-2: calc(0.875rem * var(--app-font-scale)); /* 14px */
 	--font-size-3: calc(1rem * var(--app-font-scale));     /* 16px (base) */
