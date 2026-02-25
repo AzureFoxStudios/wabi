@@ -24,6 +24,12 @@ function parseAlbumId(rawAlbumId: string): number | null {
 	return parsed;
 }
 
+function parseAlbumItemId(rawItemId: string): number | null {
+	const parsed = Number(rawItemId);
+	if (!Number.isInteger(parsed) || parsed <= 0) return null;
+	return parsed;
+}
+
 function sanitizeScopeType(input: unknown): AlbumScopeType | null {
 	if (input === 'channel' || input === 'dm') return input;
 	return null;
@@ -85,6 +91,11 @@ function getHighestRoleForUser(userId: number): string {
 	}
 
 	return highestRole;
+}
+
+function userCanModerateAlbums(userId: number): boolean {
+	const roles = getUserRoles(userId, DEFAULT_WORKSPACE_ID);
+	return roles.includes('owner') || roles.includes('admin') || roles.includes('mod');
 }
 
 function userCanAccessScope(
@@ -320,5 +331,100 @@ export async function handleAddAlbumItem(req: any, res: any, userId: number, raw
 	} catch (error) {
 		console.error('[Albums] Failed to add album item:', error);
 		sendJson(res, 400, { error: 'Invalid album item payload' });
+	}
+}
+
+export async function handleDeleteAlbum(req: any, res: any, userId: number, rawAlbumId: string): Promise<void> {
+	try {
+		const albumId = parseAlbumId(rawAlbumId);
+		if (!albumId) {
+			sendJson(res, 400, { error: 'Invalid album id' });
+			return;
+		}
+
+		const album = albumRepository.findById(albumId);
+		if (!album) {
+			sendJson(res, 404, { error: 'Album not found' });
+			return;
+		}
+
+		const access = userCanAccessScope(userId, album.scope_type, album.scope_id);
+		if (!access.allowed) {
+			sendJson(res, access.status, { error: access.error });
+			return;
+		}
+
+		const canModerate = userCanModerateAlbums(userId);
+		const isAlbumOwner = album.created_by === userId;
+		if (!isAlbumOwner && !canModerate) {
+			sendJson(res, 403, { error: 'Only album owner or moderators can delete albums' });
+			return;
+		}
+
+		const changes = albumRepository.deleteAlbum(albumId);
+		if (changes === 0) {
+			sendJson(res, 404, { error: 'Album not found or already deleted' });
+			return;
+		}
+
+		sendJson(res, 200, { success: true, deletedAlbumId: albumId });
+	} catch (error) {
+		console.error('[Albums] Failed to delete album:', error);
+		sendJson(res, 500, { error: 'Failed to delete album' });
+	}
+}
+
+export async function handleDeleteAlbumItem(
+	req: any,
+	res: any,
+	userId: number,
+	rawAlbumId: string,
+	rawItemId: string
+): Promise<void> {
+	try {
+		const albumId = parseAlbumId(rawAlbumId);
+		const itemId = parseAlbumItemId(rawItemId);
+		if (!albumId || !itemId) {
+			sendJson(res, 400, { error: 'Invalid album or item id' });
+			return;
+		}
+
+		const album = albumRepository.findById(albumId);
+		if (!album) {
+			sendJson(res, 404, { error: 'Album not found' });
+			return;
+		}
+
+		const access = userCanAccessScope(userId, album.scope_type, album.scope_id);
+		if (!access.allowed) {
+			sendJson(res, access.status, { error: access.error });
+			return;
+		}
+
+		const item = albumRepository.findItemById(itemId);
+		if (!item || item.album_id !== albumId) {
+			sendJson(res, 404, { error: 'Album item not found' });
+			return;
+		}
+
+		const canModerate = userCanModerateAlbums(userId);
+		const isAlbumOwner = album.created_by === userId;
+		const isItemOwner = item.uploaded_by === userId;
+		if (!isItemOwner && !isAlbumOwner && !canModerate) {
+			sendJson(res, 403, { error: 'Only item owner, album owner, or moderators can delete album items' });
+			return;
+		}
+
+		const changes = albumRepository.deleteItem(albumId, itemId);
+		if (changes === 0) {
+			sendJson(res, 404, { error: 'Album item not found' });
+			return;
+		}
+		albumRepository.setUpdatedAt(albumId, Date.now());
+
+		sendJson(res, 200, { success: true, deletedItemId: itemId });
+	} catch (error) {
+		console.error('[Albums] Failed to delete album item:', error);
+		sendJson(res, 500, { error: 'Failed to delete album item' });
 	}
 }

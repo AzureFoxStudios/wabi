@@ -116,6 +116,18 @@ export class AlbumRepository {
 		stmt.run(updatedAt, albumId);
 	}
 
+	archive(albumId: number, updatedAt: number): number {
+		const stmt = db.prepare('UPDATE albums SET is_archived = 1, updated_at = ? WHERE id = ? AND is_archived = 0');
+		const info = stmt.run(updatedAt, albumId);
+		return info.changes;
+	}
+
+	deleteAlbum(albumId: number): number {
+		const stmt = db.prepare('DELETE FROM albums WHERE id = ?');
+		const info = stmt.run(albumId);
+		return info.changes;
+	}
+
 	createItem(item: Omit<DbAlbumItem, 'id'>): DbAlbumItem {
 		const stmt = db.prepare(`
 			INSERT INTO album_items (
@@ -151,6 +163,25 @@ export class AlbumRepository {
 			LIMIT ?
 		`);
 		return stmt.all(albumId, safeLimit) as DbAlbumItem[];
+	}
+
+	findItemById(itemId: number): DbAlbumItem | null {
+		const stmt = db.prepare(`
+			SELECT *
+			FROM album_items
+			WHERE id = ?
+			LIMIT 1
+		`);
+		return (stmt.get(itemId) as DbAlbumItem) || null;
+	}
+
+	deleteItem(albumId: number, itemId: number): number {
+		const stmt = db.prepare(`
+			DELETE FROM album_items
+			WHERE album_id = ? AND id = ?
+		`);
+		const info = stmt.run(albumId, itemId);
+		return info.changes;
 	}
 }
 

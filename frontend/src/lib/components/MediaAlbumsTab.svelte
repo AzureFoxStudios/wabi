@@ -4,6 +4,8 @@
 	import {
 		addMediaAlbumItem,
 		createMediaAlbum,
+		deleteMediaAlbum,
+		deleteMediaAlbumItem,
 		listMediaAlbumItems,
 		listMediaAlbums,
 		type MediaAlbum,
@@ -24,6 +26,8 @@
 	let isLoadingItems = false;
 	let isCreatingAlbum = false;
 	let isAddingItem = false;
+	let isDeletingAlbum = false;
+	let deletingItemId: number | null = null;
 
 	let errorMessage = '';
 	let newAlbumName = '';
@@ -171,6 +175,47 @@
 		}
 	}
 
+	async function removeSelectedAlbum(): Promise<void> {
+		const token = getAuthToken();
+		if (!token || !selectedAlbumId || isDeletingAlbum) return;
+		const album = selectedAlbum();
+		const label = album?.name || `#${selectedAlbumId}`;
+		if (!confirm(`Delete album "${label}"? This removes all album items.`)) return;
+
+		isDeletingAlbum = true;
+		clearError();
+		try {
+			await deleteMediaAlbum(token, selectedAlbumId);
+			selectedAlbumId = null;
+			albumItems = [];
+			await refreshAlbums(true);
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : 'Failed to delete album';
+		} finally {
+			isDeletingAlbum = false;
+		}
+	}
+
+	async function removeItem(itemId: number): Promise<void> {
+		const token = getAuthToken();
+		if (!token || !selectedAlbumId || deletingItemId !== null) return;
+		const item = albumItems.find((entry) => entry.id === itemId);
+		const label = item?.attachmentName || `item #${itemId}`;
+		if (!confirm(`Delete "${label}" from this album?`)) return;
+
+		deletingItemId = itemId;
+		clearError();
+		try {
+			await deleteMediaAlbumItem(token, selectedAlbumId, itemId);
+			await loadAlbumItems(selectedAlbumId);
+			await refreshAlbums(false);
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : 'Failed to delete album item';
+		} finally {
+			deletingItemId = null;
+		}
+	}
+
 	onMount(() => {
 		void refreshAlbums(true);
 	});
@@ -254,8 +299,18 @@
 		{#if selectedAlbum()}
 			<div class="items-section">
 				<div class="items-header">
-					<strong>{selectedAlbum()?.name}</strong>
-					<span>{albumItems.length} loaded</span>
+					<div class="items-header-title">
+						<strong>{selectedAlbum()?.name}</strong>
+						<span>{albumItems.length} loaded</span>
+					</div>
+					<button
+						class="danger-btn"
+						on:click={() => void removeSelectedAlbum()}
+						disabled={isDeletingAlbum}
+						title="Delete this album"
+					>
+						{isDeletingAlbum ? 'Deleting...' : 'Delete album'}
+					</button>
 				</div>
 
 				<details class="debug-add-item">
@@ -295,6 +350,14 @@
 										<div>{(item.attachmentSize / 1024 / 1024).toFixed(2)} MB</div>
 									{/if}
 									<div>{formatTimestamp(item.uploadedAt)}</div>
+									<button
+										class="item-delete-btn"
+										on:click={() => void removeItem(item.id)}
+										disabled={deletingItemId !== null}
+										title="Delete item from album"
+									>
+										{deletingItemId === item.id ? 'Deleting...' : 'Delete'}
+									</button>
 								</div>
 							</div>
 						{/each}
@@ -431,10 +494,36 @@
 
 	.items-header {
 		display: flex;
+		align-items: center;
 		justify-content: space-between;
-		align-items: baseline;
+		gap: 0.5rem;
+	}
+
+	.items-header-title {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
 		font-size: 0.78rem;
 		color: var(--text-secondary);
+	}
+
+	.danger-btn {
+		border: 1px solid rgba(220, 38, 38, 0.6);
+		background: rgba(220, 38, 38, 0.14);
+		color: #fecaca;
+		border-radius: 8px;
+		padding: 0.34rem 0.52rem;
+		font-size: 0.74rem;
+		cursor: pointer;
+	}
+
+	.danger-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.danger-btn:hover {
+		background: rgba(220, 38, 38, 0.22);
 	}
 
 	.debug-add-item summary {
@@ -489,6 +578,21 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.16rem;
+	}
+
+	.item-delete-btn {
+		border: 1px solid rgba(220, 38, 38, 0.6);
+		background: rgba(220, 38, 38, 0.14);
+		color: #fecaca;
+		border-radius: 7px;
+		padding: 0.22rem 0.42rem;
+		font-size: 0.68rem;
+		cursor: pointer;
+	}
+
+	.item-delete-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 
 	.empty-state {

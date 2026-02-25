@@ -46,7 +46,9 @@ import {
   handleListAlbums,
   handleCreateAlbum,
   handleListAlbumItems,
-  handleAddAlbumItem
+  handleAddAlbumItem,
+  handleDeleteAlbum,
+  handleDeleteAlbumItem
 } from "./api/albumRoutes.js";
 import { relayRepository } from "./db/repositories/relayRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
@@ -3040,6 +3042,18 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  const albumDeleteMatch = url.pathname.match(/^\/api\/albums\/(\d+)$/);
+  if (albumDeleteMatch && req.method === "DELETE") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+    await handleDeleteAlbum(req, res, userId, albumDeleteMatch[1]);
+    return;
+  }
+
   const albumItemsMatch = url.pathname.match(/^\/api\/albums\/(\d+)\/items$/);
   if (albumItemsMatch && req.method === "GET") {
     const userId = getAuthenticatedUserId(req);
@@ -3060,6 +3074,18 @@ server.on('request', async (req, res) => {
       return;
     }
     await handleAddAlbumItem(req, res, userId, albumItemsMatch[1]);
+    return;
+  }
+
+  const albumItemDeleteMatch = url.pathname.match(/^\/api\/albums\/(\d+)\/items\/(\d+)$/);
+  if (albumItemDeleteMatch && req.method === "DELETE") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+    await handleDeleteAlbumItem(req, res, userId, albumItemDeleteMatch[1], albumItemDeleteMatch[2]);
     return;
   }
 

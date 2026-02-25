@@ -549,3 +549,29 @@ export async function addMediaAlbumItem(
 	const data = await res.json();
 	return data.item as MediaAlbumItem;
 }
+
+export async function deleteMediaAlbum(token: string, albumId: number): Promise<void> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/albums/${albumId}`, {
+		method: 'DELETE',
+		headers: {
+			Authorization: `Bearer ${token}`
+		}
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to delete media album');
+	}
+}
+
+export async function deleteMediaAlbumItem(token: string, albumId: number, itemId: number): Promise<void> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/albums/${albumId}/items/${itemId}`, {
+		method: 'DELETE',
+		headers: {
+			Authorization: `Bearer ${token}`
+		}
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to delete media album item');
+	}
+}
