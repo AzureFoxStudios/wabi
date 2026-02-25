@@ -59,6 +59,10 @@
 		setSpatialAudioWarningMuted,
 		setSrtGatewayEnabled,
 		syncMediaRuntimeFromServer,
+		getPreferredMicDeviceId,
+		setPreferredMicDeviceId,
+		getPreferredCameraDeviceId,
+		setPreferredCameraDeviceId,
 		type AudioProcessingMode,
 		type CallTransportMode,
 		type MediaQualityMode,
@@ -119,6 +123,10 @@
 	let micTestStream: MediaStream | null = null;
 	let micTestRecorder: MediaRecorder | null = null;
 	let micTestAudioContext: AudioContext | null = null;
+	let audioInputDevices: MediaDeviceInfo[] = [];
+	let videoInputDevices: MediaDeviceInfo[] = [];
+	let selectedMicDeviceId = '';
+	let selectedCameraDeviceId = '';
 	let micTestAnalyser: AnalyserNode | null = null;
 	let micTestLevelInterval: number | null = null;
 	let micTestAudioUrl: string | null = null;
@@ -277,6 +285,9 @@
 		notificationVolume = parseFloat(localStorage.getItem('notificationVolume') || '0.5');
 		localAppRuntime = isTauriRuntime();
 		businessSyncMode = getBusinessSyncMode();
+		selectedMicDeviceId = getPreferredMicDeviceId() || '';
+		selectedCameraDeviceId = getPreferredCameraDeviceId() || '';
+		void loadMediaDevices();
 
 		// Sync server policy first to prevent race condition with Tauri prefs
 		void (async () => {
@@ -453,6 +464,29 @@
 	function toggleCamera() {
 		cameraEnabled = !cameraEnabled;
 		localStorage.setItem('cameraEnabled', cameraEnabled.toString());
+	}
+
+	async function loadMediaDevices() {
+		if (!browser || !navigator.mediaDevices?.enumerateDevices) return;
+		try {
+			// Request permission first so labels are populated
+			await navigator.mediaDevices.getUserMedia({ audio: true, video: true }).then(s => s.getTracks().forEach(t => t.stop())).catch(() => {});
+			const devices = await navigator.mediaDevices.enumerateDevices();
+			audioInputDevices = devices.filter(d => d.kind === 'audioinput');
+			videoInputDevices = devices.filter(d => d.kind === 'videoinput');
+		} catch {
+			// permissions denied — lists stay empty
+		}
+	}
+
+	function handleMicDeviceChange(deviceId: string) {
+		selectedMicDeviceId = deviceId;
+		setPreferredMicDeviceId(deviceId || null);
+	}
+
+	function handleCameraDeviceChange(deviceId: string) {
+		selectedCameraDeviceId = deviceId;
+		setPreferredCameraDeviceId(deviceId || null);
 	}
 
 	function toggleUiLearningMode() {
@@ -1640,7 +1674,40 @@
 									{cameraEnabled ? $t('common.on') : $t('common.off')}
 								</button>
 							</div>
-							<div class="media-quality-notice" role="note">
+							{#if audioInputDevices.length > 0}
+							<div class="quality-mode-row">
+								<label for="mic-device-select">Microphone Device</label>
+								<select
+									id="mic-device-select"
+									class="theme-select"
+									value={selectedMicDeviceId}
+									on:change={(e) => handleMicDeviceChange(e.currentTarget.value)}
+								>
+									<option value="">System Default</option>
+									{#each audioInputDevices as device}
+										<option value={device.deviceId}>{device.label || `Microphone ${device.deviceId.slice(0, 8)}`}</option>
+									{/each}
+								</select>
+							</div>
+						{/if}
+						{#if videoInputDevices.length > 0}
+							<div class="quality-mode-row">
+								<label for="camera-device-select">Camera Device</label>
+								<select
+									id="camera-device-select"
+									class="theme-select"
+									value={selectedCameraDeviceId}
+									on:change={(e) => handleCameraDeviceChange(e.currentTarget.value)}
+								>
+									<option value="">System Default</option>
+									{#each videoInputDevices as device}
+										<option value={device.deviceId}>{device.label || `Camera ${device.deviceId.slice(0, 8)}`}</option>
+									{/each}
+								</select>
+							</div>
+						{/if}
+
+						<div class="media-quality-notice" role="note">
 								<div class="notice-title">Call Quality Runtime Notice</div>
 								<div class="notice-body">
 									{#if localAppRuntime}

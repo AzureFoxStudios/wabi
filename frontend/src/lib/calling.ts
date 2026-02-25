@@ -12,6 +12,8 @@ import {
 	resolveCallTransportPlan,
 	getStoredSpatialAudioSettings,
 	setSpatialAudioEnabled,
+	getPreferredMicDeviceId,
+	getPreferredCameraDeviceId,
 	type AudioProcessingMode,
 	type EffectiveCallTransport,
 	type CallTransportMode,
@@ -463,8 +465,11 @@ function clearActiveAudioCaptureSession(): void {
 
 async function createAudioCaptureSession(): Promise<LocalAudioCaptureSession> {
 	const mode = resolveEffectiveAudioProcessingMode();
+	const audioConstraints: MediaTrackConstraints = getAudioCaptureConstraints(mode as AudioProcessingMode);
+	const preferredMicId = getPreferredMicDeviceId();
+	if (preferredMicId) audioConstraints.deviceId = preferredMicId;
 	const sourceStream = await navigator.mediaDevices.getUserMedia({
-		audio: getAudioCaptureConstraints(mode as AudioProcessingMode),
+		audio: audioConstraints,
 		video: false
 	});
 
@@ -1861,7 +1866,7 @@ export async function startCall(socket: Socket, targetUserId: string, isVideoCal
 		const stream = await ensureLocalAudioStream();
 		if (isVideoCall && !stream.getVideoTracks()[0]) {
 			const cameraStream = await navigator.mediaDevices.getUserMedia({
-				video: CAMERA_CONSTRAINTS,
+				video: getPreferredCameraDeviceId() ? { ...CAMERA_CONSTRAINTS, deviceId: getPreferredCameraDeviceId()! } : CAMERA_CONSTRAINTS,
 				audio: false
 			});
 			const cameraTrack = cameraStream.getVideoTracks()[0];
@@ -1906,7 +1911,7 @@ export async function answerCall(socket: Socket, callerId: string, isVideoCall: 
 		const stream = await ensureLocalAudioStream();
 		if (isVideoCall && !stream.getVideoTracks()[0]) {
 			const cameraStream = await navigator.mediaDevices.getUserMedia({
-				video: CAMERA_CONSTRAINTS,
+				video: getPreferredCameraDeviceId() ? { ...CAMERA_CONSTRAINTS, deviceId: getPreferredCameraDeviceId()! } : CAMERA_CONSTRAINTS,
 				audio: false
 			});
 			const cameraTrack = cameraStream.getVideoTracks()[0];
