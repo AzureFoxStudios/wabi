@@ -52,7 +52,14 @@ const VALID_THEME_IDS = [
 	'vscode-high-contrast',
 	'professional',
 	'minimal',
-	'custom'
+	'custom',
+	'slate-signal',
+	'catppuccin-mocha',
+	'dracula',
+	'nord',
+	'tokyo-night',
+	'forest',
+	'ember'
 ];
 
 // Get user theme preferences
