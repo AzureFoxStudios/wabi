@@ -18,6 +18,7 @@ const DEFAULT_APP_CHROME_OPACITY = 1;
 
 export type RoleColorMode = 'full' | 'dot' | 'off';
 export type ChatAvatarMode = 'off' | 'user' | 'all';
+export type MessageDensity = 'cozy' | 'compact';
 
 export interface AccessibilitySettings {
 	textScale: number;
@@ -30,7 +31,13 @@ export interface AccessibilitySettings {
 	chatAvatarMode: ChatAvatarMode;
 	tabShadeStrength: number;
 	appChromeOpacity: number;
+	messageDensity: MessageDensity;
+	chatFontScale: number;
 }
+
+const MIN_CHAT_FONT_SCALE = 0.8;
+const MAX_CHAT_FONT_SCALE = 1.6;
+const DEFAULT_CHAT_FONT_SCALE = 1;
 
 const DEFAULT_SETTINGS: AccessibilitySettings = {
 	textScale: DEFAULT_TEXT_SCALE,
@@ -42,7 +49,9 @@ const DEFAULT_SETTINGS: AccessibilitySettings = {
 	ownMessagesOnRight: false,
 	chatAvatarMode: 'all',
 	tabShadeStrength: DEFAULT_TAB_SHADE_STRENGTH,
-	appChromeOpacity: DEFAULT_APP_CHROME_OPACITY
+	appChromeOpacity: DEFAULT_APP_CHROME_OPACITY,
+	messageDensity: 'cozy',
+	chatFontScale: DEFAULT_CHAT_FONT_SCALE
 };
 
 function normalizeChatAvatarMode(value: string | undefined): ChatAvatarMode {
@@ -82,6 +91,16 @@ function normalizeRoleColorMode(value: string | undefined): RoleColorMode {
 	return 'full';
 }
 
+function normalizeMessageDensity(value: string | undefined): MessageDensity {
+	if (value === 'compact') return 'compact';
+	return 'cozy';
+}
+
+function clampChatFontScale(value: number): number {
+	if (!Number.isFinite(value)) return DEFAULT_CHAT_FONT_SCALE;
+	return Math.min(MAX_CHAT_FONT_SCALE, Math.max(MIN_CHAT_FONT_SCALE, value));
+}
+
 function normalizeSettings(raw: Partial<AccessibilitySettings> | null | undefined): AccessibilitySettings {
 	return {
 		textScale: clampTextScale(raw?.textScale ?? DEFAULT_SETTINGS.textScale),
@@ -107,6 +126,12 @@ function normalizeSettings(raw: Partial<AccessibilitySettings> | null | undefine
 			typeof (raw as any)?.appChromeOpacity === 'number'
 				? (raw as any).appChromeOpacity
 				: DEFAULT_APP_CHROME_OPACITY
+		),
+		messageDensity: normalizeMessageDensity((raw as any)?.messageDensity),
+		chatFontScale: clampChatFontScale(
+			typeof (raw as any)?.chatFontScale === 'number'
+				? (raw as any).chatFontScale
+				: DEFAULT_CHAT_FONT_SCALE
 		)
 	};
 }
@@ -187,11 +212,13 @@ export function applyAccessibilitySettings(settings: AccessibilitySettings): voi
 	applyTextScale(currentSettings.textScale);
 	root.style.setProperty('--app-saturation', String(currentSettings.saturation));
 	root.style.setProperty('--app-contrast', String(currentSettings.contrast));
+	root.style.setProperty('--chat-font-scale', String(currentSettings.chatFontScale));
 	root.setAttribute('data-reduce-motion', currentSettings.reducedMotion ? 'true' : 'false');
 	root.setAttribute('data-role-color-mode', currentSettings.roleColorMode);
 	root.setAttribute('data-color-assist', currentSettings.colorAssistEnabled ? 'true' : 'false');
 	root.setAttribute('data-own-messages-right', currentSettings.ownMessagesOnRight ? 'true' : 'false');
 	root.setAttribute('data-chat-avatar-mode', currentSettings.chatAvatarMode);
+	root.setAttribute('data-message-density', currentSettings.messageDensity);
 	root.style.setProperty('--tab-shade-strength', String(currentSettings.tabShadeStrength));
 	applyAppChromeOpacity(root, currentSettings.appChromeOpacity);
 }

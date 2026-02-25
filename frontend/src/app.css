@@ -69,6 +69,7 @@
 
 	/* -- Font Sizes (Modular Scale) -- */
 	--app-font-scale: 1;
+	--chat-font-scale: 1;
 	--app-saturation: 1;
 	--app-contrast: 1;
 	--app-chrome-opacity: 1;

@@ -72,16 +72,26 @@
 	import {
 		applyCurrentAudioProcessingToLocalTrack,
 		audioProcessingRuntimeStatus,
+		callTransportState,
 		clearAudioPerformanceFallbackOverride,
 		refreshSpatialAudioRuntime,
+		spatialAudioDiagnostics,
 		spatialAudioRuntimeStatus
 	} from '$lib/calling';
 	import {
 		getStoredAccessibilitySettings,
 		updateAccessibilitySettings,
 		type RoleColorMode,
-		type ChatAvatarMode
+		type ChatAvatarMode,
+		type MessageDensity
 	} from '$lib/accessibility';
+	import type { VideoCompressionPresetId } from '$lib/video/videoCompressor';
+	import {
+		getDefaultVideoCompressionPreset,
+		isVideoCompressionEnabled,
+		setDefaultVideoCompressionPreset,
+		setVideoCompressionEnabled
+	} from '$lib/video/videoCompressionSettings';
 
 	const dispatch = createEventDispatcher();
 	const MB = 1024 * 1024;
@@ -120,6 +130,10 @@
 	let chatAvatarMode: ChatAvatarMode = 'all';
 	let tabShadeStrength = 0.06;
 	let appChromeOpacity = 1;
+	let videoCompressionEnabled = true;
+	let defaultVideoCompressionPreset: VideoCompressionPresetId = 'balanced_720p';
+	let messageDensity: MessageDensity = 'cozy';
+	let chatFontScale = 1;
 	let localAppRuntime = false;
 	let micTestStream: MediaStream | null = null;
 	let micTestRecorder: MediaRecorder | null = null;
@@ -277,6 +291,10 @@
 		chatAvatarMode = accessibilitySettings.chatAvatarMode;
 		tabShadeStrength = accessibilitySettings.tabShadeStrength;
 		appChromeOpacity = accessibilitySettings.appChromeOpacity;
+		messageDensity = accessibilitySettings.messageDensity;
+		chatFontScale = accessibilitySettings.chatFontScale;
+		videoCompressionEnabled = isVideoCompressionEnabled();
+		defaultVideoCompressionPreset = getDefaultVideoCompressionPreset();
 		soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
 		notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 		micEnabled = localStorage.getItem('micEnabled') !== 'false';
@@ -739,6 +757,11 @@
 		refreshSpatialAudioRuntime();
 	}
 
+	function formatRuntimeTime(timestamp: number | null): string {
+		if (!timestamp) return 'never';
+		return new Date(timestamp).toLocaleTimeString();
+	}
+
 	// Handle theme change
 	async function handleThemeChange(themeId: string) {
 		try {
@@ -831,6 +854,26 @@
 		appChromeOpacity = next.appChromeOpacity;
 	}
 
+	function toggleVideoCompressionEnabled() {
+		videoCompressionEnabled = !videoCompressionEnabled;
+		setVideoCompressionEnabled(videoCompressionEnabled);
+	}
+
+	function updateVideoCompressionPreset(value: VideoCompressionPresetId) {
+		defaultVideoCompressionPreset = value;
+		setDefaultVideoCompressionPreset(value);
+	}
+
+	function updateMessageDensity(value: MessageDensity) {
+		const next = updateAccessibilitySettings({ messageDensity: value });
+		messageDensity = next.messageDensity;
+	}
+
+	function updateChatFontScale(value: number) {
+		const next = updateAccessibilitySettings({ chatFontScale: value });
+		chatFontScale = next.chatFontScale;
+	}
+
 	function resetAccessibilityVisuals() {
 		const next = updateAccessibilitySettings({
 			colorAssistEnabled: false,
@@ -841,7 +884,9 @@
 			ownMessagesOnRight: false,
 			chatAvatarMode: 'all',
 			tabShadeStrength: 0.06,
-			appChromeOpacity: 1
+			appChromeOpacity: 1,
+			messageDensity: 'cozy',
+			chatFontScale: 1
 		});
 		colorAssistEnabled = next.colorAssistEnabled;
 		saturation = next.saturation;
@@ -852,6 +897,8 @@
 		chatAvatarMode = next.chatAvatarMode;
 		tabShadeStrength = next.tabShadeStrength;
 		appChromeOpacity = next.appChromeOpacity;
+		messageDensity = next.messageDensity;
+		chatFontScale = next.chatFontScale;
 	}
 
 	function updateDockSide(side: 'left' | 'right') {
@@ -1851,6 +1898,18 @@
 										{/if}
 									</div>
 								{/if}
+								<div class="runtime-note">
+									Spatial sources: <strong>{$spatialAudioDiagnostics.totalSources}</strong>
+									(call {$spatialAudioDiagnostics.callSources}, share {$spatialAudioDiagnostics.shareSources})
+								</div>
+								<div class="runtime-note">
+									Spatial seats: call {$spatialAudioDiagnostics.callSeatSlots}, share {$spatialAudioDiagnostics.shareSeatSlots}
+									. Last sync {formatRuntimeTime($spatialAudioDiagnostics.lastUpdatedAt)}.
+								</div>
+								<div class="runtime-note">
+									Transport runtime: <strong>{$callTransportState.activeTransport.toUpperCase()}</strong>
+									(control plane {$callTransportState.gatewayControlPlaneStatus})
+								</div>
 
 								<div class="setting-item-full">
 									<div class="setting-info">
@@ -2141,6 +2200,33 @@
 								</select>
 							</div>
 
+							<!-- Message Density -->
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Message Display</span>
+									<span class="setting-description">Cozy adds breathing room between groups; Compact is IRC-style with no avatars</span>
+								</div>
+								<div class="density-toggle">
+									<button type="button" class="density-btn" class:active={messageDensity === 'cozy'} on:click={() => updateMessageDensity('cozy')}>Cozy</button>
+									<button type="button" class="density-btn" class:active={messageDensity === 'compact'} on:click={() => updateMessageDensity('compact')}>Compact</button>
+								</div>
+							</div>
+
+							<!-- Chat Font Size -->
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">Chat Font Size</span>
+									<span class="setting-description">Scale message text only ({Math.round(chatFontScale * 100)}%)</span>
+								</div>
+								<input type="range" min="0.8" max="1.6" step="0.05" bind:value={chatFontScale} on:input={(e) => updateChatFontScale(parseFloat(e.currentTarget.value))} class="volume-slider" />
+								<div class="font-scale-presets">
+									<button type="button" class="sound-option" class:active={Math.abs(chatFontScale - 0.85) < 0.01} on:click={() => updateChatFontScale(0.85)}>Small</button>
+									<button type="button" class="sound-option" class:active={Math.abs(chatFontScale - 1) < 0.01} on:click={() => updateChatFontScale(1)}>Default</button>
+									<button type="button" class="sound-option" class:active={Math.abs(chatFontScale - 1.2) < 0.01} on:click={() => updateChatFontScale(1.2)}>Large</button>
+									<button type="button" class="sound-option" class:active={Math.abs(chatFontScale - 1.4) < 0.01} on:click={() => updateChatFontScale(1.4)}>XL</button>
+								</div>
+							</div>
+
 							<div class="setting-item">
 								<div class="setting-info">
 									<span class="setting-label">Own Messages on Right</span>
@@ -2281,21 +2367,60 @@
 
 							<div class="setting-item">
 								<div class="setting-info">
-									<span class="setting-label">Theme</span>
-									<span class="setting-description">Choose your preferred theme</span>
+									<span class="setting-label">Video Compression (Desktop)</span>
+									<span class="setting-description">Prompt to compress large videos before upload in desktop runtime</span>
+								</div>
+								<button class="toggle-btn" class:active={videoCompressionEnabled} on:click={toggleVideoCompressionEnabled}>
+									{videoCompressionEnabled ? 'ON' : 'OFF'}
+								</button>
+							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Default Compression Preset</span>
+									<span class="setting-description">Used by the upload compression dialog for large videos</span>
 								</div>
 								<select
 									class="theme-select"
-									value={$themeStore.themeId}
-									on:change={(e) => handleThemeChange(e.currentTarget.value)}
-									disabled={savingTheme}
+									value={defaultVideoCompressionPreset}
+									on:change={(e) => updateVideoCompressionPreset(e.currentTarget.value as VideoCompressionPresetId)}
+									disabled={!videoCompressionEnabled}
 								>
-									{#each Object.values(THEMES) as theme}
-										<option value={theme.id}>
-											{theme.name}
-										</option>
-									{/each}
+									<option value="balanced_720p">Balanced 720p (smaller files)</option>
+									<option value="quality_1080p">Quality 1080p (higher quality)</option>
 								</select>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">Theme</span>
+									<span class="setting-description">Choose your preferred theme</span>
+								</div>
+								<div class="theme-cards">
+									{#each Object.values(THEMES) as theme}
+										<button
+											type="button"
+											class="theme-card"
+											class:active={$themeStore.themeId === theme.id}
+											on:click={() => handleThemeChange(theme.id)}
+											disabled={savingTheme}
+											title={theme.description}
+										>
+											<div class="theme-card-preview" style="background: {theme.colors.bgSecondary};">
+												<div class="theme-preview-top" style="background: {theme.colors.bgTertiary};"></div>
+												<div class="theme-preview-content">
+													<div class="theme-preview-bar long" style="background: {theme.colors.textPrimary}; opacity: 0.55;"></div>
+													<div class="theme-preview-bar short" style="background: {theme.colors.textSecondary}; opacity: 0.4;"></div>
+													<div class="theme-preview-accent" style="background: {theme.colors.accentHex};"></div>
+												</div>
+											</div>
+											<div class="theme-card-footer">
+												<span class="theme-card-name">{theme.name}</span>
+												{#if $themeStore.themeId === theme.id}<span class="theme-card-badge">&#10003;</span>{/if}
+											</div>
+										</button>
+									{/each}
+								</div>
 							</div>
 							{#if savingTheme}
 								<div class="save-indicator">
@@ -3385,6 +3510,136 @@
 	.sound-option:hover {
 		background: var(--bg-primary);
 		border-color: var(--accent);
+	}
+
+	/* Theme preview cards */
+	.theme-cards {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+		gap: 0.65rem;
+		width: 100%;
+		margin-top: 0.5rem;
+	}
+
+	.theme-card {
+		display: flex;
+		flex-direction: column;
+		border-radius: 10px;
+		border: 2px solid var(--border);
+		overflow: hidden;
+		background: transparent;
+		cursor: pointer;
+		transition: border-color 0.15s, transform 0.12s, box-shadow 0.15s;
+		padding: 0;
+		text-align: left;
+	}
+
+	.theme-card:hover {
+		border-color: var(--accent-hex, var(--accent));
+		transform: translateY(-2px);
+		box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+	}
+
+	.theme-card.active {
+		border-color: var(--accent-hex, var(--accent));
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-hex, #5865f2) 25%, transparent);
+	}
+
+	.theme-card-preview {
+		width: 100%;
+		height: 72px;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+	}
+
+	.theme-preview-top {
+		height: 18px;
+		flex-shrink: 0;
+	}
+
+	.theme-preview-content {
+		flex: 1;
+		padding: 6px 8px;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		justify-content: center;
+	}
+
+	.theme-preview-bar {
+		height: 4px;
+		border-radius: 2px;
+	}
+
+	.theme-preview-bar.long { width: 75%; }
+	.theme-preview-bar.short { width: 50%; }
+
+	.theme-preview-accent {
+		height: 5px;
+		width: 28%;
+		border-radius: 2px;
+		margin-top: 2px;
+	}
+
+	.theme-card-footer {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.35rem 0.55rem;
+		background: var(--bg-secondary);
+		border-top: 1px solid var(--border);
+	}
+
+	.theme-card-name {
+		font-size: 0.72rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.theme-card-badge {
+		font-size: 0.7rem;
+		font-weight: 700;
+		color: var(--accent-hex, var(--accent));
+		flex-shrink: 0;
+		margin-left: 0.25rem;
+	}
+
+	.density-toggle {
+		display: flex;
+		gap: 0;
+		border-radius: 8px;
+		overflow: hidden;
+		border: 1px solid var(--border);
+		flex-shrink: 0;
+	}
+
+	.density-btn {
+		padding: 0.45rem 1rem;
+		background: var(--bg-secondary);
+		border: none;
+		color: var(--text-secondary);
+		font-size: 0.85rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: background 0.15s, color 0.15s;
+	}
+
+	.density-btn:first-child {
+		border-right: 1px solid var(--border);
+	}
+
+	.density-btn:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.density-btn.active {
+		background: var(--accent-hex, var(--accent));
+		color: #fff;
 	}
 
 	.sound-option.active {

@@ -7,6 +7,7 @@
 	import MessageContextMenu from './MessageContextMenu.svelte';
 	import ForwardDialog from './ForwardDialog.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
+	import ZipPreviewPanel from './ZipPreviewPanel.svelte';
 	import ModelViewer3D from './plugins/ModelViewer3D.svelte';
 	import YouTubeWatchEmbed from './plugins/YouTubeWatchEmbed.svelte';
 	import type { BlendImportSettingsPayload } from './plugins/BlendImportSettingsModal.svelte';
@@ -820,6 +821,11 @@
 		return fileName.toLowerCase().endsWith('.blend');
 	}
 
+	function isZipFile(fileName?: string): boolean {
+		if (!fileName) return false;
+		return fileName.toLowerCase().endsWith('.zip');
+	}
+
 	function openBlendImportSettings(sourcePath: string, fileName: string): void {
 		blendImportSourcePath = sourcePath;
 		blendImportFileName = fileName;
@@ -1456,6 +1462,19 @@
 									{/if}
 								{/each}
 							</div>
+							{@const zipFiles = message.files.filter((fileAttachment) => isZipFile(fileAttachment.fileName))}
+							{#if zipFiles.length > 0}
+								<div class="multi-zip-previews">
+									{#each zipFiles as zipFile}
+										<ZipPreviewPanel
+											fileUrl={getFileUrl(zipFile.fileUrl)}
+											fileName={zipFile.fileName || 'archive.zip'}
+											fileSize={zipFile.fileSize}
+											encrypted={isEncryptedAttachment(zipFile)}
+										/>
+									{/each}
+								</div>
+							{/if}
 						{:else if message.fileUrl}
 							{#if isModelFile(message.fileName) && !isEncryptedAttachment(message)}
 							<div class="model-container">
@@ -1570,6 +1589,14 @@
 									<span class="file-size">{formatFileSize(message.fileSize)}{message.attachmentEncryption ? ` (${$_('messages.encrypted')})` : ''}</span>
 								</div>
 							</a>
+							{#if isZipFile(message.fileName)}
+								<ZipPreviewPanel
+									fileUrl={getFileUrl(message.fileUrl)}
+									fileName={message.fileName || 'archive.zip'}
+									fileSize={message.fileSize}
+									encrypted={isEncryptedAttachment(message)}
+								/>
+							{/if}
 						{/if}
 						{/if}
 						{#if message.text && (message.files ? message.text !== `Shared ${message.files.length} files` : message.text !== `Shared: ${message.fileName}`)}
@@ -2710,6 +2737,14 @@
 		max-width: 450px;
 	}
 
+	.multi-zip-previews {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		margin-top: 0.4rem;
+		max-width: 450px;
+	}
+
 	.gallery-file-item {
 		position: relative;
 		aspect-ratio: 1;
@@ -3634,6 +3669,83 @@
 	.message.continuation .message-body {
 		margin-top: -0.02rem !important;
 	}
+}
+
+/* ===== CHAT FONT SCALE ===== */
+/* Applies independently from the global app font scale — only affects message content */
+.message .markdown-content,
+.message .markdown-content :global(p),
+.message .markdown-content :global(span),
+.message .markdown-content :global(li) {
+	font-size: calc(var(--text-base, 14px) * var(--chat-font-scale, 1)) !important;
+}
+
+/* ===== MESSAGE DENSITY MODES ===== */
+
+/* COZY: spacious layout with breathing room between message groups */
+:global(html[data-message-density='cozy']) .message {
+	padding-top: 0.5rem !important;
+	padding-bottom: 0.5rem !important;
+}
+
+:global(html[data-message-density='cozy']) .message.continuation {
+	padding-top: 0.1rem !important;
+	padding-bottom: 0.1rem !important;
+}
+
+:global(html[data-message-density='cozy']) .message.has-continuation {
+	padding-bottom: 0.1rem !important;
+}
+
+:global(html[data-message-density='cozy']) .message .markdown-content,
+:global(html[data-message-density='cozy']) .message .markdown-content :global(p) {
+	line-height: 1.5 !important;
+}
+
+:global(html[data-message-density='cozy']) .avatar,
+:global(html[data-message-density='cozy']) .avatar-placeholder {
+	width: 40px !important;
+	height: 40px !important;
+}
+
+:global(html[data-message-density='cozy']) .message-avatar-spacer {
+	width: 40px !important;
+}
+
+:global(html[data-message-density='cozy']) .message .message-header {
+	margin-bottom: 0.25rem !important;
+}
+
+/* COMPACT: IRC-style — no avatar column, ultra-tight spacing */
+:global(html[data-message-density='compact']) .message {
+	padding-top: 0.06rem !important;
+	padding-bottom: 0.06rem !important;
+	gap: 0.35rem !important;
+}
+
+:global(html[data-message-density='compact']) .message.continuation {
+	padding-top: 0.03rem !important;
+	padding-bottom: 0.03rem !important;
+}
+
+:global(html[data-message-density='compact']) .message.has-continuation {
+	padding-bottom: 0.03rem !important;
+}
+
+:global(html[data-message-density='compact']) .message-avatar,
+:global(html[data-message-density='compact']) .message-avatar-spacer {
+	display: none !important;
+	width: 0 !important;
+	height: 0 !important;
+}
+
+:global(html[data-message-density='compact']) .message .markdown-content,
+:global(html[data-message-density='compact']) .message .markdown-content :global(p) {
+	line-height: 1.25 !important;
+}
+
+:global(html[data-message-density='compact']) .message .message-header {
+	margin-bottom: 0.05rem !important;
 }
 
 </style>
