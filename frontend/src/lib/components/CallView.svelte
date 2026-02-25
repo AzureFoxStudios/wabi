@@ -16,8 +16,7 @@
 		endCall,
 		toggleMute,
 		toggleDeafen,
-		toggleVideo,
-		isLocalSpeaking
+		toggleVideo
 	} from '$lib/calling';
 	import { getSocket, users, currentUser } from '$lib/socket';
 	import { fade, scale } from 'svelte/transition';

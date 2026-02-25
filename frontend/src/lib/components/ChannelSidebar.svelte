@@ -13,7 +13,6 @@
 		updateChannelSettings,
 		channelUnreadCounts,
 		updateProfile,
-		activeVoiceChannel as activeVoiceChannelId,
 		voiceChannelMembers,
 		joinVoiceChannel,
 		leaveVoiceChannel,
@@ -22,10 +21,13 @@
 		setVoiceTransmitMode,
 		createBreakoutRooms,
 		closeBreakoutRooms,
-		getSocket,
-		roleDefinitions
+		roleDefinitions,
+		pinChannel,
+		unpinChannel,
+		getSocket
 	} from '$lib/socket';
 	import {
+		activeVoiceChannel,
 		activeCalls,
 		isLocalSpeaking,
 		openChannelCallPanel,
@@ -39,9 +41,13 @@
 		isMuted as callMuted,
 		isDeafened as callDeafened,
 		isVideoOff,
+		isSharing,
 		toggleMute,
 		toggleDeafen,
-		toggleVideo
+		toggleVideo,
+		startScreenShare,
+		stopScreenShare,
+		speakingUsers
 	} from '$lib/calling';
 	import Settings from './Settings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
@@ -58,7 +64,7 @@
 	function formatBadge(count: number): string {
 		if (count === 0) return '';
 		if (count <= 10) return `+${count}`;
-		return '•';
+		return '*';
 	}
 
 	export let activeView: 'chat' | 'screen' = 'chat';
@@ -78,7 +84,6 @@
 	let selectedChannelForSettings: Channel | null = null;
 	let isTextSectionExpanded = true;
 	let isVoiceSectionExpanded = true;
-	const VOICE_MEMBER_RENDER_LIMIT = 12;
 	const fallbackRoleLabels: Record<string, string> = {
 		owner: 'Owner',
 		admin: 'Admin',
@@ -97,6 +102,16 @@
 	// Sidebar width from layout store - 3 modes: normal (280px), compact (60px), hidden (0px)
 	$: sidebarWidth = $layoutStore.channelSidebarWidth;
 	$: isCompactSidebar = sidebarWidth === 60;
+	$: runtimeActiveVoiceChannelId = $activeVoiceChannel?.id || null;
+	$: connectedVoiceChannelIds = (() => {
+		const ids = new Set<string>();
+		for (const id of $listeningVoiceChannels) ids.add(id);
+		if (runtimeActiveVoiceChannelId) ids.add(runtimeActiveVoiceChannelId);
+		return ids;
+	})();
+	$: primaryVoiceChannelId = (() => {
+		return runtimeActiveVoiceChannelId || $listeningVoiceChannels[0] || null;
+	})();
 
 	// Context menu state
 	let contextMenuChannel: Channel | null = null;
@@ -172,49 +187,19 @@
 
 
 	function getVoiceMembers(channelId: string) {
-		const members = [...($voiceChannelMembers[channelId] || [])];
-		if (!isConnectedToVoice(channelId) || !$currentUser) return members;
-
-		const currentStableId = $currentUser.dbUserId ? `user-${$currentUser.dbUserId}` : null;
-		const hasSelf = members.some(
-			(member) =>
-				member.socketId === $currentUser.id ||
-				member.userId === $currentUser.id ||
-				(currentStableId ? member.userId === currentStableId : false)
-		);
-		if (!hasSelf) {
-			members.push({
-				userId: currentStableId || $currentUser.id,
-				socketId: $currentUser.id,
-				username: $currentUser.username,
-				profilePicture: $currentUser.profilePicture
-			});
-		}
-
-		return members;
-	}
-
-	function getVisibleVoiceMembers<T>(members: T[]): T[] {
-		return members.slice(0, VOICE_MEMBER_RENDER_LIMIT);
+		return $voiceChannelMembers[channelId] || [];
 	}
 
 	function isConnectedToVoice(channelId: string): boolean {
-		return $activeVoiceChannelId === channelId;
+		return connectedVoiceChannelIds.has(channelId);
 	}
 
-	function isCurrentVoiceMember(member: { userId: string; socketId?: string }): boolean {
-		if (!$currentUser) return false;
-		const stableId = $currentUser.dbUserId ? `user-${$currentUser.dbUserId}` : null;
-		return (
-			member.userId === $currentUser.id ||
-			member.socketId === $currentUser.id ||
-			(stableId ? member.userId === stableId : false)
-		);
+	function isPrimaryVoiceChannel(channelId: string): boolean {
+		return primaryVoiceChannelId === channelId;
 	}
 
-	function getMemberLabel(member: { userId: string; socketId?: string; username?: string }): string {
-		if (isCurrentVoiceMember(member)) return 'You';
-		return member.username || 'Unknown user';
+	function isListeningToChannel(channelId: string): boolean {
+		return isConnectedToVoice(channelId);
 	}
 
 	async function handleVoiceChannelClick(channelId: string) {
@@ -228,6 +213,30 @@
 			dispatch('close');
 		} catch (error) {
 			console.error('Failed to join voice channel:', error);
+		}
+	}
+
+	function handleToggleListenChannel(channelId: string) {
+		if (isPrimaryVoiceChannel(channelId)) return;
+		if (isListeningToChannel(channelId)) {
+			unsubscribeVoiceChannel(channelId);
+			return;
+		}
+		subscribeVoiceChannel(channelId);
+	}
+
+	function handleTransmitModeChange(event: Event) {
+		const value = (event.currentTarget as HTMLSelectElement).value as 'primary' | 'all-listening';
+		setVoiceTransmitMode(value);
+	}
+
+	async function handleLeaveVoice() {
+		if (primaryVoiceChannelId) {
+			await leaveVoiceChannel(primaryVoiceChannelId);
+			return;
+		}
+		for (const channelId of connectedVoiceChannelIds) {
+			unsubscribeVoiceChannel(channelId);
 		}
 	}
 
@@ -248,16 +257,20 @@
 		closeBreakoutRooms(channel.id);
 	}
 
-	function avatarTitle(username?: string): string {
-		return username || 'Voice participant';
+	function isSelfSpeakingInChannel(channelId: string): boolean {
+		const isLocallySpeaking = $isLocalSpeaking && !$callMuted && !$callDeafened;
+		if (!isLocallySpeaking) return false;
+		if ($voiceTransmitMode === 'all-listening') {
+			return isConnectedToVoice(channelId);
+		}
+		return isPrimaryVoiceChannel(channelId);
 	}
 
-	function isMemberSpeaking(member: { userId: string; socketId?: string }): boolean {
-		if (isCurrentVoiceMember(member)) return $isLocalSpeaking && !$callMuted && !$callDeafened;
-		const remoteCall = $activeCalls.find(
-			(call) => call.userId === (member.socketId || member.userId) || call.userId === member.userId
-		);
-		return Boolean(remoteCall?.isSpeaking && remoteCall?.isAudioEnabled);
+	function isMemberSpeaking(member: { userId: string }, channelId: string): boolean {
+		if (member.userId === $currentUser?.id) {
+			return isSelfSpeakingInChannel(channelId);
+		}
+		return $speakingUsers.has(member.userId);
 	}
 
 	function formatDiag(value: number | null, unit = ''): string {
@@ -266,36 +279,23 @@
 	}
 
 	function getCurrentVoiceChannelName(): string {
-		if (!$activeVoiceChannelId) return '';
-		const match = allVoiceChannels.find((channel) => channel.id === $activeVoiceChannelId);
-		return match?.name || $activeVoiceChannelId;
-	}
-
-	function handleLeaveActiveVoiceChannel() {
-		if (!$activeVoiceChannelId) return;
-		void leaveVoiceChannel($activeVoiceChannelId);
-	}
-
-	function isListeningToChannel(channelId: string): boolean {
-		return $listeningVoiceChannels.includes(channelId);
-	}
-
-	function handleToggleListenChannel(channelId: string) {
-		if (channelId === $activeVoiceChannelId) return;
-		if (isListeningToChannel(channelId)) {
-			unsubscribeVoiceChannel(channelId);
-			return;
-		}
-		subscribeVoiceChannel(channelId);
-	}
-
-	function handleTransmitModeChange(event: Event) {
-		const value = (event.currentTarget as HTMLSelectElement).value as 'primary' | 'all-listening';
-		setVoiceTransmitMode(value);
+		if (!runtimeActiveVoiceChannelId) return '';
+		const match = voiceChannels.find((channel) => channel.id === runtimeActiveVoiceChannelId);
+		return match?.name || runtimeActiveVoiceChannelId;
 	}
 
 	async function handleToggleVideoInSidebar() {
 		await toggleVideo(getSocket() || undefined);
+	}
+
+	async function handleToggleScreenShareInSidebar() {
+		const sock = getSocket();
+		if (!sock) return;
+		if ($isSharing) {
+			stopScreenShare(sock);
+		} else {
+			await startScreenShare(sock);
+		}
 	}
 
 	function toggleSection(section: 'text' | 'voice') {
@@ -410,18 +410,30 @@
 		contextMenuChannel = null;
 	}
 
+	function isChannelBookmarked(channel: Channel): boolean {
+		const userId = $currentUser?.id;
+		if (!userId) return false;
+		return channel.pinnedBy?.includes(userId) ?? false;
+	}
+
+	function toggleChannelBookmark(channel: Channel): void {
+		if (isChannelBookmarked(channel)) {
+			unpinChannel(channel.id);
+			return;
+		}
+		pinChannel(channel.id);
+	}
+
 	$: channelMenuItems = contextMenuChannel ? buildChannelMenuItems(contextMenuChannel) : [];
 
 	function buildChannelMenuItems(channel: Channel): ContextMenuItem[] {
 		const items: ContextMenuItem[] = [
-			// TODO(mod/admin-perms): Re-enable pin/unpin channel action once role-based
-			// permissions are wired into channel context menu visibility.
-			// {
-			// 	id: 'pin-channel',
-			// 	label: isChannelPinned(channel) ? 'Unpin Channel' : 'Pin Channel',
-			// 	icon: 'pin',
-			// 	onSelect: togglePinChannel
-			// },
+			{
+				id: 'pin-channel',
+				label: isChannelBookmarked(channel) ? 'Remove Bookmark' : 'Bookmark Channel',
+				icon: 'pin',
+				onSelect: () => toggleChannelBookmark(channel)
+			},
 			{
 				id: 'pinned-messages',
 				label: 'Pinned Messages',
@@ -647,9 +659,11 @@
 		{#if isVoiceSectionExpanded}
 		{#each voiceChannels as channel (channel.id)}
 			{@const members = getVoiceMembers(channel.id)}
+			{@const channelIsConnected = isConnectedToVoice(channel.id)}
 			<div
 				class="channel-item voice-channel-item"
-				class:active={isConnectedToVoice(channel.id)}
+				class:active={channelIsConnected}
+				class:connected={channelIsConnected}
 				on:click={() => handleVoiceChannelClick(channel.id)}
 				on:contextmenu={(e) => handleChannelRightClick(e, channel)}
 				use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}
@@ -667,48 +681,42 @@
 							<svg class="voice-count-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
 							{members.length}
 						</span>
-						<div class="voice-avatars">
-							{#each members.slice(0, 3) as member}
-								{#if member.profilePicture}
-									<img class="voice-avatar" class:speaking={isMemberSpeaking(member)} src={member.profilePicture} alt={avatarTitle(member.username)} title={avatarTitle(member.username)} />
-								{:else}
-									<span class="voice-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member)} title={avatarTitle(member.username)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
-								{/if}
-							{/each}
-						</div>
 					</div>
 				</div>
 			</div>
-			{#if members.length > 0}
+			{#if $callMode === 'channel' && channelIsConnected && $currentUser}
 				<div class="voice-member-list">
-					{#each getVisibleVoiceMembers(members) as member (member.userId)}
-						<div
-							class="voice-member-item"
-							class:speaking={isMemberSpeaking(member)}
-							in:fly={{ y: -6, duration: 160, opacity: 0.2 }}
-							out:fly={{ y: -4, duration: 130, opacity: 0.2 }}
-						>
+					<div class="voice-member-item" in:fly={{ y: -6, duration: 160, opacity: 0.2 }} out:fly={{ y: -4, duration: 130, opacity: 0.2 }}>
+						{#if $currentUser.profilePicture}
+							<img class="voice-member-avatar" class:speaking={isSelfSpeakingInChannel(channel.id)} src={$currentUser.profilePicture} alt={$currentUser.username} />
+						{:else}
+							<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isSelfSpeakingInChannel(channel.id)}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
+						{/if}
+						<span class="voice-member-name">{$currentUser.username}</span>
+					</div>
+					{#each members.filter(m => {
+						if (m.userId === $currentUser?.id) return false;
+						if ($currentUser?.dbUserId && m.userId === `user-${$currentUser.dbUserId}`) return false;
+						return true;
+					}) as member (member.userId)}
+						<div class="voice-member-item" in:fly={{ y: -6, duration: 160, opacity: 0.2 }} out:fly={{ y: -4, duration: 130, opacity: 0.2 }}>
 							{#if member.profilePicture}
-								<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member)} src={member.profilePicture} alt={avatarTitle(member.username)} />
+								<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member, channel.id)} src={member.profilePicture} alt={member.username || member.userId} />
 							{:else}
-								<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
+								<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member, channel.id)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 							{/if}
-							<span class="voice-member-name">{getMemberLabel(member)}</span>
-							{#if isMemberSpeaking(member)}
-								<span class="voice-speaking-pill">Speaking</span>
-							{/if}
+							<span class="voice-member-name">{member.username || member.userId}</span>
 						</div>
 					{/each}
-					{#if members.length > VOICE_MEMBER_RENDER_LIMIT}
-						<div class="voice-member-overflow">+{members.length - VOICE_MEMBER_RENDER_LIMIT} more</div>
-					{/if}
 				</div>
 			{/if}
 			{#each breakoutChannelsByParent[channel.id] || [] as breakout (breakout.id)}
 				{@const breakoutMembers = getVoiceMembers(breakout.id)}
+				{@const breakoutIsConnected = isConnectedToVoice(breakout.id)}
 				<div
 					class="channel-item voice-channel-item breakout-channel-item"
-					class:active={isConnectedToVoice(breakout.id)}
+					class:active={breakoutIsConnected}
+					class:connected={breakoutIsConnected}
 					on:click={() => handleVoiceChannelClick(breakout.id)}
 					on:contextmenu={(e) => handleChannelRightClick(e, breakout)}
 					use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, breakout) }}
@@ -724,41 +732,33 @@
 								<svg class="voice-count-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
 								{breakoutMembers.length}
 							</span>
-							<div class="voice-avatars">
-								{#each breakoutMembers.slice(0, 3) as member}
-									{#if member.profilePicture}
-										<img class="voice-avatar" class:speaking={isMemberSpeaking(member)} src={member.profilePicture} alt={avatarTitle(member.username)} title={avatarTitle(member.username)} />
-									{:else}
-										<span class="voice-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member)} title={avatarTitle(member.username)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
-									{/if}
-								{/each}
-							</div>
 						</div>
 					</div>
 				</div>
-				{#if breakoutMembers.length > 0}
+				{#if $callMode === 'channel' && breakoutIsConnected && $currentUser}
 					<div class="voice-member-list breakout-member-list">
-						{#each getVisibleVoiceMembers(breakoutMembers) as member (member.userId)}
-							<div
-								class="voice-member-item"
-								class:speaking={isMemberSpeaking(member)}
-								in:fly={{ y: -6, duration: 160, opacity: 0.2 }}
-								out:fly={{ y: -4, duration: 130, opacity: 0.2 }}
-							>
+						<div class="voice-member-item" in:fly={{ y: -6, duration: 160, opacity: 0.2 }} out:fly={{ y: -4, duration: 130, opacity: 0.2 }}>
+							{#if $currentUser.profilePicture}
+								<img class="voice-member-avatar" class:speaking={isSelfSpeakingInChannel(breakout.id)} src={$currentUser.profilePicture} alt={$currentUser.username} />
+							{:else}
+								<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isSelfSpeakingInChannel(breakout.id)}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
+							{/if}
+							<span class="voice-member-name">{$currentUser.username}</span>
+						</div>
+						{#each breakoutMembers.filter(m => {
+							if (m.userId === $currentUser?.id) return false;
+							if ($currentUser?.dbUserId && m.userId === `user-${$currentUser.dbUserId}`) return false;
+							return true;
+						}) as member (member.userId)}
+							<div class="voice-member-item" in:fly={{ y: -6, duration: 160, opacity: 0.2 }} out:fly={{ y: -4, duration: 130, opacity: 0.2 }}>
 								{#if member.profilePicture}
-									<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member)} src={member.profilePicture} alt={avatarTitle(member.username)} />
+									<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member, breakout.id)} src={member.profilePicture} alt={member.username || member.userId} />
 								{:else}
-									<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
+									<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member, breakout.id)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 								{/if}
-								<span class="voice-member-name">{getMemberLabel(member)}</span>
-								{#if isMemberSpeaking(member)}
-									<span class="voice-speaking-pill">Speaking</span>
-								{/if}
+								<span class="voice-member-name">{member.username || member.userId}</span>
 							</div>
 						{/each}
-						{#if breakoutMembers.length > VOICE_MEMBER_RENDER_LIMIT}
-							<div class="voice-member-overflow">+{breakoutMembers.length - VOICE_MEMBER_RENDER_LIMIT} more</div>
-						{/if}
 					</div>
 				{/if}
 			{/each}
@@ -776,7 +776,7 @@
 		on:close={closeContextMenu}
 	/>
 
-	{#if $callMode === 'channel' && $activeVoiceChannelId && !isCompactSidebar}
+	{#if $callMode === 'channel' && runtimeActiveVoiceChannelId && !isCompactSidebar}
 		<div class="voice-usercard">
 			<button
 				type="button"
@@ -808,36 +808,15 @@
 			{/if}
 
 			<div class="voice-usercard-actions">
-				<button class:active={$callMuted} on:click={toggleMute} title={$callMuted ? 'Unmute' : 'Mute'}>Mic</button>
-				<button class:active={$callDeafened} on:click={toggleDeafen} title={$callDeafened ? 'Undeafen' : 'Deafen'}>Headset</button>
-				<button class:active={!$isVideoOff} on:click={handleToggleVideoInSidebar} title={$isVideoOff ? 'Turn on camera' : 'Turn off camera'}>Camera</button>
-				<button class="leave-btn" on:click={handleLeaveActiveVoiceChannel}>Leave</button>
-			</div>
-
-			<div class="voice-route-controls">
-				<label for="voice-transmit-mode">Transmit</label>
-				<select id="voice-transmit-mode" on:change={handleTransmitModeChange} value={$voiceTransmitMode}>
-					<option value="primary">Primary channel</option>
-					<option value="all-listening">All listening channels</option>
-				</select>
-			</div>
-
-			<div class="voice-listen-controls">
-				<div class="voice-listen-title">Listen In</div>
-				<div class="voice-listen-list">
-					{#each voiceChannels as voiceChannel (voiceChannel.id)}
-						<button
-							type="button"
-							class="voice-listen-chip"
-							class:active={isListeningToChannel(voiceChannel.id)}
-							class:locked={voiceChannel.id === $activeVoiceChannelId}
-							on:click={() => handleToggleListenChannel(voiceChannel.id)}
-							title={voiceChannel.id === $activeVoiceChannelId ? 'Primary voice channel' : isListeningToChannel(voiceChannel.id) ? 'Stop listening' : 'Start listening'}
-						>
-							{voiceChannel.name}
-						</button>
-					{/each}
-				</div>
+				<button class:active={!$isVideoOff} on:click={handleToggleVideoInSidebar} title={$isVideoOff ? 'Turn on camera' : 'Turn off camera'}>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+				</button>
+				<button class:active={$isSharing} on:click={handleToggleScreenShareInSidebar} title={$isSharing ? 'Stop sharing' : 'Share screen'}>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+				</button>
+				<button class="leave-btn" on:click={handleLeaveVoice} title="Leave voice channel">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07C9.44 17.28 8.17 16 7.05 14.68A19.79 19.79 0 0 1 4 6.05 2 2 0 0 1 5.99 4h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L10.68 11.68"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
+				</button>
 			</div>
 		</div>
 	{/if}
@@ -1674,6 +1653,11 @@
 		padding-bottom: 0.3rem;
 	}
 
+	.voice-channel-item.connected {
+		border-color: color-mix(in srgb, #22c55e 42%, transparent);
+		background: color-mix(in srgb, #22c55e 12%, var(--bg-tertiary));
+	}
+
 	.breakout-channel-item {
 		margin-left: 1rem;
 	}
@@ -1729,21 +1713,6 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-	}
-
-	.voice-member-item.speaking .voice-member-name {
-		color: var(--text-primary);
-	}
-
-	.voice-speaking-pill {
-		margin-left: auto;
-		font-size: 0.62rem;
-		font-weight: 700;
-		color: #16a34a;
-		background: rgba(22, 163, 74, 0.14);
-		border: 1px solid rgba(22, 163, 74, 0.3);
-		border-radius: 999px;
-		padding: 0.05rem 0.35rem;
 	}
 
 	@keyframes voice-ring-pulse {
@@ -1857,9 +1826,21 @@
 		border: 1px solid rgba(var(--border-rgb), 0.4);
 		color: var(--text-primary);
 		border-radius: 999px;
-		padding: 0.25rem 0.55rem;
-		font-size: 0.72rem;
+		width: 36px;
+		height: 36px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0;
 		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.voice-usercard-actions button svg {
+		width: 16px;
+		height: 16px;
+		stroke: currentColor;
+		flex-shrink: 0;
 	}
 
 	.voice-usercard-actions button.active {
@@ -1871,70 +1852,6 @@
 		background: rgba(239, 68, 68, 0.15);
 		border-color: rgba(239, 68, 68, 0.45);
 		color: #fda4af;
-	}
-
-	.voice-route-controls {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.45rem;
-		font-size: 0.72rem;
-	}
-
-	.voice-route-controls label {
-		color: var(--text-secondary);
-	}
-
-	.voice-route-controls select {
-		flex: 1;
-		min-width: 0;
-		background: rgba(var(--border-rgb), 0.16);
-		border: 1px solid rgba(var(--border-rgb), 0.35);
-		color: var(--text-primary);
-		border-radius: 8px;
-		padding: 0.2rem 0.35rem;
-		font-size: 0.72rem;
-	}
-
-	.voice-listen-controls {
-		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
-	}
-
-	.voice-listen-title {
-		font-size: 0.68rem;
-		letter-spacing: 0.05em;
-		text-transform: uppercase;
-		color: var(--text-secondary);
-	}
-
-	.voice-listen-list {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.35rem;
-	}
-
-	.voice-listen-chip {
-		background: rgba(var(--border-rgb), 0.15);
-		border: 1px solid rgba(var(--border-rgb), 0.35);
-		color: var(--text-secondary);
-		border-radius: 999px;
-		padding: 0.18rem 0.48rem;
-		font-size: 0.68rem;
-		line-height: 1.2;
-		cursor: pointer;
-	}
-
-	.voice-listen-chip.active {
-		color: var(--text-primary);
-		background: color-mix(in srgb, var(--accent) 24%, transparent);
-		border-color: color-mix(in srgb, var(--accent) 52%, transparent);
-	}
-
-	.voice-listen-chip.locked {
-		opacity: 0.92;
-		cursor: default;
 	}
 
 	.pin-btn {

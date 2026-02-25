@@ -75,7 +75,7 @@
 	$: spatialQuickToggleVisible = $spatialAudioRuntimeStatus.quickToggleVisible;
 	$: showDockedBar = $isInCall && callViewportMode === 'docked';
 	$: showCallShell = $isInCall && callViewportMode !== 'docked';
-	$: showHatchToggle = $isInCall && callViewportMode === 'focus';
+	$: showHatchToggle = $isInCall;
 	$: focusHatchInsetLeft = !$layoutStore.isMobile && $layoutStore.navDock === 'left' ? $layoutStore.channelSidebarWidth : 0;
 	$: focusHatchInsetRight = !$layoutStore.isMobile
 		? ($layoutStore.navDock === 'right' ? $layoutStore.channelSidebarWidth : 0) + ($layoutStore.showRightPanel ? $layoutStore.rightPanelWidth : 0)
@@ -490,7 +490,9 @@
 			<button class="dock-btn" on:click={() => setViewportMode('embedded')} title="Open embedded call">Open</button>
 			<button class="dock-btn" on:click={() => setViewportMode('focus')} title="Focus call">Focus</button>
 			<button class="dock-btn" class:active={$isMuted} on:click={handleToggleMute} title={$isMuted ? 'Unmute' : 'Mute'}>Mute</button>
-			<button class="dock-btn end" on:click={handleEndCall} title="End call">End</button>
+			<button class="dock-btn end" on:click={handleEndCall} title="Leave call">
+			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07C9.44 17.28 8.17 16 7.05 14.68A19.79 19.79 0 0 1 4 6.05 2 2 0 0 1 5.99 4h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L10.68 11.68"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
+		</button>
 		</div>
 	</div>
 {/if}
@@ -517,10 +519,14 @@
 			<button
 				type="button"
 				class="hatch-toggle"
-				on:click={toggleHatch}
-				title={hatchOpen ? 'Close hatch' : 'Open hatch'}
+				on:click={callViewportMode === 'focus' ? () => setViewportMode('embedded') : () => setViewportMode('focus')}
+				title={callViewportMode === 'focus' ? 'Exit fullscreen' : 'Fullscreen'}
 			>
-				{hatchOpen ? 'Close Hatch' : 'Open Hatch'}
+				{#if callViewportMode === 'focus'}
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" y1="14" x2="3" y2="21"/><line x1="21" y1="3" x2="14" y2="10"/></svg>
+				{:else}
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+				{/if}
 			</button>
 		{/if}
 
@@ -587,21 +593,30 @@
 			</div>
 
 			<div class="call-controls">
-				<div class="mode-controls" role="group" aria-label="Call view mode">
-					<button class="mode-btn" class:active={callViewportMode === 'embedded'} on:click={() => setViewportMode('embedded')}>Embedded</button>
-					<button class="mode-btn" class:active={callViewportMode === 'focus'} on:click={() => setViewportMode('focus')}>Focus</button>
-					<button class="mode-btn" class:active={callViewportMode === 'docked'} on:click={() => setViewportMode('docked')}>Dock</button>
-				</div>
-
 				<div class="control-actions">
-					<button class="control-btn" class:active={$isMuted} on:click={handleToggleMute} title={$isMuted ? 'Unmute' : 'Mute'}>Mute</button>
-					<button class="control-btn" class:active={$isDeafened} on:click={handleToggleDeafen} title={$isDeafened ? 'Undeafen' : 'Deafen'}>Deafen</button>
-					{#if spatialQuickToggleVisible}
-						<button class="control-btn" class:active={spatialAudioActive} on:click={toggleSpatialAudioEnabled} title={spatialAudioActive ? 'Disable spatial audio' : 'Enable spatial audio'}>Spatial</button>
-					{/if}
-					<button class="control-btn" class:active={$isVideoOff} on:click={handleToggleVideo} title={$isVideoOff ? 'Turn on camera' : 'Turn off camera'}>Video</button>
-					<button class="control-btn" class:active={$isSharing} on:click={handleToggleScreenShare} title={$isSharing ? 'Stop sharing' : 'Share screen'}>{$isSharing ? 'Stop Share' : 'Share'}</button>
-					<button class="control-btn end" on:click={handleEndCall} title="End call">End</button>
+					<button class="control-btn" class:active={$isMuted} on:click={handleToggleMute} title={$isMuted ? 'Unmute' : 'Mute'}>
+						{#if $isMuted}
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+						{:else}
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+						{/if}
+					</button>
+					<button class="control-btn" class:active={$isDeafened} on:click={handleToggleDeafen} title={$isDeafened ? 'Undeafen' : 'Deafen'}>
+						{#if $isDeafened}
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+						{:else}
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+						{/if}
+					</button>
+					<button class="control-btn" class:active={!$isVideoOff} on:click={handleToggleVideo} title={$isVideoOff ? 'Turn on camera' : 'Turn off camera'}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+					</button>
+					<button class="control-btn" class:active={$isSharing} on:click={handleToggleScreenShare} title={$isSharing ? 'Stop sharing' : 'Share screen'}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+					</button>
+					<button class="control-btn end" on:click={handleEndCall} title="Leave call">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07C9.44 17.28 8.17 16 7.05 14.68A19.79 19.79 0 0 1 4 6.05 2 2 0 0 1 5.99 4h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L10.68 11.68"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
+					</button>
 				</div>
 			</div>
 
@@ -730,8 +745,21 @@
 	}
 
 	.dock-btn.end {
-		background: var(--color-danger-hover, #d83c3e);
-		border-color: transparent;
+		background: rgba(239, 68, 68, 0.2);
+		border-color: rgba(239, 68, 68, 0.5);
+		color: #fda4af;
+		width: 30px;
+		height: 30px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0;
+	}
+
+	.dock-btn.end svg {
+		width: 14px;
+		height: 14px;
+		stroke: currentColor;
 	}
 
 	.call-shell {
@@ -769,17 +797,27 @@
 
 	.hatch-toggle {
 		position: fixed;
-		top: 1rem;
-		right: 1rem;
+		top: 0.75rem;
+		right: 0.75rem;
 		z-index: 1802;
-		padding: 0.5rem 0.75rem;
-		border-radius: 10px;
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		background: rgba(0, 0, 0, 0.55);
+		width: 32px;
+		height: 32px;
+		border-radius: 8px;
+		border: 1px solid rgba(255, 255, 255, 0.18);
+		background: rgba(0, 0, 0, 0.52);
 		color: #fff;
-		font-size: 0.75rem;
-		font-weight: 600;
 		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0;
+		backdrop-filter: blur(4px);
+	}
+
+	.hatch-toggle svg {
+		width: 15px;
+		height: 15px;
+		stroke: currentColor;
 	}
 
 	.active-call-container {
@@ -1022,7 +1060,7 @@
 
 	.call-controls {
 		display: flex;
-		justify-content: space-between;
+		justify-content: center;
 		align-items: center;
 		gap: 0.9rem;
 		padding: 0.8rem;
@@ -1031,34 +1069,43 @@
 		border-top: 1px solid rgba(255, 255, 255, 0.08);
 	}
 
-	.mode-controls,
 	.control-actions {
 		display: flex;
-		flex-wrap: wrap;
 		gap: 0.5rem;
+		align-items: center;
 	}
 
-	.mode-btn,
 	.control-btn {
-		padding: 0.45rem 0.68rem;
-		border-radius: 8px;
+		width: 40px;
+		height: 40px;
+		border-radius: 999px;
 		border: 1px solid rgba(255, 255, 255, 0.14);
 		background: rgba(255, 255, 255, 0.08);
 		color: #fff;
-		font-size: 0.72rem;
-		font-weight: 700;
 		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0;
+		flex-shrink: 0;
 	}
 
-	.mode-btn.active,
+	.control-btn svg {
+		width: 17px;
+		height: 17px;
+		stroke: currentColor;
+		flex-shrink: 0;
+	}
+
 	.control-btn.active {
-		background: var(--accent, #5865f2);
-		border-color: transparent;
+		background: color-mix(in srgb, var(--accent, #5865f2) 35%, transparent);
+		border-color: color-mix(in srgb, var(--accent, #5865f2) 65%, transparent);
 	}
 
 	.control-btn.end {
-		background: var(--color-danger-hover, #d83c3e);
-		border-color: transparent;
+		background: rgba(239, 68, 68, 0.2);
+		border-color: rgba(239, 68, 68, 0.5);
+		color: #fda4af;
 	}
 
 	.connection-status {
