@@ -403,13 +403,13 @@ export const professionalTheme: Theme = {
 		bgSecondaryRgb: '255, 255, 255',
 		bgTertiaryRgb: '240, 240, 240',
 
-		textPrimary: '#000000',
-		textSecondary: '#2a2a4a',
-		textTertiary: '#4a4a6a',
+		textPrimary: '#111111',
+		textSecondary: '#374151',
+		textTertiary: '#6b7280',
 
-		textPrimaryRgb: '0, 0, 0',
-		textSecondaryRgb: '42, 42, 74',
-		textTertiaryRgb: '74, 74, 106',
+		textPrimaryRgb: '17, 17, 17',
+		textSecondaryRgb: '55, 65, 81',
+		textTertiaryRgb: '107, 114, 128',
 
 		accent: '#4f46e5',
 		accentHex: '#4f46e5',
@@ -418,8 +418,8 @@ export const professionalTheme: Theme = {
 
 		uiBgLight: '#e8e8e8',
 		uiBgLighter: '#f0f0f0',
-		uiText: '#2a2a4a',
-		uiTextDark: '#000000',
+		uiText: '#374151',
+		uiTextDark: '#111111',
 
 		statusOnline: '#059669',
 		statusAway: '#d97706',
@@ -433,7 +433,7 @@ export const professionalTheme: Theme = {
 
 		modalBg: '#ffffff',
 		modalHeaderBg: '#f0f0f0',
-		modalText: '#000000',
+		modalText: '#111111',
 		modalOverlay: 'rgba(0, 0, 0, 0.4)',
 		modalBorder: 'rgba(79, 70, 229, 0.1)',
 
@@ -462,88 +462,13 @@ export const professionalTheme: Theme = {
 	}
 };
 
-// ===== MINIMAL THEME (Solid colors only, no gradients) =====
-export const minimalTheme: Theme = {
-	id: 'minimal',
-	name: 'Minimal',
-	description: 'Minimal aesthetic with solid colors only. Pure and distraction-free.',
-	colors: {
-		bgPrimary: '#f8f8f8',
-		bgSecondary: '#ffffff',
-		bgTertiary: '#f2f2f2',
-		bgHover: '#eeeeee',
-
-		bgPrimaryRgb: '248, 248, 248',
-		bgSecondaryRgb: '255, 255, 255',
-		bgTertiaryRgb: '242, 242, 242',
-
-		textPrimary: '#202020',
-		textSecondary: '#505050',
-		textTertiary: '#808080',
-
-		textPrimaryRgb: '32, 32, 32',
-		textSecondaryRgb: '80, 80, 80',
-		textTertiaryRgb: '128, 128, 128',
-
-		accent: '#2563eb',
-		accentHex: '#2563eb',
-		accentRgb: '37, 99, 235',
-		accentHover: '#1d4ed8',
-
-		uiBgLight: '#eeeeee',
-		uiBgLighter: '#f2f2f2',
-		uiText: '#505050',
-		uiTextDark: '#202020',
-
-		statusOnline: '#16a34a',
-		statusAway: '#ea580c',
-		statusBusy: '#dc2626',
-		statusOffline: '#737373',
-
-		colorSuccess: '#16a34a',
-		colorInfo: '#0ea5e9',
-		colorWarning: '#ea580c',
-		colorDanger: '#dc2626',
-
-		modalBg: '#ffffff',
-		modalHeaderBg: '#f2f2f2',
-		modalText: '#202020',
-		modalOverlay: 'rgba(0, 0, 0, 0.3)',
-		modalBorder: 'rgba(37, 99, 235, 0.1)',
-
-		darkBgPrimary: '#f8f8f8',
-		darkBgSecondary: '#ffffff',
-
-		error: '#dc2626',
-
-		border: '#e5e5e5',
-		borderRgb: '229, 229, 229'
-	},
-	gradients: {
-		primary: '#f8f8f8',
-		accent: '#2563eb',
-		accentHover: '#1d4ed8',
-		dialogDark: 'linear-gradient(135deg, #ffffff 0%, #f2f2f2 100%)',
-		fadeBottomDark: 'linear-gradient(to bottom, rgba(242, 242, 242, 0.7), rgba(255, 255, 255, 0.5))',
-		fadeRightTransparent: 'linear-gradient(to right, transparent, #ffffff)',
-		lineGlow: 'linear-gradient(90deg, transparent, rgba(37, 99, 235, 0.08), transparent)',
-		fadeTopDark: 'linear-gradient(to top, rgba(0, 0, 0, 0.08), transparent)',
-		accentSubtle: 'linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(59, 130, 246, 0.08) 100%)',
-		accentMedium: 'linear-gradient(135deg, rgba(37, 99, 235, 0.15) 0%, rgba(59, 130, 246, 0.15) 100%)',
-		scrollbar: '#2563eb',
-		scrollbarHover: '#1d4ed8',
-		loadingDark: 'linear-gradient(135deg, #f8f8f8 0%, #ffffff 100%)'
-	}
-};
-
 // ===== ALL THEMES REGISTRY =====
 export const THEMES: Record<string, Theme> = {
 	dark: darkTheme,
 	light: lightTheme,
 	'midnight-blue': midnightBlueTheme,
 	'vscode-high-contrast': vscodeHighContrastTheme,
-	professional: professionalTheme,
-	minimal: minimalTheme
+	professional: professionalTheme
 };
 
 // Default theme: Nebula Cosmic (darkTheme)

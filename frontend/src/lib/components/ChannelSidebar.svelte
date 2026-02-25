@@ -172,6 +172,10 @@
 
 	function handleChannelClick(channelId: string) {
 		joinChannel(channelId);
+		// Auto-dock the call UI when switching to a text/forum channel while in a voice channel
+		if ($callMode === 'channel') {
+			channelCallPanelOpen.set(false);
+		}
 		dispatch('close'); // Close sidebar on mobile after channel selection
 	}
 

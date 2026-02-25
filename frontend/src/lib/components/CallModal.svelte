@@ -70,6 +70,7 @@
 	let pinnedTileIds: string[] = [];
 	let activeSpeakerState: ActiveSpeakerState = { ...DEFAULT_ACTIVE_SPEAKER_STATE };
 	let wasInCall = false;
+	let wasChannelPanelOpen = false;
 
 	$: spatialAudioActive = $spatialAudioRuntimeStatus.active;
 	$: spatialQuickToggleVisible = $spatialAudioRuntimeStatus.quickToggleVisible;
@@ -138,6 +139,14 @@
 
 	$: if ($isInCall && $channelCallPanelOpen && callViewportMode === 'docked') {
 		callViewportMode = 'embedded';
+	}
+
+	// Auto-dock when the user navigates away from the voice channel to a text channel
+	$: {
+		if (wasChannelPanelOpen && !$channelCallPanelOpen && $isInCall && $callMode === 'channel' && callViewportMode !== 'docked') {
+			callViewportMode = 'docked';
+		}
+		wasChannelPanelOpen = $channelCallPanelOpen;
 	}
 
 	$: {
@@ -1138,11 +1147,6 @@
 		.call-shell.mode-focus.hatch-open .active-call-container {
 			inset: 0.45rem;
 			border-radius: 14px;
-		}
-
-		.call-controls {
-			flex-direction: column;
-			align-items: stretch;
 		}
 
 		.template-screen-hero .media-tile:not(.hero),
