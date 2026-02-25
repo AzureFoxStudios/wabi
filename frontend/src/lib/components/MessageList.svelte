@@ -3901,7 +3901,13 @@
 	margin-bottom: 0.25rem !important;
 }
 
-/* COMPACT: IRC-style — flat, every line: [timestamp] [name] [message] */
+/* COMPACT: IRC-style — float header left, content fills the rest */
+
+/* Hide compact-only headers in cozy/default mode */
+.compact-only-header {
+	display: none;
+}
+
 :global(html[data-message-density='compact']) .message {
 	padding-top: 0.05rem !important;
 	padding-bottom: 0.05rem !important;
@@ -3922,28 +3928,27 @@
 	height: 0 !important;
 }
 
-/* Each message is a horizontal row: [header] [content] */
+/* message-body stays block — header floats, content wraps beside it */
 :global(html[data-message-density='compact']) .message-body {
-	display: flex !important;
-	flex-direction: row !important;
-	align-items: baseline !important;
-	gap: 0.25rem !important;
-	flex-wrap: nowrap !important;
+	display: block !important;
+	margin-top: 0 !important;
 }
 
-/* Compact header: narrow, fixed layout, no growing */
+/* Header floats left so content lines up to its right */
 :global(html[data-message-density='compact']) .message-header {
-	flex-shrink: 0 !important;
+	float: left !important;
+	margin-right: 0.5rem !important;
 	margin-bottom: 0 !important;
 	white-space: nowrap !important;
+	line-height: 1.4 !important;
 }
 
-/* Tighten the header-left flex gap in compact */
+/* Tighten gap between timestamp and username */
 :global(html[data-message-density='compact']) .message-header .header-left {
-	gap: 0.2rem !important;
+	gap: 0.25rem !important;
 }
 
-/* Timestamp: narrow fixed-width column, right-aligned, muted */
+/* Timestamp: narrow fixed-width, right-aligned, muted */
 :global(html[data-message-density='compact']) .message-header .timestamp {
 	min-width: 3.2rem !important;
 	text-align: right !important;
@@ -3953,7 +3958,7 @@
 	order: -1 !important;
 }
 
-/* Username: cap width so it doesn't eat all the horizontal space */
+/* Username: capped so it doesn't consume the whole line */
 :global(html[data-message-density='compact']) .message-header .username {
 	max-width: 9rem !important;
 	overflow: hidden !important;
@@ -3961,19 +3966,14 @@
 	font-size: 0.8rem !important;
 }
 
-/* Show compact-only continuation headers */
+/* Show compact-only continuation headers (inline-block so float works) */
 :global(html[data-message-density='compact']) .compact-only-header {
 	display: flex !important;
 }
 
-/* Hide compact-only headers in cozy/default mode */
-.compact-only-header {
-	display: none;
-}
-
-/* Content fills remaining space */
+/* Content creates a block formatting context — sits beside the float */
 :global(html[data-message-density='compact']) .message-content {
-	flex: 1 !important;
+	display: flow-root !important;
 	min-width: 0 !important;
 }
 
