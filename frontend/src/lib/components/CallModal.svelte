@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { socket, getSocket } from '$lib/socket';
+	import { socket, getSocket, users, currentUser } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import {
 		incomingCall,
@@ -343,6 +343,9 @@
 	}
 
 	function bubbleStyle(tileId: string): string {
+		if (orderedTiles.length === 1) {
+			return 'width:108px; height:108px;';
+		}
 		const seed = hashString(tileId);
 		const angle = (seed % 360) * (Math.PI / 180);
 		const radius = 24 + (seed % 16);
@@ -449,6 +452,18 @@
 		return Boolean(call?.isAudioEnabled && call?.isSpeaking);
 	}
 
+	function isTileDisconnected(tile: RenderTile): boolean {
+		return !tile.isLocal && !tile.stream;
+	}
+
+	function getParticipantAvatarUrl(tile: RenderTile): string | null {
+		if (tile.isLocal) return $currentUser?.profilePicture || null;
+		const byId = $users.find((user) => user.id === tile.participantId);
+		if (byId?.profilePicture) return byId.profilePicture;
+		const byName = $users.find((user) => user.username === tile.label);
+		return byName?.profilePicture || null;
+	}
+
 	function handleKeydown(event: KeyboardEvent): void {
 		if (event.key === 'Escape' && hatchOpen) {
 			event.preventDefault();
@@ -543,7 +558,7 @@
 		<div class="active-call-container">
 			<div class="call-stage">
 				{#if layoutResult.template === 'floating-bubbles'}
-					<div class="bubble-stage">
+					<div class="bubble-stage" class:single-bubble={orderedTiles.length === 1}>
 						{#each orderedTiles as tile (tile.id)}
 							<div
 								class="bubble-tile"
@@ -559,8 +574,17 @@
 								>
 									{isTilePinned(tile.id) ? 'Unpin' : 'Pin'}
 								</button>
-								<div class="bubble-avatar">{getInitial(tile.label)}</div>
+								<div class="bubble-avatar">
+									{#if getParticipantAvatarUrl(tile)}
+										<img class="bubble-avatar-image" src={getParticipantAvatarUrl(tile) || ''} alt={tile.label} loading="lazy" decoding="async" />
+									{:else}
+										{getInitial(tile.label)}
+									{/if}
+								</div>
 								<div class="bubble-label">{tile.label}</div>
+								{#if isTileDisconnected(tile)}
+									<div class="tile-status">Disconnected</div>
+								{/if}
 							</div>
 						{/each}
 					</div>
@@ -583,7 +607,13 @@
 								</button>
 								{#if tile.kind === 'avatar' || !tile.stream}
 									<div class="tile-avatar">
-										<div class="avatar-circle">{getInitial(tile.label)}</div>
+										<div class="avatar-circle">
+											{#if getParticipantAvatarUrl(tile)}
+												<img class="avatar-circle-image" src={getParticipantAvatarUrl(tile) || ''} alt={tile.label} loading="lazy" decoding="async" />
+											{:else}
+												{getInitial(tile.label)}
+											{/if}
+										</div>
 									</div>
 								{:else}
 									<video
@@ -596,6 +626,9 @@
 									></video>
 								{/if}
 								<div class="tile-label">{tile.label}</div>
+								{#if isTileDisconnected(tile)}
+									<div class="tile-status">Disconnected</div>
+								{/if}
 							</article>
 						{/each}
 					</div>
@@ -1036,6 +1069,19 @@
 		overflow: hidden;
 	}
 
+	.bubble-stage.single-bubble {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.avatar-circle-image {
+		width: 100%;
+		height: 100%;
+		border-radius: 50%;
+		object-fit: cover;
+	}
+
 	.bubble-tile {
 		position: absolute;
 		transform: translate(-50%, -50%);
@@ -1045,6 +1091,13 @@
 		background: color-mix(in srgb, #111827 86%, black 14%);
 		border: 2px solid transparent;
 		padding: 0.35rem;
+	}
+
+	.bubble-stage.single-bubble .bubble-tile {
+		position: relative;
+		left: auto;
+		top: auto;
+		transform: none;
 	}
 
 	.bubble-tile.speaking {
@@ -1069,6 +1122,13 @@
 		background: linear-gradient(145deg, rgba(88, 101, 242, 0.92), rgba(67, 56, 202, 0.9));
 	}
 
+	.bubble-avatar-image {
+		width: 100%;
+		height: 100%;
+		border-radius: 50%;
+		object-fit: cover;
+	}
+
 	.bubble-label {
 		position: absolute;
 		bottom: -1.15rem;
@@ -1078,6 +1138,18 @@
 		font-weight: 600;
 		color: rgba(255, 255, 255, 0.88);
 		white-space: nowrap;
+	}
+
+	.tile-status {
+		position: absolute;
+		left: 0.55rem;
+		top: 0.55rem;
+		background: rgba(185, 28, 28, 0.85);
+		color: #fff;
+		padding: 0.14rem 0.36rem;
+		border-radius: 6px;
+		font-size: 0.62rem;
+		font-weight: 700;
 	}
 
 	.call-controls {

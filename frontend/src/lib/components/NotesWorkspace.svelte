@@ -5,6 +5,17 @@
 	export let title = 'Notes';
 	export let emptyMessage = 'No notes yet.';
 	export let placeholder = 'Write your note...';
+	export let showHeader = true;
+
+	const SIDEBAR_MIN_WIDTH = 0;
+	const SIDEBAR_MAX_WIDTH = 420;
+	const SIDEBAR_COLLAPSED_WIDTH = 0;
+	const SIDEBAR_REOPEN_WIDTH = 200;
+
+	let sidebarWidth = 220;
+	let isResizingSidebar = false;
+	let resizeStartX = 0;
+	let resizeStartWidth = 220;
 
 	let notes: LocalNote[] = [];
 	let selectedNoteId: string | null = null;
@@ -67,16 +78,44 @@
 		if (!trimmed) return '(Empty note)';
 		return trimmed.length > 70 ? `${trimmed.slice(0, 70)}...` : trimmed;
 	}
+
+	function handleSidebarResizeStart(event: MouseEvent): void {
+		event.preventDefault();
+		isResizingSidebar = true;
+		resizeStartX = event.clientX;
+		resizeStartWidth = sidebarWidth;
+		window.addEventListener('mousemove', handleSidebarResizeMove);
+		window.addEventListener('mouseup', handleSidebarResizeStop);
+	}
+
+	function handleSidebarResizeMove(event: MouseEvent): void {
+		if (!isResizingSidebar) return;
+		const delta = event.clientX - resizeStartX;
+		const nextWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, resizeStartWidth + delta));
+		sidebarWidth = nextWidth <= 26 ? SIDEBAR_COLLAPSED_WIDTH : nextWidth;
+	}
+
+	function handleSidebarResizeStop(): void {
+		isResizingSidebar = false;
+		window.removeEventListener('mousemove', handleSidebarResizeMove);
+		window.removeEventListener('mouseup', handleSidebarResizeStop);
+	}
+
+	function openSidebar(): void {
+		sidebarWidth = SIDEBAR_REOPEN_WIDTH;
+	}
 </script>
 
-<div class="notes-workspace">
-	<div class="notes-sidebar">
-		<div class="notes-header">
-			<span class="notes-title">{title}</span>
-			<button class="notes-add-btn" on:click={addNote} title="New note">
-				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-			</button>
-		</div>
+<div class="notes-workspace" class:sidebar-collapsed={sidebarWidth === SIDEBAR_COLLAPSED_WIDTH} style={`grid-template-columns: ${sidebarWidth}px ${sidebarWidth === SIDEBAR_COLLAPSED_WIDTH ? 0 : 7}px minmax(0, 1fr);`}>
+	<div class="notes-sidebar" class:collapsed={sidebarWidth === SIDEBAR_COLLAPSED_WIDTH}>
+		{#if showHeader}
+			<div class="notes-header">
+				<span class="notes-title">{title}</span>
+				<button class="notes-add-btn" on:click={addNote} title="Create note">
+					<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v14h-2zM5 11h14v2H5z" fill="currentColor"/></svg>
+				</button>
+			</div>
+		{/if}
 		<div class="notes-list">
 			{#each notes as note (note.id)}
 				<button
@@ -94,13 +133,34 @@
 			{/each}
 		</div>
 	</div>
+	{#if sidebarWidth !== SIDEBAR_COLLAPSED_WIDTH}
+		<button
+			class="notes-sidebar-resizer"
+			type="button"
+			on:mousedown={handleSidebarResizeStart}
+			aria-label="Resize notes list"
+			title="Resize notes list"
+		></button>
+	{/if}
 	<div class="notes-editor">
 		{#if selectedNote}
 			<div class="notes-editor-toolbar">
-				<span class="notes-editor-time">Updated {formatTs(selectedNote.updatedAt)}</span>
-				<button class="notes-delete-btn" on:click={deleteSelected} title="Delete note">
-					<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-				</button>
+				<div class="notes-toolbar-leading">
+					{#if sidebarWidth === SIDEBAR_COLLAPSED_WIDTH}
+						<button class="notes-open-sidebar-btn" type="button" on:click={openSidebar} title="Show note list" aria-label="Show note list">
+							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+						</button>
+					{/if}
+					<span class="notes-editor-time">Updated {formatTs(selectedNote.updatedAt)}</span>
+				</div>
+				<div class="notes-toolbar-actions">
+					<button class="notes-add-btn editor-add" on:click={addNote} title="Create note">
+						<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v14h-2zM5 11h14v2H5z" fill="currentColor"/></svg>
+					</button>
+					<button class="notes-delete-btn" on:click={deleteSelected} title="Delete note">
+						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+					</button>
+				</div>
 			</div>
 			<textarea
 				class="notes-input"
@@ -121,7 +181,6 @@
 		height: 100%;
 		min-height: 0;
 		display: grid;
-		grid-template-columns: 220px minmax(0, 1fr);
 	}
 
 	.notes-sidebar {
@@ -152,18 +211,32 @@
 		width: 26px;
 		height: 26px;
 		border-radius: 6px;
-		border: 1px solid var(--border);
-		background: var(--bg-primary);
+		border: none;
+		background: transparent;
 		color: var(--text-secondary);
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		cursor: pointer;
+		opacity: 0.72;
+	}
+
+	.notes-sidebar.collapsed {
+		border-right: none;
+		overflow: hidden;
+	}
+
+	.notes-add-btn svg {
+		display: block;
+		width: 14px;
+		height: 14px;
+		transform: translateY(-0.5px);
 	}
 
 	.notes-add-btn:hover {
 		color: var(--text-primary);
-		background: var(--bg-hover);
+		background: transparent;
+		opacity: 1;
 	}
 
 	.notes-list {
@@ -171,6 +244,15 @@
 		min-height: 0;
 		overflow-y: auto;
 		padding: 0.25rem;
+	}
+
+	.notes-sidebar-resizer {
+		padding: 0;
+		border: none;
+		border-left: 1px solid var(--border);
+		border-right: 1px solid var(--border);
+		background: color-mix(in srgb, var(--accent) 12%, transparent);
+		cursor: ew-resize;
 	}
 
 	.notes-item {
@@ -228,6 +310,43 @@
 		justify-content: space-between;
 		border-bottom: 1px solid var(--border);
 		background: var(--bg-secondary);
+	}
+
+	.notes-toolbar-leading {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		min-width: 0;
+	}
+
+	.notes-toolbar-actions {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.2rem;
+	}
+
+	.editor-add {
+		width: 22px;
+		height: 22px;
+		border-radius: 4px;
+	}
+
+	.notes-open-sidebar-btn {
+		width: 22px;
+		height: 22px;
+		border: none;
+		background: transparent;
+		color: var(--text-secondary);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 4px;
+		cursor: pointer;
+	}
+
+	.notes-open-sidebar-btn:hover {
+		color: var(--text-primary);
+		background: var(--bg-hover);
 	}
 
 	.notes-editor-time {
@@ -294,6 +413,10 @@
 		.notes-sidebar {
 			border-right: none;
 			border-bottom: 1px solid var(--border);
+		}
+
+		.notes-sidebar-resizer {
+			display: none;
 		}
 	}
 </style>

@@ -2,6 +2,7 @@
 	import { onDestroy } from 'svelte';
 	import { channels, channelMessages, currentUser, users, createDM, deleteDM, leaveGroup, socket } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
+	import { NOTES_DM_ID } from '$lib/layoutStore';
 	import { startCall } from '$lib/calling';
 	import { longpress } from '$lib/actions/longpress';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
@@ -13,6 +14,7 @@
 	import CreateGroupModal from './CreateGroupModal.svelte';
 	import type { User, Channel } from '$lib/socket';
 	import { dmPrivacyModes, setDMPrivacyMode, type DMPrivacyMode } from '$lib/dmPrivacyMode';
+	import { pinnedDmIdsStore, prunePinnedDms, togglePinnedDm } from '$lib/pinDms';
 	type ConversationAction = {
 		id: 'voice' | 'video' | 'remove';
 		label: string;
@@ -27,7 +29,6 @@
 	let showNewDM = false;
 	let showCreateGroup = false;
 	let showGroupSettings = false;
-	const KEEP_NOTES_ID = '__keep_notes__';
 	let showContextMenu = false;
 	let contextMenuX = 0;
 	let contextMenuY = 0;
@@ -44,7 +45,7 @@
 	$: selectedDmId = $layoutStore.selectedDmChannelId;
 	$: dmOther = $layoutStore.dmOtherUser;
 	$: selectedGroup = $layoutStore.selectedGroupChannel;
-	$: isKeepNotesSelected = selectedDmId === KEEP_NOTES_ID;
+	$: isKeepNotesSelected = selectedDmId === NOTES_DM_ID;
 	$: selectedDmChannel = selectedDmId ? $channels.find(ch => ch.id === selectedDmId) || null : null;
 	$: selectedDmPrivacyMode = selectedDmChannel?.type === 'dm'
 		? getConversationPrivacyMode(selectedDmChannel.id)
@@ -53,7 +54,13 @@
 	// Keep selectedGroup in sync with channels store (so avatar/member changes reflect)
 	$: activeGroup = selectedGroup ? $channels.find(ch => ch.id === selectedGroup.id) || selectedGroup : null;
 
-	$: dmChannels = $channels.filter(ch => ch.type === 'dm' || ch.type === 'group').sort((a, b) => {
+	$: dmConversationChannels = $channels.filter((ch) => ch.type === 'dm' || ch.type === 'group');
+	$: pinnedDmSet = new Set($pinnedDmIdsStore);
+	$: prunePinnedDms(dmConversationChannels.map((ch) => ch.id));
+	$: dmChannels = [...dmConversationChannels].sort((a, b) => {
+		const aPinned = pinnedDmSet.has(a.id);
+		const bPinned = pinnedDmSet.has(b.id);
+		if (aPinned !== bPinned) return aPinned ? -1 : 1;
 		const aMsgs = $channelMessages[a.id] || [];
 		const bMsgs = $channelMessages[b.id] || [];
 		const aLast = aMsgs.length > 0 ? aMsgs[aMsgs.length - 1].timestamp : 0;
@@ -61,7 +68,12 @@
 		return bLast - aLast;
 	});
 
-	$: onlineUsers = $users.filter(u => u.id !== $currentUser?.id);
+	$: onlineUsers = $users.filter((u) => {
+		if (!$currentUser) return true;
+		if (u.id === $currentUser.id) return false;
+		if (u.dbUserId && $currentUser.dbUserId && u.dbUserId === $currentUser.dbUserId) return false;
+		return true;
+	});
 	$: filteredUsers = searchQuery
 		? onlineUsers.filter(u => u.username.toLowerCase().includes(searchQuery.toLowerCase()))
 		: onlineUsers;
@@ -133,14 +145,8 @@
 	}
 
 	function openKeepNotes() {
-		const keepUser: User = {
-			id: 'keep-notes',
-			username: 'Keep Notes',
-			color: '#28b463',
-			status: 'active'
-		};
 		showGroupSettings = false;
-		layoutStore.openDM(KEEP_NOTES_ID, keepUser);
+		layoutStore.openNotes();
 	}
 
 	function startDMWith(user: User) {
@@ -210,10 +216,18 @@
 		return buildConversationActions(channel, other).filter((action) => action.showInline);
 	}
 
+	function isConversationPinned(channelId: string): boolean {
+		return pinnedDmSet.has(channelId);
+	}
+
+	function toggleConversationPin(channelId: string): void {
+		togglePinnedDm(channelId);
+	}
+
 	$: headerActions = selectedDmChannel ? getInlineActions(selectedDmChannel, dmOther) : [];
 	$: headerCallActions = headerActions.filter((action) => action.id === 'voice' || action.id === 'video');
 	$: headerRemoveAction = headerActions.find((action) => action.id === 'remove');
-	$: activeHeaderTitle = activeGroup?.name || (isKeepNotesSelected ? 'Keep Notes' : dmOther?.username || 'Direct Message');
+	$: activeHeaderTitle = activeGroup?.name || (isKeepNotesSelected ? 'Notes' : dmOther?.username || 'Direct Message');
 	$: hasHeaderActions = headerCallActions.length > 0 || !!activeGroup || !!headerRemoveAction;
 	$: if (!showCompactHeaderActions && showHeaderActionMenu) {
 		showHeaderActionMenu = false;
@@ -305,6 +319,12 @@
 				label: 'Open Conversation',
 				icon: 'message-circle',
 				onSelect: () => selectConversation(contextMenuChannel as Channel)
+			},
+			{
+				id: 'pin-toggle',
+				label: isConversationPinned(contextMenuChannel.id) ? 'Unpin Conversation' : 'Pin Conversation',
+				icon: 'pin',
+				onSelect: () => toggleConversationPin(contextMenuChannel.id)
 			}
 		];
 		if (contextMenuChannel.type === 'dm') {
@@ -478,11 +498,11 @@
 			<div class="dm-tab-header">
 				<span class="dm-tab-title">Messages</span>
 				<div class="dm-header-actions">
-					<button class="dm-new-btn" on:click={() => { showCreateGroup = true; }} title="New Group">
-						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+					<button class="dm-new-btn dm-new-group-btn" on:click={() => { showCreateGroup = true; }} title="Create group">
+						<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.98 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" fill="currentColor"/></svg>
 					</button>
-					<button class="dm-new-btn" on:click={() => { showNewDM = !showNewDM; }} title="New DM">
-						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+					<button class="dm-new-btn dm-new-dm-btn" on:click={() => { showNewDM = !showNewDM; }} title="Create DM">
+						<span class="plus-glyph" aria-hidden="true">+</span>
 					</button>
 				</div>
 			</div>
@@ -533,15 +553,16 @@
 					</div>
 					<div class="dm-conv-info">
 						<div class="dm-conv-top">
-							<span class="dm-conv-name">Keep Notes</span>
+							<span class="dm-conv-name">Notes</span>
 						</div>
-						<span class="dm-conv-preview">Private notes and reminders</span>
+						<span class="dm-conv-preview">Your private notes and reminders</span>
 					</div>
 				</div>
 				{#each dmChannels as channel (channel.id)}
 					{#if channel.type === 'group'}
 						<div
 							class="dm-conv-item"
+							class:dm-conv-item-pinned={isConversationPinned(channel.id)}
 							role="button"
 							tabindex="0"
 							on:click={() => selectConversation(channel)}
@@ -552,13 +573,19 @@
 							<div class="dm-conv-avatar-wrap">
 								<GroupAvatar {channel} size={36} />
 							</div>
-							<div class="dm-conv-info">
-								<div class="dm-conv-top">
-									<span class="dm-conv-name">{channel.name}</span>
-									<span class="dm-conv-time">{formatRelativeTime(channel.id)}</span>
+								<div class="dm-conv-info">
+									<div class="dm-conv-top">
+										<span class="dm-conv-name">{channel.name}</span>
+									{#if isConversationPinned(channel.id)}
+										<span class="dm-conv-pin" title="Pinned conversation">Pinned</span>
+									{/if}
+										<span class="dm-conv-time">{formatRelativeTime(channel.id)}</span>
+									</div>
+									<span class="dm-conv-preview dm-group-conv-preview">
+										<svg class="dm-group-row-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+										{channel.members?.length || 0} members - {getLastPreview(channel.id)}
+									</span>
 								</div>
-								<span class="dm-conv-preview">{channel.members?.length || 0} members - {getLastPreview(channel.id)}</span>
-							</div>
 							<div class="dm-conv-actions">
 								{#each getInlineActions(channel, null) as action (action.id)}
 									<button
@@ -585,6 +612,7 @@
 						{#if other}
 							<div
 								class="dm-conv-item"
+								class:dm-conv-item-pinned={isConversationPinned(channel.id)}
 								role="button"
 								tabindex="0"
 								on:click={() => selectConversation(channel)}
@@ -613,6 +641,9 @@
 								<div class="dm-conv-info">
 									<div class="dm-conv-top">
 										<span class="dm-conv-name">{other.username}</span>
+										{#if isConversationPinned(channel.id)}
+											<span class="dm-conv-pin" title="Pinned conversation">Pinned</span>
+										{/if}
 										<span class="dm-conv-time">{formatRelativeTime(channel.id)}</span>
 									</div>
 									<span class="dm-conv-preview">{getLastPreview(channel.id)}</span>
@@ -885,24 +916,40 @@
 	.dm-header-actions {
 		display: flex;
 		gap: 0.375rem;
+		align-items: center;
 	}
 
 	.dm-new-btn {
-		width: 28px;
-		height: 28px;
+		width: 26px;
+		height: 26px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		background: none;
-		border: 1px solid var(--border);
+		border: none;
 		border-radius: 6px;
 		color: var(--text-secondary);
 		cursor: pointer;
+		opacity: 0.72;
+	}
+
+	.dm-new-btn svg {
+		display: block;
+		width: 16px;
+		height: 16px;
+	}
+
+	.dm-new-btn .plus-glyph {
+		font-size: 1.15rem;
+		font-weight: 700;
+		line-height: 0.95;
+		transform: translateY(-0.5px);
 	}
 
 	.dm-new-btn:hover {
 		color: var(--text-primary);
-		background: var(--bg-hover);
+		background: none;
+		opacity: 1;
 	}
 
 	/* New DM panel */
@@ -1016,6 +1063,15 @@
 		background: rgba(88, 101, 242, 0.12);
 	}
 
+	.dm-conv-item-pinned {
+		background: color-mix(in srgb, var(--bg-secondary) 84%, var(--accent) 16%);
+		border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+	}
+
+	.dm-conv-item-pinned:hover {
+		background: color-mix(in srgb, var(--bg-hover) 80%, var(--accent) 20%);
+	}
+
 	.dm-conv-keep-avatar {
 		background: linear-gradient(135deg, #3bc779, #1fae62);
 	}
@@ -1125,8 +1181,17 @@
 	.dm-conv-top {
 		display: flex;
 		align-items: baseline;
-		justify-content: space-between;
+		justify-content: flex-start;
 		gap: 0.25rem;
+	}
+
+	.dm-conv-pin {
+		font-size: 0.6rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		color: var(--accent);
+		opacity: 0.85;
 	}
 
 	.dm-conv-name {
@@ -1141,6 +1206,7 @@
 		font-size: 0.65rem;
 		color: var(--text-secondary);
 		flex-shrink: 0;
+		margin-left: auto;
 	}
 
 	.dm-conv-preview {
@@ -1149,6 +1215,17 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+
+	.dm-group-conv-preview {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.28rem;
+	}
+
+	.dm-group-row-icon {
+		flex-shrink: 0;
+		opacity: 0.82;
 	}
 
 
