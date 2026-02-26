@@ -142,7 +142,18 @@
 		return true;
 	}
 
+	function isCurrentUserEntry(user: User): boolean {
+		if (!$currentUser) return false;
+		if (user.id === $currentUser.id) return true;
+		if (user.dbUserId && $currentUser.dbUserId && user.dbUserId === $currentUser.dbUserId) return true;
+		return false;
+	}
+
 	function handleMessage(user: User) {
+		if (isCurrentUserEntry(user)) {
+			layoutStore.openNotes();
+			return;
+		}
 		createDM(user.id);
 		layoutStore.showDMsTab();
 	}

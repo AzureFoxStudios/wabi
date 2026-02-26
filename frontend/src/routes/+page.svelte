@@ -8,6 +8,7 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { initE2E, clearE2EState } from '$lib/e2eManager';
 	import { initializeAccessibilitySettings } from '$lib/accessibility';
+	import { initializeAnimationPassSettings } from '$lib/animationPass';
 	import { startupMark, startupMeasure, startupScheduleReport } from '$lib/startupProfiler';
 	import { _ } from '$lib/i18n';
 
@@ -17,6 +18,7 @@
 	// Apply layout-affecting accessibility preferences before first render to avoid CLS.
 	if (typeof window !== 'undefined') {
 		initializeAccessibilitySettings();
+		initializeAnimationPassSettings();
 	}
 
 	let loggedIn = typeof window !== 'undefined' && !!localStorage.getItem('username');

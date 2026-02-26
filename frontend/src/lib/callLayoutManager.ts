@@ -295,6 +295,23 @@ export function computeCallLayout(input: CallLayoutInput): CallLayoutResult {
 	}
 
 	if (videoCount === 2) {
+		// In 1:1 (local + one remote), favor a centered hero instead of left/right split.
+		if (videoTileIds.includes('video:local')) {
+			const remoteHero =
+				(speakerHeroTileId && speakerHeroTileId !== 'video:local'
+					? speakerHeroTileId
+					: videoTileIds.find((tileId) => tileId !== 'video:local')) ?? videoTileIds[0];
+			const heroIds = pinnedTileIds.length > 0 ? pinnedTileIds.slice(0, 1) : [remoteHero];
+			const ordered = composeOrderedLayout(orderedTileIds, heroIds);
+			return {
+				template: 'single-hero',
+				tileIds: ordered.tileIds,
+				heroIds,
+				secondaryIds: ordered.secondaryIds,
+				pinnedTileIds,
+				nextActiveSpeakerState: speakerResolution.nextState
+			};
+		}
 		const ordered = composeOrderedLayout(orderedTileIds, []);
 		return {
 			template: 'split',

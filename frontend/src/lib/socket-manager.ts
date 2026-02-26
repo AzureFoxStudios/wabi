@@ -29,6 +29,7 @@ import { getServerUrl } from './serverUrl';
 import { authStore } from './authStore';
 import { encryptDMMessage, decryptDMMessage, isE2EAvailable } from './e2eManager';
 import { getDMPrivacyMode } from './dmPrivacyMode';
+import { mobileTabQueue } from './mobileTabQueue';
 
 /**
  * Decrypt an array of messages for a DM channel (in-place mutation of text field).
@@ -1630,12 +1631,15 @@ export function disconnect(): void {
 export function joinChannel(channelId: string): void {
 	socketManager.emit('join-channel', channelId);
 	currentChannel.set(channelId);
+	// Ensure addon tabs (like full 3D viewport) relinquish focus when a channel is selected.
+	mobileTabQueue.setActiveChannel(channelId);
 	markChannelAsRead(channelId);
 }
 
 export function switchChannel(channelId: string): void {
 	socketManager.emit('join-channel', channelId);
 	currentChannel.set(channelId);
+	mobileTabQueue.setActiveChannel(channelId);
 	markChannelAsRead(channelId);
 }
 
@@ -1946,6 +1950,15 @@ export function deleteEmote(emoteName: string): void {
 }
 
 export function createDM(targetUserId: string): void {
+	const me = get(currentUser);
+	if (me) {
+		const selfSocketId = me.id;
+		const selfStableId = me.dbUserId ? `user-${me.dbUserId}` : null;
+		if (targetUserId === selfSocketId || (selfStableId && targetUserId === selfStableId)) {
+			console.warn('[SocketManager] Ignoring self-DM create request');
+			return;
+		}
+	}
 	socketManager.emit('create-dm', { targetUserId });
 }
 

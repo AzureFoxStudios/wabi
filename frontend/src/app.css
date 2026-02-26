@@ -150,6 +150,8 @@
 	--duration-fast: 150ms;        /* Micro-interactions (original) */
 	--duration-normal: 250ms;      /* Transitions (panel open/close, navigation) */
 	--duration-slow: 300ms;        /* Animations (modals, toasts, complex state changes) */
+	--wabi-animation-multiplier: 1;
+	--wabi-animation-distance: 18px;
 
 	/* Easing functions */
 	--ease-out: cubic-bezier(0, 0, 0.2, 1);      /* Elements entering (decelerating) */
@@ -171,6 +173,11 @@
 	--icon-sm: 16px;      /* Inline with text, metadata, tab icons */
 	--icon-md: 20px;      /* Buttons, toolbar, navigation (default) */
 	--icon-lg: 24px;      /* Prominent actions, mobile nav, modal close */
+
+	/* --------------------------------------------------------------------------
+	   APP CHROME
+	   -------------------------------------------------------------------------- */
+	--app-chrome-height: 54px;
 
 	/* --------------------------------------------------------------------------
 	   Z-INDEX LAYERING TIERS
@@ -842,6 +849,109 @@ input:focus, textarea:focus {
 :root[data-theme='vscode-high-contrast'] .conversation-item:hover,
 :root[data-theme='vscode-high-contrast'] .user-item:hover {
 	border-left-color: var(--color-status-info);
+}
+
+/* Slate Signal: frosted layering proof-of-concept */
+:root[data-theme='slate-signal'] .channel-sidebar,
+:root[data-theme='slate-signal'] .dm-panel,
+:root[data-theme='slate-signal'] .user-panel,
+:root[data-theme='slate-signal'] .right-panel-content,
+:root[data-theme='slate-signal'] .chat-header,
+:root[data-theme='slate-signal'] .input-wrapper,
+:root[data-theme='slate-signal'] .input-container,
+:root[data-theme='slate-signal'] .panel-header,
+:root[data-theme='slate-signal'] .modal-content,
+:root[data-theme='slate-signal'] .incoming-call-modal,
+:root[data-theme='slate-signal'] .call-shell .active-call-container {
+	background-color: rgba(var(--bg-secondary-rgb), 0.58) !important;
+	border-color: rgba(var(--border-rgb), 0.5) !important;
+}
+
+:root[data-theme='slate-signal'] .chat-header,
+:root[data-theme='slate-signal'] .panel-header,
+:root[data-theme='slate-signal'] .input-wrapper {
+	background-color: rgba(var(--bg-tertiary-rgb), 0.52) !important;
+}
+
+:root[data-theme='slate-signal'] .chat-container,
+:root[data-theme='slate-signal'] .main-content,
+:root[data-theme='slate-signal'] .chat-content {
+	background: linear-gradient(180deg, rgba(13, 17, 24, 0.22) 0%, rgba(13, 17, 24, 0.38) 100%);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+	:root[data-theme='slate-signal'] .channel-sidebar,
+	:root[data-theme='slate-signal'] .dm-panel,
+	:root[data-theme='slate-signal'] .user-panel,
+	:root[data-theme='slate-signal'] .right-panel-content,
+	:root[data-theme='slate-signal'] .chat-header,
+	:root[data-theme='slate-signal'] .input-wrapper,
+	:root[data-theme='slate-signal'] .input-container,
+	:root[data-theme='slate-signal'] .panel-header,
+	:root[data-theme='slate-signal'] .modal-content,
+	:root[data-theme='slate-signal'] .incoming-call-modal,
+	:root[data-theme='slate-signal'] .call-shell .active-call-container {
+		backdrop-filter: blur(14px) saturate(1.12);
+		-webkit-backdrop-filter: blur(14px) saturate(1.12);
+		box-shadow: 0 12px 28px rgba(6, 10, 18, 0.32);
+	}
+}
+
+/* BetterAnimations-inspired motion pass */
+:root[data-animation-preset='slip'] {
+	--wabi-pop-in-from: translate3d(0, var(--wabi-animation-distance), 0) scale(0.985);
+}
+
+:root[data-animation-preset='fade'] {
+	--wabi-pop-in-from: translate3d(0, 0, 0) scale(1);
+}
+
+:root[data-animation-preset='scale'] {
+	--wabi-pop-in-from: translate3d(0, 0, 0) scale(0.95);
+}
+
+:root[data-animation-preset='flip'] {
+	--wabi-pop-in-from: perspective(640px) rotateX(10deg) scale(0.94);
+}
+
+@keyframes wabi-pop-in {
+	from {
+		opacity: 0;
+		transform: var(--wabi-pop-in-from, translate3d(0, 10px, 0));
+	}
+	to {
+		opacity: 1;
+		transform: translate3d(0, 0, 0) rotateX(0deg) scale(1);
+	}
+}
+
+:root[data-animation-pass='balanced'] .context-menu,
+:root[data-animation-pass='balanced'] .tab-context-menu,
+:root[data-animation-pass='balanced'] .settings-menu,
+:root[data-animation-pass='balanced'] .mention-suggestions,
+:root[data-animation-pass='balanced'] .emoji-picker-container,
+:root[data-animation-pass='balanced'] .media-menu,
+:root[data-animation-pass='balanced'] .user-popout,
+:root[data-animation-pass='balanced'] .modal,
+:root[data-animation-pass='balanced'] .modal-content,
+:root[data-animation-pass='full'] .context-menu,
+:root[data-animation-pass='full'] .tab-context-menu,
+:root[data-animation-pass='full'] .settings-menu,
+:root[data-animation-pass='full'] .mention-suggestions,
+:root[data-animation-pass='full'] .emoji-picker-container,
+:root[data-animation-pass='full'] .media-menu,
+:root[data-animation-pass='full'] .user-popout,
+:root[data-animation-pass='full'] .modal,
+:root[data-animation-pass='full'] .modal-content {
+	animation: wabi-pop-in calc(220ms * var(--wabi-animation-multiplier)) var(--ease-out) both;
+}
+
+:root[data-animation-pass='full'] .channel-item:hover,
+:root[data-animation-pass='full'] .conversation-item:hover,
+:root[data-animation-pass='full'] .user-item:hover,
+:root[data-animation-pass='full'] .tab-btn:hover {
+	transform: translateX(2px);
+	transition: transform calc(140ms * var(--wabi-animation-multiplier)) var(--ease-out);
 }
 
 /* Reduced motion for users who prefer it */

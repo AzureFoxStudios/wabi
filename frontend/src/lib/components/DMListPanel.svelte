@@ -208,12 +208,9 @@
 		<button
 			class="dm-create"
 			on:click={() => (showCreateDM = !showCreateDM)}
-			title="New DM"
+			title="Create DM"
 		>
-			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<line x1="12" y1="5" x2="12" y2="19" />
-				<line x1="5" y1="12" x2="19" y2="12" />
-			</svg>
+			<span class="plus-glyph" aria-hidden="true">+</span>
 		</button>
 	</div>
 
@@ -349,6 +346,12 @@
 		padding: 0.25rem 0.5rem;
 		border-radius: var(--radius-md);
 		transition: all 0.2s;
+	}
+
+	.dm-create .plus-glyph {
+		font-size: 1.05rem;
+		font-weight: 700;
+		line-height: 1;
 	}
 
 	.dm-toggle {

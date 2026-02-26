@@ -235,6 +235,7 @@
     "confirm": {
       "delete_title": "Eliminar mensaje",
       "delete_message": "Seguro que deseas eliminar este mensaje?",
+      "delete_message_with_uploads": "Seguro que deseas eliminar este mensaje? Esto tambien elimina {count} archivo(s) subido(s).",
       "delete_confirm": "Eliminar"
     },
     "role_gate": {
@@ -251,6 +252,7 @@
       "more_actions": "Mas acciones",
       "copy_image_link": "Copiar enlace de imagen",
       "copy_image": "Copiar imagen",
+      "reverse_search": "Busqueda inversa",
       "image_details": "Detalles de imagen",
       "details_name": "Nombre",
       "details_dimensions": "Dimensiones",
@@ -270,11 +272,16 @@
     "download": "Descargar",
     "add_to_album": "Agregar al album",
     "forward": "Reenviar",
+    "copy_quote": "Copiar cita",
+    "copy_message_link": "Copiar enlace del mensaje",
     "edit_message": "Editar mensaje",
     "pin_message": "Fijar mensaje",
     "unpin_message": "Desfijar mensaje",
     "copy_text": "Copiar texto",
-    "delete_message": "Eliminar mensaje"
+    "delete_message": "Eliminar mensaje",
+    "delete_message_uploads": "ELIMINAR MENSAJE + ARCHIVOS",
+    "delete_message_uploads_hint": "Permanente - elimina archivos adjuntos",
+    "delete_message_unavailable_hint": "Solo puedes eliminar tus propios mensajes"
   },
   "forward_dialog": {
     "title": "Reenviar mensaje",

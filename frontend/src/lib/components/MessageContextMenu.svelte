@@ -16,11 +16,27 @@
 	export let onReply: () => void;
 	export let onDownload: (() => void) | undefined = undefined;
 	export let onAddToAlbum: (() => void) | undefined = undefined;
+	export let onCopyMessageLink: (() => void) | undefined = undefined;
+	export let onCopyQuote: (() => void) | undefined = undefined;
 	export let onForward: (() => void) | undefined = undefined;
 	export let onAddReaction: (() => void) | undefined = undefined;
 	export let onTranslate: (() => void) | undefined = undefined;
+	export let canManageOwnMessage: boolean | null = null;
 
-	$: isOwnMessage = message.userId === $currentUser?.id;
+	function getCurrentIdentityIds(): string[] {
+		if (!$currentUser) return [];
+		const ids: string[] = [];
+		if ($currentUser.id) ids.push($currentUser.id);
+		if ($currentUser.dbUserId) ids.push(`user-${$currentUser.dbUserId}`);
+		return ids;
+	}
+
+	$: isOwnMessageByIdentity = (() => {
+		if (!$currentUser) return false;
+		if (message.user === $currentUser.username) return true;
+		return getCurrentIdentityIds().includes(message.userId);
+	})();
+	$: canManageMessage = canManageOwnMessage ?? isOwnMessageByIdentity;
 	$: hasFile = message.type === 'file' && (Boolean(message.fileUrl) || (message.files?.length ?? 0) > 0);
 	$: canCopyText = !!message.text?.trim();
 
@@ -94,7 +110,25 @@
 			});
 		}
 
-		if (isOwnMessage) {
+		if (onCopyQuote) {
+			list.push({
+				id: 'copy-quote',
+				label: get(_)('context_menu.copy_quote'),
+				icon: 'copy',
+				onSelect: onCopyQuote
+			});
+		}
+
+		if (onCopyMessageLink) {
+			list.push({
+				id: 'copy-link',
+				label: get(_)('context_menu.copy_message_link'),
+				icon: 'copy',
+				onSelect: onCopyMessageLink
+			});
+		}
+
+		if (canManageMessage) {
 			list.push({
 				id: 'edit',
 				label: get(_)('context_menu.edit_message'),
@@ -118,16 +152,18 @@
 			onSelect: copyText
 		});
 
-		if (isOwnMessage) {
-			list.push({ id: 'danger-divider', type: 'separator' });
-			list.push({
-				id: 'delete',
-				label: get(_)('context_menu.delete_message'),
-				icon: 'trash-2',
-				danger: true,
-				onSelect: onDelete
-			});
-		}
+		list.push({ id: 'danger-divider', type: 'separator' });
+		list.push({
+			id: 'delete',
+			label: canManageMessage ? get(_)('context_menu.delete_message_uploads') : get(_)('context_menu.delete_message'),
+			hint: canManageMessage
+				? get(_)('context_menu.delete_message_uploads_hint')
+				: get(_)('context_menu.delete_message_unavailable_hint'),
+			icon: 'trash-2',
+			danger: true,
+			disabled: !canManageMessage,
+			onSelect: onDelete
+		});
 
 		return list;
 	}

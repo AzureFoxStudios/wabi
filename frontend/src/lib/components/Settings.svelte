@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+	import { get } from 'svelte/store';
 	import {
 		_ as t,
 		availableLocales,
@@ -83,8 +84,15 @@
 		updateAccessibilitySettings,
 		type RoleColorMode,
 		type ChatAvatarMode,
-		type MessageDensity
+		type MessageDensity,
+		type DeletionCountdownMode
 	} from '$lib/accessibility';
+	import {
+		getStoredAnimationPassSettings,
+		updateAnimationPassSettings,
+		type AnimationPassPreset,
+		type AnimationPassLevel
+	} from '$lib/animationPass';
 	import type { VideoCompressionPresetId } from '$lib/video/videoCompressor';
 	import {
 		getDefaultVideoCompressionPreset,
@@ -92,6 +100,32 @@
 		setDefaultVideoCompressionPreset,
 		setVideoCompressionEnabled
 	} from '$lib/video/videoCompressionSettings';
+	import {
+		addChatAlias,
+		chatAliasesStore,
+		chatFilterStore,
+		customQuoteSettingsStore,
+		removeChatAlias,
+		resetCustomQuoteTemplate,
+		setChatFilterSettings,
+		setCustomQuoteTemplate,
+		updateChatAlias,
+		type ChatAliasEntry,
+		type ChatFilterMode
+	} from '$lib/chatEnhancements';
+	import {
+		composerEnhancementSettingsStore,
+		setCharCounterEnabled,
+		setSpellCheckEnabled,
+		setSplitLargeMessagesEnabled,
+		setSplitLargeMessagesChunkSize
+	} from '$lib/composerEnhancements';
+	import {
+		getReverseImageSearchProvider,
+		setReverseImageSearchProvider,
+		type ReverseImageSearchProvider
+	} from '$lib/imageUtilities';
+	import { clearPinnedDms, pinnedDmIdsStore } from '$lib/pinDms';
 
 	const dispatch = createEventDispatcher();
 	const MB = 1024 * 1024;
@@ -107,6 +141,7 @@
 	let suppressEveryoneHereMentions = false;
 	let suppressRoleMentions = false;
 	let notificationSound = '/sounds/ProjectSound.ogg';
+	let notificationSoundLabel = 'ProjectSound.ogg';
 	let notificationVolume = 0.5;
 	let mediaQualityMode: MediaQualityMode = 'web-baseline';
 	let audioProcessingMode: AudioProcessingMode = 'auto';
@@ -125,6 +160,10 @@
 	let saturation = 1;
 	let contrast = 1;
 	let reducedMotion = false;
+	let animationPassEnabled = true;
+	let animationPassPreset: AnimationPassPreset = 'slip';
+	let animationPassLevel: AnimationPassLevel = 'balanced';
+	let animationPassDurationMultiplier = 1;
 	let roleColorMode: RoleColorMode = 'full';
 	let ownMessagesOnRight = false;
 	let chatAvatarMode: ChatAvatarMode = 'all';
@@ -134,6 +173,8 @@
 	let defaultVideoCompressionPreset: VideoCompressionPresetId = 'balanced_720p';
 	let messageDensity: MessageDensity = 'cozy';
 	let chatFontScale = 1;
+	let deletionCountdownMode: DeletionCountdownMode = 'static';
+	let clickableSendEnabled = true;
 	let localAppRuntime = false;
 	let micTestStream: MediaStream | null = null;
 	let micTestRecorder: MediaRecorder | null = null;
@@ -167,6 +208,7 @@
 	let uiLearningTargetPercent = 100;
 	let addonsImportInput: HTMLInputElement;
 	let addonsPackageInput: HTMLInputElement;
+	let notificationSoundInput: HTMLInputElement;
 	type AddonRuntimeSide = 'frontend' | 'backend';
 	interface DetectedAddon {
 		id: string;
@@ -203,6 +245,16 @@
 	let translatorTargetLang = 'en';
 	let translatorSettingsSavedAt = '';
 	let translatorAddonDetected = false;
+	let reverseImageSearchProvider: ReverseImageSearchProvider = 'google_lens';
+	let spellCheckEnabled = true;
+	let charCounterEnabled = true;
+	let splitLargeMessagesEnabled = false;
+	let splitLargeMessagesChunkSize = 2000;
+	let splitLargeMessagesInputMaxLength = 20000;
+	let pinnedDmConversationCount = 0;
+	let chatAliasTriggerDraft = '';
+	let chatAliasReplacementDraft = '';
+	let quoteTemplateDraft = '';
 
 	// Profile Picture upload state
 	let showAvatarEditor = false;
@@ -281,11 +333,16 @@
 	onMount(() => {
 		selectedLocale = $currentLocale || 'en';
 		const accessibilitySettings = getStoredAccessibilitySettings();
+		const animationSettings = getStoredAnimationPassSettings();
 		textScale = accessibilitySettings.textScale;
 		colorAssistEnabled = accessibilitySettings.colorAssistEnabled;
 		saturation = accessibilitySettings.saturation;
 		contrast = accessibilitySettings.contrast;
 		reducedMotion = accessibilitySettings.reducedMotion;
+		animationPassEnabled = animationSettings.enabled;
+		animationPassPreset = animationSettings.preset;
+		animationPassLevel = animationSettings.level;
+		animationPassDurationMultiplier = animationSettings.durationMultiplier;
 		roleColorMode = accessibilitySettings.roleColorMode;
 		ownMessagesOnRight = accessibilitySettings.ownMessagesOnRight;
 		chatAvatarMode = accessibilitySettings.chatAvatarMode;
@@ -293,6 +350,8 @@
 		appChromeOpacity = accessibilitySettings.appChromeOpacity;
 		messageDensity = accessibilitySettings.messageDensity;
 		chatFontScale = accessibilitySettings.chatFontScale;
+		deletionCountdownMode = accessibilitySettings.deletionCountdownMode;
+		clickableSendEnabled = accessibilitySettings.clickableSendEnabled;
 		videoCompressionEnabled = isVideoCompressionEnabled();
 		defaultVideoCompressionPreset = getDefaultVideoCompressionPreset();
 		soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
@@ -302,7 +361,12 @@
 		suppressEveryoneHereMentions = localStorage.getItem('suppressEveryoneHereMentions') === 'true';
 		suppressRoleMentions = localStorage.getItem('suppressRoleMentions') === 'true';
 		notificationSound = localStorage.getItem('notificationSound') || '/sounds/ProjectSound.ogg';
+		notificationSoundLabel =
+			notificationSound === '/sounds/ProjectSound.ogg'
+				? 'ProjectSound.ogg'
+				: localStorage.getItem('notificationSoundLabel') || 'Custom sound';
 		notificationVolume = parseFloat(localStorage.getItem('notificationVolume') || '0.5');
+		reverseImageSearchProvider = getReverseImageSearchProvider();
 		localAppRuntime = isTauriRuntime();
 		businessSyncMode = getBusinessSyncMode();
 		selectedMicDeviceId = getPreferredMicDeviceId() || '';
@@ -337,6 +401,7 @@
 		}
 
 		displayNameDraft = $currentUser?.username || '';
+		quoteTemplateDraft = get(customQuoteSettingsStore).template;
 		loadTranslatorAddonSettings();
 		saveTranslatorAddonSettings();
 	});
@@ -465,6 +530,12 @@
 		addonsLastDetectedAt = '';
 	}
 	$: translatorAddonDetected = [...frontendAddons, ...backendAddons].some((addon) => addon.id === 'translator-assist');
+	$: spellCheckEnabled = $composerEnhancementSettingsStore.spellcheckEnabled;
+	$: charCounterEnabled = $composerEnhancementSettingsStore.charCounterEnabled;
+	$: splitLargeMessagesEnabled = $composerEnhancementSettingsStore.splitLargeMessagesEnabled;
+	$: splitLargeMessagesChunkSize = $composerEnhancementSettingsStore.splitLargeMessagesChunkSize;
+	$: splitLargeMessagesInputMaxLength = $composerEnhancementSettingsStore.splitLargeMessagesInputMaxLength;
+	$: pinnedDmConversationCount = $pinnedDmIdsStore.length;
 
 	function toggleSound() {
 		soundEnabled = !soundEnabled;
@@ -789,6 +860,9 @@
 	function updateNotificationSound(sound: string) {
 		notificationSound = sound;
 		localStorage.setItem('notificationSound', sound);
+		notificationSoundLabel = sound === '/sounds/ProjectSound.ogg'
+			? 'ProjectSound.ogg'
+			: localStorage.getItem('notificationSoundLabel') || 'Custom sound';
 	}
 
 	function updateNotificationVolume(volume: number) {
@@ -798,6 +872,59 @@
 
 	function testNotificationSound() {
 		playNotificationSound();
+	}
+
+	function triggerNotificationSoundFilePicker(): void {
+		notificationSoundInput?.click();
+	}
+
+	function resetNotificationSoundToDefault(): void {
+		notificationSoundLabel = 'ProjectSound.ogg';
+		localStorage.removeItem('notificationSoundLabel');
+		updateNotificationSound('/sounds/ProjectSound.ogg');
+	}
+
+	async function handleNotificationSoundFileSelect(event: Event): Promise<void> {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+
+		const isAudioFile = file.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)$/i.test(file.name);
+		if (!isAudioFile) {
+			alert('Please choose an audio file.');
+			input.value = '';
+			return;
+		}
+		if (file.size > 1024 * 1024) {
+			alert('Custom notification sounds must be 1MB or smaller.');
+			input.value = '';
+			return;
+		}
+
+		try {
+			const dataUrl = await new Promise<string>((resolve, reject) => {
+				const reader = new FileReader();
+				reader.onload = () => resolve(String(reader.result || ''));
+				reader.onerror = () => reject(new Error('Failed to read audio file.'));
+				reader.readAsDataURL(file);
+			});
+			if (!dataUrl.startsWith('data:audio')) {
+				throw new Error('Unsupported audio encoding.');
+			}
+			localStorage.setItem('notificationSoundLabel', file.name);
+			notificationSoundLabel = file.name;
+			updateNotificationSound(dataUrl);
+			testNotificationSound();
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to load custom sound.');
+		} finally {
+			input.value = '';
+		}
+	}
+
+	function updateReverseSearchProvider(value: ReverseImageSearchProvider): void {
+		reverseImageSearchProvider = value;
+		setReverseImageSearchProvider(value);
 	}
 
 	function updateTextScale(value: number) {
@@ -827,6 +954,26 @@
 	function toggleReducedMotion() {
 		const next = updateAccessibilitySettings({ reducedMotion: !reducedMotion });
 		reducedMotion = next.reducedMotion;
+	}
+
+	function toggleAnimationPass() {
+		const next = updateAnimationPassSettings({ enabled: !animationPassEnabled });
+		animationPassEnabled = next.enabled;
+	}
+
+	function updateAnimationPreset(value: AnimationPassPreset) {
+		const next = updateAnimationPassSettings({ preset: value });
+		animationPassPreset = next.preset;
+	}
+
+	function updateAnimationLevel(value: AnimationPassLevel) {
+		const next = updateAnimationPassSettings({ level: value });
+		animationPassLevel = next.level;
+	}
+
+	function updateAnimationDurationMultiplier(value: number) {
+		const next = updateAnimationPassSettings({ durationMultiplier: value });
+		animationPassDurationMultiplier = next.durationMultiplier;
 	}
 
 	function updateRoleColorMode(mode: RoleColorMode) {
@@ -874,6 +1021,16 @@
 		chatFontScale = next.chatFontScale;
 	}
 
+	function updateDeletionCountdownMode(mode: DeletionCountdownMode) {
+		const next = updateAccessibilitySettings({ deletionCountdownMode: mode });
+		deletionCountdownMode = next.deletionCountdownMode;
+	}
+
+	function toggleClickableSendEnabled() {
+		const next = updateAccessibilitySettings({ clickableSendEnabled: !clickableSendEnabled });
+		clickableSendEnabled = next.clickableSendEnabled;
+	}
+
 	function resetAccessibilityVisuals() {
 		const next = updateAccessibilitySettings({
 			colorAssistEnabled: false,
@@ -886,7 +1043,9 @@
 			tabShadeStrength: 0.06,
 			appChromeOpacity: 1,
 			messageDensity: 'cozy',
-			chatFontScale: 1
+			chatFontScale: 1,
+			deletionCountdownMode: 'static',
+			clickableSendEnabled: true
 		});
 		colorAssistEnabled = next.colorAssistEnabled;
 		saturation = next.saturation;
@@ -899,6 +1058,18 @@
 		appChromeOpacity = next.appChromeOpacity;
 		messageDensity = next.messageDensity;
 		chatFontScale = next.chatFontScale;
+		deletionCountdownMode = next.deletionCountdownMode;
+		clickableSendEnabled = next.clickableSendEnabled;
+		const animationReset = updateAnimationPassSettings({
+			enabled: true,
+			preset: 'slip',
+			level: 'balanced',
+			durationMultiplier: 1
+		});
+		animationPassEnabled = animationReset.enabled;
+		animationPassPreset = animationReset.preset;
+		animationPassLevel = animationReset.level;
+		animationPassDurationMultiplier = animationReset.durationMultiplier;
 	}
 
 	function updateDockSide(side: 'left' | 'right') {
@@ -961,19 +1132,32 @@
 			.trim();
 	}
 
+	function getBuiltinAddonMeta(fileName: string): { id: string; name: string } | null {
+		if (fileName === 'ModelViewer3D') {
+			return {
+				id: 'model-viewer',
+				name: 'Model Viewer 3D'
+			};
+		}
+		return null;
+	}
+
 	function detectFrontendAddons(): DetectedAddon[] {
 		const keys = Object.keys(frontendAddonModules);
 		if (keys.length === 0) return [];
 
 		const addons = keys.map((path) => {
 			const fileName = path.split('/').pop()?.replace('.svelte', '') || path;
-			const addonId = fileName
-				.replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-				.replace(/[_\s]+/g, '-')
-				.toLowerCase();
+			const builtinMeta = getBuiltinAddonMeta(fileName);
+			const addonId =
+				builtinMeta?.id ||
+				fileName
+					.replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+					.replace(/[_\s]+/g, '-')
+					.toLowerCase();
 			return {
 				id: addonId,
-				name: toAddonNameFromComponentFile(fileName),
+				name: builtinMeta?.name || toAddonNameFromComponentFile(fileName),
 				version: 'local',
 				source: path,
 				side: 'frontend' as const
@@ -981,6 +1165,20 @@
 		});
 
 		return addons.sort((a, b) => a.name.localeCompare(b.name));
+	}
+
+	function mergeFrontendAddonLists(
+		primary: DetectedAddon[],
+		secondary: DetectedAddon[]
+	): DetectedAddon[] {
+		const merged = new Map<string, DetectedAddon>();
+		for (const addon of secondary) {
+			merged.set(addon.id, addon);
+		}
+		for (const addon of primary) {
+			merged.set(addon.id, addon);
+		}
+		return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
 	}
 
 	async function fetchPluginInventory(): Promise<PluginApiRecord[] | null> {
@@ -1003,9 +1201,10 @@
 	async function refreshAddonDetection(): Promise<void> {
 		addonsLoading = true;
 		try {
+			const localFrontendAddons = detectFrontendAddons();
 			const plugins = await fetchPluginInventory();
 			if (plugins) {
-				frontendAddons = plugins
+				const pluginFrontendAddons = plugins
 					.filter((plugin) => Boolean(plugin.hasFrontend || plugin.frontendEntry))
 					.map((plugin) => ({
 						id: String(plugin.id || 'unknown'),
@@ -1013,8 +1212,8 @@
 						version: String(plugin.version || 'unknown'),
 						source: String(plugin.frontendEntry || 'plugin-manifest'),
 						side: 'frontend' as const
-					}))
-					.sort((a, b) => a.name.localeCompare(b.name));
+					}));
+				frontendAddons = mergeFrontendAddonLists(pluginFrontendAddons, localFrontendAddons);
 				backendAddons = plugins
 					.filter((plugin) => Boolean(plugin.hasBackend || plugin.backendEntry))
 					.map((plugin) => ({
@@ -1026,7 +1225,7 @@
 					}))
 					.sort((a, b) => a.name.localeCompare(b.name));
 			} else {
-				frontendAddons = detectFrontendAddons();
+				frontendAddons = localFrontendAddons;
 				backendAddons = [];
 			}
 			addonsLastDetectedAt = new Date().toLocaleString();
@@ -1092,6 +1291,92 @@
 		};
 		localStorage.setItem(TRANSLATOR_SETTINGS_KEY, JSON.stringify(payload));
 		translatorSettingsSavedAt = new Date().toLocaleTimeString();
+	}
+
+	function addChatAliasFromDraft(): void {
+		const trigger = chatAliasTriggerDraft.trim();
+		const replacement = chatAliasReplacementDraft.trim();
+		if (!trigger || !replacement) return;
+		addChatAlias(trigger, replacement);
+		chatAliasTriggerDraft = '';
+		chatAliasReplacementDraft = '';
+	}
+
+	function toggleChatAliasEnabled(alias: ChatAliasEntry): void {
+		updateChatAlias(alias.id, { enabled: !alias.enabled });
+	}
+
+	function editChatAlias(alias: ChatAliasEntry): void {
+		const nextReplacement = window.prompt(`Edit replacement for ${alias.trigger}`, alias.replacement);
+		if (nextReplacement === null) return;
+		if (!nextReplacement.trim()) return;
+		updateChatAlias(alias.id, { replacement: nextReplacement.trim() });
+	}
+
+	function toggleChatFilterEnabled(): void {
+		setChatFilterSettings({ enabled: !$chatFilterStore.enabled });
+	}
+
+	function updateChatFilterMode(mode: ChatFilterMode): void {
+		setChatFilterSettings({ mode });
+	}
+
+	function toggleChatFilterIncoming(): void {
+		setChatFilterSettings({ applyToIncoming: !$chatFilterStore.applyToIncoming });
+	}
+
+	function toggleChatFilterOutgoing(): void {
+		setChatFilterSettings({ applyToOutgoing: !$chatFilterStore.applyToOutgoing });
+	}
+
+	function updateChatFilterReplacement(value: string): void {
+		setChatFilterSettings({ replacement: value });
+	}
+
+	function editChatFilterTerms(): void {
+		const current = $chatFilterStore.terms.join(', ');
+		const raw = window.prompt('Blocked terms (comma-separated)', current);
+		if (raw === null) return;
+		const terms = raw
+			.split(',')
+			.map((term) => term.trim())
+			.filter(Boolean);
+		setChatFilterSettings({ terms });
+	}
+
+	function saveQuoteTemplate(): void {
+		setCustomQuoteTemplate(quoteTemplateDraft);
+		quoteTemplateDraft = get(customQuoteSettingsStore).template;
+	}
+
+	function resetQuoteTemplateFromSettings(): void {
+		resetCustomQuoteTemplate();
+		quoteTemplateDraft = get(customQuoteSettingsStore).template;
+	}
+
+	function toggleSpellCheckAddon(): void {
+		setSpellCheckEnabled(!spellCheckEnabled);
+	}
+
+	function toggleCharCounterAddon(): void {
+		setCharCounterEnabled(!charCounterEnabled);
+	}
+
+	function toggleSplitLargeMessagesAddon(): void {
+		setSplitLargeMessagesEnabled(!splitLargeMessagesEnabled);
+	}
+
+	function updateSplitLargeMessagesChunkSize(rawValue: string): void {
+		const parsed = Number.parseInt(rawValue, 10);
+		if (!Number.isFinite(parsed)) return;
+		setSplitLargeMessagesChunkSize(parsed);
+	}
+
+	function clearAllPinnedDmConversations(): void {
+		if (pinnedDmConversationCount === 0) return;
+		const confirmed = window.confirm('Clear all pinned DM conversations?');
+		if (!confirmed) return;
+		clearPinnedDms();
 	}
 
 	async function importAddonManifest(event: Event): Promise<void> {
@@ -2057,10 +2342,30 @@
 									>
 										ProjectSound.ogg
 									</button>
+									<button
+										class="sound-option"
+										class:active={notificationSound.startsWith('data:audio')}
+										on:click={triggerNotificationSoundFilePicker}
+									>
+										Upload Custom Sound
+									</button>
 								</div>
-								<button class="test-sound-btn" on:click={testNotificationSound}>
-									Test Sound
-								</button>
+								<input
+									type="file"
+									accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac"
+									bind:this={notificationSoundInput}
+									on:change={handleNotificationSoundFileSelect}
+									style="display: none;"
+								/>
+								<div class="runtime-note">Active sound: {notificationSoundLabel}</div>
+								<div class="settings-row-actions">
+									<button class="test-sound-btn" on:click={testNotificationSound}>
+										Test Sound
+									</button>
+									<button class="action-btn secondary" on:click={resetNotificationSoundToDefault}>
+										Reset Default
+									</button>
+								</div>
 							</div>
 
 							<div class="setting-item-full">
@@ -2162,6 +2467,67 @@
 
 							<div class="setting-item">
 								<div class="setting-info">
+									<span class="setting-label">Better Animations Pass</span>
+									<span class="setting-description">BetterAnimations-style channel/message/popout motion across Wabi</span>
+								</div>
+								<button class="toggle-btn" class:active={animationPassEnabled} on:click={toggleAnimationPass}>
+									{animationPassEnabled ? 'ON' : 'OFF'}
+								</button>
+							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Animation Preset</span>
+									<span class="setting-description">Slip matches BetterAnimations defaults. Fade/Scale/Flip are alternatives.</span>
+								</div>
+								<select
+									class="theme-select"
+									value={animationPassPreset}
+									on:change={(e) => updateAnimationPreset(e.currentTarget.value as AnimationPassPreset)}
+									disabled={!animationPassEnabled || reducedMotion}
+								>
+									<option value="slip">Slip</option>
+									<option value="fade">Fade</option>
+									<option value="scale">Scale</option>
+									<option value="flip">Flip</option>
+								</select>
+							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Animation Detail</span>
+									<span class="setting-description">Balanced animates core surfaces. Full pushes stronger distance/staging.</span>
+								</div>
+								<select
+									class="theme-select"
+									value={animationPassLevel}
+									on:change={(e) => updateAnimationLevel(e.currentTarget.value as AnimationPassLevel)}
+									disabled={!animationPassEnabled || reducedMotion}
+								>
+									<option value="balanced">Balanced</option>
+									<option value="full">Full</option>
+								</select>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">Animation Speed</span>
+									<span class="setting-description">{Math.round(animationPassDurationMultiplier * 100)}% animation timing multiplier</span>
+								</div>
+								<input
+									type="range"
+									min="0.7"
+									max="1.6"
+									step="0.05"
+									bind:value={animationPassDurationMultiplier}
+									on:input={(e) => updateAnimationDurationMultiplier(parseFloat(e.currentTarget.value))}
+									class="volume-slider"
+									disabled={!animationPassEnabled || reducedMotion}
+								/>
+							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
 									<span class="setting-label">Role Color Display</span>
 									<span class="setting-description">Control how role colors are shown on usernames</span>
 								</div>
@@ -2210,6 +2576,32 @@
 									<button type="button" class="density-btn" class:active={messageDensity === 'cozy'} on:click={() => updateMessageDensity('cozy')}>Cozy</button>
 									<button type="button" class="density-btn" class:active={messageDensity === 'compact'} on:click={() => updateMessageDensity('compact')}>Compact</button>
 								</div>
+							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Message Deletion Timer</span>
+									<span class="setting-description">Show timers only in the last hour: Off, Static snapshot, or Live countdown</span>
+								</div>
+								<select
+									class="theme-select"
+									value={deletionCountdownMode}
+									on:change={(e) => updateDeletionCountdownMode(e.currentTarget.value as DeletionCountdownMode)}
+								>
+									<option value="off">Off</option>
+									<option value="static">General Countdown</option>
+									<option value="live">Live Countdown</option>
+								</select>
+							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Clickable Send Button</span>
+									<span class="setting-description">Show the paper-plane send button next to the composer</span>
+								</div>
+								<button class="toggle-btn" class:active={clickableSendEnabled} on:click={toggleClickableSendEnabled}>
+									{clickableSendEnabled ? 'ON' : 'OFF'}
+								</button>
 							</div>
 
 							<!-- Chat Font Size -->
@@ -2583,6 +2975,200 @@
 									{/if}
 								</div>
 							{/if}
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">ChatAliases (MVP)</span>
+									<span class="setting-description">Create slash aliases. Use <code>{'{args}'}</code> in replacement to inject trailing arguments.</span>
+								</div>
+								<div class="settings-row-actions">
+									<input
+										type="text"
+										class="theme-select alias-input"
+										placeholder="/shrug"
+										bind:value={chatAliasTriggerDraft}
+									/>
+									<input
+										type="text"
+										class="theme-select alias-input"
+										placeholder="Replacement text or /command"
+										bind:value={chatAliasReplacementDraft}
+									/>
+									<button
+										class="action-btn"
+										on:click={addChatAliasFromDraft}
+										disabled={!chatAliasTriggerDraft.trim() || !chatAliasReplacementDraft.trim()}
+									>
+										Add Alias
+									</button>
+								</div>
+								{#if $chatAliasesStore.length === 0}
+									<div class="runtime-note">No aliases configured yet.</div>
+								{:else}
+									<div class="addons-list">
+										{#each $chatAliasesStore as alias (alias.id)}
+											<div class="addon-row">
+												<div class="addon-name">{alias.trigger} -> {alias.replacement}</div>
+												<div class="settings-row-actions">
+													<button class="action-btn secondary" on:click={() => toggleChatAliasEnabled(alias)}>
+														{alias.enabled ? 'Disable' : 'Enable'}
+													</button>
+													<button class="action-btn secondary" on:click={() => editChatAlias(alias)}>Edit</button>
+													<button class="action-btn danger" on:click={() => removeChatAlias(alias.id)}>Delete</button>
+												</div>
+											</div>
+										{/each}
+									</div>
+								{/if}
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">ChatFilter (MVP)</span>
+									<span class="setting-description">Censor or hide messages containing blocked terms.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={$chatFilterStore.enabled} on:click={toggleChatFilterEnabled}>
+										{$chatFilterStore.enabled ? 'ON' : 'OFF'}
+									</button>
+									<select
+										class="theme-select"
+										value={$chatFilterStore.mode}
+										on:change={(event) => updateChatFilterMode(event.currentTarget.value as ChatFilterMode)}
+										disabled={!$chatFilterStore.enabled}
+									>
+										<option value="censor">Censor text</option>
+										<option value="hide">Hide full message</option>
+									</select>
+									<button class="action-btn secondary" on:click={editChatFilterTerms}>
+										Edit Terms ({$chatFilterStore.terms.length})
+									</button>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={$chatFilterStore.applyToIncoming} on:click={toggleChatFilterIncoming}>
+										Incoming {$chatFilterStore.applyToIncoming ? 'ON' : 'OFF'}
+									</button>
+									<button class="toggle-btn" class:active={$chatFilterStore.applyToOutgoing} on:click={toggleChatFilterOutgoing}>
+										Outgoing {$chatFilterStore.applyToOutgoing ? 'ON' : 'OFF'}
+									</button>
+								</div>
+								{#if $chatFilterStore.mode === 'censor'}
+									<label class="upload-limit-row">
+										<span>Replacement token</span>
+										<input
+											type="text"
+											maxlength="24"
+											value={$chatFilterStore.replacement}
+											on:input={(event) => updateChatFilterReplacement(event.currentTarget.value)}
+										/>
+									</label>
+								{/if}
+								<div class="runtime-note">
+									Current blocked terms: {$chatFilterStore.terms.length > 0 ? $chatFilterStore.terms.join(', ') : '(none)'}
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">CustomQuoter (MVP)</span>
+									<span class="setting-description">Template used by message action <strong>Copy Quote</strong>.</span>
+								</div>
+								<textarea
+									class="addon-template-input"
+									rows="3"
+									bind:value={quoteTemplateDraft}
+									placeholder={'> {text}\\n- {user} ({timestamp})'}
+								></textarea>
+								<div class="runtime-note">Placeholders: <code>{'{user}'}</code> <code>{'{text}'}</code> <code>{'{timestamp}'}</code> <code>{'{channel}'}</code> <code>{'{message_id}'}</code></div>
+								<div class="settings-row-actions">
+									<button class="action-btn" on:click={saveQuoteTemplate}>Save Template</button>
+									<button class="action-btn secondary" on:click={resetQuoteTemplateFromSettings}>Reset Default</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">ImageUtilities (MVP)</span>
+									<span class="setting-description">Choose the default provider for reverse image search from the image lightbox menu.</span>
+								</div>
+								<label class="upload-limit-row">
+									<span>Reverse image search provider</span>
+									<select
+										class="theme-select"
+										value={reverseImageSearchProvider}
+										on:change={(event) => updateReverseSearchProvider(event.currentTarget.value as ReverseImageSearchProvider)}
+									>
+										<option value="google_lens">Google Lens</option>
+										<option value="bing">Bing Visual Search</option>
+										<option value="tineye">TinEye</option>
+										<option value="yandex">Yandex Images</option>
+									</select>
+								</label>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">SpellCheck (MVP)</span>
+									<span class="setting-description">Use browser spellcheck in the main chat and DM composers.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={spellCheckEnabled} on:click={toggleSpellCheckAddon}>
+										{spellCheckEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">CharCounter (MVP)</span>
+									<span class="setting-description">Show live character counters in the main chat and DM composers.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={charCounterEnabled} on:click={toggleCharCounterAddon}>
+										{charCounterEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">SplitLargeMessages (MVP)</span>
+									<span class="setting-description">Automatically split long outgoing text into multiple messages.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={splitLargeMessagesEnabled} on:click={toggleSplitLargeMessagesAddon}>
+										{splitLargeMessagesEnabled ? 'ON' : 'OFF'}
+									</button>
+									<label class="upload-limit-row split-chunk-size-row">
+										<span>Chunk size</span>
+										<input
+											type="number"
+											min="250"
+											max="4000"
+											step="50"
+											value={splitLargeMessagesChunkSize}
+											on:change={(event) => updateSplitLargeMessagesChunkSize(event.currentTarget.value)}
+											disabled={!splitLargeMessagesEnabled}
+										/>
+									</label>
+								</div>
+								<div class="runtime-note">
+									Composer max length: {splitLargeMessagesEnabled ? splitLargeMessagesInputMaxLength : splitLargeMessagesChunkSize} characters.
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">PinDMs (MVP)</span>
+									<span class="setting-description">Pin conversations from the DM context menu to keep them at the top.</span>
+								</div>
+								<div class="runtime-note">Pinned conversations: {pinnedDmConversationCount}</div>
+								<div class="settings-row-actions">
+									<button class="action-btn secondary" on:click={clearAllPinnedDmConversations} disabled={pinnedDmConversationCount === 0}>
+										Clear All Pins
+									</button>
+								</div>
+							</div>
 						</div>
 
 					{:else if activeSettingsTab === 'emojis'}
@@ -3275,6 +3861,22 @@
 		flex-wrap: wrap;
 		gap: 0.55rem;
 		margin-bottom: 0.55rem;
+	}
+
+	.alias-input {
+		min-width: 220px;
+	}
+
+	.addon-template-input {
+		width: 100%;
+		resize: vertical;
+		min-height: 88px;
+		font-family: monospace;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		border: 1px solid var(--ui-bg-light);
+		border-radius: 8px;
+		padding: 0.6rem 0.75rem;
 	}
 
 	.action-btn.export {

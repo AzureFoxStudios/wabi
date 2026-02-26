@@ -5,6 +5,7 @@
 		incomingCall,
 		isInCall,
 		channelCallPanelOpen,
+		activeVoiceChannel,
 		isMuted,
 		isDeafened,
 		isVideoOff,
@@ -23,6 +24,7 @@
 		startScreenShare,
 		stopScreenShare,
 		localStream,
+		listeningVoiceChannels,
 		connectionState,
 		spatialAudioRuntimeStatus,
 		toggleSpatialAudioEnabled
@@ -120,6 +122,15 @@
 	$: orderedTiles = layoutResult.tileIds
 		.map((tileId) => tileById.get(tileId))
 		.filter((tile): tile is RenderTile => Boolean(tile));
+	$: routeListeningCount = (() => {
+		const ids = new Set($listeningVoiceChannels);
+		if ($activeVoiceChannel?.id) ids.add($activeVoiceChannel.id);
+		return ids.size;
+	})();
+	$: voiceRouteText =
+		$callMode === 'channel'
+			? `Speaking: ${$activeVoiceChannel?.name || 'None'} | Listening: ${routeListeningCount} channel(s)`
+			: '';
 
 	$: {
 		if ($isInCall && !wasInCall) {
@@ -665,6 +676,9 @@
 
 			{#if $connectionState && $connectionState !== 'idle'}
 				<div class="connection-status">Connection: {$connectionState}</div>
+			{/if}
+			{#if voiceRouteText}
+				<div class="route-status">{voiceRouteText}</div>
 			{/if}
 		</div>
 	</div>
@@ -1214,6 +1228,21 @@
 		font-weight: 700;
 		text-transform: capitalize;
 		z-index: 3;
+	}
+
+	.route-status {
+		position: absolute;
+		top: 2.2rem;
+		left: 50%;
+		transform: translateX(-50%);
+		background: rgba(0, 0, 0, 0.56);
+		padding: 0.25rem 0.52rem;
+		border-radius: 8px;
+		font-size: 0.66rem;
+		font-weight: 600;
+		color: rgba(255, 255, 255, 0.88);
+		z-index: 3;
+		white-space: nowrap;
 	}
 
 	@media (max-width: 900px) {

@@ -45,6 +45,11 @@ Decision log for the Wabi-native ZipPreview port.
 - Why: These formats are higher-risk for malformed edge cases and are uncommon in chat workflows.
 - Consequence: Some uncommon but valid ZIP variants are intentionally unsupported with clear errors.
 
+### 8) Fixture Smoke Coverage
+- Decision: Add a lightweight fixture-based smoke script (`frontend/scripts/zip-preview-fixture-smoke.ts`) and wire `bun run check:zip-preview`.
+- Why: We need repeatable parser regression checks without pulling in a full test harness first.
+- Consequence: Fast local validation exists for malformed/split/ZIP64-boundary cases; full packaged-app manual pass remains separate.
+
 ## Follow-ups
 - Consider worker-thread parsing for larger archives in Phase 2.
 - Consider backend-assisted parsing for very large/remote archives in Phase 2+.

@@ -7,6 +7,7 @@
 	import type { User, Message, Channel } from '$lib/socket';
 	import { onMount, afterUpdate, tick } from 'svelte';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
+	import { composerEnhancementSettingsStore, splitMessageForSending } from '$lib/composerEnhancements';
 
 	export let channelId: string;
 	export let otherUser: User;
@@ -22,10 +23,31 @@
 	$: messages = $channelMessages[channelId] || [];
 	$: dmNotesStorageKey = getDmNotesStorageKey(channelId, $currentUser?.id);
 	$: dmNotesTitle = isGroup ? 'Group Notes' : 'DM Notes';
+	$: composerEnhancementSettings = $composerEnhancementSettingsStore;
+	$: dmSpellcheckEnabled = composerEnhancementSettings.spellcheckEnabled;
+	$: dmCharCounterEnabled = composerEnhancementSettings.charCounterEnabled;
+	$: dmSplitLargeMessagesEnabled = composerEnhancementSettings.splitLargeMessagesEnabled;
+	$: dmSplitLargeMessagesChunkSize = composerEnhancementSettings.splitLargeMessagesChunkSize;
+	$: dmInputMaxLength = dmSplitLargeMessagesEnabled
+		? composerEnhancementSettings.splitLargeMessagesInputMaxLength
+		: dmSplitLargeMessagesChunkSize;
+	$: dmCharCount = messageInput.length;
+	$: dmCharCounterWarn = dmInputMaxLength > 0 && dmCharCount / dmInputMaxLength >= 0.9;
 
 	function handleSend() {
-		if (!messageInput.trim()) return;
-		sendMessage(channelId, messageInput.trim());
+		const trimmed = messageInput.trim();
+		if (!trimmed) return;
+
+		if (dmSplitLargeMessagesEnabled && trimmed.length > dmSplitLargeMessagesChunkSize) {
+			const chunks = splitMessageForSending(trimmed, dmSplitLargeMessagesChunkSize);
+			if (chunks.length === 0) return;
+			for (const chunk of chunks) {
+				sendMessage(channelId, chunk);
+			}
+		} else {
+			sendMessage(channelId, trimmed);
+		}
+
 		messageInput = '';
 		shouldAutoScroll = true;
 		if (typingTimeout) { clearTimeout(typingTimeout); typingTimeout = null; }
@@ -163,8 +185,15 @@
 					on:keydown={handleKeydown}
 					on:input={handleInput}
 					placeholder={placeholderText}
+					maxlength={dmInputMaxLength}
+					spellcheck={dmSpellcheckEnabled}
 					rows="1"
 				></textarea>
+				{#if dmCharCounterEnabled}
+					<span class="dm-char-counter" class:warn={dmCharCounterWarn}>
+						{dmCharCount}/{dmInputMaxLength}
+					</span>
+				{/if}
 				<button class="dm-send-btn" on:click={handleSend} disabled={!messageInput.trim()}>
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
 				</button>
@@ -420,6 +449,20 @@
 		color: var(--text-secondary);
 	}
 
+	.dm-char-counter {
+		font-size: 0.66rem;
+		color: var(--text-secondary);
+		min-width: 4rem;
+		text-align: right;
+		align-self: flex-end;
+		padding-bottom: 0.25rem;
+		opacity: 0.85;
+	}
+
+	.dm-char-counter.warn {
+		color: #ffb347;
+	}
+
 	.dm-send-btn {
 		width: 36px;
 		height: 36px;
@@ -433,6 +476,18 @@
 		justify-content: center;
 		flex-shrink: 0;
 		transition: opacity 0.15s;
+	}
+
+	:global(html[data-clickable-send='true']) .dm-input-area .dm-send-btn {
+		display: none;
+	}
+
+	:global(html[data-clickable-send='true']) .dm-input-area:focus-within .dm-send-btn {
+		display: flex;
+	}
+
+	:global(html[data-clickable-send='false']) .dm-send-btn {
+		display: none;
 	}
 
 	.dm-send-btn:disabled {

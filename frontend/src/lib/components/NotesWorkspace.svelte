@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { createEmptyNote, readNotes, writeNotes, type LocalNote } from '$lib/notesStore';
 
 	export let storageKey: string;
@@ -8,14 +9,17 @@
 	export let showHeader = true;
 
 	const SIDEBAR_MIN_WIDTH = 0;
-	const SIDEBAR_MAX_WIDTH = 420;
 	const SIDEBAR_COLLAPSED_WIDTH = 0;
-	const SIDEBAR_REOPEN_WIDTH = 200;
+	const SPLITTER_WIDTH = 7;
+	const SIDEBAR_REOPEN_WIDTH = 220;
+	const MIN_WORKSPACE_WIDTH = 320;
 
 	let sidebarWidth = 220;
 	let isResizingSidebar = false;
 	let resizeStartX = 0;
 	let resizeStartWidth = 220;
+	let workspaceElement: HTMLDivElement | null = null;
+	let workspaceWidth = 0;
 
 	let notes: LocalNote[] = [];
 	let selectedNoteId: string | null = null;
@@ -91,7 +95,11 @@
 	function handleSidebarResizeMove(event: MouseEvent): void {
 		if (!isResizingSidebar) return;
 		const delta = event.clientX - resizeStartX;
-		const nextWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, resizeStartWidth + delta));
+		const maxSidebarWidth = Math.max(
+			SIDEBAR_MIN_WIDTH,
+			Math.max(workspaceWidth || MIN_WORKSPACE_WIDTH, MIN_WORKSPACE_WIDTH) - SPLITTER_WIDTH
+		);
+		const nextWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(maxSidebarWidth, resizeStartWidth + delta));
 		sidebarWidth = nextWidth <= 26 ? SIDEBAR_COLLAPSED_WIDTH : nextWidth;
 	}
 
@@ -104,9 +112,29 @@
 	function openSidebar(): void {
 		sidebarWidth = SIDEBAR_REOPEN_WIDTH;
 	}
+
+	function recalcWorkspaceWidth(): void {
+		if (!workspaceElement) return;
+		workspaceWidth = Math.max(MIN_WORKSPACE_WIDTH, workspaceElement.clientWidth);
+		const maxSidebarWidth = Math.max(SIDEBAR_MIN_WIDTH, workspaceWidth - SPLITTER_WIDTH);
+		if (sidebarWidth > maxSidebarWidth) {
+			sidebarWidth = maxSidebarWidth;
+		}
+	}
+
+	onMount(() => {
+		recalcWorkspaceWidth();
+	});
 </script>
 
-<div class="notes-workspace" class:sidebar-collapsed={sidebarWidth === SIDEBAR_COLLAPSED_WIDTH} style={`grid-template-columns: ${sidebarWidth}px ${sidebarWidth === SIDEBAR_COLLAPSED_WIDTH ? 0 : 7}px minmax(0, 1fr);`}>
+<svelte:window on:resize={recalcWorkspaceWidth} />
+
+<div
+	class="notes-workspace"
+	class:sidebar-collapsed={sidebarWidth === SIDEBAR_COLLAPSED_WIDTH}
+	style={`grid-template-columns: ${sidebarWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr);`}
+	bind:this={workspaceElement}
+>
 	<div class="notes-sidebar" class:collapsed={sidebarWidth === SIDEBAR_COLLAPSED_WIDTH}>
 		{#if showHeader}
 			<div class="notes-header">
@@ -133,15 +161,13 @@
 			{/each}
 		</div>
 	</div>
-	{#if sidebarWidth !== SIDEBAR_COLLAPSED_WIDTH}
-		<button
-			class="notes-sidebar-resizer"
-			type="button"
-			on:mousedown={handleSidebarResizeStart}
-			aria-label="Resize notes list"
-			title="Resize notes list"
-		></button>
-	{/if}
+	<button
+		class="notes-sidebar-resizer"
+		type="button"
+		on:mousedown={handleSidebarResizeStart}
+		aria-label="Resize notes list"
+		title="Resize notes list"
+	></button>
 	<div class="notes-editor">
 		{#if selectedNote}
 			<div class="notes-editor-toolbar">

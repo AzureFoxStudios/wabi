@@ -269,7 +269,7 @@
 								</div>
 							</div>
 						{/if}
-						<div class="pip-label">You</div>
+						<div class="pip-label">{$currentUser?.username || 'You'}</div>
 					</div>
 				{/if}
 

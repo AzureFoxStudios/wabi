@@ -462,6 +462,80 @@ export const professionalTheme: Theme = {
 	}
 };
 
+// ===== SLATE SIGNAL THEME (Discord-style layered neutral + constrained blue accent) =====
+export const slateSignalTheme: Theme = {
+	id: 'slate-signal',
+	name: 'Tokyo Drift Slate',
+	description: 'Layered charcoal surfaces with restrained cobalt accents. Drift-inspired, built for long sessions and clear hierarchy.',
+	colors: {
+		bgPrimary: 'linear-gradient(120deg, rgba(23, 27, 35, 0.92) 0%, rgba(34, 39, 50, 0.88) 55%, rgba(30, 35, 47, 0.9) 100%)',
+		bgSecondary: 'rgba(20, 24, 32, 0.72)',
+		bgTertiary: 'rgba(34, 40, 52, 0.66)',
+		bgHover: 'rgba(52, 61, 78, 0.78)',
+
+		bgPrimaryRgb: '30, 33, 40',
+		bgSecondaryRgb: '27, 31, 39',
+		bgTertiaryRgb: '38, 44, 56',
+
+		textPrimary: '#eef2ff',
+		textSecondary: '#c8d1e8',
+		textTertiary: '#93a0bf',
+
+		textPrimaryRgb: '238, 242, 255',
+		textSecondaryRgb: '200, 209, 232',
+		textTertiaryRgb: '147, 160, 191',
+
+		accent: 'linear-gradient(to right, #5c7cff 0%, #6d8dff 100%)',
+		accentHex: '#5c7cff',
+		accentRgb: '92, 124, 255',
+		accentHover: 'linear-gradient(to right, #6d8dff 0%, #80a0ff 100%)',
+
+		uiBgLight: 'rgba(41, 49, 64, 0.64)',
+		uiBgLighter: 'rgba(50, 60, 78, 0.62)',
+		uiText: '#d5def4',
+		uiTextDark: '#eef2ff',
+
+		statusOnline: '#22c55e',
+		statusAway: '#f59e0b',
+		statusBusy: '#ef4444',
+		statusOffline: '#64748b',
+
+		colorSuccess: '#22c55e',
+		colorInfo: '#5c7cff',
+		colorWarning: '#f59e0b',
+		colorDanger: '#ef4444',
+
+		modalBg: 'rgba(16, 20, 28, 0.9)',
+		modalHeaderBg: 'rgba(33, 40, 54, 0.82)',
+		modalText: '#eef2ff',
+		modalOverlay: 'rgba(5, 8, 14, 0.78)',
+		modalBorder: 'rgba(109, 141, 255, 0.2)',
+
+		darkBgPrimary: '#10141c',
+		darkBgSecondary: '#171b22',
+
+		error: '#ef4444',
+
+		border: 'rgba(72, 84, 109, 0.62)',
+		borderRgb: '49, 58, 75'
+	},
+	gradients: {
+		primary: 'linear-gradient(120deg, rgba(23, 27, 35, 0.92) 0%, rgba(34, 39, 50, 0.88) 55%, rgba(30, 35, 47, 0.9) 100%)',
+		accent: 'linear-gradient(to right, #5c7cff 0%, #6d8dff 100%)',
+		accentHover: 'linear-gradient(to right, #6d8dff 0%, #80a0ff 100%)',
+		dialogDark: 'linear-gradient(135deg, rgba(22, 27, 37, 0.92) 0%, rgba(39, 47, 61, 0.84) 100%)',
+		fadeBottomDark: 'linear-gradient(to bottom, rgba(35, 41, 54, 0.78), rgba(23, 27, 34, 0.58))',
+		fadeRightTransparent: 'linear-gradient(to right, transparent, #1b1f27)',
+		lineGlow: 'linear-gradient(90deg, transparent, rgba(109, 141, 255, 0.2), transparent)',
+		fadeTopDark: 'linear-gradient(to top, rgba(8, 11, 18, 0.85), transparent)',
+		accentSubtle: 'linear-gradient(135deg, rgba(92, 124, 255, 0.18) 0%, rgba(128, 160, 255, 0.14) 100%)',
+		accentMedium: 'linear-gradient(135deg, rgba(92, 124, 255, 0.32) 0%, rgba(128, 160, 255, 0.26) 100%)',
+		scrollbar: 'linear-gradient(to bottom, #5c7cff 0%, #6d8dff 100%)',
+		scrollbarHover: 'linear-gradient(to bottom, #6d8dff 0%, #80a0ff 100%)',
+		loadingDark: 'linear-gradient(135deg, #10141c 0%, #242833 100%)'
+	}
+};
+
 // ===== CATPPUCCIN MOCHA THEME =====
 export const catppuccinMochaTheme: Theme = {
 	id: 'catppuccin-mocha',
@@ -913,6 +987,7 @@ export const THEMES: Record<string, Theme> = {
 	'midnight-blue': midnightBlueTheme,
 	'vscode-high-contrast': vscodeHighContrastTheme,
 	professional: professionalTheme,
+	'slate-signal': slateSignalTheme,
 	'catppuccin-mocha': catppuccinMochaTheme,
 	dracula: draculaTheme,
 	nord: nordTheme,

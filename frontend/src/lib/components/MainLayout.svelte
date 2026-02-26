@@ -114,6 +114,14 @@
 		layoutStore.isResizingRight.set(false);
 	}
 
+	function startChannelResizeFromClosed(event: MouseEvent) {
+		if ($layoutStore.isMobile) return;
+		const isRightDock = $layoutStore.navDock === 'right';
+		const width = isRightDock ? window.innerWidth - event.clientX : event.clientX;
+		layoutStore.channelSidebarWidth.set(Math.max(8, Math.min(width, 400)));
+		layoutStore.isResizingChannel.set(true);
+	}
+
 	function getLastMessageTimestamp(channelId: string): number {
 		const messages = $channelMessages[channelId] || [];
 		return messages.length > 0 ? messages[messages.length - 1].timestamp : 0;
@@ -486,6 +494,27 @@
 		class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
 		class:obvious-grab-rails={$layoutStore.obviousGrabRails}
 	>
+	{#if !$layoutStore.isMobile && $layoutStore.channelSidebarWidth === 0}
+		<button
+			type="button"
+			class="nav-reopen-rail"
+			class:dock-right={$layoutStore.navDock === 'right'}
+			style:right={$layoutStore.navDock === 'right' && $layoutStore.showRightPanel ? `${$layoutStore.rightPanelWidth}px` : null}
+			on:click={layoutStore.expandNav}
+			on:mousedown|preventDefault={startChannelResizeFromClosed}
+			title="Open channel sidebar"
+			aria-label="Open channel sidebar"
+		>
+			<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+				{#if $layoutStore.navDock === 'right'}
+					<polyline points="15 18 9 12 15 6"/>
+				{:else}
+					<polyline points="9 18 15 12 9 6"/>
+				{/if}
+			</svg>
+		</button>
+	{/if}
+
 	<!-- Channel Sidebar (Left) -->
 	<div
 		class="channel-sidebar-container"
@@ -928,6 +957,41 @@
 		color: white;
 	}
 
+	.nav-reopen-rail {
+		position: absolute;
+		top: 50%;
+		left: 0;
+		transform: translateY(-50%);
+		width: 18px;
+		height: 84px;
+		background: color-mix(in srgb, var(--bg-secondary) 86%, black 14%);
+		border: 1px solid var(--border);
+		border-left: none;
+		border-radius: 0 var(--radius-md) var(--radius-md) 0;
+		color: var(--text-secondary);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: col-resize;
+		z-index: var(--z-sticky);
+		opacity: 0.75;
+		transition: opacity 0.18s ease, background 0.18s ease, color 0.18s ease;
+	}
+
+	.nav-reopen-rail:hover {
+		opacity: 1;
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.nav-reopen-rail.dock-right {
+		left: auto;
+		right: 0;
+		border-left: 1px solid var(--border);
+		border-right: none;
+		border-radius: var(--radius-md) 0 0 var(--radius-md);
+	}
+
 	/* --- Mobile Styles --- */
 	.mobile-bottom-nav { display: none; }
 	.mobile-right-overlay { display: none; }
@@ -947,6 +1011,7 @@
 			height: 100dvh;
 		}
 		.user-panel-toggle, .resize-handle { display: none; }
+		.nav-reopen-rail { display: none; }
 		.dm-notification-rail { display: none; }
 
 		.channel-sidebar-container,

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, afterUpdate } from 'svelte';
+	import { fade, fly, scale } from 'svelte/transition';
 	import { get } from 'svelte/store';
 	import type { Message, User, Emoji, Channel, FileAttachment } from '$lib/socket';
 	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder, loadOlderHistory, channelHistoryLoading, channelHasMoreHistory } from '$lib/socket';
@@ -12,7 +13,11 @@
 	import YouTubeWatchEmbed from './plugins/YouTubeWatchEmbed.svelte';
 	import type { BlendImportSettingsPayload } from './plugins/BlendImportSettingsModal.svelte';
 	import { parseMessage } from '$lib/markdown';
-	import { resolveUserDisplayColor } from '$lib/accessibility';
+	import {
+		getStoredAccessibilitySettings,
+		resolveUserDisplayColor,
+		type DeletionCountdownMode
+	} from '$lib/accessibility';
 	import '$lib/prism-theme.css';
 	import { longpress } from '$lib/actions/longpress';
 	import { getServerUrl } from '$lib/serverUrl';
@@ -22,9 +27,24 @@
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { _ } from '$lib/i18n';
 	import { addMediaAlbumItem, createMediaAlbum, listMediaAlbums, type MediaAlbumScopeType } from '$lib/api';
+	import {
+		applyChatFilter,
+		chatFilterStore,
+		customQuoteSettingsStore,
+		formatCustomQuote
+	} from '$lib/chatEnhancements';
+	import { buildReverseImageSearchUrl, getReverseImageSearchProvider } from '$lib/imageUtilities';
+	import { animationPassStore, type AnimationPassPreset } from '$lib/animationPass';
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
+	const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+	const easeOutQuint = (t: number) => 1 - Math.pow(1 - t, 5);
+	const easeOutBack = (t: number) => {
+		const c1 = 1.70158;
+		const c3 = c1 + 1;
+		return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+	};
 	const MESSAGE_RENDER_BATCH = 120;
 	const MESSAGE_RENDER_MAX = 360;
 	let messageRenderLimit = MESSAGE_RENDER_BATCH;
@@ -71,6 +91,54 @@
 	let userPopoutLoadPromise: Promise<void> | null = null;
 	let linkPreviewLoadPromise: Promise<void> | null = null;
 	let blendImportModalLoadPromise: Promise<void> | null = null;
+	$: messageAnimation = (() => {
+		const baseDuration = $animationPassStore.level === 'full' ? 260 : 190;
+		const baseDistance = $animationPassStore.level === 'full' ? 20 : 14;
+		return {
+			enabled: $animationPassStore.enabled,
+			preset: $animationPassStore.preset,
+			duration: Math.max(0, Math.round(baseDuration * $animationPassStore.durationMultiplier)),
+			distance: Math.max(0, Math.round(baseDistance * $animationPassStore.durationMultiplier))
+		};
+	})();
+
+	function getTransitionForPreset(
+		node: Element,
+		preset: AnimationPassPreset,
+		duration: number,
+		distance: number
+	) {
+		if (preset === 'fade') {
+			return fade(node, { duration, easing: easeOutCubic });
+		}
+		if (preset === 'scale') {
+			return scale(node, { duration, start: 0.985, opacity: 0.2, easing: easeOutBack });
+		}
+		if (preset === 'flip') {
+			return scale(node, { duration, start: 0.93, opacity: 0.12, easing: easeOutQuint });
+		}
+		return fly(node, { duration, y: distance, opacity: 0.15, easing: easeOutQuint });
+	}
+
+	function messageItemTransition(
+		node: Element,
+		params: {
+			enabled: boolean;
+			preset: AnimationPassPreset;
+			duration: number;
+			distance: number;
+			animate: boolean;
+		}
+	) {
+		const reducedMotion = typeof document !== 'undefined' && document.documentElement.getAttribute('data-reduce-motion') === 'true';
+		if (reducedMotion) {
+			return fade(node, { duration: 0 });
+		}
+		if (!params.enabled || !params.animate || params.duration <= 0) {
+			return fade(node, { duration: 0 });
+		}
+		return getTransitionForPreset(node, params.preset, params.duration, params.distance);
+	}
 
 	function ensureEmojiPickerLoaded(): void {
 		if (EmojiPickerComponent || emojiPickerLoadPromise) return;
@@ -159,7 +227,9 @@
 		'14d': 14 * 24 * 60 * 60 * 1000,
 		'30d': 30 * 24 * 60 * 60 * 1000
 	};
+	const DELETION_COUNTDOWN_VISIBILITY_WINDOW_MS = 60 * 60 * 1000;
 	let nowMs = Date.now();
+	let deletionCountdownMode: DeletionCountdownMode = 'static';
 
 	function formatDurationCompact(durationMs: number): string {
 		const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
@@ -193,11 +263,20 @@
 	}
 
 	function getMessageDeletionLabel(message: Message): string | null {
+		if (deletionCountdownMode === 'off') return null;
 		const deadline = getMessageDeletionDeadline(message);
 		if (!deadline) return null;
 		const remaining = deadline - nowMs;
+		if (remaining > DELETION_COUNTDOWN_VISIBILITY_WINDOW_MS) return null;
 		if (remaining <= 0) return get(_)('messages.deletion.deleting');
 		return get(_)('messages.deletion.deletes_in', { values: { duration: formatDurationCompact(remaining) } });
+	}
+
+	function readDeletionCountdownModeFromDom(): DeletionCountdownMode {
+		if (typeof document === 'undefined') return 'static';
+		const attrValue = document.documentElement.getAttribute('data-deletion-countdown-mode');
+		if (attrValue === 'off' || attrValue === 'live' || attrValue === 'static') return attrValue;
+		return getStoredAccessibilitySettings().deletionCountdownMode;
 	}
 	function getUserByUsername(username: string): User | undefined {
 		return $users.find(u => u.username === username);
@@ -323,6 +402,22 @@
 				attachmentEncryption: message.attachmentEncryption
 			}
 		];
+	}
+
+	function countMessageAttachments(message: Message | null): number {
+		if (!message) return 0;
+		if (Array.isArray(message.files) && message.files.length > 0) {
+			return message.files.filter((entry) => Boolean(entry?.fileUrl)).length;
+		}
+		return message.fileUrl ? 1 : 0;
+	}
+
+	function getDeleteConfirmMessage(message: Message | null): string {
+		const attachmentCount = countMessageAttachments(message);
+		if (attachmentCount > 0) {
+			return get(_)('messages.confirm.delete_message_with_uploads', { values: { count: attachmentCount } });
+		}
+		return get(_)('messages.confirm.delete_message');
 	}
 
 	function selectAttachmentActionItems(items: MessageAttachmentActionItem[]): MessageAttachmentActionItem[] | null {
@@ -466,6 +561,62 @@
 			}
 		} catch (error) {
 			alert(error instanceof Error ? error.message : 'Failed to add file(s) to album.');
+		} finally {
+			contextMenuVisible = false;
+		}
+	}
+
+	function getQuoteSourceText(message: Message): string {
+		if (message.text?.trim()) return message.text.trim();
+		if (message.type === 'gif' && message.gifUrl) return `[GIF] ${message.gifUrl}`;
+		if (message.type === 'emoji' && message.emojiName) return `:${message.emojiName}:`;
+		if (message.files?.length) {
+			if (message.files.length === 1) return `[file] ${message.files[0].fileName}`;
+			return `[files] ${message.files.map((entry) => entry.fileName).join(', ')}`;
+		}
+		if (message.fileName) return `[file] ${message.fileName}`;
+		return '[message]';
+	}
+
+	async function handleCopyQuote(): Promise<void> {
+		if (!contextMenuMessage) return;
+
+		const activeChannel = $channels.find((channel) => channel.id === $currentChannel);
+		const quoteText = formatCustomQuote(
+			{
+				user: contextMenuMessage.user,
+				text: getQuoteSourceText(contextMenuMessage),
+				timestamp: contextMenuMessage.timestamp,
+				channel: activeChannel?.name || $currentChannel,
+				messageId: contextMenuMessage.id
+			},
+			$customQuoteSettingsStore
+		);
+
+		try {
+			if (navigator.clipboard?.writeText) {
+				await navigator.clipboard.writeText(quoteText);
+			} else {
+				window.prompt('Copy quote:', quoteText);
+			}
+		} catch {
+			window.prompt('Copy quote:', quoteText);
+		} finally {
+			contextMenuVisible = false;
+		}
+	}
+
+	async function handleCopyMessageLink(): Promise<void> {
+		if (!contextMenuMessage) return;
+		const deepLink = `${window.location.origin}${window.location.pathname}#channel/${encodeURIComponent($currentChannel)}/message/${encodeURIComponent(contextMenuMessage.id)}`;
+		try {
+			if (navigator.clipboard?.writeText) {
+				await navigator.clipboard.writeText(deepLink);
+			} else {
+				window.prompt('Copy message link:', deepLink);
+			}
+		} catch {
+			window.prompt('Copy message link:', deepLink);
 		} finally {
 			contextMenuVisible = false;
 		}
@@ -1037,10 +1188,26 @@
 	let mobileActionsMessageId: string | null = null;
 
 	onMount(() => {
+		deletionCountdownMode = readDeletionCountdownModeFromDom();
+		const root = document.documentElement;
+		const observer = new MutationObserver(() => {
+			deletionCountdownMode = readDeletionCountdownModeFromDom();
+			if (deletionCountdownMode !== 'live') {
+				nowMs = Date.now();
+			}
+		});
+		observer.observe(root, {
+			attributes: true,
+			attributeFilter: ['data-deletion-countdown-mode']
+		});
+
 		const timer = window.setInterval(() => {
-			nowMs = Date.now();
+			if (deletionCountdownMode === 'live') {
+				nowMs = Date.now();
+			}
 		}, 1000);
 		return () => {
+			observer.disconnect();
 			window.clearInterval(timer);
 		};
 	});
@@ -1163,6 +1330,14 @@
 			console.warn('Failed to copy image, falling back to link copy:', error);
 			await copyCurrentImageLink();
 		}
+		imageMenuOpen = false;
+	}
+
+	function openReverseImageSearch(): void {
+		if (!enlargedImage) return;
+		const provider = getReverseImageSearchProvider();
+		const searchUrl = buildReverseImageSearchUrl(enlargedImage, provider);
+		window.open(searchUrl, '_blank', 'noopener,noreferrer');
 		imageMenuOpen = false;
 	}
 
@@ -1349,21 +1524,30 @@
 	{@const deletionLabel = getMessageDeletionLabel(message)}
 	{@const translatedText = translatedMessages[message.id]}
 	{@const translationLoading = translatingMessageIds.has(message.id)}
+	{@const filteredMessage = applyChatFilter(message.text || '', 'incoming', $chatFilterStore)}
+	{@const hideByFilter = filteredMessage.hidden}
+	{@const messageText = filteredMessage.text}
+	{@const shouldAnimateMessage = visibleMessages.length - localIndex <= ($animationPassStore.level === 'full' ? 48 : 24)}
 
-	<!-- New Messages Divider -->
-	{#if firstUnreadMessageId === message.id}
-		<div class="new-messages-divider">
-			<span>{$_('messages.new_messages')}</span>
-		</div>
-	{/if}
+	{#if !hideByFilter}
+		<!-- New Messages Divider -->
+		{#if firstUnreadMessageId === message.id}
+			<div class="new-messages-divider">
+				<span>{$_('messages.new_messages')}</span>
+			</div>
+		{/if}
 
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div
-		id="message-{message.id}"
-		class="message {message.isPinned ? 'pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''} {groupedWithNext ? 'has-continuation' : ''} {ownMessage ? 'own-message' : ''}"
-		on:contextmenu={(e) => handleContextMenu(e, message)}
-		use:longpress={{ onLongPress: (e) => handleMessageLongPress(e, message) }}
-	>
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div
+			id="message-{message.id}"
+			class="message {message.isPinned ? 'pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''} {groupedWithNext ? 'has-continuation' : ''} {ownMessage ? 'own-message' : ''}"
+			on:contextmenu={(e) => handleContextMenu(e, message)}
+			use:longpress={{ onLongPress: (e) => handleMessageLongPress(e, message) }}
+			transition:messageItemTransition={{
+				...messageAnimation,
+				animate: shouldAnimateMessage
+			}}
+		>
 		<div class="message-actions" class:mobile-visible={mobileActionsMessageId === message.id}>
 			<button class="action-btn" title={$_('messages.add_reaction')} on:click={(e) => openReactionPicker(e, message.id)}>
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
@@ -1508,7 +1692,7 @@
 			{:else}
 				<div class="message-content">
 					{#if message.type === 'role_gate'}
-						{@const gate = parseRoleGateText(message.text)}
+						{@const gate = parseRoleGateText(messageText)}
 						<div class="role-gate-card">
 							<div class="role-gate-label">{$_('messages.role_gate.title')}</div>
 							<div class="role-gate-title">{gate.title}</div>
@@ -1783,11 +1967,11 @@
 							{/if}
 						{/if}
 						{/if}
-						{#if message.text && (message.files ? message.text !== `Shared ${message.files.length} files` : message.text !== `Shared: ${message.fileName}`)}
-							<div class="markdown-content">{@html parseMessage(message.text)}</div>
+						{#if messageText && (message.files ? messageText !== `Shared ${message.files.length} files` : messageText !== `Shared: ${message.fileName}`)}
+							<div class="markdown-content">{@html parseMessage(messageText)}</div>
 						{/if}
 					{:else}
-						<div class="markdown-content">{@html parseMessage(message.text)}</div>
+						<div class="markdown-content">{@html parseMessage(messageText)}</div>
 					{/if}
 					{#if translatedText}
 						<div class="translated-content" class:loading={translationLoading}>
@@ -1797,8 +1981,8 @@
 					{/if}
 
 					<!-- TEMPORARY: Media URLs and Link Previews -->
-					{#if message.text}
-						{@const urls = extractUrls(message.text)}
+					{#if messageText}
+						{@const urls = extractUrls(messageText)}
 						{#each urls as url}
 							{#if isYouTubeUrl(url)}
 								<YouTubeWatchEmbed url={url} channelId={$currentChannel} />
@@ -1877,6 +2061,7 @@
 			{/if}
 		</div>
 	</div>
+	{/if}
 {/each}
 
 {#if UserPopoutComponent}
@@ -1902,9 +2087,10 @@
 	{/if}
 {/if}
 
-{#if contextMenuMessage}
+	{#if contextMenuMessage}
 	<MessageContextMenu
 		message={contextMenuMessage}
+		canManageOwnMessage={isOwnMessage(contextMenuMessage)}
 		bind:visible={contextMenuVisible}
 		x={contextMenuX}
 		y={contextMenuY}
@@ -1914,6 +2100,8 @@
 		onReply={handleReply}
 		onDownload={handleDownload}
 		onAddToAlbum={handleAddToAlbum}
+		onCopyQuote={handleCopyQuote}
+		onCopyMessageLink={handleCopyMessageLink}
 		onForward={handleForward}
 		onAddReaction={handleAddReaction}
 		onTranslate={handleTranslate}
@@ -1925,7 +2113,7 @@
 <ConfirmDialog
 	isOpen={showDeleteConfirm}
 	title={$_('messages.confirm.delete_title')}
-	message={$_('messages.confirm.delete_message')}
+	message={getDeleteConfirmMessage(messageToDelete)}
 	confirmText={$_('messages.confirm.delete_confirm')}
 	variant="danger"
 	onConfirm={confirmDeleteMessage}
@@ -2026,6 +2214,7 @@
 						<div class="toolbar-menu" role="menu">
 							<button class="toolbar-menu-item" on:click={copyCurrentImageLink}>{$_('messages.viewer.copy_image_link')}</button>
 							<button class="toolbar-menu-item" on:click={copyCurrentImage}>{$_('messages.viewer.copy_image')}</button>
+							<button class="toolbar-menu-item" on:click={openReverseImageSearch}>{$_('messages.viewer.reverse_search')}</button>
 							<div class="toolbar-menu-item details-hover-row">
 								{$_('messages.viewer.image_details')}
 								<div class="image-details-popout" role="note">
@@ -2119,8 +2308,8 @@
 		margin-bottom: 0.2rem;
 		transition: all 0.25s ease;
 		position: relative;
-		margin-left: -9999px;
-		padding-left: calc(0.6rem + 9999px);
+		margin-left: 0;
+		padding-left: 0.6rem;
 	}
 
 	.message.has-continuation {
@@ -3608,10 +3797,10 @@
 
 /* --- Refined Mobile/Desktop Readability Styles --- */
 
-/* Keep a minimal right inset; avoid large reserved gutter */
+/* Keep message body flush by default; compact mode relies on full-width flow */
 @media (min-width: 769px) {
     .message-body {
-        padding-right: 0.75rem;
+        padding-right: 0;
     }
 }
 
@@ -3628,7 +3817,7 @@
         line-height: 1.5;
     }
     .message-body {
-        padding-right: 0.5rem;
+        padding-right: 0;
     }
     .message {
         padding-top: 0.24rem;
@@ -3909,15 +4098,18 @@
 }
 
 :global(html[data-message-density='compact']) .message {
-	padding-top: 0.05rem !important;
-	padding-bottom: 0.05rem !important;
+	padding-top: 0 !important;
+	padding-bottom: 0 !important;
 	gap: 0 !important;
+	padding-right: 0.45rem !important;
+	padding-left: 0.45rem !important;
+	margin-left: 0 !important;
 }
 
 :global(html[data-message-density='compact']) .message.continuation,
 :global(html[data-message-density='compact']) .message.has-continuation {
-	padding-top: 0.05rem !important;
-	padding-bottom: 0.05rem !important;
+	padding-top: 0 !important;
+	padding-bottom: 0 !important;
 	margin: 0 !important;
 }
 
@@ -3928,19 +4120,25 @@
 	height: 0 !important;
 }
 
-/* message-body stays block — header floats, content wraps beside it */
+/* Compact keeps header + message inline, but without large reserved gutter */
 :global(html[data-message-density='compact']) .message-body {
-	display: block !important;
+	display: flex !important;
+	align-items: baseline !important;
+	gap: 0.2rem !important;
 	margin-top: 0 !important;
+	padding-right: 0 !important;
+	padding-left: 0 !important;
+	width: 100% !important;
+	max-width: 100% !important;
 }
 
-/* Header floats left so content lines up to its right */
+/* Header sits inline at start */
 :global(html[data-message-density='compact']) .message-header {
-	float: left !important;
-	margin-right: 0.5rem !important;
+	flex: 0 0 auto !important;
+	margin-right: 0 !important;
 	margin-bottom: 0 !important;
 	white-space: nowrap !important;
-	line-height: 1.4 !important;
+	line-height: 1.2 !important;
 }
 
 /* Tighten gap between timestamp and username */
@@ -3950,10 +4148,10 @@
 
 /* Timestamp: narrow fixed-width, right-aligned, muted */
 :global(html[data-message-density='compact']) .message-header .timestamp {
-	min-width: 3.2rem !important;
-	text-align: right !important;
+	min-width: auto !important;
+	text-align: left !important;
 	margin-left: 0 !important;
-	margin-right: 0 !important;
+	margin-right: 0.22rem !important;
 	font-size: 0.68rem !important;
 	order: -1 !important;
 }
@@ -3963,7 +4161,8 @@
 	max-width: 9rem !important;
 	overflow: hidden !important;
 	text-overflow: ellipsis !important;
-	font-size: 0.8rem !important;
+	font-size: 0.88rem !important;
+	font-weight: 650 !important;
 }
 
 /* Show compact-only continuation headers (inline-block so float works) */
@@ -3971,16 +4170,20 @@
 	display: flex !important;
 }
 
-/* Content creates a block formatting context — sits beside the float */
+/* Content uses full row width (no compact right-shift) */
 :global(html[data-message-density='compact']) .message-content {
-	display: flow-root !important;
+	display: block !important;
+	flex: 1 1 auto !important;
+	width: auto !important;
 	min-width: 0 !important;
+	margin-left: 0 !important;
+	padding-left: 0 !important;
 }
 
 :global(html[data-message-density='compact']) .message .markdown-content,
 :global(html[data-message-density='compact']) .message .markdown-content :global(p) {
-	line-height: 1.3 !important;
-	font-size: 0.82rem !important;
+	line-height: 1.15 !important;
+	font-size: 0.92rem !important;
 }
 
 </style>

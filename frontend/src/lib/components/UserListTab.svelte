@@ -46,8 +46,8 @@
 		return false;
 	}
 
-	// Group online users by highest hoisted role (excluding self)
-	$: onlineOtherUsers = $users.filter(u => !isCurrentUserEntry(u));
+	// Group online users by highest hoisted role
+	$: onlineOtherUsers = $users;
 
 	$: groupedUsers = (() => {
 		const groups: Record<string, User[]> = {};
@@ -75,6 +75,10 @@
 	})();
 
 	function handleUserClick(user: User) {
+		if (isCurrentUserEntry(user)) {
+			layoutStore.openNotes();
+			return;
+		}
 		createDM(user.id);
 		layoutStore.showDMsTab();
 	}
@@ -93,19 +97,24 @@
 
 	function handleContextMessage() {
 		if (!contextMenuUser) return;
+		if (isCurrentUserEntry(contextMenuUser)) {
+			layoutStore.openNotes();
+			closeContextMenu();
+			return;
+		}
 		createDM(contextMenuUser.id);
 		layoutStore.showDMsTab();
 		closeContextMenu();
 	}
 
 	async function handleContextVoiceCall() {
-		if (!contextMenuUser || !$socket) return;
+		if (!contextMenuUser || !$socket || isCurrentUserEntry(contextMenuUser)) return;
 		try { await startCall($socket, contextMenuUser.id, false); } catch { /* ignore */ }
 		closeContextMenu();
 	}
 
 	async function handleContextVideoCall() {
-		if (!contextMenuUser || !$socket) return;
+		if (!contextMenuUser || !$socket || isCurrentUserEntry(contextMenuUser)) return;
 		try { await startCall($socket, contextMenuUser.id, true); } catch { /* ignore */ }
 		closeContextMenu();
 	}
@@ -147,23 +156,28 @@
 		const items: ContextMenuItem[] = [
 			{
 				id: 'message',
-				label: 'Message',
+				label: isCurrentUserEntry(contextMenuUser) ? 'Open Notes' : 'Message',
 				icon: 'message-circle',
 				onSelect: handleContextMessage
 			},
-			{
-				id: 'voice',
-				label: 'Voice Call',
-				icon: 'phone',
-				onSelect: handleContextVoiceCall
-			},
-			{
-				id: 'video',
-				label: 'Video Call',
-				icon: 'video',
-				onSelect: handleContextVideoCall
-			}
 		];
+
+		if (!isCurrentUserEntry(contextMenuUser)) {
+			items.push(
+				{
+					id: 'voice',
+					label: 'Voice Call',
+					icon: 'phone',
+					onSelect: handleContextVoiceCall
+				},
+				{
+					id: 'video',
+					label: 'Video Call',
+					icon: 'video',
+					onSelect: handleContextVideoCall
+				}
+			);
+		}
 
 		if (canManageContextUserRoles() && contextMenuUser) {
 			const roles = contextMenuUser.roles || [];
@@ -234,35 +248,6 @@
 </script>
 
 <div class="user-list-tab">
-	{#if $currentUser}
-		<div class="role-group">
-			<div class="role-header">You</div>
-			<div class="user-row self">
-				<div class="user-avatar-wrap">
-					{#if $currentUser.profilePicture}
-						<img src={$currentUser.profilePicture} alt={$currentUser.username} class="user-avatar" />
-					{:else}
-						<div class="user-avatar-placeholder" style="background-color: {$currentUser.color}">
-							{$currentUser.username.charAt(0).toUpperCase()}
-						</div>
-					{/if}
-					<span class="presence-dot" class:active={$currentUser.status === 'active'} class:away={$currentUser.status === 'away'} class:busy={$currentUser.status === 'busy'}></span>
-				</div>
-				<div class="user-info">
-					<span class="user-display-name" style="color: {getDisplayColor($currentUser)}">
-						{$currentUser.username}
-						{#if getRoleBadge($currentUser)}
-							<span class="role-badge">{getRoleBadge($currentUser)}</span>
-						{/if}
-					</span>
-					{#if $currentUser.handle}
-						<span class="user-handle">@{$currentUser.handle}</span>
-					{/if}
-				</div>
-			</div>
-		</div>
-	{/if}
-
 	{#each sortedRoles as role}
 		<div class="role-group">
 			<div class="role-header">
@@ -351,6 +336,7 @@
 		flex: 1;
 		overflow-y: auto;
 		padding: 0.25rem 0;
+		text-align: left;
 	}
 
 	.empty-state {
@@ -371,11 +357,13 @@
 		text-transform: uppercase;
 		color: var(--text-secondary);
 		letter-spacing: 0.03em;
+		text-align: left;
 	}
 
 	.user-row {
 		display: flex;
 		align-items: center;
+		justify-content: flex-start;
 		gap: 0.5rem;
 		padding: 0.375rem 0.75rem;
 		width: 100%;
@@ -394,10 +382,6 @@
 
 	.user-row.offline {
 		opacity: 0.5;
-	}
-
-	.user-row.self {
-		cursor: default;
 	}
 
 	.user-avatar-wrap {

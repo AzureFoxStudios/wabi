@@ -19,6 +19,7 @@ const DEFAULT_APP_CHROME_OPACITY = 1;
 export type RoleColorMode = 'full' | 'dot' | 'off';
 export type ChatAvatarMode = 'off' | 'user' | 'all';
 export type MessageDensity = 'cozy' | 'compact';
+export type DeletionCountdownMode = 'off' | 'static' | 'live';
 
 export interface AccessibilitySettings {
 	textScale: number;
@@ -33,6 +34,8 @@ export interface AccessibilitySettings {
 	appChromeOpacity: number;
 	messageDensity: MessageDensity;
 	chatFontScale: number;
+	deletionCountdownMode: DeletionCountdownMode;
+	clickableSendEnabled: boolean;
 }
 
 const MIN_CHAT_FONT_SCALE = 0.8;
@@ -51,7 +54,9 @@ const DEFAULT_SETTINGS: AccessibilitySettings = {
 	tabShadeStrength: DEFAULT_TAB_SHADE_STRENGTH,
 	appChromeOpacity: DEFAULT_APP_CHROME_OPACITY,
 	messageDensity: 'cozy',
-	chatFontScale: DEFAULT_CHAT_FONT_SCALE
+	chatFontScale: DEFAULT_CHAT_FONT_SCALE,
+	deletionCountdownMode: 'static',
+	clickableSendEnabled: true
 };
 
 function normalizeChatAvatarMode(value: string | undefined): ChatAvatarMode {
@@ -101,6 +106,11 @@ function clampChatFontScale(value: number): number {
 	return Math.min(MAX_CHAT_FONT_SCALE, Math.max(MIN_CHAT_FONT_SCALE, value));
 }
 
+function normalizeDeletionCountdownMode(value: string | undefined): DeletionCountdownMode {
+	if (value === 'off' || value === 'live' || value === 'static') return value;
+	return 'static';
+}
+
 function normalizeSettings(raw: Partial<AccessibilitySettings> | null | undefined): AccessibilitySettings {
 	return {
 		textScale: clampTextScale(raw?.textScale ?? DEFAULT_SETTINGS.textScale),
@@ -132,7 +142,9 @@ function normalizeSettings(raw: Partial<AccessibilitySettings> | null | undefine
 			typeof (raw as any)?.chatFontScale === 'number'
 				? (raw as any).chatFontScale
 				: DEFAULT_CHAT_FONT_SCALE
-		)
+		),
+		deletionCountdownMode: normalizeDeletionCountdownMode((raw as any)?.deletionCountdownMode),
+		clickableSendEnabled: (raw as any)?.clickableSendEnabled !== false
 	};
 }
 
@@ -219,6 +231,8 @@ export function applyAccessibilitySettings(settings: AccessibilitySettings): voi
 	root.setAttribute('data-own-messages-right', currentSettings.ownMessagesOnRight ? 'true' : 'false');
 	root.setAttribute('data-chat-avatar-mode', currentSettings.chatAvatarMode);
 	root.setAttribute('data-message-density', currentSettings.messageDensity);
+	root.setAttribute('data-deletion-countdown-mode', currentSettings.deletionCountdownMode);
+	root.setAttribute('data-clickable-send', currentSettings.clickableSendEnabled ? 'true' : 'false');
 	root.style.setProperty('--tab-shade-strength', String(currentSettings.tabShadeStrength));
 	applyAppChromeOpacity(root, currentSettings.appChromeOpacity);
 }

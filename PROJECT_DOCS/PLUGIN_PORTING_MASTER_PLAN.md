@@ -3,6 +3,10 @@
 ## Goal
 Port high-value plugin functionality into Wabi in controlled phases, with clear scope, risk controls, and auditable implementation notes.
 
+## Conversion Playbook
+- Step-by-step directions for the implemented BetterDiscord-to-Wabi workflow:
+  - `PROJECT_DOCS/BETTERDISCORD_CONVERSION_DIRECTIONS.md`
+
 ## Execution Rules
 1. Functionality-first, but no blind copy/paste.
 2. Build Wabi-native implementations (Svelte + existing backend services) in small, shippable slices.
@@ -52,9 +56,9 @@ Grade each candidate before implementation so effort stays focused on high-value
 ## Plugin Queue
 | Plugin | Priority | Grade | Score | Track | Status | Current Phase | Owner Notes |
 |---|---|---|---|---|---|---|---|
-| ZipPreview | P0 | A+ | 88 | Core | In Progress | Phase 2 | MVP + hardening landed (cache TTL/LRU, filename filter, stricter malformed checks); smoke/build validation pending |
-| VideoCompressor | P0 | B+ | 79 | Core | Planned | Phase 0 | Second target (desktop-first) |
-| ImageFolder | P0 | B+ | 81 | Core | Approved | Phase 0 | Include shared persistent albums |
+| ZipPreview | P0 | A+ | 88 | Core | In Progress | Phase 2 | MVP + hardening landed; fixture smoke script passes; desktop packaged-app validation pending |
+| VideoCompressor | P0 | B+ | 79 | Core | In Progress | Phase 2 | Desktop-gated compression modal, retry/cancel/fallback actions, and default preset setting landed |
+| ImageFolder | P0 | B+ | 81 | Core | In Progress | Phase 2 | Persistent albums MVP landed with moderation-aware delete controls and message context-menu add-to-album flow |
 | MoreQuickReacts | P1 | C+ | 67 | Core | Backlog | - | Lower strategic value but core per `+` rule |
 | GifCaptioner | P2 | C | 57 | Addon | Backlog | - | Heavier media processing |
 | UnicodeEmojis | P3 | D | 48 | Addon | Backlog | - | Skip unless requested |
@@ -96,9 +100,11 @@ Grade each candidate before implementation so effort stays focused on high-value
   - In-memory metadata cache keyed by URL+size with TTL + simple LRU eviction.
   - Entry-name filter/search in preview panel.
   - Parser hardening for split/multi-disk ZIP rejection and central-directory consistency checks.
+  - Retry action in panel error state (recover without remounting).
+  - Fixture smoke command `bun run check:zip-preview` covering malformed/split/ZIP64-boundary cases.
 - Pending for Phase 1 completion:
-  - Manual smoke pass on real ZIP fixtures (valid, malformed, oversized).
-  - Desktop packaged-app validation pass once current unrelated frontend check errors are cleared.
+  - Manual smoke pass on larger real-world archives in packaged desktop runtime.
+  - Desktop packaged-app validation pass for release build artifact.
 
 ## VideoCompressor Initial Breakdown
 ### Phase 0 - Discovery
@@ -120,6 +126,27 @@ Grade each candidate before implementation so effort stays focused on high-value
 - Optional default preset setting.
 - Android capability tuning.
 - Better UX copy and docs.
+
+### VideoCompressor Progress Update (2026-02-25)
+- Implemented in `frontend`:
+  - Over-limit video detection path in composer file intake.
+  - Compression decision modal with preset picker.
+  - Progress + cancel + retry + keep-original + remove-file actions.
+  - Compression runtime setting (`ON/OFF`) and default preset setting in `Settings`.
+  - Desktop runtime gating (`isTauriRuntime`) to keep behavior scoped per rollout intent.
+- Pending:
+  - Compression telemetry/failure-classification wiring.
+  - Android tuning and capability-specific preset behavior.
+
+### ImageFolder Progress Update (2026-02-25)
+- Implemented in `frontend` + `backend` API surface:
+  - Persistent album CRUD + album item CRUD paths.
+  - Grid/list view switch, search, sort, and client-side pagination in albums tab.
+  - Moderation-aware deletion guards (album owner/item owner/mod roles).
+  - Message context-menu entry to add attachments directly into albums.
+- Pending:
+  - Stronger abuse/rate-limit policy coverage.
+  - Additional mobile-specific UX polish.
 
 ## Required Artifacts Per Plugin
 - Spec: `PROJECT_DOCS/PLUGIN_SPEC_<NAME>.md`

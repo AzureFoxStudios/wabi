@@ -235,6 +235,7 @@
     "confirm": {
       "delete_title": "Delete Message",
       "delete_message": "Are you sure you want to delete this message?",
+      "delete_message_with_uploads": "Are you sure you want to delete this message? This also removes {count} uploaded file(s).",
       "delete_confirm": "Delete"
     },
     "role_gate": {
@@ -251,6 +252,7 @@
       "more_actions": "More actions",
       "copy_image_link": "Copy image link",
       "copy_image": "Copy image",
+      "reverse_search": "Reverse image search",
       "image_details": "Image details",
       "details_name": "Name",
       "details_dimensions": "Dimensions",
@@ -270,11 +272,16 @@
     "download": "Download",
     "add_to_album": "Add to Album",
     "forward": "Forward",
+    "copy_quote": "Copy Quote",
+    "copy_message_link": "Copy Message Link",
     "edit_message": "Edit Message",
     "pin_message": "Pin Message",
     "unpin_message": "Unpin Message",
     "copy_text": "Copy Text",
-    "delete_message": "Delete Message"
+    "delete_message": "Delete Message",
+    "delete_message_uploads": "DELETE MESSAGE + UPLOADS",
+    "delete_message_uploads_hint": "Permanent - removes attached uploads",
+    "delete_message_unavailable_hint": "Only your own messages can be deleted"
   },
   "forward_dialog": {
     "title": "Forward Message",

@@ -6,7 +6,7 @@
   - Line "albums" workflow
   - Discord-style media browsing discoverability
 - Wabi Target Version: `0.4.x+`
-- Status: `Approved`
+- Status: `In Progress (Phase 2)`
 - Track: `Core`
 
 ## Product Goal
@@ -63,19 +63,20 @@ Users need a persistent, collaborative "album" surface to find media quickly and
 
 ## Phase Plan
 ### Phase 0 - Discovery
-- [ ] Confirm album UX flow for desktop/mobile parity.
-- [ ] Define permission matrix and retention behavior.
-- [ ] Confirm storage/index strategy for media lookup performance.
+- [x] Confirm initial album UX flow for desktop with mobile-compatible structure.
+- [x] Define initial permission matrix (owner/item-owner/moderator delete guards).
+- [x] Confirm initial storage/index strategy with backend album/item endpoints.
 
 ### Phase 1 - MVP
-- [ ] Create/list albums in a channel/DM.
-- [ ] Upload media directly to selected album.
-- [ ] Browse album media grid with preview.
-- [ ] Role-checked delete for album items.
+- [x] Create/list albums in a channel/DM.
+- [x] Upload media directly to selected album.
+- [x] Browse album media grid with preview.
+- [x] Role-checked delete for album items.
+- [x] Add message context-menu action to add attachments to albums.
 
 ### Phase 2 - Harden
-- [ ] Pagination + caching.
-- [ ] Search/filter by filename/uploader/date.
+- [x] Client-side pagination for album item browsing.
+- [x] Search/filter and sort by filename/date in album UI.
 - [ ] Abuse controls (rate limits, size caps, moderation actions).
 
 ### Phase 3 - Polish
@@ -103,3 +104,19 @@ Users need a persistent, collaborative "album" surface to find media quickly and
 1. Should albums be per-channel only, or support shared cross-channel collections?
 2. Do we allow non-image media (video/audio/docs) in MVP or image-only first?
 3. Should album uploads also post a chat event message by default?
+
+## Current Implementation Snapshot (2026-02-25)
+- Frontend:
+  - `frontend/src/lib/components/MediaAlbumsTab.svelte`
+  - `frontend/src/lib/components/MessageContextMenu.svelte`
+  - `frontend/src/lib/components/MessageList.svelte`
+- Backend/API:
+  - album + item endpoints via `frontend/src/lib/api.ts` integration
+- Active behavior:
+  - persistent albums scoped to channel/DM
+  - upload + list + delete paths with ownership/mod guardrails
+  - search/sort/view-mode toggle + pagination in album browser
+  - add-to-album action from message context menu (single or multi-file messages)
+- Remaining hardening focus:
+  - abuse controls and rate limits
+  - deeper mobile UX pass

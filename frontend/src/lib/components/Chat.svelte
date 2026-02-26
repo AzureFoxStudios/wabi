@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick, createEventDispatcher } from 'svelte';
+	import { fade, fly, scale } from 'svelte/transition';
+	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
 	import {
 		channelMessages,
@@ -57,8 +59,18 @@
 		getDefaultVideoCompressionPreset,
 		isVideoCompressionEnabled
 	} from '$lib/video/videoCompressionSettings';
+	import { applyChatFilter, expandInputWithChatAlias } from '$lib/chatEnhancements';
+	import { composerEnhancementSettingsStore, splitMessageForSending } from '$lib/composerEnhancements';
+	import { animationPassStore, type AnimationPassPreset } from '$lib/animationPass';
 
 	const dispatch = createEventDispatcher();
+	const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+	const easeOutQuint = (t: number) => 1 - Math.pow(1 - t, 5);
+	const easeOutBack = (t: number) => {
+		const c1 = 1.70158;
+		const c3 = c1 + 1;
+		return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+	};
 
 	$: messages = $channelMessages[$currentChannel] || [];
 	$: pinnedMessages = messages.filter((m: Message) => m.isPinned);
@@ -72,6 +84,16 @@
 	$: isDMChannel = currentChannelData?.type === 'dm';
 	$: dmCallTargetUser = getDMOtherUser(currentChannelData);
 	$: dmDirectCallActive = $isInCall && $callMode === 'direct';
+	$: channelPaneAnimation = (() => {
+		const baseDuration = $animationPassStore.level === 'full' ? 340 : 250;
+		const baseDistance = $animationPassStore.level === 'full' ? 34 : 22;
+		return {
+			enabled: $animationPassStore.enabled,
+			preset: $animationPassStore.preset,
+			duration: Math.max(0, Math.round(baseDuration * $animationPassStore.durationMultiplier)),
+			distance: Math.max(0, Math.round(baseDistance * $animationPassStore.durationMultiplier))
+		};
+	})();
 
 	let messageInput = '';
 	let chatContainer: HTMLElement;
@@ -111,6 +133,38 @@
 	let EmojiPickerComponent: typeof import('./EmojiPicker.svelte').default | null = null;
 	let emojiPickerLoadPromise: Promise<void> | null = null;
 
+	function getTransitionForPreset(
+		node: Element,
+		preset: AnimationPassPreset,
+		duration: number,
+		distance: number
+	) {
+		if (preset === 'fade') {
+			return fade(node, { duration, easing: easeOutCubic });
+		}
+		if (preset === 'scale') {
+			return scale(node, { duration, start: 0.96, opacity: 0.2, easing: easeOutBack });
+		}
+		if (preset === 'flip') {
+			return scale(node, { duration, start: 0.92, opacity: 0.1, easing: easeOutQuint });
+		}
+		return fly(node, { duration, y: distance, opacity: 0.15, easing: easeOutQuint });
+	}
+
+	function channelPaneTransition(
+		node: Element,
+		params: { enabled: boolean; preset: AnimationPassPreset; duration: number; distance: number }
+	) {
+		const reducedMotion = browser && document.documentElement.getAttribute('data-reduce-motion') === 'true';
+		if (reducedMotion) {
+			return fade(node, { duration: 0 });
+		}
+		if (!params.enabled || params.duration <= 0) {
+			return fade(node, { duration: 0 });
+		}
+		return getTransitionForPreset(node, params.preset, params.duration, params.distance);
+	}
+
 	function ensureEmojiPickerLoaded(): void {
 		if (EmojiPickerComponent || emojiPickerLoadPromise) return;
 		emojiPickerLoadPromise = import('./EmojiPicker.svelte')
@@ -137,6 +191,9 @@
 
 	// Search functionality
 	let searchInput = '';
+	let searchExpanded = false;
+	let searchContainerElement: HTMLElement | null = null;
+	let searchInputElement: HTMLInputElement | null = null;
 	let filteredMessages: Message[] = [];
 	const MESSAGE_WORKING_SET_LIMIT_EPHEMERAL = 600;
 	const MESSAGE_WORKING_SET_LIMIT_PERSISTENT_IDLE = 1200;
@@ -151,6 +208,16 @@
 	const MAX_FULL_HISTORY_SEARCH_PAGES = 80;
 	const MAX_FILE_PREVIEW_IMAGES = 8;
 	let lastPreviewChannelId: string | null = null;
+	$: composerEnhancementSettings = $composerEnhancementSettingsStore;
+	$: composerSpellcheckEnabled = composerEnhancementSettings.spellcheckEnabled;
+	$: composerCharCounterEnabled = composerEnhancementSettings.charCounterEnabled;
+	$: splitLargeMessagesEnabled = composerEnhancementSettings.splitLargeMessagesEnabled;
+	$: splitLargeMessagesChunkSize = composerEnhancementSettings.splitLargeMessagesChunkSize;
+	$: composerInputMaxLength = splitLargeMessagesEnabled
+		? composerEnhancementSettings.splitLargeMessagesInputMaxLength
+		: splitLargeMessagesChunkSize;
+	$: composerCharCount = messageInput.length;
+	$: composerCharCounterWarn = composerInputMaxLength > 0 && composerCharCount / composerInputMaxLength >= 0.9;
 
 	// Photo and audio capture
 	let showCameraCapture = false;
@@ -208,6 +275,7 @@
 		}
 		return $users.find(u => u.id === otherStableId) || null;
 	}
+
 
 	async function startDMVoiceCall() {
 		if (!$socket || !dmCallTargetUser || dmDirectCallActive) return;
@@ -289,6 +357,9 @@
 
 	// Reactive search
 	$: filteredMessages = filterMessages(messages, searchInput, getWorkingSetLimit());
+	$: if (searchInput.trim() && !searchExpanded) {
+		searchExpanded = true;
+	}
 	$: visibleTypingUsers = getVisibleTypingUsers($typingUsers[$currentChannel] || []);
 	$: if (!searchInput.trim()) {
 		fullHistorySearchStatus = '';
@@ -936,37 +1007,69 @@
 				editingMessage = null;
 			} else {
 				const trimmedMessage = messageInput.trim();
+				const aliasExpandedMessage = expandInputWithChatAlias(trimmedMessage);
+				const outgoingFilterResult = applyChatFilter(aliasExpandedMessage, 'outgoing');
+
+				if (outgoingFilterResult.hidden) {
+					const blockedTerms = outgoingFilterResult.matchedTerms.join(', ');
+					alert(
+						blockedTerms
+							? `Message blocked by Chat Filter: ${blockedTerms}`
+							: 'Message blocked by Chat Filter.'
+					);
+					return;
+				}
+
+				const finalMessage = outgoingFilterResult.text.trim();
+				if (!finalMessage) {
+					alert('Message is empty after Chat Filter processing.');
+					return;
+				}
 
 				// Check if it's a command
-				if (trimmedMessage.startsWith('/')) {
-					void executeCommand(trimmedMessage);
+				if (finalMessage.startsWith('/')) {
+					void executeCommand(finalMessage);
 					messageInput = '';
 					return;
 				}
 
-				// Check if message is ONLY emoji syntax (e.g., ":smile:" or ":smile::heart:")
-				const emojiOnlyPattern = /^(?::[\w_]+:)+$/;
-				const isEmojiOnly = emojiOnlyPattern.test(trimmedMessage);
-
-				if (isEmojiOnly) {
-					// Extract emoji names and find their URLs
-					const emojiNames = trimmedMessage.match(/:[\w_]+:/g)?.map(e => e.slice(1, -1)) || [];
-					const firstEmojiName = emojiNames[0];
-					const firstEmoji = $emojis.find(e => e.name === firstEmojiName);
-
-					// Send as emoji type for large display
-					sendMessage($currentChannel, trimmedMessage, 'emoji', {
-						emojiUrl: firstEmoji?.url,
-						emojiName: firstEmojiName,
-						replyTo: replyingTo?.id,
-						isSpoiler: markAsSpoiler
-					});
+				if (splitLargeMessagesEnabled && finalMessage.length > splitLargeMessagesChunkSize) {
+					const chunks = splitMessageForSending(finalMessage, splitLargeMessagesChunkSize);
+					if (chunks.length === 0) {
+						alert('Unable to split message into chunks.');
+						return;
+					}
+					for (const [index, chunk] of chunks.entries()) {
+						sendMessage($currentChannel, chunk, 'text', {
+							replyTo: index === 0 ? replyingTo?.id : undefined,
+							isSpoiler: markAsSpoiler
+						});
+					}
 				} else {
-					// Send as regular text message
-					sendMessage($currentChannel, trimmedMessage, 'text', {
-						replyTo: replyingTo?.id,
-						isSpoiler: markAsSpoiler
-					});
+					// Check if message is ONLY emoji syntax (e.g., ":smile:" or ":smile::heart:")
+					const emojiOnlyPattern = /^(?::[\w_]+:)+$/;
+					const isEmojiOnly = emojiOnlyPattern.test(finalMessage);
+
+					if (isEmojiOnly) {
+						// Extract emoji names and find their URLs
+						const emojiNames = finalMessage.match(/:[\w_]+:/g)?.map(e => e.slice(1, -1)) || [];
+						const firstEmojiName = emojiNames[0];
+						const firstEmoji = $emojis.find(e => e.name === firstEmojiName);
+
+						// Send as emoji type for large display
+						sendMessage($currentChannel, finalMessage, 'emoji', {
+							emojiUrl: firstEmoji?.url,
+							emojiName: firstEmojiName,
+							replyTo: replyingTo?.id,
+							isSpoiler: markAsSpoiler
+						});
+					} else {
+						// Send as regular text message
+						sendMessage($currentChannel, finalMessage, 'text', {
+							replyTo: replyingTo?.id,
+							isSpoiler: markAsSpoiler
+						});
+					}
 				}
 				replyingTo = null;
 			}
@@ -1753,6 +1856,30 @@
 		}
 	}
 
+	async function openSearch(): Promise<void> {
+		if (!searchExpanded) {
+			searchExpanded = true;
+			await tick();
+		}
+		searchInputElement?.focus();
+	}
+
+	function collapseSearchIfIdle(): void {
+		if (!searchInput.trim()) {
+			searchExpanded = false;
+		}
+	}
+
+	function handleSearchInputKeydown(event: KeyboardEvent): void {
+		if (event.key !== 'Escape') return;
+		if (searchInput.trim()) {
+			searchInput = '';
+			return;
+		}
+		searchExpanded = false;
+		searchInputElement?.blur();
+	}
+
 	onMount(() => {
 		scrollToBottom();
 
@@ -1779,9 +1906,11 @@
 			if (target && emojiPickerContainer?.contains(target)) return;
 			if (target && mediaMenuContainer?.contains(target)) return;
 			if (target && mentionMenuContainer?.contains(target)) return;
+			if (target && searchContainerElement?.contains(target)) return;
 			showMediaMenu = false;
 			showEmojiPicker = false;
 			showMentionSuggestions = false;
+			collapseSearchIfIdle();
 		};
 
 		document.addEventListener('click', handleGlobalClick);
@@ -1828,14 +1957,13 @@
 				class="albums-open-btn"
 				type="button"
 				on:click={() => layoutStore.showMediaTab()}
-				title="Open media albums panel"
+				title="Open media panel"
 			>
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<rect x="3" y="3" width="18" height="18" rx="2"></rect>
 					<circle cx="8.5" cy="8.5" r="1.5"></circle>
 					<polyline points="21 15 16 10 5 21"></polyline>
 				</svg>
-				<span>Albums</span>
 			</button>
 			{#if isDMChannel && dmCallTargetUser}
 				<div class="dm-call-actions">
@@ -1864,43 +1992,53 @@
 					</button>
 				</div>
 			{/if}
-			<div class="search-container">
-			<input
-				type="text"
-				bind:value={searchInput}
-				placeholder={$_('chat.search.placeholder')}
-				class="search-input"
-			/>
-			{#if searchInput}
-				<span class="search-results">
-					{filteredMessages.length === 1
-						? $_('chat.search.results_one', { values: { count: filteredMessages.length } })
-						: $_('chat.search.results_many', { values: { count: filteredMessages.length } })}
+			<div class="search-container" class:expanded={searchExpanded} bind:this={searchContainerElement}>
+				<span class="search-icon" aria-hidden="true">
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<circle cx="11" cy="11" r="7"></circle>
+						<line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+					</svg>
 				</span>
-			{/if}
-			{#if searchBackfillBusy}
-				<span class="search-results">{$_('chat.search.loading_older')}</span>
-			{/if}
-			{#if searchInput && currentChannelData?.persistMessages}
-				<button
-					type="button"
-					class="search-history-btn"
-					on:click={() => {
-						if (isFullHistorySearchRunning) {
-							fullHistorySearchAbortRequested = true;
-						} else {
-							void runFullHistorySearchBackfill();
-						}
-					}}
-				>
-					{isFullHistorySearchRunning
-						? $_('chat.search.stop', { values: { count: fullHistorySearchPagesLoaded } })
-						: $_('chat.search.full_history')}
-				</button>
-				{#if fullHistorySearchStatus}
-					<span class="search-results">{fullHistorySearchStatus}</span>
+				<input
+					type="text"
+					bind:this={searchInputElement}
+					bind:value={searchInput}
+					placeholder={$_('chat.search.placeholder')}
+					class="search-input"
+					on:click={openSearch}
+					on:focus={openSearch}
+					on:keydown={handleSearchInputKeydown}
+				/>
+				{#if searchExpanded && searchInput}
+					<span class="search-results">
+						{filteredMessages.length === 1
+							? $_('chat.search.results_one', { values: { count: filteredMessages.length } })
+							: $_('chat.search.results_many', { values: { count: filteredMessages.length } })}
+					</span>
 				{/if}
-			{/if}
+				{#if searchExpanded && searchBackfillBusy}
+					<span class="search-results">{$_('chat.search.loading_older')}</span>
+				{/if}
+				{#if searchExpanded && searchInput && currentChannelData?.persistMessages}
+					<button
+						type="button"
+						class="search-history-btn"
+						on:click={() => {
+							if (isFullHistorySearchRunning) {
+								fullHistorySearchAbortRequested = true;
+							} else {
+								void runFullHistorySearchBackfill();
+							}
+						}}
+					>
+						{isFullHistorySearchRunning
+							? $_('chat.search.stop', { values: { count: fullHistorySearchPagesLoaded } })
+							: $_('chat.search.full_history')}
+					</button>
+					{#if fullHistorySearchStatus}
+						<span class="search-results">{fullHistorySearchStatus}</span>
+					{/if}
+				{/if}
 			</div>
 		</div>
 	</div>
@@ -1911,6 +2049,8 @@
 
 	<!-- TEMPORARY: DMs now render in center like channels -->
 	<div class="messages" bind:this={chatContainer}>
+		{#key `${$currentChannel}-${channelPaneAnimation.enabled ? channelPaneAnimation.preset : 'off'}`}
+		<div class="messages-pane" transition:channelPaneTransition={channelPaneAnimation}>
 			{#if !searchInput}
 				<PinnedMessages pinnedMessages={pinnedMessages} />
 			{/if}
@@ -1923,6 +2063,8 @@
 				</div>
 			{/if}
 		</div>
+		{/key}
+	</div>
 
 		{#if showEmojiPicker}
 			<div class="emoji-picker-container" bind:this={emojiPickerContainer}>
@@ -2104,9 +2246,15 @@
 				}}
 				on:keydown={handleKeyDown}
 				placeholder={$_('chat.compose.placeholder')}
-				maxlength="2000"
+				maxlength={composerInputMaxLength}
+				spellcheck={composerSpellcheckEnabled}
 				rows="1"
 			></textarea>
+			{#if composerCharCounterEnabled}
+				<span class="composer-char-counter" class:warn={composerCharCounterWarn}>
+					{composerCharCount}/{composerInputMaxLength}
+				</span>
+			{/if}
 				<button
 					bind:this={emojiPickerButton}
 					class="input-icon-button"
@@ -2337,7 +2485,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		height: 52px;
+		height: var(--app-chrome-height);
 		box-sizing: border-box;
 		z-index: 2;
 	}
@@ -2424,8 +2572,8 @@
 	.albums-open-btn {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.35rem;
-		padding: 0.35rem 0.6rem;
+		gap: 0;
+		padding: 0.35rem;
 		border-radius: var(--radius-md);
 		border: 1px solid var(--border);
 		background: var(--bg-secondary);
@@ -2504,20 +2652,65 @@
 		display: flex;
 		gap: 0.5rem;
 		align-items: center;
+		overflow: hidden;
+		position: relative;
+	}
+
+	.search-icon {
+		position: absolute;
+		top: 50%;
+		left: 18px;
+		transform: translate(-50%, -50%);
+		color: color-mix(in srgb, var(--text-primary) 78%, var(--text-secondary));
+		pointer-events: none;
+		z-index: 3;
+		transition: left 220ms ease, color 140ms ease;
+	}
+
+	.search-icon svg {
+		width: 15px;
+		height: 15px;
+	}
+
+	.search-container.expanded .search-icon {
+		left: 12px;
+		color: var(--text-primary);
 	}
 
 	.search-input {
-		padding: 0.5rem 0.75rem;
+		width: 36px;
+		height: 34px;
+		padding: 0;
+		padding-left: 0;
+		padding-right: 0.35rem;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-md);
 		background: var(--bg-secondary);
 		color: var(--text-primary);
 		font-size: var(--text-base);
-		min-width: 250px;
-		transition: all var(--duration-fast);
+		min-width: 0;
+		cursor: pointer;
+		opacity: 0.95;
+		transition:
+			width 320ms cubic-bezier(0.34, 1.56, 0.64, 1),
+			opacity 180ms ease,
+			padding 220ms ease,
+			border-color 140ms ease;
+	}
+
+	.search-container.expanded .search-input {
+		width: clamp(180px, 22vw, 280px);
+		padding-left: 1.75rem;
+		padding-right: 0.75rem;
+		cursor: text;
+		opacity: 1;
 	}
 
 	.search-input::placeholder {
+		color: transparent;
+	}
+
+	.search-container.expanded .search-input::placeholder {
 		color: var(--text-secondary);
 	}
 
@@ -2551,6 +2744,7 @@
 		color: var(--text-primary);
 	}
 
+
 	.chat-tabs-row {
 		flex-shrink: 0;
 		background: var(--bg-secondary);
@@ -2564,10 +2758,16 @@
 		padding: 1rem;
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
 		min-height: 0; /* Important for flex overflow */
 		background: transparent;
 		position: relative;
+	}
+
+	.messages-pane {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		min-height: 100%;
 	}
 
 	.typing-indicator {
@@ -2651,21 +2851,26 @@
 	.input-wrapper {
 		flex-shrink: 0;
 		background: var(--bg-primary);
-		padding: 0.5rem;
-		padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+		padding: 0.16rem 0.65rem;
+		padding-bottom: env(safe-area-inset-bottom);
 		border-top: 1px solid var(--border);
 		z-index: 10;
 		position: relative;
+		min-height: var(--app-chrome-height);
+		box-sizing: border-box;
+		display: flex;
+		align-items: center;
 	}
 
 	.input-container {
 		display: flex;
 		align-items: center;
-		background: transparent;
-		border-radius: 8px;
-		padding: 0.25rem;
+		background: color-mix(in srgb, var(--bg-tertiary) 88%, transparent);
+		border-radius: 10px;
+		padding: 0.28rem 0.42rem;
 		gap: 0.25rem;
 		transition: background 0.2s;
+		width: 100%;
 	}
 
 	.input-container:focus-within {
@@ -2765,8 +2970,8 @@
 		border: none;
 		color: var(--text-secondary);
 		font-size: 1.1rem;
-		width: 40px;
-		height: 40px;
+		width: 38px;
+		height: 38px;
 		cursor: pointer;
 		border-radius: 4px;
 		transition: all 0.2s;
@@ -2791,13 +2996,13 @@
 
 	textarea {
 		flex: 1;
-		min-height: 28px;
+		min-height: 36px;
 		max-height: 120px;
 		overflow-y: auto;
 		resize: none;
 		font-family: inherit;
-		line-height: 1.5;
-		padding: 0.5rem;
+		line-height: 1.4;
+		padding: 0.5rem 0.55rem;
 		border: none;
 		background: transparent;
 		color: var(--text-primary);
@@ -2811,6 +3016,20 @@
 	/* Hide scrollbar for Chrome, Safari and Opera */
 	textarea::-webkit-scrollbar {
 		display: none;
+	}
+
+	.composer-char-counter {
+		font-size: 0.68rem;
+		color: var(--text-secondary);
+		min-width: 4.25rem;
+		text-align: right;
+		align-self: flex-end;
+		padding-bottom: 0.2rem;
+		opacity: 0.85;
+	}
+
+	.composer-char-counter.warn {
+		color: #ffb347;
 	}
 
 	.send-button {
@@ -2829,6 +3048,14 @@
 		justify-content: center;
 	}
 
+	:global(html[data-clickable-send='true']) .input-container .send-button {
+		display: none;
+	}
+
+	:global(html[data-clickable-send='true']) .input-container:focus-within .send-button {
+		display: flex;
+	}
+
 	.send-button svg {
 		width: 18px;
 		height: 18px;
@@ -2839,6 +3066,10 @@
 	.send-button:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	:global(html[data-clickable-send='false']) .send-button {
+		display: none;
 	}
 
 	.file-gallery, .upload-progress-bar {
@@ -2986,14 +3217,23 @@
 			gap: 0.35rem;
 			min-width: 0;
 			width: 100%;
+			overflow: visible;
 		}
 
 		.search-input {
 			min-width: unset;
 			width: 100%;
+			opacity: 1;
+			transform: none;
+			pointer-events: auto;
 			font-size: 0.84rem;
-			padding: 0.36rem 0.55rem;
+			padding: 0.36rem 0.55rem 0.36rem 1.7rem;
 			border-radius: 10px;
+			border-color: var(--border);
+		}
+
+		.search-input::placeholder {
+			color: var(--text-secondary);
 		}
 
 		.search-results,
@@ -3005,10 +3245,6 @@
 		.albums-open-btn {
 			padding: 0.25rem 0.45rem;
 			font-size: 0.78rem;
-		}
-
-		.albums-open-btn span {
-			display: none;
 		}
 
 		.messages {

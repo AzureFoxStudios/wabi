@@ -62,7 +62,7 @@ Users share `.zip` files and cannot inspect contents quickly. They need lightwei
 - [x] Metadata parse from fetched bytes.
 - [x] Basic tree/list UI with expand/collapse.
 - [x] Error/fallback states.
-- [ ] Manual smoke validation on malformed/oversized fixtures.
+- [x] Fixture smoke validation on malformed/oversized/split ZIP samples.
 
 ### Phase 2 - Harden
 - [x] Metadata caching keyed by attachment URL/hash.
@@ -99,6 +99,9 @@ Users share `.zip` files and cannot inspect contents quickly. They need lightwei
   - `frontend/src/lib/components/MessageList.svelte`
   - `frontend/src/lib/components/ZipPreviewPanel.svelte`
   - `frontend/src/lib/zip/zipPreview.ts`
+- Smoke coverage:
+  - `frontend/scripts/zip-preview-fixture-smoke.ts`
+  - command: `bun run check:zip-preview`
 - MVP limits currently enforced:
   - max archive bytes for preview: `25 MB`
   - max rendered entries: `200`
@@ -107,6 +110,7 @@ Users share `.zip` files and cannot inspect contents quickly. They need lightwei
   - LRU-style in-memory cache with TTL (`url + size` key)
   - in-panel filename search/filter with result count
   - parser checks for multi-disk/split archives and central-directory inconsistencies
+  - retry action in panel error state without full remount
 - Explicitly unsupported in MVP:
   - encrypted attachments
   - ZIP64 preview parsing

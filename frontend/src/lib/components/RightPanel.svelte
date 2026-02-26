@@ -265,7 +265,7 @@
 							on:keydown={handleQuickMessageKeydown}
 							placeholder="Send quick DM..."
 						/>
-						<button type="button" on:click={sendQuickMessage}>Send</button>
+						<button class="quick-send-btn" type="button" on:click={sendQuickMessage}>Send</button>
 					</div>
 				{/if}
 			</div>
@@ -523,6 +523,18 @@
 
 	.quick-dm-compose button:hover {
 		background: color-mix(in srgb, var(--accent) 18%, transparent);
+	}
+
+	:global(html[data-clickable-send='true']) .quick-dm-compose .quick-send-btn {
+		display: none;
+	}
+
+	:global(html[data-clickable-send='true']) .quick-dm-compose:focus-within .quick-send-btn {
+		display: inline-flex;
+	}
+
+	:global(html[data-clickable-send='false']) .quick-dm-compose .quick-send-btn {
+		display: none;
 	}
 
 	@media (max-width: 768px) {

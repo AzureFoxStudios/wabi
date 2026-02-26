@@ -164,6 +164,9 @@
 		rooms.sort((a, b) => (a.breakoutIndex || 0) - (b.breakoutIndex || 0))
 	);
 	$: voiceChannels = allVoiceChannels.filter(ch => !ch.isBreakout);
+	$: activeListenChips = voiceChannels.filter(ch =>
+		$listeningVoiceChannels.includes(ch.id) || ch.id === runtimeActiveVoiceChannelId
+	);
 
 	// Clear unread count when switching to chat view
 	$: if (activeView === 'chat') {
@@ -208,6 +211,11 @@
 		if (isConnectedToVoice(channelId)) {
 			openChannelCallPanel();
 			dispatch('close'); // Close sidebar on mobile after opening call view
+			return;
+		}
+		// Already in a primary channel — subscribe this one as a secondary listen-in
+		if (runtimeActiveVoiceChannelId) {
+			subscribeVoiceChannel(channelId);
 			return;
 		}
 		try {
@@ -285,6 +293,15 @@
 		const match = voiceChannels.find((channel) => channel.id === runtimeActiveVoiceChannelId);
 		return match?.name || runtimeActiveVoiceChannelId;
 	}
+
+	function getVoiceChannelNameById(channelId: string): string {
+		const match = allVoiceChannels.find((channel) => channel.id === channelId);
+		return match?.name || channelId;
+	}
+
+	$: speakingChannelName = runtimeActiveVoiceChannelId ? getVoiceChannelNameById(runtimeActiveVoiceChannelId) : 'None';
+	$: listeningChannelNames = Array.from(connectedVoiceChannelIds).map((channelId) => getVoiceChannelNameById(channelId));
+	$: listeningChannelSummary = listeningChannelNames.length > 0 ? listeningChannelNames.join(', ') : 'None';
 
 	async function handleToggleVideoInSidebar() {
 		await toggleVideo(getSocket() || undefined);
@@ -550,7 +567,11 @@
 				aria-expanded={isTextSectionExpanded}
 				on:click={() => toggleSection('text')}
 			>
-				<span class="section-chevron">&gt;</span>
+				<span class="section-chevron" aria-hidden="true">
+					<svg viewBox="0 0 24 24">
+						<path d="M9 6l6 6-6 6"></path>
+					</svg>
+				</span>
 				<span class="section-toggle-label">Text Channels</span>
 				<span class="section-count">{textChannels.length + groupChannels.length}</span>
 			</button>
@@ -561,7 +582,7 @@
 				title="Create channel"
 				aria-label="Create channel"
 			>
-				+
+				<span class="plus-glyph" aria-hidden="true">+</span>
 			</button>
 		</div>
 		{#if isTextSectionExpanded}
@@ -644,7 +665,11 @@
 				aria-expanded={isVoiceSectionExpanded}
 				on:click={() => toggleSection('voice')}
 			>
-				<span class="section-chevron">&gt;</span>
+				<span class="section-chevron" aria-hidden="true">
+					<svg viewBox="0 0 24 24">
+						<path d="M9 6l6 6-6 6"></path>
+					</svg>
+				</span>
 				<span class="section-toggle-label">Voice Channels</span>
 				<span class="section-count">{allVoiceChannels.length}</span>
 			</button>
@@ -655,7 +680,7 @@
 				title="Create channel"
 				aria-label="Create channel"
 			>
-				+
+				<span class="plus-glyph" aria-hidden="true">+</span>
 			</button>
 		</div>
 		{#if isVoiceSectionExpanded}
@@ -675,19 +700,15 @@
 						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
 					</span>
 					<span class="voice-channel-name">{channel.name}</span>
-					<span class="voice-inline-count">{members.length}</span>
+					<span class="voice-inline-count" title={`${members.length} in voice`}>
+						<svg class="voice-count-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+						{members.length}
+					</span>
 				</button>
-				<div class="channel-actions">
-					<div class="voice-occupancy" title={`${members.length} in voice`}>
-						<span class="voice-count">
-							<svg class="voice-count-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-							{members.length}
-						</span>
-					</div>
-				</div>
 			</div>
-			{#if $callMode === 'channel' && channelIsConnected && $currentUser}
+			{#if members.length > 0 || (channelIsConnected && $currentUser)}
 				<div class="voice-member-list">
+					{#if channelIsConnected && $currentUser}
 					<div class="voice-member-item" in:fly={{ y: -6, duration: 160, opacity: 0.2 }} out:fly={{ y: -4, duration: 130, opacity: 0.2 }}>
 						{#if $currentUser.profilePicture}
 							<img class="voice-member-avatar" class:speaking={isSelfSpeakingInChannel(channel.id)} src={$currentUser.profilePicture} alt={$currentUser.username} />
@@ -696,11 +717,12 @@
 						{/if}
 						<span class="voice-member-name">{$currentUser.username}</span>
 					</div>
-					{#each members.filter(m => {
+					{/if}
+					{#each (channelIsConnected && $currentUser ? members.filter(m => {
 						if (m.userId === $currentUser?.id) return false;
 						if ($currentUser?.dbUserId && m.userId === `user-${$currentUser.dbUserId}`) return false;
 						return true;
-					}) as member (member.userId)}
+					}) : members) as member (member.userId)}
 						<div class="voice-member-item" in:fly={{ y: -6, duration: 160, opacity: 0.2 }} out:fly={{ y: -4, duration: 130, opacity: 0.2 }}>
 							{#if member.profilePicture}
 								<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member, channel.id)} src={member.profilePicture} alt={member.username || member.userId} />
@@ -726,19 +748,15 @@
 					<button class="channel-btn" data-abbrev={breakout.name.charAt(0).toUpperCase()}>
 						<span class="breakout-prefix" aria-hidden="true">&gt;</span>
 						<span class="voice-channel-name">{breakout.name}</span>
-						<span class="voice-inline-count">{breakoutMembers.length}</span>
+						<span class="voice-inline-count" title={`${breakoutMembers.length} in voice`}>
+							<svg class="voice-count-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+							{breakoutMembers.length}
+						</span>
 					</button>
-					<div class="channel-actions">
-						<div class="voice-occupancy" title={`${breakoutMembers.length} in voice`}>
-							<span class="voice-count">
-								<svg class="voice-count-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-								{breakoutMembers.length}
-							</span>
-						</div>
-					</div>
 				</div>
-				{#if $callMode === 'channel' && breakoutIsConnected && $currentUser}
+				{#if breakoutMembers.length > 0 || (breakoutIsConnected && $currentUser)}
 					<div class="voice-member-list breakout-member-list">
+						{#if breakoutIsConnected && $currentUser}
 						<div class="voice-member-item" in:fly={{ y: -6, duration: 160, opacity: 0.2 }} out:fly={{ y: -4, duration: 130, opacity: 0.2 }}>
 							{#if $currentUser.profilePicture}
 								<img class="voice-member-avatar" class:speaking={isSelfSpeakingInChannel(breakout.id)} src={$currentUser.profilePicture} alt={$currentUser.username} />
@@ -747,11 +765,12 @@
 							{/if}
 							<span class="voice-member-name">{$currentUser.username}</span>
 						</div>
-						{#each breakoutMembers.filter(m => {
+						{/if}
+						{#each (breakoutIsConnected && $currentUser ? breakoutMembers.filter(m => {
 							if (m.userId === $currentUser?.id) return false;
 							if ($currentUser?.dbUserId && m.userId === `user-${$currentUser.dbUserId}`) return false;
 							return true;
-						}) as member (member.userId)}
+						}) : breakoutMembers) as member (member.userId)}
 							<div class="voice-member-item" in:fly={{ y: -6, duration: 160, opacity: 0.2 }} out:fly={{ y: -4, duration: 130, opacity: 0.2 }}>
 								{#if member.profilePicture}
 									<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member, breakout.id)} src={member.profilePicture} alt={member.username || member.userId} />
@@ -808,6 +827,34 @@
 					<div><span>Participants</span><strong>{1 + $activeCalls.length}</strong></div>
 				</div>
 			{/if}
+
+			<div class="voice-route-controls">
+				<label for="voice-transmit-mode">Transmit</label>
+				<select id="voice-transmit-mode" on:change={handleTransmitModeChange} value={$voiceTransmitMode}>
+					<option value="primary">Primary channel</option>
+					<option value="all-listening">All listening channels</option>
+				</select>
+			</div>
+
+			{#if $listeningVoiceChannels.length > 0}
+			<div class="voice-listen-controls">
+				<div class="voice-listen-title">Listen In</div>
+				<div class="voice-listen-list">
+					{#each activeListenChips as voiceChannel (voiceChannel.id)}
+						<button
+							type="button"
+							class="voice-listen-chip"
+							class:active={$listeningVoiceChannels.includes(voiceChannel.id) || voiceChannel.id === runtimeActiveVoiceChannelId}
+							class:locked={voiceChannel.id === runtimeActiveVoiceChannelId}
+							on:click={() => handleToggleListenChannel(voiceChannel.id)}
+							title={voiceChannel.id === runtimeActiveVoiceChannelId ? 'Primary voice channel' : $listeningVoiceChannels.includes(voiceChannel.id) ? 'Stop listening' : 'Start listening'}
+						>
+							{voiceChannel.name}
+						</button>
+					{/each}
+				</div>
+			</div>
+		{/if}
 
 			<div class="voice-usercard-actions">
 				<button class:active={!$isVideoOff} on:click={handleToggleVideoInSidebar} title={$isVideoOff ? 'Turn on camera' : 'Turn off camera'}>
@@ -1192,7 +1239,7 @@
 		justify-content: space-between;
 		padding: 0.75rem 1rem;
 		border-bottom: 1px solid var(--border);
-		height: 52px;
+		height: var(--app-chrome-height);
 		gap: 0.5rem;
 		box-sizing: border-box;
 	}
@@ -1210,10 +1257,17 @@
 		transition: filter 0.3s ease;
 	}
 
-	/* Invert logo for dark themes only */
+	/* Keep logo white on dark presets for consistent contrast */
 	:root[data-theme="dark"] .logo-img,
 	:root[data-theme="midnight-blue"] .logo-img,
-	:root[data-theme="vscode-high-contrast"] .logo-img {
+	:root[data-theme="vscode-high-contrast"] .logo-img,
+	:root[data-theme="slate-signal"] .logo-img,
+	:root[data-theme="catppuccin-mocha"] .logo-img,
+	:root[data-theme="dracula"] .logo-img,
+	:root[data-theme="nord"] .logo-img,
+	:root[data-theme="tokyo-night"] .logo-img,
+	:root[data-theme="forest"] .logo-img,
+	:root[data-theme="ember"] .logo-img {
 		filter: invert(1) drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.3));
 	}
 
@@ -1458,25 +1512,34 @@
 		width: 24px;
 		height: 24px;
 		border-radius: 6px;
-		border: 1px solid transparent;
+		border: none;
 		background: transparent;
 		color: var(--text-secondary);
 		cursor: pointer;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 0.95rem;
-		font-weight: 700;
-		opacity: 0.45;
+		opacity: 0.7;
 		transition: all 0.18s ease;
+	}
+
+	.section-add-btn .plus-glyph {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		height: 100%;
+		font-size: 1.1rem;
+		font-weight: 700;
+		line-height: 1;
+		transform: translateY(3px);
 	}
 
 	.section-heading-row:hover .section-add-btn,
 	.section-add-btn.active {
 		opacity: 1;
 		color: var(--text-primary);
-		background: rgba(var(--border-rgb), 0.18);
-		border-color: rgba(var(--border-rgb), 0.32);
+		background: transparent;
 	}
 
 	.section-toggle:hover {
@@ -1484,10 +1547,23 @@
 	}
 
 	.section-chevron {
-		display: inline-block;
-		font-size: 0.72rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 12px;
+		height: 12px;
 		transform-origin: center;
 		transition: transform 0.18s ease;
+	}
+
+	.section-chevron svg {
+		width: 12px;
+		height: 12px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2.5;
+		stroke-linecap: round;
+		stroke-linejoin: round;
 	}
 
 	.section-toggle[aria-expanded='true'] .section-chevron {
@@ -1555,7 +1631,11 @@
 
 	.voice-inline-count {
 		margin-left: auto;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.2rem;
 		font-size: 0.68rem;
+		font-weight: 600;
 		color: var(--text-secondary);
 		background: rgba(var(--border-rgb), var(--opacity-light));
 		padding: 0.05rem 0.35rem;
@@ -1820,6 +1900,71 @@
 		gap: 0.35rem;
 	}
 
+	.voice-route-controls {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.45rem;
+		font-size: 0.72rem;
+	}
+
+	.voice-route-controls label {
+		color: var(--text-secondary);
+		flex-shrink: 0;
+	}
+
+	.voice-route-controls select {
+		flex: 1;
+		min-width: 0;
+		background: rgba(var(--border-rgb), 0.16);
+		border: 1px solid rgba(var(--border-rgb), 0.35);
+		color: var(--text-primary);
+		border-radius: 8px;
+		padding: 0.2rem 0.35rem;
+		font-size: 0.72rem;
+	}
+
+	.voice-listen-controls {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.voice-listen-title {
+		font-size: 0.68rem;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+	}
+
+	.voice-listen-list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+	}
+
+	.voice-listen-chip {
+		background: rgba(var(--border-rgb), 0.15);
+		border: 1px solid rgba(var(--border-rgb), 0.35);
+		color: var(--text-secondary);
+		border-radius: 999px;
+		padding: 0.18rem 0.48rem;
+		font-size: 0.68rem;
+		line-height: 1.2;
+		cursor: pointer;
+	}
+
+	.voice-listen-chip.active {
+		color: var(--text-primary);
+		background: color-mix(in srgb, var(--accent) 24%, transparent);
+		border-color: color-mix(in srgb, var(--accent) 52%, transparent);
+	}
+
+	.voice-listen-chip.locked {
+		opacity: 0.92;
+		cursor: default;
+	}
+
 	.voice-usercard-actions button {
 		background: rgba(var(--border-rgb), 0.2);
 		border: 1px solid rgba(var(--border-rgb), 0.4);
@@ -1890,12 +2035,14 @@
 	.profile-card {
 		background: var(--bg-tertiary);
 		border-top: 1px solid var(--border);
-		padding: 0.625rem;
+		padding: 0.68rem 0.75rem;
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		height: 52px;
+		height: var(--app-chrome-height);
+		min-height: var(--app-chrome-height);
 		position: relative;
+		box-sizing: border-box;
 	}
 
 	.profile-info {
@@ -2053,7 +2200,7 @@
 	.profile-controls {
 		display: flex;
 		align-items: center;
-		gap: 0.25rem;
+		gap: 0.35rem;
 		flex-shrink: 1;
 	}
 

@@ -6,6 +6,7 @@
   export let height = 320;
   export let fullBleed = false;
   export let lazyLoad = true;
+  export let hideUi = false;
 
   type ThreadMode = 'auto' | 'always' | 'off';
   type ViewMode = 'textured' | 'normal' | 'wireframe-lines';
@@ -27,7 +28,10 @@
   let viewMode: ViewMode = 'textured';
   let showGrid = true;
   let showAxes = false;
-  let showRig = false;
+  let showRig = true;
+  let showDebugStats = false;
+  let debugStats = '';
+  let rigStatusNote = '';
   let autoRotate = false;
   let animationClipOptions: Array<{ index: number; name: string; duration: number }> = [];
   let selectedAnimationIndex = 0;
@@ -120,6 +124,10 @@
     toggleRigRuntime?.(showRig);
   }
 
+  function toggleDebugStats(): void {
+    showDebugStats = !showDebugStats;
+  }
+
   function toggleAutoRotate(): void {
     autoRotate = !autoRotate;
     setAutoRotateRuntime?.(autoRotate);
@@ -155,6 +163,11 @@
     resetViewRuntime?.();
   }
 
+  function toggleHideUi(): void {
+    hideUi = !hideUi;
+    if (hideUi) menuOpen = false;
+  }
+
   function handleWindowClick(): void {
     if (menuOpen) menuOpen = false;
   }
@@ -172,17 +185,45 @@
     let mixer: any = null;
     let activeAction: any = null;
     let animationClips: any[] = [];
+    type RigOverlay = {
+      bones: any[];
+      pairs: Array<[any, any]>;
+      line: any;
+      lineGeometry: any;
+      lineMaterial: any;
+      linePositions: Float32Array;
+      sticks: any[];
+      stickGeometry: any;
+      stickMaterial: any;
+      joints: any[];
+      jointGeometry: any;
+      jointMaterial: any;
+    };
     const skeletonHelpers: any[] = [];
+    const rigOverlays: RigOverlay[] = [];
     let frameHandle = 0;
     let worker: Worker | null = null;
     let loadedRoot: any = null;
     let fitCameraToObjectRef: ((object: any, THREE: any) => void) | null = null;
     let THREE: any = null;
+    let tmpBonePosA: any = null;
+    let tmpBonePosB: any = null;
+    let tmpBoneMid: any = null;
+    let tmpBoneDir: any = null;
+    let tmpBoneQuat: any = null;
+    let rigUpAxis: any = null;
     let sourceMaterialsCaptured = false;
     const meshes: any[] = [];
     const sourceMaterials: any[] = [];
     const runtimeMaterials: any[] = [];
     const overlayLines: Array<{ line: any; geometry: any; material: any }> = [];
+
+    const materialTextureKeys = [
+      'map',
+      'emissiveMap',
+      'specularColorMap',
+      'sheenColorMap'
+    ];
 
     const clearSkeletonHelpers = () => {
       for (const helper of skeletonHelpers) {
@@ -191,6 +232,173 @@
         helper?.material?.dispose?.();
       }
       skeletonHelpers.length = 0;
+    };
+
+    const clearRigOverlays = () => {
+      for (const overlay of rigOverlays) {
+        overlay.line?.parent?.remove?.(overlay.line);
+        overlay.lineGeometry?.dispose?.();
+        overlay.lineMaterial?.dispose?.();
+        for (const stick of overlay.sticks) {
+          stick?.parent?.remove?.(stick);
+        }
+        overlay.stickGeometry?.dispose?.();
+        overlay.stickMaterial?.dispose?.();
+        for (const joint of overlay.joints) {
+          joint?.parent?.remove?.(joint);
+        }
+        overlay.jointGeometry?.dispose?.();
+        overlay.jointMaterial?.dispose?.();
+      }
+      rigOverlays.length = 0;
+    };
+
+    const collectBonesFromRoot = (rootBone: any): any[] => {
+      const list: any[] = [];
+      rootBone?.traverse?.((node: any) => {
+        if (node?.isBone) list.push(node);
+      });
+      return list;
+    };
+
+    const getBoneRoot = (bone: any): any => {
+      let current = bone;
+      while (current?.parent?.isBone) {
+        current = current.parent;
+      }
+      return current;
+    };
+
+    const createRigOverlayFromBones = (bones: any[], jointRadius: number) => {
+      if (!THREE || !scene || !Array.isArray(bones) || bones.length === 0) return;
+
+      const pairs: Array<[any, any]> = [];
+      for (const bone of bones) {
+        const parent = bone?.parent;
+        if (parent?.isBone) pairs.push([bone, parent]);
+      }
+
+      const linePositions = new Float32Array(Math.max(1, pairs.length) * 6);
+      const lineGeometry = new THREE.BufferGeometry();
+      lineGeometry.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
+      lineGeometry.attributes.position.setUsage(THREE.DynamicDrawUsage);
+      const lineMaterial = new THREE.LineBasicMaterial({
+        color: 0x1fc8ff,
+        transparent: true,
+        opacity: 1,
+        depthTest: false,
+        depthWrite: false,
+        toneMapped: false
+      });
+      const line = new THREE.LineSegments(lineGeometry, lineMaterial);
+      line.visible = showRig;
+      line.frustumCulled = false;
+      line.renderOrder = 1650;
+      scene.add(line);
+
+      const stickGeometry = new THREE.CylinderGeometry(Math.max(jointRadius * 0.18, 0.0015), Math.max(jointRadius * 0.18, 0.0015), 1, 6, 1, true);
+      const stickMaterial = new THREE.MeshBasicMaterial({
+        color: 0x111924,
+        transparent: true,
+        opacity: 0.95,
+        depthTest: false,
+        depthWrite: false,
+        toneMapped: false
+      });
+      const sticks: any[] = [];
+      for (let pairIndex = 0; pairIndex < pairs.length; pairIndex += 1) {
+        const stick = new THREE.Mesh(stickGeometry, stickMaterial);
+        stick.visible = showRig;
+        stick.frustumCulled = false;
+        stick.renderOrder = 1651;
+        scene.add(stick);
+        sticks.push(stick);
+      }
+
+      const jointGeometry = new THREE.OctahedronGeometry(jointRadius, 0);
+      const jointMaterial = new THREE.MeshBasicMaterial({
+        color: 0xfff2a8,
+        transparent: true,
+        opacity: 1,
+        depthTest: false,
+        depthWrite: false,
+        toneMapped: false
+      });
+      const joints: any[] = [];
+      for (const _bone of bones) {
+        const marker = new THREE.Mesh(jointGeometry, jointMaterial);
+        marker.visible = showRig;
+        marker.frustumCulled = false;
+        marker.renderOrder = 1652;
+        scene.add(marker);
+        joints.push(marker);
+      }
+
+      rigOverlays.push({
+        bones,
+        pairs,
+        line,
+        lineGeometry,
+        lineMaterial,
+        linePositions,
+        sticks,
+        stickGeometry,
+        stickMaterial,
+        joints,
+        jointGeometry,
+        jointMaterial
+      });
+    };
+
+    const updateRigOverlays = () => {
+      if (!THREE || rigOverlays.length === 0) return;
+      if (!tmpBonePosA) tmpBonePosA = new THREE.Vector3();
+      if (!tmpBonePosB) tmpBonePosB = new THREE.Vector3();
+      if (!tmpBoneMid) tmpBoneMid = new THREE.Vector3();
+      if (!tmpBoneDir) tmpBoneDir = new THREE.Vector3();
+      if (!tmpBoneQuat) tmpBoneQuat = new THREE.Quaternion();
+      if (!rigUpAxis) rigUpAxis = new THREE.Vector3(0, 1, 0);
+
+      for (const overlay of rigOverlays) {
+        for (let boneIndex = 0; boneIndex < overlay.bones.length; boneIndex += 1) {
+          const bone = overlay.bones[boneIndex];
+          const joint = overlay.joints[boneIndex];
+          if (!bone || !joint) continue;
+          bone.getWorldPosition(tmpBonePosA);
+          joint.position.copy(tmpBonePosA);
+        }
+
+        if (overlay.pairs.length === 0) continue;
+        for (let pairIndex = 0; pairIndex < overlay.pairs.length; pairIndex += 1) {
+          const [childBone, parentBone] = overlay.pairs[pairIndex];
+          childBone.getWorldPosition(tmpBonePosA);
+          parentBone.getWorldPosition(tmpBonePosB);
+          const base = pairIndex * 6;
+          overlay.linePositions[base] = tmpBonePosA.x;
+          overlay.linePositions[base + 1] = tmpBonePosA.y;
+          overlay.linePositions[base + 2] = tmpBonePosA.z;
+          overlay.linePositions[base + 3] = tmpBonePosB.x;
+          overlay.linePositions[base + 4] = tmpBonePosB.y;
+          overlay.linePositions[base + 5] = tmpBonePosB.z;
+
+          const stick = overlay.sticks[pairIndex];
+          if (!stick) continue;
+          tmpBoneMid.copy(tmpBonePosA).add(tmpBonePosB).multiplyScalar(0.5);
+          tmpBoneDir.copy(tmpBonePosB).sub(tmpBonePosA);
+          const length = tmpBoneDir.length();
+          if (length <= 0.0001) {
+            stick.visible = false;
+            continue;
+          }
+          if (showRig) stick.visible = true;
+          tmpBoneDir.multiplyScalar(1 / length);
+          tmpBoneQuat.setFromUnitVectors(rigUpAxis, tmpBoneDir);
+          stick.position.copy(tmpBoneMid);
+          stick.quaternion.copy(tmpBoneQuat);
+          stick.scale.set(1, length, 1);
+        }
+        overlay.lineGeometry.attributes.position.needsUpdate = true;
+      }
     };
 
     const disposeMaterialLike = (materialLike: any) => {
@@ -215,6 +423,50 @@
         material?.dispose?.();
       }
       runtimeMaterials.length = 0;
+    };
+
+    const setColorTextureSpace = (texture: any) => {
+      if (!texture) return;
+      if (typeof THREE?.SRGBColorSpace !== 'undefined' && 'colorSpace' in texture) {
+        texture.colorSpace = THREE.SRGBColorSpace;
+      } else if (typeof THREE?.sRGBEncoding !== 'undefined' && 'encoding' in texture) {
+        texture.encoding = THREE.sRGBEncoding;
+      }
+      texture.needsUpdate = true;
+    };
+
+    const normalizeMeshMaterial = (mesh: any) => {
+      const applySingle = (material: any) => {
+        if (!material) return;
+        if (mesh?.isSkinnedMesh && 'skinning' in material) {
+          material.skinning = true;
+        }
+        if ('side' in material && (mesh?.isSkinnedMesh || material.transparent)) {
+          material.side = THREE.DoubleSide;
+        }
+        for (const key of materialTextureKeys) {
+          setColorTextureSpace((material as any)[key]);
+        }
+        material.needsUpdate = true;
+      };
+
+      if (Array.isArray(mesh?.material)) {
+        for (const material of mesh.material) applySingle(material);
+      } else {
+        applySingle(mesh?.material);
+      }
+    };
+
+    const styleSkeletonHelper = (helper: any) => {
+      const materials = Array.isArray(helper?.material) ? helper.material : [helper?.material];
+      for (const material of materials) {
+        if (!material) continue;
+        if ('depthTest' in material) material.depthTest = false;
+        if ('transparent' in material) material.transparent = true;
+        if ('opacity' in material) material.opacity = 0.95;
+        if (material?.color?.setHex) material.color.setHex(0x66d9ff);
+      }
+      helper.renderOrder = 999;
     };
 
     const createFaceDirectionMaterial = () => {
@@ -337,6 +589,8 @@
       controls?.dispose?.();
       clearOverlayLines();
       clearSkeletonHelpers();
+      clearRigOverlays();
+      rigStatusNote = '';
       disposeRuntimeMaterials();
       for (const material of sourceMaterials) {
         disposeMaterialLike(material);
@@ -392,6 +646,8 @@
         camera = new THREE.PerspectiveCamera(55, 1, 0.01, 2000);
         renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
         renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.0;
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
         clock = new THREE.Clock();
 
@@ -422,17 +678,83 @@
         const addLoadedObject = (object: any) => {
           loadedRoot = object;
           scene.add(object);
+          const objectBounds = new THREE.Box3().setFromObject(object);
+          const objectSize = objectBounds.getSize(new THREE.Vector3());
+          const maxObjectSize = Math.max(objectSize.x, objectSize.y, objectSize.z) || 1;
+          const jointRadius = Math.min(0.07, Math.max(0.009, maxObjectSize * 0.014));
+          const seenMaterial = new Set<any>();
+          const seenTexture = new Set<any>();
+          const boneRoots = new Set<any>();
+          const rigRoots = new Set<any>();
+          let meshCount = 0;
+          let skinnedMeshCount = 0;
+          let boneCount = 0;
           object.traverse?.((child: any) => {
+            if (child?.isBone) {
+              boneCount += 1;
+              const parent = child?.parent;
+              if (!parent?.isBone) boneRoots.add(child);
+            }
             if (child?.isMesh) {
+              meshCount += 1;
               meshes.push(child);
+              normalizeMeshMaterial(child);
+              if (Array.isArray(child.material)) {
+                for (const mat of child.material) {
+                  if (!mat) continue;
+                  seenMaterial.add(mat);
+                  for (const key of materialTextureKeys) {
+                    const texture = (mat as any)[key];
+                    if (texture) seenTexture.add(texture);
+                  }
+                }
+              } else if (child.material) {
+                seenMaterial.add(child.material);
+                for (const key of materialTextureKeys) {
+                  const texture = (child.material as any)[key];
+                  if (texture) seenTexture.add(texture);
+                }
+              }
               if (child?.isSkinnedMesh) {
+                skinnedMeshCount += 1;
                 const helper = new THREE.SkeletonHelper(child);
                 helper.visible = showRig;
+                styleSkeletonHelper(helper);
                 scene.add(helper);
                 skeletonHelpers.push(helper);
+                const skinnedBones = child?.skeleton?.bones;
+                if (Array.isArray(skinnedBones) && skinnedBones.length > 0) {
+                  const rootBone = getBoneRoot(skinnedBones[0]);
+                  if (rootBone && !rigRoots.has(rootBone)) {
+                    rigRoots.add(rootBone);
+                    createRigOverlayFromBones(collectBonesFromRoot(rootBone), jointRadius);
+                  }
+                }
               }
             }
           });
+          if (rigRoots.size === 0 && boneRoots.size > 0) {
+            for (const rootBone of boneRoots) {
+              const helper = new THREE.SkeletonHelper(rootBone);
+              helper.visible = showRig;
+              styleSkeletonHelper(helper);
+              scene.add(helper);
+              skeletonHelpers.push(helper);
+              createRigOverlayFromBones(collectBonesFromRoot(rootBone), jointRadius);
+            }
+          }
+          const overlayJointCount = rigOverlays.reduce((total, overlay) => total + overlay.bones.length, 0);
+          const overlayLinkCount = rigOverlays.reduce((total, overlay) => total + overlay.pairs.length, 0);
+          if (boneCount === 0) {
+            rigStatusNote = 'No skeleton detected in this model file.';
+          } else if (overlayJointCount === 0) {
+            rigStatusNote = `Detected ${boneCount} bones, but no rig overlay could be built.`;
+          } else {
+            rigStatusNote = `Rig overlay: ${overlayJointCount} joints, ${overlayLinkCount} links.`;
+          }
+          debugStats =
+            `Meshes ${meshCount} | Skinned ${skinnedMeshCount} | Bones ${boneCount} | ` +
+            `Materials ${seenMaterial.size} | Textures ${seenTexture.size} | Rig overlays ${rigOverlays.length} | Rig links ${overlayLinkCount}`;
           fitCameraToObject(object, THREE);
         };
         fitCameraToObjectRef = fitCameraToObject;
@@ -446,6 +768,11 @@
         };
         toggleRigRuntime = (visible: boolean) => {
           for (const helper of skeletonHelpers) helper.visible = visible;
+          for (const overlay of rigOverlays) {
+            overlay.line.visible = visible;
+            for (const stick of overlay.sticks) stick.visible = visible;
+            for (const joint of overlay.joints) joint.visible = visible;
+          }
         };
         setAutoRotateRuntime = (enabled: boolean) => {
           if (controls) controls.autoRotate = enabled;
@@ -566,6 +893,8 @@
             const delta = clock.getDelta();
             mixer.update(delta);
           }
+          loadedRoot?.updateMatrixWorld?.(true);
+          updateRigOverlays();
           controls?.update?.();
           renderer?.render?.(scene, camera);
         };
@@ -629,7 +958,7 @@
       <div class="loading-overlay">Loading 3D preview...</div>
     {/if}
 
-    {#if hasStarted}
+    {#if hasStarted && !hideUi}
     <div class="overlay-controls overlay-left" on:click|stopPropagation>
       <button
         type="button"
@@ -662,6 +991,13 @@
       <button
         type="button"
         class="settings-fab"
+        on:click={toggleHideUi}
+      >
+        Hide UI
+      </button>
+      <button
+        type="button"
+        class="settings-fab"
         aria-expanded={menuOpen}
         aria-haspopup="menu"
         on:click={() => (menuOpen = !menuOpen)}
@@ -675,6 +1011,7 @@
       <button type="button" class="menu-item" class:active={showGrid} on:click={toggleGrid}>Grid</button>
       <button type="button" class="menu-item" class:active={showAxes} on:click={toggleAxes}>Axes</button>
       <button type="button" class="menu-item" class:active={showRig} on:click={toggleRig}>Bones / Controllers</button>
+      <button type="button" class="menu-item" class:active={showDebugStats} on:click={toggleDebugStats}>Debug Stats Overlay</button>
           {#if animationClipOptions.length > 0}
             <div class="menu-section">
               <div class="menu-section-title">Animation</div>
@@ -722,10 +1059,29 @@
       {/if}
     </div>
     {/if}
+    {#if hasStarted && hideUi}
+      <div class="overlay-controls overlay-right minimal-toggle" on:click|stopPropagation>
+        <button
+          type="button"
+          class="settings-fab"
+          on:click={toggleHideUi}
+        >
+          Show UI
+        </button>
+      </div>
+    {/if}
 
+    {#if !hideUi}
     <div class="viewer-hint">Drag to rotate, wheel to zoom, right-drag to pan</div>
-    {#if threadingNotice}
+    {/if}
+    {#if !hideUi && threadingNotice}
       <div class="threading-note">{threadingNotice}</div>
+    {/if}
+    {#if !hideUi && showRig && rigStatusNote}
+      <div class="rig-note">{rigStatusNote}</div>
+    {/if}
+    {#if !hideUi && showDebugStats && debugStats}
+      <div class="debug-note">{debugStats}</div>
     {/if}
   {/if}
 </div>
@@ -733,12 +1089,15 @@
 <style>
   .model-viewer {
     width: 100%;
-    max-width: 560px;
+    max-width: none;
+    align-self: stretch;
+    margin: 0;
     border: 1px solid var(--border);
     border-radius: 8px;
     overflow: hidden;
     background: #0f1218;
     position: relative;
+    justify-self: start;
   }
 
   .model-viewer.full-bleed {
@@ -801,21 +1160,27 @@
   .overlay-controls {
     position: absolute;
     top: 0.55rem;
-    display: inline-flex;
+    display: flex;
+    flex-wrap: wrap;
     gap: 0.35rem;
     z-index: 3;
+    pointer-events: none;
   }
 
   .overlay-left {
     left: 0.55rem;
-    flex-wrap: wrap;
-    max-width: min(72vw, 700px);
+    right: 8.75rem;
+    max-width: none;
   }
 
   .overlay-right {
     right: 0.55rem;
     flex-direction: column;
     align-items: flex-end;
+  }
+
+  .overlay-right.minimal-toggle {
+    top: 0.55rem;
   }
 
   .view-btn,
@@ -829,6 +1194,7 @@
     font-size: 0.72rem;
     cursor: pointer;
     white-space: nowrap;
+    pointer-events: auto;
   }
 
   .view-btn.active,
@@ -849,6 +1215,7 @@
     flex-direction: column;
     gap: 0.35rem;
     backdrop-filter: blur(5px);
+    pointer-events: auto;
   }
 
   .menu-item {
@@ -921,14 +1288,15 @@
     position: absolute;
     left: 0.55rem;
     bottom: 0.55rem;
-    color: #c8d2dc;
-    background: rgba(15, 20, 30, 0.82);
-    border: 1px solid rgba(62, 79, 102, 0.85);
+    color: #d8e3ef;
+    background: rgba(15, 20, 30, 0.3);
+    border: 1px solid rgba(62, 79, 102, 0.3);
     border-radius: 6px;
     padding: 0.22rem 0.45rem;
     font-size: 0.7rem;
     z-index: 2;
     pointer-events: none;
+    opacity: 0.3;
   }
 
   .threading-note {
@@ -945,6 +1313,36 @@
     z-index: 2;
   }
 
+  .debug-note {
+    position: absolute;
+    left: 0.55rem;
+    bottom: 2.15rem;
+    max-width: min(86vw, 760px);
+    color: #d8f1ff;
+    background: rgba(6, 22, 35, 0.88);
+    border: 1px solid rgba(82, 153, 204, 0.72);
+    border-radius: 6px;
+    padding: 0.22rem 0.45rem;
+    font-size: 0.67rem;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  .rig-note {
+    position: absolute;
+    right: 0.55rem;
+    bottom: 2.35rem;
+    max-width: min(46vw, 460px);
+    color: #e9f7ff;
+    background: rgba(9, 19, 30, 0.9);
+    border: 1px solid rgba(93, 140, 190, 0.85);
+    border-radius: 6px;
+    padding: 0.22rem 0.45rem;
+    font-size: 0.67rem;
+    z-index: 2;
+    pointer-events: none;
+  }
+
   .model-error {
     color: #ffd4d4;
     font-size: 0.82rem;
@@ -958,7 +1356,8 @@
     }
 
     .overlay-left {
-      max-width: min(78vw, 620px);
+      right: 7.9rem;
+      max-width: none;
     }
 
     .view-btn,

@@ -6,7 +6,7 @@
   - `https://betterdiscord.app/plugin/VideoCompressor`
   - `C:\Users\Willp\Documents\GitHub\BetterDiscordPlugins-main\plugins\VideoCompressor`
 - Wabi Target Version: `0.4.x+`
-- Status: `Planned`
+- Status: `In Progress (Phase 2)`
 
 ## Plugin Grade
 - User Impact (1-5): `5`
@@ -23,8 +23,8 @@ Users hit upload limits for videos and fail to send media that should be shareab
 They need a built-in flow to downscale/re-encode before upload, with clear size estimates and safe defaults.
 
 ## Current Wabi Baseline (Important)
-Wabi currently has upload and media-runtime tuning, but no standalone "compress this video before send" flow.
-Integration hooks already exist in upload UI and backend upload finalization.
+Wabi now has a desktop-gated "compress before send" flow in chat composer intake.
+Compression runs client-side in the renderer media pipeline, then reuses normal attachment upload handling.
 
 ## Functional Requirements
 1. Detect over-limit video files in composer file selection and paste/drag paths.
@@ -67,31 +67,31 @@ Integration hooks already exist in upload UI and backend upload finalization.
 
 ## Phase Plan
 ### Phase 0 - Discovery
-- [ ] Finalize codec strategy:
-  - Tauri desktop path: native sidecar or bundled encoder strategy.
-  - Web path: WASM capability-gated fallback.
-- [ ] Define hard limits:
-  - max input size for client-side compression
-  - max encode duration
-  - supported output container/codec matrix
+- [x] Finalize initial codec strategy:
+  - Desktop rollout path: client-side MediaRecorder canvas pipeline, runtime-gated in Tauri.
+  - Web path deferred by runtime gate (feature currently desktop-scoped).
+- [x] Define hard limits:
+  - compression prompt threshold: `45 MB`
+  - max upload file size remains `1 GB` per file
+  - encode timeout budget: `3 minutes`
 - [ ] Define telemetry:
   - attempts, success/failure rate, median encode time, median size reduction
 
 ### Phase 1 - MVP (Desktop First)
-- [ ] Over-limit video detection in composer flow.
-- [ ] Compression modal with 2-3 presets (for example 720p/30, 1080p/30).
-- [ ] Client-side compression path and progress UI.
-- [ ] Pipe compressed Blob/File into existing resumable upload flow.
-- [ ] Feature flag default off until smoke-tested.
+- [x] Over-limit video detection in composer flow.
+- [x] Compression modal with presets (currently `balanced_720p` and `quality_1080p`).
+- [x] Client-side compression path and progress UI.
+- [x] Pipe compressed File into existing attachment/upload flow.
+- [x] User setting toggle in `Settings` to enable/disable compression behavior.
 
 ### Phase 2 - Harden
-- [ ] Add cancellation and retry path.
-- [ ] Add fallback if local compression unavailable or too slow.
+- [x] Add cancellation and retry path.
+- [x] Add fallback if local compression unavailable or too slow.
 - [ ] Add backend verification metadata (original size, compressed size, codec).
 - [ ] Improve estimate accuracy using sampled input metadata.
 
 ### Phase 3 - Polish
-- [ ] Per-user default preset setting.
+- [x] Per-user default preset setting.
 - [ ] Optional auto-suggest ("compress recommended") for over-limit files.
 - [ ] Android-specific preset tuning and thermal safeguards.
 
@@ -117,3 +117,18 @@ Integration hooks already exist in upload UI and backend upload finalization.
 1. Should desktop compression run in Rust/Tauri sidecar for speed, or stay JS/WASM for shared code?
 2. Do we enforce a single output codec (`H.264 + AAC`) initially for reliability?
 3. Should server-side fallback compression be opt-in per deployment due CPU cost?
+
+## Current Implementation Snapshot (2026-02-25)
+- Frontend files:
+  - `frontend/src/lib/components/Chat.svelte`
+  - `frontend/src/lib/components/Settings.svelte`
+  - `frontend/src/lib/video/videoCompressor.ts`
+  - `frontend/src/lib/video/videoCompressionSettings.ts`
+- Active behavior:
+  - prompts on large videos before queueing upload
+  - progress + cancel + retry controls
+  - keep-original and remove-file fallback actions
+  - desktop runtime gate (`isTauriRuntime`)
+- Known gaps:
+  - telemetry + backend verification metadata
+  - Android tuning phase
