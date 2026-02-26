@@ -26,6 +26,7 @@ import {
 
 type RightPanelView = 'none' | 'users' | 'dms' | 'admin' | 'media';
 type RightPanelTab = 'users' | 'dms' | 'admin' | 'media';
+export const NOTES_DM_ID = '__keep_notes__';
 
 const isMobile = readable(false, (set) => {
 	if (typeof window === 'undefined') {
@@ -236,6 +237,19 @@ const openGroupDM = (channelIdStr: string, channel: Channel) => {
 	selectedDmChannelId.set(channelIdStr);
 	dmOtherUser.set(null);
 	selectedGroupChannel.set(channel);
+	activeRightTab.set('dms');
+	rightPanelView.set('dms');
+};
+
+const openNotes = () => {
+	selectedDmChannelId.set(NOTES_DM_ID);
+	dmOtherUser.set({
+		id: 'notes',
+		username: 'Notes',
+		color: '#28b463',
+		status: 'active'
+	});
+	selectedGroupChannel.set(null);
 	activeRightTab.set('dms');
 	rightPanelView.set('dms');
 };
@@ -533,6 +547,7 @@ export const layoutStore = {
 	showMediaTab,
 	openDM,
 	openGroupDM,
+	openNotes,
 	closeDM,
 	toggleMobileChannels,
 	toggleMobileUsers,
