@@ -21,6 +21,11 @@
 	export let onForward: (() => void) | undefined = undefined;
 	export let onAddReaction: (() => void) | undefined = undefined;
 	export let onTranslate: (() => void) | undefined = undefined;
+	export let onQuickMention: (() => void) | undefined = undefined;
+	export let onTogglePersonalPin: (() => void) | undefined = undefined;
+	export let quickMentionEnabled = true;
+	export let personalPinsEnabled = true;
+	export let isPersonalPinned = false;
 	export let canManageOwnMessage: boolean | null = null;
 
 	function getCurrentIdentityIds(): string[] {
@@ -64,6 +69,15 @@
 				onSelect: onReply
 			}
 		];
+
+		if (quickMentionEnabled && onQuickMention && !isOwnMessageByIdentity) {
+			list.push({
+				id: 'quick-mention',
+				label: get(_)('context_menu.quick_mention'),
+				icon: 'message-circle',
+				onSelect: onQuickMention
+			});
+		}
 
 		if (onAddReaction) {
 			list.push({
@@ -143,6 +157,15 @@
 			icon: 'pin',
 			onSelect: onPin
 		});
+
+		if (personalPinsEnabled && onTogglePersonalPin) {
+			list.push({
+				id: 'personal-pin',
+				label: isPersonalPinned ? get(_)('context_menu.unpin_local_message') : get(_)('context_menu.pin_local_message'),
+				icon: 'pin',
+				onSelect: onTogglePersonalPin
+			});
+		}
 
 		list.push({
 			id: 'copy',

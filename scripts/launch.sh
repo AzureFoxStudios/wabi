@@ -14,6 +14,24 @@ USE_SRT_GATEWAY_PROFILE="${USE_SRT_GATEWAY_PROFILE:-auto}"
 USE_SFU_PROFILE="${USE_SFU_PROFILE:-auto}"
 PRUNE_DANGLING_IMAGES="${PRUNE_DANGLING_IMAGES:-true}"
 PRUNE_STOPPED_CONTAINERS="${PRUNE_STOPPED_CONTAINERS:-false}"
+WABI_CONFIG_HAS_VIDEO_COMPRESSION_METRICS=false
+WABI_CONFIG_VIDEO_COMPRESSION_METRICS_VALUE=""
+WABI_CONFIG_HAS_ENABLE_MEDIA_GATEWAY=false
+WABI_CONFIG_ENABLE_MEDIA_GATEWAY_VALUE=""
+WABI_CONFIG_HAS_SFU_PROVIDER=false
+WABI_CONFIG_SFU_PROVIDER_VALUE=""
+WABI_CONFIG_HAS_LIVEKIT_URL=false
+WABI_CONFIG_LIVEKIT_URL_VALUE=""
+WABI_CONFIG_HAS_LIVEKIT_API_KEY=false
+WABI_CONFIG_LIVEKIT_API_KEY_VALUE=""
+WABI_CONFIG_HAS_LIVEKIT_API_SECRET=false
+WABI_CONFIG_LIVEKIT_API_SECRET_VALUE=""
+WABI_CONFIG_HAS_GIPHY_API_KEY=false
+WABI_CONFIG_GIPHY_API_KEY_VALUE=""
+WABI_CONFIG_HAS_PLUGINS_ENABLED=false
+WABI_CONFIG_PLUGINS_ENABLED_VALUE=""
+WABI_CONFIG_HAS_PLUGINS_ALLOW_INSTALL=false
+WABI_CONFIG_PLUGINS_ALLOW_INSTALL_VALUE=""
 
 usage() {
   cat <<'EOF'
@@ -21,6 +39,7 @@ Usage: scripts/launch.sh [options]
 
 Single command for first-run setup + normal deployment updates.
 If wabi.config exists in repo root, it is applied before CLI args.
+Relay node setup is intentionally separate (use scripts/relay-launch.sh).
 
 Options:
   --mode <normal|community>   Override WABI_MODE.
@@ -39,6 +58,8 @@ Advanced environment overrides:
   WABI_DOMAIN=<domain|localhost|no>    (default: localhost)
   TURN_EXTERNAL_IP=<ip>                (default: auto-detect or 127.0.0.1)
   GIPHY_KEY=<key>                      (default: empty)
+  WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED=true|false (default: false)
+  VITE_VIDEO_COMPRESSION_CLIENT_METRICS=true|false         (default: false)
   USE_TURN_PROFILE=true|false          (default: true)
   USE_SRT_GATEWAY_PROFILE=auto|true|false (default: auto; true when MEDIA_SRT_GATEWAY_ENABLED=true)
   USE_SFU_PROFILE=auto|true|false      (default: auto; true when SFU_PROVIDER=livekit and LIVEKIT_URL/API_KEY/API_SECRET are set)
@@ -110,6 +131,24 @@ normalize_bool() {
       echo "${2:-false}"
       ;;
   esac
+}
+
+upsert_env_file_key() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+
+  if [[ ! -f "$file" ]]; then
+    return
+  fi
+
+  if grep -Eq "^${key}=" "$file"; then
+    sed -i.bak -E "s|^${key}=.*$|${key}=${value}|" "$file"
+    rm -f "${file}.bak"
+    return
+  fi
+
+  printf '\n%s=%s\n' "$key" "$value" >> "$file"
 }
 
 to_wabi_mode() {
@@ -204,12 +243,13 @@ load_wabi_config() {
         fi
         ;;
       ENABLE_RELAYS)
-        bool_value="$(normalize_bool "$value" "false")"
-        VITE_ENABLE_RELAYS="$bool_value"
+        echo "[launch] ENABLE_RELAYS is managed separately now (set VITE_ENABLE_RELAYS in frontend/.env and use scripts/relay-launch.sh)."
         ;;
       ENABLE_MEDIA_GATEWAY)
         bool_value="$(normalize_bool "$value" "false")"
         MEDIA_SRT_GATEWAY_ENABLED="$bool_value"
+        WABI_CONFIG_HAS_ENABLE_MEDIA_GATEWAY=true
+        WABI_CONFIG_ENABLE_MEDIA_GATEWAY_VALUE="$bool_value"
         if [[ "$bool_value" == "true" ]]; then
           USE_SRT_GATEWAY_PROFILE=true
         else
@@ -221,35 +261,60 @@ load_wabi_config() {
         if [[ "$bool_value" == "true" ]]; then
           USE_SFU_PROFILE=true
           SFU_PROVIDER="livekit"
+          WABI_CONFIG_HAS_SFU_PROVIDER=true
+          WABI_CONFIG_SFU_PROVIDER_VALUE="livekit"
         else
           USE_SFU_PROFILE=false
           SFU_PROVIDER="none"
+          WABI_CONFIG_HAS_SFU_PROVIDER=true
+          WABI_CONFIG_SFU_PROVIDER_VALUE="none"
         fi
         ;;
       SFU_PROVIDER)
         case "${value,,}" in
           livekit|none)
             SFU_PROVIDER="${value,,}"
+            WABI_CONFIG_HAS_SFU_PROVIDER=true
+            WABI_CONFIG_SFU_PROVIDER_VALUE="${value,,}"
             ;;
         esac
         ;;
       LIVEKIT_URL)
         LIVEKIT_URL="$value"
+        WABI_CONFIG_HAS_LIVEKIT_URL=true
+        WABI_CONFIG_LIVEKIT_URL_VALUE="$value"
         ;;
       LIVEKIT_API_KEY)
         LIVEKIT_API_KEY="$value"
+        WABI_CONFIG_HAS_LIVEKIT_API_KEY=true
+        WABI_CONFIG_LIVEKIT_API_KEY_VALUE="$value"
         ;;
       LIVEKIT_API_SECRET)
         LIVEKIT_API_SECRET="$value"
+        WABI_CONFIG_HAS_LIVEKIT_API_SECRET=true
+        WABI_CONFIG_LIVEKIT_API_SECRET_VALUE="$value"
         ;;
       GIPHY_API_KEY)
         GIPHY_KEY="$value"
+        WABI_CONFIG_HAS_GIPHY_API_KEY=true
+        WABI_CONFIG_GIPHY_API_KEY_VALUE="$value"
         ;;
       PLUGINS_ENABLED)
         PLUGINS_ENABLED="$(normalize_bool "$value" "false")"
+        WABI_CONFIG_HAS_PLUGINS_ENABLED=true
+        WABI_CONFIG_PLUGINS_ENABLED_VALUE="$(normalize_bool "$value" "false")"
         ;;
       PLUGINS_ALLOW_INSTALL)
         PLUGINS_ALLOW_INSTALL="$(normalize_bool "$value" "false")"
+        WABI_CONFIG_HAS_PLUGINS_ALLOW_INSTALL=true
+        WABI_CONFIG_PLUGINS_ALLOW_INSTALL_VALUE="$(normalize_bool "$value" "false")"
+        ;;
+      VIDEO_COMPRESSION_METRICS|VIDEO_COMPRESSION_CLIENT_METRICS)
+        bool_value="$(normalize_bool "$value" "false")"
+        WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED="$bool_value"
+        VITE_VIDEO_COMPRESSION_CLIENT_METRICS="$bool_value"
+        WABI_CONFIG_HAS_VIDEO_COMPRESSION_METRICS=true
+        WABI_CONFIG_VIDEO_COMPRESSION_METRICS_VALUE="$bool_value"
         ;;
     esac
   done < "$WABI_CONFIG_FILE"
@@ -285,14 +350,15 @@ EOF
 configure_defaults() {
   local domain mode runtime public_ip frontend_url public_url turn_realm turn_secret jwt_secret
   local db_mode postgres_db postgres_user postgres_password database_url giphy_key
-  local relay_enabled plugins_enabled plugins_allow_install srt_gateway_enabled sfu_provider
+  local plugins_enabled plugins_allow_install srt_gateway_enabled sfu_provider
+  local video_compression_metrics
   local livekit_url livekit_api_key livekit_api_secret
 
   domain="$(normalize_domain "${WABI_DOMAIN:-localhost}")"
   mode="${WABI_MODE:-normal}"
   runtime="${WABI_RUNTIME:-node}"
   giphy_key="${GIPHY_KEY:-${VITE_GIPHY_API_KEY:-}}"
-  relay_enabled="$(normalize_bool "${VITE_ENABLE_RELAYS:-false}" "false")"
+  video_compression_metrics="$(normalize_bool "${WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED:-${VITE_VIDEO_COMPRESSION_CLIENT_METRICS:-false}}" "false")"
   plugins_enabled="$(normalize_bool "${PLUGINS_ENABLED:-false}" "false")"
   plugins_allow_install="$(normalize_bool "${PLUGINS_ALLOW_INSTALL:-false}" "false")"
   srt_gateway_enabled="$(normalize_bool "${MEDIA_SRT_GATEWAY_ENABLED:-false}" "false")"
@@ -370,6 +436,7 @@ DATA_DIR=/app/data
 PLUGINS_DIR=/app/plugins
 PLUGINS_ENABLED=$plugins_enabled
 PLUGINS_ALLOW_INSTALL=$plugins_allow_install
+WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED=$video_compression_metrics
 STATIC_DIR=/app/frontend/build
 
 TURN_EXTERNAL_IP=$public_ip
@@ -403,7 +470,7 @@ VITE_TURN_SERVER=$public_ip
 VITE_TURN_PORT=3478
 VITE_USE_TURNS=false
 VITE_ENABLE_GOOGLE_STUN=true
-VITE_ENABLE_RELAYS=$relay_enabled
+VITE_VIDEO_COMPRESSION_CLIENT_METRICS=$video_compression_metrics
 EOF
 
   echo "[launch] Generated config:"
@@ -413,6 +480,38 @@ EOF
 
 is_config_missing() {
   [[ ! -s "$ENV_FILE" || ! -s "$FRONTEND_ENV_FILE" ]]
+}
+
+validate_security_config() {
+  local errors=()
+
+  if [[ -z "${JWT_SECRET:-}" || "${JWT_SECRET}" == "replace_with_long_random_jwt_secret" || "${JWT_SECRET}" == "dev-secret-change-in-production" ]]; then
+    errors+=("JWT_SECRET must be set to a strong non-placeholder value.")
+  fi
+
+  if [[ -z "${TURN_SHARED_SECRET:-}" || "${TURN_SHARED_SECRET}" == "replace_with_long_random_shared_secret" ]]; then
+    errors+=("TURN_SHARED_SECRET must be set to a strong non-placeholder value.")
+  fi
+
+  if [[ "${WABI_MODE:-normal}" == "community" ]]; then
+    if [[ -z "${POSTGRES_PASSWORD:-}" || "${POSTGRES_PASSWORD}" == "replace_with_long_random_password" || "${POSTGRES_PASSWORD}" == "wabi" ]]; then
+      errors+=("POSTGRES_PASSWORD must be explicitly set and must not use a placeholder/default value.")
+    fi
+  fi
+
+  if [[ "${SFU_PROVIDER:-none}" == "livekit" ]]; then
+    if [[ -z "${LIVEKIT_API_KEY:-}" || -z "${LIVEKIT_API_SECRET:-}" ]]; then
+      errors+=("LIVEKIT_API_KEY and LIVEKIT_API_SECRET are required when SFU_PROVIDER=livekit.")
+    fi
+  fi
+
+  if [[ ${#errors[@]} -gt 0 ]]; then
+    echo "[launch] Security configuration validation failed:" >&2
+    for err in "${errors[@]}"; do
+      echo "  - $err" >&2
+    done
+    exit 1
+  fi
 }
 
 load_wabi_config
@@ -507,6 +606,69 @@ if [[ "$WABI_RUNTIME" != "node" && "$WABI_RUNTIME" != "bun" ]]; then
   echo "[launch] Invalid WABI_RUNTIME: $WABI_RUNTIME (expected node|bun)" >&2
   exit 1
 fi
+
+if [[ "$WABI_CONFIG_HAS_VIDEO_COMPRESSION_METRICS" == "true" ]]; then
+  WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED="$(normalize_bool "${WABI_CONFIG_VIDEO_COMPRESSION_METRICS_VALUE:-false}" "false")"
+  VITE_VIDEO_COMPRESSION_CLIENT_METRICS="$(normalize_bool "${WABI_CONFIG_VIDEO_COMPRESSION_METRICS_VALUE:-${WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED}}" "${WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED}")"
+  upsert_env_file_key "$ENV_FILE" "WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED" "$WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED"
+  upsert_env_file_key "$FRONTEND_ENV_FILE" "VITE_VIDEO_COMPRESSION_CLIENT_METRICS" "$VITE_VIDEO_COMPRESSION_CLIENT_METRICS"
+  echo "[launch] Applied VIDEO_COMPRESSION_METRICS from wabi.config (backend=$WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED frontend=$VITE_VIDEO_COMPRESSION_CLIENT_METRICS)."
+fi
+
+if [[ "$WABI_CONFIG_HAS_ENABLE_MEDIA_GATEWAY" == "true" ]]; then
+  MEDIA_SRT_GATEWAY_ENABLED="$(normalize_bool "${WABI_CONFIG_ENABLE_MEDIA_GATEWAY_VALUE:-false}" "false")"
+  upsert_env_file_key "$ENV_FILE" "MEDIA_SRT_GATEWAY_ENABLED" "$MEDIA_SRT_GATEWAY_ENABLED"
+  echo "[launch] Applied ENABLE_MEDIA_GATEWAY from wabi.config (backend=$MEDIA_SRT_GATEWAY_ENABLED)."
+fi
+
+if [[ "$WABI_CONFIG_HAS_SFU_PROVIDER" == "true" ]]; then
+  case "${WABI_CONFIG_SFU_PROVIDER_VALUE,,}" in
+    livekit|none)
+      SFU_PROVIDER="${WABI_CONFIG_SFU_PROVIDER_VALUE,,}"
+      upsert_env_file_key "$ENV_FILE" "SFU_PROVIDER" "$SFU_PROVIDER"
+      echo "[launch] Applied SFU provider from wabi.config (backend=$SFU_PROVIDER)."
+      ;;
+  esac
+fi
+
+if [[ "$WABI_CONFIG_HAS_LIVEKIT_URL" == "true" ]]; then
+  LIVEKIT_URL="$WABI_CONFIG_LIVEKIT_URL_VALUE"
+  upsert_env_file_key "$ENV_FILE" "LIVEKIT_URL" "$LIVEKIT_URL"
+  echo "[launch] Applied LIVEKIT_URL from wabi.config."
+fi
+
+if [[ "$WABI_CONFIG_HAS_LIVEKIT_API_KEY" == "true" ]]; then
+  LIVEKIT_API_KEY="$WABI_CONFIG_LIVEKIT_API_KEY_VALUE"
+  upsert_env_file_key "$ENV_FILE" "LIVEKIT_API_KEY" "$LIVEKIT_API_KEY"
+  echo "[launch] Applied LIVEKIT_API_KEY from wabi.config."
+fi
+
+if [[ "$WABI_CONFIG_HAS_LIVEKIT_API_SECRET" == "true" ]]; then
+  LIVEKIT_API_SECRET="$WABI_CONFIG_LIVEKIT_API_SECRET_VALUE"
+  upsert_env_file_key "$ENV_FILE" "LIVEKIT_API_SECRET" "$LIVEKIT_API_SECRET"
+  echo "[launch] Applied LIVEKIT_API_SECRET from wabi.config."
+fi
+
+if [[ "$WABI_CONFIG_HAS_GIPHY_API_KEY" == "true" ]]; then
+  GIPHY_KEY="$WABI_CONFIG_GIPHY_API_KEY_VALUE"
+  upsert_env_file_key "$FRONTEND_ENV_FILE" "VITE_GIPHY_API_KEY" "$GIPHY_KEY"
+  echo "[launch] Applied GIPHY_API_KEY from wabi.config."
+fi
+
+if [[ "$WABI_CONFIG_HAS_PLUGINS_ENABLED" == "true" ]]; then
+  PLUGINS_ENABLED="$(normalize_bool "${WABI_CONFIG_PLUGINS_ENABLED_VALUE:-false}" "false")"
+  upsert_env_file_key "$ENV_FILE" "PLUGINS_ENABLED" "$PLUGINS_ENABLED"
+fi
+if [[ "$WABI_CONFIG_HAS_PLUGINS_ALLOW_INSTALL" == "true" ]]; then
+  PLUGINS_ALLOW_INSTALL="$(normalize_bool "${WABI_CONFIG_PLUGINS_ALLOW_INSTALL_VALUE:-false}" "false")"
+  upsert_env_file_key "$ENV_FILE" "PLUGINS_ALLOW_INSTALL" "$PLUGINS_ALLOW_INSTALL"
+fi
+if [[ "${PLUGINS_ENABLED:-false}" != "true" ]]; then
+  PLUGINS_ALLOW_INSTALL="false"
+  upsert_env_file_key "$ENV_FILE" "PLUGINS_ALLOW_INSTALL" "$PLUGINS_ALLOW_INSTALL"
+fi
+
+validate_security_config
 
 enforce_profile_lock
 

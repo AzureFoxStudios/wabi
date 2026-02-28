@@ -15,7 +15,7 @@ Phase split:
 curl -i https://YOUR_ORIGIN/api/relays
 curl -i https://YOUR_ORIGIN/health
 ```
-4. Set `VITE_ENABLE_RELAYS=true` in frontend build env when ready.
+4. Set `VITE_ENABLE_RELAYS=true` in `frontend/.env`, then rebuild/redeploy frontend when ready.
 
 ## 2. Relay Node Setup (on volunteer server)
 
@@ -46,6 +46,12 @@ Or with Docker:
 docker compose -f relay-node/docker-compose.yml up -d --build
 ```
 
+Or from repo root with dedicated launcher:
+```bash
+./scripts/relay-launch.sh configure
+./scripts/relay-launch.sh up
+```
+
 4. Verify relay health:
 ```bash
 curl -i https://relay-volunteer-domain/health
@@ -64,7 +70,7 @@ Convenience script (from origin repo):
 ```bash
 export WABI_ORIGIN_URL=https://YOUR_ORIGIN
 export WABI_ADMIN_TOKEN=YOUR_ADMIN_BEARER_TOKEN
-./scripts/relay-admin.sh list
+./scripts/relay-admin.sh list-active
 ./scripts/relay-admin.sh approve 3
 ./scripts/relay-admin.sh list-pending
 ./scripts/relay-admin.sh delete 3

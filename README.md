@@ -127,7 +127,28 @@ Optional operator config (used by `scripts/launch.sh`):
 cp wabi.config.example wabi.config
 ```
 
-`wabi.config` lets you keep a small set of top-level choices (`PROFILE`, `RUNTIME`, `CALLS`) while `launch.sh` generates full env files.
+`wabi.config` is the operator-friendly control file (`PROFILE`, `RUNTIME`, `CALLS`, plugin/privacy toggles).  
+Edit `wabi.config`, then run `./scripts/launch.sh`; it syncs supported keys into `.env` and `frontend/.env`.
+
+### Relay Node Setup (separate from core server setup)
+
+Relay node deployment is intentionally separate from core server launch.
+
+Linux/macOS:
+
+```bash
+./scripts/relay-launch.sh configure
+./scripts/relay-launch.sh up
+```
+
+Windows (WSL required):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/relay-launch-forWindows.ps1 configure
+powershell -ExecutionPolicy Bypass -File scripts/relay-launch-forWindows.ps1 up
+```
+
+Relay runbook: `PROJECT_DOCS/RELAY_PHASE1_SERVER_RUNBOOK.md`
 
 ## Development
 
@@ -186,11 +207,14 @@ See `PROJECT_DOCS/DEPLOYMENT.md` for full deployment guidance.
 
 Primary env files:
 - `.env` (backend/runtime/deployment/turn/media flags)
-- `frontend/.env` (socket URL, TURN client config, GIF key, relay toggle)
+- `frontend/.env` (socket URL, TURN client config, GIF key)
 
 Start from:
 - `.env.example`
 - `frontend/.env.example`
+
+If you use `scripts/launch.sh`, treat `wabi.config` as your primary operator surface and avoid hand-editing env files unless you need an advanced variable not exposed there.
+`scripts/launch.sh` does not configure relay-node deployment; relay setup uses `scripts/relay-launch.sh`.
 
 Important settings to review before production:
 - `FRONTEND_URL`, `PUBLIC_URL`, `ALLOWED_ORIGINS`
@@ -198,9 +222,21 @@ Important settings to review before production:
 - `TURN_EXTERNAL_IP`, `TURN_REALM`, `TURN_SHARED_SECRET`
 - `WABI_MODE`, `WABI_RUNTIME`, `DB_MODE`
 - `PLUGINS_ENABLED`, `PLUGINS_ALLOW_INSTALL` (both default to `false`)
+- `WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED` / `VITE_VIDEO_COMPRESSION_CLIENT_METRICS` (both default to `false`)
 - Postgres settings if using community mode
+- Optional launch page branding: `WABI_LAUNCH_PAGE_JSON` or `WABI_LAUNCH_PAGE_PATH`
 
 If you are new to this, start with `./scripts/setup.sh` and only edit advanced variables later.
+
+### Custom Login Launch Page
+
+Wabi can serve a community-branded launch page on the login screen.
+
+1. Copy `data/launch-page.example.json` to `data/launch-page.json`.
+2. Edit the content, palette, hero links, and highlights.
+3. Restart backend.
+
+Backend serves this config from `GET /api/public/launch-page`.
 
 ## Plugins
 

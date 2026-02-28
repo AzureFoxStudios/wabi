@@ -82,3 +82,36 @@ Useful env controls:
 
 Expose this relay through Caddy/Nginx and forward to local `RELAY_PORT` (default `8090`).
 Use TLS and public DNS so clients can measure relay latency.
+
+## Standalone / Relay-Only Download
+
+Yes, this relay can be operated without using the full Wabi tree as your day-to-day working set.
+
+### Option A: Sparse checkout (recommended)
+
+Download only `relay-node/` from the repo:
+
+```bash
+git clone --filter=blob:none --no-checkout https://github.com/AzureFoxStudios/wabi.git wabi-relay
+cd wabi-relay
+git sparse-checkout init --cone
+git sparse-checkout set relay-node
+git checkout main
+cd relay-node
+```
+
+Then run normal relay setup:
+
+```bash
+./setup.sh
+docker compose up -d --build
+```
+
+### Option B: Folder copy
+
+Copy just `relay-node/` to a new location/server and run from there.
+The relay node service itself does not require the full monorepo at runtime.
+
+### Future direction
+
+If you want this fully detached for non-technical operators, the next step is publishing a dedicated `wabi-relay-node` repo (or release artifact) with its own versioning and release cadence.

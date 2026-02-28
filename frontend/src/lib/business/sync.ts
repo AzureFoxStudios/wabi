@@ -2,6 +2,7 @@ import { get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { getSocket } from '$lib/socket';
 import { getServerUrl } from '$lib/serverUrl';
+import { getAuthToken } from '$lib/authSession';
 import {
 	todos,
 	calendarEvents,
@@ -50,7 +51,7 @@ export function hasPendingRemoteBusinessUpdate(): boolean {
 }
 
 function hasAuthToken(): boolean {
-	return browser && !!localStorage.getItem('authToken');
+	return browser && !!getAuthToken();
 }
 
 export async function pullFromServer(): Promise<boolean> {
@@ -59,7 +60,7 @@ export async function pullFromServer(): Promise<boolean> {
 	try {
 		isSyncing = true;
 		const serverUrl = getServerUrl();
-		const token = localStorage.getItem('authToken');
+		const token = getAuthToken();
 
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort(), 8000);
@@ -71,6 +72,7 @@ export async function pullFromServer(): Promise<boolean> {
 					'Content-Type': 'application/json',
 					...(token ? { Authorization: `Bearer ${token}` } : {})
 				},
+				credentials: 'include',
 				signal: controller.signal
 			});
 		} finally {
@@ -115,7 +117,7 @@ export async function pushToServer(): Promise<boolean> {
 	try {
 		isSyncing = true;
 		const serverUrl = getServerUrl();
-		const token = localStorage.getItem('authToken');
+		const token = getAuthToken();
 		const guestCode = sessionStorage.getItem('guestAccessCode');
 
 		const data = {
@@ -140,6 +142,7 @@ export async function pushToServer(): Promise<boolean> {
 					...(token ? { Authorization: `Bearer ${token}` } : {}),
 					...(guestCode && !token ? { 'X-Guest-Code': guestCode } : {})
 				},
+				credentials: 'include',
 				body: JSON.stringify(data),
 				signal: controller.signal
 			});

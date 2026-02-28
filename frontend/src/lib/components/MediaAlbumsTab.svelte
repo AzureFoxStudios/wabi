@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { channels, currentChannel, currentUser } from '$lib/socket';
 	import { getServerUrl } from '$lib/serverUrl';
+	import { getAuthToken as getSessionAuthToken } from '$lib/authSession';
 	import {
 		addMediaAlbumItem,
 		createMediaAlbum,
@@ -9,7 +10,10 @@
 		deleteMediaAlbumItem,
 		listMediaAlbumItems,
 		listMediaAlbums,
+		reorderMediaAlbumItems,
+		setMediaAlbumFeatured,
 		type MediaAlbum,
+		MediaAlbumApiError,
 		type MediaAlbumItem,
 		type MediaAlbumScopeType
 	} from '$lib/api';
@@ -42,19 +46,101 @@
 	let lastScopeKey = '';
 	let isUploadingAlbumFile = false;
 	let itemSearchQuery = '';
-	let itemSortMode: 'newest' | 'oldest' | 'name' = 'newest';
-	let itemViewMode: 'list' | 'grid' = 'grid';
+	type AlbumItemSortMode = 'manual' | 'newest' | 'oldest' | 'name';
+	type AlbumItemViewMode = 'list' | 'grid';
+	let itemSortMode: AlbumItemSortMode = 'newest';
+	let itemViewMode: AlbumItemViewMode = 'grid';
 	let currentItemsPage = 1;
 	let lastItemsControlKey = '';
+	let isSavingItemOrder = false;
+	let isSavingFeaturedAlbum = false;
+	let draggingItemId: number | null = null;
+	let activePrefsScopeKey = '';
 	const ITEMS_PER_PAGE = 24;
+	const ALBUM_VIEW_PREFS_KEY = 'wabi.mediaAlbums.viewPrefs.v1';
 
 	function getAuthToken(): string | null {
-		if (typeof window === 'undefined') return null;
-		return localStorage.getItem('authToken');
+		return getSessionAuthToken();
+	}
+
+	interface AlbumViewPrefs {
+		sortMode: AlbumItemSortMode;
+		viewMode: AlbumItemViewMode;
+	}
+
+	function sanitizeAlbumSortMode(value: unknown): AlbumItemSortMode {
+		if (value === 'manual') return 'manual';
+		if (value === 'oldest') return 'oldest';
+		if (value === 'name') return 'name';
+		return 'newest';
+	}
+
+	function sanitizeAlbumViewMode(value: unknown): AlbumItemViewMode {
+		if (value === 'list') return 'list';
+		return 'grid';
+	}
+
+	function safeReadAlbumViewPrefsMap(): Record<string, AlbumViewPrefs> {
+		if (typeof window === 'undefined') return {};
+		try {
+			const raw = window.localStorage.getItem(ALBUM_VIEW_PREFS_KEY);
+			if (!raw) return {};
+			const parsed = JSON.parse(raw) as Record<string, Partial<AlbumViewPrefs>>;
+			const sanitized: Record<string, AlbumViewPrefs> = {};
+			for (const [key, value] of Object.entries(parsed || {})) {
+				if (!key) continue;
+				sanitized[key] = {
+					sortMode: sanitizeAlbumSortMode(value?.sortMode),
+					viewMode: sanitizeAlbumViewMode(value?.viewMode)
+				};
+			}
+			return sanitized;
+		} catch {
+			return {};
+		}
+	}
+
+	function safeWriteAlbumViewPrefsMap(map: Record<string, AlbumViewPrefs>): void {
+		if (typeof window === 'undefined') return;
+		try {
+			window.localStorage.setItem(ALBUM_VIEW_PREFS_KEY, JSON.stringify(map));
+		} catch {
+			// best-effort persistence
+		}
+	}
+
+	function applyScopeViewPreferences(scopeKey: string): void {
+		if (!scopeKey) return;
+		const map = safeReadAlbumViewPrefsMap();
+		const saved = map[scopeKey];
+		if (!saved) return;
+		itemSortMode = sanitizeAlbumSortMode(saved.sortMode);
+		itemViewMode = sanitizeAlbumViewMode(saved.viewMode);
+	}
+
+	function persistScopeViewPreferences(scopeKey: string): void {
+		if (!scopeKey) return;
+		const map = safeReadAlbumViewPrefsMap();
+		map[scopeKey] = {
+			sortMode: sanitizeAlbumSortMode(itemSortMode),
+			viewMode: sanitizeAlbumViewMode(itemViewMode)
+		};
+		safeWriteAlbumViewPrefsMap(map);
 	}
 
 	function clearError(): void {
 		errorMessage = '';
+	}
+
+	function sortAlbumsForDisplay(nextAlbums: MediaAlbum[]): MediaAlbum[] {
+		return nextAlbums
+			.slice()
+			.sort((a, b) => {
+				if (a.isFeatured !== b.isFeatured) {
+					return a.isFeatured ? -1 : 1;
+				}
+				return b.updatedAt - a.updatedAt;
+			});
 	}
 
 	function selectedAlbum(): MediaAlbum | null {
@@ -76,6 +162,32 @@
 		return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 	}
 
+	function formatAlbumActionError(
+		error: unknown,
+		fallback: string,
+		context: { mode: 'upload' | 'url' }
+	): string {
+		if (error instanceof MediaAlbumApiError) {
+			if (error.code === 'ALBUM_UPLOAD_SIZE_LIMIT') {
+				const maxBytes = typeof error.details?.maxBytes === 'number' ? error.details.maxBytes : null;
+				if (maxBytes !== null) {
+					return `Album item exceeds your role size limit (${formatBytes(maxBytes)} max).`;
+				}
+				return 'Album item exceeds your role size limit.';
+			}
+			if (error.code === 'ALBUM_UPLOAD_RATE_LIMIT_USER') {
+				const retry = error.retryAfterSeconds ?? 60;
+				return `You reached the album upload limit for this minute. Try again in ${retry}s.`;
+			}
+			if (error.code === 'ALBUM_UPLOAD_RATE_LIMIT_SCOPE') {
+				const retry = error.retryAfterSeconds ?? 60;
+				return `This channel/DM album scope is currently rate-limited. Try again in ${retry}s.`;
+			}
+		}
+		if (error instanceof Error && error.message.trim()) return error.message;
+		return context.mode === 'upload' ? 'Failed to upload album file' : fallback;
+	}
+
 	function currentUserDbId(): number | null {
 		return typeof $currentUser?.dbUserId === 'number' ? $currentUser.dbUserId : null;
 	}
@@ -92,6 +204,13 @@
 		return canModerateAlbums();
 	}
 
+	function canFeatureAlbum(album: MediaAlbum | null): boolean {
+		if (!album) return false;
+		const dbUserId = currentUserDbId();
+		if (dbUserId !== null && album.createdBy === dbUserId) return true;
+		return canModerateAlbums();
+	}
+
 	function canDeleteItem(item: MediaAlbumItem, album: MediaAlbum | null): boolean {
 		const dbUserId = currentUserDbId();
 		if (dbUserId !== null && item.uploadedBy === dbUserId) return true;
@@ -101,6 +220,8 @@
 
 	$: selectedAlbumValue = selectedAlbum();
 	$: normalizedItemSearch = itemSearchQuery.trim().toLowerCase();
+	$: isManualSortMode = itemSortMode === 'manual';
+	$: canDragReorderItems = isManualSortMode && !normalizedItemSearch && !!selectedAlbumId;
 	$: filteredAlbumItems = albumItems
 		.filter((item) => {
 			if (!normalizedItemSearch) return true;
@@ -111,6 +232,9 @@
 		})
 		.slice()
 		.sort((a, b) => {
+			if (isManualSortMode) {
+				return 0;
+			}
 			if (itemSortMode === 'name') {
 				return a.attachmentName.localeCompare(b.attachmentName);
 			}
@@ -119,11 +243,13 @@
 			}
 			return b.uploadedAt - a.uploadedAt;
 		});
-	$: totalItemPages = Math.max(1, Math.ceil(filteredAlbumItems.length / ITEMS_PER_PAGE));
-	$: pagedAlbumItems = filteredAlbumItems.slice(
-		(currentItemsPage - 1) * ITEMS_PER_PAGE,
-		currentItemsPage * ITEMS_PER_PAGE
-	);
+	$: totalItemPages = isManualSortMode ? 1 : Math.max(1, Math.ceil(filteredAlbumItems.length / ITEMS_PER_PAGE));
+	$: pagedAlbumItems = isManualSortMode
+		? filteredAlbumItems
+		: filteredAlbumItems.slice(
+				(currentItemsPage - 1) * ITEMS_PER_PAGE,
+				currentItemsPage * ITEMS_PER_PAGE
+			);
 	$: if (currentItemsPage > totalItemPages) {
 		currentItemsPage = totalItemPages;
 	}
@@ -133,6 +259,9 @@
 			lastItemsControlKey = key;
 			currentItemsPage = 1;
 		}
+	}
+	$: if (activePrefsScopeKey) {
+		persistScopeViewPreferences(activePrefsScopeKey);
 	}
 
 	function handleAlbumFileChange(event: Event): void {
@@ -210,7 +339,7 @@
 			await loadAlbumItems(selectedAlbumId);
 			await refreshAlbums(false);
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to upload album file';
+			errorMessage = formatAlbumActionError(error, 'Failed to upload album file', { mode: 'upload' });
 		} finally {
 			isUploadingAlbumFile = false;
 		}
@@ -228,7 +357,7 @@
 		isLoadingAlbums = true;
 		clearError();
 		try {
-			const nextAlbums = await listMediaAlbums(token, scopeType, scopeId, 200);
+			const nextAlbums = sortAlbumsForDisplay(await listMediaAlbums(token, scopeType, scopeId, 200));
 			albums = nextAlbums;
 
 			if (nextAlbums.length === 0) {
@@ -239,8 +368,9 @@
 
 			const selectedStillExists = selectedAlbumId && nextAlbums.some((album) => album.id === selectedAlbumId);
 			if (!selectedStillExists && (selectFirst || selectedAlbumId === null)) {
-				selectedAlbumId = nextAlbums[0].id;
-				await loadAlbumItems(nextAlbums[0].id);
+				const preferredAlbum = nextAlbums.find((album) => album.isFeatured) || nextAlbums[0];
+				selectedAlbumId = preferredAlbum.id;
+				await loadAlbumItems(preferredAlbum.id);
 				return;
 			}
 
@@ -303,6 +433,82 @@
 		await loadAlbumItems(albumId);
 	}
 
+	async function toggleFeaturedAlbum(album: MediaAlbum): Promise<void> {
+		const token = getAuthToken();
+		if (!token || isSavingFeaturedAlbum) return;
+		if (!canFeatureAlbum(album)) {
+			errorMessage = 'Only album owner or moderators can change featured album state.';
+			return;
+		}
+
+		isSavingFeaturedAlbum = true;
+		clearError();
+		try {
+			const updated = await setMediaAlbumFeatured(token, album.id, !album.isFeatured);
+			const mapped = albums.map((entry) => {
+				if (entry.scopeType !== updated.scopeType || entry.scopeId !== updated.scopeId) return entry;
+				if (updated.isFeatured) {
+					return entry.id === updated.id ? updated : { ...entry, isFeatured: false };
+				}
+				return entry.id === updated.id ? updated : entry;
+			});
+			albums = sortAlbumsForDisplay(mapped);
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : 'Failed to update featured album state';
+		} finally {
+			isSavingFeaturedAlbum = false;
+		}
+	}
+
+	async function persistAlbumItemOrder(nextItems: MediaAlbumItem[]): Promise<void> {
+		const token = getAuthToken();
+		if (!token || !selectedAlbumId || isSavingItemOrder) return;
+		isSavingItemOrder = true;
+		clearError();
+		try {
+			const itemIds = nextItems.map((item) => item.id);
+			const reorderedItems = await reorderMediaAlbumItems(token, selectedAlbumId, itemIds);
+			if (reorderedItems.length > 0) {
+				albumItems = reorderedItems;
+			}
+			await refreshAlbums(false);
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : 'Failed to save album item order';
+			await loadAlbumItems(selectedAlbumId);
+		} finally {
+			isSavingItemOrder = false;
+		}
+	}
+
+	function moveAlbumItemLocally(movingItemId: number, targetItemId: number): MediaAlbumItem[] | null {
+		const fromIndex = albumItems.findIndex((item) => item.id === movingItemId);
+		const toIndex = albumItems.findIndex((item) => item.id === targetItemId);
+		if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return null;
+		const next = albumItems.slice();
+		const [moving] = next.splice(fromIndex, 1);
+		if (!moving) return null;
+		next.splice(toIndex, 0, moving);
+		return next.map((item, index) => ({ ...item, sortOrder: index + 1 }));
+	}
+
+	async function handleItemDrop(targetItemId: number): Promise<void> {
+		if (!canDragReorderItems || draggingItemId === null || draggingItemId === targetItemId) {
+			draggingItemId = null;
+			return;
+		}
+		const album = selectedAlbum();
+		if (!canFeatureAlbum(album)) {
+			errorMessage = 'Only album owner or moderators can reorder this album.';
+			draggingItemId = null;
+			return;
+		}
+		const nextItems = moveAlbumItemLocally(draggingItemId, targetItemId);
+		draggingItemId = null;
+		if (!nextItems) return;
+		albumItems = nextItems;
+		await persistAlbumItemOrder(nextItems);
+	}
+
 	async function addDebugItem(): Promise<void> {
 		const token = getAuthToken();
 		if (!token || !selectedAlbumId || isAddingItem) return;
@@ -326,7 +532,7 @@
 			await loadAlbumItems(selectedAlbumId);
 			await refreshAlbums(false);
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to add album item';
+			errorMessage = formatAlbumActionError(error, 'Failed to add album item', { mode: 'url' });
 		} finally {
 			isAddingItem = false;
 		}
@@ -393,10 +599,13 @@
 		const scopeKey = `${scopeType}:${scopeId}`;
 		if (scopeId && scopeKey !== lastScopeKey) {
 			lastScopeKey = scopeKey;
+			applyScopeViewPreferences(scopeKey);
+			activePrefsScopeKey = scopeKey;
 			void refreshAlbums(true);
 		}
 		if (!scopeId) {
 			lastScopeKey = '';
+			activePrefsScopeKey = '';
 			albums = [];
 			selectedAlbumId = null;
 			albumItems = [];
@@ -450,17 +659,44 @@
 				<div class="empty-state">No albums in this scope yet.</div>
 			{:else}
 				{#each albums as album}
-					<button
+					<div
 						class="album-card"
+						class:featured={album.isFeatured}
 						class:selected={selectedAlbumId === album.id}
+						role="button"
+						tabindex="0"
 						on:click={() => void openAlbum(album.id)}
+						on:keydown={(event) => {
+							if (event.key === 'Enter' || event.key === ' ') {
+								event.preventDefault();
+								void openAlbum(album.id);
+							}
+						}}
 					>
-						<div class="album-name">{album.name}</div>
+						<div class="album-name-row">
+							<div class="album-name">{album.name}</div>
+							<div class="album-card-actions">
+								{#if album.isFeatured}
+									<span class="featured-badge">Featured</span>
+								{/if}
+								{#if canFeatureAlbum(album)}
+									<button
+										class="album-feature-btn"
+										class:active={album.isFeatured}
+										disabled={isSavingFeaturedAlbum}
+										on:click|stopPropagation={() => void toggleFeaturedAlbum(album)}
+										title={album.isFeatured ? 'Unpin featured album' : 'Pin as featured album'}
+									>
+										{album.isFeatured ? 'Unfeature' : 'Feature'}
+									</button>
+								{/if}
+							</div>
+						</div>
 						<div class="album-meta">
 							<span>{album.itemCount} items</span>
 							<span>Updated {formatTimestamp(album.updatedAt)}</span>
 						</div>
-					</button>
+					</div>
 				{/each}
 			{/if}
 		</div>
@@ -470,16 +706,34 @@
 				<div class="items-header">
 					<div class="items-header-title">
 						<strong>{selectedAlbumValue.name}</strong>
-						<span>{albumItems.length} loaded</span>
+						<span>
+							{albumItems.length} loaded
+							{#if selectedAlbumValue.isFeatured}
+								• featured
+							{/if}
+						</span>
 					</div>
-					<button
-						class="danger-btn"
-						on:click={() => void removeSelectedAlbum()}
-						disabled={isDeletingAlbum || !canDeleteAlbum(selectedAlbumValue)}
-						title="Delete this album"
-					>
-						{isDeletingAlbum ? 'Deleting...' : 'Delete album'}
-					</button>
+					<div class="items-header-actions">
+						{#if canFeatureAlbum(selectedAlbumValue)}
+							<button
+								class="feature-btn"
+								class:active={selectedAlbumValue.isFeatured}
+								on:click={() => void toggleFeaturedAlbum(selectedAlbumValue)}
+								disabled={isSavingFeaturedAlbum}
+								title={selectedAlbumValue.isFeatured ? 'Unpin featured album' : 'Pin as featured album'}
+							>
+								{selectedAlbumValue.isFeatured ? 'Unfeature album' : 'Feature album'}
+							</button>
+						{/if}
+						<button
+							class="danger-btn"
+							on:click={() => void removeSelectedAlbum()}
+							disabled={isDeletingAlbum || !canDeleteAlbum(selectedAlbumValue)}
+							title="Delete this album"
+						>
+							{isDeletingAlbum ? 'Deleting...' : 'Delete album'}
+						</button>
+					</div>
 				</div>
 				{#if !canDeleteAlbum(selectedAlbumValue)}
 					<div class="permission-hint">Only the album owner or moderators can delete this album.</div>
@@ -539,6 +793,7 @@
 					</div>
 					<div class="item-toolbar-right">
 						<select bind:value={itemSortMode}>
+							<option value="manual">Manual order</option>
 							<option value="newest">Newest first</option>
 							<option value="oldest">Oldest first</option>
 							<option value="name">Name (A-Z)</option>
@@ -552,6 +807,16 @@
 
 				<div class="item-toolbar-summary">
 					Showing {pagedAlbumItems.length} of {filteredAlbumItems.length} items
+					{#if isManualSortMode}
+						{#if normalizedItemSearch}
+							• clear search to reorder items
+						{:else if canDragReorderItems}
+							• drag and drop to reorder
+						{/if}
+					{/if}
+					{#if isSavingItemOrder}
+						• saving order...
+					{/if}
 				</div>
 
 				<div class="item-list" class:grid-view={itemViewMode === 'grid'}>
@@ -563,7 +828,16 @@
 						<div class="empty-state">No items match this search.</div>
 					{:else}
 						{#each pagedAlbumItems as item}
-							<div class="item-row">
+							<div
+								class="item-row"
+								class:dragging={draggingItemId === item.id}
+								role="listitem"
+								draggable={canDragReorderItems}
+								on:dragstart={() => (draggingItemId = item.id)}
+								on:dragend={() => (draggingItemId = null)}
+								on:dragover|preventDefault
+								on:drop|preventDefault={() => void handleItemDrop(item.id)}
+							>
 								<div class="item-main">
 									<a href={item.attachmentUrl} target="_blank" rel="noreferrer">
 										{item.attachmentName}
@@ -590,7 +864,7 @@
 						{/each}
 					{/if}
 				</div>
-				{#if !isLoadingItems && filteredAlbumItems.length > ITEMS_PER_PAGE}
+				{#if !isLoadingItems && !isManualSortMode && filteredAlbumItems.length > ITEMS_PER_PAGE}
 					<div class="pagination-row">
 						<button on:click={() => currentItemsPage = Math.max(1, currentItemsPage - 1)} disabled={currentItemsPage <= 1}>
 							Previous
@@ -730,6 +1004,7 @@
 	}
 
 	.album-card {
+		display: block;
 		width: 100%;
 		border: 1px solid var(--border);
 		background: rgba(255, 255, 255, 0.02);
@@ -740,14 +1015,71 @@
 		cursor: pointer;
 	}
 
+	.album-card.featured {
+		border-color: rgba(var(--accent-rgb), 0.45);
+	}
+
 	.album-card.selected {
 		border-color: rgba(var(--accent-rgb), 0.65);
 		background: rgba(var(--accent-rgb), 0.12);
 	}
 
+	.album-card:focus-visible {
+		outline: 2px solid rgba(var(--accent-rgb), 0.45);
+		outline-offset: 2px;
+	}
+
+	.album-name-row {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.4rem;
+	}
+
 	.album-name {
 		font-size: 0.84rem;
 		font-weight: 600;
+		min-width: 0;
+		word-break: break-word;
+	}
+
+	.album-card-actions {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		flex-shrink: 0;
+	}
+
+	.featured-badge {
+		font-size: 0.66rem;
+		color: var(--text-secondary);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		padding: 0.12rem 0.34rem;
+		background: rgba(var(--accent-rgb), 0.12);
+	}
+
+	.album-feature-btn,
+	.feature-btn {
+		border: 1px solid var(--border);
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		border-radius: 7px;
+		padding: 0.22rem 0.4rem;
+		font-size: 0.68rem;
+		cursor: pointer;
+	}
+
+	.album-feature-btn:disabled,
+	.feature-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.album-feature-btn.active,
+	.feature-btn.active {
+		border-color: rgba(var(--accent-rgb), 0.65);
+		background: rgba(var(--accent-rgb), 0.2);
 	}
 
 	.album-meta {
@@ -779,6 +1111,12 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.5rem;
+	}
+
+	.items-header-actions {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.42rem;
 	}
 
 	.items-header-title {
@@ -877,6 +1215,15 @@
 		gap: 0.65rem;
 	}
 
+	.item-row[draggable='true'] {
+		cursor: move;
+	}
+
+	.item-row.dragging {
+		opacity: 0.6;
+		border-color: rgba(var(--accent-rgb), 0.6);
+	}
+
 	.item-list.grid-view {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -973,5 +1320,88 @@
 		font-size: 0.78rem;
 		color: var(--text-secondary);
 		text-align: center;
+	}
+
+	@media (max-width: 900px) {
+		.media-albums-tab {
+			padding: 0.55rem;
+			gap: 0.55rem;
+		}
+
+		.album-list {
+			display: grid;
+			grid-auto-flow: column;
+			grid-auto-columns: minmax(180px, 1fr);
+			overflow-x: auto;
+			padding-bottom: 0.2rem;
+			scroll-snap-type: x proximity;
+		}
+
+		.album-card {
+			scroll-snap-align: start;
+		}
+
+		.items-header {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.items-header .danger-btn {
+			align-self: flex-start;
+		}
+
+		.items-header-actions {
+			width: 100%;
+			justify-content: space-between;
+		}
+
+		.item-toolbar {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.item-toolbar-right {
+			width: 100%;
+			justify-content: space-between;
+		}
+
+		.view-toggle {
+			flex: 1;
+		}
+
+		.view-toggle button {
+			flex: 1;
+		}
+
+		.item-list.grid-view {
+			grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+		}
+	}
+
+	@media (max-width: 640px) {
+		.create-row,
+		.upload-local-row {
+			grid-template-columns: 1fr;
+		}
+
+		.item-row {
+			flex-direction: column;
+			gap: 0.35rem;
+		}
+
+		.item-meta {
+			width: 100%;
+			align-items: flex-start;
+			text-align: left;
+		}
+
+		.item-delete-btn {
+			padding: 0.35rem 0.52rem;
+			font-size: 0.72rem;
+		}
+
+		.pagination-row {
+			flex-wrap: wrap;
+		}
 	}
 </style>

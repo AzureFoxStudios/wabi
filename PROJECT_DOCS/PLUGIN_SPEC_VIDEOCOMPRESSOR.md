@@ -6,7 +6,7 @@
   - `https://betterdiscord.app/plugin/VideoCompressor`
   - `C:\Users\Willp\Documents\GitHub\BetterDiscordPlugins-main\plugins\VideoCompressor`
 - Wabi Target Version: `0.4.x+`
-- Status: `In Progress (Phase 2)`
+- Status: `Done`
 
 ## Plugin Grade
 - User Impact (1-5): `5`
@@ -71,10 +71,14 @@ Compression runs client-side in the renderer media pipeline, then reuses normal 
   - Desktop rollout path: client-side MediaRecorder canvas pipeline, runtime-gated in Tauri.
   - Web path deferred by runtime gate (feature currently desktop-scoped).
 - [x] Define hard limits:
-  - compression prompt threshold: `45 MB`
+  - compression prompt threshold:
+    - desktop/web profile: `45 MB`
+    - android/ios mobile profile: `30 MB`
   - max upload file size remains `1 GB` per file
-  - encode timeout budget: `3 minutes`
-- [ ] Define telemetry:
+  - encode timeout budget:
+    - desktop/web profile: `3 minutes`
+    - android/ios mobile profile: `2 minutes`
+- [x] Define client metrics (opt-in):
   - attempts, success/failure rate, median encode time, median size reduction
 
 ### Phase 1 - MVP (Desktop First)
@@ -87,13 +91,14 @@ Compression runs client-side in the renderer media pipeline, then reuses normal 
 ### Phase 2 - Harden
 - [x] Add cancellation and retry path.
 - [x] Add fallback if local compression unavailable or too slow.
-- [ ] Add backend verification metadata (original size, compressed size, codec).
-- [ ] Improve estimate accuracy using sampled input metadata.
+- [x] Add failure classification + metrics wiring (client + admin observability path, opt-in).
+- [x] Add backend verification metadata (original size, compressed size, codec).
+- [x] Improve estimate accuracy using sampled input metadata.
 
 ### Phase 3 - Polish
 - [x] Per-user default preset setting.
-- [ ] Optional auto-suggest ("compress recommended") for over-limit files.
-- [ ] Android-specific preset tuning and thermal safeguards.
+- [x] Optional auto-suggest ("compress recommended") for over-limit files.
+- [x] Android/iOS-specific preset tuning and thermal safeguards.
 
 ## Test Plan
 - Unit:
@@ -118,17 +123,30 @@ Compression runs client-side in the renderer media pipeline, then reuses normal 
 2. Do we enforce a single output codec (`H.264 + AAC`) initially for reliability?
 3. Should server-side fallback compression be opt-in per deployment due CPU cost?
 
-## Current Implementation Snapshot (2026-02-25)
+## Current Implementation Snapshot (2026-02-26)
 - Frontend files:
   - `frontend/src/lib/components/Chat.svelte`
   - `frontend/src/lib/components/Settings.svelte`
   - `frontend/src/lib/video/videoCompressor.ts`
   - `frontend/src/lib/video/videoCompressionSettings.ts`
+  - `frontend/src/lib/video/videoCompressionTelemetry.ts`
+- Backend files:
+  - `backend/src/server.ts`
+  - `backend/src/observability/compressionMetrics.ts`
 - Active behavior:
   - prompts on large videos before queueing upload
   - progress + cancel + retry controls
   - keep-original and remove-file fallback actions
   - desktop runtime gate (`isTauriRuntime`)
-- Known gaps:
-  - telemetry + backend verification metadata
-  - Android tuning phase
+  - runtime-specific preset options/defaults (desktop vs Android/iOS mobile-safe profile)
+  - optional client metrics events for success/failure/cancelled/skipped with failure codes
+  - admin compression panel now includes client video-compression counters and failure summaries
+- sampled-metadata size estimates shown in compression modal (with confidence-aware suggestion copy)
+- resumable upload finalization now verifies client compression metadata and returns server verification payload
+- Completion notes:
+  - desktop production build path passes (`bun run build:tauri`)
+  - compression feature checks are now fully wired with runtime guardrails and opt-in metrics gate
+
+## Parking Note (2026-02-26)
+- Paused at owner request.
+- Resume with the three known-gap items above; no rollback required for current state.

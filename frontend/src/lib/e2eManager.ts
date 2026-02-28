@@ -16,9 +16,9 @@ const publicKeyCache = new Map<number, string | null>();
  * On registration: generates new keys, saves locally, uploads public key to server.
  * On login: loads existing keys from localStorage.
  */
-export async function initE2E(dbUserId: number, token: string, isNewRegistration: boolean): Promise<void> {
+export async function initE2E(dbUserId: number, token: string | null | undefined, isNewRegistration: boolean): Promise<void> {
 	currentDbUserId = dbUserId;
-	currentToken = token;
+	currentToken = token || null;
 	sharedKeyCache.clear();
 	publicKeyCache.clear();
 
@@ -30,7 +30,7 @@ export async function initE2E(dbUserId: number, token: string, isNewRegistration
 			currentPrivateKey = keyPair.privateKey;
 
 			// Upload public key + encrypted private key to server
-			await storeEncryptionKeys(token, keyPair.publicKey, keyPair.privateKey);
+			await storeEncryptionKeys(currentToken, keyPair.publicKey, keyPair.privateKey);
 			console.log('[E2E] Keys generated and uploaded for new registration');
 		} catch (err) {
 			console.error('[E2E] Failed to generate keys on registration:', err);
@@ -45,7 +45,7 @@ export async function initE2E(dbUserId: number, token: string, isNewRegistration
 
 			// Ensure server has our public key (may have been lost)
 			try {
-				await storeEncryptionKeys(token, stored.publicKey, stored.privateKey);
+				await storeEncryptionKeys(currentToken, stored.publicKey, stored.privateKey);
 			} catch (err) {
 				// 409 is expected if keys already exist
 				// 401/403 means user was deleted or session is invalid
@@ -74,7 +74,7 @@ export function isE2EAvailable(): boolean {
  * Get or derive a shared key for a DM partner.
  */
 async function getSharedKey(otherDbUserId: number): Promise<CryptoKey | null> {
-	if (!currentPrivateKey || !currentToken) return null;
+	if (!currentPrivateKey) return null;
 
 	// Check cache first
 	const cached = sharedKeyCache.get(otherDbUserId);
@@ -106,12 +106,12 @@ async function getSharedKey(otherDbUserId: number): Promise<CryptoKey | null> {
 export async function encryptDMMessage(
 	plaintext: string,
 	otherDbUserId: number,
-	token: string
+	token: string | null | undefined
 ): Promise<{ text: string; encrypted: boolean; iv: string } | null> {
 	if (!isE2EAvailable()) return null;
 
 	// Update token in case it changed
-	currentToken = token;
+	currentToken = token || currentToken;
 
 	const sharedKey = await getSharedKey(otherDbUserId);
 	if (!sharedKey) return null;
@@ -132,12 +132,12 @@ export async function encryptDMMessage(
 export async function decryptDMMessage(
 	message: { text: string; encrypted?: boolean; iv?: string },
 	otherDbUserId: number,
-	token: string
+	token: string | null | undefined
 ): Promise<string> {
 	if (!message.encrypted || !message.iv) return message.text;
 	if (!isE2EAvailable()) return '[Encrypted message]';
 
-	currentToken = token;
+	currentToken = token || currentToken;
 
 	const sharedKey = await getSharedKey(otherDbUserId);
 	if (!sharedKey) return '[Encrypted message]';
@@ -183,10 +183,10 @@ function base64ToUint8Array(base64: string): Uint8Array {
 export async function encryptDMFile(
 	file: File,
 	otherDbUserId: number,
-	token: string
+	token: string | null | undefined
 ): Promise<{ encryptedFile: File; iv: string; mimeType: string; originalSize: number } | null> {
 	if (!isE2EAvailable()) return null;
-	currentToken = token;
+	currentToken = token || currentToken;
 
 	const sharedKey = await getSharedKey(otherDbUserId);
 	if (!sharedKey) return null;
@@ -219,10 +219,10 @@ export async function decryptDMFileBuffer(
 	encryptedBuffer: ArrayBuffer,
 	ivBase64: string,
 	otherDbUserId: number,
-	token: string
+	token: string | null | undefined
 ): Promise<ArrayBuffer | null> {
 	if (!isE2EAvailable()) return null;
-	currentToken = token;
+	currentToken = token || currentToken;
 
 	const sharedKey = await getSharedKey(otherDbUserId);
 	if (!sharedKey) return null;

@@ -6,7 +6,7 @@
   - Line "albums" workflow
   - Discord-style media browsing discoverability
 - Wabi Target Version: `0.4.x+`
-- Status: `In Progress (Phase 2)`
+- Status: `In Progress (Phase 3 - code complete)`
 - Track: `Core`
 
 ## Product Goal
@@ -42,12 +42,14 @@ Users need a persistent, collaborative "album" surface to find media quickly and
   - `scope_type` (`channel` | `dm`)
   - `scope_id`
   - `name`
+  - `is_featured` (optional featured album pin per scope)
   - `created_by`
   - `created_at`
 - `album_items`
   - `id`
   - `album_id`
   - `attachment_id`
+  - `sort_order` (manual order support)
   - `uploaded_by`
   - `uploaded_at`
   - `caption` (optional)
@@ -77,12 +79,12 @@ Users need a persistent, collaborative "album" surface to find media quickly and
 ### Phase 2 - Harden
 - [x] Client-side pagination for album item browsing.
 - [x] Search/filter and sort by filename/date in album UI.
-- [ ] Abuse controls (rate limits, size caps, moderation actions).
+- [x] Abuse controls (rate limits, size caps, moderation actions).
 
 ### Phase 3 - Polish
-- [ ] Drag-drop reorder/view preferences.
-- [ ] Better mobile gestures and album navigation.
-- [ ] Optional pinned "featured album" per channel.
+- [x] Drag-drop reorder/view preferences.
+- [x] Better mobile gestures and album navigation.
+- [x] Optional pinned "featured album" per channel.
 
 ## Test Plan
 - Unit:
@@ -105,18 +107,25 @@ Users need a persistent, collaborative "album" surface to find media quickly and
 2. Do we allow non-image media (video/audio/docs) in MVP or image-only first?
 3. Should album uploads also post a chat event message by default?
 
-## Current Implementation Snapshot (2026-02-25)
+## Current Implementation Snapshot (2026-02-26)
 - Frontend:
   - `frontend/src/lib/components/MediaAlbumsTab.svelte`
   - `frontend/src/lib/components/MessageContextMenu.svelte`
   - `frontend/src/lib/components/MessageList.svelte`
 - Backend/API:
   - album + item endpoints via `frontend/src/lib/api.ts` integration
+  - policy-backed album upload guardrails:
+    - per-role item-size cap
+    - per-user per-scope uploads/minute
+    - per-scope global uploads/minute
 - Active behavior:
   - persistent albums scoped to channel/DM
   - upload + list + delete paths with ownership/mod guardrails
   - search/sort/view-mode toggle + pagination in album browser
   - add-to-album action from message context menu (single or multi-file messages)
-- Remaining hardening focus:
-  - abuse controls and rate limits
-  - deeper mobile UX pass
+  - explicit limit errors surfaced in album UI when rate/size policy blocks item creation
+  - per-scope view preference persistence (`sort/view mode`)
+  - manual drag-drop reorder mode for album items (owner/mod scoped)
+  - per-scope featured album pin/unpin controls
+- Remaining signoff focus:
+  - expanded manual pass across role mixes and larger albums in packaged desktop runtime

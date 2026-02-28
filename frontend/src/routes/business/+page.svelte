@@ -14,6 +14,7 @@
 	import Chat from '$lib/components/Chat.svelte';
 	import GuestCodePrompt from '$lib/components/GuestCodePrompt.svelte';
 	import { channels, currentChannel, joinChannel } from '$lib/socket';
+	import { getAuthToken } from '$lib/authSession';
 
 	type MainView = 'calendar' | 'journal' | 'projects' | 'kanban';
 	let activeView: MainView = 'calendar';
@@ -38,7 +39,7 @@
 
 		// Check if user is guest
 		if (browser) {
-			const authToken = localStorage.getItem('authToken');
+			const authToken = getAuthToken();
 			isGuest = !authToken;
 
 			if (isGuest) {

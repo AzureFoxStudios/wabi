@@ -8,6 +8,7 @@
  */
 import { browser } from '$app/environment';
 import { getServerUrl } from './serverUrl';
+import { getAuthToken } from './authSession';
 
 interface TurnServerConfig {
 	urls: string[];
@@ -64,7 +65,7 @@ function getStaticTurnFallback(): TurnServerConfig | null {
 async function fetchEphemeralTurnCredentials(): Promise<void> {
 	if (!browser) return;
 
-	const token = localStorage.getItem('authToken');
+	const token = getAuthToken();
 	if (!token) return;
 
 	const controller = new AbortController();
@@ -75,6 +76,7 @@ async function fetchEphemeralTurnCredentials(): Promise<void> {
 			headers: {
 				Authorization: `Bearer ${token}`
 			},
+			credentials: 'include',
 			signal: controller.signal
 		});
 

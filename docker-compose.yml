@@ -76,7 +76,12 @@ services:
     container_name: wabi-coturn
     profiles:
       - turn
-    network_mode: "host"
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "5349:5349/tcp"
+      - "5349:5349/udp"
+      - "49160-49200:49160-49200/udp"
     volumes:
       - ./turn-server/turnserver.conf.template:/etc/coturn/turnserver.conf.template:ro
       - ./turn-server/certs:/etc/coturn/certs:ro
@@ -112,14 +117,13 @@ services:
     restart: unless-stopped
 
   livekit:
-    image: livekit/livekit-server:latest
+    image: livekit/livekit-server:v1.8.3
     container_name: wabi-livekit
     profiles:
       - sfu
     command: >
-      --dev
       --bind 0.0.0.0
-      --keys ${LIVEKIT_API_KEY}:${LIVEKIT_API_SECRET}
+      --keys ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}:${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
     ports:
       - "7880:7880"
       - "7881:7881/udp"
@@ -138,7 +142,7 @@ services:
     restart: unless-stopped
 
   cloudflared-quick:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2025.2.1
     container_name: wabi-cloudflared-quick
     profiles:
       - tunnel
@@ -149,7 +153,7 @@ services:
     restart: unless-stopped
 
   cloudflared-named:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2025.2.1
     container_name: wabi-cloudflared-named
     profiles:
       - tunnel

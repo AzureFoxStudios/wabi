@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { channelMessages, sendMessage, currentUser, users, sendTyping } from '$lib/socket';
+	import { channelMessages, sendMessage, currentUser, users, sendTyping, emojis } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { getDmNotesStorageKey } from '$lib/notesStore';
 	import GroupAvatar from './GroupAvatar.svelte';
@@ -7,7 +7,16 @@
 	import type { User, Message, Channel } from '$lib/socket';
 	import { onMount, afterUpdate, tick } from 'svelte';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
-	import { composerEnhancementSettingsStore, splitMessageForSending } from '$lib/composerEnhancements';
+	import {
+		applyWriteUpperCase,
+		composerEnhancementSettingsStore,
+		splitMessageForSending
+	} from '$lib/composerEnhancements';
+	import {
+		previewUnicodeEmojiConversion,
+		replaceEmojiShortcodesWithUnicode,
+		unicodeEmojiSettingsStore
+	} from '$lib/unicodeEmojis';
 
 	export let channelId: string;
 	export let otherUser: User;
@@ -28,24 +37,39 @@
 	$: dmCharCounterEnabled = composerEnhancementSettings.charCounterEnabled;
 	$: dmSplitLargeMessagesEnabled = composerEnhancementSettings.splitLargeMessagesEnabled;
 	$: dmSplitLargeMessagesChunkSize = composerEnhancementSettings.splitLargeMessagesChunkSize;
+	$: dmWriteUpperCaseEnabled = composerEnhancementSettings.writeUpperCaseEnabled;
 	$: dmInputMaxLength = dmSplitLargeMessagesEnabled
 		? composerEnhancementSettings.splitLargeMessagesInputMaxLength
 		: dmSplitLargeMessagesChunkSize;
+	$: unicodeEmojisEnabled = $unicodeEmojiSettingsStore.enabled;
 	$: dmCharCount = messageInput.length;
 	$: dmCharCounterWarn = dmInputMaxLength > 0 && dmCharCount / dmInputMaxLength >= 0.9;
+	let dmUnicodePreview = '';
+	let dmUnicodePreviewTokens = 0;
+	$: {
+		const preview = previewUnicodeEmojiConversion(messageInput, $emojis);
+		dmUnicodePreview = preview.convertedText;
+		dmUnicodePreviewTokens = preview.convertedTokens;
+	}
 
 	function handleSend() {
 		const trimmed = messageInput.trim();
 		if (!trimmed) return;
+		const normalizedSentenceCaseMessage = applyWriteUpperCase(trimmed, dmWriteUpperCaseEnabled);
+		const normalizedMessage = replaceEmojiShortcodesWithUnicode(
+			normalizedSentenceCaseMessage,
+			$emojis,
+			unicodeEmojisEnabled
+		);
 
-		if (dmSplitLargeMessagesEnabled && trimmed.length > dmSplitLargeMessagesChunkSize) {
-			const chunks = splitMessageForSending(trimmed, dmSplitLargeMessagesChunkSize);
+		if (dmSplitLargeMessagesEnabled && normalizedMessage.length > dmSplitLargeMessagesChunkSize) {
+			const chunks = splitMessageForSending(normalizedMessage, dmSplitLargeMessagesChunkSize);
 			if (chunks.length === 0) return;
 			for (const chunk of chunks) {
 				sendMessage(channelId, chunk);
 			}
 		} else {
-			sendMessage(channelId, trimmed);
+			sendMessage(channelId, normalizedMessage);
 		}
 
 		messageInput = '';
@@ -194,7 +218,10 @@
 						{dmCharCount}/{dmInputMaxLength}
 					</span>
 				{/if}
-				<button class="dm-send-btn" on:click={handleSend} disabled={!messageInput.trim()}>
+				{#if unicodeEmojisEnabled && dmUnicodePreviewTokens > 0 && dmUnicodePreview !== messageInput}
+					<div class="dm-unicode-hint">Unicode preview: {dmUnicodePreview}</div>
+				{/if}
+				<button class="dm-send-btn" on:click={handleSend} disabled={!messageInput.trim()} aria-label="Send message">
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
 				</button>
 			</div>
@@ -461,6 +488,16 @@
 
 	.dm-char-counter.warn {
 		color: #ffb347;
+	}
+
+	.dm-unicode-hint {
+		font-size: 0.66rem;
+		color: var(--text-secondary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 280px;
+		align-self: center;
 	}
 
 	.dm-send-btn {

@@ -134,7 +134,7 @@ export async function clearTauriData(isAdmin: boolean): Promise<string> {
 			throw new Error('Only admins and owners can clear local sidecar data.');
 		}
 		if (confirm('Are you sure? This will delete all locally stored messages and attachments. This cannot be undone.')) {
-			const result = await invoke<string>('clear_wabi_data', { isAdmin });
+			const result = await invoke<string>('clear_wabi_data');
 			console.log('[Tauri Storage]', result);
 			return result;
 		}

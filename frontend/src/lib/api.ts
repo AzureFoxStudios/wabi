@@ -15,7 +15,11 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 	try {
-		return await fetch(url, { ...options, signal: controller.signal });
+		return await fetch(url, {
+			...options,
+			credentials: options.credentials ?? 'include',
+			signal: controller.signal
+		});
 	} finally {
 		clearTimeout(timeout);
 	}
@@ -31,6 +35,41 @@ export interface AuthResponse {
 		profilePicture?: string;
 		isRegistered: boolean;
 	};
+}
+
+export interface LaunchPageHighlight {
+	title: string;
+	description: string;
+}
+
+export interface LaunchPageConfig {
+	enabled: boolean;
+	brandName: string;
+	headline: string;
+	subheadline: string;
+	logoUrl: string;
+	heroImageUrl: string | null;
+	heroTitle: string | null;
+	heroBody: string | null;
+	heroPrimaryCtaLabel: string | null;
+	heroPrimaryCtaUrl: string | null;
+	highlights: LaunchPageHighlight[];
+	footerNote: string | null;
+	palette: {
+		backgroundTop: string;
+		backgroundBottom: string;
+		cardBackground: string;
+		accent: string;
+		text: string;
+	};
+}
+
+export async function getLaunchPageConfig(): Promise<LaunchPageConfig | null> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/public/launch-page`, {
+		method: 'GET'
+	});
+	if (!res.ok) return null;
+	return res.json();
 }
 
 export async function register(username: string, password: string, handle?: string): Promise<AuthResponse> {
@@ -78,11 +117,11 @@ export async function upgradeToRegistered(sessionId: string, password: string): 
 	return res.json();
 }
 
-export async function storeEncryptionKeys(token: string, publicKey: string, privateKeyEncrypted: string): Promise<void> {
+export async function storeEncryptionKeys(token: string | null | undefined, publicKey: string, privateKeyEncrypted: string): Promise<void> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/user/encryption-keys`, {
 		method: 'POST',
 		headers: {
-			Authorization: `Bearer ${token}`,
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
 			'Content-Type': 'application/json'
 		},
 		body: JSON.stringify({ publicKey, privateKeyEncrypted })
@@ -96,10 +135,10 @@ export async function storeEncryptionKeys(token: string, publicKey: string, priv
 	}
 }
 
-export async function getPublicKey(token: string, userId: number): Promise<string | null> {
+export async function getPublicKey(token: string | null | undefined, userId: number): Promise<string | null> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/users/${userId}/public-key`, {
 		method: 'GET',
-		headers: { Authorization: `Bearer ${token}` }
+		headers: token ? { Authorization: `Bearer ${token}` } : undefined
 	});
 
 	if (!res.ok) {
@@ -110,10 +149,10 @@ export async function getPublicKey(token: string, userId: number): Promise<strin
 	return data.publicKey || null;
 }
 
-export async function getUserSettings(token: string): Promise<any> {
+export async function getUserSettings(token: string | null | undefined): Promise<any> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/user/settings`, {
 		method: 'GET',
-		headers: { Authorization: `Bearer ${token}` }
+		headers: token ? { Authorization: `Bearer ${token}` } : undefined
 	});
 
 	if (!res.ok) {
@@ -127,7 +166,7 @@ export async function getUserSettings(token: string): Promise<any> {
 }
 
 export async function saveUserSettings(
-	token: string,
+	token: string | null | undefined,
 	settings: {
 		offline_message_retention?: string;
 		allow_temp_user_messages?: boolean;
@@ -136,7 +175,7 @@ export async function saveUserSettings(
 	const res = await fetchWithTimeout(`${getApiBase()}/api/user/settings`, {
 		method: 'POST',
 		headers: {
-			Authorization: `Bearer ${token}`,
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
 			'Content-Type': 'application/json'
 		},
 		body: JSON.stringify(settings)
@@ -217,6 +256,34 @@ export interface AdminCompressionMetrics {
 		uploads: Array<Record<string, unknown>>;
 		downloads: Array<Record<string, unknown>>;
 	};
+	clientVideoCompression?: {
+		counters: {
+			attemptCount: number;
+			successCount: number;
+			failureCount: number;
+			cancelledCount: number;
+			skippedCount: number;
+			timeoutCount: number;
+			notSmallerCount: number;
+			inputBytes: number;
+			outputBytes: number;
+			successRate: number | null;
+			outputToInputRatio: number | null;
+		};
+		summaryByRuntime: Array<{
+			runtime: string;
+			count: number;
+			successCount: number;
+			failureCount: number;
+			cancelledCount: number;
+			skippedCount: number;
+		}>;
+		topFailureCodes: Array<{
+			failureCode: string;
+			count: number;
+		}>;
+		recentSamples: Array<Record<string, unknown>>;
+	};
 }
 
 export interface RuntimeGuardrailsSnapshot {
@@ -263,6 +330,7 @@ export async function getAdminPolicy<T>(token: string, key: AdminPolicyKey): Pro
 		const res = await fetch(`${getApiBase()}/api/admin/policies/${encodeURIComponent(key)}`, {
 			method: 'GET',
 			headers: { Authorization: `Bearer ${token}` },
+			credentials: 'include',
 			signal: controller.signal
 		});
 		if (!res.ok) {
@@ -285,6 +353,7 @@ export async function saveAdminPolicy<T>(token: string, key: AdminPolicyKey, con
 				Authorization: `Bearer ${token}`,
 				'Content-Type': 'application/json'
 			},
+			credentials: 'include',
 			body: JSON.stringify(config),
 			signal: controller.signal
 		});
@@ -438,6 +507,7 @@ export interface MediaAlbum {
 	createdBy: number;
 	createdAt: number;
 	updatedAt: number;
+	isFeatured: boolean;
 	itemCount: number;
 }
 
@@ -450,8 +520,38 @@ export interface MediaAlbumItem {
 	attachmentMime: string | null;
 	messageId: string | null;
 	caption: string | null;
+	sortOrder: number;
 	uploadedBy: number;
 	uploadedAt: number;
+}
+
+export type MediaAlbumErrorCode =
+	| 'ALBUM_UPLOAD_SIZE_LIMIT'
+	| 'ALBUM_UPLOAD_RATE_LIMIT_USER'
+	| 'ALBUM_UPLOAD_RATE_LIMIT_SCOPE';
+
+export class MediaAlbumApiError extends Error {
+	status: number;
+	code: string | null;
+	retryAfterSeconds: number | null;
+	details: Record<string, unknown> | null;
+
+	constructor(
+		message: string,
+		opts: {
+			status: number;
+			code?: string | null;
+			retryAfterSeconds?: number | null;
+			details?: Record<string, unknown> | null;
+		}
+	) {
+		super(message);
+		this.name = 'MediaAlbumApiError';
+		this.status = opts.status;
+		this.code = opts.code ?? null;
+		this.retryAfterSeconds = opts.retryAfterSeconds ?? null;
+		this.details = opts.details ?? null;
+	}
 }
 
 export async function listMediaAlbums(
@@ -543,11 +643,71 @@ export async function addMediaAlbumItem(
 		body: JSON.stringify(payload)
 	});
 	if (!res.ok) {
-		const error = await res.json().catch(() => ({}));
-		throw new Error(error.error || 'Failed to add media album item');
+		const payload = await res.json().catch(() => ({} as Record<string, unknown>));
+		const code = typeof payload.code === 'string' ? payload.code : null;
+		const retryAfterSeconds =
+			typeof payload.retryAfterSeconds === 'number' && Number.isFinite(payload.retryAfterSeconds)
+				? payload.retryAfterSeconds
+				: null;
+		const details =
+			payload.details && typeof payload.details === 'object'
+				? (payload.details as Record<string, unknown>)
+				: null;
+		let message = typeof payload.error === 'string' ? payload.error : 'Failed to add media album item';
+		if (retryAfterSeconds !== null && retryAfterSeconds > 0) {
+			message = `${message} Try again in ${retryAfterSeconds}s.`;
+		}
+		throw new MediaAlbumApiError(message, {
+			status: res.status,
+			code,
+			retryAfterSeconds,
+			details
+		});
 	}
 	const data = await res.json();
 	return data.item as MediaAlbumItem;
+}
+
+export async function setMediaAlbumFeatured(
+	token: string,
+	albumId: number,
+	featured: boolean
+): Promise<MediaAlbum> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/albums/${albumId}/featured`, {
+		method: 'PATCH',
+		headers: {
+			Authorization: `Bearer ${token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ featured })
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to update featured album state');
+	}
+	const data = await res.json();
+	return data.album as MediaAlbum;
+}
+
+export async function reorderMediaAlbumItems(
+	token: string,
+	albumId: number,
+	itemIds: number[]
+): Promise<MediaAlbumItem[]> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/albums/${albumId}/items/reorder`, {
+		method: 'PATCH',
+		headers: {
+			Authorization: `Bearer ${token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ itemIds })
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to reorder media album items');
+	}
+	const data = await res.json();
+	return Array.isArray(data.items) ? (data.items as MediaAlbumItem[]) : [];
 }
 
 export async function deleteMediaAlbum(token: string, albumId: number): Promise<void> {

@@ -4,6 +4,8 @@ export interface ZipPreviewEntry {
 	uncompressedSize: number;
 	compressionMethod: number;
 	isDirectory: boolean;
+	encrypted: boolean;
+	localHeaderOffset: number;
 }
 
 export interface ZipPreviewMetadata {
@@ -17,9 +19,11 @@ export interface ZipPreviewMetadata {
 
 const EOCD_SIGNATURE = 0x06054b50;
 const CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
+const LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
 const EOCD_MIN_LENGTH = 22;
 const ZIP_COMMENT_MAX = 0xffff;
 const CENTRAL_DIRECTORY_FIXED_LENGTH = 46;
+const LOCAL_FILE_HEADER_FIXED_LENGTH = 30;
 const ENCRYPTED_BIT_FLAG = 0x0001;
 const UTF8_BIT_FLAG = 0x0800;
 
@@ -117,6 +121,7 @@ export function parseZipPreviewMetadata(
 		const fileNameLength = view.getUint16(cursor + 28, true);
 		const extraFieldLength = view.getUint16(cursor + 30, true);
 		const fileCommentLength = view.getUint16(cursor + 32, true);
+		const localHeaderOffset = view.getUint32(cursor + 42, true);
 		const recordLength =
 			CENTRAL_DIRECTORY_FIXED_LENGTH + fileNameLength + extraFieldLength + fileCommentLength;
 		const recordEnd = cursor + recordLength;
@@ -130,6 +135,9 @@ export function parseZipPreviewMetadata(
 		const utf8 = (generalPurposeFlags & UTF8_BIT_FLAG) !== 0;
 		const isEncrypted = (generalPurposeFlags & ENCRYPTED_BIT_FLAG) !== 0;
 		const path = decodeEntryName(bytes.slice(fileNameStart, fileNameEnd), utf8);
+		if (localHeaderOffset >= bytes.byteLength) {
+			throw new Error('ZIP local entry offset is outside archive bounds.');
+		}
 
 		totalCompressedSize += compressedSize;
 		totalUncompressedSize += uncompressedSize;
@@ -142,7 +150,9 @@ export function parseZipPreviewMetadata(
 				compressedSize,
 				uncompressedSize,
 				compressionMethod,
-				isDirectory: path.endsWith('/')
+				isDirectory: path.endsWith('/'),
+				encrypted: isEncrypted,
+				localHeaderOffset
 			});
 		}
 
@@ -162,4 +172,101 @@ export function parseZipPreviewMetadata(
 		truncated: totalEntries > entries.length,
 		encryptedEntryCount
 	};
+}
+
+async function inflateDeflateRaw(
+	bytes: Uint8Array,
+	maxOutputBytes: number
+): Promise<Uint8Array> {
+	if (typeof DecompressionStream === 'undefined') {
+		throw new Error('Deflate preview is not supported in this runtime.');
+	}
+	const normalizedInput = new Uint8Array(bytes.byteLength);
+	normalizedInput.set(bytes);
+	const source = new Blob([normalizedInput.buffer]).stream();
+	const inflateStream = source.pipeThrough(new DecompressionStream('deflate-raw'));
+	const reader = inflateStream.getReader();
+	const chunks: Uint8Array[] = [];
+	let totalLength = 0;
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (!value || value.byteLength === 0) continue;
+			const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
+			totalLength += chunk.byteLength;
+			if (totalLength > maxOutputBytes) {
+				await reader.cancel();
+				throw new Error(`Entry exceeds preview limit (${maxOutputBytes} bytes).`);
+			}
+			chunks.push(chunk);
+		}
+	} finally {
+		reader.releaseLock();
+	}
+
+	const output = new Uint8Array(totalLength);
+	let offset = 0;
+	for (const chunk of chunks) {
+		output.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return output;
+}
+
+export async function extractZipEntryBytes(
+	archiveBytes: Uint8Array,
+	entry: ZipPreviewEntry,
+	options?: {
+		maxOutputBytes?: number;
+	}
+): Promise<Uint8Array> {
+	const maxOutputBytes = Math.max(1, Math.floor(options?.maxOutputBytes ?? 1024 * 1024));
+	if (entry.isDirectory) {
+		throw new Error('Directory entries cannot be previewed.');
+	}
+	if (entry.encrypted) {
+		throw new Error('Encrypted entries cannot be previewed.');
+	}
+	if (entry.uncompressedSize > maxOutputBytes) {
+		throw new Error(`Entry exceeds preview limit (${maxOutputBytes} bytes).`);
+	}
+
+	const view = new DataView(
+		archiveBytes.buffer,
+		archiveBytes.byteOffset,
+		archiveBytes.byteLength
+	);
+	const localHeaderOffset = entry.localHeaderOffset;
+	if (localHeaderOffset + LOCAL_FILE_HEADER_FIXED_LENGTH > archiveBytes.byteLength) {
+		throw new Error('ZIP local entry header is truncated.');
+	}
+	if (view.getUint32(localHeaderOffset, true) !== LOCAL_FILE_HEADER_SIGNATURE) {
+		throw new Error('ZIP local entry header is malformed.');
+	}
+
+	const fileNameLength = view.getUint16(localHeaderOffset + 26, true);
+	const extraFieldLength = view.getUint16(localHeaderOffset + 28, true);
+	const dataOffset = localHeaderOffset + LOCAL_FILE_HEADER_FIXED_LENGTH + fileNameLength + extraFieldLength;
+	const dataEnd = dataOffset + entry.compressedSize;
+	if (dataEnd > archiveBytes.byteLength) {
+		throw new Error('ZIP entry data is truncated.');
+	}
+
+	const compressedBytes = archiveBytes.slice(dataOffset, dataEnd);
+	if (entry.compressionMethod === 0) {
+		if (compressedBytes.byteLength > maxOutputBytes) {
+			throw new Error(`Entry exceeds preview limit (${maxOutputBytes} bytes).`);
+		}
+		return compressedBytes;
+	}
+	if (entry.compressionMethod === 8) {
+		const inflated = await inflateDeflateRaw(compressedBytes, maxOutputBytes);
+		if (inflated.byteLength > maxOutputBytes) {
+			throw new Error(`Entry exceeds preview limit (${maxOutputBytes} bytes).`);
+		}
+		return inflated;
+	}
+
+	throw new Error(`Compression method ${entry.compressionMethod} is not previewable.`);
 }

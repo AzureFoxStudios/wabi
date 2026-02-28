@@ -12,7 +12,7 @@
 import { messageRepository } from '../db/repositories/messageRepository.js';
 import { UPLOADS_DIR } from '../constants.js';
 import { existsSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import { basename, resolve, sep } from 'path';
 
 // Timer storage
 const messageDeletionTimers = new Map<string, NodeJS.Timeout>();
@@ -56,6 +56,49 @@ interface Message {
 // Callback type for emitting events to clients
 type EmitToChannelFn = (channelId: string, event: string, data: any) => void;
 
+function normalizeUploadFileIdFromUrl(fileUrl: string | undefined): string | null {
+  if (typeof fileUrl !== 'string' || !fileUrl.startsWith('/uploads/')) return null;
+  const raw = fileUrl.slice('/uploads/'.length);
+  if (!raw) return null;
+
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+
+  const normalized = decoded.replace(/\\/g, '/');
+  if (normalized.includes('/')) return null;
+  const fileId = basename(normalized);
+  if (!fileId || fileId === '.' || fileId === '..') return null;
+  return fileId;
+}
+
+function resolveUploadPath(fileId: string): string | null {
+  const uploadsRoot = resolve(UPLOADS_DIR);
+  const candidate = resolve(uploadsRoot, basename(fileId));
+  if (candidate !== uploadsRoot && !candidate.startsWith(`${uploadsRoot}${sep}`)) {
+    return null;
+  }
+  return candidate;
+}
+
+function deleteUploadFile(fileUrl: string | undefined): void {
+  const fileId = normalizeUploadFileIdFromUrl(fileUrl);
+  if (!fileId) return;
+  const filePath = resolveUploadPath(fileId);
+  if (!filePath) return;
+
+  try {
+    if (existsSync(filePath)) {
+      unlinkSync(filePath);
+    }
+  } catch (err) {
+    console.error(`Failed to delete file: ${fileId}`, err);
+  }
+}
+
 /**
  * Delete a message by ID from a channel
  * Removes message from in-memory store, deletes associated files,
@@ -77,29 +120,13 @@ export function deleteMessageById(
 
   // Delete associated files from filesystem
   if (message.fileUrl) {
-    const fileName = message.fileUrl.replace('/uploads/', '');
-    const filePath = join(UPLOADS_DIR, fileName);
-    try {
-      if (existsSync(filePath)) {
-        unlinkSync(filePath);
-      }
-    } catch (err) {
-      console.error(`Failed to delete file: ${fileName}`, err);
-    }
+    deleteUploadFile(message.fileUrl);
   }
 
   // Delete multiple files if present
   if (message.files && message.files.length > 0) {
     for (const file of message.files) {
-      const fileName = file.fileUrl.replace('/uploads/', '');
-      const filePath = join(UPLOADS_DIR, fileName);
-      try {
-        if (existsSync(filePath)) {
-          unlinkSync(filePath);
-        }
-      } catch (err) {
-        console.error(`Failed to delete file: ${fileName}`, err);
-      }
+      deleteUploadFile(file.fileUrl);
     }
   }
 

@@ -12,6 +12,7 @@
     "start": "node build",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:zip-preview": "bun run scripts/zip-preview-fixture-smoke.ts",
+    "check:unicode-emojis": "bun run scripts/unicode-emoji-compat-smoke.ts",
     "check:i18n": "node scripts/check-i18n.mjs",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri",

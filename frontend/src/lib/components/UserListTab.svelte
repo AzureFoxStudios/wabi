@@ -6,10 +6,25 @@
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
 	import type { ContextMenuItem } from '$lib/context-menu/types';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
+	import {
+		displayEnhancementSettingsStore,
+		toggleFriendNotificationTrackedUserId
+	} from '$lib/displayEnhancements';
+	import {
+		MAX_LOCAL_NICKNAME_LENGTH,
+		clearLocalNicknameForUser,
+		getLocalNicknameForUser,
+		getUserIdentityKey,
+		localNicknamesStore,
+		setLocalNicknameForUser
+	} from '$lib/localNicknames';
 
 	let contextMenuUser: User | null = null;
 	let contextMenuPosition = { x: 0, y: 0 };
 	let showContextMenu = false;
+	let friendSearchQuery = '';
+	let friendPresenceFilter: 'all' | 'active' | 'away' | 'busy' | 'offline' = 'all';
+	let friendSortMode: 'role' | 'name' | 'status' = 'role';
 
 	const fallbackRolePriority: Record<string, number> = {
 		owner: 100, admin: 90, mod: 70, member: 10, guest: 0
@@ -47,7 +62,115 @@
 	}
 
 	// Group online users by highest hoisted role
-	$: onlineOtherUsers = $users;
+	function getFriendTrackKey(user: User): string {
+		if (user.dbUserId) return `user-${user.dbUserId}`;
+		return user.id;
+	}
+
+	function getLocalNickname(user: User): string {
+		if (!$displayEnhancementSettingsStore.localNicknamesEnabled) return '';
+		const key = getUserIdentityKey(user);
+		return key ? $localNicknamesStore[key] || '' : '';
+	}
+
+	function getDisplayName(user: User): string {
+		return getLocalNickname(user) || user.username;
+	}
+
+	function isFriendTrackedForNotifications(user: User): boolean {
+		return $displayEnhancementSettingsStore.friendNotificationTrackedUserIds.includes(
+			getFriendTrackKey(user)
+		);
+	}
+
+	function toggleTrackContextUserStatus(): void {
+		if (!contextMenuUser || isCurrentUserEntry(contextMenuUser)) return;
+		toggleFriendNotificationTrackedUserId(getFriendTrackKey(contextMenuUser));
+		closeContextMenu();
+	}
+
+	function promptSetContextLocalNickname(): void {
+		if (!contextMenuUser) return;
+		const currentNickname = getLocalNicknameForUser(contextMenuUser);
+		const draft = window.prompt(
+			`Set local nickname (max ${MAX_LOCAL_NICKNAME_LENGTH} characters)`,
+			currentNickname || contextMenuUser.username
+		);
+		if (draft === null) return;
+		setLocalNicknameForUser(contextMenuUser, draft);
+		closeContextMenu();
+	}
+
+	function clearContextLocalNickname(): void {
+		if (!contextMenuUser) return;
+		clearLocalNicknameForUser(contextMenuUser);
+		closeContextMenu();
+	}
+
+	function hasContextLocalNickname(): boolean {
+		if (!contextMenuUser) return false;
+		return Boolean(getLocalNickname(contextMenuUser));
+	}
+
+	function toStatusPriority(status: User['status']): number {
+		if (status === 'active') return 0;
+		if (status === 'away') return 1;
+		if (status === 'busy') return 2;
+		return 3;
+	}
+
+	function matchesSearch(user: User, query: string): boolean {
+		if (!$displayEnhancementSettingsStore.betterFriendListEnabled) return true;
+		const normalized = query.trim().toLowerCase();
+		if (!normalized) return true;
+		const username = user.username.toLowerCase();
+		const displayName = getDisplayName(user).toLowerCase();
+		const handle = (user.handle || '').toLowerCase();
+		return username.includes(normalized) || displayName.includes(normalized) || handle.includes(normalized);
+	}
+
+	function matchesPresenceFilter(user: User, offline: boolean): boolean {
+		if (!$displayEnhancementSettingsStore.betterFriendListEnabled) return true;
+		if (friendPresenceFilter === 'all') return true;
+		if (friendPresenceFilter === 'offline') return offline;
+		if (offline) return false;
+		return user.status === friendPresenceFilter;
+	}
+
+	function sortUsersList(input: User[]): User[] {
+		const sorted = [...input];
+		if (
+			!$displayEnhancementSettingsStore.betterFriendListEnabled ||
+			friendSortMode === 'role'
+		) {
+			sorted.sort((a, b) => {
+				const priorityDelta = (rolePriority[b.highestRole || 'member'] || 0) - (rolePriority[a.highestRole || 'member'] || 0);
+				if (priorityDelta !== 0) return priorityDelta;
+				return a.username.localeCompare(b.username);
+			});
+			return sorted;
+		}
+		if (friendSortMode === 'name') {
+			sorted.sort((a, b) => a.username.localeCompare(b.username));
+			return sorted;
+		}
+		if (friendSortMode === 'status') {
+			sorted.sort((a, b) => {
+				const statusDelta = toStatusPriority(a.status) - toStatusPriority(b.status);
+				if (statusDelta !== 0) return statusDelta;
+				return a.username.localeCompare(b.username);
+			});
+			return sorted;
+		}
+		return sorted;
+	}
+
+	$: onlineOtherUsers = sortUsersList(
+		$users.filter((user) => {
+			if (!matchesSearch(user, friendSearchQuery)) return false;
+			return matchesPresenceFilter(user, false);
+		})
+	);
 
 	$: groupedUsers = (() => {
 		const groups: Record<string, User[]> = {};
@@ -57,7 +180,7 @@
 			groups[role].push(user);
 		}
 		for (const role of Object.keys(groups)) {
-			groups[role].sort((a, b) => a.username.localeCompare(b.username));
+			groups[role] = sortUsersList(groups[role]);
 		}
 		return groups;
 	})();
@@ -71,8 +194,19 @@
 		const onlineDbIds = new Set($users.map(u => u.dbUserId).filter(Boolean));
 		return $serverMembers
 			.filter(m => !onlineDbIds.has(m.dbUserId))
+			.filter((user) => matchesSearch(user, friendSearchQuery))
+			.filter((user) => matchesPresenceFilter(user, true))
 			.sort((a, b) => a.username.localeCompare(b.username));
 	})();
+
+	$: statusCounts = {
+		active: $users.filter((u) => u.status === 'active').length,
+		away: $users.filter((u) => u.status === 'away').length,
+		busy: $users.filter((u) => u.status === 'busy').length,
+		offline: $serverMembers.length - $users.length
+	};
+	$: trackedFriendsCount =
+		$displayEnhancementSettingsStore.friendNotificationTrackedUserIds.length;
 
 	function handleUserClick(user: User) {
 		if (isCurrentUserEntry(user)) {
@@ -162,10 +296,10 @@
 			},
 		];
 
-		if (!isCurrentUserEntry(contextMenuUser)) {
-			items.push(
-				{
-					id: 'voice',
+			if (!isCurrentUserEntry(contextMenuUser)) {
+				items.push(
+					{
+						id: 'voice',
 					label: 'Voice Call',
 					icon: 'phone',
 					onSelect: handleContextVoiceCall
@@ -177,9 +311,36 @@
 					onSelect: handleContextVideoCall
 				}
 			);
-		}
 
-		if (canManageContextUserRoles() && contextMenuUser) {
+			items.push({
+				id: 'track-status',
+				label: isFriendTrackedForNotifications(contextMenuUser)
+					? 'Stop Status Alerts'
+					: 'Track Status Alerts',
+				icon: 'settings',
+					onSelect: toggleTrackContextUserStatus
+				});
+			}
+
+			if ($displayEnhancementSettingsStore.localNicknamesEnabled) {
+				items.push({
+					id: 'nickname-set',
+					label: 'Set Local Nickname',
+					icon: 'settings',
+					onSelect: promptSetContextLocalNickname
+				});
+				if (hasContextLocalNickname()) {
+					items.push({
+						id: 'nickname-clear',
+						label: 'Clear Local Nickname',
+						icon: 'settings',
+						danger: true,
+						onSelect: clearContextLocalNickname
+					});
+				}
+			}
+
+			if (canManageContextUserRoles() && contextMenuUser) {
 			const roles = contextMenuUser.roles || [];
 			const isAdmin = roles.includes('admin') || contextMenuUser.highestRole === 'admin';
 			const isMod = roles.includes('mod') || contextMenuUser.highestRole === 'mod';
@@ -238,16 +399,62 @@
 		return resolveUserDisplayColor(user.roleColor, user.color);
 	}
 
-	function getRoleBadge(user: User): string | null {
-		const role = user.highestRole;
-		if (role === 'owner') return '\u{1F451}';
-		if (role === 'admin') return 'ADM';
-		if (role === 'mod') return 'MOD';
-		return null;
+	function getUserTopRoleName(user: User): string {
+		return user.highestRole || user.roles?.[0] || 'member';
+	}
+
+	function getTopRoleBadgeLabel(user: User): string | null {
+		if (!$displayEnhancementSettingsStore.topRoleEverywhereEnabled) return null;
+		return getRoleLabel(getUserTopRoleName(user));
+	}
+
+	function shouldShowStaffTag(user: User): boolean {
+		if (!$displayEnhancementSettingsStore.staffTagEnabled) return false;
+		const role = getUserTopRoleName(user);
+		return role === 'owner' || role === 'admin' || role === 'mod';
+	}
+
+	function roleToneClass(roleName: string): 'owner' | 'admin' | 'mod' | 'default' {
+		if (roleName === 'owner') return 'owner';
+		if (roleName === 'admin') return 'admin';
+		if (roleName === 'mod') return 'mod';
+		return 'default';
 	}
 </script>
 
 <div class="user-list-tab">
+	{#if $displayEnhancementSettingsStore.betterFriendListEnabled}
+		<div class="friend-toolbar">
+			<input
+				type="text"
+				class="friend-search"
+				placeholder="Search people..."
+				bind:value={friendSearchQuery}
+			/>
+			<div class="friend-toolbar-row">
+				<select class="friend-select" bind:value={friendPresenceFilter}>
+					<option value="all">All statuses</option>
+					<option value="active">Online</option>
+					<option value="away">Away</option>
+					<option value="busy">Busy</option>
+					<option value="offline">Offline</option>
+				</select>
+				<select class="friend-select" bind:value={friendSortMode}>
+					<option value="role">Sort by role</option>
+					<option value="name">Sort by name</option>
+					<option value="status">Sort by status</option>
+				</select>
+			</div>
+			<div class="friend-stats-row">
+				<span class="friend-stat online">Online {statusCounts.active}</span>
+				<span class="friend-stat away">Away {statusCounts.away}</span>
+				<span class="friend-stat busy">Busy {statusCounts.busy}</span>
+				<span class="friend-stat offline">Offline {Math.max(0, statusCounts.offline)}</span>
+				<span class="friend-stat tracked">Tracked {trackedFriendsCount}</span>
+			</div>
+		</div>
+	{/if}
+
 	{#each sortedRoles as role}
 		<div class="role-group">
 			<div class="role-header">
@@ -261,19 +468,22 @@
 				>
 					<div class="user-avatar-wrap">
 						{#if user.profilePicture}
-							<img src={user.profilePicture} alt={user.username} class="user-avatar" />
+							<img src={user.profilePicture} alt={getDisplayName(user)} class="user-avatar" />
 						{:else}
 							<div class="user-avatar-placeholder" style="background-color: {user.color}">
-								{user.username.charAt(0).toUpperCase()}
+								{getDisplayName(user).charAt(0).toUpperCase()}
 							</div>
 						{/if}
 						<span class="presence-dot" class:active={user.status === 'active'} class:away={user.status === 'away'} class:busy={user.status === 'busy'}></span>
 					</div>
 					<div class="user-info">
 						<span class="user-display-name" style="color: {getDisplayColor(user)}">
-							{user.username}
-							{#if getRoleBadge(user)}
-								<span class="role-badge">{getRoleBadge(user)}</span>
+							{getDisplayName(user)}
+							{#if getTopRoleBadgeLabel(user)}
+								<span class={`role-badge tone-${roleToneClass(getUserTopRoleName(user))}`}>{getTopRoleBadgeLabel(user)}</span>
+							{/if}
+							{#if shouldShowStaffTag(user)}
+								<span class="staff-tag">Staff</span>
 							{/if}
 						</span>
 						{#if user.handle}
@@ -296,19 +506,22 @@
 				>
 					<div class="user-avatar-wrap">
 						{#if user.profilePicture}
-							<img src={user.profilePicture} alt={user.username} class="user-avatar" />
+							<img src={user.profilePicture} alt={getDisplayName(user)} class="user-avatar" />
 						{:else}
 							<div class="user-avatar-placeholder" style="background-color: {user.color}">
-								{user.username.charAt(0).toUpperCase()}
+								{getDisplayName(user).charAt(0).toUpperCase()}
 							</div>
 						{/if}
 						<span class="presence-dot"></span>
 					</div>
 					<div class="user-info">
 						<span class="user-display-name" style="color: {getDisplayColor(user)}">
-							{user.username}
-							{#if getRoleBadge(user)}
-								<span class="role-badge">{getRoleBadge(user)}</span>
+							{getDisplayName(user)}
+							{#if getTopRoleBadgeLabel(user)}
+								<span class={`role-badge tone-${roleToneClass(getUserTopRoleName(user))}`}>{getTopRoleBadgeLabel(user)}</span>
+							{/if}
+							{#if shouldShowStaffTag(user)}
+								<span class="staff-tag">Staff</span>
 							{/if}
 						</span>
 						{#if user.handle}
@@ -320,13 +533,17 @@
 		</div>
 	{/if}
 
+	{#if sortedRoles.length === 0 && offlineUsers.length === 0}
+		<div class="empty-state">No people match the current filters.</div>
+	{/if}
+
 	<ContextMenu
 		open={showContextMenu && !!contextMenuUser}
 		x={contextMenuPosition.x}
 		y={contextMenuPosition.y}
 		items={userMenuItems}
 		ariaLabel="User list actions"
-		headerLabel={contextMenuUser?.username || null}
+		headerLabel={contextMenuUser ? getDisplayName(contextMenuUser) : null}
 		on:close={closeContextMenu}
 	/>
 </div>
@@ -337,6 +554,70 @@
 		overflow-y: auto;
 		padding: 0.25rem 0;
 		text-align: left;
+	}
+
+	.friend-toolbar {
+		display: flex;
+		flex-direction: column;
+		gap: 0.38rem;
+		padding: 0.45rem 0.65rem 0.5rem;
+		border-bottom: 1px solid var(--border);
+		margin-bottom: 0.4rem;
+	}
+
+	.friend-search,
+	.friend-select {
+		width: 100%;
+		height: 30px;
+		border-radius: 6px;
+		border: 1px solid var(--border);
+		background: var(--bg-tertiary);
+		color: var(--text-primary);
+		padding: 0 0.55rem;
+		font-size: 0.76rem;
+	}
+
+	.friend-toolbar-row {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		gap: 0.35rem;
+	}
+
+	.friend-stats-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.32rem;
+	}
+
+	.friend-stat {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.65rem;
+		padding: 0.1rem 0.35rem;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--bg-tertiary) 76%, transparent);
+		color: var(--text-secondary);
+	}
+
+	.friend-stat.online {
+		color: var(--status-online, #44b700);
+	}
+
+	.friend-stat.away {
+		color: var(--status-away, #faa61a);
+	}
+
+	.friend-stat.busy {
+		color: var(--status-busy, #f04747);
+	}
+
+	.friend-stat.offline {
+		color: var(--status-offline, #777);
+	}
+
+	.friend-stat.tracked {
+		color: var(--accent);
 	}
 
 	.empty-state {
@@ -439,11 +720,48 @@
 	}
 
 	.role-badge {
-		font-size: 0.65rem;
+		display: inline-flex;
+		align-items: center;
+		font-size: 0.62rem;
 		font-weight: 700;
-		vertical-align: middle;
+		vertical-align: baseline;
 		margin-left: 0.25rem;
-		opacity: 0.7;
+		padding: 0.04rem 0.32rem;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--bg-tertiary) 78%, transparent);
+		color: var(--text-secondary);
+		border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+	}
+
+	.role-badge.tone-owner {
+		background: color-mix(in srgb, #f59e0b 24%, transparent);
+		color: #f59e0b;
+		border-color: color-mix(in srgb, #f59e0b 40%, transparent);
+	}
+
+	.role-badge.tone-admin {
+		background: color-mix(in srgb, #ef4444 20%, transparent);
+		color: #ef4444;
+		border-color: color-mix(in srgb, #ef4444 36%, transparent);
+	}
+
+	.role-badge.tone-mod {
+		background: color-mix(in srgb, #22c55e 20%, transparent);
+		color: #22c55e;
+		border-color: color-mix(in srgb, #22c55e 34%, transparent);
+	}
+
+	.staff-tag {
+		display: inline-flex;
+		align-items: center;
+		font-size: 0.62rem;
+		font-weight: 700;
+		margin-left: 0.25rem;
+		padding: 0.04rem 0.32rem;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--accent) 22%, transparent);
+		color: color-mix(in srgb, var(--accent) 72%, var(--text-primary) 28%);
+		border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
 	}
 
 	.user-handle {
@@ -455,6 +773,11 @@
 	}
 
 	@media (max-width: 768px) {
+		.friend-search,
+		.friend-select {
+			font-size: 16px;
+		}
+
 		.user-row {
 			padding: 0.625rem 0.75rem;
 			min-height: 52px;

@@ -49,19 +49,43 @@
 	import { getDMPrivacyMode } from '$lib/dmPrivacyMode';
 	import { _, currentLocale } from '$lib/i18n';
 	import { lookupDictionary, upsertDictionaryEntry, deleteDictionaryEntry } from '$lib/api';
-	import { isTauriRuntime } from '$lib/tauri-platform';
+	import { getTauriPlatform, isTauriRuntime } from '$lib/tauri-platform';
 	import {
+		classifyVideoCompressionFailure,
 		compressVideoFileForUpload,
+		estimateCompressedVideoOutput,
+		inferVideoCodecHint,
 		isVideoFile,
+		sampleVideoCompressionInputMetadata,
+		type VideoCompressionEstimate,
+		type VideoCompressionInputMetadata,
 		type VideoCompressionPresetId
 	} from '$lib/video/videoCompressor';
 	import {
 		getDefaultVideoCompressionPreset,
-		isVideoCompressionEnabled
+		getVideoCompressionPresetOptions,
+		getVideoCompressionRuntimeProfile,
+		isVideoCompressionEnabled,
+		type VideoCompressionPresetOption,
+		type VideoCompressionRuntime
 	} from '$lib/video/videoCompressionSettings';
+	import { reportVideoCompressionTelemetry } from '$lib/video/videoCompressionTelemetry';
 	import { applyChatFilter, expandInputWithChatAlias } from '$lib/chatEnhancements';
-	import { composerEnhancementSettingsStore, splitMessageForSending } from '$lib/composerEnhancements';
+	import {
+		applyWriteUpperCase,
+		composerEnhancementSettingsStore,
+		splitMessageForSending
+	} from '$lib/composerEnhancements';
+	import { gifCaptionerSettingsStore } from '$lib/gifCaptionerSettings';
+	import {
+		previewUnicodeEmojiConversion,
+		replaceEmojiShortcodesWithUnicode,
+		unicodeEmojiSettingsStore
+	} from '$lib/unicodeEmojis';
 	import { animationPassStore, type AnimationPassPreset } from '$lib/animationPass';
+	import { getAuthToken, getGuestSessionId } from '$lib/authSession';
+	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
+	import { getSearchEngineProvider, openExternalSearch } from '$lib/searchEngineJump';
 
 	const dispatch = createEventDispatcher();
 	const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
@@ -114,6 +138,14 @@
 	let compressionDialogOpen = false;
 	let compressionDialogFile: File | null = null;
 	let compressionDialogPreset: VideoCompressionPresetId = 'balanced_720p';
+	let compressionDialogPresetOptions: VideoCompressionPresetOption[] =
+		getVideoCompressionPresetOptions('desktop');
+	let compressionDialogRuntime: VideoCompressionRuntime = 'desktop';
+	let compressionDialogRuntimeLabel = 'Desktop';
+	let selectedCompressionPresetOption: VideoCompressionPresetOption | null = null;
+	let compressionDialogInputMetadata: VideoCompressionInputMetadata | null = null;
+	let compressionDialogEstimate: VideoCompressionEstimate | null = null;
+	let compressionDialogSuggestionCopy = '';
 	let compressionDialogError = '';
 	let compressionDialogProgress = 0;
 	let compressionDialogBusy = false;
@@ -132,6 +164,18 @@
 	let mentionTokenStart = -1;
 	let EmojiPickerComponent: typeof import('./EmojiPicker.svelte').default | null = null;
 	let emojiPickerLoadPromise: Promise<void> | null = null;
+	type UploadVideoCompressionMetadata = {
+		scheme: 'wabi-video-compression-v1';
+		runtime: VideoCompressionRuntime;
+		preset: VideoCompressionPresetId;
+		originalSize: number;
+		compressedSize: number;
+		codec: 'vp9' | 'vp8' | 'h264' | 'hevc' | 'av1' | 'unknown';
+		mimeType: string;
+		durationMs: number;
+		estimatedOutputBytes?: number;
+	};
+	const compressionMetadataByFile = new WeakMap<File, UploadVideoCompressionMetadata>();
 
 	function getTransitionForPreset(
 		node: Element,
@@ -181,8 +225,7 @@
 	const RESUMABLE_UPLOAD_CHUNK_SIZE = 1024 * 1024; // 1MB
 	const RESUMABLE_UPLOAD_MAX_RETRIES = 4;
 	const MAX_UPLOAD_FILE_BYTES = 1024 * 1024 * 1024; // 1GB
-	const VIDEO_COMPRESSION_PROMPT_BYTES = 45 * 1024 * 1024; // 45MB
-	const VIDEO_COMPRESSION_TIMEOUT_MS = 3 * 60 * 1000;
+	const MAX_GIF_CAPTION_LENGTH = 280;
 
 	// Command palette
 	let commandPalette: CommandPalette;
@@ -207,17 +250,59 @@
 	let runtimeVersionLabel = 'unknown';
 	const MAX_FULL_HISTORY_SEARCH_PAGES = 80;
 	const MAX_FILE_PREVIEW_IMAGES = 8;
+	let gifCaptionInput = '';
 	let lastPreviewChannelId: string | null = null;
 	$: composerEnhancementSettings = $composerEnhancementSettingsStore;
 	$: composerSpellcheckEnabled = composerEnhancementSettings.spellcheckEnabled;
 	$: composerCharCounterEnabled = composerEnhancementSettings.charCounterEnabled;
 	$: splitLargeMessagesEnabled = composerEnhancementSettings.splitLargeMessagesEnabled;
 	$: splitLargeMessagesChunkSize = composerEnhancementSettings.splitLargeMessagesChunkSize;
+	$: writeUpperCaseEnabled = composerEnhancementSettings.writeUpperCaseEnabled;
 	$: composerInputMaxLength = splitLargeMessagesEnabled
 		? composerEnhancementSettings.splitLargeMessagesInputMaxLength
 		: splitLargeMessagesChunkSize;
+	$: gifCaptionerEnabled = $gifCaptionerSettingsStore.enabled;
+	$: gifCaptionerDedicatedCaptionFieldEnabled = $gifCaptionerSettingsStore.dedicatedCaptionFieldEnabled;
+	$: unicodeEmojisEnabled = $unicodeEmojiSettingsStore.enabled;
 	$: composerCharCount = messageInput.length;
 	$: composerCharCounterWarn = composerInputMaxLength > 0 && composerCharCount / composerInputMaxLength >= 0.9;
+	$: gifCaptionDraftLength = gifCaptionInput.trim().length;
+	$: gifCaptionDraftWarn =
+		gifCaptionDraftLength > 0 &&
+		gifCaptionDraftLength / MAX_GIF_CAPTION_LENGTH >= 0.9;
+	let unicodeComposerPreview = '';
+	let unicodeComposerPreviewTokens = 0;
+	let unicodeGifCaptionPreview = '';
+	let unicodeGifCaptionPreviewTokens = 0;
+	$: {
+		const preview = previewUnicodeEmojiConversion(messageInput, $emojis);
+		unicodeComposerPreview = preview.convertedText;
+		unicodeComposerPreviewTokens = preview.convertedTokens;
+	}
+	$: {
+		const preview = previewUnicodeEmojiConversion(gifCaptionInput, $emojis);
+		unicodeGifCaptionPreview = preview.convertedText;
+		unicodeGifCaptionPreviewTokens = preview.convertedTokens;
+	}
+	$: selectedCompressionPresetOption =
+		compressionDialogPresetOptions.find((option) => option.id === compressionDialogPreset) ||
+		compressionDialogPresetOptions[0] ||
+		null;
+	$: if (compressionDialogFile && compressionDialogInputMetadata) {
+		compressionDialogEstimate = estimateCompressedVideoOutput(
+			compressionDialogFile.size,
+			compressionDialogInputMetadata,
+			compressionDialogPreset
+		);
+		compressionDialogSuggestionCopy = getCompressionSuggestionCopy(
+			compressionDialogFile.size,
+			compressionDialogRuntime,
+			compressionDialogEstimate
+		);
+	} else {
+		compressionDialogEstimate = null;
+		compressionDialogSuggestionCopy = '';
+	}
 
 	// Photo and audio capture
 	let showCameraCapture = false;
@@ -959,7 +1044,7 @@
 						alert(getWordCommandHelp());
 						break;
 					}
-					const authToken = localStorage.getItem('authToken');
+					const authToken = getAuthToken();
 					if (!authToken) {
 						alert('Login is required to add dictionary entries.');
 						break;
@@ -979,7 +1064,7 @@
 				}
 
 				if (payload.action === 'remove') {
-					const authToken = localStorage.getItem('authToken');
+					const authToken = getAuthToken();
 					if (!authToken) {
 						alert('Login is required to remove dictionary entries.');
 						break;
@@ -1026,15 +1111,26 @@
 					return;
 				}
 
+				const normalizedSentenceCaseMessage = applyWriteUpperCase(
+					finalMessage,
+					writeUpperCaseEnabled
+				);
+
 				// Check if it's a command
-				if (finalMessage.startsWith('/')) {
-					void executeCommand(finalMessage);
+				if (normalizedSentenceCaseMessage.startsWith('/')) {
+					void executeCommand(normalizedSentenceCaseMessage);
 					messageInput = '';
 					return;
 				}
 
-				if (splitLargeMessagesEnabled && finalMessage.length > splitLargeMessagesChunkSize) {
-					const chunks = splitMessageForSending(finalMessage, splitLargeMessagesChunkSize);
+				const normalizedMessage = replaceEmojiShortcodesWithUnicode(
+					normalizedSentenceCaseMessage,
+					$emojis,
+					unicodeEmojisEnabled
+				);
+
+				if (splitLargeMessagesEnabled && normalizedMessage.length > splitLargeMessagesChunkSize) {
+					const chunks = splitMessageForSending(normalizedMessage, splitLargeMessagesChunkSize);
 					if (chunks.length === 0) {
 						alert('Unable to split message into chunks.');
 						return;
@@ -1047,17 +1143,19 @@
 					}
 				} else {
 					// Check if message is ONLY emoji syntax (e.g., ":smile:" or ":smile::heart:")
-					const emojiOnlyPattern = /^(?::[\w_]+:)+$/;
-					const isEmojiOnly = emojiOnlyPattern.test(finalMessage);
+					const emojiOnlyPattern = /^(?::[a-zA-Z0-9_+-]+:)+$/;
+					const isEmojiOnly = emojiOnlyPattern.test(normalizedMessage);
 
 					if (isEmojiOnly) {
 						// Extract emoji names and find their URLs
-						const emojiNames = finalMessage.match(/:[\w_]+:/g)?.map(e => e.slice(1, -1)) || [];
+						const emojiNames =
+							normalizedMessage.match(/:[a-zA-Z0-9_+-]+:/g)?.map((e) => e.slice(1, -1)) ||
+							[];
 						const firstEmojiName = emojiNames[0];
-						const firstEmoji = $emojis.find(e => e.name === firstEmojiName);
+						const firstEmoji = $emojis.find((e) => e.name === firstEmojiName);
 
 						// Send as emoji type for large display
-						sendMessage($currentChannel, finalMessage, 'emoji', {
+						sendMessage($currentChannel, normalizedMessage, 'emoji', {
 							emojiUrl: firstEmoji?.url,
 							emojiName: firstEmojiName,
 							replyTo: replyingTo?.id,
@@ -1065,7 +1163,7 @@
 						});
 					} else {
 						// Send as regular text message
-						sendMessage($currentChannel, finalMessage, 'text', {
+						sendMessage($currentChannel, normalizedMessage, 'text', {
 							replyTo: replyingTo?.id,
 							isSpoiler: markAsSpoiler
 						});
@@ -1090,6 +1188,54 @@
 		}
 	}
 
+	function resolveOutgoingAttachmentCaption(): string | null {
+		if (!gifCaptionerEnabled) return '';
+		const captionSource = gifCaptionerDedicatedCaptionFieldEnabled ? gifCaptionInput : messageInput;
+		const trimmedMessage = captionSource.trim();
+		if (!trimmedMessage) return '';
+		if (trimmedMessage.length > MAX_GIF_CAPTION_LENGTH) {
+			alert(`GIF caption cannot exceed ${MAX_GIF_CAPTION_LENGTH} characters.`);
+			return null;
+		}
+		const aliasExpandedMessage = expandInputWithChatAlias(trimmedMessage);
+		const outgoingFilterResult = applyChatFilter(aliasExpandedMessage, 'outgoing');
+
+		if (outgoingFilterResult.hidden) {
+			const blockedTerms = outgoingFilterResult.matchedTerms.join(', ');
+			alert(
+				blockedTerms
+					? `Message blocked by Chat Filter: ${blockedTerms}`
+					: 'Message blocked by Chat Filter.'
+			);
+			return null;
+		}
+
+		const finalCaption = outgoingFilterResult.text.trim();
+		if (!finalCaption && aliasExpandedMessage.trim()) {
+			alert('Message is empty after Chat Filter processing.');
+			return null;
+		}
+		const normalizedSentenceCaseCaption = applyWriteUpperCase(
+			finalCaption,
+			writeUpperCaseEnabled
+		);
+		if (normalizedSentenceCaseCaption.length > MAX_GIF_CAPTION_LENGTH) {
+			alert(`GIF caption cannot exceed ${MAX_GIF_CAPTION_LENGTH} characters.`);
+			return null;
+		}
+
+		const normalizedCaption = replaceEmojiShortcodesWithUnicode(
+			normalizedSentenceCaseCaption,
+			$emojis,
+			unicodeEmojisEnabled
+		);
+		if (normalizedCaption.length > MAX_GIF_CAPTION_LENGTH) {
+			alert(`GIF caption cannot exceed ${MAX_GIF_CAPTION_LENGTH} characters.`);
+			return null;
+		}
+		return normalizedCaption;
+	}
+
 	function cancelEdit() {
 		editingMessage = null;
 		messageInput = '';
@@ -1101,14 +1247,29 @@
 	}
 
 	function handleGifSelect(event: CustomEvent<string>) {
-		sendMessage($currentChannel, '', 'gif', {
+		const caption = resolveOutgoingAttachmentCaption();
+		if (caption === null) return;
+		sendMessage($currentChannel, caption, 'gif', {
 			gifUrl: event.detail,
 			replyTo: replyingTo?.id,
 			isSpoiler: markAsSpoiler
 		});
 		replyingTo = null;
+		if (gifCaptionerDedicatedCaptionFieldEnabled) {
+			gifCaptionInput = '';
+		} else {
+			messageInput = '';
+		}
+		showMentionSuggestions = false;
 		showEmojiPicker = false;
 		showMediaMenu = false;
+		sendTyping(false, $currentChannel);
+		if (typingTimeout) {
+			clearTimeout(typingTimeout);
+		}
+		if (textareaElement) {
+			textareaElement.style.height = 'auto';
+		}
 		textareaElement?.focus();
 	}
 
@@ -1129,6 +1290,14 @@
 		textareaElement?.focus();
 	}
 
+	function handleQuickMention(message: Message) {
+		const mentionToken = `@${message.user}`;
+		const needsSpace = messageInput.length > 0 && !/\s$/.test(messageInput);
+		messageInput = needsSpace ? `${messageInput} ${mentionToken} ` : `${mentionToken} `;
+		showMentionSuggestions = false;
+		textareaElement?.focus();
+	}
+
 	function cancelReply() {
 		replyingTo = null;
 	}
@@ -1145,6 +1314,7 @@
 	function clearFilePreviews(): void {
 		for (const item of filePreviews) {
 			revokePreviewUrl(item.preview);
+			compressionMetadataByFile.delete(item.file);
 		}
 		filePreviews = [];
 		selectedFiles = [];
@@ -1174,6 +1344,51 @@
 		return (bytes / 1024 / 1024).toFixed(1);
 	}
 
+	function formatSignedMb(bytes: number): string {
+		const sign = bytes >= 0 ? '+' : '-';
+		return `${sign}${formatFileMb(Math.abs(bytes))} MB`;
+	}
+
+	function getCompressionSuggestionCopy(
+		fileSize: number,
+		runtime: VideoCompressionRuntime,
+		estimate: VideoCompressionEstimate | null
+	): string {
+		if (!estimate) return '';
+		const runtimeProfile = getVideoCompressionRuntimeProfile(runtime);
+		const nearThresholdMargin = Math.max(runtimeProfile.promptBytes * 0.18, 5 * 1024 * 1024);
+		const nearThreshold = fileSize <= runtimeProfile.promptBytes + nearThresholdMargin;
+		if (nearThreshold && estimate.estimatedReductionRatio <= 0.2) {
+			return 'This file is only slightly above the compression prompt threshold. Keeping the original may be fine on strong connections.';
+		}
+		if (estimate.estimatedReductionRatio >= 0.45) {
+			return 'This preset is expected to significantly reduce upload size.';
+		}
+		if (estimate.estimatedReductionRatio <= 0.08) {
+			return 'Only a small reduction is expected with this preset. Keeping the original may preserve better quality.';
+		}
+		return '';
+	}
+
+	function resolveVideoCompressionRuntime(): VideoCompressionRuntime {
+		if (!isTauriRuntime()) return 'web';
+		const runtime = getTauriPlatform();
+		if (runtime === 'android' || runtime === 'ios' || runtime === 'desktop') {
+			return runtime;
+		}
+		return 'desktop';
+	}
+
+	function applyCompressionRuntimeProfile(runtime: VideoCompressionRuntime): void {
+		const profile = getVideoCompressionRuntimeProfile(runtime);
+		compressionDialogRuntime = runtime;
+		compressionDialogRuntimeLabel = profile.label;
+		compressionDialogPresetOptions = getVideoCompressionPresetOptions(runtime);
+		const preferredPreset = getDefaultVideoCompressionPreset(runtime);
+		const presetAllowed = compressionDialogPresetOptions.some((option) => option.id === preferredPreset);
+		compressionDialogPreset = presetAllowed ? preferredPreset : profile.recommendedPreset;
+	}
+
 	function resetCompressionDialogState(): void {
 		if (compressionAbortController) {
 			try {
@@ -1184,6 +1399,9 @@
 		}
 		compressionDialogOpen = false;
 		compressionDialogFile = null;
+		compressionDialogInputMetadata = null;
+		compressionDialogEstimate = null;
+		compressionDialogSuggestionCopy = '';
 		compressionDialogError = '';
 		compressionDialogProgress = 0;
 		compressionDialogBusy = false;
@@ -1197,26 +1415,59 @@
 		resolve?.(result);
 	}
 
-	function openCompressionDialog(file: File): Promise<File | null> {
+	function openCompressionDialog(file: File, runtime: VideoCompressionRuntime): Promise<File | null> {
 		return new Promise((resolve) => {
 			if (compressionDialogResolve) {
 				resolveCompressionDialog(null);
 			}
+			applyCompressionRuntimeProfile(runtime);
 			compressionDialogOpen = true;
 			compressionDialogFile = file;
-			compressionDialogPreset = getDefaultVideoCompressionPreset();
+			compressionDialogInputMetadata = null;
+			compressionDialogEstimate = null;
+			compressionDialogSuggestionCopy = '';
 			compressionDialogError = '';
 			compressionDialogProgress = 0;
 			compressionDialogBusy = false;
 			compressionDialogResolve = resolve;
+
+			const targetFile = file;
+			void sampleVideoCompressionInputMetadata(targetFile)
+				.then((metadata) => {
+					if (!compressionDialogOpen || compressionDialogFile !== targetFile) return;
+					compressionDialogInputMetadata = metadata;
+				})
+				.catch(() => {
+					// metadata sampling is best-effort
+				});
 		});
 	}
 
 	function keepOriginalVideoFile(): void {
+		if (compressionDialogFile) {
+			compressionMetadataByFile.delete(compressionDialogFile);
+			void reportVideoCompressionTelemetry({
+				outcome: 'skipped',
+				runtime: compressionDialogRuntime,
+				preset: compressionDialogPreset,
+				inputBytes: compressionDialogFile.size,
+				failureCode: 'kept_original'
+			});
+		}
 		resolveCompressionDialog(compressionDialogFile);
 	}
 
 	function removeVideoFileFromQueue(): void {
+		if (compressionDialogFile) {
+			compressionMetadataByFile.delete(compressionDialogFile);
+			void reportVideoCompressionTelemetry({
+				outcome: 'skipped',
+				runtime: compressionDialogRuntime,
+				preset: compressionDialogPreset,
+				inputBytes: compressionDialogFile.size,
+				failureCode: 'removed_from_queue'
+			});
+		}
 		resolveCompressionDialog(null);
 	}
 
@@ -1231,23 +1482,71 @@
 		compressionDialogError = '';
 		compressionDialogProgress = 0;
 		const inputFile = compressionDialogFile;
+		const runtimeProfile = getVideoCompressionRuntimeProfile(compressionDialogRuntime);
+		const selectedPreset = compressionDialogPresetOptions.some(
+			(option) => option.id === compressionDialogPreset
+		)
+			? compressionDialogPreset
+			: runtimeProfile.recommendedPreset;
+		if (selectedPreset !== compressionDialogPreset) {
+			compressionDialogPreset = selectedPreset;
+		}
+		const startedAt = Date.now();
 		const abortController = new AbortController();
 		compressionAbortController = abortController;
 
 		try {
 			const compressed = await compressVideoFileForUpload(inputFile, {
-				preset: compressionDialogPreset,
-				timeoutMs: VIDEO_COMPRESSION_TIMEOUT_MS,
+				preset: selectedPreset,
+				timeoutMs: runtimeProfile.timeoutMs,
 				signal: abortController.signal,
 				onProgress: (percent) => {
 					compressionDialogProgress = Math.min(100, Math.max(0, Math.round(percent)));
 				}
 			});
+			const inputMetadata = compressionDialogInputMetadata;
+			const estimate = compressionDialogEstimate;
+			compressionMetadataByFile.delete(inputFile);
+			compressionMetadataByFile.set(compressed, {
+				scheme: 'wabi-video-compression-v1',
+				runtime: compressionDialogRuntime,
+				preset: selectedPreset,
+				originalSize: inputFile.size,
+				compressedSize: compressed.size,
+				codec: inferVideoCodecHint(compressed.type || '', compressed.name),
+				mimeType: compressed.type || 'video/webm',
+				durationMs: inputMetadata
+					? Math.max(0, Math.round(inputMetadata.durationSeconds * 1000))
+					: Date.now() - startedAt,
+				estimatedOutputBytes: estimate?.estimatedBytes
+			});
+			void reportVideoCompressionTelemetry({
+				outcome: 'success',
+				runtime: compressionDialogRuntime,
+				preset: selectedPreset,
+				inputBytes: inputFile.size,
+				outputBytes: compressed.size,
+				durationMs: Date.now() - startedAt
+			});
 			resolveCompressionDialog(compressed);
 			return;
 		} catch (error) {
-			if (abortController.signal.aborted) {
+			const failureCode = abortController.signal.aborted
+				? 'cancelled'
+				: classifyVideoCompressionFailure(error);
+			const cancelled = failureCode === 'cancelled';
+			void reportVideoCompressionTelemetry({
+				outcome: cancelled ? 'cancelled' : 'failure',
+				runtime: compressionDialogRuntime,
+				preset: selectedPreset,
+				inputBytes: inputFile.size,
+				durationMs: Date.now() - startedAt,
+				failureCode
+			});
+			if (cancelled) {
 				compressionDialogError = 'Compression was cancelled.';
+			} else if (failureCode === 'timeout') {
+				compressionDialogError = 'Compression timed out. Try a lower preset or keep the original file.';
 			} else {
 				compressionDialogError = error instanceof Error ? error.message : 'Compression failed.';
 			}
@@ -1260,11 +1559,26 @@
 	}
 
 	async function maybeCompressVideoFile(file: File): Promise<File | null> {
-		if (!isTauriRuntime()) return file;
+		const runtime = resolveVideoCompressionRuntime();
+		const runtimeProfile = getVideoCompressionRuntimeProfile(runtime);
+		if (!runtimeProfile.enabled) return file;
 		if (!isVideoCompressionEnabled()) return file;
 		if (!isVideoFile(file)) return file;
-		if (file.size < VIDEO_COMPRESSION_PROMPT_BYTES) return file;
-		return openCompressionDialog(file);
+		if (runtimeProfile.maxInputBytes !== null && file.size > runtimeProfile.maxInputBytes) {
+			void reportVideoCompressionTelemetry({
+				outcome: 'skipped',
+				runtime,
+				preset: getDefaultVideoCompressionPreset(runtime),
+				inputBytes: file.size,
+				failureCode: 'input_above_runtime_limit'
+			});
+			alert(
+				`"${file.name}" is ${formatFileMb(file.size)} MB. ${runtimeProfile.label} runtime keeps very large videos uncompressed to reduce device heat and instability.`
+			);
+			return file;
+		}
+		if (file.size < runtimeProfile.promptBytes) return file;
+		return openCompressionDialog(file, runtime);
 	}
 
 	async function prepareIncomingFiles(files: File[]): Promise<File[]> {
@@ -1321,6 +1635,9 @@
 	function removeFile(index: number) {
 		const removed = filePreviews[index];
 		revokePreviewUrl(removed?.preview);
+		if (removed?.file) {
+			compressionMetadataByFile.delete(removed.file);
+		}
 		selectedFiles = selectedFiles.filter((_, i) => i !== index);
 		filePreviews = filePreviews.filter((_, i) => i !== index);
 	}
@@ -1405,7 +1722,7 @@
 		if (selectedFiles.length === 0) return;
 
 		const activeChannel = $channels.find(ch => ch.id === $currentChannel);
-		const authToken = localStorage.getItem('authToken');
+		const authToken = getAuthToken();
 		const dmPrivacyMode = activeChannel?.type === 'dm' ? getDMPrivacyMode(activeChannel.id) : null;
 		const requiresEncryptedDmAttachment = activeChannel?.type === 'dm' && dmPrivacyMode !== 'open';
 		if (requiresEncryptedDmAttachment) {
@@ -1459,6 +1776,7 @@
 					| { scheme: 'dm-e2ee-v1'; iv: string; mimeType?: string; originalSize?: number }
 					| undefined;
 				let persistentResume = true;
+				let videoCompressionMetadata = compressionMetadataByFile.get(file);
 
 				if (canEncryptDmAttachment && authToken && activeChannel?.otherUser?.dbUserId) {
 					const encrypted = await encryptDMFile(file, activeChannel.otherUser.dbUserId, authToken);
@@ -1478,12 +1796,19 @@
 					};
 					// Ciphertext is randomized; cross-reload resume can't safely assume identical bytes.
 					persistentResume = false;
+					videoCompressionMetadata = undefined;
 				}
 
-				const result = await uploadFileResumable(uploadFile, $currentChannel, (fileProgressPercent) => {
-					const overallProgress = ((completedFiles + fileProgressPercent / 100) / totalFiles) * 100;
-					uploadProgress = Math.round(overallProgress);
-				}, persistentResume);
+				const result = await uploadFileResumable(
+					uploadFile,
+					$currentChannel,
+					(fileProgressPercent) => {
+						const overallProgress = ((completedFiles + fileProgressPercent / 100) / totalFiles) * 100;
+						uploadProgress = Math.round(overallProgress);
+					},
+					persistentResume,
+					videoCompressionMetadata
+				);
 				completedFiles++;
 				uploadedFiles.push({
 					fileUrl: result.fileUrl,
@@ -1537,12 +1862,12 @@
 		if (includeJsonContentType) {
 			headers['Content-Type'] = 'application/json';
 		}
-		const authToken = localStorage.getItem('authToken');
+		const authToken = getAuthToken();
 		if (authToken) {
 			headers['Authorization'] = `Bearer ${authToken}`;
 			return headers;
 		}
-		const sessionId = localStorage.getItem('sessionId');
+		const sessionId = getGuestSessionId();
 		if (sessionId) {
 			headers['X-Session-Id'] = sessionId;
 		}
@@ -1557,7 +1882,8 @@
 		file: File,
 		channelId: string,
 		onProgress: (fileProgressPercent: number) => void,
-		allowPersistentResume = true
+		allowPersistentResume = true,
+		videoCompression?: UploadVideoCompressionMetadata
 	): Promise<{
 		fileUrl: string;
 		fileName: string;
@@ -1578,12 +1904,14 @@
 		const initResponse = await fetch(`${serverUrl}/api/upload/resumable/init`, {
 			method: 'POST',
 			headers: getUploadAuthHeaders(true),
+			credentials: 'include',
 			body: JSON.stringify({
 				uploadId: previousUploadId,
 				fileName: file.name,
 				fileSize: file.size,
 				mimeType: file.type || 'application/octet-stream',
-				channelId
+				channelId,
+				videoCompression: videoCompression || null
 			})
 		});
 		if (!initResponse.ok) {
@@ -1633,6 +1961,7 @@
 						{
 							method: 'PUT',
 							headers: getUploadAuthHeaders(),
+							credentials: 'include',
 							body: chunkBlob
 						}
 					);
@@ -1640,12 +1969,14 @@
 						const refreshResponse = await fetch(`${serverUrl}/api/upload/resumable/init`, {
 							method: 'POST',
 							headers: getUploadAuthHeaders(true),
+							credentials: 'include',
 							body: JSON.stringify({
 								uploadId,
 								fileName: file.name,
 								fileSize: file.size,
 								mimeType: file.type || 'application/octet-stream',
-								channelId
+								channelId,
+								videoCompression: videoCompression || null
 							})
 						});
 						if (!refreshResponse.ok) {
@@ -1696,6 +2027,7 @@
 		const completeResponse = await fetch(`${serverUrl}/api/upload/resumable/complete`, {
 			method: 'POST',
 			headers: getUploadAuthHeaders(true),
+			credentials: 'include',
 			body: JSON.stringify({ uploadId, uploadToken })
 		});
 		if (!completeResponse.ok) {
@@ -1880,6 +2212,11 @@
 		searchInputElement?.blur();
 	}
 
+	function searchCurrentQueryInBrowser(): void {
+		if (!$displayEnhancementSettingsStore.googleSearchReplaceEnabled) return;
+		openExternalSearch(searchInput, getSearchEngineProvider());
+	}
+
 	onMount(() => {
 		scrollToBottom();
 
@@ -2009,17 +2346,22 @@
 					on:focus={openSearch}
 					on:keydown={handleSearchInputKeydown}
 				/>
-				{#if searchExpanded && searchInput}
+				{#if searchExpanded && searchInput && !$displayEnhancementSettingsStore.betterSearchPageEnabled}
 					<span class="search-results">
 						{filteredMessages.length === 1
 							? $_('chat.search.results_one', { values: { count: filteredMessages.length } })
 							: $_('chat.search.results_many', { values: { count: filteredMessages.length } })}
 					</span>
 				{/if}
-				{#if searchExpanded && searchBackfillBusy}
+				{#if searchExpanded && searchBackfillBusy && !$displayEnhancementSettingsStore.betterSearchPageEnabled}
 					<span class="search-results">{$_('chat.search.loading_older')}</span>
 				{/if}
-				{#if searchExpanded && searchInput && currentChannelData?.persistMessages}
+				{#if searchExpanded && searchInput && $displayEnhancementSettingsStore.googleSearchReplaceEnabled && !$displayEnhancementSettingsStore.betterSearchPageEnabled}
+					<button type="button" class="search-history-btn" on:click={searchCurrentQueryInBrowser}>
+						Search on Web
+					</button>
+				{/if}
+				{#if searchExpanded && searchInput && currentChannelData?.persistMessages && !$displayEnhancementSettingsStore.betterSearchPageEnabled}
 					<button
 						type="button"
 						class="search-history-btn"
@@ -2049,12 +2391,54 @@
 
 	<!-- TEMPORARY: DMs now render in center like channels -->
 	<div class="messages" bind:this={chatContainer}>
+		{#if $displayEnhancementSettingsStore.betterSearchPageEnabled && searchInput}
+			<div class="search-results-toolbar" role="status" aria-live="polite">
+				<span class="search-toolbar-meta">
+					{filteredMessages.length === 1
+						? $_('chat.search.results_one', { values: { count: filteredMessages.length } })
+						: $_('chat.search.results_many', { values: { count: filteredMessages.length } })}
+				</span>
+				{#if searchBackfillBusy}
+					<span class="search-toolbar-meta">{$_('chat.search.loading_older')}</span>
+				{/if}
+				{#if $displayEnhancementSettingsStore.googleSearchReplaceEnabled}
+					<button type="button" class="search-toolbar-btn" on:click={searchCurrentQueryInBrowser}>
+						Search on Web
+					</button>
+				{/if}
+				{#if currentChannelData?.persistMessages}
+					<button
+						type="button"
+						class="search-toolbar-btn"
+						on:click={() => {
+							if (isFullHistorySearchRunning) {
+								fullHistorySearchAbortRequested = true;
+							} else {
+								void runFullHistorySearchBackfill();
+							}
+						}}
+					>
+						{isFullHistorySearchRunning
+							? $_('chat.search.stop', { values: { count: fullHistorySearchPagesLoaded } })
+							: $_('chat.search.full_history')}
+					</button>
+				{/if}
+				{#if fullHistorySearchStatus}
+					<span class="search-toolbar-meta">{fullHistorySearchStatus}</span>
+				{/if}
+			</div>
+		{/if}
 		{#key `${$currentChannel}-${channelPaneAnimation.enabled ? channelPaneAnimation.preset : 'off'}`}
 		<div class="messages-pane" transition:channelPaneTransition={channelPaneAnimation}>
 			{#if !searchInput}
 				<PinnedMessages pinnedMessages={pinnedMessages} />
 			{/if}
-			<MessageList messages={filteredMessages} onReply={handleReply} firstUnreadMessageId={$lastReadMessageId} />
+			<MessageList
+				messages={filteredMessages}
+				onReply={handleReply}
+				onQuickMention={handleQuickMention}
+				firstUnreadMessageId={$lastReadMessageId}
+			/>
 
 			{#if visibleTypingUsers.length > 0}
 				<div class="typing-indicator">
@@ -2278,6 +2662,34 @@
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
 			</button>
 		</div>
+		{#if unicodeEmojisEnabled && unicodeComposerPreviewTokens > 0 && unicodeComposerPreview !== messageInput}
+			<div class="unicode-conversion-hint">
+				Unicode preview: {unicodeComposerPreview}
+			</div>
+		{/if}
+		{#if gifCaptionerEnabled && gifCaptionerDedicatedCaptionFieldEnabled}
+			<div class="gif-caption-draft-row">
+				<input
+					type="text"
+					class="gif-caption-draft-input"
+					bind:value={gifCaptionInput}
+					maxlength={MAX_GIF_CAPTION_LENGTH}
+					placeholder="GIF caption (used when sending from GIF picker)"
+				/>
+				<span class="gif-caption-draft-count" class:warn={gifCaptionDraftWarn}>
+					{gifCaptionDraftLength}/{MAX_GIF_CAPTION_LENGTH}
+				</span>
+			</div>
+			{#if unicodeEmojisEnabled && unicodeGifCaptionPreviewTokens > 0 && unicodeGifCaptionPreview !== gifCaptionInput}
+				<div class="unicode-conversion-hint">
+					GIF caption preview: {unicodeGifCaptionPreview}
+				</div>
+			{/if}
+		{:else if gifCaptionerEnabled && showEmojiPicker}
+			<div class="gif-caption-hint">
+				GIF caption uses composer text (max {MAX_GIF_CAPTION_LENGTH} characters).
+			</div>
+		{/if}
 	</div>
 			{/if}
 	</div>
@@ -2289,6 +2701,7 @@
 				<p class="compression-copy">
 					"{compressionDialogFile.name}" is {formatFileMb(compressionDialogFile.size)} MB. Compress now or keep the original file.
 				</p>
+				<p class="compression-runtime-note">Runtime profile: {compressionDialogRuntimeLabel}</p>
 				<div class="compression-preset-row">
 					<label for="compression-preset-select">Preset</label>
 					<select
@@ -2296,10 +2709,28 @@
 						bind:value={compressionDialogPreset}
 						disabled={compressionDialogBusy}
 					>
-						<option value="balanced_720p">Balanced 720p (smaller files)</option>
-						<option value="quality_1080p">Quality 1080p (higher quality)</option>
+						{#each compressionDialogPresetOptions as presetOption (presetOption.id)}
+							<option value={presetOption.id}>{presetOption.label}</option>
+						{/each}
 					</select>
 				</div>
+				{#if selectedCompressionPresetOption}
+					<div class="compression-preset-note">{selectedCompressionPresetOption.description}</div>
+				{/if}
+				{#if compressionDialogEstimate}
+					<div class="compression-estimate">
+						<span>
+							Estimated output: {formatFileMb(compressionDialogEstimate.estimatedBytes)} MB
+							({compressionDialogEstimate.targetWidth}x{compressionDialogEstimate.targetHeight})
+						</span>
+						<span class:estimate-saving={compressionDialogEstimate.estimatedReductionRatio > 0}>
+							{formatSignedMb(compressionDialogEstimate.estimatedBytes - compressionDialogFile.size)}
+						</span>
+					</div>
+				{/if}
+				{#if compressionDialogSuggestionCopy}
+					<div class="compression-suggestion">{compressionDialogSuggestionCopy}</div>
+				{/if}
 				{#if compressionDialogBusy}
 					<div class="compression-progress">
 						<div class="compression-progress-info">
@@ -2397,6 +2828,12 @@
 			word-break: break-word;
 		}
 
+		.compression-runtime-note {
+			margin: 0;
+			font-size: 0.73rem;
+			color: var(--text-muted);
+		}
+
 		.compression-preset-row {
 			display: flex;
 			flex-direction: column;
@@ -2415,6 +2852,34 @@
 			border-radius: 8px;
 			padding: 0.42rem 0.5rem;
 			font-size: 0.8rem;
+		}
+
+		.compression-preset-note {
+			font-size: 0.72rem;
+			color: var(--text-muted);
+			line-height: 1.35;
+		}
+
+		.compression-estimate {
+			display: flex;
+			justify-content: space-between;
+			gap: 0.5rem;
+			font-size: 0.72rem;
+			color: var(--text-secondary);
+		}
+
+		.compression-estimate .estimate-saving {
+			color: #34d399;
+		}
+
+		.compression-suggestion {
+			border: 1px solid rgba(var(--accent-rgb), 0.35);
+			background: rgba(var(--accent-rgb), 0.12);
+			border-radius: 8px;
+			padding: 0.45rem 0.5rem;
+			font-size: 0.73rem;
+			color: var(--text-secondary);
+			line-height: 1.35;
 		}
 
 		.compression-progress {
@@ -2744,6 +3209,44 @@
 		color: var(--text-primary);
 	}
 
+	.search-results-toolbar {
+		position: sticky;
+		top: 0;
+		z-index: 3;
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.45rem;
+		padding: 0.4rem 0.55rem;
+		margin: -0.35rem -0.2rem 0.45rem;
+		border: 1px solid rgba(var(--border-rgb), var(--opacity-light));
+		border-radius: 10px;
+		background: color-mix(in srgb, var(--bg-secondary) 90%, transparent);
+		backdrop-filter: blur(6px);
+	}
+
+	.search-toolbar-meta {
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
+		white-space: nowrap;
+	}
+
+	.search-toolbar-btn {
+		border: none;
+		border-radius: 10px;
+		padding: 0.2rem 0.55rem;
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+		background: var(--bg-tertiary);
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.search-toolbar-btn:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
 
 	.chat-tabs-row {
 		flex-shrink: 0;
@@ -2860,6 +3363,8 @@
 		box-sizing: border-box;
 		display: flex;
 		align-items: center;
+		flex-direction: column;
+		gap: 0.3rem;
 	}
 
 	.input-container {
@@ -3030,6 +3535,53 @@
 
 	.composer-char-counter.warn {
 		color: #ffb347;
+	}
+
+	.gif-caption-draft-row {
+		width: 100%;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 0.45rem;
+		padding: 0 0.2rem;
+	}
+
+	.gif-caption-draft-input {
+		width: 100%;
+		border: 1px solid var(--border);
+		background: color-mix(in srgb, var(--bg-tertiary) 90%, transparent);
+		color: var(--text-primary);
+		border-radius: 8px;
+		font-size: 0.78rem;
+		padding: 0.32rem 0.45rem;
+	}
+
+	.gif-caption-draft-count {
+		font-size: 0.68rem;
+		color: var(--text-secondary);
+		min-width: 4.25rem;
+		text-align: right;
+	}
+
+	.gif-caption-draft-count.warn {
+		color: #ffb347;
+	}
+
+	.gif-caption-hint {
+		width: 100%;
+		padding: 0 0.22rem;
+		font-size: 0.68rem;
+		color: var(--text-secondary);
+	}
+
+	.unicode-conversion-hint {
+		width: 100%;
+		padding: 0 0.22rem;
+		font-size: 0.68rem;
+		color: var(--text-secondary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.send-button {
@@ -3242,6 +3794,22 @@
 			display: none;
 		}
 
+		.search-results-toolbar {
+			top: 0;
+			margin: -0.1rem 0 0.35rem;
+			padding: 0.32rem 0.45rem;
+			gap: 0.3rem;
+		}
+
+		.search-toolbar-meta {
+			font-size: 0.7rem;
+		}
+
+		.search-toolbar-btn {
+			font-size: 0.68rem;
+			padding: 0.16rem 0.42rem;
+		}
+
 		.albums-open-btn {
 			padding: 0.25rem 0.45rem;
 			font-size: 0.78rem;
@@ -3265,6 +3833,7 @@
 			padding-bottom: calc(0.38rem + env(safe-area-inset-bottom));
 			border-top: 1px solid var(--border);
 			background: var(--bg-secondary);
+			gap: 0.26rem;
 		}
 
 		.input-container {
@@ -3297,6 +3866,16 @@
 			padding: 0;
 			flex-shrink: 0;
 			border-radius: 9px;
+		}
+
+		.gif-caption-draft-row {
+			grid-template-columns: 1fr;
+			gap: 0.22rem;
+		}
+
+		.gif-caption-draft-count {
+			text-align: left;
+			min-width: 0;
 		}
 
 		.edit-bar, .reply-bar {

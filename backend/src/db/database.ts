@@ -589,6 +589,20 @@ function runSqliteMigrations(): void {
 	addColumnIfMissing('messages', 'attachment_encryption_json', 'TEXT');
 	addColumnIfMissing('messages', 'files_json', 'TEXT');
 	addColumnIfMissing('messages', 'attachment_storage_json', 'TEXT');
+	addColumnIfMissing('albums', 'is_featured', 'INTEGER DEFAULT 0');
+	addColumnIfMissing('album_items', 'sort_order', 'INTEGER DEFAULT 0');
+
+	try {
+		dbClient.exec('CREATE INDEX IF NOT EXISTS idx_albums_scope_featured ON albums(scope_type, scope_id, is_featured DESC, updated_at DESC)');
+		dbClient.exec('CREATE INDEX IF NOT EXISTS idx_album_items_album_order ON album_items(album_id, sort_order ASC, uploaded_at DESC)');
+		dbClient.exec(`
+			UPDATE album_items
+			SET sort_order = uploaded_at
+			WHERE sort_order IS NULL OR sort_order <= 0
+		`);
+	} catch (e) {
+		console.error('[Database] Album migration/index error:', e);
+	}
 
 	try {
 		dbClient.exec(`
@@ -703,6 +717,20 @@ function runPostgresMigrations(): void {
 	addColumnIfMissing('messages', 'attachment_encryption_json', 'TEXT');
 	addColumnIfMissing('messages', 'files_json', 'TEXT');
 	addColumnIfMissing('messages', 'attachment_storage_json', 'TEXT');
+	addColumnIfMissing('albums', 'is_featured', 'INTEGER DEFAULT 0');
+	addColumnIfMissing('album_items', 'sort_order', 'BIGINT DEFAULT 0');
+
+	try {
+		dbClient.exec('CREATE INDEX IF NOT EXISTS idx_albums_scope_featured ON albums(scope_type, scope_id, is_featured DESC, updated_at DESC)');
+		dbClient.exec('CREATE INDEX IF NOT EXISTS idx_album_items_album_order ON album_items(album_id, sort_order ASC, uploaded_at DESC)');
+		dbClient.exec(`
+			UPDATE album_items
+			SET sort_order = uploaded_at
+			WHERE sort_order IS NULL OR sort_order <= 0
+		`);
+	} catch (error) {
+		console.error('[Database] Album migration/index error:', error);
+	}
 
 	try {
 		dbClient.exec(`

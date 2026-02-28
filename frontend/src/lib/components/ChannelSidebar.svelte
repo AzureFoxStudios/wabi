@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import {
 		channels,
@@ -9,6 +9,7 @@
 		createThread,
 		deleteChannel,
 		markMessagesAsRead,
+		markChannelAsRead,
 		currentUser,
 		updateChannelSettings,
 		channelUnreadCounts,
@@ -56,6 +57,18 @@
 	import type { Channel } from '$lib/socket';
 	import { longpress } from '$lib/actions/longpress';
 	import { layoutStore } from '$lib/layoutStore';
+	import {
+		displayEnhancementSettingsStore,
+		isLikelyNsfwChannel,
+		toggleMutedChannelId
+	} from '$lib/displayEnhancements';
+	import {
+		clearActiveCustomStatusPreset,
+		customStatusPresetsStore,
+		getActiveCustomStatusPreset,
+		setActiveCustomStatusPreset,
+		type CustomStatusPreset
+	} from '$lib/customStatusPresets';
 
 	const dispatch = createEventDispatcher();
 
@@ -82,6 +95,10 @@
 	let selectedChannelForSettings: Channel | null = null;
 	let isTextSectionExpanded = true;
 	let isVoiceSectionExpanded = true;
+	let voiceDurationMode: 'off' | 'others' | 'all' = 'all';
+	let nowMs = Date.now();
+	let voiceDurationTicker: ReturnType<typeof setInterval> | null = null;
+	let voicePresenceSince = new Map<string, number>();
 	const fallbackRoleLabels: Record<string, string> = {
 		owner: 'Owner',
 		admin: 'Admin',
@@ -125,16 +142,27 @@
 		dispatch('logout');
 	}
 
+	function isChannelLocallyMuted(channelId: string): boolean {
+		return $displayEnhancementSettingsStore.mutedChannelIds.includes(channelId);
+	}
+
+	function shouldHideChannelFromList(channel: Channel): boolean {
+		if (!$displayEnhancementSettingsStore.hideMutedCategoriesEnabled) return false;
+		if ($currentChannel === channel.id) return false;
+		return isChannelLocallyMuted(channel.id);
+	}
+
 	// Separate channels by type
 	// Note: DMs are excluded from sidebar - only accessible via UserPanel
 	$: textChannels = $channels
 		.filter(ch => !ch.type || ch.type === 'public' || ch.type === 'text')
+		.filter(ch => !shouldHideChannelFromList(ch))
 		.sort((a, b) => {
 			if (a.id === 'general') return -1;
 			if (b.id === 'general') return 1;
 			return a.name.localeCompare(b.name);
 		});
-	$: groupChannels = $channels.filter(ch => ch.type === 'group');
+	$: groupChannels = $channels.filter(ch => ch.type === 'group').filter(ch => !shouldHideChannelFromList(ch));
 	$: threadChannels = $channels
 		.filter(ch => ch.type === 'thread_public' || ch.type === 'thread_private')
 		.sort((a, b) => (b.threadLastActivityAt || b.createdAt || 0) - (a.threadLastActivityAt || a.createdAt || 0));
@@ -147,6 +175,7 @@
 	}, {});
 	$: allVoiceChannels = $channels
 		.filter(ch => ch.type === 'voice')
+		.filter(ch => !shouldHideChannelFromList(ch))
 		.sort((a, b) => {
 			if (a.id === 'voice') return -1;
 			if (b.id === 'voice') return 1;
@@ -167,6 +196,53 @@
 	$: activeListenChips = voiceChannels.filter(ch =>
 		$listeningVoiceChannels.includes(ch.id) || ch.id === runtimeActiveVoiceChannelId
 	);
+	$: workspaceChannelCount = textChannels.length + groupChannels.length + voiceChannels.length;
+	$: totalUnreadNotifications = Object.values($channelUnreadCounts).reduce((sum, value) => {
+		return sum + (Number.isFinite(value) ? value : 0);
+	}, 0);
+	$: activeCustomStatusPreset = getActiveCustomStatusPreset($customStatusPresetsStore);
+	$: {
+		const previous = voicePresenceSince;
+		const next = new Map<string, number>();
+		const observedAt = Date.now();
+		const selfStableId = $currentUser?.dbUserId ? `user-${$currentUser.dbUserId}` : null;
+		const selfId = selfStableId || $currentUser?.id || null;
+
+		for (const channel of allVoiceChannels) {
+			const members = getVoiceMembers(channel.id);
+			for (const member of members) {
+				const key = `${channel.id}::${member.userId}`;
+				next.set(key, previous.get(key) ?? observedAt);
+			}
+			if (selfId && isConnectedToVoice(channel.id)) {
+				const selfKey = `${channel.id}::${selfId}`;
+				next.set(selfKey, previous.get(selfKey) ?? observedAt);
+			}
+		}
+
+		voicePresenceSince = next;
+	}
+
+	onMount(() => {
+		try {
+			const saved = localStorage.getItem('wabi-voice-duration-mode');
+			if (saved === 'off' || saved === 'others' || saved === 'all') {
+				voiceDurationMode = saved;
+			}
+		} catch {
+			// no-op
+		}
+		voiceDurationTicker = setInterval(() => {
+			nowMs = Date.now();
+		}, 1000);
+	});
+
+	onDestroy(() => {
+		if (voiceDurationTicker) {
+			clearInterval(voiceDurationTicker);
+			voiceDurationTicker = null;
+		}
+	});
 
 	// Clear unread count when switching to chat view
 	$: if (activeView === 'chat') {
@@ -182,12 +258,24 @@
 		dispatch('close'); // Close sidebar on mobile after channel selection
 	}
 
+	function clearAllUnreadNotifications(): void {
+		const channelIds = Object.keys($channelUnreadCounts);
+		for (const channelId of channelIds) {
+			markChannelAsRead(channelId);
+		}
+		markMessagesAsRead();
+	}
+
 	function handleCreateThread(parentChannel: Channel) {
 		const rawName = window.prompt(`Create a thread in #${parentChannel.name}`, `${parentChannel.name} thread`);
 		if (!rawName) return;
 		const name = rawName.trim();
 		if (!name) return;
 		createThread(parentChannel.id, name);
+	}
+
+	function isNsfwTaggedChannel(channel: Channel): boolean {
+		return isLikelyNsfwChannel(channel.name, channel.description);
 	}
 
 
@@ -299,6 +387,50 @@
 		return match?.name || channelId;
 	}
 
+	function getVoicePresenceStart(channelId: string, userId: string): number | null {
+		return voicePresenceSince.get(`${channelId}::${userId}`) ?? null;
+	}
+
+	function getSelfVoicePresenceStart(channelId: string): number | null {
+		if (!$currentUser) return null;
+		const stableId = $currentUser.dbUserId ? `user-${$currentUser.dbUserId}` : null;
+		const candidates = stableId ? [stableId, $currentUser.id] : [$currentUser.id];
+		for (const candidate of candidates) {
+			const start = getVoicePresenceStart(channelId, candidate);
+			if (start) return start;
+		}
+		return null;
+	}
+
+	function formatVoiceDuration(startMs: number | null): string {
+		if (!startMs) return '0:00';
+		const elapsedSeconds = Math.max(0, Math.floor((nowMs - startMs) / 1000));
+		const hours = Math.floor(elapsedSeconds / 3600);
+		const minutes = Math.floor((elapsedSeconds % 3600) / 60);
+		const seconds = elapsedSeconds % 60;
+		if (hours > 0) {
+			return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+		}
+		return `${minutes}:${String(seconds).padStart(2, '0')}`;
+	}
+
+	function setVoiceDurationMode(mode: 'off' | 'others' | 'all') {
+		voiceDurationMode = mode;
+		try {
+			localStorage.setItem('wabi-voice-duration-mode', mode);
+		} catch {
+			// no-op
+		}
+	}
+
+	function showSelfVoiceDuration(): boolean {
+		return voiceDurationMode === 'all';
+	}
+
+	function showOtherVoiceDuration(): boolean {
+		return voiceDurationMode === 'all' || voiceDurationMode === 'others';
+	}
+
 	$: speakingChannelName = runtimeActiveVoiceChannelId ? getVoiceChannelNameById(runtimeActiveVoiceChannelId) : 'None';
 	$: listeningChannelNames = Array.from(connectedVoiceChannelIds).map((channelId) => getVoiceChannelNameById(channelId));
 	$: listeningChannelSummary = listeningChannelNames.length > 0 ? listeningChannelNames.join(', ') : 'None';
@@ -390,8 +522,21 @@
 		showStatusPopup = !showStatusPopup;
 	}
 
+	function getPresenceDotColor(status: 'active' | 'away' | 'busy'): string {
+		if (status === 'away') return 'var(--status-away)';
+		if (status === 'busy') return 'var(--status-busy)';
+		return 'var(--status-online)';
+	}
+
 	function changeStatus(newStatus: 'active' | 'away' | 'busy') {
+		clearActiveCustomStatusPreset();
 		updateProfile(newStatus, undefined, undefined);
+		showStatusPopup = false;
+	}
+
+	function applyCustomStatusPreset(preset: CustomStatusPreset): void {
+		setActiveCustomStatusPreset(preset.id);
+		updateProfile(preset.status, undefined, undefined);
 		showStatusPopup = false;
 	}
 
@@ -458,6 +603,11 @@
 				label: 'Pinned Messages',
 				icon: 'pin',
 				onSelect: () => handleShowPinnedMessages(channel.id)
+			},
+			{
+				id: 'toggle-mute-channel',
+				label: isChannelLocallyMuted(channel.id) ? 'Unmute Channel' : 'Mute Channel',
+				onSelect: () => toggleMutedChannelId(channel.id)
 			},
 			{
 				id: 'channel-settings',
@@ -560,6 +710,27 @@
 	{/if}
 
 	<div class="channel-list">
+		{#if $displayEnhancementSettingsStore.serverCounterEnabled}
+			<div class="workspace-counter-chip" title="Workspace channel count">
+				<span class="workspace-counter-label">Workspace</span>
+				<span class="workspace-counter-value">{workspaceChannelCount} channels</span>
+			</div>
+		{/if}
+		{#if $displayEnhancementSettingsStore.readAllNotificationsButtonEnabled}
+			<div class="channel-list-actions">
+				<button
+					class="clear-unread-btn"
+					on:click={clearAllUnreadNotifications}
+					disabled={totalUnreadNotifications === 0}
+				>
+					{#if totalUnreadNotifications > 0}
+						Clear Unread ({totalUnreadNotifications})
+					{:else}
+						No Unread
+					{/if}
+				</button>
+			</div>
+		{/if}
 		<div class="section-heading-row">
 			<button
 				class="section-toggle"
@@ -592,6 +763,12 @@
 				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
 					<span class="hash">#</span>
 					{channel.name}
+					{#if $displayEnhancementSettingsStore.betterNsfwTagEnabled && isNsfwTaggedChannel(channel)}
+						<span class="nsfw-tag">NSFW</span>
+					{/if}
+					{#if isChannelLocallyMuted(channel.id)}
+						<span class="muted-tag">Muted</span>
+					{/if}
 					<!-- TODO(mod/admin-perms): Restore channel-pin indicator when channel pinning is role-gated. -->
 					{#if $channelUnreadCounts[channel.id] && $currentChannel !== channel.id}
 						<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
@@ -639,6 +816,12 @@
 					<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
 						<svg class="group-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
 						{channel.name}
+						{#if $displayEnhancementSettingsStore.betterNsfwTagEnabled && isNsfwTaggedChannel(channel)}
+							<span class="nsfw-tag">NSFW</span>
+						{/if}
+						{#if isChannelLocallyMuted(channel.id)}
+							<span class="muted-tag">Muted</span>
+						{/if}
 						<!-- TODO(mod/admin-perms): Restore channel-pin indicator when channel pinning is role-gated. -->
 						{#if $channelUnreadCounts[channel.id] && $currentChannel !== channel.id}
 							<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
@@ -716,6 +899,9 @@
 							<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isSelfSpeakingInChannel(channel.id)}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
 						{/if}
 						<span class="voice-member-name">{$currentUser.username}</span>
+						{#if showSelfVoiceDuration()}
+							<span class="voice-member-duration">{formatVoiceDuration(getSelfVoicePresenceStart(channel.id))}</span>
+						{/if}
 					</div>
 					{/if}
 					{#each (channelIsConnected && $currentUser ? members.filter(m => {
@@ -730,6 +916,9 @@
 								<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member, channel.id)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 							{/if}
 							<span class="voice-member-name">{member.username || member.userId}</span>
+							{#if showOtherVoiceDuration()}
+								<span class="voice-member-duration">{formatVoiceDuration(getVoicePresenceStart(channel.id, member.userId))}</span>
+							{/if}
 						</div>
 					{/each}
 				</div>
@@ -764,6 +953,9 @@
 								<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isSelfSpeakingInChannel(breakout.id)}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
 							{/if}
 							<span class="voice-member-name">{$currentUser.username}</span>
+							{#if showSelfVoiceDuration()}
+								<span class="voice-member-duration">{formatVoiceDuration(getSelfVoicePresenceStart(breakout.id))}</span>
+							{/if}
 						</div>
 						{/if}
 						{#each (breakoutIsConnected && $currentUser ? breakoutMembers.filter(m => {
@@ -778,6 +970,9 @@
 									<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member, breakout.id)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 								{/if}
 								<span class="voice-member-name">{member.username || member.userId}</span>
+								{#if showOtherVoiceDuration()}
+									<span class="voice-member-duration">{formatVoiceDuration(getVoicePresenceStart(breakout.id, member.userId))}</span>
+								{/if}
 							</div>
 						{/each}
 					</div>
@@ -833,6 +1028,19 @@
 				<select id="voice-transmit-mode" on:change={handleTransmitModeChange} value={$voiceTransmitMode}>
 					<option value="primary">Primary channel</option>
 					<option value="all-listening">All listening channels</option>
+				</select>
+			</div>
+
+			<div class="voice-route-controls">
+				<label for="voice-duration-mode">Timers</label>
+				<select
+					id="voice-duration-mode"
+					value={voiceDurationMode}
+					on:change={(event) => setVoiceDurationMode((event.currentTarget as HTMLSelectElement).value as 'off' | 'others' | 'all')}
+				>
+					<option value="off">Off</option>
+					<option value="others">Others</option>
+					<option value="all">All</option>
 				</select>
 			</div>
 
@@ -902,6 +1110,11 @@
 						<span class="self-role-badge">{currentUserRoleLabel}</span>
 					</div>
 					<div class="user-tag">{$currentUser.handle ? `@${$currentUser.handle}` : `#${$currentUser.id.slice(-4)}`}</div>
+					{#if $displayEnhancementSettingsStore.customStatusPresetsEnabled && activeCustomStatusPreset}
+						<div class="custom-status-pill" title={activeCustomStatusPreset.note || activeCustomStatusPreset.label}>
+							{activeCustomStatusPreset.note || activeCustomStatusPreset.label}
+						</div>
+					{/if}
 				</div>
 			</div>
 
@@ -919,6 +1132,29 @@
 						<span class="status-dot" style="background-color: var(--status-busy)"></span>
 						Busy
 					</button>
+					{#if $displayEnhancementSettingsStore.customStatusPresetsEnabled}
+						<div class="status-divider"></div>
+						{#if $customStatusPresetsStore.presets.length === 0}
+							<div class="status-preset-empty">No custom presets yet.</div>
+						{:else}
+							{#each $customStatusPresetsStore.presets as preset (preset.id)}
+								<button
+									class="status-option status-preset-option"
+									class:active-preset={activeCustomStatusPreset?.id === preset.id}
+									on:click={() => applyCustomStatusPreset(preset)}
+									title={`Preset: ${preset.label}`}
+								>
+									<span class="status-dot" style="background-color: {getPresenceDotColor(preset.status)}"></span>
+									<span class="status-preset-copy">
+										<span class="status-preset-label">{preset.label}</span>
+										{#if preset.note}
+											<span class="status-preset-note">{preset.note}</span>
+										{/if}
+									</span>
+								</button>
+							{/each}
+						{/if}
+					{/if}
 				</div>
 			{/if}
 			<div class="profile-controls">
@@ -1178,7 +1414,9 @@
 	.channel-sidebar.compact .profile-card .user-details,
 	.channel-sidebar.compact .profile-controls,
 	.channel-sidebar.compact .status-popup,
-	.channel-sidebar.compact .create-channel {
+	.channel-sidebar.compact .create-channel,
+	.channel-sidebar.compact .workspace-counter-chip,
+	.channel-sidebar.compact .channel-list-actions {
 		display: none;
 	}
 
@@ -1427,6 +1665,59 @@
 		padding: 0;
 	}
 
+	.workspace-counter-chip {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.6rem;
+		margin: 0.55rem 0.7rem 0.15rem;
+		padding: 0.35rem 0.55rem;
+		border-radius: 8px;
+		border: 1px solid rgba(var(--accent-rgb), var(--opacity-light));
+		background: color-mix(in srgb, var(--bg-secondary) 80%, rgba(var(--accent-rgb), 0.2));
+	}
+
+	.workspace-counter-label {
+		font-size: 0.66rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--text-secondary);
+	}
+
+	.workspace-counter-value {
+		font-size: 0.72rem;
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	.channel-list-actions {
+		padding: 0.25rem 0.7rem 0.15rem;
+	}
+
+	.clear-unread-btn {
+		width: 100%;
+		border: 1px solid rgba(var(--accent-rgb), var(--opacity-light));
+		background: transparent;
+		color: var(--text-secondary);
+		border-radius: 7px;
+		padding: 0.3rem 0.45rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.18s ease;
+	}
+
+	.clear-unread-btn:hover:not(:disabled) {
+		color: var(--text-primary);
+		border-color: rgba(var(--accent-rgb), var(--opacity-strong));
+		background: rgba(var(--accent-rgb), var(--opacity-subtle));
+	}
+
+	.clear-unread-btn:disabled {
+		opacity: 0.55;
+		cursor: default;
+	}
+
 	.channel-item {
 		display: flex;
 		align-items: center;
@@ -1455,6 +1746,32 @@
 		min-width: 0; /* Allows text to shrink and ellipsis */
 		height: fit-content;
 		justify-content: flex-start;
+	}
+
+	.nsfw-tag {
+		margin-left: 0.25rem;
+		padding: 0.08rem 0.34rem;
+		border-radius: 999px;
+		font-size: 0.58rem;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: #ffd3d3;
+		background: color-mix(in srgb, #d43b3b 72%, var(--bg-secondary));
+		border: 1px solid rgba(255, 120, 120, 0.48);
+	}
+
+	.muted-tag {
+		margin-left: 0.25rem;
+		padding: 0.08rem 0.34rem;
+		border-radius: 999px;
+		font-size: 0.58rem;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+		background: color-mix(in srgb, var(--bg-tertiary) 86%, transparent);
+		border: 1px solid rgba(var(--border-rgb), 0.5);
 	}
 
 	.channel-item.active .channel-btn {
@@ -1792,6 +2109,13 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+
+	.voice-member-duration {
+		margin-left: auto;
+		font-size: 0.68rem;
+		opacity: 0.72;
+		font-variant-numeric: tabular-nums;
 	}
 
 	@keyframes voice-ring-pulse {
@@ -2163,6 +2487,12 @@
 		min-width: 140px;
 	}
 
+	.status-divider {
+		height: 1px;
+		background: var(--border);
+		margin: 4px 2px;
+	}
+
 	.status-option {
 		display: flex;
 		align-items: center;
@@ -2189,12 +2519,58 @@
 		flex-shrink: 0;
 	}
 
+	.status-preset-option {
+		align-items: flex-start;
+	}
+
+	.status-preset-copy {
+		display: inline-flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+
+	.status-preset-label {
+		font-weight: 600;
+		line-height: 1.2;
+	}
+
+	.status-preset-note {
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
+		line-height: 1.2;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 18ch;
+	}
+
+	.status-preset-empty {
+		padding: 6px 10px;
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
+	}
+
+	.status-preset-option.active-preset {
+		background: color-mix(in srgb, var(--accent) 12%, transparent);
+	}
+
 	.user-tag {
 		font-size: var(--text-xs);
 		color: var(--text-secondary);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.custom-status-pill {
+		margin-top: 2px;
+		max-width: 24ch;
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.profile-controls {

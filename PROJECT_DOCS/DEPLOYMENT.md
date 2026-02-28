@@ -422,12 +422,17 @@ sudo systemctl start wabi
 ## Relay Network (Phase 1)
 
 Relay nodes for file delivery are implemented in-repo and can be rolled out separately from core app deploys.
+Core deploy scripts (`scripts/setup.sh`, `scripts/launch.sh`) intentionally do not start relay-node services.
 
 - Relay node code: `relay-node/`
 - Relay runbook: `PROJECT_DOCS/RELAY_PHASE1_SERVER_RUNBOOK.md`
 - Relay admin helper: `scripts/relay-admin.sh`
 - Relay validation helper: `scripts/relay-phase1-check.mjs`
-- Frontend toggle: `VITE_ENABLE_RELAYS=true`
+- Frontend toggle (manual): `VITE_ENABLE_RELAYS=true` in `frontend/.env` before rebuild.
+- Dedicated relay launcher:
+  - `./scripts/relay-launch.sh configure`
+  - `./scripts/relay-launch.sh up`
+  - Windows (WSL): `scripts/relay-launch-forWindows.ps1`
 
 SRT media gateway is deployable with control-plane + worker orchestration (`media-gateway/` + `/api/media/gateway/session*`).
 

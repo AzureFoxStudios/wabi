@@ -120,7 +120,7 @@ export function parseMessage(text: string): string {
   }
 
   // Replace emote codes with images (custom emotes uploaded by users)
-  html = html.replace(/:([a-zA-Z0-9_]+):/g, (match, emoteName) => {
+  html = html.replace(/:([a-zA-Z0-9_+-]+):/g, (match, emoteName) => {
     const emote = emotes.get(emoteName);
     if (emote) {
       return `<img src="${emote.url}" alt=":${emoteName}:" class="emote ${emote.type === 'animated' ? 'emote-animated' : ''}" title=":${emoteName}:">`;

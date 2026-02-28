@@ -5,6 +5,120 @@ import { channelRepository } from '../db/repositories/channelRepository.js';
 import { channelMemberRepository } from '../db/repositories/channelMemberRepository.js';
 import { albumRepository, type AlbumScopeType, type DbAlbumItem, type DbAlbumWithCounts } from '../db/repositories/albumRepository.js';
 
+type AlbumPolicyTier = 'new' | 'trusted' | 'moderator' | 'admin' | 'owner';
+
+export interface AlbumUploadLimitConfig {
+	perRoleItemsPerMinute: Record<AlbumPolicyTier, number>;
+	perRoleMaxBytesPerItem: Record<AlbumPolicyTier, number | null>;
+	perScopeItemsPerMinute: number;
+}
+
+const MB = 1024 * 1024;
+const ALBUM_UPLOAD_RATE_WINDOW_MS = 60_000;
+const DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG: AlbumUploadLimitConfig = {
+	perRoleItemsPerMinute: {
+		new: 6,
+		trusted: 24,
+		moderator: 90,
+		admin: 180,
+		owner: 240
+	},
+	perRoleMaxBytesPerItem: {
+		new: 25 * MB,
+		trusted: 300 * MB,
+		moderator: 1024 * MB,
+		admin: null,
+		owner: null
+	},
+	perScopeItemsPerMinute: 420
+};
+
+function normalizeCountLimit(input: unknown, fallback: number, min: number, max: number): number {
+	const parsed = Number(input);
+	if (!Number.isFinite(parsed)) return fallback;
+	return Math.max(min, Math.min(max, Math.floor(parsed)));
+}
+
+function normalizeByteLimit(input: unknown, fallback: number | null): number | null {
+	if (input === null || input === undefined || input === '') return fallback;
+	const parsed = Number(input);
+	if (!Number.isFinite(parsed) || parsed <= 0) return null;
+	return Math.floor(parsed);
+}
+
+function coerceAlbumUploadLimitConfig(rawConfig: AlbumUploadLimitConfig | null | undefined): AlbumUploadLimitConfig {
+	if (!rawConfig || typeof rawConfig !== 'object') {
+		return {
+			perRoleItemsPerMinute: { ...DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleItemsPerMinute },
+			perRoleMaxBytesPerItem: { ...DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleMaxBytesPerItem },
+			perScopeItemsPerMinute: DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perScopeItemsPerMinute
+		};
+	}
+
+	return {
+		perRoleItemsPerMinute: {
+			new: normalizeCountLimit(
+				rawConfig.perRoleItemsPerMinute?.new,
+				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleItemsPerMinute.new,
+				1,
+				5000
+			),
+			trusted: normalizeCountLimit(
+				rawConfig.perRoleItemsPerMinute?.trusted,
+				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleItemsPerMinute.trusted,
+				1,
+				5000
+			),
+			moderator: normalizeCountLimit(
+				rawConfig.perRoleItemsPerMinute?.moderator,
+				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleItemsPerMinute.moderator,
+				1,
+				5000
+			),
+			admin: normalizeCountLimit(
+				rawConfig.perRoleItemsPerMinute?.admin,
+				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleItemsPerMinute.admin,
+				1,
+				5000
+			),
+			owner: normalizeCountLimit(
+				rawConfig.perRoleItemsPerMinute?.owner,
+				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleItemsPerMinute.owner,
+				1,
+				5000
+			)
+		},
+		perRoleMaxBytesPerItem: {
+			new: normalizeByteLimit(
+				rawConfig.perRoleMaxBytesPerItem?.new,
+				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleMaxBytesPerItem.new
+			),
+			trusted: normalizeByteLimit(
+				rawConfig.perRoleMaxBytesPerItem?.trusted,
+				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleMaxBytesPerItem.trusted
+			),
+			moderator: normalizeByteLimit(
+				rawConfig.perRoleMaxBytesPerItem?.moderator,
+				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleMaxBytesPerItem.moderator
+			),
+			admin: normalizeByteLimit(
+				rawConfig.perRoleMaxBytesPerItem?.admin,
+				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleMaxBytesPerItem.admin
+			),
+			owner: normalizeByteLimit(
+				rawConfig.perRoleMaxBytesPerItem?.owner,
+				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleMaxBytesPerItem.owner
+			)
+		},
+		perScopeItemsPerMinute: normalizeCountLimit(
+			rawConfig.perScopeItemsPerMinute,
+			DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perScopeItemsPerMinute,
+			1,
+			20000
+		)
+	};
+}
+
 async function readJsonBody(req: any): Promise<any> {
 	let body = '';
 	for await (const chunk of req) {
@@ -69,6 +183,21 @@ function sanitizeOptionalSize(input: unknown): number | null {
 	return Math.floor(parsed);
 }
 
+function sanitizeFeaturedFlag(input: unknown): boolean | null {
+	if (typeof input === 'boolean') return input;
+	if (input === 'true') return true;
+	if (input === 'false') return false;
+	return null;
+}
+
+function sanitizeItemIdList(input: unknown): number[] {
+	if (!Array.isArray(input)) return [];
+	return input
+		.map((value) => Number(value))
+		.filter((value) => Number.isInteger(value) && value > 0)
+		.map((value) => Math.floor(value));
+}
+
 function normalizeLimit(input: unknown, defaultValue: number, min: number, max: number): number {
 	const parsed = Number(input);
 	if (!Number.isFinite(parsed)) return defaultValue;
@@ -96,6 +225,14 @@ function getHighestRoleForUser(userId: number): string {
 function userCanModerateAlbums(userId: number): boolean {
 	const roles = getUserRoles(userId, DEFAULT_WORKSPACE_ID);
 	return roles.includes('owner') || roles.includes('admin') || roles.includes('mod');
+}
+
+function resolveAlbumPolicyTier(userId: number): AlbumPolicyTier {
+	const roles = getUserRoles(userId, DEFAULT_WORKSPACE_ID);
+	if (roles.includes('owner')) return 'owner';
+	if (roles.includes('admin')) return 'admin';
+	if (roles.includes('mod')) return 'moderator';
+	return 'trusted';
 }
 
 function userCanAccessScope(
@@ -145,6 +282,7 @@ function toClientAlbum(album: DbAlbumWithCounts) {
 		createdBy: album.created_by,
 		createdAt: album.created_at,
 		updatedAt: album.updated_at,
+		isFeatured: album.is_featured === 1,
 		itemCount: album.item_count
 	};
 }
@@ -159,6 +297,7 @@ function toClientAlbumItem(item: DbAlbumItem) {
 		attachmentMime: item.attachment_mime ?? null,
 		messageId: item.message_id ?? null,
 		caption: item.caption ?? null,
+		sortOrder: item.sort_order,
 		uploadedBy: item.uploaded_by,
 		uploadedAt: item.uploaded_at
 	};
@@ -272,7 +411,13 @@ export async function handleListAlbumItems(req: any, res: any, url: URL, userId:
 	}
 }
 
-export async function handleAddAlbumItem(req: any, res: any, userId: number, rawAlbumId: string): Promise<void> {
+export async function handleAddAlbumItem(
+	req: any,
+	res: any,
+	userId: number,
+	rawAlbumId: string,
+	limitConfig?: AlbumUploadLimitConfig | null
+): Promise<void> {
 	try {
 		const albumId = parseAlbumId(rawAlbumId);
 		if (!albumId) {
@@ -313,7 +458,64 @@ export async function handleAddAlbumItem(req: any, res: any, userId: number, raw
 			return;
 		}
 
+		const policy = coerceAlbumUploadLimitConfig(limitConfig);
+		const roleTier = resolveAlbumPolicyTier(userId);
+		const maxBytesForRole = policy.perRoleMaxBytesPerItem[roleTier];
+		if (maxBytesForRole !== null && attachmentSize !== null && attachmentSize > maxBytesForRole) {
+			sendJson(res, 413, {
+				error: `Album item is too large for your role (max ${maxBytesForRole} bytes per item).`,
+				code: 'ALBUM_UPLOAD_SIZE_LIMIT',
+				retryAfterSeconds: 0,
+				details: {
+					roleTier,
+					maxBytes: maxBytesForRole,
+					receivedBytes: attachmentSize
+				}
+			});
+			return;
+		}
+
 		const now = Date.now();
+		const windowStart = now - ALBUM_UPLOAD_RATE_WINDOW_MS;
+		const userRateLimit = policy.perRoleItemsPerMinute[roleTier];
+		const userRecentCount = albumRepository.countItemsByUploaderInScopeSince(
+			album.scope_type,
+			album.scope_id,
+			userId,
+			windowStart
+		);
+		if (userRecentCount >= userRateLimit) {
+			sendJson(res, 429, {
+				error: `Album upload rate limit reached (${userRateLimit} items/min for your role).`,
+				code: 'ALBUM_UPLOAD_RATE_LIMIT_USER',
+				retryAfterSeconds: Math.ceil(ALBUM_UPLOAD_RATE_WINDOW_MS / 1000),
+				details: {
+					roleTier,
+					limit: userRateLimit,
+					current: userRecentCount
+				}
+			});
+			return;
+		}
+
+		const scopeRecentCount = albumRepository.countItemsInScopeSince(
+			album.scope_type,
+			album.scope_id,
+			windowStart
+		);
+		if (scopeRecentCount >= policy.perScopeItemsPerMinute) {
+			sendJson(res, 429, {
+				error: `Album scope is temporarily saturated (${policy.perScopeItemsPerMinute} items/min).`,
+				code: 'ALBUM_UPLOAD_RATE_LIMIT_SCOPE',
+				retryAfterSeconds: Math.ceil(ALBUM_UPLOAD_RATE_WINDOW_MS / 1000),
+				details: {
+					limit: policy.perScopeItemsPerMinute,
+					current: scopeRecentCount
+				}
+			});
+			return;
+		}
+
 		const item = albumRepository.createItem({
 			album_id: albumId,
 			attachment_url: attachmentUrl,
@@ -331,6 +533,143 @@ export async function handleAddAlbumItem(req: any, res: any, userId: number, raw
 	} catch (error) {
 		console.error('[Albums] Failed to add album item:', error);
 		sendJson(res, 400, { error: 'Invalid album item payload' });
+	}
+}
+
+export async function handleSetAlbumFeatured(
+	req: any,
+	res: any,
+	userId: number,
+	rawAlbumId: string
+): Promise<void> {
+	try {
+		const albumId = parseAlbumId(rawAlbumId);
+		if (!albumId) {
+			sendJson(res, 400, { error: 'Invalid album id' });
+			return;
+		}
+
+		const album = albumRepository.findById(albumId);
+		if (!album) {
+			sendJson(res, 404, { error: 'Album not found' });
+			return;
+		}
+
+		const access = userCanAccessScope(userId, album.scope_type, album.scope_id);
+		if (!access.allowed) {
+			sendJson(res, access.status, { error: access.error });
+			return;
+		}
+
+		const canModerate = userCanModerateAlbums(userId);
+		const isAlbumOwner = album.created_by === userId;
+		if (!isAlbumOwner && !canModerate) {
+			sendJson(res, 403, { error: 'Only album owner or moderators can change featured album state' });
+			return;
+		}
+
+		const body = await readJsonBody(req);
+		const featured = sanitizeFeaturedFlag(body?.featured);
+		if (featured === null) {
+			sendJson(res, 400, { error: 'featured must be a boolean' });
+			return;
+		}
+
+		const changes = albumRepository.setFeatured(albumId, featured, Date.now());
+		if (changes === 0) {
+			sendJson(res, 404, { error: 'Album not found or unavailable' });
+			return;
+		}
+
+		const hydrated = albumRepository.findById(albumId);
+		if (!hydrated) {
+			sendJson(res, 500, { error: 'Featured state updated but album could not be loaded' });
+			return;
+		}
+
+		sendJson(res, 200, { album: toClientAlbum(hydrated) });
+	} catch (error) {
+		console.error('[Albums] Failed to update featured album state:', error);
+		sendJson(res, 400, { error: 'Invalid featured album payload' });
+	}
+}
+
+export async function handleReorderAlbumItems(
+	req: any,
+	res: any,
+	userId: number,
+	rawAlbumId: string
+): Promise<void> {
+	try {
+		const albumId = parseAlbumId(rawAlbumId);
+		if (!albumId) {
+			sendJson(res, 400, { error: 'Invalid album id' });
+			return;
+		}
+
+		const album = albumRepository.findById(albumId);
+		if (!album) {
+			sendJson(res, 404, { error: 'Album not found' });
+			return;
+		}
+
+		const access = userCanAccessScope(userId, album.scope_type, album.scope_id);
+		if (!access.allowed) {
+			sendJson(res, access.status, { error: access.error });
+			return;
+		}
+
+		const canModerate = userCanModerateAlbums(userId);
+		const isAlbumOwner = album.created_by === userId;
+		if (!isAlbumOwner && !canModerate) {
+			sendJson(res, 403, { error: 'Only album owner or moderators can reorder album items' });
+			return;
+		}
+
+		const body = await readJsonBody(req);
+		const itemIds = sanitizeItemIdList(body?.itemIds);
+		if (itemIds.length === 0) {
+			sendJson(res, 400, { error: 'itemIds must be a non-empty array of item ids' });
+			return;
+		}
+		if (itemIds.length > 1000) {
+			sendJson(res, 400, { error: 'itemIds exceeds maximum allowed size (1000)' });
+			return;
+		}
+
+		const seen = new Set<number>();
+		for (const itemId of itemIds) {
+			if (seen.has(itemId)) {
+				sendJson(res, 400, { error: 'itemIds must not contain duplicates' });
+				return;
+			}
+			seen.add(itemId);
+		}
+
+		const existingItems = albumRepository.listItems(albumId, 1000);
+		if (existingItems.length !== itemIds.length) {
+			sendJson(res, 400, { error: 'itemIds must include every item in the album exactly once' });
+			return;
+		}
+		const existingIds = new Set(existingItems.map((item) => item.id));
+		for (const itemId of itemIds) {
+			if (!existingIds.has(itemId)) {
+				sendJson(res, 400, { error: 'itemIds must only include items from this album' });
+				return;
+			}
+		}
+
+		const changes = albumRepository.reorderItems(albumId, itemIds);
+		if (changes === 0) {
+			sendJson(res, 400, { error: 'Failed to reorder album items' });
+			return;
+		}
+		albumRepository.setUpdatedAt(albumId, Date.now());
+
+		sendJson(res, 200, { items: albumRepository.listItems(albumId, 1000).map(toClientAlbumItem) });
+	} catch (error) {
+		console.error('[Albums] Failed to reorder album items:', error);
+		sendJson(res, 400, { error: 'Invalid album reorder payload' });
 	}
 }
 

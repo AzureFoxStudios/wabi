@@ -1,7 +1,15 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 
 // Token configuration
-const UPLOAD_TOKEN_SECRET = process.env.UPLOAD_TOKEN_SECRET || process.env.JWT_SECRET || process.env.SESSION_SECRET || 'wabi-upload-secret-change-me';
+const UPLOAD_TOKEN_SECRET = (
+  process.env.UPLOAD_TOKEN_SECRET
+  || process.env.JWT_SECRET
+  || process.env.SESSION_SECRET
+  || ''
+).trim();
+if (!UPLOAD_TOKEN_SECRET) {
+  throw new Error('UPLOAD_TOKEN_SECRET (or JWT_SECRET/SESSION_SECRET) must be configured');
+}
 const UPLOAD_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 /**
@@ -88,5 +96,5 @@ export function getUploadTokenTtlMs(): number {
  */
 export function getUploadTokenSecretPreview(): string {
   if (!UPLOAD_TOKEN_SECRET) return '(not set)';
-  return UPLOAD_TOKEN_SECRET.slice(0, 8) + '...';
+  return '(set)';
 }

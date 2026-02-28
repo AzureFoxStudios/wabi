@@ -2,7 +2,8 @@
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import QRCode from 'qrcode';
-	import { register, login, upgradeToRegistered } from '$lib/api';
+	import { register, login, upgradeToRegistered, getLaunchPageConfig, type LaunchPageConfig } from '$lib/api';
+	import { clearAuthSession, setAuthToken } from '$lib/authSession';
 	import { initE2E } from '$lib/e2eManager';
 	import { _, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
 	import { getConfiguredServerUrl, getServerUrl, resolveServerUrl, setConfiguredServerUrl } from '$lib/serverUrl';
@@ -27,7 +28,15 @@
 	let showQR = false;
 	let customRoom = '';
 	let selectedLocale = 'en';
+	let launchPageConfig: LaunchPageConfig | null = null;
 	$: selectedLocale = $currentLocale || 'en';
+	$: activeLaunchPageConfig = launchPageConfig?.enabled ? launchPageConfig : null;
+	$: launchContainerStyle = activeLaunchPageConfig
+		? `--launch-bg-top: ${activeLaunchPageConfig.palette.backgroundTop}; --launch-bg-bottom: ${activeLaunchPageConfig.palette.backgroundBottom}; --launch-accent: ${activeLaunchPageConfig.palette.accent}; --launch-text: ${activeLaunchPageConfig.palette.text};`
+		: '';
+	$: launchCardStyle = activeLaunchPageConfig
+		? `--launch-card-bg: ${activeLaunchPageConfig.palette.cardBackground};`
+		: '';
 
 	const t = (key: string): string => get(_)(key) as string;
 
@@ -67,7 +76,7 @@
 	// Guest login
 	function handleGuestLogin() {
 		if (username.trim()) {
-			localStorage.removeItem('authToken');
+			clearAuthSession();
 			dispatch('login', { username: username.trim(), authMethod: 'guest' });
 		}
 	}
@@ -99,7 +108,7 @@
 
 		try {
 			const result = await register(username, password, cleanHandle);
-			localStorage.setItem('authToken', result.token);
+			setAuthToken(result.token);
 			if (result.user.id) {
 				localStorage.setItem('dbUserId', String(result.user.id));
 				initE2E(result.user.id, result.token, true);
@@ -125,7 +134,7 @@
 
 		try {
 			const result = await login(username, password);
-			localStorage.setItem('authToken', result.token);
+			setAuthToken(result.token);
 			if (result.user.id) {
 				localStorage.setItem('dbUserId', String(result.user.id));
 				initE2E(result.user.id, result.token, false);
@@ -156,6 +165,14 @@
 	function focusOnMount(node: HTMLInputElement) { node.focus(); return {}; }
 
 	onMount(() => {
+		void getLaunchPageConfig()
+			.then((config) => {
+				launchPageConfig = config;
+			})
+			.catch((error) => {
+				console.warn('[Login] Failed to load launch page config:', error);
+			});
+
 		const urlParams = new URLSearchParams(window.location.search);
 		const room = urlParams.get('room');
 		if (room) customRoom = room;
@@ -172,34 +189,67 @@
 	});
 </script>
 
-<div class="login-container">
-	<div class="login-box">
-		<img src="/wabi-logo.webp" alt="Wabi" class="logo" />
-
-		{#if showConnectionPrompt}
-			<div class="connection-box">
-				<h3>Connect to Wabi Domain</h3>
-				<input
-					type="text"
-					bind:value={serverDomain}
-					placeholder="wabi.chat or https://staging.wabi.chat"
-					use:focusOnMount
-					disabled={loading}
-				/>
-				<label class="remember-row">
-					<input type="checkbox" bind:checked={rememberServer} />
-					<span>Remember this domain on this device</span>
-				</label>
-				{#if connectionError}
-					<div class="error-message">{connectionError}</div>
+<div class="login-container" style={launchContainerStyle}>
+	<div class="login-shell" class:has-launch={!!activeLaunchPageConfig}>
+		{#if activeLaunchPageConfig}
+			<section class="launch-panel">
+				{#if activeLaunchPageConfig.heroImageUrl}
+					<img class="launch-hero-image" src={activeLaunchPageConfig.heroImageUrl} alt={activeLaunchPageConfig.brandName} />
 				{/if}
-				<button type="button" class="join-btn" on:click={applyServerDomain}>Continue</button>
-			</div>
-		{:else}
-			<div class="server-target">
-				<span>Server: {serverUrl}</span>
-				<button type="button" class="server-change" on:click={() => (showConnectionPrompt = true)}>Change</button>
-			</div>
+				<div class="launch-brand">{activeLaunchPageConfig.brandName}</div>
+				<h1>{activeLaunchPageConfig.heroTitle || activeLaunchPageConfig.headline}</h1>
+				{#if activeLaunchPageConfig.heroBody || activeLaunchPageConfig.subheadline}
+					<p>{activeLaunchPageConfig.heroBody || activeLaunchPageConfig.subheadline}</p>
+				{/if}
+				{#if activeLaunchPageConfig.heroPrimaryCtaLabel && activeLaunchPageConfig.heroPrimaryCtaUrl}
+					<a class="launch-primary-cta" href={activeLaunchPageConfig.heroPrimaryCtaUrl} target="_blank" rel="noreferrer">
+						{activeLaunchPageConfig.heroPrimaryCtaLabel}
+					</a>
+				{/if}
+				{#if activeLaunchPageConfig.highlights.length > 0}
+					<ul class="launch-highlights">
+						{#each activeLaunchPageConfig.highlights as highlight (highlight.title)}
+							<li>
+								<strong>{highlight.title}</strong>
+								<span>{highlight.description}</span>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</section>
+		{/if}
+
+		<div class="login-box" style={launchCardStyle}>
+			<img src={activeLaunchPageConfig?.logoUrl || '/wabi-logo.webp'} alt={activeLaunchPageConfig?.brandName || 'Wabi'} class="logo" />
+			{#if activeLaunchPageConfig}
+				<h2 class="launch-headline">{activeLaunchPageConfig.headline}</h2>
+				<p class="launch-subheadline">{activeLaunchPageConfig.subheadline}</p>
+			{/if}
+
+			{#if showConnectionPrompt}
+				<div class="connection-box">
+					<h3>Connect to Wabi Domain</h3>
+					<input
+						type="text"
+						bind:value={serverDomain}
+						placeholder="wabi.chat or https://staging.wabi.chat"
+						use:focusOnMount
+						disabled={loading}
+					/>
+					<label class="remember-row">
+						<input type="checkbox" bind:checked={rememberServer} />
+						<span>Remember this domain on this device</span>
+					</label>
+					{#if connectionError}
+						<div class="error-message">{connectionError}</div>
+					{/if}
+					<button type="button" class="join-btn" on:click={applyServerDomain}>Continue</button>
+				</div>
+			{:else}
+				<div class="server-target">
+					<span>Server: {serverUrl}</span>
+					<button type="button" class="server-change" on:click={() => (showConnectionPrompt = true)}>Change</button>
+				</div>
 
 			<!-- Tab Navigation -->
 			<div class="tabs">
@@ -340,7 +390,11 @@
 					</button>
 				</form>
 			{/if}
-		{/if}
+			{/if}
+			{#if activeLaunchPageConfig?.footerNote}
+				<p class="launch-footer-note">{activeLaunchPageConfig.footerNote}</p>
+			{/if}
+		</div>
 	</div>
 
 	<!-- QR MODAL -->
@@ -387,17 +441,114 @@
 
 <style>
 	.login-container {
+		--launch-bg-top: var(--dark-bg-primary);
+		--launch-bg-bottom: var(--dark-bg-secondary);
+		--launch-accent: var(--accent);
+		--launch-text: var(--text-primary);
+		--launch-card-bg: rgba(20, 20, 30, 0.25);
 		min-height: 100dvh;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		overflow-y: auto;
-		background: linear-gradient(135deg, var(--dark-bg-primary) 0%, var(--dark-bg-secondary) 100%);
+		background: linear-gradient(135deg, var(--launch-bg-top) 0%, var(--launch-bg-bottom) 100%);
 		padding: 1rem;
 	}
 
+	.login-shell {
+		width: min(1100px, 100%);
+		display: block;
+	}
+
+	.login-shell.has-launch {
+		display: grid;
+		grid-template-columns: minmax(320px, 1fr) minmax(360px, 420px);
+		gap: 1.25rem;
+		align-items: stretch;
+	}
+
+	.launch-panel {
+		background: linear-gradient(180deg, rgba(5, 8, 18, 0.7) 0%, rgba(5, 8, 18, 0.4) 100%);
+		backdrop-filter: blur(14px);
+		-webkit-backdrop-filter: blur(14px);
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		border-radius: 16px;
+		padding: 2rem;
+		color: var(--launch-text);
+		display: flex;
+		flex-direction: column;
+		gap: 0.9rem;
+	}
+
+	.launch-hero-image {
+		width: 100%;
+		max-height: 220px;
+		object-fit: cover;
+		border-radius: 12px;
+		border: 1px solid rgba(255, 255, 255, 0.15);
+	}
+
+	.launch-brand {
+		font-size: 0.82rem;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: rgba(255, 255, 255, 0.78);
+		font-weight: 700;
+	}
+
+	.launch-panel h1 {
+		margin: 0;
+		font-size: clamp(1.5rem, 2.3vw, 2.2rem);
+		line-height: 1.2;
+	}
+
+	.launch-panel p {
+		margin: 0;
+		color: rgba(255, 255, 255, 0.84);
+		line-height: 1.55;
+	}
+
+	.launch-primary-cta {
+		align-self: flex-start;
+		text-decoration: none;
+		color: #ffffff;
+		background: var(--launch-accent);
+		padding: 0.7rem 1rem;
+		border-radius: 10px;
+		font-weight: 700;
+		transition: transform 0.2s ease;
+	}
+
+	.launch-primary-cta:hover {
+		transform: translateY(-1px);
+	}
+
+	.launch-highlights {
+		list-style: none;
+		padding: 0;
+		margin: 0.25rem 0 0 0;
+		display: grid;
+		gap: 0.65rem;
+	}
+
+	.launch-highlights li {
+		display: grid;
+		gap: 0.2rem;
+		padding-left: 0.9rem;
+		border-left: 2px solid rgba(255, 255, 255, 0.26);
+	}
+
+	.launch-highlights strong {
+		font-size: 0.94rem;
+	}
+
+	.launch-highlights span {
+		font-size: 0.84rem;
+		color: rgba(255, 255, 255, 0.75);
+	}
+
 	.login-box {
-		background: rgba(20, 20, 30, 0.25);
+		background: var(--launch-card-bg);
 		backdrop-filter: blur(16px);
 		-webkit-backdrop-filter: blur(16px);
 		padding: 2.5rem;
@@ -407,6 +558,25 @@
 		text-align: center;
 		border: 1px solid rgba(255, 255, 255, 0.1);
 		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+	}
+
+	.launch-headline {
+		margin: 0 0 0.35rem 0;
+		color: var(--launch-text);
+		font-size: 1.12rem;
+		line-height: 1.3;
+	}
+
+	.launch-subheadline {
+		margin: 0 0 1rem 0;
+		color: var(--text-secondary);
+		font-size: 0.92rem;
+	}
+
+	.launch-footer-note {
+		margin: 0.6rem 0 0;
+		font-size: 0.8rem;
+		color: var(--text-secondary);
 	}
 
 	.logo {
@@ -449,12 +619,12 @@
 	}
 
 	.tab-btn:hover {
-		color: var(--accent);
+		color: var(--launch-accent, var(--accent));
 	}
 
 	.tab-btn.active {
-		color: var(--accent);
-		border-bottom-color: var(--accent);
+		color: var(--launch-accent, var(--accent));
+		border-bottom-color: var(--launch-accent, var(--accent));
 	}
 
 	.locale-row {
@@ -552,7 +722,7 @@
 		padding: 1rem;
 		font-size: 1.2rem;
 		font-weight: 700;
-		background: var(--accent);
+		background: var(--launch-accent, var(--accent));
 		color: white;
 		border: none;
 		border-radius: 12px;
@@ -584,8 +754,8 @@
 		width: 100%;
 	}
 	.qr-btn:hover {
-		border-color: var(--accent);
-		color: var(--accent);
+		border-color: var(--launch-accent, var(--accent));
+		color: var(--launch-accent, var(--accent));
 		background: rgba(88, 101, 242, 0.1);
 	}
 
@@ -604,8 +774,8 @@
 		text-decoration: none;
 	}
 	.hub-btn:hover {
-		border-color: var(--accent);
-		color: var(--accent);
+		border-color: var(--launch-accent, var(--accent));
+		color: var(--launch-accent, var(--accent));
 		background: rgba(88, 101, 242, 0.1);
 	}
 
@@ -671,7 +841,7 @@
 
 	.qr-modal h2 {
 		margin: 0 0 1.5rem 0;
-		color: var(--accent);
+		color: var(--launch-accent, var(--accent));
 		font-size: 1.5rem;
 	}
 
@@ -706,7 +876,7 @@
 		font-weight: 600;
 	}
 	.qr-actions button:first-child {
-		background: var(--accent);
+		background: var(--launch-accent, var(--accent));
 		color: white;
 	}
 	.qr-actions button:last-child {
@@ -724,6 +894,15 @@
 
 	/* Mobile styles */
 	@media (max-width: 768px) {
+		.login-shell.has-launch {
+			grid-template-columns: 1fr;
+		}
+
+		.launch-panel {
+			padding: 1.2rem;
+			gap: 0.65rem;
+		}
+
 		.login-container {
 			padding: 1rem;
 		}

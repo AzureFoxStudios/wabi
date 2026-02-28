@@ -6,6 +6,7 @@
 	import { getSocket } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { _ } from '$lib/i18n';
+	import { getAuthToken } from '$lib/authSession';
 	import {
 		getAdminPolicy,
 		getAdminCompressionConfig,
@@ -250,7 +251,7 @@
 	}
 
 	async function refreshCompressionPanel() {
-		const token = localStorage.getItem('authToken');
+		const token = getAuthToken();
 		if (!token) return;
 		compressionAttempted = true;
 		compressionLoading = true;
@@ -271,7 +272,7 @@
 	}
 
 	async function resetCompressionPanelMetrics() {
-		const token = localStorage.getItem('authToken');
+		const token = getAuthToken();
 		if (!token) return;
 		compressionLoading = true;
 		compressionError = '';
@@ -285,7 +286,7 @@
 	}
 
 	async function refreshRuntimePanel() {
-		const token = localStorage.getItem('authToken');
+		const token = getAuthToken();
 		if (!token) return;
 		runtimeAttempted = true;
 		runtimeLoading = true;
@@ -306,7 +307,7 @@
 	}
 
 	async function saveRuntimeTuning() {
-		const token = localStorage.getItem('authToken');
+		const token = getAuthToken();
 		if (!token) return;
 		runtimeSaving = true;
 		runtimeSaveStatus = '';
@@ -539,7 +540,46 @@
 						<span class="k">Download Bytes</span>
 						<span class="v">{formatBytes(compressionMetrics.counters.downloadResponseBytes)} / {formatBytes(compressionMetrics.counters.downloadStoredBytes)}</span>
 					</div>
+					{#if compressionMetrics.clientVideoCompression}
+						<div class="compression-stat">
+							<span class="k">Client Attempts</span>
+							<span class="v">{compressionMetrics.clientVideoCompression.counters.attemptCount}</span>
+						</div>
+						<div class="compression-stat">
+							<span class="k">Client Success Rate</span>
+							<span class="v">{formatRatio(compressionMetrics.clientVideoCompression.counters.successRate)}</span>
+						</div>
+						<div class="compression-stat">
+							<span class="k">Client Timeouts</span>
+							<span class="v">{compressionMetrics.clientVideoCompression.counters.timeoutCount}</span>
+						</div>
+						<div class="compression-stat">
+							<span class="k">Client Output Ratio</span>
+							<span class="v">{formatRatio(compressionMetrics.clientVideoCompression.counters.outputToInputRatio)}</span>
+						</div>
+					{/if}
 				</div>
+				{#if compressionMetrics.clientVideoCompression}
+					{#if compressionMetrics.clientVideoCompression.summaryByRuntime.length > 0}
+						<div class="compression-grid">
+							{#each compressionMetrics.clientVideoCompression.summaryByRuntime as runtimeSummary (runtimeSummary.runtime)}
+								<div class="compression-stat">
+									<span class="k">Client {runtimeSummary.runtime}</span>
+									<span class="v">
+										{runtimeSummary.successCount} ok / {runtimeSummary.failureCount} fail / {runtimeSummary.cancelledCount} cancel
+									</span>
+								</div>
+							{/each}
+						</div>
+					{/if}
+					{#if compressionMetrics.clientVideoCompression.topFailureCodes.length > 0}
+						<div class="compression-failure-tags">
+							{#each compressionMetrics.clientVideoCompression.topFailureCodes as item (item.failureCode)}
+								<span class="compression-failure-tag">{item.failureCode}: {item.count}</span>
+							{/each}
+						</div>
+					{/if}
+				{/if}
 			{:else}
 				<div class="admin-empty">No compression metrics yet.</div>
 			{/if}
@@ -714,6 +754,15 @@
 	.compression-stat { display: flex; flex-direction: column; gap: 0.15rem; padding: 0.4rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-tertiary); }
 	.compression-stat .k { font-size: 0.64rem; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.03em; }
 	.compression-stat .v { font-size: 0.78rem; color: var(--text-primary); font-weight: 600; }
+	.compression-failure-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+	.compression-failure-tag {
+		font-size: 0.66rem;
+		color: var(--text-secondary);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		padding: 0.12rem 0.4rem;
+		background: var(--bg-tertiary);
+	}
 	.runtime-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.45rem; }
 	.runtime-form-grid label { display: flex; flex-direction: column; gap: 0.28rem; font-size: 0.72rem; color: var(--text-secondary); }
 	.runtime-form-grid input[type='number'] { height: 28px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); border-radius: 7px; padding: 0 0.45rem; font-size: 0.76rem; }

@@ -2,6 +2,7 @@
 	import { users, currentUser, kickGroupMember, addGroupMember, leaveGroup, updateGroupAvatar } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { getServerUrl } from '$lib/serverUrl';
+	import { getAuthToken } from '$lib/authSession';
 	import GroupAvatar from './GroupAvatar.svelte';
 	import type { Channel, User } from '$lib/socket';
 
@@ -81,11 +82,12 @@
 			formData.append('avatar', file);
 			formData.append('channelId', channel.id);
 
-			const token = localStorage.getItem('authToken');
+			const token = getAuthToken();
 			const serverUrl = getServerUrl();
 			const res = await fetch(`${serverUrl}/api/upload-group-avatar`, {
 				method: 'POST',
-				headers: { 'Authorization': `Bearer ${token}` },
+				headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
+				credentials: 'include',
 				body: formData
 			});
 

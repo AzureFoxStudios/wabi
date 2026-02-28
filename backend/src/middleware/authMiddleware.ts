@@ -1,6 +1,7 @@
 import { IncomingMessage, ServerResponse } from 'http';
 import { verifyToken } from '../auth/jwt.js';
 import { sessionRepository } from '../db/repositories/sessionRepository.js';
+import { getAuthTokenFromRequest } from '../auth/requestAuth.js';
 
 /**
  * HTTP Authentication Middleware
@@ -14,15 +15,12 @@ export function authMiddleware(
 	next: () => void
 ): void {
 	try {
-		const authHeader = req.headers.authorization;
-
-		if (!authHeader || !authHeader.startsWith('Bearer ')) {
+		const token = getAuthTokenFromRequest(req);
+		if (!token) {
 			// No auth token provided - caller must handle 401
 			next();
 			return;
 		}
-
-		const token = authHeader.slice(7); // Remove 'Bearer ' prefix
 
 		try {
 			// Verify JWT and extract payload

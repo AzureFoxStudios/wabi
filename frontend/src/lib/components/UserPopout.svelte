@@ -1,12 +1,39 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { currentUser, socket, type User, channels, createDM, getDMChannelIdForUser, dmPanelSignal } from '$lib/socket';
+	import {
+		channelMessages,
+		channels,
+		createDM,
+		currentChannel,
+		currentUser,
+		dmPanelSignal,
+		getDMChannelIdForUser,
+		roleDefinitions,
+		socket,
+		type Message,
+		type User
+	} from '$lib/socket';
 	import { startCall } from '$lib/calling';
 	import { startScreenShare } from '$lib/calling';
 	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
 	import { onMount, onDestroy } from 'svelte';
 	import { _ } from '$lib/i18n';
+	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
+	import {
+		MAX_USER_NOTE_LENGTH,
+		clearUserNote as clearStoredUserNote,
+		getUserNote,
+		setUserNote
+	} from '$lib/userNotes';
+	import {
+		MAX_LOCAL_NICKNAME_LENGTH,
+		clearLocalNicknameForUser,
+		getLocalNicknameForUser,
+		getUserIdentityKey,
+		localNicknamesStore,
+		setLocalNicknameForUser
+	} from '$lib/localNicknames';
 
 	export let user: User | null = null;
 	export let isOpen = false;
@@ -18,9 +45,115 @@
 	let popoutElement: HTMLElement;
 	let position = { top: 0, left: 0 };
 	let userNote = '';
+	let userNoteDraft = '';
+	let userNoteStatus = '';
+	let lastLoadedUserId = '';
+	type ConnectionRow = { label: string; value: string; url?: string };
+	const fallbackRoleLabels: Record<string, string> = {
+		owner: 'Owner',
+		admin: 'Admin',
+		mod: 'Moderator',
+		member: 'Member',
+		guest: 'Guest'
+	};
 
-	$: if (user && browser) {
+	$: roleLabelMap = (() => {
+		const labels: Record<string, string> = { ...fallbackRoleLabels };
+		for (const role of $roleDefinitions) {
+			labels[role.roleName] = role.displayName;
+		}
+		return labels;
+	})();
+
+	function messageBelongsToUser(message: Message, candidate: User): boolean {
+		if (!message || !candidate) return false;
+		if (message.userId && candidate.id && message.userId === candidate.id) return true;
+		if (
+			message.userId &&
+			candidate.dbUserId &&
+			message.userId === `user-${candidate.dbUserId}`
+		) {
+			return true;
+		}
+		return message.user.trim().toLowerCase() === candidate.username.trim().toLowerCase();
+	}
+
+	function formatLastMessageTimestamp(timestamp: number | null): string {
+		if (!timestamp) return get(_)('user.popout.no_recent_messages');
+		return new Date(timestamp).toLocaleString();
+	}
+
+	function extractBioLinks(rawBio?: string): ConnectionRow[] {
+		if (!rawBio) return [];
+		const matches = rawBio.match(/https?:\/\/[^\s)]+/gi) || [];
+		const deduped: string[] = [];
+		for (const match of matches) {
+			if (!deduped.includes(match)) deduped.push(match);
+		}
+		return deduped.slice(0, 4).map((link) => {
+			let host = link;
+			try {
+				host = new URL(link).hostname.replace(/^www\./, '');
+			} catch {
+				// no-op
+			}
+			return {
+				label: host,
+				value: link,
+				url: link
+			};
+		});
+	}
+
+	function buildConnectionsRows(candidate: User): ConnectionRow[] {
+		const rows: ConnectionRow[] = [];
+		if (candidate.handle) {
+			rows.push({
+				label: 'Wabi',
+				value: `@${candidate.handle}`
+			});
+		}
+		for (const row of extractBioLinks(candidate.bio)) {
+			rows.push(row);
+		}
+		return rows;
+	}
+
+	$: activeChannelMessages = $channelMessages[$currentChannel] || [];
+	$: lastMessageTimestamp =
+		user && $displayEnhancementSettingsStore.lastMessageDateEnabled
+			? (() => {
+				for (let i = activeChannelMessages.length - 1; i >= 0; i -= 1) {
+					const candidateMessage = activeChannelMessages[i];
+					if (messageBelongsToUser(candidateMessage, user)) {
+						return candidateMessage.timestamp;
+					}
+				}
+				return null;
+			})()
+			: null;
+	$: connectionRows =
+		user && $displayEnhancementSettingsStore.showConnectionsEnabled
+			? buildConnectionsRows(user)
+			: [];
+	$: localNickname = (() => {
+		if (!user || !$displayEnhancementSettingsStore.localNicknamesEnabled) return '';
+		const identityKey = getUserIdentityKey(user);
+		return identityKey ? $localNicknamesStore[identityKey] || '' : '';
+	})();
+	$: popoutDisplayName = localNickname || user?.username || '';
+	$: popoutTopRoleName = getUserTopRoleName(user ?? undefined);
+
+	$: if (user?.id && browser && user.id !== lastLoadedUserId) {
 		loadUserNote();
+		lastLoadedUserId = user.id;
+	}
+
+	$: if (!user?.id) {
+		lastLoadedUserId = '';
+		userNote = '';
+		userNoteDraft = '';
+		userNoteStatus = '';
 	}
 
 	$: if (isOpen && anchorElement) {
@@ -29,8 +162,44 @@
 
 	function loadUserNote() {
 		if (!browser || !user) return;
-		const notes = JSON.parse(localStorage.getItem('userNotes') || '{}');
-		userNote = notes[user.id] || '';
+		const note = getUserNote(user.id);
+		userNote = note;
+		userNoteDraft = note;
+		userNoteStatus = '';
+	}
+
+	function saveUserNoteDraft() {
+		if (!browser || !user) return;
+		const saved = setUserNote(user.id, userNoteDraft);
+		userNote = saved;
+		userNoteDraft = saved;
+		userNoteStatus = saved
+			? 'Note saved locally on this device.'
+			: 'Note cleared.';
+	}
+
+	function clearUserNoteDraft() {
+		if (!browser || !user) return;
+		clearStoredUserNote(user.id);
+		userNote = '';
+		userNoteDraft = '';
+		userNoteStatus = 'Note cleared.';
+	}
+
+	function promptSetLocalNickname(): void {
+		if (!browser || !user || !$displayEnhancementSettingsStore.localNicknamesEnabled) return;
+		const currentNickname = getLocalNicknameForUser(user);
+		const draft = window.prompt(
+			`Set local nickname (max ${MAX_LOCAL_NICKNAME_LENGTH} characters)`,
+			currentNickname || user.username
+		);
+		if (draft === null) return;
+		setLocalNicknameForUser(user, draft);
+	}
+
+	function clearLocalNickname(): void {
+		if (!browser || !user) return;
+		clearLocalNicknameForUser(user);
 	}
 
 	function calculatePosition() {
@@ -162,6 +331,27 @@
 		}
 	}
 
+	function getUserTopRoleName(candidate: User): string {
+		if (candidate.highestRole) return candidate.highestRole;
+		return candidate.dbUserId ? 'member' : 'guest';
+	}
+
+	function getUserTopRoleLabel(candidate: User): string {
+		const roleName = getUserTopRoleName(candidate);
+		return roleLabelMap[roleName] || roleName;
+	}
+
+	function roleToneClass(roleName: string): 'owner' | 'admin' | 'mod' | 'default' {
+		if (roleName === 'owner') return 'owner';
+		if (roleName === 'admin') return 'admin';
+		if (roleName === 'mod') return 'mod';
+		return 'default';
+	}
+
+	function isStaffRole(roleName: string): boolean {
+		return roleName === 'owner' || roleName === 'admin' || roleName === 'mod';
+	}
+
 	onMount(() => {
 		if (browser) {
 			document.addEventListener('click', handleClickOutside);
@@ -193,10 +383,10 @@
 		<div class="avatar-section">
 			<div class="avatar-ring">
 				{#if user.profilePicture}
-					<img src={user.profilePicture} alt={user.username} class="popout-avatar" />
+					<img src={user.profilePicture} alt={popoutDisplayName} class="popout-avatar" />
 				{:else}
 					<div class="popout-avatar-placeholder" style="background-color: {user.color}">
-						{user.username.charAt(0).toUpperCase()}
+						{popoutDisplayName.charAt(0).toUpperCase()}
 					</div>
 				{/if}
 				<div class="status-badge" style="background-color: {getStatusColor(user.status)}"></div>
@@ -206,9 +396,24 @@
 		<!-- User Info Card -->
 		<div class="popout-body">
 			<div class="username-section">
-				<h3 class="display-name">{user.username}</h3>
+				<h3 class="display-name">{popoutDisplayName}</h3>
+				{#if localNickname}
+					<span class="local-identity-note">@{user.username}</span>
+				{/if}
 				<span class="username-tag">#{user.id.slice(-4)}</span>
 			</div>
+			{#if $displayEnhancementSettingsStore.topRoleEverywhereEnabled || ($displayEnhancementSettingsStore.staffTagEnabled && isStaffRole(popoutTopRoleName))}
+				<div class="popout-role-tags">
+					{#if $displayEnhancementSettingsStore.topRoleEverywhereEnabled}
+						<span class={`popout-role-badge tone-${roleToneClass(popoutTopRoleName)}`}>
+							{getUserTopRoleLabel(user)}
+						</span>
+					{/if}
+					{#if $displayEnhancementSettingsStore.staffTagEnabled && isStaffRole(popoutTopRoleName)}
+						<span class="popout-staff-tag">Staff</span>
+					{/if}
+				</div>
+			{/if}
 
 			<div class="status-section">
 				<span class="status-indicator" style="background-color: {getStatusColor(user.status)}"></span>
@@ -226,10 +431,38 @@
 			{/if}
 
 			<!-- Personal Note (for other users) -->
-			{#if !isOwnProfile && userNote}
+			{#if !isOwnProfile && $displayEnhancementSettingsStore.userNotesEnabled}
 				<div class="section">
 					<h4 class="section-title">{$_('user.popout.note')}</h4>
-					<p class="section-content note-content">{userNote}</p>
+					<textarea
+						class="note-input"
+						rows="3"
+						maxlength={MAX_USER_NOTE_LENGTH}
+						bind:value={userNoteDraft}
+						placeholder="Add a private note about this user (local only)."
+					></textarea>
+					<div class="note-actions">
+						<button
+							class="note-btn primary"
+							on:click={saveUserNoteDraft}
+							disabled={userNoteDraft.trim() === userNote}
+						>
+							Save
+						</button>
+						<button
+							class="note-btn"
+							on:click={clearUserNoteDraft}
+							disabled={!userNote && !userNoteDraft.trim()}
+						>
+							Clear
+						</button>
+						<span class="note-count">{userNoteDraft.length}/{MAX_USER_NOTE_LENGTH}</span>
+					</div>
+					{#if userNoteStatus}
+						<p class="note-status">{userNoteStatus}</p>
+					{:else if userNote}
+						<p class="section-content note-content">{userNote}</p>
+					{/if}
 				</div>
 			{/if}
 
@@ -238,6 +471,42 @@
 				<h4 class="section-title">{$_('user.popout.member_since')}</h4>
 				<p class="section-content">{new Date(user.joinedAt || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
 			</div>
+
+			{#if $displayEnhancementSettingsStore.lastMessageDateEnabled}
+				<div class="section">
+					<h4 class="section-title">{$_('user.popout.last_message')}</h4>
+					<p class="section-content">{formatLastMessageTimestamp(lastMessageTimestamp)}</p>
+				</div>
+			{/if}
+
+			{#if $displayEnhancementSettingsStore.showConnectionsEnabled}
+				<div class="section">
+					<h4 class="section-title">{$_('user.popout.connections')}</h4>
+					{#if connectionRows.length === 0}
+						<p class="section-content note-content">{$_('user.popout.no_connections')}</p>
+					{:else}
+						<div class="connections-list">
+							{#each connectionRows as row (row.label + row.value)}
+								<div class="connection-row">
+									<span class="connection-label">{row.label}</span>
+									{#if row.url}
+										<a
+											class="connection-link"
+											href={row.url}
+											target="_blank"
+											rel="noopener noreferrer"
+										>
+											{row.value}
+										</a>
+									{:else}
+										<span class="connection-value">{row.value}</span>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			{/if}
 
 			<div class="divider"></div>
 
@@ -285,6 +554,16 @@
 
 			<!-- Context Menu Actions -->
 			<div class="context-actions">
+				{#if !isOwnProfile && $displayEnhancementSettingsStore.localNicknamesEnabled}
+					<button class="context-btn" on:click={promptSetLocalNickname}>
+						Set Local Nickname
+					</button>
+					{#if localNickname}
+						<button class="context-btn danger" on:click={clearLocalNickname}>
+							Clear Local Nickname
+						</button>
+					{/if}
+				{/if}
 				<button class="context-btn" on:click={copyUserId}>
 					{$_('user.popout.copy_user_id')}
 				</button>
@@ -383,6 +662,7 @@
 	.username-section {
 		display: flex;
 		align-items: baseline;
+		flex-wrap: wrap;
 		gap: 4px;
 		margin-bottom: 4px;
 	}
@@ -397,6 +677,70 @@
 	.username-tag {
 		font-size: 0.875rem;
 		color: var(--text-secondary);
+	}
+
+	.local-identity-note {
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+	}
+
+	.popout-role-tags {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		margin: 0 0 0.55rem;
+	}
+
+	.popout-role-badge {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.14rem 0.46rem;
+		border-radius: 999px;
+		font-size: 0.64rem;
+		font-weight: 700;
+		line-height: 1;
+		letter-spacing: 0.03em;
+		text-transform: uppercase;
+		border: 1px solid transparent;
+	}
+
+	.popout-role-badge.tone-owner {
+		background: color-mix(in srgb, #f0b429 22%, var(--bg-secondary));
+		border-color: color-mix(in srgb, #f0b429 58%, transparent);
+		color: #f7d98c;
+	}
+
+	.popout-role-badge.tone-admin {
+		background: color-mix(in srgb, #4f9cff 20%, var(--bg-secondary));
+		border-color: color-mix(in srgb, #4f9cff 52%, transparent);
+		color: #cde0ff;
+	}
+
+	.popout-role-badge.tone-mod {
+		background: color-mix(in srgb, #18a999 19%, var(--bg-secondary));
+		border-color: color-mix(in srgb, #18a999 48%, transparent);
+		color: #b6f0e9;
+	}
+
+	.popout-role-badge.tone-default {
+		background: color-mix(in srgb, var(--accent) 14%, var(--bg-secondary));
+		border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+		color: var(--text-secondary);
+	}
+
+	.popout-staff-tag {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.14rem 0.42rem;
+		border-radius: 999px;
+		font-size: 0.62rem;
+		font-weight: 700;
+		line-height: 1;
+		letter-spacing: 0.03em;
+		text-transform: uppercase;
+		border: 1px solid color-mix(in srgb, #ef5f5f 42%, transparent);
+		background: color-mix(in srgb, #ef5f5f 16%, var(--bg-secondary));
+		color: #ffc6c6;
 	}
 
 	.status-section {
@@ -446,6 +790,101 @@
 	.note-content {
 		font-style: italic;
 		color: var(--text-secondary);
+	}
+
+	.note-input {
+		width: 100%;
+		min-height: 64px;
+		padding: 0.45rem 0.55rem;
+		border-radius: 8px;
+		border: 1px solid var(--border-color);
+		background: var(--bg-tertiary);
+		color: var(--text-primary);
+		font-size: 0.82rem;
+		line-height: 1.35;
+		resize: vertical;
+		box-sizing: border-box;
+	}
+
+	.note-input:focus {
+		outline: none;
+		border-color: var(--accent);
+	}
+
+	.note-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin-top: 0.4rem;
+	}
+
+	.note-btn {
+		border: 1px solid var(--border-color);
+		background: var(--bg-tertiary);
+		color: var(--text-secondary);
+		border-radius: 999px;
+		padding: 0.16rem 0.5rem;
+		font-size: 0.72rem;
+		cursor: pointer;
+	}
+
+	.note-btn.primary {
+		color: var(--text-primary);
+		background: color-mix(in srgb, var(--accent) 20%, var(--bg-tertiary));
+		border-color: color-mix(in srgb, var(--accent) 50%, var(--border-color));
+	}
+
+	.note-btn:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+
+	.note-count {
+		margin-left: auto;
+		font-size: 0.7rem;
+		color: var(--text-secondary);
+	}
+
+	.note-status {
+		margin: 0.32rem 0 0;
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+	}
+
+	.connections-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.connection-row {
+		display: flex;
+		align-items: baseline;
+		gap: 0.45rem;
+		min-width: 0;
+	}
+
+	.connection-label {
+		font-size: 0.72rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+		flex-shrink: 0;
+	}
+
+	.connection-value,
+	.connection-link {
+		font-size: 0.82rem;
+		color: var(--text-primary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		min-width: 0;
+	}
+
+	.connection-link:hover {
+		color: var(--accent);
 	}
 
 	.actions {
@@ -510,6 +949,15 @@
 	.context-btn:hover {
 		background: var(--bg-tertiary);
 		color: var(--text-primary);
+	}
+
+	.context-btn.danger {
+		color: color-mix(in srgb, #ef4444 76%, var(--text-secondary));
+	}
+
+	.context-btn.danger:hover {
+		background: color-mix(in srgb, #ef4444 16%, var(--bg-tertiary));
+		color: #fca5a5;
 	}
 
 	.call-actions {

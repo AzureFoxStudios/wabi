@@ -9,6 +9,7 @@
 	import { longpress } from '$lib/actions/longpress';
 	import CreateDMModal from './CreateDMModal.svelte';
 	import { _ } from '$lib/i18n';
+	import { clearAuthSession } from '$lib/authSession';
 
 	const dispatch = createEventDispatcher();
 
@@ -140,7 +141,7 @@
 	function handleLogout() {
 		// Clear session
 		try {
-			localStorage.removeItem('sessionId');
+			clearAuthSession();
 			localStorage.removeItem('username');
 		} catch (e) {
 			console.error('Failed to clear session data:', e);

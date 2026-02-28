@@ -13,7 +13,7 @@
 # For production, you MUST change this to your server's public IP.
 external-ip=${TURN_EXTERNAL_IP}
 
-# Listen on all interfaces (required for Docker host networking)
+# Listen on all interfaces
 listening-ip=0.0.0.0
 
 # Relay IP - same as external IP for single-server deployments
@@ -25,8 +25,8 @@ listening-port=3478
 
 # The range of UDP ports that coturn will use for relaying media.
 # This range should be open in your server's firewall.
-min-port=49152
-max-port=65535
+min-port=49160
+max-port=49200
 
 # ---------------------------------------------------------------------------
 #  AUTHENTICATION & SECURITY

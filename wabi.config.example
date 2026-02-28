@@ -1,5 +1,7 @@
-# Minimal operator config for scripts/launch.sh
-# Copy to wabi.config and edit only what you need.
+# Operator-friendly config for scripts/launch.sh
+# Copy to wabi.config and edit this file only.
+# Then run: ./scripts/launch.sh
+# launch.sh will sync supported keys into .env/frontend/.env automatically.
 #
 # PROFILE:
 #   starter   -> normal mode (SQLite)
@@ -22,7 +24,8 @@ DOMAIN=localhost
 CALLS=off
 
 # Advanced media flags (off by default).
-ENABLE_RELAYS=false
+# Relay network setup is intentionally separated from core server setup.
+# For relay deployment, use relay-node/README.md and PROJECT_DOCS/RELAY_PHASE1_SERVER_RUNBOOK.md.
 ENABLE_MEDIA_GATEWAY=false
 # SFU plugin provider:
 #   none    -> disable SFU module (default)
@@ -37,6 +40,10 @@ LIVEKIT_API_SECRET=
 # Plugin system safety defaults.
 PLUGINS_ENABLED=false
 PLUGINS_ALLOW_INSTALL=false
+
+# Privacy/observability controls (safe default OFF).
+# Enables backend + frontend video-compression metrics path when true.
+VIDEO_COMPRESSION_METRICS=false
 
 # Optional.
 GIPHY_API_KEY=

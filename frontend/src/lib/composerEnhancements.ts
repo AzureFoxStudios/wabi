@@ -7,6 +7,7 @@ export interface ComposerEnhancementSettings {
 	splitLargeMessagesEnabled: boolean;
 	splitLargeMessagesChunkSize: number;
 	splitLargeMessagesInputMaxLength: number;
+	writeUpperCaseEnabled: boolean;
 }
 
 const COMPOSER_ENHANCEMENTS_KEY = 'wabi.composerEnhancements.settings';
@@ -20,7 +21,8 @@ const DEFAULT_COMPOSER_ENHANCEMENT_SETTINGS: ComposerEnhancementSettings = {
 	charCounterEnabled: true,
 	splitLargeMessagesEnabled: false,
 	splitLargeMessagesChunkSize: 2000,
-	splitLargeMessagesInputMaxLength: 20000
+	splitLargeMessagesInputMaxLength: 20000,
+	writeUpperCaseEnabled: false
 };
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
@@ -52,7 +54,8 @@ function sanitizeComposerSettings(input: Partial<ComposerEnhancementSettings> | 
 		charCounterEnabled: base.charCounterEnabled !== false,
 		splitLargeMessagesEnabled: base.splitLargeMessagesEnabled === true,
 		splitLargeMessagesChunkSize,
-		splitLargeMessagesInputMaxLength
+		splitLargeMessagesInputMaxLength,
+		writeUpperCaseEnabled: base.writeUpperCaseEnabled === true
 	};
 }
 
@@ -123,6 +126,15 @@ export function setSplitLargeMessagesChunkSize(chunkSize: number): void {
 	);
 }
 
+export function setWriteUpperCaseEnabled(enabled: boolean): void {
+	composerEnhancementSettingsStore.update((current) =>
+		sanitizeComposerSettings({
+			...current,
+			writeUpperCaseEnabled: enabled
+		})
+	);
+}
+
 export function getComposerEnhancementSettings(): ComposerEnhancementSettings {
 	return get(composerEnhancementSettingsStore);
 }
@@ -162,4 +174,13 @@ export function splitMessageForSending(input: string, chunkSize?: number): strin
 	}
 
 	return chunks;
+}
+
+export function applyWriteUpperCase(input: string, enabled?: boolean): string {
+	const settings = getComposerEnhancementSettings();
+	const shouldApply = typeof enabled === 'boolean' ? enabled : settings.writeUpperCaseEnabled;
+	if (!shouldApply) return input;
+	if (!input.trim()) return input;
+
+	return input.replace(/(^\s*[a-z])|([.!?]\s+[a-z])/g, (match) => match.toUpperCase());
 }

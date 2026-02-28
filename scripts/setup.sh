@@ -138,7 +138,7 @@ fi
 # Question 3: Voice / Video (TURN)
 # ---------------------------------------------------------------------------
 ask "Want voice and video calling?
-  ${DIM}(uses a built-in relay server for NAT traversal)${RESET}
+  ${DIM}(uses a built-in TURN service for NAT traversal)${RESET}
   [Y/n] >"
 read -r TURN_INPUT
 
@@ -170,8 +170,17 @@ generate_secret() {
   fi
 }
 
+generate_db_password() {
+  if command -v openssl &>/dev/null; then
+    openssl rand -hex 24
+  else
+    LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48
+  fi
+}
+
 JWT_SECRET=$(generate_secret)
 TURN_SECRET=$(generate_secret)
+POSTGRES_PASSWORD=$(generate_db_password)
 ok "Secrets generated"
 
 # ---------------------------------------------------------------------------
@@ -249,6 +258,7 @@ DATA_DIR=/app/data
 PLUGINS_DIR=/app/plugins
 PLUGINS_ENABLED=false
 PLUGINS_ALLOW_INSTALL=false
+WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED=false
 STATIC_DIR=/app/frontend/build
 
 # --- Deployment mode/runtime -----------------------------------------------
@@ -264,9 +274,9 @@ DB_MODE=sqlite
 POSTGRES_HOST=postgres
 POSTGRES_PORT=5432
 POSTGRES_USER=wabi
-POSTGRES_PASSWORD=change_me
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 POSTGRES_DB=wabi
-# DATABASE_URL=postgresql://wabi:change_me@postgres:5432/wabi
+# DATABASE_URL=postgresql://wabi:${POSTGRES_PASSWORD}@postgres:5432/wabi
 
 # --- OpenMoji (emoji assets, pinned version) -------------------------------
 OPENMOJI_VERSION=15.1.0
@@ -278,6 +288,7 @@ VITE_TURN_SERVER=${PUBLIC_IP}
 VITE_TURN_PORT=3478
 VITE_USE_TURNS=false
 VITE_ENABLE_GOOGLE_STUN=true
+VITE_VIDEO_COMPRESSION_CLIENT_METRICS=false
 ENVFILE
 
 ok ".env"
@@ -465,3 +476,8 @@ if ! $ENABLE_TURN; then
   echo "  or add the TURN variables to .env and start with --profile turn.${RESET}"
   echo ""
 fi
+
+echo "  ${DIM}Relay node setup is separate from core server setup:${RESET}"
+echo "  ${DIM}  ./scripts/relay-launch.sh configure${RESET}"
+echo "  ${DIM}  ./scripts/relay-launch.sh up${RESET}"
+echo ""

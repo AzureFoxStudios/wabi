@@ -7,6 +7,7 @@
 	import MainLayout from '$lib/components/MainLayout.svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import { initE2E, clearE2EState } from '$lib/e2eManager';
+	import { clearAuthSession, getAuthToken, setAuthToken } from '$lib/authSession';
 	import { initializeAccessibilitySettings } from '$lib/accessibility';
 	import { initializeAnimationPassSettings } from '$lib/animationPass';
 	import { startupMark, startupMeasure, startupScheduleReport } from '$lib/startupProfiler';
@@ -14,6 +15,7 @@
 
 	// Theme system
 	import { initializeTheme, watchThemeChanges, syncThemeToLocalStorage } from '$lib/theme/initTheme';
+	import { startTimedThemeModeScheduler } from '$lib/timedThemeMode';
 
 	// Apply layout-affecting accessibility preferences before first render to avoid CLS.
 	if (typeof window !== 'undefined') {
@@ -29,6 +31,7 @@
 	let unsubscribeThemeWatcher: (() => void) | null = null;
 	let unsubscribeLocalStorageSync: (() => void) | null = null;
 	let unsubscribeLayoutStore: (() => void) | null = null;
+	let stopTimedThemeScheduler: (() => void) | null = null;
 
 	function scheduleNonCritical(task: () => void, timeout = 1500): void {
 		if (typeof window === 'undefined') return;
@@ -80,7 +83,7 @@
 			});
 
 			const savedUsername = localStorage.getItem('username');
-			const savedToken = localStorage.getItem('authToken');
+			const savedToken = getAuthToken();
 			if (savedUsername) {
 				startupMark('page:socket:init:start');
 				initSocket(savedUsername, savedToken || undefined);
@@ -89,25 +92,23 @@
 				loggedIn = true;
 
 				// Initialize E2E in background so it doesn't block initial render and socket startup.
-				if (savedToken) {
-					const dbUserId = localStorage.getItem('dbUserId');
-					if (dbUserId) {
-						scheduleNonCritical(() => {
-							startupMark('page:e2e:init:start');
-							void initE2E(parseInt(dbUserId, 10), savedToken, false)
-								.catch((err) => {
-									console.warn('[App] E2E init failed in background; continuing without E2E for now:', err);
-								})
-								.finally(() => {
-									startupMark('page:e2e:init:end');
-									startupMeasure('page:e2e:init', 'page:e2e:init:start', 'page:e2e:init:end');
-								});
-						});
-					}
+				const dbUserId = localStorage.getItem('dbUserId');
+				if (dbUserId) {
+					scheduleNonCritical(() => {
+						startupMark('page:e2e:init:start');
+						void initE2E(parseInt(dbUserId, 10), savedToken, false)
+							.catch((err) => {
+								console.warn('[App] E2E init failed in background; continuing without E2E for now:', err);
+							})
+							.finally(() => {
+								startupMark('page:e2e:init:end');
+								startupMeasure('page:e2e:init', 'page:e2e:init:start', 'page:e2e:init:end');
+							});
+					});
 				}
 			}
 
-			const isRegistered = !!savedToken;
+			const isRegistered = !!savedToken || !!localStorage.getItem('dbUserId');
 			// Theme fetch can hit network; don't block startup path.
 			startupMark('page:theme:init:start');
 			void initializeTheme(isRegistered).finally(() => {
@@ -117,6 +118,7 @@
 			if (disposed) return;
 
 			unsubscribeThemeWatcher = watchThemeChanges();
+			stopTimedThemeScheduler = startTimedThemeModeScheduler();
 			if (!isRegistered) {
 				unsubscribeLocalStorageSync = syncThemeToLocalStorage();
 			}
@@ -137,6 +139,7 @@
 			unsubscribeThemeWatcher?.();
 			unsubscribeLocalStorageSync?.();
 			unsubscribeLayoutStore?.();
+			stopTimedThemeScheduler?.();
 		};
 	});
 	
@@ -155,8 +158,7 @@
 		localStorage.setItem('username', username);
 
 		if (token) {
-			localStorage.setItem('authToken', token);
-			localStorage.removeItem('sessionId');
+			setAuthToken(token);
 		}
 
 		initSocket(username, token);
@@ -168,8 +170,10 @@
 		// Stop old watchers/syncers and start new ones if needed
 		unsubscribeThemeWatcher?.();
 		unsubscribeLocalStorageSync?.();
+		stopTimedThemeScheduler?.();
 
 		unsubscribeThemeWatcher = watchThemeChanges();
+		stopTimedThemeScheduler = startTimedThemeModeScheduler();
 		if (!isRegistered) {
 			unsubscribeLocalStorageSync = syncThemeToLocalStorage();
 		}
@@ -181,8 +185,7 @@
 		loggedIn = false;
 		try {
 			localStorage.removeItem('username');
-			localStorage.removeItem('sessionId');
-			localStorage.removeItem('authToken');
+			clearAuthSession();
 		} catch (e) {
 			console.error('Failed to clear localStorage:', e);
 		}

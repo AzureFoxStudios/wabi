@@ -27,6 +27,7 @@ import type { FileAttachment, Message, Emoji, User, Channel } from './socket-typ
 import { emojis } from './emoji-store';
 import { getServerUrl } from './serverUrl';
 import { authStore } from './authStore';
+import { clearGuestSessionId, getAuthToken, getGuestSessionId, setGuestSessionId } from './authSession';
 import { encryptDMMessage, decryptDMMessage, isE2EAvailable } from './e2eManager';
 import { getDMPrivacyMode } from './dmPrivacyMode';
 import { mobileTabQueue } from './mobileTabQueue';
@@ -38,7 +39,7 @@ import { mobileTabQueue } from './mobileTabQueue';
 async function decryptMessagesForChannel(channelId: string, messages: Message[]): Promise<void> {
 	if (!isE2EAvailable() || !browser) return;
 
-	const token = localStorage.getItem('authToken');
+	const token = getAuthToken();
 	if (!token) return;
 
 	const channelList = get(channels);
@@ -407,13 +408,12 @@ class SocketManager {
 		let sessionId: string | null = null;
 
 		try {
-			token = providedToken || localStorage.getItem('authToken');
+			token = providedToken || getAuthToken();
 			if (!token) {
-				sessionId = localStorage.getItem('sessionId');
+				sessionId = getGuestSessionId();
 			}
 		} catch (e) {
-			// localStorage blocked (Firefox ETP, private mode, etc.)
-			console.warn('[SocketManager] localStorage unavailable:', e);
+			console.warn('[SocketManager] Failed to resolve auth credentials:', e);
 		}
 
 		return { token, sessionId };
@@ -592,7 +592,7 @@ class SocketManager {
 
 		sock.on('rejoin-failed', (data: { reason: string }) => {
 			console.log('[SocketManager] Rejoin failed:', data.reason);
-			this.safeLocalStorageRemove('sessionId');
+			clearGuestSessionId();
 			sock.emit('join', this.username);
 		});
 
@@ -612,7 +612,7 @@ class SocketManager {
 
 			// Save session ID
 			if (data.sessionId) {
-				this.safeLocalStorageSet('sessionId', data.sessionId);
+				setGuestSessionId(data.sessionId);
 			}
 
 			users.set(data.users);
@@ -1748,7 +1748,7 @@ export async function sendMessage(channelId: string, text: string, type: 'text' 
 			}
 			return;
 		}
-		const token = browser ? localStorage.getItem('authToken') : null;
+		const token = browser ? getAuthToken() : null;
 		if (!token) {
 			if (browser) {
 				alert('This DM requires encryption (sealed/private mode). Please log in again and retry.');

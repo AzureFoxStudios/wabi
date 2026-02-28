@@ -1,28 +1,8 @@
 import { IncomingMessage, ServerResponse } from 'http';
 import crypto from 'crypto';
-import { verifyToken } from '../auth/jwt.js';
-import { sessionRepository } from '../db/repositories/sessionRepository.js';
+import { getAuthenticatedUserIdFromRequest } from '../auth/requestAuth.js';
 import { webhookRepository } from '../db/repositories/webhookRepository.js';
 import { WEBHOOK_EVENTS, type WebhookEventType, deliverWebhookEventToTarget } from '../webhooks/deliveryService.js';
-
-function getAuthenticatedUserId(req: IncomingMessage): number | null {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null;
-  }
-
-  try {
-    const token = authHeader.slice(7);
-    const payload = verifyToken(token);
-    const dbSession = sessionRepository.findById(payload.sessionId);
-    if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
-      return null;
-    }
-    return payload.userId;
-  } catch {
-    return null;
-  }
-}
 
 function parseBody(req: IncomingMessage): Promise<Record<string, any>> {
   return new Promise((resolve, reject) => {
@@ -86,7 +66,7 @@ function parseAndValidateWebhookInput(body: Record<string, any>): {
 }
 
 export async function handleCreateWebhook(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const userId = getAuthenticatedUserId(req);
+  const userId = getAuthenticatedUserIdFromRequest(req);
   if (!userId) {
     writeJson(res, 401, { success: false, error: 'Unauthorized' });
     return;
@@ -126,7 +106,7 @@ export async function handleCreateWebhook(req: IncomingMessage, res: ServerRespo
 }
 
 export async function handleListWebhooks(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const userId = getAuthenticatedUserId(req);
+  const userId = getAuthenticatedUserIdFromRequest(req);
   if (!userId) {
     writeJson(res, 401, { success: false, error: 'Unauthorized' });
     return;
@@ -146,7 +126,7 @@ export async function handleListWebhooks(req: IncomingMessage, res: ServerRespon
 }
 
 export async function handleDeleteWebhook(req: IncomingMessage, res: ServerResponse, webhookId: number): Promise<void> {
-  const userId = getAuthenticatedUserId(req);
+  const userId = getAuthenticatedUserIdFromRequest(req);
   if (!userId) {
     writeJson(res, 401, { success: false, error: 'Unauthorized' });
     return;
@@ -162,7 +142,7 @@ export async function handleDeleteWebhook(req: IncomingMessage, res: ServerRespo
 }
 
 export async function handleListWebhookDeliveries(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const userId = getAuthenticatedUserId(req);
+  const userId = getAuthenticatedUserIdFromRequest(req);
   if (!userId) {
     writeJson(res, 401, { success: false, error: 'Unauthorized' });
     return;
@@ -186,7 +166,7 @@ export async function handleListWebhookDeliveries(req: IncomingMessage, res: Ser
 }
 
 export async function handleUpdateWebhook(req: IncomingMessage, res: ServerResponse, webhookId: number): Promise<void> {
-  const userId = getAuthenticatedUserId(req);
+  const userId = getAuthenticatedUserIdFromRequest(req);
   if (!userId) {
     writeJson(res, 401, { success: false, error: 'Unauthorized' });
     return;
@@ -273,7 +253,7 @@ export async function handleUpdateWebhook(req: IncomingMessage, res: ServerRespo
 }
 
 export async function handleRotateWebhookSecret(req: IncomingMessage, res: ServerResponse, webhookId: number): Promise<void> {
-  const userId = getAuthenticatedUserId(req);
+  const userId = getAuthenticatedUserIdFromRequest(req);
   if (!userId) {
     writeJson(res, 401, { success: false, error: 'Unauthorized' });
     return;
@@ -290,7 +270,7 @@ export async function handleRotateWebhookSecret(req: IncomingMessage, res: Serve
 }
 
 export async function handleTestWebhook(req: IncomingMessage, res: ServerResponse, webhookId: number): Promise<void> {
-  const userId = getAuthenticatedUserId(req);
+  const userId = getAuthenticatedUserIdFromRequest(req);
   if (!userId) {
     writeJson(res, 401, { success: false, error: 'Unauthorized' });
     return;
@@ -320,7 +300,7 @@ export async function handleTestWebhook(req: IncomingMessage, res: ServerRespons
 }
 
 export async function handleGetWebhookDelivery(req: IncomingMessage, res: ServerResponse, deliveryId: number): Promise<void> {
-  const userId = getAuthenticatedUserId(req);
+  const userId = getAuthenticatedUserIdFromRequest(req);
   if (!userId) {
     writeJson(res, 401, { success: false, error: 'Unauthorized' });
     return;
@@ -352,7 +332,7 @@ export async function handleGetWebhookDelivery(req: IncomingMessage, res: Server
 }
 
 export async function handleRetryWebhookDelivery(req: IncomingMessage, res: ServerResponse, deliveryId: number): Promise<void> {
-  const userId = getAuthenticatedUserId(req);
+  const userId = getAuthenticatedUserIdFromRequest(req);
   if (!userId) {
     writeJson(res, 401, { success: false, error: 'Unauthorized' });
     return;

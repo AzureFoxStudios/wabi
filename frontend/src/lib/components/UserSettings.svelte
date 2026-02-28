@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { getUserSettings, saveUserSettings } from '$lib/api';
+	import { getAuthToken } from '$lib/authSession';
 
 	let retentionPeriod: string = '7d';
 	let allowTempMessages: boolean = true;
@@ -11,13 +12,7 @@
 	let token: string | null = null;
 
 	onMount(async () => {
-		if (typeof window !== 'undefined') {
-			try {
-				token = localStorage.getItem('authToken');
-			} catch (e) {
-				console.error('Failed to read token from localStorage:', e);
-			}
-		}
+		token = getAuthToken();
 
 		// Load user settings if registered
 		if (token) {

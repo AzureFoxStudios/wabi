@@ -4,7 +4,7 @@
 - Plugin Name: ZipPreview
 - Source Link(s): `https://betterdiscord.app/plugin/ZipPreview`
 - Wabi Target Version: `0.4.x+`
-- Status: `In Progress (Phase 2)`
+- Status: `Done`
 
 ## Plugin Grade
 - User Impact (1-5): `5`
@@ -70,9 +70,9 @@ Users share `.zip` files and cannot inspect contents quickly. They need lightwei
 - [x] Stronger malformed archive handling.
 
 ### Phase 3 - Polish
-- [ ] Optional inline preview for safe text/image entries.
-- [ ] Sorting options and iconography.
-- [ ] Settings controls and user-facing docs.
+- [x] Optional inline preview for safe text/image entries.
+- [x] Sorting options and iconography.
+- [x] Settings controls and user-facing docs.
 
 ## Test Plan
 - Unit:
@@ -94,11 +94,13 @@ Users share `.zip` files and cannot inspect contents quickly. They need lightwei
 2. Do we want backend-assisted parsing for very large files later?
 3. Should previews support password-protected archives (likely no)?
 
-## Current Implementation Snapshot (2026-02-25)
+## Current Implementation Snapshot (2026-02-27)
 - Frontend integration:
   - `frontend/src/lib/components/MessageList.svelte`
   - `frontend/src/lib/components/ZipPreviewPanel.svelte`
   - `frontend/src/lib/zip/zipPreview.ts`
+  - `frontend/src/lib/zip/zipPreviewSettings.ts`
+  - `frontend/src/lib/components/Settings.svelte`
 - Smoke coverage:
   - `frontend/scripts/zip-preview-fixture-smoke.ts`
   - command: `bun run check:zip-preview`
@@ -111,6 +113,12 @@ Users share `.zip` files and cannot inspect contents quickly. They need lightwei
   - in-panel filename search/filter with result count
   - parser checks for multi-disk/split archives and central-directory inconsistencies
   - retry action in panel error state without full remount
+- Phase 3 polish implemented:
+  - entry sorting (`name` / `size`, ascending and descending)
+  - entry icon tags by media/category type
+  - inline text/image preview actions with per-entry loading/error states
+  - add-on settings for ZIP preview + inline preview enablement
+  - bounded streamed inflate read to enforce strict preview output byte caps
 - Explicitly unsupported in MVP:
   - encrypted attachments
   - ZIP64 preview parsing

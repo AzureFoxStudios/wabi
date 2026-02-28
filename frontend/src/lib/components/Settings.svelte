@@ -13,6 +13,7 @@
 		setLearningTargetPercent
 	} from '$lib/i18n';
 	import { channelMessages, users, currentUser, emojis, updateProfile, assignRole, removeUserRole, roleDefinitions } from '$lib/socket';
+	import type { Emoji } from '$lib/socket';
 	import { chatStorage } from '$lib/storage';
 	import StorageSettings from './StorageSettings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
@@ -93,12 +94,17 @@
 		type AnimationPassPreset,
 		type AnimationPassLevel
 	} from '$lib/animationPass';
+	import { getTauriPlatform } from '$lib/tauri-platform';
 	import type { VideoCompressionPresetId } from '$lib/video/videoCompressor';
 	import {
 		getDefaultVideoCompressionPreset,
+		getVideoCompressionPresetOptions,
+		getVideoCompressionRuntimeProfile,
 		isVideoCompressionEnabled,
 		setDefaultVideoCompressionPreset,
-		setVideoCompressionEnabled
+		setVideoCompressionEnabled,
+		type VideoCompressionPresetOption,
+		type VideoCompressionRuntime
 	} from '$lib/video/videoCompressionSettings';
 	import {
 		addChatAlias,
@@ -118,17 +124,114 @@
 		setCharCounterEnabled,
 		setSpellCheckEnabled,
 		setSplitLargeMessagesEnabled,
-		setSplitLargeMessagesChunkSize
+		setSplitLargeMessagesChunkSize,
+		setWriteUpperCaseEnabled
 	} from '$lib/composerEnhancements';
+	import {
+		displayEnhancementSettingsStore,
+		clearMutedChannelIds,
+		setBetterSearchPageEnabled,
+		setGoogleSearchReplaceEnabled,
+		clearFriendNotificationTrackedUserIds,
+		setBetterFriendListEnabled,
+		setBetterNsfwTagEnabled,
+		setClickableMentionsEnabled,
+		setCustomStatusPresetsEnabled,
+		setEmojiStatisticsEnabled,
+		setFriendNotificationsEnabled,
+		setFriendNotificationsTrackedOnly,
+		setHideMutedCategoriesEnabled,
+		setLastMessageDateEnabled,
+		setLocalNicknamesEnabled,
+		setMessageUtilitiesEnabled,
+		setPersonalPinsEnabled,
+		setQuickMentionEnabled,
+		setReadAllNotificationsButtonEnabled,
+		setRemoveNicknamesEnabled,
+		setRevealAllSpoilersEnabled,
+		setRevealAllSpoilersMinRole,
+		setServerCounterEnabled,
+		setShowConnectionsEnabled,
+		setSpotifyControlsEnabled,
+		setStaffTagEnabled,
+		setTimestampDisplayMode,
+		setTopRoleEverywhereEnabled,
+		setUserNotesEnabled,
+		type RevealAllSpoilersMinRole,
+		type TimestampDisplayMode
+	} from '$lib/displayEnhancements';
+	import {
+		exportUnicodeEmojiPreferences,
+		importUnicodeEmojiPreferences,
+		resetUnicodeEmojiTelemetry,
+		setUnicodeEmojiConversionEnabled,
+		setUnicodeEmojiDefaultSourceEnabled,
+		setUnicodeEmojiOpenmojiSourceEnabled,
+		unicodeEmojiTelemetryStore,
+		unicodeEmojiSettingsStore
+	} from '$lib/unicodeEmojis';
+	import {
+		gifCaptionerSettingsStore,
+		setGifCaptionerCaptionStyle,
+		setGifCaptionerDedicatedCaptionFieldEnabled,
+		setGifCaptionerEnabled,
+		type GifCaptionStylePreset
+	} from '$lib/gifCaptionerSettings';
+	import {
+		setZipPreviewEnabled,
+		setZipPreviewInlinePreviewEnabled,
+		zipPreviewSettingsStore
+	} from '$lib/zip/zipPreviewSettings';
 	import {
 		getReverseImageSearchProvider,
 		setReverseImageSearchProvider,
 		type ReverseImageSearchProvider
 	} from '$lib/imageUtilities';
+	import {
+		getCustomSearchEngineTemplate,
+		getSearchEngineProvider,
+		setCustomSearchEngineTemplate,
+		setSearchEngineProvider,
+		type SearchEngineProvider
+	} from '$lib/searchEngineJump';
+	import { clearAllLocalNicknames, localNicknamesStore } from '$lib/localNicknames';
+	import {
+		MAX_CUSTOM_QUICK_REACTION_EMOJIS,
+		addQuickReactionCustomEmojiId,
+		clearQuickReactionCustomEmojiIds,
+		quickReactionSettingsStore,
+		removeQuickReactionCustomEmojiId,
+		setQuickReactionsEnabled
+	} from '$lib/quickReactions';
+	import {
+		getQuickReactionClickShare,
+		quickReactionTelemetryStore,
+		resetQuickReactionTelemetry
+	} from '$lib/quickReactionTelemetry';
 	import { clearPinnedDms, pinnedDmIdsStore } from '$lib/pinDms';
+	import { clearAllPersonalPins, personalPinsStore } from '$lib/personalPins';
+	import { clearAuthSession, getAuthToken } from '$lib/authSession';
+	import {
+		MAX_CUSTOM_STATUS_PRESETS,
+		addCustomStatusPreset,
+		customStatusPresetsStore,
+		removeCustomStatusPreset,
+		resetCustomStatusPresetsToDefaults,
+		setActiveCustomStatusPreset,
+		type CustomStatusPresetPresence
+	} from '$lib/customStatusPresets';
+	import {
+		setTimedThemeModeDarkThemeId,
+		setTimedThemeModeDayStartHour,
+		setTimedThemeModeEnabled,
+		setTimedThemeModeLightThemeId,
+		setTimedThemeModeNightStartHour,
+		timedThemeModeSettingsStore
+	} from '$lib/timedThemeMode';
 
 	const dispatch = createEventDispatcher();
 	const MB = 1024 * 1024;
+	const GIF_CAPTIONER_MAX_CAPTION_LENGTH = 280;
 
 	export let isOpen = false;
 	type SettingsTab = 'profile' | 'audio' | 'notifications' | 'accessibility' | 'appearance' | 'server' | 'addons' | 'emojis' | 'storage' | 'admin' | 'about';
@@ -170,6 +273,11 @@
 	let tabShadeStrength = 0.06;
 	let appChromeOpacity = 1;
 	let videoCompressionEnabled = true;
+	let videoCompressionRuntime: VideoCompressionRuntime = 'desktop';
+	let videoCompressionRuntimeLabel = 'Desktop';
+	let videoCompressionPresetOptions: VideoCompressionPresetOption[] =
+		getVideoCompressionPresetOptions('desktop');
+	let selectedVideoCompressionPresetOption: VideoCompressionPresetOption | null = null;
 	let defaultVideoCompressionPreset: VideoCompressionPresetId = 'balanced_720p';
 	let messageDensity: MessageDensity = 'cozy';
 	let chatFontScale = 1;
@@ -246,15 +354,96 @@
 	let translatorSettingsSavedAt = '';
 	let translatorAddonDetected = false;
 	let reverseImageSearchProvider: ReverseImageSearchProvider = 'google_lens';
+	let searchEngineProvider: SearchEngineProvider = 'brave';
+	let searchEngineCustomTemplate = 'https://search.brave.com/search?q={query}';
+	const SEARCH_ENGINE_CUSTOM_TEMPLATE_PLACEHOLDER = 'https://example.com/search?q={query}';
+	const SEARCH_ENGINE_CUSTOM_QUERY_TOKEN = '{query}';
 	let spellCheckEnabled = true;
 	let charCounterEnabled = true;
 	let splitLargeMessagesEnabled = false;
 	let splitLargeMessagesChunkSize = 2000;
 	let splitLargeMessagesInputMaxLength = 20000;
+	let writeUpperCaseEnabled = false;
+	let clickableMentionsEnabled = true;
+	let timestampDisplayMode: TimestampDisplayMode = 'compact';
+	let revealAllSpoilersEnabled = true;
+	let revealAllSpoilersMinRole: RevealAllSpoilersMinRole = 'member';
+	let betterSearchPageEnabled = true;
+	let googleSearchReplaceEnabled = true;
+	let hideMutedCategoriesEnabled = false;
+	let readAllNotificationsButtonEnabled = true;
+	let spotifyControlsEnabled = true;
+	let localNicknamesEnabled = true;
+	let serverCounterEnabled = true;
+	let betterNsfwTagEnabled = true;
+	let customStatusPresetsEnabled = true;
+	let quickMentionEnabled = true;
+	let personalPinsEnabled = true;
+	let lastMessageDateEnabled = true;
+	let showConnectionsEnabled = true;
+	let userNotesEnabled = true;
+	let friendNotificationsEnabled = false;
+	let friendNotificationsTrackedOnly = true;
+	let messageUtilitiesEnabled = true;
+	let betterFriendListEnabled = true;
+	let emojiStatisticsEnabled = true;
+	let removeNicknamesEnabled = false;
+	let staffTagEnabled = true;
+	let topRoleEverywhereEnabled = true;
+	let timedThemeModeEnabled = false;
+	let timedThemeDayStartHour = 7;
+	let timedThemeNightStartHour = 19;
+	let timedThemeLightThemeId = 'light';
+	let timedThemeDarkThemeId = 'dark';
+	let customStatusPresetLabelDraft = '';
+	let customStatusPresetNoteDraft = '';
+	let customStatusPresetPresenceDraft: CustomStatusPresetPresence = 'active';
+	let customStatusPresetsStatus = '';
+	let unicodeEmojisEnabled = false;
+	let unicodeConvertDefaultEnabled = true;
+	let unicodeConvertOpenmojiEnabled = true;
+	let unicodeEmojisPrefsStatus = '';
+	let gifCaptionerEnabled = true;
+	let gifCaptionerDedicatedFieldEnabled = false;
+	let gifCaptionerCaptionStyle: GifCaptionStylePreset = 'plain';
+	let zipPreviewEnabled = true;
+	let zipPreviewInlineEnabled = true;
+	let quickReactionsEnabled = true;
+	let quickReactionCustomEmojiIdDraft = '';
+	let quickReactionSettingsStatus = '';
+	let quickReactionClickShare: number | null = null;
+	let quickReactionCustomEmojiEntries: Emoji[] = [];
+	let emojiStatsCategories: Array<{ category: string; count: number }> = [];
+	let mutedChannelCount = 0;
+	let localNicknameCount = 0;
 	let pinnedDmConversationCount = 0;
 	let chatAliasTriggerDraft = '';
 	let chatAliasReplacementDraft = '';
 	let quoteTemplateDraft = '';
+	let personalPinCount = 0;
+
+	function resolveVideoCompressionRuntimeScope(): VideoCompressionRuntime {
+		if (!isTauriRuntime()) return 'desktop';
+		const runtime = getTauriPlatform();
+		if (runtime === 'android' || runtime === 'ios' || runtime === 'desktop') {
+			return runtime;
+		}
+		return 'desktop';
+	}
+
+	function applyVideoCompressionRuntimePreferences(): void {
+		videoCompressionRuntime = resolveVideoCompressionRuntimeScope();
+		const profile = getVideoCompressionRuntimeProfile(videoCompressionRuntime);
+		videoCompressionRuntimeLabel = profile.label;
+		videoCompressionPresetOptions = getVideoCompressionPresetOptions(videoCompressionRuntime);
+		const storedPreset = getDefaultVideoCompressionPreset(videoCompressionRuntime);
+		const presetAllowed = videoCompressionPresetOptions.some((option) => option.id === storedPreset);
+		const resolvedPreset = presetAllowed ? storedPreset : profile.recommendedPreset;
+		defaultVideoCompressionPreset = resolvedPreset;
+		if (resolvedPreset !== storedPreset) {
+			setDefaultVideoCompressionPreset(resolvedPreset, videoCompressionRuntime);
+		}
+	}
 
 	// Profile Picture upload state
 	let showAvatarEditor = false;
@@ -296,6 +485,8 @@
 	})();
 
 	$: canManageAdmin = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
+	$: selectedVideoCompressionPresetOption =
+		videoCompressionPresetOptions.find((option) => option.id === defaultVideoCompressionPreset) || null;
 	$: sortedAdminUsers = [...$users].sort((a, b) => {
 		const aPriority = a.highestRole === 'owner' ? 3 : a.highestRole === 'admin' ? 2 : a.highestRole === 'mod' ? 1 : 0;
 		const bPriority = b.highestRole === 'owner' ? 3 : b.highestRole === 'admin' ? 2 : b.highestRole === 'mod' ? 1 : 0;
@@ -352,8 +543,9 @@
 		chatFontScale = accessibilitySettings.chatFontScale;
 		deletionCountdownMode = accessibilitySettings.deletionCountdownMode;
 		clickableSendEnabled = accessibilitySettings.clickableSendEnabled;
+		localAppRuntime = isTauriRuntime();
 		videoCompressionEnabled = isVideoCompressionEnabled();
-		defaultVideoCompressionPreset = getDefaultVideoCompressionPreset();
+		applyVideoCompressionRuntimePreferences();
 		soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
 		notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
 		micEnabled = localStorage.getItem('micEnabled') !== 'false';
@@ -367,7 +559,8 @@
 				: localStorage.getItem('notificationSoundLabel') || 'Custom sound';
 		notificationVolume = parseFloat(localStorage.getItem('notificationVolume') || '0.5');
 		reverseImageSearchProvider = getReverseImageSearchProvider();
-		localAppRuntime = isTauriRuntime();
+		searchEngineProvider = getSearchEngineProvider();
+		searchEngineCustomTemplate = getCustomSearchEngineTemplate();
 		businessSyncMode = getBusinessSyncMode();
 		selectedMicDeviceId = getPreferredMicDeviceId() || '';
 		selectedCameraDeviceId = getPreferredCameraDeviceId() || '';
@@ -473,7 +666,7 @@
 
 	async function loadUploadLimits() {
 		if (!canManageAdmin || loadingUploadLimits) return;
-		const token = localStorage.getItem('authToken');
+		const token = getAuthToken();
 		if (!token) return;
 		loadingUploadLimits = true;
 		try {
@@ -490,7 +683,7 @@
 
 	async function saveUploadLimits() {
 		if (!canManageAdmin || savingUploadLimits) return;
-		const token = localStorage.getItem('authToken');
+		const token = getAuthToken();
 		if (!token) {
 			alert('You are not authenticated.');
 			return;
@@ -535,6 +728,70 @@
 	$: splitLargeMessagesEnabled = $composerEnhancementSettingsStore.splitLargeMessagesEnabled;
 	$: splitLargeMessagesChunkSize = $composerEnhancementSettingsStore.splitLargeMessagesChunkSize;
 	$: splitLargeMessagesInputMaxLength = $composerEnhancementSettingsStore.splitLargeMessagesInputMaxLength;
+	$: writeUpperCaseEnabled = $composerEnhancementSettingsStore.writeUpperCaseEnabled;
+	$: clickableMentionsEnabled = $displayEnhancementSettingsStore.clickableMentionsEnabled;
+	$: timestampDisplayMode = $displayEnhancementSettingsStore.timestampDisplayMode;
+	$: revealAllSpoilersEnabled = $displayEnhancementSettingsStore.revealAllSpoilersEnabled;
+	$: revealAllSpoilersMinRole = $displayEnhancementSettingsStore.revealAllSpoilersMinRole;
+	$: betterSearchPageEnabled = $displayEnhancementSettingsStore.betterSearchPageEnabled;
+	$: googleSearchReplaceEnabled = $displayEnhancementSettingsStore.googleSearchReplaceEnabled;
+	$: hideMutedCategoriesEnabled = $displayEnhancementSettingsStore.hideMutedCategoriesEnabled;
+	$: readAllNotificationsButtonEnabled =
+		$displayEnhancementSettingsStore.readAllNotificationsButtonEnabled;
+	$: spotifyControlsEnabled = $displayEnhancementSettingsStore.spotifyControlsEnabled;
+	$: localNicknamesEnabled = $displayEnhancementSettingsStore.localNicknamesEnabled;
+	$: serverCounterEnabled = $displayEnhancementSettingsStore.serverCounterEnabled;
+	$: betterNsfwTagEnabled = $displayEnhancementSettingsStore.betterNsfwTagEnabled;
+	$: customStatusPresetsEnabled = $displayEnhancementSettingsStore.customStatusPresetsEnabled;
+	$: quickMentionEnabled = $displayEnhancementSettingsStore.quickMentionEnabled;
+	$: personalPinsEnabled = $displayEnhancementSettingsStore.personalPinsEnabled;
+	$: lastMessageDateEnabled = $displayEnhancementSettingsStore.lastMessageDateEnabled;
+	$: showConnectionsEnabled = $displayEnhancementSettingsStore.showConnectionsEnabled;
+	$: userNotesEnabled = $displayEnhancementSettingsStore.userNotesEnabled;
+	$: friendNotificationsEnabled = $displayEnhancementSettingsStore.friendNotificationsEnabled;
+	$: friendNotificationsTrackedOnly =
+		$displayEnhancementSettingsStore.friendNotificationsTrackedOnly;
+	$: messageUtilitiesEnabled = $displayEnhancementSettingsStore.messageUtilitiesEnabled;
+	$: betterFriendListEnabled = $displayEnhancementSettingsStore.betterFriendListEnabled;
+	$: emojiStatisticsEnabled = $displayEnhancementSettingsStore.emojiStatisticsEnabled;
+	$: removeNicknamesEnabled = $displayEnhancementSettingsStore.removeNicknamesEnabled;
+	$: staffTagEnabled = $displayEnhancementSettingsStore.staffTagEnabled;
+	$: topRoleEverywhereEnabled = $displayEnhancementSettingsStore.topRoleEverywhereEnabled;
+	$: timedThemeModeEnabled = $timedThemeModeSettingsStore.enabled;
+	$: timedThemeDayStartHour = $timedThemeModeSettingsStore.dayStartHour;
+	$: timedThemeNightStartHour = $timedThemeModeSettingsStore.nightStartHour;
+	$: timedThemeLightThemeId = $timedThemeModeSettingsStore.lightThemeId;
+	$: timedThemeDarkThemeId = $timedThemeModeSettingsStore.darkThemeId;
+	$: personalPinCount = Object.values($personalPinsStore).reduce(
+		(total, ids) => total + (Array.isArray(ids) ? ids.length : 0),
+		0
+	);
+	$: unicodeEmojisEnabled = $unicodeEmojiSettingsStore.enabled;
+	$: unicodeConvertDefaultEnabled = $unicodeEmojiSettingsStore.convertDefault;
+	$: unicodeConvertOpenmojiEnabled = $unicodeEmojiSettingsStore.convertOpenmoji;
+	$: gifCaptionerEnabled = $gifCaptionerSettingsStore.enabled;
+	$: gifCaptionerDedicatedFieldEnabled = $gifCaptionerSettingsStore.dedicatedCaptionFieldEnabled;
+	$: gifCaptionerCaptionStyle = $gifCaptionerSettingsStore.captionStyle;
+	$: zipPreviewEnabled = $zipPreviewSettingsStore.enabled;
+	$: zipPreviewInlineEnabled = $zipPreviewSettingsStore.inlinePreviewEnabled;
+	$: quickReactionsEnabled = $quickReactionSettingsStore.enabled;
+	$: quickReactionCustomEmojiEntries = $quickReactionSettingsStore.customEmojiIds
+		.map((emojiId) => $emojis.find((emoji) => emoji.id === emojiId))
+		.filter((emoji): emoji is Emoji => Boolean(emoji));
+	$: emojiStatsCategories = (() => {
+		const byCategory = new Map<string, number>();
+		for (const emoji of $emojis) {
+			const category = (emoji.category || 'uncategorized').trim().toLowerCase();
+			byCategory.set(category, (byCategory.get(category) || 0) + 1);
+		}
+		return Array.from(byCategory.entries())
+			.map(([category, count]) => ({ category, count }))
+			.sort((a, b) => b.count - a.count || a.category.localeCompare(b.category))
+			.slice(0, 8);
+	})();
+	$: mutedChannelCount = $displayEnhancementSettingsStore.mutedChannelIds.length;
+	$: localNicknameCount = Object.keys($localNicknamesStore).length;
+	$: quickReactionClickShare = getQuickReactionClickShare($quickReactionTelemetryStore);
 	$: pinnedDmConversationCount = $pinnedDmIdsStore.length;
 
 	function toggleSound() {
@@ -574,7 +831,7 @@
 			audioInputDevices = devices.filter(d => d.kind === 'audioinput');
 			videoInputDevices = devices.filter(d => d.kind === 'videoinput');
 		} catch {
-			// permissions denied — lists stay empty
+			// permissions denied - lists stay empty
 		}
 	}
 
@@ -840,7 +1097,7 @@
 			themeStore.setThemeId(themeId);
 
 			// Check if user is registered
-			const isRegistered = !!localStorage.getItem('authToken');
+			const isRegistered = !!getAuthToken();
 
 			if (isRegistered) {
 				// Save to server for registered users
@@ -1008,7 +1265,7 @@
 
 	function updateVideoCompressionPreset(value: VideoCompressionPresetId) {
 		defaultVideoCompressionPreset = value;
-		setDefaultVideoCompressionPreset(value);
+		setDefaultVideoCompressionPreset(value, videoCompressionRuntime);
 	}
 
 	function updateMessageDensity(value: MessageDensity) {
@@ -1182,7 +1439,7 @@
 	}
 
 	async function fetchPluginInventory(): Promise<PluginApiRecord[] | null> {
-		const token = localStorage.getItem('authToken');
+		const token = getAuthToken();
 		if (!token) return null;
 
 		try {
@@ -1372,6 +1629,357 @@
 		setSplitLargeMessagesChunkSize(parsed);
 	}
 
+	function toggleWriteUpperCaseAddon(): void {
+		setWriteUpperCaseEnabled(!writeUpperCaseEnabled);
+	}
+
+	function toggleClickableMentionsAddon(): void {
+		setClickableMentionsEnabled(!clickableMentionsEnabled);
+	}
+
+	function updateTimestampDisplayMode(mode: string): void {
+		if (mode === 'compact' || mode === 'complete' || mode === 'detailed') {
+			setTimestampDisplayMode(mode as TimestampDisplayMode);
+		}
+	}
+
+	function toggleRevealAllSpoilersAddon(): void {
+		setRevealAllSpoilersEnabled(!revealAllSpoilersEnabled);
+	}
+
+	function updateRevealAllSpoilersRole(role: string): void {
+		if (role === 'guest' || role === 'member' || role === 'mod' || role === 'admin' || role === 'owner') {
+			setRevealAllSpoilersMinRole(role as RevealAllSpoilersMinRole);
+		}
+	}
+
+	function toggleBetterSearchPageAddon(): void {
+		setBetterSearchPageEnabled(!betterSearchPageEnabled);
+	}
+
+	function toggleGoogleSearchReplaceAddon(): void {
+		setGoogleSearchReplaceEnabled(!googleSearchReplaceEnabled);
+	}
+
+	function updateSearchEngineProvider(value: string): void {
+		if (
+			value === 'google' ||
+			value === 'duckduckgo' ||
+			value === 'bing' ||
+			value === 'brave' ||
+			value === 'startpage' ||
+			value === 'custom'
+		) {
+			searchEngineProvider = value as SearchEngineProvider;
+			setSearchEngineProvider(searchEngineProvider);
+		}
+	}
+
+	function saveCustomSearchEngineTemplateFromSettings(): void {
+		const saved = setCustomSearchEngineTemplate(searchEngineCustomTemplate);
+		if (!saved) {
+			alert(
+				'Custom search template must include {query} and use an http(s) URL. Example: https://search.brave.com/search?q={query}'
+			);
+			searchEngineCustomTemplate = getCustomSearchEngineTemplate();
+			return;
+		}
+		searchEngineCustomTemplate = getCustomSearchEngineTemplate();
+	}
+
+	function toggleHideMutedCategoriesAddon(): void {
+		setHideMutedCategoriesEnabled(!hideMutedCategoriesEnabled);
+	}
+
+	function clearMutedChannelsAddon(): void {
+		if (!window.confirm('Clear all locally muted channels?')) return;
+		clearMutedChannelIds();
+	}
+
+	function toggleReadAllNotificationsButtonAddon(): void {
+		setReadAllNotificationsButtonEnabled(!readAllNotificationsButtonEnabled);
+	}
+
+	function toggleSpotifyControlsAddon(): void {
+		setSpotifyControlsEnabled(!spotifyControlsEnabled);
+	}
+
+	function toggleLocalNicknamesAddon(): void {
+		setLocalNicknamesEnabled(!localNicknamesEnabled);
+	}
+
+	function clearAllLocalNicknamesAddon(): void {
+		if (!window.confirm('Clear all local nicknames on this device?')) return;
+		clearAllLocalNicknames();
+	}
+
+	function toggleServerCounterAddon(): void {
+		setServerCounterEnabled(!serverCounterEnabled);
+	}
+
+	function toggleBetterNsfwTagAddon(): void {
+		setBetterNsfwTagEnabled(!betterNsfwTagEnabled);
+	}
+
+	function toggleCustomStatusPresetsAddon(): void {
+		setCustomStatusPresetsEnabled(!customStatusPresetsEnabled);
+	}
+
+	function addCustomStatusPresetFromSettings(): void {
+		const label = customStatusPresetLabelDraft.trim();
+		if (!label) {
+			customStatusPresetsStatus = 'Preset label is required.';
+			return;
+		}
+		const added = addCustomStatusPreset(
+			label,
+			customStatusPresetPresenceDraft,
+			customStatusPresetNoteDraft
+		);
+		if (!added) {
+			customStatusPresetsStatus = `Could not add preset. Limit: ${MAX_CUSTOM_STATUS_PRESETS} presets.`;
+			return;
+		}
+		customStatusPresetLabelDraft = '';
+		customStatusPresetNoteDraft = '';
+		customStatusPresetPresenceDraft = 'active';
+		customStatusPresetsStatus = 'Status preset added.';
+	}
+
+	function removeCustomStatusPresetFromSettings(presetId: string): void {
+		removeCustomStatusPreset(presetId);
+		customStatusPresetsStatus = '';
+	}
+
+	function activateCustomStatusPresetFromSettings(
+		presetId: string,
+		status: CustomStatusPresetPresence
+	): void {
+		setActiveCustomStatusPreset(presetId);
+		updateProfile(status, undefined, undefined);
+		customStatusPresetsStatus = 'Status preset applied.';
+	}
+
+	function resetCustomStatusPresetsAddon(): void {
+		const confirmed = window.confirm('Reset status presets to defaults?');
+		if (!confirmed) return;
+		resetCustomStatusPresetsToDefaults();
+		customStatusPresetsStatus = 'Status presets reset.';
+	}
+
+	function toggleQuickMentionAddon(): void {
+		setQuickMentionEnabled(!quickMentionEnabled);
+	}
+
+	function togglePersonalPinsAddon(): void {
+		setPersonalPinsEnabled(!personalPinsEnabled);
+	}
+
+	function clearPersonalPinsAddon(): void {
+		if (!window.confirm('Clear all local personal pins?')) return;
+		clearAllPersonalPins();
+	}
+
+	function toggleLastMessageDateAddon(): void {
+		setLastMessageDateEnabled(!lastMessageDateEnabled);
+	}
+
+	function toggleShowConnectionsAddon(): void {
+		setShowConnectionsEnabled(!showConnectionsEnabled);
+	}
+
+	function toggleUserNotesAddon(): void {
+		setUserNotesEnabled(!userNotesEnabled);
+	}
+
+	function toggleFriendNotificationsAddon(): void {
+		setFriendNotificationsEnabled(!friendNotificationsEnabled);
+	}
+
+	function toggleFriendNotificationsTrackedOnlyAddon(): void {
+		setFriendNotificationsTrackedOnly(!friendNotificationsTrackedOnly);
+	}
+
+	function clearFriendNotificationTrackedUsers(): void {
+		if (!window.confirm('Clear all tracked users for friend status alerts?')) return;
+		clearFriendNotificationTrackedUserIds();
+	}
+
+	function toggleMessageUtilitiesAddon(): void {
+		setMessageUtilitiesEnabled(!messageUtilitiesEnabled);
+	}
+
+	function toggleBetterFriendListAddon(): void {
+		setBetterFriendListEnabled(!betterFriendListEnabled);
+	}
+
+	function toggleEmojiStatisticsAddon(): void {
+		setEmojiStatisticsEnabled(!emojiStatisticsEnabled);
+	}
+
+	function toggleRemoveNicknamesAddon(): void {
+		setRemoveNicknamesEnabled(!removeNicknamesEnabled);
+	}
+
+	function toggleStaffTagAddon(): void {
+		setStaffTagEnabled(!staffTagEnabled);
+	}
+
+	function toggleTopRoleEverywhereAddon(): void {
+		setTopRoleEverywhereEnabled(!topRoleEverywhereEnabled);
+	}
+
+	function toggleTimedThemeModeAddon(): void {
+		setTimedThemeModeEnabled(!timedThemeModeEnabled);
+	}
+
+	function updateTimedThemeDayStartHour(rawValue: string): void {
+		const parsed = Number.parseInt(rawValue, 10);
+		if (!Number.isFinite(parsed)) return;
+		setTimedThemeModeDayStartHour(parsed);
+	}
+
+	function updateTimedThemeNightStartHour(rawValue: string): void {
+		const parsed = Number.parseInt(rawValue, 10);
+		if (!Number.isFinite(parsed)) return;
+		setTimedThemeModeNightStartHour(parsed);
+	}
+
+	function updateTimedThemeLightTheme(themeId: string): void {
+		setTimedThemeModeLightThemeId(themeId);
+	}
+
+	function updateTimedThemeDarkTheme(themeId: string): void {
+		setTimedThemeModeDarkThemeId(themeId);
+	}
+
+	function toggleUnicodeEmojisAddon(): void {
+		setUnicodeEmojiConversionEnabled(!unicodeEmojisEnabled);
+		unicodeEmojisPrefsStatus = '';
+	}
+
+	function toggleUnicodeDefaultSource(): void {
+		setUnicodeEmojiDefaultSourceEnabled(!unicodeConvertDefaultEnabled);
+		unicodeEmojisPrefsStatus = '';
+	}
+
+	function toggleUnicodeOpenmojiSource(): void {
+		setUnicodeEmojiOpenmojiSourceEnabled(!unicodeConvertOpenmojiEnabled);
+		unicodeEmojisPrefsStatus = '';
+	}
+
+	function resetUnicodeEmojisTelemetry(): void {
+		const telemetryTotal =
+			$unicodeEmojiTelemetryStore.convertedTokens +
+			$unicodeEmojiTelemetryStore.unknownTokens +
+			$unicodeEmojiTelemetryStore.shortcodeCollisions;
+		if (telemetryTotal === 0) return;
+		const confirmed = window.confirm('Reset UnicodeEmojis conversion counters?');
+		if (!confirmed) return;
+		resetUnicodeEmojiTelemetry();
+	}
+
+	async function exportUnicodeEmojisPrefs(): Promise<void> {
+		try {
+			const payload = exportUnicodeEmojiPreferences(false);
+			if (navigator?.clipboard?.writeText) {
+				await navigator.clipboard.writeText(payload);
+				unicodeEmojisPrefsStatus = 'UnicodeEmojis preferences copied to clipboard.';
+				return;
+			}
+			window.prompt('Copy UnicodeEmojis preferences JSON:', payload);
+			unicodeEmojisPrefsStatus = 'UnicodeEmojis preferences ready to copy.';
+		} catch (error) {
+			unicodeEmojisPrefsStatus =
+				error instanceof Error ? error.message : 'Failed to export UnicodeEmojis preferences.';
+		}
+	}
+
+	function importUnicodeEmojisPrefs(): void {
+		const raw = window.prompt('Paste UnicodeEmojis preferences JSON:');
+		if (!raw || !raw.trim()) return;
+		try {
+			const result = importUnicodeEmojiPreferences(raw);
+			unicodeEmojisPrefsStatus = result.telemetryImported
+				? 'UnicodeEmojis settings and local counters imported.'
+				: 'UnicodeEmojis settings imported.';
+		} catch (error) {
+			unicodeEmojisPrefsStatus =
+				error instanceof Error ? error.message : 'Invalid UnicodeEmojis preferences JSON.';
+		}
+	}
+
+	function toggleGifCaptionerAddon(): void {
+		setGifCaptionerEnabled(!gifCaptionerEnabled);
+	}
+
+	function toggleGifCaptionerDedicatedField(): void {
+		setGifCaptionerDedicatedCaptionFieldEnabled(!gifCaptionerDedicatedFieldEnabled);
+	}
+
+	function updateGifCaptionerStyle(style: string): void {
+		if (style === 'plain' || style === 'accent' || style === 'card') {
+			setGifCaptionerCaptionStyle(style);
+		}
+	}
+
+	function toggleZipPreviewAddon(): void {
+		setZipPreviewEnabled(!zipPreviewEnabled);
+	}
+
+	function toggleZipPreviewInlineAddon(): void {
+		setZipPreviewInlinePreviewEnabled(!zipPreviewInlineEnabled);
+	}
+
+	function toggleMoreQuickReactsAddon(): void {
+		setQuickReactionsEnabled(!quickReactionsEnabled);
+		quickReactionSettingsStatus = '';
+	}
+
+	function addCustomQuickReactionEmoji(): void {
+		const emojiId = quickReactionCustomEmojiIdDraft.trim();
+		if (!emojiId) return;
+		if (!$emojis.some((emoji) => emoji.id === emojiId)) {
+			quickReactionSettingsStatus = 'Selected emoji is no longer available.';
+			return;
+		}
+		const alreadyAdded = $quickReactionSettingsStore.customEmojiIds.includes(emojiId);
+		const added = addQuickReactionCustomEmojiId(emojiId);
+		if (added) {
+			quickReactionSettingsStatus = 'Custom quick reaction added.';
+			quickReactionCustomEmojiIdDraft = '';
+			return;
+		}
+		quickReactionSettingsStatus = alreadyAdded
+			? 'Emoji already exists in your custom quick-reaction set.'
+			: `Custom quick-reaction set is capped at ${MAX_CUSTOM_QUICK_REACTION_EMOJIS} emojis.`;
+	}
+
+	function removeCustomQuickReactionEmoji(emojiId: string): void {
+		removeQuickReactionCustomEmojiId(emojiId);
+		quickReactionSettingsStatus = '';
+	}
+
+	function clearCustomQuickReactionEmojis(): void {
+		if ($quickReactionSettingsStore.customEmojiIds.length === 0) return;
+		const confirmed = window.confirm('Clear all custom quick-reaction emojis?');
+		if (!confirmed) return;
+		clearQuickReactionCustomEmojiIds();
+		quickReactionSettingsStatus = '';
+	}
+
+	function resetMoreQuickReactsTelemetry(): void {
+		if ($quickReactionTelemetryStore.quickStripClicks + $quickReactionTelemetryStore.pickerOpens === 0) return;
+		const confirmed = window.confirm('Reset MoreQuickReacts usage counters?');
+		if (!confirmed) return;
+		resetQuickReactionTelemetry();
+	}
+
+	function formatQuickReactionShare(value: number | null): string {
+		if (value === null) return 'n/a';
+		return `${Math.round(value * 100)}%`;
+	}
+
 	function clearAllPinnedDmConversations(): void {
 		if (pinnedDmConversationCount === 0) return;
 		const confirmed = window.confirm('Clear all pinned DM conversations?');
@@ -1403,7 +2011,7 @@
 		const file = input.files?.[0];
 		if (!file) return;
 
-		const token = localStorage.getItem('authToken');
+		const token = getAuthToken();
 		if (!token) {
 			alert('Please log in with an admin account to install plugins.');
 			input.value = '';
@@ -1498,6 +2106,7 @@
 	function confirmClearData() {
 		channelMessages.set({ general: [] });
 		localStorage.clear();
+		clearAuthSession();
 		alert('All data cleared.');
 		showClearDataConfirm = false;
 	}
@@ -1555,7 +2164,7 @@
 			formData.append('type', emojiType);
 
 			// Get auth token from localStorage
-			const authToken = localStorage.getItem('authToken');
+			const authToken = getAuthToken();
 			const headers: HeadersInit = {};
 			if (authToken) {
 				headers['Authorization'] = `Bearer ${authToken}`;
@@ -1676,7 +2285,7 @@
 			const serverUrl = getServerUrl();
 
 			// Get auth token from localStorage
-			const authToken = localStorage.getItem('authToken');
+			const authToken = getAuthToken();
 			const headers: HeadersInit = {};
 			if (authToken) {
 				headers['Authorization'] = `Bearer ${authToken}`;
@@ -1742,7 +2351,7 @@
 			const serverUrl = getServerUrl();
 
 			// Get auth token from localStorage
-			const authToken = localStorage.getItem('authToken');
+			const authToken = getAuthToken();
 			const headers: HeadersInit = {
 				'Content-Type': 'application/json'
 			};
@@ -1821,7 +2430,7 @@
 			formData.append('profilePicture', selectedAvatarFile);
 
 			// Get auth token from localStorage
-			const authToken = localStorage.getItem('authToken');
+			const authToken = getAuthToken();
 			const headers: HeadersInit = {};
 			if (authToken) {
 				headers['Authorization'] = `Bearer ${authToken}`;
@@ -2759,8 +3368,10 @@
 
 							<div class="setting-item">
 								<div class="setting-info">
-									<span class="setting-label">Video Compression (Desktop)</span>
-									<span class="setting-description">Prompt to compress large videos before upload in desktop runtime</span>
+									<span class="setting-label">Video Compression ({videoCompressionRuntimeLabel})</span>
+									<span class="setting-description">
+										Prompt to compress large videos before upload with runtime-specific safety limits.
+									</span>
 								</div>
 								<button class="toggle-btn" class:active={videoCompressionEnabled} on:click={toggleVideoCompressionEnabled}>
 									{videoCompressionEnabled ? 'ON' : 'OFF'}
@@ -2778,9 +3389,13 @@
 									on:change={(e) => updateVideoCompressionPreset(e.currentTarget.value as VideoCompressionPresetId)}
 									disabled={!videoCompressionEnabled}
 								>
-									<option value="balanced_720p">Balanced 720p (smaller files)</option>
-									<option value="quality_1080p">Quality 1080p (higher quality)</option>
+									{#each videoCompressionPresetOptions as presetOption}
+										<option value={presetOption.id}>{presetOption.label}</option>
+									{/each}
 								</select>
+								{#if selectedVideoCompressionPresetOption}
+									<div class="runtime-note">{selectedVideoCompressionPresetOption.description}</div>
+								{/if}
 							</div>
 
 							<div class="setting-item-full">
@@ -3159,9 +3774,742 @@
 
 							<div class="setting-item-full">
 								<div class="setting-info">
-									<span class="setting-label">PinDMs (MVP)</span>
-									<span class="setting-description">Pin conversations from the DM context menu to keep them at the top.</span>
+									<span class="setting-label">WriteUpperCase</span>
+									<span class="setting-description">Auto-capitalize sentence starts for outgoing text (main chat, DM, and GIF captions).</span>
 								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={writeUpperCaseEnabled} on:click={toggleWriteUpperCaseAddon}>
+										{writeUpperCaseEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">ClickableMentions</span>
+									<span class="setting-description">Open user popouts by clicking usernames and @mentions in message content.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={clickableMentionsEnabled} on:click={toggleClickableMentionsAddon}>
+										{clickableMentionsEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">CompleteTimestamps</span>
+									<span class="setting-description">Choose the timestamp detail level shown in message rows.</span>
+								</div>
+								<label class="upload-limit-row">
+									<span>Timestamp mode</span>
+									<select
+										class="theme-select"
+										value={timestampDisplayMode}
+										on:change={(event) => updateTimestampDisplayMode(event.currentTarget.value)}
+									>
+										<option value="compact">Compact (time only)</option>
+										<option value="complete">Complete (date + time)</option>
+										<option value="detailed">Detailed (full locale)</option>
+									</select>
+								</label>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">RevealAllSpoilers</span>
+									<span class="setting-description">Hold Ctrl/Cmd and click a spoiler to reveal all spoilers in that message.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={revealAllSpoilersEnabled} on:click={toggleRevealAllSpoilersAddon}>
+										{revealAllSpoilersEnabled ? 'ON' : 'OFF'}
+									</button>
+									<label class="upload-limit-row split-chunk-size-row">
+										<span>Minimum role</span>
+										<select
+											class="theme-select"
+											value={revealAllSpoilersMinRole}
+											on:change={(event) => updateRevealAllSpoilersRole(event.currentTarget.value)}
+											disabled={!revealAllSpoilersEnabled}
+										>
+											<option value="guest">Guest</option>
+											<option value="member">Member</option>
+											<option value="mod">Moderator</option>
+											<option value="admin">Admin</option>
+											<option value="owner">Owner</option>
+										</select>
+									</label>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">BetterSearchPage</span>
+									<span class="setting-description">Keep search results controls pinned above the message list while you scroll through matches.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={betterSearchPageEnabled} on:click={toggleBetterSearchPageAddon}>
+										{betterSearchPageEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">GoogleSearchReplace (Wabi translation)</span>
+									<span class="setting-description">Add a quick "Search on Web" action from the in-chat search bar so users can continue the same query in a browser.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={googleSearchReplaceEnabled} on:click={toggleGoogleSearchReplaceAddon}>
+										{googleSearchReplaceEnabled ? 'ON' : 'OFF'}
+									</button>
+									<label class="upload-limit-row split-chunk-size-row">
+										<span>Search engine</span>
+										<select
+											class="theme-select"
+											value={searchEngineProvider}
+											on:change={(event) => updateSearchEngineProvider(event.currentTarget.value)}
+											disabled={!googleSearchReplaceEnabled}
+										>
+											<option value="brave">Brave</option>
+											<option value="duckduckgo">DuckDuckGo</option>
+											<option value="startpage">Startpage</option>
+											<option value="bing">Bing</option>
+											<option value="google">Google</option>
+											<option value="custom">Custom template</option>
+										</select>
+									</label>
+								</div>
+								{#if searchEngineProvider === 'custom'}
+									<div class="settings-row-actions">
+										<input
+											type="text"
+											class="theme-select"
+											bind:value={searchEngineCustomTemplate}
+											placeholder={SEARCH_ENGINE_CUSTOM_TEMPLATE_PLACEHOLDER}
+											disabled={!googleSearchReplaceEnabled}
+										/>
+										<button
+											class="action-btn secondary"
+											on:click={saveCustomSearchEngineTemplateFromSettings}
+											disabled={!googleSearchReplaceEnabled}
+										>
+											Save Template
+										</button>
+									</div>
+									<div class="runtime-note">Use <code>{SEARCH_ENGINE_CUSTOM_QUERY_TOKEN}</code> where the search text should be inserted.</div>
+								{/if}
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">HideMutedCategories</span>
+									<span class="setting-description">Wabi translation: hide locally muted channels from the sidebar channel list.</span>
+								</div>
+								<div class="runtime-note">Locally muted channels: {mutedChannelCount}</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={hideMutedCategoriesEnabled} on:click={toggleHideMutedCategoriesAddon}>
+										{hideMutedCategoriesEnabled ? 'ON' : 'OFF'}
+									</button>
+									<button class="action-btn secondary" on:click={clearMutedChannelsAddon} disabled={mutedChannelCount === 0}>
+										Clear Muted
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">ReadAllNotificationsButton</span>
+									<span class="setting-description">Show a clear-unread action in the channel sidebar.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={readAllNotificationsButtonEnabled} on:click={toggleReadAllNotificationsButtonAddon}>
+										{readAllNotificationsButtonEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">ServerCounter (Wabi workspace)</span>
+									<span class="setting-description">Show a workspace channel counter above the channel list.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={serverCounterEnabled} on:click={toggleServerCounterAddon}>
+										{serverCounterEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">BetterNsfwTag (Wabi translation)</span>
+									<span class="setting-description">Highlight NSFW-like channels in the sidebar with a high-visibility warning tag.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={betterNsfwTagEnabled} on:click={toggleBetterNsfwTagAddon}>
+										{betterNsfwTagEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">CustomStatusPresets (Wabi translation)</span>
+									<span class="setting-description">Save reusable presence presets and apply them directly from the sidebar status menu.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={customStatusPresetsEnabled} on:click={toggleCustomStatusPresetsAddon}>
+										{customStatusPresetsEnabled ? 'ON' : 'OFF'}
+									</button>
+									<div class="runtime-note">
+										Presets: {$customStatusPresetsStore.presets.length}/{MAX_CUSTOM_STATUS_PRESETS}
+									</div>
+								</div>
+								<div class="settings-row-actions">
+									<input
+										type="text"
+										class="theme-select"
+										placeholder="Preset label"
+										bind:value={customStatusPresetLabelDraft}
+										maxlength="36"
+										disabled={!customStatusPresetsEnabled}
+									/>
+									<select
+										class="theme-select"
+										bind:value={customStatusPresetPresenceDraft}
+										disabled={!customStatusPresetsEnabled}
+									>
+										<option value="active">Active</option>
+										<option value="away">Away</option>
+										<option value="busy">Busy</option>
+									</select>
+									<button
+										class="action-btn"
+										on:click={addCustomStatusPresetFromSettings}
+										disabled={!customStatusPresetsEnabled || !customStatusPresetLabelDraft.trim()}
+									>
+										Add Preset
+									</button>
+								</div>
+								<div class="settings-row-actions">
+									<input
+										type="text"
+										class="theme-select"
+										placeholder="Optional note shown below your username"
+										bind:value={customStatusPresetNoteDraft}
+										maxlength="120"
+										disabled={!customStatusPresetsEnabled}
+									/>
+									<button
+										class="action-btn secondary"
+										on:click={resetCustomStatusPresetsAddon}
+										disabled={!customStatusPresetsEnabled}
+									>
+										Reset Presets
+									</button>
+								</div>
+								{#if $customStatusPresetsStore.presets.length === 0}
+									<div class="runtime-note">No presets configured.</div>
+								{:else}
+									<div class="custom-status-preset-list">
+										{#each $customStatusPresetsStore.presets as preset (preset.id)}
+											<div class="custom-status-preset-row">
+												<div class="custom-status-preset-main">
+													<div class="custom-status-preset-label">{preset.label}</div>
+													<div class="custom-status-preset-meta">
+														{preset.status}{preset.note ? ` | ${preset.note}` : ''}
+													</div>
+												</div>
+												<div class="settings-row-actions">
+													<button
+														class="action-btn secondary"
+														on:click={() => activateCustomStatusPresetFromSettings(preset.id, preset.status)}
+														disabled={!customStatusPresetsEnabled}
+													>
+														Apply
+													</button>
+													<button
+														class="action-btn danger"
+														on:click={() => removeCustomStatusPresetFromSettings(preset.id)}
+														disabled={!customStatusPresetsEnabled}
+													>
+														Remove
+													</button>
+												</div>
+											</div>
+										{/each}
+									</div>
+								{/if}
+								{#if customStatusPresetsStatus}
+									<div class="runtime-note">{customStatusPresetsStatus}</div>
+								{/if}
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">MessageUtilities</span>
+									<span class="setting-description">Show extra quick message tools in hover actions (quick mention, pin, edit).</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={messageUtilitiesEnabled} on:click={toggleMessageUtilitiesAddon}>
+										{messageUtilitiesEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">QuickMention</span>
+									<span class="setting-description">Adds a fast mention action in message context/utility actions.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={quickMentionEnabled} on:click={toggleQuickMentionAddon}>
+										{quickMentionEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">PersonalPins</span>
+									<span class="setting-description">Pin messages locally on this device without affecting shared channel pins.</span>
+								</div>
+								<div class="runtime-note">Local personal pins: {personalPinCount}</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={personalPinsEnabled} on:click={togglePersonalPinsAddon}>
+										{personalPinsEnabled ? 'ON' : 'OFF'}
+									</button>
+									<button class="action-btn secondary" on:click={clearPersonalPinsAddon} disabled={personalPinCount === 0}>
+										Clear Local Pins
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">LastMessageDate</span>
+									<span class="setting-description">Show each user’s most recent message timestamp in the active channel inside popouts.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={lastMessageDateEnabled} on:click={toggleLastMessageDateAddon}>
+										{lastMessageDateEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">ShowConnections</span>
+									<span class="setting-description">Show profile connections metadata (handle + linked URLs) in user popouts.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={showConnectionsEnabled} on:click={toggleShowConnectionsAddon}>
+										{showConnectionsEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">UserNotes</span>
+									<span class="setting-description">Enable local private notes for each user directly from their popout profile.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={userNotesEnabled} on:click={toggleUserNotesAddon}>
+										{userNotesEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">FriendNotifications</span>
+									<span class="setting-description">Desktop notifications when people change presence status.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={friendNotificationsEnabled} on:click={toggleFriendNotificationsAddon}>
+										{friendNotificationsEnabled ? 'ON' : 'OFF'}
+									</button>
+									<button
+										class="toggle-btn"
+										class:active={friendNotificationsTrackedOnly}
+										on:click={toggleFriendNotificationsTrackedOnlyAddon}
+										disabled={!friendNotificationsEnabled}
+									>
+										Tracked only: {friendNotificationsTrackedOnly ? 'ON' : 'OFF'}
+									</button>
+								</div>
+								<div class="runtime-note">
+									Tracked users: {$displayEnhancementSettingsStore.friendNotificationTrackedUserIds.length}. Use the user list context menu to track/untrack specific people.
+								</div>
+								<div class="settings-row-actions">
+									<button
+										class="action-btn secondary"
+										on:click={clearFriendNotificationTrackedUsers}
+										disabled={$displayEnhancementSettingsStore.friendNotificationTrackedUserIds.length === 0}
+									>
+										Clear Tracked Users
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">BetterFriendList</span>
+									<span class="setting-description">Enable search/filter/sort and summary counters in the right-panel user list.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={betterFriendListEnabled} on:click={toggleBetterFriendListAddon}>
+										{betterFriendListEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">EmojiStatistics</span>
+									<span class="setting-description">Show local emoji inventory stats and category breakdown in Add-ons.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={emojiStatisticsEnabled} on:click={toggleEmojiStatisticsAddon}>
+										{emojiStatisticsEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+								{#if emojiStatisticsEnabled}
+									<div class="runtime-note">
+										Inventory: total {$emojis.length},
+										custom {$emojis.filter((emoji) => emoji.isCustom).length},
+										default/open {$emojis.filter((emoji) => !emoji.isCustom).length}.
+									</div>
+									{#if emojiStatsCategories.length > 0}
+										<div class="runtime-note">
+											Top categories:
+											{#each emojiStatsCategories as categoryEntry, index}
+												{index > 0 ? ', ' : ''}
+												{categoryEntry.category} ({categoryEntry.count})
+											{/each}
+										</div>
+									{:else}
+										<div class="runtime-note">No emoji catalog data loaded yet.</div>
+									{/if}
+								{/if}
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">RemoveNicknames</span>
+									<span class="setting-description">Prefer stable account names in chat headers when incoming messages include alias-style display names.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={removeNicknamesEnabled} on:click={toggleRemoveNicknamesAddon}>
+										{removeNicknamesEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">LocalNicknames (Wabi translation)</span>
+									<span class="setting-description">Set private per-user nicknames that only appear on this device in chat headers, popouts, and the user list.</span>
+								</div>
+								<div class="runtime-note">Local nicknames saved: {localNicknameCount}</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={localNicknamesEnabled} on:click={toggleLocalNicknamesAddon}>
+										{localNicknamesEnabled ? 'ON' : 'OFF'}
+									</button>
+									<button class="action-btn secondary" on:click={clearAllLocalNicknamesAddon} disabled={localNicknameCount === 0}>
+										Clear Local Nicknames
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">SpotifyControls (Wabi translation)</span>
+									<span class="setting-description">Render playable Spotify mini-controls for Spotify track/album/playlist links directly in chat.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={spotifyControlsEnabled} on:click={toggleSpotifyControlsAddon}>
+										{spotifyControlsEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">StaffTag</span>
+									<span class="setting-description">Show a staff marker for owner/admin/mod users in message and profile surfaces.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={staffTagEnabled} on:click={toggleStaffTagAddon}>
+										{staffTagEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">TopRoleEverywhere</span>
+									<span class="setting-description">Show each user's top role badge beside usernames in chat and user popouts.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={topRoleEverywhereEnabled} on:click={toggleTopRoleEverywhereAddon}>
+										{topRoleEverywhereEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+							</div>
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">TimedLightDarkMode</span>
+									<span class="setting-description">Automatically switch between day and night themes using your local device time.</span>
+								</div>
+								<div class="settings-row-actions">
+									<button class="toggle-btn" class:active={timedThemeModeEnabled} on:click={toggleTimedThemeModeAddon}>
+										{timedThemeModeEnabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+								{#if timedThemeModeEnabled}
+									<div class="timed-theme-grid">
+										<label class="timed-theme-field">
+											<span>Day starts (hour)</span>
+											<input
+												class="theme-select"
+												type="number"
+												min="0"
+												max="23"
+												step="1"
+												value={timedThemeDayStartHour}
+												on:change={(event) => updateTimedThemeDayStartHour(event.currentTarget.value)}
+											/>
+										</label>
+										<label class="timed-theme-field">
+											<span>Night starts (hour)</span>
+											<input
+												class="theme-select"
+												type="number"
+												min="0"
+												max="23"
+												step="1"
+												value={timedThemeNightStartHour}
+												on:change={(event) => updateTimedThemeNightStartHour(event.currentTarget.value)}
+											/>
+										</label>
+										<label class="timed-theme-field">
+											<span>Day theme</span>
+											<select
+												class="theme-select"
+												bind:value={timedThemeLightThemeId}
+												on:change={(event) => updateTimedThemeLightTheme(event.currentTarget.value)}
+											>
+												{#each Object.values(THEMES) as theme}
+													<option value={theme.id}>{theme.name}</option>
+												{/each}
+											</select>
+										</label>
+										<label class="timed-theme-field">
+											<span>Night theme</span>
+											<select
+												class="theme-select"
+												bind:value={timedThemeDarkThemeId}
+												on:change={(event) => updateTimedThemeDarkTheme(event.currentTarget.value)}
+											>
+												{#each Object.values(THEMES) as theme}
+													<option value={theme.id}>{theme.name}</option>
+												{/each}
+											</select>
+										</label>
+									</div>
+									<div class="runtime-note">The app checks and applies scheduled theme changes automatically in the background.</div>
+								{/if}
+							</div>
+
+								<div class="setting-item-full">
+									<div class="setting-info">
+										<span class="setting-label">UnicodeEmojis</span>
+										<span class="setting-description">Convert outgoing default/OpenMoji shortcodes (for example <code>:smile:</code>) into native Unicode emoji. Custom emoji shortcodes stay unchanged.</span>
+									</div>
+									<div class="settings-row-actions">
+										<button class="toggle-btn" class:active={unicodeEmojisEnabled} on:click={toggleUnicodeEmojisAddon}>
+											{unicodeEmojisEnabled ? 'ON' : 'OFF'}
+										</button>
+									</div>
+									{#if unicodeEmojisEnabled}
+										<div class="settings-row-actions">
+											<button class="toggle-btn" class:active={unicodeConvertDefaultEnabled} on:click={toggleUnicodeDefaultSource}>
+												Default source: {unicodeConvertDefaultEnabled ? 'ON' : 'OFF'}
+											</button>
+											<button class="toggle-btn" class:active={unicodeConvertOpenmojiEnabled} on:click={toggleUnicodeOpenmojiSource}>
+												OpenMoji source: {unicodeConvertOpenmojiEnabled ? 'ON' : 'OFF'}
+											</button>
+										</div>
+									{/if}
+									<div class="runtime-note">Applies to main chat, DM sends, and GIF captions.</div>
+									{#if unicodeEmojisEnabled}
+										<div class="runtime-note">
+											Local counters (device-only):
+											converted {$unicodeEmojiTelemetryStore.convertedTokens},
+											unknown {$unicodeEmojiTelemetryStore.unknownTokens},
+											shortcode collisions {$unicodeEmojiTelemetryStore.shortcodeCollisions}.
+										</div>
+										<div class="settings-row-actions">
+											<button
+												class="action-btn secondary"
+												on:click={resetUnicodeEmojisTelemetry}
+												disabled={
+													$unicodeEmojiTelemetryStore.convertedTokens +
+													$unicodeEmojiTelemetryStore.unknownTokens +
+													$unicodeEmojiTelemetryStore.shortcodeCollisions === 0
+												}
+											>
+												Reset Unicode Counters
+											</button>
+											<button class="action-btn secondary" on:click={() => void exportUnicodeEmojisPrefs()}>
+												Export Unicode Prefs
+											</button>
+											<button class="action-btn secondary" on:click={importUnicodeEmojisPrefs}>
+												Import Unicode Prefs
+											</button>
+										</div>
+										{#if unicodeEmojisPrefsStatus}
+											<div class="runtime-note">{unicodeEmojisPrefsStatus}</div>
+										{/if}
+									{/if}
+								</div>
+
+								<div class="setting-item-full">
+									<div class="setting-info">
+										<span class="setting-label">GifCaptioner</span>
+										<span class="setting-description">Allow GIF sends to include caption text and keep caption rules consistent with outgoing text filters.</span>
+									</div>
+									<div class="settings-row-actions">
+										<button class="toggle-btn" class:active={gifCaptionerEnabled} on:click={toggleGifCaptionerAddon}>
+											{gifCaptionerEnabled ? 'ON' : 'OFF'}
+										</button>
+										<button
+											class="toggle-btn"
+											class:active={gifCaptionerDedicatedFieldEnabled}
+											on:click={toggleGifCaptionerDedicatedField}
+											disabled={!gifCaptionerEnabled}
+										>
+											Dedicated caption field: {gifCaptionerDedicatedFieldEnabled ? 'ON' : 'OFF'}
+										</button>
+									</div>
+									<div class="settings-row-actions">
+										<label class="upload-limit-row split-chunk-size-row">
+											<span>Caption style</span>
+											<select
+												value={gifCaptionerCaptionStyle}
+												on:change={(event) => updateGifCaptionerStyle(event.currentTarget.value)}
+												disabled={!gifCaptionerEnabled}
+											>
+												<option value="plain">Plain</option>
+												<option value="accent">Accent line</option>
+												<option value="card">Caption card</option>
+											</select>
+										</label>
+									</div>
+									<div class="runtime-note">
+										Caption limit: {GIF_CAPTIONER_MAX_CAPTION_LENGTH} characters.
+									</div>
+								</div>
+
+								<div class="setting-item-full">
+									<div class="setting-info">
+										<span class="setting-label">ZipPreview</span>
+										<span class="setting-description">Inspect ZIP contents inline in chat, with optional per-entry text/image previews.</span>
+									</div>
+									<div class="settings-row-actions">
+										<button class="toggle-btn" class:active={zipPreviewEnabled} on:click={toggleZipPreviewAddon}>
+											{zipPreviewEnabled ? 'ON' : 'OFF'}
+										</button>
+										<button
+											class="toggle-btn"
+											class:active={zipPreviewInlineEnabled}
+											on:click={toggleZipPreviewInlineAddon}
+											disabled={!zipPreviewEnabled}
+										>
+											Inline entry preview: {zipPreviewInlineEnabled ? 'ON' : 'OFF'}
+										</button>
+									</div>
+									<div class="runtime-note">Sort preference is saved from the preview panel controls.</div>
+								</div>
+
+								<div class="setting-item-full">
+									<div class="setting-info">
+										<span class="setting-label">MoreQuickReacts</span>
+										<span class="setting-description">Show one-click quick-reaction buttons in message hover actions, with optional custom emoji shortcuts.</span>
+									</div>
+									<div class="settings-row-actions">
+										<button class="toggle-btn" class:active={quickReactionsEnabled} on:click={toggleMoreQuickReactsAddon}>
+											{quickReactionsEnabled ? 'ON' : 'OFF'}
+										</button>
+										<div class="runtime-note">
+											Custom quick set: {$quickReactionSettingsStore.customEmojiIds.length}/{MAX_CUSTOM_QUICK_REACTION_EMOJIS}
+										</div>
+									</div>
+									<div class="settings-row-actions">
+										<select class="theme-select" bind:value={quickReactionCustomEmojiIdDraft}>
+											<option value="">Select emoji to add</option>
+											{#each $emojis as emoji (emoji.id)}
+												<option value={emoji.id}>
+													{emoji.displayName || emoji.name} ({emoji.name})
+												</option>
+											{/each}
+										</select>
+										<button class="action-btn" on:click={addCustomQuickReactionEmoji} disabled={!quickReactionCustomEmojiIdDraft.trim()}>
+											Add Emoji
+										</button>
+										<button class="action-btn secondary" on:click={clearCustomQuickReactionEmojis} disabled={$quickReactionSettingsStore.customEmojiIds.length === 0}>
+											Clear Custom
+										</button>
+									</div>
+									{#if quickReactionCustomEmojiEntries.length === 0}
+										<div class="runtime-note">No custom quick reactions configured. Wabi will fall back to smart defaults.</div>
+									{:else}
+										<div class="quick-reaction-settings-list">
+											{#each quickReactionCustomEmojiEntries as emoji (emoji.id)}
+												<div class="quick-reaction-settings-row">
+													<img
+														src={emoji.url}
+														alt={emoji.displayName || emoji.name}
+														class="quick-reaction-settings-emoji"
+														loading="lazy"
+														decoding="async"
+													/>
+													<div class="quick-reaction-settings-name">{emoji.displayName || emoji.name}</div>
+													<button class="action-btn danger" on:click={() => removeCustomQuickReactionEmoji(emoji.id)}>
+														Remove
+													</button>
+												</div>
+											{/each}
+										</div>
+									{/if}
+									{#if quickReactionSettingsStatus}
+										<div class="runtime-note">{quickReactionSettingsStatus}</div>
+									{/if}
+									<div class="runtime-note">
+										Local usage counters (device-only):
+										quick-strip clicks {$quickReactionTelemetryStore.quickStripClicks},
+										picker opens {$quickReactionTelemetryStore.pickerOpens},
+										quick-strip share {formatQuickReactionShare(quickReactionClickShare)}.
+									</div>
+									<div class="settings-row-actions">
+										<button
+											class="action-btn secondary"
+											on:click={resetMoreQuickReactsTelemetry}
+											disabled={$quickReactionTelemetryStore.quickStripClicks + $quickReactionTelemetryStore.pickerOpens === 0}
+										>
+											Reset Usage Counters
+										</button>
+									</div>
+								</div>
+
+								<div class="setting-item-full">
+									<div class="setting-info">
+										<span class="setting-label">PinDMs (MVP)</span>
+										<span class="setting-description">Pin conversations from the DM context menu to keep them at the top.</span>
+									</div>
 								<div class="runtime-note">Pinned conversations: {pinnedDmConversationCount}</div>
 								<div class="settings-row-actions">
 									<button class="action-btn secondary" on:click={clearAllPinnedDmConversations} disabled={pinnedDmConversationCount === 0}>
@@ -3293,7 +4641,7 @@
 													on:click={() => removeBulkEmoji(index)}
 													title="Remove"
 												>
-													×
+													&times;
 												</button>
 											</div>
 										{/each}
@@ -3863,6 +5211,21 @@
 		margin-bottom: 0.55rem;
 	}
 
+	.timed-theme-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+		gap: 0.55rem;
+		margin-bottom: 0.55rem;
+	}
+
+	.timed-theme-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		font-size: 0.78rem;
+		color: var(--text-secondary);
+	}
+
 	.alias-input {
 		min-width: 220px;
 	}
@@ -3877,6 +5240,76 @@
 		border: 1px solid var(--ui-bg-light);
 		border-radius: 8px;
 		padding: 0.6rem 0.75rem;
+	}
+
+	.quick-reaction-settings-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.45rem;
+	}
+
+	.custom-status-preset-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.45rem;
+	}
+
+	.custom-status-preset-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.55rem;
+		padding: 0.55rem 0.65rem;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: var(--bg-secondary);
+	}
+
+	.custom-status-preset-main {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		min-width: 0;
+	}
+
+	.custom-status-preset-label {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.custom-status-preset-meta {
+		font-size: 0.82rem;
+		color: var(--text-secondary);
+		max-width: 42ch;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.quick-reaction-settings-row {
+		display: flex;
+		align-items: center;
+		gap: 0.55rem;
+		padding: 0.5rem 0.6rem;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: var(--bg-secondary);
+	}
+
+	.quick-reaction-settings-emoji {
+		width: 24px;
+		height: 24px;
+		object-fit: contain;
+		flex-shrink: 0;
+	}
+
+	.quick-reaction-settings-name {
+		font-size: 0.88rem;
+		color: var(--text-primary);
+		flex: 1;
+		min-width: 0;
 	}
 
 	.action-btn.export {
@@ -4778,3 +6211,4 @@
 		}
 	}
 </style>
+

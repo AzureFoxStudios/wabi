@@ -6,6 +6,7 @@
 	import ThemePreview from './ThemePreview.svelte';
 	import BackgroundImageEditor from './BackgroundImageEditor.svelte';
 	import type { CustomTheme } from '$lib/types/theme';
+	import { getAuthToken } from '$lib/authSession';
 
 	let customColors: CustomTheme['colors'] = {
 		bgPrimary: '#0f0c29',
@@ -29,7 +30,6 @@
 	}
 
 	async function handleSaveCustomTheme() {
-		console.log('[ThemeCustomizer] Attempting to save custom theme...');
 		try {
 			isSaving = true;
 			const customTheme: CustomTheme = {
@@ -38,24 +38,16 @@
 			};
 
 			themeStore.setCustomTheme(customTheme);
-			console.log('[ThemeCustomizer] Custom theme applied to local store.');
 
 			// Save to server if registered
-			const authToken = localStorage.getItem('authToken');
+			const authToken = getAuthToken();
 			const isRegistered = !!authToken;
-			console.log(`[ThemeCustomizer] User is ${isRegistered ? 'registered' : 'a guest'}.`);
 
 			if (isRegistered) {
-				console.log('[ThemeCustomizer] Auth token found. Attempting to save to server...');
-				// To debug, let's log the first few chars of the token
-				console.log(`[ThemeCustomizer] Auth token starts with: ${authToken?.substring(0, 8)}...`);
 				await saveThemePreferences({
 					theme_id: 'custom',
 					custom_theme: customTheme
 				});
-				console.log('[ThemeCustomizer] Server save successful.');
-			} else {
-				console.log('[ThemeCustomizer] Guest user. Theme is saved to localStorage by store subscription.');
 			}
 
 			alert('Custom theme saved!');
@@ -64,14 +56,13 @@
 			alert(`Failed to save custom theme. Please check the console for errors. Error: ${error.message}`);
 		} finally {
 			isSaving = false;
-			console.log('[ThemeCustomizer] Save process finished.');
 		}
 	}
 
 	async function handleReset() {
 		try {
 			isSaving = true;
-			const isRegistered = !!localStorage.getItem('authToken');
+			const isRegistered = !!getAuthToken();
 
 			if (isRegistered) {
 				await resetThemePreferences();

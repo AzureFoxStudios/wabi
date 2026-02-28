@@ -3,7 +3,9 @@
 	import { page } from '$app/stores';
 	import Chat from '$lib/components/Chat.svelte';
 	import { initSocket, disconnect, joinChannel } from '$lib/socket';
+	import { getAuthToken } from '$lib/authSession';
 	import { initializeTheme, watchThemeChanges, syncThemeToLocalStorage } from '$lib/theme/initTheme';
+	import { startTimedThemeModeScheduler } from '$lib/timedThemeMode';
 	import { readDetachedPanelState } from '$lib/detachedPanels';
 
 	let panelState = readDetachedPanelState($page.url);
@@ -11,6 +13,7 @@
 	let isReady = false;
 	let unsubscribeThemeWatcher: (() => void) | null = null;
 	let unsubscribeLocalStorageSync: (() => void) | null = null;
+	let stopTimedThemeScheduler: (() => void) | null = null;
 
 	$: panelState = readDetachedPanelState($page.url);
 
@@ -21,8 +24,8 @@
 		}
 
 		const username = localStorage.getItem('username');
-		const token = localStorage.getItem('authToken') || undefined;
-		const isRegistered = Boolean(token);
+		const token = getAuthToken() || undefined;
+		const isRegistered = Boolean(token || localStorage.getItem('dbUserId'));
 
 		if (!username) {
 			bootError = 'No local session found. Sign in on the main window first.';
@@ -37,6 +40,7 @@
 
 			await initializeTheme(isRegistered);
 			unsubscribeThemeWatcher = watchThemeChanges();
+			stopTimedThemeScheduler = startTimedThemeModeScheduler();
 			if (!isRegistered) {
 				unsubscribeLocalStorageSync = syncThemeToLocalStorage();
 			}
@@ -51,6 +55,7 @@
 	onDestroy(() => {
 		unsubscribeThemeWatcher?.();
 		unsubscribeLocalStorageSync?.();
+		stopTimedThemeScheduler?.();
 		disconnect();
 	});
 </script>

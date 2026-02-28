@@ -4,36 +4,11 @@ import { sessionRepository } from '../db/repositories/sessionRepository.js';
 import { settingsRepository } from '../db/repositories/settingsRepository.js';
 import { encryptionKeyRepository } from '../db/repositories/encryptionKeyRepository.js';
 import { hashPassword, verifyPassword } from '../auth/passwordHash.js';
-import { generateToken, verifyToken } from '../auth/jwt.js';
+import { generateToken } from '../auth/jwt.js';
 import { assignRole } from '../auth/roleMiddleware.js';
+import { getAuthenticatedUserIdFromRequest, setAuthCookie } from '../auth/requestAuth.js';
 
-// Get authenticated user ID from request
-function getAuthenticatedUserId(req: IncomingMessage): number | null {
-	const authHeader = req.headers.authorization;
-	if (!authHeader || !authHeader.startsWith('Bearer ')) {
-		return null;
-	}
-
-	try {
-		const token = authHeader.slice(7);
-		const payload = verifyToken(token);
-		const dbSession = sessionRepository.findById(payload.sessionId);
-		if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
-			return null;
-		}
-
-		// Verify the user still exists in the database
-		const user = userRepository.findById(payload.userId);
-		if (!user) {
-			console.log('[Auth] User deleted but session still exists:', payload.userId);
-			return null;
-		}
-
-		return payload.userId;
-	} catch {
-		return null;
-	}
-}
+const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
 // Simple in-memory rate limiting
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
@@ -211,6 +186,7 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 			isTemporary: false
 		});
 
+		setAuthCookie(res, token, SESSION_MAX_AGE_SECONDS);
 		res.writeHead(201, { 'Content-Type': 'application/json' });
 		res.end(
 			JSON.stringify({
@@ -315,6 +291,7 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 			isTemporary: false
 		});
 
+		setAuthCookie(res, token, SESSION_MAX_AGE_SECONDS);
 		res.writeHead(200, { 'Content-Type': 'application/json' });
 		res.end(
 			JSON.stringify({
@@ -425,6 +402,7 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 			isTemporary: false
 		});
 
+		setAuthCookie(res, token, SESSION_MAX_AGE_SECONDS);
 		res.writeHead(200, { 'Content-Type': 'application/json' });
 		res.end(
 			JSON.stringify({
@@ -449,7 +427,7 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 // Get user settings
 export async function handleGetUserSettings(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
-		const userId = getAuthenticatedUserId(req);
+		const userId = getAuthenticatedUserIdFromRequest(req);
 		if (!userId) {
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'User not authenticated' }));
@@ -474,7 +452,7 @@ export async function handleGetUserSettings(req: IncomingMessage, res: ServerRes
 // Get public key for a user
 export async function handleGetPublicKey(req: IncomingMessage, res: ServerResponse, userId: number): Promise<void> {
 	try {
-		const authUserId = getAuthenticatedUserId(req);
+		const authUserId = getAuthenticatedUserIdFromRequest(req);
 		if (!authUserId) {
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Not authenticated' }));
@@ -500,7 +478,7 @@ export async function handleGetPublicKey(req: IncomingMessage, res: ServerRespon
 // Store or update encryption keys for the authenticated user
 export async function handleStoreEncryptionKeys(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
-		const userId = getAuthenticatedUserId(req);
+		const userId = getAuthenticatedUserIdFromRequest(req);
 		if (!userId) {
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Not authenticated' }));
@@ -536,7 +514,7 @@ export async function handleStoreEncryptionKeys(req: IncomingMessage, res: Serve
 // Save user settings
 export async function handleSaveUserSettings(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
-		const userId = getAuthenticatedUserId(req);
+		const userId = getAuthenticatedUserIdFromRequest(req);
 		if (!userId) {
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'User not authenticated' }));

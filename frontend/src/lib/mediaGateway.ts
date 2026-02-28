@@ -1,4 +1,5 @@
 import { getServerUrl } from './serverUrl';
+import { getAuthToken } from './authSession';
 
 export type MediaGatewaySessionKind = 'voice' | 'screen' | 'recording';
 
@@ -24,11 +25,6 @@ export interface LivekitAccessTokenResponse {
 	identity: string;
 }
 
-function getAuthToken(): string | null {
-	if (typeof localStorage === 'undefined') return null;
-	return localStorage.getItem('token') || localStorage.getItem('authToken');
-}
-
 function getAuthHeaders(): HeadersInit {
 	const token = getAuthToken();
 	if (!token) {
@@ -44,6 +40,7 @@ export async function createMediaGatewaySession(channelId: string, kind: MediaGa
 	const response = await fetch(`${getServerUrl()}/api/media/gateway/session`, {
 		method: 'POST',
 		headers: getAuthHeaders(),
+		credentials: 'include',
 		body: JSON.stringify({ channelId, kind })
 	});
 
@@ -59,7 +56,8 @@ export async function createMediaGatewaySession(channelId: string, kind: MediaGa
 export async function closeMediaGatewaySession(sessionId: string): Promise<void> {
 	const response = await fetch(`${getServerUrl()}/api/media/gateway/session/${encodeURIComponent(sessionId)}/close`, {
 		method: 'POST',
-		headers: getAuthHeaders()
+		headers: getAuthHeaders(),
+		credentials: 'include'
 	});
 
 	if (!response.ok && response.status !== 404) {
@@ -72,6 +70,7 @@ export async function renewMediaGatewaySession(sessionId: string, ttlSeconds?: n
 	const response = await fetch(`${getServerUrl()}/api/media/gateway/session/${encodeURIComponent(sessionId)}/renew`, {
 		method: 'POST',
 		headers: getAuthHeaders(),
+		credentials: 'include',
 		body: JSON.stringify(typeof ttlSeconds === 'number' ? { ttlSeconds } : {})
 	});
 
@@ -87,7 +86,8 @@ export async function renewMediaGatewaySession(sessionId: string, ttlSeconds?: n
 export async function getMediaGatewaySession(sessionId: string): Promise<MediaGatewaySession | null> {
 	const response = await fetch(`${getServerUrl()}/api/media/gateway/session/${encodeURIComponent(sessionId)}`, {
 		method: 'GET',
-		headers: getAuthHeaders()
+		headers: getAuthHeaders(),
+		credentials: 'include'
 	});
 
 	if (response.status === 404) {
@@ -107,6 +107,7 @@ export async function createLivekitAccessToken(channelId: string, displayName?: 
 	const response = await fetch(`${getServerUrl()}/api/media/livekit/token`, {
 		method: 'POST',
 		headers: getAuthHeaders(),
+		credentials: 'include',
 		body: JSON.stringify({ channelId, displayName })
 	});
 

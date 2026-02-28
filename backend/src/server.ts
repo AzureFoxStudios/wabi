@@ -1,9 +1,11 @@
 import { Server } from "socket.io";
 import { createServer } from "http";
 import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync, createReadStream, openSync, closeSync, writeSync } from "fs";
-import { join, basename } from "path";
+import { join, basename, resolve, sep } from "path";
 import { createHmac, randomBytes, timingSafeEqual, createCipheriv, createDecipheriv, createHash } from "crypto";
 import { brotliCompressSync, constants as zlibConstants, gzipSync, gunzipSync } from "zlib";
+import { lookup as dnsLookup } from "dns/promises";
+import { isIP } from "net";
 import { PluginLoader } from "./plugins/loader";
 import { getAllEmojis, getEmojiByName, addCustomEmoji, deleteCustomEmoji, type Emoji } from "./emojis";
 
@@ -16,8 +18,10 @@ import { settingsRepository } from "./db/repositories/settingsRepository.js";
 import { themeRepository } from "./db/repositories/themeRepository.js";
 import { guestCodeRepository } from "./db/repositories/guestCodeRepository.js";
 import { verifyToken } from "./auth/jwt.js";
+import { getAuthenticatedUserIdFromRequest, getAuthTokenFromHeaders } from "./auth/requestAuth.js";
 import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings, handleGetPublicKey, handleStoreEncryptionKeys } from "./api/authRoutes.js";
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
+import { handleGetLaunchPageConfig } from "./api/launchPageRoutes.js";
 import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApprove, handleGetAllRelays, handleRelayDelete } from "./api/relayRoutes.js";
 import {
   handleGetMediaRuntime,
@@ -48,8 +52,11 @@ import {
   handleCreateAlbum,
   handleListAlbumItems,
   handleAddAlbumItem,
+  handleSetAlbumFeatured,
+  handleReorderAlbumItems,
   handleDeleteAlbum,
-  handleDeleteAlbumItem
+  handleDeleteAlbumItem,
+  type AlbumUploadLimitConfig
 } from "./api/albumRoutes.js";
 import { relayRepository } from "./db/repositories/relayRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
@@ -61,6 +68,7 @@ import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
 import { dispatchWebhookEvent } from "./webhooks/deliveryService.js";
 import {
   getCompressionMetricsSnapshot,
+  recordClientVideoCompressionSample,
   recordCompressionDownloadSample,
   recordCompressionUploadSample,
   resetCompressionMetrics
@@ -158,11 +166,218 @@ interface RuntimeTuningConfig {
   heavyProfilingSampleRate: number;
 }
 
-type PolicyKey = 'upload_limits' | 'download_limits' | 'runtime_tuning';
+type PolicyKey = 'upload_limits' | 'download_limits' | 'runtime_tuning' | 'album_upload_limits';
 const UPLOAD_LIMITS_POLICY_KEY: PolicyKey = 'upload_limits';
 const RUNTIME_TUNING_POLICY_KEY: PolicyKey = 'runtime_tuning';
+const ALBUM_UPLOAD_LIMITS_POLICY_KEY: PolicyKey = 'album_upload_limits';
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
+type VideoCompressionTelemetryOutcome = 'success' | 'failure' | 'cancelled' | 'skipped';
+type VideoCompressionTelemetryRuntime = 'desktop' | 'android' | 'ios' | 'web' | 'unknown';
+type VideoCompressionPresetId = 'mobile_540p' | 'balanced_720p' | 'quality_1080p';
+type VideoCompressionCodec = 'vp9' | 'vp8' | 'h264' | 'hevc' | 'av1' | 'unknown';
+const VIDEO_COMPRESSION_TELEMETRY_WINDOW_MS = 60_000;
+const VIDEO_COMPRESSION_TELEMETRY_MAX_EVENTS_PER_WINDOW = 180;
+const videoCompressionTelemetryBudget = new Map<string, { windowStart: number; count: number }>();
+
+interface UploadVideoCompressionMeta {
+  scheme: 'wabi-video-compression-v1';
+  runtime: VideoCompressionTelemetryRuntime;
+  preset: VideoCompressionPresetId;
+  originalSize: number;
+  compressedSize: number;
+  codec: VideoCompressionCodec;
+  mimeType: string;
+  durationMs: number;
+  estimatedOutputBytes?: number;
+}
+
+interface UploadVideoCompressionVerificationMeta {
+  scheme: 'wabi-video-compression-v1';
+  runtime: VideoCompressionTelemetryRuntime;
+  preset: VideoCompressionPresetId;
+  verified: boolean;
+  verifiedAt: number;
+  originalSize: number;
+  uploadedSize: number;
+  compressedSizeClaimed: number;
+  codecClaimed: VideoCompressionCodec;
+  codecDetected: VideoCompressionCodec;
+  mimeTypeClaimed: string;
+  mimeTypeStored: string;
+  ratio: number | null;
+  notes?: string[];
+}
+
+function sanitizeVideoCompressionPreset(value: unknown): VideoCompressionPresetId | null {
+  if (value === 'mobile_540p' || value === 'balanced_720p' || value === 'quality_1080p') {
+    return value;
+  }
+  return null;
+}
+
+function sanitizeVideoCompressionCodec(value: unknown): VideoCompressionCodec | null {
+  if (value === 'vp9' || value === 'vp8' || value === 'h264' || value === 'hevc' || value === 'av1' || value === 'unknown') {
+    return value;
+  }
+  return null;
+}
+
+function sanitizeUploadVideoCompressionMeta(
+  payload: unknown,
+  expectedCompressedSize: number
+): UploadVideoCompressionMeta | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const candidate = payload as Record<string, unknown>;
+  if (candidate.scheme !== 'wabi-video-compression-v1') return null;
+
+  const runtime = sanitizeVideoCompressionTelemetryRuntime(candidate.runtime);
+  const preset = sanitizeVideoCompressionPreset(candidate.preset);
+  const originalSize = sanitizeTelemetryNumericValue(candidate.originalSize, expectedCompressedSize, 10 * GB);
+  const compressedSize = sanitizeTelemetryNumericValue(candidate.compressedSize, expectedCompressedSize, expectedCompressedSize);
+  const codec = sanitizeVideoCompressionCodec(candidate.codec) || 'unknown';
+  const durationMs = sanitizeTelemetryNumericValue(candidate.durationMs, 1, 6 * 60 * 60 * 1000);
+  const estimatedOutputBytes = sanitizeTelemetryNumericValue(candidate.estimatedOutputBytes, 1, 10 * GB);
+  const mimeType = typeof candidate.mimeType === 'string'
+    ? candidate.mimeType.trim().toLowerCase().slice(0, 120)
+    : '';
+
+  if (!runtime || !preset || !originalSize || !compressedSize || !durationMs || !mimeType) {
+    return null;
+  }
+
+  return {
+    scheme: 'wabi-video-compression-v1',
+    runtime,
+    preset,
+    originalSize,
+    compressedSize,
+    codec,
+    mimeType,
+    durationMs,
+    ...(estimatedOutputBytes ? { estimatedOutputBytes } : {})
+  };
+}
+
+function detectVideoCodecFromStoredUpload(fileName: string, mimeType: string): VideoCompressionCodec {
+  const lowerMime = (mimeType || '').toLowerCase();
+  const lowerName = (fileName || '').toLowerCase();
+  if (lowerMime.includes('vp9')) return 'vp9';
+  if (lowerMime.includes('vp8')) return 'vp8';
+  if (lowerMime.includes('av1')) return 'av1';
+  if (lowerMime.includes('hevc') || lowerMime.includes('h265')) return 'hevc';
+  if (lowerMime.includes('avc') || lowerMime.includes('h264')) return 'h264';
+  if (lowerName.endsWith('.webm')) return 'vp9';
+  if (lowerName.endsWith('.mov') || lowerName.endsWith('.m4v') || lowerName.endsWith('.mp4')) return 'h264';
+  return 'unknown';
+}
+
+function verifyUploadVideoCompressionMeta(
+  claimed: UploadVideoCompressionMeta,
+  uploadedSize: number,
+  storedMimeType: string,
+  storedFileName: string
+): UploadVideoCompressionVerificationMeta {
+  const notes: string[] = [];
+  let verified = true;
+
+  if (claimed.compressedSize !== uploadedSize) {
+    verified = false;
+    notes.push('compressed_size_mismatch');
+  }
+  if (claimed.originalSize < uploadedSize) {
+    verified = false;
+    notes.push('original_size_below_uploaded_size');
+  }
+  const codecDetected = detectVideoCodecFromStoredUpload(storedFileName, storedMimeType);
+  if (claimed.codec !== 'unknown' && codecDetected !== 'unknown' && claimed.codec !== codecDetected) {
+    verified = false;
+    notes.push('codec_mismatch');
+  }
+  if (claimed.mimeType !== storedMimeType) {
+    notes.push('mime_type_changed_after_upload');
+  }
+
+  const ratioRaw = claimed.originalSize > 0 ? uploadedSize / claimed.originalSize : null;
+  const ratio = ratioRaw === null ? null : Math.round(ratioRaw * 1_000_000) / 1_000_000;
+  if (ratio !== null && ratio >= 1) {
+    verified = false;
+    notes.push('no_size_reduction');
+  }
+
+  return {
+    scheme: 'wabi-video-compression-v1',
+    runtime: claimed.runtime,
+    preset: claimed.preset,
+    verified,
+    verifiedAt: Date.now(),
+    originalSize: claimed.originalSize,
+    uploadedSize,
+    compressedSizeClaimed: claimed.compressedSize,
+    codecClaimed: claimed.codec,
+    codecDetected,
+    mimeTypeClaimed: claimed.mimeType,
+    mimeTypeStored: storedMimeType,
+    ratio,
+    ...(notes.length > 0 ? { notes } : {})
+  };
+}
+
+function sanitizeVideoCompressionTelemetryOutcome(
+  value: unknown
+): VideoCompressionTelemetryOutcome | null {
+  if (value === 'success' || value === 'failure' || value === 'cancelled' || value === 'skipped') {
+    return value;
+  }
+  return null;
+}
+
+function sanitizeVideoCompressionTelemetryRuntime(
+  value: unknown
+): VideoCompressionTelemetryRuntime | null {
+  if (value === 'desktop' || value === 'android' || value === 'ios' || value === 'web' || value === 'unknown') {
+    return value;
+  }
+  return null;
+}
+
+function sanitizeTelemetryNumericValue(
+  value: unknown,
+  min: number,
+  max: number
+): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const rounded = Math.round(n);
+  if (rounded < min || rounded > max) return null;
+  return rounded;
+}
+
+function sanitizeTelemetryString(value: unknown, maxLength: number): string | null {
+  if (typeof value !== 'string') return null;
+  const cleaned = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]/g, '_')
+    .slice(0, maxLength);
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+function consumeVideoCompressionTelemetryQuota(ownerKey: string): boolean {
+  const now = Date.now();
+  const current = videoCompressionTelemetryBudget.get(ownerKey);
+  if (!current || now - current.windowStart >= VIDEO_COMPRESSION_TELEMETRY_WINDOW_MS) {
+    videoCompressionTelemetryBudget.set(ownerKey, { windowStart: now, count: 1 });
+    return true;
+  }
+  if (current.count >= VIDEO_COMPRESSION_TELEMETRY_MAX_EVENTS_PER_WINDOW) {
+    return false;
+  }
+  current.count += 1;
+  videoCompressionTelemetryBudget.set(ownerKey, current);
+  return true;
+}
 
 const DEFAULT_UPLOAD_LIMIT_CONFIG: UploadLimitConfig = {
   perRoleBytes: {
@@ -193,6 +408,24 @@ const DEFAULT_RUNTIME_TUNING_CONFIG: RuntimeTuningConfig = {
   heavyProfilingSampleRate: 0.1
 };
 
+const DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG: AlbumUploadLimitConfig = {
+  perRoleItemsPerMinute: {
+    new: 6,
+    trusted: 24,
+    moderator: 90,
+    admin: 180,
+    owner: 240
+  },
+  perRoleMaxBytesPerItem: {
+    new: 25 * MB,
+    trusted: 300 * MB,
+    moderator: 1024 * MB,
+    admin: null,
+    owner: null
+  },
+  perScopeItemsPerMinute: 420
+};
+
 function cloneDefaultUploadLimits(): UploadLimitConfig {
   return {
     perRoleBytes: { ...DEFAULT_UPLOAD_LIMIT_CONFIG.perRoleBytes },
@@ -213,11 +446,25 @@ function cloneDefaultRuntimeTuning(): RuntimeTuningConfig {
   };
 }
 
+function cloneDefaultAlbumUploadLimits(): AlbumUploadLimitConfig {
+  return {
+    perRoleItemsPerMinute: { ...DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleItemsPerMinute },
+    perRoleMaxBytesPerItem: { ...DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleMaxBytesPerItem },
+    perScopeItemsPerMinute: DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perScopeItemsPerMinute
+  };
+}
+
 function normalizeLimitValue(value: unknown): UploadLimitBytes {
   if (value === null || value === undefined) return null;
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.floor(n);
+}
+
+function normalizeCountValue(value: unknown, fallback: number, min: number, max: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(n)));
 }
 
 function sanitizeUploadLimitConfig(raw: unknown): UploadLimitConfig {
@@ -285,6 +532,46 @@ function sanitizeRuntimeTuningConfig(raw: unknown): RuntimeTuningConfig {
   return config;
 }
 
+function sanitizeAlbumUploadLimitConfig(raw: unknown): AlbumUploadLimitConfig {
+  const config = cloneDefaultAlbumUploadLimits();
+  if (!raw || typeof raw !== 'object') return config;
+
+  const input = raw as Partial<AlbumUploadLimitConfig>;
+  const perRoleRates = input.perRoleItemsPerMinute as Partial<Record<RolePolicyTier, unknown>> | undefined;
+  if (perRoleRates && typeof perRoleRates === 'object') {
+    for (const tier of ['new', 'trusted', 'moderator', 'admin', 'owner'] as RolePolicyTier[]) {
+      if (Object.prototype.hasOwnProperty.call(perRoleRates, tier)) {
+        config.perRoleItemsPerMinute[tier] = normalizeCountValue(
+          perRoleRates[tier],
+          config.perRoleItemsPerMinute[tier],
+          1,
+          5000
+        );
+      }
+    }
+  }
+
+  const perRoleBytes = input.perRoleMaxBytesPerItem as Partial<Record<RolePolicyTier, unknown>> | undefined;
+  if (perRoleBytes && typeof perRoleBytes === 'object') {
+    for (const tier of ['new', 'trusted', 'moderator', 'admin', 'owner'] as RolePolicyTier[]) {
+      if (Object.prototype.hasOwnProperty.call(perRoleBytes, tier)) {
+        config.perRoleMaxBytesPerItem[tier] = normalizeLimitValue(perRoleBytes[tier]);
+      }
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, 'perScopeItemsPerMinute')) {
+    config.perScopeItemsPerMinute = normalizeCountValue(
+      input.perScopeItemsPerMinute,
+      config.perScopeItemsPerMinute,
+      1,
+      20000
+    );
+  }
+
+  return config;
+}
+
 interface PolicyDefinition<TValue> {
   defaultValue: TValue;
   sanitize: (raw: unknown) => TValue;
@@ -302,6 +589,10 @@ const POLICY_DEFINITIONS: Record<PolicyKey, PolicyDefinition<unknown>> = {
   runtime_tuning: {
     defaultValue: cloneDefaultRuntimeTuning(),
     sanitize: sanitizeRuntimeTuningConfig
+  },
+  album_upload_limits: {
+    defaultValue: cloneDefaultAlbumUploadLimits(),
+    sanitize: sanitizeAlbumUploadLimitConfig
   }
 };
 
@@ -834,30 +1125,10 @@ function scheduleMessageDeletion(channelId: string, messageId: string, duration:
     const message = messages[messageIndex];
 
     // Delete associated files from filesystem
-    if (message.fileUrl) {
-      const fileName = message.fileUrl.replace('/uploads/', '');
-      const filePath = join(UPLOADS_DIR, fileName);
-      try {
-        if (existsSync(filePath)) {
-          unlinkSync(filePath);
-        }
-      } catch (err) {
-        console.error(`Failed to delete file: ${fileName}`, err);
-      }
-    }
-
-    // Delete multiple files if present
+    deleteUploadFileByUrl(message.fileUrl, 'auto-delete');
     if (message.files && message.files.length > 0) {
       for (const file of message.files) {
-        const fileName = file.fileUrl.replace('/uploads/', '');
-        const filePath = join(UPLOADS_DIR, fileName);
-        try {
-          if (existsSync(filePath)) {
-            unlinkSync(filePath);
-          }
-        } catch (err) {
-          console.error(`Failed to delete file: ${fileName}`, err);
-        }
+        deleteUploadFileByUrl(file.fileUrl, 'auto-delete');
       }
     }
 
@@ -1048,6 +1319,10 @@ const EMOTES_DIR = join(STATIC_DIR, "emotes");
 const ENABLE_LOGGING = process.env.ENABLE_LOGGING === 'true';
 const PLUGINS_ENABLED = envFlag(process.env.PLUGINS_ENABLED, false);
 const PLUGINS_ALLOW_INSTALL = envFlag(process.env.PLUGINS_ALLOW_INSTALL, false);
+const VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED = envFlag(
+  process.env.WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED,
+  false
+);
 
 // Ensure emotes directory exists
 if (!existsSync(EMOTES_DIR)) {
@@ -1075,6 +1350,8 @@ interface ResumableUploadMeta {
   status: 'uploading' | 'completed';
   fileUrl?: string;
   attachmentStorage?: AttachmentStorageMeta;
+  videoCompression?: UploadVideoCompressionMeta;
+  videoCompressionVerification?: UploadVideoCompressionVerificationMeta;
 }
 
 interface AttachmentEncryptionMeta {
@@ -1102,7 +1379,10 @@ const FILE_ENCRYPTION_SECRET = process.env.FILE_ENCRYPTION_KEY || '';
 const FILE_ENCRYPTION_KEY = FILE_ENCRYPTION_SECRET
   ? createHash('sha256').update(FILE_ENCRYPTION_SECRET).digest()
   : null;
-const UPLOAD_TOKEN_SECRET = process.env.UPLOAD_TOKEN_SECRET || process.env.JWT_SECRET || process.env.SESSION_SECRET || 'wabi-upload-secret-change-me';
+const UPLOAD_TOKEN_SECRET = (process.env.UPLOAD_TOKEN_SECRET || process.env.JWT_SECRET || process.env.SESSION_SECRET || '').trim();
+if (!UPLOAD_TOKEN_SECRET) {
+  throw new Error('UPLOAD_TOKEN_SECRET (or JWT_SECRET/SESSION_SECRET) must be configured');
+}
 const UPLOAD_TOKEN_TTL_MS = 15 * 60 * 1000;
 
 function base64UrlEncodeBuffer(buf: Buffer): string {
@@ -1370,6 +1650,80 @@ function sanitizeUploadFileName(fileName: string): string {
   return base.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
 }
 
+function createUploadFileId(prefix: string, fileName: string): string {
+  const safeName = sanitizeUploadFileName(fileName || 'upload.bin');
+  const nonce = randomBytes(6).toString('hex');
+  return `${prefix}${Date.now()}-${nonce}-${safeName}`;
+}
+
+function normalizeUploadFileIdFromUrl(fileUrl: string | undefined | null): string | null {
+  if (typeof fileUrl !== 'string' || !fileUrl.startsWith('/uploads/')) return null;
+  const rawSegment = fileUrl.slice('/uploads/'.length);
+  if (!rawSegment) return null;
+
+  let decoded = rawSegment;
+  try {
+    decoded = decodeURIComponent(rawSegment);
+  } catch {
+    return null;
+  }
+
+  const normalized = decoded.replace(/\\/g, '/');
+  if (normalized.includes('/')) return null;
+  const safeId = basename(normalized);
+  if (!safeId || safeId === '.' || safeId === '..') return null;
+  return safeId;
+}
+
+function resolveUploadPath(fileId: string): string | null {
+  const safeId = basename(fileId || '');
+  if (!safeId) return null;
+  const uploadsRoot = resolve(UPLOADS_DIR);
+  const candidate = resolve(uploadsRoot, safeId);
+  if (candidate !== uploadsRoot && !candidate.startsWith(`${uploadsRoot}${sep}`)) {
+    return null;
+  }
+  return candidate;
+}
+
+function normalizeClientUploadUrl(fileUrl: string | undefined | null): string | null {
+  const fileId = normalizeUploadFileIdFromUrl(fileUrl);
+  if (!fileId) return null;
+  return `/uploads/${fileId}`;
+}
+
+function deleteUploadFileByUrl(fileUrl: string | undefined | null, logLabel: string): void {
+  const fileId = normalizeUploadFileIdFromUrl(fileUrl);
+  if (!fileId) return;
+  const filePath = resolveUploadPath(fileId);
+  if (!filePath) return;
+
+  try {
+    if (existsSync(filePath)) {
+      unlinkSync(filePath);
+      if (ENABLE_LOGGING) {
+        console.log(`[${logLabel}] Deleted upload file: ${fileId}`);
+      }
+    }
+  } catch (error) {
+    console.error(`[${logLabel}] Failed to delete upload file ${fileId}:`, error);
+  }
+}
+
+function normalizeClientFileAttachment(
+  file: { fileUrl: string; fileName: string; fileSize: number; attachmentEncryption?: AttachmentEncryptionMeta; attachmentStorage?: AttachmentStorageMeta }
+): { fileUrl: string; fileName: string; fileSize: number; attachmentEncryption?: AttachmentEncryptionMeta; attachmentStorage?: AttachmentStorageMeta } | null {
+  const normalizedUrl = normalizeClientUploadUrl(file.fileUrl);
+  if (!normalizedUrl) return null;
+  return {
+    fileUrl: normalizedUrl,
+    fileName: sanitizeUploadFileName(file.fileName || basename(normalizedUrl)),
+    fileSize: Number.isFinite(file.fileSize) ? Math.max(0, Math.floor(file.fileSize)) : 0,
+    attachmentEncryption: file.attachmentEncryption,
+    attachmentStorage: file.attachmentStorage
+  };
+}
+
 function getUploadOwnerKey(userId: number | null, guestSessionId: string | null): string | null {
   if (userId) return `user:${userId}`;
   if (guestSessionId && sessions.has(guestSessionId)) return `guest:${guestSessionId}`;
@@ -1460,6 +1814,110 @@ function getUploadTokenFromRequest(req: any, url: URL): string {
   return queryToken?.trim() || '';
 }
 
+function isPrivateOrReservedIpv4(ip: string): boolean {
+  const octets = ip.split('.').map((part) => Number.parseInt(part, 10));
+  if (octets.length !== 4 || octets.some((value) => !Number.isInteger(value) || value < 0 || value > 255)) {
+    return true;
+  }
+  const [a, b] = octets;
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  if (a >= 224) return true;
+  return false;
+}
+
+function isPrivateOrReservedIpv6(ip: string): boolean {
+  const normalized = ip.toLowerCase();
+  if (normalized === '::' || normalized === '::1') return true;
+  if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
+  if (normalized.startsWith('fe8') || normalized.startsWith('fe9') || normalized.startsWith('fea') || normalized.startsWith('feb')) {
+    return true;
+  }
+  return false;
+}
+
+function isBlockedHostName(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized === 'localhost' || normalized.endsWith('.localhost');
+}
+
+function isPrivateOrReservedIp(ip: string): boolean {
+  const version = isIP(ip);
+  if (version === 4) return isPrivateOrReservedIpv4(ip);
+  if (version === 6) return isPrivateOrReservedIpv6(ip);
+  return true;
+}
+
+async function assertSafeExternalUrl(rawUrl: string): Promise<URL> {
+  const parsed = new URL(rawUrl);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Only HTTP(S) URLs are allowed');
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error('Credentialed URLs are not allowed');
+  }
+  if (isBlockedHostName(parsed.hostname)) {
+    throw new Error('Hostname is not allowed');
+  }
+
+  if (isIP(parsed.hostname) > 0) {
+    if (isPrivateOrReservedIp(parsed.hostname)) {
+      throw new Error('Private or reserved IPs are not allowed');
+    }
+    return parsed;
+  }
+
+  let records: Awaited<ReturnType<typeof dnsLookup>>;
+  try {
+    records = await dnsLookup(parsed.hostname, { all: true, verbatim: true });
+  } catch {
+    throw new Error('Failed to resolve target host');
+  }
+  if (!Array.isArray(records) || records.length === 0) {
+    throw new Error('Failed to resolve target host');
+  }
+  for (const record of records) {
+    if (isPrivateOrReservedIp(record.address)) {
+      throw new Error('Resolved host maps to a blocked IP range');
+    }
+  }
+  return parsed;
+}
+
+function isRedirectStatusCode(statusCode: number): boolean {
+  return statusCode === 301 || statusCode === 302 || statusCode === 303 || statusCode === 307 || statusCode === 308;
+}
+
+async function fetchExternalUrlWithGuards(
+  rawUrl: string,
+  init: RequestInit,
+  maxRedirects = 3
+): Promise<Response> {
+  let nextUrl = await assertSafeExternalUrl(rawUrl);
+  for (let hop = 0; hop <= maxRedirects; hop += 1) {
+    const response = await fetch(nextUrl.toString(), {
+      ...init,
+      redirect: 'manual'
+    });
+    if (!isRedirectStatusCode(response.status)) {
+      return response;
+    }
+    const location = response.headers.get('location');
+    if (!location) {
+      return response;
+    }
+    if (hop === maxRedirects) {
+      throw new Error('Too many redirects');
+    }
+    const redirected = new URL(location, nextUrl);
+    nextUrl = await assertSafeExternalUrl(redirected.toString());
+  }
+  throw new Error('Too many redirects');
+}
+
 // Create HTTP server using Node.js http module (Bun compatible)
 const server = createServer();
 
@@ -1484,22 +1942,7 @@ const io = new Server(server, {
 
 // Helper function to verify auth token from request
 function getAuthenticatedUserId(req: any): number | null {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null;
-  }
-
-  try {
-    const token = authHeader.slice(7);
-    const payload = verifyToken(token);
-    const dbSession = sessionRepository.findById(payload.sessionId);
-    if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
-      return null;
-    }
-    return payload.userId;
-  } catch {
-    return null;
-  }
+  return getAuthenticatedUserIdFromRequest(req);
 }
 
 function isPluginAdmin(userId: number | null): boolean {
@@ -2032,8 +2475,13 @@ server.on('request', async (req, res) => {
             return;
           }
 
-          const fileId = `pfp-${Date.now()}-${profilePictureFileName}`;
-          const filePath = join(UPLOADS_DIR, fileId);
+          const fileId = createUploadFileId('pfp-', profilePictureFileName);
+          const filePath = resolveUploadPath(fileId);
+          if (!filePath) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: 'Failed to resolve upload path' }));
+            return;
+          }
 
           if (!existsSync(UPLOADS_DIR)) {
             mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -2130,8 +2578,13 @@ server.on('request', async (req, res) => {
             return;
           }
 
-          const fileId = `group-avatar-${Date.now()}-${avatarFileName}`;
-          const filePath = join(UPLOADS_DIR, fileId);
+          const fileId = createUploadFileId('group-avatar-', avatarFileName);
+          const filePath = resolveUploadPath(fileId);
+          if (!filePath) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: 'Failed to resolve upload path' }));
+            return;
+          }
 
           if (!existsSync(UPLOADS_DIR)) {
             mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -2216,8 +2669,13 @@ server.on('request', async (req, res) => {
             return;
           }
 
-          const fileId = `bg-${Date.now()}-${backgroundImageFileName}`;
-          const filePath = join(UPLOADS_DIR, fileId);
+          const fileId = createUploadFileId('bg-', backgroundImageFileName);
+          const filePath = resolveUploadPath(fileId);
+          if (!filePath) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: 'Failed to resolve upload path' }));
+            return;
+          }
 
           if (!existsSync(UPLOADS_DIR)) {
             mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -2244,6 +2702,78 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/api/telemetry/video-compression" && req.method === "POST") {
+    if (!VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED) {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    const userId = getAuthenticatedUserId(req);
+    const guestSessionId = getGuestSessionId(req);
+    const ownerKey = getUploadOwnerKey(userId, guestSessionId);
+    if (!ownerKey) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    if (!consumeVideoCompressionTelemetryQuota(ownerKey)) {
+      res.writeHead(429, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Telemetry rate limit exceeded' }));
+      return;
+    }
+
+    try {
+      const payload = JSON.parse((await readRequestBuffer(req)).toString() || '{}') as {
+        outcome?: unknown;
+        runtime?: unknown;
+        preset?: unknown;
+        inputBytes?: unknown;
+        outputBytes?: unknown;
+        durationMs?: unknown;
+        failureCode?: unknown;
+      };
+
+      const outcome = sanitizeVideoCompressionTelemetryOutcome(payload.outcome);
+      const runtime = sanitizeVideoCompressionTelemetryRuntime(payload.runtime);
+      const preset = sanitizeTelemetryString(payload.preset, 48);
+      const inputBytes = sanitizeTelemetryNumericValue(payload.inputBytes, 1, 5 * GB);
+      const outputBytes = sanitizeTelemetryNumericValue(payload.outputBytes, 0, 5 * GB);
+      const durationMs = sanitizeTelemetryNumericValue(payload.durationMs, 0, 30 * 60 * 1000);
+      const failureCode = sanitizeTelemetryString(payload.failureCode, 64);
+
+      if (!outcome || !runtime || !preset || inputBytes === null) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Invalid telemetry payload' }));
+        return;
+      }
+      if (outcome === 'success' && outputBytes === null) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Successful telemetry must include outputBytes' }));
+        return;
+      }
+
+      recordClientVideoCompressionSample({
+        timestamp: Date.now(),
+        runtime,
+        preset,
+        outcome,
+        inputBytes,
+        outputBytes,
+        durationMs,
+        failureCode
+      });
+
+      res.writeHead(202, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true }));
+    } catch (error) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Invalid telemetry payload' }));
+    }
+    return;
+  }
+
   // File upload endpoint
   if (url.pathname === "/api/upload/resumable/init" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
@@ -2262,12 +2792,14 @@ server.on('request', async (req, res) => {
         fileSize?: number;
         mimeType?: string;
         channelId?: string;
+        videoCompression?: unknown;
       };
 
       const fileName = sanitizeUploadFileName(payload.fileName || '');
       const fileSize = Number(payload.fileSize || 0);
       const mimeType = (payload.mimeType || 'application/octet-stream').slice(0, 100);
       const channelId = (payload.channelId || '').slice(0, 100);
+      const videoCompression = sanitizeUploadVideoCompressionMeta(payload.videoCompression, fileSize);
 
       if (!fileName || !fileSize || fileSize <= 0 || !Number.isFinite(fileSize)) {
         res.writeHead(400, { "Content-Type": "application/json" });
@@ -2300,12 +2832,30 @@ server.on('request', async (req, res) => {
           channelId,
           createdAt: Date.now(),
           updatedAt: Date.now(),
-          status: 'uploading'
+          status: 'uploading',
+          ...(videoCompression ? { videoCompression } : {})
         };
         saveResumableMeta(meta);
       }
 
       const uploadedBytes = getUploadedBytes(uploadId);
+      if (meta && videoCompression && uploadedBytes === 0) {
+        const existing = meta.videoCompression;
+        const changed =
+          !existing ||
+          existing.originalSize !== videoCompression.originalSize ||
+          existing.compressedSize !== videoCompression.compressedSize ||
+          existing.preset !== videoCompression.preset ||
+          existing.runtime !== videoCompression.runtime ||
+          existing.codec !== videoCompression.codec ||
+          existing.mimeType !== videoCompression.mimeType;
+        if (changed) {
+          meta.videoCompression = videoCompression;
+          meta.videoCompressionVerification = undefined;
+          meta.updatedAt = Date.now();
+          saveResumableMeta(meta);
+        }
+      }
       const completed = !!meta?.fileUrl || (meta?.status === 'completed' && typeof meta.fileUrl === 'string');
 
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -2315,6 +2865,7 @@ server.on('request', async (req, res) => {
         uploadedBytes,
         completed,
         fileUrl: meta?.fileUrl || null,
+        videoCompression: meta?.videoCompressionVerification || null,
         uploadToken: signUploadToken(uploadId, ownerKey)
       }));
     } catch (error) {
@@ -2364,6 +2915,7 @@ server.on('request', async (req, res) => {
       fileSize: meta.fileSize,
       completed: meta.status === 'completed',
       fileUrl: meta.fileUrl || null,
+      videoCompression: meta.videoCompressionVerification || null,
       uploadToken: signUploadToken(uploadId, ownerKey)
     }));
     return;
@@ -2515,7 +3067,8 @@ server.on('request', async (req, res) => {
           fileUrl: meta.fileUrl,
           fileName: meta.fileName,
           fileSize: meta.fileSize,
-          attachmentStorage: meta.attachmentStorage
+          attachmentStorage: meta.attachmentStorage,
+          videoCompression: meta.videoCompressionVerification || null
         }));
         return;
       }
@@ -2532,8 +3085,13 @@ server.on('request', async (req, res) => {
         return;
       }
 
-      const fileId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${meta.fileName}`;
-      const filePath = join(UPLOADS_DIR, fileId);
+      const fileId = createUploadFileId('upload-', meta.fileName);
+      const filePath = resolveUploadPath(fileId);
+      if (!filePath) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Failed to resolve upload path' }));
+        return;
+      }
       const partPath = getResumablePartPath(uploadId);
       const finalPlain = readFileSync(partPath);
       const storageResult = maybeCompressUploadPayload(meta.fileName, meta.mimeType || 'application/octet-stream', finalPlain, `${ownerKey}:${meta.fileName}:${meta.fileSize}`);
@@ -2554,6 +3112,16 @@ server.on('request', async (req, res) => {
       meta.status = 'completed';
       meta.fileUrl = `/uploads/${fileId}`;
       meta.attachmentStorage = { ...storageResult.meta, storedSize: storedBytes };
+      if (meta.videoCompression) {
+        meta.videoCompressionVerification = verifyUploadVideoCompressionMeta(
+          meta.videoCompression,
+          meta.fileSize,
+          meta.mimeType || 'application/octet-stream',
+          meta.fileName
+        );
+      } else {
+        meta.videoCompressionVerification = undefined;
+      }
       meta.updatedAt = Date.now();
       saveResumableMeta(meta);
 
@@ -2563,7 +3131,8 @@ server.on('request', async (req, res) => {
         fileUrl: meta.fileUrl,
         fileName: meta.fileName,
         fileSize: meta.fileSize,
-        attachmentStorage: meta.attachmentStorage
+        attachmentStorage: meta.attachmentStorage,
+        videoCompression: meta.videoCompressionVerification || null
       }));
     } catch (error) {
       console.error('Resumable upload complete error:', error);
@@ -2603,10 +3172,16 @@ server.on('request', async (req, res) => {
           // Handle JSON upload (base64)
           const data = JSON.parse(buffer.toString());
           const { fileName, fileData } = data;
+          const safeFileName = sanitizeUploadFileName(fileName || 'upload.bin');
 
           // Save file
-          const fileId = `${Date.now()}-${fileName}`;
-          const filePath = join(UPLOADS_DIR, fileId);
+          const fileId = createUploadFileId('upload-', safeFileName);
+          const filePath = resolveUploadPath(fileId);
+          if (!filePath) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: 'Failed to resolve upload path' }));
+            return;
+          }
 
           // Ensure uploads dir exists (may have been wiped by redeploy)
           if (!existsSync(UPLOADS_DIR)) {
@@ -2614,17 +3189,17 @@ server.on('request', async (req, res) => {
           }
           // Convert base64 to buffer and save
           const fileBuffer = Buffer.from(fileData.split(',')[1], 'base64');
-          if (!enforceUploadLimit(res, userId, guestSessionId, fileBuffer.length, fileName, 'direct-upload')) {
+          if (!enforceUploadLimit(res, userId, guestSessionId, fileBuffer.length, safeFileName, 'direct-upload')) {
             return;
           }
           const mimeType = getMimeTypeFromDataUrl(fileData || '');
-          const storageResult = maybeCompressUploadPayload(fileName, mimeType, fileBuffer, `${ownerKey}:${fileName}:${fileBuffer.length}`);
+          const storageResult = maybeCompressUploadPayload(safeFileName, mimeType, fileBuffer, `${ownerKey}:${safeFileName}:${fileBuffer.length}`);
           writeUploadFile(filePath, storageResult.payload);
           const storedBytes = statSync(filePath).size;
           recordCompressionUploadSample({
             timestamp: Date.now(),
             source: 'direct-upload-json',
-            fileExt: getFileExtension(fileName),
+            fileExt: getFileExtension(safeFileName),
             mimeType,
             originalBytes: storageResult.meta.originalSize,
             storedBytes,
@@ -2638,7 +3213,7 @@ server.on('request', async (req, res) => {
           res.end(JSON.stringify({
             success: true,
             fileUrl,
-            fileName,
+            fileName: safeFileName,
             fileSize: fileBuffer.length,
             attachmentStorage: { ...storageResult.meta, storedSize: storedBytes }
           }));
@@ -2665,22 +3240,28 @@ server.on('request', async (req, res) => {
           }
 
           if (fileData && fileName) {
-            if (!enforceUploadLimit(res, userId, guestSessionId, fileData.length, fileName, 'direct-upload')) {
+            const safeFileName = sanitizeUploadFileName(fileName || 'upload.bin');
+            if (!enforceUploadLimit(res, userId, guestSessionId, fileData.length, safeFileName, 'direct-upload')) {
               return;
             }
-            const fileId = `${Date.now()}-${fileName}`;
-            const filePath = join(UPLOADS_DIR, fileId);
+            const fileId = createUploadFileId('upload-', safeFileName);
+            const filePath = resolveUploadPath(fileId);
+            if (!filePath) {
+              res.writeHead(500, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ success: false, error: 'Failed to resolve upload path' }));
+              return;
+            }
             // Ensure uploads dir exists (may have been wiped by redeploy)
             if (!existsSync(UPLOADS_DIR)) {
               mkdirSync(UPLOADS_DIR, { recursive: true });
             }
-            const storageResult = maybeCompressUploadPayload(fileName, 'application/octet-stream', fileData, `${ownerKey}:${fileName}:${fileData.length}`);
+            const storageResult = maybeCompressUploadPayload(safeFileName, 'application/octet-stream', fileData, `${ownerKey}:${safeFileName}:${fileData.length}`);
             writeUploadFile(filePath, storageResult.payload);
             const storedBytes = statSync(filePath).size;
             recordCompressionUploadSample({
               timestamp: Date.now(),
               source: 'direct-upload-multipart',
-              fileExt: getFileExtension(fileName),
+              fileExt: getFileExtension(safeFileName),
               mimeType: 'application/octet-stream',
               originalBytes: storageResult.meta.originalSize,
               storedBytes,
@@ -2694,7 +3275,7 @@ server.on('request', async (req, res) => {
             res.end(JSON.stringify({
               success: true,
               fileUrl,
-              fileName,
+              fileName: safeFileName,
               fileSize: fileData.length,
               attachmentStorage: { ...storageResult.meta, storedSize: storedBytes }
             }));
@@ -2752,6 +3333,12 @@ server.on('request', async (req, res) => {
 
   if (url.pathname === "/api/auth/upgrade" && req.method === "POST") {
     await handleUpgrade(req, res);
+    return;
+  }
+
+  // Public launch page config (branding / login hero content)
+  if (url.pathname === "/api/public/launch-page" && req.method === "GET") {
+    await handleGetLaunchPageConfig(req, res);
     return;
   }
 
@@ -3067,6 +3654,18 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  const albumFeaturedMatch = url.pathname.match(/^\/api\/albums\/(\d+)\/featured$/);
+  if (albumFeaturedMatch && req.method === "PATCH") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+    await handleSetAlbumFeatured(req, res, userId, albumFeaturedMatch[1]);
+    return;
+  }
+
   const albumItemsMatch = url.pathname.match(/^\/api\/albums\/(\d+)\/items$/);
   if (albumItemsMatch && req.method === "GET") {
     const userId = getAuthenticatedUserId(req);
@@ -3086,7 +3685,25 @@ server.on('request', async (req, res) => {
       res.end(JSON.stringify({ error: 'Unauthorized' }));
       return;
     }
-    await handleAddAlbumItem(req, res, userId, albumItemsMatch[1]);
+    await handleAddAlbumItem(
+      req,
+      res,
+      userId,
+      albumItemsMatch[1],
+      getPolicyValue<AlbumUploadLimitConfig>(ALBUM_UPLOAD_LIMITS_POLICY_KEY)
+    );
+    return;
+  }
+
+  const albumItemsReorderMatch = url.pathname.match(/^\/api\/albums\/(\d+)\/items\/reorder$/);
+  if (albumItemsReorderMatch && req.method === "PATCH") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+    await handleReorderAlbumItems(req, res, userId, albumItemsReorderMatch[1]);
     return;
   }
 
@@ -3617,8 +4234,13 @@ server.on('request', async (req, res) => {
           }
 
           // Save file
-          const fileId = `emoji-${Date.now()}-${fileName}`;
-          const filePath = join(UPLOADS_DIR, fileId);
+          const fileId = createUploadFileId('emoji-', fileName);
+          const filePath = resolveUploadPath(fileId);
+          if (!filePath) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: 'Failed to resolve upload path' }));
+            return;
+          }
           // Ensure uploads dir exists (may have been wiped by redeploy)
           if (!existsSync(UPLOADS_DIR)) {
             mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -3675,16 +4297,18 @@ server.on('request', async (req, res) => {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 8000);
-
-      const response = await fetch(targetUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)',
-          'Accept': 'text/html'
-        },
-        signal: controller.signal,
-        redirect: 'follow'
-      });
-      clearTimeout(timeout);
+      let response: Response;
+      try {
+        response = await fetchExternalUrlWithGuards(targetUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)',
+            'Accept': 'text/html'
+          },
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
 
       if (!response.ok) {
         res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
@@ -3775,8 +4399,12 @@ server.on('request', async (req, res) => {
         twitterCard, twitterPlayer
       }));
     } catch (err) {
-      res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
-      res.end(JSON.stringify({ error: 'Failed to fetch URL preview' }));
+      const message = err instanceof Error ? err.message : 'Failed to fetch URL preview';
+      const status = message.toLowerCase().includes('not allowed') || message.toLowerCase().includes('private')
+        ? 400
+        : 502;
+      res.writeHead(status, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.end(JSON.stringify({ error: message }));
     }
     return;
   }
@@ -3793,16 +4421,18 @@ server.on('request', async (req, res) => {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10000);
-
-      const response = await fetch(imageUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)',
-          'Accept': 'image/*'
-        },
-        signal: controller.signal,
-        redirect: 'follow'
-      });
-      clearTimeout(timeout);
+      let response: Response;
+      try {
+        response = await fetchExternalUrlWithGuards(imageUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)',
+            'Accept': 'image/*'
+          },
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
 
       if (!response.ok) {
         res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
@@ -3820,8 +4450,12 @@ server.on('request', async (req, res) => {
       });
       res.end(buffer);
     } catch (err) {
-      res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
-      res.end(JSON.stringify({ error: 'Failed to proxy image' }));
+      const message = err instanceof Error ? err.message : 'Failed to proxy image';
+      const status = message.toLowerCase().includes('not allowed') || message.toLowerCase().includes('private')
+        ? 400
+        : 502;
+      res.writeHead(status, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.end(JSON.stringify({ error: message }));
     }
     return;
   }
@@ -3944,18 +4578,19 @@ server.on('request', async (req, res) => {
   // Serve uploaded files from dedicated uploads directory
   if (url.pathname.startsWith('/uploads/')) {
     const downloadStartedAt = Date.now();
-    const pathSegment = decodeURIComponent(url.pathname.replace('/uploads/', ''));
-
-    // Security: Prevent path traversal attacks
-    if (pathSegment.includes('..') || pathSegment.startsWith('/')) {
+    const fileId = normalizeUploadFileIdFromUrl(url.pathname);
+    if (!fileId) {
       res.writeHead(403);
       res.end("Access denied");
       return;
     }
 
-    // Use basename to strip any remaining directory components
-    const fileName = basename(pathSegment);
-    const filePath = join(UPLOADS_DIR, fileName);
+    const filePath = resolveUploadPath(fileId);
+    if (!filePath) {
+      res.writeHead(403);
+      res.end("Access denied");
+      return;
+    }
 
     if (existsSync(filePath)) {
       const stat = statSync(filePath);
@@ -4330,30 +4965,10 @@ deleteMessageById = (channelId: string, messageId: string) => {
   const message = messages[messageIndex];
 
   // Delete associated files from filesystem
-  if (message.fileUrl) {
-    const fileName = message.fileUrl.replace('/uploads/', '');
-    const filePath = join(UPLOADS_DIR, fileName);
-    try {
-      if (existsSync(filePath)) {
-        unlinkSync(filePath);
-      }
-    } catch (err) {
-      console.error(`Failed to delete file: ${fileName}`, err);
-    }
-  }
-
-  // Delete multiple files if present
+  deleteUploadFileByUrl(message.fileUrl, 'deleteMessageById');
   if (message.files && message.files.length > 0) {
     for (const file of message.files) {
-      const fileName = file.fileUrl.replace('/uploads/', '');
-      const filePath = join(UPLOADS_DIR, fileName);
-      try {
-        if (existsSync(filePath)) {
-          unlinkSync(filePath);
-        }
-      } catch (err) {
-        console.error(`Failed to delete file: ${fileName}`, err);
-      }
+      deleteUploadFileByUrl(file.fileUrl, 'deleteMessageById');
     }
   }
 
@@ -4559,7 +5174,9 @@ pluginLoader.loadAll().then(() => {
 
 // Socket.IO middleware to validate sessions (temp and registered users)
 io.use((socket, next) => {
-  const token = socket.handshake.auth.token;
+  const token =
+    (typeof socket.handshake.auth?.token === 'string' ? socket.handshake.auth.token : null) ||
+    getAuthTokenFromHeaders(socket.handshake.headers);
   const sessionId = socket.handshake.auth.sessionId;
 
   if (token) {
@@ -5442,14 +6059,21 @@ io.on("connection", (socket) => {
       scheduledDeletionTime: deletionTime
     };
 
+    const normalizedSingleFileUrl = normalizeClientUploadUrl(data.fileUrl);
+    const normalizedFiles = Array.isArray(data.files)
+      ? data.files
+        .map((file) => normalizeClientFileAttachment(file))
+        .filter((file): file is NonNullable<ReturnType<typeof normalizeClientFileAttachment>> => Boolean(file))
+      : [];
+
     // Only add optional fields if they exist (reduces payload size by 30-40%)
     if (data.gifUrl) message.gifUrl = data.gifUrl;
     if (data.emojiUrl) message.emojiUrl = data.emojiUrl;
     if (data.emojiName) message.emojiName = data.emojiName;
-    if (data.fileUrl) message.fileUrl = data.fileUrl;
-    if (data.fileName) message.fileName = data.fileName;
-    if (data.fileSize) message.fileSize = data.fileSize;
-    if (data.files) message.files = data.files;
+    if (normalizedSingleFileUrl) message.fileUrl = normalizedSingleFileUrl;
+    if (data.fileName) message.fileName = sanitizeUploadFileName(data.fileName);
+    if (data.fileSize) message.fileSize = Math.max(0, Math.floor(data.fileSize));
+    if (normalizedFiles.length > 0) message.files = normalizedFiles;
     if (data.attachmentEncryption) message.attachmentEncryption = data.attachmentEncryption;
     if (data.attachmentStorage) message.attachmentStorage = data.attachmentStorage;
     if (data.replyTo) message.replyTo = data.replyTo;
@@ -5504,15 +6128,15 @@ io.on("connection", (socket) => {
           sender_username: user.username,
           sender_color: user.color,
           message_type: data.type,
-          content: data.text,
-          gif_url: data.gifUrl,
-        file_url: data.fileUrl,
-        file_name: data.fileName,
-        file_size: data.fileSize,
-        files_json: data.files ? JSON.stringify(data.files) : undefined,
-        attachment_encryption_json: data.attachmentEncryption ? JSON.stringify(data.attachmentEncryption) : undefined,
-        attachment_storage_json: data.attachmentStorage ? JSON.stringify(data.attachmentStorage) : undefined,
-        reply_to_id: data.replyTo,
+          content: message.text,
+          gif_url: message.gifUrl,
+          file_url: message.fileUrl,
+          file_name: message.fileName,
+          file_size: message.fileSize,
+          files_json: message.files ? JSON.stringify(message.files) : undefined,
+          attachment_encryption_json: message.attachmentEncryption ? JSON.stringify(message.attachmentEncryption) : undefined,
+          attachment_storage_json: message.attachmentStorage ? JSON.stringify(message.attachmentStorage) : undefined,
+          reply_to_id: message.replyTo,
           is_spoiler: data.isSpoiler ? 1 : 0,
           is_pinned: 0,
           is_edited: 0,
@@ -5611,33 +6235,10 @@ io.on("connection", (socket) => {
     if (!canDelete) return;
 
     // Delete associated files from filesystem
-    if (message.fileUrl) {
-      // Single file upload
-      const fileName = message.fileUrl.replace('/uploads/', '');
-      const filePath = join(UPLOADS_DIR, fileName);
-      try {
-        if (existsSync(filePath)) {
-          unlinkSync(filePath);
-          if (ENABLE_LOGGING) console.log(`Deleted file: ${fileName}`);
-        }
-      } catch (error) {
-        console.error(`Failed to delete file ${fileName}:`, error);
-      }
-    }
-
+    deleteUploadFileByUrl(message.fileUrl, 'socket-delete');
     if (message.files && Array.isArray(message.files)) {
-      // Multiple file uploads
       for (const file of message.files) {
-        const fileName = file.fileUrl.replace('/uploads/', '');
-        const filePath = join(UPLOADS_DIR, fileName);
-        try {
-          if (existsSync(filePath)) {
-            unlinkSync(filePath);
-            if (ENABLE_LOGGING) console.log(`Deleted file: ${fileName}`);
-          }
-        } catch (error) {
-          console.error(`Failed to delete file ${fileName}:`, error);
-        }
+        deleteUploadFileByUrl(file.fileUrl, 'socket-delete');
       }
     }
 

@@ -6,28 +6,15 @@
 import type { ThemePreferences } from '../../types/theme';
 import { getServerUrl } from '../serverUrl';
 import { authStore } from '../authStore';
+import { getAuthToken } from '../authSession';
 
 const API_BASE = getServerUrl();
-
-/**
- * Get auth token from localStorage
- */
-function getAuthToken(): string | null {
-	return localStorage.getItem('authToken');
-}
 
 /**
  * Fetch theme preferences from server
  */
 export async function fetchThemePreferences(): Promise<ThemePreferences> {
 	const token = getAuthToken();
-	if (!token) {
-		console.warn('[ThemeApi] No auth token found - cannot fetch from server');
-		throw new Error('Not authenticated - no token');
-	}
-
-	console.log('[ThemeApi] Fetching theme preferences from', `${API_BASE}/api/user/theme`);
-	console.log('[ThemeApi] Using auth token:', token.substring(0, 20) + '...');
 
 	let response;
 	const controller = new AbortController();
@@ -36,9 +23,10 @@ export async function fetchThemePreferences(): Promise<ThemePreferences> {
 		response = await fetch(`${API_BASE}/api/user/theme`, {
 			method: 'GET',
 			headers: {
-				'Authorization': `Bearer ${token}`,
+				...(token ? { 'Authorization': `Bearer ${token}` } : {}),
 				'Content-Type': 'application/json'
 			},
+			credentials: 'include',
 			signal: controller.signal
 		});
 	} catch (networkError) {
@@ -47,8 +35,6 @@ export async function fetchThemePreferences(): Promise<ThemePreferences> {
 	} finally {
 		clearTimeout(timeout);
 	}
-
-	console.log('[ThemeApi] Fetch response status:', response.status);
 
 	if (!response.ok) {
 		let errorText = '';
@@ -79,11 +65,6 @@ export async function fetchThemePreferences(): Promise<ThemePreferences> {
 		throw new Error('Server returned invalid JSON');
 	}
 
-	console.log('[ThemeApi] Successfully fetched preferences:', {
-		theme_id: data.theme_id,
-		uniform_font_enabled: data.uniform_font_enabled
-	});
-
 	return {
 		theme_id: data.theme_id,
 		custom_theme: data.custom_theme,
@@ -101,13 +82,6 @@ export async function fetchThemePreferences(): Promise<ThemePreferences> {
  */
 export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Promise<void> {
 	const token = getAuthToken();
-	if (!token) {
-		console.warn('[ThemeApi] No auth token found for save');
-		throw new Error('Not authenticated - cannot save to server');
-	}
-
-	console.log('[ThemeApi] Saving theme preferences to', `${API_BASE}/api/user/theme`);
-	console.log('[ThemeApi] Preferences to save:', prefs);
 
 	let response;
 	const controller = new AbortController();
@@ -116,9 +90,10 @@ export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Pr
 		response = await fetch(`${API_BASE}/api/user/theme`, {
 			method: 'POST',
 			headers: {
-				'Authorization': `Bearer ${token}`,
+				...(token ? { 'Authorization': `Bearer ${token}` } : {}),
 				'Content-Type': 'application/json'
 			},
+			credentials: 'include',
 			body: JSON.stringify(prefs),
 			signal: controller.signal
 		});
@@ -128,8 +103,6 @@ export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Pr
 	} finally {
 		clearTimeout(timeout);
 	}
-
-	console.log('[ThemeApi] Save response status:', response.status);
 
 	if (!response.ok) {
 		let errorText = '';
@@ -160,8 +133,6 @@ export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Pr
 
 		throw new Error(errorData.error || `Failed to save theme preferences (${response.status})`);
 	}
-
-	console.log('[ThemeApi] Save successful');
 }
 
 /**
@@ -169,9 +140,6 @@ export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Pr
  */
 export async function resetThemePreferences(): Promise<void> {
 	const token = getAuthToken();
-	if (!token) {
-		throw new Error('Not authenticated');
-	}
 
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), 8000);
@@ -180,9 +148,10 @@ export async function resetThemePreferences(): Promise<void> {
 		response = await fetch(`${API_BASE}/api/user/theme/reset`, {
 			method: 'POST',
 			headers: {
-				'Authorization': `Bearer ${token}`,
+				...(token ? { 'Authorization': `Bearer ${token}` } : {}),
 				'Content-Type': 'application/json'
 			},
+			credentials: 'include',
 			signal: controller.signal
 		});
 	} finally {

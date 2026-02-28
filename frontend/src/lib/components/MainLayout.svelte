@@ -15,6 +15,8 @@
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { onDestroy, onMount } from 'svelte';
 	import { _ } from '$lib/i18n';
+	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
+	import { playNotificationSound } from '$lib/notifications';
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 	let showSettings = false;
@@ -47,6 +49,14 @@
 	let swipePreviewActive = false;
 	let swipePreviewTarget: 'none' | 'channels' | 'users' = 'none';
 	let swipePreviewOffsetX = 0;
+	type FriendPresenceSnapshot = {
+		status: User['status'];
+		username: string;
+		isSelf: boolean;
+	};
+	let friendPresenceByKey = new Map<string, FriendPresenceSnapshot>();
+	let friendPresenceObserverReady = false;
+	let unsubscribeFriendPresence: (() => void) | null = null;
 	const { activeTabId } = mobileTabQueue;
 	const MODEL_VIEWPORT_TAB_ID = 'model-viewport';
 	const MODEL_VIEWPORT_TAB_TOKEN = mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_TAB_ID);
@@ -68,6 +78,42 @@
 			label: '3D Viewport',
 			shortLabel: '3D View'
 		});
+
+		unsubscribeFriendPresence = users.subscribe((nextUsers) => {
+			const me = get(currentUser);
+			const selfKeys = new Set<string>();
+			if (me?.id) selfKeys.add(me.id);
+			if (me?.dbUserId) selfKeys.add(`user-${me.dbUserId}`);
+
+			const nextSnapshot = new Map<string, FriendPresenceSnapshot>();
+			for (const user of nextUsers) {
+				const key = getFriendTrackKey(user);
+				const isSelf = selfKeys.has(key);
+				const nextEntry: FriendPresenceSnapshot = {
+					status: user.status,
+					username: user.username,
+					isSelf
+				};
+				nextSnapshot.set(key, nextEntry);
+
+				if (!friendPresenceObserverReady || isSelf) continue;
+				const previous = friendPresenceByKey.get(key);
+				if (!previous) continue;
+				if (previous.status === user.status) continue;
+				notifyFriendStatusChange(key, user.username, previous.status, user.status);
+			}
+
+			if (friendPresenceObserverReady) {
+				for (const [key, previous] of friendPresenceByKey.entries()) {
+					if (previous.isSelf) continue;
+					if (nextSnapshot.has(key)) continue;
+					notifyFriendStatusChange(key, previous.username, previous.status, 'offline');
+				}
+			}
+
+			friendPresenceByKey = nextSnapshot;
+			friendPresenceObserverReady = true;
+		});
 	});
 
 	onDestroy(() => {
@@ -76,7 +122,57 @@
 			clearTimeout(mobileNavIdleTimer);
 			mobileNavIdleTimer = null;
 		}
+		if (unsubscribeFriendPresence) {
+			unsubscribeFriendPresence();
+			unsubscribeFriendPresence = null;
+		}
 	});
+
+	function getFriendTrackKey(user: User): string {
+		if (user.dbUserId) return `user-${user.dbUserId}`;
+		return user.id;
+	}
+
+	function shouldNotifyFriendStatus(trackKey: string): boolean {
+		const settings = get(displayEnhancementSettingsStore);
+		if (!settings.friendNotificationsEnabled) return false;
+		if (
+			settings.friendNotificationsTrackedOnly &&
+			!settings.friendNotificationTrackedUserIds.includes(trackKey)
+		) {
+			return false;
+		}
+		if (typeof window === 'undefined') return false;
+		if (!('Notification' in window)) return false;
+		if (Notification.permission !== 'granted') return false;
+		if (localStorage.getItem('notificationsEnabled') === 'false') return false;
+		return true;
+	}
+
+	function formatPresenceStatus(status: User['status'] | 'offline'): string {
+		if (status === 'active') return 'Online';
+		if (status === 'away') return 'Away';
+		if (status === 'busy') return 'Do Not Disturb';
+		return 'Offline';
+	}
+
+	function notifyFriendStatusChange(
+		trackKey: string,
+		username: string,
+		previousStatus: User['status'] | 'offline',
+		nextStatus: User['status'] | 'offline'
+	): void {
+		if (!shouldNotifyFriendStatus(trackKey)) return;
+		try {
+			playNotificationSound();
+			const notification = new Notification(`${username} is now ${formatPresenceStatus(nextStatus)}`, {
+				body: `Status changed from ${formatPresenceStatus(previousStatus)}.`
+			});
+			setTimeout(() => notification.close(), 6000);
+		} catch {
+			// no-op
+		}
+	}
 
 	function handleMouseMove(e: MouseEvent) {
 		if (resizingChannel) {

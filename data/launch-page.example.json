@@ -1,0 +1,34 @@
+{
+	"enabled": true,
+	"brandName": "Example Community",
+	"headline": "Launch into Example Community",
+	"subheadline": "Private collaboration, voice rooms, and shared workspaces.",
+	"logoUrl": "/wabi-logo.webp",
+	"heroImageUrl": "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1280&q=80",
+	"heroTitle": "Your members, your front door",
+	"heroBody": "Customize this panel with your own messaging, onboarding links, and community highlights before members log in.",
+	"heroPrimaryCtaLabel": "Read Community Guide",
+	"heroPrimaryCtaUrl": "https://example.com/guide",
+	"highlights": [
+		{
+			"title": "Member Onboarding",
+			"description": "Link to docs, starter channels, and verification policy."
+		},
+		{
+			"title": "Event Schedule",
+			"description": "Promote current events or announcements directly on the launch page."
+		},
+		{
+			"title": "Support",
+			"description": "Point newcomers to moderators or help resources."
+		}
+	],
+	"footerNote": "Need access? Contact @moderators in your invite email.",
+	"palette": {
+		"backgroundTop": "#10243f",
+		"backgroundBottom": "#1e1b4b",
+		"cardBackground": "#131a2f",
+		"accent": "#2dd4bf",
+		"text": "#f8fafc"
+	}
+}

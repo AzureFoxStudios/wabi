@@ -2,6 +2,7 @@
 	import { themeStore } from '../theme/themeStore';
 	import { saveThemePreferences } from '../theme/themeApi';
 	import type { BackgroundImage, CustomTheme } from '../../types/theme';
+	import { getAuthToken } from '$lib/authSession';
 
 	let isUploading = false;
 	let uploadError = '';
@@ -59,8 +60,7 @@
 			const formData = new FormData();
 			formData.append('backgroundImage', file);
 
-			// Get auth token from localStorage
-			const authToken = localStorage.getItem('authToken');
+			const authToken = getAuthToken();
 			const headers: HeadersInit = {};
 			if (authToken) {
 				headers['Authorization'] = `Bearer ${authToken}`;
@@ -69,6 +69,7 @@
 			const response = await fetch('/api/upload-background-image', {
 				method: 'POST',
 				headers,
+				credentials: 'include',
 				body: formData
 			});
 

@@ -1,7 +1,6 @@
 import { IncomingMessage, ServerResponse } from 'http';
 import { themeRepository } from '../db/repositories/themeRepository.js';
-import { verifyToken } from '../auth/jwt.js';
-import { sessionRepository } from '../db/repositories/sessionRepository.js';
+import { getAuthenticatedUserIdFromRequest } from '../auth/requestAuth.js';
 
 // Parse JSON body
 function parseBody(req: IncomingMessage): Promise<Record<string, any>> {
@@ -22,26 +21,6 @@ function parseBody(req: IncomingMessage): Promise<Record<string, any>> {
 
 		req.on('error', reject);
 	});
-}
-
-// Get authenticated user ID from request
-function getAuthenticatedUserId(req: IncomingMessage): number | null {
-	const authHeader = req.headers.authorization;
-	if (!authHeader || !authHeader.startsWith('Bearer ')) {
-		return null;
-	}
-
-	try {
-		const token = authHeader.slice(7);
-		const payload = verifyToken(token);
-		const dbSession = sessionRepository.findById(payload.sessionId);
-		if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
-			return null;
-		}
-		return payload.userId;
-	} catch {
-		return null;
-	}
 }
 
 // Predefined theme IDs (validation)
@@ -66,7 +45,7 @@ const VALID_THEME_IDS = [
 export async function handleGetThemePreferences(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
 		// Extract and verify user ID from Authorization header
-		const userId = getAuthenticatedUserId(req);
+		const userId = getAuthenticatedUserIdFromRequest(req);
 		if (!userId) {
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'User not authenticated' }));
@@ -108,7 +87,7 @@ export async function handleGetThemePreferences(req: IncomingMessage, res: Serve
 export async function handleSaveThemePreferences(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
 		// Extract and verify user ID from Authorization header
-		const userId = getAuthenticatedUserId(req);
+		const userId = getAuthenticatedUserIdFromRequest(req);
 		if (!userId) {
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'User not authenticated' }));
@@ -215,7 +194,7 @@ export async function handleSaveThemePreferences(req: IncomingMessage, res: Serv
 export async function handleResetThemePreferences(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
 		// Extract and verify user ID from Authorization header
-		const userId = getAuthenticatedUserId(req);
+		const userId = getAuthenticatedUserIdFromRequest(req);
 		if (!userId) {
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'User not authenticated' }));

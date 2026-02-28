@@ -1,7 +1,6 @@
-import { IncomingMessage, ServerResponse } from 'http';
+﻿import { IncomingMessage, ServerResponse } from 'http';
 import { relayRepository } from '../db/repositories/relayRepository.js';
-import { verifyToken } from '../auth/jwt.js';
-import { sessionRepository } from '../db/repositories/sessionRepository.js';
+import { getAuthenticatedUserIdFromRequest } from '../auth/requestAuth.js';
 
 interface RateBucket {
 	count: number;
@@ -70,26 +69,6 @@ function parseBody(req: IncomingMessage): Promise<Record<string, any>> {
 	});
 }
 
-// Get authenticated user ID from Bearer token
-function getAuthenticatedUserId(req: IncomingMessage): number | null {
-	const authHeader = req.headers.authorization;
-	if (!authHeader || !authHeader.startsWith('Bearer ')) {
-		return null;
-	}
-
-	try {
-		const token = authHeader.slice(7);
-		const payload = verifyToken(token);
-		const dbSession = sessionRepository.findById(payload.sessionId);
-		if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
-			return null;
-		}
-		return payload.userId;
-	} catch {
-		return null;
-	}
-}
-
 // Verify relay API key from X-Relay-Id + X-Relay-Key headers
 async function authenticateRelay(req: IncomingMessage): Promise<number | null> {
 	const relayId = req.headers['x-relay-id'] as string;
@@ -101,7 +80,7 @@ async function authenticateRelay(req: IncomingMessage): Promise<number | null> {
 	return valid ? id : null;
 }
 
-// GET /api/relays — Public: list active approved relays
+// GET /api/relays â€” Public: list active approved relays
 export async function handleGetRelays(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
 		const relays = relayRepository.getActiveRelays();
@@ -114,7 +93,7 @@ export async function handleGetRelays(req: IncomingMessage, res: ServerResponse)
 	}
 }
 
-// POST /api/relay/register — Relay self-registers with origin
+// POST /api/relay/register â€” Relay self-registers with origin
 export async function handleRelayRegister(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
 		if (isRateLimited(req, 'relay-register', 15, 60_000)) {
@@ -177,9 +156,9 @@ export async function handleRelayRegister(req: IncomingMessage, res: ServerRespo
 			syncthing_device_id: syncthing_device_id || undefined
 		});
 
-		console.log(`[Relay] New relay registered: ${name} (${url}) — ID: ${relay_id}`);
+		console.log(`[Relay] New relay registered: ${name} (${url}) â€” ID: ${relay_id}`);
 
-		// Return API key ONCE — relay must save it, never returned again
+		// Return API key ONCE â€” relay must save it, never returned again
 		res.writeHead(201, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({
 			relay_id,
@@ -194,7 +173,7 @@ export async function handleRelayRegister(req: IncomingMessage, res: ServerRespo
 	}
 }
 
-// POST /api/relay/health — Authenticated relay reports health
+// POST /api/relay/health â€” Authenticated relay reports health
 export async function handleRelayHealth(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
 		if (isRateLimited(req, 'relay-health', 240, 60_000)) {
@@ -231,17 +210,17 @@ export async function handleRelayHealth(req: IncomingMessage, res: ServerRespons
 	}
 }
 
-// POST /api/relay/approve — Admin approves a pending relay
+// POST /api/relay/approve â€” Admin approves a pending relay
 export async function handleRelayApprove(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
-		const userId = getAuthenticatedUserId(req);
+		const userId = getAuthenticatedUserIdFromRequest(req);
 		if (!userId) {
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Authentication required' }));
 			return;
 		}
 
-		// Check admin — user ID 1 is always admin, or check RELAY_ADMIN_USER_IDS env
+		// Check admin â€” user ID 1 is always admin, or check RELAY_ADMIN_USER_IDS env
 		const adminIds = (process.env.RELAY_ADMIN_USER_IDS || '1').split(',').map(id => parseInt(id.trim(), 10));
 		if (!adminIds.includes(userId)) {
 			res.writeHead(403, { 'Content-Type': 'application/json' });
@@ -284,10 +263,10 @@ export async function handleRelayApprove(req: IncomingMessage, res: ServerRespon
 	}
 }
 
-// GET /api/relays/admin — Admin: list all relays (including pending/offline)
+// GET /api/relays/admin â€” Admin: list all relays (including pending/offline)
 export async function handleGetAllRelays(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
-		const userId = getAuthenticatedUserId(req);
+		const userId = getAuthenticatedUserIdFromRequest(req);
 		if (!userId) {
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Authentication required' }));
@@ -314,10 +293,10 @@ export async function handleGetAllRelays(req: IncomingMessage, res: ServerRespon
 	}
 }
 
-// DELETE /api/relay/:relayId â€” Admin delete relay
+// DELETE /api/relay/:relayId Ã¢â‚¬â€ Admin delete relay
 export async function handleRelayDelete(req: IncomingMessage, res: ServerResponse, relayId: number): Promise<void> {
 	try {
-		const userId = getAuthenticatedUserId(req);
+		const userId = getAuthenticatedUserIdFromRequest(req);
 		if (!userId) {
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Authentication required' }));
@@ -348,3 +327,4 @@ export async function handleRelayDelete(req: IncomingMessage, res: ServerRespons
 		res.end(JSON.stringify({ error: 'Failed to delete relay' }));
 	}
 }
+

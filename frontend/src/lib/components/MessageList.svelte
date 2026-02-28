@@ -3,7 +3,7 @@
 	import { fade, fly, scale } from 'svelte/transition';
 	import { get } from 'svelte/store';
 	import type { Message, User, Emoji, Channel, FileAttachment } from '$lib/socket';
-	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder, loadOlderHistory, channelHistoryLoading, channelHasMoreHistory } from '$lib/socket';
+	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder, loadOlderHistory, channelHistoryLoading, channelHasMoreHistory, roleDefinitions } from '$lib/socket';
 	import { themeStore } from '$lib/theme/themeStore';
 	import MessageContextMenu from './MessageContextMenu.svelte';
 	import ForwardDialog from './ForwardDialog.svelte';
@@ -11,6 +11,7 @@
 	import ZipPreviewPanel from './ZipPreviewPanel.svelte';
 	import ModelViewer3D from './plugins/ModelViewer3D.svelte';
 	import YouTubeWatchEmbed from './plugins/YouTubeWatchEmbed.svelte';
+	import SpotifyControlsEmbed from './plugins/SpotifyControlsEmbed.svelte';
 	import type { BlendImportSettingsPayload } from './plugins/BlendImportSettingsModal.svelte';
 	import { parseMessage } from '$lib/markdown';
 	import {
@@ -33,10 +34,27 @@
 		customQuoteSettingsStore,
 		formatCustomQuote
 	} from '$lib/chatEnhancements';
+	import { gifCaptionerSettingsStore } from '$lib/gifCaptionerSettings';
+	import { quickReactionSettingsStore } from '$lib/quickReactions';
+	import { recordQuickReactionTelemetry } from '$lib/quickReactionTelemetry';
 	import { buildReverseImageSearchUrl, getReverseImageSearchProvider } from '$lib/imageUtilities';
+	import { localNicknamesStore, getUserIdentityKey } from '$lib/localNicknames';
+	import { isSpotifyUrl } from '$lib/spotifyControls';
 	import { animationPassStore, type AnimationPassPreset } from '$lib/animationPass';
+	import { getAuthToken as getSessionAuthToken } from '$lib/authSession';
+	import {
+		displayEnhancementSettingsStore,
+		formatTimestampForDisplay,
+		type RevealAllSpoilersMinRole
+	} from '$lib/displayEnhancements';
+	import {
+		getPersonalPinsForChannel,
+		personalPinsStore,
+		togglePersonalPin
+	} from '$lib/personalPins';
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
+	export let onQuickMention: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
 	const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
 	const easeOutQuint = (t: number) => 1 - Math.pow(1 - t, 5);
@@ -47,6 +65,20 @@
 	};
 	const MESSAGE_RENDER_BATCH = 120;
 	const MESSAGE_RENDER_MAX = 360;
+	const REVEAL_ROLE_PRIORITY: Record<RevealAllSpoilersMinRole, number> = {
+		guest: 0,
+		member: 1,
+		mod: 2,
+		admin: 3,
+		owner: 4
+	};
+	const fallbackRoleLabels: Record<string, string> = {
+		owner: 'Owner',
+		admin: 'Admin',
+		mod: 'Moderator',
+		member: 'Member',
+		guest: 'Guest'
+	};
 	let messageRenderLimit = MESSAGE_RENDER_BATCH;
 	let lastChannelForRenderWindow: string | null = null;
 	// User popout state
@@ -100,6 +132,12 @@
 			duration: Math.max(0, Math.round(baseDuration * $animationPassStore.durationMultiplier)),
 			distance: Math.max(0, Math.round(baseDistance * $animationPassStore.durationMultiplier))
 		};
+	})();
+	$: gifCaptionStyleClass = (() => {
+		const style = $gifCaptionerSettingsStore.captionStyle;
+		if (style === 'accent') return 'style-accent';
+		if (style === 'card') return 'style-card';
+		return 'style-plain';
 	})();
 
 	function getTransitionForPreset(
@@ -211,11 +249,17 @@
 		mobileTabQueue.setActiveTab(MODEL_VIEWPORT_TAB_TOKEN);
 	}
 	function formatTime(timestamp: number): string {
-		const date = new Date(timestamp);
-		return date.toLocaleTimeString('en-US', {
-			hour: '2-digit',
-			minute: '2-digit'
-		});
+		return formatTimestampForDisplay(
+			timestamp,
+			$displayEnhancementSettingsStore.timestampDisplayMode
+		);
+	}
+	$: personalPinnedMessageIdSet = new Set(
+		getPersonalPinsForChannel($currentChannel, $personalPinsStore)
+	);
+
+	function formatTimeTooltip(timestamp: number): string {
+		return new Date(timestamp).toLocaleString();
 	}
 	const AUTO_DELETE_DURATION_MS: Record<string, number> = {
 		'1h': 60 * 60 * 1000,
@@ -279,15 +323,149 @@
 		return getStoredAccessibilitySettings().deletionCountdownMode;
 	}
 	function getUserByUsername(username: string): User | undefined {
-		return $users.find(u => u.username === username);
-	}
-	function getUserColor(username: string): string {
-		const user = getUserByUsername(username);
-		return resolveUserDisplayColor(user?.roleColor, user?.color);
+		const normalized = username.trim().toLowerCase();
+		return $users.find(u => u.username.trim().toLowerCase() === normalized);
 	}
 
-	function getUsernameStyle(username: string, themeState: any): string {
+	function getUserByIdentityId(userId: string | undefined): User | undefined {
+		if (!userId) return undefined;
+		if (userId.startsWith('user-')) {
+			const dbUserId = Number(userId.substring(5));
+			if (!Number.isNaN(dbUserId)) {
+				const byDbId = $users.find((u) => u.dbUserId === dbUserId);
+				if (byDbId) return byDbId;
+			}
+		}
+		return $users.find((u) => u.id === userId);
+	}
+
+	function getUserByMessageAuthor(message: Message): User | undefined {
+		return getUserByIdentityId(message.userId) || getUserByUsername(message.user || '');
+	}
+
+	function resolveLocalNicknameForMessage(message: Message, author?: User): string {
+		if (!$displayEnhancementSettingsStore.localNicknamesEnabled) return '';
+		const resolvedUser = author || getUserByMessageAuthor(message);
+		if (resolvedUser) {
+			const key = getUserIdentityKey(resolvedUser);
+			return key ? $localNicknamesStore[key] || '' : '';
+		}
+		const fallbackKey = (message.userId || '').trim();
+		return fallbackKey ? $localNicknamesStore[fallbackKey] || '' : '';
+	}
+
+	function getMessageDisplayUsername(message: Message, author?: User): string {
+		const fallback = (message.user || '').trim();
+		const resolved = author || getUserByMessageAuthor(message);
+		const baseName = $displayEnhancementSettingsStore.removeNicknamesEnabled
+			? resolved?.username || fallback || get(_)('messages.unknown_user')
+			: fallback || resolved?.username || get(_)('messages.unknown_user');
+		const localNickname = resolveLocalNicknameForMessage(message, resolved);
+		return localNickname || baseName;
+	}
+
+	$: roleLabelMap = (() => {
+		const labels: Record<string, string> = { ...fallbackRoleLabels };
+		for (const role of $roleDefinitions) {
+			labels[role.roleName] = role.displayName;
+		}
+		return labels;
+	})();
+
+	function getUserTopRoleName(user: User | undefined): string {
+		if (!user) return 'guest';
+		if (user.highestRole) return user.highestRole;
+		return user.dbUserId ? 'member' : 'guest';
+	}
+
+	function getRoleBadgeTone(roleName: string): 'owner' | 'admin' | 'mod' | 'default' {
+		if (roleName === 'owner') return 'owner';
+		if (roleName === 'admin') return 'admin';
+		if (roleName === 'mod') return 'mod';
+		return 'default';
+	}
+
+	function getTopRoleBadgeLabel(user: User | undefined): string | null {
+		if (!user || !$displayEnhancementSettingsStore.topRoleEverywhereEnabled) return null;
+		const roleName = getUserTopRoleName(user);
+		return roleLabelMap[roleName] || roleName;
+	}
+
+	function getTopRoleBadgeTone(user: User | undefined): 'owner' | 'admin' | 'mod' | 'default' {
+		return getRoleBadgeTone(getUserTopRoleName(user));
+	}
+
+	function shouldShowStaffTag(user: User | undefined): boolean {
+		if (!user || !$displayEnhancementSettingsStore.staffTagEnabled) return false;
+		const roleName = getUserTopRoleName(user);
+		return roleName === 'owner' || roleName === 'admin' || roleName === 'mod';
+	}
+
+	function getUserByMentionValue(mentionToken: string): User | undefined {
+		const normalized = mentionToken.trim().replace(/^@/, '').toLowerCase();
+		if (!normalized || normalized === 'everyone' || normalized === 'here' || normalized === 'all') {
+			return undefined;
+		}
+		return $users.find(
+			(user) =>
+				user.username.trim().toLowerCase() === normalized ||
+				(user.handle ? user.handle.trim().toLowerCase() === normalized : false)
+		);
+	}
+
+	function isOwnPopoutTarget(user: User): boolean {
+		if (!$currentUser) return false;
+		if ($currentUser.id && user.id === $currentUser.id) return true;
+		if ($currentUser.dbUserId && user.dbUserId && user.dbUserId === $currentUser.dbUserId) return true;
+		return false;
+	}
+
+	function openUserPopoutForUser(user: User, anchor: HTMLElement): void {
+		popoutUser = user;
+		popoutAnchorElement = anchor;
+		popoutIsOwnProfile = isOwnPopoutTarget(user);
+		showUserPopout = true;
+	}
+
+	function handleUsernameClick(event: MouseEvent, message: Message, resolvedUser?: User): void {
+		const target = event.currentTarget as HTMLElement | null;
+		if (!target || !$displayEnhancementSettingsStore.clickableMentionsEnabled) return;
+		const user = resolvedUser || getUserByMessageAuthor(message);
+		if (!user) return;
+		openUserPopoutForUser(user, target);
+	}
+
+	function handleMarkdownContentClick(event: MouseEvent): void {
+		if (!$displayEnhancementSettingsStore.clickableMentionsEnabled) return;
+		const target = event.target as HTMLElement | null;
+		if (!target) return;
+		const mentionTokenEl = target.closest('.mention-token');
+		if (!(mentionTokenEl instanceof HTMLElement)) return;
+		const mentionText = mentionTokenEl.textContent || '';
+		const user = getUserByMentionValue(mentionText);
+		if (!user) return;
+		event.preventDefault();
+		event.stopPropagation();
+		openUserPopoutForUser(user, mentionTokenEl);
+	}
+
+	function canUseRevealAllSpoilers(): boolean {
+		if (!$displayEnhancementSettingsStore.revealAllSpoilersEnabled) return false;
+		const minRole = $displayEnhancementSettingsStore.revealAllSpoilersMinRole;
+		const minPriority = REVEAL_ROLE_PRIORITY[minRole] ?? REVEAL_ROLE_PRIORITY.member;
+		const currentRole = ($currentUser?.highestRole as RevealAllSpoilersMinRole) ||
+			($currentUser?.dbUserId ? 'member' : 'guest');
+		const currentPriority = REVEAL_ROLE_PRIORITY[currentRole] ?? REVEAL_ROLE_PRIORITY.guest;
+		return currentPriority >= minPriority;
+	}
+	function getUserColor(user: User | undefined, username: string): string {
+		const resolved = user || getUserByUsername(username);
+		return resolveUserDisplayColor(resolved?.roleColor, resolved?.color);
+	}
+
+	function getUsernameStyle(user: User | undefined, username: string, themeState: any): string {
 		let style = '';
+		const resolvedUser = user || getUserByUsername(username);
 
 		// Check if uniform font mode is enabled
 		if (themeState.uniformFontEnabled) {
@@ -306,19 +484,18 @@
 			}
 		} else {
 			// Use the user's custom font
-			const user = getUserByUsername(username);
-			if (user?.usernameFont) {
-				if (user.usernameFont.family && user.usernameFont.family !== 'inherit') {
-					style += `font-family: ${user.usernameFont.family};`;
+			if (resolvedUser?.usernameFont) {
+				if (resolvedUser.usernameFont.family && resolvedUser.usernameFont.family !== 'inherit') {
+					style += `font-family: ${resolvedUser.usernameFont.family};`;
 				}
-				if (user.usernameFont.size && user.usernameFont.size !== 'inherit') {
-					style += `font-size: ${user.usernameFont.size};`;
+				if (resolvedUser.usernameFont.size && resolvedUser.usernameFont.size !== 'inherit') {
+					style += `font-size: ${resolvedUser.usernameFont.size};`;
 				}
-				if (user.usernameFont.weight) {
-					style += `font-weight: ${user.usernameFont.weight};`;
+				if (resolvedUser.usernameFont.weight) {
+					style += `font-weight: ${resolvedUser.usernameFont.weight};`;
 				}
-				if (user.usernameFont.style) {
-					style += `font-style: ${user.usernameFont.style};`;
+				if (resolvedUser.usernameFont.style) {
+					style += `font-style: ${resolvedUser.usernameFont.style};`;
 				}
 			}
 		}
@@ -374,9 +551,38 @@
 		contextMenuVisible = false;
 	}
 
+	function isPersonalPinnedMessage(messageId: string): boolean {
+		return personalPinnedMessageIdSet.has(messageId);
+	}
+
+	function handleQuickMention(message?: Message): void {
+		const targetMessage = message || contextMenuMessage;
+		if (!targetMessage || !$displayEnhancementSettingsStore.quickMentionEnabled) return;
+		onQuickMention(targetMessage);
+		contextMenuVisible = false;
+	}
+
+	function handleTogglePersonalPin(message?: Message): void {
+		const targetMessage = message || contextMenuMessage;
+		if (!targetMessage || !$displayEnhancementSettingsStore.personalPinsEnabled) return;
+		togglePersonalPin($currentChannel, targetMessage.id);
+		contextMenuVisible = false;
+	}
+
+	function handleUtilityPinToggle(message: Message): void {
+		if (!$displayEnhancementSettingsStore.messageUtilitiesEnabled) return;
+		togglePinMessage($currentChannel, message.id);
+	}
+
+	function handleUtilityEdit(message: Message): void {
+		if (!$displayEnhancementSettingsStore.messageUtilitiesEnabled) return;
+		if (!isOwnMessage(message)) return;
+		editingMessageId = message.id;
+		editText = message.text;
+	}
+
 	function getAuthToken(): string | null {
-		if (typeof window === 'undefined') return null;
-		return localStorage.getItem('authToken');
+		return getSessionAuthToken();
 	}
 
 	function getMessageAttachmentActionItems(message: Message): MessageAttachmentActionItem[] {
@@ -649,6 +855,7 @@
 	function handleAddReaction() {
 		if (!contextMenuMessage) return;
 		// Open emoji picker at the context menu position
+		recordQuickReactionTelemetry('picker_open');
 		reactionPickerMessageId = contextMenuMessage.id;
 		reactionPickerChannelId = $currentChannel;
 		reactionPickerX = contextMenuX;
@@ -796,6 +1003,7 @@
 
 	function openReactionPicker(event: MouseEvent, messageId: string) {
 		event.stopPropagation();
+		recordQuickReactionTelemetry('picker_open');
 		reactionPickerMessageId = messageId;
 		reactionPickerChannelId = $currentChannel;
 		reactionPickerX = event.clientX;
@@ -867,6 +1075,90 @@
 	function getEmojiById(emojiId: string): Emoji | undefined {
 		return $emojis.find(e => e.id === emojiId);
 	}
+
+	const QUICK_REACTION_NAME_CANDIDATES: string[][] = [
+		['thumbsup', 'thumbs_up', 'thumb-up', 'like', '+1'],
+		['heart', 'red_heart', 'love'],
+		['joy', 'face_with_tears_of_joy', 'laughing'],
+		['fire'],
+		['eyes']
+	];
+	const QUICK_REACTION_VISIBLE_LIMIT = 4;
+	const QUICK_REACTION_EXISTING_LIMIT = 2;
+	const QUICK_REACTION_ALIAS_SCAN_LIMIT = 320;
+
+	function normalizeEmojiLookupName(value: string | undefined): string {
+		return (value || '').trim().toLowerCase().replace(/[^a-z0-9+]/g, '');
+	}
+
+	function getQuickReactionEmojis(message: Message): Emoji[] {
+		if (!$quickReactionSettingsStore.enabled) {
+			return [];
+		}
+
+		const emojiCatalog = Array.isArray($emojis) ? $emojis : [];
+		if (emojiCatalog.length === 0) {
+			return [];
+		}
+
+		const emojiById = new Map<string, Emoji>();
+		for (const emoji of emojiCatalog) {
+			emojiById.set(emoji.id, emoji);
+		}
+		const aliasScanPool =
+			emojiCatalog.length > QUICK_REACTION_ALIAS_SCAN_LIMIT
+				? emojiCatalog.slice(0, QUICK_REACTION_ALIAS_SCAN_LIMIT)
+				: emojiCatalog;
+
+		const selected: Emoji[] = [];
+		const seen = new Set<string>();
+		const addEmoji = (emoji: Emoji | undefined) => {
+			if (!emoji || seen.has(emoji.id)) return;
+			seen.add(emoji.id);
+			selected.push(emoji);
+		};
+
+		if (message.reactions) {
+			const topExisting = Object.entries(message.reactions)
+				.sort((a, b) => b[1].length - a[1].length)
+				.slice(0, QUICK_REACTION_EXISTING_LIMIT);
+			for (const [emojiId] of topExisting) {
+				addEmoji(emojiById.get(emojiId));
+			}
+		}
+
+		for (const emojiId of $quickReactionSettingsStore.customEmojiIds) {
+			addEmoji(emojiById.get(emojiId));
+			if (selected.length >= QUICK_REACTION_VISIBLE_LIMIT) {
+				break;
+			}
+		}
+
+		for (const aliases of QUICK_REACTION_NAME_CANDIDATES) {
+			const match = aliasScanPool.find((emoji) => {
+				const n1 = normalizeEmojiLookupName(emoji.name);
+				const n2 = normalizeEmojiLookupName(emoji.displayName);
+				return aliases.some((alias) => alias === n1 || alias === n2);
+			});
+			addEmoji(match);
+			if (selected.length >= QUICK_REACTION_VISIBLE_LIMIT) break;
+		}
+
+		if (selected.length < QUICK_REACTION_VISIBLE_LIMIT) {
+			for (const emoji of aliasScanPool) {
+				addEmoji(emoji);
+				if (selected.length >= QUICK_REACTION_VISIBLE_LIMIT) break;
+			}
+		}
+
+		return selected.slice(0, QUICK_REACTION_VISIBLE_LIMIT);
+	}
+
+	function quickReactToMessage(messageId: string, emojiId: string): void {
+		recordQuickReactionTelemetry('quick_strip_click');
+		toggleReaction(messageId, emojiId);
+	}
+
 	function handleImageContextMenu(event: MouseEvent, message: Message) {
 		event.preventDefault();
 		contextMenuMessage = message;
@@ -942,7 +1234,7 @@
 
 		const channel = $channels.find((ch) => ch.id === $currentChannel);
 		const otherDbUserId = channel?.type === 'dm' ? channel.otherUser?.dbUserId : undefined;
-		const authToken = localStorage.getItem('authToken');
+		const authToken = getAuthToken();
 		if (!otherDbUserId || !authToken || !isE2EAvailable()) {
 			alert(get(_)('messages.errors.cannot_decrypt_session'));
 			return;
@@ -1156,13 +1448,14 @@
 		if (blendImportSubmitting) return;
 		blendImportSubmitting = true;
 		try {
-			const authToken = localStorage.getItem('authToken');
+			const authToken = getAuthToken();
 			const response = await fetch(`${getServerUrl()}/api/plugins/runtime/model-viewer/blend/jobs`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
 					...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
 				},
+				credentials: 'include',
 				body: JSON.stringify({
 					channelId: $currentChannel,
 					...event.detail
@@ -1415,7 +1708,22 @@
 		const spoilers = document.querySelectorAll('.spoiler[data-spoiler="true"]');
 		spoilers.forEach(spoiler => {
 			if (!spoiler.hasAttribute('data-listener-attached')) {
-				spoiler.addEventListener('click', function(this: HTMLElement) {
+				spoiler.addEventListener('click', function(this: HTMLElement, event: Event) {
+					const mouseEvent = event as MouseEvent;
+					if (canUseRevealAllSpoilers() && (mouseEvent.ctrlKey || mouseEvent.metaKey)) {
+						const shouldReveal = !this.classList.contains('revealed');
+						const messageContainer = this.closest('.message');
+						if (messageContainer) {
+							const relatedSpoilers = messageContainer.querySelectorAll<HTMLElement>(
+								'.spoiler[data-spoiler="true"]'
+							);
+							relatedSpoilers.forEach((item) => item.classList.toggle('revealed', shouldReveal));
+						} else {
+							this.classList.toggle('revealed', shouldReveal);
+						}
+						mouseEvent.preventDefault();
+						return;
+					}
 					this.classList.toggle('revealed');
 				});
 				spoiler.setAttribute('data-listener-attached', 'true');
@@ -1516,7 +1824,8 @@
 
 {#each visibleMessages as message, localIndex (message.id)}
 	{@const index = visibleMessageStart + localIndex}
-	{@const user = getUserByUsername(message.user)}
+	{@const author = getUserByMessageAuthor(message)}
+	{@const displayUsername = getMessageDisplayUsername(message, author)}
 	{@const replyToMsg = getReplyToMessage(message.replyTo)}
 	{@const groupedWithPrevious = isGroupedWithPrevious(index)}
 	{@const groupedWithNext = isGroupedWithNext(index)}
@@ -1526,8 +1835,9 @@
 	{@const translationLoading = translatingMessageIds.has(message.id)}
 	{@const filteredMessage = applyChatFilter(message.text || '', 'incoming', $chatFilterStore)}
 	{@const hideByFilter = filteredMessage.hidden}
-	{@const messageText = filteredMessage.text}
-	{@const shouldAnimateMessage = visibleMessages.length - localIndex <= ($animationPassStore.level === 'full' ? 48 : 24)}
+		{@const messageText = filteredMessage.text}
+		{@const shouldAnimateMessage = visibleMessages.length - localIndex <= ($animationPassStore.level === 'full' ? 48 : 24)}
+		{@const quickReactionEmojis = getQuickReactionEmojis(message)}
 
 	{#if !hideByFilter}
 		<!-- New Messages Divider -->
@@ -1540,7 +1850,7 @@
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
 			id="message-{message.id}"
-			class="message {message.isPinned ? 'pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''} {groupedWithNext ? 'has-continuation' : ''} {ownMessage ? 'own-message' : ''}"
+			class="message {message.isPinned ? 'pinned' : ''} {isPersonalPinnedMessage(message.id) ? 'personal-pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''} {groupedWithNext ? 'has-continuation' : ''} {ownMessage ? 'own-message' : ''}"
 			on:contextmenu={(e) => handleContextMenu(e, message)}
 			use:longpress={{ onLongPress: (e) => handleMessageLongPress(e, message) }}
 			transition:messageItemTransition={{
@@ -1548,13 +1858,47 @@
 				animate: shouldAnimateMessage
 			}}
 		>
-		<div class="message-actions" class:mobile-visible={mobileActionsMessageId === message.id}>
+			<div class="message-actions" class:mobile-visible={mobileActionsMessageId === message.id}>
+			{#if quickReactionEmojis.length > 0}
+				<div class="quick-reactions-strip">
+					{#each quickReactionEmojis as quickEmoji (quickEmoji.id)}
+						<button
+							class="quick-reaction-btn"
+							title={`Quick react: ${quickEmoji.displayName || quickEmoji.name}`}
+							on:click|stopPropagation={() => quickReactToMessage(message.id, quickEmoji.id)}
+						>
+							<img
+								src={quickEmoji.url}
+								alt={quickEmoji.displayName || quickEmoji.name}
+								class="quick-reaction-emoji"
+								loading="lazy"
+								decoding="async"
+							/>
+						</button>
+					{/each}
+				</div>
+			{/if}
 			<button class="action-btn" title={$_('messages.add_reaction')} on:click={(e) => openReactionPicker(e, message.id)}>
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
 			</button>
 			<button class="action-btn" title={$_('messages.actions.reply')} on:click={() => handleReply(message)}>
 				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
 			</button>
+			{#if $displayEnhancementSettingsStore.messageUtilitiesEnabled}
+				{#if $displayEnhancementSettingsStore.quickMentionEnabled && !ownMessage}
+					<button class="action-btn utility-btn" title={$_('context_menu.quick_mention')} on:click={() => handleQuickMention(message)}>
+						@
+					</button>
+				{/if}
+				<button class="action-btn utility-btn" title={message.isPinned ? $_('context_menu.unpin_message') : $_('context_menu.pin_message')} on:click={() => handleUtilityPinToggle(message)}>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg>
+				</button>
+				{#if ownMessage}
+					<button class="action-btn utility-btn" title={$_('context_menu.edit_message')} on:click={() => handleUtilityEdit(message)}>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path></svg>
+					</button>
+				{/if}
+			{/if}
 			<button class="action-btn" title={$_('messages.actions.more')} on:click={(e) => handleContextMenu(e, message)}>
 				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
 			</button>
@@ -1567,11 +1911,11 @@
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<div class="message-avatar">
-					{#if user?.profilePicture}
-						<img src={user.profilePicture} alt={message.user} class="avatar" loading="lazy" decoding="async" />
+					{#if author?.profilePicture}
+						<img src={author.profilePicture} alt={displayUsername} class="avatar" loading="lazy" decoding="async" />
 					{:else}
-						<div class="avatar-placeholder" style="background-color: {getUserColor(message.user)}">
-							{message.user.charAt(0).toUpperCase()}
+						<div class="avatar-placeholder" style="background-color: {getUserColor(author, displayUsername)}">
+							{displayUsername.charAt(0).toUpperCase()}
 						</div>
 					{/if}
 				</div>
@@ -1581,16 +1925,29 @@
 			{#if !groupedWithPrevious}
 				<div class="message-header">
 					<div class="header-left">
-						{#if user}
+						{#if author}
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
 							<!-- svelte-ignore a11y-no-static-element-interactions -->
-							<span class="username" style="color: {getUserColor(message.user)}; {getUsernameStyle(message.user, $themeStore)}">
-								{message.user}
+							<span
+								class="username"
+								class:clickable-username={$displayEnhancementSettingsStore.clickableMentionsEnabled}
+								style="color: {getUserColor(author, displayUsername)}; {getUsernameStyle(author, displayUsername, $themeStore)}"
+								on:click={(event) => handleUsernameClick(event, message, author)}
+							>
+								{displayUsername}
 							</span>
 						{:else}
-							<span class="username">{message.user}</span>
+							<span class="username">{displayUsername}</span>
 						{/if}
-						<span class="timestamp">{formatTime(message.timestamp)}</span>
+						{#if getTopRoleBadgeLabel(author)}
+							<span class={`role-inline-badge tone-${getTopRoleBadgeTone(author)}`}>{getTopRoleBadgeLabel(author)}</span>
+						{/if}
+						{#if shouldShowStaffTag(author)}
+							<span class="staff-inline-tag">Staff</span>
+						{/if}
+						<span class="timestamp" title={formatTimeTooltip(message.timestamp)}>
+							{formatTime(message.timestamp)}
+						</span>
 						{#if deletionLabel}
 							<span class="deletion-timer" title={$_('messages.deletion.scheduled_title')}>
 								{deletionLabel}
@@ -1598,6 +1955,9 @@
 						{/if}
 						{#if message.isPinned}
 							<span class="pin-badge" title={$_('messages.pinned_title')}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg></span>
+						{/if}
+						{#if $displayEnhancementSettingsStore.personalPinsEnabled && isPersonalPinnedMessage(message.id)}
+							<span class="local-pin-badge" title={$_('context_menu.pin_local_message')}>Local Pin</span>
 						{/if}
 						{#if message.isEdited}
 							<span class="edited-badge" title={$_('messages.edited_title')}>({$_('messages.edited')})</span>
@@ -1608,15 +1968,28 @@
 				<!-- Compact-mode inline header for continuation messages (hidden in cozy) -->
 				<div class="message-header compact-only-header">
 					<div class="header-left">
-						<span class="timestamp">{formatTime(message.timestamp)}</span>
-						{#if user}
+						<span class="timestamp" title={formatTimeTooltip(message.timestamp)}>
+							{formatTime(message.timestamp)}
+						</span>
+						{#if author}
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
 							<!-- svelte-ignore a11y-no-static-element-interactions -->
-							<span class="username" style="color: {getUserColor(message.user)}; {getUsernameStyle(message.user, $themeStore)}">
-								{message.user}
+							<span
+								class="username"
+								class:clickable-username={$displayEnhancementSettingsStore.clickableMentionsEnabled}
+								style="color: {getUserColor(author, displayUsername)}; {getUsernameStyle(author, displayUsername, $themeStore)}"
+								on:click={(event) => handleUsernameClick(event, message, author)}
+							>
+								{displayUsername}
 							</span>
 						{:else}
-							<span class="username">{message.user}</span>
+							<span class="username">{displayUsername}</span>
+						{/if}
+						{#if getTopRoleBadgeLabel(author)}
+							<span class={`role-inline-badge tone-${getTopRoleBadgeTone(author)}`}>{getTopRoleBadgeLabel(author)}</span>
+						{/if}
+						{#if shouldShowStaffTag(author)}
+							<span class="staff-inline-tag">Staff</span>
 						{/if}
 					</div>
 				</div>
@@ -1646,11 +2019,11 @@
 					}}
 				>
 					<div class="reply-line"></div>
-					<div class="reply-content">
-						<span class="reply-username">
-							{replyToMsg.user}
-						</span>
-						<span class="reply-text">
+						<div class="reply-content">
+							<span class="reply-username">
+								{getMessageDisplayUsername(replyToMsg)}
+							</span>
+							<span class="reply-text">
 							{#if replyToMsg.text}
 								{replyToMsg.text.substring(0, 100)}{replyToMsg.text.length > 100 ? '...' : ''}
 							{:else if replyToMsg.type === 'gif'}
@@ -1701,9 +2074,20 @@
 							{/if}
 							<div class="role-gate-hint">{$_('messages.role_gate.hint')}</div>
 						</div>
-					{:else if message.type === 'gif' && message.gifUrl}
-						<img src={message.gifUrl} alt="GIF" class="gif {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
-					{:else if message.type === 'emoji' && message.emojiUrl}
+						{:else if message.type === 'gif' && message.gifUrl}
+							<div class="gif-message-block">
+								<img src={message.gifUrl} alt="GIF" class="gif {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
+								{#if messageText}
+									<!-- svelte-ignore a11y-click-events-have-key-events -->
+									<div
+										class="markdown-content gif-caption {gifCaptionStyleClass}"
+										on:click={handleMarkdownContentClick}
+									>
+								{@html parseMessage(messageText)}
+							</div>
+								{/if}
+							</div>
+						{:else if message.type === 'emoji' && message.emojiUrl}
 						<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
 					{:else if message.type === 'file' && (message.fileUrl || message.files)}
 						{#if message.files && message.files.length > 1}
@@ -1968,10 +2352,16 @@
 						{/if}
 						{/if}
 						{#if messageText && (message.files ? messageText !== `Shared ${message.files.length} files` : messageText !== `Shared: ${message.fileName}`)}
-							<div class="markdown-content">{@html parseMessage(messageText)}</div>
+							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<div class="markdown-content" on:click={handleMarkdownContentClick}>
+								{@html parseMessage(messageText)}
+							</div>
 						{/if}
 					{:else}
-						<div class="markdown-content">{@html parseMessage(messageText)}</div>
+						<!-- svelte-ignore a11y-click-events-have-key-events -->
+						<div class="markdown-content" on:click={handleMarkdownContentClick}>
+							{@html parseMessage(messageText)}
+						</div>
 					{/if}
 					{#if translatedText}
 						<div class="translated-content" class:loading={translationLoading}>
@@ -1986,6 +2376,8 @@
 						{#each urls as url}
 							{#if isYouTubeUrl(url)}
 								<YouTubeWatchEmbed url={url} channelId={$currentChannel} />
+							{:else if $displayEnhancementSettingsStore.spotifyControlsEnabled && isSpotifyUrl(url)}
+								<SpotifyControlsEmbed {url} />
 							{:else}
 							{@const mediaType = getMediaType(url)}
 							{#if mediaType === 'image'}
@@ -2098,6 +2490,8 @@
 		onDelete={handleDelete}
 		onPin={handlePin}
 		onReply={handleReply}
+		onQuickMention={handleQuickMention}
+		onTogglePersonalPin={handleTogglePersonalPin}
 		onDownload={handleDownload}
 		onAddToAlbum={handleAddToAlbum}
 		onCopyQuote={handleCopyQuote}
@@ -2105,6 +2499,9 @@
 		onForward={handleForward}
 		onAddReaction={handleAddReaction}
 		onTranslate={handleTranslate}
+		quickMentionEnabled={$displayEnhancementSettingsStore.quickMentionEnabled}
+		personalPinsEnabled={$displayEnhancementSettingsStore.personalPinsEnabled}
+		isPersonalPinned={isPersonalPinnedMessage(contextMenuMessage.id)}
 	/>
 {/if}
 
@@ -2428,6 +2825,10 @@
 		background: var(--bg-warning-light);
 	}
 
+	.message.personal-pinned {
+		border-left: 3px solid color-mix(in srgb, var(--accent) 74%, transparent);
+	}
+
 	.message-avatar {
 		flex-shrink: 0;
 		cursor: pointer;
@@ -2483,11 +2884,69 @@
 
 	.username {
 		font-weight: 600;
+		cursor: text;
+	}
+
+	.username.clickable-username {
 		cursor: pointer;
 	}
 
-	.username:hover {
+	.username.clickable-username:hover {
 		text-decoration: underline;
+	}
+
+	.role-inline-badge {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.08rem 0.36rem;
+		border-radius: 999px;
+		font-size: 0.64rem;
+		font-weight: 700;
+		line-height: 1;
+		letter-spacing: 0.02em;
+		text-transform: uppercase;
+		border: 1px solid transparent;
+		white-space: nowrap;
+	}
+
+	.role-inline-badge.tone-owner {
+		background: color-mix(in srgb, #f0b429 22%, var(--bg-secondary));
+		border-color: color-mix(in srgb, #f0b429 55%, transparent);
+		color: #f7d98c;
+	}
+
+	.role-inline-badge.tone-admin {
+		background: color-mix(in srgb, #4f9cff 20%, var(--bg-secondary));
+		border-color: color-mix(in srgb, #4f9cff 50%, transparent);
+		color: #cde0ff;
+	}
+
+	.role-inline-badge.tone-mod {
+		background: color-mix(in srgb, #18a999 18%, var(--bg-secondary));
+		border-color: color-mix(in srgb, #18a999 48%, transparent);
+		color: #b6f0e9;
+	}
+
+	.role-inline-badge.tone-default {
+		background: color-mix(in srgb, var(--accent) 16%, var(--bg-secondary));
+		border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+		color: var(--text-secondary);
+	}
+
+	.staff-inline-tag {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.08rem 0.36rem;
+		border-radius: 999px;
+		font-size: 0.62rem;
+		font-weight: 700;
+		line-height: 1;
+		letter-spacing: 0.03em;
+		text-transform: uppercase;
+		border: 1px solid color-mix(in srgb, #ef5f5f 42%, transparent);
+		background: color-mix(in srgb, #ef5f5f 17%, var(--bg-secondary));
+		color: #ffc6c6;
+		white-space: nowrap;
 	}
 
 	.timestamp {
@@ -2535,6 +2994,38 @@
 		transform: translateY(0);
 	}
 
+	.quick-reactions-strip {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		margin-right: 4px;
+		padding-right: 4px;
+		border-right: 1px solid var(--border);
+	}
+
+	.quick-reaction-btn {
+		width: 22px;
+		height: 22px;
+		border: none;
+		background: none;
+		border-radius: 6px;
+		padding: 0;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+	}
+
+	.quick-reaction-btn:hover {
+		background: rgba(var(--accent-rgb), 0.16);
+	}
+
+	.quick-reaction-emoji {
+		width: 15px;
+		height: 15px;
+		object-fit: contain;
+	}
+
 	.timestamp-action {
 		font-size: 0.75rem;
 		color: var(--text-secondary);
@@ -2561,6 +3052,11 @@
 		width: 24px; /* Fixed width for icon */
 	}
 
+	.utility-btn {
+		font-size: 0.8rem;
+		font-weight: 700;
+	}
+
 	.action-btn:hover {
 		color: var(--accent);
 		background-color: var(--bg-tertiary);
@@ -2577,6 +3073,20 @@
 		display: inline-flex;
 		align-items: center;
 		margin-left: 0.25rem;
+	}
+
+	.local-pin-badge {
+		display: inline-flex;
+		align-items: center;
+		margin-left: 0.25rem;
+		padding: 0.08rem 0.38rem;
+		border-radius: 999px;
+		font-size: 0.64rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
+		background: color-mix(in srgb, var(--accent) 14%, transparent);
+		color: color-mix(in srgb, var(--accent) 90%, var(--text-primary));
 	}
 
 	.pin-badge svg {
@@ -2798,6 +3308,12 @@
 		background: color-mix(in srgb, var(--accent) 20%, transparent);
 		color: color-mix(in srgb, var(--accent) 70%, var(--text-primary) 30%);
 		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.18s ease;
+	}
+
+	.markdown-content :global(.mention-token:hover) {
+		background: color-mix(in srgb, var(--accent) 28%, transparent);
 	}
 
 	.markdown-content :global(code) {
@@ -3371,6 +3887,32 @@
 		display: block;
 	}
 
+	.gif-message-block {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		max-width: 420px;
+	}
+
+	.gif-caption {
+		margin-top: 0;
+		max-width: 100%;
+		word-break: break-word;
+		line-height: 1.35;
+	}
+
+	.gif-caption.style-accent {
+		border-left: 2px solid rgba(var(--accent-rgb), 0.55);
+		padding-left: 0.45rem;
+	}
+
+	.gif-caption.style-card {
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 0.38rem 0.5rem;
+		background: color-mix(in srgb, var(--bg-tertiary) 85%, transparent);
+	}
+
 	.image-container,
 	.video-container,
 	.model-container {
@@ -3424,9 +3966,34 @@
 			position: absolute;
 			top: -8px;
 			right: 0;
+			height: 44px;
+			padding: 0 6px;
 			opacity: 1;
 			visibility: visible;
 			transform: translateY(0);
+		}
+
+		.quick-reactions-strip {
+			display: none;
+		}
+
+		.message-actions.mobile-visible .quick-reactions-strip {
+			display: inline-flex;
+			max-width: 170px;
+			overflow-x: auto;
+			margin-right: 6px;
+			padding-right: 6px;
+		}
+
+		.message-actions.mobile-visible .quick-reaction-btn {
+			width: 30px;
+			height: 30px;
+			border-radius: 8px;
+		}
+
+		.message-actions.mobile-visible .quick-reaction-emoji {
+			width: 18px;
+			height: 18px;
 		}
 
 		.action-btn {
@@ -3496,10 +4063,18 @@
 			border-radius: 6px;
 		}
 
-		.gif {
-			max-width: 100%;
-			max-height: 150px;
-			border-radius: 6px;
+			.gif {
+				max-width: 100%;
+				max-height: 150px;
+				border-radius: 6px;
+			}
+
+			.gif-message-block {
+				max-width: 100%;
+			}
+
+		.gif-caption {
+			font-size: 0.78rem;
 		}
 
 		.emoji-large {

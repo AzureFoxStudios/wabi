@@ -1,6 +1,9 @@
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
+const JWT_SECRET = (process.env.JWT_SECRET || '').trim();
+if (!JWT_SECRET || JWT_SECRET === 'dev-secret-change-in-production') {
+	throw new Error('JWT_SECRET must be configured with a strong non-default value');
+}
 const JWT_EXPIRES_IN = '30d';
 
 export interface TokenPayload {

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { getServerUrl } from '$lib/serverUrl';
+	import { getAuthToken } from '$lib/authSession';
 
 	let privateMode = false;
 	let loading = false;
@@ -8,7 +9,7 @@
 	let isAuthenticated = false;
 
 	async function togglePrivateMode() {
-		const token = localStorage.getItem('authToken');
+		const token = getAuthToken();
 		if (!token) {
 			error = 'Login required to use private mode';
 			return;
@@ -25,6 +26,7 @@
 					'Content-Type': 'application/json',
 					'Authorization': `Bearer ${token}`
 				},
+				credentials: 'include',
 				body: JSON.stringify({ privateMode: !privateMode })
 			});
 
@@ -44,7 +46,7 @@
 
 	onMount(async () => {
 		// Check if user is authenticated
-		const token = localStorage.getItem('authToken');
+		const token = getAuthToken();
 		isAuthenticated = !!token;
 
 		if (!token) return; // Guest users can't use private mode
@@ -52,7 +54,8 @@
 		try {
 			const serverUrl = getServerUrl();
 			const response = await fetch(`${serverUrl}/api/user/settings`, {
-				headers: { 'Authorization': `Bearer ${token}` }
+				headers: { 'Authorization': `Bearer ${token}` },
+				credentials: 'include'
 			});
 			if (response.ok) {
 				const settings = await response.json();

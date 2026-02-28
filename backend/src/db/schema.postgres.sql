@@ -216,6 +216,7 @@ CREATE TABLE IF NOT EXISTS albums (
   created_at BIGINT NOT NULL,
   updated_at BIGINT NOT NULL,
   is_archived INTEGER DEFAULT 0,
+  is_featured INTEGER DEFAULT 0,
   FOREIGN KEY (created_by) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
@@ -229,6 +230,7 @@ CREATE TABLE IF NOT EXISTS album_items (
   attachment_mime TEXT,
   message_id TEXT,
   caption TEXT,
+  sort_order BIGINT DEFAULT 0,
   uploaded_by BIGINT NOT NULL,
   uploaded_at BIGINT NOT NULL,
   FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
@@ -299,9 +301,9 @@ CREATE INDEX IF NOT EXISTS idx_channel_members_user ON channel_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(message_id);
 CREATE INDEX IF NOT EXISTS idx_emoji_role_rules_lookup ON emoji_role_rules(channel_id, message_id, emoji_id, workspace_id);
-CREATE INDEX IF NOT EXISTS idx_albums_scope ON albums(scope_type, scope_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_albums_scope ON albums(scope_type, scope_id, is_featured DESC, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_albums_created_by ON albums(created_by, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_album_items_album ON album_items(album_id, uploaded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_album_items_album ON album_items(album_id, sort_order ASC, uploaded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_album_items_uploader ON album_items(uploaded_by, uploaded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_relays_status ON relays(status);
 CREATE INDEX IF NOT EXISTS idx_relays_region ON relays(region);
