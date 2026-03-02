@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
-	import { fly } from 'svelte/transition';
+	import { fly, slide } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import {
 		channels,
 		currentChannel,
@@ -889,10 +890,10 @@
 					</span>
 				</button>
 			</div>
-			{#if members.length > 0 || (channelIsConnected && $currentUser)}
-				<div class="voice-member-list">
+			{#if channelIsConnected}
+				<div class="voice-member-list" transition:slide={{ duration: 180, easing: cubicOut }}>
 					{#if channelIsConnected && $currentUser}
-					<div class="voice-member-item" in:fly={{ y: -6, duration: 160, opacity: 0.2 }} out:fly={{ y: -4, duration: 130, opacity: 0.2 }}>
+					<div class="voice-member-item" in:fly={{ x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={{ x: -24, duration: 150, opacity: 0.1 }}>
 						{#if $currentUser.profilePicture}
 							<img class="voice-member-avatar" class:speaking={isSelfSpeakingInChannel(channel.id)} src={$currentUser.profilePicture} alt={$currentUser.username} />
 						{:else}
@@ -909,7 +910,7 @@
 						if ($currentUser?.dbUserId && m.userId === `user-${$currentUser.dbUserId}`) return false;
 						return true;
 					}) : members) as member (member.userId)}
-						<div class="voice-member-item" in:fly={{ y: -6, duration: 160, opacity: 0.2 }} out:fly={{ y: -4, duration: 130, opacity: 0.2 }}>
+						<div class="voice-member-item" in:fly={{ x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={{ x: -24, duration: 150, opacity: 0.1 }}>
 							{#if member.profilePicture}
 								<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member, channel.id)} src={member.profilePicture} alt={member.username || member.userId} />
 							{:else}
@@ -943,10 +944,10 @@
 						</span>
 					</button>
 				</div>
-				{#if breakoutMembers.length > 0 || (breakoutIsConnected && $currentUser)}
-					<div class="voice-member-list breakout-member-list">
+				{#if breakoutIsConnected}
+					<div class="voice-member-list breakout-member-list" transition:slide={{ duration: 180, easing: cubicOut }}>
 						{#if breakoutIsConnected && $currentUser}
-						<div class="voice-member-item" in:fly={{ y: -6, duration: 160, opacity: 0.2 }} out:fly={{ y: -4, duration: 130, opacity: 0.2 }}>
+						<div class="voice-member-item" in:fly={{ x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={{ x: -24, duration: 150, opacity: 0.1 }}>
 							{#if $currentUser.profilePicture}
 								<img class="voice-member-avatar" class:speaking={isSelfSpeakingInChannel(breakout.id)} src={$currentUser.profilePicture} alt={$currentUser.username} />
 							{:else}
@@ -963,7 +964,7 @@
 							if ($currentUser?.dbUserId && m.userId === `user-${$currentUser.dbUserId}`) return false;
 							return true;
 						}) : breakoutMembers) as member (member.userId)}
-							<div class="voice-member-item" in:fly={{ y: -6, duration: 160, opacity: 0.2 }} out:fly={{ y: -4, duration: 130, opacity: 0.2 }}>
+							<div class="voice-member-item" in:fly={{ x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={{ x: -24, duration: 150, opacity: 0.1 }}>
 								{#if member.profilePicture}
 									<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member, breakout.id)} src={member.profilePicture} alt={member.username || member.userId} />
 								{:else}
@@ -2080,6 +2081,17 @@
 		gap: 0.35rem;
 		color: var(--text-secondary);
 		font-size: 0.72rem;
+		padding: 0.16rem 0.42rem 0.16rem 0.18rem;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--bg-tertiary) 72%, transparent);
+		border: 1px solid rgba(var(--border-rgb), 0.25);
+		transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+	}
+
+	.voice-member-item:hover {
+		transform: translateX(2px);
+		border-color: rgba(var(--border-rgb), 0.45);
+		background: color-mix(in srgb, var(--bg-tertiary) 88%, transparent);
 	}
 
 	.voice-member-overflow {
