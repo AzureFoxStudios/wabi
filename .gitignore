@@ -83,3 +83,6 @@ frontend/static/openmoji/png/
 frontend/static/openmoji/manifest.json
 assets/vendor/openmoji/
 backend/openmoji/
+
+# Export scratch/temp artifacts
+exports/tmp/
