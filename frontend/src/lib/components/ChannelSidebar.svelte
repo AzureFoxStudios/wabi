@@ -15,6 +15,7 @@
 		updateChannelSettings,
 		channelUnreadCounts,
 		updateProfile,
+		activeVoiceChannel as socketActiveVoiceChannel,
 		voiceChannelMembers,
 		joinVoiceChannel,
 		leaveVoiceChannel,
@@ -29,7 +30,7 @@
 		getSocket
 	} from '$lib/socket';
 	import {
-		activeVoiceChannel,
+		activeVoiceChannel as callActiveVoiceChannel,
 		activeCalls,
 		isLocalSpeaking,
 		openChannelCallPanel,
@@ -51,8 +52,9 @@
 		stopScreenShare,
 		speakingUsers
 	} from '$lib/calling';
-		import ConfirmDialog from './ConfirmDialog.svelte';
+	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
+	import UserPopout from './UserPopout.svelte';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
 	import type { ContextMenuItem } from '$lib/context-menu/types';
 	import type { Channel } from '$lib/socket';
@@ -64,11 +66,7 @@
 		toggleMutedChannelId
 	} from '$lib/displayEnhancements';
 	import {
-		clearActiveCustomStatusPreset,
-		customStatusPresetsStore,
-		getActiveCustomStatusPreset,
-		setActiveCustomStatusPreset,
-		type CustomStatusPreset
+		clearActiveCustomStatusPreset
 	} from '$lib/customStatusPresets';
 
 	const dispatch = createEventDispatcher();
@@ -118,7 +116,7 @@
 	// Sidebar width from layout store - 3 modes: normal (280px), compact (60px), hidden (0px)
 	$: sidebarWidth = $layoutStore.channelSidebarWidth;
 	$: isCompactSidebar = sidebarWidth === 60;
-	$: runtimeActiveVoiceChannelId = $activeVoiceChannel?.id || null;
+	$: runtimeActiveVoiceChannelId = $callActiveVoiceChannel?.id || $socketActiveVoiceChannel || null;
 	$: connectedVoiceChannelIds = (() => {
 		const ids = new Set<string>();
 		for (const id of $listeningVoiceChannels) ids.add(id);
@@ -133,6 +131,8 @@
 	let contextMenuChannel: Channel | null = null;
 	let contextMenuPosition = { x: 0, y: 0 };
 	let showContextMenu = false;
+	let showOwnProfilePopout = false;
+	let ownProfilePopoutAnchor: HTMLElement | null = null;
 
 	function toggleSidebar() {
 		const current = $layoutStore.channelSidebarWidth;
@@ -141,6 +141,13 @@
 
 	function handleLogout() {
 		dispatch('logout');
+	}
+
+	function openOwnProfilePopout(event: Event): void {
+		if (!$currentUser) return;
+		ownProfilePopoutAnchor = event.currentTarget as HTMLElement | null;
+		showOwnProfilePopout = true;
+		showStatusPopup = false;
 	}
 
 	function isChannelLocallyMuted(channelId: string): boolean {
@@ -201,7 +208,8 @@
 	$: totalUnreadNotifications = Object.values($channelUnreadCounts).reduce((sum, value) => {
 		return sum + (Number.isFinite(value) ? value : 0);
 	}, 0);
-	$: activeCustomStatusPreset = getActiveCustomStatusPreset($customStatusPresetsStore);
+	$: canTogglePersistMessages = $currentUser?.highestRole === 'owner';
+	$: canManageWatchQueue = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
 	$: {
 		const previous = voicePresenceSince;
 		const next = new Map<string, number>();
@@ -485,11 +493,15 @@
 
 	let tempPersistMessages = false;
 	let tempDescription = '';
+	let tempChannelName = '';
+	let tempWatchQueueEnabled = false;
 
 	function handleOpenChannelSettings(channel: Channel) {
 		selectedChannelForSettings = channel;
 		tempPersistMessages = channel.persistMessages || false;
 		tempDescription = channel.description || '';
+		tempChannelName = channel.name || '';
+		tempWatchQueueEnabled = channel.watchQueueEnabled || false;
 		showChannelSettingsModal = true;
 	}
 
@@ -497,8 +509,10 @@
 		if (selectedChannelForSettings) {
 			updateChannelSettings(selectedChannelForSettings.id, {
 				autoDeleteAfter,
-				persistMessages: tempPersistMessages,
-				description: tempDescription
+				persistMessages: canTogglePersistMessages ? tempPersistMessages : selectedChannelForSettings.persistMessages,
+				description: tempDescription,
+				name: tempChannelName.trim() || selectedChannelForSettings.name,
+				watchQueueEnabled: canManageWatchQueue ? tempWatchQueueEnabled : selectedChannelForSettings.watchQueueEnabled
 			});
 			showChannelSettingsModal = false;
 		}
@@ -508,36 +522,22 @@
 		if (selectedChannelForSettings) {
 			updateChannelSettings(selectedChannelForSettings.id, {
 				autoDeleteAfter: selectedChannelForSettings.autoDeleteAfter || null,
-				persistMessages: tempPersistMessages,
-				description: tempDescription
+				persistMessages: canTogglePersistMessages ? tempPersistMessages : selectedChannelForSettings.persistMessages,
+				description: tempDescription,
+				name: tempChannelName.trim() || selectedChannelForSettings.name,
+				watchQueueEnabled: canManageWatchQueue ? tempWatchQueueEnabled : selectedChannelForSettings.watchQueueEnabled
 			});
 			showChannelSettingsModal = false;
 		}
-	}
-
-	function handleTogglePersistence() {
-		tempPersistMessages = !tempPersistMessages;
 	}
 
 	function toggleStatusPopup() {
 		showStatusPopup = !showStatusPopup;
 	}
 
-	function getPresenceDotColor(status: 'active' | 'away' | 'busy'): string {
-		if (status === 'away') return 'var(--status-away)';
-		if (status === 'busy') return 'var(--status-busy)';
-		return 'var(--status-online)';
-	}
-
 	function changeStatus(newStatus: 'active' | 'away' | 'busy') {
 		clearActiveCustomStatusPreset();
 		updateProfile(newStatus, undefined, undefined);
-		showStatusPopup = false;
-	}
-
-	function applyCustomStatusPreset(preset: CustomStatusPreset): void {
-		setActiveCustomStatusPreset(preset.id);
-		updateProfile(preset.status, undefined, undefined);
 		showStatusPopup = false;
 	}
 
@@ -1082,7 +1082,7 @@
 	{#if $currentUser}
 		<div class="profile-card">
 			<div class="profile-info">
-				<button class="avatar-container" on:click={() => dispatch('openSettings')}>
+				<button class="avatar-container" on:click={openOwnProfilePopout}>
 					{#if $currentUser.profilePicture}
 						<img src={$currentUser.profilePicture} alt={$currentUser.username} class="avatar" />
 					{:else}
@@ -1111,11 +1111,6 @@
 						<span class="self-role-badge">{currentUserRoleLabel}</span>
 					</div>
 					<div class="user-tag">{$currentUser.handle ? `@${$currentUser.handle}` : `#${$currentUser.id.slice(-4)}`}</div>
-					{#if $displayEnhancementSettingsStore.customStatusPresetsEnabled && activeCustomStatusPreset}
-						<div class="custom-status-pill" title={activeCustomStatusPreset.note || activeCustomStatusPreset.label}>
-							{activeCustomStatusPreset.note || activeCustomStatusPreset.label}
-						</div>
-					{/if}
 				</div>
 			</div>
 
@@ -1133,29 +1128,6 @@
 						<span class="status-dot" style="background-color: var(--status-busy)"></span>
 						Busy
 					</button>
-					{#if $displayEnhancementSettingsStore.customStatusPresetsEnabled}
-						<div class="status-divider"></div>
-						{#if $customStatusPresetsStore.presets.length === 0}
-							<div class="status-preset-empty">No custom presets yet.</div>
-						{:else}
-							{#each $customStatusPresetsStore.presets as preset (preset.id)}
-								<button
-									class="status-option status-preset-option"
-									class:active-preset={activeCustomStatusPreset?.id === preset.id}
-									on:click={() => applyCustomStatusPreset(preset)}
-									title={`Preset: ${preset.label}`}
-								>
-									<span class="status-dot" style="background-color: {getPresenceDotColor(preset.status)}"></span>
-									<span class="status-preset-copy">
-										<span class="status-preset-label">{preset.label}</span>
-										{#if preset.note}
-											<span class="status-preset-note">{preset.note}</span>
-										{/if}
-									</span>
-								</button>
-							{/each}
-						{/if}
-					{/if}
 				</div>
 			{/if}
 			<div class="profile-controls">
@@ -1213,6 +1185,14 @@
 />
 
 <PinnedMessagesModal bind:isOpen={showPinnedModal} channelId={selectedChannelForPinned} />
+<UserPopout
+	user={$currentUser}
+	bind:isOpen={showOwnProfilePopout}
+	anchorElement={ownProfilePopoutAnchor}
+	isOwnProfile={true}
+	on:close={() => (showOwnProfilePopout = false)}
+	on:openFullProfile={() => dispatch('openSettings')}
+/>
 
 <!-- Channel Settings Modal -->
 {#if showChannelSettingsModal && selectedChannelForSettings}
@@ -1248,6 +1228,17 @@
 			<div class="modal-body">
 				<div class="setting-section">
 					<h3>Channel: #{selectedChannelForSettings.name}</h3>
+
+					<div class="setting-group">
+						<label>Name</label>
+						<input
+							type="text"
+							bind:value={tempChannelName}
+							placeholder="Channel name"
+							class="description-input"
+							maxlength="64"
+						/>
+					</div>
 
 					<div class="setting-group">
 						<label>Description</label>
@@ -1349,13 +1340,37 @@
 									type="checkbox"
 									bind:checked={tempPersistMessages}
 									class="setting-checkbox"
+									disabled={!canTogglePersistMessages}
 								/>
-								Persist Messages Locally
+								Persist Messages Locally (Owner Only)
 							</label>
 							<p class="setting-description">
 								Save messages to your browser's local storage so you can see them after the server restarts.
 								Each client controls their own message history.
 							</p>
+							{#if !canTogglePersistMessages}
+								<p class="setting-description">Only workspace owners can change this setting.</p>
+							{/if}
+						</div>
+					{/if}
+
+					{#if selectedChannelForSettings.type !== 'dm' && selectedChannelForSettings.type !== 'voice'}
+						<div class="setting-group">
+							<label class="setting-label">
+								<input
+									type="checkbox"
+									bind:checked={tempWatchQueueEnabled}
+									class="setting-checkbox"
+									disabled={!canManageWatchQueue}
+								/>
+								YouTube Queue Channel
+							</label>
+							<p class="setting-description">
+								Enable the dedicated watch queue embed area in this channel while keeping standard YouTube link previews.
+							</p>
+							{#if !canManageWatchQueue}
+								<p class="setting-description">Only workspace owners or admins can change this setting.</p>
+							{/if}
 						</div>
 					{/if}
 				</div>
@@ -2661,7 +2676,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 1000;
+		z-index: 5000;
 	}
 
 	.modal-content {

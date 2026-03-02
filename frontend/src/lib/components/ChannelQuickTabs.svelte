@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
-	import { channelUnreadCounts, channels, currentChannel, currentUser, joinChannel, pinnedChannels, unpinChannel, voiceChannelMembers } from '$lib/socket';
+	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, joinChannel, pinnedChannels, unpinChannel, voiceChannelMembers } from '$lib/socket';
 	import { activeVoiceChannel, callMode } from '$lib/calling';
 	import { layoutStore } from '$lib/layoutStore';
 	import { mobileTabQueue, type AddonTabSpec, type MobileQueueTab } from '$lib/mobileTabQueue';
@@ -38,6 +38,11 @@
 	let contextMenuX = 0;
 	let contextMenuY = 0;
 	let contextMenuTab: RenderTab | null = null;
+	let glimpseVisible = false;
+	let glimpseX = 0;
+	let glimpseY = 0;
+	let glimpseTitle = '';
+	let glimpseRows: Array<{ user: string; text: string }> = [];
 
 	const TAB_MIN_WIDTH = 88;
 	const TAB_MAX_WIDTH = 168;
@@ -168,6 +173,15 @@
 	}
 
 	function handleSelectTab(tab: RenderTab, event?: Event): void {
+		if (event instanceof MouseEvent && event.button === 0 && event.altKey) {
+			if (tab.type === 'channel' && tab.channelId) {
+				event.preventDefault();
+				event.stopPropagation();
+				openGlimpse(tab, event.clientX, event.clientY);
+			}
+			return;
+		}
+
 		if (Date.now() < suppressSelectUntil) {
 			event?.preventDefault();
 			return;
@@ -280,6 +294,39 @@
 	function closeTabContextMenu(): void {
 		contextMenuVisible = false;
 		contextMenuTab = null;
+		closeGlimpse();
+	}
+
+	function summarizeMessageText(message: { text?: string; type?: string }): string {
+		const trimmed = (message.text || '').trim();
+		if (trimmed) return trimmed.length > 90 ? `${trimmed.slice(0, 90)}…` : trimmed;
+		if (message.type === 'gif') return '[GIF]';
+		if (message.type === 'emoji') return '[Emoji]';
+		return '[Attachment]';
+	}
+
+	function openGlimpse(tab: RenderTab, clientX: number, clientY: number): void {
+		if (tab.type !== 'channel' || !tab.channelId) return;
+		const channel = channelById.get(tab.channelId);
+		const source = $channelMessages[tab.channelId] || [];
+		const lastFew = source.slice(-4).map((message) => ({
+			user: message.user || 'Unknown',
+			text: summarizeMessageText(message)
+		}));
+		glimpseTitle = channel ? `#${channel.name}` : tab.label;
+		glimpseRows = lastFew.length > 0 ? lastFew : [{ user: 'System', text: 'No recent messages' }];
+		const menuWidth = 360;
+		const menuHeight = 220;
+		const maxX = Math.max(8, window.innerWidth - menuWidth - 8);
+		const maxY = Math.max(8, window.innerHeight - menuHeight - 8);
+		glimpseX = Math.max(8, Math.min(clientX + 12, maxX));
+		glimpseY = Math.max(8, Math.min(clientY + 12, maxY));
+		glimpseVisible = true;
+	}
+
+	function closeGlimpse(): void {
+		glimpseVisible = false;
+		glimpseRows = [];
 	}
 
 	function openTabContextMenu(tab: RenderTab, event: MouseEvent): void {
@@ -550,6 +597,24 @@
 		>
 			Detach Tab
 		</button>
+	</div>
+{/if}
+
+{#if glimpseVisible}
+	<div
+		class="tab-glimpse-card"
+		style="left: {glimpseX}px; top: {glimpseY}px;"
+		role="dialog"
+		aria-label="Channel glimpse"
+		on:click|stopPropagation
+	>
+		<div class="tab-glimpse-title">{glimpseTitle}</div>
+		{#each glimpseRows as row, idx (`${row.user}-${idx}`)}
+			<div class="tab-glimpse-row">
+				<span class="tab-glimpse-user">{row.user}</span>
+				<span class="tab-glimpse-text">{row.text}</span>
+			</div>
+		{/each}
 	</div>
 {/if}
 
@@ -864,5 +929,49 @@
 		opacity: 0.45;
 		cursor: not-allowed;
 	}
-</style>
 
+	.tab-glimpse-card {
+		position: fixed;
+		z-index: 2250;
+		width: min(360px, calc(100vw - 16px));
+		max-height: min(220px, calc(100vh - 16px));
+		overflow: auto;
+		padding: 0.55rem 0.65rem;
+		background: color-mix(in srgb, var(--bg-secondary, #20222f) 92%, black 8%);
+		border: 1px solid rgba(255, 255, 255, 0.14);
+		border-radius: 10px;
+		box-shadow: 0 12px 28px rgba(0, 0, 0, 0.42);
+		display: flex;
+		flex-direction: column;
+		gap: 0.36rem;
+	}
+
+	.tab-glimpse-title {
+		font-size: 0.8rem;
+		font-weight: 700;
+		color: var(--text-primary, #f3f4f6);
+		padding-bottom: 0.18rem;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+	}
+
+	.tab-glimpse-row {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		align-items: baseline;
+		gap: 0.42rem;
+		font-size: 0.76rem;
+	}
+
+	.tab-glimpse-user {
+		color: var(--text-primary, #f3f4f6);
+		font-weight: 600;
+		white-space: nowrap;
+	}
+
+	.tab-glimpse-text {
+		color: var(--text-secondary, #c9ccd4);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+</style>

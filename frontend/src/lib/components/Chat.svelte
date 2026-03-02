@@ -195,7 +195,7 @@
 		return fly(node, { duration, y: distance, opacity: 0.15, easing: easeOutQuint });
 	}
 
-	function channelPaneTransition(
+	function channelPaneInTransition(
 		node: Element,
 		params: { enabled: boolean; preset: AnimationPassPreset; duration: number; distance: number }
 	) {
@@ -207,6 +207,21 @@
 			return fade(node, { duration: 0 });
 		}
 		return getTransitionForPreset(node, params.preset, params.duration, params.distance);
+	}
+
+	function channelPaneOutTransition(
+		node: Element,
+		params: { enabled: boolean; preset: AnimationPassPreset; duration: number; distance: number }
+	) {
+		const reducedMotion = browser && document.documentElement.getAttribute('data-reduce-motion') === 'true';
+		if (reducedMotion) {
+			return fade(node, { duration: 0 });
+		}
+		if (!params.enabled || params.duration <= 0) {
+			return fade(node, { duration: 0 });
+		}
+		const outDuration = Math.max(80, Math.min(180, Math.round(params.duration * 0.5)));
+		return fade(node, { duration: outDuration, easing: easeOutCubic });
 	}
 
 	function ensureEmojiPickerLoaded(): void {
@@ -265,6 +280,8 @@
 	$: gifCaptionerDedicatedCaptionFieldEnabled = $gifCaptionerSettingsStore.dedicatedCaptionFieldEnabled;
 	$: unicodeEmojisEnabled = $unicodeEmojiSettingsStore.enabled;
 	$: composerCharCount = messageInput.length;
+	$: composerCharCounterVisible =
+		composerInputMaxLength > 0 && composerCharCount / composerInputMaxLength >= 0.7;
 	$: composerCharCounterWarn = composerInputMaxLength > 0 && composerCharCount / composerInputMaxLength >= 0.9;
 	$: gifCaptionDraftLength = gifCaptionInput.trim().length;
 	$: gifCaptionDraftWarn =
@@ -2429,7 +2446,11 @@
 			</div>
 		{/if}
 		{#key `${$currentChannel}-${channelPaneAnimation.enabled ? channelPaneAnimation.preset : 'off'}`}
-		<div class="messages-pane" transition:channelPaneTransition={channelPaneAnimation}>
+		<div
+			class="messages-pane"
+			in:channelPaneInTransition={channelPaneAnimation}
+			out:channelPaneOutTransition={channelPaneAnimation}
+		>
 			{#if !searchInput}
 				<PinnedMessages pinnedMessages={pinnedMessages} />
 			{/if}
@@ -2438,6 +2459,7 @@
 				onReply={handleReply}
 				onQuickMention={handleQuickMention}
 				firstUnreadMessageId={$lastReadMessageId}
+				on:openSettings={() => dispatch('openSettings')}
 			/>
 
 			{#if visibleTypingUsers.length > 0}
@@ -2634,8 +2656,8 @@
 				spellcheck={composerSpellcheckEnabled}
 				rows="1"
 			></textarea>
-			{#if composerCharCounterEnabled}
-				<span class="composer-char-counter" class:warn={composerCharCounterWarn}>
+			{#if composerCharCounterEnabled && composerCharCounterVisible}
+				<span class="composer-char-counter" class:warn={composerCharCounterWarn} class:visible={composerCharCounterVisible}>
 					{composerCharCount}/{composerInputMaxLength}
 				</span>
 			{/if}
@@ -3530,7 +3552,14 @@
 		text-align: right;
 		align-self: flex-end;
 		padding-bottom: 0.2rem;
+		opacity: 0;
+		transform: translateY(2px);
+		transition: opacity 0.18s ease, transform 0.18s ease;
+	}
+
+	.composer-char-counter.visible {
 		opacity: 0.85;
+		transform: translateY(0);
 	}
 
 	.composer-char-counter.warn {

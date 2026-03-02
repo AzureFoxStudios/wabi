@@ -11,8 +11,6 @@ import { getAllEmojis, getEmojiByName, addCustomEmoji, deleteCustomEmoji, type E
 
 import { __dirname } from "./_dirname.js";
 import db, { initializeDatabase, closeDatabase } from "./db/database.js";
-import { userRepository } from "./db/repositories/userRepository.js";
-import { sessionRepository } from "./db/repositories/sessionRepository.js";
 import { offlineMessageRepository } from "./db/repositories/offlineMessageRepository.js";
 import { settingsRepository } from "./db/repositories/settingsRepository.js";
 import { themeRepository } from "./db/repositories/themeRepository.js";
@@ -60,11 +58,21 @@ import {
 } from "./api/albumRoutes.js";
 import { relayRepository } from "./db/repositories/relayRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
-import { channelRepository } from "./db/repositories/channelRepository.js";
-import { channelMemberRepository } from "./db/repositories/channelMemberRepository.js";
-import { messageRepository } from "./db/repositories/messageRepository.js";
 import { appPolicyRepository } from "./db/repositories/appPolicyRepository.js";
 import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
+import {
+  stateUserStore as userRepository,
+  stateSessionStore as sessionRepository,
+  stateRbacStore,
+  stateChannelStore as channelRepository,
+  stateChannelMemberStore as channelMemberRepository,
+  stateMessageStore,
+  getStatePlaneConfigFromEnv,
+  getStatePlaneRuntimeStats,
+  startStatePlaneRuntime,
+  stopStatePlaneRuntime,
+  recordStatePlaneEvent
+} from "./state-plane/index.js";
 import { dispatchWebhookEvent } from "./webhooks/deliveryService.js";
 import {
   getCompressionMetricsSnapshot,
@@ -684,6 +692,7 @@ interface Channel {
   id: string;
   name: string;
   description?: string;
+  watchQueueEnabled?: boolean;
   minRole?: string;
   createdAt: number;
   type?: 'text' | 'voice' | 'dm' | 'group' | 'public' | 'thread_public' | 'thread_private';
@@ -773,6 +782,22 @@ function getStableUserId(socket: any): string {
   return socket.id;
 }
 
+function recordPresenceStateEvent(
+  socket: any,
+  operation: string,
+  payload: Record<string, unknown> = {}
+): void {
+  const user = users.get(socket.id);
+  recordStatePlaneEvent('presence', operation, {
+    socketId: socket.id,
+    stableUserId: getStableUserId(socket),
+    dbUserId: (socket as any).dbUserId ?? user?.dbUserId ?? null,
+    username: user?.username ?? null,
+    status: user?.status ?? null,
+    ...payload
+  });
+}
+
 // Helper: resolve a stable user ID to the current socket.id for delivery
 function resolveSocketId(stableId: string): string | null {
   if (stableId.startsWith('user-')) {
@@ -850,10 +875,7 @@ const TEST_ROLE_CHEATCODE_ROLE: 'owner' | 'admin' =
 let testRoleCheatcodeConsumed = false;
 
 function workspaceHasOwner(): boolean {
-  const ownerExists = db.prepare(
-    "SELECT 1 FROM user_roles WHERE role_name = 'owner' AND workspace_id = 'default-workspace' LIMIT 1"
-  ).get();
-  return Boolean(ownerExists);
+  return stateRbacStore.workspaceHasOwner('default-workspace');
 }
 
 // WebRTC signaling state
@@ -1137,7 +1159,7 @@ function scheduleMessageDeletion(channelId: string, messageId: string, duration:
     channelMessages.set(channelId, messages);
 
     // Soft-delete from database
-    try { messageRepository.softDelete(messageId); } catch {}
+    try { stateMessageStore.softDelete(messageId); } catch {}
 
     // Notify clients
     emitToChannel(channelId, "message-deleted", { channelId, messageId });
@@ -1317,12 +1339,19 @@ const PORT = process.env.PORT || 3000;
 const STATIC_DIR = process.env.STATIC_DIR || DEFAULT_STATIC_DIR;
 const EMOTES_DIR = join(STATIC_DIR, "emotes");
 const ENABLE_LOGGING = process.env.ENABLE_LOGGING === 'true';
+const statePlaneConfig = getStatePlaneConfigFromEnv();
 const PLUGINS_ENABLED = envFlag(process.env.PLUGINS_ENABLED, false);
 const PLUGINS_ALLOW_INSTALL = envFlag(process.env.PLUGINS_ALLOW_INSTALL, false);
 const VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED = envFlag(
   process.env.WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED,
   false
 );
+
+if (ENABLE_LOGGING || statePlaneConfig.mode !== 'legacy') {
+  console.log(
+    `[StatePlane] mode=${statePlaneConfig.mode} read=${statePlaneConfig.stdbReadEnabled} write=${statePlaneConfig.stdbWriteEnabled} subs=${statePlaneConfig.stdbSubscriptionsEnabled} rbac=${statePlaneConfig.enforceRbac} warmup=${statePlaneConfig.shadowWarmupEnabled} warmupLimit=${statePlaneConfig.shadowWarmupLimit} outboxRedactSensitive=${statePlaneConfig.outboxRedactSensitive} outboxMaxBytes=${statePlaneConfig.outboxMaxBytes} outboxTruncateMinBytes=${statePlaneConfig.outboxTruncateMinBytes} shadowSigning=${Boolean(statePlaneConfig.shadowSigningSecret)} shadowSigningKeyId=${statePlaneConfig.shadowSigningKeyId || ''}`
+  );
+}
 
 // Ensure emotes directory exists
 if (!existsSync(EMOTES_DIR)) {
@@ -2363,6 +2392,22 @@ server.on('request', async (req, res) => {
         }
       },
       guardrails: runtimeSnapshot
+    }));
+    return;
+  }
+
+  if (url.pathname === "/api/admin/state-plane" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      success: true,
+      runtime: getStatePlaneRuntimeStats()
     }));
     return;
   }
@@ -4523,7 +4568,7 @@ server.on('request', async (req, res) => {
       messageDeletionTimers.clear();
 
       // Clear persisted messages from database
-      const deletedDbMessages = messageRepository.clearAll();
+      const deletedDbMessages = stateMessageStore.clearAll();
       const deletedOfflineMessages = offlineMessageRepository.clearAll();
 
       // Remove legacy disk message cache if present.
@@ -4681,7 +4726,7 @@ server.on('request', async (req, res) => {
           res.writeHead(206, headers);
           recordCompressionDownloadSample({
             timestamp: Date.now(),
-            fileExt: getFileExtension(fileName),
+            fileExt: getFileExtension(fileId),
             mimeType: contentType,
             storedBytes: stat.size,
             responseBytes: end - start + 1,
@@ -4702,7 +4747,7 @@ server.on('request', async (req, res) => {
       if ((encryptedAtRest || compressedAtRest) && responseBuffer) {
         recordCompressionDownloadSample({
           timestamp: Date.now(),
-          fileExt: getFileExtension(fileName),
+          fileExt: getFileExtension(fileId),
           mimeType: contentType,
           storedBytes: stat.size,
           responseBytes: responseBuffer.length,
@@ -4716,7 +4761,7 @@ server.on('request', async (req, res) => {
       } else {
         recordCompressionDownloadSample({
           timestamp: Date.now(),
-          fileExt: getFileExtension(fileName),
+          fileExt: getFileExtension(fileId),
           mimeType: contentType,
           storedBytes: stat.size,
           responseBytes: responseSize,
@@ -4853,6 +4898,14 @@ try {
     // Column already exists - ignore
   }
 
+  // Migration: add watch_queue_enabled column to channels if missing
+  try {
+    db.prepare('ALTER TABLE channels ADD COLUMN watch_queue_enabled INTEGER DEFAULT 0').run();
+    console.log('[Database] Added watch_queue_enabled column to channels');
+  } catch (_) {
+    // Column already exists - ignore
+  }
+
   // Ensure base channels exist in DB and load text/voice channels
   channelRepository.ensureBaseChannelsExist();
   const dbChannels = channelRepository.getWorkspaceChannels();
@@ -4861,6 +4914,7 @@ try {
       id: ch.channel_id,
       name: ch.name,
       description: ch.description || '',
+      watchQueueEnabled: (ch as any).watch_queue_enabled === 1,
       minRole: ch.min_role || 'guest',
       createdAt: ch.created_at,
       type: normalizeChannelType(ch.channel_type),
@@ -4896,9 +4950,15 @@ const cleanupInterval = setInterval(() => {
   }
 
   // Hard-purge soft-deleted messages older than 7 days to reclaim DB space
-  const purged = messageRepository.purgeDeleted();
+  const purged = stateMessageStore.purgeDeleted();
   if (purged > 0) {
     console.log(`[Cleanup] 🗑️ Purged ${purged} soft-deleted messages from DB`);
+  }
+
+  // Remove expired sessions
+  const expiredSessions = sessionRepository.cleanup();
+  if (expiredSessions > 0) {
+    console.log(`[Cleanup] 🧹 Deleted ${expiredSessions} expired sessions`);
   }
 }, 60 * 60 * 1000); // 1 hour
 
@@ -4909,6 +4969,7 @@ const shutdown = (signal: 'SIGINT' | 'SIGTERM') => {
 
   console.log(`\n[Server] ${signal} received. Shutting down...`);
   clearInterval(cleanupInterval);
+  stopStatePlaneRuntime();
 
   const forceExitTimer = setTimeout(() => {
     console.error('[Server] Forced shutdown after timeout');
@@ -4933,6 +4994,7 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 // Start HTTP server
 server.listen(PORT, '0.0.0.0');
+startStatePlaneRuntime();
 console.log('[Server] Listening on 0.0.0.0:' + PORT);
 
 // Helper function to emit to channel members only
@@ -4977,7 +5039,7 @@ deleteMessageById = (channelId: string, messageId: string) => {
   channelMessages.set(channelId, messages);
 
   // Soft-delete from database
-  try { messageRepository.softDelete(messageId); } catch {}
+  try { stateMessageStore.softDelete(messageId); } catch {}
 
   // Cancel timer if exists
   const timer = messageDeletionTimers.get(messageId);
@@ -5020,6 +5082,7 @@ function loadUserChannelsFromDB(stableUserId: string): Channel[] {
           id: dbChannel.channel_id,
           name: dbChannel.name,
           description: dbChannel.description || '',
+          watchQueueEnabled: (dbChannel as any).watch_queue_enabled === 1,
           minRole: dbChannel.min_role || 'guest',
           createdAt: dbChannel.created_at,
           type: normalizeChannelType(dbChannel.channel_type),
@@ -5041,8 +5104,8 @@ function loadUserChannelsFromDB(stableUserId: string): Channel[] {
         if (!channelMessages.has(dbChannel.channel_id)) {
           try {
             // Load message history for this channel from database
-            const dbMessages = messageRepository.getByChannel(dbChannel.channel_id, { limit: 50 });
-            const clientMessages = dbMessages.map(msg => messageRepository.toClientFormat(msg));
+            const dbMessages = stateMessageStore.getByChannel(dbChannel.channel_id, { limit: 50 });
+            const clientMessages = dbMessages.map(msg => stateMessageStore.toClientFormat(msg));
             channelMessages.set(dbChannel.channel_id, clientMessages);
 
             if (ENABLE_LOGGING && dbMessages.length > 0) {
@@ -5187,6 +5250,10 @@ io.use((socket, next) => {
 
       if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
         return next(new Error('Session expired'));
+      }
+      const account = typeof payload.userId === 'number' ? userRepository.findById(payload.userId) : null;
+      if (!account || account.is_active === 0) {
+        return next(new Error('Account banned'));
       }
 
       (socket as any).sessionId = payload.sessionId;
@@ -5501,6 +5568,9 @@ io.on("connection", (socket) => {
           roleColor: roleInfo.roleColor,
           usernameFont
         });
+        recordPresenceStateEvent(socket, 'user_joined', {
+          source: 'join_registered'
+        });
 
         const joinedUser = users.get(socket.id);
         if (joinedUser) {
@@ -5568,6 +5638,9 @@ io.on("connection", (socket) => {
         status: 'active',
         profilePicture: session.profilePicture
       });
+      recordPresenceStateEvent(socket, 'user_joined', {
+        source: 'join_guest_session_resume'
+      });
 
       if (ENABLE_LOGGING) console.log(`${session.username} re-joined the chat with a new socket`);
       const rejoinedUser = users.get(socket.id);
@@ -5616,6 +5689,9 @@ io.on("connection", (socket) => {
         color,
         status: 'active',
         profilePicture: undefined
+      });
+      recordPresenceStateEvent(socket, 'user_joined', {
+        source: 'join_guest_new_session'
       });
 
       const newUser = users.get(socket.id);
@@ -5722,6 +5798,9 @@ io.on("connection", (socket) => {
       roleColor: rejoinUser?.roleColor,
       usernameFont: rejoinUser?.usernameFont
     });
+    recordPresenceStateEvent(socket, 'user_joined', {
+      source: 'rejoin_event'
+    });
 
     if (rejoinUser) {
       pluginLoader.triggerOnUserJoin(rejoinUser).catch((error) => console.error('[Plugins] Failed to trigger onUserJoin hook:', error));
@@ -5822,6 +5901,18 @@ io.on("connection", (socket) => {
       }
     }
 
+    const changedFields: string[] = [];
+    if (data.username !== undefined) changedFields.push('username');
+    if (data.status !== undefined) changedFields.push('status');
+    if (data.profilePicture !== undefined) changedFields.push('profilePicture');
+    if (data.usernameFont !== undefined) changedFields.push('usernameFont');
+    if (changedFields.length > 0) {
+      recordPresenceStateEvent(socket, 'profile_updated', {
+        changedFields,
+        profilePictureSet: Boolean(user.profilePicture)
+      });
+    }
+
     // Broadcast profile update to all users
     io.emit("profile-updated", {
       id: socket.id,
@@ -5851,9 +5942,9 @@ io.on("connection", (socket) => {
     if (channel.persistMessages === true) {
       // Persistent channels: serve from DB (authoritative)
       try {
-        const dbMessages = messageRepository.getByChannel(channelId, { limit: 50 });
-        const clientMessages = dbMessages.map(m => messageRepository.toClientFormat(m));
-        const totalCount = messageRepository.getChannelMessageCount(channelId);
+        const dbMessages = stateMessageStore.getByChannel(channelId, { limit: 50 });
+        const clientMessages = dbMessages.map(m => stateMessageStore.toClientFormat(m));
+        const totalCount = stateMessageStore.getChannelMessageCount(channelId);
         socket.emit("channel-messages", {
           channelId,
           messages: clientMessages,
@@ -5903,13 +5994,13 @@ io.on("connection", (socket) => {
       const limit = data.limit || 50;
 
       if (channel.persistMessages === true) {
-        const dbMessages = messageRepository.getByChannel(data.channelId, {
+        const dbMessages = stateMessageStore.getByChannel(data.channelId, {
           limit,
           beforeMessageId: data.beforeMessageId,
           afterMessageId: data.afterMessageId
         });
 
-        const clientMessages = dbMessages.map(m => messageRepository.toClientFormat(m));
+        const clientMessages = dbMessages.map(m => stateMessageStore.toClientFormat(m));
 
         socket.emit("history-loaded", {
           channelId: data.channelId,
@@ -6121,7 +6212,7 @@ io.on("connection", (socket) => {
     if (shouldPersistMessage) {
       // Persist message to database with stable sender ID
       try {
-        messageRepository.create({
+        stateMessageStore.create({
           message_id: message.id,
           channel_id: data.channelId,
           sender_id: senderStableId,
@@ -6200,7 +6291,7 @@ io.on("connection", (socket) => {
 
     // Persist edit to database
     try {
-      messageRepository.markEdited(data.messageId, data.newText);
+      stateMessageStore.markEdited(data.messageId, data.newText);
     } catch (dbError) {
       console.error('[MessageRepository] Failed to persist edit:', dbError);
     }
@@ -6224,12 +6315,18 @@ io.on("connection", (socket) => {
     let canDelete = message.userId === socket.id || message.userId === stableId || message.senderStableId === stableId;
     if (!canDelete) {
       try {
-        const dbMessage = messageRepository.findByMessageId(data.messageId);
+        const dbMessage = stateMessageStore.findByMessageId(data.messageId);
         if (dbMessage?.sender_id === stableId) {
           canDelete = true;
         }
       } catch (error) {
         console.error('[MessageRepository] Failed ownership check for delete-message:', error);
+      }
+    }
+    if (!canDelete) {
+      const roleInfo = getUserRoleInfo((socket as any).dbUserId);
+      if (['owner', 'admin', 'mod'].includes(roleInfo.highestRole)) {
+        canDelete = true;
       }
     }
     if (!canDelete) return;
@@ -6254,7 +6351,7 @@ io.on("connection", (socket) => {
 
     // Soft delete in database
     try {
-      messageRepository.softDelete(data.messageId);
+      stateMessageStore.softDelete(data.messageId);
     } catch (dbError) {
       console.error('[MessageRepository] Failed to soft delete message:', dbError);
     }
@@ -6288,7 +6385,7 @@ io.on("connection", (socket) => {
 
     // Persist pin state to database
     try {
-      messageRepository.update(data.messageId, { is_pinned: message.isPinned ? 1 : 0 });
+      stateMessageStore.update(data.messageId, { is_pinned: message.isPinned ? 1 : 0 });
     } catch (dbError) {
       console.error('[MessageRepository] Failed to update pin state:', dbError);
     }
@@ -6370,7 +6467,7 @@ io.on("connection", (socket) => {
 
     // Persist reactions to database
     try {
-      messageRepository.updateReactions(data.messageId, message.reactions);
+      stateMessageStore.updateReactions(data.messageId, message.reactions);
     } catch (dbError) {
       console.error('[MessageRepository] Failed to update reactions:', dbError);
     }
@@ -6417,7 +6514,7 @@ io.on("connection", (socket) => {
 
     // Persist reactions to database
     try {
-      messageRepository.updateReactions(data.messageId, message.reactions);
+      stateMessageStore.updateReactions(data.messageId, message.reactions);
     } catch (dbError) {
       console.error('[MessageRepository] Failed to update reactions:', dbError);
     }
@@ -6776,6 +6873,7 @@ io.on("connection", (socket) => {
     channelType?: 'text' | 'voice';
     type?: 'text' | 'voice';
     channel_type?: 'text' | 'voice';
+    watchQueueEnabled?: boolean;
     minRole?: string;
     parentChannelId?: string;
     isBreakout?: boolean;
@@ -6807,6 +6905,7 @@ io.on("connection", (socket) => {
       id: channelId,
       name: channelName,
       description: channelDescription,
+      watchQueueEnabled: typeof data === 'string' ? false : data.watchQueueEnabled === true,
       minRole: 'guest',
       createdAt: Date.now(),
       type: channelType,
@@ -6833,7 +6932,8 @@ io.on("connection", (socket) => {
         parent_channel_id: channel.parentChannelId || null,
         is_breakout: channel.isBreakout ? 1 : 0,
         breakout_index: channel.breakoutIndex || null,
-        persist_messages: channel.persistMessages ? 1 : 0
+        persist_messages: channel.persistMessages ? 1 : 0,
+        watch_queue_enabled: channel.watchQueueEnabled ? 1 : 0
       });
     } catch (dbError) {
       console.error('[ChannelRepository] Failed to persist channel:', dbError);
@@ -7197,7 +7297,9 @@ io.on("connection", (socket) => {
     channelId: string;
     autoDeleteAfter?: '5s' | '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
     persistMessages?: boolean;
+    name?: string;
     description?: string;
+    watchQueueEnabled?: boolean;
     minRole?: string;
     voiceSettings?: {
       bitrateMode?: 'auto' | 'low' | 'standard' | 'high';
@@ -7225,13 +7327,34 @@ io.on("connection", (socket) => {
       }
     }
 
+    const actor = users.get(socket.id);
+    const actorRole = getUserRoleInfo(actor?.dbUserId).highestRole;
+    if (data.persistMessages !== undefined && actorRole !== 'owner') {
+      socket.emit("channel-error", "Only owners can change message persistence");
+      return;
+    }
+    if (data.name !== undefined && !['owner', 'admin'].includes(actorRole)) {
+      socket.emit("channel-error", "Only owner/admin can rename channels");
+      return;
+    }
+    if (data.watchQueueEnabled !== undefined && !['owner', 'admin'].includes(actorRole)) {
+      socket.emit("channel-error", "Only owner/admin can change watch queue channel settings");
+      return;
+    }
+
     // Update channel settings
     channel.autoDeleteAfter = data.autoDeleteAfter;
+    if (data.name !== undefined) {
+      channel.name = data.name.trim() || channel.name;
+    }
     if (data.persistMessages !== undefined) {
       channel.persistMessages = data.persistMessages;
     }
     if (data.description !== undefined) {
       channel.description = data.description;
+    }
+    if (data.watchQueueEnabled !== undefined) {
+      channel.watchQueueEnabled = data.watchQueueEnabled;
     }
     if (validatedMinRole !== undefined) {
       channel.minRole = validatedMinRole;
@@ -7242,10 +7365,20 @@ io.on("connection", (socket) => {
     channels.set(data.channelId, channel);
 
     // Persist channel settings metadata to database (never transient voice occupancy)
-    if (data.description !== undefined || data.voiceSettings !== undefined || data.minRole !== undefined) {
+    if (
+      data.name !== undefined ||
+      data.persistMessages !== undefined ||
+      data.description !== undefined ||
+      data.watchQueueEnabled !== undefined ||
+      data.voiceSettings !== undefined ||
+      data.minRole !== undefined
+    ) {
       try {
         channelRepository.updateSettings(data.channelId, {
+          name: data.name !== undefined ? (data.name.trim() || channel.name) : undefined,
+          persist_messages: data.persistMessages !== undefined ? (data.persistMessages ? 1 : 0) : undefined,
           description: data.description,
+          watch_queue_enabled: data.watchQueueEnabled !== undefined ? (data.watchQueueEnabled ? 1 : 0) : undefined,
           min_role: validatedMinRole,
           voice_settings_json: data.voiceSettings !== undefined ? JSON.stringify(data.voiceSettings) : undefined
         });
@@ -7259,7 +7392,9 @@ io.on("connection", (socket) => {
       channelId: data.channelId,
       autoDeleteAfter: data.autoDeleteAfter,
       persistMessages: data.persistMessages,
+      name: data.name,
       description: data.description,
+      watchQueueEnabled: data.watchQueueEnabled,
       minRole: data.minRole,
       voiceSettings: data.voiceSettings
     });
@@ -7268,7 +7403,9 @@ io.on("connection", (socket) => {
       console.log(`Channel ${data.channelId} settings updated:`, {
         autoDeleteAfter: data.autoDeleteAfter || 'disabled',
         persistMessages: data.persistMessages,
+        name: data.name,
         description: data.description,
+        watchQueueEnabled: data.watchQueueEnabled,
         minRole: data.minRole,
         voiceSettings: data.voiceSettings
       });
@@ -7327,8 +7464,8 @@ io.on("connection", (socket) => {
         };
         channels.set(dmId, dmChannel);
         if (!channelMessages.has(dmId)) {
-          const dbMessages = messageRepository.getByChannel(dmId, { limit: 50 });
-          channelMessages.set(dmId, dbMessages.map(msg => messageRepository.toClientFormat(msg)));
+          const dbMessages = stateMessageStore.getByChannel(dmId, { limit: 50 });
+          channelMessages.set(dmId, dbMessages.map(msg => stateMessageStore.toClientFormat(msg)));
         }
 
         socket.emit("dm-created", {
@@ -7487,6 +7624,66 @@ io.on("connection", (socket) => {
       syncDbUserRoleState(data.targetUserId);
     } catch (e) {
       socket.emit("channel-error", "Failed to remove role");
+    }
+  });
+
+  socket.on("ban-user", (data: { targetUserId: number; reason?: string }) => {
+    const user = users.get(socket.id);
+    if (!user || !user.dbUserId) return;
+    const myRoleInfo = getUserRoleInfo(user.dbUserId);
+    if (!['owner', 'admin', 'mod'].includes(myRoleInfo.highestRole)) {
+      socket.emit("channel-error", "Insufficient permissions to ban users");
+      return;
+    }
+
+    if (!Number.isFinite(data.targetUserId)) {
+      socket.emit("channel-error", "Invalid target user");
+      return;
+    }
+
+    if (data.targetUserId === user.dbUserId) {
+      socket.emit("channel-error", "You cannot ban yourself");
+      return;
+    }
+
+    const targetUser = userRepository.findById(data.targetUserId);
+    if (!targetUser) {
+      socket.emit("channel-error", "Target user not found");
+      return;
+    }
+
+    const targetRoleInfo = getUserRoleInfo(data.targetUserId);
+    if (targetRoleInfo.highestRole === 'owner') {
+      socket.emit("channel-error", "Owner account cannot be banned");
+      return;
+    }
+
+    const myPriority = getRolePriority(myRoleInfo.highestRole);
+    const targetPriority = getRolePriority(targetRoleInfo.highestRole);
+    if (myPriority <= targetPriority) {
+      socket.emit("channel-error", "You cannot ban a user with equal or higher role");
+      return;
+    }
+
+    try {
+      userRepository.update(data.targetUserId, { is_active: 0 });
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(data.targetUserId);
+
+      for (const [sid, onlineUser] of users.entries()) {
+        if (onlineUser.dbUserId === data.targetUserId) {
+          io.to(sid).emit("channel-error", "Your account has been banned.");
+          io.sockets.sockets.get(sid)?.disconnect(true);
+        }
+      }
+
+      socket.emit("channel-error", `User ${targetUser.username} banned.`);
+
+      if (ENABLE_LOGGING) {
+        const reason = (data.reason || '').trim();
+        console.log(`[Moderation] ${user.username} banned user ${targetUser.username}${reason ? ` | reason: ${reason}` : ''}`);
+      }
+    } catch {
+      socket.emit("channel-error", "Failed to ban user");
     }
   });
 
@@ -8040,6 +8237,10 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
 
     if (user) {
+      recordPresenceStateEvent(socket, 'user_left', {
+        reason: 'disconnect'
+      });
+
       // Clean up reverse mapping for registered users
       if (user.dbUserId) {
         const currentSocketForUser = dbUserIdToSocketId.get(user.dbUserId);

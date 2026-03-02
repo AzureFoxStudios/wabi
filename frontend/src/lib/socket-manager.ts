@@ -1036,16 +1036,20 @@ class SocketManager {
 			autoDeleteAfter?: '5s' | '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
 			persistMessages?: boolean;
 			description?: string;
+			watchQueueEnabled?: boolean;
 			minRole?: string;
+			name?: string;
 		}) => {
 			channels.update(chs => chs.map(ch =>
 				ch.id === data.channelId
 					? {
 						...ch,
-						autoDeleteAfter: data.autoDeleteAfter,
-						persistMessages: data.persistMessages,
+						...(data.autoDeleteAfter !== undefined ? { autoDeleteAfter: data.autoDeleteAfter } : {}),
+						...(data.persistMessages !== undefined ? { persistMessages: data.persistMessages } : {}),
 						...(data.minRole !== undefined ? { minRole: data.minRole } : {}),
-						...(data.description !== undefined ? { description: data.description } : {})
+						...(data.description !== undefined ? { description: data.description } : {}),
+						...(data.watchQueueEnabled !== undefined ? { watchQueueEnabled: data.watchQueueEnabled } : {}),
+						...(data.name !== undefined ? { name: data.name } : {})
 					}
 					: ch
 			));
@@ -1740,31 +1744,37 @@ export async function sendMessage(channelId: string, text: string, type: 'text' 
 	const isDM = channel?.type === 'dm';
 	const dmPrivacyMode = isDM ? getDMPrivacyMode(channelId) : 'sealed';
 
-	// DM text in sealed/private mode is fail-closed (no plaintext fallback).
+	const confirmUnencryptedDmFallback = (): boolean => {
+		if (!browser) return false;
+		return window.confirm(
+			'Encryption is unavailable for this DM right now. Send this message unencrypted (open mode) this time?'
+		);
+	};
+
+	// DM text in sealed/private mode tries encryption first.
+	// If encryption is unavailable/fails, require explicit user confirmation before plaintext fallback.
 	if (type === 'text' && isDM && dmPrivacyMode !== 'open') {
 		if (!channel?.otherUser?.dbUserId || !isE2EAvailable()) {
-			if (browser) {
-				alert('This DM requires encryption (sealed/private mode). Encryption is unavailable, so the message was not sent.');
-			}
-			return;
+			const allowPlaintext = confirmUnencryptedDmFallback();
+			if (!allowPlaintext) return;
 		}
-		const token = browser ? getAuthToken() : null;
-		if (!token) {
-			if (browser) {
-				alert('This DM requires encryption (sealed/private mode). Please log in again and retry.');
+		if (channel?.otherUser?.dbUserId && isE2EAvailable()) {
+			const token = browser ? getAuthToken() : null;
+			if (token) {
+				const encrypted = await encryptDMMessage(text, channel.otherUser.dbUserId, token);
+				if (encrypted) {
+					payload.text = encrypted.text;
+					payload.encrypted = encrypted.encrypted;
+					payload.iv = encrypted.iv;
+				} else {
+					const allowPlaintext = confirmUnencryptedDmFallback();
+					if (!allowPlaintext) return;
+				}
+			} else {
+				const allowPlaintext = confirmUnencryptedDmFallback();
+				if (!allowPlaintext) return;
 			}
-			return;
 		}
-		const encrypted = await encryptDMMessage(text, channel.otherUser.dbUserId, token);
-		if (!encrypted) {
-			if (browser) {
-				alert('Encryption failed in sealed/private mode. Message was not sent.');
-			}
-			return;
-		}
-		payload.text = encrypted.text;
-		payload.encrypted = encrypted.encrypted;
-		payload.iv = encrypted.iv;
 	}
 
 	// DM files in sealed/private mode must include attachment encryption metadata.
@@ -1833,6 +1843,7 @@ export function markChannelAsRead(channelId: string): void {
 		delete newCounts[channelId];
 		return newCounts;
 	});
+	lastReadMessageId.set(null);
 
 	if (browser) {
 		try {
@@ -1853,14 +1864,15 @@ export function markChannelAsRead(channelId: string): void {
  */
 function updateBrowserTitle(): void {
 	if (!browser) return;
-	const total = get(unreadCount);
+	const rawTotal = get(unreadCount);
+	const total = Number.isFinite(rawTotal) && rawTotal > 0 ? Math.floor(rawTotal) : 0;
 
 	if (total === 0) {
 		document.title = APP_TITLE;
 	} else if (total <= 10) {
 		document.title = `(${total}) ${APP_TITLE}`;
 	} else {
-		document.title = `(â€¢) ${APP_TITLE}`;
+		document.title = `(10+) ${APP_TITLE}`;
 	}
 }
 
@@ -1983,6 +1995,10 @@ export function removeUserRole(targetUserId: number, roleName: string): void {
 	socketManager.emit('remove-role', { targetUserId, roleName });
 }
 
+export function banUser(targetUserId: number, reason?: string): void {
+	socketManager.emit('ban-user', { targetUserId, reason: reason?.trim() || undefined });
+}
+
 export function createGroup(name: string, memberIds: string[]): void {
 	socketManager.emit('create-group', { name, memberIds });
 }
@@ -2007,7 +2023,9 @@ export function updateChannelSettings(channelId: string, settings: {
 	autoDeleteAfter?: '5s' | '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
 	persistMessages?: boolean;
 	description?: string;
+	watchQueueEnabled?: boolean;
 	minRole?: string;
+	name?: string;
 }): void {
 	socketManager.emit('update-channel-settings', { channelId, ...settings });
 }
@@ -2035,3 +2053,4 @@ export function deleteEmoji(emojiName: string): void {
 
 // Re-export types
 export type { FileAttachment, Message, Emoji, User, Channel } from './socket-types';
+

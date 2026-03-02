@@ -650,7 +650,7 @@
 				{#if isModelViewportTabActive}
 					<ModelViewportTab />
 				{:else}
-					<Chat on:logout />
+					<Chat on:logout on:openSettings={() => showSettings = true} />
 				{/if}
 			</div>
 			<CallModal />

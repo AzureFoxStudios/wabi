@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, afterUpdate } from 'svelte';
+	import { onMount, afterUpdate, createEventDispatcher } from 'svelte';
 	import { fade, fly, scale } from 'svelte/transition';
 	import { get } from 'svelte/store';
 	import type { Message, User, Emoji, Channel, FileAttachment } from '$lib/socket';
@@ -56,6 +56,7 @@
 	export let onReply: (message: Message) => void = () => {};
 	export let onQuickMention: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
+	const dispatch = createEventDispatcher();
 	const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
 	const easeOutQuint = (t: number) => 1 - Math.pow(1 - t, 5);
 	const easeOutBack = (t: number) => {
@@ -1332,6 +1333,11 @@
 		}
 	}
 
+	function isYouTubeQueueChannel(channelId: string): boolean {
+		const channel = $channels.find((ch) => ch.id === channelId);
+		return Boolean(channel?.watchQueueEnabled);
+	}
+
 	function getFileIcon(fileName?: string): string {
 		if (!fileName) return '📎';
 		const ext = fileName.toLowerCase().split('.').pop() || '';
@@ -2373,9 +2379,19 @@
 					<!-- TEMPORARY: Media URLs and Link Previews -->
 					{#if messageText}
 						{@const urls = extractUrls(messageText)}
-						{#each urls as url}
+						{#each urls as url, urlIndex}
 							{#if isYouTubeUrl(url)}
-								<YouTubeWatchEmbed url={url} channelId={$currentChannel} />
+								{#if LinkPreviewComponent}
+									<svelte:component this={LinkPreviewComponent} {url} />
+								{:else}
+									{@const _linkPreviewRequested = (ensureLinkPreviewLoaded(), true)}
+									<a href={url} target="_blank" rel="noopener noreferrer" class="plain-link-fallback">{url}</a>
+								{/if}
+								{#if isYouTubeQueueChannel($currentChannel) && urlIndex === 0}
+									<div class="youtube-queue-section">
+										<YouTubeWatchEmbed url={url} channelId={$currentChannel} />
+									</div>
+								{/if}
 							{:else if $displayEnhancementSettingsStore.spotifyControlsEnabled && isSpotifyUrl(url)}
 								<SpotifyControlsEmbed {url} />
 							{:else}
@@ -2464,6 +2480,11 @@
 		anchorElement={popoutAnchorElement}
 		isOwnProfile={popoutIsOwnProfile}
 		on:close={() => showUserPopout = false}
+		on:openFullProfile={(event) => {
+			if (event.detail?.isOwnProfile) {
+				dispatch('openSettings');
+			}
+		}}
 	/>
 {/if}
 
@@ -4441,6 +4462,12 @@
 	border-radius: var(--radius-md);
 	margin: 0.5rem 0;
 	background: var(--bg-secondary);
+}
+
+.youtube-queue-section {
+	margin: 0.65rem 0 0.25rem;
+	padding-top: 0.5rem;
+	border-top: 1px dashed var(--border);
 }
 
 .embedded-image {

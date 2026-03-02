@@ -48,4 +48,3 @@ export function setDMPrivacyMode(channelId: string, mode: DMPrivacyMode): void {
 	if (!channelId || !VALID_MODES.has(mode)) return;
 	dmPrivacyModes.update((state) => ({ ...state, [channelId]: mode }));
 }
-

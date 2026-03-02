@@ -1,8 +1,13 @@
 import { DEFAULT_WORKSPACE_ID } from '../constants.js';
 import { getUserRoles } from '../auth/roleMiddleware.js';
 import { getRolePriority } from '../db/repositories/roleRepository.js';
-import { channelRepository } from '../db/repositories/channelRepository.js';
-import { channelMemberRepository } from '../db/repositories/channelMemberRepository.js';
+import { UPLOADS_DIR } from '../constants.js';
+import { existsSync, unlinkSync } from 'fs';
+import { basename, resolve, sep } from 'path';
+import {
+	stateChannelStore as channelRepository,
+	stateChannelMemberStore as channelMemberRepository
+} from '../state-plane/index.js';
 import { albumRepository, type AlbumScopeType, type DbAlbumItem, type DbAlbumWithCounts } from '../db/repositories/albumRepository.js';
 
 type AlbumPolicyTier = 'new' | 'trusted' | 'moderator' | 'admin' | 'owner';
@@ -162,6 +167,53 @@ function sanitizeName(input: unknown): string {
 function sanitizeAttachmentUrl(input: unknown): string {
 	if (typeof input !== 'string') return '';
 	return input.trim();
+}
+
+function normalizeUploadFileIdFromUrl(fileUrl: string | undefined): string | null {
+	if (typeof fileUrl !== 'string' || !fileUrl.startsWith('/uploads/')) return null;
+	const raw = fileUrl.slice('/uploads/'.length);
+	if (!raw) return null;
+
+	let decoded = raw;
+	try {
+		decoded = decodeURIComponent(raw);
+	} catch {
+		return null;
+	}
+
+	const normalized = decoded.replace(/\\/g, '/');
+	if (normalized.includes('/')) return null;
+	const fileId = basename(normalized);
+	if (!fileId || fileId === '.' || fileId === '..') return null;
+	return fileId;
+}
+
+function resolveUploadPath(fileId: string): string | null {
+	const uploadsRoot = resolve(UPLOADS_DIR);
+	const candidate = resolve(uploadsRoot, basename(fileId));
+	if (candidate !== uploadsRoot && !candidate.startsWith(`${uploadsRoot}${sep}`)) {
+		return null;
+	}
+	return candidate;
+}
+
+function canHardDeleteAttachmentUrl(fileUrl: string | undefined): boolean {
+	return normalizeUploadFileIdFromUrl(fileUrl) !== null;
+}
+
+function deleteUploadFileByUrl(fileUrl: string | undefined): boolean {
+	const fileId = normalizeUploadFileIdFromUrl(fileUrl);
+	if (!fileId) return false;
+	const filePath = resolveUploadPath(fileId);
+	if (!filePath) return false;
+
+	try {
+		if (existsSync(filePath)) unlinkSync(filePath);
+		return true;
+	} catch (error) {
+		console.error(`[Albums] Failed to delete upload file (${fileId}):`, error);
+		return false;
+	}
 }
 
 function sanitizeAttachmentName(input: unknown): string {
@@ -457,6 +509,12 @@ export async function handleAddAlbumItem(
 			sendJson(res, 400, { error: 'attachmentName is too long' });
 			return;
 		}
+		if (!canHardDeleteAttachmentUrl(attachmentUrl)) {
+			sendJson(res, 400, {
+				error: 'Album items must reference local uploads to guarantee hard-delete semantics'
+			});
+			return;
+		}
 
 		const policy = coerceAlbumUploadLimitConfig(limitConfig);
 		const roleTier = resolveAlbumPolicyTier(userId);
@@ -700,6 +758,27 @@ export async function handleDeleteAlbum(req: any, res: any, userId: number, rawA
 			return;
 		}
 
+		const items = albumRepository.listItems(albumId, 1000);
+		const undeletable = items.filter((item) => !canHardDeleteAttachmentUrl(item.attachment_url));
+		if (undeletable.length > 0) {
+			sendJson(res, 409, {
+				error: 'Album contains items that cannot be hard-deleted safely',
+				code: 'ALBUM_HARD_DELETE_BLOCKED',
+				details: { undeletableCount: undeletable.length }
+			});
+			return;
+		}
+		for (const item of items) {
+			const deleted = deleteUploadFileByUrl(item.attachment_url);
+			if (!deleted) {
+				sendJson(res, 500, {
+					error: 'Failed to hard-delete one or more album files; album was not deleted',
+					code: 'ALBUM_HARD_DELETE_FAILED'
+				});
+				return;
+			}
+		}
+
 		const changes = albumRepository.deleteAlbum(albumId);
 		if (changes === 0) {
 			sendJson(res, 404, { error: 'Album not found or already deleted' });
@@ -754,6 +833,21 @@ export async function handleDeleteAlbumItem(
 			return;
 		}
 
+		if (!canHardDeleteAttachmentUrl(item.attachment_url)) {
+			sendJson(res, 409, {
+				error: 'This album item cannot be hard-deleted safely',
+				code: 'ALBUM_HARD_DELETE_BLOCKED'
+			});
+			return;
+		}
+		const deleted = deleteUploadFileByUrl(item.attachment_url);
+		if (!deleted) {
+			sendJson(res, 500, {
+				error: 'Failed to hard-delete album file; item was not deleted',
+				code: 'ALBUM_HARD_DELETE_FAILED'
+			});
+			return;
+		}
 		const changes = albumRepository.deleteItem(albumId, itemId);
 		if (changes === 0) {
 			sendJson(res, 404, { error: 'Album item not found' });
