@@ -20,26 +20,7 @@ const MAX_CUSTOM_STATUS_PRESET_LABEL_LENGTH = 36;
 const MAX_CUSTOM_STATUS_PRESET_NOTE_LENGTH = 120;
 const CUSTOM_STATUS_PRESET_SETTINGS_KEY = 'wabi.customStatusPresets.settings';
 
-const DEFAULT_CUSTOM_STATUS_PRESETS: CustomStatusPreset[] = [
-	{
-		id: 'preset-focus',
-		label: 'Focus',
-		status: 'busy',
-		note: 'Heads down right now'
-	},
-	{
-		id: 'preset-brb',
-		label: 'BRB',
-		status: 'away',
-		note: 'Stepping away for a bit'
-	},
-	{
-		id: 'preset-open',
-		label: 'Open',
-		status: 'active',
-		note: 'Available for chat'
-	}
-];
+const DEFAULT_CUSTOM_STATUS_PRESETS: CustomStatusPreset[] = [];
 
 const DEFAULT_CUSTOM_STATUS_PRESET_SETTINGS: CustomStatusPresetSettings = {
 	presets: DEFAULT_CUSTOM_STATUS_PRESETS,
@@ -74,11 +55,13 @@ function sanitizePreset(input: unknown): CustomStatusPreset | null {
 function sanitizePresets(value: unknown): CustomStatusPreset[] {
 	if (value === null || value === undefined) return [...DEFAULT_CUSTOM_STATUS_PRESETS];
 	if (!Array.isArray(value)) return [...DEFAULT_CUSTOM_STATUS_PRESETS];
+	const legacyPresetIds = new Set(['preset-focus', 'preset-brb', 'preset-open']);
 	const uniqueById = new Set<string>();
 	const sanitized: CustomStatusPreset[] = [];
 	for (const item of value) {
 		const preset = sanitizePreset(item);
 		if (!preset) continue;
+		if (legacyPresetIds.has(preset.id)) continue;
 		if (uniqueById.has(preset.id)) continue;
 		uniqueById.add(preset.id);
 		sanitized.push(preset);

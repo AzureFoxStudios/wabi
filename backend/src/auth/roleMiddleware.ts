@@ -1,5 +1,7 @@
-import db from '../db/database.js';
-import { userRepository } from '../db/repositories/userRepository.js';
+import {
+	stateUserStore as userRepository,
+	stateRbacStore
+} from '../state-plane/index.js';
 import { DEFAULT_WORKSPACE_ID } from '../constants.js';
 
 export type UserRole = 'admin' | 'mod' | 'contributor' | 'viewer' | 'owner';
@@ -20,16 +22,8 @@ export function getUserRoles(userId: number, workspaceId: string = DEFAULT_WORKS
 	const user = userRepository.findById(userId);
 	if (!user) return [];
 
-	// For now, return default roles based on creation time
-	// Later: Query user_roles table
-	const stmt = db.prepare(`
-		SELECT role_name FROM user_roles
-		WHERE user_id = ? AND workspace_id = ?
-		ORDER BY created_at ASC
-	`);
-
-	const result = stmt.all(userId, workspaceId) as { role_name: string }[] || [];
-	return result.map(r => r.role_name as UserRole);
+	const result = stateRbacStore.getUserRoles(userId, workspaceId);
+	return result.map((role) => role as UserRole);
 }
 
 /**
@@ -57,13 +51,7 @@ export function hasRequiredRole(
  * Get minimum role for a resource
  */
 export function getResourceMinRole(resourceId: string): UserRole {
-	const stmt = db.prepare(`
-		SELECT min_role FROM resource_visibility
-		WHERE resource_id = ?
-	`);
-
-	const result = stmt.get(resourceId) as { min_role: string } | undefined;
-	return result?.min_role as UserRole || 'viewer';
+	return stateRbacStore.getResourceMinRole(resourceId) as UserRole;
 }
 
 /**
@@ -126,28 +114,14 @@ export function assignRole(
 	workspaceId: string = DEFAULT_WORKSPACE_ID,
 	assignedBy?: number
 ): void {
-	const stmt = db.prepare(`
-		INSERT INTO user_roles (user_id, role_name, workspace_id)
-		SELECT ?, ?, ?
-		WHERE NOT EXISTS (
-			SELECT 1 FROM user_roles
-			WHERE user_id = ? AND role_name = ? AND workspace_id = ?
-		)
-	`);
-
-	stmt.run(userId, role, workspaceId, userId, role, workspaceId);
+	stateRbacStore.assignRole(userId, role, workspaceId, assignedBy);
 }
 
 /**
  * Remove role assignment
  */
 export function removeRole(userId: number, role: UserRole, workspaceId: string): void {
-	const stmt = db.prepare(`
-		DELETE FROM user_roles
-		WHERE user_id = ? AND role_name = ? AND workspace_id = ?
-	`);
-
-	stmt.run(userId, role, workspaceId);
+	stateRbacStore.removeRole(userId, role, workspaceId);
 }
 
 /**

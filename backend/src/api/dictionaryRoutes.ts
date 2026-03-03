@@ -1,5 +1,5 @@
 import { dictionaryRepository } from '../db/repositories/dictionaryRepository.js';
-import { userRepository } from '../db/repositories/userRepository.js';
+import { stateUserStore as userRepository } from '../state-plane/index.js';
 
 function normalizeWorkspaceId(input: string | undefined): string {
 	const value = (input || 'default-workspace').trim();

@@ -1,0 +1,49 @@
+{
+  "message.create": {
+    "reducer": "ingest_message_create",
+    "argsTemplate": [
+      "{{payload.channelId}}",
+      "{{payload.messageId}}",
+      "{{payload.senderId}}",
+      "{{payload.createdAt}}"
+    ]
+  },
+  "message.update": {
+    "reducer": "ingest_message_update",
+    "argsTemplate": [
+      "{{payload.messageId}}",
+      "{{payload.updates}}"
+    ]
+  },
+  "channel.create": {
+    "reducer": "ingest_channel_create",
+    "argsTemplate": [
+      "{{payload.channelId}}",
+      "{{payload.channelType}}",
+      "{{payload.createdAt}}"
+    ]
+  },
+  "channel_member.add_member": {
+    "reducer": "ingest_channel_member_add",
+    "argsTemplate": [
+      "{{payload.channelId}}",
+      "{{payload.userId}}",
+      "{{payload.role}}"
+    ]
+  },
+  "rbac.assign_role": {
+    "reducer": "ingest_rbac_assign",
+    "argsTemplate": [
+      "{{payload.userId}}",
+      "{{payload.role}}",
+      "{{payload.workspaceId}}",
+      "{{payload.assignedBy}}"
+    ]
+  },
+  "*.*": {
+    "reducer": "ingest_wabi_event",
+    "argsTemplate": [
+      "{{json}}"
+    ]
+  }
+}

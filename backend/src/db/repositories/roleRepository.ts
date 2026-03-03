@@ -1,5 +1,6 @@
 import db from '../database.js';
 import { DEFAULT_WORKSPACE_ID } from '../../constants.js';
+import { stateRbacStore } from '../../state-plane/index.js';
 
 /**
  * Role information returned for a user
@@ -62,13 +63,7 @@ export function getUserRoleInfo(dbUserId?: number): RoleInfo {
  * Get all roles for a user
  */
 export function getUserRoles(userId: number, workspaceId: string = DEFAULT_WORKSPACE_ID): string[] {
-  const stmt = db.prepare(`
-    SELECT role_name FROM user_roles
-    WHERE user_id = ? AND workspace_id = ?
-    ORDER BY created_at ASC
-  `);
-  const result = stmt.all(userId, workspaceId) as { role_name: string }[] || [];
-  return result.map(r => r.role_name);
+  return stateRbacStore.getUserRoles(userId, workspaceId);
 }
 
 /**
@@ -114,11 +109,7 @@ export function getRolePriority(roleName: string, workspaceId: string = DEFAULT_
  * Check if workspace has an owner
  */
 export function workspaceHasOwner(): boolean {
-  const ownerExists = db.prepare(
-    "SELECT 1 FROM user_roles WHERE role_name = 'owner' AND workspace_id = 'default-workspace' LIMIT 1"
-  ).get();
-  
-  return Boolean(ownerExists);
+  return stateRbacStore.workspaceHasOwner('default-workspace');
 }
 
 /**

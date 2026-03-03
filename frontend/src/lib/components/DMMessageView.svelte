@@ -43,6 +43,7 @@
 		: dmSplitLargeMessagesChunkSize;
 	$: unicodeEmojisEnabled = $unicodeEmojiSettingsStore.enabled;
 	$: dmCharCount = messageInput.length;
+	$: dmCharCounterVisible = dmInputMaxLength > 0 && dmCharCount / dmInputMaxLength >= 0.7;
 	$: dmCharCounterWarn = dmInputMaxLength > 0 && dmCharCount / dmInputMaxLength >= 0.9;
 	let dmUnicodePreview = '';
 	let dmUnicodePreviewTokens = 0;
@@ -213,8 +214,8 @@
 					spellcheck={dmSpellcheckEnabled}
 					rows="1"
 				></textarea>
-				{#if dmCharCounterEnabled}
-					<span class="dm-char-counter" class:warn={dmCharCounterWarn}>
+				{#if dmCharCounterEnabled && dmCharCounterVisible}
+					<span class="dm-char-counter" class:warn={dmCharCounterWarn} class:visible={dmCharCounterVisible}>
 						{dmCharCount}/{dmInputMaxLength}
 					</span>
 				{/if}
@@ -483,7 +484,14 @@
 		text-align: right;
 		align-self: flex-end;
 		padding-bottom: 0.25rem;
+		opacity: 0;
+		transform: translateY(2px);
+		transition: opacity 0.18s ease, transform 0.18s ease;
+	}
+
+	.dm-char-counter.visible {
 		opacity: 0.85;
+		transform: translateY(0);
 	}
 
 	.dm-char-counter.warn {

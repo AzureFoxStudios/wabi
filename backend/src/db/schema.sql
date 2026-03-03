@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS channels (
   description TEXT DEFAULT '',
   min_role TEXT DEFAULT 'guest',
   voice_settings_json TEXT,
+  watch_queue_enabled INTEGER DEFAULT 0,
   created_at INTEGER NOT NULL,
   created_by TEXT,
   persist_messages INTEGER DEFAULT 0,

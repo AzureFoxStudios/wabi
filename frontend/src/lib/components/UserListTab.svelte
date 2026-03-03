@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { users, serverMembers, currentUser, createDM, socket, assignRole, removeUserRole, roleDefinitions } from '$lib/socket';
+	import { users, serverMembers, currentUser, createDM, socket, assignRole, removeUserRole, banUser, roleDefinitions } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { startCall } from '$lib/calling';
 	import type { User } from '$lib/socket';
@@ -258,6 +258,30 @@
 		return myRole === 'owner' || myRole === 'admin';
 	}
 
+	function canBanUsers(): boolean {
+		const myRole = $currentUser?.highestRole;
+		return myRole === 'owner' || myRole === 'admin' || myRole === 'mod';
+	}
+
+	function canBanContextUser(): boolean {
+		if (!contextMenuUser || !canBanUsers() || !$currentUser) return false;
+		if (isCurrentUserEntry(contextMenuUser)) return false;
+		if (!contextMenuUser.dbUserId) return false;
+		if (contextMenuUser.highestRole === 'owner') return false;
+		const myPriority = rolePriority[$currentUser.highestRole || 'guest'] || 0;
+		const targetPriority = rolePriority[contextMenuUser.highestRole || 'guest'] || 0;
+		return myPriority > targetPriority;
+	}
+
+	function handleBanContextUser(): void {
+		if (!contextMenuUser?.dbUserId) return;
+		const confirmBan = window.confirm(`Ban ${contextMenuUser.username}? They will lose access until manually re-enabled.`);
+		if (!confirmBan) return;
+		const reasonInput = window.prompt('Ban reason (optional):', '') || '';
+		banUser(contextMenuUser.dbUserId, reasonInput);
+		closeContextMenu();
+	}
+
 	function canManageContextUserRoles(): boolean {
 		if (!contextMenuUser || !canManageRoles()) return false;
 		if (!$currentUser || isCurrentUserEntry(contextMenuUser)) return false;
@@ -392,6 +416,17 @@
 			}
 		}
 
+		if (canBanContextUser()) {
+			items.push({ id: 'moderation-divider', type: 'separator' });
+			items.push({
+				id: 'ban-user',
+				label: 'Ban User',
+				icon: 'trash-2',
+				danger: true,
+				onSelect: handleBanContextUser
+			});
+		}
+
 		return items;
 	}
 
@@ -450,7 +485,7 @@
 				<span class="friend-stat away">Away {statusCounts.away}</span>
 				<span class="friend-stat busy">Busy {statusCounts.busy}</span>
 				<span class="friend-stat offline">Offline {Math.max(0, statusCounts.offline)}</span>
-				<span class="friend-stat tracked">Tracked {trackedFriendsCount}</span>
+				<span class="friend-stat tracked">Status Alerts {trackedFriendsCount}</span>
 			</div>
 		</div>
 	{/if}

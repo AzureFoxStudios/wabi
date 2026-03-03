@@ -411,6 +411,228 @@ sudo systemctl enable wabi
 sudo systemctl start wabi
 ```
 
+## State Backend Migration Flags
+
+Wabi includes production state-plane controls for SpacetimeDB migration and primary-mode cutover.
+Use these in `.env` (or set via `wabi.config` + `scripts/launch.sh`):
+
+```bash
+STATE_BACKEND_MODE=legacy            # legacy | dual_write | stdb_primary
+STATE_STDB_READ_ENABLED=false
+STATE_STDB_MESSAGE_READ_CANARY_PERCENT=10
+STATE_STDB_CHANNEL_READ_CANARY_PERCENT=10
+STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT=10
+STATE_STDB_USER_READ_CANARY_PERCENT=10
+STATE_STDB_SESSION_READ_CANARY_PERCENT=10
+STATE_STDB_RBAC_READ_CANARY_PERCENT=10
+STATE_SHADOW_WARMUP_ENABLED=true
+STATE_SHADOW_WARMUP_LIMIT=25000
+STATE_STDB_WRITE_ENABLED=false
+STATE_STDB_SUBSCRIPTIONS_ENABLED=false
+STATE_STDB_ENFORCE_RBAC=true
+STATE_BACKEND_STRICT=false
+STATE_OUTBOX_PATH=                 # optional override (default: ${DATA_DIR}/state-plane-outbox.ndjson)
+STATE_OUTBOX_REDACT_SENSITIVE=true # redact token/secret-like fields in outbox payloads
+STATE_OUTBOX_MAX_BYTES=67108864    # max shadow-writer backlog before check fails/warns
+STATE_OUTBOX_TRUNCATE_MIN_BYTES=16777216
+STATE_SHADOW_WRITER_ENABLED=false  # auto-enabled by launch.sh when dual_write + STATE_STDB_WRITE_ENABLED=true
+STATE_SHADOW_SINK=mirror           # mirror | http | command
+STATE_SHADOW_ENDPOINT=
+STATE_SHADOW_TOKEN=
+STATE_SHADOW_SIGNING_SECRET=       # optional HMAC secret for signed HTTP envelopes
+STATE_SHADOW_SIGNING_KEY_ID=       # optional key id header
+STATE_SHADOW_COMMAND=              # required when STATE_SHADOW_SINK=command
+STATE_SHADOW_COMMAND_TIMEOUT_MS=10000
+WABI_STDB_BRIDGE_MODE=spacetime-call
+WABI_STDB_BRIDGE_SERVER=local
+WABI_STDB_BRIDGE_DATABASE=
+WABI_STDB_BRIDGE_REDUCER=ingest_wabi_event
+WABI_STDB_BRIDGE_MAP_FILE=
+WABI_STDB_BRIDGE_TIMEOUT_MS=10000
+WABI_STDB_AUTH_TOKEN=
+WABI_STDB_ANONYMOUS=true
+STATE_PLANE_SCHEMA_VERSION=1
+STATE_PLANE_SCHEMA_AUTO_APPLY=true
+STATE_REDUCER_INGRESS_ENABLED=false
+STATE_REDUCER_INGRESS_REQUIRE_SIGNATURE=true
+STATE_REDUCER_INGRESS_MAX_SKEW_MS=300000
+STATE_REDUCER_INGRESS_MAX_BODY_BYTES=1048576
+STATE_SHADOW_POLL_INTERVAL_MS=1000
+STATE_SHADOW_BATCH_SIZE=250
+```
+
+Current behavior:
+- `legacy`: existing SQL-backed message persistence path.
+- `dual_write` + `STATE_STDB_WRITE_ENABLED=true`: legacy primary plus in-memory shadow mirrors, parity sampling, and durable outbox file (`${DATA_DIR}/state-plane-outbox.ndjson`).
+  - startup warmup can preload shadow state using `STATE_SHADOW_WARMUP_ENABLED` + `STATE_SHADOW_WARMUP_LIMIT` (per-store row cap).
+  - outbox payload redaction defaults on via `STATE_OUTBOX_REDACT_SENSITIVE=true` to avoid leaking sensitive values into shadow transport.
+- `dual_write` + `STATE_STDB_WRITE_ENABLED=true` + `STATE_STDB_READ_ENABLED=true`: sampled core state reads (messages/channels/members/users/sessions/rbac) run shadow canary comparison and only serve shadow results on exact parity; mismatches/errors hard-fallback to legacy read path.
+  - `STATE_STDB_MESSAGE_READ_CANARY_PERCENT` sets the default read canary percent.
+  - `STATE_STDB_CHANNEL_READ_CANARY_PERCENT`, `STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT`, `STATE_STDB_USER_READ_CANARY_PERCENT`, `STATE_STDB_SESSION_READ_CANARY_PERCENT`, `STATE_STDB_RBAC_READ_CANARY_PERCENT` override by entity.
+- `dual_write` + `STATE_STDB_WRITE_ENABLED=false`: legacy-only writes (shadow and outbox writes are disabled as a kill switch).
+- `dual_write` + `STATE_BACKEND_STRICT=true`: shadow write failures are treated as hard errors (fail-fast behavior).
+- `dual_write` can optionally run a shadow writer:
+  - `mirror` sink appends applied events to `${DATA_DIR}/state-plane-shadow-applied.ndjson`
+  - `http` sink POSTs events to `STATE_SHADOW_ENDPOINT` with optional `Authorization: Bearer <STATE_SHADOW_TOKEN>`
+  - `command` sink executes `STATE_SHADOW_COMMAND` and pipes one JSON record to stdin per event
+    - intended for local reducer bridge workers (for example a SpacetimeDB adapter process)
+    - `STATE_SHADOW_COMMAND_TIMEOUT_MS` bounds each command execution
+    - when `STATE_SHADOW_COMMAND` is empty and `WABI_STDB_BRIDGE_DATABASE` is set, `scripts/launch.sh` auto-generates a bridge command from `WABI_STDB_BRIDGE_*` keys
+  - when `STATE_SHADOW_SIGNING_SECRET` is set, HTTP sink adds signed envelope headers:
+    - `X-Wabi-State-Timestamp`
+    - `X-Wabi-State-Nonce`
+    - `X-Wabi-State-Signature` (`sha256=<hmac>`)
+    - optional `X-Wabi-State-Key-Id`
+  - schema contract controls:
+    - required schema version is `STATE_PLANE_SCHEMA_VERSION` (recorded at `${DATA_DIR}/state-plane-schema-version.json`)
+    - `STATE_PLANE_SCHEMA_AUTO_APPLY=true` bootstraps/upgrades forward on startup
+    - when auto-apply is `false`, mismatches are surfaced in runtime stats and fail startup only if `STATE_BACKEND_STRICT=true`
+  - optional reducer ingress endpoint:
+    - `POST /api/internal/state-plane/reducer`
+    - gated by `STATE_REDUCER_INGRESS_ENABLED=true`
+    - can require signed envelopes with replay/skew checks via `STATE_REDUCER_INGRESS_REQUIRE_SIGNATURE=true`
+  - outbox guardrails:
+    - `STATE_OUTBOX_MAX_BYTES` marks backlog-over-limit in runtime/checks
+    - when fully caught up (`offset == file_size`) and file is large enough, writer truncates outbox at `STATE_OUTBOX_TRUNCATE_MIN_BYTES`
+  - idempotency:
+    - outbox records get generated `eventId` values when missing
+    - shadow writer skips duplicate events using recent-id cache (`duplicatesSkipped` metric)
+- `stdb_primary`:
+  - core state reads/writes (messages/channels/members/users/sessions/rbac) run against STDB projections/reducers; backend API and Socket.IO contracts stay unchanged.
+  - startup prerequisites: `STATE_STDB_WRITE_ENABLED=true`, `STATE_STDB_READ_ENABLED=true`, and STDB client configured (`WABI_STDB_BRIDGE_SERVER`, `WABI_STDB_BRIDGE_DATABASE`, helper script present).
+  - with `STATE_BACKEND_STRICT=true`: startup fails fast if prerequisites are not met.
+  - with `STATE_BACKEND_STRICT=false` + `STATE_STDB_WRITE_ENABLED=true`: falls back to `dual_write` preflight (requested=`stdb_primary`, effective=`dual_write`).
+  - with `STATE_BACKEND_STRICT=false` + `STATE_STDB_WRITE_ENABLED=false`: falls back to `legacy`.
+  - `STATE_STDB_SUBSCRIPTIONS_ENABLED=true`: enables STDB subscription-bridge mode log/intent, but backend remains the realtime Socket.IO fanout source (no direct STDB -> socket push path).
+
+STDB primary deployment (practical sequence):
+1. Set STDB connection values in `wabi.config`:
+   - `WABI_STDB_BRIDGE_SERVER`
+   - `WABI_STDB_BRIDGE_DATABASE`
+   - optional `WABI_STDB_AUTH_TOKEN` (or keep anonymous with `WABI_STDB_ANONYMOUS=true`)
+2. Validate bridge module toolchain:
+   - `cd spacetimedb/wabi_state_bridge && cargo check`
+3. Publish reducer module:
+   - `spacetime publish --module-path spacetimedb/wabi_state_bridge --server <server> <database> --yes --no-config`
+4. Run deterministic cutover smoke test:
+   - `node scripts/state-plane-stdb-primary-smoke.mjs --server <server> --database <database> --json`
+5. Preflight in dual-write:
+   - `STATE_BACKEND_MODE=dual_write`
+   - `STATE_STDB_WRITE_ENABLED=true`
+   - `STATE_STDB_READ_ENABLED=true`
+   - apply with `./scripts/launch.sh --reconfigure`
+6. Cut over to STDB primary:
+   - set `STATE_BACKEND_MODE=stdb_primary`
+   - keep `STATE_STDB_WRITE_ENABLED=true` and `STATE_STDB_READ_ENABLED=true`
+   - set `STATE_BACKEND_STRICT=true` once environment validation is complete
+   - apply with `./scripts/launch.sh`
+
+Failure handling:
+1. STDB unavailable or elevated read/write errors in primary mode:
+   - switch to `STATE_BACKEND_MODE=dual_write` and keep `STATE_STDB_WRITE_ENABLED=true` for shadow continuity.
+2. Need complete backend-only rollback:
+   - `STATE_BACKEND_MODE=legacy`
+   - `STATE_STDB_WRITE_ENABLED=false`
+   - `STATE_STDB_READ_ENABLED=false`
+3. Apply config with `./scripts/launch.sh` (or `--reconfigure` when regenerating env) and verify via `GET /api/admin/state-plane`.
+
+Operational check:
+- `GET /api/admin/state-plane` (admin auth required) shows state-plane mode plus dual-write/outbox/parity counters (messages/channels/members/users/sessions/rbac), shadow-writer, watchdog, reducer-ingress, and warmup status.
+  - includes requested mode, effective mode, and fallback reason when applicable.
+
+Drift check helper:
+```bash
+WABI_ORIGIN_URL=https://your-domain.com \
+WABI_AUTH_TOKEN=<admin_bearer_token> \
+WABI_STATE_PLANE_REQUIRE_SIGNED_HTTP=true \
+node scripts/state-plane-check.mjs
+```
+
+- Exit code `0`: no drift/failure counters detected.
+- Exit code `1`: parity mismatch, read-canary mismatch/error, warmup failure, outbox/shadow-write failures, or shadow-writer backlog over-limit detected.
+- Exit code `2`: request/auth/runtime error.
+- Optional: set `WABI_STATE_PLANE_REQUIRE_SIGNED_HTTP=true` to fail drift check when shadow writer uses `sink=http` without signing.
+
+Reducer ingress check helper:
+```bash
+WABI_ORIGIN_URL=https://your-domain.com \
+WABI_SHADOW_TOKEN=<shadow_token> \
+WABI_SHADOW_SIGNING_SECRET=<shadow_signing_secret> \
+WABI_SHADOW_SIGNING_KEY_ID=<optional_key_id> \
+node scripts/state-plane-ingress-check.mjs
+```
+
+Backup/restore drill helpers:
+```bash
+# Create snapshot + checksums + NDJSON integrity report.
+node scripts/state-plane-backup.mjs
+
+# Restore specific snapshot back into DATA_DIR.
+node scripts/state-plane-restore.mjs --backup-dir backups/state-plane-YYYYMMDD-HHMMSS
+```
+
+Schema contract helpers:
+```bash
+# Show current/required schema contract status.
+node scripts/state-plane-schema.mjs status
+
+# Reconcile schema file to required version (uses env defaults unless overridden).
+node scripts/state-plane-schema.mjs reconcile
+
+# Explicitly set schema version (blocks downgrade unless --allow-downgrade is passed).
+node scripts/state-plane-schema.mjs set --version 2 --reason "manual migration milestone"
+```
+
+Replay/backfill helper:
+```bash
+# Replay outbox records into reducer ingress with resume offset tracking.
+WABI_ORIGIN_URL=https://your-domain.com \
+WABI_SHADOW_TOKEN=<shadow_token> \
+WABI_SHADOW_SIGNING_SECRET=<shadow_signing_secret> \
+node scripts/state-plane-replay.mjs
+
+# Re-run from beginning with strict failure behavior.
+node scripts/state-plane-replay.mjs --from-start --strict
+
+# Replay directly into command sink target (for example SpacetimeDB bridge command).
+STATE_SHADOW_COMMAND="node scripts/state-plane-stdb-bridge.mjs --mode spacetime-call --server local --database <stdb_db_name> --reducer ingest_wabi_event --no-config --anonymous --yes" \
+node scripts/state-plane-replay.mjs --mode command --strict
+```
+
+SpacetimeDB bridge helper (`STATE_SHADOW_SINK=command`):
+```bash
+# 1) Basic bridge: each event -> spacetime call <db> ingest_wabi_event "<json>"
+STATE_SHADOW_SINK=command
+STATE_SHADOW_COMMAND=node scripts/state-plane-stdb-bridge.mjs --mode spacetime-call --server local --database <stdb_db_name> --reducer ingest_wabi_event --no-config --anonymous --yes
+STATE_SHADOW_COMMAND_TIMEOUT_MS=10000
+
+# 2) Optional per-entity operation routing with templates.
+STATE_SHADOW_COMMAND=node scripts/state-plane-stdb-bridge.mjs --mode spacetime-call --server local --database <stdb_db_name> --map-file scripts/state-plane-stdb-bridge-map.example.json --no-config --anonymous --yes
+
+# 3) Preflight test the configured command bridge before enabling dual-write traffic.
+node scripts/state-plane-bridge-check.mjs --json
+```
+
+Bridge module source:
+- `spacetimedb/wabi_state_bridge/`
+- Reducer entrypoint: `ingest_wabi_event(event_json: String)`
+- Build prerequisite: Rust `1.93.0+` for `spacetimedb = 2.0.2`
+
+Rollback quick path (config-first):
+```bash
+# 1) fast rollback from stdb_primary to legacy-read primary + STDB shadow writes
+STATE_BACKEND_MODE=dual_write
+STATE_STDB_WRITE_ENABLED=true
+
+# 2) full rollback to legacy-only (disable STDB read/write path)
+STATE_BACKEND_MODE=legacy
+STATE_STDB_WRITE_ENABLED=false
+STATE_STDB_READ_ENABLED=false
+
+# 3) apply with launch script and verify /api/admin/state-plane
+./scripts/launch.sh
+```
+
 ## Support
 
 - Docker logs: `docker compose logs -f backend`
@@ -476,5 +698,5 @@ node scripts/srt-phase2-check.mjs
 
 ---
 
-**Last updated**: 2026-02-18
+**Last updated**: 2026-03-03
 **Tested on**: Ubuntu 22.04 LTS with Docker Compose 2.x and Caddy 2.7+

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { channels, currentChannel, currentUser } from '$lib/socket';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getAuthToken as getSessionAuthToken } from '$lib/authSession';
@@ -21,7 +21,13 @@
 	$: activeChannel = $channels.find((channel) => channel.id === $currentChannel) || null;
 	$: scopeType = (activeChannel?.type === 'dm' || activeChannel?.type === 'group' ? 'dm' : 'channel') as MediaAlbumScopeType;
 	$: scopeId = activeChannel?.id || '';
-	$: scopeLabel = scopeId ? `${scopeType}:${scopeId}` : 'No active channel';
+	$: scopeLabel = (() => {
+		if (!scopeId) return 'Select a channel to browse albums.';
+		if (scopeType === 'dm') {
+			return activeChannel?.name ? `Conversation albums (${activeChannel.name})` : 'Conversation albums';
+		}
+		return activeChannel?.name ? `Channel albums (#${activeChannel.name})` : 'Channel albums';
+	})();
 
 	let albums: MediaAlbum[] = [];
 	let selectedAlbumId: number | null = null;
@@ -56,6 +62,7 @@
 	let isSavingFeaturedAlbum = false;
 	let draggingItemId: number | null = null;
 	let activePrefsScopeKey = '';
+	let autoRefreshTimer: ReturnType<typeof setInterval> | null = null;
 	const ITEMS_PER_PAGE = 24;
 	const ALBUM_VIEW_PREFS_KEY = 'wabi.mediaAlbums.viewPrefs.v1';
 
@@ -593,6 +600,17 @@
 
 	onMount(() => {
 		void refreshAlbums(true);
+		autoRefreshTimer = setInterval(() => {
+			if (!scopeId || isLoadingAlbums) return;
+			void refreshAlbums(false);
+		}, 20000);
+	});
+
+	onDestroy(() => {
+		if (autoRefreshTimer) {
+			clearInterval(autoRefreshTimer);
+			autoRefreshTimer = null;
+		}
 	});
 
 	$: {
@@ -616,11 +634,9 @@
 <div class="media-albums-tab">
 	<div class="section-header">
 		<h3>Media Albums</h3>
-		<button class="refresh-btn" on:click={() => void refreshAlbums(false)} disabled={isLoadingAlbums}>
-			{isLoadingAlbums ? 'Loading...' : 'Refresh'}
-		</button>
 	</div>
 	<p class="scope-label">{scopeLabel}</p>
+	<p class="scope-label">Albums stay scoped to the current channel/DM for privacy.</p>
 
 	{#if !getAuthToken()}
 		<div class="empty-state">
@@ -656,7 +672,7 @@
 			{#if isLoadingAlbums}
 				<div class="empty-state">Loading albums...</div>
 			{:else if albums.length === 0}
-				<div class="empty-state">No albums in this scope yet.</div>
+				<div class="empty-state">{scopeType === 'dm' ? 'No albums in this conversation yet.' : 'No albums in this channel yet.'}</div>
 			{:else}
 				{#each albums as album}
 					<div

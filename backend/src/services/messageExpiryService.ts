@@ -9,7 +9,7 @@
  * creating a fragile temporal coupling. This service provides proper initialization.
  */
 
-import { messageRepository } from '../db/repositories/messageRepository.js';
+import { stateMessageStore } from '../state-plane/index.js';
 import { UPLOADS_DIR } from '../constants.js';
 import { existsSync, unlinkSync } from 'fs';
 import { basename, resolve, sep } from 'path';
@@ -136,7 +136,7 @@ export function deleteMessageById(
 
   // Soft-delete from database
   try { 
-    messageRepository.softDelete(messageId); 
+    stateMessageStore.softDelete(messageId); 
   } catch (err) {
     console.error('[MessageRepository] Failed to soft-delete message:', err);
   }

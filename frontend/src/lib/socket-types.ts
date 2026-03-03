@@ -93,6 +93,7 @@ export interface Channel {
   id: string;
   name: string;
   description?: string;
+  watchQueueEnabled?: boolean;
   minRole?: string;
   createdAt: number;
   type?: 'text' | 'voice' | 'dm' | 'group' | 'public' | 'thread_public' | 'thread_private';

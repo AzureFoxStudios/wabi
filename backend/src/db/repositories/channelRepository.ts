@@ -7,6 +7,7 @@ export interface DbChannel {
 	description: string;
 	min_role?: string;
 	voice_settings_json?: string | null;
+	watch_queue_enabled?: number;
 	created_at: number;
 	created_by?: string;
 	persist_messages: number;
@@ -27,11 +28,11 @@ export class ChannelRepository {
 	create(channel: Omit<DbChannel, 'is_archived'>): DbChannel {
 		const stmt = db.prepare(`
 			INSERT INTO channels (
-				channel_id, channel_type, name, description, min_role, created_at, created_by, persist_messages,
+				channel_id, channel_type, name, description, min_role, created_at, created_by, persist_messages, watch_queue_enabled,
 				is_archived, parent_channel_id, is_breakout, breakout_index, parent_message_id, thread_archived, thread_locked,
 				thread_auto_archive_minutes, thread_last_activity_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
 		`);
 
 		stmt.run(
@@ -43,6 +44,7 @@ export class ChannelRepository {
 			channel.created_at,
 			channel.created_by || null,
 			channel.persist_messages ?? 0,
+			channel.watch_queue_enabled ?? 0,
 			channel.parent_channel_id || null,
 			channel.is_breakout ?? 0,
 			channel.breakout_index ?? null,
@@ -145,9 +147,14 @@ export class ChannelRepository {
 	}
 
 	// Update channel settings
-	updateSettings(channelId: string, settings: { persist_messages?: number; description?: string; min_role?: string; voice_settings_json?: string | null }): void {
+	updateSettings(channelId: string, settings: { name?: string; persist_messages?: number; description?: string; min_role?: string; voice_settings_json?: string | null; watch_queue_enabled?: number }): void {
 		const updates: string[] = [];
 		const values: any[] = [];
+
+		if (settings.name !== undefined) {
+			updates.push('name = ?');
+			values.push(settings.name);
+		}
 
 		if (settings.persist_messages !== undefined) {
 			updates.push('persist_messages = ?');
@@ -167,6 +174,11 @@ export class ChannelRepository {
 		if (settings.voice_settings_json !== undefined) {
 			updates.push('voice_settings_json = ?');
 			values.push(settings.voice_settings_json);
+		}
+
+		if (settings.watch_queue_enabled !== undefined) {
+			updates.push('watch_queue_enabled = ?');
+			values.push(settings.watch_queue_enabled);
 		}
 
 		if (updates.length === 0) return;

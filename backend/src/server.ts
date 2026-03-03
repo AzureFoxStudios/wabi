@@ -71,7 +71,8 @@ import {
   getStatePlaneRuntimeStats,
   startStatePlaneRuntime,
   stopStatePlaneRuntime,
-  recordStatePlaneEvent
+  recordStatePlaneEvent,
+  stateReducerIngress
 } from "./state-plane/index.js";
 import { dispatchWebhookEvent } from "./webhooks/deliveryService.js";
 import {
@@ -1349,7 +1350,7 @@ const VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED = envFlag(
 
 if (ENABLE_LOGGING || statePlaneConfig.mode !== 'legacy') {
   console.log(
-    `[StatePlane] mode=${statePlaneConfig.mode} read=${statePlaneConfig.stdbReadEnabled} write=${statePlaneConfig.stdbWriteEnabled} subs=${statePlaneConfig.stdbSubscriptionsEnabled} rbac=${statePlaneConfig.enforceRbac} warmup=${statePlaneConfig.shadowWarmupEnabled} warmupLimit=${statePlaneConfig.shadowWarmupLimit} outboxRedactSensitive=${statePlaneConfig.outboxRedactSensitive} outboxMaxBytes=${statePlaneConfig.outboxMaxBytes} outboxTruncateMinBytes=${statePlaneConfig.outboxTruncateMinBytes} shadowSigning=${Boolean(statePlaneConfig.shadowSigningSecret)} shadowSigningKeyId=${statePlaneConfig.shadowSigningKeyId || ''}`
+    `[StatePlane] mode=${statePlaneConfig.mode} read=${statePlaneConfig.stdbReadEnabled} write=${statePlaneConfig.stdbWriteEnabled} subs=${statePlaneConfig.stdbSubscriptionsEnabled} rbac=${statePlaneConfig.enforceRbac} schemaVersion=${statePlaneConfig.planeSchemaVersion} schemaAutoApply=${statePlaneConfig.planeSchemaAutoApply} warmup=${statePlaneConfig.shadowWarmupEnabled} warmupLimit=${statePlaneConfig.shadowWarmupLimit} outboxRedactSensitive=${statePlaneConfig.outboxRedactSensitive} outboxMaxBytes=${statePlaneConfig.outboxMaxBytes} outboxTruncateMinBytes=${statePlaneConfig.outboxTruncateMinBytes} shadowSink=${statePlaneConfig.shadowSink} shadowCommand=${Boolean(statePlaneConfig.shadowCommand)} shadowCommandTimeoutMs=${statePlaneConfig.shadowCommandTimeoutMs} shadowSigning=${Boolean(statePlaneConfig.shadowSigningSecret)} shadowSigningKeyId=${statePlaneConfig.shadowSigningKeyId || ''} reducerIngress=${statePlaneConfig.reducerIngressEnabled} reducerIngressRequireSignature=${statePlaneConfig.reducerIngressRequireSignature}`
   );
 }
 
@@ -2393,6 +2394,62 @@ server.on('request', async (req, res) => {
       },
       guardrails: runtimeSnapshot
     }));
+    return;
+  }
+
+  if (url.pathname === stateReducerIngress.getPath() && req.method === "POST") {
+    if (!stateReducerIngress.isEnabled()) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Reducer ingress is disabled" }));
+      return;
+    }
+
+    const maxBodyBytes = stateReducerIngress.getMaxBodyBytes();
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    let responded = false;
+
+    req.on('data', (chunk) => {
+      if (responded) return;
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      totalBytes += buffer.length;
+      if (totalBytes > maxBodyBytes) {
+        responded = true;
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: false,
+          error: `Payload exceeds reducer ingress limit (${maxBodyBytes} bytes)`
+        }));
+        req.destroy();
+        return;
+      }
+      chunks.push(buffer);
+    });
+
+    req.on('end', () => {
+      if (responded) return;
+      const body = Buffer.concat(chunks).toString('utf8');
+      const result = stateReducerIngress.handle({
+        headers: req.headers as Record<string, string | string[] | undefined>,
+        body,
+        remoteAddress: req.socket.remoteAddress || null
+      });
+      res.writeHead(result.status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: result.success,
+        duplicate: result.duplicate,
+        reason: result.reason,
+        message: result.message
+      }));
+    });
+
+    req.on('error', (error) => {
+      if (responded) return;
+      responded = true;
+      console.error('[StatePlane] Reducer ingress request failed:', error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Reducer ingress request failed" }));
+    });
     return;
   }
 

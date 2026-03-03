@@ -123,7 +123,7 @@ services:
       - sfu
     command: >
       --bind 0.0.0.0
-      --keys ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}:${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
+      --keys ${LIVEKIT_API_KEY:-disabled}:${LIVEKIT_API_SECRET:-disabled}
     ports:
       - "7880:7880"
       - "7881:7881/udp"
@@ -142,7 +142,7 @@ services:
     restart: unless-stopped
 
   cloudflared-quick:
-    image: cloudflare/cloudflared:2025.2.1
+    image: cloudflare/cloudflared:2026.2.0
     container_name: wabi-cloudflared-quick
     profiles:
       - tunnel
@@ -153,12 +153,12 @@ services:
     restart: unless-stopped
 
   cloudflared-named:
-    image: cloudflare/cloudflared:2025.2.1
+    image: cloudflare/cloudflared:2026.2.0
     container_name: wabi-cloudflared-named
     profiles:
       - tunnel
       - tunnel-named
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate --protocol http2 --loglevel debug run --token ${CLOUDFLARE_TUNNEL_TOKEN:-}
     depends_on:
       - caddy-tunnel
     restart: unless-stopped

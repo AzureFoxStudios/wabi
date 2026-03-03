@@ -50,6 +50,7 @@ start-ngrok.sh
 frontend/.env
 frontend/.env.local
 frontend/.env.production
+Caddyfile
 
 # Logs & coverage
 *.log
@@ -62,8 +63,12 @@ nul
 # Misc
 static/_app/immutable/
 backend/uploads/
+uploads/
 backend/data/
 bun.lock
+spacetimedb/.local-data/
+spacetimedb/.local-data-test/
+spacetimedb/wabi_state_bridge/target/
 
 # Claude Code temporary files
 tmpclaude-*.cwd

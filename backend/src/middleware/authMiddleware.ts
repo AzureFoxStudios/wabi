@@ -1,6 +1,6 @@
 import { IncomingMessage, ServerResponse } from 'http';
 import { verifyToken } from '../auth/jwt.js';
-import { sessionRepository } from '../db/repositories/sessionRepository.js';
+import { stateSessionStore as sessionRepository } from '../state-plane/index.js';
 import { getAuthTokenFromRequest } from '../auth/requestAuth.js';
 
 /**

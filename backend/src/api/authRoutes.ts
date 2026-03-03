@@ -1,8 +1,10 @@
 import { IncomingMessage, ServerResponse } from 'http';
-import { userRepository } from '../db/repositories/userRepository.js';
-import { sessionRepository } from '../db/repositories/sessionRepository.js';
 import { settingsRepository } from '../db/repositories/settingsRepository.js';
 import { encryptionKeyRepository } from '../db/repositories/encryptionKeyRepository.js';
+import {
+	stateUserStore as userRepository,
+	stateSessionStore as sessionRepository
+} from '../state-plane/index.js';
 import { hashPassword, verifyPassword } from '../auth/passwordHash.js';
 import { generateToken } from '../auth/jwt.js';
 import { assignRole } from '../auth/roleMiddleware.js';
@@ -256,6 +258,12 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 			console.log('[Auth] User not found for:', normalizedUsername);
 			res.writeHead(401, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Invalid credentials' }));
+			return;
+		}
+		if (user.is_active === 0) {
+			console.log('[Auth] Blocked login for inactive user:', normalizedUsername);
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'This account has been banned.' }));
 			return;
 		}
 

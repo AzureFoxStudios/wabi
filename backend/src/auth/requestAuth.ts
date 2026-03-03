@@ -1,6 +1,6 @@
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'http';
 import { verifyToken } from './jwt.js';
-import { sessionRepository } from '../db/repositories/sessionRepository.js';
+import { stateSessionStore as sessionRepository } from '../state-plane/index.js';
 
 const AUTH_COOKIE_NAME = (process.env.AUTH_COOKIE_NAME || 'wabi_auth').trim() || 'wabi_auth';
 const AUTH_COOKIE_DOMAIN = (process.env.AUTH_COOKIE_DOMAIN || '').trim();

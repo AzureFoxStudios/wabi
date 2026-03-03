@@ -4137,11 +4137,11 @@
 										on:click={toggleFriendNotificationsTrackedOnlyAddon}
 										disabled={!friendNotificationsEnabled}
 									>
-										Tracked only: {friendNotificationsTrackedOnly ? 'ON' : 'OFF'}
+										Status alerts list only: {friendNotificationsTrackedOnly ? 'ON' : 'OFF'}
 									</button>
 								</div>
 								<div class="runtime-note">
-									Tracked users: {$displayEnhancementSettingsStore.friendNotificationTrackedUserIds.length}. Use the user list context menu to track/untrack specific people.
+									Status alerts list size: {$displayEnhancementSettingsStore.friendNotificationTrackedUserIds.length}. Use the user list context menu to enable or disable status alerts per person.
 								</div>
 								<div class="settings-row-actions">
 									<button
@@ -4149,7 +4149,7 @@
 										on:click={clearFriendNotificationTrackedUsers}
 										disabled={$displayEnhancementSettingsStore.friendNotificationTrackedUserIds.length === 0}
 									>
-										Clear Tracked Users
+										Clear Status Alerts List
 									</button>
 								</div>
 							</div>
