@@ -28,6 +28,7 @@ export interface StdbClientRuntimeStats {
 	server: string | null;
 	database: string | null;
 	helperPath: string | null;
+	authMode: 'token' | 'anonymous' | 'none';
 	calls: number;
 	sqlReads: number;
 	errors: number;
@@ -141,11 +142,13 @@ export class StdbSyncClient {
 	}
 
 	getRuntimeStats(): StdbClientRuntimeStats {
+		const authMode = this.authToken ? 'token' : (this.anonymous ? 'anonymous' : 'none');
 		return {
 			enabled: this.isEnabled(),
 			server: this.server,
 			database: this.database,
 			helperPath: this.helperPath,
+			authMode,
 			calls: this.calls,
 			sqlReads: this.sqlReads,
 			errors: this.errors,
@@ -173,7 +176,11 @@ export class StdbSyncClient {
 			'--query',
 			query
 		]);
-		return (response.json as StdbSqlResponse) || {};
+		const payload = response.json;
+		if (Array.isArray(payload)) {
+			return (payload[0] as StdbSqlResponse) || {};
+		}
+		return (payload as StdbSqlResponse) || {};
 	}
 
 	sqlRows(query: string): StdbDecodedRow[] {

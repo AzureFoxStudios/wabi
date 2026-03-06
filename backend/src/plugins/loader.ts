@@ -109,8 +109,9 @@ export class PluginLoader {
     private httpServer: HttpServer,
     private context: any
   ) {
-    const dataDir = process.env.DATA_DIR || path.join(__dirname, '../../../data');
-    const pluginsBaseDir = process.env.PLUGINS_DIR || path.join(__dirname, '../../../plugins');
+    // Resolve local defaults from process cwd so bundled/dist runtime does not escape repo roots.
+    const dataDir = process.env.DATA_DIR || path.join(process.cwd(), 'data');
+    const pluginsBaseDir = process.env.PLUGINS_DIR || path.join(process.cwd(), 'plugins');
 
     this.pluginsDir = pluginsBaseDir;
     this.storageDir = path.join(dataDir, '.plugin-storage');
@@ -874,13 +875,15 @@ export class PluginLoader {
   }
 
   private getSignaturePolicy(): PluginSignaturePolicy {
-    const raw = (process.env.PLUGIN_SIGNATURE_POLICY || 'warn-allow').trim().toLowerCase();
+    const fallback = process.env.NODE_ENV === 'production' ? 'signed-only' : 'warn-allow';
+    const raw = (process.env.PLUGIN_SIGNATURE_POLICY || fallback).trim().toLowerCase();
     if (raw === 'signed-only' || raw === 'curated-only') return raw;
     return 'warn-allow';
   }
 
   private getScanPolicy(): PluginScanPolicy {
-    const raw = (process.env.PLUGIN_SCAN_POLICY || 'warn').trim().toLowerCase();
+    const fallback = process.env.NODE_ENV === 'production' ? 'enforce' : 'warn';
+    const raw = (process.env.PLUGIN_SCAN_POLICY || fallback).trim().toLowerCase();
     if (raw === 'off' || raw === 'enforce') return raw;
     return 'warn';
   }

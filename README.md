@@ -174,6 +174,16 @@ This mode forces local runtime defaults:
 - Health check: `http://localhost:3000/health`
 - SQLite DB path: `backend/data/chat.db`
 
+Backend-only localhost cleanup mode (skips frontend and ignores STDB env leftovers):
+
+```powershell
+bun run dev:backend:local:windows
+```
+
+```bash
+bun run dev:backend:local
+```
+
 Service scripts:
 - Root scripts: `package.json`
 - Backend scripts: `backend/package.json`

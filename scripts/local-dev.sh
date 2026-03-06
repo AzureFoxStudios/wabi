@@ -10,6 +10,7 @@ FRONTEND_BUILD_DIR="${ROOT_DIR}/frontend/build"
 mkdir -p "${BACKEND_DATA_DIR}" "${BACKEND_UPLOADS_DIR}"
 
 export NODE_ENV=development
+export BACKEND_PORT=3000
 export PORT=3000
 export FRONTEND_URL=http://localhost:5173
 export PUBLIC_URL=http://localhost:5173
@@ -25,6 +26,17 @@ export VITE_TURN_PORT=3478
 export VITE_USE_TURNS=false
 export VITE_ENABLE_GOOGLE_STUN=true
 export VITE_ENABLE_RELAYS=false
+export STATE_BACKEND_MODE=legacy
+export STATE_STDB_READ_ENABLED=false
+export STATE_STDB_WRITE_ENABLED=false
+export STATE_BACKEND_STRICT=false
+export STATE_STDB_SUBSCRIPTIONS_ENABLED=false
+export STATE_SHADOW_WRITER_ENABLED=false
+export STATE_SHADOW_SINK=mirror
+export WABI_STDB_BRIDGE_SERVER=
+export WABI_STDB_BRIDGE_DATABASE=
+export WABI_STDB_AUTH_TOKEN=
+export WABI_STDB_ANONYMOUS=true
 
 echo "[local-dev] Starting localhost stack"
 echo "[local-dev] frontend: http://localhost:5173"

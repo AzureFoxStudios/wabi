@@ -4,7 +4,6 @@ import {
 } from '../db/repositories/userRepository.js';
 import db from '../db/database.js';
 import type { UserStoreRuntimeStats } from './userStore.js';
-import { escapeSqlLiteral } from './stdbSyncClient.js';
 import {
 	StdbStoreBase,
 	bumpOperation,
@@ -13,6 +12,9 @@ import {
 	type StdbPrimaryStoreOptions,
 	toNumber
 } from './stdbCommon.js';
+import { escapeSqlLiteral } from './stdbSyncClient.js';
+
+type FeatureState = 'unknown' | 'enabled' | 'disabled';
 
 export class StdbPrimaryUserStore extends StdbStoreBase {
 	private readonly stats = makeBaseStats();
@@ -22,6 +24,15 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 		failed: 0,
 		lastError: null as string | null,
 		lastErrorAt: null as number | null
+	};
+	private readonly featureState: {
+		userMeta: FeatureState;
+		usernameLookup: FeatureState;
+		handleLookup: FeatureState;
+	} = {
+		userMeta: 'unknown',
+		usernameLookup: 'unknown',
+		handleLookup: 'unknown'
 	};
 
 	constructor(options: StdbPrimaryStoreOptions = {}) {
@@ -38,6 +49,37 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 		return parsed;
 	}
 
+	private tryFeatureSqlRows(
+		feature: 'userMeta' | 'usernameLookup' | 'handleLookup',
+		query: string
+	): Record<string, unknown>[] | null {
+		if (this.featureState[feature] === 'disabled') {
+			return null;
+		}
+
+		try {
+			const rows = this.client.sqlRows(query) as Record<string, unknown>[];
+			if (this.featureState[feature] === 'unknown') {
+				this.featureState[feature] = 'enabled';
+			}
+			return rows;
+		} catch (error) {
+			if (this.featureState[feature] !== 'disabled') {
+				this.featureState[feature] = 'disabled';
+				const detail = error instanceof Error ? error.message : String(error);
+				console.warn(`[StatePlane] STDB user feature "${feature}" unavailable; falling back (${detail})`);
+			}
+			return null;
+		}
+	}
+
+	private loadActiveUsers(limit = 50000): RegisteredUser[] {
+		const rows = this.client.sqlRows(
+			`SELECT row_json FROM state_user WHERE deleted = false LIMIT ${Math.max(1, Math.floor(limit))}`
+		);
+		return this.parseUsers(rows);
+	}
+
 	private loadUserById(userId: number, includeDeleted = false): RegisteredUser | null {
 		const deletedClause = includeDeleted ? '' : ' AND deleted = false';
 		const rows = this.client.sqlRows(
@@ -48,9 +90,42 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 	}
 
 	private nextUserId(): number {
-		const rows = this.client.sqlRows('SELECT MAX(user_id) AS max_user_id FROM state_user');
-		const currentMax = rows.length > 0 ? toNumber(rows[0].max_user_id) : 0;
+		// Preferred path: read the STDB-managed high-water mark.
+		const metaRows = this.tryFeatureSqlRows(
+			'userMeta',
+			"SELECT next_user_id FROM state_user_meta WHERE meta_key = 'default' LIMIT 1"
+		);
+		if (metaRows && metaRows.length > 0) {
+			const candidate = toNumber(metaRows[0].next_user_id);
+			if (candidate > 0) return candidate;
+		}
+
+		// Fallback path for older modules without meta table support.
+		const rows = this.client.sqlRows('SELECT user_id FROM state_user LIMIT 1000000');
+		let currentMax = 0;
+		for (const row of rows) {
+			const value = toNumber(row.user_id);
+			if (value > currentMax) currentMax = value;
+		}
 		return Math.max(1, currentMax + 1);
+	}
+
+	private findByUsernameScan(normalized: string): RegisteredUser | null {
+		for (const user of this.loadActiveUsers()) {
+			if ((user.username || '').trim().toLowerCase() === normalized) {
+				return user;
+			}
+		}
+		return null;
+	}
+
+	private findByHandleScan(normalized: string): RegisteredUser | null {
+		for (const user of this.loadActiveUsers()) {
+			if ((user.handle || '').replace(/^@/, '').toLowerCase() === normalized) {
+				return user;
+			}
+		}
+		return null;
 	}
 
 	private mirrorCreateUser(created: RegisteredUser): void {
@@ -129,22 +204,42 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 
 	findByUsername(username: string): RegisteredUser | null {
 		bumpOperation(this.stats, 'findByUsername');
-		const rows = this.client.sqlRows(
-			`SELECT row_json FROM state_user WHERE username_lc = ${escapeSqlLiteral(username.toLowerCase())} AND deleted = false LIMIT 1`
+		const normalized = (username || '').trim().toLowerCase();
+		if (!normalized) return null;
+
+		const lookupRows = this.tryFeatureSqlRows(
+			'usernameLookup',
+			`SELECT user_id FROM state_user_username WHERE username_lc = ${escapeSqlLiteral(normalized)} LIMIT 1`
 		);
-		if (rows.length === 0) return null;
-		return parseJsonObject<RegisteredUser>(rows[0].row_json) || null;
+		if (lookupRows && lookupRows.length > 0) {
+			const userId = toNumber(lookupRows[0].user_id);
+			if (userId > 0) {
+				const byId = this.loadUserById(userId, false);
+				if (byId) return byId;
+			}
+		}
+
+		return this.findByUsernameScan(normalized);
 	}
 
 	findByHandle(handle: string): RegisteredUser | null {
 		bumpOperation(this.stats, 'findByHandle');
 		const normalized = handle.replace(/^@/, '').toLowerCase();
 		if (!normalized) return null;
-		const rows = this.client.sqlRows(
-			`SELECT row_json FROM state_user WHERE handle_lc = ${escapeSqlLiteral(normalized)} AND deleted = false LIMIT 1`
+
+		const lookupRows = this.tryFeatureSqlRows(
+			'handleLookup',
+			`SELECT user_id FROM state_user_handle WHERE handle_lc = ${escapeSqlLiteral(normalized)} LIMIT 1`
 		);
-		if (rows.length === 0) return null;
-		return parseJsonObject<RegisteredUser>(rows[0].row_json) || null;
+		if (lookupRows && lookupRows.length > 0) {
+			const userId = toNumber(lookupRows[0].user_id);
+			if (userId > 0) {
+				const byId = this.loadUserById(userId, false);
+				if (byId) return byId;
+			}
+		}
+
+		return this.findByHandleScan(normalized);
 	}
 
 	findByHandleOrUsername(identifier: string): RegisteredUser | null {

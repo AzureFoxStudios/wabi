@@ -20,6 +20,7 @@ This folder contains the current, supported documentation set for Wabi.
 - `POLICY_SYSTEM.md`
 - `TAURI_BUILD_READINESS.md`
 - `SPACETIMEDB_WABI_STATE_PLAN.md`
+- `PAYMENTS_NONCUSTODIAL_PLAN.md`
 
 ## Operations Runbooks
 

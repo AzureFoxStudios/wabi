@@ -838,7 +838,7 @@ function bumpMessagePurgeVersion(): number {
 
 // Generate a random session ID
 function generateSessionId(): string {
-	return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+	return randomBytes(24).toString('base64url');
 }
 
 const typingUsers = new Set<string>();
@@ -877,6 +877,14 @@ let testRoleCheatcodeConsumed = false;
 
 function workspaceHasOwner(): boolean {
   return stateRbacStore.workspaceHasOwner('default-workspace');
+}
+
+function ensureWorkspaceOwnerForRegisteredUser(dbUserId: number, username: string): { roles: string[]; highestRole: string; roleColor: string | null } {
+  if (!workspaceHasOwner()) {
+    assignRole(dbUserId, 'owner', 'default-workspace');
+    console.log(`[Roles] Auto-assigned owner to ${username} (user_id=${dbUserId}) because workspace had no owner`);
+  }
+  return getUserRoleInfo(dbUserId);
 }
 
 // WebRTC signaling state
@@ -1336,13 +1344,26 @@ function envFlag(value: string | undefined, fallback: boolean): boolean {
 // Initialize default workspace on startup
 initializeWorkspace(defaultWorkspaceId);
 
-const PORT = process.env.PORT || 3000;
+function resolvePort(): number {
+  const raw = process.env.BACKEND_PORT || process.env.PORT || '3000';
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return parsed;
+  }
+  return 3000;
+}
+
+const PORT = resolvePort();
 const STATIC_DIR = process.env.STATIC_DIR || DEFAULT_STATIC_DIR;
 const EMOTES_DIR = join(STATIC_DIR, "emotes");
 const ENABLE_LOGGING = process.env.ENABLE_LOGGING === 'true';
 const statePlaneConfig = getStatePlaneConfigFromEnv();
 const PLUGINS_ENABLED = envFlag(process.env.PLUGINS_ENABLED, false);
 const PLUGINS_ALLOW_INSTALL = envFlag(process.env.PLUGINS_ALLOW_INSTALL, false);
+const PRELOAD_CHANNEL_HISTORY_ON_LOGIN = envFlag(
+  process.env.WABI_PRELOAD_CHANNEL_HISTORY_ON_LOGIN,
+  false
+);
 const VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED = envFlag(
   process.env.WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED,
   false
@@ -1768,6 +1789,11 @@ function getResumablePartPath(uploadId: string): string {
   return join(RESUMABLE_UPLOADS_DIR, `${uploadId}.part`);
 }
 
+const MAX_REQUEST_BODY_BYTES = Math.max(
+  64 * 1024,
+  Math.min(256 * 1024 * 1024, Number(process.env.MAX_REQUEST_BODY_BYTES || 16 * 1024 * 1024))
+);
+
 function loadResumableMeta(uploadId: string): ResumableUploadMeta | null {
   const metaPath = getResumableMetaPath(uploadId);
   if (!existsSync(metaPath)) return null;
@@ -1794,12 +1820,35 @@ function getUploadedBytes(uploadId: string): number {
   }
 }
 
-function readRequestBuffer(req: any): Promise<Buffer> {
+function readRequestBuffer(req: any, maxBytes: number = MAX_REQUEST_BODY_BYTES): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', (err: Error) => reject(err));
+    let total = 0;
+    let done = false;
+
+    req.on('data', (chunk: Buffer) => {
+      if (done) return;
+      total += chunk.length;
+      if (total > maxBytes) {
+        done = true;
+        const err = new Error(`request_body_too_large:${maxBytes}`);
+        (err as any).code = 'REQUEST_BODY_TOO_LARGE';
+        reject(err);
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (done) return;
+      done = true;
+      resolve(Buffer.concat(chunks));
+    });
+    req.on('error', (err: Error) => {
+      if (done) return;
+      done = true;
+      reject(err);
+    });
   });
 }
 
@@ -2177,7 +2226,7 @@ server.on('request', async (req, res) => {
     }
 
     try {
-      const bodyBuffer = await readRequestBuffer(req);
+      const bodyBuffer = await readRequestBuffer(req, 110 * 1024 * 1024);
       const uploaded = readMultipartSingleFile(req.headers['content-type'], bodyBuffer, 'pluginPackage');
       if (!uploaded) {
         res.writeHead(400, { "Content-Type": "application/json" });
@@ -2207,6 +2256,11 @@ server.on('request', async (req, res) => {
       res.end(JSON.stringify({ success: true, plugin: result }));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to install plugin package";
+      if (message.startsWith('request_body_too_large')) {
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "Plugin package payload exceeds server request limit" }));
+        return;
+      }
       const isClientError =
         message.includes('already installed') ||
         message.includes('No plugin.json') ||
@@ -3063,7 +3117,7 @@ server.on('request', async (req, res) => {
     }
 
     try {
-      const chunk = await readRequestBuffer(req);
+      const chunk = await readRequestBuffer(req, 64 * 1024 * 1024);
       if (!chunk.length) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: false, error: 'Empty chunk' }));
@@ -3124,6 +3178,12 @@ server.on('request', async (req, res) => {
       }));
     } catch (error) {
       console.error('Resumable upload chunk error:', error);
+      const message = error instanceof Error ? error.message : '';
+      if (message.startsWith('request_body_too_large')) {
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Chunk exceeds server request limit' }));
+        return;
+      }
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: false, error: 'Failed to upload chunk' }));
     }
@@ -3698,6 +3758,13 @@ server.on('request', async (req, res) => {
 
   // Get list of registered users for task assignment
   if (url.pathname === "/api/users" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
     try {
       const users = userRepository.getAll();
       const sanitized = users.map(u => ({
@@ -4391,14 +4458,100 @@ server.on('request', async (req, res) => {
   if (url.pathname === "/api/url-preview" && req.method === "GET") {
     const targetUrl = url.searchParams.get('url');
     if (!targetUrl) {
-      res.writeHead(400, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.writeHead(400, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
       res.end(JSON.stringify({ error: 'Missing url parameter' }));
       return;
     }
 
     try {
+      const PREVIEW_FETCH_TIMEOUT_MS = 8000;
+      const OEMBED_FETCH_TIMEOUT_MS = 3000;
+
+      const decodeHtmlEntities = (str: string): string =>
+        str.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+
+      const parseYoutubeId = (rawUrl: string): string | null => {
+        try {
+          const parsed = new URL(rawUrl);
+          let candidate: string | null = null;
+          const host = parsed.hostname.toLowerCase();
+          if (host.includes('youtube.com')) {
+            candidate = parsed.searchParams.get('v');
+            if (!candidate) {
+              const segments = parsed.pathname.split('/').filter(Boolean);
+              if (segments.length >= 2 && (segments[0] === 'embed' || segments[0] === 'shorts' || segments[0] === 'live')) {
+                candidate = segments[1];
+              }
+            }
+          } else if (host.includes('youtu.be')) {
+            candidate = parsed.pathname.slice(1) || null;
+          }
+          if (!candidate) return null;
+          const normalized = candidate.trim();
+          if (!/^[A-Za-z0-9_-]{6,20}$/.test(normalized)) return null;
+          return normalized;
+        } catch {
+          return null;
+        }
+      };
+
+      const youtubeId = parseYoutubeId(targetUrl);
+      if (youtubeId) {
+        let title: string | null = null;
+        let channelName: string | null = null;
+        let description: string | null = null;
+        const image = `https://i.ytimg.com/vi/${youtubeId}/maxresdefault.jpg`;
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), OEMBED_FETCH_TIMEOUT_MS);
+          try {
+            const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${youtubeId}&format=json`;
+            const oembedRes = await fetchExternalUrlWithGuards(oembedUrl, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)',
+                'Accept': 'application/json'
+              },
+              signal: controller.signal
+            });
+            if (oembedRes.ok) {
+              const oembed = await oembedRes.json() as {
+                title?: string;
+                author_name?: string;
+                thumbnail_url?: string;
+              };
+              if (typeof oembed.title === 'string') title = oembed.title.trim() || null;
+              if (typeof oembed.author_name === 'string') channelName = oembed.author_name.trim() || null;
+            }
+          } finally {
+            clearTimeout(timeout);
+          }
+        } catch {
+          // Best effort only; return stable fallback payload below.
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
+        res.end(JSON.stringify({
+          title: title || 'YouTube',
+          description,
+          image,
+          siteName: 'YouTube',
+          type: 'video.other',
+          youtubeId,
+          channelName,
+          video: {
+            url: `https://www.youtube.com/embed/${youtubeId}`,
+            type: 'text/html',
+            width: '1280',
+            height: '720'
+          },
+          twitterCard: 'player',
+          twitterPlayer: `https://www.youtube.com/embed/${youtubeId}`
+        }));
+        return;
+      }
+
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+      const timeout = setTimeout(() => controller.abort(), PREVIEW_FETCH_TIMEOUT_MS);
       let response: Response;
       try {
         response = await fetchExternalUrlWithGuards(targetUrl, {
@@ -4413,14 +4566,14 @@ server.on('request', async (req, res) => {
       }
 
       if (!response.ok) {
-        res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+        res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
         res.end(JSON.stringify({ error: 'Failed to fetch URL' }));
         return;
       }
 
       const contentType = response.headers.get('content-type') || '';
       if (!contentType.includes('text/html')) {
-        res.writeHead(400, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+        res.writeHead(400, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
         res.end(JSON.stringify({ error: 'URL is not an HTML page' }));
         return;
       }
@@ -4428,9 +4581,6 @@ server.on('request', async (req, res) => {
       const html = await response.text();
 
       // Parse OpenGraph and meta tags with simple regex (no dependency needed)
-      const decodeHtmlEntities = (str: string): string =>
-        str.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-
       const getMeta = (property: string): string | null => {
         // Try og: property first, then name attribute
         const ogMatch = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${property}["'][^>]+content=["']([^"']*)["']`, 'i'))
@@ -4455,48 +4605,14 @@ server.on('request', async (req, res) => {
       const twitterCard = getMeta('twitter:card') || null;
       const twitterPlayer = getMeta('twitter:player') || null;
 
-      // Extract YouTube video ID from URL
-      let youtubeId: string | null = null;
-      let channelName: string | null = null;
-      try {
-        const parsed = new URL(targetUrl);
-        if (parsed.hostname.includes('youtube.com')) {
-          youtubeId = parsed.searchParams.get('v') || null;
-          // Handle /embed/VIDEO_ID and /shorts/VIDEO_ID
-          if (!youtubeId) {
-            const segments = parsed.pathname.split('/').filter(Boolean);
-            if (segments.length >= 2 && (segments[0] === 'embed' || segments[0] === 'shorts')) {
-              youtubeId = segments[1];
-            }
-          }
-        } else if (parsed.hostname.includes('youtu.be')) {
-          youtubeId = parsed.pathname.slice(1) || null;
-        }
-      } catch {}
+      const channelName: string | null = null;
+      const previewYoutubeId: string | null = null;
 
-      // For YouTube, use oEmbed API to get reliable title, channel name, and thumbnail
-      if (youtubeId) {
-        try {
-          const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${youtubeId}&format=json`);
-          if (oembedRes.ok) {
-            const oembed = await oembedRes.json() as { title?: string; author_name?: string; thumbnail_url?: string };
-            if (oembed.title) title = oembed.title;
-            channelName = oembed.author_name || null;
-            if (oembed.thumbnail_url && !image) image = oembed.thumbnail_url;
-          }
-        } catch {}
-        // Guarantee a high-res thumbnail
-        if (!image) {
-          image = `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`;
-        } else {
-          // Upgrade to maxresdefault if using ytimg
-          image = `https://i.ytimg.com/vi/${youtubeId}/maxresdefault.jpg`;
-        }
-      }
+      // For non-YouTube links we keep HTML metadata extraction only.
 
-      res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
       res.end(JSON.stringify({
-        title, description, image, siteName, type, youtubeId, channelName,
+        title, description, image, siteName, type, youtubeId: previewYoutubeId, channelName,
         video: videoUrl ? { url: videoUrl, type: videoType, width: videoWidth, height: videoHeight } : null,
         twitterCard, twitterPlayer
       }));
@@ -4505,7 +4621,7 @@ server.on('request', async (req, res) => {
       const status = message.toLowerCase().includes('not allowed') || message.toLowerCase().includes('private')
         ? 400
         : 502;
-      res.writeHead(status, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.writeHead(status, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
       res.end(JSON.stringify({ error: message }));
     }
     return;
@@ -4515,7 +4631,7 @@ server.on('request', async (req, res) => {
   if (url.pathname === "/api/image-proxy" && req.method === "GET") {
     const imageUrl = url.searchParams.get('url');
     if (!imageUrl) {
-      res.writeHead(400, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.writeHead(400, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
       res.end(JSON.stringify({ error: 'Missing url parameter' }));
       return;
     }
@@ -4537,7 +4653,7 @@ server.on('request', async (req, res) => {
       }
 
       if (!response.ok) {
-        res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+        res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
         res.end(JSON.stringify({ error: 'Failed to fetch image' }));
         return;
       }
@@ -4548,7 +4664,7 @@ server.on('request', async (req, res) => {
       res.writeHead(200, {
         "Content-Type": contentType,
         "Cache-Control": "public, max-age=86400",
-        ...getCORSHeaders(req)
+        ...getCORSHeaders(req.headers.origin as string)
       });
       res.end(buffer);
     } catch (err) {
@@ -4556,7 +4672,7 @@ server.on('request', async (req, res) => {
       const status = message.toLowerCase().includes('not allowed') || message.toLowerCase().includes('private')
         ? 400
         : 502;
-      res.writeHead(status, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.writeHead(status, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
       res.end(JSON.stringify({ error: message }));
     }
     return;
@@ -4566,7 +4682,7 @@ server.on('request', async (req, res) => {
   if (url.pathname === "/api/debug/message-stats" && req.method === "GET") {
     const userId = getAuthenticatedUserId(req);
     if (!userId) {
-      res.writeHead(401, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.writeHead(401, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
       res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
       return;
     }
@@ -4584,7 +4700,7 @@ server.on('request', async (req, res) => {
         }
       });
 
-      res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
       res.end(JSON.stringify({
         success: true,
         messagePurgeVersion: getMessagePurgeVersion(),
@@ -4595,7 +4711,7 @@ server.on('request', async (req, res) => {
       }));
     } catch (error) {
       console.error('Message stats error:', error);
-      res.writeHead(500, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.writeHead(500, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
       res.end(JSON.stringify({ success: false, error: 'Failed to read message stats' }));
     }
     return;
@@ -4604,7 +4720,7 @@ server.on('request', async (req, res) => {
   if (url.pathname === "/api/clear-messages" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
     if (!userId) {
-      res.writeHead(401, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.writeHead(401, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
       res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
       return;
     }
@@ -4661,7 +4777,7 @@ server.on('request', async (req, res) => {
       // Notify all connected clients to clear local in-memory + persisted message state.
       io.emit("messages-cleared", { scope: "all", messagePurgeVersion });
 
-      res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
       res.end(JSON.stringify({
         success: true,
         message: "All messages and files cleared from server",
@@ -4671,7 +4787,7 @@ server.on('request', async (req, res) => {
       }));
     } catch (error) {
       console.error('Clear messages error:', error);
-      res.writeHead(500, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.writeHead(500, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
       res.end(JSON.stringify({ success: false, error: 'Failed to clear messages' }));
     }
     return;
@@ -5001,21 +5117,33 @@ try {
 
 // Start background job for expired offline message cleanup (hourly)
 const cleanupInterval = setInterval(() => {
-  const deleted = offlineMessageRepository.deleteExpired();
-  if (deleted > 0) {
-    console.log(`[Cleanup] 🗑️ Deleted ${deleted} expired offline messages`);
+  try {
+    const deleted = offlineMessageRepository.deleteExpired();
+    if (deleted > 0) {
+      console.log(`[Cleanup] Deleted ${deleted} expired offline messages`);
+    }
+  } catch (error) {
+    console.error('[Cleanup] Failed offline message cleanup:', error);
   }
 
-  // Hard-purge soft-deleted messages older than 7 days to reclaim DB space
-  const purged = stateMessageStore.purgeDeleted();
-  if (purged > 0) {
-    console.log(`[Cleanup] 🗑️ Purged ${purged} soft-deleted messages from DB`);
+  try {
+    // Hard-purge soft-deleted messages older than 7 days to reclaim DB space
+    const purged = stateMessageStore.purgeDeleted();
+    if (purged > 0) {
+      console.log(`[Cleanup] Purged ${purged} soft-deleted messages from DB`);
+    }
+  } catch (error) {
+    console.error('[Cleanup] Failed message purge cleanup:', error);
   }
 
-  // Remove expired sessions
-  const expiredSessions = sessionRepository.cleanup();
-  if (expiredSessions > 0) {
-    console.log(`[Cleanup] 🧹 Deleted ${expiredSessions} expired sessions`);
+  try {
+    // Remove expired sessions
+    const expiredSessions = sessionRepository.cleanup();
+    if (expiredSessions > 0) {
+      console.log(`[Cleanup] Deleted ${expiredSessions} expired sessions`);
+    }
+  } catch (error) {
+    console.error('[Cleanup] Failed session cleanup:', error);
   }
 }, 60 * 60 * 1000); // 1 hour
 
@@ -5126,11 +5254,10 @@ deleteMessageById = (channelId: string, messageId: string) => {
 function loadUserChannelsFromDB(stableUserId: string): Channel[] {
   try {
     // Get channels where user is a member from DB (using stable user_id)
-    const userChannelRecords = channelMemberRepository.getUserChannels(stableUserId);
+    const userChannels = channelRepository.findByUserId(stableUserId);
 
-    for (const record of userChannelRecords) {
-      const dbChannel = channelRepository.findById(record.channel_id);
-      if (dbChannel && !channels.has(dbChannel.channel_id)) {
+    for (const dbChannel of userChannels) {
+      if (!channels.has(dbChannel.channel_id)) {
         // Get members for this channel (these are stable IDs)
         const memberIds = channelMemberRepository.getMemberIds(dbChannel.channel_id);
 
@@ -5157,20 +5284,26 @@ function loadUserChannelsFromDB(stableUserId: string): Channel[] {
           recipientNotified: true // Already persisted, so both sides know
         });
 
-        // Initialize message array and load message history if not exists
+        // Keep login path fast: seed channel with an empty window and defer history fetch
+        // to explicit join-channel / load-history requests unless preload is enabled.
         if (!channelMessages.has(dbChannel.channel_id)) {
+          channelMessages.set(dbChannel.channel_id, []);
+        }
+
+        if (
+          PRELOAD_CHANNEL_HISTORY_ON_LOGIN &&
+          (channelMessages.get(dbChannel.channel_id)?.length || 0) === 0
+        ) {
           try {
-            // Load message history for this channel from database
             const dbMessages = stateMessageStore.getByChannel(dbChannel.channel_id, { limit: 50 });
             const clientMessages = dbMessages.map(msg => stateMessageStore.toClientFormat(msg));
             channelMessages.set(dbChannel.channel_id, clientMessages);
 
             if (ENABLE_LOGGING && dbMessages.length > 0) {
-              console.log(`[loadUserChannelsFromDB] Loaded ${dbMessages.length} messages for channel ${dbChannel.channel_id}`);
+              console.log(`[loadUserChannelsFromDB] Preloaded ${dbMessages.length} messages for channel ${dbChannel.channel_id}`);
             }
           } catch (error) {
-            console.error(`[loadUserChannelsFromDB] Failed to load messages for ${dbChannel.channel_id}:`, error);
-            channelMessages.set(dbChannel.channel_id, []); // Fallback to empty array
+            console.error(`[loadUserChannelsFromDB] Failed to preload messages for ${dbChannel.channel_id}:`, error);
           }
         }
       }
@@ -5442,15 +5575,34 @@ io.on("connection", (socket) => {
         u.highestRole = newRoleInfo.highestRole;
         u.roleColor = newRoleInfo.roleColor;
         users.set(sid, u);
-        io.emit("user-role-changed", {
-          userId: sid,
-          dbUserId,
-          roles: newRoleInfo.roles,
-          highestRole: newRoleInfo.highestRole,
-          roleColor: newRoleInfo.roleColor
-        });
       }
     }
+    io.emit("user-role-changed", {
+      userId: `user-${dbUserId}`,
+      dbUserId,
+      roles: newRoleInfo.roles,
+      highestRole: newRoleInfo.highestRole,
+      roleColor: newRoleInfo.roleColor
+    });
+  };
+
+  const buildServerMembersSnapshot = () => {
+    const allDbUsers = userRepository.getAll();
+    return allDbUsers.map((u) => {
+      const roleInfo = getUserRoleInfo(u.user_id);
+      return {
+        id: `user-${u.user_id}`,
+        dbUserId: u.user_id,
+        username: u.username,
+        handle: u.handle,
+        color: u.color,
+        profilePicture: u.profile_picture,
+        status: 'offline' as const,
+        roles: roleInfo.roles,
+        highestRole: roleInfo.highestRole,
+        roleColor: roleInfo.roleColor
+      };
+    });
   };
 
   const getEmojiRoleRules = () => {
@@ -5553,7 +5705,7 @@ io.on("connection", (socket) => {
         // Get handle and role info
         const userRecord = dbSession.user_id ? userRepository.findById(dbSession.user_id) : null;
         const registeredHandle = userRecord?.handle;
-        const roleInfo = getUserRoleInfo((socket as any).dbUserId);
+        const roleInfo = ensureWorkspaceOwnerForRegisteredUser((socket as any).dbUserId, registeredUsername);
 
         users.set(socket.id, {
           id: socket.id,
@@ -5580,22 +5732,7 @@ io.on("connection", (socket) => {
         const enrichedChannels = enrichDMChannels(userChannels, stableId);
 
         const emojisData = getAllEmojis();
-        const allDbUsers = userRepository.getAll();
-        const serverMembers = allDbUsers.map(u => {
-          const roleInfo = getUserRoleInfo(u.user_id);
-          return {
-            id: `user-${u.user_id}`,
-            dbUserId: u.user_id,
-            username: u.username,
-            handle: u.handle,
-            color: u.color,
-            profilePicture: u.profile_picture,
-            status: 'offline' as const,
-            roles: roleInfo.roles,
-            highestRole: roleInfo.highestRole,
-            roleColor: roleInfo.roleColor
-          };
-        });
+        const serverMembers = buildServerMembersSnapshot();
         socket.emit("init", {
           channels: enrichedChannels,
           users: Array.from(users.values()),
@@ -5794,7 +5931,7 @@ io.on("connection", (socket) => {
     }
     const rejoinDbUserId = (socket as any).isRegistered ? (socket as any).dbUserId : undefined;
     if (rejoinDbUserId) {
-      rejoinRoleInfo = getUserRoleInfo(rejoinDbUserId);
+      rejoinRoleInfo = ensureWorkspaceOwnerForRegisteredUser(rejoinDbUserId, session.username);
     }
 
     // Create/update user object with existing session data
@@ -5823,9 +5960,11 @@ io.on("connection", (socket) => {
     const enrichedRejoinChannels = enrichDMChannels(rejoinChannels, rejoinStableId);
 
     const emojisData = getAllEmojis();
+    const rejoinServerMembers = rejoinDbUserId ? buildServerMembersSnapshot() : undefined;
     socket.emit("init", {
       channels: enrichedRejoinChannels,
       users: Array.from(users.values()),
+      serverMembers: rejoinServerMembers,
       voiceState: getVoiceStatePayload(),
       excalidrawState,
       emotes: Array.from(emotes.values()),
@@ -7677,6 +7816,16 @@ io.on("connection", (socket) => {
     }
 
     try {
+      if (data.roleName === 'owner') {
+        const ownerCountRow = db
+          .prepare("SELECT COUNT(*) AS count FROM user_roles WHERE role_name = 'owner' AND workspace_id = ?")
+          .get('default-workspace') as { count?: number } | undefined;
+        const ownerCount = Number(ownerCountRow?.count || 0);
+        if (ownerCount <= 1) {
+          socket.emit("channel-error", "Cannot remove the last owner");
+          return;
+        }
+      }
       removeRole(data.targetUserId, data.roleName as any, 'default-workspace');
       syncDbUserRoleState(data.targetUserId);
     } catch (e) {
@@ -8386,3 +8535,4 @@ console.log(`📁 Serving static files from: ${STATIC_DIR}`);
 console.log(`💚 Health check available at: http://localhost:${PORT}/health`);
 
 console.log(`[Plugins] System: ${PLUGINS_ENABLED ? 'enabled' : 'disabled'} | Install API: ${PLUGINS_ALLOW_INSTALL ? 'enabled' : 'disabled'}`);
+

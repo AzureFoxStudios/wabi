@@ -39,9 +39,10 @@ function getMeta(html: string, property: string): string | null {
 export async function handleUrlPreview(req: any, res: any): Promise<void> {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
   const targetUrl = url.searchParams.get('url');
+  const corsHeaders = getCORSHeaders(req?.headers?.origin as string | undefined);
   
   if (!targetUrl) {
-    res.writeHead(400, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+    res.writeHead(400, { "Content-Type": "application/json", ...corsHeaders });
     res.end(JSON.stringify({ error: 'Missing url parameter' }));
     return;
   }
@@ -61,14 +62,14 @@ export async function handleUrlPreview(req: any, res: any): Promise<void> {
     clearTimeout(timeout);
 
     if (!response.ok) {
-      res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.writeHead(502, { "Content-Type": "application/json", ...corsHeaders });
       res.end(JSON.stringify({ error: 'Failed to fetch URL' }));
       return;
     }
 
     const contentType = response.headers.get('content-type') || '';
     if (!contentType.includes('text/html')) {
-      res.writeHead(400, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.writeHead(400, { "Content-Type": "application/json", ...corsHeaders });
       res.end(JSON.stringify({ error: 'URL is not an HTML page' }));
       return;
     }
@@ -133,14 +134,14 @@ export async function handleUrlPreview(req: any, res: any): Promise<void> {
       } catch (err) { console.error('[URL Preview] Failed to generate fallback thumbnail URL:', err); }
     }
 
-    res.writeHead(200, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+    res.writeHead(200, { "Content-Type": "application/json", ...corsHeaders });
     res.end(JSON.stringify({
       title, description, image, siteName, type, youtubeId, channelName,
       video: videoUrl ? { url: videoUrl, type: videoType, width: videoWidth, height: videoHeight } : null,
       twitterCard, twitterPlayer
     }));
   } catch (err) {
-    res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+    res.writeHead(502, { "Content-Type": "application/json", ...corsHeaders });
     res.end(JSON.stringify({ error: 'Failed to fetch URL preview' }));
   }
 }
@@ -148,9 +149,10 @@ export async function handleUrlPreview(req: any, res: any): Promise<void> {
 export async function handleImageProxy(req: any, res: any): Promise<void> {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
   const imageUrl = url.searchParams.get('url');
+  const corsHeaders = getCORSHeaders(req?.headers?.origin as string | undefined);
   
   if (!imageUrl) {
-    res.writeHead(400, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+    res.writeHead(400, { "Content-Type": "application/json", ...corsHeaders });
     res.end(JSON.stringify({ error: 'Missing url parameter' }));
     return;
   }
@@ -170,7 +172,7 @@ export async function handleImageProxy(req: any, res: any): Promise<void> {
     clearTimeout(timeout);
 
     if (!response.ok) {
-      res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+      res.writeHead(502, { "Content-Type": "application/json", ...corsHeaders });
       res.end(JSON.stringify({ error: 'Failed to fetch image' }));
       return;
     }
@@ -181,11 +183,11 @@ export async function handleImageProxy(req: any, res: any): Promise<void> {
     res.writeHead(200, {
       "Content-Type": contentType,
       "Cache-Control": "public, max-age=86400",
-      ...getCORSHeaders(req)
+      ...corsHeaders
     });
     res.end(buffer);
   } catch (err) {
-    res.writeHead(502, { "Content-Type": "application/json", ...getCORSHeaders(req) });
+    res.writeHead(502, { "Content-Type": "application/json", ...corsHeaders });
     res.end(JSON.stringify({ error: 'Failed to proxy image' }));
   }
 }

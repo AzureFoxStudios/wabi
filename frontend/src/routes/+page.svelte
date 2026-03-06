@@ -7,7 +7,8 @@
 	import MainLayout from '$lib/components/MainLayout.svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import { initE2E, clearE2EState } from '$lib/e2eManager';
-	import { clearAuthSession, getAuthToken, setAuthToken } from '$lib/authSession';
+	import { clearAuthSession, getAuthToken, getGuestSessionId, setAuthToken } from '$lib/authSession';
+	import { authStore } from '$lib/authStore';
 	import { initializeAccessibilitySettings } from '$lib/accessibility';
 	import { initializeAnimationPassSettings } from '$lib/animationPass';
 	import { startupMark, startupMeasure, startupScheduleReport } from '$lib/startupProfiler';
@@ -23,7 +24,7 @@
 		initializeAnimationPassSettings();
 	}
 
-	let loggedIn = typeof window !== 'undefined' && !!localStorage.getItem('username');
+	let loggedIn = false;
 	let isInitialLoad = true;
 	let isBootstrapping = true;
 	let showLoadingScreen = true;
@@ -31,7 +32,9 @@
 	let unsubscribeThemeWatcher: (() => void) | null = null;
 	let unsubscribeLocalStorageSync: (() => void) | null = null;
 	let unsubscribeLayoutStore: (() => void) | null = null;
+	let unsubscribeAuthStore: (() => void) | null = null;
 	let stopTimedThemeScheduler: (() => void) | null = null;
+	let authResetInFlight = false;
 
 	function scheduleNonCritical(task: () => void, timeout = 1500): void {
 		if (typeof window === 'undefined') return;
@@ -81,10 +84,32 @@
 					layoutStore.resetPanelsOnDesktop();
 				}
 			});
+			unsubscribeAuthStore = authStore.subscribe((state) => {
+				const errorType = state.error?.type;
+				if (!state.isAuthError || !errorType) return;
+				if (errorType !== 'session_expired' && errorType !== 'invalid_token') return;
+				if (authResetInFlight) return;
+
+				authResetInFlight = true;
+				loggedIn = false;
+				disconnect();
+				clearAuthSession();
+				clearE2EState();
+				try {
+					localStorage.removeItem('username');
+					localStorage.removeItem('dbUserId');
+				} catch {
+					// Ignore storage failures.
+				}
+				authStore.clearAuthError();
+				authResetInFlight = false;
+			});
 
 			const savedUsername = localStorage.getItem('username');
 			const savedToken = getAuthToken();
-			if (savedUsername) {
+			const savedGuestSessionId = getGuestSessionId();
+			const hasSession = Boolean(savedToken || savedGuestSessionId);
+			if (savedUsername && hasSession) {
 				startupMark('page:socket:init:start');
 				initSocket(savedUsername, savedToken || undefined);
 				startupMark('page:socket:init:end');
@@ -106,6 +131,15 @@
 							});
 					});
 				}
+			} else {
+				// Prevent stale username-only local state from skipping login.
+				loggedIn = false;
+				try {
+					localStorage.removeItem('username');
+				} catch {
+					// Ignore storage failures.
+				}
+				clearAuthSession();
 			}
 
 			const isRegistered = !!savedToken || !!localStorage.getItem('dbUserId');
@@ -136,12 +170,13 @@
 		return () => {
 			disposed = true;
 			window.removeEventListener('keydown', handleKeyDown);
-			unsubscribeThemeWatcher?.();
-			unsubscribeLocalStorageSync?.();
-			unsubscribeLayoutStore?.();
-			stopTimedThemeScheduler?.();
-		};
-	});
+				unsubscribeThemeWatcher?.();
+				unsubscribeLocalStorageSync?.();
+				unsubscribeLayoutStore?.();
+				unsubscribeAuthStore?.();
+				stopTimedThemeScheduler?.();
+			};
+		});
 	
 	onDestroy(() => {
 		disconnect();

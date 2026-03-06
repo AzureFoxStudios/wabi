@@ -4,22 +4,36 @@ import { authStore } from './authStore';
 const getApiBase = () => getServerUrl();
 
 /** Default timeout for all API requests (ms). */
-const API_TIMEOUT_MS = 8000;
+const API_TIMEOUT_MS = 15000;
+const LAUNCH_PAGE_TIMEOUT_MS = 1500;
 
 /**
  * Wraps `fetch` with an AbortController timeout.
  * All API calls in this module go through here so the timeout is
  * defined in exactly one place.
  */
-async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
+type RequestWithTimeout = RequestInit & { timeoutMs?: number };
+
+async function fetchWithTimeout(url: string, options: RequestWithTimeout = {}): Promise<Response> {
 	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+	const timeoutMs =
+		typeof options.timeoutMs === 'number' && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+			? options.timeoutMs
+			: API_TIMEOUT_MS;
+	const timeout = setTimeout(() => controller.abort(), timeoutMs);
+	const requestOptions: RequestInit = { ...options };
+	delete (requestOptions as RequestWithTimeout).timeoutMs;
 	try {
 		return await fetch(url, {
-			...options,
-			credentials: options.credentials ?? 'include',
+			...requestOptions,
+			credentials: requestOptions.credentials ?? 'include',
 			signal: controller.signal
 		});
+	} catch (error) {
+		if (error instanceof DOMException && error.name === 'AbortError') {
+			throw new Error(`Request timed out after ${timeoutMs}ms`);
+		}
+		throw error;
 	} finally {
 		clearTimeout(timeout);
 	}
@@ -66,7 +80,8 @@ export interface LaunchPageConfig {
 
 export async function getLaunchPageConfig(): Promise<LaunchPageConfig | null> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/public/launch-page`, {
-		method: 'GET'
+		method: 'GET',
+		timeoutMs: LAUNCH_PAGE_TIMEOUT_MS
 	});
 	if (!res.ok) return null;
 	return res.json();

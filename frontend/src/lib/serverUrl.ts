@@ -9,6 +9,30 @@ function isLocalHost(value: string): boolean {
 	return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1' || normalized === 'tauri.localhost';
 }
 
+function migrateLegacyLocalPort(urlValue: string): string {
+	const raw = (urlValue || '').trim();
+	if (!raw) return urlValue;
+
+	let parsed: URL | null = null;
+	try {
+		parsed = new URL(raw);
+	} catch {
+		try {
+			parsed = new URL(`http://${raw}`);
+		} catch {
+			parsed = null;
+		}
+	}
+
+	if (!parsed) return urlValue;
+	if (isLocalHost(parsed.hostname) && parsed.port === '3200') {
+		parsed.port = '8080';
+	}
+
+	const normalizedPath = parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/+$/, '');
+	return `${parsed.origin}${normalizedPath}`;
+}
+
 export function normalizeServerUrl(value: string): string | null {
 	const trimmed = value.trim();
 	if (!trimmed) return null;
@@ -30,11 +54,23 @@ export function getConfiguredServerUrl(): string | null {
 		const remembered = localStorage.getItem(PERSISTED_REMEMBER_KEY) === 'true';
 		if (remembered) {
 			const persisted = localStorage.getItem(PERSISTED_URL_KEY);
-			if (persisted) return persisted;
+			if (persisted) {
+				const migrated = migrateLegacyLocalPort(persisted);
+				if (migrated !== persisted) {
+					localStorage.setItem(PERSISTED_URL_KEY, migrated);
+				}
+				return migrated;
+			}
 		}
 
 		const sessionValue = sessionStorage.getItem(SESSION_URL_KEY);
-		if (sessionValue) return sessionValue;
+		if (sessionValue) {
+			const migrated = migrateLegacyLocalPort(sessionValue);
+			if (migrated !== sessionValue) {
+				sessionStorage.setItem(SESSION_URL_KEY, migrated);
+			}
+			return migrated;
+		}
 	} catch {
 		// Storage is best effort; fallback to auto-resolved URL.
 	}
@@ -42,7 +78,7 @@ export function getConfiguredServerUrl(): string | null {
 }
 
 export function setConfiguredServerUrl(value: string, remember: boolean): string {
-	const normalized = normalizeServerUrl(value);
+	const normalized = normalizeServerUrl(migrateLegacyLocalPort(value));
 	if (!normalized) {
 		throw new Error('Enter a valid domain, for example wabi.chat or https://staging.wabi.chat');
 	}
@@ -81,7 +117,7 @@ export function resolveServerUrl(): { url: string; source: string } {
 	}
 
 	// 1. Explicit env override (baked at build time)
-	const envUrl = import.meta.env.VITE_SOCKET_URL;
+	const envUrl = migrateLegacyLocalPort(import.meta.env.VITE_SOCKET_URL || '');
 	if (envUrl) {
 		// Safety guard: never let dev sessions accidentally point to production.
 		// Override can be bypassed only with explicit VITE_ALLOW_REMOTE_DEV=true.

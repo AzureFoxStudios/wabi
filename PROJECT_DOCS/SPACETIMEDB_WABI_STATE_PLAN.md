@@ -1,6 +1,6 @@
 # SpacetimeDB Wabi State Plan
 
-Last updated: 2026-03-03
+Last updated: 2026-03-05
 Status: Active implementation baseline (core state supports STDB primary mode)
 Owner: Backend/state-plane workstream
 
@@ -183,6 +183,18 @@ If priorities change, update this file first, then adjust implementation tasks.
 ## 11) Implementation Progress (2026-03-03)
 
 Completed in this pass:
+- Added STDB production auth hardening:
+  - `checkStdbPrimaryReadiness` now rejects `stdb_primary` in production when auth mode is anonymous unless `WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=true`.
+  - config/launch surfaces now default `WABI_STDB_ANONYMOUS=false`.
+- Added STDB reducer ingress guardrails in `spacetimedb/wabi_state_bridge/src/lib.rs`:
+  - max event envelope size
+  - max payload size
+  - event id/entity/operation length validation
+  - supported-entity allowlist enforcement
+- Added webhook egress hardening:
+  - SSRF/DNS/private-range checks and redirect re-validation for webhook targets
+  - bounded webhook request body parse size
+  - bounded webhook fanout and concurrency controls
 - Added backend state-plane module scaffolding:
   - `backend/src/state-plane/config.ts`
   - `backend/src/state-plane/adapter.ts`

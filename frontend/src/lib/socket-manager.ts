@@ -158,8 +158,10 @@ class SocketManager {
 	private reconnectAttempts = 0;
 	private readonly maxReconnectAttempts = 10;
 	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-	private readonly baseDelay = 1000;
-	private readonly maxDelay = 30000;
+	private baseDelay = 1000;
+	private maxDelay = 30000;
+	private reconnectJitterMs = 1000;
+	private connectTimeoutMs = 20000;
 
 	// Heartbeat/keepalive (for Firefox stability)
 	private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
@@ -244,6 +246,10 @@ class SocketManager {
 	}
 
 	private transition(to: ConnectionState): boolean {
+		if (to === this.state) {
+			// Idempotent transitions are expected during HMR/unmount churn.
+			return true;
+		}
 		if (!this.canTransition(to)) {
 			console.warn(`[SocketManager] Invalid transition: ${this.state} -> ${to}`);
 			return false;
@@ -263,6 +269,32 @@ class SocketManager {
 
 	getState(): ConnectionState {
 		return this.state;
+	}
+
+	private isLocalServerUrl(serverUrl: string): boolean {
+		try {
+			const parsed = new URL(serverUrl);
+			const host = parsed.hostname.toLowerCase();
+			return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]' || host === 'tauri.localhost';
+		} catch {
+			return false;
+		}
+	}
+
+	private applyConnectionProfile(serverUrl: string): void {
+		if (this.isLocalServerUrl(serverUrl)) {
+			// Local dev: fail fast + quicker retries.
+			this.baseDelay = 250;
+			this.maxDelay = 5000;
+			this.reconnectJitterMs = 120;
+			this.connectTimeoutMs = 8000;
+			return;
+		}
+
+		this.baseDelay = 1000;
+		this.maxDelay = 30000;
+		this.reconnectJitterMs = 1000;
+		this.connectTimeoutMs = 20000;
 	}
 
 	/**
@@ -299,6 +331,7 @@ class SocketManager {
 
 		// Determine server URL
 		let serverUrl = getServerUrl();
+		this.applyConnectionProfile(serverUrl);
 
 		// Get auth credentials safely
 		const { token, sessionId } = this.getAuthCredentials(authToken);
@@ -315,7 +348,7 @@ class SocketManager {
 			reconnection: false,
 
 			// Connection timeouts
-			timeout: 20000,
+			timeout: this.connectTimeoutMs,
 
 			// CORS
 			withCredentials: true,
@@ -438,7 +471,7 @@ class SocketManager {
 
 		// Exponential backoff with jitter
 		const delay = Math.min(
-			this.baseDelay * Math.pow(2, this.reconnectAttempts) + Math.random() * 1000,
+			this.baseDelay * Math.pow(2, this.reconnectAttempts) + Math.random() * this.reconnectJitterMs,
 			this.maxDelay
 		);
 
@@ -1122,6 +1155,13 @@ class SocketManager {
 					? { ...existing, roles: data.roles, highestRole: data.highestRole, roleColor: data.roleColor }
 					: existing
 			));
+			serverMembers.update(members =>
+				members.map(existing =>
+					!!existing.dbUserId && existing.dbUserId === data.dbUserId
+						? { ...existing, roles: data.roles, highestRole: data.highestRole, roleColor: data.roleColor }
+						: existing
+				)
+			);
 			currentUser.update(cu =>
 				cu && (cu.id === data.userId || (!!cu.dbUserId && cu.dbUserId === data.dbUserId))
 					? { ...cu, roles: data.roles, highestRole: data.highestRole, roleColor: data.roleColor }

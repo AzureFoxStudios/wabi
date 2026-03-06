@@ -1,9 +1,11 @@
 import { IncomingMessage, ServerResponse } from 'http';
+import { randomBytes } from 'crypto';
 import { settingsRepository } from '../db/repositories/settingsRepository.js';
 import { encryptionKeyRepository } from '../db/repositories/encryptionKeyRepository.js';
 import {
 	stateUserStore as userRepository,
-	stateSessionStore as sessionRepository
+	stateSessionStore as sessionRepository,
+	stateRbacStore
 } from '../state-plane/index.js';
 import { hashPassword, verifyPassword } from '../auth/passwordHash.js';
 import { generateToken } from '../auth/jwt.js';
@@ -85,6 +87,10 @@ function generateColor(): string {
 	return colors[Math.floor(Math.random() * colors.length)];
 }
 
+function generateRegisteredSessionId(): string {
+	return `reg-${Date.now()}-${randomBytes(18).toString('base64url')}`;
+}
+
 function getTestingAutoRole(): 'owner' | 'admin' | null {
 	const configuredRole = (process.env.WABI_TEST_AUTO_ROLE || '').trim().toLowerCase();
 	if (configuredRole === 'owner' || configuredRole === 'admin') {
@@ -99,6 +105,13 @@ function maybeAutoAssignTestingRole(userId: number, username: string): void {
 
 	assignRole(userId, autoRole, 'default-workspace');
 	console.log(`[Auth] [TEST] Auto-assigned '${autoRole}' role to ${username} (user_id=${userId})`);
+}
+
+function maybeAssignWorkspaceOwnerIfMissing(userId: number, username: string): void {
+	const workspaceId = 'default-workspace';
+	if (stateRbacStore.workspaceHasOwner(workspaceId)) return;
+	assignRole(userId, 'owner', workspaceId);
+	console.log(`[Auth] Auto-assigned 'owner' role to ${username} (user_id=${userId}) because workspace ${workspaceId} had no owner`);
 }
 
 export async function handleRegister(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -162,6 +175,7 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 			color: generateColor()
 		});
 		maybeAutoAssignTestingRole(user.user_id!, user.username);
+		maybeAssignWorkspaceOwnerIfMissing(user.user_id!, user.username);
 
 		// Create settings with defaults
 		settingsRepository.set(user.user_id!, {
@@ -170,7 +184,7 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 		});
 
 		// Create session
-		const sessionId = `reg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+		const sessionId = generateRegisteredSessionId();
 		sessionRepository.create({
 			session_id: sessionId,
 			user_id: user.user_id!,
@@ -278,9 +292,10 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 			res.end(JSON.stringify({ error: 'Invalid credentials' }));
 			return;
 		}
+		maybeAssignWorkspaceOwnerIfMissing(user.user_id!, user.username);
 
 		// Create session
-		const sessionId = `reg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+		const sessionId = generateRegisteredSessionId();
 		sessionRepository.create({
 			session_id: sessionId,
 			user_id: user.user_id,
@@ -382,6 +397,7 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 			profile_picture: tempSession.profile_picture
 		});
 		maybeAutoAssignTestingRole(user.user_id!, user.username);
+		maybeAssignWorkspaceOwnerIfMissing(user.user_id!, user.username);
 
 		// Create settings with defaults
 		settingsRepository.set(user.user_id!, {
@@ -390,7 +406,7 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 		});
 
 		// Update session to be registered
-		const newSessionId = `reg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+		const newSessionId = generateRegisteredSessionId();
 		sessionRepository.delete(sessionId);
 		sessionRepository.create({
 			session_id: newSessionId,

@@ -80,7 +80,13 @@ export class StdbPrimaryChannelMemberStore extends StdbStoreBase {
 	}
 
 	getMemberIds(channelId: string): string[] {
-		return this.getMembers(channelId).map((member) => member.user_id);
+		bumpOperation(this.stats, 'getMemberIds');
+		const rows = this.client.sqlRows(
+			`SELECT user_id FROM state_channel_member WHERE channel_id = ${escapeSqlLiteral(channelId)} AND active = true LIMIT 50000`
+		);
+		return rows
+			.map((row) => String(row.user_id || ''))
+			.filter((userId) => userId.length > 0);
 	}
 
 	isMember(channelId: string, userId: string): boolean {

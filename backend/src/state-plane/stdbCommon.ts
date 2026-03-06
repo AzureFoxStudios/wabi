@@ -73,7 +73,8 @@ function normalizeTokenEnv(): string | null {
 
 function normalizeAnonymousEnv(token: string | null): boolean {
 	if (token) return false;
-	const raw = (process.env.WABI_STDB_ANONYMOUS || 'true').trim().toLowerCase();
+	const defaultAnonymous = process.env.NODE_ENV === 'production' ? 'false' : 'true';
+	const raw = (process.env.WABI_STDB_ANONYMOUS || defaultAnonymous).trim().toLowerCase();
 	return raw !== '0' && raw !== 'false' && raw !== 'no' && raw !== 'off';
 }
 

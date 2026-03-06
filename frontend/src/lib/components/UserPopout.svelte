@@ -331,7 +331,8 @@
 		}
 	}
 
-	function getUserTopRoleName(candidate: User): string {
+	function getUserTopRoleName(candidate?: User | null): string {
+		if (!candidate) return 'guest';
 		if (candidate.highestRole) return candidate.highestRole;
 		return candidate.dbUserId ? 'member' : 'guest';
 	}

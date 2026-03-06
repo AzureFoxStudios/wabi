@@ -8,7 +8,16 @@ import { getServerUrl } from '../serverUrl';
 import { authStore } from '../authStore';
 import { getAuthToken } from '../authSession';
 
-const API_BASE = getServerUrl();
+const THEME_API_TIMEOUT_MS = 15000;
+const THEME_API_RETRY_DELAY_MS = 250;
+
+function isAbortError(error: unknown): boolean {
+	return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
  * Fetch theme preferences from server
@@ -17,23 +26,40 @@ export async function fetchThemePreferences(): Promise<ThemePreferences> {
 	const token = getAuthToken();
 
 	let response;
-	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), 8000);
-	try {
-		response = await fetch(`${API_BASE}/api/user/theme`, {
-			method: 'GET',
-			headers: {
-				...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-				'Content-Type': 'application/json'
-			},
-			credentials: 'include',
-			signal: controller.signal
-		});
-	} catch (networkError) {
-		console.error('[ThemeApi] Network error:', networkError);
-		throw new Error(`Network error: ${networkError instanceof Error ? networkError.message : 'Failed to reach server'}`);
-	} finally {
-		clearTimeout(timeout);
+	let lastError: unknown = null;
+	for (let attempt = 1; attempt <= 2; attempt++) {
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), THEME_API_TIMEOUT_MS);
+		try {
+			response = await fetch(`${getServerUrl()}/api/user/theme`, {
+				method: 'GET',
+				headers: {
+					...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+					'Content-Type': 'application/json'
+				},
+				credentials: 'include',
+				signal: controller.signal
+			});
+			break;
+		} catch (networkError) {
+			lastError = networkError;
+			if (attempt < 2 && isAbortError(networkError)) {
+				await sleep(THEME_API_RETRY_DELAY_MS);
+				continue;
+			}
+			console.error('[ThemeApi] Network error:', networkError);
+			throw new Error(
+				`Network error: ${isAbortError(networkError) ? `request timed out after ${THEME_API_TIMEOUT_MS}ms` : networkError instanceof Error ? networkError.message : 'Failed to reach server'}`
+			);
+		} finally {
+			clearTimeout(timeout);
+		}
+	}
+
+	if (!response) {
+		throw new Error(
+			`Network error: ${isAbortError(lastError) ? `request timed out after ${THEME_API_TIMEOUT_MS}ms` : 'Failed to reach server'}`
+		);
 	}
 
 	if (!response.ok) {
@@ -85,9 +111,9 @@ export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Pr
 
 	let response;
 	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), 8000);
+	const timeout = setTimeout(() => controller.abort(), THEME_API_TIMEOUT_MS);
 	try {
-		response = await fetch(`${API_BASE}/api/user/theme`, {
+		response = await fetch(`${getServerUrl()}/api/user/theme`, {
 			method: 'POST',
 			headers: {
 				...(token ? { 'Authorization': `Bearer ${token}` } : {}),
@@ -99,7 +125,9 @@ export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Pr
 		});
 	} catch (networkError) {
 		console.error('[ThemeApi] Network error during save:', networkError);
-		throw new Error(`Network error: ${networkError instanceof Error ? networkError.message : 'Failed to reach server'}`);
+		throw new Error(
+			`Network error: ${isAbortError(networkError) ? `request timed out after ${THEME_API_TIMEOUT_MS}ms` : networkError instanceof Error ? networkError.message : 'Failed to reach server'}`
+		);
 	} finally {
 		clearTimeout(timeout);
 	}
@@ -142,10 +170,10 @@ export async function resetThemePreferences(): Promise<void> {
 	const token = getAuthToken();
 
 	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), 8000);
+	const timeout = setTimeout(() => controller.abort(), THEME_API_TIMEOUT_MS);
 	let response;
 	try {
-		response = await fetch(`${API_BASE}/api/user/theme/reset`, {
+		response = await fetch(`${getServerUrl()}/api/user/theme/reset`, {
 			method: 'POST',
 			headers: {
 				...(token ? { 'Authorization': `Bearer ${token}` } : {}),

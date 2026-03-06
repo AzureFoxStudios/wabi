@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { webhookRepository, type Webhook } from '../db/repositories/webhookRepository.js';
+import { fetchWebhookTargetWithGuards } from './targetGuards.js';
 
 export const WEBHOOK_EVENTS = [
   'message.created',
@@ -13,6 +14,14 @@ export type WebhookEventType = (typeof WEBHOOK_EVENTS)[number];
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [500, 1500, 4000];
 const REQUEST_TIMEOUT_MS = 5000;
+const MAX_CONCURRENT_DELIVERIES = Math.max(
+  1,
+  Math.min(100, Number(process.env.WEBHOOK_MAX_CONCURRENT_DELIVERIES || 20))
+);
+const MAX_EVENT_FANOUT = Math.max(
+  1,
+  Math.min(5000, Number(process.env.WEBHOOK_MAX_EVENT_FANOUT || 250))
+);
 
 function signPayload(secret: string, body: string): string {
   return crypto.createHmac('sha256', secret).update(body).digest('hex');
@@ -46,7 +55,7 @@ async function deliverWithRetry(webhook: { id: number; target_url: string; secre
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
     try {
-      const response = await fetch(webhook.target_url, {
+      const response = await fetchWebhookTargetWithGuards(webhook.target_url, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -56,7 +65,7 @@ async function deliverWithRetry(webhook: { id: number; target_url: string; secre
         },
         body,
         signal: controller.signal
-      });
+      }, 3);
 
       clearTimeout(timeout);
 
@@ -103,7 +112,17 @@ export async function dispatchWebhookEvent(eventType: WebhookEventType, payload:
   const webhooks = webhookRepository.listEnabled().filter((webhook) => shouldDispatchWebhook(webhook, eventType));
   if (webhooks.length === 0) return;
 
-  await Promise.allSettled(
-    webhooks.map((webhook) => deliverWebhookEventToTarget(webhook, eventType, payload))
-  );
+  const selected = webhooks.slice(0, MAX_EVENT_FANOUT);
+  if (selected.length < webhooks.length) {
+    console.warn(
+      `[Webhooks] Fanout capped for ${eventType}: delivering ${selected.length}/${webhooks.length} (WEBHOOK_MAX_EVENT_FANOUT=${MAX_EVENT_FANOUT})`
+    );
+  }
+
+  for (let i = 0; i < selected.length; i += MAX_CONCURRENT_DELIVERIES) {
+    const batch = selected.slice(i, i + MAX_CONCURRENT_DELIVERIES);
+    await Promise.allSettled(
+      batch.map((webhook) => deliverWebhookEventToTarget(webhook, eventType, payload))
+    );
+  }
 }

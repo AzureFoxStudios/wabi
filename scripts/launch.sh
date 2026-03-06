@@ -118,6 +118,20 @@ WABI_CONFIG_HAS_WABI_STDB_AUTH_TOKEN=false
 WABI_CONFIG_WABI_STDB_AUTH_TOKEN_VALUE=""
 WABI_CONFIG_HAS_WABI_STDB_ANONYMOUS=false
 WABI_CONFIG_WABI_STDB_ANONYMOUS_VALUE=""
+WABI_CONFIG_HAS_WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=false
+WABI_CONFIG_WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION_VALUE=""
+WABI_CONFIG_HAS_WEBHOOK_MAX_BODY_BYTES=false
+WABI_CONFIG_WEBHOOK_MAX_BODY_BYTES_VALUE=""
+WABI_CONFIG_HAS_WEBHOOK_ALLOW_PRIVATE_TARGETS=false
+WABI_CONFIG_WEBHOOK_ALLOW_PRIVATE_TARGETS_VALUE=""
+WABI_CONFIG_HAS_WEBHOOK_ALLOWED_HOSTS=false
+WABI_CONFIG_WEBHOOK_ALLOWED_HOSTS_VALUE=""
+WABI_CONFIG_HAS_WEBHOOK_MAX_DNS_RECORDS=false
+WABI_CONFIG_WEBHOOK_MAX_DNS_RECORDS_VALUE=""
+WABI_CONFIG_HAS_WEBHOOK_MAX_CONCURRENT_DELIVERIES=false
+WABI_CONFIG_WEBHOOK_MAX_CONCURRENT_DELIVERIES_VALUE=""
+WABI_CONFIG_HAS_WEBHOOK_MAX_EVENT_FANOUT=false
+WABI_CONFIG_WEBHOOK_MAX_EVENT_FANOUT_VALUE=""
 
 usage() {
   cat <<'EOF'
@@ -191,7 +205,14 @@ Advanced environment overrides:
   WABI_STDB_BRIDGE_MAP_FILE=<path>                         (default: empty)
   WABI_STDB_BRIDGE_TIMEOUT_MS=<100-300000>                 (default: 10000)
   WABI_STDB_AUTH_TOKEN=<token>                             (default: empty; uses anonymous when unset)
-  WABI_STDB_ANONYMOUS=true|false                           (default: true)
+  WABI_STDB_ANONYMOUS=true|false                           (default: false)
+  WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=true|false       (default: false)
+  WEBHOOK_MAX_BODY_BYTES=<1024-1048576>                    (default: 65536)
+  WEBHOOK_ALLOW_PRIVATE_TARGETS=true|false                 (default: false)
+  WEBHOOK_ALLOWED_HOSTS=<csv host rules>                   (default: empty)
+  WEBHOOK_MAX_DNS_RECORDS=<1-64>                           (default: 16)
+  WEBHOOK_MAX_CONCURRENT_DELIVERIES=<1-100>                (default: 20)
+  WEBHOOK_MAX_EVENT_FANOUT=<1-5000>                        (default: 250)
   USE_TURN_PROFILE=true|false          (default: true)
   USE_SRT_GATEWAY_PROFILE=auto|true|false (default: auto; true when MEDIA_SRT_GATEWAY_ENABLED=true)
   USE_SFU_PROFILE=auto|true|false      (default: auto; true when SFU_PROVIDER=livekit and LIVEKIT_URL/API_KEY/API_SECRET are set)
@@ -650,7 +671,35 @@ load_wabi_config() {
         ;;
       WABI_STDB_ANONYMOUS)
         WABI_CONFIG_HAS_WABI_STDB_ANONYMOUS=true
-        WABI_CONFIG_WABI_STDB_ANONYMOUS_VALUE="$(normalize_bool "$value" "true")"
+        WABI_CONFIG_WABI_STDB_ANONYMOUS_VALUE="$(normalize_bool "$value" "false")"
+        ;;
+      WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION)
+        WABI_CONFIG_HAS_WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=true
+        WABI_CONFIG_WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION_VALUE="$(normalize_bool "$value" "false")"
+        ;;
+      WEBHOOK_MAX_BODY_BYTES)
+        WABI_CONFIG_HAS_WEBHOOK_MAX_BODY_BYTES=true
+        WABI_CONFIG_WEBHOOK_MAX_BODY_BYTES_VALUE="$(normalize_positive_int "$value" "65536" "1024" "1048576")"
+        ;;
+      WEBHOOK_ALLOW_PRIVATE_TARGETS)
+        WABI_CONFIG_HAS_WEBHOOK_ALLOW_PRIVATE_TARGETS=true
+        WABI_CONFIG_WEBHOOK_ALLOW_PRIVATE_TARGETS_VALUE="$(normalize_bool "$value" "false")"
+        ;;
+      WEBHOOK_ALLOWED_HOSTS)
+        WABI_CONFIG_HAS_WEBHOOK_ALLOWED_HOSTS=true
+        WABI_CONFIG_WEBHOOK_ALLOWED_HOSTS_VALUE="$value"
+        ;;
+      WEBHOOK_MAX_DNS_RECORDS)
+        WABI_CONFIG_HAS_WEBHOOK_MAX_DNS_RECORDS=true
+        WABI_CONFIG_WEBHOOK_MAX_DNS_RECORDS_VALUE="$(normalize_positive_int "$value" "16" "1" "64")"
+        ;;
+      WEBHOOK_MAX_CONCURRENT_DELIVERIES)
+        WABI_CONFIG_HAS_WEBHOOK_MAX_CONCURRENT_DELIVERIES=true
+        WABI_CONFIG_WEBHOOK_MAX_CONCURRENT_DELIVERIES_VALUE="$(normalize_positive_int "$value" "20" "1" "100")"
+        ;;
+      WEBHOOK_MAX_EVENT_FANOUT)
+        WABI_CONFIG_HAS_WEBHOOK_MAX_EVENT_FANOUT=true
+        WABI_CONFIG_WEBHOOK_MAX_EVENT_FANOUT_VALUE="$(normalize_positive_int "$value" "250" "1" "5000")"
         ;;
       VIDEO_COMPRESSION_METRICS|VIDEO_COMPRESSION_CLIENT_METRICS)
         bool_value="$(normalize_bool "$value" "false")"
@@ -703,7 +752,9 @@ configure_defaults() {
   local state_plane_schema_version state_plane_schema_auto_apply
   local state_reducer_ingress_enabled state_reducer_ingress_require_signature state_reducer_ingress_max_skew_ms state_reducer_ingress_max_body_bytes
   local state_shadow_poll_interval_ms state_shadow_batch_size
-  local wabi_stdb_bridge_mode wabi_stdb_bridge_server wabi_stdb_bridge_database wabi_stdb_bridge_reducer wabi_stdb_bridge_map_file wabi_stdb_bridge_timeout_ms wabi_stdb_auth_token wabi_stdb_anonymous
+  local wabi_stdb_bridge_mode wabi_stdb_bridge_server wabi_stdb_bridge_database wabi_stdb_bridge_reducer wabi_stdb_bridge_map_file wabi_stdb_bridge_timeout_ms wabi_stdb_auth_token wabi_stdb_anonymous wabi_stdb_allow_anonymous_in_production
+  local webhook_max_body_bytes webhook_allow_private_targets webhook_allowed_hosts webhook_max_dns_records
+  local webhook_max_concurrent_deliveries webhook_max_event_fanout
   local video_compression_metrics
   local livekit_url livekit_api_key livekit_api_secret
 
@@ -775,7 +826,14 @@ configure_defaults() {
   wabi_stdb_bridge_map_file="${WABI_STDB_BRIDGE_MAP_FILE:-}"
   wabi_stdb_bridge_timeout_ms="$(normalize_positive_int "${WABI_STDB_BRIDGE_TIMEOUT_MS:-10000}" "10000" "100" "300000")"
   wabi_stdb_auth_token="${WABI_STDB_AUTH_TOKEN:-}"
-  wabi_stdb_anonymous="$(normalize_bool "${WABI_STDB_ANONYMOUS:-true}" "true")"
+  wabi_stdb_anonymous="$(normalize_bool "${WABI_STDB_ANONYMOUS:-false}" "false")"
+  wabi_stdb_allow_anonymous_in_production="$(normalize_bool "${WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION:-false}" "false")"
+  webhook_max_body_bytes="$(normalize_positive_int "${WEBHOOK_MAX_BODY_BYTES:-65536}" "65536" "1024" "1048576")"
+  webhook_allow_private_targets="$(normalize_bool "${WEBHOOK_ALLOW_PRIVATE_TARGETS:-false}" "false")"
+  webhook_allowed_hosts="${WEBHOOK_ALLOWED_HOSTS:-}"
+  webhook_max_dns_records="$(normalize_positive_int "${WEBHOOK_MAX_DNS_RECORDS:-16}" "16" "1" "64")"
+  webhook_max_concurrent_deliveries="$(normalize_positive_int "${WEBHOOK_MAX_CONCURRENT_DELIVERIES:-20}" "20" "1" "100")"
+  webhook_max_event_fanout="$(normalize_positive_int "${WEBHOOK_MAX_EVENT_FANOUT:-250}" "250" "1" "5000")"
   srt_gateway_enabled="$(normalize_bool "${MEDIA_SRT_GATEWAY_ENABLED:-false}" "false")"
   sfu_provider="${SFU_PROVIDER:-none}"
   livekit_url="${LIVEKIT_URL:-}"
@@ -901,6 +959,13 @@ WABI_STDB_BRIDGE_MAP_FILE=$wabi_stdb_bridge_map_file
 WABI_STDB_BRIDGE_TIMEOUT_MS=$wabi_stdb_bridge_timeout_ms
 WABI_STDB_AUTH_TOKEN=$wabi_stdb_auth_token
 WABI_STDB_ANONYMOUS=$wabi_stdb_anonymous
+WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=$wabi_stdb_allow_anonymous_in_production
+WEBHOOK_MAX_BODY_BYTES=$webhook_max_body_bytes
+WEBHOOK_ALLOW_PRIVATE_TARGETS=$webhook_allow_private_targets
+WEBHOOK_ALLOWED_HOSTS=$webhook_allowed_hosts
+WEBHOOK_MAX_DNS_RECORDS=$webhook_max_dns_records
+WEBHOOK_MAX_CONCURRENT_DELIVERIES=$webhook_max_concurrent_deliveries
+WEBHOOK_MAX_EVENT_FANOUT=$webhook_max_event_fanout
 
 JWT_SECRET=$jwt_secret
 
@@ -976,6 +1041,16 @@ validate_security_config() {
   if [[ "${SFU_PROVIDER:-none}" == "livekit" ]]; then
     if [[ -z "${LIVEKIT_API_KEY:-}" || -z "${LIVEKIT_API_SECRET:-}" ]]; then
       errors+=("LIVEKIT_API_KEY and LIVEKIT_API_SECRET are required when SFU_PROVIDER=livekit.")
+    fi
+  fi
+
+  local stdb_active="false"
+  if [[ "${STATE_BACKEND_MODE:-legacy}" == "stdb_primary" || "${STATE_STDB_WRITE_ENABLED:-false}" == "true" || "${STATE_STDB_READ_ENABLED:-false}" == "true" ]]; then
+    stdb_active="true"
+  fi
+  if [[ "${NODE_ENV:-production}" == "production" && "$stdb_active" == "true" ]]; then
+    if [[ -z "${WABI_STDB_AUTH_TOKEN:-}" && "${WABI_STDB_ANONYMOUS:-false}" == "true" && "${WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION:-false}" != "true" ]]; then
+      errors+=("STDB is active with anonymous auth in production. Set WABI_STDB_AUTH_TOKEN or explicitly set WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=true.")
     fi
   fi
 
@@ -1340,8 +1415,12 @@ if [[ "$WABI_CONFIG_HAS_WABI_STDB_AUTH_TOKEN" == "true" ]]; then
   upsert_env_file_key "$ENV_FILE" "WABI_STDB_AUTH_TOKEN" "$WABI_STDB_AUTH_TOKEN"
 fi
 if [[ "$WABI_CONFIG_HAS_WABI_STDB_ANONYMOUS" == "true" ]]; then
-  WABI_STDB_ANONYMOUS="$(normalize_bool "${WABI_CONFIG_WABI_STDB_ANONYMOUS_VALUE:-true}" "true")"
+  WABI_STDB_ANONYMOUS="$(normalize_bool "${WABI_CONFIG_WABI_STDB_ANONYMOUS_VALUE:-false}" "false")"
   upsert_env_file_key "$ENV_FILE" "WABI_STDB_ANONYMOUS" "$WABI_STDB_ANONYMOUS"
+fi
+if [[ "$WABI_CONFIG_HAS_WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION" == "true" ]]; then
+  WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION="$(normalize_bool "${WABI_CONFIG_WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION_VALUE:-false}" "false")"
+  upsert_env_file_key "$ENV_FILE" "WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION" "$WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION"
 fi
 case "${WABI_STDB_BRIDGE_MODE:-spacetime-call}" in
   spacetime-call|stdout|file) ;;
@@ -1353,7 +1432,8 @@ WABI_STDB_BRIDGE_REDUCER="${WABI_STDB_BRIDGE_REDUCER:-ingest_wabi_event}"
 WABI_STDB_BRIDGE_MAP_FILE="${WABI_STDB_BRIDGE_MAP_FILE:-}"
 WABI_STDB_BRIDGE_TIMEOUT_MS="$(normalize_positive_int "${WABI_STDB_BRIDGE_TIMEOUT_MS:-10000}" "10000" "100" "300000")"
 WABI_STDB_AUTH_TOKEN="${WABI_STDB_AUTH_TOKEN:-}"
-WABI_STDB_ANONYMOUS="$(normalize_bool "${WABI_STDB_ANONYMOUS:-true}" "true")"
+WABI_STDB_ANONYMOUS="$(normalize_bool "${WABI_STDB_ANONYMOUS:-false}" "false")"
+WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION="$(normalize_bool "${WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION:-false}" "false")"
 upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_MODE" "$WABI_STDB_BRIDGE_MODE"
 upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_SERVER" "$WABI_STDB_BRIDGE_SERVER"
 upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_DATABASE" "$WABI_STDB_BRIDGE_DATABASE"
@@ -1362,9 +1442,10 @@ upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_MAP_FILE" "$WABI_STDB_BRIDGE_M
 upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_TIMEOUT_MS" "$WABI_STDB_BRIDGE_TIMEOUT_MS"
 upsert_env_file_key "$ENV_FILE" "WABI_STDB_AUTH_TOKEN" "$WABI_STDB_AUTH_TOKEN"
 upsert_env_file_key "$ENV_FILE" "WABI_STDB_ANONYMOUS" "$WABI_STDB_ANONYMOUS"
+upsert_env_file_key "$ENV_FILE" "WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION" "$WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION"
 if [[ "${STATE_SHADOW_SINK:-mirror}" == "command" && -z "${STATE_SHADOW_COMMAND:-}" && -n "$WABI_STDB_BRIDGE_DATABASE" ]]; then
   generated_state_shadow_command="node scripts/state-plane-stdb-bridge.mjs --mode $WABI_STDB_BRIDGE_MODE --server $WABI_STDB_BRIDGE_SERVER --database $WABI_STDB_BRIDGE_DATABASE --reducer $WABI_STDB_BRIDGE_REDUCER --timeout-ms $WABI_STDB_BRIDGE_TIMEOUT_MS --no-config --yes"
-  if [[ "${WABI_STDB_ANONYMOUS:-true}" == "true" ]]; then
+  if [[ "${WABI_STDB_ANONYMOUS:-false}" == "true" ]]; then
     generated_state_shadow_command="$generated_state_shadow_command --anonymous"
   else
     generated_state_shadow_command="$generated_state_shadow_command --no-anonymous"
@@ -1377,6 +1458,42 @@ if [[ "${STATE_SHADOW_SINK:-mirror}" == "command" && -z "${STATE_SHADOW_COMMAND:
   upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_COMMAND" "$STATE_SHADOW_COMMAND"
   echo "[launch] Auto-generated STATE_SHADOW_COMMAND from WABI_STDB_BRIDGE_* settings."
 fi
+if [[ "$WABI_CONFIG_HAS_WEBHOOK_MAX_BODY_BYTES" == "true" ]]; then
+  WEBHOOK_MAX_BODY_BYTES="$(normalize_positive_int "${WABI_CONFIG_WEBHOOK_MAX_BODY_BYTES_VALUE:-65536}" "65536" "1024" "1048576")"
+  upsert_env_file_key "$ENV_FILE" "WEBHOOK_MAX_BODY_BYTES" "$WEBHOOK_MAX_BODY_BYTES"
+fi
+if [[ "$WABI_CONFIG_HAS_WEBHOOK_ALLOW_PRIVATE_TARGETS" == "true" ]]; then
+  WEBHOOK_ALLOW_PRIVATE_TARGETS="$(normalize_bool "${WABI_CONFIG_WEBHOOK_ALLOW_PRIVATE_TARGETS_VALUE:-false}" "false")"
+  upsert_env_file_key "$ENV_FILE" "WEBHOOK_ALLOW_PRIVATE_TARGETS" "$WEBHOOK_ALLOW_PRIVATE_TARGETS"
+fi
+if [[ "$WABI_CONFIG_HAS_WEBHOOK_ALLOWED_HOSTS" == "true" ]]; then
+  WEBHOOK_ALLOWED_HOSTS="${WABI_CONFIG_WEBHOOK_ALLOWED_HOSTS_VALUE:-}"
+  upsert_env_file_key "$ENV_FILE" "WEBHOOK_ALLOWED_HOSTS" "$WEBHOOK_ALLOWED_HOSTS"
+fi
+if [[ "$WABI_CONFIG_HAS_WEBHOOK_MAX_DNS_RECORDS" == "true" ]]; then
+  WEBHOOK_MAX_DNS_RECORDS="$(normalize_positive_int "${WABI_CONFIG_WEBHOOK_MAX_DNS_RECORDS_VALUE:-16}" "16" "1" "64")"
+  upsert_env_file_key "$ENV_FILE" "WEBHOOK_MAX_DNS_RECORDS" "$WEBHOOK_MAX_DNS_RECORDS"
+fi
+if [[ "$WABI_CONFIG_HAS_WEBHOOK_MAX_CONCURRENT_DELIVERIES" == "true" ]]; then
+  WEBHOOK_MAX_CONCURRENT_DELIVERIES="$(normalize_positive_int "${WABI_CONFIG_WEBHOOK_MAX_CONCURRENT_DELIVERIES_VALUE:-20}" "20" "1" "100")"
+  upsert_env_file_key "$ENV_FILE" "WEBHOOK_MAX_CONCURRENT_DELIVERIES" "$WEBHOOK_MAX_CONCURRENT_DELIVERIES"
+fi
+if [[ "$WABI_CONFIG_HAS_WEBHOOK_MAX_EVENT_FANOUT" == "true" ]]; then
+  WEBHOOK_MAX_EVENT_FANOUT="$(normalize_positive_int "${WABI_CONFIG_WEBHOOK_MAX_EVENT_FANOUT_VALUE:-250}" "250" "1" "5000")"
+  upsert_env_file_key "$ENV_FILE" "WEBHOOK_MAX_EVENT_FANOUT" "$WEBHOOK_MAX_EVENT_FANOUT"
+fi
+WEBHOOK_MAX_BODY_BYTES="$(normalize_positive_int "${WEBHOOK_MAX_BODY_BYTES:-65536}" "65536" "1024" "1048576")"
+WEBHOOK_ALLOW_PRIVATE_TARGETS="$(normalize_bool "${WEBHOOK_ALLOW_PRIVATE_TARGETS:-false}" "false")"
+WEBHOOK_ALLOWED_HOSTS="${WEBHOOK_ALLOWED_HOSTS:-}"
+WEBHOOK_MAX_DNS_RECORDS="$(normalize_positive_int "${WEBHOOK_MAX_DNS_RECORDS:-16}" "16" "1" "64")"
+WEBHOOK_MAX_CONCURRENT_DELIVERIES="$(normalize_positive_int "${WEBHOOK_MAX_CONCURRENT_DELIVERIES:-20}" "20" "1" "100")"
+WEBHOOK_MAX_EVENT_FANOUT="$(normalize_positive_int "${WEBHOOK_MAX_EVENT_FANOUT:-250}" "250" "1" "5000")"
+upsert_env_file_key "$ENV_FILE" "WEBHOOK_MAX_BODY_BYTES" "$WEBHOOK_MAX_BODY_BYTES"
+upsert_env_file_key "$ENV_FILE" "WEBHOOK_ALLOW_PRIVATE_TARGETS" "$WEBHOOK_ALLOW_PRIVATE_TARGETS"
+upsert_env_file_key "$ENV_FILE" "WEBHOOK_ALLOWED_HOSTS" "$WEBHOOK_ALLOWED_HOSTS"
+upsert_env_file_key "$ENV_FILE" "WEBHOOK_MAX_DNS_RECORDS" "$WEBHOOK_MAX_DNS_RECORDS"
+upsert_env_file_key "$ENV_FILE" "WEBHOOK_MAX_CONCURRENT_DELIVERIES" "$WEBHOOK_MAX_CONCURRENT_DELIVERIES"
+upsert_env_file_key "$ENV_FILE" "WEBHOOK_MAX_EVENT_FANOUT" "$WEBHOOK_MAX_EVENT_FANOUT"
 if [[ "$WABI_CONFIG_HAS_STATE_PLANE_SCHEMA_VERSION" == "true" ]]; then
   STATE_PLANE_SCHEMA_VERSION="$(normalize_positive_int "${WABI_CONFIG_STATE_PLANE_SCHEMA_VERSION_VALUE:-1}" "1" "1" "1000")"
   upsert_env_file_key "$ENV_FILE" "STATE_PLANE_SCHEMA_VERSION" "$STATE_PLANE_SCHEMA_VERSION"

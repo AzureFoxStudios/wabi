@@ -2,6 +2,12 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use spacetimedb::{ReducerContext, Table, Timestamp};
 
+const MAX_EVENT_JSON_BYTES: usize = 512 * 1024;
+const MAX_EVENT_ID_BYTES: usize = 160;
+const MAX_ENTITY_BYTES: usize = 64;
+const MAX_OPERATION_BYTES: usize = 64;
+const MAX_PAYLOAD_JSON_BYTES: usize = 384 * 1024;
+
 #[spacetimedb::table(accessor = ingested_event, public)]
 #[derive(Clone)]
 pub struct IngestedEvent {
@@ -71,6 +77,33 @@ pub struct StateUser {
     pub last_updated_at: Timestamp,
 }
 
+#[spacetimedb::table(accessor = state_user_meta, public)]
+#[derive(Clone)]
+pub struct StateUserMeta {
+    #[primary_key]
+    pub meta_key: String,
+    pub next_user_id: i64,
+    pub last_updated_at: Timestamp,
+}
+
+#[spacetimedb::table(accessor = state_user_username, public)]
+#[derive(Clone)]
+pub struct StateUserUsername {
+    #[primary_key]
+    pub username_lc: String,
+    pub user_id: i64,
+    pub last_updated_at: Timestamp,
+}
+
+#[spacetimedb::table(accessor = state_user_handle, public)]
+#[derive(Clone)]
+pub struct StateUserHandle {
+    #[primary_key]
+    pub handle_lc: String,
+    pub user_id: i64,
+    pub last_updated_at: Timestamp,
+}
+
 #[spacetimedb::table(accessor = state_session, public)]
 #[derive(Clone)]
 pub struct StateSession {
@@ -110,8 +143,22 @@ struct IngestEnvelope {
     payload: Value,
 }
 
+fn supported_entity(entity: &str) -> bool {
+    matches!(
+        entity,
+        "message" | "channel" | "channel_member" | "user" | "session" | "rbac" | "presence" | "system"
+    )
+}
+
 #[spacetimedb::reducer]
 pub fn ingest_wabi_event(ctx: &ReducerContext, event_json: String) -> Result<(), String> {
+    if event_json.as_bytes().len() > MAX_EVENT_JSON_BYTES {
+        return Err(format!(
+            "event_json_too_large: max={} bytes",
+            MAX_EVENT_JSON_BYTES
+        ));
+    }
+
     let mut event: IngestEnvelope =
         serde_json::from_str(&event_json).map_err(|e| format!("invalid_event_json: {e}"))?;
 
@@ -123,8 +170,26 @@ pub fn ingest_wabi_event(ctx: &ReducerContext, event_json: String) -> Result<(),
     if event.operation.is_empty() {
         return Err("event.operation is required".to_string());
     }
+    if !supported_entity(&event.entity) {
+        return Err(format!("unsupported event.entity '{}'", event.entity));
+    }
+    if event.entity.as_bytes().len() > MAX_ENTITY_BYTES {
+        return Err(format!("event.entity too long (max {} bytes)", MAX_ENTITY_BYTES));
+    }
+    if event.operation.as_bytes().len() > MAX_OPERATION_BYTES {
+        return Err(format!(
+            "event.operation too long (max {} bytes)",
+            MAX_OPERATION_BYTES
+        ));
+    }
 
     let event_id = ensure_event_id(ctx, event.event_id.as_deref(), &event.entity, &event.operation)?;
+    if event_id.as_bytes().len() > MAX_EVENT_ID_BYTES {
+        return Err(format!(
+            "event.eventId too long (max {} bytes)",
+            MAX_EVENT_ID_BYTES
+        ));
+    }
 
     // Idempotent ingress: duplicate event IDs are accepted as no-op.
     if ctx.db.ingested_event().event_id().find(&event_id).is_some() {
@@ -132,6 +197,12 @@ pub fn ingest_wabi_event(ctx: &ReducerContext, event_json: String) -> Result<(),
     }
 
     let payload_json = serde_json::to_string(&event.payload).unwrap_or_else(|_| "{}".to_string());
+    if payload_json.as_bytes().len() > MAX_PAYLOAD_JSON_BYTES {
+        return Err(format!(
+            "event.payload too large (max {} bytes)",
+            MAX_PAYLOAD_JSON_BYTES
+        ));
+    }
     ctx.db.ingested_event().insert(IngestedEvent {
         event_id: event_id.clone(),
         event_timestamp: event.timestamp.unwrap_or(0),
@@ -320,6 +391,111 @@ fn member_key(channel_id: &str, user_id: &str) -> String {
 
 fn assignment_key(workspace_id: &str, user_id: i64, role: &str) -> String {
     format!("{workspace_id}:{user_id}:{role}")
+}
+
+fn set_next_user_id(ctx: &ReducerContext, observed_user_id: i64) {
+    let target_next_id = observed_user_id.saturating_add(1).max(1);
+    let meta_key = "default".to_string();
+    if let Some(existing) = ctx.db.state_user_meta().meta_key().find(&meta_key) {
+        if existing.next_user_id >= target_next_id {
+            return;
+        }
+        let mut row = existing.clone();
+        row.next_user_id = target_next_id;
+        row.last_updated_at = ctx.timestamp;
+        ctx.db.state_user_meta().meta_key().update(row);
+        return;
+    }
+
+    ctx.db.state_user_meta().insert(StateUserMeta {
+        meta_key,
+        next_user_id: target_next_id,
+        last_updated_at: ctx.timestamp,
+    });
+}
+
+fn remove_username_lookup(ctx: &ReducerContext, username_lc: Option<&str>) {
+    let Some(key) = username_lc else {
+        return;
+    };
+    let normalized = key.trim();
+    if normalized.is_empty() {
+        return;
+    }
+    let _ = ctx
+        .db
+        .state_user_username()
+        .username_lc()
+        .delete(&normalized.to_string());
+}
+
+fn remove_handle_lookup(ctx: &ReducerContext, handle_lc: Option<&str>) {
+    let Some(key) = handle_lc else {
+        return;
+    };
+    let normalized = key.trim();
+    if normalized.is_empty() {
+        return;
+    }
+    let _ = ctx
+        .db
+        .state_user_handle()
+        .handle_lc()
+        .delete(&normalized.to_string());
+}
+
+fn upsert_username_lookup(ctx: &ReducerContext, username_lc: Option<&str>, user_id: i64) {
+    let Some(raw) = username_lc else {
+        return;
+    };
+    let key = raw.trim();
+    if key.is_empty() {
+        return;
+    }
+    let lookup_key = key.to_string();
+    let next = StateUserUsername {
+        username_lc: lookup_key.clone(),
+        user_id,
+        last_updated_at: ctx.timestamp,
+    };
+    if ctx
+        .db
+        .state_user_username()
+        .username_lc()
+        .find(&lookup_key)
+        .is_some()
+    {
+        ctx.db.state_user_username().username_lc().update(next);
+    } else {
+        ctx.db.state_user_username().insert(next);
+    }
+}
+
+fn upsert_handle_lookup(ctx: &ReducerContext, handle_lc: Option<&str>, user_id: i64) {
+    let Some(raw) = handle_lc else {
+        return;
+    };
+    let key = raw.trim();
+    if key.is_empty() {
+        return;
+    }
+    let lookup_key = key.to_string();
+    let next = StateUserHandle {
+        handle_lc: lookup_key.clone(),
+        user_id,
+        last_updated_at: ctx.timestamp,
+    };
+    if ctx
+        .db
+        .state_user_handle()
+        .handle_lc()
+        .find(&lookup_key)
+        .is_some()
+    {
+        ctx.db.state_user_handle().handle_lc().update(next);
+    } else {
+        ctx.db.state_user_handle().insert(next);
+    }
 }
 
 fn apply_message_upsert(ctx: &ReducerContext, payload: &Value, deleted_override: Option<bool>) {
@@ -627,6 +803,8 @@ fn apply_user_upsert(ctx: &ReducerContext, payload: &Value, deleted_override: Op
     };
 
     let existing = ctx.db.state_user().user_id().find(&user_id);
+    let previous_username_lc = existing.as_ref().and_then(|r| r.username_lc.clone());
+    let previous_handle_lc = existing.as_ref().and_then(|r| r.handle_lc.clone());
 
     let username = row
         .and_then(|r| map_string(r, "username"))
@@ -662,11 +840,29 @@ fn apply_user_upsert(ctx: &ReducerContext, payload: &Value, deleted_override: Op
         row_json,
         last_updated_at: ctx.timestamp,
     };
+    let next_snapshot = next.clone();
 
     if existing.is_some() {
         ctx.db.state_user().user_id().update(next);
     } else {
         ctx.db.state_user().insert(next);
+    }
+
+    set_next_user_id(ctx, user_id);
+
+    if previous_username_lc.as_deref() != next_snapshot.username_lc.as_deref() {
+        remove_username_lookup(ctx, previous_username_lc.as_deref());
+    }
+    if previous_handle_lc.as_deref() != next_snapshot.handle_lc.as_deref() {
+        remove_handle_lookup(ctx, previous_handle_lc.as_deref());
+    }
+
+    if next_snapshot.active && !next_snapshot.deleted {
+        upsert_username_lookup(ctx, next_snapshot.username_lc.as_deref(), user_id);
+        upsert_handle_lookup(ctx, next_snapshot.handle_lc.as_deref(), user_id);
+    } else {
+        remove_username_lookup(ctx, next_snapshot.username_lc.as_deref());
+        remove_handle_lookup(ctx, next_snapshot.handle_lc.as_deref());
     }
 }
 

@@ -124,9 +124,11 @@ export class StdbPrimarySessionStore extends StdbStoreBase {
 		this.stats.writesAttempted += 1;
 		const now = nowMs();
 		const rows = this.client.sqlRows(
-			`SELECT row_json FROM state_session WHERE deleted = false AND expires_at IS NOT NULL AND expires_at < ${now}`
+			'SELECT row_json FROM state_session WHERE deleted = false LIMIT 50000'
 		);
-		const expired = this.parseSessions(rows);
+		const expired = this
+			.parseSessions(rows)
+			.filter((session) => session.expires_at != null && session.expires_at < now);
 		try {
 			this.ingest('session', 'cleanup', {
 				now,

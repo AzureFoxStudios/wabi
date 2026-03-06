@@ -74,16 +74,30 @@ export class StdbPrimaryChannelStore extends StdbStoreBase {
 
 	findByUserId(userId: string): DbChannel[] {
 		bumpOperation(this.stats, 'findByUserId');
-		const memberRows = this.client.sqlRows(
-			`SELECT channel_id FROM state_channel_member WHERE user_id = ${escapeSqlLiteral(userId)} AND active = true LIMIT 50000`
-		);
-		const channelIds = Array.from(new Set(memberRows.map((row) => String(row.channel_id || '')).filter(Boolean)));
-		const channels: DbChannel[] = [];
-		for (const channelId of channelIds) {
-			const channel = this.loadChannel(channelId, false);
-			if (channel) channels.push(channel);
+		try {
+			const rows = this.client.sqlRows(
+				`SELECT c.row_json AS row_json
+				 FROM state_channel AS c
+				 INNER JOIN state_channel_member AS m ON m.channel_id = c.channel_id
+				 WHERE m.user_id = ${escapeSqlLiteral(userId)}
+				   AND m.active = true
+				   AND c.archived = false
+				 LIMIT 50000`
+			);
+			return this.parseChannels(rows).sort((a, b) => b.created_at - a.created_at);
+		} catch {
+			// Compatibility fallback for SQL engines without join support.
+			const memberRows = this.client.sqlRows(
+				`SELECT channel_id FROM state_channel_member WHERE user_id = ${escapeSqlLiteral(userId)} AND active = true LIMIT 50000`
+			);
+			const channelIds = Array.from(new Set(memberRows.map((row) => String(row.channel_id || '')).filter(Boolean)));
+			const channels: DbChannel[] = [];
+			for (const channelId of channelIds) {
+				const channel = this.loadChannel(channelId, false);
+				if (channel) channels.push(channel);
+			}
+			return channels.sort((a, b) => b.created_at - a.created_at);
 		}
-		return channels.sort((a, b) => b.created_at - a.created_at);
 	}
 
 	findDMBetween(userId1: string, userId2: string): DbChannel | null {

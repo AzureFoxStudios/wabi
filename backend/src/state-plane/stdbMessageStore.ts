@@ -75,6 +75,17 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 		return parseJsonObject<DbMessage>(rows[0].row_json) || null;
 	}
 
+	private loadMessageCursor(messageId: string): { createdAt: number; messageId: string } | null {
+		const rows = this.client.sqlRows(
+			`SELECT created_at, message_id FROM state_message WHERE message_id = ${escapeSqlLiteral(messageId)} LIMIT 1`
+		);
+		if (rows.length === 0) return null;
+		const createdAt = toNumber(rows[0].created_at);
+		if (!Number.isFinite(createdAt) || createdAt <= 0) return null;
+		const resolvedId = String(rows[0].message_id || messageId);
+		return { createdAt, messageId: resolvedId };
+	}
+
 	create(message: Omit<DbMessage, 'id' | 'deleted_at'>): DbMessage {
 		bumpOperation(this.stats, 'create');
 		this.stats.writesAttempted += 1;
@@ -99,10 +110,60 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 
 	getByChannel(channelId: string, options: PaginationOptions = {}): DbMessage[] {
 		bumpOperation(this.stats, 'getByChannel');
-		const rows = this.client.sqlRows(
-			`SELECT row_json FROM state_message WHERE channel_id = ${escapeSqlLiteral(channelId)} AND deleted = false LIMIT 50000`
-		);
-		return applyPagination(this.parseMessages(rows), options);
+		const limit = Math.max(1, Math.min(500, Math.floor(options.limit || 50)));
+		const channelLiteral = escapeSqlLiteral(channelId);
+
+		try {
+			if (options.beforeMessageId) {
+				const cursor = this.loadMessageCursor(options.beforeMessageId);
+				if (!cursor) return [];
+				const cursorIdLiteral = escapeSqlLiteral(cursor.messageId);
+				const rows = this.client.sqlRows(
+					`SELECT row_json FROM state_message
+					 WHERE channel_id = ${channelLiteral}
+					   AND deleted = false
+					   AND (
+					     created_at < ${cursor.createdAt}
+					     OR (created_at = ${cursor.createdAt} AND message_id < ${cursorIdLiteral})
+					   )
+					 ORDER BY created_at DESC, message_id DESC
+					 LIMIT ${limit}`
+				);
+				return sortMessagesByCreatedAt(this.parseMessages(rows));
+			}
+
+			if (options.afterMessageId) {
+				const cursor = this.loadMessageCursor(options.afterMessageId);
+				if (!cursor) return [];
+				const cursorIdLiteral = escapeSqlLiteral(cursor.messageId);
+				const rows = this.client.sqlRows(
+					`SELECT row_json FROM state_message
+					 WHERE channel_id = ${channelLiteral}
+					   AND deleted = false
+					   AND (
+					     created_at > ${cursor.createdAt}
+					     OR (created_at = ${cursor.createdAt} AND message_id > ${cursorIdLiteral})
+					   )
+					 ORDER BY created_at ASC, message_id ASC
+					 LIMIT ${limit}`
+				);
+				return sortMessagesByCreatedAt(this.parseMessages(rows));
+			}
+
+			const rows = this.client.sqlRows(
+				`SELECT row_json FROM state_message
+				 WHERE channel_id = ${channelLiteral}
+				   AND deleted = false
+				 ORDER BY created_at DESC, message_id DESC
+				 LIMIT ${limit}`
+			);
+			return sortMessagesByCreatedAt(this.parseMessages(rows));
+		} catch {
+			const rows = this.client.sqlRows(
+				`SELECT row_json FROM state_message WHERE channel_id = ${channelLiteral} AND deleted = false LIMIT 50000`
+			);
+			return applyPagination(this.parseMessages(rows), options);
+		}
 	}
 
 	findByMessageId(messageId: string): DbMessage | null {

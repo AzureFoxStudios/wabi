@@ -11,6 +11,38 @@ const sharedKeyCache = new Map<number, CryptoKey>();
 // Cache public keys per user to avoid re-fetching
 const publicKeyCache = new Map<number, string | null>();
 
+function isTransientNetworkError(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	const message = error.message.toLowerCase();
+	return message.includes('timed out') || message.includes('abort');
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function storeEncryptionKeysWithRetry(
+	token: string | null | undefined,
+	publicKey: string,
+	privateKeyEncrypted: string
+): Promise<void> {
+	let lastError: unknown = null;
+	for (let attempt = 1; attempt <= 2; attempt++) {
+		try {
+			await storeEncryptionKeys(token, publicKey, privateKeyEncrypted);
+			return;
+		} catch (error) {
+			lastError = error;
+			if (attempt < 2 && isTransientNetworkError(error)) {
+				await sleep(250);
+				continue;
+			}
+			throw error;
+		}
+	}
+	throw lastError instanceof Error ? lastError : new Error('Failed to store encryption keys');
+}
+
 /**
  * Initialize E2E encryption for the current user.
  * On registration: generates new keys, saves locally, uploads public key to server.
@@ -30,7 +62,7 @@ export async function initE2E(dbUserId: number, token: string | null | undefined
 			currentPrivateKey = keyPair.privateKey;
 
 			// Upload public key + encrypted private key to server
-			await storeEncryptionKeys(currentToken, keyPair.publicKey, keyPair.privateKey);
+			await storeEncryptionKeysWithRetry(currentToken, keyPair.publicKey, keyPair.privateKey);
 			console.log('[E2E] Keys generated and uploaded for new registration');
 		} catch (err) {
 			console.error('[E2E] Failed to generate keys on registration:', err);
@@ -45,7 +77,7 @@ export async function initE2E(dbUserId: number, token: string | null | undefined
 
 			// Ensure server has our public key (may have been lost)
 			try {
-				await storeEncryptionKeys(currentToken, stored.publicKey, stored.privateKey);
+				await storeEncryptionKeysWithRetry(currentToken, stored.publicKey, stored.privateKey);
 			} catch (err) {
 				// 409 is expected if keys already exist
 				// 401/403 means user was deleted or session is invalid

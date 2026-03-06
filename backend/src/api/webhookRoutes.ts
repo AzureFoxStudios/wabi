@@ -3,24 +3,48 @@ import crypto from 'crypto';
 import { getAuthenticatedUserIdFromRequest } from '../auth/requestAuth.js';
 import { webhookRepository } from '../db/repositories/webhookRepository.js';
 import { WEBHOOK_EVENTS, type WebhookEventType, deliverWebhookEventToTarget } from '../webhooks/deliveryService.js';
+import { assertSafeWebhookTargetUrl } from '../webhooks/targetGuards.js';
+
+const MAX_WEBHOOK_BODY_BYTES = Math.max(
+  1024,
+  Math.min(1024 * 1024, Number(process.env.WEBHOOK_MAX_BODY_BYTES || 64 * 1024))
+);
 
 function parseBody(req: IncomingMessage): Promise<Record<string, any>> {
   return new Promise((resolve, reject) => {
-    let body = '';
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let settled = false;
 
     req.on('data', (chunk) => {
-      body += chunk.toString();
+      if (settled) return;
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      total += buffer.length;
+      if (total > MAX_WEBHOOK_BODY_BYTES) {
+        settled = true;
+        reject(new Error(`payload_too_large:${MAX_WEBHOOK_BODY_BYTES}`));
+        return;
+      }
+      chunks.push(buffer);
     });
 
     req.on('end', () => {
+      if (settled) return;
       try {
+        settled = true;
+        const body = chunks.length === 0 ? '' : Buffer.concat(chunks).toString('utf8');
         resolve(body ? JSON.parse(body) : {});
       } catch {
+        settled = true;
         reject(new Error('Invalid JSON'));
       }
     });
 
-    req.on('error', reject);
+    req.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
   });
 }
 
@@ -29,12 +53,15 @@ function writeJson(res: ServerResponse, status: number, body: Record<string, any
   res.end(JSON.stringify(body));
 }
 
-function parseAndValidateWebhookInput(body: Record<string, any>): {
+function isPayloadTooLargeError(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith('payload_too_large:');
+}
+
+async function parseAndValidateWebhookInput(body: Record<string, any>): Promise<{
   name: string;
-  targetUrl: string;
   parsedUrl: URL;
   events: string[];
-} | { error: string } {
+} | { error: string }> {
   const name = typeof body.name === 'string' ? body.name.trim() : '';
   const targetUrl = typeof body.targetUrl === 'string' ? body.targetUrl.trim() : '';
   const requestedEvents = Array.isArray(body.events) ? body.events : [];
@@ -45,13 +72,9 @@ function parseAndValidateWebhookInput(body: Record<string, any>): {
 
   let parsedUrl: URL;
   try {
-    parsedUrl = new URL(targetUrl);
-  } catch {
-    return { error: 'targetUrl must be a valid URL' };
-  }
-
-  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
-    return { error: 'targetUrl protocol must be http or https' };
+    parsedUrl = await assertSafeWebhookTargetUrl(targetUrl);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'targetUrl must be a valid URL' };
   }
 
   const events = requestedEvents
@@ -62,7 +85,7 @@ function parseAndValidateWebhookInput(body: Record<string, any>): {
     return { error: `events must include '*' or one of: ${WEBHOOK_EVENTS.join(', ')}` };
   }
 
-  return { name, targetUrl, parsedUrl, events };
+  return { name, parsedUrl, events };
 }
 
 export async function handleCreateWebhook(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -74,7 +97,7 @@ export async function handleCreateWebhook(req: IncomingMessage, res: ServerRespo
 
   try {
     const body = await parseBody(req);
-    const parsed = parseAndValidateWebhookInput(body);
+    const parsed = await parseAndValidateWebhookInput(body);
     if ('error' in parsed) {
       writeJson(res, 400, { success: false, error: parsed.error });
       return;
@@ -101,6 +124,10 @@ export async function handleCreateWebhook(req: IncomingMessage, res: ServerRespo
       }
     });
   } catch (error) {
+    if (isPayloadTooLargeError(error)) {
+      writeJson(res, 413, { success: false, error: 'Payload too large' });
+      return;
+    }
     writeJson(res, 400, { success: false, error: error instanceof Error ? error.message : 'Invalid request' });
   }
 }
@@ -197,13 +224,9 @@ export async function handleUpdateWebhook(req: IncomingMessage, res: ServerRespo
       }
       let parsedUrl: URL;
       try {
-        parsedUrl = new URL(body.targetUrl.trim());
-      } catch {
-        writeJson(res, 400, { success: false, error: 'targetUrl must be a valid URL' });
-        return;
-      }
-      if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
-        writeJson(res, 400, { success: false, error: 'targetUrl protocol must be http or https' });
+        parsedUrl = await assertSafeWebhookTargetUrl(body.targetUrl.trim());
+      } catch (error) {
+        writeJson(res, 400, { success: false, error: error instanceof Error ? error.message : 'targetUrl must be a valid URL' });
         return;
       }
       updates.target_url = parsedUrl.toString();
@@ -248,6 +271,10 @@ export async function handleUpdateWebhook(req: IncomingMessage, res: ServerRespo
       } : null
     });
   } catch (error) {
+    if (isPayloadTooLargeError(error)) {
+      writeJson(res, 413, { success: false, error: 'Payload too large' });
+      return;
+    }
     writeJson(res, 400, { success: false, error: error instanceof Error ? error.message : 'Invalid request' });
   }
 }

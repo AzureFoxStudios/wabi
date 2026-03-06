@@ -46,6 +46,14 @@ interface StdbPrimaryReadiness {
 
 const statePlaneConfig = getStatePlaneConfigFromEnv();
 
+function boolFromEnv(value: string | undefined, fallback: boolean): boolean {
+	if (value == null) return fallback;
+	const normalized = value.trim().toLowerCase();
+	if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on') return true;
+	if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') return false;
+	return fallback;
+}
+
 function checkStdbPrimaryReadiness(config: StatePlaneConfig): StdbPrimaryReadiness {
 	if (!config.stdbWriteEnabled) {
 		return {
@@ -71,6 +79,16 @@ function checkStdbPrimaryReadiness(config: StatePlaneConfig): StdbPrimaryReadine
 			ready: false,
 			reason: `STDB client not configured (${missing.join(', ')})`
 		};
+	}
+	if (process.env.NODE_ENV === 'production') {
+		const allowAnonymousProd = boolFromEnv(process.env.WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION, false);
+		if (runtime.authMode !== 'token' && !allowAnonymousProd) {
+			return {
+				ready: false,
+				reason:
+					'STDB production mode requires WABI_STDB_AUTH_TOKEN (set WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=true to override)'
+			};
+		}
 	}
 
 	return {

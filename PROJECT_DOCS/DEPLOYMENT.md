@@ -450,7 +450,8 @@ WABI_STDB_BRIDGE_REDUCER=ingest_wabi_event
 WABI_STDB_BRIDGE_MAP_FILE=
 WABI_STDB_BRIDGE_TIMEOUT_MS=10000
 WABI_STDB_AUTH_TOKEN=
-WABI_STDB_ANONYMOUS=true
+WABI_STDB_ANONYMOUS=false
+WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=false
 STATE_PLANE_SCHEMA_VERSION=1
 STATE_PLANE_SCHEMA_AUTO_APPLY=true
 STATE_REDUCER_INGRESS_ENABLED=false
@@ -459,6 +460,12 @@ STATE_REDUCER_INGRESS_MAX_SKEW_MS=300000
 STATE_REDUCER_INGRESS_MAX_BODY_BYTES=1048576
 STATE_SHADOW_POLL_INTERVAL_MS=1000
 STATE_SHADOW_BATCH_SIZE=250
+WEBHOOK_MAX_BODY_BYTES=65536
+WEBHOOK_ALLOW_PRIVATE_TARGETS=false
+WEBHOOK_ALLOWED_HOSTS=
+WEBHOOK_MAX_DNS_RECORDS=16
+WEBHOOK_MAX_CONCURRENT_DELIVERIES=20
+WEBHOOK_MAX_EVENT_FANOUT=250
 ```
 
 Current behavior:
@@ -500,16 +507,24 @@ Current behavior:
 - `stdb_primary`:
   - core state reads/writes (messages/channels/members/users/sessions/rbac) run against STDB projections/reducers; backend API and Socket.IO contracts stay unchanged.
   - startup prerequisites: `STATE_STDB_WRITE_ENABLED=true`, `STATE_STDB_READ_ENABLED=true`, and STDB client configured (`WABI_STDB_BRIDGE_SERVER`, `WABI_STDB_BRIDGE_DATABASE`, helper script present).
+  - production auth guard: if STDB is active and `NODE_ENV=production`, anonymous STDB auth is blocked unless `WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=true`.
   - with `STATE_BACKEND_STRICT=true`: startup fails fast if prerequisites are not met.
   - with `STATE_BACKEND_STRICT=false` + `STATE_STDB_WRITE_ENABLED=true`: falls back to `dual_write` preflight (requested=`stdb_primary`, effective=`dual_write`).
   - with `STATE_BACKEND_STRICT=false` + `STATE_STDB_WRITE_ENABLED=false`: falls back to `legacy`.
   - `STATE_STDB_SUBSCRIPTIONS_ENABLED=true`: enables STDB subscription-bridge mode log/intent, but backend remains the realtime Socket.IO fanout source (no direct STDB -> socket push path).
+  - keep STDB endpoint private to backend/network perimeter; do not expose STDB SQL/call endpoints directly to untrusted internet clients.
+- webhook delivery hardening:
+  - target URLs are validated with DNS/IP guardrails (private/reserved ranges blocked by default).
+  - redirect chains are revalidated per hop.
+  - fanout and concurrency are bounded via `WEBHOOK_MAX_EVENT_FANOUT` and `WEBHOOK_MAX_CONCURRENT_DELIVERIES`.
+  - use `WEBHOOK_ALLOW_PRIVATE_TARGETS=true` only for controlled private-network receivers.
 
 STDB primary deployment (practical sequence):
 1. Set STDB connection values in `wabi.config`:
    - `WABI_STDB_BRIDGE_SERVER`
    - `WABI_STDB_BRIDGE_DATABASE`
-   - optional `WABI_STDB_AUTH_TOKEN` (or keep anonymous with `WABI_STDB_ANONYMOUS=true`)
+   - `WABI_STDB_AUTH_TOKEN` (required for production hardening)
+   - keep `WABI_STDB_ANONYMOUS=false` for production
 2. Validate bridge module toolchain:
    - `cd spacetimedb/wabi_state_bridge && cargo check`
 3. Publish reducer module:
