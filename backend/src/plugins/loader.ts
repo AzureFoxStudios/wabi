@@ -10,7 +10,22 @@ import { spawnSync } from 'child_process';
 import AdmZip from 'adm-zip';
 import type { Server, Socket } from 'socket.io';
 import type { Server as HttpServer } from 'http';
-import type { BackendPlugin, PluginContext, PluginLogger, PluginManifest, PluginStorage } from './types';
+import type {
+  BackendPlugin,
+  PaymentCreateIntentInput,
+  PaymentCreateIntentResult,
+  PaymentGetIntentStatusInput,
+  PaymentGetIntentStatusResult,
+  PaymentPluginCapabilities,
+  PaymentRefundInput,
+  PaymentRefundResult,
+  PaymentVerifyWebhookInput,
+  PaymentWebhookVerificationResult,
+  PluginContext,
+  PluginLogger,
+  PluginManifest,
+  PluginStorage
+} from './types';
 
 interface PluginRecord {
   id: string;
@@ -1227,6 +1242,107 @@ export class PluginLoader {
     } catch {
       return 'unknown';
     }
+  }
+
+  private getPaymentAdapter(pluginId: string): {
+    payment: NonNullable<BackendPlugin['payment']>;
+    ctx: PluginContext;
+    manifest: PluginManifest;
+  } | null {
+    const loaded = this.plugins.get(pluginId);
+    if (!loaded || !loaded.plugin.payment) {
+      return null;
+    }
+    return {
+      payment: loaded.plugin.payment,
+      ctx: this.createContext(pluginId),
+      manifest: loaded.manifest
+    };
+  }
+
+  getPaymentPluginIds(): string[] {
+    return Array.from(this.plugins.entries())
+      .filter(([, loaded]) => Boolean(loaded.plugin.payment))
+      .map(([pluginId]) => pluginId);
+  }
+
+  async listPaymentCapabilities(): Promise<PaymentPluginCapabilities[]> {
+    const capabilities: PaymentPluginCapabilities[] = [];
+    for (const pluginId of this.getPaymentPluginIds()) {
+      const providerCapabilities = await this.getPaymentCapabilities(pluginId);
+      if (providerCapabilities) {
+        capabilities.push(providerCapabilities);
+      }
+    }
+    return capabilities;
+  }
+
+  async getPaymentCapabilities(pluginId: string): Promise<PaymentPluginCapabilities | null> {
+    const adapter = this.getPaymentAdapter(pluginId);
+    if (!adapter) {
+      return null;
+    }
+
+    try {
+      const capabilities = await adapter.payment.getCapabilities(adapter.ctx);
+      return {
+        ...capabilities,
+        pluginId
+      };
+    } catch (error) {
+      console.error(`[Plugins] Payment capabilities failed for ${pluginId}:`, error);
+      return null;
+    }
+  }
+
+  async createPaymentIntent(
+    pluginId: string,
+    input: PaymentCreateIntentInput
+  ): Promise<PaymentCreateIntentResult> {
+    const adapter = this.getPaymentAdapter(pluginId);
+    if (!adapter) {
+      throw new Error(`payment_plugin_not_loaded:${pluginId}`);
+    }
+    return adapter.payment.createIntent(adapter.ctx, input);
+  }
+
+  async verifyPaymentWebhook(
+    pluginId: string,
+    input: PaymentVerifyWebhookInput
+  ): Promise<PaymentWebhookVerificationResult> {
+    const adapter = this.getPaymentAdapter(pluginId);
+    if (!adapter) {
+      throw new Error(`payment_plugin_not_loaded:${pluginId}`);
+    }
+    return adapter.payment.verifyWebhook(adapter.ctx, input);
+  }
+
+  async getPaymentIntentStatus(
+    pluginId: string,
+    input: PaymentGetIntentStatusInput
+  ): Promise<PaymentGetIntentStatusResult | null> {
+    const adapter = this.getPaymentAdapter(pluginId);
+    if (!adapter) {
+      throw new Error(`payment_plugin_not_loaded:${pluginId}`);
+    }
+    if (!adapter.payment.getIntentStatus) {
+      return null;
+    }
+    return adapter.payment.getIntentStatus(adapter.ctx, input);
+  }
+
+  async refundPaymentIntent(
+    pluginId: string,
+    input: PaymentRefundInput
+  ): Promise<PaymentRefundResult | null> {
+    const adapter = this.getPaymentAdapter(pluginId);
+    if (!adapter) {
+      throw new Error(`payment_plugin_not_loaded:${pluginId}`);
+    }
+    if (!adapter.payment.refundIntent) {
+      return null;
+    }
+    return adapter.payment.refundIntent(adapter.ctx, input);
   }
 
   getLoadedPlugins() {

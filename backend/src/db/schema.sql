@@ -324,6 +324,59 @@ CREATE INDEX IF NOT EXISTS idx_webhooks_enabled ON webhooks(enabled);
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook ON webhook_deliveries(webhook_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status ON webhook_deliveries(status, updated_at);
 
+-- Non-custodial payment intents (provider orchestration only, no fund custody)
+CREATE TABLE IF NOT EXISTS payment_intents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  intent_id TEXT UNIQUE NOT NULL,
+  workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+  created_by_user_id INTEGER,
+  channel_id TEXT,
+  plugin_id TEXT NOT NULL,
+  provider_name TEXT NOT NULL,
+  provider_intent_id TEXT,
+  amount_minor INTEGER NOT NULL,
+  currency TEXT NOT NULL,
+  country_code TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',      -- draft|pending|succeeded|failed|expired|refunded|disputed|canceled
+  checkout_mode TEXT NOT NULL DEFAULT 'payment_link',
+  idempotency_key TEXT UNIQUE,
+  customer_ref TEXT,
+  description TEXT,
+  metadata_json TEXT,
+  presentation_json TEXT,
+  failure_code TEXT,
+  failure_message TEXT,
+  expires_at INTEGER,
+  completed_at INTEGER,
+  refunded_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (created_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL,
+  FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS payment_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  intent_id TEXT NOT NULL,
+  event_id TEXT UNIQUE NOT NULL,
+  event_type TEXT NOT NULL,
+  status TEXT,
+  source TEXT NOT NULL,                       -- core|plugin|webhook|manual
+  payload_json TEXT NOT NULL,
+  signature_valid INTEGER,
+  idempotency_key TEXT,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (intent_id) REFERENCES payment_intents(intent_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_intents_workspace_created ON payment_intents(workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payment_intents_status_updated ON payment_intents(status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payment_intents_plugin ON payment_intents(plugin_id, provider_name, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payment_intents_created_by ON payment_intents(created_by_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payment_events_intent_created ON payment_events(intent_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payment_events_type_created ON payment_events(event_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payment_events_idempotency ON payment_events(idempotency_key);
+
 -- Community dictionary entries (language-learning helpers)
 CREATE TABLE IF NOT EXISTS dictionary_entries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -44,6 +44,13 @@ import {
   handleGetWebhookDelivery,
   handleRetryWebhookDelivery
 } from "./api/webhookRoutes.js";
+import {
+  handleCancelPaymentIntent,
+  handleCreatePaymentIntent,
+  handleGetPaymentIntent,
+  handleListPaymentProviders,
+  handlePaymentWebhook
+} from "./api/paymentRoutes.js";
 import { handleDictionaryLookup, handleDictionaryUpsert, handleDictionaryDelete } from "./api/dictionaryRoutes.js";
 import {
   handleListAlbums,
@@ -3540,6 +3547,35 @@ server.on('request', async (req, res) => {
 
   if (url.pathname === "/api/user/theme/reset" && req.method === "POST") {
     await handleResetThemePreferences(req, res);
+    return;
+  }
+
+  // Non-custodial payments endpoints
+  if (url.pathname === "/api/payments/providers" && req.method === "GET") {
+    await handleListPaymentProviders(req, res, pluginLoader, url);
+    return;
+  }
+
+  const paymentWebhookMatch = url.pathname.match(/^\/api\/payments\/webhooks\/([A-Za-z0-9_-]{1,96})$/);
+  if (paymentWebhookMatch && req.method === "POST") {
+    await handlePaymentWebhook(req, res, pluginLoader, paymentWebhookMatch[1], url);
+    return;
+  }
+
+  if (url.pathname === "/api/payments/create" && req.method === "POST") {
+    await handleCreatePaymentIntent(req, res, pluginLoader);
+    return;
+  }
+
+  const paymentCancelMatch = url.pathname.match(/^\/api\/payments\/([A-Za-z0-9._:-]{8,128})\/cancel$/);
+  if (paymentCancelMatch && req.method === "POST") {
+    await handleCancelPaymentIntent(req, res, pluginLoader, decodeURIComponent(paymentCancelMatch[1]));
+    return;
+  }
+
+  const paymentIntentMatch = url.pathname.match(/^\/api\/payments\/([A-Za-z0-9._:-]{8,128})$/);
+  if (paymentIntentMatch && req.method === "GET") {
+    await handleGetPaymentIntent(req, res, pluginLoader, decodeURIComponent(paymentIntentMatch[1]), url);
     return;
   }
 

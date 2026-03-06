@@ -124,6 +124,8 @@ const INSERT_ID_COLUMN_BY_TABLE: Record<string, string> = {
 	relays: 'relay_id',
 	webhooks: 'id',
 	webhook_deliveries: 'id',
+	payment_intents: 'id',
+	payment_events: 'id',
 	user_encryption_keys: 'id',
 	emoji_role_rules: 'id',
 	user_roles: 'id',
