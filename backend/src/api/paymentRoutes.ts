@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { getAuthenticatedUserIdFromRequest } from '../auth/requestAuth.js';
 import { getUserRoles } from '../auth/roleMiddleware.js';
-import { DEFAULT_WORKSPACE_ID, MODERATOR_ROLES } from '../constants.js';
+import { DEFAULT_WORKSPACE_ID, MODERATOR_ROLES, PRIVILEGED_ROLES } from '../constants.js';
 import {
   paymentRepository,
   type PaymentEventRow,
@@ -11,6 +11,18 @@ import {
 } from '../db/repositories/paymentRepository.js';
 import type { PluginLoader } from '../plugins/loader.js';
 import type { PaymentCreateIntentInput, PaymentMethodCapability, PaymentPluginCapabilities } from '../plugins/types.js';
+import {
+  getPaymentAccessPolicy,
+  isRoleAllowedToCreatePayment,
+  savePaymentAccessPolicy,
+  type PaymentAccessPolicy
+} from '../payments/accessPolicy.js';
+import {
+  clearPaymentUserBlock,
+  getActivePaymentUserBlock,
+  listPaymentUserBlocks,
+  upsertPaymentUserBlock
+} from '../payments/userBlocks.js';
 
 const MAX_PAYMENT_BODY_BYTES = Math.max(
   1024,
@@ -156,6 +168,112 @@ function toEventResponse(event: PaymentEventRow): Record<string, unknown> {
 function isPaymentModerator(userId: number): boolean {
   const roles = getUserRoles(userId, DEFAULT_WORKSPACE_ID);
   return roles.some((role) => MODERATOR_ROLES.includes(role as any));
+}
+
+function getEffectiveUserRoles(userId: number): string[] {
+  const roles = getUserRoles(userId, DEFAULT_WORKSPACE_ID)
+    .map((role) => String(role || '').trim().toLowerCase())
+    .filter((role) => role.length > 0);
+
+  if (roles.length === 0) {
+    return ['member'];
+  }
+  return [...new Set(roles)];
+}
+
+function getHighestRolePriority(roles: string[]): number {
+  let highest = 0;
+  for (const role of roles) {
+    if (role === 'owner') highest = Math.max(highest, 100);
+    else if (role === 'admin') highest = Math.max(highest, 90);
+    else if (role === 'mod') highest = Math.max(highest, 70);
+    else if (role === 'member') highest = Math.max(highest, 10);
+    else if (role === 'guest') highest = Math.max(highest, 0);
+  }
+  return highest;
+}
+
+function isPaymentAdmin(userId: number): boolean {
+  const roles = getEffectiveUserRoles(userId);
+  return roles.some((role) => PRIVILEGED_ROLES.includes(role as any));
+}
+
+function canManagePaymentUserBlock(actorUserId: number, targetUserId: number): { allowed: boolean; error?: string } {
+  if (actorUserId === targetUserId) {
+    return { allowed: false, error: 'You cannot modify your own payment block state' };
+  }
+
+  const actorRoles = getEffectiveUserRoles(actorUserId);
+  const targetRoles = getEffectiveUserRoles(targetUserId);
+  const actorPriority = getHighestRolePriority(actorRoles);
+  const targetPriority = getHighestRolePriority(targetRoles);
+
+  if (actorPriority <= targetPriority) {
+    return { allowed: false, error: 'Cannot modify payment access for equal or higher role user' };
+  }
+  return { allowed: true };
+}
+
+type CreatePaymentAccessCheckResult = {
+  allowed: boolean;
+  status: number;
+  code: string;
+  error: string;
+  policy: PaymentAccessPolicy;
+  roles: string[];
+  blocked: boolean;
+};
+
+function evaluateCreatePaymentAccess(userId: number): CreatePaymentAccessCheckResult {
+  const policy = getPaymentAccessPolicy();
+  const roles = getEffectiveUserRoles(userId);
+  const blockedEntry = getActivePaymentUserBlock(userId, DEFAULT_WORKSPACE_ID);
+
+  if (!policy.enabled) {
+    return {
+      allowed: false,
+      status: 403,
+      code: 'payments_disabled',
+      error: 'Payments are disabled by server policy',
+      policy,
+      roles,
+      blocked: false
+    };
+  }
+
+  if (blockedEntry) {
+    return {
+      allowed: false,
+      status: 403,
+      code: 'payments_user_blocked',
+      error: blockedEntry.reason || 'Your account is blocked from creating payments on this server',
+      policy,
+      roles,
+      blocked: true
+    };
+  }
+
+  if (!isRoleAllowedToCreatePayment(policy, roles)) {
+    return {
+      allowed: false,
+      status: 403,
+      code: 'payments_role_not_allowed',
+      error: 'Your role is not allowed to create payments on this server',
+      policy,
+      roles,
+      blocked: false
+    };
+  }
+
+  return {
+    allowed: true,
+    status: 200,
+    code: 'ok',
+    error: '',
+    policy,
+    roles,
+    blocked: false
+  };
 }
 
 function canAccessIntent(userId: number, intent: PaymentIntentView): boolean {
@@ -304,6 +422,16 @@ export async function handleCreatePaymentIntent(
   const userId = getAuthenticatedUserIdFromRequest(req);
   if (!userId) {
     writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+
+  const access = evaluateCreatePaymentAccess(userId);
+  if (!access.allowed) {
+    writeJson(res, access.status, {
+      success: false,
+      error: access.error,
+      code: access.code
+    });
     return;
   }
 
@@ -785,5 +913,233 @@ export async function handlePaymentWebhook(
     matchedIntent: true,
     eventId: normalizedEventId,
     intent: updated ? toIntentResponse(updated) : null
+  });
+}
+
+export async function handleGetPaymentAccess(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  const policy = getPaymentAccessPolicy();
+  const userId = getAuthenticatedUserIdFromRequest(req);
+
+  if (!userId) {
+    writeJson(res, 200, {
+      success: true,
+      policy,
+      actor: {
+        authenticated: false,
+        userId: null,
+        roles: ['guest'],
+        blocked: false,
+        canCreate: false,
+        reasonCode: 'not_authenticated',
+        reason: 'Sign in with a registered account to create payments'
+      }
+    });
+    return;
+  }
+
+  const verdict = evaluateCreatePaymentAccess(userId);
+  writeJson(res, 200, {
+    success: true,
+    policy,
+    actor: {
+      authenticated: true,
+      userId,
+      roles: verdict.roles,
+      blocked: verdict.blocked,
+      canCreate: verdict.allowed,
+      reasonCode: verdict.allowed ? null : verdict.code,
+      reason: verdict.allowed ? null : verdict.error
+    }
+  });
+}
+
+export async function handleGetPaymentAccessPolicy(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  const userId = getAuthenticatedUserIdFromRequest(req);
+  if (!userId) {
+    writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+  if (!isPaymentAdmin(userId)) {
+    writeJson(res, 403, { success: false, error: 'Admin permissions required' });
+    return;
+  }
+
+  writeJson(res, 200, {
+    success: true,
+    policy: getPaymentAccessPolicy()
+  });
+}
+
+export async function handleSavePaymentAccessPolicy(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  const userId = getAuthenticatedUserIdFromRequest(req);
+  if (!userId) {
+    writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+  if (!isPaymentAdmin(userId)) {
+    writeJson(res, 403, { success: false, error: 'Admin permissions required' });
+    return;
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await parseJsonBody(req);
+  } catch (error) {
+    if (isPayloadTooLargeError(error)) {
+      writeJson(res, 413, { success: false, error: 'Payload too large' });
+      return;
+    }
+    if (isJsonParseError(error)) {
+      writeJson(res, 400, { success: false, error: 'Invalid JSON' });
+      return;
+    }
+    writeJson(res, 400, { success: false, error: 'Invalid policy payload' });
+    return;
+  }
+
+  const policy = savePaymentAccessPolicy(body);
+  writeJson(res, 200, {
+    success: true,
+    policy
+  });
+}
+
+export async function handleListPaymentUserBlocks(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL
+): Promise<void> {
+  const userId = getAuthenticatedUserIdFromRequest(req);
+  if (!userId) {
+    writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+  if (!isPaymentAdmin(userId)) {
+    writeJson(res, 403, { success: false, error: 'Admin permissions required' });
+    return;
+  }
+
+  const limit = clampPositiveInteger(url.searchParams.get('limit'), 5000) || 500;
+  const blocks = listPaymentUserBlocks(DEFAULT_WORKSPACE_ID, limit);
+  writeJson(res, 200, {
+    success: true,
+    blocks
+  });
+}
+
+export async function handleUpsertPaymentUserBlock(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  const userId = getAuthenticatedUserIdFromRequest(req);
+  if (!userId) {
+    writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+  if (!isPaymentAdmin(userId)) {
+    writeJson(res, 403, { success: false, error: 'Admin permissions required' });
+    return;
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await parseJsonBody(req);
+  } catch (error) {
+    if (isPayloadTooLargeError(error)) {
+      writeJson(res, 413, { success: false, error: 'Payload too large' });
+      return;
+    }
+    if (isJsonParseError(error)) {
+      writeJson(res, 400, { success: false, error: 'Invalid JSON' });
+      return;
+    }
+    writeJson(res, 400, { success: false, error: 'Invalid payload' });
+    return;
+  }
+
+  const targetUserId = clampPositiveInteger(body.userId, Number.MAX_SAFE_INTEGER);
+  if (targetUserId == null) {
+    writeJson(res, 400, { success: false, error: 'userId is required' });
+    return;
+  }
+
+  const managementCheck = canManagePaymentUserBlock(userId, targetUserId);
+  if (!managementCheck.allowed) {
+    writeJson(res, 403, { success: false, error: managementCheck.error || 'Forbidden' });
+    return;
+  }
+
+  const reason = normalizeOptionalString(body.reason, 512);
+  const expiresAtRaw = body.expiresAt;
+  let expiresAt: number | null = null;
+  if (expiresAtRaw != null) {
+    const parsed = Number(expiresAtRaw);
+    if (!Number.isFinite(parsed) || Math.floor(parsed) <= Date.now()) {
+      writeJson(res, 400, { success: false, error: 'expiresAt must be a unix timestamp in the future' });
+      return;
+    }
+    expiresAt = Math.floor(parsed);
+  }
+
+  let block = null;
+  try {
+    block = upsertPaymentUserBlock({
+      userId: targetUserId,
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      blockedByUserId: userId,
+      reason,
+      expiresAt
+    });
+  } catch (error) {
+    console.error('[Payments] Failed to upsert payment user block:', error);
+    writeJson(res, 400, { success: false, error: 'Failed to set payment block for this user' });
+    return;
+  }
+
+  if (!block) {
+    writeJson(res, 500, { success: false, error: 'Failed to set payment user block' });
+    return;
+  }
+
+  writeJson(res, 200, {
+    success: true,
+    block
+  });
+}
+
+export async function handleDeletePaymentUserBlock(
+  req: IncomingMessage,
+  res: ServerResponse,
+  targetUserId: number
+): Promise<void> {
+  const userId = getAuthenticatedUserIdFromRequest(req);
+  if (!userId) {
+    writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+  if (!isPaymentAdmin(userId)) {
+    writeJson(res, 403, { success: false, error: 'Admin permissions required' });
+    return;
+  }
+
+  const managementCheck = canManagePaymentUserBlock(userId, targetUserId);
+  if (!managementCheck.allowed) {
+    writeJson(res, 403, { success: false, error: managementCheck.error || 'Forbidden' });
+    return;
+  }
+
+  const cleared = clearPaymentUserBlock(targetUserId, DEFAULT_WORKSPACE_ID);
+  writeJson(res, 200, {
+    success: true,
+    cleared
   });
 }

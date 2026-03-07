@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
   offline_message_retention TEXT DEFAULT '7d',
   allow_temp_user_messages INTEGER DEFAULT 1,
   business_private_mode INTEGER DEFAULT 0,
+  home_experience TEXT DEFAULT 'community',
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
@@ -376,6 +377,22 @@ CREATE INDEX IF NOT EXISTS idx_payment_intents_created_by ON payment_intents(cre
 CREATE INDEX IF NOT EXISTS idx_payment_events_intent_created ON payment_events(intent_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_payment_events_type_created ON payment_events(event_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_payment_events_idempotency ON payment_events(idempotency_key);
+
+-- Per-user payment blocking overrides (moderation layer on top of role permissions)
+CREATE TABLE IF NOT EXISTS payment_user_blocks (
+  user_id INTEGER NOT NULL,
+  workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+  reason TEXT,
+  blocked_by_user_id INTEGER,
+  blocked_at INTEGER NOT NULL,
+  expires_at INTEGER,
+  PRIMARY KEY(user_id, workspace_id),
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  FOREIGN KEY (blocked_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_user_blocks_workspace_time ON payment_user_blocks(workspace_id, blocked_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payment_user_blocks_expiry ON payment_user_blocks(expires_at);
 
 -- Community dictionary entries (language-learning helpers)
 CREATE TABLE IF NOT EXISTS dictionary_entries (

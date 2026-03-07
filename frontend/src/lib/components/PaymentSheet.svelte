@@ -6,9 +6,11 @@
 	import {
 		cancelPaymentIntent,
 		createPaymentIntent,
+		getPaymentAccess,
 		getPaymentIntent,
 		listPaymentProviders,
 		type PaymentCheckoutMode,
+		type PaymentAccessActorStatus,
 		type PaymentEvent,
 		type PaymentIntent,
 		type PaymentIntentStatus,
@@ -38,6 +40,8 @@
 	let activeEvents: PaymentEvent[] = [];
 	let pollingHandle: number | null = null;
 	let qrDataUrl = '';
+	let accessLoading = false;
+	let accessStatus: PaymentAccessActorStatus | null = null;
 
 	const terminalStatuses = new Set<PaymentIntentStatus>([
 		'succeeded',
@@ -69,9 +73,13 @@
 	$: if (isOpen && !providersLoaded) {
 		void loadProviders();
 	}
+	$: if (isOpen && !accessStatus && !accessLoading) {
+		void refreshAccessStatus();
+	}
 
 	$: if (!isOpen) {
 		stopPolling();
+		accessStatus = null;
 	}
 
 	onDestroy(() => {
@@ -237,6 +245,19 @@
 		}
 	}
 
+	async function refreshAccessStatus(): Promise<void> {
+		const token = getAuthToken();
+		accessLoading = true;
+		try {
+			const access = await getPaymentAccess(token);
+			accessStatus = access.actor;
+		} catch {
+			accessStatus = null;
+		} finally {
+			accessLoading = false;
+		}
+	}
+
 	function stopPolling(): void {
 		if (pollingHandle != null) {
 			window.clearInterval(pollingHandle);
@@ -292,6 +313,10 @@
 		const token = getAuthToken();
 		if (!token) {
 			actionError = 'You must be logged in to create a payment.';
+			return;
+		}
+		if (accessStatus && !accessStatus.canCreate) {
+			actionError = accessStatus.reason || 'Your account cannot create payments on this server.';
 			return;
 		}
 		if (!selectedProviderId || !selectedMethodId) {
@@ -390,6 +415,10 @@
 			<p class="error">{providersError}</p>
 		{/if}
 
+		{#if accessStatus && !accessStatus.canCreate}
+			<p class="error">{accessStatus.reason || 'Your account cannot create payments on this server.'}</p>
+		{/if}
+
 		{#if !loadingProviders && providers.length === 0}
 			<p class="hint">
 				No payment provider plugins are loaded. Enable plugins and install a payment plugin (for example
@@ -451,7 +480,11 @@
 			<button class="action" on:click={loadProviders} disabled={loadingProviders}>
 				Refresh providers
 			</button>
-			<button class="action primary" on:click={handleCreateIntent} disabled={creatingIntent || providers.length === 0}>
+			<button
+				class="action primary"
+				on:click={handleCreateIntent}
+				disabled={creatingIntent || providers.length === 0 || Boolean(accessStatus && !accessStatus.canCreate)}
+			>
 				{creatingIntent ? 'Creating...' : 'Create payment intent'}
 			</button>
 		</div>

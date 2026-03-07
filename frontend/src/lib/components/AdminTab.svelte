@@ -8,15 +8,22 @@
 	import { _ } from '$lib/i18n';
 	import { getAuthToken } from '$lib/authSession';
 	import {
+		clearAdminPaymentUserBlock,
+		getAdminPaymentAccessPolicy,
 		getAdminPolicy,
+		getAdminPaymentUserBlocks,
 		getAdminCompressionConfig,
 		getAdminCompressionMetrics,
 		getAdminRuntimeGuardrails,
 		resetAdminCompressionMetrics,
+		saveAdminPaymentAccessPolicy,
+		setAdminPaymentUserBlock,
 		saveAdminPolicy,
 		type AdminCompressionConfig,
 		type AdminCompressionMetrics,
 		type AdminRuntimeGuardrailsResponse,
+		type PaymentAccessPolicy,
+		type PaymentUserBlock,
 		type RuntimeTuningConfig
 	} from '$lib/api';
 
@@ -70,6 +77,20 @@
 	let runtimeAttempted = false;
 	let runtimeError = '';
 	let runtimeSaveStatus = '';
+	let paymentPolicy: PaymentAccessPolicy = {
+		enabled: false,
+		allowGuest: false,
+		allowedRoleNames: ['owner', 'admin', 'mod', 'member']
+	};
+	let paymentPolicyLoading = false;
+	let paymentPolicyLoaded = false;
+	let paymentPolicyAttempted = false;
+	let paymentPolicySaving = false;
+	let paymentPolicyError = '';
+	let paymentPolicySaveStatus = '';
+	let paymentUserBlocks: PaymentUserBlock[] = [];
+	let paymentBlockBusyUserId: number | null = null;
+	let paymentBlockedUserIds = new Set<number>();
 	const fallbackRoleLabels: Record<string, string> = {
 		owner: 'Owner',
 		admin: 'Admin',
@@ -118,6 +139,10 @@
 	$: if (canManageRoles && !runtimeLoaded && !runtimeLoading && !runtimeAttempted) {
 		void refreshRuntimePanel();
 	}
+	$: if (canManageRoles && !paymentPolicyLoaded && !paymentPolicyLoading && !paymentPolicyAttempted) {
+		void refreshPaymentControls();
+	}
+	$: paymentBlockedUserIds = new Set(paymentUserBlocks.map((block) => block.userId));
 
 	function getRolePriority(roleName?: string): number {
 		if (!roleName) return 0;
@@ -324,6 +349,98 @@
 		}
 	}
 
+	function setRolePaymentAllowed(roleName: string, enabled: boolean) {
+		const current = new Set(paymentPolicy.allowedRoleNames.map((role) => role.toLowerCase()));
+		if (enabled) {
+			current.add(roleName.toLowerCase());
+		} else {
+			current.delete(roleName.toLowerCase());
+		}
+		paymentPolicy = {
+			...paymentPolicy,
+			allowedRoleNames: [...current]
+		};
+	}
+
+	function isUserPaymentBlocked(user: User): boolean {
+		if (!user.dbUserId) return false;
+		return paymentBlockedUserIds.has(user.dbUserId);
+	}
+
+	async function refreshPaymentControls() {
+		const token = getAuthToken();
+		if (!token) return;
+		paymentPolicyAttempted = true;
+		paymentPolicyLoading = true;
+		paymentPolicyError = '';
+		paymentPolicySaveStatus = '';
+		try {
+			const [policy, blocks] = await Promise.all([
+				getAdminPaymentAccessPolicy(token),
+				getAdminPaymentUserBlocks(token)
+			]);
+			paymentPolicy = {
+				...policy,
+				allowedRoleNames: Array.isArray(policy.allowedRoleNames)
+					? policy.allowedRoleNames.map((role) => role.toLowerCase())
+					: []
+			};
+			paymentUserBlocks = blocks;
+			paymentPolicyLoaded = true;
+		} catch (error) {
+			paymentPolicyError = (error as Error).message || 'Failed to load payment controls';
+		} finally {
+			paymentPolicyLoading = false;
+		}
+	}
+
+	async function savePaymentPolicy() {
+		const token = getAuthToken();
+		if (!token) return;
+		paymentPolicySaving = true;
+		paymentPolicyError = '';
+		paymentPolicySaveStatus = '';
+		try {
+			const saved = await saveAdminPaymentAccessPolicy(token, paymentPolicy);
+			paymentPolicy = {
+				...saved,
+				allowedRoleNames: Array.isArray(saved.allowedRoleNames)
+					? saved.allowedRoleNames.map((role) => role.toLowerCase())
+					: []
+			};
+			paymentPolicySaveStatus = 'Saved payment access policy.';
+		} catch (error) {
+			paymentPolicyError = (error as Error).message || 'Failed to save payment policy';
+		} finally {
+			paymentPolicySaving = false;
+		}
+	}
+
+	async function toggleUserPaymentBlock(user: User) {
+		if (!user.dbUserId) return;
+		const token = getAuthToken();
+		if (!token) return;
+		paymentBlockBusyUserId = user.dbUserId;
+		paymentPolicyError = '';
+		paymentPolicySaveStatus = '';
+		try {
+			if (isUserPaymentBlocked(user)) {
+				await clearAdminPaymentUserBlock(token, user.dbUserId);
+				paymentPolicySaveStatus = `Unblocked payments for ${user.username}.`;
+			} else {
+				await setAdminPaymentUserBlock(token, user.dbUserId, {
+					reason: 'Blocked by admin policy'
+				});
+				paymentPolicySaveStatus = `Blocked payments for ${user.username}.`;
+			}
+			paymentUserBlocks = await getAdminPaymentUserBlocks(token);
+		} catch (error) {
+			paymentPolicyError = (error as Error).message || 'Failed to update payment block';
+		} finally {
+			paymentBlockBusyUserId = null;
+		}
+	}
+
 	onMount(() => {
 		const sock = getSocket();
 		if (!sock) return;
@@ -485,6 +602,53 @@
 				{:else}
 					<div class="admin-empty">{$_('admin.emoji_rules.empty')}</div>
 				{/each}
+			</div>
+		</div>
+
+		<div class="admin-section">
+			<div class="compression-header">
+				<h4>Payments Access Control</h4>
+				<div class="compression-actions">
+					<button class="admin-btn" disabled={paymentPolicyLoading || paymentPolicySaving} on:click={refreshPaymentControls}>
+						{paymentPolicyLoading ? 'Loading...' : 'Refresh'}
+					</button>
+					<button class="admin-btn" disabled={paymentPolicyLoading || paymentPolicySaving} on:click={savePaymentPolicy}>
+						{paymentPolicySaving ? 'Saving...' : 'Save'}
+					</button>
+				</div>
+			</div>
+
+			{#if paymentPolicyError}
+				<div class="admin-empty">{paymentPolicyError}</div>
+			{/if}
+			{#if paymentPolicySaveStatus}
+				<div class="runtime-hint">{paymentPolicySaveStatus}</div>
+			{/if}
+
+			<label class="rule-checkbox">
+				<input type="checkbox" bind:checked={paymentPolicy.enabled} />
+				Enable payments server-wide
+			</label>
+			<label class="rule-checkbox">
+				<input type="checkbox" bind:checked={paymentPolicy.allowGuest} />
+				Allow guests to create payments
+			</label>
+
+			<div class="payment-role-grid">
+				{#each roleDefinitions as role (role.roleName)}
+					<label class="rule-checkbox payment-role-toggle">
+						<input
+							type="checkbox"
+							checked={paymentPolicy.allowedRoleNames.includes(role.roleName.toLowerCase())}
+							on:change={(e) => setRolePaymentAllowed(role.roleName, (e.currentTarget as HTMLInputElement).checked)}
+						/>
+						<span>{getRoleLabel(role.roleName)} can create payments</span>
+					</label>
+				{/each}
+			</div>
+
+			<div class="admin-empty">
+				User-level payment blocks: {paymentUserBlocks.length}
 			</div>
 		</div>
 
@@ -686,6 +850,9 @@
 						{#if !user.dbUserId}
 							<span class="admin-guest-badge">{getRoleLabel('guest')}</span>
 						{/if}
+						{#if user.dbUserId && isUserPaymentBlocked(user)}
+							<span class="admin-payment-block-badge">Pay Blocked</span>
+						{/if}
 					</div>
 					<div class="admin-actions">
 						<button class="admin-btn" on:click={() => handleMessage(user)}>{$_('admin.actions.message')}</button>
@@ -724,6 +891,19 @@
 								on:click={() => resetToMember(user)}
 							>
 								{$_('admin.actions.reset')}
+							</button>
+							<button
+								class="admin-btn warning"
+								disabled={!canManageTargetUser(user) || !user.dbUserId || paymentBlockBusyUserId === user.dbUserId}
+								on:click={() => toggleUserPaymentBlock(user)}
+							>
+								{#if paymentBlockBusyUserId === user.dbUserId}
+									Updating...
+								{:else if isUserPaymentBlocked(user)}
+									Unblock Pay
+								{:else}
+									Block Pay
+								{/if}
 							</button>
 						{/if}
 					</div>
@@ -779,20 +959,25 @@
 	.channel-role-select, .admin-select { height: 28px; padding: 0 0.45rem; }
 	.emoji-rule-create { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
 	.rule-checkbox { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.74rem; color: var(--text-secondary); }
+	.payment-role-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.35rem; }
+	.payment-role-toggle { border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem 0.45rem; background: var(--bg-tertiary); }
 	.admin-user-meta { display: inline-flex; align-items: center; gap: 0.35rem; }
 	.admin-user-name { font-size: 0.84rem; font-weight: 600; color: var(--text-primary); }
 	.admin-role-badge, .admin-guest-badge { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.12rem 0.35rem; border-radius: 999px; border: 1px solid var(--border); color: var(--text-secondary); }
 	.admin-guest-badge { background: rgba(255, 193, 7, 0.12); border-color: rgba(255, 193, 7, 0.35); }
+	.admin-payment-block-badge { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.12rem 0.35rem; border-radius: 999px; border: 1px solid rgba(244, 67, 54, 0.45); color: #ff8a80; background: rgba(244, 67, 54, 0.12); }
 	.admin-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 	.admin-btn { height: 26px; padding: 0 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); color: var(--text-secondary); font-size: 0.72rem; font-weight: 600; cursor: pointer; }
 	.admin-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
 	.admin-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 	.admin-btn.danger:hover:not(:disabled) { color: #f44336; border-color: rgba(244, 67, 54, 0.4); background: rgba(244, 67, 54, 0.08); }
+	.admin-btn.warning:hover:not(:disabled) { color: #ffb74d; border-color: rgba(255, 183, 77, 0.45); background: rgba(255, 183, 77, 0.12); }
 	.admin-search-wrap { padding: 0.1rem 0; }
 	.admin-search { width: 100%; height: 30px; padding: 0 0.55rem; }
 	.admin-empty { padding: 0.8rem; text-align: center; color: var(--text-secondary); font-size: 0.78rem; }
 	@media (max-width: 768px) {
 		.admin-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 		.runtime-form-grid { grid-template-columns: 1fr; }
+		.payment-role-grid { grid-template-columns: 1fr; }
 	}
 </style>

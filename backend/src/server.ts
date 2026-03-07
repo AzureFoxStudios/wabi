@@ -47,9 +47,15 @@ import {
 import {
   handleCancelPaymentIntent,
   handleCreatePaymentIntent,
+  handleDeletePaymentUserBlock,
+  handleGetPaymentAccess,
+  handleGetPaymentAccessPolicy,
   handleGetPaymentIntent,
+  handleListPaymentUserBlocks,
   handleListPaymentProviders,
-  handlePaymentWebhook
+  handlePaymentWebhook,
+  handleSavePaymentAccessPolicy,
+  handleUpsertPaymentUserBlock
 } from "./api/paymentRoutes.js";
 import { handleDictionaryLookup, handleDictionaryUpsert, handleDictionaryDelete } from "./api/dictionaryRoutes.js";
 import {
@@ -67,6 +73,7 @@ import { relayRepository } from "./db/repositories/relayRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
 import { appPolicyRepository } from "./db/repositories/appPolicyRepository.js";
 import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
+import { DEFAULT_PAYMENT_ACCESS_POLICY, sanitizePaymentAccessPolicy, type PaymentAccessPolicy } from "./payments/accessPolicy.js";
 import {
   stateUserStore as userRepository,
   stateSessionStore as sessionRepository,
@@ -182,10 +189,11 @@ interface RuntimeTuningConfig {
   heavyProfilingSampleRate: number;
 }
 
-type PolicyKey = 'upload_limits' | 'download_limits' | 'runtime_tuning' | 'album_upload_limits';
+type PolicyKey = 'upload_limits' | 'download_limits' | 'runtime_tuning' | 'album_upload_limits' | 'payments_access';
 const UPLOAD_LIMITS_POLICY_KEY: PolicyKey = 'upload_limits';
 const RUNTIME_TUNING_POLICY_KEY: PolicyKey = 'runtime_tuning';
 const ALBUM_UPLOAD_LIMITS_POLICY_KEY: PolicyKey = 'album_upload_limits';
+const PAYMENTS_ACCESS_POLICY_KEY: PolicyKey = 'payments_access';
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
 type VideoCompressionTelemetryOutcome = 'success' | 'failure' | 'cancelled' | 'skipped';
@@ -470,6 +478,13 @@ function cloneDefaultAlbumUploadLimits(): AlbumUploadLimitConfig {
   };
 }
 
+function cloneDefaultPaymentAccessPolicy(): PaymentAccessPolicy {
+  return {
+    ...DEFAULT_PAYMENT_ACCESS_POLICY,
+    allowedRoleNames: [...DEFAULT_PAYMENT_ACCESS_POLICY.allowedRoleNames]
+  };
+}
+
 function normalizeLimitValue(value: unknown): UploadLimitBytes {
   if (value === null || value === undefined) return null;
   const n = Number(value);
@@ -609,6 +624,10 @@ const POLICY_DEFINITIONS: Record<PolicyKey, PolicyDefinition<unknown>> = {
   album_upload_limits: {
     defaultValue: cloneDefaultAlbumUploadLimits(),
     sanitize: sanitizeAlbumUploadLimitConfig
+  },
+  payments_access: {
+    defaultValue: cloneDefaultPaymentAccessPolicy(),
+    sanitize: sanitizePaymentAccessPolicy
   }
 };
 
@@ -3551,6 +3570,11 @@ server.on('request', async (req, res) => {
   }
 
   // Non-custodial payments endpoints
+  if (url.pathname === "/api/payments/access" && req.method === "GET") {
+    await handleGetPaymentAccess(req, res);
+    return;
+  }
+
   if (url.pathname === "/api/payments/providers" && req.method === "GET") {
     await handleListPaymentProviders(req, res, pluginLoader, url);
     return;
@@ -3576,6 +3600,32 @@ server.on('request', async (req, res) => {
   const paymentIntentMatch = url.pathname.match(/^\/api\/payments\/([A-Za-z0-9._:-]{8,128})$/);
   if (paymentIntentMatch && req.method === "GET") {
     await handleGetPaymentIntent(req, res, pluginLoader, decodeURIComponent(paymentIntentMatch[1]), url);
+    return;
+  }
+
+  if (url.pathname === "/api/admin/payments/access" && req.method === "GET") {
+    await handleGetPaymentAccessPolicy(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/admin/payments/access" && req.method === "POST") {
+    await handleSavePaymentAccessPolicy(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/admin/payments/blocks" && req.method === "GET") {
+    await handleListPaymentUserBlocks(req, res, url);
+    return;
+  }
+
+  if (url.pathname === "/api/admin/payments/blocks" && req.method === "POST") {
+    await handleUpsertPaymentUserBlock(req, res);
+    return;
+  }
+
+  const paymentUserBlockDeleteMatch = url.pathname.match(/^\/api\/admin\/payments\/blocks\/(\d+)$/);
+  if (paymentUserBlockDeleteMatch && req.method === "DELETE") {
+    await handleDeletePaymentUserBlock(req, res, parseInt(paymentUserBlockDeleteMatch[1], 10));
     return;
   }
 

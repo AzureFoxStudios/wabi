@@ -107,6 +107,10 @@ Required runtime methods:
 - Strict idempotency keys for all mutation paths.
 - Replay-safe webhook processing.
 - Region/currency deny-list + allow-list controls.
+- Payment access policy gates in backend:
+  - global `enabled` switch
+  - role allow-list (`allowedRoleNames`)
+  - per-user payment block override
 - Clear operator/legal disclaimers in admin UI and docs.
 
 Note: this document is technical policy, not legal advice. Final launch requirements must be reviewed by qualified counsel for target jurisdictions.
@@ -254,6 +258,11 @@ Implemented in this repository:
    - `frontend/src/lib/components/PaymentSheet.svelte`
    - `frontend/src/lib/api.ts` payment API bindings
    - integrated trigger button in chat composer (`frontend/src/lib/components/Chat.svelte`)
+9. Payment access control:
+   - `backend/src/payments/accessPolicy.ts`
+   - `backend/src/payments/userBlocks.ts`
+   - policy and user-block admin endpoints wired in `backend/src/api/paymentRoutes.ts`
+   - admin UI controls in `frontend/src/lib/components/AdminTab.svelte`
 
 ## 16) Remaining To Reach Production Payments
 

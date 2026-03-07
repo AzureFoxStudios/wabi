@@ -21,6 +21,8 @@ let closeDatabaseFn: (() => void) | undefined;
 try {
   const dbModule = await import('../src/db/database.js');
   const repoModule = await import('../src/db/repositories/paymentRepository.js');
+  const accessPolicyModule = await import('../src/payments/accessPolicy.js');
+  const userBlocksModule = await import('../src/payments/userBlocks.js');
 
   dbModule.initializeDatabase();
   closeDatabaseFn = dbModule.closeDatabase;
@@ -35,6 +37,37 @@ try {
     )
     .run('smoke-user', 'smokeuser', 'not-used-in-smoke', createdAt, '#445566');
   const createdByUserId = Number(insertUser.lastInsertRowid || 1);
+  const savedPolicy = accessPolicyModule.savePaymentAccessPolicy({
+    enabled: true,
+    allowGuest: false,
+    allowedRoleNames: ['member', 'admin']
+  });
+  if (!savedPolicy.enabled || savedPolicy.allowGuest || !savedPolicy.allowedRoleNames.includes('member')) {
+    throw new Error('payment access policy save/read check failed');
+  }
+
+  const memberAllowed = accessPolicyModule.isRoleAllowedToCreatePayment(savedPolicy, ['member']);
+  const guestAllowed = accessPolicyModule.isRoleAllowedToCreatePayment(savedPolicy, ['guest']);
+  if (!memberAllowed || guestAllowed) {
+    throw new Error('payment role policy evaluation failed');
+  }
+
+  const block = userBlocksModule.upsertPaymentUserBlock({
+    userId: createdByUserId,
+    blockedByUserId: createdByUserId,
+    reason: 'smoke-policy-block'
+  });
+  if (!block) {
+    throw new Error('failed to create payment user block');
+  }
+  const activeBlock = userBlocksModule.getActivePaymentUserBlock(createdByUserId);
+  if (!activeBlock || activeBlock.reason !== 'smoke-policy-block') {
+    throw new Error('payment user block lookup failed');
+  }
+  const clearedBlock = userBlocksModule.clearPaymentUserBlock(createdByUserId);
+  if (!clearedBlock) {
+    throw new Error('payment user block clear failed');
+  }
 
   const created = paymentRepository.createIntent({
     workspaceId: 'default-workspace',
@@ -124,7 +157,9 @@ try {
         intentId: finalIntent.intent_id,
         status: finalIntent.status,
         providerIntentId: finalIntent.provider_intent_id,
-        eventCount: eventRows.length
+        eventCount: eventRows.length,
+        policyEnabled: savedPolicy.enabled,
+        blockedUserCleared: clearedBlock
       },
       null,
       2

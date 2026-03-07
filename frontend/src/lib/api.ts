@@ -155,6 +155,28 @@ export interface PaymentEvent {
 	createdAt: number;
 }
 
+export interface PaymentAccessPolicy {
+	enabled: boolean;
+	allowGuest: boolean;
+	allowedRoleNames: string[];
+}
+
+export interface PaymentAccessActorStatus {
+	authenticated: boolean;
+	userId: number | null;
+	roles: string[];
+	blocked: boolean;
+	canCreate: boolean;
+	reasonCode: string | null;
+	reason: string | null;
+}
+
+export interface PaymentAccessStatusResponse {
+	success: boolean;
+	policy: PaymentAccessPolicy;
+	actor: PaymentAccessActorStatus;
+}
+
 export interface CreatePaymentIntentPayload {
 	pluginId: string;
 	methodId: string;
@@ -280,6 +302,36 @@ export async function cancelPaymentIntent(
 	};
 }
 
+export async function getPaymentAccess(
+	token: string | null | undefined
+): Promise<PaymentAccessStatusResponse> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/access`, {
+		method: 'GET',
+		headers: token ? { Authorization: `Bearer ${token}` } : undefined
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to load payment access status');
+	}
+	return {
+		success: Boolean(data.success),
+		policy: (data.policy || {
+			enabled: false,
+			allowGuest: false,
+			allowedRoleNames: ['owner', 'admin', 'mod', 'member']
+		}) as PaymentAccessPolicy,
+		actor: (data.actor || {
+			authenticated: false,
+			userId: null,
+			roles: ['guest'],
+			blocked: false,
+			canCreate: false,
+			reasonCode: 'unknown',
+			reason: 'Unavailable'
+		}) as PaymentAccessActorStatus
+	};
+}
+
 export async function getLaunchPageConfig(): Promise<LaunchPageConfig | null> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/public/launch-page`, {
 		method: 'GET',
@@ -382,12 +434,15 @@ export async function getUserSettings(token: string | null | undefined): Promise
 	return res.json();
 }
 
+export interface UserSettingsPayload {
+	offline_message_retention?: string;
+	allow_temp_user_messages?: boolean;
+	home_experience?: 'community' | 'conversations';
+}
+
 export async function saveUserSettings(
 	token: string | null | undefined,
-	settings: {
-		offline_message_retention?: string;
-		allow_temp_user_messages?: boolean;
-	}
+	settings: UserSettingsPayload
 ): Promise<void> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/user/settings`, {
 		method: 'POST',
@@ -418,7 +473,7 @@ export interface DownloadLimitConfig {
 	globalDownloadCapBytes: number | null;
 }
 
-export type AdminPolicyKey = 'upload_limits' | 'download_limits' | 'runtime_tuning';
+export type AdminPolicyKey = 'upload_limits' | 'download_limits' | 'runtime_tuning' | 'payments_access';
 
 export interface RuntimeTuningConfig {
 	applyOnRestart: true;
@@ -595,6 +650,74 @@ export async function getAdminUploadLimits(token: string): Promise<{
 
 export async function saveAdminUploadLimits(token: string, config: UploadLimitConfig): Promise<UploadLimitConfig> {
 	return saveAdminPolicy<UploadLimitConfig>(token, 'upload_limits', config);
+}
+
+export async function getAdminPaymentAccessPolicy(token: string): Promise<PaymentAccessPolicy> {
+	const data = await getAdminPolicy<PaymentAccessPolicy>(token, 'payments_access');
+	return data.config;
+}
+
+export async function saveAdminPaymentAccessPolicy(token: string, config: PaymentAccessPolicy): Promise<PaymentAccessPolicy> {
+	return saveAdminPolicy<PaymentAccessPolicy>(token, 'payments_access', config);
+}
+
+export interface PaymentUserBlock {
+	userId: number;
+	workspaceId: string;
+	reason: string | null;
+	blockedByUserId: number | null;
+	blockedByUsername: string | null;
+	blockedUsername: string | null;
+	blockedAt: number;
+	expiresAt: number | null;
+}
+
+export async function getAdminPaymentUserBlocks(token: string): Promise<PaymentUserBlock[]> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/payments/blocks`, {
+		method: 'GET',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to load payment user blocks');
+	}
+	return Array.isArray(data.blocks) ? (data.blocks as PaymentUserBlock[]) : [];
+}
+
+export async function setAdminPaymentUserBlock(
+	token: string,
+	userId: number,
+	opts?: { reason?: string; expiresAt?: number | null }
+): Promise<PaymentUserBlock> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/payments/blocks`, {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({
+			userId,
+			reason: opts?.reason ?? null,
+			expiresAt: opts?.expiresAt ?? null
+		})
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to set payment block');
+	}
+	return data.block as PaymentUserBlock;
+}
+
+export async function clearAdminPaymentUserBlock(token: string, userId: number): Promise<boolean> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/payments/blocks/${encodeURIComponent(String(userId))}`, {
+		method: 'DELETE',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to clear payment block');
+	}
+	return Boolean(data.cleared);
 }
 
 export async function getAdminCompressionConfig(token: string): Promise<AdminCompressionConfig> {
