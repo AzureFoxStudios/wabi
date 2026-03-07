@@ -41,6 +41,7 @@
 	import CommandPalette from './CommandPalette.svelte';
 	import AudioRecorder from './AudioRecorder.svelte';
 	import CameraCapture from './CameraCapture.svelte';
+	import PaymentSheet from './PaymentSheet.svelte';
 	import { parseCommand, formatCommandHelp, getMatchingCommands, type Command } from '$lib/commands';
 	import { layoutStore } from '$lib/layoutStore';
 	import { callMode, isInCall, startCall } from '$lib/calling';
@@ -120,6 +121,7 @@
 	})();
 
 	let messageInput = '';
+	let paymentSheetOpen = false;
 	let chatContainer: HTMLElement;
 	let typingTimeout: number;
 	let lastTypingEmit = 0;
@@ -164,6 +166,15 @@
 	let mentionTokenStart = -1;
 	let EmojiPickerComponent: typeof import('./EmojiPicker.svelte').default | null = null;
 	let emojiPickerLoadPromise: Promise<void> | null = null;
+	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken());
+
+	function openPaymentSheet(): void {
+		if (!paymentButtonEnabled) {
+			alert('Sign in with a registered account to create payments.');
+			return;
+		}
+		paymentSheetOpen = true;
+	}
 	type UploadVideoCompressionMetadata = {
 		scheme: 'wabi-video-compression-v1';
 		runtime: VideoCompressionRuntime;
@@ -2619,9 +2630,9 @@
 				bind:selectedIndex={commandPaletteSelectedIndex}
 				onSelect={handleCommandSelect}
 			/>
-			<div class="input-buttons-left">
-				<div class="media-menu-container" bind:this={mediaMenuContainer}>
-					<button
+				<div class="input-buttons-left">
+					<div class="media-menu-container" bind:this={mediaMenuContainer}>
+						<button
 						class="input-icon-button"
 						on:click|stopPropagation={() => {
 							showMediaMenu = !showMediaMenu;
@@ -2638,11 +2649,19 @@
 								<button class="media-menu-item" on:click={handleOpenCameraCapture}>{$_('chat.compose.take_photo')}</button>
 								<button class="media-menu-item" on:click={handleOpenAudioRecorder}>{$_('chat.compose.record_audio')}</button>
 							{/if}
-						</div>
-					{/if}
+							</div>
+						{/if}
+					</div>
+					<button
+						class="input-icon-button"
+						on:click={openPaymentSheet}
+						title="Create payment request"
+						disabled={!paymentButtonEnabled}
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2"></rect><path d="M2.5 10h19"></path><path d="M7.5 15h4"></path></svg>
+					</button>
 				</div>
-			</div>
-			<textarea
+				<textarea
 				bind:this={textareaElement}
 				bind:value={messageInput}
 				on:paste={handlePaste}
@@ -2781,11 +2800,19 @@
 				</div>
 			</div>
 		</div>
-	{/if}
+		{/if}
 
-	<div class="debug-version-footer" aria-hidden="true">
-		Version {runtimeVersionLabel} - for debugging reasons only
-	</div>
+		<PaymentSheet
+			isOpen={paymentSheetOpen}
+			onClose={() => {
+				paymentSheetOpen = false;
+			}}
+			defaultChannelId={$currentChannel}
+		/>
+
+		<div class="debug-version-footer" aria-hidden="true">
+			Version {runtimeVersionLabel} - for debugging reasons only
+		</div>
 
 <style>
 		.chat-container {

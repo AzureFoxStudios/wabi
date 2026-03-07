@@ -239,6 +239,9 @@ Both modes use `Caddyfile.tunnel` to route:
 | `JWT_SECRET` | Auth token signing key | `<random base64>` |
 | `PLUGINS_ENABLED` | Enable backend plugin loading at boot | `false` |
 | `PLUGINS_ALLOW_INSTALL` | Allow plugin install API uploads | `false` |
+| `WABI_PUBLIC_BASE_URL` | Absolute backend public URL used by payment/link plugins | `https://wabi.chat` |
+| `TH_PAYMENTS_PROMPTPAY_PROXY_ID` | PromptPay proxy ID (mobile or Thai ID) for `th-payments` QR generation | `0812345678` |
+| `TH_PAYMENTS_WEBHOOK_SECRET` | HMAC secret for `th-payments` webhook verification | `<random secret>` |
 | `NODE_ENV` | Node environment | `production` |
 | `PORT` | Backend listen port | `8080` |
 | `TURN_EXTERNAL_IP` | Public IP for TURN relay | `203.0.113.10` |
@@ -246,6 +249,26 @@ Both modes use `Caddyfile.tunnel` to route:
 | `TURN_SHARED_SECRET` | TURN auth secret (must match coturn) | `<random base64>` |
 | `VITE_TURN_SERVER` | TURN IP for frontend (build arg) | `203.0.113.10` |
 | `VITE_GIPHY_API_KEY` | Optional Giphy key for GIFs | `<your key>` |
+
+## Payments Quickstart (`th-payments`)
+
+Use this when you want PromptPay QR and local/manual non-custodial payment flow enabled.
+
+1. Ensure plugin loading is enabled:
+   - `PLUGINS_ENABLED=true`
+2. Configure payment plugin env:
+   - `WABI_PUBLIC_BASE_URL` (must match externally reachable backend URL)
+   - `TH_PAYMENTS_PROMPTPAY_PROXY_ID` (PromptPay destination ID)
+   - `TH_PAYMENTS_WEBHOOK_SECRET` (long random secret)
+3. Verify plugin files exist in runtime plugin dir:
+   - `plugins/th-payments/plugin.json`
+   - `plugins/th-payments/backend/index.mjs`
+4. Restart backend and confirm logs contain `Loaded plugin: Thailand Payments`.
+5. Open chat composer and use the payment button to create intents.
+6. For local/manual validation:
+   - create intent with method `manual_link`
+   - open returned link and mark status
+   - frontend payment sheet should converge after polling refresh.
 
 ## Mode Switch And Migration
 

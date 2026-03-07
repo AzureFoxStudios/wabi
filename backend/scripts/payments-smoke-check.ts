@@ -24,14 +24,22 @@ try {
 
   dbModule.initializeDatabase();
   closeDatabaseFn = dbModule.closeDatabase;
+  const db = dbModule.default;
 
   const paymentRepository = repoModule.paymentRepository;
   const idempotencyKey = 'smoke-create-intent-001';
+  const createdAt = Date.now();
+  const insertUser = db
+    .prepare(
+      'INSERT INTO users (username, handle, password_hash, created_at, color, is_active) VALUES (?, ?, ?, ?, ?, 1)'
+    )
+    .run('smoke-user', 'smokeuser', 'not-used-in-smoke', createdAt, '#445566');
+  const createdByUserId = Number(insertUser.lastInsertRowid || 1);
 
   const created = paymentRepository.createIntent({
     workspaceId: 'default-workspace',
-    createdByUserId: 1,
-    channelId: 'general',
+    createdByUserId,
+    channelId: null,
     pluginId: 'smoke-payments',
     providerName: 'Smoke Provider',
     amountMinor: 4200,
@@ -44,8 +52,8 @@ try {
 
   const reused = paymentRepository.createIntent({
     workspaceId: 'default-workspace',
-    createdByUserId: 1,
-    channelId: 'general',
+    createdByUserId,
+    channelId: null,
     pluginId: 'smoke-payments',
     providerName: 'Smoke Provider',
     amountMinor: 4200,

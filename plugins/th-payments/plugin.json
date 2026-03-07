@@ -1,0 +1,62 @@
+{
+  "id": "th-payments",
+  "name": "Thailand Payments",
+  "version": "0.1.0",
+  "description": "PromptPay QR plus non-custodial manual-link fallback for local/self-hosted Wabi instances.",
+  "author": "Wabi Core",
+  "enabled": true,
+  "firstParty": true,
+  "permissions": [
+    "payments:intent:create",
+    "payments:intent:status",
+    "payments:webhook:verify"
+  ],
+  "security": {
+    "threatNotes": "Non-custodial only. Plugin never stores card or bank secrets in frontend payloads. Manual link route is demo/test and must stay behind trusted operator environments."
+  },
+  "distribution": {
+    "source": "local"
+  },
+  "capabilities": {
+    "tier": "network-limited",
+    "notes": "Provider plugin for PromptPay QR flows and local simulation fallback."
+  },
+  "backend": {
+    "entry": "./backend/index.mjs"
+  },
+  "payment": {
+    "providerName": "Thailand PromptPay",
+    "countries": [
+      "TH"
+    ],
+    "currencies": [
+      "THB"
+    ],
+    "methods": [
+      {
+        "id": "promptpay_qr",
+        "label": "PromptPay QR",
+        "checkoutModes": [
+          "qr",
+          "app_switch"
+        ],
+        "estimatedSharePercent": 82,
+        "enabledByDefault": true,
+        "notes": "Generates EMVCo payload for PromptPay QR scanning."
+      },
+      {
+        "id": "manual_link",
+        "label": "Manual Link (Demo)",
+        "checkoutModes": [
+          "payment_link"
+        ],
+        "estimatedSharePercent": 18,
+        "enabledByDefault": true,
+        "notes": "Local non-custodial fallback for development and smoke tests."
+      }
+    ],
+    "nonCustodialOnly": true,
+    "excludesFedNow": true,
+    "excludesCbdcRails": true
+  }
+}
