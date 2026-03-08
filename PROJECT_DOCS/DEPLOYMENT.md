@@ -247,6 +247,11 @@ Both modes use `Caddyfile.tunnel` to route:
 | `TH_PAYMENTS_ADAPTER_TOKEN` | Bearer token for adapter API auth | `<random secret>` |
 | `TH_PAYMENTS_ADAPTER_SIGNING_SECRET` | Optional HMAC secret to sign requests from plugin to adapter | `<random secret>` |
 | `TH_PAYMENTS_ADAPTER_TIMEOUT_MS` | Adapter request timeout for checkout/refund/status polling | `10000` |
+| `WEST_PAYMENTS_WEBHOOK_SECRET` | HMAC secret for `western-payments` webhook verification | `<random secret>` |
+| `WEST_PAYMENTS_ADAPTER_BASE_URL` | Contracted PSP adapter API base URL for western checkout/refund/status | `https://west-payments-adapter.example.com` |
+| `WEST_PAYMENTS_ADAPTER_TOKEN` | Bearer token for western adapter API auth | `<random secret>` |
+| `WEST_PAYMENTS_ADAPTER_SIGNING_SECRET` | Optional HMAC secret to sign western adapter requests | `<random secret>` |
+| `WEST_PAYMENTS_ADAPTER_TIMEOUT_MS` | Western adapter request timeout for checkout/refund/status polling | `10000` |
 | `NODE_ENV` | Node environment | `production` |
 | `PORT` | Backend listen port | `8080` |
 | `TURN_EXTERNAL_IP` | Public IP for TURN relay | `203.0.113.10` |
@@ -282,6 +287,26 @@ Use this for production-safe non-custodial Thailand payments (PromptPay QR + con
    - create payment intent and verify status progression + webhook convergence.
 7. Operator runbook:
    - `PROJECT_DOCS/PAYMENTS_PROVIDER_RUNBOOK.md`
+
+## Western Payments Quickstart (`western-payments`)
+
+Use this for US/EU/CAN style non-custodial rails via contracted adapter.
+
+1. Ensure plugins are enabled and signed-only:
+   - `PLUGINS_ENABLED=true`
+   - `PLUGIN_SIGNATURE_POLICY=signed-only`
+2. Configure env:
+   - `WEST_PAYMENTS_WEBHOOK_SECRET`
+   - `WEST_PAYMENTS_ADAPTER_BASE_URL`
+   - `WEST_PAYMENTS_ADAPTER_TOKEN`
+   - optional: `WEST_PAYMENTS_ADAPTER_SIGNING_SECRET`
+3. Verify plugin signature and trust signer:
+   - `npm run plugin:verify -- --plugin plugins/western-payments --strict`
+   - `node scripts/payments-signed-only-rollout.mjs --plugin plugins/western-payments --server https://<wabi-host> --token <admin-token>`
+4. Run deterministic sandbox smoke:
+   - `npm --prefix backend run payments:western-provider-sandbox-smoke`
+5. Restart backend and verify provider appears:
+   - `GET /api/payments/providers` with `country=US` or `country=CA` or `country=DE`.
 
 ## Mode Switch And Migration
 

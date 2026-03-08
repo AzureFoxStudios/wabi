@@ -1,0 +1,117 @@
+{
+  "id": "western-payments",
+  "name": "Western Payments",
+  "version": "0.1.0",
+  "description": "US/EU/CAN non-custodial payment rails via contracted PSP adapter.",
+  "author": "Wabi Core",
+  "enabled": true,
+  "firstParty": true,
+  "permissions": [
+    "payments:intent:create",
+    "payments:intent:status",
+    "payments:webhook:verify"
+  ],
+  "security": {
+    "threatNotes": "Non-custodial only. Plugin does not store card/bank secrets in frontend payloads. All settlement rails are delegated to contracted PSP adapter."
+  },
+  "distribution": {
+    "source": "local"
+  },
+  "capabilities": {
+    "tier": "network-limited",
+    "notes": "Western-region provider plugin for card/wallet/bank rails via signed adapter."
+  },
+  "backend": {
+    "entry": "./backend/index.mjs"
+  },
+  "payment": {
+    "providerName": "Western Payments",
+    "countries": [
+      "US",
+      "CA",
+      "GB",
+      "DE",
+      "FR",
+      "ES",
+      "IT",
+      "NL",
+      "BE",
+      "AT",
+      "CH",
+      "IE",
+      "PT",
+      "DK",
+      "NO",
+      "SE",
+      "FI",
+      "LU"
+    ],
+    "currencies": [
+      "USD",
+      "CAD",
+      "EUR",
+      "GBP"
+    ],
+    "methods": [
+      {
+        "id": "card_checkout",
+        "label": "Card Checkout",
+        "checkoutModes": [
+          "payment_link",
+          "redirect",
+          "app_switch"
+        ],
+        "estimatedSharePercent": 52,
+        "enabledByDefault": true,
+        "notes": "Standard card rails via contracted PSP."
+      },
+      {
+        "id": "wallet_checkout",
+        "label": "Wallet Checkout",
+        "checkoutModes": [
+          "payment_link",
+          "redirect",
+          "app_switch"
+        ],
+        "estimatedSharePercent": 24,
+        "enabledByDefault": true,
+        "notes": "Wallet flows (Apple Pay / Google Pay) via PSP."
+      },
+      {
+        "id": "pay_by_bank",
+        "label": "Pay by Bank (ACH/SEPA)",
+        "checkoutModes": [
+          "payment_link",
+          "redirect"
+        ],
+        "estimatedSharePercent": 18,
+        "enabledByDefault": true,
+        "notes": "Bank-agnostic pay-by-bank rails via PSP."
+      },
+      {
+        "id": "paypal_checkout",
+        "label": "PayPal",
+        "checkoutModes": [
+          "payment_link",
+          "redirect"
+        ],
+        "estimatedSharePercent": 6,
+        "enabledByDefault": true,
+        "notes": "Optional PayPal route via PSP account capability."
+      }
+    ],
+    "nonCustodialOnly": true,
+    "excludesFedNow": true,
+    "excludesCbdcRails": true
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "checksum": "4ac8f4a28b89f830224abb61e1f699a7b269dd52077f33784aefed33b1ef3e48",
+    "signature": "pSRfilo4Htr9s9dkyWYt5HXGN4L5EqOP8Hdz8hzVWrmIZOFOPvig9Q064CDn3fhEb1QYYOtr3D92DSSwXOPYDg=="
+  },
+  "signer": {
+    "keyId": "ed25519:d85f8b9134ea9135",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAlvftuWVqrPLva6ttlgVJeMAKcj0tzlfndDGgjx3NqIE=\n-----END PUBLIC KEY-----\n",
+    "algorithm": "ed25519"
+  }
+}

@@ -43,6 +43,29 @@ Deployment checks:
 3. Core persistence smoke:
    - `npm --prefix backend run payments:smoke`
 
+## 3b) Western Provider (`western-payments`) Onboarding
+
+Required env:
+
+- `WEST_PAYMENTS_WEBHOOK_SECRET`
+- `WEST_PAYMENTS_ADAPTER_BASE_URL`
+- `WEST_PAYMENTS_ADAPTER_TOKEN`
+- optional: `WEST_PAYMENTS_ADAPTER_SIGNING_SECRET`
+- optional: `WEST_PAYMENTS_ADAPTER_TIMEOUT_MS`
+
+Deployment checks:
+
+1. Plugin methods list:
+   - `GET /api/payments/providers?country=US&currency=USD` includes:
+     - `card_checkout`
+     - `wallet_checkout`
+     - `pay_by_bank`
+     - `paypal_checkout`
+2. Sandbox smoke:
+   - `npm --prefix backend run payments:western-provider-sandbox-smoke`
+3. Core persistence smoke:
+   - `npm --prefix backend run payments:smoke`
+
 ## 4) Key Rotation Procedure
 
 1. Generate new signing keypair:
@@ -92,7 +115,7 @@ Deployment checks:
 
 ## 7) Per-Provider Operational Template
 
-Use this checklist for every new provider plugin (`na-payments`, `jp-payments`, `cn-inbound`, crypto):
+Use this checklist for every new provider plugin (`western-payments`, `jp-payments`, `cn-inbound`, crypto):
 
 1. Merchant onboarding completed and contract approved.
 2. Provider adapter endpoint deployed with auth + TLS + request logging.

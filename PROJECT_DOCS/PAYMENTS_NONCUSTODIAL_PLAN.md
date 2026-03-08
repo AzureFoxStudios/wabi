@@ -1,7 +1,7 @@
 # Wabi Payments Plan (Non-Custodial, Plugin-Driven)
 
 Last updated: 2026-03-08
-Status: Core backend + frontend payment sheet + `th-payments` contracted-adapter flow + signed-only rollout path implemented
+Status: Core backend + frontend payment sheet + `th-payments` + `western-payments` contracted-adapter flows + signed-only rollout path implemented
 Owner: Core backend + plugin platform
 
 ## 1) Goal
@@ -120,7 +120,7 @@ Note: this document is technical policy, not legal advice. Final launch requirem
 1. Core payment intent framework in backend (non-custodial only).
 2. Provider-agnostic frontend payment sheet with capability resolver.
 3. Thailand plugin first (PromptPay QR baseline).
-4. NA plugin second (cards + ACH/pay-by-bank).
+4. NA/western plugin second (cards + ACH/pay-by-bank) - implemented as `western-payments`.
 5. JP/CN plugins based on provider contract readiness.
 6. Crypto plugin last, non-custodial only.
 
@@ -270,7 +270,18 @@ Implemented in this repository:
 11. Production trust + validation:
    - `scripts/payments-signed-only-rollout.mjs`
    - `backend/scripts/payments-provider-sandbox-smoke.ts`
+   - `backend/scripts/payments-western-provider-sandbox-smoke.ts`
    - provider ops runbook: `PROJECT_DOCS/PAYMENTS_PROVIDER_RUNBOOK.md`
+12. Second provider plugin (`western-payments`):
+   - `plugins/western-payments/plugin.json`
+   - `plugins/western-payments/backend/index.mjs`
+   - supports:
+     - `card_checkout`
+     - `wallet_checkout`
+     - `pay_by_bank`
+     - `paypal_checkout`
+   - countries: US/EU/CAN coverage set
+   - currencies: USD/CAD/EUR/GBP
 
 ## 16) Remaining To Reach Production Payments
 
