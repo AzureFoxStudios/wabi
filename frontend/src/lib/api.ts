@@ -177,6 +177,17 @@ export interface PaymentAccessStatusResponse {
 	actor: PaymentAccessActorStatus;
 }
 
+export interface PaymentAccountLink {
+	userId: number;
+	workspaceId: string;
+	pluginId: string;
+	providerAccountRef: string;
+	displayLabel: string | null;
+	metadata: Record<string, unknown> | null;
+	linkedAt: number;
+	updatedAt: number;
+}
+
 export interface CreatePaymentIntentPayload {
 	pluginId: string;
 	methodId: string;
@@ -332,6 +343,59 @@ export async function getPaymentAccess(
 	};
 }
 
+export async function listPaymentAccountLinks(
+	token: string | null | undefined
+): Promise<PaymentAccountLink[]> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/account-links`, {
+		method: 'GET',
+		headers: token ? { Authorization: `Bearer ${token}` } : undefined
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to load payment account links');
+	}
+	return Array.isArray(data.links) ? (data.links as PaymentAccountLink[]) : [];
+}
+
+export async function upsertPaymentAccountLink(
+	token: string | null | undefined,
+	payload: {
+		pluginId: string;
+		providerAccountRef: string;
+		displayLabel?: string;
+		metadata?: Record<string, unknown>;
+	}
+): Promise<PaymentAccountLink> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/account-links`, {
+		method: 'POST',
+		headers: {
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(payload)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to save payment account link');
+	}
+	return data.link as PaymentAccountLink;
+}
+
+export async function deletePaymentAccountLink(
+	token: string | null | undefined,
+	pluginId: string
+): Promise<boolean> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/account-links/${encodeURIComponent(pluginId)}`, {
+		method: 'DELETE',
+		headers: token ? { Authorization: `Bearer ${token}` } : undefined
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to clear payment account link');
+	}
+	return Boolean(data.cleared);
+}
+
 export async function getLaunchPageConfig(): Promise<LaunchPageConfig | null> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/public/launch-page`, {
 		method: 'GET',
@@ -384,6 +448,65 @@ export async function upgradeToRegistered(sessionId: string, password: string): 
 	}
 
 	return res.json();
+}
+
+export async function changePassword(
+	token: string | null | undefined,
+	currentPassword: string,
+	newPassword: string
+): Promise<void> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/auth/change-password`, {
+		method: 'POST',
+		headers: {
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ currentPassword, newPassword })
+	});
+
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to change password');
+	}
+}
+
+export async function adminResetUserPassword(
+	token: string | null | undefined,
+	targetUserId: number,
+	newPassword: string
+): Promise<void> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/users/reset-password`, {
+		method: 'POST',
+		headers: {
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ targetUserId, newPassword })
+	});
+
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to reset user password');
+	}
+}
+
+export async function adminClearUserLoginLockout(
+	token: string | null | undefined,
+	targetUserId: number
+): Promise<void> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/users/clear-login-lockout`, {
+		method: 'POST',
+		headers: {
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ targetUserId })
+	});
+
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to clear login lockout');
+	}
 }
 
 export async function storeEncryptionKeys(token: string | null | undefined, publicKey: string, privateKeyEncrypted: string): Promise<void> {

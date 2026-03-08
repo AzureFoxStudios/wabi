@@ -1,7 +1,7 @@
 # Wabi Payments Plan (Non-Custodial, Plugin-Driven)
 
-Last updated: 2026-03-06
-Status: Core backend + frontend payment sheet + `th-payments` provider plugin implemented (local/manual rails)
+Last updated: 2026-03-08
+Status: Core backend + frontend payment sheet + `th-payments` contracted-adapter flow + signed-only rollout path implemented
 Owner: Core backend + plugin platform
 
 ## 1) Goal
@@ -252,7 +252,7 @@ Implemented in this repository:
    - `plugins/th-payments/backend/index.mjs`
    - supports:
      - PromptPay QR payload generation (`promptpay_qr`)
-     - manual-link fallback (`manual_link`) for local validation
+     - contracted PSP checkout adapter (`psp_checkout`)
      - signed webhook verification (`x-th-payments-signature` HMAC)
 8. Frontend payment sheet:
    - `frontend/src/lib/components/PaymentSheet.svelte`
@@ -261,12 +261,19 @@ Implemented in this repository:
 9. Payment access control:
    - `backend/src/payments/accessPolicy.ts`
    - `backend/src/payments/userBlocks.ts`
+   - `backend/src/payments/accountLinks.ts`
    - policy and user-block admin endpoints wired in `backend/src/api/paymentRoutes.ts`
    - admin UI controls in `frontend/src/lib/components/AdminTab.svelte`
+10. User-linked payment accounts:
+   - `GET/POST/DELETE /api/payments/account-links*`
+   - payment sheet account-link UI in `frontend/src/lib/components/PaymentSheet.svelte`
+11. Production trust + validation:
+   - `scripts/payments-signed-only-rollout.mjs`
+   - `backend/scripts/payments-provider-sandbox-smoke.ts`
+   - provider ops runbook: `PROJECT_DOCS/PAYMENTS_PROVIDER_RUNBOOK.md`
 
 ## 16) Remaining To Reach Production Payments
 
-1. Replace manual-link fallback with contracted PSP adapters for live settlement rails.
-2. Add plugin signing + trusted signer rollout for production `PLUGIN_SIGNATURE_POLICY=signed-only`.
-3. Add provider sandbox integration tests (webhook replay, dispute/refund paths, outage behavior).
-4. Add operator runbooks per provider (merchant onboarding, key rotation, webhook endpoint hardening, incident rollback).
+1. Add additional provider plugins (`na-payments`, `jp-payments`, `cn-inbound`, crypto) on top of signed adapter pattern.
+2. Add dispute-path event normalization coverage in provider sandbox suites as each provider adapter is added.
+3. Add per-provider compliance gating toggles in admin UX (country/currency/operator contract checks).

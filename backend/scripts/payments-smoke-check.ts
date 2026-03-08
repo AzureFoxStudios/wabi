@@ -23,6 +23,7 @@ try {
   const repoModule = await import('../src/db/repositories/paymentRepository.js');
   const accessPolicyModule = await import('../src/payments/accessPolicy.js');
   const userBlocksModule = await import('../src/payments/userBlocks.js');
+  const accountLinksModule = await import('../src/payments/accountLinks.js');
 
   dbModule.initializeDatabase();
   closeDatabaseFn = dbModule.closeDatabase;
@@ -67,6 +68,24 @@ try {
   const clearedBlock = userBlocksModule.clearPaymentUserBlock(createdByUserId);
   if (!clearedBlock) {
     throw new Error('payment user block clear failed');
+  }
+
+  const linkedAccount = accountLinksModule.upsertPaymentAccountLink({
+    userId: createdByUserId,
+    pluginId: 'th-payments',
+    providerAccountRef: 'acct_smoke_001',
+    displayLabel: 'Smoke Account'
+  });
+  if (!linkedAccount || linkedAccount.providerAccountRef !== 'acct_smoke_001') {
+    throw new Error('payment account link save/read failed');
+  }
+  const listedAccountLinks = accountLinksModule.listPaymentAccountLinks(createdByUserId);
+  if (listedAccountLinks.length !== 1) {
+    throw new Error(`payment account link list failed: expected 1, got ${listedAccountLinks.length}`);
+  }
+  const clearedAccountLink = accountLinksModule.deletePaymentAccountLink(createdByUserId, 'th-payments');
+  if (!clearedAccountLink) {
+    throw new Error('payment account link clear failed');
   }
 
   const created = paymentRepository.createIntent({
@@ -159,7 +178,8 @@ try {
         providerIntentId: finalIntent.provider_intent_id,
         eventCount: eventRows.length,
         policyEnabled: savedPolicy.enabled,
-        blockedUserCleared: clearedBlock
+        blockedUserCleared: clearedBlock,
+        accountLinkCleared: clearedAccountLink
       },
       null,
       2

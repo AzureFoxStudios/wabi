@@ -239,9 +239,14 @@ Both modes use `Caddyfile.tunnel` to route:
 | `JWT_SECRET` | Auth token signing key | `<random base64>` |
 | `PLUGINS_ENABLED` | Enable backend plugin loading at boot | `false` |
 | `PLUGINS_ALLOW_INSTALL` | Allow plugin install API uploads | `false` |
+| `PLUGIN_SIGNATURE_POLICY` | Plugin trust policy (`warn-allow`, `signed-only`, `curated-only`) | `signed-only` |
 | `WABI_PUBLIC_BASE_URL` | Absolute backend public URL used by payment/link plugins | `https://wabi.chat` |
 | `TH_PAYMENTS_PROMPTPAY_PROXY_ID` | PromptPay proxy ID (mobile or Thai ID) for `th-payments` QR generation | `0812345678` |
 | `TH_PAYMENTS_WEBHOOK_SECRET` | HMAC secret for `th-payments` webhook verification | `<random secret>` |
+| `TH_PAYMENTS_ADAPTER_BASE_URL` | Contracted PSP adapter API base URL for `th-payments` checkout/refund/status | `https://payments-adapter.example.com` |
+| `TH_PAYMENTS_ADAPTER_TOKEN` | Bearer token for adapter API auth | `<random secret>` |
+| `TH_PAYMENTS_ADAPTER_SIGNING_SECRET` | Optional HMAC secret to sign requests from plugin to adapter | `<random secret>` |
+| `TH_PAYMENTS_ADAPTER_TIMEOUT_MS` | Adapter request timeout for checkout/refund/status polling | `10000` |
 | `NODE_ENV` | Node environment | `production` |
 | `PORT` | Backend listen port | `8080` |
 | `TURN_EXTERNAL_IP` | Public IP for TURN relay | `203.0.113.10` |
@@ -252,23 +257,31 @@ Both modes use `Caddyfile.tunnel` to route:
 
 ## Payments Quickstart (`th-payments`)
 
-Use this when you want PromptPay QR and local/manual non-custodial payment flow enabled.
+Use this for production-safe non-custodial Thailand payments (PromptPay QR + contracted PSP checkout adapter).
 
-1. Ensure plugin loading is enabled:
+1. Enable plugins and enforce signed-only policy:
    - `PLUGINS_ENABLED=true`
+   - `PLUGIN_SIGNATURE_POLICY=signed-only`
 2. Configure payment plugin env:
    - `WABI_PUBLIC_BASE_URL` (must match externally reachable backend URL)
-   - `TH_PAYMENTS_PROMPTPAY_PROXY_ID` (PromptPay destination ID)
-   - `TH_PAYMENTS_WEBHOOK_SECRET` (long random secret)
-3. Verify plugin files exist in runtime plugin dir:
-   - `plugins/th-payments/plugin.json`
-   - `plugins/th-payments/backend/index.mjs`
-4. Restart backend and confirm logs contain `Loaded plugin: Thailand Payments`.
-5. Open chat composer and use the payment button to create intents.
-6. For local/manual validation:
-   - create intent with method `manual_link`
-   - open returned link and mark status
-   - frontend payment sheet should converge after polling refresh.
+   - `TH_PAYMENTS_PROMPTPAY_PROXY_ID`
+   - `TH_PAYMENTS_WEBHOOK_SECRET`
+   - `TH_PAYMENTS_ADAPTER_BASE_URL`
+   - `TH_PAYMENTS_ADAPTER_TOKEN`
+   - optional: `TH_PAYMENTS_ADAPTER_SIGNING_SECRET`
+3. Verify plugin signature and trust signer:
+   - `npm run plugin:verify -- --plugin plugins/th-payments --strict`
+   - `node scripts/payments-signed-only-rollout.mjs --plugin plugins/th-payments --server https://<wabi-host> --token <admin-token>`
+4. Run deterministic payment smoke checks:
+   - `npm --prefix backend run payments:smoke`
+   - `npm --prefix backend run payments:provider-sandbox-smoke`
+5. Restart backend and verify provider methods:
+   - `GET /api/payments/providers` must include `promptpay_qr` and `psp_checkout`.
+6. Open chat composer payment sheet:
+   - link provider account once via `Linked account` panel (optional but recommended)
+   - create payment intent and verify status progression + webhook convergence.
+7. Operator runbook:
+   - `PROJECT_DOCS/PAYMENTS_PROVIDER_RUNBOOK.md`
 
 ## Mode Switch And Migration
 
@@ -736,5 +749,5 @@ node scripts/srt-phase2-check.mjs
 
 ---
 
-**Last updated**: 2026-03-03
+**Last updated**: 2026-03-08
 **Tested on**: Ubuntu 22.04 LTS with Docker Compose 2.x and Caddy 2.7+

@@ -4,6 +4,7 @@ const PROVIDER_NAME = 'Thailand PromptPay';
 const DEFAULT_PROMPTPAY_COUNTRY = 'TH';
 const DEFAULT_PROMPTPAY_CURRENCY = 'THB';
 const DEFAULT_EXPIRES_MS = 15 * 60 * 1000;
+const DEFAULT_ADAPTER_TIMEOUT_MS = 10_000;
 
 function randomId(prefix) {
   return `${prefix}${crypto.randomBytes(10).toString('hex')}`;
@@ -21,6 +22,28 @@ function getPublicBaseUrl() {
   return raw.replace(/\/+$/, '');
 }
 
+function getAdapterBaseUrl() {
+  return String(process.env.TH_PAYMENTS_ADAPTER_BASE_URL || '').trim().replace(/\/+$/, '');
+}
+
+function getAdapterToken() {
+  return String(process.env.TH_PAYMENTS_ADAPTER_TOKEN || '').trim();
+}
+
+function getAdapterSigningSecret() {
+  return String(process.env.TH_PAYMENTS_ADAPTER_SIGNING_SECRET || '').trim();
+}
+
+function getAdapterTimeoutMs() {
+  const parsed = Number(process.env.TH_PAYMENTS_ADAPTER_TIMEOUT_MS || DEFAULT_ADAPTER_TIMEOUT_MS);
+  if (!Number.isFinite(parsed) || parsed < 1000) return DEFAULT_ADAPTER_TIMEOUT_MS;
+  return Math.min(60_000, Math.floor(parsed));
+}
+
+function isAdapterConfigured() {
+  return Boolean(getAdapterBaseUrl());
+}
+
 function toMinorAmount(amountMinor) {
   const parsed = Number(amountMinor);
   if (!Number.isFinite(parsed)) return 0;
@@ -36,17 +59,14 @@ function normalizePromptPayProxyId(raw) {
   const digits = String(raw || '').replace(/\D/g, '');
   if (!digits) return null;
 
-  // Thai mobile format: 0XXXXXXXXX -> 0066XXXXXXXXX
   if (digits.length === 10 && digits.startsWith('0')) {
     return `0066${digits.slice(1)}`;
   }
 
-  // Thai national ID (13 digits)
   if (digits.length === 13) {
     return digits;
   }
 
-  // E-wallet style (15 digits)
   if (digits.length === 15) {
     return digits;
   }
@@ -135,6 +155,81 @@ function normalizeStatus(value) {
   return null;
 }
 
+function normalizeCheckoutMode(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (
+    normalized === 'qr' ||
+    normalized === 'payment_link' ||
+    normalized === 'redirect' ||
+    normalized === 'app_switch' ||
+    normalized === 'tap_to_pay'
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function toObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value;
+}
+
+function normalizePresentation(value) {
+  const record = toObject(value);
+  if (!record) return null;
+  const mode = normalizeCheckoutMode(record.mode);
+  if (!mode) return null;
+
+  if (mode === 'qr') {
+    const qrData = String(record.qrData || '').trim();
+    if (!qrData) return null;
+    return {
+      mode,
+      qrData,
+      qrFormat: typeof record.qrFormat === 'string' ? record.qrFormat : undefined,
+      qrImageUrl: typeof record.qrImageUrl === 'string' ? record.qrImageUrl : undefined,
+      deepLinkUrl: typeof record.deepLinkUrl === 'string' ? record.deepLinkUrl : undefined,
+      expiresAt: Number.isFinite(Number(record.expiresAt)) ? Math.floor(Number(record.expiresAt)) : undefined
+    };
+  }
+
+  if (mode === 'payment_link' || mode === 'redirect') {
+    const url = String(record.url || '').trim();
+    if (!url) return null;
+    return {
+      mode,
+      url,
+      expiresAt: Number.isFinite(Number(record.expiresAt)) ? Math.floor(Number(record.expiresAt)) : undefined
+    };
+  }
+
+  if (mode === 'app_switch') {
+    const deepLinkUrl = String(record.deepLinkUrl || '').trim();
+    if (!deepLinkUrl) return null;
+    return {
+      mode,
+      deepLinkUrl,
+      fallbackUrl: typeof record.fallbackUrl === 'string' ? record.fallbackUrl : undefined,
+      universalLinkUrl: typeof record.universalLinkUrl === 'string' ? record.universalLinkUrl : undefined,
+      packageName: typeof record.packageName === 'string' ? record.packageName : undefined,
+      expiresAt: Number.isFinite(Number(record.expiresAt)) ? Math.floor(Number(record.expiresAt)) : undefined
+    };
+  }
+
+  if (mode === 'tap_to_pay') {
+    const providerSessionId = String(record.providerSessionId || '').trim();
+    if (!providerSessionId) return null;
+    return {
+      mode,
+      providerSessionId,
+      instructions: typeof record.instructions === 'string' ? record.instructions : undefined,
+      expiresAt: Number.isFinite(Number(record.expiresAt)) ? Math.floor(Number(record.expiresAt)) : undefined
+    };
+  }
+
+  return null;
+}
+
 function requireCtx(ctx) {
   if (!ctx) {
     throw new Error('th_payments_context_not_ready');
@@ -164,65 +259,73 @@ async function saveIntentRecord(ctx, record) {
   }
 }
 
-function renderManualPaymentPage(record) {
-  const amount = (record.amountMinor / 100).toFixed(2);
-  const status = record.status;
-  const escapedProviderIntentId = record.providerIntentId.replace(/"/g, '&quot;');
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Wabi Manual Payment</title>
-  <style>
-    body { font-family: ui-sans-serif, system-ui, sans-serif; background: #0f1117; color: #f3f5fa; margin: 0; }
-    main { max-width: 560px; margin: 2rem auto; padding: 1.25rem; background: #1b1f2b; border-radius: 14px; border: 1px solid #2c3244; }
-    h1 { margin-top: 0; font-size: 1.25rem; }
-    .meta { color: #b5bfd6; font-size: 0.95rem; margin-bottom: 1rem; }
-    .status { display: inline-block; padding: 0.2rem 0.55rem; border-radius: 999px; border: 1px solid #4b5574; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
-    .row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 1rem; }
-    button { border: 1px solid #4b5574; background: #22293a; color: #f3f5fa; border-radius: 10px; padding: 0.55rem 0.8rem; cursor: pointer; }
-    button:hover { background: #2b3449; }
-    pre { background: #101521; border: 1px solid #27304a; border-radius: 10px; padding: 0.8rem; overflow: auto; }
-  </style>
-</head>
-<body>
-  <main>
-    <h1>Manual Payment Fallback</h1>
-    <p class="meta">Provider intent: <code>${record.providerIntentId}</code></p>
-    <p class="meta">Wabi intent: <code>${record.wabiIntentId || 'n/a'}</code></p>
-    <p class="meta">Amount: <strong>${amount} ${record.currency}</strong></p>
-    <p class="meta">Status: <span class="status" id="status-value">${status}</span></p>
-    <div class="row">
-      <button data-status="pending">Mark Pending</button>
-      <button data-status="succeeded">Mark Succeeded</button>
-      <button data-status="failed">Mark Failed</button>
-      <button data-status="expired">Mark Expired</button>
-    </div>
-    <pre id="result">Ready.</pre>
-  </main>
-  <script>
-    const providerIntentId = "${escapedProviderIntentId}";
-    const resultEl = document.getElementById('result');
-    const statusEl = document.getElementById('status-value');
-    async function setStatus(nextStatus) {
-      const response = await fetch(window.location.pathname, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ providerIntentId, status: nextStatus })
-      });
-      const payload = await response.json().catch(() => ({}));
-      resultEl.textContent = JSON.stringify(payload, null, 2);
-      if (response.ok && payload && payload.record && payload.record.status) {
-        statusEl.textContent = payload.record.status;
-      }
-    }
-    document.querySelectorAll('button[data-status]').forEach((button) => {
-      button.addEventListener('click', () => setStatus(button.getAttribute('data-status')));
+async function callAdapter(path, payload, idempotencyKey) {
+  const baseUrl = getAdapterBaseUrl();
+  if (!baseUrl) {
+    throw new Error('th_payments_adapter_not_configured');
+  }
+
+  const token = getAdapterToken();
+  const body = JSON.stringify(payload || {});
+  const headers = {
+    'content-type': 'application/json',
+    'x-wabi-provider': 'th-payments',
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+    ...(idempotencyKey ? { 'x-idempotency-key': String(idempotencyKey) } : {})
+  };
+
+  const signingSecret = getAdapterSigningSecret();
+  if (signingSecret) {
+    const timestamp = String(Date.now());
+    const nonce = randomId('thnonce_');
+    const signatureBase = `${timestamp}.${nonce}.${body}`;
+    const signature = crypto.createHmac('sha256', signingSecret).update(signatureBase).digest('hex');
+    headers['x-wabi-adapter-timestamp'] = timestamp;
+    headers['x-wabi-adapter-nonce'] = nonce;
+    headers['x-wabi-adapter-signature'] = signature;
+  }
+
+  const timeoutMs = getAdapterTimeoutMs();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers,
+      body,
+      signal: controller.signal
     });
-  </script>
-</body>
-</html>`;
+    const text = await response.text();
+    const parsed = safeJsonParse(text);
+    if (!response.ok) {
+      const detail = parsed && typeof parsed.error === 'string' ? parsed.error : `${response.status}`;
+      throw new Error(`th_payments_adapter_http_${response.status}:${detail}`);
+    }
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('th_payments_adapter_invalid_json');
+    }
+    return parsed;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('th_payments_adapter_timeout');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchAdapterStatus(providerIntentId) {
+  return callAdapter('/v1/intents/status', { providerIntentId });
+}
+
+async function createAdapterIntent(input) {
+  return callAdapter('/v1/intents/create', input, input?.idempotencyKey);
+}
+
+async function createAdapterRefund(input) {
+  return callAdapter('/v1/intents/refund', input, input?.idempotencyKey);
 }
 
 const plugin = {
@@ -232,93 +335,52 @@ const plugin = {
     plugin._ctx = ctx;
     ctx.logger.info('th-payments plugin loaded', {
       provider: PROVIDER_NAME,
-      promptPayConfigured: Boolean(process.env.TH_PAYMENTS_PROMPTPAY_PROXY_ID)
+      promptPayConfigured: Boolean(process.env.TH_PAYMENTS_PROMPTPAY_PROXY_ID),
+      adapterConfigured: isAdapterConfigured()
     });
   },
 
-  routes: [
-    {
-      method: 'get',
-      path: '/manual-pay',
-      handler: async (req, res) => {
-        const ctx = requireCtx(plugin._ctx);
-        const providerIntentId = String(req.query.providerIntentId || '').trim();
-        if (!providerIntentId) {
-          res.status(400).json({ success: false, error: 'providerIntentId is required' });
-          return;
-        }
-        const record = await getRecordByProviderIntentId(ctx, providerIntentId);
-        if (!record) {
-          res.status(404).json({ success: false, error: 'Intent not found' });
-          return;
-        }
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        res.send(renderManualPaymentPage(record));
-      }
-    },
-    {
-      method: 'post',
-      path: '/manual-pay',
-      handler: async (req, res) => {
-        const ctx = requireCtx(plugin._ctx);
-        const body = await req.json().catch(() => ({}));
-        const providerIntentId = String(body.providerIntentId || '').trim();
-        const status = normalizeStatus(body.status);
-
-        if (!providerIntentId || !status) {
-          res.status(400).json({ success: false, error: 'providerIntentId and valid status are required' });
-          return;
-        }
-
-        const record = await getRecordByProviderIntentId(ctx, providerIntentId);
-        if (!record) {
-          res.status(404).json({ success: false, error: 'Intent not found' });
-          return;
-        }
-
-        record.status = status;
-        record.updatedAt = Date.now();
-        await saveIntentRecord(ctx, record);
-        res.status(200).json({ success: true, record });
-      }
-    }
-  ],
-
   payment: {
     async getCapabilities() {
+      const methods = [];
+      if (process.env.TH_PAYMENTS_PROMPTPAY_PROXY_ID) {
+        methods.push({
+          id: 'promptpay_qr',
+          label: 'PromptPay QR',
+          checkoutModes: ['qr', 'app_switch'],
+          countries: ['TH'],
+          currencies: ['THB'],
+          enabledByDefault: true,
+          estimatedSharePercent: 80,
+          notes: 'EMVCo payload for Thai PromptPay scan flows.'
+        });
+      }
+
+      if (isAdapterConfigured()) {
+        methods.push({
+          id: 'psp_checkout',
+          label: 'Contracted PSP Checkout',
+          checkoutModes: ['payment_link', 'redirect', 'app_switch'],
+          countries: ['TH'],
+          currencies: ['THB'],
+          enabledByDefault: true,
+          estimatedSharePercent: 20,
+          notes: 'Hosted checkout from contracted processor adapter.'
+        });
+      }
+
       return {
         pluginId: 'th-payments',
         providerName: PROVIDER_NAME,
         countries: ['TH'],
         currencies: ['THB'],
-        methods: [
-          {
-            id: 'promptpay_qr',
-            label: 'PromptPay QR',
-            checkoutModes: ['qr', 'app_switch'],
-            countries: ['TH'],
-            currencies: ['THB'],
-            enabledByDefault: true,
-            estimatedSharePercent: 82,
-            notes: 'EMVCo payload for Thai PromptPay scan flows.'
-          },
-          {
-            id: 'manual_link',
-            label: 'Manual Link (Demo)',
-            checkoutModes: ['payment_link'],
-            countries: ['TH'],
-            currencies: ['THB'],
-            enabledByDefault: true,
-            estimatedSharePercent: 18,
-            notes: 'Local test fallback for operator verification.'
-          }
-        ],
+        methods,
         nonCustodialOnly: true,
         webhookSignatureRequired: true,
         supportsRefunds: true,
-        supportsDisputes: false,
+        supportsDisputes: true,
         notes:
-          'Set TH_PAYMENTS_PROMPTPAY_PROXY_ID for production QR output. Manual link mode is intended for local/test only.'
+          'Configure PromptPay proxy for QR and TH_PAYMENTS_ADAPTER_BASE_URL for contracted PSP checkout/refunds.'
       };
     },
 
@@ -352,6 +414,9 @@ const plugin = {
       const methodId = String(input.methodId || '').trim();
       let presentation;
       let checkoutMode = 'payment_link';
+      let status = 'pending';
+      let providerManaged = false;
+      let providerMetadata = null;
 
       if (methodId === 'promptpay_qr') {
         const promptPayProxyId = process.env.TH_PAYMENTS_PROMPTPAY_PROXY_ID || '';
@@ -368,29 +433,54 @@ const plugin = {
           deepLinkUrl: `promptpay://pay?amount=${(toMinorAmount(input.amountMinor) / 100).toFixed(2)}`,
           expiresAt
         };
-      } else if (methodId === 'manual_link') {
-        const base = getPublicBaseUrl();
-        const url = `${base}/api/plugins/runtime/th-payments/manual-pay?providerIntentId=${encodeURIComponent(providerIntentId)}&intentId=${encodeURIComponent(input.intentId || '')}`;
-        checkoutMode = 'payment_link';
-        presentation = {
-          mode: 'payment_link',
-          url,
-          expiresAt
-        };
+      } else if (methodId === 'psp_checkout') {
+        const adapterResponse = await createAdapterIntent({
+          providerIntentId,
+          intentId: input.intentId || '',
+          workspaceId: input.workspaceId || '',
+          channelId: input.channelId || '',
+          amountMinor: toMinorAmount(input.amountMinor),
+          currency: String(input.currency || DEFAULT_PROMPTPAY_CURRENCY).toUpperCase(),
+          countryCode: String(input.countryCode || DEFAULT_PROMPTPAY_COUNTRY).toUpperCase(),
+          customerRef: String(input.customerRef || '').trim() || undefined,
+          description: String(input.description || '').trim() || undefined,
+          metadata: input.metadata || {},
+          idempotencyKey
+        });
+
+        const adaptedProviderIntentId = String(adapterResponse.providerIntentId || providerIntentId).trim();
+        const adaptedStatus = normalizeStatus(adapterResponse.status) || 'pending';
+        const adaptedPresentation = normalizePresentation(adapterResponse.presentation);
+        if (!adaptedPresentation) {
+          throw new Error('th_payments_adapter_invalid_presentation');
+        }
+
+        providerManaged = true;
+        status = adaptedStatus;
+        checkoutMode = adaptedPresentation.mode;
+        presentation = adaptedPresentation;
+        providerMetadata = toObject(adapterResponse.metadata);
+
+        if (adaptedProviderIntentId && adaptedProviderIntentId !== providerIntentId) {
+          await ctx.storage.set(`th-payments:provider-map:${providerIntentId}`, adaptedProviderIntentId);
+        }
       } else {
         throw new Error(`th_payments_unsupported_method:${methodId}`);
       }
 
+      const mappedProviderIntentId = (await ctx.storage.get(`th-payments:provider-map:${providerIntentId}`)) || providerIntentId;
       const record = {
-        providerIntentId,
+        providerIntentId: mappedProviderIntentId,
         wabiIntentId: String(input.intentId || ''),
         idempotencyKey,
         amountMinor: toMinorAmount(input.amountMinor),
         currency: String(input.currency || DEFAULT_PROMPTPAY_CURRENCY).toUpperCase(),
         countryCode: String(input.countryCode || DEFAULT_PROMPTPAY_COUNTRY).toUpperCase(),
-        status: 'pending',
+        status,
         methodId,
+        providerManaged,
         presentation,
+        providerMetadata,
         createdAt: now,
         updatedAt: now,
         expiresAt
@@ -398,14 +488,16 @@ const plugin = {
 
       await saveIntentRecord(ctx, record);
       return {
-        providerIntentId,
-        status: 'pending',
+        providerIntentId: mappedProviderIntentId,
+        status,
         checkoutMode,
         presentation,
         expiresAt,
         metadata: {
           provider: PROVIDER_NAME,
-          methodId
+          methodId,
+          providerManaged,
+          ...(providerMetadata || {})
         }
       };
     },
@@ -484,6 +576,38 @@ const plugin = {
         await saveIntentRecord(ctx, record);
       }
 
+      if (record.providerManaged) {
+        try {
+          const statusPayload = await fetchAdapterStatus(record.providerIntentId);
+          const nextStatus = normalizeStatus(statusPayload.status);
+          if (nextStatus) {
+            record.status = nextStatus;
+          }
+          const nextPresentation = normalizePresentation(statusPayload.presentation);
+          if (nextPresentation) {
+            record.presentation = nextPresentation;
+          }
+          if (Number.isFinite(Number(statusPayload.expiresAt))) {
+            record.expiresAt = Math.floor(Number(statusPayload.expiresAt));
+          }
+          record.providerMetadata = toObject(statusPayload.metadata) || record.providerMetadata || null;
+          record.updatedAt = Date.now();
+          await saveIntentRecord(ctx, record);
+        } catch (error) {
+          return {
+            status: record.status || 'pending',
+            providerIntentId: record.providerIntentId,
+            amountMinor: record.amountMinor,
+            currency: record.currency,
+            metadata: {
+              methodId: record.methodId,
+              expiresAt: record.expiresAt,
+              adapterError: error instanceof Error ? error.message : 'adapter_status_error'
+            }
+          };
+        }
+      }
+
       return {
         status: record.status,
         providerIntentId: record.providerIntentId,
@@ -506,6 +630,37 @@ const plugin = {
           status: 'failed',
           metadata: { reason: 'intent_not_found' }
         };
+      }
+
+      if (record.providerManaged) {
+        try {
+          const refund = await createAdapterRefund({
+            providerIntentId: record.providerIntentId,
+            amountMinor: Number.isFinite(Number(input.amountMinor)) ? Math.floor(Number(input.amountMinor)) : record.amountMinor,
+            reason: String(input.reason || '').trim() || undefined,
+            idempotencyKey: String(input.idempotencyKey || '').trim() || randomId('threfund_')
+          });
+          const status = normalizeStatus(refund.status);
+          if (!status || (status !== 'refunded' && status !== 'pending' && status !== 'failed')) {
+            return { status: 'failed', metadata: { reason: 'adapter_invalid_refund_status' } };
+          }
+          record.status = status;
+          record.updatedAt = Date.now();
+          await saveIntentRecord(ctx, record);
+          return {
+            status,
+            providerRefundId: typeof refund.providerRefundId === 'string' ? refund.providerRefundId : randomId('thrf_'),
+            metadata: toObject(refund.metadata) || null
+          };
+        } catch (error) {
+          return {
+            status: 'failed',
+            metadata: {
+              reason: 'adapter_refund_failed',
+              detail: error instanceof Error ? error.message : 'unknown'
+            }
+          };
+        }
       }
 
       if (record.status !== 'succeeded' && record.status !== 'pending') {

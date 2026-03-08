@@ -1,8 +1,8 @@
 {
   "id": "th-payments",
   "name": "Thailand Payments",
-  "version": "0.1.0",
-  "description": "PromptPay QR plus non-custodial manual-link fallback for local/self-hosted Wabi instances.",
+  "version": "0.2.0",
+  "description": "PromptPay QR plus contracted PSP adapter checkout for non-custodial Thailand payment flows.",
   "author": "Wabi Core",
   "enabled": true,
   "firstParty": true,
@@ -12,14 +12,14 @@
     "payments:webhook:verify"
   ],
   "security": {
-    "threatNotes": "Non-custodial only. Plugin never stores card or bank secrets in frontend payloads. Manual link route is demo/test and must stay behind trusted operator environments."
+    "threatNotes": "Non-custodial only. Plugin never stores card or bank secrets in frontend payloads. PSP checkout requires a contracted adapter endpoint behind operator control."
   },
   "distribution": {
     "source": "local"
   },
   "capabilities": {
     "tier": "network-limited",
-    "notes": "Provider plugin for PromptPay QR flows and local simulation fallback."
+    "notes": "Provider plugin for PromptPay QR plus contracted processor checkout/refund via adapter endpoint."
   },
   "backend": {
     "entry": "./backend/index.mjs"
@@ -45,18 +45,30 @@
         "notes": "Generates EMVCo payload for PromptPay QR scanning."
       },
       {
-        "id": "manual_link",
-        "label": "Manual Link (Demo)",
+        "id": "psp_checkout",
+        "label": "Contracted PSP Checkout",
         "checkoutModes": [
-          "payment_link"
+          "payment_link",
+          "redirect",
+          "app_switch"
         ],
-        "estimatedSharePercent": 18,
+        "estimatedSharePercent": 20,
         "enabledByDefault": true,
-        "notes": "Local non-custodial fallback for development and smoke tests."
+        "notes": "Hosted checkout from contracted processor adapter."
       }
     ],
     "nonCustodialOnly": true,
     "excludesFedNow": true,
     "excludesCbdcRails": true
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "checksum": "6c4749e0f54df709ba7d3b4ab320e2148ce38e1f45bd044570f64a4a0d222364",
+    "signature": "1v6Axmdak/TIjTYJebvH02induwkQBh2vmhciyXOaSfR3HVyAnqtcjz0JrvXXQNmOhpfhqHy/+eWi8UG6vkDBQ=="
+  },
+  "signer": {
+    "keyId": "ed25519:4d2e081b7db50a47",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkbMDtKXkd1tlzvcpqBSAcb6QL96jAQM+JXOfkuLnKTw=\n-----END PUBLIC KEY-----\n",
+    "algorithm": "ed25519"
   }
 }

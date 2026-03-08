@@ -6,10 +6,14 @@
 	import {
 		cancelPaymentIntent,
 		createPaymentIntent,
+		deletePaymentAccountLink,
 		getPaymentAccess,
 		getPaymentIntent,
+		listPaymentAccountLinks,
 		listPaymentProviders,
+		upsertPaymentAccountLink,
 		type PaymentCheckoutMode,
+		type PaymentAccountLink,
 		type PaymentAccessActorStatus,
 		type PaymentEvent,
 		type PaymentIntent,
@@ -42,6 +46,13 @@
 	let qrDataUrl = '';
 	let accessLoading = false;
 	let accessStatus: PaymentAccessActorStatus | null = null;
+	let paymentAccountLinks: PaymentAccountLink[] = [];
+	let accountLinksLoaded = false;
+	let accountLinksLoading = false;
+	let linkedAccountRefInput = '';
+	let linkedAccountLabelInput = '';
+	let accountLinkEditorPluginId = '';
+	let accountLinkSaving = false;
 
 	const terminalStatuses = new Set<PaymentIntentStatus>([
 		'succeeded',
@@ -58,8 +69,13 @@
 
 	$: selectedProvider = providers.find((provider) => provider.pluginId === selectedProviderId) || null;
 	$: providerMethods = selectedProvider?.methods || [];
+	$: selectedAccountLink = paymentAccountLinks.find((link) => link.pluginId === selectedProviderId) || null;
 	$: if (providerMethods.length > 0 && !providerMethods.some((method) => method.id === selectedMethodId)) {
 		selectedMethodId = providerMethods[0].id;
+	}
+	$: if (selectedProviderId !== accountLinkEditorPluginId) {
+		accountLinkEditorPluginId = selectedProviderId;
+		syncAccountLinkEditor();
 	}
 
 	$: presentation = ((activeIntent?.presentation || {}) as Record<string, unknown>) || {};
@@ -76,10 +92,14 @@
 	$: if (isOpen && !accessStatus && !accessLoading) {
 		void refreshAccessStatus();
 	}
+	$: if (isOpen && !accountLinksLoaded && !accountLinksLoading) {
+		void loadPaymentAccountLinks();
+	}
 
 	$: if (!isOpen) {
 		stopPolling();
 		accessStatus = null;
+		accountLinksLoaded = false;
 	}
 
 	onDestroy(() => {
@@ -242,6 +262,95 @@
 			providersError = error instanceof Error ? error.message : 'Failed to load payment providers';
 		} finally {
 			loadingProviders = false;
+		}
+	}
+
+	function syncAccountLinkEditor(): void {
+		linkedAccountRefInput = selectedAccountLink?.providerAccountRef || '';
+		linkedAccountLabelInput = selectedAccountLink?.displayLabel || '';
+	}
+
+	async function loadPaymentAccountLinks(): Promise<void> {
+		const token = getAuthToken();
+		if (!token) {
+			paymentAccountLinks = [];
+			accountLinksLoaded = true;
+			return;
+		}
+		accountLinksLoading = true;
+		try {
+			paymentAccountLinks = await listPaymentAccountLinks(token);
+			accountLinksLoaded = true;
+			syncAccountLinkEditor();
+		} catch (error) {
+			actionError = error instanceof Error ? error.message : 'Failed to load linked payment accounts';
+		} finally {
+			accountLinksLoading = false;
+		}
+	}
+
+	async function handleSaveAccountLink(): Promise<void> {
+		actionError = '';
+		actionInfo = '';
+		const token = getAuthToken();
+		if (!token) {
+			actionError = 'You must be logged in to link a payment account.';
+			return;
+		}
+		if (!selectedProviderId) {
+			actionError = 'Select a payment provider first.';
+			return;
+		}
+		const providerAccountRef = linkedAccountRefInput.trim();
+		if (!providerAccountRef) {
+			actionError = 'Enter an account reference to link.';
+			return;
+		}
+
+		accountLinkSaving = true;
+		try {
+			const saved = await upsertPaymentAccountLink(token, {
+				pluginId: selectedProviderId,
+				providerAccountRef,
+				displayLabel: linkedAccountLabelInput.trim() || undefined
+			});
+			paymentAccountLinks = [
+				saved,
+				...paymentAccountLinks.filter((link) => link.pluginId !== saved.pluginId)
+			];
+			actionInfo = `Linked account saved for ${selectedProviderId}.`;
+			syncAccountLinkEditor();
+		} catch (error) {
+			actionError = error instanceof Error ? error.message : 'Failed to save linked payment account';
+		} finally {
+			accountLinkSaving = false;
+		}
+	}
+
+	async function handleClearAccountLink(): Promise<void> {
+		actionError = '';
+		actionInfo = '';
+		const token = getAuthToken();
+		if (!token) {
+			actionError = 'You must be logged in to clear a payment account link.';
+			return;
+		}
+		if (!selectedProviderId) {
+			actionError = 'Select a payment provider first.';
+			return;
+		}
+
+		accountLinkSaving = true;
+		try {
+			await deletePaymentAccountLink(token, selectedProviderId);
+			paymentAccountLinks = paymentAccountLinks.filter((link) => link.pluginId !== selectedProviderId);
+			linkedAccountRefInput = '';
+			linkedAccountLabelInput = '';
+			actionInfo = `Linked account cleared for ${selectedProviderId}.`;
+		} catch (error) {
+			actionError = error instanceof Error ? error.message : 'Failed to clear linked payment account';
+		} finally {
+			accountLinkSaving = false;
 		}
 	}
 
@@ -475,6 +584,44 @@
 			<span>Customer reference (optional)</span>
 			<input type="text" bind:value={customerRef} maxlength="120" />
 		</label>
+
+		<div class="intent-card">
+			<h3>Linked account (optional)</h3>
+			<p class="hint">Link once per provider. New payment intents can reuse this account reference automatically.</p>
+			<div class="grid">
+				<label>
+					<span>Provider account reference</span>
+					<input
+						type="text"
+						bind:value={linkedAccountRefInput}
+						maxlength="240"
+						placeholder="customer account id / wallet handle"
+					/>
+				</label>
+				<label>
+					<span>Display label</span>
+					<input type="text" bind:value={linkedAccountLabelInput} maxlength="160" placeholder="My primary account" />
+				</label>
+			</div>
+			<div class="actions">
+				<button class="action" on:click={handleSaveAccountLink} disabled={accountLinkSaving || !selectedProviderId}>
+					{accountLinkSaving ? 'Saving...' : 'Save linked account'}
+				</button>
+				<button
+					class="action"
+					on:click={handleClearAccountLink}
+					disabled={accountLinkSaving || !selectedProviderId || !selectedAccountLink}
+				>
+					Clear link
+				</button>
+			</div>
+			{#if selectedAccountLink}
+				<p class="hint">
+					Connected for <code>{selectedAccountLink.pluginId}</code>:
+					<code>{selectedAccountLink.displayLabel || selectedAccountLink.providerAccountRef}</code>
+				</p>
+			{/if}
+		</div>
 
 		<div class="actions">
 			<button class="action" on:click={loadProviders} disabled={loadingProviders}>

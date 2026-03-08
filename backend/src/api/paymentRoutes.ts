@@ -23,6 +23,12 @@ import {
   listPaymentUserBlocks,
   upsertPaymentUserBlock
 } from '../payments/userBlocks.js';
+import {
+  deletePaymentAccountLink,
+  getPaymentAccountLink,
+  listPaymentAccountLinks,
+  upsertPaymentAccountLink
+} from '../payments/accountLinks.js';
 
 const MAX_PAYMENT_BODY_BYTES = Math.max(
   1024,
@@ -92,6 +98,10 @@ function normalizeOptionalString(value: unknown, maxLen: number): string | null 
   const normalized = value.trim();
   if (!normalized) return null;
   return normalized.slice(0, maxLen);
+}
+
+function normalizePluginId(value: unknown): string | null {
+  return normalizeOptionalString(value, 96);
 }
 
 function normalizeIdempotencyKey(value: unknown): string | null {
@@ -451,7 +461,7 @@ export async function handleCreatePaymentIntent(
     return;
   }
 
-  const pluginId = normalizeOptionalString(body.pluginId, 96);
+  const pluginId = normalizePluginId(body.pluginId);
   const methodId = normalizeOptionalString(body.methodId, 96);
   const currency = toUpperCode(body.currency, 3);
   const countryCode = body.countryCode == null ? null : toUpperCode(body.countryCode, 2);
@@ -478,6 +488,9 @@ export async function handleCreatePaymentIntent(
     writeJson(res, 404, { success: false, error: `Payment plugin '${pluginId}' is not available` });
     return;
   }
+
+  const linkedAccount = getPaymentAccountLink(userId, pluginId, workspaceId);
+  const effectiveCustomerRef = customerRef || linkedAccount?.providerAccountRef || null;
 
   const selectedMethod = capabilities.methods.find((method) => method.id === methodId);
   if (!selectedMethod) {
@@ -523,7 +536,7 @@ export async function handleCreatePaymentIntent(
     status: 'draft',
     checkoutMode: 'payment_link',
     idempotencyKey,
-    customerRef,
+    customerRef: effectiveCustomerRef,
     description,
     metadata
   });
@@ -538,7 +551,7 @@ export async function handleCreatePaymentIntent(
     countryCode: countryCode || undefined,
     methodId,
     description: description || undefined,
-    customerRef: customerRef || undefined,
+    customerRef: effectiveCustomerRef || undefined,
     idempotencyKey,
     metadata: metadata || undefined
   };
@@ -953,6 +966,101 @@ export async function handleGetPaymentAccess(
       reasonCode: verdict.allowed ? null : verdict.code,
       reason: verdict.allowed ? null : verdict.error
     }
+  });
+}
+
+export async function handleListPaymentAccountLinks(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  const userId = getAuthenticatedUserIdFromRequest(req);
+  if (!userId) {
+    writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+
+  writeJson(res, 200, {
+    success: true,
+    links: listPaymentAccountLinks(userId, DEFAULT_WORKSPACE_ID)
+  });
+}
+
+export async function handleUpsertPaymentAccountLink(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  const userId = getAuthenticatedUserIdFromRequest(req);
+  if (!userId) {
+    writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await parseJsonBody(req);
+  } catch (error) {
+    if (isPayloadTooLargeError(error)) {
+      writeJson(res, 413, { success: false, error: 'Payload too large' });
+      return;
+    }
+    if (isJsonParseError(error)) {
+      writeJson(res, 400, { success: false, error: 'Invalid JSON' });
+      return;
+    }
+    writeJson(res, 400, { success: false, error: 'Invalid payload' });
+    return;
+  }
+
+  const pluginId = normalizePluginId(body.pluginId);
+  const providerAccountRef = normalizeOptionalString(body.providerAccountRef, 240);
+  const displayLabel = normalizeOptionalString(body.displayLabel, 160);
+  const metadata = normalizeMetadata(body.metadata);
+
+  if (!pluginId || !providerAccountRef) {
+    writeJson(res, 400, { success: false, error: 'pluginId and providerAccountRef are required' });
+    return;
+  }
+
+  const link = upsertPaymentAccountLink({
+    userId,
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    pluginId,
+    providerAccountRef,
+    displayLabel,
+    metadata
+  });
+
+  if (!link) {
+    writeJson(res, 500, { success: false, error: 'Failed to save payment account link' });
+    return;
+  }
+
+  writeJson(res, 200, {
+    success: true,
+    link
+  });
+}
+
+export async function handleDeletePaymentAccountLink(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pluginId: string
+): Promise<void> {
+  const userId = getAuthenticatedUserIdFromRequest(req);
+  if (!userId) {
+    writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+
+  const normalizedPluginId = normalizePluginId(pluginId);
+  if (!normalizedPluginId) {
+    writeJson(res, 400, { success: false, error: 'Invalid plugin id' });
+    return;
+  }
+
+  writeJson(res, 200, {
+    success: true,
+    cleared: deletePaymentAccountLink(userId, normalizedPluginId, DEFAULT_WORKSPACE_ID)
   });
 }
 

@@ -17,7 +17,18 @@ import { themeRepository } from "./db/repositories/themeRepository.js";
 import { guestCodeRepository } from "./db/repositories/guestCodeRepository.js";
 import { verifyToken } from "./auth/jwt.js";
 import { getAuthenticatedUserIdFromRequest, getAuthTokenFromHeaders } from "./auth/requestAuth.js";
-import { handleRegister, handleLogin, handleUpgrade, handleGetUserSettings, handleSaveUserSettings, handleGetPublicKey, handleStoreEncryptionKeys } from "./api/authRoutes.js";
+import {
+  handleRegister,
+  handleLogin,
+  handleUpgrade,
+  handleGetUserSettings,
+  handleSaveUserSettings,
+  handleGetPublicKey,
+  handleStoreEncryptionKeys,
+  handleChangePassword,
+  handleAdminResetUserPassword,
+  handleAdminClearLoginLockout
+} from "./api/authRoutes.js";
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
 import { handleGetLaunchPageConfig } from "./api/launchPageRoutes.js";
 import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApprove, handleGetAllRelays, handleRelayDelete } from "./api/relayRoutes.js";
@@ -47,14 +58,17 @@ import {
 import {
   handleCancelPaymentIntent,
   handleCreatePaymentIntent,
+  handleDeletePaymentAccountLink,
   handleDeletePaymentUserBlock,
   handleGetPaymentAccess,
   handleGetPaymentAccessPolicy,
   handleGetPaymentIntent,
+  handleListPaymentAccountLinks,
   handleListPaymentUserBlocks,
   handleListPaymentProviders,
   handlePaymentWebhook,
   handleSavePaymentAccessPolicy,
+  handleUpsertPaymentAccountLink,
   handleUpsertPaymentUserBlock
 } from "./api/paymentRoutes.js";
 import { handleDictionaryLookup, handleDictionaryUpsert, handleDictionaryDelete } from "./api/dictionaryRoutes.js";
@@ -3524,6 +3538,21 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/api/auth/change-password" && req.method === "POST") {
+    await handleChangePassword(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/admin/users/reset-password" && req.method === "POST") {
+    await handleAdminResetUserPassword(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/admin/users/clear-login-lockout" && req.method === "POST") {
+    await handleAdminClearLoginLockout(req, res);
+    return;
+  }
+
   // Public launch page config (branding / login hero content)
   if (url.pathname === "/api/public/launch-page" && req.method === "GET") {
     await handleGetLaunchPageConfig(req, res);
@@ -3572,6 +3601,22 @@ server.on('request', async (req, res) => {
   // Non-custodial payments endpoints
   if (url.pathname === "/api/payments/access" && req.method === "GET") {
     await handleGetPaymentAccess(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/payments/account-links" && req.method === "GET") {
+    await handleListPaymentAccountLinks(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/payments/account-links" && req.method === "POST") {
+    await handleUpsertPaymentAccountLink(req, res);
+    return;
+  }
+
+  const paymentAccountLinkDeleteMatch = url.pathname.match(/^\/api\/payments\/account-links\/([A-Za-z0-9_-]{1,96})$/);
+  if (paymentAccountLinkDeleteMatch && req.method === "DELETE") {
+    await handleDeletePaymentAccountLink(req, res, decodeURIComponent(paymentAccountLinkDeleteMatch[1]));
     return;
   }
 

@@ -383,6 +383,24 @@ CREATE TABLE IF NOT EXISTS payment_user_blocks (
 CREATE INDEX IF NOT EXISTS idx_payment_user_blocks_workspace_time ON payment_user_blocks(workspace_id, blocked_at DESC);
 CREATE INDEX IF NOT EXISTS idx_payment_user_blocks_expiry ON payment_user_blocks(expires_at);
 
+-- Per-user payment provider account links (non-custodial account reference only)
+CREATE TABLE IF NOT EXISTS payment_account_links (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+  plugin_id TEXT NOT NULL,
+  provider_account_ref TEXT NOT NULL,
+  display_label TEXT,
+  metadata_json TEXT,
+  linked_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL,
+  UNIQUE(user_id, workspace_id, plugin_id),
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_account_links_user ON payment_account_links(user_id, workspace_id, linked_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payment_account_links_plugin ON payment_account_links(plugin_id, workspace_id, linked_at DESC);
+
 -- Community dictionary entries (language-learning helpers)
 CREATE TABLE IF NOT EXISTS dictionary_entries (
   id BIGSERIAL PRIMARY KEY,

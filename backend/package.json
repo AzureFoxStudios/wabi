@@ -7,7 +7,8 @@
     "start": "node --env-file-if-exists=.env dist/server.js",
     "build": "esbuild src/server.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/server.js --external:socket.io --external:better-sqlite3 --external:jsonwebtoken --external:jws --external:safe-buffer --external:buffer --external:bcrypt --external:adm-zip",
     "migrate:sqlite-to-postgres": "node scripts/migrate-sqlite-to-postgres.mjs",
-    "payments:smoke": "tsx scripts/payments-smoke-check.ts"
+    "payments:smoke": "tsx scripts/payments-smoke-check.ts",
+    "payments:provider-sandbox-smoke": "tsx scripts/payments-provider-sandbox-smoke.ts"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",

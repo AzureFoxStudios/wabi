@@ -15,6 +15,7 @@
     "plugin:keygen": "node scripts/plugin-keygen.mjs",
     "plugin:sign": "node scripts/plugin-sign.mjs",
     "plugin:verify": "node scripts/plugin-verify.mjs",
+    "payments:rollout:signed-only": "node scripts/payments-signed-only-rollout.mjs",
     "bench:compression": "node scripts/compression-benchmark.mjs",
     "check:compression-storage": "node scripts/compression-storage-smoke.mjs",
     "openmoji:fetch": "powershell -ExecutionPolicy Bypass -File scripts/fetch-openmoji.ps1",
