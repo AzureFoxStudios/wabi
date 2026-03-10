@@ -209,6 +209,115 @@ export interface CreatePaymentIntentResponse {
 	events: PaymentEvent[];
 }
 
+export interface PaymentHistoryResponse {
+	success: boolean;
+	count: number;
+	intents: PaymentIntent[];
+}
+
+export interface PaymentDonationConfig {
+	enabled: boolean;
+	providerPluginId: string | null;
+	methodId: string | null;
+	currency: string;
+	countryCode: string | null;
+	suggestedAmountsMinor: number[];
+	headline: string;
+	description: string;
+}
+
+export interface PaymentDonationTotal {
+	currency: string;
+	amountMinor: number;
+	paymentCount: number;
+}
+
+export interface PaymentDonationSummaryResponse {
+	success: boolean;
+	config: PaymentDonationConfig;
+	totals: PaymentDonationTotal[];
+	recentDonations: PaymentDonationLedgerEntry[];
+	offlineTotals: PaymentDonationTotal[];
+	recentOfflineDonations: OfflineDonationLedgerEntry[];
+}
+
+export interface PaymentDonationLedgerEntry {
+	intentId: string;
+	donorLabel: string;
+	amountMinor: number;
+	currency: string;
+	status: Extract<PaymentIntentStatus, 'succeeded' | 'refunded'>;
+	createdAt: number;
+	completedAt: number | null;
+	refundedAt: number | null;
+	updatedAt: number;
+	canRefund: boolean;
+}
+
+export interface PaymentDonationAuditResponse {
+	success: boolean;
+	count: number;
+	donations: PaymentDonationLedgerEntry[];
+}
+
+export type ManualCashSettlementStatus =
+	| 'pending'
+	| 'confirmed_by_creator'
+	| 'confirmed_by_counterparty'
+	| 'completed'
+	| 'canceled'
+	| 'disputed';
+
+export interface ManualCashSettlement {
+	settlementId: string;
+	channelId: string | null;
+	amountMinor: number;
+	currency: string;
+	description: string | null;
+	status: ManualCashSettlementStatus;
+	createdByUserId: number;
+	counterpartyUserId: number | null;
+	creatorLabel: string;
+	counterpartyLabel: string;
+	creatorConfirmedAt: number | null;
+	counterpartyConfirmedAt: number | null;
+	completedAt: number | null;
+	createdAt: number;
+	updatedAt: number;
+	viewerRole: 'creator' | 'counterparty' | 'observer';
+	canConfirm: boolean;
+	canCancel: boolean;
+	canDispute: boolean;
+}
+
+export interface ManualCashSettlementListResponse {
+	success: boolean;
+	count: number;
+	items: ManualCashSettlement[];
+}
+
+export interface OfflineDonationLedgerEntry {
+	settlementId: string;
+	donorLabel: string;
+	amountMinor: number;
+	currency: string;
+	description: string | null;
+	status: 'recorded' | 'voided';
+	createdAt: number;
+	completedAt: number | null;
+	voidedAt: number | null;
+	updatedAt: number;
+	sourceType: 'offline_manual';
+	canVoid: boolean;
+	recordedByLabel: string | null;
+}
+
+export interface OfflineDonationAuditResponse {
+	success: boolean;
+	count: number;
+	donations: OfflineDonationLedgerEntry[];
+}
+
 export async function listPaymentProviders(filters?: {
 	countryCode?: string;
 	currency?: string;
@@ -355,6 +464,296 @@ export async function listPaymentAccountLinks(
 		throw new Error(data.error || 'Failed to load payment account links');
 	}
 	return Array.isArray(data.links) ? (data.links as PaymentAccountLink[]) : [];
+}
+
+export async function listPaymentHistory(
+	token: string | null | undefined,
+	limit = 200
+): Promise<PaymentHistoryResponse> {
+	const query = new URLSearchParams();
+	if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
+		query.set('limit', String(Math.floor(limit)));
+	}
+	const suffix = query.size > 0 ? `?${query.toString()}` : '';
+	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/history${suffix}`, {
+		method: 'GET',
+		headers: token ? { Authorization: `Bearer ${token}` } : undefined
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to load payment history');
+	}
+	return {
+		success: Boolean(data.success),
+		count: typeof data.count === 'number' ? data.count : 0,
+		intents: Array.isArray(data.intents) ? (data.intents as PaymentIntent[]) : []
+	};
+}
+
+export async function getPaymentDonationSummary(): Promise<PaymentDonationSummaryResponse> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/donations`, {
+		method: 'GET'
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to load donation summary');
+	}
+	return {
+		success: Boolean(data.success),
+		config: data.config as PaymentDonationConfig,
+		totals: Array.isArray(data.totals) ? (data.totals as PaymentDonationTotal[]) : [],
+		recentDonations: Array.isArray(data.recentDonations) ? (data.recentDonations as PaymentDonationLedgerEntry[]) : [],
+		offlineTotals: Array.isArray(data.offlineTotals) ? (data.offlineTotals as PaymentDonationTotal[]) : [],
+		recentOfflineDonations: Array.isArray(data.recentOfflineDonations)
+			? (data.recentOfflineDonations as OfflineDonationLedgerEntry[])
+			: []
+	};
+}
+
+export async function getAdminPaymentDonationConfig(
+	token: string | null | undefined
+): Promise<PaymentDonationConfig> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/payments/donations`, {
+		method: 'GET',
+		headers: token ? { Authorization: `Bearer ${token}` } : undefined
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to load donation config');
+	}
+	return data.config as PaymentDonationConfig;
+}
+
+export async function saveAdminPaymentDonationConfig(
+	token: string | null | undefined,
+	payload: PaymentDonationConfig
+): Promise<PaymentDonationConfig> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/payments/donations`, {
+		method: 'POST',
+		headers: {
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(payload)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to save donation config');
+	}
+	return data.config as PaymentDonationConfig;
+}
+
+export async function listAdminPaymentDonationAudit(
+	token: string | null | undefined,
+	limit = 100
+): Promise<PaymentDonationAuditResponse> {
+	const query = new URLSearchParams();
+	if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
+		query.set('limit', String(Math.floor(limit)));
+	}
+	const suffix = query.size > 0 ? `?${query.toString()}` : '';
+	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/payments/donations/log${suffix}`, {
+		method: 'GET',
+		headers: token ? { Authorization: `Bearer ${token}` } : undefined
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to load donation audit trail');
+	}
+	return {
+		success: Boolean(data.success),
+		count: typeof data.count === 'number' ? data.count : 0,
+		donations: Array.isArray(data.donations) ? (data.donations as PaymentDonationLedgerEntry[]) : []
+	};
+}
+
+export async function refundAdminPaymentDonation(
+	token: string | null | undefined,
+	intentId: string,
+	reason?: string
+): Promise<{ intent: PaymentIntent; events: PaymentEvent[] }> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/payments/donations/${encodeURIComponent(intentId)}/refund`, {
+		method: 'POST',
+		headers: {
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ reason: reason || 'Refund issued by server admin' })
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to refund donation');
+	}
+	return {
+		intent: data.intent as PaymentIntent,
+		events: Array.isArray(data.events) ? (data.events as PaymentEvent[]) : []
+	};
+}
+
+export async function listManualCashSettlements(
+	token: string | null | undefined,
+	channelId: string,
+	limit = 100
+): Promise<ManualCashSettlementListResponse> {
+	const query = new URLSearchParams();
+	if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
+		query.set('limit', String(Math.floor(limit)));
+	}
+	const suffix = query.size > 0 ? `?${query.toString()}` : '';
+	const res = await fetchWithTimeout(`${getApiBase()}/api/manual-cash/${encodeURIComponent(channelId)}${suffix}`, {
+		method: 'GET',
+		headers: token ? { Authorization: `Bearer ${token}` } : undefined
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to load manual cash trades');
+	}
+	return {
+		success: Boolean(data.success),
+		count: typeof data.count === 'number' ? data.count : 0,
+		items: Array.isArray(data.items) ? (data.items as ManualCashSettlement[]) : []
+	};
+}
+
+export async function createManualCashSettlement(
+	token: string | null | undefined,
+	payload: {
+		channelId: string;
+		amountMinor: number;
+		currency: string;
+		description?: string;
+		metadata?: Record<string, unknown>;
+	}
+): Promise<ManualCashSettlement> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/manual-cash`, {
+		method: 'POST',
+		headers: {
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(payload)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to create manual cash trade');
+	}
+	return data.settlement as ManualCashSettlement;
+}
+
+async function postManualCashAction(
+	token: string | null | undefined,
+	settlementId: string,
+	action: 'confirm' | 'cancel' | 'dispute',
+	reason?: string
+): Promise<ManualCashSettlement> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/manual-cash/${encodeURIComponent(settlementId)}/${action}`, {
+		method: 'POST',
+		headers: {
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(reason ? { reason } : {})
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || `Failed to ${action} manual cash trade`);
+	}
+	return data.settlement as ManualCashSettlement;
+}
+
+export async function confirmManualCashSettlement(
+	token: string | null | undefined,
+	settlementId: string
+): Promise<ManualCashSettlement> {
+	return await postManualCashAction(token, settlementId, 'confirm');
+}
+
+export async function cancelManualCashSettlement(
+	token: string | null | undefined,
+	settlementId: string,
+	reason?: string
+): Promise<ManualCashSettlement> {
+	return await postManualCashAction(token, settlementId, 'cancel', reason);
+}
+
+export async function disputeManualCashSettlement(
+	token: string | null | undefined,
+	settlementId: string,
+	reason?: string
+): Promise<ManualCashSettlement> {
+	return await postManualCashAction(token, settlementId, 'dispute', reason);
+}
+
+export async function listAdminOfflineDonations(
+	token: string | null | undefined,
+	limit = 100
+): Promise<OfflineDonationAuditResponse> {
+	const query = new URLSearchParams();
+	if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
+		query.set('limit', String(Math.floor(limit)));
+	}
+	const suffix = query.size > 0 ? `?${query.toString()}` : '';
+	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/payments/donations/offline${suffix}`, {
+		method: 'GET',
+		headers: token ? { Authorization: `Bearer ${token}` } : undefined
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to load offline donations');
+	}
+	return {
+		success: Boolean(data.success),
+		count: typeof data.count === 'number' ? data.count : 0,
+		donations: Array.isArray(data.donations) ? (data.donations as OfflineDonationLedgerEntry[]) : []
+	};
+}
+
+export async function createAdminOfflineDonation(
+	token: string | null | undefined,
+	payload: {
+		amountMinor: number;
+		currency: string;
+		donorLabel?: string;
+		description?: string;
+		metadata?: Record<string, unknown>;
+	}
+): Promise<OfflineDonationLedgerEntry> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/payments/donations/offline`, {
+		method: 'POST',
+		headers: {
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(payload)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to record offline donation');
+	}
+	return data.donation as OfflineDonationLedgerEntry;
+}
+
+export async function voidAdminOfflineDonation(
+	token: string | null | undefined,
+	settlementId: string,
+	reason?: string
+): Promise<OfflineDonationLedgerEntry> {
+	const res = await fetchWithTimeout(
+		`${getApiBase()}/api/admin/payments/donations/offline/${encodeURIComponent(settlementId)}/void`,
+		{
+			method: 'POST',
+			headers: {
+				...(token ? { Authorization: `Bearer ${token}` } : {}),
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify(reason ? { reason } : {})
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data.error || 'Failed to void offline donation');
+	}
+	return data.donation as OfflineDonationLedgerEntry;
 }
 
 export async function upsertPaymentAccountLink(

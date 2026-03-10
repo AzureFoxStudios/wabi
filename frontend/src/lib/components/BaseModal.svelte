@@ -1,11 +1,10 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-
 	export let isOpen: boolean = false;
 	export let onClose: () => void;
 	export let variant: 'center' | 'right-panel' | 'full-screen' = 'center';
 	export let width: string = '540px';
 	export let showCloseButton: boolean = true;
+	export let overlayZIndex: number | string | null = null;
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && isOpen) {
@@ -19,21 +18,16 @@
 		}
 	}
 
-	onMount(() => {
-		if (isOpen) {
-			window.addEventListener('keydown', handleKeydown);
-			return () => {
-				window.removeEventListener('keydown', handleKeydown);
-			};
-		}
-	});
 </script>
+
+<svelte:window on:keydown={handleKeydown} />
 
 {#if isOpen}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		class="modal-overlay {variant}"
+		style={overlayZIndex != null ? `--modal-z-index: ${overlayZIndex};` : undefined}
 		on:click={handleOverlayClick}
 		role="dialog"
 		aria-modal="true"
@@ -67,7 +61,7 @@
 		right: 0;
 		bottom: 0;
 		background: var(--modal-overlay, rgba(15, 12, 41, 0.85));
-		z-index: var(--z-overlay);
+		z-index: var(--modal-z-index, var(--z-modal));
 		display: flex;
 		backdrop-filter: blur(8px);
 	}

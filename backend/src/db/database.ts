@@ -126,6 +126,7 @@ const INSERT_ID_COLUMN_BY_TABLE: Record<string, string> = {
 	webhook_deliveries: 'id',
 	payment_intents: 'id',
 	payment_events: 'id',
+	manual_settlements: 'id',
 	user_encryption_keys: 'id',
 	emoji_role_rules: 'id',
 	user_roles: 'id',
@@ -531,6 +532,7 @@ function runSqliteMigrations(): void {
 
 	addColumnIfMissing('user_settings', 'allow_temp_user_messages', 'INTEGER DEFAULT 1');
 	addColumnIfMissing('user_settings', 'business_private_mode', 'INTEGER DEFAULT 0');
+	addColumnIfMissing('user_settings', 'home_experience', "TEXT DEFAULT 'community'");
 	addColumnIfMissing('channels', 'description', "TEXT DEFAULT ''");
 	addColumnIfMissing('channels', 'voice_settings_json', 'TEXT');
 	addColumnIfMissing('channels', 'min_role', "TEXT DEFAULT 'guest'");
@@ -696,6 +698,7 @@ function runPostgresMigrations(): void {
 
 	addColumnIfMissing('user_settings', 'allow_temp_user_messages', 'INTEGER DEFAULT 1');
 	addColumnIfMissing('user_settings', 'business_private_mode', 'INTEGER DEFAULT 0');
+	addColumnIfMissing('user_settings', 'home_experience', "TEXT DEFAULT 'community'");
 	addColumnIfMissing('channels', 'description', "TEXT DEFAULT ''");
 	addColumnIfMissing('channels', 'voice_settings_json', 'TEXT');
 	addColumnIfMissing('channels', 'min_role', "TEXT DEFAULT 'guest'");

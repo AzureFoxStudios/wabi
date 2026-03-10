@@ -140,7 +140,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 1001;
+		z-index: var(--z-modal-nested);
 		backdrop-filter: blur(4px);
 	}
 

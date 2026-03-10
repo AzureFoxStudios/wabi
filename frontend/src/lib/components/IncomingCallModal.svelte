@@ -52,7 +52,7 @@
 		background-color: var(--modal-bg, rgba(40, 40, 40, 0.9));
 		border-radius: 8px;
 		padding: 20px;
-		z-index: 1000;
+		z-index: var(--z-call-overlay);
 		box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
 		border: 1px solid rgba(255, 255, 255, 0.1);
 	}

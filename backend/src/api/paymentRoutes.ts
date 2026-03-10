@@ -2,13 +2,18 @@ import { randomBytes } from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { getAuthenticatedUserIdFromRequest } from '../auth/requestAuth.js';
 import { getUserRoles } from '../auth/roleMiddleware.js';
-import { DEFAULT_WORKSPACE_ID, MODERATOR_ROLES, PRIVILEGED_ROLES } from '../constants.js';
+import { DEFAULT_WORKSPACE_ID, PRIVILEGED_ROLES } from '../constants.js';
 import {
   paymentRepository,
+  type PaymentDonationLedgerRow,
   type PaymentEventRow,
   type PaymentIntentStatus as RepositoryPaymentIntentStatus,
   type PaymentIntentView
 } from '../db/repositories/paymentRepository.js';
+import {
+  manualSettlementRepository,
+  type OfflineDonationRecordRow
+} from '../db/repositories/manualSettlementRepository.js';
 import type { PluginLoader } from '../plugins/loader.js';
 import type { PaymentCreateIntentInput, PaymentMethodCapability, PaymentPluginCapabilities } from '../plugins/types.js';
 import {
@@ -17,6 +22,10 @@ import {
   savePaymentAccessPolicy,
   type PaymentAccessPolicy
 } from '../payments/accessPolicy.js';
+import {
+  getPaymentDonationConfig,
+  savePaymentDonationConfig
+} from '../payments/donations.js';
 import {
   clearPaymentUserBlock,
   getActivePaymentUserBlock,
@@ -175,11 +184,6 @@ function toEventResponse(event: PaymentEventRow): Record<string, unknown> {
   };
 }
 
-function isPaymentModerator(userId: number): boolean {
-  const roles = getUserRoles(userId, DEFAULT_WORKSPACE_ID);
-  return roles.some((role) => MODERATOR_ROLES.includes(role as any));
-}
-
 function getEffectiveUserRoles(userId: number): string[] {
   const roles = getUserRoles(userId, DEFAULT_WORKSPACE_ID)
     .map((role) => String(role || '').trim().toLowerCase())
@@ -287,8 +291,86 @@ function evaluateCreatePaymentAccess(userId: number): CreatePaymentAccessCheckRe
 }
 
 function canAccessIntent(userId: number, intent: PaymentIntentView): boolean {
-  if (intent.created_by_user_id === userId) return true;
-  return isPaymentModerator(userId);
+  return intent.created_by_user_id === userId;
+}
+
+function isServerDonationIntent(intent: PaymentIntentView | null | undefined): boolean {
+  return Boolean(intent?.metadata && intent.metadata.kind === 'server_donation');
+}
+
+function maskDonationDonorLabel(username: string | null, userId: number | null): string {
+  const normalized = typeof username === 'string' ? username.trim() : '';
+  if (!normalized) {
+    if (typeof userId === 'number' && Number.isFinite(userId)) {
+      return `Donor ${String(Math.abs(Math.floor(userId))).slice(-4).padStart(4, '0')}`;
+    }
+    return 'Anonymous';
+  }
+
+  const collapsed = normalized.replace(/\s+/g, ' ');
+  const parts = collapsed.split(' ').filter(Boolean);
+  if (parts.length >= 2) {
+    const first = parts[0].slice(0, 4);
+    const firstSuffix = parts[0].length > 4 ? '…' : '';
+    const secondInitial = parts[1].charAt(0).toUpperCase();
+    return `${first}${firstSuffix} ${secondInitial}.`;
+  }
+
+  if (collapsed.length <= 4) {
+    return collapsed;
+  }
+  return `${collapsed.slice(0, 4)}…`;
+}
+
+function toDonationLedgerResponse(row: PaymentDonationLedgerRow): Record<string, unknown> {
+  return {
+    intentId: row.intent_id,
+    donorLabel: maskDonationDonorLabel(row.donor_username, row.created_by_user_id),
+    amountMinor: Number(row.amount_minor || 0),
+    currency: row.currency,
+    status: row.status,
+    createdAt: row.created_at,
+    completedAt: row.completed_at,
+    refundedAt: row.refunded_at,
+    updatedAt: row.updated_at,
+    canRefund: row.status === 'succeeded'
+  };
+}
+
+function maskOfflineDonationLabel(rawLabel: string | null): string {
+  const normalized = typeof rawLabel === 'string' ? rawLabel.trim() : '';
+  if (!normalized) return 'Anonymous';
+  const collapsed = normalized.replace(/\s+/g, ' ');
+  const parts = collapsed.split(' ').filter(Boolean);
+  if (parts.length >= 2) {
+    const first = parts[0].slice(0, 4);
+    const firstSuffix = parts[0].length > 4 ? '...' : '';
+    const secondInitial = parts[1].charAt(0).toUpperCase();
+    return `${first}${firstSuffix} ${secondInitial}.`;
+  }
+  if (collapsed.length <= 4) return collapsed;
+  return `${collapsed.slice(0, 4)}...`;
+}
+
+function toOfflineDonationResponse(
+  row: OfflineDonationRecordRow,
+  options: { adminView?: boolean } = {}
+): Record<string, unknown> {
+  return {
+    settlementId: row.settlement_id,
+    donorLabel: maskOfflineDonationLabel(row.donor_label),
+    amountMinor: Number(row.amount_minor || 0),
+    currency: row.currency,
+    description: row.description,
+    status: row.status,
+    createdAt: row.created_at,
+    completedAt: row.completed_at,
+    voidedAt: row.voided_at,
+    updatedAt: row.updated_at,
+    sourceType: 'offline_manual',
+    canVoid: options.adminView ? row.status === 'recorded' : false,
+    recordedByLabel: options.adminView ? row.recorded_by_username || null : null
+  };
 }
 
 function isMethodEligible(
@@ -422,6 +504,444 @@ export async function handleListPaymentProviders(
     console.error('[Payments] Failed to list providers:', error);
     writeJson(res, 500, { success: false, error: 'Failed to list payment providers' });
   }
+}
+
+export async function handleListPaymentHistory(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL
+): Promise<void> {
+  const userId = getAuthenticatedUserIdFromRequest(req);
+  if (!userId) {
+    writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+
+  try {
+    const limit = clampPositiveInteger(url.searchParams.get('limit'), 1000) ?? 200;
+    const intents = paymentRepository.listByCreator(userId, DEFAULT_WORKSPACE_ID, limit);
+    writeJson(res, 200, {
+      success: true,
+      intents: intents.map(toIntentResponse),
+      count: intents.length
+    });
+  } catch (error) {
+    console.error('[Payments] Failed to list payment history:', error);
+    writeJson(res, 500, { success: false, error: 'Failed to list payment history' });
+  }
+}
+
+export async function handleGetPaymentDonationSummary(
+  _req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  try {
+    const config = getPaymentDonationConfig();
+    const totals = paymentRepository.summarizeServerDonations(DEFAULT_WORKSPACE_ID).map((row) => ({
+      currency: row.currency,
+      amountMinor: Number(row.amount_minor || 0),
+      paymentCount: Number(row.payment_count || 0)
+    }));
+    const offlineTotals = manualSettlementRepository.summarizeOfflineDonations(DEFAULT_WORKSPACE_ID).map((row) => ({
+      currency: row.currency,
+      amountMinor: Number(row.amount_minor || 0),
+      paymentCount: Number(row.payment_count || 0)
+    }));
+    const recentDonations = paymentRepository
+      .listServerDonationActivity(DEFAULT_WORKSPACE_ID, 20)
+      .map(toDonationLedgerResponse);
+    const recentOfflineDonations = manualSettlementRepository
+      .listOfflineDonations(DEFAULT_WORKSPACE_ID, 20)
+      .map((row) => toOfflineDonationResponse(row));
+    writeJson(res, 200, {
+      success: true,
+      config,
+      totals,
+      recentDonations,
+      offlineTotals,
+      recentOfflineDonations
+    });
+  } catch (error) {
+    console.error('[Payments] Failed to load donation summary:', error);
+    writeJson(res, 500, { success: false, error: 'Failed to load donation summary' });
+  }
+}
+
+export async function handleListAdminPaymentDonations(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL
+): Promise<void> {
+  const userId = getAuthenticatedUserIdFromRequest(req);
+  if (!userId) {
+    writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+  if (!isPaymentAdmin(userId)) {
+    writeJson(res, 403, { success: false, error: 'Admin permissions required' });
+    return;
+  }
+
+  try {
+    const limit = clampPositiveInteger(url.searchParams.get('limit'), 500) ?? 100;
+    const donations = paymentRepository
+      .listServerDonationActivity(DEFAULT_WORKSPACE_ID, limit)
+      .map(toDonationLedgerResponse);
+    writeJson(res, 200, {
+      success: true,
+      count: donations.length,
+      donations
+    });
+  } catch (error) {
+    console.error('[Payments] Failed to load admin donation audit:', error);
+    writeJson(res, 500, { success: false, error: 'Failed to load donation audit trail' });
+  }
+}
+
+export async function handleGetPaymentDonationConfig(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  const userId = getAuthenticatedUserIdFromRequest(req);
+  if (!userId) {
+    writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+  if (!isPaymentAdmin(userId)) {
+    writeJson(res, 403, { success: false, error: 'Admin permissions required' });
+    return;
+  }
+
+  writeJson(res, 200, {
+    success: true,
+    config: getPaymentDonationConfig()
+  });
+}
+
+export async function handleSavePaymentDonationConfig(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  const userId = getAuthenticatedUserIdFromRequest(req);
+  if (!userId) {
+    writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+  if (!isPaymentAdmin(userId)) {
+    writeJson(res, 403, { success: false, error: 'Admin permissions required' });
+    return;
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await parseJsonBody(req);
+  } catch (error) {
+    if (isPayloadTooLargeError(error)) {
+      writeJson(res, 413, { success: false, error: 'Payload too large' });
+      return;
+    }
+    if (isJsonParseError(error)) {
+      writeJson(res, 400, { success: false, error: 'Invalid JSON' });
+      return;
+    }
+    writeJson(res, 400, { success: false, error: 'Invalid donation config payload' });
+    return;
+  }
+
+  const config = savePaymentDonationConfig(body);
+  writeJson(res, 200, {
+    success: true,
+    config
+  });
+}
+
+export async function handleListAdminOfflineDonations(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL
+): Promise<void> {
+  const userId = getAuthenticatedUserIdFromRequest(req);
+  if (!userId) {
+    writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+  if (!isPaymentAdmin(userId)) {
+    writeJson(res, 403, { success: false, error: 'Admin permissions required' });
+    return;
+  }
+
+  try {
+    const limit = clampPositiveInteger(url.searchParams.get('limit'), 500) ?? 100;
+    const donations = manualSettlementRepository
+      .listOfflineDonations(DEFAULT_WORKSPACE_ID, limit)
+      .map((row) => toOfflineDonationResponse(row, { adminView: true }));
+    writeJson(res, 200, {
+      success: true,
+      count: donations.length,
+      donations
+    });
+  } catch (error) {
+    console.error('[Payments] Failed to load admin offline donations:', error);
+    writeJson(res, 500, { success: false, error: 'Failed to load offline donations' });
+  }
+}
+
+export async function handleCreateAdminOfflineDonation(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  const userId = getAuthenticatedUserIdFromRequest(req);
+  if (!userId) {
+    writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+  if (!isPaymentAdmin(userId)) {
+    writeJson(res, 403, { success: false, error: 'Admin permissions required' });
+    return;
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await parseJsonBody(req);
+  } catch (error) {
+    if (isPayloadTooLargeError(error)) {
+      writeJson(res, 413, { success: false, error: 'Payload too large' });
+      return;
+    }
+    if (isJsonParseError(error)) {
+      writeJson(res, 400, { success: false, error: 'Invalid JSON' });
+      return;
+    }
+    writeJson(res, 400, { success: false, error: 'Invalid offline donation payload' });
+    return;
+  }
+
+  const amountMinor = clampPositiveInteger(body.amountMinor, 1_000_000_000);
+  const currency = toUpperCode(body.currency, 3);
+  const donorLabel = normalizeOptionalString(body.donorLabel, 120);
+  const description = normalizeOptionalString(body.description, 280);
+  const metadata = normalizeMetadata(body.metadata);
+
+  if (!amountMinor || !currency) {
+    writeJson(res, 400, { success: false, error: 'amountMinor and currency are required' });
+    return;
+  }
+
+  try {
+    const donation = manualSettlementRepository.createSettlement({
+      settlementKind: 'offline_donation',
+      createdByUserId: userId,
+      amountMinor,
+      currency,
+      donorLabel,
+      description,
+      status: 'recorded',
+      metadata
+    });
+    const hydratedDonation =
+      manualSettlementRepository
+        .listOfflineDonations(DEFAULT_WORKSPACE_ID, 100)
+        .find((row) => row.settlement_id === donation.settlement_id) ||
+      null;
+    writeJson(res, 201, {
+      success: true,
+      donation: toOfflineDonationResponse(
+        hydratedDonation || {
+          ...donation,
+          metadata_json: donation.metadata ? JSON.stringify(donation.metadata) : null,
+          recorded_by_username: null
+        } as OfflineDonationRecordRow,
+        { adminView: true }
+      )
+    });
+  } catch (error) {
+    console.error('[Payments] Failed to create offline donation:', error);
+    writeJson(res, 500, { success: false, error: 'Failed to create offline donation' });
+  }
+}
+
+export async function handleVoidAdminOfflineDonation(
+  req: IncomingMessage,
+  res: ServerResponse,
+  settlementId: string
+): Promise<void> {
+  const userId = getAuthenticatedUserIdFromRequest(req);
+  if (!userId) {
+    writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+  if (!isPaymentAdmin(userId)) {
+    writeJson(res, 403, { success: false, error: 'Admin permissions required' });
+    return;
+  }
+
+  const settlement = manualSettlementRepository.findViewBySettlementId(settlementId);
+  if (!settlement || settlement.settlement_kind !== 'offline_donation') {
+    writeJson(res, 404, { success: false, error: 'Offline donation not found' });
+    return;
+  }
+  if (settlement.status === 'voided') {
+    writeJson(res, 200, {
+      success: true,
+      alreadyTerminal: true,
+      donation: toOfflineDonationResponse(
+        {
+          ...settlement,
+          metadata_json: settlement.metadata ? JSON.stringify(settlement.metadata) : null,
+          recorded_by_username: null
+        } as OfflineDonationRecordRow,
+        { adminView: true }
+      )
+    });
+    return;
+  }
+  if (settlement.status !== 'recorded') {
+    writeJson(res, 409, { success: false, error: `Offline donation cannot be voided from status ${settlement.status}` });
+    return;
+  }
+
+  let metadata = null as Record<string, unknown> | null;
+  try {
+    const body = await parseJsonBody(req);
+    const reason = normalizeOptionalString(body.reason, 280);
+    metadata = reason ? { voidReason: reason, voidedByUserId: userId } : { voidedByUserId: userId };
+  } catch (error) {
+    if (isPayloadTooLargeError(error)) {
+      writeJson(res, 413, { success: false, error: 'Payload too large' });
+      return;
+    }
+    if (!isJsonParseError(error)) {
+      writeJson(res, 400, { success: false, error: 'Invalid void payload' });
+      return;
+    }
+  }
+
+  manualSettlementRepository.updateSettlement(settlementId, {
+    status: 'voided',
+    voidedAt: Date.now(),
+    metadata
+  });
+  const updated =
+    manualSettlementRepository
+      .listOfflineDonations(DEFAULT_WORKSPACE_ID, 100)
+      .find((row) => row.settlement_id === settlementId) || null;
+  if (!updated) {
+    writeJson(res, 500, { success: false, error: 'Offline donation disappeared after void' });
+    return;
+  }
+
+  writeJson(res, 200, {
+    success: true,
+    donation: toOfflineDonationResponse(updated, { adminView: true })
+  });
+}
+
+export async function handleRefundAdminPaymentDonation(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pluginLoader: PluginLoader,
+  intentId: string
+): Promise<void> {
+  const userId = getAuthenticatedUserIdFromRequest(req);
+  if (!userId) {
+    writeJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+  if (!isPaymentAdmin(userId)) {
+    writeJson(res, 403, { success: false, error: 'Admin permissions required' });
+    return;
+  }
+
+  const intent = paymentRepository.findViewByIntentId(intentId);
+  if (!intent || !isServerDonationIntent(intent)) {
+    writeJson(res, 404, { success: false, error: 'Donation payment not found' });
+    return;
+  }
+
+  let reason = 'Refund issued by server admin';
+  try {
+    const body = await parseJsonBody(req);
+    const parsedReason = normalizeOptionalString(body.reason, 280);
+    if (parsedReason) {
+      reason = parsedReason;
+    }
+  } catch (error) {
+    if (isPayloadTooLargeError(error)) {
+      writeJson(res, 413, { success: false, error: 'Payload too large' });
+      return;
+    }
+    if (!isJsonParseError(error)) {
+      writeJson(res, 400, { success: false, error: 'Invalid refund payload' });
+      return;
+    }
+  }
+
+  if (intent.status === 'refunded') {
+    writeJson(res, 200, {
+      success: true,
+      alreadyTerminal: true,
+      intent: toIntentResponse(intent),
+      events: paymentRepository.listEvents(intent.intent_id, 25).map(toEventResponse)
+    });
+    return;
+  }
+
+  if (intent.status !== 'succeeded') {
+    writeJson(res, 409, {
+      success: false,
+      error: `Only completed donations can be refunded (current status: ${intent.status})`
+    });
+    return;
+  }
+
+  try {
+    const refundResult = await pluginLoader.refundPaymentIntent(intent.plugin_id, {
+      intentId: intent.intent_id,
+      providerIntentId: intent.provider_intent_id || undefined,
+      amountMinor: intent.amount_minor,
+      reason,
+      idempotencyKey: `refund_admin_${intent.intent_id}`
+    });
+    if (!refundResult) {
+      writeJson(res, 409, { success: false, error: 'Donation cannot be refunded by this provider' });
+      return;
+    }
+
+    paymentRepository.setStatus(intent.intent_id, refundResult.status, {
+      metadata: isRecord(refundResult.metadata) ? refundResult.metadata : null,
+      failureCode: refundResult.status === 'failed' ? 'refund_failed' : null,
+      failureMessage: refundResult.status === 'failed' ? 'Refund request failed' : null
+    });
+    paymentRepository.addEvent(intent.intent_id, {
+      eventType: 'intent.admin_refund',
+      status: refundResult.status,
+      source: 'manual',
+      payload: {
+        pluginId: intent.plugin_id,
+        refundedByUserId: userId,
+        reason,
+        providerRefundId: refundResult.providerRefundId || null,
+        donationKind: 'server_donation'
+      },
+      idempotencyKey: `refund_admin_${intent.intent_id}`
+    });
+  } catch (error) {
+    console.error(`[Payments] Admin donation refund failed for ${intent.intent_id}:`, error);
+    writeJson(res, 502, { success: false, error: 'Payment provider refund failed' });
+    return;
+  }
+
+  const updated = paymentRepository.findViewByIntentId(intent.intent_id);
+  if (!updated) {
+    writeJson(res, 500, { success: false, error: 'Donation payment missing after refund' });
+    return;
+  }
+
+  writeJson(res, 200, {
+    success: true,
+    intent: toIntentResponse(updated),
+    events: paymentRepository.listEvents(updated.intent_id, 25).map(toEventResponse)
+  });
 }
 
 export async function handleCreatePaymentIntent(

@@ -95,6 +95,26 @@ export function createStdbClient(): StdbSyncClient {
 	});
 }
 
+export function getStdbServer(): string | null {
+	return normalizeServerEnv();
+}
+
+export function getStdbDatabase(): string | null {
+	return normalizeDatabaseEnv();
+}
+
+export function getStdbAuthMode(): { token: string | null; anonymous: boolean } {
+	const token = normalizeTokenEnv();
+	return {
+		token,
+		anonymous: normalizeAnonymousEnv(token)
+	};
+}
+
+export function getStdbTimeoutMs(): number {
+	return normalizeTimeoutEnv();
+}
+
 export class StdbStoreBase {
 	protected readonly client = createStdbClient();
 	protected readonly outbox: StatePlaneOutbox | null;

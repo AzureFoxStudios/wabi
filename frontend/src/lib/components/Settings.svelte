@@ -17,11 +17,45 @@
 	import { chatStorage } from '$lib/storage';
 	import StorageSettings from './StorageSettings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
-	import { playNotificationSound } from '$lib/notifications';
+	import PaymentConnectionsModal from './PaymentConnectionsModal.svelte';
+	import PaymentHistoryModal from './PaymentHistoryModal.svelte';
+	import ServerDonationModal, { type DonationPrefillPayload } from './ServerDonationModal.svelte';
+	import PaymentSheet from './PaymentSheet.svelte';
+	import {
+		getDefaultCustomSynthRingtonePreset,
+		playCallRingtone,
+		playNotificationSound,
+		sanitizeCustomSynthRingtonePreset,
+		stopCallRingtone,
+		type CustomSynthRingtonePreset,
+		type CustomSynthWaveform
+	} from '$lib/notifications';
 	import { getSocket } from '$lib/socket';
 	import { getServerUrl } from '$lib/serverUrl';
 	import AvatarEditor from './AvatarEditor.svelte'; // Import the AvatarEditor
-	import { getAdminUploadLimits, saveAdminUploadLimits, type UploadRoleTier, type UploadLimitConfig } from '$lib/api';
+	import {
+		createAdminOfflineDonation,
+		adminClearUserLoginLockout,
+		getAdminPaymentDonationConfig,
+		listAdminPaymentDonationAudit,
+		listAdminOfflineDonations,
+		listPaymentProviders,
+		adminResetUserPassword,
+		changePassword,
+		getAdminUploadLimits,
+		refundAdminPaymentDonation,
+		saveAdminPaymentDonationConfig,
+		getUserSettings,
+		saveAdminUploadLimits,
+		saveUserSettings,
+		voidAdminOfflineDonation,
+		type PaymentDonationConfig,
+		type PaymentDonationLedgerEntry,
+		type OfflineDonationLedgerEntry,
+		type PaymentProviderCapability,
+		type UploadRoleTier,
+		type UploadLimitConfig
+	} from '$lib/api';
 	import {
 		getBusinessSyncMode,
 		setBusinessSyncMode,
@@ -39,15 +73,15 @@
 	import UniformFontMode from './UniformFontMode.svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import {
+		applyHomeExperienceMode,
+		getStoredHomeExperienceMode,
+		setStoredHomeExperienceMode,
+		type HomeExperienceMode
+	} from '$lib/homeExperience';
+	import {
 		getAudioCaptureConstraints,
-		getStoredAudioProcessingMode,
-		getStoredCallTransportMode,
-		getStoredMediaQualityMode,
-		getStoredScreenShareQualityPreset,
-		getStoredScreenShareBitrateKbps,
-		getStoredSpatialAudioSettings,
-		isSrtGatewayEnabled,
 		isTauriRuntime,
+		loadEffectiveMediaSettingsSnapshot,
 		setAudioProcessingMode,
 		setCallTransportMode,
 		setMediaQualityMode,
@@ -60,7 +94,6 @@
 		setSpatialAudioQuickToggleVisible,
 		setSpatialAudioWarningMuted,
 		setSrtGatewayEnabled,
-		syncMediaRuntimeFromServer,
 		getPreferredMicDeviceId,
 		setPreferredMicDeviceId,
 		getPreferredCameraDeviceId,
@@ -68,6 +101,7 @@
 		type AudioProcessingMode,
 		type CallTransportMode,
 		type MediaQualityMode,
+		type ServerMediaRuntimeResponse,
 		type ScreenShareQualityPreset,
 		type SpatialAudioMode
 	} from '$lib/mediaRuntime';
@@ -95,6 +129,10 @@
 		type AnimationPassLevel
 	} from '$lib/animationPass';
 	import { getTauriPlatform } from '$lib/tauri-platform';
+	import {
+		isExperimentalStdbCallEnabled,
+		setExperimentalStdbCallEnabled
+	} from '$lib/experimentalStdbCalls';
 	import type { VideoCompressionPresetId } from '$lib/video/videoCompressor';
 	import {
 		getDefaultVideoCompressionPreset,
@@ -234,7 +272,22 @@
 	const GIF_CAPTIONER_MAX_CAPTION_LENGTH = 280;
 
 	export let isOpen = false;
+	export let requestedPaymentSurface: 'connections' | null = null;
 	type SettingsTab = 'profile' | 'audio' | 'notifications' | 'accessibility' | 'appearance' | 'server' | 'addons' | 'emojis' | 'storage' | 'admin' | 'about';
+	type CallRingtoneMode = 'classic-bell' | 'soft-chime' | 'pulse' | 'custom-synth' | 'custom-audio';
+	const CALL_RINGTONE_OPTIONS: Array<{ value: CallRingtoneMode; label: string }> = [
+		{ value: 'classic-bell', label: 'Classic Bell' },
+		{ value: 'soft-chime', label: 'Soft Chime' },
+		{ value: 'pulse', label: 'Pulse' },
+		{ value: 'custom-synth', label: 'Custom Synth' },
+		{ value: 'custom-audio', label: 'Custom Audio' }
+	];
+	const CUSTOM_SYNTH_WAVEFORM_OPTIONS: Array<{ value: CustomSynthWaveform; label: string }> = [
+		{ value: 'sine', label: 'Sine' },
+		{ value: 'triangle', label: 'Triangle' },
+		{ value: 'square', label: 'Square' },
+		{ value: 'sawtooth', label: 'Sawtooth' }
+	];
 	let activeSettingsTab: SettingsTab = 'profile';
 
 	let soundEnabled = true;
@@ -243,9 +296,14 @@
 	let cameraEnabled = true;
 	let suppressEveryoneHereMentions = false;
 	let suppressRoleMentions = false;
+	let notificationPreviewEnabled = false;
 	let notificationSound = '/sounds/ProjectSound.ogg';
 	let notificationSoundLabel = 'ProjectSound.ogg';
 	let notificationVolume = 0.5;
+	let callRingtoneMode: CallRingtoneMode = 'classic-bell';
+	let callRingtoneLabel = 'Classic Bell';
+	let callRingtoneVolume = 0.65;
+	let callRingtoneCustomSynth: CustomSynthRingtonePreset = getDefaultCustomSynthRingtonePreset();
 	let mediaQualityMode: MediaQualityMode = 'web-baseline';
 	let audioProcessingMode: AudioProcessingMode = 'auto';
 	let callTransportMode: CallTransportMode = 'auto';
@@ -269,6 +327,7 @@
 	let animationPassDurationMultiplier = 1;
 	let roleColorMode: RoleColorMode = 'full';
 	let ownMessagesOnRight = false;
+	let homeExperienceMode: HomeExperienceMode = 'community';
 	let chatAvatarMode: ChatAvatarMode = 'all';
 	let tabShadeStrength = 0.06;
 	let appChromeOpacity = 1;
@@ -284,6 +343,8 @@
 	let deletionCountdownMode: DeletionCountdownMode = 'static';
 	let clickableSendEnabled = true;
 	let localAppRuntime = false;
+	let desktopLocalAppRuntime = false;
+	let experimentalStdbCallsEnabled = false;
 	let micTestStream: MediaStream | null = null;
 	let micTestRecorder: MediaRecorder | null = null;
 	let micTestAudioContext: AudioContext | null = null;
@@ -291,6 +352,7 @@
 	let videoInputDevices: MediaDeviceInfo[] = [];
 	let selectedMicDeviceId = '';
 	let selectedCameraDeviceId = '';
+	let mediaRuntimeSnapshot: ServerMediaRuntimeResponse | null = null;
 	let micTestAnalyser: AnalyserNode | null = null;
 	let micTestLevelInterval: number | null = null;
 	let micTestAudioUrl: string | null = null;
@@ -317,6 +379,10 @@
 	let addonsImportInput: HTMLInputElement;
 	let addonsPackageInput: HTMLInputElement;
 	let notificationSoundInput: HTMLInputElement;
+	let callRingtoneInput: HTMLInputElement;
+	let callRingtoneSynthImportInput: HTMLInputElement;
+	let callRingtonePreviewTimeout: number | null = null;
+	let callRingtoneSynthEditorExpanded = false;
 	type AddonRuntimeSide = 'frontend' | 'backend';
 	interface DetectedAddon {
 		id: string;
@@ -452,6 +518,53 @@
 	let uploadingAvatar = false;
 	let displayNameDraft = '';
 	let updatingDisplayName = false;
+	let currentPasswordDraft = '';
+	let newPasswordDraft = '';
+	let confirmNewPasswordDraft = '';
+	let changingPassword = false;
+	let paymentConnectionsOpen = false;
+	let paymentHistoryOpen = false;
+	let serverDonationOpen = false;
+	let profilePaymentSheetOpen = false;
+	let profilePaymentSheetOpenSeed = 0;
+	let profilePaymentSheetInitialAmountInput: string | null = null;
+	let profilePaymentSheetInitialCurrency: string | null = null;
+	let profilePaymentSheetInitialCountryCode: string | null = null;
+	let profilePaymentSheetInitialDescription: string | null = null;
+	let profilePaymentSheetInitialCustomerRef: string | null = null;
+	let profilePaymentSheetInitialProviderId: string | null = null;
+	let profilePaymentSheetInitialMethodId: string | null = null;
+	let profilePaymentSheetInitialMetadata: Record<string, unknown> | null = null;
+	let adminDonationConfigLoaded = false;
+	let adminDonationConfigLoading = false;
+	let adminDonationConfigSaving = false;
+	let adminDonationAuditLoaded = false;
+	let adminDonationAuditLoading = false;
+	let adminDonationRefundingIntentId = '';
+	let adminDonationAudit: PaymentDonationLedgerEntry[] = [];
+	let adminOfflineDonationAuditLoaded = false;
+	let adminOfflineDonationAuditLoading = false;
+	let adminOfflineDonationSaving = false;
+	let adminOfflineDonationVoidingSettlementId = '';
+	let adminOfflineDonationAudit: OfflineDonationLedgerEntry[] = [];
+	let offlineDonationAmountInput = '10.00';
+	let offlineDonationCurrency = 'USD';
+	let offlineDonationDonorLabel = '';
+	let offlineDonationDescription = '';
+	let lastHandledRequestedPaymentSurface: 'connections' | null = null;
+	let adminDonationConfig: PaymentDonationConfig = {
+		enabled: false,
+		providerPluginId: null,
+		methodId: null,
+		currency: 'USD',
+		countryCode: null,
+		suggestedAmountsMinor: [500, 1000, 2500],
+		headline: 'Support This Server',
+		description: 'Contribute to server hosting and maintenance.'
+	};
+	let donationSuggestedAmountsInput = '5, 10, 25';
+	let paymentProviderCapabilities: PaymentProviderCapability[] = [];
+	let paymentProviderCapabilitiesLoaded = false;
 
 	// Emoji upload state
 	let emojiFileInput: HTMLInputElement;
@@ -485,6 +598,25 @@
 	})();
 
 	$: canManageAdmin = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
+	$: if (canManageAdmin && activeSettingsTab === 'admin' && !adminDonationConfigLoaded) {
+		void loadAdminDonationConfig();
+	}
+	$: if (canManageAdmin && activeSettingsTab === 'admin' && !adminDonationAuditLoaded) {
+		void loadAdminDonationAudit();
+	}
+	$: if (canManageAdmin && activeSettingsTab === 'admin' && !adminOfflineDonationAuditLoaded) {
+		void loadAdminOfflineDonationAudit();
+	}
+	$: adminDonationSelectedProvider =
+		paymentProviderCapabilities.find((provider) => provider.pluginId === adminDonationConfig.providerPluginId) || null;
+	$: adminDonationMethods = adminDonationSelectedProvider?.methods || [];
+	$: if (!isOpen) {
+		lastHandledRequestedPaymentSurface = null;
+	}
+	$: if (isOpen && requestedPaymentSurface === 'connections' && lastHandledRequestedPaymentSurface !== requestedPaymentSurface) {
+		paymentConnectionsOpen = true;
+		lastHandledRequestedPaymentSurface = requestedPaymentSurface;
+	}
 	$: selectedVideoCompressionPresetOption =
 		videoCompressionPresetOptions.find((option) => option.id === defaultVideoCompressionPreset) || null;
 	$: sortedAdminUsers = [...$users].sort((a, b) => {
@@ -520,6 +652,51 @@
 	let businessSyncInFlight = false;
 	let businessSyncStatus = '';
 
+	function isCallRingtoneMode(value: string | null): value is CallRingtoneMode {
+		return CALL_RINGTONE_OPTIONS.some(option => option.value === value);
+	}
+
+	function getCallRingtonePresetLabel(mode: CallRingtoneMode): string {
+		return CALL_RINGTONE_OPTIONS.find(option => option.value === mode)?.label || 'Classic Bell';
+	}
+
+	function getResolvedCallRingtoneLabel(mode: CallRingtoneMode): string {
+		if (mode === 'custom-audio') {
+			return localStorage.getItem('callRingtoneLabel') || 'Custom audio';
+		}
+		if (mode === 'custom-synth') {
+			return callRingtoneCustomSynth.name?.trim() || 'Custom Synth';
+		}
+		return getCallRingtonePresetLabel(mode);
+	}
+
+	function saveCallRingtoneCustomSynth(): void {
+		const sanitized = sanitizeCustomSynthRingtonePreset(callRingtoneCustomSynth);
+		callRingtoneCustomSynth = sanitized;
+		localStorage.setItem('callRingtoneCustomSynth', JSON.stringify(sanitized));
+		if (callRingtoneMode === 'custom-synth') {
+			callRingtoneLabel = getResolvedCallRingtoneLabel('custom-synth');
+		}
+	}
+
+	function loadStoredCallRingtoneCustomSynth(): CustomSynthRingtonePreset {
+		const raw = localStorage.getItem('callRingtoneCustomSynth');
+		if (!raw) return getDefaultCustomSynthRingtonePreset();
+		try {
+			return sanitizeCustomSynthRingtonePreset(JSON.parse(raw));
+		} catch (error) {
+			console.warn('[Settings] Failed to parse custom synth ringtone preset:', error);
+			return getDefaultCustomSynthRingtonePreset();
+		}
+	}
+
+	function getCallRingtoneCustomSynthSummary(): string {
+		const secondaryTone = callRingtoneCustomSynth.secondaryToneHz > 0
+			? ` + ${Math.round(callRingtoneCustomSynth.secondaryToneHz)}Hz`
+			: '';
+		return `${callRingtoneCustomSynth.name} • ${callRingtoneCustomSynth.waveform} • ${Math.round(callRingtoneCustomSynth.primaryToneHz)}Hz${secondaryTone}`;
+	}
+
 	// Load settings from localStorage and enforce server policy
 	onMount(() => {
 		selectedLocale = $currentLocale || 'en';
@@ -536,6 +713,7 @@
 		animationPassDurationMultiplier = animationSettings.durationMultiplier;
 		roleColorMode = accessibilitySettings.roleColorMode;
 		ownMessagesOnRight = accessibilitySettings.ownMessagesOnRight;
+		homeExperienceMode = getStoredHomeExperienceMode();
 		chatAvatarMode = accessibilitySettings.chatAvatarMode;
 		tabShadeStrength = accessibilitySettings.tabShadeStrength;
 		appChromeOpacity = accessibilitySettings.appChromeOpacity;
@@ -544,6 +722,8 @@
 		deletionCountdownMode = accessibilitySettings.deletionCountdownMode;
 		clickableSendEnabled = accessibilitySettings.clickableSendEnabled;
 		localAppRuntime = isTauriRuntime();
+		desktopLocalAppRuntime = getTauriPlatform() === 'desktop';
+		experimentalStdbCallsEnabled = isExperimentalStdbCallEnabled();
 		videoCompressionEnabled = isVideoCompressionEnabled();
 		applyVideoCompressionRuntimePreferences();
 		soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
@@ -552,12 +732,21 @@
 		cameraEnabled = localStorage.getItem('cameraEnabled') !== 'false';
 		suppressEveryoneHereMentions = localStorage.getItem('suppressEveryoneHereMentions') === 'true';
 		suppressRoleMentions = localStorage.getItem('suppressRoleMentions') === 'true';
+		notificationPreviewEnabled = localStorage.getItem('notificationPreviewEnabled') === 'true';
 		notificationSound = localStorage.getItem('notificationSound') || '/sounds/ProjectSound.ogg';
 		notificationSoundLabel =
 			notificationSound === '/sounds/ProjectSound.ogg'
 				? 'ProjectSound.ogg'
 				: localStorage.getItem('notificationSoundLabel') || 'Custom sound';
 		notificationVolume = parseFloat(localStorage.getItem('notificationVolume') || '0.5');
+		callRingtoneCustomSynth = loadStoredCallRingtoneCustomSynth();
+		const storedCallRingtoneMode = localStorage.getItem('callRingtoneMode');
+		callRingtoneMode = isCallRingtoneMode(storedCallRingtoneMode) ? storedCallRingtoneMode : 'classic-bell';
+		callRingtoneLabel = getResolvedCallRingtoneLabel(callRingtoneMode);
+		const storedCallRingtoneVolume = parseFloat(localStorage.getItem('callRingtoneVolume') || '0.65');
+		callRingtoneVolume = Number.isFinite(storedCallRingtoneVolume)
+			? Math.min(1, Math.max(0, storedCallRingtoneVolume))
+			: 0.65;
 		reverseImageSearchProvider = getReverseImageSearchProvider();
 		searchEngineProvider = getSearchEngineProvider();
 		searchEngineCustomTemplate = getCustomSearchEngineTemplate();
@@ -566,23 +755,23 @@
 		selectedCameraDeviceId = getPreferredCameraDeviceId() || '';
 		void loadMediaDevices();
 
-		// Sync server policy first to prevent race condition with Tauri prefs
+		// Load effective media settings through one path so local prefs and server policy
+		// are resolved consistently before the UI reflects them.
 		void (async () => {
-			await syncMediaRuntimeFromServer();
-			// After server sync, load local settings (will be constrained if needed)
-			mediaQualityMode = getStoredMediaQualityMode();
-			audioProcessingMode = getStoredAudioProcessingMode();
-			callTransportMode = getStoredCallTransportMode();
-			srtGatewayEnabled = isSrtGatewayEnabled();
-			screenShareQualityPreset = getStoredScreenShareQualityPreset();
-			screenShareBitrateKbps = getStoredScreenShareBitrateKbps() ?? 0;
-			const spatial = getStoredSpatialAudioSettings();
-			spatialAudioEnabled = spatial.enabled;
-			spatialAudioMode = spatial.mode;
-			spatialAudioStrength = spatial.masterStrength;
-			spatialAudioDistanceScale = spatial.distanceScale;
-			spatialAudioWarningsMuted = spatial.warningMuted;
-			spatialAudioQuickToggleVisible = spatial.quickToggleVisible;
+			const mediaSettings = await loadEffectiveMediaSettingsSnapshot();
+			mediaQualityMode = mediaSettings.qualityMode;
+			audioProcessingMode = mediaSettings.audioProcessingMode;
+			callTransportMode = mediaSettings.callTransportMode;
+			mediaRuntimeSnapshot = mediaSettings.runtime;
+			srtGatewayEnabled = mediaSettings.srtGatewayEnabled;
+			screenShareQualityPreset = mediaSettings.screenShareQualityPreset;
+			screenShareBitrateKbps = mediaSettings.screenShareBitrateKbps;
+			spatialAudioEnabled = mediaSettings.spatialAudio.enabled;
+			spatialAudioMode = mediaSettings.spatialAudio.mode;
+			spatialAudioStrength = mediaSettings.spatialAudio.masterStrength;
+			spatialAudioDistanceScale = mediaSettings.spatialAudio.distanceScale;
+			spatialAudioWarningsMuted = mediaSettings.spatialAudio.warningMuted;
+			spatialAudioQuickToggleVisible = mediaSettings.spatialAudio.quickToggleVisible;
 		})();
 
 		memoryTelemetrySupported = typeof performance !== 'undefined' && Boolean((performance as Performance & { memory?: unknown }).memory);
@@ -597,6 +786,18 @@
 		quoteTemplateDraft = get(customQuoteSettingsStore).template;
 		loadTranslatorAddonSettings();
 		saveTranslatorAddonSettings();
+		const authToken = getAuthToken();
+		if (authToken) {
+			void getUserSettings(authToken)
+				.then((settings) => {
+					if (!settings?.home_experience) return;
+					homeExperienceMode = settings.home_experience === 'conversations' ? 'conversations' : 'community';
+					setStoredHomeExperienceMode(homeExperienceMode);
+				})
+				.catch((error) => {
+					console.warn('[Settings] Failed to load home experience mode:', error);
+				});
+		}
 	});
 	$: selectedLocale = $currentLocale || 'en';
 	$: uiLearningModeEnabled = $learningModeEnabled;
@@ -635,6 +836,11 @@
 	onDestroy(() => {
 		cleanupMicTest();
 		stopMemoryTelemetry();
+		if (callRingtonePreviewTimeout !== null) {
+			window.clearTimeout(callRingtonePreviewTimeout);
+			callRingtonePreviewTimeout = null;
+		}
+		stopCallRingtone();
 	});
 
 	function bytesToMbInput(bytes: number | null): string {
@@ -865,6 +1071,11 @@
 		localStorage.setItem('suppressRoleMentions', suppressRoleMentions.toString());
 	}
 
+	function toggleNotificationPreview() {
+		notificationPreviewEnabled = !notificationPreviewEnabled;
+		localStorage.setItem('notificationPreviewEnabled', notificationPreviewEnabled.toString());
+	}
+
 	function userHasRole(user: { roles?: string[]; highestRole?: string }, role: 'admin' | 'mod' | 'owner'): boolean {
 		return user.highestRole === role || (user.roles || []).includes(role);
 	}
@@ -900,6 +1111,434 @@
 		if (!user.dbUserId) return;
 		removeUserRole(user.dbUserId, 'admin');
 		removeUserRole(user.dbUserId, 'mod');
+	}
+
+	function openPaymentConnections(): void {
+		const token = getAuthToken();
+		if (!token || !$currentUser?.dbUserId) {
+			alert('Sign in with a registered account to manage payment connections.');
+			return;
+		}
+		paymentConnectionsOpen = true;
+	}
+
+	function openPaymentHistory(): void {
+		const token = getAuthToken();
+		if (!token || !$currentUser?.dbUserId) {
+			alert('Sign in with a registered account to view your payment history.');
+			return;
+		}
+		paymentHistoryOpen = true;
+	}
+
+	function openServerDonation(): void {
+		serverDonationOpen = true;
+	}
+
+	function setPaymentSheetPrefill(options: {
+		amountInput?: string | null;
+		currency?: string | null;
+		countryCode?: string | null;
+		description?: string | null;
+		customerRef?: string | null;
+		providerId?: string | null;
+		methodId?: string | null;
+		metadata?: Record<string, unknown> | null;
+	} = {}): void {
+		profilePaymentSheetInitialAmountInput = options.amountInput ?? null;
+		profilePaymentSheetInitialCurrency = options.currency ?? null;
+		profilePaymentSheetInitialCountryCode = options.countryCode ?? null;
+		profilePaymentSheetInitialDescription = options.description ?? null;
+		profilePaymentSheetInitialCustomerRef = options.customerRef ?? null;
+		profilePaymentSheetInitialProviderId = options.providerId ?? null;
+		profilePaymentSheetInitialMethodId = options.methodId ?? null;
+		profilePaymentSheetInitialMetadata = options.metadata ?? null;
+	}
+
+	function openProfilePaymentSheet(options: {
+		amountInput?: string | null;
+		currency?: string | null;
+		countryCode?: string | null;
+		description?: string | null;
+		customerRef?: string | null;
+		providerId?: string | null;
+		methodId?: string | null;
+		metadata?: Record<string, unknown> | null;
+	} = {}): void {
+		const token = getAuthToken();
+		if (!token || !$currentUser?.dbUserId) {
+			alert('Sign in with a registered account to create payment requests.');
+			return;
+		}
+		setPaymentSheetPrefill({
+			amountInput: '100.00',
+			currency: null,
+			countryCode: null,
+			description: '',
+			customerRef: '',
+			providerId: null,
+			methodId: null,
+			metadata: null,
+			...options
+		});
+		profilePaymentSheetOpenSeed += 1;
+		profilePaymentSheetOpen = true;
+	}
+
+	function minorToMajorInput(amountMinor: number): string {
+		return (amountMinor / 100).toFixed(2);
+	}
+
+	function formatDonationAuditAmount(amountMinor: number, currency: string): string {
+		const value = amountMinor / 100;
+		try {
+			return new Intl.NumberFormat(undefined, {
+				style: 'currency',
+				currency: currency || 'USD',
+				maximumFractionDigits: 2
+			}).format(value);
+		} catch {
+			return `${value.toFixed(2)} ${currency || ''}`.trim();
+		}
+	}
+
+	function formatDonationAuditWhen(entry: PaymentDonationLedgerEntry | OfflineDonationLedgerEntry): string {
+		const timestamp = 'refundedAt' in entry
+			? entry.refundedAt || entry.completedAt || entry.createdAt
+			: entry.voidedAt || entry.completedAt || entry.createdAt;
+		if (!timestamp || !Number.isFinite(timestamp)) return 'n/a';
+		return new Date(timestamp).toLocaleString();
+	}
+
+	function parseSuggestedAmountsInput(value: string): number[] {
+		return value
+			.split(',')
+			.map((entry) => Math.round(Number.parseFloat(entry.trim()) * 100))
+			.filter((amount) => Number.isFinite(amount) && amount > 0);
+	}
+
+	function parseMajorAmountInput(value: string): number {
+		const parsed = Math.round(Number.parseFloat(value.trim()) * 100);
+		return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+	}
+
+	function normalizeAdminDonationMethodSelection(): void {
+		if (!adminDonationConfig.providerPluginId) {
+			if (adminDonationConfig.methodId !== null) {
+				adminDonationConfig = {
+					...adminDonationConfig,
+					methodId: null
+				};
+			}
+			return;
+		}
+
+		const selectedProvider =
+			paymentProviderCapabilities.find((provider) => provider.pluginId === adminDonationConfig.providerPluginId) || null;
+		const methods = selectedProvider?.methods || [];
+		const currentMethodValid = methods.some((method) => method.id === adminDonationConfig.methodId);
+		const nextMethodId = currentMethodValid ? adminDonationConfig.methodId : (methods[0]?.id || null);
+
+		if (nextMethodId !== adminDonationConfig.methodId) {
+			adminDonationConfig = {
+				...adminDonationConfig,
+				methodId: nextMethodId
+			};
+		}
+	}
+
+	async function loadPaymentProviderCapabilities(): Promise<void> {
+		if (paymentProviderCapabilitiesLoaded) return;
+		try {
+			paymentProviderCapabilities = await listPaymentProviders();
+			paymentProviderCapabilitiesLoaded = true;
+			normalizeAdminDonationMethodSelection();
+		} catch (error) {
+			console.error('[Payments] Failed to load provider capabilities for settings:', error);
+		}
+	}
+
+	async function loadAdminDonationConfig(): Promise<void> {
+		if (adminDonationConfigLoaded || adminDonationConfigLoading || !canManageAdmin) return;
+		const token = getAuthToken();
+		if (!token) return;
+		adminDonationConfigLoading = true;
+		try {
+			adminDonationConfig = await getAdminPaymentDonationConfig(token);
+			donationSuggestedAmountsInput = adminDonationConfig.suggestedAmountsMinor
+				.map((amountMinor) => minorToMajorInput(amountMinor))
+				.join(', ');
+			offlineDonationCurrency = adminDonationConfig.currency || offlineDonationCurrency;
+			adminDonationConfigLoaded = true;
+			await loadPaymentProviderCapabilities();
+			normalizeAdminDonationMethodSelection();
+		} catch (error) {
+			console.error('[Payments] Failed to load donation config:', error);
+		} finally {
+			adminDonationConfigLoading = false;
+		}
+	}
+
+	async function loadAdminDonationAudit(): Promise<void> {
+		if (adminDonationAuditLoaded || adminDonationAuditLoading || !canManageAdmin) return;
+		const token = getAuthToken();
+		if (!token) return;
+		adminDonationAuditLoading = true;
+		try {
+			const response = await listAdminPaymentDonationAudit(token, 100);
+			adminDonationAudit = response.donations;
+			adminDonationAuditLoaded = true;
+		} catch (error) {
+			console.error('[Payments] Failed to load donation audit trail:', error);
+		} finally {
+			adminDonationAuditLoading = false;
+		}
+	}
+
+	async function loadAdminOfflineDonationAudit(): Promise<void> {
+		if (adminOfflineDonationAuditLoaded || adminOfflineDonationAuditLoading || !canManageAdmin) return;
+		const token = getAuthToken();
+		if (!token) return;
+		adminOfflineDonationAuditLoading = true;
+		try {
+			const response = await listAdminOfflineDonations(token, 100);
+			adminOfflineDonationAudit = response.donations;
+			adminOfflineDonationAuditLoaded = true;
+		} catch (error) {
+			console.error('[Payments] Failed to load offline donation audit trail:', error);
+		} finally {
+			adminOfflineDonationAuditLoading = false;
+		}
+	}
+
+	async function saveDonationConfig(): Promise<void> {
+		if (adminDonationConfigSaving) return;
+		const token = getAuthToken();
+		if (!token) {
+			alert('You must be logged in as admin/owner.');
+			return;
+		}
+
+		const nextConfig: PaymentDonationConfig = {
+			...adminDonationConfig,
+			suggestedAmountsMinor: parseSuggestedAmountsInput(donationSuggestedAmountsInput)
+		};
+
+		adminDonationConfigSaving = true;
+		try {
+			adminDonationConfig = await saveAdminPaymentDonationConfig(token, nextConfig);
+			donationSuggestedAmountsInput = adminDonationConfig.suggestedAmountsMinor
+				.map((amountMinor) => minorToMajorInput(amountMinor))
+				.join(', ');
+			alert('Donation settings saved.');
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to save donation settings.');
+		} finally {
+			adminDonationConfigSaving = false;
+		}
+	}
+
+	async function createOfflineDonationRecord(): Promise<void> {
+		if (adminOfflineDonationSaving) return;
+		const token = getAuthToken();
+		if (!token) {
+			alert('You must be logged in as admin/owner.');
+			return;
+		}
+
+		const amountMinor = parseMajorAmountInput(offlineDonationAmountInput);
+		if (amountMinor <= 0) {
+			alert('Enter a valid offline donation amount.');
+			return;
+		}
+		const currency = offlineDonationCurrency.trim().toUpperCase();
+		if (!/^[A-Z]{3}$/.test(currency)) {
+			alert('Enter a valid 3-letter currency code.');
+			return;
+		}
+
+		adminOfflineDonationSaving = true;
+		try {
+			const donation = await createAdminOfflineDonation(token, {
+				amountMinor,
+				currency,
+				donorLabel: offlineDonationDonorLabel.trim() || undefined,
+				description: offlineDonationDescription.trim() || undefined,
+				metadata: { source: 'settings_admin_manual_entry' }
+			});
+			adminOfflineDonationAudit = [
+				donation,
+				...adminOfflineDonationAudit.filter((entry) => entry.settlementId !== donation.settlementId)
+			];
+			adminOfflineDonationAuditLoaded = true;
+			offlineDonationAmountInput = minorToMajorInput(amountMinor);
+			offlineDonationCurrency = currency;
+			offlineDonationDonorLabel = '';
+			offlineDonationDescription = '';
+			alert('Offline donation recorded.');
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to record offline donation.');
+		} finally {
+			adminOfflineDonationSaving = false;
+		}
+	}
+
+	async function refundDonation(entry: PaymentDonationLedgerEntry): Promise<void> {
+		if (!canManageAdmin || adminDonationRefundingIntentId || !entry.canRefund) return;
+		const token = getAuthToken();
+		if (!token) {
+			alert('You must be logged in as admin/owner.');
+			return;
+		}
+
+		const reason = window.prompt(
+			`Refund ${formatDonationAuditAmount(entry.amountMinor, entry.currency)} from ${entry.donorLabel}.`,
+			'Refund requested by donor'
+		);
+		if (reason === null) return;
+
+		const normalizedReason = reason.trim() || 'Refund requested by donor';
+		const confirmed = window.confirm(
+			`Issue a donation refund for ${entry.donorLabel}?\n\n${formatDonationAuditAmount(entry.amountMinor, entry.currency)}\nReason: ${normalizedReason}`
+		);
+		if (!confirmed) return;
+
+		adminDonationRefundingIntentId = entry.intentId;
+		try {
+			await refundAdminPaymentDonation(token, entry.intentId, normalizedReason);
+			adminDonationAuditLoaded = false;
+			await loadAdminDonationAudit();
+			alert('Donation refund submitted.');
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to refund donation.');
+		} finally {
+			adminDonationRefundingIntentId = '';
+		}
+	}
+
+	async function voidOfflineDonation(entry: OfflineDonationLedgerEntry): Promise<void> {
+		if (!canManageAdmin || adminOfflineDonationVoidingSettlementId || !entry.canVoid) return;
+		const token = getAuthToken();
+		if (!token) {
+			alert('You must be logged in as admin/owner.');
+			return;
+		}
+
+		const reason = window.prompt(
+			`Void offline donation from ${entry.donorLabel}?`,
+			'Recorded in error'
+		);
+		if (reason === null) return;
+		const normalizedReason = reason.trim() || 'Recorded in error';
+		const confirmed = window.confirm(
+			`Void offline donation for ${entry.donorLabel}?\n\n${formatDonationAuditAmount(entry.amountMinor, entry.currency)}\nReason: ${normalizedReason}`
+		);
+		if (!confirmed) return;
+
+		adminOfflineDonationVoidingSettlementId = entry.settlementId;
+		try {
+			const updated = await voidAdminOfflineDonation(token, entry.settlementId, normalizedReason);
+			adminOfflineDonationAudit = adminOfflineDonationAudit.map((item) =>
+				item.settlementId === entry.settlementId ? updated : item
+			);
+			alert('Offline donation voided.');
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to void offline donation.');
+		} finally {
+			adminOfflineDonationVoidingSettlementId = '';
+		}
+	}
+
+	function handleDonationPrefill(payload: DonationPrefillPayload): void {
+		serverDonationOpen = false;
+		openProfilePaymentSheet({
+			amountInput: payload.amountInput,
+			currency: payload.currency,
+			countryCode: payload.countryCode,
+			description: payload.description,
+			providerId: payload.providerPluginId,
+			methodId: payload.methodId,
+			metadata: payload.metadata
+		});
+	}
+
+	async function changeOwnPassword() {
+		if (changingPassword) return;
+		if (!currentPasswordDraft || !newPasswordDraft || !confirmNewPasswordDraft) {
+			alert('Please fill in all password fields.');
+			return;
+		}
+		if (newPasswordDraft !== confirmNewPasswordDraft) {
+			alert('New password confirmation does not match.');
+			return;
+		}
+		if (newPasswordDraft.length < 8) {
+			alert('New password must be at least 8 characters.');
+			return;
+		}
+
+		const token = getAuthToken();
+		if (!token) {
+			alert('You must be logged in to change password.');
+			return;
+		}
+
+		changingPassword = true;
+		try {
+			await changePassword(token, currentPasswordDraft, newPasswordDraft);
+			currentPasswordDraft = '';
+			newPasswordDraft = '';
+			confirmNewPasswordDraft = '';
+			alert('Password updated.');
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to change password.');
+		} finally {
+			changingPassword = false;
+		}
+	}
+
+	async function promptAdminPasswordReset(user: { dbUserId?: number; username: string; id: string; highestRole?: string }) {
+		if (!canManageTargetUser(user) || !user.dbUserId) return;
+
+		const newPassword = window.prompt(`Set a new password for ${user.username} (min 8 chars):`);
+		if (!newPassword) return;
+		if (newPassword.length < 8) {
+			alert('Password must be at least 8 characters.');
+			return;
+		}
+		const confirm = window.prompt(`Confirm new password for ${user.username}:`);
+		if (confirm !== newPassword) {
+			alert('Password confirmation does not match.');
+			return;
+		}
+
+		const token = getAuthToken();
+		if (!token) {
+			alert('You must be logged in as admin/owner.');
+			return;
+		}
+
+		try {
+			await adminResetUserPassword(token, user.dbUserId, newPassword);
+			alert(`Password reset for ${user.username}.`);
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to reset password.');
+		}
+	}
+
+	async function clearUserLoginLockout(user: { dbUserId?: number; username: string; id: string; highestRole?: string }) {
+		if (!canManageTargetUser(user) || !user.dbUserId) return;
+		const token = getAuthToken();
+		if (!token) {
+			alert('You must be logged in as admin/owner.');
+			return;
+		}
+		try {
+			await adminClearUserLoginLockout(token, user.dbUserId);
+			alert(`Cleared login lockout state for ${user.username}.`);
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to clear lockout.');
+		}
 	}
 
 	function updateMediaQualityMode(mode: MediaQualityMode) {
@@ -1073,6 +1712,12 @@
 		refreshSpatialAudioRuntime();
 	}
 
+	async function toggleExperimentalStdbCalls() {
+		const next = !experimentalStdbCallsEnabled;
+		experimentalStdbCallsEnabled = next;
+		await setExperimentalStdbCallEnabled(next);
+	}
+
 	function toggleSpatialWarningsMuted() {
 		spatialAudioWarningsMuted = !spatialAudioWarningsMuted;
 		setSpatialAudioWarningMuted(spatialAudioWarningsMuted);
@@ -1127,18 +1772,100 @@
 		localStorage.setItem('notificationVolume', volume.toString());
 	}
 
+	function updateCallRingtoneMode(mode: CallRingtoneMode) {
+		callRingtoneMode = mode;
+		localStorage.setItem('callRingtoneMode', mode);
+		callRingtoneLabel = getResolvedCallRingtoneLabel(mode);
+		if (mode !== 'custom-synth') {
+			callRingtoneSynthEditorExpanded = false;
+		}
+		stopCallRingtone();
+	}
+
+	function updateCallRingtoneVolume(volume: number) {
+		callRingtoneVolume = volume;
+		localStorage.setItem('callRingtoneVolume', volume.toString());
+	}
+
+	function updateCallRingtoneCustomSynthField<K extends keyof CustomSynthRingtonePreset>(
+		key: K,
+		value: CustomSynthRingtonePreset[K]
+	) {
+		callRingtoneCustomSynth = sanitizeCustomSynthRingtonePreset({
+			...callRingtoneCustomSynth,
+			[key]: value
+		});
+		saveCallRingtoneCustomSynth();
+	}
+
 	function testNotificationSound() {
 		playNotificationSound();
+	}
+
+	function testCallRingtone() {
+		if (callRingtonePreviewTimeout !== null) {
+			window.clearTimeout(callRingtonePreviewTimeout);
+			callRingtonePreviewTimeout = null;
+		}
+		stopCallRingtone();
+		playCallRingtone();
+		callRingtonePreviewTimeout = window.setTimeout(() => {
+			stopCallRingtone();
+			callRingtonePreviewTimeout = null;
+		}, 4800);
 	}
 
 	function triggerNotificationSoundFilePicker(): void {
 		notificationSoundInput?.click();
 	}
 
+	function triggerCallRingtoneFilePicker(): void {
+		callRingtoneInput?.click();
+	}
+
+	function triggerCallRingtoneSynthImportFilePicker(): void {
+		callRingtoneSynthImportInput?.click();
+	}
+
 	function resetNotificationSoundToDefault(): void {
 		notificationSoundLabel = 'ProjectSound.ogg';
 		localStorage.removeItem('notificationSoundLabel');
 		updateNotificationSound('/sounds/ProjectSound.ogg');
+	}
+
+	function resetCallRingtoneToDefault(): void {
+		localStorage.removeItem('callRingtoneCustomAudio');
+		localStorage.removeItem('callRingtoneLabel');
+		callRingtoneCustomSynth = getDefaultCustomSynthRingtonePreset();
+		localStorage.setItem('callRingtoneCustomSynth', JSON.stringify(callRingtoneCustomSynth));
+		updateCallRingtoneMode('classic-bell');
+		callRingtoneLabel = 'Classic Bell';
+	}
+
+	function resetCallRingtoneCustomSynth(): void {
+		callRingtoneCustomSynth = getDefaultCustomSynthRingtonePreset();
+		saveCallRingtoneCustomSynth();
+		if (callRingtoneMode !== 'custom-synth') {
+			updateCallRingtoneMode('custom-synth');
+		}
+		callRingtoneSynthEditorExpanded = true;
+	}
+
+	function exportCallRingtoneCustomSynth(): void {
+		const preset = sanitizeCustomSynthRingtonePreset(callRingtoneCustomSynth);
+		const blob = new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement('a');
+		const safeName = (preset.name || 'custom-synth')
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/(^-|-$)/g, '') || 'custom-synth';
+		link.href = url;
+		link.download = `${safeName}-ringtone.json`;
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+		URL.revokeObjectURL(url);
 	}
 
 	async function handleNotificationSoundFileSelect(event: Event): Promise<void> {
@@ -1174,6 +1901,72 @@
 			testNotificationSound();
 		} catch (error) {
 			alert(error instanceof Error ? error.message : 'Failed to load custom sound.');
+		} finally {
+			input.value = '';
+		}
+	}
+
+	async function handleCallRingtoneSynthImportFileSelect(event: Event): Promise<void> {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+
+		const isJsonFile = file.type === 'application/json' || /\.json$/i.test(file.name);
+		if (!isJsonFile) {
+			alert('Please choose a JSON preset file.');
+			input.value = '';
+			return;
+		}
+
+		try {
+			const text = await file.text();
+			const preset = sanitizeCustomSynthRingtonePreset(JSON.parse(text));
+			callRingtoneCustomSynth = preset;
+			saveCallRingtoneCustomSynth();
+			updateCallRingtoneMode('custom-synth');
+			callRingtoneSynthEditorExpanded = true;
+			testCallRingtone();
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to import synth preset.');
+		} finally {
+			input.value = '';
+		}
+	}
+
+	async function handleCallRingtoneFileSelect(event: Event): Promise<void> {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+
+		const isAudioFile = file.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)$/i.test(file.name);
+		if (!isAudioFile) {
+			alert('Please choose an audio file.');
+			input.value = '';
+			return;
+		}
+		if (file.size > 1024 * 1024) {
+			alert('Custom call ringtones must be 1MB or smaller.');
+			input.value = '';
+			return;
+		}
+
+		try {
+			const dataUrl = await new Promise<string>((resolve, reject) => {
+				const reader = new FileReader();
+				reader.onload = () => resolve(String(reader.result || ''));
+				reader.onerror = () => reject(new Error('Failed to read audio file.'));
+				reader.readAsDataURL(file);
+			});
+			if (!dataUrl.startsWith('data:audio')) {
+				throw new Error('Unsupported audio encoding.');
+			}
+			localStorage.setItem('callRingtoneCustomAudio', dataUrl);
+			localStorage.setItem('callRingtoneLabel', file.name);
+			callRingtoneLabel = file.name;
+			updateCallRingtoneMode('custom-audio');
+			testCallRingtone();
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to load custom ringtone.');
 		} finally {
 			input.value = '';
 		}
@@ -1335,6 +2128,21 @@
 
 	function toggleDockNavCollapsed() {
 		layoutStore.toggleNavCollapsed();
+	}
+
+	async function updateHomeExperienceMode(mode: HomeExperienceMode) {
+		homeExperienceMode = mode;
+		setStoredHomeExperienceMode(mode);
+		applyHomeExperienceMode(mode);
+
+		const token = getAuthToken();
+		if (!token) return;
+
+		try {
+			await saveUserSettings(token, { home_experience: mode });
+		} catch (error) {
+			console.warn('[Settings] Failed to save home experience mode:', error);
+		}
 	}
 
 	function toggleObviousGrabRails() {
@@ -2572,6 +3380,71 @@
 								</button>
 							</div>
 						</div>
+						{#if $currentUser?.dbUserId}
+							<div class="settings-section">
+								<h3>Account Security</h3>
+								<div class="setting-item-full">
+									<div class="setting-info">
+										<span class="setting-label">Change Password</span>
+										<span class="setting-description">Update your account password.</span>
+									</div>
+									<input
+										type="password"
+										class="emoji-name-input"
+										placeholder="Current password"
+										bind:value={currentPasswordDraft}
+										autocomplete="current-password"
+									/>
+									<input
+										type="password"
+										class="emoji-name-input"
+										placeholder="New password"
+										bind:value={newPasswordDraft}
+										autocomplete="new-password"
+									/>
+									<input
+										type="password"
+										class="emoji-name-input"
+										placeholder="Confirm new password"
+										bind:value={confirmNewPasswordDraft}
+										autocomplete="new-password"
+									/>
+									<button class="pfp-upload-btn" on:click={changeOwnPassword} disabled={changingPassword}>
+										{changingPassword ? 'Updating...' : 'Update Password'}
+									</button>
+								</div>
+							</div>
+						{/if}
+						<div class="settings-section">
+							<h3>Payments</h3>
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">Payment History</span>
+									<span class="setting-description">View the payment requests you created, then export them if you need a record.</span>
+								</div>
+								<button class="pfp-upload-btn" on:click={openPaymentHistory} disabled={!$currentUser?.dbUserId}>
+									{$currentUser?.dbUserId ? 'View History' : 'Sign In Required'}
+								</button>
+							</div>
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">Payment Connections</span>
+									<span class="setting-description">Link payment providers that this server has already loaded, so Wabi can reuse them when you pay or request payment.</span>
+								</div>
+								<button class="pfp-upload-btn" on:click={openPaymentConnections} disabled={!$currentUser?.dbUserId}>
+									{$currentUser?.dbUserId ? 'Manage Connections' : 'Sign In Required'}
+								</button>
+							</div>
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">Support This Server</span>
+									<span class="setting-description">View donation totals and contribute through the server's configured donation route.</span>
+								</div>
+								<button class="pfp-upload-btn" on:click={openServerDonation}>
+									View Donations
+								</button>
+							</div>
+						</div>
 						<div class="settings-section">
 							<h3>{$t('settings.sections.profile_picture')}</h3>
 							<div class="pfp-upload-section">
@@ -2884,6 +3757,30 @@
 										<option value="p2p-only">P2P/TURN Only</option>
 										<option value="sfu-preferred">SFU Preferred (Fallback to P2P)</option>
 									</select>
+									<div class="runtime-note">
+										Channel voice calls can use SFU when configured. Direct DM calls currently stay on WebRTC P2P/TURN.
+									</div>
+									{#if mediaRuntimeSnapshot && !mediaRuntimeSnapshot.media?.turn?.configured}
+										<div class="runtime-note">
+											TURN relay is not configured on this server right now. DM calls can fail across NAT, mobile, and home-network boundaries.
+										</div>
+									{/if}
+								</div>
+
+								<div class="setting-item">
+									<div class="setting-info">
+										<span class="setting-label">Experimental SpaceChatDB STDB Calls</span>
+										<span class="setting-description">Desktop-only experimental path for DM/group calls. Channel voice calls stay on standard routing.</span>
+									</div>
+									<button
+										class="toggle-btn"
+										class:active={experimentalStdbCallsEnabled}
+										on:click={toggleExperimentalStdbCalls}
+										disabled={!desktopLocalAppRuntime}
+										title="Experimental desktop STDB routing for DM/group calls only"
+									>
+										{experimentalStdbCallsEnabled ? 'ON' : 'OFF'}
+									</button>
 								</div>
 
 								<div class="setting-item">
@@ -2935,6 +3832,16 @@
 								</button>
 							</div>
 
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Show Message Preview</span>
+									<span class="setting-description">If off, desktop notifications use a generic "New message" body.</span>
+								</div>
+								<button class="toggle-btn" class:active={notificationPreviewEnabled} on:click={toggleNotificationPreview}>
+									{notificationPreviewEnabled ? 'ON' : 'OFF'}
+								</button>
+							</div>
+
 							<div class="setting-item-full">
 								<div class="setting-info">
 									<span class="setting-label">
@@ -2979,6 +3886,262 @@
 
 							<div class="setting-item-full">
 								<div class="setting-info">
+									<span class="setting-label">Call Ringtone</span>
+									<span class="setting-description">Choose what repeats while an incoming call is ringing.</span>
+								</div>
+								<select
+									class="theme-select"
+									bind:value={callRingtoneMode}
+									on:change={(e) => updateCallRingtoneMode(e.currentTarget.value as CallRingtoneMode)}
+								>
+									{#each CALL_RINGTONE_OPTIONS as option}
+										<option value={option.value}>{option.label}</option>
+									{/each}
+								</select>
+								{#if callRingtoneMode === 'custom-synth'}
+									<div class="runtime-note">Custom synth presets stay tiny in storage and can be imported or exported as JSON.</div>
+									<div class="settings-row-actions">
+										<button
+											class="action-btn secondary"
+											on:click={() => (callRingtoneSynthEditorExpanded = !callRingtoneSynthEditorExpanded)}
+										>
+											{callRingtoneSynthEditorExpanded ? 'Hide Advanced' : 'Edit Synth'}
+										</button>
+										<button class="sound-option" on:click={exportCallRingtoneCustomSynth}>
+											Export JSON
+										</button>
+										<button class="sound-option" on:click={triggerCallRingtoneSynthImportFilePicker}>
+											Import JSON
+										</button>
+									</div>
+									<div class="runtime-note">Preset: {getCallRingtoneCustomSynthSummary()}</div>
+									{#if callRingtoneSynthEditorExpanded}
+										<div class="synth-editor-grid">
+											<div class="quality-mode-row">
+												<label for="call-ringtone-synth-name">Preset Name</label>
+												<input
+													id="call-ringtone-synth-name"
+													class="theme-select"
+													maxlength="48"
+													value={callRingtoneCustomSynth.name}
+													on:input={(e) => updateCallRingtoneCustomSynthField('name', e.currentTarget.value)}
+												/>
+											</div>
+											<div class="quality-mode-row">
+												<label for="call-ringtone-synth-waveform">Waveform</label>
+												<select
+													id="call-ringtone-synth-waveform"
+													class="theme-select"
+													value={callRingtoneCustomSynth.waveform}
+													on:change={(e) => updateCallRingtoneCustomSynthField('waveform', e.currentTarget.value as CustomSynthWaveform)}
+												>
+													{#each CUSTOM_SYNTH_WAVEFORM_OPTIONS as option}
+														<option value={option.value}>{option.label}</option>
+													{/each}
+												</select>
+											</div>
+											<div class="quality-mode-row">
+												<label for="call-ringtone-primary-tone">Primary Tone (Hz)</label>
+												<input
+													id="call-ringtone-primary-tone"
+													type="number"
+													min="120"
+													max="2200"
+													step="5"
+													class="theme-select"
+													value={callRingtoneCustomSynth.primaryToneHz}
+													on:input={(e) => updateCallRingtoneCustomSynthField('primaryToneHz', Number(e.currentTarget.value))}
+												/>
+											</div>
+											<div class="quality-mode-row">
+												<label for="call-ringtone-secondary-tone">Secondary Tone (Hz)</label>
+												<input
+													id="call-ringtone-secondary-tone"
+													type="number"
+													min="0"
+													max="2600"
+													step="5"
+													class="theme-select"
+													value={callRingtoneCustomSynth.secondaryToneHz}
+													on:input={(e) => updateCallRingtoneCustomSynthField('secondaryToneHz', Number(e.currentTarget.value))}
+												/>
+											</div>
+											<div class="quality-mode-row">
+												<label for="call-ringtone-burst-count">Burst Count</label>
+												<input
+													id="call-ringtone-burst-count"
+													type="number"
+													min="1"
+													max="6"
+													step="1"
+													class="theme-select"
+													value={callRingtoneCustomSynth.burstCount}
+													on:input={(e) => updateCallRingtoneCustomSynthField('burstCount', Number(e.currentTarget.value))}
+												/>
+											</div>
+											<div class="quality-mode-row">
+												<label for="call-ringtone-burst-duration">Burst Duration (ms)</label>
+												<input
+													id="call-ringtone-burst-duration"
+													type="number"
+													min="60"
+													max="2500"
+													step="10"
+													class="theme-select"
+													value={callRingtoneCustomSynth.burstDurationMs}
+													on:input={(e) => updateCallRingtoneCustomSynthField('burstDurationMs', Number(e.currentTarget.value))}
+												/>
+											</div>
+											<div class="quality-mode-row">
+												<label for="call-ringtone-burst-spacing">Burst Gap (ms)</label>
+												<input
+													id="call-ringtone-burst-spacing"
+													type="number"
+													min="80"
+													max="4000"
+													step="10"
+													class="theme-select"
+													value={callRingtoneCustomSynth.burstSpacingMs}
+													on:input={(e) => updateCallRingtoneCustomSynthField('burstSpacingMs', Number(e.currentTarget.value))}
+												/>
+											</div>
+											<div class="quality-mode-row">
+												<label for="call-ringtone-cycle">Loop Length (ms)</label>
+												<input
+													id="call-ringtone-cycle"
+													type="number"
+													min="300"
+													max="8000"
+													step="10"
+													class="theme-select"
+													value={callRingtoneCustomSynth.cycleMs}
+													on:input={(e) => updateCallRingtoneCustomSynthField('cycleMs', Number(e.currentTarget.value))}
+												/>
+											</div>
+											<div class="quality-mode-row">
+												<label for="call-ringtone-level">Synth Level</label>
+												<input
+													id="call-ringtone-level"
+													type="range"
+													min="0.02"
+													max="0.25"
+													step="0.01"
+													value={callRingtoneCustomSynth.level}
+													on:input={(e) => updateCallRingtoneCustomSynthField('level', Number(e.currentTarget.value))}
+													class="volume-slider"
+												/>
+											</div>
+											<div class="quality-mode-row">
+												<label for="call-ringtone-fadeout">Fade Out (ms)</label>
+												<input
+													id="call-ringtone-fadeout"
+													type="number"
+													min="10"
+													max="800"
+													step="5"
+													class="theme-select"
+													value={callRingtoneCustomSynth.fadeOutMs}
+													on:input={(e) => updateCallRingtoneCustomSynthField('fadeOutMs', Number(e.currentTarget.value))}
+												/>
+											</div>
+											<div class="quality-mode-row">
+												<label for="call-ringtone-harmonic-multiplier">Harmonic Multiplier</label>
+												<input
+													id="call-ringtone-harmonic-multiplier"
+													type="number"
+													min="1"
+													max="8"
+													step="0.1"
+													class="theme-select"
+													value={callRingtoneCustomSynth.harmonicMultiplier}
+													on:input={(e) => updateCallRingtoneCustomSynthField('harmonicMultiplier', Number(e.currentTarget.value))}
+												/>
+											</div>
+											<div class="quality-mode-row">
+												<label for="call-ringtone-harmonic-gain">Harmonic Gain</label>
+												<input
+													id="call-ringtone-harmonic-gain"
+													type="range"
+													min="0"
+													max="0.4"
+													step="0.01"
+													value={callRingtoneCustomSynth.harmonicGain}
+													on:input={(e) => updateCallRingtoneCustomSynthField('harmonicGain', Number(e.currentTarget.value))}
+													class="volume-slider"
+												/>
+											</div>
+											<div class="quality-mode-row">
+												<label for="call-ringtone-tremolo-hz">Tremolo Speed (Hz)</label>
+												<input
+													id="call-ringtone-tremolo-hz"
+													type="number"
+													min="0"
+													max="30"
+													step="0.5"
+													class="theme-select"
+													value={callRingtoneCustomSynth.tremoloHz}
+													on:input={(e) => updateCallRingtoneCustomSynthField('tremoloHz', Number(e.currentTarget.value))}
+												/>
+											</div>
+											<div class="quality-mode-row">
+												<label for="call-ringtone-tremolo-depth">Tremolo Depth</label>
+												<input
+													id="call-ringtone-tremolo-depth"
+													type="range"
+													min="0"
+													max="0.95"
+													step="0.01"
+													value={callRingtoneCustomSynth.tremoloDepth}
+													on:input={(e) => updateCallRingtoneCustomSynthField('tremoloDepth', Number(e.currentTarget.value))}
+													class="volume-slider"
+												/>
+											</div>
+										</div>
+										<div class="settings-row-actions">
+											<button class="sound-option" on:click={resetCallRingtoneCustomSynth}>
+												Reset Synth
+											</button>
+										</div>
+									{/if}
+									<input
+										type="file"
+										accept="application/json,.json"
+										bind:this={callRingtoneSynthImportInput}
+										on:change={handleCallRingtoneSynthImportFileSelect}
+										style="display: none;"
+									/>
+								{:else if callRingtoneMode === 'custom-audio'}
+									<div class="sound-options">
+										<button class="sound-option" on:click={triggerCallRingtoneFilePicker}>
+											{callRingtoneLabel === 'Custom audio' ? 'Upload Custom Audio' : 'Replace Custom Audio'}
+										</button>
+										<button class="sound-option" on:click={resetCallRingtoneToDefault}>
+											Back To Preset
+										</button>
+									</div>
+									<input
+										type="file"
+										accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac"
+										bind:this={callRingtoneInput}
+										on:change={handleCallRingtoneFileSelect}
+										style="display: none;"
+									/>
+								{/if}
+								<div class="runtime-note">Active ringtone: {callRingtoneLabel}</div>
+								<div class="settings-row-actions">
+									<button class="test-sound-btn" on:click={testCallRingtone}>
+										Test Ringtone
+									</button>
+									{#if callRingtoneMode !== 'custom-audio'}
+										<button class="action-btn secondary" on:click={resetCallRingtoneToDefault}>
+											Reset Default
+										</button>
+									{/if}
+								</div>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
 									<span class="setting-label">Notification Volume</span>
 									<span class="setting-description">Adjust the volume of notification sounds ({Math.round(notificationVolume * 100)}%)</span>
 								</div>
@@ -2989,6 +4152,22 @@
 									step="0.05"
 									bind:value={notificationVolume}
 									on:input={(e) => updateNotificationVolume(parseFloat(e.currentTarget.value))}
+									class="volume-slider"
+								/>
+							</div>
+
+							<div class="setting-item-full">
+								<div class="setting-info">
+									<span class="setting-label">Call Ringtone Volume</span>
+									<span class="setting-description">Adjust the volume of the incoming call ringtone ({Math.round(callRingtoneVolume * 100)}%)</span>
+								</div>
+								<input
+									type="range"
+									min="0"
+									max="1"
+									step="0.05"
+									bind:value={callRingtoneVolume}
+									on:input={(e) => updateCallRingtoneVolume(parseFloat(e.currentTarget.value))}
 									class="volume-slider"
 								/>
 							</div>
@@ -3172,6 +4351,21 @@
 									<option value="off">Off</option>
 									<option value="user">User Only (Others)</option>
 									<option value="all">All</option>
+								</select>
+							</div>
+
+							<div class="setting-item">
+								<div class="setting-info">
+									<span class="setting-label">Home View</span>
+									<span class="setting-description">Choose whether Wabi opens focused on conversations or the community panel</span>
+								</div>
+								<select
+									class="theme-select"
+									value={homeExperienceMode}
+									on:change={(e) => updateHomeExperienceMode(e.currentTarget.value as HomeExperienceMode)}
+								>
+									<option value="conversations">Conversation-first</option>
+									<option value="community">Community-first</option>
 								</select>
 							</div>
 
@@ -4089,7 +5283,7 @@
 							<div class="setting-item-full">
 								<div class="setting-info">
 									<span class="setting-label">LastMessageDate</span>
-									<span class="setting-description">Show each user’s most recent message timestamp in the active channel inside popouts.</span>
+									<span class="setting-description">Show each userâ€™s most recent message timestamp in the active channel inside popouts.</span>
 								</div>
 								<div class="settings-row-actions">
 									<button class="toggle-btn" class:active={lastMessageDateEnabled} on:click={toggleLastMessageDateAddon}>
@@ -4728,6 +5922,242 @@
 									{savingUploadLimits ? 'Saving...' : 'Save Upload Limits'}
 								</button>
 							</div>
+							<div class="upload-limits-panel">
+								<h4>Server Donations</h4>
+								<p class="admin-help">Configure a single server donation route. Users will see transparency totals and a donate flow based on this setup.</p>
+								<div class="setting-item">
+									<div class="setting-info">
+										<span class="setting-label">Enable Donations</span>
+										<span class="setting-description">Show the server donation entry and allow donation-tagged payment requests.</span>
+									</div>
+									<button
+										class="toggle-btn"
+										class:active={adminDonationConfig.enabled}
+										on:click={() => adminDonationConfig = { ...adminDonationConfig, enabled: !adminDonationConfig.enabled }}
+									>
+										{adminDonationConfig.enabled ? 'ON' : 'OFF'}
+									</button>
+								</div>
+								<div class="quality-mode-row">
+									<label for="donation-provider-select">Donation Provider</label>
+									<select
+										id="donation-provider-select"
+										class="theme-select"
+										value={adminDonationConfig.providerPluginId || ''}
+										on:change={(event) => {
+											const providerPluginId = event.currentTarget.value || null;
+											const selectedProvider = paymentProviderCapabilities.find((provider) => provider.pluginId === providerPluginId) || null;
+											adminDonationConfig = {
+												...adminDonationConfig,
+												providerPluginId,
+												methodId: selectedProvider?.methods[0]?.id || null
+											};
+										}}
+									>
+										<option value="">Select provider</option>
+										{#each paymentProviderCapabilities as provider}
+											<option value={provider.pluginId}>{provider.providerName} ({provider.pluginId})</option>
+										{/each}
+									</select>
+								</div>
+								<div class="quality-mode-row">
+									<label for="donation-method-select">Donation Method</label>
+									<select
+										id="donation-method-select"
+										class="theme-select"
+										value={adminDonationConfig.methodId || ''}
+										on:change={(event) => adminDonationConfig = { ...adminDonationConfig, methodId: event.currentTarget.value || null }}
+									>
+										<option value="">Select method</option>
+										{#each adminDonationMethods as method}
+											<option value={method.id}>{method.label}</option>
+										{/each}
+									</select>
+								</div>
+								<div class="quality-mode-row">
+									<label for="donation-currency-input">Currency</label>
+									<input
+										id="donation-currency-input"
+										class="emoji-name-input"
+										maxlength="3"
+										value={adminDonationConfig.currency}
+										on:input={(event) => adminDonationConfig = { ...adminDonationConfig, currency: event.currentTarget.value.toUpperCase() }}
+									/>
+								</div>
+								<div class="quality-mode-row">
+									<label for="donation-country-input">Country</label>
+									<input
+										id="donation-country-input"
+										class="emoji-name-input"
+										maxlength="2"
+										value={adminDonationConfig.countryCode || ''}
+										on:input={(event) => adminDonationConfig = { ...adminDonationConfig, countryCode: event.currentTarget.value.toUpperCase() || null }}
+									/>
+								</div>
+								<div class="quality-mode-row">
+									<label for="donation-headline-input">Headline</label>
+									<input
+										id="donation-headline-input"
+										class="emoji-name-input"
+										maxlength="120"
+										value={adminDonationConfig.headline}
+										on:input={(event) => adminDonationConfig = { ...adminDonationConfig, headline: event.currentTarget.value }}
+									/>
+								</div>
+								<div class="quality-mode-row">
+									<label for="donation-description-input">Description</label>
+									<input
+										id="donation-description-input"
+										class="emoji-name-input"
+										maxlength="500"
+										value={adminDonationConfig.description}
+										on:input={(event) => adminDonationConfig = { ...adminDonationConfig, description: event.currentTarget.value }}
+									/>
+								</div>
+								<div class="quality-mode-row">
+									<label for="donation-amounts-input">Suggested Amounts</label>
+									<input
+										id="donation-amounts-input"
+										class="emoji-name-input"
+										placeholder="5, 10, 25"
+										bind:value={donationSuggestedAmountsInput}
+									/>
+								</div>
+								<button class="action-btn" on:click={saveDonationConfig} disabled={!canManageAdmin || adminDonationConfigLoading || adminDonationConfigSaving}>
+									{adminDonationConfigSaving ? 'Saving...' : 'Save Donation Settings'}
+								</button>
+								<div class="donation-audit-panel">
+									<div class="donation-audit-header">
+										<div>
+											<h5>Donation Audit Trail</h5>
+											<p class="admin-help">This covers server donations only. Direct user-to-user payments stay private.</p>
+										</div>
+										<button
+											class="action-btn"
+											on:click={() => {
+												adminDonationAuditLoaded = false;
+												void loadAdminDonationAudit();
+											}}
+											disabled={adminDonationAuditLoading || adminDonationRefundingIntentId !== ''}
+										>
+											{adminDonationAuditLoading ? 'Refreshing...' : 'Refresh Audit'}
+										</button>
+									</div>
+									{#if adminDonationAuditLoading && adminDonationAudit.length === 0}
+										<p class="admin-help">Loading donation audit trail...</p>
+									{:else if adminDonationAudit.length === 0}
+										<p class="admin-help">No donation activity yet.</p>
+									{:else}
+										<div class="donation-audit-list">
+											{#each adminDonationAudit as entry (entry.intentId)}
+												<div class="donation-audit-item">
+													<div class="donation-audit-copy">
+														<strong>{entry.donorLabel}</strong>
+														<span>{formatDonationAuditAmount(entry.amountMinor, entry.currency)}</span>
+														<small>{formatDonationAuditWhen(entry)} • {entry.status}</small>
+													</div>
+													<button
+														class="action-btn"
+														disabled={!entry.canRefund || adminDonationRefundingIntentId !== '' || !canManageAdmin}
+														on:click={() => refundDonation(entry)}
+													>
+														{adminDonationRefundingIntentId === entry.intentId ? 'Refunding...' : (entry.canRefund ? 'Refund' : 'Closed')}
+													</button>
+												</div>
+											{/each}
+										</div>
+									{/if}
+								</div>
+								<div class="donation-audit-panel">
+									<div class="donation-audit-header">
+										<div>
+											<h5>Offline / Manual Donations</h5>
+											<p class="admin-help">Record in-person cash or off-platform donations here. These are visible in server donation transparency, but they are not provider-verified.</p>
+										</div>
+										<button
+											class="action-btn"
+											on:click={() => {
+												adminOfflineDonationAuditLoaded = false;
+												void loadAdminOfflineDonationAudit();
+											}}
+											disabled={adminOfflineDonationAuditLoading || adminOfflineDonationVoidingSettlementId !== '' || adminOfflineDonationSaving}
+										>
+											{adminOfflineDonationAuditLoading ? 'Refreshing...' : 'Refresh Offline Log'}
+										</button>
+									</div>
+									<div class="offline-donation-form">
+										<label class="upload-limit-row">
+											<span>Amount</span>
+											<input
+												type="text"
+												placeholder="10.00"
+												bind:value={offlineDonationAmountInput}
+												disabled={!canManageAdmin || adminOfflineDonationSaving}
+											/>
+										</label>
+										<label class="upload-limit-row">
+											<span>Currency</span>
+											<input
+												type="text"
+												maxlength="3"
+												placeholder="USD"
+												bind:value={offlineDonationCurrency}
+												disabled={!canManageAdmin || adminOfflineDonationSaving}
+											/>
+										</label>
+										<label class="upload-limit-row">
+											<span>Masked Donor Label</span>
+											<input
+												type="text"
+												maxlength="120"
+												placeholder="Dot"
+												bind:value={offlineDonationDonorLabel}
+												disabled={!canManageAdmin || adminOfflineDonationSaving}
+											/>
+										</label>
+										<label class="upload-limit-row">
+											<span>Note</span>
+											<input
+												type="text"
+												maxlength="280"
+												placeholder="Paid in cash after local meetup"
+												bind:value={offlineDonationDescription}
+												disabled={!canManageAdmin || adminOfflineDonationSaving}
+											/>
+										</label>
+									</div>
+									<button class="action-btn" on:click={createOfflineDonationRecord} disabled={!canManageAdmin || adminOfflineDonationSaving}>
+										{adminOfflineDonationSaving ? 'Recording...' : 'Record Offline Donation'}
+									</button>
+									{#if adminOfflineDonationAuditLoading && adminOfflineDonationAudit.length === 0}
+										<p class="admin-help">Loading offline donation log...</p>
+									{:else if adminOfflineDonationAudit.length === 0}
+										<p class="admin-help">No offline donations recorded yet.</p>
+									{:else}
+										<div class="donation-audit-list">
+											{#each adminOfflineDonationAudit as entry (entry.settlementId)}
+												<div class="donation-audit-item">
+													<div class="donation-audit-copy">
+														<strong>{entry.donorLabel}</strong>
+														<span>{formatDonationAuditAmount(entry.amountMinor, entry.currency)}</span>
+														<small>{formatDonationAuditWhen(entry)} • {entry.status} • {entry.recordedByLabel || 'Admin record'}</small>
+														{#if entry.description}
+															<small>{entry.description}</small>
+														{/if}
+													</div>
+													<button
+														class="action-btn"
+														disabled={!entry.canVoid || adminOfflineDonationVoidingSettlementId !== '' || !canManageAdmin}
+														on:click={() => voidOfflineDonation(entry)}
+													>
+														{adminOfflineDonationVoidingSettlementId === entry.settlementId ? 'Voiding...' : (entry.canVoid ? 'Void' : 'Closed')}
+													</button>
+												</div>
+											{/each}
+										</div>
+									{/if}
+								</div>
+							</div>
 							<div class="admin-user-list">
 								{#each sortedAdminUsers as user (user.id)}
 									<div class="admin-user-item">
@@ -4773,6 +6203,20 @@
 												on:click={() => resetUserToMember(user)}
 											>
 												Reset to Member
+											</button>
+											<button
+												class="action-btn"
+												disabled={!canManageTargetUser(user)}
+												on:click={() => promptAdminPasswordReset(user)}
+											>
+												Reset Password
+											</button>
+											<button
+												class="action-btn"
+												disabled={!canManageTargetUser(user)}
+												on:click={() => clearUserLoginLockout(user)}
+											>
+												Clear Lockout
 											</button>
 										</div>
 									</div>
@@ -4820,6 +6264,56 @@
 
 <AvatarEditor bind:isOpen={showAvatarEditor} on:change={handleAvatarSelected} />
 
+<PaymentHistoryModal
+	isOpen={paymentHistoryOpen}
+	overlayZIndex={'var(--z-settings-nested)'}
+	onCreatePayment={() => {
+		paymentHistoryOpen = false;
+		openProfilePaymentSheet();
+	}}
+	onClose={() => {
+		paymentHistoryOpen = false;
+	}}
+/>
+
+<ServerDonationModal
+	isOpen={serverDonationOpen}
+	overlayZIndex={'var(--z-settings-nested)'}
+	onDonate={handleDonationPrefill}
+	onClose={() => {
+		serverDonationOpen = false;
+	}}
+/>
+
+<PaymentConnectionsModal
+	isOpen={paymentConnectionsOpen}
+	overlayZIndex={'var(--z-settings-nested)'}
+	onClose={() => {
+		paymentConnectionsOpen = false;
+	}}
+/>
+
+<PaymentSheet
+	isOpen={profilePaymentSheetOpen}
+	openSeed={profilePaymentSheetOpenSeed}
+	overlayZIndex={'var(--z-settings-nested)'}
+	initialAmountInput={profilePaymentSheetInitialAmountInput}
+	initialCurrency={profilePaymentSheetInitialCurrency}
+	initialCountryCode={profilePaymentSheetInitialCountryCode}
+	initialDescription={profilePaymentSheetInitialDescription}
+	initialCustomerRef={profilePaymentSheetInitialCustomerRef}
+	initialProviderId={profilePaymentSheetInitialProviderId}
+	initialMethodId={profilePaymentSheetInitialMethodId}
+	initialMetadata={profilePaymentSheetInitialMetadata}
+	onManageConnections={() => {
+		profilePaymentSheetOpen = false;
+		paymentConnectionsOpen = true;
+	}}
+	onClose={() => {
+		profilePaymentSheetOpen = false;
+	}}
+/>
+
 <ConfirmDialog
 	isOpen={showClearDataConfirm}
 	title={$t('settings.confirm.clear_local_title')}
@@ -4851,7 +6345,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 2100;
+		z-index: var(--z-settings-shell);
 		backdrop-filter: blur(4px);
 	}
 
@@ -5394,6 +6888,65 @@
 		color: var(--text-primary);
 	}
 
+	.donation-audit-panel {
+		margin-top: 1rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--border);
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.donation-audit-header {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+
+	.donation-audit-header h5 {
+		margin: 0 0 0.25rem;
+		font-size: 0.9rem;
+	}
+
+	.donation-audit-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.offline-donation-form {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.75rem;
+	}
+
+	.donation-audit-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.65rem 0.75rem;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: var(--bg-secondary);
+	}
+
+	.donation-audit-copy {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		min-width: 0;
+	}
+
+	.donation-audit-copy span {
+		font-size: 0.9rem;
+	}
+
+	.donation-audit-copy small {
+		color: var(--text-secondary);
+	}
+
 	.admin-user-list {
 		display: flex;
 		flex-direction: column;
@@ -5523,6 +7076,12 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.5rem;
+	}
+
+	.synth-editor-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+		gap: 0.75rem;
 	}
 
 	.font-scale-presets {

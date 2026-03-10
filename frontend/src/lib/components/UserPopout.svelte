@@ -280,7 +280,7 @@
 	async function handleVoiceCall() {
 		if (!user || !$socket || user.id === get(currentUser)?.id) return;
 		try {
-			await startCall($socket, user.id, false);
+			await startCall($socket, getUserIdentityKey(user), false, { scope: 'dm', displayName: user.username });
 			closePopout();
 		} catch (error) {
 			alert(get(_)('user.errors.voice_call_failed'));
@@ -290,7 +290,7 @@
 	async function handleVideoCall() {
 		if (!user || !$socket || user.id === get(currentUser)?.id) return;
 		try {
-			await startCall($socket, user.id, true);
+			await startCall($socket, getUserIdentityKey(user), true, { scope: 'dm', displayName: user.username });
 			closePopout();
 		} catch (error) {
 			alert(get(_)('user.errors.video_call_failed'));
@@ -580,7 +580,7 @@
 		background: var(--bg-secondary);
 		border-radius: 8px;
 		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-		z-index: 1000;
+		z-index: var(--z-popout);
 		overflow: hidden;
 		animation: popoutIn 0.15s ease-out;
 	}

@@ -385,6 +385,23 @@ export class StateRbacStore {
 		return primary;
 	}
 
+	getWorkspaceRoleAssignments(workspaceId: string): Array<{ userId: number; role: string }> {
+		this.recordReadAttempt();
+		const stmt = db.prepare(`
+			SELECT user_id, role_name
+			FROM user_roles
+			WHERE workspace_id = ?
+			ORDER BY user_id ASC, created_at ASC
+		`);
+		const rows = stmt.all(workspaceId) as Array<{ user_id: number; role_name: string }> || [];
+		return rows
+			.map((row) => ({
+				userId: Number(row.user_id),
+				role: String(row.role_name || '').trim()
+			}))
+			.filter((row) => Number.isFinite(row.userId) && row.userId > 0 && row.role.length > 0);
+	}
+
 	assignRole(userId: number, role: string, workspaceId: string, assignedBy?: number): void {
 		try {
 			const stmt = db.prepare(`

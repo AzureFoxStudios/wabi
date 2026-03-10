@@ -2,14 +2,16 @@
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import QRCode from 'qrcode';
-	import { register, login, upgradeToRegistered, getLaunchPageConfig, type LaunchPageConfig } from '$lib/api';
+	import { register, login, saveUserSettings, upgradeToRegistered, getLaunchPageConfig, type LaunchPageConfig } from '$lib/api';
 	import { clearAuthSession, setAuthToken } from '$lib/authSession';
 	import { initE2E } from '$lib/e2eManager';
+	import { retryDecryptLoadedDmMessages } from '$lib/socket';
+	import { setStoredHomeExperienceMode, type HomeExperienceMode } from '$lib/homeExperience';
 	import { _, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
 	import { getConfiguredServerUrl, getServerUrl, resolveServerUrl, setConfiguredServerUrl } from '$lib/serverUrl';
 
 	const dispatch = createEventDispatcher<{
-		login: { username: string; token?: string; authMethod: 'guest' | 'registered' };
+		login: { username: string; token?: string; authMethod: 'guest' | 'registered'; homeExperience?: HomeExperienceMode };
 	}>();
 
 	let tab: 'guest' | 'login' | 'register' = 'guest';
@@ -26,6 +28,8 @@
 
 	let qrCanvas: HTMLCanvasElement;
 	let showQR = false;
+	let showHomeExperiencePrompt = false;
+	let pendingRegisteredLogin: { username: string; token: string } | null = null;
 	let customRoom = '';
 	let selectedLocale = 'en';
 	let launchPageConfig: LaunchPageConfig | null = null;
@@ -111,11 +115,35 @@
 			setAuthToken(result.token);
 			if (result.user.id) {
 				localStorage.setItem('dbUserId', String(result.user.id));
-				initE2E(result.user.id, result.token, true);
+				await initE2E(result.user.id, result.token, true);
+				await retryDecryptLoadedDmMessages();
 			}
-			dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered' });
+			pendingRegisteredLogin = { username: result.user.username, token: result.token };
+			showHomeExperiencePrompt = true;
 		} catch (err) {
 			error = err instanceof Error ? err.message : t('login.errors.registration_failed');
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function completeRegistrationHomeExperience(mode: HomeExperienceMode) {
+		if (!pendingRegisteredLogin) return;
+		loading = true;
+		error = '';
+		try {
+			await saveUserSettings(pendingRegisteredLogin.token, { home_experience: mode });
+			setStoredHomeExperienceMode(mode);
+			dispatch('login', {
+				username: pendingRegisteredLogin.username,
+				token: pendingRegisteredLogin.token,
+				authMethod: 'registered',
+				homeExperience: mode
+			});
+			pendingRegisteredLogin = null;
+			showHomeExperiencePrompt = false;
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Failed to save home experience setting.';
 		} finally {
 			loading = false;
 		}
@@ -137,7 +165,8 @@
 			setAuthToken(result.token);
 			if (result.user.id) {
 				localStorage.setItem('dbUserId', String(result.user.id));
-				initE2E(result.user.id, result.token, false);
+				await initE2E(result.user.id, result.token, false);
+				await retryDecryptLoadedDmMessages();
 			}
 			dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered' });
 		} catch (err) {
@@ -251,6 +280,30 @@
 					<button type="button" class="server-change" on:click={() => (showConnectionPrompt = true)}>Change</button>
 				</div>
 
+			{#if showHomeExperiencePrompt}
+				<div class="experience-prompt">
+					<h3>Choose your default home view</h3>
+					<p>Pick how Wabi should open by default. You can change this any time in Settings.</p>
+					<div class="experience-actions">
+						<button
+							type="button"
+							class="join-btn"
+							disabled={loading}
+							on:click={() => completeRegistrationHomeExperience('conversations')}
+						>
+							Conversation-first
+						</button>
+						<button
+							type="button"
+							class="join-btn secondary-btn"
+							disabled={loading}
+							on:click={() => completeRegistrationHomeExperience('community')}
+						>
+							Community-first
+						</button>
+					</div>
+				</div>
+			{:else}
 			<!-- Tab Navigation -->
 			<div class="tabs">
 				<button
@@ -389,6 +442,7 @@
 						{loading ? $_('login.auth.creating_account') : $_('login.auth.create_account_button')}
 					</button>
 				</form>
+			{/if}
 			{/if}
 			{/if}
 			{#if activeLaunchPageConfig?.footerNote}
@@ -740,6 +794,39 @@
 	.join-btn:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
+	}
+
+	.secondary-btn {
+		background: transparent;
+		color: var(--text-primary);
+		border: 1px solid var(--border);
+	}
+
+	.experience-prompt {
+		text-align: left;
+		margin-bottom: 0.75rem;
+	}
+
+	.experience-prompt h3 {
+		margin: 0 0 0.5rem 0;
+		font-size: 1.1rem;
+		color: var(--text-primary);
+	}
+
+	.experience-prompt p {
+		margin: 0 0 1rem 0;
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+	}
+
+	.experience-actions {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.experience-actions .join-btn {
+		margin-bottom: 0;
 	}
 
 	.qr-btn {

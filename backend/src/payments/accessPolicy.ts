@@ -6,6 +6,13 @@ export interface PaymentAccessPolicy {
 	allowedRoleNames: string[];
 }
 
+export type PaymentAccessBootstrapMode = 'off' | 'seed_if_missing' | 'force';
+
+export interface PaymentAccessPolicyBootstrap {
+	mode: PaymentAccessBootstrapMode;
+	policy: PaymentAccessPolicy;
+}
+
 const PAYMENT_ACCESS_POLICY_STORAGE_KEY = 'policy:payments_access';
 const ROLE_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]{0,47}$/i;
 
@@ -47,6 +54,15 @@ function normalizeBool(value: unknown, fallback: boolean): boolean {
 	return fallback;
 }
 
+function normalizeBootstrapMode(value: unknown): PaymentAccessBootstrapMode {
+	if (typeof value !== 'string') return 'off';
+	const normalized = value.trim().toLowerCase();
+	if (normalized === 'seed_if_missing' || normalized === 'force') {
+		return normalized;
+	}
+	return 'off';
+}
+
 export function sanitizePaymentAccessPolicy(raw: unknown): PaymentAccessPolicy {
 	const fallback = { ...DEFAULT_PAYMENT_ACCESS_POLICY };
 	if (!raw || typeof raw !== 'object') return fallback;
@@ -60,6 +76,20 @@ export function sanitizePaymentAccessPolicy(raw: unknown): PaymentAccessPolicy {
 		allowGuest: normalizeBool(input.allowGuest, fallback.allowGuest),
 		allowedRoleNames: hasAllowedRoleNames ? nextAllowedRoles : [...fallback.allowedRoleNames]
 	};
+}
+
+export function getPaymentAccessPolicyBootstrapFromEnv(): PaymentAccessPolicyBootstrap {
+	const mode = normalizeBootstrapMode(process.env.PAYMENTS_ACCESS_BOOTSTRAP_MODE);
+	const fallback = { ...DEFAULT_PAYMENT_ACCESS_POLICY };
+	const policy = sanitizePaymentAccessPolicy({
+		enabled: normalizeBool(process.env.PAYMENTS_ACCESS_ENABLED, fallback.enabled),
+		allowGuest: normalizeBool(process.env.PAYMENTS_ACCESS_ALLOW_GUEST, fallback.allowGuest),
+		allowedRoleNames: typeof process.env.PAYMENTS_ACCESS_ALLOWED_ROLES === 'string'
+			? process.env.PAYMENTS_ACCESS_ALLOWED_ROLES.split(',')
+			: fallback.allowedRoleNames
+	});
+
+	return { mode, policy };
 }
 
 export function getPaymentAccessPolicy(): PaymentAccessPolicy {
@@ -111,4 +141,3 @@ export function isRoleAllowedToCreatePayment(
 	const allowed = new Set(policy.allowedRoleNames.map((role) => role.toLowerCase()));
 	return roles.some((role) => allowed.has(role));
 }
-

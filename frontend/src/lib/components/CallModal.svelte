@@ -3,9 +3,12 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import {
 		incomingCall,
+		outgoingCall,
+		groupCallRingingTargets,
 		isInCall,
 		channelCallPanelOpen,
 		activeVoiceChannel,
+		activeGroupCall,
 		isMuted,
 		isDeafened,
 		isVideoOff,
@@ -16,7 +19,9 @@
 		localScreenStream,
 		callMode,
 		answerCall,
+		cancelOutgoingCall,
 		rejectCall,
+		stopGroupCallRingingTarget,
 		endCall,
 		toggleMute,
 		toggleDeafen,
@@ -26,9 +31,12 @@
 		localStream,
 		listeningVoiceChannels,
 		connectionState,
+		callTransportState,
 		spatialAudioRuntimeStatus,
 		toggleSpatialAudioEnabled
 	} from '$lib/calling';
+	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
+	import type { ContextMenuItem } from '$lib/context-menu/types';
 	import {
 		computeCallLayout,
 		DEFAULT_ACTIVE_SPEAKER_STATE,
@@ -68,12 +76,17 @@
 
 	let callNotification: Notification | null = null;
 	let lastIncomingCallToken: string | null = null;
+	let lastRingtoneToken: string | null = null;
 	let callViewportMode: CallViewportMode = 'embedded';
 	let hatchOpen = false;
 	let pinnedTileIds: string[] = [];
 	let activeSpeakerState: ActiveSpeakerState = { ...DEFAULT_ACTIVE_SPEAKER_STATE };
 	let wasInCall = false;
 	let wasChannelPanelOpen = false;
+	let ringingMenuOpen = false;
+	let ringingMenuX = 0;
+	let ringingMenuY = 0;
+	let ringingMenuTarget: { stableUserId: string; username: string } | null = null;
 
 	$: spatialAudioActive = $spatialAudioRuntimeStatus.active;
 	$: spatialQuickToggleVisible = $spatialAudioRuntimeStatus.quickToggleVisible;
@@ -130,7 +143,25 @@
 	$: voiceRouteText =
 		$callMode === 'channel'
 			? `Speaking: ${$activeVoiceChannel?.name || 'None'} | Listening: ${routeListeningCount} channel(s)`
-			: '';
+			: $callMode === 'group'
+				? `Group call: ${$activeGroupCall?.name || 'Group'}`
+			: $isInCall
+				? (
+					$callTransportState.reason === 'direct_call_turn_unconfigured'
+						? 'Direct call: P2P/STUN only. TURN relay is not configured on this server.'
+						: 'Direct call: P2P/TURN'
+				)
+				: '';
+	$: ringingMenuItems = ringingMenuTarget
+		? ([
+			{
+				id: 'stop-ringing',
+				label: 'Stop ringing',
+				icon: 'phone',
+				onSelect: () => handleStopRinging(ringingMenuTarget)
+			}
+		] satisfies ContextMenuItem[])
+		: [];
 
 	$: {
 		if ($isInCall && !wasInCall) {
@@ -163,13 +194,23 @@
 
 	$: {
 		const incomingToken = $incomingCall
-			? `${$incomingCall.userId}:${$incomingCall.isVideoCall ? 'video' : 'voice'}`
+			? `${$incomingCall.channelId || $incomingCall.userId}:${$incomingCall.isVideoCall ? 'video' : 'voice'}`
 			: null;
-		if (incomingToken && incomingToken !== lastIncomingCallToken) {
+		const outgoingToken = $outgoingCall
+			? `${$outgoingCall.channelId || $outgoingCall.targetUserId || 'pending'}:${$outgoingCall.isVideoCall ? 'video' : 'voice'}`
+			: null;
+		const ringtoneToken = incomingToken || outgoingToken;
+		if (ringtoneToken && ringtoneToken !== lastRingtoneToken) {
 			playCallRingtone();
+		}
+		if (!ringtoneToken && lastRingtoneToken) {
+			stopCallRingtone();
+		}
+		lastRingtoneToken = ringtoneToken;
+		if (incomingToken && incomingToken !== lastIncomingCallToken) {
 			callNotification?.close();
 			callNotification = showCallNotification(
-				$incomingCall!.username,
+				$incomingCall!.channelName ? `${$incomingCall!.username} • ${$incomingCall!.channelName}` : $incomingCall!.username,
 				$incomingCall!.isVideoCall,
 				() => void handleAnswer(),
 				() => handleReject()
@@ -380,12 +421,21 @@
 
 	async function handleAnswer() {
 		if (!$incomingCall || !$socket) return;
-		await answerCall($socket, $incomingCall.userId, $incomingCall.isVideoCall);
+		await answerCall($socket, $incomingCall.userId, $incomingCall.isVideoCall, {
+			channelId: $incomingCall.channelId,
+			channelName: $incomingCall.channelName,
+			localDisplayName: $currentUser?.username || 'Wabi User'
+		});
 	}
 
 	function handleReject() {
 		if (!$incomingCall || !$socket) return;
-		rejectCall($socket, $incomingCall.userId);
+		rejectCall($socket, $incomingCall.userId, { channelId: $incomingCall.channelId });
+	}
+
+	function handleCancelOutgoing() {
+		if (!$outgoingCall || !$socket) return;
+		cancelOutgoingCall($socket);
 	}
 
 	function handleEndCall() {
@@ -463,6 +513,27 @@
 		return Boolean(call?.isAudioEnabled && call?.isSpeaking);
 	}
 
+	function openRingingMenu(event: MouseEvent, target: { stableUserId: string; username: string }) {
+		event.preventDefault();
+		event.stopPropagation();
+		ringingMenuTarget = target;
+		ringingMenuX = event.clientX;
+		ringingMenuY = event.clientY;
+		ringingMenuOpen = true;
+	}
+
+	function closeRingingMenu() {
+		ringingMenuOpen = false;
+		ringingMenuTarget = null;
+	}
+
+	function handleStopRinging(target: { stableUserId: string; username: string } | null) {
+		const sock = $socket || getSocket();
+		if (!sock || !target) return;
+		stopGroupCallRingingTarget(sock, target.stableUserId);
+		closeRingingMenu();
+	}
+
 	function isTileDisconnected(tile: RenderTile): boolean {
 		return !tile.isLocal && !tile.stream;
 	}
@@ -496,7 +567,10 @@
 			<div class="caller-info">
 				<div class="caller-avatar">{$incomingCall.username.charAt(0).toUpperCase()}</div>
 				<h2>{$incomingCall.username}</h2>
-				<p class="call-type">{$incomingCall.isVideoCall ? 'Video' : 'Voice'} Call</p>
+				<p class="call-type">{$incomingCall.isVideoCall ? 'Video' : 'Voice'} {$incomingCall.channelId ? 'Group Call' : 'Call'}</p>
+				{#if $incomingCall.channelName}
+					<p class="call-subtitle">{$incomingCall.channelName}</p>
+				{/if}
 			</div>
 			<div class="call-actions">
 				<button class="answer-btn" on:click={handleAnswer}>Answer</button>
@@ -680,9 +754,77 @@
 			{#if voiceRouteText}
 				<div class="route-status">{voiceRouteText}</div>
 			{/if}
+			{#if $callMode === 'group' && $groupCallRingingTargets.length > 0}
+				<div class="ringing-targets-panel">
+					<div class="ringing-targets-label">Still ringing</div>
+					<div class="ringing-targets-list">
+						{#each $groupCallRingingTargets as target (target.stableUserId)}
+							<button
+								type="button"
+								class="ringing-target-chip"
+								title={`Manage ringing for ${target.username}`}
+								on:click={(event) => openRingingMenu(event, target)}
+								on:contextmenu={(event) => openRingingMenu(event, target)}
+							>
+								<span class="ringing-target-name">{target.username}</span>
+								<span class="ringing-target-state">Ringing</span>
+							</button>
+						{/each}
+					</div>
+				</div>
+			{/if}
 		</div>
 	</div>
 {/if}
+
+{#if $outgoingCall && !$isInCall}
+	<div class="call-modal-overlay">
+		<div class="incoming-call-modal">
+			<div class="caller-info">
+				<div class="caller-avatar">{$outgoingCall.username.charAt(0).toUpperCase()}</div>
+				<h2>{$outgoingCall.username}</h2>
+				<p class="call-type">Calling... {$outgoingCall.isVideoCall ? 'Video' : 'Voice'} {$outgoingCall.scope === 'group' ? 'Group Call' : 'Call'}</p>
+				{#if $outgoingCall.channelName}
+					<p class="call-subtitle">Ringing {$outgoingCall.channelName}</p>
+				{/if}
+				{#if $outgoingCall.scope === 'group' && $groupCallRingingTargets.length > 0}
+					<div class="ringing-targets-panel outgoing">
+						<div class="ringing-targets-label">Right-click or tap a name to stop ringing that person.</div>
+						<div class="ringing-targets-list">
+							{#each $groupCallRingingTargets as target (target.stableUserId)}
+								<button
+									type="button"
+									class="ringing-target-chip"
+									title={`Manage ringing for ${target.username}`}
+									on:click={(event) => openRingingMenu(event, target)}
+									on:contextmenu={(event) => openRingingMenu(event, target)}
+								>
+									<span class="ringing-target-name">{target.username}</span>
+									<span class="ringing-target-state">Ringing</span>
+								</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
+			</div>
+			<div class="call-actions">
+				<button class="reject-btn" on:click={handleCancelOutgoing}>Cancel</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<ContextMenu
+	open={ringingMenuOpen}
+	x={ringingMenuX}
+	y={ringingMenuY}
+	items={ringingMenuItems}
+	ariaLabel="Ringing participant actions"
+	headerLabel={ringingMenuTarget?.username || null}
+	headerSubLabel="Group call invite"
+	on:close={closeRingingMenu}
+	on:select={closeRingingMenu}
+/>
 
 <style>
 	.remote-audio-sink {
@@ -700,7 +842,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 2300;
+		z-index: var(--z-call-overlay);
 		backdrop-filter: blur(8px);
 	}
 
@@ -747,6 +889,62 @@
 		color: rgba(255, 255, 255, 0.6);
 	}
 
+	.call-subtitle {
+		margin: 0.35rem 0 0;
+		color: rgba(255, 255, 255, 0.82);
+		font-size: 0.95rem;
+	}
+
+	.ringing-targets-panel {
+		margin-top: 1rem;
+		padding: 0.9rem 1rem;
+		border-radius: 14px;
+		background: rgba(255, 255, 255, 0.06);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+	}
+
+	.ringing-targets-panel.outgoing {
+		text-align: left;
+	}
+
+	.ringing-targets-label {
+		font-size: 0.8rem;
+		color: rgba(255, 255, 255, 0.72);
+		margin-bottom: 0.7rem;
+	}
+
+	.ringing-targets-list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.55rem;
+	}
+
+	.ringing-target-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.55rem;
+		padding: 0.55rem 0.8rem;
+		border-radius: 999px;
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		background: rgba(15, 23, 42, 0.6);
+		color: inherit;
+		cursor: pointer;
+	}
+
+	.ringing-target-chip:hover {
+		background: rgba(30, 41, 59, 0.88);
+		border-color: rgba(96, 165, 250, 0.38);
+	}
+
+	.ringing-target-name {
+		font-weight: 600;
+	}
+
+	.ringing-target-state {
+		font-size: 0.78rem;
+		color: rgba(125, 211, 252, 0.95);
+	}
+
 	.call-actions {
 		display: flex;
 		gap: 0.75rem;
@@ -776,7 +974,7 @@
 		position: fixed;
 		right: 1rem;
 		bottom: 1rem;
-		z-index: 1800;
+		z-index: var(--z-call-docked);
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
@@ -833,7 +1031,7 @@
 
 	.call-shell {
 		pointer-events: none;
-		z-index: 1600;
+		z-index: var(--z-call-shell);
 	}
 
 	.call-shell.mode-embedded {
@@ -844,7 +1042,7 @@
 	.call-shell.mode-focus {
 		position: fixed;
 		inset: 0;
-		z-index: 1700;
+		z-index: var(--z-call-focus);
 	}
 
 	.hatch-scrim {
@@ -868,7 +1066,7 @@
 		position: fixed;
 		top: 0.75rem;
 		right: 0.75rem;
-		z-index: 1802;
+		z-index: var(--z-call-controls);
 		width: 32px;
 		height: 32px;
 		border-radius: 8px;

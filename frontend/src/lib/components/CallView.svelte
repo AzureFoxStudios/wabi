@@ -518,7 +518,7 @@
 		height: 100vh;
 		height: 100dvh;
 		background-color: var(--bg-primary, #1a1a2e);
-		z-index: 1500;
+		z-index: var(--z-call-shell);
 		display: flex;
 		flex-direction: column;
 	}
@@ -850,7 +850,7 @@
 		border-radius: 12px;
 		padding: 0.6rem;
 		backdrop-filter: blur(8px);
-		z-index: 1600;
+		z-index: var(--z-call-focus);
 	}
 
 	.spatial-debug-header {

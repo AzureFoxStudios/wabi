@@ -10,6 +10,8 @@
 	import CreateDMModal from './CreateDMModal.svelte';
 	import { _ } from '$lib/i18n';
 	import { clearAuthSession } from '$lib/authSession';
+	import { getUserIdentityKey } from '$lib/localNicknames';
+	import { queueConversationPaymentLaunch, type ConversationPaymentSurface } from '$lib/paymentLaunch';
 
 	const dispatch = createEventDispatcher();
 
@@ -134,6 +136,27 @@
 		dispatch('close');
 	}
 
+	function handlePaymentLaunch(
+		surface: ConversationPaymentSurface,
+		event?: CustomEvent<{ user: User }> | User
+	): void {
+		let user: User | null = null;
+		if (event && 'detail' in event) {
+			user = event.detail.user;
+		} else if (event && 'id' in event) {
+			user = event as User;
+		} else {
+			user = contextMenuUser;
+		}
+		if (!user || isCurrentUserEntry(user) || !user.dbUserId) return;
+		queueConversationPaymentLaunch({
+			surface,
+			targetUserId: user.id,
+			targetDbUserId: user.dbUserId
+		});
+		handleOpenDM(user);
+	}
+
 	function openDMModal() {
 		showDMModal = true;
 	}
@@ -168,7 +191,7 @@
 		const targetUser = user || contextMenuUser;
 		if (!$socket || !targetUser || isCurrentUserEntry(targetUser)) return;
 		try {
-			await startCall($socket, targetUser.id, false);
+			await startCall($socket, getUserIdentityKey(targetUser), false, { scope: 'dm', displayName: targetUser.username });
 		} catch (error) {
 			alert(get(_)('user.errors.voice_call_failed'));
 		}
@@ -179,7 +202,7 @@
 		const targetUser = user || contextMenuUser;
 		if (!$socket || !targetUser || isCurrentUserEntry(targetUser)) return;
 		try {
-			await startCall($socket, targetUser.id, true);
+			await startCall($socket, getUserIdentityKey(targetUser), true, { scope: 'dm', displayName: targetUser.username });
 		} catch (error) {
 			alert(get(_)('user.errors.video_call_failed'));
 		}
@@ -315,6 +338,8 @@
 		on:videoCall={() => handleVideoCall()}
 		on:screenShare={() => handleScreenShare()}
 		on:openDM={handleOpenDM}
+		on:requestPayment={(event) => handlePaymentLaunch('payment_request', event)}
+		on:recordManualCash={(event) => handlePaymentLaunch('manual_cash', event)}
 		on:viewProfile={() => {
 			if (contextMenuUser) openProfile(contextMenuUser);
 		}}

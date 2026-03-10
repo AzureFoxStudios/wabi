@@ -15,6 +15,8 @@
 		videoCall: void;
 		screenShare: void;
 		openDM: { user: User };
+		requestPayment: { user: User };
+		recordManualCash: { user: User };
 		viewProfile: void;
 	}>();
 
@@ -59,6 +61,24 @@
 					icon: 'monitor',
 					onSelect: () => {
 						dispatch('screenShare');
+					}
+				},
+				{
+					id: 'request-payment',
+					label: 'Request Payment',
+					icon: 'credit-card',
+					disabled: !user.dbUserId,
+					onSelect: () => {
+						dispatch('requestPayment', { user });
+					}
+				},
+				{
+					id: 'record-cash',
+					label: 'Record Cash Trade',
+					icon: 'banknote',
+					disabled: !user.dbUserId,
+					onSelect: () => {
+						dispatch('recordManualCash', { user });
 					}
 				},
 				{ id: 'divider-1', type: 'separator' }

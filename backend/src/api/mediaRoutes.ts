@@ -250,6 +250,16 @@ export async function handleGetMediaRuntime(req: IncomingMessage, res: ServerRes
 					audioBitrateWeb: numberFromEnv(process.env.MEDIA_OPUS_AUDIO_WEB_BITRATE, 64000),
 					audioBitrateLocal: numberFromEnv(process.env.MEDIA_OPUS_AUDIO_LOCAL_BITRATE, 96000)
 				},
+				turn: {
+					configured: Boolean(
+						(process.env.TURN_EXTERNAL_IP || '').trim() &&
+						(process.env.TURN_REALM || '').trim() &&
+						(process.env.TURN_SHARED_SECRET || '').trim()
+					),
+					server: (process.env.TURN_EXTERNAL_IP || '').trim() || null,
+					port: numberFromEnv(process.env.TURN_PORT, 3478),
+					useTurns: boolFromEnv(process.env.TURN_USE_TLS, false)
+				},
 				gateway: {
 					configured: Boolean(getGatewayUrl()),
 					heartbeatTimeoutMs: getGatewayHeartbeatTimeoutMs(),

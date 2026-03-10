@@ -1,17 +1,15 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const smokeRoot = path.join(__dirname, '..', '.payments-smoke');
+const smokeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wabi-payments-smoke-'));
 const dbPath = path.join(smokeRoot, 'payments-smoke.db');
 
 fs.mkdirSync(smokeRoot, { recursive: true });
-if (fs.existsSync(dbPath)) {
-  fs.rmSync(dbPath, { force: true });
-}
 
 process.env.DB_MODE = 'sqlite';
 process.env.DATABASE_PATH = dbPath;
@@ -194,4 +192,5 @@ try {
   } catch {
     // no-op
   }
+  fs.rmSync(smokeRoot, { recursive: true, force: true });
 }

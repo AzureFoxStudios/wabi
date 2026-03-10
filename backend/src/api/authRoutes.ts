@@ -9,13 +9,21 @@ import {
 } from '../state-plane/index.js';
 import { hashPassword, verifyPassword } from '../auth/passwordHash.js';
 import { generateToken } from '../auth/jwt.js';
-import { assignRole } from '../auth/roleMiddleware.js';
+import { assignRole, getUserRoles } from '../auth/roleMiddleware.js';
 import { getAuthenticatedUserIdFromRequest, setAuthCookie } from '../auth/requestAuth.js';
 
 const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
 // Simple in-memory rate limiting
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const loginCooldownMap = new Map<string, { failCount: number; stage: number; lockUntil: number; lastFailureAt: number }>();
+const LOGIN_FAILURE_THRESHOLD = 5;
+const LOGIN_COOLDOWN_STEPS_MS = [
+	5 * 60 * 1000, // 5 minutes
+	10 * 60 * 1000, // 10 minutes
+	12 * 60 * 60 * 1000 // 12 hours
+];
+const LOGIN_STAGE_DECAY_MS = 24 * 60 * 60 * 1000; // 24 hours without failures drops one stage.
 
 function checkRateLimit(key: string, maxAttempts: number, windowMs: number): boolean {
 	const now = Date.now();
@@ -32,6 +40,133 @@ function checkRateLimit(key: string, maxAttempts: number, windowMs: number): boo
 
 	entry.count++;
 	return true;
+}
+
+function normalizeLoginIdentifier(identifier: string): string {
+	return identifier.trim().replace(/^@/, '').toLowerCase();
+}
+
+function normalizeIpIdentifier(ip: string): string {
+	return `ip:${ip.trim().toLowerCase()}`;
+}
+
+function formatDuration(ms: number): string {
+	const seconds = Math.max(1, Math.ceil(ms / 1000));
+	if (seconds < 60) return `${seconds}s`;
+	const minutes = Math.ceil(seconds / 60);
+	if (minutes < 60) return `${minutes}m`;
+	const hours = Math.ceil(minutes / 60);
+	return `${hours}h`;
+}
+
+function getCooldownMessage(stage: number, remainingMs: number): string {
+	const duration = formatDuration(remainingMs);
+	if (stage <= 0) {
+		return `Invalid credentials. Cooldown warning: try again in ${duration}.`;
+	}
+	if (stage === 1) {
+		return `Invalid credentials. Second cooldown triggered. Try again in ${duration}.`;
+	}
+	return `Invalid credentials. Long lockout triggered. Try again in ${duration}.`;
+}
+
+function applyLoginDecay(identifier: string): void {
+	const key = normalizeLoginIdentifier(identifier);
+	if (!key) return;
+	const entry = loginCooldownMap.get(key);
+	if (!entry) return;
+	const now = Date.now();
+	if (entry.lastFailureAt <= 0) return;
+	const elapsed = now - entry.lastFailureAt;
+	if (elapsed < LOGIN_STAGE_DECAY_MS) return;
+
+	const decaySteps = Math.floor(elapsed / LOGIN_STAGE_DECAY_MS);
+	const nextStage = Math.max(-1, entry.stage - decaySteps);
+	const nextLockUntil = entry.lockUntil > now ? entry.lockUntil : 0;
+
+	if (nextStage === -1 && nextLockUntil === 0) {
+		loginCooldownMap.delete(key);
+		return;
+	}
+
+	loginCooldownMap.set(key, {
+		failCount: 0,
+		stage: nextStage,
+		lockUntil: nextLockUntil,
+		lastFailureAt: now
+	});
+}
+
+function getActiveLoginCooldown(identifier: string): { remainingMs: number; stage: number } | null {
+	const key = normalizeLoginIdentifier(identifier);
+	if (!key) return null;
+	applyLoginDecay(key);
+	const entry = loginCooldownMap.get(key);
+	if (!entry) return null;
+	const now = Date.now();
+	if (entry.lockUntil <= now) return null;
+	return {
+		remainingMs: entry.lockUntil - now,
+		stage: entry.stage
+	};
+}
+
+function recordFailedLogin(identifier: string): { locked: boolean; stage: number; remainingMs?: number } {
+	const key = normalizeLoginIdentifier(identifier);
+	if (!key) return { locked: false, stage: 0 };
+	applyLoginDecay(key);
+	const now = Date.now();
+	const current = loginCooldownMap.get(key);
+	const baseline = !current || current.lockUntil <= now
+		? { failCount: 0, stage: current?.stage ?? -1, lockUntil: 0, lastFailureAt: current?.lastFailureAt ?? now }
+		: current;
+
+	const failCount = baseline.failCount + 1;
+	if (failCount < LOGIN_FAILURE_THRESHOLD) {
+		loginCooldownMap.set(key, { ...baseline, failCount, lastFailureAt: now });
+		return { locked: false, stage: baseline.stage + 1 };
+	}
+
+	const nextStage = Math.min(baseline.stage + 1, LOGIN_COOLDOWN_STEPS_MS.length - 1);
+	const durationMs = LOGIN_COOLDOWN_STEPS_MS[nextStage];
+	loginCooldownMap.set(key, { failCount: 0, stage: nextStage, lockUntil: now + durationMs, lastFailureAt: now });
+	return { locked: true, stage: nextStage, remainingMs: durationMs };
+}
+
+function clearLoginFailureState(identifier: string): void {
+	const key = normalizeLoginIdentifier(identifier);
+	if (!key) return;
+	loginCooldownMap.delete(key);
+}
+
+function clearLoginFailureStateForIp(ip: string): void {
+	const key = normalizeIpIdentifier(ip);
+	if (!key) return;
+	loginCooldownMap.delete(key);
+}
+
+function getActiveIpCooldown(ip: string): { remainingMs: number; stage: number } | null {
+	const key = normalizeIpIdentifier(ip);
+	if (!key) return null;
+	applyLoginDecay(key);
+	const entry = loginCooldownMap.get(key);
+	if (!entry) return null;
+	const now = Date.now();
+	if (entry.lockUntil <= now) return null;
+	return { remainingMs: entry.lockUntil - now, stage: entry.stage };
+}
+
+function recordFailedIpLogin(ip: string): void {
+	const key = normalizeIpIdentifier(ip);
+	if (!key) return;
+	recordFailedLogin(key);
+}
+
+function highestRoleLevel(roles: string[]): number {
+	if (roles.includes('owner')) return 3;
+	if (roles.includes('admin')) return 2;
+	if (roles.includes('mod')) return 1;
+	return 0;
 }
 
 // Validate username and password
@@ -89,6 +224,18 @@ function generateColor(): string {
 
 function generateRegisteredSessionId(): string {
 	return `reg-${Date.now()}-${randomBytes(18).toString('base64url')}`;
+}
+
+function revokeRegisteredSessionsForUser(userId: number): number {
+	const sessions = sessionRepository.getAll();
+	let revoked = 0;
+	for (const session of sessions) {
+		if (session.user_id !== userId) continue;
+		if (session.is_temporary === 1) continue;
+		sessionRepository.delete(session.session_id);
+		revoked += 1;
+	}
+	return revoked;
 }
 
 function getTestingAutoRole(): 'owner' | 'admin' | null {
@@ -180,7 +327,8 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 		// Create settings with defaults
 		settingsRepository.set(user.user_id!, {
 			offline_message_retention: '7d',
-			allow_temp_user_messages: 1
+			allow_temp_user_messages: 1,
+			home_experience: 'community'
 		});
 
 		// Create session
@@ -244,10 +392,10 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 		const clientIp = req.socket.remoteAddress || 'unknown';
 		const rateLimitKey = `login:${clientIp}`;
 
-		// Rate limit: 10 login attempts per 5 minutes
-		if (!checkRateLimit(rateLimitKey, 10, 5 * 60 * 1000)) {
+		// Coarse IP-level protection: keep this loose and let per-account cooldowns do the detailed work.
+		if (!checkRateLimit(rateLimitKey, 120, 5 * 60 * 1000)) {
 			res.writeHead(429, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ error: 'Too many login attempts. Try again later.' }));
+			res.end(JSON.stringify({ error: 'Too many login requests from this network. Try again shortly.' }));
 			return;
 		}
 
@@ -266,12 +414,38 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 			return;
 		}
 
+		const activeIpCooldown = getActiveIpCooldown(clientIp);
+		if (activeIpCooldown) {
+			res.writeHead(429, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({
+				error: `Too many failed logins from this network. Try again in ${formatDuration(activeIpCooldown.remainingMs)}.`,
+				code: 'IP_LOGIN_COOLDOWN',
+				retry_after_ms: activeIpCooldown.remainingMs
+			}));
+			return;
+		}
+
+		const activeCooldown = getActiveLoginCooldown(normalizedUsername);
+		if (activeCooldown) {
+			res.writeHead(429, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({
+				error: `Too many failed logins. Try again in ${formatDuration(activeCooldown.remainingMs)}.`,
+				code: 'LOGIN_COOLDOWN',
+				retry_after_ms: activeCooldown.remainingMs
+			}));
+			return;
+		}
+
 		// Find user by handle or username
 		const user = userRepository.findByHandleOrUsername(normalizedUsername);
 		if (!user) {
 			console.log('[Auth] User not found for:', normalizedUsername);
+			const lockState = recordFailedLogin(normalizedUsername);
+			recordFailedIpLogin(clientIp);
 			res.writeHead(401, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ error: 'Invalid credentials' }));
+			res.end(JSON.stringify({
+				error: lockState.locked ? getCooldownMessage(lockState.stage, lockState.remainingMs || 0) : 'Invalid credentials'
+			}));
 			return;
 		}
 		if (user.is_active === 0) {
@@ -288,11 +462,20 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 		console.log('[Auth] Password verification result:', isValid);
 		if (!isValid) {
 			console.log('[Auth] Password mismatch for user:', normalizedUsername);
+			const lockState = recordFailedLogin(normalizedUsername);
+			recordFailedIpLogin(clientIp);
 			res.writeHead(401, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ error: 'Invalid credentials' }));
+			res.end(JSON.stringify({
+				error: lockState.locked ? getCooldownMessage(lockState.stage, lockState.remainingMs || 0) : 'Invalid credentials'
+			}));
 			return;
 		}
+		clearLoginFailureState(normalizedUsername);
+		clearLoginFailureStateForIp(clientIp);
 		maybeAssignWorkspaceOwnerIfMissing(user.user_id!, user.username);
+
+		// Enforce a single active login session per registered user.
+		revokeRegisteredSessionsForUser(user.user_id!);
 
 		// Create session
 		const sessionId = generateRegisteredSessionId();
@@ -339,6 +522,185 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 			res.writeHead(500, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Login failed' }));
 		}
+	}
+}
+
+export async function handleChangePassword(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		const userId = getAuthenticatedUserIdFromRequest(req);
+		if (!userId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'User not authenticated' }));
+			return;
+		}
+
+		const body = await parseBody(req);
+		const currentPassword = typeof body.currentPassword === 'string' ? body.currentPassword : '';
+		const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
+
+		if (!currentPassword || !newPassword) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Current and new passwords are required' }));
+			return;
+		}
+
+		if (newPassword.length < 8) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'New password must be at least 8 characters' }));
+			return;
+		}
+
+		const user = userRepository.findById(userId);
+		if (!user) {
+			res.writeHead(404, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'User not found' }));
+			return;
+		}
+
+		const currentMatches = await verifyPassword(currentPassword, user.password_hash);
+		if (!currentMatches) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Current password is incorrect' }));
+			return;
+		}
+
+		const nextHash = await hashPassword(newPassword);
+		userRepository.update(userId, { password_hash: nextHash });
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ success: true }));
+	} catch (error) {
+		console.error('[Auth] Change password error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to change password' }));
+	}
+}
+
+export async function handleAdminResetUserPassword(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		const actorUserId = getAuthenticatedUserIdFromRequest(req);
+		if (!actorUserId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'User not authenticated' }));
+			return;
+		}
+
+		const actorRoles = getUserRoles(actorUserId, 'default-workspace');
+		const actorLevel = highestRoleLevel(actorRoles);
+		if (actorLevel < 2) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Admin access required' }));
+			return;
+		}
+
+		const body = await parseBody(req);
+		const targetUserId = Number(body.targetUserId);
+		const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
+
+		if (!Number.isFinite(targetUserId) || targetUserId <= 0 || !newPassword) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Target user and new password are required' }));
+			return;
+		}
+
+		if (targetUserId === actorUserId) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Use your own password change flow for your account' }));
+			return;
+		}
+
+		if (newPassword.length < 8) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'New password must be at least 8 characters' }));
+			return;
+		}
+
+		const targetUser = userRepository.findById(targetUserId);
+		if (!targetUser) {
+			res.writeHead(404, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Target user not found' }));
+			return;
+		}
+
+		const targetRoles = getUserRoles(targetUserId, 'default-workspace');
+		const targetLevel = highestRoleLevel(targetRoles);
+		if (actorLevel <= targetLevel) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Insufficient privileges to reset this user password' }));
+			return;
+		}
+
+		const nextHash = await hashPassword(newPassword);
+		userRepository.update(targetUserId, { password_hash: nextHash });
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ success: true }));
+	} catch (error) {
+		console.error('[Auth] Admin reset password error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to reset user password' }));
+	}
+}
+
+export async function handleAdminClearLoginLockout(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		const actorUserId = getAuthenticatedUserIdFromRequest(req);
+		if (!actorUserId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'User not authenticated' }));
+			return;
+		}
+
+		const actorRoles = getUserRoles(actorUserId, 'default-workspace');
+		const actorLevel = highestRoleLevel(actorRoles);
+		if (actorLevel < 2) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Admin access required' }));
+			return;
+		}
+
+		const body = await parseBody(req);
+		const targetUserId = Number(body.targetUserId);
+		const identifier = typeof body.identifier === 'string' ? body.identifier.trim() : '';
+		const ip = typeof body.ip === 'string' ? body.ip.trim() : '';
+
+		let cleared = 0;
+
+		if (Number.isFinite(targetUserId) && targetUserId > 0) {
+			const targetUser = userRepository.findById(targetUserId);
+			if (targetUser) {
+				const targetRoles = getUserRoles(targetUserId, 'default-workspace');
+				const targetLevel = highestRoleLevel(targetRoles);
+				if (actorLevel <= targetLevel) {
+					res.writeHead(403, { 'Content-Type': 'application/json' });
+					res.end(JSON.stringify({ error: 'Insufficient privileges to clear lockout for this user' }));
+					return;
+				}
+				const beforeSize = loginCooldownMap.size;
+				clearLoginFailureState(targetUser.username);
+				if (targetUser.handle) clearLoginFailureState(targetUser.handle);
+				cleared += beforeSize - loginCooldownMap.size;
+			}
+		}
+
+		if (identifier) {
+			const beforeSize = loginCooldownMap.size;
+			clearLoginFailureState(identifier);
+			cleared += beforeSize - loginCooldownMap.size;
+		}
+
+		if (ip) {
+			const beforeSize = loginCooldownMap.size;
+			clearLoginFailureStateForIp(ip);
+			cleared += beforeSize - loginCooldownMap.size;
+		}
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ success: true, cleared }));
+	} catch (error) {
+		console.error('[Auth] Admin clear login lockout error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to clear login lockout' }));
 	}
 }
 
@@ -402,7 +764,8 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 		// Create settings with defaults
 		settingsRepository.set(user.user_id!, {
 			offline_message_retention: '7d',
-			allow_temp_user_messages: 1
+			allow_temp_user_messages: 1,
+			home_experience: 'community'
 		});
 
 		// Update session to be registered
@@ -464,7 +827,8 @@ export async function handleGetUserSettings(req: IncomingMessage, res: ServerRes
 		res.writeHead(200, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({
 			offline_message_retention: settings.offline_message_retention,
-			allow_temp_user_messages: settings.allow_temp_user_messages === 1
+			allow_temp_user_messages: settings.allow_temp_user_messages === 1,
+			home_experience: settings.home_experience || 'community'
 		}));
 	} catch (error) {
 		console.error('[Auth] Get settings error:', error);
@@ -547,7 +911,7 @@ export async function handleSaveUserSettings(req: IncomingMessage, res: ServerRe
 
 		// Parse request body
 		const body = await parseBody(req);
-		const { offline_message_retention, allow_temp_user_messages } = body;
+		const { offline_message_retention, allow_temp_user_messages, home_experience } = body;
 
 		// Validate retention period
 		const validRetentions = ['1d', '7d', '30d', 'forever'];
@@ -557,10 +921,23 @@ export async function handleSaveUserSettings(req: IncomingMessage, res: ServerRe
 			return;
 		}
 
+		const validHomeExperiences = ['community', 'conversations'];
+		if (home_experience !== undefined && !validHomeExperiences.includes(home_experience)) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Invalid home experience mode' }));
+			return;
+		}
+
+		const existing = settingsRepository.get(userId);
+
 		// Save settings
 		settingsRepository.set(userId, {
-			offline_message_retention: offline_message_retention || '7d',
-			allow_temp_user_messages: allow_temp_user_messages ? 1 : 0
+			offline_message_retention: offline_message_retention || existing.offline_message_retention || '7d',
+			allow_temp_user_messages:
+				allow_temp_user_messages === undefined
+					? existing.allow_temp_user_messages
+					: allow_temp_user_messages ? 1 : 0,
+			home_experience: home_experience || existing.home_experience || 'community'
 		});
 
 		res.writeHead(200, { 'Content-Type': 'application/json' });

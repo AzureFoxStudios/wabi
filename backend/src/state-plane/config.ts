@@ -20,7 +20,7 @@ export interface StatePlaneConfig {
 	outboxMaxBytes: number;
 	outboxTruncateMinBytes: number;
 	shadowWriterEnabled: boolean;
-	shadowSink: 'mirror' | 'http' | 'command';
+	shadowSink: 'mirror' | 'http' | 'command' | 'stdb';
 	shadowEndpoint: string | null;
 	shadowToken: string | null;
 	shadowSigningSecret: string | null;
@@ -59,10 +59,11 @@ function normalizePositiveInt(value: string | undefined, fallback: number, min: 
 	return Math.max(min, Math.min(max, Math.floor(parsed)));
 }
 
-function normalizeShadowSink(value: string | undefined): 'mirror' | 'http' | 'command' {
+function normalizeShadowSink(value: string | undefined): 'mirror' | 'http' | 'command' | 'stdb' {
 	const raw = (value || '').trim().toLowerCase();
 	if (raw === 'http') return 'http';
 	if (raw === 'command' || raw === 'cmd') return 'command';
+	if (raw === 'stdb' || raw === 'spacetime' || raw === 'spacetimedb') return 'stdb';
 	return 'mirror';
 }
 

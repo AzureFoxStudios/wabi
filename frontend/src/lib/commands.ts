@@ -116,6 +116,15 @@ export const COMMANDS: Command[] = [
 		}
 	},
 	{
+		name: 'pay',
+		description: 'Open payment sheet with optional user/amount prefill',
+		usage: '/pay [@username] [amount] [-user username] [-amt 12.34]',
+		aliases: ['payment'],
+		execute: (args, flags) => {
+			// Implementation in Chat component
+		}
+	},
+	{
 		name: 'logout',
 		description: 'Log out of the chat and clear session data',
 		usage: '/logout',

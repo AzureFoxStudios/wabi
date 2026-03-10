@@ -37,6 +37,23 @@ function getWebhookSecret() {
 	return (process.env.WEST_PAYMENTS_WEBHOOK_SECRET || 'west-payments-dev-webhook-secret').trim();
 }
 
+function getPublicBaseUrl() {
+	const raw =
+		process.env.WABI_PUBLIC_BASE_URL ||
+		process.env.PUBLIC_URL ||
+		`http://127.0.0.1:${process.env.PORT || '3000'}`;
+	return raw.replace(/\/+$/, '');
+}
+
+function envFlag(value) {
+	const normalized = String(value || '').trim().toLowerCase();
+	return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function isTestModeEnabled() {
+	return envFlag(process.env.WEST_PAYMENTS_TEST_MODE);
+}
+
 function getAdapterBaseUrl() {
 	return String(process.env.WEST_PAYMENTS_ADAPTER_BASE_URL || '')
 		.trim()
@@ -59,6 +76,42 @@ function getAdapterTimeoutMs() {
 
 function isAdapterConfigured() {
 	return Boolean(getAdapterBaseUrl());
+}
+
+function buildLocalTestCheckoutUrl(providerIntentId) {
+	return `${getPublicBaseUrl()}/api/plugins/runtime/western-payments/test-checkout?providerIntentId=${encodeURIComponent(providerIntentId)}`;
+}
+
+function formatMinorAmount(amountMinor, currency) {
+	const value = Number.isFinite(Number(amountMinor)) ? Number(amountMinor) / 100 : 0;
+	try {
+		return new Intl.NumberFormat(undefined, {
+			style: 'currency',
+			currency: currency || DEFAULT_CURRENCY,
+			maximumFractionDigits: 2
+		}).format(value);
+	} catch {
+		return `${value.toFixed(2)} ${(currency || DEFAULT_CURRENCY).trim()}`.trim();
+	}
+}
+
+function escapeHtml(value) {
+	return String(value || '').replace(/[&<>"']/g, (char) => {
+		switch (char) {
+			case '&':
+				return '&amp;';
+			case '<':
+				return '&lt;';
+			case '>':
+				return '&gt;';
+			case '"':
+				return '&quot;';
+			case '\'':
+				return '&#39;';
+			default:
+				return char;
+		}
+	});
 }
 
 function safeJsonParse(raw) {
@@ -181,6 +234,121 @@ async function saveIntentRecord(ctx, record) {
 	}
 }
 
+function createLocalTestCheckoutHtml(record) {
+	const providerIntentId = escapeHtml(record.providerIntentId);
+	const amountLabel = escapeHtml(formatMinorAmount(record.amountMinor, record.currency));
+	const methodId = escapeHtml(record.methodId || 'card_checkout');
+	const currentStatus = escapeHtml(record.status || 'pending');
+	return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Western Payments Local Test</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: linear-gradient(135deg, #101624 0%, #182235 100%);
+      color: #eef3ff;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .card {
+      width: min(520px, 100%);
+      background: rgba(14, 20, 32, 0.92);
+      border: 1px solid rgba(126, 164, 255, 0.24);
+      border-radius: 20px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+      padding: 24px;
+    }
+    h1 { margin: 0 0 8px; font-size: 1.35rem; }
+    p { margin: 0 0 12px; color: #b8c6ea; line-height: 1.5; }
+    dl {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 10px 14px;
+      margin: 20px 0;
+    }
+    dt { color: #8ca2d7; }
+    dd { margin: 0; }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 6px 12px;
+      background: rgba(126, 164, 255, 0.18);
+      border: 1px solid rgba(126, 164, 255, 0.28);
+      color: #dfe8ff;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 0.75rem;
+    }
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      background: #2d5bff;
+      color: white;
+    }
+    button.secondary { background: #364055; }
+    .hint {
+      margin-top: 16px;
+      font-size: 0.9rem;
+      color: #94a8d4;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Western Payments Local Test</h1>
+    <p>This is a localhost-only checkout simulator. It does not move money and does not contact a PSP.</p>
+    <dl>
+      <dt>Intent</dt><dd><code>${providerIntentId}</code></dd>
+      <dt>Amount</dt><dd>${amountLabel}</dd>
+      <dt>Method</dt><dd>${methodId}</dd>
+      <dt>Status</dt><dd><span class="status">${currentStatus}</span></dd>
+    </dl>
+    <div class="actions">
+      <button type="button" onclick="setStatus('succeeded')">Simulate Success</button>
+      <button type="button" class="secondary" onclick="setStatus('failed')">Simulate Failure</button>
+      <button type="button" class="secondary" onclick="setStatus('canceled')">Simulate Cancel</button>
+      <button type="button" class="secondary" onclick="setStatus('pending')">Reset Pending</button>
+    </div>
+    <p class="hint">After changing status here, go back to Wabi and refresh the payment intent.</p>
+  </main>
+  <script>
+    async function setStatus(status) {
+      const response = await fetch(window.location.pathname + window.location.search, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ providerIntentId: '${providerIntentId}', action: status })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        alert(payload.error || 'Failed to update local test intent');
+        return;
+      }
+      window.location.reload();
+    }
+  </script>
+</body>
+</html>`;
+}
+
 async function callAdapter(path, payload, idempotencyKey) {
 	const baseUrl = getAdapterBaseUrl();
 	if (!baseUrl) {
@@ -257,14 +425,16 @@ const plugin = {
 		plugin._ctx = ctx;
 		ctx.logger.info('western-payments plugin loaded', {
 			provider: PROVIDER_NAME,
-			adapterConfigured: isAdapterConfigured()
+			adapterConfigured: isAdapterConfigured(),
+			testModeEnabled: isTestModeEnabled()
 		});
 	},
 
 	payment: {
 		async getCapabilities() {
 			const methods = [];
-			if (isAdapterConfigured()) {
+			const locallyTestable = isTestModeEnabled();
+			if (isAdapterConfigured() || locallyTestable) {
 				methods.push(
 					{
 						id: 'card_checkout',
@@ -320,13 +490,15 @@ const plugin = {
 				supportsRefunds: true,
 				supportsDisputes: true,
 				notes:
-					'Configure WEST_PAYMENTS_ADAPTER_BASE_URL and WEST_PAYMENTS_ADAPTER_TOKEN to enable US/EU/CAN payment methods.'
+					locallyTestable && !isAdapterConfigured()
+						? 'Local test checkout is enabled. This is non-settling localhost simulation only.'
+						: 'Configure WEST_PAYMENTS_ADAPTER_BASE_URL and WEST_PAYMENTS_ADAPTER_TOKEN to enable US/EU/CAN payment methods.'
 			};
 		},
 
 		async createIntent(ctx, input) {
 			plugin._ctx = ctx;
-			if (!isAdapterConfigured()) {
+			if (!isAdapterConfigured() && !isTestModeEnabled()) {
 				throw new Error('west_payments_adapter_not_configured');
 			}
 
@@ -355,6 +527,49 @@ const plugin = {
 			const now = Date.now();
 			const expiresAt = now + DEFAULT_EXPIRES_MS;
 			const methodId = String(input.methodId || '').trim();
+
+			if (!isAdapterConfigured() && isTestModeEnabled()) {
+				const amountMinor = Number.isFinite(Number(input.amountMinor))
+					? Math.max(0, Math.floor(Number(input.amountMinor)))
+					: 0;
+				const record = {
+					providerIntentId,
+					wabiIntentId: String(input.intentId || ''),
+					idempotencyKey,
+					amountMinor,
+					currency: String(input.currency || DEFAULT_CURRENCY).toUpperCase(),
+					countryCode: String(input.countryCode || DEFAULT_COUNTRY).toUpperCase(),
+					status: 'pending',
+					methodId,
+					providerManaged: false,
+					presentation: {
+						mode: 'payment_link',
+						url: buildLocalTestCheckoutUrl(providerIntentId),
+						expiresAt
+					},
+					providerMetadata: {
+						localTestMode: true
+					},
+					createdAt: now,
+					updatedAt: now,
+					expiresAt
+				};
+
+				await saveIntentRecord(ctx, record);
+				return {
+					providerIntentId,
+					status: 'pending',
+					checkoutMode: 'payment_link',
+					presentation: record.presentation,
+					expiresAt,
+					metadata: {
+						provider: PROVIDER_NAME,
+						methodId,
+						providerManaged: false,
+						localTestMode: true
+					}
+				};
+			}
 
 			const adapterResponse = await createAdapterIntent({
 				providerIntentId,
@@ -487,6 +702,20 @@ const plugin = {
 				await saveIntentRecord(ctx, record);
 			}
 
+			if (!record.providerManaged) {
+				return {
+					status: record.status,
+					providerIntentId: record.providerIntentId,
+					amountMinor: record.amountMinor,
+					currency: record.currency,
+					metadata: {
+						methodId: record.methodId,
+						expiresAt: record.expiresAt,
+						localTestMode: true
+					}
+				};
+			}
+
 			try {
 				const statusPayload = await fetchAdapterStatus(record.providerIntentId);
 				const nextStatus = normalizeStatus(statusPayload.status);
@@ -541,6 +770,28 @@ const plugin = {
 				};
 			}
 
+			if (!record.providerManaged) {
+				if (record.status !== 'succeeded' && record.status !== 'pending') {
+					return {
+						status: 'failed',
+						metadata: {
+							reason: 'test_intent_not_refundable',
+							currentStatus: record.status
+						}
+					};
+				}
+				record.status = 'refunded';
+				record.updatedAt = Date.now();
+				await saveIntentRecord(ctx, record);
+				return {
+					status: 'refunded',
+					providerRefundId: randomId('wsrf_'),
+					metadata: {
+						localTestMode: true
+					}
+				};
+			}
+
 			try {
 				const refund = await createAdapterRefund({
 					providerIntentId: record.providerIntentId,
@@ -576,6 +827,59 @@ const plugin = {
 			}
 		}
 	},
+
+	routes: [
+		{
+			method: 'get',
+			path: '/test-checkout',
+			handler: async (req, res) => {
+				const ctx = plugin._ctx;
+				if (!ctx) {
+					res.status(503).json({ success: false, error: 'Plugin context is not ready' });
+					return;
+				}
+				const providerIntentId = String(req.query?.providerIntentId || '').trim();
+				if (!providerIntentId) {
+					res.status(400).json({ success: false, error: 'providerIntentId is required' });
+					return;
+				}
+				const record = await getRecordByProviderIntentId(ctx, providerIntentId);
+				if (!record) {
+					res.status(404).json({ success: false, error: 'Payment intent not found' });
+					return;
+				}
+				res.setHeader('Content-Type', 'text/html; charset=utf-8').send(createLocalTestCheckoutHtml(record));
+			}
+		},
+		{
+			method: 'post',
+			path: '/test-checkout',
+			handler: async (req, res) => {
+				const ctx = plugin._ctx;
+				if (!ctx) {
+					res.status(503).json({ success: false, error: 'Plugin context is not ready' });
+					return;
+				}
+				const body = await req.json().catch(() => ({}));
+				const providerIntentId = String(body.providerIntentId || '').trim();
+				const action = String(body.action || '').trim().toLowerCase();
+				const allowedStatuses = new Set(['pending', 'succeeded', 'failed', 'canceled', 'expired', 'refunded']);
+				if (!providerIntentId || !allowedStatuses.has(action)) {
+					res.status(400).json({ success: false, error: 'providerIntentId and a valid action are required' });
+					return;
+				}
+				const record = await getRecordByProviderIntentId(ctx, providerIntentId);
+				if (!record) {
+					res.status(404).json({ success: false, error: 'Payment intent not found' });
+					return;
+				}
+				record.status = action;
+				record.updatedAt = Date.now();
+				await saveIntentRecord(ctx, record);
+				res.json({ success: true, status: record.status });
+			}
+		}
+	],
 
 	_ctx: null
 };

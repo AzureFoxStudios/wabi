@@ -12,8 +12,10 @@ export type ContextMenuIcon =
 	| 'forward'
 	| 'edit'
 	| 'copy'
+	| 'credit-card'
 	| 'archive'
 	| 'archive-restore'
+	| 'banknote'
 	| 'log-out'
 	| 'languages';
 

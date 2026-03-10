@@ -1,11 +1,14 @@
 <script lang="ts">
+	import { createEventDispatcher, onMount, afterUpdate, tick } from 'svelte';
 	import { channelMessages, sendMessage, currentUser, users, sendTyping, emojis } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
+	import { getAuthToken } from '$lib/authSession';
 	import { getDmNotesStorageKey } from '$lib/notesStore';
 	import GroupAvatar from './GroupAvatar.svelte';
+	import ManualCashModal from './ManualCashModal.svelte';
 	import NotesWorkspace from './NotesWorkspace.svelte';
+	import PaymentSheet from './PaymentSheet.svelte';
 	import type { User, Message, Channel } from '$lib/socket';
-	import { onMount, afterUpdate, tick } from 'svelte';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
 	import {
 		applyWriteUpperCase,
@@ -17,16 +20,28 @@
 		replaceEmojiShortcodesWithUnicode,
 		unicodeEmojiSettingsStore
 	} from '$lib/unicodeEmojis';
+	import {
+		clearConversationPaymentLaunch,
+		doesConversationPaymentLaunchMatch,
+		pendingConversationPaymentLaunch
+	} from '$lib/paymentLaunch';
 
 	export let channelId: string;
 	export let otherUser: User;
 	export let channel: Channel | undefined = undefined;
+
+	const dispatch = createEventDispatcher<{
+		openSettings: { paymentSurface: 'connections' };
+	}>();
 
 	let messageInput = '';
 	let messagesContainer: HTMLDivElement;
 	let shouldAutoScroll = true;
 	let typingTimeout: ReturnType<typeof setTimeout> | null = null;
 	let showDmNotes = false;
+	let paymentSheetOpen = false;
+	let paymentSheetOpenSeed = 0;
+	let manualCashOpen = false;
 
 	$: isGroup = channel?.type === 'group';
 	$: messages = $channelMessages[channelId] || [];
@@ -45,12 +60,46 @@
 	$: dmCharCount = messageInput.length;
 	$: dmCharCounterVisible = dmInputMaxLength > 0 && dmCharCount / dmInputMaxLength >= 0.7;
 	$: dmCharCounterWarn = dmInputMaxLength > 0 && dmCharCount / dmInputMaxLength >= 0.9;
+	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken());
+	$: paymentTargetLabel = isGroup ? channel?.name || 'Group DM' : `DM with ${otherUser.username}`;
 	let dmUnicodePreview = '';
 	let dmUnicodePreviewTokens = 0;
 	$: {
 		const preview = previewUnicodeEmojiConversion(messageInput, $emojis);
 		dmUnicodePreview = preview.convertedText;
 		dmUnicodePreviewTokens = preview.convertedTokens;
+	}
+	$: if (
+		$pendingConversationPaymentLaunch &&
+		doesConversationPaymentLaunchMatch($pendingConversationPaymentLaunch, otherUser)
+	) {
+		if ($pendingConversationPaymentLaunch.surface === 'payment_request') {
+			openPaymentSheet();
+		} else if (!isGroup) {
+			openManualCashModal();
+		}
+		clearConversationPaymentLaunch();
+	}
+
+	function openPaymentSheet(): void {
+		if (!paymentButtonEnabled) {
+			alert('Sign in with a registered account to create payments.');
+			return;
+		}
+		paymentSheetOpenSeed += 1;
+		paymentSheetOpen = true;
+	}
+
+	function openManualCashModal(): void {
+		if (!paymentButtonEnabled) {
+			alert('Sign in with a registered account to track manual cash trades.');
+			return;
+		}
+		if (isGroup) {
+			alert('Manual cash trades are only available in direct messages.');
+			return;
+		}
+		manualCashOpen = true;
 	}
 
 	function handleSend() {
@@ -165,6 +214,26 @@
 		<div class="dm-header-actions">
 			<button
 				class="dm-notes-btn"
+				on:click={openPaymentSheet}
+				title="Create payment request"
+				disabled={!paymentButtonEnabled}
+			>
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"></rect><path d="M2 10h20"></path><path d="M7 15h3"></path></svg>
+				<span>Pay</span>
+			</button>
+			{#if !isGroup}
+				<button
+					class="dm-notes-btn"
+					on:click={openManualCashModal}
+					title="Record manual cash trade"
+					disabled={!paymentButtonEnabled}
+				>
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="12" cy="12" r="2.5"></circle><path d="M6 9h.01"></path><path d="M18 15h.01"></path></svg>
+					<span>Cash</span>
+				</button>
+			{/if}
+			<button
+				class="dm-notes-btn"
 				class:active={showDmNotes}
 				on:click={() => showDmNotes = !showDmNotes}
 				title={showDmNotes ? 'Hide notes' : 'Open notes'}
@@ -239,6 +308,31 @@
 		{/if}
 	</div>
 </div>
+
+<PaymentSheet
+	isOpen={paymentSheetOpen}
+	openSeed={paymentSheetOpenSeed}
+	defaultChannelId={channelId}
+	defaultTargetLabel={paymentTargetLabel}
+	defaultTargetKind={isGroup ? 'group' : 'dm'}
+	onClose={() => {
+		paymentSheetOpen = false;
+	}}
+	onManageConnections={() => {
+		paymentSheetOpen = false;
+		dispatch('openSettings', { paymentSurface: 'connections' });
+	}}
+/>
+
+<ManualCashModal
+	isOpen={manualCashOpen}
+	channelId={channelId}
+	targetLabel={paymentTargetLabel}
+	counterpartyLabel={otherUser.username}
+	onClose={() => {
+		manualCashOpen = false;
+	}}
+/>
 
 <style>
 	.dm-message-view {

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { createEventDispatcher } from 'svelte';
 	import { channels, channelMessages, currentUser, sendMessage, users } from '$lib/socket';
 	import type { Channel, Message, User } from '$lib/socket-types';
 	import { layoutStore } from '$lib/layoutStore';
@@ -10,6 +11,10 @@
 
 	type PanelView = 'users' | 'dms' | 'media' | 'admin';
 	type QuickMode = 'notes' | 'dm';
+
+	const dispatch = createEventDispatcher<{
+		openSettings: { paymentSurface: 'connections' };
+	}>();
 
 	const QUICK_MIN_HEIGHT = 140;
 	const QUICK_DEFAULT_HEIGHT = 220;
@@ -181,7 +186,7 @@
 		{#if activeTab === 'users'}
 			<UserListTab />
 		{:else if activeTab === 'dms'}
-			<DMTab />
+			<DMTab on:openSettings={(event) => dispatch('openSettings', event.detail)} />
 		{:else if activeTab === 'media'}
 			<MediaAlbumsTab />
 		{:else if activeTab === 'admin'}

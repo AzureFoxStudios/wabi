@@ -48,8 +48,9 @@ COPY --from=build /app/src/db/schema.sql /app/src/db/schema.postgres.sql ./src/d
 COPY --from=build /app/openmoji ./openmoji
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/scripts/state-plane-stdb-http.mjs ./scripts/state-plane-stdb-http.mjs
 
-RUN mkdir -p /app/data /app/plugins
+RUN mkdir -p /app/data /app/plugins /app/scripts
 
 EXPOSE 8080
 

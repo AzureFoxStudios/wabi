@@ -182,13 +182,25 @@
 	/* --------------------------------------------------------------------------
 	   Z-INDEX LAYERING TIERS
 	   -------------------------------------------------------------------------- */
-	--z-base: 0;          /* Default stacking context */
-	--z-sticky: 100;      /* Sticky headers, resize handles */
-	--z-dropdown: 200;    /* Dropdowns, mobile panel overlays */
-	--z-overlay: 1000;    /* Modals, popovers, context menus */
-	--z-modal: 1500;      /* Call modals, mobile panel overlays */
-	--z-toast: 2000;      /* Toasts, mobile bottom nav, top-level notifications */
-	--z-lightbox: 12000;  /* Fullscreen media focus mode, above all app chrome */
+	--z-base: 0;                  /* Default stacking context */
+	--z-sticky: 100;              /* Sticky headers, resize handles */
+	--z-dropdown: 200;            /* Dropdowns, mobile panel overlays */
+	--z-overlay: 1000;            /* Generic overlays that should stay below main dialogs */
+	--z-popout: 1200;             /* User cards and lightweight floating panels */
+	--z-modal: 1500;              /* Primary dialogs and side panels */
+	--z-modal-surface: 1501;      /* Modal surfaces when overlay/content are siblings */
+	--z-modal-nested: 1600;       /* Dialogs opened from within dialogs */
+	--z-modal-nested-surface: 1601; /* Nested modal surfaces when overlay/content are siblings */
+	--z-call-shell: 1700;         /* Active call shell */
+	--z-call-focus: 1750;         /* Focused call shell above normal app dialogs */
+	--z-call-docked: 1800;        /* Docked call controls */
+	--z-call-controls: 1802;      /* Floating call affordances */
+	--z-toast: 2000;              /* Toasts, mobile bottom nav, top-level notifications */
+	--z-settings-shell: 2100;     /* Settings shell overlay */
+	--z-settings-nested: 2200;    /* Dialogs opened above settings */
+	--z-floating-ui: 2250;        /* Context menus and transient UI above modal stacks */
+	--z-call-overlay: 2300;       /* Call-specific overlays that must win over settings */
+	--z-lightbox: 12000;          /* Fullscreen media focus mode, above all app chrome */
 
 	/* --------------------------------------------------------------------------
 	   THEME-AWARE CSS VARIABLES (Applied by themeManager.ts)

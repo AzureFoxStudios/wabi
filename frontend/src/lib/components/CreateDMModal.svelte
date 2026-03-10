@@ -103,7 +103,7 @@
 		right: 0;
 		bottom: 0;
 		background: var(--modal-overlay);
-		z-index: 999;
+		z-index: var(--z-modal);
 	}
 
 	.modal {
@@ -114,7 +114,7 @@
 		height: 100vh;
 		height: 100dvh;
 		background: var(--modal-bg);
-		z-index: 1000;
+		z-index: var(--z-modal-surface);
 		display: flex;
 		flex-direction: column;
 		box-shadow: -4px 0 12px rgba(0, 0, 0, 0.3);

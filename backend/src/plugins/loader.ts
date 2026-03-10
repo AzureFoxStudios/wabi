@@ -84,6 +84,25 @@ function boolFromEnv(value: string | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
+function resolvePluginsBaseDir(): string {
+  const configured = process.env.PLUGINS_DIR?.trim();
+  if (configured) {
+    return configured;
+  }
+
+  const cwdPluginsDir = path.join(process.cwd(), 'plugins');
+  if (fs.existsSync(cwdPluginsDir)) {
+    return cwdPluginsDir;
+  }
+
+  const repoRootPluginsDir = path.resolve(process.cwd(), '..', 'plugins');
+  if (fs.existsSync(repoRootPluginsDir)) {
+    return repoRootPluginsDir;
+  }
+
+  return cwdPluginsDir;
+}
+
 interface PluginScanResult {
   passed: boolean;
   status: PluginRecord['scanStatus'];
@@ -126,7 +145,7 @@ export class PluginLoader {
   ) {
     // Resolve local defaults from process cwd so bundled/dist runtime does not escape repo roots.
     const dataDir = process.env.DATA_DIR || path.join(process.cwd(), 'data');
-    const pluginsBaseDir = process.env.PLUGINS_DIR || path.join(process.cwd(), 'plugins');
+    const pluginsBaseDir = resolvePluginsBaseDir();
 
     this.pluginsDir = pluginsBaseDir;
     this.storageDir = path.join(dataDir, '.plugin-storage');
@@ -820,9 +839,23 @@ export class PluginLoader {
       fs.mkdirSync(pluginStorageDir, { recursive: true });
     }
 
+    const toStorageFilePath = (key: string): string => {
+      const encodedKey = encodeURIComponent(String(key));
+      return path.join(pluginStorageDir, `${encodedKey}.json`);
+    };
+
+    const fromStorageFileName = (fileName: string): string | null => {
+      if (!fileName.endsWith('.json')) return null;
+      try {
+        return decodeURIComponent(fileName.slice(0, -5));
+      } catch {
+        return null;
+      }
+    };
+
     return {
       get: async (key: string) => {
-        const filePath = path.join(pluginStorageDir, `${key}.json`);
+        const filePath = toStorageFilePath(key);
         if (fs.existsSync(filePath)) {
           return this.readJsonFile(filePath);
         }
@@ -830,12 +863,12 @@ export class PluginLoader {
       },
 
       set: async (key: string, value: any) => {
-        const filePath = path.join(pluginStorageDir, `${key}.json`);
+        const filePath = toStorageFilePath(key);
         fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
       },
 
       delete: async (key: string) => {
-        const filePath = path.join(pluginStorageDir, `${key}.json`);
+        const filePath = toStorageFilePath(key);
         if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);
         }
@@ -843,8 +876,8 @@ export class PluginLoader {
 
       list: async () => {
         return fs.readdirSync(pluginStorageDir)
-          .filter(f => f.endsWith('.json'))
-          .map(f => f.replace('.json', ''));
+          .map(fromStorageFileName)
+          .filter((key): key is string => Boolean(key));
       }
     };
   }

@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { users, serverMembers, currentUser, createDM, socket, assignRole, removeUserRole, banUser, roleDefinitions } from '$lib/socket';
+	import { get } from 'svelte/store';
+	import { users, serverMembers, currentUser, channels, createDM, getDMChannelIdForUser, socket, assignRole, removeUserRole, banUser, roleDefinitions } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { startCall } from '$lib/calling';
 	import type { User } from '$lib/socket';
@@ -18,6 +19,7 @@
 		localNicknamesStore,
 		setLocalNicknameForUser
 	} from '$lib/localNicknames';
+	import { queueConversationPaymentLaunch } from '$lib/paymentLaunch';
 
 	let contextMenuUser: User | null = null;
 	let contextMenuPosition = { x: 0, y: 0 };
@@ -213,8 +215,7 @@
 			layoutStore.openNotes();
 			return;
 		}
-		createDM(user.id);
-		layoutStore.showDMsTab();
+		openDirectConversationWithUser(user);
 	}
 
 	function handleRightClick(event: MouseEvent, user: User) {
@@ -236,20 +237,63 @@
 			closeContextMenu();
 			return;
 		}
-		createDM(contextMenuUser.id);
+		openDirectConversationWithUser(contextMenuUser);
+		closeContextMenu();
+	}
+
+	function openDirectConversationWithUser(user: User): void {
+		const self = get(currentUser);
+		if (!self || isCurrentUserEntry(user)) return;
+		const dmId = getDMChannelIdForUser(self, user);
+		const existingDM = get(channels).find((channel) => channel.id === dmId);
+		if (existingDM) {
+			layoutStore.openDM(dmId, user);
+			return;
+		}
+
+		createDM(user.id);
 		layoutStore.showDMsTab();
+		const unsubscribe = channels.subscribe((allChannels) => {
+			const newDM = allChannels.find(
+				(channel) => channel.id === dmId || (channel.type === 'dm' && channel.otherUser?.id === user.id)
+			);
+			if (!newDM) return;
+			layoutStore.openDM(newDM.id, user);
+			unsubscribe();
+		});
+	}
+
+	function handleContextRequestPayment(): void {
+		if (!contextMenuUser || isCurrentUserEntry(contextMenuUser) || !contextMenuUser.dbUserId) return;
+		queueConversationPaymentLaunch({
+			surface: 'payment_request',
+			targetUserId: contextMenuUser.id,
+			targetDbUserId: contextMenuUser.dbUserId
+		});
+		openDirectConversationWithUser(contextMenuUser);
+		closeContextMenu();
+	}
+
+	function handleContextManualCash(): void {
+		if (!contextMenuUser || isCurrentUserEntry(contextMenuUser) || !contextMenuUser.dbUserId) return;
+		queueConversationPaymentLaunch({
+			surface: 'manual_cash',
+			targetUserId: contextMenuUser.id,
+			targetDbUserId: contextMenuUser.dbUserId
+		});
+		openDirectConversationWithUser(contextMenuUser);
 		closeContextMenu();
 	}
 
 	async function handleContextVoiceCall() {
 		if (!contextMenuUser || !$socket || isCurrentUserEntry(contextMenuUser)) return;
-		try { await startCall($socket, contextMenuUser.id, false); } catch { /* ignore */ }
+		try { await startCall($socket, getUserIdentityKey(contextMenuUser), false, { scope: 'dm', displayName: contextMenuUser.username }); } catch { /* ignore */ }
 		closeContextMenu();
 	}
 
 	async function handleContextVideoCall() {
 		if (!contextMenuUser || !$socket || isCurrentUserEntry(contextMenuUser)) return;
-		try { await startCall($socket, contextMenuUser.id, true); } catch { /* ignore */ }
+		try { await startCall($socket, getUserIdentityKey(contextMenuUser), true, { scope: 'dm', displayName: contextMenuUser.username }); } catch { /* ignore */ }
 		closeContextMenu();
 	}
 
@@ -320,10 +364,24 @@
 			},
 		];
 
-			if (!isCurrentUserEntry(contextMenuUser)) {
-				items.push(
-					{
-						id: 'voice',
+		if (!isCurrentUserEntry(contextMenuUser)) {
+			items.push(
+				{
+					id: 'request-payment',
+					label: 'Request Payment',
+					icon: 'credit-card',
+					disabled: !contextMenuUser?.dbUserId,
+					onSelect: handleContextRequestPayment
+				},
+				{
+					id: 'record-cash',
+					label: 'Record Cash Trade',
+					icon: 'banknote',
+					disabled: !contextMenuUser?.dbUserId,
+					onSelect: handleContextManualCash
+				},
+				{
+					id: 'voice',
 					label: 'Voice Call',
 					icon: 'phone',
 					onSelect: handleContextVoiceCall

@@ -41,10 +41,11 @@
 	import CommandPalette from './CommandPalette.svelte';
 	import AudioRecorder from './AudioRecorder.svelte';
 	import CameraCapture from './CameraCapture.svelte';
+	import ManualCashModal from './ManualCashModal.svelte';
 	import PaymentSheet from './PaymentSheet.svelte';
 	import { parseCommand, formatCommandHelp, getMatchingCommands, type Command } from '$lib/commands';
 	import { layoutStore } from '$lib/layoutStore';
-	import { callMode, isInCall, startCall } from '$lib/calling';
+	import { callMode, isInCall, outgoingCall, startCall } from '$lib/calling';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { encryptDMFile, isE2EAvailable } from '$lib/e2eManager';
 	import { getDMPrivacyMode } from '$lib/dmPrivacyMode';
@@ -72,6 +73,7 @@
 	} from '$lib/video/videoCompressionSettings';
 	import { reportVideoCompressionTelemetry } from '$lib/video/videoCompressionTelemetry';
 	import { applyChatFilter, expandInputWithChatAlias } from '$lib/chatEnhancements';
+	import { getUserIdentityKey } from '$lib/localNicknames';
 	import {
 		applyWriteUpperCase,
 		composerEnhancementSettingsStore,
@@ -87,6 +89,10 @@
 	import { getAuthToken, getGuestSessionId } from '$lib/authSession';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { getSearchEngineProvider, openExternalSearch } from '$lib/searchEngineJump';
+	import {
+		isExperimentalStdbCallEnabled,
+		setExperimentalStdbCallEnabled
+	} from '$lib/experimentalStdbCalls';
 
 	const dispatch = createEventDispatcher();
 	const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
@@ -107,8 +113,21 @@
 	// They should only appear in the DM panel on the right side
 	// This check prevents accidental rendering of DMs in the middle chat
 	$: isDMChannel = currentChannelData?.type === 'dm';
+	$: isGroupChannel = currentChannelData?.type === 'group';
 	$: dmCallTargetUser = getDMOtherUser(currentChannelData);
-	$: dmDirectCallActive = $isInCall && $callMode === 'direct';
+	$: paymentTargetLabel = (() => {
+		if (isDMChannel && dmCallTargetUser?.username) {
+			return `DM with ${dmCallTargetUser.username}`;
+		}
+		if (isGroupChannel) {
+			return channelDisplayName;
+		}
+		return channelDisplayName ? `#${channelDisplayName}` : $currentChannel;
+	})();
+	$: paymentTargetKind = isDMChannel ? 'dm' : isGroupChannel ? 'group' : 'channel';
+	$: dmDirectCallActive = ($isInCall && $callMode === 'direct') || Boolean($outgoingCall);
+	$: dmDirectCallPending = Boolean($outgoingCall) && !$isInCall && $callMode === 'direct';
+	$: experimentalScopeVisible = isDMChannel || isGroupChannel;
 	$: channelPaneAnimation = (() => {
 		const baseDuration = $animationPassStore.level === 'full' ? 340 : 250;
 		const baseDistance = $animationPassStore.level === 'full' ? 34 : 22;
@@ -121,7 +140,12 @@
 	})();
 
 	let messageInput = '';
+	let manualCashOpen = false;
 	let paymentSheetOpen = false;
+	let paymentSheetOpenSeed = 0;
+	let paymentSheetPrefillAmountInput: string | null = null;
+	let paymentSheetPrefillDescription: string | null = '';
+	let paymentSheetPrefillCustomerRef: string | null = '';
 	let chatContainer: HTMLElement;
 	let typingTimeout: number;
 	let lastTypingEmit = 0;
@@ -153,6 +177,7 @@
 	let compressionDialogBusy = false;
 	let compressionDialogResolve: ((value: File | null) => void) | null = null;
 	let compressionAbortController: AbortController | null = null;
+	let experimentalStdbCallsEnabled = false;
 	let selectedFiles: File[] = [];
 	let filePreviews: { file: File; preview?: string }[] = [];
 	let markAsSpoiler = false;
@@ -168,12 +193,39 @@
 	let emojiPickerLoadPromise: Promise<void> | null = null;
 	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken());
 
-	function openPaymentSheet(): void {
+	type PaymentSheetPrefill = {
+		amountInput?: string | null;
+		description?: string | null;
+		customerRef?: string | null;
+	};
+
+	function openPaymentSheet(prefill: PaymentSheetPrefill = {}): void {
 		if (!paymentButtonEnabled) {
 			alert('Sign in with a registered account to create payments.');
 			return;
 		}
+		paymentSheetPrefillAmountInput =
+			typeof prefill.amountInput === 'string' && prefill.amountInput.trim().length > 0
+				? prefill.amountInput.trim()
+				: null;
+		paymentSheetPrefillDescription =
+			typeof prefill.description === 'string' ? prefill.description.trim() : '';
+		paymentSheetPrefillCustomerRef =
+			typeof prefill.customerRef === 'string' ? prefill.customerRef.trim() : '';
+		paymentSheetOpenSeed += 1;
 		paymentSheetOpen = true;
+	}
+
+	function openManualCashModal(): void {
+		if (!paymentButtonEnabled) {
+			alert('Sign in with a registered account to track manual cash trades.');
+			return;
+		}
+		if (!isDMChannel) {
+			alert('Manual cash trades are only available in direct messages.');
+			return;
+		}
+		manualCashOpen = true;
 	}
 	type UploadVideoCompressionMetadata = {
 		scheme: 'wabi-video-compression-v1';
@@ -393,7 +445,7 @@
 	async function startDMVoiceCall() {
 		if (!$socket || !dmCallTargetUser || dmDirectCallActive) return;
 		try {
-			await startCall($socket, dmCallTargetUser.id, false);
+			await startCall($socket, getUserIdentityKey(dmCallTargetUser), false, { scope: 'dm', displayName: dmCallTargetUser.username });
 		} catch (error) {
 			alert('Failed to start voice call. Please check microphone permissions.');
 		}
@@ -402,7 +454,7 @@
 	async function startDMVideoCall() {
 		if (!$socket || !dmCallTargetUser || dmDirectCallActive) return;
 		try {
-			await startCall($socket, dmCallTargetUser.id, true);
+			await startCall($socket, getUserIdentityKey(dmCallTargetUser), true, { scope: 'dm', displayName: dmCallTargetUser.username });
 		} catch (error) {
 			alert('Failed to start video call. Please check camera and microphone permissions.');
 		}
@@ -703,6 +755,20 @@
 		messageInput = `/${command.name} `;
 		showCommandPalette = false;
 		textareaElement?.focus();
+	}
+
+	function normalizePayAmountInput(rawAmount: string): string | null {
+		const cleaned = rawAmount.replace(/,/g, '').replace(/^\$/, '').trim();
+		if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null;
+		const parsedAmount = Number.parseFloat(cleaned);
+		if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) return null;
+		return parsedAmount.toFixed(2);
+	}
+
+	function resolvePayTargetUser(identifier: string): User | null {
+		const normalized = identifier.trim().replace(/^@+/, '').toLowerCase();
+		if (!normalized) return null;
+		return $users.find((candidate) => candidate.username.toLowerCase() === normalized) || null;
 	}
 
 	function parseWordCommandPayload(rawInput: string): {
@@ -1029,6 +1095,62 @@
 					// Create new DM (will auto-open via dmPanelSignal)
 					createDM(targetUser.id);
 				}
+				break;
+			}
+
+			case 'pay': {
+				if (!paymentButtonEnabled) {
+					alert('Sign in with a registered account to create payments.');
+					break;
+				}
+
+				const userFlagValue =
+					typeof parsed.flags['user'] === 'string'
+						? parsed.flags['user']
+						: typeof parsed.flags['u'] === 'string'
+							? parsed.flags['u']
+							: '';
+				const amountFlagValue =
+					typeof parsed.flags['amt'] === 'string'
+						? parsed.flags['amt']
+						: typeof parsed.flags['amount'] === 'string'
+							? parsed.flags['amount']
+							: '';
+
+				let requestedUser = userFlagValue.trim();
+				let requestedAmount = amountFlagValue.trim();
+
+				for (const arg of parsed.args) {
+					const amountCandidate = normalizePayAmountInput(arg);
+					if (!requestedAmount && amountCandidate) {
+						requestedAmount = amountCandidate;
+						continue;
+					}
+					if (!requestedUser) {
+						requestedUser = arg;
+					}
+				}
+
+				const normalizedAmount = requestedAmount ? normalizePayAmountInput(requestedAmount) : null;
+				if (requestedAmount && !normalizedAmount) {
+					alert('Invalid amount.\nUsage: /pay [@username] [amount] [-user username] [-amt 12.34]');
+					break;
+				}
+
+				let targetUser: User | null = null;
+				if (requestedUser) {
+					targetUser = resolvePayTargetUser(requestedUser);
+					if (!targetUser) {
+						alert(`User "${requestedUser}" not found.\nUsage: /pay [@username] [amount]`);
+						break;
+					}
+				}
+
+				openPaymentSheet({
+					amountInput: normalizedAmount,
+					description: targetUser ? `Payment request for @${targetUser.username}` : '',
+					customerRef: ''
+				});
 				break;
 			}
 
@@ -1750,11 +1872,13 @@
 		if (selectedFiles.length === 0) return;
 
 		const activeChannel = $channels.find(ch => ch.id === $currentChannel);
+		const dmOtherUser = activeChannel?.type === 'dm' ? getDMOtherUser(activeChannel) : null;
+		const dmOtherDbUserId = typeof dmOtherUser?.dbUserId === 'number' ? dmOtherUser.dbUserId : null;
 		const authToken = getAuthToken();
 		const dmPrivacyMode = activeChannel?.type === 'dm' ? getDMPrivacyMode(activeChannel.id) : null;
 		const requiresEncryptedDmAttachment = activeChannel?.type === 'dm' && dmPrivacyMode !== 'open';
 		if (requiresEncryptedDmAttachment) {
-			if (!activeChannel?.otherUser?.dbUserId || !authToken || !isE2EAvailable()) {
+			if (!dmOtherDbUserId || !authToken || !isE2EAvailable()) {
 				alert('This DM is in sealed/private mode. File upload requires E2E encryption and was blocked.');
 				return;
 			}
@@ -1794,7 +1918,7 @@
 
 			const canEncryptDmAttachment =
 				requiresEncryptedDmAttachment &&
-				!!activeChannel?.otherUser?.dbUserId &&
+				!!dmOtherDbUserId &&
 				!!authToken &&
 				isE2EAvailable();
 
@@ -1806,8 +1930,8 @@
 				let persistentResume = true;
 				let videoCompressionMetadata = compressionMetadataByFile.get(file);
 
-				if (canEncryptDmAttachment && authToken && activeChannel?.otherUser?.dbUserId) {
-					const encrypted = await encryptDMFile(file, activeChannel.otherUser.dbUserId, authToken);
+				if (canEncryptDmAttachment && authToken && dmOtherDbUserId) {
+					const encrypted = await encryptDMFile(file, dmOtherDbUserId, authToken);
 					if (!encrypted) {
 						alert('This DM is in sealed/private mode. Encryption failed, so upload was cancelled.');
 						isUploading = false;
@@ -2247,6 +2371,7 @@
 
 	onMount(() => {
 		scrollToBottom();
+		experimentalStdbCallsEnabled = isExperimentalStdbCallEnabled();
 
 		void (async () => {
 			const env = import.meta.env as Record<string, string | undefined>;
@@ -2290,6 +2415,12 @@
 			resolveCompressionDialog(null);
 		}
 	});
+
+	async function toggleExperimentalStdbCallUi() {
+		const next = !experimentalStdbCallsEnabled;
+		experimentalStdbCallsEnabled = next;
+		await setExperimentalStdbCallEnabled(next);
+	}
 </script>
 
 <div
@@ -2333,7 +2464,7 @@
 			{#if isDMChannel && dmCallTargetUser}
 				<div class="dm-call-actions">
 					{#if dmDirectCallActive}
-						<span class="dm-call-live" role="status" aria-live="polite">Call active</span>
+						<span class="dm-call-live" role="status" aria-live="polite">{dmDirectCallPending ? 'Calling…' : 'Call active'}</span>
 					{/if}
 					<button
 						class="dm-call-btn"
@@ -2356,6 +2487,18 @@
 						<span>{$_('chat.dm.video')}</span>
 					</button>
 				</div>
+			{/if}
+			{#if experimentalScopeVisible}
+				<button
+					type="button"
+					class="experimental-stdb-toggle"
+					class:active={experimentalStdbCallsEnabled}
+					on:click={toggleExperimentalStdbCallUi}
+					disabled={!isTauriRuntime() || getTauriPlatform() !== 'desktop'}
+					title="Experimental SpaceChatDB STDB routing for DM/group calls only"
+				>
+					STDB EXP {experimentalStdbCallsEnabled ? 'ON' : 'OFF'}
+				</button>
 			{/if}
 			<div class="search-container" class:expanded={searchExpanded} bind:this={searchContainerElement}>
 				<span class="search-icon" aria-hidden="true">
@@ -2654,12 +2797,22 @@
 					</div>
 					<button
 						class="input-icon-button"
-						on:click={openPaymentSheet}
+						on:click={() => openPaymentSheet()}
 						title="Create payment request"
 						disabled={!paymentButtonEnabled}
 					>
 						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2"></rect><path d="M2.5 10h19"></path><path d="M7.5 15h4"></path></svg>
 					</button>
+					{#if isDMChannel}
+						<button
+							class="input-icon-button"
+							on:click={openManualCashModal}
+							title="Record manual cash trade"
+							disabled={!paymentButtonEnabled}
+						>
+							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V7a2 2 0 0 1 2-2h4"></path><path d="M16 13v4a2 2 0 0 1-2 2h-4"></path><path d="M5 12h4"></path><path d="M15 12h4"></path><path d="m9 9 2 3-2 3"></path><path d="m15 9-2 3 2 3"></path></svg>
+						</button>
+					{/if}
 				</div>
 				<textarea
 				bind:this={textareaElement}
@@ -2804,10 +2957,29 @@
 
 		<PaymentSheet
 			isOpen={paymentSheetOpen}
+			openSeed={paymentSheetOpenSeed}
+			initialAmountInput={paymentSheetPrefillAmountInput}
+			initialDescription={paymentSheetPrefillDescription}
+			initialCustomerRef={paymentSheetPrefillCustomerRef}
+			defaultTargetLabel={paymentTargetLabel}
+			defaultTargetKind={paymentTargetKind}
 			onClose={() => {
 				paymentSheetOpen = false;
 			}}
+			onManageConnections={() => {
+				paymentSheetOpen = false;
+				dispatch('openSettings', { paymentSurface: 'connections' });
+			}}
 			defaultChannelId={$currentChannel}
+		/>
+		<ManualCashModal
+			isOpen={manualCashOpen}
+			channelId={$currentChannel}
+			targetLabel={paymentTargetLabel}
+			counterpartyLabel={dmCallTargetUser?.username || 'Other user'}
+			onClose={() => {
+				manualCashOpen = false;
+			}}
 		/>
 
 		<div class="debug-version-footer" aria-hidden="true">
@@ -3159,6 +3331,38 @@
 
 	.dm-call-btn:disabled {
 		opacity: 0.75;
+		cursor: default;
+	}
+
+	.experimental-stdb-toggle {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.32rem 0.55rem;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border);
+		background: var(--bg-secondary);
+		color: var(--text-secondary);
+		font-size: var(--text-xs);
+		font-weight: var(--font-weight-semibold);
+		letter-spacing: 0.02em;
+		cursor: pointer;
+		transition: all var(--duration-fast);
+	}
+
+	.experimental-stdb-toggle:hover:not(:disabled) {
+		border-color: var(--accent);
+		color: var(--text-primary);
+		background: var(--bg-tertiary);
+	}
+
+	.experimental-stdb-toggle.active {
+		border-color: color-mix(in srgb, var(--accent) 65%, var(--border));
+		background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
+		color: var(--text-primary);
+	}
+
+	.experimental-stdb-toggle:disabled {
+		opacity: 0.5;
 		cursor: default;
 	}
 
@@ -3846,7 +4050,8 @@
 
 		.search-results,
 		.search-history-btn,
-		.dm-call-actions {
+		.dm-call-actions,
+		.experimental-stdb-toggle {
 			display: none;
 		}
 

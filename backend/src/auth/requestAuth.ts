@@ -102,7 +102,7 @@ export function getAuthenticatedUserIdFromRequest(req: IncomingMessage): number 
     const payload = verifyToken(token);
     if (!payload.userId || !payload.sessionId) return null;
     const dbSession = sessionRepository.findById(payload.sessionId);
-    if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
+    if (!dbSession || dbSession.user_id !== payload.userId || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
       return null;
     }
     return payload.userId;
@@ -118,7 +118,7 @@ export function getAuthenticatedSessionIdFromRequest(req: IncomingMessage): stri
     const payload = verifyToken(token);
     if (!payload.sessionId) return null;
     const dbSession = sessionRepository.findById(payload.sessionId);
-    if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
+    if (!dbSession || (payload.userId && dbSession.user_id !== payload.userId) || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
       return null;
     }
     return payload.sessionId;

@@ -32,6 +32,38 @@ import { encryptDMMessage, decryptDMMessage, isE2EAvailable } from './e2eManager
 import { getDMPrivacyMode } from './dmPrivacyMode';
 import { mobileTabQueue } from './mobileTabQueue';
 
+function getSelfStableIdForSocketId(socketId: string | null | undefined): string | null {
+	if (!socketId) return null;
+	const me = get(currentUser);
+	if (me?.id === socketId) {
+		return typeof me.dbUserId === 'number' ? `user-${me.dbUserId}` : me.id;
+	}
+	const onlineUsers = get(users);
+	const socketUser = onlineUsers.find((u) => u.id === socketId);
+	if (!socketUser) return null;
+	return typeof socketUser.dbUserId === 'number' ? `user-${socketUser.dbUserId}` : socketUser.id;
+}
+
+function resolveOtherDmDbUserId(channel: Channel, socketId?: string | null): number | null {
+	if (typeof channel.otherUser?.dbUserId === 'number') return channel.otherUser.dbUserId;
+	if (!Array.isArray(channel.members)) return null;
+	const selfStableId = getSelfStableIdForSocketId(socketId ?? get(socket)?.id);
+	const otherMemberId = channel.members.find((id) => id !== selfStableId);
+	if (otherMemberId?.startsWith('user-')) {
+		const dbUserId = Number.parseInt(otherMemberId.substring(5), 10);
+		if (Number.isFinite(dbUserId)) return dbUserId;
+	}
+	// Fallback: derive from DM channel ID format, e.g. dm-user-12-user-34
+	// This helps when legacy member arrays are stale/malformed.
+	const fromChannelId = Array.from(channel.id.matchAll(/user-(\d+)/g))
+		.map((m) => Number.parseInt(m[1], 10))
+		.filter((n) => Number.isFinite(n));
+	const me = get(currentUser);
+	const selfDbId = typeof me?.dbUserId === 'number' ? me.dbUserId : null;
+	const candidate = fromChannelId.find((id) => id !== selfDbId) ?? fromChannelId[0];
+	return typeof candidate === 'number' ? candidate : null;
+}
+
 /**
  * Decrypt an array of messages for a DM channel (in-place mutation of text field).
  * Skips non-encrypted messages. Requires channel to be a DM with a known otherUser.dbUserId.
@@ -44,9 +76,9 @@ async function decryptMessagesForChannel(channelId: string, messages: Message[])
 
 	const channelList = get(channels);
 	const channel = channelList.find(ch => ch.id === channelId);
-	if (!channel || channel.type !== 'dm' || !channel.otherUser?.dbUserId) return;
-
-	const otherDbUserId = channel.otherUser.dbUserId;
+	if (!channel || channel.type !== 'dm') return;
+	const otherDbUserId = resolveOtherDmDbUserId(channel);
+	if (!otherDbUserId) return;
 
 	await Promise.all(
 		messages.map(async (msg) => {
@@ -55,6 +87,37 @@ async function decryptMessagesForChannel(channelId: string, messages: Message[])
 			}
 		})
 	);
+}
+
+export async function retryDecryptLoadedDmMessages(): Promise<void> {
+	if (!browser || !isE2EAvailable()) return;
+
+	const channelList = get(channels);
+	const currentMessages = get(channelMessages);
+	let changed = false;
+	const nextState: Record<string, Message[]> = { ...currentMessages };
+
+	for (const channel of channelList) {
+		if (channel.type !== 'dm') continue;
+		const messages = currentMessages[channel.id];
+		if (!messages?.length) continue;
+
+		const pending = messages.filter((msg) => msg.encrypted && msg.iv && msg.text !== '[Encrypted message]');
+		if (pending.length === 0) continue;
+
+		const clonedMessages = messages.map((msg) => ({ ...msg }));
+		await decryptMessagesForChannel(channel.id, clonedMessages);
+
+		const didChange = clonedMessages.some((msg, index) => msg.text !== messages[index]?.text);
+		if (!didChange) continue;
+
+		nextState[channel.id] = clonedMessages;
+		changed = true;
+	}
+
+	if (changed) {
+		channelMessages.set(nextState);
+	}
 }
 
 import { handleP2PIncomingOffer, handleP2PAnswer, handleP2PIceCandidate } from './p2pFileTransfer';
@@ -660,10 +723,17 @@ class SocketManager {
 					}
 					// Fallback: try to resolve from online users list
 					if (channel.members) {
-						const otherUserId = channel.members.find(id => id !== sock.id);
-						const otherUser = data.users.find(u => u.id === otherUserId);
+						const selfStableId = getSelfStableIdForSocketId(sock.id);
+						const otherUserId = channel.members.find(id => id !== selfStableId);
+						let otherUser = data.users.find(u => u.id === otherUserId);
+						if (!otherUser && otherUserId?.startsWith('user-')) {
+							const dbId = Number.parseInt(otherUserId.substring(5), 10);
+							otherUser =
+								data.users.find(u => u.dbUserId === dbId) ||
+								data.serverMembers?.find(u => u.dbUserId === dbId);
+						}
 						if (otherUser) {
-							return { ...channel, name: otherUser.username, otherUser };
+							return { ...channel, name: otherUser.username, otherUser: { ...otherUser } };
 						}
 					}
 				}
@@ -1022,10 +1092,17 @@ class SocketManager {
 					processedChannel = { ...channel, name: channel.otherUser.username };
 				} else if (channel.members) {
 					const userList = get(users);
-					const otherUserId = channel.members.find(id => id !== sock.id);
-					const otherUser = userList.find(u => u.id === otherUserId);
+					const selfStableId = getSelfStableIdForSocketId(sock.id);
+					const otherUserId = channel.members.find(id => id !== selfStableId);
+					let otherUser = userList.find(u => u.id === otherUserId);
+					if (!otherUser && otherUserId?.startsWith('user-')) {
+						const dbId = Number.parseInt(otherUserId.substring(5), 10);
+						otherUser =
+							userList.find(u => u.dbUserId === dbId) ||
+							get(serverMembers).find(u => u.dbUserId === dbId);
+					}
 					if (otherUser) {
-						processedChannel = { ...channel, name: otherUser.username, otherUser };
+						processedChannel = { ...channel, name: otherUser.username, otherUser: { ...otherUser } };
 					}
 				}
 			}
@@ -1305,7 +1382,13 @@ class SocketManager {
 
 		sock.on('call-incoming', (data: { userId: string; username: string; isVideoCall: boolean; channelId?: string; channelName?: string }) => {
 			if (data.channelId) {
-				console.log(`[SocketManager] Voice channel join signal from ${data.username} for ${data.channelName || data.channelId}`);
+				const channel = get(channels).find((entry) => entry.id === data.channelId);
+				if (channel?.type === 'voice') {
+					console.log(`[SocketManager] Voice channel join signal from ${data.username} for ${data.channelName || data.channelId}`);
+					return;
+				}
+				console.log(`[SocketManager] Incoming group call from ${data.username} for ${data.channelName || data.channelId}`);
+				calling.incomingCall.set(data);
 				return;
 			}
 
@@ -1315,6 +1398,10 @@ class SocketManager {
 
 		sock.on('call-accepted', (data: { userId: string; username: string; isVideoCall: boolean }) => {
 			console.log(`[SocketManager] Call accepted by ${data.username}`);
+			if (!calling.beginEstablishedDirectCall()) {
+				console.warn('[SocketManager] Ignoring call-accepted because no outgoing call is pending');
+				return;
+			}
 			calling.createCallOffer(sock, data.userId, data.username)
 				.catch(err => console.error('[SocketManager] createCallOffer failed:', err));
 		});
@@ -1324,8 +1411,24 @@ class SocketManager {
 			calling.endCall(sock);
 		});
 
+		sock.on('call-cancelled', (data: { userId: string; channelId?: string }) => {
+			console.log(`[SocketManager] Call cancelled by ${data.userId}`);
+			calling.handleIncomingCallCancelled(data.userId, data.channelId);
+		});
+
+		sock.on('call-error', (data: { code?: string; message?: string; targetUserId?: string | null }) => {
+			console.warn(
+				`[SocketManager] Call error${data?.code ? ` (${data.code})` : ''}: ${data?.message || 'unknown error'}`
+			);
+			calling.endCall(sock);
+		});
+
 		sock.on('call-ended', (data: { userId: string }) => {
 			console.log(`[SocketManager] Call ended with ${data.userId}`);
+			if (get(calling.callMode) === 'direct') {
+				calling.handleRemoteDirectCallEnded(data.userId);
+				return;
+			}
 			calling.removeCall(data.userId);
 			calling.removeScreenShare(data.userId);
 		});
@@ -1349,10 +1452,31 @@ class SocketManager {
 			calling.handleCallIceCandidate(data.senderId, data.candidate);
 		});
 
-		sock.on('voice-channel-user-joined', (data: { channelId: string; userId: string; socketId?: string; username?: string }) => {
-			if (calling.isSfuMediaTransportActive()) {
+		sock.on('group-call-participant-joined', (data: { channelId: string; channelName?: string; userId: string; username: string; stableUserId?: string }) => {
+			const me = get(currentUser);
+			if (me?.id === data.userId || sock.id === data.userId) {
 				return;
 			}
+			console.log(`[SocketManager] Group call participant joined ${data.channelId}: ${data.username}`);
+			calling.handleGroupCallParticipantJoined(sock, data)
+				.catch(err => console.error('[SocketManager] handleGroupCallParticipantJoined failed:', err));
+		});
+
+		sock.on('group-call-participant-left', (data: { channelId: string; userId: string }) => {
+			const me = get(currentUser);
+			if (me?.id === data.userId || sock.id === data.userId) {
+				return;
+			}
+			console.log(`[SocketManager] Group call participant left ${data.channelId}: ${data.userId}`);
+			calling.handleGroupCallParticipantLeft(data);
+		});
+
+		sock.on('group-call-invite-cleared', (data: { channelId: string; stableUserId: string; reason?: string }) => {
+			console.log(`[SocketManager] Group call invite cleared ${data.channelId}: ${data.stableUserId}${data.reason ? ` (${data.reason})` : ''}`);
+			calling.handleGroupCallInviteCleared(data);
+		});
+
+		sock.on('voice-channel-user-joined', (data: { channelId: string; userId: string; socketId?: string; username?: string }) => {
 			const me = get(currentUser);
 			if (me?.id === data.userId || sock.id === data.socketId) {
 				return;
@@ -1363,16 +1487,28 @@ class SocketManager {
 
 			const targetId = data.socketId || data.userId;
 			console.log(`[SocketManager] Voice participant joined ${data.channelId}: ${data.username || data.userId}`);
+			calling.handleVoiceParticipantJoined(targetId, data.username || '');
+			if (calling.isSfuMediaTransportActive()) {
+				return;
+			}
 			calling.createCallOffer(sock, targetId, data.username || '', { channelId: data.channelId })
 				.catch(err => console.error('[SocketManager] voice-channel createCallOffer failed:', err));
 		});
 
 		sock.on('voice-channel-user-left', (data: { channelId: string; userId: string; socketId?: string }) => {
+			const me = get(currentUser);
+			const targetId = data.socketId || data.userId;
+			if (me?.id === data.userId || sock.id === data.socketId) {
+				return;
+			}
+			if (!get(calling.listeningVoiceChannels).includes(data.channelId)) {
+				return;
+			}
+			console.log(`[SocketManager] Voice participant left ${data.channelId}: ${targetId}`);
+			calling.handleVoiceParticipantLeft(targetId);
 			if (calling.isSfuMediaTransportActive()) {
 				return;
 			}
-			const targetId = data.socketId || data.userId;
-			console.log(`[SocketManager] Voice participant left ${data.channelId}: ${targetId}`);
 			calling.removeCall(targetId);
 		});
 
@@ -1794,14 +1930,15 @@ export async function sendMessage(channelId: string, text: string, type: 'text' 
 	// DM text in sealed/private mode tries encryption first.
 	// If encryption is unavailable/fails, require explicit user confirmation before plaintext fallback.
 	if (type === 'text' && isDM && dmPrivacyMode !== 'open') {
-		if (!channel?.otherUser?.dbUserId || !isE2EAvailable()) {
+		const otherDbUserId = channel ? resolveOtherDmDbUserId(channel) : null;
+		if (!otherDbUserId || !isE2EAvailable()) {
 			const allowPlaintext = confirmUnencryptedDmFallback();
 			if (!allowPlaintext) return;
 		}
-		if (channel?.otherUser?.dbUserId && isE2EAvailable()) {
+		if (otherDbUserId && isE2EAvailable()) {
 			const token = browser ? getAuthToken() : null;
 			if (token) {
-				const encrypted = await encryptDMMessage(text, channel.otherUser.dbUserId, token);
+				const encrypted = await encryptDMMessage(text, otherDbUserId, token);
 				if (encrypted) {
 					payload.text = encrypted.text;
 					payload.encrypted = encrypted.encrypted;

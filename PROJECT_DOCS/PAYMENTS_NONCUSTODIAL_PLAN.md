@@ -4,6 +4,8 @@ Last updated: 2026-03-08
 Status: Core backend + frontend payment sheet + `th-payments` + `western-payments` contracted-adapter flows + signed-only rollout path implemented
 Owner: Core backend + plugin platform
 
+Current shipped behavior is documented in `PROJECT_DOCS/PAYMENTS_IMPLEMENTATION.md`.
+
 ## 1) Goal
 
 Enable Wabi servers to offer payment actions (QR, links, app handoff, optional tap flows) while keeping Wabi out of money custody and bank/operator roles.

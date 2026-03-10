@@ -12,6 +12,7 @@ import { getAllEmojis, getEmojiByName, addCustomEmoji, deleteCustomEmoji, type E
 import { __dirname } from "./_dirname.js";
 import db, { initializeDatabase, closeDatabase } from "./db/database.js";
 import { offlineMessageRepository } from "./db/repositories/offlineMessageRepository.js";
+import { messageRepository } from "./db/repositories/messageRepository.js";
 import { settingsRepository } from "./db/repositories/settingsRepository.js";
 import { themeRepository } from "./db/repositories/themeRepository.js";
 import { guestCodeRepository } from "./db/repositories/guestCodeRepository.js";
@@ -57,20 +58,36 @@ import {
 } from "./api/webhookRoutes.js";
 import {
   handleCancelPaymentIntent,
+  handleCreateAdminOfflineDonation,
   handleCreatePaymentIntent,
   handleDeletePaymentAccountLink,
   handleDeletePaymentUserBlock,
   handleGetPaymentAccess,
   handleGetPaymentAccessPolicy,
+  handleGetPaymentDonationConfig,
+  handleGetPaymentDonationSummary,
   handleGetPaymentIntent,
+  handleListAdminOfflineDonations,
+  handleListAdminPaymentDonations,
   handleListPaymentAccountLinks,
+  handleListPaymentHistory,
   handleListPaymentUserBlocks,
   handleListPaymentProviders,
   handlePaymentWebhook,
+  handleRefundAdminPaymentDonation,
   handleSavePaymentAccessPolicy,
+  handleSavePaymentDonationConfig,
   handleUpsertPaymentAccountLink,
-  handleUpsertPaymentUserBlock
+  handleUpsertPaymentUserBlock,
+  handleVoidAdminOfflineDonation
 } from "./api/paymentRoutes.js";
+import {
+  handleCancelManualCashSettlement,
+  handleConfirmManualCashSettlement,
+  handleCreateManualCashSettlement,
+  handleDisputeManualCashSettlement,
+  handleListManualCashSettlements
+} from "./api/manualSettlementRoutes.js";
 import { handleDictionaryLookup, handleDictionaryUpsert, handleDictionaryDelete } from "./api/dictionaryRoutes.js";
 import {
   handleListAlbums,
@@ -87,7 +104,12 @@ import { relayRepository } from "./db/repositories/relayRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
 import { appPolicyRepository } from "./db/repositories/appPolicyRepository.js";
 import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
-import { DEFAULT_PAYMENT_ACCESS_POLICY, sanitizePaymentAccessPolicy, type PaymentAccessPolicy } from "./payments/accessPolicy.js";
+import {
+  DEFAULT_PAYMENT_ACCESS_POLICY,
+  getPaymentAccessPolicyBootstrapFromEnv,
+  sanitizePaymentAccessPolicy,
+  type PaymentAccessPolicy
+} from "./payments/accessPolicy.js";
 import {
   stateUserStore as userRepository,
   stateSessionStore as sessionRepository,
@@ -128,21 +150,114 @@ import {
 } from "./constants.js";
 
 // Helper: get role info for a user (roles, highest role, display color)
-function getUserRoleInfo(dbUserId?: number): { roles: string[]; highestRole: string; roleColor: string | null } {
+interface ComputedRoleInfo {
+  roles: string[];
+  highestRole: string;
+  roleColor: string | null;
+}
+
+interface RoleStyleMeta {
+  priority: number;
+  color: string | null;
+}
+
+interface WorkspaceRoleLookup {
+  workspaceId: string;
+  roleStylesByName: Map<string, RoleStyleMeta>;
+  roleInfoByUserId: Map<number, ComputedRoleInfo>;
+}
+
+function loadRoleStyleMeta(workspaceId: string = 'default-workspace'): Map<string, RoleStyleMeta> {
+  const rows = db.prepare(`
+    SELECT role_name, priority, color
+    FROM roles
+    WHERE workspace_id = ?
+  `).all(workspaceId) as Array<{
+    role_name: string;
+    priority: number;
+    color: string | null;
+  }>;
+
+  const byName = new Map<string, RoleStyleMeta>();
+  for (const row of rows) {
+    byName.set(row.role_name, {
+      priority: row.priority,
+      color: row.color || null
+    });
+  }
+  return byName;
+}
+
+function computeRoleInfoFromRoles(
+  roles: string[],
+  roleStylesByName: Map<string, RoleStyleMeta>
+): ComputedRoleInfo {
+  const sortedRoles = roles.filter(Boolean).sort((a, b) => a.localeCompare(b));
+  if (sortedRoles.length === 0) {
+    return { roles: ['member'], highestRole: 'member', roleColor: null };
+  }
+
+  let highestRole = 'member';
+  let highestPriority = Number.NEGATIVE_INFINITY;
+  let roleColor: string | null = null;
+
+  for (const role of sortedRoles) {
+    const meta = roleStylesByName.get(role);
+    const priority = meta?.priority ?? 0;
+    if (priority > highestPriority) {
+      highestPriority = priority;
+      highestRole = role;
+    }
+    if (!roleColor && meta?.color) {
+      roleColor = meta.color;
+    }
+  }
+
+  return {
+    roles: sortedRoles,
+    highestRole,
+    roleColor
+  };
+}
+
+function buildWorkspaceRoleLookup(workspaceId: string = 'default-workspace'): WorkspaceRoleLookup {
+  const roleStylesByName = loadRoleStyleMeta(workspaceId);
+  const assignments = stateRbacStore.getWorkspaceRoleAssignments(workspaceId);
+  const rolesByUserId = new Map<number, string[]>();
+
+  for (const assignment of assignments) {
+    const existing = rolesByUserId.get(assignment.userId) || [];
+    existing.push(assignment.role);
+    rolesByUserId.set(assignment.userId, existing);
+  }
+
+  const roleInfoByUserId = new Map<number, ComputedRoleInfo>();
+  for (const [userId, roles] of rolesByUserId.entries()) {
+    roleInfoByUserId.set(userId, computeRoleInfoFromRoles(roles, roleStylesByName));
+  }
+
+  return {
+    workspaceId,
+    roleStylesByName,
+    roleInfoByUserId
+  };
+}
+
+function getUserRoleInfo(
+  dbUserId?: number,
+  roleLookup?: WorkspaceRoleLookup
+): ComputedRoleInfo {
   if (!dbUserId) return { roles: ['guest'], highestRole: 'guest', roleColor: '#888888' };
 
-  const roles = getUserRoles(dbUserId);
-  if (roles.length === 0) return { roles: ['member'], highestRole: 'member', roleColor: null };
+  const cached = roleLookup?.roleInfoByUserId.get(dbUserId);
+  if (cached) {
+    return cached;
+  }
 
-  // Get role priorities from DB
-  const roleRows = db.prepare(
-    'SELECT role_name, priority, color FROM roles WHERE role_name IN (' + roles.map(() => '?').join(',') + ') ORDER BY priority DESC'
-  ).all(...roles) as { role_name: string; priority: number; color: string | null }[];
-
-  const highestRole = roleRows[0]?.role_name || 'member';
-  const roleColor = roleRows.find(r => r.color)?.color || null;
-
-  return { roles: roles.length > 0 ? roles : ['member'], highestRole, roleColor };
+  const workspaceId = roleLookup?.workspaceId || 'default-workspace';
+  const roles = getUserRoles(dbUserId, workspaceId);
+  const roleStylesByName = roleLookup?.roleStylesByName || loadRoleStyleMeta(workspaceId);
+  return computeRoleInfoFromRoles(roles, roleStylesByName);
 }
 
 function getRoleDefinitions(workspaceId: string = 'default-workspace'): Array<{
@@ -676,6 +791,20 @@ function getPolicyDefaults<TValue>(key: PolicyKey): TValue {
 // Initialize database before any policy/settings queries
 initializeDatabase();
 
+const paymentAccessBootstrap = getPaymentAccessPolicyBootstrapFromEnv();
+if (paymentAccessBootstrap.mode !== 'off') {
+  const paymentsPolicyStorageKey = `policy:${PAYMENTS_ACCESS_POLICY_KEY}`;
+  const hasStoredPaymentPolicy = appPolicyRepository.getRaw(paymentsPolicyStorageKey) !== null;
+  if (paymentAccessBootstrap.mode === 'force' || !hasStoredPaymentPolicy) {
+    appPolicyRepository.setRaw(paymentsPolicyStorageKey, JSON.stringify(paymentAccessBootstrap.policy));
+    console.log(
+      `[Payments] ${
+        hasStoredPaymentPolicy ? 'Applied' : 'Seeded'
+      } access policy from env bootstrap (mode=${paymentAccessBootstrap.mode}, enabled=${paymentAccessBootstrap.policy.enabled}, allowGuest=${paymentAccessBootstrap.policy.allowGuest}, roles=${paymentAccessBootstrap.policy.allowedRoleNames.join(',') || 'none'})`
+    );
+  }
+}
+
 const startupRuntimeTuning = getPolicyValue<RuntimeTuningConfig>(RUNTIME_TUNING_POLICY_KEY);
 if (!process.env.UV_THREADPOOL_SIZE && startupRuntimeTuning.threadPoolSize) {
   process.env.UV_THREADPOOL_SIZE = String(startupRuntimeTuning.threadPoolSize);
@@ -936,6 +1065,19 @@ const screenSharers = new Map<string, {
 // Track active call peers: socketId -> Set of partner socketIds
 const activeCallPeers = new Map<string, Set<string>>();
 
+interface GroupCallSession {
+  channelId: string;
+  channelName: string;
+  initiatorStableId: string;
+  isVideoCall: boolean;
+  hasEverEstablished: boolean;
+  lastInviteSenderId: string;
+  invitedParticipants: Set<string>;
+  connectedParticipants: Set<string>;
+}
+
+const groupCallSessions = new Map<string, GroupCallSession>();
+
 // Voice channel runtime state (transient, never persisted)
 const voiceChannelParticipants = new Map<string, Set<string>>(); // channelId -> stable user IDs
 const voiceChannelSubscribers = new Map<string, Set<string>>(); // channelId -> socket IDs listening to updates/media
@@ -1060,12 +1202,157 @@ function getBreakoutChannelsForParent(parentChannelId: string): Channel[] {
 }
 
 function resolveStableUserIdFromAny(rawId: string): string | null {
-	if (!rawId) return null;
-	if (rawId.startsWith('user-')) return rawId;
-	const user = users.get(rawId);
-	if (user?.dbUserId) return `user-${user.dbUserId}`;
-	if (users.has(rawId)) return rawId;
-	return null;
+  if (!rawId) return null;
+  if (rawId.startsWith('user-')) return rawId;
+  const user = users.get(rawId);
+  if (user?.dbUserId) return `user-${user.dbUserId}`;
+  if (users.has(rawId)) return rawId;
+  return null;
+}
+
+function getGroupChannelById(channelId?: string): Channel | null {
+  if (!channelId) return null;
+  const channel = channels.get(channelId);
+  if (!channel || channel.type !== 'group') return null;
+  return channel;
+}
+
+function isStableUserConnected(stableUserId: string): boolean {
+  const socketId = resolveSocketId(stableUserId);
+  return !!socketId && users.has(socketId);
+}
+
+function isGroupCallEstablished(session: GroupCallSession): boolean {
+  return session.connectedParticipants.size > 1;
+}
+
+function cancelPendingGroupCallInvites(session: GroupCallSession, cancelledByUserId?: string): void {
+  const cancellingUserId = cancelledByUserId || session.lastInviteSenderId;
+  if (!cancellingUserId) {
+    session.invitedParticipants.clear();
+    return;
+  }
+
+  for (const stableUserId of Array.from(session.invitedParticipants)) {
+    const inviteeSocketId = resolveSocketId(stableUserId);
+    if (!inviteeSocketId || !users.has(inviteeSocketId)) continue;
+
+    io.to(inviteeSocketId).emit("call-cancelled", {
+      userId: cancellingUserId,
+      channelId: session.channelId
+    });
+  }
+
+  session.invitedParticipants.clear();
+}
+
+function cleanupIdleGroupCallSession(
+  session: GroupCallSession,
+  options: { cancelPending?: boolean; cancelledByUserId?: string } = {}
+): boolean {
+  if (session.connectedParticipants.size === 0) {
+    if (session.invitedParticipants.size > 0 && options.cancelPending !== false) {
+      cancelPendingGroupCallInvites(session, options.cancelledByUserId);
+    }
+    groupCallSessions.delete(session.channelId);
+    return true;
+  }
+
+  if (
+    session.connectedParticipants.size === 1 &&
+    session.invitedParticipants.size === 0 &&
+    !session.hasEverEstablished
+  ) {
+    groupCallSessions.delete(session.channelId);
+    return true;
+  }
+
+  return false;
+}
+
+function emitGroupCallParticipantJoined(session: GroupCallSession, userId: string, username: string, excludeStableUserId: string): void {
+  for (const stableUserId of session.connectedParticipants) {
+    if (stableUserId === excludeStableUserId) continue;
+
+    const participantSocketId = resolveSocketId(stableUserId);
+    if (!participantSocketId || !users.has(participantSocketId)) continue;
+
+    io.to(participantSocketId).emit("group-call-participant-joined", {
+      channelId: session.channelId,
+      channelName: session.channelName,
+      stableUserId: excludeStableUserId,
+      userId,
+      username
+    });
+  }
+}
+
+function emitGroupCallParticipantLeft(session: GroupCallSession, stableUserId: string, userId: string): void {
+  for (const participantStableId of session.connectedParticipants) {
+    const participantSocketId = resolveSocketId(participantStableId);
+    if (!participantSocketId || !users.has(participantSocketId)) continue;
+
+    io.to(participantSocketId).emit("group-call-participant-left", {
+      channelId: session.channelId,
+      stableUserId,
+      userId
+    });
+  }
+}
+
+function emitGroupCallInviteCleared(
+  session: GroupCallSession,
+  stableUserId: string,
+  reason: "rejected" | "stopped" | "cancelled"
+): void {
+  const username = findUserByStableId(stableUserId)?.username || stableUserId;
+  for (const participantStableId of session.connectedParticipants) {
+    const participantSocketId = resolveSocketId(participantStableId);
+    if (!participantSocketId || !users.has(participantSocketId)) continue;
+
+    io.to(participantSocketId).emit("group-call-invite-cleared", {
+      channelId: session.channelId,
+      stableUserId,
+      username,
+      reason
+    });
+  }
+}
+
+function joinGroupCallSession(session: GroupCallSession, stableUserId: string, socketId: string, username: string): void {
+  const alreadyConnected = session.connectedParticipants.has(stableUserId);
+  session.invitedParticipants.delete(stableUserId);
+  if (alreadyConnected) return;
+
+  session.connectedParticipants.add(stableUserId);
+  if (session.connectedParticipants.size > 1) {
+    session.hasEverEstablished = true;
+  }
+  emitGroupCallParticipantJoined(session, socketId, username, stableUserId);
+}
+
+function removeGroupCallParticipantFromSession(
+  session: GroupCallSession,
+  stableUserId: string,
+  options: { userId?: string; cancelPendingIfEmpty?: boolean; cancelledByUserId?: string } = {}
+): void {
+  const wasInvited = session.invitedParticipants.delete(stableUserId);
+  const wasConnected = session.connectedParticipants.delete(stableUserId);
+
+  if (!wasInvited && !wasConnected) return;
+
+  if (wasInvited) {
+    emitGroupCallInviteCleared(session, stableUserId, "cancelled");
+  }
+
+  if (wasConnected && options.userId) {
+    emitGroupCallParticipantLeft(session, stableUserId, options.userId);
+  }
+
+  cleanupIdleGroupCallSession(session, {
+    cancelPending: options.cancelPendingIfEmpty,
+    cancelledByUserId: options.cancelledByUserId
+  });
 }
 
 function moveVoiceParticipant(stableUserId: string, fromChannelId: string, toChannelId: string): void {
@@ -2563,6 +2850,31 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/api/admin/legacy-message-status" && req.method === "GET") {
+    const userId = getAuthenticatedUserId(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+
+    const messageId = (url.searchParams.get("messageId") || "").trim();
+    if (!messageId) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "messageId is required" }));
+      return;
+    }
+
+    const message = messageRepository.findByMessageId(messageId);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      success: true,
+      exists: Boolean(message),
+      mode: "legacy_sqlite"
+    }));
+    return;
+  }
+
   if (url.pathname === "/api/admin/compression-metrics/reset" && req.method === "POST") {
     const userId = getAuthenticatedUserId(req);
     if (!isPluginAdmin(userId)) {
@@ -3625,6 +3937,45 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/api/payments/history" && req.method === "GET") {
+    await handleListPaymentHistory(req, res, url);
+    return;
+  }
+
+  if (url.pathname === "/api/payments/donations" && req.method === "GET") {
+    await handleGetPaymentDonationSummary(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/manual-cash" && req.method === "POST") {
+    await handleCreateManualCashSettlement(req, res);
+    return;
+  }
+
+  const manualCashListMatch = url.pathname.match(/^\/api\/manual-cash\/([^/]+)$/);
+  if (manualCashListMatch && req.method === "GET") {
+    await handleListManualCashSettlements(req, res, decodeURIComponent(manualCashListMatch[1]), url);
+    return;
+  }
+
+  const manualCashConfirmMatch = url.pathname.match(/^\/api\/manual-cash\/([A-Za-z0-9._:-]{8,128})\/confirm$/);
+  if (manualCashConfirmMatch && req.method === "POST") {
+    await handleConfirmManualCashSettlement(req, res, decodeURIComponent(manualCashConfirmMatch[1]));
+    return;
+  }
+
+  const manualCashCancelMatch = url.pathname.match(/^\/api\/manual-cash\/([A-Za-z0-9._:-]{8,128})\/cancel$/);
+  if (manualCashCancelMatch && req.method === "POST") {
+    await handleCancelManualCashSettlement(req, res, decodeURIComponent(manualCashCancelMatch[1]));
+    return;
+  }
+
+  const manualCashDisputeMatch = url.pathname.match(/^\/api\/manual-cash\/([A-Za-z0-9._:-]{8,128})\/dispute$/);
+  if (manualCashDisputeMatch && req.method === "POST") {
+    await handleDisputeManualCashSettlement(req, res, decodeURIComponent(manualCashDisputeMatch[1]));
+    return;
+  }
+
   const paymentWebhookMatch = url.pathname.match(/^\/api\/payments\/webhooks\/([A-Za-z0-9_-]{1,96})$/);
   if (paymentWebhookMatch && req.method === "POST") {
     await handlePaymentWebhook(req, res, pluginLoader, paymentWebhookMatch[1], url);
@@ -3655,6 +4006,43 @@ server.on('request', async (req, res) => {
 
   if (url.pathname === "/api/admin/payments/access" && req.method === "POST") {
     await handleSavePaymentAccessPolicy(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/admin/payments/donations" && req.method === "GET") {
+    await handleGetPaymentDonationConfig(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/admin/payments/donations" && req.method === "POST") {
+    await handleSavePaymentDonationConfig(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/admin/payments/donations/log" && req.method === "GET") {
+    await handleListAdminPaymentDonations(req, res, url);
+    return;
+  }
+
+  if (url.pathname === "/api/admin/payments/donations/offline" && req.method === "GET") {
+    await handleListAdminOfflineDonations(req, res, url);
+    return;
+  }
+
+  if (url.pathname === "/api/admin/payments/donations/offline" && req.method === "POST") {
+    await handleCreateAdminOfflineDonation(req, res);
+    return;
+  }
+
+  const paymentDonationRefundMatch = url.pathname.match(/^\/api\/admin\/payments\/donations\/([A-Za-z0-9._:-]{8,128})\/refund$/);
+  if (paymentDonationRefundMatch && req.method === "POST") {
+    await handleRefundAdminPaymentDonation(req, res, pluginLoader, decodeURIComponent(paymentDonationRefundMatch[1]));
+    return;
+  }
+
+  const offlineDonationVoidMatch = url.pathname.match(/^\/api\/admin\/payments\/donations\/offline\/([A-Za-z0-9._:-]{8,128})\/void$/);
+  if (offlineDonationVoidMatch && req.method === "POST") {
+    await handleVoidAdminOfflineDonation(req, res, decodeURIComponent(offlineDonationVoidMatch[1]));
     return;
   }
 
@@ -5382,7 +5770,7 @@ deleteMessageById = (channelId: string, messageId: string) => {
 // Helper function to load user's persisted DM/group channels from database
 // and ensure they exist in the in-memory maps.
 // stableUserId is either "user-{dbId}" for registered users or socket.id for guests.
-function loadUserChannelsFromDB(stableUserId: string): Channel[] {
+function loadUserChannelsFromDB(stableUserId: string, currentHighestRole?: string): Channel[] {
   try {
     // Get channels where user is a member from DB (using stable user_id)
     const userChannels = channelRepository.findByUserId(stableUserId);
@@ -5444,15 +5832,17 @@ function loadUserChannelsFromDB(stableUserId: string): Channel[] {
   }
 
   // Return all channels the user has access to
+  const resolvedHighestRole =
+    currentHighestRole ||
+    (stableUserId.startsWith('user-')
+      ? getUserRoleInfo(parseInt(stableUserId.substring(5), 10)).highestRole
+      : 'guest');
   return Array.from(channels.values()).filter(channel => {
     // Public channels honor minimum role requirement
     if (!channel.members || channel.members.length === 0) {
       const requiredRole = channel.minRole || 'guest';
       if (requiredRole === 'guest') return true;
-      const userRole = stableUserId.startsWith('user-')
-        ? getUserRoleInfo(parseInt(stableUserId.substring(5), 10)).highestRole
-        : 'guest';
-      return getRolePriority(userRole) >= getRolePriority(requiredRole);
+      return getRolePriority(resolvedHighestRole) >= getRolePriority(requiredRole);
     }
     // Check if user's stable ID is in the members list
     return channel.members.includes(stableUserId);
@@ -5460,7 +5850,11 @@ function loadUserChannelsFromDB(stableUserId: string): Channel[] {
 }
 
 // Helper: enrich DM channels with otherUser info for a given user's stable ID
-function enrichDMChannels(channelList: Channel[], myStableId: string): any[] {
+function enrichDMChannels(
+  channelList: Channel[],
+  myStableId: string,
+  registeredUsersByDbId?: Map<number, any>
+): any[] {
   return channelList.map(channel => {
     if (channel.type === 'dm' && channel.members) {
       const otherStableId = channel.members.find(m => m !== myStableId);
@@ -5483,7 +5877,7 @@ function enrichDMChannels(channelList: Channel[], myStableId: string): any[] {
         // Offline: resolve from DB if it's a registered user
         if (otherStableId.startsWith('user-')) {
           const dbId = parseInt(otherStableId.substring(5), 10);
-          const dbUser = userRepository.findById(dbId);
+          const dbUser = registeredUsersByDbId?.get(dbId) || userRepository.findById(dbId);
           if (dbUser) {
             return { ...channel, otherUser: {
               id: otherStableId,
@@ -5522,7 +5916,7 @@ function enrichDMChannels(channelList: Channel[], myStableId: string): any[] {
         }
         if (stableId.startsWith('user-')) {
           const dbId = parseInt(stableId.substring(5), 10);
-          const dbUser = userRepository.findById(dbId);
+          const dbUser = registeredUsersByDbId?.get(dbId) || userRepository.findById(dbId);
           if (dbUser) {
             return { id: stableId, username: dbUser.username, color: dbUser.color, status: 'offline' as const, profilePicture: dbUser.profile_picture, dbUserId: dbId };
           }
@@ -5581,6 +5975,8 @@ io.use((socket, next) => {
       (socket as any).userId = payload.userId;
       (socket as any).isRegistered = true;
       (socket as any).dbUserId = payload.userId;
+      (socket as any).registeredSession = dbSession;
+      (socket as any).registeredAccount = account;
       next();
     } catch (error) {
       return next(new Error('Invalid token'));
@@ -5647,6 +6043,17 @@ async function deliverOfflineMessages(socket: any, dbUserId: number | null) {
 }
 
 io.on("connection", (socket) => {
+  const disconnectOtherRegisteredSockets = (dbUserId: number): void => {
+    for (const [socketId, otherSocket] of io.sockets.sockets) {
+      if (socketId === socket.id) continue;
+      const otherDbUserId = (otherSocket as any).dbUserId;
+      const otherIsRegistered = Boolean((otherSocket as any).isRegistered);
+      if (!otherIsRegistered) continue;
+      if (otherDbUserId !== dbUserId) continue;
+      otherSocket.emit('session-revoked', { reason: 'single_session_enforced' });
+      otherSocket.disconnect(true);
+    }
+  };
   console.log(`🔌 WebSocket connection established: ${socket.id}`);
 
   const getSocketStableId = (): string => getStableUserId(socket);
@@ -5717,10 +6124,12 @@ io.on("connection", (socket) => {
     });
   };
 
-  const buildServerMembersSnapshot = () => {
-    const allDbUsers = userRepository.getAll();
+  const buildServerMembersSnapshot = (
+    allDbUsers: Array<any> = userRepository.getAll(),
+    roleLookup: WorkspaceRoleLookup = buildWorkspaceRoleLookup()
+  ) => {
     return allDbUsers.map((u) => {
-      const roleInfo = getUserRoleInfo(u.user_id);
+      const roleInfo = getUserRoleInfo(u.user_id, roleLookup);
       return {
         id: `user-${u.user_id}`,
         dbUserId: u.user_id,
@@ -5808,12 +6217,49 @@ io.on("connection", (socket) => {
 
   // Handle user join
   socket.on("join", async (username: string) => {
+    const joinProfileEnabled = getStatePlaneRuntimeStats().config.effectiveMode === 'stdb_primary';
+    const joinStartedAt = joinProfileEnabled ? Date.now() : 0;
+    const joinMarks: string[] = [];
+    const markJoinStep = (label: string) => {
+      if (!joinProfileEnabled) return;
+      const elapsed = Date.now() - joinStartedAt;
+      joinMarks.push(`${label}=${elapsed}ms`);
+      console.log(`[JoinTrace] user=${username} step=${label} elapsed=${elapsed}ms`);
+    };
+
     // Check if this is a registered user (authenticated via JWT in middleware)
     if ((socket as any).isRegistered && (socket as any).sessionId) {
       // Registered user - use their DB session instead of creating a temp session
-      const dbSession = sessionRepository.findById((socket as any).sessionId);
+      const dbSession =
+        (socket as any).registeredSession ||
+        sessionRepository.findById((socket as any).sessionId);
+      markJoinStep('session_lookup');
 
       if (dbSession) {
+        if (typeof (socket as any).dbUserId === 'number') {
+          disconnectOtherRegisteredSockets((socket as any).dbUserId);
+        }
+        markJoinStep('disconnect_duplicates');
+
+        if (dbSession.user_id && !workspaceHasOwner()) {
+          assignRole(dbSession.user_id, 'owner', 'default-workspace');
+          console.log(`[Roles] Auto-assigned owner to ${dbSession.username} (user_id=${dbSession.user_id}) because workspace had no owner`);
+        }
+        markJoinStep('owner_check');
+
+        const allDbUsers = userRepository.getAll();
+        markJoinStep('load_users');
+        const registeredUsersByDbId = new Map(
+          allDbUsers
+            .filter((user) => typeof user.user_id === 'number')
+            .map((user) => [user.user_id as number, user])
+        );
+        const registeredUserRecord =
+          (socket as any).registeredAccount ||
+          (dbSession.user_id ? (registeredUsersByDbId.get(dbSession.user_id) || null) : null);
+        const roleLookup = buildWorkspaceRoleLookup('default-workspace');
+        markJoinStep('build_role_lookup');
+
         // Use the registered user's data from the database
         const registeredUsername = dbSession.username;
         const registeredColor = dbSession.color || `#${Math.floor(Math.random()*16777215).toString(16)}`;
@@ -5821,22 +6267,18 @@ io.on("connection", (socket) => {
 
         // Get username font from user database
         let usernameFont = undefined;
-        if (dbSession.user_id) {
-          const userRecord = userRepository.findById(dbSession.user_id);
-          if (userRecord) {
-            usernameFont = {
-              family: userRecord.username_font_family,
-              size: userRecord.username_font_size,
-              weight: userRecord.username_font_weight,
-              style: userRecord.username_font_style
-            };
-          }
+        if (registeredUserRecord) {
+          usernameFont = {
+            family: registeredUserRecord.username_font_family,
+            size: registeredUserRecord.username_font_size,
+            weight: registeredUserRecord.username_font_weight,
+            style: registeredUserRecord.username_font_style
+          };
         }
 
         // Get handle and role info
-        const userRecord = dbSession.user_id ? userRepository.findById(dbSession.user_id) : null;
-        const registeredHandle = userRecord?.handle;
-        const roleInfo = ensureWorkspaceOwnerForRegisteredUser((socket as any).dbUserId, registeredUsername);
+        const registeredHandle = registeredUserRecord?.handle;
+        const roleInfo = getUserRoleInfo((socket as any).dbUserId, roleLookup);
 
         users.set(socket.id, {
           id: socket.id,
@@ -5859,11 +6301,14 @@ io.on("connection", (socket) => {
 
         // Load user's persisted DM/group channels from database using stable ID
         const stableId = getStableUserId(socket);
-        const userChannels = loadUserChannelsFromDB(stableId);
-        const enrichedChannels = enrichDMChannels(userChannels, stableId);
+        const userChannels = loadUserChannelsFromDB(stableId, roleInfo.highestRole);
+        markJoinStep('load_channels');
+        const enrichedChannels = enrichDMChannels(userChannels, stableId, registeredUsersByDbId);
+        markJoinStep('enrich_channels');
 
         const emojisData = getAllEmojis();
-        const serverMembers = buildServerMembersSnapshot();
+        const serverMembers = buildServerMembersSnapshot(allDbUsers, roleLookup);
+        markJoinStep('build_init_payload');
         socket.emit("init", {
           channels: enrichedChannels,
           users: Array.from(users.values()),
@@ -5876,6 +6321,11 @@ io.on("connection", (socket) => {
           sessionId: (socket as any).sessionId,
           messagePurgeVersion: getMessagePurgeVersion()
         });
+        markJoinStep('emit_init');
+
+        if (joinProfileEnabled) {
+          console.log(`[JoinTrace] user=${registeredUsername} total=${Date.now() - joinStartedAt}ms ${joinMarks.join(' ')}`);
+        }
 
         // Deliver offline messages for registered user
         await deliverOfflineMessages(socket, (socket as any).dbUserId);
@@ -7095,36 +7545,281 @@ io.on("connection", (socket) => {
   });
 
   // Voice/Video calling
-  socket.on("call-initiate", (data: { targetUserId: string; isVideoCall: boolean }) => {
+  socket.on("call-initiate", (data: { targetUserId?: string; channelId?: string; isVideoCall: boolean }) => {
     const user = users.get(socket.id);
     if (!user) return;
 
-    io.to(data.targetUserId).emit("call-incoming", {
+    if (data.channelId) {
+      const channel = getGroupChannelById(data.channelId);
+      const myStableId = getStableUserId(socket);
+
+      if (!channel) {
+        socket.emit("call-error", {
+          code: "invalid_channel",
+          message: "Group channel not found",
+          targetUserId: data.channelId
+        });
+        return;
+      }
+
+      if (!channel.members?.includes(myStableId)) {
+        socket.emit("call-error", {
+          code: "not_group_member",
+          message: "You are not a member of this group",
+          targetUserId: data.channelId
+        });
+        return;
+      }
+
+      let session = groupCallSessions.get(channel.id);
+      if (!session) {
+        session = {
+          channelId: channel.id,
+          channelName: channel.name,
+          initiatorStableId: myStableId,
+          isVideoCall: data.isVideoCall,
+          hasEverEstablished: false,
+          lastInviteSenderId: socket.id,
+          invitedParticipants: new Set<string>(),
+          connectedParticipants: new Set<string>()
+        };
+        groupCallSessions.set(channel.id, session);
+      }
+
+      session.channelName = channel.name;
+      if (!isGroupCallEstablished(session)) {
+        session.isVideoCall = data.isVideoCall;
+      }
+      if (session.connectedParticipants.size === 0) {
+        session.initiatorStableId = myStableId;
+      }
+
+      joinGroupCallSession(session, myStableId, socket.id, user.username);
+
+      const invitees = (channel.members || []).filter((memberStableId) => {
+        if (memberStableId === myStableId) return false;
+        if (session.connectedParticipants.has(memberStableId)) return false;
+        if (session.invitedParticipants.has(memberStableId)) return false;
+        return isStableUserConnected(memberStableId);
+      });
+
+      if (invitees.length === 0 && session.connectedParticipants.size === 1 && session.invitedParticipants.size === 0) {
+        groupCallSessions.delete(channel.id);
+        socket.emit("call-error", {
+          code: "target_unavailable",
+          message: "No group members are currently connected",
+          targetUserId: channel.id
+        });
+        return;
+      }
+
+      if (invitees.length > 0) {
+        session.lastInviteSenderId = socket.id;
+        for (const inviteeStableId of invitees) {
+          const inviteeSocketId = resolveSocketId(inviteeStableId);
+          if (!inviteeSocketId || !users.has(inviteeSocketId)) continue;
+
+          session.invitedParticipants.add(inviteeStableId);
+          io.to(inviteeSocketId).emit("call-incoming", {
+            userId: socket.id,
+            username: user.username,
+            isVideoCall: session.isVideoCall,
+            channelId: channel.id,
+            channelName: channel.name
+          });
+        }
+      }
+
+      return;
+    }
+
+    if (!data.targetUserId) return;
+    const targetStableId = resolveStableUserIdFromAny(data.targetUserId) || data.targetUserId;
+    const targetSocketId = users.has(data.targetUserId)
+      ? data.targetUserId
+      : resolveSocketId(targetStableId);
+
+    if (!targetSocketId || !users.has(targetSocketId)) {
+      socket.emit("call-error", {
+        code: "target_unavailable",
+        message: "Target user is not currently connected",
+        targetUserId: targetStableId
+      });
+      return;
+    }
+
+    if (targetSocketId === socket.id) {
+      socket.emit("call-error", {
+        code: "self_call",
+        message: "You cannot call yourself",
+        targetUserId: targetStableId
+      });
+      return;
+    }
+
+    io.to(targetSocketId).emit("call-incoming", {
       userId: socket.id,
       username: user.username,
       isVideoCall: data.isVideoCall
     });
   });
 
-  socket.on("call-answer", (data: { callerId: string; isVideoCall: boolean }) => {
+  socket.on("call-answer", (data: { callerId?: string; isVideoCall: boolean; channelId?: string }) => {
     const user = users.get(socket.id);
+    if (data.channelId) {
+      if (!user) return;
+
+      const channel = getGroupChannelById(data.channelId);
+      const myStableId = getStableUserId(socket);
+      if (!channel) {
+        socket.emit("call-error", {
+          code: "invalid_channel",
+          message: "Group channel not found",
+          targetUserId: data.channelId
+        });
+        return;
+      }
+
+      if (!channel.members?.includes(myStableId)) {
+        socket.emit("call-error", {
+          code: "not_group_member",
+          message: "You are not a member of this group",
+          targetUserId: data.channelId
+        });
+        return;
+      }
+
+      const session = groupCallSessions.get(channel.id);
+      if (!session) {
+        socket.emit("call-error", {
+          code: "caller_unavailable",
+          message: "Group call is no longer available",
+          targetUserId: data.channelId
+        });
+        return;
+      }
+
+      session.channelName = channel.name;
+      joinGroupCallSession(session, myStableId, socket.id, user.username);
+      return;
+    }
+
+    if (!data.callerId) return;
+    const callerStableId = resolveStableUserIdFromAny(data.callerId) || data.callerId;
+    const callerSocketId = users.has(data.callerId)
+      ? data.callerId
+      : resolveSocketId(callerStableId);
+
+    if (!callerSocketId || !users.has(callerSocketId)) {
+      socket.emit("call-error", {
+        code: "caller_unavailable",
+        message: "Caller disconnected before the call was answered",
+        targetUserId: callerStableId
+      });
+      return;
+    }
+
     // Fixed: emit call-accepted with username for proper UI display
-    io.to(data.callerId).emit("call-accepted", {
+    io.to(callerSocketId).emit("call-accepted", {
       userId: socket.id,
       username: user?.username || 'Unknown',
       isVideoCall: data.isVideoCall
     });
-    addCallPeer(socket.id, data.callerId);
+    addCallPeer(socket.id, callerSocketId);
 
     const myStableId = getStableUserId(socket);
-    const callerUser = users.get(data.callerId);
-    const callerStableId = callerUser?.dbUserId ? `user-${callerUser.dbUserId}` : data.callerId;
-    addVoicePeerLink(myStableId, callerStableId);
+    const callerUser = users.get(callerSocketId);
+    const resolvedCallerStableId = callerUser?.dbUserId ? `user-${callerUser.dbUserId}` : callerSocketId;
+    addVoicePeerLink(myStableId, resolvedCallerStableId);
   });
 
-  socket.on("call-reject", (data: { callerId: string }) => {
-    io.to(data.callerId).emit("call-rejected", {
+  socket.on("call-reject", (data: { callerId?: string; channelId?: string }) => {
+    if (data.channelId) {
+      const session = groupCallSessions.get(data.channelId);
+      if (!session) return;
+
+      const myStableId = getStableUserId(socket);
+      if (!session.invitedParticipants.has(myStableId)) return;
+
+      session.invitedParticipants.delete(myStableId);
+      emitGroupCallInviteCleared(session, myStableId, "rejected");
+      cleanupIdleGroupCallSession(session);
+      return;
+    }
+
+    if (!data.callerId) return;
+    const callerStableId = resolveStableUserIdFromAny(data.callerId) || data.callerId;
+    const callerSocketId = users.has(data.callerId)
+      ? data.callerId
+      : resolveSocketId(callerStableId);
+    if (!callerSocketId) return;
+
+    io.to(callerSocketId).emit("call-rejected", {
       userId: socket.id
+    });
+  });
+
+  socket.on("call-cancel", (data: { targetUserId?: string; channelId?: string }) => {
+    if (data.channelId) {
+      const session = groupCallSessions.get(data.channelId);
+      if (!session) return;
+
+      const myStableId = getStableUserId(socket);
+      if (!session.connectedParticipants.has(myStableId)) return;
+      if (isGroupCallEstablished(session)) return;
+
+      cancelPendingGroupCallInvites(session, socket.id);
+      session.connectedParticipants.delete(myStableId);
+      cleanupIdleGroupCallSession(session, {
+        cancelPending: false,
+        cancelledByUserId: socket.id
+      });
+      return;
+    }
+
+    if (!data.targetUserId) return;
+    const targetStableId = resolveStableUserIdFromAny(data.targetUserId) || data.targetUserId;
+    const targetSocketId = users.has(data.targetUserId)
+      ? data.targetUserId
+      : resolveSocketId(targetStableId);
+    if (!targetSocketId) return;
+
+    io.to(targetSocketId).emit("call-cancelled", {
+      userId: socket.id
+    });
+  });
+
+  socket.on("group-call-stop-ringing", (data: { channelId: string; targetUserId: string }) => {
+    const session = groupCallSessions.get(data.channelId);
+    if (!session || !data.targetUserId) return;
+
+    const myStableId = getStableUserId(socket);
+    if (!session.connectedParticipants.has(myStableId)) return;
+
+    const targetStableId = resolveStableUserIdFromAny(data.targetUserId) || data.targetUserId;
+    if (!session.invitedParticipants.has(targetStableId)) return;
+
+    session.invitedParticipants.delete(targetStableId);
+    const targetSocketId = resolveSocketId(targetStableId);
+    if (targetSocketId && users.has(targetSocketId)) {
+      io.to(targetSocketId).emit("call-cancelled", {
+        userId: socket.id,
+        channelId: session.channelId
+      });
+    }
+
+    emitGroupCallInviteCleared(session, targetStableId, "stopped");
+    cleanupIdleGroupCallSession(session);
+  });
+
+  socket.on("group-call-leave", (data: { channelId: string }) => {
+    const session = groupCallSessions.get(data.channelId);
+    if (!session) return;
+
+    const stableUserId = getStableUserId(socket);
+    removeGroupCallParticipantFromSession(session, stableUserId, {
+      userId: socket.id,
+      cancelPendingIfEmpty: true
     });
   });
 
@@ -7160,18 +7855,44 @@ io.on("connection", (socket) => {
   });
 
   socket.on("call-offer", (data: { offer: RTCSessionDescriptionInit; targetId: string; channelId?: string }) => {
+    let targetSocketId = data.targetId;
     if (data.channelId) {
       const channel = channels.get(data.channelId);
-      if (!channel || channel.type !== 'voice') {
+      if (!channel) {
         return;
       }
-      const audience = getVoiceAudienceSocketIds(data.channelId);
-      if (!audience.has(socket.id) || !audience.has(data.targetId)) {
+
+      if (channel.type === 'voice') {
+        const audience = getVoiceAudienceSocketIds(data.channelId);
+        if (!audience.has(socket.id) || !audience.has(data.targetId)) {
+          return;
+        }
+      } else if (channel.type === 'group') {
+        const session = groupCallSessions.get(data.channelId);
+        const senderStableId = getStableUserId(socket);
+        const targetStableId = resolveStableUserIdFromAny(data.targetId);
+        const resolvedTargetSocketId = users.has(data.targetId)
+          ? data.targetId
+          : (targetStableId ? resolveSocketId(targetStableId) : null);
+
+        if (
+          !session ||
+          !targetStableId ||
+          !resolvedTargetSocketId ||
+          !users.has(resolvedTargetSocketId) ||
+          !session.connectedParticipants.has(senderStableId) ||
+          !session.connectedParticipants.has(targetStableId)
+        ) {
+          return;
+        }
+
+        targetSocketId = resolvedTargetSocketId;
+      } else {
         return;
       }
     }
     const user = users.get(socket.id);
-    io.to(data.targetId).emit("call-offer", {
+    io.to(targetSocketId).emit("call-offer", {
       offer: data.offer,
       senderId: socket.id,
       username: user?.username || 'Unknown',
@@ -8613,6 +9334,17 @@ io.on("connection", (socket) => {
 
       // Remove user from all voice channels and emit leave events
       const stableUserId = getStableUserId(socket);
+      for (const session of Array.from(groupCallSessions.values())) {
+        if (!session.connectedParticipants.has(stableUserId) && !session.invitedParticipants.has(stableUserId)) {
+          continue;
+        }
+
+        removeGroupCallParticipantFromSession(session, stableUserId, {
+          userId: socket.id,
+          cancelPendingIfEmpty: true
+        });
+      }
+
       for (const [voiceChannelId, participants] of voiceChannelParticipants.entries()) {
         if (!participants.has(stableUserId)) continue;
 

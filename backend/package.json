@@ -9,7 +9,8 @@
     "migrate:sqlite-to-postgres": "node scripts/migrate-sqlite-to-postgres.mjs",
     "payments:smoke": "tsx scripts/payments-smoke-check.ts",
     "payments:provider-sandbox-smoke": "tsx scripts/payments-provider-sandbox-smoke.ts",
-    "payments:western-provider-sandbox-smoke": "tsx scripts/payments-western-provider-sandbox-smoke.ts"
+    "payments:western-provider-sandbox-smoke": "tsx scripts/payments-western-provider-sandbox-smoke.ts",
+    "payments:local-e2e-smoke": "tsx scripts/payments-local-e2e-smoke.ts"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",

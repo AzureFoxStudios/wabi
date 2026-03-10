@@ -106,7 +106,7 @@
     position: fixed;
     bottom: 20px;
     right: 20px;
-    z-index: 1000;
+    z-index: var(--z-popout);
   }
 
   .viewer-overlay {
@@ -120,7 +120,7 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    z-index: 2000;
+    z-index: var(--z-lightbox);
     cursor: pointer;
   }
 

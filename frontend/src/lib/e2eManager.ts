@@ -10,6 +10,8 @@ let currentPublicKey: string | null = null;
 const sharedKeyCache = new Map<number, CryptoKey>();
 // Cache public keys per user to avoid re-fetching
 const publicKeyCache = new Map<number, string | null>();
+const publicKeyNegativeCacheUntil = new Map<number, number>();
+const PUBLIC_KEY_RETRY_MS = 10_000;
 
 function isTransientNetworkError(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
@@ -53,6 +55,7 @@ export async function initE2E(dbUserId: number, token: string | null | undefined
 	currentToken = token || null;
 	sharedKeyCache.clear();
 	publicKeyCache.clear();
+	publicKeyNegativeCacheUntil.clear();
 
 	if (isNewRegistration) {
 		try {
@@ -90,7 +93,18 @@ export async function initE2E(dbUserId: number, token: string | null | undefined
 				console.warn('[E2E] Error storing encryption keys:', err);
 			}
 		} else {
-			console.log('[E2E] No local keys found — encryption unavailable until key recovery');
+			// Recovery path for fresh device/profile: generate keys so outbound E2E works.
+			// Older encrypted history may remain unreadable without the previous private key.
+			try {
+				const keyPair = await generateKeyPair();
+				saveUserKeys(dbUserId, keyPair.publicKey, keyPair.privateKey);
+				currentPublicKey = keyPair.publicKey;
+				currentPrivateKey = keyPair.privateKey;
+				await storeEncryptionKeysWithRetry(currentToken, keyPair.publicKey, keyPair.privateKey);
+				console.log('[E2E] No local keys found; generated replacement keypair');
+			} catch (err) {
+				console.error('[E2E] Failed to recover missing local keys:', err);
+			}
 		}
 	}
 }
@@ -112,11 +126,22 @@ async function getSharedKey(otherDbUserId: number): Promise<CryptoKey | null> {
 	const cached = sharedKeyCache.get(otherDbUserId);
 	if (cached) return cached;
 
-	// Get other user's public key
-	let otherPublicKey = publicKeyCache.get(otherDbUserId);
-	if (otherPublicKey === undefined) {
+	// Get other user's public key.
+	// Important: do not permanently cache failures (null), otherwise a single transient
+	// network/auth hiccup can disable DM encryption until logout.
+	let otherPublicKey = publicKeyCache.get(otherDbUserId) ?? null;
+	if (!otherPublicKey) {
+		const now = Date.now();
+		const nextAllowed = publicKeyNegativeCacheUntil.get(otherDbUserId) ?? 0;
+		if (now < nextAllowed) return null;
 		otherPublicKey = await getPublicKey(currentToken, otherDbUserId);
-		publicKeyCache.set(otherDbUserId, otherPublicKey);
+		if (otherPublicKey) {
+			publicKeyCache.set(otherDbUserId, otherPublicKey);
+			publicKeyNegativeCacheUntil.delete(otherDbUserId);
+		} else {
+			publicKeyNegativeCacheUntil.set(otherDbUserId, now + PUBLIC_KEY_RETRY_MS);
+			return null;
+		}
 	}
 
 	if (!otherPublicKey) return null;
@@ -192,6 +217,7 @@ export function clearE2EState(): void {
 	currentPublicKey = null;
 	sharedKeyCache.clear();
 	publicKeyCache.clear();
+	publicKeyNegativeCacheUntil.clear();
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer | Uint8Array): string {

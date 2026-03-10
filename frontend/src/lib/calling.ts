@@ -22,6 +22,11 @@ import {
 	type SpatialAudioMode
 } from './mediaRuntime';
 import { SpatialAudioEngine, type SpatialRenderMode, type SpatialPosition } from './audio/spatialEngine';
+import {
+	markExperimentalStdbCallAttempt,
+	shouldUseExperimentalStdbCall,
+	type ExperimentalStdbCallScope
+} from './experimentalStdbCalls';
 
 const CAMERA_CONSTRAINTS: MediaTrackConstraints = {
 	width: { ideal: 1280, max: 1920 },
@@ -50,7 +55,28 @@ export interface IncomingCall {
 	channelName?: string;
 }
 
+export interface OutgoingCall {
+	targetUserId?: string;
+	channelId?: string;
+	channelName?: string;
+	username: string;
+	isVideoCall: boolean;
+	startedAt: number;
+	scope: 'direct' | 'group';
+	localDisplayName?: string;
+}
+
+export interface GroupCallRingingTarget {
+	stableUserId: string;
+	username: string;
+}
+
 export interface ActiveVoiceChannel {
+	id: string;
+	name: string;
+}
+
+export interface ActiveGroupCall {
 	id: string;
 	name: string;
 }
@@ -102,6 +128,8 @@ type VideoSource = 'camera' | 'screen-share';
 export const activeCalls = writable<Call[]>([]);
 export const screenShares = writable<ScreenShare[]>([]);
 export const incomingCall = writable<IncomingCall | null>(null);
+export const outgoingCall = writable<OutgoingCall | null>(null);
+export const groupCallRingingTargets = writable<GroupCallRingingTarget[]>([]);
 export const isInCall = writable(false);
 export const isSharing = writable(false);
 export const isMuted = writable(false);
@@ -123,7 +151,8 @@ export const callConnectionDiagnostics = writable<CallConnectionDiagnostics>({
 	updatedAt: null
 });
 export const activeVoiceChannel = writable<ActiveVoiceChannel | null>(null);
-export const callMode = writable<'direct' | 'channel' | null>(null);
+export const activeGroupCall = writable<ActiveGroupCall | null>(null);
+export const callMode = writable<'direct' | 'channel' | 'group' | null>(null);
 export const channelCallPanelOpen = writable(false);
 export const voiceChannelNotice = writable<{ id: number; text: string } | null>(null);
 export const audioProcessingRuntimeStatus = writable<{
@@ -236,6 +265,7 @@ const SPEAKING_POLL_INTERVAL_MS = 120;
 
 // Track call participants for targeted cleanup
 const callParticipants = new Set<string>();
+const voiceParticipantLabels = new Map<string, string>();
 let activeVoiceChannelId: string | null = null;
 let runtimeAudioModeOverride: EffectiveAudioProcessingMode | null = null;
 let performanceGuardInterval: number | null = null;
@@ -1425,7 +1455,8 @@ async function addTrackWithOptimizations(pc: RTCPeerConnection, track: MediaStre
 function shouldTransmitToChannel(channelId?: string): boolean {
 	if (!channelId) return true;
 	if (get(voiceTransmitMode) === 'all-listening') return true;
-	return activeVoiceChannelId === channelId;
+	if (activeVoiceChannelId === channelId) return true;
+	return get(activeGroupCall)?.id === channelId;
 }
 
 async function setPeerAudioSendEnabled(pc: RTCPeerConnection, enabled: boolean): Promise<void> {
@@ -1453,7 +1484,8 @@ async function renegotiateCallConnection(state: PeerConnectionState, socket: Soc
 
 	socket.emit('call-offer', {
 		offer,
-		targetId: state.targetId
+		targetId: state.targetId,
+		channelId: state.channelId
 	});
 }
 
@@ -1494,11 +1526,113 @@ function cleanupPeerConnection(key: string): void {
 	syncSpatialAudioGraph();
 }
 
+function rememberVoiceParticipantLabel(userId: string, username?: string | null): void {
+	const trimmed = username?.trim();
+	if (!trimmed) return;
+	voiceParticipantLabels.set(userId, trimmed);
+}
+
+function resolveVoiceParticipantLabel(userId: string): string | null {
+	const remembered = voiceParticipantLabels.get(userId)?.trim();
+	if (remembered) {
+		return remembered;
+	}
+
+	const activeCall = get(activeCalls).find((call) => call.userId === userId);
+	if (activeCall?.username?.trim()) {
+		return activeCall.username.trim();
+	}
+
+	for (const [identity, media] of livekitParticipantMedia.entries()) {
+		if (normalizeLivekitIdentity(identity) !== userId) continue;
+		const username = media.username?.trim();
+		if (username) {
+			return username;
+		}
+	}
+
+	return null;
+}
+
+function finalizeLocalCallEndState(): void {
+	const stream = get(localStream);
+	if (stream) {
+		stream.getTracks().forEach(track => track.stop());
+		localStream.set(null);
+	}
+	clearActiveAudioCaptureSession();
+
+	const screenStream = get(localScreenStream);
+	if (screenStream) {
+		screenStream.getTracks().forEach(track => track.stop());
+		localScreenStream.set(null);
+	}
+
+	stopAudioMonitoring('local');
+	isLocalSpeaking.set(false);
+
+	isInCall.set(false);
+	isSharing.set(false);
+	isMuted.set(false);
+	isDeafened.set(false);
+	isVideoOff.set(false);
+	channelCallPanelOpen.set(false);
+	activeVoiceChannel.set(null);
+	activeGroupCall.set(null);
+	groupCallRingingTargets.set([]);
+	callMode.set(null);
+	outgoingCall.set(null);
+	incomingCall.set(null);
+
+	const callKeys: string[] = [];
+	peerConnections.forEach((state, key) => {
+		if (state.type === 'call') {
+			callKeys.push(key);
+		}
+	});
+	callKeys.forEach(key => cleanupPeerConnection(key));
+
+	activeCalls.set([]);
+	screenShares.set([]);
+	for (const timerId of remoteVideoMuteDebounceTimers.values()) {
+		clearTimeout(timerId);
+	}
+	remoteVideoMuteDebounceTimers.clear();
+	callParticipants.clear();
+	voiceParticipantLabels.clear();
+	activeVoiceChannelId = null;
+	listeningVoiceChannels.set([]);
+	stopAllRemoteSpeakingMonitors();
+	stopLocalSpeakingMonitor();
+	stopPerformanceGuard();
+	clearAudioPerformanceFallbackOverride();
+	connectionState.set('idle');
+	stopCallDiagnosticsPolling('idle');
+	disposeSpatialAudioEngine();
+	spatialFallbackNoticeShown = false;
+	spatialAudioRuntimeStatus.update((state) => ({
+		...state,
+		active: false,
+		effectiveMode: 'off',
+		fallbackReason: null
+	}));
+
+	if (activeMediaGatewaySessionId) {
+		void closeMediaGatewaySession(activeMediaGatewaySessionId).catch((error) => {
+			console.warn('[MediaGateway] Failed to close session on call teardown:', error);
+		});
+		stopMediaGatewaySessionRenewal();
+		activeMediaGatewaySessionId = null;
+	}
+	void disconnectLivekitSfu();
+}
+
 // ============================================================================
 // Remote Stream/Track Handlers
 // ============================================================================
 
 function addRemoteCallStream(userId: string, username: string, stream: MediaStream): void {
+	rememberVoiceParticipantLabel(userId, username);
 	activeCalls.update(calls => {
 		const existingIndex = calls.findIndex(c => c.userId === userId);
 
@@ -1519,9 +1653,6 @@ function addRemoteCallStream(userId: string, username: string, stream: MediaStre
 			calls[existingIndex] = newCall;
 			return [...calls];
 		} else {
-			if (get(callMode) === 'channel' && username) {
-				pushVoiceChannelNotice(`${username} joined voice`);
-			}
 			return [...calls, newCall];
 		}
 	});
@@ -1936,6 +2067,7 @@ async function resolveActiveTransport(channelId?: string): Promise<EffectiveCall
 	const plan = await resolveCallTransportPlan();
 	const runtime = await syncMediaRuntimeFromServer().catch(() => null);
 	const sfuProvider = runtime?.media?.sfu?.provider === 'livekit' ? 'livekit' : plan.sfuProvider;
+	const turnConfigured = Boolean(runtime?.media?.turn?.configured);
 	const livekitReady = Boolean(
 		sfuProvider === 'livekit' &&
 		runtime?.media?.livekit?.configured &&
@@ -1954,6 +2086,24 @@ async function resolveActiveTransport(channelId?: string): Promise<EffectiveCall
 		gatewayActiveStreams: null,
 		gatewayLastSeenAt: null
 	});
+
+	if (!channelId) {
+		stopMediaGatewaySessionRenewal();
+		callTransportState.set({
+			mode: plan.mode,
+			activeTransport: 'p2p',
+			isFallback: plan.effective === 'sfu',
+			reason: turnConfigured ? 'direct_call_p2p' : 'direct_call_turn_unconfigured',
+			gatewayHealthy: plan.gatewayHealthy,
+			checkedAt: Date.now(),
+			gatewaySessionId: null,
+			gatewayControlPlaneStatus: 'idle',
+			gatewayMediaPlaneStatus: 'idle',
+			gatewayActiveStreams: null,
+			gatewayLastSeenAt: null
+		});
+		return 'p2p';
+	}
 
 	if (plan.effective === 'sfu' && sfuProvider !== 'livekit') {
 		stopMediaGatewaySessionRenewal();
@@ -2066,6 +2216,7 @@ function upsertLivekitTrack(
 	source: Track.Source,
 	track: MediaStreamTrack | null
 ): void {
+	rememberVoiceParticipantLabel(normalizeLivekitIdentity(identity), username);
 	const current = livekitParticipantMedia.get(identity) ?? {
 		username,
 		audioTrack: null,
@@ -2310,12 +2461,20 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 	}
 	clearActiveAudioCaptureSession();
 
+	const screenStream = get(localScreenStream);
+	if (screenStream) {
+		screenStream.getTracks().forEach(track => track.stop());
+		localScreenStream.set(null);
+	}
+
 	isInCall.set(false);
+	isSharing.set(false);
 	isMuted.set(false);
 	isDeafened.set(false);
 	isVideoOff.set(false);
 	channelCallPanelOpen.set(false);
 	activeVoiceChannel.set(null);
+	activeGroupCall.set(null);
 	callMode.set(null);
 
 	const callKeys: string[] = [];
@@ -2332,6 +2491,7 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 	}
 	remoteVideoMuteDebounceTimers.clear();
 	callParticipants.clear();
+	voiceParticipantLabels.clear();
 	stopAllRemoteSpeakingMonitors();
 	stopLocalSpeakingMonitor();
 	screenShares.set([]);
@@ -2360,8 +2520,17 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 	void disconnectLivekitSfu();
 }
 
-export async function startCall(socket: Socket, targetUserId: string, isVideoCall: boolean = false) {
+export async function startCall(
+	socket: Socket,
+	targetUserId: string,
+	isVideoCall: boolean = false,
+	options: { scope?: ExperimentalStdbCallScope; displayName?: string } = {}
+) {
 	try {
+		if (get(isInCall) || get(outgoingCall) || get(incomingCall)) {
+			throw new Error('A call is already active or ringing');
+		}
+
 		await prefetchTurnCredentials();
 		await resolveActiveTransport();
 		const stream = await ensureLocalAudioStream();
@@ -2376,24 +2545,40 @@ export async function startCall(socket: Socket, targetUserId: string, isVideoCal
 			}
 		}
 
-		isInCall.set(true);
 		callMode.set('direct');
-		channelCallPanelOpen.set(true);
+		channelCallPanelOpen.set(false);
 		activeVoiceChannel.set(null);
+		activeGroupCall.set(null);
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);
-		startLocalSpeakingMonitor(stream);
-		startPerformanceGuard();
-		syncSpatialAudioGraph();
-		playCallActionSound('join');
-
-		// Start monitoring local audio
-		startAudioMonitoring('local', stream, true);
-
-		socket.emit('call-initiate', {
+		connectionState.set('signaling');
+		outgoingCall.set({
 			targetUserId,
-			isVideoCall
+			username: options.displayName?.trim() || 'User',
+			isVideoCall,
+			startedAt: Date.now(),
+			scope: 'direct'
 		});
+
+		const scope = options.scope ?? 'unknown';
+		const useExperimentalStdb = shouldUseExperimentalStdbCall(scope);
+		if (useExperimentalStdb) {
+			await markExperimentalStdbCallAttempt({ targetUserId, isVideoCall, scope });
+			socket.emit('call-initiate', {
+				targetUserId,
+				isVideoCall,
+				experimental: {
+					label: 'experimental-spacechatdb-stdb-call',
+					route: 'desktop-spacechatdb-stdb',
+					scope
+				}
+			});
+		} else {
+			socket.emit('call-initiate', {
+				targetUserId,
+				isVideoCall
+			});
+		}
 
 		return stream;
 	} catch (error) {
@@ -2405,10 +2590,73 @@ export async function startCall(socket: Socket, targetUserId: string, isVideoCal
 	}
 }
 
-export async function answerCall(socket: Socket, callerId: string, isVideoCall: boolean = false) {
+async function enterEstablishedGroupCall(
+	channelId: string,
+	channelName: string,
+	localDisplayName: string,
+	options: { clearOutgoing?: boolean; playJoinSound?: boolean } = {}
+): Promise<void> {
+	const stream = get(localStream);
+	const alreadyInSameGroupCall =
+		get(isInCall) &&
+		get(callMode) === 'group' &&
+		get(activeGroupCall)?.id === channelId;
+
+	if (!alreadyInSameGroupCall) {
+		isInCall.set(true);
+		callMode.set('group');
+		channelCallPanelOpen.set(true);
+		activeVoiceChannel.set(null);
+		activeGroupCall.set({ id: channelId, name: channelName });
+		connectionState.set('signaling');
+		isMuted.set(false);
+		isVideoOff.set(!Boolean(stream?.getVideoTracks()[0]));
+		if (stream) {
+			startLocalSpeakingMonitor(stream);
+			startAudioMonitoring('local', stream, true);
+		}
+		startPerformanceGuard();
+		syncSpatialAudioGraph();
+		if (options.playJoinSound !== false) {
+			playCallActionSound('join');
+		}
+	}
+
+	if (options.clearOutgoing) {
+		outgoingCall.set(null);
+	}
+
+	const activeTransport = await resolveActiveTransport(channelId);
+	if (activeTransport === 'sfu') {
+		await connectLivekitSfu(channelId, localDisplayName || 'Wabi User');
+	}
+}
+
+function removeGroupCallRingingTarget(stableUserId: string): void {
+	if (!stableUserId) return;
+	groupCallRingingTargets.update((targets) => targets.filter((target) => target.stableUserId !== stableUserId));
+}
+
+function maybeDismissEmptyPendingGroupCall(): void {
+	if (get(isInCall)) return;
+	if (get(callMode) !== 'group') return;
+	if (get(groupCallRingingTargets).length > 0) return;
+	finalizeLocalCallEndState();
+}
+
+export async function startGroupCall(
+	socket: Socket,
+	channelId: string,
+	channelName: string,
+	isVideoCall: boolean = false,
+	options: { localDisplayName?: string; invitees?: GroupCallRingingTarget[] } = {}
+) {
 	try {
+		if (get(isInCall) || get(outgoingCall) || get(incomingCall)) {
+			throw new Error('A call is already active or ringing');
+		}
+
 		await prefetchTurnCredentials();
-		await resolveActiveTransport();
 		const stream = await ensureLocalAudioStream();
 		if (isVideoCall && !stream.getVideoTracks()[0]) {
 			const cameraStream = await navigator.mediaDevices.getUserMedia({
@@ -2421,23 +2669,132 @@ export async function answerCall(socket: Socket, callerId: string, isVideoCall: 
 			}
 		}
 
-		isInCall.set(true);
-		callMode.set('direct');
-		channelCallPanelOpen.set(true);
+		callMode.set('group');
+		channelCallPanelOpen.set(false);
 		activeVoiceChannel.set(null);
+		activeGroupCall.set({ id: channelId, name: channelName });
+		groupCallRingingTargets.set(options.invitees || []);
 		isMuted.set(false);
 		isVideoOff.set(!isVideoCall);
-		startLocalSpeakingMonitor(stream);
-		startPerformanceGuard();
-		syncSpatialAudioGraph();
-		playCallActionSound('join');
+		connectionState.set('signaling');
+		outgoingCall.set({
+			channelId,
+			channelName,
+			username: channelName.trim() || 'Group',
+			isVideoCall,
+			startedAt: Date.now(),
+			scope: 'group',
+			localDisplayName: options.localDisplayName?.trim() || 'Wabi User'
+		});
 
-		// Start monitoring local audio
+		const useExperimentalStdb = shouldUseExperimentalStdbCall('group');
+		if (useExperimentalStdb) {
+			await markExperimentalStdbCallAttempt({ targetUserId: channelId, isVideoCall, scope: 'group' });
+			socket.emit('call-initiate', {
+				channelId,
+				isVideoCall,
+				experimental: {
+					label: 'experimental-spacechatdb-stdb-call',
+					route: 'desktop-spacechatdb-stdb',
+					scope: 'group'
+				}
+			});
+		} else {
+			socket.emit('call-initiate', {
+				channelId,
+				isVideoCall
+			});
+		}
+
+		return stream;
+	} catch (error) {
+		console.error('Error starting group call:', error);
+		handleMediaError(error as DOMException, 'starting');
+		isInCall.set(false);
+		localStream.set(null);
+		outgoingCall.set(null);
+		activeGroupCall.set(null);
+		groupCallRingingTargets.set([]);
+		callMode.set(null);
+		throw error;
+	}
+}
+
+export function beginEstablishedDirectCall(): boolean {
+	const pending = get(outgoingCall);
+	if (!pending) {
+		return false;
+	}
+
+	const stream = get(localStream);
+	isInCall.set(true);
+	callMode.set('direct');
+	channelCallPanelOpen.set(true);
+	activeVoiceChannel.set(null);
+	activeGroupCall.set(null);
+	connectionState.set('signaling');
+	outgoingCall.set(null);
+	if (stream) {
+		startLocalSpeakingMonitor(stream);
 		startAudioMonitoring('local', stream, true);
+	}
+	startPerformanceGuard();
+	syncSpatialAudioGraph();
+	playCallActionSound('join');
+	return true;
+}
+
+export async function answerCall(
+	socket: Socket,
+	callerId: string,
+	isVideoCall: boolean = false,
+	options: { channelId?: string; channelName?: string; localDisplayName?: string } = {}
+) {
+	try {
+		await prefetchTurnCredentials();
+		const stream = await ensureLocalAudioStream();
+		if (isVideoCall && !stream.getVideoTracks()[0]) {
+			const cameraStream = await navigator.mediaDevices.getUserMedia({
+				video: getPreferredCameraDeviceId() ? { ...CAMERA_CONSTRAINTS, deviceId: getPreferredCameraDeviceId()! } : CAMERA_CONSTRAINTS,
+				audio: false
+			});
+			const cameraTrack = cameraStream.getVideoTracks()[0];
+			if (cameraTrack) {
+				stream.addTrack(cameraTrack);
+			}
+		}
+
+		if (options.channelId) {
+			groupCallRingingTargets.set([]);
+			await enterEstablishedGroupCall(
+				options.channelId,
+				options.channelName || options.channelId,
+				options.localDisplayName?.trim() || 'Wabi User',
+				{ playJoinSound: true }
+			);
+		} else {
+			await resolveActiveTransport();
+			isInCall.set(true);
+			callMode.set('direct');
+			channelCallPanelOpen.set(true);
+			activeVoiceChannel.set(null);
+			activeGroupCall.set(null);
+			connectionState.set('signaling');
+			isMuted.set(false);
+			isVideoOff.set(!isVideoCall);
+			startLocalSpeakingMonitor(stream);
+			startPerformanceGuard();
+			syncSpatialAudioGraph();
+			playCallActionSound('join');
+
+			// Start monitoring local audio
+			startAudioMonitoring('local', stream, true);
+		}
 
 		socket.emit('call-answer', {
 			callerId,
-			isVideoCall
+			isVideoCall,
+			channelId: options.channelId
 		});
 
 		incomingCall.set(null);
@@ -2448,13 +2805,128 @@ export async function answerCall(socket: Socket, callerId: string, isVideoCall: 
 		handleMediaError(error as DOMException, 'answering');
 		isInCall.set(false);
 		localStream.set(null);
+		activeGroupCall.set(null);
+		groupCallRingingTargets.set([]);
+		callMode.set(null);
 		throw error;
 	}
 }
 
-export function rejectCall(socket: Socket, callerId: string) {
-	socket.emit('call-reject', { callerId });
+export function rejectCall(socket: Socket, callerId: string, options: { channelId?: string } = {}) {
+	socket.emit('call-reject', { callerId, channelId: options.channelId });
 	incomingCall.set(null);
+}
+
+export function cancelOutgoingCall(socket: Socket) {
+	const pending = get(outgoingCall);
+	if (pending) {
+		if (pending.scope === 'group' && pending.channelId) {
+			socket.emit('call-cancel', { channelId: pending.channelId });
+		} else if (pending.targetUserId) {
+			socket.emit('call-cancel', { targetUserId: pending.targetUserId });
+		}
+	}
+	endCall(socket);
+}
+
+export function handleIncomingCallCancelled(callerId: string, channelId?: string): void {
+	const current = get(incomingCall);
+	if (!current || current.userId !== callerId) return;
+	if (channelId && current.channelId && current.channelId !== channelId) return;
+	incomingCall.set(null);
+}
+
+export function handleGroupCallInviteCleared(data: { channelId: string; stableUserId: string }): void {
+	const activeGroupId = get(activeGroupCall)?.id;
+	const pendingChannelId = get(outgoingCall)?.channelId;
+	if (data.channelId !== activeGroupId && data.channelId !== pendingChannelId) {
+		return;
+	}
+	removeGroupCallRingingTarget(data.stableUserId);
+	maybeDismissEmptyPendingGroupCall();
+}
+
+export function handleVoiceParticipantJoined(userId: string, username: string): void {
+	rememberVoiceParticipantLabel(userId, username);
+	playCallActionSound('join');
+	const label = resolveVoiceParticipantLabel(userId);
+	if (label) {
+		pushVoiceChannelNotice(`${label} joined voice`);
+	}
+}
+
+export function handleVoiceParticipantLeft(userId: string): void {
+	playCallActionSound('leave');
+	const label = resolveVoiceParticipantLabel(userId);
+	if (label) {
+		pushVoiceChannelNotice(`${label} left voice`);
+	}
+	voiceParticipantLabels.delete(userId);
+}
+
+export function handleRemoteDirectCallEnded(userId: string): void {
+	const isActiveDirectCall =
+		get(callMode) === 'direct' &&
+		(get(isInCall) || get(activeCalls).some((call) => call.userId === userId) || callParticipants.has(userId));
+
+	if (!isActiveDirectCall) {
+		removeCall(userId);
+		removeScreenShare(userId);
+		return;
+	}
+
+	playCallActionSound('leave');
+	finalizeLocalCallEndState();
+}
+
+export async function handleGroupCallParticipantJoined(
+	socket: Socket,
+	data: { channelId: string; channelName?: string; userId: string; username: string; stableUserId?: string }
+): Promise<void> {
+	const pending = get(outgoingCall);
+	const activeGroup = get(activeGroupCall);
+	const localDisplayName = pending?.localDisplayName || 'Wabi User';
+	const isSameActiveGroup = get(callMode) === 'group' && activeGroup?.id === data.channelId;
+	if (data.stableUserId) {
+		removeGroupCallRingingTarget(data.stableUserId);
+	}
+
+	if (!isSameActiveGroup) {
+		await enterEstablishedGroupCall(
+			data.channelId,
+			data.channelName || pending?.channelName || pending?.username || data.channelId,
+			localDisplayName,
+			{ clearOutgoing: pending?.channelId === data.channelId, playJoinSound: true }
+		);
+	} else {
+		handleVoiceParticipantJoined(data.userId, data.username);
+	}
+
+	if (get(sfuMediaActive)) {
+		return;
+	}
+
+	await createCallOffer(socket, data.userId, data.username, { channelId: data.channelId });
+}
+
+export function handleGroupCallParticipantLeft(data: { channelId: string; userId: string }): void {
+	if (get(activeGroupCall)?.id !== data.channelId) {
+		return;
+	}
+	handleVoiceParticipantLeft(data.userId);
+	removeCall(data.userId);
+	removeScreenShare(data.userId);
+}
+
+export function stopGroupCallRingingTarget(socket: Socket, stableUserId: string): void {
+	const groupId = get(activeGroupCall)?.id || get(outgoingCall)?.channelId;
+	if (!groupId || !stableUserId) return;
+	removeGroupCallRingingTarget(stableUserId);
+	socket.emit('group-call-stop-ringing', {
+		channelId: groupId,
+		targetUserId: stableUserId
+	});
+	maybeDismissEmptyPendingGroupCall();
 }
 
 export function endCall(socket: Socket) {
@@ -2462,6 +2934,14 @@ export function endCall(socket: Socket) {
 	const endingMode = get(callMode);
 	const endingVoiceChannelId = activeVoiceChannelId;
 	const endingListeningChannels = get(listeningVoiceChannels);
+	const endingGroupCall = get(activeGroupCall);
+	const participantIds = new Set<string>(callParticipants);
+
+	peerConnections.forEach((state) => {
+		if (state.type === 'call') {
+			participantIds.add(state.targetId);
+		}
+	});
 
 	// If this is a channel voice call, explicitly leave/unsubscribe server-side.
 	if (endingMode === 'channel') {
@@ -2471,72 +2951,20 @@ export function endCall(socket: Socket) {
 		for (const channelId of endingListeningChannels) {
 			socket.emit('voice-channel-unsubscribe', { channelId });
 		}
+	} else if (endingMode === 'group' && endingGroupCall?.id && get(isInCall)) {
+		socket.emit('group-call-leave', { channelId: endingGroupCall.id });
 	}
 
-	// Stop local media tracks
-	const stream = get(localStream);
-	if (stream) {
-		stream.getTracks().forEach(track => track.stop());
-		localStream.set(null);
-	}
-	clearActiveAudioCaptureSession();
-
-	// Stop local audio monitoring
-	stopAudioMonitoring('local');
-	isLocalSpeaking.set(false);
-
-	// Reset call state
-	isInCall.set(false);
-	isMuted.set(false);
-	isDeafened.set(false);
-	isVideoOff.set(false);
-	channelCallPanelOpen.set(false);
-	activeVoiceChannel.set(null);
-	callMode.set(null);
-
-	// Notify server with participant list for targeted cleanup
-	socket.emit('call-end', {
-		participants: Array.from(callParticipants)
-	});
-
-	// Close all call peer connections (collect keys first to avoid mutation during iteration)
-	const callKeys: string[] = [];
-	peerConnections.forEach((state, key) => {
-		if (state.type === 'call') {
-			callKeys.push(key);
-		}
-	});
-	callKeys.forEach(key => cleanupPeerConnection(key));
-
-	activeCalls.set([]);
-	for (const timerId of remoteVideoMuteDebounceTimers.values()) {
-		clearTimeout(timerId);
-	}
-	remoteVideoMuteDebounceTimers.clear();
-	callParticipants.clear();
-	activeVoiceChannelId = null;
-	listeningVoiceChannels.set([]);
-	stopAllRemoteSpeakingMonitors();
-	stopLocalSpeakingMonitor();
-	stopPerformanceGuard();
-	clearAudioPerformanceFallbackOverride();
-	connectionState.set('idle');
-	disposeSpatialAudioEngine();
-	spatialFallbackNoticeShown = false;
-	spatialAudioRuntimeStatus.update((state) => ({
-		...state,
-		active: false,
-		effectiveMode: 'off',
-		fallbackReason: null
-	}));
-	if (activeMediaGatewaySessionId) {
-		void closeMediaGatewaySession(activeMediaGatewaySessionId).catch((error) => {
-			console.warn('[MediaGateway] Failed to close session on endCall:', error);
+	// Only notify the server when a peer-targeted call session exists.
+	// This avoids broadcasting a fake "call ended" event when an outgoing
+	// call never connected or was rejected before peer negotiation started.
+	if ((endingMode === 'channel' || participantIds.size > 0) && endingMode !== 'group') {
+		socket.emit('call-end', {
+			participants: Array.from(participantIds)
 		});
-		stopMediaGatewaySessionRenewal();
-		activeMediaGatewaySessionId = null;
 	}
-	void disconnectLivekitSfu();
+
+	finalizeLocalCallEndState();
 }
 
 // ============================================================================
@@ -2945,12 +3373,6 @@ export async function handleScreenShareIceCandidate(senderId: string, candidate:
 
 export function removeCall(userId: string) {
 	cleanupPeerConnection(getConnectionKey(userId, 'call'));
-	if (get(callMode) === 'channel') {
-		const call = get(activeCalls).find(c => c.userId === userId);
-		if (call?.username) {
-			pushVoiceChannelNotice(`${call.username} left voice`);
-		}
-	}
 }
 
 export function removeScreenShare(userId: string) {
@@ -2987,6 +3409,7 @@ export function cleanupAllConnections() {
 	}
 	remoteVideoMuteDebounceTimers.clear();
 	callParticipants.clear();
+	voiceParticipantLabels.clear();
 	activeVoiceChannelId = null;
 	listeningVoiceChannels.set([]);
 	stopAllRemoteSpeakingMonitors();
@@ -2999,6 +3422,9 @@ export function cleanupAllConnections() {
 	// Reset all stores
 	activeCalls.set([]);
 	screenShares.set([]);
+	incomingCall.set(null);
+	outgoingCall.set(null);
+	groupCallRingingTargets.set([]);
 	isInCall.set(false);
 	isSharing.set(false);
 	isMuted.set(false);
@@ -3006,6 +3432,9 @@ export function cleanupAllConnections() {
 	isVideoOff.set(false);
 	isLocalSpeaking.set(false);
 	channelCallPanelOpen.set(false);
+	activeVoiceChannel.set(null);
+	activeGroupCall.set(null);
+	callMode.set(null);
 	connectionState.set('idle');
 	spatialAudioRuntimeStatus.update((state) => ({
 		...state,

@@ -12,6 +12,7 @@ import { dirname, join } from 'path';
 import { DATA_DIR } from '../constants.js';
 import { type StatePlaneConfig } from './config.js';
 import { type StatePlaneOutboxRecord } from './outbox.js';
+import { getStdbAuthMode, getStdbDatabase, getStdbServer, getStdbTimeoutMs } from './stdbCommon.js';
 
 interface ShadowSink {
 	apply(record: StatePlaneOutboxRecord): Promise<void>;
@@ -97,10 +98,132 @@ class CommandShadowSink implements ShadowSink {
 	}
 }
 
+class StdbShadowSink implements ShadowSink {
+	private readonly server: string;
+	private readonly database: string;
+	private readonly reducer: string;
+	private readonly timeoutMs: number;
+	private readonly providedToken: string | null;
+	private readonly allowAnonymous: boolean;
+	private cachedIdentityToken: string | null = null;
+
+	constructor() {
+		const server = getStdbServer();
+		const database = getStdbDatabase();
+		if (!server || !database) {
+			throw new Error('stdb_sink_not_configured');
+		}
+		this.server = normalizeStdbServer(server);
+		this.database = database;
+		this.reducer = (process.env.WABI_STDB_BRIDGE_REDUCER || 'ingest_wabi_event').trim() || 'ingest_wabi_event';
+		this.timeoutMs = getStdbTimeoutMs();
+		const authMode = getStdbAuthMode();
+		this.providedToken = authMode.token;
+		this.allowAnonymous = authMode.anonymous;
+	}
+
+	async apply(record: StatePlaneOutboxRecord): Promise<void> {
+		const body = JSON.stringify([JSON.stringify(record)]);
+		let response = await this.callReducer(body, await this.resolveToken(false));
+		if (response.status === 401 && !this.providedToken && this.allowAnonymous) {
+			response = await this.callReducer(body, await this.resolveToken(true));
+		}
+		if (!response.ok) {
+			throw new Error(`stdb_http_${response.status}: ${response.text || response.statusText}`);
+		}
+	}
+
+	private async resolveToken(forceRefresh: boolean): Promise<string | null> {
+		if (this.providedToken) return this.providedToken;
+		if (!this.allowAnonymous) return null;
+		if (!forceRefresh && this.cachedIdentityToken) return this.cachedIdentityToken;
+
+		const response = await postJson(
+			`${this.server}/v1/identity`,
+			{ 'Content-Type': 'application/json' },
+			'{}',
+			this.timeoutMs
+		);
+		if (!response.ok) {
+			throw new Error(`stdb_identity_${response.status}: ${response.text || response.statusText}`);
+		}
+		const token = response.json?.token;
+		if (typeof token !== 'string' || token.trim().length === 0) {
+			throw new Error('stdb_identity_missing_token');
+		}
+		this.cachedIdentityToken = token.trim();
+		return this.cachedIdentityToken;
+	}
+
+	private async callReducer(body: string, token: string | null): Promise<HttpResponse> {
+		const headers: Record<string, string> = {
+			'Content-Type': 'application/json'
+		};
+		if (token) {
+			headers.Authorization = `Bearer ${token}`;
+		}
+		return postJson(
+			`${this.server}/v1/database/${encodeURIComponent(this.database)}/call/${encodeURIComponent(this.reducer)}`,
+			headers,
+			body,
+			this.timeoutMs
+		);
+	}
+}
+
+interface HttpResponse {
+	ok: boolean;
+	status: number;
+	statusText: string;
+	text: string;
+	json: any;
+}
+
+function normalizeStdbServer(value: string): string {
+	const trimmed = value.trim();
+	if (!trimmed) return trimmed;
+	if (trimmed.includes('://')) return trimmed.replace(/\/+$/, '');
+	return `http://${trimmed.replace(/\/+$/, '')}`;
+}
+
+async function postJson(
+	url: string,
+	headers: Record<string, string>,
+	body: string,
+	timeoutMs: number
+): Promise<HttpResponse> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), timeoutMs);
+	try {
+		const response = await fetch(url, {
+			method: 'POST',
+			headers,
+			body,
+			signal: controller.signal
+		});
+		const text = await response.text().catch(() => '');
+		let json: any = null;
+		try {
+			json = text ? JSON.parse(text) : null;
+		} catch {
+			json = null;
+		}
+		return {
+			ok: response.ok,
+			status: response.status,
+			statusText: response.statusText,
+			text,
+			json
+		};
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
 export interface StatePlaneShadowWriterStats {
 	enabled: boolean;
 	running: boolean;
-	sink: 'mirror' | 'http' | 'command';
+	sink: 'mirror' | 'http' | 'command' | 'stdb';
 	signingEnabled: boolean;
 	signingKeyId: string | null;
 	commandConfigured: boolean;
@@ -137,7 +260,7 @@ export class StatePlaneShadowWriter {
 	private readonly outboxTruncateMinBytes: number;
 	private readonly offsetPath: string;
 	private readonly deadLetterPath: string;
-	private readonly sinkKind: 'mirror' | 'http' | 'command';
+	private readonly sinkKind: 'mirror' | 'http' | 'command' | 'stdb';
 	private readonly signingEnabled: boolean;
 	private readonly signingKeyId: string | null;
 	private readonly commandConfigured: boolean;
@@ -178,7 +301,7 @@ export class StatePlaneShadowWriter {
 		this.offsetPath = join(DATA_DIR, 'state-plane-shadow.offset');
 		this.deadLetterPath = join(DATA_DIR, 'state-plane-shadow-deadletter.ndjson');
 		this.mirrorPath = join(DATA_DIR, 'state-plane-shadow-applied.ndjson');
-		let resolvedSink: 'mirror' | 'http' | 'command' = config.shadowSink;
+		let resolvedSink: 'mirror' | 'http' | 'command' | 'stdb' = config.shadowSink;
 
 		if (resolvedSink === 'http' && config.shadowEndpoint) {
 			this.sink = new HttpShadowSink(
@@ -202,12 +325,32 @@ export class StatePlaneShadowWriter {
 			this.signingKeyId = null;
 			this.commandConfigured = true;
 			this.commandTimeoutMs = config.shadowCommandTimeoutMs;
+		} else if (resolvedSink === 'stdb') {
+			try {
+				this.sink = new StdbShadowSink();
+				this.signingEnabled = false;
+				this.signingKeyId = null;
+				this.commandConfigured = false;
+				this.commandTimeoutMs = 0;
+			} catch (error) {
+				this.sink = new MirrorShadowSink(this.mirrorPath);
+				console.warn(
+					`[StatePlane] shadow sink=stdb requested but STDB client is not configured; using mirror sink (${error instanceof Error ? error.message : String(error)})`
+				);
+				resolvedSink = 'mirror';
+				this.signingEnabled = false;
+				this.signingKeyId = null;
+				this.commandConfigured = false;
+				this.commandTimeoutMs = 0;
+			}
 		} else {
 			this.sink = new MirrorShadowSink(this.mirrorPath);
 			if (resolvedSink === 'http') {
 				console.warn('[StatePlane] shadow sink=http requested without STATE_SHADOW_ENDPOINT; using mirror sink');
 			} else if (resolvedSink === 'command') {
 				console.warn('[StatePlane] shadow sink=command requested without STATE_SHADOW_COMMAND; using mirror sink');
+			} else if (resolvedSink === 'stdb') {
+				console.warn('[StatePlane] shadow sink=stdb requested without STDB client config; using mirror sink');
 			}
 			resolvedSink = 'mirror';
 			this.signingEnabled = false;

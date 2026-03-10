@@ -76,6 +76,7 @@ export {
 
 	// Message operations
 	sendMessage,
+	retryDecryptLoadedDmMessages,
 	editMessage,
 	deleteMessage,
 	togglePinMessage,

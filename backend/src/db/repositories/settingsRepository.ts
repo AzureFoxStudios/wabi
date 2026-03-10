@@ -5,6 +5,7 @@ export interface UserSettings {
 	offline_message_retention: string;
 	allow_temp_user_messages: number;
 	business_private_mode?: number;
+	home_experience?: string;
 }
 
 export class SettingsRepository {
@@ -16,7 +17,8 @@ export class SettingsRepository {
 			// Create default settings
 			this.set(userId, {
 				offline_message_retention: '7d',
-				allow_temp_user_messages: 1
+				allow_temp_user_messages: 1,
+				home_experience: 'community'
 			});
 			settings = this.findById(userId)!;
 		}
@@ -37,15 +39,16 @@ export class SettingsRepository {
 		if (!existing) {
 			// Create new settings
 			const stmt = db.prepare(`
-				INSERT INTO user_settings (user_id, offline_message_retention, allow_temp_user_messages, business_private_mode)
-				VALUES (?, ?, ?, ?)
+				INSERT INTO user_settings (user_id, offline_message_retention, allow_temp_user_messages, business_private_mode, home_experience)
+				VALUES (?, ?, ?, ?, ?)
 			`);
 
 			stmt.run(
 				userId,
 				settings.offline_message_retention || '7d',
 				settings.allow_temp_user_messages !== undefined ? settings.allow_temp_user_messages : 1,
-				settings.business_private_mode !== undefined ? settings.business_private_mode : 0
+				settings.business_private_mode !== undefined ? settings.business_private_mode : 0,
+				settings.home_experience || 'community'
 			);
 		} else {
 			// Update existing settings

@@ -1,4 +1,4 @@
-FROM node:24-slim AS builder
+FROM node:20-slim AS builder
 
 WORKDIR /app
 
@@ -51,7 +51,7 @@ RUN test -d build || (echo "ERROR: build directory not created" && ls -la && exi
 RUN npm prune --production
 
 # Production stage - run the Node.js app
-FROM node:24-slim
+FROM node:20-slim
 
 WORKDIR /app
 

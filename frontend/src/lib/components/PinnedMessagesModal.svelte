@@ -141,7 +141,7 @@
 		right: 0;
 		bottom: 0;
 		background-color: rgba(0, 0, 0, 0.2);
-		z-index: 1000;
+		z-index: var(--z-modal);
 		backdrop-filter: blur(2px);
 	}
 

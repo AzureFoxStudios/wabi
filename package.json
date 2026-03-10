@@ -17,6 +17,8 @@
     "plugin:verify": "node scripts/plugin-verify.mjs",
     "payments:rollout:signed-only": "node scripts/payments-signed-only-rollout.mjs",
     "bench:compression": "node scripts/compression-benchmark.mjs",
+    "bench:state-plane": "node frontend/scripts/state-plane-benchmark.mjs",
+    "bench:state-plane:stdb": "powershell -ExecutionPolicy Bypass -File scripts/state-plane-stdb-benchmark.ps1",
     "check:compression-storage": "node scripts/compression-storage-smoke.mjs",
     "openmoji:fetch": "powershell -ExecutionPolicy Bypass -File scripts/fetch-openmoji.ps1",
     "tunnel:quick": "docker compose --profile tunnel --profile tunnel-quick up -d --build",

@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { channels, channelMessages, currentUser, users, createDM, deleteDM, leaveGroup, socket } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { NOTES_DM_ID } from '$lib/layoutStore';
-	import { startCall } from '$lib/calling';
+	import { startCall, startGroupCall, type GroupCallRingingTarget } from '$lib/calling';
 	import { longpress } from '$lib/actions/longpress';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
 	import type { ContextMenuIcon, ContextMenuItem } from '$lib/context-menu/types';
@@ -15,6 +15,7 @@
 	import type { User, Channel } from '$lib/socket';
 	import { dmPrivacyModes, setDMPrivacyMode, type DMPrivacyMode } from '$lib/dmPrivacyMode';
 	import { pinnedDmIdsStore, prunePinnedDms, togglePinnedDm } from '$lib/pinDms';
+	import { getUserIdentityKey } from '$lib/localNicknames';
 	type ConversationAction = {
 		id: 'voice' | 'video' | 'remove';
 		label: string;
@@ -24,6 +25,10 @@
 		showInline?: boolean;
 		onSelect: () => void | Promise<void>;
 	};
+
+	const dispatch = createEventDispatcher<{
+		openSettings: { paymentSurface: 'connections' };
+	}>();
 
 	let searchQuery = '';
 	let showNewDM = false;
@@ -167,11 +172,44 @@
 	async function startDMQuickCall(user: User, withVideo: boolean) {
 		if (!$socket || !user) return;
 		try {
-			await startCall($socket, user.id, withVideo);
+			await startCall($socket, getUserIdentityKey(user), withVideo, { scope: 'dm', displayName: user.username });
 		} catch (error) {
 			alert(withVideo
 				? 'Failed to start video call. Please check camera and microphone permissions.'
 				: 'Failed to start voice call. Please check microphone permissions.');
+		}
+	}
+
+	async function startGroupQuickCall(channel: Channel, withVideo: boolean) {
+		if (!$socket || channel.type !== 'group') return;
+		try {
+			const myStableId = $currentUser?.dbUserId ? `user-${$currentUser.dbUserId}` : $currentUser?.id;
+			const invitees = new Map<string, GroupCallRingingTarget>();
+			for (const memberId of channel.members || []) {
+				if (!memberId || memberId === myStableId) continue;
+				if (memberId.startsWith('user-')) {
+					const dbUserId = Number.parseInt(memberId.substring(5), 10);
+					const onlineUser = $users.find((u) => u.dbUserId === dbUserId);
+					if (onlineUser) {
+						invitees.set(memberId, { stableUserId: memberId, username: onlineUser.username });
+					}
+					continue;
+				}
+				const onlineUser = $users.find((u) => u.id === memberId);
+				if (onlineUser) {
+					const stableUserId = typeof onlineUser.dbUserId === 'number' ? `user-${onlineUser.dbUserId}` : onlineUser.id;
+					invitees.set(stableUserId, { stableUserId, username: onlineUser.username });
+				}
+			}
+
+			await startGroupCall($socket, channel.id, channel.name || 'Group', withVideo, {
+				localDisplayName: $currentUser?.username || 'Wabi User',
+				invitees: Array.from(invitees.values())
+			});
+		} catch (error) {
+			alert(withVideo
+				? 'Failed to start group video call. Please check camera and microphone permissions.'
+				: 'Failed to start group voice call. Please check microphone permissions.');
 		}
 	}
 
@@ -195,6 +233,25 @@
 					icon: 'video',
 					showInline: true,
 					onSelect: () => startDMQuickCall(other, true)
+				}
+			);
+		} else if (channel.type === 'group') {
+			actions.push(
+				{
+					id: 'voice',
+					label: 'Voice Call',
+					title: `Call ${channel.name || 'group'}`,
+					icon: 'phone',
+					showInline: true,
+					onSelect: () => startGroupQuickCall(channel, false)
+				},
+				{
+					id: 'video',
+					label: 'Video Call',
+					title: `Video call ${channel.name || 'group'}`,
+					icon: 'video',
+					showInline: true,
+					onSelect: () => startGroupQuickCall(channel, true)
 				}
 			);
 		}
@@ -485,9 +542,18 @@
 					{#if isKeepNotesSelected}
 						<KeepNotesView />
 					{:else if activeGroup}
-						<DMMessageView channelId={selectedDmId} otherUser={activeGroup.memberUsers?.[0] || { id: '', username: activeGroup.name, color: '#888', status: 'offline' }} channel={activeGroup} />
+						<DMMessageView
+							channelId={selectedDmId}
+							otherUser={activeGroup.memberUsers?.[0] || { id: '', username: activeGroup.name, color: '#888', status: 'offline' }}
+							channel={activeGroup}
+							on:openSettings={(event) => dispatch('openSettings', event.detail)}
+						/>
 					{:else if dmOther}
-						<DMMessageView channelId={selectedDmId} otherUser={dmOther} />
+						<DMMessageView
+							channelId={selectedDmId}
+							otherUser={dmOther}
+							on:openSettings={(event) => dispatch('openSettings', event.detail)}
+						/>
 					{/if}
 				</div>
 			{/if}

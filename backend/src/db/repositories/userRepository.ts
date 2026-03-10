@@ -98,7 +98,7 @@ export class UserRepository {
 
 	// Update user profile
 	update(userId: number, updates: Partial<RegisteredUser>): void {
-		const allowedFields = ['username', 'color', 'profile_picture', 'bio', 'is_active', 'username_font_family', 'username_font_size', 'username_font_weight', 'username_font_style'];
+		const allowedFields = ['username', 'password_hash', 'color', 'profile_picture', 'bio', 'is_active', 'username_font_family', 'username_font_size', 'username_font_weight', 'username_font_style'];
 		const fields = Object.keys(updates).filter((key) => allowedFields.includes(key));
 
 		if (fields.length === 0) return;

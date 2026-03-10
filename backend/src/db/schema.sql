@@ -412,6 +412,37 @@ CREATE TABLE IF NOT EXISTS payment_account_links (
 CREATE INDEX IF NOT EXISTS idx_payment_account_links_user ON payment_account_links(user_id, workspace_id, linked_at DESC);
 CREATE INDEX IF NOT EXISTS idx_payment_account_links_plugin ON payment_account_links(plugin_id, workspace_id, linked_at DESC);
 
+-- Manual trust-based settlements (DM cash + admin-recorded offline donations)
+CREATE TABLE IF NOT EXISTS manual_settlements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  settlement_id TEXT UNIQUE NOT NULL,
+  workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+  settlement_kind TEXT NOT NULL,
+  channel_id TEXT,
+  created_by_user_id INTEGER NOT NULL,
+  counterparty_user_id INTEGER,
+  donor_label TEXT,
+  amount_minor INTEGER NOT NULL,
+  currency TEXT NOT NULL,
+  description TEXT,
+  status TEXT NOT NULL,
+  metadata_json TEXT,
+  creator_confirmed_at INTEGER,
+  counterparty_confirmed_at INTEGER,
+  completed_at INTEGER,
+  voided_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (created_by_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  FOREIGN KEY (counterparty_user_id) REFERENCES users(user_id) ON DELETE SET NULL,
+  FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_manual_settlements_kind_created ON manual_settlements(settlement_kind, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_manual_settlements_channel_updated ON manual_settlements(channel_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_manual_settlements_creator_updated ON manual_settlements(created_by_user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_manual_settlements_counterparty_updated ON manual_settlements(counterparty_user_id, updated_at DESC);
+
 -- Community dictionary entries (language-learning helpers)
 CREATE TABLE IF NOT EXISTS dictionary_entries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

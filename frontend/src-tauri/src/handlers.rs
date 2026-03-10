@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
@@ -17,6 +18,16 @@ pub struct MediaTransportPreferences {
     pub srt_gateway_enabled: bool,
     pub preferred_audio_bitrate: u32,
     pub preferred_video_bitrate: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ExperimentalStdbCallRecord {
+    pub timestamp_ms: u64,
+    pub target_user_id: String,
+    pub is_video_call: bool,
+    pub scope: String,
+    pub label: String,
 }
 
 fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -184,6 +195,35 @@ pub fn get_media_transport_preferences(app: AppHandle) -> Result<MediaTransportP
 
     let value = read_json_file(&path)?;
     serde_json::from_value(value).map_err(|e| format!("failed decoding preferences: {e}"))
+}
+
+#[tauri::command]
+pub fn set_experimental_stdb_call_enabled(app: AppHandle, enabled: bool) -> Result<String, String> {
+    let path = app_data_dir(&app)?.join("spacechatdb_experimental_call_config.json");
+    let payload = json!({
+        "enabled": enabled,
+        "updated_at_ms": chrono::Utc::now().timestamp_millis()
+    });
+    write_json_file(&path, &payload)?;
+    Ok("experimental SpaceChatDB STDB call toggle saved".to_string())
+}
+
+#[tauri::command]
+pub fn spacechatdb_record_experimental_call(app: AppHandle, record: ExperimentalStdbCallRecord) -> Result<String, String> {
+    let path = app_data_dir(&app)?.join("spacechatdb_experimental_calls.ndjson");
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| format!("failed opening experimental call log: {e}"))?;
+
+    let line = serde_json::to_string(&record).map_err(|e| format!("failed encoding experimental call record: {e}"))?;
+    file.write_all(line.as_bytes())
+        .map_err(|e| format!("failed writing experimental call record: {e}"))?;
+    file.write_all(b"\n")
+        .map_err(|e| format!("failed writing newline for experimental call record: {e}"))?;
+
+    Ok("experimental SpaceChatDB STDB call recorded".to_string())
 }
 
 #[tauri::command]

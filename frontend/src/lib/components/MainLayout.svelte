@@ -20,6 +20,7 @@
 
 	export let activeView: 'chat' | 'screen' = 'chat';
 	let showSettings = false;
+	let requestedSettingsPaymentSurface: 'connections' | null = null;
 
 	$: mobileRightVisible = $layoutStore.isMobile && $layoutStore.rightPanelView !== 'none';
 	$: showDesktopNotificationRail = !$layoutStore.isMobile && !$layoutStore.showRightPanel;
@@ -71,6 +72,14 @@
 
 	layoutStore.isResizingChannel.subscribe(v => resizingChannel = v);
 	layoutStore.isResizingRight.subscribe(v => resizingRight = v);
+	$: if (!showSettings) {
+		requestedSettingsPaymentSurface = null;
+	}
+
+	function openSettings(paymentSurface: 'connections' | null = null): void {
+		requestedSettingsPaymentSurface = paymentSurface;
+		showSettings = true;
+	}
 
 	onMount(() => {
 		mobileTabQueue.registerAddonTab({
@@ -622,7 +631,7 @@
 		style:opacity={getPreviewOpacity()}
 		style:transition={swipePreviewActive ? 'none' : undefined}
 	>
-		<ChannelSidebar on:close={() => layoutStore.showMobileChannels.set(false)} bind:activeView on:logout on:openSettings={() => showSettings = true} />
+		<ChannelSidebar on:close={() => layoutStore.showMobileChannels.set(false)} bind:activeView on:logout on:openSettings={() => openSettings()} />
 		<!-- Channel resize handle -->
 		<div
 			class="resize-handle resize-handle-channel"
@@ -639,7 +648,7 @@
 			style:opacity={getPreviewOpacity()}
 			style:transition={swipePreviewActive ? 'none' : undefined}
 		>
-			<RightPanel />
+			<RightPanel on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
 		</div>
 	{/if}
 
@@ -650,7 +659,10 @@
 				{#if isModelViewportTabActive}
 					<ModelViewportTab />
 				{:else}
-					<Chat on:logout on:openSettings={() => showSettings = true} />
+					<Chat
+						on:logout
+						on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)}
+					/>
 				{/if}
 			</div>
 			<CallModal />
@@ -668,7 +680,7 @@
 				class="resize-handle resize-handle-right"
 				on:mousedown|preventDefault={() => layoutStore.isResizingRight.set(true)}
 			></div>
-			<RightPanel />
+			<RightPanel on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
 		</div>
 	{/if}
 
@@ -782,7 +794,7 @@
 </div>
 
 {#if showSettings}
-	<Settings bind:isOpen={showSettings} on:logout />
+	<Settings bind:isOpen={showSettings} requestedPaymentSurface={requestedSettingsPaymentSurface} on:logout />
 {/if}
 
 <style>

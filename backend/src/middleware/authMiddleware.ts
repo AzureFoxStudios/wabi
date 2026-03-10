@@ -29,7 +29,7 @@ export function authMiddleware(
 			// Check if session exists in database (for registered users)
 			const dbSession = sessionRepository.findById(payload.sessionId);
 
-			if (!dbSession || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
+			if (!dbSession || dbSession.user_id !== payload.userId || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
 				// Token valid but session expired in database
 				(req as any).auth = { valid: false, reason: 'session_expired' };
 				next();

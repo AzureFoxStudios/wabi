@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import { initSocket, disconnect, dmPanelSignal } from '$lib/socket';
+	import { initSocket, disconnect, dmPanelSignal, retryDecryptLoadedDmMessages } from '$lib/socket';
 	import { requestNotificationPermission } from '$lib/notifications';
 	import Login from '$lib/components/Login.svelte';
 	import MainLayout from '$lib/components/MainLayout.svelte';
@@ -9,9 +9,17 @@
 	import { initE2E, clearE2EState } from '$lib/e2eManager';
 	import { clearAuthSession, getAuthToken, getGuestSessionId, setAuthToken } from '$lib/authSession';
 	import { authStore } from '$lib/authStore';
+	import { getUserSettings } from '$lib/api';
 	import { initializeAccessibilitySettings } from '$lib/accessibility';
 	import { initializeAnimationPassSettings } from '$lib/animationPass';
 	import { startupMark, startupMeasure, startupScheduleReport } from '$lib/startupProfiler';
+	import {
+		applyHomeExperienceMode,
+		getStoredHomeExperienceMode,
+		normalizeHomeExperienceMode,
+		setStoredHomeExperienceMode,
+		type HomeExperienceMode
+	} from '$lib/homeExperience';
 	import { _ } from '$lib/i18n';
 
 	// Theme system
@@ -44,6 +52,20 @@
 			return;
 		}
 		window.setTimeout(task, 0);
+	}
+
+	async function syncHomeExperienceFromServer(token: string | null | undefined): Promise<HomeExperienceMode> {
+		if (!token) {
+			return getStoredHomeExperienceMode();
+		}
+		try {
+			const settings = await getUserSettings(token);
+			const mode = normalizeHomeExperienceMode(settings?.home_experience);
+			setStoredHomeExperienceMode(mode);
+			return mode;
+		} catch {
+			return getStoredHomeExperienceMode();
+		}
 	}
 
 	// --- Lifecycle ---
@@ -115,21 +137,28 @@
 				startupMark('page:socket:init:end');
 				startupMeasure('page:socket:init:call', 'page:socket:init:start', 'page:socket:init:end');
 				loggedIn = true;
+				applyHomeExperienceMode(getStoredHomeExperienceMode());
+				if (savedToken) {
+					scheduleNonCritical(() => {
+						void syncHomeExperienceFromServer(savedToken).then((mode) => {
+							applyHomeExperienceMode(mode);
+						});
+					});
+				}
 
 				// Initialize E2E in background so it doesn't block initial render and socket startup.
 				const dbUserId = localStorage.getItem('dbUserId');
 				if (dbUserId) {
-					scheduleNonCritical(() => {
-						startupMark('page:e2e:init:start');
-						void initE2E(parseInt(dbUserId, 10), savedToken, false)
-							.catch((err) => {
-								console.warn('[App] E2E init failed in background; continuing without E2E for now:', err);
-							})
-							.finally(() => {
-								startupMark('page:e2e:init:end');
-								startupMeasure('page:e2e:init', 'page:e2e:init:start', 'page:e2e:init:end');
-							});
-					});
+					startupMark('page:e2e:init:start');
+					void initE2E(parseInt(dbUserId, 10), savedToken, false)
+						.then(() => retryDecryptLoadedDmMessages())
+						.catch((err) => {
+							console.warn('[App] E2E init failed; continuing without E2E for now:', err);
+						})
+						.finally(() => {
+							startupMark('page:e2e:init:end');
+							startupMeasure('page:e2e:init', 'page:e2e:init:start', 'page:e2e:init:end');
+						});
 				}
 			} else {
 				// Prevent stale username-only local state from skipping login.
@@ -188,8 +217,8 @@
 		dmPanelSignal.set(null);
 	}
 
-	async function handleLogin(event: CustomEvent<{ username: string; token?: string; authMethod: 'guest' | 'registered' }>) {
-		const { username, token, authMethod } = event.detail;
+	async function handleLogin(event: CustomEvent<{ username: string; token?: string; authMethod: 'guest' | 'registered'; homeExperience?: HomeExperienceMode }>) {
+		const { username, token, authMethod, homeExperience } = event.detail;
 		localStorage.setItem('username', username);
 
 		if (token) {
@@ -211,6 +240,18 @@
 		stopTimedThemeScheduler = startTimedThemeModeScheduler();
 		if (!isRegistered) {
 			unsubscribeLocalStorageSync = syncThemeToLocalStorage();
+		}
+
+		const immediateMode = normalizeHomeExperienceMode(homeExperience || getStoredHomeExperienceMode());
+		setStoredHomeExperienceMode(immediateMode);
+		applyHomeExperienceMode(immediateMode);
+
+		if (isRegistered && token && !homeExperience) {
+			scheduleNonCritical(() => {
+				void syncHomeExperienceFromServer(token).then((mode) => {
+					applyHomeExperienceMode(mode);
+				});
+			});
 		}
 	}
 

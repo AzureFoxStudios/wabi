@@ -91,6 +91,25 @@ export interface PaymentIntentView extends Omit<PaymentIntentRow, 'metadata_json
   presentation: Record<string, unknown> | null;
 }
 
+export interface PaymentDonationSummaryRow {
+  currency: string;
+  amount_minor: number;
+  payment_count: number;
+}
+
+export interface PaymentDonationLedgerRow {
+  intent_id: string;
+  created_by_user_id: number | null;
+  donor_username: string | null;
+  amount_minor: number;
+  currency: string;
+  status: PaymentIntentStatus;
+  created_at: number;
+  completed_at: number | null;
+  refunded_at: number | null;
+  updated_at: number;
+}
+
 function generateIntentId(): string {
   return `pay_${randomUUID().replace(/-/g, '')}`;
 }
@@ -275,6 +294,12 @@ export class PaymentRepository {
     const now = Date.now();
     const completedAt = status === 'succeeded' ? now : null;
     const refundedAt = status === 'refunded' ? now : null;
+    const existing = options.metadata ? this.findByIntentId(intentId) : null;
+    const existingMetadata = existing ? safeParseJson(existing.metadata_json) : null;
+    const mergedMetadata =
+      options.metadata && existingMetadata
+        ? { ...existingMetadata, ...options.metadata }
+        : options.metadata || null;
 
     const result = db.prepare(`
       UPDATE payment_intents
@@ -292,7 +317,7 @@ export class PaymentRepository {
       status,
       options.failureCode ?? null,
       options.failureMessage ?? null,
-      options.metadata ? JSON.stringify(options.metadata) : null,
+      mergedMetadata ? JSON.stringify(mergedMetadata) : null,
       options.expiresAt ?? null,
       completedAt,
       refundedAt,
@@ -349,6 +374,63 @@ export class PaymentRepository {
       `)
       .all(workspaceId, safeLimit) as PaymentIntentRow[];
     return rows.map(toView);
+  }
+
+  listByCreator(userId: number, workspaceId: string = DEFAULT_WORKSPACE_ID, limit = 200): PaymentIntentView[] {
+    const safeLimit = Math.max(1, Math.min(1000, Math.floor(limit)));
+    const rows = db
+      .prepare(`
+        SELECT *
+        FROM payment_intents
+        WHERE workspace_id = ? AND created_by_user_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `)
+      .all(workspaceId, userId, safeLimit) as PaymentIntentRow[];
+    return rows.map(toView);
+  }
+
+  summarizeServerDonations(workspaceId: string = DEFAULT_WORKSPACE_ID): PaymentDonationSummaryRow[] {
+    return db
+      .prepare(`
+        SELECT
+          currency,
+          SUM(amount_minor) AS amount_minor,
+          COUNT(*) AS payment_count
+        FROM payment_intents
+        WHERE workspace_id = ?
+          AND status = 'succeeded'
+          AND metadata_json LIKE '%"kind":"server_donation"%'
+        GROUP BY currency
+        ORDER BY currency ASC
+      `)
+      .all(workspaceId) as PaymentDonationSummaryRow[];
+  }
+
+  listServerDonationActivity(workspaceId: string = DEFAULT_WORKSPACE_ID, limit = 50): PaymentDonationLedgerRow[] {
+    const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+    return db
+      .prepare(`
+        SELECT
+          pi.intent_id,
+          pi.created_by_user_id,
+          u.username AS donor_username,
+          pi.amount_minor,
+          pi.currency,
+          pi.status,
+          pi.created_at,
+          pi.completed_at,
+          pi.refunded_at,
+          pi.updated_at
+        FROM payment_intents pi
+        LEFT JOIN users u ON u.user_id = pi.created_by_user_id
+        WHERE pi.workspace_id = ?
+          AND pi.metadata_json LIKE '%"kind":"server_donation"%'
+          AND pi.status IN ('succeeded', 'refunded')
+        ORDER BY COALESCE(pi.refunded_at, pi.completed_at, pi.created_at) DESC, pi.intent_id DESC
+        LIMIT ?
+      `)
+      .all(workspaceId, safeLimit) as PaymentDonationLedgerRow[];
   }
 
   listEvents(intentId: string, limit = 100): PaymentEventRow[] {

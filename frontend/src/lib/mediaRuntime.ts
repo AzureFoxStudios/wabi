@@ -25,6 +25,12 @@ export interface ServerMediaRuntimeResponse {
 			audioBitrateWeb?: number;
 			audioBitrateLocal?: number;
 		};
+		turn?: {
+			configured?: boolean;
+			server?: string | null;
+			port?: number;
+			useTurns?: boolean;
+		};
 		gateway?: {
 			heartbeatTimeoutMs?: number;
 			configured?: boolean;
@@ -74,6 +80,17 @@ export interface SpatialAudioSettings {
 	distanceScale: number;
 	warningMuted: boolean;
 	quickToggleVisible: boolean;
+}
+
+export interface EffectiveMediaSettingsSnapshot {
+	qualityMode: MediaQualityMode;
+	audioProcessingMode: AudioProcessingMode;
+	callTransportMode: CallTransportMode;
+	srtGatewayEnabled: boolean;
+	screenShareQualityPreset: ScreenShareQualityPreset;
+	screenShareBitrateKbps: number;
+	spatialAudio: SpatialAudioSettings;
+	runtime: ServerMediaRuntimeResponse | null;
 }
 
 const STORAGE_KEYS = {
@@ -471,6 +488,20 @@ export async function syncMediaRuntimeFromServer(): Promise<ServerMediaRuntimeRe
 		lastRuntimeSnapshot = null;
 		return null;
 	}
+}
+
+export async function loadEffectiveMediaSettingsSnapshot(): Promise<EffectiveMediaSettingsSnapshot> {
+	const runtime = await syncMediaRuntimeFromServer();
+	return {
+		qualityMode: getStoredMediaQualityMode(),
+		audioProcessingMode: getStoredAudioProcessingMode(),
+		callTransportMode: getStoredCallTransportMode(),
+		srtGatewayEnabled: isSrtGatewayEnabled(),
+		screenShareQualityPreset: getStoredScreenShareQualityPreset(),
+		screenShareBitrateKbps: getStoredScreenShareBitrateKbps() ?? 0,
+		spatialAudio: getStoredSpatialAudioSettings(),
+		runtime
+	};
 }
 
 function isGatewayHealthy(runtime: ServerMediaRuntimeResponse | null): boolean {

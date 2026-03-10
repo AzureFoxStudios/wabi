@@ -53,6 +53,19 @@ export class StdbPrimaryRbacStore extends StdbStoreBase {
 			.sort((a, b) => a.localeCompare(b));
 	}
 
+	getWorkspaceRoleAssignments(workspaceId: string): Array<{ userId: number; role: string }> {
+		const rows = this.client.sqlRows(
+			`SELECT user_id, role FROM state_rbac_assignment WHERE workspace_id = ${escapeSqlLiteral(workspaceId)} AND active = true LIMIT 50000`
+		);
+		return rows
+			.map((row) => ({
+				userId: toNumber(row.user_id),
+				role: String(row.role || '').trim()
+			}))
+			.filter((row) => Number.isFinite(row.userId) && row.userId > 0 && row.role.length > 0)
+			.sort((a, b) => a.userId - b.userId || a.role.localeCompare(b.role));
+	}
+
 	assignRole(userId: number, role: string, workspaceId: string, assignedBy?: number): void {
 		bumpOperation(this.stats, 'assign_role');
 		this.stats.writesAttempted += 1;
