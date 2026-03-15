@@ -80,7 +80,8 @@
       "Bash(git -C /root/wabi add frontend/svelte.config.js frontend/src/routes/+layout.svelte frontend/src/lib/business/sync.ts frontend/src/lib/business/store.ts static/_app/version.json backend/src/server.ts backend/src/api/authRoutes.ts backend/src/db/database.ts backend/src/db/repositories/userRepository.ts)",
       "Bash(git -C /root/wabi commit -m \"$\\(cat <<''EOF''\nfix: Eliminate infinite fetch retry loops, add url-preview endpoint\n\n- Remove SvelteKit version polling \\(60s _app/version.json loop\\)\n- Remove dead update notification UI from layout\n- Gate business sync behind auth token \\(no requests when logged out\\)\n- Remove 30s auto-sync interval \\(redundant with socket.io realtime\\)\n- Add ready flag to store to prevent 8+ sync calls on module init\n- Delete stale static/_app/version.json artifact\n- Add /api/url-preview endpoint for link preview metadata\n- Improve auth error handling and handle backfill migrations\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git -C /root/wabi push)",
-      "Bash(export PATH=\"/usr/local/bin:/usr/bin:$PATH\")"
+      "Bash(export PATH=\"/usr/local/bin:/usr/bin:$PATH\")",
+      "Bash(npx esbuild:*)"
     ],
     "deny": [],
     "ask": []

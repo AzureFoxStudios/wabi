@@ -2,8 +2,9 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import Chat from '$lib/components/Chat.svelte';
+	import MapWorkspace from '$lib/components/MapWorkspace.svelte';
 	import { initSocket, disconnect, joinChannel } from '$lib/socket';
-	import { getAuthToken } from '$lib/authSession';
+	import { getAuthToken, getStoredDbUserId, getStoredUsername } from '$lib/authSession';
 	import { initializeTheme, watchThemeChanges, syncThemeToLocalStorage } from '$lib/theme/initTheme';
 	import { startTimedThemeModeScheduler } from '$lib/timedThemeMode';
 	import { readDetachedPanelState } from '$lib/detachedPanels';
@@ -23,9 +24,9 @@
 			return;
 		}
 
-		const username = localStorage.getItem('username');
+		const username = getStoredUsername();
 		const token = getAuthToken() || undefined;
-		const isRegistered = Boolean(token || localStorage.getItem('dbUserId'));
+		const isRegistered = Boolean(token || getStoredDbUserId());
 
 		if (!username) {
 			bootError = 'No local session found. Sign in on the main window first.';
@@ -72,6 +73,10 @@
 {:else if panelState?.kind === 'channel-chat'}
 	<div class="detached-shell">
 		<Chat />
+	</div>
+{:else if panelState?.kind === 'server-map'}
+	<div class="detached-shell">
+		<MapWorkspace variant="detached" initialPlaceId={panelState.placeId || null} />
 	</div>
 {:else}
 	<div class="detached-shell error">

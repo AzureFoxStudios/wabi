@@ -108,6 +108,33 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 		return created;
 	}
 
+	async createAsync(message: Omit<DbMessage, 'id' | 'deleted_at'>): Promise<DbMessage> {
+		bumpOperation(this.stats, 'create_async');
+		this.stats.writesAttempted += 1;
+		const created: DbMessage = { ...message };
+		let writeError: unknown = null;
+		try {
+			await this.ingestAsync('message', 'create', {
+				messageId: created.message_id,
+				channelId: created.channel_id,
+				senderId: created.sender_id,
+				createdAt: created.created_at,
+				row: created
+			});
+			this.stats.writesSucceeded += 1;
+		} catch (error) {
+			writeError = error;
+			this.recordWriteFailure(this.stats, 'create_async', error);
+		}
+		this.mirrorWrite(this.stats, this.shadow, 'create_async', () => {
+			messageRepository.create(message);
+		});
+		if (writeError) {
+			throw writeError;
+		}
+		return created;
+	}
+
 	getByChannel(channelId: string, options: PaginationOptions = {}): DbMessage[] {
 		bumpOperation(this.stats, 'getByChannel');
 		const limit = Math.max(1, Math.min(500, Math.floor(options.limit || 50)));
@@ -159,8 +186,10 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 			);
 			return sortMessagesByCreatedAt(this.parseMessages(rows));
 		} catch {
+			// ORDER BY failed — load a bounded set and paginate in-memory
+			const fallbackLimit = Math.min(limit * 2, 500);
 			const rows = this.client.sqlRows(
-				`SELECT row_json FROM state_message WHERE channel_id = ${channelLiteral} AND deleted = false LIMIT 50000`
+				`SELECT row_json FROM state_message WHERE channel_id = ${channelLiteral} AND deleted = false LIMIT ${fallbackLimit}`
 			);
 			return applyPagination(this.parseMessages(rows), options);
 		}
@@ -232,7 +261,7 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 	}
 
 	markEdited(messageId: string, newContent: string): void {
-		this.update(messageId, { content: newContent, is_edited: 1 });
+		this.update(messageId, { content: newContent, entities_json: undefined, is_edited: 1 });
 	}
 
 	purgeDeleted(olderThanMs: number = 7 * 24 * 60 * 60 * 1000): number {

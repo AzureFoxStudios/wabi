@@ -48,12 +48,12 @@ export function getUserRoleInfo(dbUserId?: number): RoleInfo {
     return { roles: ['member'], highestRole: 'member', roleColor: null };
   }
 
-  // Get role priorities from DB
-  const roleRows = db.prepare(
-    'SELECT role_name, priority, color FROM roles WHERE role_name IN (' + roles.map(() => '?').join(',') + ') ORDER BY priority DESC'
-  ).all(...roles) as { role_name: string; priority: number; color: string | null }[];
+  const roleRows = stateRbacStore
+    .getRoleDefinitions(DEFAULT_WORKSPACE_ID)
+    .filter((role) => roles.includes(role.roleName))
+    .sort((a, b) => b.priority - a.priority || a.roleName.localeCompare(b.roleName));
 
-  const highestRole = roleRows[0]?.role_name || 'member';
+  const highestRole = roleRows[0]?.roleName || 'member';
   const roleColor = roleRows.find(r => r.color)?.color || null;
 
   return { roles: roles.length > 0 ? roles : ['member'], highestRole, roleColor };
@@ -70,25 +70,12 @@ export function getUserRoles(userId: number, workspaceId: string = DEFAULT_WORKS
  * Get role definitions for a workspace
  */
 export function getRoleDefinitions(workspaceId: string = DEFAULT_WORKSPACE_ID): RoleDefinition[] {
-  const rows = db.prepare(`
-    SELECT role_name, COALESCE(display_name, role_name) as display_name, priority, color, is_hoisted
-    FROM roles
-    WHERE workspace_id = ?
-    ORDER BY priority DESC
-  `).all(workspaceId) as Array<{
-    role_name: string;
-    display_name: string;
-    priority: number;
-    color: string | null;
-    is_hoisted: number;
-  }>;
-
-  return rows.map(row => ({
-    roleName: row.role_name,
-    displayName: row.display_name,
+  return stateRbacStore.getRoleDefinitions(workspaceId).map((row) => ({
+    roleName: row.roleName,
+    displayName: row.displayName,
     priority: row.priority,
     color: row.color,
-    isHoisted: row.is_hoisted === 1
+    isHoisted: row.isHoisted
   }));
 }
 
@@ -96,13 +83,7 @@ export function getRoleDefinitions(workspaceId: string = DEFAULT_WORKSPACE_ID): 
  * Get priority of a role
  */
 export function getRolePriority(roleName: string, workspaceId: string = DEFAULT_WORKSPACE_ID): number {
-  const row = db.prepare(`
-    SELECT priority FROM roles
-    WHERE role_name = ? AND workspace_id = ?
-    LIMIT 1
-  `).get(roleName, workspaceId) as { priority?: number } | undefined;
-  
-  return row?.priority ?? 0;
+  return stateRbacStore.getRolePriority(roleName, workspaceId);
 }
 
 /**
@@ -175,31 +156,21 @@ export function setRoleDisplayName(
   displayName: string,
   workspaceId: string = DEFAULT_WORKSPACE_ID
 ): void {
-  const nextDisplay = (displayName || '').trim();
-  if (nextDisplay.length < 1 || nextDisplay.length > 40) {
-    throw new Error('Role display names must be 1-40 characters');
-  }
-  
-  db.prepare(`
-    UPDATE roles
-    SET display_name = ?
-    WHERE role_name = ? AND workspace_id = ?
-  `).run(nextDisplay, roleName, workspaceId);
+  stateRbacStore.setRoleDisplayName(roleName, displayName, workspaceId);
 }
 
 /**
  * Check if a role exists
  */
 export function roleExists(roleName: string, workspaceId: string = DEFAULT_WORKSPACE_ID): boolean {
-  const result = db.prepare('SELECT 1 FROM roles WHERE role_name = ? AND workspace_id = ? LIMIT 1')
-    .get(roleName, workspaceId);
-  return Boolean(result);
+  return stateRbacStore.roleExists(roleName, workspaceId);
 }
 
 /**
  * Get all roles in a workspace
  */
 export function getAllRoles(workspaceId: string = DEFAULT_WORKSPACE_ID): { role_name: string }[] {
-  return db.prepare('SELECT role_name FROM roles WHERE workspace_id = ? ORDER BY priority DESC')
-    .all(workspaceId) as { role_name: string }[];
+  return stateRbacStore.getRoleDefinitions(workspaceId).map((role) => ({
+    role_name: role.roleName
+  }));
 }

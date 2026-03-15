@@ -117,9 +117,10 @@ export class UserRepository {
 	}
 
 	// Get all users
-	getAll(): RegisteredUser[] {
-		const stmt = db.prepare('SELECT * FROM users WHERE is_active = 1');
-		return stmt.all() as RegisteredUser[];
+	getAll(limit = 10000): RegisteredUser[] {
+		const safeLimit = Math.max(1, Math.min(50000, Math.floor(limit)));
+		const stmt = db.prepare('SELECT * FROM users WHERE is_active = 1 LIMIT ?');
+		return stmt.all(safeLimit) as RegisteredUser[];
 	}
 }
 

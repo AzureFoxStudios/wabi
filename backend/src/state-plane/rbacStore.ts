@@ -53,6 +53,15 @@ export interface StateRbacStoreOptions {
 	readCanaryPercent?: number;
 }
 
+export interface RoleDefinitionRecord {
+	workspaceId: string;
+	roleName: string;
+	displayName: string;
+	priority: number;
+	color: string | null;
+	isHoisted: boolean;
+}
+
 function normalizeSampleRate(input: number | undefined): number {
 	if (!Number.isFinite(input)) return 0.1;
 	return Math.max(0, Math.min(1, input as number));
@@ -145,6 +154,30 @@ export class StateRbacStore {
 		return rows.map((row) => row.role_name);
 	}
 
+	private queryRoleDefinitions(workspaceId: string): RoleDefinitionRecord[] {
+		const stmt = db.prepare(`
+			SELECT role_name, COALESCE(display_name, role_name) AS display_name, priority, color, is_hoisted
+			FROM roles
+			WHERE workspace_id = ?
+			ORDER BY priority DESC, role_name ASC
+		`);
+		const rows = stmt.all(workspaceId) as Array<{
+			role_name: string;
+			display_name: string;
+			priority: number;
+			color: string | null;
+			is_hoisted: number;
+		}> || [];
+		return rows.map((row) => ({
+			workspaceId,
+			roleName: row.role_name,
+			displayName: row.display_name,
+			priority: Number(row.priority || 0),
+			color: row.color || null,
+			isHoisted: row.is_hoisted === 1
+		}));
+	}
+
 	getResourceMinRole(resourceId: string): string {
 		const stmt = db.prepare(`
 			SELECT min_role FROM resource_visibility
@@ -152,6 +185,73 @@ export class StateRbacStore {
 		`);
 		const result = stmt.get(resourceId) as { min_role: string } | undefined;
 		return result?.min_role || 'viewer';
+	}
+
+	getRoleDefinitions(workspaceId: string): RoleDefinitionRecord[] {
+		this.recordReadAttempt();
+		return this.queryRoleDefinitions(workspaceId);
+	}
+
+	getRolePriority(roleName: string, workspaceId: string): number {
+		const role = this.getRoleDefinitions(workspaceId).find((entry) => entry.roleName === roleName);
+		return role?.priority ?? 0;
+	}
+
+	roleExists(roleName: string, workspaceId: string): boolean {
+		return this.getRoleDefinitions(workspaceId).some((entry) => entry.roleName === roleName);
+	}
+
+	countRoleAssignments(roleName: string, workspaceId: string): number {
+		this.recordReadAttempt();
+		const row = db.prepare(`
+			SELECT COUNT(*) AS count
+			FROM user_roles
+			WHERE role_name = ? AND workspace_id = ?
+		`).get(roleName, workspaceId) as { count?: number } | undefined;
+		return Number(row?.count || 0);
+	}
+
+	setRoleDisplayName(roleName: string, displayName: string, workspaceId: string): void {
+		const nextDisplay = (displayName || '').trim();
+		if (nextDisplay.length < 1 || nextDisplay.length > 40) {
+			throw new Error('Role display names must be 1-40 characters');
+		}
+		const current = this.queryRoleDefinitions(workspaceId).find((entry) => entry.roleName === roleName);
+		if (!current) {
+			throw new Error(`Unknown role: ${roleName}`);
+		}
+
+		try {
+			db.prepare(`
+				UPDATE roles
+				SET display_name = ?
+				WHERE role_name = ? AND workspace_id = ?
+			`).run(nextDisplay, roleName, workspaceId);
+			this.trackPrimarySuccess('set_role_display_name');
+		} catch (error) {
+			this.trackPrimaryFailure('set_role_display_name', error);
+			throw error;
+		}
+
+		if (this.dualWriteEnabled) {
+			this.appendOutbox('upsert_role_definition', {
+				workspaceId,
+				roleName,
+				displayName: nextDisplay,
+				priority: current.priority,
+				color: current.color,
+				isHoisted: current.isHoisted,
+				roleKey: `${workspaceId}:${roleName}`,
+				row: {
+					role_name: roleName,
+					workspace_id: workspaceId,
+					display_name: nextDisplay,
+					priority: current.priority,
+					color: current.color,
+					is_hoisted: current.isHoisted ? 1 : 0
+				}
+			});
+		}
 	}
 
 	workspaceHasOwner(workspaceId: string): boolean {

@@ -1,4 +1,6 @@
 import { appPolicyRepository } from '../db/repositories/appPolicyRepository.js';
+import { stdbPaymentIngest, stdbPaymentRows, stdbPaymentsEnabled, parseStdbRowJson } from './stdbRuntime.js';
+import { escapeSqlLiteral } from '../state-plane/stdbSyncClient.js';
 
 export interface PaymentDonationConfig {
 	enabled: boolean;
@@ -24,6 +26,23 @@ export const DEFAULT_PAYMENT_DONATION_CONFIG: PaymentDonationConfig = {
 	headline: 'Support This Server',
 	description: 'Contribute to server hosting and maintenance.'
 };
+
+function getStdbPaymentDonationConfig(): PaymentDonationConfig | null {
+	const rows = stdbPaymentRows(
+		'payment_policy.payments_donations.read',
+		`SELECT row_json FROM state_payment_policy WHERE policy_key = ${escapeSqlLiteral(PAYMENT_DONATION_STORAGE_KEY)} LIMIT 1`
+	);
+	if (!rows || rows.length === 0) return null;
+	return sanitizePaymentDonationConfig(parseStdbRowJson<PaymentDonationConfig>(rows[0]));
+}
+
+function saveStdbPaymentDonationConfig(config: PaymentDonationConfig): void {
+	stdbPaymentIngest('payment_policy.payments_donations.write', 'upsert_policy', {
+		policyKey: PAYMENT_DONATION_STORAGE_KEY,
+		updatedAt: Date.now(),
+		row: config
+	});
+}
 
 function normalizeOptionalString(value: unknown, maxLen: number): string | null {
 	if (typeof value !== 'string') return null;
@@ -89,12 +108,20 @@ export function sanitizePaymentDonationConfig(raw: unknown): PaymentDonationConf
 }
 
 export function getPaymentDonationConfig(): PaymentDonationConfig {
+	if (stdbPaymentsEnabled()) {
+		const shadow = getStdbPaymentDonationConfig();
+		if (shadow) return shadow;
+	}
 	const raw = appPolicyRepository.getRaw(PAYMENT_DONATION_STORAGE_KEY);
 	if (!raw) {
 		return { ...DEFAULT_PAYMENT_DONATION_CONFIG };
 	}
 	try {
-		return sanitizePaymentDonationConfig(JSON.parse(raw));
+		const config = sanitizePaymentDonationConfig(JSON.parse(raw));
+		if (stdbPaymentsEnabled()) {
+			saveStdbPaymentDonationConfig(config);
+		}
+		return config;
 	} catch {
 		return { ...DEFAULT_PAYMENT_DONATION_CONFIG };
 	}
@@ -102,6 +129,9 @@ export function getPaymentDonationConfig(): PaymentDonationConfig {
 
 export function savePaymentDonationConfig(raw: unknown): PaymentDonationConfig {
 	const sanitized = sanitizePaymentDonationConfig(raw);
+	if (stdbPaymentsEnabled()) {
+		saveStdbPaymentDonationConfig(sanitized);
+	}
 	appPolicyRepository.setRaw(PAYMENT_DONATION_STORAGE_KEY, JSON.stringify(sanitized));
 	return sanitized;
 }

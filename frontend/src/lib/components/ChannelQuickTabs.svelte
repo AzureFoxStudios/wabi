@@ -5,6 +5,7 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { mobileTabQueue, type AddonTabSpec, type MobileQueueTab } from '$lib/mobileTabQueue';
 	import { openDetachedPanel } from '$lib/detachedPanels';
+	import { getSelectedMapPlace, MAP_ADDON_ID } from '$lib/mapWorkspace';
 
 	type RenderTab = {
 		id: string;
@@ -281,14 +282,29 @@
 
 	async function detachTab(tab: RenderTab): Promise<void> {
 		if ($layoutStore.isMobile) return;
-		if (tab.type !== 'channel' || !tab.channelId) return;
+		if (tab.type === 'channel' && tab.channelId) {
+			const rawName = tab.label.replace(/^#\s*/, '').trim();
+			await openDetachedPanel({
+				kind: 'channel-chat',
+				channelId: tab.channelId,
+				channelName: rawName || undefined
+			});
+			return;
+		}
 
-		const rawName = tab.label.replace(/^#\s*/, '').trim();
-		await openDetachedPanel({
-			kind: 'channel-chat',
-			channelId: tab.channelId,
-			channelName: rawName || undefined
-		});
+		if (tab.type === 'addon' && tab.addonId === MAP_ADDON_ID) {
+			const selectedPlace = getSelectedMapPlace();
+			await openDetachedPanel({
+				kind: 'server-map',
+				placeId: selectedPlace?.id
+			});
+		}
+	}
+
+	function canDetachTab(tab: RenderTab | null): boolean {
+		if (!tab) return false;
+		if (tab.type === 'channel') return true;
+		return tab.type === 'addon' && tab.addonId === MAP_ADDON_ID;
 	}
 
 	function closeTabContextMenu(): void {
@@ -345,7 +361,7 @@
 
 	async function handleContextDetach(): Promise<void> {
 		if (!contextMenuTab) return;
-		if (contextMenuTab.type !== 'channel') return;
+		if (!canDetachTab(contextMenuTab)) return;
 		await detachTab(contextMenuTab);
 		closeTabContextMenu();
 	}
@@ -364,10 +380,6 @@
 
 	function canDragTab(tab: RenderTab): boolean {
 		return false;
-	}
-
-	function canDetachTab(tab: RenderTab): boolean {
-		return !$layoutStore.isMobile && tab.type === 'channel';
 	}
 
 	function activateRelative(direction: -1 | 1): void {
@@ -590,7 +602,7 @@
 			type="button"
 			class="tab-context-item"
 			role="menuitem"
-			disabled={contextMenuTab.type !== 'channel'}
+			disabled={!canDetachTab(contextMenuTab)}
 			on:click={() => {
 				void handleContextDetach();
 			}}

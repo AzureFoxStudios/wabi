@@ -44,24 +44,25 @@ ENV PLUGINS_DIR=/app/plugins
 ENV OPENMOJI_DIR=/app/openmoji/png
 
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/src/db/schema.sql /app/src/db/schema.postgres.sql ./src/db/
+COPY --from=build /app/src/db/schema.sql ./src/db/
 COPY --from=build /app/openmoji ./openmoji
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/scripts/state-plane-stdb-http.mjs ./scripts/state-plane-stdb-http.mjs
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 
-RUN mkdir -p /app/data /app/plugins /app/scripts
+RUN groupadd -r wabi && useradd -r -g wabi -d /app wabi \
+  && chmod +x /app/docker-entrypoint.sh \
+  && mkdir -p /app/data /app/plugins /app/scripts \
+  && chown -R wabi:wabi /app
+
+USER wabi
 
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "const http=require('http');const req=http.get('http://localhost:8080/health',res=>{process.exit(res.statusCode>=200&&res.statusCode<400?0:1)});req.on('error',()=>process.exit(1));"
 
-CMD ["node", "dist/server.js"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
-# SQLite target (default for normal mode).
 FROM runtime-base AS backend-sqlite
-
-# Postgres-only target strips SQLite native dependency.
-FROM runtime-base AS backend-postgres
-RUN rm -rf /app/node_modules/better-sqlite3

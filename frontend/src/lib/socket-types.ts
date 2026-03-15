@@ -18,6 +18,17 @@ export interface FileAttachment {
   };
 }
 
+export interface MessageEntity {
+  kind: 'place';
+  start: number;
+  end: number;
+  placeId: string;
+  layerId?: string;
+  poiId?: string;
+  label: string;
+  displayText?: string;
+}
+
 export interface Message {
   id: string;
   user: string;
@@ -54,6 +65,26 @@ export interface Message {
   replyTo?: string;
   isSpoiler?: boolean;
   reactions?: Record<string, string[]>;
+  entities?: MessageEntity[];
+  persistenceState?: 'failed' | 'retrying';
+  persistenceError?: string;
+  persistenceAttempts?: number;
+  localCard?: {
+    kind: 'directions';
+    placeId: string;
+    placeLabel: string;
+    poiId?: string;
+    poiLabel?: string;
+    layerId?: string;
+    layerLabel?: string;
+    building?: string;
+    floor?: string;
+    coordinates?: string;
+    originCoordinates?: string;
+    externalUrl?: string;
+    externalLabel?: string;
+    expiresAt?: number;
+  };
 }
 
 export interface Emoji {
@@ -89,6 +120,12 @@ export interface User {
   };
 }
 
+export interface VoiceChannelSettings {
+  bitrateMode?: 'auto' | 'low' | 'standard' | 'high';
+  userLimit?: number | null;
+  forceSolo?: boolean;
+}
+
 export interface Channel {
   id: string;
   name: string;
@@ -113,4 +150,5 @@ export interface Channel {
   isTemporary?: boolean;
   persistMessages?: boolean;
   pinnedBy?: string[];
+  voiceSettings?: VoiceChannelSettings;
 }

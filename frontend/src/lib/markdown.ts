@@ -1,8 +1,8 @@
 import { marked } from 'marked';
 import Prism from 'prismjs';
 import DOMPurify from 'dompurify';
-import { get } from 'svelte/store';
 import { emojis } from './emoji-store';
+import type { MessageEntity } from './socket-types';
 
 // Import Prism language support
 import 'prismjs/components/prism-javascript';
@@ -28,6 +28,34 @@ export const emotes = new Map<string, {
   uploadedBy: string;
   timestamp: number;
 }>();
+
+const MARKDOWN_RENDER_CACHE_LIMIT = 1500;
+const markdownRenderCache = new Map<string, string>();
+let emojiCacheVersion = 0;
+let emoteCacheVersion = 0;
+let emojiByName = new Map<string, { name: string; url: string }>();
+
+function clearMarkdownRenderCache(): void {
+	markdownRenderCache.clear();
+}
+
+function pruneMarkdownRenderCache(): void {
+	while (markdownRenderCache.size > MARKDOWN_RENDER_CACHE_LIMIT) {
+		const oldestKey = markdownRenderCache.keys().next().value;
+		if (!oldestKey) break;
+		markdownRenderCache.delete(oldestKey);
+	}
+}
+
+emojis.subscribe((list) => {
+	emojiCacheVersion += 1;
+	clearMarkdownRenderCache();
+	const next = new Map<string, { name: string; url: string }>();
+	for (const e of list) {
+		next.set(e.name, e);
+	}
+	emojiByName = next;
+});
 
 // Configure marked
 marked.setOptions({
@@ -77,9 +105,12 @@ const renderer = {
   },
   link(token: any) {
     const href = token?.href || '';
-    const title = token?.title ? ` title="${String(token.title).replace(/"/g, '&quot;')}"` : '';
+    const title = token?.title ? ` title="${escapeHtml(String(token.title))}"` : '';
     const text = token?.text || href;
-    return `<a href="${href}" target="_blank" rel="noopener noreferrer"${title}>${text}</a>`;
+    if (!isSafeUrl(href)) {
+      return escapeHtml(text);
+    }
+    return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer"${title}>${text}</a>`;
   }
 };
 
@@ -88,7 +119,89 @@ marked.use({ renderer });
 /**
  * Parse markdown and replace emotes
  */
-export function parseMessage(text: string): string {
+function escapeHtml(value: string): string {
+	return value
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#39;');
+}
+
+const SAFE_URL_PROTOCOLS = /^(https?:|mailto:|tel:|#|\/)/i;
+
+function isSafeUrl(url: string): boolean {
+	const trimmed = url.trim();
+	if (!trimmed) return false;
+	return SAFE_URL_PROTOCOLS.test(trimmed);
+}
+
+function injectMessageEntityPlaceholders(
+	text: string,
+	entities: MessageEntity[] = []
+): { preparedText: string; replacements: Array<{ token: string; html: string }> } {
+	if (!entities.length) {
+		return {
+			preparedText: text,
+			replacements: []
+		};
+	}
+
+	const sorted = [...entities]
+		.filter((entity) => entity.kind === 'place')
+		.sort((a, b) => a.start - b.start || a.end - b.end);
+
+	let cursor = 0;
+	let prepared = '';
+	const replacements: Array<{ token: string; html: string }> = [];
+
+	sorted.forEach((entity, index) => {
+		if (
+			entity.start < cursor ||
+			entity.start < 0 ||
+			entity.end <= entity.start ||
+			entity.end > text.length
+		) {
+			return;
+		}
+
+		const displayText = text.slice(entity.start, entity.end) || entity.displayText || `@${entity.placeId}`;
+		const token = `WABI_PLACE_ENTITY_${index}_${entity.placeId.toUpperCase()}`;
+		prepared += text.slice(cursor, entity.start);
+		prepared += token;
+		replacements.push({
+			token,
+			html:
+				`<span class="mention-token mention-token-place" ` +
+				`data-place-id="${escapeHtml(entity.placeId)}" ` +
+				`data-place-layer-id="${escapeHtml(entity.layerId || '')}" ` +
+				`data-place-poi-id="${escapeHtml(entity.poiId || '')}" ` +
+				`data-place-name="${escapeHtml(entity.label)}">` +
+				`${escapeHtml(displayText)}` +
+				`</span>`
+		});
+		cursor = entity.end;
+	});
+
+	prepared += text.slice(cursor);
+	return {
+		preparedText: prepared,
+		replacements
+	};
+}
+
+export function parseMessage(text: string, entities: MessageEntity[] = []): string {
+	const cacheKey = `${emojiCacheVersion}:${emoteCacheVersion}:${text}:${entities.length > 0 ? JSON.stringify(entities) : ''}`;
+	const cached = markdownRenderCache.get(cacheKey);
+	if (cached !== undefined) {
+		markdownRenderCache.delete(cacheKey);
+		markdownRenderCache.set(cacheKey, cached);
+		return cached;
+	}
+
+	const { preparedText, replacements } = injectMessageEntityPlaceholders(text, entities);
+	text = preparedText;
+
   // Preprocess spoiler tags ||text|| before markdown parsing
   // Replace with span that can be clicked to reveal
   text = text.replace(/\|\|(.+?)\|\|/g, '<span class="spoiler" data-spoiler="true">$1</span>');
@@ -122,17 +235,20 @@ export function parseMessage(text: string): string {
   // Replace emote codes with images (custom emotes uploaded by users)
   html = html.replace(/:([a-zA-Z0-9_+-]+):/g, (match, emoteName) => {
     const emote = emotes.get(emoteName);
-    if (emote) {
-      return `<img src="${emote.url}" alt=":${emoteName}:" class="emote ${emote.type === 'animated' ? 'emote-animated' : ''}" title=":${emoteName}:">`;
+    if (emote && isSafeUrl(emote.url)) {
+      return `<img src="${escapeHtml(emote.url)}" alt=":${escapeHtml(emoteName)}:" class="emote ${emote.type === 'animated' ? 'emote-animated' : ''}" title=":${escapeHtml(emoteName)}:">`;
     }
-    // If not an emote, check if it's an emoji
-    const emojiList = get(emojis);
-    const emoji = emojiList.find(e => e.name === emoteName);
-    if (emoji) {
-      return `<img src="${emoji.url}" alt=":${emoji.name}:" class="emoji-inline" title=":${emoji.name}:">`;
+    // If not an emote, check if it's an emoji (O(1) Map lookup)
+    const emoji = emojiByName.get(emoteName);
+    if (emoji && isSafeUrl(emoji.url)) {
+      return `<img src="${escapeHtml(emoji.url)}" alt=":${escapeHtml(emoji.name)}:" class="emoji-inline" title=":${escapeHtml(emoji.name)}:">`;
     }
     return match; // Return original if neither emote nor emoji found
   });
+
+	for (const replacement of replacements) {
+		html = html.split(replacement.token).join(replacement.html);
+	}
 
   // Sanitize HTML to prevent XSS
   const clean = DOMPurify.sanitize(html, {
@@ -141,11 +257,13 @@ export function parseMessage(text: string): string {
       'a', 'img', 'blockquote', 'ul', 'ol', 'li', 'h1', 'h2', 'h3',
       'h4', 'h5', 'h6', 'hr', 'span'
     ],
-    ALLOWED_ATTR: ['href', 'src', 'alt', 'class', 'title', 'target', 'rel', 'data-spoiler'],
+    ALLOWED_ATTR: ['href', 'src', 'alt', 'class', 'title', 'target', 'rel', 'data-spoiler', 'data-place-id', 'data-place-layer-id', 'data-place-poi-id', 'data-place-name'],
     FORBID_TAGS: ['style', 'script'],
     FORBID_ATTR: ['style', 'onerror', 'onload'],
   });
 
+  markdownRenderCache.set(cacheKey, clean);
+  pruneMarkdownRenderCache();
   return clean;
 }
 
@@ -160,6 +278,8 @@ export function addEmote(emote: {
   timestamp: number;
 }) {
   emotes.set(emote.name, emote);
+	emoteCacheVersion += 1;
+	clearMarkdownRenderCache();
 }
 
 /**
@@ -167,6 +287,8 @@ export function addEmote(emote: {
  */
 export function removeEmote(emoteName: string) {
   emotes.delete(emoteName);
+	emoteCacheVersion += 1;
+	clearMarkdownRenderCache();
 }
 
 /**
@@ -184,4 +306,6 @@ export function initEmotes(serverEmotes: any[]) {
   serverEmotes.forEach(emote => {
     emotes.set(emote.name, emote);
   });
+	emoteCacheVersion += 1;
+	clearMarkdownRenderCache();
 }

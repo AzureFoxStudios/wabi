@@ -47,6 +47,11 @@ export class SessionRepository {
 		return (stmt.get(userId) as Session) || null;
 	}
 
+	findAllByUserId(userId: number): Session[] {
+		const stmt = db.prepare('SELECT * FROM sessions WHERE user_id = ? ORDER BY created_at DESC');
+		return stmt.all(userId) as Session[];
+	}
+
 	// Update session
 	update(sessionId: string, updates: Partial<Session>): void {
 		const allowedFields = ['user_id', 'socket_id', 'last_seen', 'username', 'color', 'profile_picture'];
@@ -67,6 +72,12 @@ export class SessionRepository {
 		stmt.run(sessionId);
 	}
 
+	deleteRegisteredByUserId(userId: number): number {
+		const stmt = db.prepare('DELETE FROM sessions WHERE user_id = ? AND is_temporary = 0');
+		const info = stmt.run(userId);
+		return info.changes;
+	}
+
 	// Clean up expired sessions
 	cleanup(): number {
 		const stmt = db.prepare('DELETE FROM sessions WHERE expires_at IS NOT NULL AND expires_at < ?');
@@ -75,9 +86,10 @@ export class SessionRepository {
 	}
 
 	// Get all active sessions
-	getAll(): Session[] {
-		const stmt = db.prepare('SELECT * FROM sessions');
-		return stmt.all() as Session[];
+	getAll(limit = 10000): Session[] {
+		const safeLimit = Math.max(1, Math.min(50000, Math.floor(limit)));
+		const stmt = db.prepare('SELECT * FROM sessions LIMIT ?');
+		return stmt.all(safeLimit) as Session[];
 	}
 }
 

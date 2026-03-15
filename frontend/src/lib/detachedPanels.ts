@@ -1,12 +1,13 @@
 import { browser } from '$app/environment';
 import { isDesktopTauri } from '$lib/tauri-platform';
 
-export type DetachedPanelKind = 'channel-chat';
+export type DetachedPanelKind = 'channel-chat' | 'server-map';
 
 export interface DetachedPanelState {
 	kind: DetachedPanelKind;
 	channelId?: string;
 	channelName?: string;
+	placeId?: string;
 }
 
 function makeDetachedUrl(state: DetachedPanelState): string {
@@ -21,12 +22,19 @@ function makeDetachedUrl(state: DetachedPanelState): string {
 		url.searchParams.set('channelName', state.channelName);
 	}
 
+	if (state.placeId) {
+		url.searchParams.set('placeId', state.placeId);
+	}
+
 	return url.toString();
 }
 
 function makeDetachedTitle(state: DetachedPanelState): string {
 	if (state.kind === 'channel-chat') {
 		return state.channelName ? `Wabi - #${state.channelName}` : 'Wabi - Detached Channel';
+	}
+	if (state.kind === 'server-map') {
+		return 'Wabi - Map';
 	}
 	return 'Wabi - Detached Panel';
 }
@@ -69,11 +77,12 @@ export async function openDetachedPanel(state: DetachedPanelState): Promise<void
 
 export function readDetachedPanelState(url: URL): DetachedPanelState | null {
 	const kind = url.searchParams.get('kind');
-	if (kind !== 'channel-chat') return null;
+	if (kind !== 'channel-chat' && kind !== 'server-map') return null;
 
 	return {
 		kind,
 		channelId: url.searchParams.get('channelId') || undefined,
-		channelName: url.searchParams.get('channelName') || undefined
+		channelName: url.searchParams.get('channelName') || undefined,
+		placeId: url.searchParams.get('placeId') || undefined
 	};
 }

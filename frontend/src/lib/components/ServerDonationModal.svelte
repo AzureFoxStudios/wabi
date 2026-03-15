@@ -1,14 +1,19 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import BaseModal from './BaseModal.svelte';
 	import {
 		getPaymentDonationSummary,
+		listPaymentProviders,
 		type PaymentDonationConfig,
 		type PaymentDonationLedgerEntry,
 		type OfflineDonationLedgerEntry,
-		type PaymentDonationTotal
+		type PaymentDonationTotal,
+		type PaymentProviderCapability
 	} from '$lib/api';
+	import { formatMinorAmount, minorToMajorInput } from '$lib/paymentAmounts';
+	import { subscribePaymentRealtimeEvent } from '$lib/paymentRealtime';
 
-	export interface DonationPrefillPayload {
+	interface DonationPrefillPayload {
 		amountInput: string;
 		providerPluginId: string;
 		methodId: string;
@@ -31,34 +36,37 @@
 	let offlineTotals: PaymentDonationTotal[] = [];
 	let recentDonations: PaymentDonationLedgerEntry[] = [];
 	let recentOfflineDonations: OfflineDonationLedgerEntry[] = [];
+	let providerCatalog: PaymentProviderCapability[] = [];
+	let providerCatalogLoaded = false;
 	let amountInput = '10.00';
 	$: donationRouteReady = Boolean(config?.enabled && config?.providerPluginId && config?.methodId);
+	$: donationRouteProvider =
+		providerCatalog.find((provider) => provider.pluginId === config?.providerPluginId) || null;
+	$: donationRouteMethod =
+		donationRouteProvider?.methods.find((method) => method.id === config?.methodId) || null;
 
 	$: if (isOpen && !loaded) {
 		void loadDonationSummary();
 	}
 
+	$: if (isOpen && !providerCatalogLoaded) {
+		void loadProviderCatalog();
+	}
+
 	$: if (!isOpen) {
 		loaded = false;
 		error = '';
+		providerCatalogLoaded = false;
 	}
 
-	function formatMinorAmount(amountMinor: number, currency: string): string {
-		const value = amountMinor / 100;
-		try {
-			return new Intl.NumberFormat(undefined, {
-				style: 'currency',
-				currency: currency || 'USD',
-				maximumFractionDigits: 2
-			}).format(value);
-		} catch {
-			return `${value.toFixed(2)} ${currency || ''}`.trim();
-		}
-	}
+	const unsubscribeDonationRealtime = subscribePaymentRealtimeEvent('payments:donations-updated', () => {
+		if (!isOpen) return;
+		void loadDonationSummary();
+	});
 
-	function minorToMajorInput(amountMinor: number): string {
-		return (amountMinor / 100).toFixed(2);
-	}
+	onDestroy(() => {
+		unsubscribeDonationRealtime();
+	});
 
 	function formatRelativeTime(timestamp: number | null): string {
 		if (!timestamp || !Number.isFinite(timestamp)) return 'just now';
@@ -89,7 +97,7 @@
 			loaded = true;
 			const firstSuggested = response.config.suggestedAmountsMinor[0];
 			if (typeof firstSuggested === 'number' && Number.isFinite(firstSuggested) && firstSuggested > 0) {
-				amountInput = minorToMajorInput(firstSuggested);
+				amountInput = minorToMajorInput(firstSuggested, response.config.currency);
 			}
 		} catch (loadError) {
 			error = loadError instanceof Error ? loadError.message : 'Failed to load server donations';
@@ -98,8 +106,18 @@
 		}
 	}
 
+	async function loadProviderCatalog(): Promise<void> {
+		try {
+			providerCatalog = await listPaymentProviders();
+			providerCatalogLoaded = true;
+		} catch {
+			providerCatalog = [];
+			providerCatalogLoaded = true;
+		}
+	}
+
 	function chooseSuggestedAmount(amountMinor: number): void {
-		amountInput = minorToMajorInput(amountMinor);
+		amountInput = minorToMajorInput(amountMinor, config?.currency || 'USD');
 	}
 
 	function handleDonate(): void {
@@ -241,9 +259,9 @@
 
 				<p class="hint">
 					This opens the normal payment flow using the server's configured donation route:
-					<code>{config.providerPluginId || 'unset'}</code>
+					<code>{donationRouteProvider?.providerName || config.providerPluginId || 'unset'}</code>
 					/
-					<code>{config.methodId || 'unset'}</code>
+					<code>{donationRouteMethod?.label || config.methodId || 'unset'}</code>
 				</p>
 
 				<div class="actions">

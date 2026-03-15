@@ -1,5 +1,6 @@
 import { getServerUrl } from './serverUrl';
 import { getAuthToken } from './authSession';
+import { getPreferredSfuRelayId } from './relaySelector';
 
 export type MediaGatewaySessionKind = 'voice' | 'screen' | 'recording';
 
@@ -23,6 +24,9 @@ export interface LivekitAccessTokenResponse {
 	url: string;
 	roomName: string;
 	identity: string;
+	relayId?: number | null;
+	relayName?: string | null;
+	source?: 'origin' | 'relay';
 }
 
 function getAuthHeaders(): HeadersInit {
@@ -104,7 +108,13 @@ export async function getMediaGatewaySession(sessionId: string): Promise<MediaGa
 }
 
 export async function createLivekitAccessToken(channelId: string, displayName?: string): Promise<LivekitAccessTokenResponse> {
-	const response = await fetch(`${getServerUrl()}/api/media/livekit/token`, {
+	const livekitTokenUrl = new URL(`${getServerUrl()}/api/media/livekit/token`);
+	const sfuRelayId = getPreferredSfuRelayId();
+	if (typeof sfuRelayId === 'number' && sfuRelayId > 0) {
+		livekitTokenUrl.searchParams.set('relayId', String(sfuRelayId));
+	}
+
+	const response = await fetch(livekitTokenUrl.toString(), {
 		method: 'POST',
 		headers: getAuthHeaders(),
 		credentials: 'include',

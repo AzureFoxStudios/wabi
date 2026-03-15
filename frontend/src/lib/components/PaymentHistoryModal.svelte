@@ -1,7 +1,16 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import BaseModal from './BaseModal.svelte';
 	import { getAuthToken } from '$lib/authSession';
 	import { listPaymentHistory, type PaymentIntent } from '$lib/api';
+	import { formatMinorAmount } from '$lib/paymentAmounts';
+import { subscribePaymentRealtimeEvent } from '$lib/paymentRealtime';
+import {
+	getPaymentIntentStatusHelp,
+	getPaymentIntentStatusLabel,
+	getPaymentVerificationLabel,
+	getPaymentVerificationMode
+} from '$lib/paymentRequestPresentation';
 
 	export let isOpen = false;
 	export let onClose: () => void = () => {};
@@ -22,17 +31,17 @@
 		error = '';
 	}
 
+	const unsubscribePaymentHistoryRealtime = subscribePaymentRealtimeEvent('payments:intent-updated', () => {
+		if (!isOpen) return;
+		void loadHistory();
+	});
+
+	onDestroy(() => {
+		unsubscribePaymentHistoryRealtime();
+	});
+
 	function formatAmount(intent: PaymentIntent): string {
-		const value = intent.amountMinor / 100;
-		try {
-			return new Intl.NumberFormat(undefined, {
-				style: 'currency',
-				currency: intent.currency || 'USD',
-				maximumFractionDigits: 2
-			}).format(value);
-		} catch {
-			return `${value.toFixed(2)} ${intent.currency || ''}`.trim();
-		}
+		return formatMinorAmount(intent.amountMinor, intent.currency);
 	}
 
 	function formatDate(timestamp: number | null): string {
@@ -90,20 +99,21 @@
 
 	function exportCsv(): void {
 		const headers = [
-			'intentId',
-			'status',
-			'amountMinor',
-			'currency',
-			'providerName',
-			'pluginId',
-			'countryCode',
-			'channelId',
-			'description',
-			'customerRef',
-			'createdAt',
-			'completedAt',
-			'refundedAt',
-			'failureMessage'
+		'intentId',
+		'status',
+		'amountMinor',
+		'currency',
+		'providerName',
+		'pluginId',
+		'verificationMode',
+		'countryCode',
+		'channelId',
+		'description',
+		'paymentReference',
+		'createdAt',
+		'completedAt',
+		'refundedAt',
+		'failureMessage'
 		];
 		const rows = intents.map((intent) =>
 			[
@@ -113,6 +123,7 @@
 				intent.currency,
 				intent.providerName,
 				intent.pluginId,
+				getPaymentVerificationMode(intent),
 				intent.countryCode || '',
 				intent.channelId || '',
 				intent.description || '',
@@ -135,7 +146,7 @@
 
 <BaseModal isOpen={isOpen} onClose={onClose} width="820px" {overlayZIndex}>
 	<div slot="header" class="sheet-header">
-		<h2>My Payments</h2>
+		<h2>My Payment Requests</h2>
 		<p>History of payment requests you created from this account, with export for record-keeping.</p>
 	</div>
 
@@ -179,8 +190,11 @@
 									{intent.providerName} · {intent.pluginId} · {formatDate(intent.createdAt)}
 								</p>
 							</div>
-							<span class="status-pill status-{intent.status}">{intent.status}</span>
+							<span class="status-pill status-{intent.status}">{getPaymentIntentStatusLabel(intent)}</span>
 						</div>
+						{#if getPaymentIntentStatusHelp(intent)}
+							<p class="hint">{getPaymentIntentStatusHelp(intent)}</p>
+						{/if}
 
 						<div class="history-grid">
 							<div>
@@ -196,8 +210,12 @@
 								<span>{intent.countryCode || 'n/a'}</span>
 							</div>
 							<div>
-								<span class="label">Customer Ref</span>
+								<span class="label">Payment Reference</span>
 								<span>{intent.customerRef || 'n/a'}</span>
+							</div>
+							<div>
+								<span class="label">Verification</span>
+								<span>{getPaymentVerificationLabel(intent)}</span>
 							</div>
 						</div>
 

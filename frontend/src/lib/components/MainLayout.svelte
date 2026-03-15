@@ -5,7 +5,11 @@
 	import { get } from 'svelte/store';
 	import Chat from '$lib/components/Chat.svelte';
 	import ModelViewportTab from '$lib/components/ModelViewportTab.svelte';
+	import MapWorkspace from '$lib/components/MapWorkspace.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
+	import ServerRail from '$lib/components/ServerRail.svelte';
+	import ServerSwitcherPanel from '$lib/components/ServerSwitcherPanel.svelte';
+	import FollowingFeed from '$lib/components/FollowingFeed.svelte';
 	import RightPanel from '$lib/components/RightPanel.svelte';
 	import CallModal from '$lib/components/CallModal.svelte';
 	import Settings from '$lib/components/Settings.svelte';
@@ -17,10 +21,14 @@
 	import { _ } from '$lib/i18n';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { playNotificationSound } from '$lib/notifications';
+	import { MAP_ADDON_ID } from '$lib/mapWorkspace';
 
-	export let activeView: 'chat' | 'screen' = 'chat';
+	export let activeView: 'chat' | 'screen' | 'following' = 'chat';
+	export let accountSecurityOpenRequest = 0;
 	let showSettings = false;
 	let requestedSettingsPaymentSurface: 'connections' | null = null;
+	let requestedSettingsPasswordChangeRequest = 0;
+	let lastHandledAccountSecurityOpenRequest = 0;
 
 	$: mobileRightVisible = $layoutStore.isMobile && $layoutStore.rightPanelView !== 'none';
 	$: showDesktopNotificationRail = !$layoutStore.isMobile && !$layoutStore.showRightPanel;
@@ -38,6 +46,7 @@
 	let resizingChannel = false;
 	let resizingRight = false;
 	let showVoiceDebugDetails = false;
+	let showServerSwitcher = false;
 	let mobileNavVisible = false;
 	let mobileNavIdleTimer: ReturnType<typeof setTimeout> | null = null;
 	let navTouchStartY = 0;
@@ -61,7 +70,9 @@
 	const { activeTabId } = mobileTabQueue;
 	const MODEL_VIEWPORT_TAB_ID = 'model-viewport';
 	const MODEL_VIEWPORT_TAB_TOKEN = mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_TAB_ID);
+	const MAP_TAB_TOKEN = mobileTabQueue.toAddonTabId(MAP_ADDON_ID);
 	$: isModelViewportTabActive = $activeTabId === MODEL_VIEWPORT_TAB_TOKEN;
+	$: isMapTabActive = $activeTabId === MAP_TAB_TOKEN;
 	const MOBILE_EDGE_SWIPE_MIN_X_PX = 56;
 	const MOBILE_EDGE_SWIPE_MAX_Y_PX = 72;
 	const MOBILE_EDGE_SWIPE_MAX_MS = 700;
@@ -69,11 +80,17 @@
 	const MOBILE_NAV_SWIPE_MIN_Y_PX = 46;
 	const MOBILE_NAV_IDLE_HIDE_MS = 2200;
 	const MOBILE_NAV_PULL_DOWN_HIDE_PX = 26;
+	const SERVER_RAIL_WIDTH = 76;
 
 	layoutStore.isResizingChannel.subscribe(v => resizingChannel = v);
 	layoutStore.isResizingRight.subscribe(v => resizingRight = v);
 	$: if (!showSettings) {
 		requestedSettingsPaymentSurface = null;
+	}
+	$: if (accountSecurityOpenRequest > lastHandledAccountSecurityOpenRequest) {
+		lastHandledAccountSecurityOpenRequest = accountSecurityOpenRequest;
+		requestedSettingsPasswordChangeRequest = accountSecurityOpenRequest;
+		openSettings();
 	}
 
 	function openSettings(paymentSurface: 'connections' | null = null): void {
@@ -81,11 +98,24 @@
 		showSettings = true;
 	}
 
+	function openServerSwitcher(): void {
+		showServerSwitcher = true;
+	}
+
+	function closeServerSwitcher(): void {
+		showServerSwitcher = false;
+	}
+
 	onMount(() => {
 		mobileTabQueue.registerAddonTab({
 			id: MODEL_VIEWPORT_TAB_ID,
 			label: '3D Viewport',
 			shortLabel: '3D View'
+		});
+		mobileTabQueue.registerAddonTab({
+			id: MAP_ADDON_ID,
+			label: 'Maps',
+			shortLabel: 'Map'
 		});
 
 		unsubscribeFriendPresence = users.subscribe((nextUsers) => {
@@ -127,6 +157,7 @@
 
 	onDestroy(() => {
 		mobileTabQueue.unregisterAddonTab(MODEL_VIEWPORT_TAB_ID);
+		mobileTabQueue.unregisterAddonTab(MAP_ADDON_ID);
 		if (mobileNavIdleTimer) {
 			clearTimeout(mobileNavIdleTimer);
 			mobileNavIdleTimer = null;
@@ -604,7 +635,10 @@
 			type="button"
 			class="nav-reopen-rail"
 			class:dock-right={$layoutStore.navDock === 'right'}
-			style:right={$layoutStore.navDock === 'right' && $layoutStore.showRightPanel ? `${$layoutStore.rightPanelWidth}px` : null}
+			style:left={$layoutStore.navDock !== 'right' ? `${SERVER_RAIL_WIDTH}px` : null}
+			style:right={$layoutStore.navDock === 'right'
+				? `${SERVER_RAIL_WIDTH + ($layoutStore.showRightPanel ? $layoutStore.rightPanelWidth : 0)}px`
+				: null}
 			on:click={layoutStore.expandNav}
 			on:mousedown|preventDefault={startChannelResizeFromClosed}
 			title="Open channel sidebar"
@@ -620,6 +654,12 @@
 		</button>
 	{/if}
 
+	{#if !$layoutStore.isMobile}
+		<div class="server-rail-container">
+			<ServerRail on:manage={openServerSwitcher} />
+		</div>
+	{/if}
+
 	<!-- Channel Sidebar (Left) -->
 	<div
 		class="channel-sidebar-container"
@@ -631,13 +671,31 @@
 		style:opacity={getPreviewOpacity()}
 		style:transition={swipePreviewActive ? 'none' : undefined}
 	>
-		<ChannelSidebar on:close={() => layoutStore.showMobileChannels.set(false)} bind:activeView on:logout on:openSettings={() => openSettings()} />
+		<ChannelSidebar
+			on:close={() => layoutStore.showMobileChannels.set(false)}
+			on:openServerSwitcher={openServerSwitcher}
+			bind:activeView
+			on:logout
+			on:openSettings={() => openSettings()}
+		/>
 		<!-- Channel resize handle -->
 		<div
 			class="resize-handle resize-handle-channel"
 			on:mousedown|preventDefault={() => layoutStore.isResizingChannel.set(true)}
 		></div>
 	</div>
+
+	{#if showServerSwitcher}
+		<div
+			class="server-switcher-overlay"
+			class:mobile={$layoutStore.isMobile}
+			class:dock-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
+			style:width={!$layoutStore.isMobile ? `${SERVER_RAIL_WIDTH + Math.max($layoutStore.channelSidebarWidth, 320)}px` : null}
+			style:right={!$layoutStore.isMobile && $layoutStore.navDock === 'right' && $layoutStore.showRightPanel ? `${$layoutStore.rightPanelWidth}px` : null}
+		>
+			<ServerSwitcherPanel mobile={$layoutStore.isMobile} on:close={closeServerSwitcher} />
+		</div>
+	{/if}
 
 	<!-- Mobile Right Panel Overlay -->
 	{#if mobileRightVisible || ($layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'users')}
@@ -658,6 +716,10 @@
 			<div class="chat-surface">
 				{#if isModelViewportTabActive}
 					<ModelViewportTab />
+				{:else if isMapTabActive}
+					<MapWorkspace variant="full" />
+				{:else if activeView === 'following'}
+					<FollowingFeed on:openChannel={() => (activeView = 'chat')} />
 				{:else}
 					<Chat
 						on:logout
@@ -690,7 +752,7 @@
 			class="user-panel-toggle"
 			class:has-unread={totalUnreadDMs > 0}
 			data-unread={totalUnreadDMs > 99 ? '99+' : totalUnreadDMs}
-			style:right={!$layoutStore.isMobile && $layoutStore.navDock === 'right' ? `${$layoutStore.channelSidebarWidth}px` : '0px'}
+			style:right={!$layoutStore.isMobile && $layoutStore.navDock === 'right' ? `${$layoutStore.channelSidebarWidth + SERVER_RAIL_WIDTH}px` : '0px'}
 			on:click={layoutStore.toggleRightPanel}
 			title={$_('shell.open_side_panel')}
 		>
@@ -702,7 +764,7 @@
 		{#if showDesktopNotificationRail && unreadDMChannels.length > 0}
 			<div
 				class="dm-notification-rail"
-				style:right={!$layoutStore.isMobile && $layoutStore.navDock === 'right' ? `${$layoutStore.channelSidebarWidth}px` : '0px'}
+				style:right={!$layoutStore.isMobile && $layoutStore.navDock === 'right' ? `${$layoutStore.channelSidebarWidth + SERVER_RAIL_WIDTH}px` : '0px'}
 				aria-label={$_('shell.unread_dms')}
 			>
 				{#each unreadDMChannels as channel, index (channel.id)}
@@ -794,7 +856,12 @@
 </div>
 
 {#if showSettings}
-	<Settings bind:isOpen={showSettings} requestedPaymentSurface={requestedSettingsPaymentSurface} on:logout />
+	<Settings
+		bind:isOpen={showSettings}
+		requestedPaymentSurface={requestedSettingsPaymentSurface}
+		requestedPasswordChangeRequest={requestedSettingsPasswordChangeRequest}
+		on:logout
+	/>
 {/if}
 
 <style>
@@ -845,11 +912,19 @@
 	}
 	.hidden { display: none !important; }
 
+	.server-rail-container {
+		flex-shrink: 0;
+		position: relative;
+	}
 
 	.channel-sidebar-container {
 		flex-shrink: 0;
 		position: relative;
 		border-right: 1px solid rgba(var(--border-rgb), var(--opacity-light));
+	}
+
+	.app-container.nav-right .server-rail-container {
+		order: 4;
 	}
 
 	.app-container.nav-right .channel-sidebar-container {
@@ -864,6 +939,16 @@
 
 	.app-container.nav-right .right-panel-container {
 		order: 2;
+	}
+
+	.server-rail-container :global(.server-rail) {
+		height: 100vh;
+		height: 100dvh;
+	}
+
+	.app-container.nav-right .server-rail-container :global(.server-rail) {
+		border-right: none;
+		border-left: 1px solid rgba(var(--border-rgb), var(--opacity-light));
 	}
 
 	/* Hide border when sidebar is collapsed */
@@ -931,6 +1016,26 @@
 	.app-container.nav-right .resize-handle-channel {
 		right: auto;
 		left: -3px;
+	}
+
+	.server-switcher-overlay {
+		position: absolute;
+		left: 0;
+		top: 0;
+		bottom: 0;
+		z-index: calc(var(--z-modal, 1200) - 2);
+	}
+
+	.server-switcher-overlay.dock-right {
+		left: auto;
+		right: 0;
+	}
+
+	.server-switcher-overlay.mobile {
+		position: fixed;
+		inset: 0;
+		width: 100% !important;
+		z-index: var(--z-modal, 1200);
 	}
 
 	/* Toggle button on right edge */
@@ -1121,6 +1226,7 @@
 		.user-panel-toggle, .resize-handle { display: none; }
 		.nav-reopen-rail { display: none; }
 		.dm-notification-rail { display: none; }
+		.server-rail-container { display: none; }
 
 		.channel-sidebar-container,
 		.right-panel-container {

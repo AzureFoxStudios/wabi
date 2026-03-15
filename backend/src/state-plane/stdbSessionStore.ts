@@ -2,6 +2,7 @@ import {
 	sessionRepository,
 	type Session
 } from '../db/repositories/sessionRepository.js';
+import db from '../db/database.js';
 import type { SessionStoreRuntimeStats } from './sessionStore.js';
 import { escapeSqlLiteral } from './stdbSyncClient.js';
 import {
@@ -10,7 +11,8 @@ import {
 	makeBaseStats,
 	nowMs,
 	parseJsonObject,
-	type StdbPrimaryStoreOptions
+	type StdbPrimaryStoreOptions,
+	toNumber
 } from './stdbCommon.js';
 
 export class StdbPrimarySessionStore extends StdbStoreBase {
@@ -37,7 +39,19 @@ export class StdbPrimarySessionStore extends StdbStoreBase {
 		return parsed;
 	}
 
+	private loadLegacySession(sessionId: string): Session | null {
+		return sessionRepository.findById(sessionId);
+	}
+
+	private loadLegacySessionsByUserId(userId: number): Session[] {
+		return sessionRepository.findAllByUserId(userId);
+	}
+
 	private loadSession(sessionId: string, includeDeleted = false): Session | null {
+		if (!includeDeleted) {
+			const mirrored = this.loadLegacySession(sessionId);
+			if (mirrored) return mirrored;
+		}
 		const deletedClause = includeDeleted ? '' : ' AND deleted = false';
 		const rows = this.client.sqlRows(
 			`SELECT row_json FROM state_session WHERE session_id = ${escapeSqlLiteral(sessionId)}${deletedClause} LIMIT 1`
@@ -65,6 +79,25 @@ export class StdbPrimarySessionStore extends StdbStoreBase {
 		});
 	}
 
+	async createAsync(session: Session): Promise<void> {
+		bumpOperation(this.stats, 'createAsync');
+		this.stats.writesAttempted += 1;
+		try {
+			await this.ingestAsync('session', 'create', {
+				sessionId: session.session_id,
+				userId: session.user_id,
+				isTemporary: session.is_temporary === 1,
+				row: session
+			});
+			this.stats.writesSucceeded += 1;
+		} catch (error) {
+			this.recordWriteFailure(this.stats, 'createAsync', error);
+		}
+		this.mirrorWrite(this.stats, this.shadow, 'createAsync', () => {
+			sessionRepository.create(session);
+		});
+	}
+
 	findById(sessionId: string): Session | null {
 		bumpOperation(this.stats, 'findById');
 		return this.loadSession(sessionId, false);
@@ -72,6 +105,13 @@ export class StdbPrimarySessionStore extends StdbStoreBase {
 
 	findByUserId(userId: number): Session | null {
 		bumpOperation(this.stats, 'findByUserId');
+		const mirrored = this
+			.loadLegacySessionsByUserId(userId)
+			.filter((session) => session.is_temporary !== 1)
+			.sort((a, b) => b.created_at - a.created_at);
+		if (mirrored.length > 0) {
+			return mirrored[0] || null;
+		}
 		const rows = this.client.sqlRows(
 			`SELECT row_json FROM state_session WHERE user_id = ${Math.floor(userId)} AND deleted = false LIMIT 5000`
 		);
@@ -119,16 +159,97 @@ export class StdbPrimarySessionStore extends StdbStoreBase {
 		});
 	}
 
+	deleteRegisteredByUserId(userId: number): number {
+		bumpOperation(this.stats, 'deleteRegisteredByUserId');
+		const currentSessions = this
+			.loadLegacySessionsByUserId(userId)
+			.filter((session) => session.is_temporary !== 1);
+		if (currentSessions.length === 0) {
+			const rows = this.client.sqlRows(
+				`SELECT row_json FROM state_session WHERE user_id = ${Math.floor(userId)} AND deleted = false LIMIT 5000`
+			);
+			currentSessions.push(
+				...this.parseSessions(rows).filter((session) => session.is_temporary !== 1)
+			);
+		}
+		if (currentSessions.length === 0) return 0;
+
+		let deleted = 0;
+		for (const current of currentSessions) {
+			this.stats.writesAttempted += 1;
+			try {
+				this.ingest('session', 'delete', {
+					sessionId: current.session_id,
+					row: current
+				});
+				this.stats.writesSucceeded += 1;
+				deleted += 1;
+			} catch (error) {
+				this.recordWriteFailure(this.stats, 'deleteRegisteredByUserId', error);
+			}
+		}
+
+		this.mirrorWrite(this.stats, this.shadow, 'deleteRegisteredByUserId', () => {
+			sessionRepository.deleteRegisteredByUserId(userId);
+		});
+		return deleted;
+	}
+
+	async deleteRegisteredByUserIdAsync(userId: number): Promise<number> {
+		bumpOperation(this.stats, 'deleteRegisteredByUserIdAsync');
+		const currentSessions = this
+			.loadLegacySessionsByUserId(userId)
+			.filter((session) => session.is_temporary !== 1);
+		if (currentSessions.length === 0) {
+			const rows = this.client.sqlRows(
+				`SELECT row_json FROM state_session WHERE user_id = ${Math.floor(userId)} AND deleted = false LIMIT 5000`
+			);
+			currentSessions.push(
+				...this.parseSessions(rows).filter((session) => session.is_temporary !== 1)
+			);
+		}
+		if (currentSessions.length === 0) return 0;
+
+		let deleted = 0;
+		for (const current of currentSessions) {
+			this.stats.writesAttempted += 1;
+			try {
+				await this.ingestAsync('session', 'delete', {
+					sessionId: current.session_id,
+					row: current
+				});
+				this.stats.writesSucceeded += 1;
+				deleted += 1;
+			} catch (error) {
+				this.recordWriteFailure(this.stats, 'deleteRegisteredByUserIdAsync', error);
+			}
+		}
+
+		this.mirrorWrite(this.stats, this.shadow, 'deleteRegisteredByUserIdAsync', () => {
+			sessionRepository.deleteRegisteredByUserId(userId);
+		});
+		return deleted;
+	}
+
 	cleanup(): number {
 		bumpOperation(this.stats, 'cleanup');
 		this.stats.writesAttempted += 1;
 		const now = nowMs();
-		const rows = this.client.sqlRows(
-			'SELECT row_json FROM state_session WHERE deleted = false LIMIT 50000'
-		);
-		const expired = this
-			.parseSessions(rows)
-			.filter((session) => session.expires_at != null && session.expires_at < now);
+		let expired: ReturnType<typeof this.parseSessions>;
+		try {
+			const rows = this.client.sqlRows(
+				`SELECT row_json FROM state_session WHERE deleted = false AND expires_at IS NOT NULL AND expires_at < ${Math.floor(now)} LIMIT 5000`
+			);
+			expired = this.parseSessions(rows);
+		} catch {
+			// Fallback if expires_at filter not supported by STDB schema
+			const rows = this.client.sqlRows(
+				'SELECT row_json FROM state_session WHERE deleted = false LIMIT 10000'
+			);
+			expired = this
+				.parseSessions(rows)
+				.filter((session) => session.expires_at != null && session.expires_at < now);
+		}
 		try {
 			this.ingest('session', 'cleanup', {
 				now,
@@ -146,12 +267,44 @@ export class StdbPrimarySessionStore extends StdbStoreBase {
 
 	getAll(): Session[] {
 		bumpOperation(this.stats, 'getAll');
+		const mirrored = sessionRepository.getAll();
+		if (mirrored.length > 0) {
+			return mirrored.sort((a, b) => a.session_id.localeCompare(b.session_id));
+		}
 		const rows = this.client.sqlRows('SELECT row_json FROM state_session WHERE deleted = false LIMIT 50000');
 		return this.parseSessions(rows).sort((a, b) => a.session_id.localeCompare(b.session_id));
 	}
 
-	warmFromPrimary(_limit: number): number {
-		return 0;
+	warmFromPrimary(limit: number): number {
+		const safeLimit = Math.max(0, Math.floor(limit));
+		if (safeLimit === 0) return 0;
+		const existingSessionIds = new Set(
+			this.client.sqlRows('SELECT session_id FROM state_session LIMIT 50000')
+				.map((row) => String(row.session_id || '').trim())
+				.filter((sessionId) => sessionId.length > 0)
+		);
+
+		const rows = db.prepare(`
+			SELECT * FROM sessions
+			ORDER BY created_at DESC
+			LIMIT ?
+		`).all(safeLimit) as Session[];
+
+		let seeded = 0;
+		for (const row of rows) {
+			if (existingSessionIds.has(row.session_id)) continue;
+			this.ingest('session', 'create', {
+				sessionId: row.session_id,
+				userId: row.user_id,
+				isTemporary: row.is_temporary === 1,
+				row
+			});
+			seeded += 1;
+		}
+
+		this.stats.operations.warmup = (this.stats.operations.warmup || 0) + 1;
+		this.stats.operations.warmup_rows = seeded;
+		return seeded;
 	}
 
 	getRuntimeStats(): SessionStoreRuntimeStats {

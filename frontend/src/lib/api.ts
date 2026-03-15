@@ -1,7 +1,14 @@
 import { getServerUrl } from './serverUrl';
 import { authStore } from './authStore';
+import type { Message } from './socket-types';
 
 const getApiBase = () => getServerUrl();
+const getApiBaseFor = (baseUrl?: string | null) => {
+	if (typeof baseUrl === 'string' && baseUrl.trim().length > 0) {
+		return baseUrl.trim().replace(/\/+$/, '');
+	}
+	return getApiBase();
+};
 
 /** Default timeout for all API requests (ms). */
 const API_TIMEOUT_MS = 15000;
@@ -41,6 +48,7 @@ async function fetchWithTimeout(url: string, options: RequestWithTimeout = {}): 
 
 export interface AuthResponse {
 	token: string;
+	mustChangePassword?: boolean;
 	user: {
 		id: number;
 		username: string;
@@ -62,6 +70,8 @@ export interface LaunchPageConfig {
 	headline: string;
 	subheadline: string;
 	logoUrl: string;
+	backgroundImageUrl: string | null;
+	customCss: string | null;
 	heroImageUrl: string | null;
 	heroTitle: string | null;
 	heroBody: string | null;
@@ -76,6 +86,15 @@ export interface LaunchPageConfig {
 		accent: string;
 		text: string;
 	};
+}
+
+export interface FrontendAppMetadataPolicy {
+	displayName: string | null;
+	iconUrl: string | null;
+	bannerUrl: string | null;
+	accentColor: string | null;
+	description: string | null;
+	launchPageFallbackEnabled: boolean;
 }
 
 export type PaymentIntentStatus =
@@ -258,6 +277,68 @@ export interface PaymentDonationAuditResponse {
 	success: boolean;
 	count: number;
 	donations: PaymentDonationLedgerEntry[];
+}
+
+export interface AdminRelayNodeMetadata {
+	kind?: 'booster-relay' | 'relay' | 'desktop-helper' | null;
+	source?: string | null;
+	status?: string | null;
+	reason?: string | null;
+	selfHosted?: boolean;
+	originManaged?: boolean;
+	ownerUserId?: number | null;
+	ownerUsername?: string | null;
+	helperMode?: 'off' | 'files-only' | 'desktop-assist' | null;
+	requestedMode?: 'off' | 'turn-only' | 'turn-sfu' | 'turn-sfu-gateway' | null;
+	effectiveMode?: 'off' | 'turn-only' | 'turn-sfu' | 'turn-sfu-gateway' | null;
+	components?: {
+		turnConfigured?: boolean;
+		sfuConfigured?: boolean;
+		gatewayConfigured?: boolean;
+	} | null;
+	capabilities?: {
+		fileRelay?: boolean;
+		turn?: boolean;
+		sfu?: boolean;
+		gateway?: boolean;
+		selfHosted?: boolean;
+		boosterMode?: 'off' | 'turn-only' | 'turn-sfu' | 'turn-sfu-gateway' | null;
+	} | null;
+	turn?: {
+		server: string;
+		port: number;
+		useTurns: boolean;
+		realm?: string | null;
+	} | null;
+	sfu?: {
+		provider: 'livekit';
+		url: string;
+	} | null;
+	updatedAt?: string | null;
+}
+
+export interface AdminRelayNode {
+	relay_id: number;
+	url: string;
+	name: string;
+	region: string;
+	status: string;
+	last_health_ping: number | null;
+	registered_at: number;
+	approved: number;
+	latitude: number | null;
+	longitude: number | null;
+	bandwidth_mbps: number | null;
+	storage_gb: number | null;
+	syncthing_device_id: string | null;
+	metadata?: AdminRelayNodeMetadata | null;
+}
+
+export interface DesktopHelperRegistrationPayload {
+	helperId: string;
+	name: string;
+	mode: 'files-only' | 'desktop-assist';
+	region?: string | null;
 }
 
 export type ManualCashSettlementStatus =
@@ -796,7 +877,20 @@ export async function deletePaymentAccountLink(
 }
 
 export async function getLaunchPageConfig(): Promise<LaunchPageConfig | null> {
-	const res = await fetchWithTimeout(`${getApiBase()}/api/public/launch-page`, {
+	return getLaunchPageConfigFrom();
+}
+
+export async function getLaunchPageConfigFrom(baseUrl?: string | null): Promise<LaunchPageConfig | null> {
+	const res = await fetchWithTimeout(`${getApiBaseFor(baseUrl)}/api/public/launch-page`, {
+		method: 'GET',
+		timeoutMs: LAUNCH_PAGE_TIMEOUT_MS
+	});
+	if (!res.ok) return null;
+	return res.json();
+}
+
+export async function getPublicFrontendAppMetadata(baseUrl?: string | null): Promise<FrontendAppMetadataPolicy | null> {
+	const res = await fetchWithTimeout(`${getApiBaseFor(baseUrl)}/api/public/frontend-app-metadata`, {
 		method: 'GET',
 		timeoutMs: LAUNCH_PAGE_TIMEOUT_MS
 	});
@@ -872,7 +966,8 @@ export async function changePassword(
 export async function adminResetUserPassword(
 	token: string | null | undefined,
 	targetUserId: number,
-	newPassword: string
+	newPassword: string,
+	temporary = false
 ): Promise<void> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/users/reset-password`, {
 		method: 'POST',
@@ -880,7 +975,7 @@ export async function adminResetUserPassword(
 			...(token ? { Authorization: `Bearer ${token}` } : {}),
 			'Content-Type': 'application/json'
 		},
-		body: JSON.stringify({ targetUserId, newPassword })
+		body: JSON.stringify({ targetUserId, newPassword, temporary })
 	});
 
 	if (!res.ok) {
@@ -905,6 +1000,113 @@ export async function adminClearUserLoginLockout(
 	if (!res.ok) {
 		const error = await res.json().catch(() => ({}));
 		throw new Error(error.error || 'Failed to clear login lockout');
+	}
+}
+
+export async function listAdminRelays(token: string | null | undefined): Promise<AdminRelayNode[]> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/relays/admin`, {
+		method: 'GET',
+		headers: token ? { Authorization: `Bearer ${token}` } : undefined
+	});
+
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to load relay roster');
+	}
+
+	const data = await res.json();
+	return Array.isArray(data.relays) ? data.relays : [];
+}
+
+export async function approveAdminRelay(token: string | null | undefined, relayId: number): Promise<void> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/relay/approve`, {
+		method: 'POST',
+		headers: {
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ relay_id: relayId })
+	});
+
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to approve relay');
+	}
+}
+
+export async function deleteAdminRelay(token: string | null | undefined, relayId: number): Promise<void> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/relay/${encodeURIComponent(String(relayId))}`, {
+		method: 'DELETE',
+		headers: token ? { Authorization: `Bearer ${token}` } : undefined
+	});
+
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to delete relay');
+	}
+}
+
+export async function registerDesktopHelper(
+	token: string | null | undefined,
+	payload: DesktopHelperRegistrationPayload
+): Promise<{ relayId: number; status: string }> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/desktop-helper/register`, {
+		method: 'POST',
+		headers: {
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(payload)
+	});
+
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to register desktop helper');
+	}
+
+	const data = await res.json();
+	return {
+		relayId: Number(data.relayId) || 0,
+		status: typeof data.status === 'string' ? data.status : 'active'
+	};
+}
+
+export async function heartbeatDesktopHelper(
+	token: string | null | undefined,
+	payload: DesktopHelperRegistrationPayload
+): Promise<void> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/desktop-helper/heartbeat`, {
+		method: 'POST',
+		headers: {
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(payload)
+	});
+
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to heartbeat desktop helper');
+	}
+}
+
+export async function offlineDesktopHelper(
+	token: string | null | undefined,
+	helperId: string,
+	reason?: string
+): Promise<void> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/desktop-helper/offline`, {
+		method: 'POST',
+		headers: {
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ helperId, reason })
+	});
+
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || 'Failed to mark desktop helper offline');
 	}
 }
 
@@ -956,10 +1158,65 @@ export async function getUserSettings(token: string | null | undefined): Promise
 	return res.json();
 }
 
+export interface FollowedChannelPollRequest {
+	channelId: string;
+	afterMessageId?: string | null;
+	limit?: number;
+}
+
+export interface FollowedChannelPollChannelResult {
+	channelId: string;
+	channelName: string;
+	channelType: string;
+	cursorReset: boolean;
+	messages: Message[];
+}
+
+export interface FollowedChannelPollResponse {
+	success: boolean;
+	serverTime: number;
+	channels: FollowedChannelPollChannelResult[];
+}
+
+export async function pollFollowedChannelActivity(
+	baseUrl: string,
+	token: string | null | undefined,
+	sessionId: string | null | undefined,
+	channels: FollowedChannelPollRequest[]
+): Promise<FollowedChannelPollResponse> {
+	const res = await fetchWithTimeout(`${getApiBaseFor(baseUrl)}/api/following/poll`, {
+		method: 'POST',
+		headers: {
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+			...(!token && sessionId ? { 'X-Session-Id': sessionId } : {}),
+			'Content-Type': 'application/json'
+		},
+		credentials: 'omit',
+		body: JSON.stringify({ channels }),
+		timeoutMs: 10000
+	});
+
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		const error = new Error(
+			typeof data.error === 'string' ? data.error : 'Failed to poll followed channel activity'
+		) as Error & { status?: number };
+		error.status = res.status;
+		throw error;
+	}
+
+	return {
+		success: Boolean(data.success),
+		serverTime: typeof data.serverTime === 'number' ? data.serverTime : Date.now(),
+		channels: Array.isArray(data.channels) ? (data.channels as FollowedChannelPollChannelResult[]) : []
+	};
+}
+
 export interface UserSettingsPayload {
 	offline_message_retention?: string;
 	allow_temp_user_messages?: boolean;
 	home_experience?: 'community' | 'conversations';
+	payment_preferred_route?: string | null;
 }
 
 export async function saveUserSettings(
@@ -995,7 +1252,33 @@ export interface DownloadLimitConfig {
 	globalDownloadCapBytes: number | null;
 }
 
-export type AdminPolicyKey = 'upload_limits' | 'download_limits' | 'runtime_tuning' | 'payments_access';
+export type AdminPolicyKey =
+	| 'upload_limits'
+	| 'download_limits'
+	| 'runtime_tuning'
+	| 'payments_access'
+	| 'community_node_announcements'
+	| 'community_node_access'
+	| 'frontend_app_metadata';
+
+export interface CommunityNodeAnnouncementsPolicy {
+	enabled: boolean;
+	channelId: string | null;
+	onlineTemplate: string;
+	offlineTemplate: string;
+}
+
+export type CommunityNodeAccessMode = 'open' | 'approval_required' | 'whitelist_only';
+
+export interface CommunityNodeAllowedUser {
+	userId: number;
+	username: string;
+}
+
+export interface CommunityNodeAccessPolicy {
+	mode: CommunityNodeAccessMode;
+	allowedUsers: CommunityNodeAllowedUser[];
+}
 
 export interface RuntimeTuningConfig {
 	applyOnRestart: true;
@@ -1177,6 +1460,44 @@ export async function saveAdminUploadLimits(token: string, config: UploadLimitCo
 export async function getAdminPaymentAccessPolicy(token: string): Promise<PaymentAccessPolicy> {
 	const data = await getAdminPolicy<PaymentAccessPolicy>(token, 'payments_access');
 	return data.config;
+}
+
+export async function getAdminCommunityNodeAnnouncementsPolicy(
+	token: string
+): Promise<CommunityNodeAnnouncementsPolicy> {
+	const data = await getAdminPolicy<CommunityNodeAnnouncementsPolicy>(token, 'community_node_announcements');
+	return data.config;
+}
+
+export async function saveAdminCommunityNodeAnnouncementsPolicy(
+	token: string,
+	config: CommunityNodeAnnouncementsPolicy
+): Promise<CommunityNodeAnnouncementsPolicy> {
+	return saveAdminPolicy<CommunityNodeAnnouncementsPolicy>(token, 'community_node_announcements', config);
+}
+
+export async function getAdminCommunityNodeAccessPolicy(token: string): Promise<CommunityNodeAccessPolicy> {
+	const data = await getAdminPolicy<CommunityNodeAccessPolicy>(token, 'community_node_access');
+	return data.config;
+}
+
+export async function saveAdminCommunityNodeAccessPolicy(
+	token: string,
+	config: CommunityNodeAccessPolicy
+): Promise<CommunityNodeAccessPolicy> {
+	return saveAdminPolicy<CommunityNodeAccessPolicy>(token, 'community_node_access', config);
+}
+
+export async function getAdminFrontendAppMetadataPolicy(token: string): Promise<FrontendAppMetadataPolicy> {
+	const data = await getAdminPolicy<FrontendAppMetadataPolicy>(token, 'frontend_app_metadata');
+	return data.config;
+}
+
+export async function saveAdminFrontendAppMetadataPolicy(
+	token: string,
+	config: FrontendAppMetadataPolicy
+): Promise<FrontendAppMetadataPolicy> {
+	return saveAdminPolicy<FrontendAppMetadataPolicy>(token, 'frontend_app_metadata', config);
 }
 
 export async function saveAdminPaymentAccessPolicy(token: string, config: PaymentAccessPolicy): Promise<PaymentAccessPolicy> {
@@ -1596,4 +1917,62 @@ export async function deleteMediaAlbumItem(token: string, albumId: number, itemI
 		const error = await res.json().catch(() => ({}));
 		throw new Error(error.error || 'Failed to delete media album item');
 	}
+}
+
+// --- First-run setup wizard ---
+
+export interface SetupStatus {
+	setupRequired: boolean;
+}
+
+export async function getSetupStatus(): Promise<SetupStatus> {
+	try {
+		const res = await fetchWithTimeout(`${getApiBase()}/api/setup/status`, {
+			timeoutMs: 3000
+		});
+		if (!res.ok) return { setupRequired: false };
+		return await res.json();
+	} catch {
+		return { setupRequired: false };
+	}
+}
+
+export async function saveNetworkHint(
+	token: string,
+	hint: {
+		networkMode?: string;
+		publicAddress?: string;
+		tunnelToken?: string;
+		stdbUrl?: string;
+		meshToken?: string;
+		serverRegion?: string;
+	}
+): Promise<void> {
+	await fetchWithTimeout(`${getApiBase()}/api/setup/network-hint`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify(hint)
+	});
+}
+
+export async function saveBranding(
+	token: string,
+	branding: {
+		brandName?: string;
+		accentColor?: string;
+		backgroundImageUrl?: string;
+		customCss?: string;
+	}
+): Promise<void> {
+	await fetchWithTimeout(`${getApiBase()}/api/setup/branding`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify(branding)
+	});
 }

@@ -106,8 +106,8 @@
   },
   "integrity": {
     "algorithm": "sha256",
-    "checksum": "66e327a29f4c51af9e79c8de02a4ed35a408a4889ab84f542d4d838b6fe98b2a",
-    "signature": "gxKg6frIpQM2OtSAJkL2pgxPTrZE9oXuMwfj78Rsh0SJ3eCwg6A6ilY0tMYtTVSVqWroWhC2VIT+vk31VhUFCw=="
+    "checksum": "b89dd79704319bb3394aaa4456181286ea3cb582e1a11fb2093ab0c414bc90bf",
+    "signature": "6peWOhNfMTftEZaBoAo+jidbZ09GOuvDWI0JVDTsRbuEGDWbethMCbXtQE9smdG3y0P0UmonZE8QhaTI+EBOAQ=="
   },
   "signer": {
     "keyId": "ed25519:0572c2b616cbab5a",

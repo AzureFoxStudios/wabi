@@ -313,6 +313,10 @@ export class StateUserStore {
 		}
 	}
 
+	async createAsync(user: Omit<RegisteredUser, 'user_id'>): Promise<RegisteredUser> {
+		return this.create(user);
+	}
+
 	findByUsername(username: string): RegisteredUser | null {
 		this.recordReadAttempt();
 		const primary = userRepository.findByUsername(username);

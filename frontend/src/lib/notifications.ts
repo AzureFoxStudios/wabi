@@ -533,6 +533,10 @@ export function showNotification(
 		isMention?: boolean;
 		isCurrentChannelActive?: boolean;
 		onClick?: () => void;
+		serverName?: string | null;
+		iconUrl?: string | null;
+		forceDesktop?: boolean;
+		tagPrefix?: string;
 	}
 ) {
 	if (!browser) return;
@@ -553,7 +557,8 @@ export function showNotification(
 
 	const isMention = options?.isMention ?? false;
 	const isCurrentChannelActive = options?.isCurrentChannelActive ?? false;
-	const shouldPlaySound = document.hidden || !isCurrentChannelActive || isMention;
+	const forceDesktop = options?.forceDesktop === true;
+	const shouldPlaySound = forceDesktop || document.hidden || !isCurrentChannelActive || isMention;
 
 	// Check if permission is granted
 	if (Notification.permission !== 'granted') {
@@ -566,14 +571,14 @@ export function showNotification(
 	}
 
 	// Only show desktop notification if window is not focused (user is in another tab/app)
-	if (!document.hidden) {
+	if (!document.hidden && !forceDesktop) {
 		console.log('Page is visible, skipping desktop notification');
 		return;
 	}
 
 	let title = '';
 	let body = '';
-	let icon = '/icon-192.png';
+	let icon = options?.iconUrl?.trim() || '/icon-192.png';
 	const showMessagePreview = localStorage.getItem('notificationPreviewEnabled') === 'true';
 	const rawText = typeof message.text === 'string' ? message.text.trim() : '';
 	const looksLikeCiphertext =
@@ -581,9 +586,24 @@ export function showNotification(
 		!/[\s]/.test(rawText) &&
 		/^[A-Za-z0-9+/=_-]+$/.test(rawText);
 	const shouldHidePreview = Boolean(message.encrypted || message.iv || looksLikeCiphertext);
+	const fallbackTitle = typeof (message as unknown as { title?: string }).title === 'string'
+		? String((message as unknown as { title?: string }).title).trim()
+		: '';
+	const fallbackBody = typeof (message as unknown as { body?: string }).body === 'string'
+		? String((message as unknown as { body?: string }).body).trim()
+		: '';
 
 	// Format title with channel name if provided
-	const userPrefix = channelName ? `${message.user} in #${channelName}` : message.user;
+	const locationParts: string[] = [];
+	if (channelName) locationParts.push(`#${channelName}`);
+	if (options?.serverName) locationParts.push(options.serverName);
+	const locationSuffix =
+		locationParts.length > 0
+			? ` in ${locationParts[0]}${locationParts.length > 1 ? ` · ${locationParts.slice(1).join(' · ')}` : ''}`
+			: options?.serverName
+				? ` · ${options.serverName}`
+				: '';
+	const userPrefix = `${message.user || 'Someone'}${locationSuffix}`;
 
 	switch (message.type) {
 		case 'text':
@@ -600,11 +620,18 @@ export function showNotification(
 			break;
 	}
 
+	if (!title) {
+		title = fallbackTitle || userPrefix || 'Wabi';
+	}
+	if (!body) {
+		body = fallbackBody || 'New activity';
+	}
+
 	const notification = new Notification(title, {
 		body,
 		icon,
 		badge: icon,
-		tag: `message-${message.id}`, // Prevents duplicate notifications
+		tag: `${options?.tagPrefix || 'message'}-${message.id || fallbackTitle || 'activity'}`, // Prevents duplicate notifications
 		requireInteraction: false,
 		silent: false
 	});

@@ -1,6 +1,10 @@
 ﻿import { IncomingMessage, ServerResponse } from 'http';
+import { getCommunityNodeAccessPolicy } from '../communityNodeAccess.js';
 import { relayRepository } from '../db/repositories/relayRepository.js';
 import { getAuthenticatedUserIdFromRequest } from '../auth/requestAuth.js';
+import { parseRelayMetadata } from '../relay/relayMetadata.js';
+import { announceCommunityNodeStatusChange } from '../communityNodeAnnouncements.js';
+import { stateUserStore as userRepository } from '../state-plane/index.js';
 
 interface RateBucket {
 	count: number;
@@ -80,6 +84,53 @@ async function authenticateRelay(req: IncomingMessage): Promise<number | null> {
 	return valid ? id : null;
 }
 
+function normalizeDesktopHelperMode(value: unknown): 'off' | 'files-only' | 'desktop-assist' | null {
+	return value === 'off' || value === 'files-only' || value === 'desktop-assist' ? value : null;
+}
+
+function normalizeDesktopHelperName(value: unknown): string | null {
+	if (typeof value !== 'string') return null;
+	const trimmed = value.trim();
+	return trimmed ? trimmed.slice(0, 120) : null;
+}
+
+function normalizeDesktopHelperId(value: unknown): string | null {
+	if (typeof value !== 'string') return null;
+	const trimmed = value.trim();
+	return /^[A-Za-z0-9._:-]{8,128}$/.test(trimmed) ? trimmed : null;
+}
+
+function getDesktopHelperUrl(userId: number, helperId: string): string {
+	return `wabi-helper://desktop/${userId}/${helperId}`;
+}
+
+function buildDesktopHelperMetadata(params: {
+	userId: number;
+	username: string;
+	mode: 'files-only' | 'desktop-assist';
+	status: 'active' | 'offline';
+	reason: string | null;
+}): Record<string, unknown> {
+	return {
+		kind: 'desktop-helper',
+		source: 'tauri-desktop',
+		status: params.status,
+		reason: params.reason,
+		ownerUserId: params.userId,
+		ownerUsername: params.username,
+		helperMode: params.mode,
+		capabilities: {
+			fileRelay: false,
+			turn: false,
+			sfu: false,
+			gateway: false,
+			selfHosted: false,
+			boosterMode: null
+		},
+		updatedAt: new Date().toISOString()
+	};
+}
+
 // GET /api/relays â€” Public: list active approved relays
 export async function handleGetRelays(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
@@ -111,7 +162,7 @@ export async function handleRelayRegister(req: IncomingMessage, res: ServerRespo
 			return;
 		}
 
-		const { url, name, region, latitude, longitude, bandwidth_mbps, storage_gb, syncthing_device_id } = body;
+		const { url, name, region, latitude, longitude, bandwidth_mbps, storage_gb, syncthing_device_id, metadata } = body;
 
 		if (!url || !name || !region) {
 			res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -153,7 +204,8 @@ export async function handleRelayRegister(req: IncomingMessage, res: ServerRespo
 			longitude: longitude != null ? parseFloat(longitude) : undefined,
 			bandwidth_mbps: bandwidth_mbps != null ? parseInt(bandwidth_mbps, 10) : undefined,
 			storage_gb: storage_gb != null ? parseInt(storage_gb, 10) : undefined,
-			syncthing_device_id: syncthing_device_id || undefined
+			syncthing_device_id: syncthing_device_id || undefined,
+			metadata: metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : undefined
 		});
 
 		console.log(`[Relay] New relay registered: ${name} (${url}) â€” ID: ${relay_id}`);
@@ -281,8 +333,11 @@ export async function handleGetAllRelays(req: IncomingMessage, res: ServerRespon
 		}
 
 		const relays = relayRepository.getAllRelays();
-		// Strip api_key_hash from response
-		const sanitized = relays.map(({ api_key_hash, ...rest }) => rest);
+		// Strip api_key_hash from response and expose parsed metadata for admin UX.
+		const sanitized = relays.map(({ api_key_hash, metadata_json, ...rest }) => ({
+			...rest,
+			metadata: parseRelayMetadata(metadata_json)
+		}));
 
 		res.writeHead(200, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ relays: sanitized }));
@@ -325,6 +380,211 @@ export async function handleRelayDelete(req: IncomingMessage, res: ServerRespons
 		console.error('[Relay] Delete error:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ error: 'Failed to delete relay' }));
+	}
+}
+
+export async function handleDesktopHelperRegister(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		const userId = getAuthenticatedUserIdFromRequest(req);
+		if (!userId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Authentication required' }));
+			return;
+		}
+		if (isRateLimited(req, 'desktop-helper-register', 30, 60_000)) {
+			res.writeHead(429, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Too many desktop helper registration requests.' }));
+			return;
+		}
+
+		const body = await parseBody(req);
+		const helperId = normalizeDesktopHelperId(body.helperId);
+		const helperName = normalizeDesktopHelperName(body.name);
+		const helperMode = normalizeDesktopHelperMode(body.mode);
+		if (!helperId || !helperName || (helperMode !== 'files-only' && helperMode !== 'desktop-assist')) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'helperId, name, and an active helper mode are required' }));
+			return;
+		}
+
+		const user = userRepository.findById(userId);
+		if (!user) {
+			res.writeHead(404, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Registered user not found' }));
+			return;
+		}
+		const existing = relayRepository.findByUrl(getDesktopHelperUrl(userId, helperId));
+		const accessPolicy = getCommunityNodeAccessPolicy();
+		const isWhitelisted = accessPolicy.allowedUsers.some((entry) => entry.userId === userId);
+		const canActivateImmediately =
+			accessPolicy.mode === 'open' ||
+			existing?.approved === 1 ||
+			(accessPolicy.mode === 'whitelist_only' && isWhitelisted);
+		if (accessPolicy.mode === 'whitelist_only' && !canActivateImmediately) {
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Desktop helper activation is restricted to the node whitelist on this server.' }));
+			return;
+		}
+
+		const nextStatus: 'pending' | 'active' = canActivateImmediately ? 'active' : 'pending';
+		const nextApproved = canActivateImmediately ? 1 : 0;
+		const region =
+			(typeof body.region === 'string' && body.region.trim().slice(0, 64)) ||
+			(process.env.BOOSTER_RELAY_REGION || process.env.SERVER_REGION || 'desktop');
+		const relay = await relayRepository.upsertManaged({
+			url: getDesktopHelperUrl(userId, helperId),
+			name: helperName,
+			region,
+			status: nextStatus,
+			approved: nextApproved,
+			metadata: buildDesktopHelperMetadata({
+				userId,
+				username: user.username,
+				mode: helperMode,
+				status: nextStatus === 'active' ? 'active' : 'offline',
+				reason:
+					nextStatus === 'active'
+						? helperMode === 'files-only'
+							? 'Files-only helper is online.'
+							: 'Desktop assist helper is online.'
+						: 'Desktop helper is waiting for admin approval.'
+			})
+		});
+		if (nextApproved === 1 && (!existing || existing.status !== 'active')) {
+			await announceCommunityNodeStatusChange({
+				nodeName: relay.name,
+				ownerUsername: user.username,
+				mode: helperMode,
+				status: 'online'
+			});
+		}
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ success: true, relayId: relay.relay_id, status: relay.status }));
+	} catch (error) {
+		console.error('[DesktopHelper] Register error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to register desktop helper' }));
+	}
+}
+
+export async function handleDesktopHelperHeartbeat(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		const userId = getAuthenticatedUserIdFromRequest(req);
+		if (!userId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Authentication required' }));
+			return;
+		}
+		if (isRateLimited(req, 'desktop-helper-heartbeat', 300, 60_000)) {
+			res.writeHead(429, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Too many desktop helper heartbeats.' }));
+			return;
+		}
+
+		const body = await parseBody(req);
+		const helperId = normalizeDesktopHelperId(body.helperId);
+		const helperMode = normalizeDesktopHelperMode(body.mode);
+		if (!helperId || (helperMode !== 'files-only' && helperMode !== 'desktop-assist')) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'helperId and active mode are required' }));
+			return;
+		}
+		const existing = relayRepository.findByUrl(getDesktopHelperUrl(userId, helperId));
+		if (!existing) {
+			res.writeHead(404, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Desktop helper is not registered' }));
+			return;
+		}
+		const user = userRepository.findById(userId);
+		const metadata = parseRelayMetadata(existing.metadata_json);
+		const effectiveStatus = existing.approved === 1 ? 'active' : 'pending';
+		await relayRepository.upsertManaged({
+			url: existing.url,
+			name: normalizeDesktopHelperName(body.name) || existing.name,
+			region:
+				(typeof body.region === 'string' && body.region.trim().slice(0, 64)) ||
+				existing.region ||
+				process.env.BOOSTER_RELAY_REGION ||
+				process.env.SERVER_REGION ||
+				'desktop',
+			status: effectiveStatus,
+			approved: existing.approved,
+			metadata: buildDesktopHelperMetadata({
+				userId,
+				username: user?.username || metadata?.ownerUsername || 'unknown',
+				mode: helperMode,
+				status: existing.approved === 1 ? 'active' : 'offline',
+				reason:
+					existing.approved === 1
+						? helperMode === 'files-only'
+							? 'Files-only helper heartbeat is healthy.'
+							: 'Desktop assist helper heartbeat is healthy.'
+						: 'Desktop helper is waiting for admin approval.'
+			})
+		});
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ success: true, status: effectiveStatus }));
+	} catch (error) {
+		console.error('[DesktopHelper] Heartbeat error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to update desktop helper heartbeat' }));
+	}
+}
+
+export async function handleDesktopHelperOffline(req: IncomingMessage, res: ServerResponse): Promise<void> {
+	try {
+		const userId = getAuthenticatedUserIdFromRequest(req);
+		if (!userId) {
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Authentication required' }));
+			return;
+		}
+
+		const body = await parseBody(req);
+		const helperId = normalizeDesktopHelperId(body.helperId);
+		if (!helperId) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'helperId is required' }));
+			return;
+		}
+		const existing = relayRepository.findByUrl(getDesktopHelperUrl(userId, helperId));
+		if (!existing) {
+			res.writeHead(200, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ success: true, status: 'offline' }));
+			return;
+		}
+		const metadata = parseRelayMetadata(existing.metadata_json);
+		await relayRepository.upsertManaged({
+			url: existing.url,
+			name: existing.name,
+			region: existing.region,
+			status: 'offline',
+			approved: existing.approved,
+			metadata: buildDesktopHelperMetadata({
+				userId,
+				username: metadata?.ownerUsername || 'unknown',
+				mode: metadata?.helperMode === 'desktop-assist' ? 'desktop-assist' : 'files-only',
+				status: 'offline',
+				reason: typeof body.reason === 'string' && body.reason.trim() ? body.reason.trim().slice(0, 256) : 'Desktop helper went offline.'
+			})
+		});
+		if (existing.status !== 'offline') {
+			await announceCommunityNodeStatusChange({
+				nodeName: existing.name,
+				ownerUsername: metadata?.ownerUsername || 'a community member',
+				mode: metadata?.helperMode,
+				status: 'offline'
+			});
+		}
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ success: true, status: 'offline' }));
+	} catch (error) {
+		console.error('[DesktopHelper] Offline error:', error);
+		res.writeHead(500, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: 'Failed to mark desktop helper offline' }));
 	}
 }
 

@@ -104,8 +104,18 @@ export function getCORSHeaders(origin: string | undefined): Record<string, strin
 		'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, DELETE',
 		'Access-Control-Allow-Headers': 'Content-Type, X-Requested-With, Authorization, X-Media-Gateway-Key, ngrok-skip-browser-warning',
 		'Access-Control-Allow-Credentials': 'true',
-		'Access-Control-Max-Age': '86400'
+		'Access-Control-Max-Age': '86400',
+		// Security headers
+		'X-Content-Type-Options': 'nosniff',
+		'X-Frame-Options': 'DENY',
+		'Referrer-Policy': 'strict-origin-when-cross-origin',
+		'X-XSS-Protection': '0',
+		'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=()'
 	};
+
+	if (process.env.NODE_ENV === 'production') {
+		headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+	}
 
 	if (isAllowed && origin) {
 		headers['Access-Control-Allow-Origin'] = origin;

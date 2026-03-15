@@ -184,6 +184,8 @@ const env = {
 	PLUGIN_SIGNATURE_POLICY: 'signed-only',
 	WABI_PUBLIC_BASE_URL: baseUrl,
 	TH_PAYMENTS_PROMPTPAY_PROXY_ID: '0812345678',
+	BTC_PAYMENTS_DONATION_ADDRESS: 'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh',
+	BTC_PAYMENTS_TEST_MODE: 'true',
 	WEST_PAYMENTS_TEST_MODE: 'true',
 	PAYMENTS_ACCESS_BOOTSTRAP_MODE: 'seed_if_missing',
 	PAYMENTS_ACCESS_ENABLED: 'true',
@@ -238,13 +240,21 @@ try {
 		'western-payments provider missing from US/USD provider list'
 	);
 
+	const bitcoinProviders = await fetchJson(`${baseUrl}/api/payments/providers?currency=BTC`);
+	assert(bitcoinProviders.ok, `bitcoin providers request failed: ${bitcoinProviders.status} ${bitcoinProviders.text}`);
+	assert(
+		Array.isArray(bitcoinProviders.data.providers) &&
+			bitcoinProviders.data.providers.some((provider: JsonRecord) => provider.pluginId === 'btc-payments'),
+		'btc-payments provider missing from BTC provider list'
+	);
+
 	const registerResponse = await fetchJson(`${baseUrl}/api/auth/register`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({
 			username: 'Payments Smoke',
 			handle: 'paymentssmoke',
-			password: 'payments-smoke-pass-123'
+			password: 'Payments-Smoke-Pass-123'
 		})
 	});
 	assert(
@@ -258,6 +268,35 @@ try {
 		Authorization: `Bearer ${token}`,
 		'Content-Type': 'application/json'
 	};
+
+	const thaiAccountLink = await fetchJson(`${baseUrl}/api/payments/account-links`, {
+		method: 'POST',
+		headers: authHeaders,
+		body: JSON.stringify({
+			pluginId: 'th-payments',
+			providerAccountRef: '0811111111',
+			displayLabel: 'Primary PromptPay'
+		})
+	});
+	assert(
+		thaiAccountLink.ok && thaiAccountLink.data.link?.providerAccountRef === '0811111111',
+		`thai account link save failed: ${thaiAccountLink.status} ${thaiAccountLink.text}`
+	);
+
+	const bitcoinAccountLink = await fetchJson(`${baseUrl}/api/payments/account-links`, {
+		method: 'POST',
+		headers: authHeaders,
+		body: JSON.stringify({
+			pluginId: 'btc-payments',
+			providerAccountRef: 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080',
+			displayLabel: 'Primary Bitcoin Wallet'
+		})
+	});
+	assert(
+		bitcoinAccountLink.ok &&
+			bitcoinAccountLink.data.link?.providerAccountRef === 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080',
+		`bitcoin account link save failed: ${bitcoinAccountLink.status} ${bitcoinAccountLink.text}`
+	);
 
 	const memberAccess = await fetchJson(`${baseUrl}/api/payments/access`, {
 		headers: { Authorization: `Bearer ${token}` }
@@ -282,9 +321,37 @@ try {
 	assert(thaiIntent.data.intent?.pluginId === 'th-payments', 'thai intent plugin mismatch');
 	assert(thaiIntent.data.intent?.presentation?.mode === 'qr', 'thai intent should use QR presentation');
 	assert(
+		thaiIntent.data.intent?.customerRef === '0811111111',
+		'thai personal intent should reuse the saved PromptPay reference'
+	);
+	assert(
 		typeof thaiIntent.data.intent?.presentation?.qrData === 'string' &&
 			thaiIntent.data.intent.presentation.qrData.length > 0,
 		'thai intent missing qrData'
+	);
+
+	const bitcoinIntent = await fetchJson(`${baseUrl}/api/payments/create`, {
+		method: 'POST',
+		headers: authHeaders,
+		body: JSON.stringify({
+			pluginId: 'btc-payments',
+			methodId: 'bitcoin_qr',
+			amountMinor: 125000,
+			currency: 'BTC',
+			description: 'Local smoke Bitcoin payment'
+		})
+	});
+	assert(bitcoinIntent.ok, `bitcoin intent create failed: ${bitcoinIntent.status} ${bitcoinIntent.text}`);
+	assert(bitcoinIntent.data.intent?.pluginId === 'btc-payments', 'bitcoin intent plugin mismatch');
+	assert(bitcoinIntent.data.intent?.presentation?.mode === 'qr', 'bitcoin intent should use QR presentation');
+	assert(
+		bitcoinIntent.data.intent?.customerRef === 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080',
+		'bitcoin intent should reuse the saved bitcoin address'
+	);
+	assert(
+		typeof bitcoinIntent.data.intent?.presentation?.qrData === 'string' &&
+			String(bitcoinIntent.data.intent.presentation.qrData).startsWith('bitcoin:'),
+		'bitcoin intent missing BIP21 qrData'
 	);
 
 	const westernIntent = await fetchJson(`${baseUrl}/api/payments/create`, {
@@ -335,6 +402,46 @@ try {
 	assert(westernStatus.ok, `western status fetch failed: ${westernStatus.status} ${westernStatus.text}`);
 	assert(westernStatus.data.intent?.status === 'succeeded', 'western intent did not transition to succeeded');
 
+	const lightningIntent = await fetchJson(`${baseUrl}/api/payments/create`, {
+		method: 'POST',
+		headers: authHeaders,
+		body: JSON.stringify({
+			pluginId: 'btc-payments',
+			methodId: 'lightning_checkout',
+			amountMinor: 25000,
+			currency: 'BTC',
+			description: 'Local smoke Lightning payment'
+		})
+	});
+	assert(lightningIntent.ok, `lightning intent create failed: ${lightningIntent.status} ${lightningIntent.text}`);
+	const lightningCheckoutUrl = String(lightningIntent.data.intent?.presentation?.url || '').trim();
+	assert(
+		lightningCheckoutUrl.includes('/api/plugins/runtime/btc-payments/lightning-test?providerIntentId='),
+		'lightning intent missing local test checkout url'
+	);
+	const lightningProviderIntentId = new URL(lightningCheckoutUrl).searchParams.get('providerIntentId');
+	assert(lightningProviderIntentId, 'lightning checkout url missing providerIntentId');
+	const lightningSuccess = await fetchJson(`${baseUrl}/api/plugins/runtime/btc-payments/lightning-test`, {
+		method: 'POST',
+		headers: authHeaders,
+		body: JSON.stringify({
+			providerIntentId: lightningProviderIntentId,
+			action: 'succeeded'
+		})
+	});
+	assert(
+		lightningSuccess.ok && lightningSuccess.data.status === 'succeeded',
+		`lightning test status update failed: ${lightningSuccess.status} ${lightningSuccess.text}`
+	);
+	const lightningStatus = await fetchJson(
+		`${baseUrl}/api/payments/${encodeURIComponent(String(lightningIntent.data.intent.intentId))}?refresh=true`,
+		{
+			headers: { Authorization: `Bearer ${token}` }
+		}
+	);
+	assert(lightningStatus.ok, `lightning status fetch failed: ${lightningStatus.status} ${lightningStatus.text}`);
+	assert(lightningStatus.data.intent?.status === 'succeeded', 'lightning intent did not transition to succeeded');
+
 	const donationIntent = await fetchJson(`${baseUrl}/api/payments/create`, {
 		method: 'POST',
 		headers: authHeaders,
@@ -377,6 +484,65 @@ try {
 	);
 	assert(donationStatus.ok, `donation status fetch failed: ${donationStatus.status} ${donationStatus.text}`);
 	assert(donationStatus.data.intent?.status === 'succeeded', 'donation intent did not transition to succeeded');
+
+	const thaiDonationIntent = await fetchJson(`${baseUrl}/api/payments/create`, {
+		method: 'POST',
+		headers: authHeaders,
+		body: JSON.stringify({
+			pluginId: 'th-payments',
+			methodId: 'promptpay_qr',
+			amountMinor: 1900,
+			currency: 'THB',
+			countryCode: 'TH',
+			description: 'Thai donation QR',
+			metadata: {
+				kind: 'server_donation',
+				target: 'default_workspace'
+			}
+		})
+	});
+	assert(
+		thaiDonationIntent.ok,
+		`thai donation intent create failed: ${thaiDonationIntent.status} ${thaiDonationIntent.text}`
+	);
+	assert(
+		thaiDonationIntent.data.intent?.customerRef == null,
+		'thai donation intent should not inherit the creator saved PromptPay reference'
+	);
+	assert(
+		typeof thaiDonationIntent.data.intent?.presentation?.qrData === 'string' &&
+			thaiDonationIntent.data.intent.presentation.qrData.length > 0,
+		'thai donation intent missing qrData'
+	);
+
+	const bitcoinDonationIntent = await fetchJson(`${baseUrl}/api/payments/create`, {
+		method: 'POST',
+		headers: authHeaders,
+		body: JSON.stringify({
+			pluginId: 'btc-payments',
+			methodId: 'bitcoin_qr',
+			amountMinor: 50000,
+			currency: 'BTC',
+			description: 'Bitcoin donation QR',
+			metadata: {
+				kind: 'server_donation',
+				target: 'default_workspace'
+			}
+		})
+	});
+	assert(
+		bitcoinDonationIntent.ok,
+		`bitcoin donation intent create failed: ${bitcoinDonationIntent.status} ${bitcoinDonationIntent.text}`
+	);
+	assert(
+		bitcoinDonationIntent.data.intent?.customerRef == null,
+		'bitcoin donation intent should not inherit the creator saved bitcoin address'
+	);
+	assert(
+		typeof bitcoinDonationIntent.data.intent?.presentation?.qrData === 'string' &&
+			String(bitcoinDonationIntent.data.intent.presentation.qrData).includes(env.BTC_PAYMENTS_DONATION_ADDRESS),
+		'bitcoin donation intent should use the configured server donation bitcoin address'
+	);
 
 	const donationSummaryBeforeRefund = await fetchJson(`${baseUrl}/api/payments/donations`);
 	assert(
@@ -444,7 +610,7 @@ try {
 		body: JSON.stringify({
 			username: 'Private Payments',
 			handle: 'privatepayments',
-			password: 'private-payments-pass-123'
+			password: 'Private-Payments-Pass-123'
 		})
 	});
 	assert(
@@ -458,6 +624,20 @@ try {
 		Authorization: `Bearer ${privateToken}`,
 		'Content-Type': 'application/json'
 	};
+
+	const privateThaiAccountLink = await fetchJson(`${baseUrl}/api/payments/account-links`, {
+		method: 'POST',
+		headers: privateAuthHeaders,
+		body: JSON.stringify({
+			pluginId: 'th-payments',
+			providerAccountRef: '0899999999',
+			displayLabel: 'Private PromptPay'
+		})
+	});
+	assert(
+		privateThaiAccountLink.ok && privateThaiAccountLink.data.link?.providerAccountRef === '0899999999',
+		`private thai account link save failed: ${privateThaiAccountLink.status} ${privateThaiAccountLink.text}`
+	);
 
 	const dmChannelId = `dm-user-${Math.min(primaryUserId, privateUserId)}-user-${Math.max(primaryUserId, privateUserId)}`;
 	insertDmChannel(env.DATABASE_PATH, {
@@ -617,6 +797,10 @@ try {
 		})
 	});
 	assert(privateIntent.ok, `private payment create failed: ${privateIntent.status} ${privateIntent.text}`);
+	assert(
+		privateIntent.data.intent?.customerRef === '0899999999',
+		'private thai payment should reuse the private user saved PromptPay reference'
+	);
 
 	const adminPeekPrivateIntent = await fetchJson(
 		`${baseUrl}/api/payments/${encodeURIComponent(String(privateIntent.data.intent.intentId))}`,
@@ -635,10 +819,15 @@ try {
 				ok: true,
 				baseUrl,
 				thaiProviderCount: Array.isArray(thaiProviders.data.providers) ? thaiProviders.data.providers.length : 0,
+				bitcoinProviderCount: Array.isArray(bitcoinProviders.data.providers)
+					? bitcoinProviders.data.providers.length
+					: 0,
 				westernProviderCount: Array.isArray(westernProviders.data.providers)
 					? westernProviders.data.providers.length
 					: 0,
 				thaiIntentId: thaiIntent.data.intent?.intentId,
+				bitcoinIntentId: bitcoinIntent.data.intent?.intentId,
+				lightningIntentId: lightningIntent.data.intent?.intentId,
 				westernIntentId: westernIntent.data.intent?.intentId,
 				westernProviderIntentId: providerIntentId,
 				donationIntentId: donationIntent.data.intent?.intentId,

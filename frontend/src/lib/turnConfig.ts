@@ -9,6 +9,7 @@
 import { browser } from '$app/environment';
 import { getServerUrl } from './serverUrl';
 import { getAuthToken } from './authSession';
+import { getPreferredTurnRelayId } from './relaySelector';
 
 interface TurnServerConfig {
 	urls: string[];
@@ -23,6 +24,9 @@ interface CachedTurnCredentials {
 	username: string;
 	credential: string;
 	expiresAt: number; // unix seconds
+	relayId?: number | null;
+	relayName?: string | null;
+	source?: 'origin' | 'relay';
 }
 
 const TURN_REFRESH_SKEW_SECONDS = 30;
@@ -40,6 +44,11 @@ function buildTurnUrls(server: string, port: string, useTurns: boolean): string[
 
 function hasValidCachedTurnCredentials(): boolean {
 	if (!cachedTurnCredentials) return false;
+	const preferredRelayId = getPreferredTurnRelayId();
+	const cachedRelayId = cachedTurnCredentials.relayId ?? null;
+	if ((preferredRelayId ?? null) !== cachedRelayId) {
+		return false;
+	}
 	const now = Math.floor(Date.now() / 1000);
 	return cachedTurnCredentials.expiresAt - now > TURN_REFRESH_SKEW_SECONDS;
 }
@@ -71,7 +80,13 @@ async function fetchEphemeralTurnCredentials(): Promise<void> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), 5000);
 	try {
-		const response = await fetch(`${getServerUrl()}/api/media/turn-credentials`, {
+		const turnRelayId = getPreferredTurnRelayId();
+		const turnCredentialsUrl = new URL(`${getServerUrl()}/api/media/turn-credentials`);
+		if (turnRelayId) {
+			turnCredentialsUrl.searchParams.set('relayId', String(turnRelayId));
+		}
+
+		const response = await fetch(turnCredentialsUrl.toString(), {
 			method: 'GET',
 			headers: {
 				Authorization: `Bearer ${token}`
@@ -108,7 +123,10 @@ async function fetchEphemeralTurnCredentials(): Promise<void> {
 			useTurns,
 			username,
 			credential,
-			expiresAt
+			expiresAt,
+			relayId: typeof turn.relayId === 'number' ? turn.relayId : null,
+			relayName: typeof turn.relayName === 'string' ? turn.relayName : null,
+			source: turn.source === 'relay' ? 'relay' : 'origin'
 		};
 	} catch (error) {
 		console.warn('[TURN Config] Failed to fetch ephemeral TURN credentials, using fallback if available', error);
@@ -135,6 +153,9 @@ export async function prefetchTurnCredentials(): Promise<void> {
  */
 export function getTurnConfig(): TurnServerConfig | null {
 	if (hasValidCachedTurnCredentials() && cachedTurnCredentials) {
+		console.log(
+			`[TURN Config] Using ${cachedTurnCredentials.source === 'relay' ? 'relay' : 'origin'} TURN server${cachedTurnCredentials.relayName ? ` (${cachedTurnCredentials.relayName})` : ''}`
+		);
 		return {
 			urls: buildTurnUrls(cachedTurnCredentials.server, cachedTurnCredentials.port, cachedTurnCredentials.useTurns),
 			username: cachedTurnCredentials.username,

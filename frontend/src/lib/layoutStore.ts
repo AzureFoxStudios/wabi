@@ -24,8 +24,8 @@ import {
 	persistLayoutState
 } from '$lib/docking/layoutPersistence';
 
-type RightPanelView = 'none' | 'users' | 'dms' | 'admin' | 'media';
-type RightPanelTab = 'users' | 'dms' | 'admin' | 'media';
+type RightPanelView = 'none' | 'users' | 'dms' | 'admin' | 'media' | 'map';
+type RightPanelTab = 'users' | 'dms' | 'admin' | 'media' | 'map';
 export const NOTES_DM_ID = '__keep_notes__';
 
 const isMobile = readable(false, (set) => {
@@ -188,10 +188,20 @@ layoutState.subscribe((state) => {
 	activeWorkspace.set(state.activeWorkspace);
 });
 
-channelSidebarWidth.subscribe(() => syncWorkspaceFromRuntime());
-rightPanelWidth.subscribe(() => syncWorkspaceFromRuntime());
-rightPanelView.subscribe(() => syncWorkspaceFromRuntime());
-navDock.subscribe(() => syncWorkspaceFromRuntime());
+let syncScheduled = false;
+function scheduleSyncWorkspace(): void {
+	if (syncScheduled) return;
+	syncScheduled = true;
+	queueMicrotask(() => {
+		syncScheduled = false;
+		syncWorkspaceFromRuntime();
+	});
+}
+
+channelSidebarWidth.subscribe(() => scheduleSyncWorkspace());
+rightPanelWidth.subscribe(() => scheduleSyncWorkspace());
+rightPanelView.subscribe(() => scheduleSyncWorkspace());
+navDock.subscribe(() => scheduleSyncWorkspace());
 
 const toggleRightPanel = () => {
 	rightPanelView.update((current) => {
@@ -223,6 +233,11 @@ const showAdminTab = () => {
 const showMediaTab = () => {
 	activeRightTab.set('media');
 	rightPanelView.set('media');
+};
+
+const showMapTab = () => {
+	activeRightTab.set('map');
+	rightPanelView.set('map');
 };
 
 const openDM = (channelIdStr: string, otherUserObj: User) => {
@@ -545,6 +560,7 @@ export const layoutStore = {
 	showDMsTab,
 	showAdminTab,
 	showMediaTab,
+	showMapTab,
 	openDM,
 	openGroupDM,
 	openNotes,

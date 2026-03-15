@@ -1,5 +1,16 @@
+import { createHash } from 'crypto';
 import type { StatePlaneOutbox } from './outbox.js';
 import { StdbSyncClient, toStdbEventId } from './stdbSyncClient.js';
+
+/**
+ * Pre-shared ingest auth key.  When set, every event sent to the
+ * `ingest_wabi_event` reducer includes the SHA-256 hex digest so the
+ * Rust module can verify the caller is the authorized backend.
+ */
+const INGEST_AUTH_SECRET = (process.env.WABI_STDB_INGEST_SECRET || '').trim();
+export const INGEST_AUTH_KEY_HASH: string | null = INGEST_AUTH_SECRET
+	? createHash('sha256').update(INGEST_AUTH_SECRET).digest('hex')
+	: null;
 
 export interface StdbPrimaryStoreOptions {
 	outbox?: StatePlaneOutbox | null;
@@ -38,8 +49,9 @@ export function nowMs(): number {
 export function toNumber(value: unknown): number {
 	if (typeof value === 'number') return value;
 	if (typeof value === 'bigint') return Number(value);
+	if (value == null) return NaN;
 	const parsed = Number(value);
-	return Number.isFinite(parsed) ? parsed : 0;
+	return Number.isFinite(parsed) ? parsed : NaN;
 }
 
 export function parseJsonObject<T>(raw: unknown): T | null {
@@ -81,7 +93,7 @@ function normalizeAnonymousEnv(token: string | null): boolean {
 function normalizeTimeoutEnv(): number {
 	const parsed = Number(process.env.WABI_STDB_BRIDGE_TIMEOUT_MS || '10000');
 	if (!Number.isFinite(parsed)) return 10000;
-	return Math.max(100, Math.min(300000, Math.floor(parsed)));
+	return Math.max(100, Math.min(30000, Math.floor(parsed)));
 }
 
 export function createStdbClient(): StdbSyncClient {
@@ -132,14 +144,32 @@ export class StdbStoreBase {
 		operation: string,
 		payload: Record<string, unknown>
 	): void {
-		const event = {
+		const event: Record<string, unknown> = {
 			eventId: toStdbEventId(entity, operation, payload),
 			timestamp: nowMs(),
 			entity,
 			operation,
 			payload
 		};
+		if (INGEST_AUTH_KEY_HASH) event.authKey = INGEST_AUTH_KEY_HASH;
 		this.client.callReducer(this.reducerName, [JSON.stringify(event)]);
+		this.outbox?.append(event);
+	}
+
+	protected async ingestAsync(
+		entity: 'message' | 'channel' | 'channel_member' | 'user' | 'session' | 'rbac',
+		operation: string,
+		payload: Record<string, unknown>
+	): Promise<void> {
+		const event: Record<string, unknown> = {
+			eventId: toStdbEventId(entity, operation, payload),
+			timestamp: nowMs(),
+			entity,
+			operation,
+			payload
+		};
+		if (INGEST_AUTH_KEY_HASH) event.authKey = INGEST_AUTH_KEY_HASH;
+		await this.client.callReducerAsync(this.reducerName, [JSON.stringify(event)]);
 		this.outbox?.append(event);
 	}
 

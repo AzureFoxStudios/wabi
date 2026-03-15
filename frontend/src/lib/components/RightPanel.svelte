@@ -8,8 +8,9 @@
 	import AdminTab from './AdminTab.svelte';
 	import MediaAlbumsTab from './MediaAlbumsTab.svelte';
 	import KeepNotesView from './KeepNotesView.svelte';
+	import MapWorkspace from './MapWorkspace.svelte';
 
-	type PanelView = 'users' | 'dms' | 'media' | 'admin';
+	type PanelView = 'users' | 'dms' | 'media' | 'admin' | 'map';
 	type QuickMode = 'notes' | 'dm';
 
 	const dispatch = createEventDispatcher<{
@@ -67,6 +68,10 @@
 		}
 		if (value === 'media') {
 			layoutStore.showMediaTab();
+			return;
+		}
+		if (value === 'map') {
+			layoutStore.showMapTab();
 			return;
 		}
 		if (value === 'admin' && canAccessAdminTab) {
@@ -175,6 +180,7 @@
 		<select id="right-view-select" class="view-select" value={topView} on:change={handleTopViewChange}>
 			<option value="users">Users</option>
 			<option value="dms">DMs</option>
+			<option value="map">Map</option>
 			<option value="media">Media</option>
 			{#if canAccessAdminTab}
 				<option value="admin">Admin</option>
@@ -187,6 +193,8 @@
 			<UserListTab />
 		{:else if activeTab === 'dms'}
 			<DMTab on:openSettings={(event) => dispatch('openSettings', event.detail)} />
+		{:else if activeTab === 'map'}
+			<MapWorkspace variant="compact" />
 		{:else if activeTab === 'media'}
 			<MediaAlbumsTab />
 		{:else if activeTab === 'admin'}

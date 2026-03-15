@@ -14,6 +14,7 @@ export interface DbMessage {
 	file_name?: string;
 	file_size?: number;
 	files_json?: string;
+	entities_json?: string;
 	attachment_encryption_json?: string;
 	attachment_storage_json?: string;
 	reply_to_id?: string;
@@ -33,6 +34,19 @@ export interface PaginationOptions {
 	afterMessageId?: string;   // sync newer messages
 }
 
+export interface PlaceMessageEntity {
+	kind: 'place';
+	start: number;
+	end: number;
+	placeId: string;
+	layerId?: string;
+	poiId?: string;
+	label: string;
+	displayText?: string;
+}
+
+export type MessageEntity = PlaceMessageEntity;
+
 export interface ClientMessage {
 	id: string;
 	user: string;
@@ -45,6 +59,7 @@ export interface ClientMessage {
 	fileName?: string;
 	fileSize?: number;
 	files?: { fileUrl: string; fileName: string; fileSize: number; attachmentEncryption?: { scheme: 'dm-e2ee-v1'; iv: string; mimeType?: string; originalSize?: number }; attachmentStorage?: { scheme: 'wabi-storage-v1'; compressed: boolean; codec: 'identity' | 'gzip'; originalSize: number; storedSize: number; atRestEncrypted: boolean } }[];
+	entities?: MessageEntity[];
 	attachmentEncryption?: { scheme: 'dm-e2ee-v1'; iv: string; mimeType?: string; originalSize?: number };
 	attachmentStorage?: { scheme: 'wabi-storage-v1'; compressed: boolean; codec: 'identity' | 'gzip'; originalSize: number; storedSize: number; atRestEncrypted: boolean };
 	replyTo?: string;
@@ -63,12 +78,12 @@ export class MessageRepository {
 		const stmt = db.prepare(`
 			INSERT INTO messages (
 				message_id, channel_id, sender_id, sender_username, sender_color,
-				message_type, content, gif_url, file_url, file_name, file_size, files_json, attachment_encryption_json,
+				message_type, content, gif_url, file_url, file_name, file_size, files_json, entities_json, attachment_encryption_json,
 				attachment_storage_json,
 				reply_to_id, is_spoiler, is_pinned, is_edited, reactions_json,
 				is_encrypted, encryption_iv, created_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`);
 
 		const info = stmt.run(
@@ -84,6 +99,7 @@ export class MessageRepository {
 			message.file_name || null,
 			message.file_size || null,
 			message.files_json || null,
+			message.entities_json || null,
 			message.attachment_encryption_json || null,
 			message.attachment_storage_json || null,
 			message.reply_to_id || null,
@@ -171,7 +187,7 @@ export class MessageRepository {
 
 	// Update a message
 	update(messageId: string, updates: Partial<DbMessage>): void {
-		const allowedFields = ['content', 'is_spoiler', 'is_pinned', 'is_edited', 'reactions_json'];
+		const allowedFields = ['content', 'entities_json', 'is_spoiler', 'is_pinned', 'is_edited', 'reactions_json'];
 		const fields = Object.keys(updates).filter((key) => allowedFields.includes(key));
 
 		if (fields.length === 0) return;
@@ -213,6 +229,13 @@ export class MessageRepository {
 		if (dbMsg.files_json) {
 			try {
 				msg.files = JSON.parse(dbMsg.files_json);
+			} catch {
+				// Ignore parse errors
+			}
+		}
+		if (dbMsg.entities_json) {
+			try {
+				msg.entities = JSON.parse(dbMsg.entities_json);
 			} catch {
 				// Ignore parse errors
 			}
@@ -277,7 +300,7 @@ export class MessageRepository {
 
 	// Mark message as edited
 	markEdited(messageId: string, newContent: string): void {
-		const stmt = db.prepare('UPDATE messages SET content = ?, is_edited = 1 WHERE message_id = ?');
+		const stmt = db.prepare('UPDATE messages SET content = ?, entities_json = NULL, is_edited = 1 WHERE message_id = ?');
 		stmt.run(newContent, messageId);
 	}
 

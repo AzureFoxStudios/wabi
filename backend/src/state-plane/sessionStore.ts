@@ -266,6 +266,10 @@ export class StateSessionStore {
 		}
 	}
 
+	async createAsync(session: Session): Promise<void> {
+		this.create(session);
+	}
+
 	findById(sessionId: string): Session | null {
 		this.recordReadAttempt();
 		const primary = sessionRepository.findById(sessionId);
@@ -360,6 +364,29 @@ export class StateSessionStore {
 			this.recordParityMismatch(`findByUserId(${userId}): ${mismatch}`);
 		}
 		return primary;
+	}
+
+	deleteRegisteredByUserId(userId: number): number {
+		try {
+			const deleted = sessionRepository.deleteRegisteredByUserId(userId);
+			this.trackPrimarySuccess('deleteRegisteredByUserId');
+			this.shadowBestEffort('deleteRegisteredByUserId', () => {
+				for (const [sessionId, session] of this.shadowSessions.entries()) {
+					if (session.user_id === userId && session.is_temporary !== 1) {
+						this.shadowSessions.delete(sessionId);
+					}
+				}
+			});
+			this.appendOutbox('delete_registered_by_user_id', { userId, deleted });
+			return deleted;
+		} catch (error) {
+			this.trackPrimaryFailure('deleteRegisteredByUserId', error);
+			throw error;
+		}
+	}
+
+	async deleteRegisteredByUserIdAsync(userId: number): Promise<number> {
+		return this.deleteRegisteredByUserId(userId);
 	}
 
 	update(sessionId: string, updates: Partial<Session>): void {

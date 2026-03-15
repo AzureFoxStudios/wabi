@@ -27,6 +27,7 @@
 		channelLoadedArchives,
 		channelLoadingOlder,
 		type Message,
+		type MessageEntity,
 		type Emoji,
 		type User,
 		type Channel
@@ -93,6 +94,19 @@
 		isExperimentalStdbCallEnabled,
 		setExperimentalStdbCallEnabled
 	} from '$lib/experimentalStdbCalls';
+	import {
+		buildPlaceMessageEntity,
+		buildPlaceSuggestionDetail,
+		loadPlaceRegistry,
+		placeRegistry,
+		rebaseMessageEntitiesForText,
+		reconcileMessageEntities,
+		searchPlaceMentionSuggestions,
+		splitEntitiesForChunks,
+		type PlaceRecord
+	} from '$lib/placeRegistry';
+	import { openPreferredMapSurface } from '$lib/mapWorkspace';
+	import { pushLocalDirectionsCard } from '$lib/directionsAssist';
 
 	const dispatch = createEventDispatcher();
 	const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
@@ -115,6 +129,7 @@
 	$: isDMChannel = currentChannelData?.type === 'dm';
 	$: isGroupChannel = currentChannelData?.type === 'group';
 	$: dmCallTargetUser = getDMOtherUser(currentChannelData);
+	let paymentTargetKind: 'channel' | 'dm' | 'group' | 'workspace' | null = null;
 	$: paymentTargetLabel = (() => {
 		if (isDMChannel && dmCallTargetUser?.username) {
 			return `DM with ${dmCallTargetUser.username}`;
@@ -186,9 +201,20 @@
 	let textareaElement: HTMLTextAreaElement;
 	let mentionMenuContainer: HTMLElement | null = null;
 	let showMentionSuggestions = false;
-	let mentionSuggestions: { key: string; label: string; value: string; kind: 'special' | 'user' }[] = [];
+	type MentionSuggestion = {
+		key: string;
+		label: string;
+		value: string;
+		kind: 'special' | 'user' | 'place';
+		detail?: string;
+		place?: PlaceRecord;
+		poi?: PlaceRecord['pois'][number];
+	};
+	let mentionSuggestions: MentionSuggestion[] = [];
 	let mentionSelectedIndex = 0;
 	let mentionTokenStart = -1;
+	let composerEntities: MessageEntity[] = [];
+	let previousComposerInput = '';
 	let EmojiPickerComponent: typeof import('./EmojiPicker.svelte').default | null = null;
 	let emojiPickerLoadPromise: Promise<void> | null = null;
 	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken());
@@ -603,6 +629,8 @@
 	}
 
 	function handleInputChange() {
+		syncComposerEntities();
+
 		// Show command palette if input starts with /
 		if (messageInput.startsWith('/')) {
 			showCommandPalette = getMatchingCommands(messageInput).length > 0;
@@ -611,6 +639,21 @@
 			showCommandPalette = false;
 			updateMentionSuggestions();
 		}
+	}
+
+	function syncComposerEntities() {
+		composerEntities = reconcileMessageEntities(previousComposerInput, messageInput, composerEntities);
+		previousComposerInput = messageInput;
+	}
+
+	function resetComposerEntityState() {
+		composerEntities = [];
+		previousComposerInput = messageInput;
+	}
+
+	function resolveOutgoingPlaceEntities(outgoingText: string): MessageEntity[] {
+		if (!composerEntities.length || !outgoingText) return [];
+		return rebaseMessageEntitiesForText(outgoingText, composerEntities);
 	}
 
 	function updateMentionSuggestions() {
@@ -657,7 +700,20 @@
 			}))
 			.filter((entry) => entry.value.toLowerCase().startsWith(normalizedQuery));
 
-		const nextSuggestions = [...specials, ...userEntries].slice(0, 8);
+		if (!$placeRegistry.length) {
+			void loadPlaceRegistry();
+		}
+		const placeEntries = searchPlaceMentionSuggestions(normalizedQuery, 8).map((entry) => ({
+			key: entry.key,
+			label: entry.label,
+			value: entry.value,
+			kind: 'place' as const,
+			detail: entry.detail || buildPlaceSuggestionDetail(entry.place),
+			place: entry.place,
+			poi: entry.poi
+		}));
+
+		const nextSuggestions = [...specials, ...userEntries, ...placeEntries].slice(0, 8);
 		if (nextSuggestions.length === 0) {
 			showMentionSuggestions = false;
 			return;
@@ -679,8 +735,20 @@
 		const needsTrailingSpace = after.length === 0 || !/^[\s.,!?;:)]/.test(after);
 		const insertion = needsTrailingSpace ? `${mentionText} ` : mentionText;
 		const nextCursor = (before + insertion).length;
+		const nextMessageInput = before + insertion + after;
 
-		messageInput = before + insertion + after;
+		composerEntities = reconcileMessageEntities(messageInput, nextMessageInput, composerEntities);
+		if (selected.kind === 'place' && selected.place) {
+			composerEntities = [
+				...composerEntities,
+				buildPlaceMessageEntity(selected.place, before.length, before.length + mentionText.length, {
+					poi: selected.poi,
+					displayText: mentionText
+				})
+			].sort((a, b) => a.start - b.start || a.end - b.end);
+		}
+		messageInput = nextMessageInput;
+		previousComposerInput = messageInput;
 		showMentionSuggestions = false;
 		mentionTokenStart = -1;
 
@@ -731,6 +799,7 @@
 				const lastMessage = userMessages[userMessages.length - 1];
 				editingMessage = lastMessage;
 				messageInput = lastMessage.text;
+				resetComposerEntityState();
 			}
 		}
 		// Escape to cancel editing/command palette
@@ -753,6 +822,7 @@
 	function handleCommandSelect(command: Command) {
 		// Replace the / command with selected command name
 		messageInput = `/${command.name} `;
+		resetComposerEntityState();
 		showCommandPalette = false;
 		textareaElement?.focus();
 	}
@@ -1229,6 +1299,20 @@
 				break;
 			}
 
+			case 'directions':
+			case 'dir':
+			case 'where': {
+				const rawTarget = parsed.args.join(' ').trim();
+				if (!rawTarget) {
+					alert('Place is required.\nUsage: /directions <@place|place-slug[/poi]>');
+					break;
+				}
+				if (!(await pushLocalDirectionsCard($currentChannel, rawTarget))) {
+					alert(`Place "${rawTarget}" was not found.`);
+				}
+				break;
+			}
+
 			default:
 				console.warn(`Unknown command: ${commandName}`);
 		}
@@ -1270,6 +1354,7 @@
 				if (normalizedSentenceCaseMessage.startsWith('/')) {
 					void executeCommand(normalizedSentenceCaseMessage);
 					messageInput = '';
+					resetComposerEntityState();
 					return;
 				}
 
@@ -1278,6 +1363,7 @@
 					$emojis,
 					unicodeEmojisEnabled
 				);
+				const normalizedEntities = resolveOutgoingPlaceEntities(normalizedMessage);
 
 				if (splitLargeMessagesEnabled && normalizedMessage.length > splitLargeMessagesChunkSize) {
 					const chunks = splitMessageForSending(normalizedMessage, splitLargeMessagesChunkSize);
@@ -1285,10 +1371,12 @@
 						alert('Unable to split message into chunks.');
 						return;
 					}
+					const chunkEntities = splitEntitiesForChunks(normalizedMessage, chunks, normalizedEntities);
 					for (const [index, chunk] of chunks.entries()) {
 						sendMessage($currentChannel, chunk, 'text', {
 							replyTo: index === 0 ? replyingTo?.id : undefined,
-							isSpoiler: markAsSpoiler
+							isSpoiler: markAsSpoiler,
+							entities: chunkEntities[index]
 						});
 					}
 				} else {
@@ -1315,13 +1403,15 @@
 						// Send as regular text message
 						sendMessage($currentChannel, normalizedMessage, 'text', {
 							replyTo: replyingTo?.id,
-							isSpoiler: markAsSpoiler
+							isSpoiler: markAsSpoiler,
+							entities: normalizedEntities
 						});
 					}
 				}
 				replyingTo = null;
 			}
 			messageInput = '';
+			resetComposerEntityState();
 			showMentionSuggestions = false;
 			showMediaMenu = false;
 			sendTyping(false, $currentChannel);
@@ -1389,6 +1479,7 @@
 	function cancelEdit() {
 		editingMessage = null;
 		messageInput = '';
+		resetComposerEntityState();
 
 		// Reset textarea height
 		if (textareaElement) {
@@ -1399,16 +1490,19 @@
 	function handleGifSelect(event: CustomEvent<string>) {
 		const caption = resolveOutgoingAttachmentCaption();
 		if (caption === null) return;
+		const captionEntities = resolveOutgoingPlaceEntities(caption);
 		sendMessage($currentChannel, caption, 'gif', {
 			gifUrl: event.detail,
 			replyTo: replyingTo?.id,
-			isSpoiler: markAsSpoiler
+			isSpoiler: markAsSpoiler,
+			entities: captionEntities
 		});
 		replyingTo = null;
 		if (gifCaptionerDedicatedCaptionFieldEnabled) {
 			gifCaptionInput = '';
 		} else {
 			messageInput = '';
+			resetComposerEntityState();
 		}
 		showMentionSuggestions = false;
 		showEmojiPicker = false;
@@ -1431,7 +1525,10 @@
 		// Insert emoji syntax into the composer and let the user send explicitly.
 		const emojiToken = `:${emoji.name}:`;
 		const shouldAddSpace = messageInput.length > 0 && !/\s$/.test(messageInput);
-		messageInput = shouldAddSpace ? `${messageInput} ${emojiToken}` : `${messageInput}${emojiToken}`;
+		const nextMessageInput = shouldAddSpace ? `${messageInput} ${emojiToken}` : `${messageInput}${emojiToken}`;
+		composerEntities = reconcileMessageEntities(messageInput, nextMessageInput, composerEntities);
+		messageInput = nextMessageInput;
+		previousComposerInput = messageInput;
 		textareaElement?.focus();
 	}
 
@@ -1443,7 +1540,10 @@
 	function handleQuickMention(message: Message) {
 		const mentionToken = `@${message.user}`;
 		const needsSpace = messageInput.length > 0 && !/\s$/.test(messageInput);
-		messageInput = needsSpace ? `${messageInput} ${mentionToken} ` : `${mentionToken} `;
+		const nextMessageInput = needsSpace ? `${messageInput} ${mentionToken} ` : `${mentionToken} `;
+		composerEntities = reconcileMessageEntities(messageInput, nextMessageInput, composerEntities);
+		messageInput = nextMessageInput;
+		previousComposerInput = messageInput;
 		showMentionSuggestions = false;
 		textareaElement?.focus();
 	}
@@ -1890,6 +1990,7 @@
 		let completedFiles = 0;
 
 		try {
+			const captionEntities = resolveOutgoingPlaceEntities(messageInput.trim());
 			const serverUrl = getServerUrl();
 
 			console.log('Upload serverUrl:', serverUrl);
@@ -1981,19 +2082,22 @@
 					attachmentStorage: uploadedFiles[0].attachmentStorage,
 					attachmentEncryption: uploadedFiles[0].attachmentEncryption,
 					replyTo: replyingTo?.id,
-					isSpoiler: markAsSpoiler
+					isSpoiler: markAsSpoiler,
+					entities: captionEntities
 				});
 			} else {
 				// Multiple files - use new format
 				sendMessage($currentChannel, messageInput.trim() || `Shared ${uploadedFiles.length} files`, 'file', {
 					files: uploadedFiles,
 					replyTo: replyingTo?.id,
-					isSpoiler: markAsSpoiler
+					isSpoiler: markAsSpoiler,
+					entities: captionEntities
 				});
 			}
 
 			console.log('All files uploaded');
 			messageInput = '';
+			resetComposerEntityState();
 			replyingTo = null;
 			clearFilePreviews();
 			isUploading = false;
@@ -2372,6 +2476,7 @@
 	onMount(() => {
 		scrollToBottom();
 		experimentalStdbCallsEnabled = isExperimentalStdbCallEnabled();
+		void loadPlaceRegistry();
 
 		void (async () => {
 			const env = import.meta.env as Record<string, string | undefined>;
@@ -2449,6 +2554,18 @@
 			{/if}
 		</h2>
 		<div class="header-actions">
+			<button
+				class="albums-open-btn"
+				type="button"
+				on:click={() => void openPreferredMapSurface()}
+				title="Open map"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon>
+					<line x1="9" y1="3" x2="9" y2="18"></line>
+					<line x1="15" y1="6" x2="15" y2="21"></line>
+				</svg>
+			</button>
 			<button
 				class="albums-open-btn"
 				type="button"
@@ -2692,8 +2809,21 @@
 						class:selected={index === mentionSelectedIndex}
 						on:mousedown|preventDefault={() => applyMentionSuggestion(index)}
 					>
-						<span class="mention-label">{suggestion.label}</span>
-						<span class="mention-kind">{suggestion.kind === 'special' ? $_('chat.mentions.kind_mention') : $_('chat.mentions.kind_user')}</span>
+						<span class="mention-copy">
+							<span class="mention-label">{suggestion.label}</span>
+							{#if suggestion.detail}
+								<span class="mention-detail">{suggestion.detail}</span>
+							{/if}
+						</span>
+						<span class="mention-kind">
+							{#if suggestion.kind === 'special'}
+								{$_('chat.mentions.kind_mention')}
+							{:else if suggestion.kind === 'place'}
+								Place
+							{:else}
+								{$_('chat.mentions.kind_user')}
+							{/if}
+						</span>
 					</button>
 				{/each}
 			</div>
@@ -3686,9 +3816,25 @@
 		font-weight: 600;
 	}
 
+	.mention-copy {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		gap: 0.15rem;
+	}
+
+	.mention-detail {
+		font-size: 0.72rem;
+		opacity: 0.78;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
 	.mention-kind {
 		font-size: 0.72rem;
 		opacity: 0.85;
+		flex-shrink: 0;
 	}
 
 	.media-menu {

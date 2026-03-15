@@ -60,6 +60,12 @@ COPY --from=builder /app/build ./build
 COPY --from=builder /app/node_modules ./node_modules
 COPY package.json ./
 
+# Create non-root user
+RUN groupadd -r wabi && useradd -r -g wabi -d /app wabi \
+  && chown -R wabi:wabi /app
+
+USER wabi
+
 # Set environment
 ENV NODE_ENV=production
 ENV PORT=8080

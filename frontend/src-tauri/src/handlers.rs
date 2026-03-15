@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -38,6 +40,100 @@ fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
 
     fs::create_dir_all(&dir).map_err(|e| format!("failed to create app data dir: {e}"))?;
     Ok(dir)
+}
+
+fn recording_output_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let base_dir = app
+        .path()
+        .download_dir()
+        .or_else(|_| app_data_dir(app).map(|dir| dir.join("recordings")))
+        .map_err(|e| format!("failed to resolve recording output dir: {e}"))?;
+
+    let dir = if base_dir.ends_with("recordings") {
+        base_dir
+    } else {
+        base_dir.join("Wabi Recordings")
+    };
+
+    fs::create_dir_all(&dir).map_err(|e| format!("failed to create recording output dir: {e}"))?;
+    Ok(dir)
+}
+
+fn sanitize_file_component(value: &str) -> String {
+    let sanitized: String = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, ' ' | '-' | '_' | '(' | ')' | '[' | ']') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+
+    let trimmed = sanitized
+        .trim()
+        .trim_matches('.')
+        .trim_matches('_')
+        .trim_matches('-')
+        .trim();
+
+    if trimmed.is_empty() {
+        "wabi-call-recording".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn split_suggested_filename(suggested_name: &str) -> (String, String) {
+    let candidate = suggested_name.trim();
+    if candidate.is_empty() {
+        return (
+            format!("wabi-call-recording-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S")),
+            "webm".to_string()
+        );
+    }
+
+    let path = Path::new(candidate);
+    let stem_raw = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or(candidate);
+    let extension_raw = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("webm");
+
+    let stem = sanitize_file_component(stem_raw);
+    let extension = extension_raw
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_lowercase();
+
+    let normalized_extension = if extension.is_empty() {
+        "webm".to_string()
+    } else {
+        extension
+    };
+
+    (stem, normalized_extension)
+}
+
+fn unique_recording_path(dir: &Path, stem: &str, extension: &str) -> PathBuf {
+    let mut candidate = dir.join(format!("{stem}.{extension}"));
+    if !candidate.exists() {
+        return candidate;
+    }
+
+    let mut counter: u32 = 2;
+    loop {
+        candidate = dir.join(format!("{stem}-{counter}.{extension}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+        counter += 1;
+    }
 }
 
 fn ensure_sidecar_admin(is_admin: bool) -> Result<(), String> {
@@ -224,6 +320,28 @@ pub fn spacechatdb_record_experimental_call(app: AppHandle, record: Experimental
         .map_err(|e| format!("failed writing newline for experimental call record: {e}"))?;
 
     Ok("experimental SpaceChatDB STDB call recorded".to_string())
+}
+
+#[tauri::command]
+pub fn save_call_recording(app: AppHandle, suggested_name: String, bytes_base64: String) -> Result<String, String> {
+    let bytes = BASE64_STANDARD
+        .decode(bytes_base64.as_bytes())
+        .map_err(|e| format!("failed decoding recording bytes: {e}"))?;
+
+    if bytes.is_empty() {
+        return Err("recording output was empty".to_string());
+    }
+
+    let output_dir = recording_output_dir(&app)?;
+    let (stem, extension) = split_suggested_filename(&suggested_name);
+    let output_path = unique_recording_path(&output_dir, &stem, &extension);
+
+    fs::write(&output_path, bytes).map_err(|e| format!("failed writing recording file: {e}"))?;
+
+    output_path
+        .into_os_string()
+        .into_string()
+        .map_err(|_| "recording saved, but the output path was not valid UTF-8".to_string())
 }
 
 #[tauri::command]

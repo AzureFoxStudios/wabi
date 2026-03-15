@@ -282,22 +282,122 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 }
 
 /**
- * Store encryption keys in localStorage (for demo - in production, use secure storage)
+ * Encryption key storage with at-rest protection.
+ *
+ * Private keys are wrapped with AES-GCM using a key derived (PBKDF2) from
+ * a wrapping secret before being persisted to localStorage.  The wrapping
+ * secret should be session-scoped (e.g. the auth token kept in sessionStorage)
+ * so that raw private keys are never stored long-term.
+ *
+ * When no wrapping secret is available (e.g. the session has ended), the
+ * encrypted blob stays in localStorage and can be unlocked on the next login.
+ *
+ * Migration: on first load, any legacy plaintext keys are automatically
+ * wrapped and re-saved.
  */
 export const ENCRYPTION_STORAGE_KEY = 'wabi_encryption_keys';
 
-export function saveUserKeys(userId: number, publicKey: string, privateKey: string): void {
-	const keys = loadAllKeys();
-	keys[userId.toString()] = { publicKey, privateKey };
+// Module-level wrapping secret — set once per session via setKeyWrappingSecret()
+let wrappingSecret: string | null = null;
+
+export function setKeyWrappingSecret(secret: string | null): void {
+	wrappingSecret = secret;
+}
+
+async function deriveWrappingKey(secret: string, salt: Uint8Array): Promise<CryptoKey> {
+	const enc = new TextEncoder();
+	const keyMaterial = await window.crypto.subtle.importKey(
+		'raw', enc.encode(secret), 'PBKDF2', false, ['deriveKey']
+	);
+	return window.crypto.subtle.deriveKey(
+		{ name: 'PBKDF2', salt: salt.buffer as ArrayBuffer, iterations: 100_000, hash: 'SHA-256' },
+		keyMaterial,
+		{ name: 'AES-GCM', length: 256 },
+		false,
+		['encrypt', 'decrypt']
+	);
+}
+
+async function wrapPrivateKey(privateKeyB64: string, secret: string): Promise<string> {
+	const salt = window.crypto.getRandomValues(new Uint8Array(16));
+	const iv = window.crypto.getRandomValues(new Uint8Array(12));
+	const wrappingKey = await deriveWrappingKey(secret, salt);
+	const enc = new TextEncoder();
+	const ciphertext = await window.crypto.subtle.encrypt(
+		{ name: 'AES-GCM', iv },
+		wrappingKey,
+		enc.encode(privateKeyB64)
+	);
+	// Format: base64(salt) . base64(iv) . base64(ciphertext)
+	return `${arrayBufferToBase64(salt)}.${arrayBufferToBase64(iv)}.${arrayBufferToBase64(ciphertext)}`;
+}
+
+async function unwrapPrivateKey(wrapped: string, secret: string): Promise<string> {
+	const parts = wrapped.split('.');
+	if (parts.length !== 3) throw new Error('Invalid wrapped key format');
+	const salt = new Uint8Array(base64ToArrayBuffer(parts[0]));
+	const iv = new Uint8Array(base64ToArrayBuffer(parts[1]));
+	const ciphertext = base64ToArrayBuffer(parts[2]);
+	const wrappingKey = await deriveWrappingKey(secret, salt);
+	const plaintext = await window.crypto.subtle.decrypt(
+		{ name: 'AES-GCM', iv },
+		wrappingKey,
+		ciphertext
+	);
+	return new TextDecoder().decode(plaintext);
+}
+
+function isWrappedKey(value: string): boolean {
+	// Wrapped keys have the 3-part dot-separated format
+	return typeof value === 'string' && value.split('.').length === 3;
+}
+
+interface StoredKeyEntry {
+	publicKey: string;
+	privateKey: string; // may be plaintext (legacy) or wrapped (3-part dot format)
+}
+
+export async function saveUserKeys(userId: number, publicKey: string, privateKey: string): Promise<void> {
+	const keys = loadAllKeysRaw();
+	const wrappedPrivate = wrappingSecret ? await wrapPrivateKey(privateKey, wrappingSecret) : privateKey;
+	keys[userId.toString()] = { publicKey, privateKey: wrappedPrivate };
 	localStorage.setItem(ENCRYPTION_STORAGE_KEY, JSON.stringify(keys));
 }
 
-export function loadUserKeys(userId: number): { publicKey: string; privateKey: string } | null {
-	const keys = loadAllKeys();
-	return keys[userId.toString()] || null;
+export async function loadUserKeys(userId: number): Promise<{ publicKey: string; privateKey: string } | null> {
+	const keys = loadAllKeysRaw();
+	const entry = keys[userId.toString()];
+	if (!entry) return null;
+
+	// If the stored key is wrapped, try to unwrap it
+	if (isWrappedKey(entry.privateKey)) {
+		if (!wrappingSecret) {
+			// Can't decrypt without wrapping secret — keys exist but are locked
+			return null;
+		}
+		try {
+			const decryptedPrivate = await unwrapPrivateKey(entry.privateKey, wrappingSecret);
+			return { publicKey: entry.publicKey, privateKey: decryptedPrivate };
+		} catch {
+			console.warn('[Encryption] Failed to unwrap private key — secret may have changed');
+			return null;
+		}
+	}
+
+	// Legacy plaintext key — migrate to wrapped format on load
+	if (wrappingSecret) {
+		try {
+			const wrappedPrivate = await wrapPrivateKey(entry.privateKey, wrappingSecret);
+			keys[userId.toString()] = { publicKey: entry.publicKey, privateKey: wrappedPrivate };
+			localStorage.setItem(ENCRYPTION_STORAGE_KEY, JSON.stringify(keys));
+		} catch {
+			// Migration failed, still return the plaintext key
+		}
+	}
+	return { publicKey: entry.publicKey, privateKey: entry.privateKey };
 }
 
-function loadAllKeys(): Record<string, { publicKey: string; privateKey: string }> {
+function loadAllKeysRaw(): Record<string, StoredKeyEntry> {
 	try {
 		const stored = localStorage.getItem(ENCRYPTION_STORAGE_KEY);
 		return stored ? JSON.parse(stored) : {};

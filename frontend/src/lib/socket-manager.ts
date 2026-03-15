@@ -22,21 +22,56 @@ import { browser } from '$app/environment';
 import { showNotification, messageMentionsUser } from './notifications';
 import { initEmotes, addEmote, removeEmote } from './markdown';
 import { chatStorage } from './storage';
+import { getChannelFollowPreference } from './following';
+import { isChannelFollowed } from './following';
+import {
+	markFollowedChannelRead,
+	recordFollowedMessageActivity,
+	syncFollowedChannelSnapshot
+} from './followingSnapshots';
+import { setRecordingPresence } from './callRecordingPresence';
 import * as calling from './calling';
-import type { FileAttachment, Message, Emoji, User, Channel } from './socket-types';
-import { emojis } from './emoji-store';
-import { getServerUrl } from './serverUrl';
-import { authStore } from './authStore';
-import { clearGuestSessionId, getAuthToken, getGuestSessionId, setGuestSessionId } from './authSession';
-import { encryptDMMessage, decryptDMMessage, isE2EAvailable } from './e2eManager';
-import { getDMPrivacyMode } from './dmPrivacyMode';
-import { mobileTabQueue } from './mobileTabQueue';
+import type { FileAttachment, Message, Emoji, User, Channel, MessageEntity, VoiceChannelSettings } from './socket-types';
+	import { emojis } from './emoji-store';
+	import { getServerUrl } from './serverUrl';
+	import { authStore } from './authStore';
+	import {
+		clearGuestSessionId,
+		getAuthToken,
+		getGuestSessionId,
+		getStoredDbUserId,
+		setGuestSessionId,
+		setStoredDbUserId,
+		setStoredUsername
+	} from './authSession';
+	import { encryptDMMessage, decryptDMMessagePayload, isE2EAvailable } from './e2eManager';
+	import { getDMPrivacyMode } from './dmPrivacyMode';
+	import { mobileTabQueue } from './mobileTabQueue';
+	import { emitPaymentRealtimeEvent } from './paymentRealtime';
+	import { currentSavedServer, recordSuccessfulServerConnection } from './savedServers';
+	import { consumePendingChannelNavigation } from './pendingServerNavigation';
+
+function getFollowSnapshotServerInfo(): { serverUrl: string; serverName: string | null } {
+	return {
+		serverUrl: getServerUrl(),
+		serverName: get(currentSavedServer)?.effectiveName || null
+	};
+}
 
 function getSelfStableIdForSocketId(socketId: string | null | undefined): string | null {
 	if (!socketId) return null;
 	const me = get(currentUser);
 	if (me?.id === socketId) {
 		return typeof me.dbUserId === 'number' ? `user-${me.dbUserId}` : me.id;
+	}
+	if (browser && socketId === get(socket)?.id) {
+		if (typeof me?.dbUserId === 'number') {
+			return `user-${me.dbUserId}`;
+		}
+		const storedDbUserId = getStoredDbUserId();
+		if (typeof storedDbUserId === 'number' && Number.isFinite(storedDbUserId) && storedDbUserId > 0) {
+			return `user-${storedDbUserId}`;
+		}
 	}
 	const onlineUsers = get(users);
 	const socketUser = onlineUsers.find((u) => u.id === socketId);
@@ -64,6 +99,28 @@ function resolveOtherDmDbUserId(channel: Channel, socketId?: string | null): num
 	return typeof candidate === 'number' ? candidate : null;
 }
 
+function isFocusedAudioChannel(channel: Channel | undefined | null): boolean {
+	return Boolean(channel?.type === 'voice' && channel.voiceSettings?.forceSolo);
+}
+
+function getChannelById(channelId: string | null | undefined): Channel | undefined {
+	if (!channelId) return undefined;
+	return get(channels).find((channel) => channel.id === channelId);
+}
+
+function getPrimaryCallingChannelId(): string | null {
+	return get(calling.activeVoiceChannel)?.id || null;
+}
+
+function enforceFocusedAudioState(sock: Socket, focusedChannelId: string): void {
+	const subscribedChannels = get(calling.listeningVoiceChannels);
+	for (const channelId of subscribedChannels) {
+		if (channelId === focusedChannelId) continue;
+		calling.removeVoiceChannelListen(sock, channelId);
+	}
+	calling.setVoiceTransmitRoutingMode('primary');
+}
+
 /**
  * Decrypt an array of messages for a DM channel (in-place mutation of text field).
  * Skips non-encrypted messages. Requires channel to be a DM with a known otherUser.dbUserId.
@@ -83,7 +140,9 @@ async function decryptMessagesForChannel(channelId: string, messages: Message[])
 	await Promise.all(
 		messages.map(async (msg) => {
 			if (msg.encrypted && msg.iv) {
-				msg.text = await decryptDMMessage(msg, otherDbUserId, token);
+				const payload = await decryptDMMessagePayload(msg, otherDbUserId, token);
+				msg.text = payload.text;
+				msg.entities = payload.entities;
 			}
 		})
 	);
@@ -213,6 +272,8 @@ class SocketManager {
 	private socket: Socket | null = null;
 	private username: string = '';
 	private authToken: string | null = null;
+	private pendingIncomingMessages = new Map<string, Message[]>();
+	private incomingMessageFlushHandle: number | ReturnType<typeof setTimeout> | null = null;
 
 	// State machine
 	private state: ConnectionState = 'disconnected';
@@ -235,6 +296,137 @@ class SocketManager {
 	// Listener tracking for clean rebinding
 	private boundListeners: Set<string> = new Set();
 
+	private scheduleIncomingMessageFlush(): void {
+		if (this.incomingMessageFlushHandle !== null) return;
+
+		if (browser && typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+			this.incomingMessageFlushHandle = window.requestAnimationFrame(() => {
+				this.incomingMessageFlushHandle = null;
+				this.flushIncomingMessages();
+			});
+			return;
+		}
+
+		this.incomingMessageFlushHandle = setTimeout(() => {
+			this.incomingMessageFlushHandle = null;
+			this.flushIncomingMessages();
+		}, 16);
+	}
+
+	private queueIncomingMessage(channelId: string, message: Message): void {
+		const queued = this.pendingIncomingMessages.get(channelId) || [];
+		if (queued.some((entry) => entry.id === message.id)) return;
+		queued.push(message);
+		this.pendingIncomingMessages.set(channelId, queued);
+		this.scheduleIncomingMessageFlush();
+	}
+
+	private flushIncomingMessages(): void {
+		if (this.pendingIncomingMessages.size === 0) return;
+
+		const pendingByChannel = this.pendingIncomingMessages;
+		this.pendingIncomingMessages = new Map();
+		const addedMessages: Array<{ channelId: string; message: Message }> = [];
+
+		channelMessages.update((msgs) => {
+			let changed = false;
+			const next = { ...msgs };
+
+			for (const [channelId, pendingMessages] of pendingByChannel.entries()) {
+				if (pendingMessages.length === 0) continue;
+				const existing = next[channelId] || [];
+				const existingIds = new Set(existing.map((message) => message.id));
+				const additions = pendingMessages.filter((message) => !existingIds.has(message.id));
+				if (additions.length === 0) continue;
+
+				next[channelId] = [...existing, ...additions];
+				for (const message of additions) {
+					addedMessages.push({ channelId, message });
+				}
+				changed = true;
+			}
+
+			return changed ? next : msgs;
+		});
+
+		if (addedMessages.length === 0) return;
+
+		const channelList = get(channels);
+		const currentChannelId = get(currentChannel);
+		const currentUserRecord = get(currentUser);
+		const myUsername = currentUserRecord?.username || null;
+		const onlineUsers = get(users);
+		const currentSocketId = this.socket?.id || null;
+		const currentStableId = getSelfStableIdForSocketId(currentSocketId);
+
+		for (const { channelId, message } of addedMessages) {
+			const channel = channelList.find((entry) => entry.id === channelId);
+			if (channel?.persistMessages) {
+				void chatStorage.saveMessage(channelId, message).catch((error) => {
+					console.warn('[SocketManager] Failed to persist message in IndexedDB:', error);
+				});
+			}
+
+			const isCurrentUser =
+				(currentSocketId !== null && message.userId === currentSocketId) ||
+				(currentStableId !== null && message.userId === currentStableId);
+			if (isCurrentUser) {
+				continue;
+			}
+
+			const isCurrentChannelActive = currentChannelId === channelId;
+			const isMention = messageMentionsUser(message, myUsername);
+			const shouldNotify = document.hidden || !isCurrentChannelActive || isMention;
+			const followPreference = getChannelFollowPreference(channelId);
+			const shouldShowNotification =
+				shouldNotify &&
+				(!followPreference || followPreference.alertLevel === 'all' || isMention);
+			let dmClickTarget: User | null = null;
+			if (shouldShowNotification && channel?.type === 'dm') {
+				if (channel.otherUser) {
+					dmClickTarget = channel.otherUser;
+				} else {
+					const myStableId = currentUserRecord?.dbUserId ? `user-${currentUserRecord.dbUserId}` : currentUserRecord?.id;
+					const otherStableId = (channel.members || []).find((id) => id !== myStableId);
+					if (otherStableId?.startsWith('user-')) {
+						const dbId = parseInt(otherStableId.substring(5), 10);
+						dmClickTarget = onlineUsers.find((user) => user.dbUserId === dbId) || null;
+					} else if (otherStableId) {
+						dmClickTarget = onlineUsers.find((user) => user.id === otherStableId) || null;
+					}
+				}
+			}
+
+			if (shouldShowNotification) {
+				showNotification(message, isCurrentUser, channel?.name, {
+					isMention,
+					isCurrentChannelActive,
+					onClick: dmClickTarget
+						? () => {
+							currentChannel.set(channelId);
+							dmPanelSignal.set({ channelId, otherUser: dmClickTarget });
+						}
+						: undefined
+				});
+			}
+
+			if (!isCurrentUser && (!isCurrentChannelActive || document.hidden)) {
+				this.incrementUnreadCount(channelId, message.id);
+			}
+
+			if (channel && isChannelFollowed(channelId)) {
+				const { serverUrl, serverName } = getFollowSnapshotServerInfo();
+				recordFollowedMessageActivity({
+					serverUrl,
+					serverName,
+					channel,
+					message,
+					incrementUnread: !isCurrentUser && (!isCurrentChannelActive || document.hidden)
+				});
+			}
+		}
+	}
+
 	private applyVoiceState(state: Record<string, VoiceChannelParticipant[]> | undefined): void {
 		if (!state) return;
 		voiceChannelMembers.set(state);
@@ -255,13 +447,6 @@ class SocketManager {
 		activeVoiceChannel.set(connectedChannel);
 	}
 
-	private getStoredDbUserId(): number | null {
-		const raw = this.safeLocalStorageGet('dbUserId');
-		if (!raw) return null;
-		const parsed = Number.parseInt(raw, 10);
-		return Number.isNaN(parsed) ? null : parsed;
-	}
-
 	private resolveCurrentUser(userList: User[], socketId?: string): User | null {
 		if (socketId) {
 			const bySocketId = userList.find(user => user.id === socketId);
@@ -279,7 +464,7 @@ class SocketManager {
 			if (byCurrentId) return byCurrentId;
 		}
 
-		const storedDbUserId = this.getStoredDbUserId();
+		const storedDbUserId = getStoredDbUserId();
 		if (storedDbUserId) {
 			const byStoredDbUserId = userList.find(user => user.dbUserId === storedDbUserId);
 			if (byStoredDbUserId) return byStoredDbUserId;
@@ -481,6 +666,16 @@ class SocketManager {
 	// ==================== PRIVATE: Socket Lifecycle ====================
 
 	private destroySocket(): void {
+		if (this.incomingMessageFlushHandle !== null) {
+			if (browser && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function' && typeof this.incomingMessageFlushHandle === 'number') {
+				window.cancelAnimationFrame(this.incomingMessageFlushHandle);
+			} else {
+				clearTimeout(this.incomingMessageFlushHandle as ReturnType<typeof setTimeout>);
+			}
+			this.incomingMessageFlushHandle = null;
+		}
+		this.pendingIncomingMessages.clear();
+
 		if (this.socket) {
 			// Remove all listeners to prevent memory leaks
 			// This is safe because we're about to destroy the socket
@@ -698,7 +893,7 @@ class SocketManager {
 			serverMembers?: User[];
 			excalidrawState: any;
 			emotes: any[];
-			emojis: Emoji[];
+			emojis?: Emoji[];
 			roleDefinitions?: RoleDefinition[];
 			voiceState?: Record<string, VoiceChannelParticipant[]>;
 			sessionId?: string;
@@ -752,9 +947,21 @@ class SocketManager {
 			const user = this.resolveCurrentUser(data.users, sock.id);
 			if (user) {
 				currentUser.set(user);
+				setStoredUsername(user.username || this.username);
+				setStoredDbUserId(user.dbUserId ?? null);
+				recordSuccessfulServerConnection({
+					url: getServerUrl(),
+					username: user.username || this.username,
+					dbUserId: user.dbUserId ?? null
+				});
 				this.updatePinnedChannels();
 			} else {
 				console.warn('[SocketManager] Could not resolve current user from init payload');
+				recordSuccessfulServerConnection({
+					url: getServerUrl(),
+					username: this.username,
+					dbUserId: getStoredDbUserId()
+				});
 			}
 
 			// On reconnect, sync newer messages for the current channel
@@ -772,8 +979,23 @@ class SocketManager {
 				}
 			}
 
-			sock.emit('join-channel', 'general');
+			const pendingChannelId = consumePendingChannelNavigation(getServerUrl());
+			const initialChannelId =
+				(pendingChannelId && processedChannels.some((channel) => channel.id === pendingChannelId)
+					? pendingChannelId
+					: processedChannels.some((channel) => channel.id === 'general')
+						? 'general'
+						: processedChannels[0]?.id) || 'general';
+			currentChannel.set(initialChannelId);
+			mobileTabQueue.setActiveChannel(initialChannelId);
+			markChannelAsRead(initialChannelId);
+			sock.emit('join-channel', initialChannelId);
+			sock.emit('get-emojis');
 			sock.emit('get-role-definitions');
+		});
+
+		sock.on('emojis-list', (data: Emoji[]) => {
+			emojis.set(data || []);
 		});
 
 		sock.on('role-definitions-updated', (data: { roles: RoleDefinition[] }) => {
@@ -851,6 +1073,18 @@ class SocketManager {
 				console.warn('[SocketManager] Failed snapshot reconciliation in IndexedDB:', error);
 			});
 
+			const snapshotChannel = get(channels).find((channel) => channel.id === data.channelId);
+			if (snapshotChannel && isChannelFollowed(data.channelId)) {
+				const { serverUrl, serverName } = getFollowSnapshotServerInfo();
+				syncFollowedChannelSnapshot(
+					serverUrl,
+					serverName,
+					snapshotChannel,
+					get(channelMessages)[data.channelId] || data.messages,
+					get(channelUnreadCounts)[data.channelId] || 0
+				);
+			}
+
 			// Initialize pagination state from server response
 			if (data.hasMore !== undefined) {
 				channelHasMoreHistory.update(s => ({ ...s, [data.channelId]: data.hasMore }));
@@ -894,6 +1128,18 @@ class SocketManager {
 			channelHasMoreHistory.update(s => ({ ...s, [data.channelId]: data.hasMore }));
 			channelHistoryLoading.update(s => ({ ...s, [data.channelId]: false }));
 
+			const snapshotChannel = get(channels).find((channel) => channel.id === data.channelId);
+			if (snapshotChannel && isChannelFollowed(data.channelId)) {
+				const { serverUrl, serverName } = getFollowSnapshotServerInfo();
+				syncFollowedChannelSnapshot(
+					serverUrl,
+					serverName,
+					snapshotChannel,
+					get(channelMessages)[data.channelId] || data.messages,
+					get(channelUnreadCounts)[data.channelId] || 0
+				);
+			}
+
 			// Track oldest message for pagination
 			if (data.messages.length > 0 && (data.direction === 'older' || data.direction === 'initial')) {
 				const oldestMsg = data.messages[0];
@@ -915,60 +1161,73 @@ class SocketManager {
 				await decryptMessagesForChannel(data.channelId, [data.message]);
 			}
 
-			channelMessages.update(msgs => {
-				const channelMsgs = msgs[data.channelId] || [];
-				if (channelMsgs.some(m => m.id === data.message.id)) return msgs;
-				return { ...msgs, [data.channelId]: [...channelMsgs, data.message] };
-			});
-
-			const channelList = get(channels);
-			const channel = channelList.find(ch => ch.id === data.channelId);
-			if (channel?.persistMessages) {
-				chatStorage.saveMessage(data.channelId, data.message);
-			}
-
-			const isCurrentUser = data.message.userId === sock.id;
-			const currentChannelId = get(currentChannel);
-			const isCurrentChannelActive = currentChannelId === data.channelId;
-			const myUsername = get(currentUser)?.username || null;
-			const isMention = messageMentionsUser(data.message, myUsername);
-			const dmClickTarget = (() => {
-				if (!channel || channel.type !== 'dm') return null;
-				if (channel.otherUser) return channel.otherUser;
-				const me = get(currentUser);
-				const myStableId = me?.dbUserId ? `user-${me.dbUserId}` : me?.id;
-				const otherStableId = (channel.members || []).find(id => id !== myStableId);
-				if (!otherStableId) return null;
-				if (otherStableId.startsWith('user-')) {
-					const dbId = parseInt(otherStableId.substring(5), 10);
-					return get(users).find(u => u.dbUserId === dbId) || null;
-				}
-				return get(users).find(u => u.id === otherStableId) || null;
-			})();
-
-			showNotification(data.message, isCurrentUser, channel?.name, {
-				isMention,
-				isCurrentChannelActive,
-				onClick: dmClickTarget
-					? () => {
-						currentChannel.set(data.channelId);
-						dmPanelSignal.set({ channelId: data.channelId, otherUser: dmClickTarget });
-					}
-					: undefined
-			});
-
-			if (!isCurrentUser && (!isCurrentChannelActive || document.hidden)) {
-				this.incrementUnreadCount(data.channelId, data.message.id);
-			}
+			this.queueIncomingMessage(data.channelId, data.message);
 		});
 
 		sock.on('message-edited', (data: { channelId: string; messageId: string; newText: string }) => {
 			channelMessages.update(msgs => ({
 				...msgs,
 				[data.channelId]: (msgs[data.channelId] || []).map(msg =>
-					msg.id === data.messageId ? { ...msg, text: data.newText, isEdited: true } : msg
+					msg.id === data.messageId ? { ...msg, text: data.newText, isEdited: true, entities: [] } : msg
 				)
 			}));
+		});
+
+		sock.on('message-persist-failed', (data: {
+			channelId: string;
+			messageId: string;
+			error?: string;
+			detail?: string;
+			attempts?: number;
+		}) => {
+			console.warn(
+				`[SocketManager] Message ${data.messageId} failed to persist: ${data.detail || data.error || 'unknown error'}`
+			);
+			channelMessages.update(msgs => ({
+				...msgs,
+				[data.channelId]: (msgs[data.channelId] || []).map(msg =>
+					msg.id === data.messageId
+						? {
+							...msg,
+							persistenceState: 'failed',
+							persistenceError: data.error || 'Message was shown, but it was not saved.',
+							persistenceAttempts: Math.max(1, Math.floor(data.attempts || 1))
+						}
+						: msg
+				)
+			}));
+
+			void chatStorage.deleteMessage(data.channelId, data.messageId).catch((error) => {
+				console.warn('[SocketManager] Failed to remove unsaved message from IndexedDB:', error);
+			});
+		});
+
+		sock.on('message-persisted', (data: { channelId: string; messageId: string; attempts?: number }) => {
+			let persistedMessage: Message | null = null;
+			channelMessages.update(msgs => {
+				const channelMsgs = msgs[data.channelId] || [];
+				return {
+					...msgs,
+					[data.channelId]: channelMsgs.map(msg => {
+						if (msg.id !== data.messageId) return msg;
+						const nextMessage: Message = {
+							...msg,
+							persistenceState: undefined,
+							persistenceError: undefined,
+							persistenceAttempts: undefined
+						};
+						persistedMessage = nextMessage;
+						return nextMessage;
+					})
+				};
+			});
+
+			if (!persistedMessage) return;
+			const channel = get(channels).find((entry) => entry.id === data.channelId);
+			if (!channel?.persistMessages) return;
+			void chatStorage.saveMessage(data.channelId, persistedMessage).catch((error) => {
+				console.warn('[SocketManager] Failed to save retried message to IndexedDB:', error);
+			});
 		});
 
 		sock.on('message-deleted', (data: { channelId: string; messageId: string }) => {
@@ -1044,8 +1303,17 @@ class SocketManager {
 			);
 		});
 
-		sock.on('user-left', (data: { id: string; username: string }) => {
-			users.update(u => u.filter(user => user.id !== data.id));
+		sock.on('user-left', (data: { id: string; username: string; dbUserId?: number; joinedAt?: number | null }) => {
+			users.update(existingUsers => existingUsers.filter(user => {
+				const sameUser =
+					user.id === data.id ||
+					(!!data.dbUserId && !!user.dbUserId && user.dbUserId === data.dbUserId);
+				if (!sameUser) return true;
+				if (typeof data.joinedAt === 'number' && typeof user.joinedAt === 'number' && user.joinedAt !== data.joinedAt) {
+					return true;
+				}
+				return false;
+			}));
 		});
 
 		sock.on('typing', (data: { channelId: string; usernames: string[] }) => {
@@ -1149,6 +1417,7 @@ class SocketManager {
 			watchQueueEnabled?: boolean;
 			minRole?: string;
 			name?: string;
+			voiceSettings?: VoiceChannelSettings;
 		}) => {
 			channels.update(chs => chs.map(ch =>
 				ch.id === data.channelId
@@ -1159,10 +1428,25 @@ class SocketManager {
 						...(data.minRole !== undefined ? { minRole: data.minRole } : {}),
 						...(data.description !== undefined ? { description: data.description } : {}),
 						...(data.watchQueueEnabled !== undefined ? { watchQueueEnabled: data.watchQueueEnabled } : {}),
-						...(data.name !== undefined ? { name: data.name } : {})
+						...(data.name !== undefined ? { name: data.name } : {}),
+						...(data.voiceSettings !== undefined ? { voiceSettings: data.voiceSettings } : {})
 					}
 					: ch
 			));
+
+			const updatedChannel = getChannelById(data.channelId);
+			if (!updatedChannel || !isFocusedAudioChannel(updatedChannel)) return;
+
+			const primaryChannelId = getPrimaryCallingChannelId();
+			if (primaryChannelId === data.channelId) {
+				enforceFocusedAudioState(sock, data.channelId);
+				return;
+			}
+
+			if (get(calling.listeningVoiceChannels).includes(data.channelId)) {
+				calling.removeVoiceChannelListen(sock, data.channelId);
+				alert(`Focused audio was enabled for ${updatedChannel.name}. It can no longer be a secondary listen-in channel.`);
+			}
 		});
 
 		// ==================== DM/GROUP EVENTS ====================
@@ -1433,6 +1717,14 @@ class SocketManager {
 			calling.removeScreenShare(data.userId);
 		});
 
+		sock.on('call-recording-presence', (data: {
+			scope: 'direct' | 'group' | 'channel';
+			channelId?: string;
+			participants: Array<{ userId: string; socketId?: string; username?: string; profilePicture?: string }>;
+		}) => {
+			setRecordingPresence(data.scope, data.participants || [], data.channelId);
+		});
+
 		sock.on('call-offer', (data: { offer: RTCSessionDescriptionInit; senderId: string; username: string; channelId?: string }) => {
 			if (data.channelId && calling.isSfuMediaTransportActive()) {
 				return;
@@ -1568,6 +1860,57 @@ class SocketManager {
 
 		sock.on('p2p-ice-candidate', (data: { transferId: string; senderId: string; candidate: RTCIceCandidateInit }) => {
 			handleP2PIceCandidate(data);
+		});
+
+		sock.on('payments:intent-updated', (data: {
+			workspaceId: string;
+			intentId: string;
+			status: string;
+			channelId: string | null;
+			isDonation: boolean;
+		}) => {
+			emitPaymentRealtimeEvent('payments:intent-updated', data);
+		});
+
+		sock.on('payments:donations-updated', (data: {
+			workspaceId: string;
+			reason: string;
+			intentId?: string | null;
+			settlementId?: string | null;
+			status?: string | null;
+		}) => {
+			emitPaymentRealtimeEvent('payments:donations-updated', data);
+		});
+
+		sock.on('payments:donations-admin-updated', (data: {
+			workspaceId: string;
+			reason: string;
+			intentId?: string | null;
+			settlementId?: string | null;
+			status?: string | null;
+		}) => {
+			emitPaymentRealtimeEvent('payments:donations-admin-updated', data);
+		});
+
+		sock.on('manual-cash:updated', (data: {
+			workspaceId: string;
+			settlementId: string;
+			channelId: string;
+			status: string;
+		}) => {
+			emitPaymentRealtimeEvent('manual-cash:updated', data);
+		});
+
+		sock.on('payments:account-links-updated', (data: { workspaceId: string }) => {
+			emitPaymentRealtimeEvent('payments:account-links-updated', data);
+		});
+
+		sock.on('payments:user-blocks-updated', (data: { workspaceId: string; userId?: number | null }) => {
+			emitPaymentRealtimeEvent('payments:user-blocks-updated', data);
+		});
+
+		sock.on('payments:access-updated', (data: { workspaceId: string; userId?: number | null }) => {
+			emitPaymentRealtimeEvent('payments:access-updated', data);
 		});
 
 		// Mark all listeners as bound
@@ -1729,6 +2072,20 @@ class SocketManager {
 			channelMessages.set(deduped);
 		}
 
+		const { serverUrl, serverName } = getFollowSnapshotServerInfo();
+		for (const channel of processedChannels) {
+			if (!isChannelFollowed(channel.id, serverUrl)) continue;
+			const messages = get(channelMessages)[channel.id] || [];
+			if (messages.length === 0) continue;
+			syncFollowedChannelSnapshot(
+				serverUrl,
+				serverName,
+				channel,
+				messages,
+				get(channelUnreadCounts)[channel.id] || 0
+			);
+		}
+
 		const loadedArchives: Record<string, Set<string>> = {};
 		for (const channelId of Object.keys(result.messages)) {
 			const channelConfig = processedChannels.find(ch => ch.id === channelId);
@@ -1828,6 +2185,10 @@ export async function joinVoiceChannel(channelId: string): Promise<void> {
 	if (!sock) {
 		throw new Error('Socket not connected');
 	}
+	const targetChannel = getChannelById(channelId);
+	if (isFocusedAudioChannel(targetChannel)) {
+		enforceFocusedAudioState(sock, channelId);
+	}
 	await calling.joinVoiceChannel(sock, channelId);
 }
 
@@ -1842,6 +2203,19 @@ export async function leaveVoiceChannel(channelId: string): Promise<void> {
 export function subscribeVoiceChannel(channelId: string): void {
 	const sock = socketManager.getSocket();
 	if (!sock) return;
+	const targetChannel = getChannelById(channelId);
+	const primaryChannel = getChannelById(getPrimaryCallingChannelId());
+	if (isFocusedAudioChannel(primaryChannel) && primaryChannel?.id !== channelId) {
+		alert(`${primaryChannel?.name || 'This voice channel'} is focused audio only. Leave it before listening elsewhere.`);
+		return;
+	}
+	if (isFocusedAudioChannel(targetChannel) && getPrimaryCallingChannelId() !== channelId) {
+		enforceFocusedAudioState(sock, channelId);
+		void calling.joinVoiceChannel(sock, channelId).catch((error) => {
+			console.error('Failed to switch into focused audio channel:', error);
+		});
+		return;
+	}
 	calling.addVoiceChannelListen(sock, channelId);
 }
 
@@ -1869,6 +2243,10 @@ export function closeBreakoutRooms(parentChannelId: string): void {
 
 export function moveUserToBreakout(parentChannelId: string, targetUserId: string, toChannelId: string): void {
 	socketManager.emit('move-user-to-breakout', { parentChannelId, targetUserId, toChannelId });
+}
+
+export function moveUserToVoiceChannel(targetUserId: string, toChannelId: string): void {
+	socketManager.emit('move-user-to-voice-channel', { targetUserId, toChannelId });
 }
 
 export function createThread(parentChannelId: string, name: string, options?: {
@@ -1914,6 +2292,7 @@ export async function sendMessage(channelId: string, text: string, type: 'text' 
 	replyTo?: string;
 	isSpoiler?: boolean;
 	roleGatePersist?: boolean;
+	entities?: MessageEntity[];
 }): Promise<void> {
 	const payload: Record<string, any> = { channelId, text, type, ...options };
 	const channel = get(channels).find(ch => ch.id === channelId);
@@ -1938,11 +2317,12 @@ export async function sendMessage(channelId: string, text: string, type: 'text' 
 		if (otherDbUserId && isE2EAvailable()) {
 			const token = browser ? getAuthToken() : null;
 			if (token) {
-				const encrypted = await encryptDMMessage(text, otherDbUserId, token);
+				const encrypted = await encryptDMMessage(text, otherDbUserId, token, options?.entities);
 				if (encrypted) {
 					payload.text = encrypted.text;
 					payload.encrypted = encrypted.encrypted;
 					payload.iv = encrypted.iv;
+					delete payload.entities;
 				} else {
 					const allowPlaintext = confirmUnencryptedDmFallback();
 					if (!allowPlaintext) return;
@@ -1969,6 +2349,22 @@ export async function sendMessage(channelId: string, text: string, type: 'text' 
 	}
 
 	socketManager.emit('message', payload);
+}
+
+export function retryMessagePersistence(channelId: string, messageId: string): void {
+	channelMessages.update(msgs => ({
+		...msgs,
+		[channelId]: (msgs[channelId] || []).map(msg =>
+			msg.id === messageId
+				? {
+					...msg,
+					persistenceState: 'retrying',
+					persistenceError: undefined
+				}
+				: msg
+		)
+	}));
+	socketManager.emit('retry-message-persist', { channelId, messageId });
 }
 
 export function editMessage(channelId: string, messageId: string, newText: string): void {
@@ -2031,6 +2427,7 @@ export function markChannelAsRead(channelId: string): void {
 		}
 	}
 
+	markFollowedChannelRead(getServerUrl(), channelId);
 	updateBrowserTitle();
 }
 
@@ -2203,6 +2600,7 @@ export function updateChannelSettings(channelId: string, settings: {
 	watchQueueEnabled?: boolean;
 	minRole?: string;
 	name?: string;
+	voiceSettings?: VoiceChannelSettings;
 }): void {
 	socketManager.emit('update-channel-settings', { channelId, ...settings });
 }

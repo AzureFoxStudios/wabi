@@ -77,6 +77,15 @@ export function getConfiguredServerUrl(): string | null {
 	return null;
 }
 
+export function getConfiguredServerRememberPreference(): boolean {
+	if (!browser) return true;
+	try {
+		return localStorage.getItem(PERSISTED_REMEMBER_KEY) !== 'false';
+	} catch {
+		return true;
+	}
+}
+
 export function setConfiguredServerUrl(value: string, remember: boolean): string {
 	const normalized = normalizeServerUrl(migrateLegacyLocalPort(value));
 	if (!normalized) {

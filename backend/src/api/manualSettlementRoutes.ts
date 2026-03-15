@@ -8,6 +8,7 @@ import {
 	type ManualCashConversationRow,
 	type ManualSettlementStatus
 } from '../db/repositories/manualSettlementRepository.js';
+import { notifyManualCashUpdated } from '../payments/realtime.js';
 
 const MAX_MANUAL_SETTLEMENT_BODY_BYTES = Math.max(
 	1024,
@@ -314,6 +315,13 @@ export async function handleCreateManualCashSettlement(
 						canDispute: true
 				  }
 		});
+		notifyManualCashUpdated({
+			workspaceId: DEFAULT_WORKSPACE_ID,
+			settlementId: created.settlement_id,
+			channelId,
+			participantUserIds: [userId, context.otherUserId],
+			status: created.status
+		});
 	} catch (error) {
 		console.error('[ManualCash] Failed to create settlement:', error);
 		writeJson(res, 500, { success: false, error: 'Failed to create manual cash trade' });
@@ -416,6 +424,15 @@ async function handleManualCashStateMutation(
 	writeJson(res, 200, {
 		success: true,
 		settlement: toManualCashResponse(updatedRow, userId)
+	});
+	notifyManualCashUpdated({
+		workspaceId: DEFAULT_WORKSPACE_ID,
+		settlementId,
+		channelId: updatedRow.channel_id || '',
+		participantUserIds: [updatedRow.created_by_user_id, updatedRow.counterparty_user_id || 0].filter(
+			(value): value is number => Number.isFinite(value) && value > 0
+		),
+		status: updatedRow.status
 	});
 }
 
