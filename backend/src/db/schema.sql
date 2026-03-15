@@ -229,6 +229,21 @@ CREATE TABLE IF NOT EXISTS messages (
   FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE CASCADE
 );
 
+-- Shared whiteboards (one board per scope for MVP)
+CREATE TABLE IF NOT EXISTS whiteboards (
+  board_id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+  scope_type TEXT NOT NULL DEFAULT 'channel',
+  scope_id TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  document_json TEXT NOT NULL,
+  is_private INTEGER DEFAULT 1,
+  created_by TEXT,
+  updated_by TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 -- Shared media albums (persistent per channel/DM scope)
 CREATE TABLE IF NOT EXISTS albums (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -269,6 +284,8 @@ CREATE INDEX IF NOT EXISTS idx_channel_members_registered_user ON channel_member
 CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(message_id);
 CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_whiteboards_scope ON whiteboards(scope_type, scope_id);
+CREATE INDEX IF NOT EXISTS idx_whiteboards_workspace_updated ON whiteboards(workspace_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_emoji_role_rules_lookup ON emoji_role_rules(channel_id, message_id, emoji_id, workspace_id);
 CREATE INDEX IF NOT EXISTS idx_albums_scope ON albums(scope_type, scope_id, is_featured DESC, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_albums_created_by ON albums(created_by, created_at DESC);

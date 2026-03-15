@@ -243,6 +243,38 @@ function runSqliteMigrations(): void {
 	} catch (e) {
 		console.error('[Database] Migration error creating dictionary_entries:', e);
 	}
+
+	try {
+		dbClient.exec(`
+			CREATE TABLE IF NOT EXISTS whiteboards (
+				board_id TEXT PRIMARY KEY,
+				workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
+				scope_type TEXT NOT NULL DEFAULT 'channel',
+				scope_id TEXT NOT NULL,
+				version INTEGER NOT NULL DEFAULT 1,
+				document_json TEXT NOT NULL,
+				is_private INTEGER DEFAULT 1,
+				created_by TEXT,
+				updated_by TEXT,
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL
+			)
+		`);
+		addColumnIfMissing('whiteboards', 'workspace_id', "TEXT NOT NULL DEFAULT 'default-workspace'");
+		addColumnIfMissing('whiteboards', 'scope_type', "TEXT NOT NULL DEFAULT 'channel'");
+		addColumnIfMissing('whiteboards', 'scope_id', 'TEXT');
+		addColumnIfMissing('whiteboards', 'version', 'INTEGER NOT NULL DEFAULT 1');
+		addColumnIfMissing('whiteboards', 'document_json', 'TEXT');
+		addColumnIfMissing('whiteboards', 'is_private', 'INTEGER DEFAULT 1');
+		addColumnIfMissing('whiteboards', 'created_by', 'TEXT');
+		addColumnIfMissing('whiteboards', 'updated_by', 'TEXT');
+		addColumnIfMissing('whiteboards', 'created_at', 'INTEGER NOT NULL DEFAULT 0');
+		addColumnIfMissing('whiteboards', 'updated_at', 'INTEGER NOT NULL DEFAULT 0');
+		dbClient.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_whiteboards_scope ON whiteboards(scope_type, scope_id)');
+		dbClient.exec('CREATE INDEX IF NOT EXISTS idx_whiteboards_workspace_updated ON whiteboards(workspace_id, updated_at DESC)');
+	} catch (e) {
+		console.error('[Database] Migration error creating whiteboards:', e);
+	}
 }
 
 function seedDefaultRoles(): void {

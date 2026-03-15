@@ -6910,6 +6910,7 @@
 																					{#if translatorSettingsSavedAt}
 																						<div class="runtime-note">Saved at {translatorSettingsSavedAt}</div>
 																					{/if}
+																				</div>
 											{/if}
 
 											{#if localAddonControlMatches('chat_aliases')}
