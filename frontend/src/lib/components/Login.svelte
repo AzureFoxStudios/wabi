@@ -299,11 +299,9 @@
 	});
 </script>
 
-{#if launchCustomCss}
 <svelte:head>
 	<style>{launchCustomCss}</style>
 </svelte:head>
-{/if}
 
 <div class="login-container" style={launchContainerStyle}>
 	<div class="login-shell" class:has-launch={!!activeLaunchPageConfig}>

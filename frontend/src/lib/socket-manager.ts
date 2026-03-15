@@ -891,7 +891,6 @@ class SocketManager {
 			channels: Channel[];
 			users: User[];
 			serverMembers?: User[];
-			excalidrawState: any;
 			emotes: any[];
 			emojis?: Emoji[];
 			roleDefinitions?: RoleDefinition[];
