@@ -67,6 +67,18 @@ function stableStringify(value: unknown): string {
 	return `{${entries.map(([key, v]) => `${JSON.stringify(key)}:${stableStringify(v)}`).join(',')}}`;
 }
 
+function decodeJwtExpiryMs(token: string): number | null {
+	try {
+		const parts = String(token || '').split('.');
+		if (parts.length < 2) return null;
+		const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+		if (typeof payload?.exp !== 'number') return null;
+		return Math.floor(payload.exp * 1000);
+	} catch {
+		return null;
+	}
+}
+
 function normalizeCell(value: unknown, algebraicType: unknown): unknown {
 	if (
 		Array.isArray(value) &&
@@ -85,7 +97,10 @@ function normalizeCell(value: unknown, algebraicType: unknown): unknown {
 }
 
 export function escapeSqlLiteral(value: string): string {
-	return `'${value.replace(/'/g, "''")}'`;
+	// Strip null bytes and control characters (U+0000-U+001F except tab/newline/CR)
+	const sanitized = value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+	// Escape single quotes (SQL standard) and backslashes (for backends that interpret them)
+	return `'${sanitized.replace(/\\/g, '\\\\').replace(/'/g, "''")}'`;
 }
 
 export function toStdbEventId(entity: string, operation: string, payload: unknown): string {
@@ -127,11 +142,14 @@ export class StdbSyncClient {
 	private lastError: string | null = null;
 	private lastErrorAt: number | null = null;
 	private lastLatencyMs: number | null = null;
+	private asyncAnonymousToken: string | null = null;
+	private asyncAnonymousTokenExpiresAt: number | null = null;
+	private tokenRefreshInFlight: Promise<string | null> | null = null;
 
 	constructor(options: StdbSyncClientOptions) {
 		this.server = normalizeServer(options.server);
 		this.database = options.database?.trim() || null;
-		this.timeoutMs = Math.max(100, Math.min(300000, Math.floor(options.timeoutMs || 10000)));
+		this.timeoutMs = Math.max(100, Math.min(30000, Math.floor(options.timeoutMs || 10000)));
 		this.authToken = options.authToken?.trim() || null;
 		this.anonymous = options.anonymous !== false;
 		this.helperPath = resolveHelperPath();
@@ -167,6 +185,15 @@ export class StdbSyncClient {
 			'--args-json',
 			JSON.stringify(args)
 		]);
+	}
+
+	async callReducerAsync(reducer: string, args: unknown[]): Promise<void> {
+		this.calls += 1;
+		await this.runHttpRequest(
+			`${this.server}/v1/database/${encodeURIComponent(this.database || '')}/call/${encodeURIComponent(reducer)}`,
+			'application/json',
+			JSON.stringify(args)
+		);
 	}
 
 	sql(query: string): StdbSqlResponse {
@@ -244,7 +271,7 @@ export class StdbSyncClient {
 		const stderr = (result.stderr || '').trim();
 		if (typeof result.status === 'number' && result.status !== 0) {
 			return this.fail(
-				`stdb_helper_exit_${result.status}${stderr ? `: ${stderr}` : ''}${stdout ? ` output=${stdout}` : ''}`
+				`stdb_helper_exit_${result.status}${stderr ? `: ${stderr.slice(0, 256)}` : ''}`
 			);
 		}
 		if (!stdout) {
@@ -260,11 +287,126 @@ export class StdbSyncClient {
 		}
 
 		if (!parsed || parsed.ok !== true) {
+			const errText = (parsed?.text || parsed?.statusText || 'unknown').slice(0, 256);
 			return this.fail(
-				`stdb_http_failure status=${parsed?.status ?? 'unknown'} text=${parsed?.text || parsed?.statusText || 'unknown'}`
+				`stdb_http_failure status=${parsed?.status ?? 'unknown'} text=${errText}`
 			);
 		}
 		return parsed;
+	}
+
+	private async resolveAsyncAuthToken(forceRefresh = false): Promise<string | null> {
+		if (this.authToken) {
+			return this.authToken;
+		}
+		if (!this.anonymous || !this.server) {
+			return null;
+		}
+
+		const now = Date.now();
+		if (
+			!forceRefresh &&
+			this.asyncAnonymousToken &&
+			this.asyncAnonymousTokenExpiresAt &&
+			this.asyncAnonymousTokenExpiresAt - 60_000 > now
+		) {
+			return this.asyncAnonymousToken;
+		}
+
+		// Single-flight: if a refresh is already in progress, share it
+		if (this.tokenRefreshInFlight) {
+			return this.tokenRefreshInFlight;
+		}
+
+		this.tokenRefreshInFlight = this.fetchIdentityToken();
+		try {
+			return await this.tokenRefreshInFlight;
+		} finally {
+			this.tokenRefreshInFlight = null;
+		}
+	}
+
+	private async fetchIdentityToken(): Promise<string> {
+		const response = await fetch(`${this.server}/v1/identity`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json'
+			},
+			body: '{}'
+		});
+		const text = await response.text().catch(() => '');
+		let json: Record<string, unknown> | null = null;
+		try {
+			json = text ? (JSON.parse(text) as Record<string, unknown>) : null;
+		} catch {
+			json = null;
+		}
+		if (!response.ok) {
+			this.fail(`stdb_identity_failure status=${response.status} text=${text || response.statusText}`);
+		}
+
+		const token = typeof json?.token === 'string' ? json.token.trim() : '';
+		if (!token) {
+			this.fail('stdb_identity_missing_token');
+		}
+
+		this.asyncAnonymousToken = token;
+		this.asyncAnonymousTokenExpiresAt = decodeJwtExpiryMs(token) || (Date.now() + 10 * 60 * 1000);
+		return token;
+	}
+
+	private async runHttpRequest(url: string, contentType: string, body: string): Promise<HelperResponse> {
+		const startedAt = Date.now();
+		const execute = async (forceRefreshToken = false): Promise<HelperResponse> => {
+			const token = await this.resolveAsyncAuthToken(forceRefreshToken);
+			const controller = new AbortController();
+			const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+			try {
+				const headers: Record<string, string> = {
+					'Content-Type': contentType
+				};
+				if (token) {
+					headers.Authorization = `Bearer ${token}`;
+				}
+
+				const response = await fetch(url, {
+					method: 'POST',
+					headers,
+					body,
+					signal: controller.signal
+				});
+				const text = await response.text().catch(() => '');
+				let json: unknown = null;
+				try {
+					json = text ? JSON.parse(text) : null;
+				} catch {
+					json = null;
+				}
+				return {
+					ok: response.ok,
+					status: response.status,
+					statusText: response.statusText,
+					durationMs: Date.now() - startedAt,
+					json,
+					text
+				};
+			} finally {
+				clearTimeout(timeout);
+			}
+		};
+
+		let response = await execute(false);
+		if (!response.ok && response.status === 401 && !this.authToken && this.anonymous) {
+			response = await execute(true);
+		}
+		this.lastLatencyMs = Date.now() - startedAt;
+		if (!response.ok) {
+			const errText = (response.text || response.statusText || 'unknown').slice(0, 256);
+			this.fail(
+				`stdb_http_failure status=${response.status} text=${errText}`
+			);
+		}
+		return response;
 	}
 
 	private fail(message: string): never {

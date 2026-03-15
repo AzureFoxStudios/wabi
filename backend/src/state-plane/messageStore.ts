@@ -143,6 +143,7 @@ export class InMemoryShadowMessageStore implements MessageStore {
 			...message,
 			reactions_json: message.reactions_json ?? undefined,
 			files_json: message.files_json ?? undefined,
+			entities_json: message.entities_json ?? undefined,
 			attachment_encryption_json: message.attachment_encryption_json ?? undefined,
 			attachment_storage_json: message.attachment_storage_json ?? undefined
 		};
@@ -251,7 +252,7 @@ export class InMemoryShadowMessageStore implements MessageStore {
 	}
 
 	markEdited(messageId: string, newContent: string): void {
-		this.update(messageId, { content: newContent, is_edited: 1 });
+		this.update(messageId, { content: newContent, entities_json: undefined, is_edited: 1 });
 	}
 
 	purgeDeleted(olderThanMs: number = 7 * 24 * 60 * 60 * 1000): number {

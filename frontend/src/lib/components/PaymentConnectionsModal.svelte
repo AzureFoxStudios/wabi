@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import BaseModal from './BaseModal.svelte';
 	import { getAuthToken } from '$lib/authSession';
 	import {
@@ -9,6 +10,7 @@
 		type PaymentAccountLink,
 		type PaymentProviderCapability
 	} from '$lib/api';
+	import { subscribePaymentRealtimeEvent } from '$lib/paymentRealtime';
 
 	export let isOpen = false;
 	export let onClose: () => void = () => {};
@@ -45,6 +47,16 @@
 		actionError = '';
 		savingPluginId = '';
 	}
+
+	const unsubscribeAccountLinksRealtime = subscribePaymentRealtimeEvent('payments:account-links-updated', () => {
+		if (!isOpen) return;
+		linksLoaded = false;
+		void loadAccountLinks();
+	});
+
+	onDestroy(() => {
+		unsubscribeAccountLinksRealtime();
+	});
 
 	function getLinkedAccount(pluginId: string): PaymentAccountLink | null {
 		return paymentAccountLinks.find((link) => link.pluginId === pluginId) || null;
@@ -110,6 +122,61 @@
 		return provider.methods.map((method) => method.label).join(', ');
 	}
 
+	function isLocalTestProvider(provider: PaymentProviderCapability): boolean {
+		return String(provider.notes || '').toLowerCase().includes('local test');
+	}
+
+	function isThaiPromptPayProvider(provider: PaymentProviderCapability): boolean {
+		return provider.pluginId === 'th-payments';
+	}
+
+	function isBitcoinProvider(provider: PaymentProviderCapability): boolean {
+		return provider.pluginId === 'btc-payments';
+	}
+
+	function getReferenceFieldLabel(provider: PaymentProviderCapability): string {
+		if (isThaiPromptPayProvider(provider)) {
+			return 'PromptPay number';
+		}
+		if (isBitcoinProvider(provider)) {
+			return 'Bitcoin address';
+		}
+		return 'Saved payment reference';
+	}
+
+	function getReferencePlaceholder(provider: PaymentProviderCapability): string {
+		if (isThaiPromptPayProvider(provider)) {
+			return 'Thai mobile number or PromptPay ID';
+		}
+		if (isBitcoinProvider(provider)) {
+			return 'bc1... or 1... / 3...';
+		}
+		return 'PromptPay number / wallet handle / PSP customer id';
+	}
+
+	function getDisplayLabelPlaceholder(provider: PaymentProviderCapability): string {
+		if (isThaiPromptPayProvider(provider)) {
+			return 'My PromptPay';
+		}
+		if (isBitcoinProvider(provider)) {
+			return 'Main Bitcoin wallet';
+		}
+		return 'Main wallet / primary bank';
+	}
+
+	function getConnectionHelp(provider: PaymentProviderCapability): string {
+		if (isLocalTestProvider(provider)) {
+			return 'This provider is currently in local test mode. Saving a reference is optional and not required for localhost simulation.';
+		}
+		if (isThaiPromptPayProvider(provider)) {
+			return 'For personal Thai QR requests, save your own PromptPay number here. Server donations use the server donation route separately.';
+		}
+		if (isBitcoinProvider(provider)) {
+			return 'For personal Bitcoin QR requests, save your own Bitcoin address here. Server donations use the server donation Bitcoin address separately.';
+		}
+		return 'Optional. If you leave the advanced account field blank in a payment request, Wabi reuses this saved reference for this provider.';
+	}
+
 	async function loadProviders(): Promise<void> {
 		loadingProviders = true;
 		providersError = '';
@@ -140,7 +207,7 @@
 			linksLoaded = true;
 			ensureEditorsInitialized();
 		} catch (error) {
-			linksError = error instanceof Error ? error.message : 'Failed to load linked payment accounts';
+			linksError = error instanceof Error ? error.message : 'Failed to load saved payment references';
 		} finally {
 			loadingLinks = false;
 		}
@@ -151,13 +218,13 @@
 		actionError = '';
 		const token = getAuthToken();
 		if (!token) {
-			actionError = 'You must be logged in to link a payment account.';
+			actionError = 'You must be logged in to save a payment reference.';
 			return;
 		}
 
 		const providerAccountRef = (editorRefs[pluginId] || '').trim();
 		if (!providerAccountRef) {
-			actionError = 'Enter an account reference before saving.';
+			actionError = 'Enter a payment reference before saving.';
 			return;
 		}
 
@@ -173,9 +240,9 @@
 				...paymentAccountLinks.filter((link) => link.pluginId !== pluginId)
 			];
 			syncEditorsForPlugin(pluginId);
-			actionInfo = `Saved payment connection for ${saved.pluginId}.`;
+			actionInfo = `Saved payment reference for ${saved.pluginId}.`;
 		} catch (error) {
-			actionError = error instanceof Error ? error.message : 'Failed to save payment connection';
+			actionError = error instanceof Error ? error.message : 'Failed to save payment reference';
 		} finally {
 			savingPluginId = '';
 		}
@@ -186,7 +253,7 @@
 		actionError = '';
 		const token = getAuthToken();
 		if (!token) {
-			actionError = 'You must be logged in to clear a payment account link.';
+			actionError = 'You must be logged in to clear a saved payment reference.';
 			return;
 		}
 
@@ -195,9 +262,9 @@
 			await deletePaymentAccountLink(token, pluginId);
 			paymentAccountLinks = paymentAccountLinks.filter((link) => link.pluginId !== pluginId);
 			syncEditorsForPlugin(pluginId);
-			actionInfo = `Cleared payment connection for ${pluginId}.`;
+			actionInfo = `Cleared payment reference for ${pluginId}.`;
 		} catch (error) {
-			actionError = error instanceof Error ? error.message : 'Failed to clear payment connection';
+			actionError = error instanceof Error ? error.message : 'Failed to clear payment reference';
 		} finally {
 			savingPluginId = '';
 		}
@@ -206,17 +273,17 @@
 
 <BaseModal isOpen={isOpen} onClose={onClose} width="760px" {overlayZIndex}>
 	<div slot="header" class="sheet-header">
-		<h2>Payment Connections</h2>
-		<p>Payment providers appear here automatically when the backend has an active payment plugin. Save the account details Wabi should reuse for each provider that is already live on this server.</p>
+		<h2>Saved Payment References</h2>
+		<p>Providers appear here automatically when the backend has an active payment plugin. Save a non-sensitive payment reference only when you want Wabi to reuse it for that provider.</p>
 	</div>
 
 	<div class="sheet-body">
 		{#if !getAuthToken()}
-			<p class="error">Sign in with a registered account to manage payment connections.</p>
+			<p class="error">Sign in with a registered account to manage saved payment references.</p>
 		{/if}
 
 		{#if loadingProviders || loadingLinks}
-			<p class="hint">Loading payment connections...</p>
+			<p class="hint">Loading saved payment references...</p>
 		{/if}
 
 		{#if providersError}
@@ -238,7 +305,7 @@
 		{#if !loadingProviders && providers.length === 0}
 			<p class="hint">
 				No payment providers are active on this server yet. This panel does not install plugins by itself. Once the
-				server owner enables a payment plugin, its provider will appear here automatically for account linking.
+				server owner enables a payment plugin, its provider will appear here automatically for saved references.
 			</p>
 		{/if}
 
@@ -252,7 +319,7 @@
 							<p class="provider-meta">{provider.pluginId} · {formatMarkets(provider)}</p>
 						</div>
 						<span class:linked={Boolean(linkedAccount)} class="status-pill">
-							{linkedAccount ? 'Linked' : 'Not linked'}
+							{linkedAccount ? 'Saved' : 'Not saved'}
 						</span>
 					</div>
 
@@ -261,15 +328,16 @@
 					{/if}
 
 					<p class="hint">Available methods: {formatMethods(provider)}</p>
+					<p class="hint">{getConnectionHelp(provider)}</p>
 
 					<div class="grid">
 						<label>
-							<span>Account reference</span>
+							<span>{getReferenceFieldLabel(provider)}</span>
 							<input
 								type="text"
 								value={editorRefs[provider.pluginId] || ''}
 								maxlength="240"
-								placeholder="wallet handle / customer id / account ref"
+								placeholder={getReferencePlaceholder(provider)}
 								on:input={(event) => setEditorRef(provider.pluginId, event.currentTarget.value)}
 							/>
 						</label>
@@ -280,7 +348,7 @@
 								type="text"
 								value={editorLabels[provider.pluginId] || ''}
 								maxlength="160"
-								placeholder="Main wallet / primary bank"
+								placeholder={getDisplayLabelPlaceholder(provider)}
 								on:input={(event) => setEditorLabel(provider.pluginId, event.currentTarget.value)}
 							/>
 						</label>
@@ -295,21 +363,21 @@
 							{savingPluginId === provider.pluginId
 								? 'Saving...'
 								: linkedAccount
-									? 'Update connection'
-									: 'Link account'}
+									? 'Update reference'
+									: 'Save reference'}
 						</button>
 						<button
 							class="action"
 							on:click={() => handleClear(provider.pluginId)}
 							disabled={!getAuthToken() || !linkedAccount || savingPluginId === provider.pluginId}
 						>
-							Clear link
+							Clear reference
 						</button>
 					</div>
 
 					{#if linkedAccount}
 						<p class="linked-copy">
-							Connected as
+							Saved as
 							<code>{linkedAccount.displayLabel || linkedAccount.providerAccountRef}</code>
 						</p>
 					{/if}

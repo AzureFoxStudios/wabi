@@ -2,6 +2,7 @@ import {
 	channelRepository,
 	type DbChannel
 } from '../db/repositories/channelRepository.js';
+import db from '../db/database.js';
 import type { ChannelStoreRuntimeStats } from './channelStore.js';
 import { escapeSqlLiteral } from './stdbSyncClient.js';
 import {
@@ -39,6 +40,10 @@ export class StdbPrimaryChannelStore extends StdbStoreBase {
 	}
 
 	private loadChannel(channelId: string, includeArchived = false): DbChannel | null {
+		if (!includeArchived) {
+			const mirrored = channelRepository.findById(channelId);
+			if (mirrored) return mirrored;
+		}
 		const archivedClause = includeArchived ? '' : ' AND archived = false';
 		const rows = this.client.sqlRows(
 			`SELECT row_json FROM state_channel WHERE channel_id = ${escapeSqlLiteral(channelId)}${archivedClause} LIMIT 1`
@@ -74,6 +79,10 @@ export class StdbPrimaryChannelStore extends StdbStoreBase {
 
 	findByUserId(userId: string): DbChannel[] {
 		bumpOperation(this.stats, 'findByUserId');
+		const mirrored = channelRepository.findByUserId(userId);
+		if (mirrored.length > 0) {
+			return mirrored.sort((a, b) => b.created_at - a.created_at);
+		}
 		try {
 			const rows = this.client.sqlRows(
 				`SELECT c.row_json AS row_json
@@ -110,6 +119,10 @@ export class StdbPrimaryChannelStore extends StdbStoreBase {
 
 	getWorkspaceChannels(): DbChannel[] {
 		bumpOperation(this.stats, 'getWorkspaceChannels');
+		const mirrored = channelRepository.getWorkspaceChannels();
+		if (mirrored.length > 0) {
+			return mirrored.sort((a, b) => a.created_at - b.created_at);
+		}
 		const rows = this.client.sqlRows('SELECT row_json FROM state_channel WHERE archived = false LIMIT 50000');
 		const channels = this.parseChannels(rows).filter((channel) => {
 			return (
@@ -247,8 +260,36 @@ export class StdbPrimaryChannelStore extends StdbStoreBase {
 		});
 	}
 
-	warmFromPrimary(_limit: number): number {
-		return 0;
+	warmFromPrimary(limit: number): number {
+		const safeLimit = Math.max(0, Math.floor(limit));
+		if (safeLimit === 0) return 0;
+		const existingIds = new Set(
+			this.client.sqlRows('SELECT channel_id FROM state_channel LIMIT 50000')
+				.map((row) => String(row.channel_id || '').trim())
+				.filter((channelId) => channelId.length > 0)
+		);
+
+		const rows = db.prepare(`
+			SELECT * FROM channels
+			WHERE is_archived = 0
+			ORDER BY created_at ASC
+			LIMIT ?
+		`).all(safeLimit) as DbChannel[];
+
+		let seeded = 0;
+		for (const row of rows) {
+			if (existingIds.has(row.channel_id)) continue;
+			this.ingest('channel', 'create', {
+				channelId: row.channel_id,
+				channelType: row.channel_type,
+				row
+			});
+			seeded += 1;
+		}
+
+		this.stats.operations.warmup = (this.stats.operations.warmup || 0) + 1;
+		this.stats.operations.warmup_rows = seeded;
+		return seeded;
 	}
 
 	getRuntimeStats(): ChannelStoreRuntimeStats {

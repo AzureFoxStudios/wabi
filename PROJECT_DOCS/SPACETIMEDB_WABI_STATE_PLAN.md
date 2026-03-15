@@ -22,16 +22,14 @@ Out of scope:
 Core references used for this plan:
 - `backend/src/server.ts`
 - `backend/src/db/schema.sql`
-- `backend/src/db/schema.postgres.sql`
 - `backend/src/db/database.ts`
 - `backend/src/db/repositories/*.ts`
 - `backend/src/api/mediaRoutes.ts`
-- `backend/scripts/migrate-sqlite-to-postgres.mjs`
 - `frontend/src/lib/socket-manager.ts`
 - `spacetimedb/wabi_state_bridge/src/lib.rs`
 
 Current state summary:
-- Wabi mixes in-memory runtime maps with SQL persistence (SQLite/Postgres mode support).
+- Wabi mixes in-memory runtime maps with SQLite compatibility persistence plus STDB state-plane support.
 - Socket.IO protocol is the client realtime contract today.
 - Media plane is separate (TURN/media-gateway/LiveKit controls) and should remain separate during this migration.
 - Existing auth is JWT + server-side session checks.
@@ -94,7 +92,7 @@ Phase 3:
 - Recovery gaps:
   - Backup/restore runbook + integrity check tooling + regular drills.
 
-## 6) SQLite/Postgres Patterns Reused (Already Solved Problems)
+## 6) Relational Rollout Patterns Reused (Already Solved Problems)
 
 The plan intentionally reuses proven relational rollout/ops patterns instead of inventing new ones:
 
@@ -103,7 +101,7 @@ The plan intentionally reuses proven relational rollout/ops patterns instead of 
 - Applied to SpacetimeDB as versioned table evolution + cutover gates.
 
 2. Dual-write + read-switch + parity validation
-- Mirrors safe migration practice already present in project mindset (`migrate-sqlite-to-postgres.mjs` and DB mode support).
+- Mirrors the same safe migration mindset already used elsewhere in the codebase.
 - Avoids big-bang cutovers.
 
 3. Idempotency + conflict-safe writes

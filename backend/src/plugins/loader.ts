@@ -1096,7 +1096,7 @@ export class PluginLoader {
     const files = this.collectPluginFiles(pluginPath);
 
     for (const file of files) {
-      hash.update(path.relative(pluginPath, file));
+      hash.update(path.relative(pluginPath, file).split(path.sep).join('/'));
       hash.update(fs.readFileSync(file));
     }
 

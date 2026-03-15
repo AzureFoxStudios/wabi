@@ -119,6 +119,31 @@ function buildPromptPayQrPayload({ proxyId, amountMinor, intentId }) {
   return `${bodyForCrc}${crc}`;
 }
 
+function isServerDonationIntent(input) {
+  return Boolean(input?.metadata && input.metadata.kind === 'server_donation');
+}
+
+function resolvePromptPayProxyId(input) {
+  const savedOrOneOffRef = String(input?.customerRef || '').trim();
+  if (isServerDonationIntent(input)) {
+    const serverPromptPayProxyId = String(process.env.TH_PAYMENTS_PROMPTPAY_PROXY_ID || '').trim();
+    if (!serverPromptPayProxyId) {
+      throw new Error('th_payments_server_promptpay_not_configured');
+    }
+    return {
+      proxyId: serverPromptPayProxyId,
+      source: 'server'
+    };
+  }
+  if (!savedOrOneOffRef) {
+    throw new Error('th_payments_promptpay_reference_required');
+  }
+  return {
+    proxyId: savedOrOneOffRef,
+    source: 'user'
+  };
+}
+
 function safeJsonParse(raw) {
   try {
     return JSON.parse(raw);
@@ -343,18 +368,18 @@ const plugin = {
   payment: {
     async getCapabilities() {
       const methods = [];
-      if (process.env.TH_PAYMENTS_PROMPTPAY_PROXY_ID) {
-        methods.push({
-          id: 'promptpay_qr',
-          label: 'PromptPay QR',
-          checkoutModes: ['qr', 'app_switch'],
-          countries: ['TH'],
-          currencies: ['THB'],
-          enabledByDefault: true,
-          estimatedSharePercent: 80,
-          notes: 'EMVCo payload for Thai PromptPay scan flows.'
-        });
-      }
+      methods.push({
+        id: 'promptpay_qr',
+        label: 'PromptPay QR',
+        checkoutModes: ['qr', 'app_switch'],
+        countries: ['TH'],
+        currencies: ['THB'],
+        enabledByDefault: true,
+        estimatedSharePercent: 80,
+        notes: process.env.TH_PAYMENTS_PROMPTPAY_PROXY_ID
+          ? "Personal requests use the sender's saved PromptPay number. Server donations use the server PromptPay destination."
+          : "Personal requests use the sender's saved PromptPay number. Server donation QR needs TH_PAYMENTS_PROMPTPAY_PROXY_ID."
+      });
 
       if (isAdapterConfigured()) {
         methods.push({
@@ -380,7 +405,7 @@ const plugin = {
         supportsRefunds: true,
         supportsDisputes: true,
         notes:
-          'Configure PromptPay proxy for QR and TH_PAYMENTS_ADAPTER_BASE_URL for contracted PSP checkout/refunds.'
+          'PromptPay QR uses user-saved PromptPay numbers for personal requests and the server PromptPay number for server donations. Configure TH_PAYMENTS_ADAPTER_BASE_URL for contracted PSP checkout/refunds.'
       };
     },
 
@@ -419,9 +444,9 @@ const plugin = {
       let providerMetadata = null;
 
       if (methodId === 'promptpay_qr') {
-        const promptPayProxyId = process.env.TH_PAYMENTS_PROMPTPAY_PROXY_ID || '';
+        const promptPayTarget = resolvePromptPayProxyId(input);
         const qrData = buildPromptPayQrPayload({
-          proxyId: promptPayProxyId,
+          proxyId: promptPayTarget.proxyId,
           amountMinor: input.amountMinor,
           intentId: input.intentId || providerIntentId
         });
@@ -432,6 +457,9 @@ const plugin = {
           qrFormat: 'emvco',
           deepLinkUrl: `promptpay://pay?amount=${(toMinorAmount(input.amountMinor) / 100).toFixed(2)}`,
           expiresAt
+        };
+        providerMetadata = {
+          promptPayTargetSource: promptPayTarget.source
         };
       } else if (methodId === 'psp_checkout') {
         const adapterResponse = await createAdapterIntent({

@@ -81,8 +81,15 @@ turn-server/turnserver.conf
 data/business/
 data/chat.db
 data/state-plane-stdb-token-cache.json
+data/state-plane-outbox.ndjson
+data/state-plane-schema-version.json
+data/state-plane-shadow.offset
 data/.plugin-storage/
 .env.save
+
+# Local backups / restore snapshots
+backups/fresh-reset-*/
+backups/wabi-pre-cloudflare-*.zip
 
 # Generated OpenMoji assets (fetched at build/runtime)
 frontend/static/openmoji/png/
@@ -92,3 +99,6 @@ backend/openmoji/
 
 # Export scratch/temp artifacts
 exports/tmp/
+.tmp/
+.wabi-keys/
+frontend/check-output.txt

@@ -1,5 +1,6 @@
 import type { Message, Channel } from './socket-types';
 import { browser } from '$app/environment';
+import { normalizeServerUrl, resolveServerUrl } from './serverUrl';
 
 export interface LoadMessagesResult {
 	messages: Record<string, Message[]>;
@@ -18,16 +19,64 @@ export interface StorageStats {
 
 export type RotationPeriod = 'week' | 'month' | 'half-year' | 'year';
 
-const DB_NAME = 'wabi-chat-db';
+const LEGACY_DB_NAME = 'wabi-chat-db';
+const DB_NAME_PREFIX = 'wabi-chat-db:';
 const DB_VERSION = 1;
 const MESSAGES_STORE = 'messages';
 const SETTINGS_STORE = 'settings';
 const MAX_MESSAGES_PER_CHANNEL = 2000; // Limit RAM usage - only keep last 2000 messages per channel in memory
 const MAX_ARCHIVES_TO_KEEP = 2; // Keep only 2 months of archive history
+const ARCHIVE_WRITE_BATCH_MS = 64;
+const LEGACY_MIGRATION_SCOPE_KEY = 'wabi_chat_db_legacy_scope_v1';
+
+function resolveStorageScope(): string {
+	if (!browser) return 'ssr_default';
+	return normalizeServerUrl(resolveServerUrl().url) || 'browser_default';
+}
+
+function getScopedDbName(serverScope: string): string {
+	return `${DB_NAME_PREFIX}${encodeURIComponent(serverScope)}`;
+}
+
+function getStorageExportLabel(serverScope: string): string {
+	try {
+		const parsed = new URL(serverScope);
+		return parsed.hostname.replace(/[^a-z0-9.-]+/gi, '-').toLowerCase() || 'server';
+	} catch {
+		return 'server';
+	}
+}
+
+function safeLocalGet(key: string): string | null {
+	if (!browser) return null;
+	try {
+		return localStorage.getItem(key);
+	} catch {
+		return null;
+	}
+}
+
+function safeLocalSet(key: string, value: string | null): void {
+	if (!browser) return;
+	try {
+		if (value === null) {
+			localStorage.removeItem(key);
+			return;
+		}
+		localStorage.setItem(key, value);
+	} catch {
+		// Ignore storage failures.
+	}
+}
 
 class IndexedDBWrapper {
 	private db: IDBDatabase | null = null;
 	private initPromise: Promise<void> | null = null;
+	private readonly dbName: string;
+
+	constructor(dbName: string) {
+		this.dbName = dbName;
+	}
 
 	async init(): Promise<void> {
 		if (!browser) return;
@@ -35,7 +84,7 @@ class IndexedDBWrapper {
 		if (this.initPromise) return this.initPromise;
 
 		this.initPromise = new Promise((resolve, reject) => {
-			const request = indexedDB.open(DB_NAME, DB_VERSION);
+			const request = indexedDB.open(this.dbName, DB_VERSION);
 
 			request.onerror = () => reject(request.error);
 			request.onsuccess = () => {
@@ -83,6 +132,19 @@ class IndexedDBWrapper {
 			const request = store.put({ key, value });
 
 			request.onsuccess = () => resolve();
+			request.onerror = () => reject(request.error);
+		});
+	}
+
+	async getAllSettings(): Promise<Array<{ key: string; value: any }>> {
+		if (!browser || !this.db) return [];
+
+		return new Promise((resolve, reject) => {
+			const transaction = this.db!.transaction([SETTINGS_STORE], 'readonly');
+			const store = transaction.objectStore(SETTINGS_STORE);
+			const request = store.getAll();
+
+			request.onsuccess = () => resolve(request.result as Array<{ key: string; value: any }>);
 			request.onerror = () => reject(request.error);
 		});
 	}
@@ -171,9 +233,17 @@ export class ChatStorage {
 	private maxArchives = MAX_ARCHIVES_TO_KEEP; // 🧠 RAM SAVER: Keep only 2 months of archives
 	private db: IndexedDBWrapper;
 	private initPromise: Promise<void> | null = null;
+	private archiveCache = new Map<string, Record<string, Message[]>>();
+	private archiveLoadPromises = new Map<string, Promise<Record<string, Message[]>>>();
+	private pendingArchiveFlushes = new Map<string, ReturnType<typeof setTimeout>>();
+	private rotatePromise: Promise<void> | null = null;
+	private readonly serverScope: string;
+	private readonly exportLabel: string;
 
 	constructor() {
-		this.db = new IndexedDBWrapper();
+		this.serverScope = resolveStorageScope();
+		this.exportLabel = getStorageExportLabel(this.serverScope);
+		this.db = new IndexedDBWrapper(getScopedDbName(this.serverScope));
 		if (browser) {
 			this.initPromise = this.init();
 		}
@@ -181,9 +251,46 @@ export class ChatStorage {
 
 	private async init(): Promise<void> {
 		await this.db.init();
+		await this.migrateLegacyDatabaseIfNeeded();
 		await this.loadSettings();
 		// 🧠 RAM SAVER: Clean up old archives on startup to prevent bloat
 		await this.cleanupOldArchives();
+	}
+
+	private async migrateLegacyDatabaseIfNeeded(): Promise<void> {
+		if (!browser) return;
+
+		const migrationScope = safeLocalGet(LEGACY_MIGRATION_SCOPE_KEY);
+		if (migrationScope && migrationScope !== this.serverScope) {
+			return;
+		}
+
+		const currentArchives = await this.db.getAllArchives();
+		const currentSettings = await this.db.getAllSettings();
+		if (currentArchives.length > 0 || currentSettings.length > 0) {
+			if (!migrationScope) {
+				safeLocalSet(LEGACY_MIGRATION_SCOPE_KEY, this.serverScope);
+			}
+			return;
+		}
+
+		const legacyDb = new IndexedDBWrapper(LEGACY_DB_NAME);
+		await legacyDb.init();
+		const legacyArchives = await legacyDb.getAllArchives();
+		const legacySettings = await legacyDb.getAllSettings();
+		if (legacyArchives.length === 0 && legacySettings.length === 0) {
+			return;
+		}
+
+		for (const setting of legacySettings) {
+			await this.db.setSetting(setting.key, setting.value);
+		}
+		for (const archive of legacyArchives) {
+			await this.db.setArchive(archive.period, archive.data);
+		}
+
+		safeLocalSet(LEGACY_MIGRATION_SCOPE_KEY, this.serverScope);
+		console.log(`Migrated legacy chat storage into server-scoped cache for ${this.serverScope}`);
 	}
 
 	private async cleanupOldArchives(): Promise<void> {
@@ -204,6 +311,71 @@ export class ChatStorage {
 		}
 	}
 
+	private async getCachedArchiveData(periodKey: string): Promise<Record<string, Message[]>> {
+		const cached = this.archiveCache.get(periodKey);
+		if (cached) return cached;
+
+		const existingLoad = this.archiveLoadPromises.get(periodKey);
+		if (existingLoad) return existingLoad;
+
+		const loadPromise = (async () => {
+			const loaded = ((await this.db.getArchive(periodKey)) || {}) as Record<string, Message[]>;
+			this.archiveCache.set(periodKey, loaded);
+			this.archiveLoadPromises.delete(periodKey);
+			return loaded;
+		})();
+
+		this.archiveLoadPromises.set(periodKey, loadPromise);
+		return loadPromise;
+	}
+
+	private scheduleArchiveFlush(periodKey: string): void {
+		if (this.pendingArchiveFlushes.has(periodKey)) return;
+		const handle = setTimeout(() => {
+			this.pendingArchiveFlushes.delete(periodKey);
+			void this.flushArchive(periodKey);
+		}, ARCHIVE_WRITE_BATCH_MS);
+		this.pendingArchiveFlushes.set(periodKey, handle);
+	}
+
+	private async flushArchive(periodKey: string): Promise<void> {
+		const data = this.archiveCache.get(periodKey);
+		if (!data) return;
+
+		try {
+			await this.db.setArchive(periodKey, data);
+		} catch (error) {
+			console.error('Failed to flush archive to IndexedDB:', error);
+		}
+
+		await this.scheduleRotateArchives();
+	}
+
+	private async flushPendingArchiveWrites(): Promise<void> {
+		if (this.pendingArchiveFlushes.size === 0) return;
+
+		const pendingPeriods = Array.from(this.pendingArchiveFlushes.keys());
+		for (const handle of this.pendingArchiveFlushes.values()) {
+			clearTimeout(handle);
+		}
+		this.pendingArchiveFlushes.clear();
+
+		await Promise.all(pendingPeriods.map((periodKey) => this.flushArchive(periodKey)));
+	}
+
+	private async scheduleRotateArchives(): Promise<void> {
+		if (!this.rotatePromise) {
+			this.rotatePromise = (async () => {
+				try {
+					await this.rotateArchives();
+				} finally {
+					this.rotatePromise = null;
+				}
+			})();
+		}
+		await this.rotatePromise;
+	}
+
 	private async loadSettings() {
 		if (!browser) return;
 
@@ -217,6 +389,7 @@ export class ChatStorage {
 	async setRotationPeriod(period: RotationPeriod) {
 		if (!browser) return;
 		await this.ensureInit();
+		await this.flushPendingArchiveWrites();
 		this.rotationPeriod = period;
 		await this.db.setSetting('rotationPeriod', period);
 	}
@@ -224,6 +397,7 @@ export class ChatStorage {
 	async setMaxArchives(max: number) {
 		if (!browser) return;
 		await this.ensureInit();
+		await this.flushPendingArchiveWrites();
 		this.maxArchives = max;
 		await this.db.setSetting('maxArchives', max.toString());
 		await this.rotateArchives();
@@ -306,20 +480,18 @@ export class ChatStorage {
 
 		const periodKey = this.getPeriodKey();
 
-		// Load current period's data
-		const data = (await this.db.getArchive(periodKey)) || {};
+		const data = await this.getCachedArchiveData(periodKey);
+		if (!Array.isArray(data[channel])) data[channel] = [];
 
-		if (!data[channel]) data[channel] = [];
-		data[channel].push(message);
-
-		try {
-			await this.db.setArchive(periodKey, data);
-			await this.rotateArchives();
-		} catch (e) {
-			console.error('Failed to save message to IndexedDB:', e);
-			// If quota exceeded, force rotation
-			await this.rotateArchives();
+		const channelMessages = data[channel];
+		const existingIndex = channelMessages.findIndex((entry) => entry.id === message.id);
+		if (existingIndex >= 0) {
+			channelMessages[existingIndex] = message;
+		} else {
+			channelMessages.push(message);
 		}
+
+		this.scheduleArchiveFlush(periodKey);
 	}
 
 	// Rotate: Delete old archives beyond maxArchives
@@ -335,6 +507,8 @@ export class ChatStorage {
 			for (const key of toDelete) {
 				console.log(`🗑️ Auto-deleting old archive: ${key}`);
 				await this.db.deleteArchive(key);
+				this.archiveCache.delete(key);
+				this.archiveLoadPromises.delete(key);
 			}
 		}
 	}
@@ -345,6 +519,7 @@ export class ChatStorage {
 	async loadAllMessages(channels?: Channel[]): Promise<LoadMessagesResult> {
 		if (!browser) return { messages: {}, availableArchives: {} };
 		await this.ensureInit();
+		await this.flushPendingArchiveWrites();
 
 		const allMessages: Record<string, Message[]> = {};
 		const availableArchives: Record<string, string[]> = {};
@@ -396,6 +571,7 @@ export class ChatStorage {
 	async loadArchiveForChannel(channelId: string, archiveKey: string): Promise<Message[]> {
 		if (!browser) return [];
 		await this.ensureInit();
+		await this.flushPendingArchiveWrites();
 
 		const data = await this.db.getArchive(archiveKey);
 		if (!data || !data[channelId]) return [];
@@ -410,6 +586,7 @@ export class ChatStorage {
 	async getAvailableArchives(channelId: string): Promise<string[]> {
 		if (!browser) return [];
 		await this.ensureInit();
+		await this.flushPendingArchiveWrites();
 
 		const archives = await this.db.getAllArchives();
 		const result: string[] = [];
@@ -428,7 +605,14 @@ export class ChatStorage {
 	async deleteArchive(periodKey: string) {
 		if (!browser) return;
 		await this.ensureInit();
+		const pendingHandle = this.pendingArchiveFlushes.get(periodKey);
+		if (pendingHandle) {
+			clearTimeout(pendingHandle);
+			this.pendingArchiveFlushes.delete(periodKey);
+		}
 		await this.db.deleteArchive(periodKey);
+		this.archiveCache.delete(periodKey);
+		this.archiveLoadPromises.delete(periodKey);
 		console.log(`🗑️ Deleted archive: ${periodKey}`);
 	}
 
@@ -436,10 +620,11 @@ export class ChatStorage {
 	async deleteMessage(channelId: string, messageId: string): Promise<void> {
 		if (!browser) return;
 		await this.ensureInit();
+		await this.flushPendingArchiveWrites();
 
 		const archives = await this.db.getAllArchives();
 		for (const archive of archives) {
-			const data = archive.data || {};
+			const data = (this.archiveCache.get(archive.period) || archive.data || {}) as Record<string, Message[]>;
 			const channelMessages = data[channelId] as Message[] | undefined;
 			if (!Array.isArray(channelMessages) || channelMessages.length === 0) continue;
 
@@ -448,6 +633,7 @@ export class ChatStorage {
 
 			if (filtered.length > 0) {
 				data[channelId] = filtered;
+				this.archiveCache.set(archive.period, data);
 				await this.db.setArchive(archive.period, data);
 				continue;
 			}
@@ -455,7 +641,10 @@ export class ChatStorage {
 			delete data[channelId];
 			if (Object.keys(data).length === 0) {
 				await this.db.deleteArchive(archive.period);
+				this.archiveCache.delete(archive.period);
+				this.archiveLoadPromises.delete(archive.period);
 			} else {
+				this.archiveCache.set(archive.period, data);
 				await this.db.setArchive(archive.period, data);
 			}
 		}
@@ -467,6 +656,7 @@ export class ChatStorage {
 	async reconcileChannelWindow(channelId: string, serverMessages: Message[]): Promise<void> {
 		if (!browser) return;
 		await this.ensureInit();
+		await this.flushPendingArchiveWrites();
 
 		const serverIds = new Set(serverMessages.map((m) => m.id));
 		const minServerTimestamp = serverMessages.length > 0
@@ -475,7 +665,7 @@ export class ChatStorage {
 
 		const archives = await this.db.getAllArchives();
 		for (const archive of archives) {
-			const data = archive.data || {};
+			const data = (this.archiveCache.get(archive.period) || archive.data || {}) as Record<string, Message[]>;
 			const channelMessages = data[channelId] as Message[] | undefined;
 			if (!Array.isArray(channelMessages) || channelMessages.length === 0) continue;
 
@@ -492,6 +682,7 @@ export class ChatStorage {
 
 			if (filtered.length > 0) {
 				data[channelId] = filtered;
+				this.archiveCache.set(archive.period, data);
 				await this.db.setArchive(archive.period, data);
 				continue;
 			}
@@ -499,7 +690,10 @@ export class ChatStorage {
 			delete data[channelId];
 			if (Object.keys(data).length === 0) {
 				await this.db.deleteArchive(archive.period);
+				this.archiveCache.delete(archive.period);
+				this.archiveLoadPromises.delete(archive.period);
 			} else {
+				this.archiveCache.set(archive.period, data);
 				await this.db.setArchive(archive.period, data);
 			}
 		}
@@ -508,7 +702,13 @@ export class ChatStorage {
 	async clearAllHistory() {
 		if (!browser) return;
 		await this.ensureInit();
+		for (const [periodKey, handle] of this.pendingArchiveFlushes.entries()) {
+			clearTimeout(handle);
+			this.pendingArchiveFlushes.delete(periodKey);
+		}
 		await this.db.clearAllArchives();
+		this.archiveCache.clear();
+		this.archiveLoadPromises.clear();
 		console.log('🗑️ Cleared all chat history');
 	}
 
@@ -516,6 +716,7 @@ export class ChatStorage {
 	async exportArchives() {
 		if (!browser) return;
 		await this.ensureInit();
+		await this.flushPendingArchiveWrites();
 
 		const archives = await this.db.getAllArchives();
 
@@ -530,7 +731,7 @@ export class ChatStorage {
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
-			a.download = `wabi-chat-${archive.period}.json`;
+			a.download = `wabi-chat-${this.exportLabel}-${archive.period}.json`;
 			a.click();
 			URL.revokeObjectURL(url);
 		});
@@ -540,6 +741,7 @@ export class ChatStorage {
 	async exportArchive(periodKey: string) {
 		if (!browser) return;
 		await this.ensureInit();
+		await this.flushPendingArchiveWrites();
 
 		const data = await this.db.getArchive(periodKey);
 
@@ -552,7 +754,7 @@ export class ChatStorage {
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
-		a.download = `wabi-chat-${periodKey}.json`;
+		a.download = `wabi-chat-${this.exportLabel}-${periodKey}.json`;
 		a.click();
 		URL.revokeObjectURL(url);
 	}
@@ -561,6 +763,7 @@ export class ChatStorage {
 	async getStats(): Promise<StorageStats> {
 		if (!browser) return { archives: [], totalSize: 0, totalMessages: 0 };
 		await this.ensureInit();
+		await this.flushPendingArchiveWrites();
 
 		const archives = await this.db.getAllArchives();
 
@@ -583,4 +786,3 @@ export class ChatStorage {
 }
 
 export const chatStorage = new ChatStorage();
-

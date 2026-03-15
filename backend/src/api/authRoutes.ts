@@ -25,6 +25,19 @@ const LOGIN_COOLDOWN_STEPS_MS = [
 ];
 const LOGIN_STAGE_DECAY_MS = 24 * 60 * 60 * 1000; // 24 hours without failures drops one stage.
 
+// Periodic cleanup of expired rate limit entries (every 5 minutes)
+setInterval(() => {
+	const now = Date.now();
+	for (const [key, entry] of rateLimitMap) {
+		if (now > entry.resetTime) rateLimitMap.delete(key);
+	}
+	for (const [key, entry] of loginCooldownMap) {
+		if (now > entry.lockUntil && now - entry.lastFailureAt > LOGIN_STAGE_DECAY_MS) {
+			loginCooldownMap.delete(key);
+		}
+	}
+}, 5 * 60 * 1000).unref();
+
 function checkRateLimit(key: string, maxAttempts: number, windowMs: number): boolean {
 	const now = Date.now();
 	const entry = rateLimitMap.get(key);
@@ -179,6 +192,16 @@ function validateInput(username: string, password: string): { valid: boolean; er
 		return { valid: false, error: 'Password must be at least 8 characters' };
 	}
 
+	if (!/[a-z]/.test(password)) {
+		return { valid: false, error: 'Password must contain at least one lowercase letter' };
+	}
+	if (!/[A-Z]/.test(password)) {
+		return { valid: false, error: 'Password must contain at least one uppercase letter' };
+	}
+	if (!/[0-9]/.test(password)) {
+		return { valid: false, error: 'Password must contain at least one number' };
+	}
+
 	if (username.length > 32) {
 		return { valid: false, error: 'Username must be less than 32 characters' };
 	}
@@ -226,16 +249,34 @@ function generateRegisteredSessionId(): string {
 	return `reg-${Date.now()}-${randomBytes(18).toString('base64url')}`;
 }
 
-function revokeRegisteredSessionsForUser(userId: number): number {
-	const sessions = sessionRepository.getAll();
-	let revoked = 0;
-	for (const session of sessions) {
-		if (session.user_id !== userId) continue;
-		if (session.is_temporary === 1) continue;
-		sessionRepository.delete(session.session_id);
-		revoked += 1;
+async function revokeRegisteredSessionsForUser(userId: number): Promise<number> {
+	if (typeof (sessionRepository as { deleteRegisteredByUserIdAsync?: (targetUserId: number) => Promise<number> }).deleteRegisteredByUserIdAsync === 'function') {
+		return await (sessionRepository as { deleteRegisteredByUserIdAsync: (targetUserId: number) => Promise<number> }).deleteRegisteredByUserIdAsync(userId);
 	}
-	return revoked;
+	return sessionRepository.deleteRegisteredByUserId(userId);
+}
+
+async function createRegisteredUser(
+	user: Omit<Parameters<typeof userRepository.create>[0], never>
+) {
+	if (typeof (userRepository as { createAsync?: (payload: Omit<Parameters<typeof userRepository.create>[0], never>) => Promise<ReturnType<typeof userRepository.create>> }).createAsync === 'function') {
+		return await (userRepository as {
+			createAsync: (payload: Omit<Parameters<typeof userRepository.create>[0], never>) => Promise<ReturnType<typeof userRepository.create>>
+		}).createAsync(user);
+	}
+	return userRepository.create(user);
+}
+
+async function createRegisteredSession(
+	session: Parameters<typeof sessionRepository.create>[0]
+): Promise<void> {
+	if (typeof (sessionRepository as { createAsync?: (payload: Parameters<typeof sessionRepository.create>[0]) => Promise<void> }).createAsync === 'function') {
+		await (sessionRepository as {
+			createAsync: (payload: Parameters<typeof sessionRepository.create>[0]) => Promise<void>
+		}).createAsync(session);
+		return;
+	}
+	sessionRepository.create(session);
 }
 
 function getTestingAutoRole(): 'owner' | 'admin' | null {
@@ -314,7 +355,7 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 
 		// Hash password and create user
 		const passwordHash = await hashPassword(normalizedPassword);
-		const user = userRepository.create({
+		const user = await createRegisteredUser({
 			username: normalizedUsername,
 			handle,
 			password_hash: passwordHash,
@@ -325,7 +366,7 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 		maybeAssignWorkspaceOwnerIfMissing(user.user_id!, user.username);
 
 		// Create settings with defaults
-		settingsRepository.set(user.user_id!, {
+		await settingsRepository.setAsync(user.user_id!, {
 			offline_message_retention: '7d',
 			allow_temp_user_messages: 1,
 			home_experience: 'community'
@@ -333,7 +374,7 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 
 		// Create session
 		const sessionId = generateRegisteredSessionId();
-		sessionRepository.create({
+		await createRegisteredSession({
 			session_id: sessionId,
 			user_id: user.user_id!,
 			username: user.username,
@@ -355,6 +396,7 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 		res.end(
 			JSON.stringify({
 				token,
+				mustChangePassword: false,
 				user: {
 					id: user.user_id,
 					username: user.username,
@@ -450,8 +492,10 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 		}
 		if (user.is_active === 0) {
 			console.log('[Auth] Blocked login for inactive user:', normalizedUsername);
-			res.writeHead(403, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ error: 'This account has been banned.' }));
+			recordFailedLogin(normalizedUsername);
+			recordFailedIpLogin(clientIp);
+			res.writeHead(401, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Invalid credentials' }));
 			return;
 		}
 
@@ -473,13 +517,14 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 		clearLoginFailureState(normalizedUsername);
 		clearLoginFailureStateForIp(clientIp);
 		maybeAssignWorkspaceOwnerIfMissing(user.user_id!, user.username);
+		const userSettings = settingsRepository.get(user.user_id!);
 
 		// Enforce a single active login session per registered user.
-		revokeRegisteredSessionsForUser(user.user_id!);
+		await revokeRegisteredSessionsForUser(user.user_id!);
 
 		// Create session
 		const sessionId = generateRegisteredSessionId();
-		sessionRepository.create({
+		await createRegisteredSession({
 			session_id: sessionId,
 			user_id: user.user_id,
 			username: user.username,
@@ -502,6 +547,7 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 		res.end(
 			JSON.stringify({
 				token,
+				mustChangePassword: userSettings.require_password_change === 1,
 				user: {
 					id: user.user_id,
 					username: user.username,
@@ -549,6 +595,11 @@ export async function handleChangePassword(req: IncomingMessage, res: ServerResp
 			res.end(JSON.stringify({ error: 'New password must be at least 8 characters' }));
 			return;
 		}
+		if (!/[a-z]/.test(newPassword) || !/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'New password must contain uppercase, lowercase, and a number' }));
+			return;
+		}
 
 		const user = userRepository.findById(userId);
 		if (!user) {
@@ -566,6 +617,10 @@ export async function handleChangePassword(req: IncomingMessage, res: ServerResp
 
 		const nextHash = await hashPassword(newPassword);
 		userRepository.update(userId, { password_hash: nextHash });
+		await settingsRepository.setAsync(userId, { require_password_change: 0 });
+
+		// Revoke all existing sessions so stolen tokens are invalidated
+		await revokeRegisteredSessionsForUser(userId);
 
 		res.writeHead(200, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ success: true }));
@@ -596,6 +651,7 @@ export async function handleAdminResetUserPassword(req: IncomingMessage, res: Se
 		const body = await parseBody(req);
 		const targetUserId = Number(body.targetUserId);
 		const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
+		const temporary = body.temporary === true;
 
 		if (!Number.isFinite(targetUserId) || targetUserId <= 0 || !newPassword) {
 			res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -632,9 +688,15 @@ export async function handleAdminResetUserPassword(req: IncomingMessage, res: Se
 
 		const nextHash = await hashPassword(newPassword);
 		userRepository.update(targetUserId, { password_hash: nextHash });
+		await settingsRepository.setAsync(targetUserId, {
+			require_password_change: temporary ? 1 : 0
+		});
+		await revokeRegisteredSessionsForUser(targetUserId);
+		clearLoginFailureState(targetUser.username);
+		if (targetUser.handle) clearLoginFailureState(targetUser.handle);
 
 		res.writeHead(200, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({ success: true }));
+		res.end(JSON.stringify({ success: true, temporary }));
 	} catch (error) {
 		console.error('[Auth] Admin reset password error:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -828,7 +890,9 @@ export async function handleGetUserSettings(req: IncomingMessage, res: ServerRes
 		res.end(JSON.stringify({
 			offline_message_retention: settings.offline_message_retention,
 			allow_temp_user_messages: settings.allow_temp_user_messages === 1,
-			home_experience: settings.home_experience || 'community'
+			home_experience: settings.home_experience || 'community',
+			require_password_change: settings.require_password_change === 1,
+			payment_preferred_route: settings.payment_preferred_route || null
 		}));
 	} catch (error) {
 		console.error('[Auth] Get settings error:', error);
@@ -911,7 +975,7 @@ export async function handleSaveUserSettings(req: IncomingMessage, res: ServerRe
 
 		// Parse request body
 		const body = await parseBody(req);
-		const { offline_message_retention, allow_temp_user_messages, home_experience } = body;
+		const { offline_message_retention, allow_temp_user_messages, home_experience, payment_preferred_route } = body;
 
 		// Validate retention period
 		const validRetentions = ['1d', '7d', '30d', 'forever'];
@@ -928,6 +992,22 @@ export async function handleSaveUserSettings(req: IncomingMessage, res: ServerRe
 			return;
 		}
 
+		let normalizedPreferredRoute: string | null | undefined;
+		if (payment_preferred_route !== undefined) {
+			if (payment_preferred_route === null || payment_preferred_route === '') {
+				normalizedPreferredRoute = null;
+			} else if (
+				typeof payment_preferred_route === 'string' &&
+				/^[A-Za-z]{2,8}$/.test(payment_preferred_route.trim())
+			) {
+				normalizedPreferredRoute = payment_preferred_route.trim().toUpperCase();
+			} else {
+				res.writeHead(400, { 'Content-Type': 'application/json' });
+				res.end(JSON.stringify({ error: 'Invalid payment preferred route' }));
+				return;
+			}
+		}
+
 		const existing = settingsRepository.get(userId);
 
 		// Save settings
@@ -937,7 +1017,11 @@ export async function handleSaveUserSettings(req: IncomingMessage, res: ServerRe
 				allow_temp_user_messages === undefined
 					? existing.allow_temp_user_messages
 					: allow_temp_user_messages ? 1 : 0,
-			home_experience: home_experience || existing.home_experience || 'community'
+			home_experience: home_experience || existing.home_experience || 'community',
+			payment_preferred_route:
+				normalizedPreferredRoute === undefined
+					? existing.payment_preferred_route || null
+					: normalizedPreferredRoute
 		});
 
 		res.writeHead(200, { 'Content-Type': 'application/json' });

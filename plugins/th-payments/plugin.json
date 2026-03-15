@@ -63,12 +63,12 @@
   },
   "integrity": {
     "algorithm": "sha256",
-    "checksum": "6c4749e0f54df709ba7d3b4ab320e2148ce38e1f45bd044570f64a4a0d222364",
-    "signature": "1v6Axmdak/TIjTYJebvH02induwkQBh2vmhciyXOaSfR3HVyAnqtcjz0JrvXXQNmOhpfhqHy/+eWi8UG6vkDBQ=="
+    "checksum": "bffcc8c2d8a3fe4ff2e56a9ebfec3041d96116bd0adf31e42f51d875d5b3b315",
+    "signature": "bogF8n2ZUnFgA0o3EO1EaTyzsANrhVbWHxwUG3rLhF9f37I59k2gQ3DSmB61qnn0RlBPr5DSUpWGMfCXBq6yAw=="
   },
   "signer": {
-    "keyId": "ed25519:4d2e081b7db50a47",
-    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkbMDtKXkd1tlzvcpqBSAcb6QL96jAQM+JXOfkuLnKTw=\n-----END PUBLIC KEY-----\n",
+    "keyId": "ed25519:0572c2b616cbab5a",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAYRKIi135SnQ9uhyr70PmVs7h+wKEJn9aebiQ+xY1SYw=\n-----END PUBLIC KEY-----\n",
     "algorithm": "ed25519"
   }
 }

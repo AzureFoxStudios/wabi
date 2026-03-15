@@ -43,36 +43,24 @@
 		tileOwnerParticipantId,
 		type ActiveSpeakerState
 	} from '$lib/callLayoutManager';
+	import {
+		buildActiveSpeakerLevels,
+		buildParticipants,
+		buildRenderTiles,
+		buildShares,
+		getInitial,
+		type RenderTile
+	} from '$lib/callRenderModel';
+	import {
+		directCallRecordingParticipants,
+		groupCallRecordingParticipants,
+		voiceCallRecordingParticipants
+	} from '$lib/callRecordingPresence';
+	import { callRecordingState, startCallRecording, stopCallRecording } from '$lib/callRecording';
 	import { showCallNotification, playCallRingtone, stopCallRingtone } from '$lib/notifications';
 	import { onDestroy, afterUpdate } from 'svelte';
 
 	type CallViewportMode = 'embedded' | 'focus' | 'docked';
-	type RenderTileKind = 'video' | 'screen' | 'avatar';
-
-	interface ParticipantMedia {
-		id: string;
-		label: string;
-		isLocal: boolean;
-		hasVideo: boolean;
-		stream: MediaStream | null;
-	}
-
-	interface ShareMedia {
-		id: string;
-		participantId: string;
-		label: string;
-		isLocal: boolean;
-		stream: MediaStream | null;
-	}
-
-	interface RenderTile {
-		id: string;
-		participantId: string;
-		label: string;
-		kind: RenderTileKind;
-		stream: MediaStream | null;
-		isLocal: boolean;
-	}
 
 	let callNotification: Notification | null = null;
 	let lastIncomingCallToken: string | null = null;
@@ -103,6 +91,67 @@
 	$: renderTiles = buildRenderTiles(participants, shares);
 	$: tileById = new Map(renderTiles.map((tile) => [tile.id, tile]));
 	$: activeSpeakerLevels = buildActiveSpeakerLevels(participants, $activeCalls, $isLocalSpeaking, $isMuted, $isDeafened);
+	$: recordingLabel =
+		$callRecordingState.status === 'recording'
+			? `Recording ${formatRecordingElapsed($callRecordingState.elapsedMs)}`
+			: $callRecordingState.status === 'saving'
+				? 'Saving recording...'
+				: $callRecordingState.savedFileCount > 1
+					? `Saved ${$callRecordingState.savedFileCount} files`
+				: $callRecordingState.savedPath
+					? `Saved: ${$callRecordingState.savedPath}`
+					: $callRecordingState.savedFileCount === 1
+						? 'Saved 1 file'
+					: $callRecordingState.lastError
+						? `Recording error: ${$callRecordingState.lastError}`
+						: '';
+	$: selfStableUserId =
+		typeof $currentUser?.dbUserId === 'number'
+			? `user-${$currentUser.dbUserId}`
+			: ($currentUser?.id || null);
+	$: channelScopeRecordingParticipants = (() => {
+		const channelIds = new Set($listeningVoiceChannels);
+		if ($activeVoiceChannel?.id) {
+			channelIds.add($activeVoiceChannel.id);
+		}
+		const participantsByUserId = new Map<
+			string,
+			{ userId: string; socketId?: string; username?: string; profilePicture?: string }
+		>();
+		for (const channelId of channelIds) {
+			for (const participant of $voiceCallRecordingParticipants[channelId] || []) {
+				participantsByUserId.set(participant.userId, participant);
+			}
+		}
+		return Array.from(participantsByUserId.values());
+	})();
+	$: activeScopeRecordingParticipants =
+		$callMode === 'channel'
+			? channelScopeRecordingParticipants
+			: $callMode === 'group'
+				? ($activeGroupCall?.id ? ($groupCallRecordingParticipants[$activeGroupCall.id] || []) : [])
+				: $directCallRecordingParticipants;
+	$: activeRecordingCount = activeScopeRecordingParticipants.length;
+	$: showRecordingPresenceBanner =
+		$callRecordingState.status === 'recording' ||
+		$callRecordingState.status === 'saving' ||
+		activeRecordingCount > 0;
+	$: recordingPillText =
+		$callRecordingState.status === 'saving'
+			? 'Saving'
+			: $callRecordingState.status === 'recording'
+				? `REC ${formatRecordingElapsed($callRecordingState.elapsedMs)}`
+				: activeRecordingCount > 0
+					? `REC ${activeRecordingCount}`
+					: '';
+	$: recordingPresenceCopy =
+		$callRecordingState.status === 'saving'
+			? 'Recording has stopped. Saving locally on this device.'
+			: activeRecordingCount > 0
+				? formatRecordingPresenceCopy(activeScopeRecordingParticipants, selfStableUserId)
+				: $callRecordingState.status === 'recording'
+					? 'Recording is starting. Everyone in this call will see the badge.'
+					: '';
 
 	$: {
 		const nextPins = sanitizePinnedIds(pinnedTileIds, tileById);
@@ -252,140 +301,6 @@
 		);
 	}
 
-	function buildParticipants(
-		calls: typeof $activeCalls,
-		inCall: boolean,
-		myStream: MediaStream | null,
-		localVideoOff: boolean
-	): ParticipantMedia[] {
-		const list: ParticipantMedia[] = [];
-		if (inCall) {
-			const hasLocalVideo = Boolean(!localVideoOff && myStream?.getVideoTracks().length);
-			list.push({
-				id: 'local',
-				label: 'You',
-				isLocal: true,
-				hasVideo: hasLocalVideo,
-				stream: myStream
-			});
-		}
-		for (const call of calls) {
-			list.push({
-				id: call.userId,
-				label: call.username || 'User',
-				isLocal: false,
-				hasVideo: Boolean(call.isVideoEnabled && call.stream?.getVideoTracks().length),
-				stream: call.stream
-			});
-		}
-		return list.sort((a, b) => a.id.localeCompare(b.id));
-	}
-
-	function buildShares(
-		remoteShares: typeof $screenShares,
-		sharing: boolean,
-		localShare: MediaStream | null
-	): ShareMedia[] {
-		const list: ShareMedia[] = remoteShares
-			.map((share) => ({
-				id: share.userId,
-				participantId: share.userId,
-				label: `${share.username}'s Screen`,
-				isLocal: false,
-				stream: share.stream
-			}))
-			.sort((a, b) => a.id.localeCompare(b.id));
-
-		if (sharing && localShare) {
-			list.push({
-				id: 'local',
-				participantId: 'local',
-				label: 'Your Screen',
-				isLocal: true,
-				stream: localShare
-			});
-		}
-
-		return list;
-	}
-
-	function buildRenderTiles(participantsList: ParticipantMedia[], shareList: ShareMedia[]): RenderTile[] {
-		const hasShares = shareList.length > 0;
-		const videoParticipants = participantsList.filter((participant) => participant.hasVideo);
-		const avatarParticipants = participantsList.filter((participant) => !participant.hasVideo);
-		const hasVideoTiles = videoParticipants.length > 0;
-		const tiles: RenderTile[] = [];
-
-		if (hasShares || hasVideoTiles) {
-			for (const share of shareList) {
-				tiles.push({
-					id: `share:${share.id}`,
-					participantId: share.participantId,
-					label: share.label,
-					kind: 'screen',
-					stream: share.stream,
-					isLocal: share.isLocal
-				});
-			}
-			for (const participant of videoParticipants) {
-				tiles.push({
-					id: `video:${participant.id}`,
-					participantId: participant.id,
-					label: participant.label,
-					kind: 'video',
-					stream: participant.stream,
-					isLocal: participant.isLocal
-				});
-			}
-			for (const participant of avatarParticipants) {
-				tiles.push({
-					id: `avatar:${participant.id}`,
-					participantId: participant.id,
-					label: participant.label,
-					kind: 'avatar',
-					stream: participant.stream,
-					isLocal: participant.isLocal
-				});
-			}
-			return tiles.sort((a, b) => a.id.localeCompare(b.id));
-		}
-
-		for (const participant of participantsList) {
-			tiles.push({
-				id: `avatar:${participant.id}`,
-				participantId: participant.id,
-				label: participant.label,
-				kind: 'avatar',
-				stream: participant.stream,
-				isLocal: participant.isLocal
-			});
-		}
-		return tiles.sort((a, b) => a.id.localeCompare(b.id));
-	}
-
-	function buildActiveSpeakerLevels(
-		participantsList: ParticipantMedia[],
-		calls: typeof $activeCalls,
-		localSpeaking: boolean,
-		muted: boolean,
-		deafened: boolean
-	): Record<string, number> {
-		const levels: Record<string, number> = {};
-		for (const participant of participantsList) {
-			if (participant.isLocal) {
-				levels[participant.id] = !deafened && !muted && localSpeaking ? 1 : 0;
-				continue;
-			}
-			const call = calls.find((entry) => entry.userId === participant.id);
-			levels[participant.id] = call?.isAudioEnabled && call?.isSpeaking ? 1 : 0;
-		}
-		return levels;
-	}
-
-	function getInitial(label: string): string {
-		return label.trim().charAt(0).toUpperCase() || '?';
-	}
-
 	function hashString(value: string): number {
 		let hash = 0;
 		for (let i = 0; i < value.length; i += 1) {
@@ -452,6 +367,14 @@
 
 	function handleToggleDeafen() {
 		toggleDeafen();
+	}
+
+	async function handleToggleRecording() {
+		if ($callRecordingState.status === 'recording' || $callRecordingState.status === 'saving') {
+			await stopCallRecording();
+			return;
+		}
+		await startCallRecording();
 	}
 
 	async function handleToggleVideo() {
@@ -538,6 +461,34 @@
 		return !tile.isLocal && !tile.stream;
 	}
 
+	function formatRecordingElapsed(elapsedMs: number): string {
+		const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+		const hours = Math.floor(totalSeconds / 3600);
+		const minutes = Math.floor((totalSeconds % 3600) / 60);
+		const seconds = totalSeconds % 60;
+		if (hours > 0) {
+			return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+		}
+		return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+	}
+
+	function formatRecordingPresenceCopy(
+		participants: Array<{ userId: string; username?: string }>,
+		selfStableId: string | null
+	): string {
+		if (participants.length === 0) return '';
+		const labels = participants.map((participant) =>
+			selfStableId && participant.userId === selfStableId ? 'You' : (participant.username || participant.userId)
+		);
+		if (labels.length === 1) {
+			return `${labels[0]} ${labels[0] === 'You' ? 'are' : 'is'} recording. Everyone in this call can see it.`;
+		}
+		if (labels.length === 2) {
+			return `${labels[0]} and ${labels[1]} are recording.`;
+		}
+		return `${labels[0]}, ${labels[1]}, and ${labels.length - 2} more are recording.`;
+	}
+
 	function getParticipantAvatarUrl(tile: RenderTile): string | null {
 		if (tile.isLocal) return $currentUser?.profilePicture || null;
 		const byId = $users.find((user) => user.id === tile.participantId);
@@ -595,11 +546,27 @@
 
 {#if showDockedBar}
 	<div class="docked-bar" role="region" aria-label="Docked call controls">
-		<div class="docked-title">Call in progress ({1 + $activeCalls.length})</div>
+		<div class="docked-title">
+			Call in progress ({1 + $activeCalls.length})
+			{#if recordingPillText}
+				<span class="recording-pill compact" class:is-saving={$callRecordingState.status === 'saving'}>
+					<span class="recording-dot"></span>
+					{recordingPillText}
+				</span>
+			{/if}
+		</div>
 		<div class="docked-actions">
 			<button class="dock-btn" on:click={() => setViewportMode('embedded')} title="Open embedded call">Open</button>
 			<button class="dock-btn" on:click={() => setViewportMode('focus')} title="Focus call">Focus</button>
 			<button class="dock-btn" class:active={$isMuted} on:click={handleToggleMute} title={$isMuted ? 'Unmute' : 'Mute'}>Mute</button>
+			<button
+				class="dock-btn record"
+				class:active={$callRecordingState.status === 'recording'}
+				on:click={handleToggleRecording}
+				title={$callRecordingState.status === 'recording' ? 'Stop recording' : 'Start recording'}
+			>
+				{$callRecordingState.status === 'saving' ? 'Saving' : $callRecordingState.status === 'recording' ? 'Stop REC' : 'Record'}
+			</button>
 			<button class="dock-btn end" on:click={handleEndCall} title="Leave call">
 			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07C9.44 17.28 8.17 16 7.05 14.68A19.79 19.79 0 0 1 4 6.05 2 2 0 0 1 5.99 4h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L10.68 11.68"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
 		</button>
@@ -641,6 +608,15 @@
 		{/if}
 
 		<div class="active-call-container">
+			{#if showRecordingPresenceBanner}
+				<div class="recording-banner" role="status" aria-live="polite">
+					<span class="recording-pill" class:is-saving={$callRecordingState.status === 'saving'}>
+						<span class="recording-dot"></span>
+						{recordingPillText || 'REC'}
+					</span>
+					<span class="recording-copy">{recordingPresenceCopy}</span>
+				</div>
+			{/if}
 			<div class="call-stage">
 				{#if layoutResult.template === 'floating-bubbles'}
 					<div class="bubble-stage" class:single-bubble={orderedTiles.length === 1}>
@@ -742,6 +718,15 @@
 					<button class="control-btn" class:active={$isSharing} on:click={handleToggleScreenShare} title={$isSharing ? 'Stop sharing' : 'Share screen'}>
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
 					</button>
+					<button
+						class="control-btn record"
+						class:active={$callRecordingState.status === 'recording'}
+						class:is-saving={$callRecordingState.status === 'saving'}
+						on:click={handleToggleRecording}
+						title={$callRecordingState.status === 'recording' ? 'Stop recording' : 'Start recording'}
+					>
+						<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="7"></circle></svg>
+					</button>
 					<button class="control-btn end" on:click={handleEndCall} title="Leave call">
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07C9.44 17.28 8.17 16 7.05 14.68A19.79 19.79 0 0 1 4 6.05 2 2 0 0 1 5.99 4h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L10.68 11.68"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
 					</button>
@@ -753,6 +738,11 @@
 			{/if}
 			{#if voiceRouteText}
 				<div class="route-status">{voiceRouteText}</div>
+			{/if}
+			{#if recordingLabel}
+				<div class="recording-status" class:is-error={$callRecordingState.status === 'error'}>
+					{recordingLabel}
+				</div>
 			{/if}
 			{#if $callMode === 'group' && $groupCallRingingTargets.length > 0}
 				<div class="ringing-targets-panel">
@@ -986,6 +976,10 @@
 	}
 
 	.docked-title {
+		display: flex;
+		align-items: center;
+		gap: 0.55rem;
+		flex-wrap: wrap;
 		font-size: 0.78rem;
 		font-weight: 600;
 		color: rgba(255, 255, 255, 0.88);
@@ -1009,6 +1003,17 @@
 
 	.dock-btn.active {
 		background: var(--accent, #5865f2);
+	}
+
+	.dock-btn.record {
+		background: rgba(185, 28, 28, 0.18);
+		border-color: rgba(248, 113, 113, 0.36);
+		color: #fecaca;
+	}
+
+	.dock-btn.record.active {
+		background: rgba(220, 38, 38, 0.48);
+		border-color: rgba(248, 113, 113, 0.7);
 	}
 
 	.dock-btn.end {
@@ -1112,6 +1117,61 @@
 		border-radius: 18px;
 		transform: scale(0.988);
 		box-shadow: 0 16px 40px rgba(0, 0, 0, 0.48);
+	}
+
+	.recording-banner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.85rem;
+		padding: 0.65rem 0.9rem;
+		background: rgba(127, 29, 29, 0.22);
+		border-bottom: 1px solid rgba(248, 113, 113, 0.18);
+	}
+
+	.recording-copy {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: rgba(254, 226, 226, 0.88);
+		text-align: right;
+	}
+
+	.recording-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+		padding: 0.38rem 0.62rem;
+		border-radius: 999px;
+		background: rgba(17, 24, 39, 0.76);
+		border: 1px solid rgba(248, 113, 113, 0.28);
+		color: #fef2f2;
+		font-size: 0.78rem;
+		font-weight: 700;
+	}
+
+	.recording-pill.compact {
+		font-size: 0.68rem;
+		padding: 0.2rem 0.45rem;
+	}
+
+	.recording-pill.is-saving {
+		border-color: rgba(253, 224, 71, 0.3);
+		color: #fef9c3;
+	}
+
+	.recording-dot {
+		width: 0.56rem;
+		height: 0.56rem;
+		border-radius: 50%;
+		background: #ef4444;
+		box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
+		animation: recording-pulse 1.4s infinite;
+	}
+
+	.recording-pill.is-saving .recording-dot {
+		background: #facc15;
+		box-shadow: none;
+		animation: none;
 	}
 
 	.call-stage {
@@ -1408,6 +1468,24 @@
 		border-color: color-mix(in srgb, var(--accent, #5865f2) 65%, transparent);
 	}
 
+	.control-btn.record {
+		background: rgba(127, 29, 29, 0.22);
+		border-color: rgba(248, 113, 113, 0.36);
+		color: #fecaca;
+	}
+
+	.control-btn.record.active {
+		background: rgba(220, 38, 38, 0.46);
+		border-color: rgba(248, 113, 113, 0.72);
+		color: #fff1f2;
+	}
+
+	.control-btn.record.is-saving {
+		background: rgba(161, 98, 7, 0.26);
+		border-color: rgba(250, 204, 21, 0.52);
+		color: #fef3c7;
+	}
+
 	.control-btn.end {
 		background: rgba(239, 68, 68, 0.2);
 		border-color: rgba(239, 68, 68, 0.5);
@@ -1441,6 +1519,41 @@
 		color: rgba(255, 255, 255, 0.88);
 		z-index: 3;
 		white-space: nowrap;
+	}
+
+	.recording-status {
+		position: absolute;
+		top: 3.9rem;
+		left: 50%;
+		transform: translateX(-50%);
+		max-width: min(92vw, 900px);
+		background: rgba(0, 0, 0, 0.56);
+		padding: 0.25rem 0.52rem;
+		border-radius: 8px;
+		font-size: 0.66rem;
+		font-weight: 600;
+		color: rgba(255, 255, 255, 0.88);
+		z-index: 3;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.recording-status.is-error {
+		color: #fecaca;
+		background: rgba(127, 29, 29, 0.62);
+	}
+
+	@keyframes recording-pulse {
+		0% {
+			box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
+		}
+		70% {
+			box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+		}
+		100% {
+			box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+		}
 	}
 
 	@media (max-width: 900px) {

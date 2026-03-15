@@ -2,6 +2,14 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import { createHmac } from 'crypto';
 import { randomBytes } from 'crypto';
 import jwt from 'jsonwebtoken';
+import { relayRepository } from '../db/repositories/relayRepository.js';
+import {
+	getBoosterRelayComponentConfigState,
+	getEffectiveBoosterRelayMode,
+	getRequestedBoosterRelayMode
+} from '../relay/boosterRelayMode.js';
+import { parseRelayMetadata } from '../relay/relayMetadata.js';
+import { getSelfHostedBoosterRelaySnapshot } from '../relay/selfHostedBoosterRelay.js';
 
 function boolFromEnv(value: string | undefined, fallback: boolean = false): boolean {
 	if (value == null) return fallback;
@@ -68,7 +76,6 @@ interface LivekitAccessTokenPayload {
 }
 
 type SfuProvider = 'none' | 'livekit';
-
 const gatewaySessions = new Map<string, GatewaySessionRecord>();
 let gatewayPortOffset = 0;
 
@@ -115,6 +122,29 @@ function getSfuProvider(): SfuProvider {
 	const raw = (process.env.SFU_PROVIDER || '').trim().toLowerCase();
 	if (raw === 'livekit') return 'livekit';
 	return 'none';
+}
+
+function buildBoosterRelayRuntimeState() {
+	const requestedMode = getRequestedBoosterRelayMode();
+	const effectiveMode = getEffectiveBoosterRelayMode();
+	const { turnConfigured, sfuConfigured, gatewayConfigured } = getBoosterRelayComponentConfigState();
+	const gatewayHealthy = isGatewayHealthyNow();
+	const gatewayMediaPlaneReady = isGatewayMediaPlaneReadyNow();
+	const selfAdvertisement = getSelfHostedBoosterRelaySnapshot();
+
+	return {
+		requestedMode,
+		effectiveMode,
+		selfHosted: requestedMode !== 'off' || effectiveMode !== 'off',
+		selfAdvertisement,
+		components: {
+			turnConfigured,
+			sfuConfigured,
+			gatewayConfigured,
+			gatewayHealthy,
+			gatewayMediaPlaneReady
+		}
+	};
 }
 
 function isSrtGatewayEnabledByConfig(): boolean {
@@ -213,6 +243,23 @@ interface MintedTurnCredentials {
 	ttlSeconds: number;
 }
 
+interface ResolvedTurnTarget {
+	server: string;
+	port: number;
+	useTurns: boolean;
+	realm: string | null;
+	relayId: number | null;
+	relayName: string | null;
+	source: 'origin' | 'relay';
+}
+
+interface ResolvedLivekitTarget {
+	url: string;
+	relayId: number | null;
+	relayName: string | null;
+	source: 'origin' | 'relay';
+}
+
 function mintTurnCredentials(userId: number): MintedTurnCredentials | null {
 	const sharedSecret = process.env.TURN_SHARED_SECRET;
 	if (!sharedSecret) {
@@ -232,6 +279,85 @@ function mintTurnCredentials(userId: number): MintedTurnCredentials | null {
 	};
 }
 
+function resolveRequestedTurnTarget(req: IncomingMessage): ResolvedTurnTarget | null {
+	const requestUrl = new URL(req.url || '/api/media/turn-credentials', 'http://localhost');
+	const requestedRelayIdRaw = requestUrl.searchParams.get('relayId');
+	const originTurnServer = (process.env.TURN_EXTERNAL_IP || '').trim() || null;
+	const originTurnRealm = (process.env.TURN_REALM || '').trim() || null;
+	const originTurnPort = numberFromEnv(process.env.TURN_PORT, 3478);
+	const originUseTurns = boolFromEnv(process.env.TURN_USE_TLS, false);
+
+	if (requestedRelayIdRaw) {
+		const requestedRelayId = Number.parseInt(requestedRelayIdRaw, 10);
+		if (Number.isFinite(requestedRelayId) && requestedRelayId > 0) {
+			const relay = relayRepository.findById(requestedRelayId);
+			if (relay && relay.approved === 1 && (relay.status === 'active' || relay.status === 'degraded')) {
+				const metadata = parseRelayMetadata(relay.metadata_json);
+				if (metadata?.capabilities.turn && metadata.turn?.server) {
+					return {
+						server: metadata.turn.server,
+						port: metadata.turn.port,
+						useTurns: metadata.turn.useTurns,
+						realm: metadata.turn.realm || originTurnRealm,
+						relayId: relay.relay_id,
+						relayName: relay.name,
+						source: 'relay'
+					};
+				}
+			}
+		}
+	}
+
+	if (!originTurnServer || !originTurnRealm) {
+		return null;
+	}
+
+	return {
+		server: originTurnServer,
+		port: originTurnPort,
+		useTurns: originUseTurns,
+		realm: originTurnRealm,
+		relayId: null,
+		relayName: null,
+		source: 'origin'
+	};
+}
+
+function resolveRequestedLivekitTarget(req: IncomingMessage): ResolvedLivekitTarget | null {
+	const requestUrl = new URL(req.url || '/api/media/livekit/token', 'http://localhost');
+	const requestedRelayIdRaw = requestUrl.searchParams.get('relayId');
+	const originLivekitUrl = getLivekitUrl();
+
+	if (requestedRelayIdRaw) {
+		const requestedRelayId = Number.parseInt(requestedRelayIdRaw, 10);
+		if (Number.isFinite(requestedRelayId) && requestedRelayId > 0) {
+			const relay = relayRepository.findById(requestedRelayId);
+			if (relay && relay.approved === 1 && (relay.status === 'active' || relay.status === 'degraded')) {
+				const metadata = parseRelayMetadata(relay.metadata_json);
+				if (metadata?.capabilities.sfu && metadata.sfu?.provider === 'livekit' && metadata.sfu.url) {
+					return {
+						url: metadata.sfu.url,
+						relayId: relay.relay_id,
+						relayName: relay.name,
+						source: 'relay'
+					};
+				}
+			}
+		}
+	}
+
+	if (!originLivekitUrl) {
+		return null;
+	}
+
+	return {
+		url: originLivekitUrl,
+		relayId: null,
+		relayName: null,
+		source: 'origin'
+	};
+}
+
 
 // GET /api/media/runtime
 // Provides server runtime hints for media quality transport paths.
@@ -239,6 +365,7 @@ export async function handleGetMediaRuntime(req: IncomingMessage, res: ServerRes
 	try {
 		const srtGatewayEnabled = isSrtGatewayEnabledByConfig();
 		const localEnhancedEnabled = boolFromEnv(process.env.MEDIA_LOCAL_ENHANCED_ENABLED, true);
+		const boosterRelay = buildBoosterRelayRuntimeState();
 
 		res.writeHead(200, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({
@@ -251,11 +378,7 @@ export async function handleGetMediaRuntime(req: IncomingMessage, res: ServerRes
 					audioBitrateLocal: numberFromEnv(process.env.MEDIA_OPUS_AUDIO_LOCAL_BITRATE, 96000)
 				},
 				turn: {
-					configured: Boolean(
-						(process.env.TURN_EXTERNAL_IP || '').trim() &&
-						(process.env.TURN_REALM || '').trim() &&
-						(process.env.TURN_SHARED_SECRET || '').trim()
-					),
+					configured: boosterRelay.components.turnConfigured,
 					server: (process.env.TURN_EXTERNAL_IP || '').trim() || null,
 					port: numberFromEnv(process.env.TURN_PORT, 3478),
 					useTurns: boolFromEnv(process.env.TURN_USE_TLS, false)
@@ -277,7 +400,8 @@ export async function handleGetMediaRuntime(req: IncomingMessage, res: ServerRes
 				sfu: {
 					provider: getSfuProvider(),
 					enabled: getSfuProvider() !== 'none'
-				}
+				},
+				boosterRelay
 			},
 			notes: {
 				srtDirectBrowserSupported: false,
@@ -295,12 +419,9 @@ export async function handleGetMediaRuntime(req: IncomingMessage, res: ServerRes
 // Returns short-lived TURN REST credentials for authenticated users.
 export async function handleGetTurnCredentials(req: IncomingMessage, res: ServerResponse, userId: number): Promise<void> {
 	try {
-		const turnServer = process.env.TURN_EXTERNAL_IP || null;
-		const turnRealm = process.env.TURN_REALM || null;
-		const turnPort = numberFromEnv(process.env.TURN_PORT, 3478);
-		const useTurns = boolFromEnv(process.env.TURN_USE_TLS, false);
+		const target = resolveRequestedTurnTarget(req);
 
-		if (!turnServer || !turnRealm) {
+		if (!target || !target.server || !target.realm) {
 			res.writeHead(503, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'TURN server is not configured' }));
 			return;
@@ -316,10 +437,13 @@ export async function handleGetTurnCredentials(req: IncomingMessage, res: Server
 		res.writeHead(200, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({
 			turn: {
-				server: turnServer,
-				port: turnPort,
-				realm: turnRealm,
-				useTurns,
+				server: target.server,
+				port: target.port,
+				realm: target.realm,
+				useTurns: target.useTurns,
+				relayId: target.relayId,
+				relayName: target.relayName,
+				source: target.source,
 				...minted
 			}
 		}));
@@ -342,10 +466,10 @@ export async function handleCreateLivekitToken(
 		res.end(JSON.stringify({ error: 'LiveKit provider is not enabled' }));
 		return;
 	}
-	const livekitUrl = getLivekitUrl();
+	const livekitTarget = resolveRequestedLivekitTarget(req);
 	const apiKey = process.env.LIVEKIT_API_KEY;
 	const apiSecret = process.env.LIVEKIT_API_SECRET;
-	if (!livekitUrl || !apiKey || !apiSecret) {
+	if (!livekitTarget?.url || !apiKey || !apiSecret) {
 		res.writeHead(503, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ error: 'LiveKit is not configured' }));
 		return;
@@ -386,9 +510,12 @@ export async function handleCreateLivekitToken(
 	res.writeHead(200, { 'Content-Type': 'application/json' });
 	res.end(JSON.stringify({
 		token,
-		url: livekitUrl,
+		url: livekitTarget.url,
 		roomName,
-		identity
+		identity,
+		relayId: livekitTarget.relayId,
+		relayName: livekitTarget.relayName,
+		source: livekitTarget.source
 	}));
 }
 

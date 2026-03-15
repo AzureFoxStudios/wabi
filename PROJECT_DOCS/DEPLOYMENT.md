@@ -7,13 +7,35 @@ Wabi Chat is designed to be self-deployable on bare-metal Linux. This guide cove
 ## Prerequisites
 
 - Docker & Docker Compose (v2)
-- A Linux server (VPS recommended) with a public IP
+- A Linux server or other always-on machine
 - A domain name pointed at your server (recommended for HTTPS)
 - Caddy (reverse proxy — the setup wizard can install it for you)
 
-## Quick Start (Setup Wizard)
+Notes:
+- A VPS is not required. A community member can run the origin and/or booster relay on their own machine.
+- Public inbound ports are only required when you self-host TURN/SFU media directly. Site/API/signaling can still sit behind Cloudflare Tunnel.
 
-The fastest way to get running. The wizard asks a few questions, generates your config, and tells you exactly what to do.
+## Zero-Config Quick Start (Any OS)
+
+The fastest way to get running. No `.env` file, no shell scripts, no WSL. Works on **Windows, Mac, and Linux**.
+
+```bash
+git clone https://github.com/AzureFoxStudios/wabi.git
+cd wabi
+docker compose up -d --build
+```
+
+Open `http://localhost:3000` — a first-run wizard guides you through:
+1. Creating your admin (owner) account
+2. Choosing a network path (port forwarding or Cloudflare Tunnel)
+3. Optionally joining a server mesh
+4. Customizing your login page (name, accent color, background image, custom CSS)
+
+Secrets (`JWT_SECRET`, `TURN_SHARED_SECRET`) are auto-generated on first boot and persisted to the data volume across restarts.
+
+## Setup Wizard (Linux CLI)
+
+For first-time server provisioning on Linux, the CLI wizard provides guided domain/Caddy setup:
 
 ```bash
 git clone https://github.com/AzureFoxStudios/wabi.git
@@ -46,7 +68,7 @@ cp wabi.config.example wabi.config
 | Mode | Database | Compose files | Typical use |
 |---|---|---|---|
 | `normal` | SQLite (`DB_MODE=sqlite`) | `docker-compose.yml` | Single-host default deployment, simplest operations |
-| `community` | Postgres (`DB_MODE=postgres`) | `docker-compose.yml` + `docker-compose.community.yml` | Multi-node/community deployments needing Postgres durability |
+| `community` | SQLite + STDB state-plane | `docker-compose.yml` | Community-style deployments using the same base stack with STDB-enabled state routing |
 
 `scripts/setup.sh` remains the first-run entry point and generates a default `.env` for `normal` mode on Node + SQLite.
 
@@ -58,8 +80,8 @@ Runtime is independent from deployment mode:
 |---|---|
 | `normal + node` | `docker compose -f docker-compose.yml up -d --build` |
 | `normal + bun` | `docker compose -f docker-compose.yml -f docker-compose.bun.yml up -d --build` |
-| `community + node` | `docker compose -f docker-compose.yml -f docker-compose.community.yml up -d --build` |
-| `community + bun` | `docker compose -f docker-compose.yml -f docker-compose.community.yml -f docker-compose.bun.yml up -d --build` |
+| `community + node` | `docker compose -f docker-compose.yml up -d --build` |
+| `community + bun` | `docker compose -f docker-compose.yml -f docker-compose.bun.yml up -d --build` |
 
 If you use the deploy helper, overlays are selected automatically from environment:
 
@@ -149,6 +171,28 @@ docker compose --profile turn up -d --build
 docker compose up -d --build
 ```
 
+Booster relay profiles (same machine as origin):
+
+```bash
+# TURN only
+docker compose --profile booster-turn up -d --build
+
+# TURN + LiveKit SFU
+docker compose --profile booster-sfu up -d --build
+
+# TURN + LiveKit SFU + SRT media gateway
+docker compose --profile booster-full up -d --build
+```
+
+Mode mapping:
+
+| `BOOSTER_RELAY_MODE` | Compose profile |
+|---|---|
+| `off` | none |
+| `turn-only` | `booster-turn` |
+| `turn-sfu` | `booster-sfu` |
+| `turn-sfu-gateway` | `booster-full` |
+
 Or use the deploy script for zero-downtime rebuilds:
 
 ```bash
@@ -208,6 +252,11 @@ Both modes use `Caddyfile.tunnel` to route:
 - `/api`, `/socket.io`, `/uploads`, `/health` -> backend
 - everything else -> frontend
 
+Important limitation:
+- Cloudflare Tunnel is suitable for the web app, API, and WebSocket signaling.
+- Cloudflare Tunnel is **not** the public media path for self-hosted TURN, LiveKit SFU, or SRT gateway traffic.
+- If you want reliable browser media with self-hosted booster relays, those relay endpoints still need a real reachable media path.
+
 ## Domain vs IP-Only
 
 | | Domain | IP-Only |
@@ -225,14 +274,8 @@ Both modes use `Caddyfile.tunnel` to route:
 |----------|---------|---------|
 | `WABI_MODE` | Deployment profile selector (`normal` or `community`) | `normal` |
 | `WABI_RUNTIME` | Runtime selector (`node` or `bun`) | `node` |
-| `DB_MODE` | Backend DB engine selector (`sqlite` or `postgres`) | `sqlite` |
+| `DB_MODE` | Backend DB engine selector (`sqlite` only) | `sqlite` |
 | `DATABASE_PATH` | SQLite DB path override | `/app/data/chat.db` |
-| `POSTGRES_HOST` | Postgres host (community mode) | `postgres` |
-| `POSTGRES_PORT` | Postgres port | `5432` |
-| `POSTGRES_USER` | Postgres user | `wabi` |
-| `POSTGRES_PASSWORD` | Postgres password | `<secret>` |
-| `POSTGRES_DB` | Postgres database | `wabi` |
-| `DATABASE_URL` | Optional full Postgres DSN override | `postgresql://wabi:secret@postgres:5432/wabi` |
 | `FRONTEND_URL` | Frontend domain (CORS origin) | `https://wabi.chat` |
 | `PUBLIC_URL` | File upload base URL | `https://wabi.chat` |
 | `ALLOWED_ORIGINS` | CORS whitelist (comma-separated) | `https://wabi.chat,https://tauri.localhost` |
@@ -310,32 +353,11 @@ Use this for US/EU/CAN style non-custodial rails via contracted adapter.
 
 ## Mode Switch And Migration
 
-### One-shot SQLite to Postgres migration
+Postgres mode has been removed from the runtime. Current migrations are:
 
-Run from `backend/` with the target Postgres values exported in your shell:
-
-```bash
-cd backend
-node scripts/migrate-sqlite-to-postgres.mjs \
-  --sqlite ../data/chat.db \
-  --database-url "postgresql://wabi:<password>@127.0.0.1:5432/wabi"
-```
-
-Dry-run mode:
-
-```bash
-cd backend
-node scripts/migrate-sqlite-to-postgres.mjs --sqlite ../data/chat.db --dry-run
-```
-
-The tool bootstraps `schema.postgres.sql`, then copies core auth/chat/role/channel/message/file-metadata tables.
-
-### Safe switch to community mode (Postgres)
-
-1. Snapshot current SQLite file.
-2. Start Postgres stack (`docker-compose.community.yml`) and run migration.
-3. Set `.env`: `WABI_MODE=community`, `DB_MODE=postgres` (runtime stays `node` or `bun`).
-4. Restart with community compose files.
+1. SQLite remains the local compatibility store.
+2. STDB state-plane rollout is controlled with `STATE_*` and `WABI_STDB_*` settings.
+3. Community mode no longer implies a second SQL engine.
 
 ### Rollback and export paths
 
@@ -346,18 +368,9 @@ mkdir -p backups
 cp data/chat.db "backups/chat-$(date -u +%Y%m%d-%H%M%S).db"
 ```
 
-Dump Postgres:
-
-```bash
-mkdir -p backups
-docker compose -f docker-compose.yml -f docker-compose.community.yml exec -T postgres \
-  pg_dump -U "${POSTGRES_USER:-wabi}" "${POSTGRES_DB:-wabi}" \
-  > "backups/postgres-$(date -u +%Y%m%d-%H%M%S).sql"
-```
-
 Revert to previous normal mode safely:
 
-1. Stop current stack: `docker compose -f docker-compose.yml -f docker-compose.community.yml down`
+1. Stop current stack: `docker compose -f docker-compose.yml down`
 2. Restore SQLite backup to `data/chat.db` if needed.
 3. Set `.env`: `WABI_MODE=normal`, `DB_MODE=sqlite`.
 4. Start again with `docker compose -f docker-compose.yml up -d --build`.
@@ -368,8 +381,10 @@ Revert to previous normal mode safely:
 |------|----------|---------|
 | 80 | TCP | HTTP — Caddy uses this for certificate validation |
 | 443 | TCP | HTTPS — all public traffic |
-| 3478 | TCP+UDP | TURN signaling (voice/video) |
-| 49152-65535 | UDP | TURN media relay range |
+| 3478 | TCP+UDP | TURN signaling (voice/video), if TURN/booster TURN is enabled |
+| 49152-65535 | UDP | TURN media relay range, if TURN/booster TURN is enabled |
+| 7880 | TCP | LiveKit SFU signaling/API, if `booster-sfu` / `booster-full` is enabled |
+| 7881 | UDP | LiveKit SFU media, if `booster-sfu` / `booster-full` is enabled |
 
 Ports 3000 (frontend) and 8080 (backend) only need to be reachable from localhost (Caddy proxies to them).
 
@@ -437,13 +452,14 @@ sudo journalctl -u caddy --no-pager -n 50
 ## Production Checklist
 
 - [ ] Domain DNS A record pointing to server IP
-- [ ] Firewall allows ports 80, 443, 3478, 49152-65535
+- [ ] Firewall allows ports required by the profiles you actually run
 - [ ] `.env` configured with production domain
 - [ ] `JWT_SECRET` is a unique random value
 - [ ] `TURN_SHARED_SECRET` is a unique random value
 - [ ] Caddy running and serving HTTPS
 - [ ] Backups configured for `data/` directory
 - [ ] Docker set to start on boot (`sudo systemctl enable docker`)
+- [ ] If `BOOSTER_RELAY_MODE` includes SFU, `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` are set consistently across SFU-capable nodes
 
 ## Systemd Service (Optional)
 
@@ -732,6 +748,51 @@ Core deploy scripts (`scripts/setup.sh`, `scripts/launch.sh`) intentionally do n
   - `./scripts/relay-launch.sh up`
   - Windows (WSL): `scripts/relay-launch-forWindows.ps1`
 
+## Origin-Only Account Recovery
+
+Base Wabi recovery is intentionally simple:
+
+- normal users recover through guest mode plus owner/admin help
+- owner/admin can issue a temporary password reset through the app
+- emergency operator recovery is local to the trusted origin/backend host
+
+Do not treat relay/media/community nodes as auth authorities. Mesh/relay helpers are not the place to run emergency password recovery.
+
+Emergency recovery command:
+
+```bash
+cd backend
+npm run auth:operator-reset -- --user your-username --generate
+```
+
+That command:
+
+- resets the target account password
+- defaults to a temporary-password flow
+- revokes existing registered sessions
+- prints the generated password once
+
+If you want to set a specific password instead:
+
+```bash
+cd backend
+npm run auth:operator-reset -- --user your-username --password "replace-me-now" --temporary
+```
+
+If you need a permanent reset instead of a forced-change temporary reset:
+
+```bash
+cd backend
+npm run auth:operator-reset -- --user your-username --password "replace-me-now" --permanent
+```
+
+Operator notes:
+
+- Run this on the real backend/origin machine, not on a relay node.
+- The command uses the same backend auth store that normal login uses.
+- If the backend is already running, restart it after the reset if you need in-memory login cooldown timers cleared immediately.
+- In a meshed deployment, recovery authority stays with the trusted origin/backend cluster, not volunteer relay/media/community nodes.
+
 SRT media gateway is deployable with control-plane + worker orchestration (`media-gateway/` + `/api/media/gateway/session*`).
 
 Operational requirements for SRT gateway mode:
@@ -774,5 +835,5 @@ node scripts/srt-phase2-check.mjs
 
 ---
 
-**Last updated**: 2026-03-08
+**Last updated**: 2026-03-12
 **Tested on**: Ubuntu 22.04 LTS with Docker Compose 2.x and Caddy 2.7+

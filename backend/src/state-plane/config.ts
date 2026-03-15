@@ -10,6 +10,7 @@ export interface StatePlaneConfig {
 	stdbSessionReadCanaryPercent: number;
 	stdbRbacReadCanaryPercent: number;
 	stdbWriteEnabled: boolean;
+	stdbPrimaryMirrorLegacyWrites: boolean;
 	stdbSubscriptionsEnabled: boolean;
 	enforceRbac: boolean;
 	strictMode: boolean;
@@ -124,6 +125,7 @@ export function getStatePlaneConfigFromEnv(): StatePlaneConfig {
 			100
 		),
 		stdbWriteEnabled,
+		stdbPrimaryMirrorLegacyWrites: normalizeBool(process.env.STATE_STDB_PRIMARY_MIRROR_LEGACY_WRITES, true),
 		stdbSubscriptionsEnabled: normalizeBool(process.env.STATE_STDB_SUBSCRIPTIONS_ENABLED, false),
 		enforceRbac: normalizeBool(process.env.STATE_STDB_ENFORCE_RBAC, true),
 		strictMode: normalizeBool(process.env.STATE_BACKEND_STRICT, false),

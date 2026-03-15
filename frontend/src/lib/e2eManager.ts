@@ -1,5 +1,6 @@
-import { generateKeyPair, deriveSharedKey, encryptContent, decryptContent, saveUserKeys, loadUserKeys } from './encryption';
+import { generateKeyPair, deriveSharedKey, encryptContent, decryptContent, saveUserKeys, loadUserKeys, setKeyWrappingSecret } from './encryption';
 import { storeEncryptionKeys, getPublicKey } from './api';
+import type { MessageEntity } from './socket-types';
 
 let currentDbUserId: number | null = null;
 let currentToken: string | null = null;
@@ -12,6 +13,32 @@ const sharedKeyCache = new Map<number, CryptoKey>();
 const publicKeyCache = new Map<number, string | null>();
 const publicKeyNegativeCacheUntil = new Map<number, number>();
 const PUBLIC_KEY_RETRY_MS = 10_000;
+
+interface EncryptedDmPayload {
+	text: string;
+	entities?: MessageEntity[];
+}
+
+function normalizeDecryptedPayload(
+	plaintext: string,
+	fallbackEntities?: MessageEntity[]
+): EncryptedDmPayload {
+	try {
+		const parsed = JSON.parse(plaintext) as Partial<EncryptedDmPayload> & { version?: number };
+		if (parsed && typeof parsed.text === 'string') {
+			return {
+				text: parsed.text,
+				entities: Array.isArray(parsed.entities) ? parsed.entities : fallbackEntities
+			};
+		}
+	} catch {
+		// Plaintext legacy payload.
+	}
+	return {
+		text: plaintext,
+		entities: fallbackEntities
+	};
+}
 
 function isTransientNetworkError(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
@@ -57,10 +84,13 @@ export async function initE2E(dbUserId: number, token: string | null | undefined
 	publicKeyCache.clear();
 	publicKeyNegativeCacheUntil.clear();
 
+	// Use auth token as wrapping secret for private key encryption at rest
+	setKeyWrappingSecret(token || null);
+
 	if (isNewRegistration) {
 		try {
 			const keyPair = await generateKeyPair();
-			saveUserKeys(dbUserId, keyPair.publicKey, keyPair.privateKey);
+			await saveUserKeys(dbUserId, keyPair.publicKey, keyPair.privateKey);
 			currentPublicKey = keyPair.publicKey;
 			currentPrivateKey = keyPair.privateKey;
 
@@ -72,7 +102,7 @@ export async function initE2E(dbUserId: number, token: string | null | undefined
 		}
 	} else {
 		// Login — load existing keys from localStorage
-		const stored = loadUserKeys(dbUserId);
+		const stored = await loadUserKeys(dbUserId);
 		if (stored) {
 			currentPublicKey = stored.publicKey;
 			currentPrivateKey = stored.privateKey;
@@ -97,7 +127,7 @@ export async function initE2E(dbUserId: number, token: string | null | undefined
 			// Older encrypted history may remain unreadable without the previous private key.
 			try {
 				const keyPair = await generateKeyPair();
-				saveUserKeys(dbUserId, keyPair.publicKey, keyPair.privateKey);
+				await saveUserKeys(dbUserId, keyPair.publicKey, keyPair.privateKey);
 				currentPublicKey = keyPair.publicKey;
 				currentPrivateKey = keyPair.privateKey;
 				await storeEncryptionKeysWithRetry(currentToken, keyPair.publicKey, keyPair.privateKey);
@@ -163,7 +193,8 @@ async function getSharedKey(otherDbUserId: number): Promise<CryptoKey | null> {
 export async function encryptDMMessage(
 	plaintext: string,
 	otherDbUserId: number,
-	token: string | null | undefined
+	token: string | null | undefined,
+	entities?: MessageEntity[]
 ): Promise<{ text: string; encrypted: boolean; iv: string } | null> {
 	if (!isE2EAvailable()) return null;
 
@@ -174,11 +205,55 @@ export async function encryptDMMessage(
 	if (!sharedKey) return null;
 
 	try {
-		const { encryptedData, iv } = await encryptContent(plaintext, sharedKey);
+		const serializedPayload =
+			Array.isArray(entities) && entities.length > 0
+				? JSON.stringify({ version: 1, text: plaintext, entities })
+				: plaintext;
+		const { encryptedData, iv } = await encryptContent(serializedPayload, sharedKey);
 		return { text: encryptedData, encrypted: true, iv };
 	} catch (err) {
 		console.error('[E2E] Encryption failed:', err);
 		return null;
+	}
+}
+
+export async function decryptDMMessagePayload(
+	message: { text: string; encrypted?: boolean; iv?: string; entities?: MessageEntity[] },
+	otherDbUserId: number,
+	token: string | null | undefined
+): Promise<EncryptedDmPayload> {
+	if (!message.encrypted || !message.iv) {
+		return {
+			text: message.text,
+			entities: message.entities
+		};
+	}
+	if (!isE2EAvailable()) {
+		return {
+			text: '[Encrypted message]',
+			entities: []
+		};
+	}
+
+	currentToken = token || currentToken;
+
+	const sharedKey = await getSharedKey(otherDbUserId);
+	if (!sharedKey) {
+		return {
+			text: '[Encrypted message]',
+			entities: []
+		};
+	}
+
+	try {
+		const plaintext = await decryptContent(message.text, message.iv, sharedKey);
+		return normalizeDecryptedPayload(plaintext, message.entities);
+	} catch (err) {
+		console.error('[E2E] Decryption failed:', err);
+		return {
+			text: '[Encrypted message]',
+			entities: []
+		};
 	}
 }
 
@@ -187,24 +262,12 @@ export async function encryptDMMessage(
  * Returns decrypted plaintext or a placeholder on failure.
  */
 export async function decryptDMMessage(
-	message: { text: string; encrypted?: boolean; iv?: string },
+	message: { text: string; encrypted?: boolean; iv?: string; entities?: MessageEntity[] },
 	otherDbUserId: number,
 	token: string | null | undefined
 ): Promise<string> {
-	if (!message.encrypted || !message.iv) return message.text;
-	if (!isE2EAvailable()) return '[Encrypted message]';
-
-	currentToken = token || currentToken;
-
-	const sharedKey = await getSharedKey(otherDbUserId);
-	if (!sharedKey) return '[Encrypted message]';
-
-	try {
-		return await decryptContent(message.text, message.iv, sharedKey);
-	} catch (err) {
-		console.error('[E2E] Decryption failed:', err);
-		return '[Encrypted message]';
-	}
+	const payload = await decryptDMMessagePayload(message, otherDbUserId, token);
+	return payload.text;
 }
 
 /**
@@ -218,6 +281,7 @@ export function clearE2EState(): void {
 	sharedKeyCache.clear();
 	publicKeyCache.clear();
 	publicKeyNegativeCacheUntil.clear();
+	setKeyWrappingSecret(null);
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer | Uint8Array): string {

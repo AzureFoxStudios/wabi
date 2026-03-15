@@ -2,6 +2,7 @@ import {
 	channelMemberRepository,
 	type DbChannelMember
 } from '../db/repositories/channelMemberRepository.js';
+import db from '../db/database.js';
 import type { ChannelMemberStoreRuntimeStats } from './channelMemberStore.js';
 import { escapeSqlLiteral } from './stdbSyncClient.js';
 import {
@@ -42,6 +43,10 @@ export class StdbPrimaryChannelMemberStore extends StdbStoreBase {
 	}
 
 	private loadMember(channelId: string, userId: string, activeOnly = true): DbChannelMember | null {
+		if (activeOnly) {
+			const mirrored = channelMemberRepository.getMember(channelId, userId);
+			if (mirrored) return mirrored;
+		}
 		const activeClause = activeOnly ? ' AND active = true' : '';
 		const rows = this.client.sqlRows(
 			`SELECT row_json FROM state_channel_member WHERE member_key = ${escapeSqlLiteral(channelMemberKey(channelId, userId))}${activeClause} LIMIT 1`
@@ -73,6 +78,10 @@ export class StdbPrimaryChannelMemberStore extends StdbStoreBase {
 
 	getMembers(channelId: string): DbChannelMember[] {
 		bumpOperation(this.stats, 'getMembers');
+		const mirrored = channelMemberRepository.getMembers(channelId);
+		if (mirrored.length > 0) {
+			return mirrored;
+		}
 		const rows = this.client.sqlRows(
 			`SELECT row_json FROM state_channel_member WHERE channel_id = ${escapeSqlLiteral(channelId)} AND active = true LIMIT 50000`
 		);
@@ -81,6 +90,10 @@ export class StdbPrimaryChannelMemberStore extends StdbStoreBase {
 
 	getMemberIds(channelId: string): string[] {
 		bumpOperation(this.stats, 'getMemberIds');
+		const mirrored = channelMemberRepository.getMemberIds(channelId);
+		if (mirrored.length > 0) {
+			return mirrored;
+		}
 		const rows = this.client.sqlRows(
 			`SELECT user_id FROM state_channel_member WHERE channel_id = ${escapeSqlLiteral(channelId)} AND active = true LIMIT 50000`
 		);
@@ -91,6 +104,9 @@ export class StdbPrimaryChannelMemberStore extends StdbStoreBase {
 
 	isMember(channelId: string, userId: string): boolean {
 		bumpOperation(this.stats, 'isMember');
+		if (channelMemberRepository.isMember(channelId, userId)) {
+			return true;
+		}
 		const rows = this.client.sqlRows(
 			`SELECT COUNT(*) AS count FROM state_channel_member WHERE member_key = ${escapeSqlLiteral(channelMemberKey(channelId, userId))} AND active = true`
 		);
@@ -113,6 +129,10 @@ export class StdbPrimaryChannelMemberStore extends StdbStoreBase {
 
 	getUserChannels(userId: string): { channel_id: string; role: string }[] {
 		bumpOperation(this.stats, 'getUserChannels');
+		const mirrored = channelMemberRepository.getUserChannels(userId);
+		if (mirrored.length > 0) {
+			return mirrored;
+		}
 		const rows = this.client.sqlRows(
 			`SELECT channel_id, role FROM state_channel_member WHERE user_id = ${escapeSqlLiteral(userId)} AND active = true LIMIT 50000`
 		);
@@ -155,8 +175,36 @@ export class StdbPrimaryChannelMemberStore extends StdbStoreBase {
 		}
 	}
 
-	warmFromPrimary(_limit: number): number {
-		return 0;
+	warmFromPrimary(limit: number): number {
+		const safeLimit = Math.max(0, Math.floor(limit));
+		if (safeLimit === 0) return 0;
+		const existingKeys = new Set(
+			this.client.sqlRows('SELECT member_key FROM state_channel_member LIMIT 50000')
+				.map((row) => String(row.member_key || '').trim())
+				.filter((memberKey) => memberKey.length > 0)
+		);
+
+		const rows = db.prepare(`
+			SELECT * FROM channel_members
+			ORDER BY channel_id ASC, joined_at ASC, user_id ASC
+			LIMIT ?
+		`).all(safeLimit) as DbChannelMember[];
+
+		let seeded = 0;
+		for (const row of rows) {
+			if (existingKeys.has(channelMemberKey(row.channel_id, row.user_id))) continue;
+			this.ingest('channel_member', 'add_member', {
+				channelId: row.channel_id,
+				userId: row.user_id,
+				role: row.role,
+				row
+			});
+			seeded += 1;
+		}
+
+		this.stats.operations.warmup = (this.stats.operations.warmup || 0) + 1;
+		this.stats.operations.warmup_rows = seeded;
+		return seeded;
 	}
 
 	getRuntimeStats(): ChannelMemberStoreRuntimeStats {

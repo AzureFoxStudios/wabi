@@ -7,9 +7,12 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { _ } from '$lib/i18n';
 	import { getAuthToken } from '$lib/authSession';
+	import { refreshSavedServer } from '$lib/savedServers';
+	import { getServerUrl, resolveServerUrl } from '$lib/serverUrl';
 	import {
 		clearAdminPaymentUserBlock,
 		getAdminPaymentAccessPolicy,
+		getAdminFrontendAppMetadataPolicy,
 		getAdminPolicy,
 		getAdminPaymentUserBlocks,
 		getAdminCompressionConfig,
@@ -17,10 +20,12 @@
 		getAdminRuntimeGuardrails,
 		resetAdminCompressionMetrics,
 		saveAdminPaymentAccessPolicy,
+		saveAdminFrontendAppMetadataPolicy,
 		setAdminPaymentUserBlock,
 		saveAdminPolicy,
 		type AdminCompressionConfig,
 		type AdminCompressionMetrics,
+		type FrontendAppMetadataPolicy,
 		type AdminRuntimeGuardrailsResponse,
 		type PaymentAccessPolicy,
 		type PaymentUserBlock,
@@ -82,6 +87,23 @@
 		allowGuest: false,
 		allowedRoleNames: ['owner', 'admin', 'mod', 'member']
 	};
+	let frontendAppMetadata: FrontendAppMetadataPolicy = {
+		displayName: null,
+		iconUrl: null,
+		bannerUrl: null,
+		accentColor: null,
+		description: null,
+		launchPageFallbackEnabled: true
+	};
+	let frontendMetadataLoading = false;
+	let frontendMetadataLoaded = false;
+	let frontendMetadataAttempted = false;
+	let frontendMetadataSaving = false;
+	let frontendMetadataError = '';
+	let frontendMetadataSaveStatus = '';
+	let frontendMetadataUploadTarget: 'icon' | 'banner' | null = null;
+	let frontendIconInput: HTMLInputElement | null = null;
+	let frontendBannerInput: HTMLInputElement | null = null;
 	let paymentPolicyLoading = false;
 	let paymentPolicyLoaded = false;
 	let paymentPolicyAttempted = false;
@@ -138,6 +160,9 @@
 	}
 	$: if (canManageRoles && !runtimeLoaded && !runtimeLoading && !runtimeAttempted) {
 		void refreshRuntimePanel();
+	}
+	$: if (canManageRoles && !frontendMetadataLoaded && !frontendMetadataLoading && !frontendMetadataAttempted) {
+		void refreshFrontendMetadata();
 	}
 	$: if (canManageRoles && !paymentPolicyLoaded && !paymentPolicyLoading && !paymentPolicyAttempted) {
 		void refreshPaymentControls();
@@ -346,6 +371,118 @@
 			runtimeError = (error as Error).message || 'Failed to save runtime settings';
 		} finally {
 			runtimeSaving = false;
+		}
+	}
+
+	async function refreshFrontendMetadata() {
+		const token = getAuthToken();
+		if (!token) return;
+		frontendMetadataAttempted = true;
+		frontendMetadataLoading = true;
+		frontendMetadataError = '';
+		try {
+			frontendAppMetadata = await getAdminFrontendAppMetadataPolicy(token);
+			frontendMetadataLoaded = true;
+		} catch (error) {
+			frontendMetadataError = (error as Error).message || 'Failed to load frontend app metadata';
+		} finally {
+			frontendMetadataLoading = false;
+		}
+	}
+
+	async function saveFrontendMetadata() {
+		const token = getAuthToken();
+		if (!token) return;
+		frontendMetadataSaving = true;
+		frontendMetadataError = '';
+		frontendMetadataSaveStatus = '';
+		try {
+			frontendAppMetadata = await saveAdminFrontendAppMetadataPolicy(token, frontendAppMetadata);
+			frontendMetadataSaveStatus = 'Saved frontend app metadata.';
+			refreshSavedServer(resolveServerUrl().url);
+		} catch (error) {
+			frontendMetadataError = (error as Error).message || 'Failed to save frontend app metadata';
+		} finally {
+			frontendMetadataSaving = false;
+		}
+	}
+
+	function triggerFrontendMetadataUpload(target: 'icon' | 'banner'): void {
+		if (target === 'icon') {
+			frontendIconInput?.click();
+			return;
+		}
+		frontendBannerInput?.click();
+	}
+
+	function validateFrontendMetadataImage(file: File): string | null {
+		const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+		if (!allowedTypes.includes(file.type)) {
+			return 'Use PNG, JPG, GIF, or WEBP.';
+		}
+		if (file.size > 10 * 1024 * 1024) {
+			return 'Image must be 10 MB or smaller.';
+		}
+		return null;
+	}
+
+	async function uploadFrontendMetadataAsset(target: 'icon' | 'banner', event: Event): Promise<void> {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+
+		const token = getAuthToken();
+		if (!token) {
+			frontendMetadataError = 'Authentication required to upload branding assets.';
+			input.value = '';
+			return;
+		}
+
+		const validationError = validateFrontendMetadataImage(file);
+		if (validationError) {
+			frontendMetadataError = validationError;
+			input.value = '';
+			return;
+		}
+
+		frontendMetadataUploadTarget = target;
+		frontendMetadataError = '';
+		frontendMetadataSaveStatus = '';
+
+		try {
+			const formData = new FormData();
+			formData.append('file', file);
+
+			const response = await fetch(`${getServerUrl()}/api/upload`, {
+				method: 'POST',
+				headers: {
+					Authorization: `Bearer ${token}`
+				},
+				body: formData
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok || !payload?.fileUrl) {
+				throw new Error(payload?.error || `Failed to upload ${target}.`);
+			}
+
+			if (target === 'icon') {
+				frontendAppMetadata = {
+					...frontendAppMetadata,
+					iconUrl: String(payload.fileUrl)
+				};
+			} else {
+				frontendAppMetadata = {
+					...frontendAppMetadata,
+					bannerUrl: String(payload.fileUrl)
+				};
+			}
+
+			frontendMetadataSaveStatus = `${target === 'icon' ? 'Icon' : 'Banner'} uploaded. Save metadata to publish it in the app shell.`;
+		} catch (error) {
+			frontendMetadataError = (error as Error).message || `Failed to upload ${target}.`;
+		} finally {
+			frontendMetadataUploadTarget = null;
+			input.value = '';
 		}
 	}
 
@@ -831,6 +968,121 @@
 		</div>
 	{/if}
 
+	{#if canManageRoles}
+		<div class="admin-section">
+			<div class="compression-header">
+				<h4>Frontend App Metadata</h4>
+				<div class="compression-actions">
+					<button class="admin-btn" disabled={frontendMetadataLoading} on:click={refreshFrontendMetadata}>Refresh</button>
+					<button class="admin-btn" disabled={frontendMetadataSaving} on:click={saveFrontendMetadata}>
+						{frontendMetadataSaving ? 'Saving...' : 'Save'}
+					</button>
+				</div>
+			</div>
+
+			{#if frontendMetadataError}
+				<div class="admin-empty">{frontendMetadataError}</div>
+			{:else}
+				<div class="runtime-form-grid">
+					<label>
+						Display Name
+						<input type="text" bind:value={frontendAppMetadata.displayName} placeholder="What users see in the app shell" />
+					</label>
+					<label>
+						Accent Color
+						<input type="text" bind:value={frontendAppMetadata.accentColor} placeholder="#2dd4bf" />
+					</label>
+					<label>
+						Icon URL
+						<input type="text" bind:value={frontendAppMetadata.iconUrl} placeholder="/uploads/server-icon.webp" />
+					</label>
+					<label>
+						Banner URL
+						<input type="text" bind:value={frontendAppMetadata.bannerUrl} placeholder="/uploads/server-banner.webp" />
+					</label>
+					<label class="frontend-metadata-wide">
+						Description
+						<input type="text" bind:value={frontendAppMetadata.description} placeholder="Short line for the server switcher banner" />
+					</label>
+					<label class="runtime-checkbox frontend-metadata-wide">
+						<input type="checkbox" bind:checked={frontendAppMetadata.launchPageFallbackEnabled} />
+						Use login launch-page branding as fallback when metadata fields are empty
+					</label>
+				</div>
+
+				<div class="frontend-metadata-upload-row">
+					<input
+						bind:this={frontendIconInput}
+						type="file"
+						accept="image/png,image/jpeg,image/gif,image/webp"
+						class="frontend-metadata-hidden-input"
+						on:change={(event) => void uploadFrontendMetadataAsset('icon', event)}
+					/>
+					<input
+						bind:this={frontendBannerInput}
+						type="file"
+						accept="image/png,image/jpeg,image/gif,image/webp"
+						class="frontend-metadata-hidden-input"
+						on:change={(event) => void uploadFrontendMetadataAsset('banner', event)}
+					/>
+					<button
+						type="button"
+						class="admin-btn"
+						disabled={frontendMetadataUploadTarget !== null}
+						on:click={() => triggerFrontendMetadataUpload('icon')}
+					>
+						{frontendMetadataUploadTarget === 'icon' ? 'Uploading Icon...' : 'Upload Icon'}
+					</button>
+					<button
+						type="button"
+						class="admin-btn"
+						disabled={frontendMetadataUploadTarget !== null}
+						on:click={() => triggerFrontendMetadataUpload('banner')}
+					>
+						{frontendMetadataUploadTarget === 'banner' ? 'Uploading Banner...' : 'Upload Banner'}
+					</button>
+					<button
+						type="button"
+						class="admin-btn"
+						on:click={() => frontendAppMetadata = { ...frontendAppMetadata, iconUrl: null }}
+					>
+						Clear Icon
+					</button>
+					<button
+						type="button"
+						class="admin-btn"
+						on:click={() => frontendAppMetadata = { ...frontendAppMetadata, bannerUrl: null }}
+					>
+						Clear Banner
+					</button>
+				</div>
+
+				{#if frontendMetadataSaveStatus}
+					<div class="runtime-hint">{frontendMetadataSaveStatus}</div>
+				{/if}
+
+				<div class="frontend-metadata-preview" style:--metadata-accent={frontendAppMetadata.accentColor || '#2dd4bf'}>
+					{#if frontendAppMetadata.bannerUrl}
+						<img src={frontendAppMetadata.bannerUrl} alt={frontendAppMetadata.displayName || 'Server banner'} class="frontend-metadata-preview-banner" />
+					{/if}
+					<div class="frontend-metadata-preview-copy">
+						<div class="frontend-metadata-preview-avatar">
+							{#if frontendAppMetadata.iconUrl}
+								<img src={frontendAppMetadata.iconUrl} alt={frontendAppMetadata.displayName || 'Server icon'} />
+							{:else}
+								<span>{(frontendAppMetadata.displayName || 'W').charAt(0).toUpperCase()}</span>
+							{/if}
+						</div>
+						<div>
+							<strong>{frontendAppMetadata.displayName || 'Client display name preview'}</strong>
+							<span>{frontendAppMetadata.description || 'This controls what the Wabi frontend shows in the rail, header, and switcher.'}</span>
+						</div>
+					</div>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
 	<div class="admin-section">
 		<h4>{$_('admin.sections.users')}</h4>
 		<div class="admin-search-wrap">
@@ -946,8 +1198,70 @@
 	.runtime-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.45rem; }
 	.runtime-form-grid label { display: flex; flex-direction: column; gap: 0.28rem; font-size: 0.72rem; color: var(--text-secondary); }
 	.runtime-form-grid input[type='number'] { height: 28px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); border-radius: 7px; padding: 0 0.45rem; font-size: 0.76rem; }
+	.runtime-form-grid input[type='text'] { height: 28px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); border-radius: 7px; padding: 0 0.45rem; font-size: 0.76rem; }
 	.runtime-checkbox { grid-column: 1 / -1; flex-direction: row !important; align-items: center; gap: 0.45rem !important; }
 	.runtime-hint { font-size: 0.72rem; color: var(--text-secondary); }
+	.frontend-metadata-wide { grid-column: 1 / -1; }
+	.frontend-metadata-upload-row { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+	.frontend-metadata-hidden-input { display: none; }
+	.frontend-metadata-preview {
+		position: relative;
+		min-height: 110px;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		overflow: hidden;
+		background: linear-gradient(135deg, color-mix(in srgb, var(--metadata-accent) 18%, var(--bg-tertiary)), var(--bg-secondary));
+	}
+	.frontend-metadata-preview-banner {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		opacity: 0.32;
+	}
+	.frontend-metadata-preview-copy {
+		position: relative;
+		z-index: 1;
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.9rem;
+		min-height: 110px;
+		background: linear-gradient(180deg, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.36));
+	}
+	.frontend-metadata-preview-avatar {
+		width: 52px;
+		height: 52px;
+		border-radius: 16px;
+		overflow: hidden;
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-weight: 700;
+		color: #fff;
+		background: rgba(255, 255, 255, 0.12);
+		border: 1px solid rgba(255, 255, 255, 0.12);
+	}
+	.frontend-metadata-preview-avatar img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+	.frontend-metadata-preview-copy strong,
+	.frontend-metadata-preview-copy span {
+		display: block;
+	}
+	.frontend-metadata-preview-copy strong {
+		font-size: 0.9rem;
+		color: #f8fafc;
+	}
+	.frontend-metadata-preview-copy span {
+		margin-top: 0.18rem;
+		font-size: 0.75rem;
+		color: rgba(248, 250, 252, 0.8);
+	}
 	.role-list, .channel-role-list, .emoji-rule-list, .admin-user-list { display: flex; flex-direction: column; gap: 0.35rem; }
 	.role-item, .channel-role-item, .emoji-rule-item, .admin-user-item { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.45rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-tertiary); }
 	.role-key { width: 80px; font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; }

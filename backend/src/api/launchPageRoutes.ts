@@ -13,6 +13,8 @@ export interface PublicLaunchPageConfig {
 	headline: string;
 	subheadline: string;
 	logoUrl: string;
+	backgroundImageUrl: string | null;
+	customCss: string | null;
 	heroImageUrl: string | null;
 	heroTitle: string | null;
 	heroBody: string | null;
@@ -35,6 +37,8 @@ const DEFAULT_LAUNCH_PAGE_CONFIG: PublicLaunchPageConfig = {
 	headline: 'Welcome to Wabi',
 	subheadline: 'Self-hosted community chat',
 	logoUrl: '/wabi-logo.webp',
+	backgroundImageUrl: null,
+	customCss: null,
 	heroImageUrl: null,
 	heroTitle: null,
 	heroBody: null,
@@ -121,6 +125,8 @@ function sanitizeLaunchPageConfig(raw: unknown): PublicLaunchPageConfig {
 		headline: sanitizeString(input.headline, DEFAULT_LAUNCH_PAGE_CONFIG.headline, 120),
 		subheadline: sanitizeString(input.subheadline, DEFAULT_LAUNCH_PAGE_CONFIG.subheadline, 220),
 		logoUrl,
+		backgroundImageUrl: sanitizeUrl(input.backgroundImageUrl),
+		customCss: sanitizeNullableString(input.customCss, 8192),
 		heroImageUrl: sanitizeUrl(input.heroImageUrl),
 		heroTitle: sanitizeNullableString(input.heroTitle, 120),
 		heroBody: sanitizeNullableString(input.heroBody, 320),

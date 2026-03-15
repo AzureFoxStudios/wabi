@@ -6,18 +6,19 @@
     "dev": "tsx watch --env-file-if-exists=.env src/server.ts",
     "start": "node --env-file-if-exists=.env dist/server.js",
     "build": "esbuild src/server.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/server.js --external:socket.io --external:better-sqlite3 --external:jsonwebtoken --external:jws --external:safe-buffer --external:buffer --external:bcrypt --external:adm-zip",
-    "migrate:sqlite-to-postgres": "node scripts/migrate-sqlite-to-postgres.mjs",
+    "auth:operator-reset": "tsx --env-file-if-exists=.env scripts/operator-reset-password.ts",
+    "auth:operator-reset:smoke": "tsx --env-file-if-exists=.env scripts/operator-reset-password-smoke.ts",
     "payments:smoke": "tsx scripts/payments-smoke-check.ts",
     "payments:provider-sandbox-smoke": "tsx scripts/payments-provider-sandbox-smoke.ts",
     "payments:western-provider-sandbox-smoke": "tsx scripts/payments-western-provider-sandbox-smoke.ts",
-    "payments:local-e2e-smoke": "tsx scripts/payments-local-e2e-smoke.ts"
+    "payments:local-e2e-smoke": "tsx scripts/payments-local-e2e-smoke.ts",
+    "payments:stdb-hybrid-smoke": "tsx scripts/payments-stdb-hybrid-smoke.ts --json"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.6.0",
     "jsonwebtoken": "^9.0.3",
-    "pg": "^8.16.3",
     "socket.io": "^4.7.2"
   },
   "devDependencies": {

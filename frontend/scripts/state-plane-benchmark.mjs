@@ -19,6 +19,7 @@ Options:
   --warmup <n>               Warmup messages (default: 3)
   --power-users <n>          Concurrent users for the power phase (default: 1 = disabled)
   --power-messages <n>       Messages per user in the power phase (default: 0 = disabled)
+  --power-persist-probes     Keep SQLite/STDB visibility polling enabled during the power phase
   --direct-stdb-samples <n>  Direct STDB reducer/query samples (default: 0)
   --message-size <n>         Approx text size in bytes (default: 32)
   --echo-timeout-ms <n>      Max wait for socket echo (default: 5000)
@@ -71,6 +72,7 @@ function parseArgs(argv) {
 		warmup: parsePositiveInt(process.env.WABI_BENCH_WARMUP || '3', 3, 0, 1000),
 		powerUsers: parsePositiveInt(process.env.WABI_BENCH_POWER_USERS || '1', 1, 1, 128),
 		powerMessages: parsePositiveInt(process.env.WABI_BENCH_POWER_MESSAGES || '0', 0, 0, 5000),
+		powerPersistProbes: false,
 		directStdbSamples: parsePositiveInt(process.env.WABI_BENCH_DIRECT_STDB_SAMPLES || '0', 0, 0, 1000),
 		messageSize: parsePositiveInt(process.env.WABI_BENCH_MESSAGE_SIZE || '32', 32, 8, 4096),
 		echoTimeoutMs: parsePositiveInt(process.env.WABI_BENCH_ECHO_TIMEOUT_MS || '5000', 5000, 250, 120000),
@@ -153,6 +155,10 @@ function parseArgs(argv) {
 		if (arg === '--power-messages') {
 			i += 1;
 			options.powerMessages = parsePositiveInt(argv[i], options.powerMessages, 0, 5000);
+			continue;
+		}
+		if (arg === '--power-persist-probes') {
+			options.powerPersistProbes = true;
 			continue;
 		}
 		if (arg === '--direct-stdb-samples') {
@@ -691,7 +697,9 @@ async function measureMessagePipeline({
 	channelId,
 	text,
 	sqliteProbe,
-	stdbProbe
+	stdbProbe,
+	measureSqlite = true,
+	measureShadow = true
 }) {
 	const startedAt = performance.now();
 	const eventPromise = waitForSocketEvent(
@@ -713,7 +721,7 @@ async function measureMessagePipeline({
 	let shadowMs = null;
 	let shadowError = null;
 
-	if (messageId && sqliteProbe?.isEnabled()) {
+	if (measureSqlite && messageId && sqliteProbe?.isEnabled()) {
 		try {
 			sqliteMs = await sqliteProbe.waitForMessage(messageId, options.persistTimeoutMs);
 			if (sqliteMs == null) {
@@ -724,7 +732,7 @@ async function measureMessagePipeline({
 		}
 	}
 
-	if (messageId && stdbProbe?.isEnabled()) {
+	if (measureShadow && messageId && stdbProbe?.isEnabled()) {
 		try {
 			shadowMs = await stdbProbe.waitForMessage(messageId, options.persistTimeoutMs);
 			if (shadowMs == null) {
@@ -894,7 +902,9 @@ async function runPowerPhase({
 							channelId: options.channelId,
 							text,
 							sqliteProbe,
-							stdbProbe
+							stdbProbe,
+							measureSqlite: options.powerPersistProbes,
+							measureShadow: options.powerPersistProbes
 						});
 						results.push({
 							username,
@@ -938,6 +948,7 @@ async function runPowerPhase({
 	return {
 		users: options.powerUsers,
 		messagesPerUser: options.powerMessages,
+		probeMode: options.powerPersistProbes ? 'full_pipeline' : 'echo_only',
 		totalMessages,
 		durationMs,
 		messagesPerSecond: durationMs > 0 ? Number(((totalMessages * 1000) / durationMs).toFixed(2)) : null,
@@ -1100,7 +1111,7 @@ async function main() {
 			console.log(`  admin.outboxWrittenDelta=${summary.speed.adminDelta.outboxWrittenDelta} admin.shadowAppliedDelta=${summary.speed.adminDelta.shadowAppliedDelta} admin.shadowFailedDelta=${summary.speed.adminDelta.shadowFailedDelta} admin.backlogBytes=${summary.speed.adminDelta.shadowBacklogBytes}`);
 		}
 		if (summary.power) {
-			console.log(`  power.users=${summary.power.users} power.messagesPerUser=${summary.power.messagesPerUser} power.totalMessages=${summary.power.totalMessages} power.durationMs=${summary.power.durationMs} power.mps=${summary.power.messagesPerSecond}`);
+			console.log(`  power.users=${summary.power.users} power.messagesPerUser=${summary.power.messagesPerUser} power.probeMode=${summary.power.probeMode} power.totalMessages=${summary.power.totalMessages} power.durationMs=${summary.power.durationMs} power.mps=${summary.power.messagesPerSecond}`);
 			console.log(`  power.echo.avg=${summary.power.echo.avgMs}ms power.echo.p95=${summary.power.echo.p95Ms}ms power.sqlite.avg=${summary.power.sqliteVisibility.avgMs}ms power.shadow.avg=${summary.power.shadowVisibility.avgMs}ms power.failures=${summary.power.failures}`);
 		}
 	} finally {

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import BaseModal from './BaseModal.svelte';
 	import { getAuthToken } from '$lib/authSession';
 	import {
@@ -9,6 +10,8 @@
 		listManualCashSettlements,
 		type ManualCashSettlement
 	} from '$lib/api';
+	import { formatMinorAmount, parseMajorAmountInput } from '$lib/paymentAmounts';
+	import { subscribePaymentRealtimeEvent } from '$lib/paymentRealtime';
 
 	export let isOpen = false;
 	export let onClose: () => void = () => {};
@@ -39,18 +42,14 @@
 		actingSettlementId = '';
 	}
 
-	function formatMinorAmount(amountMinor: number, amountCurrency: string): string {
-		const value = amountMinor / 100;
-		try {
-			return new Intl.NumberFormat(undefined, {
-				style: 'currency',
-				currency: amountCurrency || 'USD',
-				maximumFractionDigits: 2
-			}).format(value);
-		} catch {
-			return `${value.toFixed(2)} ${amountCurrency || ''}`.trim();
-		}
-	}
+	const unsubscribeManualCashRealtime = subscribePaymentRealtimeEvent('manual-cash:updated', (detail) => {
+		if (!isOpen || detail.channelId !== channelId) return;
+		void loadSettlements();
+	});
+
+	onDestroy(() => {
+		unsubscribeManualCashRealtime();
+	});
 
 	function formatDate(timestamp: number | null): string {
 		if (!timestamp || !Number.isFinite(timestamp)) return 'n/a';
@@ -58,9 +57,7 @@
 	}
 
 	function parseAmountMinor(value: string): number {
-		const normalized = Number.parseFloat(value);
-		if (!Number.isFinite(normalized) || normalized <= 0) return 0;
-		return Math.round(normalized * 100);
+		return parseMajorAmountInput(value, currency);
 	}
 
 	async function loadSettlements(): Promise<void> {

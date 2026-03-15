@@ -1,0 +1,35 @@
+[
+  {
+    "id": "canteen",
+    "name": "Canteen",
+    "aliases": ["cafeteria", "lunch hall", "food court"],
+    "description": "Main dining hall and student food area.",
+    "building": "Commons",
+    "floor": "1",
+    "lat": 13.7563,
+    "lon": 100.5018,
+    "tags": ["food", "student-services"]
+  },
+  {
+    "id": "library",
+    "name": "Library",
+    "aliases": ["main library", "study hall"],
+    "description": "Quiet study space with lending desk and stacks.",
+    "building": "Learning Center",
+    "floor": "2",
+    "lat": 13.7569,
+    "lon": 100.5024,
+    "tags": ["study", "reference"]
+  },
+  {
+    "id": "main-gate",
+    "name": "Main Gate",
+    "aliases": ["front gate", "entrance"],
+    "description": "Primary campus entrance and pickup/drop-off point.",
+    "building": "Perimeter",
+    "floor": "Ground",
+    "lat": 13.7558,
+    "lon": 100.5009,
+    "tags": ["entry", "transport"]
+  }
+]

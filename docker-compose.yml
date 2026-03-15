@@ -3,7 +3,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-      target: backend-${DB_MODE:-sqlite}
+      target: backend-sqlite
       args:
         - OPENMOJI_VERSION=${OPENMOJI_VERSION:-15.1.0}
         - OPENMOJI_72_SHA256=${OPENMOJI_72_SHA256:-}
@@ -17,11 +17,18 @@ services:
       - PORT=8080
       - DATA_DIR=/app/data
       - PLUGINS_DIR=/app/plugins
-      - DB_MODE=${DB_MODE:-sqlite}
+      - DB_MODE=sqlite
       - WABI_MODE=${WABI_MODE:-normal}
       - WABI_RUNTIME=${WABI_RUNTIME:-node}
       - TURN_SHARED_SECRET=${TURN_SHARED_SECRET}
       - TURN_CREDENTIAL_TTL_SECONDS=${TURN_CREDENTIAL_TTL_SECONDS:-3600}
+      - BOOSTER_RELAY_MODE=${BOOSTER_RELAY_MODE:-off}
+      - BOOSTER_RELAY_PUBLIC_URL=${BOOSTER_RELAY_PUBLIC_URL:-}
+      - BOOSTER_RELAY_NAME=${BOOSTER_RELAY_NAME:-}
+      - BOOSTER_RELAY_REGION=${BOOSTER_RELAY_REGION:-}
+      - BOOSTER_RELAY_BANDWIDTH_MBPS=${BOOSTER_RELAY_BANDWIDTH_MBPS:-}
+      - BOOSTER_RELAY_STORAGE_GB=${BOOSTER_RELAY_STORAGE_GB:-}
+      - BOOSTER_RELAY_HEARTBEAT_SECONDS=${BOOSTER_RELAY_HEARTBEAT_SECONDS:-60}
       - SFU_PROVIDER=${SFU_PROVIDER:-none}
       - LIVEKIT_URL=${LIVEKIT_URL:-}
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-}
@@ -29,6 +36,7 @@ services:
       - STATE_BACKEND_MODE=${STATE_BACKEND_MODE:-}
       - STATE_STDB_READ_ENABLED=${STATE_STDB_READ_ENABLED:-}
       - STATE_STDB_WRITE_ENABLED=${STATE_STDB_WRITE_ENABLED:-}
+      - STATE_STDB_PRIMARY_MIRROR_LEGACY_WRITES=${STATE_STDB_PRIMARY_MIRROR_LEGACY_WRITES:-}
       - STATE_BACKEND_STRICT=${STATE_BACKEND_STRICT:-}
       - STATE_STDB_SUBSCRIPTIONS_ENABLED=${STATE_STDB_SUBSCRIPTIONS_ENABLED:-}
       - STATE_SHADOW_WARMUP_ENABLED=${STATE_SHADOW_WARMUP_ENABLED:-}
@@ -102,6 +110,9 @@ services:
     container_name: wabi-coturn
     profiles:
       - turn
+      - booster-turn
+      - booster-sfu
+      - booster-full
     ports:
       - "3478:3478/tcp"
       - "3478:3478/udp"
@@ -126,6 +137,7 @@ services:
     container_name: wabi-media-gateway
     profiles:
       - srt-gateway
+      - booster-full
     ports:
       - "8095:8095"
     env_file:
@@ -147,6 +159,8 @@ services:
     container_name: wabi-livekit
     profiles:
       - sfu
+      - booster-sfu
+      - booster-full
     command: >
       --bind 0.0.0.0
       --keys ${LIVEKIT_API_KEY:-disabled}:${LIVEKIT_API_SECRET:-disabled}

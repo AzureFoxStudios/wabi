@@ -170,17 +170,8 @@ generate_secret() {
   fi
 }
 
-generate_db_password() {
-  if command -v openssl &>/dev/null; then
-    openssl rand -hex 24
-  else
-    LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48
-  fi
-}
-
 JWT_SECRET=$(generate_secret)
 TURN_SECRET=$(generate_secret)
-POSTGRES_PASSWORD=$(generate_db_password)
 ok "Secrets generated"
 
 # ---------------------------------------------------------------------------
@@ -318,14 +309,6 @@ WEBHOOK_MAX_EVENT_FANOUT=250
 
 # SQLite path (optional override)
 # DATABASE_PATH=/app/data/chat.db
-
-# Postgres settings (used when WABI_MODE=community / DB_MODE=postgres)
-POSTGRES_HOST=postgres
-POSTGRES_PORT=5432
-POSTGRES_USER=wabi
-POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-POSTGRES_DB=wabi
-# DATABASE_URL=postgresql://wabi:${POSTGRES_PASSWORD}@postgres:5432/wabi
 
 # --- OpenMoji (emoji assets, pinned version) -------------------------------
 OPENMOJI_VERSION=15.1.0

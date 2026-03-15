@@ -6,8 +6,11 @@ export type MediaQualityMode = 'web-baseline' | 'local-enhanced';
 export type AudioProcessingMode = 'auto' | 'dsp' | 'rnn' | 'studio';
 export type ScreenShareQualityPreset = 'auto' | '1080p' | 'source-unbounded' | '720p' | '480p' | '144p-mobile';
 export type CallTransportMode = 'auto' | 'p2p-only' | 'sfu-preferred';
+export type CallMuteBehavior = 'mute-local-input' | 'outbound-only';
+export type CallRecordingStemMode = 'mixed-only' | 'mixed-plus-mic' | 'mixed-plus-all-audio';
 export type EffectiveCallTransport = 'p2p' | 'sfu';
 export type SfuProvider = 'none' | 'livekit';
+export type BoosterRelayMode = 'off' | 'turn-only' | 'turn-sfu' | 'turn-sfu-gateway';
 export type SpatialAudioMode = 'auto' | 'pan_distance' | 'full_3d' | 'off';
 
 export interface ScreenShareQualityProfile {
@@ -49,6 +52,29 @@ export interface ServerMediaRuntimeResponse {
 			provider?: SfuProvider;
 			enabled?: boolean;
 		};
+		boosterRelay?: {
+			requestedMode?: BoosterRelayMode;
+			effectiveMode?: BoosterRelayMode;
+			selfHosted?: boolean;
+			selfAdvertisement?: {
+				enabled?: boolean;
+				advertised?: boolean;
+				relayId?: number | null;
+				url?: string | null;
+				name?: string | null;
+				region?: string | null;
+				status?: 'active' | 'degraded' | 'offline' | null;
+				reason?: string | null;
+				updatedAt?: number | null;
+			};
+			components?: {
+				turnConfigured?: boolean;
+				sfuConfigured?: boolean;
+				gatewayConfigured?: boolean;
+				gatewayHealthy?: boolean;
+				gatewayMediaPlaneReady?: boolean;
+			};
+		};
 	};
 }
 
@@ -86,11 +112,25 @@ export interface EffectiveMediaSettingsSnapshot {
 	qualityMode: MediaQualityMode;
 	audioProcessingMode: AudioProcessingMode;
 	callTransportMode: CallTransportMode;
+	callMuteBehavior: CallMuteBehavior;
+	callRecordingStemMode: CallRecordingStemMode;
 	srtGatewayEnabled: boolean;
 	screenShareQualityPreset: ScreenShareQualityPreset;
 	screenShareBitrateKbps: number;
 	spatialAudio: SpatialAudioSettings;
 	runtime: ServerMediaRuntimeResponse | null;
+}
+
+export function getBoosterRelayRequestedMode(runtime: ServerMediaRuntimeResponse | null): BoosterRelayMode {
+	const mode = runtime?.media?.boosterRelay?.requestedMode;
+	if (mode === 'turn-only' || mode === 'turn-sfu' || mode === 'turn-sfu-gateway') return mode;
+	return 'off';
+}
+
+export function getBoosterRelayEffectiveMode(runtime: ServerMediaRuntimeResponse | null): BoosterRelayMode {
+	const mode = runtime?.media?.boosterRelay?.effectiveMode;
+	if (mode === 'turn-only' || mode === 'turn-sfu' || mode === 'turn-sfu-gateway') return mode;
+	return 'off';
 }
 
 const STORAGE_KEYS = {
@@ -101,6 +141,8 @@ const STORAGE_KEYS = {
 	screenShareQuality: 'wabi_screen_share_quality_preset',
 	screenShareBitrateKbps: 'wabi_screen_share_bitrate_kbps',
 	callTransportMode: 'wabi_call_transport_mode',
+	callMuteBehavior: 'wabi_call_mute_behavior',
+	callRecordingStemMode: 'wabi_call_recording_stem_mode',
 	spatialEnabled: 'wabi_spatial_enabled',
 	spatialMode: 'wabi_spatial_mode',
 	spatialStrength: 'wabi_spatial_strength',
@@ -380,6 +422,38 @@ export function setCallTransportMode(mode: CallTransportMode): void {
 	localStorage.setItem(STORAGE_KEYS.callTransportMode, mode);
 }
 
+export function getStoredCallMuteBehavior(): CallMuteBehavior {
+	if (!browser) return 'mute-local-input';
+	const stored = localStorage.getItem(STORAGE_KEYS.callMuteBehavior);
+	if (stored === 'mute-local-input' || stored === 'outbound-only') {
+		return stored;
+	}
+	return 'mute-local-input';
+}
+
+export function setCallMuteBehavior(mode: CallMuteBehavior): void {
+	if (!browser) return;
+	localStorage.setItem(STORAGE_KEYS.callMuteBehavior, mode);
+}
+
+export function doesCallMuteAffectLocalRecording(): boolean {
+	return getStoredCallMuteBehavior() === 'mute-local-input';
+}
+
+export function getStoredCallRecordingStemMode(): CallRecordingStemMode {
+	if (!browser) return 'mixed-only';
+	const stored = localStorage.getItem(STORAGE_KEYS.callRecordingStemMode);
+	if (stored === 'mixed-only' || stored === 'mixed-plus-mic' || stored === 'mixed-plus-all-audio') {
+		return stored;
+	}
+	return 'mixed-only';
+}
+
+export function setCallRecordingStemMode(mode: CallRecordingStemMode): void {
+	if (!browser) return;
+	localStorage.setItem(STORAGE_KEYS.callRecordingStemMode, mode);
+}
+
 function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
 }
@@ -496,6 +570,8 @@ export async function loadEffectiveMediaSettingsSnapshot(): Promise<EffectiveMed
 		qualityMode: getStoredMediaQualityMode(),
 		audioProcessingMode: getStoredAudioProcessingMode(),
 		callTransportMode: getStoredCallTransportMode(),
+		callMuteBehavior: getStoredCallMuteBehavior(),
+		callRecordingStemMode: getStoredCallRecordingStemMode(),
 		srtGatewayEnabled: isSrtGatewayEnabled(),
 		screenShareQualityPreset: getStoredScreenShareQualityPreset(),
 		screenShareBitrateKbps: getStoredScreenShareBitrateKbps() ?? 0,

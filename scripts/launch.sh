@@ -741,7 +741,7 @@ EOF
 
 configure_defaults() {
   local domain mode runtime public_ip frontend_url public_url turn_realm turn_secret jwt_secret
-  local db_mode postgres_db postgres_user postgres_password database_url giphy_key
+  local db_mode giphy_key
   local plugins_enabled plugins_allow_install srt_gateway_enabled sfu_provider
   local state_backend_mode state_stdb_read_enabled state_stdb_message_read_canary_percent state_stdb_channel_read_canary_percent
   local state_stdb_channel_member_read_canary_percent state_stdb_user_read_canary_percent state_stdb_session_read_canary_percent
@@ -885,19 +885,7 @@ configure_defaults() {
   public_ip="${public_ip:-127.0.0.1}"
   turn_realm="$domain"
 
-  if [[ "$mode" == "community" ]]; then
-    db_mode="postgres"
-    postgres_db="wabi"
-    postgres_user="wabi"
-    postgres_password="$(generate_hex_secret)"
-    database_url="postgres://${postgres_user}:${postgres_password}@postgres:5432/${postgres_db}"
-  else
-    db_mode="sqlite"
-    postgres_db=""
-    postgres_user=""
-    postgres_password=""
-    database_url=""
-  fi
+  db_mode="sqlite"
 
   jwt_secret="$(generate_secret)"
   turn_secret="$(generate_secret)"
@@ -913,10 +901,6 @@ WABI_MODE=$mode
 WABI_RUNTIME=$runtime
 DB_MODE=$db_mode
 DATABASE_PATH=/app/data/chat.db
-DATABASE_URL=$database_url
-POSTGRES_DB=$postgres_db
-POSTGRES_USER=$postgres_user
-POSTGRES_PASSWORD=$postgres_password
 STATE_BACKEND_MODE=$state_backend_mode
 STATE_STDB_READ_ENABLED=$state_stdb_read_enabled
 STATE_STDB_MESSAGE_READ_CANARY_PERCENT=$state_stdb_message_read_canary_percent
@@ -1030,12 +1014,6 @@ validate_security_config() {
 
   if [[ -z "${TURN_SHARED_SECRET:-}" || "${TURN_SHARED_SECRET}" == "replace_with_long_random_shared_secret" ]]; then
     errors+=("TURN_SHARED_SECRET must be set to a strong non-placeholder value.")
-  fi
-
-  if [[ "${WABI_MODE:-normal}" == "community" ]]; then
-    if [[ -z "${POSTGRES_PASSWORD:-}" || "${POSTGRES_PASSWORD}" == "replace_with_long_random_password" || "${POSTGRES_PASSWORD}" == "wabi" ]]; then
-      errors+=("POSTGRES_PASSWORD must be explicitly set and must not use a placeholder/default value.")
-    fi
   fi
 
   if [[ "${SFU_PROVIDER:-none}" == "livekit" ]]; then
@@ -1548,9 +1526,6 @@ validate_security_config
 enforce_profile_lock
 
 compose_files=("$COMPOSE_FILE")
-if [[ "$WABI_MODE" == "community" ]]; then
-  compose_files+=("docker-compose.community.yml")
-fi
 if [[ "$WABI_RUNTIME" == "bun" ]]; then
   compose_files+=("docker-compose.bun.yml")
 fi

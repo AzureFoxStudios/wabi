@@ -5,6 +5,7 @@
 	import {
 		channels,
 		currentChannel,
+		channelMessages,
 		joinChannel,
 		createChannel,
 		createThread,
@@ -24,6 +25,7 @@
 		setVoiceTransmitMode,
 		createBreakoutRooms,
 		closeBreakoutRooms,
+		moveUserToVoiceChannel,
 		roleDefinitions,
 		pinChannel,
 		unpinChannel,
@@ -57,9 +59,17 @@
 	import UserPopout from './UserPopout.svelte';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
 	import type { ContextMenuItem } from '$lib/context-menu/types';
-	import type { Channel } from '$lib/socket';
+	import type { Channel, Message, VoiceChannelSettings } from '$lib/socket';
 	import { longpress } from '$lib/actions/longpress';
 	import { layoutStore } from '$lib/layoutStore';
+	import { currentSavedServer } from '$lib/savedServers';
+	import { resolveServerUrl } from '$lib/serverUrl';
+	import {
+		FOLLOW_ALERT_LEVEL_LABELS,
+		currentServerFollowedChannels,
+		cycleChannelFollowAlertLevel,
+		toggleChannelFollow
+	} from '$lib/following';
 	import {
 		displayEnhancementSettingsStore,
 		isLikelyNsfwChannel,
@@ -68,6 +78,7 @@
 	import {
 		clearActiveCustomStatusPreset
 	} from '$lib/customStatusPresets';
+	import { voiceCallRecordingParticipants } from '$lib/callRecordingPresence';
 
 	const dispatch = createEventDispatcher();
 
@@ -78,7 +89,7 @@
 		return '*';
 	}
 
-	export let activeView: 'chat' | 'screen' = 'chat';
+	export let activeView: 'chat' | 'screen' | 'following' = 'chat';
 
 	let newChannelName = '';
 	let newChannelDescription = '';
@@ -92,12 +103,16 @@
 	let showStatusPopup = false;
 	let showChannelSettingsModal = false;
 	let selectedChannelForSettings: Channel | null = null;
+	let glimpseChannelId: string | null = null;
+	let glimpsePopover: HTMLElement | null = null;
 	let isTextSectionExpanded = true;
 	let isVoiceSectionExpanded = true;
 	let voiceDurationMode: 'off' | 'others' | 'all' = 'all';
 	let nowMs = Date.now();
 	let voiceDurationTicker: ReturnType<typeof setInterval> | null = null;
 	let voicePresenceSince = new Map<string, number>();
+	let draggedVoiceMember: { userId: string; channelId: string } | null = null;
+	let voiceDropTargetChannelId: string | null = null;
 	const fallbackRoleLabels: Record<string, string> = {
 		owner: 'Owner',
 		admin: 'Admin',
@@ -126,6 +141,26 @@
 	$: primaryVoiceChannelId = (() => {
 		return runtimeActiveVoiceChannelId || $listeningVoiceChannels[0] || null;
 	})();
+	$: currentServerLabel = (() => {
+		if ($currentSavedServer?.effectiveName) return $currentSavedServer.effectiveName;
+		try {
+			return new URL(resolveServerUrl().url).hostname;
+		} catch {
+			return 'Wabi';
+		}
+	})();
+	$: currentServerBannerUrl = $currentSavedServer?.effectiveBannerUrl || null;
+	$: currentServerDescription = $currentSavedServer?.effectiveDescription || resolveServerUrl().url;
+	$: followedChannelIds = new Set($currentServerFollowedChannels.map((entry) => entry.channelId));
+	$: followedChannelPreferences = new Map(
+		$currentServerFollowedChannels.map((entry) => [entry.channelId, entry])
+	);
+	$: followedUnreadCount = $currentServerFollowedChannels.reduce((sum, entry) => {
+		return sum + ($channelUnreadCounts[entry.channelId] || 0);
+	}, 0);
+	$: glimpseChannelMessages = glimpseChannelId
+		? ($channelMessages[glimpseChannelId] || []).slice(-4).reverse()
+		: [];
 
 	// Context menu state
 	let contextMenuChannel: Channel | null = null;
@@ -210,6 +245,8 @@
 	}, 0);
 	$: canTogglePersistMessages = $currentUser?.highestRole === 'owner';
 	$: canManageWatchQueue = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
+	$: canManageVoiceSettings = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
+	$: canModerateVoiceMembers = ['owner', 'admin', 'mod'].includes($currentUser?.highestRole || '');
 	$: {
 		const previous = voicePresenceSince;
 		const next = new Map<string, number>();
@@ -244,6 +281,29 @@
 		voiceDurationTicker = setInterval(() => {
 			nowMs = Date.now();
 		}, 1000);
+
+		const handlePointerDown = (event: PointerEvent) => {
+			if (!glimpseChannelId) return;
+			const target = event.target as HTMLElement | null;
+			if (!target) return;
+			if (glimpsePopover?.contains(target)) return;
+			if (target.closest('.channel-btn')) return;
+			glimpseChannelId = null;
+		};
+
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === 'Escape' && glimpseChannelId) {
+				glimpseChannelId = null;
+			}
+		};
+
+		document.addEventListener('pointerdown', handlePointerDown);
+		document.addEventListener('keydown', handleKeyDown);
+
+		return () => {
+			document.removeEventListener('pointerdown', handlePointerDown);
+			document.removeEventListener('keydown', handleKeyDown);
+		};
 	});
 
 	onDestroy(() => {
@@ -259,6 +319,8 @@
 	}
 
 	function handleChannelClick(channelId: string) {
+		activeView = 'chat';
+		glimpseChannelId = null;
 		joinChannel(channelId);
 		// Auto-dock the call UI when switching to a text/forum channel while in a voice channel
 		if ($callMode === 'channel') {
@@ -273,6 +335,68 @@
 			markChannelAsRead(channelId);
 		}
 		markMessagesAsRead();
+	}
+
+	function openFollowingView(): void {
+		activeView = 'following';
+		glimpseChannelId = null;
+		dispatch('close');
+	}
+
+	function toggleChannelFollowState(channelId: string, event?: Event): void {
+		event?.stopPropagation();
+		const followed = toggleChannelFollow(channelId);
+		if (!followed && glimpseChannelId === channelId) {
+			glimpseChannelId = null;
+		}
+	}
+
+	function cycleFollowAlert(channelId: string, event?: Event): void {
+		event?.stopPropagation();
+		if (!followedChannelIds.has(channelId)) {
+			toggleChannelFollow(channelId);
+		}
+		cycleChannelFollowAlertLevel(channelId);
+	}
+
+	function toggleChannelGlimpse(channelId: string): void {
+		glimpseChannelId = glimpseChannelId === channelId ? null : channelId;
+	}
+
+	function handleChannelButtonClick(channelId: string, event: MouseEvent): void {
+		if (event.altKey) {
+			event.preventDefault();
+			event.stopPropagation();
+			toggleChannelGlimpse(channelId);
+			return;
+		}
+		handleChannelClick(channelId);
+	}
+
+	function getFollowAlertLabel(channelId: string): string {
+		return FOLLOW_ALERT_LEVEL_LABELS[followedChannelPreferences.get(channelId)?.alertLevel || 'off'];
+	}
+
+	function summarizeGlimpseMessage(message: Message): string {
+		if (message.text?.trim()) return message.text.trim();
+		if (message.type === 'gif') return 'Shared a GIF';
+		if (message.type === 'emoji') return `Reacted with ${message.emojiName || 'an emoji'}`;
+		if (message.type === 'file') {
+			if (message.files?.length) return `Shared ${message.files.length} files`;
+			return `Shared ${message.fileName || 'a file'}`;
+		}
+		return 'Sent a message';
+	}
+
+	function formatGlimpseTime(timestamp: number): string {
+		try {
+			return new Intl.DateTimeFormat(undefined, {
+				hour: 'numeric',
+				minute: '2-digit'
+			}).format(new Date(timestamp));
+		} catch {
+			return '';
+		}
 	}
 
 	function handleCreateThread(parentChannel: Channel) {
@@ -378,6 +502,98 @@
 			return isSelfSpeakingInChannel(channelId);
 		}
 		return $speakingUsers.has(member.userId);
+	}
+
+	function getSelfStableVoiceUserId(): string | null {
+		if ($currentUser?.dbUserId) {
+			return `user-${$currentUser.dbUserId}`;
+		}
+		return $currentUser?.id || null;
+	}
+
+	function getRecordingParticipantsForChannel(channelId: string) {
+		return $voiceCallRecordingParticipants[channelId] || [];
+	}
+
+	function isVoiceChannelBeingRecorded(channelId: string): boolean {
+		return getRecordingParticipantsForChannel(channelId).length > 0;
+	}
+
+	function getVoiceChannelRecordingCount(channelId: string): number {
+		return getRecordingParticipantsForChannel(channelId).length;
+	}
+
+	function isSelfRecordingInChannel(channelId: string): boolean {
+		const selfStableId = getSelfStableVoiceUserId();
+		if (!selfStableId) return false;
+		return getRecordingParticipantsForChannel(channelId).some((participant) => participant.userId === selfStableId);
+	}
+
+	function isMemberRecording(member: { userId: string }, channelId: string): boolean {
+		return getRecordingParticipantsForChannel(channelId).some((participant) => participant.userId === member.userId);
+	}
+
+	function canDragVoiceMember(memberUserId: string): boolean {
+		if (!$currentUser) return false;
+		if (memberUserId === $currentUser.id) return true;
+		if ($currentUser.dbUserId && memberUserId === `user-${$currentUser.dbUserId}`) return true;
+		return canModerateVoiceMembers;
+	}
+
+	function handleVoiceMemberDragStart(event: DragEvent, channelId: string, memberUserId: string): void {
+		if (!canDragVoiceMember(memberUserId)) {
+			event.preventDefault();
+			return;
+		}
+		draggedVoiceMember = { userId: memberUserId, channelId };
+		voiceDropTargetChannelId = null;
+		if (event.dataTransfer) {
+			event.dataTransfer.effectAllowed = 'move';
+			event.dataTransfer.setData('text/plain', JSON.stringify(draggedVoiceMember));
+		}
+	}
+
+	function handleVoiceMemberDragEnd(): void {
+		draggedVoiceMember = null;
+		voiceDropTargetChannelId = null;
+	}
+
+	function handleVoiceChannelDragOver(event: DragEvent, channelId: string): void {
+		if (!draggedVoiceMember || draggedVoiceMember.channelId === channelId) return;
+		event.preventDefault();
+		if (event.dataTransfer) {
+			event.dataTransfer.dropEffect = 'move';
+		}
+		voiceDropTargetChannelId = channelId;
+	}
+
+	function handleVoiceChannelDragLeave(channelId: string): void {
+		if (voiceDropTargetChannelId === channelId) {
+			voiceDropTargetChannelId = null;
+		}
+	}
+
+	function handleVoiceChannelDrop(event: DragEvent, channelId: string): void {
+		if (!draggedVoiceMember || draggedVoiceMember.channelId === channelId) return;
+		event.preventDefault();
+		event.stopPropagation();
+		moveUserToVoiceChannel(draggedVoiceMember.userId, channelId);
+		draggedVoiceMember = null;
+		voiceDropTargetChannelId = null;
+	}
+
+	function showVoiceMembers(channelId: string): boolean {
+		return isConnectedToVoice(channelId) || getVoiceMembers(channelId).length > 0;
+	}
+
+	function visibleVoiceMembers(channelId: string): Array<{ userId: string; socketId?: string; username?: string; profilePicture?: string }> {
+		const members = getVoiceMembers(channelId);
+		if (!$currentUser) return members;
+		return members.filter((member) => {
+			if (member.userId === $currentUser?.id) return false;
+			if ($currentUser?.dbUserId && member.userId === `user-${$currentUser.dbUserId}`) return false;
+			return true;
+		});
 	}
 
 	function formatDiag(value: number | null, unit = ''): string {
@@ -495,6 +711,8 @@
 	let tempDescription = '';
 	let tempChannelName = '';
 	let tempWatchQueueEnabled = false;
+	let tempVoiceUserLimit = '';
+	let tempVoiceForceSolo = false;
 
 	function handleOpenChannelSettings(channel: Channel) {
 		selectedChannelForSettings = channel;
@@ -502,7 +720,57 @@
 		tempDescription = channel.description || '';
 		tempChannelName = channel.name || '';
 		tempWatchQueueEnabled = channel.watchQueueEnabled || false;
+		tempVoiceUserLimit = channel.voiceSettings?.userLimit ? String(channel.voiceSettings.userLimit) : '';
+		tempVoiceForceSolo = channel.voiceSettings?.forceSolo === true;
 		showChannelSettingsModal = true;
+	}
+
+	function parseVoiceUserLimitInput(rawValue: string): number | null {
+		const trimmed = rawValue.trim();
+		if (!trimmed) return null;
+		const parsed = Number.parseInt(trimmed, 10);
+		if (!Number.isFinite(parsed) || parsed < 1) return 1;
+		return Math.min(99, parsed);
+	}
+
+	function buildDraftVoiceSettings(channel: Channel): VoiceChannelSettings | undefined {
+		if (channel.type !== 'voice') {
+			return channel.voiceSettings;
+		}
+
+		const next: VoiceChannelSettings = {};
+		const userLimit = parseVoiceUserLimitInput(tempVoiceUserLimit);
+		if (userLimit !== null) {
+			next.userLimit = userLimit;
+		}
+		if (tempVoiceForceSolo) {
+			next.forceSolo = true;
+		}
+		if (channel.voiceSettings?.bitrateMode) {
+			next.bitrateMode = channel.voiceSettings.bitrateMode;
+		}
+		return Object.keys(next).length > 0 ? next : undefined;
+	}
+
+	function getEffectiveVoiceLimit(channel: Channel): number | null {
+		if (channel.type !== 'voice') return null;
+		if (channel.voiceSettings?.forceSolo) return 1;
+		const configured = channel.voiceSettings?.userLimit;
+		if (configured == null) return null;
+		if (!Number.isFinite(configured) || configured < 1) return null;
+		return configured;
+	}
+
+	function formatVoiceOccupancy(channel: Channel, memberCount: number): string {
+		const limit = getEffectiveVoiceLimit(channel);
+		if (limit === null) return String(memberCount);
+		return `${memberCount}/${limit}`;
+	}
+
+	function getVoiceOccupancyTitle(channel: Channel, memberCount: number): string {
+		const limit = getEffectiveVoiceLimit(channel);
+		if (limit === null) return `${memberCount} in voice`;
+		return `${memberCount}/${limit} in voice`;
 	}
 
 	function handleUpdateAutoDelete(autoDeleteAfter: '5s' | '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null) {
@@ -512,7 +780,8 @@
 				persistMessages: canTogglePersistMessages ? tempPersistMessages : selectedChannelForSettings.persistMessages,
 				description: tempDescription,
 				name: tempChannelName.trim() || selectedChannelForSettings.name,
-				watchQueueEnabled: canManageWatchQueue ? tempWatchQueueEnabled : selectedChannelForSettings.watchQueueEnabled
+				watchQueueEnabled: canManageWatchQueue ? tempWatchQueueEnabled : selectedChannelForSettings.watchQueueEnabled,
+				voiceSettings: canManageVoiceSettings ? buildDraftVoiceSettings(selectedChannelForSettings) : selectedChannelForSettings.voiceSettings
 			});
 			showChannelSettingsModal = false;
 		}
@@ -525,7 +794,8 @@
 				persistMessages: canTogglePersistMessages ? tempPersistMessages : selectedChannelForSettings.persistMessages,
 				description: tempDescription,
 				name: tempChannelName.trim() || selectedChannelForSettings.name,
-				watchQueueEnabled: canManageWatchQueue ? tempWatchQueueEnabled : selectedChannelForSettings.watchQueueEnabled
+				watchQueueEnabled: canManageWatchQueue ? tempWatchQueueEnabled : selectedChannelForSettings.watchQueueEnabled,
+				voiceSettings: canManageVoiceSettings ? buildDraftVoiceSettings(selectedChannelForSettings) : selectedChannelForSettings.voiceSettings
 			});
 			showChannelSettingsModal = false;
 		}
@@ -669,9 +939,17 @@
 <div class="channel-sidebar" class:compact={isCompactSidebar} style="width: {$layoutStore.channelSidebarWidth}px">
 	<div class="top-section">
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
-		<div class="logo">
+		<button type="button" class="server-identity" on:click={() => dispatch('openServerSwitcher')}>
+			<div class="logo">
 			<img src="/wabi-logo-small.webp" alt="Wabi" class="logo-img" />
-		</div>
+			</div>
+			{#if !isCompactSidebar}
+				<div class="server-copy">
+					<span class="server-product-label">Wabi</span>
+					<strong class="server-name">{currentServerLabel}</strong>
+				</div>
+			{/if}
+		</button>
 		<div class="header-buttons">
 			{#if sidebarWidth < 170}
 				<button
@@ -684,6 +962,18 @@
 			{/if}
 		</div>
 	</div>
+
+	{#if !isCompactSidebar}
+		<button type="button" class="server-banner" on:click={() => dispatch('openServerSwitcher')}>
+			{#if currentServerBannerUrl}
+				<img src={currentServerBannerUrl} alt={currentServerLabel} class="server-banner-image" />
+			{/if}
+			<div class="server-banner-copy">
+				<strong>{currentServerLabel}</strong>
+				<span>{currentServerDescription}</span>
+			</div>
+		</button>
+	{/if}
 
 	{#if showCreateInput}
 		<div class="create-channel">
@@ -732,6 +1022,29 @@
 				</button>
 			</div>
 		{/if}
+		<div class="following-entry-wrap">
+			<button
+				type="button"
+				class="following-entry"
+				class:active={activeView === 'following'}
+				on:click={openFollowingView}
+				title="Open your followed channel feed"
+			>
+				<span class="following-entry-icon">+</span>
+				<span class="following-entry-copy">
+					<strong>Following</strong>
+					<small>RSS-style local feed</small>
+				</span>
+				<span class="following-entry-badges">
+					{#if $currentServerFollowedChannels.length > 0}
+						<span class="following-entry-pill">{$currentServerFollowedChannels.length}</span>
+					{/if}
+					{#if followedUnreadCount > 0}
+						<span class="following-entry-pill following-entry-pill--unread">{followedUnreadCount}</span>
+					{/if}
+				</span>
+			</button>
+		</div>
 		<div class="section-heading-row">
 			<button
 				class="section-toggle"
@@ -761,7 +1074,7 @@
 		<!-- Public text channels -->
 		{#each textChannels as channel (channel.id)}
 			<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)} use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}>
-				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
+				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={(event) => handleChannelButtonClick(channel.id, event)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : 'Alt-click to glimpse'}>
 					<span class="hash">#</span>
 					{channel.name}
 					{#if $displayEnhancementSettingsStore.betterNsfwTagEnabled && isNsfwTaggedChannel(channel)}
@@ -776,6 +1089,14 @@
 					{/if}
 				</button>
 				<div class="channel-actions text-channel-actions">
+					<button
+						class="follow-btn"
+						class:active={followedChannelIds.has(channel.id)}
+						on:click|stopPropagation={(event) => toggleChannelFollowState(channel.id, event)}
+						title={followedChannelIds.has(channel.id) ? 'Unfollow channel' : 'Follow channel'}
+					>
+						{followedChannelIds.has(channel.id) ? '★' : '☆'}
+					</button>
 					<button class="settings-btn" on:click|stopPropagation={() => handleOpenChannelSettings(channel)} title="Channel settings">
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
 				</button>
@@ -783,6 +1104,47 @@
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg>
 				</button>
 				</div>
+				{#if glimpseChannelId === channel.id}
+					<div class="channel-glimpse-popout" bind:this={glimpsePopover}>
+						<div class="channel-glimpse-header">
+							<div>
+								<strong>#{channel.name}</strong>
+								<small>{glimpseChannelMessages.length > 0 ? `${glimpseChannelMessages.length} recent loaded` : 'No recent messages loaded yet'}</small>
+							</div>
+							<button
+								type="button"
+								class="channel-glimpse-follow-btn"
+								on:click|stopPropagation={(event) => toggleChannelFollowState(channel.id, event)}
+								title={followedChannelIds.has(channel.id) ? 'Unfollow channel' : 'Follow channel'}
+							>
+								{followedChannelIds.has(channel.id) ? 'Following' : 'Follow'}
+							</button>
+						</div>
+						{#if glimpseChannelMessages.length > 0}
+							<div class="channel-glimpse-messages">
+								{#each glimpseChannelMessages as message (message.id)}
+									<div class="channel-glimpse-message">
+										<div class="channel-glimpse-meta">
+											<strong>{message.user}</strong>
+											<span>{formatGlimpseTime(message.timestamp)}</span>
+										</div>
+										<p>{summarizeGlimpseMessage(message)}</p>
+									</div>
+								{/each}
+							</div>
+						{:else}
+							<p class="channel-glimpse-empty">Open this channel once to cache its latest window for glance mode.</p>
+						{/if}
+						<div class="channel-glimpse-actions">
+							<button type="button" class="channel-glimpse-alert-btn" on:click|stopPropagation={(event) => cycleFollowAlert(channel.id, event)}>
+								Alerts: {getFollowAlertLabel(channel.id)}
+							</button>
+							<button type="button" class="channel-glimpse-open-btn" on:click|stopPropagation={() => handleChannelClick(channel.id)}>
+								Open channel
+							</button>
+						</div>
+					</div>
+				{/if}
 			</div>
 			{#if (threadChannelsByParent[channel.id] || []).length > 0}
 				<div class="thread-list">
@@ -814,7 +1176,7 @@
 			<div class="section-header section-subheader">Group Chats</div>
 			{#each groupChannels as channel (channel.id)}
 				<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)} use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}>
-					<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleChannelClick(channel.id)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : ''}>
+					<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={(event) => handleChannelButtonClick(channel.id, event)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : 'Alt-click to glimpse'}>
 						<svg class="group-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
 						{channel.name}
 						{#if $displayEnhancementSettingsStore.betterNsfwTagEnabled && isNsfwTaggedChannel(channel)}
@@ -829,6 +1191,14 @@
 						{/if}
 					</button>
 					<div class="channel-actions text-channel-actions">
+						<button
+							class="follow-btn"
+							class:active={followedChannelIds.has(channel.id)}
+							on:click|stopPropagation={(event) => toggleChannelFollowState(channel.id, event)}
+							title={followedChannelIds.has(channel.id) ? 'Unfollow group' : 'Follow group'}
+						>
+							{followedChannelIds.has(channel.id) ? '★' : '☆'}
+						</button>
 						<button class="settings-btn" on:click|stopPropagation={() => handleOpenChannelSettings(channel)} title="Channel settings">
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
 				</button>
@@ -836,6 +1206,47 @@
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg>
 				</button>
 					</div>
+					{#if glimpseChannelId === channel.id}
+						<div class="channel-glimpse-popout" bind:this={glimpsePopover}>
+							<div class="channel-glimpse-header">
+								<div>
+									<strong>{channel.name}</strong>
+									<small>{glimpseChannelMessages.length > 0 ? `${glimpseChannelMessages.length} recent loaded` : 'No recent messages loaded yet'}</small>
+								</div>
+								<button
+									type="button"
+									class="channel-glimpse-follow-btn"
+									on:click|stopPropagation={(event) => toggleChannelFollowState(channel.id, event)}
+									title={followedChannelIds.has(channel.id) ? 'Unfollow group' : 'Follow group'}
+								>
+									{followedChannelIds.has(channel.id) ? 'Following' : 'Follow'}
+								</button>
+							</div>
+							{#if glimpseChannelMessages.length > 0}
+								<div class="channel-glimpse-messages">
+									{#each glimpseChannelMessages as message (message.id)}
+										<div class="channel-glimpse-message">
+											<div class="channel-glimpse-meta">
+												<strong>{message.user}</strong>
+												<span>{formatGlimpseTime(message.timestamp)}</span>
+											</div>
+											<p>{summarizeGlimpseMessage(message)}</p>
+										</div>
+									{/each}
+								</div>
+							{:else}
+								<p class="channel-glimpse-empty">Open this group once to cache its latest window for glance mode.</p>
+							{/if}
+							<div class="channel-glimpse-actions">
+								<button type="button" class="channel-glimpse-alert-btn" on:click|stopPropagation={(event) => cycleFollowAlert(channel.id, event)}>
+									Alerts: {getFollowAlertLabel(channel.id)}
+								</button>
+								<button type="button" class="channel-glimpse-open-btn" on:click|stopPropagation={() => handleChannelClick(channel.id)}>
+									Open group
+								</button>
+							</div>
+						</div>
+					{/if}
 				</div>
 			{/each}
 		{/if}
@@ -875,7 +1286,11 @@
 				class="channel-item voice-channel-item"
 				class:active={channelIsConnected}
 				class:connected={channelIsConnected}
+				class:voice-drop-target={voiceDropTargetChannelId === channel.id}
 				on:click={() => handleVoiceChannelClick(channel.id)}
+				on:dragover={(event) => handleVoiceChannelDragOver(event, channel.id)}
+				on:dragleave={() => handleVoiceChannelDragLeave(channel.id)}
+				on:drop={(event) => handleVoiceChannelDrop(event, channel.id)}
 				on:contextmenu={(e) => handleChannelRightClick(e, channel)}
 				use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}
 			>
@@ -884,13 +1299,18 @@
 						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
 					</span>
 					<span class="voice-channel-name">{channel.name}</span>
-					<span class="voice-inline-count" title={`${members.length} in voice`}>
+					<span class="voice-inline-count" title={getVoiceOccupancyTitle(channel, members.length)}>
 						<svg class="voice-count-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-						{members.length}
+						{formatVoiceOccupancy(channel, members.length)}
 					</span>
+					{#if isVoiceChannelBeingRecorded(channel.id)}
+						<span class="voice-recording-tag" title={`${getVoiceChannelRecordingCount(channel.id)} participant(s) recording in this call`}>
+							REC {getVoiceChannelRecordingCount(channel.id)}
+						</span>
+					{/if}
 				</button>
 			</div>
-			{#if channelIsConnected}
+			{#if showVoiceMembers(channel.id)}
 				<div class="voice-member-list" transition:slide={{ duration: 180, easing: cubicOut }}>
 					{#if channelIsConnected && $currentUser}
 					<div class="voice-member-item" in:fly={{ x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={{ x: -24, duration: 150, opacity: 0.1 }}>
@@ -900,23 +1320,33 @@
 							<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isSelfSpeakingInChannel(channel.id)}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
 						{/if}
 						<span class="voice-member-name">{$currentUser.username}</span>
+						{#if isSelfRecordingInChannel(channel.id)}
+							<span class="voice-recording-tag member">REC</span>
+						{/if}
 						{#if showSelfVoiceDuration()}
 							<span class="voice-member-duration">{formatVoiceDuration(getSelfVoicePresenceStart(channel.id))}</span>
 						{/if}
 					</div>
 					{/if}
-					{#each (channelIsConnected && $currentUser ? members.filter(m => {
-						if (m.userId === $currentUser?.id) return false;
-						if ($currentUser?.dbUserId && m.userId === `user-${$currentUser.dbUserId}`) return false;
-						return true;
-					}) : members) as member (member.userId)}
-						<div class="voice-member-item" in:fly={{ x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={{ x: -24, duration: 150, opacity: 0.1 }}>
+					{#each visibleVoiceMembers(channel.id) as member (member.userId)}
+						<div
+							class="voice-member-item"
+							class:voice-member-draggable={canDragVoiceMember(member.userId)}
+							draggable={canDragVoiceMember(member.userId)}
+							on:dragstart={(event) => handleVoiceMemberDragStart(event, channel.id, member.userId)}
+							on:dragend={handleVoiceMemberDragEnd}
+							in:fly={{ x: -18, duration: 180, opacity: 0.2, easing: cubicOut }}
+							out:fly={{ x: -24, duration: 150, opacity: 0.1 }}
+						>
 							{#if member.profilePicture}
 								<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member, channel.id)} src={member.profilePicture} alt={member.username || member.userId} />
 							{:else}
 								<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member, channel.id)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 							{/if}
 							<span class="voice-member-name">{member.username || member.userId}</span>
+							{#if isMemberRecording(member, channel.id)}
+								<span class="voice-recording-tag member">REC</span>
+							{/if}
 							{#if showOtherVoiceDuration()}
 								<span class="voice-member-duration">{formatVoiceDuration(getVoicePresenceStart(channel.id, member.userId))}</span>
 							{/if}
@@ -931,20 +1361,29 @@
 					class="channel-item voice-channel-item breakout-channel-item"
 					class:active={breakoutIsConnected}
 					class:connected={breakoutIsConnected}
+					class:voice-drop-target={voiceDropTargetChannelId === breakout.id}
 					on:click={() => handleVoiceChannelClick(breakout.id)}
+					on:dragover={(event) => handleVoiceChannelDragOver(event, breakout.id)}
+					on:dragleave={() => handleVoiceChannelDragLeave(breakout.id)}
+					on:drop={(event) => handleVoiceChannelDrop(event, breakout.id)}
 					on:contextmenu={(e) => handleChannelRightClick(e, breakout)}
 					use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, breakout) }}
 				>
 					<button class="channel-btn" data-abbrev={breakout.name.charAt(0).toUpperCase()}>
 						<span class="breakout-prefix" aria-hidden="true">&gt;</span>
 						<span class="voice-channel-name">{breakout.name}</span>
-						<span class="voice-inline-count" title={`${breakoutMembers.length} in voice`}>
+						<span class="voice-inline-count" title={getVoiceOccupancyTitle(breakout, breakoutMembers.length)}>
 							<svg class="voice-count-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-							{breakoutMembers.length}
+							{formatVoiceOccupancy(breakout, breakoutMembers.length)}
 						</span>
+						{#if isVoiceChannelBeingRecorded(breakout.id)}
+							<span class="voice-recording-tag" title={`${getVoiceChannelRecordingCount(breakout.id)} participant(s) recording in this call`}>
+								REC {getVoiceChannelRecordingCount(breakout.id)}
+							</span>
+						{/if}
 					</button>
 				</div>
-				{#if breakoutIsConnected}
+				{#if showVoiceMembers(breakout.id)}
 					<div class="voice-member-list breakout-member-list" transition:slide={{ duration: 180, easing: cubicOut }}>
 						{#if breakoutIsConnected && $currentUser}
 						<div class="voice-member-item" in:fly={{ x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={{ x: -24, duration: 150, opacity: 0.1 }}>
@@ -954,23 +1393,33 @@
 								<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isSelfSpeakingInChannel(breakout.id)}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
 							{/if}
 							<span class="voice-member-name">{$currentUser.username}</span>
+							{#if isSelfRecordingInChannel(breakout.id)}
+								<span class="voice-recording-tag member">REC</span>
+							{/if}
 							{#if showSelfVoiceDuration()}
 								<span class="voice-member-duration">{formatVoiceDuration(getSelfVoicePresenceStart(breakout.id))}</span>
 							{/if}
 						</div>
 						{/if}
-						{#each (breakoutIsConnected && $currentUser ? breakoutMembers.filter(m => {
-							if (m.userId === $currentUser?.id) return false;
-							if ($currentUser?.dbUserId && m.userId === `user-${$currentUser.dbUserId}`) return false;
-							return true;
-						}) : breakoutMembers) as member (member.userId)}
-							<div class="voice-member-item" in:fly={{ x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={{ x: -24, duration: 150, opacity: 0.1 }}>
+						{#each visibleVoiceMembers(breakout.id) as member (member.userId)}
+							<div
+								class="voice-member-item"
+								class:voice-member-draggable={canDragVoiceMember(member.userId)}
+								draggable={canDragVoiceMember(member.userId)}
+								on:dragstart={(event) => handleVoiceMemberDragStart(event, breakout.id, member.userId)}
+								on:dragend={handleVoiceMemberDragEnd}
+								in:fly={{ x: -18, duration: 180, opacity: 0.2, easing: cubicOut }}
+								out:fly={{ x: -24, duration: 150, opacity: 0.1 }}
+							>
 								{#if member.profilePicture}
 									<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member, breakout.id)} src={member.profilePicture} alt={member.username || member.userId} />
 								{:else}
 									<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isMemberSpeaking(member, breakout.id)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 								{/if}
 								<span class="voice-member-name">{member.username || member.userId}</span>
+								{#if isMemberRecording(member, breakout.id)}
+									<span class="voice-recording-tag member">REC</span>
+								{/if}
 								{#if showOtherVoiceDuration()}
 									<span class="voice-member-duration">{formatVoiceDuration(getVoicePresenceStart(breakout.id, member.userId))}</span>
 								{/if}
@@ -1373,6 +1822,45 @@
 							{/if}
 						</div>
 					{/if}
+
+					{#if selectedChannelForSettings.type === 'voice'}
+						<div class="setting-group">
+							<div class="setting-label">Voice Capacity</div>
+							<p class="setting-description">Leave blank for unlimited. The sidebar will show current users as x/y when a limit is set.</p>
+							<input
+								type="number"
+								min="1"
+								max="99"
+								step="1"
+								value={tempVoiceUserLimit}
+								on:input={(event) => {
+									tempVoiceUserLimit = (event.currentTarget as HTMLInputElement).value;
+								}}
+								placeholder="Unlimited"
+								class="description-input"
+								disabled={!canManageVoiceSettings}
+							/>
+							{#if !canManageVoiceSettings}
+								<p class="setting-description">Only workspace owners or admins can change voice capacity.</p>
+							{/if}
+						</div>
+
+						<div class="setting-group">
+							<label class="setting-label">
+								<input
+									type="checkbox"
+									bind:checked={tempVoiceForceSolo}
+									class="setting-checkbox"
+									disabled={!canManageVoiceSettings}
+								/>
+								Focused Audio
+							</label>
+							<p class="setting-description">When enabled, joining this voice channel forces listen/transmit focus to this channel only. Use voice capacity `1` if you want a true one-person room.</p>
+							{#if !canManageVoiceSettings}
+								<p class="setting-description">Only workspace owners or admins can change focused audio mode.</p>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			</div>
 		</div>
@@ -1433,6 +1921,21 @@
 	.channel-sidebar.compact .create-channel,
 	.channel-sidebar.compact .workspace-counter-chip,
 	.channel-sidebar.compact .channel-list-actions {
+		display: none;
+	}
+
+	.channel-sidebar.compact .following-entry-wrap {
+		padding: 0.25rem;
+	}
+
+	.channel-sidebar.compact .following-entry {
+		justify-content: center;
+		padding: 0.5rem;
+		border-radius: 14px;
+	}
+
+	.channel-sidebar.compact .following-entry-copy,
+	.channel-sidebar.compact .following-entry-badges {
 		display: none;
 	}
 
@@ -1498,8 +2001,21 @@
 		box-sizing: border-box;
 	}
 
-	.logo {
+	.server-identity {
 		flex: 1;
+		display: flex;
+		align-items: center;
+		gap: 0.65rem;
+		min-width: 0;
+		border: none;
+		background: transparent;
+		padding: 0;
+		cursor: pointer;
+		color: inherit;
+		text-align: left;
+	}
+
+	.logo {
 		display: flex;
 		align-items: center;
 	}
@@ -1523,6 +2039,72 @@
 	:root[data-theme="forest"] .logo-img,
 	:root[data-theme="ember"] .logo-img {
 		filter: invert(1) drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.3));
+	}
+
+	.server-copy {
+		min-width: 0;
+		display: grid;
+		gap: 0.08rem;
+	}
+
+	.server-product-label {
+		font-size: 0.63rem;
+		text-transform: uppercase;
+		letter-spacing: 0.11em;
+		color: var(--text-secondary);
+	}
+
+	.server-name {
+		font-size: 0.92rem;
+		color: var(--text-primary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.server-banner {
+		position: relative;
+		margin: 0.8rem 1rem 0.35rem;
+		min-height: 92px;
+		border: 1px solid rgba(var(--border-rgb), 0.45);
+		border-radius: 18px;
+		overflow: hidden;
+		background:
+			linear-gradient(135deg, rgba(45, 212, 191, 0.18), rgba(37, 99, 235, 0.16)),
+			radial-gradient(circle at top left, rgba(255, 255, 255, 0.08), transparent 52%);
+		padding: 0;
+		cursor: pointer;
+		text-align: left;
+	}
+
+	.server-banner-image {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		opacity: 0.46;
+	}
+
+	.server-banner-copy {
+		position: relative;
+		z-index: 1;
+		display: grid;
+		gap: 0.18rem;
+		padding: 0.95rem 1rem;
+		background: linear-gradient(180deg, rgba(4, 9, 19, 0.1), rgba(4, 9, 19, 0.7));
+	}
+
+	.server-banner-copy strong {
+		font-size: 0.95rem;
+		color: #f8fafc;
+	}
+
+	.server-banner-copy span {
+		font-size: 0.74rem;
+		line-height: 1.35;
+		color: rgba(248, 250, 252, 0.78);
+		word-break: break-word;
 	}
 
 	.collapse-btn {
@@ -1734,6 +2316,88 @@
 		cursor: default;
 	}
 
+	.following-entry-wrap {
+		padding: 0.25rem 0.6rem 0.45rem;
+	}
+
+	.following-entry {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		gap: 0.7rem;
+		padding: 0.75rem 0.8rem;
+		border: 1px solid rgba(var(--accent-rgb), 0.14);
+		border-radius: 16px;
+		background:
+			linear-gradient(135deg, rgba(var(--accent-rgb), 0.16), rgba(59, 130, 246, 0.1)),
+			rgba(var(--bg-secondary-rgb), 0.92);
+		color: var(--text-primary);
+		cursor: pointer;
+		text-align: left;
+	}
+
+	.following-entry:hover,
+	.following-entry.active {
+		border-color: rgba(var(--accent-rgb), 0.34);
+		box-shadow: 0 12px 24px rgba(0, 0, 0, 0.16);
+	}
+
+	.following-entry-icon {
+		width: 32px;
+		height: 32px;
+		border-radius: 12px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 1.2rem;
+		font-weight: 700;
+		color: rgba(255, 255, 255, 0.95);
+		background: rgba(var(--accent-rgb), 0.24);
+		flex-shrink: 0;
+	}
+
+	.following-entry-copy {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.following-entry-copy strong {
+		font-size: 0.95rem;
+	}
+
+	.following-entry-copy small {
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+	}
+
+	.following-entry-badges {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		flex-shrink: 0;
+	}
+
+	.following-entry-pill {
+		min-width: 1.65rem;
+		height: 1.65rem;
+		padding: 0 0.42rem;
+		border-radius: 999px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(15, 23, 42, 0.72);
+		color: var(--text-primary);
+		font-size: 0.72rem;
+		font-weight: 700;
+	}
+
+	.following-entry-pill--unread {
+		background: rgba(239, 68, 68, 0.86);
+		color: #fff;
+	}
+
 	.channel-item {
 		display: flex;
 		align-items: center;
@@ -1797,6 +2461,106 @@
 	.channel-btn:hover {
 		background: var(--bg-secondary);
 		color: var(--text-primary);
+	}
+
+	.follow-btn {
+		width: 24px;
+		height: 24px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border: none;
+		background: transparent;
+		color: var(--text-muted);
+		cursor: pointer;
+		border-radius: 999px;
+		font-size: 0.95rem;
+		opacity: 0.84;
+		transition: background 0.18s ease, color 0.18s ease, opacity 0.18s ease;
+	}
+
+	.follow-btn:hover,
+	.follow-btn.active {
+		background: rgba(245, 158, 11, 0.14);
+		color: #fbbf24;
+		opacity: 1;
+	}
+
+	.channel-glimpse-popout {
+		position: absolute;
+		top: 0.2rem;
+		left: calc(100% + 0.45rem);
+		width: min(320px, 56vw);
+		padding: 0.85rem;
+		border-radius: 18px;
+		border: 1px solid rgba(var(--accent-rgb), 0.2);
+		background:
+			linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.96)),
+			rgba(var(--bg-secondary-rgb), 0.94);
+		box-shadow: 0 22px 42px rgba(0, 0, 0, 0.28);
+		z-index: 35;
+	}
+
+	:global(.app-container.nav-right) .channel-glimpse-popout,
+	.channel-sidebar.compact .channel-glimpse-popout {
+		left: auto;
+		right: calc(100% + 0.45rem);
+	}
+
+	.channel-glimpse-header,
+	.channel-glimpse-meta,
+	.channel-glimpse-actions {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+	}
+
+	.channel-glimpse-header {
+		margin-bottom: 0.7rem;
+	}
+
+	.channel-glimpse-header small,
+	.channel-glimpse-meta span,
+	.channel-glimpse-empty {
+		color: var(--text-secondary);
+		font-size: 0.73rem;
+	}
+
+	.channel-glimpse-messages {
+		display: flex;
+		flex-direction: column;
+		gap: 0.55rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.channel-glimpse-message {
+		padding: 0.55rem 0.65rem;
+		border-radius: 12px;
+		background: rgba(var(--border-rgb), var(--opacity-light));
+	}
+
+	.channel-glimpse-message p,
+	.channel-glimpse-empty {
+		margin: 0.22rem 0 0;
+		line-height: 1.4;
+	}
+
+	.channel-glimpse-follow-btn,
+	.channel-glimpse-alert-btn,
+	.channel-glimpse-open-btn {
+		border: 1px solid rgba(var(--border-rgb), 0.3);
+		border-radius: 999px;
+		padding: 0.42rem 0.65rem;
+		background: rgba(15, 23, 42, 0.82);
+		color: var(--text-primary);
+		font: inherit;
+		cursor: pointer;
+	}
+
+	.channel-glimpse-open-btn {
+		background: rgba(var(--accent-rgb), 0.16);
+		border-color: rgba(var(--accent-rgb), 0.28);
 	}
 
 	.hash {
@@ -1975,6 +2739,29 @@
 		border-radius: 999px;
 	}
 
+	.voice-recording-tag {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		margin-left: 0.32rem;
+		padding: 0.06rem 0.38rem;
+		border-radius: 999px;
+		font-size: 0.56rem;
+		font-weight: 800;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		color: #fff1f2;
+		background: color-mix(in srgb, #dc2626 74%, var(--bg-tertiary));
+		border: 1px solid rgba(248, 113, 113, 0.44);
+		flex-shrink: 0;
+	}
+
+	.voice-recording-tag.member {
+		margin-left: 0;
+		font-size: 0.54rem;
+		padding: 0.05rem 0.34rem;
+	}
+
 	.thread-list {
 		margin: -0.05rem 0 0.2rem 1.35rem;
 		display: flex;
@@ -2070,6 +2857,11 @@
 		background: color-mix(in srgb, #22c55e 12%, var(--bg-tertiary));
 	}
 
+	.voice-channel-item.voice-drop-target {
+		border-color: color-mix(in srgb, #60a5fa 58%, transparent);
+		background: color-mix(in srgb, #60a5fa 15%, var(--bg-tertiary));
+	}
+
 	.breakout-channel-item {
 		margin-left: 1rem;
 	}
@@ -2107,6 +2899,14 @@
 		transform: translateX(2px);
 		border-color: rgba(var(--border-rgb), 0.45);
 		background: color-mix(in srgb, var(--bg-tertiary) 88%, transparent);
+	}
+
+	.voice-member-item.voice-member-draggable {
+		cursor: grab;
+	}
+
+	.voice-member-item.voice-member-draggable:active {
+		cursor: grabbing;
 	}
 
 	.voice-member-overflow {
@@ -2937,7 +3737,8 @@
 		}
 
 		.pin-btn,
-		.settings-btn {
+		.settings-btn,
+		.follow-btn {
 			min-width: 44px;
 			min-height: 44px;
 			width: 44px;

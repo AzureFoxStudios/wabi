@@ -1,0 +1,72 @@
+{
+  "id": "btc-payments",
+  "name": "Bitcoin Payments",
+  "version": "0.1.0",
+  "description": "Bitcoin QR payment requests plus optional Lightning checkout through a signed adapter.",
+  "author": "Wabi Core",
+  "enabled": true,
+  "firstParty": true,
+  "permissions": [
+    "payments:intent:create",
+    "payments:intent:status",
+    "payments:webhook:verify"
+  ],
+  "security": {
+    "threatNotes": "Non-custodial only. Personal Bitcoin QR requests use the sender's saved Bitcoin address. Optional Lightning checkout stays behind operator-controlled adapter configuration or local test mode."
+  },
+  "distribution": {
+    "source": "local"
+  },
+  "capabilities": {
+    "tier": "network-limited",
+    "notes": "Bitcoin-first provider plugin. Lightning remains adapter-backed when enabled."
+  },
+  "backend": {
+    "entry": "./backend/index.mjs"
+  },
+  "payment": {
+    "providerName": "Bitcoin",
+    "countries": [],
+    "currencies": [
+      "BTC"
+    ],
+    "methods": [
+      {
+        "id": "bitcoin_qr",
+        "label": "Bitcoin QR",
+        "checkoutModes": [
+          "qr",
+          "app_switch"
+        ],
+        "estimatedSharePercent": 85,
+        "enabledByDefault": true,
+        "notes": "Builds a BIP21 Bitcoin QR from the sender's saved Bitcoin address."
+      },
+      {
+        "id": "lightning_checkout",
+        "label": "Lightning",
+        "checkoutModes": [
+          "payment_link",
+          "redirect",
+          "app_switch"
+        ],
+        "estimatedSharePercent": 15,
+        "enabledByDefault": true,
+        "notes": "Lightning checkout requires a configured adapter or local test mode."
+      }
+    ],
+    "nonCustodialOnly": true,
+    "excludesFedNow": true,
+    "excludesCbdcRails": true
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "checksum": "803e2a41b493c284dbb616c354073c5c91e359bc7192e3197add3ce1c996630d",
+    "signature": "dwZBNZUcUBzwML7UZJ0t7R9/LUIV43GFtDxt/8RLvzkTDn6uwZulwnjeXGhB8b9nqrbFzXGp8CKEmdfqpZFfDg=="
+  },
+  "signer": {
+    "keyId": "ed25519:c25cbf654dcfe822",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAiOZVgiG8MU7lzvdCezOS/ev9taIAvjEDVSstg/BA2UE=\n-----END PUBLIC KEY-----\n",
+    "algorithm": "ed25519"
+  }
+}

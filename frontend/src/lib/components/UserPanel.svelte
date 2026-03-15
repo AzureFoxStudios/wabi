@@ -9,7 +9,7 @@
 	import { longpress } from '$lib/actions/longpress';
 	import CreateDMModal from './CreateDMModal.svelte';
 	import { _ } from '$lib/i18n';
-	import { clearAuthSession } from '$lib/authSession';
+	import { clearAuthSession, clearStoredIdentity } from '$lib/authSession';
 	import { getUserIdentityKey } from '$lib/localNicknames';
 	import { queueConversationPaymentLaunch, type ConversationPaymentSurface } from '$lib/paymentLaunch';
 
@@ -161,11 +161,11 @@
 		showDMModal = true;
 	}
 
-	function handleLogout() {
+		function handleLogout() {
 		// Clear session
 		try {
 			clearAuthSession();
-			localStorage.removeItem('username');
+			clearStoredIdentity();
 		} catch (e) {
 			console.error('Failed to clear session data:', e);
 		}

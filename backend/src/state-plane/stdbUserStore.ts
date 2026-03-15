@@ -16,6 +16,12 @@ import { escapeSqlLiteral } from './stdbSyncClient.js';
 
 type FeatureState = 'unknown' | 'enabled' | 'disabled';
 
+/** Strip sensitive fields before sending user data to SpaceTimeDB. */
+function sanitizeRowForStdb<T extends Record<string, unknown>>(row: T): Omit<T, 'password_hash'> {
+	const { password_hash: _, ...safe } = row;
+	return safe as Omit<T, 'password_hash'>;
+}
+
 export class StdbPrimaryUserStore extends StdbStoreBase {
 	private readonly stats = makeBaseStats();
 	private readonly shadow = {
@@ -25,6 +31,7 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 		lastError: null as string | null,
 		lastErrorAt: null as number | null
 	};
+	private static readonly FEATURE_RETRY_MS = 60_000; // retry disabled features after 60s
 	private readonly featureState: {
 		userMeta: FeatureState;
 		usernameLookup: FeatureState;
@@ -34,6 +41,7 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 		usernameLookup: 'unknown',
 		handleLookup: 'unknown'
 	};
+	private readonly featureDisabledAt: Record<string, number> = {};
 
 	constructor(options: StdbPrimaryStoreOptions = {}) {
 		super(options);
@@ -54,7 +62,12 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 		query: string
 	): Record<string, unknown>[] | null {
 		if (this.featureState[feature] === 'disabled') {
-			return null;
+			// Retry after cooldown period
+			const disabledAt = this.featureDisabledAt[feature] || 0;
+			if (Date.now() - disabledAt < StdbPrimaryUserStore.FEATURE_RETRY_MS) {
+				return null;
+			}
+			this.featureState[feature] = 'unknown';
 		}
 
 		try {
@@ -66,6 +79,7 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 		} catch (error) {
 			if (this.featureState[feature] !== 'disabled') {
 				this.featureState[feature] = 'disabled';
+				this.featureDisabledAt[feature] = Date.now();
 				const detail = error instanceof Error ? error.message : String(error);
 				console.warn(`[StatePlane] STDB user feature "${feature}" unavailable; falling back (${detail})`);
 			}
@@ -81,6 +95,10 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 	}
 
 	private loadUserById(userId: number, includeDeleted = false): RegisteredUser | null {
+		if (!includeDeleted) {
+			const mirrored = userRepository.findById(userId);
+			if (mirrored) return mirrored;
+		}
 		const deletedClause = includeDeleted ? '' : ' AND deleted = false';
 		const rows = this.client.sqlRows(
 			`SELECT row_json FROM state_user WHERE user_id = ${Math.floor(userId)}${deletedClause} LIMIT 1`
@@ -90,6 +108,13 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 	}
 
 	private nextUserId(): number {
+		const localMax = db.prepare('SELECT COALESCE(MAX(user_id), 0) AS max_user_id FROM users')
+			.get() as { max_user_id?: number } | undefined;
+		const localCandidate = toNumber(localMax?.max_user_id) + 1;
+		if (localCandidate > 0) {
+			return localCandidate;
+		}
+
 		// Preferred path: read the STDB-managed high-water mark.
 		const metaRows = this.tryFeatureSqlRows(
 			'userMeta',
@@ -101,30 +126,25 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 		}
 
 		// Fallback path for older modules without meta table support.
-		const rows = this.client.sqlRows('SELECT user_id FROM state_user LIMIT 1000000');
-		let currentMax = 0;
-		for (const row of rows) {
-			const value = toNumber(row.user_id);
-			if (value > currentMax) currentMax = value;
+		try {
+			const maxRows = this.client.sqlRows('SELECT MAX(user_id) AS max_id FROM state_user LIMIT 1');
+			const maxId = maxRows.length > 0 ? toNumber(maxRows[0].max_id) : 0;
+			if (maxId > 0) return maxId + 1;
+		} catch {
+			// MAX() may not be supported; fall through
 		}
-		return Math.max(1, currentMax + 1);
+		return 1;
 	}
 
-	private findByUsernameScan(normalized: string): RegisteredUser | null {
-		for (const user of this.loadActiveUsers()) {
-			if ((user.username || '').trim().toLowerCase() === normalized) {
-				return user;
-			}
-		}
+	private findByUsernameScan(_normalized: string): RegisteredUser | null {
+		// Full table scan removed for performance — SQLite mirror + STDB lookup tables
+		// should cover all cases. Return null to fall through gracefully.
 		return null;
 	}
 
-	private findByHandleScan(normalized: string): RegisteredUser | null {
-		for (const user of this.loadActiveUsers()) {
-			if ((user.handle || '').replace(/^@/, '').toLowerCase() === normalized) {
-				return user;
-			}
-		}
+	private findByHandleScan(_normalized: string): RegisteredUser | null {
+		// Full table scan removed for performance — SQLite mirror + STDB lookup tables
+		// should cover all cases. Return null to fall through gracefully.
 		return null;
 	}
 
@@ -190,7 +210,7 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 				userId: created.user_id,
 				username: created.username,
 				handle: created.handle || null,
-				row: created
+				row: sanitizeRowForStdb(created)
 			});
 			this.stats.writesSucceeded += 1;
 		} catch (error) {
@@ -202,10 +222,38 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 		return created;
 	}
 
+	async createAsync(user: Omit<RegisteredUser, 'user_id'>): Promise<RegisteredUser> {
+		bumpOperation(this.stats, 'createAsync');
+		this.stats.writesAttempted += 1;
+		const created: RegisteredUser = {
+			...user,
+			user_id: this.nextUserId(),
+			is_active: user.is_active ?? 1
+		};
+		try {
+			await this.ingestAsync('user', 'create', {
+				userId: created.user_id,
+				username: created.username,
+				handle: created.handle || null,
+				row: sanitizeRowForStdb(created)
+			});
+			this.stats.writesSucceeded += 1;
+		} catch (error) {
+			this.recordWriteFailure(this.stats, 'createAsync', error);
+		}
+		this.mirrorWrite(this.stats, this.shadow, 'createAsync', () => {
+			this.mirrorCreateUser(created);
+		});
+		return created;
+	}
+
 	findByUsername(username: string): RegisteredUser | null {
 		bumpOperation(this.stats, 'findByUsername');
 		const normalized = (username || '').trim().toLowerCase();
 		if (!normalized) return null;
+
+		const mirrored = userRepository.findByUsername(normalized);
+		if (mirrored) return mirrored;
 
 		const lookupRows = this.tryFeatureSqlRows(
 			'usernameLookup',
@@ -227,6 +275,9 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 		const normalized = handle.replace(/^@/, '').toLowerCase();
 		if (!normalized) return null;
 
+		const mirrored = userRepository.findByHandle(normalized);
+		if (mirrored) return mirrored;
+
 		const lookupRows = this.tryFeatureSqlRows(
 			'handleLookup',
 			`SELECT user_id FROM state_user_handle WHERE handle_lc = ${escapeSqlLiteral(normalized)} LIMIT 1`
@@ -243,6 +294,8 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 	}
 
 	findByHandleOrUsername(identifier: string): RegisteredUser | null {
+		const mirrored = userRepository.findByHandleOrUsername(identifier);
+		if (mirrored) return mirrored;
 		const byHandle = this.findByHandle(identifier);
 		if (byHandle) return byHandle;
 		return this.findByUsername(identifier);
@@ -266,8 +319,8 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 		try {
 			this.ingest('user', 'update', {
 				userId,
-				updates,
-				row: next
+				updates: sanitizeRowForStdb(updates as Record<string, unknown>),
+				row: sanitizeRowForStdb(next)
 			});
 			this.stats.writesSucceeded += 1;
 		} catch (error) {
@@ -287,7 +340,7 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 		try {
 			this.ingest('user', 'delete', {
 				userId,
-				row: next
+				row: sanitizeRowForStdb(next)
 			});
 			this.stats.writesSucceeded += 1;
 		} catch (error) {
@@ -300,12 +353,45 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 
 	getAll(): RegisteredUser[] {
 		bumpOperation(this.stats, 'getAll');
+		const mirrored = userRepository.getAll();
+		if (mirrored.length > 0) {
+			return mirrored.sort((a, b) => (a.user_id || 0) - (b.user_id || 0));
+		}
 		const rows = this.client.sqlRows('SELECT row_json FROM state_user WHERE deleted = false AND active = true LIMIT 50000');
 		return this.parseUsers(rows).sort((a, b) => (a.user_id || 0) - (b.user_id || 0));
 	}
 
-	warmFromPrimary(_limit: number): number {
-		return 0;
+	warmFromPrimary(limit: number): number {
+		const safeLimit = Math.max(0, Math.floor(limit));
+		if (safeLimit === 0) return 0;
+		// Only load existing IDs up to the warmup limit to avoid massive memory spike
+		const existingUserIds = new Set(
+			this.client.sqlRows(`SELECT user_id FROM state_user LIMIT ${safeLimit}`)
+				.map((row) => toNumber(row.user_id))
+				.filter((userId) => userId > 0)
+		);
+
+		const rows = db.prepare(`
+			SELECT * FROM users
+			ORDER BY user_id ASC
+			LIMIT ?
+		`).all(safeLimit) as RegisteredUser[];
+
+		let seeded = 0;
+		for (const row of rows) {
+			if (existingUserIds.has(row.user_id)) continue;
+			this.ingest('user', 'create', {
+				userId: row.user_id,
+				username: row.username,
+				handle: row.handle || null,
+				row: sanitizeRowForStdb(row)
+			});
+			seeded += 1;
+		}
+
+		this.stats.operations.warmup = (this.stats.operations.warmup || 0) + 1;
+		this.stats.operations.warmup_rows = seeded;
+		return seeded;
 	}
 
 	getRuntimeStats(): UserStoreRuntimeStats {

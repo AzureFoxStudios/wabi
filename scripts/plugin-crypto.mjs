@@ -47,7 +47,7 @@ export function calculatePluginChecksum(pluginDir) {
   const hash = crypto.createHash("sha256");
   const files = collectPluginFiles(pluginDir);
   for (const filePath of files) {
-    hash.update(path.relative(pluginDir, filePath));
+    hash.update(path.relative(pluginDir, filePath).split(path.sep).join("/"));
     hash.update(fs.readFileSync(filePath));
   }
   return hash.digest("hex");

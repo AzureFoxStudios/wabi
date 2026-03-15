@@ -141,6 +141,15 @@ export const COMMANDS: Command[] = [
 		execute: (args, flags) => {
 			// Implementation in Chat component
 		}
+	},
+	{
+		name: 'directions',
+		description: 'Show a local-only directions card for a place or POI',
+		usage: '/directions <@place|place-slug[/poi]>',
+		aliases: ['dir', 'where'],
+		execute: (args, flags) => {
+			// Implementation in Chat component
+		}
 	}
 ];
 

@@ -28,11 +28,11 @@ export class ChannelRepository {
 	create(channel: Omit<DbChannel, 'is_archived'>): DbChannel {
 		const stmt = db.prepare(`
 			INSERT INTO channels (
-				channel_id, channel_type, name, description, min_role, created_at, created_by, persist_messages, watch_queue_enabled,
+				channel_id, channel_type, name, description, min_role, voice_settings_json, created_at, created_by, persist_messages, watch_queue_enabled,
 				is_archived, parent_channel_id, is_breakout, breakout_index, parent_message_id, thread_archived, thread_locked,
 				thread_auto_archive_minutes, thread_last_activity_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
 		`);
 
 		stmt.run(
@@ -41,6 +41,7 @@ export class ChannelRepository {
 			channel.name,
 			channel.description || '',
 			channel.min_role || 'guest',
+			channel.voice_settings_json ?? null,
 			channel.created_at,
 			channel.created_by || null,
 			channel.persist_messages ?? 0,

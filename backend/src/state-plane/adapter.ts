@@ -10,6 +10,7 @@ import type { StatePlaneOutboxStats } from './outbox.js';
 import type { StatePlaneWatchdogStats } from './watchdog.js';
 import type { StatePlaneReducerIngressStats } from './reducerIngress.js';
 import type { StatePlaneSchemaVersionStats } from './schemaVersion.js';
+import type { StateMeshRuntimeStats } from './meshRuntime.js';
 
 export type StatePlaneEventEntity = 'presence' | 'system';
 export type StatePlaneEffectiveMode = 'legacy' | 'dual_write' | 'stdb_primary';
@@ -51,6 +52,7 @@ export interface StatePlaneRuntimeStats {
 	schema: StatePlaneSchemaVersionStats;
 	outbox: StatePlaneOutboxStats | null;
 	warmup: StatePlaneWarmupStats;
+	mesh: StateMeshRuntimeStats;
 }
 
 export interface StatePlaneAdapter {

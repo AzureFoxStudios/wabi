@@ -19,8 +19,10 @@ param(
 	[string]$Token = '',
 	[string]$AdminToken = '',
 	[string]$AdminUsername = '',
+	[string]$StdbAuthToken = '',
 	[string]$Origin = 'http://localhost:8080',
 	[switch]$AutoUser = $true,
+	[switch]$DisableLegacyMirror,
 	[switch]$SkipPublish,
 	[switch]$NoBuild,
 	[switch]$Json,
@@ -456,13 +458,20 @@ try {
 
 if (-not $SkipPublish) {
 	Invoke-Step "Publishing SpacetimeDB module to '$Database'" {
-		& spacetime publish -p spacetimedb/wabi_state_bridge -s $StdbServer --anonymous --yes --no-config $Database
+		$publishArgs = @('publish', '-p', 'spacetimedb/wabi_state_bridge', '-s', $StdbServer, '--yes', '--no-config', $Database)
+		if ($StdbAuthToken) {
+			$publishArgs += @('--token', $StdbAuthToken)
+		} else {
+			$publishArgs += '--anonymous'
+		}
+		& spacetime @publishArgs
 	}
 }
 
 $env:STATE_BACKEND_MODE = $Mode
 $env:STATE_STDB_WRITE_ENABLED = 'true'
 $env:STATE_STDB_READ_ENABLED = if ($Mode -eq 'stdb_primary') { 'true' } else { 'false' }
+$env:STATE_STDB_PRIMARY_MIRROR_LEGACY_WRITES = if ($Mode -eq 'stdb_primary' -and $DisableLegacyMirror) { 'false' } else { 'true' }
 $env:STATE_BACKEND_STRICT = 'false'
 $env:STATE_SHADOW_WRITER_ENABLED = if ($Mode -eq 'dual_write') { 'true' } else { 'false' }
 $env:STATE_SHADOW_SINK = 'stdb'
@@ -470,8 +479,9 @@ $env:STATE_SHADOW_POLL_INTERVAL_MS = [string]$PollIntervalMs
 $env:STATE_SHADOW_BATCH_SIZE = [string]$BatchSize
 $env:WABI_STDB_BRIDGE_SERVER = $BridgeServer
 $env:WABI_STDB_BRIDGE_DATABASE = $Database
-$env:WABI_STDB_ANONYMOUS = 'true'
-$env:WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION = 'true'
+$env:WABI_STDB_AUTH_TOKEN = $StdbAuthToken
+$env:WABI_STDB_ANONYMOUS = if ($StdbAuthToken) { 'false' } else { 'true' }
+$env:WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION = if ($StdbAuthToken) { 'false' } else { 'true' }
 
 Invoke-Step "Ensuring benchmark channel '$Channel' is persistent before boot" {
 	$channelState = Ensure-BenchmarkChannel -RepoRoot $repoRoot -ChannelId $Channel
@@ -497,6 +507,7 @@ Invoke-Step "Waiting for backend health at $effectiveOrigin/health" {
 Write-Host "[stdb-benchmark] Backend ready:"
 Write-Host "  mode=$Mode"
 Write-Host "  shadowSink=stdb"
+Write-Host "  legacyMirror=$(if ($Mode -eq 'stdb_primary' -and $DisableLegacyMirror) { 'off' } else { 'on' })"
 Write-Host "  STDB server=$StdbServer"
 Write-Host "  STDB database=$Database"
 
@@ -560,6 +571,9 @@ if ($AdminToken) {
 }
 if ($AdminUsername) {
 	$benchmarkArgs += @('--admin-username', $AdminUsername)
+}
+if ($Mode -eq 'stdb_primary' -and $DisableLegacyMirror) {
+	$benchmarkArgs += '--no-sqlite-probe'
 }
 
 if ($NoBenchmark) {

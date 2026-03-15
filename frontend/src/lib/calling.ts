@@ -6,6 +6,7 @@ import { playCallActionSound } from './callSounds';
 import { closeMediaGatewaySession, renewMediaGatewaySession, getMediaGatewaySession, createLivekitAccessToken } from './mediaGateway';
 import {
 	getAudioCaptureConstraints,
+	getStoredCallMuteBehavior,
 	getStoredAudioProcessingMode,
 	getMediaRuntimeConfig,
 	getScreenShareQualityProfile,
@@ -27,6 +28,7 @@ import {
 	shouldUseExperimentalStdbCall,
 	type ExperimentalStdbCallScope
 } from './experimentalStdbCalls';
+import { clearAllRecordingPresence } from './callRecordingPresence';
 
 const CAMERA_CONSTRAINTS: MediaTrackConstraints = {
 	width: { ideal: 1280, max: 1920 },
@@ -1459,6 +1461,13 @@ function shouldTransmitToChannel(channelId?: string): boolean {
 	return get(activeGroupCall)?.id === channelId;
 }
 
+function shouldSendAudioToChannel(channelId?: string): boolean {
+	if (get(isMuted) || get(isDeafened)) {
+		return false;
+	}
+	return shouldTransmitToChannel(channelId);
+}
+
 async function setPeerAudioSendEnabled(pc: RTCPeerConnection, enabled: boolean): Promise<void> {
 	const audioSenders = pc.getSenders().filter((sender) => sender.track?.kind === 'audio');
 	await Promise.all(audioSenders.map(async (sender) => {
@@ -1474,6 +1483,32 @@ async function setPeerAudioSendEnabled(pc: RTCPeerConnection, enabled: boolean):
 			console.warn('[WebRTC] Could not adjust peer audio sender parameters:', error);
 		}
 	}));
+}
+
+async function syncLocalAudioState(): Promise<void> {
+	const stream = get(localStream);
+	if (stream) {
+		applyLocalTrackPreferences(stream);
+	}
+
+	const tasks: Promise<unknown>[] = [];
+
+	if (livekitRoom && get(sfuMediaActive)) {
+		tasks.push(
+			livekitRoom.localParticipant
+				.setMicrophoneEnabled(shouldSendAudioToChannel(livekitChannelId || undefined))
+				.catch(() => undefined)
+		);
+	}
+
+	peerConnections.forEach((state) => {
+		if (state.type !== 'call') return;
+		tasks.push(setPeerAudioSendEnabled(state.pc, shouldSendAudioToChannel(state.channelId)));
+	});
+
+	if (tasks.length > 0) {
+		await Promise.allSettled(tasks);
+	}
 }
 
 async function renegotiateCallConnection(state: PeerConnectionState, socket: Socket): Promise<void> {
@@ -1583,6 +1618,7 @@ function finalizeLocalCallEndState(): void {
 	callMode.set(null);
 	outgoingCall.set(null);
 	incomingCall.set(null);
+	clearAllRecordingPresence();
 
 	const callKeys: string[] = [];
 	peerConnections.forEach((state, key) => {
@@ -1761,10 +1797,11 @@ function applyLocalTrackPreferences(stream: MediaStream): void {
 	const muted = get(isMuted);
 	const deafened = get(isDeafened);
 	const videoOff = get(isVideoOff);
+	const callMuteBehavior = getStoredCallMuteBehavior();
 
 	const audioTrack = stream.getAudioTracks()[0];
 	if (audioTrack) {
-		audioTrack.enabled = !(muted || deafened);
+		audioTrack.enabled = callMuteBehavior === 'outbound-only' ? true : !(muted || deafened);
 	}
 
 	const videoTrack = stream.getVideoTracks()[0];
@@ -2292,6 +2329,9 @@ async function connectLivekitSfu(channelId: string, localDisplayName: string): P
 	}
 	await disconnectLivekitSfu();
 	const tokenResponse = await createLivekitAccessToken(channelId, localDisplayName);
+	console.log(
+		`[Calling] LiveKit target: ${tokenResponse.source === 'relay' ? tokenResponse.relayName || `relay ${tokenResponse.relayId}` : 'origin'} (${tokenResponse.url})`
+	);
 	const room = new Room({
 		dynacast: true,
 		stopLocalTrackOnUnpublish: false
@@ -2324,7 +2364,7 @@ async function connectLivekitSfu(channelId: string, localDisplayName: string): P
 	await room.connect(tokenResponse.url, tokenResponse.token, {
 		autoSubscribe: true
 	});
-	await room.localParticipant.setMicrophoneEnabled(!get(isMuted));
+	await room.localParticipant.setMicrophoneEnabled(shouldSendAudioToChannel(channelId));
 	if (!get(isVideoOff)) {
 		await room.localParticipant.setCameraEnabled(true);
 	}
@@ -2358,6 +2398,7 @@ async function ensureLocalAudioStream(): Promise<MediaStream> {
 		localStream.set(stream);
 		applyLocalTrackPreferences(stream);
 		startLocalSpeakingMonitor(stream);
+		void syncLocalAudioState();
 		return stream;
 	}
 
@@ -2383,6 +2424,7 @@ async function ensureLocalAudioStream(): Promise<MediaStream> {
 	}
 	applyLocalTrackPreferences(stream);
 	startLocalSpeakingMonitor(stream);
+	void syncLocalAudioState();
 	return stream;
 }
 
@@ -2972,29 +3014,13 @@ export function endCall(socket: Socket) {
 // ============================================================================
 
 export function toggleMute() {
-	if (livekitRoom && get(sfuMediaActive)) {
-		const nextMuted = !get(isMuted);
-		void livekitRoom.localParticipant.setMicrophoneEnabled(!nextMuted).catch(() => undefined);
-		isMuted.set(nextMuted);
-		if (nextMuted) {
-			isLocalSpeaking.set(false);
-		}
-		playCallActionSound(nextMuted ? 'mute' : 'unmute');
-		return;
+	const nextMuted = !get(isMuted);
+	isMuted.set(nextMuted);
+	if (nextMuted) {
+		isLocalSpeaking.set(false);
 	}
-	const stream = get(localStream);
-	if (stream) {
-		const audioTrack = stream.getAudioTracks()[0];
-		if (audioTrack) {
-			audioTrack.enabled = !audioTrack.enabled;
-			const nextMuted = !audioTrack.enabled;
-			isMuted.set(nextMuted);
-			if (nextMuted) {
-				isLocalSpeaking.set(false);
-			}
-			playCallActionSound(nextMuted ? 'mute' : 'unmute');
-		}
-	}
+	void syncLocalAudioState();
+	playCallActionSound(nextMuted ? 'mute' : 'unmute');
 }
 
 export async function applyCurrentAudioProcessingToLocalTrack(): Promise<void> {
@@ -3032,6 +3058,7 @@ export async function applyCurrentAudioProcessingToLocalTrack(): Promise<void> {
 	if (results.some(result => result.status === 'rejected')) {
 		console.warn('[WebRTC] Audio mode switched locally, but one or more peer senders failed to update.');
 	}
+	void syncLocalAudioState();
 }
 
 export function toggleDeafen() {
@@ -3041,18 +3068,12 @@ export function toggleDeafen() {
 
 	if (!currentlyDeafened) {
 		// Becoming deafened - also mute self
-		const stream = get(localStream);
-		if (stream) {
-			const audioTrack = stream.getAudioTracks()[0];
-			if (audioTrack) {
-				audioTrack.enabled = false;
-				isMuted.set(true);
-				isLocalSpeaking.set(false);
-			}
-		}
+		isMuted.set(true);
+		isLocalSpeaking.set(false);
 	}
 	// Note: Actual deafen (muting remote audio) is handled in the UI component
 	// by setting audio elements to muted based on isDeafened store
+	void syncLocalAudioState();
 	syncSpatialAudioGraph();
 }
 
@@ -3136,7 +3157,7 @@ export async function createCallOffer(
 			await addTrackWithOptimizations(pc, track, stream);
 		}
 	}
-	await setPeerAudioSendEnabled(pc, shouldTransmitToChannel(options?.channelId));
+	await setPeerAudioSendEnabled(pc, shouldSendAudioToChannel(options?.channelId));
 
 	try {
 		const offer = await pc.createOffer();
@@ -3174,7 +3195,7 @@ export async function handleCallOffer(
 			await addTrackWithOptimizations(pc, track, stream);
 		}
 	}
-	await setPeerAudioSendEnabled(pc, shouldTransmitToChannel(channelId));
+	await setPeerAudioSendEnabled(pc, shouldSendAudioToChannel(channelId));
 
 	try {
 		await pc.setRemoteDescription(offer);
@@ -3466,10 +3487,11 @@ export function toggleChannelCallPanel(): void {
 
 export function setVoiceTransmitRoutingMode(mode: 'primary' | 'all-listening'): void {
 	voiceTransmitMode.set(mode);
-	peerConnections.forEach((state) => {
-		if (state.type !== 'call') return;
-		void setPeerAudioSendEnabled(state.pc, shouldTransmitToChannel(state.channelId));
-	});
+	void syncLocalAudioState();
+}
+
+export function refreshLocalAudioMuteState(): void {
+	void syncLocalAudioState();
 }
 
 export function addVoiceChannelListen(socket: Socket, channelId: string): void {

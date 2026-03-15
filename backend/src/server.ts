@@ -11,8 +11,9 @@ import { getAllEmojis, getEmojiByName, addCustomEmoji, deleteCustomEmoji, type E
 
 import { __dirname } from "./_dirname.js";
 import db, { initializeDatabase, closeDatabase } from "./db/database.js";
+import { type DbChannel } from "./db/repositories/channelRepository.js";
 import { offlineMessageRepository } from "./db/repositories/offlineMessageRepository.js";
-import { messageRepository } from "./db/repositories/messageRepository.js";
+import { messageRepository, type ClientMessage, type DbMessage, type MessageEntity } from "./db/repositories/messageRepository.js";
 import { settingsRepository } from "./db/repositories/settingsRepository.js";
 import { themeRepository } from "./db/repositories/themeRepository.js";
 import { guestCodeRepository } from "./db/repositories/guestCodeRepository.js";
@@ -32,7 +33,17 @@ import {
 } from "./api/authRoutes.js";
 import { handleGetThemePreferences, handleSaveThemePreferences, handleResetThemePreferences } from "./api/themeRoutes.js";
 import { handleGetLaunchPageConfig } from "./api/launchPageRoutes.js";
-import { handleGetRelays, handleRelayRegister, handleRelayHealth, handleRelayApprove, handleGetAllRelays, handleRelayDelete } from "./api/relayRoutes.js";
+import {
+  handleGetRelays,
+  handleRelayRegister,
+  handleRelayHealth,
+  handleRelayApprove,
+  handleGetAllRelays,
+  handleRelayDelete,
+  handleDesktopHelperRegister,
+  handleDesktopHelperHeartbeat,
+  handleDesktopHelperOffline
+} from "./api/relayRoutes.js";
 import {
   handleGetMediaRuntime,
   handleGetTurnCredentials,
@@ -88,7 +99,9 @@ import {
   handleDisputeManualCashSettlement,
   handleListManualCashSettlements
 } from "./api/manualSettlementRoutes.js";
+import { handlePollFollowedChannelActivity } from "./api/followRoutes.js";
 import { handleDictionaryLookup, handleDictionaryUpsert, handleDictionaryDelete } from "./api/dictionaryRoutes.js";
+import { getPlaceRecordById, handleDeletePlace, handleGetPlaces, handleUpsertPlace, isKnownPlaceId } from "./api/placeRoutes.js";
 import {
   handleListAlbums,
   handleCreateAlbum,
@@ -103,6 +116,21 @@ import {
 import { relayRepository } from "./db/repositories/relayRepository.js";
 import { corsCallback, getCORSHeaders, getAllowedOrigins, isOriginAllowed } from "./config/cors.js";
 import { appPolicyRepository } from "./db/repositories/appPolicyRepository.js";
+import {
+  cloneDefaultCommunityNodeAnnouncementsPolicy,
+  registerCommunityNodeAnnouncementDispatcher,
+  sanitizeCommunityNodeAnnouncementsPolicy,
+  type CommunityNodeAnnouncementsPolicy
+} from "./communityNodeAnnouncements.js";
+import {
+  cloneDefaultCommunityNodeAccessPolicy,
+  sanitizeCommunityNodeAccessPolicy
+} from "./communityNodeAccess.js";
+import {
+  cloneDefaultFrontendAppMetadataPolicy,
+  sanitizeFrontendAppMetadataPolicy,
+  type FrontendAppMetadataPolicy
+} from "./frontendAppMetadata.js";
 import { getUserRoles, assignRole, removeRole } from "./auth/roleMiddleware.js";
 import {
   DEFAULT_PAYMENT_ACCESS_POLICY,
@@ -110,6 +138,7 @@ import {
   sanitizePaymentAccessPolicy,
   type PaymentAccessPolicy
 } from "./payments/accessPolicy.js";
+import { setPaymentRealtimeNotifier } from "./payments/realtime.js";
 import {
   stateUserStore as userRepository,
   stateSessionStore as sessionRepository,
@@ -119,6 +148,18 @@ import {
   stateMessageStore,
   getStatePlaneConfigFromEnv,
   getStatePlaneRuntimeStats,
+  configureStateMeshRuntime,
+  startStateMeshRuntime,
+  stopStateMeshRuntime,
+  registerStateMeshSocketLease,
+  releaseStateMeshSocketLease,
+  findStateMeshSocketLeaseByStableUserId,
+  getCurrentStateMeshInstanceId,
+  listActiveStateMeshInstanceLeases,
+  sendStateMeshRemoteDelivery,
+  upsertStateMeshPresenceLease,
+  deleteStateMeshPresenceLease,
+  listStateMeshPresenceLeases,
   startStatePlaneRuntime,
   stopStatePlaneRuntime,
   recordStatePlaneEvent,
@@ -132,6 +173,7 @@ import {
   recordCompressionUploadSample,
   resetCompressionMetrics
 } from "./observability/compressionMetrics.js";
+import { startSelfHostedBoosterRelayAdvertiser } from "./relay/selfHostedBoosterRelay.js";
 import {
   getRuntimeGuardrailsSnapshot,
   initRuntimeGuardrails
@@ -168,19 +210,9 @@ interface WorkspaceRoleLookup {
 }
 
 function loadRoleStyleMeta(workspaceId: string = 'default-workspace'): Map<string, RoleStyleMeta> {
-  const rows = db.prepare(`
-    SELECT role_name, priority, color
-    FROM roles
-    WHERE workspace_id = ?
-  `).all(workspaceId) as Array<{
-    role_name: string;
-    priority: number;
-    color: string | null;
-  }>;
-
   const byName = new Map<string, RoleStyleMeta>();
-  for (const row of rows) {
-    byName.set(row.role_name, {
+  for (const row of stateRbacStore.getRoleDefinitions(workspaceId)) {
+    byName.set(row.roleName, {
       priority: row.priority,
       color: row.color || null
     });
@@ -249,14 +281,20 @@ function getUserRoleInfo(
 ): ComputedRoleInfo {
   if (!dbUserId) return { roles: ['guest'], highestRole: 'guest', roleColor: '#888888' };
 
-  const cached = roleLookup?.roleInfoByUserId.get(dbUserId);
-  if (cached) {
-    return cached;
+  if (roleLookup) {
+    const cached = roleLookup.roleInfoByUserId.get(dbUserId);
+    if (cached) {
+      return cached;
+    }
+
+    // Users without an explicit assignment still resolve to the default member role.
+    // Avoid per-user fallback reads in stdb_primary when building large join snapshots.
+    return computeRoleInfoFromRoles(['member'], roleLookup.roleStylesByName);
   }
 
-  const workspaceId = roleLookup?.workspaceId || 'default-workspace';
+  const workspaceId = 'default-workspace';
   const roles = getUserRoles(dbUserId, workspaceId);
-  const roleStylesByName = roleLookup?.roleStylesByName || loadRoleStyleMeta(workspaceId);
+  const roleStylesByName = loadRoleStyleMeta(workspaceId);
   return computeRoleInfoFromRoles(roles, roleStylesByName);
 }
 
@@ -267,35 +305,17 @@ function getRoleDefinitions(workspaceId: string = 'default-workspace'): Array<{
   color: string | null;
   isHoisted: boolean;
 }> {
-  const rows = db.prepare(`
-    SELECT role_name, COALESCE(display_name, role_name) as display_name, priority, color, is_hoisted
-    FROM roles
-    WHERE workspace_id = ?
-    ORDER BY priority DESC
-  `).all(workspaceId) as Array<{
-    role_name: string;
-    display_name: string;
-    priority: number;
-    color: string | null;
-    is_hoisted: number;
-  }>;
-
-  return rows.map(row => ({
-    roleName: row.role_name,
-    displayName: row.display_name,
+  return stateRbacStore.getRoleDefinitions(workspaceId).map((row) => ({
+    roleName: row.roleName,
+    displayName: row.displayName,
     priority: row.priority,
     color: row.color,
-    isHoisted: row.is_hoisted === 1
+    isHoisted: row.isHoisted
   }));
 }
 
 function getRolePriority(roleName: string, workspaceId: string = 'default-workspace'): number {
-  const row = db.prepare(`
-    SELECT priority FROM roles
-    WHERE role_name = ? AND workspace_id = ?
-    LIMIT 1
-  `).get(roleName, workspaceId) as { priority?: number } | undefined;
-  return row?.priority ?? 0;
+  return stateRbacStore.getRolePriority(roleName, workspaceId);
 }
 
 type RolePolicyTier = 'new' | 'trusted' | 'moderator' | 'admin' | 'owner';
@@ -318,11 +338,21 @@ interface RuntimeTuningConfig {
   heavyProfilingSampleRate: number;
 }
 
-type PolicyKey = 'upload_limits' | 'download_limits' | 'runtime_tuning' | 'album_upload_limits' | 'payments_access';
+type PolicyKey =
+  | 'upload_limits'
+  | 'download_limits'
+  | 'runtime_tuning'
+  | 'album_upload_limits'
+  | 'payments_access'
+  | 'community_node_announcements'
+  | 'community_node_access'
+  | 'frontend_app_metadata';
 const UPLOAD_LIMITS_POLICY_KEY: PolicyKey = 'upload_limits';
 const RUNTIME_TUNING_POLICY_KEY: PolicyKey = 'runtime_tuning';
 const ALBUM_UPLOAD_LIMITS_POLICY_KEY: PolicyKey = 'album_upload_limits';
 const PAYMENTS_ACCESS_POLICY_KEY: PolicyKey = 'payments_access';
+const COMMUNITY_NODE_ANNOUNCEMENTS_POLICY_KEY: PolicyKey = 'community_node_announcements';
+const FRONTEND_APP_METADATA_POLICY_KEY: PolicyKey = 'frontend_app_metadata';
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
 type VideoCompressionTelemetryOutcome = 'success' | 'failure' | 'cancelled' | 'skipped';
@@ -757,6 +787,18 @@ const POLICY_DEFINITIONS: Record<PolicyKey, PolicyDefinition<unknown>> = {
   payments_access: {
     defaultValue: cloneDefaultPaymentAccessPolicy(),
     sanitize: sanitizePaymentAccessPolicy
+  },
+  community_node_announcements: {
+    defaultValue: cloneDefaultCommunityNodeAnnouncementsPolicy(),
+    sanitize: sanitizeCommunityNodeAnnouncementsPolicy
+  },
+  community_node_access: {
+    defaultValue: cloneDefaultCommunityNodeAccessPolicy(),
+    sanitize: sanitizeCommunityNodeAccessPolicy
+  },
+  [FRONTEND_APP_METADATA_POLICY_KEY]: {
+    defaultValue: cloneDefaultFrontendAppMetadataPolicy(),
+    sanitize: sanitizeFrontendAppMetadataPolicy
   }
 };
 
@@ -764,22 +806,74 @@ function isKnownPolicyKey(value: string): value is PolicyKey {
   return Object.prototype.hasOwnProperty.call(POLICY_DEFINITIONS, value);
 }
 
+const policyCache = new Map<string, { value: unknown; cachedAt: number }>();
+const POLICY_CACHE_TTL_MS = 60_000;
+
 function getPolicyValue<TValue>(key: PolicyKey): TValue {
+  const now = Date.now();
+  const cached = policyCache.get(key);
+  if (cached && (now - cached.cachedAt) < POLICY_CACHE_TTL_MS) {
+    return cached.value as TValue;
+  }
   const definition = POLICY_DEFINITIONS[key] as PolicyDefinition<TValue>;
   const raw = appPolicyRepository.getRaw(`policy:${key}`);
-  if (!raw) return definition.defaultValue;
-  try {
-    return definition.sanitize(JSON.parse(raw));
-  } catch (error) {
-    console.warn(`[Policies] Failed to parse policy '${key}'; falling back to defaults`);
-    return definition.defaultValue;
+  let value: TValue;
+  if (!raw) {
+    value = definition.defaultValue;
+  } else {
+    try {
+      value = definition.sanitize(JSON.parse(raw));
+    } catch (error) {
+      console.warn(`[Policies] Failed to parse policy '${key}'; falling back to defaults`);
+      value = definition.defaultValue;
+    }
+  }
+  policyCache.set(key, { value, cachedAt: now });
+  return value;
+}
+
+function collectFrontendMetadataUploadUrls(policy: FrontendAppMetadataPolicy | null | undefined): Set<string> {
+  const urls = new Set<string>();
+  const normalizedIconUrl = normalizeClientUploadUrl(policy?.iconUrl);
+  if (normalizedIconUrl) {
+    urls.add(normalizedIconUrl);
+  }
+  const normalizedBannerUrl = normalizeClientUploadUrl(policy?.bannerUrl);
+  if (normalizedBannerUrl) {
+    urls.add(normalizedBannerUrl);
+  }
+  return urls;
+}
+
+function cleanupReplacedFrontendMetadataUploads(
+  previousPolicy: FrontendAppMetadataPolicy | null | undefined,
+  nextPolicy: FrontendAppMetadataPolicy
+): void {
+  const previousUrls = collectFrontendMetadataUploadUrls(previousPolicy);
+  if (previousUrls.size === 0) return;
+  const nextUrls = collectFrontendMetadataUploadUrls(nextPolicy);
+  for (const previousUrl of previousUrls) {
+    if (!nextUrls.has(previousUrl)) {
+      deleteUploadFileByUrl(previousUrl, FRONTEND_APP_METADATA_POLICY_KEY);
+    }
   }
 }
 
 function savePolicyValue<TValue>(key: PolicyKey, rawInput: unknown): TValue {
   const definition = POLICY_DEFINITIONS[key] as PolicyDefinition<TValue>;
+  const previousFrontendMetadata =
+    key === FRONTEND_APP_METADATA_POLICY_KEY
+      ? getPolicyValue<FrontendAppMetadataPolicy>(FRONTEND_APP_METADATA_POLICY_KEY)
+      : null;
   const sanitized = definition.sanitize(rawInput);
   appPolicyRepository.setRaw(`policy:${key}`, JSON.stringify(sanitized));
+  policyCache.delete(key);
+  if (key === FRONTEND_APP_METADATA_POLICY_KEY) {
+    cleanupReplacedFrontendMetadataUploads(
+      previousFrontendMetadata,
+      sanitized as FrontendAppMetadataPolicy
+    );
+  }
   return sanitized;
 }
 
@@ -882,6 +976,8 @@ interface Channel {
   recipientNotified?: boolean;
   voiceSettings?: {
     bitrateMode?: 'auto' | 'low' | 'standard' | 'high';
+    userLimit?: number | null;
+    forceSolo?: boolean;
   };
 }
 
@@ -894,24 +990,12 @@ const channels = new Map<string, Channel>();
 channels.set('general', { id: 'general', name: 'general', createdAt: Date.now(), type: 'text' });
 channels.set('voice', { id: 'voice', name: 'voice', createdAt: Date.now(), type: 'voice' });
 
-const channelMessages = new Map<string, Array<{
-  id: string;
-  user: string;
-  userId: string;
-  text: string;
-  timestamp: number;
-  type: 'text' | 'gif' | 'file' | 'emoji' | 'role_gate';
-  gifUrl?: string;
-  fileUrl?: string;
-  fileName?: string;
-  fileSize?: number;
-  isPinned?: boolean;
-  isEdited?: boolean;
-  replyTo?: string;
-  isSpoiler?: boolean;
-  scheduledDeletionTime?: number; // Unix timestamp when message should be deleted
-  reactions?: Record<string, string[]>; // emojiId -> array of userIds who reacted
-}>>();
+type RealtimeChannelMessage = ClientMessage & {
+  senderStableId?: string;
+  scheduledDeletionTime?: number;
+};
+
+const channelMessages = new Map<string, RealtimeChannelMessage[]>();
 
 // Initialize general channel with empty messages
 channelMessages.set('general', []);
@@ -921,13 +1005,110 @@ const pinnedMessages = new Map<string, Set<string>>(); // channelId -> Set of me
 pinnedMessages.set('general', new Set());
 pinnedMessages.set('voice', new Set());
 
-const users = new Map<string, {
+const messagePersistenceRetryAttempts = new Map<string, number>();
+let realtimeMessageSequence = 0;
+
+function createRealtimeMessageId(senderStableId: string): string {
+  realtimeMessageSequence = (realtimeMessageSequence + 1) % Number.MAX_SAFE_INTEGER;
+  return `${Date.now().toString(36)}-${realtimeMessageSequence.toString(36)}-${senderStableId}`;
+}
+
+function formatMessagePersistenceError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  const detail = String(error || '').trim();
+  return detail || 'Unknown persistence error';
+}
+
+function buildPersistedMessageFromRealtime(
+  channelId: string,
+  message: RealtimeChannelMessage
+): Omit<DbMessage, 'id' | 'deleted_at'> {
+  return {
+    message_id: message.id,
+    channel_id: channelId,
+    sender_id: message.senderStableId || message.userId,
+    sender_username: message.user,
+    sender_color: message.color,
+    message_type: message.type,
+    content: message.text,
+    gif_url: message.gifUrl,
+    file_url: message.fileUrl,
+    file_name: message.fileName,
+    file_size: message.fileSize,
+    files_json: message.files ? JSON.stringify(message.files) : undefined,
+    entities_json: message.entities ? JSON.stringify(message.entities) : undefined,
+    attachment_encryption_json: message.attachmentEncryption ? JSON.stringify(message.attachmentEncryption) : undefined,
+    attachment_storage_json: message.attachmentStorage ? JSON.stringify(message.attachmentStorage) : undefined,
+    reply_to_id: message.replyTo,
+    is_spoiler: message.isSpoiler ? 1 : 0,
+    is_pinned: message.isPinned ? 1 : 0,
+    is_edited: message.isEdited ? 1 : 0,
+    is_encrypted: message.encrypted ? 1 : 0,
+    encryption_iv: message.iv || undefined,
+    created_at: message.timestamp
+  };
+}
+
+async function persistRealtimeMessageForSocket(
+  socket: any,
+  channelId: string,
+  message: RealtimeChannelMessage,
+  options: { notifyOnSuccess?: boolean; skipExistingCheck?: boolean } = {}
+): Promise<boolean> {
+  if (!options.skipExistingCheck) {
+    try {
+      const existing = stateMessageStore.findByMessageId(message.id);
+      if (existing) {
+        const attempts = messagePersistenceRetryAttempts.get(message.id) ?? 0;
+        messagePersistenceRetryAttempts.delete(message.id);
+        if (options.notifyOnSuccess) {
+          socket.emit("message-persisted", { channelId, messageId: message.id, attempts });
+        }
+        return true;
+      }
+    } catch (lookupError) {
+      console.warn('[MessageRepository] Failed persistence preflight lookup:', lookupError);
+    }
+  }
+
+  try {
+    const asyncCreate = (stateMessageStore as any).createAsync;
+    const payload = buildPersistedMessageFromRealtime(channelId, message);
+    if (typeof asyncCreate === 'function') {
+      await asyncCreate.call(stateMessageStore, payload);
+    } else {
+      stateMessageStore.create(payload);
+    }
+    const attempts = messagePersistenceRetryAttempts.get(message.id) ?? 0;
+    messagePersistenceRetryAttempts.delete(message.id);
+    if (options.notifyOnSuccess) {
+      socket.emit("message-persisted", { channelId, messageId: message.id, attempts });
+    }
+    return true;
+  } catch (dbError) {
+    const attempts = (messagePersistenceRetryAttempts.get(message.id) ?? 0) + 1;
+    messagePersistenceRetryAttempts.set(message.id, attempts);
+    const detail = formatMessagePersistenceError(dbError);
+    console.error('[MessageRepository] Failed to persist message:', dbError);
+    socket.emit("message-persist-failed", {
+      channelId,
+      messageId: message.id,
+      attempts,
+      error: 'Message was shown, but it was not saved. Retry to store it again.',
+      detail
+    });
+    return false;
+  }
+}
+
+type ActiveUserRecord = {
   id: string;
   username: string;
   handle?: string;
   color: string;
   status: 'active' | 'away' | 'busy';
   profilePicture?: string;
+  joinedAt?: number;
   workspaceId?: string; // Business workspace the user belongs to
   dbUserId?: number; // Stable registered user ID from DB (null for guests)
   roles?: string[];
@@ -939,10 +1120,25 @@ const users = new Map<string, {
     weight?: string;
     style?: string;
   };
-}>();
+};
+
+const users = new Map<string, ActiveUserRecord>();
 
 // Reverse mapping: stable dbUserId -> current socket.id (for registered users only)
 const dbUserIdToSocketId = new Map<number, string>();
+const MAX_SEEN_MESH_DELIVERIES = 50_000;
+const seenMeshDeliveryIds = new Set<string>();
+const seenMeshDeliveryQueue: string[] = [];
+
+type MeshInboundDelivery = {
+  deliveryId: string;
+  scope: 'user' | 'broadcast';
+  event: string;
+  payload: unknown;
+  targetStableUserId?: string | null;
+  fromInstanceId?: string | null;
+  createdAt?: number;
+};
 
 // Helper: get the stable identity key for a user (dbUserId string for registered, socket.id for guests)
 function getStableUserId(socket: any): string {
@@ -950,6 +1146,57 @@ function getStableUserId(socket: any): string {
     return `user-${(socket as any).dbUserId}`;
   }
   return socket.id;
+}
+
+function getPublicUserId(user: Pick<ActiveUserRecord, 'id' | 'dbUserId'>): string {
+  if (typeof user.dbUserId === 'number' && Number.isFinite(user.dbUserId)) {
+    return `user-${user.dbUserId}`;
+  }
+  return user.id;
+}
+
+function normalizePresenceStatus(status: string | null | undefined): 'active' | 'away' | 'busy' {
+  if (status === 'away' || status === 'busy') return status;
+  return 'active';
+}
+
+function toPublicUser(user: ActiveUserRecord): ActiveUserRecord {
+  return {
+    ...user,
+    id: getPublicUserId(user),
+    status: normalizePresenceStatus(user.status),
+    joinedAt: user.joinedAt
+  };
+}
+
+function upsertPresenceLeaseForUser(user: ActiveUserRecord | undefined, connectedAt?: number | null): number | null {
+  if (!user) return null;
+  return upsertStateMeshPresenceLease({
+    stableUserId: getPublicUserId(user),
+    dbUserId: user.dbUserId,
+    username: user.username,
+    color: user.color,
+    profilePicture: user.profilePicture,
+    status: user.status
+  }, connectedAt ?? user.joinedAt ?? null);
+}
+
+function deletePresenceLeaseForUser(user: Pick<ActiveUserRecord, 'id' | 'dbUserId'> | undefined, connectedAt?: number | null): void {
+  if (!user) return;
+  deleteStateMeshPresenceLease(getPublicUserId(user), connectedAt);
+}
+
+function getMeshConnectionCounts() {
+  let currentRegisteredUsers = 0;
+  for (const user of users.values()) {
+    if (user.dbUserId) currentRegisteredUsers += 1;
+  }
+  const currentConnections = users.size;
+  return {
+    currentConnections,
+    currentRegisteredUsers,
+    currentGuestUsers: Math.max(0, currentConnections - currentRegisteredUsers)
+  };
 }
 
 function recordPresenceStateEvent(
@@ -977,15 +1224,273 @@ function resolveSocketId(stableId: string): string | null {
   return stableId; // Already a socket.id (guest user)
 }
 
+function getMeshSharedToken(): string | null {
+  const candidates = [
+    process.env.WABI_MESH_SHARED_TOKEN,
+    process.env.STATE_SHADOW_TOKEN,
+    process.env.WABI_STDB_AUTH_TOKEN
+  ];
+  for (const raw of candidates) {
+    const value = raw?.trim();
+    if (value) return value;
+  }
+  return null;
+}
+
+function constantTimeEqualString(left: string, right: string): boolean {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function buildMeshDeliveryId(): string {
+  return `mesh_${Date.now().toString(36)}_${randomBytes(8).toString('hex')}`;
+}
+
+function hasSeenMeshDelivery(deliveryId: string): boolean {
+  return seenMeshDeliveryIds.has(deliveryId);
+}
+
+function markSeenMeshDelivery(deliveryId: string): void {
+  seenMeshDeliveryIds.add(deliveryId);
+  seenMeshDeliveryQueue.push(deliveryId);
+  if (seenMeshDeliveryQueue.length <= MAX_SEEN_MESH_DELIVERIES) return;
+  const removed = seenMeshDeliveryQueue.shift();
+  if (removed) {
+    seenMeshDeliveryIds.delete(removed);
+  }
+}
+
+function emitToStableUserLocal(stableUserId: string, event: string, data: unknown): boolean {
+  const socketId = resolveSocketId(stableUserId);
+  if (!socketId || !users.has(socketId)) return false;
+  io.to(socketId).emit(event, data);
+  return true;
+}
+
+function emitMeshBroadcast(event: string, data: unknown): void {
+  const currentInstanceId = getCurrentStateMeshInstanceId();
+  if (!currentInstanceId) return;
+
+  for (const lease of listActiveStateMeshInstanceLeases()) {
+    if (lease.instanceId === currentInstanceId) continue;
+    void sendStateMeshRemoteDelivery({
+      deliveryId: buildMeshDeliveryId(),
+      targetInstanceId: lease.instanceId,
+      scope: 'broadcast',
+      event,
+      payload: data,
+      createdAt: Date.now()
+    });
+  }
+}
+
+function emitToStableUser(stableUserId: string, event: string, data: unknown): boolean {
+  if (emitToStableUserLocal(stableUserId, event, data)) {
+    return true;
+  }
+
+  if (!stableUserId.startsWith('user-')) {
+    return false;
+  }
+
+  const lease = findStateMeshSocketLeaseByStableUserId(stableUserId);
+  const currentInstanceId = getCurrentStateMeshInstanceId();
+  if (!lease || !currentInstanceId || lease.instanceId === currentInstanceId) {
+    return false;
+  }
+
+  void sendStateMeshRemoteDelivery({
+    deliveryId: buildMeshDeliveryId(),
+    targetInstanceId: lease.instanceId,
+    scope: 'user',
+    event,
+    payload: data,
+    targetStableUserId: stableUserId,
+    createdAt: Date.now()
+  });
+  return true;
+}
+
+function emitToChannelLocal(channelId: string, event: string, data: any): void {
+  const channel = channels.get(channelId);
+  if (!channel) return;
+
+  if (channel.members && channel.members.length > 0) {
+    channel.members.forEach((stableId) => {
+      emitToStableUserLocal(stableId, event, data);
+    });
+  } else {
+    io.emit(event, data);
+  }
+}
+
+function normalizeMeshInboundDelivery(raw: unknown): MeshInboundDelivery {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('Mesh delivery payload must be an object');
+  }
+
+  const input = raw as Record<string, unknown>;
+  const deliveryId = typeof input.deliveryId === 'string' ? input.deliveryId.trim() : '';
+  const scope = input.scope === 'broadcast' ? 'broadcast' : (input.scope === 'user' ? 'user' : '');
+  const event = typeof input.event === 'string' ? input.event.trim() : '';
+  if (!deliveryId) throw new Error('Mesh delivery requires deliveryId');
+  if (!scope) throw new Error('Mesh delivery requires scope');
+  if (!event) throw new Error('Mesh delivery requires event');
+
+  const targetStableUserId =
+    typeof input.targetStableUserId === 'string' && input.targetStableUserId.trim().length > 0
+      ? input.targetStableUserId.trim()
+      : null;
+
+  if (scope === 'user' && !targetStableUserId) {
+    throw new Error('User-scoped mesh delivery requires targetStableUserId');
+  }
+
+  return {
+    deliveryId,
+    scope,
+    event,
+    payload: input.payload,
+    targetStableUserId,
+    fromInstanceId: typeof input.fromInstanceId === 'string' ? input.fromInstanceId.trim() : null,
+    createdAt: typeof input.createdAt === 'number' ? input.createdAt : undefined
+  };
+}
+
+function applyInboundMeshDelivery(delivery: MeshInboundDelivery): boolean {
+  if (delivery.scope === 'broadcast') {
+    io.emit(delivery.event, delivery.payload);
+    return true;
+  }
+  if (delivery.scope === 'user' && delivery.targetStableUserId) {
+    return emitToStableUserLocal(delivery.targetStableUserId, delivery.event, delivery.payload);
+  }
+  return false;
+}
+
+function emitToRegisteredUser(dbUserId: number | null | undefined, event: string, data: unknown): void {
+  if (dbUserId == null || !Number.isFinite(dbUserId) || dbUserId <= 0) return;
+  emitToStableUser(`user-${Math.floor(dbUserId)}`, event, data);
+}
+
+function emitToPaymentAdmins(event: string, data: unknown): void {
+  const delivered = new Set<string>();
+  for (const [socketId, user] of users.entries()) {
+    if (delivered.has(socketId)) continue;
+    if (!user?.dbUserId || !isPluginAdmin(user.dbUserId)) continue;
+    delivered.add(socketId);
+    io.to(socketId).emit(event, data);
+  }
+}
+
+function buildDistributedUsersSnapshot(
+  allDbUsers: Array<any> = userRepository.getAll(),
+  roleLookup: WorkspaceRoleLookup = buildWorkspaceRoleLookup('default-workspace')
+): ActiveUserRecord[] {
+  const byStableId = new Map<string, ActiveUserRecord>();
+  for (const user of users.values()) {
+    byStableId.set(getPublicUserId(user), toPublicUser(user));
+  }
+
+  const registeredUsersByDbId = new Map(
+    allDbUsers
+      .filter((user) => typeof user.user_id === 'number')
+      .map((user) => [user.user_id as number, user])
+  );
+
+  for (const lease of listStateMeshPresenceLeases()) {
+    if (byStableId.has(lease.stableUserId)) continue;
+
+    if (typeof lease.dbUserId === 'number' && Number.isFinite(lease.dbUserId)) {
+      const dbUser = registeredUsersByDbId.get(lease.dbUserId);
+      if (dbUser) {
+        const roleInfo = getUserRoleInfo(lease.dbUserId, roleLookup);
+        byStableId.set(lease.stableUserId, {
+          id: lease.stableUserId,
+          username: dbUser.username,
+          handle: dbUser.handle,
+          color: dbUser.color || lease.color || '#7a7a7a',
+          status: normalizePresenceStatus(lease.status),
+          profilePicture: dbUser.profile_picture || lease.profilePicture || undefined,
+          joinedAt: lease.connectedAt,
+          dbUserId: lease.dbUserId,
+          roles: roleInfo.roles,
+          highestRole: roleInfo.highestRole,
+          roleColor: roleInfo.roleColor,
+          usernameFont: {
+            family: dbUser.username_font_family,
+            size: dbUser.username_font_size,
+            weight: dbUser.username_font_weight,
+            style: dbUser.username_font_style
+          }
+        });
+        continue;
+      }
+    }
+
+    byStableId.set(lease.stableUserId, {
+      id: lease.stableUserId,
+      username: lease.username || lease.stableUserId,
+      color: lease.color || '#7a7a7a',
+      status: normalizePresenceStatus(lease.status),
+      profilePicture: lease.profilePicture || undefined,
+      joinedAt: lease.connectedAt,
+      dbUserId: lease.dbUserId ?? undefined
+    });
+  }
+
+  return Array.from(byStableId.values());
+}
+
 function parseVoiceSettings(raw: string | null | undefined): Channel['voiceSettings'] {
   if (!raw) return undefined;
   try {
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') return parsed;
+    if (parsed && typeof parsed === 'object') {
+      const candidate = parsed as {
+        bitrateMode?: unknown;
+        userLimit?: unknown;
+        forceSolo?: unknown;
+      };
+      const next: NonNullable<Channel['voiceSettings']> = {};
+      if (
+        candidate.bitrateMode === 'auto' ||
+        candidate.bitrateMode === 'low' ||
+        candidate.bitrateMode === 'standard' ||
+        candidate.bitrateMode === 'high'
+      ) {
+        next.bitrateMode = candidate.bitrateMode;
+      }
+      if (candidate.userLimit !== undefined && candidate.userLimit !== null && candidate.userLimit !== '') {
+        const parsedLimit = Math.floor(Number(candidate.userLimit));
+        if (Number.isFinite(parsedLimit) && parsedLimit >= 1) {
+          next.userLimit = Math.min(99, parsedLimit);
+        }
+      }
+      if (candidate.forceSolo === true) {
+        next.forceSolo = true;
+      }
+      return Object.keys(next).length > 0 ? next : undefined;
+    }
   } catch (error) {
     console.warn('[Voice] Invalid channel voice settings JSON; ignoring persisted value');
   }
   return undefined;
+}
+
+function getVoiceChannelUserLimit(channel: Channel | undefined): number | null {
+  if (!channel || channel.type !== 'voice') return null;
+  const configuredLimit = channel.voiceSettings?.userLimit;
+  if (configuredLimit == null) return null;
+  const parsedLimit = Math.floor(Number(configuredLimit));
+  if (!Number.isFinite(parsedLimit) || parsedLimit < 1) return null;
+  return Math.min(99, parsedLimit);
+}
+
+function isVoiceChannelFocusedAudio(channel: Channel | undefined): boolean {
+  return Boolean(channel && channel.type === 'voice' && channel.voiceSettings?.forceSolo);
 }
 
 // Session management for persistence across reconnects
@@ -1083,6 +1588,10 @@ const voiceChannelParticipants = new Map<string, Set<string>>(); // channelId ->
 const voiceChannelSubscribers = new Map<string, Set<string>>(); // channelId -> socket IDs listening to updates/media
 const socketVoiceSubscriptions = new Map<string, Set<string>>(); // socket ID -> channel IDs
 const voicePeerGraph = new Map<string, Set<string>>(); // stable user ID -> negotiated peer stable user IDs
+const directCallRecorders = new Set<string>();
+const groupCallRecordingParticipants = new Map<string, Set<string>>();
+const voiceCallRecorders = new Set<string>();
+const voiceChannelRecordingParticipants = new Map<string, Set<string>>();
 
 function findUserByStableId(stableUserId: string): User | undefined {
 	if (stableUserId.startsWith('user-')) {
@@ -1104,10 +1613,188 @@ function buildVoiceParticipant(stableUserId: string): { userId: string; socketId
 	};
 }
 
+function getDirectCallRecordingParticipantsForSocket(socketId: string): Array<{ userId: string; socketId: string; username?: string; profilePicture?: string }> {
+	const scopeStableIds = new Set<string>();
+	const socketUser = users.get(socketId);
+	if (socketUser) {
+		scopeStableIds.add(getPublicUserId(socketUser));
+	}
+
+	for (const peerSocketId of Array.from(activeCallPeers.get(socketId) || [])) {
+		const peerUser = users.get(peerSocketId);
+		if (!peerUser) continue;
+		scopeStableIds.add(getPublicUserId(peerUser));
+	}
+
+	return Array.from(scopeStableIds)
+		.filter((stableUserId) => directCallRecorders.has(stableUserId))
+		.map(buildVoiceParticipant);
+}
+
+function emitDirectCallRecordingPresenceForSocket(socketId: string): void {
+	if (!users.has(socketId)) return;
+	io.to(socketId).emit('call-recording-presence', {
+		scope: 'direct',
+		participants: getDirectCallRecordingParticipantsForSocket(socketId)
+	});
+}
+
+function emitDirectCallRecordingPresenceForSocketSet(socketIds: Iterable<string>): void {
+	for (const socketId of socketIds) {
+		emitDirectCallRecordingPresenceForSocket(socketId);
+	}
+}
+
+function emitGroupCallRecordingPresence(channelId: string): void {
+	const session = groupCallSessions.get(channelId);
+	if (!session) return;
+
+	const participants = Array.from(groupCallRecordingParticipants.get(channelId) || []).map(buildVoiceParticipant);
+	for (const stableUserId of session.connectedParticipants) {
+		emitToStableUser(stableUserId, 'call-recording-presence', {
+			scope: 'group',
+			channelId,
+			participants
+		});
+	}
+}
+
+function emitVoiceChannelRecordingPresence(channelId: string): void {
+	const participants = Array.from(voiceChannelRecordingParticipants.get(channelId) || []).map(buildVoiceParticipant);
+	emitToVoiceAudience(channelId, 'call-recording-presence', {
+		scope: 'channel',
+		channelId,
+		participants
+	});
+}
+
+function removeRecorderFromGroupChannels(stableUserId: string, channelId?: string): void {
+	const affectedChannelIds = new Set<string>();
+	if (channelId) {
+		const participants = groupCallRecordingParticipants.get(channelId);
+		if (participants?.delete(stableUserId)) {
+			affectedChannelIds.add(channelId);
+			if (participants.size === 0) {
+				groupCallRecordingParticipants.delete(channelId);
+			}
+		}
+	} else {
+		for (const [groupChannelId, participants] of groupCallRecordingParticipants.entries()) {
+			if (!participants.delete(stableUserId)) continue;
+			affectedChannelIds.add(groupChannelId);
+			if (participants.size === 0) {
+				groupCallRecordingParticipants.delete(groupChannelId);
+			}
+		}
+	}
+
+	for (const groupChannelId of affectedChannelIds) {
+		emitGroupCallRecordingPresence(groupChannelId);
+	}
+}
+
+function syncVoiceRecordingPresenceForSocket(stableUserId: string, socketId: string): void {
+	const affectedChannelIds = new Set<string>();
+
+	for (const [channelId, participants] of voiceChannelRecordingParticipants.entries()) {
+		if (!participants.delete(stableUserId)) continue;
+		affectedChannelIds.add(channelId);
+		if (participants.size === 0) {
+			voiceChannelRecordingParticipants.delete(channelId);
+		}
+	}
+
+	if (voiceCallRecorders.has(stableUserId)) {
+		for (const channelId of Array.from(socketVoiceSubscriptions.get(socketId) || [])) {
+			let participants = voiceChannelRecordingParticipants.get(channelId);
+			if (!participants) {
+				participants = new Set<string>();
+				voiceChannelRecordingParticipants.set(channelId, participants);
+			}
+			participants.add(stableUserId);
+			affectedChannelIds.add(channelId);
+		}
+	}
+
+	for (const channelId of affectedChannelIds) {
+		emitVoiceChannelRecordingPresence(channelId);
+	}
+}
+
+function clearAllRecordingPresenceForStableUser(stableUserId: string, socketId?: string): void {
+	directCallRecorders.delete(stableUserId);
+	removeRecorderFromGroupChannels(stableUserId);
+
+	if (voiceCallRecorders.delete(stableUserId)) {
+		syncVoiceRecordingPresenceForSocket(stableUserId, socketId || resolveSocketId(stableUserId) || stableUserId);
+	} else if (socketId) {
+		syncVoiceRecordingPresenceForSocket(stableUserId, socketId);
+	}
+}
+
+function socketMeetsChannelRoleRequirement(socket: Socket, minRole?: string): boolean {
+	const requiredRole = minRole || 'guest';
+	if (requiredRole === 'guest') return true;
+	const user = users.get(socket.id);
+	const highestRole = user?.highestRole || 'guest';
+	return getRolePriority(highestRole) >= getRolePriority(requiredRole);
+}
+
+function socketCanAccessChannel(socket: Socket, channel: Channel): boolean {
+	if (!channel.members || channel.members.length === 0) {
+		return socketMeetsChannelRoleRequirement(socket, channel.minRole);
+	}
+	return channel.members.includes(getStableUserId(socket));
+}
+
 function getVoiceChannelMembers(channelId: string): Array<{ userId: string; socketId: string; username?: string; profilePicture?: string }> {
 	const participants = voiceChannelParticipants.get(channelId);
 	if (!participants || participants.size === 0) return [];
 	return Array.from(participants).map(buildVoiceParticipant);
+}
+
+function canJoinVoiceChannel(channel: Channel, stableUserId: string): { allowed: true } | { allowed: false; reason: string } {
+	const participants = voiceChannelParticipants.get(channel.id);
+	if (participants?.has(stableUserId)) {
+		return { allowed: true };
+	}
+
+	const limit = getVoiceChannelUserLimit(channel);
+	if (limit !== null && (participants?.size || 0) >= limit) {
+		return {
+			allowed: false,
+			reason: channel.voiceSettings?.forceSolo
+				? 'This voice channel is forced solo right now'
+				: 'This voice channel is full'
+		};
+	}
+
+	return { allowed: true };
+}
+
+function canSubscribeToVoiceChannel(socketId: string, channel: Channel): { allowed: true } | { allowed: false; reason: string } {
+  const existingSubscriptions = Array.from(socketVoiceSubscriptions.get(socketId) || []);
+  const otherSubscriptions = existingSubscriptions.filter((subscribedChannelId) => subscribedChannelId !== channel.id);
+  const targetIsFocused = isVoiceChannelFocusedAudio(channel);
+  const existingFocusedChannel = otherSubscriptions
+    .map((subscribedChannelId) => channels.get(subscribedChannelId))
+    .find((subscribedChannel) => isVoiceChannelFocusedAudio(subscribedChannel));
+
+  if (targetIsFocused && otherSubscriptions.length > 0) {
+    return {
+      allowed: false,
+      reason: 'This voice channel requires focused audio. Leave other listen-in channels first.'
+    };
+  }
+
+  if (existingFocusedChannel) {
+    return {
+      allowed: false,
+      reason: 'Your current voice channel requires focused audio. Leave it before listening elsewhere.'
+    };
+  }
+
+  return { allowed: true };
 }
 
 function addVoiceSubscription(socketId: string, channelId: string): void {
@@ -1189,10 +1876,18 @@ function getVoiceStatePayload(): Record<string, Array<{ userId: string; socketId
 }
 
 function emitVoiceChannelState(channelId: string): void {
-	emitToVoiceAudience(channelId, "voice-channel-state", {
+	const channel = channels.get(channelId);
+	if (!channel || channel.type !== 'voice') return;
+
+	const payload = {
 		channelId,
 		members: getVoiceChannelMembers(channelId)
-	});
+	};
+
+	for (const [, targetSocket] of io.sockets.sockets) {
+		if (!socketCanAccessChannel(targetSocket, channel)) continue;
+		targetSocket.emit("voice-channel-state", payload);
+	}
 }
 
 function getBreakoutChannelsForParent(parentChannelId: string): Channel[] {
@@ -1219,7 +1914,11 @@ function getGroupChannelById(channelId?: string): Channel | null {
 
 function isStableUserConnected(stableUserId: string): boolean {
   const socketId = resolveSocketId(stableUserId);
-  return !!socketId && users.has(socketId);
+  if (socketId && users.has(socketId)) return true;
+  if (stableUserId.startsWith('user-')) {
+    return Boolean(findStateMeshSocketLeaseByStableUserId(stableUserId));
+  }
+  return false;
 }
 
 function isGroupCallEstablished(session: GroupCallSession): boolean {
@@ -1234,10 +1933,7 @@ function cancelPendingGroupCallInvites(session: GroupCallSession, cancelledByUse
   }
 
   for (const stableUserId of Array.from(session.invitedParticipants)) {
-    const inviteeSocketId = resolveSocketId(stableUserId);
-    if (!inviteeSocketId || !users.has(inviteeSocketId)) continue;
-
-    io.to(inviteeSocketId).emit("call-cancelled", {
+    emitToStableUser(stableUserId, "call-cancelled", {
       userId: cancellingUserId,
       channelId: session.channelId
     });
@@ -1274,25 +1970,49 @@ function emitGroupCallParticipantJoined(session: GroupCallSession, userId: strin
   for (const stableUserId of session.connectedParticipants) {
     if (stableUserId === excludeStableUserId) continue;
 
-    const participantSocketId = resolveSocketId(stableUserId);
-    if (!participantSocketId || !users.has(participantSocketId)) continue;
-
-    io.to(participantSocketId).emit("group-call-participant-joined", {
+    emitToStableUser(stableUserId, "group-call-participant-joined", {
       channelId: session.channelId,
       channelName: session.channelName,
-      stableUserId: excludeStableUserId,
+      stableUserId: userId,
       userId,
       username
     });
   }
 }
 
+function applyWorkspaceChannelsToMemory(workspaceChannels: DbChannel[]): void {
+  workspaceChannels.forEach(ch => {
+    channels.set(ch.channel_id, {
+      id: ch.channel_id,
+      name: ch.name,
+      description: ch.description || '',
+      watchQueueEnabled: (ch as any).watch_queue_enabled === 1,
+      minRole: ch.min_role || 'guest',
+      createdAt: ch.created_at,
+      type: normalizeChannelType(ch.channel_type),
+      parentChannelId: ch.parent_channel_id || undefined,
+      isBreakout: ch.is_breakout === 1,
+      breakoutIndex: ch.breakout_index || undefined,
+      parentMessageId: ch.parent_message_id || undefined,
+      threadArchived: ch.thread_archived === 1,
+      threadLocked: ch.thread_locked === 1,
+      threadAutoArchiveMinutes: ch.thread_auto_archive_minutes || 1440,
+      threadLastActivityAt: ch.thread_last_activity_at || ch.created_at,
+      persistMessages: ch.persist_messages === 1,
+      voiceSettings: parseVoiceSettings(ch.voice_settings_json)
+    });
+    if (!channelMessages.has(ch.channel_id)) {
+      channelMessages.set(ch.channel_id, []);
+    }
+    if (!pinnedMessages.has(ch.channel_id)) {
+      pinnedMessages.set(ch.channel_id, new Set());
+    }
+  });
+}
+
 function emitGroupCallParticipantLeft(session: GroupCallSession, stableUserId: string, userId: string): void {
   for (const participantStableId of session.connectedParticipants) {
-    const participantSocketId = resolveSocketId(participantStableId);
-    if (!participantSocketId || !users.has(participantSocketId)) continue;
-
-    io.to(participantSocketId).emit("group-call-participant-left", {
+    emitToStableUser(participantStableId, "group-call-participant-left", {
       channelId: session.channelId,
       stableUserId,
       userId
@@ -1307,10 +2027,7 @@ function emitGroupCallInviteCleared(
 ): void {
   const username = findUserByStableId(stableUserId)?.username || stableUserId;
   for (const participantStableId of session.connectedParticipants) {
-    const participantSocketId = resolveSocketId(participantStableId);
-    if (!participantSocketId || !users.has(participantSocketId)) continue;
-
-    io.to(participantSocketId).emit("group-call-invite-cleared", {
+    emitToStableUser(participantStableId, "group-call-invite-cleared", {
       channelId: session.channelId,
       stableUserId,
       username,
@@ -1328,7 +2045,8 @@ function joinGroupCallSession(session: GroupCallSession, stableUserId: string, s
   if (session.connectedParticipants.size > 1) {
     session.hasEverEstablished = true;
   }
-  emitGroupCallParticipantJoined(session, socketId, username, stableUserId);
+  emitGroupCallParticipantJoined(session, stableUserId, username, stableUserId);
+  emitGroupCallRecordingPresence(session.channelId);
 }
 
 function removeGroupCallParticipantFromSession(
@@ -1347,6 +2065,10 @@ function removeGroupCallParticipantFromSession(
 
   if (wasConnected && options.userId) {
     emitGroupCallParticipantLeft(session, stableUserId, options.userId);
+  }
+
+  if (wasConnected) {
+    removeRecorderFromGroupChannels(stableUserId, session.channelId);
   }
 
   cleanupIdleGroupCallSession(session, {
@@ -1379,6 +2101,9 @@ function moveVoiceParticipant(stableUserId: string, fromChannelId: string, toCha
 
 	emitVoiceChannelState(fromChannelId);
 	emitVoiceChannelState(toChannelId);
+	syncVoiceRecordingPresenceForSocket(stableUserId, resolveSocketId(stableUserId) || stableUserId);
+	emitVoiceChannelRecordingPresence(fromChannelId);
+	emitVoiceChannelRecordingPresence(toChannelId);
 
 	emitToVoiceAudience(fromChannelId, "voice-channel-user-left", {
 		channelId: fromChannelId,
@@ -1425,6 +2150,7 @@ function addCallPeer(socketId: string, peerId: string) {
   if (!activeCallPeers.has(peerId)) activeCallPeers.set(peerId, new Set());
   activeCallPeers.get(socketId)!.add(peerId);
   activeCallPeers.get(peerId)!.add(socketId);
+  emitDirectCallRecordingPresenceForSocketSet([socketId, peerId]);
 }
 
 function removeAllCallPeers(socketId: string): Set<string> {
@@ -1432,6 +2158,7 @@ function removeAllCallPeers(socketId: string): Set<string> {
   for (const peerId of peers) {
     activeCallPeers.get(peerId)?.delete(socketId);
     if (activeCallPeers.get(peerId)?.size === 0) activeCallPeers.delete(peerId);
+    emitDirectCallRecordingPresenceForSocket(peerId);
   }
   activeCallPeers.delete(socketId);
   return peers;
@@ -2102,6 +2829,84 @@ function normalizeClientFileAttachment(
   };
 }
 
+function normalizeClientMessageEntities(rawEntities: unknown, rawText: string, allowEntities: boolean): MessageEntity[] {
+  if (!allowEntities || !Array.isArray(rawEntities) || typeof rawText !== 'string' || rawText.length === 0) {
+    return [];
+  }
+
+  const normalized: MessageEntity[] = [];
+  const textLength = rawText.length;
+
+  for (const entry of rawEntities) {
+    if (!entry || typeof entry !== 'object') continue;
+
+    const candidate = entry as Record<string, unknown>;
+    if (candidate.kind !== 'place') continue;
+
+    const start = Math.floor(Number(candidate.start));
+    const end = Math.floor(Number(candidate.end));
+    const placeId =
+      typeof candidate.placeId === 'string'
+        ? candidate.placeId.trim().toLowerCase()
+        : typeof candidate.id === 'string'
+          ? candidate.id.trim().toLowerCase()
+          : '';
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || end > textLength) {
+      continue;
+    }
+    if (!placeId || !isKnownPlaceId(placeId)) continue;
+    const placeRecord = getPlaceRecordById(placeId);
+    if (!placeRecord) continue;
+    const poiId =
+      typeof candidate.poiId === 'string' && candidate.poiId.trim().length > 0
+        ? candidate.poiId.trim().toLowerCase()
+        : '';
+    const poiRecord = poiId ? placeRecord.pois?.find((poi) => poi.id === poiId) || null : null;
+    const layerId =
+      typeof candidate.layerId === 'string' && candidate.layerId.trim().length > 0
+        ? candidate.layerId.trim().toLowerCase()
+        : '';
+    const normalizedLayerId =
+      (poiRecord?.layerId && placeRecord.mapLayers?.some((layer) => layer.id === poiRecord.layerId)
+        ? poiRecord.layerId
+        : layerId && placeRecord.mapLayers?.some((layer) => layer.id === layerId)
+          ? layerId
+          : '');
+
+    const displayText =
+      typeof candidate.displayText === 'string' && candidate.displayText.trim().length > 0
+        ? candidate.displayText
+        : rawText.slice(start, end);
+    const label =
+      typeof candidate.label === 'string' && candidate.label.trim().length > 0
+        ? candidate.label.trim()
+        : displayText.trim();
+    if (!label || !displayText) continue;
+
+    normalized.push({
+      kind: 'place',
+      start,
+      end,
+      placeId,
+      layerId: normalizedLayerId || undefined,
+      poiId: poiRecord?.id || undefined,
+      label,
+      displayText
+    });
+  }
+
+  normalized.sort((a, b) => a.start - b.start || a.end - b.end);
+
+  const deduped: MessageEntity[] = [];
+  let lastEnd = -1;
+  for (const entity of normalized) {
+    if (entity.start < lastEnd) continue;
+    deduped.push(entity);
+    lastEnd = entity.end;
+  }
+  return deduped;
+}
+
 function getUploadOwnerKey(userId: number | null, guestSessionId: string | null): string | null {
   if (userId) return `user:${userId}`;
   if (guestSessionId && sessions.has(guestSessionId)) return `guest:${guestSessionId}`;
@@ -2357,6 +3162,82 @@ function isPluginAdmin(userId: number | null): boolean {
   const roles = getUserRoles(userId, 'default-workspace');
   return roles.includes('owner') || roles.includes('admin');
 }
+
+setPaymentRealtimeNotifier({
+  notifyPaymentIntentUpdated(update) {
+    emitToRegisteredUser(update.createdByUserId, 'payments:intent-updated', {
+      workspaceId: update.workspaceId,
+      intentId: update.intentId,
+      status: update.status,
+      channelId: update.channelId,
+      isDonation: update.isDonation
+    });
+    if (update.isDonation) {
+      io.emit('payments:donations-updated', {
+        workspaceId: update.workspaceId,
+        reason: 'intent',
+        intentId: update.intentId,
+        status: update.status
+      });
+      emitToPaymentAdmins('payments:donations-admin-updated', {
+        workspaceId: update.workspaceId,
+        reason: 'intent',
+        intentId: update.intentId,
+        status: update.status
+      });
+    }
+  },
+  notifyDonationUpdated(update) {
+    io.emit('payments:donations-updated', {
+      workspaceId: update.workspaceId,
+      reason: update.reason,
+      intentId: update.intentId || null,
+      settlementId: update.settlementId || null,
+      status: update.status || null
+    });
+    emitToPaymentAdmins('payments:donations-admin-updated', {
+      workspaceId: update.workspaceId,
+      reason: update.reason,
+      intentId: update.intentId || null,
+      settlementId: update.settlementId || null,
+      status: update.status || null
+    });
+  },
+  notifyManualCashUpdated(update) {
+    for (const participantUserId of update.participantUserIds) {
+      emitToRegisteredUser(participantUserId, 'manual-cash:updated', {
+        workspaceId: update.workspaceId,
+        settlementId: update.settlementId,
+        channelId: update.channelId,
+        status: update.status
+      });
+    }
+  },
+  notifyPaymentAccountLinksUpdated(update) {
+    emitToRegisteredUser(update.userId, 'payments:account-links-updated', {
+      workspaceId: update.workspaceId
+    });
+  },
+  notifyPaymentUserBlocksUpdated(update) {
+    emitToPaymentAdmins('payments:user-blocks-updated', {
+      workspaceId: update.workspaceId,
+      userId: update.userId
+    });
+  },
+  notifyPaymentAccessUpdated(update) {
+    if (update.userId && Number.isFinite(update.userId)) {
+      emitToRegisteredUser(update.userId, 'payments:access-updated', {
+        workspaceId: update.workspaceId,
+        userId: update.userId
+      });
+      return;
+    }
+    io.emit('payments:access-updated', {
+      workspaceId: update.workspaceId,
+      userId: null
+    });
+  }
+});
 
 function getGuestSessionId(req: any): string | null {
   const sessionHeader = req.headers['x-session-id'];
@@ -2830,6 +3711,75 @@ server.on('request', async (req, res) => {
       console.error('[StatePlane] Reducer ingress request failed:', error);
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: false, error: "Reducer ingress request failed" }));
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/internal/mesh/deliver" && req.method === "POST") {
+    const meshToken = getMeshSharedToken();
+    if (!meshToken) {
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Mesh delivery is not configured" }));
+      return;
+    }
+
+    const authHeader = typeof req.headers.authorization === 'string' ? req.headers.authorization.trim() : '';
+    const expected = `Bearer ${meshToken}`;
+    if (!authHeader || !constantTimeEqualString(authHeader, expected)) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Unauthorized mesh delivery" }));
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    let responded = false;
+    const maxBodyBytes = 256 * 1024;
+
+    req.on('data', (chunk) => {
+      if (responded) return;
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      totalBytes += buffer.length;
+      if (totalBytes > maxBodyBytes) {
+        responded = true;
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "Mesh delivery payload too large" }));
+        req.destroy();
+        return;
+      }
+      chunks.push(buffer);
+    });
+
+    req.on('end', () => {
+      if (responded) return;
+      try {
+        const body = Buffer.concat(chunks).toString('utf8');
+        const delivery = normalizeMeshInboundDelivery(JSON.parse(body));
+        if (hasSeenMeshDelivery(delivery.deliveryId)) {
+          res.writeHead(202, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: true, duplicate: true }));
+          return;
+        }
+
+        const delivered = applyInboundMeshDelivery(delivery);
+        markSeenMeshDelivery(delivery.deliveryId);
+        res.writeHead(202, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, delivered }));
+      } catch (error) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        }));
+      }
+    });
+
+    req.on('error', (error) => {
+      if (responded) return;
+      responded = true;
+      console.error('[StateMesh] Mesh delivery request failed:', error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Mesh delivery request failed" }));
     });
     return;
   }
@@ -3834,6 +4784,118 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  // Setup status endpoint (public, no auth) — returns whether first-run wizard is needed
+  if (url.pathname === "/api/setup/status" && req.method === "GET") {
+    try {
+      const row = db.prepare('SELECT COUNT(*) as count FROM users WHERE is_active = 1').get() as { count: number } | undefined;
+      const userCount = row?.count ?? 0;
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ setupRequired: userCount === 0 }));
+    } catch (e) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ setupRequired: false }));
+    }
+    return;
+  }
+
+  // Setup network hint endpoint — saves operator's network config notes to app_settings
+  if (url.pathname === "/api/setup/network-hint" && req.method === "POST") {
+    try {
+      const authUserId = getAuthenticatedUserIdFromRequest(req);
+      if (!authUserId) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Authentication required" }));
+        return;
+      }
+      const body = await new Promise<string>((resolve, reject) => {
+        let data = '';
+        req.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+        req.on('end', () => resolve(data));
+        req.on('error', reject);
+      });
+      const payload = JSON.parse(body);
+      const hint: Record<string, unknown> = {};
+      if (typeof payload.networkMode === 'string') hint.networkMode = payload.networkMode;
+      if (typeof payload.publicAddress === 'string') hint.publicAddress = payload.publicAddress.slice(0, 256);
+      if (typeof payload.tunnelToken === 'string') hint.tunnelToken = payload.tunnelToken.length > 0 ? '(set)' : '';
+      if (typeof payload.stdbUrl === 'string') hint.stdbUrl = payload.stdbUrl.slice(0, 512);
+      if (typeof payload.meshToken === 'string') hint.meshToken = payload.meshToken.length > 0 ? '(set)' : '';
+      if (typeof payload.serverRegion === 'string') hint.serverRegion = payload.serverRegion.slice(0, 64);
+      appPolicyRepository.setRaw('setup:network_hint', JSON.stringify(hint));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (e) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Invalid request" }));
+    }
+    return;
+  }
+
+  // Setup branding endpoint — writes data/launch-page.json for login page customization
+  if (url.pathname === "/api/setup/branding" && req.method === "POST") {
+    try {
+      const authUserId = getAuthenticatedUserIdFromRequest(req);
+      if (!authUserId) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Authentication required" }));
+        return;
+      }
+      const body = await new Promise<string>((resolve, reject) => {
+        let data = '';
+        req.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+        req.on('end', () => resolve(data));
+        req.on('error', reject);
+      });
+      const payload = JSON.parse(body);
+      const brandName = typeof payload.brandName === 'string' ? payload.brandName.trim().slice(0, 64) : '';
+      const accent = typeof payload.accentColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(payload.accentColor.trim()) ? payload.accentColor.trim() : '';
+      const backgroundImageUrl = typeof payload.backgroundImageUrl === 'string' ? payload.backgroundImageUrl.trim().slice(0, 1024) : '';
+      const customCss = typeof payload.customCss === 'string' ? payload.customCss.slice(0, 8192) : '';
+
+      if (!brandName && !backgroundImageUrl && !customCss) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, skipped: true }));
+        return;
+      }
+
+      const launchConfig: Record<string, unknown> = {
+        enabled: true,
+        brandName: brandName || 'Wabi',
+        headline: 'Welcome',
+        subheadline: '',
+        logoUrl: '/wabi-logo.webp',
+        backgroundImageUrl: backgroundImageUrl || null,
+        customCss: customCss || null,
+        heroImageUrl: null,
+        heroTitle: null,
+        heroBody: null,
+        heroPrimaryCtaLabel: null,
+        heroPrimaryCtaUrl: null,
+        highlights: [],
+        footerNote: null,
+        palette: {
+          backgroundTop: '#0f172a',
+          backgroundBottom: '#0b1220',
+          cardBackground: '#14141e',
+          accent: accent || '#5865f2',
+          text: '#f8fafc'
+        }
+      };
+
+      const launchPagePath = join(DATA_DIR, '..', 'data', 'launch-page.json');
+      const altPath = join(DATA_DIR, 'launch-page.json');
+      const targetPath = existsSync(join(DATA_DIR, '..', 'data')) ? launchPagePath : altPath;
+      writeFileSync(targetPath, JSON.stringify(launchConfig, null, 2), 'utf-8');
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (e) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Invalid request" }));
+    }
+    return;
+  }
+
   // Authentication endpoints
   if (url.pathname === "/api/auth/register" && req.method === "POST") {
     await handleRegister(req, res);
@@ -3868,6 +4930,16 @@ server.on('request', async (req, res) => {
   // Public launch page config (branding / login hero content)
   if (url.pathname === "/api/public/launch-page" && req.method === "GET") {
     await handleGetLaunchPageConfig(req, res);
+    return;
+  }
+
+  // Public frontend shell metadata (server rail / switcher branding)
+  if (url.pathname === "/api/public/frontend-app-metadata" && req.method === "GET") {
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Cache-Control": "public, max-age=30"
+    });
+    res.end(JSON.stringify(getPolicyValue(FRONTEND_APP_METADATA_POLICY_KEY)));
     return;
   }
 
@@ -3907,6 +4979,16 @@ server.on('request', async (req, res) => {
 
   if (url.pathname === "/api/user/theme/reset" && req.method === "POST") {
     await handleResetThemePreferences(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/following/poll" && req.method === "POST") {
+    const guestSessionId = getGuestSessionId(req);
+    const guestStableUserId =
+      guestSessionId && sessions.has(guestSessionId)
+        ? sessions.get(guestSessionId)?.userId || null
+        : null;
+    await handlePollFollowedChannelActivity(req, res, { guestStableUserId });
     return;
   }
 
@@ -4088,6 +5170,21 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/api/desktop-helper/register" && req.method === "POST") {
+    await handleDesktopHelperRegister(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/desktop-helper/heartbeat" && req.method === "POST") {
+    await handleDesktopHelperHeartbeat(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/desktop-helper/offline" && req.method === "POST") {
+    await handleDesktopHelperOffline(req, res);
+    return;
+  }
+
   const relayDeleteMatch = url.pathname.match(/^\/api\/relay\/(\d+)$/);
   if (relayDeleteMatch && req.method === "DELETE") {
     await handleRelayDelete(req, res, parseInt(relayDeleteMatch[1], 10));
@@ -4239,6 +5336,34 @@ server.on('request', async (req, res) => {
   const webhookDeleteMatch = url.pathname.match(/^\/api\/webhooks\/(\d+)$/);
   if (webhookDeleteMatch && req.method === "DELETE") {
     await handleDeleteWebhook(req, res, parseInt(webhookDeleteMatch[1], 10));
+    return;
+  }
+
+  if (url.pathname === "/api/places" && req.method === "GET") {
+    await handleGetPlaces(req, res);
+    return;
+  }
+
+  if (url.pathname === "/api/places" && req.method === "POST") {
+    const userId = getAuthenticatedUserIdFromRequest(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+    await handleUpsertPlace(req, res);
+    return;
+  }
+
+  const placeDeleteMatch = url.pathname.match(/^\/api\/places\/([^/]+)$/);
+  if (placeDeleteMatch && req.method === "DELETE") {
+    const userId = getAuthenticatedUserIdFromRequest(req);
+    if (!isPluginAdmin(userId)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Admin permissions required" }));
+      return;
+    }
+    await handleDeletePlace(req, res, decodeURIComponent(placeDeleteMatch[1]));
     return;
   }
 
@@ -5601,33 +6726,7 @@ try {
   // Ensure base channels exist in DB and load text/voice channels
   channelRepository.ensureBaseChannelsExist();
   const dbChannels = channelRepository.getWorkspaceChannels();
-  dbChannels.forEach(ch => {
-    channels.set(ch.channel_id, {
-      id: ch.channel_id,
-      name: ch.name,
-      description: ch.description || '',
-      watchQueueEnabled: (ch as any).watch_queue_enabled === 1,
-      minRole: ch.min_role || 'guest',
-      createdAt: ch.created_at,
-      type: normalizeChannelType(ch.channel_type),
-      parentChannelId: ch.parent_channel_id || undefined,
-      isBreakout: ch.is_breakout === 1,
-      breakoutIndex: ch.breakout_index || undefined,
-      parentMessageId: ch.parent_message_id || undefined,
-      threadArchived: ch.thread_archived === 1,
-      threadLocked: ch.thread_locked === 1,
-      threadAutoArchiveMinutes: ch.thread_auto_archive_minutes || 1440,
-      threadLastActivityAt: ch.thread_last_activity_at || ch.created_at,
-      persistMessages: ch.persist_messages === 1,
-      voiceSettings: parseVoiceSettings(ch.voice_settings_json)
-    });
-    if (!channelMessages.has(ch.channel_id)) {
-      channelMessages.set(ch.channel_id, []);
-    }
-    if (!pinnedMessages.has(ch.channel_id)) {
-      pinnedMessages.set(ch.channel_id, new Set());
-    }
-  });
+  applyWorkspaceChannelsToMemory(dbChannels);
   console.log(`[Database] ✅ Loaded ${dbChannels.length} channels from database`);
 } catch (error) {
   console.error('[Database] ❌ Initialization failed:', error);
@@ -5667,12 +6766,15 @@ const cleanupInterval = setInterval(() => {
 }, 60 * 60 * 1000); // 1 hour
 
 let shuttingDown = false;
+let selfHostedBoosterRelayAdvertiser: ReturnType<typeof startSelfHostedBoosterRelayAdvertiser> | null = null;
 const shutdown = (signal: 'SIGINT' | 'SIGTERM') => {
   if (shuttingDown) return;
   shuttingDown = true;
 
   console.log(`\n[Server] ${signal} received. Shutting down...`);
   clearInterval(cleanupInterval);
+  selfHostedBoosterRelayAdvertiser?.stop();
+  stopStateMeshRuntime();
   stopStatePlaneRuntime();
 
   const forceExitTimer = setTimeout(() => {
@@ -5698,7 +6800,15 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 // Start HTTP server
 server.listen(PORT, '0.0.0.0');
+configureStateMeshRuntime(() => getMeshConnectionCounts());
 startStatePlaneRuntime();
+startStateMeshRuntime();
+selfHostedBoosterRelayAdvertiser = startSelfHostedBoosterRelayAdvertiser();
+try {
+  applyWorkspaceChannelsToMemory(channelRepository.getWorkspaceChannels());
+} catch (error) {
+  console.warn('[StatePlane] Failed to hydrate workspace channels from active store:', error);
+}
 console.log('[Server] Listening on 0.0.0.0:' + PORT);
 
 // Helper function to emit to channel members only
@@ -5706,20 +6816,53 @@ function emitToChannel(channelId: string, event: string, data: any) {
   const channel = channels.get(channelId);
   if (!channel) return;
 
-  // For DMs and group chats, only emit to members
   if (channel.members && channel.members.length > 0) {
     channel.members.forEach(stableId => {
-      // Resolve stable ID (e.g. "user-5") to current socket.id
-      const socketId = resolveSocketId(stableId);
-      if (socketId) {
-        io.to(socketId).emit(event, data);
-      }
+      emitToStableUser(stableId, event, data);
     });
   } else {
-    // For public channels, broadcast to everyone
     io.emit(event, data);
+    emitMeshBroadcast(event, data);
   }
 }
+
+function isAnnouncementCapableChannelType(type: DbChannel['channel_type']): boolean {
+  return type === 'text' || type === 'public' || type === 'thread_public' || type === 'thread_private';
+}
+
+function postSystemAnnouncementToChannel(channelId: string, text: string): void {
+  const dbChannel = channelRepository.findById(channelId);
+  if (!dbChannel || !isAnnouncementCapableChannelType(dbChannel.channel_type)) {
+    throw new Error('Community node announcements require an existing text-capable channel.');
+  }
+
+  const now = Date.now();
+  const message: RealtimeChannelMessage = {
+    id: createRealtimeMessageId('system'),
+    user: 'System',
+    userId: 'system',
+    senderStableId: 'system',
+    text,
+    timestamp: now,
+    type: 'text',
+    color: '#7f8ea3'
+  };
+
+  const messages = channelMessages.get(channelId) || [];
+  messages.push(message);
+  channelMessages.set(channelId, messages);
+  emitToChannel(channelId, "message", { channelId, message });
+
+  try {
+    stateMessageStore.create(buildPersistedMessageFromRealtime(channelId, message));
+  } catch (error) {
+    console.error('[CommunityNodes] Failed to persist announcement message:', error);
+  }
+}
+
+registerCommunityNodeAnnouncementDispatcher(({ channelId, text }) => {
+  postSystemAnnouncementToChannel(channelId, text);
+});
 
 // Define the deleteMessageById function now that emitToChannel is available
 deleteMessageById = (channelId: string, messageId: string) => {
@@ -6056,6 +7199,51 @@ io.on("connection", (socket) => {
   };
   console.log(`🔌 WebSocket connection established: ${socket.id}`);
 
+  // --- Per-socket event rate limiting ---
+  const socketRateBuckets = new Map<string, { count: number; resetAt: number }>();
+  const SOCKET_RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
+    'message':           { max: 30, windowMs: 10_000 },
+    'typing':            { max: 20, windowMs: 10_000 },
+    'edit-message':      { max: 20, windowMs: 10_000 },
+    'add-reaction':      { max: 30, windowMs: 10_000 },
+    'remove-reaction':   { max: 30, windowMs: 10_000 },
+    '__default':         { max: 60, windowMs: 10_000 }
+  };
+  const checkSocketRate = (eventName: string): boolean => {
+    const limit = SOCKET_RATE_LIMITS[eventName] || SOCKET_RATE_LIMITS['__default'];
+    const now = Date.now();
+    let bucket = socketRateBuckets.get(eventName);
+    if (!bucket || now >= bucket.resetAt) {
+      bucket = { count: 0, resetAt: now + limit.windowMs };
+      socketRateBuckets.set(eventName, bucket);
+    }
+    bucket.count++;
+    if (bucket.count > limit.max) {
+      return false; // rate limited
+    }
+    return true;
+  };
+
+  // Wrap socket.on to inject rate limiting on data events
+  const originalOn = socket.on.bind(socket);
+  const RATE_LIMITED_EVENTS = new Set([
+    'message', 'typing', 'edit-message', 'delete-message',
+    'add-reaction', 'remove-reaction', 'upload-emoji',
+    'excalidraw-update', 'toggle-pin-message'
+  ]);
+  socket.on = function(event: string, listener: (...args: any[]) => void) {
+    if (RATE_LIMITED_EVENTS.has(event)) {
+      return originalOn(event, (...args: any[]) => {
+        if (!checkSocketRate(event)) {
+          socket.emit('rate-limited', { event, retryAfter: 10 });
+          return;
+        }
+        listener(...args);
+      });
+    }
+    return originalOn(event, listener);
+  } as any;
+
   const getSocketStableId = (): string => getStableUserId(socket);
   const getSocketHighestRole = (): string => {
     const user = users.get(socket.id);
@@ -6072,6 +7260,22 @@ io.on("connection", (socket) => {
   const canManageVoiceBreakouts = (): boolean => {
     const highestRole = getSocketHighestRole();
     return ['owner', 'admin', 'mod'].includes(highestRole);
+  };
+
+  const canMoveVoiceMember = (targetStableUserId: string): boolean => {
+    const myStableId = getSocketStableId();
+    if (targetStableUserId === myStableId) {
+      return true;
+    }
+
+    if (!canManageVoiceBreakouts()) {
+      return false;
+    }
+
+    const myPriority = getRolePriority(getSocketHighestRole());
+    const targetHighestRole = findUserByStableId(targetStableUserId)?.highestRole || 'guest';
+    const targetPriority = getRolePriority(targetHighestRole);
+    return myPriority > targetPriority;
   };
 
   const canAccessChannel = (channel: Channel): boolean => {
@@ -6096,12 +7300,27 @@ io.on("connection", (socket) => {
     return channel;
   };
 
+  const emitToCallTarget = (rawTargetId: string | null | undefined, event: string, data: unknown): boolean => {
+    const normalizedTargetId = rawTargetId?.trim();
+    if (!normalizedTargetId) return false;
+    const stableTargetId = resolveStableUserIdFromAny(normalizedTargetId);
+    if (stableTargetId) {
+      return emitToStableUser(stableTargetId, event, data);
+    }
+    if (users.has(normalizedTargetId)) {
+      io.to(normalizedTargetId).emit(event, data);
+      return true;
+    }
+    return false;
+  };
+
   const emitRoleDefinitions = (targetSocketId?: string) => {
     const payload = { roles: getRoleDefinitions('default-workspace') };
     if (targetSocketId) {
       io.to(targetSocketId).emit("role-definitions-updated", payload);
     } else {
       io.emit("role-definitions-updated", payload);
+      emitMeshBroadcast("role-definitions-updated", payload);
     }
   };
 
@@ -6115,13 +7334,15 @@ io.on("connection", (socket) => {
         users.set(sid, u);
       }
     }
-    io.emit("user-role-changed", {
+    const payload = {
       userId: `user-${dbUserId}`,
       dbUserId,
       roles: newRoleInfo.roles,
       highestRole: newRoleInfo.highestRole,
       roleColor: newRoleInfo.roleColor
-    });
+    };
+    io.emit("user-role-changed", payload);
+    emitMeshBroadcast("user-role-changed", payload);
   };
 
   const buildServerMembersSnapshot = (
@@ -6217,7 +7438,12 @@ io.on("connection", (socket) => {
 
   // Handle user join
   socket.on("join", async (username: string) => {
-    const joinProfileEnabled = getStatePlaneRuntimeStats().config.effectiveMode === 'stdb_primary';
+    const joinTraceEnabled =
+      process.env.WABI_JOIN_TRACE &&
+      ['1', 'true', 'yes', 'on'].includes(process.env.WABI_JOIN_TRACE.trim().toLowerCase());
+    const joinProfileEnabled =
+      getStatePlaneRuntimeStats().config.effectiveMode === 'stdb_primary' &&
+      Boolean(joinTraceEnabled);
     const joinStartedAt = joinProfileEnabled ? Date.now() : 0;
     const joinMarks: string[] = [];
     const markJoinStep = (label: string) => {
@@ -6280,6 +7506,7 @@ io.on("connection", (socket) => {
         const registeredHandle = registeredUserRecord?.handle;
         const roleInfo = getUserRoleInfo((socket as any).dbUserId, roleLookup);
 
+        const registeredConnectedAt = Date.now();
         users.set(socket.id, {
           id: socket.id,
           username: registeredUsername,
@@ -6287,6 +7514,7 @@ io.on("connection", (socket) => {
           color: registeredColor,
           status: 'active',
           profilePicture: registeredProfilePic,
+          joinedAt: registeredConnectedAt,
           dbUserId: (socket as any).dbUserId,
           roles: roleInfo.roles,
           highestRole: roleInfo.highestRole,
@@ -6301,22 +7529,24 @@ io.on("connection", (socket) => {
 
         // Load user's persisted DM/group channels from database using stable ID
         const stableId = getStableUserId(socket);
+        (socket as any).meshLeaseConnectedAt = registerStateMeshSocketLease(stableId, (socket as any).dbUserId);
         const userChannels = loadUserChannelsFromDB(stableId, roleInfo.highestRole);
         markJoinStep('load_channels');
         const enrichedChannels = enrichDMChannels(userChannels, stableId, registeredUsersByDbId);
         markJoinStep('enrich_channels');
 
-        const emojisData = getAllEmojis();
+        const joinedUser = users.get(socket.id);
+        (socket as any).meshPresenceConnectedAt = upsertPresenceLeaseForUser(joinedUser, registeredConnectedAt);
+        const distributedUsers = buildDistributedUsersSnapshot(allDbUsers, roleLookup);
         const serverMembers = buildServerMembersSnapshot(allDbUsers, roleLookup);
         markJoinStep('build_init_payload');
         socket.emit("init", {
           channels: enrichedChannels,
-          users: Array.from(users.values()),
+          users: distributedUsers,
           serverMembers,
           voiceState: getVoiceStatePayload(),
           excalidrawState,
           emotes: Array.from(emotes.values()),
-          emojis: emojisData,
           roleDefinitions: getRoleDefinitions('default-workspace'),
           sessionId: (socket as any).sessionId,
           messagePurgeVersion: getMessagePurgeVersion()
@@ -6330,24 +7560,15 @@ io.on("connection", (socket) => {
         // Deliver offline messages for registered user
         await deliverOfflineMessages(socket, (socket as any).dbUserId);
 
-        socket.broadcast.emit("user-joined", {
-          id: socket.id,
-          username: registeredUsername,
-          handle: registeredHandle,
-          color: registeredColor,
-          status: 'active',
-          profilePicture: registeredProfilePic,
-          dbUserId: (socket as any).dbUserId,
-          roles: roleInfo.roles,
-          highestRole: roleInfo.highestRole,
-          roleColor: roleInfo.roleColor,
-          usernameFont
-        });
+        if (joinedUser) {
+          const publicJoinedUser = toPublicUser(joinedUser);
+          socket.broadcast.emit("user-joined", publicJoinedUser);
+          emitMeshBroadcast("user-joined", publicJoinedUser);
+        }
         recordPresenceStateEvent(socket, 'user_joined', {
           source: 'join_registered'
         });
 
-        const joinedUser = users.get(socket.id);
         if (joinedUser) {
           pluginLoader.triggerOnUserJoin(joinedUser).catch((error) => {
             console.error('[Plugins] Failed to trigger onUserJoin hook:', error);
@@ -6382,37 +7603,37 @@ io.on("connection", (socket) => {
       sessions.set(sessionId, session);
 
       // Create/update user object with existing session data
+      const resumedGuestConnectedAt = Date.now();
       users.set(socket.id, {
         id: socket.id,
         username: session.username,
         color: session.color,
         status: 'active',
-        profilePicture: session.profilePicture
+        profilePicture: session.profilePicture,
+        joinedAt: resumedGuestConnectedAt
       });
 
       // Guest users use socket.id as their stable ID (ephemeral, expected)
       const guestChannels = loadUserChannelsFromDB(socket.id);
 
-      const emojisData = getAllEmojis();
+      const resumedGuestUser = users.get(socket.id);
+      (socket as any).meshPresenceConnectedAt = upsertPresenceLeaseForUser(resumedGuestUser, resumedGuestConnectedAt);
       socket.emit("init", {
         channels: guestChannels,
-        users: Array.from(users.values()),
+        users: buildDistributedUsersSnapshot(),
         voiceState: getVoiceStatePayload(),
         excalidrawState,
         emotes: Array.from(emotes.values()),
-        emojis: emojisData,
         roleDefinitions: getRoleDefinitions('default-workspace'),
         sessionId: sessionId,
         messagePurgeVersion: getMessagePurgeVersion()
       });
 
-      socket.broadcast.emit("user-joined", {
-        id: socket.id,
-        username: session.username,
-        color: session.color,
-        status: 'active',
-        profilePicture: session.profilePicture
-      });
+      if (resumedGuestUser) {
+        const publicGuestUser = toPublicUser(resumedGuestUser);
+        socket.broadcast.emit("user-joined", publicGuestUser);
+        emitMeshBroadcast("user-joined", publicGuestUser);
+      }
       recordPresenceStateEvent(socket, 'user_joined', {
         source: 'join_guest_session_resume'
       });
@@ -6434,37 +7655,37 @@ io.on("connection", (socket) => {
         createdAt: Date.now()
       });
 
+      const newGuestConnectedAt = Date.now();
       users.set(socket.id, {
         id: socket.id,
         username,
         color,
         status: 'active',
-        profilePicture: undefined
+        profilePicture: undefined,
+        joinedAt: newGuestConnectedAt
       });
 
       // Guest users use socket.id as their stable ID (ephemeral, expected)
       const newGuestChannels = loadUserChannelsFromDB(socket.id);
 
-      const emojisData2 = getAllEmojis();
+      const newGuestUser = users.get(socket.id);
+      (socket as any).meshPresenceConnectedAt = upsertPresenceLeaseForUser(newGuestUser, newGuestConnectedAt);
       socket.emit("init", {
         channels: newGuestChannels,
-        users: Array.from(users.values()),
+        users: buildDistributedUsersSnapshot(),
         voiceState: getVoiceStatePayload(),
         excalidrawState,
         emotes: Array.from(emotes.values()),
-        emojis: emojisData2,
         roleDefinitions: getRoleDefinitions('default-workspace'),
         sessionId: sessionId,
         messagePurgeVersion: getMessagePurgeVersion()
       });
 
-      socket.broadcast.emit("user-joined", {
-        id: socket.id,
-        username,
-        color,
-        status: 'active',
-        profilePicture: undefined
-      });
+      if (newGuestUser) {
+        const publicGuestUser = toPublicUser(newGuestUser);
+        socket.broadcast.emit("user-joined", publicGuestUser);
+        emitMeshBroadcast("user-joined", publicGuestUser);
+      }
       recordPresenceStateEvent(socket, 'user_joined', {
         source: 'join_guest_new_session'
       });
@@ -6516,6 +7737,7 @@ io.on("connection", (socket) => {
     }
 
     // Create/update user object with existing session data
+    const rejoinConnectedAt = Date.now();
     users.set(socket.id, {
       id: socket.id,
       username: session.username,
@@ -6523,6 +7745,7 @@ io.on("connection", (socket) => {
       color: session.color,
       status: 'active',
       profilePicture: session.profilePicture,
+      joinedAt: rejoinConnectedAt,
       dbUserId: rejoinDbUserId,
       roles: rejoinRoleInfo.roles,
       highestRole: rejoinRoleInfo.highestRole,
@@ -6537,14 +7760,17 @@ io.on("connection", (socket) => {
 
     // Load user's persisted DM/group channels from database using stable ID
     const rejoinStableId = getStableUserId(socket);
+    (socket as any).meshLeaseConnectedAt = registerStateMeshSocketLease(rejoinStableId, rejoinDbUserId);
     const rejoinChannels = loadUserChannelsFromDB(rejoinStableId);
     const enrichedRejoinChannels = enrichDMChannels(rejoinChannels, rejoinStableId);
+    const rejoinUser = users.get(socket.id);
+    (socket as any).meshPresenceConnectedAt = upsertPresenceLeaseForUser(rejoinUser, rejoinConnectedAt);
 
     const emojisData = getAllEmojis();
     const rejoinServerMembers = rejoinDbUserId ? buildServerMembersSnapshot() : undefined;
     socket.emit("init", {
       channels: enrichedRejoinChannels,
-      users: Array.from(users.values()),
+      users: buildDistributedUsersSnapshot(),
       serverMembers: rejoinServerMembers,
       voiceState: getVoiceStatePayload(),
       excalidrawState,
@@ -6561,20 +7787,11 @@ io.on("connection", (socket) => {
     }
 
     // Broadcast user rejoin
-    const rejoinUser = users.get(socket.id);
-    socket.broadcast.emit("user-joined", {
-      id: socket.id,
-      username: session.username,
-      handle: rejoinUser?.handle,
-      color: rejoinUser?.color,
-      status: 'active',
-      profilePicture: rejoinUser?.profilePicture,
-      dbUserId: rejoinDbUserId,
-      roles: rejoinUser?.roles,
-      highestRole: rejoinUser?.highestRole,
-      roleColor: rejoinUser?.roleColor,
-      usernameFont: rejoinUser?.usernameFont
-    });
+    if (rejoinUser) {
+      const publicRejoinUser = toPublicUser(rejoinUser);
+      socket.broadcast.emit("user-joined", publicRejoinUser);
+      emitMeshBroadcast("user-joined", publicRejoinUser);
+    }
     recordPresenceStateEvent(socket, 'user_joined', {
       source: 'rejoin_event'
     });
@@ -6630,6 +7847,10 @@ io.on("connection", (socket) => {
     }
 
     users.set(socket.id, user);
+    (socket as any).meshPresenceConnectedAt = upsertPresenceLeaseForUser(
+      user,
+      (socket as any).meshPresenceConnectedAt ?? null
+    );
 
     // For registered users, update the database session and user profile
     if ((socket as any).isRegistered && (socket as any).sessionId) {
@@ -6691,15 +7912,9 @@ io.on("connection", (socket) => {
     }
 
     // Broadcast profile update to all users
-    io.emit("profile-updated", {
-      id: socket.id,
-      username: user.username,
-      color: user.color,
-      status: user.status,
-      profilePicture: user.profilePicture,
-      dbUserId: user.dbUserId,
-      usernameFont: user.usernameFont
-    });
+    const publicProfileUser = toPublicUser(user);
+    io.emit("profile-updated", publicProfileUser);
+    emitMeshBroadcast("profile-updated", publicProfileUser);
 
     if (ENABLE_LOGGING) console.log(`${user.username} updated profile: status=${user.status}`);
     if (callback) callback({ success: true });
@@ -6847,6 +8062,7 @@ io.on("connection", (socket) => {
     attachmentEncryption?: AttachmentEncryptionMeta;
     attachmentStorage?: AttachmentStorageMeta;
     replyTo?: string;
+    entities?: MessageEntity[];
     isSpoiler?: boolean;
     encrypted?: boolean;
     iv?: string;
@@ -6917,10 +8133,11 @@ io.on("connection", (socket) => {
 
     // Build minimal message object with only present fields
     const message: any = {
-      id: `${Date.now()}-${senderStableId}`,
+      id: createRealtimeMessageId(senderStableId),
       user: user.username,
       userId: socket.id, // Current socket.id for realtime identification
       senderStableId, // Stable ownership check across reconnects
+      color: user.color,
       text: data.text,
       timestamp: Date.now(),
       type: data.type,
@@ -6933,6 +8150,7 @@ io.on("connection", (socket) => {
         .map((file) => normalizeClientFileAttachment(file))
         .filter((file): file is NonNullable<ReturnType<typeof normalizeClientFileAttachment>> => Boolean(file))
       : [];
+    const normalizedEntities = normalizeClientMessageEntities(data.entities, data.text, !data.encrypted);
 
     // Only add optional fields if they exist (reduces payload size by 30-40%)
     if (data.gifUrl) message.gifUrl = data.gifUrl;
@@ -6942,6 +8160,7 @@ io.on("connection", (socket) => {
     if (data.fileName) message.fileName = sanitizeUploadFileName(data.fileName);
     if (data.fileSize) message.fileSize = Math.max(0, Math.floor(data.fileSize));
     if (normalizedFiles.length > 0) message.files = normalizedFiles;
+    if (normalizedEntities.length > 0) message.entities = normalizedEntities;
     if (data.attachmentEncryption) message.attachmentEncryption = data.attachmentEncryption;
     if (data.attachmentStorage) message.attachmentStorage = data.attachmentStorage;
     if (data.replyTo) message.replyTo = data.replyTo;
@@ -6959,20 +8178,17 @@ io.on("connection", (socket) => {
       const myStableId = getStableUserId(socket);
       const recipientStableId = channel.members.find(m => m !== myStableId);
       if (recipientStableId) {
-        const recipientSocketId = resolveSocketId(recipientStableId);
-        if (recipientSocketId) {
-          io.to(recipientSocketId).emit("dm-channel-added", {
-            channelId: data.channelId,
-            otherUser: {
-              id: user.id,
-              username: user.username,
-              color: user.color,
-              status: user.status,
-              profilePicture: user.profilePicture,
-              dbUserId: user.dbUserId
-            }
-          });
-        }
+        emitToStableUser(recipientStableId, "dm-channel-added", {
+          channelId: data.channelId,
+          otherUser: {
+            id: user.id,
+            username: user.username,
+            color: user.color,
+            status: user.status,
+            profilePicture: user.profilePicture,
+            dbUserId: user.dbUserId
+          }
+        });
         channel.recipientNotified = true;
       }
     }
@@ -6987,33 +8203,22 @@ io.on("connection", (socket) => {
       channel.persistMessages === true &&
       !(data.type === 'role_gate' && data.roleGatePersist === false);
     if (shouldPersistMessage) {
-      // Persist message to database with stable sender ID
-      try {
-        stateMessageStore.create({
-          message_id: message.id,
-          channel_id: data.channelId,
-          sender_id: senderStableId,
-          sender_username: user.username,
-          sender_color: user.color,
-          message_type: data.type,
-          content: message.text,
-          gif_url: message.gifUrl,
-          file_url: message.fileUrl,
-          file_name: message.fileName,
-          file_size: message.fileSize,
-          files_json: message.files ? JSON.stringify(message.files) : undefined,
-          attachment_encryption_json: message.attachmentEncryption ? JSON.stringify(message.attachmentEncryption) : undefined,
-          attachment_storage_json: message.attachmentStorage ? JSON.stringify(message.attachmentStorage) : undefined,
-          reply_to_id: message.replyTo,
-          is_spoiler: data.isSpoiler ? 1 : 0,
-          is_pinned: 0,
-          is_edited: 0,
-          is_encrypted: data.encrypted ? 1 : 0,
-          encryption_iv: data.iv || undefined,
-          created_at: message.timestamp
-        });
-      } catch (dbError) {
-        console.error('[MessageRepository] Failed to persist message:', dbError);
+      const runtimeConfig = getStatePlaneRuntimeStats().config;
+      const asyncCreate = (stateMessageStore as any).createAsync;
+      const canUseAsyncCreate =
+        runtimeConfig.effectiveMode === 'stdb_primary' &&
+        runtimeConfig.stdbPrimaryMirrorLegacyWrites === false &&
+        typeof asyncCreate === 'function';
+
+      if (canUseAsyncCreate) {
+        void persistRealtimeMessageForSocket(socket, data.channelId, message, { skipExistingCheck: true });
+      } else {
+        // Persist message to database with stable sender ID
+        try {
+          stateMessageStore.create(buildPersistedMessageFromRealtime(data.channelId, message));
+        } catch (dbError) {
+          console.error('[MessageRepository] Failed to persist message:', dbError);
+        }
       }
     }
 
@@ -7064,6 +8269,7 @@ io.on("connection", (socket) => {
     if (message.encrypted) return;
 
     message.text = data.newText;
+    delete message.entities;
     message.isEdited = true;
 
     // Persist edit to database
@@ -7073,7 +8279,12 @@ io.on("connection", (socket) => {
       console.error('[MessageRepository] Failed to persist edit:', dbError);
     }
 
-    emitToChannel(data.channelId, "message-edited", { channelId: data.channelId, messageId: data.messageId, newText: data.newText });
+    emitToChannel(data.channelId, "message-edited", {
+      channelId: data.channelId,
+      messageId: data.messageId,
+      newText: data.newText,
+      entities: []
+    });
   });
 
   // Handle message delete
@@ -7122,6 +8333,7 @@ io.on("connection", (socket) => {
     if (channelPins) {
       channelPins.delete(data.messageId);
     }
+    messagePersistenceRetryAttempts.delete(data.messageId);
 
     // Cancel any scheduled auto-deletion for this message
     cancelMessageDeletion(data.messageId);
@@ -7134,6 +8346,35 @@ io.on("connection", (socket) => {
     }
 
     emitToChannel(data.channelId, "message-deleted", { channelId: data.channelId, messageId: data.messageId });
+  });
+
+  socket.on("retry-message-persist", async (data: { channelId: string; messageId: string }) => {
+    if (!getAccessibleChannel(data.channelId)) return;
+
+    const channel = channels.get(data.channelId);
+    if (!channel?.persistMessages) {
+      socket.emit("message-persist-failed", {
+        channelId: data.channelId,
+        messageId: data.messageId,
+        attempts: messagePersistenceRetryAttempts.get(data.messageId) ?? 0,
+        error: 'This channel is not configured for persistent messages.',
+        detail: 'persistMessages=false'
+      });
+      return;
+    }
+
+    const messages = channelMessages.get(data.channelId);
+    if (!messages) return;
+
+    const message = messages.find((entry) => entry.id === data.messageId);
+    if (!message) return;
+
+    const stableId = getStableUserId(socket);
+    if (message.userId !== socket.id && message.userId !== stableId && message.senderStableId !== stableId) {
+      return;
+    }
+
+    await persistRealtimeMessageForSocket(socket, data.channelId, message, { notifyOnSuccess: true });
   });
 
   // Handle message pin/unpin
@@ -7464,6 +8705,11 @@ io.on("connection", (socket) => {
     if (!canAccessChannel(voiceChannel)) return;
 
     const stableUserId = getStableUserId(socket);
+    const voiceGate = canJoinVoiceChannel(voiceChannel, stableUserId);
+    if (!voiceGate.allowed) {
+      socket.emit("channel-error", voiceGate.reason);
+      return;
+    }
     let participants = voiceChannelParticipants.get(data.channelId);
     if (!participants) {
       participants = new Set<string>();
@@ -7475,6 +8721,8 @@ io.on("connection", (socket) => {
     participants.add(stableUserId);
     addVoiceSubscription(socket.id, data.channelId);
     emitVoiceChannelState(data.channelId);
+    syncVoiceRecordingPresenceForSocket(stableUserId, socket.id);
+    emitVoiceChannelRecordingPresence(data.channelId);
     emitToVoiceAudience(data.channelId, "voice-channel-user-joined", {
       channelId: data.channelId,
       userId: stableUserId,
@@ -7489,6 +8737,11 @@ io.on("connection", (socket) => {
     const voiceChannel = channels.get(data.channelId);
     if (!voiceChannel || voiceChannel.type !== 'voice') return;
     if (!canAccessChannel(voiceChannel)) return;
+    const subscriptionGate = canSubscribeToVoiceChannel(socket.id, voiceChannel);
+    if (!subscriptionGate.allowed) {
+      socket.emit("channel-error", subscriptionGate.reason);
+      return;
+    }
 
     addVoiceSubscription(socket.id, data.channelId);
     socket.emit("voice-channel-subscribed", {
@@ -7496,6 +8749,8 @@ io.on("connection", (socket) => {
       members: getVoiceChannelMembers(data.channelId)
     });
     emitVoiceChannelState(data.channelId);
+    syncVoiceRecordingPresenceForSocket(getStableUserId(socket), socket.id);
+    emitVoiceChannelRecordingPresence(data.channelId);
   });
 
   socket.on("voice-channel-leave", (data: { channelId: string }) => {
@@ -7520,12 +8775,14 @@ io.on("connection", (socket) => {
 
     removeAllVoicePeerLinks(stableUserId);
     removeVoiceSubscription(socket.id, data.channelId);
+    syncVoiceRecordingPresenceForSocket(stableUserId, socket.id);
   });
 
   socket.on("voice-channel-unsubscribe", (data: { channelId: string }) => {
     const user = users.get(socket.id);
     if (!user || !data.channelId) return;
     removeVoiceSubscription(socket.id, data.channelId);
+    syncVoiceRecordingPresenceForSocket(getStableUserId(socket), socket.id);
   });
 
   socket.on("voice-peer-link", (data: { peerStableUserId: string }) => {
@@ -7544,10 +8801,91 @@ io.on("connection", (socket) => {
     removeVoicePeerLink(stableUserId, data.peerStableUserId);
   });
 
+  socket.on(
+    "call-recording-set-active",
+    (
+      data: { active: boolean; scope?: "direct" | "group" | "channel"; channelId?: string },
+      callback?: (response: { ok: boolean; error?: string }) => void
+    ) => {
+      const user = users.get(socket.id);
+      const respond = (ok: boolean, error?: string) => {
+        if (typeof callback === 'function') {
+          callback(ok ? { ok: true } : { ok: false, error });
+        }
+      };
+
+      if (!user || typeof data?.active !== 'boolean') {
+        respond(false, 'Invalid recording state payload.');
+        return;
+      }
+
+      const stableUserId = getStableUserId(socket);
+      const directAudience = new Set<string>([socket.id, ...Array.from(activeCallPeers.get(socket.id) || [])]);
+
+      clearAllRecordingPresenceForStableUser(stableUserId, socket.id);
+      emitDirectCallRecordingPresenceForSocketSet(directAudience);
+
+      if (!data.active) {
+        respond(true);
+        return;
+      }
+
+      if (data.scope === 'direct') {
+        if ((activeCallPeers.get(socket.id)?.size || 0) === 0) {
+          respond(false, 'Join an active direct call before recording.');
+          return;
+        }
+
+        directCallRecorders.add(stableUserId);
+        emitDirectCallRecordingPresenceForSocketSet(directAudience);
+        respond(true);
+        return;
+      }
+
+      if (data.scope === 'group') {
+        if (!data.channelId) {
+          respond(false, 'Group call recording requires a channel.');
+          return;
+        }
+
+        const session = groupCallSessions.get(data.channelId);
+        if (!session || !session.connectedParticipants.has(stableUserId)) {
+          respond(false, 'Join the group call before recording.');
+          return;
+        }
+
+        let participants = groupCallRecordingParticipants.get(data.channelId);
+        if (!participants) {
+          participants = new Set<string>();
+          groupCallRecordingParticipants.set(data.channelId, participants);
+        }
+        participants.add(stableUserId);
+        emitGroupCallRecordingPresence(data.channelId);
+        respond(true);
+        return;
+      }
+
+      if (data.scope === 'channel') {
+        if ((socketVoiceSubscriptions.get(socket.id)?.size || 0) === 0) {
+          respond(false, 'Join or listen to a voice channel before recording.');
+          return;
+        }
+
+        voiceCallRecorders.add(stableUserId);
+        syncVoiceRecordingPresenceForSocket(stableUserId, socket.id);
+        respond(true);
+        return;
+      }
+
+      respond(false, 'Unsupported recording scope.');
+    }
+  );
+
   // Voice/Video calling
   socket.on("call-initiate", (data: { targetUserId?: string; channelId?: string; isVideoCall: boolean }) => {
     const user = users.get(socket.id);
     if (!user) return;
+    const myStableId = getStableUserId(socket);
 
     if (data.channelId) {
       const channel = getGroupChannelById(data.channelId);
@@ -7616,12 +8954,9 @@ io.on("connection", (socket) => {
       if (invitees.length > 0) {
         session.lastInviteSenderId = socket.id;
         for (const inviteeStableId of invitees) {
-          const inviteeSocketId = resolveSocketId(inviteeStableId);
-          if (!inviteeSocketId || !users.has(inviteeSocketId)) continue;
-
           session.invitedParticipants.add(inviteeStableId);
-          io.to(inviteeSocketId).emit("call-incoming", {
-            userId: socket.id,
+          emitToStableUser(inviteeStableId, "call-incoming", {
+            userId: myStableId,
             username: user.username,
             isVideoCall: session.isVideoCall,
             channelId: channel.id,
@@ -7635,11 +8970,7 @@ io.on("connection", (socket) => {
 
     if (!data.targetUserId) return;
     const targetStableId = resolveStableUserIdFromAny(data.targetUserId) || data.targetUserId;
-    const targetSocketId = users.has(data.targetUserId)
-      ? data.targetUserId
-      : resolveSocketId(targetStableId);
-
-    if (!targetSocketId || !users.has(targetSocketId)) {
+    if (!isStableUserConnected(targetStableId)) {
       socket.emit("call-error", {
         code: "target_unavailable",
         message: "Target user is not currently connected",
@@ -7648,7 +8979,7 @@ io.on("connection", (socket) => {
       return;
     }
 
-    if (targetSocketId === socket.id) {
+    if (targetStableId === myStableId) {
       socket.emit("call-error", {
         code: "self_call",
         message: "You cannot call yourself",
@@ -7657,8 +8988,8 @@ io.on("connection", (socket) => {
       return;
     }
 
-    io.to(targetSocketId).emit("call-incoming", {
-      userId: socket.id,
+    emitToCallTarget(targetStableId, "call-incoming", {
+      userId: myStableId,
       username: user.username,
       isVideoCall: data.isVideoCall
     });
@@ -7710,7 +9041,7 @@ io.on("connection", (socket) => {
       ? data.callerId
       : resolveSocketId(callerStableId);
 
-    if (!callerSocketId || !users.has(callerSocketId)) {
+    if (!callerSocketId && !callerStableId.startsWith('user-')) {
       socket.emit("call-error", {
         code: "caller_unavailable",
         message: "Caller disconnected before the call was answered",
@@ -7720,12 +9051,14 @@ io.on("connection", (socket) => {
     }
 
     // Fixed: emit call-accepted with username for proper UI display
-    io.to(callerSocketId).emit("call-accepted", {
-      userId: socket.id,
+    emitToCallTarget(callerStableId, "call-accepted", {
+      userId: getStableUserId(socket),
       username: user?.username || 'Unknown',
       isVideoCall: data.isVideoCall
     });
-    addCallPeer(socket.id, callerSocketId);
+    if (callerSocketId && users.has(callerSocketId)) {
+      addCallPeer(socket.id, callerSocketId);
+    }
 
     const myStableId = getStableUserId(socket);
     const callerUser = users.get(callerSocketId);
@@ -7749,14 +9082,11 @@ io.on("connection", (socket) => {
 
     if (!data.callerId) return;
     const callerStableId = resolveStableUserIdFromAny(data.callerId) || data.callerId;
-    const callerSocketId = users.has(data.callerId)
-      ? data.callerId
-      : resolveSocketId(callerStableId);
-    if (!callerSocketId) return;
-
-    io.to(callerSocketId).emit("call-rejected", {
-      userId: socket.id
-    });
+    if (!emitToCallTarget(callerStableId, "call-rejected", {
+      userId: getStableUserId(socket)
+    })) {
+      return;
+    }
   });
 
   socket.on("call-cancel", (data: { targetUserId?: string; channelId?: string }) => {
@@ -7779,14 +9109,11 @@ io.on("connection", (socket) => {
 
     if (!data.targetUserId) return;
     const targetStableId = resolveStableUserIdFromAny(data.targetUserId) || data.targetUserId;
-    const targetSocketId = users.has(data.targetUserId)
-      ? data.targetUserId
-      : resolveSocketId(targetStableId);
-    if (!targetSocketId) return;
-
-    io.to(targetSocketId).emit("call-cancelled", {
-      userId: socket.id
-    });
+    if (!emitToCallTarget(targetStableId, "call-cancelled", {
+      userId: getStableUserId(socket)
+    })) {
+      return;
+    }
   });
 
   socket.on("group-call-stop-ringing", (data: { channelId: string; targetUserId: string }) => {
@@ -7825,9 +9152,10 @@ io.on("connection", (socket) => {
 
   socket.on("call-end", (data?: { participants?: string[] }) => {
     // Clean up call peer tracking
-    removeAllCallPeers(socket.id);
-
     const myStableId = getStableUserId(socket);
+    const callPeers = removeAllCallPeers(socket.id);
+    clearAllRecordingPresenceForStableUser(myStableId, socket.id);
+    emitDirectCallRecordingPresenceForSocketSet(callPeers);
     if (data?.participants && data.participants.length > 0) {
       data.participants.forEach(participantId => {
         const participant = users.get(participantId);
@@ -7842,20 +9170,24 @@ io.on("connection", (socket) => {
     if (data?.participants && data.participants.length > 0) {
       // Send to specific participants
       data.participants.forEach(participantId => {
-        io.to(participantId).emit("call-ended", {
-          userId: socket.id
+        emitToCallTarget(participantId, "call-ended", {
+          userId: myStableId
         });
       });
     } else {
       // Fallback: broadcast (for backward compatibility)
       socket.broadcast.emit("call-ended", {
-        userId: socket.id
+        userId: myStableId
+      });
+      emitMeshBroadcast("call-ended", {
+        userId: myStableId
       });
     }
   });
 
   socket.on("call-offer", (data: { offer: RTCSessionDescriptionInit; targetId: string; channelId?: string }) => {
     let targetSocketId = data.targetId;
+    let targetStableId = resolveStableUserIdFromAny(data.targetId);
     if (data.channelId) {
       const channel = channels.get(data.channelId);
       if (!channel) {
@@ -7870,7 +9202,7 @@ io.on("connection", (socket) => {
       } else if (channel.type === 'group') {
         const session = groupCallSessions.get(data.channelId);
         const senderStableId = getStableUserId(socket);
-        const targetStableId = resolveStableUserIdFromAny(data.targetId);
+        targetStableId = resolveStableUserIdFromAny(data.targetId);
         const resolvedTargetSocketId = users.has(data.targetId)
           ? data.targetId
           : (targetStableId ? resolveSocketId(targetStableId) : null);
@@ -7892,25 +9224,32 @@ io.on("connection", (socket) => {
       }
     }
     const user = users.get(socket.id);
-    io.to(targetSocketId).emit("call-offer", {
+    const delivered = emitToCallTarget(targetStableId || targetSocketId, "call-offer", {
       offer: data.offer,
-      senderId: socket.id,
+      senderId: getStableUserId(socket),
       username: user?.username || 'Unknown',
       channelId: data.channelId
     });
+    if (!delivered) {
+      socket.emit("call-error", {
+        code: "target_unavailable",
+        message: "Target user is not currently connected",
+        targetUserId: targetStableId || targetSocketId
+      });
+    }
   });
 
   socket.on("call-answer-sdp", (data: { answer: RTCSessionDescriptionInit; targetId: string }) => {
-    io.to(data.targetId).emit("call-answer-sdp", {
+    emitToCallTarget(data.targetId, "call-answer-sdp", {
       answer: data.answer,
-      senderId: socket.id
+      senderId: getStableUserId(socket)
     });
   });
 
   socket.on("call-ice-candidate", (data: { candidate: RTCIceCandidateInit; targetId: string }) => {
-    io.to(data.targetId).emit("call-ice-candidate", {
+    emitToCallTarget(data.targetId, "call-ice-candidate", {
       candidate: data.candidate,
-      senderId: socket.id
+      senderId: getStableUserId(socket)
     });
   });
 
@@ -8169,6 +9508,56 @@ io.on("connection", (socket) => {
       return;
     }
 
+    const voiceGate = canJoinVoiceChannel(targetChannel, stableUserId);
+    if (!voiceGate.allowed) {
+      socket.emit("channel-error", voiceGate.reason);
+      return;
+    }
+
+    moveVoiceParticipant(stableUserId, fromChannel.id, targetChannel.id);
+  });
+
+  socket.on("move-user-to-voice-channel", (data: { targetUserId: string; toChannelId: string }) => {
+    const targetChannel = channels.get(data.toChannelId);
+    if (!targetChannel || targetChannel.type !== 'voice') {
+      socket.emit("channel-error", "Target voice channel not found");
+      return;
+    }
+    if (!canAccessChannel(targetChannel)) {
+      socket.emit("channel-error", "Access denied to this voice channel");
+      return;
+    }
+
+    const stableUserId = resolveStableUserIdFromAny(data.targetUserId);
+    if (!stableUserId) {
+      socket.emit("channel-error", "Target user not found");
+      return;
+    }
+    if (!canMoveVoiceMember(stableUserId)) {
+      socket.emit("channel-error", "Only owner/admin/mod can move that user");
+      return;
+    }
+
+    const voiceGate = canJoinVoiceChannel(targetChannel, stableUserId);
+    if (!voiceGate.allowed) {
+      socket.emit("channel-error", voiceGate.reason);
+      return;
+    }
+
+    const fromChannel = Array.from(channels.values()).find((channel) => {
+      if (channel.type !== 'voice') return false;
+      const participants = voiceChannelParticipants.get(channel.id);
+      return participants?.has(stableUserId);
+    });
+    if (!fromChannel) {
+      socket.emit("channel-error", "Target user is not connected to a voice channel");
+      return;
+    }
+    if (!canAccessChannel(fromChannel)) {
+      socket.emit("channel-error", "Access denied to this voice channel");
+      return;
+    }
+
     moveVoiceParticipant(stableUserId, fromChannel.id, targetChannel.id);
   });
 
@@ -8351,6 +9740,8 @@ io.on("connection", (socket) => {
     minRole?: string;
     voiceSettings?: {
       bitrateMode?: 'auto' | 'low' | 'standard' | 'high';
+      userLimit?: number | null;
+      forceSolo?: boolean;
     };
   }) => {
     const channel = channels.get(data.channelId);
@@ -8367,9 +9758,7 @@ io.on("connection", (socket) => {
         socket.emit("channel-error", "Only owner/admin can change channel role access");
         return;
       }
-      const roleExists = db.prepare('SELECT 1 FROM roles WHERE role_name = ? AND workspace_id = ? LIMIT 1')
-        .get(data.minRole, 'default-workspace');
-      if (!roleExists) {
+      if (!stateRbacStore.roleExists(data.minRole, 'default-workspace')) {
         socket.emit("channel-error", "Invalid minimum role");
         return;
       }
@@ -8377,6 +9766,7 @@ io.on("connection", (socket) => {
 
     const actor = users.get(socket.id);
     const actorRole = getUserRoleInfo(actor?.dbUserId).highestRole;
+    let normalizedVoiceSettings: Channel['voiceSettings'] | undefined;
     if (data.persistMessages !== undefined && actorRole !== 'owner') {
       socket.emit("channel-error", "Only owners can change message persistence");
       return;
@@ -8388,6 +9778,27 @@ io.on("connection", (socket) => {
     if (data.watchQueueEnabled !== undefined && !['owner', 'admin'].includes(actorRole)) {
       socket.emit("channel-error", "Only owner/admin can change watch queue channel settings");
       return;
+    }
+    if (data.voiceSettings !== undefined) {
+      if (channel.type !== 'voice') {
+        socket.emit("channel-error", "Voice settings can only be changed on voice channels");
+        return;
+      }
+      if (!['owner', 'admin'].includes(actorRole)) {
+        socket.emit("channel-error", "Only owner/admin can change voice channel settings");
+        return;
+      }
+
+      normalizedVoiceSettings = parseVoiceSettings(JSON.stringify(data.voiceSettings));
+      const effectiveLimit = getVoiceChannelUserLimit({
+        ...channel,
+        voiceSettings: normalizedVoiceSettings
+      });
+      const participantCount = voiceChannelParticipants.get(channel.id)?.size || 0;
+      if (effectiveLimit !== null && participantCount > effectiveLimit) {
+        socket.emit("channel-error", `Current occupancy (${participantCount}) exceeds the configured voice limit (${effectiveLimit})`);
+        return;
+      }
     }
 
     // Update channel settings
@@ -8408,7 +9819,7 @@ io.on("connection", (socket) => {
       channel.minRole = validatedMinRole;
     }
     if (data.voiceSettings !== undefined) {
-      channel.voiceSettings = data.voiceSettings;
+      channel.voiceSettings = normalizedVoiceSettings;
     }
     channels.set(data.channelId, channel);
 
@@ -8428,7 +9839,7 @@ io.on("connection", (socket) => {
           description: data.description,
           watch_queue_enabled: data.watchQueueEnabled !== undefined ? (data.watchQueueEnabled ? 1 : 0) : undefined,
           min_role: validatedMinRole,
-          voice_settings_json: data.voiceSettings !== undefined ? JSON.stringify(data.voiceSettings) : undefined
+          voice_settings_json: data.voiceSettings !== undefined ? (normalizedVoiceSettings ? JSON.stringify(normalizedVoiceSettings) : null) : undefined
         });
       } catch (e) {
         // Channel may not exist in DB yet (in-memory only)
@@ -8444,7 +9855,7 @@ io.on("connection", (socket) => {
       description: data.description,
       watchQueueEnabled: data.watchQueueEnabled,
       minRole: data.minRole,
-      voiceSettings: data.voiceSettings
+      voiceSettings: data.voiceSettings !== undefined ? normalizedVoiceSettings : undefined
     });
 
     if (ENABLE_LOGGING) {
@@ -8455,7 +9866,7 @@ io.on("connection", (socket) => {
         description: data.description,
         watchQueueEnabled: data.watchQueueEnabled,
         minRole: data.minRole,
-        voiceSettings: data.voiceSettings
+        voiceSettings: data.voiceSettings !== undefined ? normalizedVoiceSettings : undefined
       });
     }
   });
@@ -8628,10 +10039,7 @@ io.on("connection", (socket) => {
 
     // Notify both participants
     for (const memberId of channel.members || []) {
-      const memberSocketId = resolveSocketId(memberId);
-      if (memberSocketId) {
-        io.to(memberSocketId).emit("dm-deleted", { channelId: data.channelId });
-      }
+      emitToStableUser(memberId, "dm-deleted", { channelId: data.channelId });
     }
 
     if (ENABLE_LOGGING) console.log(`DM deleted: ${data.channelId}`);
@@ -8669,10 +10077,7 @@ io.on("connection", (socket) => {
 
     try {
       if (data.roleName === 'owner') {
-        const ownerCountRow = db
-          .prepare("SELECT COUNT(*) AS count FROM user_roles WHERE role_name = 'owner' AND workspace_id = ?")
-          .get('default-workspace') as { count?: number } | undefined;
-        const ownerCount = Number(ownerCountRow?.count || 0);
+        const ownerCount = stateRbacStore.countRoleAssignments('owner', 'default-workspace');
         if (ownerCount <= 1) {
           socket.emit("channel-error", "Cannot remove the last owner");
           return;
@@ -8765,11 +10170,7 @@ io.on("connection", (socket) => {
     }
 
     try {
-      db.prepare(`
-        UPDATE roles
-        SET display_name = ?
-        WHERE role_name = ? AND workspace_id = ?
-      `).run(nextDisplay, data.roleName, 'default-workspace');
+      stateRbacStore.setRoleDisplayName(data.roleName, nextDisplay, 'default-workspace');
       emitRoleDefinitions();
     } catch (error) {
       socket.emit("channel-error", "Failed to update role display name");
@@ -8805,9 +10206,7 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const roleExists = db.prepare('SELECT 1 FROM roles WHERE role_name = ? AND workspace_id = ? LIMIT 1')
-      .get(data.roleName, 'default-workspace');
-    if (!roleExists) {
+    if (!stateRbacStore.roleExists(data.roleName, 'default-workspace')) {
       socket.emit("channel-error", "Unknown role");
       return;
     }
@@ -8960,10 +10359,7 @@ io.on("connection", (socket) => {
     };
 
     memberIds.forEach(stableId => {
-      const socketId = resolveSocketId(stableId);
-      if (socketId) {
-        io.to(socketId).emit("group-created", groupPayload);
-      }
+      emitToStableUser(stableId, "group-created", groupPayload);
     });
 
     pluginLoader.triggerOnChannelCreate(groupPayload).catch((error) => {
@@ -9006,10 +10402,7 @@ io.on("connection", (socket) => {
 
     // Notify remaining members
     channel.members.forEach(memberId => {
-      const memberSocketId = resolveSocketId(memberId);
-      if (memberSocketId) {
-        io.to(memberSocketId).emit("group-member-removed", { channelId: data.channelId, userId: stableId });
-      }
+      emitToStableUser(memberId, "group-member-removed", { channelId: data.channelId, userId: stableId });
     });
 
     // Archive if no members remain
@@ -9057,17 +10450,11 @@ io.on("connection", (socket) => {
     }
 
     // Notify kicked user
-    const targetSocketId = resolveSocketId(data.targetUserId);
-    if (targetSocketId) {
-      io.to(targetSocketId).emit("group-removed", { channelId: data.channelId });
-    }
+    emitToStableUser(data.targetUserId, "group-removed", { channelId: data.channelId });
 
     // Notify remaining members
     channel.members?.forEach(memberId => {
-      const memberSocketId = resolveSocketId(memberId);
-      if (memberSocketId) {
-        io.to(memberSocketId).emit("group-member-removed", { channelId: data.channelId, userId: data.targetUserId });
-      }
+      emitToStableUser(memberId, "group-member-removed", { channelId: data.channelId, userId: data.targetUserId });
     });
 
     if (ENABLE_LOGGING) console.log(`User ${data.targetUserId} kicked from group ${data.channelId} by ${user.username}`);
@@ -9143,14 +10530,11 @@ io.on("connection", (socket) => {
     // Notify existing members
     channel.members.forEach(memberId => {
       if (memberId === data.userId) return;
-      const memberSocketId = resolveSocketId(memberId);
-      if (memberSocketId) {
-        io.to(memberSocketId).emit("group-member-added", {
-          channelId: data.channelId,
-          userId: data.userId,
-          user: addedUserInfo
-        });
-      }
+      emitToStableUser(memberId, "group-member-added", {
+        channelId: data.channelId,
+        userId: data.userId,
+        user: addedUserInfo
+      });
     });
 
     // Notify the new member with full channel data (reuse group-created event)
@@ -9167,17 +10551,15 @@ io.on("connection", (socket) => {
     }).filter(Boolean);
 
     const dbChannel = channelRepository.findById(data.channelId);
-    if (targetSocketId) {
-      io.to(targetSocketId).emit("group-created", {
-        id: data.channelId,
-        name: channel.name,
-        createdAt: channel.createdAt,
-        type: 'group',
-        members: channel.members,
-        memberUsers,
-        avatar: dbChannel?.avatar || null
-      });
-    }
+    emitToStableUser(data.userId, "group-created", {
+      id: data.channelId,
+      name: channel.name,
+      createdAt: channel.createdAt,
+      type: 'group',
+      members: channel.members,
+      memberUsers,
+      avatar: dbChannel?.avatar || null
+    });
 
     if (ENABLE_LOGGING) console.log(`User ${data.userId} added to group ${data.channelId} by ${user.username}`);
   });
@@ -9203,10 +10585,7 @@ io.on("connection", (socket) => {
 
     // Notify all members
     channel.members?.forEach(memberId => {
-      const memberSocketId = resolveSocketId(memberId);
-      if (memberSocketId) {
-        io.to(memberSocketId).emit("group-avatar-updated", { channelId: data.channelId, avatar: data.avatarUrl });
-      }
+      emitToStableUser(memberId, "group-avatar-updated", { channelId: data.channelId, avatar: data.avatarUrl });
     });
 
     if (ENABLE_LOGGING) console.log(`Group avatar updated for ${data.channelId} by ${user.username}`);
@@ -9305,7 +10684,9 @@ io.on("connection", (socket) => {
         if (currentSocketForUser === socket.id) {
           dbUserIdToSocketId.delete(user.dbUserId);
         }
+        releaseStateMeshSocketLease(`user-${user.dbUserId}`, (socket as any).meshLeaseConnectedAt ?? null);
       }
+      deletePresenceLeaseForUser(user, (socket as any).meshPresenceConnectedAt ?? null);
 
       users.delete(socket.id);
       typingUsers.delete(socket.id);
@@ -9328,12 +10709,14 @@ io.on("connection", (socket) => {
 
       // Clean up active calls — notify orphaned peers
       const callPeers = removeAllCallPeers(socket.id);
+      const stableUserId = getStableUserId(socket);
+      clearAllRecordingPresenceForStableUser(stableUserId, socket.id);
+      emitDirectCallRecordingPresenceForSocketSet(callPeers);
       for (const peerId of callPeers) {
         io.to(peerId).emit("call-ended", { userId: socket.id });
       }
 
       // Remove user from all voice channels and emit leave events
-      const stableUserId = getStableUserId(socket);
       for (const session of Array.from(groupCallSessions.values())) {
         if (!session.connectedParticipants.has(stableUserId) && !session.invitedParticipants.has(stableUserId)) {
           continue;
@@ -9363,10 +10746,14 @@ io.on("connection", (socket) => {
       removeAllVoicePeerLinks(stableUserId);
       removeAllVoiceSubscriptionsForSocket(socket.id);
 
-      socket.broadcast.emit("user-left", {
-        id: socket.id,
-        username: user.username
-      });
+      const leftPayload = {
+        id: getPublicUserId(user),
+        username: user.username,
+        dbUserId: user.dbUserId,
+        joinedAt: user.joinedAt ?? ((socket as any).meshPresenceConnectedAt ?? null)
+      };
+      socket.broadcast.emit("user-left", leftPayload);
+      emitMeshBroadcast("user-left", leftPayload);
 
       pluginLoader.triggerOnUserLeave(socket.id).catch((error) => {
         console.error('[Plugins] Failed to trigger onUserLeave hook:', error);
@@ -9398,4 +10785,3 @@ console.log(`📁 Serving static files from: ${STATIC_DIR}`);
 console.log(`💚 Health check available at: http://localhost:${PORT}/health`);
 
 console.log(`[Plugins] System: ${PLUGINS_ENABLED ? 'enabled' : 'disabled'} | Install API: ${PLUGINS_ALLOW_INSTALL ? 'enabled' : 'disabled'}`);
-

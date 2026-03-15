@@ -5,7 +5,7 @@
 #
 # PROFILE:
 #   starter   -> normal mode (SQLite)
-#   community -> community mode (Postgres)
+#   community -> community mode (SQLite + STDB-ready)
 PROFILE=starter
 
 # RUNTIME:

@@ -117,10 +117,6 @@ for compose_file in "${requested_files[@]}"; do
   append_unique_file "$compose_file"
 done
 
-if [[ "$WABI_MODE" == "community" ]]; then
-  append_unique_file "docker-compose.community.yml"
-fi
-
 if [[ "$WABI_RUNTIME" == "bun" ]]; then
   append_unique_file "docker-compose.bun.yml"
 fi
@@ -146,9 +142,6 @@ for compose_file in "${COMPOSE_FILES[@]}"; do
 done
 
 app_services=(backend frontend)
-if [[ "$WABI_MODE" == "community" ]]; then
-  app_services+=(postgres)
-fi
 
 echo "[deploy] Mode: $WABI_MODE"
 echo "[deploy] Runtime: $WABI_RUNTIME"

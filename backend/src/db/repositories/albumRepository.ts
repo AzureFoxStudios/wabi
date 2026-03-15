@@ -243,27 +243,13 @@ export class AlbumRepository {
 			if (!existingIdSet.has(id)) return 0;
 		}
 
-		const updateStmt = db.prepare(`
-			UPDATE album_items
-			SET sort_order = ?
-			WHERE album_id = ? AND id = ?
-		`);
-
-		const applyReorder = () => {
-			let totalChanges = 0;
-			for (let index = 0; index < orderedItemIds.length; index += 1) {
-				const itemId = orderedItemIds[index];
-				const info = updateStmt.run(index + 1, albumId, itemId);
-				totalChanges += info.changes;
-			}
-			return totalChanges;
-		};
-
-		if (typeof db.transaction === 'function') {
-			const tx = db.transaction(() => applyReorder());
-			return tx();
-		}
-		return applyReorder();
+		const caseClauses = orderedItemIds.map((id, index) => `WHEN ${Number(id)} THEN ${index + 1}`).join(' ');
+		const idList = orderedItemIds.map((id) => Number(id)).join(',');
+		const batchStmt = db.prepare(
+			`UPDATE album_items SET sort_order = CASE id ${caseClauses} END WHERE album_id = ? AND id IN (${idList})`
+		);
+		const info = batchStmt.run(albumId);
+		return info.changes;
 	}
 
 	countItemsByUploaderInScopeSince(

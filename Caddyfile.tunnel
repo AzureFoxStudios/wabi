@@ -2,7 +2,7 @@
     @backend {
         path /socket.io/* /api/* /uploads/* /health /health/*
     }
-    reverse_proxy @backend backend:8080
+    reverse_proxy @backend {$WABI_BACKEND_UPSTREAMS:backend:8080}
 
     reverse_proxy frontend:8080
 }

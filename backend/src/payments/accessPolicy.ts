@@ -1,4 +1,6 @@
 import { appPolicyRepository } from '../db/repositories/appPolicyRepository.js';
+import { stdbPaymentIngest, stdbPaymentRows, stdbPaymentsEnabled, parseStdbRowJson } from './stdbRuntime.js';
+import { escapeSqlLiteral } from '../state-plane/stdbSyncClient.js';
 
 export interface PaymentAccessPolicy {
 	enabled: boolean;
@@ -21,6 +23,23 @@ export const DEFAULT_PAYMENT_ACCESS_POLICY: PaymentAccessPolicy = {
 	allowGuest: false,
 	allowedRoleNames: ['owner', 'admin', 'mod', 'member']
 };
+
+function getStdbPaymentAccessPolicy(): PaymentAccessPolicy | null {
+	const rows = stdbPaymentRows(
+		'payment_policy.payments_access.read',
+		`SELECT row_json FROM state_payment_policy WHERE policy_key = ${escapeSqlLiteral(PAYMENT_ACCESS_POLICY_STORAGE_KEY)} LIMIT 1`
+	);
+	if (!rows || rows.length === 0) return null;
+	return sanitizePaymentAccessPolicy(parseStdbRowJson<PaymentAccessPolicy>(rows[0]));
+}
+
+function saveStdbPaymentAccessPolicy(policy: PaymentAccessPolicy): void {
+	stdbPaymentIngest('payment_policy.payments_access.write', 'upsert_policy', {
+		policyKey: PAYMENT_ACCESS_POLICY_STORAGE_KEY,
+		updatedAt: Date.now(),
+		row: policy
+	});
+}
 
 function normalizeRoleName(value: unknown): string | null {
 	if (typeof value !== 'string') return null;
@@ -92,21 +111,48 @@ export function getPaymentAccessPolicyBootstrapFromEnv(): PaymentAccessPolicyBoo
 	return { mode, policy };
 }
 
+let paymentAccessPolicyCache: { value: PaymentAccessPolicy; cachedAt: number } | null = null;
+const PAYMENT_ACCESS_POLICY_CACHE_TTL_MS = 60_000;
+
 export function getPaymentAccessPolicy(): PaymentAccessPolicy {
+	const now = Date.now();
+	if (paymentAccessPolicyCache && (now - paymentAccessPolicyCache.cachedAt) < PAYMENT_ACCESS_POLICY_CACHE_TTL_MS) {
+		return paymentAccessPolicyCache.value;
+	}
+	if (stdbPaymentsEnabled()) {
+		const shadow = getStdbPaymentAccessPolicy();
+		if (shadow) {
+			paymentAccessPolicyCache = { value: shadow, cachedAt: now };
+			return shadow;
+		}
+	}
 	const raw = appPolicyRepository.getRaw(PAYMENT_ACCESS_POLICY_STORAGE_KEY);
 	if (!raw) {
-		return { ...DEFAULT_PAYMENT_ACCESS_POLICY };
+		const fallback = { ...DEFAULT_PAYMENT_ACCESS_POLICY };
+		paymentAccessPolicyCache = { value: fallback, cachedAt: now };
+		return fallback;
 	}
 	try {
-		return sanitizePaymentAccessPolicy(JSON.parse(raw));
+		const policy = sanitizePaymentAccessPolicy(JSON.parse(raw));
+		if (stdbPaymentsEnabled()) {
+			saveStdbPaymentAccessPolicy(policy);
+		}
+		paymentAccessPolicyCache = { value: policy, cachedAt: now };
+		return policy;
 	} catch {
-		return { ...DEFAULT_PAYMENT_ACCESS_POLICY };
+		const fallback = { ...DEFAULT_PAYMENT_ACCESS_POLICY };
+		paymentAccessPolicyCache = { value: fallback, cachedAt: now };
+		return fallback;
 	}
 }
 
 export function savePaymentAccessPolicy(raw: unknown): PaymentAccessPolicy {
 	const sanitized = sanitizePaymentAccessPolicy(raw);
+	if (stdbPaymentsEnabled()) {
+		saveStdbPaymentAccessPolicy(sanitized);
+	}
 	appPolicyRepository.setRaw(PAYMENT_ACCESS_POLICY_STORAGE_KEY, JSON.stringify(sanitized));
+	paymentAccessPolicyCache = null;
 	return sanitized;
 }
 

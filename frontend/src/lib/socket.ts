@@ -68,6 +68,7 @@ export {
 	createBreakoutRooms,
 	closeBreakoutRooms,
 	moveUserToBreakout,
+	moveUserToVoiceChannel,
 	createThread,
 	deleteChannel,
 	pinChannel,
@@ -76,6 +77,7 @@ export {
 
 	// Message operations
 	sendMessage,
+	retryMessagePersistence,
 	retryDecryptLoadedDmMessages,
 	editMessage,
 	deleteMessage,
@@ -125,4 +127,4 @@ export {
 } from './socket-manager';
 
 // Re-export types from socket-types
-export type { FileAttachment, Message, Emoji, User, Channel } from './socket-types';
+export type { FileAttachment, Message, Emoji, User, Channel, MessageEntity, VoiceChannelSettings } from './socket-types';

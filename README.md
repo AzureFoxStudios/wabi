@@ -48,30 +48,17 @@ See full architecture and deep technical docs in `PROJECT_DOCS/ARCHITECTURE.md` 
 
 ## Quick start (recommended: Docker)
 
-If you can run Docker, you can run Wabi.
-
-1. Clone the repo:
+If you can run Docker, you can run Wabi. Works on **Windows, Mac, and Linux** with zero config.
 
 ```bash
 git clone https://github.com/AzureFoxStudios/wabi.git
 cd wabi
-```
-
-2. Create env files:
-
-```bash
-cp .env.example .env
-cp frontend/.env.example frontend/.env
-```
-(Don't worry about populating the .env files yet. The setup scripts will do this for you.)
-
-3. Start core services:
-
-```bash
 docker compose up -d --build
 ```
 
-4. Optional: include TURN for production-quality calling:
+Open `http://localhost:3000` — a first-run wizard walks you through creating an admin account and setting up network access. No `.env` editing required; secrets are auto-generated on first boot.
+
+**Optional: include TURN for production-quality calling:**
 
 ```bash
 docker compose --profile turn up -d --build
@@ -81,6 +68,17 @@ Default local endpoints:
 - Frontend: `http://localhost:3000`
 - Backend: `http://localhost:8080`
 - Health check: `http://localhost:8080/health`
+
+### Manual .env setup (advanced)
+
+If you prefer to set secrets manually:
+
+```bash
+cp .env.example .env
+cp frontend/.env.example frontend/.env
+# Edit .env with your JWT_SECRET, domain, etc.
+docker compose up -d --build
+```
 
 ## Public Access Without Port Forwarding
 
@@ -188,6 +186,22 @@ Service scripts:
 - Root scripts: `package.json`
 - Backend scripts: `backend/package.json`
 - Frontend scripts: `frontend/package.json`
+
+## Desktop App
+
+The active Tauri desktop app lives in `frontend/src-tauri`.
+
+From repo root on Windows:
+
+```bash
+bun run desktop:dev
+bun run desktop:build
+bun run desktop:check
+```
+
+Use `desktop:check` first if you only want to validate the Rust side quickly.
+
+`tauri-app/` is a legacy wrapper kept around for compatibility; it is not the primary desktop source of truth anymore.
 
 ## Deployment modes
 

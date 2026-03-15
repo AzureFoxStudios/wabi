@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { onMount, afterUpdate, createEventDispatcher } from 'svelte';
+	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
 	import { fade, fly, scale } from 'svelte/transition';
 	import { get } from 'svelte/store';
+	import { browser } from '$app/environment';
 	import type { Message, User, Emoji, Channel, FileAttachment } from '$lib/socket';
-	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder, loadOlderHistory, channelHistoryLoading, channelHasMoreHistory, roleDefinitions } from '$lib/socket';
+	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder, loadOlderHistory, channelHistoryLoading, channelHasMoreHistory, roleDefinitions, retryMessagePersistence } from '$lib/socket';
 	import { themeStore } from '$lib/theme/themeStore';
 	import MessageContextMenu from './MessageContextMenu.svelte';
 	import ForwardDialog from './ForwardDialog.svelte';
@@ -32,7 +33,8 @@
 		applyChatFilter,
 		chatFilterStore,
 		customQuoteSettingsStore,
-		formatCustomQuote
+		formatCustomQuote,
+		type ChatFilterResult
 	} from '$lib/chatEnhancements';
 	import { gifCaptionerSettingsStore } from '$lib/gifCaptionerSettings';
 	import { quickReactionSettingsStore } from '$lib/quickReactions';
@@ -52,6 +54,10 @@
 		personalPinsStore,
 		togglePersonalPin
 	} from '$lib/personalPins';
+	import {
+		loadPlaceRegistry
+	} from '$lib/placeRegistry';
+	import { openFullMapTab, openMapPanel, openPreferredMapSurface } from '$lib/mapWorkspace';
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
 	export let onQuickMention: (message: Message) => void = () => {};
@@ -66,6 +72,9 @@
 	};
 	const MESSAGE_RENDER_BATCH = 120;
 	const MESSAGE_RENDER_MAX = 360;
+	const MESSAGE_ANIMATION_BURST_WINDOW_MS = 600;
+	const MESSAGE_ANIMATION_BURST_THRESHOLD = 3;
+	const MESSAGE_ANIMATION_BURST_COOLDOWN_MS = 900;
 	const REVEAL_ROLE_PRIORITY: Record<RevealAllSpoilersMinRole, number> = {
 		guest: 0,
 		member: 1,
@@ -82,6 +91,18 @@
 	};
 	let messageRenderLimit = MESSAGE_RENDER_BATCH;
 	let lastChannelForRenderWindow: string | null = null;
+	let lastObservedMessageCount = 0;
+	let lastObservedLastMessageId: string | null = null;
+	let burstArrivalTimestamps: number[] = [];
+	let burstAnimationSuppressed = false;
+	let burstAnimationResetHandle: number | null = null;
+	let userBySocketId = new Map<string, User>();
+	let userByDbId = new Map<number, User>();
+	let userByUsername = new Map<string, User>();
+	let userByMentionValue = new Map<string, User>();
+	let messageById = new Map<string, Message>();
+	let ownIdentityIds = new Set<string>();
+	let incomingFilterCache = new Map<string, ChatFilterResult>();
 	// User popout state
 	let showUserPopout = false;
 	let popoutUser: User | null = null;
@@ -177,6 +198,36 @@
 			return fade(node, { duration: 0 });
 		}
 		return getTransitionForPreset(node, params.preset, params.duration, params.distance);
+	}
+
+	function clearBurstAnimationReset(): void {
+		if (burstAnimationResetHandle !== null) {
+			window.clearTimeout(burstAnimationResetHandle);
+			burstAnimationResetHandle = null;
+		}
+	}
+
+	function scheduleBurstAnimationReset(): void {
+		clearBurstAnimationReset();
+		burstAnimationResetHandle = window.setTimeout(() => {
+			burstAnimationSuppressed = false;
+			burstAnimationResetHandle = null;
+		}, MESSAGE_ANIMATION_BURST_COOLDOWN_MS);
+	}
+
+	function recordMessageBurst(additions: number): void {
+		if (typeof window === 'undefined' || additions <= 0) return;
+		const now = Date.now();
+		for (let index = 0; index < additions; index += 1) {
+			burstArrivalTimestamps.push(now);
+		}
+		burstArrivalTimestamps = burstArrivalTimestamps.filter(
+			(timestamp) => now - timestamp <= MESSAGE_ANIMATION_BURST_WINDOW_MS
+		);
+		if (burstArrivalTimestamps.length >= MESSAGE_ANIMATION_BURST_THRESHOLD) {
+			burstAnimationSuppressed = true;
+			scheduleBurstAnimationReset();
+		}
 	}
 
 	function ensureEmojiPickerLoaded(): void {
@@ -323,9 +374,54 @@
 		if (attrValue === 'off' || attrValue === 'live' || attrValue === 'static') return attrValue;
 		return getStoredAccessibilitySettings().deletionCountdownMode;
 	}
+
+	$: {
+		const nextBySocketId = new Map<string, User>();
+		const nextByDbId = new Map<number, User>();
+		const nextByUsername = new Map<string, User>();
+		const nextByMentionValue = new Map<string, User>();
+		for (const user of $users) {
+			if (user.id) nextBySocketId.set(user.id, user);
+			if (typeof user.dbUserId === 'number') nextByDbId.set(user.dbUserId, user);
+			const usernameKey = user.username.trim().toLowerCase();
+			if (usernameKey) {
+				nextByUsername.set(usernameKey, user);
+				nextByMentionValue.set(usernameKey, user);
+			}
+			const handleKey = user.handle?.trim().toLowerCase();
+			if (handleKey) {
+				nextByMentionValue.set(handleKey, user);
+			}
+		}
+		userBySocketId = nextBySocketId;
+		userByDbId = nextByDbId;
+		userByUsername = nextByUsername;
+		userByMentionValue = nextByMentionValue;
+	}
+
+	$: {
+		const nextMessageById = new Map<string, Message>();
+		for (const message of messages) {
+			nextMessageById.set(message.id, message);
+		}
+		messageById = nextMessageById;
+	}
+
+	$: {
+		const nextOwnIdentityIds = new Set<string>();
+		if ($currentUser?.id) nextOwnIdentityIds.add($currentUser.id);
+		if ($currentUser?.dbUserId) nextOwnIdentityIds.add(`user-${$currentUser.dbUserId}`);
+		ownIdentityIds = nextOwnIdentityIds;
+	}
+
+	$: {
+		$chatFilterStore;
+		incomingFilterCache = new Map();
+	}
+
 	function getUserByUsername(username: string): User | undefined {
 		const normalized = username.trim().toLowerCase();
-		return $users.find(u => u.username.trim().toLowerCase() === normalized);
+		return userByUsername.get(normalized);
 	}
 
 	function getUserByIdentityId(userId: string | undefined): User | undefined {
@@ -333,11 +429,11 @@
 		if (userId.startsWith('user-')) {
 			const dbUserId = Number(userId.substring(5));
 			if (!Number.isNaN(dbUserId)) {
-				const byDbId = $users.find((u) => u.dbUserId === dbUserId);
+				const byDbId = userByDbId.get(dbUserId);
 				if (byDbId) return byDbId;
 			}
 		}
-		return $users.find((u) => u.id === userId);
+		return userBySocketId.get(userId);
 	}
 
 	function getUserByMessageAuthor(message: Message): User | undefined {
@@ -407,11 +503,7 @@
 		if (!normalized || normalized === 'everyone' || normalized === 'here' || normalized === 'all') {
 			return undefined;
 		}
-		return $users.find(
-			(user) =>
-				user.username.trim().toLowerCase() === normalized ||
-				(user.handle ? user.handle.trim().toLowerCase() === normalized : false)
-		);
+		return userByMentionValue.get(normalized);
 	}
 
 	function isOwnPopoutTarget(user: User): boolean {
@@ -436,10 +528,21 @@
 		openUserPopoutForUser(user, target);
 	}
 
-	function handleMarkdownContentClick(event: MouseEvent): void {
-		if (!$displayEnhancementSettingsStore.clickableMentionsEnabled) return;
+	async function handleMarkdownContentClick(event: MouseEvent): Promise<void> {
 		const target = event.target as HTMLElement | null;
 		if (!target) return;
+		const placeTokenEl = target.closest('.mention-token-place');
+		if (placeTokenEl instanceof HTMLElement) {
+			const placeId = placeTokenEl.dataset.placeId || '';
+			if (!placeId) return;
+			const layerId = placeTokenEl.dataset.placeLayerId || '';
+			const poiId = placeTokenEl.dataset.placePoiId || '';
+			event.preventDefault();
+			event.stopPropagation();
+			await openPreferredMapSurface(placeId, { layerId: layerId || null, poiId: poiId || null });
+			return;
+		}
+		if (!$displayEnhancementSettingsStore.clickableMentionsEnabled) return;
 		const mentionTokenEl = target.closest('.mention-token');
 		if (!(mentionTokenEl instanceof HTMLElement)) return;
 		const mentionText = mentionTokenEl.textContent || '';
@@ -1018,18 +1121,13 @@
 		closeReactionPicker();
 	}
 	function getCurrentIdentityIds(): string[] {
-		if (!$currentUser) return [];
-		const ids: string[] = [];
-		if ($currentUser.id) ids.push($currentUser.id);
-		if ($currentUser.dbUserId) ids.push(`user-${$currentUser.dbUserId}`);
-		return ids;
+		return Array.from(ownIdentityIds);
 	}
 
 	function isOwnMessage(message: Message): boolean {
 		if (!$currentUser) return false;
 		if (message.user === $currentUser.username) return true;
-		const ids = getCurrentIdentityIds();
-		return ids.includes(message.userId);
+		return ownIdentityIds.has(message.userId);
 	}
 
 	function getCurrentReactionIdentityIds(): string[] {
@@ -1044,12 +1142,11 @@
 		if (userId.startsWith('user-')) {
 			const dbUserId = Number(userId.substring(5));
 			if (!Number.isNaN(dbUserId)) {
-				const userByDbId = $users.find(u => u.dbUserId === dbUserId);
-				if (userByDbId?.username) return userByDbId.username;
+				const userRecord = userByDbId.get(dbUserId);
+				if (userRecord?.username) return userRecord.username;
 			}
 		}
-		const userBySocketId = $users.find(u => u.id === userId);
-		return userBySocketId?.username || get(_)('messages.unknown_user');
+		return userBySocketId.get(userId)?.username || get(_)('messages.unknown_user');
 	}
 	function getReactionTooltip(userIds: string[]): string {
 		return userIds.map(getReactionUsername).filter(Boolean).join(', ');
@@ -1087,9 +1184,67 @@
 	const QUICK_REACTION_VISIBLE_LIMIT = 4;
 	const QUICK_REACTION_EXISTING_LIMIT = 2;
 	const QUICK_REACTION_ALIAS_SCAN_LIMIT = 320;
+	let quickReactionEmojiById = new Map<string, Emoji>();
+	let quickReactionFallbackPool: Emoji[] = [];
+	let quickReactionCache = new Map<string, Emoji[]>();
 
 	function normalizeEmojiLookupName(value: string | undefined): string {
 		return (value || '').trim().toLowerCase().replace(/[^a-z0-9+]/g, '');
+	}
+
+	$: {
+		const emojiCatalog = Array.isArray($emojis) ? $emojis : [];
+		const nextEmojiById = new Map<string, Emoji>();
+		for (const emoji of emojiCatalog) {
+			nextEmojiById.set(emoji.id, emoji);
+		}
+		quickReactionEmojiById = nextEmojiById;
+
+		if (!$quickReactionSettingsStore.enabled || emojiCatalog.length === 0) {
+			quickReactionFallbackPool = [];
+			quickReactionCache = new Map();
+		} else {
+			const aliasScanPool =
+				emojiCatalog.length > QUICK_REACTION_ALIAS_SCAN_LIMIT
+					? emojiCatalog.slice(0, QUICK_REACTION_ALIAS_SCAN_LIMIT)
+					: emojiCatalog;
+			const selected: Emoji[] = [];
+			const seen = new Set<string>();
+			const addEmoji = (emoji: Emoji | undefined) => {
+				if (!emoji || seen.has(emoji.id)) return;
+				seen.add(emoji.id);
+				selected.push(emoji);
+			};
+
+			for (const emojiId of $quickReactionSettingsStore.customEmojiIds) {
+				addEmoji(nextEmojiById.get(emojiId));
+				if (selected.length >= QUICK_REACTION_VISIBLE_LIMIT) {
+					break;
+				}
+			}
+
+			for (const aliases of QUICK_REACTION_NAME_CANDIDATES) {
+				const match = aliasScanPool.find((emoji) => {
+					const normalizedName = normalizeEmojiLookupName(emoji.name);
+					const normalizedDisplayName = normalizeEmojiLookupName(emoji.displayName);
+					return aliases.some(
+						(alias) => alias === normalizedName || alias === normalizedDisplayName
+					);
+				});
+				addEmoji(match);
+				if (selected.length >= QUICK_REACTION_VISIBLE_LIMIT) break;
+			}
+
+			if (selected.length < QUICK_REACTION_VISIBLE_LIMIT) {
+				for (const emoji of aliasScanPool) {
+					addEmoji(emoji);
+					if (selected.length >= QUICK_REACTION_VISIBLE_LIMIT) break;
+				}
+			}
+
+			quickReactionFallbackPool = selected.slice(0, QUICK_REACTION_VISIBLE_LIMIT);
+			quickReactionCache = new Map();
+		}
 	}
 
 	function getQuickReactionEmojis(message: Message): Emoji[] {
@@ -1097,19 +1252,19 @@
 			return [];
 		}
 
-		const emojiCatalog = Array.isArray($emojis) ? $emojis : [];
-		if (emojiCatalog.length === 0) {
+		if (quickReactionEmojiById.size === 0) {
 			return [];
 		}
 
-		const emojiById = new Map<string, Emoji>();
-		for (const emoji of emojiCatalog) {
-			emojiById.set(emoji.id, emoji);
+		const reactionSignature = Object.entries(message.reactions || {})
+			.sort((a, b) => a[0].localeCompare(b[0]))
+			.map(([emojiId, userIds]) => `${emojiId}:${userIds.length}`)
+			.join('|');
+		const cacheKey = `${message.id}:${reactionSignature}`;
+		const cached = quickReactionCache.get(cacheKey);
+		if (cached) {
+			return cached;
 		}
-		const aliasScanPool =
-			emojiCatalog.length > QUICK_REACTION_ALIAS_SCAN_LIMIT
-				? emojiCatalog.slice(0, QUICK_REACTION_ALIAS_SCAN_LIMIT)
-				: emojiCatalog;
 
 		const selected: Emoji[] = [];
 		const seen = new Set<string>();
@@ -1124,35 +1279,20 @@
 				.sort((a, b) => b[1].length - a[1].length)
 				.slice(0, QUICK_REACTION_EXISTING_LIMIT);
 			for (const [emojiId] of topExisting) {
-				addEmoji(emojiById.get(emojiId));
+				addEmoji(quickReactionEmojiById.get(emojiId));
 			}
 		}
 
-		for (const emojiId of $quickReactionSettingsStore.customEmojiIds) {
-			addEmoji(emojiById.get(emojiId));
+		for (const emoji of quickReactionFallbackPool) {
+			addEmoji(emoji);
 			if (selected.length >= QUICK_REACTION_VISIBLE_LIMIT) {
 				break;
 			}
 		}
 
-		for (const aliases of QUICK_REACTION_NAME_CANDIDATES) {
-			const match = aliasScanPool.find((emoji) => {
-				const n1 = normalizeEmojiLookupName(emoji.name);
-				const n2 = normalizeEmojiLookupName(emoji.displayName);
-				return aliases.some((alias) => alias === n1 || alias === n2);
-			});
-			addEmoji(match);
-			if (selected.length >= QUICK_REACTION_VISIBLE_LIMIT) break;
-		}
-
-		if (selected.length < QUICK_REACTION_VISIBLE_LIMIT) {
-			for (const emoji of aliasScanPool) {
-				addEmoji(emoji);
-				if (selected.length >= QUICK_REACTION_VISIBLE_LIMIT) break;
-			}
-		}
-
-		return selected.slice(0, QUICK_REACTION_VISIBLE_LIMIT);
+		const next = selected.slice(0, QUICK_REACTION_VISIBLE_LIMIT);
+		quickReactionCache.set(cacheKey, next);
+		return next;
 	}
 
 	function quickReactToMessage(messageId: string, emojiId: string): void {
@@ -1267,7 +1407,18 @@
 	}
 	function getReplyToMessage(replyToId?: string): Message | undefined {
 		if (!replyToId) return undefined;
-		return messages.find(m => m.id === replyToId);
+		return messageById.get(replyToId);
+	}
+
+	function getFilteredIncomingMessage(message: Message): ChatFilterResult {
+		const cacheKey = `${message.id}:${message.text || ''}`;
+		const cached = incomingFilterCache.get(cacheKey);
+		if (cached) {
+			return cached;
+		}
+		const next = applyChatFilter(message.text || '', 'incoming', $chatFilterStore);
+		incomingFilterCache.set(cacheKey, next);
+		return next;
 	}
 	// Jump to referenced message
 	let highlightedMessageId: string | null = null;
@@ -1413,6 +1564,27 @@
 			description: rest.join('\n').trim()
 		};
 	}
+
+	function isLocalDirectionsMessage(message: Message): boolean {
+		return message.userId === 'local-directions' && message.localCard?.kind === 'directions';
+	}
+
+	function getDirectionsMeta(message: Message) {
+		return message.localCard?.kind === 'directions' ? message.localCard : null;
+	}
+
+	function formatDirectionsExpiry(expiresAt?: number): string {
+		if (!expiresAt) return 'Temporary';
+		const remainingMs = Math.max(0, expiresAt - Date.now());
+		const remainingMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
+		return `Temporary | expires in ${remainingMinutes} min`;
+	}
+
+	function openDirectionsExternal(url?: string): void {
+		if (!browser || !url) return;
+		window.open(url, '_blank', 'noopener,noreferrer');
+	}
+
 	function isImage(fileName?: string): boolean {
 		if (!fileName) return false;
 		const ext = fileName.toLowerCase().split('.').pop() || '';
@@ -1487,6 +1659,7 @@
 	let mobileActionsMessageId: string | null = null;
 
 	onMount(() => {
+		void loadPlaceRegistry();
 		deletionCountdownMode = readDeletionCountdownModeFromDom();
 		const root = document.documentElement;
 		const observer = new MutationObserver(() => {
@@ -1506,9 +1679,14 @@
 			}
 		}, 1000);
 		return () => {
+			clearBurstAnimationReset();
 			observer.disconnect();
 			window.clearInterval(timer);
 		};
+	});
+
+	onDestroy(() => {
+		clearBurstAnimationReset();
 	});
 
 	function handleMessageLongPress(event: TouchEvent, message: Message) {
@@ -1709,36 +1887,33 @@
 	function closeEnlargedVideo() {
 		enlargedVideo = null;
 	}
-	// Attach click handlers to spoiler elements
-	function attachSpoilerHandlers() {
-		const spoilers = document.querySelectorAll('.spoiler[data-spoiler="true"]');
-		spoilers.forEach(spoiler => {
-			if (!spoiler.hasAttribute('data-listener-attached')) {
-				spoiler.addEventListener('click', function(this: HTMLElement, event: Event) {
-					const mouseEvent = event as MouseEvent;
-					if (canUseRevealAllSpoilers() && (mouseEvent.ctrlKey || mouseEvent.metaKey)) {
-						const shouldReveal = !this.classList.contains('revealed');
-						const messageContainer = this.closest('.message');
-						if (messageContainer) {
-							const relatedSpoilers = messageContainer.querySelectorAll<HTMLElement>(
-								'.spoiler[data-spoiler="true"]'
-							);
-							relatedSpoilers.forEach((item) => item.classList.toggle('revealed', shouldReveal));
-						} else {
-							this.classList.toggle('revealed', shouldReveal);
-						}
-						mouseEvent.preventDefault();
-						return;
-					}
-					this.classList.toggle('revealed');
-				});
-				spoiler.setAttribute('data-listener-attached', 'true');
+	function toggleSpoiler(target: HTMLElement, event: MouseEvent): void {
+		if (canUseRevealAllSpoilers() && (event.ctrlKey || event.metaKey)) {
+			const shouldReveal = !target.classList.contains('revealed');
+			const messageContainer = target.closest('.message');
+			if (messageContainer) {
+				const relatedSpoilers = messageContainer.querySelectorAll<HTMLElement>(
+					'.spoiler[data-spoiler="true"]'
+				);
+				relatedSpoilers.forEach((item) => item.classList.toggle('revealed', shouldReveal));
+			} else {
+				target.classList.toggle('revealed', shouldReveal);
 			}
-		});
+			return;
+		}
+
+		target.classList.toggle('revealed');
 	}
-	// Attach handlers when component mounts and updates
-	onMount(attachSpoilerHandlers);
-	afterUpdate(attachSpoilerHandlers);
+
+	function handleCapturedSpoilerClick(event: MouseEvent): void {
+		const target = event.target as HTMLElement | null;
+		if (!target) return;
+		const spoiler = target.closest('.spoiler[data-spoiler="true"]');
+		if (!(spoiler instanceof HTMLElement)) return;
+		toggleSpoiler(spoiler, event);
+		event.preventDefault();
+		event.stopPropagation();
+	}
 
 	// Pagination state (client-side archives)
 	let showLoadMore = false;
@@ -1773,6 +1948,24 @@
 	$: if (lastChannelForRenderWindow !== $currentChannel) {
 		lastChannelForRenderWindow = $currentChannel;
 		messageRenderLimit = MESSAGE_RENDER_BATCH;
+		lastObservedMessageCount = messages.length;
+		lastObservedLastMessageId = messages.length > 0 ? messages[messages.length - 1].id : null;
+		burstArrivalTimestamps = [];
+		burstAnimationSuppressed = false;
+		clearBurstAnimationReset();
+	}
+	$: {
+		const latestMessageId = messages.length > 0 ? messages[messages.length - 1].id : null;
+		if (
+			lastObservedLastMessageId !== null &&
+			latestMessageId !== null &&
+			latestMessageId !== lastObservedLastMessageId &&
+			messages.length >= lastObservedMessageCount
+		) {
+			recordMessageBurst(Math.max(1, Math.min(messages.length - lastObservedMessageCount, 12)));
+		}
+		lastObservedMessageCount = messages.length;
+		lastObservedLastMessageId = latestMessageId;
 	}
 	$: {
 		const boundedLimit = Math.min(Math.max(messageRenderLimit, MESSAGE_RENDER_BATCH), MESSAGE_RENDER_MAX);
@@ -1807,7 +2000,11 @@
 </script>
 
 <!-- Window-level keyboard listener for image navigation -->
-<svelte:window on:keydown={handleImageKeydown} on:click={dismissMobileActions} />
+<svelte:window
+	on:keydown={handleImageKeydown}
+	on:click={dismissMobileActions}
+	on:click|capture={handleCapturedSpoilerClick}
+/>
 
 <!-- Load More Messages Button -->
 {#if visibleMessageStart > 0 || ((hasMoreServerHistory || hasMoreMessages) && messages.length >= 50)}
@@ -1839,10 +2036,10 @@
 	{@const deletionLabel = getMessageDeletionLabel(message)}
 	{@const translatedText = translatedMessages[message.id]}
 	{@const translationLoading = translatingMessageIds.has(message.id)}
-	{@const filteredMessage = applyChatFilter(message.text || '', 'incoming', $chatFilterStore)}
+		{@const filteredMessage = getFilteredIncomingMessage(message)}
 	{@const hideByFilter = filteredMessage.hidden}
 		{@const messageText = filteredMessage.text}
-		{@const shouldAnimateMessage = visibleMessages.length - localIndex <= ($animationPassStore.level === 'full' ? 48 : 24)}
+		{@const shouldAnimateMessage = !burstAnimationSuppressed && visibleMessages.length - localIndex <= ($animationPassStore.level === 'full' ? 48 : 24)}
 		{@const quickReactionEmojis = getQuickReactionEmojis(message)}
 
 	{#if !hideByFilter}
@@ -2007,6 +2204,29 @@
 					</span>
 				</div>
 			{/if}
+			{#if ownMessage && message.persistenceState}
+				<div class="message-persistence-row">
+					<span
+						class="message-persistence-badge"
+						class:is-failed={message.persistenceState === 'failed'}
+						class:is-retrying={message.persistenceState === 'retrying'}
+						title={message.persistenceError || ''}
+					>
+						{message.persistenceState === 'retrying'
+							? $_('messages.persistence.retrying')
+							: $_('messages.persistence.failed')}
+					</span>
+					{#if message.persistenceState === 'failed'}
+						<button
+							class="message-persistence-retry"
+							type="button"
+							on:click={() => retryMessagePersistence($currentChannel, message.id)}
+						>
+							{$_('messages.persistence.retry')}
+						</button>
+					{/if}
+				</div>
+			{/if}
 
 			<!-- Reply Preview -->
 			{#if replyToMsg}
@@ -2070,7 +2290,106 @@
 				</div>
 			{:else}
 				<div class="message-content">
-					{#if message.type === 'role_gate'}
+					{#if isLocalDirectionsMessage(message)}
+						{@const directions = getDirectionsMeta(message)}
+						{#if directions}
+							<div class="directions-card">
+								<div class="directions-card-head">
+									<div class="directions-card-copy">
+										<div class="directions-card-kicker">Local Directions</div>
+										<div class="directions-card-title">{directions.placeLabel}</div>
+									</div>
+									<div class="directions-card-expiry">{formatDirectionsExpiry(directions.expiresAt)}</div>
+								</div>
+								<div class="directions-card-details">
+									<div class="directions-detail-row">
+										<span class="directions-detail-label">Place</span>
+										<span class="directions-detail-value">{directions.placeLabel}</span>
+									</div>
+									{#if directions.poiLabel}
+										<div class="directions-detail-row">
+											<span class="directions-detail-label">POI</span>
+											<span class="directions-detail-value">{directions.poiLabel}</span>
+										</div>
+									{/if}
+									{#if directions.layerLabel}
+										<div class="directions-detail-row">
+											<span class="directions-detail-label">Layer</span>
+											<span class="directions-detail-value">{directions.layerLabel}</span>
+										</div>
+									{/if}
+									{#if directions.building}
+										<div class="directions-detail-row">
+											<span class="directions-detail-label">Building</span>
+											<span class="directions-detail-value">{directions.building}</span>
+										</div>
+									{/if}
+									{#if directions.floor}
+										<div class="directions-detail-row">
+											<span class="directions-detail-label">Floor</span>
+											<span class="directions-detail-value">{directions.floor}</span>
+										</div>
+									{/if}
+									{#if directions.coordinates}
+										<div class="directions-detail-row">
+											<span class="directions-detail-label">Coordinates</span>
+											<span class="directions-detail-value">{directions.coordinates}</span>
+										</div>
+									{/if}
+									{#if directions.originCoordinates}
+										<div class="directions-detail-row">
+											<span class="directions-detail-label">From</span>
+											<span class="directions-detail-value">{directions.originCoordinates}</span>
+										</div>
+									{/if}
+								</div>
+								<div class="directions-card-actions">
+									<button
+										type="button"
+										class="directions-card-btn"
+										on:click={() =>
+											openMapPanel(directions.placeId, {
+												layerId: directions.layerId || null,
+												poiId: directions.poiId || null
+											})}
+									>
+										Mini Map
+									</button>
+									<button
+										type="button"
+										class="directions-card-btn primary"
+										on:click={() =>
+											openFullMapTab(directions.placeId, {
+												layerId: directions.layerId || null,
+												poiId: directions.poiId || null
+											})}
+									>
+										Full Map
+									</button>
+									<button
+										type="button"
+										class="directions-card-btn"
+										on:click={() =>
+											openPreferredMapSurface(directions.placeId, {
+												layerId: directions.layerId || null,
+												poiId: directions.poiId || null
+											})}
+									>
+										Smart Open
+									</button>
+									{#if directions.externalUrl}
+										<button
+											type="button"
+											class="directions-card-btn"
+											on:click={() => openDirectionsExternal(directions.externalUrl)}
+										>
+											{directions.externalLabel || 'Open OSM'}
+										</button>
+									{/if}
+								</div>
+							</div>
+						{/if}
+					{:else if message.type === 'role_gate'}
 						{@const gate = parseRoleGateText(messageText)}
 						<div class="role-gate-card">
 							<div class="role-gate-label">{$_('messages.role_gate.title')}</div>
@@ -2089,7 +2408,7 @@
 										class="markdown-content gif-caption {gifCaptionStyleClass}"
 										on:click={handleMarkdownContentClick}
 									>
-								{@html parseMessage(messageText)}
+								{@html parseMessage(messageText, message.entities || [])}
 							</div>
 								{/if}
 							</div>
@@ -2360,13 +2679,13 @@
 						{#if messageText && (message.files ? messageText !== `Shared ${message.files.length} files` : messageText !== `Shared: ${message.fileName}`)}
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
 							<div class="markdown-content" on:click={handleMarkdownContentClick}>
-								{@html parseMessage(messageText)}
+								{@html parseMessage(messageText, message.entities || [])}
 							</div>
 						{/if}
 					{:else}
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						<div class="markdown-content" on:click={handleMarkdownContentClick}>
-							{@html parseMessage(messageText)}
+							{@html parseMessage(messageText, message.entities || [])}
 						</div>
 					{/if}
 					{#if translatedText}
@@ -3122,6 +3441,54 @@
 		margin-left: 0.25rem;
 	}
 
+	.message-persistence-row {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+		margin-bottom: 0.4rem;
+		flex-wrap: wrap;
+	}
+
+	.message-persistence-badge {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.14rem 0.5rem;
+		border-radius: 999px;
+		font-size: 0.68rem;
+		font-weight: 700;
+		letter-spacing: 0.01em;
+		text-transform: uppercase;
+		background: color-mix(in srgb, var(--text-secondary) 16%, transparent);
+		color: var(--text-secondary);
+	}
+
+	.message-persistence-badge.is-failed {
+		background: color-mix(in srgb, var(--color-status-danger, #ff1493) 14%, transparent);
+		color: color-mix(in srgb, var(--color-status-danger, #ff1493) 88%, var(--text-primary));
+	}
+
+	.message-persistence-badge.is-retrying {
+		background: color-mix(in srgb, var(--color-status-warning, #ffd700) 18%, transparent);
+		color: color-mix(in srgb, var(--color-status-warning, #ffd700) 82%, var(--text-primary));
+	}
+
+	.message-persistence-retry {
+		border: 1px solid color-mix(in srgb, var(--color-status-danger, #ff1493) 30%, transparent);
+		background: transparent;
+		color: color-mix(in srgb, var(--color-status-danger, #ff1493) 88%, var(--text-primary));
+		border-radius: 999px;
+		padding: 0.16rem 0.55rem;
+		font-size: 0.72rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: background 0.15s ease, border-color 0.15s ease;
+	}
+
+	.message-persistence-retry:hover {
+		background: color-mix(in srgb, var(--color-status-danger, #ff1493) 10%, transparent);
+		border-color: color-mix(in srgb, var(--color-status-danger, #ff1493) 50%, transparent);
+	}
+
 	.reply-preview {
 		display: flex;
 		gap: 0.5rem;
@@ -3261,6 +3628,99 @@
 		line-height: 1.45;
 		color: var(--text-primary);
 		white-space: pre-wrap;
+	}
+
+	.directions-card {
+		border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border) 82%);
+		border-radius: 12px;
+		padding: 0.8rem 0.9rem;
+		background:
+			linear-gradient(160deg, color-mix(in srgb, var(--accent) 10%, var(--bg-tertiary) 90%), var(--bg-tertiary));
+		display: grid;
+		gap: 0.7rem;
+	}
+
+	.directions-card-head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+
+	.directions-card-copy {
+		min-width: 0;
+	}
+
+	.directions-card-kicker {
+		font-size: 0.68rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--text-secondary);
+		margin-bottom: 0.18rem;
+	}
+
+	.directions-card-title {
+		font-size: 0.96rem;
+		font-weight: 700;
+		color: var(--text-primary);
+		word-break: break-word;
+	}
+
+	.directions-card-expiry {
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+		white-space: nowrap;
+	}
+
+	.directions-card-details {
+		display: grid;
+		gap: 0.38rem;
+	}
+
+	.directions-detail-row {
+		display: grid;
+		grid-template-columns: 88px minmax(0, 1fr);
+		gap: 0.5rem;
+		align-items: start;
+		font-size: 0.84rem;
+	}
+
+	.directions-detail-label {
+		color: var(--text-secondary);
+		font-weight: 600;
+	}
+
+	.directions-detail-value {
+		color: var(--text-primary);
+		word-break: break-word;
+	}
+
+	.directions-card-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.45rem;
+	}
+
+	.directions-card-btn {
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		background: var(--bg-primary);
+		color: var(--text-primary);
+		padding: 0.38rem 0.72rem;
+		font-size: 0.8rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.18s ease, border-color 0.18s ease;
+	}
+
+	.directions-card-btn:hover {
+		background: var(--bg-hover);
+		border-color: color-mix(in srgb, var(--accent) 26%, var(--border) 74%);
+	}
+
+	.directions-card-btn.primary {
+		background: color-mix(in srgb, var(--accent) 18%, var(--bg-primary) 82%);
+		border-color: color-mix(in srgb, var(--accent) 32%, var(--border) 68%);
 	}
 
 	.role-gate-card {

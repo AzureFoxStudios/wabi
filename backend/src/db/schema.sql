@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS user_settings (
   allow_temp_user_messages INTEGER DEFAULT 1,
   business_private_mode INTEGER DEFAULT 0,
   home_experience TEXT DEFAULT 'community',
+  require_password_change INTEGER DEFAULT 0,
+  payment_preferred_route TEXT,
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
@@ -136,6 +138,7 @@ CREATE TABLE IF NOT EXISTS guest_codes (
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at) WHERE expires_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_offline_messages_to_user ON offline_messages(to_user_id, delivered);
 CREATE INDEX IF NOT EXISTS idx_offline_messages_expires_at ON offline_messages(expires_at);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username COLLATE NOCASE);
@@ -213,6 +216,7 @@ CREATE TABLE IF NOT EXISTS messages (
   file_name TEXT,
   file_size INTEGER,
   files_json TEXT,
+  entities_json TEXT,
   attachment_encryption_json TEXT,
   attachment_storage_json TEXT,
   reply_to_id TEXT,
@@ -261,8 +265,10 @@ CREATE INDEX IF NOT EXISTS idx_channels_type ON channels(channel_type);
 CREATE INDEX IF NOT EXISTS idx_channels_parent ON channels(parent_channel_id);
 CREATE INDEX IF NOT EXISTS idx_channel_members_channel ON channel_members(channel_id);
 CREATE INDEX IF NOT EXISTS idx_channel_members_user ON channel_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_channel_members_registered_user ON channel_members(registered_user_id) WHERE registered_user_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(message_id);
+CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_emoji_role_rules_lookup ON emoji_role_rules(channel_id, message_id, emoji_id, workspace_id);
 CREATE INDEX IF NOT EXISTS idx_albums_scope ON albums(scope_type, scope_id, is_featured DESC, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_albums_created_by ON albums(created_by, created_at DESC);

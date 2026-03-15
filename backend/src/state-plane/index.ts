@@ -24,12 +24,36 @@ import { StatePlaneShadowWriter } from './shadowWriter.js';
 import { StatePlaneWatchdog } from './watchdog.js';
 import { StatePlaneReducerIngress } from './reducerIngress.js';
 import { StatePlaneSchemaVersionManager } from './schemaVersion.js';
+import {
+	configureStateMeshRuntime,
+	getStateMeshRuntimeStats,
+	startStateMeshRuntime,
+	stopStateMeshRuntime,
+	registerStateMeshSocketLease,
+	releaseStateMeshSocketLease,
+	findStateMeshSocketLeaseByStableUserId,
+	getCurrentStateMeshInstanceId,
+	findStateMeshInstanceLeaseById,
+	listActiveStateMeshInstanceLeases,
+	sendStateMeshRemoteDelivery,
+	upsertStateMeshPresenceLease,
+	deleteStateMeshPresenceLease,
+	listStateMeshPresenceLeases
+} from './meshRuntime.js';
 import type { StatePlaneAdapter, StatePlaneRuntimeStats, StatePlaneWarmupStats } from './adapter.js';
 
 export { getStatePlaneConfigFromEnv };
 export type { StateBackendMode, StatePlaneConfig } from './config.js';
 export type { MessageStore, MessageStoreRuntimeStats } from './messageStore.js';
 export type { StatePlaneAdapter, StatePlaneRuntimeStats, StatePlaneEventEntity } from './adapter.js';
+export type {
+	StateMeshRuntimeStats,
+	StateMeshSocketLeaseRecord,
+	StateMeshConnectionCounts,
+	StateMeshDeliveryEnvelope,
+	StateMeshInstanceLeaseRecord,
+	StateMeshPresenceLeaseRecord
+} from './meshRuntime.js';
 
 type EffectiveStateBackendMode = 'legacy' | 'dual_write' | 'stdb_primary';
 
@@ -81,12 +105,11 @@ function checkStdbPrimaryReadiness(config: StatePlaneConfig): StdbPrimaryReadine
 		};
 	}
 	if (process.env.NODE_ENV === 'production') {
-		const allowAnonymousProd = boolFromEnv(process.env.WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION, false);
-		if (runtime.authMode !== 'token' && !allowAnonymousProd) {
+		if (runtime.authMode !== 'token') {
 			return {
 				ready: false,
 				reason:
-					'STDB production mode requires WABI_STDB_AUTH_TOKEN (set WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=true to override)'
+					'STDB production mode requires WABI_STDB_AUTH_TOKEN — anonymous access is not allowed in production'
 			};
 		}
 	}
@@ -161,8 +184,9 @@ function resolveStateBackendMode(): StateBackendResolution {
 const backendModeResolution = resolveStateBackendMode();
 const stdbPrimaryActive = backendModeResolution.effectiveMode === 'stdb_primary';
 const dualWriteActive = backendModeResolution.effectiveMode === 'dual_write';
-const shadowMirrorEnabled = stdbPrimaryActive;
-const sharedOutbox = dualWriteActive || stdbPrimaryActive
+const shadowMirrorEnabled = stdbPrimaryActive && statePlaneConfig.stdbPrimaryMirrorLegacyWrites;
+const stdbPrimaryOutboxEnabled = stdbPrimaryActive && shadowMirrorEnabled;
+const sharedOutbox = dualWriteActive || stdbPrimaryOutboxEnabled
 	? new StatePlaneOutbox({
 		path: statePlaneConfig.outboxPath || undefined,
 		redactSensitive: statePlaneConfig.outboxRedactSensitive
@@ -171,7 +195,9 @@ const sharedOutbox = dualWriteActive || stdbPrimaryActive
 
 function createMessageStore(config = statePlaneConfig): MessageStore {
 	if (stdbPrimaryActive) {
-		console.log('[StatePlane] Message store mode: stdb_primary (SpacetimeDB source of truth + legacy mirror writes)');
+		console.log(
+			`[StatePlane] Message store mode: stdb_primary (SpacetimeDB source of truth + legacy mirror ${shadowMirrorEnabled ? 'enabled' : 'disabled'})`
+		);
 		return new StdbPrimaryMessageStore({
 			outbox: sharedOutbox,
 			mirrorLegacyWrites: shadowMirrorEnabled
@@ -222,7 +248,7 @@ if (dualWriteActive) {
 
 if (stdbPrimaryActive) {
 	console.log(
-		`[StatePlane] STDB primary routing enabled read=${statePlaneConfig.stdbReadEnabled} write=${statePlaneConfig.stdbWriteEnabled} subscriptions=${statePlaneConfig.stdbSubscriptionsEnabled}`
+		`[StatePlane] STDB primary routing enabled read=${statePlaneConfig.stdbReadEnabled} write=${statePlaneConfig.stdbWriteEnabled} subscriptions=${statePlaneConfig.stdbSubscriptionsEnabled} legacyMirror=${statePlaneConfig.stdbPrimaryMirrorLegacyWrites}`
 	);
 	if (statePlaneConfig.stdbSubscriptionsEnabled) {
 		console.log(
@@ -234,7 +260,7 @@ if (stdbPrimaryActive) {
 export const stateChannelStore = stdbPrimaryActive
 	? new StdbPrimaryChannelStore({
 		outbox: sharedOutbox,
-		mirrorLegacyWrites: shadowMirrorEnabled
+		mirrorLegacyWrites: shadowMirrorEnabled || stdbPrimaryActive
 	})
 	: new StateChannelStore(sharedOutbox, {
 		dualWriteEnabled: dualWriteActive,
@@ -248,7 +274,7 @@ export const stateChannelStore = stdbPrimaryActive
 export const stateChannelMemberStore = stdbPrimaryActive
 	? new StdbPrimaryChannelMemberStore({
 		outbox: sharedOutbox,
-		mirrorLegacyWrites: shadowMirrorEnabled
+		mirrorLegacyWrites: shadowMirrorEnabled || stdbPrimaryActive
 	})
 	: new StateChannelMemberStore(sharedOutbox, {
 		dualWriteEnabled: dualWriteActive,
@@ -262,7 +288,7 @@ export const stateChannelMemberStore = stdbPrimaryActive
 export const stateUserStore = stdbPrimaryActive
 	? new StdbPrimaryUserStore({
 		outbox: sharedOutbox,
-		mirrorLegacyWrites: shadowMirrorEnabled
+		mirrorLegacyWrites: shadowMirrorEnabled || stdbPrimaryActive
 	})
 	: new StateUserStore(sharedOutbox, {
 		dualWriteEnabled: dualWriteActive,
@@ -276,7 +302,7 @@ export const stateUserStore = stdbPrimaryActive
 export const stateSessionStore = stdbPrimaryActive
 	? new StdbPrimarySessionStore({
 		outbox: sharedOutbox,
-		mirrorLegacyWrites: shadowMirrorEnabled
+		mirrorLegacyWrites: shadowMirrorEnabled || stdbPrimaryActive
 	})
 	: new StateSessionStore(sharedOutbox, {
 		dualWriteEnabled: dualWriteActive,
@@ -290,7 +316,7 @@ export const stateSessionStore = stdbPrimaryActive
 export const stateRbacStore = stdbPrimaryActive
 	? new StdbPrimaryRbacStore({
 		outbox: sharedOutbox,
-		mirrorLegacyWrites: shadowMirrorEnabled
+		mirrorLegacyWrites: shadowMirrorEnabled || stdbPrimaryActive
 	})
 	: new StateRbacStore(sharedOutbox, {
 		dualWriteEnabled: dualWriteActive,
@@ -302,7 +328,7 @@ export const stateRbacStore = stdbPrimaryActive
 	});
 
 const statePlaneWarmupStats: StatePlaneWarmupStats = {
-	enabled: dualWriteActive && statePlaneConfig.shadowWarmupEnabled,
+	enabled: (dualWriteActive || stdbPrimaryActive) && statePlaneConfig.shadowWarmupEnabled,
 	running: false,
 	startedAt: null,
 	completedAt: null,
@@ -337,13 +363,13 @@ function runStatePlaneWarmup(): void {
 		statePlaneWarmupStats.counts.rbacAssignments = stateRbacStore.warmFromPrimary(limit);
 		statePlaneWarmupStats.success = true;
 		console.log(
-			`[StatePlane] Shadow warmup complete channels=${statePlaneWarmupStats.counts.channels} members=${statePlaneWarmupStats.counts.channelMembers} users=${statePlaneWarmupStats.counts.users} sessions=${statePlaneWarmupStats.counts.sessions} rbac=${statePlaneWarmupStats.counts.rbacAssignments} limit=${limit}`
+			`[StatePlane] Warmup complete channels=${statePlaneWarmupStats.counts.channels} members=${statePlaneWarmupStats.counts.channelMembers} users=${statePlaneWarmupStats.counts.users} sessions=${statePlaneWarmupStats.counts.sessions} rbac=${statePlaneWarmupStats.counts.rbacAssignments} limit=${limit}`
 		);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		statePlaneWarmupStats.lastError = message;
 		statePlaneWarmupStats.success = false;
-		console.warn(`[StatePlane] Shadow warmup failed: ${message}`);
+		console.warn(`[StatePlane] Warmup failed: ${message}`);
 		if (statePlaneConfig.strictMode) {
 			throw error instanceof Error ? error : new Error(message);
 		}
@@ -392,7 +418,8 @@ export function getStatePlaneRuntimeStats(): StatePlaneRuntimeStats {
 		warmup: {
 			...statePlaneWarmupStats,
 			counts: { ...statePlaneWarmupStats.counts }
-		}
+		},
+		mesh: getStateMeshRuntimeStats()
 	};
 }
 
@@ -436,4 +463,20 @@ export const statePlaneAdapter: StatePlaneAdapter = {
 	stop: stopStatePlaneRuntime,
 	getRuntimeStats: getStatePlaneRuntimeStats,
 	recordEvent: recordStatePlaneEvent
+};
+
+export {
+	configureStateMeshRuntime,
+	startStateMeshRuntime,
+	stopStateMeshRuntime,
+	registerStateMeshSocketLease,
+	releaseStateMeshSocketLease,
+	findStateMeshSocketLeaseByStableUserId,
+	getCurrentStateMeshInstanceId,
+	findStateMeshInstanceLeaseById,
+	listActiveStateMeshInstanceLeases,
+	sendStateMeshRemoteDelivery,
+	upsertStateMeshPresenceLease,
+	deleteStateMeshPresenceLease,
+	listStateMeshPresenceLeases
 };

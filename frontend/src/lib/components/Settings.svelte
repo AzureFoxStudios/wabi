@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { get } from 'svelte/store';
 	import {
 		_ as t,
@@ -12,15 +12,26 @@
 		setLearningModeEnabled,
 		setLearningTargetPercent
 	} from '$lib/i18n';
-	import { channelMessages, users, currentUser, emojis, updateProfile, assignRole, removeUserRole, roleDefinitions } from '$lib/socket';
+	import {
+		channelMessages,
+		users,
+		currentUser,
+		emojis,
+		updateProfile,
+		assignRole,
+		removeUserRole,
+		roleDefinitions,
+		channels
+	} from '$lib/socket';
 	import type { Emoji } from '$lib/socket';
 	import { chatStorage } from '$lib/storage';
 	import StorageSettings from './StorageSettings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PaymentConnectionsModal from './PaymentConnectionsModal.svelte';
 	import PaymentHistoryModal from './PaymentHistoryModal.svelte';
-	import ServerDonationModal, { type DonationPrefillPayload } from './ServerDonationModal.svelte';
+	import ServerDonationModal from './ServerDonationModal.svelte';
 	import PaymentSheet from './PaymentSheet.svelte';
+	import LineDm from './plugins/LineDm.svelte';
 	import {
 		getDefaultCustomSynthRingtonePreset,
 		playCallRingtone,
@@ -31,31 +42,60 @@
 		type CustomSynthWaveform
 	} from '$lib/notifications';
 	import { getSocket } from '$lib/socket';
+	import { subscribePaymentRealtimeEvent } from '$lib/paymentRealtime';
+	import {
+		formatMinorAmount as formatPaymentMinorAmount,
+		minorToMajorInput as minorAmountToInput,
+		parseMajorAmountInput as parsePaymentMajorAmount
+	} from '$lib/paymentAmounts';
 	import { getServerUrl } from '$lib/serverUrl';
 	import AvatarEditor from './AvatarEditor.svelte'; // Import the AvatarEditor
 	import {
+		approveAdminRelay,
+		deleteAdminRelay,
 		createAdminOfflineDonation,
 		adminClearUserLoginLockout,
+		getAdminCommunityNodeAccessPolicy,
+		getAdminCommunityNodeAnnouncementsPolicy,
 		getAdminPaymentDonationConfig,
 		listAdminPaymentDonationAudit,
+		listAdminRelays,
 		listAdminOfflineDonations,
 		listPaymentProviders,
 		adminResetUserPassword,
 		changePassword,
 		getAdminUploadLimits,
 		refundAdminPaymentDonation,
+		saveAdminCommunityNodeAccessPolicy,
 		saveAdminPaymentDonationConfig,
+		saveAdminCommunityNodeAnnouncementsPolicy,
 		getUserSettings,
 		saveAdminUploadLimits,
 		saveUserSettings,
 		voidAdminOfflineDonation,
+		type CommunityNodeAccessPolicy,
+		type CommunityNodeAllowedUser,
 		type PaymentDonationConfig,
 		type PaymentDonationLedgerEntry,
 		type OfflineDonationLedgerEntry,
+		type AdminRelayNode,
+		type PaymentMethodCapability,
 		type PaymentProviderCapability,
+		type CommunityNodeAnnouncementsPolicy,
 		type UploadRoleTier,
 		type UploadLimitConfig
 	} from '$lib/api';
+	import {
+		DESKTOP_HELPER_PROFILE_KEY,
+		desktopHelperState,
+		syncDesktopHelperService,
+		type DesktopHelperProfileMode
+	} from '$lib/desktopHelper';
+	import {
+		directionsAssistSettings,
+		requestDirectionsGpsPermission,
+		setDirectionsGpsEnabled
+	} from '$lib/directionsAssist';
 	import {
 		getBusinessSyncMode,
 		setBusinessSyncMode,
@@ -80,9 +120,13 @@
 	} from '$lib/homeExperience';
 	import {
 		getAudioCaptureConstraints,
+		getBoosterRelayEffectiveMode,
+		getBoosterRelayRequestedMode,
 		isTauriRuntime,
 		loadEffectiveMediaSettingsSnapshot,
 		setAudioProcessingMode,
+		setCallMuteBehavior,
+		setCallRecordingStemMode,
 		setCallTransportMode,
 		setMediaQualityMode,
 		setScreenShareQualityPreset,
@@ -99,6 +143,9 @@
 		getPreferredCameraDeviceId,
 		setPreferredCameraDeviceId,
 		type AudioProcessingMode,
+		type BoosterRelayMode,
+		type CallMuteBehavior,
+		type CallRecordingStemMode,
 		type CallTransportMode,
 		type MediaQualityMode,
 		type ServerMediaRuntimeResponse,
@@ -110,10 +157,12 @@
 		audioProcessingRuntimeStatus,
 		callTransportState,
 		clearAudioPerformanceFallbackOverride,
+		refreshLocalAudioMuteState,
 		refreshSpatialAudioRuntime,
 		spatialAudioDiagnostics,
 		spatialAudioRuntimeStatus
 	} from '$lib/calling';
+	import { refreshCallRecordingMix } from '$lib/callRecording';
 	import {
 		getStoredAccessibilitySettings,
 		updateAccessibilitySettings,
@@ -273,6 +322,7 @@
 
 	export let isOpen = false;
 	export let requestedPaymentSurface: 'connections' | null = null;
+	export let requestedPasswordChangeRequest = 0;
 	type SettingsTab = 'profile' | 'audio' | 'notifications' | 'accessibility' | 'appearance' | 'server' | 'addons' | 'emojis' | 'storage' | 'admin' | 'about';
 	type CallRingtoneMode = 'classic-bell' | 'soft-chime' | 'pulse' | 'custom-synth' | 'custom-audio';
 	const CALL_RINGTONE_OPTIONS: Array<{ value: CallRingtoneMode; label: string }> = [
@@ -289,6 +339,7 @@
 		{ value: 'sawtooth', label: 'Sawtooth' }
 	];
 	let activeSettingsTab: SettingsTab = 'profile';
+	let lastHandledRequestedPasswordChangeRequest = 0;
 
 	let soundEnabled = true;
 	let notificationsEnabled = true;
@@ -307,6 +358,8 @@
 	let mediaQualityMode: MediaQualityMode = 'web-baseline';
 	let audioProcessingMode: AudioProcessingMode = 'auto';
 	let callTransportMode: CallTransportMode = 'auto';
+	let callMuteBehavior: CallMuteBehavior = 'mute-local-input';
+	let callRecordingStemMode: CallRecordingStemMode = 'mixed-only';
 	let srtGatewayEnabled = false;
 	let screenShareQualityPreset: ScreenShareQualityPreset = 'auto';
 	let screenShareBitrateKbps = 0;
@@ -353,6 +406,8 @@
 	let selectedMicDeviceId = '';
 	let selectedCameraDeviceId = '';
 	let mediaRuntimeSnapshot: ServerMediaRuntimeResponse | null = null;
+	let boosterRelayRequestedMode: BoosterRelayMode = 'off';
+	let boosterRelayEffectiveMode: BoosterRelayMode = 'off';
 	let micTestAnalyser: AnalyserNode | null = null;
 	let micTestLevelInterval: number | null = null;
 	let micTestAudioUrl: string | null = null;
@@ -487,6 +542,282 @@
 	let chatAliasReplacementDraft = '';
 	let quoteTemplateDraft = '';
 	let personalPinCount = 0;
+	type AddonSectionId = 'dms' | 'chat' | 'search' | 'navigation' | 'identity' | 'notifications' | 'media' | 'appearance' | 'utilities';
+	interface LocalAddonControlMeta {
+		label: string;
+		section: AddonSectionId;
+		terms: string[];
+		isAvailable?: () => boolean;
+	}
+	const ADDON_SECTION_ORDER: AddonSectionId[] = ['dms', 'chat', 'search', 'navigation', 'identity', 'notifications', 'media', 'appearance', 'utilities'];
+	const ADDON_SECTION_LABELS: Record<AddonSectionId, string> = {
+		dms: 'DMs',
+		chat: 'Chat',
+		search: 'Search',
+		navigation: 'Navigation',
+		identity: 'Identity',
+		notifications: 'Notifications',
+		media: 'Media',
+		appearance: 'Appearance',
+		utilities: 'Utilities'
+	};
+	const LOCAL_ADDON_CONTROL_META: Record<string, LocalAddonControlMeta> = {
+		translator_addon: {
+			label: 'Translator Assist',
+			section: 'utilities',
+			terms: ['translate', 'translation', 'language', 'libretranslate'],
+			isAvailable: () => translatorAddonDetected
+		},
+		line_dm: {
+			label: 'LINE DM',
+			section: 'dms',
+			terms: ['line', 'direct message', 'wallpaper', 'background', 'preset']
+		},
+		chat_aliases: {
+			label: 'ChatAliases',
+			section: 'utilities',
+			terms: ['alias', 'slash', 'command', 'replacement']
+		},
+		chat_filter: {
+			label: 'ChatFilter',
+			section: 'utilities',
+			terms: ['filter', 'blocked terms', 'censor', 'hide']
+		},
+		custom_quoter: {
+			label: 'CustomQuoter',
+			section: 'utilities',
+			terms: ['quote', 'template', 'copy quote', 'format']
+		},
+		image_utilities: {
+			label: 'ImageUtilities',
+			section: 'media',
+			terms: ['image', 'reverse image search', 'lens', 'bing', 'tineye', 'yandex']
+		},
+		spellcheck: {
+			label: 'SpellCheck',
+			section: 'chat',
+			terms: ['spellcheck', 'spelling', 'composer']
+		},
+		char_counter: {
+			label: 'CharCounter',
+			section: 'chat',
+			terms: ['character count', 'counter', 'composer']
+		},
+		split_large_messages: {
+			label: 'SplitLargeMessages',
+			section: 'chat',
+			terms: ['split', 'long messages', 'chunk size', 'composer']
+		},
+		write_upper_case: {
+			label: 'WriteUpperCase',
+			section: 'chat',
+			terms: ['capitalize', 'sentence case', 'auto-capitalization']
+		},
+		clickable_mentions: {
+			label: 'ClickableMentions',
+			section: 'chat',
+			terms: ['mentions', 'usernames', 'popout']
+		},
+		complete_timestamps: {
+			label: 'CompleteTimestamps',
+			section: 'chat',
+			terms: ['timestamp', 'date', 'time']
+		},
+		reveal_all_spoilers: {
+			label: 'RevealAllSpoilers',
+			section: 'chat',
+			terms: ['spoilers', 'reveal', 'moderation']
+		},
+		better_search_page: {
+			label: 'BetterSearchPage',
+			section: 'search',
+			terms: ['search results', 'sticky controls', 'matches']
+		},
+		google_search_replace: {
+			label: 'GoogleSearchReplace',
+			section: 'search',
+			terms: ['search on web', 'browser search', 'search engine', 'brave', 'duckduckgo', 'bing', 'google']
+		},
+		hide_muted_categories: {
+			label: 'HideMutedCategories',
+			section: 'navigation',
+			terms: ['muted channels', 'sidebar', 'channel list']
+		},
+		read_all_notifications_button: {
+			label: 'ReadAllNotificationsButton',
+			section: 'navigation',
+			terms: ['clear unread', 'notifications', 'sidebar']
+		},
+		server_counter: {
+			label: 'ServerCounter',
+			section: 'navigation',
+			terms: ['workspace count', 'channel counter', 'sidebar']
+		},
+		better_nsfw_tag: {
+			label: 'BetterNsfwTag',
+			section: 'navigation',
+			terms: ['nsfw', 'warning tag', 'channel list']
+		},
+		custom_status_presets: {
+			label: 'CustomStatusPresets',
+			section: 'identity',
+			terms: ['presence', 'status', 'preset', 'sidebar']
+		},
+		message_utilities: {
+			label: 'MessageUtilities',
+			section: 'chat',
+			terms: ['message actions', 'hover actions', 'quick tools']
+		},
+		quick_mention: {
+			label: 'QuickMention',
+			section: 'chat',
+			terms: ['mention', 'message actions', 'quick action']
+		},
+		personal_pins: {
+			label: 'PersonalPins',
+			section: 'chat',
+			terms: ['pins', 'messages', 'local pins']
+		},
+		last_message_date: {
+			label: 'LastMessageDate',
+			section: 'identity',
+			terms: ['last message', 'timestamp', 'popout']
+		},
+		show_connections: {
+			label: 'ShowConnections',
+			section: 'identity',
+			terms: ['profile', 'connections', 'links', 'handles']
+		},
+		user_notes: {
+			label: 'UserNotes',
+			section: 'identity',
+			terms: ['notes', 'private notes', 'profile']
+		},
+		friend_notifications: {
+			label: 'FriendNotifications',
+			section: 'notifications',
+			terms: ['presence alerts', 'desktop notifications', 'friends']
+		},
+		better_friend_list: {
+			label: 'BetterFriendList',
+			section: 'navigation',
+			terms: ['friend list', 'sort', 'filter', 'right panel']
+		},
+		emoji_statistics: {
+			label: 'EmojiStatistics',
+			section: 'media',
+			terms: ['emoji', 'inventory', 'statistics', 'categories']
+		},
+		remove_nicknames: {
+			label: 'RemoveNicknames',
+			section: 'identity',
+			terms: ['nicknames', 'account names', 'display names']
+		},
+		local_nicknames: {
+			label: 'LocalNicknames',
+			section: 'identity',
+			terms: ['nicknames', 'private nicknames', 'display names']
+		},
+		spotify_controls: {
+			label: 'SpotifyControls',
+			section: 'media',
+			terms: ['spotify', 'music', 'track', 'playlist']
+		},
+		staff_tag: {
+			label: 'StaffTag',
+			section: 'identity',
+			terms: ['staff', 'moderator', 'admin', 'role']
+		},
+		top_role_everywhere: {
+			label: 'TopRoleEverywhere',
+			section: 'identity',
+			terms: ['top role', 'badge', 'role']
+		},
+		timed_theme_mode: {
+			label: 'TimedLightDarkMode',
+			section: 'appearance',
+			terms: ['theme', 'light mode', 'dark mode', 'schedule']
+		},
+		unicode_emojis: {
+			label: 'UnicodeEmojis',
+			section: 'chat',
+			terms: ['emoji', 'unicode', 'shortcode', 'openmoji']
+		},
+		gif_captioner: {
+			label: 'GifCaptioner',
+			section: 'media',
+			terms: ['gif', 'caption', 'media']
+		},
+		zip_preview: {
+			label: 'ZipPreview',
+			section: 'media',
+			terms: ['zip', 'archive', 'preview', 'attachments']
+		},
+		more_quick_reacts: {
+			label: 'MoreQuickReacts',
+			section: 'media',
+			terms: ['quick reacts', 'reactions', 'emoji shortcuts']
+		},
+		pin_dms: {
+			label: 'PinDMs',
+			section: 'dms',
+			terms: ['pin dms', 'pinned conversations', 'direct messages']
+		}
+	};
+	let addonSearchQuery = '';
+	let addonSearchTokens: string[] = [];
+	let activeAddonSection: AddonSectionId | null = 'dms';
+	let visibleLocalAddonControlCount = 0;
+	let availableLocalAddonControlCount = 0;
+
+	function tokenizeAddonSearchQuery(value: string): string[] {
+		return value
+			.toLowerCase()
+			.trim()
+			.split(/\s+/)
+			.filter(Boolean);
+	}
+
+	function localAddonControlAvailable(controlId: string): boolean {
+		const meta = LOCAL_ADDON_CONTROL_META[controlId];
+		if (!meta) return false;
+		return meta.isAvailable ? meta.isAvailable() : true;
+	}
+
+	function localAddonControlMatches(controlId: string): boolean {
+		const meta = LOCAL_ADDON_CONTROL_META[controlId];
+		if (!meta || !localAddonControlAvailable(controlId)) return false;
+		if (addonSearchTokens.length === 0) return true;
+		const haystack = `${meta.label} ${ADDON_SECTION_LABELS[meta.section]} ${meta.terms.join(' ')}`.toLowerCase();
+		return addonSearchTokens.every((token) => haystack.includes(token));
+	}
+
+	function addonSectionHasMatches(section: AddonSectionId): boolean {
+		return Object.entries(LOCAL_ADDON_CONTROL_META).some(([controlId, meta]) => meta.section === section && localAddonControlMatches(controlId));
+	}
+
+	function addonSectionMatchCount(section: AddonSectionId): number {
+		return Object.entries(LOCAL_ADDON_CONTROL_META).filter(([controlId, meta]) => meta.section === section && localAddonControlMatches(controlId)).length;
+	}
+
+	function isAddonSectionOpen(section: AddonSectionId): boolean {
+		if (addonSearchTokens.length > 0) {
+			return addonSectionHasMatches(section);
+		}
+		return activeAddonSection === section;
+	}
+
+	function toggleAddonSection(section: AddonSectionId): void {
+		activeAddonSection = activeAddonSection === section ? null : section;
+	}
+
+	function clearAddonSearchQuery(): void {
+		addonSearchQuery = '';
+	}
+
+	$: addonSearchTokens = tokenizeAddonSearchQuery(addonSearchQuery);
+	$: availableLocalAddonControlCount = Object.keys(LOCAL_ADDON_CONTROL_META).filter((controlId) => localAddonControlAvailable(controlId)).length;
+	$: visibleLocalAddonControlCount = Object.keys(LOCAL_ADDON_CONTROL_META).filter((controlId) => localAddonControlMatches(controlId)).length;
 
 	function resolveVideoCompressionRuntimeScope(): VideoCompressionRuntime {
 		if (!isTauriRuntime()) return 'desktop';
@@ -521,6 +852,8 @@
 	let currentPasswordDraft = '';
 	let newPasswordDraft = '';
 	let confirmNewPasswordDraft = '';
+	let currentPasswordInput: HTMLInputElement | null = null;
+	let mustChangeOwnPassword = false;
 	let changingPassword = false;
 	let paymentConnectionsOpen = false;
 	let paymentHistoryOpen = false;
@@ -542,6 +875,32 @@
 	let adminDonationAuditLoading = false;
 	let adminDonationRefundingIntentId = '';
 	let adminDonationAudit: PaymentDonationLedgerEntry[] = [];
+	let adminRelayRosterLoaded = false;
+	let adminRelayRosterLoading = false;
+	let adminRelayApproveBusyId: number | null = null;
+	let adminRelayDeleteBusyId: number | null = null;
+	let adminRelayRoster: AdminRelayNode[] = [];
+	let communityNodeAccessLoaded = false;
+	let communityNodeAccessLoading = false;
+	let communityNodeAccessSaving = false;
+	let communityNodeAccessStatus = '';
+	let communityNodeWhitelistSelectedUserId = '';
+	let communityNodeWhitelistUsernameInput = '';
+	let communityNodeWhitelistPendingUsernames: string[] = [];
+	let communityNodeAccess: CommunityNodeAccessPolicy = {
+		mode: 'open',
+		allowedUsers: []
+	};
+	let communityNodeAnnouncementsLoaded = false;
+	let communityNodeAnnouncementsLoading = false;
+	let communityNodeAnnouncementsSaving = false;
+	let communityNodeAnnouncementsStatus = '';
+	let communityNodeAnnouncements: CommunityNodeAnnouncementsPolicy = {
+		enabled: false,
+		channelId: null,
+		onlineTemplate: '[{node}] is now online and helping this server. Thank you, {user}.',
+		offlineTemplate: '[{node}] went offline.'
+	};
 	let adminOfflineDonationAuditLoaded = false;
 	let adminOfflineDonationAuditLoading = false;
 	let adminOfflineDonationSaving = false;
@@ -565,6 +924,20 @@
 	let donationSuggestedAmountsInput = '5, 10, 25';
 	let paymentProviderCapabilities: PaymentProviderCapability[] = [];
 	let paymentProviderCapabilitiesLoaded = false;
+	interface DonationPrefillPayload {
+		amountInput: string;
+		providerPluginId: string;
+		methodId: string;
+		currency: string;
+		countryCode: string | null;
+		description: string;
+		metadata: Record<string, unknown>;
+	}
+	let desktopHelperProfileName = '';
+	let desktopHelperProfileMode: DesktopHelperProfileMode = 'off';
+	let desktopHelperProfileStatus = '';
+	let directionsGpsEnabled = false;
+	let directionsGpsStatus = '';
 
 	// Emoji upload state
 	let emojiFileInput: HTMLInputElement;
@@ -598,11 +971,31 @@
 	})();
 
 	$: canManageAdmin = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
+	$: communityAnnouncementChannelOptions = $channels.filter(
+		(channel) => channel.type === 'text' || channel.type === 'public' || channel.type === 'thread_public' || channel.type === 'thread_private'
+	);
+	$: communityNodeWhitelistCandidates = sortedAdminUsers.filter(
+		(user) =>
+			typeof user.dbUserId === 'number' &&
+			!communityNodeAccess.allowedUsers.some((entry) => entry.userId === user.dbUserId)
+	);
+	$: if ($desktopHelperState?.message && desktopLocalAppRuntime) {
+		desktopHelperProfileStatus = $desktopHelperState.message;
+	}
 	$: if (canManageAdmin && activeSettingsTab === 'admin' && !adminDonationConfigLoaded) {
 		void loadAdminDonationConfig();
 	}
 	$: if (canManageAdmin && activeSettingsTab === 'admin' && !adminDonationAuditLoaded) {
 		void loadAdminDonationAudit();
+	}
+	$: if (canManageAdmin && activeSettingsTab === 'admin' && !adminRelayRosterLoaded) {
+		void loadAdminRelayRoster();
+	}
+	$: if (canManageAdmin && activeSettingsTab === 'admin' && !communityNodeAccessLoaded) {
+		void loadCommunityNodeAccessPolicy();
+	}
+	$: if (canManageAdmin && activeSettingsTab === 'admin' && !communityNodeAnnouncementsLoaded) {
+		void loadCommunityNodeAnnouncementsPolicy();
 	}
 	$: if (canManageAdmin && activeSettingsTab === 'admin' && !adminOfflineDonationAuditLoaded) {
 		void loadAdminOfflineDonationAudit();
@@ -610,12 +1003,35 @@
 	$: adminDonationSelectedProvider =
 		paymentProviderCapabilities.find((provider) => provider.pluginId === adminDonationConfig.providerPluginId) || null;
 	$: adminDonationMethods = adminDonationSelectedProvider?.methods || [];
+	$: adminDonationSelectedMethod =
+		adminDonationMethods.find((method) => method.id === adminDonationConfig.methodId) || null;
+	$: adminDonationCurrencyOptions = getDonationRouteOptions(
+		adminDonationSelectedProvider?.currencies || [],
+		adminDonationSelectedMethod?.currencies || []
+	);
+	$: adminDonationCountryOptions = getDonationRouteOptions(
+		adminDonationSelectedProvider?.countries || [],
+		adminDonationSelectedMethod?.countries || []
+	);
+	$: donationRoutePreviewReady = Boolean(
+		adminDonationConfig.enabled &&
+		adminDonationConfig.providerPluginId &&
+		adminDonationConfig.methodId
+	);
+	$: if (adminDonationSelectedProvider || adminDonationConfig.providerPluginId === null) {
+		reconcileAdminDonationRouteSelection();
+	}
 	$: if (!isOpen) {
 		lastHandledRequestedPaymentSurface = null;
 	}
 	$: if (isOpen && requestedPaymentSurface === 'connections' && lastHandledRequestedPaymentSurface !== requestedPaymentSurface) {
 		paymentConnectionsOpen = true;
 		lastHandledRequestedPaymentSurface = requestedPaymentSurface;
+	}
+	$: if (isOpen && requestedPasswordChangeRequest > lastHandledRequestedPasswordChangeRequest) {
+		lastHandledRequestedPasswordChangeRequest = requestedPasswordChangeRequest;
+		activeSettingsTab = 'profile';
+		void focusPasswordChangeForm();
 	}
 	$: selectedVideoCompressionPresetOption =
 		videoCompressionPresetOptions.find((option) => option.id === defaultVideoCompressionPreset) || null;
@@ -694,9 +1110,51 @@
 		const secondaryTone = callRingtoneCustomSynth.secondaryToneHz > 0
 			? ` + ${Math.round(callRingtoneCustomSynth.secondaryToneHz)}Hz`
 			: '';
-		return `${callRingtoneCustomSynth.name} • ${callRingtoneCustomSynth.waveform} • ${Math.round(callRingtoneCustomSynth.primaryToneHz)}Hz${secondaryTone}`;
+		return `${callRingtoneCustomSynth.name} | ${callRingtoneCustomSynth.waveform} | ${Math.round(callRingtoneCustomSynth.primaryToneHz)}Hz${secondaryTone}`;
 	}
 
+	function getBoosterRelayModeLabel(mode: BoosterRelayMode): string {
+		switch (mode) {
+			case 'turn-only':
+				return 'TURN only';
+			case 'turn-sfu':
+				return 'TURN + SFU';
+			case 'turn-sfu-gateway':
+				return 'TURN + SFU + Gateway';
+			default:
+				return 'Off';
+		}
+	}
+
+	function getBoosterRelayComponentsSummary(runtime: ServerMediaRuntimeResponse | null): string {
+		const components = runtime?.media?.boosterRelay?.components;
+		if (!components) return 'No booster relay components advertised.';
+		return [
+			`TURN ${components.turnConfigured ? 'ready' : 'off'}`,
+			`SFU ${components.sfuConfigured ? 'ready' : 'off'}`,
+			`Gateway ${
+				components.gatewayConfigured
+					? components.gatewayHealthy && components.gatewayMediaPlaneReady
+						? 'ready'
+						: 'starting'
+					: 'off'
+			}`
+		].join(' | ');
+	}
+
+	function getBoosterRelaySelfAdvertisementSummary(runtime: ServerMediaRuntimeResponse | null): string {
+		const advertisement = runtime?.media?.boosterRelay?.selfAdvertisement;
+		if (!advertisement) return 'Self-advertised relay node: unknown.';
+		if (!advertisement.advertised) {
+			return 'Self-advertised relay node: not registered.';
+		}
+		const location = advertisement.url || '(missing URL)';
+		const relayId = advertisement.relayId ? `, ID ${advertisement.relayId}` : '';
+		return `Self-advertised relay node: ${advertisement.status || 'unknown'} at ${location}${relayId}.`;
+	}
+
+	$: boosterRelayRequestedMode = getBoosterRelayRequestedMode(mediaRuntimeSnapshot);
+	$: boosterRelayEffectiveMode = getBoosterRelayEffectiveMode(mediaRuntimeSnapshot);
 	// Load settings from localStorage and enforce server policy
 	onMount(() => {
 		selectedLocale = $currentLocale || 'en';
@@ -762,6 +1220,8 @@
 			mediaQualityMode = mediaSettings.qualityMode;
 			audioProcessingMode = mediaSettings.audioProcessingMode;
 			callTransportMode = mediaSettings.callTransportMode;
+			callMuteBehavior = mediaSettings.callMuteBehavior;
+			callRecordingStemMode = mediaSettings.callRecordingStemMode;
 			mediaRuntimeSnapshot = mediaSettings.runtime;
 			srtGatewayEnabled = mediaSettings.srtGatewayEnabled;
 			screenShareQualityPreset = mediaSettings.screenShareQualityPreset;
@@ -783,6 +1243,25 @@
 		}
 
 		displayNameDraft = $currentUser?.username || '';
+		if (browser) {
+			try {
+				const rawHelperProfile = localStorage.getItem(DESKTOP_HELPER_PROFILE_KEY);
+				if (rawHelperProfile) {
+					const parsed = JSON.parse(rawHelperProfile) as {
+						name?: string;
+						mode?: DesktopHelperProfileMode;
+					};
+					desktopHelperProfileName = typeof parsed.name === 'string' ? parsed.name : '';
+					desktopHelperProfileMode =
+						parsed.mode === 'files-only' || parsed.mode === 'desktop-assist' ? parsed.mode : 'off';
+				}
+			} catch {
+				desktopHelperProfileName = '';
+				desktopHelperProfileMode = 'off';
+			}
+			desktopHelperProfileStatus = get(desktopHelperState).message || desktopHelperProfileStatus;
+		}
+		directionsGpsEnabled = get(directionsAssistSettings).gpsEnabled;
 		quoteTemplateDraft = get(customQuoteSettingsStore).template;
 		loadTranslatorAddonSettings();
 		saveTranslatorAddonSettings();
@@ -790,6 +1269,7 @@
 		if (authToken) {
 			void getUserSettings(authToken)
 				.then((settings) => {
+					mustChangeOwnPassword = settings?.require_password_change === true;
 					if (!settings?.home_experience) return;
 					homeExperienceMode = settings.home_experience === 'conversations' ? 'conversations' : 'community';
 					setStoredHomeExperienceMode(homeExperienceMode);
@@ -798,6 +1278,27 @@
 					console.warn('[Settings] Failed to load home experience mode:', error);
 				});
 		}
+
+		const unsubscribeDonationRealtime = subscribePaymentRealtimeEvent('payments:donations-admin-updated', () => {
+			if (!canManageAdmin) return;
+			adminDonationAuditLoaded = false;
+			adminOfflineDonationAuditLoaded = false;
+			if (activeSettingsTab === 'admin') {
+				void loadAdminDonationAudit();
+				void loadAdminOfflineDonationAudit();
+			}
+		});
+
+		const unsubscribeAccessRealtime = subscribePaymentRealtimeEvent('payments:access-updated', () => {
+			if (!canManageAdmin || activeSettingsTab !== 'admin') return;
+			adminDonationConfigLoaded = false;
+			void loadAdminDonationConfig();
+		});
+
+		return () => {
+			unsubscribeDonationRealtime();
+			unsubscribeAccessRealtime();
+		};
 	});
 	$: selectedLocale = $currentLocale || 'en';
 	$: uiLearningModeEnabled = $learningModeEnabled;
@@ -827,6 +1328,26 @@
 		businessSyncStatus = businessSyncMode === 'manual'
 			? 'Manual mode enabled. Use Sync Now when needed.'
 			: 'Auto mode enabled.';
+	}
+
+	async function toggleDirectionsGpsAssist(): Promise<void> {
+		const next = !directionsGpsEnabled;
+		if (next) {
+			const granted = await requestDirectionsGpsPermission();
+			if (!granted) {
+				directionsGpsStatus = 'Location permission was denied or unavailable. Directions cards will stay target-only.';
+				directionsGpsEnabled = false;
+				setDirectionsGpsEnabled(false);
+				return;
+			}
+			directionsGpsStatus = 'Location assist enabled. Your position is only used locally when you create directions.';
+			directionsGpsEnabled = true;
+			setDirectionsGpsEnabled(true);
+			return;
+		}
+		directionsGpsEnabled = false;
+		setDirectionsGpsEnabled(false);
+		directionsGpsStatus = 'Location assist disabled.';
 	}
 
 	$: if (!updatingDisplayName && $currentUser?.username && displayNameDraft === '') {
@@ -1116,7 +1637,7 @@
 	function openPaymentConnections(): void {
 		const token = getAuthToken();
 		if (!token || !$currentUser?.dbUserId) {
-			alert('Sign in with a registered account to manage payment connections.');
+			alert('Sign in with a registered account to manage saved payment references.');
 			return;
 		}
 		paymentConnectionsOpen = true;
@@ -1185,21 +1706,12 @@
 		profilePaymentSheetOpen = true;
 	}
 
-	function minorToMajorInput(amountMinor: number): string {
-		return (amountMinor / 100).toFixed(2);
+	function minorToMajorInput(amountMinor: number, currency = adminDonationConfig.currency || 'USD'): string {
+		return minorAmountToInput(amountMinor, currency);
 	}
 
 	function formatDonationAuditAmount(amountMinor: number, currency: string): string {
-		const value = amountMinor / 100;
-		try {
-			return new Intl.NumberFormat(undefined, {
-				style: 'currency',
-				currency: currency || 'USD',
-				maximumFractionDigits: 2
-			}).format(value);
-		} catch {
-			return `${value.toFixed(2)} ${currency || ''}`.trim();
-		}
+		return formatPaymentMinorAmount(amountMinor, currency);
 	}
 
 	function formatDonationAuditWhen(entry: PaymentDonationLedgerEntry | OfflineDonationLedgerEntry): string {
@@ -1213,13 +1725,110 @@
 	function parseSuggestedAmountsInput(value: string): number[] {
 		return value
 			.split(',')
-			.map((entry) => Math.round(Number.parseFloat(entry.trim()) * 100))
+			.map((entry) => parsePaymentMajorAmount(entry.trim(), adminDonationConfig.currency || 'USD'))
 			.filter((amount) => Number.isFinite(amount) && amount > 0);
 	}
 
-	function parseMajorAmountInput(value: string): number {
-		const parsed = Math.round(Number.parseFloat(value.trim()) * 100);
-		return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+	function parseMajorAmountInput(value: string, currency = adminDonationConfig.currency || 'USD'): number {
+		return parsePaymentMajorAmount(value, currency);
+	}
+
+	function normalizeDonationRouteOptionValues(values: string[]): string[] {
+		const seen = new Set<string>();
+		const normalized: string[] = [];
+		for (const value of values) {
+			const upper = String(value || '').trim().toUpperCase();
+			if (!upper || seen.has(upper)) continue;
+			seen.add(upper);
+			normalized.push(upper);
+		}
+		return normalized;
+	}
+
+	function getDonationRouteOptions(providerValues: string[], methodValues: string[]): string[] {
+		const providerOptions = normalizeDonationRouteOptionValues(providerValues);
+		const methodOptions = normalizeDonationRouteOptionValues(methodValues);
+
+		if (providerOptions.length === 0) return methodOptions;
+		if (methodOptions.length === 0) return providerOptions;
+
+		const intersection = providerOptions.filter((value) => methodOptions.includes(value));
+		return intersection.length > 0 ? intersection : providerOptions;
+	}
+
+	function getDonationRouteSummaryList(values: number[]): string {
+		if (values.length === 0) return 'No suggested amounts';
+		return values.map((amountMinor) => minorToMajorInput(amountMinor, adminDonationConfig.currency || 'USD')).join(', ');
+	}
+
+	function reconcileAdminDonationRouteSelection(): void {
+		let nextConfig = adminDonationConfig;
+		let changed = false;
+
+		if (!adminDonationSelectedProvider) {
+			if (adminDonationConfig.methodId !== null) {
+				nextConfig = {
+					...nextConfig,
+					methodId: null
+				};
+				changed = true;
+			}
+			if (changed) {
+				adminDonationConfig = nextConfig;
+			}
+			return;
+		}
+
+		const nextMethodId = adminDonationMethods.some((method) => method.id === nextConfig.methodId)
+			? nextConfig.methodId
+			: (adminDonationMethods[0]?.id || null);
+		if (nextMethodId !== nextConfig.methodId) {
+			nextConfig = {
+				...nextConfig,
+				methodId: nextMethodId
+			};
+			changed = true;
+		}
+
+		const selectedMethod: PaymentMethodCapability | null =
+			adminDonationMethods.find((method) => method.id === nextConfig.methodId) || null;
+		const nextCurrencyOptions = getDonationRouteOptions(
+			adminDonationSelectedProvider.currencies,
+			selectedMethod?.currencies || []
+		);
+		const normalizedCurrency = String(nextConfig.currency || '').trim().toUpperCase();
+		const nextCurrency =
+			nextCurrencyOptions.length > 0
+				? (nextCurrencyOptions.includes(normalizedCurrency) ? normalizedCurrency : nextCurrencyOptions[0])
+				: (normalizedCurrency || 'USD');
+		if (nextCurrency !== nextConfig.currency) {
+			nextConfig = {
+				...nextConfig,
+				currency: nextCurrency
+			};
+			changed = true;
+		}
+
+		const nextCountryOptions = getDonationRouteOptions(
+			adminDonationSelectedProvider.countries,
+			selectedMethod?.countries || []
+		);
+		const normalizedCountry = String(nextConfig.countryCode || '').trim().toUpperCase();
+		const nextCountryCode =
+			nextCountryOptions.length > 0
+				? (nextCountryOptions.includes(normalizedCountry) ? normalizedCountry : nextCountryOptions[0])
+				: (normalizedCountry || null);
+		if (nextCountryCode !== nextConfig.countryCode) {
+			nextConfig = {
+				...nextConfig,
+				countryCode: nextCountryCode
+			};
+			changed = true;
+		}
+
+		if (changed) {
+			adminDonationConfig = nextConfig;
+		}
 	}
 
 	function normalizeAdminDonationMethodSelection(): void {
@@ -1266,7 +1875,7 @@
 		try {
 			adminDonationConfig = await getAdminPaymentDonationConfig(token);
 			donationSuggestedAmountsInput = adminDonationConfig.suggestedAmountsMinor
-				.map((amountMinor) => minorToMajorInput(amountMinor))
+				.map((amountMinor) => minorToMajorInput(amountMinor, adminDonationConfig.currency || 'USD'))
 				.join(', ');
 			offlineDonationCurrency = adminDonationConfig.currency || offlineDonationCurrency;
 			adminDonationConfigLoaded = true;
@@ -1292,6 +1901,248 @@
 			console.error('[Payments] Failed to load donation audit trail:', error);
 		} finally {
 			adminDonationAuditLoading = false;
+		}
+	}
+
+	function getAdminRelayKindLabel(relay: AdminRelayNode): string {
+		const kind = relay.metadata?.kind;
+		if (kind === 'booster-relay') return 'Booster Relay';
+		if (kind === 'desktop-helper') return 'Desktop Helper';
+		if (relay.metadata?.capabilities?.selfHosted) return 'Self-Hosted Node';
+		return 'Relay Node';
+	}
+
+	function getAdminRelayCapabilitiesSummary(relay: AdminRelayNode): string {
+		const capabilities = relay.metadata?.capabilities;
+		if (!capabilities) return 'No capabilities advertised';
+		const labels: string[] = [];
+		if (capabilities.fileRelay) labels.push('Files');
+		if (capabilities.turn) labels.push('TURN');
+		if (capabilities.sfu) labels.push('SFU');
+		if (capabilities.gateway) labels.push('Gateway');
+		return labels.length > 0 ? labels.join(' / ') : 'No capabilities advertised';
+	}
+
+	function formatRelaySeenAt(unixSeconds: number | null): string {
+		if (!unixSeconds) return 'Never';
+		try {
+			return new Date(unixSeconds * 1000).toLocaleString();
+		} catch {
+			return 'Unknown';
+		}
+	}
+
+	function getAdminRelayOwnerLabel(relay: AdminRelayNode): string | null {
+		if (relay.metadata?.ownerUsername) {
+			return 'Owner: ' + relay.metadata.ownerUsername;
+		}
+		return null;
+	}
+
+	async function loadAdminRelayRoster(): Promise<void> {
+		if (adminRelayRosterLoaded || adminRelayRosterLoading || !canManageAdmin) return;
+		const token = getAuthToken();
+		if (!token) return;
+		adminRelayRosterLoading = true;
+		try {
+			const relays = await listAdminRelays(token);
+			adminRelayRoster = relays.sort((a, b) => {
+				const statusOrder = (value: string) =>
+					value === 'active' ? 0 : value === 'degraded' ? 1 : value === 'pending' ? 2 : value === 'offline' ? 3 : 4;
+				return statusOrder(a.status) - statusOrder(b.status) || a.name.localeCompare(b.name);
+			});
+			adminRelayRosterLoaded = true;
+		} catch (error) {
+			console.error('[Relay] Failed to load admin relay roster:', error);
+		} finally {
+			adminRelayRosterLoading = false;
+		}
+	}
+
+	async function loadCommunityNodeAnnouncementsPolicy(): Promise<void> {
+		if (communityNodeAnnouncementsLoaded || communityNodeAnnouncementsLoading || !canManageAdmin) return;
+		const token = getAuthToken();
+		if (!token) return;
+		communityNodeAnnouncementsLoading = true;
+		try {
+			communityNodeAnnouncements = await getAdminCommunityNodeAnnouncementsPolicy(token);
+			communityNodeAnnouncementsLoaded = true;
+			communityNodeAnnouncementsStatus = '';
+		} catch (error) {
+			console.error('[CommunityNodes] Failed to load announcement policy:', error);
+			communityNodeAnnouncementsStatus =
+				error instanceof Error ? error.message : 'Failed to load node announcement settings.';
+		} finally {
+			communityNodeAnnouncementsLoading = false;
+		}
+	}
+
+	async function loadCommunityNodeAccessPolicy(): Promise<void> {
+		if (communityNodeAccessLoaded || communityNodeAccessLoading || !canManageAdmin) return;
+		const token = getAuthToken();
+		if (!token) return;
+		communityNodeAccessLoading = true;
+		try {
+			communityNodeAccess = await getAdminCommunityNodeAccessPolicy(token);
+			communityNodeAccessLoaded = true;
+			communityNodeAccessStatus = '';
+		} catch (error) {
+			console.error('[CommunityNodes] Failed to load access policy:', error);
+			communityNodeAccessStatus =
+				error instanceof Error ? error.message : 'Failed to load community node access policy.';
+		} finally {
+			communityNodeAccessLoading = false;
+		}
+	}
+
+	function addCommunityNodeWhitelistEntry(entry: CommunityNodeAllowedUser): void {
+		if (communityNodeAccess.allowedUsers.some((item) => item.userId === entry.userId)) return;
+		communityNodeAccess = {
+			...communityNodeAccess,
+			allowedUsers: [...communityNodeAccess.allowedUsers, entry].sort((a, b) => a.username.localeCompare(b.username))
+		};
+	}
+
+	function addSelectedCommunityNodeWhitelistUser(): void {
+		const numericId = Number(communityNodeWhitelistSelectedUserId);
+		if (!Number.isFinite(numericId)) return;
+		const user = communityNodeWhitelistCandidates.find((entry) => entry.dbUserId === numericId);
+		if (!user?.dbUserId) return;
+		addCommunityNodeWhitelistEntry({
+			userId: user.dbUserId,
+			username: user.username
+		});
+		communityNodeWhitelistSelectedUserId = '';
+	}
+
+	function addTypedCommunityNodeWhitelistUser(): void {
+		const username = communityNodeWhitelistUsernameInput.trim();
+		if (!username) return;
+		if (communityNodeAccess.allowedUsers.some((entry) => entry.username.toLowerCase() === username.toLowerCase())) {
+			communityNodeWhitelistUsernameInput = '';
+			return;
+		}
+		if (!communityNodeWhitelistPendingUsernames.some((entry) => entry.toLowerCase() === username.toLowerCase())) {
+			communityNodeWhitelistPendingUsernames = [...communityNodeWhitelistPendingUsernames, username].sort((a, b) =>
+				a.localeCompare(b)
+			);
+		}
+		communityNodeWhitelistUsernameInput = '';
+	}
+
+	function removeCommunityNodeWhitelistUser(userId: number): void {
+		communityNodeAccess = {
+			...communityNodeAccess,
+			allowedUsers: communityNodeAccess.allowedUsers.filter((entry) => entry.userId !== userId)
+		};
+	}
+
+	function removePendingCommunityNodeWhitelistUsername(username: string): void {
+		communityNodeWhitelistPendingUsernames = communityNodeWhitelistPendingUsernames.filter((entry) => entry !== username);
+	}
+
+	async function saveCommunityNodeAccess(): Promise<void> {
+		if (!canManageAdmin || communityNodeAccessSaving) return;
+		const token = getAuthToken();
+		if (!token) return;
+		communityNodeAccessSaving = true;
+		try {
+			const payload = {
+				...communityNodeAccess,
+				allowedUsers: [...communityNodeAccess.allowedUsers, ...communityNodeWhitelistPendingUsernames]
+			};
+			communityNodeAccess = await saveAdminCommunityNodeAccessPolicy(
+				token,
+				payload as unknown as CommunityNodeAccessPolicy
+			);
+			communityNodeWhitelistPendingUsernames = [];
+			communityNodeAccessLoaded = true;
+			communityNodeAccessStatus = 'Community node access policy saved.';
+		} catch (error) {
+			communityNodeAccessStatus =
+				error instanceof Error ? error.message : 'Failed to save community node access policy.';
+		} finally {
+			communityNodeAccessSaving = false;
+		}
+	}
+
+	async function saveCommunityNodeAnnouncements(): Promise<void> {
+		if (!canManageAdmin || communityNodeAnnouncementsSaving) return;
+		const token = getAuthToken();
+		if (!token) return;
+		if (communityNodeAnnouncements.enabled && !communityNodeAnnouncements.channelId) {
+			communityNodeAnnouncementsStatus = 'Pick a channel before enabling community node announcements.';
+			return;
+		}
+		communityNodeAnnouncementsSaving = true;
+		try {
+			communityNodeAnnouncements = await saveAdminCommunityNodeAnnouncementsPolicy(token, communityNodeAnnouncements);
+			communityNodeAnnouncementsLoaded = true;
+			communityNodeAnnouncementsStatus = 'Community node announcement settings saved.';
+		} catch (error) {
+			communityNodeAnnouncementsStatus =
+				error instanceof Error ? error.message : 'Failed to save node announcement settings.';
+		} finally {
+			communityNodeAnnouncementsSaving = false;
+		}
+	}
+
+	async function approveRelayNode(relay: AdminRelayNode): Promise<void> {
+		if (!canManageAdmin || adminRelayApproveBusyId !== null) return;
+		const token = getAuthToken();
+		if (!token) return;
+		adminRelayApproveBusyId = relay.relay_id;
+		try {
+			await approveAdminRelay(token, relay.relay_id);
+			adminRelayRosterLoaded = false;
+			await loadAdminRelayRoster();
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to approve relay node');
+		} finally {
+			adminRelayApproveBusyId = null;
+		}
+	}
+
+	async function deleteRelayNode(relay: AdminRelayNode): Promise<void> {
+		if (!canManageAdmin || adminRelayDeleteBusyId !== null) return;
+		const token = getAuthToken();
+		if (!token) return;
+		if (!confirm(`Delete node "${relay.name}" from the server roster?`)) return;
+		adminRelayDeleteBusyId = relay.relay_id;
+		try {
+			await deleteAdminRelay(token, relay.relay_id);
+			adminRelayRoster = adminRelayRoster.filter((entry) => entry.relay_id !== relay.relay_id);
+			adminRelayRosterLoaded = true;
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to delete relay node');
+		} finally {
+			adminRelayDeleteBusyId = null;
+		}
+	}
+
+	async function saveDesktopHelperProfile(): Promise<void> {
+		if (!browser) return;
+		const normalizedName = desktopHelperProfileName.trim();
+		if (desktopHelperProfileMode !== 'off' && !normalizedName) {
+			desktopHelperProfileStatus = 'Pick a helper name before using helper mode.';
+			return;
+		}
+		try {
+			localStorage.setItem(
+				DESKTOP_HELPER_PROFILE_KEY,
+				JSON.stringify({
+					name: normalizedName,
+					mode: desktopHelperProfileMode
+				})
+			);
+			desktopHelperProfileStatus =
+				desktopHelperProfileMode === 'off'
+					? 'Desktop helper profile saved. Helper mode stays off.'
+					: 'Desktop helper profile saved. Activating desktop helper...';
+			await syncDesktopHelperService();
+			desktopHelperProfileStatus = get(desktopHelperState).message || desktopHelperProfileStatus;
+		} catch {
+			desktopHelperProfileStatus = 'Failed to save desktop helper profile locally.';
 		}
 	}
 
@@ -1328,7 +2179,7 @@
 		try {
 			adminDonationConfig = await saveAdminPaymentDonationConfig(token, nextConfig);
 			donationSuggestedAmountsInput = adminDonationConfig.suggestedAmountsMinor
-				.map((amountMinor) => minorToMajorInput(amountMinor))
+				.map((amountMinor) => minorToMajorInput(amountMinor, adminDonationConfig.currency || 'USD'))
 				.join(', ');
 			alert('Donation settings saved.');
 		} catch (error) {
@@ -1346,7 +2197,7 @@
 			return;
 		}
 
-		const amountMinor = parseMajorAmountInput(offlineDonationAmountInput);
+		const amountMinor = parseMajorAmountInput(offlineDonationAmountInput, offlineDonationCurrency);
 		if (amountMinor <= 0) {
 			alert('Enter a valid offline donation amount.');
 			return;
@@ -1371,7 +2222,7 @@
 				...adminOfflineDonationAudit.filter((entry) => entry.settlementId !== donation.settlementId)
 			];
 			adminOfflineDonationAuditLoaded = true;
-			offlineDonationAmountInput = minorToMajorInput(amountMinor);
+			offlineDonationAmountInput = minorToMajorInput(amountMinor, currency);
 			offlineDonationCurrency = currency;
 			offlineDonationDonorLabel = '';
 			offlineDonationDescription = '';
@@ -1489,12 +2340,19 @@
 			currentPasswordDraft = '';
 			newPasswordDraft = '';
 			confirmNewPasswordDraft = '';
+			mustChangeOwnPassword = false;
 			alert('Password updated.');
 		} catch (error) {
 			alert(error instanceof Error ? error.message : 'Failed to change password.');
 		} finally {
 			changingPassword = false;
 		}
+	}
+
+	async function focusPasswordChangeForm(): Promise<void> {
+		await tick();
+		currentPasswordInput?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+		currentPasswordInput?.focus();
 	}
 
 	async function promptAdminPasswordReset(user: { dbUserId?: number; username: string; id: string; highestRole?: string }) {
@@ -1518,9 +2376,17 @@
 			return;
 		}
 
+		const temporaryReset = window.confirm(
+			`Make this a temporary password for ${user.username}? Click OK to require a password change on next login, or Cancel to make it permanent.`
+		);
+
 		try {
-			await adminResetUserPassword(token, user.dbUserId, newPassword);
-			alert(`Password reset for ${user.username}.`);
+			await adminResetUserPassword(token, user.dbUserId, newPassword, temporaryReset);
+			alert(
+				temporaryReset
+					? `Temporary password set for ${user.username}. They will be asked to change it on next login.`
+					: `Password reset for ${user.username}.`
+			);
 		} catch (error) {
 			alert(error instanceof Error ? error.message : 'Failed to reset password.');
 		}
@@ -1635,6 +2501,18 @@
 	function updateCallTransportMode(mode: CallTransportMode) {
 		callTransportMode = mode;
 		setCallTransportMode(mode);
+	}
+
+	function updateCallMuteBehavior(mode: CallMuteBehavior) {
+		callMuteBehavior = mode;
+		setCallMuteBehavior(mode);
+		refreshLocalAudioMuteState();
+		refreshCallRecordingMix();
+	}
+
+	function updateCallRecordingStemMode(mode: CallRecordingStemMode) {
+		callRecordingStemMode = mode;
+		setCallRecordingStemMode(mode);
 	}
 
 	function toggleSrtGateway() {
@@ -2248,11 +3126,10 @@
 
 	async function fetchPluginInventory(): Promise<PluginApiRecord[] | null> {
 		const token = getAuthToken();
-		if (!token) return null;
 
 		try {
 			const response = await fetch(`${getServerUrl()}/api/plugins`, {
-				headers: { Authorization: `Bearer ${token}` }
+				headers: token ? { Authorization: `Bearer ${token}` } : undefined
 			});
 			if (!response.ok) return null;
 			const payload = await response.json();
@@ -3386,13 +4263,17 @@
 								<div class="setting-item-full">
 									<div class="setting-info">
 										<span class="setting-label">Change Password</span>
-										<span class="setting-description">Update your account password.</span>
+										<span class="setting-description">Update your account password. If you lose it, there is no email recovery here today; ask an owner/admin to reset it.</span>
 									</div>
+									{#if mustChangeOwnPassword}
+										<p class="warning-text">This account is using a temporary password. Change it now.</p>
+									{/if}
 									<input
 										type="password"
 										class="emoji-name-input"
 										placeholder="Current password"
 										bind:value={currentPasswordDraft}
+										bind:this={currentPasswordInput}
 										autocomplete="current-password"
 									/>
 									<input
@@ -3428,11 +4309,11 @@
 							</div>
 							<div class="setting-item-full">
 								<div class="setting-info">
-									<span class="setting-label">Payment Connections</span>
-									<span class="setting-description">Link payment providers that this server has already loaded, so Wabi can reuse them when you pay or request payment.</span>
+									<span class="setting-label">Saved Payment References</span>
+									<span class="setting-description">Save non-sensitive payment references for providers this server already exposes, so Wabi can reuse them when you make or request payment.</span>
 								</div>
 								<button class="pfp-upload-btn" on:click={openPaymentConnections} disabled={!$currentUser?.dbUserId}>
-									{$currentUser?.dbUserId ? 'Manage Connections' : 'Sign In Required'}
+									{$currentUser?.dbUserId ? 'Manage References' : 'Sign In Required'}
 								</button>
 							</div>
 							<div class="setting-item-full">
@@ -3765,6 +4646,56 @@
 											TURN relay is not configured on this server right now. DM calls can fail across NAT, mobile, and home-network boundaries.
 										</div>
 									{/if}
+									{#if mediaRuntimeSnapshot?.media?.boosterRelay}
+										<div class="runtime-note">
+											Server booster relay: requested {getBoosterRelayModeLabel(boosterRelayRequestedMode)}, effective {getBoosterRelayModeLabel(boosterRelayEffectiveMode)}.
+										</div>
+										<div class="runtime-note">{getBoosterRelayComponentsSummary(mediaRuntimeSnapshot)}</div>
+										<div class="runtime-note">{getBoosterRelaySelfAdvertisementSummary(mediaRuntimeSnapshot)}</div>
+										{#if mediaRuntimeSnapshot.media.boosterRelay.selfAdvertisement?.reason}
+											<div class="runtime-note">
+												{mediaRuntimeSnapshot.media.boosterRelay.selfAdvertisement.reason}
+											</div>
+										{/if}
+										{#if boosterRelayRequestedMode !== 'off' && boosterRelayRequestedMode !== boosterRelayEffectiveMode}
+											<div class="runtime-note">
+												The deployment is asking for a heavier server-side relay mode than this runtime currently exposes. Start the matching compose profiles on the server machine.
+											</div>
+										{/if}
+									{/if}
+								</div>
+
+								<div class="quality-mode-row">
+									<label for="call-mute-behavior">Call Mute Behavior</label>
+									<select
+										id="call-mute-behavior"
+										class="theme-select"
+										value={callMuteBehavior}
+										on:change={(e) => updateCallMuteBehavior(e.currentTarget.value as CallMuteBehavior)}
+									>
+										<option value="mute-local-input">Mute outbound + local recording (Default)</option>
+										<option value="outbound-only">Mute outbound only</option>
+									</select>
+									<div class="runtime-note">
+										Mute outbound only keeps your mic in local call recordings for VTuber/avatar workflows while still silencing what other participants hear.
+									</div>
+								</div>
+
+								<div class="quality-mode-row">
+									<label for="call-recording-stem-mode">Recording Outputs</label>
+									<select
+										id="call-recording-stem-mode"
+										class="theme-select"
+										value={callRecordingStemMode}
+										on:change={(e) => updateCallRecordingStemMode(e.currentTarget.value as CallRecordingStemMode)}
+									>
+										<option value="mixed-only">Mixed recording only (Default)</option>
+										<option value="mixed-plus-mic">Mixed + mic stem</option>
+										<option value="mixed-plus-all-audio">Mixed + all live audio stems</option>
+									</select>
+									<div class="runtime-note">
+										Extra stems add CPU load, file size, and save time. All-stems mode exports separate audio files for your mic and each live remote/share audio source that appears during the recording.
+									</div>
 								</div>
 
 								<div class="setting-item">
@@ -3792,6 +4723,41 @@
 										{srtGatewayEnabled ? 'ON' : 'OFF'}
 									</button>
 								</div>
+
+								{#if desktopLocalAppRuntime}
+									<div class="upload-limits-panel">
+										<h4>Desktop Helper Profile</h4>
+										<p class="admin-help">Pick the human-readable name this desktop should use before helper activation is turned on. This avoids exposing raw machine hostnames later.</p>
+										<div class="quality-mode-row">
+											<label for="desktop-helper-name">Helper Name</label>
+											<input
+												id="desktop-helper-name"
+												class="emoji-name-input"
+												maxlength="120"
+												placeholder="Will Laptop"
+												bind:value={desktopHelperProfileName}
+											/>
+										</div>
+										<div class="quality-mode-row">
+											<label for="desktop-helper-mode">Helper Mode</label>
+											<select
+												id="desktop-helper-mode"
+												class="theme-select"
+												bind:value={desktopHelperProfileMode}
+											>
+												<option value="off">Off</option>
+												<option value="files-only">Files Only</option>
+												<option value="desktop-assist">Desktop Assist</option>
+											</select>
+										</div>
+										<button class="action-btn" on:click={saveDesktopHelperProfile}>
+											Save Helper Profile
+										</button>
+										{#if desktopHelperProfileStatus}
+											<p class="admin-help">{desktopHelperProfileStatus}</p>
+										{/if}
+									</div>
+								{/if}
 
 								{#if !localAppRuntime && browser}
 									<p class="runtime-note">Tip: install the Local App (Tauri) to unlock enhanced call quality mode.</p>
@@ -4643,6 +5609,18 @@
 							<h3>{$t('settings.sections.server_management')}</h3>
 							<div class="setting-item">
 								<div class="setting-info">
+									<span class="setting-label">Local Directions Assist</span>
+									<span class="setting-description">Opt in to use your current location locally when creating directions cards. This is never uploaded to the server.</span>
+								</div>
+								<button class="toggle-btn" class:active={directionsGpsEnabled} on:click={toggleDirectionsGpsAssist}>
+									{directionsGpsEnabled ? 'ON' : 'OFF'}
+								</button>
+							</div>
+							{#if directionsGpsStatus}
+								<div class="runtime-note">{directionsGpsStatus}</div>
+							{/if}
+							<div class="setting-item">
+								<div class="setting-info">
 									<span class="setting-label">Business Data Sync Mode</span>
 									<span class="setting-description">Manual mode reduces background sync chatter. Auto mode continuously syncs business data.</span>
 								</div>
@@ -4758,961 +5736,1305 @@
 								</div>
 							</div>
 
-							{#if translatorAddonDetected}
-								<div class="setting-item-full">
+							<div class="addons-settings-window">
+								<div class="addons-settings-window-header">
 									<div class="setting-info">
-										<span class="setting-label">Translator Assist Settings</span>
-										<span class="setting-description">Pick a translator model and target language. Source language is auto-detected.</span>
+										<span class="setting-label">Local Add-on Controls</span>
+										<span class="setting-description">Browse and tune device-local add-on behavior here. Search auto-expands matching sections while you filter.</span>
 									</div>
-									<div class="upload-limit-grid">
-										<label class="upload-limit-row">
-											<span>Model</span>
-											<select bind:value={translatorModel} class="theme-select" on:change={saveTranslatorAddonSettings}>
-												{#each TRANSLATOR_MODEL_OPTIONS as modelOption}
-													<option value={modelOption.id}>{modelOption.label}</option>
-												{/each}
-											</select>
+									<div class="addons-settings-toolbar">
+										<label class="addons-search-field">
+											<span class="addons-search-label">Search add-ons</span>
+											<input
+												type="search"
+												class="theme-select addon-search-input"
+												bind:value={addonSearchQuery}
+												placeholder="Search local add-ons, tools, and settings"
+											/>
 										</label>
-										<label class="upload-limit-row">
-											<span>Target language</span>
-											<input type="text" maxlength="16" bind:value={translatorTargetLang} placeholder="en" on:blur={saveTranslatorAddonSettings} />
-										</label>
-									</div>
-									<div class="runtime-note">Settings save automatically.</div>
-									{#if translatorSettingsSavedAt}
-										<div class="runtime-note">Saved at {translatorSettingsSavedAt}</div>
-									{/if}
-								</div>
-							{/if}
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">ChatAliases (MVP)</span>
-									<span class="setting-description">Create slash aliases. Use <code>{'{args}'}</code> in replacement to inject trailing arguments.</span>
-								</div>
-								<div class="settings-row-actions">
-									<input
-										type="text"
-										class="theme-select alias-input"
-										placeholder="/shrug"
-										bind:value={chatAliasTriggerDraft}
-									/>
-									<input
-										type="text"
-										class="theme-select alias-input"
-										placeholder="Replacement text or /command"
-										bind:value={chatAliasReplacementDraft}
-									/>
-									<button
-										class="action-btn"
-										on:click={addChatAliasFromDraft}
-										disabled={!chatAliasTriggerDraft.trim() || !chatAliasReplacementDraft.trim()}
-									>
-										Add Alias
-									</button>
-								</div>
-								{#if $chatAliasesStore.length === 0}
-									<div class="runtime-note">No aliases configured yet.</div>
-								{:else}
-									<div class="addons-list">
-										{#each $chatAliasesStore as alias (alias.id)}
-											<div class="addon-row">
-												<div class="addon-name">{alias.trigger} -> {alias.replacement}</div>
-												<div class="settings-row-actions">
-													<button class="action-btn secondary" on:click={() => toggleChatAliasEnabled(alias)}>
-														{alias.enabled ? 'Disable' : 'Enable'}
-													</button>
-													<button class="action-btn secondary" on:click={() => editChatAlias(alias)}>Edit</button>
-													<button class="action-btn danger" on:click={() => removeChatAlias(alias.id)}>Delete</button>
-												</div>
-											</div>
-										{/each}
-									</div>
-								{/if}
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">ChatFilter (MVP)</span>
-									<span class="setting-description">Censor or hide messages containing blocked terms.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={$chatFilterStore.enabled} on:click={toggleChatFilterEnabled}>
-										{$chatFilterStore.enabled ? 'ON' : 'OFF'}
-									</button>
-									<select
-										class="theme-select"
-										value={$chatFilterStore.mode}
-										on:change={(event) => updateChatFilterMode(event.currentTarget.value as ChatFilterMode)}
-										disabled={!$chatFilterStore.enabled}
-									>
-										<option value="censor">Censor text</option>
-										<option value="hide">Hide full message</option>
-									</select>
-									<button class="action-btn secondary" on:click={editChatFilterTerms}>
-										Edit Terms ({$chatFilterStore.terms.length})
-									</button>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={$chatFilterStore.applyToIncoming} on:click={toggleChatFilterIncoming}>
-										Incoming {$chatFilterStore.applyToIncoming ? 'ON' : 'OFF'}
-									</button>
-									<button class="toggle-btn" class:active={$chatFilterStore.applyToOutgoing} on:click={toggleChatFilterOutgoing}>
-										Outgoing {$chatFilterStore.applyToOutgoing ? 'ON' : 'OFF'}
-									</button>
-								</div>
-								{#if $chatFilterStore.mode === 'censor'}
-									<label class="upload-limit-row">
-										<span>Replacement token</span>
-										<input
-											type="text"
-											maxlength="24"
-											value={$chatFilterStore.replacement}
-											on:input={(event) => updateChatFilterReplacement(event.currentTarget.value)}
-										/>
-									</label>
-								{/if}
-								<div class="runtime-note">
-									Current blocked terms: {$chatFilterStore.terms.length > 0 ? $chatFilterStore.terms.join(', ') : '(none)'}
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">CustomQuoter (MVP)</span>
-									<span class="setting-description">Template used by message action <strong>Copy Quote</strong>.</span>
-								</div>
-								<textarea
-									class="addon-template-input"
-									rows="3"
-									bind:value={quoteTemplateDraft}
-									placeholder={'> {text}\\n- {user} ({timestamp})'}
-								></textarea>
-								<div class="runtime-note">Placeholders: <code>{'{user}'}</code> <code>{'{text}'}</code> <code>{'{timestamp}'}</code> <code>{'{channel}'}</code> <code>{'{message_id}'}</code></div>
-								<div class="settings-row-actions">
-									<button class="action-btn" on:click={saveQuoteTemplate}>Save Template</button>
-									<button class="action-btn secondary" on:click={resetQuoteTemplateFromSettings}>Reset Default</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">ImageUtilities (MVP)</span>
-									<span class="setting-description">Choose the default provider for reverse image search from the image lightbox menu.</span>
-								</div>
-								<label class="upload-limit-row">
-									<span>Reverse image search provider</span>
-									<select
-										class="theme-select"
-										value={reverseImageSearchProvider}
-										on:change={(event) => updateReverseSearchProvider(event.currentTarget.value as ReverseImageSearchProvider)}
-									>
-										<option value="google_lens">Google Lens</option>
-										<option value="bing">Bing Visual Search</option>
-										<option value="tineye">TinEye</option>
-										<option value="yandex">Yandex Images</option>
-									</select>
-								</label>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">SpellCheck (MVP)</span>
-									<span class="setting-description">Use browser spellcheck in the main chat and DM composers.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={spellCheckEnabled} on:click={toggleSpellCheckAddon}>
-										{spellCheckEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">CharCounter (MVP)</span>
-									<span class="setting-description">Show live character counters in the main chat and DM composers.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={charCounterEnabled} on:click={toggleCharCounterAddon}>
-										{charCounterEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">SplitLargeMessages (MVP)</span>
-									<span class="setting-description">Automatically split long outgoing text into multiple messages.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={splitLargeMessagesEnabled} on:click={toggleSplitLargeMessagesAddon}>
-										{splitLargeMessagesEnabled ? 'ON' : 'OFF'}
-									</button>
-									<label class="upload-limit-row split-chunk-size-row">
-										<span>Chunk size</span>
-										<input
-											type="number"
-											min="250"
-											max="4000"
-											step="50"
-											value={splitLargeMessagesChunkSize}
-											on:change={(event) => updateSplitLargeMessagesChunkSize(event.currentTarget.value)}
-											disabled={!splitLargeMessagesEnabled}
-										/>
-									</label>
-								</div>
-								<div class="runtime-note">
-									Composer max length: {splitLargeMessagesEnabled ? splitLargeMessagesInputMaxLength : splitLargeMessagesChunkSize} characters.
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">WriteUpperCase</span>
-									<span class="setting-description">Auto-capitalize sentence starts for outgoing text (main chat, DM, and GIF captions).</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={writeUpperCaseEnabled} on:click={toggleWriteUpperCaseAddon}>
-										{writeUpperCaseEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">ClickableMentions</span>
-									<span class="setting-description">Open user popouts by clicking usernames and @mentions in message content.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={clickableMentionsEnabled} on:click={toggleClickableMentionsAddon}>
-										{clickableMentionsEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">CompleteTimestamps</span>
-									<span class="setting-description">Choose the timestamp detail level shown in message rows.</span>
-								</div>
-								<label class="upload-limit-row">
-									<span>Timestamp mode</span>
-									<select
-										class="theme-select"
-										value={timestampDisplayMode}
-										on:change={(event) => updateTimestampDisplayMode(event.currentTarget.value)}
-									>
-										<option value="compact">Compact (time only)</option>
-										<option value="complete">Complete (date + time)</option>
-										<option value="detailed">Detailed (full locale)</option>
-									</select>
-								</label>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">RevealAllSpoilers</span>
-									<span class="setting-description">Hold Ctrl/Cmd and click a spoiler to reveal all spoilers in that message.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={revealAllSpoilersEnabled} on:click={toggleRevealAllSpoilersAddon}>
-										{revealAllSpoilersEnabled ? 'ON' : 'OFF'}
-									</button>
-									<label class="upload-limit-row split-chunk-size-row">
-										<span>Minimum role</span>
-										<select
-											class="theme-select"
-											value={revealAllSpoilersMinRole}
-											on:change={(event) => updateRevealAllSpoilersRole(event.currentTarget.value)}
-											disabled={!revealAllSpoilersEnabled}
-										>
-											<option value="guest">Guest</option>
-											<option value="member">Member</option>
-											<option value="mod">Moderator</option>
-											<option value="admin">Admin</option>
-											<option value="owner">Owner</option>
-										</select>
-									</label>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">BetterSearchPage</span>
-									<span class="setting-description">Keep search results controls pinned above the message list while you scroll through matches.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={betterSearchPageEnabled} on:click={toggleBetterSearchPageAddon}>
-										{betterSearchPageEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">GoogleSearchReplace (Wabi translation)</span>
-									<span class="setting-description">Add a quick "Search on Web" action from the in-chat search bar so users can continue the same query in a browser.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={googleSearchReplaceEnabled} on:click={toggleGoogleSearchReplaceAddon}>
-										{googleSearchReplaceEnabled ? 'ON' : 'OFF'}
-									</button>
-									<label class="upload-limit-row split-chunk-size-row">
-										<span>Search engine</span>
-										<select
-											class="theme-select"
-											value={searchEngineProvider}
-											on:change={(event) => updateSearchEngineProvider(event.currentTarget.value)}
-											disabled={!googleSearchReplaceEnabled}
-										>
-											<option value="brave">Brave</option>
-											<option value="duckduckgo">DuckDuckGo</option>
-											<option value="startpage">Startpage</option>
-											<option value="bing">Bing</option>
-											<option value="google">Google</option>
-											<option value="custom">Custom template</option>
-										</select>
-									</label>
-								</div>
-								{#if searchEngineProvider === 'custom'}
-									<div class="settings-row-actions">
-										<input
-											type="text"
-											class="theme-select"
-											bind:value={searchEngineCustomTemplate}
-											placeholder={SEARCH_ENGINE_CUSTOM_TEMPLATE_PLACEHOLDER}
-											disabled={!googleSearchReplaceEnabled}
-										/>
-										<button
-											class="action-btn secondary"
-											on:click={saveCustomSearchEngineTemplateFromSettings}
-											disabled={!googleSearchReplaceEnabled}
-										>
-											Save Template
-										</button>
-									</div>
-									<div class="runtime-note">Use <code>{SEARCH_ENGINE_CUSTOM_QUERY_TOKEN}</code> where the search text should be inserted.</div>
-								{/if}
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">HideMutedCategories</span>
-									<span class="setting-description">Wabi translation: hide locally muted channels from the sidebar channel list.</span>
-								</div>
-								<div class="runtime-note">Locally muted channels: {mutedChannelCount}</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={hideMutedCategoriesEnabled} on:click={toggleHideMutedCategoriesAddon}>
-										{hideMutedCategoriesEnabled ? 'ON' : 'OFF'}
-									</button>
-									<button class="action-btn secondary" on:click={clearMutedChannelsAddon} disabled={mutedChannelCount === 0}>
-										Clear Muted
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">ReadAllNotificationsButton</span>
-									<span class="setting-description">Show a clear-unread action in the channel sidebar.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={readAllNotificationsButtonEnabled} on:click={toggleReadAllNotificationsButtonAddon}>
-										{readAllNotificationsButtonEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">ServerCounter (Wabi workspace)</span>
-									<span class="setting-description">Show a workspace channel counter above the channel list.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={serverCounterEnabled} on:click={toggleServerCounterAddon}>
-										{serverCounterEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">BetterNsfwTag (Wabi translation)</span>
-									<span class="setting-description">Highlight NSFW-like channels in the sidebar with a high-visibility warning tag.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={betterNsfwTagEnabled} on:click={toggleBetterNsfwTagAddon}>
-										{betterNsfwTagEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">CustomStatusPresets (Wabi translation)</span>
-									<span class="setting-description">Save reusable presence presets and apply them directly from the sidebar status menu.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={customStatusPresetsEnabled} on:click={toggleCustomStatusPresetsAddon}>
-										{customStatusPresetsEnabled ? 'ON' : 'OFF'}
-									</button>
-									<div class="runtime-note">
-										Presets: {$customStatusPresetsStore.presets.length}/{MAX_CUSTOM_STATUS_PRESETS}
+										<div class="addons-search-meta">
+											<span class="runtime-note">Showing {visibleLocalAddonControlCount} of {availableLocalAddonControlCount} local add-ons</span>
+											{#if addonSearchQuery.trim()}
+												<button type="button" class="action-btn secondary addon-search-clear" on:click={clearAddonSearchQuery}>
+													Clear Search
+												</button>
+											{/if}
+										</div>
 									</div>
 								</div>
-								<div class="settings-row-actions">
-									<input
-										type="text"
-										class="theme-select"
-										placeholder="Preset label"
-										bind:value={customStatusPresetLabelDraft}
-										maxlength="36"
-										disabled={!customStatusPresetsEnabled}
-									/>
-									<select
-										class="theme-select"
-										bind:value={customStatusPresetPresenceDraft}
-										disabled={!customStatusPresetsEnabled}
-									>
-										<option value="active">Active</option>
-										<option value="away">Away</option>
-										<option value="busy">Busy</option>
-									</select>
-									<button
-										class="action-btn"
-										on:click={addCustomStatusPresetFromSettings}
-										disabled={!customStatusPresetsEnabled || !customStatusPresetLabelDraft.trim()}
-									>
-										Add Preset
-									</button>
-								</div>
-								<div class="settings-row-actions">
-									<input
-										type="text"
-										class="theme-select"
-										placeholder="Optional note shown below your username"
-										bind:value={customStatusPresetNoteDraft}
-										maxlength="120"
-										disabled={!customStatusPresetsEnabled}
-									/>
-									<button
-										class="action-btn secondary"
-										on:click={resetCustomStatusPresetsAddon}
-										disabled={!customStatusPresetsEnabled}
-									>
-										Reset Presets
-									</button>
-								</div>
-								{#if $customStatusPresetsStore.presets.length === 0}
-									<div class="runtime-note">No presets configured.</div>
-								{:else}
-									<div class="custom-status-preset-list">
-										{#each $customStatusPresetsStore.presets as preset (preset.id)}
-											<div class="custom-status-preset-row">
-												<div class="custom-status-preset-main">
-													<div class="custom-status-preset-label">{preset.label}</div>
-													<div class="custom-status-preset-meta">
-														{preset.status}{preset.note ? ` | ${preset.note}` : ''}
-													</div>
-												</div>
-												<div class="settings-row-actions">
-													<button
-														class="action-btn secondary"
-														on:click={() => activateCustomStatusPresetFromSettings(preset.id, preset.status)}
-														disabled={!customStatusPresetsEnabled}
-													>
-														Apply
-													</button>
-													<button
-														class="action-btn danger"
-														on:click={() => removeCustomStatusPresetFromSettings(preset.id)}
-														disabled={!customStatusPresetsEnabled}
-													>
-														Remove
-													</button>
-												</div>
-											</div>
-										{/each}
-									</div>
-								{/if}
-								{#if customStatusPresetsStatus}
-									<div class="runtime-note">{customStatusPresetsStatus}</div>
-								{/if}
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">MessageUtilities</span>
-									<span class="setting-description">Show extra quick message tools in hover actions (quick mention, pin, edit).</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={messageUtilitiesEnabled} on:click={toggleMessageUtilitiesAddon}>
-										{messageUtilitiesEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">QuickMention</span>
-									<span class="setting-description">Adds a fast mention action in message context/utility actions.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={quickMentionEnabled} on:click={toggleQuickMentionAddon}>
-										{quickMentionEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">PersonalPins</span>
-									<span class="setting-description">Pin messages locally on this device without affecting shared channel pins.</span>
-								</div>
-								<div class="runtime-note">Local personal pins: {personalPinCount}</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={personalPinsEnabled} on:click={togglePersonalPinsAddon}>
-										{personalPinsEnabled ? 'ON' : 'OFF'}
-									</button>
-									<button class="action-btn secondary" on:click={clearPersonalPinsAddon} disabled={personalPinCount === 0}>
-										Clear Local Pins
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">LastMessageDate</span>
-									<span class="setting-description">Show each userâ€™s most recent message timestamp in the active channel inside popouts.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={lastMessageDateEnabled} on:click={toggleLastMessageDateAddon}>
-										{lastMessageDateEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">ShowConnections</span>
-									<span class="setting-description">Show profile connections metadata (handle + linked URLs) in user popouts.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={showConnectionsEnabled} on:click={toggleShowConnectionsAddon}>
-										{showConnectionsEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">UserNotes</span>
-									<span class="setting-description">Enable local private notes for each user directly from their popout profile.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={userNotesEnabled} on:click={toggleUserNotesAddon}>
-										{userNotesEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">FriendNotifications</span>
-									<span class="setting-description">Desktop notifications when people change presence status.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={friendNotificationsEnabled} on:click={toggleFriendNotificationsAddon}>
-										{friendNotificationsEnabled ? 'ON' : 'OFF'}
-									</button>
-									<button
-										class="toggle-btn"
-										class:active={friendNotificationsTrackedOnly}
-										on:click={toggleFriendNotificationsTrackedOnlyAddon}
-										disabled={!friendNotificationsEnabled}
-									>
-										Status alerts list only: {friendNotificationsTrackedOnly ? 'ON' : 'OFF'}
-									</button>
-								</div>
-								<div class="runtime-note">
-									Status alerts list size: {$displayEnhancementSettingsStore.friendNotificationTrackedUserIds.length}. Use the user list context menu to enable or disable status alerts per person.
-								</div>
-								<div class="settings-row-actions">
-									<button
-										class="action-btn secondary"
-										on:click={clearFriendNotificationTrackedUsers}
-										disabled={$displayEnhancementSettingsStore.friendNotificationTrackedUserIds.length === 0}
-									>
-										Clear Status Alerts List
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">BetterFriendList</span>
-									<span class="setting-description">Enable search/filter/sort and summary counters in the right-panel user list.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={betterFriendListEnabled} on:click={toggleBetterFriendListAddon}>
-										{betterFriendListEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">EmojiStatistics</span>
-									<span class="setting-description">Show local emoji inventory stats and category breakdown in Add-ons.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={emojiStatisticsEnabled} on:click={toggleEmojiStatisticsAddon}>
-										{emojiStatisticsEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-								{#if emojiStatisticsEnabled}
-									<div class="runtime-note">
-										Inventory: total {$emojis.length},
-										custom {$emojis.filter((emoji) => emoji.isCustom).length},
-										default/open {$emojis.filter((emoji) => !emoji.isCustom).length}.
-									</div>
-									{#if emojiStatsCategories.length > 0}
-										<div class="runtime-note">
-											Top categories:
-											{#each emojiStatsCategories as categoryEntry, index}
-												{index > 0 ? ', ' : ''}
-												{categoryEntry.category} ({categoryEntry.count})
-											{/each}
+								<div class="addons-settings-window-body">
+									{#if visibleLocalAddonControlCount === 0}
+										<div class="addon-empty-state">
+											<div class="addon-empty-state-title">No local add-ons matched that search.</div>
+											<div class="runtime-note">Try another keyword, or clear the filter to show everything again.</div>
+											<button type="button" class="action-btn secondary addon-search-clear" on:click={clearAddonSearchQuery}>
+												Clear Search
+											</button>
 										</div>
 									{:else}
-										<div class="runtime-note">No emoji catalog data loaded yet.</div>
-									{/if}
-								{/if}
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">RemoveNicknames</span>
-									<span class="setting-description">Prefer stable account names in chat headers when incoming messages include alias-style display names.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={removeNicknamesEnabled} on:click={toggleRemoveNicknamesAddon}>
-										{removeNicknamesEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">LocalNicknames (Wabi translation)</span>
-									<span class="setting-description">Set private per-user nicknames that only appear on this device in chat headers, popouts, and the user list.</span>
-								</div>
-								<div class="runtime-note">Local nicknames saved: {localNicknameCount}</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={localNicknamesEnabled} on:click={toggleLocalNicknamesAddon}>
-										{localNicknamesEnabled ? 'ON' : 'OFF'}
-									</button>
-									<button class="action-btn secondary" on:click={clearAllLocalNicknamesAddon} disabled={localNicknameCount === 0}>
-										Clear Local Nicknames
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">SpotifyControls (Wabi translation)</span>
-									<span class="setting-description">Render playable Spotify mini-controls for Spotify track/album/playlist links directly in chat.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={spotifyControlsEnabled} on:click={toggleSpotifyControlsAddon}>
-										{spotifyControlsEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">StaffTag</span>
-									<span class="setting-description">Show a staff marker for owner/admin/mod users in message and profile surfaces.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={staffTagEnabled} on:click={toggleStaffTagAddon}>
-										{staffTagEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">TopRoleEverywhere</span>
-									<span class="setting-description">Show each user's top role badge beside usernames in chat and user popouts.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={topRoleEverywhereEnabled} on:click={toggleTopRoleEverywhereAddon}>
-										{topRoleEverywhereEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-							</div>
-							<div class="setting-item-full">
-								<div class="setting-info">
-									<span class="setting-label">TimedLightDarkMode</span>
-									<span class="setting-description">Automatically switch between day and night themes using your local device time.</span>
-								</div>
-								<div class="settings-row-actions">
-									<button class="toggle-btn" class:active={timedThemeModeEnabled} on:click={toggleTimedThemeModeAddon}>
-										{timedThemeModeEnabled ? 'ON' : 'OFF'}
-									</button>
-								</div>
-								{#if timedThemeModeEnabled}
-									<div class="timed-theme-grid">
-										<label class="timed-theme-field">
-											<span>Day starts (hour)</span>
-											<input
-												class="theme-select"
-												type="number"
-												min="0"
-												max="23"
-												step="1"
-												value={timedThemeDayStartHour}
-												on:change={(event) => updateTimedThemeDayStartHour(event.currentTarget.value)}
-											/>
-										</label>
-										<label class="timed-theme-field">
-											<span>Night starts (hour)</span>
-											<input
-												class="theme-select"
-												type="number"
-												min="0"
-												max="23"
-												step="1"
-												value={timedThemeNightStartHour}
-												on:change={(event) => updateTimedThemeNightStartHour(event.currentTarget.value)}
-											/>
-										</label>
-										<label class="timed-theme-field">
-											<span>Day theme</span>
-											<select
-												class="theme-select"
-												bind:value={timedThemeLightThemeId}
-												on:change={(event) => updateTimedThemeLightTheme(event.currentTarget.value)}
-											>
-												{#each Object.values(THEMES) as theme}
-													<option value={theme.id}>{theme.name}</option>
-												{/each}
-											</select>
-										</label>
-										<label class="timed-theme-field">
-											<span>Night theme</span>
-											<select
-												class="theme-select"
-												bind:value={timedThemeDarkThemeId}
-												on:change={(event) => updateTimedThemeDarkTheme(event.currentTarget.value)}
-											>
-												{#each Object.values(THEMES) as theme}
-													<option value={theme.id}>{theme.name}</option>
-												{/each}
-											</select>
-										</label>
-									</div>
-									<div class="runtime-note">The app checks and applies scheduled theme changes automatically in the background.</div>
-								{/if}
-							</div>
-
-								<div class="setting-item-full">
-									<div class="setting-info">
-										<span class="setting-label">UnicodeEmojis</span>
-										<span class="setting-description">Convert outgoing default/OpenMoji shortcodes (for example <code>:smile:</code>) into native Unicode emoji. Custom emoji shortcodes stay unchanged.</span>
-									</div>
-									<div class="settings-row-actions">
-										<button class="toggle-btn" class:active={unicodeEmojisEnabled} on:click={toggleUnicodeEmojisAddon}>
-											{unicodeEmojisEnabled ? 'ON' : 'OFF'}
+									{#if addonSectionHasMatches('dms')}
+									<section class="addon-accordion-section">
+										<button
+											type="button"
+											class="addon-accordion-trigger"
+											aria-expanded={isAddonSectionOpen('dms')}
+											aria-controls="addon-section-dms"
+											on:click={() => toggleAddonSection('dms')}
+										>
+											<span class="addon-accordion-trigger-main">
+												<span class="addon-section-chevron" aria-hidden="true">
+													<svg viewBox="0 0 24 24">
+														<path d="M9 6l6 6-6 6"></path>
+													</svg>
+												</span>
+												<span class="addon-accordion-label">{ADDON_SECTION_LABELS.dms}</span>
+											</span>
+											<span class="addon-accordion-count">{addonSectionMatchCount('dms')}</span>
 										</button>
-									</div>
-									{#if unicodeEmojisEnabled}
-										<div class="settings-row-actions">
-											<button class="toggle-btn" class:active={unicodeConvertDefaultEnabled} on:click={toggleUnicodeDefaultSource}>
-												Default source: {unicodeConvertDefaultEnabled ? 'ON' : 'OFF'}
-											</button>
-											<button class="toggle-btn" class:active={unicodeConvertOpenmojiEnabled} on:click={toggleUnicodeOpenmojiSource}>
-												OpenMoji source: {unicodeConvertOpenmojiEnabled ? 'ON' : 'OFF'}
-											</button>
+										{#if isAddonSectionOpen('dms')}
+										<div class="addon-accordion-body" id="addon-section-dms">
+											{#if localAddonControlMatches('line_dm')}
+												<LineDm />
+											{/if}
+
+											{#if localAddonControlMatches('pin_dms')}
+												<div class="setting-item-full">
+																					<div class="setting-info">
+																						<span class="setting-label">PinDMs (MVP)</span>
+																						<span class="setting-description">Pin conversations from the DM context menu to keep them at the top.</span>
+																					</div>
+																				<div class="runtime-note">Pinned conversations: {pinnedDmConversationCount}</div>
+																				<div class="settings-row-actions">
+																					<button class="action-btn secondary" on:click={clearAllPinnedDmConversations} disabled={pinnedDmConversationCount === 0}>
+																						Clear All Pins
+																					</button>
+																				</div>
+																			</div>
+											{/if}
 										</div>
-									{/if}
-									<div class="runtime-note">Applies to main chat, DM sends, and GIF captions.</div>
-									{#if unicodeEmojisEnabled}
-										<div class="runtime-note">
-											Local counters (device-only):
-											converted {$unicodeEmojiTelemetryStore.convertedTokens},
-											unknown {$unicodeEmojiTelemetryStore.unknownTokens},
-											shortcode collisions {$unicodeEmojiTelemetryStore.shortcodeCollisions}.
-										</div>
-										<div class="settings-row-actions">
-											<button
-												class="action-btn secondary"
-												on:click={resetUnicodeEmojisTelemetry}
-												disabled={
-													$unicodeEmojiTelemetryStore.convertedTokens +
-													$unicodeEmojiTelemetryStore.unknownTokens +
-													$unicodeEmojiTelemetryStore.shortcodeCollisions === 0
-												}
-											>
-												Reset Unicode Counters
-											</button>
-											<button class="action-btn secondary" on:click={() => void exportUnicodeEmojisPrefs()}>
-												Export Unicode Prefs
-											</button>
-											<button class="action-btn secondary" on:click={importUnicodeEmojisPrefs}>
-												Import Unicode Prefs
-											</button>
-										</div>
-										{#if unicodeEmojisPrefsStatus}
-											<div class="runtime-note">{unicodeEmojisPrefsStatus}</div>
 										{/if}
+									</section>
 									{/if}
-								</div>
 
-								<div class="setting-item-full">
-									<div class="setting-info">
-										<span class="setting-label">GifCaptioner</span>
-										<span class="setting-description">Allow GIF sends to include caption text and keep caption rules consistent with outgoing text filters.</span>
-									</div>
-									<div class="settings-row-actions">
-										<button class="toggle-btn" class:active={gifCaptionerEnabled} on:click={toggleGifCaptionerAddon}>
-											{gifCaptionerEnabled ? 'ON' : 'OFF'}
-										</button>
+									{#if addonSectionHasMatches('chat')}
+									<section class="addon-accordion-section">
 										<button
-											class="toggle-btn"
-											class:active={gifCaptionerDedicatedFieldEnabled}
-											on:click={toggleGifCaptionerDedicatedField}
-											disabled={!gifCaptionerEnabled}
+											type="button"
+											class="addon-accordion-trigger"
+											aria-expanded={isAddonSectionOpen('chat')}
+											aria-controls="addon-section-chat"
+											on:click={() => toggleAddonSection('chat')}
 										>
-											Dedicated caption field: {gifCaptionerDedicatedFieldEnabled ? 'ON' : 'OFF'}
+											<span class="addon-accordion-trigger-main">
+												<span class="addon-section-chevron" aria-hidden="true">
+													<svg viewBox="0 0 24 24">
+														<path d="M9 6l6 6-6 6"></path>
+													</svg>
+												</span>
+												<span class="addon-accordion-label">{ADDON_SECTION_LABELS.chat}</span>
+											</span>
+											<span class="addon-accordion-count">{addonSectionMatchCount('chat')}</span>
 										</button>
-									</div>
-									<div class="settings-row-actions">
-										<label class="upload-limit-row split-chunk-size-row">
-											<span>Caption style</span>
-											<select
-												value={gifCaptionerCaptionStyle}
-												on:change={(event) => updateGifCaptionerStyle(event.currentTarget.value)}
-												disabled={!gifCaptionerEnabled}
-											>
-												<option value="plain">Plain</option>
-												<option value="accent">Accent line</option>
-												<option value="card">Caption card</option>
-											</select>
-										</label>
-									</div>
-									<div class="runtime-note">
-										Caption limit: {GIF_CAPTIONER_MAX_CAPTION_LENGTH} characters.
-									</div>
-								</div>
+										{#if isAddonSectionOpen('chat')}
+										<div class="addon-accordion-body" id="addon-section-chat">
+											{#if localAddonControlMatches('spellcheck')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">SpellCheck (MVP)</span>
+																					<span class="setting-description">Use browser spellcheck in the main chat and DM composers.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={spellCheckEnabled} on:click={toggleSpellCheckAddon}>
+																						{spellCheckEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
 
-								<div class="setting-item-full">
-									<div class="setting-info">
-										<span class="setting-label">ZipPreview</span>
-										<span class="setting-description">Inspect ZIP contents inline in chat, with optional per-entry text/image previews.</span>
-									</div>
-									<div class="settings-row-actions">
-										<button class="toggle-btn" class:active={zipPreviewEnabled} on:click={toggleZipPreviewAddon}>
-											{zipPreviewEnabled ? 'ON' : 'OFF'}
-										</button>
-										<button
-											class="toggle-btn"
-											class:active={zipPreviewInlineEnabled}
-											on:click={toggleZipPreviewInlineAddon}
-											disabled={!zipPreviewEnabled}
-										>
-											Inline entry preview: {zipPreviewInlineEnabled ? 'ON' : 'OFF'}
-										</button>
-									</div>
-									<div class="runtime-note">Sort preference is saved from the preview panel controls.</div>
-								</div>
+											{#if localAddonControlMatches('char_counter')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">CharCounter (MVP)</span>
+																					<span class="setting-description">Show live character counters in the main chat and DM composers.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={charCounterEnabled} on:click={toggleCharCounterAddon}>
+																						{charCounterEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
 
-								<div class="setting-item-full">
-									<div class="setting-info">
-										<span class="setting-label">MoreQuickReacts</span>
-										<span class="setting-description">Show one-click quick-reaction buttons in message hover actions, with optional custom emoji shortcuts.</span>
-									</div>
-									<div class="settings-row-actions">
-										<button class="toggle-btn" class:active={quickReactionsEnabled} on:click={toggleMoreQuickReactsAddon}>
-											{quickReactionsEnabled ? 'ON' : 'OFF'}
-										</button>
-										<div class="runtime-note">
-											Custom quick set: {$quickReactionSettingsStore.customEmojiIds.length}/{MAX_CUSTOM_QUICK_REACTION_EMOJIS}
+											{#if localAddonControlMatches('split_large_messages')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">SplitLargeMessages (MVP)</span>
+																					<span class="setting-description">Automatically split long outgoing text into multiple messages.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={splitLargeMessagesEnabled} on:click={toggleSplitLargeMessagesAddon}>
+																						{splitLargeMessagesEnabled ? 'ON' : 'OFF'}
+																					</button>
+																					<label class="upload-limit-row split-chunk-size-row">
+																						<span>Chunk size</span>
+																						<input
+																							type="number"
+																							min="250"
+																							max="4000"
+																							step="50"
+																							value={splitLargeMessagesChunkSize}
+																							on:change={(event) => updateSplitLargeMessagesChunkSize(event.currentTarget.value)}
+																							disabled={!splitLargeMessagesEnabled}
+																						/>
+																					</label>
+																				</div>
+																				<div class="runtime-note">
+																					Composer max length: {splitLargeMessagesEnabled ? splitLargeMessagesInputMaxLength : splitLargeMessagesChunkSize} characters.
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('write_upper_case')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">WriteUpperCase</span>
+																					<span class="setting-description">Auto-capitalize sentence starts for outgoing text (main chat, DM, and GIF captions).</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={writeUpperCaseEnabled} on:click={toggleWriteUpperCaseAddon}>
+																						{writeUpperCaseEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('clickable_mentions')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">ClickableMentions</span>
+																					<span class="setting-description">Open user popouts by clicking usernames and @mentions in message content.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={clickableMentionsEnabled} on:click={toggleClickableMentionsAddon}>
+																						{clickableMentionsEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('complete_timestamps')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">CompleteTimestamps</span>
+																					<span class="setting-description">Choose the timestamp detail level shown in message rows.</span>
+																				</div>
+																				<label class="upload-limit-row">
+																					<span>Timestamp mode</span>
+																					<select
+																						class="theme-select"
+																						value={timestampDisplayMode}
+																						on:change={(event) => updateTimestampDisplayMode(event.currentTarget.value)}
+																					>
+																						<option value="compact">Compact (time only)</option>
+																						<option value="complete">Complete (date + time)</option>
+																						<option value="detailed">Detailed (full locale)</option>
+																					</select>
+																				</label>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('reveal_all_spoilers')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">RevealAllSpoilers</span>
+																					<span class="setting-description">Hold Ctrl/Cmd and click a spoiler to reveal all spoilers in that message.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={revealAllSpoilersEnabled} on:click={toggleRevealAllSpoilersAddon}>
+																						{revealAllSpoilersEnabled ? 'ON' : 'OFF'}
+																					</button>
+																					<label class="upload-limit-row split-chunk-size-row">
+																						<span>Minimum role</span>
+																						<select
+																							class="theme-select"
+																							value={revealAllSpoilersMinRole}
+																							on:change={(event) => updateRevealAllSpoilersRole(event.currentTarget.value)}
+																							disabled={!revealAllSpoilersEnabled}
+																						>
+																							<option value="guest">Guest</option>
+																							<option value="member">Member</option>
+																							<option value="mod">Moderator</option>
+																							<option value="admin">Admin</option>
+																							<option value="owner">Owner</option>
+																						</select>
+																					</label>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('message_utilities')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">MessageUtilities</span>
+																					<span class="setting-description">Show extra quick message tools in hover actions (quick mention, pin, edit).</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={messageUtilitiesEnabled} on:click={toggleMessageUtilitiesAddon}>
+																						{messageUtilitiesEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('quick_mention')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">QuickMention</span>
+																					<span class="setting-description">Adds a fast mention action in message context/utility actions.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={quickMentionEnabled} on:click={toggleQuickMentionAddon}>
+																						{quickMentionEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('personal_pins')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">PersonalPins</span>
+																					<span class="setting-description">Pin messages locally on this device without affecting shared channel pins.</span>
+																				</div>
+																				<div class="runtime-note">Local personal pins: {personalPinCount}</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={personalPinsEnabled} on:click={togglePersonalPinsAddon}>
+																						{personalPinsEnabled ? 'ON' : 'OFF'}
+																					</button>
+																					<button class="action-btn secondary" on:click={clearPersonalPinsAddon} disabled={personalPinCount === 0}>
+																						Clear Local Pins
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('unicode_emojis')}
+												<div class="setting-item-full">
+																					<div class="setting-info">
+																						<span class="setting-label">UnicodeEmojis</span>
+																						<span class="setting-description">Convert outgoing default/OpenMoji shortcodes (for example <code>:smile:</code>) into native Unicode emoji. Custom emoji shortcodes stay unchanged.</span>
+																					</div>
+																					<div class="settings-row-actions">
+																						<button class="toggle-btn" class:active={unicodeEmojisEnabled} on:click={toggleUnicodeEmojisAddon}>
+																							{unicodeEmojisEnabled ? 'ON' : 'OFF'}
+																						</button>
+																					</div>
+																					{#if unicodeEmojisEnabled}
+																						<div class="settings-row-actions">
+																							<button class="toggle-btn" class:active={unicodeConvertDefaultEnabled} on:click={toggleUnicodeDefaultSource}>
+																								Default source: {unicodeConvertDefaultEnabled ? 'ON' : 'OFF'}
+																							</button>
+																							<button class="toggle-btn" class:active={unicodeConvertOpenmojiEnabled} on:click={toggleUnicodeOpenmojiSource}>
+																								OpenMoji source: {unicodeConvertOpenmojiEnabled ? 'ON' : 'OFF'}
+																							</button>
+																						</div>
+																					{/if}
+																					<div class="runtime-note">Applies to main chat, DM sends, and GIF captions.</div>
+																					{#if unicodeEmojisEnabled}
+																						<div class="runtime-note">
+																							Local counters (device-only):
+																							converted {$unicodeEmojiTelemetryStore.convertedTokens},
+																							unknown {$unicodeEmojiTelemetryStore.unknownTokens},
+																							shortcode collisions {$unicodeEmojiTelemetryStore.shortcodeCollisions}.
+																						</div>
+																						<div class="settings-row-actions">
+																							<button
+																								class="action-btn secondary"
+																								on:click={resetUnicodeEmojisTelemetry}
+																								disabled={
+																									$unicodeEmojiTelemetryStore.convertedTokens +
+																									$unicodeEmojiTelemetryStore.unknownTokens +
+																									$unicodeEmojiTelemetryStore.shortcodeCollisions === 0
+																								}
+																							>
+																								Reset Unicode Counters
+																							</button>
+																							<button class="action-btn secondary" on:click={() => void exportUnicodeEmojisPrefs()}>
+																								Export Unicode Prefs
+																							</button>
+																							<button class="action-btn secondary" on:click={importUnicodeEmojisPrefs}>
+																								Import Unicode Prefs
+																							</button>
+																						</div>
+																						{#if unicodeEmojisPrefsStatus}
+																							<div class="runtime-note">{unicodeEmojisPrefsStatus}</div>
+																						{/if}
+																					{/if}
+																				</div>
+											{/if}
 										</div>
-									</div>
-									<div class="settings-row-actions">
-										<select class="theme-select" bind:value={quickReactionCustomEmojiIdDraft}>
-											<option value="">Select emoji to add</option>
-											{#each $emojis as emoji (emoji.id)}
-												<option value={emoji.id}>
-													{emoji.displayName || emoji.name} ({emoji.name})
-												</option>
-											{/each}
-										</select>
-										<button class="action-btn" on:click={addCustomQuickReactionEmoji} disabled={!quickReactionCustomEmojiIdDraft.trim()}>
-											Add Emoji
-										</button>
-										<button class="action-btn secondary" on:click={clearCustomQuickReactionEmojis} disabled={$quickReactionSettingsStore.customEmojiIds.length === 0}>
-											Clear Custom
-										</button>
-									</div>
-									{#if quickReactionCustomEmojiEntries.length === 0}
-										<div class="runtime-note">No custom quick reactions configured. Wabi will fall back to smart defaults.</div>
-									{:else}
-										<div class="quick-reaction-settings-list">
-											{#each quickReactionCustomEmojiEntries as emoji (emoji.id)}
-												<div class="quick-reaction-settings-row">
-													<img
-														src={emoji.url}
-														alt={emoji.displayName || emoji.name}
-														class="quick-reaction-settings-emoji"
-														loading="lazy"
-														decoding="async"
-													/>
-													<div class="quick-reaction-settings-name">{emoji.displayName || emoji.name}</div>
-													<button class="action-btn danger" on:click={() => removeCustomQuickReactionEmoji(emoji.id)}>
-														Remove
-													</button>
-												</div>
-											{/each}
-										</div>
+										{/if}
+									</section>
 									{/if}
-									{#if quickReactionSettingsStatus}
-										<div class="runtime-note">{quickReactionSettingsStatus}</div>
-									{/if}
-									<div class="runtime-note">
-										Local usage counters (device-only):
-										quick-strip clicks {$quickReactionTelemetryStore.quickStripClicks},
-										picker opens {$quickReactionTelemetryStore.pickerOpens},
-										quick-strip share {formatQuickReactionShare(quickReactionClickShare)}.
-									</div>
-									<div class="settings-row-actions">
-										<button
-											class="action-btn secondary"
-											on:click={resetMoreQuickReactsTelemetry}
-											disabled={$quickReactionTelemetryStore.quickStripClicks + $quickReactionTelemetryStore.pickerOpens === 0}
-										>
-											Reset Usage Counters
-										</button>
-									</div>
-								</div>
 
-								<div class="setting-item-full">
-									<div class="setting-info">
-										<span class="setting-label">PinDMs (MVP)</span>
-										<span class="setting-description">Pin conversations from the DM context menu to keep them at the top.</span>
-									</div>
-								<div class="runtime-note">Pinned conversations: {pinnedDmConversationCount}</div>
-								<div class="settings-row-actions">
-									<button class="action-btn secondary" on:click={clearAllPinnedDmConversations} disabled={pinnedDmConversationCount === 0}>
-										Clear All Pins
-									</button>
+									{#if addonSectionHasMatches('search')}
+									<section class="addon-accordion-section">
+										<button
+											type="button"
+											class="addon-accordion-trigger"
+											aria-expanded={isAddonSectionOpen('search')}
+											aria-controls="addon-section-search"
+											on:click={() => toggleAddonSection('search')}
+										>
+											<span class="addon-accordion-trigger-main">
+												<span class="addon-section-chevron" aria-hidden="true">
+													<svg viewBox="0 0 24 24">
+														<path d="M9 6l6 6-6 6"></path>
+													</svg>
+												</span>
+												<span class="addon-accordion-label">{ADDON_SECTION_LABELS.search}</span>
+											</span>
+											<span class="addon-accordion-count">{addonSectionMatchCount('search')}</span>
+										</button>
+										{#if isAddonSectionOpen('search')}
+										<div class="addon-accordion-body" id="addon-section-search">
+											{#if localAddonControlMatches('better_search_page')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">BetterSearchPage</span>
+																					<span class="setting-description">Keep search results controls pinned above the message list while you scroll through matches.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={betterSearchPageEnabled} on:click={toggleBetterSearchPageAddon}>
+																						{betterSearchPageEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('google_search_replace')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">GoogleSearchReplace (Wabi translation)</span>
+																					<span class="setting-description">Add a quick "Search on Web" action from the in-chat search bar so users can continue the same query in a browser.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={googleSearchReplaceEnabled} on:click={toggleGoogleSearchReplaceAddon}>
+																						{googleSearchReplaceEnabled ? 'ON' : 'OFF'}
+																					</button>
+																					<label class="upload-limit-row split-chunk-size-row">
+																						<span>Search engine</span>
+																						<select
+																							class="theme-select"
+																							value={searchEngineProvider}
+																							on:change={(event) => updateSearchEngineProvider(event.currentTarget.value)}
+																							disabled={!googleSearchReplaceEnabled}
+																						>
+																							<option value="brave">Brave</option>
+																							<option value="duckduckgo">DuckDuckGo</option>
+																							<option value="startpage">Startpage</option>
+																							<option value="bing">Bing</option>
+																							<option value="google">Google</option>
+																							<option value="custom">Custom template</option>
+																						</select>
+																					</label>
+																				</div>
+																				{#if searchEngineProvider === 'custom'}
+																					<div class="settings-row-actions">
+																						<input
+																							type="text"
+																							class="theme-select"
+																							bind:value={searchEngineCustomTemplate}
+																							placeholder={SEARCH_ENGINE_CUSTOM_TEMPLATE_PLACEHOLDER}
+																							disabled={!googleSearchReplaceEnabled}
+																						/>
+																						<button
+																							class="action-btn secondary"
+																							on:click={saveCustomSearchEngineTemplateFromSettings}
+																							disabled={!googleSearchReplaceEnabled}
+																						>
+																							Save Template
+																						</button>
+																					</div>
+																					<div class="runtime-note">Use <code>{SEARCH_ENGINE_CUSTOM_QUERY_TOKEN}</code> where the search text should be inserted.</div>
+																				{/if}
+																			</div>
+											{/if}
+										</div>
+										{/if}
+									</section>
+									{/if}
+
+									{#if addonSectionHasMatches('navigation')}
+									<section class="addon-accordion-section">
+										<button
+											type="button"
+											class="addon-accordion-trigger"
+											aria-expanded={isAddonSectionOpen('navigation')}
+											aria-controls="addon-section-navigation"
+											on:click={() => toggleAddonSection('navigation')}
+										>
+											<span class="addon-accordion-trigger-main">
+												<span class="addon-section-chevron" aria-hidden="true">
+													<svg viewBox="0 0 24 24">
+														<path d="M9 6l6 6-6 6"></path>
+													</svg>
+												</span>
+												<span class="addon-accordion-label">{ADDON_SECTION_LABELS.navigation}</span>
+											</span>
+											<span class="addon-accordion-count">{addonSectionMatchCount('navigation')}</span>
+										</button>
+										{#if isAddonSectionOpen('navigation')}
+										<div class="addon-accordion-body" id="addon-section-navigation">
+											{#if localAddonControlMatches('hide_muted_categories')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">HideMutedCategories</span>
+																					<span class="setting-description">Wabi translation: hide locally muted channels from the sidebar channel list.</span>
+																				</div>
+																				<div class="runtime-note">Locally muted channels: {mutedChannelCount}</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={hideMutedCategoriesEnabled} on:click={toggleHideMutedCategoriesAddon}>
+																						{hideMutedCategoriesEnabled ? 'ON' : 'OFF'}
+																					</button>
+																					<button class="action-btn secondary" on:click={clearMutedChannelsAddon} disabled={mutedChannelCount === 0}>
+																						Clear Muted
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('read_all_notifications_button')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">ReadAllNotificationsButton</span>
+																					<span class="setting-description">Show a clear-unread action in the channel sidebar.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={readAllNotificationsButtonEnabled} on:click={toggleReadAllNotificationsButtonAddon}>
+																						{readAllNotificationsButtonEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('server_counter')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">ServerCounter (Wabi workspace)</span>
+																					<span class="setting-description">Show a workspace channel counter above the channel list.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={serverCounterEnabled} on:click={toggleServerCounterAddon}>
+																						{serverCounterEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('better_nsfw_tag')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">BetterNsfwTag (Wabi translation)</span>
+																					<span class="setting-description">Highlight NSFW-like channels in the sidebar with a high-visibility warning tag.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={betterNsfwTagEnabled} on:click={toggleBetterNsfwTagAddon}>
+																						{betterNsfwTagEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('better_friend_list')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">BetterFriendList</span>
+																					<span class="setting-description">Enable search/filter/sort and summary counters in the right-panel user list.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={betterFriendListEnabled} on:click={toggleBetterFriendListAddon}>
+																						{betterFriendListEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+										</div>
+										{/if}
+									</section>
+									{/if}
+
+									{#if addonSectionHasMatches('identity')}
+									<section class="addon-accordion-section">
+										<button
+											type="button"
+											class="addon-accordion-trigger"
+											aria-expanded={isAddonSectionOpen('identity')}
+											aria-controls="addon-section-identity"
+											on:click={() => toggleAddonSection('identity')}
+										>
+											<span class="addon-accordion-trigger-main">
+												<span class="addon-section-chevron" aria-hidden="true">
+													<svg viewBox="0 0 24 24">
+														<path d="M9 6l6 6-6 6"></path>
+													</svg>
+												</span>
+												<span class="addon-accordion-label">{ADDON_SECTION_LABELS.identity}</span>
+											</span>
+											<span class="addon-accordion-count">{addonSectionMatchCount('identity')}</span>
+										</button>
+										{#if isAddonSectionOpen('identity')}
+										<div class="addon-accordion-body" id="addon-section-identity">
+											{#if localAddonControlMatches('custom_status_presets')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">CustomStatusPresets (Wabi translation)</span>
+																					<span class="setting-description">Save reusable presence presets and apply them directly from the sidebar status menu.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={customStatusPresetsEnabled} on:click={toggleCustomStatusPresetsAddon}>
+																						{customStatusPresetsEnabled ? 'ON' : 'OFF'}
+																					</button>
+																					<div class="runtime-note">
+																						Presets: {$customStatusPresetsStore.presets.length}/{MAX_CUSTOM_STATUS_PRESETS}
+																					</div>
+																				</div>
+																				<div class="settings-row-actions">
+																					<input
+																						type="text"
+																						class="theme-select"
+																						placeholder="Preset label"
+																						bind:value={customStatusPresetLabelDraft}
+																						maxlength="36"
+																						disabled={!customStatusPresetsEnabled}
+																					/>
+																					<select
+																						class="theme-select"
+																						bind:value={customStatusPresetPresenceDraft}
+																						disabled={!customStatusPresetsEnabled}
+																					>
+																						<option value="active">Active</option>
+																						<option value="away">Away</option>
+																						<option value="busy">Busy</option>
+																					</select>
+																					<button
+																						class="action-btn"
+																						on:click={addCustomStatusPresetFromSettings}
+																						disabled={!customStatusPresetsEnabled || !customStatusPresetLabelDraft.trim()}
+																					>
+																						Add Preset
+																					</button>
+																				</div>
+																				<div class="settings-row-actions">
+																					<input
+																						type="text"
+																						class="theme-select"
+																						placeholder="Optional note shown below your username"
+																						bind:value={customStatusPresetNoteDraft}
+																						maxlength="120"
+																						disabled={!customStatusPresetsEnabled}
+																					/>
+																					<button
+																						class="action-btn secondary"
+																						on:click={resetCustomStatusPresetsAddon}
+																						disabled={!customStatusPresetsEnabled}
+																					>
+																						Reset Presets
+																					</button>
+																				</div>
+																				{#if $customStatusPresetsStore.presets.length === 0}
+																					<div class="runtime-note">No presets configured.</div>
+																				{:else}
+																					<div class="custom-status-preset-list">
+																						{#each $customStatusPresetsStore.presets as preset (preset.id)}
+																							<div class="custom-status-preset-row">
+																								<div class="custom-status-preset-main">
+																									<div class="custom-status-preset-label">{preset.label}</div>
+																									<div class="custom-status-preset-meta">
+																										{preset.status}{preset.note ? ` | ${preset.note}` : ''}
+																									</div>
+																								</div>
+																								<div class="settings-row-actions">
+																									<button
+																										class="action-btn secondary"
+																										on:click={() => activateCustomStatusPresetFromSettings(preset.id, preset.status)}
+																										disabled={!customStatusPresetsEnabled}
+																									>
+																										Apply
+																									</button>
+																									<button
+																										class="action-btn danger"
+																										on:click={() => removeCustomStatusPresetFromSettings(preset.id)}
+																										disabled={!customStatusPresetsEnabled}
+																									>
+																										Remove
+																									</button>
+																								</div>
+																							</div>
+																						{/each}
+																					</div>
+																				{/if}
+																				{#if customStatusPresetsStatus}
+																					<div class="runtime-note">{customStatusPresetsStatus}</div>
+																				{/if}
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('last_message_date')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">LastMessageDate</span>
+																					<span class="setting-description">Show each user's most recent message timestamp in the active channel inside popouts.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={lastMessageDateEnabled} on:click={toggleLastMessageDateAddon}>
+																						{lastMessageDateEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('show_connections')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">ShowConnections</span>
+																					<span class="setting-description">Show profile connections metadata (handle + linked URLs) in user popouts.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={showConnectionsEnabled} on:click={toggleShowConnectionsAddon}>
+																						{showConnectionsEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('user_notes')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">UserNotes</span>
+																					<span class="setting-description">Enable local private notes for each user directly from their popout profile.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={userNotesEnabled} on:click={toggleUserNotesAddon}>
+																						{userNotesEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('remove_nicknames')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">RemoveNicknames</span>
+																					<span class="setting-description">Prefer stable account names in chat headers when incoming messages include alias-style display names.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={removeNicknamesEnabled} on:click={toggleRemoveNicknamesAddon}>
+																						{removeNicknamesEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('local_nicknames')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">LocalNicknames (Wabi translation)</span>
+																					<span class="setting-description">Set private per-user nicknames that only appear on this device in chat headers, popouts, and the user list.</span>
+																				</div>
+																				<div class="runtime-note">Local nicknames saved: {localNicknameCount}</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={localNicknamesEnabled} on:click={toggleLocalNicknamesAddon}>
+																						{localNicknamesEnabled ? 'ON' : 'OFF'}
+																					</button>
+																					<button class="action-btn secondary" on:click={clearAllLocalNicknamesAddon} disabled={localNicknameCount === 0}>
+																						Clear Local Nicknames
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('staff_tag')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">StaffTag</span>
+																					<span class="setting-description">Show a staff marker for owner/admin/mod users in message and profile surfaces.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={staffTagEnabled} on:click={toggleStaffTagAddon}>
+																						{staffTagEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('top_role_everywhere')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">TopRoleEverywhere</span>
+																					<span class="setting-description">Show each user's top role badge beside usernames in chat and user popouts.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={topRoleEverywhereEnabled} on:click={toggleTopRoleEverywhereAddon}>
+																						{topRoleEverywhereEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+										</div>
+										{/if}
+									</section>
+									{/if}
+
+									{#if addonSectionHasMatches('notifications')}
+									<section class="addon-accordion-section">
+										<button
+											type="button"
+											class="addon-accordion-trigger"
+											aria-expanded={isAddonSectionOpen('notifications')}
+											aria-controls="addon-section-notifications"
+											on:click={() => toggleAddonSection('notifications')}
+										>
+											<span class="addon-accordion-trigger-main">
+												<span class="addon-section-chevron" aria-hidden="true">
+													<svg viewBox="0 0 24 24">
+														<path d="M9 6l6 6-6 6"></path>
+													</svg>
+												</span>
+												<span class="addon-accordion-label">{ADDON_SECTION_LABELS.notifications}</span>
+											</span>
+											<span class="addon-accordion-count">{addonSectionMatchCount('notifications')}</span>
+										</button>
+										{#if isAddonSectionOpen('notifications')}
+										<div class="addon-accordion-body" id="addon-section-notifications">
+											{#if localAddonControlMatches('friend_notifications')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">FriendNotifications</span>
+																					<span class="setting-description">Desktop notifications when people change presence status.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={friendNotificationsEnabled} on:click={toggleFriendNotificationsAddon}>
+																						{friendNotificationsEnabled ? 'ON' : 'OFF'}
+																					</button>
+																					<button
+																						class="toggle-btn"
+																						class:active={friendNotificationsTrackedOnly}
+																						on:click={toggleFriendNotificationsTrackedOnlyAddon}
+																						disabled={!friendNotificationsEnabled}
+																					>
+																						Status alerts list only: {friendNotificationsTrackedOnly ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																				<div class="runtime-note">
+																					Status alerts list size: {$displayEnhancementSettingsStore.friendNotificationTrackedUserIds.length}. Use the user list context menu to enable or disable status alerts per person.
+																				</div>
+																				<div class="settings-row-actions">
+																					<button
+																						class="action-btn secondary"
+																						on:click={clearFriendNotificationTrackedUsers}
+																						disabled={$displayEnhancementSettingsStore.friendNotificationTrackedUserIds.length === 0}
+																					>
+																						Clear Status Alerts List
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+										</div>
+										{/if}
+									</section>
+									{/if}
+
+									{#if addonSectionHasMatches('media')}
+									<section class="addon-accordion-section">
+										<button
+											type="button"
+											class="addon-accordion-trigger"
+											aria-expanded={isAddonSectionOpen('media')}
+											aria-controls="addon-section-media"
+											on:click={() => toggleAddonSection('media')}
+										>
+											<span class="addon-accordion-trigger-main">
+												<span class="addon-section-chevron" aria-hidden="true">
+													<svg viewBox="0 0 24 24">
+														<path d="M9 6l6 6-6 6"></path>
+													</svg>
+												</span>
+												<span class="addon-accordion-label">{ADDON_SECTION_LABELS.media}</span>
+											</span>
+											<span class="addon-accordion-count">{addonSectionMatchCount('media')}</span>
+										</button>
+										{#if isAddonSectionOpen('media')}
+										<div class="addon-accordion-body" id="addon-section-media">
+											{#if localAddonControlMatches('image_utilities')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">ImageUtilities (MVP)</span>
+																					<span class="setting-description">Choose the default provider for reverse image search from the image lightbox menu.</span>
+																				</div>
+																				<label class="upload-limit-row">
+																					<span>Reverse image search provider</span>
+																					<select
+																						class="theme-select"
+																						value={reverseImageSearchProvider}
+																						on:change={(event) => updateReverseSearchProvider(event.currentTarget.value as ReverseImageSearchProvider)}
+																					>
+																						<option value="google_lens">Google Lens</option>
+																						<option value="bing">Bing Visual Search</option>
+																						<option value="tineye">TinEye</option>
+																						<option value="yandex">Yandex Images</option>
+																					</select>
+																				</label>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('emoji_statistics')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">EmojiStatistics</span>
+																					<span class="setting-description">Show local emoji inventory stats and category breakdown in Add-ons.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={emojiStatisticsEnabled} on:click={toggleEmojiStatisticsAddon}>
+																						{emojiStatisticsEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																				{#if emojiStatisticsEnabled}
+																					<div class="runtime-note">
+																						Inventory: total {$emojis.length},
+																						custom {$emojis.filter((emoji) => emoji.isCustom).length},
+																						default/open {$emojis.filter((emoji) => !emoji.isCustom).length}.
+																					</div>
+																					{#if emojiStatsCategories.length > 0}
+																						<div class="runtime-note">
+																							Top categories:
+																							{#each emojiStatsCategories as categoryEntry, index}
+																								{index > 0 ? ', ' : ''}
+																								{categoryEntry.category} ({categoryEntry.count})
+																							{/each}
+																						</div>
+																					{:else}
+																						<div class="runtime-note">No emoji catalog data loaded yet.</div>
+																					{/if}
+																				{/if}
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('spotify_controls')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">SpotifyControls (Wabi translation)</span>
+																					<span class="setting-description">Render playable Spotify mini-controls for Spotify track/album/playlist links directly in chat.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={spotifyControlsEnabled} on:click={toggleSpotifyControlsAddon}>
+																						{spotifyControlsEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('gif_captioner')}
+												<div class="setting-item-full">
+																					<div class="setting-info">
+																						<span class="setting-label">GifCaptioner</span>
+																						<span class="setting-description">Allow GIF sends to include caption text and keep caption rules consistent with outgoing text filters.</span>
+																					</div>
+																					<div class="settings-row-actions">
+																						<button class="toggle-btn" class:active={gifCaptionerEnabled} on:click={toggleGifCaptionerAddon}>
+																							{gifCaptionerEnabled ? 'ON' : 'OFF'}
+																						</button>
+																						<button
+																							class="toggle-btn"
+																							class:active={gifCaptionerDedicatedFieldEnabled}
+																							on:click={toggleGifCaptionerDedicatedField}
+																							disabled={!gifCaptionerEnabled}
+																						>
+																							Dedicated caption field: {gifCaptionerDedicatedFieldEnabled ? 'ON' : 'OFF'}
+																						</button>
+																					</div>
+																					<div class="settings-row-actions">
+																						<label class="upload-limit-row split-chunk-size-row">
+																							<span>Caption style</span>
+																							<select
+																								value={gifCaptionerCaptionStyle}
+																								on:change={(event) => updateGifCaptionerStyle(event.currentTarget.value)}
+																								disabled={!gifCaptionerEnabled}
+																							>
+																								<option value="plain">Plain</option>
+																								<option value="accent">Accent line</option>
+																								<option value="card">Caption card</option>
+																							</select>
+																						</label>
+																					</div>
+																					<div class="runtime-note">
+																						Caption limit: {GIF_CAPTIONER_MAX_CAPTION_LENGTH} characters.
+																					</div>
+																				</div>
+											{/if}
+
+											{#if localAddonControlMatches('zip_preview')}
+												<div class="setting-item-full">
+																					<div class="setting-info">
+																						<span class="setting-label">ZipPreview</span>
+																						<span class="setting-description">Inspect ZIP contents inline in chat, with optional per-entry text/image previews.</span>
+																					</div>
+																					<div class="settings-row-actions">
+																						<button class="toggle-btn" class:active={zipPreviewEnabled} on:click={toggleZipPreviewAddon}>
+																							{zipPreviewEnabled ? 'ON' : 'OFF'}
+																						</button>
+																						<button
+																							class="toggle-btn"
+																							class:active={zipPreviewInlineEnabled}
+																							on:click={toggleZipPreviewInlineAddon}
+																							disabled={!zipPreviewEnabled}
+																						>
+																							Inline entry preview: {zipPreviewInlineEnabled ? 'ON' : 'OFF'}
+																						</button>
+																					</div>
+																					<div class="runtime-note">Sort preference is saved from the preview panel controls.</div>
+																				</div>
+											{/if}
+
+											{#if localAddonControlMatches('more_quick_reacts')}
+												<div class="setting-item-full">
+																					<div class="setting-info">
+																						<span class="setting-label">MoreQuickReacts</span>
+																						<span class="setting-description">Show one-click quick-reaction buttons in message hover actions, with optional custom emoji shortcuts.</span>
+																					</div>
+																					<div class="settings-row-actions">
+																						<button class="toggle-btn" class:active={quickReactionsEnabled} on:click={toggleMoreQuickReactsAddon}>
+																							{quickReactionsEnabled ? 'ON' : 'OFF'}
+																						</button>
+																						<div class="runtime-note">
+																							Custom quick set: {$quickReactionSettingsStore.customEmojiIds.length}/{MAX_CUSTOM_QUICK_REACTION_EMOJIS}
+																						</div>
+																					</div>
+																					<div class="settings-row-actions">
+																						<select class="theme-select" bind:value={quickReactionCustomEmojiIdDraft}>
+																							<option value="">Select emoji to add</option>
+																							{#each $emojis as emoji (emoji.id)}
+																								<option value={emoji.id}>
+																									{emoji.displayName || emoji.name} ({emoji.name})
+																								</option>
+																							{/each}
+																						</select>
+																						<button class="action-btn" on:click={addCustomQuickReactionEmoji} disabled={!quickReactionCustomEmojiIdDraft.trim()}>
+																							Add Emoji
+																						</button>
+																						<button class="action-btn secondary" on:click={clearCustomQuickReactionEmojis} disabled={$quickReactionSettingsStore.customEmojiIds.length === 0}>
+																							Clear Custom
+																						</button>
+																					</div>
+																					{#if quickReactionCustomEmojiEntries.length === 0}
+																						<div class="runtime-note">No custom quick reactions configured. Wabi will fall back to smart defaults.</div>
+																					{:else}
+																						<div class="quick-reaction-settings-list">
+																							{#each quickReactionCustomEmojiEntries as emoji (emoji.id)}
+																								<div class="quick-reaction-settings-row">
+																									<img
+																										src={emoji.url}
+																										alt={emoji.displayName || emoji.name}
+																										class="quick-reaction-settings-emoji"
+																										loading="lazy"
+																										decoding="async"
+																									/>
+																									<div class="quick-reaction-settings-name">{emoji.displayName || emoji.name}</div>
+																									<button class="action-btn danger" on:click={() => removeCustomQuickReactionEmoji(emoji.id)}>
+																										Remove
+																									</button>
+																								</div>
+																							{/each}
+																						</div>
+																					{/if}
+																					{#if quickReactionSettingsStatus}
+																						<div class="runtime-note">{quickReactionSettingsStatus}</div>
+																					{/if}
+																					<div class="runtime-note">
+																						Local usage counters (device-only):
+																						quick-strip clicks {$quickReactionTelemetryStore.quickStripClicks},
+																						picker opens {$quickReactionTelemetryStore.pickerOpens},
+																						quick-strip share {formatQuickReactionShare(quickReactionClickShare)}.
+																					</div>
+																					<div class="settings-row-actions">
+																						<button
+																							class="action-btn secondary"
+																							on:click={resetMoreQuickReactsTelemetry}
+																							disabled={$quickReactionTelemetryStore.quickStripClicks + $quickReactionTelemetryStore.pickerOpens === 0}
+																						>
+																							Reset Usage Counters
+																						</button>
+																					</div>
+																				</div>
+											{/if}
+										</div>
+										{/if}
+									</section>
+									{/if}
+
+									{#if addonSectionHasMatches('appearance')}
+									<section class="addon-accordion-section">
+										<button
+											type="button"
+											class="addon-accordion-trigger"
+											aria-expanded={isAddonSectionOpen('appearance')}
+											aria-controls="addon-section-appearance"
+											on:click={() => toggleAddonSection('appearance')}
+										>
+											<span class="addon-accordion-trigger-main">
+												<span class="addon-section-chevron" aria-hidden="true">
+													<svg viewBox="0 0 24 24">
+														<path d="M9 6l6 6-6 6"></path>
+													</svg>
+												</span>
+												<span class="addon-accordion-label">{ADDON_SECTION_LABELS.appearance}</span>
+											</span>
+											<span class="addon-accordion-count">{addonSectionMatchCount('appearance')}</span>
+										</button>
+										{#if isAddonSectionOpen('appearance')}
+										<div class="addon-accordion-body" id="addon-section-appearance">
+											{#if localAddonControlMatches('timed_theme_mode')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">TimedLightDarkMode</span>
+																					<span class="setting-description">Automatically switch between day and night themes using your local device time.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={timedThemeModeEnabled} on:click={toggleTimedThemeModeAddon}>
+																						{timedThemeModeEnabled ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																				{#if timedThemeModeEnabled}
+																					<div class="timed-theme-grid">
+																						<label class="timed-theme-field">
+																							<span>Day starts (hour)</span>
+																							<input
+																								class="theme-select"
+																								type="number"
+																								min="0"
+																								max="23"
+																								step="1"
+																								value={timedThemeDayStartHour}
+																								on:change={(event) => updateTimedThemeDayStartHour(event.currentTarget.value)}
+																							/>
+																						</label>
+																						<label class="timed-theme-field">
+																							<span>Night starts (hour)</span>
+																							<input
+																								class="theme-select"
+																								type="number"
+																								min="0"
+																								max="23"
+																								step="1"
+																								value={timedThemeNightStartHour}
+																								on:change={(event) => updateTimedThemeNightStartHour(event.currentTarget.value)}
+																							/>
+																						</label>
+																						<label class="timed-theme-field">
+																							<span>Day theme</span>
+																							<select
+																								class="theme-select"
+																								bind:value={timedThemeLightThemeId}
+																								on:change={(event) => updateTimedThemeLightTheme(event.currentTarget.value)}
+																							>
+																								{#each Object.values(THEMES) as theme}
+																									<option value={theme.id}>{theme.name}</option>
+																								{/each}
+																							</select>
+																						</label>
+																						<label class="timed-theme-field">
+																							<span>Night theme</span>
+																							<select
+																								class="theme-select"
+																								bind:value={timedThemeDarkThemeId}
+																								on:change={(event) => updateTimedThemeDarkTheme(event.currentTarget.value)}
+																							>
+																								{#each Object.values(THEMES) as theme}
+																									<option value={theme.id}>{theme.name}</option>
+																								{/each}
+																							</select>
+																						</label>
+																					</div>
+																					<div class="runtime-note">The app checks and applies scheduled theme changes automatically in the background.</div>
+																				{/if}
+																			</div>
+											{/if}
+										</div>
+										{/if}
+									</section>
+									{/if}
+
+									{#if addonSectionHasMatches('utilities')}
+									<section class="addon-accordion-section">
+										<button
+											type="button"
+											class="addon-accordion-trigger"
+											aria-expanded={isAddonSectionOpen('utilities')}
+											aria-controls="addon-section-utilities"
+											on:click={() => toggleAddonSection('utilities')}
+										>
+											<span class="addon-accordion-trigger-main">
+												<span class="addon-section-chevron" aria-hidden="true">
+													<svg viewBox="0 0 24 24">
+														<path d="M9 6l6 6-6 6"></path>
+													</svg>
+												</span>
+												<span class="addon-accordion-label">{ADDON_SECTION_LABELS.utilities}</span>
+											</span>
+											<span class="addon-accordion-count">{addonSectionMatchCount('utilities')}</span>
+										</button>
+										{#if isAddonSectionOpen('utilities')}
+										<div class="addon-accordion-body" id="addon-section-utilities">
+											{#if localAddonControlMatches('translator_addon')}
+												{#if translatorAddonDetected}
+																				<div class="setting-item-full">
+																					<div class="setting-info">
+																						<span class="setting-label">Translator Assist Settings</span>
+																						<span class="setting-description">Pick a translator model and target language. Source language is auto-detected.</span>
+																					</div>
+																					<div class="upload-limit-grid">
+																						<label class="upload-limit-row">
+																							<span>Model</span>
+																							<select bind:value={translatorModel} class="theme-select" on:change={saveTranslatorAddonSettings}>
+																								{#each TRANSLATOR_MODEL_OPTIONS as modelOption}
+																									<option value={modelOption.id}>{modelOption.label}</option>
+																								{/each}
+																							</select>
+																						</label>
+																						<label class="upload-limit-row">
+																							<span>Target language</span>
+																							<input type="text" maxlength="16" bind:value={translatorTargetLang} placeholder="en" on:blur={saveTranslatorAddonSettings} />
+																						</label>
+																					</div>
+																					<div class="runtime-note">Settings save automatically.</div>
+																					{#if translatorSettingsSavedAt}
+																						<div class="runtime-note">Saved at {translatorSettingsSavedAt}</div>
+																					{/if}
+											{/if}
+
+											{#if localAddonControlMatches('chat_aliases')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">ChatAliases (MVP)</span>
+																					<span class="setting-description">Create slash aliases. Use <code>{'{args}'}</code> in replacement to inject trailing arguments.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<input
+																						type="text"
+																						class="theme-select alias-input"
+																						placeholder="/shrug"
+																						bind:value={chatAliasTriggerDraft}
+																					/>
+																					<input
+																						type="text"
+																						class="theme-select alias-input"
+																						placeholder="Replacement text or /command"
+																						bind:value={chatAliasReplacementDraft}
+																					/>
+																					<button
+																						class="action-btn"
+																						on:click={addChatAliasFromDraft}
+																						disabled={!chatAliasTriggerDraft.trim() || !chatAliasReplacementDraft.trim()}
+																					>
+																						Add Alias
+																					</button>
+																				</div>
+																				{#if $chatAliasesStore.length === 0}
+																					<div class="runtime-note">No aliases configured yet.</div>
+																				{:else}
+																					<div class="addons-list">
+																						{#each $chatAliasesStore as alias (alias.id)}
+																							<div class="addon-row">
+																								<div class="addon-name">{alias.trigger} -> {alias.replacement}</div>
+																								<div class="settings-row-actions">
+																									<button class="action-btn secondary" on:click={() => toggleChatAliasEnabled(alias)}>
+																										{alias.enabled ? 'Disable' : 'Enable'}
+																									</button>
+																									<button class="action-btn secondary" on:click={() => editChatAlias(alias)}>Edit</button>
+																									<button class="action-btn danger" on:click={() => removeChatAlias(alias.id)}>Delete</button>
+																								</div>
+																							</div>
+																						{/each}
+																					</div>
+																				{/if}
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('chat_filter')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">ChatFilter (MVP)</span>
+																					<span class="setting-description">Censor or hide messages containing blocked terms.</span>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={$chatFilterStore.enabled} on:click={toggleChatFilterEnabled}>
+																						{$chatFilterStore.enabled ? 'ON' : 'OFF'}
+																					</button>
+																					<select
+																						class="theme-select"
+																						value={$chatFilterStore.mode}
+																						on:change={(event) => updateChatFilterMode(event.currentTarget.value as ChatFilterMode)}
+																						disabled={!$chatFilterStore.enabled}
+																					>
+																						<option value="censor">Censor text</option>
+																						<option value="hide">Hide full message</option>
+																					</select>
+																					<button class="action-btn secondary" on:click={editChatFilterTerms}>
+																						Edit Terms ({$chatFilterStore.terms.length})
+																					</button>
+																				</div>
+																				<div class="settings-row-actions">
+																					<button class="toggle-btn" class:active={$chatFilterStore.applyToIncoming} on:click={toggleChatFilterIncoming}>
+																						Incoming {$chatFilterStore.applyToIncoming ? 'ON' : 'OFF'}
+																					</button>
+																					<button class="toggle-btn" class:active={$chatFilterStore.applyToOutgoing} on:click={toggleChatFilterOutgoing}>
+																						Outgoing {$chatFilterStore.applyToOutgoing ? 'ON' : 'OFF'}
+																					</button>
+																				</div>
+																				{#if $chatFilterStore.mode === 'censor'}
+																					<label class="upload-limit-row">
+																						<span>Replacement token</span>
+																						<input
+																							type="text"
+																							maxlength="24"
+																							value={$chatFilterStore.replacement}
+																							on:input={(event) => updateChatFilterReplacement(event.currentTarget.value)}
+																						/>
+																					</label>
+																				{/if}
+																				<div class="runtime-note">
+																					Current blocked terms: {$chatFilterStore.terms.length > 0 ? $chatFilterStore.terms.join(', ') : '(none)'}
+																				</div>
+																			</div>
+											{/if}
+
+											{#if localAddonControlMatches('custom_quoter')}
+												<div class="setting-item-full">
+																				<div class="setting-info">
+																					<span class="setting-label">CustomQuoter (MVP)</span>
+																					<span class="setting-description">Template used by message action <strong>Copy Quote</strong>.</span>
+																				</div>
+																				<textarea
+																					class="addon-template-input"
+																					rows="3"
+																					bind:value={quoteTemplateDraft}
+																					placeholder={'> {text}\\n- {user} ({timestamp})'}
+																				></textarea>
+																				<div class="runtime-note">Placeholders: <code>{'{user}'}</code> <code>{'{text}'}</code> <code>{'{timestamp}'}</code> <code>{'{channel}'}</code> <code>{'{message_id}'}</code></div>
+																				<div class="settings-row-actions">
+																					<button class="action-btn" on:click={saveQuoteTemplate}>Save Template</button>
+																					<button class="action-btn secondary" on:click={resetQuoteTemplateFromSettings}>Reset Default</button>
+																				</div>
+																			</div>
+											{/if}
+										</div>
+										{/if}
+									</section>
+									{/if}
+									{/if}
 								</div>
 							</div>
 						</div>
-
 					{:else if activeSettingsTab === 'emojis'}
 						<div class="settings-section">
 							<h3>{$t('settings.sections.custom_emojis')}</h3>
@@ -5975,24 +7297,84 @@
 									</select>
 								</div>
 								<div class="quality-mode-row">
-									<label for="donation-currency-input">Currency</label>
-									<input
-										id="donation-currency-input"
-										class="emoji-name-input"
-										maxlength="3"
-										value={adminDonationConfig.currency}
-										on:input={(event) => adminDonationConfig = { ...adminDonationConfig, currency: event.currentTarget.value.toUpperCase() }}
-									/>
+									<label for="donation-currency-select">Currency</label>
+									{#if adminDonationCurrencyOptions.length > 0}
+										<select
+											id="donation-currency-select"
+											class="theme-select"
+											value={adminDonationConfig.currency}
+											on:change={(event) => adminDonationConfig = { ...adminDonationConfig, currency: event.currentTarget.value.toUpperCase() }}
+										>
+											{#each adminDonationCurrencyOptions as option}
+												<option value={option}>{option}</option>
+											{/each}
+										</select>
+									{:else}
+										<input
+											id="donation-currency-select"
+											class="emoji-name-input"
+											maxlength="3"
+											value={adminDonationConfig.currency}
+											on:input={(event) => adminDonationConfig = { ...adminDonationConfig, currency: event.currentTarget.value.toUpperCase() }}
+										/>
+									{/if}
 								</div>
 								<div class="quality-mode-row">
-									<label for="donation-country-input">Country</label>
-									<input
-										id="donation-country-input"
-										class="emoji-name-input"
-										maxlength="2"
-										value={adminDonationConfig.countryCode || ''}
-										on:input={(event) => adminDonationConfig = { ...adminDonationConfig, countryCode: event.currentTarget.value.toUpperCase() || null }}
-									/>
+									<label for="donation-country-select">Country</label>
+									{#if adminDonationCountryOptions.length > 0}
+										<select
+											id="donation-country-select"
+											class="theme-select"
+											value={adminDonationConfig.countryCode || ''}
+											on:change={(event) => adminDonationConfig = { ...adminDonationConfig, countryCode: event.currentTarget.value.toUpperCase() || null }}
+										>
+											{#each adminDonationCountryOptions as option}
+												<option value={option}>{option}</option>
+											{/each}
+										</select>
+									{:else}
+										<input
+											id="donation-country-select"
+											class="emoji-name-input"
+											maxlength="2"
+											value={adminDonationConfig.countryCode || ''}
+											on:input={(event) => adminDonationConfig = { ...adminDonationConfig, countryCode: event.currentTarget.value.toUpperCase() || null }}
+										/>
+									{/if}
+								</div>
+								<div class="donation-audit-panel">
+									<div class="donation-audit-header">
+										<div>
+											<h5>Public Donation Route Preview</h5>
+											<p class="admin-help">This is the exact route the public donation sheet will use.</p>
+										</div>
+										<button class="action-btn" on:click={openServerDonation}>
+											Preview Public View
+										</button>
+									</div>
+									<div class="donation-audit-list">
+										<div class="donation-audit-item">
+											<div class="donation-audit-copy">
+												<strong>{adminDonationSelectedProvider?.providerName || 'No provider selected'}</strong>
+												<span>{adminDonationSelectedMethod?.label || 'No method selected'}</span>
+												<small>{adminDonationConfig.countryCode || 'Any country'} - {adminDonationConfig.currency || 'Any currency'}</small>
+												<small>Suggested amounts: {getDonationRouteSummaryList(parseSuggestedAmountsInput(donationSuggestedAmountsInput))}</small>
+												{#if adminDonationSelectedProvider?.notes}
+													<small>{adminDonationSelectedProvider.notes}</small>
+												{/if}
+												{#if adminDonationSelectedMethod?.notes}
+													<small>{adminDonationSelectedMethod.notes}</small>
+												{/if}
+											</div>
+											<button
+												class="action-btn"
+												disabled={!donationRoutePreviewReady}
+												on:click={openServerDonation}
+											>
+												{donationRoutePreviewReady ? 'Route Ready' : 'Needs Setup'}
+											</button>
+										</div>
+									</div>
 								</div>
 								<div class="quality-mode-row">
 									<label for="donation-headline-input">Headline</label>
@@ -6054,7 +7436,7 @@
 													<div class="donation-audit-copy">
 														<strong>{entry.donorLabel}</strong>
 														<span>{formatDonationAuditAmount(entry.amountMinor, entry.currency)}</span>
-														<small>{formatDonationAuditWhen(entry)} • {entry.status}</small>
+														<small>{formatDonationAuditWhen(entry)} | {entry.status}</small>
 													</div>
 													<button
 														class="action-btn"
@@ -6140,7 +7522,7 @@
 													<div class="donation-audit-copy">
 														<strong>{entry.donorLabel}</strong>
 														<span>{formatDonationAuditAmount(entry.amountMinor, entry.currency)}</span>
-														<small>{formatDonationAuditWhen(entry)} • {entry.status} • {entry.recordedByLabel || 'Admin record'}</small>
+														<small>{formatDonationAuditWhen(entry)} | {entry.status} | {entry.recordedByLabel || 'Admin record'}</small>
 														{#if entry.description}
 															<small>{entry.description}</small>
 														{/if}
@@ -6152,6 +7534,223 @@
 													>
 														{adminOfflineDonationVoidingSettlementId === entry.settlementId ? 'Voiding...' : (entry.canVoid ? 'Void' : 'Closed')}
 													</button>
+												</div>
+											{/each}
+										</div>
+									{/if}
+								</div>
+								<div class="donation-audit-panel">
+									<div class="donation-audit-header">
+										<div>
+											<h5>Community Nodes</h5>
+											<p class="admin-help">See which relay-style nodes are up, down, pending, or degraded. This is the live server roster, not a private admin notification.</p>
+										</div>
+										<button
+											class="action-btn"
+											on:click={() => {
+												adminRelayRosterLoaded = false;
+												void loadAdminRelayRoster();
+											}}
+											disabled={adminRelayRosterLoading || adminRelayApproveBusyId !== null || adminRelayDeleteBusyId !== null}
+										>
+											{adminRelayRosterLoading ? 'Refreshing...' : 'Refresh Nodes'}
+										</button>
+									</div>
+									<div class="upload-limits-panel">
+										<h4>Node Access Policy</h4>
+										<p class="admin-help">Control who can activate desktop helper mode on this server.</p>
+										<div class="setting-item">
+											<label for="community-node-access-mode">Access Mode</label>
+											<select
+												id="community-node-access-mode"
+												bind:value={communityNodeAccess.mode}
+												disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
+											>
+												<option value="open">Open</option>
+												<option value="approval_required">Approval Required</option>
+												<option value="whitelist_only">Whitelist Only</option>
+											</select>
+										</div>
+										{#if communityNodeAccess.mode === 'whitelist_only'}
+											<div class="setting-item">
+												<label for="community-node-whitelist-online">Add Online User</label>
+												<div class="input-with-button">
+													<select
+														id="community-node-whitelist-online"
+														bind:value={communityNodeWhitelistSelectedUserId}
+														disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
+													>
+														<option value="">Select a user</option>
+														{#each communityNodeWhitelistCandidates as user}
+															<option value={String(user.dbUserId)}>#{user.username}</option>
+														{/each}
+													</select>
+													<button
+														class="action-btn"
+														on:click={addSelectedCommunityNodeWhitelistUser}
+														disabled={!communityNodeWhitelistSelectedUserId || !canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
+													>
+														Add
+													</button>
+												</div>
+											</div>
+											<div class="setting-item">
+												<label for="community-node-whitelist-username">Add By Username</label>
+												<div class="input-with-button">
+													<input
+														id="community-node-whitelist-username"
+														type="text"
+														placeholder="Exact registered username"
+														bind:value={communityNodeWhitelistUsernameInput}
+														disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
+													/>
+													<button
+														class="action-btn"
+														on:click={addTypedCommunityNodeWhitelistUser}
+														disabled={!communityNodeWhitelistUsernameInput.trim() || !canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
+													>
+														Stage
+													</button>
+												</div>
+												<p class="admin-help">Typed usernames are validated when you save the policy.</p>
+											</div>
+											<div class="setting-item">
+												<div class="setting-label">Allowed Users</div>
+												{#if communityNodeAccess.allowedUsers.length === 0 && communityNodeWhitelistPendingUsernames.length === 0}
+													<p class="admin-help">No users are currently whitelisted.</p>
+												{:else}
+													<div class="quick-reaction-custom-list">
+														{#each communityNodeAccess.allowedUsers as entry (entry.userId)}
+															<div class="quick-reaction-custom-item">
+																<span>#{entry.username}</span>
+																<button
+																	class="action-btn danger"
+																	on:click={() => removeCommunityNodeWhitelistUser(entry.userId)}
+																	disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
+																>
+																	Remove
+																</button>
+															</div>
+														{/each}
+														{#each communityNodeWhitelistPendingUsernames as username (username)}
+															<div class="quick-reaction-custom-item">
+																<span>#{username} (pending)</span>
+																<button
+																	class="action-btn danger"
+																	on:click={() => removePendingCommunityNodeWhitelistUsername(username)}
+																	disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
+																>
+																	Remove
+																</button>
+															</div>
+														{/each}
+													</div>
+												{/if}
+											</div>
+										{/if}
+										{#if communityNodeAccessStatus}
+											<p class="admin-help">{communityNodeAccessStatus}</p>
+										{/if}
+										<button
+											class="action-btn"
+											on:click={saveCommunityNodeAccess}
+											disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
+										>
+											{communityNodeAccessSaving ? 'Saving...' : 'Save Node Access Policy'}
+										</button>
+									</div>
+									<div class="upload-limits-panel">
+										<h4>Node Announcements</h4>
+										<p class="admin-help">Optionally post helper up/down events into one channel. Placeholders: {'{node}'}, {'{user}'}, {'{mode}'}, {'{status}'}.</p>
+										<label class="setting-toggle">
+											<input
+												type="checkbox"
+												bind:checked={communityNodeAnnouncements.enabled}
+												disabled={!canManageAdmin || communityNodeAnnouncementsLoading || communityNodeAnnouncementsSaving}
+											/>
+											<span>Post community node status messages</span>
+										</label>
+										<div class="setting-item">
+											<label for="community-node-announcement-channel">Announcement Channel</label>
+											<select
+												id="community-node-announcement-channel"
+												bind:value={communityNodeAnnouncements.channelId}
+												disabled={!canManageAdmin || communityNodeAnnouncementsLoading || communityNodeAnnouncementsSaving}
+											>
+												<option value={null}>No channel selected</option>
+												{#each communityAnnouncementChannelOptions as channel}
+													<option value={channel.id}>#{channel.name}</option>
+												{/each}
+											</select>
+										</div>
+										<div class="setting-item">
+											<label for="community-node-announcement-online">Online Message</label>
+											<input
+												id="community-node-announcement-online"
+												type="text"
+												bind:value={communityNodeAnnouncements.onlineTemplate}
+												maxlength="280"
+												disabled={!canManageAdmin || communityNodeAnnouncementsLoading || communityNodeAnnouncementsSaving}
+											/>
+										</div>
+										<div class="setting-item">
+											<label for="community-node-announcement-offline">Offline Message</label>
+											<input
+												id="community-node-announcement-offline"
+												type="text"
+												bind:value={communityNodeAnnouncements.offlineTemplate}
+												maxlength="280"
+												disabled={!canManageAdmin || communityNodeAnnouncementsLoading || communityNodeAnnouncementsSaving}
+											/>
+										</div>
+										{#if communityNodeAnnouncementsStatus}
+											<p class="admin-help">{communityNodeAnnouncementsStatus}</p>
+										{/if}
+										<button
+											class="action-btn"
+											on:click={saveCommunityNodeAnnouncements}
+											disabled={!canManageAdmin || communityNodeAnnouncementsLoading || communityNodeAnnouncementsSaving}
+										>
+											{communityNodeAnnouncementsSaving ? 'Saving...' : 'Save Node Announcement Settings'}
+										</button>
+									</div>
+									{#if adminRelayRosterLoading && adminRelayRoster.length === 0}
+										<p class="admin-help">Loading community nodes...</p>
+									{:else if adminRelayRoster.length === 0}
+										<p class="admin-help">No community nodes have registered yet.</p>
+									{:else}
+										<div class="donation-audit-list">
+											{#each adminRelayRoster as relay (relay.relay_id)}
+												<div class="donation-audit-item">
+													<div class="donation-audit-copy">
+														<strong>{relay.name}</strong>
+														<span>{getAdminRelayKindLabel(relay)} - {relay.status}</span>
+														{#if getAdminRelayOwnerLabel(relay)}
+															<small>{getAdminRelayOwnerLabel(relay)}</small>
+														{/if}
+														<small>{relay.region} - {getAdminRelayCapabilitiesSummary(relay)}</small>
+														<small>Last seen: {formatRelaySeenAt(relay.last_health_ping)}</small>
+														<small>{relay.url}</small>
+														{#if relay.metadata?.reason}
+															<small>{relay.metadata.reason}</small>
+														{/if}
+													</div>
+													<div class="admin-user-actions">
+														<button
+															class="action-btn"
+															disabled={relay.approved === 1 || adminRelayApproveBusyId !== null}
+															on:click={() => approveRelayNode(relay)}
+														>
+															{adminRelayApproveBusyId === relay.relay_id ? 'Approving...' : (relay.approved === 1 ? 'Approved' : 'Approve')}
+														</button>
+														<button
+															class="action-btn danger"
+															disabled={adminRelayDeleteBusyId !== null}
+															on:click={() => deleteRelayNode(relay)}
+														>
+															{adminRelayDeleteBusyId === relay.relay_id ? 'Removing...' : 'Remove'}
+														</button>
+													</div>
 												</div>
 											{/each}
 										</div>
@@ -6553,6 +8152,13 @@
 		color: var(--text-secondary);
 	}
 
+	.warning-text {
+		margin: 0 0 0.35rem;
+		color: #ffcc80;
+		font-size: 0.88rem;
+		font-weight: 600;
+	}
+
 	.toggle-btn {
 		background: var(--bg-secondary);
 		border: none;
@@ -6641,6 +8247,180 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 		gap: 1rem;
+	}
+
+	.addons-settings-window {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		max-height: min(58vh, 1100px);
+		border: 1px solid color-mix(in srgb, var(--border) 88%, rgba(var(--accent-rgb), 0.18));
+		border-radius: 12px;
+		background: color-mix(in srgb, var(--bg-tertiary) 92%, transparent);
+		overflow: hidden;
+	}
+
+	.addons-settings-window-header {
+		display: flex;
+		flex-direction: column;
+		gap: 0.85rem;
+		padding: 0.9rem 1rem;
+		border-bottom: 1px solid var(--border);
+		background: color-mix(in srgb, var(--bg-secondary) 88%, rgba(var(--accent-rgb), 0.08));
+	}
+
+	.addons-settings-window-body {
+		display: flex;
+		flex-direction: column;
+		gap: 0.85rem;
+		padding: 1rem;
+		padding-right: 0.8rem;
+		overflow-y: auto;
+		min-height: 320px;
+	}
+
+	.addons-settings-toolbar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: end;
+		gap: 0.85rem;
+	}
+
+	.addons-search-field {
+		display: flex;
+		flex: 1 1 260px;
+		flex-direction: column;
+		gap: 0.35rem;
+		min-width: 0;
+	}
+
+	.addons-search-label {
+		font-size: 0.74rem;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+	}
+
+	.addon-search-input {
+		width: 100%;
+		min-width: 0;
+	}
+
+	.addons-search-meta {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.65rem;
+		justify-content: space-between;
+	}
+
+	.addon-search-clear {
+		padding: 0.55rem 0.8rem;
+		font-size: 0.82rem;
+	}
+
+	.addon-empty-state {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.65rem;
+		padding: 1rem;
+		border: 1px dashed color-mix(in srgb, var(--border) 82%, rgba(var(--accent-rgb), 0.22));
+		border-radius: 10px;
+		background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+	}
+
+	.addon-empty-state-title {
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.addon-accordion-section {
+		display: flex;
+		flex-direction: column;
+		border: 1px solid color-mix(in srgb, var(--border) 90%, rgba(var(--accent-rgb), 0.14));
+		border-radius: 12px;
+		background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+		overflow: hidden;
+	}
+
+	.addon-accordion-trigger {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		width: 100%;
+		padding: 0.9rem 1rem;
+		border: none;
+		background: color-mix(in srgb, var(--bg-secondary) 88%, rgba(var(--accent-rgb), 0.05));
+		color: var(--text-primary);
+		cursor: pointer;
+		text-align: left;
+		transition: background 0.18s ease;
+	}
+
+	.addon-accordion-trigger:hover {
+		background: color-mix(in srgb, var(--bg-hover) 90%, rgba(var(--accent-rgb), 0.08));
+	}
+
+	.addon-accordion-trigger-main {
+		display: flex;
+		align-items: center;
+		gap: 0.65rem;
+		min-width: 0;
+	}
+
+	.addon-section-chevron {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 12px;
+		height: 12px;
+		transform-origin: center;
+		transition: transform 0.18s ease;
+		color: var(--text-secondary);
+	}
+
+	.addon-section-chevron svg {
+		width: 12px;
+		height: 12px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2.5;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+	}
+
+	.addon-accordion-trigger[aria-expanded='true'] .addon-section-chevron {
+		transform: rotate(90deg);
+	}
+
+	.addon-accordion-label {
+		font-size: 0.92rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.addon-accordion-count {
+		flex-shrink: 0;
+		min-width: 1.8rem;
+		padding: 0.15rem 0.45rem;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--bg-tertiary) 80%, rgba(var(--accent-rgb), 0.12));
+		font-size: 0.74rem;
+		font-weight: 600;
+		color: var(--text-secondary);
+		text-align: center;
+	}
+
+	.addon-accordion-body {
+		display: flex;
+		flex-direction: column;
+		gap: 0.85rem;
+		padding: 0.95rem;
+		border-top: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
 	}
 
 	.addons-list {
@@ -7768,6 +9548,34 @@
 			padding: 1rem;
 			padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
 		}
+
+		.addons-settings-window {
+			max-height: min(52dvh, 760px);
+		}
+
+		.addons-settings-toolbar {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.addons-search-meta {
+			align-items: flex-start;
+		}
+
+		.addons-settings-window-body {
+			min-height: 260px;
+			padding: 0.85rem;
+		}
+
+		.addon-accordion-body {
+			padding: 0.85rem;
+		}
 	}
 </style>
+
+
+
+
+
+
 

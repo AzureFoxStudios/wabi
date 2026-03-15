@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 
 function usage() {
@@ -51,7 +51,7 @@ function parseArgs(argv) {
 		database: (process.env.WABI_STDB_BRIDGE_DATABASE || '').trim(),
 		token: (process.env.WABI_STDB_AUTH_TOKEN || '').trim(),
 		anonymous: !['0', 'false', 'no', 'off'].includes((process.env.WABI_STDB_ANONYMOUS || anonymousDefault).trim().toLowerCase()),
-		timeoutMs: parsePositiveInt(process.env.WABI_STDB_BRIDGE_TIMEOUT_MS, 10000, 100, 300000),
+		timeoutMs: parsePositiveInt(process.env.WABI_STDB_BRIDGE_TIMEOUT_MS, 10000, 100, 30000),
 		tokenCacheFile: (process.env.WABI_STDB_TOKEN_CACHE_FILE || '').trim(),
 		reducer: (process.env.WABI_STDB_BRIDGE_REDUCER || 'ingest_wabi_event').trim(),
 		argsJson: '',
@@ -98,7 +98,7 @@ function parseArgs(argv) {
 		if (arg === '--timeout-ms') {
 			i += 1;
 			if (i >= argv.length) throw new Error('--timeout-ms requires a value');
-			options.timeoutMs = parsePositiveInt(argv[i], 10000, 100, 300000);
+			options.timeoutMs = parsePositiveInt(argv[i], 10000, 100, 30000);
 			continue;
 		}
 		if (arg === '--token-cache-file') {
@@ -142,11 +142,17 @@ function parseArgs(argv) {
 }
 
 function normalizeTokenCacheFile(input) {
+	const dataDir = resolve(process.cwd(), 'data');
 	const raw = String(input || '').trim();
 	if (!raw) {
-		return resolve(process.cwd(), 'data/state-plane-stdb-token-cache.json');
+		return resolve(dataDir, 'state-plane-stdb-token-cache.json');
 	}
-	return resolve(process.cwd(), raw);
+	const candidate = resolve(process.cwd(), raw);
+	// Prevent path traversal outside the data directory
+	if (!candidate.startsWith(dataDir + '/') && !candidate.startsWith(dataDir + '\\') && candidate !== dataDir) {
+		return resolve(dataDir, 'state-plane-stdb-token-cache.json');
+	}
+	return candidate;
 }
 
 function decodeJwtExpiryMs(token) {
@@ -176,12 +182,13 @@ function readTokenCache(cacheFile) {
 
 function writeTokenCache(cacheFile, servers) {
 	try {
-		mkdirSync(dirname(cacheFile), { recursive: true });
+		mkdirSync(dirname(cacheFile), { recursive: true, mode: 0o700 });
 		const next = {
 			version: 1,
 			servers
 		};
-		writeFileSync(cacheFile, `${JSON.stringify(next)}\n`, 'utf8');
+		writeFileSync(cacheFile, `${JSON.stringify(next)}\n`, { encoding: 'utf8', mode: 0o600 });
+		try { chmodSync(cacheFile, 0o600); } catch { /* Windows may not support chmod */ }
 	} catch {
 		// Best effort cache write.
 	}

@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto';
-import db from '../database.js';
 import { DEFAULT_WORKSPACE_ID } from '../../constants.js';
+import { stdbPaymentIngest, stdbPaymentRows, stdbPaymentsEnabled, parseStdbRowJson, lookupStdbUsername } from '../../payments/stdbRuntime.js';
+import { escapeSqlLiteral } from '../../state-plane/stdbSyncClient.js';
+import db from '../database.js';
 
 export type PaymentIntentStatus =
   | 'draft'
@@ -110,6 +112,25 @@ export interface PaymentDonationLedgerRow {
   updated_at: number;
 }
 
+const PAYMENT_STATUSES: ReadonlySet<PaymentIntentStatus> = new Set([
+  'draft',
+  'pending',
+  'succeeded',
+  'failed',
+  'expired',
+  'refunded',
+  'disputed',
+  'canceled'
+]);
+
+const CHECKOUT_MODES: ReadonlySet<PaymentCheckoutMode> = new Set([
+  'qr',
+  'payment_link',
+  'app_switch',
+  'redirect',
+  'tap_to_pay'
+]);
+
 function generateIntentId(): string {
   return `pay_${randomUUID().replace(/-/g, '')}`;
 }
@@ -131,6 +152,89 @@ function safeParseJson(value: string | null): Record<string, unknown> | null {
   }
 }
 
+function toStringOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function toNumberOrNull(value: unknown): number | null {
+  if (value == null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toPaymentStatus(value: unknown, fallback: PaymentIntentStatus = 'draft'): PaymentIntentStatus {
+  return typeof value === 'string' && PAYMENT_STATUSES.has(value as PaymentIntentStatus)
+    ? (value as PaymentIntentStatus)
+    : fallback;
+}
+
+function toCheckoutMode(value: unknown, fallback: PaymentCheckoutMode = 'payment_link'): PaymentCheckoutMode {
+  return typeof value === 'string' && CHECKOUT_MODES.has(value as PaymentCheckoutMode)
+    ? (value as PaymentCheckoutMode)
+    : fallback;
+}
+
+function normalizeIntentRow(row: Partial<PaymentIntentRow> | null | undefined): PaymentIntentRow | null {
+  const intentId = toStringOrNull(row?.intent_id);
+  const workspaceId = toStringOrNull(row?.workspace_id);
+  const pluginId = toStringOrNull(row?.plugin_id);
+  const providerName = toStringOrNull(row?.provider_name);
+  const currency = toStringOrNull(row?.currency);
+  if (!intentId || !workspaceId || !pluginId || !providerName || !currency) return null;
+
+  return {
+    id: Math.floor(toNumberOrNull(row?.id) || 0),
+    intent_id: intentId,
+    workspace_id: workspaceId,
+    created_by_user_id: toNumberOrNull(row?.created_by_user_id),
+    channel_id: toStringOrNull(row?.channel_id),
+    plugin_id: pluginId,
+    provider_name: providerName,
+    provider_intent_id: toStringOrNull(row?.provider_intent_id),
+    amount_minor: Math.floor(toNumberOrNull(row?.amount_minor) || 0),
+    currency: currency.toUpperCase(),
+    country_code: toStringOrNull(row?.country_code)?.toUpperCase() || null,
+    status: toPaymentStatus(row?.status),
+    checkout_mode: toCheckoutMode(row?.checkout_mode),
+    idempotency_key: toStringOrNull(row?.idempotency_key),
+    customer_ref: toStringOrNull(row?.customer_ref),
+    description: toStringOrNull(row?.description),
+    metadata_json: typeof row?.metadata_json === 'string' ? row.metadata_json : null,
+    presentation_json: typeof row?.presentation_json === 'string' ? row.presentation_json : null,
+    failure_code: toStringOrNull(row?.failure_code),
+    failure_message: toStringOrNull(row?.failure_message),
+    expires_at: toNumberOrNull(row?.expires_at),
+    completed_at: toNumberOrNull(row?.completed_at),
+    refunded_at: toNumberOrNull(row?.refunded_at),
+    created_at: Math.floor(toNumberOrNull(row?.created_at) || 0),
+    updated_at: Math.floor(toNumberOrNull(row?.updated_at) || 0)
+  };
+}
+
+function normalizeEventRow(row: Partial<PaymentEventRow> | null | undefined): PaymentEventRow | null {
+  const intentId = toStringOrNull(row?.intent_id);
+  const eventId = toStringOrNull(row?.event_id);
+  const eventType = toStringOrNull(row?.event_type);
+  const source = toStringOrNull(row?.source) as PaymentEventRow['source'] | null;
+  if (!intentId || !eventId || !eventType || !source) return null;
+  if (!['core', 'plugin', 'webhook', 'manual'].includes(source)) return null;
+
+  return {
+    id: Math.floor(toNumberOrNull(row?.id) || 0),
+    intent_id: intentId,
+    event_id: eventId,
+    event_type: eventType,
+    status: toStringOrNull(row?.status),
+    source,
+    payload_json: typeof row?.payload_json === 'string' ? row.payload_json : '{}',
+    signature_valid: toNumberOrNull(row?.signature_valid),
+    idempotency_key: toStringOrNull(row?.idempotency_key),
+    created_at: Math.floor(toNumberOrNull(row?.created_at) || 0)
+  };
+}
+
 function toView(row: PaymentIntentRow): PaymentIntentView {
   return {
     ...row,
@@ -139,12 +243,295 @@ function toView(row: PaymentIntentRow): PaymentIntentView {
   };
 }
 
+function viewToRow(view: PaymentIntentView): PaymentIntentRow {
+  const { metadata, presentation, ...rest } = view;
+  return {
+    ...rest,
+    metadata_json: metadata ? JSON.stringify(metadata) : null,
+    presentation_json: presentation ? JSON.stringify(presentation) : null
+  };
+}
+
+function isServerDonation(view: PaymentIntentView): boolean {
+  return view.metadata?.kind === 'server_donation';
+}
+
+function donationSortKey(row: Pick<PaymentDonationLedgerRow, 'refunded_at' | 'completed_at' | 'created_at'>): number {
+  return row.refunded_at ?? row.completed_at ?? row.created_at;
+}
+
+function sortPaymentIntentsByCreatedAtDesc(left: PaymentIntentRow, right: PaymentIntentRow): number {
+  const diff = right.created_at - left.created_at;
+  return diff !== 0 ? diff : right.intent_id.localeCompare(left.intent_id);
+}
+
+function sortPaymentEventsByCreatedAtDesc(left: PaymentEventRow, right: PaymentEventRow): number {
+  const diff = right.created_at - left.created_at;
+  return diff !== 0 ? diff : right.event_id.localeCompare(left.event_id);
+}
+
 export class PaymentRepository {
-  findByIntentId(intentId: string): PaymentIntentRow | null {
+  private findByIntentIdLegacy(intentId: string): PaymentIntentRow | null {
     const row = db
       .prepare('SELECT * FROM payment_intents WHERE intent_id = ? LIMIT 1')
       .get(intentId) as PaymentIntentRow | undefined;
     return row || null;
+  }
+
+  private findByIdempotencyKeyLegacy(idempotencyKey: string): PaymentIntentRow | null {
+    const row = db
+      .prepare('SELECT * FROM payment_intents WHERE idempotency_key = ? LIMIT 1')
+      .get(idempotencyKey) as PaymentIntentRow | undefined;
+    return row || null;
+  }
+
+  private findByProviderIntentIdLegacy(pluginId: string, providerIntentId: string): PaymentIntentRow | null {
+    const row = db
+      .prepare('SELECT * FROM payment_intents WHERE plugin_id = ? AND provider_intent_id = ? LIMIT 1')
+      .get(pluginId, providerIntentId) as PaymentIntentRow | undefined;
+    return row || null;
+  }
+
+  private findByIntentIdStdb(intentId: string): PaymentIntentRow | null {
+    const rows = stdbPaymentRows(
+      'payment_intents.find_by_intent_id',
+      `SELECT row_json FROM state_payment_intent WHERE intent_id = ${escapeSqlLiteral(intentId)} LIMIT 1`
+    );
+    return rows && rows.length > 0 ? normalizeIntentRow(parseStdbRowJson<PaymentIntentRow>(rows[0])) : null;
+  }
+
+  private findByIdempotencyKeyStdb(idempotencyKey: string): PaymentIntentRow | null {
+    const rows = stdbPaymentRows(
+      'payment_intents.find_by_idempotency_key',
+      `SELECT row_json FROM state_payment_intent WHERE idempotency_key = ${escapeSqlLiteral(idempotencyKey)} LIMIT 1`
+    );
+    return rows && rows.length > 0 ? normalizeIntentRow(parseStdbRowJson<PaymentIntentRow>(rows[0])) : null;
+  }
+
+  private findByProviderIntentIdStdb(pluginId: string, providerIntentId: string): PaymentIntentRow | null {
+    const rows = stdbPaymentRows(
+      'payment_intents.find_by_provider_intent_id',
+      `SELECT row_json FROM state_payment_intent WHERE plugin_id = ${escapeSqlLiteral(pluginId)}`
+    );
+    return (rows || [])
+      .map((row) => normalizeIntentRow(parseStdbRowJson<PaymentIntentRow>(row)))
+      .filter((row): row is PaymentIntentRow => Boolean(row))
+      .find((row) => row.provider_intent_id === providerIntentId) || null;
+  }
+
+  private listRecentByWorkspaceLegacy(workspaceId: string, limit: number): PaymentIntentView[] {
+    const rows = db
+      .prepare(`
+        SELECT *
+        FROM payment_intents
+        WHERE workspace_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `)
+      .all(workspaceId, limit) as PaymentIntentRow[];
+    return rows.map(toView);
+  }
+
+  private listRecentByWorkspaceStdb(workspaceId: string, limit: number): PaymentIntentView[] {
+    const rows = stdbPaymentRows(
+      'payment_intents.list_recent_by_workspace',
+      `SELECT row_json FROM state_payment_intent WHERE workspace_id = ${escapeSqlLiteral(workspaceId)}`
+    );
+    return (rows || [])
+      .map((row) => normalizeIntentRow(parseStdbRowJson<PaymentIntentRow>(row)))
+      .filter((row): row is PaymentIntentRow => Boolean(row))
+      .sort(sortPaymentIntentsByCreatedAtDesc)
+      .slice(0, limit)
+      .map(toView);
+  }
+
+  private listByCreatorLegacy(userId: number, workspaceId: string, limit: number): PaymentIntentView[] {
+    const rows = db
+      .prepare(`
+        SELECT *
+        FROM payment_intents
+        WHERE workspace_id = ? AND created_by_user_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `)
+      .all(workspaceId, userId, limit) as PaymentIntentRow[];
+    return rows.map(toView);
+  }
+
+  private listByCreatorStdb(userId: number, workspaceId: string, limit: number): PaymentIntentView[] {
+    const rows = stdbPaymentRows(
+      'payment_intents.list_by_creator',
+      `SELECT row_json FROM state_payment_intent WHERE workspace_id = ${escapeSqlLiteral(workspaceId)}`
+    );
+    return (rows || [])
+      .map((row) => normalizeIntentRow(parseStdbRowJson<PaymentIntentRow>(row)))
+      .filter((row): row is PaymentIntentRow => Boolean(row))
+      .filter((row) => row.created_by_user_id === Math.floor(userId))
+      .sort(sortPaymentIntentsByCreatedAtDesc)
+      .slice(0, limit)
+      .map(toView);
+  }
+
+  private summarizeServerDonationsLegacy(workspaceId: string): PaymentDonationSummaryRow[] {
+    return db
+      .prepare(`
+        SELECT
+          currency,
+          SUM(amount_minor) AS amount_minor,
+          COUNT(*) AS payment_count
+        FROM payment_intents
+        WHERE workspace_id = ?
+          AND status = 'succeeded'
+          AND metadata_json LIKE '%"kind":"server_donation"%'
+        GROUP BY currency
+        ORDER BY currency ASC
+      `)
+      .all(workspaceId) as PaymentDonationSummaryRow[];
+  }
+
+  private summarizeServerDonationsStdb(workspaceId: string): PaymentDonationSummaryRow[] {
+    const rows = stdbPaymentRows(
+      'payment_intents.summarize_server_donations',
+      `SELECT row_json FROM state_payment_intent WHERE workspace_id = ${escapeSqlLiteral(workspaceId)} AND status = 'succeeded'`
+    );
+    const totals = new Map<string, PaymentDonationSummaryRow>();
+    for (const row of rows || []) {
+      const parsed = normalizeIntentRow(parseStdbRowJson<PaymentIntentRow>(row));
+      if (!parsed) continue;
+      const view = toView(parsed);
+      if (!isServerDonation(view)) continue;
+      const current = totals.get(view.currency) || {
+        currency: view.currency,
+        amount_minor: 0,
+        payment_count: 0
+      };
+      current.amount_minor += view.amount_minor;
+      current.payment_count += 1;
+      totals.set(view.currency, current);
+    }
+    return [...totals.values()].sort((left, right) => left.currency.localeCompare(right.currency));
+  }
+
+  private listServerDonationActivityLegacy(workspaceId: string, limit: number): PaymentDonationLedgerRow[] {
+    return db
+      .prepare(`
+        SELECT
+          pi.intent_id,
+          pi.created_by_user_id,
+          u.username AS donor_username,
+          pi.amount_minor,
+          pi.currency,
+          pi.status,
+          pi.created_at,
+          pi.completed_at,
+          pi.refunded_at,
+          pi.updated_at
+        FROM payment_intents pi
+        LEFT JOIN users u ON u.user_id = pi.created_by_user_id
+        WHERE pi.workspace_id = ?
+          AND pi.metadata_json LIKE '%"kind":"server_donation"%'
+          AND pi.status IN ('succeeded', 'refunded')
+        ORDER BY COALESCE(pi.refunded_at, pi.completed_at, pi.created_at) DESC, pi.intent_id DESC
+        LIMIT ?
+      `)
+      .all(workspaceId, limit) as PaymentDonationLedgerRow[];
+  }
+
+  private listServerDonationActivityStdb(workspaceId: string, limit: number): PaymentDonationLedgerRow[] {
+    const rows = stdbPaymentRows(
+      'payment_intents.list_server_donation_activity',
+      `SELECT row_json FROM state_payment_intent WHERE workspace_id = ${escapeSqlLiteral(workspaceId)}`
+    );
+    const ledger: PaymentDonationLedgerRow[] = [];
+    for (const row of rows || []) {
+      const parsed = normalizeIntentRow(parseStdbRowJson<PaymentIntentRow>(row));
+      if (!parsed) continue;
+      const view = toView(parsed);
+      if (!isServerDonation(view)) continue;
+      if (!['succeeded', 'refunded'].includes(view.status)) continue;
+      ledger.push({
+        intent_id: view.intent_id,
+        created_by_user_id: view.created_by_user_id,
+        donor_username: lookupStdbUsername(view.created_by_user_id),
+        amount_minor: view.amount_minor,
+        currency: view.currency,
+        status: view.status,
+        created_at: view.created_at,
+        completed_at: view.completed_at,
+        refunded_at: view.refunded_at,
+        updated_at: view.updated_at
+      });
+    }
+    return ledger
+      .sort((left, right) => {
+        const diff = donationSortKey(right) - donationSortKey(left);
+        return diff !== 0 ? diff : right.intent_id.localeCompare(left.intent_id);
+      })
+      .slice(0, limit);
+  }
+
+  private findEventByEventIdLegacy(eventId: string): PaymentEventRow | null {
+    const row = db
+      .prepare('SELECT * FROM payment_events WHERE event_id = ? LIMIT 1')
+      .get(eventId) as PaymentEventRow | undefined;
+    return row || null;
+  }
+
+  private findEventByEventIdStdb(eventId: string): PaymentEventRow | null {
+    const rows = stdbPaymentRows(
+      'payment_events.find_by_event_id',
+      `SELECT row_json FROM state_payment_event WHERE event_id = ${escapeSqlLiteral(eventId)} LIMIT 1`
+    );
+    return rows && rows.length > 0 ? normalizeEventRow(parseStdbRowJson<PaymentEventRow>(rows[0])) : null;
+  }
+
+  private listEventsLegacy(intentId: string, limit: number): PaymentEventRow[] {
+    return db
+      .prepare(`
+        SELECT *
+        FROM payment_events
+        WHERE intent_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `)
+      .all(intentId, limit) as PaymentEventRow[];
+  }
+
+  private listEventsStdb(intentId: string, limit: number): PaymentEventRow[] {
+    const rows = stdbPaymentRows(
+      'payment_events.list_by_intent',
+      `SELECT row_json FROM state_payment_event WHERE intent_id = ${escapeSqlLiteral(intentId)}`
+    );
+    return (rows || [])
+      .map((row) => normalizeEventRow(parseStdbRowJson<PaymentEventRow>(row)))
+      .filter((row): row is PaymentEventRow => Boolean(row))
+      .sort(sortPaymentEventsByCreatedAtDesc)
+      .slice(0, limit);
+  }
+
+  private upsertStdbIntent(row: PaymentIntentRow): void {
+    stdbPaymentIngest('payment_intents.write', 'upsert_intent', {
+      intentId: row.intent_id,
+      row
+    });
+  }
+
+  private appendStdbEvent(row: PaymentEventRow): void {
+    stdbPaymentIngest('payment_events.write', 'append_event', {
+      eventId: row.event_id,
+      row
+    });
+  }
+
+  findByIntentId(intentId: string): PaymentIntentRow | null {
+    if (stdbPaymentsEnabled()) {
+      const shadow = this.findByIntentIdStdb(intentId);
+      if (shadow) return shadow;
+      const legacy = this.findByIntentIdLegacy(intentId);
+      if (legacy) this.upsertStdbIntent(legacy);
+      return legacy;
+    }
+    return this.findByIntentIdLegacy(intentId);
   }
 
   findViewByIntentId(intentId: string): PaymentIntentView | null {
@@ -153,17 +540,25 @@ export class PaymentRepository {
   }
 
   findByIdempotencyKey(idempotencyKey: string): PaymentIntentRow | null {
-    const row = db
-      .prepare('SELECT * FROM payment_intents WHERE idempotency_key = ? LIMIT 1')
-      .get(idempotencyKey) as PaymentIntentRow | undefined;
-    return row || null;
+    if (stdbPaymentsEnabled()) {
+      const shadow = this.findByIdempotencyKeyStdb(idempotencyKey);
+      if (shadow) return shadow;
+      const legacy = this.findByIdempotencyKeyLegacy(idempotencyKey);
+      if (legacy) this.upsertStdbIntent(legacy);
+      return legacy;
+    }
+    return this.findByIdempotencyKeyLegacy(idempotencyKey);
   }
 
   findByProviderIntentId(pluginId: string, providerIntentId: string): PaymentIntentRow | null {
-    const row = db
-      .prepare('SELECT * FROM payment_intents WHERE plugin_id = ? AND provider_intent_id = ? LIMIT 1')
-      .get(pluginId, providerIntentId) as PaymentIntentRow | undefined;
-    return row || null;
+    if (stdbPaymentsEnabled()) {
+      const shadow = this.findByProviderIntentIdStdb(pluginId, providerIntentId);
+      if (shadow) return shadow;
+      const legacy = this.findByProviderIntentIdLegacy(pluginId, providerIntentId);
+      if (legacy) this.upsertStdbIntent(legacy);
+      return legacy;
+    }
+    return this.findByProviderIntentIdLegacy(pluginId, providerIntentId);
   }
 
   createIntent(input: CreatePaymentIntentInput): PaymentIntentView {
@@ -256,9 +651,12 @@ export class PaymentRepository {
       row.updated_at
     );
 
-    const created = this.findByIntentId(intentId);
+    const created = this.findByIntentIdLegacy(intentId);
     if (!created) {
       throw new Error(`payment_intent_create_failed:${intentId}`);
+    }
+    if (stdbPaymentsEnabled()) {
+      this.upsertStdbIntent(created);
     }
     return toView(created);
   }
@@ -269,7 +667,12 @@ export class PaymentRepository {
       SET checkout_mode = ?, presentation_json = ?, updated_at = ?
       WHERE intent_id = ?
     `).run(checkoutMode, presentation ? JSON.stringify(presentation) : null, Date.now(), intentId);
-    return (result.changes || 0) > 0;
+    const updated = (result.changes || 0) > 0;
+    if (updated && stdbPaymentsEnabled()) {
+      const row = this.findByIntentIdLegacy(intentId);
+      if (row) this.upsertStdbIntent(row);
+    }
+    return updated;
   }
 
   setProviderIntentId(intentId: string, providerIntentId: string): boolean {
@@ -278,7 +681,12 @@ export class PaymentRepository {
       SET provider_intent_id = ?, updated_at = ?
       WHERE intent_id = ?
     `).run(providerIntentId, Date.now(), intentId);
-    return (result.changes || 0) > 0;
+    const updated = (result.changes || 0) > 0;
+    if (updated && stdbPaymentsEnabled()) {
+      const row = this.findByIntentIdLegacy(intentId);
+      if (row) this.upsertStdbIntent(row);
+    }
+    return updated;
   }
 
   setStatus(
@@ -325,7 +733,12 @@ export class PaymentRepository {
       intentId
     );
 
-    return (result.changes || 0) > 0;
+    const updated = (result.changes || 0) > 0;
+    if (updated && stdbPaymentsEnabled()) {
+      const row = this.findByIntentIdLegacy(intentId);
+      if (row) this.upsertStdbIntent(row);
+    }
+    return updated;
   }
 
   addEvent(intentId: string, event: PaymentEventInput): PaymentEventRow | null {
@@ -356,101 +769,116 @@ export class PaymentRepository {
       createdAt
     );
 
-    const row = db
-      .prepare('SELECT * FROM payment_events WHERE event_id = ? LIMIT 1')
-      .get(eventId) as PaymentEventRow | undefined;
-    return row || null;
+    const row = this.findEventByEventIdLegacy(eventId);
+    if (row && stdbPaymentsEnabled()) {
+      this.appendStdbEvent(row);
+    }
+    return row;
+  }
+
+  /**
+   * Atomically update status and record an event in a single transaction.
+   * Prevents inconsistent state if the process crashes between the two writes.
+   */
+  setStatusWithEvent(
+    intentId: string,
+    status: PaymentIntentStatus,
+    statusOptions: {
+      failureCode?: string | null;
+      failureMessage?: string | null;
+      metadata?: Record<string, unknown> | null;
+      expiresAt?: number | null;
+    },
+    event: PaymentEventInput
+  ): { statusUpdated: boolean; event: PaymentEventRow | null } {
+    const txn = db.transaction!(() => {
+      const statusUpdated = this.setStatus(intentId, status, statusOptions);
+      const evt = this.addEvent(intentId, event);
+      return { statusUpdated, event: evt };
+    });
+    return txn();
   }
 
   listRecentByWorkspace(workspaceId: string = DEFAULT_WORKSPACE_ID, limit = 50): PaymentIntentView[] {
     const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
-    const rows = db
-      .prepare(`
-        SELECT *
-        FROM payment_intents
-        WHERE workspace_id = ?
-        ORDER BY created_at DESC
-        LIMIT ?
-      `)
-      .all(workspaceId, safeLimit) as PaymentIntentRow[];
-    return rows.map(toView);
+    if (stdbPaymentsEnabled()) {
+      const shadow = this.listRecentByWorkspaceStdb(workspaceId, safeLimit);
+      if (shadow.length > 0) return shadow;
+      const legacy = this.listRecentByWorkspaceLegacy(workspaceId, safeLimit);
+      for (const view of legacy) {
+        this.upsertStdbIntent(viewToRow(view));
+      }
+      return legacy;
+    }
+    return this.listRecentByWorkspaceLegacy(workspaceId, safeLimit);
   }
 
   listByCreator(userId: number, workspaceId: string = DEFAULT_WORKSPACE_ID, limit = 200): PaymentIntentView[] {
     const safeLimit = Math.max(1, Math.min(1000, Math.floor(limit)));
-    const rows = db
-      .prepare(`
-        SELECT *
-        FROM payment_intents
-        WHERE workspace_id = ? AND created_by_user_id = ?
-        ORDER BY created_at DESC
-        LIMIT ?
-      `)
-      .all(workspaceId, userId, safeLimit) as PaymentIntentRow[];
-    return rows.map(toView);
+    if (stdbPaymentsEnabled()) {
+      const shadow = this.listByCreatorStdb(userId, workspaceId, safeLimit);
+      if (shadow.length > 0) return shadow;
+      const legacy = this.listByCreatorLegacy(userId, workspaceId, safeLimit);
+      for (const view of legacy) {
+        this.upsertStdbIntent(viewToRow(view));
+      }
+      return legacy;
+    }
+    return this.listByCreatorLegacy(userId, workspaceId, safeLimit);
   }
 
   summarizeServerDonations(workspaceId: string = DEFAULT_WORKSPACE_ID): PaymentDonationSummaryRow[] {
-    return db
-      .prepare(`
-        SELECT
-          currency,
-          SUM(amount_minor) AS amount_minor,
-          COUNT(*) AS payment_count
-        FROM payment_intents
-        WHERE workspace_id = ?
-          AND status = 'succeeded'
-          AND metadata_json LIKE '%"kind":"server_donation"%'
-        GROUP BY currency
-        ORDER BY currency ASC
-      `)
-      .all(workspaceId) as PaymentDonationSummaryRow[];
+    if (stdbPaymentsEnabled()) {
+      const shadow = this.summarizeServerDonationsStdb(workspaceId);
+      if (shadow.length > 0) return shadow;
+      const legacy = this.summarizeServerDonationsLegacy(workspaceId);
+      const backfill = this.listRecentByWorkspaceLegacy(workspaceId, 1000).filter(isServerDonation);
+      for (const view of backfill) {
+        this.upsertStdbIntent(viewToRow(view));
+      }
+      return legacy;
+    }
+    return this.summarizeServerDonationsLegacy(workspaceId);
   }
 
   listServerDonationActivity(workspaceId: string = DEFAULT_WORKSPACE_ID, limit = 50): PaymentDonationLedgerRow[] {
     const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
-    return db
-      .prepare(`
-        SELECT
-          pi.intent_id,
-          pi.created_by_user_id,
-          u.username AS donor_username,
-          pi.amount_minor,
-          pi.currency,
-          pi.status,
-          pi.created_at,
-          pi.completed_at,
-          pi.refunded_at,
-          pi.updated_at
-        FROM payment_intents pi
-        LEFT JOIN users u ON u.user_id = pi.created_by_user_id
-        WHERE pi.workspace_id = ?
-          AND pi.metadata_json LIKE '%"kind":"server_donation"%'
-          AND pi.status IN ('succeeded', 'refunded')
-        ORDER BY COALESCE(pi.refunded_at, pi.completed_at, pi.created_at) DESC, pi.intent_id DESC
-        LIMIT ?
-      `)
-      .all(workspaceId, safeLimit) as PaymentDonationLedgerRow[];
+    if (stdbPaymentsEnabled()) {
+      const shadow = this.listServerDonationActivityStdb(workspaceId, safeLimit);
+      if (shadow.length > 0) return shadow;
+      const legacy = this.listServerDonationActivityLegacy(workspaceId, safeLimit);
+      const backfill = this.listRecentByWorkspaceLegacy(workspaceId, 1000).filter((view) => isServerDonation(view) && ['succeeded', 'refunded'].includes(view.status));
+      for (const view of backfill) {
+        this.upsertStdbIntent(viewToRow(view));
+      }
+      return legacy;
+    }
+    return this.listServerDonationActivityLegacy(workspaceId, safeLimit);
   }
 
   listEvents(intentId: string, limit = 100): PaymentEventRow[] {
     const safeLimit = Math.max(1, Math.min(1000, Math.floor(limit)));
-    return db
-      .prepare(`
-        SELECT *
-        FROM payment_events
-        WHERE intent_id = ?
-        ORDER BY created_at DESC
-        LIMIT ?
-      `)
-      .all(intentId, safeLimit) as PaymentEventRow[];
+    if (stdbPaymentsEnabled()) {
+      const shadow = this.listEventsStdb(intentId, safeLimit);
+      if (shadow.length > 0) return shadow;
+      const legacy = this.listEventsLegacy(intentId, safeLimit);
+      for (const row of legacy) {
+        this.appendStdbEvent(row);
+      }
+      return legacy;
+    }
+    return this.listEventsLegacy(intentId, safeLimit);
   }
 
   findEventByEventId(eventId: string): PaymentEventRow | null {
-    const row = db
-      .prepare('SELECT * FROM payment_events WHERE event_id = ? LIMIT 1')
-      .get(eventId) as PaymentEventRow | undefined;
-    return row || null;
+    if (stdbPaymentsEnabled()) {
+      const shadow = this.findEventByEventIdStdb(eventId);
+      if (shadow) return shadow;
+      const legacy = this.findEventByEventIdLegacy(eventId);
+      if (legacy) this.appendStdbEvent(legacy);
+      return legacy;
+    }
+    return this.findEventByEventIdLegacy(eventId);
   }
 }
 

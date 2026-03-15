@@ -6,6 +6,7 @@ import { DEFAULT_WORKSPACE_ID, PRIVILEGED_ROLES } from '../constants.js';
 import {
   paymentRepository,
   type PaymentDonationLedgerRow,
+  type PaymentEventInput,
   type PaymentEventRow,
   type PaymentIntentStatus as RepositoryPaymentIntentStatus,
   type PaymentIntentView
@@ -38,11 +39,39 @@ import {
   listPaymentAccountLinks,
   upsertPaymentAccountLink
 } from '../payments/accountLinks.js';
+import {
+  notifyDonationUpdated,
+  notifyPaymentAccessUpdated,
+  notifyPaymentAccountLinksUpdated,
+  notifyPaymentIntentUpdated,
+  notifyPaymentUserBlocksUpdated
+} from '../payments/realtime.js';
 
 const MAX_PAYMENT_BODY_BYTES = Math.max(
   1024,
   Math.min(2 * 1024 * 1024, Number(process.env.PAYMENT_MAX_BODY_BYTES || 256 * 1024))
 );
+const PAYMENT_CREATE_WINDOW_MS = Math.max(
+  10_000,
+  Math.min(30 * 60 * 1000, Number(process.env.PAYMENT_CREATE_WINDOW_MS || 5 * 60 * 1000))
+);
+const PAYMENT_CREATE_MAX_PER_WINDOW = Math.max(
+  1,
+  Math.min(100, Number(process.env.PAYMENT_CREATE_MAX_PER_WINDOW || 12))
+);
+const PAYMENT_MAX_OPEN_REQUESTS_PER_USER = Math.max(
+  1,
+  Math.min(100, Number(process.env.PAYMENT_MAX_OPEN_REQUESTS_PER_USER || 8))
+);
+const paymentCreateRateLimitMap = new Map<number, { count: number; resetTime: number }>();
+
+// Periodic cleanup of expired payment rate limit entries
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of paymentCreateRateLimitMap) {
+    if (now > entry.resetTime) paymentCreateRateLimitMap.delete(key);
+  }
+}, 5 * 60 * 1000).unref();
 
 const TERMINAL_STATUSES = new Set<RepositoryPaymentIntentStatus>([
   'succeeded',
@@ -290,12 +319,137 @@ function evaluateCreatePaymentAccess(userId: number): CreatePaymentAccessCheckRe
   };
 }
 
+function checkPaymentCreateRateLimit(userId: number): { allowed: boolean; retryAfterMs?: number } {
+  const now = Date.now();
+  const existing = paymentCreateRateLimitMap.get(userId);
+  if (!existing || now > existing.resetTime) {
+    paymentCreateRateLimitMap.set(userId, {
+      count: 1,
+      resetTime: now + PAYMENT_CREATE_WINDOW_MS
+    });
+    return { allowed: true };
+  }
+
+  if (existing.count >= PAYMENT_CREATE_MAX_PER_WINDOW) {
+    return {
+      allowed: false,
+      retryAfterMs: Math.max(1_000, existing.resetTime - now)
+    };
+  }
+
+  existing.count += 1;
+  return { allowed: true };
+}
+
+function countOpenPaymentRequests(userId: number): number {
+  const now = Date.now();
+  return paymentRepository
+    .listByCreator(userId, DEFAULT_WORKSPACE_ID, 200)
+    .filter((intent) => {
+      if (intent.status !== 'draft' && intent.status !== 'pending') {
+        return false;
+      }
+      if (typeof intent.expires_at === 'number' && intent.expires_at > 0 && intent.expires_at <= now) {
+        return false;
+      }
+      return true;
+    }).length;
+}
+
 function canAccessIntent(userId: number, intent: PaymentIntentView): boolean {
   return intent.created_by_user_id === userId;
 }
 
 function isServerDonationIntent(intent: PaymentIntentView | null | undefined): boolean {
   return Boolean(intent?.metadata && intent.metadata.kind === 'server_donation');
+}
+
+function isServerDonationMetadata(metadata: Record<string, unknown> | null | undefined): boolean {
+  return Boolean(metadata && metadata.kind === 'server_donation');
+}
+
+function normalizeThaiPromptPayReference(raw: string | null | undefined): string | null {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (!digits) return null;
+  if (digits.length === 10 && digits.startsWith('0')) return digits;
+  if (digits.length === 13) return digits;
+  if (digits.length === 15) return digits;
+  return null;
+}
+
+function normalizeBitcoinAddressReference(raw: string | null | undefined): string | null {
+  let value = String(raw || '').trim();
+  if (!value) return null;
+  if (value.toLowerCase().startsWith('bitcoin:')) {
+    value = value.slice('bitcoin:'.length);
+  }
+  const queryIndex = value.indexOf('?');
+  if (queryIndex >= 0) {
+    value = value.slice(0, queryIndex);
+  }
+  value = value.trim();
+  if (!value) return null;
+  if (/^[13][a-km-zA-HJ-NP-Z1-9]{25,62}$/.test(value)) {
+    return value;
+  }
+  if (/^(bc1|tb1|bcrt1)[ac-hj-np-z02-9]{11,87}$/i.test(value)) {
+    return value.toLowerCase();
+  }
+  return null;
+}
+
+function mapCreateIntentPluginError(error: unknown): { failureCode: string; failureMessage: string } {
+  const message = error instanceof Error ? error.message : 'unknown';
+  switch (message) {
+    case 'th_payments_server_promptpay_not_configured':
+      return {
+        failureCode: 'provider_misconfigured',
+        failureMessage: 'Server PromptPay donations are not configured yet.'
+      };
+    case 'btc_payments_server_address_not_configured':
+      return {
+        failureCode: 'provider_misconfigured',
+        failureMessage: 'Server Bitcoin donations are not configured yet.'
+      };
+    case 'btc_payments_invalid_address':
+      return {
+        failureCode: 'invalid_payment_reference',
+        failureMessage: 'Bitcoin address is invalid.'
+      };
+    case 'btc_payments_address_required':
+      return {
+        failureCode: 'missing_payment_reference',
+        failureMessage: 'Bitcoin QR requests need a Bitcoin address.'
+      };
+    default:
+      return {
+        failureCode: 'provider_create_failed',
+        failureMessage: 'Payment provider intent creation failed'
+      };
+  }
+}
+
+function emitIntentRealtimeUpdate(
+  intent: PaymentIntentView | null | undefined,
+  reason: 'intent' | 'refund' = 'intent'
+): void {
+  if (!intent) return;
+  notifyPaymentIntentUpdated({
+    workspaceId: intent.workspace_id,
+    intentId: intent.intent_id,
+    createdByUserId: intent.created_by_user_id,
+    channelId: intent.channel_id,
+    status: intent.status,
+    isDonation: isServerDonationIntent(intent)
+  });
+  if (isServerDonationIntent(intent)) {
+    notifyDonationUpdated({
+      workspaceId: intent.workspace_id,
+      reason,
+      intentId: intent.intent_id,
+      status: intent.status
+    });
+  }
 }
 
 function maskDonationDonorLabel(username: string | null, userId: number | null): string {
@@ -649,6 +803,10 @@ export async function handleSavePaymentDonationConfig(
   }
 
   const config = savePaymentDonationConfig(body);
+  notifyDonationUpdated({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    reason: 'config'
+  });
   writeJson(res, 200, {
     success: true,
     config
@@ -754,6 +912,12 @@ export async function handleCreateAdminOfflineDonation(
         { adminView: true }
       )
     });
+    notifyDonationUpdated({
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      reason: 'offline_recorded',
+      settlementId: donation.settlement_id,
+      status: donation.status
+    });
   } catch (error) {
     console.error('[Payments] Failed to create offline donation:', error);
     writeJson(res, 500, { success: false, error: 'Failed to create offline donation' });
@@ -830,6 +994,12 @@ export async function handleVoidAdminOfflineDonation(
     return;
   }
 
+  notifyDonationUpdated({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    reason: 'offline_voided',
+    settlementId: updated.settlement_id,
+    status: updated.status
+  });
   writeJson(res, 200, {
     success: true,
     donation: toOfflineDonationResponse(updated, { adminView: true })
@@ -937,6 +1107,7 @@ export async function handleRefundAdminPaymentDonation(
     return;
   }
 
+  emitIntentRealtimeUpdate(updated, 'refund');
   writeJson(res, 200, {
     success: true,
     intent: toIntentResponse(updated),
@@ -961,6 +1132,29 @@ export async function handleCreatePaymentIntent(
       success: false,
       error: access.error,
       code: access.code
+    });
+    return;
+  }
+
+  const openPaymentRequestCount = countOpenPaymentRequests(userId);
+  if (openPaymentRequestCount >= PAYMENT_MAX_OPEN_REQUESTS_PER_USER) {
+    writeJson(res, 429, {
+      success: false,
+      error: 'Too many open payment requests. Cancel one or wait for older requests to expire.',
+      code: 'too_many_open_payment_requests',
+      openCount: openPaymentRequestCount,
+      maxOpen: PAYMENT_MAX_OPEN_REQUESTS_PER_USER
+    });
+    return;
+  }
+
+  const rateLimit = checkPaymentCreateRateLimit(userId);
+  if (!rateLimit.allowed) {
+    writeJson(res, 429, {
+      success: false,
+      error: 'Payment request rate limit exceeded. Wait a moment and try again.',
+      code: 'payment_request_rate_limited',
+      retryAfterMs: rateLimit.retryAfterMs || PAYMENT_CREATE_WINDOW_MS
     });
     return;
   }
@@ -1010,7 +1204,10 @@ export async function handleCreatePaymentIntent(
   }
 
   const linkedAccount = getPaymentAccountLink(userId, pluginId, workspaceId);
-  const effectiveCustomerRef = customerRef || linkedAccount?.providerAccountRef || null;
+  const isServerDonationRequest = isServerDonationMetadata(metadata);
+  let effectiveCustomerRef = isServerDonationRequest
+    ? null
+    : customerRef || linkedAccount?.providerAccountRef || null;
 
   const selectedMethod = capabilities.methods.find((method) => method.id === methodId);
   if (!selectedMethod) {
@@ -1020,6 +1217,30 @@ export async function handleCreatePaymentIntent(
   if (!isMethodEligible(selectedMethod, amountMinor, currency, countryCode)) {
     writeJson(res, 400, { success: false, error: `Method '${methodId}' is not eligible for this amount/currency/country` });
     return;
+  }
+  if (pluginId === 'th-payments' && methodId === 'promptpay_qr' && !isServerDonationRequest) {
+    const normalizedPromptPayReference = normalizeThaiPromptPayReference(effectiveCustomerRef);
+    if (!normalizedPromptPayReference) {
+      writeJson(res, 400, {
+        success: false,
+        error:
+          'Thai PromptPay requests need your own PromptPay number or registered PromptPay ID. Save it in Saved Payment References or enter a one-off number.'
+      });
+      return;
+    }
+    effectiveCustomerRef = normalizedPromptPayReference;
+  }
+  if (pluginId === 'btc-payments' && methodId === 'bitcoin_qr' && !isServerDonationRequest) {
+    const normalizedBitcoinAddress = normalizeBitcoinAddressReference(effectiveCustomerRef);
+    if (!normalizedBitcoinAddress) {
+      writeJson(res, 400, {
+        success: false,
+        error:
+          'Bitcoin QR requests need your own Bitcoin address. Save it in Saved Payment References or enter a one-off address.'
+      });
+      return;
+    }
+    effectiveCustomerRef = normalizedBitcoinAddress;
   }
 
   const existing = paymentRepository.findByIdempotencyKey(idempotencyKey);
@@ -1085,30 +1306,34 @@ export async function handleCreatePaymentIntent(
     const presentation = isRecord(created.presentation) ? created.presentation : null;
     paymentRepository.updatePresentation(draftIntent.intent_id, created.checkoutMode, presentation);
 
-    paymentRepository.setStatus(draftIntent.intent_id, created.status, {
-      metadata: isRecord(created.metadata) ? created.metadata : metadata,
-      expiresAt: Number.isFinite(created.expiresAt as number) ? Math.floor(created.expiresAt as number) : null
-    });
-
-    paymentRepository.addEvent(draftIntent.intent_id, {
-      eventType: 'intent.created',
-      status: created.status,
-      source: 'plugin',
-      payload: {
-        pluginId,
-        providerName: capabilities.providerName || pluginId,
-        providerIntentId: created.providerIntentId,
-        checkoutMode: created.checkoutMode,
-        methodId
+    paymentRepository.setStatusWithEvent(
+      draftIntent.intent_id,
+      created.status,
+      {
+        metadata: isRecord(created.metadata) ? created.metadata : metadata,
+        expiresAt: Number.isFinite(created.expiresAt as number) ? Math.floor(created.expiresAt as number) : null
       },
-      idempotencyKey
-    });
+      {
+        eventType: 'intent.created',
+        status: created.status,
+        source: 'plugin',
+        payload: {
+          pluginId,
+          providerName: capabilities.providerName || pluginId,
+          providerIntentId: created.providerIntentId,
+          checkoutMode: created.checkoutMode,
+          methodId
+        },
+        idempotencyKey
+      }
+    );
 
     const finalIntent = paymentRepository.findViewByIntentId(draftIntent.intent_id);
     if (!finalIntent) {
       throw new Error('payment_intent_missing_after_create');
     }
 
+    emitIntentRealtimeUpdate(finalIntent);
     writeJson(res, 201, {
       success: true,
       reused: false,
@@ -1118,22 +1343,28 @@ export async function handleCreatePaymentIntent(
     });
   } catch (error) {
     console.error(`[Payments] Plugin createIntent failed for ${pluginId}:`, error);
-    paymentRepository.setStatus(draftIntent.intent_id, 'failed', {
-      failureCode: 'provider_create_failed',
-      failureMessage: 'Payment provider intent creation failed'
-    });
-    paymentRepository.addEvent(draftIntent.intent_id, {
-      eventType: 'intent.create_failed',
-      status: 'failed',
-      source: 'core',
-      payload: {
-        pluginId,
-        reason: error instanceof Error ? error.message : 'unknown'
+    const createFailure = mapCreateIntentPluginError(error);
+    paymentRepository.setStatusWithEvent(
+      draftIntent.intent_id,
+      'failed',
+      {
+        failureCode: createFailure.failureCode,
+        failureMessage: createFailure.failureMessage
       },
-      idempotencyKey
-    });
+      {
+        eventType: 'intent.create_failed',
+        status: 'failed',
+        source: 'core',
+        payload: {
+          pluginId,
+          reason: error instanceof Error ? error.message : 'unknown'
+        },
+        idempotencyKey
+      }
+    );
 
     const failedIntent = paymentRepository.findViewByIntentId(draftIntent.intent_id);
+    emitIntentRealtimeUpdate(failedIntent);
     writeJson(res, 502, {
       success: false,
       error: 'Payment provider intent creation failed',
@@ -1166,6 +1397,7 @@ export async function handleGetPaymentIntent(
   }
 
   let providerRefreshError: string | null = null;
+  let refreshedIntent = false;
   const shouldRefresh = parseBooleanQueryValue(url.searchParams.get('refresh'));
   if (shouldRefresh && !TERMINAL_STATUSES.has(intent.status)) {
     try {
@@ -1189,6 +1421,7 @@ export async function handleGetPaymentIntent(
             providerIntentId: providerStatus.providerIntentId || intent.provider_intent_id || null
           }
         });
+        refreshedIntent = true;
       }
     } catch (error) {
       providerRefreshError = error instanceof Error ? error.message : 'provider_status_poll_failed';
@@ -1209,6 +1442,9 @@ export async function handleGetPaymentIntent(
   const eventLimit = Number.isFinite(eventLimitRaw) ? Math.max(1, Math.min(100, Math.floor(eventLimitRaw))) : 25;
   const events = includeEvents ? paymentRepository.listEvents(intent.intent_id, eventLimit).map(toEventResponse) : [];
 
+  if (refreshedIntent) {
+    emitIntentRealtimeUpdate(intent);
+  }
   writeJson(res, 200, {
     success: true,
     intent: toIntentResponse(intent),
@@ -1327,6 +1563,7 @@ export async function handleCancelPaymentIntent(
     return;
   }
 
+  emitIntentRealtimeUpdate(updated, updated.status === 'refunded' ? 'refund' : 'intent');
   writeJson(res, 200, {
     success: true,
     intent: toIntentResponse(updated),
@@ -1424,13 +1661,8 @@ export async function handlePaymentWebhook(
   const normalizedStatus = isKnownPaymentStatus(verification.event.status)
     ? verification.event.status
     : null;
-  if (normalizedStatus) {
-    paymentRepository.setStatus(intent.intent_id, normalizedStatus, {
-      metadata: isRecord(verification.event.raw) ? verification.event.raw : null
-    });
-  }
 
-  paymentRepository.addEvent(intent.intent_id, {
+  const webhookEvent: PaymentEventInput = {
     eventId: normalizedEventId,
     eventType: normalizeOptionalString(verification.event.eventType, 160) || 'provider.event',
     status: normalizedStatus,
@@ -1438,9 +1670,21 @@ export async function handlePaymentWebhook(
     payload: isRecord(verification.event.raw) ? verification.event.raw : {},
     signatureValid: true,
     idempotencyKey: normalizeOptionalString(verification.event.idempotencyKey, 180)
-  });
+  };
+
+  if (normalizedStatus) {
+    paymentRepository.setStatusWithEvent(
+      intent.intent_id,
+      normalizedStatus,
+      { metadata: isRecord(verification.event.raw) ? verification.event.raw : null },
+      webhookEvent
+    );
+  } else {
+    paymentRepository.addEvent(intent.intent_id, webhookEvent);
+  }
 
   const updated = paymentRepository.findViewByIntentId(intent.intent_id);
+  emitIntentRealtimeUpdate(updated, normalizedStatus === 'refunded' ? 'refund' : 'intent');
   writeJson(res, 200, {
     success: true,
     matchedIntent: true,
@@ -1532,13 +1776,36 @@ export async function handleUpsertPaymentAccountLink(
   }
 
   const pluginId = normalizePluginId(body.pluginId);
-  const providerAccountRef = normalizeOptionalString(body.providerAccountRef, 240);
+  let providerAccountRef = normalizeOptionalString(body.providerAccountRef, 240);
   const displayLabel = normalizeOptionalString(body.displayLabel, 160);
   const metadata = normalizeMetadata(body.metadata);
 
   if (!pluginId || !providerAccountRef) {
     writeJson(res, 400, { success: false, error: 'pluginId and providerAccountRef are required' });
     return;
+  }
+  if (pluginId === 'th-payments') {
+    const normalizedPromptPayReference = normalizeThaiPromptPayReference(providerAccountRef);
+    if (!normalizedPromptPayReference) {
+      writeJson(res, 400, {
+        success: false,
+        error:
+          'Thailand PromptPay references must be a Thai mobile number or registered PromptPay ID.'
+      });
+      return;
+    }
+    providerAccountRef = normalizedPromptPayReference;
+  }
+  if (pluginId === 'btc-payments') {
+    const normalizedBitcoinAddress = normalizeBitcoinAddressReference(providerAccountRef);
+    if (!normalizedBitcoinAddress) {
+      writeJson(res, 400, {
+        success: false,
+        error: 'Bitcoin payment references must be a valid Bitcoin address.'
+      });
+      return;
+    }
+    providerAccountRef = normalizedBitcoinAddress;
   }
 
   const link = upsertPaymentAccountLink({
@@ -1559,6 +1826,10 @@ export async function handleUpsertPaymentAccountLink(
     success: true,
     link
   });
+  notifyPaymentAccountLinksUpdated({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    userId
+  });
 }
 
 export async function handleDeletePaymentAccountLink(
@@ -1578,10 +1849,17 @@ export async function handleDeletePaymentAccountLink(
     return;
   }
 
+  const cleared = deletePaymentAccountLink(userId, normalizedPluginId, DEFAULT_WORKSPACE_ID);
   writeJson(res, 200, {
     success: true,
-    cleared: deletePaymentAccountLink(userId, normalizedPluginId, DEFAULT_WORKSPACE_ID)
+    cleared
   });
+  if (cleared) {
+    notifyPaymentAccountLinksUpdated({
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      userId
+    });
+  }
 }
 
 export async function handleGetPaymentAccessPolicy(
@@ -1635,6 +1913,9 @@ export async function handleSavePaymentAccessPolicy(
   }
 
   const policy = savePaymentAccessPolicy(body);
+  notifyPaymentAccessUpdated({
+    workspaceId: DEFAULT_WORKSPACE_ID
+  });
   writeJson(res, 200, {
     success: true,
     policy
@@ -1742,6 +2023,14 @@ export async function handleUpsertPaymentUserBlock(
     success: true,
     block
   });
+  notifyPaymentUserBlocksUpdated({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    userId: targetUserId
+  });
+  notifyPaymentAccessUpdated({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    userId: targetUserId
+  });
 }
 
 export async function handleDeletePaymentUserBlock(
@@ -1770,4 +2059,14 @@ export async function handleDeletePaymentUserBlock(
     success: true,
     cleared
   });
+  if (cleared) {
+    notifyPaymentUserBlocksUpdated({
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      userId: targetUserId
+    });
+    notifyPaymentAccessUpdated({
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      userId: targetUserId
+    });
+  }
 }
