@@ -46,9 +46,9 @@ Positioning references:
 
 See full architecture and deep technical docs in `PROJECT_DOCS/ARCHITECTURE.md` and `PROJECT_DOCS/CODEBASE_OVERVIEW.md`.
 
-## Quick start (recommended: Docker)
+## Quick start (recommended: Docker or Podman)
 
-If you can run Docker, you can run Wabi. Works on **Windows, Mac, and Linux** with zero config.
+If you can run Docker or Podman, you can run Wabi. Works on **Windows, Mac, and Linux** with zero config.
 
 ```bash
 git clone https://github.com/AzureFoxStudios/wabi.git
@@ -57,6 +57,8 @@ docker compose up -d --build
 ```
 
 Open `http://localhost:3000`, create the owner account, and you're in. No `.env` editing is required for local bring-up; localhost defaults are baked into Compose, and backend secrets are auto-generated on first boot.
+
+If your host ships Podman instead of Docker, replace `docker compose` with `podman compose`. The setup and launch scripts auto-detect either runtime; set `WABI_CONTAINER_RUNTIME=podman` to force Podman when both are installed.
 
 **Optional: include TURN for production-quality calling:**
 

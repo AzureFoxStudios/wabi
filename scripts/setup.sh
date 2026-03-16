@@ -6,6 +6,8 @@ set -euo pipefail
 # Run from the wabi project root, or let the script find it.
 
 WABI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "${WABI_DIR}/scripts/lib/container-runtime.sh"
 
 # ---------------------------------------------------------------------------
 # Colors (disable when piped / non-interactive)
@@ -46,27 +48,18 @@ echo ""
 echo "  Checking a few things first..."
 echo ""
 
-# Docker
-if command -v docker &>/dev/null; then
-  DOCKER_V=$(docker --version 2>/dev/null | grep -oP '[\d]+\.[\d]+' | head -1 || echo "?")
-  ok "Docker installed (v${DOCKER_V})"
+if detect_compose_runtime; then
+  ENGINE_V=$(get_container_engine_version)
+  COMPOSE_V=$(get_compose_version)
+  ok "${CONTAINER_RUNTIME_LABEL} installed (${ENGINE_V})"
+  ok "Compose available via '${COMPOSE_DISPLAY}' (${COMPOSE_V})"
 else
-  bad "Docker is not installed"
+  bad "No supported container runtime was found"
   echo ""
-  echo "  Wabi runs inside Docker containers."
+  echo "  Wabi runs inside Docker or Podman containers."
   echo "  Install Docker: ${BOLD}https://docs.docker.com/engine/install/${RESET}"
-  exit 1
-fi
-
-# Docker Compose (v2 plugin)
-if docker compose version &>/dev/null; then
-  COMPOSE_V=$(docker compose version --short 2>/dev/null || echo "?")
-  ok "Docker Compose available (v${COMPOSE_V})"
-else
-  bad "Docker Compose (v2) not found"
-  echo ""
-  echo "  Wabi needs the 'docker compose' command (v2 plugin)."
-  echo "  Install guide: ${BOLD}https://docs.docker.com/compose/install/${RESET}"
+  echo "  Or install Podman: ${BOLD}https://podman.io/docs/installation${RESET}"
+  echo "  Then retry, or set ${BOLD}WABI_CONTAINER_RUNTIME=docker${RESET} or ${BOLD}WABI_CONTAINER_RUNTIME=podman${RESET}."
   exit 1
 fi
 
@@ -456,13 +449,13 @@ fi
 echo ""
 STEP=$((STEP + 1))
 
-# Step: Docker
+# Step: Container runtime
 echo "  ${BOLD}${STEP}.${RESET} Start Wabi:"
 echo ""
 if $ENABLE_TURN; then
-  echo "     docker compose --profile turn up -d --build"
+  echo "     ${COMPOSE_DISPLAY} --profile turn up -d --build"
 else
-  echo "     docker compose up -d --build"
+  echo "     ${COMPOSE_DISPLAY} up -d --build"
 fi
 echo ""
 echo "     ${DIM}The first build takes a few minutes — grab a drink.${RESET}"

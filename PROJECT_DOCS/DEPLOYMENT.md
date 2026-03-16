@@ -2,11 +2,11 @@
 
 ## Overview
 
-Wabi Chat is designed to be self-deployable on bare-metal Linux. This guide covers setup with Docker Compose and Caddy reverse proxy.
+Wabi Chat is designed to be self-deployable on bare-metal Linux. This guide covers setup with Docker Compose or Podman Compose and Caddy reverse proxy.
 
 ## Prerequisites
 
-- Docker & Docker Compose (v2)
+- Docker & Docker Compose (v2), or Podman with Compose support
 - A Linux server or other always-on machine
 - A domain name pointed at your server (recommended for HTTPS)
 - Caddy (reverse proxy — the setup wizard can install it for you)
@@ -29,6 +29,8 @@ Open `http://localhost:3000`, create the owner account, and you're in.
 
 Secrets (`JWT_SECRET`, `TURN_SHARED_SECRET`) are auto-generated on first boot and persisted to the data volume across restarts.
 
+If your host uses Podman instead of Docker, replace `docker compose` with `podman compose`. The helper scripts also auto-detect either runtime; set `WABI_CONTAINER_RUNTIME=podman` to force Podman when both are installed.
+
 Use the CLI setup scripts when you want a real public domain, reverse proxy, TURN exposure, mesh config, or other non-local deployment settings. Configure login-page branding separately via `data/launch-page.json`.
 
 ## Setup Wizard (CLI)
@@ -42,7 +44,7 @@ cd wabi
 ```
 
 The wizard will:
-- Check that Docker is installed
+- Check that Docker or Podman is installed
 - Ask for your domain (or fall back to IP-only)
 - Detect your public IP
 - Generate secure secrets automatically
@@ -50,7 +52,7 @@ The wizard will:
 - Offer to install Caddy if it's missing
 - Print step-by-step instructions to start everything
 
-After the wizard finishes, follow its instructions (typically: start Caddy, then `docker compose up -d --build`).
+After the wizard finishes, follow its instructions (typically: start Caddy, then `docker compose up -d --build` or `podman compose up -d --build`).
 
 For Windows hosts without WSL, use the native setup script instead:
 
@@ -58,7 +60,7 @@ For Windows hosts without WSL, use the native setup script instead:
 powershell -ExecutionPolicy Bypass -File scripts/setup-forWindows.ps1
 ```
 
-That script generates `.env`, `frontend/.env`, and `Caddyfile` for a Docker-based Windows host without routing the user through the WSL deploy helper.
+That script generates `.env`, `frontend/.env`, and `Caddyfile` for a Docker- or Podman-based Windows host without routing the user through the WSL deploy helper.
 
 Operator-config flow (small config + generated env):
 

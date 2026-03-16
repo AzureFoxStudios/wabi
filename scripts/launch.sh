@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "$ROOT_DIR/scripts/lib/container-runtime.sh"
 ENV_FILE="$ROOT_DIR/.env"
 FRONTEND_ENV_FILE="$ROOT_DIR/frontend/.env"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
@@ -222,6 +224,7 @@ Advanced environment overrides:
   SFU_PROVIDER=none|livekit            (default: none)
   PRUNE_DANGLING_IMAGES=true|false     (default: true)
   PRUNE_STOPPED_CONTAINERS=true|false  (default: false)
+  WABI_CONTAINER_RUNTIME=auto|docker|podman (default: auto; prefers Docker when both are installed)
   WABI_CONFIG_FILE=<path>              (default: ./wabi.config)
 EOF
 }
@@ -243,12 +246,7 @@ generate_hex_secret() {
 }
 
 validate_prereqs() {
-  if ! command -v docker >/dev/null 2>&1; then
-    echo "[launch] Docker is required but not found on PATH." >&2
-    exit 1
-  fi
-  if ! docker compose version >/dev/null 2>&1; then
-    echo "[launch] Docker Compose plugin is required but not available." >&2
+  if ! detect_compose_runtime; then
     exit 1
   fi
 }
@@ -1530,13 +1528,14 @@ if [[ "$WABI_RUNTIME" == "bun" ]]; then
   compose_files+=("docker-compose.bun.yml")
 fi
 
-compose=(docker compose)
+compose=("${COMPOSE_CMD[@]}")
 for file in "${compose_files[@]}"; do
   compose+=(-f "$file")
 done
 
 echo "[launch] Mode: $WABI_MODE"
 echo "[launch] Runtime: $WABI_RUNTIME"
+echo "[launch] Container runtime: $CONTAINER_RUNTIME_LABEL ($COMPOSE_DISPLAY)"
 echo "[launch] Compose files: ${compose_files[*]}"
 
 echo "[launch] Validating compose config..."
@@ -1609,12 +1608,12 @@ fi
 
 if [[ "$PRUNE_DANGLING_IMAGES" == "true" ]]; then
   echo "[launch] Pruning dangling images..."
-  docker image prune -f >/dev/null
+  "$CONTAINER_ENGINE" image prune -f >/dev/null
 fi
 
 if [[ "$PRUNE_STOPPED_CONTAINERS" == "true" ]]; then
   echo "[launch] Pruning stopped containers..."
-  docker container prune -f >/dev/null
+  "$CONTAINER_ENGINE" container prune -f >/dev/null
 fi
 
 echo "[launch] Done."

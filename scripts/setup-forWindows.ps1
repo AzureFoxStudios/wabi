@@ -6,7 +6,9 @@ param(
   [string]$PublicIp = "",
   [string]$GiphyApiKey = "",
   [switch]$DisableTurn,
-  [switch]$NonInteractive
+  [switch]$NonInteractive,
+  [ValidateSet("Auto", "Docker", "Podman")]
+  [string]$ContainerRuntime = "Auto"
 )
 
 Set-StrictMode -Version Latest
@@ -109,6 +111,89 @@ function Ensure-ProjectLayout {
   if (-not (Test-Path (Join-Path $Root "frontend"))) {
     throw "Can't find frontend/ in $Root"
   }
+}
+
+function Get-ContainerRuntimeInfo {
+  param([string]$Preference = "Auto")
+
+  $normalizedPreference = if ([string]::IsNullOrWhiteSpace($Preference)) { "auto" } else { $Preference.Trim().ToLowerInvariant() }
+
+  $candidates = switch ($normalizedPreference) {
+    "docker" { @("docker", "docker-compose") }
+    "podman" { @("podman", "podman-compose") }
+    "auto" { @("docker", "podman", "docker-compose", "podman-compose") }
+    default { throw "Invalid ContainerRuntime '$Preference'. Use Auto, Docker, or Podman." }
+  }
+
+  foreach ($candidate in $candidates) {
+    switch ($candidate) {
+      "docker" {
+        if (Get-Command docker -ErrorAction SilentlyContinue) {
+          try {
+            $null = & docker compose version
+            return @{
+              EngineCommand = "docker"
+              EngineLabel = "Docker"
+              ComposeCommand = @("docker", "compose")
+              ComposeDisplay = "docker compose"
+            }
+          } catch {
+          }
+        }
+      }
+      "podman" {
+        if (Get-Command podman -ErrorAction SilentlyContinue) {
+          try {
+            $null = & podman compose version
+            return @{
+              EngineCommand = "podman"
+              EngineLabel = "Podman"
+              ComposeCommand = @("podman", "compose")
+              ComposeDisplay = "podman compose"
+            }
+          } catch {
+          }
+        }
+      }
+      "docker-compose" {
+        if (Get-Command docker-compose -ErrorAction SilentlyContinue) {
+          try {
+            $null = & docker-compose version
+            return @{
+              EngineCommand = "docker"
+              EngineLabel = "Docker"
+              ComposeCommand = @("docker-compose")
+              ComposeDisplay = "docker-compose"
+            }
+          } catch {
+          }
+        }
+      }
+      "podman-compose" {
+        if (Get-Command podman-compose -ErrorAction SilentlyContinue) {
+          try {
+            $null = & podman-compose version
+            return @{
+              EngineCommand = "podman"
+              EngineLabel = "Podman"
+              ComposeCommand = @("podman-compose")
+              ComposeDisplay = "podman-compose"
+            }
+          } catch {
+          }
+        }
+      }
+    }
+  }
+
+  if ($normalizedPreference -eq "docker") {
+    throw "Docker Compose was requested, but 'docker compose' or 'docker-compose' is not available."
+  }
+  if ($normalizedPreference -eq "podman") {
+    throw "Podman Compose was requested, but 'podman compose' or 'podman-compose' is not available."
+  }
+
+  throw "No supported container runtime was found. Install Docker Desktop or Podman Desktop, or rerun with -ContainerRuntime Docker|Podman."
 }
 
 function Write-WabiEnvFiles {
@@ -308,24 +393,14 @@ Ensure-ProjectLayout -Root $OutputRoot
 
 Write-Host ""
 Write-Host "  Wabi Windows Server Setup" -ForegroundColor Cyan
-Write-Host "  This generates server config files for Docker-based hosting."
+Write-Host "  This generates server config files for container-based hosting."
 Write-Host ""
 Write-Host "  Checking prerequisites..."
 Write-Host ""
 
-if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-  Write-Bad "Docker is not installed"
-  throw "Install Docker Desktop first, then run this script again."
-}
-Write-Ok "Docker installed"
-
-try {
-  $null = & docker compose version
-  Write-Ok "Docker Compose available"
-} catch {
-  Write-Bad "Docker Compose is not available"
-  throw "Docker Desktop with Compose v2 is required."
-}
+$runtimeInfo = Get-ContainerRuntimeInfo -Preference $ContainerRuntime
+Write-Ok "$($runtimeInfo.EngineLabel) installed"
+Write-Ok "Compose available via $($runtimeInfo.ComposeDisplay)"
 
 $resolvedDomain = Normalize-DomainValue -Value $Domain
 if ($Domain -and $null -eq $resolvedDomain) {
@@ -391,13 +466,13 @@ Write-Host ""
 if ($result.HasDomain) {
   Write-Host "  1. If you are using a reverse proxy, load the generated Caddyfile (or adapt it to your proxy)." -ForegroundColor White
 } else {
-  Write-Host "  1. Start the stack directly with Docker Compose." -ForegroundColor White
+  Write-Host "  1. Start the stack directly with $($runtimeInfo.ComposeDisplay)." -ForegroundColor White
 }
 
 if ($result.TurnEnabled) {
-  Write-Host "     docker compose --profile turn up -d --build" -ForegroundColor Gray
+  Write-Host "     $($runtimeInfo.ComposeDisplay) --profile turn up -d --build" -ForegroundColor Gray
 } else {
-  Write-Host "     docker compose up -d --build" -ForegroundColor Gray
+  Write-Host "     $($runtimeInfo.ComposeDisplay) up -d --build" -ForegroundColor Gray
 }
 
 Write-Host ""

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "$ROOT_DIR/scripts/lib/container-runtime.sh"
+
 # Clean Docker Compose deployment without full downtime.
 # - Rebuilds and recreates only app services.
 # - Removes orphaned compose containers.
@@ -50,6 +54,7 @@ Environment overrides:
   SFU_PROVIDER=none|livekit              (default: none)
   PRUNE_DANGLING_IMAGES=true|false       (default: true)
   PRUNE_STOPPED_CONTAINERS=true|false    (default: false)
+  WABI_CONTAINER_RUNTIME=auto|docker|podman (default: auto; prefers Docker when both are installed)
 EOF
 }
 
@@ -128,14 +133,10 @@ for compose_file in "${COMPOSE_FILES[@]}"; do
   fi
 done
 
-if docker compose version >/dev/null 2>&1; then
-  compose=(docker compose)
-elif command -v docker-compose >/dev/null 2>&1; then
-  compose=(docker-compose)
-else
-  echo "Neither 'docker compose' nor 'docker-compose' was found in PATH." >&2
+if ! detect_compose_runtime; then
   exit 1
 fi
+compose=("${COMPOSE_CMD[@]}")
 
 for compose_file in "${COMPOSE_FILES[@]}"; do
   compose+=(-f "$compose_file")
@@ -145,6 +146,7 @@ app_services=(backend frontend)
 
 echo "[deploy] Mode: $WABI_MODE"
 echo "[deploy] Runtime: $WABI_RUNTIME"
+echo "[deploy] Container runtime: $CONTAINER_RUNTIME_LABEL ($COMPOSE_DISPLAY)"
 echo "[deploy] Compose files: ${COMPOSE_FILES[*]}"
 
 echo "[deploy] Validating compose config..."
@@ -174,12 +176,12 @@ fi
 
 if [[ "$PRUNE_DANGLING_IMAGES" == "true" ]]; then
   echo "[deploy] Pruning dangling images..."
-  docker image prune -f >/dev/null
+  "$CONTAINER_ENGINE" image prune -f >/dev/null
 fi
 
 if [[ "$PRUNE_STOPPED_CONTAINERS" == "true" ]]; then
   echo "[deploy] Pruning stopped containers..."
-  docker container prune -f >/dev/null
+  "$CONTAINER_ENGINE" container prune -f >/dev/null
 fi
 
 echo "[deploy] Done."

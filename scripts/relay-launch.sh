@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "$ROOT_DIR/scripts/lib/container-runtime.sh"
 RELAY_DIR="${RELAY_DIR:-$ROOT_DIR/relay-node}"
 COMPOSE_FILE="$RELAY_DIR/docker-compose.yml"
 PROJECT_NAME="${RELAY_PROJECT_NAME:-wabi-relay-node}"
@@ -27,11 +29,12 @@ Environment overrides:
   RELAY_DIR=<path>                (default: ./relay-node)
   RELAY_PROJECT_NAME=<name>       (default: wabi-relay-node)
   RELAY_LOG_TAIL=<n>              (default: 200)
+  WABI_CONTAINER_RUNTIME=auto|docker|podman
 EOF
 }
 
 compose() {
-  docker compose --project-directory "$RELAY_DIR" -f "$COMPOSE_FILE" -p "$PROJECT_NAME" "$@"
+  "${COMPOSE_CMD[@]}" --project-directory "$RELAY_DIR" -f "$COMPOSE_FILE" -p "$PROJECT_NAME" "$@"
 }
 
 require_relay_dir() {
@@ -52,6 +55,9 @@ require_env_file() {
 COMMAND="${1:-up}"
 
 require_relay_dir
+if ! detect_compose_runtime; then
+  exit 1
+fi
 
 case "$COMMAND" in
   configure)
