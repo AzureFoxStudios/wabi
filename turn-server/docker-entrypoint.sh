@@ -1,5 +1,13 @@
 #!/bin/sh
 
+SECRETS_FILE="${WABI_SECRETS_FILE:-/wabi-data/.wabi-auto-secrets}"
+
+if [ -z "${TURN_SHARED_SECRET}" ] && [ -f "${SECRETS_FILE}" ]; then
+  # shellcheck disable=SC1090
+  . "${SECRETS_FILE}"
+  export TURN_SHARED_SECRET
+fi
+
 # Substitute environment variables in the config template
 envsubst < /etc/coturn/turnserver.conf.template > /etc/coturn/turnserver.conf
 

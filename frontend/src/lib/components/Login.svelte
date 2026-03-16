@@ -422,6 +422,7 @@
 								<input type="text" bind:value={publicAddress} placeholder={$_('login.wizard.public_address_placeholder')} />
 								<p class="wizard-hint">{$_('login.wizard.restart_portforward')}</p>
 								<code class="wizard-code-block">docker compose --profile turn up -d --build</code>
+								<p class="wizard-note">{$_('login.wizard.portforward_config_note')}</p>
 							</div>
 						{:else}
 							<div class="wizard-info-block">

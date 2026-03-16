@@ -19,6 +19,7 @@ services:
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
       - PUBLIC_URL=${PUBLIC_URL:-http://localhost:3000}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,https://tauri.localhost,tauri://localhost}
+      - STATIC_DIR=${STATIC_DIR:-/app/frontend/build}
       - DATA_DIR=/app/data
       - PLUGINS_DIR=/app/plugins
       - DB_MODE=sqlite
@@ -130,11 +131,16 @@ services:
       - ./turn-server/turnserver.conf.template:/etc/coturn/turnserver.conf.template:ro
       - ./turn-server/certs:/etc/coturn/certs:ro
       - ./turn-server/docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh:ro
+      - ./data:/wabi-data:ro
     entrypoint: ["/bin/sh", "/usr/local/bin/docker-entrypoint.sh"]
     environment:
       - TURN_EXTERNAL_IP=${TURN_EXTERNAL_IP:-127.0.0.1}
       - TURN_REALM=${TURN_REALM:-localhost}
       - TURN_SHARED_SECRET=${TURN_SHARED_SECRET:-}
+      - WABI_SECRETS_FILE=/wabi-data/.wabi-auto-secrets
+    depends_on:
+      backend:
+        condition: service_healthy
     restart: unless-stopped
 
   media-gateway:

@@ -124,6 +124,7 @@
       "public_address_label": "Your server's public IP or domain",
       "public_address_placeholder": "e.g. wabi.example.com or 203.0.113.10",
       "restart_portforward": "After forwarding ports, restart with:",
+      "portforward_config_note": "For a real public address, run the setup script or update .env with your public IP/domain before enabling the TURN profile. The quick-start defaults stay on localhost.",
       "tunnel_checkbox": "I'm using a Cloudflare Tunnel / tunneler",
       "tunnel_token_label": "Cloudflare Tunnel token (from Zero Trust dashboard)",
       "tunnel_token_placeholder": "Paste your tunnel token here",
