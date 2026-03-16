@@ -6912,6 +6912,7 @@
 																					{/if}
 																				</div>
 											{/if}
+											{/if}
 
 											{#if localAddonControlMatches('chat_aliases')}
 												<div class="setting-item-full">

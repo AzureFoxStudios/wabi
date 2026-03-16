@@ -1,56 +1,124 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import { currentUser } from '$lib/socket';
 	import {
 		getChannelBoardId,
-		type WhiteboardPresenceUser,
-		type WhiteboardSnapshotPayload
+		type WhiteboardPresenceUser
 	} from '$lib/whiteboard/boardTypes';
-	import {
-		joinWhiteboardChannel,
-		leaveWhiteboard,
-		subscribeWhiteboardEvents
-	} from '$lib/whiteboard/boardSocket';
+	import { createSyncSession, type SyncSession } from '$lib/whiteboard/boardSync';
+	import { boardStore, elements } from '$lib/whiteboard/boardStore';
+	import WhiteboardCanvas from './WhiteboardCanvas.svelte';
+	import WhiteboardToolbar from './WhiteboardToolbar.svelte';
 
 	export let channelId = '';
 
-	let snapshot: WhiteboardSnapshotPayload | null = null;
+	type RemoteCursorEntry = {
+		userId: string;
+		username: string;
+		color: string;
+		x: number;
+		y: number;
+		lastSeenAt: number;
+	};
+
 	let presence: WhiteboardPresenceUser[] = [];
+	let remoteCursors: RemoteCursorEntry[] = [];
 	let errorMessage = '';
-	let unsubscribe = () => {};
+	let syncSession: SyncSession | null = null;
+	let cursorCleanupTimer: ReturnType<typeof setInterval> | null = null;
+	let syncReady = false;
+	let mounted = false;
+	let activeChannelId = '';
 
 	$: boardId = channelId ? getChannelBoardId(channelId) : '';
+	$: localUsername = $currentUser?.username || 'Guest';
+	$: localUserColor = $currentUser?.color || '#6366f1';
 
-	onMount(() => {
-		if (!channelId) {
+	function resetSessionState(): void {
+		presence = [];
+		remoteCursors = [];
+		syncReady = false;
+		errorMessage = '';
+	}
+
+	function destroySyncSession(): void {
+		if (syncSession) {
+			syncSession.destroy();
+			syncSession = null;
+		}
+		activeChannelId = '';
+		resetSessionState();
+	}
+
+	function ensureCursorCleanupTimer(): void {
+		if (cursorCleanupTimer) return;
+		cursorCleanupTimer = setInterval(() => {
+			const cutoff = Date.now() - 6000;
+			remoteCursors = remoteCursors.filter((cursor) => cursor.lastSeenAt >= cutoff);
+		}, 3000);
+	}
+
+	function syncChannelSession(nextChannelId: string): void {
+		if (!mounted || activeChannelId === nextChannelId) return;
+
+		destroySyncSession();
+		boardStore.reset();
+
+		if (!nextChannelId) {
 			errorMessage = 'Whiteboard needs a channel scope before it can connect.';
 			return;
 		}
 
-		unsubscribe = subscribeWhiteboardEvents({
-			onSnapshot: (next) => {
-				if (next.boardId !== boardId) return;
-				snapshot = next;
+		activeChannelId = nextChannelId;
+		syncSession = createSyncSession(nextChannelId, {
+			onReady() {
+				syncReady = true;
 				errorMessage = '';
 			},
-			onPresence: (next) => {
-				if (next.boardId !== boardId) return;
-				presence = next.users;
+			onRemoteCursor(payload) {
+				const cursor = payload.cursor as { x?: number; y?: number; username?: string; color?: string } | null;
+				if (!cursor || typeof cursor.x !== 'number' || typeof cursor.y !== 'number') return;
+				const entry: RemoteCursorEntry = {
+					userId: payload.userId,
+					username: cursor.username || payload.userId,
+					color: cursor.color || '#6366f1',
+					x: cursor.x,
+					y: cursor.y,
+					lastSeenAt: Date.now()
+				};
+				const next = remoteCursors.filter((item) => item.userId !== payload.userId);
+				remoteCursors = [...next, entry];
 			},
-			onError: (next) => {
-				if (next.boardId && next.boardId !== boardId) return;
-				if (next.channelId && next.channelId !== channelId) return;
-				errorMessage = next.message;
+			onPresence(payload) {
+				presence = payload.users || [];
+				const activeIds = new Set(presence.map((user) => user.userId));
+				remoteCursors = remoteCursors.filter((cursor) => activeIds.has(cursor.userId));
+				errorMessage = '';
+			},
+			onError(payload) {
+				errorMessage = payload.message || 'Whiteboard error';
 			}
 		});
+	}
 
-		joinWhiteboardChannel(channelId);
+	onMount(() => {
+		mounted = true;
+		ensureCursorCleanupTimer();
+		syncChannelSession(channelId);
 	});
 
+	$: if (mounted) {
+		syncChannelSession(channelId);
+	}
+
 	onDestroy(() => {
-		if (boardId) {
-			leaveWhiteboard(boardId);
+		mounted = false;
+		destroySyncSession();
+		if (cursorCleanupTimer) {
+			clearInterval(cursorCleanupTimer);
+			cursorCleanupTimer = null;
 		}
-		unsubscribe();
+		boardStore.reset();
 	});
 </script>
 
@@ -58,13 +126,12 @@
 	<div class="whiteboard-topbar">
 		<div>
 			<h2>Whiteboard</h2>
-			<p>Blank-slate Svelte rebuild. Canvas tools land next.</p>
 		</div>
 
 		<div class="whiteboard-meta">
 			<span>Board: {boardId || 'unscoped'}</span>
-			<span>Version: {snapshot?.version ?? 0}</span>
-			<span>Live users: {presence.length}</span>
+			<span>{$elements.length} element{$elements.length === 1 ? '' : 's'}</span>
+			<span>{presence.length} online</span>
 		</div>
 	</div>
 
@@ -73,18 +140,15 @@
 	{/if}
 
 	<div class="whiteboard-stage">
-		<div class="whiteboard-grid" aria-hidden="true"></div>
-		<div class="whiteboard-placeholder">
-			<h3>Foundation Wired</h3>
-			<p>Room-scoped snapshot sync and presence are ready for the native board renderer.</p>
-			{#if snapshot}
-				<p>
-					Loaded {snapshot.document.elements.length} element{snapshot.document.elements.length === 1 ? '' : 's'} from the current board snapshot.
-				</p>
-			{:else}
-				<p>Waiting for the first board snapshot.</p>
-			{/if}
-		</div>
+		<WhiteboardCanvas
+			{remoteCursors}
+			{boardId}
+			{channelId}
+			username={localUsername}
+			userColor={localUserColor}
+			{syncReady}
+		/>
+		<WhiteboardToolbar />
 	</div>
 </div>
 
@@ -104,7 +168,7 @@
 		display: flex;
 		justify-content: space-between;
 		gap: 1rem;
-		padding: 1rem 1.2rem;
+		padding: 0.6rem 1.2rem;
 		border-bottom: 1px solid rgba(148, 163, 184, 0.18);
 		background: rgba(15, 23, 42, 0.72);
 		backdrop-filter: blur(10px);
@@ -112,13 +176,7 @@
 
 	.whiteboard-topbar h2 {
 		margin: 0;
-		font-size: 1.2rem;
-	}
-
-	.whiteboard-topbar p {
-		margin: 0.25rem 0 0;
-		color: var(--text-secondary, #94a3b8);
-		font-size: 0.92rem;
+		font-size: 1.1rem;
 	}
 
 	.whiteboard-meta {
@@ -132,7 +190,7 @@
 	}
 
 	.whiteboard-meta span {
-		padding: 0.32rem 0.58rem;
+		padding: 0.28rem 0.52rem;
 		border-radius: 999px;
 		background: rgba(30, 41, 59, 0.85);
 		border: 1px solid rgba(148, 163, 184, 0.18);
@@ -153,40 +211,5 @@
 		position: relative;
 		min-height: 0;
 		overflow: hidden;
-	}
-
-	.whiteboard-grid {
-		position: absolute;
-		inset: 0;
-		background-image:
-			linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
-			linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
-		background-size: 24px 24px;
-		opacity: 0.65;
-	}
-
-	.whiteboard-placeholder {
-		position: absolute;
-		left: 50%;
-		top: 50%;
-		transform: translate(-50%, -50%);
-		width: min(560px, calc(100% - 2rem));
-		padding: 1.4rem;
-		border-radius: 16px;
-		background: rgba(15, 23, 42, 0.82);
-		border: 1px solid rgba(148, 163, 184, 0.22);
-		box-shadow: 0 22px 54px rgba(2, 6, 23, 0.4);
-		text-align: center;
-	}
-
-	.whiteboard-placeholder h3 {
-		margin: 0 0 0.5rem;
-		font-size: 1.1rem;
-	}
-
-	.whiteboard-placeholder p {
-		margin: 0.35rem 0;
-		color: var(--text-secondary, #cbd5e1);
-		line-height: 1.5;
 	}
 </style>

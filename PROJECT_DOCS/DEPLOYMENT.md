@@ -33,7 +33,9 @@ Open `http://localhost:3000` — a first-run wizard guides you through:
 
 Secrets (`JWT_SECRET`, `TURN_SHARED_SECRET`) are auto-generated on first boot and persisted to the data volume across restarts.
 
-## Setup Wizard (Linux CLI)
+Use the CLI setup scripts when you want a real public domain, reverse proxy, TURN exposure, or other non-local deployment settings.
+
+## Setup Wizard (CLI)
 
 For first-time server provisioning on Linux, the CLI wizard provides guided domain/Caddy setup:
 
@@ -53,6 +55,14 @@ The wizard will:
 - Print step-by-step instructions to start everything
 
 After the wizard finishes, follow its instructions (typically: start Caddy, then `docker compose up -d --build`).
+
+For Windows hosts without WSL, use the native setup script instead:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/setup-forWindows.ps1
+```
+
+That script generates `.env`, `frontend/.env`, and `Caddyfile` for a Docker-based Windows host without routing the user through the WSL deploy helper.
 
 Operator-config flow (small config + generated env):
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { socket, getSocket, users, currentUser } from '$lib/socket';
+	import { socket, getSocket, users, currentUser, currentChannel } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import {
 		incomingCall,
@@ -58,6 +58,7 @@
 	} from '$lib/callRecordingPresence';
 	import { callRecordingState, startCallRecording, stopCallRecording } from '$lib/callRecording';
 	import { showCallNotification, playCallRingtone, stopCallRingtone } from '$lib/notifications';
+	import { openWhiteboardSurface, queueWhiteboardImport } from '$lib/whiteboard/whiteboardSurface';
 	import { onDestroy, afterUpdate } from 'svelte';
 
 	type CallViewportMode = 'embedded' | 'focus' | 'docked';
@@ -75,6 +76,10 @@
 	let ringingMenuX = 0;
 	let ringingMenuY = 0;
 	let ringingMenuTarget: { stableUserId: string; username: string } | null = null;
+	let callStageElement: HTMLDivElement | null = null;
+	let captureBusy = false;
+	let captureFeedback = '';
+	let captureFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
 	$: spatialAudioActive = $spatialAudioRuntimeStatus.active;
 	$: spatialQuickToggleVisible = $spatialAudioRuntimeStatus.quickToggleVisible;
@@ -90,6 +95,7 @@
 	$: shares = buildShares($screenShares, $isSharing, $localScreenStream);
 	$: renderTiles = buildRenderTiles(participants, shares);
 	$: tileById = new Map(renderTiles.map((tile) => [tile.id, tile]));
+	$: captureAvailable = shares.length > 0;
 	$: activeSpeakerLevels = buildActiveSpeakerLevels(participants, $activeCalls, $isLocalSpeaking, $isMuted, $isDeafened);
 	$: recordingLabel =
 		$callRecordingState.status === 'recording'
@@ -390,6 +396,81 @@
 		}
 	}
 
+	function resolveWhiteboardCaptureChannelId(): string {
+		return $currentChannel;
+	}
+
+	function clearCaptureFeedbackTimer(): void {
+		if (!captureFeedbackTimer) return;
+		clearTimeout(captureFeedbackTimer);
+		captureFeedbackTimer = null;
+	}
+
+	function setCaptureFeedback(message: string): void {
+		captureFeedback = message;
+		clearCaptureFeedbackTimer();
+		if (!message) return;
+		captureFeedbackTimer = setTimeout(() => {
+			captureFeedback = '';
+			captureFeedbackTimer = null;
+		}, 4000);
+	}
+
+	function findScreenCaptureVideo(): HTMLVideoElement | null {
+		if (!callStageElement) return null;
+		return (
+			callStageElement.querySelector('.media-tile.hero video.tile-video.contain') ||
+			callStageElement.querySelector('video.tile-video.contain')
+		) as HTMLVideoElement | null;
+	}
+
+	async function handleCaptureToWhiteboard() {
+		if (captureBusy) return;
+		const channelId = resolveWhiteboardCaptureChannelId();
+		if (!channelId) {
+			setCaptureFeedback('Open a channel before capturing to the whiteboard.');
+			return;
+		}
+
+		const video = findScreenCaptureVideo();
+		if (!video || video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
+			setCaptureFeedback('No active screen frame is ready to capture.');
+			return;
+		}
+
+		captureBusy = true;
+		setCaptureFeedback('');
+		try {
+			const canvas = document.createElement('canvas');
+			canvas.width = video.videoWidth;
+			canvas.height = video.videoHeight;
+			const ctx = canvas.getContext('2d');
+			if (!ctx) {
+				throw new Error('Capture canvas is unavailable.');
+			}
+			ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+			const blob = await new Promise<Blob>((resolve, reject) => {
+				canvas.toBlob((nextBlob) => {
+					if (nextBlob) resolve(nextBlob);
+					else reject(new Error('Unable to serialize captured frame.'));
+				}, 'image/png');
+			});
+			openWhiteboardSurface(channelId);
+			queueWhiteboardImport(
+				channelId,
+				new File([blob], `whiteboard-capture-${Date.now()}.png`, { type: 'image/png' }),
+				'capture'
+			);
+			setCaptureFeedback('Captured frame queued for the whiteboard.');
+		} catch (error) {
+			setCaptureFeedback(
+				error instanceof Error ? error.message : 'Failed to capture the current frame.'
+			);
+		} finally {
+			captureBusy = false;
+		}
+	}
+
 	function setViewportMode(mode: CallViewportMode): void {
 		callViewportMode = mode;
 		if (mode === 'docked') {
@@ -507,6 +588,7 @@
 	onDestroy(() => {
 		stopCallRingtone();
 		callNotification?.close();
+		clearCaptureFeedbackTimer();
 	});
 </script>
 
@@ -617,7 +699,7 @@
 					<span class="recording-copy">{recordingPresenceCopy}</span>
 				</div>
 			{/if}
-			<div class="call-stage">
+			<div class="call-stage" bind:this={callStageElement}>
 				{#if layoutResult.template === 'floating-bubbles'}
 					<div class="bubble-stage" class:single-bubble={orderedTiles.length === 1}>
 						{#each orderedTiles as tile (tile.id)}
@@ -719,6 +801,15 @@
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
 					</button>
 					<button
+						class="control-btn"
+						class:active={captureAvailable}
+						on:click={handleCaptureToWhiteboard}
+						disabled={!captureAvailable || captureBusy}
+						title="Capture current shared frame to whiteboard"
+					>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h4l2-2h4l2 2h4v10H4z"/><circle cx="12" cy="12" r="3.5"/></svg>
+					</button>
+					<button
 						class="control-btn record"
 						class:active={$callRecordingState.status === 'recording'}
 						class:is-saving={$callRecordingState.status === 'saving'}
@@ -743,6 +834,9 @@
 				<div class="recording-status" class:is-error={$callRecordingState.status === 'error'}>
 					{recordingLabel}
 				</div>
+			{/if}
+			{#if captureFeedback}
+				<div class="route-status">{captureFeedback}</div>
 			{/if}
 			{#if $callMode === 'group' && $groupCallRingingTargets.length > 0}
 				<div class="ringing-targets-panel">

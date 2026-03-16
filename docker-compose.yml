@@ -11,16 +11,23 @@ services:
     ports:
       - "8080:8080"
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       - NODE_ENV=production
       - PORT=8080
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - PUBLIC_URL=${PUBLIC_URL:-http://localhost:3000}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,https://tauri.localhost,tauri://localhost}
       - DATA_DIR=/app/data
       - PLUGINS_DIR=/app/plugins
       - DB_MODE=sqlite
       - WABI_MODE=${WABI_MODE:-normal}
       - WABI_RUNTIME=${WABI_RUNTIME:-node}
-      - TURN_SHARED_SECRET=${TURN_SHARED_SECRET}
+      - JWT_SECRET=${JWT_SECRET:-}
+      - TURN_EXTERNAL_IP=${TURN_EXTERNAL_IP:-127.0.0.1}
+      - TURN_REALM=${TURN_REALM:-localhost}
+      - TURN_SHARED_SECRET=${TURN_SHARED_SECRET:-}
       - TURN_CREDENTIAL_TTL_SECONDS=${TURN_CREDENTIAL_TTL_SECONDS:-3600}
       - BOOSTER_RELAY_MODE=${BOOSTER_RELAY_MODE:-off}
       - BOOSTER_RELAY_PUBLIC_URL=${BOOSTER_RELAY_PUBLIC_URL:-}
@@ -77,12 +84,12 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - VITE_TURN_SERVER=${VITE_TURN_SERVER}
+        - VITE_TURN_SERVER=${VITE_TURN_SERVER:-127.0.0.1}
         - VITE_TURN_PORT=${VITE_TURN_PORT:-3478}
         - VITE_USE_TURNS=${VITE_USE_TURNS:-false}
         - VITE_ENABLE_GOOGLE_STUN=${VITE_ENABLE_GOOGLE_STUN:-true}
         - VITE_SOCKET_URL=${VITE_SOCKET_URL:-}
-        - VITE_GIPHY_API_KEY=${VITE_GIPHY_API_KEY:-}
+        - VITE_GIPHY_API_KEY=${VITE_GIPHY_API_KEY:-432vWeSYvBNbv4z5YL7MYgcg8zMT5L91}
         - OPENMOJI_VERSION=${OPENMOJI_VERSION:-15.1.0}
         - OPENMOJI_72_SHA256=${OPENMOJI_72_SHA256:-}
     container_name: wabi-frontend
@@ -126,8 +133,8 @@ services:
     entrypoint: ["/bin/sh", "/usr/local/bin/docker-entrypoint.sh"]
     environment:
       - TURN_EXTERNAL_IP=${TURN_EXTERNAL_IP:-127.0.0.1}
-      - TURN_REALM=${TURN_REALM:-wabi.local}
-      - TURN_SHARED_SECRET=${TURN_SHARED_SECRET}
+      - TURN_REALM=${TURN_REALM:-localhost}
+      - TURN_SHARED_SECRET=${TURN_SHARED_SECRET:-}
     restart: unless-stopped
 
   media-gateway:
@@ -141,10 +148,11 @@ services:
     ports:
       - "8095:8095"
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       - WABI_ORIGIN_URL=${MEDIA_GATEWAY_ORIGIN_URL:-http://backend:8080}
-      - MEDIA_GATEWAY_KEY=${MEDIA_GATEWAY_KEY}
+      - MEDIA_GATEWAY_KEY=${MEDIA_GATEWAY_KEY:-}
       - MEDIA_GATEWAY_REGION=${MEDIA_GATEWAY_REGION:-local}
       - GATEWAY_HOST=0.0.0.0
       - GATEWAY_PORT=8095

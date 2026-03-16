@@ -1,5 +1,11 @@
 {
   "bundle": {
+    "windows": {
+      "webviewInstallMode": {
+        "type": "offlineInstaller",
+        "silent": true
+      }
+    },
     "icon": [
       "icons/icon.ico"
     ]

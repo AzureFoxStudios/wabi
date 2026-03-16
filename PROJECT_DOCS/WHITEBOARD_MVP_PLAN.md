@@ -305,6 +305,8 @@ This is the near-term recommendation.
 - keep strokes synced to the same room-scoped board model
 - allow a presenter to toggle markup on and off without leaving the call
 - optionally let viewers open the same board in a tab for fuller editing
+- if this starts as presenter-only markup, keep it local-first because the screen share already carries it visually to everyone else
+- only sync overlay strokes later if we need shared editing, board history, replay/export, or viewer-side toggles
 
 This fits the current call UI much better than a desktop-wide overlay and directly supports teaching or critique sessions.
 
@@ -336,6 +338,17 @@ Moderation for MVP:
 
 ## Delivery plan
 
+### Current grounded state
+
+As of the current implementation pass:
+
+- Phase 0 is complete.
+- Phase 1 is in progress and already has a working native Svelte board surface mounted inside chat.
+- The board currently has room-scoped sync, snapshot persistence, a floating toolbar, pen/line/rect/ellipse/arrow/text/select/pan tools, local undo/redo, cursor broadcast, and channel-level whiteboard switching.
+- Image paste support is started in the whiteboard canvas, but attachment hardening and UX polish still belong to follow-on work.
+- The current image import path still uses the generic upload pipeline, so private board-scoped attachment handling is not finished yet.
+- The frontend build and `svelte-check` both pass after cleaning the pre-existing `Settings.svelte` parse issue.
+
 ### Phase 0: groundwork
 
 - define board IDs and routing model
@@ -359,6 +372,7 @@ Moderation for MVP:
 - upload integration
 - image nodes on canvas
 - drawing over images
+- replace the generic upload URL flow with private board-safe attachment rules before calling image support complete
 
 ### Phase 3: call integration
 
@@ -377,8 +391,9 @@ Moderation for MVP:
 
 ### Phase 5: presenter overlay extensions
 
-- in-app annotation overlay above shared screens
+- local-first in-app annotation overlay above shared screens
 - presenter-only markup toggle and clear controls
+- only add shared overlay sync if real product needs appear beyond what screen share already shows
 - investigate desktop-wide Tauri overlay as a separate mode
 
 ## Technical risks
@@ -404,9 +419,13 @@ Moderation for MVP:
 
 ## Immediate next implementation slice
 
-If this moves from planning to build, start here:
+Continue from the current cleaned baseline in this order:
 
-1. Remove the remaining Excalidraw placeholder path and global `excalidraw-update` server event/state.
-2. Add a persisted, room-scoped board document model with private-by-default access rules.
-3. Ship a Svelte whiteboard tab with pen/shape/select tools.
-4. Add clipboard image upload and `ImageElement` support without public attachment leakage.
+1. Harden Phase 1 interactions.
+Fix selection edge cases, resize polish, remote snapshot reconciliation, and keyboard/tool affordances until the current board feels dependable.
+2. Finish Phase 2 image handling.
+Move whiteboard image ingestion off the generic upload URL path and onto the private attachment rules we actually want long-term, then add optimistic placeholders and import polish.
+3. Add call capture integration.
+Wire `Capture to whiteboard` into the call UI so presenters can freeze a frame into the active board without leaving the call flow.
+4. Decide whether in-app presenter overlay starts before export/polish.
+Treat presenter overlay as local-first by default; only add shared overlay data if we later need editing/history/export beyond what the screen share itself already communicates.

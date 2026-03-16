@@ -37,7 +37,7 @@ function Convert-WindowsPathToWsl {
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
-  throw "WSL is required for scripts/launch-forWindows.ps1. Install WSL, then run this script again."
+  throw "WSL is required for scripts/launch-forWindows.ps1. For first-run Windows server setup without WSL, run scripts/setup-forWindows.ps1. Otherwise install WSL and retry."
 }
 
 $repoRootWsl = Convert-WindowsPathToWsl -Path $repoRoot.Path

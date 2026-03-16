@@ -56,7 +56,7 @@ cd wabi
 docker compose up -d --build
 ```
 
-Open `http://localhost:3000` — a first-run wizard walks you through creating an admin account and setting up network access. No `.env` editing required; secrets are auto-generated on first boot.
+Open `http://localhost:3000` — a first-run wizard walks you through creating an admin account and setting up network access. No `.env` editing required for local bring-up; localhost defaults are baked into Compose, and backend secrets are auto-generated on first boot.
 
 **Optional: include TURN for production-quality calling:**
 
@@ -68,6 +68,8 @@ Default local endpoints:
 - Frontend: `http://localhost:3000`
 - Backend: `http://localhost:8080`
 - Health check: `http://localhost:8080/health`
+
+For public domains, TURN, reverse proxies, or other non-local settings, use `./scripts/setup.sh` on Linux or `scripts/setup-forWindows.ps1` on Windows.
 
 ### Manual .env setup (advanced)
 
@@ -103,7 +105,7 @@ docker compose --profile tunnel --profile tunnel-named up -d --build
 
 In both modes, Wabi routes frontend + backend through `Caddyfile.tunnel` so `/api` and `/socket.io` stay on one origin.
 
-## Guided setup (self-hosted Linux)
+## Guided setup (server bootstrap)
 
 For first-time server provisioning, use:
 
@@ -113,11 +115,19 @@ For first-time server provisioning, use:
 
 The setup wizard asks a few questions, generates your config files, helps with Caddy, and prints the exact deploy commands.
 
-Windows launcher (requires WSL):
+Windows guided setup without WSL:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/setup-forWindows.ps1
+```
+
+Windows deploy helper (requires WSL):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/launch-forWindows.ps1
 ```
+
+Use `setup-forWindows.ps1` for first-run config generation on Windows. `launch-forWindows.ps1` is a WSL wrapper around the more advanced `launch.sh` deploy helper.
 
 Optional operator config (used by `scripts/launch.sh`):
 
@@ -200,6 +210,9 @@ bun run desktop:check
 ```
 
 Use `desktop:check` first if you only want to validate the Rust side quickly.
+
+Windows desktop bundles are emitted to `frontend/src-tauri/target/release/bundle/`.
+The Windows installer is configured to embed the WebView2 offline installer so it can install on machines that do not already have WebView2 or cannot download it during setup. This makes the installer much larger, but it avoids the common "works on my machine, fails on another PC" problem.
 
 `tauri-app/` is a legacy wrapper kept around for compatibility; it is not the primary desktop source of truth anymore.
 

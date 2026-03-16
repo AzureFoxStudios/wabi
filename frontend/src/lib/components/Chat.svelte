@@ -107,6 +107,8 @@
 	} from '$lib/placeRegistry';
 	import { openPreferredMapSurface } from '$lib/mapWorkspace';
 	import { pushLocalDirectionsCard } from '$lib/directionsAssist';
+	import { currentChatSurface, setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
+	import WhiteboardTab from './WhiteboardTab.svelte';
 
 	const dispatch = createEventDispatcher();
 	const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
@@ -116,6 +118,15 @@
 		const c3 = c1 + 1;
 		return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
 	};
+
+	$: chatSurface = $currentChatSurface;
+	$: if (chatSurface !== 'messages') {
+		showEmojiPicker = false;
+		showMediaMenu = false;
+		showMentionSuggestions = false;
+		showCameraCapture = false;
+		showAudioRecorder = false;
+	}
 
 	$: messages = $channelMessages[$currentChannel] || [];
 	$: pinnedMessages = messages.filter((m: Message) => m.isPinned);
@@ -2553,6 +2564,18 @@
 				<span class="channel-description">{channelDescription}</span>
 			{/if}
 		</h2>
+		<div class="chat-surface-tabs">
+			<button
+				class="surface-tab"
+				class:active={chatSurface === 'messages'}
+				on:click={() => setWhiteboardSurface($currentChannel, 'messages')}
+			>Messages</button>
+			<button
+				class="surface-tab"
+				class:active={chatSurface === 'whiteboard'}
+				on:click={() => setWhiteboardSurface($currentChannel, 'whiteboard')}
+			>Whiteboard</button>
+		</div>
 		<div class="header-actions">
 			<button
 				class="albums-open-btn"
@@ -2677,8 +2700,14 @@
 		<ChannelQuickTabs />
 	</div>
 
+	{#if chatSurface === 'whiteboard'}
+		<div class="whiteboard-surface">
+			<WhiteboardTab channelId={$currentChannel} />
+		</div>
+	{/if}
+
 	<!-- TEMPORARY: DMs now render in center like channels -->
-	<div class="messages" bind:this={chatContainer}>
+	<div class="messages" bind:this={chatContainer} class:surface-hidden={chatSurface !== 'messages'}>
 		{#if $displayEnhancementSettingsStore.betterSearchPageEnabled && searchInput}
 			<div class="search-results-toolbar" role="status" aria-live="polite">
 				<span class="search-toolbar-meta">
@@ -2770,7 +2799,7 @@
 			on:send={handleAudioSend}
 		/>
 
-		{#if !($layoutStore.isMobile && $isInCall)}
+		{#if chatSurface === 'messages' && !($layoutStore.isMobile && $isInCall)}
 		{#if editingMessage}
 			<div class="edit-bar">
 				<div class="edit-info">
@@ -3112,7 +3141,7 @@
 			}}
 		/>
 
-		<div class="debug-version-footer" aria-hidden="true">
+			<div class="debug-version-footer" aria-hidden="true">
 			Version {runtimeVersionLabel} - for debugging reasons only
 		</div>
 
@@ -3315,6 +3344,47 @@
 		align-items: baseline;
 		gap: 0.5rem;
 		min-width: 0;
+	}
+
+	.chat-surface-tabs {
+		display: flex;
+		gap: 2px;
+		margin: 0 0.75rem;
+		padding: 2px;
+		border-radius: 8px;
+		background: rgba(148, 163, 184, 0.08);
+	}
+
+	.surface-tab {
+		padding: 4px 12px;
+		border: none;
+		border-radius: 6px;
+		background: transparent;
+		color: var(--text-secondary, #94a3b8);
+		font-size: 0.8rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: background 0.12s, color 0.12s;
+	}
+
+	.surface-tab:hover {
+		background: rgba(148, 163, 184, 0.1);
+		color: var(--text-primary, #e2e8f0);
+	}
+
+	.surface-tab.active {
+		background: rgba(99, 102, 241, 0.2);
+		color: #a5b4fc;
+	}
+
+	.whiteboard-surface {
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+	}
+
+	.surface-hidden {
+		display: none !important;
 	}
 
 	.emoji-picker-loading {
