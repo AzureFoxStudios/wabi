@@ -2,7 +2,7 @@
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import QRCode from 'qrcode';
-	import { register, login, saveUserSettings, upgradeToRegistered, getLaunchPageConfig, getSetupStatus, saveNetworkHint, saveBranding, type LaunchPageConfig } from '$lib/api';
+	import { register, login, saveUserSettings, getLaunchPageConfig, getSetupStatus, type LaunchPageConfig } from '$lib/api';
 	import { clearAuthSession, setAuthToken, setStoredDbUserId } from '$lib/authSession';
 	import { initE2E } from '$lib/e2eManager';
 	import { retryDecryptLoadedDmMessages } from '$lib/socket';
@@ -34,22 +34,8 @@
 	let selectedLocale = 'en';
 	let launchPageConfig: LaunchPageConfig | null = null;
 
-	// First-run wizard state
+	// First-run owner setup state
 	let wizardMode = false;
-	let wizardStep: 1 | 2 | 3 | 4 | 5 = 1;
-	let wizardToken = '';
-	let wizardUsername = '';
-	let useTunnel = false;
-	let publicAddress = '';
-	let tunnelToken = '';
-	let showMesh = false;
-	let meshStdbUrl = '';
-	let meshToken = '';
-	let meshRegion = '';
-	let brandName = '';
-	let brandAccent = '#5865f2';
-	let brandBgImage = '';
-	let brandCustomCss = '';
 
 	$: selectedLocale = $currentLocale || 'en';
 	$: activeLaunchPageConfig = launchPageConfig?.enabled ? launchPageConfig : null;
@@ -139,9 +125,11 @@
 				await retryDecryptLoadedDmMessages();
 			}
 			if (wizardMode) {
-				wizardToken = result.token;
-				wizardUsername = result.user.username;
-				wizardStep = 2;
+				dispatch('login', {
+					username: result.user.username,
+					token: result.token,
+					authMethod: 'registered'
+				});
 			} else {
 				pendingRegisteredLogin = { username: result.user.username, token: result.token };
 				showHomeExperiencePrompt = true;
@@ -222,47 +210,6 @@
 		}, 50);
 	}
 
-	async function wizardSaveNetworkHint() {
-		if (!wizardToken) return;
-		try {
-			await saveNetworkHint(wizardToken, {
-				networkMode: useTunnel ? 'tunnel' : 'port-forward',
-				publicAddress,
-				tunnelToken,
-				stdbUrl: meshStdbUrl,
-				meshToken,
-				serverRegion: meshRegion
-			});
-		} catch {
-			// Best-effort save; don't block wizard
-		}
-	}
-
-	async function wizardSaveBranding() {
-		if (!wizardToken) return;
-		if (!brandName && !brandBgImage && !brandCustomCss) return;
-		try {
-			await saveBranding(wizardToken, {
-				brandName,
-				accentColor: brandAccent,
-				backgroundImageUrl: brandBgImage,
-				customCss: brandCustomCss
-			});
-		} catch {
-			// Best-effort save
-		}
-	}
-
-	async function wizardFinish() {
-		await wizardSaveNetworkHint();
-		await wizardSaveBranding();
-		dispatch('login', {
-			username: wizardUsername,
-			token: wizardToken,
-			authMethod: 'registered'
-		});
-	}
-
 	function focusOnMount(node: HTMLInputElement) { node.focus(); return {}; }
 
 	onMount(() => {
@@ -294,8 +241,9 @@
 			return;
 		}
 
-		serverDomain = resolveServerUrl().url;
-		showConnectionPrompt = true;
+		const resolved = resolveServerUrl();
+		serverDomain = resolved.url;
+		showConnectionPrompt = resolved.source === 'dev_tauri' || resolved.source === 'prod_tauri';
 	});
 </script>
 
@@ -366,138 +314,29 @@
 				</div>
 
 			{#if wizardMode}
-				<!-- First-Run Setup Wizard -->
+				<!-- First-run owner setup -->
 				<div class="wizard">
-					<div class="wizard-steps">
-						<span class="wizard-step" class:active={wizardStep === 1} class:done={wizardStep > 1}>1</span>
-						<span class="wizard-step-line" class:done={wizardStep > 1}></span>
-						<span class="wizard-step" class:active={wizardStep === 2} class:done={wizardStep > 2}>2</span>
-						<span class="wizard-step-line" class:done={wizardStep > 2}></span>
-						<span class="wizard-step" class:active={wizardStep === 3} class:done={wizardStep > 3}>3</span>
-						<span class="wizard-step-line" class:done={wizardStep > 3}></span>
-						<span class="wizard-step" class:active={wizardStep === 4} class:done={wizardStep > 4}>4</span>
-						<span class="wizard-step-line" class:done={wizardStep > 4}></span>
-						<span class="wizard-step" class:active={wizardStep === 5} class:done={wizardStep > 5}>5</span>
-					</div>
+					<h3>{$_('login.wizard.welcome')}</h3>
+					<p class="wizard-subtitle">{$_('login.wizard.owner_subtitle')}</p>
 
-					{#if wizardStep === 1}
-						<h3>{$_('login.wizard.welcome')}</h3>
-						<p class="wizard-subtitle">{$_('login.wizard.owner_subtitle')}</p>
-
-						{#if error}
-							<div class="error-message">{error}</div>
-						{/if}
-
-						<form on:submit|preventDefault={handleRegister}>
-							<input type="text" bind:value={username} placeholder={$_('login.auth.display_name_placeholder')} minlength="2" maxlength="32" required use:focusOnMount disabled={loading} />
-							<div class="handle-input-wrapper">
-								<span class="handle-prefix">@</span>
-								<input type="text" bind:value={handle} on:input={() => { handleManuallyEdited = true; }} placeholder={$_('login.auth.handle_placeholder')} minlength="2" maxlength="32" required disabled={loading} class="handle-input" />
-							</div>
-							<input type="password" bind:value={password} placeholder={$_('login.auth.password_rules_placeholder')} minlength="8" required disabled={loading} />
-							<input type="password" bind:value={passwordConfirm} placeholder={$_('login.auth.confirm_password_placeholder')} minlength="8" required disabled={loading} />
-							<button type="submit" class="join-btn" disabled={loading}>
-								{loading ? $_('login.auth.creating_account') : $_('login.auth.create_account_button')}
-							</button>
-						</form>
-
-					{:else if wizardStep === 2}
-						<h3>{$_('login.wizard.network_title')}</h3>
-						<p class="wizard-subtitle">{$_('login.wizard.network_subtitle')}</p>
-
-						<label class="wizard-toggle-row">
-							<input type="checkbox" bind:checked={useTunnel} />
-							<span>{$_('login.wizard.tunnel_checkbox')}</span>
-						</label>
-
-						{#if !useTunnel}
-							<div class="wizard-info-block">
-								<p>{$_('login.wizard.portforward_instructions')}</p>
-								<ul class="wizard-port-list">
-									<li><code>{$_('login.wizard.port_http')}</code></li>
-									<li><code>{$_('login.wizard.port_https')}</code></li>
-									<li><code>{$_('login.wizard.port_turn')}</code></li>
-								</ul>
-								<label class="wizard-field-label">{$_('login.wizard.public_address_label')}</label>
-								<input type="text" bind:value={publicAddress} placeholder={$_('login.wizard.public_address_placeholder')} />
-								<p class="wizard-hint">{$_('login.wizard.restart_portforward')}</p>
-								<code class="wizard-code-block">docker compose --profile turn up -d --build</code>
-								<p class="wizard-note">{$_('login.wizard.portforward_config_note')}</p>
-							</div>
-						{:else}
-							<div class="wizard-info-block">
-								<label class="wizard-field-label">{$_('login.wizard.tunnel_token_label')}</label>
-								<input type="text" bind:value={tunnelToken} placeholder={$_('login.wizard.tunnel_token_placeholder')} />
-								<p class="wizard-hint">{$_('login.wizard.tunnel_no_token')}</p>
-								<code class="wizard-code-block">docker compose --profile tunnel --profile tunnel-quick up -d --build</code>
-								<p class="wizard-hint">{$_('login.wizard.tunnel_with_token')}</p>
-								<code class="wizard-code-block">docker compose --profile tunnel --profile tunnel-named up -d --build</code>
-								<p class="wizard-note">{$_('login.wizard.tunnel_turn_note')}</p>
-							</div>
-						{/if}
-
-						<div class="wizard-nav">
-							<button type="button" class="join-btn" on:click={() => { wizardStep = 3; }}>{$_('login.wizard.next')}</button>
-							<button type="button" class="join-btn secondary-btn" on:click={() => { wizardStep = 5; }}>{$_('login.wizard.skip')}</button>
-						</div>
-
-					{:else if wizardStep === 3}
-						<h3>{$_('login.wizard.mesh_title')}</h3>
-						<p class="wizard-subtitle">{$_('login.wizard.mesh_subtitle')}</p>
-
-						<label class="wizard-field-label">{$_('login.wizard.mesh_stdb_url')}</label>
-						<input type="text" bind:value={meshStdbUrl} placeholder="wss://stdb.example.com" />
-
-						<label class="wizard-field-label">{$_('login.wizard.mesh_token')}</label>
-						<input type="password" bind:value={meshToken} />
-
-						<label class="wizard-field-label">{$_('login.wizard.mesh_region')}</label>
-						<input type="text" bind:value={meshRegion} placeholder={$_('login.wizard.mesh_region_placeholder')} />
-
-						<p class="wizard-note">{$_('login.wizard.mesh_restart_note')}</p>
-
-						<div class="wizard-nav">
-							<button type="button" class="join-btn" on:click={() => { wizardStep = 4; }}>{$_('login.wizard.next')}</button>
-							<button type="button" class="join-btn secondary-btn" on:click={() => { wizardStep = 2; }}>{$_('login.wizard.back')}</button>
-						</div>
-
-					{:else if wizardStep === 4}
-						<h3>{$_('login.wizard.branding_title')}</h3>
-						<p class="wizard-subtitle">{$_('login.wizard.branding_subtitle')}</p>
-
-						<label class="wizard-field-label">{$_('login.wizard.branding_name')}</label>
-						<input type="text" bind:value={brandName} placeholder={$_('login.wizard.branding_name_placeholder')} maxlength="64" />
-
-						<label class="wizard-field-label">{$_('login.wizard.branding_accent')}</label>
-						<div class="wizard-color-row">
-							<input type="color" bind:value={brandAccent} class="wizard-color-input" />
-							<span class="wizard-color-hex">{brandAccent}</span>
-						</div>
-
-						<label class="wizard-field-label">{$_('login.wizard.branding_bg_image')}</label>
-						<input type="text" bind:value={brandBgImage} placeholder={$_('login.wizard.branding_bg_image_placeholder')} />
-
-						<label class="wizard-field-label">{$_('login.wizard.branding_custom_css')}</label>
-						<textarea class="wizard-css-textarea" bind:value={brandCustomCss} placeholder={$_('login.wizard.branding_custom_css_placeholder')} rows="5"></textarea>
-
-						<div class="wizard-nav">
-							<button type="button" class="join-btn" on:click={() => { wizardStep = 5; }}>{$_('login.wizard.next')}</button>
-							<button type="button" class="join-btn secondary-btn" on:click={() => { wizardStep = 3; }}>{$_('login.wizard.back')}</button>
-						</div>
-
-					{:else if wizardStep === 5}
-						<h3>{$_('login.wizard.done_title')}</h3>
-						<p class="wizard-subtitle">{$_('login.wizard.done_subtitle')}</p>
-
-						<div class="wizard-info-block">
-							<ul class="wizard-tip-list">
-								<li>{$_('login.wizard.done_tip_admin')}</li>
-								<li>{$_('login.wizard.done_tip_invite')}</li>
-							</ul>
-						</div>
-
-						<button type="button" class="join-btn" on:click={wizardFinish}>{$_('login.wizard.done_enter')}</button>
+					{#if error}
+						<div class="error-message">{error}</div>
 					{/if}
+
+					<form on:submit|preventDefault={handleRegister}>
+						<input type="text" bind:value={username} placeholder={$_('login.auth.display_name_placeholder')} minlength="2" maxlength="32" required use:focusOnMount disabled={loading} />
+						<div class="handle-input-wrapper">
+							<span class="handle-prefix">@</span>
+							<input type="text" bind:value={handle} on:input={() => { handleManuallyEdited = true; }} placeholder={$_('login.auth.handle_placeholder')} minlength="2" maxlength="32" required disabled={loading} class="handle-input" />
+						</div>
+						<input type="password" bind:value={password} placeholder={$_('login.auth.password_rules_placeholder')} minlength="8" required disabled={loading} />
+						<input type="password" bind:value={passwordConfirm} placeholder={$_('login.auth.confirm_password_placeholder')} minlength="8" required disabled={loading} />
+						<button type="submit" class="join-btn" disabled={loading}>
+							{loading ? $_('login.auth.creating_account') : $_('login.auth.create_account_button')}
+						</button>
+					</form>
+
+					<p class="wizard-note wizard-note-standalone">{$_('login.wizard.advanced_setup_note')}</p>
 				</div>
 
 			{:else if showHomeExperiencePrompt}
@@ -1266,196 +1105,15 @@
 		text-align: center;
 	}
 
-	.wizard-steps {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0;
-		margin-bottom: 1.5rem;
-	}
-
-	.wizard-step {
-		width: 28px;
-		height: 28px;
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 0.8rem;
-		font-weight: 700;
-		background: var(--bg-tertiary);
-		color: var(--text-secondary);
-		border: 2px solid var(--border);
-		transition: all 0.3s;
-	}
-
-	.wizard-step.active {
-		background: var(--launch-accent, var(--accent));
-		color: white;
-		border-color: var(--launch-accent, var(--accent));
-	}
-
-	.wizard-step.done {
-		background: rgba(88, 101, 242, 0.3);
-		color: var(--launch-accent, var(--accent));
-		border-color: var(--launch-accent, var(--accent));
-	}
-
-	.wizard-step-line {
-		width: 32px;
-		height: 2px;
-		background: var(--border);
-		transition: background 0.3s;
-	}
-
-	.wizard-step-line.done {
-		background: var(--launch-accent, var(--accent));
-	}
-
-	.wizard-toggle-row {
-		display: flex;
-		align-items: center;
-		gap: 0.6rem;
-		margin-bottom: 1rem;
-		color: var(--text-secondary);
-		font-size: 0.9rem;
-		cursor: pointer;
-	}
-
-	.wizard-toggle-row input[type="checkbox"] {
-		width: 16px;
-		height: 16px;
-		margin: 0;
-		padding: 0;
-	}
-
-	.wizard-info-block {
-		background: rgba(255, 255, 255, 0.04);
-		border: 1px solid var(--border);
-		border-radius: 10px;
-		padding: 1rem;
-		margin-bottom: 1rem;
-	}
-
-	.wizard-info-block p {
-		margin: 0 0 0.6rem 0;
-		font-size: 0.88rem;
-		color: var(--text-secondary);
-		line-height: 1.5;
-	}
-
-	.wizard-port-list {
-		list-style: none;
-		padding: 0;
-		margin: 0 0 0.75rem 0;
-	}
-
-	.wizard-port-list li {
-		padding: 0.3rem 0;
-		font-size: 0.85rem;
-	}
-
-	.wizard-port-list code {
-		background: rgba(255, 255, 255, 0.06);
-		padding: 0.15rem 0.4rem;
-		border-radius: 4px;
-		font-size: 0.82rem;
-	}
-
-	.wizard-field-label {
-		display: block;
-		font-size: 0.85rem;
-		color: var(--text-secondary);
-		margin-bottom: 0.3rem;
-		font-weight: 600;
-	}
-
-	.wizard-hint {
-		margin: 0.5rem 0 0.25rem 0;
-		font-size: 0.82rem;
-		color: var(--text-secondary);
-	}
-
 	.wizard-note {
 		margin: 0.75rem 0 0 0;
 		font-size: 0.82rem;
 		color: var(--text-secondary);
-		font-style: italic;
+		line-height: 1.5;
 	}
 
-	.wizard-code-block {
-		display: block;
-		background: rgba(0, 0, 0, 0.3);
-		color: var(--text-primary);
-		padding: 0.6rem 0.8rem;
-		border-radius: 8px;
-		font-size: 0.78rem;
-		font-family: 'Consolas', 'Courier New', monospace;
-		overflow-x: auto;
-		margin: 0.25rem 0 0.5rem 0;
-		word-break: break-all;
-		white-space: pre-wrap;
-	}
-
-	.wizard-nav {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		margin-top: 0.5rem;
-	}
-
-	.wizard-nav .join-btn {
-		margin-bottom: 0;
-	}
-
-	.wizard-tip-list {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-	}
-
-	.wizard-tip-list li {
-		padding: 0.4rem 0;
-		font-size: 0.9rem;
-		color: var(--text-secondary);
-		padding-left: 0.75rem;
-		border-left: 2px solid var(--launch-accent, var(--accent));
-		margin-bottom: 0.4rem;
-	}
-
-	.wizard-color-row {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		margin-bottom: 1rem;
-	}
-
-	.wizard-color-input {
-		width: 48px;
-		height: 36px;
-		padding: 2px;
-		border: 1px solid var(--border);
-		border-radius: 8px;
-		background: var(--bg-tertiary);
-		cursor: pointer;
-	}
-
-	.wizard-color-hex {
-		font-family: 'Consolas', 'Courier New', monospace;
-		font-size: 0.85rem;
-		color: var(--text-secondary);
-	}
-
-	.wizard-css-textarea {
-		width: 100%;
-		min-height: 6rem;
-		font-family: 'Consolas', 'Courier New', monospace;
-		font-size: 0.82rem;
-		background: var(--bg-tertiary);
-		color: var(--text-primary);
-		border: 1px solid var(--border-color);
-		border-radius: 6px;
-		padding: 0.5rem;
-		resize: vertical;
+	.wizard-note-standalone {
+		margin-top: 0;
+		text-align: center;
 	}
 </style>

@@ -1919,7 +1919,7 @@ export async function deleteMediaAlbumItem(token: string, albumId: number, itemI
 	}
 }
 
-// --- First-run setup wizard ---
+// --- First-run owner bootstrap ---
 
 export interface SetupStatus {
 	setupRequired: boolean;
@@ -1935,44 +1935,4 @@ export async function getSetupStatus(): Promise<SetupStatus> {
 	} catch {
 		return { setupRequired: false };
 	}
-}
-
-export async function saveNetworkHint(
-	token: string,
-	hint: {
-		networkMode?: string;
-		publicAddress?: string;
-		tunnelToken?: string;
-		stdbUrl?: string;
-		meshToken?: string;
-		serverRegion?: string;
-	}
-): Promise<void> {
-	await fetchWithTimeout(`${getApiBase()}/api/setup/network-hint`, {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
-		},
-		body: JSON.stringify(hint)
-	});
-}
-
-export async function saveBranding(
-	token: string,
-	branding: {
-		brandName?: string;
-		accentColor?: string;
-		backgroundImageUrl?: string;
-		customCss?: string;
-	}
-): Promise<void> {
-	await fetchWithTimeout(`${getApiBase()}/api/setup/branding`, {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
-		},
-		body: JSON.stringify(branding)
-	});
 }

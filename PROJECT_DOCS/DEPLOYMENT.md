@@ -25,15 +25,11 @@ cd wabi
 docker compose up -d --build
 ```
 
-Open `http://localhost:3000` — a first-run wizard guides you through:
-1. Creating your admin (owner) account
-2. Choosing a network path (port forwarding or Cloudflare Tunnel)
-3. Optionally joining a server mesh
-4. Customizing your login page (name, accent color, background image, custom CSS)
+Open `http://localhost:3000`, create the owner account, and you're in.
 
 Secrets (`JWT_SECRET`, `TURN_SHARED_SECRET`) are auto-generated on first boot and persisted to the data volume across restarts.
 
-Use the CLI setup scripts when you want a real public domain, reverse proxy, TURN exposure, or other non-local deployment settings.
+Use the CLI setup scripts when you want a real public domain, reverse proxy, TURN exposure, mesh config, or other non-local deployment settings. Configure login-page branding separately via `data/launch-page.json`.
 
 ## Setup Wizard (CLI)
 

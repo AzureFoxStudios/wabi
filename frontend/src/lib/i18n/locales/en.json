@@ -106,6 +106,7 @@
     "wizard": {
       "welcome": "Welcome to Wabi",
       "owner_subtitle": "Create your owner account. This will be the server's primary administrator.",
+      "advanced_setup_note": "Need public access, TURN, mesh, or login-page branding? Do that after sign-in with the setup scripts or launch-page config.",
       "step_account": "Owner Account",
       "step_network": "Network Setup",
       "step_mesh": "Server Mesh",

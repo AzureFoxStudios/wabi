@@ -56,7 +56,7 @@ cd wabi
 docker compose up -d --build
 ```
 
-Open `http://localhost:3000` — a first-run wizard walks you through creating an admin account and setting up network access. No `.env` editing required for local bring-up; localhost defaults are baked into Compose, and backend secrets are auto-generated on first boot.
+Open `http://localhost:3000`, create the owner account, and you're in. No `.env` editing is required for local bring-up; localhost defaults are baked into Compose, and backend secrets are auto-generated on first boot.
 
 **Optional: include TURN for production-quality calling:**
 
@@ -69,7 +69,7 @@ Default local endpoints:
 - Backend: `http://localhost:8080`
 - Health check: `http://localhost:8080/health`
 
-For public domains, TURN, reverse proxies, or other non-local settings, use `./scripts/setup.sh` on Linux or `scripts/setup-forWindows.ps1` on Windows.
+For public domains, TURN, reverse proxies, mesh config, or other non-local settings, use `./scripts/setup.sh` on Linux or `scripts/setup-forWindows.ps1` on Windows. Login-page branding is configured separately via `data/launch-page.json`.
 
 ### Manual .env setup (advanced)
 

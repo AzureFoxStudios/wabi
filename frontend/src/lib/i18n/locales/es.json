@@ -106,6 +106,7 @@
     "wizard": {
       "welcome": "Bienvenido a Wabi",
       "owner_subtitle": "Crea tu cuenta de propietario. Este sera el administrador principal del servidor.",
+      "advanced_setup_note": "Necesitas acceso publico, TURN, mesh o personalizar la pagina de inicio? Hazlo despues de iniciar sesion con los scripts de configuracion o launch-page config.",
       "step_account": "Cuenta del propietario",
       "step_network": "Red",
       "step_mesh": "Mesh de servidores",

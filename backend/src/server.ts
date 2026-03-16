@@ -4829,7 +4829,7 @@ server.on('request', async (req, res) => {
     return;
   }
 
-  // Setup status endpoint (public, no auth) — returns whether first-run wizard is needed
+  // Setup status endpoint (public, no auth) — returns whether owner bootstrap is needed
   if (url.pathname === "/api/setup/status" && req.method === "GET") {
     try {
       const row = db.prepare('SELECT COUNT(*) as count FROM users WHERE is_active = 1').get() as { count: number } | undefined;
@@ -4844,102 +4844,8 @@ server.on('request', async (req, res) => {
   }
 
   // Setup network hint endpoint — saves operator's network config notes to app_settings
-  if (url.pathname === "/api/setup/network-hint" && req.method === "POST") {
-    try {
-      const authUserId = getAuthenticatedUserIdFromRequest(req);
-      if (!authUserId) {
-        res.writeHead(401, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Authentication required" }));
-        return;
-      }
-      const body = await new Promise<string>((resolve, reject) => {
-        let data = '';
-        req.on('data', (chunk: Buffer) => { data += chunk.toString(); });
-        req.on('end', () => resolve(data));
-        req.on('error', reject);
-      });
-      const payload = JSON.parse(body);
-      const hint: Record<string, unknown> = {};
-      if (typeof payload.networkMode === 'string') hint.networkMode = payload.networkMode;
-      if (typeof payload.publicAddress === 'string') hint.publicAddress = payload.publicAddress.slice(0, 256);
-      if (typeof payload.tunnelToken === 'string') hint.tunnelToken = payload.tunnelToken.length > 0 ? '(set)' : '';
-      if (typeof payload.stdbUrl === 'string') hint.stdbUrl = payload.stdbUrl.slice(0, 512);
-      if (typeof payload.meshToken === 'string') hint.meshToken = payload.meshToken.length > 0 ? '(set)' : '';
-      if (typeof payload.serverRegion === 'string') hint.serverRegion = payload.serverRegion.slice(0, 64);
-      appPolicyRepository.setRaw('setup:network_hint', JSON.stringify(hint));
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true }));
-    } catch (e) {
-      res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Invalid request" }));
-    }
-    return;
-  }
 
   // Setup branding endpoint — writes data/launch-page.json for login page customization
-  if (url.pathname === "/api/setup/branding" && req.method === "POST") {
-    try {
-      const authUserId = getAuthenticatedUserIdFromRequest(req);
-      if (!authUserId) {
-        res.writeHead(401, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Authentication required" }));
-        return;
-      }
-      const body = await new Promise<string>((resolve, reject) => {
-        let data = '';
-        req.on('data', (chunk: Buffer) => { data += chunk.toString(); });
-        req.on('end', () => resolve(data));
-        req.on('error', reject);
-      });
-      const payload = JSON.parse(body);
-      const brandName = typeof payload.brandName === 'string' ? payload.brandName.trim().slice(0, 64) : '';
-      const accent = typeof payload.accentColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(payload.accentColor.trim()) ? payload.accentColor.trim() : '';
-      const backgroundImageUrl = typeof payload.backgroundImageUrl === 'string' ? payload.backgroundImageUrl.trim().slice(0, 1024) : '';
-      const customCss = typeof payload.customCss === 'string' ? payload.customCss.slice(0, 8192) : '';
-
-      if (!brandName && !backgroundImageUrl && !customCss) {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true, skipped: true }));
-        return;
-      }
-
-      const launchConfig: Record<string, unknown> = {
-        enabled: true,
-        brandName: brandName || 'Wabi',
-        headline: 'Welcome',
-        subheadline: '',
-        logoUrl: '/wabi-logo.webp',
-        backgroundImageUrl: backgroundImageUrl || null,
-        customCss: customCss || null,
-        heroImageUrl: null,
-        heroTitle: null,
-        heroBody: null,
-        heroPrimaryCtaLabel: null,
-        heroPrimaryCtaUrl: null,
-        highlights: [],
-        footerNote: null,
-        palette: {
-          backgroundTop: '#0f172a',
-          backgroundBottom: '#0b1220',
-          cardBackground: '#14141e',
-          accent: accent || '#5865f2',
-          text: '#f8fafc'
-        }
-      };
-
-      const launchPagePath = join(DATA_DIR, '..', 'data', 'launch-page.json');
-      const altPath = join(DATA_DIR, 'launch-page.json');
-      const targetPath = existsSync(join(DATA_DIR, '..', 'data')) ? launchPagePath : altPath;
-      writeFileSync(targetPath, JSON.stringify(launchConfig, null, 2), 'utf-8');
-
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true }));
-    } catch (e) {
-      res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Invalid request" }));
-    }
-    return;
-  }
 
   // Authentication endpoints
   if (url.pathname === "/api/auth/register" && req.method === "POST") {
