@@ -36,7 +36,8 @@
 	import {
 		dequeueWhiteboardImport,
 		queueWhiteboardImport,
-		whiteboardPendingImports
+		whiteboardPendingImports,
+		type PendingWhiteboardImport
 	} from '$lib/whiteboard/whiteboardSurface';
 	import { createWhiteboardImageElement, uploadWhiteboardImage } from '$lib/whiteboard/imageImports';
 
@@ -62,8 +63,17 @@
 	let isSpacePanning = false;
 	let importBusy = false;
 	let importError = '';
+	let importErrorTimer: ReturnType<typeof setTimeout> | null = null;
 	let isDragHover = false;
-	let pendingImportsForChannel: Array<{ id: string; file: File }> = [];
+	let pendingImportsForChannel: PendingWhiteboardImport[] = [];
+	let importPreviewUrls = new Map<string, string>();
+	let importPreviewCards: Array<{
+		id: string;
+		fileName: string;
+		previewUrl: string;
+		source: PendingWhiteboardImport['source'];
+		status: 'uploading' | 'queued';
+	}> = [];
 
 	// Text editing state
 	let textEditing = false;
@@ -167,7 +177,16 @@
 	});
 	$: remoteCursors, requestRender();
 	$: channelId, void maybeProcessPendingImports();
+	$: boardId, void maybeProcessPendingImports();
 	$: syncReady, void maybeProcessPendingImports();
+	$: syncImportPreviews(pendingImportsForChannel);
+	$: importPreviewCards = pendingImportsForChannel.slice(0, 3).map((item, index) => ({
+		id: item.id,
+		fileName: item.file.name,
+		previewUrl: importPreviewUrls.get(item.id) || '',
+		source: item.source,
+		status: importBusy && index === 0 ? 'uploading' : 'queued'
+	}));
 
 	// -----------------------------------------------------------------------
 	// Pointer events → tool handler
@@ -266,13 +285,59 @@
 		}
 	}
 
+	function syncImportPreviews(queue: PendingWhiteboardImport[]): void {
+		const nextIds = new Set(queue.map((item) => item.id));
+		for (const item of queue) {
+			if (!importPreviewUrls.has(item.id)) {
+				importPreviewUrls.set(item.id, URL.createObjectURL(item.file));
+			}
+		}
+		for (const [importId, previewUrl] of importPreviewUrls.entries()) {
+			if (nextIds.has(importId)) continue;
+			URL.revokeObjectURL(previewUrl);
+			importPreviewUrls.delete(importId);
+		}
+	}
+
+	function clearImportError(): void {
+		importError = '';
+		if (importErrorTimer) {
+			clearTimeout(importErrorTimer);
+			importErrorTimer = null;
+		}
+	}
+
+	function setImportError(message: string): void {
+		importError = message;
+		if (importErrorTimer) {
+			clearTimeout(importErrorTimer);
+		}
+		importErrorTimer = setTimeout(() => {
+			importError = '';
+			importErrorTimer = null;
+		}, 6000);
+	}
+
+	function describeImportSource(source: 'clipboard' | 'drop' | 'capture'): string {
+		switch (source) {
+			case 'clipboard':
+				return 'Clipboard';
+			case 'drop':
+				return 'Drop';
+			case 'capture':
+				return 'Capture';
+			default:
+				return 'Import';
+		}
+	}
+
 	async function maybeProcessPendingImports(): Promise<void> {
-		if (!syncReady || importBusy || !channelId || pendingImportsForChannel.length === 0) return;
+		if (!syncReady || importBusy || !channelId || !boardId || pendingImportsForChannel.length === 0) return;
 		const nextImport = pendingImportsForChannel[0];
 		importBusy = true;
-		importError = '';
+		clearImportError();
 		try {
-			const uploaded = await uploadWhiteboardImage(nextImport.file);
+			const uploaded = await uploadWhiteboardImage(boardId, nextImport.file);
 			const state = get(boardStore);
 			const imageEl = createWhiteboardImageElement(
 				uploaded,
@@ -284,13 +349,12 @@
 			boardStore.addElement(imageEl);
 			preloadImage(uploaded.fileUrl);
 		} catch (error) {
-			importError = error instanceof Error ? error.message : 'Failed to import image';
+			const message = error instanceof Error ? error.message : 'Failed to import image';
+			setImportError(`Failed to import ${nextImport.file.name}: ${message}`);
 		} finally {
 			dequeueWhiteboardImport(channelId, nextImport.id);
 			importBusy = false;
-			if (pendingImportsForChannel.length > 1) {
-				void maybeProcessPendingImports();
-			}
+			void maybeProcessPendingImports();
 		}
 	}
 
@@ -545,6 +609,11 @@
 		unsubSel();
 		unsubPendingImports();
 		unsubTextPlacement();
+		clearImportError();
+		for (const previewUrl of importPreviewUrls.values()) {
+			URL.revokeObjectURL(previewUrl);
+		}
+		importPreviewUrls.clear();
 	});
 </script>
 
@@ -589,14 +658,49 @@
 		></textarea>
 	{/if}
 
-	{#if importBusy || importError || isDragHover}
-		<div class="whiteboard-import-overlay" class:is-error={Boolean(importError)} role="status" aria-live="polite">
+	{#if importPreviewCards.length > 0 || importError || isDragHover}
+		<div class="whiteboard-import-hud">
+			{#if isDragHover}
+				<div class="whiteboard-import-overlay" role="status" aria-live="polite">
+					<div>Drop images to add them to the board</div>
+				</div>
+			{/if}
+
 			{#if importError}
-				<div>{importError}</div>
-			{:else if importBusy}
-				<div>Importing image to whiteboard...</div>
-			{:else}
-				<div>Drop images to add them to the board</div>
+				<div class="whiteboard-import-overlay is-error" role="alert">
+					<div>{importError}</div>
+				</div>
+			{/if}
+
+			{#if importPreviewCards.length > 0}
+				<div class="whiteboard-import-queue" role="status" aria-live="polite">
+					{#each importPreviewCards as importCard}
+						<div class="whiteboard-import-card" class:is-active={importCard.status === 'uploading'}>
+							{#if importCard.previewUrl}
+								<img
+									class="whiteboard-import-thumb"
+									src={importCard.previewUrl}
+									alt=""
+								/>
+							{:else}
+								<div class="whiteboard-import-thumb whiteboard-import-thumb--empty"></div>
+							{/if}
+							<div class="whiteboard-import-copy">
+								<div class="whiteboard-import-name">{importCard.fileName}</div>
+								<div class="whiteboard-import-meta">
+									{describeImportSource(importCard.source)}
+									<span aria-hidden="true">•</span>
+									{importCard.status === 'uploading' ? 'Uploading' : 'Queued'}
+								</div>
+							</div>
+						</div>
+					{/each}
+					{#if pendingImportsForChannel.length > importPreviewCards.length}
+						<div class="whiteboard-import-more">
+							+{pendingImportsForChannel.length - importPreviewCards.length} more queued
+						</div>
+					{/if}
+				</div>
 			{/if}
 		</div>
 	{/if}
@@ -644,10 +748,16 @@
 		backdrop-filter: blur(6px);
 	}
 
+	.whiteboard-import-hud {
+		position: absolute;
+		inset: 0;
+		z-index: 12;
+		pointer-events: none;
+	}
+
 	.whiteboard-import-overlay {
 		position: absolute;
 		inset: auto 16px 16px auto;
-		z-index: 12;
 		max-width: min(320px, calc(100% - 32px));
 		padding: 10px 14px;
 		border-radius: 10px;
@@ -660,8 +770,83 @@
 	}
 
 	.whiteboard-import-overlay.is-error {
+		inset: 16px 16px auto auto;
 		background: rgba(127, 29, 29, 0.9);
 		border-color: rgba(248, 113, 113, 0.35);
 		color: #fecaca;
+	}
+
+	.whiteboard-import-queue {
+		position: absolute;
+		right: 16px;
+		bottom: 16px;
+		display: grid;
+		gap: 0.65rem;
+		width: min(360px, calc(100% - 32px));
+	}
+
+	.whiteboard-import-card {
+		display: grid;
+		grid-template-columns: 56px minmax(0, 1fr);
+		gap: 0.8rem;
+		padding: 0.7rem;
+		border-radius: 14px;
+		background: rgba(15, 23, 42, 0.88);
+		border: 1px solid rgba(148, 163, 184, 0.16);
+		box-shadow: 0 18px 32px rgba(2, 6, 23, 0.3);
+		backdrop-filter: blur(14px);
+	}
+
+	.whiteboard-import-card.is-active {
+		border-color: rgba(99, 102, 241, 0.45);
+		box-shadow: 0 22px 36px rgba(30, 41, 59, 0.38);
+	}
+
+	.whiteboard-import-thumb {
+		width: 56px;
+		height: 56px;
+		object-fit: cover;
+		border-radius: 10px;
+		border: 1px solid rgba(148, 163, 184, 0.18);
+		background: rgba(30, 41, 59, 0.72);
+	}
+
+	.whiteboard-import-thumb--empty {
+		background:
+			linear-gradient(135deg, rgba(99, 102, 241, 0.24), rgba(14, 165, 233, 0.12)),
+			rgba(30, 41, 59, 0.72);
+	}
+
+	.whiteboard-import-copy {
+		min-width: 0;
+		display: grid;
+		gap: 0.3rem;
+		align-content: center;
+	}
+
+	.whiteboard-import-name {
+		font-size: 0.92rem;
+		font-weight: 600;
+		color: #f8fafc;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.whiteboard-import-meta {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-size: 0.76rem;
+		color: #cbd5e1;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+
+	.whiteboard-import-more {
+		justify-self: end;
+		padding: 0.15rem 0.35rem;
+		font-size: 0.78rem;
+		color: #cbd5e1;
 	}
 </style>

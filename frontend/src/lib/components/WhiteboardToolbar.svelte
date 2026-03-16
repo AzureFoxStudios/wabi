@@ -26,6 +26,10 @@
 
 	const strokeWidths = [1, 2, 4, 8];
 
+	export let onExportPng: (() => void) | null = null;
+	export let onExportJson: (() => void) | null = null;
+	export let exportBusy = false;
+
 	function setTool(id: ToolType) {
 		boardStore.setTool(id);
 	}
@@ -90,6 +94,27 @@
 			title="Redo (Ctrl+Shift+Z)"
 		>
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 8l3 3-3 3"/><path d="M18 11H7a4 4 0 010-8h5"/></svg>
+		</button>
+	</div>
+
+	<div class="wb-toolbar-divider"></div>
+
+	<div class="wb-toolbar-section exports">
+		<button
+			class="wb-tool-btn wb-export-btn"
+			on:click={() => onExportPng?.()}
+			disabled={exportBusy || !onExportPng}
+			title="Export PNG"
+		>
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 3v9"/><path d="M6.5 8.5L10 12l3.5-3.5"/><path d="M4 14.5h12"/></svg>
+		</button>
+		<button
+			class="wb-tool-btn wb-export-btn"
+			on:click={() => onExportJson?.()}
+			disabled={exportBusy || !onExportJson}
+			title="Export JSON"
+		>
+			<span class="wb-export-label">JSON</span>
 		</button>
 	</div>
 
@@ -210,6 +235,12 @@
 		opacity: 0.45;
 		font-family: monospace;
 		pointer-events: none;
+	}
+
+	.wb-export-label {
+		font-size: 9px;
+		font-weight: 700;
+		letter-spacing: 0.04em;
 	}
 
 	.wb-color-swatch {

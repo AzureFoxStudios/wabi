@@ -66,6 +66,9 @@ export interface TextElement extends ElementBase {
 export interface ImageElement extends ElementBase {
 	type: 'image';
 	src: string;
+	assetId?: string;
+	fileName?: string;
+	mimeType?: string;
 	naturalWidth: number;
 	naturalHeight: number;
 }

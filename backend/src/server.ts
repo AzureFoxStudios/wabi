@@ -2806,23 +2806,46 @@ function createUploadFileId(prefix: string, fileName: string): string {
   return `${prefix}${Date.now()}-${nonce}-${safeName}`;
 }
 
-function normalizeUploadFileIdFromUrl(fileUrl: string | undefined | null): string | null {
-  if (typeof fileUrl !== 'string' || !fileUrl.startsWith('/uploads/')) return null;
-  const rawSegment = fileUrl.slice('/uploads/'.length);
-  if (!rawSegment) return null;
+function getWhiteboardUploadScopeTag(boardId: string): string {
+  return createHash('sha256').update(boardId).digest('hex').slice(0, 16);
+}
 
-  let decoded = rawSegment;
+function createWhiteboardUploadFileId(boardId: string, fileName: string): string {
+  const safeName = sanitizeUploadFileName(fileName || 'whiteboard-image.bin');
+  const nonce = randomBytes(6).toString('hex');
+  return `wbi-${getWhiteboardUploadScopeTag(boardId)}-${Date.now()}-${nonce}-${safeName}`;
+}
+
+function isWhiteboardUploadFileIdForBoard(boardId: string, fileId: string): boolean {
+  return fileId.startsWith(`wbi-${getWhiteboardUploadScopeTag(boardId)}-`);
+}
+
+function createWhiteboardUploadUrl(boardId: string, fileId: string): string {
+  return `/api/whiteboard/boards/${encodeURIComponent(boardId)}/files/${encodeURIComponent(fileId)}`;
+}
+
+function decodePathSegment(rawSegment: string | undefined | null): string | null {
+  if (typeof rawSegment !== 'string' || rawSegment.length === 0) return null;
   try {
-    decoded = decodeURIComponent(rawSegment);
+    return decodeURIComponent(rawSegment);
   } catch {
     return null;
   }
+}
 
+function normalizeUploadFileIdSegment(rawSegment: string | undefined | null): string | null {
+  const decoded = decodePathSegment(rawSegment);
+  if (!decoded) return null;
   const normalized = decoded.replace(/\\/g, '/');
   if (normalized.includes('/')) return null;
   const safeId = basename(normalized);
   if (!safeId || safeId === '.' || safeId === '..') return null;
   return safeId;
+}
+
+function normalizeUploadFileIdFromUrl(fileUrl: string | undefined | null): string | null {
+  if (typeof fileUrl !== 'string' || !fileUrl.startsWith('/uploads/')) return null;
+  return normalizeUploadFileIdSegment(fileUrl.slice('/uploads/'.length));
 }
 
 function resolveUploadPath(fileId: string): string | null {
@@ -3033,7 +3056,7 @@ function readMultipartSingleFile(
   contentTypeHeader: string | undefined,
   body: Buffer,
   expectedFieldName: string
-): { fileName: string; data: Buffer } | null {
+): { fileName: string; data: Buffer; contentType: string | null } | null {
   const boundary = contentTypeHeader?.split('boundary=')[1];
   if (!boundary) return null;
 
@@ -3052,9 +3075,11 @@ function readMultipartSingleFile(
     const dataEnd = part.lastIndexOf('\r\n');
     if (dataStart < 4 || dataEnd <= dataStart) continue;
 
+    const contentTypeMatch = part.match(/Content-Type:\s*([^\r\n]+)/i);
     return {
       fileName,
-      data: Buffer.from(part.substring(dataStart, dataEnd), 'binary')
+      data: Buffer.from(part.substring(dataStart, dataEnd), 'binary'),
+      contentType: contentTypeMatch?.[1]?.trim() || null
     };
   }
 
@@ -3290,6 +3315,258 @@ function getGuestSessionId(req: any): string | null {
     return sessionHeader.trim();
   }
   return null;
+}
+
+function getRequestStableActorId(userId: number | null, guestSessionId: string | null): string | null {
+  if (typeof userId === 'number' && Number.isFinite(userId) && userId > 0) {
+    return `user-${Math.floor(userId)}`;
+  }
+  if (guestSessionId && sessions.has(guestSessionId)) {
+    return `guest-session:${guestSessionId}`;
+  }
+  return null;
+}
+
+function canRequestAccessChannel(
+  userId: number | null,
+  guestSessionId: string | null,
+  channelId: string
+): { allowed: true; channel: DbChannel } | { allowed: false; status: number; error: string } {
+  const channel = channelRepository.findById(channelId);
+  if (!channel) {
+    return { allowed: false, status: 404, error: 'Channel not found' };
+  }
+
+  const isDmLike = channel.channel_type === 'dm' || channel.channel_type === 'group';
+  if (isDmLike) {
+    if (!userId) {
+      return { allowed: false, status: 403, error: 'Registered membership is required for this whiteboard' };
+    }
+    if (!channelMemberRepository.isMember(channelId, `user-${userId}`)) {
+      return { allowed: false, status: 403, error: 'Not a member of this whiteboard scope' };
+    }
+    return { allowed: true, channel };
+  }
+
+  if (!userId && (!guestSessionId || !sessions.has(guestSessionId))) {
+    return { allowed: false, status: 401, error: 'Authentication required' };
+  }
+
+  const requiredRole = channel.min_role || 'guest';
+  const highestRole = userId ? getUserRoleInfo(userId).highestRole : 'guest';
+  if (getRolePriority(highestRole, DEFAULT_WORKSPACE_ID) < getRolePriority(requiredRole, DEFAULT_WORKSPACE_ID)) {
+    return { allowed: false, status: 403, error: 'Insufficient role for this whiteboard scope' };
+  }
+
+  return { allowed: true, channel };
+}
+
+function getAccessibleWhiteboardForRequest(
+  req: any,
+  boardId: string,
+  options: {
+    createIfMissing?: boolean;
+  } = {}
+): { allowed: true; board: WhiteboardRecord; channel: DbChannel; actorStableId: string } | { allowed: false; status: number; error: string } {
+  const userId = getAuthenticatedUserId(req);
+  const guestSessionId = getGuestSessionId(req);
+  const actorStableId = getRequestStableActorId(userId, guestSessionId);
+  if (!actorStableId) {
+    return { allowed: false, status: 401, error: 'Authentication required' };
+  }
+
+  let board = whiteboardRepository.getByBoardId(boardId);
+  if (!board) {
+    if (!options.createIfMissing) {
+      return { allowed: false, status: 404, error: 'Whiteboard not found' };
+    }
+    if (!boardId.startsWith('channel:')) {
+      return { allowed: false, status: 404, error: 'Whiteboard not found' };
+    }
+    const channelId = boardId.slice('channel:'.length);
+    const access = canRequestAccessChannel(userId, guestSessionId, channelId);
+    if (!access.allowed) {
+      return access;
+    }
+    board = whiteboardRepository.getOrCreateForChannel(channelId, actorStableId);
+    return { allowed: true, board, channel: access.channel, actorStableId };
+  }
+
+  if (board.scopeType !== 'channel') {
+    return { allowed: false, status: 400, error: 'Unsupported whiteboard scope' };
+  }
+
+  const access = canRequestAccessChannel(userId, guestSessionId, board.scopeId);
+  if (!access.allowed) {
+    return access;
+  }
+
+  return { allowed: true, board, channel: access.channel, actorStableId };
+}
+
+function serveUploadByFileId(
+  req: any,
+  res: any,
+  fileId: string,
+  options: {
+    cacheControl: string;
+    allowRange?: boolean;
+  }
+): void {
+  const downloadStartedAt = Date.now();
+  const filePath = resolveUploadPath(fileId);
+  if (!filePath) {
+    res.writeHead(403);
+    res.end("Access denied");
+    return;
+  }
+
+  if (!existsSync(filePath)) {
+    res.writeHead(404);
+    res.end("Upload not found");
+    return;
+  }
+
+  const stat = statSync(filePath);
+  const ext = filePath.split('.').pop()?.toLowerCase();
+  const contentTypes: Record<string, string> = {
+    'png': 'image/png',
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'gif': 'image/gif',
+    'bmp': 'image/bmp',
+    'webp': 'image/webp',
+    'svg': 'image/svg+xml',
+    'mp4': 'video/mp4',
+    'webm': 'video/webm',
+    'pdf': 'application/pdf',
+    'zip': 'application/zip'
+  };
+  const contentType = contentTypes[ext || ''] || 'application/octet-stream';
+  let encryptedAtRest = false;
+  let decryptedBuffer: Buffer | null = null;
+  let responseBuffer: Buffer | null = null;
+  let compressedAtRest = false;
+  let responseSize = stat.size;
+  try {
+    const storedBuffer = readFileSync(filePath);
+    let plainBuffer = storedBuffer;
+    if (storedBuffer.slice(0, AT_REST_MAGIC.length).equals(AT_REST_MAGIC)) {
+      encryptedAtRest = true;
+      decryptedBuffer = maybeDecryptFromAtRest(storedBuffer);
+      plainBuffer = decryptedBuffer;
+    }
+
+    const maybeDecompressed = maybeDecompressUploadPayload(plainBuffer);
+    if (maybeDecompressed.compressed) {
+      compressedAtRest = true;
+    }
+    responseBuffer = maybeDecompressed.payload;
+    responseSize = responseBuffer.length;
+    if (encryptedAtRest) {
+      decryptedBuffer = responseBuffer;
+    }
+  } catch (error) {
+    console.error('Upload read/decrypt error:', error);
+    res.writeHead(500);
+    res.end("Failed to read upload");
+    return;
+  }
+
+  const etag = `"${responseSize}-${Math.floor(stat.mtimeMs)}"`;
+  const headers: Record<string, string | number> = {
+    'Content-Type': contentType,
+    'Cache-Control': options.cacheControl,
+    'ETag': etag,
+    'Last-Modified': stat.mtime.toUTCString(),
+    'Accept-Ranges': (encryptedAtRest || compressedAtRest || options.allowRange === false) ? 'none' : 'bytes',
+    'X-Content-Type-Options': 'nosniff',
+  };
+
+  const originHeader = req.headers.origin;
+  if (originHeader) {
+    headers['Access-Control-Allow-Origin'] = originHeader;
+    headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS';
+  }
+
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304);
+    res.end();
+    return;
+  }
+
+  const rangeHeader = req.headers.range;
+  if (rangeHeader && options.allowRange !== false && !encryptedAtRest && !compressedAtRest) {
+    const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+    if (match) {
+      const start = parseInt(match[1], 10);
+      const end = match[2] ? parseInt(match[2], 10) : responseSize - 1;
+      if (start >= responseSize || end >= responseSize || start > end) {
+        res.writeHead(416, { 'Content-Range': `bytes */${responseSize}` });
+        res.end();
+        return;
+      }
+      headers['Content-Range'] = `bytes ${start}-${end}/${responseSize}`;
+      headers['Content-Length'] = end - start + 1;
+      res.writeHead(206, headers);
+      recordCompressionDownloadSample({
+        timestamp: Date.now(),
+        fileExt: getFileExtension(fileId),
+        mimeType: contentType,
+        storedBytes: stat.size,
+        responseBytes: end - start + 1,
+        durationMs: Date.now() - downloadStartedAt,
+        decryptedAtRest: false,
+        rangeRequest: true,
+        streamed: true,
+        statusCode: 206
+      });
+      if (req.method === 'HEAD') {
+        res.end();
+      } else {
+        createReadStream(filePath, { start, end }).pipe(res);
+      }
+      return;
+    }
+  }
+
+  headers['Content-Length'] = responseSize;
+  res.writeHead(200, headers);
+  if (req.method === 'HEAD') {
+    res.end();
+    return;
+  }
+
+  if ((encryptedAtRest || compressedAtRest) && responseBuffer) {
+    recordCompressionDownloadSample({
+      timestamp: Date.now(),
+      fileExt: getFileExtension(fileId),
+      mimeType: contentType,
+      storedBytes: stat.size,
+      responseBytes: responseBuffer.length,
+      durationMs: Date.now() - downloadStartedAt,
+      decryptedAtRest: encryptedAtRest || compressedAtRest,
+      rangeRequest: false,
+      streamed: false,
+      statusCode: 200
+    });
+    res.end(responseBuffer);
+    return;
+  }
+
+  recordCompressionDownloadSample({
+    timestamp: Date.now(),
+    fileExt: getFileExtension(fileId),
+    mimeType: contentType,
+    storedBytes: stat.size,
+    responseBytes: responseSize,
+    durationMs: Date.now() - downloadStartedAt,
+    decryptedAtRest: false,
+    rangeRequest: false,
+    streamed: true,
+    statusCode: 200
+  });
+  createReadStream(filePath).pipe(res);
 }
 
 // Request handler
@@ -4800,6 +5077,130 @@ server.on('request', async (req, res) => {
       }
     });
 
+    return;
+  }
+
+  const whiteboardImageUploadMatch = url.pathname.match(/^\/api\/whiteboard\/boards\/([^/]+)\/images$/);
+  if (whiteboardImageUploadMatch && req.method === "POST") {
+    const boardId = decodePathSegment(whiteboardImageUploadMatch[1] || '')?.trim() || '';
+    if (!boardId) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Invalid whiteboard id' }));
+      return;
+    }
+    const access = getAccessibleWhiteboardForRequest(req, boardId, { createIfMissing: true });
+    if (!access.allowed) {
+      res.writeHead(access.status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: access.error }));
+      return;
+    }
+
+    try {
+      const uploadStartedAt = Date.now();
+      const userId = getAuthenticatedUserId(req);
+      const guestSessionId = getGuestSessionId(req);
+      const ownerKey = getUploadOwnerKey(userId, guestSessionId) || access.actorStableId;
+      const bodyBuffer = await readRequestBuffer(req);
+      const uploaded =
+        readMultipartSingleFile(req.headers['content-type'], bodyBuffer, 'file') ||
+        readMultipartSingleFile(req.headers['content-type'], bodyBuffer, 'image');
+
+      if (!uploaded) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Image file is required (multipart/form-data)' }));
+        return;
+      }
+
+      const safeFileName = sanitizeUploadFileName(uploaded.fileName || 'whiteboard-image.bin');
+      if (!enforceUploadLimit(res, userId, guestSessionId, uploaded.data.length, safeFileName, 'direct-upload')) {
+        return;
+      }
+
+      const fileId = createWhiteboardUploadFileId(access.board.boardId, safeFileName);
+      const filePath = resolveUploadPath(fileId);
+      if (!filePath) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Failed to resolve whiteboard upload path' }));
+        return;
+      }
+
+      if (!existsSync(UPLOADS_DIR)) {
+        mkdirSync(UPLOADS_DIR, { recursive: true });
+      }
+
+      const mimeType = uploaded.contentType || 'application/octet-stream';
+      const storageResult = maybeCompressUploadPayload(
+        safeFileName,
+        mimeType,
+        uploaded.data,
+        `${ownerKey}:${access.board.boardId}:${safeFileName}:${uploaded.data.length}`
+      );
+      writeUploadFile(filePath, storageResult.payload);
+      const storedBytes = statSync(filePath).size;
+      recordCompressionUploadSample({
+        timestamp: Date.now(),
+        source: 'direct-upload-multipart',
+        fileExt: getFileExtension(safeFileName),
+        mimeType,
+        originalBytes: storageResult.meta.originalSize,
+        storedBytes,
+        durationMs: Date.now() - uploadStartedAt,
+        atRestEncrypted: Boolean(FILE_ENCRYPTION_KEY)
+      });
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        boardId: access.board.boardId,
+        fileId,
+        fileUrl: createWhiteboardUploadUrl(access.board.boardId, fileId),
+        fileName: safeFileName,
+        fileSize: uploaded.data.length,
+        mimeType,
+        attachmentStorage: { ...storageResult.meta, storedSize: storedBytes }
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Whiteboard image upload failed';
+      const status = message.startsWith('request_body_too_large') ? 413 : 500;
+      console.error('[Whiteboard] Upload error:', error);
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: status === 413 ? 'Whiteboard image exceeds server request limit' : message }));
+    }
+    return;
+  }
+
+  const whiteboardImageReadMatch = url.pathname.match(/^\/api\/whiteboard\/boards\/([^/]+)\/files\/([^/]+)$/);
+  if (whiteboardImageReadMatch && (req.method === "GET" || req.method === "HEAD")) {
+    const boardId = decodePathSegment(whiteboardImageReadMatch[1] || '')?.trim() || '';
+    if (!boardId) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: 'Invalid whiteboard id' }));
+      return;
+    }
+    const fileId = normalizeUploadFileIdSegment(whiteboardImageReadMatch[2] || '');
+    if (!fileId) {
+      res.writeHead(403);
+      res.end("Access denied");
+      return;
+    }
+
+    const access = getAccessibleWhiteboardForRequest(req, boardId);
+    if (!access.allowed) {
+      res.writeHead(access.status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: access.error }));
+      return;
+    }
+
+    if (!isWhiteboardUploadFileIdForBoard(access.board.boardId, fileId)) {
+      res.writeHead(403);
+      res.end("Access denied");
+      return;
+    }
+
+    serveUploadByFileId(req, res, fileId, {
+      cacheControl: 'private, max-age=300',
+      allowRange: false
+    });
     return;
   }
 

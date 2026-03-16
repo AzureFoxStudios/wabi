@@ -7,6 +7,7 @@
 	} from '$lib/whiteboard/boardTypes';
 	import { createSyncSession, type SyncSession } from '$lib/whiteboard/boardSync';
 	import { boardStore, elements } from '$lib/whiteboard/boardStore';
+	import { exportBoardAsJson, exportBoardAsPng } from '$lib/whiteboard/export';
 	import WhiteboardCanvas from './WhiteboardCanvas.svelte';
 	import WhiteboardToolbar from './WhiteboardToolbar.svelte';
 
@@ -24,6 +25,7 @@
 	let presence: WhiteboardPresenceUser[] = [];
 	let remoteCursors: RemoteCursorEntry[] = [];
 	let errorMessage = '';
+	let exportBusy = false;
 	let syncSession: SyncSession | null = null;
 	let cursorCleanupTimer: ReturnType<typeof setInterval> | null = null;
 	let syncReady = false;
@@ -101,6 +103,28 @@
 		});
 	}
 
+	async function handleExportPng(): Promise<void> {
+		if (exportBusy) return;
+		exportBusy = true;
+		errorMessage = '';
+		try {
+			await exportBoardAsPng(boardStore.getDocument());
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : 'Failed to export whiteboard as PNG.';
+		} finally {
+			exportBusy = false;
+		}
+	}
+
+	function handleExportJson(): void {
+		errorMessage = '';
+		try {
+			exportBoardAsJson(boardStore.getDocument());
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : 'Failed to export whiteboard as JSON.';
+		}
+	}
+
 	onMount(() => {
 		mounted = true;
 		ensureCursorCleanupTimer();
@@ -148,7 +172,11 @@
 			userColor={localUserColor}
 			{syncReady}
 		/>
-		<WhiteboardToolbar />
+		<WhiteboardToolbar
+			onExportPng={handleExportPng}
+			onExportJson={handleExportJson}
+			{exportBusy}
+		/>
 	</div>
 </div>
 

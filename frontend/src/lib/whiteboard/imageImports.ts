@@ -1,47 +1,63 @@
-import { getAuthToken } from '$lib/authSession';
+import { getAuthToken, getGuestSessionId } from '$lib/authSession';
 import { getServerUrl } from '$lib/serverUrl';
 import type { WhiteboardViewport } from './boardTypes';
 import type { ImageElement } from './elementTypes';
 import { generateElementId } from './elementTypes';
 
 export interface UploadedWhiteboardImage {
+	fileId: string;
 	fileUrl: string;
 	fileName: string;
 	fileSize: number;
+	mimeType: string;
 	naturalWidth: number;
 	naturalHeight: number;
 }
 
-async function readImageDimensions(src: string): Promise<{ width: number; height: number }> {
+async function readImageDimensions(file: File): Promise<{ width: number; height: number }> {
+	const objectUrl = URL.createObjectURL(file);
 	const img = new Image();
-	img.crossOrigin = 'anonymous';
-	img.src = src;
+	img.src = objectUrl;
 	return await new Promise((resolve) => {
 		img.onload = () => {
+			URL.revokeObjectURL(objectUrl);
 			resolve({
 				width: img.naturalWidth || 300,
 				height: img.naturalHeight || 200
 			});
 		};
-		img.onerror = () => resolve({ width: 300, height: 200 });
-		setTimeout(() => resolve({ width: 300, height: 200 }), 5000);
+		img.onerror = () => {
+			URL.revokeObjectURL(objectUrl);
+			resolve({ width: 300, height: 200 });
+		};
+		setTimeout(() => {
+			URL.revokeObjectURL(objectUrl);
+			resolve({ width: 300, height: 200 });
+		}, 5000);
 	});
 }
 
-export async function uploadWhiteboardImage(file: File): Promise<UploadedWhiteboardImage> {
+export async function uploadWhiteboardImage(boardId: string, file: File): Promise<UploadedWhiteboardImage> {
 	const formData = new FormData();
 	formData.append('file', file, file.name);
 	const token = getAuthToken();
+	const sessionId = token ? null : getGuestSessionId();
 	const headers: HeadersInit = {};
 	if (token) {
 		headers.Authorization = `Bearer ${token}`;
 	}
+	if (!token && sessionId) {
+		headers['X-Session-Id'] = sessionId;
+	}
 
-	const response = await fetch(`${getServerUrl()}/api/upload`, {
+	const response = await fetch(
+		`${getServerUrl()}/api/whiteboard/boards/${encodeURIComponent(boardId)}/images`,
+		{
 		method: 'POST',
 		headers,
 		body: formData
-	});
+		}
+	);
 	const payload = await response.json().catch(() => ({}));
 	if (!response.ok) {
 		throw new Error(
@@ -61,8 +77,12 @@ export async function uploadWhiteboardImage(file: File): Promise<UploadedWhitebo
 		throw new Error('Upload did not return a file URL.');
 	}
 
-	const dims = await readImageDimensions(fileUrl);
+	const dims = await readImageDimensions(file);
 	return {
+		fileId:
+			typeof payload?.fileId === 'string' && payload.fileId.trim().length > 0
+				? payload.fileId
+				: '',
 		fileUrl,
 		fileName:
 			typeof payload?.fileName === 'string' && payload.fileName.trim().length > 0
@@ -72,6 +92,10 @@ export async function uploadWhiteboardImage(file: File): Promise<UploadedWhitebo
 			typeof payload?.fileSize === 'number' && Number.isFinite(payload.fileSize)
 				? payload.fileSize
 				: file.size,
+		mimeType:
+			typeof payload?.mimeType === 'string' && payload.mimeType.trim().length > 0
+				? payload.mimeType
+				: file.type || 'application/octet-stream',
 		naturalWidth: dims.width,
 		naturalHeight: dims.height
 	};
@@ -108,6 +132,9 @@ export function createWhiteboardImageElement(
 		updatedAt: Date.now(),
 		locked: false,
 		src: upload.fileUrl,
+		assetId: upload.fileId,
+		fileName: upload.fileName,
+		mimeType: upload.mimeType,
 		naturalWidth: upload.naturalWidth,
 		naturalHeight: upload.naturalHeight
 	};

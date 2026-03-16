@@ -343,10 +343,12 @@ Moderation for MVP:
 As of the current implementation pass:
 
 - Phase 0 is complete.
-- Phase 1 is in progress and already has a working native Svelte board surface mounted inside chat.
-- The board currently has room-scoped sync, snapshot persistence, a floating toolbar, pen/line/rect/ellipse/arrow/text/select/pan tools, local undo/redo, cursor broadcast, and channel-level whiteboard switching.
-- Image paste support is started in the whiteboard canvas, but attachment hardening and UX polish still belong to follow-on work.
-- The current image import path still uses the generic upload pipeline, so private board-scoped attachment handling is not finished yet.
+- Phase 1 is functionally complete and already has a working native Svelte board surface mounted inside chat.
+- The board currently has room-scoped sync, snapshot persistence, a floating toolbar, pen/line/rect/ellipse/arrow/text/select/pan tools, local undo/redo, cursor broadcast, channel-level whiteboard switching, and PNG / JSON export.
+- Image paste, drag/drop, and capture imports now go through private board-scoped attachment routes instead of generic public upload URLs.
+- The image import path also has queued/uploading local preview cards so users are not left staring at a blank canvas while uploads complete.
+- Phase 2 still needs cleanup and polish work around image lifecycle management, orphan cleanup, and more manual cross-client testing.
+- Phase 3 already has the first bridge in place: call UI can capture the current shared-screen frame and queue it into the linked whiteboard flow.
 - The frontend build and `svelte-check` both pass after cleaning the pre-existing `Settings.svelte` parse issue.
 
 ### Phase 0: groundwork
@@ -369,14 +371,15 @@ As of the current implementation pass:
 
 - paste image from clipboard
 - drag/drop image file
-- upload integration
+- private board-scoped upload integration
 - image nodes on canvas
 - drawing over images
-- replace the generic upload URL flow with private board-safe attachment rules before calling image support complete
+- optimistic queued/uploading feedback
+- cleanup/orphan handling for discarded uploads before calling image support complete
 
 ### Phase 3: call integration
 
-- add `Capture to whiteboard` in the call controls
+- `Capture to whiteboard` in the call controls
 - import the current shared-screen frame as an `ImageElement`
 - open or focus the linked board from the call UI
 - support quick annotate-and-return workflows for lessons and reviews
@@ -399,14 +402,14 @@ As of the current implementation pass:
 ## Technical risks
 
 - current server event style is broad and large-file friendly, but not optimized for high-frequency drawing patches
-- image upload latency can make paste feel slow unless optimistic placeholders are used
+- image upload latency is now masked better in the UI, but large uploads can still feel slow without progress-aware transport
 - frame capture from live video can vary by browser/runtime and needs fallbacks
 - text editing on canvas is always awkward, so keep the MVP text tool minimal
 - feature ambition can drift if "Excalidraw parity" is interpreted as "ship everything before launch"
 - copying too much from the React codebase will slow delivery and violate the zero-React end state
 - a desktop-wide overlay will be platform-specific and should stay isolated from core board logic
 - if boards get large quickly, element-level indexing or viewport culling will be needed
-- privacy mistakes around attachments are easy to make if upload access rules are bolted on late
+- privacy mistakes around attachments are easy to make if access rules or cleanup are bolted on late
 
 ## Recommended acceptance criteria for tier 1
 
@@ -424,8 +427,8 @@ Continue from the current cleaned baseline in this order:
 1. Harden Phase 1 interactions.
 Fix selection edge cases, resize polish, remote snapshot reconciliation, and keyboard/tool affordances until the current board feels dependable.
 2. Finish Phase 2 image handling.
-Move whiteboard image ingestion off the generic upload URL path and onto the private attachment rules we actually want long-term, then add optimistic placeholders and import polish.
+Keep the new private image path, then add orphan cleanup, more import QA, and any remaining rough edges in capture/paste/drop flows.
 3. Add call capture integration.
-Wire `Capture to whiteboard` into the call UI so presenters can freeze a frame into the active board without leaving the call flow.
+Finish validating the existing `Capture to whiteboard` flow across browsers/runtimes and tighten the presenter workflow around it.
 4. Decide whether in-app presenter overlay starts before export/polish.
 Treat presenter overlay as local-first by default; only add shared overlay data if we later need editing/history/export beyond what the screen share itself already communicates.

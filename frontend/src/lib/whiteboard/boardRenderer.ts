@@ -2,20 +2,83 @@ import type { WhiteboardViewport } from './boardTypes';
 import type { BoardElement, StrokeElement } from './elementTypes';
 import type { BBox, Handle } from './coords';
 import { boardToScreen } from './coords';
+import { getAuthToken, getGuestSessionId } from '$lib/authSession';
+import { getServerUrl } from '$lib/serverUrl';
 
 // ---------------------------------------------------------------------------
 // Image cache (module-level, shared across renders)
 // ---------------------------------------------------------------------------
 
 const imageCache = new Map<string, HTMLImageElement>();
+const imageLoadCache = new Map<string, Promise<void>>();
+
+function resolveImageUrl(src: string): string {
+	try {
+		return new URL(src, getServerUrl()).toString();
+	} catch {
+		return src;
+	}
+}
+
+function isProtectedWhiteboardImage(src: string): boolean {
+	try {
+		const resolved = new URL(resolveImageUrl(src));
+		return /\/api\/whiteboard\/boards\/[^/]+\/files\/[^/]+$/.test(resolved.pathname);
+	} catch {
+		return false;
+	}
+}
+
+async function loadProtectedImage(img: HTMLImageElement, src: string): Promise<void> {
+	const token = getAuthToken();
+	const sessionId = token ? null : getGuestSessionId();
+	const headers: HeadersInit = {};
+	if (token) {
+		headers.Authorization = `Bearer ${token}`;
+	}
+	if (!token && sessionId) {
+		headers['X-Session-Id'] = sessionId;
+	}
+
+	const response = await fetch(resolveImageUrl(src), {
+		method: 'GET',
+		headers
+	});
+	if (!response.ok) {
+		throw new Error(`Failed to load protected whiteboard image (${response.status})`);
+	}
+	const blob = await response.blob();
+	const objectUrl = URL.createObjectURL(blob);
+	img.onload = () => {
+		URL.revokeObjectURL(objectUrl);
+	};
+	img.onerror = () => {
+		URL.revokeObjectURL(objectUrl);
+	};
+	img.src = objectUrl;
+}
 
 export function preloadImage(src: string): HTMLImageElement {
 	let img = imageCache.get(src);
 	if (!img) {
 		img = new Image();
-		img.crossOrigin = 'anonymous';
-		img.src = src;
+		if (!isProtectedWhiteboardImage(src)) {
+			img.crossOrigin = 'anonymous';
+			img.src = src;
+		}
 		imageCache.set(src, img);
+	}
+	if (isProtectedWhiteboardImage(src) && !img.src && !imageLoadCache.has(src)) {
+		imageLoadCache.set(
+			src,
+			loadProtectedImage(img, src)
+				.catch((error) => {
+					console.warn('[Whiteboard] Failed to preload protected image:', error);
+				})
+				.finally(() => {
+					imageLoadCache.delete(src);
+				})
+		);
 	}
 	return img;
 }
