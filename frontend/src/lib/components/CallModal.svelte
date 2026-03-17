@@ -59,6 +59,14 @@
 	import { callRecordingState, startCallRecording, stopCallRecording } from '$lib/callRecording';
 	import { showCallNotification, playCallRingtone, stopCallRingtone } from '$lib/notifications';
 	import { openWhiteboardSurface, queueWhiteboardImport } from '$lib/whiteboard/whiteboardSurface';
+	import {
+		PRESENTER_OVERLAY_COLORS,
+		PRESENTER_OVERLAY_WIDTHS,
+		clonePresenterOverlayElements,
+		type PresenterOverlayElement,
+		type PresenterOverlayTool
+	} from '$lib/calling/presenterOverlay';
+	import PresenterOverlayCanvas from './PresenterOverlayCanvas.svelte';
 	import { onDestroy, afterUpdate } from 'svelte';
 
 	type CallViewportMode = 'embedded' | 'focus' | 'docked';
@@ -80,6 +88,17 @@
 	let captureBusy = false;
 	let captureFeedback = '';
 	let captureFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
+	let presenterOverlayVisible = false;
+	let presenterOverlayTool: PresenterOverlayTool = 'pen';
+	let presenterOverlayColor: string = PRESENTER_OVERLAY_COLORS[0];
+	let presenterOverlayStrokeWidth: number = PRESENTER_OVERLAY_WIDTHS[1];
+	let activePresenterOverlayTileId = '';
+	let presenterOverlayElementsByTile: Record<string, PresenterOverlayElement[]> = {};
+	let presenterOverlayUndoByTile: Record<string, PresenterOverlayElement[][]> = {};
+	let presenterOverlayRedoByTile: Record<string, PresenterOverlayElement[][]> = {};
+
+	const PRESENTER_OVERLAY_MAX_HISTORY = 24;
+	const presenterOverlayTools: PresenterOverlayTool[] = ['pen', 'arrow', 'rect', 'ellipse'];
 
 	$: spatialAudioActive = $spatialAudioRuntimeStatus.active;
 	$: spatialQuickToggleVisible = $spatialAudioRuntimeStatus.quickToggleVisible;
@@ -190,6 +209,31 @@
 	$: orderedTiles = layoutResult.tileIds
 		.map((tileId) => tileById.get(tileId))
 		.filter((tile): tile is RenderTile => Boolean(tile));
+	$: presenterOverlayAvailable = orderedTiles.some((tile) => tile.kind === 'screen');
+	$: presenterOverlayPreferredTileId =
+		layoutResult.heroIds.find((tileId) => tileById.get(tileId)?.kind === 'screen') ||
+		orderedTiles.find((tile) => tile.kind === 'screen')?.id ||
+		'';
+	$: if (!presenterOverlayAvailable) {
+		presenterOverlayVisible = false;
+		activePresenterOverlayTileId = '';
+	} else if (
+		!activePresenterOverlayTileId ||
+		!orderedTiles.some((tile) => tile.id === activePresenterOverlayTileId && tile.kind === 'screen')
+	) {
+		activePresenterOverlayTileId = presenterOverlayPreferredTileId;
+	}
+	$: activePresenterOverlayElements = activePresenterOverlayTileId
+		? presenterOverlayElementsByTile[activePresenterOverlayTileId] || []
+		: [];
+	$: presenterOverlayCanUndo =
+		Boolean(activePresenterOverlayTileId) &&
+		(presenterOverlayUndoByTile[activePresenterOverlayTileId]?.length || 0) > 0;
+	$: presenterOverlayCanRedo =
+		Boolean(activePresenterOverlayTileId) &&
+		(presenterOverlayRedoByTile[activePresenterOverlayTileId]?.length || 0) > 0;
+	$: presenterOverlayActiveLabel =
+		(activePresenterOverlayTileId && tileById.get(activePresenterOverlayTileId)?.label) || 'Screen';
 	$: routeListeningCount = (() => {
 		const ids = new Set($listeningVoiceChannels);
 		if ($activeVoiceChannel?.id) ids.add($activeVoiceChannel.id);
@@ -225,12 +269,28 @@
 			hatchOpen = false;
 			pinnedTileIds = [];
 			activeSpeakerState = { ...DEFAULT_ACTIVE_SPEAKER_STATE };
+			presenterOverlayVisible = false;
+			presenterOverlayTool = 'pen';
+			presenterOverlayColor = PRESENTER_OVERLAY_COLORS[0];
+			presenterOverlayStrokeWidth = PRESENTER_OVERLAY_WIDTHS[1];
+			activePresenterOverlayTileId = '';
+			presenterOverlayElementsByTile = {};
+			presenterOverlayUndoByTile = {};
+			presenterOverlayRedoByTile = {};
 		}
 		if (!$isInCall && wasInCall) {
 			callViewportMode = 'embedded';
 			hatchOpen = false;
 			pinnedTileIds = [];
 			activeSpeakerState = { ...DEFAULT_ACTIVE_SPEAKER_STATE };
+			presenterOverlayVisible = false;
+			presenterOverlayTool = 'pen';
+			presenterOverlayColor = PRESENTER_OVERLAY_COLORS[0];
+			presenterOverlayStrokeWidth = PRESENTER_OVERLAY_WIDTHS[1];
+			activePresenterOverlayTileId = '';
+			presenterOverlayElementsByTile = {};
+			presenterOverlayUndoByTile = {};
+			presenterOverlayRedoByTile = {};
 		}
 		wasInCall = $isInCall;
 	}
@@ -424,6 +484,152 @@
 		) as HTMLVideoElement | null;
 	}
 
+	function getPresenterOverlayElements(tileId: string): PresenterOverlayElement[] {
+		return presenterOverlayElementsByTile[tileId] || [];
+	}
+
+	function setPresenterOverlayElements(
+		tileId: string,
+		nextElements: PresenterOverlayElement[],
+		options: { recordHistory?: boolean } = {}
+	): void {
+		if (!tileId) return;
+		const { recordHistory = true } = options;
+		const previous = clonePresenterOverlayElements(getPresenterOverlayElements(tileId));
+		const next = clonePresenterOverlayElements(nextElements);
+
+		presenterOverlayElementsByTile = {
+			...presenterOverlayElementsByTile,
+			[tileId]: next
+		};
+
+		if (!recordHistory) return;
+
+		const nextUndo = [...(presenterOverlayUndoByTile[tileId] || []), previous];
+		while (nextUndo.length > PRESENTER_OVERLAY_MAX_HISTORY) nextUndo.shift();
+		presenterOverlayUndoByTile = {
+			...presenterOverlayUndoByTile,
+			[tileId]: nextUndo
+		};
+		presenterOverlayRedoByTile = {
+			...presenterOverlayRedoByTile,
+			[tileId]: []
+		};
+	}
+
+	function activatePresenterOverlayTile(tileId: string): void {
+		if (!tileId) return;
+		activePresenterOverlayTileId = tileId;
+	}
+
+	function togglePresenterOverlay(): void {
+		if (!presenterOverlayAvailable) return;
+		presenterOverlayVisible = !presenterOverlayVisible;
+		if (presenterOverlayVisible && !activePresenterOverlayTileId) {
+			activePresenterOverlayTileId = presenterOverlayPreferredTileId;
+		}
+	}
+
+	function clearPresenterOverlay(): void {
+		if (!activePresenterOverlayTileId || activePresenterOverlayElements.length === 0) return;
+		setPresenterOverlayElements(activePresenterOverlayTileId, []);
+	}
+
+	function undoPresenterOverlay(): void {
+		if (!activePresenterOverlayTileId) return;
+		const undoStack = [...(presenterOverlayUndoByTile[activePresenterOverlayTileId] || [])];
+		if (undoStack.length === 0) return;
+		const previous = undoStack.pop() || [];
+		const current = clonePresenterOverlayElements(getPresenterOverlayElements(activePresenterOverlayTileId));
+		presenterOverlayUndoByTile = {
+			...presenterOverlayUndoByTile,
+			[activePresenterOverlayTileId]: undoStack
+		};
+		presenterOverlayRedoByTile = {
+			...presenterOverlayRedoByTile,
+			[activePresenterOverlayTileId]: [
+				...(presenterOverlayRedoByTile[activePresenterOverlayTileId] || []),
+				current
+			]
+		};
+		presenterOverlayElementsByTile = {
+			...presenterOverlayElementsByTile,
+			[activePresenterOverlayTileId]: clonePresenterOverlayElements(previous)
+		};
+	}
+
+	function redoPresenterOverlay(): void {
+		if (!activePresenterOverlayTileId) return;
+		const redoStack = [...(presenterOverlayRedoByTile[activePresenterOverlayTileId] || [])];
+		if (redoStack.length === 0) return;
+		const next = redoStack.pop() || [];
+		const current = clonePresenterOverlayElements(getPresenterOverlayElements(activePresenterOverlayTileId));
+		presenterOverlayRedoByTile = {
+			...presenterOverlayRedoByTile,
+			[activePresenterOverlayTileId]: redoStack
+		};
+		presenterOverlayUndoByTile = {
+			...presenterOverlayUndoByTile,
+			[activePresenterOverlayTileId]: [
+				...(presenterOverlayUndoByTile[activePresenterOverlayTileId] || []),
+				current
+			]
+		};
+		presenterOverlayElementsByTile = {
+			...presenterOverlayElementsByTile,
+			[activePresenterOverlayTileId]: clonePresenterOverlayElements(next)
+		};
+	}
+
+	function escapeAttributeSelectorValue(value: string): string {
+		if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+			return CSS.escape(value);
+		}
+		return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+	}
+
+	function findPresenterOverlayTileElement(tileId: string): HTMLElement | null {
+		if (!callStageElement || !tileId) return null;
+		return callStageElement.querySelector(
+			`.media-tile[data-tile-id="${escapeAttributeSelectorValue(tileId)}"]`
+		) as HTMLElement | null;
+	}
+
+	function findCompositeCaptureTile(): HTMLElement | null {
+		if (!presenterOverlayVisible || !activePresenterOverlayTileId) return null;
+		return findPresenterOverlayTileElement(activePresenterOverlayTileId);
+	}
+
+	async function captureCompositeTileFrame(tileElement: HTMLElement): Promise<Blob> {
+		const video = tileElement.querySelector('video.tile-video') as HTMLVideoElement | null;
+		if (!video || video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
+			throw new Error('No active screen frame is ready to capture.');
+		}
+
+		const canvas = document.createElement('canvas');
+		canvas.width = video.videoWidth;
+		canvas.height = video.videoHeight;
+		const ctx = canvas.getContext('2d');
+		if (!ctx) {
+			throw new Error('Capture canvas is unavailable.');
+		}
+
+		ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+		const overlayCanvas = tileElement.querySelector(
+			'canvas[data-presenter-overlay-canvas="true"]'
+		) as HTMLCanvasElement | null;
+		if (overlayCanvas) {
+			ctx.drawImage(overlayCanvas, 0, 0, canvas.width, canvas.height);
+		}
+
+		return await new Promise<Blob>((resolve, reject) => {
+			canvas.toBlob((nextBlob) => {
+				if (nextBlob) resolve(nextBlob);
+				else reject(new Error('Unable to serialize captured frame.'));
+			}, 'image/png');
+		});
+	}
+
 	async function handleCaptureToWhiteboard() {
 		if (captureBusy) return;
 		const channelId = resolveWhiteboardCaptureChannelId();
@@ -441,20 +647,24 @@
 		captureBusy = true;
 		setCaptureFeedback('');
 		try {
-			const canvas = document.createElement('canvas');
-			canvas.width = video.videoWidth;
-			canvas.height = video.videoHeight;
-			const ctx = canvas.getContext('2d');
-			if (!ctx) {
-				throw new Error('Capture canvas is unavailable.');
-			}
-			ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-			const blob = await new Promise<Blob>((resolve, reject) => {
-				canvas.toBlob((nextBlob) => {
-					if (nextBlob) resolve(nextBlob);
-					else reject(new Error('Unable to serialize captured frame.'));
-				}, 'image/png');
-			});
+			const compositeTile = findCompositeCaptureTile();
+			const blob = compositeTile
+				? await captureCompositeTileFrame(compositeTile)
+				: await new Promise<Blob>((resolve, reject) => {
+					const canvas = document.createElement('canvas');
+					canvas.width = video.videoWidth;
+					canvas.height = video.videoHeight;
+					const ctx = canvas.getContext('2d');
+					if (!ctx) {
+						reject(new Error('Capture canvas is unavailable.'));
+						return;
+					}
+					ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+					canvas.toBlob((nextBlob) => {
+						if (nextBlob) resolve(nextBlob);
+						else reject(new Error('Unable to serialize captured frame.'));
+					}, 'image/png');
+				});
 			openWhiteboardSurface(channelId);
 			queueWhiteboardImport(
 				channelId,
@@ -739,6 +949,8 @@
 								class:hero={layoutResult.heroIds.includes(tile.id)}
 								class:pinned={isTilePinned(tile.id)}
 								class:speaking={isTileSpeaking(tile)}
+								class:presenter-overlay-target={presenterOverlayVisible && tile.kind === 'screen' && activePresenterOverlayTileId === tile.id}
+								data-tile-id={tile.id}
 							>
 								<button
 									type="button"
@@ -767,6 +979,19 @@
 										muted
 										use:bindMediaStream={tile.stream}
 									></video>
+									{#if tile.kind === 'screen' && presenterOverlayVisible}
+										<PresenterOverlayCanvas
+											elements={getPresenterOverlayElements(tile.id)}
+											enabled={presenterOverlayVisible}
+											active={activePresenterOverlayTileId === tile.id}
+											tool={presenterOverlayTool}
+											strokeColor={presenterOverlayColor}
+											strokeWidth={presenterOverlayStrokeWidth}
+											tileLabel={tile.label}
+											onChange={(nextElements) => setPresenterOverlayElements(tile.id, nextElements)}
+											onActivate={() => activatePresenterOverlayTile(tile.id)}
+										/>
+									{/if}
 								{/if}
 								<div class="tile-label">{tile.label}</div>
 								{#if isTileDisconnected(tile)}
@@ -802,6 +1027,15 @@
 					</button>
 					<button
 						class="control-btn"
+						class:active={presenterOverlayVisible}
+						on:click={togglePresenterOverlay}
+						disabled={!presenterOverlayAvailable}
+						title="Toggle local presenter overlay"
+					>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17c2.5-4 5.17-6 8-6 2.2 0 4.2 1.2 6 3.6"/><path d="M5 5l14 14"/><path d="M14 5H5v9"/></svg>
+					</button>
+					<button
+						class="control-btn"
 						class:active={captureAvailable}
 						on:click={handleCaptureToWhiteboard}
 						disabled={!captureAvailable || captureBusy}
@@ -822,6 +1056,76 @@
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07C9.44 17.28 8.17 16 7.05 14.68A19.79 19.79 0 0 1 4 6.05 2 2 0 0 1 5.99 4h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L10.68 11.68"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
 					</button>
 				</div>
+				{#if presenterOverlayVisible && presenterOverlayAvailable}
+					<div class="presenter-overlay-toolbar" role="toolbar" aria-label="Presenter overlay tools">
+						<div class="presenter-overlay-group presenter-overlay-group--tools">
+							<span class="presenter-overlay-label">Local overlay</span>
+							<span class="presenter-overlay-target-pill">{presenterOverlayActiveLabel}</span>
+							{#each presenterOverlayTools as nextTool}
+								<button
+									class="presenter-overlay-btn"
+									class:is-active={presenterOverlayTool === nextTool}
+									on:click={() => (presenterOverlayTool = nextTool as PresenterOverlayTool)}
+									title={`Use ${nextTool} tool`}
+								>
+									{nextTool}
+								</button>
+							{/each}
+						</div>
+
+						<div class="presenter-overlay-group">
+							{#each PRESENTER_OVERLAY_WIDTHS as width}
+								<button
+									class="presenter-overlay-width"
+									class:is-active={presenterOverlayStrokeWidth === width}
+									on:click={() => (presenterOverlayStrokeWidth = width)}
+									title={`Set stroke width ${width}`}
+								>
+									{width}px
+								</button>
+							{/each}
+						</div>
+
+						<div class="presenter-overlay-group presenter-overlay-group--colors">
+							{#each PRESENTER_OVERLAY_COLORS as color}
+								<button
+									class="presenter-overlay-swatch"
+									class:is-active={presenterOverlayColor === color}
+									style={`--overlay-color: ${color};`}
+									on:click={() => (presenterOverlayColor = color)}
+									title={`Set overlay color ${color}`}
+								></button>
+							{/each}
+						</div>
+
+						<div class="presenter-overlay-group presenter-overlay-group--actions">
+							<button
+								class="presenter-overlay-btn"
+								on:click={undoPresenterOverlay}
+								disabled={!presenterOverlayCanUndo}
+								title="Undo overlay"
+							>
+								Undo
+							</button>
+							<button
+								class="presenter-overlay-btn"
+								on:click={redoPresenterOverlay}
+								disabled={!presenterOverlayCanRedo}
+								title="Redo overlay"
+							>
+								Redo
+							</button>
+							<button
+								class="presenter-overlay-btn danger"
+								on:click={clearPresenterOverlay}
+								disabled={activePresenterOverlayElements.length === 0}
+								title="Clear current overlay"
+							>
+								Clear
+							</button>
+						</div>
+					</div>
+				{/if}
 			</div>
 
 			{#if $connectionState && $connectionState !== 'idle'}
@@ -1365,6 +1669,11 @@
 		border-color: rgba(250, 204, 21, 0.88);
 	}
 
+	.media-tile.presenter-overlay-target {
+		border-color: rgba(250, 204, 21, 0.94);
+		box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.28);
+	}
+
 	.tile-video {
 		width: 100%;
 		height: 100%;
@@ -1402,6 +1711,7 @@
 		position: absolute;
 		left: 0.55rem;
 		bottom: 0.55rem;
+		z-index: 3;
 		background: rgba(0, 0, 0, 0.64);
 		color: #fff;
 		padding: 0.25rem 0.45rem;
@@ -1520,6 +1830,7 @@
 
 	.call-controls {
 		display: flex;
+		flex-direction: column;
 		justify-content: center;
 		align-items: center;
 		gap: 0.9rem;
@@ -1584,6 +1895,126 @@
 		background: rgba(239, 68, 68, 0.2);
 		border-color: rgba(239, 68, 68, 0.5);
 		color: #fda4af;
+	}
+
+	.presenter-overlay-toolbar {
+		width: min(100%, 980px);
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: center;
+		gap: 0.65rem;
+		padding: 0.75rem 0.9rem;
+		border-radius: 18px;
+		background: rgba(15, 23, 42, 0.88);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		box-shadow: 0 20px 45px rgba(2, 6, 23, 0.28);
+		backdrop-filter: blur(12px);
+	}
+
+	.presenter-overlay-group {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: center;
+		gap: 0.45rem;
+	}
+
+	.presenter-overlay-group--tools {
+		margin-right: 0.2rem;
+	}
+
+	.presenter-overlay-group--actions {
+		margin-left: 0.2rem;
+	}
+
+	.presenter-overlay-label {
+		font-size: 0.68rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: rgba(226, 232, 240, 0.76);
+	}
+
+	.presenter-overlay-target-pill {
+		padding: 0.28rem 0.62rem;
+		border-radius: 999px;
+		background: rgba(248, 250, 252, 0.08);
+		border: 1px solid rgba(255, 255, 255, 0.14);
+		color: #f8fafc;
+		font-size: 0.72rem;
+		font-weight: 700;
+		max-width: 200px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.presenter-overlay-btn,
+	.presenter-overlay-width {
+		padding: 0.42rem 0.7rem;
+		border-radius: 999px;
+		border: 1px solid rgba(255, 255, 255, 0.14);
+		background: rgba(255, 255, 255, 0.06);
+		color: rgba(241, 245, 249, 0.94);
+		font-size: 0.72rem;
+		font-weight: 700;
+		text-transform: capitalize;
+		cursor: pointer;
+		transition: background 120ms ease, border-color 120ms ease, color 120ms ease,
+			transform 120ms ease;
+	}
+
+	.presenter-overlay-btn:hover:not(:disabled),
+	.presenter-overlay-width:hover:not(:disabled),
+	.presenter-overlay-swatch:hover:not(:disabled) {
+		transform: translateY(-1px);
+	}
+
+	.presenter-overlay-btn.is-active,
+	.presenter-overlay-width.is-active {
+		background: color-mix(in srgb, var(--accent, #5865f2) 28%, rgba(15, 23, 42, 0.82));
+		border-color: color-mix(in srgb, var(--accent, #5865f2) 64%, transparent);
+		color: #fff;
+	}
+
+	.presenter-overlay-btn.danger {
+		color: #fecaca;
+		border-color: rgba(248, 113, 113, 0.32);
+		background: rgba(127, 29, 29, 0.22);
+	}
+
+	.presenter-overlay-btn:disabled,
+	.presenter-overlay-width:disabled {
+		cursor: not-allowed;
+		opacity: 0.45;
+		transform: none;
+	}
+
+	.presenter-overlay-group--colors {
+		gap: 0.35rem;
+	}
+
+	.presenter-overlay-swatch {
+		width: 28px;
+		height: 28px;
+		border-radius: 999px;
+		border: 2px solid rgba(255, 255, 255, 0.18);
+		background: var(--overlay-color, #f8fafc);
+		cursor: pointer;
+		box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.26);
+		transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+	}
+
+	.presenter-overlay-swatch.is-active {
+		border-color: #fff;
+		box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.16);
+	}
+
+	.presenter-overlay-swatch:disabled {
+		cursor: not-allowed;
+		opacity: 0.5;
+		transform: none;
 	}
 
 	.connection-status {
@@ -1687,6 +2118,19 @@
 		.template-hero-stack .media-tile.hero {
 			grid-row: auto;
 			aspect-ratio: 16 / 9;
+		}
+
+		.presenter-overlay-toolbar {
+			padding: 0.65rem 0.7rem;
+			gap: 0.55rem;
+		}
+
+		.presenter-overlay-group--tools {
+			width: 100%;
+		}
+
+		.presenter-overlay-target-pill {
+			max-width: min(100%, 160px);
 		}
 	}
 </style>

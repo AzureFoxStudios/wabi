@@ -349,6 +349,7 @@ As of the current implementation pass:
 - The image import path also has queued/uploading local preview cards so users are not left staring at a blank canvas while uploads complete.
 - Backend now has grace-period orphan cleanup for unreferenced whiteboard uploads, so Phase 2 is down to lifecycle polish and more manual cross-client testing.
 - Phase 3 already has the first bridge in place: call UI can capture the current shared-screen frame and queue it into the linked whiteboard flow.
+- Phase 5 now has its first real implementation too: the call UI has a local-first presenter overlay for shared-screen tiles with pen/arrow/rect/ellipse tools, undo/redo, clear, and capture-to-whiteboard composition.
 - Backend also has a runnable smoke script for the private whiteboard upload/read path so the server-side attachment contract can be checked against a live stack quickly.
 - The frontend build and `svelte-check` both pass after cleaning the pre-existing `Settings.svelte` parse issue.
 
@@ -398,6 +399,8 @@ As of the current implementation pass:
 
 - local-first in-app annotation overlay above shared screens
 - presenter-only markup toggle and clear controls
+- multi-shape local overlay toolbar in the call UI
+- compose overlay markup into `Capture to whiteboard`
 - only add shared overlay sync if real product needs appear beyond what screen share already shows
 - investigate desktop-wide Tauri overlay as a separate mode
 
@@ -432,5 +435,5 @@ Fix selection edge cases, resize polish, remote snapshot reconciliation, and key
 Keep the new private image path, then finish import QA and any remaining rough edges in capture/paste/drop flows.
 3. Add call capture integration.
 Finish validating the existing `Capture to whiteboard` flow across browsers/runtimes and tighten the presenter workflow around it.
-4. Decide whether in-app presenter overlay starts before export/polish.
+4. Polish the now-local presenter overlay.
 Treat presenter overlay as local-first by default; only add shared overlay data if we later need editing/history/export beyond what the screen share itself already communicates.
