@@ -262,6 +262,15 @@ export class WhiteboardRepository {
 		return this.parseRow(row)!;
 	}
 
+	listAll(): WhiteboardRecord[] {
+		const rows = db
+			.prepare('SELECT * FROM whiteboards ORDER BY updated_at DESC')
+			.all() as WhiteboardRow[];
+		return rows
+			.map((row) => this.parseRow(row))
+			.filter((row): row is WhiteboardRecord => row !== null);
+	}
+
 	saveSnapshot(boardId: string, document: unknown, actorStableId: string): WhiteboardRecord | null {
 		const existing = this.getByBoardId(boardId);
 		if (!existing) return null;

@@ -347,7 +347,7 @@ As of the current implementation pass:
 - The board currently has room-scoped sync, snapshot persistence, a floating toolbar, pen/line/rect/ellipse/arrow/text/select/pan tools, local undo/redo, cursor broadcast, channel-level whiteboard switching, and PNG / JSON export.
 - Image paste, drag/drop, and capture imports now go through private board-scoped attachment routes instead of generic public upload URLs.
 - The image import path also has queued/uploading local preview cards so users are not left staring at a blank canvas while uploads complete.
-- Phase 2 still needs cleanup and polish work around image lifecycle management, orphan cleanup, and more manual cross-client testing.
+- Backend now has grace-period orphan cleanup for unreferenced whiteboard uploads, so Phase 2 is down to lifecycle polish and more manual cross-client testing.
 - Phase 3 already has the first bridge in place: call UI can capture the current shared-screen frame and queue it into the linked whiteboard flow.
 - The frontend build and `svelte-check` both pass after cleaning the pre-existing `Settings.svelte` parse issue.
 
@@ -375,7 +375,8 @@ As of the current implementation pass:
 - image nodes on canvas
 - drawing over images
 - optimistic queued/uploading feedback
-- cleanup/orphan handling for discarded uploads before calling image support complete
+- grace-period cleanup/orphan handling for discarded uploads
+- more manual QA before calling image support complete
 
 ### Phase 3: call integration
 
@@ -427,7 +428,7 @@ Continue from the current cleaned baseline in this order:
 1. Harden Phase 1 interactions.
 Fix selection edge cases, resize polish, remote snapshot reconciliation, and keyboard/tool affordances until the current board feels dependable.
 2. Finish Phase 2 image handling.
-Keep the new private image path, then add orphan cleanup, more import QA, and any remaining rough edges in capture/paste/drop flows.
+Keep the new private image path, then finish import QA and any remaining rough edges in capture/paste/drop flows.
 3. Add call capture integration.
 Finish validating the existing `Capture to whiteboard` flow across browsers/runtimes and tighten the presenter workflow around it.
 4. Decide whether in-app presenter overlay starts before export/polish.

@@ -2171,6 +2171,9 @@ function removeAllCallPeers(socketId: string): Set<string> {
 const WHITEBOARD_ROOM_PREFIX = "whiteboard:";
 const WHITEBOARD_MAX_DOCUMENT_BYTES = 2 * 1024 * 1024;
 const WHITEBOARD_MAX_LIVE_PAYLOAD_BYTES = 128 * 1024;
+const WHITEBOARD_UPLOAD_PREFIX = 'wbi-';
+const WHITEBOARD_ORPHAN_UPLOAD_GRACE_MS = 24 * 60 * 60 * 1000;
+const WHITEBOARD_ORPHAN_UPLOAD_CLEANUP_STARTUP_DELAY_MS = 30 * 1000;
 
 function getWhiteboardRoomId(boardId: string): string {
   return `${WHITEBOARD_ROOM_PREFIX}${boardId}`;
@@ -2182,6 +2185,10 @@ function getSerializedPayloadBytes(value: unknown): number {
   } catch {
     return Number.MAX_SAFE_INTEGER;
   }
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function getWhiteboardPresenceUsers(boardId: string): Array<{ userId: string; username: string; color: string | null }> {
@@ -2813,11 +2820,15 @@ function getWhiteboardUploadScopeTag(boardId: string): string {
 function createWhiteboardUploadFileId(boardId: string, fileName: string): string {
   const safeName = sanitizeUploadFileName(fileName || 'whiteboard-image.bin');
   const nonce = randomBytes(6).toString('hex');
-  return `wbi-${getWhiteboardUploadScopeTag(boardId)}-${Date.now()}-${nonce}-${safeName}`;
+  return `${WHITEBOARD_UPLOAD_PREFIX}${getWhiteboardUploadScopeTag(boardId)}-${Date.now()}-${nonce}-${safeName}`;
+}
+
+function isWhiteboardUploadFileId(fileId: string): boolean {
+  return typeof fileId === 'string' && fileId.startsWith(WHITEBOARD_UPLOAD_PREFIX);
 }
 
 function isWhiteboardUploadFileIdForBoard(boardId: string, fileId: string): boolean {
-  return fileId.startsWith(`wbi-${getWhiteboardUploadScopeTag(boardId)}-`);
+  return fileId.startsWith(`${WHITEBOARD_UPLOAD_PREFIX}${getWhiteboardUploadScopeTag(boardId)}-`);
 }
 
 function createWhiteboardUploadUrl(boardId: string, fileId: string): string {
@@ -2846,6 +2857,129 @@ function normalizeUploadFileIdSegment(rawSegment: string | undefined | null): st
 function normalizeUploadFileIdFromUrl(fileUrl: string | undefined | null): string | null {
   if (typeof fileUrl !== 'string' || !fileUrl.startsWith('/uploads/')) return null;
   return normalizeUploadFileIdSegment(fileUrl.slice('/uploads/'.length));
+}
+
+function normalizeWhiteboardUploadFileIdFromUrl(boardId: string, fileUrl: string | undefined | null): string | null {
+  if (typeof fileUrl !== 'string' || fileUrl.trim().length === 0) return null;
+
+  try {
+    const parsed = new URL(fileUrl, 'http://wabi.local');
+    const match = parsed.pathname.match(/^\/api\/whiteboard\/boards\/([^/]+)\/files\/([^/]+)$/);
+    if (!match) return null;
+
+    const scopedBoardId = decodePathSegment(match[1])?.trim() || '';
+    if (!scopedBoardId || scopedBoardId !== boardId) return null;
+
+    const fileId = normalizeUploadFileIdSegment(match[2]);
+    if (!fileId || !isWhiteboardUploadFileIdForBoard(boardId, fileId)) return null;
+    return fileId;
+  } catch {
+    return null;
+  }
+}
+
+function collectWhiteboardUploadFileIdsFromDocument(boardId: string, document: unknown): Set<string> {
+  const referencedFileIds = new Set<string>();
+  const rawElements =
+    isObjectRecord(document) && Array.isArray(document.elements)
+      ? document.elements
+      : [];
+
+  for (const rawElement of rawElements) {
+    if (!isObjectRecord(rawElement)) continue;
+
+    const rawAssetId = typeof rawElement.assetId === 'string' ? rawElement.assetId.trim() : '';
+    if (rawAssetId) {
+      const assetId = normalizeUploadFileIdSegment(rawAssetId);
+      if (assetId && isWhiteboardUploadFileIdForBoard(boardId, assetId)) {
+        referencedFileIds.add(assetId);
+      }
+    }
+
+    const rawSrc = typeof rawElement.src === 'string' ? rawElement.src.trim() : '';
+    if (!rawSrc) continue;
+
+    const fileId = normalizeWhiteboardUploadFileIdFromUrl(boardId, rawSrc);
+    if (fileId) {
+      referencedFileIds.add(fileId);
+    }
+  }
+
+  return referencedFileIds;
+}
+
+function listWhiteboardScopedUploadFiles(): Array<{ fileId: string; filePath: string; mtimeMs: number }> {
+  if (!existsSync(UPLOADS_DIR)) return [];
+
+  const scopedUploads: Array<{ fileId: string; filePath: string; mtimeMs: number }> = [];
+  for (const fileId of readdirSync(UPLOADS_DIR)) {
+    if (!isWhiteboardUploadFileId(fileId)) continue;
+
+    const filePath = resolveUploadPath(fileId);
+    if (!filePath || !existsSync(filePath)) continue;
+
+    try {
+      const fileStat = statSync(filePath);
+      if (!fileStat.isFile()) continue;
+      scopedUploads.push({
+        fileId,
+        filePath,
+        mtimeMs: fileStat.mtimeMs
+      });
+    } catch (error) {
+      console.error(`[WhiteboardCleanup] Failed to inspect whiteboard upload ${fileId}:`, error);
+    }
+  }
+
+  return scopedUploads;
+}
+
+function cleanupWhiteboardOrphanUploads(logLabel: string): {
+  boardCount: number;
+  referencedCount: number;
+  scannedFiles: number;
+  deletedFiles: number;
+  retainedByGrace: number;
+} {
+  const boards = whiteboardRepository.listAll();
+  const referencedFileIds = new Set<string>();
+  for (const board of boards) {
+    for (const fileId of collectWhiteboardUploadFileIdsFromDocument(board.boardId, board.document)) {
+      referencedFileIds.add(fileId);
+    }
+  }
+
+  const cutoffMs = Date.now() - WHITEBOARD_ORPHAN_UPLOAD_GRACE_MS;
+  let scannedFiles = 0;
+  let deletedFiles = 0;
+  let retainedByGrace = 0;
+
+  for (const candidate of listWhiteboardScopedUploadFiles()) {
+    scannedFiles++;
+    if (referencedFileIds.has(candidate.fileId)) continue;
+    if (candidate.mtimeMs > cutoffMs) {
+      retainedByGrace++;
+      continue;
+    }
+
+    try {
+      unlinkSync(candidate.filePath);
+      deletedFiles++;
+      if (ENABLE_LOGGING) {
+        console.log(`[${logLabel}] Deleted orphan whiteboard upload: ${candidate.fileId}`);
+      }
+    } catch (error) {
+      console.error(`[${logLabel}] Failed to delete orphan whiteboard upload ${candidate.fileId}:`, error);
+    }
+  }
+
+  return {
+    boardCount: boards.length,
+    referencedCount: referencedFileIds.size,
+    scannedFiles,
+    deletedFiles,
+    retainedByGrace
+  };
 }
 
 function resolveUploadPath(fileId: string): string | null {
@@ -7086,6 +7220,19 @@ try {
 }
 
 // Start background job for expired offline message cleanup (hourly)
+const runWhiteboardOrphanCleanup = (logLabel: string): void => {
+  try {
+    const stats = cleanupWhiteboardOrphanUploads(logLabel);
+    if (stats.deletedFiles > 0 || stats.retainedByGrace > 0) {
+      console.log(
+        `[${logLabel}] scanned=${stats.scannedFiles} deleted=${stats.deletedFiles} retainedByGrace=${stats.retainedByGrace} referenced=${stats.referencedCount} boards=${stats.boardCount}`
+      );
+    }
+  } catch (error) {
+    console.error(`[${logLabel}] Failed whiteboard orphan cleanup:`, error);
+  }
+};
+
 const cleanupInterval = setInterval(() => {
   try {
     const deleted = offlineMessageRepository.deleteExpired();
@@ -7115,7 +7262,13 @@ const cleanupInterval = setInterval(() => {
   } catch (error) {
     console.error('[Cleanup] Failed session cleanup:', error);
   }
+
+  runWhiteboardOrphanCleanup('WhiteboardCleanup');
 }, 60 * 60 * 1000); // 1 hour
+const whiteboardOrphanCleanupStartupTimer = setTimeout(() => {
+  runWhiteboardOrphanCleanup('WhiteboardCleanupStartup');
+}, WHITEBOARD_ORPHAN_UPLOAD_CLEANUP_STARTUP_DELAY_MS);
+whiteboardOrphanCleanupStartupTimer.unref();
 
 let shuttingDown = false;
 let selfHostedBoosterRelayAdvertiser: ReturnType<typeof startSelfHostedBoosterRelayAdvertiser> | null = null;
@@ -7125,6 +7278,7 @@ const shutdown = (signal: 'SIGINT' | 'SIGTERM') => {
 
   console.log(`\n[Server] ${signal} received. Shutting down...`);
   clearInterval(cleanupInterval);
+  clearTimeout(whiteboardOrphanCleanupStartupTimer);
   selfHostedBoosterRelayAdvertiser?.stop();
   stopStateMeshRuntime();
   stopStatePlaneRuntime();
