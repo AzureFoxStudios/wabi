@@ -55,8 +55,9 @@ RUN groupadd -r wabi && useradd -r -g wabi -d /app wabi \
   && chmod +x /app/docker-entrypoint.sh \
   && mkdir -p /app/data /app/plugins /app/scripts \
   && chown -R wabi:wabi /app
-
-USER wabi
+# Keep the runtime on root by default so bind-mounted SQLite/data paths stay
+# writable on Docker Desktop/Windows hosts. The prior unprivileged default
+# caused crash loops with SQLITE_READONLY on rebuild.
 
 EXPOSE 8080
 

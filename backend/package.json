@@ -8,6 +8,7 @@
     "build": "esbuild src/server.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/server.js --external:socket.io --external:better-sqlite3 --external:jsonwebtoken --external:jws --external:safe-buffer --external:buffer --external:bcrypt --external:adm-zip",
     "auth:operator-reset": "tsx --env-file-if-exists=.env scripts/operator-reset-password.ts",
     "auth:operator-reset:smoke": "tsx --env-file-if-exists=.env scripts/operator-reset-password-smoke.ts",
+    "whiteboard:smoke": "tsx --env-file-if-exists=../.env scripts/whiteboard-smoke.ts",
     "payments:smoke": "tsx scripts/payments-smoke-check.ts",
     "payments:provider-sandbox-smoke": "tsx scripts/payments-provider-sandbox-smoke.ts",
     "payments:western-provider-sandbox-smoke": "tsx scripts/payments-western-provider-sandbox-smoke.ts",

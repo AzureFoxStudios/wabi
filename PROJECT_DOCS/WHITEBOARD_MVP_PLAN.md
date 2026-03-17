@@ -349,6 +349,7 @@ As of the current implementation pass:
 - The image import path also has queued/uploading local preview cards so users are not left staring at a blank canvas while uploads complete.
 - Backend now has grace-period orphan cleanup for unreferenced whiteboard uploads, so Phase 2 is down to lifecycle polish and more manual cross-client testing.
 - Phase 3 already has the first bridge in place: call UI can capture the current shared-screen frame and queue it into the linked whiteboard flow.
+- Backend also has a runnable smoke script for the private whiteboard upload/read path so the server-side attachment contract can be checked against a live stack quickly.
 - The frontend build and `svelte-check` both pass after cleaning the pre-existing `Settings.svelte` parse issue.
 
 ### Phase 0: groundwork
