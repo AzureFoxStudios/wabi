@@ -1,9 +1,12 @@
 import { Server } from "socket.io";
 import { createServer } from "http";
 import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync, createReadStream, openSync, closeSync, writeSync } from "fs";
+import { readFile as readFileAsync, writeFile as writeFileAsync, stat as statAsync, unlink as unlinkAsync, open as openFileAsync } from "fs/promises";
 import { join, basename, resolve, sep } from "path";
 import { createHmac, randomBytes, timingSafeEqual, createCipheriv, createDecipheriv, createHash } from "crypto";
-import { brotliCompressSync, constants as zlibConstants, gzipSync, gunzipSync } from "zlib";
+import { brotliCompressSync, constants as zlibConstants, gzipSync, gunzipSync, gzip as gzipCb } from "zlib";
+import { promisify } from "util";
+const gzipAsync = promisify(gzipCb);
 import { lookup as dnsLookup } from "dns/promises";
 import { isIP } from "net";
 import { PluginLoader } from "./plugins/loader";
@@ -1290,6 +1293,11 @@ function emitMeshBroadcast(event: string, data: unknown): void {
   }
 }
 
+function emitGlobalEvent(event: string, data: unknown): void {
+  io.emit(event, data);
+  emitMeshBroadcast(event, data);
+}
+
 function emitToStableUser(stableUserId: string, event: string, data: unknown): boolean {
   if (emitToStableUserLocal(stableUserId, event, data)) {
     return true;
@@ -1326,7 +1334,7 @@ function emitToChannelLocal(channelId: string, event: string, data: any): void {
       emitToStableUserLocal(stableId, event, data);
     });
   } else {
-    io.emit(event, data);
+    emitGlobalEvent(event, data);
   }
 }
 
@@ -2619,6 +2627,10 @@ function writeUploadFile(filePath: string, payload: Buffer): void {
   writeFileSync(filePath, maybeEncryptForAtRest(payload));
 }
 
+async function writeUploadFileNonBlocking(filePath: string, payload: Buffer): Promise<void> {
+  await writeFileAsync(filePath, maybeEncryptForAtRest(payload));
+}
+
 const UPLOAD_COMPRESSION_ENABLED = (process.env.UPLOAD_COMPRESSION_ENABLED || 'false') === 'true';
 const UPLOAD_COMPRESSION_MIN_BYTES = Math.max(1024, Number(process.env.UPLOAD_COMPRESSION_MIN_BYTES || 4096));
 const UPLOAD_COMPRESSION_GZIP_LEVEL = Math.min(9, Math.max(1, Number(process.env.UPLOAD_COMPRESSION_GZIP_LEVEL || 6)));
@@ -2750,6 +2762,54 @@ function maybeCompressUploadPayload(fileName: string, mimeType: string, payload:
 
   try {
     const compressed = gzipSync(payload, { level: UPLOAD_COMPRESSION_GZIP_LEVEL });
+    if (compressed.length >= payload.length) {
+      return { payload, meta: identityMeta() };
+    }
+
+    const header = Buffer.alloc(UPLOAD_COMP_HEADER_SIZE);
+    UPLOAD_COMP_MAGIC.copy(header, 0);
+    header.writeUInt8(UPLOAD_COMP_CODEC_GZIP, UPLOAD_COMP_MAGIC.length);
+    header.writeUInt32BE(payload.length, UPLOAD_COMP_MAGIC.length + 1);
+    const encoded = Buffer.concat([header, compressed]);
+    return {
+      payload: encoded,
+      meta: {
+        scheme: 'wabi-storage-v1',
+        compressed: true,
+        codec: 'gzip',
+        originalSize: payload.length,
+        storedSize: encoded.length,
+        atRestEncrypted: Boolean(FILE_ENCRYPTION_KEY)
+      }
+    };
+  } catch (error) {
+    console.warn('[UploadCompression] Failed to compress upload payload; storing uncompressed', error);
+    return { payload, meta: identityMeta() };
+  }
+}
+
+async function maybeCompressUploadPayloadNonBlocking(fileName: string, mimeType: string, payload: Buffer, rolloutKey: string): Promise<{ payload: Buffer; meta: AttachmentStorageMeta }> {
+  const identityMeta = (): AttachmentStorageMeta => ({
+    scheme: 'wabi-storage-v1',
+    compressed: false,
+    codec: 'identity',
+    originalSize: payload.length,
+    storedSize: payload.length,
+    atRestEncrypted: Boolean(FILE_ENCRYPTION_KEY)
+  });
+
+  if (!shouldCompressUploadPayload(fileName, mimeType, payload.length)) {
+    return { payload, meta: identityMeta() };
+  }
+  if (!isUploadCompressionInRollout(rolloutKey)) {
+    return { payload, meta: identityMeta() };
+  }
+  if (payload.length > 0xffffffff) {
+    return { payload, meta: identityMeta() };
+  }
+
+  try {
+    const compressed = await gzipAsync(payload, { level: UPLOAD_COMPRESSION_GZIP_LEVEL });
     if (compressed.length >= payload.length) {
       return { payload, meta: identityMeta() };
     }
@@ -4218,7 +4278,9 @@ server.on('request', async (req, res) => {
         }
 
         const delivered = applyInboundMeshDelivery(delivery);
-        markSeenMeshDelivery(delivery.deliveryId);
+        if (delivered) {
+          markSeenMeshDelivery(delivery.deliveryId);
+        }
         res.writeHead(202, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: true, delivered }));
       } catch (error) {
@@ -4918,11 +4980,11 @@ server.on('request', async (req, res) => {
       }
 
       const partPath = getResumablePartPath(uploadId);
-      const fd = openSync(partPath, 'a+');
+      const fh = await openFileAsync(partPath, 'a+');
       try {
-        writeSync(fd, chunk, 0, chunk.length, offset);
+        await fh.write(chunk, 0, chunk.length, offset);
       } finally {
-        closeSync(fd);
+        await fh.close();
       }
 
       meta.updatedAt = Date.now();
@@ -5013,10 +5075,11 @@ server.on('request', async (req, res) => {
         return;
       }
       const partPath = getResumablePartPath(uploadId);
-      const finalPlain = readFileSync(partPath);
-      const storageResult = maybeCompressUploadPayload(meta.fileName, meta.mimeType || 'application/octet-stream', finalPlain, `${ownerKey}:${meta.fileName}:${meta.fileSize}`);
-      writeUploadFile(filePath, storageResult.payload);
-      const storedBytes = statSync(filePath).size;
+      const finalPlain = await readFileAsync(partPath);
+      const storageResult = await maybeCompressUploadPayloadNonBlocking(meta.fileName, meta.mimeType || 'application/octet-stream', finalPlain, `${ownerKey}:${meta.fileName}:${meta.fileSize}`);
+      await writeUploadFileNonBlocking(filePath, storageResult.payload);
+      const storedStat = await statAsync(filePath);
+      const storedBytes = storedStat.size;
       recordCompressionUploadSample({
         timestamp: Date.now(),
         source: 'resumable-complete',
@@ -5027,7 +5090,7 @@ server.on('request', async (req, res) => {
         durationMs: Date.now() - uploadStartedAt,
         atRestEncrypted: Boolean(FILE_ENCRYPTION_KEY)
       });
-      unlinkSync(partPath);
+      await unlinkAsync(partPath);
 
       meta.status = 'completed';
       meta.fileUrl = `/uploads/${fileId}`;
@@ -5083,7 +5146,7 @@ server.on('request', async (req, res) => {
       chunks.push(chunk);
     });
 
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
         const buffer = Buffer.concat(chunks);
         const boundary = req.headers['content-type']?.split('boundary=')[1];
@@ -5113,9 +5176,9 @@ server.on('request', async (req, res) => {
             return;
           }
           const mimeType = getMimeTypeFromDataUrl(fileData || '');
-          const storageResult = maybeCompressUploadPayload(safeFileName, mimeType, fileBuffer, `${ownerKey}:${safeFileName}:${fileBuffer.length}`);
-          writeUploadFile(filePath, storageResult.payload);
-          const storedBytes = statSync(filePath).size;
+          const storageResult = await maybeCompressUploadPayloadNonBlocking(safeFileName, mimeType, fileBuffer, `${ownerKey}:${safeFileName}:${fileBuffer.length}`);
+          await writeUploadFileNonBlocking(filePath, storageResult.payload);
+          const storedBytes = (await statAsync(filePath)).size;
           recordCompressionUploadSample({
             timestamp: Date.now(),
             source: 'direct-upload-json',
@@ -5175,9 +5238,9 @@ server.on('request', async (req, res) => {
             if (!existsSync(UPLOADS_DIR)) {
               mkdirSync(UPLOADS_DIR, { recursive: true });
             }
-            const storageResult = maybeCompressUploadPayload(safeFileName, 'application/octet-stream', fileData, `${ownerKey}:${safeFileName}:${fileData.length}`);
-            writeUploadFile(filePath, storageResult.payload);
-            const storedBytes = statSync(filePath).size;
+            const storageResult = await maybeCompressUploadPayloadNonBlocking(safeFileName, 'application/octet-stream', fileData, `${ownerKey}:${safeFileName}:${fileData.length}`);
+            await writeUploadFileNonBlocking(filePath, storageResult.payload);
+            const storedBytes = (await statAsync(filePath)).size;
             recordCompressionUploadSample({
               timestamp: Date.now(),
               source: 'direct-upload-multipart',
@@ -5263,14 +5326,14 @@ server.on('request', async (req, res) => {
       }
 
       const mimeType = uploaded.contentType || 'application/octet-stream';
-      const storageResult = maybeCompressUploadPayload(
+      const storageResult = await maybeCompressUploadPayloadNonBlocking(
         safeFileName,
         mimeType,
         uploaded.data,
         `${ownerKey}:${access.board.boardId}:${safeFileName}:${uploaded.data.length}`
       );
-      writeUploadFile(filePath, storageResult.payload);
-      const storedBytes = statSync(filePath).size;
+      await writeUploadFileNonBlocking(filePath, storageResult.payload);
+      const storedBytes = (await statAsync(filePath)).size;
       recordCompressionUploadSample({
         timestamp: Date.now(),
         source: 'direct-upload-multipart',
@@ -7907,8 +7970,7 @@ io.on("connection", (socket) => {
     if (targetSocketId) {
       io.to(targetSocketId).emit("role-definitions-updated", payload);
     } else {
-      io.emit("role-definitions-updated", payload);
-      emitMeshBroadcast("role-definitions-updated", payload);
+      emitGlobalEvent("role-definitions-updated", payload);
     }
   };
 
@@ -7929,8 +7991,7 @@ io.on("connection", (socket) => {
       highestRole: newRoleInfo.highestRole,
       roleColor: newRoleInfo.roleColor
     };
-    io.emit("user-role-changed", payload);
-    emitMeshBroadcast("user-role-changed", payload);
+    emitGlobalEvent("user-role-changed", payload);
   };
 
   const buildServerMembersSnapshot = (
@@ -7986,7 +8047,7 @@ io.on("connection", (socket) => {
     if (targetSocketId) {
       io.to(targetSocketId).emit("emoji-role-rules-updated", { rules });
     } else {
-      io.emit("emoji-role-rules-updated", { rules });
+      emitGlobalEvent("emoji-role-rules-updated", { rules });
     }
   };
 
@@ -8497,8 +8558,7 @@ io.on("connection", (socket) => {
 
     // Broadcast profile update to all users
     const publicProfileUser = toPublicUser(user);
-    io.emit("profile-updated", publicProfileUser);
-    emitMeshBroadcast("profile-updated", publicProfileUser);
+    emitGlobalEvent("profile-updated", publicProfileUser);
 
     if (ENABLE_LOGGING) console.log(`${user.username} updated profile: status=${user.status}`);
     if (callback) callback({ success: true });
@@ -8636,6 +8696,7 @@ io.on("connection", (socket) => {
     text: string;
     type: 'text' | 'gif' | 'file' | 'emoji' | 'role_gate';
     channelId: string;
+    clientMessageId?: string;
     gifUrl?: string;
     emojiUrl?: string;
     emojiName?: string;
@@ -8714,10 +8775,14 @@ io.on("connection", (socket) => {
 
     // Use stable user ID for message identity
     const senderStableId = getStableUserId(socket);
+    const normalizedClientMessageId =
+      typeof data.clientMessageId === 'string' && /^[A-Za-z0-9:_-]{8,120}$/.test(data.clientMessageId.trim())
+        ? data.clientMessageId.trim()
+        : null;
 
     // Build minimal message object with only present fields
     const message: any = {
-      id: createRealtimeMessageId(senderStableId),
+      id: normalizedClientMessageId || createRealtimeMessageId(senderStableId),
       user: user.username,
       userId: socket.id, // Current socket.id for realtime identification
       senderStableId, // Stable ownership check across reconnects
@@ -8745,6 +8810,7 @@ io.on("connection", (socket) => {
     if (data.fileSize) message.fileSize = Math.max(0, Math.floor(data.fileSize));
     if (normalizedFiles.length > 0) message.files = normalizedFiles;
     if (normalizedEntities.length > 0) message.entities = normalizedEntities;
+    if (normalizedClientMessageId) message.clientMessageId = normalizedClientMessageId;
     if (data.attachmentEncryption) message.attachmentEncryption = data.attachmentEncryption;
     if (data.attachmentStorage) message.attachmentStorage = data.attachmentStorage;
     if (data.replyTo) message.replyTo = data.replyTo;
@@ -8756,6 +8822,14 @@ io.on("connection", (socket) => {
     const messages = channelMessages.get(data.channelId) || [];
     messages.push(message);
     channelMessages.set(data.channelId, messages);
+
+    socket.emit("message-accepted", {
+      channelId: data.channelId,
+      messageId: message.id,
+      clientMessageId: normalizedClientMessageId,
+      timestamp: message.timestamp,
+      scheduledDeletionTime: message.scheduledDeletionTime
+    });
 
     // Notify DM recipient on first message (lazy channel delivery)
     if (channel.type === 'dm' && !channel.recipientNotified && channel.members) {
@@ -10050,7 +10124,7 @@ io.on("connection", (socket) => {
       console.error('[ChannelRepository] Failed to persist channel:', dbError);
     }
 
-    io.emit("channel-created", channel);
+    emitGlobalEvent("channel-created", channel);
 
     pluginLoader.triggerOnChannelCreate(channel).catch((error) => {
       console.error('[Plugins] Failed to trigger onChannelCreate hook:', error);
@@ -10136,7 +10210,7 @@ io.on("connection", (socket) => {
       }
 
       createdRooms.push(breakoutChannel);
-      io.emit("channel-created", breakoutChannel);
+      emitGlobalEvent("channel-created", breakoutChannel);
     }
 
     if (data.autoAssign !== false && createdRooms.length > 0) {
@@ -10181,7 +10255,7 @@ io.on("connection", (socket) => {
       channelMessages.delete(breakoutChannel.id);
       pinnedMessages.delete(breakoutChannel.id);
       channelRepository.delete(breakoutChannel.id);
-      io.emit("channel-deleted", breakoutChannel.id);
+      emitGlobalEvent("channel-deleted", breakoutChannel.id);
     });
 
     emitVoiceChannelState(parentChannel.id);
@@ -10395,7 +10469,7 @@ io.on("connection", (socket) => {
     if (threadType === 'thread_private') {
       socket.emit("channel-created", threadChannel);
     } else {
-      io.emit("channel-created", threadChannel);
+      emitGlobalEvent("channel-created", threadChannel);
     }
 
     pluginLoader.triggerOnChannelCreate(threadChannel).catch((error) => {
@@ -10436,7 +10510,7 @@ io.on("connection", (socket) => {
       } catch (dbError) {
         console.error('[ChannelRepository] Failed to delete child thread from DB:', dbError);
       }
-      io.emit("channel-deleted", threadId);
+      emitGlobalEvent("channel-deleted", threadId);
     }
 
     channels.delete(channelId);
@@ -10449,7 +10523,7 @@ io.on("connection", (socket) => {
       console.error('[ChannelRepository] Failed to delete channel from DB:', dbError);
     }
 
-    io.emit("channel-deleted", channelId);
+    emitGlobalEvent("channel-deleted", channelId);
     if (ENABLE_LOGGING) console.log(`Channel deleted: ${channelId}`);
   });
 
@@ -10571,7 +10645,7 @@ io.on("connection", (socket) => {
     }
 
     // Notify all clients about the update
-    io.emit("channel-settings-updated", {
+    emitGlobalEvent("channel-settings-updated", {
       channelId: data.channelId,
       autoDeleteAfter: data.autoDeleteAfter,
       persistMessages: data.persistMessages,
