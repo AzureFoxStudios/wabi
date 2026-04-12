@@ -209,6 +209,12 @@ Advanced environment overrides:
   WABI_STDB_AUTH_TOKEN=<token>                             (default: empty; uses anonymous when unset)
   WABI_STDB_ANONYMOUS=true|false                           (default: false)
   WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=true|false       (default: false)
+  WABI_SERVER_INSTANCE_ID=<instance-id>                    (default: empty; runtime falls back to HOSTNAME)
+  WABI_SERVER_REGION=<region>                              (default: empty; runtime falls back to local)
+  WABI_SERVER_ROLE=<role>                                  (default: empty; runtime falls back to app)
+  WABI_MESH_INSTANCE_URL_TEMPLATE=<url template>           (default: http://{instanceId}:8080)
+  WABI_MESH_INGRESS_URL=<url>                              (default: empty)
+  WABI_MESH_SHARED_TOKEN=<token>                           (default: empty)
   WEBHOOK_MAX_BODY_BYTES=<1024-1048576>                    (default: 65536)
   WEBHOOK_ALLOW_PRIVATE_TARGETS=true|false                 (default: false)
   WEBHOOK_ALLOWED_HOSTS=<csv host rules>                   (default: empty)
@@ -675,6 +681,41 @@ load_wabi_config() {
         WABI_CONFIG_HAS_WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=true
         WABI_CONFIG_WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION_VALUE="$(normalize_bool "$value" "false")"
         ;;
+      WABI_SERVER_INSTANCE_ID)
+        WABI_SERVER_INSTANCE_ID="$value"
+        ;;
+      WABI_SERVER_REGION)
+        WABI_SERVER_REGION="$value"
+        ;;
+      WABI_SERVER_ROLE)
+        WABI_SERVER_ROLE="$value"
+        ;;
+      WABI_MESH_INSTANCE_URL_TEMPLATE)
+        WABI_MESH_INSTANCE_URL_TEMPLATE="$value"
+        ;;
+      WABI_MESH_INGRESS_URL)
+        WABI_MESH_INGRESS_URL="$value"
+        ;;
+      WABI_MESH_SHARED_TOKEN)
+        WABI_MESH_SHARED_TOKEN="$value"
+        ;;
+      USE_TUNNEL_PROFILE)
+        case "${value,,}" in
+          auto|true|false)
+            USE_TUNNEL_PROFILE="${value,,}"
+            ;;
+        esac
+        ;;
+      TUNNEL_CONNECTOR)
+        case "${value,,}" in
+          named|quick)
+            TUNNEL_CONNECTOR="${value,,}"
+            ;;
+        esac
+        ;;
+      CLOUDFLARE_TUNNEL_TOKEN)
+        CLOUDFLARE_TUNNEL_TOKEN="$value"
+        ;;
       WEBHOOK_MAX_BODY_BYTES)
         WABI_CONFIG_HAS_WEBHOOK_MAX_BODY_BYTES=true
         WABI_CONFIG_WEBHOOK_MAX_BODY_BYTES_VALUE="$(normalize_positive_int "$value" "65536" "1024" "1048576")"
@@ -751,10 +792,12 @@ configure_defaults() {
   local state_reducer_ingress_enabled state_reducer_ingress_require_signature state_reducer_ingress_max_skew_ms state_reducer_ingress_max_body_bytes
   local state_shadow_poll_interval_ms state_shadow_batch_size
   local wabi_stdb_bridge_mode wabi_stdb_bridge_server wabi_stdb_bridge_database wabi_stdb_bridge_reducer wabi_stdb_bridge_map_file wabi_stdb_bridge_timeout_ms wabi_stdb_auth_token wabi_stdb_anonymous wabi_stdb_allow_anonymous_in_production
+  local wabi_server_instance_id wabi_server_region wabi_server_role wabi_mesh_instance_url_template wabi_mesh_ingress_url wabi_mesh_shared_token
   local webhook_max_body_bytes webhook_allow_private_targets webhook_allowed_hosts webhook_max_dns_records
   local webhook_max_concurrent_deliveries webhook_max_event_fanout
   local video_compression_metrics
   local livekit_url livekit_api_key livekit_api_secret
+  local use_tunnel_profile tunnel_connector cloudflare_tunnel_token
 
   domain="$(normalize_domain "${WABI_DOMAIN:-localhost}")"
   mode="${WABI_MODE:-normal}"
@@ -826,6 +869,15 @@ configure_defaults() {
   wabi_stdb_auth_token="${WABI_STDB_AUTH_TOKEN:-}"
   wabi_stdb_anonymous="$(normalize_bool "${WABI_STDB_ANONYMOUS:-false}" "false")"
   wabi_stdb_allow_anonymous_in_production="$(normalize_bool "${WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION:-false}" "false")"
+  wabi_server_instance_id="${WABI_SERVER_INSTANCE_ID:-}"
+  wabi_server_region="${WABI_SERVER_REGION:-}"
+  wabi_server_role="${WABI_SERVER_ROLE:-}"
+  wabi_mesh_instance_url_template="${WABI_MESH_INSTANCE_URL_TEMPLATE:-}"
+  if [[ -z "$wabi_mesh_instance_url_template" ]]; then
+    wabi_mesh_instance_url_template='http://{instanceId}:8080'
+  fi
+  wabi_mesh_ingress_url="${WABI_MESH_INGRESS_URL:-}"
+  wabi_mesh_shared_token="${WABI_MESH_SHARED_TOKEN:-}"
   webhook_max_body_bytes="$(normalize_positive_int "${WEBHOOK_MAX_BODY_BYTES:-65536}" "65536" "1024" "1048576")"
   webhook_allow_private_targets="$(normalize_bool "${WEBHOOK_ALLOW_PRIVATE_TARGETS:-false}" "false")"
   webhook_allowed_hosts="${WEBHOOK_ALLOWED_HOSTS:-}"
@@ -837,6 +889,25 @@ configure_defaults() {
   livekit_url="${LIVEKIT_URL:-}"
   livekit_api_key="${LIVEKIT_API_KEY:-}"
   livekit_api_secret="${LIVEKIT_API_SECRET:-}"
+  use_tunnel_profile="${USE_TUNNEL_PROFILE:-auto}"
+  case "${use_tunnel_profile,,}" in
+    auto|true|false)
+      use_tunnel_profile="${use_tunnel_profile,,}"
+      ;;
+    *)
+      use_tunnel_profile="auto"
+      ;;
+  esac
+  tunnel_connector="${TUNNEL_CONNECTOR:-named}"
+  case "${tunnel_connector,,}" in
+    named|quick)
+      tunnel_connector="${tunnel_connector,,}"
+      ;;
+    *)
+      tunnel_connector="named"
+      ;;
+  esac
+  cloudflare_tunnel_token="${CLOUDFLARE_TUNNEL_TOKEN:-}"
 
   case "${sfu_provider,,}" in
     livekit|none) ;;
@@ -942,6 +1013,12 @@ WABI_STDB_BRIDGE_TIMEOUT_MS=$wabi_stdb_bridge_timeout_ms
 WABI_STDB_AUTH_TOKEN=$wabi_stdb_auth_token
 WABI_STDB_ANONYMOUS=$wabi_stdb_anonymous
 WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=$wabi_stdb_allow_anonymous_in_production
+WABI_SERVER_INSTANCE_ID=$wabi_server_instance_id
+WABI_SERVER_REGION=$wabi_server_region
+WABI_SERVER_ROLE=$wabi_server_role
+WABI_MESH_INSTANCE_URL_TEMPLATE=$wabi_mesh_instance_url_template
+WABI_MESH_INGRESS_URL=$wabi_mesh_ingress_url
+WABI_MESH_SHARED_TOKEN=$wabi_mesh_shared_token
 WEBHOOK_MAX_BODY_BYTES=$webhook_max_body_bytes
 WEBHOOK_ALLOW_PRIVATE_TARGETS=$webhook_allow_private_targets
 WEBHOOK_ALLOWED_HOSTS=$webhook_allowed_hosts
@@ -978,8 +1055,9 @@ SFU_PROVIDER=$sfu_provider
 LIVEKIT_URL=$livekit_url
 LIVEKIT_API_KEY=$livekit_api_key
 LIVEKIT_API_SECRET=$livekit_api_secret
-CLOUDFLARE_TUNNEL_TOKEN=
-TUNNEL_CONNECTOR=named
+USE_TUNNEL_PROFILE=$use_tunnel_profile
+TUNNEL_CONNECTOR=$tunnel_connector
+CLOUDFLARE_TUNNEL_TOKEN=$cloudflare_tunnel_token
 
 OPENMOJI_VERSION=15.1.0
 EOF

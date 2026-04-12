@@ -9,6 +9,7 @@
 	export let variant: 'info' | 'warning' | 'danger' = 'warning';
 	export let onConfirm: () => void = () => {};
 	export let onCancel: () => void = () => {};
+	export let overlayZIndex: number | string | null = null;
 
 	function handleConfirm() {
 		onConfirm();
@@ -19,7 +20,7 @@
 	}
 </script>
 
-<BaseModal {isOpen} onClose={handleCancel} variant="center" width="480px">
+<BaseModal {isOpen} {overlayZIndex} onClose={handleCancel} variant="center" width="480px">
 	<div slot="header" class="confirm-header">
 		<h2>{title}</h2>
 	</div>

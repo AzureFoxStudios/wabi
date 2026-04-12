@@ -457,7 +457,18 @@
 	}
 
 	function resolveWhiteboardCaptureChannelId(): string {
-		return $currentChannel;
+		return $activeVoiceChannel?.id || $currentChannel;
+	}
+
+	function openWhiteboardFromCall(): void {
+		const channelId = resolveWhiteboardCaptureChannelId();
+		if (!channelId) {
+			setCaptureFeedback('Open or join a channel before using the whiteboard.');
+			return;
+		}
+		currentChannel.set(channelId);
+		openWhiteboardSurface(channelId);
+		setCaptureFeedback('Whiteboard opened for this call.');
 	}
 
 	function clearCaptureFeedbackTimer(): void {
@@ -1042,6 +1053,18 @@
 						title="Capture current shared frame to whiteboard"
 					>
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h4l2-2h4l2 2h4v10H4z"/><circle cx="12" cy="12" r="3.5"/></svg>
+					</button>
+					<button
+						class="control-btn"
+						on:click={openWhiteboardFromCall}
+						title="Open whiteboard for this call"
+					>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<rect x="3" y="4" width="18" height="14" rx="2"></rect>
+							<path d="M7 8h10"></path>
+							<path d="M7 12h6"></path>
+							<path d="M8 20h8"></path>
+						</svg>
 					</button>
 					<button
 						class="control-btn record"

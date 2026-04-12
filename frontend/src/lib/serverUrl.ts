@@ -164,9 +164,10 @@ export function resolveServerUrl(): { url: string; source: string } {
 		return { url: 'http://localhost:8080', source: 'dev_vite' };
 	}
 
-	// 4. Docker: frontend on :3000, backend on :8080 (localhost only)
-	if (port === '3000' && (hostname === 'localhost' || hostname === '127.0.0.1')) {
-		return { url: origin.replace(':3000', ':8080'), source: 'docker_port_rewrite' };
+	// 4. Direct container access: frontend on :3000, backend on :8080 on the same host.
+	// Keep localhost and LAN/IP access working without requiring a separate reverse proxy.
+	if (port === '3000') {
+		return { url: `${protocol}//${hostname}:8080`, source: 'docker_port_rewrite' };
 	}
 
 	// 5. Production: same-origin (platform routes /socket.io to backend)

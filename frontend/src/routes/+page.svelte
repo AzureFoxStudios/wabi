@@ -47,7 +47,6 @@
 	let loggedIn = false;
 	let isInitialLoad = true;
 	let isBootstrapping = true;
-	let showLoadingScreen = true;
 
 	let unsubscribeThemeWatcher: (() => void) | null = null;
 	let unsubscribeLocalStorageSync: (() => void) | null = null;
@@ -121,7 +120,6 @@
 
 		(async () => {
 			startupMark('page:bootstrap:start');
-			showLoadingScreen = true;
 			isInitialLoad = true;
 			startupMark('page:ui:unblocked');
 			startupMeasure('page:to-ui-unblocked', 'page:onMount:start', 'page:ui:unblocked');
@@ -221,7 +219,6 @@
 			stopDesktopHelperLifecycle = startDesktopHelperLifecycle();
 			isBootstrapping = false;
 			dismissDocumentBootShell();
-			showLoadingScreen = false;
 			isInitialLoad = false;
 		})();
 
@@ -310,223 +307,32 @@
 	}
 </script>
 
-{#if showLoadingScreen && !isBootstrapping}
-	<div class="loading-screen" transition:fade={{ duration: 400 }} aria-hidden="true">
-		<div class="boot-center boot-center--overlay">
-			<div class="boot-stage">
-				<span class="boot-halo"></span>
-				<span class="boot-ring"></span>
-				<img src="/wabi-logo.webp" alt="" class="boot-logo" />
-			</div>
-			<div class="boot-copy">
-				<div class="boot-title">{$_('app.starting')}</div>
-				<div class="boot-dots" aria-hidden="true">
-					<span></span>
-					<span></span>
-					<span></span>
-				</div>
-			</div>
-		</div>
-	</div>
-{/if}
-
-{#if isBootstrapping}
-	<div class="boot-placeholder">
-		<div class="boot-center" role="status" aria-live="polite">
-			<div class="boot-stage" aria-hidden="true">
-				<span class="boot-halo"></span>
-				<span class="boot-ring"></span>
-				<img src="/wabi-logo.webp" alt="" class="boot-logo" />
-			</div>
-			<div class="boot-copy">
-				<div class="boot-title">{$_('app.starting')}</div>
-				<div class="boot-dots" aria-hidden="true">
-					<span></span>
-					<span></span>
-					<span></span>
-				</div>
-			</div>
-		</div>
-	</div>
-{:else if !loggedIn}
-	{#if isInitialLoad}
-		<Login on:login={handleLogin} />
-	{:else}
-		<div transition:fade={{ duration: 300 }}>
+{#if !isBootstrapping}
+	{#if !loggedIn}
+		{#if isInitialLoad}
 			<Login on:login={handleLogin} />
-		</div>
-	{/if}
-{:else}
-	{#if isInitialLoad}
-		<MainLayout accountSecurityOpenRequest={accountSecurityOpenRequest} on:logout={handleLogout} />
+		{:else}
+			<div transition:fade={{ duration: 300 }}>
+				<Login on:login={handleLogin} />
+			</div>
+		{/if}
 	{:else}
-		<div transition:fade={{ duration: 300 }}>
+		{#if isInitialLoad}
 			<MainLayout accountSecurityOpenRequest={accountSecurityOpenRequest} on:logout={handleLogout} />
-		</div>
+		{:else}
+			<div transition:fade={{ duration: 300 }}>
+				<MainLayout accountSecurityOpenRequest={accountSecurityOpenRequest} on:logout={handleLogout} />
+			</div>
+		{/if}
+		<ConfirmDialog
+			isOpen={showTempPasswordPrompt}
+			title="Temporary Password"
+			message="An owner or admin reset this account with a temporary password. Open Account Security now and choose a new password."
+			confirmText="Change Password"
+			cancelText="Later"
+			variant="warning"
+			onConfirm={openAccountSecurityFromTempPasswordPrompt}
+			onCancel={() => showTempPasswordPrompt = false}
+		/>
 	{/if}
-	<ConfirmDialog
-		isOpen={showTempPasswordPrompt}
-		title="Temporary Password"
-		message="An owner or admin reset this account with a temporary password. Open Account Security now and choose a new password."
-		confirmText="Change Password"
-		cancelText="Later"
-		variant="warning"
-		onConfirm={openAccountSecurityFromTempPasswordPrompt}
-		onCancel={() => showTempPasswordPrompt = false}
-	/>
 {/if}
-
-<style>
-	.loading-screen {
-		position: fixed;
-		inset: 0;
-		background:
-			radial-gradient(circle at top, rgba(129, 140, 248, 0.16), transparent 38%),
-			radial-gradient(circle at bottom, rgba(56, 189, 248, 0.14), transparent 42%),
-			linear-gradient(180deg, #0f172a 0%, #0b1220 55%, #060b14 100%);
-		z-index: 10000;
-		pointer-events: none;
-		display: grid;
-		place-items: center;
-		overflow: hidden;
-	}
-
-	.boot-placeholder {
-		min-height: 100vh;
-		background:
-			radial-gradient(circle at top, rgba(129, 140, 248, 0.16), transparent 38%),
-			radial-gradient(circle at bottom, rgba(56, 189, 248, 0.14), transparent 42%),
-			linear-gradient(180deg, #0f172a 0%, #0b1220 55%, #060b14 100%);
-		display: grid;
-		place-items: center;
-		overflow: hidden;
-	}
-
-	.boot-center {
-		position: relative;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 1.15rem;
-		padding: 2rem;
-		text-align: center;
-	}
-
-	.boot-center--overlay {
-		opacity: 0.92;
-		transform: scale(0.985);
-	}
-
-	.boot-stage {
-		position: relative;
-		display: grid;
-		place-items: center;
-		width: 132px;
-		height: 132px;
-	}
-
-	.boot-halo,
-	.boot-ring {
-		position: absolute;
-		border-radius: 999px;
-	}
-
-	.boot-halo {
-		inset: 10px;
-		background:
-			radial-gradient(circle, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.04) 38%, transparent 68%);
-		filter: blur(8px);
-		animation: boot-halo-pulse 1.8s ease-in-out infinite;
-	}
-
-	.boot-ring {
-		inset: 0;
-		border: 1px solid rgba(148, 163, 184, 0.18);
-		box-shadow:
-			inset 0 0 0 1px rgba(255, 255, 255, 0.03),
-			0 18px 40px rgba(0, 0, 0, 0.3);
-	}
-
-	.boot-ring::after {
-		content: '';
-		position: absolute;
-		inset: -1px;
-		border-radius: inherit;
-		border-top: 2px solid rgba(255, 255, 255, 0.82);
-		border-right: 2px solid rgba(96, 165, 250, 0.85);
-		border-bottom: 2px solid transparent;
-		border-left: 2px solid transparent;
-		animation: boot-spin 1.25s linear infinite;
-	}
-
-	.boot-copy {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.55rem;
-	}
-
-	.boot-logo {
-		--boot-base-filter: invert(1) drop-shadow(0 12px 28px rgba(0, 0, 0, 0.38));
-		width: 72px;
-		height: 72px;
-		object-fit: contain;
-		filter: var(--boot-base-filter);
-		animation: boot-logo-drift 1.8s ease-in-out infinite, boot-filter-rotate 900ms ease-out 1;
-	}
-
-	.boot-title {
-		font-size: 0.9rem;
-		letter-spacing: 0.14em;
-		text-transform: uppercase;
-		color: rgba(255, 255, 255, 0.88);
-		font-weight: 700;
-	}
-
-	.boot-dots {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.35rem;
-	}
-
-	.boot-dots span {
-		width: 0.42rem;
-		height: 0.42rem;
-		border-radius: 999px;
-		background: rgba(255, 255, 255, 0.8);
-		animation: boot-dot-pulse 1.15s ease-in-out infinite;
-	}
-
-	.boot-dots span:nth-child(2) {
-		animation-delay: 120ms;
-	}
-
-	.boot-dots span:nth-child(3) {
-		animation-delay: 240ms;
-	}
-
-	@keyframes boot-spin {
-		from { transform: rotate(0deg); }
-		to { transform: rotate(360deg); }
-	}
-
-	@keyframes boot-logo-drift {
-		0%, 100% { transform: translateY(0px) scale(1); }
-		50% { transform: translateY(-3px) scale(1.02); }
-	}
-
-	@keyframes boot-filter-rotate {
-		from { filter: var(--boot-base-filter) hue-rotate(0deg); }
-		to { filter: var(--boot-base-filter) hue-rotate(360deg); }
-	}
-
-	@keyframes boot-halo-pulse {
-		0%, 100% { opacity: 0.6; transform: scale(0.97); }
-		50% { opacity: 1; transform: scale(1.02); }
-	}
-
-	@keyframes boot-dot-pulse {
-		0%, 80%, 100% { opacity: 0.25; transform: translateY(0px); }
-		40% { opacity: 1; transform: translateY(-2px); }
-	}
-</style>

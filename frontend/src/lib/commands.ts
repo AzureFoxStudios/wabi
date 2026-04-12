@@ -107,6 +107,33 @@ export const COMMANDS: Command[] = [
 		}
 	},
 	{
+		name: 'read',
+		description: 'Open Reader Mode for long-form reading surfaces',
+		usage: '/read',
+		aliases: ['reader', 'book'],
+		execute: (args, flags) => {
+			// Implementation in Chat component
+		}
+	},
+	{
+		name: '3d',
+		description: 'Open the full-screen 3D model viewer surface',
+		usage: '/3d',
+		aliases: ['model', 'viewport'],
+		execute: (args, flags) => {
+			// Implementation in Chat component
+		}
+	},
+	{
+		name: 'map',
+		description: 'Open the full-screen map surface',
+		usage: '/map',
+		aliases: ['maps'],
+		execute: (args, flags) => {
+			// Implementation in Chat component
+		}
+	},
+	{
 		name: 'dm',
 		description: 'Open a direct message with a user',
 		usage: '/dm <username>',

@@ -48,7 +48,44 @@ import type { FileAttachment, Message, Emoji, User, Channel, MessageEntity, Voic
 	import { getDMPrivacyMode } from './dmPrivacyMode';
 	import { mobileTabQueue } from './mobileTabQueue';
 	import { emitPaymentRealtimeEvent } from './paymentRealtime';
-	import { currentSavedServer, recordSuccessfulServerConnection } from './savedServers';
+import { currentSavedServer, recordSuccessfulServerConnection } from './savedServers';
+
+// M4: visibility-based flush trigger (best effort)
+(function setupVisibilityFlushHook(){
+  if (typeof document === 'undefined') return;
+  try {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        const w = window as any;
+        if (typeof w.flushIncomingMessages === 'function') {
+          try { w.flushIncomingMessages(); } catch {}
+        }
+      }
+    });
+  } catch {
+    // ignore
+  }
+})();
+
+// Optional: improve responsiveness when tab becomes visible again (M4)
+function _setupVisibilityFlushHook() {
+  if (typeof document === 'undefined') return;
+  try {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        // If there is a global flush handler exposed by the bundle, use it.
+        // This is a safe no-op fallback if not present.
+        const anyWin = (window as any);
+        if (typeof anyWin.flushIncomingMessages === 'function') {
+          try { anyWin.flushIncomingMessages(); } catch {}
+        }
+      }
+    });
+  } catch {}
+}
+
+// Initialize hook eagerly in the module.
+_setupVisibilityFlushHook();
 	import { consumePendingChannelNavigation } from './pendingServerNavigation';
 
 function getFollowSnapshotServerInfo(): { serverUrl: string; serverName: string | null } {
@@ -137,15 +174,25 @@ async function decryptMessagesForChannel(channelId: string, messages: Message[])
 	const otherDbUserId = resolveOtherDmDbUserId(channel);
 	if (!otherDbUserId) return;
 
-	await Promise.all(
-		messages.map(async (msg) => {
-			if (msg.encrypted && msg.iv) {
+	const encrypted = messages.filter(msg => msg.encrypted && msg.iv);
+	if (encrypted.length === 0) return;
+
+	// Process in batches to avoid blocking the main thread on large channels
+	const BATCH_SIZE = 20;
+	for (let i = 0; i < encrypted.length; i += BATCH_SIZE) {
+		const batch = encrypted.slice(i, i + BATCH_SIZE);
+		await Promise.all(
+			batch.map(async (msg) => {
 				const payload = await decryptDMMessagePayload(msg, otherDbUserId, token);
 				msg.text = payload.text;
 				msg.entities = payload.entities;
-			}
-		})
-	);
+			})
+		);
+		// Yield to the main thread between batches
+		if (i + BATCH_SIZE < encrypted.length) {
+			await new Promise(resolve => setTimeout(resolve, 0));
+		}
+	}
 }
 
 export async function retryDecryptLoadedDmMessages(): Promise<void> {
@@ -184,6 +231,82 @@ import { handleP2PIncomingOffer, handleP2PAnswer, handleP2PIceCandidate } from '
 /** The base browser tab title. Update this constant if the app is renamed. */
 const APP_TITLE = 'Wabi Chat';
 const MESSAGE_PURGE_VERSION_KEY = 'messagePurgeVersion';
+const DEFAULT_MESSAGE_EXPIRATION_MS = 24 * 60 * 60 * 1000;
+const AUTO_DELETE_MS: Record<NonNullable<Channel['autoDeleteAfter']>, number> = {
+	'5s': 5 * 1000,
+	'1h': 60 * 60 * 1000,
+	'6h': 6 * 60 * 60 * 1000,
+	'12h': 12 * 60 * 60 * 1000,
+	'24h': 24 * 60 * 60 * 1000,
+	'3d': 3 * 24 * 60 * 60 * 1000,
+	'7d': 7 * 24 * 60 * 60 * 1000,
+	'14d': 14 * 24 * 60 * 60 * 1000,
+	'30d': 30 * 24 * 60 * 60 * 1000
+};
+
+function createClientMessageId(channelId: string): string {
+	const me = get(currentUser);
+	const socketId = get(socket)?.id || me?.id || 'local';
+	const identity =
+		typeof me?.dbUserId === 'number' && Number.isFinite(me.dbUserId)
+			? `user-${me.dbUserId}`
+			: socketId;
+	const channelToken = channelId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24) || 'channel';
+	return `msg:${identity}:${channelToken}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function computeOptimisticDeletionTime(channelId: string, timestamp: number): number {
+	const channel = get(channels).find((entry) => entry.id === channelId);
+	const autoDeleteAfter = channel?.autoDeleteAfter || null;
+	if (!autoDeleteAfter) return timestamp + DEFAULT_MESSAGE_EXPIRATION_MS;
+	return timestamp + (AUTO_DELETE_MS[autoDeleteAfter] || DEFAULT_MESSAGE_EXPIRATION_MS);
+}
+
+function appendOptimisticMessage(channelId: string, message: Message): void {
+	channelMessages.update((msgs) => {
+		const existing = msgs[channelId] || [];
+		if (existing.some((entry) => entry.id === message.id)) return msgs;
+		return {
+			...msgs,
+			[channelId]: [...existing, message]
+		};
+	});
+}
+
+function removeOptimisticMessage(channelId: string, messageId: string): void {
+	channelMessages.update((msgs) => {
+		const existing = msgs[channelId] || [];
+		if (!existing.some((entry) => entry.id === messageId)) return msgs;
+		return {
+			...msgs,
+			[channelId]: existing.filter((entry) => entry.id !== messageId)
+		};
+	});
+}
+
+function updateOptimisticMessage(
+	channelId: string,
+	matcher: (message: Message) => boolean,
+	patch: Partial<Message>
+): void {
+	channelMessages.update((msgs) => {
+		const existing = msgs[channelId] || [];
+		let changed = false;
+		const nextMessages = existing.map((message) => {
+			if (!matcher(message)) return message;
+			changed = true;
+			return {
+				...message,
+				...patch
+			};
+		});
+		if (!changed) return msgs;
+		return {
+			...msgs,
+			[channelId]: nextMessages
+		};
+	});
+}
 
 
 // ============================================================================
@@ -335,14 +458,34 @@ class SocketManager {
 			for (const [channelId, pendingMessages] of pendingByChannel.entries()) {
 				if (pendingMessages.length === 0) continue;
 				const existing = next[channelId] || [];
-				const existingIds = new Set(existing.map((message) => message.id));
-				const additions = pendingMessages.filter((message) => !existingIds.has(message.id));
-				if (additions.length === 0) continue;
-
-				next[channelId] = [...existing, ...additions];
-				for (const message of additions) {
-					addedMessages.push({ channelId, message });
+				const replacements = new Map(pendingMessages.map((message) => [message.id, message]));
+				let channelChanged = false;
+				const merged = existing.map((message) => {
+					const incoming = replacements.get(message.id);
+					if (!incoming) return message;
+					replacements.delete(message.id);
+					if (message.deliveryState === 'sending' || message.deliveryState === 'failed') {
+						channelChanged = true;
+						addedMessages.push({ channelId, message: incoming });
+						return {
+							...incoming,
+							deliveryState: undefined,
+							deliveryError: undefined
+						};
+					}
+					return message;
+				});
+				const additions = Array.from(replacements.values());
+				if (additions.length > 0) {
+					merged.push(...additions);
+					for (const message of additions) {
+						addedMessages.push({ channelId, message });
+					}
+					channelChanged = true;
 				}
+				if (!channelChanged) continue;
+
+				next[channelId] = merged;
 				changed = true;
 			}
 
@@ -655,12 +798,13 @@ class SocketManager {
 	/**
 	 * Emit an event if connected.
 	 */
-	emit(event: string, ...args: unknown[]): void {
+	emit(event: string, ...args: unknown[]): boolean {
 		if (this.socket?.connected) {
 			this.socket.emit(event, ...args);
-		} else {
-			console.warn(`[SocketManager] Cannot emit '${event}' - not connected (state: ${this.state})`);
+			return true;
 		}
+		console.warn(`[SocketManager] Cannot emit '${event}' - not connected (state: ${this.state})`);
+		return false;
 	}
 
 	// ==================== PRIVATE: Socket Lifecycle ====================
@@ -1163,6 +1307,35 @@ class SocketManager {
 			this.queueIncomingMessage(data.channelId, data.message);
 		});
 
+		sock.on('message-accepted', (data: {
+			channelId: string;
+			messageId: string;
+			clientMessageId?: string | null;
+			timestamp?: number;
+			scheduledDeletionTime?: number;
+		}) => {
+			if (!data?.channelId || !data?.messageId) return;
+			updateOptimisticMessage(
+				data.channelId,
+				(message) =>
+					message.id === data.messageId ||
+					(Boolean(data.clientMessageId) && message.clientMessageId === data.clientMessageId),
+				{
+					id: data.messageId,
+					timestamp:
+						typeof data.timestamp === 'number' && Number.isFinite(data.timestamp)
+							? data.timestamp
+							: undefined,
+					scheduledDeletionTime:
+						typeof data.scheduledDeletionTime === 'number' && Number.isFinite(data.scheduledDeletionTime)
+							? data.scheduledDeletionTime
+							: undefined,
+					deliveryState: undefined,
+					deliveryError: undefined
+				}
+			);
+		});
+
 		sock.on('message-edited', (data: { channelId: string; messageId: string; newText: string }) => {
 			channelMessages.update(msgs => ({
 				...msgs,
@@ -1654,7 +1827,7 @@ class SocketManager {
 			showNotification({
 				title: 'Offline Messages',
 				body: `You have ${data.messages.length} new message${data.messages.length > 1 ? 's' : ''}`
-			} as unknown as Message, false, '');
+			}, false, '');
 		});
 
 		sock.on('message-queued', (data: { messageId: string }) => {
@@ -2297,6 +2470,51 @@ export async function sendMessage(channelId: string, text: string, type: 'text' 
 	const channel = get(channels).find(ch => ch.id === channelId);
 	const isDM = channel?.type === 'dm';
 	const dmPrivacyMode = isDM ? getDMPrivacyMode(channelId) : 'sealed';
+	const clientMessageId = createClientMessageId(channelId);
+	payload.clientMessageId = clientMessageId;
+	const activeSocket = get(socket);
+	const me = get(currentUser);
+	let optimisticAppended = false;
+
+	const pushOptimisticMessage = (): void => {
+		if (optimisticAppended || !activeSocket?.connected || !me) return;
+		const optimisticTimestamp = Date.now();
+		appendOptimisticMessage(channelId, {
+			id: clientMessageId,
+			clientMessageId,
+			user: me.username,
+			userId: activeSocket.id || me.id,
+			senderStableId:
+				typeof me.dbUserId === 'number' && Number.isFinite(me.dbUserId) ? `user-${me.dbUserId}` : me.id,
+			color: me.color,
+			text,
+			timestamp: optimisticTimestamp,
+			scheduledDeletionTime: computeOptimisticDeletionTime(channelId, optimisticTimestamp),
+			type,
+			gifUrl: options?.gifUrl,
+			emojiUrl: options?.emojiUrl,
+			emojiName: options?.emojiName,
+			fileUrl: options?.fileUrl,
+			fileName: options?.fileName,
+			fileSize: options?.fileSize,
+			files: options?.files,
+			attachmentStorage: options?.attachmentStorage,
+			attachmentEncryption: options?.attachmentEncryption,
+			replyTo: options?.replyTo,
+			isSpoiler: options?.isSpoiler,
+			entities: options?.entities,
+			encrypted: Boolean(payload.encrypted),
+			iv: payload.iv,
+			deliveryState: 'sending'
+		});
+		optimisticAppended = true;
+	};
+
+	const rollbackOptimisticMessage = (): void => {
+		if (!optimisticAppended) return;
+		removeOptimisticMessage(channelId, clientMessageId);
+		optimisticAppended = false;
+	};
 
 	const confirmUnencryptedDmFallback = (): boolean => {
 		if (!browser) return false;
@@ -2316,15 +2534,28 @@ export async function sendMessage(channelId: string, text: string, type: 'text' 
 		if (otherDbUserId && isE2EAvailable()) {
 			const token = browser ? getAuthToken() : null;
 			if (token) {
-				const encrypted = await encryptDMMessage(text, otherDbUserId, token, options?.entities);
-				if (encrypted) {
-					payload.text = encrypted.text;
-					payload.encrypted = encrypted.encrypted;
-					payload.iv = encrypted.iv;
-					delete payload.entities;
-				} else {
+				pushOptimisticMessage();
+				try {
+					const encrypted = await encryptDMMessage(text, otherDbUserId, token, options?.entities);
+					if (encrypted) {
+						payload.text = encrypted.text;
+						payload.encrypted = encrypted.encrypted;
+						payload.iv = encrypted.iv;
+						delete payload.entities;
+					} else {
+						const allowPlaintext = confirmUnencryptedDmFallback();
+						if (!allowPlaintext) {
+							rollbackOptimisticMessage();
+							return;
+						}
+					}
+				} catch (error) {
+					console.warn('[SocketManager] DM encryption failed before send:', error);
 					const allowPlaintext = confirmUnencryptedDmFallback();
-					if (!allowPlaintext) return;
+					if (!allowPlaintext) {
+						rollbackOptimisticMessage();
+						return;
+					}
 				}
 			} else {
 				const allowPlaintext = confirmUnencryptedDmFallback();
@@ -2347,7 +2578,19 @@ export async function sendMessage(channelId: string, text: string, type: 'text' 
 		}
 	}
 
-	socketManager.emit('message', payload);
+	pushOptimisticMessage();
+
+	const emitted = socketManager.emit('message', payload);
+	if (!emitted) {
+		updateOptimisticMessage(
+			channelId,
+			(message) => message.id === clientMessageId || message.clientMessageId === clientMessageId,
+			{
+				deliveryState: 'failed',
+				deliveryError: 'Message was not sent because the connection is offline.'
+			}
+		);
+	}
 }
 
 export function retryMessagePersistence(channelId: string, messageId: string): void {

@@ -384,27 +384,9 @@ export class PluginLoader {
 
       await plugin.onLoad?.(ctx);
 
-      this.io.on('connection', (socket: Socket) => {
-        plugin.onConnection?.(socket, ctx);
-
-        if (plugin.socketHandlers) {
-          for (const [event, handler] of Object.entries(plugin.socketHandlers)) {
-            socket.on(event, (data: any) => {
-              try {
-                handler(socket, data, ctx);
-              } catch (error) {
-                ctx.logger.error(`Error handling socket event ${event}`, {
-                  error: error instanceof Error ? error.message : String(error)
-                });
-              }
-            });
-          }
-        }
-
-        socket.on('disconnect', () => {
-          plugin.onDisconnect?.(socket, ctx);
-        });
-      });
+      // Socket handlers are registered per-connection in handleNewConnection().
+      // Do NOT register io.on('connection') here — that would create a new
+      // listener for every plugin loaded, causing duplicate handler invocation.
 
       this.plugins.set(pluginId, { plugin, manifest });
 

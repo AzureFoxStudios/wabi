@@ -233,6 +233,17 @@ function defaultDisplayName(url: string): string {
 	}
 }
 
+function resolveServerAssetUrl(serverUrl: string, assetUrl: string | null | undefined): string | null {
+	if (!assetUrl) return null;
+	const trimmed = assetUrl.trim();
+	if (!trimmed) return null;
+	try {
+		return new URL(trimmed, serverUrl).toString();
+	} catch {
+		return trimmed;
+	}
+}
+
 function deriveServerView(entry: SavedServerEntry, activeUrl: string | null): SavedServerView {
 	const metadata = entry.frontendMetadata;
 	const launch = entry.launchPageBranding;
@@ -244,14 +255,14 @@ function deriveServerView(entry: SavedServerEntry, activeUrl: string | null): Sa
 		metadata?.displayName ||
 		(useLaunchFallback ? launch?.brandName : null) ||
 		defaultDisplayName(entry.url);
-	const effectiveIconUrl =
-		metadata?.iconUrl ||
-		(useLaunchFallback ? launch?.logoUrl || null : null) ||
-		null;
-	const effectiveBannerUrl =
-		metadata?.bannerUrl ||
-		(useLaunchFallback ? launch?.heroImageUrl || null : null) ||
-		null;
+	const effectiveIconUrl = resolveServerAssetUrl(
+		entry.url,
+		metadata?.iconUrl || (useLaunchFallback ? launch?.logoUrl || null : null)
+	);
+	const effectiveBannerUrl = resolveServerAssetUrl(
+		entry.url,
+		metadata?.bannerUrl || (useLaunchFallback ? launch?.heroImageUrl || null : null)
+	);
 	const effectiveAccentColor =
 		metadata?.accentColor ||
 		(useLaunchFallback ? launch?.palette?.accent || null : null) ||

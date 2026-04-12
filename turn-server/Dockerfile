@@ -1,4 +1,4 @@
-FROM coturn/coturn:latest
+FROM docker.io/coturn/coturn:latest
 
 # Install gettext for envsubst command (environment variable substitution)
 USER root

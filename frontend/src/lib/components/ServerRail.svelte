@@ -29,6 +29,7 @@
 	let dropPosition: RailDropPosition = 'before';
 	let openFolderId: string | null = null;
 	let suppressTapUntil = 0;
+	let brokenImageUrls = new Set<string>();
 
 	$: activeMobileFolder =
 		mobile && openFolderId
@@ -41,6 +42,17 @@
 	function avatarText(server: SavedServerView | null): string {
 		if (!server?.effectiveName) return 'W';
 		return server.effectiveName.charAt(0).toUpperCase();
+	}
+
+	function canRenderServerImage(url: string | null | undefined): boolean {
+		return Boolean(url && !brokenImageUrls.has(url));
+	}
+
+	function markImageBroken(url: string | null | undefined): void {
+		if (!url || brokenImageUrls.has(url)) return;
+		const next = new Set(brokenImageUrls);
+		next.add(url);
+		brokenImageUrls = next;
 	}
 
 	function folderPreviewMembers(folder: SavedServerFolderView): SavedServerView[] {
@@ -227,8 +239,13 @@
 							on:drop={(event) => handleDrop(item, event)}
 							on:dragend={clearDragState}
 						>
-							{#if item.server.effectiveIconUrl}
-								<img src={item.server.effectiveIconUrl} alt={item.server.effectiveName} class="server-avatar-image" />
+							{#if canRenderServerImage(item.server.effectiveIconUrl)}
+								<img
+									src={item.server.effectiveIconUrl}
+									alt={item.server.effectiveName}
+									class="server-avatar-image"
+									on:error={() => markImageBroken(item.server.effectiveIconUrl)}
+								/>
 							{:else}
 								<span class="server-avatar-fallback">{avatarText(item.server)}</span>
 							{/if}
@@ -258,8 +275,13 @@
 								<div class="folder-grid">
 									{#each folderPreviewMembers(item.folder) as server (server.url)}
 										<div class="folder-grid-cell">
-											{#if server.effectiveIconUrl}
-												<img src={server.effectiveIconUrl} alt={server.effectiveName} class="folder-grid-image" />
+											{#if canRenderServerImage(server.effectiveIconUrl)}
+												<img
+													src={server.effectiveIconUrl}
+													alt={server.effectiveName}
+													class="folder-grid-image"
+													on:error={() => markImageBroken(server.effectiveIconUrl)}
+												/>
 											{:else}
 												<span>{avatarText(server)}</span>
 											{/if}
@@ -286,8 +308,13 @@
 												title={server.effectiveName}
 												on:click={() => handleFolderMemberSelect(server)}
 											>
-												{#if server.effectiveIconUrl}
-													<img src={server.effectiveIconUrl} alt={server.effectiveName} class="server-avatar-image" />
+												{#if canRenderServerImage(server.effectiveIconUrl)}
+													<img
+														src={server.effectiveIconUrl}
+														alt={server.effectiveName}
+														class="server-avatar-image"
+														on:error={() => markImageBroken(server.effectiveIconUrl)}
+													/>
 												{:else}
 													<span class="server-avatar-fallback">{avatarText(server)}</span>
 												{/if}
@@ -328,8 +355,13 @@
 						use:longpress={{ duration: 430, cancelOnMove: 12, onLongPress: handleRailLongPress }}
 						on:click={() => handleFolderMemberSelect(server)}
 					>
-						{#if server.effectiveIconUrl}
-							<img src={server.effectiveIconUrl} alt={server.effectiveName} class="server-avatar-image" />
+						{#if canRenderServerImage(server.effectiveIconUrl)}
+							<img
+								src={server.effectiveIconUrl}
+								alt={server.effectiveName}
+								class="server-avatar-image"
+								on:error={() => markImageBroken(server.effectiveIconUrl)}
+							/>
 						{:else}
 							<span class="server-avatar-fallback">{avatarText(server)}</span>
 						{/if}
@@ -351,13 +383,13 @@
 
 <style>
 	.server-rail {
-		width: 76px;
+		width: 92px;
 		flex-shrink: 0;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 0.7rem;
-		padding: 0.9rem 0.75rem;
+		gap: 0.9rem;
+		padding: 1.05rem 1rem 1.15rem;
 		border-right: 1px solid rgba(var(--border-rgb), var(--opacity-light));
 		background:
 			linear-gradient(180deg, rgba(13, 17, 27, 0.96) 0%, rgba(17, 24, 39, 0.9) 100%),
@@ -371,16 +403,17 @@
 		width: 100%;
 		display: flex;
 		justify-content: center;
+		padding: 0 0.2rem;
 	}
 
 	.rail-home,
 	.server-pill,
 	.rail-manage {
-		width: 48px;
-		height: 48px;
+		width: 56px;
+		height: 56px;
 		border: 1px solid rgba(255, 255, 255, 0.08);
-		border-radius: 18px;
-		background: rgba(255, 255, 255, 0.06);
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.05);
 		color: #f8fafc;
 		display: flex;
 		align-items: center;
@@ -389,24 +422,25 @@
 		padding: 0;
 		overflow: hidden;
 		transition:
-			transform 0.18s ease,
-			border-radius 0.18s ease,
-			border-color 0.18s ease,
-			background 0.18s ease,
-			box-shadow 0.18s ease;
+			transform 0.22s ease,
+			border-radius 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+			border-color 0.22s ease,
+			background 0.22s ease,
+			box-shadow 0.22s ease;
+		will-change: transform, border-radius;
 	}
 
 	.rail-home:hover,
 	.server-pill:hover,
 	.rail-manage:hover {
 		transform: translateY(-1px);
-		border-radius: 15px;
+		border-radius: 18px;
 		border-color: rgba(255, 255, 255, 0.18);
 		background: rgba(255, 255, 255, 0.1);
 	}
 
 	.server-pill.active {
-		border-radius: 15px;
+		border-radius: 18px;
 		border-color: rgba(94, 234, 212, 0.48);
 		background: linear-gradient(135deg, rgba(45, 212, 191, 0.22), rgba(59, 130, 246, 0.18));
 		box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.18);
@@ -478,7 +512,7 @@
 
 	.server-avatar-image--logo {
 		object-fit: contain;
-		padding: 0.45rem;
+		padding: 0.55rem;
 	}
 
 	.server-avatar-fallback,
@@ -498,10 +532,10 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 0.7rem;
+		gap: 0.95rem;
 		width: 100%;
 		overflow-y: auto;
-		padding-right: 2px;
+		padding: 0.2rem 0 0.3rem;
 	}
 
 	.rail-list::-webkit-scrollbar {
@@ -514,7 +548,7 @@
 	}
 
 	.folder-pill {
-		padding: 0.3rem;
+		padding: 0.34rem;
 	}
 
 	.folder-grid {
@@ -589,7 +623,7 @@
 		width: 44px;
 		height: 44px;
 		padding: 0;
-		border-radius: 15px;
+		border-radius: 999px;
 		border: 1px solid rgba(255, 255, 255, 0.08);
 		background: rgba(255, 255, 255, 0.05);
 		color: #fff;
@@ -598,6 +632,18 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		transition:
+			transform 0.22s ease,
+			border-radius 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+			border-color 0.22s ease,
+			background 0.22s ease;
+	}
+
+	.folder-member:hover {
+		transform: translateY(-1px);
+		border-radius: 16px;
+		border-color: rgba(255, 255, 255, 0.18);
+		background: rgba(255, 255, 255, 0.1);
 	}
 
 	.folder-member.active {

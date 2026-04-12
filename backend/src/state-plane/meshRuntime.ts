@@ -738,22 +738,10 @@ export function findStateMeshSocketLeaseByStableUserId(
 	}
 }
 
-export async function sendStateMeshRemoteDelivery(envelope: StateMeshDeliveryEnvelope): Promise<boolean> {
-	if (!meshRemoteDeliveryEnabled) {
-		recordError('remote_delivery', 'mesh shared token is not configured');
-		return false;
-	}
-	if (!envelope.targetInstanceId || envelope.targetInstanceId === instanceId) {
-		return false;
-	}
-
-	const targetLease = findStateMeshInstanceLeaseById(envelope.targetInstanceId);
-	if (!targetLease?.meshUrl) {
-		recordError('remote_delivery', `target instance ${envelope.targetInstanceId} has no active mesh URL`);
-		return false;
-	}
-
-	runtimeStats.remoteDeliveriesAttempted += 1;
+async function postRemoteDeliveryToLease(
+	targetLease: StateMeshInstanceLeaseRecord,
+	envelope: StateMeshDeliveryEnvelope
+): Promise<void> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), deliveryTimeoutMs);
 	try {
@@ -765,6 +753,7 @@ export async function sendStateMeshRemoteDelivery(envelope: StateMeshDeliveryEnv
 			},
 			body: JSON.stringify({
 				...envelope,
+				targetInstanceId: targetLease.instanceId,
 				fromInstanceId: instanceId
 			}),
 			signal: controller.signal
@@ -773,15 +762,78 @@ export async function sendStateMeshRemoteDelivery(envelope: StateMeshDeliveryEnv
 		if (!response.ok) {
 			throw new Error(`status=${response.status} body=${text || response.statusText}`);
 		}
-		runtimeStats.remoteDeliveriesSucceeded += 1;
-		clearError();
-		return true;
+
+		let parsed: Record<string, unknown> | null = null;
+		if (text.trim().length > 0) {
+			try {
+				parsed = JSON.parse(text) as Record<string, unknown>;
+			} catch (error) {
+				throw new Error(
+					`status=${response.status} invalid_json=${error instanceof Error ? error.message : String(error)} body=${text.slice(0, 256)}`
+				);
+			}
+		}
+
+		if (parsed?.duplicate === true || parsed?.delivered === true) {
+			return;
+		}
+
+		throw new Error(`status=${response.status} body=${text || response.statusText} delivered=false`);
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+export async function sendStateMeshRemoteDelivery(envelope: StateMeshDeliveryEnvelope): Promise<boolean> {
+	if (!meshRemoteDeliveryEnabled) {
+		recordError('remote_delivery', 'mesh shared token is not configured');
+		return false;
+	}
+	if (!envelope.targetInstanceId || envelope.targetInstanceId === instanceId) {
+		return false;
+	}
+
+	runtimeStats.remoteDeliveriesAttempted += 1;
+	const candidates: StateMeshInstanceLeaseRecord[] = [];
+	const seenInstanceIds = new Set<string>();
+	const pushCandidate = (lease: StateMeshInstanceLeaseRecord | null): void => {
+		if (!lease?.meshUrl) return;
+		if (seenInstanceIds.has(lease.instanceId)) return;
+		seenInstanceIds.add(lease.instanceId);
+		candidates.push(lease);
+	};
+
+	pushCandidate(findStateMeshInstanceLeaseById(envelope.targetInstanceId));
+	if (envelope.scope === 'user') {
+		for (const lease of listActiveStateMeshInstanceLeases()) {
+			if (lease.instanceId === envelope.targetInstanceId || lease.instanceId === instanceId) continue;
+			pushCandidate(lease);
+		}
+	}
+
+	if (candidates.length === 0) {
+		runtimeStats.remoteDeliveriesFailed += 1;
+		recordError('remote_delivery', `target instance ${envelope.targetInstanceId} has no active mesh URL`);
+		return false;
+	}
+
+	let lastError: unknown = null;
+	try {
+		for (const candidate of candidates) {
+			try {
+				await postRemoteDeliveryToLease(candidate, envelope);
+				runtimeStats.remoteDeliveriesSucceeded += 1;
+				clearError();
+				return true;
+			} catch (error) {
+				lastError = error;
+			}
+		}
+		throw lastError || new Error('mesh_delivery_failed');
 	} catch (error) {
 		runtimeStats.remoteDeliveriesFailed += 1;
 		recordError('remote_delivery', error);
 		return false;
-	} finally {
-		clearTimeout(timeout);
 	}
 }
 

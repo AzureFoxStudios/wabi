@@ -112,8 +112,7 @@ CREATE TABLE IF NOT EXISTS resource_visibility (
   min_role TEXT DEFAULT 'viewer',
   visibility_type TEXT DEFAULT 'public',
   is_anonymous INTEGER DEFAULT 0,
-  created_at INTEGER DEFAULT (strftime('%s', 'now')),
-  FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE
+  created_at INTEGER DEFAULT (strftime('%s', 'now'))
 );
 
 -- Encryption keys for client-side encryption

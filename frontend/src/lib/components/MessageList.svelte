@@ -25,8 +25,9 @@
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
 	import { decryptDMFileBuffer, isE2EAvailable } from '$lib/e2eManager';
-	import { openModelViewport } from '$lib/modelViewportTab';
+	import { MODEL_VIEWPORT_ADDON_ID, openModelViewport } from '$lib/modelViewportTab';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
+	import { layoutStore } from '$lib/layoutStore';
 	import { _ } from '$lib/i18n';
 	import { addMediaAlbumItem, createMediaAlbum, listMediaAlbums, type MediaAlbumScopeType } from '$lib/api';
 	import {
@@ -113,6 +114,11 @@
 	let contextMenuX = 0;
 	let contextMenuY = 0;
 	let contextMenuMessage: Message | null = null;
+	type AlbumAnnouncementMeta = { name: string; kind: 'opened' | 'shared' };
+	let albumAnnouncementUploadInput: HTMLInputElement | null = null;
+	let pendingAlbumUploadMeta: AlbumAnnouncementMeta | null = null;
+	let albumAnnouncementUploadName: string | null = null;
+	let recentAlbumAnnouncementUploadCounts = new Map<string, number>();
 	type MessageAttachmentActionItem = Pick<
 		FileAttachment,
 		'fileUrl' | 'fileName' | 'fileSize' | 'attachmentEncryption'
@@ -288,7 +294,7 @@
 	let reactionPickerY = 0;
 	let reactionPickerMessageId: string | null = null;
 	let reactionPickerChannelId: string | null = null;
-	const MODEL_VIEWPORT_TAB_TOKEN = mobileTabQueue.toAddonTabId('model-viewport');
+	const MODEL_VIEWPORT_TAB_TOKEN = mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_ADDON_ID);
 
 	function closeReactionPicker() {
 		showReactionPicker = false;
@@ -886,6 +892,218 @@
 		}
 		if (message.fileName) return `[file] ${message.fileName}`;
 		return '[message]';
+	}
+
+	function getAlbumAnnouncementMeta(message: Message): { name: string; kind: 'opened' | 'shared' } | null {
+		const text = (message.text || '').trim();
+		if (!text) return null;
+		const openedMatch = text.match(/^Opened album "(.+?)"/i);
+		if (openedMatch?.[1]) {
+			return { name: openedMatch[1], kind: 'opened' };
+		}
+		const sharedMatch = text.match(/^Shared \d+ photos in album "(.+?)"/i);
+		if (sharedMatch?.[1]) {
+			return { name: sharedMatch[1], kind: 'shared' };
+		}
+		return null;
+	}
+
+	function normalizeAlbumName(value: string): string {
+		return value.trim().toLowerCase();
+	}
+
+	function getRecentAlbumAnnouncementUploadCount(name: string): number {
+		return recentAlbumAnnouncementUploadCounts.get(normalizeAlbumName(name)) || 0;
+	}
+
+	function recordAlbumAnnouncementUpload(name: string, count: number): void {
+		const key = normalizeAlbumName(name);
+		const next = new Map(recentAlbumAnnouncementUploadCounts);
+		next.set(key, (next.get(key) || 0) + count);
+		recentAlbumAnnouncementUploadCounts = next;
+	}
+
+	function getAlbumAnnouncementPreviewFiles(message: Message): FileAttachment[] {
+		if (!Array.isArray(message.files)) return [];
+		return message.files
+			.filter((fileAttachment) => {
+				if (!fileAttachment?.fileUrl || !fileAttachment?.fileName) return false;
+				if (isEncryptedAttachment(fileAttachment)) return false;
+				return isImage(fileAttachment.fileName) || isVideo(fileAttachment.fileName);
+			})
+			.slice(0, 4);
+	}
+
+	function openAlbumPanel(): void {
+		layoutStore.showMediaTab();
+	}
+
+	function getAlbumAnnouncementStatusLabel(meta: AlbumAnnouncementMeta, itemCount = 0): string {
+		if (albumAnnouncementUploadName === meta.name) return 'Uploading';
+		const recentCount = getRecentAlbumAnnouncementUploadCount(meta.name);
+		if (recentCount > 0) return `Added ${recentCount}`;
+		if (itemCount > 0) return `${itemCount} items`;
+		return 'Click to upload';
+	}
+
+	function getAlbumAnnouncementSupportText(meta: AlbumAnnouncementMeta, itemCount = 0): string {
+		if (albumAnnouncementUploadName === meta.name) {
+			return 'Uploading files into this shared album now.';
+		}
+		const recentCount = getRecentAlbumAnnouncementUploadCount(meta.name);
+		if (itemCount > 0) {
+			return recentCount > 0
+				? 'Open Albums to browse the latest additions or add more files.'
+				: 'Open Albums to browse this shared album or add more files.';
+		}
+		if (recentCount > 0) {
+			return 'Upload finished. Open Albums to browse what was added or click again to add more.';
+		}
+		return 'Click anywhere on this row to add the first image, or open Albums to manage it.';
+	}
+
+	function handleAlbumAnnouncementActivate(meta: AlbumAnnouncementMeta, hasFiles: boolean): void {
+		if (!hasFiles && albumAnnouncementUploadName === meta.name) return;
+		if (hasFiles) {
+			openAlbumPanel();
+			return;
+		}
+		triggerAlbumAnnouncementUpload(meta);
+	}
+
+	function handleAlbumAnnouncementKeydown(event: KeyboardEvent, meta: AlbumAnnouncementMeta, hasFiles: boolean): void {
+		if (event.key !== 'Enter' && event.key !== ' ') return;
+		event.preventDefault();
+		handleAlbumAnnouncementActivate(meta, hasFiles);
+	}
+
+	function triggerAlbumAnnouncementUpload(meta: AlbumAnnouncementMeta): void {
+		if (albumAnnouncementUploadName) return;
+		pendingAlbumUploadMeta = meta;
+		albumAnnouncementUploadInput?.click();
+	}
+
+	async function uploadAlbumAnnouncementFile(
+		token: string,
+		file: File
+	): Promise<{ fileUrl: string; fileName: string; fileSize: number; mimeType: string | null }> {
+		const formData = new FormData();
+		formData.append('file', file, file.name);
+
+		const response = await fetch(`${getServerUrl()}/api/upload`, {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${token}`
+			},
+			body: formData
+		});
+
+		if (!response.ok) {
+			let detail = '';
+			try {
+				const payload = await response.json();
+				detail = payload?.error || '';
+			} catch {
+				detail = await response.text();
+			}
+			throw new Error(detail || `Upload failed (${response.status})`);
+		}
+
+		const payload = await response.json();
+		const fileUrl = typeof payload?.fileUrl === 'string' ? payload.fileUrl : '';
+		if (!fileUrl) {
+			throw new Error('Upload did not return a file URL.');
+		}
+
+		return {
+			fileUrl,
+			fileName: typeof payload?.fileName === 'string' ? payload.fileName : file.name,
+			fileSize:
+				typeof payload?.fileSize === 'number' && Number.isFinite(payload.fileSize)
+					? payload.fileSize
+					: file.size,
+			mimeType: file.type || null
+		};
+	}
+
+	async function uploadFilesToAlbumAnnouncement(meta: AlbumAnnouncementMeta, fileList: FileList | File[]): Promise<void> {
+		const token = getAuthToken();
+		if (!token) {
+			alert('Login is required to upload into shared albums.');
+			return;
+		}
+
+		const scope = getAlbumScopeFromCurrentChannel();
+		if (!scope) {
+			alert('Cannot determine the active album scope.');
+			return;
+		}
+
+		const files = Array.from(fileList).filter((file) => file.size > 0);
+		if (files.length === 0) return;
+
+		albumAnnouncementUploadName = meta.name;
+		try {
+			const albums = await listMediaAlbums(token, scope.scopeType, scope.scopeId, 200);
+			let targetAlbum =
+				albums.find((album) => normalizeAlbumName(album.name) === normalizeAlbumName(meta.name)) || null;
+			if (!targetAlbum) {
+				const shouldCreate = confirm(`"${meta.name}" no longer exists here. Recreate it and upload into it?`);
+				if (!shouldCreate) return;
+				targetAlbum = await createMediaAlbum(token, {
+					scopeType: scope.scopeType,
+					scopeId: scope.scopeId,
+					name: meta.name
+				});
+			}
+
+			let addedCount = 0;
+			for (const file of files) {
+				const uploaded = await uploadAlbumAnnouncementFile(token, file);
+				await addMediaAlbumItem(token, targetAlbum.id, {
+					attachmentUrl: uploaded.fileUrl,
+					attachmentName: uploaded.fileName,
+					attachmentSize: uploaded.fileSize,
+					attachmentMime: uploaded.mimeType
+				});
+				addedCount += 1;
+			}
+
+			if (addedCount > 0) {
+				recordAlbumAnnouncementUpload(meta.name, addedCount);
+				alert(`Added ${addedCount} file${addedCount === 1 ? '' : 's'} to "${targetAlbum.name}".`);
+			}
+		} catch (error) {
+			alert(error instanceof Error ? error.message : 'Failed to upload into the album.');
+		} finally {
+			albumAnnouncementUploadName = null;
+		}
+	}
+
+	function handleAlbumAnnouncementUploadChange(event: Event): void {
+		const input = event.currentTarget as HTMLInputElement | null;
+		if (!input?.files?.length || !pendingAlbumUploadMeta) {
+			if (input) input.value = '';
+			pendingAlbumUploadMeta = null;
+			return;
+		}
+		const targetMeta = pendingAlbumUploadMeta;
+		pendingAlbumUploadMeta = null;
+		const files = input.files;
+		input.value = '';
+		void uploadFilesToAlbumAnnouncement(targetMeta, files);
+	}
+
+	function openAlbumAnnouncementPreview(message: Message, fileAttachment: FileAttachment): void {
+		const resolvedUrl = getFileUrl(fileAttachment.fileUrl);
+		if (isVideo(fileAttachment.fileName)) {
+			enlargeVideo(resolvedUrl);
+			return;
+		}
+		const imageGallery = getAlbumAnnouncementPreviewFiles(message)
+			.filter((entry) => isImage(entry.fileName))
+			.map((entry) => getFileUrl(entry.fileUrl));
+		enlargeImage(resolvedUrl, imageGallery.length > 0 ? imageGallery : [resolvedUrl]);
 	}
 
 	async function handleCopyQuote(): Promise<void> {
@@ -2053,7 +2271,8 @@
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
 			id="message-{message.id}"
-			class="message {message.isPinned ? 'pinned' : ''} {isPersonalPinnedMessage(message.id) ? 'personal-pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''} {groupedWithNext ? 'has-continuation' : ''} {ownMessage ? 'own-message' : ''}"
+			class="message {message.isPinned ? 'pinned' : ''} {isPersonalPinnedMessage(message.id) ? 'personal-pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''} {groupedWithNext ? 'has-continuation' : ''} {ownMessage ? 'own-message' : ''} {message.deliveryState === 'sending' ? 'is-sending' : ''} {message.deliveryState === 'failed' ? 'is-send-failed' : ''}"
+			title={message.deliveryState === 'failed' ? (message.deliveryError || 'Message failed to send') : undefined}
 			on:contextmenu={(e) => handleContextMenu(e, message)}
 			use:longpress={{ onLongPress: (e) => handleMessageLongPress(e, message) }}
 			transition:messageItemTransition={{
@@ -2289,6 +2508,7 @@
 					</div>
 				</div>
 			{:else}
+				{@const albumAnnouncement = getAlbumAnnouncementMeta(message)}
 				<div class="message-content">
 					{#if isLocalDirectionsMessage(message)}
 						{@const directions = getDirectionsMeta(message)}
@@ -2389,6 +2609,42 @@
 								</div>
 							</div>
 						{/if}
+					{:else if albumAnnouncement && (!message.files || message.files.length === 0)}
+						<div
+							class="album-message-card album-message-card--actionable album-message-card--empty"
+							class:is-uploading={albumAnnouncementUploadName === albumAnnouncement.name}
+							role="button"
+							tabindex="0"
+							aria-disabled={albumAnnouncementUploadName === albumAnnouncement.name}
+							on:click={() => handleAlbumAnnouncementActivate(albumAnnouncement, false)}
+							on:keydown={(event) => handleAlbumAnnouncementKeydown(event, albumAnnouncement, false)}
+						>
+							<div class="album-message-main">
+								<div class="album-message-head">
+									<div class="album-message-copy">
+										<div class="album-message-kicker">Shared album</div>
+										<div class="album-message-title">{albumAnnouncement.name}</div>
+									</div>
+									<span class="album-message-count">{getAlbumAnnouncementStatusLabel(albumAnnouncement)}</span>
+								</div>
+								<div class="album-message-empty">
+									{getAlbumAnnouncementSupportText(albumAnnouncement)}
+								</div>
+							</div>
+							<div class="album-message-actions">
+								<button
+									type="button"
+									class="album-message-btn"
+									disabled={albumAnnouncementUploadName === albumAnnouncement.name}
+									on:click|stopPropagation={() => triggerAlbumAnnouncementUpload(albumAnnouncement)}
+								>
+									{albumAnnouncementUploadName === albumAnnouncement.name ? 'Uploading...' : 'Add Media'}
+								</button>
+								<button type="button" class="album-message-btn primary" on:click|stopPropagation={openAlbumPanel}>
+									Open Albums
+								</button>
+							</div>
+						</div>
 					{:else if message.type === 'role_gate'}
 						{@const gate = parseRoleGateText(messageText)}
 						<div class="role-gate-card">
@@ -2415,7 +2671,82 @@
 						{:else if message.type === 'emoji' && message.emojiUrl}
 						<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
 					{:else if message.type === 'file' && (message.fileUrl || message.files)}
-						{#if message.files && message.files.length > 1}
+						{#if albumAnnouncement && message.files}
+							{@const albumPreviewFiles = getAlbumAnnouncementPreviewFiles(message)}
+							<div
+								class="album-message-card album-message-card--actionable"
+								role="button"
+								tabindex="0"
+								on:click={() => handleAlbumAnnouncementActivate(albumAnnouncement, true)}
+								on:keydown={(event) => handleAlbumAnnouncementKeydown(event, albumAnnouncement, true)}
+							>
+								<div class="album-message-main">
+									<div class="album-message-head">
+										<div class="album-message-copy">
+											<div class="album-message-kicker">Shared album</div>
+											<div class="album-message-title">{albumAnnouncement.name}</div>
+										</div>
+										<span class="album-message-count">{getAlbumAnnouncementStatusLabel(albumAnnouncement, message.files.length)}</span>
+									</div>
+									{#if albumPreviewFiles.length > 0}
+										<div class="album-message-grid">
+											{#each albumPreviewFiles as fileAttachment}
+												<button
+													type="button"
+													class="album-message-tile"
+													on:click|stopPropagation={() => openAlbumAnnouncementPreview(message, fileAttachment)}
+													title={fileAttachment.fileName}
+												>
+													{#if isVideo(fileAttachment.fileName)}
+														<video muted playsinline preload="metadata">
+															<source src={getFileUrl(fileAttachment.fileUrl)} />
+														</video>
+													{:else}
+														<img
+															src={getFileUrl(fileAttachment.fileUrl)}
+															alt={fileAttachment.fileName}
+															loading="lazy"
+															decoding="async"
+														/>
+													{/if}
+												</button>
+											{/each}
+										</div>
+									{:else}
+										<div class="album-message-empty">
+											{getAlbumAnnouncementSupportText(albumAnnouncement, message.files.length)}
+										</div>
+									{/if}
+									{#if getRecentAlbumAnnouncementUploadCount(albumAnnouncement.name) > 0}
+										<div class="album-message-note">
+											Added {getRecentAlbumAnnouncementUploadCount(albumAnnouncement.name)} file{getRecentAlbumAnnouncementUploadCount(albumAnnouncement.name) === 1 ? '' : 's'} from this device recently.
+										</div>
+									{/if}
+								</div>
+								<div class="album-message-actions">
+									<button
+										type="button"
+										class="album-message-btn"
+										disabled={albumAnnouncementUploadName === albumAnnouncement.name}
+										on:click|stopPropagation={() => triggerAlbumAnnouncementUpload(albumAnnouncement)}
+									>
+										{albumAnnouncementUploadName === albumAnnouncement.name ? 'Uploading...' : 'Add Media'}
+									</button>
+									<button type="button" class="album-message-btn primary" on:click|stopPropagation={openAlbumPanel}>
+										Open Album
+									</button>
+									{#if albumPreviewFiles.length > 0}
+										<button
+											type="button"
+											class="album-message-btn"
+											on:click|stopPropagation={() => openAlbumAnnouncementPreview(message, albumPreviewFiles[0])}
+										>
+											Preview
+										</button>
+									{/if}
+								</div>
+							</div>
+						{:else if message.files && message.files.length > 1}
 							<!-- Multiple files gallery -->
 							<div class="files-gallery" class:has-more={message.files.length > 4}>
 								{#each message.files.slice(0, 4) as fileAttachment, index}
@@ -2676,7 +3007,7 @@
 							{/if}
 						{/if}
 						{/if}
-						{#if messageText && (message.files ? messageText !== `Shared ${message.files.length} files` : messageText !== `Shared: ${message.fileName}`)}
+						{#if !albumAnnouncement && messageText && (message.files ? messageText !== `Shared ${message.files.length} files` : messageText !== `Shared: ${message.fileName}`)}
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
 							<div class="markdown-content" on:click={handleMarkdownContentClick}>
 								{@html parseMessage(messageText, message.entities || [])}
@@ -2790,6 +3121,15 @@
 	</div>
 	{/if}
 {/each}
+
+<input
+	bind:this={albumAnnouncementUploadInput}
+	type="file"
+	accept="image/*,video/*,audio/*,.zip,.pdf,.txt,.md"
+	multiple
+	class="album-announcement-upload-input"
+	on:change={handleAlbumAnnouncementUploadChange}
+/>
 
 {#if UserPopoutComponent}
 	<svelte:component
@@ -3056,6 +3396,34 @@
 
 	.message:hover {
 		background: rgba(var(--bg-secondary-rgb), var(--opacity-medium));
+	}
+
+	.message.is-sending {
+		opacity: 0.72;
+	}
+
+	.message.is-sending .message-body,
+	.message.is-sending .message-content,
+	.message.is-sending .message-content :global(p),
+	.message.is-sending .message-content :global(span),
+	.message.is-sending .message-content :global(li) {
+		color: color-mix(in srgb, var(--text-secondary) 88%, var(--text-primary));
+	}
+
+	.message.is-send-failed {
+		background: color-mix(in srgb, var(--color-status-danger, #ff1493) 12%, transparent);
+		border-left: 3px solid color-mix(in srgb, var(--color-status-danger, #ff1493) 90%, white 10%);
+		box-shadow:
+			inset 0 0 0 1px color-mix(in srgb, var(--color-status-danger, #ff1493) 28%, transparent),
+			0 0 18px color-mix(in srgb, var(--color-status-danger, #ff1493) 18%, transparent);
+	}
+
+	.message.is-send-failed .message-body,
+	.message.is-send-failed .message-content,
+	.message.is-send-failed .message-content :global(p),
+	.message.is-send-failed .message-content :global(span),
+	.message.is-send-failed .message-content :global(li) {
+		color: color-mix(in srgb, var(--color-status-danger, #ff1493) 74%, var(--text-primary));
 	}
 
 	.message.continuation {
@@ -3472,6 +3840,11 @@
 		color: color-mix(in srgb, var(--color-status-warning, #ffd700) 82%, var(--text-primary));
 	}
 
+	.message-persistence-badge.is-sending {
+		background: color-mix(in srgb, var(--text-secondary) 22%, transparent);
+		color: color-mix(in srgb, var(--text-secondary) 92%, var(--text-primary));
+	}
+
 	.message-persistence-retry {
 		border: 1px solid color-mix(in srgb, var(--color-status-danger, #ff1493) 30%, transparent);
 		background: transparent;
@@ -3828,10 +4201,6 @@
 		margin: 0 0.1em;
 	}
 
-	.markdown-content :global(.emote-animated) {
-		/* Animated emotes can have special styling if needed */
-	}
-
 	/* Image modal styles */
 	.image-modal {
 		position: fixed;
@@ -4108,6 +4477,166 @@
 		max-width: 450px;
 	}
 
+	.album-message-card {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		gap: 0.8rem;
+		max-width: min(560px, 100%);
+		padding: 0.8rem 0.9rem;
+		border-radius: 16px;
+		border: 1px solid rgba(var(--accent-rgb), 0.22);
+		background:
+			linear-gradient(180deg, rgba(var(--accent-rgb), 0.1), rgba(255, 255, 255, 0.02)),
+			rgba(255, 255, 255, 0.03);
+		box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+	}
+
+	.album-message-card--actionable {
+		cursor: pointer;
+		transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
+	}
+
+	.album-message-card--actionable:hover {
+		border-color: rgba(var(--accent-rgb), 0.36);
+		background:
+			linear-gradient(180deg, rgba(var(--accent-rgb), 0.14), rgba(255, 255, 255, 0.03)),
+			rgba(255, 255, 255, 0.04);
+	}
+
+	.album-message-card--actionable:focus-visible {
+		outline: 2px solid rgba(var(--accent-rgb), 0.42);
+		outline-offset: 2px;
+	}
+
+	.album-message-card.is-uploading {
+		cursor: progress;
+	}
+
+	.album-message-main {
+		min-width: 0;
+		display: grid;
+		gap: 0.55rem;
+	}
+
+	.album-message-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.7rem;
+	}
+
+	.album-message-copy {
+		display: grid;
+		gap: 0.18rem;
+		min-width: 0;
+	}
+
+	.album-message-kicker {
+		font-size: 0.68rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+	}
+
+	.album-message-title {
+		font-size: 0.98rem;
+		font-weight: 700;
+		word-break: break-word;
+	}
+
+	.album-message-count {
+		display: inline-flex;
+		align-items: center;
+		height: 26px;
+		padding: 0 0.65rem;
+		border-radius: 999px;
+		border: 1px solid rgba(var(--accent-rgb), 0.22);
+		background: rgba(var(--accent-rgb), 0.12);
+		font-size: 0.72rem;
+		font-weight: 700;
+		color: var(--text-secondary);
+		white-space: nowrap;
+	}
+
+	.album-message-grid {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.4rem;
+	}
+
+	.album-message-tile {
+		padding: 0;
+		border: 1px solid var(--border);
+		border-radius: 14px;
+		overflow: hidden;
+		background: rgba(255, 255, 255, 0.04);
+		cursor: pointer;
+		aspect-ratio: 1 / 1;
+	}
+
+	.album-message-tile img,
+	.album-message-tile video {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.album-message-empty {
+		color: var(--text-secondary);
+		font-size: 0.84rem;
+		line-height: 1.45;
+	}
+
+	.album-message-note {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+	}
+
+	.album-message-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.45rem;
+		align-items: center;
+		justify-content: flex-end;
+	}
+
+	.album-message-btn {
+		border: 1px solid var(--border);
+		background: rgba(255, 255, 255, 0.06);
+		color: var(--text-primary);
+		border-radius: 10px;
+		padding: 0.48rem 0.8rem;
+		font-size: 0.78rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.album-message-btn.primary {
+		border-color: rgba(var(--accent-rgb), 0.4);
+		background: rgba(var(--accent-rgb), 0.18);
+	}
+
+	.album-message-btn:disabled {
+		opacity: 0.58;
+		cursor: progress;
+	}
+
+	@media (max-width: 640px) {
+		.album-message-card {
+			grid-template-columns: 1fr;
+		}
+
+		.album-message-actions {
+			justify-content: flex-start;
+		}
+	}
+
+	.album-announcement-upload-input {
+		display: none;
+	}
+
 	.multi-zip-previews {
 		display: flex;
 		flex-direction: column;
@@ -4180,7 +4709,7 @@
 	.file-name-truncate {
 		overflow: hidden;
 		text-overflow: ellipsis;
-		white-writeSpace: nowrap;
+		white-space: nowrap;
 		font-weight: 500;
 	}
 

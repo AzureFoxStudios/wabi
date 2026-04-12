@@ -83,20 +83,22 @@ export function applyRemoteSnapshot(payload: { document: WhiteboardDocument }): 
 // Snapshot persistence
 // ---------------------------------------------------------------------------
 
-let snapshotTimer: ReturnType<typeof setTimeout> | null = null;
+const snapshotTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export function scheduleSnapshotSave(boardId: string): void {
-	if (snapshotTimer) clearTimeout(snapshotTimer);
-	snapshotTimer = setTimeout(() => {
-		snapshotTimer = null;
+	const existing = snapshotTimers.get(boardId);
+	if (existing) clearTimeout(existing);
+	snapshotTimers.set(boardId, setTimeout(() => {
+		snapshotTimers.delete(boardId);
 		flushSnapshotSave(boardId);
-	}, 3000);
+	}, 3000));
 }
 
 export function flushSnapshotSave(boardId: string): void {
-	if (snapshotTimer) {
-		clearTimeout(snapshotTimer);
-		snapshotTimer = null;
+	const existing = snapshotTimers.get(boardId);
+	if (existing) {
+		clearTimeout(existing);
+		snapshotTimers.delete(boardId);
 	}
 	if (!get(isDirty)) return;
 	const doc = boardStore.getDocument();
@@ -110,6 +112,14 @@ export function flushSnapshotSave(boardId: string): void {
 	};
 	saveWhiteboardSnapshot(boardId, transportDoc);
 	boardStore.markClean();
+}
+
+export function cancelSnapshotSave(boardId: string): void {
+	const existing = snapshotTimers.get(boardId);
+	if (existing) {
+		clearTimeout(existing);
+		snapshotTimers.delete(boardId);
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -241,15 +251,12 @@ export function createSyncSession(
 	return {
 		destroy() {
 			flushSnapshotSave(boardId);
+			cancelSnapshotSave(boardId);
 			setPatchListener(null);
 			unsubEvents();
 			leaveWhiteboard(boardId);
 			document.removeEventListener('visibilitychange', onVisChange);
 			window.removeEventListener('beforeunload', onBeforeUnload);
-			if (snapshotTimer) {
-				clearTimeout(snapshotTimer);
-				snapshotTimer = null;
-			}
 		}
 	};
 }

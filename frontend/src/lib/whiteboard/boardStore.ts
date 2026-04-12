@@ -95,21 +95,37 @@ function defaultState(): BoardState {
 // Store
 // ---------------------------------------------------------------------------
 
-const _store = writable<BoardState>(defaultState());
+const _boards = new Map<string, ReturnType<typeof writable<BoardState>>>();
+let _activeBoardId = '';
+
+function getStore(id: string): ReturnType<typeof writable<BoardState>> {
+	if (!_boards.has(id)) {
+		_boards.set(id, writable<BoardState>({ ...defaultState(), boardId: id }));
+	}
+	return _boards.get(id)!;
+}
+
+function activeStore(): ReturnType<typeof writable<BoardState>> {
+	return getStore(_activeBoardId);
+}
 
 // Patch listener: external code (boardSync) can subscribe to know when local
 // mutations happen so it can emit patches. We don't import boardSync here to
 // avoid circular deps.
 type PatchType = 'create' | 'update' | 'delete' | 'reorder' | 'replace';
 type PatchListener = (type: PatchType, payload: unknown) => void;
-let _patchListener: PatchListener | null = null;
+const _patchListeners = new Map<string, PatchListener>();
 
 export function setPatchListener(fn: PatchListener | null): void {
-	_patchListener = fn;
+	if (_activeBoardId) {
+		if (fn) _patchListeners.set(_activeBoardId, fn);
+		else _patchListeners.delete(_activeBoardId);
+	}
 }
 
 function notifyPatch(type: PatchType, payload: unknown): void {
-	if (_patchListener) _patchListener(type, payload);
+	const listener = _patchListeners.get(_activeBoardId);
+	if (listener) listener(type, payload);
 }
 
 // ---------------------------------------------------------------------------
@@ -139,7 +155,7 @@ function pushUndo(state: BoardState): BoardState {
 // ---------------------------------------------------------------------------
 
 function loadDocument(doc: BoardDocument): void {
-	_store.update((s) => ({
+	activeStore().update((s) => ({
 		...s,
 		boardId: doc.boardId,
 		version: doc.version,
@@ -153,29 +169,30 @@ function loadDocument(doc: BoardDocument): void {
 }
 
 function reset(): void {
-	_store.set(defaultState());
+	activeStore().set(defaultState());
 }
 
 function setBoardId(id: string): void {
-	_store.update((s) => ({ ...s, boardId: id }));
+	_activeBoardId = id;
+	activeStore().update((s) => ({ ...s, boardId: id }));
 }
 
 function setTool(tool: ToolType): void {
-	_store.update((s) => ({ ...s, activeTool: tool }));
+	activeStore().update((s) => ({ ...s, activeTool: tool }));
 }
 
 function setStyle(partial: Partial<BoardStyle>): void {
-	_store.update((s) => ({ ...s, style: { ...s.style, ...partial } }));
+	activeStore().update((s) => ({ ...s, style: { ...s.style, ...partial } }));
 }
 
 function pushHistoryCheckpoint(): void {
-	_store.update((s) => pushUndo(s));
+	activeStore().update((s) => pushUndo(s));
 }
 
 // --- Element mutations (with undo + dirty + patch) ---
 
 function addElement(el: BoardElement): void {
-	_store.update((s) => {
+	activeStore().update((s) => {
 		const next = pushUndo(s);
 		next.elements = [...next.elements, el];
 		next.isDirty = true;
@@ -190,7 +207,7 @@ function updateElement(
 	options: UpdateElementOptions = {}
 ): void {
 	const { recordHistory = true, emitPatch = true } = options;
-	_store.update((s) => {
+	activeStore().update((s) => {
 		const idx = s.elements.findIndex((e) => e.id === id);
 		if (idx === -1) return s;
 		const next = recordHistory ? pushUndo(s) : { ...s, elements: [...s.elements] };
@@ -206,7 +223,7 @@ function updateElement(
 
 function deleteElements(ids: string[]): void {
 	if (ids.length === 0) return;
-	_store.update((s) => {
+	activeStore().update((s) => {
 		const next = pushUndo(s);
 		const idSet = new Set(ids);
 		next.elements = next.elements.filter((e) => !idSet.has(e.id));
@@ -218,7 +235,7 @@ function deleteElements(ids: string[]): void {
 }
 
 function reorderElement(id: string, dir: 'front' | 'back' | 'forward' | 'backward'): void {
-	_store.update((s) => {
+	activeStore().update((s) => {
 		const next = pushUndo(s);
 		const sorted = [...next.elements].sort((a, b) => a.zIndex - b.zIndex);
 		const idx = sorted.findIndex((e) => e.id === id);
@@ -246,7 +263,7 @@ function reorderElement(id: string, dir: 'front' | 'back' | 'forward' | 'backwar
 }
 
 function duplicateElements(ids: string[]): void {
-	_store.update((s) => {
+	activeStore().update((s) => {
 		const next = pushUndo(s);
 		const maxZ = next.elements.reduce((m, e) => Math.max(m, e.zIndex), 0);
 		const newEls: BoardElement[] = [];
@@ -282,7 +299,7 @@ function duplicateElements(ids: string[]): void {
 		return next;
 	});
 	// Notify for each duplicated element
-	const s = get(_store);
+	const s = get(activeStore());
 	for (const id of [...s.selection]) {
 		const el = s.elements.find((e) => e.id === id);
 		if (el) notifyPatch('create', el);
@@ -292,7 +309,7 @@ function duplicateElements(ids: string[]): void {
 // --- Silent mutations (for remote patches — no undo, no dirty, no patch) ---
 
 function addElementSilent(el: BoardElement): void {
-	_store.update((s) => {
+	activeStore().update((s) => {
 		if (s.elements.some((existing) => existing.id === el.id)) {
 			return s;
 		}
@@ -301,7 +318,7 @@ function addElementSilent(el: BoardElement): void {
 }
 
 function updateElementSilent(id: string, partial: Partial<BoardElement>): void {
-	_store.update((s) => {
+	activeStore().update((s) => {
 		const idx = s.elements.findIndex((e) => e.id === id);
 		if (idx === -1) return s;
 		const els = [...s.elements];
@@ -312,7 +329,7 @@ function updateElementSilent(id: string, partial: Partial<BoardElement>): void {
 
 function deleteElementsSilent(ids: string[]): void {
 	const idSet = new Set(ids);
-	_store.update((s) => ({
+	activeStore().update((s) => ({
 		...s,
 		elements: s.elements.filter((e) => !idSet.has(e.id)),
 		selection: new Set([...s.selection].filter((id) => !idSet.has(id)))
@@ -322,19 +339,19 @@ function deleteElementsSilent(ids: string[]): void {
 // --- Selection ---
 
 function select(ids: string[]): void {
-	_store.update((s) => ({ ...s, selection: new Set(ids) }));
+	activeStore().update((s) => ({ ...s, selection: new Set(ids) }));
 }
 
 function selectAll(): void {
-	_store.update((s) => ({ ...s, selection: new Set(s.elements.filter((e) => !e.locked).map((e) => e.id)) }));
+	activeStore().update((s) => ({ ...s, selection: new Set(s.elements.filter((e) => !e.locked).map((e) => e.id)) }));
 }
 
 function clearSelection(): void {
-	_store.update((s) => ({ ...s, selection: new Set() }));
+	activeStore().update((s) => ({ ...s, selection: new Set() }));
 }
 
 function toggleSelection(id: string): void {
-	_store.update((s) => {
+	activeStore().update((s) => {
 		const next = new Set(s.selection);
 		if (next.has(id)) next.delete(id);
 		else next.add(id);
@@ -345,18 +362,18 @@ function toggleSelection(id: string): void {
 // --- Viewport ---
 
 function setViewport(vp: WhiteboardViewport): void {
-	_store.update((s) => ({ ...s, viewport: vp }));
+	activeStore().update((s) => ({ ...s, viewport: vp }));
 }
 
 function panBy(dx: number, dy: number): void {
-	_store.update((s) => ({
+	activeStore().update((s) => ({
 		...s,
 		viewport: { ...s.viewport, x: s.viewport.x + dx, y: s.viewport.y + dy }
 	}));
 }
 
 function zoomTo(zoom: number, cx: number, cy: number): void {
-	_store.update((s) => {
+	activeStore().update((s) => {
 		const clamped = Math.max(0.1, Math.min(10, zoom));
 		const ratio = clamped / s.viewport.zoom;
 		return {
@@ -373,7 +390,7 @@ function zoomTo(zoom: number, cx: number, cy: number): void {
 // --- Undo / Redo ---
 
 function undo(): void {
-	_store.update((s) => {
+	activeStore().update((s) => {
 		if (s.undoStack.length === 0) return s;
 		const stack = [...s.undoStack];
 		const entry = stack.pop()!;
@@ -393,7 +410,7 @@ function undo(): void {
 }
 
 function redo(): void {
-	_store.update((s) => {
+	activeStore().update((s) => {
 		if (s.redoStack.length === 0) return s;
 		const stack = [...s.redoStack];
 		const entry = stack.pop()!;
@@ -415,7 +432,7 @@ function redo(): void {
 // --- Document access ---
 
 function getDocument(): BoardDocument {
-	const s = get(_store);
+	const s = get(activeStore());
 	return {
 		boardId: s.boardId,
 		version: s.version,
@@ -425,28 +442,28 @@ function getDocument(): BoardDocument {
 }
 
 function markClean(): void {
-	_store.update((s) => ({ ...s, isDirty: false }));
+	activeStore().update((s) => ({ ...s, isDirty: false }));
 }
 
 // ---------------------------------------------------------------------------
 // Derived stores
 // ---------------------------------------------------------------------------
 
-export const elements = derived(_store, (s) => s.elements);
-export const viewport = derived(_store, (s) => s.viewport);
-export const activeTool = derived(_store, (s) => s.activeTool);
-export const selection = derived(_store, (s) => s.selection);
-export const currentStyle = derived(_store, (s) => s.style);
-export const isDirty = derived(_store, (s) => s.isDirty);
-export const canUndo = derived(_store, (s) => s.undoStack.length > 0);
-export const canRedo = derived(_store, (s) => s.redoStack.length > 0);
+export const elements = derived(activeStore(), (s) => s.elements);
+export const viewport = derived(activeStore(), (s) => s.viewport);
+export const activeTool = derived(activeStore(), (s) => s.activeTool);
+export const selection = derived(activeStore(), (s) => s.selection);
+export const currentStyle = derived(activeStore(), (s) => s.style);
+export const isDirty = derived(activeStore(), (s) => s.isDirty);
+export const canUndo = derived(activeStore(), (s) => s.undoStack.length > 0);
+export const canRedo = derived(activeStore(), (s) => s.redoStack.length > 0);
 
 // ---------------------------------------------------------------------------
 // Exported store object
 // ---------------------------------------------------------------------------
 
 export const boardStore = {
-	subscribe: _store.subscribe,
+	subscribe: activeStore().subscribe,
 	loadDocument,
 	reset,
 	setBoardId,

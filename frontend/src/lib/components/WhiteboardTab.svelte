@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
-	import { currentUser } from '$lib/socket';
+	import { channels, currentUser } from '$lib/socket';
 	import {
 		getChannelBoardId,
 		type WhiteboardPresenceUser
 	} from '$lib/whiteboard/boardTypes';
 	import { createSyncSession, type SyncSession } from '$lib/whiteboard/boardSync';
-	import { boardStore, elements } from '$lib/whiteboard/boardStore';
+	import { boardStore } from '$lib/whiteboard/boardStore';
 	import { exportBoardAsJson, exportBoardAsPng } from '$lib/whiteboard/export';
+	import { queueWhiteboardImport } from '$lib/whiteboard/whiteboardSurface';
 	import WhiteboardCanvas from './WhiteboardCanvas.svelte';
 	import WhiteboardToolbar from './WhiteboardToolbar.svelte';
 
@@ -31,8 +32,18 @@
 	let syncReady = false;
 	let mounted = false;
 	let activeChannelId = '';
+	let activeChannel: { id: string; name: string; type?: string } | null = null;
+	let channelLabel = 'Whiteboard';
+	let importInput: HTMLInputElement | null = null;
+	let showGrid = true;
 
 	$: boardId = channelId ? getChannelBoardId(channelId) : '';
+	$: activeChannel = $channels.find((channel) => channel.id === channelId) || null;
+	$: channelLabel = activeChannel?.type === 'dm' || activeChannel?.type === 'group'
+		? activeChannel?.name || 'Conversation board'
+		: activeChannel?.name
+			? `#${activeChannel.name}`
+			: channelId || 'Whiteboard';
 	$: localUsername = $currentUser?.username || 'Guest';
 	$: localUserColor = $currentUser?.color || '#6366f1';
 
@@ -95,6 +106,9 @@
 				presence = payload.users || [];
 				const activeIds = new Set(presence.map((user) => user.userId));
 				remoteCursors = remoteCursors.filter((cursor) => activeIds.has(cursor.userId));
+				if (!syncReady) {
+					syncReady = true;
+				}
 				errorMessage = '';
 			},
 			onError(payload) {
@@ -125,6 +139,33 @@
 		}
 	}
 
+	function triggerImportPicker(): void {
+		importInput?.click();
+	}
+
+	function queueImportedFiles(fileList: FileList | File[]): void {
+		if (!channelId) {
+			errorMessage = 'Open the whiteboard from a channel before importing images.';
+			return;
+		}
+		const imageFiles = Array.from(fileList).filter((file) => file.type.startsWith('image/'));
+		if (imageFiles.length === 0) {
+			errorMessage = 'Choose one or more image files to place on the whiteboard.';
+			return;
+		}
+		errorMessage = '';
+		for (const file of imageFiles) {
+			queueWhiteboardImport(channelId, file, 'capture');
+		}
+	}
+
+	function handleImportChange(event: Event): void {
+		const input = event.currentTarget as HTMLInputElement | null;
+		if (!input?.files?.length) return;
+		queueImportedFiles(input.files);
+		input.value = '';
+	}
+
 	onMount(() => {
 		mounted = true;
 		ensureCursorCleanupTimer();
@@ -147,16 +188,32 @@
 </script>
 
 <div class="whiteboard-shell">
+	<input
+		bind:this={importInput}
+		class="whiteboard-hidden-input"
+		type="file"
+		accept="image/*"
+		multiple
+		on:change={handleImportChange}
+	/>
 	<div class="whiteboard-topbar">
-		<div>
-			<h2>Whiteboard</h2>
+		<div class="whiteboard-title-row">
+			<span class="whiteboard-channel-pill">{channelLabel}</span>
+			<span class="whiteboard-activity-pill">{presence.length} Active</span>
+			{#if !syncReady}
+				<span class="whiteboard-connecting-pill" aria-live="polite">Joining board...</span>
+			{/if}
 		</div>
 
-		<div class="whiteboard-meta">
-			<span>Board: {boardId || 'unscoped'}</span>
-			<span>{$elements.length} element{$elements.length === 1 ? '' : 's'}</span>
-			<span>{presence.length} online</span>
-		</div>
+		<button
+			type="button"
+			class="whiteboard-grid-toggle"
+			class:active={showGrid}
+			on:click={() => (showGrid = !showGrid)}
+			aria-pressed={showGrid}
+		>
+			{showGrid ? 'Grid On' : 'Grid Off'}
+		</button>
 	</div>
 
 	{#if errorMessage}
@@ -171,62 +228,105 @@
 			username={localUsername}
 			userColor={localUserColor}
 			{syncReady}
+			{showGrid}
 		/>
 		<WhiteboardToolbar
+			onImportImages={triggerImportPicker}
 			onExportPng={handleExportPng}
 			onExportJson={handleExportJson}
 			{exportBusy}
+			importDisabled={!channelId}
 		/>
 	</div>
 </div>
 
 <style>
 	.whiteboard-shell {
+		position: relative;
 		height: 100%;
 		min-height: 0;
-		display: grid;
-		grid-template-rows: auto auto 1fr;
-		background:
-			radial-gradient(circle at top left, rgba(63, 94, 251, 0.08), transparent 35%),
-			radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.1), transparent 32%),
-			var(--bg-primary, #0f172a);
+		display: block;
+		background: transparent;
 	}
 
 	.whiteboard-topbar {
+		position: absolute;
+		top: 0.8rem;
+		left: 0.9rem;
+		right: 0.9rem;
+		z-index: 18;
 		display: flex;
 		justify-content: space-between;
-		gap: 1rem;
-		padding: 0.6rem 1.2rem;
-		border-bottom: 1px solid rgba(148, 163, 184, 0.18);
-		background: rgba(15, 23, 42, 0.72);
-		backdrop-filter: blur(10px);
-	}
-
-	.whiteboard-topbar h2 {
-		margin: 0;
-		font-size: 1.1rem;
-	}
-
-	.whiteboard-meta {
-		display: flex;
-		flex-wrap: wrap;
 		align-items: center;
-		justify-content: flex-end;
-		gap: 0.5rem;
-		font-size: 0.76rem;
-		color: #cbd5e1;
+		gap: 1rem;
+		padding: 0.42rem 0.62rem;
+		border: 1px solid rgba(148, 163, 184, 0.18);
+		border-radius: 14px;
+		background: rgba(255, 251, 243, 0.76);
+		backdrop-filter: blur(12px);
+		box-shadow: 0 16px 30px rgba(15, 23, 42, 0.08);
 	}
 
-	.whiteboard-meta span {
-		padding: 0.28rem 0.52rem;
+	.whiteboard-title-row {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.45rem;
+	}
+
+	.whiteboard-channel-pill,
+	.whiteboard-activity-pill,
+	.whiteboard-connecting-pill {
+		display: inline-flex;
+		align-items: center;
+		min-height: 1.7rem;
+		padding: 0.18rem 0.56rem;
 		border-radius: 999px;
-		background: rgba(30, 41, 59, 0.85);
-		border: 1px solid rgba(148, 163, 184, 0.18);
+		font-size: 0.76rem;
+		font-weight: 600;
+		border: 1px solid rgba(148, 163, 184, 0.2);
+		background: rgba(255, 255, 255, 0.86);
+		color: #0f172a;
+	}
+
+	.whiteboard-channel-pill {
+		background: rgba(15, 23, 42, 0.05);
+	}
+
+	.whiteboard-connecting-pill {
+		background: rgba(59, 130, 246, 0.12);
+		border-color: rgba(59, 130, 246, 0.24);
+		color: #1d4ed8;
+	}
+
+	.whiteboard-grid-toggle {
+		border: 1px solid rgba(148, 163, 184, 0.22);
+		background: rgba(255, 255, 255, 0.84);
+		color: #334155;
+		border-radius: 999px;
+		padding: 0.3rem 0.68rem;
+		font-size: 0.74rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		cursor: pointer;
+		transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+	}
+
+	.whiteboard-grid-toggle.active {
+		background: rgba(37, 99, 235, 0.12);
+		border-color: rgba(59, 130, 246, 0.26);
+		color: #1d4ed8;
 	}
 
 	.whiteboard-banner {
+		position: absolute;
+		top: 4.2rem;
+		left: 0.9rem;
+		right: 0.9rem;
+		z-index: 17;
 		padding: 0.75rem 1rem;
 		font-size: 0.9rem;
+		border-radius: 14px;
 	}
 
 	.whiteboard-banner.error {
@@ -237,7 +337,44 @@
 
 	.whiteboard-stage {
 		position: relative;
+		height: 100%;
 		min-height: 0;
 		overflow: hidden;
+		padding: 0;
+		background: transparent;
+	}
+
+	.whiteboard-stage :global(.whiteboard-canvas-container) {
+		border-radius: 0;
+		border: 0;
+		box-shadow: none;
+	}
+
+	.whiteboard-stage :global(.whiteboard-layer) {
+		border-radius: 0;
+	}
+
+	.whiteboard-stage :global(.wb-toolbar) {
+		top: 4.25rem;
+	}
+
+	.whiteboard-hidden-input {
+		display: none;
+	}
+
+	@media (max-width: 720px) {
+		.whiteboard-topbar {
+			top: 0.6rem;
+			left: 0.6rem;
+			right: 0.6rem;
+			flex-wrap: wrap;
+			justify-content: flex-start;
+		}
+
+		.whiteboard-banner {
+			left: 0.6rem;
+			right: 0.6rem;
+			top: 5rem;
+		}
 	}
 </style>

@@ -1,6 +1,11 @@
 import { browser } from '$app/environment';
 import type { Message } from '$lib/socket-types';
 
+interface SimpleNotification {
+	title: string;
+	body: string;
+}
+
 let notificationAudio: HTMLAudioElement | null = null;
 let callRingtoneAudio: HTMLAudioElement | null = null;
 let audioContext: AudioContext | null = null;
@@ -526,7 +531,7 @@ export function stopCallRingtone() {
 }
 
 export function showNotification(
-	message: Message,
+	message: Message | SimpleNotification,
 	isCurrentUser: boolean,
 	channelName?: string,
 	options?: {
@@ -579,18 +584,45 @@ export function showNotification(
 	let title = '';
 	let body = '';
 	let icon = options?.iconUrl?.trim() || '/icon-192.png';
+
+	// Handle simple { title, body } notifications
+	if ('title' in message && 'body' in message && !('user' in message)) {
+		title = message.title;
+		body = message.body;
+
+		if (Notification.permission !== 'granted') {
+			console.log('Notification permission not granted:', Notification.permission);
+			return;
+		}
+
+		if (!document.hidden && !forceDesktop) {
+			console.log('Page is visible, skipping desktop notification');
+			return;
+		}
+
+		const notification = new Notification(title, { body, icon });
+		if (options?.onClick) {
+			notification.addEventListener('click', options.onClick);
+		}
+		setTimeout(() => {
+			notification.close();
+		}, 5000);
+		return;
+	}
+
+	const msg = message as Message;
 	const showMessagePreview = localStorage.getItem('notificationPreviewEnabled') === 'true';
-	const rawText = typeof message.text === 'string' ? message.text.trim() : '';
+	const rawText = typeof msg.text === 'string' ? msg.text.trim() : '';
 	const looksLikeCiphertext =
 		rawText.length >= 48 &&
 		!/[\s]/.test(rawText) &&
 		/^[A-Za-z0-9+/=_-]+$/.test(rawText);
-	const shouldHidePreview = Boolean(message.encrypted || message.iv || looksLikeCiphertext);
-	const fallbackTitle = typeof (message as unknown as { title?: string }).title === 'string'
-		? String((message as unknown as { title?: string }).title).trim()
+	const shouldHidePreview = Boolean(msg.encrypted || msg.iv || looksLikeCiphertext);
+	const fallbackTitle = typeof (msg as unknown as { title?: string }).title === 'string'
+		? String((msg as unknown as { title?: string }).title).trim()
 		: '';
-	const fallbackBody = typeof (message as unknown as { body?: string }).body === 'string'
-		? String((message as unknown as { body?: string }).body).trim()
+	const fallbackBody = typeof (msg as unknown as { body?: string }).body === 'string'
+		? String((msg as unknown as { body?: string }).body).trim()
 		: '';
 
 	// Format title with channel name if provided
@@ -603,12 +635,12 @@ export function showNotification(
 			: options?.serverName
 				? ` · ${options.serverName}`
 				: '';
-	const userPrefix = `${message.user || 'Someone'}${locationSuffix}`;
+	const userPrefix = `${msg.user || 'Someone'}${locationSuffix}`;
 
-	switch (message.type) {
+	switch (msg.type) {
 		case 'text':
 			title = isMention ? `Mention from ${userPrefix}` : userPrefix;
-			body = showMessagePreview && !shouldHidePreview ? message.text : 'New message';
+			body = showMessagePreview && !shouldHidePreview ? msg.text : 'New message';
 			break;
 		case 'gif':
 			title = userPrefix;
@@ -616,7 +648,7 @@ export function showNotification(
 			break;
 		case 'file':
 			title = userPrefix;
-			body = showMessagePreview && !shouldHidePreview ? `Sent a file: ${message.fileName}` : 'New message';
+			body = showMessagePreview && !shouldHidePreview ? `Sent a file: ${msg.fileName}` : 'New message';
 			break;
 	}
 
@@ -631,7 +663,7 @@ export function showNotification(
 		body,
 		icon,
 		badge: icon,
-		tag: `${options?.tagPrefix || 'message'}-${message.id || fallbackTitle || 'activity'}`, // Prevents duplicate notifications
+		tag: `${options?.tagPrefix || 'message'}-${msg.id || fallbackTitle || 'activity'}`,
 		requireInteraction: false,
 		silent: false
 	});

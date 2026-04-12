@@ -16,8 +16,23 @@
 
 	initI18n();
 
-	let cleanupAutoSave: (() => void) | null = null;
-	let relayInitTimer: ReturnType<typeof setTimeout> | null = null;
+let cleanupAutoSave: (() => void) | null = null;
+let relayInitTimer: ReturnType<typeof setTimeout> | null = null;
+
+function isLocalPreviewHost(): boolean {
+	if (typeof window === 'undefined') return false;
+	const { hostname } = window.location;
+	if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') {
+		return true;
+	}
+	if (/^10\.\d+\.\d+\.\d+$/.test(hostname) || /^192\.168\.\d+\.\d+$/.test(hostname)) {
+		return true;
+	}
+	if (/^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/.test(hostname)) {
+		return true;
+	}
+	return hostname.endsWith('.localhost') || hostname.endsWith('.local');
+}
 
 	function scheduleNonCritical(task: () => void, timeout = 1500): void {
 		if (typeof window === 'undefined') return;
@@ -32,10 +47,33 @@
 	onMount(async () => {
 		startupMark('layout:onMount:start');
 		// Register service worker for PWA support (browser/PWA only, not Tauri webview)
-		if (import.meta.env.PROD && 'serviceWorker' in navigator && !isRunningInTauri()) {
+		if ('serviceWorker' in navigator && !isRunningInTauri() && isLocalPreviewHost()) {
+			try {
+				const localResetKey = 'wabi.local-preview-cache-reset.v2';
+				const registrations = await navigator.serviceWorker.getRegistrations();
+				await Promise.all(registrations.map((registration) => registration.unregister()));
+				const cacheKeys =
+					typeof window !== 'undefined' && 'caches' in window
+						? await caches.keys()
+						: [];
+				await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+				if (
+					(registrations.length > 0 || cacheKeys.length > 0) &&
+					typeof window !== 'undefined' &&
+					window.sessionStorage.getItem(localResetKey) !== '1'
+				) {
+					window.sessionStorage.setItem(localResetKey, '1');
+					window.location.reload();
+					return;
+				}
+			} catch (error) {
+				console.warn('Failed to clear local preview service workers:', error);
+			}
+		} else if (import.meta.env.PROD && 'serviceWorker' in navigator && !isRunningInTauri()) {
 			startupMark('layout:sw:register:start');
 			navigator.serviceWorker.register('/sw.js').then((registration) => {
 				console.log('✅ Service Worker registered:', registration);
+				void registration.update();
 				startupMark('layout:sw:register:end');
 				startupMeasure('layout:sw:register', 'layout:sw:register:start', 'layout:sw:register:end');
 			}).catch((error) => {

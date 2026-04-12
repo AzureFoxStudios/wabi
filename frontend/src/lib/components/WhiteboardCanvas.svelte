@@ -47,6 +47,7 @@
 	export let username = '';
 	export let userColor = '#6366f1';
 	export let syncReady = false;
+	export let showGrid = true;
 
 	let containerEl: HTMLDivElement;
 	let baseCanvas: HTMLCanvasElement;
@@ -130,7 +131,9 @@
 		baseCtx.save();
 		baseCtx.scale(dpr, dpr);
 		baseCtx.clearRect(0, 0, canvasWidth, canvasHeight);
-		renderGrid(baseCtx, vp, canvasWidth, canvasHeight, 24);
+		if (showGrid) {
+			renderGrid(baseCtx, vp, canvasWidth, canvasHeight, 24);
+		}
 		renderElements(baseCtx, els, vp);
 		baseCtx.restore();
 
@@ -179,6 +182,7 @@
 	$: channelId, void maybeProcessPendingImports();
 	$: boardId, void maybeProcessPendingImports();
 	$: syncReady, void maybeProcessPendingImports();
+	$: showGrid, requestRender();
 	$: syncImportPreviews(pendingImportsForChannel);
 	$: importPreviewCards = pendingImportsForChannel.slice(0, 3).map((item, index) => ({
 		id: item.id,
@@ -713,6 +717,12 @@
 		height: 100%;
 		overflow: hidden;
 		outline: none;
+		background:
+			linear-gradient(180deg, rgba(255, 253, 247, 0.98), rgba(247, 240, 226, 0.82)),
+			linear-gradient(90deg, rgba(148, 163, 184, 0.13) 1px, transparent 1px),
+			linear-gradient(rgba(148, 163, 184, 0.13) 1px, transparent 1px),
+			linear-gradient(180deg, #fffef9 0%, #f5ecdd 100%);
+		background-size: auto, 26px 26px, 26px 26px, auto;
 	}
 
 	.whiteboard-layer {
@@ -739,13 +749,13 @@
 		padding: 4px 6px;
 		font-size: 16px;
 		font-family: sans-serif;
-		color: #e0e0ff;
-		background: rgba(15, 23, 42, 0.85);
-		border: 1.5px solid rgba(99, 102, 241, 0.6);
+		color: #1f2937;
+		background: rgba(255, 251, 235, 0.98);
+		border: 1.5px solid rgba(59, 130, 246, 0.42);
 		border-radius: 4px;
 		outline: none;
 		resize: both;
-		backdrop-filter: blur(6px);
+		box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14);
 	}
 
 	.whiteboard-import-hud {

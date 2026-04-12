@@ -31,8 +31,11 @@ export interface MessageEntity {
 
 export interface Message {
   id: string;
+  clientMessageId?: string;
   user: string;
   userId: string;
+  senderStableId?: string;
+  color?: string;
   text: string;
   timestamp: number;
   scheduledDeletionTime?: number;
@@ -69,6 +72,8 @@ export interface Message {
   persistenceState?: 'failed' | 'retrying';
   persistenceError?: string;
   persistenceAttempts?: number;
+  deliveryState?: 'sending' | 'failed';
+  deliveryError?: string;
   localCard?: {
     kind: 'directions';
     placeId: string;

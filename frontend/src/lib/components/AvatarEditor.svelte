@@ -2,6 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 
 	export let isOpen = false;
+	export let overlayZIndex: number | string | null = null;
 
 	const dispatch = createEventDispatcher();
 
@@ -74,6 +75,7 @@
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		class="modal-overlay"
+		style={overlayZIndex != null ? `--avatar-editor-z-index: ${overlayZIndex};` : undefined}
 		role="button"
 		tabindex="0"
 		on:click={closeModal}
@@ -140,7 +142,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: var(--z-modal-nested);
+		z-index: var(--avatar-editor-z-index, var(--z-modal-nested));
 		backdrop-filter: blur(4px);
 	}
 

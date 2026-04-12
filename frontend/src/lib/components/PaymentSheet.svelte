@@ -970,7 +970,7 @@
 	function getTargetKindLabel(): string {
 		if (defaultTargetKind === 'dm') return 'Direct message';
 		if (defaultTargetKind === 'group') return 'Group';
-		if (defaultTargetKind === 'workspace') return 'Workspace';
+		if (defaultTargetKind === 'workspace') return 'Server-wide';
 		return 'Channel';
 	}
 

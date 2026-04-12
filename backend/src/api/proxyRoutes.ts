@@ -6,6 +6,7 @@
  */
 
 import { getCORSHeaders } from '../config/cors.js';
+import { fetchExternalUrlWithGuards } from '../utils/urlGuards.js';
 
 interface UrlPreviewData {
   title: string | null;
@@ -51,13 +52,12 @@ export async function handleUrlPreview(req: any, res: any): Promise<void> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
 
-    const response = await fetch(targetUrl, {
+    const response = await fetchExternalUrlWithGuards(targetUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)',
         'Accept': 'text/html'
       },
-      signal: controller.signal,
-      redirect: 'follow'
+      signal: controller.signal
     });
     clearTimeout(timeout);
 
@@ -161,13 +161,12 @@ export async function handleImageProxy(req: any, res: any): Promise<void> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
 
-    const response = await fetch(imageUrl, {
+    const response = await fetchExternalUrlWithGuards(imageUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)',
         'Accept': 'image/*'
       },
-      signal: controller.signal,
-      redirect: 'follow'
+      signal: controller.signal
     });
     clearTimeout(timeout);
 

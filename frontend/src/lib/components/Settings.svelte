@@ -1544,16 +1544,6 @@
 	async function loadMediaDevices() {
 		if (!browser || !navigator.mediaDevices?.enumerateDevices) return;
 		try {
-			// Prime device labels only for already-granted permissions
-			const micPerm = await navigator.permissions.query({ name: 'microphone' as PermissionName }).catch(() => ({ state: 'prompt' }));
-			const camPerm = await navigator.permissions.query({ name: 'camera' as PermissionName }).catch(() => ({ state: 'prompt' }));
-			if (micPerm.state === 'granted' || camPerm.state === 'granted') {
-				const constraints: MediaStreamConstraints = {
-					audio: micPerm.state === 'granted',
-					video: camPerm.state === 'granted'
-				};
-				await navigator.mediaDevices.getUserMedia(constraints).then(s => s.getTracks().forEach(t => t.stop())).catch(() => {});
-			}
 			const devices = await navigator.mediaDevices.enumerateDevices();
 			audioInputDevices = devices.filter(d => d.kind === 'audioinput');
 			videoInputDevices = devices.filter(d => d.kind === 'videoinput');
@@ -3033,14 +3023,14 @@
 
 	function saveWorkspaceAsPrompt() {
 		const suggested = `${$layoutStore.activeWorkspace}-copy`;
-		const name = window.prompt('Save workspace as', suggested);
+		const name = window.prompt('Save layout as', suggested);
 		if (!name) return;
 		layoutStore.saveWorkspace(name);
 	}
 
 	function renameWorkspacePrompt() {
 		const current = $layoutStore.activeWorkspace;
-		const nextName = window.prompt('Rename workspace', current);
+		const nextName = window.prompt('Rename layout', current);
 		if (!nextName) return;
 		layoutStore.renameWorkspace(current, nextName);
 	}
@@ -3053,18 +3043,18 @@
 		const json = layoutStore.exportLayoutJson();
 		if (navigator.clipboard?.writeText) {
 			await navigator.clipboard.writeText(json);
-			alert('Workspace JSON copied to clipboard.');
+			alert('Layout JSON copied to clipboard.');
 			return;
 		}
-		window.prompt('Copy workspace JSON:', json);
+		window.prompt('Copy layout JSON:', json);
 	}
 
 	function importWorkspaceJsonPrompt() {
-		const pasted = window.prompt('Paste workspace JSON');
+		const pasted = window.prompt('Paste layout JSON');
 		if (!pasted) return;
 		const ok = layoutStore.importLayoutJson(pasted);
 		if (!ok) {
-			alert('Invalid workspace JSON.');
+			alert('Invalid layout JSON.');
 		}
 	}
 
@@ -5425,8 +5415,8 @@
 
 								<div class="setting-item">
 									<div class="setting-info">
-										<span class="setting-label">Workspace Preset</span>
-										<span class="setting-description">Load or save docking presets for different workflows</span>
+										<span class="setting-label">Layout Preset</span>
+										<span class="setting-description">Load or save docking layouts for different workflows</span>
 									</div>
 								<select
 									class="theme-select"
@@ -5451,13 +5441,13 @@
 
 							<div class="setting-item-full">
 								<div class="settings-row-actions">
-									<button type="button" class="action-btn" on:click={saveWorkspaceAsPrompt}>Save Workspace As...</button>
-									<button type="button" class="action-btn secondary" on:click={renameWorkspacePrompt}>Rename Workspace...</button>
-									<button type="button" class="action-btn danger" on:click={resetActiveWorkspace}>Reset Workspace</button>
+									<button type="button" class="action-btn" on:click={saveWorkspaceAsPrompt}>Save Layout As...</button>
+									<button type="button" class="action-btn secondary" on:click={renameWorkspacePrompt}>Rename Layout...</button>
+									<button type="button" class="action-btn danger" on:click={resetActiveWorkspace}>Reset Layout</button>
 								</div>
 								<div class="settings-row-actions">
-									<button type="button" class="action-btn secondary" on:click={exportWorkspaceJson}>Export Workspace JSON</button>
-									<button type="button" class="action-btn secondary" on:click={importWorkspaceJsonPrompt}>Import Workspace JSON</button>
+									<button type="button" class="action-btn secondary" on:click={exportWorkspaceJson}>Export Layout JSON</button>
+									<button type="button" class="action-btn secondary" on:click={importWorkspaceJsonPrompt}>Import Layout JSON</button>
 								</div>
 							</div>
 
@@ -6221,8 +6211,8 @@
 											{#if localAddonControlMatches('server_counter')}
 												<div class="setting-item-full">
 																				<div class="setting-info">
-																					<span class="setting-label">ServerCounter (Wabi workspace)</span>
-																					<span class="setting-description">Show a workspace channel counter above the channel list.</span>
+																					<span class="setting-label">ServerCounter (server list)</span>
+																					<span class="setting-description">Show a server channel counter above the channel list.</span>
 																				</div>
 																				<div class="settings-row-actions">
 																					<button class="toggle-btn" class:active={serverCounterEnabled} on:click={toggleServerCounterAddon}>
@@ -7863,7 +7853,11 @@
 	</div>
 {/if}
 
-<AvatarEditor bind:isOpen={showAvatarEditor} on:change={handleAvatarSelected} />
+<AvatarEditor
+	bind:isOpen={showAvatarEditor}
+	overlayZIndex={'var(--z-settings-nested)'}
+	on:change={handleAvatarSelected}
+/>
 
 <PaymentHistoryModal
 	isOpen={paymentHistoryOpen}
@@ -7917,6 +7911,7 @@
 
 <ConfirmDialog
 	isOpen={showClearDataConfirm}
+	overlayZIndex={'var(--z-settings-nested)'}
 	title={$t('settings.confirm.clear_local_title')}
 	message={$t('settings.confirm.clear_local_message')}
 	confirmText={$t('settings.confirm.clear_local_confirm')}
@@ -7927,6 +7922,7 @@
 
 <ConfirmDialog
 	isOpen={showClearServerConfirm}
+	overlayZIndex={'var(--z-settings-nested)'}
 	title={$t('settings.confirm.clear_server_title')}
 	message={$t('settings.confirm.clear_server_message')}
 	confirmText={$t('settings.confirm.clear_server_confirm')}
@@ -8257,8 +8253,10 @@
 		min-height: 0;
 		max-height: min(58vh, 1100px);
 		border: 1px solid color-mix(in srgb, var(--border) 88%, rgba(var(--accent-rgb), 0.18));
-		border-radius: 12px;
-		background: color-mix(in srgb, var(--bg-tertiary) 92%, transparent);
+		border-radius: 16px;
+		background:
+			linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 88%, transparent), color-mix(in srgb, var(--bg-tertiary) 94%, transparent)),
+			color-mix(in srgb, var(--bg-tertiary) 92%, transparent);
 		overflow: hidden;
 	}
 
@@ -8274,7 +8272,7 @@
 	.addons-settings-window-body {
 		display: flex;
 		flex-direction: column;
-		gap: 0.85rem;
+		gap: 0.7rem;
 		padding: 1rem;
 		padding-right: 0.8rem;
 		overflow-y: auto;
@@ -8342,9 +8340,11 @@
 	.addon-accordion-section {
 		display: flex;
 		flex-direction: column;
-		border: 1px solid color-mix(in srgb, var(--border) 90%, rgba(var(--accent-rgb), 0.14));
-		border-radius: 12px;
-		background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+		border: 1px solid color-mix(in srgb, var(--border) 88%, rgba(var(--accent-rgb), 0.16));
+		border-radius: 14px;
+		background:
+			linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 92%, transparent), color-mix(in srgb, var(--bg-tertiary) 94%, transparent)),
+			color-mix(in srgb, var(--bg-secondary) 94%, transparent);
 		overflow: hidden;
 	}
 
@@ -8354,17 +8354,23 @@
 		justify-content: space-between;
 		gap: 0.75rem;
 		width: 100%;
-		padding: 0.9rem 1rem;
+		padding: 0.82rem 0.95rem;
 		border: none;
-		background: color-mix(in srgb, var(--bg-secondary) 88%, rgba(var(--accent-rgb), 0.05));
+		background: transparent;
 		color: var(--text-primary);
 		cursor: pointer;
 		text-align: left;
-		transition: background 0.18s ease;
+		transition:
+			background 0.18s ease,
+			border-color 0.18s ease;
 	}
 
 	.addon-accordion-trigger:hover {
-		background: color-mix(in srgb, var(--bg-hover) 90%, rgba(var(--accent-rgb), 0.08));
+		background: color-mix(in srgb, var(--bg-hover) 86%, rgba(var(--accent-rgb), 0.06));
+	}
+
+	.addon-accordion-trigger[aria-expanded='true'] {
+		background: color-mix(in srgb, var(--bg-hover) 82%, rgba(var(--accent-rgb), 0.12));
 	}
 
 	.addon-accordion-trigger-main {
@@ -8408,9 +8414,9 @@
 	.addon-accordion-count {
 		flex-shrink: 0;
 		min-width: 1.8rem;
-		padding: 0.15rem 0.45rem;
+		padding: 0.12rem 0.42rem;
 		border-radius: 999px;
-		background: color-mix(in srgb, var(--bg-tertiary) 80%, rgba(var(--accent-rgb), 0.12));
+		background: color-mix(in srgb, var(--bg-tertiary) 76%, rgba(var(--accent-rgb), 0.14));
 		font-size: 0.74rem;
 		font-weight: 600;
 		color: var(--text-secondary);
@@ -8420,9 +8426,10 @@
 	.addon-accordion-body {
 		display: flex;
 		flex-direction: column;
-		gap: 0.85rem;
-		padding: 0.95rem;
-		border-top: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+		gap: 0.75rem;
+		padding: 0.82rem 0.9rem 0.95rem;
+		border-top: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+		background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
 	}
 
 	.addons-list {
@@ -9574,10 +9581,5 @@
 		}
 	}
 </style>
-
-
-
-
-
 
 

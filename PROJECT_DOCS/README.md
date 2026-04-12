@@ -8,6 +8,8 @@ This folder contains the current, supported documentation set for Wabi.
 - `ARCHITECTURE.md`
 - `CODEBASE_OVERVIEW.md`
 - `DEPLOYMENT.md`
+- `POST_OS_RECOVERY_CHECKLIST.md`
+- `PRETEXT_COMPARISON.md`
 
 ## Networking And Calling
 

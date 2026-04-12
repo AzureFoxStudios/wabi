@@ -271,17 +271,40 @@ export function renderGrid(ctx: CanvasRenderingContext2D, viewport: WhiteboardVi
 
 	const startX = -(viewport.x * viewport.zoom) % effectiveGrid;
 	const startY = -(viewport.y * viewport.zoom) % effectiveGrid;
+	const majorEvery = effectiveGrid * 5;
+	const majorOffsetX = -(viewport.x * viewport.zoom) % majorEvery;
+	const majorOffsetY = -(viewport.y * viewport.zoom) % majorEvery;
 
-	ctx.fillStyle = 'rgba(148, 163, 184, 0.18)';
-	const dotR = Math.max(0.8, viewport.zoom * 0.8);
-
+	ctx.save();
+	ctx.lineWidth = 1;
+	ctx.strokeStyle = 'rgba(100, 116, 139, 0.14)';
 	for (let x = startX; x < w; x += effectiveGrid) {
-		for (let y = startY; y < h; y += effectiveGrid) {
-			ctx.beginPath();
-			ctx.arc(x, y, dotR, 0, Math.PI * 2);
-			ctx.fill();
-		}
+		ctx.beginPath();
+		ctx.moveTo(Math.round(x) + 0.5, 0);
+		ctx.lineTo(Math.round(x) + 0.5, h);
+		ctx.stroke();
 	}
+	for (let y = startY; y < h; y += effectiveGrid) {
+		ctx.beginPath();
+		ctx.moveTo(0, Math.round(y) + 0.5);
+		ctx.lineTo(w, Math.round(y) + 0.5);
+		ctx.stroke();
+	}
+
+	ctx.strokeStyle = 'rgba(71, 85, 105, 0.24)';
+	for (let x = majorOffsetX; x < w; x += majorEvery) {
+		ctx.beginPath();
+		ctx.moveTo(Math.round(x) + 0.5, 0);
+		ctx.lineTo(Math.round(x) + 0.5, h);
+		ctx.stroke();
+	}
+	for (let y = majorOffsetY; y < h; y += majorEvery) {
+		ctx.beginPath();
+		ctx.moveTo(0, Math.round(y) + 0.5);
+		ctx.lineTo(w, Math.round(y) + 0.5);
+		ctx.stroke();
+	}
+	ctx.restore();
 }
 
 // ---------------------------------------------------------------------------

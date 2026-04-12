@@ -51,7 +51,14 @@
 	import { encryptDMFile, isE2EAvailable } from '$lib/e2eManager';
 	import { getDMPrivacyMode } from '$lib/dmPrivacyMode';
 	import { _, currentLocale } from '$lib/i18n';
-	import { lookupDictionary, upsertDictionaryEntry, deleteDictionaryEntry } from '$lib/api';
+	import {
+		addMediaAlbumItem,
+		createMediaAlbum,
+		deleteDictionaryEntry,
+		lookupDictionary,
+		type MediaAlbumScopeType,
+		upsertDictionaryEntry
+	} from '$lib/api';
 	import { getTauriPlatform, isTauriRuntime } from '$lib/tauri-platform';
 	import {
 		classifyVideoCompressionFailure,
@@ -105,7 +112,9 @@
 		splitEntitiesForChunks,
 		type PlaceRecord
 	} from '$lib/placeRegistry';
-	import { openPreferredMapSurface } from '$lib/mapWorkspace';
+	import { openFullMapTab } from '$lib/mapWorkspace';
+	import { openModelViewportSurface } from '$lib/modelViewportTab';
+	import { openReaderSurface } from '$lib/readerWorkspace';
 	import { pushLocalDirectionsCard } from '$lib/directionsAssist';
 	import { currentChatSurface, setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
 	import WhiteboardTab from './WhiteboardTab.svelte';
@@ -207,6 +216,12 @@
 	let selectedFiles: File[] = [];
 	let filePreviews: { file: File; preview?: string }[] = [];
 	let markAsSpoiler = false;
+	let createAlbumFromUpload = false;
+	let uploadAlbumName = '';
+	let manualSendTimestamps: number[] = [];
+	let sendCooldownUntil = 0;
+	let sendCooldownMessage = '';
+	let sendCooldownTimer: ReturnType<typeof setTimeout> | null = null;
 	let isDragging = false;
 	let dragCounter = 0;
 	let textareaElement: HTMLTextAreaElement;
@@ -229,6 +244,9 @@
 	let EmojiPickerComponent: typeof import('./EmojiPicker.svelte').default | null = null;
 	let emojiPickerLoadPromise: Promise<void> | null = null;
 	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken());
+	const SEND_BURST_WINDOW_MS = 2500;
+	const SEND_BURST_LIMIT = 5;
+	const SEND_BURST_COOLDOWN_MS = 3000;
 
 	type PaymentSheetPrefill = {
 		amountInput?: string | null;
@@ -484,7 +502,7 @@
 		try {
 			await startCall($socket, getUserIdentityKey(dmCallTargetUser), false, { scope: 'dm', displayName: dmCallTargetUser.username });
 		} catch (error) {
-			alert('Failed to start voice call. Please check microphone permissions.');
+			console.warn('[Call] DM voice call failed to start:', error);
 		}
 	}
 
@@ -493,7 +511,7 @@
 		try {
 			await startCall($socket, getUserIdentityKey(dmCallTargetUser), true, { scope: 'dm', displayName: dmCallTargetUser.username });
 		} catch (error) {
-			alert('Failed to start video call. Please check camera and microphone permissions.');
+			console.warn('[Call] DM video call failed to start:', error);
 		}
 	}
 
@@ -1147,6 +1165,22 @@
 				break;
 			}
 
+			case 'read': {
+				openReaderSurface();
+				break;
+			}
+
+			case '3d': {
+				openModelViewportSurface();
+				break;
+			}
+
+			case 'map':
+			case 'maps': {
+				void openFullMapTab();
+				break;
+			}
+
 			case 'dm':
 			case 'message':
 			case 'msg': {
@@ -1330,7 +1364,18 @@
 	}
 
 	function handleSubmit() {
-		if (messageInput.trim()) {
+		const hasSelectedFiles = selectedFiles.length > 0;
+		const hasTextInput = Boolean(messageInput.trim());
+		if (!hasSelectedFiles && !hasTextInput) return;
+		if (sendCooldownUntil > Date.now()) {
+			sendCooldownMessage = 'Hold on buster. Give chat a second before sending more.';
+			return;
+		}
+		if (hasSelectedFiles) {
+			void uploadSelectedFiles();
+			return;
+		}
+		if (hasTextInput) {
 			if (editingMessage) {
 				// Edit the existing message
 				editMessage($currentChannel, editingMessage.id, messageInput.trim());
@@ -1360,6 +1405,25 @@
 					finalMessage,
 					writeUpperCaseEnabled
 				);
+
+				const now = Date.now();
+				manualSendTimestamps = manualSendTimestamps.filter(
+					(timestamp) => now - timestamp < SEND_BURST_WINDOW_MS
+				);
+				if (manualSendTimestamps.length >= SEND_BURST_LIMIT) {
+					sendCooldownUntil = now + SEND_BURST_COOLDOWN_MS;
+					sendCooldownMessage = 'Hold on buster. Give chat a second before sending more.';
+					if (sendCooldownTimer) {
+						clearTimeout(sendCooldownTimer);
+					}
+					sendCooldownTimer = setTimeout(() => {
+						sendCooldownUntil = 0;
+						sendCooldownMessage = '';
+						sendCooldownTimer = null;
+					}, SEND_BURST_COOLDOWN_MS);
+					return;
+				}
+				manualSendTimestamps = [...manualSendTimestamps, now];
 
 				// Check if it's a command
 				if (normalizedSentenceCaseMessage.startsWith('/')) {
@@ -1425,6 +1489,7 @@
 			resetComposerEntityState();
 			showMentionSuggestions = false;
 			showMediaMenu = false;
+			sendCooldownMessage = '';
 			sendTyping(false, $currentChannel);
 
 			if (typingTimeout) {
@@ -1579,6 +1644,8 @@
 		}
 		filePreviews = [];
 		selectedFiles = [];
+		createAlbumFromUpload = false;
+		uploadAlbumName = '';
 	}
 
 	function enforcePreviewBudget(): void {
@@ -1608,6 +1675,53 @@
 	function formatSignedMb(bytes: number): string {
 		const sign = bytes >= 0 ? '+' : '-';
 		return `${sign}${formatFileMb(Math.abs(bytes))} MB`;
+	}
+
+	function isAlbumEligibleFile(file: File): boolean {
+		return file.type.startsWith('image/');
+	}
+
+	function getMediaAlbumScope(channel: Channel | undefined): { scopeType: MediaAlbumScopeType; scopeId: string } | null {
+		if (!channel?.id) return null;
+		const scopeType: MediaAlbumScopeType =
+			channel.type === 'dm' || channel.type === 'group' ? 'dm' : 'channel';
+		return {
+			scopeType,
+			scopeId: channel.id
+		};
+	}
+
+	function buildDefaultUploadAlbumName(): string {
+		const trimmedCaption = messageInput.trim();
+		if (trimmedCaption) {
+			return trimmedCaption.slice(0, 60);
+		}
+		const channelLabel = channelDisplayName?.trim() || 'Album';
+		const stampedAt = new Date().toLocaleString([], {
+			month: 'short',
+			day: 'numeric',
+			hour: 'numeric',
+			minute: '2-digit'
+		});
+		return `${channelLabel} ${stampedAt}`;
+	}
+
+	$: albumEligibleSelection =
+		selectedFiles.length > 1 && selectedFiles.every((file) => isAlbumEligibleFile(file));
+	$: if (!albumEligibleSelection && createAlbumFromUpload) {
+		createAlbumFromUpload = false;
+		uploadAlbumName = '';
+	}
+
+	function handleAlbumUploadToggle(checked: boolean): void {
+		createAlbumFromUpload = checked;
+		if (!checked) {
+			uploadAlbumName = '';
+			return;
+		}
+		if (!uploadAlbumName.trim()) {
+			uploadAlbumName = buildDefaultUploadAlbumName();
+		}
 	}
 
 	function getCompressionSuggestionCopy(
@@ -1986,8 +2100,17 @@
 		const dmOtherUser = activeChannel?.type === 'dm' ? getDMOtherUser(activeChannel) : null;
 		const dmOtherDbUserId = typeof dmOtherUser?.dbUserId === 'number' ? dmOtherUser.dbUserId : null;
 		const authToken = getAuthToken();
+		const albumScope = createAlbumFromUpload ? getMediaAlbumScope(activeChannel) : null;
 		const dmPrivacyMode = activeChannel?.type === 'dm' ? getDMPrivacyMode(activeChannel.id) : null;
 		const requiresEncryptedDmAttachment = activeChannel?.type === 'dm' && dmPrivacyMode !== 'open';
+		if (createAlbumFromUpload && !authToken) {
+			alert('Sign in with a registered account to turn multi-photo uploads into an album.');
+			return;
+		}
+		if (createAlbumFromUpload && !albumScope) {
+			alert('Cannot determine album scope for this upload.');
+			return;
+		}
 		if (requiresEncryptedDmAttachment) {
 			if (!dmOtherDbUserId || !authToken || !isE2EAvailable()) {
 				alert('This DM is in sealed/private mode. File upload requires E2E encryption and was blocked.');
@@ -2012,6 +2135,7 @@
 				fileUrl: string;
 				fileName: string;
 				fileSize: number;
+				mimeType?: string | null;
 				attachmentStorage?: {
 					scheme: 'wabi-storage-v1';
 					compressed: boolean;
@@ -2078,9 +2202,30 @@
 					fileUrl: result.fileUrl,
 					fileName: file.name,
 					fileSize: file.size,
+					mimeType: file.type || null,
 					attachmentStorage: result.attachmentStorage,
 					attachmentEncryption
 				});
+			}
+
+			let createdAlbumName: string | null = null;
+			if (createAlbumFromUpload && authToken && albumScope) {
+				const albumName = uploadAlbumName.trim() || buildDefaultUploadAlbumName();
+				const createdAlbum = await createMediaAlbum(authToken, {
+					scopeType: albumScope.scopeType,
+					scopeId: albumScope.scopeId,
+					name: albumName
+				});
+				for (const uploadedFile of uploadedFiles) {
+					await addMediaAlbumItem(authToken, createdAlbum.id, {
+						attachmentUrl: uploadedFile.fileUrl,
+						attachmentName: uploadedFile.fileName,
+						attachmentSize: uploadedFile.fileSize,
+						attachmentMime: uploadedFile.mimeType,
+						caption: messageInput.trim() || null
+					});
+				}
+				createdAlbumName = createdAlbum.name;
 			}
 
 			// Send a single message with all uploaded files
@@ -2098,12 +2243,20 @@
 				});
 			} else {
 				// Multiple files - use new format
-				sendMessage($currentChannel, messageInput.trim() || `Shared ${uploadedFiles.length} files`, 'file', {
-					files: uploadedFiles,
-					replyTo: replyingTo?.id,
-					isSpoiler: markAsSpoiler,
-					entities: captionEntities
-				});
+				sendMessage(
+					$currentChannel,
+					messageInput.trim() ||
+						(createdAlbumName
+							? `Shared ${uploadedFiles.length} photos in album "${createdAlbumName}"`
+							: `Shared ${uploadedFiles.length} files`),
+					'file',
+					{
+						files: uploadedFiles,
+						replyTo: replyingTo?.id,
+						isSpoiler: markAsSpoiler,
+						entities: captionEntities
+					}
+				);
 			}
 
 			console.log('All files uploaded');
@@ -2527,6 +2680,10 @@
 
 	onDestroy(() => {
 		clearFilePreviews();
+		if (sendCooldownTimer) {
+			clearTimeout(sendCooldownTimer);
+			sendCooldownTimer = null;
+		}
 		if (compressionDialogResolve) {
 			resolveCompressionDialog(null);
 		}
@@ -2541,6 +2698,7 @@
 
 <div
 	class="chat-container"
+	role="presentation"
 	on:dragenter={handleDragEnter}
 	on:dragleave={handleDragLeave}
 	on:dragover={handleDragOver}
@@ -2580,7 +2738,30 @@
 			<button
 				class="albums-open-btn"
 				type="button"
-				on:click={() => void openPreferredMapSurface()}
+				on:click={openReaderSurface}
+				title="Open reader"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+					<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 0 4 24V4.5A2.5 2.5 0 0 1 6.5 2z"></path>
+				</svg>
+			</button>
+			<button
+				class="albums-open-btn"
+				type="button"
+				on:click={openModelViewportSurface}
+				title="Open 3D viewer"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+					<path d="m3.3 7 8.7 5 8.7-5"></path>
+					<path d="M12 22V12"></path>
+				</svg>
+			</button>
+			<button
+				class="albums-open-btn"
+				type="button"
+				on:click={() => void openFullMapTab()}
 				title="Open map"
 			>
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -2898,6 +3079,32 @@
 					</label>
 					<span class="spoiler-hint" title={$_('chat.upload.spoiler_hint')}>⚠️</span>
 				</div>
+				{#if albumEligibleSelection}
+					<div class="upload-album-row">
+						<label class="upload-album-toggle">
+							<input
+								type="checkbox"
+								checked={createAlbumFromUpload}
+								on:change={(event) =>
+									handleAlbumUploadToggle((event.currentTarget as HTMLInputElement).checked)}
+							/>
+							<span>Turn this multi-photo upload into a shared album</span>
+						</label>
+						{#if createAlbumFromUpload}
+							<label class="upload-album-field">
+								<span>Album name</span>
+								<input
+									class="upload-album-name"
+									type="text"
+									bind:value={uploadAlbumName}
+									placeholder={buildDefaultUploadAlbumName()}
+									maxlength="80"
+								/>
+							</label>
+							<small class="upload-album-hint">This name shows up in chat and in the Albums tab.</small>
+						{/if}
+					</div>
+				{/if}
 				<button class="upload-files-btn" on:click={uploadSelectedFiles}>
 					{filePreviews.length === 1
 						? $_('chat.upload.upload_files_one', { values: { count: filePreviews.length } })
@@ -2924,6 +3131,11 @@
 			multiple
 			style="display: none;"
 		/>
+		{#if sendCooldownMessage}
+			<div class="composer-rate-limit-notice" role="status" aria-live="polite">
+				{sendCooldownMessage}
+			</div>
+		{/if}
 		<div class="input-container">
 			<CommandPalette
 				bind:this={commandPalette}
@@ -3009,8 +3221,8 @@
 			<button
 				class="send-button"
 				on:click={handleSubmit}
-				disabled={!messageInput.trim()}
-				title={$_('chat.compose.send_message')}
+				disabled={(selectedFiles.length === 0 && !messageInput.trim()) || sendCooldownUntil > Date.now() || isUploading}
+				title={selectedFiles.length > 0 ? 'Send selected media' : $_('chat.compose.send_message')}
 			>
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
 			</button>
@@ -3333,6 +3545,7 @@
 		height: var(--app-chrome-height);
 		box-sizing: border-box;
 		z-index: 2;
+		position: relative;
 	}
 
 	.chat-header h2 {
@@ -3377,10 +3590,28 @@
 		color: #a5b4fc;
 	}
 
+	.chat-tabs-row,
+	.messages,
+	.whiteboard-surface {
+		position: relative;
+		z-index: 1;
+	}
+
 	.whiteboard-surface {
 		flex: 1;
 		min-height: 0;
 		overflow: hidden;
+		display: flex;
+		padding: 0;
+		background: transparent;
+	}
+
+	.whiteboard-surface :global(.whiteboard-shell) {
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+		border-radius: 0;
+		box-shadow: none;
 	}
 
 	.surface-hidden {
@@ -3417,36 +3648,6 @@
 		font-size: var(--text-xs);
 		border-radius: var(--radius-sm);
 		font-weight: var(--font-weight-medium);
-	}
-
-	.dm-redirect-message {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		height: 100%;
-		gap: 1rem;
-		color: var(--text-secondary);
-		text-align: center;
-		padding: 2rem;
-	}
-
-	.dm-redirect-message svg {
-		color: var(--text-tertiary);
-		opacity: 0.5;
-	}
-
-	.dm-redirect-message h3 {
-		margin: 0;
-		color: var(--text-primary);
-		font-size: var(--text-lg);
-		font-weight: var(--font-weight-semibold);
-	}
-
-	.dm-redirect-message p {
-		margin: 0;
-		font-size: var(--text-sm);
-		max-width: 300px;
 	}
 
 	.header-actions {
@@ -3820,6 +4021,17 @@
 		gap: 0.3rem;
 	}
 
+	.composer-rate-limit-notice {
+		width: 100%;
+		padding: 0.42rem 0.68rem;
+		border-radius: 10px;
+		border: 1px solid rgba(248, 113, 113, 0.28);
+		background: rgba(127, 29, 29, 0.18);
+		color: #fecaca;
+		font-size: 0.76rem;
+		font-weight: 600;
+	}
+
 	.input-container {
 		display: flex;
 		align-items: center;
@@ -4125,6 +4337,54 @@
 		aspect-ratio: 1;
 		border-radius: 8px;
 		overflow: hidden;
+	}
+
+	.upload-album-row {
+		display: grid;
+		gap: 0.55rem;
+		margin: -0.15rem 0 0.9rem;
+		padding: 0.75rem 0.85rem;
+		border-radius: 14px;
+		border: 1px solid rgba(var(--accent-rgb), 0.18);
+		background: rgba(var(--accent-rgb), 0.06);
+	}
+
+	.upload-album-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.85rem;
+		color: var(--text-primary);
+	}
+
+	.upload-album-field {
+		display: grid;
+		gap: 0.35rem;
+	}
+
+	.upload-album-field span {
+		font-size: 0.76rem;
+		font-weight: 600;
+		color: var(--text-secondary);
+	}
+
+	.upload-album-toggle input {
+		margin: 0;
+	}
+
+	.upload-album-name {
+		height: 36px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		background: var(--bg-primary);
+		color: var(--text-primary);
+		padding: 0 0.75rem;
+		font: inherit;
+	}
+
+	.upload-album-hint {
+		font-size: 0.72rem;
+		color: var(--text-secondary);
 	}
 
 	/* Drag & Drop Overlay - smooth fade effect */

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { createEmptyNote, readNotes, writeNotes, type LocalNote } from '$lib/notesStore';
+	import { openReaderDocument } from '$lib/readerWorkspace';
 
 	export let storageKey: string;
 	export let title = 'Notes';
@@ -33,7 +34,7 @@
 			selectedNoteId = null;
 			return;
 		}
-		const next = readNotes(key);
+		const next = readNotes(key).slice().sort((a, b) => b.updatedAt - a.updatedAt);
 		const hadSelection = next.some((note) => note.id === selectedNoteId);
 		notes = next;
 		if (!hadSelection) {
@@ -57,14 +58,16 @@
 
 	function updateSelectedText(nextText: string) {
 		if (!selectedNote) return;
-		notes = notes.map((note) => {
-			if (note.id !== selectedNote.id) return note;
-			return {
-				...note,
-				text: nextText,
-				updatedAt: Date.now()
-			};
-		});
+		notes = notes
+			.map((note) => {
+				if (note.id !== selectedNote.id) return note;
+				return {
+					...note,
+					text: nextText,
+					updatedAt: Date.now()
+				};
+			})
+			.sort((a, b) => b.updatedAt - a.updatedAt);
 		writeNotes(storageKey, notes);
 	}
 
@@ -81,6 +84,28 @@
 		const trimmed = note.text.trim();
 		if (!trimmed) return '(Empty note)';
 		return trimmed.length > 70 ? `${trimmed.slice(0, 70)}...` : trimmed;
+	}
+
+	function buildReaderTitle(note: LocalNote): string {
+		const firstLine =
+			note.text
+				.split('\n')
+				.map((line) => line.trim())
+				.find(Boolean) || '';
+		if (!firstLine) return `${title} Note`;
+		const normalized = firstLine.replace(/^#+\s*/, '').trim();
+		if (!normalized) return `${title} Note`;
+		return normalized.length > 80 ? `${normalized.slice(0, 80).trim()}...` : normalized;
+	}
+
+	function openSelectedInReader(): void {
+		if (!selectedNote) return;
+		openReaderDocument(
+			buildReaderTitle(selectedNote),
+			selectedNote.text,
+			'markdown',
+			'notes'
+		);
 	}
 
 	function handleSidebarResizeStart(event: MouseEvent): void {
@@ -180,6 +205,12 @@
 					<span class="notes-editor-time">Updated {formatTs(selectedNote.updatedAt)}</span>
 				</div>
 				<div class="notes-toolbar-actions">
+					<button class="notes-reader-btn" on:click={openSelectedInReader} title="Open in Reader">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+							<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+							<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 0 4 24V4.5A2.5 2.5 0 0 1 6.5 2z"></path>
+						</svg>
+					</button>
 					<button class="notes-add-btn editor-add" on:click={addNote} title="Create note">
 						<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v14h-2zM5 11h14v2H5z" fill="currentColor"/></svg>
 					</button>
@@ -196,7 +227,11 @@
 			></textarea>
 		{:else}
 			<div class="notes-editor-empty">
-				<button class="notes-add-first-btn" on:click={addNote}>Create your first note</button>
+				<div class="notes-empty-card">
+					<strong>{emptyMessage}</strong>
+					<span>Start a note and it will open here immediately.</span>
+					<button class="notes-add-first-btn" on:click={addNote}>Create your first note</button>
+				</div>
 			</div>
 		{/if}
 	</div>
@@ -233,6 +268,7 @@
 		font-weight: 600;
 	}
 
+	.notes-reader-btn,
 	.notes-add-btn {
 		width: 26px;
 		height: 26px;
@@ -252,6 +288,7 @@
 		overflow: hidden;
 	}
 
+	.notes-reader-btn svg,
 	.notes-add-btn svg {
 		display: block;
 		width: 14px;
@@ -259,6 +296,7 @@
 		transform: translateY(-0.5px);
 	}
 
+	.notes-reader-btn:hover,
 	.notes-add-btn:hover {
 		color: var(--text-primary);
 		background: transparent;
@@ -419,6 +457,28 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		padding: 1.5rem;
+	}
+
+	.notes-empty-card {
+		width: min(100%, 340px);
+		display: grid;
+		gap: 0.55rem;
+		padding: 1.1rem;
+		border: 1px solid var(--border);
+		border-radius: 14px;
+		background: var(--bg-secondary);
+		text-align: center;
+	}
+
+	.notes-empty-card strong {
+		font-size: 0.95rem;
+		color: var(--text-primary);
+	}
+
+	.notes-empty-card span {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
 	}
 
 	.notes-add-first-btn {

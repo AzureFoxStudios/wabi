@@ -174,9 +174,7 @@
 		try {
 			await startCall($socket, getUserIdentityKey(user), withVideo, { scope: 'dm', displayName: user.username });
 		} catch (error) {
-			alert(withVideo
-				? 'Failed to start video call. Please check camera and microphone permissions.'
-				: 'Failed to start voice call. Please check microphone permissions.');
+			console.warn(`[Call] DM quick ${withVideo ? 'video' : 'voice'} call failed to start:`, error);
 		}
 	}
 

@@ -75,6 +75,7 @@
 	let placeDraft: PlaceDraft = createEmptyPlaceDraft();
 	let customMapViewport: HTMLDivElement | null = null;
 	let mapUploadInput: HTMLInputElement | null = null;
+	let latitudeInput: HTMLInputElement | null = null;
 
 	let customMapNaturalWidth = DEFAULT_IMAGE_WIDTH;
 	let customMapNaturalHeight = DEFAULT_IMAGE_HEIGHT;
@@ -116,6 +117,8 @@
 		$focusedMapPlace ||
 		visiblePlaces[0] ||
 		null;
+	$: isCompactLayout = variant === 'compact';
+	$: compactPlaceSuggestions = normalizedQuery ? visiblePlaces.slice(0, 12) : [];
 	$: canManagePlaces =
 		variant !== 'compact' &&
 		($currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin');
@@ -481,6 +484,13 @@
 		return parts.join(' - ') || `@${place.slug}`;
 	}
 
+	function getPlacePreviewUrl(place: PlaceRecord | null): string | null {
+		if (!place) return null;
+		const firstLayerImage =
+			place.mapLayers.find((layer) => Boolean(resolvePlaceAssetUrl(layer.imageUrl)))?.imageUrl || null;
+		return resolvePlaceAssetUrl(firstLayerImage || place.mapImageUrl || null);
+	}
+
 	function getEffectivePoiRenderMode(poi: PlacePoiRecord): PlacePoiRecord['renderMode'] {
 		return resolvePoiRenderMode(poi.renderMode, poiDisplayPreference);
 	}
@@ -721,6 +731,40 @@
 		if (!maybeDiscardDraft()) return;
 		editorMode = 'edit';
 		seedEditorFromPlace(activePlace);
+	}
+
+	async function startQuickMapUpload(): Promise<void> {
+		if (!canManagePlaces) return;
+		if (editorMode === 'view') {
+			if (activePlace) {
+				beginEditingCurrentPlace();
+			} else {
+				beginNewPlace();
+			}
+		}
+		if (editorMode === 'view') return;
+		if (selectedDraftLayerIndex < 0) {
+			addDraftMapLayer();
+			await tick();
+		}
+		surfaceMode = 'custom';
+		triggerMapUploadPicker();
+	}
+
+	async function startQuickOsmSetup(): Promise<void> {
+		if (!canManagePlaces) return;
+		if (editorMode === 'view') {
+			if (activePlace) {
+				beginEditingCurrentPlace();
+			} else {
+				beginNewPlace();
+			}
+		}
+		if (editorMode === 'view') return;
+		surfaceMode = 'osm';
+		await tick();
+		latitudeInput?.focus();
+		latitudeInput?.select();
 	}
 
 	function cancelEditing(): void {
@@ -986,6 +1030,7 @@
 <svelte:window on:mousemove={handleWindowMouseMove} on:mouseup={handleWindowMouseUp} />
 
 <div class="map-workspace {variant}">
+	{#if !isCompactLayout}
 	<div class="map-sidebar">
 		<div class="map-sidebar-header">
 			<div>
@@ -1015,100 +1060,215 @@
 			<p class="state-message error">{loadError}</p>
 		{/if}
 
+		<div class="place-list-header">
+			<strong>Places</strong>
+			<span>{visiblePlaces.length}</span>
+		</div>
+
 		{#if loading && $placeRegistry.length === 0}
 			<p class="state-message">Loading map places...</p>
 		{:else if visiblePlaces.length === 0}
-			<p class="state-message">
-				{normalizedQuery ? 'No places match this search yet.' : 'No places have been configured yet.'}
-			</p>
+			<div class="state-message">
+				<div>{normalizedQuery ? 'No places match this search yet.' : 'No places have been configured yet.'}</div>
+				{#if canManagePlaces && !normalizedQuery}
+					<div class="admin-actions">
+						<button class="ghost-button" type="button" on:click={beginNewPlace}>Create First Place</button>
+					</div>
+				{/if}
+			</div>
 		{:else}
 			<div class="place-list" role="list">
 				{#each visiblePlaces as place (place.id)}
+					{@const placePreviewUrl = getPlacePreviewUrl(place)}
 					<button type="button" class="place-item" class:active={activePlace?.id === place.id && editorMode === 'view'} on:click={() => void selectPlace(place)}>
-						<div class="place-copy">
-							<strong>{place.name}</strong>
-							<small>@{place.slug}</small>
+						<div class="place-thumb" class:has-preview={Boolean(placePreviewUrl)}>
+							{#if placePreviewUrl}
+								<img src={placePreviewUrl} alt="" loading="lazy" decoding="async" />
+							{:else}
+								<span>{place.name.charAt(0).toUpperCase()}</span>
+							{/if}
 						</div>
-						{#if place.building || place.floor}
-							<span class="place-meta">
-								{#if place.building}{place.building}{/if}
-								{#if place.floor}{place.building ? ' - ' : ''}Floor {place.floor}{/if}
-							</span>
-						{/if}
+						<div class="place-copy">
+							<div class="place-copy-heading">
+								<strong>{place.name}</strong>
+								<small>@{place.slug}</small>
+							</div>
+							<div class="place-chip-row">
+								{#if place.building}
+									<span class="place-chip">{place.building}</span>
+								{/if}
+								{#if place.floor}
+									<span class="place-chip">Floor {place.floor}</span>
+								{/if}
+								{#if place.mapLayers.length > 0 || place.mapImageUrl}
+									<span class="place-chip">{place.mapLayers.length || 1} layer{(place.mapLayers.length || 1) === 1 ? '' : 's'}</span>
+								{/if}
+								{#if place.pois.length > 0}
+									<span class="place-chip">{place.pois.length} POI{place.pois.length === 1 ? '' : 's'}</span>
+								{/if}
+								{#if place.lat != null && place.lon != null}
+									<span class="place-chip">OSM</span>
+								{/if}
+							</div>
+						</div>
 					</button>
 				{/each}
 			</div>
 		{/if}
 	</div>
+	{/if}
 
 	<div class="map-stage">
-		{#if stagePlace}
-			<div class="place-header">
-				<div class="place-heading">
-					<h3>{stagePlace.name}</h3>
-					<p>{formatMeta(stagePlace)}</p>
-				</div>
-				<div class="place-actions">
-					{#if surfaceHasCustom && surfaceHasOsm}
-						<div class="surface-toggle" role="tablist" aria-label="Map surface selector">
-							<button type="button" class:active={surfaceMode === 'custom'} on:click={() => (surfaceMode = 'custom')}>Custom</button>
-							<button type="button" class:active={surfaceMode === 'osm'} on:click={() => (surfaceMode = 'osm')}>OSM</button>
-						</div>
-					{/if}
-					{#if externalUrl}
-						<a class="ghost-button" href={externalUrl} target="_blank" rel="noreferrer noopener">Open External Map</a>
-					{/if}
-					{#if modelUrl}
-						{#if modelViewerAvailable}
-						<button class="ghost-button" type="button" on:click={openPlaceModelViewport}>Open 3D Tab</button>
-						{/if}
-						<a class="ghost-button" href={modelUrl} target="_blank" rel="noreferrer noopener">Open Model</a>
-					{/if}
-				</div>
-			</div>
-
-			{#if stagePlace.description}
-				<p class="place-description">{stagePlace.description}</p>
-			{/if}
-
-			{#if stageMapLayers.length > 1 || stagePois.length > 0}
-				<div class="display-preference-row">
-					{#if stageMapLayers.length > 1}
-						<label class="display-mode-field">
-							<span>Map Layer</span>
-							<select value={selectedLayerId} on:change={(event) => (selectedLayerId = (event.currentTarget as HTMLSelectElement).value)}>
-								{#each stageMapLayers as layer (layer.id)}
-									<option value={layer.id}>{layer.name}{layer.floor ? ` | Floor ${layer.floor}` : ''}</option>
-								{/each}
-							</select>
-						</label>
-					{/if}
-					{#if stagePois.length > 0}
-						<label class="display-mode-field">
-							<span>POI View</span>
-							<select
-								value={poiDisplayPreference}
-								on:change={(event) =>
-									setMapPoiDisplayPreference(
-										(event.currentTarget as HTMLSelectElement).value as MapPoiDisplayPreference
-									)}
+		{#if isCompactLayout}
+			<div class="compact-map-toolbar">
+				<label class="search-field compact-map-search">
+					<span>Search places</span>
+					<input type="text" bind:value={searchQuery} placeholder="Search this server map..." />
+				</label>
+				{#if compactPlaceSuggestions.length > 0}
+					<div class="compact-place-picker" role="list">
+						{#each compactPlaceSuggestions as place (place.id)}
+							<button
+								type="button"
+								class="compact-place-chip"
+								class:active={activePlace?.id === place.id && editorMode === 'view'}
+								on:click={() => void selectPlace(place)}
 							>
-								<option value="server">Server Default</option>
-								<option value="label">Labels Only</option>
-								<option value="pin">Pins Only</option>
-								<option value="both">Labels + Pins</option>
-							</select>
-						</label>
-					{/if}
-					<small class="display-mode-note">
+								{place.name}
+							</button>
+						{/each}
+					</div>
+				{:else if normalizedQuery}
+					<div class="compact-map-empty">No places match this search yet.</div>
+				{:else if activePlace}
+					<div class="compact-active-place">
+						<strong>{activePlace.name}</strong>
+						<span>{activePlace.description || formatMeta(activePlace)}</span>
+					</div>
+				{/if}
+			</div>
+		{/if}
+		{#if stagePlace}
+			{#if !isCompactLayout}
+				<div class="place-header">
+					<div class="place-heading">
+						<div class="place-kicker">Map Place</div>
+						<h3>{stagePlace.name}</h3>
+						<p>{stagePlace.description || formatMeta(stagePlace)}</p>
+						<div class="place-chip-row place-chip-row--hero">
+							{#if stagePlace.building}
+								<span class="place-chip">{stagePlace.building}</span>
+							{/if}
+							{#if stagePlace.floor}
+								<span class="place-chip">Floor {stagePlace.floor}</span>
+							{/if}
+							<span class="place-chip">{stageMapLayers.length || (stagePlace.mapImageUrl ? 1 : 0)} layer{(stageMapLayers.length || (stagePlace.mapImageUrl ? 1 : 0)) === 1 ? '' : 's'}</span>
+							<span class="place-chip">{allStagePois.length} POI{allStagePois.length === 1 ? '' : 's'}</span>
+							{#if surfaceHasCustom}
+								<span class="place-chip">Custom Map</span>
+							{/if}
+							{#if surfaceHasOsm}
+								<span class="place-chip">OSM Ready</span>
+							{/if}
+						</div>
+					</div>
+					<div class="place-actions">
+						{#if canManagePlaces && !surfaceHasCustom}
+							<button class="ghost-button" type="button" on:click={() => void startQuickMapUpload()} disabled={uploadBusy}>
+								{uploadBusy ? 'Uploading...' : 'Upload Custom Map'}
+							</button>
+						{/if}
+						{#if canManagePlaces && !surfaceHasOsm}
+							<button class="ghost-button" type="button" on:click={() => void startQuickOsmSetup()}>
+								Add OSM Coordinates
+							</button>
+						{/if}
+						{#if surfaceHasCustom && surfaceHasOsm}
+							<div class="surface-toggle" role="tablist" aria-label="Map surface selector">
+								<button type="button" class:active={surfaceMode === 'custom'} on:click={() => (surfaceMode = 'custom')}>Custom</button>
+								<button type="button" class:active={surfaceMode === 'osm'} on:click={() => (surfaceMode = 'osm')}>OSM</button>
+							</div>
+						{/if}
+						{#if externalUrl}
+							<a class="ghost-button" href={externalUrl} target="_blank" rel="noreferrer noopener">Open External Map</a>
+						{/if}
+						{#if modelUrl}
+							{#if modelViewerAvailable}
+							<button class="ghost-button" type="button" on:click={openPlaceModelViewport}>Open 3D Tab</button>
+							{/if}
+							<a class="ghost-button" href={modelUrl} target="_blank" rel="noreferrer noopener">Open Model</a>
+						{/if}
+					</div>
+				</div>
+
+				{#if stagePlace.description}
+					<p class="place-description">{stagePlace.description}</p>
+				{/if}
+
+				{#if stageMapLayers.length > 1 || stagePois.length > 0}
+					<div class="display-preference-row">
 						{#if stageMapLayers.length > 1}
-							Showing {activeMapLayer?.name || 'selected layer'}
-							{#if stagePois.length > 0} | {/if}
+							<label class="display-mode-field">
+								<span>Map Layer</span>
+								<select value={selectedLayerId} on:change={(event) => (selectedLayerId = (event.currentTarget as HTMLSelectElement).value)}>
+									{#each stageMapLayers as layer (layer.id)}
+										<option value={layer.id}>{layer.name}{layer.floor ? ` | Floor ${layer.floor}` : ''}</option>
+									{/each}
+								</select>
+							</label>
 						{/if}
 						{#if stagePois.length > 0}
-							Local POI override only. Server defaults remain unchanged.
+							<label class="display-mode-field">
+								<span>POI View</span>
+								<select
+									value={poiDisplayPreference}
+									on:change={(event) =>
+										setMapPoiDisplayPreference(
+											(event.currentTarget as HTMLSelectElement).value as MapPoiDisplayPreference
+										)}
+								>
+									<option value="server">Server Default</option>
+									<option value="label">Labels Only</option>
+									<option value="pin">Pins Only</option>
+									<option value="both">Labels + Pins</option>
+								</select>
+							</label>
 						{/if}
-					</small>
+						<small class="display-mode-note">
+							{#if stageMapLayers.length > 1}
+								Showing {activeMapLayer?.name || 'selected layer'}
+								{#if stagePois.length > 0} | {/if}
+							{/if}
+							{#if stagePois.length > 0}
+								Local POI override only. Server defaults remain unchanged.
+							{/if}
+						</small>
+					</div>
+				{/if}
+			{:else}
+				<div class="compact-stage-toolbar">
+					<div class="compact-stage-summary">
+						<strong>{stagePlace.name}</strong>
+						<span>{stageMapLayers.length || (stagePlace.mapImageUrl ? 1 : 0)} layer{(stageMapLayers.length || (stagePlace.mapImageUrl ? 1 : 0)) === 1 ? '' : 's'}{#if allStagePois.length > 0} | {allStagePois.length} POI{allStagePois.length === 1 ? '' : 's'}{/if}</span>
+					</div>
+					<div class="compact-stage-controls">
+						{#if stageMapLayers.length > 1}
+							<label class="display-mode-field compact-display-mode-field">
+								<span>Layer</span>
+								<select value={selectedLayerId} on:change={(event) => (selectedLayerId = (event.currentTarget as HTMLSelectElement).value)}>
+									{#each stageMapLayers as layer (layer.id)}
+										<option value={layer.id}>{layer.name}{layer.floor ? ` | Floor ${layer.floor}` : ''}</option>
+									{/each}
+								</select>
+							</label>
+						{/if}
+						{#if surfaceHasCustom && surfaceHasOsm}
+							<div class="surface-toggle" role="tablist" aria-label="Map surface selector">
+								<button type="button" class:active={surfaceMode === 'custom'} on:click={() => (surfaceMode = 'custom')}>Custom</button>
+								<button type="button" class:active={surfaceMode === 'osm'} on:click={() => (surfaceMode = 'osm')}>OSM</button>
+							</div>
+						{/if}
+					</div>
 				</div>
 			{/if}
 
@@ -1178,30 +1338,68 @@
 						<iframe title={`Map for ${stagePlace.name}`} src={embedUrl} loading="lazy"></iframe>
 					{:else}
 						<div class="visual-fallback">
-							{#if canManagePlaces && editorMode !== 'view'}
-								<div>
-									<p>No custom map or coordinates saved yet.</p>
-									<p>Upload map art or add coordinates in the editor.</p>
+							{#if canManagePlaces}
+								<div class="visual-fallback-card">
+									<h4>No map surface yet</h4>
+									<p>Upload custom map art for floorplans or add coordinates for OpenStreetMap.</p>
+									<div class="surface-buttons visual-fallback-actions">
+										<button class="ghost-button" type="button" on:click={() => void startQuickMapUpload()} disabled={uploadBusy}>
+											{uploadBusy ? 'Uploading...' : 'Upload Custom Map'}
+										</button>
+										<button class="ghost-button" type="button" on:click={() => void startQuickOsmSetup()}>
+											Add OSM Coordinates
+										</button>
+									</div>
+									<small>"OSM here please" is just latitude and longitude in the place editor.</small>
 								</div>
 							{:else}
-								No visual map is configured for this place yet.
+								<div class="visual-fallback-card">
+									<h4>No map surface yet</h4>
+									<p>No visual map is configured for this place yet.</p>
+									<small>Ask an owner or admin to upload map art or add coordinates.</small>
+								</div>
 							{/if}
 						</div>
 					{/if}
 				</div>
+				{#if !isCompactLayout}
 				<div class="detail-panel">
 					<div class="detail-card">
 						<h4>Place Details</h4>
-						<ul>
-							<li><strong>Slug</strong><span>@{stagePlace.slug}</span></li>
-							<li><strong>Aliases</strong><span>{stagePlace.aliases.length ? stagePlace.aliases.join(', ') : 'None'}</span></li>
-							<li><strong>Tags</strong><span>{stagePlace.tags.length ? stagePlace.tags.join(', ') : 'None'}</span></li>
-							<li><strong>Layers</strong><span>{stageMapLayers.length || (stagePlace.mapImageUrl ? 1 : 0)}</span></li>
-							<li><strong>POI View</strong><span>{formatPoiDisplayPreference(poiDisplayPreference)}</span></li>
-							<li><strong>POI Theme</strong><span>{formatPoiThemePreset(stagePlace.poiThemePreset)}</span></li>
-							<li><strong>Rotation</strong><span>{stagePlace.mapRotation.toFixed(0)} deg</span></li>
-							<li><strong>POIs</strong><span>{stagePois.length}{stageMapLayers.length > 1 ? ` visible / ${allStagePois.length} total` : ''}</span></li>
-						</ul>
+						<div class="detail-stat-grid">
+							<div class="detail-stat">
+								<span>Slug</span>
+								<strong>@{stagePlace.slug}</strong>
+							</div>
+							<div class="detail-stat">
+								<span>Layers</span>
+								<strong>{stageMapLayers.length || (stagePlace.mapImageUrl ? 1 : 0)}</strong>
+							</div>
+							<div class="detail-stat">
+								<span>POI View</span>
+								<strong>{formatPoiDisplayPreference(poiDisplayPreference)}</strong>
+							</div>
+							<div class="detail-stat">
+								<span>POI Theme</span>
+								<strong>{formatPoiThemePreset(stagePlace.poiThemePreset)}</strong>
+							</div>
+							<div class="detail-stat">
+								<span>Rotation</span>
+								<strong>{stagePlace.mapRotation.toFixed(0)} deg</strong>
+							</div>
+							<div class="detail-stat">
+								<span>POIs</span>
+								<strong>{stagePois.length}{stageMapLayers.length > 1 ? ` visible / ${allStagePois.length} total` : ''}</strong>
+							</div>
+							<div class="detail-stat detail-stat--wide">
+								<span>Aliases</span>
+								<strong>{stagePlace.aliases.length ? stagePlace.aliases.join(', ') : 'None'}</strong>
+							</div>
+							<div class="detail-stat detail-stat--wide">
+								<span>Tags</span>
+								<strong>{stagePlace.tags.length ? stagePlace.tags.join(', ') : 'None'}</strong>
+							</div>
+						</div>
 					</div>
 
 					{#if stagePois.length > 0}
@@ -1265,7 +1463,7 @@
 									<label><span>Building</span><input type="text" value={placeDraft.building} on:input={(event) => updateDraftField('building', (event.currentTarget as HTMLInputElement).value)} /></label>
 									<label><span>Floor</span><input type="text" value={placeDraft.floor} on:input={(event) => updateDraftField('floor', (event.currentTarget as HTMLInputElement).value)} /></label>
 									<label><span>POI Theme</span><select value={placeDraft.poiThemePreset} on:change={(event) => updateDraftField('poiThemePreset', (event.currentTarget as HTMLSelectElement).value)}><option value="classic">Classic</option><option value="campus">Campus</option><option value="quest">Quest</option><option value="terminal">Terminal</option></select></label>
-									<label><span>Latitude</span><input type="text" value={placeDraft.lat} on:input={(event) => updateDraftField('lat', (event.currentTarget as HTMLInputElement).value)} placeholder="13.7563" /></label>
+									<label><span>Latitude</span><input bind:this={latitudeInput} type="text" value={placeDraft.lat} on:input={(event) => updateDraftField('lat', (event.currentTarget as HTMLInputElement).value)} placeholder="13.7563" /></label>
 									<label><span>Longitude</span><input type="text" value={placeDraft.lon} on:input={(event) => updateDraftField('lon', (event.currentTarget as HTMLInputElement).value)} placeholder="100.5018" /></label>
 									<label class="wide"><span>Aliases</span><input type="text" value={placeDraft.aliases} on:input={(event) => updateDraftField('aliases', (event.currentTarget as HTMLInputElement).value)} placeholder="cafeteria, lunch hall" /></label>
 									<label class="wide"><span>Tags</span><input type="text" value={placeDraft.tags} on:input={(event) => updateDraftField('tags', (event.currentTarget as HTMLInputElement).value)} placeholder="food, student-services" /></label>
@@ -1386,11 +1584,19 @@
 						</div>
 					{/if}
 				</div>
+				{/if}
 			</div>
 		{:else}
 			<div class="empty-stage">
-				<h3>No place selected</h3>
-				<p>Choose a saved place from the list to open the server map.</p>
+				<div class="empty-stage-copy">
+					<h3>No place selected</h3>
+					<p>{isCompactLayout ? 'Search for a place to open the server map.' : 'Choose a saved place from the list to open the server map.'}</p>
+					{#if canManagePlaces}
+						<div class="surface-buttons">
+							<button class="ghost-button" type="button" on:click={beginNewPlace}>Create First Place</button>
+						</div>
+					{/if}
+				</div>
 			</div>
 		{/if}
 	</div>
@@ -1419,9 +1625,11 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.9rem;
-		padding: 1rem;
+		padding: 1.05rem;
 		border-right: 1px solid rgba(140, 167, 214, 0.16);
-		background: rgba(9, 13, 24, 0.66);
+		background:
+			linear-gradient(180deg, rgba(9, 13, 24, 0.82), rgba(9, 13, 24, 0.62)),
+			rgba(9, 13, 24, 0.66);
 		min-height: 0;
 	}
 
@@ -1448,6 +1656,32 @@
 	.selected-poi-card p {
 		margin: 0.2rem 0 0;
 		color: var(--text-secondary, #b0b8d0);
+	}
+
+	.place-list-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.2rem 0 0;
+		font-size: 0.8rem;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--text-secondary, #b0b8d0);
+	}
+
+	.place-list-header span {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 2rem;
+		height: 1.55rem;
+		padding: 0 0.55rem;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.06);
+		border: 1px solid rgba(148, 163, 184, 0.16);
+		color: var(--text-primary, #eef3ff);
+		font-size: 0.74rem;
 	}
 
 	.display-preference-row {
@@ -1543,7 +1777,7 @@
 	.poi-editor-list {
 		display: flex;
 		flex-direction: column;
-		gap: 0.45rem;
+		gap: 0.55rem;
 		overflow: auto;
 		min-height: 0;
 	}
@@ -1569,6 +1803,14 @@
 		cursor: pointer;
 	}
 
+	.place-item {
+		display: grid;
+		grid-template-columns: 72px minmax(0, 1fr);
+		align-items: stretch;
+		gap: 0.8rem;
+		padding: 0.75rem;
+	}
+
 	.place-item.active,
 	.poi-item.active,
 	.poi-editor-item.active {
@@ -1586,6 +1828,68 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.15rem;
+	}
+
+	.place-copy {
+		justify-content: center;
+		min-width: 0;
+	}
+
+	.place-copy-heading {
+		display: grid;
+		gap: 0.18rem;
+	}
+
+	.place-thumb {
+		width: 72px;
+		height: 72px;
+		border-radius: 16px;
+		overflow: hidden;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background:
+			linear-gradient(145deg, rgba(37, 99, 235, 0.22), rgba(45, 212, 191, 0.12)),
+			rgba(15, 23, 42, 0.7);
+		border: 1px solid rgba(148, 163, 184, 0.2);
+		font-size: 1.35rem;
+		font-weight: 800;
+		color: #f8fafc;
+	}
+
+	.place-thumb.has-preview {
+		background: rgba(15, 23, 42, 0.48);
+	}
+
+	.place-thumb img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		display: block;
+	}
+
+	.place-chip-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.38rem;
+		margin-top: 0.45rem;
+	}
+
+	.place-chip {
+		display: inline-flex;
+		align-items: center;
+		min-height: 1.5rem;
+		padding: 0.12rem 0.5rem;
+		border-radius: 999px;
+		border: 1px solid rgba(148, 163, 184, 0.18);
+		background: rgba(255, 255, 255, 0.06);
+		color: var(--text-secondary, #d6deef);
+		font-size: 0.72rem;
+		font-weight: 600;
+	}
+
+	.place-chip-row--hero {
+		margin-top: 0.72rem;
 	}
 
 	.place-copy small,
@@ -1611,15 +1915,87 @@
 	.map-stage {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
-		padding: 1rem;
+		gap: 0.95rem;
+		padding: 1.05rem;
 		min-width: 0;
 		min-height: 0;
 	}
 
+	.map-workspace.compact .map-stage {
+		gap: 0.75rem;
+		padding: 0.9rem;
+	}
+
+	.compact-map-toolbar,
+	.compact-stage-toolbar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: end;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.85rem 0.95rem;
+		border: 1px solid rgba(148, 163, 184, 0.16);
+		border-radius: 1rem;
+		background:
+			linear-gradient(145deg, rgba(17, 24, 39, 0.88), rgba(8, 13, 24, 0.8)),
+			rgba(10, 16, 28, 0.82);
+	}
+
+	.compact-map-search {
+		flex: 1 1 18rem;
+		min-width: min(100%, 18rem);
+	}
+
+	.compact-place-picker {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.45rem;
+		width: 100%;
+	}
+
+	.compact-place-chip {
+		border: 1px solid rgba(148, 163, 184, 0.2);
+		border-radius: 999px;
+		padding: 0.45rem 0.75rem;
+		background: rgba(17, 24, 39, 0.72);
+		color: var(--text-primary, #eef3ff);
+		font-size: 0.82rem;
+		cursor: pointer;
+	}
+
+	.compact-place-chip.active {
+		border-color: rgba(122, 201, 255, 0.46);
+		background: rgba(76, 138, 255, 0.26);
+	}
+
+	.compact-active-place,
+	.compact-stage-summary {
+		display: grid;
+		gap: 0.2rem;
+		min-width: 0;
+	}
+
+	.compact-active-place span,
+	.compact-stage-summary span,
+	.compact-map-empty {
+		color: var(--text-secondary, #b0b8d0);
+		font-size: 0.82rem;
+	}
+
+	.compact-stage-controls {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.6rem;
+		align-items: center;
+	}
+
+	.compact-display-mode-field {
+		min-width: 10rem;
+	}
+
 	.stage-grid {
 		display: grid;
-		grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.95fr);
+		grid-template-columns: minmax(0, 1.72fr) minmax(300px, 0.9fr);
 		gap: 1rem;
 		min-height: 0;
 		flex: 1;
@@ -1645,6 +2021,23 @@
 		overflow: hidden;
 	}
 
+	.place-header {
+		padding: 1rem 1.05rem;
+		border: 1px solid rgba(148, 163, 184, 0.16);
+		border-radius: 1rem;
+		background:
+			linear-gradient(145deg, rgba(17, 24, 39, 0.9), rgba(8, 13, 24, 0.82)),
+			rgba(10, 16, 28, 0.82);
+	}
+
+	.place-kicker {
+		font-size: 0.72rem;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.12em;
+		color: rgba(125, 211, 252, 0.88);
+	}
+
 	.map-panel iframe {
 		width: 100%;
 		height: 100%;
@@ -1663,6 +2056,41 @@
 	.detail-card,
 	.nested-card {
 		padding: 1rem;
+	}
+
+	.detail-stat-grid {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.7rem;
+		margin-top: 0.9rem;
+	}
+
+	.detail-stat {
+		display: grid;
+		gap: 0.28rem;
+		padding: 0.8rem 0.85rem;
+		border-radius: 0.9rem;
+		border: 1px solid rgba(148, 163, 184, 0.16);
+		background: rgba(255, 255, 255, 0.04);
+		min-width: 0;
+	}
+
+	.detail-stat span {
+		color: var(--text-secondary, #b0b8d0);
+		font-size: 0.74rem;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+	}
+
+	.detail-stat strong {
+		min-width: 0;
+		color: var(--text-primary, #eef3ff);
+		font-size: 0.9rem;
+		word-break: break-word;
+	}
+
+	.detail-stat--wide {
+		grid-column: 1 / -1;
 	}
 
 	.detail-card ul {
@@ -1897,6 +2325,25 @@
 		color: var(--text-secondary, #b0b8d0);
 	}
 
+	.visual-fallback-card,
+	.empty-stage-copy {
+		display: grid;
+		gap: 0.75rem;
+		max-width: 28rem;
+	}
+
+	.visual-fallback-card h4,
+	.visual-fallback-card p,
+	.visual-fallback-card small,
+	.empty-stage-copy h3,
+	.empty-stage-copy p {
+		margin: 0;
+	}
+
+	.visual-fallback-actions {
+		justify-content: center;
+	}
+
 	.surface-toggle {
 		display: inline-flex;
 		border: 1px solid rgba(148, 163, 184, 0.22);
@@ -1988,6 +2435,10 @@
 		.stage-grid {
 			grid-template-columns: 1fr;
 		}
+
+		.detail-stat-grid {
+			grid-template-columns: 1fr 1fr;
+		}
 	}
 
 	@media (max-width: 960px) {
@@ -2001,6 +2452,15 @@
 			border-bottom: 1px solid rgba(140, 167, 214, 0.16);
 		}
 
+		.place-item {
+			grid-template-columns: 64px minmax(0, 1fr);
+		}
+
+		.place-thumb {
+			width: 64px;
+			height: 64px;
+		}
+
 		.editor-grid {
 			grid-template-columns: 1fr;
 		}
@@ -2009,9 +2469,24 @@
 			align-items: stretch;
 		}
 
+		.detail-stat-grid {
+			grid-template-columns: 1fr;
+		}
+
 		.display-mode-field select {
 			min-width: 0;
 			width: 100%;
+		}
+
+		.compact-map-toolbar,
+		.compact-stage-toolbar {
+			padding: 0.8rem;
+		}
+
+		.compact-map-search,
+		.compact-display-mode-field {
+			flex-basis: 100%;
+			min-width: 0;
 		}
 	}
 </style>

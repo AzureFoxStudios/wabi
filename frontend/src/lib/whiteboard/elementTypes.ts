@@ -89,7 +89,7 @@ export type BoardElementType = BoardElement['type'];
 // ---------------------------------------------------------------------------
 
 export const DEFAULT_STYLE = {
-	strokeColor: '#e0e0ff',
+	strokeColor: '#1f2937',
 	strokeWidth: 2,
 	fillColor: 'transparent'
 } as const;

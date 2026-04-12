@@ -69,9 +69,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./data:/app/data
-      - ./uploads:/app/uploads
-      - ./plugins:/app/plugins
+      - ./data:/app/data:z
+      - ./uploads:/app/uploads:z
+      - ./plugins:/app/plugins:z
     healthcheck:
       test: ["CMD", "node", "-e", "const http=require('http');const req=http.get('http://localhost:8080/health',res=>{process.exit(res.statusCode>=200&&res.statusCode<400?0:1)});req.on('error',()=>process.exit(1));"]
       interval: 10s
@@ -128,10 +128,10 @@ services:
       - "5349:5349/udp"
       - "49160-49200:49160-49200/udp"
     volumes:
-      - ./turn-server/turnserver.conf.template:/etc/coturn/turnserver.conf.template:ro
-      - ./turn-server/certs:/etc/coturn/certs:ro
-      - ./turn-server/docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh:ro
-      - ./data:/wabi-data:ro
+      - ./turn-server/turnserver.conf.template:/etc/coturn/turnserver.conf.template:ro,z
+      - ./turn-server/certs:/etc/coturn/certs:ro,z
+      - ./turn-server/docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh:ro,z
+      - ./data:/wabi-data:ro,z
     entrypoint: ["/bin/sh", "/usr/local/bin/docker-entrypoint.sh"]
     environment:
       - TURN_EXTERNAL_IP=${TURN_EXTERNAL_IP:-127.0.0.1}
@@ -168,8 +168,21 @@ services:
       - backend
     restart: unless-stopped
 
+  stdb-proxy:
+    image: docker.io/library/caddy:2
+    container_name: wabi-stdb-proxy
+    profiles:
+      - stdb-proxy
+    ports:
+      - "${WABI_STDB_PROXY_BIND_IP:-127.0.0.1}:3100:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./Caddyfile.stdb:/etc/caddy/Caddyfile:ro,z
+    restart: unless-stopped
+
   livekit:
-    image: livekit/livekit-server:v1.8.3
+    image: docker.io/livekit/livekit-server:v1.8.3
     container_name: wabi-livekit
     profiles:
       - sfu
@@ -184,19 +197,21 @@ services:
     restart: unless-stopped
 
   caddy-tunnel:
-    image: caddy:2
+    image: docker.io/library/caddy:2
     container_name: wabi-tunnel-caddy
     profiles:
       - tunnel
+    ports:
+      - "127.0.0.1:8088:8088"
     volumes:
-      - ./Caddyfile.tunnel:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile.tunnel:/etc/caddy/Caddyfile:ro,z
     depends_on:
       - backend
       - frontend
     restart: unless-stopped
 
   cloudflared-quick:
-    image: cloudflare/cloudflared:2026.2.0
+    image: docker.io/cloudflare/cloudflared:2026.2.0
     container_name: wabi-cloudflared-quick
     profiles:
       - tunnel
@@ -207,7 +222,7 @@ services:
     restart: unless-stopped
 
   cloudflared-named:
-    image: cloudflare/cloudflared:2026.2.0
+    image: docker.io/cloudflare/cloudflared:2026.2.0
     container_name: wabi-cloudflared-named
     profiles:
       - tunnel

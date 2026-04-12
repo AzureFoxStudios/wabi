@@ -20,15 +20,17 @@
 	];
 
 	const colorSwatches = [
-		'#e0e0ff', '#f87171', '#fb923c', '#facc15',
-		'#4ade80', '#38bdf8', '#a78bfa', '#f472b6'
+		'#1f2937', '#b91c1c', '#c2410c', '#a16207',
+		'#166534', '#0369a1', '#6d28d9', '#be185d'
 	];
 
 	const strokeWidths = [1, 2, 4, 8];
 
 	export let onExportPng: (() => void) | null = null;
 	export let onExportJson: (() => void) | null = null;
+	export let onImportImages: (() => void) | null = null;
 	export let exportBusy = false;
+	export let importDisabled = false;
 
 	function setTool(id: ToolType) {
 		boardStore.setTool(id);
@@ -95,6 +97,18 @@
 		>
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 8l3 3-3 3"/><path d="M18 11H7a4 4 0 010-8h5"/></svg>
 		</button>
+		<button
+			class="wb-tool-btn"
+			on:click={() => onImportImages?.()}
+			disabled={importDisabled || !onImportImages}
+			title="Import images"
+		>
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+				<path d="M4 5.5A1.5 1.5 0 015.5 4h9A1.5 1.5 0 0116 5.5v9a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 014 14.5z"/>
+				<path d="M7 12l2-2 2 2 2.5-3 1.5 2"/>
+				<circle cx="8" cy="7.5" r="1"/>
+			</svg>
+		</button>
 	</div>
 
 	<div class="wb-toolbar-divider"></div>
@@ -158,12 +172,12 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
-		padding: 5px 8px;
-		border-radius: 12px;
-		background: rgba(15, 23, 42, 0.88);
+		padding: 6px 9px;
+		border-radius: 14px;
+		background: rgba(255, 251, 243, 0.96);
 		backdrop-filter: blur(12px);
-		border: 1px solid rgba(148, 163, 184, 0.18);
-		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+		border: 1px solid rgba(148, 163, 184, 0.26);
+		box-shadow: 0 14px 32px rgba(15, 23, 42, 0.14);
 		user-select: none;
 	}
 
@@ -177,7 +191,7 @@
 		width: 1px;
 		height: 24px;
 		margin: 0 4px;
-		background: rgba(148, 163, 184, 0.2);
+		background: rgba(148, 163, 184, 0.28);
 	}
 
 	.wb-tool-btn {
@@ -191,19 +205,19 @@
 		border: none;
 		border-radius: 8px;
 		background: transparent;
-		color: rgba(203, 213, 225, 0.8);
+		color: rgba(30, 41, 59, 0.78);
 		cursor: pointer;
 		transition: background 0.12s, color 0.12s;
 	}
 
 	.wb-tool-btn:hover {
-		background: rgba(148, 163, 184, 0.12);
-		color: #e2e8f0;
+		background: rgba(148, 163, 184, 0.14);
+		color: #0f172a;
 	}
 
 	.wb-tool-btn.active {
-		background: rgba(99, 102, 241, 0.25);
-		color: #a5b4fc;
+		background: rgba(59, 130, 246, 0.16);
+		color: #1d4ed8;
 	}
 
 	.wb-tool-btn:disabled {
@@ -259,8 +273,8 @@
 	}
 
 	.wb-color-swatch.active {
-		border-color: #ffffff;
-		box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.6);
+		border-color: #fffef9;
+		box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.48);
 	}
 
 	.wb-width-btn {
@@ -278,17 +292,17 @@
 	}
 
 	.wb-width-btn:hover {
-		background: rgba(148, 163, 184, 0.12);
+		background: rgba(148, 163, 184, 0.14);
 	}
 
 	.wb-width-btn.active {
-		background: rgba(99, 102, 241, 0.2);
+		background: rgba(59, 130, 246, 0.16);
 	}
 
 	.wb-width-preview {
 		display: block;
 		width: 16px;
 		border-radius: 2px;
-		background: rgba(203, 213, 225, 0.7);
+		background: rgba(30, 41, 59, 0.72);
 	}
 </style>

@@ -48,6 +48,26 @@ export default defineConfig({
 								maxAgeSeconds: 3600
 							}
 						}
+					},
+					{
+						urlPattern: ({ request, sameOrigin, url }) =>
+							sameOrigin &&
+							['image', 'video', 'audio'].includes(request.destination) &&
+							(
+								url.pathname.startsWith('/uploads/') ||
+								/^\/api\/whiteboard\/boards\/[^/]+\/files\//.test(url.pathname)
+							),
+						handler: 'StaleWhileRevalidate',
+						options: {
+							cacheName: 'media-assets-cache',
+							cacheableResponse: {
+								statuses: [200]
+							},
+							expiration: {
+								maxEntries: 300,
+								maxAgeSeconds: 7 * 24 * 60 * 60
+							}
+						}
 					}
 				]
 			},

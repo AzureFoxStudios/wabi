@@ -70,6 +70,7 @@
 		cycleChannelFollowAlertLevel,
 		toggleChannelFollow
 	} from '$lib/following';
+	import { setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
 	import {
 		displayEnhancementSettingsStore,
 		isLikelyNsfwChannel,
@@ -155,9 +156,6 @@
 	$: followedChannelPreferences = new Map(
 		$currentServerFollowedChannels.map((entry) => [entry.channelId, entry])
 	);
-	$: followedUnreadCount = $currentServerFollowedChannels.reduce((sum, entry) => {
-		return sum + ($channelUnreadCounts[entry.channelId] || 0);
-	}, 0);
 	$: glimpseChannelMessages = glimpseChannelId
 		? ($channelMessages[glimpseChannelId] || []).slice(-4).reverse()
 		: [];
@@ -340,6 +338,14 @@
 	function openFollowingView(): void {
 		activeView = 'following';
 		glimpseChannelId = null;
+		dispatch('close');
+	}
+
+	function openVoiceChannelWhiteboard(channelId: string, event?: Event): void {
+		event?.stopPropagation();
+		activeView = 'chat';
+		currentChannel.set(channelId);
+		setWhiteboardSurface(channelId, 'whiteboard');
 		dispatch('close');
 	}
 
@@ -862,6 +868,10 @@
 	$: channelMenuItems = contextMenuChannel ? buildChannelMenuItems(contextMenuChannel) : [];
 
 	function buildChannelMenuItems(channel: Channel): ContextMenuItem[] {
+		const supportsFollowing =
+			channel.type === 'text' || channel.type === 'public' || channel.type === 'group' || !channel.type;
+		const followNoun = channel.type === 'group' ? 'Group' : 'Channel';
+		const isFollowed = supportsFollowing && followedChannelIds.has(channel.id);
 		const items: ContextMenuItem[] = [
 			{
 				id: 'pin-channel',
@@ -887,6 +897,36 @@
 				onSelect: () => handleOpenChannelSettings(channel)
 			}
 		];
+
+		if (supportsFollowing) {
+			items.unshift(
+				{
+					id: 'follow-feed',
+					label: 'Open Follow Feed',
+					leading: '≈',
+					hint:
+						$currentServerFollowedChannels.length > 0
+							? `${$currentServerFollowedChannels.length} followed`
+							: undefined,
+					disabled: $currentServerFollowedChannels.length === 0,
+					onSelect: openFollowingView
+				},
+				{
+					id: 'follow-alerts',
+					label: isFollowed ? 'Cycle Follow Alerts' : `Follow ${followNoun} With Alerts`,
+					leading: '!',
+					hint: getFollowAlertLabel(channel.id),
+					onSelect: () => cycleFollowAlert(channel.id)
+				},
+				{
+					id: 'toggle-follow',
+					label: isFollowed ? `Unfollow ${followNoun}` : `Follow ${followNoun}`,
+					leading: isFollowed ? '★' : '☆',
+					onSelect: () => toggleChannelFollowState(channel.id)
+				},
+				{ id: 'follow-divider', type: 'separator' }
+			);
+		}
 
 		if (channel.type === 'text' || channel.type === 'public' || !channel.type) {
 			items.splice(1, 0, {
@@ -936,8 +976,17 @@
 	<button class="expand-btn" on:click={toggleSidebar} title="Expand sidebar">›</button>
 {/if}
 
-<div class="channel-sidebar" class:compact={isCompactSidebar} style="width: {$layoutStore.channelSidebarWidth}px">
-	<div class="top-section">
+<div
+	class="channel-sidebar"
+	class:compact={isCompactSidebar}
+	class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
+	style="width: {$layoutStore.channelSidebarWidth}px"
+>
+	<div
+		class="top-section"
+		class:has-banner={Boolean(currentServerBannerUrl)}
+		style:--sidebar-banner-image={currentServerBannerUrl ? `url('${currentServerBannerUrl}')` : 'none'}
+	>
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
 		<button type="button" class="server-identity" on:click={() => dispatch('openServerSwitcher')}>
 			<div class="logo">
@@ -962,18 +1011,6 @@
 			{/if}
 		</div>
 	</div>
-
-	{#if !isCompactSidebar}
-		<button type="button" class="server-banner" on:click={() => dispatch('openServerSwitcher')}>
-			{#if currentServerBannerUrl}
-				<img src={currentServerBannerUrl} alt={currentServerLabel} class="server-banner-image" />
-			{/if}
-			<div class="server-banner-copy">
-				<strong>{currentServerLabel}</strong>
-				<span>{currentServerDescription}</span>
-			</div>
-		</button>
-	{/if}
 
 	{#if showCreateInput}
 		<div class="create-channel">
@@ -1002,49 +1039,21 @@
 
 	<div class="channel-list">
 		{#if $displayEnhancementSettingsStore.serverCounterEnabled}
-			<div class="workspace-counter-chip" title="Workspace channel count">
-				<span class="workspace-counter-label">Workspace</span>
+			<div class="workspace-counter-chip" title="Server channel count">
+				<span class="workspace-counter-label">Server</span>
 				<span class="workspace-counter-value">{workspaceChannelCount} channels</span>
 			</div>
 		{/if}
-		{#if $displayEnhancementSettingsStore.readAllNotificationsButtonEnabled}
+		{#if $displayEnhancementSettingsStore.readAllNotificationsButtonEnabled && totalUnreadNotifications > 0}
 			<div class="channel-list-actions">
 				<button
 					class="clear-unread-btn"
 					on:click={clearAllUnreadNotifications}
-					disabled={totalUnreadNotifications === 0}
 				>
-					{#if totalUnreadNotifications > 0}
-						Clear Unread ({totalUnreadNotifications})
-					{:else}
-						No Unread
-					{/if}
+					Clear Unread ({totalUnreadNotifications})
 				</button>
 			</div>
 		{/if}
-		<div class="following-entry-wrap">
-			<button
-				type="button"
-				class="following-entry"
-				class:active={activeView === 'following'}
-				on:click={openFollowingView}
-				title="Open your followed channel feed"
-			>
-				<span class="following-entry-icon">+</span>
-				<span class="following-entry-copy">
-					<strong>Following</strong>
-					<small>RSS-style local feed</small>
-				</span>
-				<span class="following-entry-badges">
-					{#if $currentServerFollowedChannels.length > 0}
-						<span class="following-entry-pill">{$currentServerFollowedChannels.length}</span>
-					{/if}
-					{#if followedUnreadCount > 0}
-						<span class="following-entry-pill following-entry-pill--unread">{followedUnreadCount}</span>
-					{/if}
-				</span>
-			</button>
-		</div>
 		<div class="section-heading-row">
 			<button
 				class="section-toggle"
@@ -1309,6 +1318,22 @@
 						</span>
 					{/if}
 				</button>
+				<div class="voice-channel-actions">
+					<button
+						type="button"
+						class="voice-whiteboard-btn"
+						on:click|stopPropagation={(event) => openVoiceChannelWhiteboard(channel.id, event)}
+						title="Open voice whiteboard"
+						aria-label={`Open ${channel.name} whiteboard`}
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<rect x="3" y="4" width="18" height="14" rx="2"></rect>
+							<path d="M7 8h10"></path>
+							<path d="M7 12h6"></path>
+							<path d="M8 20h8"></path>
+						</svg>
+					</button>
+				</div>
 			</div>
 			{#if showVoiceMembers(channel.id)}
 				<div class="voice-member-list" transition:slide={{ duration: 180, easing: cubicOut }}>
@@ -1382,6 +1407,22 @@
 							</span>
 						{/if}
 					</button>
+					<div class="voice-channel-actions">
+						<button
+							type="button"
+							class="voice-whiteboard-btn"
+							on:click|stopPropagation={(event) => openVoiceChannelWhiteboard(breakout.id, event)}
+							title="Open breakout whiteboard"
+							aria-label={`Open ${breakout.name} whiteboard`}
+						>
+							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<rect x="3" y="4" width="18" height="14" rx="2"></rect>
+								<path d="M7 8h10"></path>
+								<path d="M7 12h6"></path>
+								<path d="M8 20h8"></path>
+							</svg>
+						</button>
+					</div>
 				</div>
 				{#if showVoiceMembers(breakout.id)}
 					<div class="voice-member-list breakout-member-list" transition:slide={{ duration: 180, easing: cubicOut }}>
@@ -1991,6 +2032,7 @@
 	}
 
 	.top-section {
+		position: relative;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -1999,6 +2041,40 @@
 		height: var(--app-chrome-height);
 		gap: 0.5rem;
 		box-sizing: border-box;
+		overflow: hidden;
+		background:
+			linear-gradient(180deg, rgba(8, 13, 24, 0.9), rgba(8, 13, 24, 0.74)),
+			linear-gradient(135deg, rgba(45, 212, 191, 0.08), rgba(59, 130, 246, 0.04));
+	}
+
+	.top-section::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background-image: var(--sidebar-banner-image, none);
+		background-size: cover;
+		background-position: center;
+		opacity: 0.28;
+		pointer-events: none;
+	}
+
+	.top-section::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background:
+			linear-gradient(180deg, rgba(6, 10, 18, 0.12), rgba(6, 10, 18, 0.72)),
+			linear-gradient(90deg, rgba(6, 10, 18, 0.74), rgba(6, 10, 18, 0.28));
+		pointer-events: none;
+	}
+
+	.top-section > * {
+		position: relative;
+		z-index: 1;
+	}
+
+	.channel-sidebar.nav-right .top-section {
+		flex-direction: row-reverse;
 	}
 
 	.server-identity {
@@ -2013,6 +2089,11 @@
 		cursor: pointer;
 		color: inherit;
 		text-align: left;
+	}
+
+	.channel-sidebar.nav-right .server-identity {
+		justify-content: flex-end;
+		text-align: right;
 	}
 
 	.logo {
@@ -2045,6 +2126,10 @@
 		min-width: 0;
 		display: grid;
 		gap: 0.08rem;
+	}
+
+	.channel-sidebar.nav-right .server-copy {
+		justify-items: end;
 	}
 
 	.server-product-label {
@@ -2464,26 +2549,24 @@
 	}
 
 	.follow-btn {
+		background: transparent;
+		border: none;
 		width: 24px;
 		height: 24px;
-		display: inline-flex;
+		padding: 0;
+		border-radius: 4px;
+		color: var(--text-secondary);
+		display: flex;
 		align-items: center;
 		justify-content: center;
-		border: none;
-		background: transparent;
-		color: var(--text-muted);
 		cursor: pointer;
-		border-radius: 999px;
-		font-size: 0.95rem;
-		opacity: 0.84;
-		transition: background 0.18s ease, color 0.18s ease, opacity 0.18s ease;
+		transition: all 0.2s;
 	}
 
 	.follow-btn:hover,
 	.follow-btn.active {
-		background: rgba(245, 158, 11, 0.14);
-		color: #fbbf24;
-		opacity: 1;
+		color: var(--text-primary);
+		background: var(--bg-secondary);
 	}
 
 	.channel-glimpse-popout {
@@ -2836,20 +2919,65 @@
 		color: var(--text-primary);
 	}
 
-	.text-channel-actions .settings-btn {
+	.text-channel-actions {
 		opacity: 0;
 		pointer-events: none;
+		transform: translateX(4px);
+		transition: opacity 0.18s ease, transform 0.18s ease;
 	}
 
-	.channel-item:hover .text-channel-actions .settings-btn,
-	.channel-item.active .text-channel-actions .settings-btn {
+	.channel-item:hover .text-channel-actions,
+	.channel-item:focus-within .text-channel-actions {
 		opacity: 1;
 		pointer-events: auto;
+		transform: translateX(0);
 	}
 
 	.voice-channel-item .channel-btn {
 		padding-top: 0.3rem;
 		padding-bottom: 0.3rem;
+	}
+
+	.voice-channel-actions {
+		display: flex;
+		align-items: center;
+		opacity: 0;
+		pointer-events: none;
+		transform: translateX(4px);
+		transition: opacity 0.18s ease, transform 0.18s ease;
+	}
+
+	.voice-channel-item:hover .voice-channel-actions,
+	.voice-channel-item:focus-within .voice-channel-actions,
+	.voice-channel-item.active .voice-channel-actions {
+		opacity: 1;
+		pointer-events: auto;
+		transform: translateX(0);
+	}
+
+	.voice-whiteboard-btn {
+		width: 24px;
+		height: 24px;
+		padding: 0;
+		border: none;
+		border-radius: 4px;
+		background: transparent;
+		color: var(--text-secondary);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		transition: all 0.18s ease;
+	}
+
+	.voice-whiteboard-btn svg {
+		width: 15px;
+		height: 15px;
+	}
+
+	.voice-whiteboard-btn:hover {
+		background: var(--bg-secondary);
+		color: var(--text-primary);
 	}
 
 	.voice-channel-item.connected {
@@ -3174,7 +3302,8 @@
 		stroke-width: 2;
 	}
 
-	.channel-item:hover .pin-btn {
+	.channel-item:hover .pin-btn,
+	.channel-item:focus-within .pin-btn {
 		opacity: 1;
 	}
 
@@ -3738,7 +3867,8 @@
 
 		.pin-btn,
 		.settings-btn,
-		.follow-btn {
+		.follow-btn,
+		.voice-whiteboard-btn {
 			min-width: 44px;
 			min-height: 44px;
 			width: 44px;

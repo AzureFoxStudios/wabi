@@ -17,6 +17,20 @@ RUNTIME=node
 # Use localhost only for local testing.
 DOMAIN=localhost
 
+# Optional public tunnel.
+# Leave this disabled for the first local install, then enable it only after
+# http://localhost:3000 and http://localhost:8080/health are working.
+# USE_TUNNEL_PROFILE:
+#   auto  -> enable tunnel profile automatically when token is set
+#   true  -> force tunnel profile on
+#   false -> disable tunnel profile
+USE_TUNNEL_PROFILE=auto
+# TUNNEL_CONNECTOR:
+#   named -> repo-managed named Cloudflare tunnel via CLOUDFLARE_TUNNEL_TOKEN
+#   quick -> temporary quick tunnel for debugging only
+TUNNEL_CONNECTOR=named
+CLOUDFLARE_TUNNEL_TOKEN=
+
 # CALLS:
 #   off              -> no self-hosted coturn profile
 #   self_hosted_turn -> deploy coturn profile locally
@@ -91,6 +105,21 @@ WABI_STDB_BRIDGE_TIMEOUT_MS=10000
 WABI_STDB_AUTH_TOKEN=
 WABI_STDB_ANONYMOUS=false
 WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=false
+# Multi-node mesh identity and peer routing.
+# Each backend should set a unique instance id and a routable mesh URL.
+# Example:
+# WABI_SERVER_INSTANCE_ID=wabi-home
+# WABI_SERVER_REGION=bangkok
+# WABI_SERVER_ROLE=app
+# WABI_MESH_INSTANCE_URL_TEMPLATE=http://{instanceId}.wabi-mesh.internal:8080
+# WABI_MESH_INGRESS_URL=http://10.229.254.250:8080
+# WABI_MESH_SHARED_TOKEN=replace-me
+WABI_SERVER_INSTANCE_ID=
+WABI_SERVER_REGION=
+WABI_SERVER_ROLE=
+WABI_MESH_INSTANCE_URL_TEMPLATE=http://{instanceId}:8080
+WABI_MESH_INGRESS_URL=
+WABI_MESH_SHARED_TOKEN=
 STATE_PLANE_SCHEMA_VERSION=1
 STATE_PLANE_SCHEMA_AUTO_APPLY=true
 STATE_REDUCER_INGRESS_ENABLED=false

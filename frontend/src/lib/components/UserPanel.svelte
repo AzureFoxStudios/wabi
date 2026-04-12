@@ -193,7 +193,7 @@
 		try {
 			await startCall($socket, getUserIdentityKey(targetUser), false, { scope: 'dm', displayName: targetUser.username });
 		} catch (error) {
-			alert(get(_)('user.errors.voice_call_failed'));
+			console.warn('[Call] Voice call failed to start:', error);
 		}
 	}
 
@@ -204,7 +204,7 @@
 		try {
 			await startCall($socket, getUserIdentityKey(targetUser), true, { scope: 'dm', displayName: targetUser.username });
 		} catch (error) {
-			alert(get(_)('user.errors.video_call_failed'));
+			console.warn('[Call] Video call failed to start:', error);
 		}
 	}
 

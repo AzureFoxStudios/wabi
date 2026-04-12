@@ -1,6 +1,51 @@
 import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { Room, RoomEvent, Track } from 'livekit-client';
+
+// LiveKit token refresh helpers (M3)
+let _livekitRefreshTimers = new Map<string, number>();
+
+function decodeJwtExp(token: string): number | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    // Decode base64 payload
+    const payload = JSON.parse(atob(parts[1]));
+    if (typeof payload?.exp === 'number') {
+      return payload.exp * 1000;
+    }
+  } catch {
+    // ignore decode errors
+  }
+  return null;
+}
+
+function scheduleLivekitTokenRefresh(channelId: string, displayName: string, token: string) {
+  const exp = decodeJwtExp(token);
+  if (!exp) return;
+  const delay = Math.max(0, exp - Date.now() - 60_000); // refresh 60s before expiry
+  const t = window.setTimeout(async () => {
+    // attempt a graceful refresh by reconnecting
+    await refreshLivekitToken(channelId, displayName);
+  }, delay);
+  _livekitRefreshTimers.set(channelId, t);
+}
+
+async function refreshLivekitToken(channelId: string, displayName: string) {
+  // best-effort: disconnect and reconnect which will fetch a fresh token
+  if (livekitRoom && livekitChannelId === channelId) {
+    await disconnectLivekitSfu();
+  }
+  await connectLivekitSfu(channelId, displayName);
+}
+
+function cancelLivekitTokenRefresh(channelId: string) {
+  const t = _livekitRefreshTimers.get(channelId);
+  if (t != null) {
+    window.clearTimeout(t);
+    _livekitRefreshTimers.delete(channelId);
+  }
+}
 import { buildRTCConfig, prefetchTurnCredentials } from './turnConfig';
 import { playCallActionSound } from './callSounds';
 import { closeMediaGatewaySession, renewMediaGatewaySession, getMediaGatewaySession, createLivekitAccessToken } from './mediaGateway';
@@ -17,6 +62,8 @@ import {
 	setSpatialAudioEnabled,
 	getPreferredMicDeviceId,
 	getPreferredCameraDeviceId,
+	setPreferredMicDeviceId,
+	setPreferredCameraDeviceId,
 	type AudioProcessingMode,
 	type EffectiveCallTransport,
 	type CallTransportMode,
@@ -684,13 +731,7 @@ function clearActiveAudioCaptureSession(): void {
 
 async function createAudioCaptureSession(): Promise<LocalAudioCaptureSession> {
 	const mode = resolveEffectiveAudioProcessingMode();
-	const audioConstraints: MediaTrackConstraints = getAudioCaptureConstraints(mode as AudioProcessingMode);
-	const preferredMicId = getPreferredMicDeviceId();
-	if (preferredMicId) audioConstraints.deviceId = preferredMicId;
-	const sourceStream = await navigator.mediaDevices.getUserMedia({
-		audio: audioConstraints,
-		video: false
-	});
+	const sourceStream = await requestAudioSourceStream(mode);
 
 	if (mode === 'dsp') {
 		const pipeline = createDspAudioPipeline(sourceStream);
@@ -713,6 +754,125 @@ async function createAudioCaptureSession(): Promise<LocalAudioCaptureSession> {
 		outputTrack,
 		mode
 	};
+}
+
+function isRecoverableMediaDeviceError(error: unknown): error is DOMException {
+	return (
+		error instanceof DOMException &&
+		(error.name === 'NotFoundError' ||
+			error.name === 'OverconstrainedError' ||
+			error.name === 'NotReadableError' ||
+			error.name === 'AbortError')
+	);
+}
+
+async function requestAudioSourceStream(mode: EffectiveAudioProcessingMode): Promise<MediaStream> {
+	const baseAudioConstraints: MediaTrackConstraints = getAudioCaptureConstraints(mode as AudioProcessingMode);
+	const preferredMicId = getPreferredMicDeviceId();
+	const attempts: Array<{
+		label: string;
+		audio: MediaTrackConstraints | true;
+		clearPreferredDevice?: boolean;
+	}> = [];
+
+	if (preferredMicId) {
+		attempts.push({
+			label: 'preferred microphone',
+			audio: {
+				...baseAudioConstraints,
+				deviceId: preferredMicId
+			},
+			clearPreferredDevice: true
+		});
+	}
+
+	attempts.push(
+		{
+			label: 'default microphone',
+			audio: { ...baseAudioConstraints }
+		},
+		{
+			label: 'basic microphone',
+			audio: true
+		}
+	);
+
+	let lastError: unknown = null;
+	for (const attempt of attempts) {
+		try {
+			return await navigator.mediaDevices.getUserMedia({
+				audio: attempt.audio,
+				video: false
+			});
+		} catch (error) {
+			lastError = error;
+			if (!isRecoverableMediaDeviceError(error)) {
+				throw error;
+			}
+			if (attempt.clearPreferredDevice) {
+				console.warn('[WebRTC] Preferred microphone failed, clearing saved mic device preference:', error);
+				setPreferredMicDeviceId(null);
+			} else {
+				console.warn(`[WebRTC] Audio capture attempt failed (${attempt.label}), retrying with fallback.`, error);
+			}
+		}
+	}
+
+	throw lastError instanceof Error ? lastError : new Error('Unable to capture microphone audio');
+}
+
+async function requestCameraStream(): Promise<MediaStream> {
+	const preferredCameraId = getPreferredCameraDeviceId();
+	const attempts: Array<{
+		label: string;
+		video: MediaTrackConstraints | true;
+		clearPreferredDevice?: boolean;
+	}> = [];
+
+	if (preferredCameraId) {
+		attempts.push({
+			label: 'preferred camera',
+			video: {
+				...CAMERA_CONSTRAINTS,
+				deviceId: preferredCameraId
+			},
+			clearPreferredDevice: true
+		});
+	}
+
+	attempts.push(
+		{
+			label: 'default camera',
+			video: { ...CAMERA_CONSTRAINTS }
+		},
+		{
+			label: 'basic camera',
+			video: true
+		}
+	);
+
+	let lastError: unknown = null;
+	for (const attempt of attempts) {
+		try {
+			return await navigator.mediaDevices.getUserMedia({
+				video: attempt.video,
+				audio: false
+			});
+		} catch (error) {
+			lastError = error;
+			if (!isRecoverableMediaDeviceError(error)) {
+				throw error;
+			}
+			if (attempt.clearPreferredDevice) {
+				console.warn('[WebRTC] Preferred camera failed, clearing saved camera preference:', error);
+				setPreferredCameraDeviceId(null);
+			} else {
+				console.warn(`[WebRTC] Camera capture attempt failed (${attempt.label}), retrying with fallback.`, error);
+			}
+		}
+	}
+
+	throw lastError instanceof Error ? lastError : new Error('Unable to capture camera video');
 }
 
 function ensureSpeakingAudioContext(): AudioContext | null {
@@ -1558,7 +1718,9 @@ function cleanupPeerConnection(key: string): void {
 		connectionState.set('idle');
 		stopCallDiagnosticsPolling('idle');
 	}
-	syncSpatialAudioGraph();
+  syncSpatialAudioGraph();
+  // Cancel any pending token refresh for the current channel if any
+  if (livekitChannelId) cancelLivekitTokenRefresh(livekitChannelId);
 }
 
 function rememberVoiceParticipantLabel(userId: string, username?: string | null): void {
@@ -2311,7 +2473,8 @@ async function disconnectLivekitSfu(): Promise<void> {
 	livekitRoom = null;
 	livekitChannelId = null;
 	livekitParticipantMedia.clear();
-	activeCalls.set([]);
+	// Only clear SFU-related call state; preserve P2P calls
+	activeCalls.update((calls) => calls.filter(call => !call.sfu));
 	screenShares.set([]);
 	sfuMediaActive.set(false);
 	connectionState.set('idle');
@@ -2324,11 +2487,13 @@ async function disconnectLivekitSfu(): Promise<void> {
 }
 
 async function connectLivekitSfu(channelId: string, localDisplayName: string): Promise<void> {
-	if (livekitRoom && livekitChannelId === channelId && get(sfuMediaActive)) {
+  if (livekitRoom && livekitChannelId === channelId && get(sfuMediaActive)) {
 		return;
 	}
-	await disconnectLivekitSfu();
-	const tokenResponse = await createLivekitAccessToken(channelId, localDisplayName);
+  // Cancel any pending token refresh for this channel
+  if (livekitChannelId) cancelLivekitTokenRefresh(livekitChannelId);
+  await disconnectLivekitSfu();
+  const tokenResponse = await createLivekitAccessToken(channelId, localDisplayName);
 	console.log(
 		`[Calling] LiveKit target: ${tokenResponse.source === 'relay' ? tokenResponse.relayName || `relay ${tokenResponse.relayId}` : 'origin'} (${tokenResponse.url})`
 	);
@@ -2361,9 +2526,16 @@ async function connectLivekitSfu(channelId: string, localDisplayName: string): P
 		void disconnectLivekitSfu();
 	});
 	connectionState.set('connecting');
-	await room.connect(tokenResponse.url, tokenResponse.token, {
-		autoSubscribe: true
-	});
+  await room.connect(tokenResponse.url, tokenResponse.token, {
+      autoSubscribe: true
+  });
+  if (tokenResponse?.token) {
+    scheduleLivekitTokenRefresh(channelId, localDisplayName, tokenResponse.token);
+  }
+  // Schedule a token refresh if possible
+  if (tokenResponse?.token) {
+    scheduleLivekitTokenRefresh(channelId, localDisplayName, tokenResponse.token);
+  }
 	await room.localParticipant.setMicrophoneEnabled(shouldSendAudioToChannel(channelId));
 	if (!get(isVideoOff)) {
 		await room.localParticipant.setCameraEnabled(true);
@@ -2496,7 +2668,7 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 	pushVoiceChannelNotice(`Left voice: ${channelId}`);
 	playCallActionSound('leave');
 
-	const stream = get(localStream);
+  const stream = get(localStream);
 	if (stream) {
 		stream.getTracks().forEach(track => track.stop());
 		localStream.set(null);
@@ -2577,10 +2749,7 @@ export async function startCall(
 		await resolveActiveTransport();
 		const stream = await ensureLocalAudioStream();
 		if (isVideoCall && !stream.getVideoTracks()[0]) {
-			const cameraStream = await navigator.mediaDevices.getUserMedia({
-				video: getPreferredCameraDeviceId() ? { ...CAMERA_CONSTRAINTS, deviceId: getPreferredCameraDeviceId()! } : CAMERA_CONSTRAINTS,
-				audio: false
-			});
+			const cameraStream = await requestCameraStream();
 			const cameraTrack = cameraStream.getVideoTracks()[0];
 			if (cameraTrack) {
 				stream.addTrack(cameraTrack);
@@ -2625,9 +2794,13 @@ export async function startCall(
 		return stream;
 	} catch (error) {
 		console.error('Error starting call:', error);
+		const leakedStream = get(localStream);
+		if (leakedStream) {
+			leakedStream.getTracks().forEach(track => track.stop());
+			localStream.set(null);
+		}
 		handleMediaError(error as DOMException, 'starting');
 		isInCall.set(false);
-		localStream.set(null);
 		throw error;
 	}
 }
@@ -2701,10 +2874,7 @@ export async function startGroupCall(
 		await prefetchTurnCredentials();
 		const stream = await ensureLocalAudioStream();
 		if (isVideoCall && !stream.getVideoTracks()[0]) {
-			const cameraStream = await navigator.mediaDevices.getUserMedia({
-				video: getPreferredCameraDeviceId() ? { ...CAMERA_CONSTRAINTS, deviceId: getPreferredCameraDeviceId()! } : CAMERA_CONSTRAINTS,
-				audio: false
-			});
+			const cameraStream = await requestCameraStream();
 			const cameraTrack = cameraStream.getVideoTracks()[0];
 			if (cameraTrack) {
 				stream.addTrack(cameraTrack);
@@ -2796,10 +2966,7 @@ export async function answerCall(
 		await prefetchTurnCredentials();
 		const stream = await ensureLocalAudioStream();
 		if (isVideoCall && !stream.getVideoTracks()[0]) {
-			const cameraStream = await navigator.mediaDevices.getUserMedia({
-				video: getPreferredCameraDeviceId() ? { ...CAMERA_CONSTRAINTS, deviceId: getPreferredCameraDeviceId()! } : CAMERA_CONSTRAINTS,
-				audio: false
-			});
+			const cameraStream = await requestCameraStream();
 			const cameraTrack = cameraStream.getVideoTracks()[0];
 			if (cameraTrack) {
 				stream.addTrack(cameraTrack);
@@ -3031,8 +3198,15 @@ export async function applyCurrentAudioProcessingToLocalTrack(): Promise<void> {
 
 	const previousSession = activeAudioCaptureSession;
 	const nextSession = await createAudioCaptureSession();
+
 	stream.removeTrack(existingAudioTrack);
-	stream.addTrack(nextSession.outputTrack);
+	try {
+		stream.addTrack(nextSession.outputTrack);
+	} catch (addErr) {
+		stream.addTrack(existingAudioTrack);
+		disposeAudioCaptureSession(nextSession);
+		throw addErr;
+	}
 	applyLocalTrackPreferences(stream);
 	startLocalSpeakingMonitor(stream);
 
@@ -3097,10 +3271,7 @@ export async function toggleVideo(socket?: Socket) {
 	}
 
 	try {
-		const cameraStream = await navigator.mediaDevices.getUserMedia({
-			video: CAMERA_CONSTRAINTS,
-			audio: false
-		});
+		const cameraStream = await requestCameraStream();
 		const cameraTrack = cameraStream.getVideoTracks()[0];
 		if (!cameraTrack) {
 			return;
@@ -3259,6 +3430,16 @@ export async function startScreenShare(socket: Socket) {
 			video: screenShareQuality.constraints,
 			audio: true
 		});
+
+		// On Linux, getDisplayMedia({ audio: true }) often returns no audio track.
+		// Remove dead audio tracks so downstream code doesn't try to use them.
+		const audioTracks = stream.getAudioTracks();
+		for (const track of audioTracks) {
+			if (track.readyState !== 'live' || !track.enabled) {
+				stream.removeTrack(track);
+				track.stop();
+			}
+		}
 
 		localScreenStream.set(stream);
 		isSharing.set(true);
@@ -3560,4 +3741,45 @@ export function updateCallUsername(userId: string, username: string) {
 		});
 	});
 	syncSpatialAudioGraph();
+}
+// LiveKit token refresh scaffolding and wiring (M3)
+let _livekitRefreshTimers = new Map<string, number>();
+
+function decodeJwtExp(token: string): number | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const payload = JSON.parse(atob(parts[1]));
+    if (typeof payload?.exp === 'number') return payload.exp * 1000;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+export function scheduleLivekitTokenRefresh(channelId: string, displayName: string, token: string) {
+  const exp = decodeJwtExp(token);
+  if (!exp) return;
+  const delay = Math.max(0, exp - Date.now() - 60000); // 60s before expiry
+  const t = window.setTimeout(async () => {
+    try { await refreshLivekitToken(channelId, displayName); } catch {
+      // swallow; retry logic can be added later
+    }
+  }, delay);
+  _livekitRefreshTimers.set(channelId, t);
+}
+
+async function refreshLivekitToken(channelId: string, displayName: string) {
+  // If SFU is active on this channel, tear down and reconnect to get a fresh token
+  if (livekitRoom && livekitChannelId === channelId) {
+    await disconnectLivekitSfu();
+  }
+  // Recreate the SFU session with a fresh token path (connectLivekitSfu will request new token from server)
+  await connectLivekitSfu(channelId, displayName);
+}
+
+export function cancelLivekitTokenRefresh(channelId: string) {
+  const t = _livekitRefreshTimers.get(channelId);
+  if (t != null) window.clearTimeout(t);
+  _livekitRefreshTimers.delete(channelId);
 }

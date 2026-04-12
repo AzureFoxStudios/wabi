@@ -992,18 +992,23 @@
 						Accent Color
 						<input type="text" bind:value={frontendAppMetadata.accentColor} placeholder="#2dd4bf" />
 					</label>
-					<label>
-						Icon URL
-						<input type="text" bind:value={frontendAppMetadata.iconUrl} placeholder="/uploads/server-icon.webp" />
-					</label>
-					<label>
-						Banner URL
-						<input type="text" bind:value={frontendAppMetadata.bannerUrl} placeholder="/uploads/server-banner.webp" />
-					</label>
 					<label class="frontend-metadata-wide">
 						Description
 						<input type="text" bind:value={frontendAppMetadata.description} placeholder="Short line for the server switcher banner" />
 					</label>
+					<details class="frontend-metadata-manual frontend-metadata-wide">
+						<summary>Advanced asset URLs</summary>
+						<div class="frontend-metadata-manual-grid">
+							<label>
+								Icon URL
+								<input type="text" bind:value={frontendAppMetadata.iconUrl} placeholder="/uploads/server-icon.webp" />
+							</label>
+							<label>
+								Banner URL
+								<input type="text" bind:value={frontendAppMetadata.bannerUrl} placeholder="/uploads/server-banner.webp" />
+							</label>
+						</div>
+					</details>
 					<label class="runtime-checkbox frontend-metadata-wide">
 						<input type="checkbox" bind:checked={frontendAppMetadata.launchPageFallbackEnabled} />
 						Use login launch-page branding as fallback when metadata fields are empty
@@ -1202,13 +1207,16 @@
 	.runtime-checkbox { grid-column: 1 / -1; flex-direction: row !important; align-items: center; gap: 0.45rem !important; }
 	.runtime-hint { font-size: 0.72rem; color: var(--text-secondary); }
 	.frontend-metadata-wide { grid-column: 1 / -1; }
+	.frontend-metadata-manual { display: grid; gap: 0.45rem; }
+	.frontend-metadata-manual summary { cursor: pointer; font-size: 0.72rem; color: var(--text-secondary); }
+	.frontend-metadata-manual-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.45rem; }
 	.frontend-metadata-upload-row { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 	.frontend-metadata-hidden-input { display: none; }
 	.frontend-metadata-preview {
 		position: relative;
-		min-height: 110px;
+		min-height: 148px;
 		border: 1px solid var(--border);
-		border-radius: 12px;
+		border-radius: 10px;
 		overflow: hidden;
 		background: linear-gradient(135deg, color-mix(in srgb, var(--metadata-accent) 18%, var(--bg-tertiary)), var(--bg-secondary));
 	}
@@ -1226,9 +1234,9 @@
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
-		padding: 0.9rem;
-		min-height: 110px;
-		background: linear-gradient(180deg, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.36));
+		padding: 1.1rem;
+		min-height: 148px;
+		background: linear-gradient(180deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.42));
 	}
 	.frontend-metadata-preview-avatar {
 		width: 52px;

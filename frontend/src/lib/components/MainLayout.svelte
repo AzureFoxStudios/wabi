@@ -5,6 +5,7 @@
 	import { get } from 'svelte/store';
 	import Chat from '$lib/components/Chat.svelte';
 	import ModelViewportTab from '$lib/components/ModelViewportTab.svelte';
+	import ReaderTab from '$lib/components/ReaderTab.svelte';
 	import MapWorkspace from '$lib/components/MapWorkspace.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
 	import ServerRail from '$lib/components/ServerRail.svelte';
@@ -14,7 +15,7 @@
 	import CallModal from '$lib/components/CallModal.svelte';
 	import Settings from '$lib/components/Settings.svelte';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
-	import { channelMessages, channelUnreadCounts, channels, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, type Channel, type User } from '$lib/socket';
+	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, type Channel, type User } from '$lib/socket';
 	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, isVideoOff, toggleVideo } from '$lib/calling';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { onDestroy, onMount } from 'svelte';
@@ -22,6 +23,10 @@
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { playNotificationSound } from '$lib/notifications';
 	import { MAP_ADDON_ID } from '$lib/mapWorkspace';
+	import { MODEL_VIEWPORT_ADDON_ID } from '$lib/modelViewportTab';
+	import { READER_ADDON_ID } from '$lib/readerWorkspace';
+	import { openWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
+	import { savedServerRailItems } from '$lib/savedServers';
 
 	export let activeView: 'chat' | 'screen' | 'following' = 'chat';
 	export let accountSecurityOpenRequest = 0;
@@ -68,10 +73,11 @@
 	let friendPresenceObserverReady = false;
 	let unsubscribeFriendPresence: (() => void) | null = null;
 	const { activeTabId } = mobileTabQueue;
-	const MODEL_VIEWPORT_TAB_ID = 'model-viewport';
-	const MODEL_VIEWPORT_TAB_TOKEN = mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_TAB_ID);
+	const MODEL_VIEWPORT_TAB_TOKEN = mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_ADDON_ID);
+	const READER_TAB_TOKEN = mobileTabQueue.toAddonTabId(READER_ADDON_ID);
 	const MAP_TAB_TOKEN = mobileTabQueue.toAddonTabId(MAP_ADDON_ID);
 	$: isModelViewportTabActive = $activeTabId === MODEL_VIEWPORT_TAB_TOKEN;
+	$: isReaderTabActive = $activeTabId === READER_TAB_TOKEN;
 	$: isMapTabActive = $activeTabId === MAP_TAB_TOKEN;
 	const MOBILE_EDGE_SWIPE_MIN_X_PX = 56;
 	const MOBILE_EDGE_SWIPE_MAX_Y_PX = 72;
@@ -80,7 +86,12 @@
 	const MOBILE_NAV_SWIPE_MIN_Y_PX = 46;
 	const MOBILE_NAV_IDLE_HIDE_MS = 2200;
 	const MOBILE_NAV_PULL_DOWN_HIDE_PX = 26;
-	const SERVER_RAIL_WIDTH = 76;
+	const SERVER_RAIL_WIDTH = 92;
+	$: desktopServerRailVisible =
+		!$layoutStore.isMobile &&
+		$layoutStore.channelSidebarWidth > 0 &&
+		$savedServerRailItems.length > 1;
+	$: desktopServerRailOffset = desktopServerRailVisible ? SERVER_RAIL_WIDTH : 0;
 
 	layoutStore.isResizingChannel.subscribe(v => resizingChannel = v);
 	layoutStore.isResizingRight.subscribe(v => resizingRight = v);
@@ -108,9 +119,14 @@
 
 	onMount(() => {
 		mobileTabQueue.registerAddonTab({
-			id: MODEL_VIEWPORT_TAB_ID,
+			id: MODEL_VIEWPORT_ADDON_ID,
 			label: '3D Viewport',
 			shortLabel: '3D View'
+		});
+		mobileTabQueue.registerAddonTab({
+			id: READER_ADDON_ID,
+			label: 'Reader',
+			shortLabel: 'Read'
 		});
 		mobileTabQueue.registerAddonTab({
 			id: MAP_ADDON_ID,
@@ -156,7 +172,8 @@
 	});
 
 	onDestroy(() => {
-		mobileTabQueue.unregisterAddonTab(MODEL_VIEWPORT_TAB_ID);
+		mobileTabQueue.unregisterAddonTab(MODEL_VIEWPORT_ADDON_ID);
+		mobileTabQueue.unregisterAddonTab(READER_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(MAP_ADDON_ID);
 		if (mobileNavIdleTimer) {
 			clearTimeout(mobileNavIdleTimer);
@@ -299,6 +316,14 @@
 
 	async function handleToggleVideoFromStrip() {
 		await toggleVideo(getSocket() || undefined);
+	}
+
+	function handleOpenVoiceWhiteboard(): void {
+		const channel = get(activeVoiceChannel);
+		if (!channel) return;
+		currentChannel.set(channel.id);
+		openWhiteboardSurface(channel.id);
+		activeView = 'chat';
 	}
 
 	function formatDiag(value: number | null, unit = ''): string {
@@ -635,9 +660,9 @@
 			type="button"
 			class="nav-reopen-rail"
 			class:dock-right={$layoutStore.navDock === 'right'}
-			style:left={$layoutStore.navDock !== 'right' ? `${SERVER_RAIL_WIDTH}px` : null}
+			style:left={$layoutStore.navDock !== 'right' ? `${desktopServerRailOffset}px` : null}
 			style:right={$layoutStore.navDock === 'right'
-				? `${SERVER_RAIL_WIDTH + ($layoutStore.showRightPanel ? $layoutStore.rightPanelWidth : 0)}px`
+				? `${desktopServerRailOffset + ($layoutStore.showRightPanel ? $layoutStore.rightPanelWidth : 0)}px`
 				: null}
 			on:click={layoutStore.expandNav}
 			on:mousedown|preventDefault={startChannelResizeFromClosed}
@@ -654,7 +679,7 @@
 		</button>
 	{/if}
 
-	{#if !$layoutStore.isMobile}
+	{#if desktopServerRailVisible}
 		<div class="server-rail-container">
 			<ServerRail on:manage={openServerSwitcher} />
 		</div>
@@ -690,10 +715,9 @@
 			class="server-switcher-overlay"
 			class:mobile={$layoutStore.isMobile}
 			class:dock-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
-			style:width={!$layoutStore.isMobile ? `${SERVER_RAIL_WIDTH + Math.max($layoutStore.channelSidebarWidth, 320)}px` : null}
-			style:right={!$layoutStore.isMobile && $layoutStore.navDock === 'right' && $layoutStore.showRightPanel ? `${$layoutStore.rightPanelWidth}px` : null}
+			style:width={!$layoutStore.isMobile ? `${desktopServerRailOffset + Math.max($layoutStore.channelSidebarWidth, 320)}px` : null}
 		>
-			<ServerSwitcherPanel mobile={$layoutStore.isMobile} on:close={closeServerSwitcher} />
+			<ServerSwitcherPanel mobile={$layoutStore.isMobile} dockSide={$layoutStore.navDock} on:close={closeServerSwitcher} />
 		</div>
 	{/if}
 
@@ -716,6 +740,8 @@
 			<div class="chat-surface">
 				{#if isModelViewportTabActive}
 					<ModelViewportTab />
+				{:else if isReaderTabActive}
+					<ReaderTab />
 				{:else if isMapTabActive}
 					<MapWorkspace variant="full" />
 				{:else if activeView === 'following'}
@@ -752,7 +778,7 @@
 			class="user-panel-toggle"
 			class:has-unread={totalUnreadDMs > 0}
 			data-unread={totalUnreadDMs > 99 ? '99+' : totalUnreadDMs}
-			style:right={!$layoutStore.isMobile && $layoutStore.navDock === 'right' ? `${$layoutStore.channelSidebarWidth + SERVER_RAIL_WIDTH}px` : '0px'}
+			style:right={!$layoutStore.isMobile && $layoutStore.navDock === 'right' ? `${$layoutStore.channelSidebarWidth + desktopServerRailOffset}px` : '0px'}
 			on:click={layoutStore.toggleRightPanel}
 			title={$_('shell.open_side_panel')}
 		>
@@ -764,7 +790,7 @@
 		{#if showDesktopNotificationRail && unreadDMChannels.length > 0}
 			<div
 				class="dm-notification-rail"
-				style:right={!$layoutStore.isMobile && $layoutStore.navDock === 'right' ? `${$layoutStore.channelSidebarWidth + SERVER_RAIL_WIDTH}px` : '0px'}
+				style:right={!$layoutStore.isMobile && $layoutStore.navDock === 'right' ? `${$layoutStore.channelSidebarWidth + desktopServerRailOffset}px` : '0px'}
 				aria-label={$_('shell.unread_dms')}
 			>
 				{#each unreadDMChannels as channel, index (channel.id)}
@@ -836,6 +862,14 @@
 				<strong>{$activeVoiceChannel.name}</strong>
 			</div>
 			<div class="voice-channel-actions">
+				<button on:click={handleOpenVoiceWhiteboard} title="Open whiteboard for this voice channel" aria-label="Open whiteboard for this voice channel">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+						<rect x="3" y="4" width="18" height="14" rx="2"></rect>
+						<path d="M7 8h10"></path>
+						<path d="M7 12h6"></path>
+						<path d="M8 20h8"></path>
+					</svg>
+				</button>
 				<button class:active={!$isVideoOff} on:click={handleToggleVideoFromStrip} title={$isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera')} aria-label={$isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera')}>
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
 						<path d="M23 7l-7 5 7 5V7z"></path>

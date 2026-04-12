@@ -2470,6 +2470,14 @@ function resolvePort(): number {
 const PORT = resolvePort();
 const STATIC_DIR = process.env.STATIC_DIR || DEFAULT_STATIC_DIR;
 const EMOTES_DIR = join(STATIC_DIR, "emotes");
+const MULTIPART_UPLOAD_MAX_BYTES = (() => {
+  const env = process.env.WABI_MULTIPART_MAX_BYTES;
+  if (env) {
+    const parsed = parseInt(env, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return 10 * 1024 * 1024 * 1024; // 10 GB default — owners can override via WABI_MULTIPART_MAX_BYTES
+})();
 const ENABLE_LOGGING = process.env.ENABLE_LOGGING === 'true';
 const statePlaneConfig = getStatePlaneConfigFromEnv();
 const PLUGINS_ENABLED = envFlag(process.env.PLUGINS_ENABLED, false);
@@ -4494,12 +4502,24 @@ server.on('request', async (req, res) => {
     }
 
     let chunks: Buffer[] = [];
+    let totalBytes = 0;
 
-    req.on('data', (chunk: Buffer) => {
+    req.on('data', (chunk) => {
+      totalBytes += chunk.length;
+      if (totalBytes > MULTIPART_UPLOAD_MAX_BYTES) {
+        req.destroy();
+        chunks = [];
+        return;
+      }
       chunks.push(chunk);
     });
 
     req.on('end', () => {
+      if (totalBytes > MULTIPART_UPLOAD_MAX_BYTES) {
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Upload too large' }));
+        return;
+      }
       try {
         const buffer = Buffer.concat(chunks);
         const contentType = req.headers['content-type'];
@@ -4594,12 +4614,24 @@ server.on('request', async (req, res) => {
     }
 
     let chunks: Buffer[] = [];
+    let totalBytes = 0;
 
     req.on('data', (chunk) => {
+      totalBytes += chunk.length;
+      if (totalBytes > MULTIPART_UPLOAD_MAX_BYTES) {
+        req.destroy();
+        chunks = [];
+        return;
+      }
       chunks.push(chunk);
     });
 
     req.on('end', () => {
+      if (totalBytes > MULTIPART_UPLOAD_MAX_BYTES) {
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Upload too large' }));
+        return;
+      }
       try {
         const buffer = Buffer.concat(chunks);
         const contentType = req.headers['content-type'];
@@ -5141,12 +5173,24 @@ server.on('request', async (req, res) => {
 
     let body = '';
     let chunks: Buffer[] = [];
+    let uploadTotalBytes = 0;
 
     req.on('data', (chunk) => {
+      uploadTotalBytes += chunk.length;
+      if (uploadTotalBytes > MULTIPART_UPLOAD_MAX_BYTES) {
+        req.destroy();
+        chunks = [];
+        return;
+      }
       chunks.push(chunk);
     });
 
     req.on('end', async () => {
+      if (uploadTotalBytes > MULTIPART_UPLOAD_MAX_BYTES) {
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Upload too large' }));
+        return;
+      }
       try {
         const buffer = Buffer.concat(chunks);
         const boundary = req.headers['content-type']?.split('boundary=')[1];
@@ -6233,7 +6277,13 @@ server.on('request', async (req, res) => {
   }
 
   // Save/sync business data for a workspace
-  if (url.pathname === "/api/business/sync" && req.method === "POST") {
+if (url.pathname === "/api/business/sync" && req.method === "POST") {
+  if (_businessSyncInFlight) {
+    res.writeHead(429, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ success: false, error: 'Singleton sync in progress' }));
+    return;
+  }
+  _businessSyncInFlight = true;
     // Default: shared workspace for collaboration
     let workspaceId = defaultWorkspaceId;
 
@@ -6356,10 +6406,12 @@ server.on('request', async (req, res) => {
           success: true,
           lastUpdated: businessData.lastUpdated
         }));
+        _businessSyncInFlight = false;
       } catch (error) {
         console.error('Sync business data error:', error);
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: false, error: 'Failed to sync business data' }));
+        _businessSyncInFlight = false;
       }
     });
     return;
@@ -6536,12 +6588,24 @@ server.on('request', async (req, res) => {
     }
 
     let chunks: Buffer[] = [];
+    let totalBytes = 0;
 
     req.on('data', (chunk) => {
+      totalBytes += chunk.length;
+      if (totalBytes > MULTIPART_UPLOAD_MAX_BYTES) {
+        req.destroy();
+        chunks = [];
+        return;
+      }
       chunks.push(chunk);
     });
 
     req.on('end', () => {
+      if (totalBytes > MULTIPART_UPLOAD_MAX_BYTES) {
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: 'Upload too large' }));
+        return;
+      }
       try {
         const buffer = Buffer.concat(chunks);
         const boundary = req.headers['content-type']?.split('boundary=')[1];
@@ -6915,6 +6979,13 @@ server.on('request', async (req, res) => {
     if (!userId) {
       res.writeHead(401, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
       res.end(JSON.stringify({ success: false, error: 'Unauthorized - authentication required' }));
+      return;
+    }
+
+    const roles = getUserRoles(userId, 'default-workspace');
+    if (!roles.includes('owner') && !roles.includes('admin')) {
+      res.writeHead(403, { "Content-Type": "application/json", ...getCORSHeaders(req.headers.origin as string) });
+      res.end(JSON.stringify({ success: false, error: 'Forbidden - owner/admin required' }));
       return;
     }
 
@@ -7695,8 +7766,15 @@ io.use((socket, next) => {
     }
   } else if (sessionId && sessions.has(sessionId)) {
     // Temp user with in-memory session
+    const tempSession = sessions.get(sessionId);
+    if (tempSession && tempSession.dbUserId) {
+      const account = userRepository.findById(tempSession.dbUserId);
+      if (account && account.is_active === 0) {
+        return next(new Error('Account banned'));
+      }
+    }
     (socket as any).sessionId = sessionId;
-    (socket as any).userId = sessions.get(sessionId)?.userId;
+    (socket as any).userId = tempSession?.userId;
     (socket as any).isRegistered = false;
     next();
   } else {
@@ -7762,6 +7840,11 @@ io.on("connection", (socket) => {
       const otherIsRegistered = Boolean((otherSocket as any).isRegistered);
       if (!otherIsRegistered) continue;
       if (otherDbUserId !== dbUserId) continue;
+      // Clean the map immediately so resolveSocketId doesn't return a dead socket
+      const currentMapping = dbUserIdToSocketId.get(dbUserId);
+      if (currentMapping === socketId) {
+        dbUserIdToSocketId.delete(dbUserId);
+      }
       otherSocket.emit('session-revoked', { reason: 'single_session_enforced' });
       otherSocket.disconnect(true);
     }
@@ -8604,12 +8687,24 @@ io.on("connection", (socket) => {
   });
 
   // Handle history loading with pagination
+  // (M5) Simple in-flight guard to deduplicate overlapping history load requests per channel
+  if (typeof _historyLoadInFlight === 'undefined') {
+    // @ts-ignore - dynamic declaration (for patch-only file)
+    var _historyLoadInFlight: Set<string> = new Set();
+  }
   socket.on("load-history", (data: {
     channelId: string;
     beforeMessageId?: string;
     afterMessageId?: string;
     limit?: number;
   }) => {
+    const _historyKey = data.channelId;
+    // Simple de-dup: ignore concurrent identical history requests for the same channel
+    if (_historyLoadInFlight.has(_historyKey)) {
+      if (ENABLE_LOGGING) console.log(`[load-history] duplicate in-flight for ${_historyKey} ignored`);
+      return;
+    }
+    _historyLoadInFlight.add(_historyKey);
     const channel = channels.get(data.channelId);
     if (!channel) {
       socket.emit("history-loaded", {
@@ -8688,6 +8783,8 @@ io.on("connection", (socket) => {
         hasMore: false,
         direction: data.beforeMessageId ? 'older' : 'initial'
       });
+    } finally {
+      _historyLoadInFlight.delete(data.channelId);
     }
   });
 
@@ -9298,6 +9395,17 @@ io.on("connection", (socket) => {
 
   socket.on("webrtc-offer", (data: { offer: RTCSessionDescriptionInit; targetId: string }) => {
     const user = users.get(socket.id);
+    const targetUser = users.get(data.targetId) || findUserByStableId(data.targetId);
+    if (!targetUser) return;
+
+    const senderStableId = getStableUserId(socket);
+    const targetStableId = getPublicUserId(targetUser);
+    const sharesChannel = Array.from(channels.values()).some((ch) => {
+      if (!ch.members || ch.members.length === 0) return true;
+      return ch.members.includes(senderStableId) && ch.members.includes(targetStableId);
+    });
+    if (!sharesChannel) return;
+
     io.to(data.targetId).emit("webrtc-offer", {
       offer: data.offer,
       senderId: socket.id,
@@ -9306,6 +9414,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("webrtc-answer", (data: { answer: RTCSessionDescriptionInit; targetId: string }) => {
+    const targetUser = users.get(data.targetId) || findUserByStableId(data.targetId);
+    if (!targetUser) return;
     io.to(data.targetId).emit("webrtc-answer", {
       answer: data.answer,
       senderId: socket.id
@@ -9313,6 +9423,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("webrtc-ice-candidate", (data: { candidate: RTCIceCandidateInit; targetId: string }) => {
+    const targetUser = users.get(data.targetId) || findUserByStableId(data.targetId);
+    if (!targetUser) return;
     io.to(data.targetId).emit("webrtc-ice-candidate", {
       candidate: data.candidate,
       senderId: socket.id
@@ -10064,7 +10176,12 @@ io.on("connection", (socket) => {
     isBreakout?: boolean;
     breakoutIndex?: number;
   }) => {
-    // Backward compat: accept plain string or object
+    const highestRole = getSocketHighestRole();
+    if (!['owner', 'admin', 'mod'].includes(highestRole)) {
+      socket.emit("channel-error", "Only owner/admin/mod can create channels");
+      return;
+    }
+
     const channelName = typeof data === 'string' ? data : data.name;
     const channelDescription = typeof data === 'string' ? '' : (data.description || '');
     const requestedType =
@@ -10487,7 +10604,12 @@ io.on("connection", (socket) => {
   });
 
   socket.on("delete-channel", (channelId: string) => {
-    // Prevent deletion of general channel
+    const highestRole = getSocketHighestRole();
+    if (!['owner', 'admin', 'mod'].includes(highestRole)) {
+      socket.emit("channel-error", "Only owner/admin/mod can delete channels");
+      return;
+    }
+
     if (channelId === 'general' || channelId === 'voice') {
       socket.emit("channel-error", "Cannot delete base channels");
       return;
@@ -11406,10 +11528,10 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // Parse base64 image data
-    const matches = data.imageData.match(/^data:image\/(\w+);base64,(.+)$/);
+    // Parse base64 image data — restrict to safe raster image types only
+    const matches = data.imageData.match(/^data:image\/(png|jpe?g|gif|webp);base64,(.+)$/);
     if (!matches) {
-      socket.emit("emote-error", "Invalid image data");
+      socket.emit("emote-error", "Invalid image data (only PNG, JPEG, GIF, WebP allowed)");
       return;
     }
 

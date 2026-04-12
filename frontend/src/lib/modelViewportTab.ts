@@ -1,4 +1,7 @@
 import { writable } from 'svelte/store';
+import { mobileTabQueue } from '$lib/mobileTabQueue';
+
+export const MODEL_VIEWPORT_ADDON_ID = 'model-viewport';
 
 type ModelViewportSource = 'chat' | 'local-temp';
 
@@ -44,10 +47,15 @@ function openModelViewportWithSource(src: string, fileName: string, source: Mode
 	};
 	modelViewportSelection.set(entry);
 	pushHistory(entry);
+	openModelViewportSurface();
 }
 
 export function openModelViewport(src: string, fileName: string): void {
 	openModelViewportWithSource(src, fileName, 'chat');
+}
+
+export function openModelViewportSurface(): void {
+	mobileTabQueue.openAddonTab(MODEL_VIEWPORT_ADDON_ID);
 }
 
 export function openTemporaryModelViewport(file: File): void {
@@ -67,6 +75,7 @@ export function openModelViewportHistoryEntry(entryId: string): void {
 	});
 	if (next) {
 		modelViewportSelection.set(next);
+		openModelViewportSurface();
 	}
 }
 
