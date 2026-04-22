@@ -18,7 +18,12 @@
 	{#if showNav}
 		<aside class="dock-zone nav-zone" style:width={`${navWidth}px`}>
 			<slot name="nav" />
-			<div class="split-handle nav-handle" on:mousedown={() => dispatch('resizenavstart')}></div>
+			<button
+				type="button"
+				class="split-handle nav-handle"
+				aria-label="Resize navigation panel"
+				on:mousedown={() => dispatch('resizenavstart')}
+			></button>
 		</aside>
 	{/if}
 
@@ -28,7 +33,12 @@
 
 	{#if showRight}
 		<aside class="dock-zone right-zone" style:width={`${rightWidth}px`}>
-			<div class="split-handle right-handle" on:mousedown={() => dispatch('resizerightstart')}></div>
+			<button
+				type="button"
+				class="split-handle right-handle"
+				aria-label="Resize right panel"
+				on:mousedown={() => dispatch('resizerightstart')}
+			></button>
 			<slot name="right" />
 		</aside>
 	{/if}
@@ -79,6 +89,9 @@
 		top: 0;
 		bottom: 0;
 		width: 6px;
+		padding: 0;
+		border: 0;
+		background: transparent;
 		cursor: col-resize;
 		z-index: 20;
 	}

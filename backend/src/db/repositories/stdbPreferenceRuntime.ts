@@ -1,37 +1,32 @@
-import { getStatePlaneConfigFromEnv } from '../../state-plane/config.js';
 import { createStdbClient, INGEST_AUTH_KEY_HASH } from '../../state-plane/stdbCommon.js';
 import { toStdbEventId, type StdbDecodedRow } from '../../state-plane/stdbSyncClient.js';
 
 type PreferenceEntity = 'settings' | 'theme';
 
-const statePlaneConfig = getStatePlaneConfigFromEnv();
 const stdbClient = createStdbClient();
 const reducerName = process.env.WABI_STDB_BRIDGE_REDUCER || 'ingest_wabi_event';
-const warnedKeys = new Set<string>();
 
-function warnOnce(key: string, error: unknown): void {
-	if (warnedKeys.has(key)) return;
-	warnedKeys.add(key);
+function fail(scope: string, key: string, error: unknown): never {
 	const detail = error instanceof Error ? error.message : String(error);
-	console.warn(`[StatePlane] ${key}; falling back to SQLite (${detail})`);
+	throw new Error(`[StatePlane] ${scope} failed for ${key}: ${detail}`);
+}
+
+function ensureConfigured(scope: string): void {
+	if (!stdbClient.isEnabled()) {
+		throw new Error(`[StatePlane] ${scope} requires STDB bridge configuration`);
+	}
 }
 
 export function stdbPreferencesEnabled(): boolean {
-	return (
-		statePlaneConfig.mode === 'stdb_primary' &&
-		statePlaneConfig.stdbReadEnabled &&
-		statePlaneConfig.stdbWriteEnabled &&
-		stdbClient.isEnabled()
-	);
+	return stdbClient.isEnabled();
 }
 
-export function stdbPreferenceRows(key: string, query: string): StdbDecodedRow[] | null {
-	if (!stdbPreferencesEnabled()) return null;
+export function stdbPreferenceRows(key: string, query: string): StdbDecodedRow[] {
+	ensureConfigured('Preference repository');
 	try {
 		return stdbClient.sqlRows(query);
 	} catch (error) {
-		warnOnce(key, error);
-		return null;
+		return fail('Preference query', key, error);
 	}
 }
 
@@ -40,24 +35,20 @@ export function stdbPreferenceIngest(
 	entity: PreferenceEntity,
 	operation: string,
 	payload: Record<string, unknown>
-): boolean {
-	if (!stdbPreferencesEnabled()) return false;
+): void {
+	ensureConfigured('Preference repository');
 	try {
 		const event: Record<string, unknown> = {
-				eventId: toStdbEventId(entity, operation, payload),
-				timestamp: Date.now(),
-				entity,
-				operation,
-				payload
-			};
+			eventId: toStdbEventId(entity, operation, payload),
+			timestamp: Date.now(),
+			entity,
+			operation,
+			payload
+		};
 		if (INGEST_AUTH_KEY_HASH) event.authKey = INGEST_AUTH_KEY_HASH;
-		stdbClient.callReducer(reducerName, [
-			JSON.stringify(event)
-		]);
-		return true;
+		stdbClient.callReducer(reducerName, [JSON.stringify(event)]);
 	} catch (error) {
-		warnOnce(key, error);
-		return false;
+		fail('Preference ingest', key, error);
 	}
 }
 
@@ -66,23 +57,19 @@ export async function stdbPreferenceIngestAsync(
 	entity: PreferenceEntity,
 	operation: string,
 	payload: Record<string, unknown>
-): Promise<boolean> {
-	if (!stdbPreferencesEnabled()) return false;
+): Promise<void> {
+	ensureConfigured('Preference repository');
 	try {
 		const event: Record<string, unknown> = {
-				eventId: toStdbEventId(entity, operation, payload),
-				timestamp: Date.now(),
-				entity,
-				operation,
-				payload
-			};
+			eventId: toStdbEventId(entity, operation, payload),
+			timestamp: Date.now(),
+			entity,
+			operation,
+			payload
+		};
 		if (INGEST_AUTH_KEY_HASH) event.authKey = INGEST_AUTH_KEY_HASH;
-		await stdbClient.callReducerAsync(reducerName, [
-			JSON.stringify(event)
-		]);
-		return true;
+		await stdbClient.callReducerAsync(reducerName, [JSON.stringify(event)]);
 	} catch (error) {
-		warnOnce(key, error);
-		return false;
+		fail('Preference ingest', key, error);
 	}
 }

@@ -231,8 +231,8 @@ function getNotificationSquelchSettings() {
 	};
 }
 
-function shouldSquelchNotification(message: Message): boolean {
-	const text = String(message?.text || '');
+function shouldSquelchNotification(message: Message | SimpleNotification): boolean {
+	const text = String(('text' in message ? message.text : message.body) || '');
 	if (!text) return false;
 
 	const { suppressEveryoneHere, suppressRoleMentions } = getNotificationSquelchSettings();
@@ -736,4 +736,3 @@ export function requestNotificationPermission(): Promise<NotificationPermission>
 
 	return Notification.requestPermission();
 }
-

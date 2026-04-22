@@ -1,12 +1,9 @@
 import { appPolicyRepository } from '../db/repositories/appPolicyRepository.js';
 import { stdbPaymentIngest, stdbPaymentRows, stdbPaymentsEnabled, parseStdbRowJson } from './stdbRuntime.js';
 import { escapeSqlLiteral } from '../state-plane/stdbSyncClient.js';
+import type { PaymentAccessPolicy } from '../../../shared/adminPolicyContracts.js';
 
-export interface PaymentAccessPolicy {
-	enabled: boolean;
-	allowGuest: boolean;
-	allowedRoleNames: string[];
-}
+export type { PaymentAccessPolicy } from '../../../shared/adminPolicyContracts.js';
 
 export type PaymentAccessBootstrapMode = 'off' | 'seed_if_missing' | 'force';
 

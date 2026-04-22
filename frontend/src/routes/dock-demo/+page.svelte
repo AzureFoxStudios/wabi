@@ -82,8 +82,8 @@
 <div class="dock-demo">
 	<header class="toolbar">
 		<div class="group">
-			<label>Workspace</label>
-			<select value={$layoutStore.activeWorkspace} on:change={(e) => layoutStore.loadWorkspace(e.currentTarget.value)}>
+			<label for="dock-demo-workspace">Workspace</label>
+			<select id="dock-demo-workspace" value={$layoutStore.activeWorkspace} on:change={(e) => layoutStore.loadWorkspace(e.currentTarget.value)}>
 				{#each $layoutStore.workspaces as name}
 					<option value={name}>{name}</option>
 				{/each}
@@ -95,7 +95,7 @@
 		</div>
 
 		<div class="group">
-			<label>Dock Side</label>
+			<span class="group-label">Dock Side</span>
 			<button class:active={$layoutStore.navDock === 'left'} on:click={() => layoutStore.setNavDock('left')}>Left</button>
 			<button class:active={$layoutStore.navDock === 'right'} on:click={() => layoutStore.setNavDock('right')}>Right</button>
 			<button on:click={layoutStore.toggleNavCollapsed}>
@@ -179,7 +179,8 @@
 		flex-wrap: wrap;
 	}
 
-	label {
+	label,
+	.group-label {
 		font-size: 0.82rem;
 		color: #93c5fd;
 	}

@@ -1,29 +1,21 @@
 import { IncomingMessage, ServerResponse } from 'http';
-import { themeRepository } from '../db/repositories/themeRepository.js';
+import {
+	themeRepository,
+	type CustomTheme,
+	type ThemePreferences
+} from '../db/repositories/themeRepository.js';
 import { getAuthenticatedUserIdFromRequest } from '../auth/requestAuth.js';
+import {
+	isInvalidJsonBodyError as isInvalidJsonError,
+	isRequestBodyTooLargeError as isPayloadTooLargeError,
+	readJsonObjectBody
+} from '../utils/requestBodies.js';
 
-// Parse JSON body
-function parseBody(req: IncomingMessage): Promise<Record<string, any>> {
-	return new Promise((resolve, reject) => {
-		let body = '';
+const MAX_THEME_BODY_BYTES = Math.max(
+	1024,
+	Math.min(256 * 1024, Number(process.env.THEME_MAX_BODY_BYTES || 32 * 1024))
+);
 
-		req.on('data', (chunk) => {
-			body += chunk.toString();
-		});
-
-		req.on('end', () => {
-			try {
-				resolve(JSON.parse(body));
-			} catch (error) {
-				reject(new Error('Invalid JSON'));
-			}
-		});
-
-		req.on('error', reject);
-	});
-}
-
-// Predefined theme IDs (validation)
 const VALID_THEME_IDS = [
 	'dark',
 	'light',
@@ -39,141 +31,178 @@ const VALID_THEME_IDS = [
 	'tokyo-night',
 	'forest',
 	'ember'
-];
+] as const;
 
-// Get user theme preferences
-export async function handleGetThemePreferences(req: IncomingMessage, res: ServerResponse): Promise<void> {
+type ThemePreferenceUpdate = Partial<Omit<ThemePreferences, 'user_id' | 'created_at' | 'updated_at'>>;
+type ThemeRequestBody = Record<string, unknown>;
+
+function writeJson(res: ServerResponse, status: number, payload: Record<string, unknown>): void {
+	res.writeHead(status, { 'Content-Type': 'application/json' });
+	res.end(JSON.stringify(payload));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+async function parseBody(req: IncomingMessage): Promise<ThemeRequestBody> {
+	return await readJsonObjectBody(req, MAX_THEME_BODY_BYTES);
+}
+
+function parseStoredCustomTheme(raw: string | null): CustomTheme | null {
+	if (!raw) return null;
 	try {
-		// Extract and verify user ID from Authorization header
+		const parsed = JSON.parse(raw);
+		return isRecord(parsed) ? (parsed as CustomTheme) : null;
+	} catch (error) {
+		console.error('[Theme] Failed to parse custom theme:', error);
+		return null;
+	}
+}
+
+function normalizeBooleanFlag(value: unknown): 0 | 1 | null {
+	if (typeof value === 'boolean') return value ? 1 : 0;
+	if (typeof value === 'number') {
+		if (value === 1) return 1;
+		if (value === 0) return 0;
+		return null;
+	}
+	if (typeof value === 'string') {
+		const normalized = value.trim().toLowerCase();
+		if (['1', 'true', 'yes', 'on'].includes(normalized)) return 1;
+		if (['0', 'false', 'no', 'off'].includes(normalized)) return 0;
+	}
+	return null;
+}
+
+function normalizeOptionalString(value: unknown, maxLength: number): string | null {
+	if (typeof value !== 'string') return null;
+	return value.trim().slice(0, maxLength);
+}
+
+function isValidCustomTheme(value: unknown): value is CustomTheme {
+	if (!isRecord(value)) return false;
+	if (value.colors !== undefined && !isRecord(value.colors)) return false;
+	if (value.gradients !== undefined && !isRecord(value.gradients)) return false;
+	return true;
+}
+
+function buildThemeSavePayload(body: ThemeRequestBody): ThemePreferenceUpdate | { error: string } {
+	const prefsToSave: ThemePreferenceUpdate = {};
+
+	if (Object.prototype.hasOwnProperty.call(body, 'theme_id')) {
+		if (typeof body.theme_id !== 'string') {
+			return { error: 'theme_id must be a string' };
+		}
+		const themeId = body.theme_id.trim();
+		if (!themeId || !VALID_THEME_IDS.includes(themeId as (typeof VALID_THEME_IDS)[number])) {
+			return {
+				error: `Invalid theme ID. Valid values: ${VALID_THEME_IDS.join(', ')}`
+			};
+		}
+		prefsToSave.theme_id = themeId;
+	}
+
+	if (Object.prototype.hasOwnProperty.call(body, 'custom_theme')) {
+		const customTheme = body.custom_theme;
+		if (customTheme !== null && !isValidCustomTheme(customTheme)) {
+			return { error: 'Custom theme must be an object with object-valued colors/gradients when provided' };
+		}
+		prefsToSave.custom_theme = customTheme ? JSON.stringify(customTheme) : null;
+	}
+
+	if (Object.prototype.hasOwnProperty.call(body, 'uniform_font_enabled')) {
+		const uniformFontEnabled = normalizeBooleanFlag(body.uniform_font_enabled);
+		if (uniformFontEnabled == null) {
+			return { error: 'uniform_font_enabled must be a boolean-like value' };
+		}
+		prefsToSave.uniform_font_enabled = uniformFontEnabled;
+	}
+
+	if (Object.prototype.hasOwnProperty.call(body, 'uniform_font_family')) {
+		const value = normalizeOptionalString(body.uniform_font_family, 120);
+		if (value == null) {
+			return { error: 'uniform_font_family must be a string' };
+		}
+		prefsToSave.uniform_font_family = value;
+	}
+
+	if (Object.prototype.hasOwnProperty.call(body, 'uniform_font_size')) {
+		const value = normalizeOptionalString(body.uniform_font_size, 40);
+		if (value == null) {
+			return { error: 'uniform_font_size must be a string' };
+		}
+		prefsToSave.uniform_font_size = value;
+	}
+
+	if (Object.prototype.hasOwnProperty.call(body, 'uniform_font_weight')) {
+		const value = normalizeOptionalString(body.uniform_font_weight, 40);
+		if (value == null) {
+			return { error: 'uniform_font_weight must be a string' };
+		}
+		prefsToSave.uniform_font_weight = value;
+	}
+
+	if (Object.prototype.hasOwnProperty.call(body, 'uniform_font_style')) {
+		const value = normalizeOptionalString(body.uniform_font_style, 40);
+		if (value == null) {
+			return { error: 'uniform_font_style must be a string' };
+		}
+		prefsToSave.uniform_font_style = value;
+	}
+
+	return prefsToSave;
+}
+
+export async function handleGetThemePreferences(
+	req: IncomingMessage,
+	res: ServerResponse
+): Promise<void> {
+	try {
 		const userId = getAuthenticatedUserIdFromRequest(req);
 		if (!userId) {
-			res.writeHead(401, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ error: 'User not authenticated' }));
+			writeJson(res, 401, { error: 'User not authenticated' });
 			return;
 		}
 
-		// Get theme preferences from database
 		const prefs = themeRepository.get(userId);
-
-		// Parse custom theme if it exists
-		let customTheme = null;
-		if (prefs.custom_theme) {
-			try {
-				customTheme = JSON.parse(prefs.custom_theme);
-			} catch (error) {
-				console.error('[Theme] Failed to parse custom theme:', error);
-			}
-		}
-
-		res.writeHead(200, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({
+		writeJson(res, 200, {
 			theme_id: prefs.theme_id,
-			custom_theme: customTheme,
+			custom_theme: parseStoredCustomTheme(prefs.custom_theme),
 			uniform_font_enabled: prefs.uniform_font_enabled,
 			uniform_font_family: prefs.uniform_font_family,
 			uniform_font_size: prefs.uniform_font_size,
 			uniform_font_weight: prefs.uniform_font_weight,
 			uniform_font_style: prefs.uniform_font_style,
 			updated_at: prefs.updated_at
-		}));
+		});
 	} catch (error) {
 		console.error('[Theme] Get preferences error:', error);
-		res.writeHead(500, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({ error: 'Failed to load theme preferences' }));
+		writeJson(res, 500, { error: 'Failed to load theme preferences' });
 	}
 }
 
-// Save user theme preferences
-export async function handleSaveThemePreferences(req: IncomingMessage, res: ServerResponse): Promise<void> {
+export async function handleSaveThemePreferences(
+	req: IncomingMessage,
+	res: ServerResponse
+): Promise<void> {
 	try {
-		// Extract and verify user ID from Authorization header
 		const userId = getAuthenticatedUserIdFromRequest(req);
 		if (!userId) {
-			res.writeHead(401, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ error: 'User not authenticated' }));
+			writeJson(res, 401, { error: 'User not authenticated' });
 			return;
 		}
 
-		// Parse request body
-		let body: any;
-		try {
-			body = await parseBody(req);
-		} catch (parseError) {
-			console.error('[Theme] JSON parse error:', parseError);
-			res.writeHead(400, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ error: 'Invalid JSON in request body' }));
+		const body = await parseBody(req);
+		const prefsToSave = buildThemeSavePayload(body);
+		if ('error' in prefsToSave) {
+			writeJson(res, 400, { error: prefsToSave.error });
 			return;
-		}
-
-		const { theme_id, custom_theme, uniform_font_enabled, uniform_font_family, uniform_font_size, uniform_font_weight, uniform_font_style } = body;
-		console.log('[Theme] Save request body:', { theme_id, custom_theme, uniform_font_enabled, uniform_font_family, uniform_font_size, uniform_font_weight, uniform_font_style });
-
-		// Validate theme_id if provided
-		if (theme_id && !VALID_THEME_IDS.includes(theme_id)) {
-			res.writeHead(400, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({
-				error: 'Invalid theme ID',
-				valid_themes: VALID_THEME_IDS
-			}));
-			return;
-		}
-
-		// Validate custom_theme if provided
-		if (custom_theme !== undefined && custom_theme !== null) {
-			// Ensure it's an object or null
-			if (typeof custom_theme !== 'object') {
-				res.writeHead(400, { 'Content-Type': 'application/json' });
-				res.end(JSON.stringify({ error: 'Custom theme must be an object or null' }));
-				return;
-			}
-
-			// Validate custom theme structure (basic validation)
-			if (custom_theme.colors && typeof custom_theme.colors !== 'object') {
-				res.writeHead(400, { 'Content-Type': 'application/json' });
-				res.end(JSON.stringify({ error: 'Custom theme colors must be an object' }));
-				return;
-			}
-		}
-
-		// Save theme preferences
-		const prefsToSave: any = {};
-
-		if (theme_id !== undefined) {
-			prefsToSave.theme_id = theme_id;
-		}
-
-		if (custom_theme !== undefined) {
-			prefsToSave.custom_theme = custom_theme ? JSON.stringify(custom_theme) : null;
-		}
-
-		// Save uniform font settings
-		if (uniform_font_enabled !== undefined) {
-			prefsToSave.uniform_font_enabled = uniform_font_enabled;
-		}
-
-		if (uniform_font_family !== undefined) {
-			prefsToSave.uniform_font_family = uniform_font_family;
-		}
-
-		if (uniform_font_size !== undefined) {
-			prefsToSave.uniform_font_size = uniform_font_size;
-		}
-
-		if (uniform_font_weight !== undefined) {
-			prefsToSave.uniform_font_weight = uniform_font_weight;
-		}
-
-		if (uniform_font_style !== undefined) {
-			prefsToSave.uniform_font_style = uniform_font_style;
 		}
 
 		themeRepository.set(userId, prefsToSave);
-
-		// Return updated preferences
 		const updated = themeRepository.get(userId);
-
-		res.writeHead(200, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({
+		writeJson(res, 200, {
 			success: true,
 			theme_id: updated.theme_id,
 			uniform_font_enabled: updated.uniform_font_enabled,
@@ -182,26 +211,32 @@ export async function handleSaveThemePreferences(req: IncomingMessage, res: Serv
 			uniform_font_weight: updated.uniform_font_weight,
 			uniform_font_style: updated.uniform_font_style,
 			updated_at: updated.updated_at
-		}));
+		});
 	} catch (error) {
+		if (isPayloadTooLargeError(error)) {
+			writeJson(res, 413, { error: 'Theme payload too large' });
+			return;
+		}
+		if (isInvalidJsonError(error)) {
+			writeJson(res, 400, { error: 'Invalid JSON in request body' });
+			return;
+		}
 		console.error('[Theme] Save preferences error:', error);
-		res.writeHead(500, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({ error: 'Failed to save theme preferences' }));
+		writeJson(res, 500, { error: 'Failed to save theme preferences' });
 	}
 }
 
-// Reset theme preferences to default
-export async function handleResetThemePreferences(req: IncomingMessage, res: ServerResponse): Promise<void> {
+export async function handleResetThemePreferences(
+	req: IncomingMessage,
+	res: ServerResponse
+): Promise<void> {
 	try {
-		// Extract and verify user ID from Authorization header
 		const userId = getAuthenticatedUserIdFromRequest(req);
 		if (!userId) {
-			res.writeHead(401, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ error: 'User not authenticated' }));
+			writeJson(res, 401, { error: 'User not authenticated' });
 			return;
 		}
 
-		// Reset to default (midnight-blue theme, no custom theme, no uniform font)
 		themeRepository.set(userId, {
 			theme_id: 'midnight-blue',
 			custom_theme: null,
@@ -212,14 +247,12 @@ export async function handleResetThemePreferences(req: IncomingMessage, res: Ser
 			uniform_font_style: 'normal'
 		});
 
-		res.writeHead(200, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({
+		writeJson(res, 200, {
 			success: true,
 			theme_id: 'midnight-blue'
-		}));
+		});
 	} catch (error) {
 		console.error('[Theme] Reset preferences error:', error);
-		res.writeHead(500, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({ error: 'Failed to reset theme preferences' }));
+		writeJson(res, 500, { error: 'Failed to reset theme preferences' });
 	}
 }

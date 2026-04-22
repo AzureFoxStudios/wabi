@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { get } from 'svelte/store';
 	import { onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import { browser } from '$app/environment';
 	import '$lib/business/theme.css';
-	import { todos, projects, calendarEvents, diaryEntries, sprints, kanbanColumns, todaysTodos, overdueTodos } from '$lib/business/store';
+	import { todos, projects, calendarEvents, diaryEntries, sprints, todaysTodos, overdueTodos } from '$lib/business/store';
+	import { getBusinessDataSnapshot, applyBusinessDataSnapshot } from '$lib/business/snapshot';
+	import { sanitizeBusinessData } from '$lib/business/validation';
 	import Calendar from '$lib/components/business/Calendar.svelte';
 	import DiaryView from '$lib/components/business/DiaryView.svelte';
 	import ProjectsView from '$lib/components/business/ProjectsView.svelte';
@@ -95,12 +96,7 @@
 
 	function exportData() {
 		const data = {
-			todos: get(todos),
-			calendarEvents: get(calendarEvents),
-			diaryEntries: get(diaryEntries),
-			projects: get(projects),
-			sprints: get(sprints),
-			kanbanColumns: get(kanbanColumns),
+			...getBusinessDataSnapshot(),
 			exportedAt: new Date().toISOString(),
 			version: '1.0'
 		};
@@ -136,26 +132,8 @@
 		input.value = '';
 	}
 
-	function importData(data: any) {
-		// Validate and import each data type
-		if (data.todos && Array.isArray(data.todos)) {
-			todos.set(data.todos);
-		}
-		if (data.calendarEvents && Array.isArray(data.calendarEvents)) {
-			calendarEvents.set(data.calendarEvents);
-		}
-		if (data.diaryEntries && Array.isArray(data.diaryEntries)) {
-			diaryEntries.set(data.diaryEntries);
-		}
-		if (data.projects && Array.isArray(data.projects)) {
-			projects.set(data.projects);
-		}
-		if (data.sprints && Array.isArray(data.sprints)) {
-			sprints.set(data.sprints);
-		}
-		if (data.kanbanColumns && Array.isArray(data.kanbanColumns)) {
-			kanbanColumns.set(data.kanbanColumns);
-		}
+	function importData(data: unknown) {
+		applyBusinessDataSnapshot(sanitizeBusinessData(data));
 	}
 
 	function toggleChatPanel() {

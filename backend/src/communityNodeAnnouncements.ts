@@ -1,11 +1,7 @@
 import { appPolicyRepository } from './db/repositories/appPolicyRepository.js';
+import type { CommunityNodeAnnouncementsPolicy } from '../../shared/adminPolicyContracts.js';
 
-export interface CommunityNodeAnnouncementsPolicy {
-	enabled: boolean;
-	channelId: string | null;
-	onlineTemplate: string;
-	offlineTemplate: string;
-}
+export type { CommunityNodeAnnouncementsPolicy } from '../../shared/adminPolicyContracts.js';
 
 export interface CommunityNodeAnnouncementContext {
 	nodeName: string;

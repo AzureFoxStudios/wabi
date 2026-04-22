@@ -13,7 +13,6 @@
 
 	export let highlightNodeId: string | null = null;
 	export let layout: 'community' | 'radial' | 'force-directed' | 'timeline' = 'community';
-	export let workspaceId: string = 'default-workspace';
 
 	let nodes: any[] = [];
 	let edges: any[] = [];

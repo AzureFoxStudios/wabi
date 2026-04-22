@@ -43,45 +43,12 @@ CREATE TABLE IF NOT EXISTS offline_messages (
   file_url TEXT,
   file_name TEXT,
   file_size INTEGER,
+  message_payload_json TEXT,
   created_at INTEGER NOT NULL,
   expires_at INTEGER,
   delivered INTEGER DEFAULT 0,
   FOREIGN KEY (to_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
   FOREIGN KEY (from_user_id) REFERENCES users(user_id) ON DELETE SET NULL
-);
-
--- User settings (Signal-style retention)
-CREATE TABLE IF NOT EXISTS user_settings (
-  user_id INTEGER PRIMARY KEY,
-  offline_message_retention TEXT DEFAULT '7d',
-  allow_temp_user_messages INTEGER DEFAULT 1,
-  business_private_mode INTEGER DEFAULT 0,
-  home_experience TEXT DEFAULT 'community',
-  require_password_change INTEGER DEFAULT 0,
-  payment_preferred_route TEXT,
-  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-);
-
--- Application-wide settings (owner/admin managed)
-CREATE TABLE IF NOT EXISTS app_settings (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-
--- Theme preferences (appearance customization)
-CREATE TABLE IF NOT EXISTS theme_preferences (
-  user_id INTEGER PRIMARY KEY,
-  theme_id TEXT DEFAULT 'midnight-blue',
-  custom_theme TEXT,
-  created_at INTEGER DEFAULT (strftime('%s', 'now')),
-  updated_at INTEGER DEFAULT (strftime('%s', 'now')),
-  uniform_font_enabled INTEGER DEFAULT 0,
-  uniform_font_family TEXT DEFAULT 'inherit',
-  uniform_font_size TEXT DEFAULT 'inherit',
-  uniform_font_weight TEXT DEFAULT '600',
-  uniform_font_style TEXT DEFAULT 'normal',
-  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
 -- User roles (admin, mod, contributor, viewer, etc.)
@@ -113,16 +80,6 @@ CREATE TABLE IF NOT EXISTS resource_visibility (
   visibility_type TEXT DEFAULT 'public',
   is_anonymous INTEGER DEFAULT 0,
   created_at INTEGER DEFAULT (strftime('%s', 'now'))
-);
-
--- Encryption keys for client-side encryption
-CREATE TABLE IF NOT EXISTS user_encryption_keys (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL,
-  public_key TEXT NOT NULL,
-  private_key_encrypted TEXT NOT NULL,
-  created_at INTEGER DEFAULT (strftime('%s', 'now')),
-  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
 -- Guest access codes for business hub
@@ -162,6 +119,7 @@ CREATE TABLE IF NOT EXISTS channels (
   created_at INTEGER NOT NULL,
   created_by TEXT,
   persist_messages INTEGER DEFAULT 0,
+  auto_delete_after TEXT,
   is_archived INTEGER DEFAULT 0,
   avatar TEXT,
   parent_channel_id TEXT,
@@ -223,6 +181,7 @@ CREATE TABLE IF NOT EXISTS messages (
   is_pinned INTEGER DEFAULT 0,
   is_edited INTEGER DEFAULT 0,
   reactions_json TEXT,
+  expires_at INTEGER,
   created_at INTEGER NOT NULL,
   deleted_at INTEGER,
   FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE CASCADE
@@ -283,6 +242,7 @@ CREATE INDEX IF NOT EXISTS idx_channel_members_registered_user ON channel_member
 CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(message_id);
 CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_expires_at ON messages(expires_at) WHERE expires_at IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_whiteboards_scope ON whiteboards(scope_type, scope_id);
 CREATE INDEX IF NOT EXISTS idx_whiteboards_workspace_updated ON whiteboards(workspace_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_emoji_role_rules_lookup ON emoji_role_rules(channel_id, message_id, emoji_id, workspace_id);
@@ -290,28 +250,6 @@ CREATE INDEX IF NOT EXISTS idx_albums_scope ON albums(scope_type, scope_id, is_f
 CREATE INDEX IF NOT EXISTS idx_albums_created_by ON albums(created_by, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_album_items_album ON album_items(album_id, sort_order ASC, uploaded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_album_items_uploader ON album_items(uploaded_by, uploaded_at DESC);
-
--- Relay servers (community-hosted file CDN nodes)
-CREATE TABLE IF NOT EXISTS relays (
-  relay_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  url TEXT UNIQUE NOT NULL,
-  name TEXT NOT NULL,
-  region TEXT NOT NULL,
-  api_key_hash TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending',
-  last_health_ping INTEGER,
-  registered_at INTEGER NOT NULL,
-  approved INTEGER DEFAULT 0,
-  latitude REAL,
-  longitude REAL,
-  bandwidth_mbps INTEGER,
-  storage_gb INTEGER,
-  syncthing_device_id TEXT,
-  metadata_json TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_relays_status ON relays(status);
-CREATE INDEX IF NOT EXISTS idx_relays_region ON relays(region);
 
 -- Outbound webhooks (user-managed event subscriptions)
 CREATE TABLE IF NOT EXISTS webhooks (
@@ -464,23 +402,3 @@ CREATE INDEX IF NOT EXISTS idx_manual_settlements_kind_created ON manual_settlem
 CREATE INDEX IF NOT EXISTS idx_manual_settlements_channel_updated ON manual_settlements(channel_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_manual_settlements_creator_updated ON manual_settlements(created_by_user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_manual_settlements_counterparty_updated ON manual_settlements(counterparty_user_id, updated_at DESC);
-
--- Community dictionary entries (language-learning helpers)
-CREATE TABLE IF NOT EXISTS dictionary_entries (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
-  term TEXT NOT NULL,
-  term_normalized TEXT NOT NULL,
-  definition TEXT NOT NULL,
-  language TEXT NOT NULL DEFAULT 'en',
-  created_by_user_id INTEGER,
-  created_by_username TEXT,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  votes INTEGER DEFAULT 0,
-  UNIQUE(workspace_id, language, term_normalized),
-  FOREIGN KEY (created_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_dictionary_lookup ON dictionary_entries(workspace_id, language, term_normalized);
-CREATE INDEX IF NOT EXISTS idx_dictionary_recent ON dictionary_entries(workspace_id, updated_at DESC);

@@ -227,8 +227,7 @@
 					wizardMode = true;
 					tab = 'register';
 				}
-			})
-			.catch(() => {});
+			});
 
 		const urlParams = new URLSearchParams(window.location.search);
 		const room = urlParams.get('room');

@@ -1,6 +1,16 @@
 import { browser } from '$app/environment';
 import { getServerUrl } from './serverUrl';
 import { isDesktopTauri, isMobileTauri, isTauriRuntime as detectTauriRuntime } from './tauri-platform';
+import type {
+	BoosterRelayMode,
+	ServerMediaRuntimeResponse,
+	SfuProvider
+} from '../../../shared/mediaContracts.js';
+export type {
+	BoosterRelayMode,
+	ServerMediaRuntimeResponse,
+	SfuProvider
+} from '../../../shared/mediaContracts.js';
 
 export type MediaQualityMode = 'web-baseline' | 'local-enhanced';
 export type AudioProcessingMode = 'auto' | 'dsp' | 'rnn' | 'studio';
@@ -9,8 +19,6 @@ export type CallTransportMode = 'auto' | 'p2p-only' | 'sfu-preferred';
 export type CallMuteBehavior = 'mute-local-input' | 'outbound-only';
 export type CallRecordingStemMode = 'mixed-only' | 'mixed-plus-mic' | 'mixed-plus-all-audio';
 export type EffectiveCallTransport = 'p2p' | 'sfu';
-export type SfuProvider = 'none' | 'livekit';
-export type BoosterRelayMode = 'off' | 'turn-only' | 'turn-sfu' | 'turn-sfu-gateway';
 export type SpatialAudioMode = 'auto' | 'pan_distance' | 'full_3d' | 'off';
 
 export interface ScreenShareQualityProfile {
@@ -18,64 +26,6 @@ export interface ScreenShareQualityProfile {
 	constraints: MediaTrackConstraints;
 	maxBitrate: number | null;
 	maxFramerate: number;
-}
-
-export interface ServerMediaRuntimeResponse {
-	media?: {
-		localEnhancedEnabled?: boolean;
-		srtGatewayEnabled?: boolean;
-		opus?: {
-			audioBitrateWeb?: number;
-			audioBitrateLocal?: number;
-		};
-		turn?: {
-			configured?: boolean;
-			server?: string | null;
-			port?: number;
-			useTurns?: boolean;
-		};
-		gateway?: {
-			heartbeatTimeoutMs?: number;
-			configured?: boolean;
-			healthy?: boolean;
-			mediaPlaneReady?: boolean;
-			lastSeenAt?: number | null;
-			activeStreams?: number;
-			version?: string | null;
-			region?: string | null;
-		};
-		livekit?: {
-			configured?: boolean;
-			url?: string | null;
-		};
-		sfu?: {
-			provider?: SfuProvider;
-			enabled?: boolean;
-		};
-		boosterRelay?: {
-			requestedMode?: BoosterRelayMode;
-			effectiveMode?: BoosterRelayMode;
-			selfHosted?: boolean;
-			selfAdvertisement?: {
-				enabled?: boolean;
-				advertised?: boolean;
-				relayId?: number | null;
-				url?: string | null;
-				name?: string | null;
-				region?: string | null;
-				status?: 'active' | 'degraded' | 'offline' | null;
-				reason?: string | null;
-				updatedAt?: number | null;
-			};
-			components?: {
-				turnConfigured?: boolean;
-				sfuConfigured?: boolean;
-				gatewayConfigured?: boolean;
-				gatewayHealthy?: boolean;
-				gatewayMediaPlaneReady?: boolean;
-			};
-		};
-	};
 }
 
 export interface MediaRuntimeConfig {

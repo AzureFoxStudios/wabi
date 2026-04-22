@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { createEventDispatcher, onMount } from 'svelte';
+	import { createEventDispatcher, onMount, tick } from 'svelte';
 	import { longpress } from '$lib/actions/longpress';
 	import { followUnreadCountsByServer } from '$lib/followingSnapshots';
+	import ModeTabsDrawer from './ModeTabsDrawer.svelte';
 	import {
 		currentSavedServer,
 		createSavedServerFolder,
@@ -85,6 +86,10 @@
 	let switcherListElement: HTMLDivElement | null = null;
 	let brokenImageUrls = new Set<string>();
 	let showcaseServer: SavedServerView | null = null;
+	let utilityPanelExpanded = true;
+	let addServerExpanded = false;
+	let addServerInput: HTMLInputElement | null = null;
+	let addServerPanel: HTMLDivElement | null = null;
 
 	function startEditing(server: SavedServerView): void {
 		editingUrl = server.url;
@@ -162,6 +167,15 @@
 		const nextUrl = manualServerUrl.trim();
 		if (!nextUrl) return;
 		openUnsavedServer(nextUrl);
+		manualServerUrl = '';
+		addServerExpanded = false;
+	}
+
+	async function openAddServerPanel(): Promise<void> {
+		addServerExpanded = true;
+		await tick();
+		addServerPanel?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+		addServerInput?.focus();
 	}
 
 	function canRenderServerImage(url: string | null | undefined): boolean {
@@ -655,7 +669,7 @@
 		{/if}
 
 		<div class="switcher-showcase-copy">
-			<div class="switcher-eyebrow">Server Switcher</div>
+			<div class="switcher-eyebrow">Servers</div>
 			<h2>{showcaseServer?.effectiveName || 'Saved servers'}</h2>
 			<p>{getShowcaseDescription(showcaseServer)}</p>
 		</div>
@@ -664,19 +678,6 @@
 	</div>
 
 	<div class="switcher-body">
-		<div class="switcher-intro">
-			<label class="switcher-input-group">
-				<span>Open another server</span>
-				<input
-					type="text"
-					bind:value={manualServerUrl}
-					placeholder="wabi.chat or https://staging.example.com"
-					on:keydown={(event) => event.key === 'Enter' && handleOpenManualServer()}
-				/>
-			</label>
-			<button type="button" class="switcher-primary" on:click={handleOpenManualServer}>Open</button>
-		</div>
-
 		{#if mobile && mobileMove}
 			<div class="switcher-move-banner">
 				<div class="switcher-move-banner-copy">
@@ -699,6 +700,27 @@
 				</div>
 			</div>
 		{/if}
+
+		<div class="switcher-utility-panel" class:collapsed={!utilityPanelExpanded}>
+			<button
+				type="button"
+				class="switcher-utility-toggle"
+				aria-expanded={utilityPanelExpanded}
+				on:click={() => (utilityPanelExpanded = !utilityPanelExpanded)}
+			>
+				<div class="switcher-utility-toggle-copy">
+					<strong>Shortcuts</strong>
+				</div>
+				<span class="switcher-utility-toggle-icon" class:expanded={utilityPanelExpanded} aria-hidden="true">
+					<svg viewBox="0 0 20 20">
+						<path d="M6 8l4 4 4-4" />
+					</svg>
+				</span>
+			</button>
+			{#if utilityPanelExpanded}
+				<ModeTabsDrawer embedded />
+			{/if}
+		</div>
 
 		<div class="switcher-list" bind:this={switcherListElement}>
 			{#each $savedServerRailItems as item (item.id)}
@@ -847,9 +869,6 @@
 											>
 												{server.effectiveName}
 											</button>
-											{#if server.isActive}
-												<span class="switcher-badge">Active</span>
-											{/if}
 											{#if getServerFollowUnreadCount(server.url) > 0}
 												<span class="switcher-badge switcher-badge--follow-unread">
 													{getServerFollowUnreadCount(server.url)} unread
@@ -946,6 +965,44 @@
 				</div>
 			{/each}
 		</div>
+
+		<div class="switcher-add-panel" class:expanded={addServerExpanded} bind:this={addServerPanel}>
+			<button
+				type="button"
+				class="switcher-add-toggle"
+				aria-expanded={addServerExpanded}
+				on:click={() => {
+					if (addServerExpanded) {
+						addServerExpanded = false;
+						return;
+					}
+					void openAddServerPanel();
+				}}
+			>
+				<strong>Add server</strong>
+				<span class="switcher-add-toggle-icon" class:expanded={addServerExpanded} aria-hidden="true">
+					<svg viewBox="0 0 20 20">
+						<path d="M10 4v12" />
+						<path d="M4 10h12" />
+					</svg>
+				</span>
+			</button>
+			{#if addServerExpanded}
+				<div class="switcher-intro">
+					<label class="switcher-input-group">
+						<span>Open another server</span>
+						<input
+							type="text"
+							bind:this={addServerInput}
+							bind:value={manualServerUrl}
+							placeholder="wabi.chat or https://staging.example.com"
+							on:keydown={(event) => event.key === 'Enter' && handleOpenManualServer()}
+						/>
+					</label>
+					<button type="button" class="switcher-primary" on:click={handleOpenManualServer}>Open</button>
+				</div>
+			{/if}
+		</div>
 	</div>
 
 	{#if mobile && mobileMove && mobileDragState}
@@ -973,6 +1030,8 @@
 		backdrop-filter: blur(14px);
 		border-right: 1px solid rgba(var(--border-rgb), var(--opacity-light));
 		z-index: calc(var(--z-modal, 1200) - 1);
+		transform-origin: left center;
+		animation: switcher-shell-enter 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
 	}
 
 	.server-switcher > * {
@@ -983,6 +1042,7 @@
 	.server-switcher.dock-right {
 		border-right: none;
 		border-left: 1px solid rgba(var(--border-rgb), var(--opacity-light));
+		transform-origin: right center;
 	}
 
 	.server-switcher.mobile {
@@ -999,6 +1059,7 @@
 			linear-gradient(180deg, rgba(4, 8, 14, 0.08), rgba(4, 8, 14, 0.28)),
 			linear-gradient(135deg, color-mix(in srgb, var(--showcase-accent) 18%, rgba(255, 255, 255, 0.04)), rgba(255, 255, 255, 0.01));
 		overflow: hidden;
+		animation: switcher-section-enter 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
 	}
 
 	.switcher-showcase::after {
@@ -1082,6 +1143,8 @@
 		gap: 0.8rem;
 		padding: 0.9rem 0.9rem 1rem;
 		overflow: hidden;
+		animation: switcher-section-enter 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+		animation-delay: 0.04s;
 	}
 
 	.switcher-intro {
@@ -1145,14 +1208,188 @@
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
-		display: grid;
+		display: flex;
+		flex-direction: column;
+		align-items: stretch;
 		gap: 0.5rem;
-		padding-right: 0.15rem;
+		margin-inline: -0.9rem;
+		padding-inline: 0;
+		padding-right: 0;
+	}
+
+	.switcher-utility-panel {
+		margin-inline: -0.9rem;
+		margin-bottom: 0.15rem;
+		padding: 0.8rem 0.9rem 0.75rem;
+		display: grid;
+		gap: 0.35rem;
+		border-top: 1px solid rgba(var(--border-rgb), 0.42);
+		border-bottom: 1px solid rgba(var(--border-rgb), 0.42);
+		background: rgba(255, 255, 255, 0.025);
+	}
+
+	.switcher-utility-panel.collapsed {
+		margin-bottom: 0.05rem;
+	}
+
+	.switcher-add-panel {
+		display: grid;
+		gap: 0.55rem;
+		margin-inline: -0.9rem;
+		padding: 0.75rem 0.9rem 0;
+		border-top: 1px solid rgba(var(--border-rgb), 0.42);
+	}
+
+	.switcher-add-toggle {
+		width: 100%;
+		padding: 0;
+		border: none;
+		background: transparent;
+		color: inherit;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.8rem;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.switcher-add-toggle strong {
+		font-size: 0.8rem;
+		color: var(--text-primary);
+	}
+
+	.switcher-add-toggle-icon {
+		width: 24px;
+		height: 24px;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.06);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		transition: transform 0.18s ease;
+	}
+
+	.switcher-add-toggle-icon.expanded {
+		transform: rotate(45deg);
+	}
+
+	.switcher-add-toggle-icon svg {
+		width: 14px;
+		height: 14px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2;
+		stroke-linecap: round;
+	}
+
+	@keyframes switcher-shell-enter {
+		from {
+			opacity: 0;
+			transform: translateX(-10px) scale(0.985);
+		}
+		to {
+			opacity: 1;
+			transform: translateX(0) scale(1);
+		}
+	}
+
+	@keyframes switcher-section-enter {
+		from {
+			opacity: 0;
+			transform: translateY(8px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.server-switcher.dock-right {
+		animation-name: switcher-shell-enter-right;
+	}
+
+	@keyframes switcher-shell-enter-right {
+		from {
+			opacity: 0;
+			transform: translateX(10px) scale(0.985);
+		}
+		to {
+			opacity: 1;
+			transform: translateX(0) scale(1);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.server-switcher,
+		.switcher-showcase,
+		.switcher-body {
+			animation: none;
+		}
+	}
+
+	.switcher-utility-toggle {
+		width: 100%;
+		padding: 0 0 0.1rem;
+		border: none;
+		border-radius: 0;
+		background: transparent;
+		color: inherit;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.8rem;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.switcher-utility-toggle:hover {
+		color: var(--text-primary);
+	}
+
+	.switcher-utility-toggle-copy {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		min-width: 0;
+	}
+
+	.switcher-utility-toggle-copy strong {
+		font-size: 0.8rem;
+		color: var(--text-primary);
+	}
+
+	.switcher-utility-toggle-icon {
+		width: 24px;
+		height: 24px;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.06);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		transition: transform 0.18s ease;
+	}
+
+	.switcher-utility-toggle-icon.expanded {
+		transform: rotate(180deg);
+	}
+
+	.switcher-utility-toggle-icon svg {
+		width: 14px;
+		height: 14px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2;
+		stroke-linecap: round;
+		stroke-linejoin: round;
 	}
 
 	.switcher-group {
 		position: relative;
-		display: grid;
+		display: flex;
+		flex-direction: column;
 		gap: 0.35rem;
 	}
 
@@ -1302,53 +1539,57 @@
 	}
 
 	.switcher-group-members {
-		display: grid;
-		gap: 0.32rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0;
 	}
 
 	.switcher-group-members.folder-members {
-		padding-left: 0.95rem;
-		margin-left: 0.55rem;
-		border-left: 1px solid rgba(var(--border-rgb), 0.38);
+		padding-left: 1rem;
+		margin-left: 0;
+		border-left: none;
 	}
 
 	.server-switcher.dock-right .switcher-group-members.folder-members {
 		padding-left: 0;
-		margin-left: 0;
-		padding-right: 0.95rem;
-		margin-right: 0.55rem;
-		border-left: none;
-		border-right: 1px solid rgba(var(--border-rgb), 0.38);
+		padding-right: 1rem;
+		margin-right: 0;
+		border-right: none;
 	}
 
 	.switcher-row {
 		position: relative;
 		display: grid;
 		grid-template-columns: auto minmax(0, 1fr) auto;
-		gap: 0.58rem;
-		padding: 0.38rem 0.62rem;
-		border: 1px solid rgba(var(--border-rgb), 0.42);
-		border-radius: 10px;
+		gap: 0.68rem;
+		min-height: 62px;
+		padding: 0.78rem 1.05rem;
+		border: none;
+		border-radius: 0;
 		align-items: center;
 		cursor: pointer;
 		background:
-			linear-gradient(90deg, rgba(7, 11, 19, 0.9), rgba(7, 11, 19, 0.72) 46%, rgba(7, 11, 19, 0.84)),
+			linear-gradient(90deg, rgba(7, 11, 19, 0.86), rgba(7, 11, 19, 0.62) 46%, rgba(7, 11, 19, 0.79)),
 			var(--row-banner-image, none);
 		background-position: center;
 		background-repeat: no-repeat;
 		background-size: cover;
 		overflow: hidden;
+		box-shadow:
+			inset 0 -1px 0 rgba(var(--border-rgb), 0.24),
+			inset 0 1px 0 rgba(255, 255, 255, 0.02);
 		transition:
-			border-color 0.18s ease,
 			background-color 0.18s ease,
-			transform 0.18s ease;
+			box-shadow 0.18s ease;
 	}
 
 	.switcher-row::before {
 		content: '';
 		position: absolute;
 		inset: 0;
-		background: linear-gradient(90deg, rgba(255, 255, 255, 0.06), transparent 44%);
+		background:
+			linear-gradient(90deg, rgba(255, 255, 255, 0.12), transparent 44%),
+			linear-gradient(180deg, rgba(3, 7, 18, 0.08), rgba(3, 7, 18, 0.34));
 		pointer-events: none;
 	}
 
@@ -1363,35 +1604,43 @@
 
 	.switcher-row.active,
 	.switcher-row[aria-current='page'] {
-		border-color: color-mix(in srgb, var(--row-accent) 28%, rgba(var(--border-rgb), 0.48));
-		background-color: rgba(255, 255, 255, 0.02);
+		background-color: rgba(255, 255, 255, 0.03);
+		box-shadow:
+			inset 0 -1px 0 color-mix(in srgb, var(--row-accent) 24%, rgba(var(--border-rgb), 0.22)),
+			inset 0 1px 0 rgba(255, 255, 255, 0.03);
 	}
 
 	.switcher-row.move-selected {
-		border-color: rgba(125, 211, 252, 0.36);
-		box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.16);
+		box-shadow:
+			inset 0 -1px 0 rgba(125, 211, 252, 0.42),
+			inset 0 1px 0 rgba(125, 211, 252, 0.16);
 	}
 
 	.switcher-row.drop-before {
-		box-shadow: inset 0 4px 0 rgba(125, 211, 252, 0.95);
+		box-shadow:
+			inset 0 4px 0 rgba(125, 211, 252, 0.95),
+			inset 0 -1px 0 rgba(var(--border-rgb), 0.24);
 	}
 
 	.switcher-row.drop-after {
-		box-shadow: inset 0 -4px 0 rgba(125, 211, 252, 0.95);
+		box-shadow:
+			inset 0 -4px 0 rgba(125, 211, 252, 0.95),
+			inset 0 1px 0 rgba(255, 255, 255, 0.02);
 	}
 
 	.switcher-row.drop-make-folder {
-		border-color: rgba(244, 114, 182, 0.34);
-		box-shadow: 0 0 0 1px rgba(244, 114, 182, 0.12);
+		box-shadow:
+			inset 0 0 0 1px rgba(244, 114, 182, 0.16),
+			inset 0 -1px 0 rgba(var(--border-rgb), 0.24);
 	}
 
 	.switcher-row.active::after,
 	.switcher-row[aria-current='page']::after {
 		content: '';
 		position: absolute;
-		inset-block: 5px;
+		inset-block: 7px;
 		inset-inline-start: 0;
-		width: 2px;
+		width: 3px;
 		border-radius: 999px;
 		background: color-mix(in srgb, var(--row-accent) 68%, white);
 		pointer-events: none;
@@ -1404,13 +1653,15 @@
 	}
 
 	.switcher-row:hover {
-		border-color: color-mix(in srgb, var(--row-accent) 18%, rgba(var(--border-rgb), 0.52));
-		transform: translateY(-1px);
+		background-color: rgba(255, 255, 255, 0.04);
+		box-shadow:
+			inset 0 -1px 0 color-mix(in srgb, var(--row-accent) 18%, rgba(var(--border-rgb), 0.22)),
+			inset 0 1px 0 rgba(255, 255, 255, 0.03);
 	}
 
 	.switcher-avatar {
-		width: 34px;
-		height: 34px;
+		width: 38px;
+		height: 38px;
 		border-radius: 999px;
 		overflow: hidden;
 		border: 1px solid rgba(255, 255, 255, 0.1);
@@ -1641,8 +1892,7 @@
 	}
 
 	@media (max-width: 768px) {
-		.switcher-intro,
-		.switcher-row {
+		.switcher-intro {
 			grid-template-columns: 1fr;
 		}
 
@@ -1656,6 +1906,16 @@
 
 		.switcher-side-actions {
 			justify-content: flex-start;
+		}
+
+		.switcher-list {
+			margin-inline: -0.9rem;
+		}
+
+		.switcher-row {
+			grid-template-columns: auto minmax(0, 1fr) auto;
+			min-height: 60px;
+			padding: 0.72rem 0.95rem;
 		}
 	}
 </style>

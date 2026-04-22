@@ -24,6 +24,7 @@ export interface DbMessage {
 	reactions_json?: string;
 	is_encrypted?: number;
 	encryption_iv?: string;
+	expires_at?: number | null;
 	created_at: number;
 	deleted_at?: number;
 }
@@ -68,6 +69,7 @@ export interface ClientMessage {
 	isEdited?: boolean;
 	encrypted?: boolean;
 	iv?: string;
+	scheduledDeletionTime?: number;
 	reactions?: Record<string, string[]>;
 	color?: string;
 }
@@ -80,11 +82,11 @@ export class MessageRepository {
 				message_id, channel_id, sender_id, sender_username, sender_color,
 				message_type, content, gif_url, file_url, file_name, file_size, files_json, entities_json, attachment_encryption_json,
 				attachment_storage_json,
-				reply_to_id, is_spoiler, is_pinned, is_edited, reactions_json,
-				is_encrypted, encryption_iv, created_at
-			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`);
+					reply_to_id, is_spoiler, is_pinned, is_edited, reactions_json,
+					is_encrypted, encryption_iv, expires_at, created_at
+				)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`);
 
 		const info = stmt.run(
 			message.message_id,
@@ -106,11 +108,12 @@ export class MessageRepository {
 			message.is_spoiler || 0,
 			message.is_pinned || 0,
 			message.is_edited || 0,
-			message.reactions_json || null,
-			message.is_encrypted || 0,
-			message.encryption_iv || null,
-			message.created_at
-		);
+				message.reactions_json || null,
+				message.is_encrypted || 0,
+				message.encryption_iv || null,
+				message.expires_at ?? null,
+				message.created_at
+			);
 
 		return {
 			id: info.lastInsertRowid as number,
@@ -121,6 +124,7 @@ export class MessageRepository {
 	// Get messages for a channel with pagination
 	getByChannel(channelId: string, options: PaginationOptions = {}): DbMessage[] {
 		const limit = options.limit || 50;
+		const now = Date.now();
 
 		let query: string;
 		let params: any[];
@@ -131,36 +135,36 @@ export class MessageRepository {
 			if (!beforeMsg) {
 				return [];
 			}
-			query = `
-				SELECT * FROM messages
-				WHERE channel_id = ? AND deleted_at IS NULL AND created_at < ?
-				ORDER BY created_at DESC
-				LIMIT ?
-			`;
-			params = [channelId, beforeMsg.created_at, limit];
-		} else if (options.afterMessageId) {
+				query = `
+					SELECT * FROM messages
+					WHERE channel_id = ? AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?) AND created_at < ?
+					ORDER BY created_at DESC
+					LIMIT ?
+				`;
+				params = [channelId, now, beforeMsg.created_at, limit];
+			} else if (options.afterMessageId) {
 			// Load newer messages (after a specific message)
 			const afterMsg = this.findByMessageId(options.afterMessageId);
 			if (!afterMsg) {
 				return [];
 			}
-			query = `
-				SELECT * FROM messages
-				WHERE channel_id = ? AND deleted_at IS NULL AND created_at > ?
-				ORDER BY created_at ASC
-				LIMIT ?
-			`;
-			params = [channelId, afterMsg.created_at, limit];
-		} else {
+				query = `
+					SELECT * FROM messages
+					WHERE channel_id = ? AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?) AND created_at > ?
+					ORDER BY created_at ASC
+					LIMIT ?
+				`;
+				params = [channelId, now, afterMsg.created_at, limit];
+			} else {
 			// Initial load - get latest messages
-			query = `
-				SELECT * FROM messages
-				WHERE channel_id = ? AND deleted_at IS NULL
-				ORDER BY created_at DESC
-				LIMIT ?
-			`;
-			params = [channelId, limit];
-		}
+				query = `
+					SELECT * FROM messages
+					WHERE channel_id = ? AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)
+					ORDER BY created_at DESC
+					LIMIT ?
+				`;
+				params = [channelId, now, limit];
+			}
 
 		const stmt = db.prepare(query);
 		const messages = stmt.all(...params) as DbMessage[];
@@ -175,14 +179,14 @@ export class MessageRepository {
 
 	// Find a single message by its message_id
 	findByMessageId(messageId: string): DbMessage | null {
-		const stmt = db.prepare('SELECT * FROM messages WHERE message_id = ? AND deleted_at IS NULL');
-		return (stmt.get(messageId) as DbMessage) || null;
+		const stmt = db.prepare('SELECT * FROM messages WHERE message_id = ? AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)');
+		return (stmt.get(messageId, Date.now()) as DbMessage) || null;
 	}
 
 	// Find a single message by its database id
 	findById(id: number): DbMessage | null {
-		const stmt = db.prepare('SELECT * FROM messages WHERE id = ? AND deleted_at IS NULL');
-		return (stmt.get(id) as DbMessage) || null;
+		const stmt = db.prepare('SELECT * FROM messages WHERE id = ? AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)');
+		return (stmt.get(id, Date.now()) as DbMessage) || null;
 	}
 
 	// Update a message
@@ -258,9 +262,12 @@ export class MessageRepository {
 		if (dbMsg.is_spoiler) msg.isSpoiler = true;
 		if (dbMsg.is_pinned) msg.isPinned = true;
 		if (dbMsg.is_edited) msg.isEdited = true;
-		if (dbMsg.is_encrypted) msg.encrypted = true;
-		if (dbMsg.encryption_iv) msg.iv = dbMsg.encryption_iv;
-		if (dbMsg.sender_color) msg.color = dbMsg.sender_color;
+			if (dbMsg.is_encrypted) msg.encrypted = true;
+			if (dbMsg.encryption_iv) msg.iv = dbMsg.encryption_iv;
+			if (typeof dbMsg.expires_at === 'number' && Number.isFinite(dbMsg.expires_at)) {
+				msg.scheduledDeletionTime = dbMsg.expires_at;
+			}
+			if (dbMsg.sender_color) msg.color = dbMsg.sender_color;
 
 		if (dbMsg.reactions_json) {
 			try {
@@ -275,9 +282,14 @@ export class MessageRepository {
 
 	// Get message count for a channel (useful for pagination info)
 	getChannelMessageCount(channelId: string): number {
-		const stmt = db.prepare('SELECT COUNT(*) as count FROM messages WHERE channel_id = ? AND deleted_at IS NULL');
-		const result = stmt.get(channelId) as { count: number };
+		const stmt = db.prepare('SELECT COUNT(*) as count FROM messages WHERE channel_id = ? AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)');
+		const result = stmt.get(channelId, Date.now()) as { count: number };
 		return result.count;
+	}
+
+	purgeExpired(now: number = Date.now()): number {
+		const stmt = db.prepare('DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?');
+		return stmt.run(now).changes;
 	}
 
 	// Update reactions for a message

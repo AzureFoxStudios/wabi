@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount, afterUpdate, tick } from 'svelte';
-	import { channelMessages, sendMessage, currentUser, users, sendTyping, emojis } from '$lib/socket';
+	import { channelMessages, channels, sendMessage, currentUser, users, sendTyping, emojis, syncNewerMessages, updateChannelSettings } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { getAuthToken } from '$lib/authSession';
 	import { getDmNotesStorageKey } from '$lib/notesStore';
@@ -41,6 +41,12 @@
 	import { pushLocalDirectionsCard } from '$lib/directionsAssist';
 	import { parseCommand } from '$lib/commands';
 	import { getLineDmResolvedProfile, lineDmAddonStore } from '$lib/lineDmAddon';
+	import {
+		DEFAULT_DM_RETENTION,
+		MESSAGE_RETENTION_LABELS,
+		MESSAGE_RETENTION_PRESETS,
+		normalizeMessageRetentionDuration
+	} from '../../../../shared/messageRetention.js';
 
 	export let channelId: string;
 	export let otherUser: User;
@@ -75,8 +81,11 @@
 	let mentionTokenStart = -1;
 	let composerEntities: MessageEntity[] = [];
 	let previousComposerInput = '';
+	const DM_COMPOSER_MAX_HEIGHT = 160;
+	let lastSyncedChannelId = '';
 
 	$: isGroup = channel?.type === 'group';
+	$: activeConversationChannel = channel || $channels.find((entry) => entry.id === channelId);
 	$: messages = $channelMessages[channelId] || [];
 	$: dmNotesStorageKey = getDmNotesStorageKey(channelId, $currentUser?.id);
 	$: dmNotesTitle = isGroup ? 'Group Notes' : 'DM Notes';
@@ -150,6 +159,18 @@
 	function resetComposerEntityState() {
 		composerEntities = [];
 		previousComposerInput = messageInput;
+	}
+
+	function resetComposerHeight(): void {
+		if (!textareaElement) return;
+		textareaElement.style.height = 'auto';
+	}
+
+	function autoResizeTextarea(): void {
+		if (!textareaElement) return;
+		textareaElement.style.height = 'auto';
+		const nextHeight = Math.min(textareaElement.scrollHeight, DM_COMPOSER_MAX_HEIGHT);
+		textareaElement.style.height = `${nextHeight}px`;
 	}
 
 	function resolveOutgoingPlaceEntities(text: string): MessageEntity[] {
@@ -262,6 +283,7 @@
 		mentionTokenStart = -1;
 
 		await tick();
+		autoResizeTextarea();
 		textareaElement.focus();
 		textareaElement.setSelectionRange(nextCursor, nextCursor);
 	}
@@ -291,6 +313,7 @@
 				});
 				messageInput = '';
 				resetComposerEntityState();
+				resetComposerHeight();
 				showMentionSuggestions = false;
 				shouldAutoScroll = true;
 				if (typingTimeout) {
@@ -317,6 +340,7 @@
 
 		messageInput = '';
 		resetComposerEntityState();
+		resetComposerHeight();
 		showMentionSuggestions = false;
 		shouldAutoScroll = true;
 		if (typingTimeout) { clearTimeout(typingTimeout); typingTimeout = null; }
@@ -354,6 +378,7 @@
 	}
 
 	function handleInput() {
+		autoResizeTextarea();
 		syncComposerEntities();
 		updateMentionSuggestions();
 		sendTyping(true, channelId);
@@ -380,6 +405,15 @@
 
 	function handleClose() {
 		layoutStore.closeDM();
+	}
+
+	function handleRetentionChange(event: Event): void {
+		const select = event.currentTarget as HTMLSelectElement | null;
+		if (!select || !activeConversationChannel) return;
+		const nextRetention = normalizeMessageRetentionDuration(select.value);
+		updateChannelSettings(activeConversationChannel.id, {
+			autoDeleteAfter: nextRetention
+		});
 	}
 
 	function scrollToBottom() {
@@ -426,6 +460,13 @@
 	}
 
 	$: placeholderText = isGroup ? `Message ${channel?.name}...` : `Message ${otherUser.username}...`;
+	$: selectedRetentionValue = activeConversationChannel
+		? (activeConversationChannel.autoDeleteAfter ?? '')
+		: DEFAULT_DM_RETENTION;
+	$: if (channelId && channelId !== lastSyncedChannelId) {
+		lastSyncedChannelId = channelId;
+		syncNewerMessages(channelId);
+	}
 
 	afterUpdate(() => {
 		scrollToBottom();
@@ -433,7 +474,10 @@
 
 	onMount(() => {
 		void loadPlaceRegistry();
-		tick().then(scrollToBottom);
+		tick().then(() => {
+			scrollToBottom();
+			autoResizeTextarea();
+		});
 	});
 </script>
 
@@ -482,6 +526,15 @@
 			{/if}
 		</div>
 		<div class="dm-header-actions">
+			<label class="dm-retention-control">
+				<span class="dm-retention-label">Keep</span>
+				<select class="dm-retention-select" value={selectedRetentionValue} on:change={handleRetentionChange} title="Message retention">
+					<option value="">Never</option>
+					{#each MESSAGE_RETENTION_PRESETS as duration}
+						<option value={duration}>{MESSAGE_RETENTION_LABELS[duration]}</option>
+					{/each}
+				</select>
+			</label>
 			<button
 				class="dm-notes-btn"
 				on:click={() => void openPreferredMapSurface()}
@@ -787,6 +840,33 @@
 		gap: 0.35rem;
 	}
 
+	.dm-retention-control {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0 0.45rem;
+		height: 28px;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--bg-primary);
+		color: var(--text-secondary);
+		font-size: 0.72rem;
+	}
+
+	.dm-retention-label {
+		white-space: nowrap;
+	}
+
+	.dm-retention-select {
+		border: none;
+		background: transparent;
+		color: var(--text-primary);
+		font-size: 0.72rem;
+		outline: none;
+		cursor: pointer;
+		max-width: 8rem;
+	}
+
 	.dm-notes-btn {
 		height: 28px;
 		padding: 0 0.5rem;
@@ -957,15 +1037,34 @@
 		font-size: 0.85rem;
 		color: var(--text-primary);
 		word-wrap: break-word;
+		word-break: break-word;
+		overflow-wrap: break-word;
 		line-height: 1.35;
 		display: inline-block;
 		width: fit-content;
 		max-width: 100%;
+		max-height: min(22rem, 55vh);
+		overflow-y: auto;
 		padding: 0.34rem 0.9rem;
 		border-radius: 999px;
 		background: color-mix(in srgb, var(--bg-tertiary) 78%, #000 22%);
 		border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
 		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+		scrollbar-width: thin;
+		scrollbar-color: color-mix(in srgb, var(--accent) 24%, var(--border) 76%) transparent;
+	}
+
+	.dm-msg-text::-webkit-scrollbar {
+		width: 8px;
+	}
+
+	.dm-msg-text::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	.dm-msg-text::-webkit-scrollbar-thumb {
+		background: color-mix(in srgb, var(--accent) 24%, var(--border) 76%);
+		border-radius: 999px;
 	}
 
 	.dm-directions-card {
@@ -1136,8 +1235,25 @@
 		color: var(--text-primary);
 		border-radius: 8px;
 		min-height: 36px;
-		max-height: 120px;
+		max-height: 160px;
+		overflow-y: auto;
 		font-family: inherit;
+		line-height: 1.4;
+		scrollbar-width: thin;
+		scrollbar-color: color-mix(in srgb, var(--accent) 24%, var(--border) 76%) transparent;
+	}
+
+	.dm-input::-webkit-scrollbar {
+		width: 8px;
+	}
+
+	.dm-input::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	.dm-input::-webkit-scrollbar-thumb {
+		background: color-mix(in srgb, var(--accent) 24%, var(--border) 76%);
+		border-radius: 999px;
 	}
 
 	.dm-input::placeholder {

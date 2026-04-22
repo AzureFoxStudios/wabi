@@ -1,22 +1,4 @@
-interface RuntimeGuardrailsSnapshot {
-	uptimeSeconds: number;
-	memory: {
-		rssBytes: number;
-		heapUsedBytes: number;
-		heapTotalBytes: number;
-		externalBytes: number;
-		arrayBuffersBytes: number;
-	};
-	cpu: {
-		userMicros: number;
-		systemMicros: number;
-	};
-	heavyProfiling: {
-		enabled: boolean;
-		eventLoopDelayP95Ms: number | null;
-		eventLoopDelayMaxMs: number | null;
-	};
-}
+import type { RuntimeGuardrailsSnapshot } from '../../../shared/runtimeAdminContracts.js';
 
 let heavyProfilingEnabled = false;
 let eventLoopHistogram: {
@@ -81,4 +63,3 @@ export function getRuntimeGuardrailsSnapshot(): RuntimeGuardrailsSnapshot {
 		}
 	};
 }
-

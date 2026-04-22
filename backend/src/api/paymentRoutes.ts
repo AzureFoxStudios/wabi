@@ -46,6 +46,12 @@ import {
   notifyPaymentIntentUpdated,
   notifyPaymentUserBlocksUpdated
 } from '../payments/realtime.js';
+import {
+  isInvalidJsonBodyError as isJsonParseError,
+  isRequestBodyTooLargeError as isPayloadTooLargeError,
+  readJsonObjectBody,
+  readRequestBuffer
+} from '../utils/requestBodies.js';
 
 const MAX_PAYMENT_BODY_BYTES = Math.max(
   1024,
@@ -93,17 +99,9 @@ const KNOWN_STATUSES = new Set<RepositoryPaymentIntentStatus>([
   'canceled'
 ]);
 
-function writeJson(res: ServerResponse, status: number, payload: Record<string, any>): void {
+function writeJson(res: ServerResponse, status: number, payload: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(payload));
-}
-
-function isPayloadTooLargeError(error: unknown): boolean {
-  return error instanceof Error && error.message.startsWith('payload_too_large:');
-}
-
-function isJsonParseError(error: unknown): boolean {
-  return error instanceof Error && error.message === 'invalid_json';
 }
 
 function isPluginNotLoadedError(error: unknown): boolean {
@@ -158,6 +156,82 @@ function normalizeIdempotencyKey(value: unknown): string | null {
 function normalizeMetadata(value: unknown): Record<string, unknown> | null {
   if (!isRecord(value)) return null;
   return value;
+}
+
+interface NormalizedCreatePaymentIntentRequest {
+  pluginId: string;
+  methodId: string;
+  currency: string;
+  countryCode: string | null;
+  amountMinor: number;
+  workspaceId: string;
+  channelId: string | null;
+  description: string | null;
+  customerRef: string | null;
+  metadata: Record<string, unknown> | null;
+  idempotencyKey: string;
+}
+
+interface NormalizedPaymentAccountLinkRequest {
+  pluginId: string;
+  providerAccountRef: string;
+  displayLabel: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+function parseCreatePaymentIntentRequest(
+  body: Record<string, unknown>,
+  userId: number
+): NormalizedCreatePaymentIntentRequest | null {
+  const pluginId = normalizePluginId(body.pluginId);
+  const methodId = normalizeOptionalString(body.methodId, 96);
+  const currency = toUpperCode(body.currency, 3);
+  const countryCode = body.countryCode == null ? null : toUpperCode(body.countryCode, 2);
+  const amountMinor = clampPositiveInteger(body.amountMinor, 10_000_000_000);
+  const workspaceId = normalizeOptionalString(body.workspaceId, 120) || DEFAULT_WORKSPACE_ID;
+  const channelId = normalizeOptionalString(body.channelId, 120);
+  const description = normalizeOptionalString(body.description, 480);
+  const customerRef = normalizeOptionalString(body.customerRef, 120);
+  const metadata = normalizeMetadata(body.metadata);
+  const idempotencyKey =
+    normalizeIdempotencyKey(body.idempotencyKey) ||
+    `wabi_pay_${userId}_${randomBytes(12).toString('hex')}`;
+
+  if (!pluginId || !methodId || !currency || amountMinor == null) {
+    return null;
+  }
+
+  return {
+    pluginId,
+    methodId,
+    currency,
+    countryCode,
+    amountMinor,
+    workspaceId,
+    channelId,
+    description,
+    customerRef,
+    metadata,
+    idempotencyKey
+  };
+}
+
+function parsePaymentAccountLinkRequest(body: Record<string, unknown>): NormalizedPaymentAccountLinkRequest | null {
+  const pluginId = normalizePluginId(body.pluginId);
+  const providerAccountRef = normalizeOptionalString(body.providerAccountRef, 240);
+  const displayLabel = normalizeOptionalString(body.displayLabel, 160);
+  const metadata = normalizeMetadata(body.metadata);
+
+  if (!pluginId || !providerAccountRef) {
+    return null;
+  }
+
+  return {
+    pluginId,
+    providerAccountRef,
+    displayLabel,
+    metadata
+  };
 }
 
 function isKnownPaymentStatus(value: unknown): value is RepositoryPaymentIntentStatus {
@@ -572,52 +646,8 @@ function buildWebhookQuery(searchParams: URLSearchParams): Record<string, string
   return query;
 }
 
-async function readRequestBuffer(req: IncomingMessage, maxBytes: number = MAX_PAYMENT_BODY_BYTES): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let total = 0;
-    let settled = false;
-
-    req.on('data', (chunk) => {
-      if (settled) return;
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      total += buffer.length;
-      if (total > maxBytes) {
-        settled = true;
-        reject(new Error(`payload_too_large:${maxBytes}`));
-        return;
-      }
-      chunks.push(buffer);
-    });
-
-    req.on('end', () => {
-      if (settled) return;
-      settled = true;
-      resolve(chunks.length === 0 ? Buffer.alloc(0) : Buffer.concat(chunks));
-    });
-
-    req.on('error', (error) => {
-      if (settled) return;
-      settled = true;
-      reject(error);
-    });
-  });
-}
-
 async function parseJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-  const buffer = await readRequestBuffer(req);
-  if (buffer.length === 0) {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(buffer.toString('utf8'));
-    if (!isRecord(parsed)) {
-      throw new Error('invalid_json');
-    }
-    return parsed;
-  } catch {
-    throw new Error('invalid_json');
-  }
+  return await readJsonObjectBody(req, MAX_PAYMENT_BODY_BYTES);
 }
 
 export async function handleListPaymentProviders(
@@ -1175,27 +1205,28 @@ export async function handleCreatePaymentIntent(
     return;
   }
 
-  const pluginId = normalizePluginId(body.pluginId);
-  const methodId = normalizeOptionalString(body.methodId, 96);
-  const currency = toUpperCode(body.currency, 3);
-  const countryCode = body.countryCode == null ? null : toUpperCode(body.countryCode, 2);
-  const amountMinor = clampPositiveInteger(body.amountMinor, 10_000_000_000);
-  const workspaceId = normalizeOptionalString(body.workspaceId, 120) || DEFAULT_WORKSPACE_ID;
-  const channelId = normalizeOptionalString(body.channelId, 120);
-  const description = normalizeOptionalString(body.description, 480);
-  const customerRef = normalizeOptionalString(body.customerRef, 120);
-  const metadata = normalizeMetadata(body.metadata);
-  const idempotencyKey =
-    normalizeIdempotencyKey(body.idempotencyKey) ||
-    `wabi_pay_${userId}_${randomBytes(12).toString('hex')}`;
-
-  if (!pluginId || !methodId || !currency || amountMinor == null) {
+  const parsedRequest = parseCreatePaymentIntentRequest(body, userId);
+  if (!parsedRequest) {
     writeJson(res, 400, {
       success: false,
       error: 'pluginId, methodId, amountMinor, and currency are required'
     });
     return;
   }
+
+  const {
+    pluginId,
+    methodId,
+    currency,
+    countryCode,
+    amountMinor,
+    workspaceId,
+    channelId,
+    description,
+    customerRef,
+    metadata,
+    idempotencyKey
+  } = parsedRequest;
 
   const capabilities = await pluginLoader.getPaymentCapabilities(pluginId);
   if (!capabilities) {
@@ -1585,7 +1616,7 @@ export async function handlePaymentWebhook(
 
   let rawBody: string;
   try {
-    rawBody = (await readRequestBuffer(req)).toString('utf8');
+    rawBody = (await readRequestBuffer(req, MAX_PAYMENT_BODY_BYTES)).toString('utf8');
   } catch (error) {
     if (isPayloadTooLargeError(error)) {
       writeJson(res, 413, { success: false, error: 'Payload too large' });
@@ -1775,15 +1806,13 @@ export async function handleUpsertPaymentAccountLink(
     return;
   }
 
-  const pluginId = normalizePluginId(body.pluginId);
-  let providerAccountRef = normalizeOptionalString(body.providerAccountRef, 240);
-  const displayLabel = normalizeOptionalString(body.displayLabel, 160);
-  const metadata = normalizeMetadata(body.metadata);
-
-  if (!pluginId || !providerAccountRef) {
+  const parsedRequest = parsePaymentAccountLinkRequest(body);
+  if (!parsedRequest) {
     writeJson(res, 400, { success: false, error: 'pluginId and providerAccountRef are required' });
     return;
   }
+  const { pluginId, displayLabel, metadata } = parsedRequest;
+  let { providerAccountRef } = parsedRequest;
   if (pluginId === 'th-payments') {
     const normalizedPromptPayReference = normalizeThaiPromptPayReference(providerAccountRef);
     if (!normalizedPromptPayReference) {

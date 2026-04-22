@@ -1,11 +1,6 @@
-export interface FrontendAppMetadataPolicy {
-	displayName: string | null;
-	iconUrl: string | null;
-	bannerUrl: string | null;
-	accentColor: string | null;
-	description: string | null;
-	launchPageFallbackEnabled: boolean;
-}
+import type { FrontendAppMetadataPolicy } from '../../shared/adminPolicyContracts.js';
+
+export type { FrontendAppMetadataPolicy } from '../../shared/adminPolicyContracts.js';
 
 const DEFAULT_FRONTEND_APP_METADATA_POLICY: FrontendAppMetadataPolicy = {
 	displayName: null,

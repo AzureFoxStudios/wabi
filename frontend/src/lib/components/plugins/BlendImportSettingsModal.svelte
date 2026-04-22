@@ -91,8 +91,9 @@
 </script>
 
 {#if isOpen}
+  <!-- svelte-ignore a11y_click_events_have_key_events: backdrop closes on pointer interaction; keyboard close is handled by the modal controls -->
   <div class="overlay" on:click={closeModal} role="presentation">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="blend-import-title" on:click|stopPropagation>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="blend-import-title" tabindex="-1" on:click|stopPropagation>
       <div class="header">
         <h3 id="blend-import-title">Blend Import Settings</h3>
         <button class="close-btn" on:click={closeModal} disabled={isSubmitting} aria-label="Close">x</button>

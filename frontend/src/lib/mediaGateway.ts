@@ -1,33 +1,17 @@
 import { getServerUrl } from './serverUrl';
 import { getAuthToken } from './authSession';
 import { getPreferredSfuRelayId } from './relaySelector';
-
-export type MediaGatewaySessionKind = 'voice' | 'screen' | 'recording';
-
-export interface MediaGatewaySession {
-	sessionId: string;
-	channelId: string | null;
-	kind: MediaGatewaySessionKind;
-	status: 'open' | 'closed';
-	transport: 'srt';
-	gatewayUrl: string;
-	publishUrl: string;
-	playbackUrl: string;
-	accessToken: string;
-	createdAt: number;
-	updatedAt: number;
-	expiresAt: number;
-}
-
-export interface LivekitAccessTokenResponse {
-	token: string;
-	url: string;
-	roomName: string;
-	identity: string;
-	relayId?: number | null;
-	relayName?: string | null;
-	source?: 'origin' | 'relay';
-}
+import type {
+	LivekitAccessTokenResponse,
+	MediaGatewaySession,
+	MediaGatewaySessionKind,
+	MediaGatewaySessionResponse
+} from '../../../shared/mediaContracts.js';
+export type {
+	LivekitAccessTokenResponse,
+	MediaGatewaySession,
+	MediaGatewaySessionKind
+} from '../../../shared/mediaContracts.js';
 
 function getAuthHeaders(): HeadersInit {
 	const token = getAuthToken();
@@ -53,7 +37,7 @@ export async function createMediaGatewaySession(channelId: string, kind: MediaGa
 		throw new Error(error.error || `Failed to create media gateway session (${response.status})`);
 	}
 
-	const body = await response.json() as { session: MediaGatewaySession };
+	const body = await response.json() as MediaGatewaySessionResponse;
 	return body.session;
 }
 
@@ -83,7 +67,7 @@ export async function renewMediaGatewaySession(sessionId: string, ttlSeconds?: n
 		throw new Error(error.error || `Failed to renew media gateway session (${response.status})`);
 	}
 
-	const body = await response.json() as { session: MediaGatewaySession };
+	const body = await response.json() as MediaGatewaySessionResponse;
 	return body.session;
 }
 
@@ -103,7 +87,7 @@ export async function getMediaGatewaySession(sessionId: string): Promise<MediaGa
 		throw new Error(error.error || `Failed to fetch media gateway session (${response.status})`);
 	}
 
-	const body = await response.json() as { session: MediaGatewaySession };
+	const body = await response.json() as MediaGatewaySessionResponse;
 	return body.session;
 }
 

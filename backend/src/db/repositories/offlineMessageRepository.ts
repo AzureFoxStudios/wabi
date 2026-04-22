@@ -12,6 +12,7 @@ export interface OfflineMessage {
 	file_url?: string;
 	file_name?: string;
 	file_size?: number;
+	message_payload_json?: string;
 	created_at: number;
 	expires_at: number;
 	delivered: number;
@@ -21,8 +22,23 @@ export class OfflineMessageRepository {
 	// Queue an offline message
 	queue(message: Omit<OfflineMessage, 'message_id' | 'delivered'>): OfflineMessage {
 		const stmt = db.prepare(`
-			INSERT INTO offline_messages (from_user_id, from_username, to_user_id, channel_id, message_content, message_type, gif_url, file_url, file_name, file_size, created_at, expires_at, delivered)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+			INSERT INTO offline_messages (
+				from_user_id,
+				from_username,
+				to_user_id,
+				channel_id,
+				message_content,
+				message_type,
+				gif_url,
+				file_url,
+				file_name,
+				file_size,
+				message_payload_json,
+				created_at,
+				expires_at,
+				delivered
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
 		`);
 
 		const info = stmt.run(
@@ -36,6 +52,7 @@ export class OfflineMessageRepository {
 			message.file_url || null,
 			message.file_name || null,
 			message.file_size || null,
+			message.message_payload_json || null,
 			message.created_at,
 			message.expires_at
 		);

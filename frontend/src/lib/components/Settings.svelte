@@ -23,7 +23,7 @@
 		roleDefinitions,
 		channels
 	} from '$lib/socket';
-	import type { Emoji } from '$lib/socket';
+	import type { Emoji, Message } from '$lib/socket';
 	import { chatStorage } from '$lib/storage';
 	import StorageSettings from './StorageSettings.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
@@ -219,7 +219,6 @@
 		clearMutedChannelIds,
 		setBetterSearchPageEnabled,
 		setGoogleSearchReplaceEnabled,
-		clearFriendNotificationTrackedUserIds,
 		setBetterFriendListEnabled,
 		setBetterNsfwTagEnabled,
 		setClickableMentionsEnabled,
@@ -247,6 +246,10 @@
 		type RevealAllSpoilersMinRole,
 		type TimestampDisplayMode
 	} from '$lib/displayEnhancements';
+	import {
+		clearAllTrackedPersonStatusAlerts,
+		trackedStatusAlertPersonCountStore
+	} from '$lib/peopleTracker';
 	import {
 		exportUnicodeEmojiPreferences,
 		importUnicodeEmojiPreferences,
@@ -282,6 +285,22 @@
 		type SearchEngineProvider
 	} from '$lib/searchEngineJump';
 	import { clearAllLocalNicknames, localNicknamesStore } from '$lib/localNicknames';
+	import {
+		defaultLocalWabiAccountStore,
+		getLocalWabiAccountDisplayLabel,
+		getLocalWabiAccountKey,
+		getSuggestedLocalWabiImportSourceAccount,
+		localWabiAccountListStore,
+		markLocalWabiImportPromptHandled,
+		setDefaultLocalWabiAccount,
+		type LocalWabiAccountRecord
+	} from '$lib/localWabiAccounts';
+	import {
+		applyLocalWabiProfileImport,
+		getLocalWabiProfileImportPreview,
+		type LocalWabiProfileImportPreview
+	} from '$lib/localWabiProfileImport';
+	import { uploadProfilePictureFile } from '$lib/profilePictureUpload';
 	import {
 		MAX_CUSTOM_QUICK_REACTION_EMOJIS,
 		addQuickReactionCustomEmojiId,
@@ -849,6 +868,13 @@
 	let uploadingAvatar = false;
 	let displayNameDraft = '';
 	let updatingDisplayName = false;
+	let currentLocalWabiAccountKey = '';
+	let currentLocalWabiAccountIsDefault = false;
+	let otherLocalWabiAccounts: LocalWabiAccountRecord[] = [];
+	let linkedWabiImportPreview: LocalWabiProfileImportPreview | null = null;
+	let linkedWabiImportSourceKey = '';
+	let linkedWabiImportStatus = '';
+	let linkedWabiImporting = false;
 	let currentPasswordDraft = '';
 	let newPasswordDraft = '';
 	let confirmNewPasswordDraft = '';
@@ -1353,6 +1379,29 @@
 	$: if (!updatingDisplayName && $currentUser?.username && displayNameDraft === '') {
 		displayNameDraft = $currentUser.username;
 	}
+	$: currentLocalWabiAccountKey = getLocalWabiAccountKey($currentUser, getServerUrl());
+	$: currentLocalWabiAccountIsDefault =
+		Boolean(currentLocalWabiAccountKey) && $defaultLocalWabiAccountStore?.key === currentLocalWabiAccountKey;
+	$: otherLocalWabiAccounts = $localWabiAccountListStore.filter(
+		(account) => account.key !== currentLocalWabiAccountKey
+	);
+	$: {
+		const selectedStillValid = otherLocalWabiAccounts.some(
+			(account) => account.key === linkedWabiImportSourceKey
+		);
+		if (selectedStillValid) {
+			// Keep the explicit selection.
+		} else {
+			linkedWabiImportSourceKey =
+				getSuggestedLocalWabiImportSourceAccount(currentLocalWabiAccountKey)?.key ||
+				otherLocalWabiAccounts[0]?.key ||
+				'';
+		}
+	}
+	$: linkedWabiImportPreview = getLocalWabiProfileImportPreview(
+		linkedWabiImportSourceKey,
+		$currentUser
+	);
 
 	onDestroy(() => {
 		cleanupMicTest();
@@ -3476,8 +3525,8 @@
 	}
 
 	function clearFriendNotificationTrackedUsers(): void {
-		if (!window.confirm('Clear all tracked users for friend status alerts?')) return;
-		clearFriendNotificationTrackedUserIds();
+		if (!window.confirm('Clear all tracked people for status alerts on this device?')) return;
+		clearAllTrackedPersonStatusAlerts();
 	}
 
 	function toggleMessageUtilitiesAddon(): void {
@@ -4047,14 +4096,14 @@
 
 				// Also clear local in-memory messages for every known channel key
 				channelMessages.update((msgs) => {
-					const cleared: Record<string, any[]> = {};
+					const cleared: Record<string, Message[]> = {};
 					for (const key of Object.keys(msgs)) {
 						cleared[key] = [];
 					}
 					if (!('general' in cleared)) {
 						cleared.general = [];
 					}
-					return cleared as any;
+					return cleared;
 				});
 				try {
 					localStorage.removeItem('channelUnreadCounts');
@@ -4099,38 +4148,12 @@
 		uploadingAvatar = true;
 
 		try {
-			const serverUrl = getServerUrl();
-
-			const formData = new FormData();
-			formData.append('profilePicture', selectedAvatarFile);
-
-			// Get auth token from localStorage
-			const authToken = getAuthToken();
-			const headers: HeadersInit = {};
-			if (authToken) {
-				headers['Authorization'] = `Bearer ${authToken}`;
-			}
-
-			const response = await fetch(`${serverUrl}/api/upload-profile-picture`, {
-				method: 'POST',
-				headers,
-				body: formData
-			});
-
-			if (!response.ok) {
-				throw new Error('Failed to upload profile picture.');
-			}
-
-			const result = await response.json();
-			if (result.profilePictureUrl) {
-				updateProfile(undefined, result.profilePictureUrl);
-				alert('Profile picture updated successfully!');
-			} else {
-				throw new Error('No profile picture URL returned.');
-			}
+			const uploadedProfilePictureUrl = await uploadProfilePictureFile(selectedAvatarFile);
+			updateProfile(undefined, uploadedProfilePictureUrl);
+			alert('Profile picture updated successfully!');
 		} catch (error) {
 			console.error('Error uploading profile picture:', error);
-			alert('Failed to upload profile picture. Please try again.');
+			alert(error instanceof Error ? error.message : 'Failed to upload profile picture. Please try again.');
 		} finally {
 			uploadingAvatar = false;
 			selectedAvatarFile = null;
@@ -4159,6 +4182,31 @@
 				alert(response.error || 'Failed to update display name.');
 			}
 		});
+	}
+
+	function makeCurrentLocalWabiDefault(): void {
+		if (!currentLocalWabiAccountKey) return;
+		setDefaultLocalWabiAccount(currentLocalWabiAccountKey);
+		linkedWabiImportStatus = 'This account is now the default local Wabi profile source on this device.';
+	}
+
+	async function importProfileFromSelectedLocalWabiAccount(): Promise<void> {
+		if (!linkedWabiImportSourceKey || linkedWabiImporting) return;
+		linkedWabiImporting = true;
+		linkedWabiImportStatus = '';
+		try {
+			const result = await applyLocalWabiProfileImport(linkedWabiImportSourceKey);
+			if (currentLocalWabiAccountKey) {
+				markLocalWabiImportPromptHandled(currentLocalWabiAccountKey);
+			}
+			if (!result.success) {
+				linkedWabiImportStatus = result.errors.join(' ') || 'Profile import did not complete.';
+				return;
+			}
+			linkedWabiImportStatus = `Imported ${result.importedFields.join(' and ')}.`;
+		} finally {
+			linkedWabiImporting = false;
+		}
 	}
 </script>
 
@@ -4247,6 +4295,67 @@
 								</button>
 							</div>
 						</div>
+						{#if $currentUser?.dbUserId}
+							<div class="settings-section">
+								<h3>Multi-Wabi Account Import</h3>
+								<div class="setting-item-full">
+									<div class="setting-info">
+										<span class="setting-label">Default Local Wabi Account</span>
+										<span class="setting-description">Choose which locally linked Wabi account should be treated as your default source profile on this device.</span>
+									</div>
+									<div class="runtime-note">
+										Current default:
+										{$defaultLocalWabiAccountStore
+											? getLocalWabiAccountDisplayLabel($defaultLocalWabiAccountStore)
+											: 'None yet'}
+									</div>
+									<button
+										class="pfp-upload-btn"
+										on:click={makeCurrentLocalWabiDefault}
+										disabled={!currentLocalWabiAccountKey || currentLocalWabiAccountIsDefault}
+									>
+										{currentLocalWabiAccountIsDefault ? 'This Is The Default' : 'Make This Account Default'}
+									</button>
+								</div>
+								<div class="setting-item-full">
+									<div class="setting-info">
+										<span class="setting-label">Import Profile From Another Local Wabi Account</span>
+										<span class="setting-description">Copy the other account's display name and profile picture into this server account. This stays local to this device until you choose to import.</span>
+									</div>
+									{#if otherLocalWabiAccounts.length > 0}
+										<select class="emoji-name-input" bind:value={linkedWabiImportSourceKey}>
+											{#each otherLocalWabiAccounts as account (account.key)}
+												<option value={account.key}>{getLocalWabiAccountDisplayLabel(account)}</option>
+											{/each}
+										</select>
+										<div class="runtime-note">
+											{#if linkedWabiImportPreview?.canImport}
+												Importable right now:
+												{linkedWabiImportPreview.importableFields.includes('displayName') ? 'display name' : ''}
+												{linkedWabiImportPreview.importableFields.includes('displayName') && linkedWabiImportPreview.importableFields.includes('profilePicture') ? ' and ' : ''}
+												{linkedWabiImportPreview.importableFields.includes('profilePicture') ? 'profile picture' : ''}
+											{:else}
+												Nothing new is available to import from the selected account.
+											{/if}
+										</div>
+										<button
+											class="pfp-upload-btn"
+											on:click={importProfileFromSelectedLocalWabiAccount}
+											disabled={!linkedWabiImportPreview?.canImport || linkedWabiImporting}
+										>
+											{linkedWabiImporting ? 'Importing...' : 'Import Profile'}
+										</button>
+									{:else}
+										<div class="runtime-note">
+											No other registered Wabi accounts have been seen on this device yet.
+										</div>
+									{/if}
+									{#if linkedWabiImportStatus}
+										<div class="runtime-note">{linkedWabiImportStatus}</div>
+									{/if}
+								</div>
+							</div>
+						{/if}
 						{#if $currentUser?.dbUserId}
 							<div class="settings-section">
 								<h3>Account Security</h3>
@@ -6517,13 +6626,13 @@
 																					</button>
 																				</div>
 																				<div class="runtime-note">
-																					Status alerts list size: {$displayEnhancementSettingsStore.friendNotificationTrackedUserIds.length}. Use the user list context menu to enable or disable status alerts per person.
+																					Tracked people for status alerts: {$trackedStatusAlertPersonCountStore}. Use the People tab context menu to enable or disable alerts per person on each server.
 																				</div>
 																				<div class="settings-row-actions">
 																					<button
 																						class="action-btn secondary"
 																						on:click={clearFriendNotificationTrackedUsers}
-																						disabled={$displayEnhancementSettingsStore.friendNotificationTrackedUserIds.length === 0}
+																						disabled={$trackedStatusAlertPersonCountStore === 0}
 																					>
 																						Clear Status Alerts List
 																					</button>
@@ -8229,12 +8338,6 @@
 		border-top: 1px solid rgba(var(--accent-rgb), 0.1);
 	}
 
-	.action-buttons {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-
 	.addons-actions {
 		display: flex;
 		flex-wrap: wrap;
@@ -9135,19 +9238,6 @@
 		min-height: 80px;
 	}
 
-	.pfp-preview {
-		text-align: center;
-	}
-
-	.pfp-preview img {
-		width: 60px;
-		height: 60px;
-		border-radius: 50%;
-		object-fit: cover;
-		border: 2px solid var(--accent);
-	}
-
-
 	.pfp-select-btn,
 	.pfp-upload-btn {
 		display: inline-flex;
@@ -9182,106 +9272,6 @@
 	.pfp-upload-btn:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
-	}
-
-	.pfp-hint {
-		font-size: 0.8rem;
-		color: var(--text-secondary);
-		margin: 0;
-	}
-
-	/* Banner Upload Styles */
-	.banner-upload-section {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-		padding: 1rem;
-		background: var(--bg-tertiary);
-		border-radius: 8px;
-	}
-
-	.current-banner {
-		width: 100%;
-		max-width: 600px;
-	}
-
-	.current-banner img {
-		width: 100%;
-		height: auto;
-		display: block;
-		border-radius: 8px;
-		border: 2px solid var(--border);
-	}
-
-	.banner-preview {
-		width: 100%;
-		max-width: 600px;
-	}
-
-	.banner-preview img {
-		width: 100%;
-		height: auto;
-		display: block;
-		border-radius: 8px;
-		border: 2px solid var(--accent);
-	}
-
-	.banner-label {
-		font-size: 0.75rem;
-		color: var(--text-secondary);
-		margin-top: 0.25rem;
-		margin-bottom: 0;
-	}
-
-	.banner-upload-form {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-
-	/* Status Selector Styles */
-	.status-selector {
-		display: flex;
-		gap: 0.75rem;
-		padding: 1rem;
-		background: var(--bg-tertiary);
-		border-radius: 8px;
-		flex-wrap: wrap;
-	}
-
-	.status-btn {
-		flex: 1;
-		min-width: 100px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0.5rem;
-		padding: 0.75rem 1rem;
-		background: var(--bg-secondary);
-		border: 2px solid transparent;
-		border-radius: 8px;
-		color: var(--text-primary);
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.status-btn:hover {
-		background: var(--bg-primary);
-		border-color: var(--accent);
-	}
-
-	.status-btn.active {
-		background: var(--accent);
-		color: white;
-		border-color: var(--accent);
-	}
-
-	.status-dot {
-		width: 10px;
-		height: 10px;
-		border-radius: 50%;
-		display: inline-block;
 	}
 
 	/* Emoji Upload Styles */
@@ -9581,5 +9571,3 @@
 		}
 	}
 </style>
-
-

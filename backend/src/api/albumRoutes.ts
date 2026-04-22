@@ -1,3 +1,4 @@
+import { IncomingMessage, ServerResponse } from 'http';
 import { DEFAULT_WORKSPACE_ID } from '../constants.js';
 import { getUserRoles } from '../auth/roleMiddleware.js';
 import { getRolePriority } from '../db/repositories/roleRepository.js';
@@ -9,130 +10,27 @@ import {
 	stateChannelMemberStore as channelMemberRepository
 } from '../state-plane/index.js';
 import { albumRepository, type AlbumScopeType, type DbAlbumItem, type DbAlbumWithCounts } from '../db/repositories/albumRepository.js';
+import {
+	sanitizeAlbumUploadLimitConfig,
+	type AlbumUploadLimitConfig
+} from '../services/albumUploadLimits.js';
+import {
+	isInvalidJsonBodyError as isInvalidJsonError,
+	isRequestBodyTooLargeError as isPayloadTooLargeError,
+	readJsonObjectBody
+} from '../utils/requestBodies.js';
 
-type AlbumPolicyTier = 'new' | 'trusted' | 'moderator' | 'admin' | 'owner';
-
-export interface AlbumUploadLimitConfig {
-	perRoleItemsPerMinute: Record<AlbumPolicyTier, number>;
-	perRoleMaxBytesPerItem: Record<AlbumPolicyTier, number | null>;
-	perScopeItemsPerMinute: number;
-}
-
-const MB = 1024 * 1024;
 const ALBUM_UPLOAD_RATE_WINDOW_MS = 60_000;
-const DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG: AlbumUploadLimitConfig = {
-	perRoleItemsPerMinute: {
-		new: 6,
-		trusted: 24,
-		moderator: 90,
-		admin: 180,
-		owner: 240
-	},
-	perRoleMaxBytesPerItem: {
-		new: 25 * MB,
-		trusted: 300 * MB,
-		moderator: 1024 * MB,
-		admin: null,
-		owner: null
-	},
-	perScopeItemsPerMinute: 420
-};
+const MAX_ALBUM_BODY_BYTES = Math.max(
+	1024,
+	Math.min(1024 * 1024, Number(process.env.ALBUM_MAX_BODY_BYTES || 64 * 1024))
+);
 
-function normalizeCountLimit(input: unknown, fallback: number, min: number, max: number): number {
-	const parsed = Number(input);
-	if (!Number.isFinite(parsed)) return fallback;
-	return Math.max(min, Math.min(max, Math.floor(parsed)));
+async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+	return await readJsonObjectBody(req, MAX_ALBUM_BODY_BYTES);
 }
 
-function normalizeByteLimit(input: unknown, fallback: number | null): number | null {
-	if (input === null || input === undefined || input === '') return fallback;
-	const parsed = Number(input);
-	if (!Number.isFinite(parsed) || parsed <= 0) return null;
-	return Math.floor(parsed);
-}
-
-function coerceAlbumUploadLimitConfig(rawConfig: AlbumUploadLimitConfig | null | undefined): AlbumUploadLimitConfig {
-	if (!rawConfig || typeof rawConfig !== 'object') {
-		return {
-			perRoleItemsPerMinute: { ...DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleItemsPerMinute },
-			perRoleMaxBytesPerItem: { ...DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleMaxBytesPerItem },
-			perScopeItemsPerMinute: DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perScopeItemsPerMinute
-		};
-	}
-
-	return {
-		perRoleItemsPerMinute: {
-			new: normalizeCountLimit(
-				rawConfig.perRoleItemsPerMinute?.new,
-				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleItemsPerMinute.new,
-				1,
-				5000
-			),
-			trusted: normalizeCountLimit(
-				rawConfig.perRoleItemsPerMinute?.trusted,
-				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleItemsPerMinute.trusted,
-				1,
-				5000
-			),
-			moderator: normalizeCountLimit(
-				rawConfig.perRoleItemsPerMinute?.moderator,
-				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleItemsPerMinute.moderator,
-				1,
-				5000
-			),
-			admin: normalizeCountLimit(
-				rawConfig.perRoleItemsPerMinute?.admin,
-				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleItemsPerMinute.admin,
-				1,
-				5000
-			),
-			owner: normalizeCountLimit(
-				rawConfig.perRoleItemsPerMinute?.owner,
-				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleItemsPerMinute.owner,
-				1,
-				5000
-			)
-		},
-		perRoleMaxBytesPerItem: {
-			new: normalizeByteLimit(
-				rawConfig.perRoleMaxBytesPerItem?.new,
-				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleMaxBytesPerItem.new
-			),
-			trusted: normalizeByteLimit(
-				rawConfig.perRoleMaxBytesPerItem?.trusted,
-				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleMaxBytesPerItem.trusted
-			),
-			moderator: normalizeByteLimit(
-				rawConfig.perRoleMaxBytesPerItem?.moderator,
-				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleMaxBytesPerItem.moderator
-			),
-			admin: normalizeByteLimit(
-				rawConfig.perRoleMaxBytesPerItem?.admin,
-				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleMaxBytesPerItem.admin
-			),
-			owner: normalizeByteLimit(
-				rawConfig.perRoleMaxBytesPerItem?.owner,
-				DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perRoleMaxBytesPerItem.owner
-			)
-		},
-		perScopeItemsPerMinute: normalizeCountLimit(
-			rawConfig.perScopeItemsPerMinute,
-			DEFAULT_ALBUM_UPLOAD_LIMIT_CONFIG.perScopeItemsPerMinute,
-			1,
-			20000
-		)
-	};
-}
-
-async function readJsonBody(req: any): Promise<any> {
-	let body = '';
-	for await (const chunk of req) {
-		body += chunk.toString();
-	}
-	return body ? JSON.parse(body) : {};
-}
-
-function sendJson(res: any, status: number, payload: unknown): void {
+function sendJson(res: ServerResponse, status: number, payload: unknown): void {
 	res.writeHead(status, { 'Content-Type': 'application/json' });
 	res.end(JSON.stringify(payload));
 }
@@ -355,7 +253,12 @@ function toClientAlbumItem(item: DbAlbumItem) {
 	};
 }
 
-export async function handleListAlbums(req: any, res: any, url: URL, userId: number): Promise<void> {
+export async function handleListAlbums(
+	_req: IncomingMessage,
+	res: ServerResponse,
+	url: URL,
+	userId: number
+): Promise<void> {
 	try {
 		const scopeType = sanitizeScopeType(url.searchParams.get('scopeType'));
 		const scopeId = sanitizeScopeId(url.searchParams.get('scopeId'));
@@ -379,7 +282,11 @@ export async function handleListAlbums(req: any, res: any, url: URL, userId: num
 	}
 }
 
-export async function handleCreateAlbum(req: any, res: any, userId: number): Promise<void> {
+export async function handleCreateAlbum(
+	req: IncomingMessage,
+	res: ServerResponse,
+	userId: number
+): Promise<void> {
 	try {
 		const body = await readJsonBody(req);
 		const scopeType = sanitizeScopeType(body?.scopeType);
@@ -426,12 +333,26 @@ export async function handleCreateAlbum(req: any, res: any, userId: number): Pro
 
 		sendJson(res, 201, { album: toClientAlbum(hydrated) });
 	} catch (error) {
+		if (isPayloadTooLargeError(error)) {
+			sendJson(res, 413, { error: 'Album payload too large' });
+			return;
+		}
+		if (isInvalidJsonError(error)) {
+			sendJson(res, 400, { error: 'Invalid album payload' });
+			return;
+		}
 		console.error('[Albums] Failed to create album:', error);
 		sendJson(res, 400, { error: 'Invalid album payload' });
 	}
 }
 
-export async function handleListAlbumItems(req: any, res: any, url: URL, userId: number, rawAlbumId: string): Promise<void> {
+export async function handleListAlbumItems(
+	_req: IncomingMessage,
+	res: ServerResponse,
+	url: URL,
+	userId: number,
+	rawAlbumId: string
+): Promise<void> {
 	try {
 		const albumId = parseAlbumId(rawAlbumId);
 		if (!albumId) {
@@ -464,8 +385,8 @@ export async function handleListAlbumItems(req: any, res: any, url: URL, userId:
 }
 
 export async function handleAddAlbumItem(
-	req: any,
-	res: any,
+	req: IncomingMessage,
+	res: ServerResponse,
 	userId: number,
 	rawAlbumId: string,
 	limitConfig?: AlbumUploadLimitConfig | null
@@ -516,7 +437,7 @@ export async function handleAddAlbumItem(
 			return;
 		}
 
-		const policy = coerceAlbumUploadLimitConfig(limitConfig);
+		const policy = sanitizeAlbumUploadLimitConfig(limitConfig);
 		const roleTier = resolveAlbumPolicyTier(userId);
 		const maxBytesForRole = policy.perRoleMaxBytesPerItem[roleTier];
 		if (maxBytesForRole !== null && attachmentSize !== null && attachmentSize > maxBytesForRole) {
@@ -589,14 +510,22 @@ export async function handleAddAlbumItem(
 
 		sendJson(res, 201, { item: toClientAlbumItem(item) });
 	} catch (error) {
+		if (isPayloadTooLargeError(error)) {
+			sendJson(res, 413, { error: 'Album item payload too large' });
+			return;
+		}
+		if (isInvalidJsonError(error)) {
+			sendJson(res, 400, { error: 'Invalid album item payload' });
+			return;
+		}
 		console.error('[Albums] Failed to add album item:', error);
 		sendJson(res, 400, { error: 'Invalid album item payload' });
 	}
 }
 
 export async function handleSetAlbumFeatured(
-	req: any,
-	res: any,
+	req: IncomingMessage,
+	res: ServerResponse,
 	userId: number,
 	rawAlbumId: string
 ): Promise<void> {
@@ -647,14 +576,22 @@ export async function handleSetAlbumFeatured(
 
 		sendJson(res, 200, { album: toClientAlbum(hydrated) });
 	} catch (error) {
+		if (isPayloadTooLargeError(error)) {
+			sendJson(res, 413, { error: 'Featured album payload too large' });
+			return;
+		}
+		if (isInvalidJsonError(error)) {
+			sendJson(res, 400, { error: 'Invalid featured album payload' });
+			return;
+		}
 		console.error('[Albums] Failed to update featured album state:', error);
 		sendJson(res, 400, { error: 'Invalid featured album payload' });
 	}
 }
 
 export async function handleReorderAlbumItems(
-	req: any,
-	res: any,
+	req: IncomingMessage,
+	res: ServerResponse,
 	userId: number,
 	rawAlbumId: string
 ): Promise<void> {
@@ -726,12 +663,25 @@ export async function handleReorderAlbumItems(
 
 		sendJson(res, 200, { items: albumRepository.listItems(albumId, 1000).map(toClientAlbumItem) });
 	} catch (error) {
+		if (isPayloadTooLargeError(error)) {
+			sendJson(res, 413, { error: 'Album reorder payload too large' });
+			return;
+		}
+		if (isInvalidJsonError(error)) {
+			sendJson(res, 400, { error: 'Invalid album reorder payload' });
+			return;
+		}
 		console.error('[Albums] Failed to reorder album items:', error);
 		sendJson(res, 400, { error: 'Invalid album reorder payload' });
 	}
 }
 
-export async function handleDeleteAlbum(req: any, res: any, userId: number, rawAlbumId: string): Promise<void> {
+export async function handleDeleteAlbum(
+	_req: IncomingMessage,
+	res: ServerResponse,
+	userId: number,
+	rawAlbumId: string
+): Promise<void> {
 	try {
 		const albumId = parseAlbumId(rawAlbumId);
 		if (!albumId) {
@@ -793,8 +743,8 @@ export async function handleDeleteAlbum(req: any, res: any, userId: number, rawA
 }
 
 export async function handleDeleteAlbumItem(
-	req: any,
-	res: any,
+	_req: IncomingMessage,
+	res: ServerResponse,
 	userId: number,
 	rawAlbumId: string,
 	rawItemId: string

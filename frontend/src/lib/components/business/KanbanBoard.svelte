@@ -493,8 +493,9 @@
 					class="column-input"
 				/>
 				<div class="color-picker">
-					<label>Color:</label>
+					<label for="new-column-color">Color:</label>
 					<input
+						id="new-column-color"
 						type="color"
 						bind:value={newColumnColor}
 						class="color-input"
@@ -538,6 +539,7 @@
 	{/if}
 
 	<!-- Kanban board -->
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions: this is a pointer-first drag-scroll board surface -->
 	<div
 		class="kanban-board-wrapper"
 		bind:this={kanbanBoard}
@@ -559,6 +561,7 @@
 
 		<div class="kanban-board">
 			{#each $visibleKanbanColumns as column (column.id)}
+			<!-- svelte-ignore a11y_no_static_element_interactions: kanban columns act as drag-and-drop targets -->
 			<div
 				class="kanban-column"
 				class:drag-over={dragOverColumn === column.id}
@@ -581,6 +584,7 @@
 				</div>
 				<div class="column-cards">
 					{#each (sortedTodosByColumn[column.id] || []) as todo (todo.id)}
+						<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions: kanban cards are draggable pointer-first surfaces -->
 						<div
 							class="kanban-card"
 							class:dragging={draggingTodo?.id === todo.id}
@@ -1274,16 +1278,6 @@
 		min-width: 0;
 	}
 
-	.card-assignee-badge {
-		font-size: 0.7rem;
-		color: var(--biz-accent, #f59e0b);
-		font-weight: 600;
-		margin-bottom: 0.25rem;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-	}
-
-
 	.card-title {
 		margin: 0 0 0.35rem 0;
 		font-size: 0.9rem;
@@ -1723,18 +1717,6 @@
 
 	.checkbox-label input[type="checkbox"] {
 		cursor: pointer;
-	}
-
-	.signature {
-		font-size: 0.75rem;
-		color: var(--biz-accent, #f59e0b);
-		padding: 0.2rem 0.5rem;
-		border-radius: 4px;
-		background: rgba(245, 158, 11, 0.1);
-		display: inline-flex;
-		align-items: center;
-		gap: 0.25rem;
-		white-space: nowrap;
 	}
 
 </style>

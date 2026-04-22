@@ -1,5 +1,5 @@
 import db from '../db/database.js';
-import type { RbacStoreRuntimeStats, RoleDefinitionRecord } from './rbacStore.js';
+import type { RbacStoreRuntimeStats, RoleDefinitionRecord } from './storeTypes.js';
 import { escapeSqlLiteral } from './stdbSyncClient.js';
 import {
 	StdbStoreBase,
@@ -19,15 +19,22 @@ function roleKey(workspaceId: string, roleName: string): string {
 	return `${workspaceId}:${roleName}`;
 }
 
+const DEFAULT_ROLE_DEFINITIONS: Array<{
+	roleName: string;
+	displayName: string;
+	priority: number;
+	color: string | null;
+	isHoisted: boolean;
+}> = [
+	{ roleName: 'owner', displayName: 'Owner', priority: 100, color: '#FFD700', isHoisted: true },
+	{ roleName: 'admin', displayName: 'Admin', priority: 90, color: '#FF4444', isHoisted: true },
+	{ roleName: 'mod', displayName: 'Moderator', priority: 70, color: '#44FF44', isHoisted: true },
+	{ roleName: 'member', displayName: 'Member', priority: 10, color: null, isHoisted: false },
+	{ roleName: 'guest', displayName: 'Guest', priority: 0, color: '#888888', isHoisted: false }
+];
+
 export class StdbPrimaryRbacStore extends StdbStoreBase {
 	private readonly stats = makeBaseStats();
-	private readonly shadow = {
-		attempted: 0,
-		succeeded: 0,
-		failed: 0,
-		lastError: null as string | null,
-		lastErrorAt: null as number | null
-	};
 	private readonly seededRoleDefinitionWorkspaces = new Set<string>();
 	private static readonly FEATURE_RETRY_MS = 60_000;
 	private roleDefinitionFeatureState: FeatureState = 'unknown';
@@ -37,31 +44,7 @@ export class StdbPrimaryRbacStore extends StdbStoreBase {
 		super(options);
 	}
 
-	private loadLegacyRoleDefinitions(workspaceId: string): RoleDefinitionRecord[] {
-		const legacyRows = db.prepare(`
-			SELECT role_name, COALESCE(display_name, role_name) AS display_name, priority, color, is_hoisted
-			FROM roles
-			WHERE workspace_id = ?
-			ORDER BY priority DESC, role_name ASC
-		`).all(workspaceId) as Array<{
-			role_name: string;
-			display_name: string;
-			priority: number;
-			color: string | null;
-			is_hoisted: number;
-		}> || [];
-
-		return legacyRows.map((row) => ({
-			workspaceId,
-			roleName: row.role_name,
-			displayName: row.display_name,
-			priority: Number(row.priority || 0),
-			color: row.color || null,
-			isHoisted: row.is_hoisted === 1
-		}));
-	}
-
-	private queryRoleDefinitionsFromShadow(workspaceId: string): RoleDefinitionRecord[] | null {
+	private queryRoleDefinitionsFromStdb(workspaceId: string): RoleDefinitionRecord[] | null {
 		if (this.roleDefinitionFeatureState === 'disabled') {
 			if (Date.now() - this.roleDefinitionDisabledAt < StdbPrimaryRbacStore.FEATURE_RETRY_MS) {
 				return null;
@@ -103,24 +86,24 @@ export class StdbPrimaryRbacStore extends StdbStoreBase {
 				this.roleDefinitionFeatureState = 'disabled';
 				this.roleDefinitionDisabledAt = Date.now();
 				const detail = error instanceof Error ? error.message : String(error);
-				console.warn(`[StatePlane] STDB RBAC role definitions unavailable; falling back (${detail})`);
+				console.warn(`[StatePlane] STDB RBAC role definitions unavailable (${detail})`);
 			}
 			return null;
 		}
 	}
 
 	private ensureRoleDefinitionsSeeded(workspaceId: string): boolean {
-		if (this.seededRoleDefinitionWorkspaces.has(workspaceId)) return this.roleDefinitionFeatureState !== 'disabled';
-		const existing = this.queryRoleDefinitionsFromShadow(workspaceId);
-		if (existing === null) {
-			return false;
+		if (this.seededRoleDefinitionWorkspaces.has(workspaceId)) {
+			return this.roleDefinitionFeatureState !== 'disabled';
 		}
+		const existing = this.queryRoleDefinitionsFromStdb(workspaceId);
+		if (existing === null) return false;
 		if (existing.length > 0) {
 			this.seededRoleDefinitionWorkspaces.add(workspaceId);
 			return true;
 		}
 
-		for (const row of this.loadLegacyRoleDefinitions(workspaceId)) {
+		for (const row of DEFAULT_ROLE_DEFINITIONS) {
 			this.ingest('rbac', 'upsert_role_definition', {
 				workspaceId,
 				roleName: row.roleName,
@@ -154,19 +137,19 @@ export class StdbPrimaryRbacStore extends StdbStoreBase {
 	}
 
 	getRoleDefinitions(workspaceId: string): RoleDefinitionRecord[] {
-		const legacy = this.loadLegacyRoleDefinitions(workspaceId);
-		if (legacy.length > 0) {
-			return legacy;
+		const stdbAvailable = this.ensureRoleDefinitionsSeeded(workspaceId);
+		if (stdbAvailable) {
+			const rows = this.queryRoleDefinitionsFromStdb(workspaceId);
+			if (rows) return rows;
 		}
-
-		const shadowAvailable = this.ensureRoleDefinitionsSeeded(workspaceId);
-		if (shadowAvailable) {
-			const rows = this.queryRoleDefinitionsFromShadow(workspaceId);
-			if (rows) {
-				return rows;
-			}
-		}
-		return legacy;
+		return DEFAULT_ROLE_DEFINITIONS.map((row) => ({
+			workspaceId,
+			roleName: row.roleName,
+			displayName: row.displayName,
+			priority: row.priority,
+			color: row.color,
+			isHoisted: row.isHoisted
+		}));
 	}
 
 	getRolePriority(roleName: string, workspaceId: string): number {
@@ -179,15 +162,6 @@ export class StdbPrimaryRbacStore extends StdbStoreBase {
 	}
 
 	countRoleAssignments(roleName: string, workspaceId: string): number {
-		const mirrored = db.prepare(`
-			SELECT COUNT(*) AS count
-			FROM user_roles
-			WHERE workspace_id = ? AND role_name = ?
-		`).get(workspaceId, roleName) as { count?: number } | undefined;
-		if (mirrored && typeof mirrored.count === 'number') {
-			return toNumber(mirrored.count);
-		}
-
 		const rows = this.client.sqlRows(
 			`SELECT COUNT(*) AS count FROM state_rbac_assignment WHERE workspace_id = ${escapeSqlLiteral(workspaceId)} AND role = ${escapeSqlLiteral(roleName)} AND active = true`
 		);
@@ -230,26 +204,9 @@ export class StdbPrimaryRbacStore extends StdbStoreBase {
 		} catch (error) {
 			this.recordWriteFailure(this.stats, 'set_role_display_name', error);
 		}
-		this.mirrorWrite(this.stats, this.shadow, 'set_role_display_name', () => {
-			db.prepare(`
-				UPDATE roles
-				SET display_name = ?
-				WHERE role_name = ? AND workspace_id = ?
-			`).run(nextDisplay, roleName, workspaceId);
-		});
 	}
 
 	workspaceHasOwner(workspaceId: string): boolean {
-		const mirrored = db.prepare(`
-			SELECT 1
-			FROM user_roles
-			WHERE workspace_id = ? AND role_name = 'owner'
-			LIMIT 1
-		`).get(workspaceId);
-		if (mirrored) {
-			return true;
-		}
-
 		const rows = this.client.sqlRows(
 			`SELECT COUNT(*) AS count FROM state_rbac_assignment WHERE workspace_id = ${escapeSqlLiteral(workspaceId)} AND role = 'owner' AND active = true`
 		);
@@ -257,18 +214,6 @@ export class StdbPrimaryRbacStore extends StdbStoreBase {
 	}
 
 	getUserRoles(userId: number, workspaceId: string): string[] {
-		const mirrored = db.prepare(`
-			SELECT role_name
-			FROM user_roles
-			WHERE user_id = ? AND workspace_id = ?
-			ORDER BY role_name ASC
-		`).all(userId, workspaceId) as Array<{ role_name?: string }>;
-		if (mirrored.length > 0) {
-			return mirrored
-				.map((row) => String(row.role_name || '').trim())
-				.filter((role) => role.length > 0);
-		}
-
 		const rows = this.client.sqlRows(
 			`SELECT role FROM state_rbac_assignment WHERE user_id = ${Math.floor(userId)} AND workspace_id = ${escapeSqlLiteral(workspaceId)} AND active = true LIMIT 1000`
 		);
@@ -279,21 +224,6 @@ export class StdbPrimaryRbacStore extends StdbStoreBase {
 	}
 
 	getWorkspaceRoleAssignments(workspaceId: string): Array<{ userId: number; role: string }> {
-		const mirrored = db.prepare(`
-			SELECT user_id, role_name
-			FROM user_roles
-			WHERE workspace_id = ?
-			ORDER BY user_id ASC, role_name ASC
-		`).all(workspaceId) as Array<{ user_id?: number; role_name?: string }>;
-		if (mirrored.length > 0) {
-			return mirrored
-				.map((row) => ({
-					userId: toNumber(row.user_id),
-					role: String(row.role_name || '').trim()
-				}))
-				.filter((row) => Number.isFinite(row.userId) && row.userId > 0 && row.role.length > 0);
-		}
-
 		const rows = this.client.sqlRows(
 			`SELECT user_id, role FROM state_rbac_assignment WHERE workspace_id = ${escapeSqlLiteral(workspaceId)} AND active = true LIMIT 50000`
 		);
@@ -321,16 +251,6 @@ export class StdbPrimaryRbacStore extends StdbStoreBase {
 		} catch (error) {
 			this.recordWriteFailure(this.stats, 'assign_role', error);
 		}
-		this.mirrorWrite(this.stats, this.shadow, 'assign_role', () => {
-			const stmt = db.prepare(`
-				INSERT INTO user_roles (user_id, role_name, workspace_id)
-				SELECT ?, ?, ?
-				WHERE NOT EXISTS (
-					SELECT 1 FROM user_roles WHERE user_id = ? AND role_name = ? AND workspace_id = ?
-				)
-			`);
-			stmt.run(userId, role, workspaceId, userId, role, workspaceId);
-		});
 	}
 
 	removeRole(userId: number, role: string, workspaceId: string): void {
@@ -347,50 +267,6 @@ export class StdbPrimaryRbacStore extends StdbStoreBase {
 		} catch (error) {
 			this.recordWriteFailure(this.stats, 'remove_role', error);
 		}
-		this.mirrorWrite(this.stats, this.shadow, 'remove_role', () => {
-			const stmt = db.prepare('DELETE FROM user_roles WHERE user_id = ? AND role_name = ? AND workspace_id = ?');
-			stmt.run(userId, role, workspaceId);
-		});
-	}
-
-	warmFromPrimary(limit: number): number {
-		const safeLimit = Math.max(0, Math.floor(limit));
-		if (safeLimit === 0) return 0;
-		const existingAssignments = new Set(
-			this.client.sqlRows('SELECT user_id, workspace_id, role FROM state_rbac_assignment LIMIT 50000')
-				.map((row) => ({
-					workspaceId: String(row.workspace_id || '').trim(),
-					userId: toNumber(row.user_id),
-					role: String(row.role || '').trim()
-				}))
-				.filter((row) => row.workspaceId.length > 0 && row.userId > 0 && row.role.length > 0)
-				.map((row) => assignmentKey(row.workspaceId, row.userId, row.role))
-		);
-
-		const rows = db.prepare(`
-			SELECT user_id, workspace_id, role_name
-			FROM user_roles
-			ORDER BY workspace_id ASC, user_id ASC, created_at ASC
-			LIMIT ?
-		`).all(safeLimit) as Array<{ user_id: number; workspace_id: string; role_name: string }>;
-
-		let seeded = 0;
-		for (const row of rows) {
-			const key = assignmentKey(row.workspace_id, row.user_id, row.role_name);
-			if (existingAssignments.has(key)) continue;
-			this.ingest('rbac', 'assign_role', {
-				userId: row.user_id,
-				role: row.role_name,
-				workspaceId: row.workspace_id,
-				assignedBy: null,
-				assignmentKey: key
-			});
-			seeded += 1;
-		}
-
-		this.stats.operations.warmup = (this.stats.operations.warmup || 0) + 1;
-		this.stats.operations.warmup_rows = seeded;
-		return seeded;
 	}
 
 	getRuntimeStats(): RbacStoreRuntimeStats {
@@ -401,34 +277,7 @@ export class StdbPrimaryRbacStore extends StdbStoreBase {
 			writesFailed: this.stats.writesFailed,
 			lastError: this.stats.lastError,
 			lastErrorAt: this.stats.lastErrorAt,
-			operations: { ...this.stats.operations },
-			shadow: {
-				enabled: this.mirrorLegacyWrites,
-				label: this.mirrorLegacyWrites ? 'legacy-mirror' : 'none',
-				writesAttempted: this.shadow.attempted,
-				writesSucceeded: this.shadow.succeeded,
-				writesFailed: this.shadow.failed,
-				lastError: this.shadow.lastError,
-				lastErrorAt: this.shadow.lastErrorAt
-			},
-			parity: {
-				samples: 0,
-				mismatches: 0,
-				lastMismatch: null,
-				lastMismatchAt: null
-			},
-			readSwitch: {
-				enabled: false,
-				canaryPercent: 0,
-				attempts: 0,
-				canaryRouted: 0,
-				shadowServed: 0,
-				fallbacks: 0,
-				shadowErrors: 0,
-				mismatches: 0,
-				lastFallbackReason: null,
-				lastFallbackAt: null
-			}
+			operations: { ...this.stats.operations }
 		};
 	}
 }

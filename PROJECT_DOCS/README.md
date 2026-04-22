@@ -7,6 +7,12 @@ This folder contains the current, supported documentation set for Wabi.
 - `README.md` (this index)
 - `ARCHITECTURE.md`
 - `CODEBASE_OVERVIEW.md`
+- `CODEBASE_CLEANUP_STATUS.md`
+- `ENGINEERING_STANDARDS.md`
+- `AI_CLEANUP_HANDOFF_GUIDE.md`
+- `EXTERNAL_AI_WORKER_TEST_RUN.md`
+- `OTHER_AI_MICROTASK_GUIDE.md`
+- `TIM_IYOKU_UPDATE_RUNBOOK.md`
 - `DEPLOYMENT.md`
 - `POST_OS_RECOVERY_CHECKLIST.md`
 - `PRETEXT_COMPARISON.md`

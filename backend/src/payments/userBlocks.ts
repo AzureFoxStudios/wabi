@@ -2,17 +2,7 @@ import db from '../db/database.js';
 import { DEFAULT_WORKSPACE_ID } from '../constants.js';
 import { stdbPaymentIngest, stdbPaymentRows, stdbPaymentsEnabled, parseStdbRowJson, lookupStdbUsername } from './stdbRuntime.js';
 import { escapeSqlLiteral } from '../state-plane/stdbSyncClient.js';
-
-export interface PaymentUserBlock {
-	userId: number;
-	workspaceId: string;
-	reason: string | null;
-	blockedByUserId: number | null;
-	blockedByUsername: string | null;
-	blockedUsername: string | null;
-	blockedAt: number;
-	expiresAt: number | null;
-}
+import type { PaymentUserBlock } from '../../../shared/paymentContracts.js';
 
 interface PaymentUserBlockRow {
 	user_id: number;

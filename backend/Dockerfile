@@ -7,14 +7,17 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends curl unzip ca-certificates build-essential python3 \
   && rm -rf /var/lib/apt/lists/*
 
-COPY package.json package-lock.json ./
-COPY scripts/fetch-openmoji.sh ./scripts/fetch-openmoji.sh
+COPY backend/package.json backend/package-lock.json ./
+COPY backend/scripts/fetch-openmoji.sh ./scripts/fetch-openmoji.sh
 
 # Install all deps required for building (dev deps included).
 RUN npm install
 
-COPY src ./src
-COPY scripts ./scripts
+COPY backend/src ./src
+COPY backend/scripts ./scripts
+# Shared types/utilities live one level up from /app/src to satisfy esbuild's
+# relative import paths (`../../shared/*.js`).
+COPY shared /shared
 
 ARG OPENMOJI_VERSION=15.1.0
 ARG OPENMOJI_72_SHA256=
@@ -49,7 +52,7 @@ COPY --from=build /app/openmoji ./openmoji
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/scripts/state-plane-stdb-http.mjs ./scripts/state-plane-stdb-http.mjs
-COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+COPY backend/docker-entrypoint.sh /app/docker-entrypoint.sh
 
 RUN groupadd -r wabi && useradd -r -g wabi -d /app wabi \
   && chmod +x /app/docker-entrypoint.sh \

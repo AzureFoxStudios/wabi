@@ -11,8 +11,18 @@ import { hashPassword, verifyPassword } from '../auth/passwordHash.js';
 import { generateToken } from '../auth/jwt.js';
 import { assignRole, getUserRoles } from '../auth/roleMiddleware.js';
 import { getAuthenticatedUserIdFromRequest, setAuthCookie } from '../auth/requestAuth.js';
+import {
+	isInvalidJsonBodyError as isInvalidJsonError,
+	isRequestBodyTooLargeError as isPayloadTooLargeError,
+	readJsonObjectBody
+} from '../utils/requestBodies.js';
+import type { AuthResponse, UserSettingsResponse } from '../../../shared/userContracts.js';
 
 const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
+const MAX_AUTH_BODY_BYTES = Math.max(
+	1024,
+	Math.min(256 * 1024, Number(process.env.AUTH_MAX_BODY_BYTES || 32 * 1024))
+);
 
 // Simple in-memory rate limiting
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
@@ -209,25 +219,27 @@ function validateInput(username: string, password: string): { valid: boolean; er
 	return { valid: true };
 }
 
-// Parse JSON body
-function parseBody(req: IncomingMessage): Promise<Record<string, any>> {
-	return new Promise((resolve, reject) => {
-		let body = '';
+function handleBodyParseError(
+	res: ServerResponse,
+	error: unknown,
+	invalidMessage: string,
+	tooLargeMessage: string
+): boolean {
+	if (isPayloadTooLargeError(error)) {
+		res.writeHead(413, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: tooLargeMessage }));
+		return true;
+	}
+	if (isInvalidJsonError(error)) {
+		res.writeHead(400, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ error: invalidMessage }));
+		return true;
+	}
+	return false;
+}
 
-		req.on('data', (chunk) => {
-			body += chunk.toString();
-		});
-
-		req.on('end', () => {
-			try {
-				resolve(JSON.parse(body));
-			} catch (error) {
-				reject(new Error('Invalid JSON'));
-			}
-		});
-
-		req.on('error', reject);
-	});
+async function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+	return await readJsonObjectBody(req, MAX_AUTH_BODY_BYTES);
 }
 
 // Generate a color for new users
@@ -391,23 +403,25 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 			isTemporary: false
 		});
 
+		const responsePayload: AuthResponse = {
+			token,
+			mustChangePassword: false,
+			user: {
+				id: user.user_id,
+				username: user.username,
+				handle: user.handle,
+				color: user.color,
+				profilePicture: user.profile_picture,
+				isRegistered: true
+			}
+		};
 		setAuthCookie(res, token, SESSION_MAX_AGE_SECONDS);
 		res.writeHead(201, { 'Content-Type': 'application/json' });
-		res.end(
-			JSON.stringify({
-				token,
-				mustChangePassword: false,
-				user: {
-					id: user.user_id,
-					username: user.username,
-					handle: user.handle,
-					color: user.color,
-					profilePicture: user.profile_picture,
-					isRegistered: true
-				}
-			})
-		);
+		res.end(JSON.stringify(responsePayload));
 	} catch (error) {
+		if (handleBodyParseError(res, error, 'Invalid JSON in request body', 'Registration payload too large')) {
+			return;
+		}
 		console.error('[Auth] Register error:', error);
 		const msg = error instanceof Error ? error.message : '';
 		if (
@@ -542,23 +556,25 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 			isTemporary: false
 		});
 
+		const responsePayload: AuthResponse = {
+			token,
+			mustChangePassword: userSettings.require_password_change === 1,
+			user: {
+				id: user.user_id,
+				username: user.username,
+				handle: user.handle,
+				color: user.color,
+				profilePicture: user.profile_picture,
+				isRegistered: true
+			}
+		};
 		setAuthCookie(res, token, SESSION_MAX_AGE_SECONDS);
 		res.writeHead(200, { 'Content-Type': 'application/json' });
-		res.end(
-			JSON.stringify({
-				token,
-				mustChangePassword: userSettings.require_password_change === 1,
-				user: {
-					id: user.user_id,
-					username: user.username,
-					handle: user.handle,
-					color: user.color,
-					profilePicture: user.profile_picture,
-					isRegistered: true
-				}
-			})
-		);
+		res.end(JSON.stringify(responsePayload));
 	} catch (error) {
+		if (handleBodyParseError(res, error, 'Invalid JSON in request body', 'Login payload too large')) {
+			return;
+		}
 		console.error('[Auth] Login error:', error);
 		const msg = error instanceof Error ? error.message : '';
 		if (msg.includes('no such column') || msg.includes('handle')) {
@@ -625,6 +641,9 @@ export async function handleChangePassword(req: IncomingMessage, res: ServerResp
 		res.writeHead(200, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ success: true }));
 	} catch (error) {
+		if (handleBodyParseError(res, error, 'Invalid JSON in request body', 'Password change payload too large')) {
+			return;
+		}
 		console.error('[Auth] Change password error:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ error: 'Failed to change password' }));
@@ -698,6 +717,9 @@ export async function handleAdminResetUserPassword(req: IncomingMessage, res: Se
 		res.writeHead(200, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ success: true, temporary }));
 	} catch (error) {
+		if (handleBodyParseError(res, error, 'Invalid JSON in request body', 'Password reset payload too large')) {
+			return;
+		}
 		console.error('[Auth] Admin reset password error:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ error: 'Failed to reset user password' }));
@@ -760,6 +782,9 @@ export async function handleAdminClearLoginLockout(req: IncomingMessage, res: Se
 		res.writeHead(200, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ success: true, cleared }));
 	} catch (error) {
+		if (handleBodyParseError(res, error, 'Invalid JSON in request body', 'Lockout clear payload too large')) {
+			return;
+		}
 		console.error('[Auth] Admin clear login lockout error:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ error: 'Failed to clear login lockout' }));
@@ -769,7 +794,8 @@ export async function handleAdminClearLoginLockout(req: IncomingMessage, res: Se
 export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
 		const body = await parseBody(req);
-		const { sessionId, password } = body;
+		const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
+		const password = typeof body.password === 'string' ? body.password : '';
 
 		if (!sessionId || !password) {
 			res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -851,22 +877,24 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 			isTemporary: false
 		});
 
+		const responsePayload: AuthResponse = {
+			token,
+			user: {
+				id: user.user_id,
+				username: user.username,
+				handle: user.handle,
+				color: user.color,
+				profilePicture: user.profile_picture,
+				isRegistered: true
+			}
+		};
 		setAuthCookie(res, token, SESSION_MAX_AGE_SECONDS);
 		res.writeHead(200, { 'Content-Type': 'application/json' });
-		res.end(
-			JSON.stringify({
-				token,
-				user: {
-					id: user.user_id,
-					username: user.username,
-					handle: user.handle,
-					color: user.color,
-					profilePicture: user.profile_picture,
-					isRegistered: true
-				}
-			})
-		);
+		res.end(JSON.stringify(responsePayload));
 	} catch (error) {
+		if (handleBodyParseError(res, error, 'Invalid JSON in request body', 'Upgrade payload too large')) {
+			return;
+		}
 		console.error('[Auth] Upgrade error:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ error: 'Upgrade failed' }));
@@ -886,14 +914,15 @@ export async function handleGetUserSettings(req: IncomingMessage, res: ServerRes
 		// Get settings from database
 		const settings = settingsRepository.get(userId);
 
-		res.writeHead(200, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({
+		const responsePayload: UserSettingsResponse = {
 			offline_message_retention: settings.offline_message_retention,
 			allow_temp_user_messages: settings.allow_temp_user_messages === 1,
 			home_experience: settings.home_experience || 'community',
 			require_password_change: settings.require_password_change === 1,
 			payment_preferred_route: settings.payment_preferred_route || null
-		}));
+		};
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify(responsePayload));
 	} catch (error) {
 		console.error('[Auth] Get settings error:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -938,7 +967,9 @@ export async function handleStoreEncryptionKeys(req: IncomingMessage, res: Serve
 		}
 
 		const body = await parseBody(req);
-		const { publicKey, privateKeyEncrypted } = body;
+		const publicKey = typeof body.publicKey === 'string' ? body.publicKey : '';
+		const privateKeyEncrypted =
+			typeof body.privateKeyEncrypted === 'string' ? body.privateKeyEncrypted : '';
 
 		if (!publicKey || !privateKeyEncrypted) {
 			res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -957,6 +988,9 @@ export async function handleStoreEncryptionKeys(req: IncomingMessage, res: Serve
 			res.end(JSON.stringify({ success: true }));
 		}
 	} catch (error) {
+		if (handleBodyParseError(res, error, 'Invalid JSON in request body', 'Encryption key payload too large')) {
+			return;
+		}
 		console.error('[Auth] Store encryption keys error:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ error: 'Failed to store encryption keys' }));
@@ -975,32 +1009,37 @@ export async function handleSaveUserSettings(req: IncomingMessage, res: ServerRe
 
 		// Parse request body
 		const body = await parseBody(req);
-		const { offline_message_retention, allow_temp_user_messages, home_experience, payment_preferred_route } = body;
+		const offlineMessageRetention =
+			typeof body.offline_message_retention === 'string' ? body.offline_message_retention : undefined;
+		const allowTempUserMessages = body.allow_temp_user_messages;
+		const homeExperience =
+			typeof body.home_experience === 'string' ? body.home_experience : undefined;
+		const paymentPreferredRoute = body.payment_preferred_route;
 
 		// Validate retention period
 		const validRetentions = ['1d', '7d', '30d', 'forever'];
-		if (offline_message_retention && !validRetentions.includes(offline_message_retention)) {
+		if (offlineMessageRetention && !validRetentions.includes(offlineMessageRetention)) {
 			res.writeHead(400, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Invalid retention period' }));
 			return;
 		}
 
 		const validHomeExperiences = ['community', 'conversations'];
-		if (home_experience !== undefined && !validHomeExperiences.includes(home_experience)) {
+		if (homeExperience !== undefined && !validHomeExperiences.includes(homeExperience)) {
 			res.writeHead(400, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Invalid home experience mode' }));
 			return;
 		}
 
 		let normalizedPreferredRoute: string | null | undefined;
-		if (payment_preferred_route !== undefined) {
-			if (payment_preferred_route === null || payment_preferred_route === '') {
+		if (paymentPreferredRoute !== undefined) {
+			if (paymentPreferredRoute === null || paymentPreferredRoute === '') {
 				normalizedPreferredRoute = null;
 			} else if (
-				typeof payment_preferred_route === 'string' &&
-				/^[A-Za-z]{2,8}$/.test(payment_preferred_route.trim())
+				typeof paymentPreferredRoute === 'string' &&
+				/^[A-Za-z]{2,8}$/.test(paymentPreferredRoute.trim())
 			) {
-				normalizedPreferredRoute = payment_preferred_route.trim().toUpperCase();
+				normalizedPreferredRoute = paymentPreferredRoute.trim().toUpperCase();
 			} else {
 				res.writeHead(400, { 'Content-Type': 'application/json' });
 				res.end(JSON.stringify({ error: 'Invalid payment preferred route' }));
@@ -1012,12 +1051,13 @@ export async function handleSaveUserSettings(req: IncomingMessage, res: ServerRe
 
 		// Save settings
 		settingsRepository.set(userId, {
-			offline_message_retention: offline_message_retention || existing.offline_message_retention || '7d',
+			offline_message_retention:
+				offlineMessageRetention || existing.offline_message_retention || '7d',
 			allow_temp_user_messages:
-				allow_temp_user_messages === undefined
+				allowTempUserMessages === undefined
 					? existing.allow_temp_user_messages
-					: allow_temp_user_messages ? 1 : 0,
-			home_experience: home_experience || existing.home_experience || 'community',
+					: allowTempUserMessages ? 1 : 0,
+			home_experience: homeExperience || existing.home_experience || 'community',
 			payment_preferred_route:
 				normalizedPreferredRoute === undefined
 					? existing.payment_preferred_route || null
@@ -1027,6 +1067,9 @@ export async function handleSaveUserSettings(req: IncomingMessage, res: ServerRe
 		res.writeHead(200, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ success: true }));
 	} catch (error) {
+		if (handleBodyParseError(res, error, 'Invalid JSON in request body', 'Settings payload too large')) {
+			return;
+		}
 		console.error('[Auth] Save settings error:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ error: 'Failed to save settings' }));

@@ -2,6 +2,13 @@
 	export let node: any;
 	export let selected = false;
 
+	function handleKeydown(event: KeyboardEvent) {
+		if ((event.key === 'Enter' || event.key === ' ') && event.currentTarget instanceof HTMLElement) {
+			event.preventDefault();
+			event.currentTarget.click();
+		}
+	}
+
 	const icons: Record<string, string> = {
 		brush: '🖌️',
 		image: '🖼️',
@@ -14,8 +21,13 @@
 
 <div
 	class="resource-node {selected ? 'selected' : ''} {node.data?.isAnonymous ? 'anonymous' : ''}"
+	role="button"
+	tabindex="0"
+	aria-label={node.data?.label || node.label || 'Resource node'}
 	on:click
 	on:click|stopPropagation
+	on:keydown={handleKeydown}
+	on:keydown|stopPropagation
 >
 	<div class="node-icon">
 		{icons[node.data?.type] || '📄'}

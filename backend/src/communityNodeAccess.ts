@@ -1,17 +1,16 @@
 import { appPolicyRepository } from './db/repositories/appPolicyRepository.js';
 import { stateUserStore as userRepository } from './state-plane/index.js';
+import type {
+	CommunityNodeAccessMode,
+	CommunityNodeAllowedUser,
+	CommunityNodeAccessPolicy
+} from '../../shared/adminPolicyContracts.js';
 
-export type CommunityNodeAccessMode = 'open' | 'approval_required' | 'whitelist_only';
-
-export interface CommunityNodeAllowedUser {
-	userId: number;
-	username: string;
-}
-
-export interface CommunityNodeAccessPolicy {
-	mode: CommunityNodeAccessMode;
-	allowedUsers: CommunityNodeAllowedUser[];
-}
+export type {
+	CommunityNodeAccessMode,
+	CommunityNodeAllowedUser,
+	CommunityNodeAccessPolicy
+} from '../../shared/adminPolicyContracts.js';
 
 const COMMUNITY_NODE_ACCESS_POLICY_KEY = 'policy:community_node_access';
 

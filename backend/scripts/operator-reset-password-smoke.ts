@@ -13,20 +13,12 @@ const env = {
 	...process.env,
 	DB_MODE: 'sqlite',
 	DATABASE_PATH: databasePath,
-	STATE_BACKEND_MODE: 'legacy',
-	STATE_STDB_READ_ENABLED: 'false',
-	STATE_STDB_WRITE_ENABLED: 'false',
-	STATE_BACKEND_STRICT: 'false',
 	STATE_STDB_SUBSCRIPTIONS_ENABLED: 'false'
 };
 
 async function seedUser(): Promise<void> {
 	process.env.DB_MODE = env.DB_MODE;
 	process.env.DATABASE_PATH = env.DATABASE_PATH;
-	process.env.STATE_BACKEND_MODE = env.STATE_BACKEND_MODE;
-	process.env.STATE_STDB_READ_ENABLED = env.STATE_STDB_READ_ENABLED;
-	process.env.STATE_STDB_WRITE_ENABLED = env.STATE_STDB_WRITE_ENABLED;
-	process.env.STATE_BACKEND_STRICT = env.STATE_BACKEND_STRICT;
 	process.env.STATE_STDB_SUBSCRIPTIONS_ENABLED = env.STATE_STDB_SUBSCRIPTIONS_ENABLED;
 
 	const { initializeDatabase, closeDatabase } = await import('../src/db/database.js');

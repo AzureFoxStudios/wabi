@@ -9,6 +9,7 @@ export interface LocalNote {
 
 const KEEP_NOTES_PREFIX = 'wabi:keep-notes:v1';
 const DM_NOTES_PREFIX = 'wabi:dm-notes:v1';
+const QUICK_SCRATCHPAD_PREFIX = 'wabi:quick-scratchpad:v1';
 
 function safeRead<T>(key: string, fallback: T): T {
 	if (!browser) return fallback;
@@ -42,12 +43,24 @@ export function getDmNotesStorageKey(channelId: string, userId: string | undefin
 	return `${DM_NOTES_PREFIX}:${userId || 'anon'}:${channelId}`;
 }
 
+export function getQuickScratchpadStorageKey(userId: string | undefined): string {
+	return `${QUICK_SCRATCHPAD_PREFIX}:${userId || 'anon'}`;
+}
+
 export function readNotes(storageKey: string): LocalNote[] {
 	return sortNotes(safeRead<LocalNote[]>(storageKey, []));
 }
 
 export function writeNotes(storageKey: string, notes: LocalNote[]): void {
 	safeWrite(storageKey, sortNotes(notes));
+}
+
+export function readScratchpadText(storageKey: string): string {
+	return safeRead<string>(storageKey, '');
+}
+
+export function writeScratchpadText(storageKey: string, value: string): void {
+	safeWrite(storageKey, value);
 }
 
 export function createEmptyNote(): LocalNote {

@@ -1,3 +1,5 @@
+import type { MessageRetentionDuration } from '../../../shared/messageRetention.js';
+
 export interface FileAttachment {
   fileUrl: string;
   fileName: string;
@@ -151,7 +153,7 @@ export interface Channel {
   threadLocked?: boolean;
   threadAutoArchiveMinutes?: number;
   threadLastActivityAt?: number;
-  autoDeleteAfter?: '5s' | '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
+  autoDeleteAfter?: MessageRetentionDuration | null;
   isTemporary?: boolean;
   persistMessages?: boolean;
   pinnedBy?: string[];

@@ -9,16 +9,16 @@ import {
 } from '../state-plane/index.js';
 import type { DbChannel } from '../db/repositories/channelRepository.js';
 import type { ClientMessage } from '../db/repositories/messageRepository.js';
+import { isRequestBodyTooLargeError, readJsonObjectBody } from '../utils/requestBodies.js';
+import type {
+	FollowedChannelPollChannelResult,
+	FollowedChannelPollRequest,
+	FollowedChannelPollResponse
+} from '../../../shared/userContracts.js';
 
 const DEFAULT_WORKSPACE_ID = 'default-workspace';
 const MAX_CHANNELS_PER_POLL = 64;
 const MAX_MESSAGES_PER_CHANNEL = 8;
-
-interface FollowPollChannelRequest {
-	channelId: string;
-	afterMessageId?: string | null;
-	limit?: number;
-}
 
 interface FollowPollRequestContext {
 	guestStableUserId?: string | null;
@@ -29,27 +29,7 @@ function writeJson(res: ServerResponse, status: number, payload: Record<string, 
 	res.end(JSON.stringify(payload));
 }
 
-function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-	return new Promise((resolve, reject) => {
-		let body = '';
-
-		req.on('data', (chunk) => {
-			body += chunk.toString();
-		});
-
-		req.on('end', () => {
-			try {
-				resolve(body ? JSON.parse(body) : {});
-			} catch {
-				reject(new Error('Invalid JSON'));
-			}
-		});
-
-		req.on('error', reject);
-	});
-}
-
-function normalizeChannelRequests(raw: unknown): FollowPollChannelRequest[] {
+function normalizeChannelRequests(raw: unknown): FollowedChannelPollRequest[] {
 	if (!Array.isArray(raw)) return [];
 	return raw
 		.map((entry) => {
@@ -71,7 +51,7 @@ function normalizeChannelRequests(raw: unknown): FollowPollChannelRequest[] {
 				limit
 			};
 		})
-		.filter((entry): entry is FollowPollChannelRequest => entry !== null)
+		.filter((entry): entry is FollowedChannelPollRequest => entry !== null)
 		.slice(0, MAX_CHANNELS_PER_POLL);
 }
 
@@ -165,23 +145,28 @@ export async function handlePollFollowedChannelActivity(
 
 		let body: Record<string, unknown>;
 		try {
-			body = await parseBody(req);
-		} catch {
+			body = await readJsonObjectBody(req);
+		} catch (error) {
+			if (isRequestBodyTooLargeError(error)) {
+				writeJson(res, 413, { error: 'Follow poll payload too large' });
+				return;
+			}
 			writeJson(res, 400, { error: 'Invalid JSON in request body' });
 			return;
 		}
 
 		const requestedChannels = normalizeChannelRequests(body.channels);
 		if (requestedChannels.length === 0) {
-			writeJson(res, 200, {
+			const responsePayload: FollowedChannelPollResponse<ClientMessage> = {
 				success: true,
 				serverTime: Date.now(),
 				channels: []
-			});
+			};
+			writeJson(res, 200, responsePayload as unknown as Record<string, unknown>);
 			return;
 		}
 
-		const channels = [];
+		const channels: FollowedChannelPollChannelResult<ClientMessage>[] = [];
 		for (const request of requestedChannels) {
 			const channel = channelRepository.findById(request.channelId);
 			if (!channel || !isMessageBearingChannel(channel)) continue;
@@ -208,11 +193,12 @@ export async function handlePollFollowedChannelActivity(
 			});
 		}
 
-		writeJson(res, 200, {
+		const responsePayload: FollowedChannelPollResponse<ClientMessage> = {
 			success: true,
 			serverTime: Date.now(),
 			channels
-		});
+		};
+		writeJson(res, 200, responsePayload as unknown as Record<string, unknown>);
 	} catch (error) {
 		console.error('[Following] Poll failed:', error);
 		writeJson(res, 500, { error: 'Failed to poll followed channel activity' });

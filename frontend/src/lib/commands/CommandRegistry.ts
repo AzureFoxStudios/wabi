@@ -7,17 +7,8 @@ import { get } from 'svelte/store';
 import {
 	resources,
 	tags,
-	graphEdges,
-	addResource,
-	deleteResource,
 	searchResources,
-	getResourcesByTag,
 	addTag,
-	deleteTag,
-	getTag,
-	addGraphEdge,
-	deleteGraphEdge,
-	generateId
 } from '../business/store';
 
 export interface CommandContext {

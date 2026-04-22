@@ -773,7 +773,7 @@
 				</div>
 
 				<div class="form-group">
-					<label>Color</label>
+					<span class="form-group-label">Color</span>
 					<div class="color-picker">
 						{#each colorOptions as color}
 							<button
@@ -781,6 +781,7 @@
 								class="color-option"
 								class:selected={projectColor === color}
 								style="background-color: {color}"
+								aria-label={`Select project color ${color}`}
 								on:click={() => projectColor = color}
 							></button>
 						{/each}
@@ -1272,17 +1273,6 @@
 		border-radius: 3px;
 	}
 
-	/* Burn Chart */
-	.burn-chart-section {
-		background: transparent;
-		border-radius: 0;
-		padding: 0;
-		margin-bottom: 2rem;
-		border: none;
-		border-bottom: 1px solid var(--biz-border, #2d3a4d);
-		padding-bottom: 1.5rem;
-	}
-
 	.section-header {
 		display: flex;
 		justify-content: space-between;
@@ -1352,97 +1342,6 @@
 		text-align: center;
 		padding: 2rem;
 		color: var(--biz-text-muted, #64748b);
-	}
-
-	/* Sprints */
-	.sprints-section {
-		background: transparent;
-		border-radius: 0;
-		padding: 0;
-		margin-bottom: 2rem;
-		border: none;
-		border-bottom: 1px solid var(--biz-border, #2d3a4d);
-		padding-bottom: 1.5rem;
-	}
-
-	.add-sprint-btn {
-		padding: 0.4rem 0.8rem;
-		background: var(--biz-accent, #f59e0b);
-		color: white;
-		border: none;
-		border-radius: 6px;
-		font-size: 0.85rem;
-		cursor: pointer;
-		transition: background 0.2s;
-	}
-
-	.add-sprint-btn:hover {
-		background: var(--biz-accent-hover, #d97706);
-	}
-
-	.sprints-list {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-		gap: 1rem;
-	}
-
-	.sprint-card {
-		background: transparent;
-		border-radius: 0;
-		padding: 0.75rem 0;
-		border-bottom: 1px solid var(--biz-border, #2d3a4d);
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-
-	.sprint-card:last-child {
-		border-bottom: none;
-	}
-
-	.sprint-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 0.25rem;
-		flex: 1;
-	}
-
-	.sprint-header h3 {
-		margin: 0;
-		font-size: 0.95rem;
-		color: var(--biz-text-primary, #f1f5f9);
-		font-weight: 500;
-	}
-
-	.sprint-status {
-		font-size: 0.7rem;
-		padding: 0.2rem 0.5rem;
-		background: transparent;
-		border-radius: 0;
-		text-transform: capitalize;
-		color: var(--biz-text-secondary, #94a3b8);
-		border: 1px solid var(--biz-border, #2d3a4d);
-		font-weight: 500;
-	}
-
-	.sprint-status.active {
-		background: transparent;
-		border-color: var(--biz-success, #10b981);
-		color: var(--biz-success, #10b981);
-	}
-
-	.sprint-dates {
-		font-size: 0.8rem;
-		color: var(--biz-text-secondary, #94a3b8);
-		margin-bottom: 0.5rem;
-	}
-
-	.sprint-goals {
-		margin: 0.5rem 0 0 1rem;
-		padding: 0;
-		font-size: 0.85rem;
-		color: var(--biz-text-secondary, #94a3b8);
 	}
 
 	/* Timeline & Stats Container */
@@ -1782,6 +1681,16 @@
 		font-weight: 600;
 	}
 
+	.form-group-label {
+		display: block;
+		font-size: 0.8rem;
+		margin-bottom: 0.5rem;
+		color: var(--biz-text-secondary, #94a3b8);
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		font-weight: 600;
+	}
+
 	.form-group input,
 	.form-group textarea,
 	.form-group select {
@@ -1956,18 +1865,6 @@
 
 	.checkbox-label input[type="checkbox"] {
 		cursor: pointer;
-	}
-
-	.signature {
-		font-size: 0.75rem;
-		color: #f59e0b;
-		padding: 0.2rem 0.5rem;
-		border-radius: 4px;
-		background: rgba(245, 158, 11, 0.1);
-		display: inline-flex;
-		align-items: center;
-		gap: 0.25rem;
-		white-space: nowrap;
 	}
 
 </style>

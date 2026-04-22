@@ -47,46 +47,15 @@ import type { FileAttachment, Message, Emoji, User, Channel, MessageEntity, Voic
 	import { encryptDMMessage, decryptDMMessagePayload, isE2EAvailable } from './e2eManager';
 	import { getDMPrivacyMode } from './dmPrivacyMode';
 	import { mobileTabQueue } from './mobileTabQueue';
-	import { emitPaymentRealtimeEvent } from './paymentRealtime';
+import { emitPaymentRealtimeEvent } from './paymentRealtime';
+import { rememberLocalWabiAccount } from './localWabiAccounts';
 import { currentSavedServer, recordSuccessfulServerConnection } from './savedServers';
-
-// M4: visibility-based flush trigger (best effort)
-(function setupVisibilityFlushHook(){
-  if (typeof document === 'undefined') return;
-  try {
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        const w = window as any;
-        if (typeof w.flushIncomingMessages === 'function') {
-          try { w.flushIncomingMessages(); } catch {}
-        }
-      }
-    });
-  } catch {
-    // ignore
-  }
-})();
-
-// Optional: improve responsiveness when tab becomes visible again (M4)
-function _setupVisibilityFlushHook() {
-  if (typeof document === 'undefined') return;
-  try {
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        // If there is a global flush handler exposed by the bundle, use it.
-        // This is a safe no-op fallback if not present.
-        const anyWin = (window as any);
-        if (typeof anyWin.flushIncomingMessages === 'function') {
-          try { anyWin.flushIncomingMessages(); } catch {}
-        }
-      }
-    });
-  } catch {}
-}
-
-// Initialize hook eagerly in the module.
-_setupVisibilityFlushHook();
 	import { consumePendingChannelNavigation } from './pendingServerNavigation';
+import {
+	DEFAULT_DM_RETENTION,
+	messageRetentionToMs,
+	type MessageRetentionDuration
+} from '../../../shared/messageRetention.js';
 
 function getFollowSnapshotServerInfo(): { serverUrl: string; serverName: string | null } {
 	return {
@@ -231,19 +200,6 @@ import { handleP2PIncomingOffer, handleP2PAnswer, handleP2PIceCandidate } from '
 /** The base browser tab title. Update this constant if the app is renamed. */
 const APP_TITLE = 'Wabi Chat';
 const MESSAGE_PURGE_VERSION_KEY = 'messagePurgeVersion';
-const DEFAULT_MESSAGE_EXPIRATION_MS = 24 * 60 * 60 * 1000;
-const AUTO_DELETE_MS: Record<NonNullable<Channel['autoDeleteAfter']>, number> = {
-	'5s': 5 * 1000,
-	'1h': 60 * 60 * 1000,
-	'6h': 6 * 60 * 60 * 1000,
-	'12h': 12 * 60 * 60 * 1000,
-	'24h': 24 * 60 * 60 * 1000,
-	'3d': 3 * 24 * 60 * 60 * 1000,
-	'7d': 7 * 24 * 60 * 60 * 1000,
-	'14d': 14 * 24 * 60 * 60 * 1000,
-	'30d': 30 * 24 * 60 * 60 * 1000
-};
-
 function createClientMessageId(channelId: string): string {
 	const me = get(currentUser);
 	const socketId = get(socket)?.id || me?.id || 'local';
@@ -255,11 +211,32 @@ function createClientMessageId(channelId: string): string {
 	return `msg:${identity}:${channelToken}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function computeOptimisticDeletionTime(channelId: string, timestamp: number): number {
+function computeOptimisticDeletionTime(channelId: string, timestamp: number): number | undefined {
 	const channel = get(channels).find((entry) => entry.id === channelId);
-	const autoDeleteAfter = channel?.autoDeleteAfter || null;
-	if (!autoDeleteAfter) return timestamp + DEFAULT_MESSAGE_EXPIRATION_MS;
-	return timestamp + (AUTO_DELETE_MS[autoDeleteAfter] || DEFAULT_MESSAGE_EXPIRATION_MS);
+	const retentionMs = messageRetentionToMs(channel?.autoDeleteAfter || null);
+	return retentionMs ? timestamp + retentionMs : undefined;
+}
+
+function buildIncomingDmChannel(data: {
+	channelId: string;
+	otherUser: User;
+	channel?: Partial<Channel> | null;
+}): Channel {
+	const baseChannel = data.channel || {};
+	return {
+		...baseChannel,
+		id: data.channelId,
+		name: data.otherUser.username,
+		createdAt: baseChannel.createdAt || Date.now(),
+		type: 'dm',
+		otherUser: data.otherUser,
+		members: baseChannel.members,
+		autoDeleteAfter:
+			typeof baseChannel.autoDeleteAfter === 'undefined'
+				? DEFAULT_DM_RETENTION
+				: baseChannel.autoDeleteAfter,
+		persistMessages: baseChannel.persistMessages ?? true
+	};
 }
 
 function appendOptimisticMessage(channelId: string, message: Message): void {
@@ -384,6 +361,27 @@ export const channelHistoryLoading = writable<Record<string, boolean>>({});
 export const channelHasMoreHistory = writable<Record<string, boolean>>({});
 export const channelOldestMessageId = writable<Record<string, string | null>>({});
 
+interface PendingHistoryRequest {
+	requestId: string;
+	requestKey: string;
+}
+
+const pendingHistoryRequests = new Map<string, PendingHistoryRequest>();
+let historyRequestSequence = 0;
+
+function buildHistoryRequestKey(channelId: string, options?: {
+	beforeMessageId?: string;
+	afterMessageId?: string;
+	limit?: number;
+}): string {
+	return `${channelId}|${options?.beforeMessageId || ''}|${options?.afterMessageId || ''}|${options?.limit || 50}`;
+}
+
+function createHistoryRequestId(channelId: string): string {
+	historyRequestSequence += 1;
+	return `${channelId}:${Date.now()}:${historyRequestSequence}`;
+}
+
 // Connection state for UI feedback
 export const connectionState = writable<ConnectionState>('disconnected');
 
@@ -418,6 +416,18 @@ class SocketManager {
 
 	// Listener tracking for clean rebinding
 	private boundListeners: Set<string> = new Set();
+
+	private cancelIncomingMessageFlush(): void {
+		if (this.incomingMessageFlushHandle === null) return;
+
+		if (browser && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function' && typeof this.incomingMessageFlushHandle === 'number') {
+			window.cancelAnimationFrame(this.incomingMessageFlushHandle);
+		} else {
+			clearTimeout(this.incomingMessageFlushHandle as ReturnType<typeof setTimeout>);
+		}
+
+		this.incomingMessageFlushHandle = null;
+	}
 
 	private scheduleIncomingMessageFlush(): void {
 		if (this.incomingMessageFlushHandle !== null) return;
@@ -810,15 +820,9 @@ class SocketManager {
 	// ==================== PRIVATE: Socket Lifecycle ====================
 
 	private destroySocket(): void {
-		if (this.incomingMessageFlushHandle !== null) {
-			if (browser && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function' && typeof this.incomingMessageFlushHandle === 'number') {
-				window.cancelAnimationFrame(this.incomingMessageFlushHandle);
-			} else {
-				clearTimeout(this.incomingMessageFlushHandle as ReturnType<typeof setTimeout>);
-			}
-			this.incomingMessageFlushHandle = null;
-		}
+		this.cancelIncomingMessageFlush();
 		this.pendingIncomingMessages.clear();
+		pendingHistoryRequests.clear();
 
 		if (this.socket) {
 			// Remove all listeners to prevent memory leaks
@@ -1092,6 +1096,11 @@ class SocketManager {
 				currentUser.set(user);
 				setStoredUsername(user.username || this.username);
 				setStoredDbUserId(user.dbUserId ?? null);
+				rememberLocalWabiAccount(
+					user,
+					getServerUrl(),
+					get(currentSavedServer)?.effectiveName || null
+				);
 				recordSuccessfulServerConnection({
 					url: getServerUrl(),
 					username: user.username || this.username,
@@ -1243,9 +1252,22 @@ class SocketManager {
 			messages: Message[];
 			hasMore: boolean;
 			direction: 'older' | 'newer' | 'initial';
+			requestId?: string;
 		}) => {
+			const pendingRequest = pendingHistoryRequests.get(data.channelId);
+			if (data.requestId && pendingRequest && pendingRequest.requestId !== data.requestId) {
+				console.log(`[SocketManager] Ignoring stale history response for ${data.channelId}`);
+				return;
+			}
+
 			// Decrypt encrypted messages in DM channels
 			await decryptMessagesForChannel(data.channelId, data.messages);
+
+			const latestRequest = pendingHistoryRequests.get(data.channelId);
+			if (data.requestId && latestRequest && latestRequest.requestId !== data.requestId) {
+				console.log(`[SocketManager] Ignoring superseded history response for ${data.channelId}`);
+				return;
+			}
 
 			channelMessages.update(msgs => {
 				const existing = msgs[data.channelId] || [];
@@ -1270,6 +1292,14 @@ class SocketManager {
 			// Update pagination state
 			channelHasMoreHistory.update(s => ({ ...s, [data.channelId]: data.hasMore }));
 			channelHistoryLoading.update(s => ({ ...s, [data.channelId]: false }));
+			pendingHistoryRequests.delete(data.channelId);
+
+			const persistedChannel = get(channels).find((channel) => channel.id === data.channelId);
+			if (persistedChannel?.persistMessages && data.messages.length > 0) {
+				await Promise.allSettled(
+					data.messages.map((message) => chatStorage.saveMessage(data.channelId, message))
+				);
+			}
 
 			const snapshotChannel = get(channels).find((channel) => channel.id === data.channelId);
 			if (snapshotChannel && isChannelFollowed(data.channelId)) {
@@ -1426,6 +1456,8 @@ class SocketManager {
 			});
 			channelAvailableArchives.set({});
 			channelLoadedArchives.set({});
+			pendingHistoryRequests.clear();
+			channelHistoryLoading.set({});
 			channelHasMoreHistory.set({});
 			channelOldestMessageId.set({});
 			channelUnreadCounts.set({});
@@ -1515,6 +1547,11 @@ class SocketManager {
 				currentUser.set(user);
 				this.username = user.username;
 				this.safeLocalStorageSet('username', user.username);
+				rememberLocalWabiAccount(
+					user,
+					getServerUrl(),
+					get(currentSavedServer)?.effectiveName || null
+				);
 			} else {
 				currentUser.update(existingCurrentUser =>
 					this.isSameUserIdentity(user, existingCurrentUser, sock.id) ? user : existingCurrentUser
@@ -1547,13 +1584,18 @@ class SocketManager {
 				}
 			}
 			channels.update(chs => {
-				if (chs.some(existing => existing.id === processedChannel.id)) return chs;
-				return [...chs, processedChannel];
+				const existingIndex = chs.findIndex(existing => existing.id === processedChannel.id);
+				if (existingIndex === -1) return [...chs, processedChannel];
+				const next = chs.slice();
+				next[existingIndex] = processedChannel;
+				return next;
 			});
 			channelMessages.update(msgs => ({
 				...msgs,
 				[processedChannel.id]: msgs[processedChannel.id] || []
 			}));
+			const pendingIndex = pendingOptimisticChannelIds.indexOf(processedChannel.id);
+			if (pendingIndex !== -1) pendingOptimisticChannelIds.splice(pendingIndex, 1);
 		});
 
 		sock.on('channel-deleted', (channelId: string) => {
@@ -1578,12 +1620,21 @@ class SocketManager {
 
 		sock.on('channel-error', (error: string) => {
 			console.error('[SocketManager] Channel error:', error);
+			const rolledBackId = pendingOptimisticChannelIds.shift();
+			if (rolledBackId) {
+				channels.update(chs => chs.filter(ch => ch.id !== rolledBackId));
+				channelMessages.update(msgs => {
+					const next = { ...msgs };
+					delete next[rolledBackId];
+					return next;
+				});
+			}
 			alert(error);
 		});
 
 		sock.on('channel-settings-updated', (data: {
 			channelId: string;
-			autoDeleteAfter?: '5s' | '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
+			autoDeleteAfter?: MessageRetentionDuration | null;
 			persistMessages?: boolean;
 			description?: string;
 			watchQueueEnabled?: boolean;
@@ -1623,18 +1674,15 @@ class SocketManager {
 
 		// ==================== DM/GROUP EVENTS ====================
 
-		sock.on('dm-created', (data: { channelId: string; otherUser: User }) => {
-			const dmChannel: Channel = {
-				id: data.channelId,
-				name: data.otherUser.username,
-				createdAt: Date.now(),
-				type: 'dm',
-				otherUser: data.otherUser
-			};
+		sock.on('dm-created', (data: { channelId: string; otherUser: User; channel?: Partial<Channel> | null }) => {
+			const dmChannel = buildIncomingDmChannel(data);
 
 			channels.update(chs => {
-				if (chs.some(ch => ch.id === data.channelId)) return chs;
-				return [...chs, dmChannel];
+				const existingIndex = chs.findIndex((channel) => channel.id === data.channelId);
+				if (existingIndex === -1) return [...chs, dmChannel];
+				const next = chs.slice();
+				next[existingIndex] = { ...next[existingIndex], ...dmChannel };
+				return next;
 			});
 
 			channelMessages.update(msgs => ({
@@ -1645,18 +1693,15 @@ class SocketManager {
 			dmPanelSignal.set({ channelId: data.channelId, otherUser: data.otherUser });
 		});
 
-		sock.on('dm-channel-added', (data: { channelId: string; otherUser: User }) => {
-			const dmChannel: Channel = {
-				id: data.channelId,
-				name: data.otherUser.username,
-				createdAt: Date.now(),
-				type: 'dm',
-				otherUser: data.otherUser
-			};
+		sock.on('dm-channel-added', (data: { channelId: string; otherUser: User; channel?: Partial<Channel> | null }) => {
+			const dmChannel = buildIncomingDmChannel(data);
 
 			channels.update(chs => {
-				if (chs.some(ch => ch.id === data.channelId)) return chs;
-				return [...chs, dmChannel];
+				const existingIndex = chs.findIndex((channel) => channel.id === data.channelId);
+				if (existingIndex === -1) return [...chs, dmChannel];
+				const next = chs.slice();
+				next[existingIndex] = { ...next[existingIndex], ...dmChannel };
+				return next;
 			});
 
 			channelMessages.update(msgs => ({
@@ -1814,20 +1859,13 @@ class SocketManager {
 
 		// ==================== OFFLINE MESSAGE EVENTS ====================
 
-		sock.on('offline-messages', (data: { channelId: string; messages: Message[] }) => {
+		sock.on('offline-messages', async (data: { channelId: string; messages: Message[] }) => {
 			console.log(`[SocketManager] ${data.messages.length} offline messages for ${data.channelId}`);
-
-			channelMessages.update(msgs => {
-				const existing = msgs[data.channelId] || [];
-				const existingIds = new Set(existing.map(m => m.id));
-				const newMessages = data.messages.filter(m => !existingIds.has(m.id));
-				return { ...msgs, [data.channelId]: [...existing, ...newMessages] };
-			});
-
-			showNotification({
-				title: 'Offline Messages',
-				body: `You have ${data.messages.length} new message${data.messages.length > 1 ? 's' : ''}`
-			}, false, '');
+			if (!Array.isArray(data.messages) || data.messages.length === 0) return;
+			await decryptMessagesForChannel(data.channelId, data.messages);
+			for (const message of data.messages) {
+				this.queueIncomingMessage(data.channelId, message);
+			}
 		});
 
 		sock.on('message-queued', (data: { messageId: string }) => {
@@ -2207,6 +2245,8 @@ class SocketManager {
 		channelMessages.set({ general: [] });
 		channelAvailableArchives.set({});
 		channelLoadedArchives.set({});
+		pendingHistoryRequests.clear();
+		channelHistoryLoading.set({});
 		channelHasMoreHistory.set({});
 		channelOldestMessageId.set({});
 		channelUnreadCounts.set({});
@@ -2287,6 +2327,11 @@ class SocketManager {
 
 		updateBrowserTitle();
 	}
+
+	forceIncomingMessageFlush(): void {
+		this.cancelIncomingMessageFlush();
+		this.flushIncomingMessages();
+	}
 }
 
 // ============================================================================
@@ -2311,6 +2356,7 @@ if (browser) {
 			// Page hidden - socket stays connected but we note it
 			console.log('[SocketManager] Page hidden');
 		} else {
+			socketManager.forceIncomingMessageFlush();
 			// Page visible - check connection health
 			console.log('[SocketManager] Page visible');
 			const state = socketManager.getState();
@@ -2401,8 +2447,31 @@ export function setVoiceTransmitMode(mode: 'primary' | 'all-listening'): void {
 	calling.setVoiceTransmitRoutingMode(mode);
 }
 
+const pendingOptimisticChannelIds: string[] = [];
+
 export function createChannel(channelName: string, description?: string, channelType: 'text' | 'voice' = 'text'): void {
 	socketManager.emit('create-channel', { name: channelName, description: description || '', channelType });
+
+	const trimmedName = channelName.trim();
+	if (!trimmedName || !/^[a-zA-Z0-9\s-]+$/.test(trimmedName)) return;
+
+	const role = get(currentUser)?.highestRole;
+	if (!role || !['owner', 'admin', 'mod'].includes(role)) return;
+
+	const channelId = trimmedName.toLowerCase().replace(/\s+/g, '-');
+	if (get(channels).some(ch => ch.id === channelId)) return;
+
+	const optimistic: Channel = {
+		id: channelId,
+		name: trimmedName,
+		description: description || '',
+		createdAt: Date.now(),
+		type: channelType,
+		isTemporary: true
+	};
+	channels.update(chs => [...chs, optimistic]);
+	channelMessages.update(msgs => ({ ...msgs, [channelId]: msgs[channelId] || [] }));
+	pendingOptimisticChannelIds.push(channelId);
 }
 
 export function createBreakoutRooms(parentChannelId: string, roomCount = 2, autoAssign = true): void {
@@ -2735,8 +2804,20 @@ export function loadHistory(channelId: string, options?: {
 }): void {
 	if (!browser) return;
 
+	const requestKey = buildHistoryRequestKey(channelId, options);
+	const pendingRequest = pendingHistoryRequests.get(channelId);
+	if (pendingRequest && pendingRequest.requestKey === requestKey && get(channelHistoryLoading)[channelId]) {
+		console.log(`[SocketManager] Duplicate history request ignored for ${channelId}`);
+		return;
+	}
+
+	const requestId = createHistoryRequestId(channelId);
+	pendingHistoryRequests.set(channelId, { requestId, requestKey });
 	channelHistoryLoading.update(s => ({ ...s, [channelId]: true }));
-	socketManager.emit('load-history', { channelId, ...options });
+	if (!socketManager.emit('load-history', { channelId, requestId, ...options })) {
+		pendingHistoryRequests.delete(channelId);
+		channelHistoryLoading.update(s => ({ ...s, [channelId]: false }));
+	}
 }
 
 export function loadOlderHistory(channelId: string): void {
@@ -2836,7 +2917,7 @@ export function updateGroupAvatar(channelId: string, avatarUrl: string | null): 
 }
 
 export function updateChannelSettings(channelId: string, settings: {
-	autoDeleteAfter?: '5s' | '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null;
+	autoDeleteAfter?: MessageRetentionDuration | null;
 	persistMessages?: boolean;
 	description?: string;
 	watchQueueEnabled?: boolean;
@@ -2870,4 +2951,3 @@ export function deleteEmoji(emojiName: string): void {
 
 // Re-export types
 export type { FileAttachment, Message, Emoji, User, Channel } from './socket-types';
-

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy } from 'svelte';
-	import { channels, channelMessages, currentUser, users, createDM, deleteDM, leaveGroup, socket } from '$lib/socket';
+	import { channels, channelMessages, currentUser, users, serverMembers, createDM, deleteDM, leaveGroup, socket } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { NOTES_DM_ID } from '$lib/layoutStore';
 	import { startCall, startGroupCall, type GroupCallRingingTarget } from '$lib/calling';
@@ -16,6 +16,7 @@
 	import { dmPrivacyModes, setDMPrivacyMode, type DMPrivacyMode } from '$lib/dmPrivacyMode';
 	import { pinnedDmIdsStore, prunePinnedDms, togglePinnedDm } from '$lib/pinDms';
 	import { getUserIdentityKey } from '$lib/localNicknames';
+	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
 	type ConversationAction = {
 		id: 'voice' | 'video' | 'remove';
 		label: string;
@@ -73,15 +74,12 @@
 		return bLast - aLast;
 	});
 
-	$: onlineUsers = $users.filter((u) => {
-		if (!$currentUser) return true;
-		if (u.id === $currentUser.id) return false;
-		if (u.dbUserId && $currentUser.dbUserId && u.dbUserId === $currentUser.dbUserId) return false;
-		return true;
+	$: filteredUsers = buildDmDirectoryUsers({
+		onlineUsers: $users,
+		serverMembers: $serverMembers,
+		currentUser: $currentUser,
+		searchQuery
 	});
-	$: filteredUsers = searchQuery
-		? onlineUsers.filter(u => u.username.toLowerCase().includes(searchQuery.toLowerCase()))
-		: onlineUsers;
 
 	function getOtherUser(channel: Channel): User | null {
 		if (channel.otherUser) return channel.otherUser;
@@ -155,7 +153,7 @@
 	}
 
 	function startDMWith(user: User) {
-		createDM(user.id);
+		createDM(getDmDirectoryKey(user));
 		showNewDM = false;
 		searchQuery = '';
 	}
@@ -550,6 +548,7 @@
 						<DMMessageView
 							channelId={selectedDmId}
 							otherUser={dmOther}
+							channel={selectedDmChannel || undefined}
 							on:openSettings={(event) => dispatch('openSettings', event.detail)}
 						/>
 					{/if}
@@ -580,7 +579,7 @@
 						bind:value={searchQuery}
 					/>
 					<div class="dm-new-list">
-						{#each filteredUsers as user (user.id)}
+						{#each filteredUsers as user (getDmDirectoryKey(user))}
 							<button class="dm-new-user" on:click={() => startDMWith(user)}>
 								{#if user.profilePicture}
 									<img src={user.profilePicture} alt={user.username} class="dm-new-avatar" />
@@ -602,30 +601,11 @@
 			{/if}
 
 			<div class="dm-conversations">
-				<div
-					class="dm-conv-item dm-conv-keep"
-					class:selected={isKeepNotesSelected}
-					role="button"
-					tabindex="0"
-					on:click={openKeepNotes}
-					on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openKeepNotes(); } }}
-				>
-					<div class="dm-conv-avatar-wrap">
-						<div class="dm-conv-avatar-ph dm-conv-keep-avatar">
-							K
-						</div>
-					</div>
-					<div class="dm-conv-info">
-						<div class="dm-conv-top">
-							<span class="dm-conv-name">Notes</span>
-						</div>
-						<span class="dm-conv-preview">Your private notes and reminders</span>
-					</div>
-				</div>
 				{#each dmChannels as channel (channel.id)}
 					{#if channel.type === 'group'}
 						<div
 							class="dm-conv-item"
+							class:selected={selectedDmId === channel.id}
 							class:dm-conv-item-pinned={isConversationPinned(channel.id)}
 							role="button"
 							tabindex="0"
@@ -676,6 +656,7 @@
 						{#if other}
 							<div
 								class="dm-conv-item"
+								class:selected={selectedDmId === channel.id}
 								class:dm-conv-item-pinned={isConversationPinned(channel.id)}
 								role="button"
 								tabindex="0"
@@ -964,8 +945,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 0.625rem 0.75rem;
-		border-bottom: 1px solid var(--border);
+		padding: 0.65rem 0.65rem 0.55rem;
+		border-bottom: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
 		flex-shrink: 0;
 	}
 
@@ -1018,8 +999,8 @@
 
 	/* New DM panel */
 	.dm-new-panel {
-		padding: 0.5rem;
-		border-bottom: 1px solid var(--border);
+		padding: 0.45rem 0.55rem 0.55rem;
+		border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 		flex-shrink: 0;
 	}
 
@@ -1102,7 +1083,7 @@
 	.dm-conversations {
 		flex: 1;
 		overflow-y: auto;
-		padding: 0.25rem;
+		padding: 0.35rem 0.3rem 0.55rem;
 	}
 
 	.dm-conv-item {
@@ -1110,34 +1091,34 @@
 		align-items: center;
 		gap: 0.5rem;
 		width: 100%;
-		padding: 0.5rem;
-		background: none;
-		border: none;
+		padding: 0.55rem 0.5rem;
+		background: transparent;
+		border: 1px solid transparent;
 		color: var(--text-primary);
 		cursor: pointer;
-		border-radius: 6px;
+		border-radius: 12px;
 		text-align: left;
 		position: relative;
-		transition: background 0.15s;
+		transition: background 0.15s ease, border-color 0.15s ease;
 	}
 
-	.dm-conv-item:hover { background: var(--bg-hover); }
+	.dm-conv-item:hover {
+		background: color-mix(in srgb, var(--accent) 8%, transparent);
+		border-color: color-mix(in srgb, var(--accent) 20%, transparent);
+	}
 
 	.dm-conv-item.selected {
-		background: rgba(88, 101, 242, 0.12);
+		background: color-mix(in srgb, var(--accent) 12%, transparent);
+		border-color: color-mix(in srgb, var(--accent) 30%, transparent);
 	}
 
 	.dm-conv-item-pinned {
-		background: color-mix(in srgb, var(--bg-secondary) 84%, var(--accent) 16%);
-		border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+		background: color-mix(in srgb, var(--accent) 10%, transparent);
+		border-color: color-mix(in srgb, var(--accent) 24%, transparent);
 	}
 
 	.dm-conv-item-pinned:hover {
-		background: color-mix(in srgb, var(--bg-hover) 80%, var(--accent) 20%);
-	}
-
-	.dm-conv-keep-avatar {
-		background: linear-gradient(135deg, #3bc779, #1fae62);
+		background: color-mix(in srgb, var(--accent) 14%, transparent);
 	}
 
 	.dm-conv-close-btn {
@@ -1255,7 +1236,7 @@
 		text-transform: uppercase;
 		letter-spacing: 0.03em;
 		color: var(--accent);
-		opacity: 0.85;
+		opacity: 0.78;
 	}
 
 	.dm-conv-name {

@@ -1,10 +1,11 @@
 /**
  * Proxy Routes
- * 
+ *
  * Handles URL preview (OpenGraph metadata) and image proxy functionality.
  * These routes fetch external content and return metadata or proxied images.
  */
 
+import type { IncomingMessage, ServerResponse } from 'http';
 import { getCORSHeaders } from '../config/cors.js';
 import { fetchExternalUrlWithGuards } from '../utils/urlGuards.js';
 
@@ -37,10 +38,10 @@ function getMeta(html: string, property: string): string | null {
   return ogMatch ? decodeHtmlEntities(ogMatch[1]) : null;
 }
 
-export async function handleUrlPreview(req: any, res: any): Promise<void> {
+export async function handleUrlPreview(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
   const targetUrl = url.searchParams.get('url');
-  const corsHeaders = getCORSHeaders(req?.headers?.origin as string | undefined);
+  const corsHeaders = getCORSHeaders(typeof req.headers.origin === 'string' ? req.headers.origin : undefined);
   
   if (!targetUrl) {
     res.writeHead(400, { "Content-Type": "application/json", ...corsHeaders });
@@ -146,10 +147,10 @@ export async function handleUrlPreview(req: any, res: any): Promise<void> {
   }
 }
 
-export async function handleImageProxy(req: any, res: any): Promise<void> {
+export async function handleImageProxy(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
   const imageUrl = url.searchParams.get('url');
-  const corsHeaders = getCORSHeaders(req?.headers?.origin as string | undefined);
+  const corsHeaders = getCORSHeaders(typeof req.headers.origin === 'string' ? req.headers.origin : undefined);
   
   if (!imageUrl) {
     res.writeHead(400, { "Content-Type": "application/json", ...corsHeaders });

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { fly, slide } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import {
@@ -61,6 +61,11 @@
 	import type { ContextMenuItem } from '$lib/context-menu/types';
 	import type { Channel, Message, VoiceChannelSettings } from '$lib/socket';
 	import { longpress } from '$lib/actions/longpress';
+	import {
+		MESSAGE_RETENTION_LABELS,
+		MESSAGE_RETENTION_PRESETS,
+		type MessageRetentionDuration
+	} from '../../../../shared/messageRetention.js';
 	import { layoutStore } from '$lib/layoutStore';
 	import { currentSavedServer } from '$lib/savedServers';
 	import { resolveServerUrl } from '$lib/serverUrl';
@@ -96,6 +101,9 @@
 	let newChannelDescription = '';
 	let newChannelType: 'text' | 'voice' = 'text';
 	let showCreateInput = false;
+	let newChannelNameInput: HTMLInputElement | null = null;
+	let serverIdentityImageFailed = false;
+	let lastServerIdentityIconUrl: string | null = null;
 	let showVoiceDebugDetails = false;
 	let showDeleteConfirm = false;
 	let channelToDelete = '';
@@ -152,6 +160,14 @@
 	})();
 	$: currentServerBannerUrl = $currentSavedServer?.effectiveBannerUrl || null;
 	$: currentServerDescription = $currentSavedServer?.effectiveDescription || resolveServerUrl().url;
+	$: serverIdentityIconUrl = $currentSavedServer?.effectiveIconUrl || null;
+	$: if (serverIdentityIconUrl !== lastServerIdentityIconUrl) {
+		lastServerIdentityIconUrl = serverIdentityIconUrl;
+		serverIdentityImageFailed = false;
+	}
+	$: if (showCreateInput) {
+		void tick().then(() => newChannelNameInput?.focus());
+	}
 	$: followedChannelIds = new Set($currentServerFollowedChannels.map((entry) => entry.channelId));
 	$: followedChannelPreferences = new Map(
 		$currentServerFollowedChannels.map((entry) => [entry.channelId, entry])
@@ -698,6 +714,16 @@
 		}
 	}
 
+	function toggleCreateInputForType(channelType: 'text' | 'voice') {
+		if (showCreateInput && newChannelType === channelType) {
+			showCreateInput = false;
+			return;
+		}
+		newChannelType = channelType;
+		showCreateInput = true;
+		void tick().then(() => newChannelNameInput?.focus());
+	}
+
 	function handleDeleteChannel(channelId: string) {
 		channelToDelete = channelId;
 		showDeleteConfirm = true;
@@ -779,7 +805,7 @@
 		return `${memberCount}/${limit} in voice`;
 	}
 
-	function handleUpdateAutoDelete(autoDeleteAfter: '5s' | '1h' | '6h' | '12h' | '24h' | '3d' | '7d' | '14d' | '30d' | null) {
+	function handleUpdateAutoDelete(autoDeleteAfter: MessageRetentionDuration | null) {
 		if (selectedChannelForSettings) {
 			updateChannelSettings(selectedChannelForSettings.id, {
 				autoDeleteAfter,
@@ -990,17 +1016,25 @@
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
 		<button type="button" class="server-identity" on:click={() => dispatch('openServerSwitcher')}>
 			<div class="logo">
-			<img src="/wabi-logo-small.webp" alt="Wabi" class="logo-img" />
+				{#if serverIdentityIconUrl && !serverIdentityImageFailed}
+					<img
+						src={serverIdentityIconUrl}
+						alt={`${currentServerLabel} icon`}
+						class="logo-img server-logo-img"
+						on:error={() => (serverIdentityImageFailed = true)}
+					/>
+				{:else}
+					<img src="/wabi-logo-small.webp" alt="Wabi" class="logo-img brand-logo-img" />
+				{/if}
 			</div>
 			{#if !isCompactSidebar}
 				<div class="server-copy">
-					<span class="server-product-label">Wabi</span>
 					<strong class="server-name">{currentServerLabel}</strong>
 				</div>
 			{/if}
 		</button>
-		<div class="header-buttons">
-			{#if sidebarWidth < 170}
+		{#if sidebarWidth < 170 && !isCompactSidebar}
+			<div class="header-buttons">
 				<button
 					class="control-btn compact-settings-btn"
 					on:click={() => dispatch('openSettings')}
@@ -1008,18 +1042,18 @@
 				>
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
 				</button>
-			{/if}
-		</div>
+			</div>
+		{/if}
 	</div>
 
 	{#if showCreateInput}
 		<div class="create-channel">
 			<input
+				bind:this={newChannelNameInput}
 				type="text"
 				bind:value={newChannelName}
-				placeholder="channel-name"
+				placeholder={newChannelType === 'voice' ? 'voice-room' : 'channel-name'}
 				on:keydown={(e) => e.key === 'Enter' && handleCreateChannel()}
-				autofocus
 			/>
 			<input
 				type="text"
@@ -1033,7 +1067,9 @@
 				<option value="forum" disabled>Forum Channel (coming soon)</option>
 			</select>
 			<p class="create-channel-hint">Forum channels are planned but not supported yet.</p>
-			<button on:click={handleCreateChannel}>Create</button>
+			<button on:click={handleCreateChannel}>
+				Create {newChannelType === 'voice' ? 'Voice' : 'Text'} Channel
+			</button>
 		</div>
 	{/if}
 
@@ -1072,7 +1108,7 @@
 			<button
 				class="section-add-btn"
 				class:active={showCreateInput}
-				on:click={() => showCreateInput = !showCreateInput}
+				on:click={() => toggleCreateInputForType('text')}
 				title="Create channel"
 				aria-label="Create channel"
 			>
@@ -1082,7 +1118,16 @@
 		{#if isTextSectionExpanded}
 		<!-- Public text channels -->
 		{#each textChannels as channel (channel.id)}
-			<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)} use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}>
+			<div
+				class="channel-item"
+				class:active={$currentChannel === channel.id}
+				class:has-timer={channel.autoDeleteAfter}
+				class:followed={followedChannelIds.has(channel.id)}
+				class:bookmarked={isChannelBookmarked(channel)}
+				role="group"
+				on:contextmenu={(e) => handleChannelRightClick(e, channel)}
+				use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}
+			>
 				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={(event) => handleChannelButtonClick(channel.id, event)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : 'Alt-click to glimpse'}>
 					<span class="hash">#</span>
 					{channel.name}
@@ -1091,6 +1136,9 @@
 					{/if}
 					{#if isChannelLocallyMuted(channel.id)}
 						<span class="muted-tag">Muted</span>
+					{/if}
+					{#if isChannelBookmarked(channel)}
+						<span class="bookmark-tag" title="Bookmarked for the quick switcher">Saved</span>
 					{/if}
 					<!-- TODO(mod/admin-perms): Restore channel-pin indicator when channel pinning is role-gated. -->
 					{#if $channelUnreadCounts[channel.id] && $currentChannel !== channel.id}
@@ -1184,7 +1232,16 @@
 		{#if groupChannels.length > 0}
 			<div class="section-header section-subheader">Group Chats</div>
 			{#each groupChannels as channel (channel.id)}
-				<div class="channel-item" class:active={$currentChannel === channel.id} class:has-timer={channel.autoDeleteAfter} on:contextmenu={(e) => handleChannelRightClick(e, channel)} use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}>
+				<div
+					class="channel-item"
+					class:active={$currentChannel === channel.id}
+					class:has-timer={channel.autoDeleteAfter}
+					class:followed={followedChannelIds.has(channel.id)}
+					class:bookmarked={isChannelBookmarked(channel)}
+					role="group"
+					on:contextmenu={(e) => handleChannelRightClick(e, channel)}
+					use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}
+				>
 					<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={(event) => handleChannelButtonClick(channel.id, event)} title={channel.autoDeleteAfter ? `Auto-delete: ${channel.autoDeleteAfter}` : 'Alt-click to glimpse'}>
 						<svg class="group-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
 						{channel.name}
@@ -1193,6 +1250,9 @@
 						{/if}
 						{#if isChannelLocallyMuted(channel.id)}
 							<span class="muted-tag">Muted</span>
+						{/if}
+						{#if isChannelBookmarked(channel)}
+							<span class="bookmark-tag" title="Bookmarked for the quick switcher">Saved</span>
 						{/if}
 						<!-- TODO(mod/admin-perms): Restore channel-pin indicator when channel pinning is role-gated. -->
 						{#if $channelUnreadCounts[channel.id] && $currentChannel !== channel.id}
@@ -1280,7 +1340,7 @@
 			<button
 				class="section-add-btn"
 				class:active={showCreateInput}
-				on:click={() => showCreateInput = !showCreateInput}
+				on:click={() => toggleCreateInputForType('voice')}
 				title="Create channel"
 				aria-label="Create channel"
 			>
@@ -1295,23 +1355,20 @@
 				class="channel-item voice-channel-item"
 				class:active={channelIsConnected}
 				class:connected={channelIsConnected}
+				class:followed={followedChannelIds.has(channel.id)}
 				class:voice-drop-target={voiceDropTargetChannelId === channel.id}
-				on:click={() => handleVoiceChannelClick(channel.id)}
+				role="group"
 				on:dragover={(event) => handleVoiceChannelDragOver(event, channel.id)}
 				on:dragleave={() => handleVoiceChannelDragLeave(channel.id)}
 				on:drop={(event) => handleVoiceChannelDrop(event, channel.id)}
 				on:contextmenu={(e) => handleChannelRightClick(e, channel)}
 				use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}
 			>
-				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()}>
+				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={() => handleVoiceChannelClick(channel.id)}>
 					<span class="hash voice-icon" aria-hidden="true">
 						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
 					</span>
 					<span class="voice-channel-name">{channel.name}</span>
-					<span class="voice-inline-count" title={getVoiceOccupancyTitle(channel, members.length)}>
-						<svg class="voice-count-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-						{formatVoiceOccupancy(channel, members.length)}
-					</span>
 					{#if isVoiceChannelBeingRecorded(channel.id)}
 						<span class="voice-recording-tag" title={`${getVoiceChannelRecordingCount(channel.id)} participant(s) recording in this call`}>
 							REC {getVoiceChannelRecordingCount(channel.id)}
@@ -1319,6 +1376,18 @@
 					{/if}
 				</button>
 				<div class="voice-channel-actions">
+					<span class="voice-inline-count voice-action-count" title={getVoiceOccupancyTitle(channel, members.length)}>
+						<svg class="voice-count-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+						{formatVoiceOccupancy(channel, members.length)}
+					</span>
+					<button
+						class="follow-btn voice-follow-btn"
+						class:active={followedChannelIds.has(channel.id)}
+						on:click|stopPropagation={(event) => toggleChannelFollowState(channel.id, event)}
+						title={followedChannelIds.has(channel.id) ? 'Unfollow voice channel' : 'Follow voice channel'}
+					>
+						{followedChannelIds.has(channel.id) ? '★' : '☆'}
+					</button>
 					<button
 						type="button"
 						class="voice-whiteboard-btn"
@@ -1357,6 +1426,7 @@
 						<div
 							class="voice-member-item"
 							class:voice-member-draggable={canDragVoiceMember(member.userId)}
+							role="listitem"
 							draggable={canDragVoiceMember(member.userId)}
 							on:dragstart={(event) => handleVoiceMemberDragStart(event, channel.id, member.userId)}
 							on:dragend={handleVoiceMemberDragEnd}
@@ -1386,21 +1456,18 @@
 					class="channel-item voice-channel-item breakout-channel-item"
 					class:active={breakoutIsConnected}
 					class:connected={breakoutIsConnected}
+					class:followed={followedChannelIds.has(breakout.id)}
 					class:voice-drop-target={voiceDropTargetChannelId === breakout.id}
-					on:click={() => handleVoiceChannelClick(breakout.id)}
+					role="group"
 					on:dragover={(event) => handleVoiceChannelDragOver(event, breakout.id)}
 					on:dragleave={() => handleVoiceChannelDragLeave(breakout.id)}
 					on:drop={(event) => handleVoiceChannelDrop(event, breakout.id)}
 					on:contextmenu={(e) => handleChannelRightClick(e, breakout)}
 					use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, breakout) }}
 				>
-					<button class="channel-btn" data-abbrev={breakout.name.charAt(0).toUpperCase()}>
+					<button class="channel-btn" data-abbrev={breakout.name.charAt(0).toUpperCase()} on:click={() => handleVoiceChannelClick(breakout.id)}>
 						<span class="breakout-prefix" aria-hidden="true">&gt;</span>
 						<span class="voice-channel-name">{breakout.name}</span>
-						<span class="voice-inline-count" title={getVoiceOccupancyTitle(breakout, breakoutMembers.length)}>
-							<svg class="voice-count-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-							{formatVoiceOccupancy(breakout, breakoutMembers.length)}
-						</span>
 						{#if isVoiceChannelBeingRecorded(breakout.id)}
 							<span class="voice-recording-tag" title={`${getVoiceChannelRecordingCount(breakout.id)} participant(s) recording in this call`}>
 								REC {getVoiceChannelRecordingCount(breakout.id)}
@@ -1408,6 +1475,18 @@
 						{/if}
 					</button>
 					<div class="voice-channel-actions">
+						<span class="voice-inline-count voice-action-count" title={getVoiceOccupancyTitle(breakout, breakoutMembers.length)}>
+							<svg class="voice-count-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+							{formatVoiceOccupancy(breakout, breakoutMembers.length)}
+						</span>
+						<button
+							class="follow-btn voice-follow-btn"
+							class:active={followedChannelIds.has(breakout.id)}
+							on:click|stopPropagation={(event) => toggleChannelFollowState(breakout.id, event)}
+							title={followedChannelIds.has(breakout.id) ? 'Unfollow breakout voice channel' : 'Follow breakout voice channel'}
+						>
+							{followedChannelIds.has(breakout.id) ? '★' : '☆'}
+						</button>
 						<button
 							type="button"
 							class="voice-whiteboard-btn"
@@ -1446,6 +1525,7 @@
 							<div
 								class="voice-member-item"
 								class:voice-member-draggable={canDragVoiceMember(member.userId)}
+								role="listitem"
 								draggable={canDragVoiceMember(member.userId)}
 								on:dragstart={(event) => handleVoiceMemberDragStart(event, breakout.id, member.userId)}
 								on:dragend={handleVoiceMemberDragEnd}
@@ -1720,8 +1800,9 @@
 					<h3>Channel: #{selectedChannelForSettings.name}</h3>
 
 					<div class="setting-group">
-						<label>Name</label>
+						<label for="channel-settings-name">Name</label>
 						<input
+							id="channel-settings-name"
 							type="text"
 							bind:value={tempChannelName}
 							placeholder="Channel name"
@@ -1731,8 +1812,9 @@
 					</div>
 
 					<div class="setting-group">
-						<label>Description</label>
+						<label for="channel-settings-description">Description</label>
 						<input
+							id="channel-settings-description"
 							type="text"
 							bind:value={tempDescription}
 							placeholder="Add a channel description..."
@@ -1745,7 +1827,7 @@
 					</div>
 
 					<div class="setting-group">
-						<label>Auto-Delete Messages</label>
+						<span class="setting-label">Auto-Delete Messages</span>
 						<p class="setting-description">Automatically delete messages after a set period of time</p>
 
 						<div class="auto-delete-options">
@@ -1754,71 +1836,17 @@
 								class:active={!selectedChannelForSettings.autoDeleteAfter}
 								on:click={() => handleUpdateAutoDelete(null)}
 							>
-								Disabled
+								Never
 							</button>
-							<button
-								class="auto-delete-btn"
-								class:active={selectedChannelForSettings.autoDeleteAfter === '5s'}
-								on:click={() => handleUpdateAutoDelete('5s')}
-							>
-								5 Seconds
-							</button>
-							<button
-								class="auto-delete-btn"
-								class:active={selectedChannelForSettings.autoDeleteAfter === '1h'}
-								on:click={() => handleUpdateAutoDelete('1h')}
-							>
-								1 Hour
-							</button>
-							<button
-								class="auto-delete-btn"
-								class:active={selectedChannelForSettings.autoDeleteAfter === '6h'}
-								on:click={() => handleUpdateAutoDelete('6h')}
-							>
-								6 Hours
-							</button>
-							<button
-								class="auto-delete-btn"
-								class:active={selectedChannelForSettings.autoDeleteAfter === '12h'}
-								on:click={() => handleUpdateAutoDelete('12h')}
-							>
-								12 Hours
-							</button>
-							<button
-								class="auto-delete-btn"
-								class:active={selectedChannelForSettings.autoDeleteAfter === '24h'}
-								on:click={() => handleUpdateAutoDelete('24h')}
-							>
-								1 Day
-							</button>
-							<button
-								class="auto-delete-btn"
-								class:active={selectedChannelForSettings.autoDeleteAfter === '3d'}
-								on:click={() => handleUpdateAutoDelete('3d')}
-							>
-								3 Days
-							</button>
-							<button
-								class="auto-delete-btn"
-								class:active={selectedChannelForSettings.autoDeleteAfter === '7d'}
-								on:click={() => handleUpdateAutoDelete('7d')}
-							>
-								7 Days
-							</button>
-							<button
-								class="auto-delete-btn"
-								class:active={selectedChannelForSettings.autoDeleteAfter === '14d'}
-								on:click={() => handleUpdateAutoDelete('14d')}
-							>
-								14 Days
-							</button>
-							<button
-								class="auto-delete-btn"
-								class:active={selectedChannelForSettings.autoDeleteAfter === '30d'}
-								on:click={() => handleUpdateAutoDelete('30d')}
-							>
-								30 Days
-							</button>
+							{#each MESSAGE_RETENTION_PRESETS as duration}
+								<button
+									class="auto-delete-btn"
+									class:active={selectedChannelForSettings.autoDeleteAfter === duration}
+									on:click={() => handleUpdateAutoDelete(duration)}
+								>
+									{MESSAGE_RETENTION_LABELS[duration]}
+								</button>
+							{/each}
 						</div>
 					</div>
 
@@ -1955,28 +1983,12 @@
 		width: auto;
 	}
 
-	.channel-sidebar.compact .sidebar-header,
 	.channel-sidebar.compact .profile-card .user-details,
 	.channel-sidebar.compact .profile-controls,
 	.channel-sidebar.compact .status-popup,
 	.channel-sidebar.compact .create-channel,
 	.channel-sidebar.compact .workspace-counter-chip,
 	.channel-sidebar.compact .channel-list-actions {
-		display: none;
-	}
-
-	.channel-sidebar.compact .following-entry-wrap {
-		padding: 0.25rem;
-	}
-
-	.channel-sidebar.compact .following-entry {
-		justify-content: center;
-		padding: 0.5rem;
-		border-radius: 14px;
-	}
-
-	.channel-sidebar.compact .following-entry-copy,
-	.channel-sidebar.compact .following-entry-badges {
 		display: none;
 	}
 
@@ -2005,6 +2017,10 @@
 		margin: 0;
 	}
 
+	.channel-sidebar.compact .bookmark-tag {
+		display: none;
+	}
+
 	.channel-sidebar.compact .channel-item {
 		justify-content: center;
 		padding: 0.25rem;
@@ -2024,7 +2040,6 @@
 		display: none;
 	}
 
-	.channel-sidebar.compact .voice-occupancy,
 	.channel-sidebar.compact .voice-inline-count,
 	.channel-sidebar.compact .voice-member-list,
 	.channel-sidebar.compact .thread-list {
@@ -2035,7 +2050,7 @@
 		position: relative;
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		justify-content: flex-start;
 		padding: 0.75rem 1rem;
 		border-bottom: 1px solid var(--border);
 		height: var(--app-chrome-height);
@@ -2078,9 +2093,10 @@
 	}
 
 	.server-identity {
-		flex: 1;
+		flex: 1 1 auto;
 		display: flex;
 		align-items: center;
+		justify-content: flex-start;
 		gap: 0.65rem;
 		min-width: 0;
 		border: none;
@@ -2104,21 +2120,33 @@
 	.logo-img {
 		height: 32px;
 		width: auto;
+		object-fit: contain;
 		filter: drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.3));
 		transition: filter 0.3s ease;
 	}
 
-	/* Keep logo white on dark presets for consistent contrast */
-	:root[data-theme="dark"] .logo-img,
-	:root[data-theme="midnight-blue"] .logo-img,
-	:root[data-theme="vscode-high-contrast"] .logo-img,
-	:root[data-theme="slate-signal"] .logo-img,
-	:root[data-theme="catppuccin-mocha"] .logo-img,
-	:root[data-theme="dracula"] .logo-img,
-	:root[data-theme="nord"] .logo-img,
-	:root[data-theme="tokyo-night"] .logo-img,
-	:root[data-theme="forest"] .logo-img,
-	:root[data-theme="ember"] .logo-img {
+	.brand-logo-img {
+		width: auto;
+	}
+
+	.server-logo-img {
+		width: 32px;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.08);
+		object-fit: cover;
+	}
+
+	/* Keep fallback logo white on dark presets for consistent contrast */
+	:root[data-theme="dark"] .brand-logo-img,
+	:root[data-theme="midnight-blue"] .brand-logo-img,
+	:root[data-theme="vscode-high-contrast"] .brand-logo-img,
+	:root[data-theme="slate-signal"] .brand-logo-img,
+	:root[data-theme="catppuccin-mocha"] .brand-logo-img,
+	:root[data-theme="dracula"] .brand-logo-img,
+	:root[data-theme="nord"] .brand-logo-img,
+	:root[data-theme="tokyo-night"] .brand-logo-img,
+	:root[data-theme="forest"] .brand-logo-img,
+	:root[data-theme="ember"] .brand-logo-img {
 		filter: invert(1) drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.3));
 	}
 
@@ -2126,17 +2154,11 @@
 		min-width: 0;
 		display: grid;
 		gap: 0.08rem;
+		align-content: center;
 	}
 
 	.channel-sidebar.nav-right .server-copy {
 		justify-items: end;
-	}
-
-	.server-product-label {
-		font-size: 0.63rem;
-		text-transform: uppercase;
-		letter-spacing: 0.11em;
-		color: var(--text-secondary);
 	}
 
 	.server-name {
@@ -2145,71 +2167,6 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-	}
-
-	.server-banner {
-		position: relative;
-		margin: 0.8rem 1rem 0.35rem;
-		min-height: 92px;
-		border: 1px solid rgba(var(--border-rgb), 0.45);
-		border-radius: 18px;
-		overflow: hidden;
-		background:
-			linear-gradient(135deg, rgba(45, 212, 191, 0.18), rgba(37, 99, 235, 0.16)),
-			radial-gradient(circle at top left, rgba(255, 255, 255, 0.08), transparent 52%);
-		padding: 0;
-		cursor: pointer;
-		text-align: left;
-	}
-
-	.server-banner-image {
-		position: absolute;
-		inset: 0;
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		opacity: 0.46;
-	}
-
-	.server-banner-copy {
-		position: relative;
-		z-index: 1;
-		display: grid;
-		gap: 0.18rem;
-		padding: 0.95rem 1rem;
-		background: linear-gradient(180deg, rgba(4, 9, 19, 0.1), rgba(4, 9, 19, 0.7));
-	}
-
-	.server-banner-copy strong {
-		font-size: 0.95rem;
-		color: #f8fafc;
-	}
-
-	.server-banner-copy span {
-		font-size: 0.74rem;
-		line-height: 1.35;
-		color: rgba(248, 250, 252, 0.78);
-		word-break: break-word;
-	}
-
-	.collapse-btn {
-		background: transparent;
-		border: none;
-		color: var(--text-secondary);
-		cursor: pointer;
-		font-size: 1.5rem;
-		padding: 0.5rem;
-		transition: all 0.2s;
-		min-width: 36px;
-		min-height: 36px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.collapse-btn:hover {
-		background: var(--bg-secondary);
-		color: var(--text-primary);
 	}
 
 	.settings-btn {
@@ -2239,30 +2196,17 @@
 		box-shadow: inset 0 0 6px rgba(255, 255, 255, 0.1);
 	}
 
-	.sidebar-header {
-		padding: 0.75rem 1rem;
-		border-bottom: 1px solid var(--border);
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		height: 58px;
-		position: relative;
-	}
-
-	.sidebar-header h3 {
-		font-size: var(--text-base);
-		font-weight: 600;
-		text-transform: uppercase;
-		color: var(--text-secondary);
-		margin: 0;
-		flex: 1;
-	}
-
 	.header-buttons {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
 		flex-shrink: 0;
+		margin-left: auto;
+	}
+
+	.channel-sidebar.nav-right .header-buttons {
+		margin-left: 0;
+		margin-right: auto;
 	}
 
 	.compact-settings-btn {
@@ -2401,88 +2345,6 @@
 		cursor: default;
 	}
 
-	.following-entry-wrap {
-		padding: 0.25rem 0.6rem 0.45rem;
-	}
-
-	.following-entry {
-		width: 100%;
-		display: flex;
-		align-items: center;
-		gap: 0.7rem;
-		padding: 0.75rem 0.8rem;
-		border: 1px solid rgba(var(--accent-rgb), 0.14);
-		border-radius: 16px;
-		background:
-			linear-gradient(135deg, rgba(var(--accent-rgb), 0.16), rgba(59, 130, 246, 0.1)),
-			rgba(var(--bg-secondary-rgb), 0.92);
-		color: var(--text-primary);
-		cursor: pointer;
-		text-align: left;
-	}
-
-	.following-entry:hover,
-	.following-entry.active {
-		border-color: rgba(var(--accent-rgb), 0.34);
-		box-shadow: 0 12px 24px rgba(0, 0, 0, 0.16);
-	}
-
-	.following-entry-icon {
-		width: 32px;
-		height: 32px;
-		border-radius: 12px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 1.2rem;
-		font-weight: 700;
-		color: rgba(255, 255, 255, 0.95);
-		background: rgba(var(--accent-rgb), 0.24);
-		flex-shrink: 0;
-	}
-
-	.following-entry-copy {
-		flex: 1;
-		min-width: 0;
-		display: flex;
-		flex-direction: column;
-	}
-
-	.following-entry-copy strong {
-		font-size: 0.95rem;
-	}
-
-	.following-entry-copy small {
-		font-size: 0.72rem;
-		color: var(--text-secondary);
-	}
-
-	.following-entry-badges {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.35rem;
-		flex-shrink: 0;
-	}
-
-	.following-entry-pill {
-		min-width: 1.65rem;
-		height: 1.65rem;
-		padding: 0 0.42rem;
-		border-radius: 999px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		background: rgba(15, 23, 42, 0.72);
-		color: var(--text-primary);
-		font-size: 0.72rem;
-		font-weight: 700;
-	}
-
-	.following-entry-pill--unread {
-		background: rgba(239, 68, 68, 0.86);
-		color: #fff;
-	}
-
 	.channel-item {
 		display: flex;
 		align-items: center;
@@ -2537,6 +2399,19 @@
 		color: var(--text-secondary);
 		background: color-mix(in srgb, var(--bg-tertiary) 86%, transparent);
 		border: 1px solid rgba(var(--border-rgb), 0.5);
+	}
+
+	.bookmark-tag {
+		margin-left: 0.25rem;
+		padding: 0.08rem 0.34rem;
+		border-radius: 999px;
+		font-size: 0.58rem;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: #ffdf9b;
+		background: color-mix(in srgb, #f59e0b 20%, var(--bg-secondary));
+		border: 1px solid rgba(245, 158, 11, 0.38);
 	}
 
 	.channel-item.active .channel-btn {
@@ -2777,23 +2652,9 @@
 	.channel-actions {
 		display: flex;
 		align-items: center;
-		gap: 0.2rem;
+		gap: 0;
 		height: fit-content;
-	}
-
-	.voice-occupancy {
-		display: flex;
-		align-items: center;
-		gap: 0.25rem;
-		font-size: 0.7rem;
-		color: var(--text-secondary);
-	}
-
-	.voice-count {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.2rem;
-		font-weight: 600;
+		justify-content: flex-end;
 	}
 
 	.voice-count-icon {
@@ -2894,22 +2755,6 @@
 		padding: 0.02rem 0.35rem;
 	}
 
-	.voice-avatars {
-		display: flex;
-		align-items: center;
-		margin-left: 0.1rem;
-	}
-
-	.voice-avatar {
-		width: 16px;
-		height: 16px;
-		border-radius: 999px;
-		margin-left: -4px;
-		border: 1px solid var(--bg-tertiary);
-		object-fit: cover;
-		background: var(--bg-secondary);
-	}
-
 	.voice-avatar-fallback {
 		display: inline-flex;
 		align-items: center;
@@ -2920,15 +2765,49 @@
 	}
 
 	.text-channel-actions {
-		opacity: 0;
-		pointer-events: none;
-		transform: translateX(4px);
+		opacity: 1;
+		pointer-events: auto;
+		transform: translateX(0);
 		transition: opacity 0.18s ease, transform 0.18s ease;
 	}
 
 	.channel-item:hover .text-channel-actions,
-	.channel-item:focus-within .text-channel-actions {
+	.channel-item:focus-within .text-channel-actions,
+	.channel-item.followed .text-channel-actions,
+	.channel-item.bookmarked .text-channel-actions {
 		opacity: 1;
+		pointer-events: auto;
+		transform: translateX(0);
+	}
+
+	.text-channel-actions .settings-btn,
+	.text-channel-actions .pin-btn {
+		width: 0;
+		min-width: 0;
+		height: 24px;
+		opacity: 0;
+		padding: 0;
+		margin-left: 0;
+		overflow: hidden;
+		pointer-events: none;
+		transform: translateX(4px);
+		transition:
+			width 0.18s ease,
+			opacity 0.18s ease,
+			transform 0.18s ease,
+			margin 0.18s ease,
+			padding 0.18s ease;
+	}
+
+	.channel-item:hover .text-channel-actions .settings-btn,
+	.channel-item:hover .text-channel-actions .pin-btn,
+	.channel-item:focus-within .text-channel-actions .settings-btn,
+	.channel-item:focus-within .text-channel-actions .pin-btn {
+		width: 24px;
+		min-width: 24px;
+		opacity: 1;
+		padding: 0;
+		margin-left: 0.2rem;
 		pointer-events: auto;
 		transform: translateX(0);
 	}
@@ -2941,24 +2820,59 @@
 	.voice-channel-actions {
 		display: flex;
 		align-items: center;
-		opacity: 0;
-		pointer-events: none;
-		transform: translateX(4px);
+		gap: 0;
+		justify-content: flex-end;
+		opacity: 1;
+		pointer-events: auto;
+		transform: translateX(0);
 		transition: opacity 0.18s ease, transform 0.18s ease;
 	}
 
-	.voice-channel-item:hover .voice-channel-actions,
-	.voice-channel-item:focus-within .voice-channel-actions,
-	.voice-channel-item.active .voice-channel-actions {
+	.voice-action-count {
+		margin-left: 0;
+		flex-shrink: 0;
+	}
+
+	.voice-follow-btn {
+		width: 0;
+		min-width: 0;
+		height: 24px;
+		opacity: 0;
+		padding: 0;
+		margin-left: 0;
+		overflow: hidden;
+		pointer-events: none;
+		transform: translateX(4px);
+		transition:
+			width 0.18s ease,
+			opacity 0.18s ease,
+			transform 0.18s ease,
+			margin-right 0.18s ease,
+			padding 0.18s ease;
+	}
+
+	.voice-channel-item:hover .voice-follow-btn,
+	.voice-channel-item:focus-within .voice-follow-btn,
+	.voice-channel-item.followed .voice-follow-btn {
+		width: 24px;
+		min-width: 24px;
 		opacity: 1;
+		padding: 0;
+		margin-right: 0.2rem;
 		pointer-events: auto;
 		transform: translateX(0);
 	}
 
 	.voice-whiteboard-btn {
-		width: 24px;
+		width: 0;
+		min-width: 0;
 		height: 24px;
 		padding: 0;
+		opacity: 0;
+		margin-right: 0;
+		overflow: hidden;
+		pointer-events: none;
+		transform: translateX(4px);
 		border: none;
 		border-radius: 4px;
 		background: transparent;
@@ -2967,7 +2881,23 @@
 		align-items: center;
 		justify-content: center;
 		cursor: pointer;
-		transition: all 0.18s ease;
+		transition:
+			width 0.18s ease,
+			opacity 0.18s ease,
+			transform 0.18s ease,
+			margin-right 0.18s ease,
+			color 0.18s ease,
+			background 0.18s ease;
+	}
+
+	.voice-channel-item:hover .voice-whiteboard-btn,
+	.voice-channel-item:focus-within .voice-whiteboard-btn {
+		width: 24px;
+		min-width: 24px;
+		opacity: 1;
+		margin-right: 0.2rem;
+		pointer-events: auto;
+		transform: translateX(0);
 	}
 
 	.voice-whiteboard-btn svg {
@@ -3037,12 +2967,6 @@
 		cursor: grabbing;
 	}
 
-	.voice-member-overflow {
-		color: var(--text-muted);
-		font-size: 0.68rem;
-		padding-left: 0.3rem;
-	}
-
 	.voice-member-avatar {
 		width: 18px;
 		height: 18px;
@@ -3052,7 +2976,6 @@
 		background: var(--bg-secondary);
 	}
 
-	.voice-avatar.speaking,
 	.voice-member-avatar.speaking {
 		border-color: #22c55e;
 		box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.35);
@@ -3080,25 +3003,6 @@
 		100% {
 			box-shadow: 0 0 0 5px rgba(34, 197, 94, 0);
 		}
-	}
-
-	.voice-channel-item .voice-occupancy {
-		opacity: 0.7;
-	}
-
-	.voice-channel-item .voice-avatars {
-		max-width: 0;
-		opacity: 0;
-		overflow: hidden;
-		margin-left: 0;
-		transition: max-width 0.16s ease, opacity 0.16s ease, margin-left 0.16s ease;
-	}
-
-	.voice-channel-item:hover .voice-avatars,
-	.voice-channel-item.active .voice-avatars {
-		max-width: 72px;
-		opacity: 1;
-		margin-left: 0.15rem;
 	}
 
 	.voice-usercard {
@@ -3278,7 +3182,6 @@
 	}
 
 	.pin-btn {
-		opacity: 0;
 		width: 24px;
 		height: 24px;
 		border-radius: 4px;
@@ -3443,12 +3346,6 @@
 		min-width: 140px;
 	}
 
-	.status-divider {
-		height: 1px;
-		background: var(--border);
-		margin: 4px 2px;
-	}
-
 	.status-option {
 		display: flex;
 		align-items: center;
@@ -3475,58 +3372,12 @@
 		flex-shrink: 0;
 	}
 
-	.status-preset-option {
-		align-items: flex-start;
-	}
-
-	.status-preset-copy {
-		display: inline-flex;
-		flex-direction: column;
-		gap: 2px;
-		min-width: 0;
-	}
-
-	.status-preset-label {
-		font-weight: 600;
-		line-height: 1.2;
-	}
-
-	.status-preset-note {
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
-		line-height: 1.2;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		max-width: 18ch;
-	}
-
-	.status-preset-empty {
-		padding: 6px 10px;
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
-	}
-
-	.status-preset-option.active-preset {
-		background: color-mix(in srgb, var(--accent) 12%, transparent);
-	}
-
 	.user-tag {
 		font-size: var(--text-xs);
 		color: var(--text-secondary);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-
-	.custom-status-pill {
-		margin-top: 2px;
-		max-width: 24ch;
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
 	}
 
 	.profile-controls {
@@ -3675,7 +3526,8 @@
 		margin-top: 1.5rem;
 	}
 
-	.setting-group label {
+	.setting-group label,
+	.setting-group .setting-label {
 		display: block;
 		font-weight: 600;
 		color: var(--text-primary);
@@ -3820,21 +3672,6 @@
 		.top-section {
 			padding: 0.75rem 1rem;
 			height: 56px;
-		}
-
-		.resize-handle {
-			display: none;
-		}
-
-		.sidebar-header {
-			padding: 0.5rem 0.75rem;
-			height: auto;
-			min-height: 44px;
-		}
-
-		.sidebar-header h3 {
-			font-size: 0.8rem;
-			letter-spacing: 0.05em;
 		}
 
 		/* Touch-friendly section add button */

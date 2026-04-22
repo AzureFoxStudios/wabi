@@ -74,7 +74,7 @@ fn verify_ingest_auth(ctx: &ReducerContext, provided_key: &str) -> Result<(), St
     }
 }
 
-#[spacetimedb::table(accessor = ingested_event)]
+#[spacetimedb::table(accessor = ingested_event, public)]
 #[derive(Clone)]
 pub struct IngestedEvent {
     #[primary_key]
@@ -86,7 +86,7 @@ pub struct IngestedEvent {
     pub ingested_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_message)]
+#[spacetimedb::table(accessor = state_message, public)]
 #[derive(Clone)]
 pub struct StateMessage {
     #[primary_key]
@@ -100,7 +100,7 @@ pub struct StateMessage {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_channel)]
+#[spacetimedb::table(accessor = state_channel, public)]
 #[derive(Clone)]
 pub struct StateChannel {
     #[primary_key]
@@ -114,7 +114,7 @@ pub struct StateChannel {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_channel_member)]
+#[spacetimedb::table(accessor = state_channel_member, public)]
 #[derive(Clone)]
 pub struct StateChannelMember {
     #[primary_key]
@@ -128,7 +128,7 @@ pub struct StateChannelMember {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_user)]
+#[spacetimedb::table(accessor = state_user, public)]
 #[derive(Clone)]
 pub struct StateUser {
     #[primary_key]
@@ -143,7 +143,7 @@ pub struct StateUser {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_user_meta)]
+#[spacetimedb::table(accessor = state_user_meta, public)]
 #[derive(Clone)]
 pub struct StateUserMeta {
     #[primary_key]
@@ -152,7 +152,7 @@ pub struct StateUserMeta {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_user_username)]
+#[spacetimedb::table(accessor = state_user_username, public)]
 #[derive(Clone)]
 pub struct StateUserUsername {
     #[primary_key]
@@ -161,7 +161,7 @@ pub struct StateUserUsername {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_user_handle)]
+#[spacetimedb::table(accessor = state_user_handle, public)]
 #[derive(Clone)]
 pub struct StateUserHandle {
     #[primary_key]
@@ -170,7 +170,7 @@ pub struct StateUserHandle {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_session)]
+#[spacetimedb::table(accessor = state_session, public)]
 #[derive(Clone)]
 pub struct StateSession {
     #[primary_key]
@@ -183,7 +183,7 @@ pub struct StateSession {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_rbac_assignment)]
+#[spacetimedb::table(accessor = state_rbac_assignment, public)]
 #[derive(Clone)]
 pub struct StateRbacAssignment {
     #[primary_key]
@@ -197,7 +197,7 @@ pub struct StateRbacAssignment {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_role_definition)]
+#[spacetimedb::table(accessor = state_role_definition, public)]
 #[derive(Clone)]
 pub struct StateRoleDefinition {
     #[primary_key]
@@ -213,7 +213,7 @@ pub struct StateRoleDefinition {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_user_settings)]
+#[spacetimedb::table(accessor = state_user_settings, public)]
 #[derive(Clone)]
 pub struct StateUserSettings {
     #[primary_key]
@@ -228,7 +228,7 @@ pub struct StateUserSettings {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_theme_preferences)]
+#[spacetimedb::table(accessor = state_theme_preferences, public)]
 #[derive(Clone)]
 pub struct StateThemePreferences {
     #[primary_key]
@@ -244,7 +244,7 @@ pub struct StateThemePreferences {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_relay)]
+#[spacetimedb::table(accessor = state_relay, public)]
 #[derive(Clone)]
 pub struct StateRelay {
     #[primary_key]
@@ -267,7 +267,7 @@ pub struct StateRelay {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_dictionary_entry)]
+#[spacetimedb::table(accessor = state_dictionary_entry, public)]
 #[derive(Clone)]
 pub struct StateDictionaryEntry {
     #[primary_key]
@@ -285,7 +285,7 @@ pub struct StateDictionaryEntry {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_app_setting)]
+#[spacetimedb::table(accessor = state_app_setting, public)]
 #[derive(Clone)]
 pub struct StateAppSetting {
     #[primary_key]
@@ -296,7 +296,7 @@ pub struct StateAppSetting {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_backend_instance_lease)]
+#[spacetimedb::table(accessor = state_backend_instance_lease, public)]
 #[derive(Clone)]
 pub struct StateBackendInstanceLease {
     #[primary_key]
@@ -314,7 +314,7 @@ pub struct StateBackendInstanceLease {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_socket_lease)]
+#[spacetimedb::table(accessor = state_socket_lease, public)]
 #[derive(Clone)]
 pub struct StateSocketLease {
     #[primary_key]
@@ -328,7 +328,7 @@ pub struct StateSocketLease {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_presence_lease)]
+#[spacetimedb::table(accessor = state_presence_lease, public)]
 #[derive(Clone)]
 pub struct StatePresenceLease {
     #[primary_key]
@@ -345,7 +345,7 @@ pub struct StatePresenceLease {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_payment_intent)]
+#[spacetimedb::table(accessor = state_payment_intent, public)]
 #[derive(Clone)]
 pub struct StatePaymentIntent {
     #[primary_key]
@@ -368,7 +368,7 @@ pub struct StatePaymentIntent {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_payment_event)]
+#[spacetimedb::table(accessor = state_payment_event, public)]
 #[derive(Clone)]
 pub struct StatePaymentEvent {
     #[primary_key]
@@ -383,7 +383,7 @@ pub struct StatePaymentEvent {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_manual_settlement)]
+#[spacetimedb::table(accessor = state_manual_settlement, public)]
 #[derive(Clone)]
 pub struct StateManualSettlement {
     #[primary_key]
@@ -404,7 +404,7 @@ pub struct StateManualSettlement {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_payment_account_link)]
+#[spacetimedb::table(accessor = state_payment_account_link, public)]
 #[derive(Clone)]
 pub struct StatePaymentAccountLink {
     #[primary_key]
@@ -417,7 +417,7 @@ pub struct StatePaymentAccountLink {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_payment_user_block)]
+#[spacetimedb::table(accessor = state_payment_user_block, public)]
 #[derive(Clone)]
 pub struct StatePaymentUserBlock {
     #[primary_key]
@@ -431,7 +431,7 @@ pub struct StatePaymentUserBlock {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_payment_policy)]
+#[spacetimedb::table(accessor = state_payment_policy, public)]
 #[derive(Clone)]
 pub struct StatePaymentPolicy {
     #[primary_key]
@@ -441,7 +441,7 @@ pub struct StatePaymentPolicy {
     pub last_updated_at: Timestamp,
 }
 
-#[spacetimedb::table(accessor = state_user_encryption_key)]
+#[spacetimedb::table(accessor = state_user_encryption_key, public)]
 #[derive(Clone)]
 pub struct StateUserEncryptionKey {
     #[primary_key]

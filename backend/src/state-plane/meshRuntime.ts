@@ -122,7 +122,6 @@ const meshIngressUrl = normalizeMeshIngressUrl(process.env.WABI_MESH_INGRESS_URL
 const meshInstanceUrlTemplate = normalizeOptional(process.env.WABI_MESH_INSTANCE_URL_TEMPLATE) || 'http://{instanceId}:8080';
 const meshSharedToken =
 	normalizeOptional(process.env.WABI_MESH_SHARED_TOKEN) ||
-	normalizeOptional(process.env.STATE_SHADOW_TOKEN) ||
 	normalizeOptional(process.env.WABI_STDB_AUTH_TOKEN);
 const heartbeatIntervalMs = normalizePositiveInt(process.env.WABI_MESH_HEARTBEAT_INTERVAL_MS, 5000, 1000, 60000);
 const leaseTtlMs = normalizePositiveInt(
@@ -137,11 +136,14 @@ const deliveryTimeoutMs = normalizePositiveInt(
 	250,
 	60000
 );
+const meshBridgeProbe =
+	stdbClient.isEnabled()
+		? stdbClient.probeConnectivity(Math.min(stdbClient.getTimeoutMs(), 1500))
+		: { ok: false, reason: 'stdb_client_disabled', latencyMs: null };
 const meshEnabled =
-	statePlaneConfig.stdbReadEnabled &&
-	statePlaneConfig.stdbWriteEnabled &&
 	stdbClient.isEnabled() &&
-	!!instanceId;
+	!!instanceId &&
+	meshBridgeProbe.ok;
 const meshRemoteDeliveryEnabled = meshEnabled && !!meshSharedToken && !!meshInstanceUrlTemplate;
 
 let getConnectionCounts: () => StateMeshConnectionCounts = () => ({
@@ -394,7 +396,12 @@ export function startStateMeshRuntime(): void {
 	runtimeStarted = true;
 	stopping = false;
 	runtimeStartedAt = Date.now();
-	if (!meshEnabled) return;
+	if (!meshEnabled) {
+		if (stdbClient.isEnabled() && meshBridgeProbe.reason) {
+			console.warn(`[StateMesh] Disabled at startup because the STDB bridge is unavailable (${meshBridgeProbe.reason})`);
+		}
+		return;
+	}
 	scheduleHeartbeat();
 }
 

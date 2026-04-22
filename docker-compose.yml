@@ -1,8 +1,8 @@
 services:
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
       target: backend-sqlite
       args:
         - OPENMOJI_VERSION=${OPENMOJI_VERSION:-15.1.0}
@@ -41,24 +41,12 @@ services:
       - LIVEKIT_URL=${LIVEKIT_URL:-}
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-}
-      - STATE_BACKEND_MODE=${STATE_BACKEND_MODE:-}
-      - STATE_STDB_READ_ENABLED=${STATE_STDB_READ_ENABLED:-}
-      - STATE_STDB_WRITE_ENABLED=${STATE_STDB_WRITE_ENABLED:-}
-      - STATE_STDB_PRIMARY_MIRROR_LEGACY_WRITES=${STATE_STDB_PRIMARY_MIRROR_LEGACY_WRITES:-}
-      - STATE_BACKEND_STRICT=${STATE_BACKEND_STRICT:-}
       - STATE_STDB_SUBSCRIPTIONS_ENABLED=${STATE_STDB_SUBSCRIPTIONS_ENABLED:-}
-      - STATE_SHADOW_WARMUP_ENABLED=${STATE_SHADOW_WARMUP_ENABLED:-}
-      - STATE_SHADOW_WARMUP_LIMIT=${STATE_SHADOW_WARMUP_LIMIT:-}
-      - STATE_SHADOW_WRITER_ENABLED=${STATE_SHADOW_WRITER_ENABLED:-}
-      - STATE_SHADOW_SINK=${STATE_SHADOW_SINK:-}
-      - STATE_SHADOW_ENDPOINT=${STATE_SHADOW_ENDPOINT:-}
-      - STATE_SHADOW_TOKEN=${STATE_SHADOW_TOKEN:-}
-      - STATE_SHADOW_SIGNING_SECRET=${STATE_SHADOW_SIGNING_SECRET:-}
-      - STATE_SHADOW_SIGNING_KEY_ID=${STATE_SHADOW_SIGNING_KEY_ID:-}
-      - STATE_SHADOW_COMMAND=${STATE_SHADOW_COMMAND:-}
-      - STATE_SHADOW_COMMAND_TIMEOUT_MS=${STATE_SHADOW_COMMAND_TIMEOUT_MS:-}
-      - STATE_SHADOW_POLL_INTERVAL_MS=${STATE_SHADOW_POLL_INTERVAL_MS:-}
-      - STATE_SHADOW_BATCH_SIZE=${STATE_SHADOW_BATCH_SIZE:-}
+      - STATE_REDUCER_INGRESS_ENABLED=${STATE_REDUCER_INGRESS_ENABLED:-}
+      - STATE_REDUCER_INGRESS_REQUIRE_SIGNATURE=${STATE_REDUCER_INGRESS_REQUIRE_SIGNATURE:-}
+      - STATE_REDUCER_INGRESS_BEARER_TOKEN=${STATE_REDUCER_INGRESS_BEARER_TOKEN:-}
+      - STATE_REDUCER_INGRESS_SIGNING_SECRET=${STATE_REDUCER_INGRESS_SIGNING_SECRET:-}
+      - STATE_REDUCER_INGRESS_SIGNING_KEY_ID=${STATE_REDUCER_INGRESS_SIGNING_KEY_ID:-}
       - WABI_STDB_BRIDGE_SERVER=${WABI_STDB_BRIDGE_SERVER:-}
       - WABI_STDB_BRIDGE_DATABASE=${WABI_STDB_BRIDGE_DATABASE:-}
       - WABI_STDB_BRIDGE_REDUCER=${WABI_STDB_BRIDGE_REDUCER:-}
@@ -72,6 +60,9 @@ services:
       - ./data:/app/data:z
       - ./uploads:/app/uploads:z
       - ./plugins:/app/plugins:z
+    depends_on:
+      stdb-proxy:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "const http=require('http');const req=http.get('http://localhost:8080/health',res=>{process.exit(res.statusCode>=200&&res.statusCode<400?0:1)});req.on('error',()=>process.exit(1));"]
       interval: 10s
@@ -82,8 +73,8 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
       args:
         - VITE_TURN_SERVER=${VITE_TURN_SERVER:-127.0.0.1}
         - VITE_TURN_PORT=${VITE_TURN_PORT:-3478}
@@ -168,17 +159,59 @@ services:
       - backend
     restart: unless-stopped
 
+  spacetimedb:
+    image: clockworklabs/spacetime:latest
+    container_name: wabi-spacetimedb
+    command: ["start", "--listen-addr", "0.0.0.0:3000", "--data-dir", "/var/lib/spacetimedb"]
+    ports:
+      - "${WABI_STDB_SERVER_BIND_IP:-127.0.0.1}:3030:3000"
+    volumes:
+      - ./data/spacetimedb:/var/lib/spacetimedb:z
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/v1/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  stdb-publisher:
+    image: clockworklabs/spacetime:latest
+    container_name: wabi-stdb-publisher
+    depends_on:
+      spacetimedb:
+        condition: service_healthy
+    volumes:
+      - ./spacetimedb/wabi_state_bridge:/module:z
+      - ./data/stdb-publisher-config:/home/spacetime/.config/spacetime:z
+    environment:
+      - WABI_STDB_BRIDGE_DATABASE=${WABI_STDB_BRIDGE_DATABASE:-wabi-state-benchmark-v2}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "[stdb-publisher] Publishing wabi_state_bridge to spacetimedb..."
+        spacetime server add --url http://spacetimedb:3000 wabi-local --default 2>/dev/null || true
+        spacetime publish --module-path /module --server wabi-local "${WABI_STDB_BRIDGE_DATABASE}" --yes
+        echo "[stdb-publisher] Publish complete."
+    restart: "no"
+
   stdb-proxy:
     image: docker.io/library/caddy:2
     container_name: wabi-stdb-proxy
-    profiles:
-      - stdb-proxy
+    depends_on:
+      spacetimedb:
+        condition: service_healthy
     ports:
       - "${WABI_STDB_PROXY_BIND_IP:-127.0.0.1}:3100:80"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - ./Caddyfile.stdb:/etc/caddy/Caddyfile:ro,z
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:80/v1/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   livekit:

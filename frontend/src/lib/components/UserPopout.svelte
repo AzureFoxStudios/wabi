@@ -373,7 +373,11 @@
 		class="popout-container"
 		bind:this={popoutElement}
 		style="top: {position.top}px; left: {position.left}px;"
+		role="dialog"
+		aria-label="User profile"
+		tabindex="-1"
 		on:click|stopPropagation
+		on:keydown|stopPropagation
 	>
 		<!-- Banner/Header Area -->
 		<div class="popout-banner" style="background-color: {user.color || 'var(--accent)'}">

@@ -1,4 +1,6 @@
-export type BoosterRelayMode = 'off' | 'turn-only' | 'turn-sfu' | 'turn-sfu-gateway';
+import type { BoosterRelayMode } from '../../../shared/mediaContracts.js';
+
+export type { BoosterRelayMode } from '../../../shared/mediaContracts.js';
 
 export interface BoosterRelayComponentConfigState {
 	turnConfigured: boolean;

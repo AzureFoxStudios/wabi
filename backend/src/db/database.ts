@@ -42,6 +42,11 @@ if (!fs.existsSync(SQLITE_DB_DIR)) {
 console.log(`[Database] Initializing SQLite at: ${SQLITE_DB_FILE}`);
 const sqliteDb = new Database(SQLITE_DB_FILE);
 sqliteDb.pragma('foreign_keys = ON');
+sqliteDb.pragma('journal_mode = WAL');
+sqliteDb.pragma('synchronous = NORMAL');
+sqliteDb.pragma('busy_timeout = 5000');
+sqliteDb.pragma('wal_autocheckpoint = 1000');
+sqliteDb.pragma('temp_store = MEMORY');
 dbClient = sqliteDb as unknown as DatabaseLike;
 
 function resolveSchemaPath(schemaFileName: 'schema.sql'): string {
@@ -70,11 +75,18 @@ function applySchema(schemaPath: string): void {
 			if (error instanceof Error && error.message.includes('already exists')) {
 				continue;
 			}
-			console.error('[Database] Error executing schema statement:', error);
+			if (error instanceof Error && /no such column/i.test(error.message) && /^\s*create\s+(unique\s+)?index/i.test(statement)) {
+				console.warn('[Database] Skipping CREATE INDEX (missing column on pre-existing table):', error.message);
+				continue;
+			}
+			console.error('[Database] Error executing schema statement:', error, '\nStatement:', statement.slice(0, 200));
 			throw error;
 		}
 	}
 }
+
+applySchema(resolveSchemaPath('schema.sql'));
+console.log('[Database] ✅ SQLite schema applied at module load');
 
 function runSqliteMigrations(): void {
 	if (!dbClient.pragma) return;
@@ -140,28 +152,38 @@ function runSqliteMigrations(): void {
 	addColumnIfMissing('sessions', 'socket_id', 'TEXT');
 	addColumnIfMissing('sessions', 'last_seen', 'INTEGER');
 
-	addColumnIfMissing('user_settings', 'allow_temp_user_messages', 'INTEGER DEFAULT 1');
-	addColumnIfMissing('user_settings', 'business_private_mode', 'INTEGER DEFAULT 0');
-	addColumnIfMissing('user_settings', 'home_experience', "TEXT DEFAULT 'community'");
-	addColumnIfMissing('user_settings', 'require_password_change', 'INTEGER DEFAULT 0');
-	addColumnIfMissing('user_settings', 'payment_preferred_route', 'TEXT');
 	addColumnIfMissing('channels', 'description', "TEXT DEFAULT ''");
 	addColumnIfMissing('channels', 'voice_settings_json', 'TEXT');
 	addColumnIfMissing('channels', 'min_role', "TEXT DEFAULT 'guest'");
 	addColumnIfMissing('channels', 'parent_channel_id', 'TEXT');
 	addColumnIfMissing('channels', 'is_breakout', 'INTEGER DEFAULT 0');
 	addColumnIfMissing('channels', 'breakout_index', 'INTEGER');
-	addColumnIfMissing('channels', 'parent_message_id', 'TEXT');
-	addColumnIfMissing('channels', 'thread_archived', 'INTEGER DEFAULT 0');
-	addColumnIfMissing('channels', 'thread_locked', 'INTEGER DEFAULT 0');
-	addColumnIfMissing('channels', 'thread_auto_archive_minutes', 'INTEGER DEFAULT 1440');
-	addColumnIfMissing('channels', 'thread_last_activity_at', 'INTEGER');
+		addColumnIfMissing('channels', 'parent_message_id', 'TEXT');
+		addColumnIfMissing('channels', 'thread_archived', 'INTEGER DEFAULT 0');
+		addColumnIfMissing('channels', 'thread_locked', 'INTEGER DEFAULT 0');
+		addColumnIfMissing('channels', 'thread_auto_archive_minutes', 'INTEGER DEFAULT 1440');
+		addColumnIfMissing('channels', 'thread_last_activity_at', 'INTEGER');
+		addColumnIfMissing('channels', 'auto_delete_after', 'TEXT');
 
-	try {
-		dbClient.exec('CREATE INDEX IF NOT EXISTS idx_channels_parent ON channels(parent_channel_id)');
-	} catch (e) {
-		console.error('[Database] Migration error creating idx_channels_parent:', e);
-	}
+		try {
+			dbClient.exec('CREATE INDEX IF NOT EXISTS idx_channels_parent ON channels(parent_channel_id)');
+		} catch (e) {
+			console.error('[Database] Migration error creating idx_channels_parent:', e);
+		}
+
+		try {
+			const dmBackfill = dbClient.prepare(`
+				UPDATE channels
+				SET persist_messages = 1,
+				    auto_delete_after = COALESCE(NULLIF(TRIM(auto_delete_after), ''), '24h')
+				WHERE channel_type IN ('dm', 'group')
+			`).run();
+			if ((dmBackfill.changes || 0) > 0) {
+				console.log(`[Database] Backfilled retention defaults for ${dmBackfill.changes} DM/group channels`);
+			}
+		} catch (e) {
+			console.error('[Database] DM/group retention backfill error:', e);
+		}
 
 	addColumnIfMissing('roles', 'display_name', 'TEXT');
 
@@ -202,46 +224,26 @@ function runSqliteMigrations(): void {
 
 	addColumnIfMissing('messages', 'is_encrypted', 'INTEGER DEFAULT 0');
 	addColumnIfMissing('messages', 'encryption_iv', 'TEXT');
-	addColumnIfMissing('messages', 'attachment_encryption_json', 'TEXT');
-	addColumnIfMissing('messages', 'files_json', 'TEXT');
-	addColumnIfMissing('messages', 'entities_json', 'TEXT');
-	addColumnIfMissing('messages', 'attachment_storage_json', 'TEXT');
-	addColumnIfMissing('albums', 'is_featured', 'INTEGER DEFAULT 0');
+		addColumnIfMissing('messages', 'attachment_encryption_json', 'TEXT');
+		addColumnIfMissing('messages', 'files_json', 'TEXT');
+		addColumnIfMissing('messages', 'entities_json', 'TEXT');
+		addColumnIfMissing('messages', 'attachment_storage_json', 'TEXT');
+		addColumnIfMissing('messages', 'expires_at', 'INTEGER');
+	addColumnIfMissing('offline_messages', 'message_payload_json', 'TEXT');
+		addColumnIfMissing('albums', 'is_featured', 'INTEGER DEFAULT 0');
 	addColumnIfMissing('album_items', 'sort_order', 'INTEGER DEFAULT 0');
 
-	try {
-		dbClient.exec('CREATE INDEX IF NOT EXISTS idx_albums_scope_featured ON albums(scope_type, scope_id, is_featured DESC, updated_at DESC)');
-		dbClient.exec('CREATE INDEX IF NOT EXISTS idx_album_items_album_order ON album_items(album_id, sort_order ASC, uploaded_at DESC)');
-		dbClient.exec(`
-			UPDATE album_items
-			SET sort_order = uploaded_at
+		try {
+			dbClient.exec('CREATE INDEX IF NOT EXISTS idx_messages_expires_at ON messages(expires_at) WHERE expires_at IS NOT NULL');
+			dbClient.exec('CREATE INDEX IF NOT EXISTS idx_albums_scope_featured ON albums(scope_type, scope_id, is_featured DESC, updated_at DESC)');
+			dbClient.exec('CREATE INDEX IF NOT EXISTS idx_album_items_album_order ON album_items(album_id, sort_order ASC, uploaded_at DESC)');
+			dbClient.exec(`
+				UPDATE album_items
+				SET sort_order = uploaded_at
 			WHERE sort_order IS NULL OR sort_order <= 0
 		`);
 	} catch (e) {
 		console.error('[Database] Album migration/index error:', e);
-	}
-
-	try {
-		dbClient.exec(`
-			CREATE TABLE IF NOT EXISTS dictionary_entries (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				workspace_id TEXT NOT NULL DEFAULT 'default-workspace',
-				term TEXT NOT NULL,
-				term_normalized TEXT NOT NULL,
-				definition TEXT NOT NULL,
-				language TEXT NOT NULL DEFAULT 'en',
-				created_by_user_id INTEGER,
-				created_by_username TEXT,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL,
-				votes INTEGER DEFAULT 0,
-				UNIQUE(workspace_id, language, term_normalized)
-			)
-		`);
-		dbClient.exec('CREATE INDEX IF NOT EXISTS idx_dictionary_lookup ON dictionary_entries(workspace_id, language, term_normalized)');
-		dbClient.exec('CREATE INDEX IF NOT EXISTS idx_dictionary_recent ON dictionary_entries(workspace_id, updated_at DESC)');
-	} catch (e) {
-		console.error('[Database] Migration error creating dictionary_entries:', e);
 	}
 
 	try {
@@ -316,11 +318,9 @@ function seedDefaultRoles(): void {
 }
 
 export function initializeDatabase(): void {
-	const schemaPath = resolveSchemaPath('schema.sql');
-	applySchema(schemaPath);
-	console.log('[Database] ✅ SQLite schema initialized');
 	runSqliteMigrations();
 	seedDefaultRoles();
+	dbClient.pragma?.('optimize');
 	console.log('[Database] ✅ SQLite migrations complete');
 }
 

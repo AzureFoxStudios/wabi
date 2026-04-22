@@ -246,8 +246,17 @@
             class="asset-item"
             class:selected={selectedAssetId === asset.id}
             style={getAssetStyle(asset)}
+            role="button"
+            tabindex="0"
+            aria-label={`Select asset ${asset.name}`}
             on:pointerdown={(event) => startDrag(event, asset)}
             on:click={() => (selectedAssetId = asset.id)}
+            on:keydown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                selectedAssetId = asset.id;
+              }
+            }}
           >
             {#if asset.kind === 'text'}
               <div class="asset-text">{asset.text || asset.name}</div>

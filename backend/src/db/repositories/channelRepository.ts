@@ -1,5 +1,36 @@
 import db from '../database.js';
 
+const createChannelStmt = db.prepare(`
+	INSERT INTO channels (
+			channel_id, channel_type, name, description, min_role, voice_settings_json, created_at, created_by, persist_messages, auto_delete_after, watch_queue_enabled,
+			is_archived, parent_channel_id, is_breakout, breakout_index, parent_message_id, thread_archived, thread_locked,
+			thread_auto_archive_minutes, thread_last_activity_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+const findChannelByIdStmt = db.prepare('SELECT * FROM channels WHERE channel_id = ? AND is_archived = 0');
+const findChannelsByUserIdStmt = db.prepare(`
+	SELECT c.* FROM channels c
+	INNER JOIN channel_members cm ON c.channel_id = cm.channel_id
+	WHERE cm.user_id = ? AND c.is_archived = 0
+	ORDER BY c.created_at DESC
+`);
+const findDmBetweenStmt = db.prepare(`
+	SELECT * FROM channels
+	WHERE channel_id = ? AND channel_type = 'dm' AND is_archived = 0
+`);
+const getWorkspaceChannelsStmt = db.prepare(`
+	SELECT * FROM channels
+	WHERE channel_type IN ('text', 'voice', 'public', 'thread_public') AND is_archived = 0
+	ORDER BY created_at ASC
+`);
+const archiveChannelStmt = db.prepare('UPDATE channels SET is_archived = 1 WHERE channel_id = ?');
+const normalizeBaseChannelTypeStmt = db.prepare('UPDATE channels SET channel_type = ?, persist_messages = ? WHERE channel_id = ?');
+const deleteChannelStmt = db.prepare('DELETE FROM channels WHERE channel_id = ?');
+const channelExistsStmt = db.prepare('SELECT 1 FROM channels WHERE channel_id = ? AND is_archived = 0');
+const updateChannelAvatarStmt = db.prepare('UPDATE channels SET avatar = ? WHERE channel_id = ?');
+
 export interface DbChannel {
 	channel_id: string;
 	channel_type: 'text' | 'voice' | 'public' | 'dm' | 'group' | 'thread_public' | 'thread_private';
@@ -11,6 +42,7 @@ export interface DbChannel {
 	created_at: number;
 	created_by?: string;
 	persist_messages: number;
+	auto_delete_after?: string | null;
 	is_archived: number;
 	avatar?: string;
 	parent_channel_id?: string | null;
@@ -26,27 +58,19 @@ export interface DbChannel {
 export class ChannelRepository {
 	// Create a new channel
 	create(channel: Omit<DbChannel, 'is_archived'>): DbChannel {
-		const stmt = db.prepare(`
-			INSERT INTO channels (
-				channel_id, channel_type, name, description, min_role, voice_settings_json, created_at, created_by, persist_messages, watch_queue_enabled,
-				is_archived, parent_channel_id, is_breakout, breakout_index, parent_message_id, thread_archived, thread_locked,
-				thread_auto_archive_minutes, thread_last_activity_at
-			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
-		`);
-
-		stmt.run(
+		createChannelStmt.run(
 			channel.channel_id,
 			channel.channel_type,
 			channel.name,
 			channel.description || '',
 			channel.min_role || 'guest',
 			channel.voice_settings_json ?? null,
-			channel.created_at,
-			channel.created_by || null,
-			channel.persist_messages ?? 0,
-			channel.watch_queue_enabled ?? 0,
-			channel.parent_channel_id || null,
+				channel.created_at,
+				channel.created_by || null,
+				channel.persist_messages ?? 0,
+				channel.auto_delete_after ?? null,
+				channel.watch_queue_enabled ?? 0,
+				channel.parent_channel_id || null,
 			channel.is_breakout ?? 0,
 			channel.breakout_index ?? null,
 			channel.parent_message_id || null,
@@ -64,19 +88,12 @@ export class ChannelRepository {
 
 	// Find channel by ID
 	findById(channelId: string): DbChannel | null {
-		const stmt = db.prepare('SELECT * FROM channels WHERE channel_id = ? AND is_archived = 0');
-		return (stmt.get(channelId) as DbChannel) || null;
+		return (findChannelByIdStmt.get(channelId) as DbChannel) || null;
 	}
 
 	// Find all channels for a user (via channel_members)
 	findByUserId(userId: string): DbChannel[] {
-		const stmt = db.prepare(`
-			SELECT c.* FROM channels c
-			INNER JOIN channel_members cm ON c.channel_id = cm.channel_id
-			WHERE cm.user_id = ? AND c.is_archived = 0
-			ORDER BY c.created_at DESC
-		`);
-		return stmt.all(userId) as DbChannel[];
+		return findChannelsByUserIdStmt.all(userId) as DbChannel[];
 	}
 
 	// Find existing DM between two users
@@ -85,27 +102,17 @@ export class ChannelRepository {
 		const memberIds = [userId1, userId2].sort();
 		const dmId = `dm-${memberIds.join('-')}`;
 
-		const stmt = db.prepare(`
-			SELECT * FROM channels
-			WHERE channel_id = ? AND channel_type = 'dm' AND is_archived = 0
-		`);
-		return (stmt.get(dmId) as DbChannel) || null;
+		return (findDmBetweenStmt.get(dmId) as DbChannel) || null;
 	}
 
 	// Get all workspace channels (text/voice plus legacy public)
 	getWorkspaceChannels(): DbChannel[] {
-		const stmt = db.prepare(`
-			SELECT * FROM channels
-			WHERE channel_type IN ('text', 'voice', 'public', 'thread_public') AND is_archived = 0
-			ORDER BY created_at ASC
-		`);
-		return stmt.all() as DbChannel[];
+		return getWorkspaceChannelsStmt.all() as DbChannel[];
 	}
 
 	// Archive a channel (soft delete)
 	archive(channelId: string): void {
-		const stmt = db.prepare('UPDATE channels SET is_archived = 1 WHERE channel_id = ?');
-		stmt.run(channelId);
+		archiveChannelStmt.run(channelId);
 	}
 
 	// Ensure default base channels exist (1 text + 1 voice)
@@ -123,8 +130,7 @@ export class ChannelRepository {
 			console.log('[ChannelRepository] Created default text channel: general');
 		} else if (existing.channel_type !== 'text') {
 			// Canonicalize legacy base channel type to explicit text
-			const stmt = db.prepare('UPDATE channels SET channel_type = ?, persist_messages = ? WHERE channel_id = ?');
-			stmt.run('text', 0, 'general');
+			normalizeBaseChannelTypeStmt.run('text', 0, 'general');
 			console.log(`[ChannelRepository] Normalized base channel type: general (${existing.channel_type} -> text)`);
 		}
 
@@ -141,14 +147,13 @@ export class ChannelRepository {
 			console.log('[ChannelRepository] Created default voice channel: voice');
 		} else if (existingVoice.channel_type !== 'voice') {
 			// Canonicalize legacy/mis-typed base voice channel
-			const stmt = db.prepare('UPDATE channels SET channel_type = ?, persist_messages = ? WHERE channel_id = ?');
-			stmt.run('voice', 0, 'voice');
+			normalizeBaseChannelTypeStmt.run('voice', 0, 'voice');
 			console.log(`[ChannelRepository] Normalized base channel type: voice (${existingVoice.channel_type} -> voice)`);
 		}
 	}
 
 	// Update channel settings
-	updateSettings(channelId: string, settings: { name?: string; persist_messages?: number; description?: string; min_role?: string; voice_settings_json?: string | null; watch_queue_enabled?: number }): void {
+	updateSettings(channelId: string, settings: { name?: string; persist_messages?: number; auto_delete_after?: string | null; description?: string; min_role?: string; voice_settings_json?: string | null; watch_queue_enabled?: number }): void {
 		const updates: string[] = [];
 		const values: any[] = [];
 
@@ -160,6 +165,11 @@ export class ChannelRepository {
 		if (settings.persist_messages !== undefined) {
 			updates.push('persist_messages = ?');
 			values.push(settings.persist_messages);
+		}
+
+		if (settings.auto_delete_after !== undefined) {
+			updates.push('auto_delete_after = ?');
+			values.push(settings.auto_delete_after);
 		}
 
 		if (settings.description !== undefined) {
@@ -191,20 +201,17 @@ export class ChannelRepository {
 
 	// Delete a channel (CASCADE deletes members + messages)
 	delete(channelId: string): void {
-		const stmt = db.prepare('DELETE FROM channels WHERE channel_id = ?');
-		stmt.run(channelId);
+		deleteChannelStmt.run(channelId);
 	}
 
 	// Check if channel exists
 	exists(channelId: string): boolean {
-		const stmt = db.prepare('SELECT 1 FROM channels WHERE channel_id = ? AND is_archived = 0');
-		return stmt.get(channelId) !== undefined;
+		return channelExistsStmt.get(channelId) !== undefined;
 	}
 
 	// Update group avatar
 	updateAvatar(channelId: string, avatarUrl: string | null): void {
-		const stmt = db.prepare('UPDATE channels SET avatar = ? WHERE channel_id = ?');
-		stmt.run(avatarUrl, channelId);
+		updateChannelAvatarStmt.run(avatarUrl, channelId);
 	}
 }
 

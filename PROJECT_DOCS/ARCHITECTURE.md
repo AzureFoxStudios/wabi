@@ -100,15 +100,17 @@ frontend/
 │   │   ├── +page.server.ts       # Server-side authentication
 │   │   └── +error.svelte         # Error boundary
 │   ├── lib/
-│   │   ├── socket.ts             # Socket.IO initialization & stores
+│   │   ├── socket.ts             # Compatibility re-export for socket-manager
+│   │   ├── socket-manager.ts     # Socket.IO state, events, and reactive stores
 │   │   ├── components/
-│   │   │   ├── ChatPanel.svelte   # Message display & input
-│   │   │   ├── UserList.svelte    # Online users sidebar
-│   │   │   ├── DMListPanel.svelte # Direct messages (Discord-style layout)
+│   │   │   ├── Chat.svelte        # Message display & input
+│   │   │   ├── UserListTab.svelte # Online users sidebar
+│   │   │   ├── RightPanel.svelte  # Secondary panel shell
+│   │   │   ├── DMTab.svelte       # Direct messages tab
 │   │   │   ├── DrawingBoard.svelte # Excalidraw integration
 │   │   │   ├── ScreenShare.svelte  # WebRTC screen sharing
-│   │   │   ├── GifPicker.svelte    # Giphy integration
-│   │   │   ├── MessageItem.svelte  # Individual message component
+│   │   │   ├── EmojiPicker.svelte  # Emoji and GIF picker
+│   │   │   ├── MessageList.svelte  # Message list and reactions
 │   │   │   ├── CreateChannelModal.svelte
 │   │   │   ├── CreateDMModal.svelte
 │   │   │   ├── ThemeCustomizer.svelte
@@ -132,8 +134,8 @@ frontend/
 
 ### Key Frontend Systems
 
-#### 1. Socket.IO Connection (socket.ts)
-**Location**: `frontend/src/lib/socket.ts`
+#### 1. Socket.IO Connection (socket-manager.ts)
+**Location**: `frontend/src/lib/socket-manager.ts` (`socket.ts` is a compatibility re-export)
 
 Initializes Socket.IO client and manages reactive stores:
 - `users` - list of connected users with presence status
@@ -195,7 +197,7 @@ Multi-layer theme architecture:
 - `--uniform-font-family/size/weight/style` - uniform font overrides
 
 #### 3. Authentication Flow
-**Location**: `frontend/src/routes/+page.server.ts`, `frontend/src/lib/socket.ts`
+**Location**: `frontend/src/routes/+page.server.ts`, `frontend/src/lib/socket-manager.ts`
 
 ```
 1. User enters username → "Login" button
@@ -208,8 +210,8 @@ Multi-layer theme architecture:
 
 **Token Format**: JWT with payload: `{ userId, sessionId }`
 
-#### 4. Direct Messages (DMListPanel.svelte)
-**Location**: `frontend/src/lib/components/DMListPanel.svelte`
+#### 4. Direct Messages (DMTab.svelte / RightPanel.svelte)
+**Location**: `frontend/src/lib/components/DMTab.svelte`, `frontend/src/lib/components/RightPanel.svelte`
 
 Discord-style layout with:
 - Avatar (36x36px circular) on left
@@ -245,15 +247,7 @@ backend/
 ├── src/
 │   ├── index.ts                   # Main server entry point
 │   ├── routes.ts                  # HTTP route registration
-│   ├── handlers/
-│   │   ├── auth.ts               # Login/logout handlers
-│   │   ├── socket-handlers.ts    # Socket.IO event handlers
-│   │   ├── channel.ts            # Channel creation/management
-│   │   ├── messages.ts           # Message CRUD operations
-│   │   ├── webrtc.ts             # WebRTC signaling relay
-│   │   ├── file.ts               # File upload/deletion
-│   │   ├── emotes.ts             # Custom emotes
-│   │   └── presence.ts           # User status updates
+│   ├── server.ts                 # HTTP server, Socket.IO events, voice/WebRTC signaling
 │   ├── api/
 │   │   └── themeRoutes.ts        # Theme preference endpoints
 │   ├── auth/
@@ -552,15 +546,15 @@ function handleDeleteMessage(messageId) {
 | Feature | Location | Key Files |
 |---------|----------|-----------|
 | **Authentication** | `frontend/src/routes/` | `+page.server.ts`, `+layout.svelte` |
-| **Socket.IO Setup** | `frontend/src/lib/` | `socket.ts` |
-| **Chat Messages** | `frontend/src/lib/components/` | `ChatPanel.svelte`, `MessageItem.svelte` |
-| **User List** | `frontend/src/lib/components/` | `UserList.svelte` |
-| **Direct Messages** | `frontend/src/lib/components/` | `DMListPanel.svelte`, `CreateDMModal.svelte` |
+| **Socket.IO Setup** | `frontend/src/lib/` | `socket-manager.ts`, `socket.ts` |
+| **Chat Messages** | `frontend/src/lib/components/` | `Chat.svelte`, `MessageList.svelte` |
+| **User List** | `frontend/src/lib/components/` | `UserListTab.svelte` |
+| **Direct Messages** | `frontend/src/lib/components/` | `RightPanel.svelte`, `DMTab.svelte`, `CreateDMModal.svelte` |
 | **Theme System** | `frontend/src/lib/theme/` | All files in theme/ |
 | **Uniform Fonts** | `frontend/src/lib/components/` | `UniformFontMode.svelte` |
 | **Drawing/Whiteboard** | `frontend/src/lib/components/` | `DrawingBoard.svelte` |
 | **Screen Share** | `frontend/src/lib/components/` | `ScreenShare.svelte` |
-| **GIF Search** | `frontend/src/lib/components/` | `GifPicker.svelte` |
+| **GIF Search** | `frontend/src/lib/components/` | `EmojiPicker.svelte` |
 | **Global Styles** | `frontend/src/` | `app.css` |
 | **Routing** | `frontend/src/routes/` | `+page.svelte`, `+layout.svelte` |
 | **Version Polling** | `frontend/src/routes/` | `+layout.svelte` (updated store) |
@@ -578,7 +572,7 @@ function handleDeleteMessage(messageId) {
 | **Channel Management** | `backend/src/handlers/` | `channel.ts` |
 | **Message CRUD** | `backend/src/handlers/` | `messages.ts` |
 | **User Presence** | `backend/src/handlers/` | `presence.ts` |
-| **WebRTC Signaling** | `backend/src/handlers/` | `webrtc.ts` |
+| **WebRTC Signaling** | `backend/src/` | `server.ts` |
 | **Emotes System** | `backend/src/handlers/` | `emotes.ts` |
 | **Database (In-Memory)** | `backend/src/db/` | All repositories |
 | **Plugin System** | `backend/src/` | `plugins.ts` |

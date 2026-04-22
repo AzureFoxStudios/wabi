@@ -1,17 +1,9 @@
 import { appPolicyRepository } from '../db/repositories/appPolicyRepository.js';
 import { stdbPaymentIngest, stdbPaymentRows, stdbPaymentsEnabled, parseStdbRowJson } from './stdbRuntime.js';
 import { escapeSqlLiteral } from '../state-plane/stdbSyncClient.js';
+import type { PaymentDonationConfig } from '../../../shared/adminPolicyContracts.js';
 
-export interface PaymentDonationConfig {
-	enabled: boolean;
-	providerPluginId: string | null;
-	methodId: string | null;
-	currency: string;
-	countryCode: string | null;
-	suggestedAmountsMinor: number[];
-	headline: string;
-	description: string;
-}
+export type { PaymentDonationConfig } from '../../../shared/adminPolicyContracts.js';
 
 const PAYMENT_DONATION_STORAGE_KEY = 'policy:payments_donations';
 const DEFAULT_SUGGESTED_AMOUNTS_MINOR = [500, 1000, 2500];

@@ -1,48 +1,5 @@
 import type { BoosterRelayMode } from './boosterRelayMode.js';
-
-export interface RelayPublicCapabilities {
-	fileRelay: boolean;
-	turn: boolean;
-	sfu: boolean;
-	gateway: boolean;
-	selfHosted: boolean;
-	boosterMode: BoosterRelayMode | null;
-}
-
-export interface RelayTurnMetadata {
-	server: string;
-	port: number;
-	useTurns: boolean;
-	realm: string | null;
-}
-
-export interface RelaySfuMetadata {
-	provider: 'livekit';
-	url: string;
-}
-
-export interface ParsedRelayMetadata {
-	kind: 'booster-relay' | 'relay' | 'desktop-helper' | null;
-	source: string | null;
-	status: string | null;
-	reason: string | null;
-	selfHosted: boolean;
-	originManaged: boolean;
-	ownerUserId: number | null;
-	ownerUsername: string | null;
-	helperMode: 'off' | 'files-only' | 'desktop-assist' | null;
-	requestedMode: BoosterRelayMode | null;
-	effectiveMode: BoosterRelayMode | null;
-	components: {
-		turnConfigured: boolean;
-		sfuConfigured: boolean;
-		gatewayConfigured: boolean;
-	} | null;
-	capabilities: RelayPublicCapabilities;
-	turn: RelayTurnMetadata | null;
-	sfu: RelaySfuMetadata | null;
-	updatedAt: string | null;
-}
+import type { ParsedRelayMetadata } from '../../../shared/relayContracts.js';
 
 function asObject(value: unknown): Record<string, unknown> | null {
 	if (!value || Array.isArray(value) || typeof value !== 'object') return null;

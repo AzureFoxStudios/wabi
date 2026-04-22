@@ -10,6 +10,7 @@ import { browser } from '$app/environment';
 import { getServerUrl } from './serverUrl';
 import { getAuthToken } from './authSession';
 import { getPreferredTurnRelayId } from './relaySelector';
+import type { TurnCredentialPayload, TurnCredentialsResponse } from '../../../shared/mediaContracts.js';
 
 interface TurnServerConfig {
 	urls: string[];
@@ -17,17 +18,9 @@ interface TurnServerConfig {
 	credential: string;
 }
 
-interface CachedTurnCredentials {
-	server: string;
+type CachedTurnCredentials = Omit<TurnCredentialPayload, 'port'> & {
 	port: string;
-	useTurns: boolean;
-	username: string;
-	credential: string;
-	expiresAt: number; // unix seconds
-	relayId?: number | null;
-	relayName?: string | null;
-	source?: 'origin' | 'relay';
-}
+};
 
 const TURN_REFRESH_SKEW_SECONDS = 30;
 let cachedTurnCredentials: CachedTurnCredentials | null = null;
@@ -102,7 +95,7 @@ async function fetchEphemeralTurnCredentials(): Promise<void> {
 			return;
 		}
 
-		const payload = await response.json();
+		const payload = (await response.json()) as Partial<TurnCredentialsResponse>;
 		const turn = payload?.turn;
 		if (!turn) return;
 
@@ -120,6 +113,7 @@ async function fetchEphemeralTurnCredentials(): Promise<void> {
 		cachedTurnCredentials = {
 			server,
 			port,
+			realm: typeof turn.realm === 'string' ? turn.realm : null,
 			useTurns,
 			username,
 			credential,

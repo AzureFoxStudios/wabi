@@ -30,6 +30,7 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { _ } from '$lib/i18n';
 	import { addMediaAlbumItem, createMediaAlbum, listMediaAlbums, type MediaAlbumScopeType } from '$lib/api';
+	import { messageRetentionToMs } from '../../../../shared/messageRetention.js';
 	import {
 		applyChatFilter,
 		chatFilterStore,
@@ -319,16 +320,6 @@
 	function formatTimeTooltip(timestamp: number): string {
 		return new Date(timestamp).toLocaleString();
 	}
-	const AUTO_DELETE_DURATION_MS: Record<string, number> = {
-		'1h': 60 * 60 * 1000,
-		'6h': 6 * 60 * 60 * 1000,
-		'12h': 12 * 60 * 60 * 1000,
-		'24h': 24 * 60 * 60 * 1000,
-		'3d': 3 * 24 * 60 * 60 * 1000,
-		'7d': 7 * 24 * 60 * 60 * 1000,
-		'14d': 14 * 24 * 60 * 60 * 1000,
-		'30d': 30 * 24 * 60 * 60 * 1000
-	};
 	const DELETION_COUNTDOWN_VISIBILITY_WINDOW_MS = 60 * 60 * 1000;
 	let nowMs = Date.now();
 	let deletionCountdownMode: DeletionCountdownMode = 'static';
@@ -350,9 +341,7 @@
 
 	function getChannelDeleteDurationMs(channelId: string): number | null {
 		const channel = $channels.find((ch) => ch.id === channelId);
-		const duration = channel?.autoDeleteAfter || null;
-		if (!duration) return null;
-		return AUTO_DELETE_DURATION_MS[duration] ?? null;
+		return messageRetentionToMs(channel?.autoDeleteAfter || null);
 	}
 
 	function getMessageDeletionDeadline(message: Message): number | null {
@@ -4001,6 +3990,10 @@
 		line-height: 1.45;
 		color: var(--text-primary);
 		white-space: pre-wrap;
+		max-height: min(22rem, 55vh);
+		overflow-y: auto;
+		scrollbar-width: thin;
+		scrollbar-color: color-mix(in srgb, var(--accent) 24%, var(--border) 76%) transparent;
 	}
 
 	.directions-card {
@@ -4121,6 +4114,36 @@
 		margin-top: 0.25rem;
 		white-space: pre-wrap;
 		color: var(--text-primary);
+		max-height: min(22rem, 55vh);
+		overflow-y: auto;
+		scrollbar-width: thin;
+		scrollbar-color: color-mix(in srgb, var(--accent) 24%, var(--border) 76%) transparent;
+	}
+
+	.markdown-content {
+		max-height: min(22rem, 55vh);
+		overflow-y: auto;
+		scrollbar-width: thin;
+		scrollbar-color: color-mix(in srgb, var(--accent) 24%, var(--border) 76%) transparent;
+	}
+
+	.markdown-content::-webkit-scrollbar,
+	.translated-text::-webkit-scrollbar,
+	.role-gate-description::-webkit-scrollbar {
+		width: 8px;
+	}
+
+	.markdown-content::-webkit-scrollbar-track,
+	.translated-text::-webkit-scrollbar-track,
+	.role-gate-description::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	.markdown-content::-webkit-scrollbar-thumb,
+	.translated-text::-webkit-scrollbar-thumb,
+	.role-gate-description::-webkit-scrollbar-thumb {
+		background: color-mix(in srgb, var(--accent) 24%, var(--border) 76%);
+		border-radius: 999px;
 	}
 
 	.role-gate-hint {

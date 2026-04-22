@@ -40,17 +40,15 @@ function applyPagination(rows: DbMessage[], options: PaginationOptions): DbMessa
 	return chronological.slice(-limit);
 }
 
+function isVisibleMessage(row: DbMessage, now: number = Date.now()): boolean {
+	return (
+		row.deleted_at == null &&
+		(row.expires_at == null || !Number.isFinite(row.expires_at) || row.expires_at > now)
+	);
+}
+
 export class StdbPrimaryMessageStore extends StdbStoreBase implements InstrumentedMessageStore {
 	private readonly stats = makeBaseStats();
-	private readonly readCanaryPercent = 0;
-	private readonly readCanaryEnabled = false;
-	private readonly shadow = {
-		attempted: 0,
-		succeeded: 0,
-		failed: 0,
-		lastError: null as string | null,
-		lastErrorAt: null as number | null
-	};
 
 	constructor(options: StdbPrimaryStoreOptions = {}) {
 		super(options);
@@ -102,9 +100,6 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 		} catch (error) {
 			this.recordWriteFailure(this.stats, 'create', error);
 		}
-		this.mirrorWrite(this.stats, this.shadow, 'create', () => {
-			messageRepository.create(message);
-		});
 		return created;
 	}
 
@@ -112,7 +107,6 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 		bumpOperation(this.stats, 'create_async');
 		this.stats.writesAttempted += 1;
 		const created: DbMessage = { ...message };
-		let writeError: unknown = null;
 		try {
 			await this.ingestAsync('message', 'create', {
 				messageId: created.message_id,
@@ -123,14 +117,8 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 			});
 			this.stats.writesSucceeded += 1;
 		} catch (error) {
-			writeError = error;
 			this.recordWriteFailure(this.stats, 'create_async', error);
-		}
-		this.mirrorWrite(this.stats, this.shadow, 'create_async', () => {
-			messageRepository.create(message);
-		});
-		if (writeError) {
-			throw writeError;
+			throw error;
 		}
 		return created;
 	}
@@ -139,6 +127,7 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 		bumpOperation(this.stats, 'getByChannel');
 		const limit = Math.max(1, Math.min(500, Math.floor(options.limit || 50)));
 		const channelLiteral = escapeSqlLiteral(channelId);
+		const now = Date.now();
 
 		try {
 			if (options.beforeMessageId) {
@@ -156,7 +145,7 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 					 ORDER BY created_at DESC, message_id DESC
 					 LIMIT ${limit}`
 				);
-				return sortMessagesByCreatedAt(this.parseMessages(rows));
+				return sortMessagesByCreatedAt(this.parseMessages(rows).filter((row) => isVisibleMessage(row, now)));
 			}
 
 			if (options.afterMessageId) {
@@ -174,7 +163,7 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 					 ORDER BY created_at ASC, message_id ASC
 					 LIMIT ${limit}`
 				);
-				return sortMessagesByCreatedAt(this.parseMessages(rows));
+				return sortMessagesByCreatedAt(this.parseMessages(rows).filter((row) => isVisibleMessage(row, now)));
 			}
 
 			const rows = this.client.sqlRows(
@@ -184,20 +173,20 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 				 ORDER BY created_at DESC, message_id DESC
 				 LIMIT ${limit}`
 			);
-			return sortMessagesByCreatedAt(this.parseMessages(rows));
+			return sortMessagesByCreatedAt(this.parseMessages(rows).filter((row) => isVisibleMessage(row, now)));
 		} catch {
-			// ORDER BY failed — load a bounded set and paginate in-memory
 			const fallbackLimit = Math.min(limit * 2, 500);
 			const rows = this.client.sqlRows(
 				`SELECT row_json FROM state_message WHERE channel_id = ${channelLiteral} AND deleted = false LIMIT ${fallbackLimit}`
 			);
-			return applyPagination(this.parseMessages(rows), options);
+			return applyPagination(this.parseMessages(rows).filter((row) => isVisibleMessage(row, now)), options);
 		}
 	}
 
 	findByMessageId(messageId: string): DbMessage | null {
 		bumpOperation(this.stats, 'findByMessageId');
-		return this.loadMessage(messageId, false);
+		const row = this.loadMessage(messageId, false);
+		return row && isVisibleMessage(row) ? row : null;
 	}
 
 	update(messageId: string, updates: Partial<DbMessage>): void {
@@ -216,9 +205,6 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 		} catch (error) {
 			this.recordWriteFailure(this.stats, 'update', error);
 		}
-		this.mirrorWrite(this.stats, this.shadow, 'update', () => {
-			messageRepository.update(messageId, updates);
-		});
 	}
 
 	softDelete(messageId: string): void {
@@ -238,9 +224,6 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 		} catch (error) {
 			this.recordWriteFailure(this.stats, 'softDelete', error);
 		}
-		this.mirrorWrite(this.stats, this.shadow, 'softDelete', () => {
-			messageRepository.softDelete(messageId);
-		});
 	}
 
 	toClientFormat(dbMsg: DbMessage): ClientMessage {
@@ -249,11 +232,11 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 
 	getChannelMessageCount(channelId: string): number {
 		bumpOperation(this.stats, 'getChannelMessageCount');
+		const now = Date.now();
 		const rows = this.client.sqlRows(
-			`SELECT COUNT(*) AS count FROM state_message WHERE channel_id = ${escapeSqlLiteral(channelId)} AND deleted = false`
+			`SELECT row_json FROM state_message WHERE channel_id = ${escapeSqlLiteral(channelId)} AND deleted = false LIMIT 50000`
 		);
-		if (rows.length === 0) return 0;
-		return toNumber(rows[0].count);
+		return this.parseMessages(rows).filter((row) => isVisibleMessage(row, now)).length;
 	}
 
 	updateReactions(messageId: string, reactions: Record<string, string[]>): void {
@@ -262,6 +245,25 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 
 	markEdited(messageId: string, newContent: string): void {
 		this.update(messageId, { content: newContent, entities_json: undefined, is_edited: 1 });
+	}
+
+	purgeExpired(now: number = Date.now()): number {
+		bumpOperation(this.stats, 'purgeExpired');
+		this.stats.writesAttempted += 1;
+		const rows = this.client.sqlRows('SELECT row_json FROM state_message WHERE expires_at IS NOT NULL LIMIT 50000');
+		const candidates = this.parseMessages(rows).filter((message) => {
+			return message.expires_at != null && Number.isFinite(message.expires_at) && message.expires_at <= now;
+		});
+		try {
+			this.ingest('message', 'purgeExpired', {
+				now,
+				messageIds: candidates.map((message) => message.message_id)
+			});
+			this.stats.writesSucceeded += 1;
+		} catch (error) {
+			this.recordWriteFailure(this.stats, 'purgeExpired', error);
+		}
+		return candidates.length;
 	}
 
 	purgeDeleted(olderThanMs: number = 7 * 24 * 60 * 60 * 1000): number {
@@ -279,9 +281,6 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 		} catch (error) {
 			this.recordWriteFailure(this.stats, 'purgeDeleted', error);
 		}
-		this.mirrorWrite(this.stats, this.shadow, 'purgeDeleted', () => {
-			messageRepository.purgeDeleted(olderThanMs);
-		});
 		return candidates.length;
 	}
 
@@ -296,41 +295,18 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 		} catch (error) {
 			this.recordWriteFailure(this.stats, 'clearAll', error);
 		}
-		this.mirrorWrite(this.stats, this.shadow, 'clearAll', () => {
-			messageRepository.clearAll();
-		});
 		return count;
 	}
 
 	getRuntimeStats(): MessageStoreRuntimeStats {
 		return {
 			mode: 'stdb_primary',
-			shadow: {
-				label: this.mirrorLegacyWrites ? 'legacy-mirror' : 'none',
-				writesAttempted: this.shadow.attempted,
-				writesSucceeded: this.shadow.succeeded,
-				writesFailed: this.shadow.failed,
-				lastError: this.shadow.lastError,
-				lastErrorAt: this.shadow.lastErrorAt
-			},
-			parity: {
-				samples: 0,
-				mismatches: 0,
-				lastMismatch: null,
-				lastMismatchAt: null
-			},
-			readSwitch: {
-				enabled: this.readCanaryEnabled,
-				canaryPercent: this.readCanaryPercent,
-				attempts: 0,
-				canaryRouted: 0,
-				shadowServed: 0,
-				fallbacks: 0,
-				shadowErrors: 0,
-				mismatches: 0,
-				lastFallbackReason: null,
-				lastFallbackAt: null
-			},
+			writesAttempted: this.stats.writesAttempted,
+			writesSucceeded: this.stats.writesSucceeded,
+			writesFailed: this.stats.writesFailed,
+			lastError: this.stats.lastError,
+			lastErrorAt: this.stats.lastErrorAt,
+			operations: { ...this.stats.operations },
 			outbox: this.outbox?.getStats() || null
 		};
 	}

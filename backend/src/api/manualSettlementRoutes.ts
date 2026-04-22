@@ -9,6 +9,11 @@ import {
 	type ManualSettlementStatus
 } from '../db/repositories/manualSettlementRepository.js';
 import { notifyManualCashUpdated } from '../payments/realtime.js';
+import {
+	isInvalidJsonBodyError as isJsonParseError,
+	isRequestBodyTooLargeError as isPayloadTooLargeError,
+	readJsonObjectBody
+} from '../utils/requestBodies.js';
 
 const MAX_MANUAL_SETTLEMENT_BODY_BYTES = Math.max(
 	1024,
@@ -17,55 +22,13 @@ const MAX_MANUAL_SETTLEMENT_BODY_BYTES = Math.max(
 
 const DM_CASH_TERMINAL_STATUSES = new Set<ManualSettlementStatus>(['completed', 'canceled', 'disputed']);
 
-function writeJson(res: ServerResponse, status: number, payload: Record<string, any>): void {
+function writeJson(res: ServerResponse, status: number, payload: unknown): void {
 	res.writeHead(status, { 'Content-Type': 'application/json' });
 	res.end(JSON.stringify(payload));
 }
 
-function isPayloadTooLargeError(error: unknown): boolean {
-	return error instanceof Error && error.message.startsWith('payload_too_large:');
-}
-
-function isJsonParseError(error: unknown): boolean {
-	return error instanceof Error && error.message === 'invalid_json';
-}
-
-async function readRequestBuffer(
-	req: IncomingMessage,
-	maxBytes: number = MAX_MANUAL_SETTLEMENT_BODY_BYTES
-): Promise<Buffer> {
-	return await new Promise<Buffer>((resolve, reject) => {
-		const chunks: Buffer[] = [];
-		let total = 0;
-
-		req.on('data', (chunk) => {
-			const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-			total += buffer.length;
-			if (total > maxBytes) {
-				reject(new Error(`payload_too_large:${maxBytes}`));
-				req.destroy();
-				return;
-			}
-			chunks.push(buffer);
-		});
-
-		req.on('end', () => resolve(Buffer.concat(chunks)));
-		req.on('error', reject);
-	});
-}
-
 async function parseJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-	const buffer = await readRequestBuffer(req);
-	if (buffer.length === 0) return {};
-	try {
-		const parsed = JSON.parse(buffer.toString('utf8'));
-		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-			throw new Error('invalid_json');
-		}
-		return parsed as Record<string, unknown>;
-	} catch {
-		throw new Error('invalid_json');
-	}
+	return await readJsonObjectBody(req, MAX_MANUAL_SETTLEMENT_BODY_BYTES);
 }
 
 function clampPositiveInteger(value: unknown, max: number): number | null {

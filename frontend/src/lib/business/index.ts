@@ -3,3 +3,5 @@
 
 export * from './types';
 export * from './store';
+export * from './snapshot';
+export * from './validation';

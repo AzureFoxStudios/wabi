@@ -208,9 +208,7 @@ function resolveCliConfigCandidates(): string[] {
 }
 
 function resolveOperatorAuth(): StdbOperatorAuth {
-	const envToken =
-		String(process.env.WABI_STDB_AUTH_TOKEN || '').trim() ||
-		String(process.env.STATE_SHADOW_TOKEN || '').trim();
+	const envToken = String(process.env.WABI_STDB_AUTH_TOKEN || '').trim();
 	if (envToken) {
 		return {
 			token: envToken,
@@ -470,10 +468,6 @@ const env = {
 	PAYMENTS_ACCESS_ENABLED: 'true',
 	PAYMENTS_ACCESS_ALLOW_GUEST: 'false',
 	PAYMENTS_ACCESS_ALLOWED_ROLES: 'owner,admin,mod,member',
-	STATE_BACKEND_MODE: 'stdb_primary',
-	STATE_STDB_READ_ENABLED: 'true',
-	STATE_STDB_WRITE_ENABLED: 'true',
-	STATE_BACKEND_STRICT: 'true',
 	STATE_STDB_SUBSCRIPTIONS_ENABLED: 'false',
 	WABI_STDB_BRIDGE_SERVER: options.server,
 	WABI_STDB_BRIDGE_DATABASE: options.database,

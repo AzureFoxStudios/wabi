@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import { initSocket, disconnect, dmPanelSignal, retryDecryptLoadedDmMessages } from '$lib/socket';
+	import { initSocket, disconnect, dmPanelSignal, retryDecryptLoadedDmMessages, currentUser } from '$lib/socket';
 	import { requestNotificationPermission } from '$lib/notifications';
 	import Login from '$lib/components/Login.svelte';
 	import MainLayout from '$lib/components/MainLayout.svelte';
@@ -33,6 +33,16 @@
 	import { _ } from '$lib/i18n';
 	import { startDesktopHelperLifecycle, stopDesktopHelperService } from '$lib/desktopHelper';
 	import { startFollowNotificationPoller } from '$lib/followNotifier';
+	import {
+		getLocalWabiAccountKey,
+		getSuggestedLocalWabiImportSourceAccount,
+		hasHandledLocalWabiImportPrompt,
+		markLocalWabiImportPromptHandled
+	} from '$lib/localWabiAccounts';
+	import {
+		applyLocalWabiProfileImport,
+		getLocalWabiProfileImportPreview
+	} from '$lib/localWabiProfileImport';
 
 	// Theme system
 	import { initializeTheme, watchThemeChanges, syncThemeToLocalStorage } from '$lib/theme/initTheme';
@@ -59,6 +69,11 @@
 	let stopFollowNotificationPoller: (() => void) | null = null;
 	let showTempPasswordPrompt = false;
 	let accountSecurityOpenRequest = 0;
+	let pendingPostLoginProfileImportCheck = false;
+	let showProfileImportPrompt = false;
+	let profileImportPromptSourceKey = '';
+	let profileImportPromptTargetKey = '';
+	let profileImportPromptMessage = '';
 
 	function dismissDocumentBootShell(): void {
 		if (bootShellDismissed || typeof window === 'undefined') return;
@@ -152,6 +167,11 @@
 				clearAuthSession();
 				clearStoredIdentity();
 				clearE2EState();
+				pendingPostLoginProfileImportCheck = false;
+				showProfileImportPrompt = false;
+				profileImportPromptSourceKey = '';
+				profileImportPromptTargetKey = '';
+				profileImportPromptMessage = '';
 				authStore.clearAuthError();
 				authResetInFlight = false;
 			});
@@ -249,6 +269,29 @@
 		dmPanelSignal.set(null);
 	}
 
+	$: if (pendingPostLoginProfileImportCheck && $currentUser?.dbUserId) {
+		const targetKey = getLocalWabiAccountKey($currentUser);
+		if (!targetKey) {
+			pendingPostLoginProfileImportCheck = false;
+		} else if (hasHandledLocalWabiImportPrompt(targetKey)) {
+			pendingPostLoginProfileImportCheck = false;
+		} else {
+			const suggestedSource = getSuggestedLocalWabiImportSourceAccount(targetKey);
+			const preview = suggestedSource
+				? getLocalWabiProfileImportPreview(suggestedSource.key, $currentUser)
+				: null;
+			if (preview?.canImport) {
+				profileImportPromptSourceKey = preview.source.key;
+				profileImportPromptTargetKey = preview.targetKey;
+				profileImportPromptMessage =
+					`Import your display name and profile picture from ${preview.sourceLabel}? ` +
+					`If the display name is unavailable on this server, Wabi will still try the picture.`;
+				showProfileImportPrompt = true;
+			}
+			pendingPostLoginProfileImportCheck = false;
+		}
+	}
+
 	async function handleLogin(event: CustomEvent<{ username: string; token?: string; authMethod: 'guest' | 'registered'; homeExperience?: HomeExperienceMode; mustChangePassword?: boolean }>) {
 		const { username, token, authMethod, homeExperience, mustChangePassword } = event.detail;
 		setStoredUsername(username);
@@ -288,6 +331,7 @@
 		}
 
 		showTempPasswordPrompt = mustChangePassword === true;
+		pendingPostLoginProfileImportCheck = isRegistered;
 	}
 
 	function openAccountSecurityFromTempPasswordPrompt() {
@@ -302,8 +346,38 @@
 		clearE2EState();
 		loggedIn = false;
 		showTempPasswordPrompt = false;
+		pendingPostLoginProfileImportCheck = false;
+		showProfileImportPrompt = false;
+		profileImportPromptSourceKey = '';
+		profileImportPromptTargetKey = '';
+		profileImportPromptMessage = '';
 		clearStoredIdentity();
 		clearAuthSession();
+	}
+
+	async function confirmProfileImportPrompt(): Promise<void> {
+		const targetKey = profileImportPromptTargetKey;
+		const sourceKey = profileImportPromptSourceKey;
+		showProfileImportPrompt = false;
+		profileImportPromptSourceKey = '';
+		profileImportPromptTargetKey = '';
+		profileImportPromptMessage = '';
+		markLocalWabiImportPromptHandled(targetKey);
+		const result = await applyLocalWabiProfileImport(sourceKey);
+		if (!result.success) {
+			window.alert(result.errors.join(' ') || 'Profile import did not complete.');
+			return;
+		}
+		const importedSummary = result.importedFields.join(' and ');
+		window.alert(`Imported ${importedSummary}.`);
+	}
+
+	function cancelProfileImportPrompt(): void {
+		markLocalWabiImportPromptHandled(profileImportPromptTargetKey);
+		showProfileImportPrompt = false;
+		profileImportPromptSourceKey = '';
+		profileImportPromptTargetKey = '';
+		profileImportPromptMessage = '';
 	}
 </script>
 
@@ -333,6 +407,16 @@
 			variant="warning"
 			onConfirm={openAccountSecurityFromTempPasswordPrompt}
 			onCancel={() => showTempPasswordPrompt = false}
+		/>
+		<ConfirmDialog
+			isOpen={showProfileImportPrompt}
+			title="Import Profile"
+			message={profileImportPromptMessage}
+			confirmText="Import"
+			cancelText="Later"
+			variant="info"
+			onConfirm={confirmProfileImportPrompt}
+			onCancel={cancelProfileImportPrompt}
 		/>
 	{/if}
 {/if}

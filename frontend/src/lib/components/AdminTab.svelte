@@ -50,6 +50,50 @@
 		enabled: boolean;
 	};
 
+	type ManagedUserRole = 'member' | 'mod' | 'admin';
+
+	function createEmptyFrontendAppMetadata(): FrontendAppMetadataPolicy {
+		return {
+			displayName: null,
+			iconUrl: null,
+			bannerUrl: null,
+			accentColor: null,
+			description: null,
+			launchPageFallbackEnabled: true
+		};
+	}
+
+	function cloneFrontendAppMetadata(
+		metadata: FrontendAppMetadataPolicy
+	): FrontendAppMetadataPolicy {
+		return { ...metadata };
+	}
+
+	function resolveFrontendMetadataAssetUrl(assetUrl: string | null | undefined): string | null {
+		if (!assetUrl) return null;
+		const trimmed = assetUrl.trim();
+		if (!trimmed) return null;
+		try {
+			return new URL(trimmed, getServerUrl()).toString();
+		} catch {
+			return trimmed;
+		}
+	}
+
+	function frontendMetadataMatches(
+		left: FrontendAppMetadataPolicy,
+		right: FrontendAppMetadataPolicy
+	): boolean {
+		return (
+			left.displayName === right.displayName &&
+			left.iconUrl === right.iconUrl &&
+			left.bannerUrl === right.bannerUrl &&
+			left.accentColor === right.accentColor &&
+			left.description === right.description &&
+			left.launchPageFallbackEnabled === right.launchPageFallbackEnabled
+		);
+	}
+
 	let searchQuery = '';
 	let roleDefinitions: RoleDefinition[] = [];
 	let roleLabelDrafts: Record<string, string> = {};
@@ -87,14 +131,8 @@
 		allowGuest: false,
 		allowedRoleNames: ['owner', 'admin', 'mod', 'member']
 	};
-	let frontendAppMetadata: FrontendAppMetadataPolicy = {
-		displayName: null,
-		iconUrl: null,
-		bannerUrl: null,
-		accentColor: null,
-		description: null,
-		launchPageFallbackEnabled: true
-	};
+	let frontendAppMetadata: FrontendAppMetadataPolicy = createEmptyFrontendAppMetadata();
+	let publishedFrontendAppMetadata: FrontendAppMetadataPolicy = createEmptyFrontendAppMetadata();
 	let frontendMetadataLoading = false;
 	let frontendMetadataLoaded = false;
 	let frontendMetadataAttempted = false;
@@ -125,6 +163,13 @@
 	$: canModerate = canManageRoles || $currentUser?.highestRole === 'mod';
 	$: channelRoleOptions = roleDefinitions.filter((role) => role.roleName !== 'owner');
 	$: assignableRoleOptions = roleDefinitions.filter((role) => !['owner', 'guest'].includes(role.roleName));
+	$: manageableUserRoleOptions = (roleDefinitions.filter((role) =>
+		['member', 'mod', 'admin'].includes(role.roleName)
+	).map((role) => role.roleName) as ManagedUserRole[]).length > 0
+		? (roleDefinitions
+			.filter((role) => ['member', 'mod', 'admin'].includes(role.roleName))
+			.map((role) => role.roleName) as ManagedUserRole[])
+		: (['member', 'mod', 'admin'] as ManagedUserRole[]);
 	$: customChannels = $channels.filter((ch) => ch.type === 'text' || ch.type === 'voice' || ch.type === 'public');
 	$: gateChannels = customChannels.filter((ch) => ch.type === 'text' || ch.type === 'public');
 	$: if (!roleGateChannelId && gateChannels.length > 0) roleGateChannelId = gateChannels[0].id;
@@ -168,6 +213,10 @@
 		void refreshPaymentControls();
 	}
 	$: paymentBlockedUserIds = new Set(paymentUserBlocks.map((block) => block.userId));
+	$: frontendMetadataDirty = !frontendMetadataMatches(
+		frontendAppMetadata,
+		publishedFrontendAppMetadata
+	);
 
 	function getRolePriority(roleName?: string): number {
 		if (!roleName) return 0;
@@ -209,20 +258,23 @@
 		layoutStore.showDMsTab();
 	}
 
-	function promoteUser(user: User, role: 'admin' | 'mod') {
-		if (!user.dbUserId) return;
-		assignRole(user.dbUserId, role);
+	function getManagedUserRole(user: User): ManagedUserRole {
+		if (userHasRole(user, 'admin')) return 'admin';
+		if (userHasRole(user, 'mod')) return 'mod';
+		return 'member';
 	}
 
-	function removeRoleFromUser(user: User, role: 'admin' | 'mod') {
-		if (!user.dbUserId) return;
-		removeUserRole(user.dbUserId, role);
-	}
+	function setUserRoleLevel(user: User, nextRole: ManagedUserRole) {
+		if (!canManageTargetUser(user) || !user.dbUserId) return;
+		const currentRole = getManagedUserRole(user);
+		if (currentRole === nextRole) return;
 
-	function resetToMember(user: User) {
-		if (!user.dbUserId) return;
 		removeUserRole(user.dbUserId, 'admin');
 		removeUserRole(user.dbUserId, 'mod');
+
+		if (nextRole === 'admin' || nextRole === 'mod') {
+			assignRole(user.dbUserId, nextRole);
+		}
 	}
 
 	function refreshRoleDrafts() {
@@ -381,7 +433,9 @@
 		frontendMetadataLoading = true;
 		frontendMetadataError = '';
 		try {
-			frontendAppMetadata = await getAdminFrontendAppMetadataPolicy(token);
+			const loadedMetadata = await getAdminFrontendAppMetadataPolicy(token);
+			frontendAppMetadata = cloneFrontendAppMetadata(loadedMetadata);
+			publishedFrontendAppMetadata = cloneFrontendAppMetadata(loadedMetadata);
 			frontendMetadataLoaded = true;
 		} catch (error) {
 			frontendMetadataError = (error as Error).message || 'Failed to load frontend app metadata';
@@ -397,8 +451,10 @@
 		frontendMetadataError = '';
 		frontendMetadataSaveStatus = '';
 		try {
-			frontendAppMetadata = await saveAdminFrontendAppMetadataPolicy(token, frontendAppMetadata);
-			frontendMetadataSaveStatus = 'Saved frontend app metadata.';
+			const savedMetadata = await saveAdminFrontendAppMetadataPolicy(token, frontendAppMetadata);
+			frontendAppMetadata = cloneFrontendAppMetadata(savedMetadata);
+			publishedFrontendAppMetadata = cloneFrontendAppMetadata(savedMetadata);
+			frontendMetadataSaveStatus = 'Published frontend app metadata to the live shell.';
 			refreshSavedServer(resolveServerUrl().url);
 		} catch (error) {
 			frontendMetadataError = (error as Error).message || 'Failed to save frontend app metadata';
@@ -477,13 +533,19 @@
 				};
 			}
 
-			frontendMetadataSaveStatus = `${target === 'icon' ? 'Icon' : 'Banner'} uploaded. Save metadata to publish it in the app shell.`;
+			frontendMetadataSaveStatus = `${target === 'icon' ? 'Icon' : 'Banner'} uploaded to the draft. Save to publish it in the app shell.`;
 		} catch (error) {
 			frontendMetadataError = (error as Error).message || `Failed to upload ${target}.`;
 		} finally {
 			frontendMetadataUploadTarget = null;
 			input.value = '';
 		}
+	}
+
+	function discardFrontendMetadataDraft(): void {
+		frontendAppMetadata = cloneFrontendAppMetadata(publishedFrontendAppMetadata);
+		frontendMetadataError = '';
+		frontendMetadataSaveStatus = 'Discarded draft changes.';
 	}
 
 	function setRolePaymentAllowed(roleName: string, enabled: boolean) {
@@ -973,7 +1035,9 @@
 			<div class="compression-header">
 				<h4>Frontend App Metadata</h4>
 				<div class="compression-actions">
-					<button class="admin-btn" disabled={frontendMetadataLoading} on:click={refreshFrontendMetadata}>Refresh</button>
+					{#if frontendMetadataDirty}
+						<button class="admin-btn" disabled={frontendMetadataSaving} on:click={discardFrontendMetadataDraft}>Discard</button>
+					{/if}
 					<button class="admin-btn" disabled={frontendMetadataSaving} on:click={saveFrontendMetadata}>
 						{frontendMetadataSaving ? 'Saving...' : 'Save'}
 					</button>
@@ -983,6 +1047,14 @@
 			{#if frontendMetadataError}
 				<div class="admin-empty">{frontendMetadataError}</div>
 			{:else}
+				<div class="runtime-hint frontend-metadata-status">
+					{#if frontendMetadataDirty}
+						Preview is showing your unsaved changes. Save to publish them, or discard them.
+					{:else}
+						Preview is showing the current live shell branding.
+					{/if}
+				</div>
+
 				<div class="runtime-form-grid">
 					<label>
 						Display Name
@@ -1046,41 +1118,42 @@
 					>
 						{frontendMetadataUploadTarget === 'banner' ? 'Uploading Banner...' : 'Upload Banner'}
 					</button>
-					<button
-						type="button"
-						class="admin-btn"
-						on:click={() => frontendAppMetadata = { ...frontendAppMetadata, iconUrl: null }}
-					>
-						Clear Icon
-					</button>
-					<button
-						type="button"
-						class="admin-btn"
-						on:click={() => frontendAppMetadata = { ...frontendAppMetadata, bannerUrl: null }}
-					>
-						Clear Banner
-					</button>
 				</div>
 
 				{#if frontendMetadataSaveStatus}
 					<div class="runtime-hint">{frontendMetadataSaveStatus}</div>
 				{/if}
 
-				<div class="frontend-metadata-preview" style:--metadata-accent={frontendAppMetadata.accentColor || '#2dd4bf'}>
-					{#if frontendAppMetadata.bannerUrl}
-						<img src={frontendAppMetadata.bannerUrl} alt={frontendAppMetadata.displayName || 'Server banner'} class="frontend-metadata-preview-banner" />
-					{/if}
-					<div class="frontend-metadata-preview-copy">
-						<div class="frontend-metadata-preview-avatar">
-							{#if frontendAppMetadata.iconUrl}
-								<img src={frontendAppMetadata.iconUrl} alt={frontendAppMetadata.displayName || 'Server icon'} />
-							{:else}
-								<span>{(frontendAppMetadata.displayName || 'W').charAt(0).toUpperCase()}</span>
-							{/if}
-						</div>
-						<div>
-							<strong>{frontendAppMetadata.displayName || 'Client display name preview'}</strong>
-							<span>{frontendAppMetadata.description || 'This controls what the Wabi frontend shows in the rail, header, and switcher.'}</span>
+				<div class="frontend-metadata-preview-shell">
+					<div class="frontend-metadata-preview-label">
+						<strong>Preview</strong>
+						<span>
+							{frontendMetadataDirty
+								? 'This is what will publish when you save.'
+								: 'This is what the shell is showing right now.'}
+						</span>
+					</div>
+
+					<div class="frontend-metadata-preview" style:--metadata-accent={frontendAppMetadata.accentColor || '#2dd4bf'}>
+						{#if resolveFrontendMetadataAssetUrl(frontendAppMetadata.bannerUrl)}
+							<img
+								src={resolveFrontendMetadataAssetUrl(frontendAppMetadata.bannerUrl) || undefined}
+								alt={frontendAppMetadata.displayName || 'Server banner'}
+								class="frontend-metadata-preview-banner"
+							/>
+						{/if}
+						<div class="frontend-metadata-preview-copy">
+							<div class="frontend-metadata-preview-avatar">
+								{#if resolveFrontendMetadataAssetUrl(frontendAppMetadata.iconUrl)}
+									<img src={resolveFrontendMetadataAssetUrl(frontendAppMetadata.iconUrl) || undefined} alt={frontendAppMetadata.displayName || 'Server icon'} />
+								{:else}
+									<span>{(frontendAppMetadata.displayName || 'W').charAt(0).toUpperCase()}</span>
+								{/if}
+							</div>
+							<div>
+								<strong>{frontendAppMetadata.displayName || 'Client display name preview'}</strong>
+								<span>{frontendAppMetadata.description || 'This controls what the Wabi frontend shows in the rail, header, and switcher.'}</span>
+							</div>
 						</div>
 					</div>
 				</div>
@@ -1112,54 +1185,40 @@
 						{/if}
 					</div>
 					<div class="admin-actions">
-						<button class="admin-btn" on:click={() => handleMessage(user)}>{$_('admin.actions.message')}</button>
+						<button class="admin-icon-btn" on:click={() => handleMessage(user)} title={$_('admin.actions.message')} aria-label={$_('admin.actions.message')}>
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+							</svg>
+						</button>
 						{#if canManageRoles}
+							<label class="admin-role-control">
+								<span>Role</span>
+								<select
+									class="admin-select admin-user-role-select"
+									value={getManagedUserRole(user)}
+									disabled={!canManageTargetUser(user)}
+									on:change={(event) =>
+										setUserRoleLevel(
+											user,
+											(event.currentTarget as HTMLSelectElement).value as ManagedUserRole
+										)}
+								>
+									{#each manageableUserRoleOptions as roleName (roleName)}
+										<option value={roleName}>{getRoleLabel(roleName)}</option>
+									{/each}
+								</select>
+							</label>
 							<button
-								class="admin-btn"
-								disabled={!canManageTargetUser(user) || userHasRole(user, 'admin')}
-								on:click={() => promoteUser(user, 'admin')}
-							>
-								{$_('admin.actions.make_admin')}
-							</button>
-							<button
-								class="admin-btn"
-								disabled={!canManageTargetUser(user) || !userHasRole(user, 'admin')}
-								on:click={() => removeRoleFromUser(user, 'admin')}
-							>
-								{$_('admin.actions.remove_admin')}
-							</button>
-							<button
-								class="admin-btn"
-								disabled={!canManageTargetUser(user) || userHasRole(user, 'mod')}
-								on:click={() => promoteUser(user, 'mod')}
-							>
-								{$_('admin.actions.make_mod')}
-							</button>
-							<button
-								class="admin-btn"
-								disabled={!canManageTargetUser(user) || !userHasRole(user, 'mod')}
-								on:click={() => removeRoleFromUser(user, 'mod')}
-							>
-								{$_('admin.actions.remove_mod')}
-							</button>
-							<button
-								class="admin-btn danger"
-								disabled={!canManageTargetUser(user) || (!userHasRole(user, 'admin') && !userHasRole(user, 'mod'))}
-								on:click={() => resetToMember(user)}
-							>
-								{$_('admin.actions.reset')}
-							</button>
-							<button
-								class="admin-btn warning"
+								class="admin-btn warning admin-pay-toggle"
 								disabled={!canManageTargetUser(user) || !user.dbUserId || paymentBlockBusyUserId === user.dbUserId}
 								on:click={() => toggleUserPaymentBlock(user)}
 							>
 								{#if paymentBlockBusyUserId === user.dbUserId}
 									Updating...
 								{:else if isUserPaymentBlocked(user)}
-									Unblock Pay
+									Enable Pay
 								{:else}
-									Block Pay
+									Disable Pay
 								{/if}
 							</button>
 						{/if}
@@ -1206,12 +1265,25 @@
 	.runtime-form-grid input[type='text'] { height: 28px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); border-radius: 7px; padding: 0 0.45rem; font-size: 0.76rem; }
 	.runtime-checkbox { grid-column: 1 / -1; flex-direction: row !important; align-items: center; gap: 0.45rem !important; }
 	.runtime-hint { font-size: 0.72rem; color: var(--text-secondary); }
+	.frontend-metadata-status { margin-bottom: 0.5rem; }
 	.frontend-metadata-wide { grid-column: 1 / -1; }
 	.frontend-metadata-manual { display: grid; gap: 0.45rem; }
 	.frontend-metadata-manual summary { cursor: pointer; font-size: 0.72rem; color: var(--text-secondary); }
 	.frontend-metadata-manual-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.45rem; }
 	.frontend-metadata-upload-row { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 	.frontend-metadata-hidden-input { display: none; }
+	.frontend-metadata-preview-shell { display: grid; gap: 0.55rem; }
+	.frontend-metadata-preview-label {
+		display: flex;
+		flex-direction: column;
+		gap: 0.14rem;
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+	}
+	.frontend-metadata-preview-label strong {
+		font-size: 0.75rem;
+		color: var(--text-primary);
+	}
 	.frontend-metadata-preview {
 		position: relative;
 		min-height: 148px;
@@ -1236,7 +1308,7 @@
 		gap: 0.75rem;
 		padding: 1.1rem;
 		min-height: 148px;
-		background: linear-gradient(180deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.42));
+		background: linear-gradient(180deg, rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.36));
 	}
 	.frontend-metadata-preview-avatar {
 		width: 52px;
@@ -1283,17 +1355,49 @@
 	.rule-checkbox { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.74rem; color: var(--text-secondary); }
 	.payment-role-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.35rem; }
 	.payment-role-toggle { border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem 0.45rem; background: var(--bg-tertiary); }
-	.admin-user-meta { display: inline-flex; align-items: center; gap: 0.35rem; }
+	.admin-user-meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; min-width: 0; }
 	.admin-user-name { font-size: 0.84rem; font-weight: 600; color: var(--text-primary); }
 	.admin-role-badge, .admin-guest-badge { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.12rem 0.35rem; border-radius: 999px; border: 1px solid var(--border); color: var(--text-secondary); }
 	.admin-guest-badge { background: rgba(255, 193, 7, 0.12); border-color: rgba(255, 193, 7, 0.35); }
 	.admin-payment-block-badge { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.12rem 0.35rem; border-radius: 999px; border: 1px solid rgba(244, 67, 54, 0.45); color: #ff8a80; background: rgba(244, 67, 54, 0.12); }
-	.admin-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+	.admin-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 0.45rem; }
 	.admin-btn { height: 26px; padding: 0 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); color: var(--text-secondary); font-size: 0.72rem; font-weight: 600; cursor: pointer; }
 	.admin-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
 	.admin-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 	.admin-btn.danger:hover:not(:disabled) { color: #f44336; border-color: rgba(244, 67, 54, 0.4); background: rgba(244, 67, 54, 0.08); }
 	.admin-btn.warning:hover:not(:disabled) { color: #ffb74d; border-color: rgba(255, 183, 77, 0.45); background: rgba(255, 183, 77, 0.12); }
+	.admin-icon-btn {
+		width: 28px;
+		height: 28px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border: none;
+		border-radius: 8px;
+		background: transparent;
+		color: var(--text-secondary);
+		cursor: pointer;
+		flex-shrink: 0;
+		padding: 0;
+	}
+	.admin-icon-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--text-primary); }
+	.admin-icon-btn svg { width: 14px; height: 14px; display: block; }
+	.admin-role-control {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-size: 0.68rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		color: var(--text-secondary);
+	}
+	.admin-user-role-select {
+		min-width: 112px;
+	}
+	.admin-pay-toggle {
+		min-width: 96px;
+	}
 	.admin-search-wrap { padding: 0.1rem 0; }
 	.admin-search { width: 100%; height: 30px; padding: 0 0.55rem; }
 	.admin-empty { padding: 0.8rem; text-align: center; color: var(--text-secondary); font-size: 0.78rem; }
@@ -1301,5 +1405,7 @@
 		.admin-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 		.runtime-form-grid { grid-template-columns: 1fr; }
 		.payment-role-grid { grid-template-columns: 1fr; }
+		.admin-user-item { align-items: flex-start; }
+		.admin-actions { width: 100%; justify-content: flex-start; }
 	}
 </style>

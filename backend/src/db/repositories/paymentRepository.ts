@@ -2,19 +2,9 @@ import { randomUUID } from 'crypto';
 import { DEFAULT_WORKSPACE_ID } from '../../constants.js';
 import { stdbPaymentIngest, stdbPaymentRows, stdbPaymentsEnabled, parseStdbRowJson, lookupStdbUsername } from '../../payments/stdbRuntime.js';
 import { escapeSqlLiteral } from '../../state-plane/stdbSyncClient.js';
+import type { PaymentCheckoutMode, PaymentIntentStatus } from '../../../../shared/paymentContracts.js';
 import db from '../database.js';
-
-export type PaymentIntentStatus =
-  | 'draft'
-  | 'pending'
-  | 'succeeded'
-  | 'failed'
-  | 'expired'
-  | 'refunded'
-  | 'disputed'
-  | 'canceled';
-
-export type PaymentCheckoutMode = 'qr' | 'payment_link' | 'app_switch' | 'redirect' | 'tap_to_pay';
+export type { PaymentCheckoutMode, PaymentIntentStatus } from '../../../../shared/paymentContracts.js';
 
 export interface PaymentIntentRow {
   id: number;

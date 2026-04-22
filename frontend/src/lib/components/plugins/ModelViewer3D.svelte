@@ -959,7 +959,8 @@
     {/if}
 
     {#if hasStarted && !hideUi}
-    <div class="overlay-controls overlay-left" on:click|stopPropagation>
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions: this wrapper only stops control clicks from reaching the viewport -->
+    <div class="overlay-controls overlay-left" role="group" on:click|stopPropagation on:keydown|stopPropagation>
       <button
         type="button"
         class="view-btn"
@@ -987,7 +988,8 @@
       <!-- Wireframe overlay mode intentionally disabled for now. -->
     </div>
 
-    <div class="overlay-controls overlay-right" on:click|stopPropagation>
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions: this wrapper only stops control clicks from reaching the viewport -->
+    <div class="overlay-controls overlay-right" role="group" on:click|stopPropagation on:keydown|stopPropagation>
       <button
         type="button"
         class="settings-fab"
@@ -1060,7 +1062,8 @@
     </div>
     {/if}
     {#if hasStarted && hideUi}
-      <div class="overlay-controls overlay-right minimal-toggle" on:click|stopPropagation>
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions: this wrapper only stops control clicks from reaching the viewport -->
+      <div class="overlay-controls overlay-right minimal-toggle" role="group" on:click|stopPropagation on:keydown|stopPropagation>
         <button
           type="button"
           class="settings-fab"

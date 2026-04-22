@@ -1,5 +1,23 @@
 import db from '../database.js';
 
+const insertChannelMemberStmt = db.prepare(`
+	INSERT OR IGNORE INTO channel_members (channel_id, user_id, username, registered_user_id, joined_at, role)
+	VALUES (?, ?, ?, ?, ?, ?)
+`);
+
+const insertChannelMembersTxn = db.transaction((members: Omit<DbChannelMember, 'id'>[]) => {
+	for (const member of members) {
+		insertChannelMemberStmt.run(
+			member.channel_id,
+			member.user_id,
+			member.username,
+			member.registered_user_id || null,
+			member.joined_at,
+			member.role || 'member'
+		);
+	}
+});
+
 export interface DbChannelMember {
 	id?: number;
 	channel_id: string;
@@ -13,12 +31,7 @@ export interface DbChannelMember {
 export class ChannelMemberRepository {
 	// Add a member to a channel
 	addMember(member: Omit<DbChannelMember, 'id'>): DbChannelMember {
-		const stmt = db.prepare(`
-			INSERT OR IGNORE INTO channel_members (channel_id, user_id, username, registered_user_id, joined_at, role)
-			VALUES (?, ?, ?, ?, ?, ?)
-		`);
-
-		const info = stmt.run(
+		const info = insertChannelMemberStmt.run(
 			member.channel_id,
 			member.user_id,
 			member.username,
@@ -105,21 +118,8 @@ export class ChannelMemberRepository {
 
 	// Bulk add members (for group creation)
 	addMembers(members: Omit<DbChannelMember, 'id'>[]): void {
-		const stmt = db.prepare(`
-			INSERT OR IGNORE INTO channel_members (channel_id, user_id, username, registered_user_id, joined_at, role)
-			VALUES (?, ?, ?, ?, ?, ?)
-		`);
-
-		for (const member of members) {
-			stmt.run(
-				member.channel_id,
-				member.user_id,
-				member.username,
-				member.registered_user_id || null,
-				member.joined_at,
-				member.role || 'member'
-			);
-		}
+		if (members.length === 0) return;
+		insertChannelMembersTxn(members);
 	}
 }
 

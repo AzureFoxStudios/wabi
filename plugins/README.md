@@ -119,13 +119,13 @@ The `ctx` object provides:
 {
   io: Server,
   httpServer: HttpServer,
-  channels: Map<string, any>,
-  users: Map<string, any>,
-  channelMessages: Map<...>,
+  channels: Map<string, PluginChannel>,
+  users: Map<string, PluginUser>,
+  channelMessages: Map<string, PluginChannelMessage[]>,
   storage: PluginStorage,
   logger: PluginLogger,
-  emit: (event, data) => void,
-  emitToChannel: (...) => void
+  emit: (event, data: JsonValue | Buffer) => void,
+  emitToChannel: (channelId, event, data: JsonValue | Buffer) => void
 }
 ```
 
@@ -176,7 +176,7 @@ const plugin: BackendPlugin = {
 
 The plugin API surface provided to route handlers includes:
 - `req.query`, `req.params`, `req.path`, `req.headers`, `req.method`
-- `await req.json()`, `await req.text()`, `await req.buffer()`
+- `await req.json<T>()`, `await req.text()`, `await req.buffer()`
 - `res.status(code).json(payload)`, `res.send(payload)`, `res.set(name, value)`, `res.end()`
 
 Request body size for plugin routes is capped by `PLUGIN_ROUTE_MAX_BODY_BYTES` (default: `2097152`).

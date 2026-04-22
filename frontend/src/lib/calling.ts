@@ -3,7 +3,14 @@ import type { Socket } from 'socket.io-client';
 import { Room, RoomEvent, Track } from 'livekit-client';
 
 // LiveKit token refresh helpers (M3)
+const LIVEKIT_TOKEN_REFRESH_BUFFER_MS = 60_000;
+const LIVEKIT_TOKEN_REFRESH_BASE_RETRY_MS = 3_000;
+const LIVEKIT_TOKEN_REFRESH_MAX_RETRY_MS = 30_000;
+const LIVEKIT_TOKEN_REFRESH_MAX_RETRIES = 3;
+
 let _livekitRefreshTimers = new Map<string, number>();
+let _livekitRefreshRetryCounts = new Map<string, number>();
+let _livekitRefreshInFlight = new Set<string>();
 
 function decodeJwtExp(token: string): number | null {
   try {
@@ -21,20 +28,54 @@ function decodeJwtExp(token: string): number | null {
 }
 
 function scheduleLivekitTokenRefresh(channelId: string, displayName: string, token: string) {
+  if (typeof window === 'undefined') return;
   const exp = decodeJwtExp(token);
   if (!exp) return;
-  const delay = Math.max(0, exp - Date.now() - 60_000); // refresh 60s before expiry
-  const t = window.setTimeout(async () => {
-    // attempt a graceful refresh by reconnecting
-    await refreshLivekitToken(channelId, displayName);
+  cancelLivekitTokenRefresh(channelId);
+  const delay = Math.max(0, exp - Date.now() - LIVEKIT_TOKEN_REFRESH_BUFFER_MS);
+  const t = window.setTimeout(() => {
+    void attemptLivekitTokenRefresh(channelId, displayName);
   }, delay);
   _livekitRefreshTimers.set(channelId, t);
 }
 
+async function attemptLivekitTokenRefresh(channelId: string, displayName: string): Promise<void> {
+  if (typeof window === 'undefined') return;
+  if (_livekitRefreshInFlight.has(channelId)) return;
+
+  _livekitRefreshInFlight.add(channelId);
+  try {
+    await refreshLivekitToken(channelId, displayName);
+    _livekitRefreshRetryCounts.delete(channelId);
+  } catch (error) {
+    const activeVoiceChannelId = get(activeVoiceChannel)?.id;
+    const shouldRetry = activeVoiceChannelId === channelId;
+    const nextAttempt = (_livekitRefreshRetryCounts.get(channelId) ?? 0) + 1;
+
+    if (shouldRetry && nextAttempt <= LIVEKIT_TOKEN_REFRESH_MAX_RETRIES) {
+      _livekitRefreshRetryCounts.set(channelId, nextAttempt);
+      const retryDelay = Math.min(
+        LIVEKIT_TOKEN_REFRESH_MAX_RETRY_MS,
+        LIVEKIT_TOKEN_REFRESH_BASE_RETRY_MS * (2 ** (nextAttempt - 1))
+      );
+      const retryTimer = window.setTimeout(() => {
+        void attemptLivekitTokenRefresh(channelId, displayName);
+      }, retryDelay);
+      _livekitRefreshTimers.set(channelId, retryTimer);
+      console.warn(`[Calling] LiveKit token refresh failed for ${channelId}; retrying in ${retryDelay}ms`, error);
+    } else {
+      _livekitRefreshRetryCounts.delete(channelId);
+      console.error(`[Calling] LiveKit token refresh exhausted for ${channelId}`, error);
+    }
+  } finally {
+    _livekitRefreshInFlight.delete(channelId);
+  }
+}
+
 async function refreshLivekitToken(channelId: string, displayName: string) {
-  // best-effort: disconnect and reconnect which will fetch a fresh token
+  if (get(activeVoiceChannel)?.id !== channelId) return;
   if (livekitRoom && livekitChannelId === channelId) {
-    await disconnectLivekitSfu();
+    await disconnectLivekitSfu({ preserveCallState: true });
   }
   await connectLivekitSfu(channelId, displayName);
 }
@@ -43,8 +84,9 @@ function cancelLivekitTokenRefresh(channelId: string) {
   const t = _livekitRefreshTimers.get(channelId);
   if (t != null) {
     window.clearTimeout(t);
-    _livekitRefreshTimers.delete(channelId);
   }
+  _livekitRefreshTimers.delete(channelId);
+  _livekitRefreshRetryCounts.delete(channelId);
 }
 import { buildRTCConfig, prefetchTurnCredentials } from './turnConfig';
 import { playCallActionSound } from './callSounds';
@@ -94,6 +136,7 @@ export interface Call {
 	isVideoEnabled: boolean;
 	isAudioEnabled: boolean;
 	isSpeaking: boolean;
+	sfu?: boolean;
 }
 
 export interface IncomingCall {
@@ -1719,8 +1762,6 @@ function cleanupPeerConnection(key: string): void {
 		stopCallDiagnosticsPolling('idle');
 	}
   syncSpatialAudioGraph();
-  // Cancel any pending token refresh for the current channel if any
-  if (livekitChannelId) cancelLivekitTokenRefresh(livekitChannelId);
 }
 
 function rememberVoiceParticipantLabel(userId: string, username?: string | null): void {
@@ -2458,31 +2499,46 @@ function removeLivekitTrack(identity: string, source: Track.Source): void {
 	rebuildLivekitRemoteStores();
 }
 
-async function disconnectLivekitSfu(): Promise<void> {
-	if (!livekitRoom) {
-		sfuMediaActive.set(false);
-		livekitChannelId = null;
-		livekitParticipantMedia.clear();
-		return;
+async function disconnectLivekitSfu(options: { preserveCallState?: boolean } = {}): Promise<void> {
+	const { preserveCallState = false } = options;
+	const channelId = livekitChannelId;
+	if (channelId) {
+		cancelLivekitTokenRefresh(channelId);
 	}
-	try {
-		await livekitRoom.disconnect();
-	} catch {
-		// no-op
-	}
+	const room = livekitRoom;
 	livekitRoom = null;
 	livekitChannelId = null;
 	livekitParticipantMedia.clear();
-	// Only clear SFU-related call state; preserve P2P calls
-	activeCalls.update((calls) => calls.filter(call => !call.sfu));
-	screenShares.set([]);
+	if (!room) {
+		sfuMediaActive.set(false);
+		return;
+	}
+	try {
+		await room.disconnect();
+	} catch {
+		// no-op
+	}
+	if (!preserveCallState) {
+		// Only clear SFU-related call state; preserve P2P calls.
+		activeCalls.update((calls) => calls.filter(call => !call.sfu));
+		screenShares.set([]);
+	}
 	sfuMediaActive.set(false);
-	connectionState.set('idle');
-	callTransportState.update((state) => ({
-		...state,
-		activeTransport: 'p2p',
-		reason: state.reason === 'livekit_connected' ? 'livekit_disconnected' : state.reason
-	}));
+	connectionState.set(preserveCallState ? 'connecting' : 'idle');
+	callTransportState.update((state) => {
+		if (preserveCallState) {
+			return {
+				...state,
+				reason: state.reason === 'livekit_connected' ? 'livekit_refreshing' : state.reason
+			};
+		}
+
+		return {
+			...state,
+			activeTransport: 'p2p',
+			reason: state.reason === 'livekit_connected' ? 'livekit_disconnected' : state.reason
+		};
+	});
 	syncSpatialAudioGraph();
 }
 
@@ -2490,8 +2546,6 @@ async function connectLivekitSfu(channelId: string, localDisplayName: string): P
   if (livekitRoom && livekitChannelId === channelId && get(sfuMediaActive)) {
 		return;
 	}
-  // Cancel any pending token refresh for this channel
-  if (livekitChannelId) cancelLivekitTokenRefresh(livekitChannelId);
   await disconnectLivekitSfu();
   const tokenResponse = await createLivekitAccessToken(channelId, localDisplayName);
 	console.log(
@@ -2523,16 +2577,14 @@ async function connectLivekitSfu(channelId: string, localDisplayName: string): P
 		}
 	});
 	room.on(RoomEvent.Disconnected, () => {
-		void disconnectLivekitSfu();
+		if (livekitRoom === room) {
+			void disconnectLivekitSfu();
+		}
 	});
 	connectionState.set('connecting');
   await room.connect(tokenResponse.url, tokenResponse.token, {
       autoSubscribe: true
   });
-  if (tokenResponse?.token) {
-    scheduleLivekitTokenRefresh(channelId, localDisplayName, tokenResponse.token);
-  }
-  // Schedule a token refresh if possible
   if (tokenResponse?.token) {
     scheduleLivekitTokenRefresh(channelId, localDisplayName, tokenResponse.token);
   }
@@ -3741,45 +3793,4 @@ export function updateCallUsername(userId: string, username: string) {
 		});
 	});
 	syncSpatialAudioGraph();
-}
-// LiveKit token refresh scaffolding and wiring (M3)
-let _livekitRefreshTimers = new Map<string, number>();
-
-function decodeJwtExp(token: string): number | null {
-  try {
-    const parts = token.split('.');
-    if (parts.length < 2) return null;
-    const payload = JSON.parse(atob(parts[1]));
-    if (typeof payload?.exp === 'number') return payload.exp * 1000;
-  } catch {
-    // ignore
-  }
-  return null;
-}
-
-export function scheduleLivekitTokenRefresh(channelId: string, displayName: string, token: string) {
-  const exp = decodeJwtExp(token);
-  if (!exp) return;
-  const delay = Math.max(0, exp - Date.now() - 60000); // 60s before expiry
-  const t = window.setTimeout(async () => {
-    try { await refreshLivekitToken(channelId, displayName); } catch {
-      // swallow; retry logic can be added later
-    }
-  }, delay);
-  _livekitRefreshTimers.set(channelId, t);
-}
-
-async function refreshLivekitToken(channelId: string, displayName: string) {
-  // If SFU is active on this channel, tear down and reconnect to get a fresh token
-  if (livekitRoom && livekitChannelId === channelId) {
-    await disconnectLivekitSfu();
-  }
-  // Recreate the SFU session with a fresh token path (connectLivekitSfu will request new token from server)
-  await connectLivekitSfu(channelId, displayName);
-}
-
-export function cancelLivekitTokenRefresh(channelId: string) {
-  const t = _livekitRefreshTimers.get(channelId);
-  if (t != null) window.clearTimeout(t);
-  _livekitRefreshTimers.delete(channelId);
 }

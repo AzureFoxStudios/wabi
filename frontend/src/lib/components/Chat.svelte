@@ -15,6 +15,7 @@
 		currentUser,
 		emojis,
 		users,
+		serverMembers,
 		dmPanelSignal,
 		createDM,
 		getDMChannelIdForUser,
@@ -37,7 +38,6 @@
 	import type { Resource } from '$lib/business/types';
 	import { pinChannel, unpinChannel } from '$lib/socket';
 	import MessageList from './MessageList.svelte';
-	import ChannelQuickTabs from './ChannelQuickTabs.svelte';
 	import PinnedMessages from './PinnedMessages.svelte';
 	import CommandPalette from './CommandPalette.svelte';
 	import AudioRecorder from './AudioRecorder.svelte';
@@ -81,6 +81,7 @@
 	} from '$lib/video/videoCompressionSettings';
 	import { reportVideoCompressionTelemetry } from '$lib/video/videoCompressionTelemetry';
 	import { applyChatFilter, expandInputWithChatAlias } from '$lib/chatEnhancements';
+	import { findDmDirectoryUserByUsername, getDmDirectoryKey } from '$lib/dmUserDirectory';
 	import { getUserIdentityKey } from '$lib/localNicknames';
 	import {
 		applyWriteUpperCase,
@@ -112,9 +113,10 @@
 		splitEntitiesForChunks,
 		type PlaceRecord
 	} from '$lib/placeRegistry';
-	import { openFullMapTab } from '$lib/mapWorkspace';
-	import { openModelViewportSurface } from '$lib/modelViewportTab';
-	import { openReaderSurface } from '$lib/readerWorkspace';
+	import { MAP_ADDON_ID, focusedMapPlace, openFullMapTab } from '$lib/mapWorkspace';
+	import { MODEL_VIEWPORT_ADDON_ID, modelViewportSelection, openModelViewportSurface } from '$lib/modelViewportTab';
+	import { READER_ADDON_ID, openReaderSurface, readerSelection } from '$lib/readerWorkspace';
+	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { pushLocalDirectionsCard } from '$lib/directionsAssist';
 	import { currentChatSurface, setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
 	import WhiteboardTab from './WhiteboardTab.svelte';
@@ -129,6 +131,16 @@
 	};
 
 	$: chatSurface = $currentChatSurface;
+	const { activeTabId: mobileQueueActiveTabId } = mobileTabQueue;
+	type WorkspaceViewKey = 'messages' | 'whiteboard' | 'reader' | 'model' | 'map';
+	let selectedWorkspaceView: WorkspaceViewKey = 'messages';
+	$: selectedWorkspaceView = (() => {
+		if (chatSurface === 'whiteboard') return 'whiteboard' as const;
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(READER_ADDON_ID)) return 'reader' as const;
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_ADDON_ID)) return 'model' as const;
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MAP_ADDON_ID)) return 'map' as const;
+		return 'messages' as const;
+	})();
 	$: if (chatSurface !== 'messages') {
 		showEmojiPicker = false;
 		showMediaMenu = false;
@@ -142,6 +154,46 @@
 	$: currentChannelData = $channels.find(ch => ch.id === $currentChannel);
 	$: channelDisplayName = currentChannelData?.name || $currentChannel;
 	$: channelDescription = currentChannelData?.description?.trim() || '';
+	$: workspaceSurfaceLabel = (() => {
+		switch (selectedWorkspaceView) {
+			case 'whiteboard':
+				return 'Whiteboard';
+			case 'reader':
+				return 'Reader';
+			case 'model':
+				return '3D View';
+			case 'map':
+				return 'Map';
+			default:
+				return null;
+		}
+	})();
+	$: workspaceHeaderTitle = (() => {
+		switch (selectedWorkspaceView) {
+			case 'reader':
+				return $readerSelection?.title || 'Reader';
+			case 'model':
+				return $modelViewportSelection?.fileName || '3D model';
+			case 'map':
+				return $focusedMapPlace?.name || 'Map';
+			default:
+				return channelDisplayName;
+		}
+	})();
+	$: workspaceHeaderSubtitle = (() => {
+		switch (selectedWorkspaceView) {
+			case 'whiteboard':
+				return channelDescription || 'Shared board for this channel';
+			case 'reader':
+				return `Opened from #${channelDisplayName}`;
+			case 'model':
+				return `Opened from #${channelDisplayName}`;
+			case 'map':
+				return channelDisplayName ? `Opened from #${channelDisplayName}` : 'Map workspace';
+			default:
+				return channelDescription;
+		}
+	})();
 
 	// Safeguard: DM channels should never be displayed in the main chat area
 	// They should only appear in the DM panel on the right side
@@ -247,6 +299,7 @@
 	const SEND_BURST_WINDOW_MS = 2500;
 	const SEND_BURST_LIMIT = 5;
 	const SEND_BURST_COOLDOWN_MS = 3000;
+	const COMPOSER_MAX_HEIGHT = 160;
 
 	type PaymentSheetPrefill = {
 		amountInput?: string | null;
@@ -633,7 +686,7 @@
 		textareaElement.style.height = 'auto';
 
 		// Set height based on content, up to max-height
-		const newHeight = Math.min(textareaElement.scrollHeight, 120); // ~4 lines max
+		const newHeight = Math.min(textareaElement.scrollHeight, COMPOSER_MAX_HEIGHT);
 		textareaElement.style.height = `${newHeight}px`;
 	}
 
@@ -1190,12 +1243,15 @@
 					return;
 				}
 
-				const targetUser = $users.find(u =>
-					u.username.toLowerCase() === username.toLowerCase()
-				);
+				const targetUser = findDmDirectoryUserByUsername({
+					username,
+					onlineUsers: $users,
+					serverMembers: $serverMembers,
+					currentUser: $currentUser
+				});
 
 				if (!targetUser) {
-					alert(`User "${username}" not found or offline.`);
+					alert(`User "${username}" not found.`);
 					return;
 				}
 
@@ -1208,7 +1264,7 @@
 					dmPanelSignal.set({ channelId: dmId, otherUser: targetUser });
 				} else {
 					// Create new DM (will auto-open via dmPanelSignal)
-					createDM(targetUser.id);
+					createDM(getDmDirectoryKey(targetUser));
 				}
 				break;
 			}
@@ -1630,11 +1686,7 @@
 
 	function revokePreviewUrl(preview?: string): void {
 		if (!preview || !preview.startsWith('blob:')) return;
-		try {
-			URL.revokeObjectURL(preview);
-		} catch {
-			// no-op
-		}
+		URL.revokeObjectURL(preview);
 	}
 
 	function clearFilePreviews(): void {
@@ -1766,11 +1818,7 @@
 
 	function resetCompressionDialogState(): void {
 		if (compressionAbortController) {
-			try {
-				compressionAbortController.abort();
-			} catch {
-				// no-op
-			}
+			compressionAbortController.abort();
 		}
 		compressionDialogOpen = false;
 		compressionDialogFile = null;
@@ -2694,6 +2742,24 @@
 		experimentalStdbCallsEnabled = next;
 		await setExperimentalStdbCallEnabled(next);
 	}
+
+	function returnToMessagesView(): void {
+		if (chatSurface !== 'messages') {
+			setWhiteboardSurface($currentChannel, 'messages');
+		}
+		if ($layoutStore.rightPanelView === 'media') {
+			layoutStore.rightPanelView.set('none');
+		}
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(READER_ADDON_ID)) {
+			mobileTabQueue.closeAddonTab(READER_ADDON_ID);
+		}
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_ADDON_ID)) {
+			mobileTabQueue.closeAddonTab(MODEL_VIEWPORT_ADDON_ID);
+		}
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MAP_ADDON_ID)) {
+			mobileTabQueue.closeAddonTab(MAP_ADDON_ID);
+		}
+	}
 </script>
 
 <div
@@ -2714,74 +2780,120 @@
 	{/if}
 
 	<div class="chat-header" class:dm-channel={isDMChannel}>
-		<h2>
-			<span class="channel-title">{channelDisplayName}</span>
-			{#if isDMChannel}
-				<span class="dm-badge">{$_('chat.dm.badge')}</span>
-			{:else if channelDescription}
-				<span class="channel-description">{channelDescription}</span>
+		<div class="chat-heading">
+			{#if workspaceSurfaceLabel}
+				<span class="channel-surface-label">{workspaceSurfaceLabel}</span>
 			{/if}
-		</h2>
-		<div class="chat-surface-tabs">
-			<button
-				class="surface-tab"
-				class:active={chatSurface === 'messages'}
-				on:click={() => setWhiteboardSurface($currentChannel, 'messages')}
-			>Messages</button>
-			<button
-				class="surface-tab"
-				class:active={chatSurface === 'whiteboard'}
-				on:click={() => setWhiteboardSurface($currentChannel, 'whiteboard')}
-			>Whiteboard</button>
+			<h2>
+				<span class="channel-title">{workspaceHeaderTitle}</span>
+				{#if isDMChannel && selectedWorkspaceView === 'messages'}
+					<span class="dm-badge">{$_('chat.dm.badge')}</span>
+				{:else if workspaceHeaderSubtitle}
+					<span class="channel-description">{workspaceHeaderSubtitle}</span>
+				{/if}
+			</h2>
 		</div>
 		<div class="header-actions">
-			<button
-				class="albums-open-btn"
-				type="button"
-				on:click={openReaderSurface}
-				title="Open reader"
+			{#if selectedWorkspaceView !== 'messages'}
+				<button
+					class="surface-return-btn"
+					type="button"
+					on:click={returnToMessagesView}
+					title="Return to messages"
+					aria-label="Return to messages"
+				>
+					Messages
+				</button>
+			{/if}
+			<div
+				class="workspace-view-actions"
+				class:compactable={!$layoutStore.isMobile}
+				role="tablist"
+				aria-label="Channel views"
 			>
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
-					<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 0 4 24V4.5A2.5 2.5 0 0 1 6.5 2z"></path>
-				</svg>
-			</button>
-			<button
-				class="albums-open-btn"
-				type="button"
-				on:click={openModelViewportSurface}
-				title="Open 3D viewer"
-			>
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-					<path d="m3.3 7 8.7 5 8.7-5"></path>
-					<path d="M12 22V12"></path>
-				</svg>
-			</button>
-			<button
-				class="albums-open-btn"
-				type="button"
-				on:click={() => void openFullMapTab()}
-				title="Open map"
-			>
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon>
-					<line x1="9" y1="3" x2="9" y2="18"></line>
-					<line x1="15" y1="6" x2="15" y2="21"></line>
-				</svg>
-			</button>
-			<button
-				class="albums-open-btn"
-				type="button"
-				on:click={() => layoutStore.showMediaTab()}
-				title="Open media panel"
-			>
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<rect x="3" y="3" width="18" height="18" rx="2"></rect>
-					<circle cx="8.5" cy="8.5" r="1.5"></circle>
-					<polyline points="21 15 16 10 5 21"></polyline>
-				</svg>
-			</button>
+				<button
+					class="view-open-btn"
+					class:active={selectedWorkspaceView === 'messages'}
+					type="button"
+					on:click={() => setWhiteboardSurface($currentChannel, 'messages')}
+					title="Show messages"
+					aria-label="Show messages"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+					</svg>
+				</button>
+				<button
+					class="view-open-btn"
+					class:active={selectedWorkspaceView === 'whiteboard'}
+					type="button"
+					on:click={() => setWhiteboardSurface($currentChannel, 'whiteboard')}
+					title="Show whiteboard"
+					aria-label="Show whiteboard"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<rect x="3" y="4" width="18" height="14" rx="2"></rect>
+						<path d="M7 8h10"></path>
+						<path d="M7 12h6"></path>
+						<path d="M8 20h8"></path>
+					</svg>
+				</button>
+					<button
+						class="view-open-btn"
+						type="button"
+						class:active={$layoutStore.activeRightTab === 'media' && $layoutStore.showRightPanel}
+						on:click={() => layoutStore.showMediaTab()}
+						title="Open media panel"
+						aria-label="Open media panel"
+					>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<rect x="3" y="3" width="18" height="18" rx="2"></rect>
+						<circle cx="8.5" cy="8.5" r="1.5"></circle>
+						<polyline points="21 15 16 10 5 21"></polyline>
+					</svg>
+				</button>
+				<button
+					class="view-open-btn"
+					type="button"
+					on:click={openReaderSurface}
+					class:active={selectedWorkspaceView === 'reader'}
+					title="Open reader view"
+					aria-label="Open reader view"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+						<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+					</svg>
+				</button>
+				<button
+					class="view-open-btn"
+					type="button"
+					on:click={openModelViewportSurface}
+					class:active={selectedWorkspaceView === 'model'}
+					title="Open 3D view"
+					aria-label="Open 3D view"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+						<path d="M3.27 6.96 12 12.01l8.73-5.05"></path>
+						<path d="M12 22.08V12"></path>
+					</svg>
+				</button>
+				<button
+					class="view-open-btn"
+					type="button"
+					on:click={() => void openFullMapTab()}
+					class:active={selectedWorkspaceView === 'map'}
+					title="Open map view"
+					aria-label="Open map view"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"></path>
+						<path d="M9 4v14"></path>
+						<path d="M15 6v14"></path>
+					</svg>
+				</button>
+			</div>
 			{#if isDMChannel && dmCallTargetUser}
 				<div class="dm-call-actions">
 					{#if dmDirectCallActive}
@@ -2875,10 +2987,6 @@
 				{/if}
 			</div>
 		</div>
-	</div>
-
-	<div class="chat-tabs-row">
-		<ChannelQuickTabs />
 	</div>
 
 	{#if chatSurface === 'whiteboard'}
@@ -3552,45 +3660,20 @@
 		font-size: var(--text-xl);
 		margin: 0;
 		font-weight: var(--font-weight-semibold);
-		flex: 1;
 		display: flex;
 		align-items: baseline;
 		gap: 0.5rem;
 		min-width: 0;
 	}
 
-	.chat-surface-tabs {
+	.chat-heading {
+		flex: 1;
+		min-width: 0;
 		display: flex;
-		gap: 2px;
-		margin: 0 0.75rem;
-		padding: 2px;
-		border-radius: 8px;
-		background: rgba(148, 163, 184, 0.08);
+		flex-direction: column;
+		gap: 0.16rem;
 	}
 
-	.surface-tab {
-		padding: 4px 12px;
-		border: none;
-		border-radius: 6px;
-		background: transparent;
-		color: var(--text-secondary, #94a3b8);
-		font-size: 0.8rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: background 0.12s, color 0.12s;
-	}
-
-	.surface-tab:hover {
-		background: rgba(148, 163, 184, 0.1);
-		color: var(--text-primary, #e2e8f0);
-	}
-
-	.surface-tab.active {
-		background: rgba(99, 102, 241, 0.2);
-		color: #a5b4fc;
-	}
-
-	.chat-tabs-row,
 	.messages,
 	.whiteboard-surface {
 		position: relative;
@@ -3631,6 +3714,17 @@
 		white-space: nowrap;
 	}
 
+	.channel-surface-label {
+		font-size: 0.68rem;
+		font-weight: var(--font-weight-semibold);
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--accent);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
 	.channel-description {
 		font-size: var(--text-sm);
 		font-weight: var(--font-weight-regular);
@@ -3656,29 +3750,104 @@
 		gap: 0.75rem;
 	}
 
-	.albums-open-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 0;
-		padding: 0.35rem;
-		border-radius: var(--radius-md);
+	.surface-return-btn {
 		border: 1px solid var(--border);
-		background: var(--bg-secondary);
-		color: var(--text-primary);
-		font-size: var(--text-sm);
-		font-weight: var(--font-weight-medium);
+		background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+		color: var(--text-secondary);
+		border-radius: 999px;
+		padding: 0.45rem 0.75rem;
+		font-size: 0.78rem;
+		font-weight: var(--font-weight-semibold);
 		cursor: pointer;
 		transition: all var(--duration-fast);
 	}
 
-	.albums-open-btn svg {
-		width: 14px;
-		height: 14px;
+	.surface-return-btn:hover,
+	.surface-return-btn:focus-visible {
+		border-color: var(--accent);
+		color: var(--text-primary);
+		background: var(--bg-tertiary);
 	}
 
-	.albums-open-btn:hover {
+	.workspace-view-actions {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.18rem;
+		border-radius: 999px;
+		border: 1px solid var(--border);
+		background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+	}
+
+	.view-open-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		padding: 0;
+		border-radius: 999px;
+		border: 1px solid transparent;
+		background: transparent;
+		color: var(--text-secondary);
+		cursor: pointer;
+		transition: all var(--duration-fast);
+		overflow: hidden;
+	}
+
+	.view-open-btn svg {
+		width: 15px;
+		height: 15px;
+	}
+
+	.view-open-btn.active {
+		background: color-mix(in srgb, var(--accent) 16%, var(--bg-tertiary));
+		border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+		color: var(--text-primary);
+	}
+
+	.view-open-btn:hover,
+	.view-open-btn:focus-visible {
 		border-color: var(--accent);
 		background: var(--bg-tertiary);
+		color: var(--text-primary);
+	}
+
+	@media (hover: hover) {
+		.workspace-view-actions.compactable {
+			gap: 0;
+		}
+
+		.workspace-view-actions.compactable .view-open-btn {
+			width: 0;
+			min-width: 0;
+			opacity: 0;
+			padding: 0;
+			border-width: 0;
+			pointer-events: none;
+		}
+
+		.workspace-view-actions.compactable .view-open-btn.active {
+			width: 32px;
+			min-width: 32px;
+			opacity: 1;
+			border-width: 1px;
+			pointer-events: auto;
+		}
+
+		.workspace-view-actions.compactable:hover,
+		.workspace-view-actions.compactable:focus-within {
+			gap: 0.4rem;
+		}
+
+		.workspace-view-actions.compactable:hover .view-open-btn,
+		.workspace-view-actions.compactable:focus-within .view-open-btn {
+			width: 32px;
+			min-width: 32px;
+			opacity: 1;
+			border-width: 1px;
+			pointer-events: auto;
+		}
 	}
 
 	.dm-call-actions {
@@ -3902,13 +4071,6 @@
 	}
 
 
-	.chat-tabs-row {
-		flex-shrink: 0;
-		background: var(--bg-secondary);
-		border-bottom: 1px solid var(--border);
-		z-index: 2;
-	}
-
 	.messages {
 		flex: 1;
 		overflow-y: auto;
@@ -4007,10 +4169,10 @@
 
 	.input-wrapper {
 		flex-shrink: 0;
-		background: var(--bg-primary);
+		background: transparent;
 		padding: 0.16rem 0.65rem;
 		padding-bottom: env(safe-area-inset-bottom);
-		border-top: 1px solid var(--border);
+		border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 		z-index: 10;
 		position: relative;
 		min-height: var(--app-chrome-height);
@@ -4035,16 +4197,23 @@
 	.input-container {
 		display: flex;
 		align-items: center;
-		background: color-mix(in srgb, var(--bg-tertiary) 88%, transparent);
-		border-radius: 10px;
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: 12px;
 		padding: 0.28rem 0.42rem;
 		gap: 0.25rem;
-		transition: background 0.2s;
+		transition: background 0.2s, border-color 0.2s;
 		width: 100%;
 	}
 
+	.input-container:hover {
+		background: color-mix(in srgb, var(--bg-tertiary) 22%, transparent);
+		border-color: color-mix(in srgb, var(--border) 55%, transparent);
+	}
+
 	.input-container:focus-within {
-		background: var(--bg-tertiary);
+		background: color-mix(in srgb, var(--bg-tertiary) 28%, transparent);
+		border-color: color-mix(in srgb, var(--accent) 34%, transparent);
 	}
 
 	.input-buttons-left {
@@ -4183,7 +4352,7 @@
 	textarea {
 		flex: 1;
 		min-height: 36px;
-		max-height: 120px;
+		max-height: 160px;
 		overflow-y: auto;
 		resize: none;
 		font-family: inherit;
@@ -4194,14 +4363,22 @@
 		color: var(--text-primary);
 		outline: none;
 		font-size: 1rem;
-		/* Hide scrollbar while keeping scroll functionality */
-		-ms-overflow-style: none;  /* IE and Edge */
-		scrollbar-width: none;  /* Firefox */
+		-ms-overflow-style: auto;
+		scrollbar-width: thin;
+		scrollbar-color: color-mix(in srgb, var(--accent) 24%, var(--border) 76%) transparent;
 	}
 
-	/* Hide scrollbar for Chrome, Safari and Opera */
 	textarea::-webkit-scrollbar {
-		display: none;
+		width: 8px;
+	}
+
+	textarea::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	textarea::-webkit-scrollbar-thumb {
+		background: color-mix(in srgb, var(--accent) 24%, var(--border) 76%);
+		border-radius: 999px;
 	}
 
 	.composer-char-counter {
@@ -4483,7 +4660,9 @@
 		}
 
 		.channel-description,
-		.dm-badge {
+		.dm-badge,
+		.channel-surface-label,
+		.surface-return-btn {
 			display: none;
 		}
 
@@ -4497,6 +4676,13 @@
 			justify-content: flex-start;
 			min-width: 0;
 			width: min(58vw, 250px);
+			gap: 0.45rem;
+		}
+
+		.workspace-view-actions {
+			gap: 0.25rem;
+			min-width: 0;
+			padding: 0.12rem;
 		}
 
 		.search-container {
@@ -4547,9 +4733,9 @@
 			padding: 0.16rem 0.42rem;
 		}
 
-		.albums-open-btn {
-			padding: 0.25rem 0.45rem;
-			font-size: 0.78rem;
+		.view-open-btn {
+			width: 30px;
+			height: 30px;
 		}
 
 		.messages {
@@ -4568,16 +4754,27 @@
 		.input-wrapper {
 			padding: 0.38rem 0.45rem;
 			padding-bottom: calc(0.38rem + env(safe-area-inset-bottom));
-			border-top: 1px solid var(--border);
-			background: var(--bg-secondary);
+			border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+			background: transparent;
 			gap: 0.26rem;
 		}
 
 		.input-container {
 			padding: 0.2rem 0.25rem;
 			gap: 0.22rem;
-			background: color-mix(in srgb, var(--bg-tertiary) 90%, black 10%);
+			background: transparent;
 			border-radius: 12px;
+			border: 1px solid transparent;
+		}
+
+		.input-container:hover {
+			background: color-mix(in srgb, var(--bg-tertiary) 22%, transparent);
+			border-color: color-mix(in srgb, var(--border) 55%, transparent);
+		}
+
+		.input-container:focus-within {
+			background: color-mix(in srgb, var(--bg-tertiary) 28%, transparent);
+			border-color: color-mix(in srgb, var(--accent) 34%, transparent);
 		}
 
 		textarea {

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ImageViewer from '$lib/components/ImageViewer.svelte';
 	import { currentUser } from '$lib/socket';
 	import {
 		diaryEntries,
@@ -15,7 +16,7 @@
 	let selectedDate: Date | null = null;
 	let isEditing = false;
 	let currentEntry: DiaryEntry | null = null;
-	let viewingImage: string | null = null; // For full-screen image view
+	let viewingImage: string | null = null;
 
 	// Form state
 	let formContent = '';
@@ -486,24 +487,7 @@
 	</main>
 </div>
 
-<!-- Full-screen Image Viewer -->
-{#if viewingImage}
-	<div
-		class="image-viewer-overlay"
-		role="button"
-		tabindex="0"
-		on:click={() => viewingImage = null}
-		on:keydown={(event) => {
-			if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
-				event.preventDefault();
-				viewingImage = null;
-			}
-		}}
-	>
-		<button class="viewer-close" on:click={() => viewingImage = null}>&times;</button>
-		<img src={viewingImage} alt="Full view" class="viewer-image" on:click|stopPropagation />
-	</div>
-{/if}
+<ImageViewer src={viewingImage || ''} alt="Diary image" onClose={() => (viewingImage = null)} />
 
 <style>
 	.diary-container {
@@ -980,28 +964,6 @@
 		gap: 0.75rem;
 	}
 
-	.gallery-image {
-		aspect-ratio: 4/3;
-		border-radius: 8px;
-		overflow: hidden;
-		cursor: pointer;
-		border: 2px solid transparent;
-		background: var(--biz-bg-tertiary, #243044);
-		padding: 0;
-		transition: all 0.2s;
-	}
-
-	.gallery-image:hover {
-		border-color: var(--biz-accent, #f59e0b);
-		transform: scale(1.02);
-	}
-
-	.gallery-image img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
 	.entry-has-images {
 		display: inline-flex;
 		color: var(--biz-info, #3b82f6);
@@ -1314,6 +1276,7 @@
 		color: var(--biz-text-secondary, #94a3b8);
 		line-height: 1.4;
 		display: -webkit-box;
+		line-clamp: 2;
 		-webkit-line-clamp: 2;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
@@ -1375,53 +1338,6 @@
 		background: var(--biz-bg-primary, #0f1419);
 	}
 
-	/* Full-screen Image Viewer */
-	.image-viewer-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.95);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: var(--z-toast);
-		padding: 2rem;
-	}
-
-	.viewer-close {
-		position: absolute;
-		top: 1rem;
-		right: 1rem;
-		width: 44px;
-		height: 44px;
-		background: rgba(255, 255, 255, 0.1);
-		border: 2px solid rgba(255, 255, 255, 0.3);
-		border-radius: 50%;
-		color: white;
-		font-size: 2rem;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: all 0.2s;
-		padding: 0;
-		line-height: 1;
-	}
-
-	.viewer-close:hover {
-		background: rgba(255, 255, 255, 0.2);
-		transform: scale(1.1);
-	}
-
-	.viewer-image {
-		max-width: 95vw;
-		max-height: 90vh;
-		object-fit: contain;
-		border-radius: 8px;
-	}
-
 	@media (max-width: 900px) {
 		.diary-container {
 			flex-direction: column;
@@ -1445,8 +1361,5 @@
 			text-align: center;
 		}
 
-		.entries-grid {
-			grid-template-columns: 1fr;
-		}
 	}
 </style>

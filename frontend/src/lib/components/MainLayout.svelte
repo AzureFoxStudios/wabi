@@ -25,6 +25,13 @@
 	import { MAP_ADDON_ID } from '$lib/mapWorkspace';
 	import { MODEL_VIEWPORT_ADDON_ID } from '$lib/modelViewportTab';
 	import { READER_ADDON_ID } from '$lib/readerWorkspace';
+	import {
+		getServerScopedUserKey,
+		getTrackedPersonKeyForUser,
+		isTrackedPersonStatusAlertsKeyEnabled,
+		rememberPeople
+	} from '$lib/peopleTracker';
+	import { getServerUrl } from '$lib/serverUrl';
 	import { openWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
 	import { savedServerRailItems } from '$lib/savedServers';
 
@@ -68,9 +75,11 @@
 		status: User['status'];
 		username: string;
 		isSelf: boolean;
+		trackedPersonKey: string;
 	};
 	let friendPresenceByKey = new Map<string, FriendPresenceSnapshot>();
 	let friendPresenceObserverReady = false;
+	let friendPresenceObserverServerUrl = '';
 	let unsubscribeFriendPresence: (() => void) | null = null;
 	const { activeTabId } = mobileTabQueue;
 	const MODEL_VIEWPORT_TAB_TOKEN = mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_ADDON_ID);
@@ -135,19 +144,30 @@
 		});
 
 		unsubscribeFriendPresence = users.subscribe((nextUsers) => {
+			const serverUrl = getServerUrl();
+			if (friendPresenceObserverServerUrl !== serverUrl) {
+				friendPresenceObserverServerUrl = serverUrl;
+				friendPresenceByKey = new Map();
+				friendPresenceObserverReady = false;
+			}
+
+			rememberPeople(nextUsers, serverUrl);
+
 			const me = get(currentUser);
 			const selfKeys = new Set<string>();
-			if (me?.id) selfKeys.add(me.id);
-			if (me?.dbUserId) selfKeys.add(`user-${me.dbUserId}`);
+			const selfKey = getPresenceObserverKey(me, serverUrl);
+			if (selfKey) selfKeys.add(selfKey);
 
 			const nextSnapshot = new Map<string, FriendPresenceSnapshot>();
 			for (const user of nextUsers) {
-				const key = getFriendTrackKey(user);
+				const key = getPresenceObserverKey(user, serverUrl);
+				if (!key) continue;
 				const isSelf = selfKeys.has(key);
 				const nextEntry: FriendPresenceSnapshot = {
 					status: user.status,
 					username: user.username,
-					isSelf
+					isSelf,
+					trackedPersonKey: getTrackedPersonKeyForUser(user, serverUrl)
 				};
 				nextSnapshot.set(key, nextEntry);
 
@@ -155,14 +175,24 @@
 				const previous = friendPresenceByKey.get(key);
 				if (!previous) continue;
 				if (previous.status === user.status) continue;
-				notifyFriendStatusChange(key, user.username, previous.status, user.status);
+				notifyFriendStatusChange(
+					nextEntry.trackedPersonKey,
+					user.username,
+					previous.status,
+					user.status
+				);
 			}
 
 			if (friendPresenceObserverReady) {
 				for (const [key, previous] of friendPresenceByKey.entries()) {
 					if (previous.isSelf) continue;
 					if (nextSnapshot.has(key)) continue;
-					notifyFriendStatusChange(key, previous.username, previous.status, 'offline');
+					notifyFriendStatusChange(
+						previous.trackedPersonKey,
+						previous.username,
+						previous.status,
+						'offline'
+					);
 				}
 			}
 
@@ -185,18 +215,14 @@
 		}
 	});
 
-	function getFriendTrackKey(user: User): string {
-		if (user.dbUserId) return `user-${user.dbUserId}`;
-		return user.id;
+	function getPresenceObserverKey(user: User | null | undefined, serverUrl: string): string {
+		return getServerScopedUserKey(user, serverUrl);
 	}
 
-	function shouldNotifyFriendStatus(trackKey: string): boolean {
+	function shouldNotifyFriendStatus(trackedPersonKey: string): boolean {
 		const settings = get(displayEnhancementSettingsStore);
 		if (!settings.friendNotificationsEnabled) return false;
-		if (
-			settings.friendNotificationsTrackedOnly &&
-			!settings.friendNotificationTrackedUserIds.includes(trackKey)
-		) {
+		if (settings.friendNotificationsTrackedOnly && !isTrackedPersonStatusAlertsKeyEnabled(trackedPersonKey)) {
 			return false;
 		}
 		if (typeof window === 'undefined') return false;
@@ -214,12 +240,12 @@
 	}
 
 	function notifyFriendStatusChange(
-		trackKey: string,
+		trackedPersonKey: string,
 		username: string,
 		previousStatus: User['status'] | 'offline',
 		nextStatus: User['status'] | 'offline'
 	): void {
-		if (!shouldNotifyFriendStatus(trackKey)) return;
+		if (!shouldNotifyFriendStatus(trackedPersonKey)) return;
 		try {
 			playNotificationSound();
 			const notification = new Notification(`${username} is now ${formatPresenceStatus(nextStatus)}`, {
@@ -704,10 +730,12 @@
 			on:openSettings={() => openSettings()}
 		/>
 		<!-- Channel resize handle -->
-		<div
+		<button
+			type="button"
 			class="resize-handle resize-handle-channel"
+			aria-label="Resize channel sidebar"
 			on:mousedown|preventDefault={() => layoutStore.isResizingChannel.set(true)}
-		></div>
+		></button>
 	</div>
 
 	{#if showServerSwitcher}
@@ -764,10 +792,12 @@
 			style:width="{$layoutStore.rightPanelWidth}px"
 		>
 			<!-- Right panel resize handle -->
-			<div
+			<button
+				type="button"
 				class="resize-handle resize-handle-right"
+				aria-label="Resize right panel"
 				on:mousedown|preventDefault={() => layoutStore.isResizingRight.set(true)}
-			></div>
+			></button>
 			<RightPanel on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
 		</div>
 	{/if}
@@ -944,7 +974,6 @@
 		flex: 1;
 		min-height: 0;
 	}
-	.hidden { display: none !important; }
 
 	.server-rail-container {
 		flex-shrink: 0;
@@ -1012,6 +1041,9 @@
 		top: 0;
 		bottom: 0;
 		width: 6px;
+		padding: 0;
+		border: 0;
+		background: transparent;
 		cursor: col-resize;
 		z-index: var(--z-sticky);
 		transition: background 0.2s;
@@ -1476,13 +1508,6 @@
 		font-size: 0.8rem;
 	}
 
-	.voice-channel-meta .dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: #22c55e;
-		box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.2);
-	}
 
 
 	.voice-channel-actions {

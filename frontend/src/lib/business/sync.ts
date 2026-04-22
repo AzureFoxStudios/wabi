@@ -1,18 +1,9 @@
-import { get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { getSocket } from '$lib/socket';
 import { getServerUrl } from '$lib/serverUrl';
 import { getAuthToken } from '$lib/authSession';
-import {
-	todos,
-	calendarEvents,
-	diaryEntries,
-	projects,
-	sprints,
-	resources,
-	tags,
-	graphEdges
-} from './store';
+import { getBusinessDataSnapshot, applyBusinessDataSnapshot } from './snapshot';
+import { sanitizeBusinessData } from './validation';
 
 type BusinessSyncMode = 'manual' | 'auto';
 
@@ -86,17 +77,10 @@ export async function pullFromServer(): Promise<boolean> {
 		const result = await response.json();
 
 		if (result.success && result.data) {
-			const serverData = result.data;
-
-			if (serverData.todos) todos.set(serverData.todos);
-			if (serverData.calendarEvents) calendarEvents.set(serverData.calendarEvents);
-			if (serverData.diaryEntries) diaryEntries.set(serverData.diaryEntries);
-			if (serverData.projects) projects.set(serverData.projects);
-			if (serverData.sprints) sprints.set(serverData.sprints);
-			if (Array.isArray(serverData.resources)) resources.set(serverData.resources);
-			if (Array.isArray(serverData.tags)) tags.set(serverData.tags);
-			if (Array.isArray(serverData.graphEdges)) graphEdges.set(serverData.graphEdges);
-
+			applyBusinessDataSnapshot(sanitizeBusinessData({
+				...getBusinessDataSnapshot(),
+				...result.data
+			}));
 			pendingRemoteUpdate = false;
 			logSync('[BusinessSync] Pulled business data from server');
 			return true;
@@ -120,16 +104,7 @@ export async function pushToServer(): Promise<boolean> {
 		const token = getAuthToken();
 		const guestCode = sessionStorage.getItem('guestAccessCode');
 
-		const data = {
-			todos: get(todos),
-			calendarEvents: get(calendarEvents),
-			diaryEntries: get(diaryEntries),
-			projects: get(projects),
-			sprints: get(sprints),
-			resources: get(resources),
-			tags: get(tags),
-			graphEdges: get(graphEdges)
-		};
+		const data = getBusinessDataSnapshot();
 
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort(), 8000);

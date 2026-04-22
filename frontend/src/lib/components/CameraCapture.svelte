@@ -190,6 +190,7 @@
 </script>
 
 {#if isOpen}
+  <!-- svelte-ignore a11y_click_events_have_key_events: backdrop closes on pointer; keyboard close is handled by Escape and the close button -->
   <div class="modal-backdrop" on:click={close} role="presentation">
     <div class="modal" on:click|stopPropagation role="dialog" aria-labelledby="modal-title" aria-modal="true" tabindex="-1">
       <div class="modal-header">

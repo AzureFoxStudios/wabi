@@ -8,15 +8,18 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 # Copy package files
-COPY package.json ./
-COPY package-lock.json ./
-COPY scripts/fetch-openmoji.sh ./scripts/fetch-openmoji.sh
+COPY frontend/package.json ./
+COPY frontend/package-lock.json ./
+COPY frontend/scripts/fetch-openmoji.sh ./scripts/fetch-openmoji.sh
 
 # Install dependencies with npm
 RUN npm install
 
 # Copy source code
-COPY . .
+COPY frontend/ ./
+# Shared types live at /shared/ so Vite resolves `../../../shared/*.js` from
+# /app/src/lib/*.ts (three levels up lands outside /app).
+COPY shared /shared
 
 # Vite build-time environment variables (passed as build args from docker-compose)
 ARG VITE_TURN_SERVER
@@ -58,7 +61,7 @@ WORKDIR /app
 # Copy built app from builder
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/node_modules ./node_modules
-COPY package.json ./
+COPY frontend/package.json ./
 
 # Create non-root user
 RUN groupadd -r wabi && useradd -r -g wabi -d /app wabi \

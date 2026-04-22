@@ -1,50 +1,50 @@
-import { writable, derived, get } from 'svelte/store';
+import { derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { startupMark, startupMeasure } from '$lib/startupProfiler';
 import type {
 	Todo,
 	TodoStatus,
-	KanbanColumn,
 	CalendarEvent,
 	DiaryEntry,
 	Project,
 	Sprint,
-	DashboardView,
-	TodoFilters,
 	BurnChartDataPoint,
 	Resource,
 	Tag,
 	GraphEdge
 } from './types';
+import { getBusinessDataSnapshot, applyBusinessDataSnapshot } from './snapshot';
+import { parseBusinessDataJson } from './validation';
+import {
+	DEFAULT_KANBAN_COLUMNS,
+	todos,
+	calendarEvents,
+	diaryEntries,
+	projects,
+	sprints,
+	kanbanColumns,
+	resources,
+	tags,
+	graphEdges,
+	selectedDate,
+	todoFilters
+} from './state';
 
-// Default kanban columns configuration
-const DEFAULT_KANBAN_COLUMNS: KanbanColumn[] = [
-	{ id: 'ideas', label: 'Ideas', color: '#a855f7', visible: true },
-	{ id: 'todo', label: 'To Do', color: '#64748b', visible: true },
-	{ id: 'in_progress', label: 'In Progress', color: '#3b82f6', visible: true },
-	{ id: 'done', label: 'Done', color: '#10b981', visible: true },
-	{ id: 'scrapped', label: 'Parked (Get to later)', color: '#f59e0b', visible: false },
-	{ id: 'archived', label: 'Archived', color: '#475569', visible: false }
-];
-
-// Core data stores
-export const todos = writable<Todo[]>([]);
-export const calendarEvents = writable<CalendarEvent[]>([]);
-export const diaryEntries = writable<DiaryEntry[]>([]);
-export const projects = writable<Project[]>([]);
-export const sprints = writable<Sprint[]>([]);
-export const kanbanColumns = writable<KanbanColumn[]>(DEFAULT_KANBAN_COLUMNS);
-
-// Knowledge Graph stores
-export const resources = writable<Resource[]>([]);
-export const tags = writable<Tag[]>([]);
-export const graphEdges = writable<GraphEdge[]>([]);
-
-// UI state
-export const currentView = writable<DashboardView>('overview');
-export const selectedDate = writable<number>(Date.now());
-export const selectedProjectId = writable<string | null>(null);
-export const todoFilters = writable<TodoFilters>({});
+export {
+	todos,
+	calendarEvents,
+	diaryEntries,
+	projects,
+	sprints,
+	kanbanColumns,
+	resources,
+	tags,
+	graphEdges,
+	currentView,
+	selectedDate,
+	selectedProjectId,
+	todoFilters
+} from './state';
 
 // Local storage persistence
 const STORAGE_KEY = 'business_data';
@@ -55,37 +55,7 @@ function loadFromStorage() {
 	try {
 		const saved = localStorage.getItem(STORAGE_KEY);
 		if (saved) {
-			const data = JSON.parse(saved);
-			// Migrate todos: convert old 'blocked' status to 'scrapped'
-			if (data.todos) {
-				const migratedTodos = data.todos.map((todo: any) => ({
-					...todo,
-					status: todo.status === 'blocked' ? 'scrapped' : todo.status
-				})) as Todo[];
-				todos.set(migratedTodos);
-			}
-			if (data.calendarEvents) calendarEvents.set(data.calendarEvents);
-			if (data.diaryEntries) diaryEntries.set(data.diaryEntries);
-			if (data.projects) projects.set(data.projects);
-			if (data.sprints) sprints.set(data.sprints);
-			// Migrate kanban columns: replace 'blocked' with 'scrapped'
-			if (data.kanbanColumns) {
-				const migratedColumns = data.kanbanColumns.map((col: any) => {
-					if (col.id === 'blocked') {
-						return { ...col, id: 'scrapped', label: 'Scrapped' };
-					}
-					return col;
-				}) as KanbanColumn[];
-				// Ensure scrapped column exists
-				if (!migratedColumns.find((c: KanbanColumn) => c.id === 'scrapped')) {
-					migratedColumns.push({ id: 'scrapped', label: 'Scrapped', color: '#ef4444', visible: true });
-				}
-				kanbanColumns.set(migratedColumns);
-			}
-			// Knowledge Graph entities
-			if (data.resources) resources.set(data.resources);
-			if (data.tags) tags.set(data.tags);
-			if (data.graphEdges) graphEdges.set(data.graphEdges);
+			applyBusinessDataSnapshot(parseBusinessDataJson(saved));
 		}
 	} catch (e) {
 		console.error('Failed to load business data from localStorage:', e);
@@ -95,18 +65,7 @@ function loadFromStorage() {
 function saveToStorage() {
 	if (!browser) return;
 	try {
-		const data = {
-			todos: get(todos),
-			calendarEvents: get(calendarEvents),
-			diaryEntries: get(diaryEntries),
-			projects: get(projects),
-			sprints: get(sprints),
-			kanbanColumns: get(kanbanColumns),
-			resources: get(resources),
-			tags: get(tags),
-			graphEdges: get(graphEdges)
-		};
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(getBusinessDataSnapshot()));
 	} catch (e) {
 		console.error('Failed to save business data to localStorage:', e);
 	}

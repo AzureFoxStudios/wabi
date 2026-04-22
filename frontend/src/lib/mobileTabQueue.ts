@@ -16,6 +16,7 @@ const channelQueue = writable<string[]>([]);
 const addonTabs = writable<AddonTabSpec[]>([]);
 const openAddonQueue = writable<string[]>([]);
 const activeTabId = writable<string | null>(null);
+const MAX_CHANNEL_TABS = 5;
 
 function toChannelTabId(channelId: string): string {
 	return `channel:${channelId}`;
@@ -30,42 +31,20 @@ function ensureInQueue(items: string[], value: string): string[] {
 	return [...items, value];
 }
 
+function touchRecentChannel(items: string[], channelId: string): string[] {
+	const next = [channelId, ...items.filter((id) => id !== channelId)];
+	return next.slice(0, MAX_CHANNEL_TABS);
+}
+
 function enqueueChannel(channelId: string): void {
 	if (!channelId) return;
-	channelQueue.update((queue) => ensureInQueue(queue, channelId));
+	channelQueue.update((queue) => touchRecentChannel(queue, channelId));
 }
 
 function setActiveChannel(channelId: string): void {
 	if (!channelId) return;
-	enqueueChannel(channelId);
+	channelQueue.update((queue) => touchRecentChannel(queue, channelId));
 	activeTabId.set(toChannelTabId(channelId));
-}
-
-function pruneChannels(validChannelIds: string[]): void {
-	const allowed = new Set(validChannelIds);
-	channelQueue.update((queue) => queue.filter((id) => allowed.has(id)));
-
-	const currentActive = get(activeTabId);
-	if (currentActive?.startsWith('channel:')) {
-		const activeChannelId = currentActive.slice('channel:'.length);
-		if (!allowed.has(activeChannelId)) {
-			const fallback = get(channelQueue)[0];
-			activeTabId.set(fallback ? toChannelTabId(fallback) : null);
-		}
-	}
-}
-
-function setChannelTabs(channelIds: string[]): void {
-	const ordered = channelIds.filter((id, index, list) => Boolean(id) && list.indexOf(id) === index);
-	channelQueue.set(ordered);
-
-	const currentActive = get(activeTabId);
-	if (currentActive?.startsWith('channel:')) {
-		const activeChannelId = currentActive.slice('channel:'.length);
-		if (!ordered.includes(activeChannelId)) {
-			activeTabId.set(ordered[0] ? toChannelTabId(ordered[0]) : null);
-		}
-	}
 }
 
 function registerAddonTab(spec: AddonTabSpec): void {
@@ -122,37 +101,6 @@ function openAddonTab(addonId: string): void {
 	activeTabId.set(toAddonTabId(addonId));
 }
 
-function closeChannelTab(channelId: string): void {
-	if (!channelId) return;
-	channelQueue.update((queue) => {
-		const next = queue.filter((id) => id !== channelId);
-		const currentActive = get(activeTabId);
-		if (currentActive === toChannelTabId(channelId)) {
-			activeTabId.set(next[0] ? toChannelTabId(next[0]) : null);
-		}
-		return next;
-	});
-}
-
-function reorderChannelTab(
-	sourceChannelId: string,
-	targetChannelId: string,
-	position: 'before' | 'after' = 'before'
-): void {
-	if (!sourceChannelId || !targetChannelId || sourceChannelId === targetChannelId) return;
-	channelQueue.update((queue) => {
-		const sourceIndex = queue.indexOf(sourceChannelId);
-		const targetIndex = queue.indexOf(targetChannelId);
-		if (sourceIndex === -1 || targetIndex === -1) return queue;
-		const next = [...queue];
-		next.splice(sourceIndex, 1);
-		const adjustedTargetIndex = next.indexOf(targetChannelId);
-		const insertIndex = position === 'after' ? adjustedTargetIndex + 1 : adjustedTargetIndex;
-		next.splice(insertIndex, 0, sourceChannelId);
-		return next;
-	});
-}
-
 const tabs = derived([channelQueue, addonTabs, openAddonQueue], ([$channelQueue, $addonTabs, $openAddonQueue]): MobileQueueTab[] => {
 	const channelTabItems = $channelQueue.map((channelId) => ({
 		id: toChannelTabId(channelId),
@@ -170,19 +118,14 @@ const tabs = derived([channelQueue, addonTabs, openAddonQueue], ([$channelQueue,
 });
 
 export const mobileTabQueue = {
-	channelQueue,
 	addonTabs,
 	tabs,
 	activeTabId,
 	setActiveTab,
 	setActiveChannel,
 	enqueueChannel,
-	closeChannelTab,
 	openAddonTab,
 	closeAddonTab,
-	reorderChannelTab,
-	pruneChannels,
-	setChannelTabs,
 	registerAddonTab,
 	unregisterAddonTab,
 	toChannelTabId,

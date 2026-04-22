@@ -4,7 +4,7 @@
 	import { todos, projects, addTodo, updateTodo, deleteTodo, type Todo } from '$lib/business';
 
 	export let onClose: (() => void) | undefined = undefined;
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 
 	interface RegisteredUser {
 		user_id: number;
@@ -25,6 +25,11 @@
 	let showUserDropdown = false;
 	let userSearchQuery = '';
 	let showAddForm = false;
+	let quickAddTitleInput: HTMLInputElement | null = null;
+
+	$: if (showAddForm) {
+		void tick().then(() => quickAddTitleInput?.focus());
+	}
 
 	// Edit mode state
 	let editingTaskId: string | null = null;
@@ -290,11 +295,11 @@
 	{#if showAddForm}
 		<form class="quick-add-form" on:submit|preventDefault={handleAddTask}>
 			<input
+				bind:this={quickAddTitleInput}
 				type="text"
 				bind:value={newTaskTitle}
 				placeholder="What needs to be done?"
 				class="task-input"
-				autofocus
 			/>
 			<textarea
 				bind:value={newTaskDescription}

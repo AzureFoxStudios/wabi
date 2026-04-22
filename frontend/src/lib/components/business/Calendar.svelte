@@ -344,32 +344,44 @@
 					class:today={isToday(day)}
 					class:other-month={!isCurrentMonth(day)}
 					class:has-events={totalItems > 0}
+					role="button"
+					tabindex="0"
 					on:click={() => openDayModal(day)}
+					on:keydown={(keyboardEvent) => {
+						if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') {
+							keyboardEvent.preventDefault();
+							openDayModal(day);
+						}
+					}}
 				>
 					<span class="day-number">{day.getDate()}</span>
 					<div class="day-events">
 						{#each dayEvents.slice(0, 2) as event}
-							<div
+							<button
+								type="button"
 								class="event-pill"
 								style="background-color: {event.color || '#5865f2'}"
+								aria-label={`Edit event ${event.title}`}
 								on:click|stopPropagation={() => openEditModal(event)}
 							>
 								{#if !event.allDay}
 									<span class="event-time">{formatTime(event.startDate)}</span>
 								{/if}
 								<span class="event-title">{event.title}</span>
-							</div>
+							</button>
 						{/each}
 						{#each dayTasks.slice(0, 2 - Math.min(dayEvents.length, 2)) as task}
-							<div
+							<button
+								type="button"
 								class="task-pill"
 								style="border-left-color: {getPriorityColor(task.priority)}"
+								aria-label={`Mark task ${task.title} complete`}
 								on:click|stopPropagation={() => toggleTaskComplete(task)}
 								title="Click to complete"
 							>
 								<span class="task-checkbox"></span>
 								<span class="task-title">{task.title}</span>
-							</div>
+							</button>
 						{/each}
 						{#if totalItems > 2}
 							<div class="more-events">+{totalItems - 2} more</div>
@@ -565,7 +577,7 @@
 				{/if}
 
 				<div class="form-group">
-					<label>Color</label>
+					<span class="form-label">Color</span>
 					<div class="color-picker">
 						{#each colorOptions as color}
 							<button
@@ -573,6 +585,7 @@
 								class="color-option"
 								class:selected={formColor === color}
 								style="background-color: {color}"
+								aria-label={`Select ${color} event color`}
 								on:click={() => formColor = color}
 							></button>
 						{/each}
@@ -643,23 +656,30 @@
 						<h4>Events</h4>
 						<ul class="event-list">
 							{#each selectedDayEvents as event}
-								<li class="event-item" on:click={() => { closeModal(); openEditModal(event); }}>
-									<div class="event-color" style="background-color: {event.color || '#5865f2'}"></div>
-									<div class="event-details">
-										<span class="event-title">{event.title}</span>
-										<div class="event-meta">
-											{#if event.allDay}
-												<span class="event-time">All day</span>
-											{:else}
-												<span class="event-time">{formatTime(event.startDate)}</span>
-											{/if}
-											{#if event.signedBy}
-												<span class="signature" title="Signed by {event.signedBy}">
-													✍️ {event.signedBy}
-												</span>
-											{/if}
+								<li>
+									<button
+										type="button"
+										class="event-item event-item-button"
+										aria-label={`Edit event ${event.title}`}
+										on:click={() => { closeModal(); openEditModal(event); }}
+									>
+										<div class="event-color" style="background-color: {event.color || '#5865f2'}"></div>
+										<div class="event-details">
+											<span class="event-title">{event.title}</span>
+											<div class="event-meta">
+												{#if event.allDay}
+													<span class="event-time">All day</span>
+												{:else}
+													<span class="event-time">{formatTime(event.startDate)}</span>
+												{/if}
+												{#if event.signedBy}
+													<span class="signature" title="Signed by {event.signedBy}">
+														✍️ {event.signedBy}
+													</span>
+												{/if}
+											</div>
 										</div>
-									</div>
+									</button>
 								</li>
 							{/each}
 						</ul>
@@ -671,13 +691,20 @@
 						<h4>Tasks Due</h4>
 						<ul class="event-list">
 							{#each modalDayTasks as task}
-								<li class="event-item task-item" on:click={() => toggleTaskComplete(task)}>
-									<div class="event-color" style="background-color: {getPriorityColor(task.priority)}"></div>
-									<div class="event-details">
-										<span class="event-title">{task.title}</span>
-										<span class="event-time priority-{task.priority}">{task.priority}</span>
-									</div>
-									<span class="task-check" title="Mark complete">&#10003;</span>
+								<li>
+									<button
+										type="button"
+										class="event-item event-item-button task-item"
+										aria-label={`Mark task ${task.title} complete`}
+										on:click={() => toggleTaskComplete(task)}
+									>
+										<div class="event-color" style="background-color: {getPriorityColor(task.priority)}"></div>
+										<div class="event-details">
+											<span class="event-title">{task.title}</span>
+											<span class="event-time priority-{task.priority}">{task.priority}</span>
+										</div>
+										<span class="task-check" title="Mark complete">&#10003;</span>
+									</button>
 								</li>
 							{/each}
 						</ul>
@@ -988,6 +1015,7 @@
 		font-size: 0.7rem;
 		padding: 2px 6px;
 		border-radius: 4px;
+		border: 0;
 		color: white;
 		white-space: nowrap;
 		overflow: hidden;
@@ -995,6 +1023,8 @@
 		cursor: pointer;
 		display: flex;
 		gap: 4px;
+		font: inherit;
+		text-align: left;
 	}
 
 	.event-pill:hover {
@@ -1007,6 +1037,9 @@
 		border-radius: 4px;
 		background: var(--biz-bg-tertiary, #243044);
 		border-left: 3px solid;
+		border-top: 0;
+		border-right: 0;
+		border-bottom: 0;
 		color: var(--biz-text-primary, #f1f5f9);
 		white-space: nowrap;
 		overflow: hidden;
@@ -1015,6 +1048,8 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
+		font: inherit;
+		text-align: left;
 	}
 
 	.task-pill:hover {
@@ -1146,7 +1181,8 @@
 		margin-bottom: 1.25rem;
 	}
 
-	.form-group label {
+	.form-group label,
+	.form-group .form-label {
 		display: block;
 		font-size: 0.8rem;
 		margin-bottom: 0.5rem;
@@ -1379,6 +1415,13 @@
 		margin-bottom: 0.5rem;
 		cursor: pointer;
 		transition: background 0.2s;
+	}
+
+	.event-item-button {
+		width: 100%;
+		border: 0;
+		font: inherit;
+		text-align: left;
 	}
 
 	.event-item:hover {

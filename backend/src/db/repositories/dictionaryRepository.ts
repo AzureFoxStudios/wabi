@@ -1,10 +1,5 @@
-import db from '../database.js';
 import { escapeSqlLiteral } from '../../state-plane/stdbSyncClient.js';
-import {
-	stdbDictionaryEnabled,
-	stdbDictionaryIngest,
-	stdbDictionaryRows
-} from './stdbDictionaryRuntime.js';
+import { stdbDictionaryIngest, stdbDictionaryRows } from './stdbDictionaryRuntime.js';
 
 export interface DictionaryEntry {
 	id?: number;
@@ -70,87 +65,7 @@ export class DictionaryRepository {
 		};
 	}
 
-	private findExactLegacy(term: string, language: string | undefined, workspaceId = 'default-workspace'): DictionaryEntry | null {
-		const normalized = normalizeTerm(term);
-		const lang = normalizeLanguage(language);
-		const stmt = db.prepare(`
-			SELECT * FROM dictionary_entries
-			WHERE workspace_id = ? AND language = ? AND term_normalized = ?
-			LIMIT 1
-		`);
-		return this.normalizeRow(
-			(stmt.get(normalizeWorkspaceId(workspaceId), lang, normalized) as DictionaryEntry | undefined) || null
-		);
-	}
-
-	private searchLegacy(term: string, language: string | undefined, workspaceId = 'default-workspace', limit = 12): DictionaryEntry[] {
-		const normalized = normalizeTerm(term);
-		const lang = normalizeLanguage(language);
-		const safeLimit = Math.max(1, Math.min(50, Math.floor(limit)));
-		const stmt = db.prepare(`
-			SELECT * FROM dictionary_entries
-			WHERE workspace_id = ? AND language = ? AND term_normalized LIKE ?
-			ORDER BY
-				CASE WHEN term_normalized = ? THEN 0 ELSE 1 END ASC,
-				updated_at DESC
-			LIMIT ?
-		`);
-		return (stmt.all(normalizeWorkspaceId(workspaceId), lang, `%${normalized}%`, normalized, safeLimit) as DictionaryEntry[])
-			.map((row) => this.normalizeRow(row))
-			.filter((row): row is DictionaryEntry => Boolean(row));
-	}
-
-	private setLegacy(entry: DictionaryEntry): DictionaryEntry {
-		const stmt = db.prepare(`
-			INSERT INTO dictionary_entries (
-				workspace_id, term, term_normalized, definition, language,
-				created_by_user_id, created_by_username, created_at, updated_at, votes
-			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(workspace_id, language, term_normalized)
-			DO UPDATE SET
-				term = excluded.term,
-				definition = excluded.definition,
-				created_by_user_id = excluded.created_by_user_id,
-				created_by_username = excluded.created_by_username,
-				updated_at = excluded.updated_at,
-				votes = excluded.votes
-		`);
-
-		stmt.run(
-			entry.workspace_id,
-			entry.term,
-			entry.term_normalized,
-			entry.definition,
-			entry.language,
-			entry.created_by_user_id ?? null,
-			entry.created_by_username ?? null,
-			entry.created_at,
-			entry.updated_at,
-			entry.votes
-		);
-
-		return this.findExactLegacy(entry.term, entry.language, entry.workspace_id) || entry;
-	}
-
-	private deleteLegacy(workspaceId: string, language: string, termNormalized: string, requestingUserId: number, canModerate: boolean): number {
-		if (canModerate) {
-			const stmt = db.prepare(`
-				DELETE FROM dictionary_entries
-				WHERE workspace_id = ? AND language = ? AND term_normalized = ?
-			`);
-			return stmt.run(workspaceId, language, termNormalized).changes;
-		}
-
-		const stmt = db.prepare(`
-			DELETE FROM dictionary_entries
-			WHERE workspace_id = ? AND language = ? AND term_normalized = ? AND created_by_user_id = ?
-		`);
-		return stmt.run(workspaceId, language, termNormalized, requestingUserId).changes;
-	}
-
-	private parseStdbRows(rows: Array<Record<string, unknown>> | null): DictionaryEntry[] | null {
-		if (!rows) return null;
+	private parseStdbRows(rows: Array<Record<string, unknown>>): DictionaryEntry[] {
 		return rows
 			.map((row) => {
 				try {
@@ -181,13 +96,6 @@ export class DictionaryRepository {
 		});
 	}
 
-	private syncLegacyEntriesToStdb(entries: DictionaryEntry[]): void {
-		if (!stdbDictionaryEnabled() || entries.length === 0) return;
-		for (const entry of entries) {
-			this.upsertStdb(entry);
-		}
-	}
-
 	private findExactStdb(term: string, language: string | undefined, workspaceId = 'default-workspace'): DictionaryEntry | null {
 		const normalized = normalizeTerm(term);
 		const lang = normalizeLanguage(language);
@@ -197,10 +105,10 @@ export class DictionaryRepository {
 			`SELECT row_json FROM state_dictionary_entry WHERE workspace_id = ${escapeSqlLiteral(workspace)} AND language = ${escapeSqlLiteral(lang)} AND term_normalized = ${escapeSqlLiteral(normalized)} LIMIT 1`
 		);
 		const parsed = this.parseStdbRows(rows);
-		return parsed && parsed.length > 0 ? parsed[0] : null;
+		return parsed.length > 0 ? parsed[0] : null;
 	}
 
-	private searchStdb(term: string, language: string | undefined, workspaceId = 'default-workspace', limit = 12): DictionaryEntry[] | null {
+	private searchStdb(term: string, language: string | undefined, workspaceId = 'default-workspace', limit = 12): DictionaryEntry[] {
 		const normalized = normalizeTerm(term);
 		const lang = normalizeLanguage(language);
 		const workspace = normalizeWorkspaceId(workspaceId);
@@ -210,7 +118,6 @@ export class DictionaryRepository {
 			`SELECT row_json FROM state_dictionary_entry WHERE workspace_id = ${escapeSqlLiteral(workspace)} AND language = ${escapeSqlLiteral(lang)}`
 		);
 		const parsed = this.parseStdbRows(rows);
-		if (!parsed) return null;
 		return parsed
 			.filter((entry) => entry.term_normalized.includes(normalized))
 			.sort(
@@ -252,35 +159,16 @@ export class DictionaryRepository {
 		if (!next) {
 			throw new Error('Failed to normalize dictionary entry');
 		}
-		if (stdbDictionaryEnabled()) {
-			this.upsertStdb(next);
-		}
-		this.setLegacy(next);
+		this.upsertStdb(next);
 		return this.findExact(term, language, workspaceId) || next;
 	}
 
 	findExact(term: string, language: string | undefined, workspaceId = 'default-workspace'): DictionaryEntry | null {
-		if (stdbDictionaryEnabled()) {
-			const shadow = this.findExactStdb(term, language, workspaceId);
-			if (shadow) return shadow;
-			const legacy = this.findExactLegacy(term, language, workspaceId);
-			if (legacy) {
-				this.upsertStdb(legacy);
-			}
-			return legacy;
-		}
-		return this.findExactLegacy(term, language, workspaceId);
+		return this.findExactStdb(term, language, workspaceId);
 	}
 
 	search(term: string, language: string | undefined, workspaceId = 'default-workspace', limit = 12): DictionaryEntry[] {
-		if (stdbDictionaryEnabled()) {
-			const shadow = this.searchStdb(term, language, workspaceId, limit);
-			if (shadow && shadow.length > 0) return shadow;
-			const legacy = this.searchLegacy(term, language, workspaceId, limit);
-			this.syncLegacyEntriesToStdb(legacy);
-			return legacy;
-		}
-		return this.searchLegacy(term, language, workspaceId, limit);
+		return this.searchStdb(term, language, workspaceId, limit);
 	}
 
 	deleteByTerm(params: {
@@ -291,33 +179,14 @@ export class DictionaryRepository {
 		canModerate: boolean;
 	}): number {
 		const workspaceId = normalizeWorkspaceId(params.workspaceId);
-		const normalized = normalizeTerm(params.term);
 		const lang = normalizeLanguage(params.language);
-
-		if (stdbDictionaryEnabled()) {
-			const existing = this.findExact(params.term, lang, workspaceId);
-			if (!existing) return 0;
-			if (!params.canModerate && existing.created_by_user_id !== params.requestingUserId) {
-				return 0;
-			}
-			const deleted = this.deleteLegacy(
-				workspaceId,
-				lang,
-				normalized,
-				params.requestingUserId,
-				params.canModerate
-			);
-			this.deleteStdb(existing);
-			return deleted > 0 ? deleted : 1;
+		const existing = this.findExact(params.term, lang, workspaceId);
+		if (!existing) return 0;
+		if (!params.canModerate && existing.created_by_user_id !== params.requestingUserId) {
+			return 0;
 		}
-
-		return this.deleteLegacy(
-			workspaceId,
-			lang,
-			normalized,
-			params.requestingUserId,
-			params.canModerate
-		);
+		this.deleteStdb(existing);
+		return 1;
 	}
 }
 

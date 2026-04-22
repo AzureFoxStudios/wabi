@@ -37,6 +37,12 @@ export interface StdbClientRuntimeStats {
 	lastLatencyMs: number | null;
 }
 
+export interface StdbConnectivityProbe {
+	ok: boolean;
+	reason: string | null;
+	latencyMs: number | null;
+}
+
 export interface StdbSyncClientOptions {
 	server: string | null;
 	database: string | null;
@@ -77,6 +83,20 @@ function decodeJwtExpiryMs(token: string): number | null {
 	} catch {
 		return null;
 	}
+}
+
+function decodeSqlRows(response: StdbSqlResponse): StdbDecodedRow[] {
+	const elements = response.schema?.elements || [];
+	const names = elements.map((entry, index) => entry?.name?.some || `col_${index}`);
+	const rows = Array.isArray(response.rows) ? response.rows : [];
+	return rows.map((row) => {
+		const out: StdbDecodedRow = {};
+		for (let i = 0; i < names.length; i += 1) {
+			const algebraicType = elements[i]?.algebraic_type;
+			out[names[i]] = normalizeCell(row?.[i], algebraicType);
+		}
+		return out;
+	});
 }
 
 function normalizeCell(value: unknown, algebraicType: unknown): unknown {
@@ -142,6 +162,8 @@ export class StdbSyncClient {
 	private lastError: string | null = null;
 	private lastErrorAt: number | null = null;
 	private lastLatencyMs: number | null = null;
+	private readonly failureCooldownMs = 5000;
+	private unavailableUntilMs: number | null = null;
 	private asyncAnonymousToken: string | null = null;
 	private asyncAnonymousTokenExpiresAt: number | null = null;
 	private tokenRefreshInFlight: Promise<string | null> | null = null;
@@ -176,6 +198,90 @@ export class StdbSyncClient {
 		};
 	}
 
+	getTimeoutMs(): number {
+		return this.timeoutMs;
+	}
+
+	probeConnectivity(timeoutMs = Math.min(this.timeoutMs, 1500)): StdbConnectivityProbe {
+		if (!this.server || !this.database) {
+			return { ok: false, reason: 'missing server or database', latencyMs: null };
+		}
+		if (!this.helperPath) {
+			return {
+				ok: false,
+				reason: 'missing helper script backend/scripts/state-plane-stdb-http.mjs',
+				latencyMs: null
+			};
+		}
+
+		const args = [
+			this.helperPath,
+			'sql',
+			'--query',
+			'SELECT config_key FROM ingest_auth_config LIMIT 1',
+			'--server',
+			this.server,
+			'--database',
+			this.database,
+			'--timeout-ms',
+			String(Math.max(100, timeoutMs))
+		];
+		if (this.authToken) {
+			args.push('--token', this.authToken);
+		} else if (this.anonymous) {
+			args.push('--anonymous');
+		} else {
+			args.push('--no-anonymous');
+		}
+
+		const startedAt = Date.now();
+		const result = spawnSync(process.execPath, args, {
+			encoding: 'utf8',
+			timeout: Math.max(250, timeoutMs + 250),
+			maxBuffer: 2 * 1024 * 1024
+		});
+		const latencyMs = Date.now() - startedAt;
+
+		if (result.error) {
+			return { ok: false, reason: `helper_error:${result.error.message}`, latencyMs };
+		}
+		if (result.signal) {
+			return { ok: false, reason: `helper_signal:${result.signal}`, latencyMs };
+		}
+
+		const stdout = (result.stdout || '').trim();
+		const stderr = (result.stderr || '').trim();
+		if (typeof result.status === 'number' && result.status !== 0) {
+			return {
+				ok: false,
+				reason: `helper_exit_${result.status}${stderr ? `:${stderr.slice(0, 256)}` : ''}`,
+				latencyMs
+			};
+		}
+		if (!stdout) {
+			return { ok: false, reason: 'helper_empty_output', latencyMs };
+		}
+
+		try {
+			const maybeLine = stdout.split(/\r?\n/).find((line) => line.trim().startsWith('{')) || stdout;
+			const parsed = JSON.parse(maybeLine) as HelperResponse;
+			if (parsed?.ok === true) {
+				return { ok: true, reason: null, latencyMs };
+			}
+			return {
+				ok: false,
+				reason: `http_failure:${parsed?.status ?? 'unknown'}:${(parsed?.text || parsed?.statusText || 'unknown').slice(0, 256)}`,
+				latencyMs
+			};
+		} catch (error) {
+			return {
+				ok: false,
+				reason: `bad_json:${error instanceof Error ? error.message : String(error)}`,
+				latencyMs
+			};
+		}
+	}
+
 	callReducer(reducer: string, args: unknown[]): void {
 		this.calls += 1;
 		this.runHelper([
@@ -197,12 +303,12 @@ export class StdbSyncClient {
 	}
 
 	sql(query: string): StdbSqlResponse {
-		this.sqlReads += 1;
 		const response = this.runHelper([
 			'sql',
 			'--query',
 			query
 		]);
+		this.sqlReads += 1;
 		const payload = response.json;
 		if (Array.isArray(payload)) {
 			return (payload[0] as StdbSqlResponse) || {};
@@ -212,21 +318,73 @@ export class StdbSyncClient {
 
 	sqlRows(query: string): StdbDecodedRow[] {
 		const response = this.sql(query);
-		const elements = response.schema?.elements || [];
-		const names = elements.map((entry, index) => entry?.name?.some || `col_${index}`);
-		const rows = Array.isArray(response.rows) ? response.rows : [];
+		return decodeSqlRows(response);
+	}
 
-		return rows.map((row) => {
-			const out: StdbDecodedRow = {};
-			for (let i = 0; i < names.length; i += 1) {
-				const algebraicType = elements[i]?.algebraic_type;
-				out[names[i]] = normalizeCell(row?.[i], algebraicType);
+	async sqlAsync(query: string): Promise<StdbSqlResponse> {
+		this.sqlReads += 1;
+		const response = await this.runHttpRequest(
+			`${this.server}/v1/database/${encodeURIComponent(this.database || '')}/sql`,
+			'text/plain',
+			query
+		);
+		const payload = response.json;
+		if (Array.isArray(payload)) {
+			return (payload[0] as StdbSqlResponse) || {};
+		}
+		return (payload as StdbSqlResponse) || {};
+	}
+
+	async sqlRowsAsync(query: string): Promise<StdbDecodedRow[]> {
+		const response = await this.sqlAsync(query);
+		return decodeSqlRows(response);
+	}
+
+	async probeConnectivityAsync(timeoutMs = Math.min(this.timeoutMs, 1500)): Promise<StdbConnectivityProbe> {
+		if (!this.server || !this.database) {
+			return { ok: false, reason: 'missing server or database', latencyMs: null };
+		}
+		const startedAt = Date.now();
+		try {
+			const token = await this.resolveAsyncAuthToken(false);
+			const controller = new AbortController();
+			const timer = setTimeout(() => controller.abort(), Math.max(100, timeoutMs));
+			try {
+				const headers: Record<string, string> = { 'Content-Type': 'text/plain' };
+				if (token) headers.Authorization = `Bearer ${token}`;
+				const response = await fetch(
+					`${this.server}/v1/database/${encodeURIComponent(this.database)}/sql`,
+					{
+						method: 'POST',
+						headers,
+						body: 'SELECT config_key FROM ingest_auth_config LIMIT 1',
+						signal: controller.signal
+					}
+				);
+				const latencyMs = Date.now() - startedAt;
+				if (!response.ok) {
+					const text = await response.text().catch(() => '');
+					return {
+						ok: false,
+						reason: `http_failure:${response.status}:${(text || response.statusText || 'unknown').slice(0, 256)}`,
+						latencyMs
+					};
+				}
+				return { ok: true, reason: null, latencyMs };
+			} finally {
+				clearTimeout(timer);
 			}
-			return out;
-		});
+		} catch (error) {
+			return {
+				ok: false,
+				reason: `probe_error:${error instanceof Error ? error.message : String(error)}`,
+				latencyMs: Date.now() - startedAt
+			};
+		}
 	}
 
 	private runHelper(modeArgs: string[]): HelperResponse {
+		this.throwIfTemporarilyUnavailable();
 		if (!this.server || !this.database) {
 			throw new Error('stdb_not_configured: missing server or database');
 		}
@@ -270,8 +428,9 @@ export class StdbSyncClient {
 		const stdout = (result.stdout || '').trim();
 		const stderr = (result.stderr || '').trim();
 		if (typeof result.status === 'number' && result.status !== 0) {
+			const detail = stderr || stdout;
 			return this.fail(
-				`stdb_helper_exit_${result.status}${stderr ? `: ${stderr.slice(0, 256)}` : ''}`
+				`stdb_helper_exit_${result.status}${detail ? `: ${detail.slice(0, 512)}` : ''}`
 			);
 		}
 		if (!stdout) {
@@ -356,6 +515,7 @@ export class StdbSyncClient {
 	}
 
 	private async runHttpRequest(url: string, contentType: string, body: string): Promise<HelperResponse> {
+		this.throwIfTemporarilyUnavailable();
 		const startedAt = Date.now();
 		const execute = async (forceRefreshToken = false): Promise<HelperResponse> => {
 			const token = await this.resolveAsyncAuthToken(forceRefreshToken);
@@ -369,12 +529,18 @@ export class StdbSyncClient {
 					headers.Authorization = `Bearer ${token}`;
 				}
 
-				const response = await fetch(url, {
-					method: 'POST',
-					headers,
-					body,
-					signal: controller.signal
-				});
+				let response: Response;
+				try {
+					response = await fetch(url, {
+						method: 'POST',
+						headers,
+						body,
+						signal: controller.signal
+					});
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					this.fail(`stdb_http_transport_error: ${message}`);
+				}
 				const text = await response.text().catch(() => '');
 				let json: unknown = null;
 				try {
@@ -413,6 +579,34 @@ export class StdbSyncClient {
 		this.errors += 1;
 		this.lastError = message;
 		this.lastErrorAt = Date.now();
+		if (this.isTransportFailure(message)) {
+			this.unavailableUntilMs = Date.now() + this.failureCooldownMs;
+		}
 		throw new Error(message);
+	}
+
+	private throwIfTemporarilyUnavailable(): void {
+		if (!this.unavailableUntilMs) return;
+		const remainingMs = this.unavailableUntilMs - Date.now();
+		if (remainingMs <= 0) {
+			this.unavailableUntilMs = null;
+			return;
+		}
+		this.fail(`stdb_temporarily_unavailable: retry_in_ms=${remainingMs}`);
+	}
+
+	private isTransportFailure(message: string): boolean {
+		const normalized = message.toLowerCase();
+		return (
+			normalized.includes('fetch failed') ||
+			normalized.includes('timed out') ||
+			normalized.includes('econnrefused') ||
+			normalized.includes('enotfound') ||
+			normalized.includes('socket hang up') ||
+			normalized.startsWith('stdb_helper_error:') ||
+			normalized.startsWith('stdb_helper_signal:') ||
+			normalized.startsWith('stdb_http_transport_error:') ||
+			normalized.startsWith('stdb_temporarily_unavailable:')
+		);
 	}
 }

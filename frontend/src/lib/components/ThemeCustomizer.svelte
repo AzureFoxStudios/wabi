@@ -121,7 +121,18 @@
 </script>
 
 <div class="theme-customizer">
-	<div class="customizer-header" on:click={() => (isExpanded = !isExpanded)}>
+	<div
+		class="customizer-header"
+		role="button"
+		tabindex="0"
+		on:click={() => (isExpanded = !isExpanded)}
+		on:keydown={(event) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				isExpanded = !isExpanded;
+			}
+		}}
+	>
 		<h3>🎨 Create Custom Theme</h3>
 		<span class="expand-icon">{isExpanded ? '▼' : '▶'}</span>
 	</div>

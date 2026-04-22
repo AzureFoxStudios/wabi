@@ -246,6 +246,7 @@
 		{#each $users as user (user.id)}
 			<div
 				class="user"
+				role="group"
 				on:contextmenu={(e) => handleContextMenu(e, user)}
 				use:longpress={{ onLongPress: (e) => handleUserLongPress(e, user) }}
 			>

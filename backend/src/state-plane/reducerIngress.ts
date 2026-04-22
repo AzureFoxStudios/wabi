@@ -84,9 +84,9 @@ export class StatePlaneReducerIngress {
 	constructor(config: StatePlaneConfig) {
 		this.enabled = config.reducerIngressEnabled;
 		this.requireSignature = config.reducerIngressRequireSignature;
-		this.signingSecret = config.shadowSigningSecret;
-		this.signingKeyId = config.shadowSigningKeyId;
-		this.bearerToken = config.shadowToken;
+		this.signingSecret = config.reducerIngressSigningSecret;
+		this.signingKeyId = config.reducerIngressSigningKeyId;
+		this.bearerToken = config.reducerIngressBearerToken;
 		this.maxSkewMs = config.reducerIngressMaxSkewMs;
 		this.maxBodyBytes = config.reducerIngressMaxBodyBytes;
 		this.ingestPath = join(DATA_DIR, 'state-plane-reducer-ingest.ndjson');
@@ -305,7 +305,7 @@ export class StatePlaneReducerIngress {
 				ok: false,
 				status: 503,
 				reason: 'ingress_misconfigured',
-				message: 'Reducer ingress signature is required but STATE_SHADOW_SIGNING_SECRET is not configured',
+				message: 'Reducer ingress signature is required but STATE_REDUCER_INGRESS_SIGNING_SECRET is not configured',
 				nonce: null,
 				timestamp: null
 			};

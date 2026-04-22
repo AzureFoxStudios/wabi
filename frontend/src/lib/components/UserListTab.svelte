@@ -8,8 +8,7 @@
 	import type { ContextMenuItem } from '$lib/context-menu/types';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
 	import {
-		displayEnhancementSettingsStore,
-		toggleFriendNotificationTrackedUserId
+		displayEnhancementSettingsStore
 	} from '$lib/displayEnhancements';
 	import {
 		MAX_LOCAL_NICKNAME_LENGTH,
@@ -19,6 +18,11 @@
 		localNicknamesStore,
 		setLocalNicknameForUser
 	} from '$lib/localNicknames';
+	import {
+		isTrackedPersonStatusAlertsEnabled,
+		rememberPeople,
+		toggleTrackedPersonStatusAlerts
+	} from '$lib/peopleTracker';
 	import { queueConversationPaymentLaunch } from '$lib/paymentLaunch';
 
 	let contextMenuUser: User | null = null;
@@ -63,12 +67,6 @@
 		return false;
 	}
 
-	// Group online users by highest hoisted role
-	function getFriendTrackKey(user: User): string {
-		if (user.dbUserId) return `user-${user.dbUserId}`;
-		return user.id;
-	}
-
 	function getLocalNickname(user: User): string {
 		if (!$displayEnhancementSettingsStore.localNicknamesEnabled) return '';
 		const key = getUserIdentityKey(user);
@@ -80,14 +78,13 @@
 	}
 
 	function isFriendTrackedForNotifications(user: User): boolean {
-		return $displayEnhancementSettingsStore.friendNotificationTrackedUserIds.includes(
-			getFriendTrackKey(user)
-		);
+		return isTrackedPersonStatusAlertsEnabled(user);
 	}
 
 	function toggleTrackContextUserStatus(): void {
-		if (!contextMenuUser || isCurrentUserEntry(contextMenuUser)) return;
-		toggleFriendNotificationTrackedUserId(getFriendTrackKey(contextMenuUser));
+		if (!contextMenuUser || isCurrentUserEntry(contextMenuUser) || !contextMenuUser.dbUserId) return;
+		rememberPeople([contextMenuUser]);
+		toggleTrackedPersonStatusAlerts(contextMenuUser);
 		closeContextMenu();
 	}
 
@@ -173,6 +170,8 @@
 			return matchesPresenceFilter(user, false);
 		})
 	);
+	$: rememberPeople($users);
+	$: rememberPeople($serverMembers);
 
 	$: groupedUsers = (() => {
 		const groups: Record<string, User[]> = {};
@@ -200,15 +199,6 @@
 			.filter((user) => matchesPresenceFilter(user, true))
 			.sort((a, b) => a.username.localeCompare(b.username));
 	})();
-
-	$: statusCounts = {
-		active: $users.filter((u) => u.status === 'active').length,
-		away: $users.filter((u) => u.status === 'away').length,
-		busy: $users.filter((u) => u.status === 'busy').length,
-		offline: $serverMembers.length - $users.length
-	};
-	$: trackedFriendsCount =
-		$displayEnhancementSettingsStore.friendNotificationTrackedUserIds.length;
 
 	function handleUserClick(user: User) {
 		if (isCurrentUserEntry(user)) {
@@ -287,14 +277,14 @@
 
 	async function handleContextVoiceCall() {
 		if (!contextMenuUser || !$socket || isCurrentUserEntry(contextMenuUser)) return;
-		try { await startCall($socket, getUserIdentityKey(contextMenuUser), false, { scope: 'dm', displayName: contextMenuUser.username }); } catch { /* ignore */ }
 		closeContextMenu();
+		await startCall($socket, getUserIdentityKey(contextMenuUser), false, { scope: 'dm', displayName: contextMenuUser.username });
 	}
 
 	async function handleContextVideoCall() {
 		if (!contextMenuUser || !$socket || isCurrentUserEntry(contextMenuUser)) return;
-		try { await startCall($socket, getUserIdentityKey(contextMenuUser), true, { scope: 'dm', displayName: contextMenuUser.username }); } catch { /* ignore */ }
 		closeContextMenu();
+		await startCall($socket, getUserIdentityKey(contextMenuUser), true, { scope: 'dm', displayName: contextMenuUser.username });
 	}
 
 	function canManageRoles(): boolean {
@@ -400,6 +390,7 @@
 					? 'Stop Status Alerts'
 					: 'Track Status Alerts',
 				icon: 'settings',
+				disabled: !contextMenuUser?.dbUserId,
 					onSelect: toggleTrackContextUserStatus
 				});
 			}
@@ -496,23 +487,6 @@
 		return user.highestRole || user.roles?.[0] || 'member';
 	}
 
-	function getTopRoleBadgeLabel(user: User): string | null {
-		if (!$displayEnhancementSettingsStore.topRoleEverywhereEnabled) return null;
-		return getRoleLabel(getUserTopRoleName(user));
-	}
-
-	function shouldShowStaffTag(user: User): boolean {
-		if (!$displayEnhancementSettingsStore.staffTagEnabled) return false;
-		const role = getUserTopRoleName(user);
-		return role === 'owner' || role === 'admin' || role === 'mod';
-	}
-
-	function roleToneClass(roleName: string): 'owner' | 'admin' | 'mod' | 'default' {
-		if (roleName === 'owner') return 'owner';
-		if (roleName === 'admin') return 'admin';
-		if (roleName === 'mod') return 'mod';
-		return 'default';
-	}
 </script>
 
 <div class="user-list-tab">
@@ -526,24 +500,17 @@
 			/>
 			<div class="friend-toolbar-row">
 				<select class="friend-select" bind:value={friendPresenceFilter}>
-					<option value="all">All statuses</option>
+					<option value="all">All</option>
 					<option value="active">Online</option>
 					<option value="away">Away</option>
 					<option value="busy">Busy</option>
 					<option value="offline">Offline</option>
 				</select>
 				<select class="friend-select" bind:value={friendSortMode}>
-					<option value="role">Sort by role</option>
-					<option value="name">Sort by name</option>
-					<option value="status">Sort by status</option>
+					<option value="role">Role</option>
+					<option value="name">Name</option>
+					<option value="status">Status</option>
 				</select>
-			</div>
-			<div class="friend-stats-row">
-				<span class="friend-stat online">Online {statusCounts.active}</span>
-				<span class="friend-stat away">Away {statusCounts.away}</span>
-				<span class="friend-stat busy">Busy {statusCounts.busy}</span>
-				<span class="friend-stat offline">Offline {Math.max(0, statusCounts.offline)}</span>
-				<span class="friend-stat tracked">Status Alerts {trackedFriendsCount}</span>
 			</div>
 		</div>
 	{/if}
@@ -572,12 +539,6 @@
 					<div class="user-info">
 						<span class="user-display-name" style="color: {getDisplayColor(user)}">
 							{getDisplayName(user)}
-							{#if getTopRoleBadgeLabel(user)}
-								<span class={`role-badge tone-${roleToneClass(getUserTopRoleName(user))}`}>{getTopRoleBadgeLabel(user)}</span>
-							{/if}
-							{#if shouldShowStaffTag(user)}
-								<span class="staff-tag">Staff</span>
-							{/if}
 						</span>
 						{#if user.handle}
 							<span class="user-handle">@{user.handle}</span>
@@ -610,12 +571,6 @@
 					<div class="user-info">
 						<span class="user-display-name" style="color: {getDisplayColor(user)}">
 							{getDisplayName(user)}
-							{#if getTopRoleBadgeLabel(user)}
-								<span class={`role-badge tone-${roleToneClass(getUserTopRoleName(user))}`}>{getTopRoleBadgeLabel(user)}</span>
-							{/if}
-							{#if shouldShowStaffTag(user)}
-								<span class="staff-tag">Staff</span>
-							{/if}
 						</span>
 						{#if user.handle}
 							<span class="user-handle">@{user.handle}</span>
@@ -645,7 +600,7 @@
 	.user-list-tab {
 		flex: 1;
 		overflow-y: auto;
-		padding: 0.25rem 0;
+		padding: 0.4rem 0.35rem 0.7rem;
 		text-align: left;
 	}
 
@@ -653,9 +608,9 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.38rem;
-		padding: 0.45rem 0.65rem 0.5rem;
-		border-bottom: 1px solid var(--border);
-		margin-bottom: 0.4rem;
+		padding: 0.35rem 0.45rem 0.55rem;
+		border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+		margin-bottom: 0.3rem;
 	}
 
 	.friend-search,
@@ -676,43 +631,6 @@
 		gap: 0.35rem;
 	}
 
-	.friend-stats-row {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.32rem;
-	}
-
-	.friend-stat {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 0.65rem;
-		padding: 0.1rem 0.35rem;
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--bg-tertiary) 76%, transparent);
-		color: var(--text-secondary);
-	}
-
-	.friend-stat.online {
-		color: var(--status-online, #44b700);
-	}
-
-	.friend-stat.away {
-		color: var(--status-away, #faa61a);
-	}
-
-	.friend-stat.busy {
-		color: var(--status-busy, #f04747);
-	}
-
-	.friend-stat.offline {
-		color: var(--status-offline, #777);
-	}
-
-	.friend-stat.tracked {
-		color: var(--accent);
-	}
-
 	.empty-state {
 		padding: 2rem 1rem;
 		text-align: center;
@@ -721,16 +639,16 @@
 	}
 
 	.role-group {
-		margin-bottom: 0.25rem;
+		margin-bottom: 0.55rem;
 	}
 
 	.role-header {
-		padding: 0.5rem 0.75rem 0.25rem;
+		padding: 0.45rem 0.3rem 0.3rem;
 		font-size: 0.7rem;
 		font-weight: 600;
 		text-transform: uppercase;
 		color: var(--text-secondary);
-		letter-spacing: 0.03em;
+		letter-spacing: 0.04em;
 		text-align: left;
 	}
 
@@ -739,23 +657,27 @@
 		align-items: center;
 		justify-content: flex-start;
 		gap: 0.5rem;
-		padding: 0.375rem 0.75rem;
+		padding: 0.48rem 0.35rem;
 		width: 100%;
-		background: none;
+		background: transparent;
 		border: none;
 		color: var(--text-primary);
 		cursor: pointer;
 		text-align: left;
-		border-radius: 4px;
-		transition: background 0.15s;
+		border-radius: 10px;
+		transition:
+			background 0.15s,
+			transform 0.15s;
+		margin-bottom: 0.08rem;
 	}
 
 	.user-row:hover {
-		background: var(--bg-hover);
+		background: color-mix(in srgb, var(--accent) 8%, transparent);
+		transform: translateY(-1px);
 	}
 
 	.user-row.offline {
-		opacity: 0.5;
+		opacity: 0.58;
 	}
 
 	.user-avatar-wrap {
@@ -806,55 +728,10 @@
 
 	.user-display-name {
 		font-size: 0.875rem;
-		font-weight: 500;
+		font-weight: 600;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-	}
-
-	.role-badge {
-		display: inline-flex;
-		align-items: center;
-		font-size: 0.62rem;
-		font-weight: 700;
-		vertical-align: baseline;
-		margin-left: 0.25rem;
-		padding: 0.04rem 0.32rem;
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--bg-tertiary) 78%, transparent);
-		color: var(--text-secondary);
-		border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-	}
-
-	.role-badge.tone-owner {
-		background: color-mix(in srgb, #f59e0b 24%, transparent);
-		color: #f59e0b;
-		border-color: color-mix(in srgb, #f59e0b 40%, transparent);
-	}
-
-	.role-badge.tone-admin {
-		background: color-mix(in srgb, #ef4444 20%, transparent);
-		color: #ef4444;
-		border-color: color-mix(in srgb, #ef4444 36%, transparent);
-	}
-
-	.role-badge.tone-mod {
-		background: color-mix(in srgb, #22c55e 20%, transparent);
-		color: #22c55e;
-		border-color: color-mix(in srgb, #22c55e 34%, transparent);
-	}
-
-	.staff-tag {
-		display: inline-flex;
-		align-items: center;
-		font-size: 0.62rem;
-		font-weight: 700;
-		margin-left: 0.25rem;
-		padding: 0.04rem 0.32rem;
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--accent) 22%, transparent);
-		color: color-mix(in srgb, var(--accent) 72%, var(--text-primary) 28%);
-		border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
 	}
 
 	.user-handle {

@@ -496,6 +496,13 @@ input:focus, textarea:focus {
 	box-shadow: var(--shadow-focus-ring);
 }
 
+.input-container textarea,
+.input-container textarea:focus {
+	background: transparent;
+	border-color: transparent;
+	box-shadow: none;
+}
+
 .input-container textarea::placeholder {
 	color: var(--color-text-secondary);
 }
@@ -869,8 +876,6 @@ input:focus, textarea:focus {
 :root[data-theme='slate-signal'] .user-panel,
 :root[data-theme='slate-signal'] .right-panel-content,
 :root[data-theme='slate-signal'] .chat-header,
-:root[data-theme='slate-signal'] .input-wrapper,
-:root[data-theme='slate-signal'] .input-container,
 :root[data-theme='slate-signal'] .panel-header,
 :root[data-theme='slate-signal'] .modal-content,
 :root[data-theme='slate-signal'] .incoming-call-modal,
@@ -885,6 +890,12 @@ input:focus, textarea:focus {
 	background-color: rgba(var(--bg-tertiary-rgb), 0.52) !important;
 }
 
+:root[data-theme='slate-signal'] .input-wrapper,
+:root[data-theme='slate-signal'] .input-container {
+	background-color: transparent !important;
+	box-shadow: none !important;
+}
+
 :root[data-theme='slate-signal'] .chat-container,
 :root[data-theme='slate-signal'] .main-content,
 :root[data-theme='slate-signal'] .chat-content {
@@ -897,8 +908,6 @@ input:focus, textarea:focus {
 	:root[data-theme='slate-signal'] .user-panel,
 	:root[data-theme='slate-signal'] .right-panel-content,
 	:root[data-theme='slate-signal'] .chat-header,
-	:root[data-theme='slate-signal'] .input-wrapper,
-	:root[data-theme='slate-signal'] .input-container,
 	:root[data-theme='slate-signal'] .panel-header,
 	:root[data-theme='slate-signal'] .modal-content,
 	:root[data-theme='slate-signal'] .incoming-call-modal,

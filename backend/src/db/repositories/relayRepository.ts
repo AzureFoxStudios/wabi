@@ -1,7 +1,6 @@
-import db from '../database.js';
 import { hashPassword, verifyPassword } from '../../auth/passwordHash.js';
 import crypto from 'crypto';
-import { stdbRelayIngest, stdbRelayRows, stdbRelaysEnabled } from './stdbRelayRuntime.js';
+import { stdbRelayIngest, stdbRelayRows } from './stdbRelayRuntime.js';
 import { escapeSqlLiteral } from '../../state-plane/stdbSyncClient.js';
 import {
 	parseRelayMetadata,
@@ -47,7 +46,7 @@ export class RelayRepository {
 	private generateRelayId(): number {
 		for (let attempt = 0; attempt < 16; attempt += 1) {
 			const relayId = crypto.randomInt(1, 2_147_483_647);
-			if (!this.findLegacyById(relayId)) {
+			if (!this.findById(relayId)) {
 				return relayId;
 			}
 		}
@@ -122,28 +121,8 @@ export class RelayRepository {
 		return metadata?.kind !== 'desktop-helper';
 	}
 
-	private listLegacyRelays(): Relay[] {
-		const stmt = db.prepare('SELECT * FROM relays ORDER BY registered_at DESC');
-		return (stmt.all() as Relay[]).map((row) => this.normalizeRelay(row)).filter((row): row is Relay => Boolean(row));
-	}
-
-	private getLegacyActiveRelays(): PublicRelay[] {
-		const stmt = db.prepare(`
-			SELECT relay_id, url, name, region, status, latitude, longitude, bandwidth_mbps, metadata_json
-			FROM relays
-			WHERE status IN ('active', 'degraded') AND approved = 1
-			ORDER BY region, name
-		`);
-		return (stmt.all() as Relay[])
-			.map((row) => this.normalizeRelay(row))
-			.filter((row): row is Relay => Boolean(row))
-			.filter((row) => this.isPublicRelay(row))
-			.map((row) => this.toPublicRelay(row));
-	}
-
-	private parseRelayRows(rows: Array<Record<string, unknown>> | null): Relay[] | null {
-		if (!rows) return null;
-		const parsed = rows
+	private parseRelayRows(rows: Array<Record<string, unknown>>): Relay[] {
+		return rows
 			.map((row) => {
 				try {
 					return this.normalizeRelay(JSON.parse(String(row.row_json || '{}')) as Partial<Relay>);
@@ -152,17 +131,13 @@ export class RelayRepository {
 				}
 			})
 			.filter((row): row is Relay => Boolean(row));
-		return parsed;
 	}
 
-	private listStdbRelays(): Relay[] | null {
-		const rows = stdbRelayRows(
-			'relays.read_all',
-			'SELECT row_json FROM state_relay'
+	private listStdbRelays(): Relay[] {
+		const rows = stdbRelayRows('relays.read_all', 'SELECT row_json FROM state_relay');
+		return this.parseRelayRows(rows).sort(
+			(a, b) => b.registered_at - a.registered_at || b.relay_id - a.relay_id
 		);
-		const parsed = this.parseRelayRows(rows);
-		if (!parsed) return null;
-		return parsed.sort((a, b) => b.registered_at - a.registered_at || b.relay_id - a.relay_id);
 	}
 
 	private upsertStdb(relay: Relay): void {
@@ -176,132 +151,33 @@ export class RelayRepository {
 		stdbRelayIngest('relays.delete', 'delete_relay', { relayId });
 	}
 
-	private syncLegacyRelaysToStdb(relays: Relay[]): void {
-		if (!stdbRelaysEnabled() || relays.length === 0) return;
-		for (const relay of relays) {
-			this.upsertStdb(relay);
-		}
-	}
-
-	private setLegacyRelay(relay: Relay): Relay {
-		const existing = this.findLegacyById(relay.relay_id);
-		if (existing) {
-			const stmt = db.prepare(`
-				UPDATE relays
-				SET url = ?, name = ?, region = ?, api_key_hash = ?, status = ?, last_health_ping = ?,
-					registered_at = ?, approved = ?, latitude = ?, longitude = ?, bandwidth_mbps = ?,
-					storage_gb = ?, syncthing_device_id = ?, metadata_json = ?
-				WHERE relay_id = ?
-			`);
-			stmt.run(
-				relay.url,
-				relay.name,
-				relay.region,
-				relay.api_key_hash,
-				relay.status,
-				relay.last_health_ping,
-				relay.registered_at,
-				relay.approved,
-				relay.latitude,
-				relay.longitude,
-				relay.bandwidth_mbps,
-				relay.storage_gb,
-				relay.syncthing_device_id,
-				relay.metadata_json,
-				relay.relay_id
-			);
-		} else {
-			const stmt = db.prepare(`
-				INSERT INTO relays (
-					relay_id, url, name, region, api_key_hash, status, last_health_ping, registered_at,
-					approved, latitude, longitude, bandwidth_mbps, storage_gb, syncthing_device_id, metadata_json
-				)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			`);
-			stmt.run(
-				relay.relay_id,
-				relay.url,
-				relay.name,
-				relay.region,
-				relay.api_key_hash,
-				relay.status,
-				relay.last_health_ping,
-				relay.registered_at,
-				relay.approved,
-				relay.latitude,
-				relay.longitude,
-				relay.bandwidth_mbps,
-				relay.storage_gb,
-				relay.syncthing_device_id,
-				relay.metadata_json
-			);
-		}
-		return this.findLegacyById(relay.relay_id) || relay;
-	}
-
-	private findLegacyById(relayId: number): Relay | null {
-		const stmt = db.prepare('SELECT * FROM relays WHERE relay_id = ?');
-		return this.normalizeRelay((stmt.get(relayId) as Relay | undefined) || null);
-	}
-
-	private findLegacyByUrl(url: string): Relay | null {
-		const stmt = db.prepare('SELECT * FROM relays WHERE url = ?');
-		return this.normalizeRelay((stmt.get(url) as Relay | undefined) || null);
-	}
-
-	private getAllRelaysFromStore(): Relay[] {
-		if (stdbRelaysEnabled()) {
-			const relays = this.listStdbRelays();
-			if (relays && relays.length > 0) return relays;
-			const legacy = this.listLegacyRelays();
-			this.syncLegacyRelaysToStdb(legacy);
-			return legacy;
-		}
-		return this.listLegacyRelays();
-	}
-
 	getActiveRelays(): PublicRelay[] {
-		if (stdbRelaysEnabled()) {
-			const relays = this.getAllRelaysFromStore()
-				.filter((relay) => this.isPublicRelay(relay))
-				.sort((a, b) => a.region.localeCompare(b.region) || a.name.localeCompare(b.name));
-			return relays.map((relay) => this.toPublicRelay(relay));
-		}
-		return this.getLegacyActiveRelays();
+		return this.getAllRelays()
+			.filter((relay) => this.isPublicRelay(relay))
+			.sort((a, b) => a.region.localeCompare(b.region) || a.name.localeCompare(b.name))
+			.map((relay) => this.toPublicRelay(relay));
 	}
 
 	getAllRelays(): Relay[] {
-		return this.getAllRelaysFromStore();
+		return this.listStdbRelays();
 	}
 
 	findByUrl(url: string): Relay | null {
-		if (stdbRelaysEnabled()) {
-			const rows = stdbRelayRows(
-				'relays.find_by_url',
-				`SELECT row_json FROM state_relay WHERE url = ${escapeSqlLiteral(url)} LIMIT 1`
-			);
-			const parsed = this.parseRelayRows(rows);
-			if (parsed && parsed.length > 0) return parsed[0];
-			const legacy = this.findLegacyByUrl(url);
-			if (legacy) this.upsertStdb(legacy);
-			return legacy;
-		}
-		return this.findLegacyByUrl(url);
+		const rows = stdbRelayRows(
+			'relays.find_by_url',
+			`SELECT row_json FROM state_relay WHERE url = ${escapeSqlLiteral(url)} LIMIT 1`
+		);
+		const parsed = this.parseRelayRows(rows);
+		return parsed.length > 0 ? parsed[0] : null;
 	}
 
 	findById(relayId: number): Relay | null {
-		if (stdbRelaysEnabled()) {
-			const rows = stdbRelayRows(
-				'relays.find_by_id',
-				`SELECT row_json FROM state_relay WHERE relay_id = ${Math.floor(relayId)} LIMIT 1`
-			);
-			const parsed = this.parseRelayRows(rows);
-			if (parsed && parsed.length > 0) return parsed[0];
-			const legacy = this.findLegacyById(relayId);
-			if (legacy) this.upsertStdb(legacy);
-			return legacy;
-		}
-		return this.findLegacyById(relayId);
+		const rows = stdbRelayRows(
+			'relays.find_by_id',
+			`SELECT row_json FROM state_relay WHERE relay_id = ${Math.floor(relayId)} LIMIT 1`
+		);
+		const parsed = this.parseRelayRows(rows);
+		return parsed.length > 0 ? parsed[0] : null;
 	}
 
 	async register(data: {
@@ -319,7 +195,7 @@ export class RelayRepository {
 		const apiKeyHash = await hashPassword(apiKey);
 		const now = Math.floor(Date.now() / 1000);
 		const relayId = this.generateRelayId();
-		const relay = this.setLegacyRelay({
+		this.upsertStdb({
 			relay_id: relayId,
 			url: data.url,
 			name: data.name,
@@ -336,11 +212,8 @@ export class RelayRepository {
 			syncthing_device_id: data.syncthing_device_id ?? null,
 			metadata_json: data.metadata ? JSON.stringify(sanitizeRelayMetadata(data.metadata) || data.metadata) : null
 		});
-		if (stdbRelaysEnabled()) {
-			this.upsertStdb(relay);
-		}
 
-		return { relay_id: relay.relay_id, api_key: apiKey };
+		return { relay_id: relayId, api_key: apiKey };
 	}
 
 	async upsertSelfHosted(data: {
@@ -374,7 +247,7 @@ export class RelayRepository {
 			selfHosted: true,
 			originManaged: true
 		}) || {};
-		const relay = this.setLegacyRelay({
+		const relay: Relay = {
 			relay_id: existing?.relay_id ?? this.generateRelayId(),
 			url: data.url,
 			name: data.name,
@@ -390,10 +263,8 @@ export class RelayRepository {
 			storage_gb: data.storage_gb ?? existing?.storage_gb ?? null,
 			syncthing_device_id: data.syncthing_device_id ?? existing?.syncthing_device_id ?? null,
 			metadata_json: JSON.stringify(mergedMetadata)
-		});
-		if (stdbRelaysEnabled()) {
-			this.upsertStdb(relay);
-		}
+		};
+		this.upsertStdb(relay);
 		return relay;
 	}
 
@@ -427,7 +298,7 @@ export class RelayRepository {
 			...(existingMetadata || {}),
 			...(data.metadata || {})
 		}) || {};
-		const relay = this.setLegacyRelay({
+		const relay: Relay = {
 			relay_id: existing?.relay_id ?? this.generateRelayId(),
 			url: data.url,
 			name: data.name,
@@ -443,41 +314,33 @@ export class RelayRepository {
 			storage_gb: data.storage_gb ?? existing?.storage_gb ?? null,
 			syncthing_device_id: data.syncthing_device_id ?? existing?.syncthing_device_id ?? null,
 			metadata_json: JSON.stringify(mergedMetadata)
-		});
-		if (stdbRelaysEnabled()) {
-			this.upsertStdb(relay);
-		}
+		};
+		this.upsertStdb(relay);
 		return relay;
 	}
 
 	updateHealth(relayId: number, metrics?: { bandwidth_mbps?: number; storage_gb?: number }): void {
 		const existing = this.findById(relayId);
 		if (!existing) return;
-		const next = this.setLegacyRelay({
+		this.upsertStdb({
 			...existing,
 			status: 'active',
 			last_health_ping: Math.floor(Date.now() / 1000),
 			bandwidth_mbps: metrics?.bandwidth_mbps ?? existing.bandwidth_mbps,
 			storage_gb: metrics?.storage_gb ?? existing.storage_gb
 		});
-		if (stdbRelaysEnabled()) {
-			this.upsertStdb(next);
-		}
 	}
 
 	markStaleRelaysOffline(timeoutSeconds: number = 300): number {
 		const cutoff = Math.floor(Date.now() / 1000) - timeoutSeconds;
-		const staleRelays = this.getAllRelaysFromStore().filter(
+		const staleRelays = this.getAllRelays().filter(
 			(relay) =>
 				(relay.status === 'active' || relay.status === 'degraded') &&
 				relay.last_health_ping !== null &&
 				relay.last_health_ping < cutoff
 		);
 		for (const relay of staleRelays) {
-			const next = this.setLegacyRelay({ ...relay, status: 'offline' });
-			if (stdbRelaysEnabled()) {
-				this.upsertStdb(next);
-			}
+			this.upsertStdb({ ...relay, status: 'offline' });
 		}
 		return staleRelays.length;
 	}
@@ -485,10 +348,7 @@ export class RelayRepository {
 	approve(relayId: number): void {
 		const existing = this.findById(relayId);
 		if (!existing) return;
-		const next = this.setLegacyRelay({ ...existing, approved: 1, status: 'active' });
-		if (stdbRelaysEnabled()) {
-			this.upsertStdb(next);
-		}
+		this.upsertStdb({ ...existing, approved: 1, status: 'active' });
 	}
 
 	async verifyApiKey(relayId: number, apiKey: string): Promise<boolean> {
@@ -498,11 +358,7 @@ export class RelayRepository {
 	}
 
 	delete(relayId: number): void {
-		const stmt = db.prepare('DELETE FROM relays WHERE relay_id = ?');
-		stmt.run(relayId);
-		if (stdbRelaysEnabled()) {
-			this.deleteStdb(relayId);
-		}
+		this.deleteStdb(relayId);
 	}
 }
 

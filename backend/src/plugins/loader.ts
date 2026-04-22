@@ -9,9 +9,11 @@ import crypto from 'crypto';
 import { spawnSync } from 'child_process';
 import AdmZip from 'adm-zip';
 import type { Server, Socket } from 'socket.io';
-import type { Server as HttpServer } from 'http';
+import type { IncomingMessage, Server as HttpServer, ServerResponse } from 'http';
 import type {
   BackendPlugin,
+  JsonObject,
+  JsonValue,
   PaymentCreateIntentInput,
   PaymentCreateIntentResult,
   PaymentGetIntentStatusInput,
@@ -21,10 +23,18 @@ import type {
   PaymentRefundResult,
   PaymentVerifyWebhookInput,
   PaymentWebhookVerificationResult,
+  PluginChannel,
+  PluginChannelMessage,
   PluginContext,
+  PluginHttpRequest,
+  PluginHttpResponse,
   PluginLogger,
+  PluginLoggerMeta,
   PluginManifest,
-  PluginStorage
+  PluginRuntimeContext,
+  PluginSocketPayload,
+  PluginStorage,
+  PluginUser
 } from './types';
 
 interface PluginRecord {
@@ -62,7 +72,7 @@ interface PluginLogEntry {
   message: string;
   timestamp: string;
   namespace: string;
-  meta?: Record<string, any>;
+  meta?: PluginLoggerMeta;
 }
 
 const CRASH_LOOP_THRESHOLD = 3;
@@ -121,7 +131,16 @@ interface RegisteredPluginRoute {
   pluginId: string;
   method: 'get' | 'post' | 'put' | 'delete';
   path: string;
-  handler: (req: any, res: any) => void | Promise<void>;
+  handler: (req: PluginHttpRequest, res: PluginHttpResponse) => void | Promise<void>;
+}
+
+function isTrustedSignerRecord(value: unknown): value is TrustedSignerRecord {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const record = value as Partial<TrustedSignerRecord>;
+  return typeof record.keyId === 'string' && typeof record.publicKey === 'string';
 }
 
 export class PluginLoader {
@@ -141,7 +160,7 @@ export class PluginLoader {
   constructor(
     private io: Server,
     private httpServer: HttpServer,
-    private context: any
+    private context: PluginRuntimeContext
   ) {
     // Resolve local defaults from process cwd so bundled/dist runtime does not escape repo roots.
     const dataDir = process.env.DATA_DIR || path.join(process.cwd(), 'data');
@@ -583,7 +602,7 @@ export class PluginLoader {
     console.log(`  🌐 Plugin HTTP routes mounted at ${PLUGIN_HTTP_ROUTE_PREFIX}/${pluginId}/*`);
   }
 
-  async handleHttpRoute(req: any, res: any, url: URL): Promise<boolean> {
+  async handleHttpRoute(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
     if (!url.pathname.startsWith(`${PLUGIN_HTTP_ROUTE_PREFIX}/`)) {
       return false;
     }
@@ -622,7 +641,7 @@ export class PluginLoader {
 
     try {
       const bodyReaders = this.createRequestBodyReaders(req);
-      const pluginReq = {
+      const pluginReq: PluginHttpRequest = {
         raw: req,
         method: req.method || 'GET',
         headers: req.headers,
@@ -659,11 +678,7 @@ export class PluginLoader {
     return false;
   }
 
-  private createRequestBodyReaders(req: any): {
-    json: () => Promise<any>;
-    text: () => Promise<string>;
-    buffer: () => Promise<Buffer>;
-  } {
+  private createRequestBodyReaders(req: IncomingMessage): Pick<PluginHttpRequest, 'json' | 'text' | 'buffer'> {
     let bodyPromise: Promise<Buffer> | null = null;
     const maxBytes = Number(process.env.PLUGIN_ROUTE_MAX_BODY_BYTES || DEFAULT_PLUGIN_ROUTE_BODY_LIMIT_BYTES);
 
@@ -693,16 +708,16 @@ export class PluginLoader {
     return {
       buffer: async () => getBody(),
       text: async () => (await getBody()).toString('utf-8'),
-      json: async () => {
+      json: async <T = JsonObject>(): Promise<T> => {
         const raw = this.stripUtf8Bom((await getBody()).toString('utf-8')).trim();
-        if (!raw) return {};
-        return JSON.parse(raw);
+        if (!raw) return {} as T;
+        return JSON.parse(raw) as T;
       }
     };
   }
 
-  private createPluginResponse(res: any): any {
-    const pluginRes: any = {
+  private createPluginResponse(res: ServerResponse): PluginHttpResponse {
+    const pluginRes: PluginHttpResponse = {
       raw: res,
       status: (code: number) => {
         res.statusCode = code;
@@ -716,13 +731,13 @@ export class PluginLoader {
         res.setHeader(name, value);
         return pluginRes;
       },
-      json: (payload: any) => {
+      json: (payload: JsonValue) => {
         if (!res.headersSent) {
           res.setHeader('Content-Type', 'application/json');
         }
         res.end(JSON.stringify(payload));
       },
-      send: (payload: any) => {
+      send: (payload) => {
         if (Buffer.isBuffer(payload) || typeof payload === 'string') {
           res.end(payload);
           return;
@@ -732,7 +747,7 @@ export class PluginLoader {
         }
         res.end(JSON.stringify(payload));
       },
-      end: (payload?: any) => {
+      end: (payload?: string | Buffer) => {
         res.end(payload);
       }
     };
@@ -740,7 +755,7 @@ export class PluginLoader {
     return pluginRes;
   }
 
-  private writeJson(res: any, statusCode: number, payload: any): void {
+  private writeJson(res: ServerResponse, statusCode: number, payload: JsonValue): void {
     res.writeHead(statusCode, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(payload));
   }
@@ -753,9 +768,9 @@ export class PluginLoader {
 
       if (plugin.socketHandlers) {
         for (const [event, handler] of Object.entries(plugin.socketHandlers)) {
-          socket.on(event, (data: any) => {
+          socket.on(event, async (data: PluginSocketPayload) => {
             try {
-              handler(socket, data, ctx);
+              await handler(socket, data, ctx);
             } catch (error) {
               ctx.logger.error(`Error handling socket event ${event}`, {
                 error: error instanceof Error ? error.message : String(error)
@@ -780,8 +795,8 @@ export class PluginLoader {
       channelMessages: this.context.channelMessages,
       storage: this.createPluginStorage(pluginId),
       logger: this.createPluginLogger(pluginId),
-      emit: (event: string, data: any) => this.io.emit(event, data),
-      emitToChannel: (channelId: string, event: string, data: any) => {
+      emit: (event: string, data: PluginSocketPayload) => this.io.emit(event, data),
+      emitToChannel: (channelId: string, event: string, data: PluginSocketPayload) => {
         this.context.emitToChannel(channelId, event, data);
       }
     };
@@ -790,7 +805,7 @@ export class PluginLoader {
   private createPluginLogger(pluginId: string): PluginLogger {
     const namespace = `plugin:${pluginId}`;
 
-    const write = (level: PluginLogEntry['level'], message: string, meta?: Record<string, any>) => {
+    const write = (level: PluginLogEntry['level'], message: string, meta?: PluginLoggerMeta) => {
       const entry: PluginLogEntry = {
         level,
         message,
@@ -844,7 +859,7 @@ export class PluginLoader {
         return null;
       },
 
-      set: async (key: string, value: any) => {
+      set: async (key: string, value: JsonValue) => {
         const filePath = toStorageFilePath(key);
         fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
       },
@@ -1152,11 +1167,9 @@ export class PluginLoader {
     }
 
     try {
-      const parsed = this.readJsonFile<any>(this.trustedSignersFile);
+      const parsed = this.readJsonFile<unknown>(this.trustedSignersFile);
       if (!Array.isArray(parsed)) return [];
-      return parsed.filter((entry: any) =>
-        entry && typeof entry.keyId === 'string' && typeof entry.publicKey === 'string'
-      );
+      return parsed.filter(isTrustedSignerRecord);
     } catch {
       return [];
     }
@@ -1398,7 +1411,7 @@ export class PluginLoader {
   }
 
   // Hook methods for core to call
-  async triggerOnMessage(channelId: string, message: any) {
+  async triggerOnMessage(channelId: string, message: PluginChannelMessage) {
     for (const [pluginId, { plugin }] of this.plugins.entries()) {
       try {
         await plugin.onMessage?.(channelId, message, this.createContext(pluginId));
@@ -1408,7 +1421,7 @@ export class PluginLoader {
     }
   }
 
-  async triggerOnChannelCreate(channel: any) {
+  async triggerOnChannelCreate(channel: PluginChannel) {
     for (const [pluginId, { plugin }] of this.plugins.entries()) {
       try {
         await plugin.onChannelCreate?.(channel, this.createContext(pluginId));
@@ -1418,7 +1431,7 @@ export class PluginLoader {
     }
   }
 
-  async triggerOnUserJoin(user: any) {
+  async triggerOnUserJoin(user: PluginUser) {
     for (const [pluginId, { plugin }] of this.plugins.entries()) {
       try {
         await plugin.onUserJoin?.(user, this.createContext(pluginId));

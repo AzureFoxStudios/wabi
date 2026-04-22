@@ -116,7 +116,7 @@
 
 				{#if previewUrl}
 					<div class="preview-container">
-						<img src={previewUrl} alt="Profile picture preview" class="avatar-preview" />
+						<img src={previewUrl} alt="Profile preview" class="avatar-preview" />
 					</div>
 				{/if}
 				{#if error}

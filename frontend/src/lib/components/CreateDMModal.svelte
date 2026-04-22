@@ -1,23 +1,27 @@
 <script lang="ts">
-	import { users, currentUser, createDM } from '$lib/socket';
+	import { tick } from 'svelte';
+	import { users, serverMembers, currentUser, createDM } from '$lib/socket';
 	import type { User } from '$lib/socket';
+	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
 
 	export let isOpen = false;
 
 	let searchQuery = '';
+	let searchInput: HTMLInputElement | null = null;
 
-	$: filteredUsers = $users.filter(user => {
-		// Exclude current user
-		if (user.id === $currentUser?.id) return false;
-		// Filter by search query
-		if (searchQuery) {
-			return user.username.toLowerCase().includes(searchQuery.toLowerCase());
-		}
-		return true;
+	$: if (isOpen) {
+		void tick().then(() => searchInput?.focus());
+	}
+
+	$: filteredUsers = buildDmDirectoryUsers({
+		onlineUsers: $users,
+		serverMembers: $serverMembers,
+		currentUser: $currentUser,
+		searchQuery
 	});
 
 	function handleUserClick(user: User) {
-		createDM(user.id);
+		createDM(getDmDirectoryKey(user));
 		closeModal();
 	}
 
@@ -61,10 +65,10 @@
 
 		<div class="search-container">
 			<input
+				bind:this={searchInput}
 				type="text"
 				bind:value={searchQuery}
 				placeholder="Search users..."
-				autofocus
 			/>
 		</div>
 
@@ -72,7 +76,7 @@
 			{#if filteredUsers.length === 0}
 				<div class="no-users">No users found</div>
 			{:else}
-				{#each filteredUsers as user (user.id)}
+				{#each filteredUsers as user (getDmDirectoryKey(user))}
 					<button class="user-item" on:click={() => handleUserClick(user)}>
 						<div class="user-avatar-container">
 							{#if user.profilePicture}

@@ -2,17 +2,9 @@ import db from '../db/database.js';
 import { DEFAULT_WORKSPACE_ID } from '../constants.js';
 import { stdbPaymentIngest, stdbPaymentRows, stdbPaymentsEnabled, parseStdbRowJson } from './stdbRuntime.js';
 import { escapeSqlLiteral } from '../state-plane/stdbSyncClient.js';
+import type { PaymentAccountLink } from '../../../shared/adminPolicyContracts.js';
 
-export interface PaymentAccountLink {
-	userId: number;
-	workspaceId: string;
-	pluginId: string;
-	providerAccountRef: string;
-	displayLabel: string | null;
-	metadata: Record<string, unknown> | null;
-	linkedAt: number;
-	updatedAt: number;
-}
+export type { PaymentAccountLink } from '../../../shared/adminPolicyContracts.js';
 
 interface PaymentAccountLinkRow {
 	user_id: number;

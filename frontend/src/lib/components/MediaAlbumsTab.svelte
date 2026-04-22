@@ -917,10 +917,9 @@
 
 <div class="media-albums-tab">
 	<div class="section-header">
-		<h3>Media Albums</h3>
+		<h3>Media</h3>
 	</div>
-	<p class="scope-label">{scopeLabel}</p>
-	<p class="scope-label">Albums stay scoped to the current channel/DM for privacy.</p>
+	<p class="scope-label">{scopeLabel} Pins and uploads stay scoped to the current channel or DM.</p>
 
 	{#if !getAuthToken()}
 		<div class="empty-state">
@@ -1438,9 +1437,9 @@
 	.media-albums-tab {
 		display: flex;
 		flex-direction: column;
-		gap: 0.65rem;
+		gap: 0.55rem;
 		height: 100%;
-		padding: 0.7rem;
+		padding: 0.65rem;
 		overflow: auto;
 	}
 
@@ -1452,15 +1451,18 @@
 	}
 
 	.section-header h3 {
-		font-size: 0.92rem;
+		font-size: 0.84rem;
 		margin: 0;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--text-secondary);
 	}
 
 	.scope-label {
 		margin: 0;
-		font-size: 0.74rem;
+		font-size: 0.72rem;
 		color: var(--text-secondary);
-		word-break: break-all;
+		line-height: 1.4;
 	}
 
 	.create-row button,
@@ -1495,6 +1497,10 @@
 		display: grid;
 		grid-template-columns: 1fr auto;
 		gap: 0.45rem;
+	}
+
+	.create-row input {
+		background: color-mix(in srgb, var(--bg-tertiary) 86%, transparent);
 	}
 
 	.upload-local-item {
@@ -1617,10 +1623,10 @@
 		display: block;
 		width: 100%;
 		border: 1px solid var(--border);
-		background: rgba(255, 255, 255, 0.03);
+		background: color-mix(in srgb, var(--bg-tertiary) 56%, transparent);
 		color: var(--text-primary);
-		border-radius: 12px;
-		padding: 0.6rem 0.7rem;
+		border-radius: 14px;
+		padding: 0.55rem 0.6rem;
 		text-align: left;
 		cursor: pointer;
 		transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
@@ -1644,6 +1650,7 @@
 
 	.album-card:hover {
 		border-color: rgba(var(--accent-rgb), 0.38);
+		background: color-mix(in srgb, var(--accent) 6%, var(--bg-tertiary) 94%);
 	}
 
 	.album-card:focus-visible {
@@ -1694,20 +1701,42 @@
 		flex-shrink: 0;
 	}
 
+	.album-quick-btn {
+		min-height: 1.9rem;
+		padding: 0.36rem 0.52rem;
+		border-radius: 999px;
+		border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+		background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+		color: var(--text-secondary);
+		font-size: 0.72rem;
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	.album-quick-btn:hover {
+		color: var(--text-primary);
+		border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+	}
+
+	.album-quick-btn--danger:hover {
+		color: #fca5a5;
+		border-color: rgba(239, 68, 68, 0.35);
+	}
+
 	.album-card-preview-row {
 		display: flex;
 		gap: 0.38rem;
-		margin-top: 0.55rem;
-		min-height: 4.2rem;
+		margin-top: 0.45rem;
+		min-height: 3.7rem;
 	}
 
 	.album-card-preview {
 		flex: 0 0 calc((100% - 0.76rem) / 3);
-		height: 4.2rem;
+		height: 3.7rem;
 		border-radius: 0.8rem;
 		overflow: hidden;
 		border: 1px solid var(--border);
-		background: rgba(255, 255, 255, 0.04);
+		background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
 		padding: 0;
 		cursor: pointer;
 	}

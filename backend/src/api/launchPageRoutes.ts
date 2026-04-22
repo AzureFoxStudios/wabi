@@ -1,37 +1,9 @@
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { IncomingMessage, ServerResponse } from 'http';
+import type { LaunchPageConfig, LaunchPageHighlight } from '../../../shared/launchPageContracts.js';
 
-export interface LaunchPageHighlight {
-	title: string;
-	description: string;
-}
-
-export interface PublicLaunchPageConfig {
-	enabled: boolean;
-	brandName: string;
-	headline: string;
-	subheadline: string;
-	logoUrl: string;
-	backgroundImageUrl: string | null;
-	customCss: string | null;
-	heroImageUrl: string | null;
-	heroTitle: string | null;
-	heroBody: string | null;
-	heroPrimaryCtaLabel: string | null;
-	heroPrimaryCtaUrl: string | null;
-	highlights: LaunchPageHighlight[];
-	footerNote: string | null;
-	palette: {
-		backgroundTop: string;
-		backgroundBottom: string;
-		cardBackground: string;
-		accent: string;
-		text: string;
-	};
-}
-
-const DEFAULT_LAUNCH_PAGE_CONFIG: PublicLaunchPageConfig = {
+const DEFAULT_LAUNCH_PAGE_CONFIG: LaunchPageConfig = {
 	enabled: false,
 	brandName: 'Wabi',
 	headline: 'Welcome to Wabi',
@@ -107,7 +79,7 @@ function sanitizeHighlights(value: unknown): LaunchPageHighlight[] {
 		.filter((entry): entry is LaunchPageHighlight => entry !== null);
 }
 
-function sanitizeLaunchPageConfig(raw: unknown): PublicLaunchPageConfig {
+function sanitizeLaunchPageConfig(raw: unknown): LaunchPageConfig {
 	if (!raw || typeof raw !== 'object') {
 		return { ...DEFAULT_LAUNCH_PAGE_CONFIG };
 	}
@@ -159,7 +131,7 @@ function readLaunchPageConfigRaw(): unknown {
 	return JSON.parse(content);
 }
 
-function getPublicLaunchPageConfig(): PublicLaunchPageConfig {
+function getPublicLaunchPageConfig(): LaunchPageConfig {
 	try {
 		const raw = readLaunchPageConfigRaw();
 		return sanitizeLaunchPageConfig(raw);

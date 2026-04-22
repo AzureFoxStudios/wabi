@@ -10,6 +10,23 @@ import {
 } from '../relay/boosterRelayMode.js';
 import { parseRelayMetadata } from '../relay/relayMetadata.js';
 import { getSelfHostedBoosterRelaySnapshot } from '../relay/selfHostedBoosterRelay.js';
+import type {
+	LivekitAccessTokenResponse,
+	MediaGatewayHealthSnapshot,
+	MediaGatewaySession,
+	MediaGatewaySessionKind,
+	MediaGatewaySessionResponse,
+	MediaGatewaySessionsResponse,
+	MediaRelaySelectionSource,
+	ServerMediaRuntimeResponse,
+	SfuProvider,
+	TurnCredentialsResponse
+} from '../../../shared/mediaContracts.js';
+import {
+	isInvalidJsonBodyError,
+	isRequestBodyTooLargeError,
+	readJsonObjectBody
+} from '../utils/requestBodies.js';
 
 function boolFromEnv(value: string | undefined, fallback: boolean = false): boolean {
 	if (value == null) return fallback;
@@ -40,23 +57,8 @@ const gatewayHeartbeat: GatewayHeartbeatState = {
 	lastSeenAt: 0
 };
 
-type GatewaySessionKind = 'voice' | 'screen' | 'recording';
-type GatewaySessionStatus = 'open' | 'closed';
-
-interface GatewaySessionRecord {
-	sessionId: string;
+interface GatewaySessionRecord extends MediaGatewaySession {
 	userId: number;
-	channelId: string | null;
-	kind: GatewaySessionKind;
-	status: GatewaySessionStatus;
-	createdAt: number;
-	updatedAt: number;
-	expiresAt: number;
-	transport: 'srt';
-	gatewayUrl: string;
-	publishUrl: string;
-	playbackUrl: string;
-	accessToken: string;
 }
 
 interface LivekitAccessTokenPayload {
@@ -75,7 +77,6 @@ interface LivekitAccessTokenPayload {
 	metadata?: string;
 }
 
-type SfuProvider = 'none' | 'livekit';
 const gatewaySessions = new Map<string, GatewaySessionRecord>();
 let gatewayPortOffset = 0;
 
@@ -124,7 +125,11 @@ function getSfuProvider(): SfuProvider {
 	return 'none';
 }
 
-function buildBoosterRelayRuntimeState() {
+type MediaRuntimeBoosterRelaySnapshot = NonNullable<
+	NonNullable<ServerMediaRuntimeResponse['media']>['boosterRelay']
+>;
+
+function buildBoosterRelayRuntimeState(): MediaRuntimeBoosterRelaySnapshot {
 	const requestedMode = getRequestedBoosterRelayMode();
 	const effectiveMode = getEffectiveBoosterRelayMode();
 	const { turnConfigured, sfuConfigured, gatewayConfigured } = getBoosterRelayComponentConfigState();
@@ -175,7 +180,7 @@ function pruneExpiredGatewaySessions(now = Date.now()): void {
 	}
 }
 
-function sanitizeSessionForClient(session: GatewaySessionRecord) {
+function sanitizeSessionForClient(session: GatewaySessionRecord): MediaGatewaySession {
 	return {
 		sessionId: session.sessionId,
 		channelId: session.channelId,
@@ -207,31 +212,22 @@ function sanitizeSessionForGateway(session: GatewaySessionRecord) {
 }
 
 async function parseJsonBody(req: IncomingMessage, res: ServerResponse): Promise<Record<string, unknown> | null> {
-	let body = '';
 	try {
-		await new Promise<void>((resolve, reject) => {
-			req.on('data', chunk => {
-				body += chunk.toString();
-			});
-			req.on('end', () => resolve());
-			req.on('error', reject);
-		});
+		return await readJsonObjectBody(req);
 	} catch (error) {
+		if (isRequestBodyTooLargeError(error)) {
+			res.writeHead(413, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Media payload too large' }));
+			return null;
+		}
+		if (isInvalidJsonBodyError(error)) {
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+			return null;
+		}
 		console.error('[MediaGateway] Failed reading request body:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ error: 'Failed to read request body' }));
-		return null;
-	}
-
-	if (!body) return {};
-
-	try {
-		const parsed = JSON.parse(body);
-		if (!parsed || typeof parsed !== 'object') return {};
-		return parsed as Record<string, unknown>;
-	} catch {
-		res.writeHead(400, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({ error: 'Invalid JSON body' }));
 		return null;
 	}
 }
@@ -250,14 +246,14 @@ interface ResolvedTurnTarget {
 	realm: string | null;
 	relayId: number | null;
 	relayName: string | null;
-	source: 'origin' | 'relay';
+	source: MediaRelaySelectionSource;
 }
 
 interface ResolvedLivekitTarget {
 	url: string;
 	relayId: number | null;
 	relayName: string | null;
-	source: 'origin' | 'relay';
+	source: MediaRelaySelectionSource;
 }
 
 function mintTurnCredentials(userId: number): MintedTurnCredentials | null {
@@ -366,9 +362,7 @@ export async function handleGetMediaRuntime(req: IncomingMessage, res: ServerRes
 		const srtGatewayEnabled = isSrtGatewayEnabledByConfig();
 		const localEnhancedEnabled = boolFromEnv(process.env.MEDIA_LOCAL_ENHANCED_ENABLED, true);
 		const boosterRelay = buildBoosterRelayRuntimeState();
-
-		res.writeHead(200, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({
+		const payload: ServerMediaRuntimeResponse = {
 			media: {
 				localEnhancedEnabled,
 				srtGatewayEnabled,
@@ -378,7 +372,7 @@ export async function handleGetMediaRuntime(req: IncomingMessage, res: ServerRes
 					audioBitrateLocal: numberFromEnv(process.env.MEDIA_OPUS_AUDIO_LOCAL_BITRATE, 96000)
 				},
 				turn: {
-					configured: boosterRelay.components.turnConfigured,
+					configured: boosterRelay.components?.turnConfigured,
 					server: (process.env.TURN_EXTERNAL_IP || '').trim() || null,
 					port: numberFromEnv(process.env.TURN_PORT, 3478),
 					useTurns: boolFromEnv(process.env.TURN_USE_TLS, false)
@@ -407,7 +401,10 @@ export async function handleGetMediaRuntime(req: IncomingMessage, res: ServerRes
 				srtDirectBrowserSupported: false,
 				message: 'SRT is expected to run through a server-side media gateway, not directly from browser WebRTC peers.'
 			}
-		}));
+		};
+
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify(payload));
 	} catch (error) {
 		console.error('[MediaRuntime] Failed to return media runtime config:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -434,8 +431,7 @@ export async function handleGetTurnCredentials(req: IncomingMessage, res: Server
 			return;
 		}
 
-		res.writeHead(200, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({
+		const responsePayload: TurnCredentialsResponse = {
 			turn: {
 				server: target.server,
 				port: target.port,
@@ -446,7 +442,9 @@ export async function handleGetTurnCredentials(req: IncomingMessage, res: Server
 				source: target.source,
 				...minted
 			}
-		}));
+		};
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify(responsePayload));
 	} catch (error) {
 		console.error('[TURN] Failed to mint TURN credentials:', error);
 		res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -507,8 +505,7 @@ export async function handleCreateLivekitToken(
 	};
 	const token = jwt.sign(tokenPayload, apiSecret, { algorithm: 'HS256' });
 
-	res.writeHead(200, { 'Content-Type': 'application/json' });
-	res.end(JSON.stringify({
+	const responsePayload: LivekitAccessTokenResponse = {
 		token,
 		url: livekitTarget.url,
 		roomName,
@@ -516,7 +513,9 @@ export async function handleCreateLivekitToken(
 		relayId: livekitTarget.relayId,
 		relayName: livekitTarget.relayName,
 		source: livekitTarget.source
-	}));
+	};
+	res.writeHead(200, { 'Content-Type': 'application/json' });
+	res.end(JSON.stringify(responsePayload));
 }
 
 
@@ -620,17 +619,19 @@ export async function handleCreateMediaGatewaySession(
 
 	gatewaySessions.set(sessionId, session);
 
-	res.writeHead(201, { 'Content-Type': 'application/json' });
-	res.end(JSON.stringify({
+	const gateway: MediaGatewayHealthSnapshot = {
+		healthy: isGatewayHealthyNow(),
+		mediaPlaneReady: isGatewayMediaPlaneReadyNow(),
+		lastSeenAt: gatewayHeartbeat.lastSeenAt || null,
+		region: gatewayHeartbeat.region || null,
+		version: gatewayHeartbeat.version || null
+	};
+	const responsePayload: MediaGatewaySessionResponse = {
 		session: sanitizeSessionForClient(session),
-		gateway: {
-			healthy: isGatewayHealthyNow(),
-			mediaPlaneReady: isGatewayMediaPlaneReadyNow(),
-			lastSeenAt: gatewayHeartbeat.lastSeenAt || null,
-			region: gatewayHeartbeat.region || null,
-			version: gatewayHeartbeat.version || null
-		}
-	}));
+		gateway
+	};
+	res.writeHead(201, { 'Content-Type': 'application/json' });
+	res.end(JSON.stringify(responsePayload));
 }
 
 // GET /api/media/gateway/sessions
@@ -645,8 +646,9 @@ export async function handleListMediaGatewaySessions(
 		.filter((session) => session.userId === userId && session.status === 'open')
 		.map(sanitizeSessionForClient);
 
+	const responsePayload: MediaGatewaySessionsResponse = { sessions };
 	res.writeHead(200, { 'Content-Type': 'application/json' });
-	res.end(JSON.stringify({ sessions }));
+	res.end(JSON.stringify(responsePayload));
 }
 
 // GET /api/media/gateway/session/:sessionId
@@ -670,8 +672,9 @@ export async function handleGetMediaGatewaySession(
 		return;
 	}
 
+	const responsePayload: MediaGatewaySessionResponse = { session: sanitizeSessionForClient(session) };
 	res.writeHead(200, { 'Content-Type': 'application/json' });
-	res.end(JSON.stringify({ session: sanitizeSessionForClient(session) }));
+	res.end(JSON.stringify(responsePayload));
 }
 
 // POST /api/media/gateway/session/:sessionId/close
@@ -734,8 +737,9 @@ export async function handleRenewMediaGatewaySession(
 	session.expiresAt = now + (ttlSeconds * 1000);
 	gatewaySessions.set(sessionId, session);
 
+	const responsePayload: MediaGatewaySessionResponse = { session: sanitizeSessionForClient(session) };
 	res.writeHead(200, { 'Content-Type': 'application/json' });
-	res.end(JSON.stringify({ session: sanitizeSessionForClient(session) }));
+	res.end(JSON.stringify(responsePayload));
 }
 
 // GET /api/media/gateway/control/sessions

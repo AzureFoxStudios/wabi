@@ -15,7 +15,6 @@ export const INGEST_AUTH_KEY_HASH: string | null = INGEST_AUTH_SECRET
 export interface StdbPrimaryStoreOptions {
 	outbox?: StatePlaneOutbox | null;
 	reducerName?: string;
-	mirrorLegacyWrites?: boolean;
 }
 
 export interface BaseStoreStats {
@@ -72,15 +71,8 @@ function normalizeDatabaseEnv(): string | null {
 }
 
 function normalizeTokenEnv(): string | null {
-	const candidates = [
-		process.env.WABI_STDB_AUTH_TOKEN,
-		process.env.STATE_SHADOW_TOKEN
-	];
-	for (const raw of candidates) {
-		const value = raw?.trim();
-		if (value) return value;
-	}
-	return null;
+	const value = process.env.WABI_STDB_AUTH_TOKEN?.trim();
+	return value && value.length > 0 ? value : null;
 }
 
 function normalizeAnonymousEnv(token: string | null): boolean {
@@ -131,12 +123,10 @@ export class StdbStoreBase {
 	protected readonly client = createStdbClient();
 	protected readonly outbox: StatePlaneOutbox | null;
 	protected readonly reducerName: string;
-	protected readonly mirrorLegacyWrites: boolean;
 
 	constructor(options: StdbPrimaryStoreOptions = {}) {
 		this.outbox = options.outbox || null;
 		this.reducerName = options.reducerName || process.env.WABI_STDB_BRIDGE_REDUCER || 'ingest_wabi_event';
-		this.mirrorLegacyWrites = options.mirrorLegacyWrites !== false;
 	}
 
 	protected ingest(
@@ -181,28 +171,4 @@ export class StdbStoreBase {
 		throw error instanceof Error ? error : new Error(String(error));
 	}
 
-	protected mirrorWrite(
-		stats: BaseStoreStats,
-		tracker: {
-			attempted: number;
-			succeeded: number;
-			failed: number;
-			lastError: string | null;
-			lastErrorAt: number | null;
-		},
-		op: string,
-		fn: () => void
-	): void {
-		if (!this.mirrorLegacyWrites) return;
-		tracker.attempted += 1;
-		try {
-			fn();
-			tracker.succeeded += 1;
-		} catch (error) {
-			tracker.failed += 1;
-			tracker.lastErrorAt = nowMs();
-			tracker.lastError = error instanceof Error ? error.message : String(error);
-			bumpOperation(stats, `shadow_${op}_failed`);
-		}
-	}
 }

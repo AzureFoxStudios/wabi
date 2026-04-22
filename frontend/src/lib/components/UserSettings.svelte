@@ -3,7 +3,7 @@
 	import { getUserSettings, saveUserSettings } from '$lib/api';
 	import { getAuthToken } from '$lib/authSession';
 
-	let retentionPeriod: string = '7d';
+	let retentionPeriod: '1d' | '7d' | '30d' | 'forever' = '7d';
 	let allowTempMessages: boolean = true;
 	let isLoading = false;
 	let isSaving = false;

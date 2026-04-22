@@ -1,45 +1,119 @@
+import type { IncomingHttpHeaders, IncomingMessage, Server as HttpServer, ServerResponse } from 'http';
 import type { Server, Socket } from 'socket.io';
-import type { Server as HttpServer } from 'http';
+import type { ClientMessage } from '../db/repositories/messageRepository.js';
+import type { MessageRetentionDuration } from '../../../shared/messageRetention.js';
+import type {
+  PaymentCheckoutMode,
+  PaymentIntentStatus,
+  PaymentMethodCapability,
+  PaymentProviderCapability
+} from '../../../shared/paymentContracts.js';
 
-export type PaymentIntentStatus =
-  | 'draft'
-  | 'pending'
-  | 'succeeded'
-  | 'failed'
-  | 'expired'
-  | 'refunded'
-  | 'disputed'
-  | 'canceled';
+export type {
+  PaymentCheckoutMode,
+  PaymentIntentStatus,
+  PaymentMethodCapability
+} from '../../../shared/paymentContracts.js';
 
-export type PaymentCheckoutMode = 'qr' | 'payment_link' | 'app_switch' | 'redirect' | 'tap_to_pay';
+export type JsonPrimitive = string | number | boolean | null;
+export interface JsonObject {
+  [key: string]: JsonValue | undefined;
+}
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 
-export interface PaymentMethodCapability {
+export type PluginSocketPayload = JsonValue | Buffer;
+export type PluginHttpSendPayload = JsonValue | string | Buffer;
+export type PluginLoggerMeta = Record<string, JsonValue | undefined>;
+
+export interface PluginChannel {
   id: string;
-  label: string;
-  checkoutModes: PaymentCheckoutMode[];
-  countries?: string[];
-  currencies?: string[];
-  minAmountMinor?: number;
-  maxAmountMinor?: number;
-  requiresMobile?: boolean;
-  requiresDesktop?: boolean;
-  estimatedSharePercent?: number;
-  enabledByDefault?: boolean;
-  notes?: string;
+  name: string;
+  description?: string;
+  watchQueueEnabled?: boolean;
+  minRole?: string;
+  createdAt: number;
+  type?: 'text' | 'voice' | 'dm' | 'group' | 'public' | 'thread_public' | 'thread_private';
+  members?: string[];
+  parentChannelId?: string;
+  isBreakout?: boolean;
+  breakoutIndex?: number;
+  parentMessageId?: string;
+  threadArchived?: boolean;
+  threadLocked?: boolean;
+  threadAutoArchiveMinutes?: number;
+  threadLastActivityAt?: number;
+  autoDeleteAfter?: MessageRetentionDuration | null;
+  isTemporary?: boolean;
+  persistMessages?: boolean;
+  pinnedBy?: string[];
+  recipientNotified?: boolean;
+  voiceSettings?: {
+    bitrateMode?: 'auto' | 'low' | 'standard' | 'high';
+    userLimit?: number | null;
+    forceSolo?: boolean;
+  };
 }
 
-export interface PaymentPluginCapabilities {
-  pluginId: string;
-  providerName: string;
-  countries: string[];
-  currencies: string[];
-  methods: PaymentMethodCapability[];
-  nonCustodialOnly: boolean;
-  webhookSignatureRequired: boolean;
-  supportsRefunds: boolean;
-  supportsDisputes: boolean;
-  notes?: string;
+export interface PluginUser {
+  id: string;
+  username: string;
+  handle?: string;
+  color: string;
+  status: 'active' | 'away' | 'busy';
+  profilePicture?: string;
+  joinedAt?: number;
+  workspaceId?: string;
+  dbUserId?: number;
+  roles?: string[];
+  highestRole?: string;
+  roleColor?: string | null;
+  usernameFont?: {
+    family?: string;
+    size?: string;
+    weight?: string;
+    style?: string;
+  };
 }
+
+export type PluginChannelMessage = ClientMessage & {
+  senderStableId?: string;
+  scheduledDeletionTime?: number;
+};
+
+export interface PluginHttpRequest {
+  raw: IncomingMessage;
+  method: string;
+  headers: IncomingHttpHeaders;
+  url: string;
+  path: string;
+  query: Record<string, string>;
+  params: {
+    pluginId: string;
+    path: string;
+  };
+  json: <T = JsonObject>() => Promise<T>;
+  text: () => Promise<string>;
+  buffer: () => Promise<Buffer>;
+}
+
+export interface PluginHttpResponse {
+  raw: ServerResponse;
+  status: (code: number) => PluginHttpResponse;
+  setHeader: (name: string, value: string) => PluginHttpResponse;
+  set: (name: string, value: string) => PluginHttpResponse;
+  json: (payload: JsonValue) => void;
+  send: (payload: PluginHttpSendPayload) => void;
+  end: (payload?: string | Buffer) => void;
+}
+
+export interface PluginRuntimeContext {
+  channels: Map<string, PluginChannel>;
+  users: Map<string, PluginUser>;
+  channelMessages: Map<string, PluginChannelMessage[]>;
+  emitToChannel: (channelId: string, event: string, data: PluginSocketPayload) => void;
+}
+
+export interface PaymentPluginCapabilities extends PaymentProviderCapability {}
 
 export interface PaymentCreateIntentInput {
   // Optional Wabi-side intent identifier for provider correlation.
@@ -54,7 +128,7 @@ export interface PaymentCreateIntentInput {
   description?: string;
   customerRef?: string;
   idempotencyKey: string;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
 }
 
 export type PaymentPresentationData =
@@ -92,7 +166,7 @@ export interface PaymentCreateIntentResult {
   checkoutMode: PaymentCheckoutMode;
   presentation: PaymentPresentationData;
   expiresAt?: number;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
 }
 
 export interface PaymentProviderEvent {
@@ -105,7 +179,7 @@ export interface PaymentProviderEvent {
   currency?: string;
   occurredAt: number;
   idempotencyKey?: string;
-  raw?: Record<string, unknown>;
+  raw?: JsonObject;
 }
 
 export interface PaymentVerifyWebhookInput {
@@ -130,7 +204,7 @@ export interface PaymentGetIntentStatusResult {
   providerIntentId?: string;
   amountMinor?: number;
   currency?: string;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
 }
 
 export interface PaymentRefundInput {
@@ -139,13 +213,13 @@ export interface PaymentRefundInput {
   amountMinor?: number;
   reason?: string;
   idempotencyKey: string;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
 }
 
 export interface PaymentRefundResult {
   status: Extract<PaymentIntentStatus, 'refunded' | 'failed' | 'pending'>;
   providerRefundId?: string;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
 }
 
 export interface PaymentPlugin {
@@ -162,28 +236,24 @@ export interface PaymentPlugin {
   refundIntent?(ctx: PluginContext, input: PaymentRefundInput): Promise<PaymentRefundResult> | PaymentRefundResult;
 }
 
-export interface PluginContext {
+export interface PluginContext extends PluginRuntimeContext {
   io: Server;
   httpServer: HttpServer;
-  channels: Map<string, any>;
-  users: Map<string, any>;
-  channelMessages: Map<string, any[]>;
   storage: PluginStorage;
   logger: PluginLogger;
-  emit: (event: string, data: any) => void;
-  emitToChannel: (channelId: string, event: string, data: any) => void;
+  emit: (event: string, data: PluginSocketPayload) => void;
 }
 
 export interface PluginLogger {
-  debug: (message: string, meta?: Record<string, any>) => void;
-  info: (message: string, meta?: Record<string, any>) => void;
-  warn: (message: string, meta?: Record<string, any>) => void;
-  error: (message: string, meta?: Record<string, any>) => void;
+  debug: (message: string, meta?: PluginLoggerMeta) => void;
+  info: (message: string, meta?: PluginLoggerMeta) => void;
+  warn: (message: string, meta?: PluginLoggerMeta) => void;
+  error: (message: string, meta?: PluginLoggerMeta) => void;
 }
 
 export interface PluginStorage {
-  get: (key: string) => Promise<any>;
-  set: (key: string, value: any) => Promise<void>;
+  get: <T = JsonValue>(key: string) => Promise<T | null>;
+  set: (key: string, value: JsonValue) => Promise<void>;
   delete: (key: string) => Promise<void>;
   list: () => Promise<string[]>;
 }
@@ -200,20 +270,20 @@ export interface BackendPlugin {
   onDisconnect?(socket: Socket, ctx: PluginContext): void;
 
   // Event hooks (tap into core events)
-  onMessage?(channelId: string, message: any, ctx: PluginContext): void;
-  onChannelCreate?(channel: any, ctx: PluginContext): void;
-  onUserJoin?(user: any, ctx: PluginContext): void;
+  onMessage?(channelId: string, message: PluginChannelMessage, ctx: PluginContext): void | Promise<void>;
+  onChannelCreate?(channel: PluginChannel, ctx: PluginContext): void | Promise<void>;
+  onUserJoin?(user: PluginUser, ctx: PluginContext): void | Promise<void>;
   onUserLeave?(userId: string, ctx: PluginContext): void;
 
   // Custom socket event handlers
-  socketHandlers?: Record<string, (socket: Socket, data: any, ctx: PluginContext) => void>;
+  socketHandlers?: Record<string, (socket: Socket, data: PluginSocketPayload, ctx: PluginContext) => void | Promise<void>>;
 
   // HTTP routes (optional)
   // Mounted under /api/plugins/runtime/:pluginId
   routes?: {
     method?: 'get' | 'post' | 'put' | 'delete';
     path: string;
-    handler: (req: any, res: any) => void;
+    handler: (req: PluginHttpRequest, res: PluginHttpResponse) => void | Promise<void>;
   }[];
 
   // Payment rail adapter (optional, non-custodial).

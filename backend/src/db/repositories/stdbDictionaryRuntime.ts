@@ -1,35 +1,30 @@
-import { getStatePlaneConfigFromEnv } from '../../state-plane/config.js';
 import { createStdbClient, INGEST_AUTH_KEY_HASH } from '../../state-plane/stdbCommon.js';
 import { toStdbEventId, type StdbDecodedRow } from '../../state-plane/stdbSyncClient.js';
 
-const statePlaneConfig = getStatePlaneConfigFromEnv();
 const stdbClient = createStdbClient();
 const reducerName = process.env.WABI_STDB_BRIDGE_REDUCER || 'ingest_wabi_event';
-const warnedKeys = new Set<string>();
 
-function warnOnce(key: string, error: unknown): void {
-	if (warnedKeys.has(key)) return;
-	warnedKeys.add(key);
+function fail(scope: string, key: string, error: unknown): never {
 	const detail = error instanceof Error ? error.message : String(error);
-	console.warn(`[StatePlane] ${key}; falling back to SQLite (${detail})`);
+	throw new Error(`[StatePlane] ${scope} failed for ${key}: ${detail}`);
+}
+
+function ensureConfigured(scope: string): void {
+	if (!stdbClient.isEnabled()) {
+		throw new Error(`[StatePlane] ${scope} requires STDB bridge configuration`);
+	}
 }
 
 export function stdbDictionaryEnabled(): boolean {
-	return (
-		statePlaneConfig.mode === 'stdb_primary' &&
-		statePlaneConfig.stdbReadEnabled &&
-		statePlaneConfig.stdbWriteEnabled &&
-		stdbClient.isEnabled()
-	);
+	return stdbClient.isEnabled();
 }
 
-export function stdbDictionaryRows(key: string, query: string): StdbDecodedRow[] | null {
-	if (!stdbDictionaryEnabled()) return null;
+export function stdbDictionaryRows(key: string, query: string): StdbDecodedRow[] {
+	ensureConfigured('Dictionary repository');
 	try {
 		return stdbClient.sqlRows(query);
 	} catch (error) {
-		warnOnce(key, error);
-		return null;
+		return fail('Dictionary query', key, error);
 	}
 }
 
@@ -37,23 +32,19 @@ export function stdbDictionaryIngest(
 	key: string,
 	operation: string,
 	payload: Record<string, unknown>
-): boolean {
-	if (!stdbDictionaryEnabled()) return false;
+): void {
+	ensureConfigured('Dictionary repository');
 	try {
 		const event: Record<string, unknown> = {
-				eventId: toStdbEventId('dictionary', operation, payload),
-				timestamp: Date.now(),
-				entity: 'dictionary',
-				operation,
-				payload
-			};
+			eventId: toStdbEventId('dictionary', operation, payload),
+			timestamp: Date.now(),
+			entity: 'dictionary',
+			operation,
+			payload
+		};
 		if (INGEST_AUTH_KEY_HASH) event.authKey = INGEST_AUTH_KEY_HASH;
-		stdbClient.callReducer(reducerName, [
-			JSON.stringify(event)
-		]);
-		return true;
+		stdbClient.callReducer(reducerName, [JSON.stringify(event)]);
 	} catch (error) {
-		warnOnce(key, error);
-		return false;
+		fail('Dictionary ingest', key, error);
 	}
 }

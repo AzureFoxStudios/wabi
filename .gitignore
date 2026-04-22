@@ -102,3 +102,16 @@ exports/tmp/
 .tmp/
 .wabi-keys/
 frontend/check-output.txt
+
+# Live operator config (holds secrets — wabi.config.example is the committed template)
+wabi.config
+.wabi-profile
+
+# STDB runtime identity + local recovery snapshots (never commit)
+data/spacetimedb/
+data/stdb-publisher-config/
+spacetimedb/.local-data-recovery/
+
+# Python bytecode
+__pycache__/
+*.pyc

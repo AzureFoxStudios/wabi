@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { users, currentUser, createGroup } from '$lib/socket';
+	import { users, serverMembers, currentUser, createGroup } from '$lib/socket';
 	import type { User } from '$lib/socket';
+	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
 
 	export let isOpen = false;
 
@@ -8,17 +9,15 @@
 	let groupName = '';
 	let selectedUsers: User[] = [];
 
-	$: filteredUsers = $users.filter(user => {
-		if (user.id === $currentUser?.id) return false;
-		if (selectedUsers.some(s => s.id === user.id)) return false;
-		if (searchQuery) {
-			return user.username.toLowerCase().includes(searchQuery.toLowerCase());
-		}
-		return true;
-	});
+	$: filteredUsers = buildDmDirectoryUsers({
+		onlineUsers: $users,
+		serverMembers: $serverMembers,
+		currentUser: $currentUser,
+		searchQuery
+	}).filter((user) => !selectedUsers.some((selected) => getDmDirectoryKey(selected) === getDmDirectoryKey(user)));
 
 	function toggleUser(user: User) {
-		const idx = selectedUsers.findIndex(s => s.id === user.id);
+		const idx = selectedUsers.findIndex((selected) => getDmDirectoryKey(selected) === getDmDirectoryKey(user));
 		if (idx >= 0) {
 			selectedUsers = selectedUsers.filter((_, i) => i !== idx);
 		} else {
@@ -27,12 +26,12 @@
 	}
 
 	function removeSelected(user: User) {
-		selectedUsers = selectedUsers.filter(s => s.id !== user.id);
+		selectedUsers = selectedUsers.filter((selected) => getDmDirectoryKey(selected) !== getDmDirectoryKey(user));
 	}
 
 	function handleCreate() {
 		if (!groupName.trim() || selectedUsers.length === 0) return;
-		const memberIds = selectedUsers.map(u => u.dbUserId ? `user-${u.dbUserId}` : u.id);
+		const memberIds = selectedUsers.map((user) => getDmDirectoryKey(user));
 		createGroup(groupName.trim(), memberIds);
 		closeModal();
 	}
@@ -79,7 +78,7 @@
 
 		{#if selectedUsers.length > 0}
 			<div class="selected-chips">
-				{#each selectedUsers as user (user.id)}
+				{#each selectedUsers as user (getDmDirectoryKey(user))}
 					<span class="chip">
 						{user.username}
 						<button class="chip-remove" on:click={() => removeSelected(user)}>x</button>
@@ -100,7 +99,7 @@
 			{#if filteredUsers.length === 0}
 				<div class="no-users">No users found</div>
 			{:else}
-				{#each filteredUsers as user (user.id)}
+				{#each filteredUsers as user (getDmDirectoryKey(user))}
 					<button class="user-item" on:click={() => toggleUser(user)}>
 						<div class="user-avatar-container">
 							{#if user.profilePicture}

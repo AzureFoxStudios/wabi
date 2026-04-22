@@ -3,6 +3,11 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from '
 import { basename, join, resolve, sep } from 'path';
 import { fileURLToPath } from 'url';
 import { DATA_DIR, UPLOADS_DIR } from '../constants.js';
+import {
+	isInvalidJsonBodyError,
+	isRequestBodyTooLargeError,
+	readJsonObjectBody
+} from '../utils/requestBodies.js';
 
 export interface PlaceRecord {
 	id: string;
@@ -70,6 +75,10 @@ type RawPlaceRecord = Partial<PlaceRecord> & {
 const bundledRegistryPath = fileURLToPath(new URL('../config/place-registry.json', import.meta.url));
 const dataRegistryPath = join(DATA_DIR, 'place-registry.json');
 type PlaceRegistrySource = 'data' | 'bundled' | 'empty';
+const MAX_PLACE_BODY_BYTES = Math.max(
+	1024,
+	Math.min(512 * 1024, Number(process.env.PLACE_MAX_BODY_BYTES || 64 * 1024))
+);
 
 function sendJson(res: ServerResponse, statusCode: number, payload: unknown): void {
 	res.writeHead(statusCode, {
@@ -332,15 +341,6 @@ function savePlaceRegistryFile(places: PlaceRecord[]): void {
 	writeFileSync(dataRegistryPath, `${JSON.stringify(sortPlaces(places), null, 2)}\n`, 'utf8');
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-	const chunks: Buffer[] = [];
-	for await (const chunk of req) {
-		chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-	}
-	const raw = Buffer.concat(chunks).toString('utf8').trim();
-	return raw ? JSON.parse(raw) : {};
-}
-
 function extractPayloadPlace(input: unknown): RawPlaceRecord {
 	if (!input || typeof input !== 'object') return {};
 	const root = input as Record<string, unknown>;
@@ -444,7 +444,7 @@ export async function handleGetPlaces(_req: IncomingMessage, res: ServerResponse
 
 export async function handleUpsertPlace(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	try {
-		const body = await readJsonBody(req);
+		const body = await readJsonObjectBody(req, MAX_PLACE_BODY_BYTES);
 		const normalized = normalizePlaceRecord(extractPayloadPlace(body));
 		if (!normalized) {
 			sendJson(res, 400, { success: false, error: 'Invalid place payload' });
@@ -462,6 +462,14 @@ export async function handleUpsertPlace(req: IncomingMessage, res: ServerRespons
 			places
 		});
 	} catch (error) {
+		if (isRequestBodyTooLargeError(error)) {
+			sendJson(res, 413, { success: false, error: 'Place payload too large' });
+			return;
+		}
+		if (isInvalidJsonBodyError(error)) {
+			sendJson(res, 400, { success: false, error: 'Invalid JSON in place payload' });
+			return;
+		}
 		console.error('[Places] Failed to save place:', error);
 		sendJson(res, 500, { success: false, error: 'Failed to save place' });
 	}

@@ -1,6 +1,83 @@
 import { getServerUrl } from './serverUrl';
 import { authStore } from './authStore';
 import type { Message } from './socket-types';
+import type {
+	PaymentCheckoutMode,
+	PaymentIntentStatus,
+	PaymentMethodCapability,
+	PaymentProviderCapability,
+	PaymentUserBlock
+} from '../../../shared/paymentContracts.js';
+import type {
+	CommunityNodeAccessMode,
+	CommunityNodeAllowedUser,
+	CommunityNodeAccessPolicy,
+	CommunityNodeAnnouncementsPolicy,
+	FrontendAppMetadataPolicy,
+	PaymentAccessPolicy,
+	PaymentAccountLink,
+	PaymentDonationConfig
+} from '../../../shared/adminPolicyContracts.js';
+import type {
+	AdminCompressionConfig,
+	AdminCompressionMetrics,
+	AdminRuntimeGuardrailsResponse,
+	DesktopHelperRegistrationPayload,
+	DownloadLimitConfig,
+	RuntimeGuardrailsSnapshot,
+	RuntimeTuningConfig,
+	UploadLimitConfig,
+	UploadRoleTier
+} from '../../../shared/runtimeAdminContracts.js';
+import type { LaunchPageConfig } from '../../../shared/launchPageContracts.js';
+import type {
+	AuthResponse,
+	FollowedChannelPollChannelResult as SharedFollowedChannelPollChannelResult,
+	FollowedChannelPollRequest,
+	FollowedChannelPollResponse as SharedFollowedChannelPollResponse,
+	UserSettingsPayload,
+	UserSettingsResponse
+} from '../../../shared/userContracts.js';
+import type {
+	AdminRelayNode,
+	ParsedRelayMetadata as AdminRelayNodeMetadata
+} from '../../../shared/relayContracts.js';
+export type {
+	PaymentCheckoutMode,
+	PaymentIntentStatus,
+	PaymentMethodCapability,
+	PaymentProviderCapability,
+	PaymentUserBlock
+} from '../../../shared/paymentContracts.js';
+export type {
+	CommunityNodeAccessMode,
+	CommunityNodeAllowedUser,
+	CommunityNodeAccessPolicy,
+	CommunityNodeAnnouncementsPolicy,
+	FrontendAppMetadataPolicy,
+	PaymentAccessPolicy,
+	PaymentAccountLink,
+	PaymentDonationConfig
+} from '../../../shared/adminPolicyContracts.js';
+export type {
+	AdminCompressionConfig,
+	AdminCompressionMetrics,
+	AdminRuntimeGuardrailsResponse,
+	DesktopHelperRegistrationPayload,
+	DownloadLimitConfig,
+	RuntimeGuardrailsSnapshot,
+	RuntimeTuningConfig,
+	UploadLimitConfig,
+	UploadRoleTier
+} from '../../../shared/runtimeAdminContracts.js';
+export type { LaunchPageConfig, LaunchPageHighlight } from '../../../shared/launchPageContracts.js';
+export type {
+	AuthResponse,
+	FollowedChannelPollRequest,
+	UserSettingsPayload,
+	UserSettingsResponse
+} from '../../../shared/userContracts.js';
+export type { AdminRelayNode, ParsedRelayMetadata as AdminRelayNodeMetadata } from '../../../shared/relayContracts.js';
 
 const getApiBase = () => getServerUrl();
 const getApiBaseFor = (baseUrl?: string | null) => {
@@ -46,97 +123,6 @@ async function fetchWithTimeout(url: string, options: RequestWithTimeout = {}): 
 	}
 }
 
-export interface AuthResponse {
-	token: string;
-	mustChangePassword?: boolean;
-	user: {
-		id: number;
-		username: string;
-		handle?: string;
-		color: string;
-		profilePicture?: string;
-		isRegistered: boolean;
-	};
-}
-
-export interface LaunchPageHighlight {
-	title: string;
-	description: string;
-}
-
-export interface LaunchPageConfig {
-	enabled: boolean;
-	brandName: string;
-	headline: string;
-	subheadline: string;
-	logoUrl: string;
-	backgroundImageUrl: string | null;
-	customCss: string | null;
-	heroImageUrl: string | null;
-	heroTitle: string | null;
-	heroBody: string | null;
-	heroPrimaryCtaLabel: string | null;
-	heroPrimaryCtaUrl: string | null;
-	highlights: LaunchPageHighlight[];
-	footerNote: string | null;
-	palette: {
-		backgroundTop: string;
-		backgroundBottom: string;
-		cardBackground: string;
-		accent: string;
-		text: string;
-	};
-}
-
-export interface FrontendAppMetadataPolicy {
-	displayName: string | null;
-	iconUrl: string | null;
-	bannerUrl: string | null;
-	accentColor: string | null;
-	description: string | null;
-	launchPageFallbackEnabled: boolean;
-}
-
-export type PaymentIntentStatus =
-	| 'draft'
-	| 'pending'
-	| 'succeeded'
-	| 'failed'
-	| 'expired'
-	| 'refunded'
-	| 'disputed'
-	| 'canceled';
-
-export type PaymentCheckoutMode = 'qr' | 'payment_link' | 'app_switch' | 'redirect' | 'tap_to_pay';
-
-export interface PaymentMethodCapability {
-	id: string;
-	label: string;
-	checkoutModes: PaymentCheckoutMode[];
-	countries?: string[];
-	currencies?: string[];
-	minAmountMinor?: number;
-	maxAmountMinor?: number;
-	requiresMobile?: boolean;
-	requiresDesktop?: boolean;
-	estimatedSharePercent?: number;
-	enabledByDefault?: boolean;
-	notes?: string;
-}
-
-export interface PaymentProviderCapability {
-	pluginId: string;
-	providerName: string;
-	countries: string[];
-	currencies: string[];
-	methods: PaymentMethodCapability[];
-	nonCustodialOnly: boolean;
-	webhookSignatureRequired: boolean;
-	supportsRefunds: boolean;
-	supportsDisputes: boolean;
-	notes?: string;
-}
-
 export interface PaymentIntent {
 	intentId: string;
 	workspaceId: string;
@@ -174,12 +160,6 @@ export interface PaymentEvent {
 	createdAt: number;
 }
 
-export interface PaymentAccessPolicy {
-	enabled: boolean;
-	allowGuest: boolean;
-	allowedRoleNames: string[];
-}
-
 export interface PaymentAccessActorStatus {
 	authenticated: boolean;
 	userId: number | null;
@@ -194,17 +174,6 @@ export interface PaymentAccessStatusResponse {
 	success: boolean;
 	policy: PaymentAccessPolicy;
 	actor: PaymentAccessActorStatus;
-}
-
-export interface PaymentAccountLink {
-	userId: number;
-	workspaceId: string;
-	pluginId: string;
-	providerAccountRef: string;
-	displayLabel: string | null;
-	metadata: Record<string, unknown> | null;
-	linkedAt: number;
-	updatedAt: number;
 }
 
 export interface CreatePaymentIntentPayload {
@@ -232,17 +201,6 @@ export interface PaymentHistoryResponse {
 	success: boolean;
 	count: number;
 	intents: PaymentIntent[];
-}
-
-export interface PaymentDonationConfig {
-	enabled: boolean;
-	providerPluginId: string | null;
-	methodId: string | null;
-	currency: string;
-	countryCode: string | null;
-	suggestedAmountsMinor: number[];
-	headline: string;
-	description: string;
 }
 
 export interface PaymentDonationTotal {
@@ -277,68 +235,6 @@ export interface PaymentDonationAuditResponse {
 	success: boolean;
 	count: number;
 	donations: PaymentDonationLedgerEntry[];
-}
-
-export interface AdminRelayNodeMetadata {
-	kind?: 'booster-relay' | 'relay' | 'desktop-helper' | null;
-	source?: string | null;
-	status?: string | null;
-	reason?: string | null;
-	selfHosted?: boolean;
-	originManaged?: boolean;
-	ownerUserId?: number | null;
-	ownerUsername?: string | null;
-	helperMode?: 'off' | 'files-only' | 'desktop-assist' | null;
-	requestedMode?: 'off' | 'turn-only' | 'turn-sfu' | 'turn-sfu-gateway' | null;
-	effectiveMode?: 'off' | 'turn-only' | 'turn-sfu' | 'turn-sfu-gateway' | null;
-	components?: {
-		turnConfigured?: boolean;
-		sfuConfigured?: boolean;
-		gatewayConfigured?: boolean;
-	} | null;
-	capabilities?: {
-		fileRelay?: boolean;
-		turn?: boolean;
-		sfu?: boolean;
-		gateway?: boolean;
-		selfHosted?: boolean;
-		boosterMode?: 'off' | 'turn-only' | 'turn-sfu' | 'turn-sfu-gateway' | null;
-	} | null;
-	turn?: {
-		server: string;
-		port: number;
-		useTurns: boolean;
-		realm?: string | null;
-	} | null;
-	sfu?: {
-		provider: 'livekit';
-		url: string;
-	} | null;
-	updatedAt?: string | null;
-}
-
-export interface AdminRelayNode {
-	relay_id: number;
-	url: string;
-	name: string;
-	region: string;
-	status: string;
-	last_health_ping: number | null;
-	registered_at: number;
-	approved: number;
-	latitude: number | null;
-	longitude: number | null;
-	bandwidth_mbps: number | null;
-	storage_gb: number | null;
-	syncthing_device_id: string | null;
-	metadata?: AdminRelayNodeMetadata | null;
-}
-
-export interface DesktopHelperRegistrationPayload {
-	helperId: string;
-	name: string;
-	mode: 'files-only' | 'desktop-assist';
-	region?: string | null;
 }
 
 export type ManualCashSettlementStatus =
@@ -1142,7 +1038,7 @@ export async function getPublicKey(token: string | null | undefined, userId: num
 	return data.publicKey || null;
 }
 
-export async function getUserSettings(token: string | null | undefined): Promise<any> {
+export async function getUserSettings(token: string | null | undefined): Promise<UserSettingsResponse> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/user/settings`, {
 		method: 'GET',
 		headers: token ? { Authorization: `Bearer ${token}` } : undefined
@@ -1158,25 +1054,8 @@ export async function getUserSettings(token: string | null | undefined): Promise
 	return res.json();
 }
 
-export interface FollowedChannelPollRequest {
-	channelId: string;
-	afterMessageId?: string | null;
-	limit?: number;
-}
-
-export interface FollowedChannelPollChannelResult {
-	channelId: string;
-	channelName: string;
-	channelType: string;
-	cursorReset: boolean;
-	messages: Message[];
-}
-
-export interface FollowedChannelPollResponse {
-	success: boolean;
-	serverTime: number;
-	channels: FollowedChannelPollChannelResult[];
-}
+export type FollowedChannelPollChannelResult = SharedFollowedChannelPollChannelResult<Message>;
+export type FollowedChannelPollResponse = SharedFollowedChannelPollResponse<Message>;
 
 export async function pollFollowedChannelActivity(
 	baseUrl: string,
@@ -1212,13 +1091,6 @@ export async function pollFollowedChannelActivity(
 	};
 }
 
-export interface UserSettingsPayload {
-	offline_message_retention?: string;
-	allow_temp_user_messages?: boolean;
-	home_experience?: 'community' | 'conversations';
-	payment_preferred_route?: string | null;
-}
-
 export async function saveUserSettings(
 	token: string | null | undefined,
 	settings: UserSettingsPayload
@@ -1240,18 +1112,6 @@ export async function saveUserSettings(
 	}
 }
 
-export type UploadRoleTier = 'new' | 'trusted' | 'moderator' | 'admin' | 'owner';
-
-export interface UploadLimitConfig {
-	perRoleBytes: Record<UploadRoleTier, number | null>;
-	globalUploadCapBytes: number | null;
-}
-
-export interface DownloadLimitConfig {
-	perRoleBytes: Record<UploadRoleTier, number | null>;
-	globalDownloadCapBytes: number | null;
-}
-
 export type AdminPolicyKey =
 	| 'upload_limits'
 	| 'download_limits'
@@ -1260,141 +1120,6 @@ export type AdminPolicyKey =
 	| 'community_node_announcements'
 	| 'community_node_access'
 	| 'frontend_app_metadata';
-
-export interface CommunityNodeAnnouncementsPolicy {
-	enabled: boolean;
-	channelId: string | null;
-	onlineTemplate: string;
-	offlineTemplate: string;
-}
-
-export type CommunityNodeAccessMode = 'open' | 'approval_required' | 'whitelist_only';
-
-export interface CommunityNodeAllowedUser {
-	userId: number;
-	username: string;
-}
-
-export interface CommunityNodeAccessPolicy {
-	mode: CommunityNodeAccessMode;
-	allowedUsers: CommunityNodeAllowedUser[];
-}
-
-export interface RuntimeTuningConfig {
-	applyOnRestart: true;
-	threadPoolSize: number | null;
-	heavyProfilingEnabled: boolean;
-	heavyProfilingSampleRate: number;
-}
-
-export interface AdminCompressionConfig {
-	httpTextCompression: {
-		enabled: boolean;
-		minBytes: number;
-		brotliQuality: number;
-		gzipLevel: number;
-	};
-	uploadCompression: {
-		enabled: boolean;
-		minBytes: number;
-		gzipLevel: number;
-		rolloutPercent: number;
-	};
-}
-
-export interface AdminCompressionMetrics {
-	counters: {
-		uploadCount: number;
-		downloadCount: number;
-		uploadOriginalBytes: number;
-		uploadStoredBytes: number;
-		downloadStoredBytes: number;
-		downloadResponseBytes: number;
-		uploadStoredToOriginalRatio: number | null;
-		downloadResponseToStoredRatio: number | null;
-	};
-	summaryByExt: {
-		uploads: Array<{
-			fileExt: string;
-			count: number;
-			originalBytes: number;
-			storedBytes: number;
-			responseBytes: number;
-		}>;
-		downloads: Array<{
-			fileExt: string;
-			count: number;
-			originalBytes: number;
-			storedBytes: number;
-			responseBytes: number;
-		}>;
-	};
-	recentSamples: {
-		uploads: Array<Record<string, unknown>>;
-		downloads: Array<Record<string, unknown>>;
-	};
-	clientVideoCompression?: {
-		counters: {
-			attemptCount: number;
-			successCount: number;
-			failureCount: number;
-			cancelledCount: number;
-			skippedCount: number;
-			timeoutCount: number;
-			notSmallerCount: number;
-			inputBytes: number;
-			outputBytes: number;
-			successRate: number | null;
-			outputToInputRatio: number | null;
-		};
-		summaryByRuntime: Array<{
-			runtime: string;
-			count: number;
-			successCount: number;
-			failureCount: number;
-			cancelledCount: number;
-			skippedCount: number;
-		}>;
-		topFailureCodes: Array<{
-			failureCode: string;
-			count: number;
-		}>;
-		recentSamples: Array<Record<string, unknown>>;
-	};
-}
-
-export interface RuntimeGuardrailsSnapshot {
-	uptimeSeconds: number;
-	memory: {
-		rssBytes: number;
-		heapUsedBytes: number;
-		heapTotalBytes: number;
-		externalBytes: number;
-		arrayBuffersBytes: number;
-	};
-	cpu: {
-		userMicros: number;
-		systemMicros: number;
-	};
-	heavyProfiling: {
-		enabled: boolean;
-		eventLoopDelayP95Ms: number | null;
-		eventLoopDelayMaxMs: number | null;
-	};
-}
-
-export interface AdminRuntimeGuardrailsResponse {
-	runtimeTuning: {
-		configured: RuntimeTuningConfig;
-		startupApplied: RuntimeTuningConfig;
-		restartRequired: boolean;
-		effective: {
-			uvThreadpoolSize: number | null;
-			heavyProfilingEnabled: boolean;
-		};
-	};
-	guardrails: RuntimeGuardrailsSnapshot;
-}
 
 export async function getAdminPolicy<T>(token: string, key: AdminPolicyKey): Promise<{
 	key: AdminPolicyKey;
@@ -1502,17 +1227,6 @@ export async function saveAdminFrontendAppMetadataPolicy(
 
 export async function saveAdminPaymentAccessPolicy(token: string, config: PaymentAccessPolicy): Promise<PaymentAccessPolicy> {
 	return saveAdminPolicy<PaymentAccessPolicy>(token, 'payments_access', config);
-}
-
-export interface PaymentUserBlock {
-	userId: number;
-	workspaceId: string;
-	reason: string | null;
-	blockedByUserId: number | null;
-	blockedByUsername: string | null;
-	blockedUsername: string | null;
-	blockedAt: number;
-	expiresAt: number | null;
 }
 
 export async function getAdminPaymentUserBlocks(token: string): Promise<PaymentUserBlock[]> {

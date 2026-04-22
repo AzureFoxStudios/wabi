@@ -1,9 +1,5 @@
-import {
-	channelMemberRepository,
-	type DbChannelMember
-} from '../db/repositories/channelMemberRepository.js';
-import db from '../db/database.js';
-import type { ChannelMemberStoreRuntimeStats } from './channelMemberStore.js';
+import type { DbChannelMember } from '../db/repositories/channelMemberRepository.js';
+import type { ChannelMemberStoreRuntimeStats } from './storeTypes.js';
 import { escapeSqlLiteral } from './stdbSyncClient.js';
 import {
 	StdbStoreBase,
@@ -20,13 +16,6 @@ function channelMemberKey(channelId: string, userId: string): string {
 
 export class StdbPrimaryChannelMemberStore extends StdbStoreBase {
 	private readonly stats = makeBaseStats();
-	private readonly shadow = {
-		attempted: 0,
-		succeeded: 0,
-		failed: 0,
-		lastError: null as string | null,
-		lastErrorAt: null as number | null
-	};
 
 	constructor(options: StdbPrimaryStoreOptions = {}) {
 		super(options);
@@ -43,10 +32,6 @@ export class StdbPrimaryChannelMemberStore extends StdbStoreBase {
 	}
 
 	private loadMember(channelId: string, userId: string, activeOnly = true): DbChannelMember | null {
-		if (activeOnly) {
-			const mirrored = channelMemberRepository.getMember(channelId, userId);
-			if (mirrored) return mirrored;
-		}
 		const activeClause = activeOnly ? ' AND active = true' : '';
 		const rows = this.client.sqlRows(
 			`SELECT row_json FROM state_channel_member WHERE member_key = ${escapeSqlLiteral(channelMemberKey(channelId, userId))}${activeClause} LIMIT 1`
@@ -70,18 +55,11 @@ export class StdbPrimaryChannelMemberStore extends StdbStoreBase {
 		} catch (error) {
 			this.recordWriteFailure(this.stats, 'add_member', error);
 		}
-		this.mirrorWrite(this.stats, this.shadow, 'add_member', () => {
-			channelMemberRepository.addMember(member);
-		});
 		return added;
 	}
 
 	getMembers(channelId: string): DbChannelMember[] {
 		bumpOperation(this.stats, 'getMembers');
-		const mirrored = channelMemberRepository.getMembers(channelId);
-		if (mirrored.length > 0) {
-			return mirrored;
-		}
 		const rows = this.client.sqlRows(
 			`SELECT row_json FROM state_channel_member WHERE channel_id = ${escapeSqlLiteral(channelId)} AND active = true LIMIT 50000`
 		);
@@ -90,10 +68,6 @@ export class StdbPrimaryChannelMemberStore extends StdbStoreBase {
 
 	getMemberIds(channelId: string): string[] {
 		bumpOperation(this.stats, 'getMemberIds');
-		const mirrored = channelMemberRepository.getMemberIds(channelId);
-		if (mirrored.length > 0) {
-			return mirrored;
-		}
 		const rows = this.client.sqlRows(
 			`SELECT user_id FROM state_channel_member WHERE channel_id = ${escapeSqlLiteral(channelId)} AND active = true LIMIT 50000`
 		);
@@ -104,9 +78,6 @@ export class StdbPrimaryChannelMemberStore extends StdbStoreBase {
 
 	isMember(channelId: string, userId: string): boolean {
 		bumpOperation(this.stats, 'isMember');
-		if (channelMemberRepository.isMember(channelId, userId)) {
-			return true;
-		}
 		const rows = this.client.sqlRows(
 			`SELECT COUNT(*) AS count FROM state_channel_member WHERE member_key = ${escapeSqlLiteral(channelMemberKey(channelId, userId))} AND active = true`
 		);
@@ -122,17 +93,10 @@ export class StdbPrimaryChannelMemberStore extends StdbStoreBase {
 		} catch (error) {
 			this.recordWriteFailure(this.stats, 'remove_member', error);
 		}
-		this.mirrorWrite(this.stats, this.shadow, 'remove_member', () => {
-			channelMemberRepository.removeMember(channelId, userId);
-		});
 	}
 
 	getUserChannels(userId: string): { channel_id: string; role: string }[] {
 		bumpOperation(this.stats, 'getUserChannels');
-		const mirrored = channelMemberRepository.getUserChannels(userId);
-		if (mirrored.length > 0) {
-			return mirrored;
-		}
 		const rows = this.client.sqlRows(
 			`SELECT channel_id, role FROM state_channel_member WHERE user_id = ${escapeSqlLiteral(userId)} AND active = true LIMIT 50000`
 		);
@@ -158,9 +122,6 @@ export class StdbPrimaryChannelMemberStore extends StdbStoreBase {
 		} catch (error) {
 			this.recordWriteFailure(this.stats, 'update_member', error);
 		}
-		this.mirrorWrite(this.stats, this.shadow, 'update_member', () => {
-			channelMemberRepository.updateMember(channelId, userId, updates);
-		});
 	}
 
 	getMember(channelId: string, userId: string): DbChannelMember | null {
@@ -175,38 +136,6 @@ export class StdbPrimaryChannelMemberStore extends StdbStoreBase {
 		}
 	}
 
-	warmFromPrimary(limit: number): number {
-		const safeLimit = Math.max(0, Math.floor(limit));
-		if (safeLimit === 0) return 0;
-		const existingKeys = new Set(
-			this.client.sqlRows('SELECT member_key FROM state_channel_member LIMIT 50000')
-				.map((row) => String(row.member_key || '').trim())
-				.filter((memberKey) => memberKey.length > 0)
-		);
-
-		const rows = db.prepare(`
-			SELECT * FROM channel_members
-			ORDER BY channel_id ASC, joined_at ASC, user_id ASC
-			LIMIT ?
-		`).all(safeLimit) as DbChannelMember[];
-
-		let seeded = 0;
-		for (const row of rows) {
-			if (existingKeys.has(channelMemberKey(row.channel_id, row.user_id))) continue;
-			this.ingest('channel_member', 'add_member', {
-				channelId: row.channel_id,
-				userId: row.user_id,
-				role: row.role,
-				row
-			});
-			seeded += 1;
-		}
-
-		this.stats.operations.warmup = (this.stats.operations.warmup || 0) + 1;
-		this.stats.operations.warmup_rows = seeded;
-		return seeded;
-	}
-
 	getRuntimeStats(): ChannelMemberStoreRuntimeStats {
 		return {
 			mode: 'stdb_primary',
@@ -215,34 +144,7 @@ export class StdbPrimaryChannelMemberStore extends StdbStoreBase {
 			writesFailed: this.stats.writesFailed,
 			lastError: this.stats.lastError,
 			lastErrorAt: this.stats.lastErrorAt,
-			operations: { ...this.stats.operations },
-			shadow: {
-				enabled: this.mirrorLegacyWrites,
-				label: this.mirrorLegacyWrites ? 'legacy-mirror' : 'none',
-				writesAttempted: this.shadow.attempted,
-				writesSucceeded: this.shadow.succeeded,
-				writesFailed: this.shadow.failed,
-				lastError: this.shadow.lastError,
-				lastErrorAt: this.shadow.lastErrorAt
-			},
-			parity: {
-				samples: 0,
-				mismatches: 0,
-				lastMismatch: null,
-				lastMismatchAt: null
-			},
-			readSwitch: {
-				enabled: false,
-				canaryPercent: 0,
-				attempts: 0,
-				canaryRouted: 0,
-				shadowServed: 0,
-				fallbacks: 0,
-				shadowErrors: 0,
-				mismatches: 0,
-				lastFallbackReason: null,
-				lastFallbackAt: null
-			}
+			operations: { ...this.stats.operations }
 		};
 	}
 }

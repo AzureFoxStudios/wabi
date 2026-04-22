@@ -1,10 +1,8 @@
-import { getStatePlaneConfigFromEnv } from '../state-plane/config.js';
 import { createStdbClient, INGEST_AUTH_KEY_HASH } from '../state-plane/stdbCommon.js';
 import { toStdbEventId, type StdbDecodedRow } from '../state-plane/stdbSyncClient.js';
 
 type PaymentEntity = 'payment';
 
-const statePlaneConfig = getStatePlaneConfigFromEnv();
 const stdbClient = createStdbClient();
 const reducerName = process.env.WABI_STDB_BRIDGE_REDUCER || 'ingest_wabi_event';
 const warnedKeys = new Set<string>();
@@ -21,12 +19,7 @@ function warnOnce(key: string, error: unknown): void {
 }
 
 export function stdbPaymentsEnabled(): boolean {
-	return (
-		statePlaneConfig.mode === 'stdb_primary' &&
-		statePlaneConfig.stdbReadEnabled &&
-		statePlaneConfig.stdbWriteEnabled &&
-		stdbClient.isEnabled()
-	);
+	return stdbClient.isEnabled();
 }
 
 export function stdbPaymentRows(key: string, query: string): StdbDecodedRow[] | null {

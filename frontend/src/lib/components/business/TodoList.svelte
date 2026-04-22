@@ -308,6 +308,7 @@
 		<!-- Kanban View -->
 		<div class="kanban-board" style="grid-template-columns: repeat({$visibleKanbanColumns.length}, 1fr);">
 			{#each $visibleKanbanColumns as column (column.id)}
+				<!-- svelte-ignore a11y_no_static_element_interactions: kanban columns act as drag-and-drop targets -->
 				<div
 					class="kanban-column"
 					on:dragover={handleDragOver}
@@ -319,6 +320,7 @@
 					</div>
 					<div class="column-content">
 						{#each kanbanTodos[column.id] || [] as todo (todo.id)}
+							<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions: kanban cards are draggable pointer-first surfaces -->
 							<div
 								class="todo-card"
 								class:overdue={isOverdue(todo)}
@@ -874,6 +876,7 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		display: -webkit-box;
+		line-clamp: 2;
 		-webkit-line-clamp: 2;
 		-webkit-box-orient: vertical;
 	}
