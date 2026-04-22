@@ -178,7 +178,11 @@ else
   TURN_REALM="$PUBLIC_IP"
 fi
 
-ALLOWED_ORIGINS="${BASE_URL},https://tauri.localhost,tauri://localhost"
+if $USE_DOMAIN; then
+  ALLOWED_ORIGINS="${BASE_URL},${SCHEME}://www.${DOMAIN},https://tauri.localhost,tauri://localhost"
+else
+  ALLOWED_ORIGINS="${BASE_URL},https://tauri.localhost,tauri://localhost"
+fi
 
 # ---------------------------------------------------------------------------
 # Guard against overwriting existing config
