@@ -71,7 +71,6 @@ interface RuntimeAdminDependencies {
   applyInboundMeshDelivery: (delivery: { deliveryId: string } & Record<string, unknown>) => boolean;
   markSeenMeshDelivery: (deliveryId: string) => void;
   getStatePlaneRuntimeStats: () => unknown;
-  findLegacyMessageByMessageId: (messageId: string) => unknown | null;
   resetCompressionMetrics: () => void;
 }
 
@@ -527,26 +526,6 @@ export async function handleRuntimeAdminRoutes(
     writeJson(res, 200, {
       success: true,
       runtime: deps.getStatePlaneRuntimeStats()
-    });
-    return true;
-  }
-
-  if (url.pathname === '/api/admin/legacy-message-status' && req.method === 'GET') {
-    if (requirePluginAdmin(req, res, deps) === null) {
-      return true;
-    }
-
-    const messageId = (url.searchParams.get('messageId') || '').trim();
-    if (!messageId) {
-      writeJson(res, 400, { success: false, error: 'messageId is required' });
-      return true;
-    }
-
-    const message = deps.findLegacyMessageByMessageId(messageId);
-    writeJson(res, 200, {
-      success: true,
-      exists: Boolean(message),
-      mode: 'legacy_sqlite'
     });
     return true;
   }

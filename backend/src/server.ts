@@ -1787,7 +1787,6 @@ server.on('request', async (req, res) => {
     applyInboundMeshDelivery,
     markSeenMeshDelivery,
     getStatePlaneRuntimeStats,
-    findLegacyMessageByMessageId: (messageId) => messageRepository.findByMessageId(messageId),
     resetCompressionMetrics
   })) {
     return;

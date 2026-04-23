@@ -1,7 +1,17 @@
 # SpacetimeDB Wabi State Plan
 
-Last updated: 2026-03-05
-Status: Active implementation baseline (core state supports STDB primary mode)
+> **HISTORICAL — Migration P1–P6 completed 2026-04-22.** STDB is now the sole source of
+> truth for the 6 state stores (message, channel, channel_member, user, session, rbac).
+> All `state_*` stores run in `stdb_primary` mode with no shadow/warmup/parity/dual-write
+> plumbing. Verify live state with `curl $ORIGIN/state-plane/healthz` — every `*_store`
+> block should show `mode=stdb_primary`.
+>
+> For remaining cleanup (P7) and multi-server features (P8), see
+> `STDB_MIGRATION_P7_P8_GUIDE.md`. Sections below describe the planning context and
+> phased rollout as originally designed — kept as a historical record, not a forward plan.
+
+Last updated: 2026-03-05 (content); banner added 2026-04-23 after P1–P6 completion
+Status: HISTORICAL — migration completed, see banner above
 Owner: Backend/state-plane workstream
 
 ## 1) Scope

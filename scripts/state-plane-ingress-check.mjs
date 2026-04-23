@@ -6,9 +6,9 @@ const originRaw = (process.env.WABI_ORIGIN_URL || 'http://localhost:8080').trim(
 const origin = originRaw.replace(/\/+$/, '');
 const path = (process.env.WABI_STATE_REDUCER_PATH || '/api/internal/state-plane/reducer').trim();
 const authToken = (process.env.WABI_AUTH_TOKEN || '').trim();
-const shadowToken = (process.env.WABI_SHADOW_TOKEN || process.env.STATE_SHADOW_TOKEN || '').trim();
-const signingSecret = (process.env.WABI_SHADOW_SIGNING_SECRET || process.env.STATE_SHADOW_SIGNING_SECRET || '').trim();
-const signingKeyId = (process.env.WABI_SHADOW_SIGNING_KEY_ID || process.env.STATE_SHADOW_SIGNING_KEY_ID || '').trim();
+const shadowToken = (process.env.WABI_SHADOW_TOKEN || '').trim();
+const signingSecret = (process.env.WABI_SHADOW_SIGNING_SECRET || '').trim();
+const signingKeyId = (process.env.WABI_SHADOW_SIGNING_KEY_ID || '').trim();
 
 function now() {
 	return Date.now();

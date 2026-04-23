@@ -1,5 +1,15 @@
 # Wabi Chat - Deployment Guide
 
+> **Note on STDB state plane (2026-04-23):** The STDB migration's P1–P6 phases completed
+> 2026-04-22. The 6 state stores (message, channel, channel_member, user, session, rbac)
+> all run in `stdb_primary` mode as the sole source of truth. The `STATE_BACKEND_MODE`,
+> `STATE_STDB_READ_ENABLED`, `STATE_STDB_WRITE_ENABLED`, `STATE_BACKEND_STRICT`, and all
+> `STATE_SHADOW_*` env flags described later in this document are **no longer read by
+> the backend** — setup.sh / launch.sh no longer emit them. Operators only need
+> `WABI_STDB_BRIDGE_*` + `WABI_STDB_AUTH_TOKEN` to point the backend at a SpacetimeDB
+> instance. Verify with `curl $ORIGIN/state-plane/healthz`. See
+> `STDB_MIGRATION_P7_P8_GUIDE.md` for the remaining cleanup scope and multi-server plans.
+
 ## Overview
 
 Wabi Chat is designed to be self-deployable on bare-metal Linux. This guide covers setup with Docker Compose or Podman Compose and Caddy reverse proxy.

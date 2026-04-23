@@ -6,6 +6,41 @@ All 6 state plane stores (`message`, `channel`, `channel_member`, `user`, `sessi
 This guide exists so a future session can finish P7 (cleanup) and P8 (multi-server client features)
 without re-deriving the context.
 
+### 2026-04-23 P7 progress checkpoint
+
+Partial P7 work landed in this session:
+
+- **P7a (legacy admin route done; repo deletion DEFERRED as P7.5).** `/api/admin/legacy-message-status`
+  + its `findLegacyMessageByMessageId` dep wiring are gone. But the repo files themselves
+  (`messageRepository`, `channelRepository`, `channelMemberRepository`, `userRepository`,
+  `sessionRepository`) are NOT deletable in a simple cleanup — `userRepository.create/update`,
+  `sessionRepository.create/delete`, `channelRepository.create` etc. are still called from
+  `authRoutes.ts`, `server.ts`, `albumRoutes.ts`, `manualSettlementRoutes.ts`,
+  `dictionaryRoutes.ts`, `relayRoutes.ts`, `whiteboardAccess.ts`. The `createAsync` shim pattern
+  in authRoutes.ts (line ~274) hints these do route through STDB at runtime — but unwinding to
+  call the state-plane stores directly is a multi-hour write-path cutover. **Call this P7.5.**
+- **P7b partial.** setup.sh, setup-forWindows.ps1, local-dev.sh, local-dev.ps1, and
+  state-plane-ingress-check.mjs are clean. launch.sh's user-facing help text + `.env` write
+  block are clean (so newly-generated `.env` files no longer contain dead flags). ~173 internal
+  parse/apply lines in launch.sh still reference the dead flags — dead code inside an operator
+  tool, harmless, left for P7-remainder. `scripts/state-plane-stdb-benchmark.ps1` (9 hits) whole
+  premise (dual_write vs stdb_primary comparison) is obsolete — can be deleted outright.
+- **P7c done.** SPACETIMEDB_WABI_STATE_PLAN.md and DEPLOYMENT.md have banners at the top
+  marking their legacy content as historical and pointing operators at `/state-plane/healthz`
+  + `WABI_STDB_BRIDGE_*`. Did not line-by-line rewrite — too big for the remaining budget.
+- **Schema.sql was ALREADY CLEAN** of `state_*` + `message_archive` CREATE TABLEs before P7
+  started. Guide's "drop these" step was a false alarm.
+
+Remaining P7 work for next session:
+1. P7.5 (write-path cutover): rewire callers of `userRepository`, `sessionRepository`,
+   `channelRepository`, `channelMemberRepository` to hit the state-plane stores directly,
+   then delete the repo files.
+2. launch.sh internal dead-code sweep (~173 lines across config-state vars, parse branches,
+   apply blocks, upsert calls around lines 39-106, 496-642, 809-854, 1286-1442, 1500-1598).
+3. Delete `scripts/state-plane-stdb-benchmark.ps1` if nobody wants to refit it.
+4. P7d: tim deploy + smoke test + git push (deferred because this session's changes are
+   compile-time-only and don't change runtime behavior).
+
 Verify current state: `curl http://tim:8080/state-plane/healthz` should return `mode=stdb_primary`
 in every `*_store` block with no `warmup`/`shadow`/`parity`/`read_switch` sections.
 
