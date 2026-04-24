@@ -61,9 +61,6 @@ fn verify_ingest_auth(ctx: &ReducerContext, provided_key: &str) -> Result<(), St
         }
         Some(row) => {
             // Compare SHA-256 hex of provided key against stored hash
-            use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
-            // Simple constant-time-ish comparison of hex digests
             let provided_trimmed = provided_key.trim().to_lowercase();
             if provided_trimmed == row.auth_key_hash {
                 Ok(())
