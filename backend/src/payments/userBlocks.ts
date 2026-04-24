@@ -1,4 +1,3 @@
-import db from '../db/database.js';
 import { DEFAULT_WORKSPACE_ID } from '../constants.js';
 import { stdbPaymentIngest, stdbPaymentRows, stdbPaymentsEnabled, parseStdbRowJson, lookupStdbUsername } from './stdbRuntime.js';
 import { escapeSqlLiteral } from '../state-plane/stdbSyncClient.js';
@@ -156,44 +155,19 @@ export function listPaymentUserBlocks(
 	limit = 500
 ): PaymentUserBlock[] {
 	const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(5000, Math.floor(limit))) : 500;
-	if (stdbPaymentsEnabled()) {
-		const shadow = listPaymentUserBlocksStdb(workspaceId, safeLimit);
-		if (shadow.length > 0) return shadow;
+	if (!stdbPaymentsEnabled()) {
+		return [];
 	}
-	const rows = db
-		.prepare(
-			`
-				SELECT
-					pb.user_id,
-					pb.workspace_id,
-					pb.reason,
-					pb.blocked_by_user_id,
-					pb.blocked_at,
-					pb.expires_at
-				FROM payment_user_blocks pb
-				WHERE pb.workspace_id = ?
-				ORDER BY pb.blocked_at DESC
-				LIMIT ?
-			`
-		)
-		.all(workspaceId, safeLimit) as PaymentUserBlockRow[];
-	const legacy = rows.map((row) => hydrateLocalUsernames(toPaymentUserBlock(row)));
-	if (stdbPaymentsEnabled()) {
-		for (const row of legacy) {
-			upsertPaymentUserBlockStdb(row);
-		}
-	}
-	return legacy;
+	const shadow = listPaymentUserBlocksStdb(workspaceId, safeLimit);
+	return shadow.map(hydrateStdbUsernames);
 }
 
 export function clearPaymentUserBlock(userId: number, workspaceId: string = DEFAULT_WORKSPACE_ID): boolean {
-	const result = db
-		.prepare('DELETE FROM payment_user_blocks WHERE user_id = ? AND workspace_id = ?')
-		.run(Math.floor(userId), workspaceId);
-	if (stdbPaymentsEnabled()) {
-		deletePaymentUserBlockStdb(userId, workspaceId);
+	if (!stdbPaymentsEnabled()) {
+		return false;
 	}
-	return (result.changes || 0) > 0;
+	deletePaymentUserBlockStdb(userId, workspaceId);
+	return true;
 }
 
 export function upsertPaymentUserBlock(input: {
@@ -203,6 +177,9 @@ export function upsertPaymentUserBlock(input: {
 	reason?: string | null;
 	expiresAt?: number | null;
 }): PaymentUserBlock | null {
+	if (!stdbPaymentsEnabled()) {
+		return null;
+	}
 	const userId = Math.floor(input.userId);
 	const workspaceId = input.workspaceId || DEFAULT_WORKSPACE_ID;
 	const blockedAt = Date.now();
@@ -216,31 +193,18 @@ export function upsertPaymentUserBlock(input: {
 			? null
 			: Math.floor(input.expiresAt);
 
-	db.prepare(
-		`
-			INSERT INTO payment_user_blocks (
-				user_id,
-				workspace_id,
-				reason,
-				blocked_by_user_id,
-				blocked_at,
-				expires_at
-			)
-			VALUES (?, ?, ?, ?, ?, ?)
-			ON CONFLICT(user_id, workspace_id) DO UPDATE SET
-				reason = excluded.reason,
-				blocked_by_user_id = excluded.blocked_by_user_id,
-				blocked_at = excluded.blocked_at,
-				expires_at = excluded.expires_at
-		`
-	).run(userId, workspaceId, reason, blockedByUserId, blockedAt, expiresAt);
+	upsertPaymentUserBlockStdb({
+		userId,
+		workspaceId,
+		reason,
+		blockedByUserId,
+		blockedAt,
+		expiresAt
+	});
 
-	const created = fetchRawBlock(userId, workspaceId);
-	const block = created ? hydrateLocalUsernames(toPaymentUserBlock(created)) : null;
-	if (block && stdbPaymentsEnabled()) {
-		upsertPaymentUserBlockStdb(block);
-	}
-	return block;
+	const block = fetchRawBlockStdb(userId, workspaceId);
+	if (!block) return null;
+	return hydrateStdbUsernames(block);
 }
 
 export function getActivePaymentUserBlock(
@@ -248,25 +212,16 @@ export function getActivePaymentUserBlock(
 	workspaceId: string = DEFAULT_WORKSPACE_ID,
 	now = Date.now()
 ): PaymentUserBlock | null {
-	if (stdbPaymentsEnabled()) {
-		const shadow = fetchRawBlockStdb(Math.floor(userId), workspaceId);
-		if (shadow) {
-			if (shadow.expiresAt != null && Number(shadow.expiresAt) <= now) {
-				clearPaymentUserBlock(Math.floor(userId), workspaceId);
-				return null;
-			}
-			return shadow;
-		}
-	}
-	const row = fetchRawBlock(Math.floor(userId), workspaceId);
-	if (!row) return null;
-	if (row.expires_at != null && Number(row.expires_at) <= now) {
-		clearPaymentUserBlock(Math.floor(userId), workspaceId);
+	if (!stdbPaymentsEnabled()) {
 		return null;
 	}
-	const legacy = hydrateLocalUsernames(toPaymentUserBlock(row));
-	if (stdbPaymentsEnabled()) {
-		upsertPaymentUserBlockStdb(legacy);
+	const shadow = fetchRawBlockStdb(Math.floor(userId), workspaceId);
+	if (shadow) {
+		if (shadow.expiresAt != null && Number(shadow.expiresAt) <= now) {
+			clearPaymentUserBlock(Math.floor(userId), workspaceId);
+			return null;
+		}
+		return hydrateStdbUsernames(shadow);
 	}
-	return legacy;
+	return null;
 }
