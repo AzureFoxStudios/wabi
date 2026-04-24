@@ -453,6 +453,128 @@ pub struct StateUserEncryptionKey {
     pub last_updated_at: Timestamp,
 }
 
+#[spacetimedb::table(accessor = state_whiteboard, public)]
+#[derive(Clone)]
+pub struct StateWhiteboard {
+    #[primary_key]
+    pub board_id: String,
+    pub workspace_id: String,
+    pub scope_type: String,
+    pub scope_id: String,
+    pub version: i64,
+    pub document_json: String,
+    pub is_private: bool,
+    pub created_by: Option<String>,
+    pub updated_by: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub last_updated_at: Timestamp,
+}
+
+#[spacetimedb::table(accessor = state_offline_message, public)]
+#[derive(Clone)]
+pub struct StateOfflineMessage {
+    #[primary_key]
+    pub message_id: i64,
+    pub from_user_id: Option<i64>,
+    pub from_username: String,
+    pub to_user_id: i64,
+    pub channel_id: String,
+    pub message_content: String,
+    pub message_type: String,
+    pub gif_url: Option<String>,
+    pub file_url: Option<String>,
+    pub file_name: Option<String>,
+    pub file_size: Option<i64>,
+    pub message_payload_json: Option<String>,
+    pub created_at: i64,
+    pub expires_at: Option<i64>,
+    pub delivered: bool,
+}
+
+#[spacetimedb::table(accessor = state_guest_code, public)]
+#[derive(Clone)]
+pub struct StateGuestCode {
+    #[primary_key]
+    pub code: String,
+    pub description: Option<String>,
+    pub created_at: i64,
+    pub created_by: Option<i64>,
+    pub is_active: bool,
+}
+
+#[spacetimedb::table(accessor = state_album, public)]
+#[derive(Clone)]
+pub struct StateAlbum {
+    #[primary_key]
+    pub album_id: i64,
+    pub scope_type: String,
+    pub scope_id: String,
+    pub name: String,
+    pub created_by: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub is_archived: bool,
+    pub is_featured: bool,
+    pub row_json: String,
+    pub last_updated_at: Timestamp,
+}
+
+#[spacetimedb::table(accessor = state_album_item, public)]
+#[derive(Clone)]
+pub struct StateAlbumItem {
+    #[primary_key]
+    pub item_id: i64,
+    pub album_id: i64,
+    pub attachment_url: String,
+    pub attachment_name: String,
+    pub attachment_size: Option<i64>,
+    pub attachment_mime: Option<String>,
+    pub message_id: Option<String>,
+    pub caption: Option<String>,
+    pub sort_order: i64,
+    pub uploaded_by: i64,
+    pub uploaded_at: i64,
+    pub row_json: String,
+    pub last_updated_at: Timestamp,
+}
+
+#[spacetimedb::table(accessor = state_webhook, public)]
+#[derive(Clone)]
+pub struct StateWebhook {
+    #[primary_key]
+    pub webhook_id: i64,
+    pub user_id: i64,
+    pub name: String,
+    pub target_url: String,
+    pub secret: String,
+    pub event_filters: String,
+    pub enabled: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub row_json: String,
+    pub last_updated_at: Timestamp,
+}
+
+#[spacetimedb::table(accessor = state_webhook_delivery, public)]
+#[derive(Clone)]
+pub struct StateWebhookDelivery {
+    #[primary_key]
+    pub delivery_id: i64,
+    pub webhook_id: i64,
+    pub event_type: String,
+    pub payload_json: String,
+    pub status: String,
+    pub attempt_count: i64,
+    pub last_error: Option<String>,
+    pub response_code: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub delivered_at: Option<i64>,
+    pub row_json: String,
+    pub last_updated_at: Timestamp,
+}
+
 #[derive(Deserialize, Clone)]
 struct IngestEnvelope {
     #[serde(rename = "eventId", default)]
@@ -488,6 +610,13 @@ fn supported_entity(entity: &str) -> bool {
             | "mesh"
             | "presence"
             | "system"
+            | "whiteboard"
+            | "offline_message"
+            | "guest_code"
+            | "album"
+            | "album_item"
+            | "webhook"
+            | "webhook_delivery"
     )
 }
 
@@ -661,7 +790,33 @@ fn apply_projection(ctx: &ReducerContext, entity: &str, operation: &str, payload
         ("presence", "upsert_presence_lease") => apply_presence_lease_upsert(ctx, payload),
         ("presence", "delete_presence_lease") => apply_presence_lease_delete(ctx, payload),
 
-        // presence/system keep only the ingested event log.
+        ("whiteboard", "upsert_board") => apply_whiteboard_upsert(ctx, payload),
+        ("whiteboard", "delete_board") => apply_whiteboard_delete(ctx, payload),
+        ("whiteboard", _) => {}
+
+        ("offline_message", "create") => apply_offline_message_upsert(ctx, payload),
+        ("offline_message", "mark_delivered") => apply_offline_message_deliver(ctx, payload),
+        ("offline_message", "delete") => apply_offline_message_delete(ctx, payload),
+        ("offline_message", _) => {}
+
+        ("guest_code", "upsert_code") => apply_guest_code_upsert(ctx, payload),
+        ("guest_code", "delete_code") => apply_guest_code_delete(ctx, payload),
+        ("guest_code", _) => {}
+
+        ("album", "upsert_album") => apply_album_upsert(ctx, payload),
+        ("album", "delete_album") => apply_album_delete(ctx, payload),
+        ("album", _) => {}
+
+        ("album_item", "upsert_item") => apply_album_item_upsert(ctx, payload),
+        ("album_item", "delete_item") => apply_album_item_delete(ctx, payload),
+        ("album_item", _) => {}
+
+        ("webhook", "upsert_webhook") => apply_webhook_upsert(ctx, payload),
+        ("webhook", "delete_webhook") => apply_webhook_delete(ctx, payload),
+        ("webhook", _) => {}
+
+        ("webhook_delivery", "upsert_delivery") => apply_webhook_delivery_upsert(ctx, payload),
+        ("webhook_delivery", _) => {}
         _ => {}
     }
 }
@@ -2777,5 +2932,506 @@ fn apply_payment_policy_upsert(ctx: &ReducerContext, payload: &Value) {
         ctx.db.state_payment_policy().policy_key().update(next);
     } else {
         ctx.db.state_payment_policy().insert(next);
+    }
+}
+
+fn apply_whiteboard_upsert(ctx: &ReducerContext, payload: &Value) {
+    let row = payload_row_obj(payload);
+    let board_id = row
+        .and_then(|r| map_string_any(r, &["board_id", "boardId"]))
+        .or_else(|| payload_string(payload, "boardId"))
+        .unwrap_or_default();
+    if board_id.is_empty() {
+        return;
+    }
+
+    let existing = ctx.db.state_whiteboard().board_id().find(&board_id);
+    let workspace_id = row
+        .and_then(|r| map_string_any(r, &["workspace_id", "workspaceId"]))
+        .or_else(|| payload_string(payload, "workspaceId"))
+        .unwrap_or_else(|| "default-workspace".to_string());
+    let scope_type = row
+        .and_then(|r| map_string_any(r, &["scope_type", "scopeType"]))
+        .or_else(|| payload_string(payload, "scopeType"))
+        .unwrap_or_else(|| "channel".to_string());
+    let scope_id = row
+        .and_then(|r| map_string_any(r, &["scope_id", "scopeId"]))
+        .or_else(|| payload_string(payload, "scopeId"))
+        .unwrap_or_default();
+    let version = row
+        .and_then(|r| map_i64_any(r, &["version"]))
+        .or_else(|| payload_i64(payload, "version"))
+        .unwrap_or(1);
+    let document_json = row
+        .and_then(|r| map_string_any(r, &["document_json", "documentJson"]))
+        .or_else(|| payload_string(payload, "documentJson"))
+        .unwrap_or_else(|| "{}".to_string());
+    let is_private = row
+        .and_then(|r| map_bool(r, "is_private"))
+        .unwrap_or(true);
+    let created_by = row
+        .and_then(|r| map_string_any(r, &["created_by", "createdBy"]))
+        .or_else(|| payload_string(payload, "createdBy"));
+    let updated_by = row
+        .and_then(|r| map_string_any(r, &["updated_by", "updatedBy"]))
+        .or_else(|| payload_string(payload, "updatedBy"));
+    let created_at = row
+        .and_then(|r| map_i64_any(r, &["created_at", "createdAt"]))
+        .or_else(|| payload_i64(payload, "createdAt"))
+        .unwrap_or(0);
+    let updated_at = row
+        .and_then(|r| map_i64_any(r, &["updated_at", "updatedAt"]))
+        .or_else(|| payload_i64(payload, "updatedAt"))
+        .unwrap_or(0);
+
+    let next = StateWhiteboard {
+        board_id: board_id.clone(),
+        workspace_id,
+        scope_type,
+        scope_id,
+        version,
+        document_json,
+        is_private,
+        created_by,
+        updated_by,
+        created_at,
+        updated_at,
+        last_updated_at: ctx.timestamp,
+    };
+
+    if existing.is_some() {
+        ctx.db.state_whiteboard().board_id().update(next);
+    } else {
+        ctx.db.state_whiteboard().insert(next);
+    }
+}
+
+fn apply_whiteboard_delete(ctx: &ReducerContext, payload: &Value) {
+    let board_id = payload_string(payload, "boardId").unwrap_or_default();
+    if board_id.is_empty() {
+        return;
+    }
+    if let Some(existing) = ctx.db.state_whiteboard().board_id().find(&board_id) {
+        ctx.db.state_whiteboard().board_id().delete(&existing.board_id);
+    }
+}
+
+fn apply_offline_message_upsert(ctx: &ReducerContext, payload: &Value) {
+    let row = payload_row_obj(payload);
+    let message_id = row
+        .and_then(|r| map_i64_any(r, &["message_id", "messageId"]))
+        .or_else(|| payload_i64(payload, "messageId"))
+        .unwrap_or(0);
+    if message_id <= 0 {
+        return;
+    }
+
+    let existing = ctx.db.state_offline_message().message_id().find(&message_id);
+    let from_user_id = row
+        .and_then(|r| map_i64_any(r, &["from_user_id", "fromUserId"]))
+        .or_else(|| payload_i64(payload, "fromUserId"));
+    let from_username = row
+        .and_then(|r| map_string_any(r, &["from_username", "fromUsername"]))
+        .or_else(|| payload_string(payload, "fromUsername"))
+        .unwrap_or_else(|| "unknown".to_string());
+    let to_user_id = row
+        .and_then(|r| map_i64_any(r, &["to_user_id", "toUserId"]))
+        .or_else(|| payload_i64(payload, "toUserId"))
+        .unwrap_or(0);
+    let channel_id = row
+        .and_then(|r| map_string_any(r, &["channel_id", "channelId"]))
+        .or_else(|| payload_string(payload, "channelId"))
+        .unwrap_or_default();
+    let message_content = row
+        .and_then(|r| map_string_any(r, &["message_content", "messageContent"]))
+        .or_else(|| payload_string(payload, "messageContent"))
+        .unwrap_or_default();
+    let message_type = row
+        .and_then(|r| map_string_any(r, &["message_type", "messageType"]))
+        .unwrap_or_else(|| "text".to_string());
+    let gif_url = row
+        .and_then(|r| map_string_any(r, &["gif_url", "gifUrl"]));
+    let file_url = row
+        .and_then(|r| map_string_any(r, &["file_url", "fileUrl"]));
+    let file_name = row
+        .and_then(|r| map_string_any(r, &["file_name", "fileName"]));
+    let file_size = row
+        .and_then(|r| map_i64_any(r, &["file_size", "fileSize"]));
+    let message_payload_json = row
+        .and_then(|r| map_string_any(r, &["message_payload_json", "messagePayloadJson"]));
+    let created_at = row
+        .and_then(|r| map_i64_any(r, &["created_at", "createdAt"]))
+        .or_else(|| payload_i64(payload, "createdAt"))
+        .unwrap_or(0);
+    let expires_at = row
+        .and_then(|r| map_i64_any(r, &["expires_at", "expiresAt"]));
+
+    let next = StateOfflineMessage {
+        message_id,
+        from_user_id,
+        from_username,
+        to_user_id,
+        channel_id,
+        message_content,
+        message_type,
+        gif_url,
+        file_url,
+        file_name,
+        file_size,
+        message_payload_json,
+        created_at,
+        expires_at,
+        delivered: existing.as_ref().map(|r| r.delivered).unwrap_or(false),
+    };
+
+    if existing.is_some() {
+        ctx.db.state_offline_message().message_id().update(next);
+    } else {
+        ctx.db.state_offline_message().insert(next);
+    }
+}
+
+fn apply_offline_message_deliver(ctx: &ReducerContext, payload: &Value) {
+    let message_id = payload_i64(payload, "messageId").unwrap_or(0);
+    if message_id <= 0 {
+        return;
+    }
+    if let Some(existing) = ctx.db.state_offline_message().message_id().find(&message_id) {
+        let mut row = existing;
+        row.delivered = true;
+        ctx.db.state_offline_message().message_id().update(row);
+    }
+}
+
+fn apply_offline_message_delete(ctx: &ReducerContext, payload: &Value) {
+    let message_id = payload_i64(payload, "messageId").unwrap_or(0);
+    if message_id <= 0 {
+        return;
+    }
+    if let Some(existing) = ctx.db.state_offline_message().message_id().find(&message_id) {
+        ctx.db.state_offline_message().message_id().delete(&existing.message_id);
+    }
+}
+
+fn apply_guest_code_upsert(ctx: &ReducerContext, payload: &Value) {
+    let row = payload_row_obj(payload);
+    let code = row
+        .and_then(|r| map_string(r, "code"))
+        .or_else(|| payload_string(payload, "code"))
+        .unwrap_or_default();
+    if code.is_empty() {
+        return;
+    }
+
+    let existing = ctx.db.state_guest_code().code().find(&code);
+    let description = row
+        .and_then(|r| map_string_any(r, &["description"]));
+    let created_at = row
+        .and_then(|r| map_i64_any(r, &["created_at", "createdAt"]))
+        .or_else(|| payload_i64(payload, "createdAt"))
+        .unwrap_or(0);
+    let created_by = row
+        .and_then(|r| map_i64_any(r, &["created_by", "createdBy"]));
+    let is_active = row
+        .and_then(|r| map_bool(r, "is_active"))
+        .unwrap_or(true);
+
+    let next = StateGuestCode {
+        code,
+        description,
+        created_at,
+        created_by,
+        is_active,
+    };
+
+    if existing.is_some() {
+        ctx.db.state_guest_code().code().update(next);
+    } else {
+        ctx.db.state_guest_code().insert(next);
+    }
+}
+
+fn apply_guest_code_delete(ctx: &ReducerContext, payload: &Value) {
+    let code = payload_string(payload, "code").unwrap_or_default();
+    if code.is_empty() {
+        return;
+    }
+    if let Some(existing) = ctx.db.state_guest_code().code().find(&code) {
+        ctx.db.state_guest_code().code().delete(&existing.code);
+    }
+}
+
+fn apply_album_upsert(ctx: &ReducerContext, payload: &Value) {
+    let row = payload_row_obj(payload);
+    let album_id = row
+        .and_then(|r| map_i64_any(r, &["album_id", "albumId"]))
+        .or_else(|| payload_i64(payload, "albumId"))
+        .unwrap_or(0);
+    if album_id <= 0 {
+        return;
+    }
+
+    let existing = ctx.db.state_album().album_id().find(&album_id);
+    let scope_type = row
+        .and_then(|r| map_string_any(r, &["scope_type", "scopeType"]))
+        .unwrap_or_else(|| "channel".to_string());
+    let scope_id = row
+        .and_then(|r| map_string_any(r, &["scope_id", "scopeId"]))
+        .unwrap_or_default();
+    let name = row
+        .and_then(|r| map_string_any(r, &["name"]))
+        .unwrap_or_default();
+    let created_by = row
+        .and_then(|r| map_i64_any(r, &["created_by", "createdBy"]))
+        .unwrap_or(0);
+    let created_at = row
+        .and_then(|r| map_i64_any(r, &["created_at", "createdAt"]))
+        .unwrap_or(0);
+    let updated_at = row
+        .and_then(|r| map_i64_any(r, &["updated_at", "updatedAt"]))
+        .unwrap_or(0);
+    let is_archived = row
+        .and_then(|r| map_bool(r, "is_archived"))
+        .unwrap_or(false);
+    let is_featured = row
+        .and_then(|r| map_bool(r, "is_featured"))
+        .unwrap_or(false);
+    let fallback_json = existing.as_ref().map(|r| r.row_json.as_str());
+    let row_json = row_json_or_default(payload, fallback_json, "{}");
+
+    let next = StateAlbum {
+        album_id,
+        scope_type,
+        scope_id,
+        name,
+        created_by,
+        created_at,
+        updated_at,
+        is_archived,
+        is_featured,
+        row_json,
+        last_updated_at: ctx.timestamp,
+    };
+
+    if existing.is_some() {
+        ctx.db.state_album().album_id().update(next);
+    } else {
+        ctx.db.state_album().insert(next);
+    }
+}
+
+fn apply_album_delete(ctx: &ReducerContext, payload: &Value) {
+    let album_id = payload_i64(payload, "albumId").unwrap_or(0);
+    if album_id <= 0 {
+        return;
+    }
+    if let Some(existing) = ctx.db.state_album().album_id().find(&album_id) {
+        ctx.db.state_album().album_id().delete(&existing.album_id);
+    }
+}
+
+fn apply_album_item_upsert(ctx: &ReducerContext, payload: &Value) {
+    let row = payload_row_obj(payload);
+    let item_id = row
+        .and_then(|r| map_i64_any(r, &["item_id", "itemId"]))
+        .or_else(|| payload_i64(payload, "itemId"))
+        .unwrap_or(0);
+    if item_id <= 0 {
+        return;
+    }
+
+    let existing = ctx.db.state_album_item().item_id().find(&item_id);
+    let album_id = row
+        .and_then(|r| map_i64_any(r, &["album_id", "albumId"]))
+        .unwrap_or(0);
+    let attachment_url = row
+        .and_then(|r| map_string_any(r, &["attachment_url", "attachmentUrl"]))
+        .unwrap_or_default();
+    let attachment_name = row
+        .and_then(|r| map_string_any(r, &["attachment_name", "attachmentName"]))
+        .unwrap_or_default();
+    let attachment_size = row
+        .and_then(|r| map_i64_any(r, &["attachment_size", "attachmentSize"]));
+    let attachment_mime = row
+        .and_then(|r| map_string_any(r, &["attachment_mime", "attachmentMime"]));
+    let message_id = row
+        .and_then(|r| map_string_any(r, &["message_id", "messageId"]));
+    let caption = row
+        .and_then(|r| map_string_any(r, &["caption"]));
+    let sort_order = row
+        .and_then(|r| map_i64_any(r, &["sort_order", "sortOrder"]))
+        .unwrap_or(0);
+    let uploaded_by = row
+        .and_then(|r| map_i64_any(r, &["uploaded_by", "uploadedBy"]))
+        .unwrap_or(0);
+    let uploaded_at = row
+        .and_then(|r| map_i64_any(r, &["uploaded_at", "uploadedAt"]))
+        .unwrap_or(0);
+    let fallback_json = existing.as_ref().map(|r| r.row_json.as_str());
+    let row_json = row_json_or_default(payload, fallback_json, "{}");
+
+    let next = StateAlbumItem {
+        item_id,
+        album_id,
+        attachment_url,
+        attachment_name,
+        attachment_size,
+        attachment_mime,
+        message_id,
+        caption,
+        sort_order,
+        uploaded_by,
+        uploaded_at,
+        row_json,
+        last_updated_at: ctx.timestamp,
+    };
+
+    if existing.is_some() {
+        ctx.db.state_album_item().item_id().update(next);
+    } else {
+        ctx.db.state_album_item().insert(next);
+    }
+}
+
+fn apply_album_item_delete(ctx: &ReducerContext, payload: &Value) {
+    let item_id = payload_i64(payload, "itemId").unwrap_or(0);
+    if item_id <= 0 {
+        return;
+    }
+    if let Some(existing) = ctx.db.state_album_item().item_id().find(&item_id) {
+        ctx.db.state_album_item().item_id().delete(&existing.item_id);
+    }
+}
+
+fn apply_webhook_upsert(ctx: &ReducerContext, payload: &Value) {
+    let row = payload_row_obj(payload);
+    let webhook_id = row
+        .and_then(|r| map_i64_any(r, &["webhook_id", "webhookId"]))
+        .or_else(|| payload_i64(payload, "webhookId"))
+        .unwrap_or(0);
+    if webhook_id <= 0 {
+        return;
+    }
+
+    let existing = ctx.db.state_webhook().webhook_id().find(&webhook_id);
+    let user_id = row
+        .and_then(|r| map_i64_any(r, &["user_id", "userId"]))
+        .unwrap_or(0);
+    let name = row
+        .and_then(|r| map_string_any(r, &["name"]))
+        .unwrap_or_default();
+    let target_url = row
+        .and_then(|r| map_string_any(r, &["target_url", "targetUrl"]))
+        .unwrap_or_default();
+    let secret = row
+        .and_then(|r| map_string_any(r, &["secret"]))
+        .unwrap_or_default();
+    let event_filters = row
+        .and_then(|r| map_string_any(r, &["event_filters", "eventFilters"]))
+        .unwrap_or_else(|| "[]".to_string());
+    let enabled = row
+        .and_then(|r| map_bool(r, "enabled"))
+        .unwrap_or(true);
+    let created_at = row
+        .and_then(|r| map_i64_any(r, &["created_at", "createdAt"]))
+        .unwrap_or(0);
+    let updated_at = row
+        .and_then(|r| map_i64_any(r, &["updated_at", "updatedAt"]))
+        .unwrap_or(0);
+    let fallback_json = existing.as_ref().map(|r| r.row_json.as_str());
+    let row_json = row_json_or_default(payload, fallback_json, "{}");
+
+    let next = StateWebhook {
+        webhook_id,
+        user_id,
+        name,
+        target_url,
+        secret,
+        event_filters,
+        enabled,
+        created_at,
+        updated_at,
+        row_json,
+        last_updated_at: ctx.timestamp,
+    };
+
+    if existing.is_some() {
+        ctx.db.state_webhook().webhook_id().update(next);
+    } else {
+        ctx.db.state_webhook().insert(next);
+    }
+}
+
+fn apply_webhook_delete(ctx: &ReducerContext, payload: &Value) {
+    let webhook_id = payload_i64(payload, "webhookId").unwrap_or(0);
+    if webhook_id <= 0 {
+        return;
+    }
+    if let Some(existing) = ctx.db.state_webhook().webhook_id().find(&webhook_id) {
+        ctx.db.state_webhook().webhook_id().delete(&existing.webhook_id);
+    }
+}
+
+fn apply_webhook_delivery_upsert(ctx: &ReducerContext, payload: &Value) {
+    let row = payload_row_obj(payload);
+    let delivery_id = row
+        .and_then(|r| map_i64_any(r, &["delivery_id", "deliveryId"]))
+        .or_else(|| payload_i64(payload, "deliveryId"))
+        .unwrap_or(0);
+    if delivery_id <= 0 {
+        return;
+    }
+
+    let existing = ctx.db.state_webhook_delivery().delivery_id().find(&delivery_id);
+    let webhook_id = row
+        .and_then(|r| map_i64_any(r, &["webhook_id", "webhookId"]))
+        .unwrap_or(0);
+    let event_type = row
+        .and_then(|r| map_string_any(r, &["event_type", "eventType"]))
+        .unwrap_or_default();
+    let payload_json = row
+        .and_then(|r| map_string_any(r, &["payload_json", "payloadJson"]))
+        .unwrap_or_else(|| "{}".to_string());
+    let status = row
+        .and_then(|r| map_string_any(r, &["status"]))
+        .unwrap_or_else(|| "pending".to_string());
+    let attempt_count = row
+        .and_then(|r| map_i64_any(r, &["attempt_count", "attemptCount"]))
+        .unwrap_or(0);
+    let last_error = row
+        .and_then(|r| map_string_any(r, &["last_error", "lastError"]));
+    let response_code = row
+        .and_then(|r| map_i64_any(r, &["response_code", "responseCode"]));
+    let created_at = row
+        .and_then(|r| map_i64_any(r, &["created_at", "createdAt"]))
+        .unwrap_or(0);
+    let updated_at = row
+        .and_then(|r| map_i64_any(r, &["updated_at", "updatedAt"]))
+        .unwrap_or(0);
+    let delivered_at = row
+        .and_then(|r| map_i64_any(r, &["delivered_at", "deliveredAt"]));
+    let fallback_json = existing.as_ref().map(|r| r.row_json.as_str());
+    let row_json = row_json_or_default(payload, fallback_json, "{}");
+
+    let next = StateWebhookDelivery {
+        delivery_id,
+        webhook_id,
+        event_type,
+        payload_json,
+        status,
+        attempt_count,
+        last_error,
+        response_code,
+        created_at,
+        updated_at,
+        delivered_at,
+        row_json,
+        last_updated_at: ctx.timestamp,
+    };
+
+    if existing.is_some() {
+        ctx.db.state_webhook_delivery().delivery_id().update(next);
+    } else {
+        ctx.db.state_webhook_delivery().insert(next);
     }
 }
