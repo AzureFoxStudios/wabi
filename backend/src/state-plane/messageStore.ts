@@ -13,6 +13,7 @@ export interface MessageStore {
 	softDelete(messageId: string): void;
 	toClientFormat(dbMsg: DbMessage): ClientMessage;
 	getChannelMessageCount(channelId: string): number;
+	count(): number;
 	updateReactions(messageId: string, reactions: Record<string, string[]>): void;
 	markEdited(messageId: string, newContent: string): void;
 	purgeExpired(now?: number): number;

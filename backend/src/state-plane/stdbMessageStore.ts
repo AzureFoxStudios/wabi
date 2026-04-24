@@ -239,6 +239,12 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 		return this.parseMessages(rows).filter((row) => isVisibleMessage(row, now)).length;
 	}
 
+	count(): number {
+		bumpOperation(this.stats, 'count');
+		const rows = this.client.sqlRows('SELECT COUNT(*) AS count FROM state_message');
+		return rows.length > 0 ? toNumber(rows[0].count) : 0;
+	}
+
 	updateReactions(messageId: string, reactions: Record<string, string[]>): void {
 		this.update(messageId, { reactions_json: JSON.stringify(reactions) });
 	}

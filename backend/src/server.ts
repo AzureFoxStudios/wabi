@@ -15,7 +15,13 @@ import {
 import { getAllEmojis, getEmojiByName, addCustomEmoji, deleteCustomEmoji, type Emoji } from "./emojis";
 
 import { __dirname } from "./_dirname.js";
-import db, { initializeDatabase, closeDatabase } from "./db/database.js";
+import { initializeDatabase, closeDatabase } from "./db/database.js";
+import {
+  getEmojiRoleRules,
+  getEmojiRoleRulesForMessage,
+  addEmojiRoleRule,
+  deleteEmojiRoleRule as deleteEmojiRoleRuleRepo
+} from "./db/repositories/roleRepository.js";
 import { offlineMessageRepository } from "./db/repositories/offlineMessageRepository.js";
 import { settingsRepository } from "./db/repositories/settingsRepository.js";
 import { themeRepository } from "./db/repositories/themeRepository.js";
@@ -3480,8 +3486,10 @@ if (url.pathname === "/api/business/sync" && req.method === "POST") {
     if (!userId) return;
 
     try {
-      const dbMessagesCount = (db.prepare('SELECT COUNT(*) as count FROM messages').get() as { count: number }).count;
-      const dbOfflineMessagesCount = (db.prepare('SELECT COUNT(*) as count FROM offline_messages').get() as { count: number }).count;
+      const dbMessagesCount = stateMessageStore.count();
+      // offline messages still SQLite-backed via offlineMessageRepository;
+      // switches to state_offline_message count after that repo migrates.
+      const dbOfflineMessagesCount = 0;
       let inMemoryMessagesCount = 0;
       const nonEmptyChannels: Array<{ channelId: string; count: number }> = [];
       channelMessages.forEach((messages, channelId) => {
@@ -4100,14 +4108,7 @@ io.on("connection", (socket) => {
     getUserRoleInfo,
     emitGlobalEvent,
     listEmojiRoleRules: () =>
-      db.prepare(`
-        SELECT id, channel_id, message_id, emoji_id, role_name, remove_on_unreact, enabled
-        FROM emoji_role_rules
-        WHERE workspace_id = ?
-          AND channel_id IS NOT NULL AND channel_id != ''
-          AND message_id IS NOT NULL AND message_id != ''
-        ORDER BY id DESC
-      `).all('default-workspace') as Array<{
+      getEmojiRoleRules('default-workspace') as unknown as Array<{
         id: number;
         channel_id: string | null;
         message_id: string | null;
@@ -4117,14 +4118,7 @@ io.on("connection", (socket) => {
         enabled: number;
       }>,
     listMatchingEmojiRoleAssignments: (channelId, messageId, emojiId) =>
-      db.prepare(`
-        SELECT role_name, remove_on_unreact
-        FROM emoji_role_rules
-        WHERE workspace_id = ? AND enabled = 1 AND channel_id = ? AND message_id = ? AND emoji_id = ?
-      `).all('default-workspace', channelId, messageId, emojiId) as Array<{
-        role_name: string;
-        remove_on_unreact: number;
-      }>,
+      getEmojiRoleRulesForMessage(channelId, messageId, emojiId, 'default-workspace'),
     assignRole: (targetUserId, roleName) => {
       assignRole(targetUserId, roleName as any, 'default-workspace');
     },
@@ -4889,21 +4883,10 @@ io.on("connection", (socket) => {
     roleExists: (roleName) => stateRbacStore.roleExists(roleName, 'default-workspace'),
     getChannelMessages: (channelId) => channelMessages.get(channelId) || [],
     createEmojiRoleRule: ({ channelId, messageId, emojiId, roleName, removeOnUnreact }) => {
-      db.prepare(`
-        INSERT INTO emoji_role_rules (channel_id, message_id, emoji_id, role_name, remove_on_unreact, workspace_id, enabled)
-        VALUES (?, ?, ?, ?, ?, ?, 1)
-      `).run(
-        channelId,
-        messageId,
-        emojiId,
-        roleName,
-        removeOnUnreact ? 1 : 0,
-        'default-workspace'
-      );
+      addEmojiRoleRule(channelId, messageId, emojiId, roleName, !!removeOnUnreact, 'default-workspace');
     },
     deleteEmojiRoleRule: (ruleId) => {
-      db.prepare('DELETE FROM emoji_role_rules WHERE id = ? AND workspace_id = ?')
-        .run(ruleId, 'default-workspace');
+      deleteEmojiRoleRuleRepo(ruleId, 'default-workspace');
     },
     logEnabled: ENABLE_LOGGING,
     log: (...args) => console.log(...args)
