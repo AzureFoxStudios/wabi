@@ -1,6 +1,6 @@
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'http';
 import { verifyToken } from './jwt.js';
-import { stateSessionStore as sessionRepository } from '../state-plane/index.js';
+import { stateSessionStore } from '../state-plane/index.js';
 
 const AUTH_COOKIE_NAME = (process.env.AUTH_COOKIE_NAME || 'wabi_auth').trim() || 'wabi_auth';
 const AUTH_COOKIE_DOMAIN = (process.env.AUTH_COOKIE_DOMAIN || '').trim();
@@ -101,7 +101,7 @@ export function getAuthenticatedUserIdFromRequest(req: IncomingMessage): number 
   try {
     const payload = verifyToken(token);
     if (!payload.userId || !payload.sessionId) return null;
-    const dbSession = sessionRepository.findById(payload.sessionId);
+    const dbSession = stateSessionStore.findById(payload.sessionId);
     if (!dbSession || dbSession.user_id !== payload.userId || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
       return null;
     }
@@ -117,7 +117,7 @@ export function getAuthenticatedSessionIdFromRequest(req: IncomingMessage): stri
   try {
     const payload = verifyToken(token);
     if (!payload.sessionId) return null;
-    const dbSession = sessionRepository.findById(payload.sessionId);
+    const dbSession = stateSessionStore.findById(payload.sessionId);
     if (!dbSession || (payload.userId && dbSession.user_id !== payload.userId) || (dbSession.expires_at && dbSession.expires_at < Date.now())) {
       return null;
     }

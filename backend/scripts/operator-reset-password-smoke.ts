@@ -21,36 +21,57 @@ async function seedUser(): Promise<void> {
 	process.env.DATABASE_PATH = env.DATABASE_PATH;
 	process.env.STATE_STDB_SUBSCRIPTIONS_ENABLED = env.STATE_STDB_SUBSCRIPTIONS_ENABLED;
 
-	const { initializeDatabase, closeDatabase } = await import('../src/db/database.js');
-	const { userRepository } = await import('../src/db/repositories/userRepository.js');
+	const { default: db, initializeDatabase, closeDatabase } = await import('../src/db/database.js');
 	const { settingsRepository } = await import('../src/db/repositories/settingsRepository.js');
-	const { sessionRepository } = await import('../src/db/repositories/sessionRepository.js');
 
 	initializeDatabase();
 
 	const oldPasswordHash = await bcrypt.hash('old-password-123', 10);
-		const user = userRepository.create({
-			username: 'smoke-user',
-			handle: 'smoke-user',
-			password_hash: oldPasswordHash,
-			created_at: Date.now(),
-			color: '#abcdef'
-		});
+	const createdAt = Date.now();
+	const insertUser = db.prepare(
+		`
+			INSERT INTO users (username, handle, password_hash, created_at, color, is_active)
+			VALUES (?, ?, ?, ?, ?, 1)
+		`
+	);
+	const userInfo = insertUser.run('smoke-user', 'smoke-user', oldPasswordHash, createdAt, '#abcdef');
+	const userId = Number(userInfo.lastInsertRowid);
+	const user = {
+		user_id: userId,
+		username: 'smoke-user',
+		handle: 'smoke-user',
+		color: '#abcdef',
+		profile_picture: undefined as string | undefined
+	};
 
 	settingsRepository.set(user.user_id!, {
 		require_password_change: 0
 	});
 
-	sessionRepository.create({
-		session_id: 'smoke-session',
-		user_id: user.user_id!,
-		username: user.username,
-		color: user.color,
-		profile_picture: user.profile_picture,
-		created_at: Date.now(),
-		expires_at: Date.now() + 60_000,
-		is_temporary: 0
-	});
+	db.prepare(
+		`
+			INSERT INTO sessions (
+				session_id,
+				user_id,
+				username,
+				color,
+				profile_picture,
+				created_at,
+				expires_at,
+				is_temporary
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`
+	).run(
+		'smoke-session',
+		user.user_id!,
+		user.username,
+		user.color,
+		user.profile_picture || null,
+		Date.now(),
+		Date.now() + 60_000,
+		0
+	);
 
 	closeDatabase();
 }

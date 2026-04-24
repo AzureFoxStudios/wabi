@@ -22,6 +22,7 @@
 	import { getUserSettings } from '$lib/api';
 	import { initializeAccessibilitySettings } from '$lib/accessibility';
 	import { initializeAnimationPassSettings } from '$lib/animationPass';
+	import { refreshBackendEndpointCandidates } from '$lib/backendEndpoints';
 	import { startupMark, startupMeasure, startupScheduleReport } from '$lib/startupProfiler';
 	import {
 		applyHomeExperienceMode,
@@ -89,6 +90,14 @@
 			return;
 		}
 		window.setTimeout(task, 0);
+	}
+
+	function seedBackendFailoverCache(): void {
+		scheduleNonCritical(() => {
+			void refreshBackendEndpointCandidates().catch((error) => {
+				console.warn('[App] Failed to seed backend failover candidates:', error);
+			});
+		}, 250);
 	}
 
 	function syncFollowNotificationPoller(nextLoggedIn: boolean): void {
@@ -181,6 +190,7 @@
 			const savedGuestSessionId = getGuestSessionId();
 			const hasSession = Boolean(savedToken || savedGuestSessionId);
 			if (savedUsername && hasSession) {
+				seedBackendFailoverCache();
 				startupMark('page:socket:init:start');
 				initSocket(savedUsername, savedToken || undefined);
 				startupMark('page:socket:init:end');
@@ -300,6 +310,7 @@
 			setAuthToken(token);
 		}
 
+		seedBackendFailoverCache();
 		initSocket(username, token);
 		loggedIn = true;
 		syncFollowNotificationPoller(true);

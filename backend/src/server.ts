@@ -16,9 +16,7 @@ import { getAllEmojis, getEmojiByName, addCustomEmoji, deleteCustomEmoji, type E
 
 import { __dirname } from "./_dirname.js";
 import db, { initializeDatabase, closeDatabase } from "./db/database.js";
-import { type DbChannel } from "./db/repositories/channelRepository.js";
 import { offlineMessageRepository } from "./db/repositories/offlineMessageRepository.js";
-import { messageRepository, type ClientMessage, type DbMessage, type MessageEntity } from "./db/repositories/messageRepository.js";
 import { settingsRepository } from "./db/repositories/settingsRepository.js";
 import { themeRepository } from "./db/repositories/themeRepository.js";
 import { guestCodeRepository } from "./db/repositories/guestCodeRepository.js";
@@ -217,6 +215,12 @@ import {
   PRIVILEGED_ROLES,
   MODERATOR_ROLES,
 } from "./constants.js";
+import {
+  type ClientMessage,
+  type DbChannel,
+  type DbMessage,
+  type MessageEntity
+} from "./state-plane/records.js";
 import {
   HTTP_TEXT_COMPRESSION_BROTLI_QUALITY,
   HTTP_TEXT_COMPRESSION_ENABLED,
@@ -595,6 +599,106 @@ function getPolicyDefaults<TValue>(key: PolicyKey): TValue {
   return definition.defaultValue;
 }
 
+function normalizePublicBackendUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+    const parsed = new URL(withProtocol);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    const normalizedPath = parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/+$/, '');
+    return `${parsed.origin}${normalizedPath}`;
+  } catch {
+    return null;
+  }
+}
+
+function deriveRequestOrigin(req: {
+  headers: Record<string, string | string[] | undefined>;
+  socket: { encrypted?: boolean | undefined };
+}): string | null {
+  const hostHeader = req.headers.host;
+  const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
+  if (!host || !host.trim()) return null;
+  const forwardedProtoHeader = req.headers['x-forwarded-proto'];
+  const forwardedProto = Array.isArray(forwardedProtoHeader)
+    ? forwardedProtoHeader[0]
+    : forwardedProtoHeader;
+  const protocol = typeof forwardedProto === 'string' && forwardedProto.trim()
+    ? forwardedProto.split(',')[0].trim()
+    : (req.socket.encrypted ? 'https' : 'http');
+  return normalizePublicBackendUrl(`${protocol}://${host}`);
+}
+
+function buildPublicBackendEndpointResponse(currentRequestUrl: string | null) {
+  const currentInstanceId = getCurrentStateMeshInstanceId();
+  const currentRequestOrigin = normalizePublicBackendUrl(currentRequestUrl);
+  const activeLeases = listActiveStateMeshInstanceLeases();
+  const endpoints = activeLeases
+    .map((lease) => {
+      const publicUrl = normalizePublicBackendUrl(lease.publicUrl);
+      if (!publicUrl) return null;
+      return {
+        instanceId: lease.instanceId,
+        url: publicUrl,
+        region: lease.region,
+        role: lease.role,
+        status: lease.status,
+        currentConnections: lease.currentConnections,
+        currentRegisteredUsers: lease.currentRegisteredUsers,
+        currentGuestUsers: lease.currentGuestUsers,
+        leaseExpiresAt: lease.leaseExpiresAt
+      };
+    })
+    .filter((endpoint): endpoint is NonNullable<typeof endpoint> => endpoint !== null);
+
+  const deduped = new Map<string, (typeof endpoints)[number]>();
+  for (const endpoint of endpoints) {
+    if (!deduped.has(endpoint.url)) {
+      deduped.set(endpoint.url, endpoint);
+    }
+  }
+
+  const currentLease = currentInstanceId
+    ? activeLeases.find((lease) => lease.instanceId === currentInstanceId) || null
+    : null;
+  const currentPublicUrl =
+    normalizePublicBackendUrl(currentLease?.publicUrl) ||
+    currentRequestOrigin;
+
+  if (currentPublicUrl && !deduped.has(currentPublicUrl)) {
+    deduped.set(currentPublicUrl, {
+      instanceId: currentInstanceId || 'current',
+      url: currentPublicUrl,
+      region: currentLease?.region || 'local',
+      role: currentLease?.role || 'app',
+      status: currentLease?.status || 'active',
+      currentConnections: currentLease?.currentConnections || 0,
+      currentRegisteredUsers: currentLease?.currentRegisteredUsers || 0,
+      currentGuestUsers: currentLease?.currentGuestUsers || 0,
+      leaseExpiresAt: currentLease?.leaseExpiresAt || Date.now()
+    });
+  }
+
+  const orderedEndpoints = Array.from(deduped.values()).sort((a, b) => {
+    const aCurrent = currentPublicUrl ? a.url === currentPublicUrl : false;
+    const bCurrent = currentPublicUrl ? b.url === currentPublicUrl : false;
+    if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
+    if (a.currentConnections !== b.currentConnections) {
+      return a.currentConnections - b.currentConnections;
+    }
+    return b.leaseExpiresAt - a.leaseExpiresAt;
+  });
+
+  return {
+    success: true,
+    currentUrl: currentPublicUrl,
+    endpoints: orderedEndpoints,
+    generatedAt: Date.now()
+  };
+}
+
 // Initialize database before any policy/settings queries
 initializeDatabase();
 
@@ -771,7 +875,7 @@ function buildOfflineDeliveryClientMessage(
   channelId: string,
   message: RealtimeChannelMessage
 ): ClientMessage {
-  const clientMessage = messageRepository.toClientFormat({
+  const clientMessage = stateMessageStore.toClientFormat({
     ...buildPersistedMessageFromRealtime(channelId, message)
   } as DbMessage);
 
@@ -1999,8 +2103,7 @@ server.on('request', async (req, res) => {
   // Setup status endpoint (public, no auth) — returns whether owner bootstrap is needed
   if (url.pathname === "/api/setup/status" && req.method === "GET") {
     try {
-      const row = db.prepare('SELECT COUNT(*) as count FROM users WHERE is_active = 1').get() as { count: number } | undefined;
-      const userCount = row?.count ?? 0;
+      const userCount = userRepository.getAll().length;
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ setupRequired: userCount === 0 }));
     } catch (e) {
@@ -2058,6 +2161,15 @@ server.on('request', async (req, res) => {
       "Cache-Control": "public, max-age=30"
     });
     res.end(JSON.stringify(getPolicyValue(FRONTEND_APP_METADATA_POLICY_KEY)));
+    return;
+  }
+
+  if (url.pathname === "/api/public/backend-endpoints" && req.method === "GET") {
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Cache-Control": "public, max-age=5"
+    });
+    res.end(JSON.stringify(buildPublicBackendEndpointResponse(deriveRequestOrigin(req))));
     return;
   }
 
@@ -3594,22 +3706,6 @@ try {
   initializeDatabase();
   console.log('[Database] ✅ Initialized');
 
-  // Migration: add avatar column to channels if missing
-  try {
-    db.prepare('ALTER TABLE channels ADD COLUMN avatar TEXT').run();
-    console.log('[Database] Added avatar column to channels');
-  } catch (_) {
-    // Column already exists - ignore
-  }
-
-  // Migration: add watch_queue_enabled column to channels if missing
-  try {
-    db.prepare('ALTER TABLE channels ADD COLUMN watch_queue_enabled INTEGER DEFAULT 0').run();
-    console.log('[Database] Added watch_queue_enabled column to channels');
-  } catch (_) {
-    // Column already exists - ignore
-  }
-
   // Ensure base channels exist in DB and load text/voice channels
   channelRepository.ensureBaseChannelsExist();
   const dbChannels = channelRepository.getWorkspaceChannels();
@@ -4777,7 +4873,7 @@ io.on("connection", (socket) => {
     findUserById: (dbUserId) => userRepository.findById(dbUserId),
     banTargetUser: (targetUserId, notification) => {
       userRepository.update(targetUserId, { is_active: 0 });
-      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(targetUserId);
+      sessionRepository.deleteRegisteredByUserId(targetUserId);
 
       for (const [sid, onlineUser] of users.entries()) {
         if (onlineUser.dbUserId === targetUserId) {

@@ -1,9 +1,9 @@
 import {
-	messageRepository,
 	type ClientMessage,
 	type DbMessage,
-	type PaginationOptions
-} from '../db/repositories/messageRepository.js';
+	type PaginationOptions,
+	toClientMessage
+} from './records.js';
 import type { InstrumentedMessageStore, MessageStoreRuntimeStats } from './messageStore.js';
 import { escapeSqlLiteral } from './stdbSyncClient.js';
 import {
@@ -227,7 +227,7 @@ export class StdbPrimaryMessageStore extends StdbStoreBase implements Instrument
 	}
 
 	toClientFormat(dbMsg: DbMessage): ClientMessage {
-		return messageRepository.toClientFormat(dbMsg);
+		return toClientMessage(dbMsg);
 	}
 
 	getChannelMessageCount(channelId: string): number {

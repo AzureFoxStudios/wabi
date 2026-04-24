@@ -18,6 +18,7 @@ services:
       - PORT=8080
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
       - PUBLIC_URL=${PUBLIC_URL:-http://localhost:3000}
+      - WABI_PUBLIC_BACKEND_URL=${WABI_PUBLIC_BACKEND_URL:-}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,https://tauri.localhost,tauri://localhost}
       - STATIC_DIR=${STATIC_DIR:-/app/frontend/build}
       - DATA_DIR=/app/data
@@ -54,6 +55,12 @@ services:
       - WABI_STDB_AUTH_TOKEN=${WABI_STDB_AUTH_TOKEN:-}
       - WABI_STDB_ANONYMOUS=${WABI_STDB_ANONYMOUS:-}
       - WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=${WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION:-}
+      - WABI_SERVER_INSTANCE_ID=${WABI_SERVER_INSTANCE_ID:-}
+      - WABI_SERVER_REGION=${WABI_SERVER_REGION:-}
+      - WABI_SERVER_ROLE=${WABI_SERVER_ROLE:-}
+      - WABI_MESH_INSTANCE_URL_TEMPLATE=${WABI_MESH_INSTANCE_URL_TEMPLATE:-}
+      - WABI_MESH_INGRESS_URL=${WABI_MESH_INGRESS_URL:-}
+      - WABI_MESH_SHARED_TOKEN=${WABI_MESH_SHARED_TOKEN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

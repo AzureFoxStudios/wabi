@@ -115,3 +115,8 @@ spacetimedb/.local-data-recovery/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# STDB/local dev artifacts
+backend/data-spiderweb/
+frontend/test-results/
+frontend/wabi-failover.spec.js

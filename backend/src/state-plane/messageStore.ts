@@ -2,7 +2,7 @@ import {
 	type ClientMessage,
 	type DbMessage,
 	type PaginationOptions
-} from '../db/repositories/messageRepository.js';
+} from './records.js';
 import { type StatePlaneOutboxStats } from './outbox.js';
 
 export interface MessageStore {

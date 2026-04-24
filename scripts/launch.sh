@@ -36,34 +36,10 @@ WABI_CONFIG_HAS_PLUGINS_ENABLED=false
 WABI_CONFIG_PLUGINS_ENABLED_VALUE=""
 WABI_CONFIG_HAS_PLUGINS_ALLOW_INSTALL=false
 WABI_CONFIG_PLUGINS_ALLOW_INSTALL_VALUE=""
-WABI_CONFIG_HAS_STATE_BACKEND_MODE=false
-WABI_CONFIG_STATE_BACKEND_MODE_VALUE=""
-WABI_CONFIG_HAS_STATE_STDB_READ_ENABLED=false
-WABI_CONFIG_STATE_STDB_READ_ENABLED_VALUE=""
-WABI_CONFIG_HAS_STATE_STDB_MESSAGE_READ_CANARY_PERCENT=false
-WABI_CONFIG_STATE_STDB_MESSAGE_READ_CANARY_PERCENT_VALUE=""
-WABI_CONFIG_HAS_STATE_STDB_CHANNEL_READ_CANARY_PERCENT=false
-WABI_CONFIG_STATE_STDB_CHANNEL_READ_CANARY_PERCENT_VALUE=""
-WABI_CONFIG_HAS_STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT=false
-WABI_CONFIG_STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT_VALUE=""
-WABI_CONFIG_HAS_STATE_STDB_USER_READ_CANARY_PERCENT=false
-WABI_CONFIG_STATE_STDB_USER_READ_CANARY_PERCENT_VALUE=""
-WABI_CONFIG_HAS_STATE_STDB_SESSION_READ_CANARY_PERCENT=false
-WABI_CONFIG_STATE_STDB_SESSION_READ_CANARY_PERCENT_VALUE=""
-WABI_CONFIG_HAS_STATE_STDB_RBAC_READ_CANARY_PERCENT=false
-WABI_CONFIG_STATE_STDB_RBAC_READ_CANARY_PERCENT_VALUE=""
-WABI_CONFIG_HAS_STATE_SHADOW_WARMUP_ENABLED=false
-WABI_CONFIG_STATE_SHADOW_WARMUP_ENABLED_VALUE=""
-WABI_CONFIG_HAS_STATE_SHADOW_WARMUP_LIMIT=false
-WABI_CONFIG_STATE_SHADOW_WARMUP_LIMIT_VALUE=""
-WABI_CONFIG_HAS_STATE_STDB_WRITE_ENABLED=false
-WABI_CONFIG_STATE_STDB_WRITE_ENABLED_VALUE=""
 WABI_CONFIG_HAS_STATE_STDB_SUBSCRIPTIONS_ENABLED=false
 WABI_CONFIG_STATE_STDB_SUBSCRIPTIONS_ENABLED_VALUE=""
 WABI_CONFIG_HAS_STATE_STDB_ENFORCE_RBAC=false
 WABI_CONFIG_STATE_STDB_ENFORCE_RBAC_VALUE=""
-WABI_CONFIG_HAS_STATE_BACKEND_STRICT=false
-WABI_CONFIG_STATE_BACKEND_STRICT_VALUE=""
 WABI_CONFIG_HAS_STATE_OUTBOX_PATH=false
 WABI_CONFIG_STATE_OUTBOX_PATH_VALUE=""
 WABI_CONFIG_HAS_STATE_OUTBOX_REDACT_SENSITIVE=false
@@ -72,22 +48,6 @@ WABI_CONFIG_HAS_STATE_OUTBOX_MAX_BYTES=false
 WABI_CONFIG_STATE_OUTBOX_MAX_BYTES_VALUE=""
 WABI_CONFIG_HAS_STATE_OUTBOX_TRUNCATE_MIN_BYTES=false
 WABI_CONFIG_STATE_OUTBOX_TRUNCATE_MIN_BYTES_VALUE=""
-WABI_CONFIG_HAS_STATE_SHADOW_WRITER_ENABLED=false
-WABI_CONFIG_STATE_SHADOW_WRITER_ENABLED_VALUE=""
-WABI_CONFIG_HAS_STATE_SHADOW_SINK=false
-WABI_CONFIG_STATE_SHADOW_SINK_VALUE=""
-WABI_CONFIG_HAS_STATE_SHADOW_ENDPOINT=false
-WABI_CONFIG_STATE_SHADOW_ENDPOINT_VALUE=""
-WABI_CONFIG_HAS_STATE_SHADOW_TOKEN=false
-WABI_CONFIG_STATE_SHADOW_TOKEN_VALUE=""
-WABI_CONFIG_HAS_STATE_SHADOW_SIGNING_SECRET=false
-WABI_CONFIG_STATE_SHADOW_SIGNING_SECRET_VALUE=""
-WABI_CONFIG_HAS_STATE_SHADOW_SIGNING_KEY_ID=false
-WABI_CONFIG_STATE_SHADOW_SIGNING_KEY_ID_VALUE=""
-WABI_CONFIG_HAS_STATE_SHADOW_COMMAND=false
-WABI_CONFIG_STATE_SHADOW_COMMAND_VALUE=""
-WABI_CONFIG_HAS_STATE_SHADOW_COMMAND_TIMEOUT_MS=false
-WABI_CONFIG_STATE_SHADOW_COMMAND_TIMEOUT_MS_VALUE=""
 WABI_CONFIG_HAS_STATE_PLANE_SCHEMA_VERSION=false
 WABI_CONFIG_STATE_PLANE_SCHEMA_VERSION_VALUE=""
 WABI_CONFIG_HAS_STATE_PLANE_SCHEMA_AUTO_APPLY=false
@@ -100,10 +60,6 @@ WABI_CONFIG_HAS_STATE_REDUCER_INGRESS_MAX_SKEW_MS=false
 WABI_CONFIG_STATE_REDUCER_INGRESS_MAX_SKEW_MS_VALUE=""
 WABI_CONFIG_HAS_STATE_REDUCER_INGRESS_MAX_BODY_BYTES=false
 WABI_CONFIG_STATE_REDUCER_INGRESS_MAX_BODY_BYTES_VALUE=""
-WABI_CONFIG_HAS_STATE_SHADOW_POLL_INTERVAL_MS=false
-WABI_CONFIG_STATE_SHADOW_POLL_INTERVAL_MS_VALUE=""
-WABI_CONFIG_HAS_STATE_SHADOW_BATCH_SIZE=false
-WABI_CONFIG_STATE_SHADOW_BATCH_SIZE_VALUE=""
 WABI_CONFIG_HAS_WABI_STDB_BRIDGE_MODE=false
 WABI_CONFIG_WABI_STDB_BRIDGE_MODE_VALUE=""
 WABI_CONFIG_HAS_WABI_STDB_BRIDGE_SERVER=false
@@ -187,6 +143,7 @@ Advanced environment overrides:
   WABI_STDB_AUTH_TOKEN=<token>                             (default: empty; uses anonymous when unset)
   WABI_STDB_ANONYMOUS=true|false                           (default: false)
   WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=true|false       (default: false)
+  WABI_PUBLIC_BACKEND_URL=<url>                            (default: empty; advertise direct backend URL for client failover)
   WABI_SERVER_INSTANCE_ID=<instance-id>                    (default: empty; runtime falls back to HOSTNAME)
   WABI_SERVER_REGION=<region>                              (default: empty; runtime falls back to local)
   WABI_SERVER_ROLE=<role>                                  (default: empty; runtime falls back to app)
@@ -471,58 +428,6 @@ load_wabi_config() {
         WABI_CONFIG_HAS_PLUGINS_ALLOW_INSTALL=true
         WABI_CONFIG_PLUGINS_ALLOW_INSTALL_VALUE="$(normalize_bool "$value" "false")"
         ;;
-      STATE_BACKEND_MODE)
-        case "${value,,}" in
-          legacy|dual_write|dual-write|dual|stdb_primary|stdb-primary|stdb)
-            WABI_CONFIG_HAS_STATE_BACKEND_MODE=true
-            case "${value,,}" in
-              dual-write|dual) WABI_CONFIG_STATE_BACKEND_MODE_VALUE="dual_write" ;;
-              stdb-primary|stdb) WABI_CONFIG_STATE_BACKEND_MODE_VALUE="stdb_primary" ;;
-              *) WABI_CONFIG_STATE_BACKEND_MODE_VALUE="${value,,}" ;;
-            esac
-            ;;
-        esac
-        ;;
-      STATE_STDB_READ_ENABLED)
-        WABI_CONFIG_HAS_STATE_STDB_READ_ENABLED=true
-        WABI_CONFIG_STATE_STDB_READ_ENABLED_VALUE="$(normalize_bool "$value" "false")"
-        ;;
-      STATE_STDB_MESSAGE_READ_CANARY_PERCENT)
-        WABI_CONFIG_HAS_STATE_STDB_MESSAGE_READ_CANARY_PERCENT=true
-        WABI_CONFIG_STATE_STDB_MESSAGE_READ_CANARY_PERCENT_VALUE="$(normalize_positive_int "$value" "10" "0" "100")"
-        ;;
-      STATE_STDB_CHANNEL_READ_CANARY_PERCENT)
-        WABI_CONFIG_HAS_STATE_STDB_CHANNEL_READ_CANARY_PERCENT=true
-        WABI_CONFIG_STATE_STDB_CHANNEL_READ_CANARY_PERCENT_VALUE="$(normalize_positive_int "$value" "10" "0" "100")"
-        ;;
-      STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT)
-        WABI_CONFIG_HAS_STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT=true
-        WABI_CONFIG_STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT_VALUE="$(normalize_positive_int "$value" "10" "0" "100")"
-        ;;
-      STATE_STDB_USER_READ_CANARY_PERCENT)
-        WABI_CONFIG_HAS_STATE_STDB_USER_READ_CANARY_PERCENT=true
-        WABI_CONFIG_STATE_STDB_USER_READ_CANARY_PERCENT_VALUE="$(normalize_positive_int "$value" "10" "0" "100")"
-        ;;
-      STATE_STDB_SESSION_READ_CANARY_PERCENT)
-        WABI_CONFIG_HAS_STATE_STDB_SESSION_READ_CANARY_PERCENT=true
-        WABI_CONFIG_STATE_STDB_SESSION_READ_CANARY_PERCENT_VALUE="$(normalize_positive_int "$value" "10" "0" "100")"
-        ;;
-      STATE_STDB_RBAC_READ_CANARY_PERCENT)
-        WABI_CONFIG_HAS_STATE_STDB_RBAC_READ_CANARY_PERCENT=true
-        WABI_CONFIG_STATE_STDB_RBAC_READ_CANARY_PERCENT_VALUE="$(normalize_positive_int "$value" "10" "0" "100")"
-        ;;
-      STATE_SHADOW_WARMUP_ENABLED)
-        WABI_CONFIG_HAS_STATE_SHADOW_WARMUP_ENABLED=true
-        WABI_CONFIG_STATE_SHADOW_WARMUP_ENABLED_VALUE="$(normalize_bool "$value" "true")"
-        ;;
-      STATE_SHADOW_WARMUP_LIMIT)
-        WABI_CONFIG_HAS_STATE_SHADOW_WARMUP_LIMIT=true
-        WABI_CONFIG_STATE_SHADOW_WARMUP_LIMIT_VALUE="$(normalize_positive_int "$value" "25000" "100" "500000")"
-        ;;
-      STATE_STDB_WRITE_ENABLED)
-        WABI_CONFIG_HAS_STATE_STDB_WRITE_ENABLED=true
-        WABI_CONFIG_STATE_STDB_WRITE_ENABLED_VALUE="$(normalize_bool "$value" "false")"
-        ;;
       STATE_STDB_SUBSCRIPTIONS_ENABLED)
         WABI_CONFIG_HAS_STATE_STDB_SUBSCRIPTIONS_ENABLED=true
         WABI_CONFIG_STATE_STDB_SUBSCRIPTIONS_ENABLED_VALUE="$(normalize_bool "$value" "false")"
@@ -530,10 +435,6 @@ load_wabi_config() {
       STATE_STDB_ENFORCE_RBAC)
         WABI_CONFIG_HAS_STATE_STDB_ENFORCE_RBAC=true
         WABI_CONFIG_STATE_STDB_ENFORCE_RBAC_VALUE="$(normalize_bool "$value" "true")"
-        ;;
-      STATE_BACKEND_STRICT)
-        WABI_CONFIG_HAS_STATE_BACKEND_STRICT=true
-        WABI_CONFIG_STATE_BACKEND_STRICT_VALUE="$(normalize_bool "$value" "false")"
         ;;
       STATE_OUTBOX_PATH)
         WABI_CONFIG_HAS_STATE_OUTBOX_PATH=true
@@ -550,42 +451,6 @@ load_wabi_config() {
       STATE_OUTBOX_TRUNCATE_MIN_BYTES)
         WABI_CONFIG_HAS_STATE_OUTBOX_TRUNCATE_MIN_BYTES=true
         WABI_CONFIG_STATE_OUTBOX_TRUNCATE_MIN_BYTES_VALUE="$(normalize_positive_int "$value" "16777216" "1048576" "1073741824")"
-        ;;
-      STATE_SHADOW_WRITER_ENABLED)
-        WABI_CONFIG_HAS_STATE_SHADOW_WRITER_ENABLED=true
-        WABI_CONFIG_STATE_SHADOW_WRITER_ENABLED_VALUE="$(normalize_bool "$value" "false")"
-        ;;
-      STATE_SHADOW_SINK)
-        case "${value,,}" in
-          mirror|http|command)
-            WABI_CONFIG_HAS_STATE_SHADOW_SINK=true
-            WABI_CONFIG_STATE_SHADOW_SINK_VALUE="${value,,}"
-            ;;
-        esac
-        ;;
-      STATE_SHADOW_ENDPOINT)
-        WABI_CONFIG_HAS_STATE_SHADOW_ENDPOINT=true
-        WABI_CONFIG_STATE_SHADOW_ENDPOINT_VALUE="$value"
-        ;;
-      STATE_SHADOW_TOKEN)
-        WABI_CONFIG_HAS_STATE_SHADOW_TOKEN=true
-        WABI_CONFIG_STATE_SHADOW_TOKEN_VALUE="$value"
-        ;;
-      STATE_SHADOW_SIGNING_SECRET)
-        WABI_CONFIG_HAS_STATE_SHADOW_SIGNING_SECRET=true
-        WABI_CONFIG_STATE_SHADOW_SIGNING_SECRET_VALUE="$value"
-        ;;
-      STATE_SHADOW_SIGNING_KEY_ID)
-        WABI_CONFIG_HAS_STATE_SHADOW_SIGNING_KEY_ID=true
-        WABI_CONFIG_STATE_SHADOW_SIGNING_KEY_ID_VALUE="$value"
-        ;;
-      STATE_SHADOW_COMMAND)
-        WABI_CONFIG_HAS_STATE_SHADOW_COMMAND=true
-        WABI_CONFIG_STATE_SHADOW_COMMAND_VALUE="$value"
-        ;;
-      STATE_SHADOW_COMMAND_TIMEOUT_MS)
-        WABI_CONFIG_HAS_STATE_SHADOW_COMMAND_TIMEOUT_MS=true
-        WABI_CONFIG_STATE_SHADOW_COMMAND_TIMEOUT_MS_VALUE="$(normalize_positive_int "$value" "10000" "100" "300000")"
         ;;
       STATE_PLANE_SCHEMA_VERSION)
         WABI_CONFIG_HAS_STATE_PLANE_SCHEMA_VERSION=true
@@ -610,14 +475,6 @@ load_wabi_config() {
       STATE_REDUCER_INGRESS_MAX_BODY_BYTES)
         WABI_CONFIG_HAS_STATE_REDUCER_INGRESS_MAX_BODY_BYTES=true
         WABI_CONFIG_STATE_REDUCER_INGRESS_MAX_BODY_BYTES_VALUE="$(normalize_positive_int "$value" "1048576" "4096" "16777216")"
-        ;;
-      STATE_SHADOW_POLL_INTERVAL_MS)
-        WABI_CONFIG_HAS_STATE_SHADOW_POLL_INTERVAL_MS=true
-        WABI_CONFIG_STATE_SHADOW_POLL_INTERVAL_MS_VALUE="$(normalize_positive_int "$value" "1000" "250" "60000")"
-        ;;
-      STATE_SHADOW_BATCH_SIZE)
-        WABI_CONFIG_HAS_STATE_SHADOW_BATCH_SIZE=true
-        WABI_CONFIG_STATE_SHADOW_BATCH_SIZE_VALUE="$(normalize_positive_int "$value" "250" "1" "5000")"
         ;;
       WABI_STDB_BRIDGE_MODE)
         case "${value,,}" in
@@ -658,6 +515,9 @@ load_wabi_config() {
       WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION)
         WABI_CONFIG_HAS_WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=true
         WABI_CONFIG_WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION_VALUE="$(normalize_bool "$value" "false")"
+        ;;
+      WABI_PUBLIC_BACKEND_URL)
+        WABI_PUBLIC_BACKEND_URL="$value"
         ;;
       WABI_SERVER_INSTANCE_ID)
         WABI_SERVER_INSTANCE_ID="$value"
@@ -760,15 +620,10 @@ configure_defaults() {
   local domain mode runtime public_ip frontend_url public_url turn_realm turn_secret jwt_secret
   local db_mode giphy_key
   local plugins_enabled plugins_allow_install srt_gateway_enabled sfu_provider
-  local state_backend_mode state_stdb_read_enabled state_stdb_message_read_canary_percent state_stdb_channel_read_canary_percent
-  local state_stdb_channel_member_read_canary_percent state_stdb_user_read_canary_percent state_stdb_session_read_canary_percent
-  local state_stdb_rbac_read_canary_percent state_shadow_warmup_enabled state_shadow_warmup_limit state_stdb_write_enabled
-  local state_stdb_subscriptions_enabled state_stdb_enforce_rbac state_backend_strict
-  local state_outbox_path state_outbox_redact_sensitive state_outbox_max_bytes state_outbox_truncate_min_bytes state_shadow_writer_enabled state_shadow_sink
-  local state_shadow_endpoint state_shadow_token state_shadow_signing_secret state_shadow_signing_key_id state_shadow_command state_shadow_command_timeout_ms
+  local state_stdb_subscriptions_enabled state_stdb_enforce_rbac
+  local state_outbox_path state_outbox_redact_sensitive state_outbox_max_bytes state_outbox_truncate_min_bytes
   local state_plane_schema_version state_plane_schema_auto_apply
   local state_reducer_ingress_enabled state_reducer_ingress_require_signature state_reducer_ingress_max_skew_ms state_reducer_ingress_max_body_bytes
-  local state_shadow_poll_interval_ms state_shadow_batch_size
   local wabi_stdb_bridge_mode wabi_stdb_bridge_server wabi_stdb_bridge_database wabi_stdb_bridge_reducer wabi_stdb_bridge_map_file wabi_stdb_bridge_timeout_ms wabi_stdb_auth_token wabi_stdb_anonymous wabi_stdb_allow_anonymous_in_production
   local wabi_server_instance_id wabi_server_region wabi_server_role wabi_mesh_instance_url_template wabi_mesh_ingress_url wabi_mesh_shared_token
   local webhook_max_body_bytes webhook_allow_private_targets webhook_allowed_hosts webhook_max_dns_records
@@ -784,52 +639,18 @@ configure_defaults() {
   video_compression_metrics="$(normalize_bool "${WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED:-${VITE_VIDEO_COMPRESSION_CLIENT_METRICS:-false}}" "false")"
   plugins_enabled="$(normalize_bool "${PLUGINS_ENABLED:-false}" "false")"
   plugins_allow_install="$(normalize_bool "${PLUGINS_ALLOW_INSTALL:-false}" "false")"
-  state_backend_mode="${STATE_BACKEND_MODE:-legacy}"
-  state_stdb_read_enabled="$(normalize_bool "${STATE_STDB_READ_ENABLED:-false}" "false")"
-  state_stdb_message_read_canary_percent="$(normalize_positive_int "${STATE_STDB_MESSAGE_READ_CANARY_PERCENT:-10}" "10" "0" "100")"
-  state_stdb_channel_read_canary_percent="$(normalize_positive_int "${STATE_STDB_CHANNEL_READ_CANARY_PERCENT:-$state_stdb_message_read_canary_percent}" "$state_stdb_message_read_canary_percent" "0" "100")"
-  state_stdb_channel_member_read_canary_percent="$(normalize_positive_int "${STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT:-$state_stdb_message_read_canary_percent}" "$state_stdb_message_read_canary_percent" "0" "100")"
-  state_stdb_user_read_canary_percent="$(normalize_positive_int "${STATE_STDB_USER_READ_CANARY_PERCENT:-$state_stdb_message_read_canary_percent}" "$state_stdb_message_read_canary_percent" "0" "100")"
-  state_stdb_session_read_canary_percent="$(normalize_positive_int "${STATE_STDB_SESSION_READ_CANARY_PERCENT:-$state_stdb_message_read_canary_percent}" "$state_stdb_message_read_canary_percent" "0" "100")"
-  state_stdb_rbac_read_canary_percent="$(normalize_positive_int "${STATE_STDB_RBAC_READ_CANARY_PERCENT:-$state_stdb_message_read_canary_percent}" "$state_stdb_message_read_canary_percent" "0" "100")"
-  state_shadow_warmup_enabled="$(normalize_bool "${STATE_SHADOW_WARMUP_ENABLED:-true}" "true")"
-  state_shadow_warmup_limit="$(normalize_positive_int "${STATE_SHADOW_WARMUP_LIMIT:-25000}" "25000" "100" "500000")"
-  state_stdb_write_enabled="$(normalize_bool "${STATE_STDB_WRITE_ENABLED:-false}" "false")"
   state_stdb_subscriptions_enabled="$(normalize_bool "${STATE_STDB_SUBSCRIPTIONS_ENABLED:-false}" "false")"
   state_stdb_enforce_rbac="$(normalize_bool "${STATE_STDB_ENFORCE_RBAC:-true}" "true")"
-  state_backend_strict="$(normalize_bool "${STATE_BACKEND_STRICT:-false}" "false")"
   state_outbox_path="${STATE_OUTBOX_PATH:-}"
   state_outbox_redact_sensitive="$(normalize_bool "${STATE_OUTBOX_REDACT_SENSITIVE:-true}" "true")"
   state_outbox_max_bytes="$(normalize_positive_int "${STATE_OUTBOX_MAX_BYTES:-67108864}" "67108864" "1048576" "1073741824")"
   state_outbox_truncate_min_bytes="$(normalize_positive_int "${STATE_OUTBOX_TRUNCATE_MIN_BYTES:-16777216}" "16777216" "1048576" "$state_outbox_max_bytes")"
-  state_shadow_sink="${STATE_SHADOW_SINK:-mirror}"
-  case "${state_shadow_sink,,}" in
-    mirror|http|command)
-      state_shadow_sink="${state_shadow_sink,,}"
-      ;;
-    *)
-      state_shadow_sink="mirror"
-      ;;
-  esac
-  if [[ -n "${STATE_SHADOW_WRITER_ENABLED:-}" ]]; then
-    state_shadow_writer_enabled="$(normalize_bool "${STATE_SHADOW_WRITER_ENABLED}" "false")"
-  else
-    state_shadow_writer_enabled=""
-  fi
-  state_shadow_endpoint="${STATE_SHADOW_ENDPOINT:-}"
-  state_shadow_token="${STATE_SHADOW_TOKEN:-}"
-  state_shadow_signing_secret="${STATE_SHADOW_SIGNING_SECRET:-}"
-  state_shadow_signing_key_id="${STATE_SHADOW_SIGNING_KEY_ID:-}"
-  state_shadow_command="${STATE_SHADOW_COMMAND:-}"
-  state_shadow_command_timeout_ms="$(normalize_positive_int "${STATE_SHADOW_COMMAND_TIMEOUT_MS:-10000}" "10000" "100" "300000")"
   state_plane_schema_version="$(normalize_positive_int "${STATE_PLANE_SCHEMA_VERSION:-1}" "1" "1" "1000")"
   state_plane_schema_auto_apply="$(normalize_bool "${STATE_PLANE_SCHEMA_AUTO_APPLY:-true}" "true")"
   state_reducer_ingress_enabled="$(normalize_bool "${STATE_REDUCER_INGRESS_ENABLED:-false}" "false")"
   state_reducer_ingress_require_signature="$(normalize_bool "${STATE_REDUCER_INGRESS_REQUIRE_SIGNATURE:-true}" "true")"
   state_reducer_ingress_max_skew_ms="$(normalize_positive_int "${STATE_REDUCER_INGRESS_MAX_SKEW_MS:-300000}" "300000" "1000" "3600000")"
   state_reducer_ingress_max_body_bytes="$(normalize_positive_int "${STATE_REDUCER_INGRESS_MAX_BODY_BYTES:-1048576}" "1048576" "4096" "16777216")"
-  state_shadow_poll_interval_ms="$(normalize_positive_int "${STATE_SHADOW_POLL_INTERVAL_MS:-1000}" "1000" "250" "60000")"
-  state_shadow_batch_size="$(normalize_positive_int "${STATE_SHADOW_BATCH_SIZE:-250}" "250" "1" "5000")"
   wabi_stdb_bridge_mode="${WABI_STDB_BRIDGE_MODE:-spacetime-call}"
   case "${wabi_stdb_bridge_mode,,}" in
     spacetime-call|stdout|file)
@@ -847,6 +668,7 @@ configure_defaults() {
   wabi_stdb_auth_token="${WABI_STDB_AUTH_TOKEN:-}"
   wabi_stdb_anonymous="$(normalize_bool "${WABI_STDB_ANONYMOUS:-false}" "false")"
   wabi_stdb_allow_anonymous_in_production="$(normalize_bool "${WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION:-false}" "false")"
+  wabi_public_backend_url="${WABI_PUBLIC_BACKEND_URL:-}"
   wabi_server_instance_id="${WABI_SERVER_INSTANCE_ID:-}"
   wabi_server_region="${WABI_SERVER_REGION:-}"
   wabi_server_role="${WABI_SERVER_ROLE:-}"
@@ -969,6 +791,7 @@ WABI_STDB_BRIDGE_TIMEOUT_MS=$wabi_stdb_bridge_timeout_ms
 WABI_STDB_AUTH_TOKEN=$wabi_stdb_auth_token
 WABI_STDB_ANONYMOUS=$wabi_stdb_anonymous
 WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=$wabi_stdb_allow_anonymous_in_production
+WABI_PUBLIC_BACKEND_URL=$wabi_public_backend_url
 WABI_SERVER_INSTANCE_ID=$wabi_server_instance_id
 WABI_SERVER_REGION=$wabi_server_region
 WABI_SERVER_ROLE=$wabi_server_role
@@ -1055,7 +878,7 @@ validate_security_config() {
   fi
 
   local stdb_active="false"
-  if [[ "${STATE_BACKEND_MODE:-legacy}" == "stdb_primary" || "${STATE_STDB_WRITE_ENABLED:-false}" == "true" || "${STATE_STDB_READ_ENABLED:-false}" == "true" ]]; then
+  if [[ -n "${WABI_STDB_BRIDGE_DATABASE:-}" ]]; then
     stdb_active="true"
   fi
   if [[ "${NODE_ENV:-production}" == "production" && "$stdb_active" == "true" ]]; then
@@ -1239,69 +1062,6 @@ if [[ "${PLUGINS_ENABLED:-false}" != "true" ]]; then
   upsert_env_file_key "$ENV_FILE" "PLUGINS_ALLOW_INSTALL" "$PLUGINS_ALLOW_INSTALL"
 fi
 
-if [[ "$WABI_CONFIG_HAS_STATE_BACKEND_MODE" == "true" ]]; then
-  STATE_BACKEND_MODE="$WABI_CONFIG_STATE_BACKEND_MODE_VALUE"
-  upsert_env_file_key "$ENV_FILE" "STATE_BACKEND_MODE" "$STATE_BACKEND_MODE"
-  echo "[launch] Applied STATE_BACKEND_MODE from wabi.config (backend=$STATE_BACKEND_MODE)."
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_STDB_READ_ENABLED" == "true" ]]; then
-  STATE_STDB_READ_ENABLED="$(normalize_bool "${WABI_CONFIG_STATE_STDB_READ_ENABLED_VALUE:-false}" "false")"
-  upsert_env_file_key "$ENV_FILE" "STATE_STDB_READ_ENABLED" "$STATE_STDB_READ_ENABLED"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_STDB_MESSAGE_READ_CANARY_PERCENT" == "true" ]]; then
-  STATE_STDB_MESSAGE_READ_CANARY_PERCENT="$(normalize_positive_int "${WABI_CONFIG_STATE_STDB_MESSAGE_READ_CANARY_PERCENT_VALUE:-10}" "10" "0" "100")"
-  upsert_env_file_key "$ENV_FILE" "STATE_STDB_MESSAGE_READ_CANARY_PERCENT" "$STATE_STDB_MESSAGE_READ_CANARY_PERCENT"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_STDB_CHANNEL_READ_CANARY_PERCENT" == "true" ]]; then
-  STATE_STDB_CHANNEL_READ_CANARY_PERCENT="$(normalize_positive_int "${WABI_CONFIG_STATE_STDB_CHANNEL_READ_CANARY_PERCENT_VALUE:-10}" "10" "0" "100")"
-  upsert_env_file_key "$ENV_FILE" "STATE_STDB_CHANNEL_READ_CANARY_PERCENT" "$STATE_STDB_CHANNEL_READ_CANARY_PERCENT"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT" == "true" ]]; then
-  STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT="$(normalize_positive_int "${WABI_CONFIG_STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT_VALUE:-10}" "10" "0" "100")"
-  upsert_env_file_key "$ENV_FILE" "STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT" "$STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_STDB_USER_READ_CANARY_PERCENT" == "true" ]]; then
-  STATE_STDB_USER_READ_CANARY_PERCENT="$(normalize_positive_int "${WABI_CONFIG_STATE_STDB_USER_READ_CANARY_PERCENT_VALUE:-10}" "10" "0" "100")"
-  upsert_env_file_key "$ENV_FILE" "STATE_STDB_USER_READ_CANARY_PERCENT" "$STATE_STDB_USER_READ_CANARY_PERCENT"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_STDB_SESSION_READ_CANARY_PERCENT" == "true" ]]; then
-  STATE_STDB_SESSION_READ_CANARY_PERCENT="$(normalize_positive_int "${WABI_CONFIG_STATE_STDB_SESSION_READ_CANARY_PERCENT_VALUE:-10}" "10" "0" "100")"
-  upsert_env_file_key "$ENV_FILE" "STATE_STDB_SESSION_READ_CANARY_PERCENT" "$STATE_STDB_SESSION_READ_CANARY_PERCENT"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_STDB_RBAC_READ_CANARY_PERCENT" == "true" ]]; then
-  STATE_STDB_RBAC_READ_CANARY_PERCENT="$(normalize_positive_int "${WABI_CONFIG_STATE_STDB_RBAC_READ_CANARY_PERCENT_VALUE:-10}" "10" "0" "100")"
-  upsert_env_file_key "$ENV_FILE" "STATE_STDB_RBAC_READ_CANARY_PERCENT" "$STATE_STDB_RBAC_READ_CANARY_PERCENT"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_SHADOW_WARMUP_ENABLED" == "true" ]]; then
-  STATE_SHADOW_WARMUP_ENABLED="$(normalize_bool "${WABI_CONFIG_STATE_SHADOW_WARMUP_ENABLED_VALUE:-true}" "true")"
-  upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_WARMUP_ENABLED" "$STATE_SHADOW_WARMUP_ENABLED"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_SHADOW_WARMUP_LIMIT" == "true" ]]; then
-  STATE_SHADOW_WARMUP_LIMIT="$(normalize_positive_int "${WABI_CONFIG_STATE_SHADOW_WARMUP_LIMIT_VALUE:-25000}" "25000" "100" "500000")"
-  upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_WARMUP_LIMIT" "$STATE_SHADOW_WARMUP_LIMIT"
-fi
-
-STATE_STDB_MESSAGE_READ_CANARY_PERCENT="$(normalize_positive_int "${STATE_STDB_MESSAGE_READ_CANARY_PERCENT:-10}" "10" "0" "100")"
-STATE_STDB_CHANNEL_READ_CANARY_PERCENT="$(normalize_positive_int "${STATE_STDB_CHANNEL_READ_CANARY_PERCENT:-$STATE_STDB_MESSAGE_READ_CANARY_PERCENT}" "$STATE_STDB_MESSAGE_READ_CANARY_PERCENT" "0" "100")"
-STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT="$(normalize_positive_int "${STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT:-$STATE_STDB_MESSAGE_READ_CANARY_PERCENT}" "$STATE_STDB_MESSAGE_READ_CANARY_PERCENT" "0" "100")"
-STATE_STDB_USER_READ_CANARY_PERCENT="$(normalize_positive_int "${STATE_STDB_USER_READ_CANARY_PERCENT:-$STATE_STDB_MESSAGE_READ_CANARY_PERCENT}" "$STATE_STDB_MESSAGE_READ_CANARY_PERCENT" "0" "100")"
-STATE_STDB_SESSION_READ_CANARY_PERCENT="$(normalize_positive_int "${STATE_STDB_SESSION_READ_CANARY_PERCENT:-$STATE_STDB_MESSAGE_READ_CANARY_PERCENT}" "$STATE_STDB_MESSAGE_READ_CANARY_PERCENT" "0" "100")"
-STATE_STDB_RBAC_READ_CANARY_PERCENT="$(normalize_positive_int "${STATE_STDB_RBAC_READ_CANARY_PERCENT:-$STATE_STDB_MESSAGE_READ_CANARY_PERCENT}" "$STATE_STDB_MESSAGE_READ_CANARY_PERCENT" "0" "100")"
-STATE_SHADOW_WARMUP_ENABLED="$(normalize_bool "${STATE_SHADOW_WARMUP_ENABLED:-true}" "true")"
-STATE_SHADOW_WARMUP_LIMIT="$(normalize_positive_int "${STATE_SHADOW_WARMUP_LIMIT:-25000}" "25000" "100" "500000")"
-upsert_env_file_key "$ENV_FILE" "STATE_STDB_MESSAGE_READ_CANARY_PERCENT" "$STATE_STDB_MESSAGE_READ_CANARY_PERCENT"
-upsert_env_file_key "$ENV_FILE" "STATE_STDB_CHANNEL_READ_CANARY_PERCENT" "$STATE_STDB_CHANNEL_READ_CANARY_PERCENT"
-upsert_env_file_key "$ENV_FILE" "STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT" "$STATE_STDB_CHANNEL_MEMBER_READ_CANARY_PERCENT"
-upsert_env_file_key "$ENV_FILE" "STATE_STDB_USER_READ_CANARY_PERCENT" "$STATE_STDB_USER_READ_CANARY_PERCENT"
-upsert_env_file_key "$ENV_FILE" "STATE_STDB_SESSION_READ_CANARY_PERCENT" "$STATE_STDB_SESSION_READ_CANARY_PERCENT"
-upsert_env_file_key "$ENV_FILE" "STATE_STDB_RBAC_READ_CANARY_PERCENT" "$STATE_STDB_RBAC_READ_CANARY_PERCENT"
-upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_WARMUP_ENABLED" "$STATE_SHADOW_WARMUP_ENABLED"
-upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_WARMUP_LIMIT" "$STATE_SHADOW_WARMUP_LIMIT"
-
-if [[ "$WABI_CONFIG_HAS_STATE_STDB_WRITE_ENABLED" == "true" ]]; then
-  STATE_STDB_WRITE_ENABLED="$(normalize_bool "${WABI_CONFIG_STATE_STDB_WRITE_ENABLED_VALUE:-false}" "false")"
-  upsert_env_file_key "$ENV_FILE" "STATE_STDB_WRITE_ENABLED" "$STATE_STDB_WRITE_ENABLED"
-fi
 if [[ "$WABI_CONFIG_HAS_STATE_STDB_SUBSCRIPTIONS_ENABLED" == "true" ]]; then
   STATE_STDB_SUBSCRIPTIONS_ENABLED="$(normalize_bool "${WABI_CONFIG_STATE_STDB_SUBSCRIPTIONS_ENABLED_VALUE:-false}" "false")"
   upsert_env_file_key "$ENV_FILE" "STATE_STDB_SUBSCRIPTIONS_ENABLED" "$STATE_STDB_SUBSCRIPTIONS_ENABLED"
@@ -1309,10 +1069,6 @@ fi
 if [[ "$WABI_CONFIG_HAS_STATE_STDB_ENFORCE_RBAC" == "true" ]]; then
   STATE_STDB_ENFORCE_RBAC="$(normalize_bool "${WABI_CONFIG_STATE_STDB_ENFORCE_RBAC_VALUE:-true}" "true")"
   upsert_env_file_key "$ENV_FILE" "STATE_STDB_ENFORCE_RBAC" "$STATE_STDB_ENFORCE_RBAC"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_BACKEND_STRICT" == "true" ]]; then
-  STATE_BACKEND_STRICT="$(normalize_bool "${WABI_CONFIG_STATE_BACKEND_STRICT_VALUE:-false}" "false")"
-  upsert_env_file_key "$ENV_FILE" "STATE_BACKEND_STRICT" "$STATE_BACKEND_STRICT"
 fi
 if [[ "$WABI_CONFIG_HAS_STATE_OUTBOX_PATH" == "true" ]]; then
   STATE_OUTBOX_PATH="$WABI_CONFIG_STATE_OUTBOX_PATH_VALUE"
@@ -1336,66 +1092,6 @@ STATE_OUTBOX_TRUNCATE_MIN_BYTES="$(normalize_positive_int "${STATE_OUTBOX_TRUNCA
 upsert_env_file_key "$ENV_FILE" "STATE_OUTBOX_REDACT_SENSITIVE" "$STATE_OUTBOX_REDACT_SENSITIVE"
 upsert_env_file_key "$ENV_FILE" "STATE_OUTBOX_MAX_BYTES" "$STATE_OUTBOX_MAX_BYTES"
 upsert_env_file_key "$ENV_FILE" "STATE_OUTBOX_TRUNCATE_MIN_BYTES" "$STATE_OUTBOX_TRUNCATE_MIN_BYTES"
-if [[ "$WABI_CONFIG_HAS_STATE_SHADOW_WRITER_ENABLED" == "true" ]]; then
-  STATE_SHADOW_WRITER_ENABLED="$(normalize_bool "${WABI_CONFIG_STATE_SHADOW_WRITER_ENABLED_VALUE:-false}" "false")"
-  upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_WRITER_ENABLED" "$STATE_SHADOW_WRITER_ENABLED"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_SHADOW_WRITER_ENABLED" != "true" ]]; then
-  state_backend_mode_normalized="${STATE_BACKEND_MODE:-legacy}"
-  case "${state_backend_mode_normalized,,}" in
-    dual-write|dual) state_backend_mode_normalized="dual_write" ;;
-    stdb-primary|stdb) state_backend_mode_normalized="stdb_primary" ;;
-    legacy|dual_write|stdb_primary) ;;
-    *) state_backend_mode_normalized="legacy" ;;
-  esac
-  if [[ "$state_backend_mode_normalized" == "dual_write" && "$(normalize_bool "${STATE_STDB_WRITE_ENABLED:-false}" "false")" == "true" ]]; then
-    STATE_SHADOW_WRITER_ENABLED="true"
-  else
-    STATE_SHADOW_WRITER_ENABLED="false"
-  fi
-  upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_WRITER_ENABLED" "$STATE_SHADOW_WRITER_ENABLED"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_SHADOW_SINK" == "true" ]]; then
-  case "${WABI_CONFIG_STATE_SHADOW_SINK_VALUE,,}" in
-    mirror|http|command)
-      STATE_SHADOW_SINK="${WABI_CONFIG_STATE_SHADOW_SINK_VALUE,,}"
-      upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_SINK" "$STATE_SHADOW_SINK"
-      ;;
-  esac
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_SHADOW_ENDPOINT" == "true" ]]; then
-  STATE_SHADOW_ENDPOINT="$WABI_CONFIG_STATE_SHADOW_ENDPOINT_VALUE"
-  upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_ENDPOINT" "$STATE_SHADOW_ENDPOINT"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_SHADOW_TOKEN" == "true" ]]; then
-  STATE_SHADOW_TOKEN="$WABI_CONFIG_STATE_SHADOW_TOKEN_VALUE"
-  upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_TOKEN" "$STATE_SHADOW_TOKEN"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_SHADOW_SIGNING_SECRET" == "true" ]]; then
-  STATE_SHADOW_SIGNING_SECRET="$WABI_CONFIG_STATE_SHADOW_SIGNING_SECRET_VALUE"
-  upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_SIGNING_SECRET" "$STATE_SHADOW_SIGNING_SECRET"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_SHADOW_SIGNING_KEY_ID" == "true" ]]; then
-  STATE_SHADOW_SIGNING_KEY_ID="$WABI_CONFIG_STATE_SHADOW_SIGNING_KEY_ID_VALUE"
-  upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_SIGNING_KEY_ID" "$STATE_SHADOW_SIGNING_KEY_ID"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_SHADOW_COMMAND" == "true" ]]; then
-  STATE_SHADOW_COMMAND="$WABI_CONFIG_STATE_SHADOW_COMMAND_VALUE"
-  upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_COMMAND" "$STATE_SHADOW_COMMAND"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_SHADOW_COMMAND_TIMEOUT_MS" == "true" ]]; then
-  STATE_SHADOW_COMMAND_TIMEOUT_MS="$(normalize_positive_int "${WABI_CONFIG_STATE_SHADOW_COMMAND_TIMEOUT_MS_VALUE:-10000}" "10000" "100" "300000")"
-  upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_COMMAND_TIMEOUT_MS" "$STATE_SHADOW_COMMAND_TIMEOUT_MS"
-fi
-case "${STATE_SHADOW_SINK:-mirror}" in
-  mirror|http|command) ;;
-  *)
-    STATE_SHADOW_SINK="mirror"
-    ;;
-esac
-STATE_SHADOW_COMMAND_TIMEOUT_MS="$(normalize_positive_int "${STATE_SHADOW_COMMAND_TIMEOUT_MS:-10000}" "10000" "100" "300000")"
-upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_SINK" "$STATE_SHADOW_SINK"
-upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_COMMAND_TIMEOUT_MS" "$STATE_SHADOW_COMMAND_TIMEOUT_MS"
 if [[ "$WABI_CONFIG_HAS_WABI_STDB_BRIDGE_MODE" == "true" ]]; then
   WABI_STDB_BRIDGE_MODE="${WABI_CONFIG_WABI_STDB_BRIDGE_MODE_VALUE,,}"
   upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_MODE" "$WABI_STDB_BRIDGE_MODE"
@@ -1453,21 +1149,6 @@ upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_TIMEOUT_MS" "$WABI_STDB_BRIDGE
 upsert_env_file_key "$ENV_FILE" "WABI_STDB_AUTH_TOKEN" "$WABI_STDB_AUTH_TOKEN"
 upsert_env_file_key "$ENV_FILE" "WABI_STDB_ANONYMOUS" "$WABI_STDB_ANONYMOUS"
 upsert_env_file_key "$ENV_FILE" "WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION" "$WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION"
-if [[ "${STATE_SHADOW_SINK:-mirror}" == "command" && -z "${STATE_SHADOW_COMMAND:-}" && -n "$WABI_STDB_BRIDGE_DATABASE" ]]; then
-  generated_state_shadow_command="node scripts/state-plane-stdb-bridge.mjs --mode $WABI_STDB_BRIDGE_MODE --server $WABI_STDB_BRIDGE_SERVER --database $WABI_STDB_BRIDGE_DATABASE --reducer $WABI_STDB_BRIDGE_REDUCER --timeout-ms $WABI_STDB_BRIDGE_TIMEOUT_MS --no-config --yes"
-  if [[ "${WABI_STDB_ANONYMOUS:-false}" == "true" ]]; then
-    generated_state_shadow_command="$generated_state_shadow_command --anonymous"
-  else
-    generated_state_shadow_command="$generated_state_shadow_command --no-anonymous"
-  fi
-  if [[ -n "$WABI_STDB_BRIDGE_MAP_FILE" ]]; then
-    generated_map_file_escaped="${WABI_STDB_BRIDGE_MAP_FILE//\"/\\\"}"
-    generated_state_shadow_command="$generated_state_shadow_command --map-file \"$generated_map_file_escaped\""
-  fi
-  STATE_SHADOW_COMMAND="$generated_state_shadow_command"
-  upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_COMMAND" "$STATE_SHADOW_COMMAND"
-  echo "[launch] Auto-generated STATE_SHADOW_COMMAND from WABI_STDB_BRIDGE_* settings."
-fi
 if [[ "$WABI_CONFIG_HAS_WEBHOOK_MAX_BODY_BYTES" == "true" ]]; then
   WEBHOOK_MAX_BODY_BYTES="$(normalize_positive_int "${WABI_CONFIG_WEBHOOK_MAX_BODY_BYTES_VALUE:-65536}" "65536" "1024" "1048576")"
   upsert_env_file_key "$ENV_FILE" "WEBHOOK_MAX_BODY_BYTES" "$WEBHOOK_MAX_BODY_BYTES"
@@ -1540,19 +1221,6 @@ upsert_env_file_key "$ENV_FILE" "STATE_REDUCER_INGRESS_ENABLED" "$STATE_REDUCER_
 upsert_env_file_key "$ENV_FILE" "STATE_REDUCER_INGRESS_REQUIRE_SIGNATURE" "$STATE_REDUCER_INGRESS_REQUIRE_SIGNATURE"
 upsert_env_file_key "$ENV_FILE" "STATE_REDUCER_INGRESS_MAX_SKEW_MS" "$STATE_REDUCER_INGRESS_MAX_SKEW_MS"
 upsert_env_file_key "$ENV_FILE" "STATE_REDUCER_INGRESS_MAX_BODY_BYTES" "$STATE_REDUCER_INGRESS_MAX_BODY_BYTES"
-if [[ "$WABI_CONFIG_HAS_STATE_SHADOW_POLL_INTERVAL_MS" == "true" ]]; then
-  STATE_SHADOW_POLL_INTERVAL_MS="$(normalize_positive_int "${WABI_CONFIG_STATE_SHADOW_POLL_INTERVAL_MS_VALUE:-1000}" "1000" "250" "60000")"
-  upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_POLL_INTERVAL_MS" "$STATE_SHADOW_POLL_INTERVAL_MS"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_SHADOW_BATCH_SIZE" == "true" ]]; then
-  STATE_SHADOW_BATCH_SIZE="$(normalize_positive_int "${WABI_CONFIG_STATE_SHADOW_BATCH_SIZE_VALUE:-250}" "250" "1" "5000")"
-  upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_BATCH_SIZE" "$STATE_SHADOW_BATCH_SIZE"
-fi
-STATE_SHADOW_POLL_INTERVAL_MS="$(normalize_positive_int "${STATE_SHADOW_POLL_INTERVAL_MS:-1000}" "1000" "250" "60000")"
-STATE_SHADOW_BATCH_SIZE="$(normalize_positive_int "${STATE_SHADOW_BATCH_SIZE:-250}" "250" "1" "5000")"
-upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_POLL_INTERVAL_MS" "$STATE_SHADOW_POLL_INTERVAL_MS"
-upsert_env_file_key "$ENV_FILE" "STATE_SHADOW_BATCH_SIZE" "$STATE_SHADOW_BATCH_SIZE"
-
 validate_security_config
 
 enforce_profile_lock

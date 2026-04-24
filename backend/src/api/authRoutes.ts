@@ -3,10 +3,11 @@ import { randomBytes } from 'crypto';
 import { settingsRepository } from '../db/repositories/settingsRepository.js';
 import { encryptionKeyRepository } from '../db/repositories/encryptionKeyRepository.js';
 import {
-	stateUserStore as userRepository,
-	stateSessionStore as sessionRepository,
+	stateUserStore,
+	stateSessionStore,
 	stateRbacStore
 } from '../state-plane/index.js';
+import type { RegisteredUser, Session } from '../state-plane/records.js';
 import { hashPassword, verifyPassword } from '../auth/passwordHash.js';
 import { generateToken } from '../auth/jwt.js';
 import { assignRole, getUserRoles } from '../auth/roleMiddleware.js';
@@ -262,33 +263,19 @@ function generateRegisteredSessionId(): string {
 }
 
 async function revokeRegisteredSessionsForUser(userId: number): Promise<number> {
-	if (typeof (sessionRepository as { deleteRegisteredByUserIdAsync?: (targetUserId: number) => Promise<number> }).deleteRegisteredByUserIdAsync === 'function') {
-		return await (sessionRepository as { deleteRegisteredByUserIdAsync: (targetUserId: number) => Promise<number> }).deleteRegisteredByUserIdAsync(userId);
-	}
-	return sessionRepository.deleteRegisteredByUserId(userId);
+	return await stateSessionStore.deleteRegisteredByUserIdAsync(userId);
 }
 
 async function createRegisteredUser(
-	user: Omit<Parameters<typeof userRepository.create>[0], never>
+	user: Omit<RegisteredUser, 'user_id'>
 ) {
-	if (typeof (userRepository as { createAsync?: (payload: Omit<Parameters<typeof userRepository.create>[0], never>) => Promise<ReturnType<typeof userRepository.create>> }).createAsync === 'function') {
-		return await (userRepository as {
-			createAsync: (payload: Omit<Parameters<typeof userRepository.create>[0], never>) => Promise<ReturnType<typeof userRepository.create>>
-		}).createAsync(user);
-	}
-	return userRepository.create(user);
+	return await stateUserStore.createAsync(user);
 }
 
 async function createRegisteredSession(
-	session: Parameters<typeof sessionRepository.create>[0]
+	session: Session
 ): Promise<void> {
-	if (typeof (sessionRepository as { createAsync?: (payload: Parameters<typeof sessionRepository.create>[0]) => Promise<void> }).createAsync === 'function') {
-		await (sessionRepository as {
-			createAsync: (payload: Parameters<typeof sessionRepository.create>[0]) => Promise<void>
-		}).createAsync(session);
-		return;
-	}
-	sessionRepository.create(session);
+	await stateSessionStore.createAsync(session);
 }
 
 function getTestingAutoRole(): 'owner' | 'admin' | null {
@@ -352,14 +339,14 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse):
 		}
 
 		// Check if username already exists
-		if (userRepository.findByUsername(normalizedUsername)) {
+		if (stateUserStore.findByUsername(normalizedUsername)) {
 			res.writeHead(409, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Username already taken' }));
 			return;
 		}
 
 		// Check if handle already exists
-		if (userRepository.findByHandle(handle)) {
+		if (stateUserStore.findByHandle(handle)) {
 			res.writeHead(409, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Handle already taken' }));
 			return;
@@ -493,7 +480,7 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse): Pr
 		}
 
 		// Find user by handle or username
-		const user = userRepository.findByHandleOrUsername(normalizedUsername);
+		const user = stateUserStore.findByHandleOrUsername(normalizedUsername);
 		if (!user) {
 			console.log('[Auth] User not found for:', normalizedUsername);
 			const lockState = recordFailedLogin(normalizedUsername);
@@ -617,7 +604,7 @@ export async function handleChangePassword(req: IncomingMessage, res: ServerResp
 			return;
 		}
 
-		const user = userRepository.findById(userId);
+		const user = stateUserStore.findById(userId);
 		if (!user) {
 			res.writeHead(404, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'User not found' }));
@@ -632,7 +619,7 @@ export async function handleChangePassword(req: IncomingMessage, res: ServerResp
 		}
 
 		const nextHash = await hashPassword(newPassword);
-		userRepository.update(userId, { password_hash: nextHash });
+		stateUserStore.update(userId, { password_hash: nextHash });
 		await settingsRepository.setAsync(userId, { require_password_change: 0 });
 
 		// Revoke all existing sessions so stolen tokens are invalidated
@@ -690,7 +677,7 @@ export async function handleAdminResetUserPassword(req: IncomingMessage, res: Se
 			return;
 		}
 
-		const targetUser = userRepository.findById(targetUserId);
+		const targetUser = stateUserStore.findById(targetUserId);
 		if (!targetUser) {
 			res.writeHead(404, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Target user not found' }));
@@ -706,7 +693,7 @@ export async function handleAdminResetUserPassword(req: IncomingMessage, res: Se
 		}
 
 		const nextHash = await hashPassword(newPassword);
-		userRepository.update(targetUserId, { password_hash: nextHash });
+		stateUserStore.update(targetUserId, { password_hash: nextHash });
 		await settingsRepository.setAsync(targetUserId, {
 			require_password_change: temporary ? 1 : 0
 		});
@@ -751,7 +738,7 @@ export async function handleAdminClearLoginLockout(req: IncomingMessage, res: Se
 		let cleared = 0;
 
 		if (Number.isFinite(targetUserId) && targetUserId > 0) {
-			const targetUser = userRepository.findById(targetUserId);
+			const targetUser = stateUserStore.findById(targetUserId);
 			if (targetUser) {
 				const targetRoles = getUserRoles(targetUserId, 'default-workspace');
 				const targetLevel = highestRoleLevel(targetRoles);
@@ -812,7 +799,7 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 		}
 
 		// Find temp session
-		const tempSession = sessionRepository.findById(sessionId);
+		const tempSession = stateSessionStore.findById(sessionId);
 		if (!tempSession || !tempSession.is_temporary) {
 			res.writeHead(404, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Session not found' }));
@@ -820,7 +807,7 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 		}
 
 		// Check if username already registered
-		if (userRepository.findByUsername(tempSession.username)) {
+		if (stateUserStore.findByUsername(tempSession.username)) {
 			res.writeHead(409, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Username already taken' }));
 			return;
@@ -830,7 +817,7 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 		const handle = tempSession.username.replace(/\s+/g, '').toLowerCase();
 
 		// Check if handle already taken
-		if (userRepository.findByHandle(handle)) {
+		if (stateUserStore.findByHandle(handle)) {
 			res.writeHead(409, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ error: 'Handle already taken — please register with a different username' }));
 			return;
@@ -838,7 +825,7 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 
 		// Hash password and create registered user
 		const passwordHash = await hashPassword(password);
-		const user = userRepository.create({
+		const user = await stateUserStore.createAsync({
 			username: tempSession.username,
 			handle,
 			password_hash: passwordHash,
@@ -858,8 +845,8 @@ export async function handleUpgrade(req: IncomingMessage, res: ServerResponse): 
 
 		// Update session to be registered
 		const newSessionId = generateRegisteredSessionId();
-		sessionRepository.delete(sessionId);
-		sessionRepository.create({
+		stateSessionStore.delete(sessionId);
+		await stateSessionStore.createAsync({
 			session_id: newSessionId,
 			user_id: user.user_id,
 			username: user.username,

@@ -2,13 +2,12 @@ import { IncomingMessage, ServerResponse } from 'http';
 import { getAuthenticatedUserIdFromRequest } from '../auth/requestAuth.js';
 import { getUserRoles } from '../auth/roleMiddleware.js';
 import {
-	stateChannelMemberStore as channelMemberRepository,
-	stateChannelStore as channelRepository,
+	stateChannelMemberStore,
+	stateChannelStore,
 	stateMessageStore,
 	stateRbacStore
 } from '../state-plane/index.js';
-import type { DbChannel } from '../db/repositories/channelRepository.js';
-import type { ClientMessage } from '../db/repositories/messageRepository.js';
+import type { ClientMessage, DbChannel } from '../state-plane/records.js';
 import { isRequestBodyTooLargeError, readJsonObjectBody } from '../utils/requestBodies.js';
 import type {
 	FollowedChannelPollChannelResult,
@@ -88,7 +87,7 @@ function canUserAccessChannel(userId: number, channel: DbChannel): boolean {
 		return getHighestRolePriority(userId) >= requiredPriority;
 	}
 
-	return channelMemberRepository.isMember(channel.channel_id, getRegisteredStableUserId(userId));
+	return stateChannelMemberStore.isMember(channel.channel_id, getRegisteredStableUserId(userId));
 }
 
 function canGuestAccessChannel(channel: DbChannel): boolean {
@@ -168,7 +167,7 @@ export async function handlePollFollowedChannelActivity(
 
 		const channels: FollowedChannelPollChannelResult<ClientMessage>[] = [];
 		for (const request of requestedChannels) {
-			const channel = channelRepository.findById(request.channelId);
+			const channel = stateChannelStore.findById(request.channelId);
 			if (!channel || !isMessageBearingChannel(channel)) continue;
 			if (userId) {
 				if (!canUserAccessChannel(userId, channel)) continue;

@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import { derived, writable } from 'svelte/store';
+import { derived, get, writable } from 'svelte/store';
 import type { FrontendAppMetadataPolicy, LaunchPageConfig } from './api';
 import { getLaunchPageConfigFrom, getPublicFrontendAppMetadata } from './api';
 import {
@@ -9,6 +9,7 @@ import {
 	getStoredUsername
 } from './authSession';
 import {
+	activeServerUrl as activeServerUrlStore,
 	getConfiguredServerRememberPreference,
 	normalizeServerUrl,
 	resolveServerUrl,
@@ -661,10 +662,12 @@ export function openUnsavedServer(url: string): void {
 	switchToSavedServer(url);
 }
 
-const activeServerUrl = browser ? normalizeServerUrl(resolveServerUrl().url) : null;
-
-export const savedServers = derived(savedServersState, ($state) =>
-	sortEntries($state.entries).map((entry) => deriveServerView(entry, activeServerUrl))
+export const savedServers = derived(
+	[savedServersState, activeServerUrlStore],
+	([$state, $activeServerUrl]) =>
+		sortEntries($state.entries).map((entry) =>
+			deriveServerView(entry, normalizeServerUrl($activeServerUrl || '') || $activeServerUrl || null)
+		)
 );
 
 export const savedServerFolders = derived(savedServersState, ($state) => $state.folders);
@@ -744,7 +747,7 @@ export const currentSavedServer = derived(savedServers, ($entries) =>
 );
 
 if (browser) {
-	const currentUrl = activeServerUrl;
+	const currentUrl = normalizeServerUrl(get(activeServerUrlStore) || '');
 	if (currentUrl) {
 		const existingEntry = loadState().entries.find((entry) => entry.url === currentUrl);
 		if (existingEntry) {

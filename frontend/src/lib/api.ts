@@ -237,6 +237,25 @@ export interface PaymentDonationAuditResponse {
 	donations: PaymentDonationLedgerEntry[];
 }
 
+export interface PublicBackendEndpoint {
+	instanceId: string;
+	url: string;
+	region: string;
+	role: string;
+	status: string;
+	currentConnections: number;
+	currentRegisteredUsers: number;
+	currentGuestUsers: number;
+	leaseExpiresAt: number;
+}
+
+export interface PublicBackendEndpointsResponse {
+	success: boolean;
+	currentUrl: string | null;
+	endpoints: PublicBackendEndpoint[];
+	generatedAt: number;
+}
+
 export type ManualCashSettlementStatus =
 	| 'pending'
 	| 'confirmed_by_creator'
@@ -787,6 +806,17 @@ export async function getLaunchPageConfigFrom(baseUrl?: string | null): Promise<
 
 export async function getPublicFrontendAppMetadata(baseUrl?: string | null): Promise<FrontendAppMetadataPolicy | null> {
 	const res = await fetchWithTimeout(`${getApiBaseFor(baseUrl)}/api/public/frontend-app-metadata`, {
+		method: 'GET',
+		timeoutMs: LAUNCH_PAGE_TIMEOUT_MS
+	});
+	if (!res.ok) return null;
+	return res.json();
+}
+
+export async function getPublicBackendEndpointsFrom(
+	baseUrl?: string | null
+): Promise<PublicBackendEndpointsResponse | null> {
+	const res = await fetchWithTimeout(`${getApiBaseFor(baseUrl)}/api/public/backend-endpoints`, {
 		method: 'GET',
 		timeoutMs: LAUNCH_PAGE_TIMEOUT_MS
 	});

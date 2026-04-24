@@ -1,4 +1,4 @@
-import type { DbChannel } from '../db/repositories/channelRepository.js';
+import type { DbChannel } from './records.js';
 import type { ChannelStoreRuntimeStats } from './storeTypes.js';
 import { escapeSqlLiteral } from './stdbSyncClient.js';
 import {

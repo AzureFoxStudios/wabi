@@ -1,5 +1,5 @@
 import { appPolicyRepository } from './db/repositories/appPolicyRepository.js';
-import { stateUserStore as userRepository } from './state-plane/index.js';
+import { stateUserStore } from './state-plane/index.js';
 import type {
 	CommunityNodeAccessMode,
 	CommunityNodeAllowedUser,
@@ -25,7 +25,7 @@ function normalizeMode(value: unknown): CommunityNodeAccessMode {
 
 function resolveAllowedUser(value: unknown): CommunityNodeAllowedUser | null {
 	if (typeof value === 'number' && Number.isFinite(value)) {
-		const user = userRepository.findById(Math.floor(value));
+		const user = stateUserStore.findById(Math.floor(value));
 		return user?.user_id && user.username ? { userId: user.user_id, username: user.username } : null;
 	}
 	if (typeof value === 'string') {
@@ -33,10 +33,10 @@ function resolveAllowedUser(value: unknown): CommunityNodeAllowedUser | null {
 		if (!trimmed) return null;
 		const numeric = Number(trimmed);
 		if (Number.isFinite(numeric)) {
-			const user = userRepository.findById(Math.floor(numeric));
+			const user = stateUserStore.findById(Math.floor(numeric));
 			return user?.user_id && user.username ? { userId: user.user_id, username: user.username } : null;
 		}
-		const user = userRepository.findByUsername(trimmed);
+		const user = stateUserStore.findByUsername(trimmed);
 		return user?.user_id && user.username ? { userId: user.user_id, username: user.username } : null;
 	}
 	if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -49,11 +49,11 @@ function resolveAllowedUser(value: unknown): CommunityNodeAllowedUser | null {
 				? Math.floor(Number(input.userId))
 				: NaN;
 	if (Number.isFinite(maybeUserId) && maybeUserId > 0) {
-		const user = userRepository.findById(maybeUserId);
+		const user = stateUserStore.findById(maybeUserId);
 		return user?.user_id && user.username ? { userId: user.user_id, username: user.username } : null;
 	}
 	if (maybeUsername) {
-		const user = userRepository.findByUsername(maybeUsername);
+		const user = stateUserStore.findByUsername(maybeUsername);
 		return user?.user_id && user.username ? { userId: user.user_id, username: user.username } : null;
 	}
 	return null;

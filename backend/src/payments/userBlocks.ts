@@ -2,6 +2,7 @@ import db from '../db/database.js';
 import { DEFAULT_WORKSPACE_ID } from '../constants.js';
 import { stdbPaymentIngest, stdbPaymentRows, stdbPaymentsEnabled, parseStdbRowJson, lookupStdbUsername } from './stdbRuntime.js';
 import { escapeSqlLiteral } from '../state-plane/stdbSyncClient.js';
+import { stateUserStore } from '../state-plane/index.js';
 import type { PaymentUserBlock } from '../../../shared/paymentContracts.js';
 
 interface PaymentUserBlockRow {
@@ -69,6 +70,20 @@ function hydrateStdbUsernames(block: PaymentUserBlock): PaymentUserBlock {
 	};
 }
 
+function lookupLocalUsername(userId: number | null | undefined): string | null {
+	if (!Number.isFinite(userId) || !userId || userId <= 0) return null;
+	const user = stateUserStore.findById(Math.floor(userId));
+	return typeof user?.username === 'string' && user.username.trim().length > 0 ? user.username : null;
+}
+
+function hydrateLocalUsernames(block: PaymentUserBlock): PaymentUserBlock {
+	return {
+		...block,
+		blockedByUsername: block.blockedByUsername || lookupLocalUsername(block.blockedByUserId),
+		blockedUsername: block.blockedUsername || lookupLocalUsername(block.userId)
+	};
+}
+
 function sortPaymentUserBlocksByBlockedAtDesc(left: PaymentUserBlock, right: PaymentUserBlock): number {
 	const diff = right.blockedAt - left.blockedAt;
 	if (diff !== 0) return diff;
@@ -126,12 +141,8 @@ function fetchRawBlock(userId: number, workspaceId: string): PaymentUserBlockRow
 					pb.reason,
 					pb.blocked_by_user_id,
 					pb.blocked_at,
-					pb.expires_at,
-					u.username AS blocked_username,
-					actor.username AS blocked_by_username
+					pb.expires_at
 				FROM payment_user_blocks pb
-				LEFT JOIN users u ON u.user_id = pb.user_id
-				LEFT JOIN users actor ON actor.user_id = pb.blocked_by_user_id
 				WHERE pb.user_id = ? AND pb.workspace_id = ?
 				LIMIT 1
 			`
@@ -158,19 +169,15 @@ export function listPaymentUserBlocks(
 					pb.reason,
 					pb.blocked_by_user_id,
 					pb.blocked_at,
-					pb.expires_at,
-					u.username AS blocked_username,
-					actor.username AS blocked_by_username
+					pb.expires_at
 				FROM payment_user_blocks pb
-				LEFT JOIN users u ON u.user_id = pb.user_id
-				LEFT JOIN users actor ON actor.user_id = pb.blocked_by_user_id
 				WHERE pb.workspace_id = ?
 				ORDER BY pb.blocked_at DESC
 				LIMIT ?
 			`
 		)
 		.all(workspaceId, safeLimit) as PaymentUserBlockRow[];
-	const legacy = rows.map(toPaymentUserBlock);
+	const legacy = rows.map((row) => hydrateLocalUsernames(toPaymentUserBlock(row)));
 	if (stdbPaymentsEnabled()) {
 		for (const row of legacy) {
 			upsertPaymentUserBlockStdb(row);
@@ -229,7 +236,7 @@ export function upsertPaymentUserBlock(input: {
 	).run(userId, workspaceId, reason, blockedByUserId, blockedAt, expiresAt);
 
 	const created = fetchRawBlock(userId, workspaceId);
-	const block = created ? toPaymentUserBlock(created) : null;
+	const block = created ? hydrateLocalUsernames(toPaymentUserBlock(created)) : null;
 	if (block && stdbPaymentsEnabled()) {
 		upsertPaymentUserBlockStdb(block);
 	}
@@ -257,7 +264,7 @@ export function getActivePaymentUserBlock(
 		clearPaymentUserBlock(Math.floor(userId), workspaceId);
 		return null;
 	}
-	const legacy = toPaymentUserBlock(row);
+	const legacy = hydrateLocalUsernames(toPaymentUserBlock(row));
 	if (stdbPaymentsEnabled()) {
 		upsertPaymentUserBlockStdb(legacy);
 	}

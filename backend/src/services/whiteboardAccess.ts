@@ -1,4 +1,4 @@
-import type { DbChannel } from "../db/repositories/channelRepository.js";
+import type { DbChannel } from "../state-plane/records.js";
 import type { WhiteboardRecord } from "../db/repositories/whiteboardRepository.js";
 import { DEFAULT_WORKSPACE_ID } from "../constants.js";
 

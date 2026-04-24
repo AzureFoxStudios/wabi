@@ -99,11 +99,10 @@ async function expectOk(response: Response, context: string): Promise<any> {
 }
 
 async function main(): Promise<void> {
-	const [{ default: db }, { generateToken }, { sessionRepository }, { whiteboardRepository }, { UPLOADS_DIR }] =
+	const [{ default: db }, { generateToken }, { whiteboardRepository }, { UPLOADS_DIR }] =
 		await Promise.all([
 			import('../src/db/database.js'),
 			import('../src/auth/jwt.js'),
-			import('../src/db/repositories/sessionRepository.js'),
 			import('../src/db/repositories/whiteboardRepository.js'),
 			import('../src/constants.js')
 		]);
@@ -131,7 +130,34 @@ async function main(): Promise<void> {
 
 	let uploadedFileId = '';
 	try {
-		sessionRepository.create(session);
+		db.prepare(
+			`
+				INSERT INTO sessions (
+					session_id,
+					user_id,
+					username,
+					color,
+					profile_picture,
+					created_at,
+					expires_at,
+					is_temporary,
+					socket_id,
+					last_seen
+				)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`
+		).run(
+			session.session_id,
+			session.user_id,
+			session.username,
+			session.color,
+			session.profile_picture || null,
+			session.created_at,
+			session.expires_at,
+			session.is_temporary,
+			session.socket_id || null,
+			session.last_seen || null
+		);
 		const token = generateToken({
 			sessionId,
 			userId: user.user_id,
@@ -211,7 +237,7 @@ async function main(): Promise<void> {
 			)
 		);
 	} finally {
-		sessionRepository.delete(sessionId);
+		db.prepare('DELETE FROM sessions WHERE session_id = ?').run(sessionId);
 
 		if (uploadedFileId) {
 			const candidate = join(UPLOADS_DIR, uploadedFileId);

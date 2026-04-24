@@ -17,7 +17,8 @@
  */
 
 import { writable, get } from 'svelte/store';
-import { io, Socket } from 'socket.io-client';
+import { io } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 import { browser } from '$app/environment';
 import { showNotification, messageMentionsUser } from './notifications';
 import { initEmotes, addEmote, removeEmote } from './markdown';
@@ -33,10 +34,16 @@ import { setRecordingPresence } from './callRecordingPresence';
 import * as calling from './calling';
 import type { FileAttachment, Message, Emoji, User, Channel, MessageEntity, VoiceChannelSettings } from './socket-types';
 	import { emojis } from './emoji-store';
-	import { getServerUrl } from './serverUrl';
+	import {
+		getConfiguredServerRememberPreference,
+		getServerUrl,
+		normalizeServerUrl,
+		setConfiguredServerUrl
+	} from './serverUrl';
 	import { authStore } from './authStore';
 	import {
 		clearGuestSessionId,
+		copyScopedAuthState,
 		getAuthToken,
 		getGuestSessionId,
 		getStoredDbUserId,
@@ -48,6 +55,10 @@ import type { FileAttachment, Message, Emoji, User, Channel, MessageEntity, Voic
 	import { getDMPrivacyMode } from './dmPrivacyMode';
 	import { mobileTabQueue } from './mobileTabQueue';
 import { emitPaymentRealtimeEvent } from './paymentRealtime';
+import {
+	getCachedBackendEndpointCandidates,
+	refreshBackendEndpointCandidates
+} from './backendEndpoints';
 import { rememberLocalWabiAccount } from './localWabiAccounts';
 import { currentSavedServer, recordSuccessfulServerConnection } from './savedServers';
 	import { consumePendingChannelNavigation } from './pendingServerNavigation';
@@ -395,6 +406,10 @@ class SocketManager {
 	private authToken: string | null = null;
 	private pendingIncomingMessages = new Map<string, Message[]>();
 	private incomingMessageFlushHandle: number | ReturnType<typeof setTimeout> | null = null;
+	private currentServerUrl: string | null = null;
+	private failoverCandidates: string[] = [];
+	private currentFailoverCandidateIndex = 0;
+	private shouldSyncAfterReconnect = false;
 
 	// State machine
 	private state: ConnectionState = 'disconnected';
@@ -698,12 +713,87 @@ class SocketManager {
 		this.connectTimeoutMs = 20000;
 	}
 
+	private setFailoverCandidates(
+		urls: Array<string | null | undefined>,
+		preferredUrl?: string | null
+	): void {
+		const preferred = normalizeServerUrl(preferredUrl || '');
+		const deduped: string[] = [];
+		const seen = new Set<string>();
+
+		if (preferred) {
+			deduped.push(preferred);
+			seen.add(preferred);
+		}
+
+		for (const candidate of urls) {
+			const normalized = normalizeServerUrl(candidate || '');
+			if (!normalized || seen.has(normalized)) continue;
+			seen.add(normalized);
+			deduped.push(normalized);
+		}
+
+		if (deduped.length === 0) return;
+		this.failoverCandidates = deduped;
+		const currentUrl = preferred || this.currentServerUrl;
+		const currentIndex = currentUrl ? deduped.findIndex((candidate) => candidate === currentUrl) : -1;
+		this.currentFailoverCandidateIndex = currentIndex >= 0 ? currentIndex : 0;
+	}
+
+	private primeFailoverCandidates(serverUrl: string): void {
+		const normalizedServerUrl = normalizeServerUrl(serverUrl);
+		if (!normalizedServerUrl) return;
+		const cached = getCachedBackendEndpointCandidates(normalizedServerUrl);
+		this.setFailoverCandidates([normalizedServerUrl, ...cached], normalizedServerUrl);
+	}
+
+	private async refreshFailoverCandidates(serverUrl: string): Promise<void> {
+		const normalizedServerUrl = normalizeServerUrl(serverUrl);
+		if (!normalizedServerUrl) return;
+		try {
+			const candidates = await refreshBackendEndpointCandidates(normalizedServerUrl);
+			if (candidates.length > 0) {
+				this.setFailoverCandidates(candidates, normalizedServerUrl);
+			}
+		} catch (error) {
+			console.warn('[SocketManager] Failed to refresh backend failover candidates:', error);
+		}
+	}
+
+	private rotateToNextFailoverCandidate(): boolean {
+		const currentUrl = normalizeServerUrl(this.currentServerUrl || getServerUrl());
+		if (!currentUrl) return false;
+
+		this.primeFailoverCandidates(currentUrl);
+		if (this.failoverCandidates.length < 2) {
+			return false;
+		}
+
+		const startIndex = this.failoverCandidates.findIndex((candidate) => candidate === currentUrl);
+		const baseIndex = startIndex >= 0 ? startIndex : this.currentFailoverCandidateIndex;
+		for (let offset = 1; offset < this.failoverCandidates.length; offset += 1) {
+			const nextIndex = (baseIndex + offset) % this.failoverCandidates.length;
+			const nextUrl = this.failoverCandidates[nextIndex];
+			if (!nextUrl || nextUrl === currentUrl) continue;
+
+			copyScopedAuthState(currentUrl, nextUrl);
+			setConfiguredServerUrl(nextUrl, getConfiguredServerRememberPreference());
+			this.currentServerUrl = nextUrl;
+			this.currentFailoverCandidateIndex = nextIndex;
+			console.warn(`[SocketManager] Rotating backend endpoint: ${currentUrl} -> ${nextUrl}`);
+			return true;
+		}
+
+		return false;
+	}
+
 	/**
 	 * Initialize socket connection.
 	 * Safe to call multiple times - will not create duplicates.
 	 */
 	connect(username: string, authToken?: string): Socket | null {
 		if (!browser) return null;
+		const isReconnectAttempt = this.state === 'reconnecting' || this.reconnectAttempts > 0;
 
 		// Guard: If already connecting or connected with same credentials, reuse
 		if (this.state === 'connecting') {
@@ -726,13 +816,21 @@ class SocketManager {
 		this.transition('connecting');
 		this.username = username;
 		this.authToken = authToken || null;
+		if (isReconnectAttempt) {
+			this.shouldSyncAfterReconnect = true;
+		}
 
 		// Clean up any existing socket BEFORE creating new one
 		this.destroySocket();
 
 		// Determine server URL
 		let serverUrl = getServerUrl();
+		this.currentServerUrl = normalizeServerUrl(serverUrl) || serverUrl;
+		this.primeFailoverCandidates(serverUrl);
 		this.applyConnectionProfile(serverUrl);
+		if (this.currentServerUrl) {
+			void this.refreshFailoverCandidates(this.currentServerUrl);
+		}
 
 		// Get auth credentials safely
 		const { token, sessionId } = this.getAuthCredentials(authToken);
@@ -784,6 +882,10 @@ class SocketManager {
 		this.username = '';
 		this.authToken = null;
 		this.reconnectAttempts = 0;
+		this.currentServerUrl = null;
+		this.failoverCandidates = [];
+		this.currentFailoverCandidateIndex = 0;
+		this.shouldSyncAfterReconnect = false;
 		this.transition('disconnected');
 		activeVoiceChannel.set(null);
 		voiceChannelMembers.set({});
@@ -801,6 +903,10 @@ class SocketManager {
 		connectionState.set('disconnected');
 		connected.set(false);
 		this.reconnectAttempts = 0;
+		this.currentServerUrl = null;
+		this.failoverCandidates = [];
+		this.currentFailoverCandidateIndex = 0;
+		this.shouldSyncAfterReconnect = false;
 		activeVoiceChannel.set(null);
 		voiceChannelMembers.set({});
 	}
@@ -887,6 +993,9 @@ class SocketManager {
 		this.reconnectTimer = setTimeout(() => {
 			this.reconnectTimer = null;
 			if (this.username && this.state === 'reconnecting') {
+				if (this.reconnectAttempts >= 1) {
+					this.rotateToNextFailoverCandidate();
+				}
 				this.connect(this.username, this.authToken || undefined);
 			}
 		}, delay);
@@ -946,6 +1055,11 @@ class SocketManager {
 
 			this.transition('connected');
 			this.reconnectAttempts = 0;
+			this.currentServerUrl = normalizeServerUrl(getServerUrl()) || this.currentServerUrl;
+			if (this.currentServerUrl) {
+				this.setFailoverCandidates([this.currentServerUrl, ...this.failoverCandidates], this.currentServerUrl);
+				void this.refreshFailoverCandidates(this.currentServerUrl);
+			}
 			this.startHeartbeat();
 
 			// Send join/rejoin
@@ -1116,19 +1230,9 @@ class SocketManager {
 				});
 			}
 
-			// On reconnect, sync newer messages for the current channel
-			if (this.reconnectAttempts > 0) {
-				const currentChan = get(currentChannel);
-				const msgs = get(channelMessages)[currentChan];
-				if (msgs && msgs.length > 0) {
-					const newestMsg = msgs[msgs.length - 1];
-					console.log(`[SocketManager] Reconnect: syncing messages after ${newestMsg.id}`);
-					sock.emit('load-history', {
-						channelId: currentChan,
-						afterMessageId: newestMsg.id,
-						limit: 100
-					});
-				}
+			if (this.shouldSyncAfterReconnect) {
+				this.syncMissedMessagesAfterReconnect(sock, processedChannels);
+				this.shouldSyncAfterReconnect = false;
 			}
 
 			const pendingChannelId = consumePendingChannelNavigation(getServerUrl());
@@ -2308,6 +2412,28 @@ class SocketManager {
 
 		channelLoadedArchives.set(loadedArchives);
 		channelAvailableArchives.set(result.availableArchives);
+	}
+
+	private syncMissedMessagesAfterReconnect(sock: Socket, processedChannels: Channel[]): void {
+		const messagesByChannel = get(channelMessages);
+		let requestedChannels = 0;
+
+		for (const channel of processedChannels) {
+			const channelHistory = messagesByChannel[channel.id];
+			const newestMsg = channelHistory?.[channelHistory.length - 1];
+			if (!newestMsg) continue;
+
+			sock.emit('load-history', {
+				channelId: channel.id,
+				afterMessageId: newestMsg.id,
+				limit: 100
+			});
+			requestedChannels += 1;
+		}
+
+		if (requestedChannels > 0) {
+			console.log(`[SocketManager] Reconnect: syncing missed messages for ${requestedChannels} channel(s)`);
+		}
 	}
 
 	private incrementUnreadCount(channelId: string, messageId: string): void {

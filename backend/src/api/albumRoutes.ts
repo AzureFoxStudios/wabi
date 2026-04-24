@@ -6,8 +6,8 @@ import { UPLOADS_DIR } from '../constants.js';
 import { existsSync, unlinkSync } from 'fs';
 import { basename, resolve, sep } from 'path';
 import {
-	stateChannelStore as channelRepository,
-	stateChannelMemberStore as channelMemberRepository
+	stateChannelStore,
+	stateChannelMemberStore
 } from '../state-plane/index.js';
 import { albumRepository, type AlbumScopeType, type DbAlbumItem, type DbAlbumWithCounts } from '../db/repositories/albumRepository.js';
 import {
@@ -190,7 +190,7 @@ function userCanAccessScope(
 	scopeType: AlbumScopeType,
 	scopeId: string
 ): { allowed: true } | { allowed: false; status: number; error: string } {
-	const channel = channelRepository.findById(scopeId);
+	const channel = stateChannelStore.findById(scopeId);
 	if (!channel) {
 		return { allowed: false, status: 404, error: 'Scope channel not found' };
 	}
@@ -205,7 +205,7 @@ function userCanAccessScope(
 
 	if (isDmLike) {
 		const stableUserId = `user-${userId}`;
-		if (!channelMemberRepository.isMember(scopeId, stableUserId)) {
+		if (!stateChannelMemberStore.isMember(scopeId, stableUserId)) {
 			return { allowed: false, status: 403, error: 'Not a member of this DM/group scope' };
 		}
 		return { allowed: true };

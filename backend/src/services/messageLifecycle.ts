@@ -1,4 +1,4 @@
-import type { ClientMessage } from "../db/repositories/messageRepository.js";
+import type { ClientMessage } from "../state-plane/records.js";
 import { messageRetentionToMs, type MessageRetentionDuration } from "../../../shared/messageRetention.js";
 
 export type RealtimeChannelMessage = ClientMessage & {

@@ -1,6 +1,6 @@
 import { IncomingMessage, ServerResponse } from 'http';
 import { dictionaryRepository } from '../db/repositories/dictionaryRepository.js';
-import { stateUserStore as userRepository } from '../state-plane/index.js';
+import { stateUserStore } from '../state-plane/index.js';
 import {
 	isInvalidJsonBodyError as isInvalidJsonError,
 	isRequestBodyTooLargeError as isPayloadTooLargeError,
@@ -114,7 +114,7 @@ export async function handleDictionaryUpsert(
 			return;
 		}
 
-		const user = userRepository.findById(userId);
+		const user = stateUserStore.findById(userId);
 		const entry = dictionaryRepository.upsert({
 			workspaceId,
 			term,

@@ -4,7 +4,7 @@ import { relayRepository } from '../db/repositories/relayRepository.js';
 import { getAuthenticatedUserIdFromRequest } from '../auth/requestAuth.js';
 import { parseRelayMetadata } from '../relay/relayMetadata.js';
 import { announceCommunityNodeStatusChange } from '../communityNodeAnnouncements.js';
-import { stateUserStore as userRepository } from '../state-plane/index.js';
+import { stateUserStore } from '../state-plane/index.js';
 import {
 	isInvalidJsonBodyError as isInvalidJsonError,
 	isRequestBodyTooLargeError as isPayloadTooLargeError,
@@ -480,7 +480,7 @@ export async function handleDesktopHelperRegister(
 			return;
 		}
 
-		const user = userRepository.findById(userId);
+		const user = stateUserStore.findById(userId);
 		if (!user) {
 			writeJson(res, 404, { error: 'Registered user not found' });
 			return;
@@ -584,7 +584,7 @@ export async function handleDesktopHelperHeartbeat(
 			return;
 		}
 
-		const user = userRepository.findById(userId);
+		const user = stateUserStore.findById(userId);
 		const metadata = parseRelayMetadata(existing.metadata_json);
 		const effectiveStatus = existing.approved === 1 ? 'active' : 'pending';
 

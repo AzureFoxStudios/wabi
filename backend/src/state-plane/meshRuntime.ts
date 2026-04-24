@@ -41,6 +41,7 @@ export interface StateMeshInstanceLeaseRecord {
 	leaseExpiresAt: number;
 	startedAt: number;
 	meshUrl: string | null;
+	publicUrl: string | null;
 }
 
 export interface StateMeshDeliveryEnvelope {
@@ -123,6 +124,10 @@ const meshInstanceUrlTemplate = normalizeOptional(process.env.WABI_MESH_INSTANCE
 const meshSharedToken =
 	normalizeOptional(process.env.WABI_MESH_SHARED_TOKEN) ||
 	normalizeOptional(process.env.WABI_STDB_AUTH_TOKEN);
+const publicClientUrl =
+	normalizeClientBackendUrl(process.env.WABI_PUBLIC_BACKEND_URL) ||
+	normalizeClientBackendUrl(process.env.PUBLIC_URL) ||
+	normalizeClientBackendUrl(process.env.FRONTEND_URL);
 const heartbeatIntervalMs = normalizePositiveInt(process.env.WABI_MESH_HEARTBEAT_INTERVAL_MS, 5000, 1000, 60000);
 const leaseTtlMs = normalizePositiveInt(
 	process.env.WABI_MESH_LEASE_TTL_MS,
@@ -199,6 +204,28 @@ function normalizeMeshIngressUrl(value: string | undefined): string | null {
 	return `http://${normalized.replace(/\/+$/, '')}`;
 }
 
+function normalizeClientBackendUrl(value: string | undefined | null): string | null {
+	const normalized = normalizeMeshIngressUrl(value ?? undefined);
+	if (!normalized) return null;
+	try {
+		const parsed = new URL(normalized);
+		const host = parsed.hostname.toLowerCase();
+		const isLocalHost =
+			host === 'localhost' ||
+			host === '127.0.0.1' ||
+			host === '::1' ||
+			host === '[::1]' ||
+			host === 'tauri.localhost';
+		if (isLocalHost && (parsed.port === '5173' || parsed.port === '3000')) {
+			parsed.port = '8080';
+		}
+		const normalizedPath = parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/+$/, '');
+		return `${parsed.origin}${normalizedPath}`;
+	} catch {
+		return normalized;
+	}
+}
+
 function normalizePositiveInt(
 	value: string | undefined,
 	fallback: number,
@@ -238,6 +265,23 @@ function toNumber(value: unknown): number {
 	if (value == null) return NaN;
 	const parsed = Number(value);
 	return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function parseRowJsonObject(row: StdbDecodedRow | null | undefined): Record<string, unknown> | null {
+	if (!row) return null;
+	const raw =
+		typeof row.row_json === 'string'
+			? row.row_json
+			: (typeof row.rowJson === 'string' ? row.rowJson : null);
+	if (!raw) return null;
+	try {
+		const parsed = JSON.parse(raw);
+		return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: null;
+	} catch {
+		return null;
+	}
 }
 
 function isRegisteredStableUserId(stableUserId: string | null | undefined): stableUserId is string {
@@ -336,6 +380,7 @@ async function publishBackendInstanceLease(status = stopping ? 'draining' : 'act
 				currentConnections: counts.currentConnections,
 				currentRegisteredUsers: counts.currentRegisteredUsers,
 				currentGuestUsers: counts.currentGuestUsers,
+				publicUrl: publicClientUrl,
 				heartbeatAt,
 				leaseExpiresAt,
 				startedAt: runtimeStartedAt || heartbeatAt
@@ -645,6 +690,7 @@ function decodePresenceLeaseRow(row: StdbDecodedRow | null | undefined): StateMe
 
 function decodeInstanceLeaseRow(row: StdbDecodedRow | null | undefined): StateMeshInstanceLeaseRecord | null {
 	if (!row) return null;
+	const rowJson = parseRowJsonObject(row);
 	const instanceIdValue =
 		typeof row.instance_id === 'string'
 			? row.instance_id
@@ -673,7 +719,18 @@ function decodeInstanceLeaseRow(row: StdbDecodedRow | null | undefined): StateMe
 		heartbeatAt: toNumber(row.heartbeat_at ?? row.heartbeatAt),
 		leaseExpiresAt: toNumber(row.lease_expires_at ?? row.leaseExpiresAt),
 		startedAt: toNumber(row.started_at ?? row.startedAt),
-		meshUrl: resolveMeshUrlForInstance(instanceIdValue)
+		meshUrl: resolveMeshUrlForInstance(instanceIdValue),
+		publicUrl: normalizeClientBackendUrl(
+			typeof row.public_url === 'string'
+				? row.public_url
+				: typeof row.publicUrl === 'string'
+					? row.publicUrl
+					: typeof rowJson?.public_url === 'string'
+						? rowJson.public_url
+						: typeof rowJson?.publicUrl === 'string'
+							? rowJson.publicUrl
+							: null
+		)
 	};
 }
 
@@ -685,7 +742,7 @@ export function findStateMeshInstanceLeaseById(targetInstanceId: string | null |
 	if (!meshEnabled || !targetInstanceId) return null;
 	try {
 		const rows = stdbClient.sqlRows(
-			`SELECT instance_id, region, role, status, current_connections, current_registered_users, current_guest_users, heartbeat_at, lease_expires_at, started_at FROM state_backend_instance_lease WHERE instance_id = ${escapeSqlLiteral(targetInstanceId)} LIMIT 1`
+			`SELECT instance_id, region, role, status, current_connections, current_registered_users, current_guest_users, heartbeat_at, lease_expires_at, started_at, row_json FROM state_backend_instance_lease WHERE instance_id = ${escapeSqlLiteral(targetInstanceId)} LIMIT 1`
 		);
 		const lease = decodeInstanceLeaseRow(rows[0]);
 		return lease && isLeaseActive(lease.status, lease.leaseExpiresAt) ? lease : null;
@@ -699,7 +756,7 @@ export function listActiveStateMeshInstanceLeases(): StateMeshInstanceLeaseRecor
 	if (!meshEnabled) return [];
 	try {
 		const rows = stdbClient.sqlRows(
-			'SELECT instance_id, region, role, status, current_connections, current_registered_users, current_guest_users, heartbeat_at, lease_expires_at, started_at FROM state_backend_instance_lease LIMIT 256'
+			'SELECT instance_id, region, role, status, current_connections, current_registered_users, current_guest_users, heartbeat_at, lease_expires_at, started_at, row_json FROM state_backend_instance_lease LIMIT 256'
 		);
 		return rows
 			.map((row) => decodeInstanceLeaseRow(row))

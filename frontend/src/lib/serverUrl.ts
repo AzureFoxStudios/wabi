@@ -1,8 +1,11 @@
 import { browser } from '$app/environment';
+import { writable } from 'svelte/store';
 
 const PERSISTED_URL_KEY = 'wabi.serverUrl';
 const PERSISTED_REMEMBER_KEY = 'wabi.serverUrlRemember';
 const SESSION_URL_KEY = 'wabi.serverUrlSession';
+
+export const activeServerUrl = writable<string>(browser ? resolveServerUrlInternal().url : 'http://localhost:8080');
 
 function isLocalHost(value: string): boolean {
 	const normalized = value.toLowerCase();
@@ -102,6 +105,7 @@ export function setConfiguredServerUrl(value: string, remember: boolean): string
 			localStorage.removeItem(PERSISTED_URL_KEY);
 			localStorage.setItem(PERSISTED_REMEMBER_KEY, 'false');
 		}
+		activeServerUrl.set(normalized);
 	}
 
 	return normalized;
@@ -116,6 +120,14 @@ export function getServerUrl(): string {
 }
 
 export function resolveServerUrl(): { url: string; source: string } {
+	const result = resolveServerUrlInternal();
+	if (browser) {
+		activeServerUrl.set(result.url);
+	}
+	return result;
+}
+
+function resolveServerUrlInternal(): { url: string; source: string } {
 	if (!browser) {
 		return { url: 'http://localhost:8080', source: 'ssr_default' };
 	}

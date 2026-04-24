@@ -44,6 +44,82 @@ Remaining P7 work for next session:
 Verify current state: `curl http://tim:8080/state-plane/healthz` should return `mode=stdb_primary`
 in every `*_store` block with no `warmup`/`shadow`/`parity`/`read_switch` sections.
 
+### 2026-04-23 completion update
+
+Follow-up work in this session finished the code-side P7 cleanup:
+
+- **P7.5 done.** Shared state types/formatting moved to `backend/src/state-plane/records.ts`.
+  Runtime callers now import the state-plane stores directly (or alias them locally after
+  importing from `state-plane/index.ts`), the auth async shim fallback is gone, and the
+  legacy repository files for `message`, `channel`, `channel_member`, `user`, and `session`
+  were deleted.
+- **P7b done.** `scripts/launch.sh` no longer parses/applies the retired hybrid/shadow
+  env flags, and `scripts/state-plane-stdb-benchmark.ps1` was deleted.
+- **Additional cleanup:** `payments/userBlocks.ts` now hydrates usernames from STDB-backed
+  user lookups instead of joining the stale SQLite `users` mirror, and `server.ts` no longer
+  uses SQLite `users`/`sessions` paths for setup status or moderation session revocation.
+- **Still deferred:** live tim verification/deploy. From this coding environment `tim` did not
+  resolve, so `/state-plane/healthz`, rsync, and smoke tests on tim were not rerun here.
+- **Important nuance:** the SQLite tables `users`, `sessions`, `channels`, `channel_members`,
+  and `messages` still exist in `schema.sql`/`database.ts`. They are no longer used through
+  the deleted repository layer, but fully dropping them is a separate schema-decoupling task
+  because other legacy SQLite tables and scripts still reference them directly or via foreign
+  keys.
+
+### 2026-04-23 P8 progress update
+
+P8 is now partially implemented in code, with the backend/client failover plumbing in place:
+
+- **Backend endpoint discovery shipped.** Backend instance leases now publish a client-connect
+  URL in the existing lease `row_json` payload, and `GET /api/public/backend-endpoints` returns
+  the active backend candidates for the current mesh. This did **not** require a new STDB table
+  or a bridge republish because the extra field rides inside the existing lease JSON. The runtime
+  advertises `WABI_PUBLIC_BACKEND_URL` when set, otherwise falls back to `PUBLIC_URL` /
+  `FRONTEND_URL`.
+- **Client endpoint rotation shipped.** The frontend caches backend candidates in localStorage,
+  carries auth/session/identity scope forward when rotating to a peer backend, and reconnects
+  against alternate healthy endpoints instead of retrying one dead URL forever.
+- **Reconnect catch-up improved.** On reconnect/failover, the client now requests newer history
+  for each locally-loaded channel instead of only attempting a same-URL socket reconnect.
+- **Still deferred:** live multi-node smoke and operator rollout. No tim/developer mesh test was
+  run from this environment, so same-region failover is code-complete but not operationally
+  proven yet.
+
+### 2026-04-24 P8 completion update
+
+P8 is now operationally verified on the 3-node Tailscale mesh:
+
+- **Client failover shipped and proven live.** The frontend now seeds backend candidates during
+  session restore / login in `frontend/src/routes/+page.svelte`, in addition to the socket-level
+  refresh path. This closes the gap where the browser could fetch `/api/public/backend-endpoints`
+  but never persist `wabi.backendEndpoints.v1` before a backend died.
+- **Two STDB auth bugs were fixed.**
+  - `backend/src/state-plane/stdbUserStore.ts` now preserves `password_hash` on STDB writes.
+    Earlier sanitized writes stripped it, which broke bcrypt verification for newly-created
+    owner users.
+  - `backend/src/state-plane/stdbSessionStore.ts` no longer issues `WHERE user_id = <int>`
+    SQL against the `Option<i64>` `state_session.user_id` column. Registered-session lookups now
+    scan active sessions and filter in process, which fixed login/session revocation on peers.
+- **Live mesh rollout completed on tim + local + Iyoku.** Frontend and backend builds were
+  refreshed across:
+  - `http://100.96.11.45:8080` / `:3000` (`tim`)
+  - `http://100.87.255.66:8080` / `:3000` (local dev box)
+  - `http://100.104.166.42:8080` / `:3000` (`Iyoku`)
+- **Browser failover was validated twice.**
+  - A browser session served from the local frontend but pinned to `tim` rotated from
+    `http://100.96.11.45:8080` to `http://100.87.255.66:8080` after `tim` backend shutdown, and
+    the mesh reported the live registered connection on the new node.
+  - A browser session served from the `tim` frontend rotated from `http://100.96.11.45:8080` to
+    `http://100.104.166.42:8080` after `tim` backend shutdown, proving the 3rd node participates
+    as a real failover target.
+- **Current steady state:** `/state-plane/healthz` is clean `stdb_primary` on all 3 backends and
+  `/api/public/backend-endpoints` returns the full 3-node peer set from both `tim` and `Iyoku`.
+
+Residual note:
+- `StdbPrimaryMessageStore.cleanup()` still logs a non-fatal STDB SQL helper error on
+  `expires_at IS NOT NULL` when retained-message expiry cleanup runs on peers. This did not block
+  P8 failover, but it is still worth fixing in a later cleanup pass.
+
 ---
 
 ## P7 — Cleanup (deferred from P6)
@@ -150,8 +226,8 @@ The original migration plan ended at P8: once STDB is the sole source of truth, 
 longer a shared-state bottleneck, so clients can move between backend instances without losing
 presence/sessions/subscriptions. P8 delivers the features that were gated on this.
 
-**P8 is a design phase first.** Don't jump to implementation — the user will want to align on scope
-before code. Start by asking which of these items they want to tackle, in what order:
+P8 started as a design-first phase, but the failover plumbing below is now implemented. Remaining
+work is mostly operational proof and any follow-on mesh UX hardening.
 
 1. **Mesh presence leases.** Each backend node already registers with `WABI_MESH_*` envs; add a
    shared presence table in STDB (`state_presence_lease`?) and have each backend write a

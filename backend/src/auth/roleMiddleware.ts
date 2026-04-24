@@ -1,5 +1,5 @@
 import {
-	stateUserStore as userRepository,
+	stateUserStore,
 	stateRbacStore
 } from '../state-plane/index.js';
 import { DEFAULT_WORKSPACE_ID } from '../constants.js';
@@ -19,7 +19,7 @@ export interface UserWithRoles {
  * Get all roles for a user in a workspace
  */
 export function getUserRoles(userId: number, workspaceId: string = DEFAULT_WORKSPACE_ID): UserRole[] {
-	const user = userRepository.findById(userId);
+	const user = stateUserStore.findById(userId);
 	if (!user) return [];
 
 	const result = stateRbacStore.getUserRoles(userId, workspaceId);
@@ -128,7 +128,7 @@ export function removeRole(userId: number, role: UserRole, workspaceId: string):
  * Get all users with their roles
  */
 export function getAllUsersWithRoles(workspaceId: string = DEFAULT_WORKSPACE_ID): UserWithRoles[] {
-	const users = userRepository.getAll();
+	const users = stateUserStore.getAll();
 
 	return users.map(user => ({
 		...user,

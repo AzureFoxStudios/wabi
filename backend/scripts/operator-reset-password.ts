@@ -1,9 +1,8 @@
 import { randomBytes } from 'crypto';
 import { hashPassword } from '../src/auth/passwordHash.js';
-import { closeDatabase } from '../src/db/database.js';
+import db, { closeDatabase } from '../src/db/database.js';
 import { settingsRepository } from '../src/db/repositories/settingsRepository.js';
-import { sessionRepository } from '../src/db/repositories/sessionRepository.js';
-import { userRepository, type RegisteredUser } from '../src/db/repositories/userRepository.js';
+import type { RegisteredUser } from '../src/state-plane/records.js';
 
 type StateStores = Awaited<typeof import('../src/state-plane/index.js')> | null;
 
@@ -97,9 +96,21 @@ function findUserLocally(identifier: string): RegisteredUser | null {
 	const trimmed = identifier.trim();
 	if (!trimmed) return null;
 	if (/^\d+$/.test(trimmed)) {
-		return userRepository.findById(Number(trimmed));
+		return (db.prepare('SELECT * FROM users WHERE user_id = ? LIMIT 1').get(Number(trimmed)) as RegisteredUser) || null;
 	}
-	return userRepository.findByHandleOrUsername(trimmed);
+	const handle = trimmed.replace(/^@/, '');
+	return (
+		db
+			.prepare(
+				`
+					SELECT *
+					FROM users
+					WHERE handle = ? COLLATE NOCASE OR username = ? COLLATE NOCASE
+					LIMIT 1
+				`
+			)
+			.get(handle, trimmed) as RegisteredUser
+	) || null;
 }
 
 async function findUser(identifier: string, stateStores: StateStores): Promise<RegisteredUser | null> {
@@ -124,7 +135,8 @@ async function revokeRegisteredSessions(userId: number, stateStores: StateStores
 	if (stateStores) {
 		return stateStores.stateSessionStore.deleteRegisteredByUserId(userId);
 	}
-	return sessionRepository.deleteRegisteredByUserId(userId);
+	const result = db.prepare('DELETE FROM sessions WHERE user_id = ? AND is_temporary = 0').run(userId);
+	return Number(result.changes || 0);
 }
 
 async function main(): Promise<void> {
@@ -159,7 +171,7 @@ async function main(): Promise<void> {
 	if (stateStores) {
 		stateStores.stateUserStore.update(targetUser.user_id, { password_hash: passwordHash });
 	} else {
-		userRepository.update(targetUser.user_id, { password_hash: passwordHash });
+		db.prepare('UPDATE users SET password_hash = ? WHERE user_id = ?').run(passwordHash, targetUser.user_id);
 	}
 
 	settingsRepository.set(targetUser.user_id, {

@@ -1,4 +1,4 @@
-import type { Session } from '../db/repositories/sessionRepository.js';
+import type { Session } from './records.js';
 import type { SessionStoreRuntimeStats } from './storeTypes.js';
 import { escapeSqlLiteral } from './stdbSyncClient.js';
 import {
@@ -25,6 +25,13 @@ export class StdbPrimarySessionStore extends StdbStoreBase {
 			parsed.push(session);
 		}
 		return parsed;
+	}
+
+	private loadActiveSessions(limit = 5000): Session[] {
+		const rows = this.client.sqlRows(
+			`SELECT row_json FROM state_session WHERE deleted = false LIMIT ${Math.max(1, Math.floor(limit))}`
+		);
+		return this.parseSessions(rows);
 	}
 
 	private loadSession(sessionId: string, includeDeleted = false): Session | null {
@@ -75,10 +82,9 @@ export class StdbPrimarySessionStore extends StdbStoreBase {
 
 	findByUserId(userId: number): Session | null {
 		bumpOperation(this.stats, 'findByUserId');
-		const rows = this.client.sqlRows(
-			`SELECT row_json FROM state_session WHERE user_id = ${Math.floor(userId)} AND deleted = false LIMIT 5000`
-		);
-		const sessions = this.parseSessions(rows)
+		const normalizedUserId = Math.floor(userId);
+		const sessions = this.loadActiveSessions()
+			.filter((session) => session.user_id === normalizedUserId)
 			.filter((session) => session.is_temporary !== 1)
 			.sort((a, b) => b.created_at - a.created_at);
 		return sessions[0] || null;
@@ -119,10 +125,10 @@ export class StdbPrimarySessionStore extends StdbStoreBase {
 	}
 
 	private loadRegisteredSessionsByUserId(userId: number): Session[] {
-		const rows = this.client.sqlRows(
-			`SELECT row_json FROM state_session WHERE user_id = ${Math.floor(userId)} AND deleted = false LIMIT 5000`
-		);
-		return this.parseSessions(rows).filter((session) => session.is_temporary !== 1);
+		const normalizedUserId = Math.floor(userId);
+		return this.loadActiveSessions()
+			.filter((session) => session.user_id === normalizedUserId)
+			.filter((session) => session.is_temporary !== 1);
 	}
 
 	deleteRegisteredByUserId(userId: number): number {

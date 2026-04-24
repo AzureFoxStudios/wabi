@@ -1,8 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { getAuthenticatedUserIdFromRequest } from '../auth/requestAuth.js';
 import { DEFAULT_WORKSPACE_ID } from '../constants.js';
-import { channelRepository } from '../db/repositories/channelRepository.js';
-import { channelMemberRepository } from '../db/repositories/channelMemberRepository.js';
+import {
+	stateChannelMemberStore,
+	stateChannelStore
+} from '../state-plane/index.js';
 import {
 	manualSettlementRepository,
 	type ManualCashConversationRow,
@@ -68,7 +70,7 @@ function resolveDmCashChannelContext(
 	userId: number,
 	channelId: string
 ): { otherUserId: number; otherUsername: string | null } | { error: string; status: number } {
-	const channel = channelRepository.findById(channelId);
+	const channel = stateChannelStore.findById(channelId);
 	if (!channel) {
 		return { status: 404, error: 'DM channel not found' };
 	}
@@ -77,11 +79,11 @@ function resolveDmCashChannelContext(
 	}
 
 	const stableUserId = `user-${userId}`;
-	if (!channelMemberRepository.isMember(channelId, stableUserId)) {
+	if (!stateChannelMemberStore.isMember(channelId, stableUserId)) {
 		return { status: 403, error: 'You are not a member of this DM' };
 	}
 
-	const members = channelMemberRepository.getMembers(channelId);
+	const members = stateChannelMemberStore.getMembers(channelId);
 	const otherMember = members.find(
 		(member) => member.user_id !== stableUserId && Number.isFinite(member.registered_user_id)
 	);

@@ -1,6 +1,6 @@
 import type { IncomingHttpHeaders, IncomingMessage, Server as HttpServer, ServerResponse } from 'http';
 import type { Server, Socket } from 'socket.io';
-import type { ClientMessage } from '../db/repositories/messageRepository.js';
+import type { ClientMessage } from '../state-plane/records.js';
 import type { MessageRetentionDuration } from '../../../shared/messageRetention.js';
 import type {
   PaymentCheckoutMode,

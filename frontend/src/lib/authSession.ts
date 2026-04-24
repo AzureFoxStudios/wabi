@@ -191,3 +191,15 @@ export function clearAuthSession(serverUrl?: string | null): void {
 	clearAuthToken(serverUrl);
 	clearGuestSessionId(serverUrl);
 }
+
+export function copyScopedAuthState(fromServerUrl: string, toServerUrl: string): void {
+	if (!browser) return;
+	const fromScope = resolveServerScope(fromServerUrl);
+	const toScope = resolveServerScope(toServerUrl);
+	if (fromScope === toScope) return;
+
+	setAuthToken(getAuthToken(fromServerUrl), toServerUrl);
+	setGuestSessionId(getGuestSessionId(fromServerUrl), toServerUrl);
+	setStoredUsername(getStoredUsername(fromServerUrl), toServerUrl);
+	setStoredDbUserId(getStoredDbUserId(fromServerUrl), toServerUrl);
+}

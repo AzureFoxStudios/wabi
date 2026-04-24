@@ -1,4 +1,4 @@
-import type { RegisteredUser } from '../db/repositories/userRepository.js';
+import type { RegisteredUser } from './records.js';
 import type { UserStoreRuntimeStats } from './storeTypes.js';
 import {
 	StdbStoreBase,
@@ -12,10 +12,13 @@ import { escapeSqlLiteral } from './stdbSyncClient.js';
 
 type FeatureState = 'unknown' | 'enabled' | 'disabled';
 
-/** Strip sensitive fields before sending user data to SpaceTimeDB. */
-function sanitizeRowForStdb<T extends Record<string, unknown>>(row: T): Omit<T, 'password_hash'> {
-	const { password_hash: _, ...safe } = row;
-	return safe as Omit<T, 'password_hash'>;
+/**
+ * Keep the full auth record in the shared state plane.
+ * After the SQLite repo cutover, every backend must be able to verify
+ * registered-user passwords from STDB-backed user rows.
+ */
+function cloneRowForStdb<T extends Record<string, unknown>>(row: T): T {
+	return { ...row };
 }
 
 export class StdbPrimaryUserStore extends StdbStoreBase {
@@ -117,7 +120,7 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 				userId: created.user_id,
 				username: created.username,
 				handle: created.handle || null,
-				row: sanitizeRowForStdb(created)
+				row: cloneRowForStdb(created)
 			});
 			this.stats.writesSucceeded += 1;
 		} catch (error) {
@@ -139,7 +142,7 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 				userId: created.user_id,
 				username: created.username,
 				handle: created.handle || null,
-				row: sanitizeRowForStdb(created)
+				row: cloneRowForStdb(created)
 			});
 			this.stats.writesSucceeded += 1;
 		} catch (error) {
@@ -212,8 +215,8 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 		try {
 			this.ingest('user', 'update', {
 				userId,
-				updates: sanitizeRowForStdb(updates as Record<string, unknown>),
-				row: sanitizeRowForStdb(next)
+				updates: cloneRowForStdb(updates as Record<string, unknown>),
+				row: cloneRowForStdb(next)
 			});
 			this.stats.writesSucceeded += 1;
 		} catch (error) {
@@ -230,7 +233,7 @@ export class StdbPrimaryUserStore extends StdbStoreBase {
 		try {
 			this.ingest('user', 'delete', {
 				userId,
-				row: sanitizeRowForStdb(next)
+				row: cloneRowForStdb(next)
 			});
 			this.stats.writesSucceeded += 1;
 		} catch (error) {
