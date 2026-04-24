@@ -9,7 +9,7 @@ function warnOnce(key: string, error: unknown): void {
 	if (warnedKeys.has(key)) return;
 	warnedKeys.add(key);
 	const detail = error instanceof Error ? error.message : String(error);
-	console.warn(`[StatePlane] ${key}; whiteboard repository is falling back to SQLite (${detail})`);
+	console.warn(`[StatePlane] ${key}; whiteboard STDB write failed (${detail})`);
 }
 
 export function stdbWhiteboardsEnabled(): boolean {

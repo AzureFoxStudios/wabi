@@ -1,4 +1,3 @@
-import db from '../database.js';
 import { DEFAULT_WORKSPACE_ID } from '../../constants.js';
 import {
 	stdbWhiteboardIngest,
@@ -157,13 +156,6 @@ export class WhiteboardRepository {
 		}
 	}
 
-	private findByBoardIdLegacy(boardId: string): WhiteboardRecord | null {
-		const row = db
-			.prepare('SELECT * FROM whiteboards WHERE board_id = ? LIMIT 1')
-			.get(boardId) as WhiteboardRow | undefined;
-		return this.parseRow(row);
-	}
-
 	private findByBoardIdStdb(boardId: string): WhiteboardRecord | null {
 		const rows = stdbWhiteboardRows(
 			'whiteboards.read',
@@ -172,47 +164,6 @@ export class WhiteboardRepository {
 		if (!rows || rows.length === 0) return null;
 		const parsed = this.safeParseJson(String(rows[0].row_json || ''));
 		return this.parseRow(parsed as Partial<WhiteboardRow> | null);
-	}
-
-	private setLegacy(row: WhiteboardRow): void {
-		db.prepare(`
-			INSERT INTO whiteboards (
-				board_id,
-				workspace_id,
-				scope_type,
-				scope_id,
-				version,
-				document_json,
-				is_private,
-				created_by,
-				updated_by,
-				created_at,
-				updated_at
-			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(board_id) DO UPDATE SET
-				workspace_id = excluded.workspace_id,
-				scope_type = excluded.scope_type,
-				scope_id = excluded.scope_id,
-				version = excluded.version,
-				document_json = excluded.document_json,
-				is_private = excluded.is_private,
-				created_by = COALESCE(whiteboards.created_by, excluded.created_by),
-				updated_by = excluded.updated_by,
-				updated_at = excluded.updated_at
-		`).run(
-			row.board_id,
-			row.workspace_id,
-			row.scope_type,
-			row.scope_id,
-			row.version,
-			row.document_json,
-			row.is_private,
-			row.created_by,
-			row.updated_by,
-			row.created_at,
-			row.updated_at
-		);
 	}
 
 	private upsertStdb(row: WhiteboardRow): void {
@@ -226,12 +177,9 @@ export class WhiteboardRepository {
 
 	getByBoardId(boardId: string): WhiteboardRecord | null {
 		if (stdbWhiteboardsEnabled()) {
-			const legacy = this.findByBoardIdLegacy(boardId);
-			if (legacy) return legacy;
 			return this.findByBoardIdStdb(boardId);
 		}
-
-		return this.findByBoardIdLegacy(boardId);
+		return null;
 	}
 
 	getOrCreateForChannel(channelId: string, actorStableId: string): WhiteboardRecord {
@@ -258,16 +206,20 @@ export class WhiteboardRepository {
 			this.upsertStdb(row);
 		}
 
-		this.setLegacy(row);
 		return this.parseRow(row)!;
 	}
 
 	listAll(): WhiteboardRecord[] {
-		const rows = db
-			.prepare('SELECT * FROM whiteboards ORDER BY updated_at DESC')
-			.all() as WhiteboardRow[];
+		if (!stdbWhiteboardsEnabled()) {
+			return [];
+		}
+		const rows = stdbWhiteboardRows(
+			'whiteboards.list',
+			`SELECT row_json FROM state_whiteboards ORDER BY last_updated_at DESC`
+		);
 		return rows
-			.map((row) => this.parseRow(row))
+			.map((row) => this.safeParseJson(String(row.row_json || '')))
+			.map((parsed) => this.parseRow(parsed as Partial<WhiteboardRow> | null))
 			.filter((row): row is WhiteboardRecord => row !== null);
 	}
 
@@ -299,7 +251,6 @@ export class WhiteboardRepository {
 			this.upsertStdb(row);
 		}
 
-		this.setLegacy(row);
 		return this.parseRow(row);
 	}
 }
