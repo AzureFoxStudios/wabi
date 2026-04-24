@@ -159,7 +159,7 @@ export class WhiteboardRepository {
 	private findByBoardIdStdb(boardId: string): WhiteboardRecord | null {
 		const rows = stdbWhiteboardRows(
 			'whiteboards.read',
-			`SELECT row_json FROM state_whiteboards WHERE board_id = ${toSqlStringLiteral(boardId)} LIMIT 1`
+			`SELECT row_json FROM state_whiteboard WHERE board_id = ${toSqlStringLiteral(boardId)} LIMIT 1`
 		);
 		if (!rows || rows.length === 0) return null;
 		const parsed = this.safeParseJson(String(rows[0].row_json || ''));
@@ -215,7 +215,7 @@ export class WhiteboardRepository {
 		}
 		const rows = stdbWhiteboardRows(
 			'whiteboards.list',
-			`SELECT row_json FROM state_whiteboards ORDER BY last_updated_at DESC`
+			`SELECT row_json FROM state_whiteboard ORDER BY last_updated_at DESC`
 		);
 		return rows
 			.map((row) => this.safeParseJson(String(row.row_json || '')))
