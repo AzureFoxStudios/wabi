@@ -1,41 +1,60 @@
-import db from '../database.js';
+import { stdbGuestCodeIngest, stdbGuestCodeRows, stdbGuestCodesEnabled } from './stdbGuestCodeRuntime.js';
 
 export interface GuestCode {
-  code: string;
-  description: string;
-  created_at: number;
-  created_by: number | null;
-  is_active: number;
+	code: string;
+	description: string;
+	created_at: number;
+	created_by: number | null;
+	is_active: boolean;
+}
+
+function normalizeGuestCode(row: Record<string, unknown>): GuestCode | null {
+	const code = String(row.code || '');
+	if (!code) return null;
+	return {
+		code,
+		description: String(row.description || ''),
+		created_at: Number(row.created_at) || 0,
+		created_by: row.created_by != null ? Number(row.created_by) : null,
+		is_active: Boolean(row.is_active)
+	};
 }
 
 export class GuestCodeRepository {
-  // Verify if code is valid
-  isValidCode(code: string): boolean {
-    const stmt = db.prepare('SELECT is_active FROM guest_codes WHERE code = ?');
-    const result = stmt.get(code) as { is_active: number } | undefined;
-    return result?.is_active === 1;
-  }
+	isValidCode(code: string): boolean {
+		if (!stdbGuestCodesEnabled()) return false;
+		const rows = stdbGuestCodeRows(
+			'guest_codes.validate',
+			`SELECT is_active FROM state_guest_code WHERE code = '${code.replace(/'/g, "''")}' LIMIT 1`
+		);
+		return rows.length > 0 && rows[0].is_active === true;
+	}
 
-  // Create new guest code
-  create(code: string, description: string, createdBy?: number): void {
-    const stmt = db.prepare(`
-      INSERT INTO guest_codes (code, description, created_by, created_at)
-      VALUES (?, ?, ?, ?)
-    `);
-    stmt.run(code, description, createdBy || null, Math.floor(Date.now() / 1000));
-  }
+	create(code: string, description: string, createdBy?: number): void {
+		if (!stdbGuestCodesEnabled()) return;
+		stdbGuestCodeIngest('guest_codes.write', 'upsert_code', {
+			code,
+			description,
+			createdBy,
+			isActive: true
+		});
+	}
 
-  // List all codes
-  listAll(): GuestCode[] {
-    const stmt = db.prepare('SELECT * FROM guest_codes ORDER BY created_at DESC');
-    return stmt.all() as GuestCode[];
-  }
+	listAll(): GuestCode[] {
+		if (!stdbGuestCodesEnabled()) return [];
+		const rows = stdbGuestCodeRows(
+			'guest_codes.list',
+			`SELECT code, description, created_at, created_by, is_active FROM state_guest_code ORDER BY created_at DESC`
+		);
+		return rows
+			.map(row => normalizeGuestCode(row))
+			.filter((c): c is GuestCode => c !== null);
+	}
 
-  // Deactivate code
-  deactivate(code: string): void {
-    const stmt = db.prepare('UPDATE guest_codes SET is_active = 0 WHERE code = ?');
-    stmt.run(code);
-  }
+	deactivate(code: string): void {
+		if (!stdbGuestCodesEnabled()) return;
+		stdbGuestCodeIngest('guest_codes.delete', 'delete_code', { code });
+	}
 }
 
 export const guestCodeRepository = new GuestCodeRepository();
