@@ -1,0 +1,158 @@
+/* ==========================================================================
+   SETTINGS — PROFILE STYLES
+   Extracted from settings.css
+   ========================================================================== */
+
+
+
+	.profile-hero-card {
+		position: relative;
+		overflow: hidden;
+		border: 1px solid color-mix(in srgb, var(--border-subtle) 70%, rgba(var(--accent-rgb), 0.3));
+		border-radius: 20px;
+		background:
+			linear-gradient(180deg, color-mix(in srgb, var(--surface-base) 88%, transparent), color-mix(in srgb, var(--surface-raised) 86%, transparent)),
+			var(--surface-base);
+		box-shadow: 0 18px 42px var(--shadow-lg, rgba(0, 0, 0, 0.18));
+	}
+
+
+	.profile-hero-banner {
+		height: 86px;
+		background: var(--accent-primary);
+		filter: saturate(1.08);
+	}
+
+
+	.profile-hero-banner::after {
+		content: '';
+		display: block;
+		width: 100%;
+		height: 100%;
+		background:
+			radial-gradient(circle at 18% 24%, rgba(var(--text-inverse-rgb, 255, 255, 255), 0.34), transparent 26%),
+			linear-gradient(180deg, transparent, color-mix(in srgb, var(--surface-base) 88%, transparent));
+	}
+
+
+	.profile-hero-main {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr) auto;
+		align-items: end;
+		gap: 1rem;
+		padding: 0 1rem 1rem;
+		margin-top: -42px;
+	}
+
+
+	.profile-hero-avatar-wrap {
+		position: relative;
+		width: 92px;
+		height: 92px;
+		padding: 5px;
+		border-radius: 28px;
+		background: color-mix(in srgb, var(--surface-base) 92%, black 8%);
+		box-shadow: 0 12px 30px var(--shadow-lg, rgba(0, 0, 0, 0.26));
+	}
+
+
+	.profile-hero-avatar {
+		width: 100%;
+		height: 100%;
+		border-radius: 23px;
+		object-fit: cover;
+	}
+
+
+	.profile-hero-avatar-fallback {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: var(--text-inverse, #fff);
+		font-size: 2rem;
+		font-weight: 800;
+	}
+
+
+	.profile-hero-status {
+		position: absolute;
+		right: 6px;
+		bottom: 6px;
+		width: 18px;
+		height: 18px;
+		border-radius: 999px;
+		border: 4px solid var(--surface-base);
+		background: var(--status-online);
+	}
+
+
+	.profile-hero-status.away {
+		background: var(--status-away);
+	}
+
+
+	.profile-hero-status.busy {
+		background: var(--status-busy);
+	}
+
+
+	.profile-hero-status.offline {
+		background: var(--status-offline);
+	}
+
+
+	.profile-hero-copy {
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		padding-bottom: 0.1rem;
+	}
+
+
+	.profile-hero-kicker {
+		width: fit-content;
+		padding: 0.15rem 0.5rem;
+		border-radius: 999px;
+		background: rgba(var(--accent-rgb), 0.14);
+		border: 1px solid rgba(var(--accent-rgb), 0.22);
+		color: var(--text-secondary);
+		font-size: 0.68rem;
+		font-weight: 800;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+	}
+
+
+	.profile-hero-copy h3 {
+		margin: 0;
+		color: var(--text-heading);
+		font-size: clamp(1.25rem, 3vw, 1.8rem);
+		font-weight: 800;
+		letter-spacing: -0.03em;
+		text-transform: none;
+	}
+
+
+	.profile-hero-copy p {
+		margin: 0;
+		color: var(--text-secondary);
+		font-size: 0.88rem;
+	}
+
+
+	.profile-hero-actions {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+	}
+
+
+	.profile-hero-action {
+		border: 1px solid rgba(var(--accent-rgb), 0.34);
+		background: rgba(var(--accent-rgb), 0.14);
+		color: var(--text-heading);
+		border-radius: 999px;
+		padding: 0.62rem 0.9rem;
+		font-weight: 750;
+	}

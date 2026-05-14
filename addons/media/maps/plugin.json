@@ -1,0 +1,23 @@
+{
+  "id": "maps",
+  "name": "Maps",
+  "version": "0.1.0",
+  "description": "Interactive maps and location sharing.",
+  "author": "Community",
+  "enabled": true,
+  "backend": {
+    "type": "typescript",
+    "entry": "./backend"
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts"
+  },
+  "permissions": ["channels:read", "channels:write"],
+  "security": {
+    "threatNotes": "Location data with optional sharing controls."
+  },
+  "capabilities": {
+    "tier": "media",
+    "notes": "Interactive maps and location features."
+  }
+}

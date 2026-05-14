@@ -1,0 +1,63 @@
+{
+  "id": "stocks-watch",
+  "name": "Stocks Watch",
+  "version": "0.1.0",
+  "description": "Mock market watchlist panel used to verify workspace panel manifests.",
+  "author": "Community",
+  "enabled": true,
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "extensions": {
+      "workspacePanels": [
+        {
+          "id": "watchlist",
+          "label": "Stocks",
+          "shortLabel": "Stocks",
+          "icon": "activity",
+          "component": "stocks-watchlist",
+          "capabilities": [
+            "badge",
+            "settings-entry",
+            "unavailable-fallback"
+          ],
+          "defaultDock": "right",
+          "preferredDockArea": "right",
+          "mobileMode": "sheet",
+          "badge": "3",
+          "settingsRoute": "addons/stocks-watch",
+          "fallbackBehavior": {
+            "title": "Stocks Watch is a manifest-only example",
+            "message": "The add-on registry can show this panel, badge, settings link, and fallback state before a trusted UI component is bundled."
+          },
+          "sortOrder": 340
+        }
+      ],
+      "mobileTabs": [
+        {
+          "id": "watchlist",
+          "label": "Stocks",
+          "shortLabel": "Stocks",
+          "icon": "activity",
+          "badge": "3"
+        }
+      ],
+      "settingsPages": [
+        {
+          "id": "stocks-watch",
+          "label": "Stocks Watch",
+          "route": "addons/stocks-watch"
+        }
+      ]
+    }
+  },
+  "permissions": [
+    "channels:read"
+  ],
+  "security": {
+    "threatNotes": "Manifest-only mock. It does not make network requests or execute backend code."
+  },
+  "capabilities": {
+    "tier": "ui-only",
+    "notes": "Example add-on panel declaration for registry/dock fallback behavior."
+  }
+}

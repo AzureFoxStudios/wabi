@@ -1,0 +1,41 @@
+/* ==========================================================================
+   ML — TRANSLATED STYLES
+   Extracted from messagelist.css
+   ========================================================================== */
+
+
+
+	.translated-content {
+		margin-top: 0.35rem;
+		padding: 0.4rem 0.5rem;
+		border: 1px dashed var(--border-subtle);
+		border-radius: 8px;
+		background: color-mix(in srgb, var(--surface-raised) 90%, var(--accent-primary) 10%);
+	}
+
+
+	.translated-content.loading {
+		opacity: 0.8;
+	}
+
+
+	.translated-label {
+		display: inline-block;
+		font-size: 0.65rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--text-secondary);
+		margin-bottom: 0.2rem;
+	}
+
+
+	.translated-text {
+		font-size: 0.88rem;
+		line-height: 1.45;
+		color: var(--text-heading);
+		white-space: pre-wrap;
+		max-height: min(22rem, 55vh);
+		overflow-y: auto;
+		scrollbar-width: thin;
+		scrollbar-color: color-mix(in srgb, var(--accent-primary) 24%, var(--border-subtle) 76%) transparent;
+	}

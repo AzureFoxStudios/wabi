@@ -1,0 +1,136 @@
+/* ==========================================================================
+   BADGES
+   Status indicators, notification counts, role badges.
+   ========================================================================== */
+
+/* --- Base Badge --- */
+.badge {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 18px;
+	height: 18px;
+	padding: 0 var(--space-2, 0.5rem);
+	border-radius: var(--radius-full, 9999px);
+	font-size: var(--font-size-xs, 0.6875rem);
+	font-weight: var(--font-weight-bold, 700);
+	line-height: 1;
+}
+
+/* --- Notification Badge (unread count) --- */
+.badge-notification {
+	background: var(--color-danger, #ef4444);
+	color: var(--text-on-danger, #ffffff);
+	min-width: 16px;
+	height: 16px;
+	padding: 0 4px;
+	font-size: 0.65rem;
+}
+
+.badge-notification.large {
+	min-width: 20px;
+	height: 20px;
+	padding: 0 6px;
+	font-size: 0.75rem;
+}
+
+/* --- Status Badge (online/away/busy) --- */
+.badge-status {
+	width: 10px;
+	height: 10px;
+	min-width: 10px;
+	padding: 0;
+	border-radius: var(--radius-full, 9999px);
+	border: 2px solid var(--surface-app, var(--surface-app, #1a1a2e));
+}
+
+.badge-status.online {
+	background: var(--status-online, #00ff7f);
+}
+
+.badge-status.away {
+	background: var(--status-away, #ffd700);
+}
+
+.badge-status.busy {
+	background: var(--status-busy, #ff1493);
+}
+
+.badge-status.offline {
+	background: var(--status-offline, #708090);
+}
+
+/* --- Role Badge (owner/admin/mod) --- */
+.badge-role {
+	background: var(--accent-subtle, rgba(255, 0, 255, 0.1));
+	color: var(--accent-primary, var(--accent, #ff00ff));
+	padding: 2px 8px;
+	border-radius: var(--radius-sm, 4px);
+	font-size: var(--font-size-xs, 0.6875rem);
+	font-weight: var(--font-weight-medium, 500);
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+}
+
+.badge-role.owner {
+	background: rgba(var(--status-away-rgb, 255, 215, 0), 0.15);
+	color: var(--status-away, #ffd700);
+}
+
+.badge-role.admin {
+	background: rgba(var(--accent-rgb, 255, 0, 255), 0.15);
+	color: var(--accent-primary, var(--accent, #ff00ff));
+}
+
+.badge-role.mod {
+	background: rgba(var(--color-info-rgb, 0, 191, 255), 0.15);
+	color: var(--color-info, #00bfff);
+}
+
+/* --- Tag Badge (muted/NSFW/bookmark) --- */
+.badge-tag {
+	display: inline-flex;
+	align-items: center;
+	padding: 2px 6px;
+	border-radius: var(--radius-sm, 4px);
+	font-size: var(--font-size-xs, 0.6875rem);
+	font-weight: var(--font-weight-medium, 500);
+	background: var(--surface-hover, var(--surface-hover, #302b63));
+	color: var(--text-secondary, var(--text-secondary, #b3b3ff));
+}
+
+.badge-tag.nsfw {
+	background: rgba(var(--color-danger-rgb, 255, 20, 147), 0.15);
+	color: var(--color-danger, #ff1493);
+}
+
+.badge-tag.muted {
+	background: rgba(var(--status-offline-rgb, 112, 128, 144), 0.15);
+	color: var(--status-offline, #708090);
+}
+
+.badge-tag.bookmarked {
+	background: rgba(var(--status-away-rgb, 255, 215, 0), 0.15);
+	color: var(--status-away, #ffd700);
+}
+
+/* --- Counter Chip --- */
+.badge-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1, 0.25rem);
+	padding: var(--space-1, 0.25rem) var(--space-2, 0.5rem);
+	border-radius: var(--radius-full, 9999px);
+	background: var(--surface-hover, var(--surface-hover, #302b63));
+	color: var(--text-secondary, var(--text-secondary, #b3b3ff));
+	font-size: var(--font-size-sm, 0.8125rem);
+}
+
+.badge-chip .label {
+	font-weight: var(--font-weight-regular, 400);
+}
+
+.badge-chip .value {
+	font-weight: var(--font-weight-semibold, 600);
+	color: var(--text-body, var(--text-heading, #e0e0ff));
+}

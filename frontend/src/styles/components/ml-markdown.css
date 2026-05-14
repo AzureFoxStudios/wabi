@@ -1,0 +1,147 @@
+/* ==========================================================================
+   ML — MARKDOWN STYLES
+   Extracted from messagelist.css
+   ========================================================================== */
+
+
+
+	.message.continuation .markdown-content {
+		line-height: 1.25;
+	}
+
+
+	.message.continuation .markdown-content :global(p) {
+		line-height: 1.25;
+		margin: 0 !important;
+	}
+
+
+	.markdown-content {
+		max-height: min(22rem, 55vh);
+		overflow-y: auto;
+		scrollbar-width: thin;
+		scrollbar-color: color-mix(in srgb, var(--accent-primary) 24%, var(--border-subtle) 76%) transparent;
+	}
+
+
+	.markdown-content::-webkit-scrollbar,
+	.translated-text::-webkit-scrollbar,
+	.role-gate-description::-webkit-scrollbar {
+		width: 8px;
+	}
+
+
+	.markdown-content::-webkit-scrollbar-track,
+	.translated-text::-webkit-scrollbar-track,
+	.role-gate-description::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+
+	.markdown-content::-webkit-scrollbar-thumb,
+	.translated-text::-webkit-scrollbar-thumb,
+	.role-gate-description::-webkit-scrollbar-thumb {
+		background: color-mix(in srgb, var(--accent-primary) 24%, var(--border-subtle) 76%);
+		border-radius: 999px;
+	}
+
+
+	.markdown-content :global(p) {
+		margin: 0;
+		line-height: 1.5;
+	}
+
+
+	.markdown-content :global(p:not(:last-child)) {
+		margin-bottom: 0.2rem;
+	}
+
+
+	.markdown-content :global(strong) {
+		font-weight: 600;
+	}
+
+
+	.markdown-content :global(em) {
+		font-style: italic;
+	}
+
+
+	.markdown-content :global(a) {
+		color: var(--color-info);
+		text-decoration: underline;
+	}
+
+
+	.markdown-content :global(a:hover) {
+		color: var(--color-info-hover);
+	}
+
+
+	.markdown-content :global(.mention-token) {
+		display: inline-block;
+		padding: 0.05rem 0.34rem;
+		border-radius: 0.4rem;
+		background: color-mix(in srgb, var(--accent-primary) 20%, transparent);
+		color: color-mix(in srgb, var(--accent-primary) 70%, var(--text-heading) 30%);
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.18s ease;
+	}
+
+
+	.markdown-content :global(.mention-token:hover) {
+		background: color-mix(in srgb, var(--accent-primary) 28%, transparent);
+	}
+
+
+	.markdown-content :global(code) {
+		word-wrap: break-word;
+		word-break: break-all;
+		overflow-wrap: break-word;
+	}
+
+
+	.markdown-content :global(pre) {
+		word-wrap: break-word;
+		word-break: break-word;
+		overflow-wrap: break-word;
+		white-space: pre-wrap;
+	}
+
+
+	.markdown-content :global(pre code) {
+		word-wrap: break-word;
+		word-break: break-word;
+		overflow-wrap: break-word;
+		white-space: pre-wrap;
+	}
+
+
+	/* Emote styles */
+	.markdown-content :global(.emote) {
+		display: inline-block;
+		height: 1.5em;
+		width: auto;
+		max-width: 128px;
+		max-height: 128px;
+		vertical-align: middle;
+		margin: 0 0.1em;
+	}
+
+
+.message .markdown-content,
+.message .markdown-content :global(p),
+:global(html[data-message-density='cozy']) .message .markdown-content,
+:global(html[data-message-density='cozy']) .message .markdown-content :global(p) {
+	line-height: 1.36 !important;
+	margin: 0 !important;
+}
+
+
+:global(html[data-message-density='compact']) .message .markdown-content,
+:global(html[data-message-density='compact']) .message .markdown-content :global(p) {
+	line-height: 1.22 !important;
+	font-size: calc(var(--text-base, 14px) * var(--chat-font-scale, 1) * 0.96) !important;
+	margin: 0 !important;
+}

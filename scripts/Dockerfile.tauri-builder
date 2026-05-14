@@ -1,0 +1,28 @@
+FROM rust:1.94-bookworm
+
+# Install Node.js 20
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+  && apt-get install -y nodejs
+
+# Install Tauri Linux build dependencies
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    libwebkit2gtk-4.1-dev \
+    build-essential \
+    curl \
+    wget \
+    file \
+    libssl-dev \
+    libayatana-appindicator3-dev \
+    librsvg2-dev \
+    pkg-config \
+    patchelf \
+    fakeroot \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install tauri CLI
+RUN cargo install tauri-cli@2.9.6
+
+WORKDIR /app
+
+# We'll mount the project here and build

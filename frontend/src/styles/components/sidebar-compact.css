@@ -1,0 +1,64 @@
+/* ==========================================================================
+   SIDEBAR — COMPACT STYLES
+   Extracted from channelsidebar.css
+   ========================================================================== */
+
+
+
+	/* Compact mode: show only letters */
+	.channel-sidebar.compact .logo-img {
+		height: 24px;
+		width: auto;
+	}
+
+
+	.channel-sidebar.compact .channel-actions {
+		display: none;
+	}
+
+
+	.channel-sidebar.compact .voice-inline-count,
+	.channel-sidebar.compact .voice-member-list,
+	.channel-sidebar.compact .thread-list {
+		display: none;
+	}
+
+
+	.compact-settings-btn {
+		width: 32px;
+		height: 32px;
+		border-radius: 4px;
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
+		opacity: 0.7;
+		padding: 0;
+	}
+
+
+	.compact-settings-btn svg {
+		width: 18px;
+		height: 18px;
+		stroke: currentColor;
+		stroke-width: 2;
+	}
+
+
+	.compact-settings-btn:hover {
+		background: var(--surface-base);
+		color: var(--text-heading);
+		opacity: 1;
+		box-shadow: inset 0 0 6px var(--surface-hover, rgba(255, 255, 255, 0.1));
+	}
+
+
+	:global(.app-container.nav-right) .channel-glimpse-popout,
+	.channel-sidebar.compact .channel-glimpse-popout {
+		left: auto;
+		right: calc(100% + 0.45rem);
+	}

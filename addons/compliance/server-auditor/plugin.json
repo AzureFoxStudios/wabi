@@ -1,0 +1,20 @@
+{
+  "id": "server-auditor",
+  "name": "Server Auditor",
+  "version": "0.1.0",
+  "description": "Server compliance auditing and reporting tool.",
+  "author": "Community",
+  "enabled": true,
+  "backend": {
+    "type": "rust",
+    "entry": "./backend"
+  },
+  "permissions": ["admin:read", "channels:read", "users:read"],
+  "security": {
+    "threatNotes": "Read-only audit reporting for compliance."
+  },
+  "capabilities": {
+    "tier": "compliance",
+    "notes": "Server compliance auditing and reporting."
+  }
+}

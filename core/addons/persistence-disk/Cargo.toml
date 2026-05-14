@@ -1,0 +1,19 @@
+[package]
+name = "wabi-persistence-disk"
+version = "0.1.0"
+edition = "2021"
+description = "Optional addon for persisting messages to disk as JSONL files"
+license = "MIT"
+
+[dependencies]
+wabi-core = { path = "../wabi-core" }
+tokio = { version = "1", features = ["fs", "io-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+tracing = "0.1"
+thiserror = "1"
+
+[features]
+default = []

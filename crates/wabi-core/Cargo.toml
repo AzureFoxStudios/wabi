@@ -1,0 +1,29 @@
+[package]
+name = "wabi-core"
+version.workspace = true
+edition.workspace = true
+description = "Shared Wabi protocol and domain logic"
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "wabi_core"
+path = "src/lib.rs"
+
+[features]
+default = []
+ts = ["dep:ts-rs"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+ts-rs = { version = "12.0", optional = true }
+
+[dev-dependencies]
+serde_json = "1.0"
+
+# Serde is the canonical wire-format layer. The first TypeScript generation
+# candidate is ts-rs because it emits TS declarations directly from Rust types
+# and honors serde naming; Specta remains a candidate for future Tauri command
+# typing if that richer ecosystem becomes useful.

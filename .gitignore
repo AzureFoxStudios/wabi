@@ -1,0 +1,123 @@
+# Dependencies
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Build outputs
+dist/
+build/
+target/
+backend/build/
+backend/dist/
+frontend/build/
+frontend/dist/
+.svelte-kit/
+.svelte-kit/output/
+
+# Tauri artifacts (NEVER commit these!)
+frontend/src-tauri/
+!frontend/src-tauri/icons/
+frontend/src-tauri.zip
+frontend/src-tauri.tar.gz
+tauri-app/
+tauri-app.zip
+tauri-app.tar.gz
+
+# Backend binaries (NEVER commit these!)
+backend/community-chat-server
+backend/community-chat-server.exe
+*.exe
+
+# ngrok artifacts (NEVER commit these!)
+.ngrok.exe
+.ngrok.exe.old
+ngrok.zip
+ngrok.yml
+start-ngrok.bat
+start-ngrok.sh
+
+# IDE & editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.example
+.env.local
+.env.production
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+Caddyfile
+
+# Logs & coverage
+*.log
+coverage/
+
+# OS
+.DS_Store
+nul
+
+# Misc
+static/_app/immutable/
+backend/uploads/
+uploads/
+backend/data/
+bun.lock
+spacetimedb/.local-data/
+spacetimedb/.local-data-test/
+spacetimedb/wabi_state_bridge/target/
+
+# Claude Code temporary files
+tmpclaude-*.cwd
+
+# TURN server files
+turn-server/certs/
+turn-server/turnserver.conf
+
+# Data files (per-instance, never commit)
+data/business/
+data/chat.db
+data/state-plane-stdb-token-cache.json
+data/state-plane-outbox.ndjson
+data/state-plane-schema-version.json
+data/state-plane-shadow.offset
+data/.plugin-storage/
+.env.save
+
+# Local backups / restore snapshots
+backups/
+
+# Generated OpenMoji assets (fetched at build/runtime)
+frontend/static/openmoji/png/
+frontend/static/openmoji/manifest.json
+assets/vendor/openmoji/
+backend/openmoji/
+
+# Export scratch/temp artifacts
+exports/tmp/
+.tmp/
+.wabi-keys/
+frontend/check-output.txt
+
+# Live operator config (holds secrets — wabi.config.example is the committed template)
+wabi.config
+.wabi-profile
+
+# STDB runtime identity + local recovery snapshots (never commit)
+data/spacetimedb/
+data/spacetimedb-config/
+data/stdb-publisher-config/
+spacetimedb/.local-data-recovery/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# STDB/local dev artifacts
+backend/data-spiderweb/
+frontend/test-results/
+frontend/wabi-failover.spec.js

@@ -1,0 +1,20 @@
+{
+  "id": "youtube-sync",
+  "name": "YouTube Sync",
+  "version": "0.1.0",
+  "description": "Synchronized YouTube video watching in channels.",
+  "author": "Community",
+  "enabled": true,
+  "backend": {
+    "type": "typescript",
+    "entry": "./backend"
+  },
+  "permissions": ["channels:read", "channels:write"],
+  "security": {
+    "threatNotes": "YouTube embeds and sync state only."
+  },
+  "capabilities": {
+    "tier": "content",
+    "notes": "Synchronized video watching."
+  }
+}

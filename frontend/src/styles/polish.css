@@ -1,0 +1,169 @@
+/* ==========================================================================
+   POLISH — Micro-interactions and visual refinements
+   Selection, placeholders, caret, touch ripple, empty states.
+   ========================================================================== */
+
+/* --- Selection color (theme-aware) --- */
+::selection {
+	background: rgba(var(--accent-rgb), 0.3);
+	color: var(--text-heading);
+}
+
+/* --- Placeholder color --- */
+::placeholder {
+	color: var(--text-muted);
+	opacity: 0.7;
+}
+
+/* --- Caret color --- */
+input, textarea, [contenteditable] {
+	caret-color: var(--accent-primary);
+}
+
+/* --- Touch feedback on mobile (active states) --- */
+@media (hover: none) and (pointer: coarse) {
+	button:active,
+	[role="button"]:active,
+	.channel-item:active,
+	.conversation-item:active,
+	.user-item:active,
+	.tab-btn:active {
+		background: var(--surface-hover);
+		opacity: var(--opacity-heavy);
+		transform: scale(0.97);
+		transition: all 80ms ease-out;
+	}
+
+	/* Prevent sticky hover states on touch devices */
+	button:hover,
+	[role="button"]:hover,
+	.channel-item:hover,
+	.conversation-item:hover,
+	.user-item:hover,
+	.tab-btn:hover {
+		background: transparent;
+		transform: none;
+	}
+
+	button:hover:not(:active),
+	[role="button"]:hover:not(:active) {
+		background: var(--surface-hover);
+	}
+}
+
+/* --- Empty state styling --- */
+.empty-state {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: var(--space-4);
+	padding: var(--space-12);
+	color: var(--text-muted);
+	text-align: center;
+}
+
+.empty-state-icon {
+	font-size: var(--font-size-6);
+	opacity: var(--opacity-strong);
+}
+
+.empty-state-title {
+	font-size: var(--text-lg);
+	font-weight: var(--font-weight-semibold);
+	color: var(--text-secondary);
+}
+
+.empty-state-subtitle {
+	font-size: var(--text-sm);
+	color: var(--text-muted);
+}
+
+/* --- Loading state overlay --- */
+.loading-overlay {
+	position: absolute;
+	inset: 0;
+	background: rgba(var(--surface-app-rgb), 0.6);
+	backdrop-filter: blur(2px);
+	-webkit-backdrop-filter: blur(2px);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: var(--z-overlay);
+}
+
+/* --- Error state banner --- */
+.error-banner {
+	background: rgba(var(--color-danger-rgb), 0.15);
+	border: 1px solid rgba(var(--color-danger-rgb), 0.3);
+	color: var(--color-danger);
+	padding: var(--space-3) var(--space-4);
+	border-radius: var(--radius-md);
+	font-size: var(--text-sm);
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+/* --- Success state banner --- */
+.success-banner {
+	background: rgba(var(--color-success-rgb), 0.15);
+	border: 1px solid rgba(var(--color-success-rgb), 0.3);
+	color: var(--color-success);
+	padding: var(--space-3) var(--space-4);
+	border-radius: var(--radius-md);
+	font-size: var(--text-sm);
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+/* --- Unread badge --- */
+.unread-badge {
+	background: var(--color-danger);
+	color: white;
+	font-size: var(--text-xs);
+	font-weight: var(--font-weight-bold);
+	min-width: 18px;
+	height: 18px;
+	border-radius: var(--radius-full);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0 var(--space-1);
+}
+
+/* --- Divider / separator --- */
+.divider {
+	height: 1px;
+	background: var(--border-subtle);
+	margin: var(--space-2) 0;
+}
+
+/* --- Tooltip base --- */
+.tooltip {
+	position: relative;
+}
+
+.tooltip::after {
+	content: attr(data-tooltip);
+	position: absolute;
+	bottom: calc(100% + var(--space-1));
+	left: 50%;
+	transform: translateX(-50%);
+	background: var(--surface-base);
+	color: var(--text-heading);
+	padding: var(--space-1) var(--space-2);
+	border-radius: var(--radius-sm);
+	font-size: var(--text-xs);
+	white-space: nowrap;
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity var(--duration-fast);
+	z-index: var(--z-popout);
+	box-shadow: var(--shadow-md);
+}
+
+.tooltip:hover::after {
+	opacity: 1;
+}

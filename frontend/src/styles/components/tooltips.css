@@ -1,0 +1,194 @@
+/* ==========================================================================
+   TOOLTIPS
+   Tooltip and popover component patterns.
+   ========================================================================== */
+
+/* --- Base Tooltip --- */
+.tooltip {
+	position: absolute;
+	z-index: var(--z-tooltip, 1700);
+	padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+	background: var(--surface-tooltip, var(--surface-modal, #0f0c29));
+	color: var(--text-body, var(--text-heading, #e0e0ff));
+	border: 1px solid var(--border-strong, rgba(179, 179, 255, 0.3));
+	border-radius: var(--radius-md, 8px);
+	font-size: var(--font-size-sm, 0.8125rem);
+	line-height: var(--line-height-normal, 1.5);
+	box-shadow: var(--shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1));
+	white-space: nowrap;
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity var(--duration-fast, 150ms) ease;
+}
+
+.tooltip.visible,
+.tooltip[aria-visible="true"] {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+/* --- Tooltip Arrow --- */
+.tooltip::before {
+	content: '';
+	position: absolute;
+	width: 8px;
+	height: 8px;
+	background: var(--surface-tooltip, var(--surface-modal, #0f0c29));
+	border: 1px solid var(--border-strong, rgba(179, 179, 255, 0.3));
+	transform: rotate(45deg);
+}
+
+.tooltip.top::before {
+	bottom: -5px;
+	left: 50%;
+	margin-left: -4px;
+	border-top: none;
+	border-left: none;
+}
+
+.tooltip.bottom::before {
+	top: -5px;
+	left: 50%;
+	margin-left: -4px;
+	border-bottom: none;
+	border-right: none;
+}
+
+.tooltip.left::before {
+	right: -5px;
+	top: 50%;
+	margin-top: -4px;
+	border-bottom: none;
+	border-left: none;
+}
+
+.tooltip.right::before {
+	left: -5px;
+	top: 50%;
+	margin-top: -4px;
+	border-top: none;
+	border-right: none;
+}
+
+/* --- Popover --- */
+.popover {
+	position: absolute;
+	z-index: var(--z-popover, 500);
+	min-width: 200px;
+	max-width: 320px;
+	background: var(--surface-popover, var(--surface-base, #24243e));
+	border: 1px solid var(--border-default, rgba(179, 179, 255, 0.15));
+	border-radius: var(--radius-lg, 12px);
+	box-shadow: var(--shadow-xl, 0 20px 25px -5px rgba(0, 0, 0, 0.1));
+	overflow: hidden;
+}
+
+.popover-header {
+	padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
+	border-bottom: 1px solid var(--border-default, rgba(179, 179, 255, 0.15));
+	background: var(--surface-raised, var(--surface-raised, #302b63));
+}
+
+.popover-header h4 {
+	margin: 0;
+	font-size: var(--font-size-base, 0.875rem);
+	font-weight: var(--font-weight-semibold, 600);
+	color: var(--text-heading, var(--text-heading, #e0e0ff));
+}
+
+.popover-content {
+	padding: var(--space-3, 0.75rem);
+}
+
+/* --- Glimpse Popout (channel sidebar) --- */
+.glimpse-popout {
+	position: absolute;
+	top: 100%;
+	left: 0;
+	z-index: var(--z-dropdown, 100);
+	min-width: 280px;
+	max-width: 360px;
+	margin-top: var(--space-2, 0.5rem);
+	background: var(--surface-popover, var(--surface-base, #24243e));
+	border: 1px solid var(--border-default, rgba(179, 179, 255, 0.15));
+	border-radius: var(--radius-lg, 12px);
+	box-shadow: var(--shadow-xl, 0 20px 25px -5px rgba(0, 0, 0, 0.1));
+	overflow: hidden;
+}
+
+.glimpse-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--space-2, 0.5rem);
+	padding: var(--space-3, 0.75rem);
+	border-bottom: 1px solid var(--border-default, rgba(179, 179, 255, 0.15));
+}
+
+.glimpse-header strong {
+	color: var(--text-heading, var(--text-heading, #e0e0ff));
+	font-size: var(--font-size-base, 0.875rem);
+}
+
+.glimpse-header small {
+	display: block;
+	color: var(--text-secondary, var(--text-secondary, #b3b3ff));
+	font-size: var(--font-size-sm, 0.8125rem);
+	margin-top: 2px;
+}
+
+.glimpse-messages {
+	max-height: 200px;
+	overflow-y: auto;
+}
+
+.glimpse-message {
+	padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+	border-bottom: 1px solid var(--border-subtle, rgba(179, 179, 255, 0.1));
+}
+
+.glimpse-message:last-child {
+	border-bottom: none;
+}
+
+.glimpse-meta {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2, 0.5rem);
+	margin-bottom: var(--space-1, 0.25rem);
+}
+
+.glimpse-meta strong {
+	color: var(--text-body, var(--text-heading, #e0e0ff));
+	font-size: var(--font-size-sm, 0.8125rem);
+}
+
+.glimpse-meta span {
+	color: var(--text-muted, var(--text-muted, #9999ff));
+	font-size: var(--font-size-xs, 0.6875rem);
+}
+
+.glimpse-message p {
+	margin: 0;
+	color: var(--text-secondary, var(--text-secondary, #b3b3ff));
+	font-size: var(--font-size-sm, 0.8125rem);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.glimpse-actions {
+	display: flex;
+	gap: var(--space-2, 0.5rem);
+	padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+	background: var(--surface-hover, var(--surface-hover, #302b63));
+	border-top: 1px solid var(--border-subtle, rgba(179, 179, 255, 0.1));
+}
+
+.glimpse-empty {
+	padding: var(--space-4, 1rem);
+	color: var(--text-muted, var(--text-muted, #9999ff));
+	font-size: var(--font-size-sm, 0.8125rem);
+	text-align: center;
+}

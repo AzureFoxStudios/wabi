@@ -1,0 +1,74 @@
+{
+  "id": "th-payments",
+  "name": "Thailand Payments",
+  "version": "0.2.0",
+  "description": "PromptPay QR plus contracted PSP adapter checkout for non-custodial Thailand payment flows.",
+  "author": "Wabi Core",
+  "enabled": true,
+  "firstParty": true,
+  "permissions": [
+    "payments:intent:create",
+    "payments:intent:status",
+    "payments:webhook:verify"
+  ],
+  "security": {
+    "threatNotes": "Non-custodial only. Plugin never stores card or bank secrets in frontend payloads. PSP checkout requires a contracted adapter endpoint behind operator control."
+  },
+  "distribution": {
+    "source": "local"
+  },
+  "capabilities": {
+    "tier": "network-limited",
+    "notes": "Provider plugin for PromptPay QR plus contracted processor checkout/refund via adapter endpoint."
+  },
+  "backend": {
+    "entry": "./backend/index.mjs"
+  },
+  "payment": {
+    "providerName": "Thailand PromptPay",
+    "countries": [
+      "TH"
+    ],
+    "currencies": [
+      "THB"
+    ],
+    "methods": [
+      {
+        "id": "promptpay_qr",
+        "label": "PromptPay QR",
+        "checkoutModes": [
+          "qr",
+          "app_switch"
+        ],
+        "estimatedSharePercent": 82,
+        "enabledByDefault": true,
+        "notes": "Generates EMVCo payload for PromptPay QR scanning."
+      },
+      {
+        "id": "psp_checkout",
+        "label": "Contracted PSP Checkout",
+        "checkoutModes": [
+          "payment_link",
+          "redirect",
+          "app_switch"
+        ],
+        "estimatedSharePercent": 20,
+        "enabledByDefault": true,
+        "notes": "Hosted checkout from contracted processor adapter."
+      }
+    ],
+    "nonCustodialOnly": true,
+    "excludesFedNow": true,
+    "excludesCbdcRails": true
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "checksum": "bffcc8c2d8a3fe4ff2e56a9ebfec3041d96116bd0adf31e42f51d875d5b3b315",
+    "signature": "bogF8n2ZUnFgA0o3EO1EaTyzsANrhVbWHxwUG3rLhF9f37I59k2gQ3DSmB61qnn0RlBPr5DSUpWGMfCXBq6yAw=="
+  },
+  "signer": {
+    "keyId": "ed25519:0572c2b616cbab5a",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAYRKIi135SnQ9uhyr70PmVs7h+wKEJn9aebiQ+xY1SYw=\n-----END PUBLIC KEY-----\n",
+    "algorithm": "ed25519"
+  }
+}

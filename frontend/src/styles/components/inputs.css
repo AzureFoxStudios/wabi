@@ -1,0 +1,118 @@
+/* ==========================================================================
+   INPUTS
+   Standard input/textarea styling.
+   ========================================================================== */
+
+/* --- Base Input (uses semantic tokens) --- */
+.input,
+input,
+textarea,
+select {
+	background: var(--surface-input, var(--surface-base, #24243e));
+	color: var(--text-body, var(--text-heading, #e0e0ff));
+	border: 1px solid var(--border-default, rgba(179, 179, 255, 0.15));
+	border-radius: var(--radius-md, 8px);
+	padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+	font-size: var(--font-size-base, 0.875rem);
+	transition: all var(--duration-fast, 150ms);
+}
+
+.input:focus,
+input:focus,
+textarea:focus,
+select:focus {
+	outline: none;
+	border-color: var(--border-focus, var(--accent, #ff00ff));
+	box-shadow: var(--shadow-focus, 0 0 0 3px var(--accent-glow, rgba(255, 0, 255, 0.4)));
+}
+
+.input::placeholder,
+input::placeholder,
+textarea::placeholder {
+	color: var(--text-placeholder, var(--text-muted, #9999ff));
+}
+
+.input:disabled,
+input:disabled,
+textarea:disabled,
+select:disabled {
+	opacity: var(--opacity-60, 0.6);
+	cursor: not-allowed;
+}
+
+/* --- Input Variants --- */
+.input-sm {
+	padding: var(--space-1, 0.25rem) var(--space-2, 0.5rem);
+	font-size: var(--font-size-sm, 0.8125rem);
+	border-radius: var(--radius-sm, 4px);
+}
+
+.input-lg {
+	padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
+	font-size: var(--font-size-lg, 1rem);
+	border-radius: var(--radius-lg, 12px);
+}
+
+/* --- Input with Icon --- */
+.input-with-icon {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+}
+
+.input-with-icon .input {
+	padding-left: var(--space-8, 2rem);
+}
+
+.input-with-icon .icon {
+	position: absolute;
+	left: var(--space-3, 0.75rem);
+	color: var(--text-muted, var(--text-muted, #9999ff));
+	pointer-events: none;
+}
+
+/* --- Input Group --- */
+.input-group {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2, 0.5rem);
+}
+
+.input-group label {
+	color: var(--text-body, var(--text-heading, #e0e0ff));
+	font-weight: var(--font-weight-medium, 500);
+	font-size: var(--font-size-sm, 0.8125rem);
+}
+
+.input-hint {
+	color: var(--text-muted, var(--text-muted, #9999ff));
+	font-size: var(--font-size-xs, 0.6875rem);
+	margin-top: var(--space-1, 0.25rem);
+}
+
+.input-error {
+	color: var(--color-danger, #ff1493);
+	font-size: var(--font-size-sm, 0.8125rem);
+	margin-top: var(--space-1, 0.25rem);
+}
+
+/* --- Container for chat input (no background) --- */
+.input-container textarea,
+.input-container textarea:focus {
+	background: transparent;
+	border-color: transparent;
+	box-shadow: none;
+}
+
+.input-container textarea::placeholder {
+	color: var(--text-placeholder, var(--text-secondary, #b3b3ff));
+}
+
+/* --- Select --- */
+select {
+	appearance: none;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23b3b3ff' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right var(--space-3, 0.75rem) center;
+	padding-right: var(--space-8, 2rem);
+}

@@ -1,0 +1,155 @@
+/* ==========================================================================
+   CHAT — SEARCH STYLES
+   Extracted from chat.css
+   ========================================================================== */
+
+
+
+	.search-container {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+		overflow: hidden;
+		position: relative;
+	}
+
+
+	.search-icon {
+		position: absolute;
+		top: 50%;
+		left: 18px;
+		transform: translate(-50%, -50%);
+		color: color-mix(in srgb, var(--text-heading) 78%, var(--text-secondary));
+		pointer-events: none;
+		z-index: 3;
+		transition: left 220ms ease, color 140ms ease;
+	}
+
+
+	.search-icon svg {
+		width: 15px;
+		height: 15px;
+	}
+
+
+	.search-container.expanded .search-icon {
+		left: 12px;
+		color: var(--text-heading);
+	}
+
+
+	.search-input {
+		width: 36px;
+		height: 34px;
+		padding: 0;
+		padding-left: 0;
+		padding-right: 0.35rem;
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
+		background: var(--surface-base);
+		color: var(--text-heading);
+		font-size: var(--text-base);
+		min-width: 0;
+		cursor: pointer;
+		opacity: 0.95;
+		transition:
+			width 320ms cubic-bezier(0.34, 1.56, 0.64, 1),
+			opacity 180ms ease,
+			padding 220ms ease,
+			border-color 140ms ease;
+	}
+
+
+	.search-container.expanded .search-input {
+		width: clamp(180px, 22vw, 280px);
+		padding-left: 1.75rem;
+		padding-right: 0.75rem;
+		cursor: text;
+		opacity: 1;
+	}
+
+
+	.search-input::placeholder {
+		color: transparent;
+	}
+
+
+	.search-container.expanded .search-input::placeholder {
+		color: var(--text-secondary);
+	}
+
+
+	.search-input:focus {
+		outline: none;
+		border-color: var(--accent-primary);
+		background: var(--surface-raised);
+	}
+
+
+
+	.search-results {
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
+		white-space: nowrap;
+		padding: 0 0.5rem;
+	}
+
+
+	.search-history-btn {
+		border: none;
+		border-radius: 10px;
+		padding: 0.2rem 0.55rem;
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+		background: var(--surface-raised);
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+
+	.search-history-btn:hover {
+		background: var(--surface-hover);
+		color: var(--text-heading);
+	}
+
+
+	.search-results-toolbar {
+		position: sticky;
+		top: 0;
+		z-index: 3;
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.45rem;
+		padding: 0.4rem 0.55rem;
+		margin: -0.35rem -0.2rem 0.45rem;
+		border: 1px solid rgba(var(--border-rgb), var(--opacity-light));
+		border-radius: 10px;
+		background: color-mix(in srgb, var(--surface-base) 90%, transparent);
+		backdrop-filter: blur(6px);
+	}
+
+
+	.search-toolbar-meta {
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
+		white-space: nowrap;
+	}
+
+
+	.search-toolbar-btn {
+		border: none;
+		border-radius: 10px;
+		padding: 0.2rem 0.55rem;
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+		background: var(--surface-raised);
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+
+	.search-toolbar-btn:hover {
+		background: var(--surface-hover);
+		color: var(--text-heading);
+	}

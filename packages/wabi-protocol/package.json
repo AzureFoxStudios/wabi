@@ -1,0 +1,13 @@
+{
+  "name": "@wabi/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Generated TypeScript protocol types exported from wabi-core",
+  "exports": {
+    ".": "./src/index.ts",
+    "./generated/*": "./src/generated/*"
+  },
+  "types": "./src/index.ts"
+}
+

@@ -1,0 +1,141 @@
+/* ==========================================================================
+   ML — BADGES STYLES
+   Extracted from messagelist.css
+   ========================================================================== */
+
+
+
+	.role-inline-badge {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.08rem 0.36rem;
+		border-radius: 999px;
+		font-size: 0.64rem;
+		font-weight: 700;
+		line-height: 1;
+		letter-spacing: 0.02em;
+		text-transform: uppercase;
+		border: 1px solid transparent;
+		white-space: nowrap;
+	}
+
+
+	.role-inline-badge.tone-owner {
+		background: color-mix(in srgb, var(--color-warning, #f0b429) 22%, var(--surface-base));
+		border-color: color-mix(in srgb, var(--color-warning, #f0b429) 55%, transparent);
+		color: var(--color-warning, #f7d98c);
+	}
+
+
+	.role-inline-badge.tone-admin {
+		background: color-mix(in srgb, var(--color-info, #4f9cff) 20%, var(--surface-base));
+		border-color: color-mix(in srgb, var(--color-info, #4f9cff) 50%, transparent);
+		color: var(--text-info, #cde0ff);
+	}
+
+
+	.role-inline-badge.tone-mod {
+		background: color-mix(in srgb, var(--color-success, #18a999) 18%, var(--surface-base));
+		border-color: color-mix(in srgb, var(--color-success, #18a999) 48%, transparent);
+		color: var(--text-success, #b6f0e9);
+	}
+
+
+	.role-inline-badge.tone-default {
+		background: color-mix(in srgb, var(--accent-primary) 16%, var(--surface-base));
+		border-color: color-mix(in srgb, var(--accent-primary) 42%, transparent);
+		color: var(--text-secondary);
+	}
+
+
+	.staff-inline-tag {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.08rem 0.36rem;
+		border-radius: 999px;
+		font-size: 0.62rem;
+		font-weight: 700;
+		line-height: 1;
+		letter-spacing: 0.03em;
+		text-transform: uppercase;
+		border: 1px solid color-mix(in srgb, var(--color-danger, #ef5f5f) 42%, transparent);
+		background: color-mix(in srgb, var(--color-danger, #ef5f5f) 17%, var(--surface-base));
+		color: var(--text-danger, #ffc6c6);
+		white-space: nowrap;
+	}
+
+
+	.deletion-timer {
+		font-size: var(--text-xs);
+		color: var(--color-warning, rgba(255, 164, 120, 0.95));
+		background: var(--bg-warning, rgba(255, 140, 92, 0.12));
+		border: 1px solid var(--border-warning, rgba(255, 140, 92, 0.28));
+		padding: 0.1rem 0.35rem;
+		border-radius: 999px;
+		white-space: nowrap;
+	}
+
+
+	.grouped-deletion-meta {
+		margin-bottom: 0.25rem;
+	}
+
+
+	.message-persistence-row {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+		margin-bottom: 0.4rem;
+		flex-wrap: wrap;
+	}
+
+
+	.message-persistence-badge {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.14rem 0.5rem;
+		border-radius: 999px;
+		font-size: 0.68rem;
+		font-weight: 700;
+		letter-spacing: 0.01em;
+		text-transform: uppercase;
+		background: color-mix(in srgb, var(--text-secondary) 16%, transparent);
+		color: var(--text-secondary);
+	}
+
+
+	.message-persistence-badge.is-failed {
+		background: color-mix(in srgb, var(--color-danger, var(--accent-primary, #ff1493)) 14%, transparent);
+		color: color-mix(in srgb, var(--color-danger, var(--accent-primary, #ff1493)) 88%, var(--text-heading));
+	}
+
+
+	.message-persistence-badge.is-retrying {
+		background: color-mix(in srgb, var(--color-warning, var(--color-warning, #ffd700)) 18%, transparent);
+		color: color-mix(in srgb, var(--color-warning, var(--color-warning, #ffd700)) 82%, var(--text-heading));
+	}
+
+
+	.message-persistence-badge.is-sending {
+		background: color-mix(in srgb, var(--text-secondary) 22%, transparent);
+		color: color-mix(in srgb, var(--text-secondary) 92%, var(--text-heading));
+	}
+
+
+	.message-persistence-retry {
+		border: 1px solid color-mix(in srgb, var(--color-danger, var(--accent-primary, #ff1493)) 30%, transparent);
+		background: transparent;
+		color: color-mix(in srgb, var(--color-danger, var(--accent-primary, #ff1493)) 88%, var(--text-heading));
+		border-radius: 999px;
+		padding: 0.16rem 0.55rem;
+		font-size: 0.72rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: background 0.15s ease, border-color 0.15s ease;
+	}
+
+
+	.message-persistence-retry:hover {
+		background: color-mix(in srgb, var(--color-danger, var(--accent-primary, #ff1493)) 10%, transparent);
+		border-color: color-mix(in srgb, var(--color-danger, var(--accent-primary, #ff1493)) 50%, transparent);
+	}

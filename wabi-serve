@@ -1,0 +1,90 @@
+# wabi-serve - Single command to start Wabi
+# Usage: ./wabi-serve [wabi-node options]
+
+#!/bin/bash
+set -e
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+echo -e "${GREEN}🚀 Starting Wabi${NC}"
+echo ""
+
+# Configuration
+STDB_DATABASE="${WABI_STDB_DATABASE:-wabi-state-benchmark-v2}"
+MODULE_PATH="${WABI_MODULE_PATH:-spacetimedb/wabi_state_bridge}"
+WABI_BINARY="${WABI_BINARY:-./target/release/wabi-node}"
+STDB_BIND_ADDR="${STDB_BIND_ADDR:-127.0.0.1}"
+STDB_PORT="${STDB_PORT:-3000}"
+
+# Check if SpacetimeDB is installed
+if ! command -v spacetimedb &> /dev/null; then
+    echo -e "${RED}❌ SpacetimeDB not found${NC}"
+    echo ""
+    echo "Install with:"
+    echo "  curl -sSf https://install.spacetimedb.com | sh"
+    echo ""
+    exit 1
+fi
+
+echo -e "${GREEN}✅ SpacetimeDB installed${NC}"
+
+# Check if wabi-node binary exists
+if [ ! -f "$WABI_BINARY" ]; then
+    echo -e "${RED}❌ wabi-node binary not found: $WABI_BINARY${NC}"
+    echo ""
+    echo "Build with:"
+    echo "  cargo build --release --bin wabi-node"
+    echo ""
+    exit 1
+fi
+
+echo -e "${GREEN}✅ wabi-node binary found${NC}"
+
+# Check if SpacetimeDB is running
+if ! pgrep -f "spacetimedb start" > /dev/null; then
+    echo -e "${YELLOW}📦 Starting SpacetimeDB...${NC}"
+    spacetimedb start --listen-addr "${STDB_BIND_ADDR}:${STDB_PORT}" &
+    STDB_PID=$!
+    
+    # Wait for STDB to be ready
+    echo -n "   Waiting for SpacetimeDB to start"
+    for i in {1..30}; do
+        echo -n "."
+        if curl -s "http://${STDB_BIND_ADDR}:${STDB_PORT}/v1/ping" > /dev/null 2>&1; then
+            echo -e " ${GREEN}✅${NC}"
+            break
+        fi
+        sleep 1
+    done
+    
+    # Check if we succeeded
+    if ! curl -s "http://${STDB_BIND_ADDR}:${STDB_PORT}/v1/ping" > /dev/null 2>&1; then
+        echo -e "${RED}❌ SpacetimeDB failed to start${NC}"
+        exit 1
+    fi
+else
+    echo -e "${GREEN}✅ SpacetimeDB already running${NC}"
+fi
+
+# Publish module
+echo -e "${YELLOW}📤 Publishing module to SpacetimeDB...${NC}"
+spacetimedb publish --module-path "$MODULE_PATH" "$STDB_DATABASE" --yes
+
+if [ $? -ne 0 ]; then
+    echo -e "${RED}❌ Failed to publish module${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✅ Module published${NC}"
+echo ""
+
+# Start wabi-node
+echo -e "${GREEN}🚀 Starting wabi-node...${NC}"
+echo ""
+
+# Replace this shell process with wabi-node
+exec "$WABI_BINARY" "$@"

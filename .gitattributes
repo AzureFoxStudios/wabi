@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------
+# Line-ending normalisation rules
+#
+# All text files are stored with LF in the repository.
+# Shell scripts MUST be checked out with LF on every platform
+# so they execute correctly inside Linux Docker containers.
+# ---------------------------------------------------------------
+
+# Default: normalise all text files to LF in the repo
+* text=auto
+
+# Shell scripts – always LF, even on Windows
+*.sh        text eol=lf
+
+# Docker entrypoints / config templates – always LF
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.conf      text eol=lf
+*.template  text eol=lf
+
+# Web / source files – LF in repo, OS-native on checkout
+*.ts        text eol=lf
+*.tsx       text eol=lf
+*.js        text eol=lf
+*.mjs       text eol=lf
+*.svelte    text eol=lf
+*.css       text eol=lf
+*.html      text eol=lf
+*.json      text eol=lf
+*.md        text eol=lf
+*.sql       text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.env       text eol=lf
+*.toml      text eol=lf
+
+# True binary files – never touch line endings
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.otf  binary
+*.zip  binary
+*.ogg  binary
+*.mp3  binary
+*.mp4  binary
+*.pdf  binary

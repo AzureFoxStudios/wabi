@@ -1,0 +1,24 @@
+{
+  "id": "payments-core",
+  "name": "Payments Core",
+  "version": "0.1.0",
+  "description": "Core payment provider trait and types for BTC, TH, and PSP providers.",
+  "author": "Community",
+  "enabled": true,
+  "backend": {
+    "type": "rust",
+    "entry": "./backend"
+  },
+  "permissions": [],
+  "security": {
+    "threatNotes": "Core trait definition only; no direct payment operations."
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "checksum": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "capabilities": {
+    "tier": "core",
+    "notes": "Foundation abstract payment provider trait for BTC, TH, and PSP providers."
+  }
+}

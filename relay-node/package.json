@@ -1,0 +1,10 @@
+{
+  "name": "wabi-relay-node",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Volunteer-hosted relay node for Wabi file delivery",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs"
+  }
+}

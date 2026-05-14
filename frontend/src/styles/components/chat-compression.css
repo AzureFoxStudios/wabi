@@ -1,0 +1,162 @@
+/* ==========================================================================
+   CHAT — COMPRESSION STYLES
+   Extracted from chat.css
+   ========================================================================== */
+
+
+
+		.compression-modal-backdrop {
+			position: absolute;
+			inset: 0;
+			background: var(--surface-modal-overlay, var(--surface-modal-overlay, rgba(0, 0, 0, 0.56)));
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			padding: 1rem;
+			z-index: 30;
+		}
+
+
+		.compression-modal {
+			width: min(92vw, 420px);
+			border: 1px solid var(--border-subtle);
+			background: var(--surface-base);
+			border-radius: 12px;
+			padding: 0.9rem;
+			display: flex;
+			flex-direction: column;
+			gap: 0.65rem;
+		}
+
+
+		.compression-modal h3 {
+			margin: 0;
+			font-size: 0.95rem;
+		}
+
+
+		.compression-copy {
+			margin: 0;
+			font-size: 0.8rem;
+			color: var(--text-secondary);
+			word-break: break-word;
+		}
+
+
+		.compression-runtime-note {
+			margin: 0;
+			font-size: 0.73rem;
+			color: var(--text-muted);
+		}
+
+
+		.compression-preset-row {
+			display: flex;
+			flex-direction: column;
+			gap: 0.3rem;
+		}
+
+
+		.compression-preset-row label {
+			font-size: 0.74rem;
+			color: var(--text-secondary);
+		}
+
+
+		.compression-preset-row select {
+			border: 1px solid var(--border-subtle);
+			background: var(--surface-app);
+			color: var(--text-heading);
+			border-radius: 8px;
+			padding: 0.42rem 0.5rem;
+			font-size: 0.8rem;
+		}
+
+
+		.compression-preset-note {
+			font-size: 0.72rem;
+			color: var(--text-muted);
+			line-height: 1.35;
+		}
+
+
+		.compression-estimate {
+			display: flex;
+			justify-content: space-between;
+			gap: 0.5rem;
+			font-size: 0.72rem;
+			color: var(--text-secondary);
+		}
+
+
+		.compression-estimate .estimate-saving {
+			color: var(--color-success);
+		}
+
+
+		.compression-suggestion {
+			border: 1px solid rgba(var(--accent-rgb), 0.35);
+			background: rgba(var(--accent-rgb), 0.12);
+			border-radius: 8px;
+			padding: 0.45rem 0.5rem;
+			font-size: 0.73rem;
+			color: var(--text-secondary);
+			line-height: 1.35;
+		}
+
+
+		.compression-progress {
+			display: flex;
+			flex-direction: column;
+			gap: 0.35rem;
+		}
+
+
+		.compression-progress-info {
+			display: flex;
+			justify-content: space-between;
+			font-size: 0.74rem;
+			color: var(--text-secondary);
+		}
+
+
+		.compression-error {
+			border: 1px solid rgba(var(--color-danger-rgb), 0.45);
+			background: rgba(var(--color-danger-rgb), 0.14);
+			color: var(--color-danger);
+			border-radius: 8px;
+			padding: 0.5rem;
+			font-size: 0.75rem;
+			word-break: break-word;
+		}
+
+
+		.compression-actions {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.45rem;
+		}
+
+
+		.compression-btn {
+			border: 1px solid rgba(var(--accent-rgb), 0.5);
+			background: rgba(var(--accent-rgb), 0.2);
+			color: var(--text-heading);
+			border-radius: 8px;
+			padding: 0.4rem 0.56rem;
+			font-size: 0.78rem;
+			cursor: pointer;
+		}
+
+
+		.compression-btn.secondary {
+			border-color: var(--border-subtle);
+			background: var(--surface-hover, var(--surface-hover, rgba(255, 255, 255, 0.04)));
+		}
+
+
+		.compression-btn.danger {
+			border-color: rgba(var(--color-danger-rgb), 0.6);
+			background: rgba(var(--color-danger-rgb), 0.16);
+			color: var(--color-danger);
+		}

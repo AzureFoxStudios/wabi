@@ -1,0 +1,6 @@
+:8088 {
+    reverse_proxy wabi-server:3000 {
+        header_up X-Forwarded-Proto https
+        header_up X-Forwarded-Host {host}
+    }
+}

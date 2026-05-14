@@ -1,0 +1,39 @@
+/* ==========================================================================
+   LAYOUT UTILITIES
+   Panels, headers, footers.
+   ========================================================================== */
+
+/* Panel Header (52px standard height, but syncs with --app-chrome-height) */
+.panel-header {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	height: var(--app-chrome-height);
+	padding: 0 var(--space-3);
+	background: var(--surface-base);
+	border-bottom: 1px solid var(--border-subtle);
+	flex-shrink: 0;
+}
+
+.panel-header h2,
+.panel-header h3 {
+	margin: 0;
+	font-size: var(--text-lg);
+	font-weight: var(--font-weight-semibold);
+	color: var(--text-heading);
+}
+
+/* Panel Content (scrollable) */
+.panel-content {
+	flex: 1;
+	overflow-y: auto;
+	min-height: 0;
+}
+
+/* Panel Footer */
+.panel-footer {
+	flex-shrink: 0;
+	padding: var(--space-2) var(--space-3);
+	background: var(--surface-raised);
+	border-top: 1px solid var(--border-subtle);
+}

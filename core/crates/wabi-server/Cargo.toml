@@ -1,0 +1,81 @@
+[package]
+name = "wabi-server"
+version = "0.1.0"
+edition = "2021"
+description = "Wabi self-hosted server - single binary with mesh support"
+license = "MIT"
+
+[dependencies]
+# Web framework
+axum = { version = "0.8", features = ["ws", "multipart"] }
+tokio = { version = "1", features = ["full"] }
+
+# Socket.IO server
+socketioxide = { version = "0.16", features = ["extensions", "state"] }
+
+# Embed static assets
+rust-embed = { version = "8", features = ["include-exclude"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+mime_guess = "2"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Wabi core protocol
+wabi-core = { path = "../../../crates/wabi-core", features = ["ts"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Async utilities
+futures = "0.3"
+
+# HTTP middleware
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# SpacetimeDB (HTTP API only)
+reqwest = { version = "0.12", features = ["json"] }
+regex = "1"
+sha2 = "0.10"
+hex = "0.4"
+rand = "0.8"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# JWT
+jsonwebtoken = "9"
+
+# Password hashing
+bcrypt = "0.17"
+
+# UUID
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Command-line args
+clap = { version = "4", features = ["derive"] }
+
+# HMAC for TURN
+hmac = "0.12"
+sha1 = "0.10"
+base64 = "0.22"
+
+# URL encoding
+urlencoding = "2"
+
+# Optional addons
+wabi-webhooks = { path = "../../addons/webhooks/backend", optional = true }
+wabi-mesh = { path = "../../addons/mesh/backend", optional = true }
+
+[features]
+default = []
+addons = ["wabi-webhooks", "wabi-mesh"]
+
+[[bin]]
+name = "wabi-server"
+path = "src/main.rs"

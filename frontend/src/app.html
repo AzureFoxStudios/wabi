@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="%sveltekit.assets%/favicon.png" />
+		<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+		<meta name="mobile-web-app-capable" content="yes" />
+		<meta name="theme-color" content="#0f0c29" />
+		<meta name="description" content="Self-hosted ephemeral chat with screen sharing" />
+		<style>
+			html,
+			body {
+				min-height: 100%;
+				margin: 0;
+				background:
+					radial-gradient(circle at top, rgba(129, 140, 248, 0.16), transparent 38%),
+					radial-gradient(circle at bottom, rgba(56, 189, 248, 0.14), transparent 42%),
+					linear-gradient(180deg, #0f172a 0%, #0b1220 55%, #060b14 100%);
+			}
+
+			#wabi-boot-shell {
+				position: fixed;
+				inset: 0;
+				z-index: 2147483647;
+				display: grid;
+				place-items: center;
+				overflow: hidden;
+				transition:
+					opacity 260ms ease,
+					visibility 260ms ease;
+			}
+
+			#wabi-boot-shell.is-hidden {
+				opacity: 0;
+				visibility: hidden;
+				pointer-events: none;
+			}
+
+			.wabi-boot-shell__center {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 1.15rem;
+				padding: 2rem;
+				text-align: center;
+				color: rgba(255, 255, 255, 0.88);
+				font-family:
+					"Segoe UI",
+					"SF Pro Display",
+					system-ui,
+					sans-serif;
+			}
+
+			.wabi-boot-shell__stage {
+				position: relative;
+				display: grid;
+				place-items: center;
+				width: 132px;
+				height: 132px;
+			}
+
+			.wabi-boot-shell__halo,
+			.wabi-boot-shell__ring {
+				position: absolute;
+				border-radius: 999px;
+			}
+
+			.wabi-boot-shell__halo {
+				inset: 10px;
+				background:
+					radial-gradient(circle, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.04) 38%, transparent 68%);
+				filter: blur(8px);
+				animation: wabi-boot-halo-pulse 1.8s ease-in-out infinite;
+			}
+
+			.wabi-boot-shell__ring {
+				inset: 0;
+				border: 1px solid rgba(148, 163, 184, 0.18);
+				box-shadow:
+					inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+					0 18px 40px rgba(0, 0, 0, 0.3);
+			}
+
+			.wabi-boot-shell__ring::after {
+				content: '';
+				position: absolute;
+				inset: -1px;
+				border-radius: inherit;
+				border-top: 2px solid rgba(255, 255, 255, 0.82);
+				border-right: 2px solid rgba(96, 165, 250, 0.85);
+				border-bottom: 2px solid transparent;
+				border-left: 2px solid transparent;
+				animation: wabi-boot-spin 1.25s linear infinite;
+			}
+
+			.wabi-boot-shell__logo {
+				width: 72px;
+				height: 72px;
+				object-fit: contain;
+				filter: invert(1) drop-shadow(0 12px 28px rgba(0, 0, 0, 0.38));
+				animation: wabi-boot-logo-drift 1.8s ease-in-out infinite;
+			}
+
+			.wabi-boot-shell__title {
+				font-size: 0.9rem;
+				font-weight: 700;
+				letter-spacing: 0.14em;
+				text-transform: uppercase;
+			}
+
+			.wabi-boot-shell__dots {
+				display: inline-flex;
+				align-items: center;
+				gap: 0.35rem;
+			}
+
+			.wabi-boot-shell__dots span {
+				width: 0.42rem;
+				height: 0.42rem;
+				border-radius: 999px;
+				background: rgba(255, 255, 255, 0.8);
+				animation: wabi-boot-dot-pulse 1.15s ease-in-out infinite;
+			}
+
+			.wabi-boot-shell__dots span:nth-child(2) {
+				animation-delay: 120ms;
+			}
+
+			.wabi-boot-shell__dots span:nth-child(3) {
+				animation-delay: 240ms;
+			}
+
+			@keyframes wabi-boot-spin {
+				from { transform: rotate(0deg); }
+				to { transform: rotate(360deg); }
+			}
+
+			@keyframes wabi-boot-logo-drift {
+				0%, 100% { transform: translateY(0px) scale(1); }
+				50% { transform: translateY(-3px) scale(1.02); }
+			}
+
+			@keyframes wabi-boot-halo-pulse {
+				0%, 100% { opacity: 0.6; transform: scale(0.97); }
+				50% { opacity: 1; transform: scale(1.02); }
+			}
+
+			@keyframes wabi-boot-dot-pulse {
+				0%, 80%, 100% { opacity: 0.25; transform: translateY(0px); }
+				40% { opacity: 1; transform: translateY(-2px); }
+			}
+		</style>
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="tap">
+		<div id="wabi-boot-shell" role="status" aria-live="polite">
+			<div class="wabi-boot-shell__center">
+				<div class="wabi-boot-shell__stage" aria-hidden="true">
+					<span class="wabi-boot-shell__halo"></span>
+					<span class="wabi-boot-shell__ring"></span>
+					<img src="%sveltekit.assets%/wabi-logo.png" alt="" class="wabi-boot-shell__logo" />
+				</div>
+				<div class="wabi-boot-shell__title">Starting Wabi</div>
+				<div class="wabi-boot-shell__dots" aria-hidden="true">
+					<span></span>
+					<span></span>
+					<span></span>
+				</div>
+			</div>
+		</div>
+		<div style="display: contents">%sveltekit.body%</div>
+		<script>
+			(() => {
+				const hideBootShell = () => {
+					const shell = document.getElementById('wabi-boot-shell');
+					if (!shell || shell.classList.contains('is-hidden')) return;
+					shell.classList.add('is-hidden');
+					window.setTimeout(() => shell.remove(), 280);
+				};
+
+				window.__hideWabiBootShell = hideBootShell;
+				window.addEventListener('wabi:boot-hide', hideBootShell, { once: true });
+			})();
+		</script>
+	</body>
+</html>

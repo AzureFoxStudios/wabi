@@ -1,0 +1,63 @@
+/* ==========================================================================
+   SIDEBAR — PROFILE STYLES
+   Extracted from channelsidebar.css
+   ========================================================================== */
+
+
+
+	.channel-sidebar.compact .profile-card .user-details,
+	.channel-sidebar.compact .profile-controls,
+	.channel-sidebar.compact .status-popup,
+	.channel-sidebar.compact .create-channel,
+	.channel-sidebar.compact .workspace-counter-chip,
+	.channel-sidebar.compact .channel-list-actions {
+		display: none;
+	}
+
+
+	.profile-card {
+		background: var(--surface-raised);
+		border-top: 1px solid var(--border-subtle);
+		padding: 0.68rem 0.75rem;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		height: var(--app-chrome-height);
+		min-height: var(--app-chrome-height);
+		position: relative;
+		box-sizing: border-box;
+	}
+
+
+	.user-details {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+
+	.status-popup {
+		position: absolute;
+		bottom: 100%;
+		left: 0.625rem;
+		margin-bottom: 8px;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		background: var(--surface-base);
+		border-radius: 8px;
+		padding: 6px;
+		box-shadow: 0 4px 12px var(--shadow-lg, rgba(0, 0, 0, 0.3));
+		z-index: 100;
+		min-width: 140px;
+	}
+
+
+	.profile-controls {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		flex-shrink: 1;
+	}

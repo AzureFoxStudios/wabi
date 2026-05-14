@@ -1,0 +1,136 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+
+env:
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-tauri:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target universal'
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: install dependencies (ubuntu only)
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libjavascriptcoregtk-4.1-dev \
+            build-essential \
+            libssl-dev
+
+      - name: install bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: install frontend dependencies
+        run: cd frontend && bun install
+
+      - name: install backend dependencies
+        run: cd backend && npm install
+
+      - name: build Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: './frontend'
+          args: ''
+          releaseDraft: ${{ startsWith(github.ref, 'refs/tags/') }}
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
+
+  build-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: install bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: install dependencies
+        run: cd backend && bun install
+
+      - name: build
+        run: cd backend && bun run build
+
+      - name: upload backend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-build
+          path: backend/dist
+
+  frontend-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: install bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: install dependencies
+        run: cd frontend && bun install
+
+      - name: build
+        run: cd frontend && bun run build
+
+      - name: svelte-check
+        run: cd frontend && bunx svelte-check
+        continue-on-error: true
+
+      - name: upload frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/build

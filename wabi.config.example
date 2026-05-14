@@ -1,0 +1,108 @@
+# Operator-friendly config for scripts/launch.sh
+# Copy to wabi.config and edit this file only.
+# Then run: ./scripts/launch.sh
+# launch.sh will sync supported keys into .env/frontend/.env automatically.
+#
+# PROFILE:
+#   starter   -> normal mode (SQLite)
+#   community -> community mode (SQLite + STDB-ready)
+PROFILE=starter
+
+# RUNTIME:
+#   node (default, recommended)
+#   bun  (advanced)
+RUNTIME=node
+
+# Public host users will open (domain preferred for HTTPS).
+# Use localhost only for local testing.
+DOMAIN=localhost
+
+# Optional public tunnel.
+# Leave this disabled for the first local install, then enable it only after
+# http://localhost:3000 and http://localhost:8080/health are working.
+# USE_TUNNEL_PROFILE:
+#   auto  -> enable tunnel profile automatically when token is set
+#   true  -> force tunnel profile on
+#   false -> disable tunnel profile
+USE_TUNNEL_PROFILE=auto
+# TUNNEL_CONNECTOR:
+#   named -> repo-managed named Cloudflare tunnel via CLOUDFLARE_TUNNEL_TOKEN
+#   quick -> temporary quick tunnel for debugging only
+TUNNEL_CONNECTOR=named
+CLOUDFLARE_TUNNEL_TOKEN=
+
+# CALLS:
+#   off              -> no self-hosted coturn profile
+#   self_hosted_turn -> deploy coturn profile locally
+#   external_turn    -> skip coturn profile (external TURN provider)
+CALLS=off
+
+# Advanced media flags (off by default).
+# Relay network setup is intentionally separated from core server setup.
+# For relay deployment, use relay-node/README.md and PROJECT_DOCS/RELAY_PHASE1_SERVER_RUNBOOK.md.
+ENABLE_MEDIA_GATEWAY=false
+# SFU plugin provider:
+#   none    -> disable SFU module (default)
+#   livekit -> enable LiveKit SFU module
+SFU_PROVIDER=none
+# Legacy compatibility toggle: ENABLE_SFU=true maps to SFU_PROVIDER=livekit.
+ENABLE_SFU=false
+LIVEKIT_URL=
+LIVEKIT_API_KEY=
+LIVEKIT_API_SECRET=
+
+# Plugin system safety defaults.
+PLUGINS_ENABLED=false
+PLUGINS_ALLOW_INSTALL=false
+
+# State backend: SpacetimeDB is the source of truth for messages, channels,
+# channel members, users, sessions, and RBAC. No dual-write or legacy modes.
+STATE_STDB_SUBSCRIPTIONS_ENABLED=false
+STATE_STDB_ENFORCE_RBAC=true
+# Optional outbox file override (default inside DATA_DIR).
+STATE_OUTBOX_PATH=
+STATE_OUTBOX_REDACT_SENSITIVE=true
+STATE_OUTBOX_MAX_BYTES=67108864
+STATE_OUTBOX_TRUNCATE_MIN_BYTES=16777216
+# STDB bridge connection (required).
+WABI_STDB_BRIDGE_SERVER=local
+WABI_STDB_BRIDGE_DATABASE=
+WABI_STDB_AUTH_TOKEN=
+WABI_STDB_ANONYMOUS=false
+WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=false
+# Multi-node mesh identity and peer routing.
+# Each backend should set a unique instance id and a routable mesh URL.
+# Example:
+# WABI_SERVER_INSTANCE_ID=wabi-home
+# WABI_SERVER_REGION=bangkok
+# WABI_SERVER_ROLE=app
+# WABI_MESH_INSTANCE_URL_TEMPLATE=http://{instanceId}.wabi-mesh.internal:8080
+# WABI_MESH_INGRESS_URL=http://10.229.254.250:8080
+# WABI_MESH_SHARED_TOKEN=replace-me
+WABI_SERVER_INSTANCE_ID=
+WABI_SERVER_REGION=
+WABI_SERVER_ROLE=
+WABI_MESH_INSTANCE_URL_TEMPLATE=http://{instanceId}:8080
+WABI_MESH_INGRESS_URL=
+WABI_MESH_SHARED_TOKEN=
+STATE_PLANE_SCHEMA_VERSION=1
+STATE_PLANE_SCHEMA_AUTO_APPLY=true
+STATE_REDUCER_INGRESS_ENABLED=false
+STATE_REDUCER_INGRESS_REQUIRE_SIGNATURE=true
+STATE_REDUCER_INGRESS_MAX_SKEW_MS=300000
+STATE_REDUCER_INGRESS_MAX_BODY_BYTES=1048576
+
+# Webhook delivery hardening
+WEBHOOK_MAX_BODY_BYTES=65536
+WEBHOOK_ALLOW_PRIVATE_TARGETS=false
+WEBHOOK_ALLOWED_HOSTS=
+WEBHOOK_MAX_DNS_RECORDS=16
+WEBHOOK_MAX_CONCURRENT_DELIVERIES=20
+WEBHOOK_MAX_EVENT_FANOUT=250
+
+# Privacy/observability controls (safe default OFF).
+# Enables backend + frontend video-compression metrics path when true.
+VIDEO_COMPRESSION_METRICS=false
+
+# Optional.
+GIPHY_API_KEY=

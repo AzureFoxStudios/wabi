@@ -1,0 +1,3496 @@
+<script lang="ts">
+	import { onMount, onDestroy, tick, createEventDispatcher } from 'svelte';
+	import { fade, fly, scale } from 'svelte/transition';
+	import { browser } from '$app/environment';
+	import { get } from 'svelte/store';
+	import {
+		channelMessages,
+		channels,
+		currentChannel,
+		typingUsers,
+		sendMessage,
+		sendTyping,
+		lastReadMessageId,
+		editMessage,
+		currentUser,
+		emojis,
+		users,
+		serverMembers,
+		dmPanelSignal,
+		createDM,
+		getDMChannelIdForUser,
+		socket,
+		loadOlderHistory,
+		channelHasMoreHistory,
+		channelHistoryLoading,
+		loadOlderMessages,
+		channelAvailableArchives,
+		channelLoadedArchives,
+		channelLoadingOlder,
+		type Message,
+		type MessageEntity,
+		type Emoji,
+		type User,
+		type Channel
+	} from '$lib/socket';
+	import { resources, graphEdges } from '$lib/business/store';
+	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
+	import type { Resource } from '$lib/business/types';
+	import { pinChannel, unpinChannel } from '$lib/socket';
+	import MessageList from './MessageList.svelte';
+	import PinnedMessages from './PinnedMessages.svelte';
+	import CommandPalette from './CommandPalette.svelte';
+	import AudioRecorder from './AudioRecorder.svelte';
+	import CameraCapture from './CameraCapture.svelte';
+	import ManualCashModal from '$lib/payments/ManualCashModal.svelte';
+	import PaymentSheet from '$lib/payments/PaymentSheet.svelte';
+	import { parseCommand, formatCommandHelp, getMatchingCommands, type Command } from '$lib/commands';
+	import { layoutStore } from '$lib/layoutStore';
+	import { callMode, isInCall, outgoingCall, startCall } from '$lib/calling';
+	import { getServerUrl } from '$lib/serverUrl';
+	import { encryptDMFile, isE2EAvailable } from '$lib/e2eManager';
+	import { getDMPrivacyMode } from '$lib/dmPrivacyMode';
+	import { _, currentLocale } from '$lib/i18n';
+	import {
+		addMediaAlbumItem,
+		createMediaAlbum,
+		deleteDictionaryEntry,
+		lookupDictionary,
+		type MediaAlbumScopeType,
+		upsertDictionaryEntry
+	} from '$lib/api';
+	import { getTauriPlatform, isTauriRuntime } from '$lib/tauri-platform';
+	import {
+		classifyVideoCompressionFailure,
+		compressVideoFileForUpload,
+		estimateCompressedVideoOutput,
+		inferVideoCodecHint,
+		isVideoFile,
+		sampleVideoCompressionInputMetadata,
+		type VideoCompressionEstimate,
+		type VideoCompressionInputMetadata,
+		type VideoCompressionPresetId
+	} from '$lib/video/videoCompressor';
+	import {
+		getDefaultVideoCompressionPreset,
+		getVideoCompressionPresetOptions,
+		getVideoCompressionRuntimeProfile,
+		isVideoCompressionEnabled,
+		type VideoCompressionPresetOption,
+		type VideoCompressionRuntime
+	} from '$lib/video/videoCompressionSettings';
+	import { reportVideoCompressionTelemetry } from '$lib/video/videoCompressionTelemetry';
+	import { applyChatFilter, expandInputWithChatAlias } from '$lib/chatEnhancements';
+	import { findDmDirectoryUserByUsername, getDmDirectoryKey } from '$lib/dmUserDirectory';
+	import { getUserIdentityKey } from '$lib/localNicknames';
+	import {
+		applyWriteUpperCase,
+		composerEnhancementSettingsStore,
+		splitMessageForSending
+	} from '$lib/composerEnhancements';
+	import { gifCaptionerSettingsStore } from '$lib/gifCaptionerSettings';
+	import {
+		previewUnicodeEmojiConversion,
+		replaceEmojiShortcodesWithUnicode,
+		unicodeEmojiSettingsStore
+	} from '$lib/unicodeEmojis';
+	import { animationPassStore, type AnimationPassPreset } from '$lib/animationPass';
+	import { getAuthToken, getGuestSessionId } from '$lib/authSession';
+	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
+	import { getSearchEngineProvider, openExternalSearch } from '$lib/searchEngineJump';
+	import {
+		isExperimentalStdbCallEnabled,
+		setExperimentalStdbCallEnabled
+	} from '$lib/experimentalStdbCalls';
+	import {
+		buildPlaceMessageEntity,
+		buildPlaceSuggestionDetail,
+		loadPlaceRegistry,
+		placeRegistry,
+		rebaseMessageEntitiesForText,
+		reconcileMessageEntities,
+		searchPlaceMentionSuggestions,
+		splitEntitiesForChunks,
+		type PlaceRecord
+	} from '$lib/placeRegistry';
+	import { MAP_ADDON_ID, focusedMapPlace, openFullMapTab } from '$lib/mapWorkspace';
+	import { MODEL_VIEWPORT_ADDON_ID, modelViewportSelection, openModelViewportSurface } from '$lib/modelViewportTab';
+	import { READER_ADDON_ID, openReaderSurface, readerSelection } from '$lib/readerWorkspace';
+	import { mobileTabQueue } from '$lib/mobileTabQueue';
+	import { pushLocalDirectionsCard } from '$lib/directionsAssist';
+	import { currentChatSurface, setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
+	import WhiteboardTab from './WhiteboardTab.svelte';
+
+	const dispatch = createEventDispatcher();
+	const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+	const easeOutQuint = (t: number) => 1 - Math.pow(1 - t, 5);
+	const easeOutBack = (t: number) => {
+		const c1 = 1.70158;
+		const c3 = c1 + 1;
+		return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+	};
+
+	$: chatSurface = $currentChatSurface;
+	const { activeTabId: mobileQueueActiveTabId } = mobileTabQueue;
+	type WorkspaceViewKey = 'messages' | 'whiteboard' | 'reader' | 'model' | 'map';
+	let selectedWorkspaceView: WorkspaceViewKey = 'messages';
+	$: selectedWorkspaceView = (() => {
+		if (chatSurface === 'whiteboard') return 'whiteboard' as const;
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(READER_ADDON_ID)) return 'reader' as const;
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_ADDON_ID)) return 'model' as const;
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MAP_ADDON_ID)) return 'map' as const;
+		return 'messages' as const;
+	})();
+	$: if (chatSurface !== 'messages') {
+		showEmojiPicker = false;
+		showMediaMenu = false;
+		showMentionSuggestions = false;
+		showCameraCapture = false;
+		showAudioRecorder = false;
+	}
+
+	$: messages = $channelMessages[$currentChannel] || [];
+	$: pinnedMessages = messages.filter((m: Message) => m.isPinned);
+	$: currentChannelData = $channels.find(ch => ch.id === $currentChannel);
+	$: channelDisplayName = currentChannelData?.name || $currentChannel;
+	$: channelDescription = currentChannelData?.description?.trim() || '';
+	$: workspaceSurfaceLabel = (() => {
+		switch (selectedWorkspaceView) {
+			case 'whiteboard':
+				return 'Whiteboard';
+			case 'reader':
+				return 'Reader';
+			case 'model':
+				return '3D View';
+			case 'map':
+				return 'Map';
+			default:
+				return null;
+		}
+	})();
+	$: workspaceHeaderTitle = (() => {
+		switch (selectedWorkspaceView) {
+			case 'reader':
+				return $readerSelection?.title || 'Reader';
+			case 'model':
+				return $modelViewportSelection?.fileName || '3D model';
+			case 'map':
+				return $focusedMapPlace?.name || 'Map';
+			default:
+				return channelDisplayName;
+		}
+	})();
+	$: workspaceHeaderSubtitle = (() => {
+		switch (selectedWorkspaceView) {
+			case 'whiteboard':
+				return channelDescription || 'Shared board for this channel';
+			case 'reader':
+				return `Opened from #${channelDisplayName}`;
+			case 'model':
+				return `Opened from #${channelDisplayName}`;
+			case 'map':
+				return channelDisplayName ? `Opened from #${channelDisplayName}` : 'Map workspace';
+			default:
+				return channelDescription;
+		}
+	})();
+
+	// Safeguard: DM channels should never be displayed in the main chat area
+	// They should only appear in the DM panel on the right side
+	// This check prevents accidental rendering of DMs in the middle chat
+	$: isDMChannel = currentChannelData?.type === 'dm';
+	$: isGroupChannel = currentChannelData?.type === 'group';
+	$: dmCallTargetUser = getDMOtherUser(currentChannelData);
+	let paymentTargetKind: 'channel' | 'dm' | 'group' | 'workspace' | null = null;
+	$: paymentTargetLabel = (() => {
+		if (isDMChannel && dmCallTargetUser?.username) {
+			return `DM with ${dmCallTargetUser.username}`;
+		}
+		if (isGroupChannel) {
+			return channelDisplayName;
+		}
+		return channelDisplayName ? `#${channelDisplayName}` : $currentChannel;
+	})();
+	$: paymentTargetKind = isDMChannel ? 'dm' : isGroupChannel ? 'group' : 'channel';
+	$: dmDirectCallActive = ($isInCall && $callMode === 'direct') || Boolean($outgoingCall);
+	$: dmDirectCallPending = Boolean($outgoingCall) && !$isInCall && $callMode === 'direct';
+	$: experimentalScopeVisible = isDMChannel || isGroupChannel;
+	$: channelPaneAnimation = (() => {
+		const baseDuration = $animationPassStore.level === 'full' ? 340 : 250;
+		const baseDistance = $animationPassStore.level === 'full' ? 34 : 22;
+		return {
+			enabled: $animationPassStore.enabled,
+			preset: $animationPassStore.preset,
+			duration: Math.max(0, Math.round(baseDuration * $animationPassStore.durationMultiplier)),
+			distance: Math.max(0, Math.round(baseDistance * $animationPassStore.durationMultiplier))
+		};
+	})();
+
+	let messageInput = '';
+	let manualCashOpen = false;
+	let paymentSheetOpen = false;
+	let paymentSheetOpenSeed = 0;
+	let paymentSheetPrefillAmountInput: string | null = null;
+	let paymentSheetPrefillDescription: string | null = '';
+	let paymentSheetPrefillCustomerRef: string | null = '';
+	let chatContainer: HTMLElement;
+	let typingTimeout: number;
+	let lastTypingEmit = 0;
+	const TYPING_THROTTLE_MS = 300; // Max one typing event per 300ms
+	let showEmojiPicker = false;
+	let showMediaMenu = false;
+	let emojiPickerButton: HTMLButtonElement;
+	let emojiPickerContainer: HTMLElement | null = null;
+	let mediaMenuContainer: HTMLElement | null = null;
+	let replyingTo: Message | null = null;
+	let fileInput: HTMLInputElement;
+	let editingMessage: Message | null = null;
+	let uploadProgress = 0;
+	let isUploading = false;
+	let uploadStatusLabel = '';
+	let compressionDialogOpen = false;
+	let compressionDialogFile: File | null = null;
+	let compressionDialogPreset: VideoCompressionPresetId = 'balanced_720p';
+	let compressionDialogPresetOptions: VideoCompressionPresetOption[] =
+		getVideoCompressionPresetOptions('desktop');
+	let compressionDialogRuntime: VideoCompressionRuntime = 'desktop';
+	let compressionDialogRuntimeLabel = 'Desktop';
+	let selectedCompressionPresetOption: VideoCompressionPresetOption | null = null;
+	let compressionDialogInputMetadata: VideoCompressionInputMetadata | null = null;
+	let compressionDialogEstimate: VideoCompressionEstimate | null = null;
+	let compressionDialogSuggestionCopy = '';
+	let compressionDialogError = '';
+	let compressionDialogProgress = 0;
+	let compressionDialogBusy = false;
+	let compressionDialogResolve: ((value: File | null) => void) | null = null;
+	let compressionAbortController: AbortController | null = null;
+	let experimentalStdbCallsEnabled = false;
+	let selectedFiles: File[] = [];
+	let filePreviews: { file: File; preview?: string }[] = [];
+	let markAsSpoiler = false;
+	let createAlbumFromUpload = false;
+	let uploadAlbumName = '';
+	let manualSendTimestamps: number[] = [];
+	let sendCooldownUntil = 0;
+	let sendCooldownMessage = '';
+	let sendCooldownTimer: ReturnType<typeof setTimeout> | null = null;
+	let isDragging = false;
+	let dragCounter = 0;
+	let textareaElement: HTMLTextAreaElement;
+	// Mobile composer auto-hide state
+	let lastScrollTop = 0;
+	let composerVisible = true;
+	let isTextareaFocused = false;
+	let mentionMenuContainer: HTMLElement | null = null;
+	let showMentionSuggestions = false;
+	type MentionSuggestion = {
+		key: string;
+		label: string;
+		value: string;
+		kind: 'special' | 'user' | 'place';
+		detail?: string;
+		place?: PlaceRecord;
+		poi?: PlaceRecord['pois'][number];
+	};
+	let mentionSuggestions: MentionSuggestion[] = [];
+	let mentionSelectedIndex = 0;
+	let mentionTokenStart = -1;
+	let composerEntities: MessageEntity[] = [];
+	let previousComposerInput = '';
+	let EmojiPickerComponent: typeof import('./EmojiPicker.svelte').default | null = null;
+	let emojiPickerLoadPromise: Promise<void> | null = null;
+	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken());
+	const SEND_BURST_WINDOW_MS = 2500;
+	const SEND_BURST_LIMIT = 5;
+	const SEND_BURST_COOLDOWN_MS = 3000;
+	const COMPOSER_MAX_HEIGHT = 160;
+
+	type PaymentSheetPrefill = {
+		amountInput?: string | null;
+		description?: string | null;
+		customerRef?: string | null;
+	};
+
+	function openPaymentSheet(prefill: PaymentSheetPrefill = {}): void {
+		if (!paymentButtonEnabled) {
+			alert('Sign in with a registered account to create payments.');
+			return;
+		}
+		paymentSheetPrefillAmountInput =
+			typeof prefill.amountInput === 'string' && prefill.amountInput.trim().length > 0
+				? prefill.amountInput.trim()
+				: null;
+		paymentSheetPrefillDescription =
+			typeof prefill.description === 'string' ? prefill.description.trim() : '';
+		paymentSheetPrefillCustomerRef =
+			typeof prefill.customerRef === 'string' ? prefill.customerRef.trim() : '';
+		paymentSheetOpenSeed += 1;
+		paymentSheetOpen = true;
+	}
+
+	function openManualCashModal(): void {
+		if (!paymentButtonEnabled) {
+			alert('Sign in with a registered account to track manual cash trades.');
+			return;
+		}
+		if (!isDMChannel) {
+			alert('Manual cash trades are only available in direct messages.');
+			return;
+		}
+		manualCashOpen = true;
+	}
+	type UploadVideoCompressionMetadata = {
+		scheme: 'wabi-video-compression-v1';
+		runtime: VideoCompressionRuntime;
+		preset: VideoCompressionPresetId;
+		originalSize: number;
+		compressedSize: number;
+		codec: 'vp9' | 'vp8' | 'h264' | 'hevc' | 'av1' | 'unknown';
+		mimeType: string;
+		durationMs: number;
+		estimatedOutputBytes?: number;
+	};
+	const compressionMetadataByFile = new WeakMap<File, UploadVideoCompressionMetadata>();
+
+	function getTransitionForPreset(
+		node: Element,
+		preset: AnimationPassPreset,
+		duration: number,
+		distance: number
+	) {
+		if (preset === 'fade') {
+			return fade(node, { duration, easing: easeOutCubic });
+		}
+		if (preset === 'scale') {
+			return scale(node, { duration, start: 0.96, opacity: 0.2, easing: easeOutBack });
+		}
+		if (preset === 'flip') {
+			return scale(node, { duration, start: 0.92, opacity: 0.1, easing: easeOutQuint });
+		}
+		return fly(node, { duration, y: distance, opacity: 0.15, easing: easeOutQuint });
+	}
+
+	function channelPaneInTransition(
+		node: Element,
+		params: { enabled: boolean; preset: AnimationPassPreset; duration: number; distance: number }
+	) {
+		const reducedMotion = browser && document.documentElement.getAttribute('data-reduce-motion') === 'true';
+		if (reducedMotion) {
+			return fade(node, { duration: 0 });
+		}
+		if (!params.enabled || params.duration <= 0) {
+			return fade(node, { duration: 0 });
+		}
+		return getTransitionForPreset(node, params.preset, params.duration, params.distance);
+	}
+
+	function channelPaneOutTransition(
+		node: Element,
+		params: { enabled: boolean; preset: AnimationPassPreset; duration: number; distance: number }
+	) {
+		const reducedMotion = browser && document.documentElement.getAttribute('data-reduce-motion') === 'true';
+		if (reducedMotion) {
+			return fade(node, { duration: 0 });
+		}
+		if (!params.enabled || params.duration <= 0) {
+			return fade(node, { duration: 0 });
+		}
+		const outDuration = Math.max(80, Math.min(180, Math.round(params.duration * 0.5)));
+		return fade(node, { duration: outDuration, easing: easeOutCubic });
+	}
+
+	function ensureEmojiPickerLoaded(): void {
+		if (EmojiPickerComponent || emojiPickerLoadPromise) return;
+		emojiPickerLoadPromise = import('./EmojiPicker.svelte')
+			.then((mod) => {
+				EmojiPickerComponent = mod.default;
+			})
+			.catch((error) => {
+				console.error('Failed to load EmojiPicker:', error);
+			})
+			.finally(() => {
+				emojiPickerLoadPromise = null;
+			});
+	}
+	const RESUMABLE_UPLOAD_CHUNK_SIZE = 1024 * 1024; // 1MB
+	const RESUMABLE_UPLOAD_MAX_RETRIES = 4;
+	const MAX_UPLOAD_FILE_BYTES = 1024 * 1024 * 1024; // 1GB
+	const MAX_GIF_CAPTION_LENGTH = 280;
+
+	// Command palette
+	let commandPalette: CommandPalette;
+	let showCommandPalette = false;
+	let commandPaletteSelectedIndex = 0;
+
+	// Search functionality
+	let searchInput = '';
+	let searchExpanded = false;
+	let searchContainerElement: HTMLElement | null = null;
+	let searchInputElement: HTMLInputElement | null = null;
+	let filteredMessages: Message[] = [];
+	const MESSAGE_WORKING_SET_LIMIT_EPHEMERAL = 600;
+	const MESSAGE_WORKING_SET_LIMIT_PERSISTENT_IDLE = 1200;
+	const MESSAGE_WORKING_SET_LIMIT_PERSISTENT_SEARCH = 5000;
+	const SEARCH_BACKFILL_THROTTLE_MS = 700;
+	let lastSearchBackfillAt = 0;
+	let isFullHistorySearchRunning = false;
+	let fullHistorySearchAbortRequested = false;
+	let fullHistorySearchPagesLoaded = 0;
+	let fullHistorySearchStatus = '';
+	let runtimeVersionLabel = 'unknown';
+	const MAX_FULL_HISTORY_SEARCH_PAGES = 80;
+	const MAX_FILE_PREVIEW_IMAGES = 8;
+	let gifCaptionInput = '';
+	let lastPreviewChannelId: string | null = null;
+	$: composerEnhancementSettings = $composerEnhancementSettingsStore;
+	$: composerSpellcheckEnabled = composerEnhancementSettings.spellcheckEnabled;
+	$: composerCharCounterEnabled = composerEnhancementSettings.charCounterEnabled;
+	$: splitLargeMessagesEnabled = composerEnhancementSettings.splitLargeMessagesEnabled;
+	$: splitLargeMessagesChunkSize = composerEnhancementSettings.splitLargeMessagesChunkSize;
+	$: writeUpperCaseEnabled = composerEnhancementSettings.writeUpperCaseEnabled;
+	$: composerInputMaxLength = splitLargeMessagesEnabled
+		? composerEnhancementSettings.splitLargeMessagesInputMaxLength
+		: splitLargeMessagesChunkSize;
+	$: gifCaptionerEnabled = $gifCaptionerSettingsStore.enabled;
+	$: gifCaptionerDedicatedCaptionFieldEnabled = $gifCaptionerSettingsStore.dedicatedCaptionFieldEnabled;
+	$: unicodeEmojisEnabled = $unicodeEmojiSettingsStore.enabled;
+	$: composerCharCount = messageInput.length;
+	$: composerCharCounterVisible =
+		composerInputMaxLength > 0 && composerCharCount / composerInputMaxLength >= 0.7;
+	$: composerCharCounterWarn = composerInputMaxLength > 0 && composerCharCount / composerInputMaxLength >= 0.9;
+	$: gifCaptionDraftLength = gifCaptionInput.trim().length;
+	$: gifCaptionDraftWarn =
+		gifCaptionDraftLength > 0 &&
+		gifCaptionDraftLength / MAX_GIF_CAPTION_LENGTH >= 0.9;
+	let unicodeComposerPreview = '';
+	let unicodeComposerPreviewTokens = 0;
+	let unicodeGifCaptionPreview = '';
+	let unicodeGifCaptionPreviewTokens = 0;
+	$: {
+		const preview = previewUnicodeEmojiConversion(messageInput, $emojis);
+		unicodeComposerPreview = preview.convertedText;
+		unicodeComposerPreviewTokens = preview.convertedTokens;
+	}
+	$: {
+		const preview = previewUnicodeEmojiConversion(gifCaptionInput, $emojis);
+		unicodeGifCaptionPreview = preview.convertedText;
+		unicodeGifCaptionPreviewTokens = preview.convertedTokens;
+	}
+	$: selectedCompressionPresetOption =
+		compressionDialogPresetOptions.find((option) => option.id === compressionDialogPreset) ||
+		compressionDialogPresetOptions[0] ||
+		null;
+	$: if (compressionDialogFile && compressionDialogInputMetadata) {
+		compressionDialogEstimate = estimateCompressedVideoOutput(
+			compressionDialogFile.size,
+			compressionDialogInputMetadata,
+			compressionDialogPreset
+		);
+		compressionDialogSuggestionCopy = getCompressionSuggestionCopy(
+			compressionDialogFile.size,
+			compressionDialogRuntime,
+			compressionDialogEstimate
+		);
+	} else {
+		compressionDialogEstimate = null;
+		compressionDialogSuggestionCopy = '';
+	}
+
+	// Photo and audio capture
+	let showCameraCapture = false;
+	let showAudioRecorder = false;
+	let visibleTypingUsers: string[] = [];
+
+	// Format typing users list with proper grammar
+	function formatTypingUsers(users: string[]): string {
+		const t = get(_);
+		if (users.length === 0) return '';
+		if (users.length === 1) return t('chat.typing.one', { values: { user: users[0] } });
+		if (users.length === 2) return t('chat.typing.two', { values: { user1: users[0], user2: users[1] } });
+		if (users.length >= 6) return t('chat.typing.many');
+
+		// 3-5 users: "User1, User2, and User3 are typing..."
+		const allButLast = users.slice(0, -1).join(', ');
+		const lastUser = users[users.length - 1];
+		return t('chat.typing.multi', { values: { users: allButLast, lastUser } });
+	}
+
+	function getTypingUserPriority(username: string): number {
+		const user = $users.find((u) => u.username.toLowerCase() === username.toLowerCase());
+		const role = (user?.highestRole || '').toLowerCase();
+
+		if (role.includes('owner')) return 4;
+		if (role.includes('admin')) return 3;
+		if (role.includes('mod')) return 2;
+		if (role.includes('staff')) return 1;
+		return 0;
+	}
+
+	function getVisibleTypingUsers(names: string[]): string[] {
+		const currentUsername = ($currentUser?.username || '').toLowerCase();
+		const deduped = Array.from(new Set(names.filter(Boolean)));
+		const othersOnly = deduped.filter((name) => name.toLowerCase() !== currentUsername);
+
+		return othersOnly.sort((a, b) => {
+			const priorityDiff = getTypingUserPriority(b) - getTypingUserPriority(a);
+			if (priorityDiff !== 0) return priorityDiff;
+			return a.localeCompare(b);
+		});
+	}
+
+	function getDMOtherUser(channel?: Channel): User | null {
+		if (!channel || channel.type !== 'dm') return null;
+		if (channel.otherUser) return channel.otherUser;
+
+		const myStableId = $currentUser?.dbUserId ? `user-${$currentUser.dbUserId}` : $currentUser?.id;
+		const otherStableId = (channel.members || []).find((id: string) => id !== myStableId);
+		if (!otherStableId) return null;
+
+		if (otherStableId.startsWith('user-')) {
+			const dbId = parseInt(otherStableId.substring(5), 10);
+			return $users.find(u => u.dbUserId === dbId) || null;
+		}
+		return $users.find(u => u.id === otherStableId) || null;
+	}
+
+
+	async function startDMVoiceCall() {
+		if (!$socket || !dmCallTargetUser || dmDirectCallActive) return;
+		try {
+			await startCall($socket, getUserIdentityKey(dmCallTargetUser), false, { scope: 'dm', displayName: dmCallTargetUser.username });
+		} catch (error) {
+			console.warn('[Call] DM voice call failed to start:', error);
+		}
+	}
+
+	async function startDMVideoCall() {
+		if (!$socket || !dmCallTargetUser || dmDirectCallActive) return;
+		try {
+			await startCall($socket, getUserIdentityKey(dmCallTargetUser), true, { scope: 'dm', displayName: dmCallTargetUser.username });
+		} catch (error) {
+			console.warn('[Call] DM video call failed to start:', error);
+		}
+	}
+
+	// Parse search syntax: by:username, has:image, has:video, has:file, has:link, and text content
+
+	function parseSearchQuery(query: string): { text: string; byUser?: string; hasTypes: string[] } {
+		const byUserMatch = query.match(/by:(\S+)/);
+		const hasMatches = query.match(/has:(\S+)/g) || [];
+
+		const byUser = byUserMatch ? byUserMatch[1] : undefined;
+		const hasTypes = hasMatches.map(m => m.replace('has:', '').toLowerCase());
+
+		const text = query.replace(/by:\S+/g, '').replace(/has:\S+/g, '').trim().toLowerCase();
+
+		return { text, byUser, hasTypes };
+	}
+
+	// Filter messages based on search query
+	function filterMessages(msgs: Message[], query: string, workingSetLimit: number): Message[] {
+		const workingSet = msgs.length > workingSetLimit
+			? msgs.slice(-workingSetLimit)
+			: msgs;
+		if (!query.trim()) return workingSet;
+
+		const { text, byUser, hasTypes } = parseSearchQuery(query);
+
+		return workingSet.filter(msg => {
+			// Filter by user
+			if (byUser && msg.user.toLowerCase() !== byUser.toLowerCase()) {
+				return false;
+			}
+
+			// Filter by type (has:image, has:file, etc.)
+			if (hasTypes.length > 0) {
+				const hasMatch = hasTypes.some(type => {
+					if (type === 'image' && msg.type === 'file' && msg.fileUrl?.match(/\.(jpg|jpeg|png|gif|webp)$/i)) return true;
+					if (type === 'video' && msg.type === 'file' && msg.fileUrl?.match(/\.(mp4|webm|mov)$/i)) return true;
+					if (type === 'file' && msg.type === 'file') return true;
+					if (type === 'link' && msg.text.match(/https?:\/\//i)) return true;
+					if (type === 'gif' && msg.type === 'gif') return true;
+					return false;
+				});
+				if (!hasMatch) return false;
+			}
+
+			// Filter by text content
+			if (text && !msg.text.toLowerCase().includes(text)) {
+				return false;
+			}
+
+			return true;
+		});
+	}
+
+	function getWorkingSetLimit(): number {
+		if (currentChannelData?.persistMessages) {
+			return searchInput.trim()
+				? MESSAGE_WORKING_SET_LIMIT_PERSISTENT_SEARCH
+				: MESSAGE_WORKING_SET_LIMIT_PERSISTENT_IDLE;
+		}
+		return MESSAGE_WORKING_SET_LIMIT_EPHEMERAL;
+	}
+
+	// Reactive search
+	$: filteredMessages = filterMessages(messages, searchInput, getWorkingSetLimit());
+	$: if (searchInput.trim() && !searchExpanded) {
+		searchExpanded = true;
+	}
+	$: visibleTypingUsers = getVisibleTypingUsers($typingUsers[$currentChannel] || []);
+	$: if (!searchInput.trim()) {
+		fullHistorySearchStatus = '';
+	}
+	$: searchBackfillBusy =
+		Boolean(searchInput.trim()) &&
+		Boolean(currentChannelData?.persistMessages) &&
+		(($channelHistoryLoading[$currentChannel] || false) || ($channelLoadingOlder[$currentChannel] || false));
+	$: {
+		if (searchInput.trim() && currentChannelData?.persistMessages && $currentChannel && !isFullHistorySearchRunning) {
+			const now = Date.now();
+			if (now - lastSearchBackfillAt >= SEARCH_BACKFILL_THROTTLE_MS) {
+				const hasMoreServerHistory = $channelHasMoreHistory[$currentChannel] ?? false;
+				const isServerLoading = $channelHistoryLoading[$currentChannel] || false;
+				if (hasMoreServerHistory && !isServerLoading) {
+					lastSearchBackfillAt = now;
+					loadOlderHistory($currentChannel);
+				} else {
+					const availableArchives = $channelAvailableArchives[$currentChannel] || [];
+					const loadedArchives = $channelLoadedArchives[$currentChannel] || new Set<string>();
+					const hasMoreArchiveHistory = availableArchives.length > loadedArchives.size;
+					const isArchiveLoading = $channelLoadingOlder[$currentChannel] || false;
+					if (hasMoreArchiveHistory && !isArchiveLoading) {
+						lastSearchBackfillAt = now;
+						void loadOlderMessages($currentChannel);
+					}
+				}
+			}
+		}
+	}
+	$: if (lastPreviewChannelId !== $currentChannel) {
+		lastPreviewChannelId = $currentChannel;
+		clearFilePreviews();
+	}
+
+	async function scrollToBottom() {
+		await tick();
+		if (chatContainer) {
+			chatContainer.scrollTop = chatContainer.scrollHeight;
+		}
+	}
+
+	$: if (messages.length) {
+		scrollToBottom();
+	}
+
+	function autoResizeTextarea() {
+		if (!textareaElement) return;
+
+		// Reset height to auto to get the correct scrollHeight
+		textareaElement.style.height = 'auto';
+
+		// Set height based on content, up to max-height
+		const newHeight = Math.min(textareaElement.scrollHeight, COMPOSER_MAX_HEIGHT);
+		textareaElement.style.height = `${newHeight}px`;
+	}
+
+	function handleInput() {
+		autoResizeTextarea();
+
+		// Throttle typing emissions - max once per TYPING_THROTTLE_MS
+		const now = Date.now();
+		if (now - lastTypingEmit >= TYPING_THROTTLE_MS) {
+			sendTyping(true, $currentChannel);
+			lastTypingEmit = now;
+		}
+
+		// Debounce stop typing
+		if (typingTimeout) {
+			clearTimeout(typingTimeout);
+		}
+
+		typingTimeout = setTimeout(() => {
+			sendTyping(false, $currentChannel);
+		}, 1000) as unknown as number;
+	}
+
+	function handleInputChange() {
+		syncComposerEntities();
+
+		// Show command palette if input starts with /
+		if (messageInput.startsWith('/')) {
+			showCommandPalette = getMatchingCommands(messageInput).length > 0;
+			showMentionSuggestions = false;
+		} else {
+			showCommandPalette = false;
+			updateMentionSuggestions();
+		}
+	}
+
+	function syncComposerEntities() {
+		composerEntities = reconcileMessageEntities(previousComposerInput, messageInput, composerEntities);
+		previousComposerInput = messageInput;
+	}
+
+	function resetComposerEntityState() {
+		composerEntities = [];
+		previousComposerInput = messageInput;
+	}
+
+	function resolveOutgoingPlaceEntities(outgoingText: string): MessageEntity[] {
+		if (!composerEntities.length || !outgoingText) return [];
+		return rebaseMessageEntitiesForText(outgoingText, composerEntities);
+	}
+
+	function updateMentionSuggestions() {
+		if (!textareaElement) {
+			showMentionSuggestions = false;
+			return;
+		}
+
+		const caret = textareaElement.selectionStart ?? messageInput.length;
+		const beforeCaret = messageInput.slice(0, caret);
+		const atIndex = beforeCaret.lastIndexOf('@');
+		if (atIndex < 0) {
+			showMentionSuggestions = false;
+			return;
+		}
+
+		const prefixChar = atIndex > 0 ? beforeCaret[atIndex - 1] : '';
+		if (prefixChar && !/\s|\(/.test(prefixChar)) {
+			showMentionSuggestions = false;
+			return;
+		}
+
+		const query = beforeCaret.slice(atIndex + 1);
+		if (/\s/.test(query)) {
+			showMentionSuggestions = false;
+			return;
+		}
+
+		const normalizedQuery = query.toLowerCase();
+		const specials = [
+			{ key: 'special-all', label: '@all', value: 'all', kind: 'special' as const },
+			{ key: 'special-here', label: '@here', value: 'here', kind: 'special' as const },
+			{ key: 'special-everyone', label: '@everyone', value: 'everyone', kind: 'special' as const }
+		].filter((entry) => entry.value.startsWith(normalizedQuery));
+
+		const userEntries = $users
+			.filter((u) => u.id !== $currentUser?.id)
+			.sort((a, b) => a.username.localeCompare(b.username))
+			.map((u) => ({
+				key: `user-${u.id}`,
+				label: `@${u.username}`,
+				value: u.username,
+				kind: 'user' as const
+			}))
+			.filter((entry) => entry.value.toLowerCase().startsWith(normalizedQuery));
+
+		if (!$placeRegistry.length) {
+			void loadPlaceRegistry();
+		}
+		const placeEntries = searchPlaceMentionSuggestions(normalizedQuery, 8).map((entry) => ({
+			key: entry.key,
+			label: entry.label,
+			value: entry.value,
+			kind: 'place' as const,
+			detail: entry.detail || buildPlaceSuggestionDetail(entry.place),
+			place: entry.place,
+			poi: entry.poi
+		}));
+
+		const nextSuggestions = [...specials, ...userEntries, ...placeEntries].slice(0, 8);
+		if (nextSuggestions.length === 0) {
+			showMentionSuggestions = false;
+			return;
+		}
+
+		mentionTokenStart = atIndex;
+		mentionSuggestions = nextSuggestions;
+		mentionSelectedIndex = 0;
+		showMentionSuggestions = true;
+	}
+
+	async function applyMentionSuggestion(index: number) {
+		if (!textareaElement || index < 0 || index >= mentionSuggestions.length || mentionTokenStart < 0) return;
+		const selected = mentionSuggestions[index];
+		const caret = textareaElement.selectionStart ?? messageInput.length;
+		const before = messageInput.slice(0, mentionTokenStart);
+		const after = messageInput.slice(caret);
+		const mentionText = `@${selected.value}`;
+		const needsTrailingSpace = after.length === 0 || !/^[\s.,!?;:)]/.test(after);
+		const insertion = needsTrailingSpace ? `${mentionText} ` : mentionText;
+		const nextCursor = (before + insertion).length;
+		const nextMessageInput = before + insertion + after;
+
+		composerEntities = reconcileMessageEntities(messageInput, nextMessageInput, composerEntities);
+		if (selected.kind === 'place' && selected.place) {
+			composerEntities = [
+				...composerEntities,
+				buildPlaceMessageEntity(selected.place, before.length, before.length + mentionText.length, {
+					poi: selected.poi,
+					displayText: mentionText
+				})
+			].sort((a, b) => a.start - b.start || a.end - b.end);
+		}
+		messageInput = nextMessageInput;
+		previousComposerInput = messageInput;
+		showMentionSuggestions = false;
+		mentionTokenStart = -1;
+
+		await tick();
+		textareaElement.focus();
+		textareaElement.setSelectionRange(nextCursor, nextCursor);
+	}
+
+	function handleKeyDown(e: KeyboardEvent) {
+		if (showMentionSuggestions) {
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				mentionSelectedIndex = (mentionSelectedIndex + 1) % mentionSuggestions.length;
+				return;
+			}
+			if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				mentionSelectedIndex = (mentionSelectedIndex - 1 + mentionSuggestions.length) % mentionSuggestions.length;
+				return;
+			}
+			if (e.key === 'Enter' || e.key === 'Tab') {
+				e.preventDefault();
+				void applyMentionSuggestion(mentionSelectedIndex);
+				return;
+			}
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				showMentionSuggestions = false;
+				return;
+			}
+		}
+
+		// Command palette navigation
+		if (showCommandPalette && commandPalette) {
+			const handled = commandPalette.handleKeyDown(e.key);
+			if (handled) {
+				e.preventDefault();
+				return;
+			}
+		}
+
+		// Arrow up to edit last message
+		if (e.key === 'ArrowUp' && !messageInput.trim() && !editingMessage) {
+			e.preventDefault();
+			// Find the last message from the current user
+			const userMessages = messages.filter((m: Message) => m.userId === $currentUser?.id);
+			if (userMessages.length > 0) {
+				const lastMessage = userMessages[userMessages.length - 1];
+				editingMessage = lastMessage;
+				messageInput = lastMessage.text;
+				resetComposerEntityState();
+			}
+		}
+		// Escape to cancel editing/command palette
+		else if (e.key === 'Escape') {
+			e.preventDefault();
+			if (showCommandPalette) {
+				showCommandPalette = false;
+			} else if (editingMessage) {
+				cancelEdit();
+			}
+		}
+		// Enter without shift sends the message
+		else if (e.key === 'Enter' && !e.shiftKey) {
+			e.preventDefault();
+			handleSubmit();
+		}
+		// Shift+Enter adds a new line (default textarea behavior)
+	}
+
+	function handleCommandSelect(command: Command) {
+		// Replace the / command with selected command name
+		messageInput = `/${command.name} `;
+		resetComposerEntityState();
+		showCommandPalette = false;
+		textareaElement?.focus();
+	}
+
+	function normalizePayAmountInput(rawAmount: string): string | null {
+		const cleaned = rawAmount.replace(/,/g, '').replace(/^\$/, '').trim();
+		if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null;
+		const parsedAmount = Number.parseFloat(cleaned);
+		if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) return null;
+		return parsedAmount.toFixed(2);
+	}
+
+	function resolvePayTargetUser(identifier: string): User | null {
+		const normalized = identifier.trim().replace(/^@+/, '').toLowerCase();
+		if (!normalized) return null;
+		return $users.find((candidate) => candidate.username.toLowerCase() === normalized) || null;
+	}
+
+	function parseWordCommandPayload(rawInput: string): {
+		action: 'add' | 'view' | 'remove' | 'help';
+		term?: string;
+		definition?: string;
+		language?: string;
+	} {
+		const withoutPrefix = rawInput.trim().replace(/^\/word\s*/i, '');
+		if (!withoutPrefix) {
+			return { action: 'help' };
+		}
+		const firstSpace = withoutPrefix.indexOf(' ');
+		const actionRaw = (firstSpace >= 0 ? withoutPrefix.slice(0, firstSpace) : withoutPrefix).trim().toLowerCase();
+		const rest = firstSpace >= 0 ? withoutPrefix.slice(firstSpace + 1).trim() : '';
+		const action = actionRaw === 'add' || actionRaw === 'view' || actionRaw === 'remove' ? actionRaw : 'help';
+		if (action === 'help') return { action: 'help' };
+
+		if (action === 'add') {
+			const parts = rest.split('|').map((part) => part.trim()).filter(Boolean);
+			return {
+				action,
+				term: parts[0],
+				definition: parts[1],
+				language: (parts[2] || $currentLocale || 'en').toLowerCase()
+			};
+		}
+
+		const parts = rest.split('|').map((part) => part.trim()).filter(Boolean);
+		return {
+			action,
+			term: parts[0],
+			language: (parts[1] || $currentLocale || 'en').toLowerCase()
+		};
+	}
+
+	function getWordCommandHelp(): string {
+		return [
+			'Word Dictionary Commands:',
+			'',
+			'/word add <term> | <definition> | [language]',
+			'Example: /word add がんばって | to cheer / do your best | ja',
+			'',
+			'/word view <term> | [language]',
+			'Example: /word view がんばって | ja',
+			'',
+			'/word remove <term> | [language]'
+		].join('\n');
+	}
+
+	async function executeCommand(commandInput: string) {
+		const parsed = parseCommand(commandInput);
+
+		if (parsed.error) {
+			console.warn(parsed.error);
+			return;
+		}
+
+		if (!parsed.command) return;
+
+		const commandName = parsed.command.name;
+
+		switch (commandName) {
+			case 'help':
+			case 'h':
+			case '?':
+				alert(`Available Commands:\n\n${formatCommandHelp()}`);
+				break;
+
+			case 'resource':
+			case 'res':
+			case 'r': {
+				// /resource <name> [-a] [-tag tagname]
+				const resourceName = parsed.args.join(' ');
+				if (!resourceName) {
+					alert('Resource name is required.\nUsage: /resource <name> [-a] [-tag tagname]');
+					return;
+				}
+
+					const tag = typeof parsed.flags['tag'] === 'string' ? parsed.flags['tag'] : undefined;
+					const newResource: Resource = {
+						id: `res-${Date.now()}`,
+						name: resourceName,
+						type: 'note',
+						storageType: 'inline',
+						createdAt: Date.now(),
+						updatedAt: Date.now(),
+						createdBy: parsed.flags['a'] ? 'Anonymous' : ($currentUser?.username || 'Unknown'),
+						isAnonymous: !!parsed.flags['a'],
+						visibilityType: 'public',
+						tags: tag ? [tag] : []
+					};
+
+				resources.update(r => [...r, newResource]);
+				alert(`Resource "${resourceName}" created!`);
+				break;
+			}
+
+			case 'search':
+			case 's': {
+				// /search <term> [-by username] [-has image|video|file|link]
+				const searchTerm = parsed.args.join(' ');
+				if (!searchTerm) {
+					alert('Search term is required.\nUsage: /search <term> [-by username] [-has image|video|file|link]');
+					return;
+				}
+				searchInput = searchTerm;
+				if (parsed.flags['by']) {
+					searchInput += ` by:${parsed.flags['by']}`;
+				}
+				if (parsed.flags['has']) {
+					searchInput += ` has:${parsed.flags['has']}`;
+				}
+				break;
+			}
+
+			case 'pin':
+			case 'p': {
+				// /pin [channelName] - pin a channel by name, or current channel if no arg
+				let targetChannelId = $currentChannel;
+				if (parsed.args.length > 0) {
+					const channelName = parsed.args.join(' ');
+					const targetChannel = $channels.find(ch =>
+						ch.name.toLowerCase() === channelName.toLowerCase()
+					);
+					if (!targetChannel) {
+						alert(`Channel "${channelName}" not found!`);
+						return;
+					}
+					targetChannelId = targetChannel.id;
+				}
+				pinChannel(targetChannelId);
+				const channelName = $channels.find(ch => ch.id === targetChannelId)?.name || 'Channel';
+				alert(`"${channelName}" pinned!`);
+				break;
+			}
+
+			case 'unpin':
+			case 'up': {
+				// /unpin [channelName] - unpin a channel by name, or current channel if no arg
+				let targetChannelId = $currentChannel;
+				if (parsed.args.length > 0) {
+					const channelName = parsed.args.join(' ');
+					const targetChannel = $channels.find(ch =>
+						ch.name.toLowerCase() === channelName.toLowerCase()
+					);
+					if (!targetChannel) {
+						alert(`Channel "${channelName}" not found!`);
+						return;
+					}
+					targetChannelId = targetChannel.id;
+				}
+				unpinChannel(targetChannelId);
+				const channelName = $channels.find(ch => ch.id === targetChannelId)?.name || 'Channel';
+				alert(`"${channelName}" unpinned!`);
+				break;
+			}
+
+			case 'todo':
+			case 'todos':
+			case 'tasks': {
+				// /todo [-open]
+				const todoList = $todos;
+				if (todoList.length === 0) {
+					alert('No todos yet!');
+					return;
+				}
+
+				const isOpen = !!parsed.flags['open'];
+				const todoText = todoList
+					.map((t, i) => `${i + 1}. ${t.status === 'done' ? 'DONE' : 'OPEN'} ${t.title}`)
+					.join('\n');
+
+				const message = `My Todos${isOpen ? ' (Shared)' : ''}:\n\`\`\`\n${todoText}\n\`\`\``;
+
+				if (isOpen) {
+					sendMessage($currentChannel, message, 'text', {});
+				} else {
+					alert(`My Todos:\n\n${todoText}`);
+				}
+				break;
+			}
+
+			case 'calendar':
+			case 'cal':
+			case 'events': {
+				// /calendar [-open]
+				const now = Date.now();
+				const upcoming = $calendarEvents
+					.filter(e => e.startDate >= now)
+					.sort((a, b) => a.startDate - b.startDate)
+					.slice(0, 10);
+
+				if (upcoming.length === 0) {
+					alert('No upcoming events!');
+					return;
+				}
+
+				const isOpen = !!parsed.flags['open'];
+				const eventText = upcoming
+					.map(e => {
+						const date = new Date(e.startDate).toLocaleDateString();
+						return `${e.title} - ${date}`;
+					})
+					.join('\n');
+
+				const message = `Upcoming Events${isOpen ? ' (Shared)' : ''}:\n\`\`\`\n${eventText}\n\`\`\``;
+
+				if (isOpen) {
+					sendMessage($currentChannel, message, 'text', {});
+				} else {
+					alert(`Upcoming Events:\n\n${eventText}`);
+				}
+				break;
+			}
+
+			case 'journal':
+			case 'j':
+			case 'diary': {
+				// /journal [-open]
+				const entries = $diaryEntries.slice(0, 5);
+
+				if (entries.length === 0) {
+					alert('No journal entries yet!');
+					return;
+				}
+
+				const isOpen = !!parsed.flags['open'];
+				const entryText = entries
+					.map(e => {
+						const date = new Date(e.createdAt).toLocaleDateString();
+						return `${date}: ${e.content.substring(0, 100)}...`;
+					})
+					.join('\n');
+
+				const message = `Recent Journal Entries${isOpen ? ' (Shared)' : ''}:\n\`\`\`\n${entryText}\n\`\`\``;
+
+				if (isOpen) {
+					sendMessage($currentChannel, message, 'text', {});
+				} else {
+					alert(`Recent Journal Entries:\n\n${entryText}`);
+				}
+				break;
+			}
+
+			case 'projects':
+			case 'proj': {
+				// /projects [-open]
+				const projectList = $projects;
+
+				if (projectList.length === 0) {
+					alert('No projects yet!');
+					return;
+				}
+
+				const isOpen = !!parsed.flags['open'];
+				const projText = projectList
+					.map(p => `${p.name} - ${p.status}`)
+					.join('\n');
+
+				const message = `My Projects${isOpen ? ' (Shared)' : ''}:\n\`\`\`\n${projText}\n\`\`\``;
+
+				if (isOpen) {
+					sendMessage($currentChannel, message, 'text', {});
+				} else {
+					alert(`My Projects:\n\n${projText}`);
+				}
+				break;
+			}
+
+			case 'art':
+			case 'a':
+			case 'graph':
+			case 'resources': {
+				// /art - Navigate to Art/Knowledge Graph portal
+				window.location.href = '/art';
+				break;
+			}
+
+			case 'business':
+			case 'b':
+			case 'hub':
+			case 'tasks': {
+				// /business - Navigate to Business Hub
+				window.location.href = '/business';
+				break;
+			}
+
+			case 'mainchat':
+			case 'main':
+			case 'chat':
+			case 'home': {
+				// /mainchat - Return to main Wabi Chat
+				window.location.href = '/';
+				break;
+			}
+
+			case 'read': {
+				openReaderSurface();
+				break;
+			}
+
+			case '3d': {
+				openModelViewportSurface();
+				break;
+			}
+
+			case 'map':
+			case 'maps': {
+				void openFullMapTab();
+				break;
+			}
+
+			case 'dm':
+			case 'message':
+			case 'msg': {
+				const username = parsed.args.join(' ');
+				if (!username) {
+					alert('Please specify a username.\nUsage: /dm <username>');
+					return;
+				}
+
+				const targetUser = findDmDirectoryUserByUsername({
+					username,
+					onlineUsers: $users,
+					serverMembers: $serverMembers,
+					currentUser: $currentUser
+				});
+
+				if (!targetUser) {
+					alert(`User "${username}" not found.`);
+					return;
+				}
+
+				// Check if DM already exists using stable IDs
+				const dmId = getDMChannelIdForUser($currentUser, targetUser);
+				const existingDM = $channels.find(ch => ch.id === dmId);
+
+				if (existingDM) {
+					// Open existing DM in right panel
+					dmPanelSignal.set({ channelId: dmId, otherUser: targetUser });
+				} else {
+					// Create new DM (will auto-open via dmPanelSignal)
+					createDM(getDmDirectoryKey(targetUser));
+				}
+				break;
+			}
+
+			case 'pay': {
+				if (!paymentButtonEnabled) {
+					alert('Sign in with a registered account to create payments.');
+					break;
+				}
+
+				const userFlagValue =
+					typeof parsed.flags['user'] === 'string'
+						? parsed.flags['user']
+						: typeof parsed.flags['u'] === 'string'
+							? parsed.flags['u']
+							: '';
+				const amountFlagValue =
+					typeof parsed.flags['amt'] === 'string'
+						? parsed.flags['amt']
+						: typeof parsed.flags['amount'] === 'string'
+							? parsed.flags['amount']
+							: '';
+
+				let requestedUser = userFlagValue.trim();
+				let requestedAmount = amountFlagValue.trim();
+
+				for (const arg of parsed.args) {
+					const amountCandidate = normalizePayAmountInput(arg);
+					if (!requestedAmount && amountCandidate) {
+						requestedAmount = amountCandidate;
+						continue;
+					}
+					if (!requestedUser) {
+						requestedUser = arg;
+					}
+				}
+
+				const normalizedAmount = requestedAmount ? normalizePayAmountInput(requestedAmount) : null;
+				if (requestedAmount && !normalizedAmount) {
+					alert('Invalid amount.\nUsage: /pay [@username] [amount] [-user username] [-amt 12.34]');
+					break;
+				}
+
+				let targetUser: User | null = null;
+				if (requestedUser) {
+					targetUser = resolvePayTargetUser(requestedUser);
+					if (!targetUser) {
+						alert(`User "${requestedUser}" not found.\nUsage: /pay [@username] [amount]`);
+						break;
+					}
+				}
+
+				openPaymentSheet({
+					amountInput: normalizedAmount,
+					description: targetUser ? `Payment request for @${targetUser.username}` : '',
+					customerRef: ''
+				});
+				break;
+			}
+
+			case 'logout':
+			case 'signout':
+			case 'exit': {
+				// /logout - Log out and clear session
+				dispatch('logout');
+				break;
+			}
+
+			case 'word':
+			case 'dict':
+			case 'dictionary': {
+				const payload = parseWordCommandPayload(commandInput);
+				if (payload.action === 'help' || !payload.term) {
+					alert(getWordCommandHelp());
+					break;
+				}
+
+				if (payload.action === 'view') {
+					try {
+						const entries = await lookupDictionary(payload.term, payload.language || 'en', 5);
+						if (entries.length === 0) {
+							alert(`No dictionary entry found for "${payload.term}" (${payload.language || 'en'}).`);
+							break;
+						}
+						const lines = entries.map((entry, index) => {
+							const editor = entry.createdByUsername ? ` (by ${entry.createdByUsername})` : '';
+							return `${index + 1}. ${entry.term} [${entry.language}] -> ${entry.definition}${editor}`;
+						});
+						alert(lines.join('\n'));
+					} catch (error) {
+						alert(error instanceof Error ? error.message : 'Failed to lookup dictionary entry.');
+					}
+					break;
+				}
+
+				if (payload.action === 'add') {
+					if (!payload.definition) {
+						alert(getWordCommandHelp());
+						break;
+					}
+					const authToken = getAuthToken();
+					if (!authToken) {
+						alert('Login is required to add dictionary entries.');
+						break;
+					}
+					try {
+						const saved = await upsertDictionaryEntry(
+							authToken,
+							payload.term,
+							payload.definition,
+							payload.language || 'en'
+						);
+						alert(`Saved: ${saved.term} [${saved.language}] -> ${saved.definition}`);
+					} catch (error) {
+						alert(error instanceof Error ? error.message : 'Failed to save dictionary entry.');
+					}
+					break;
+				}
+
+				if (payload.action === 'remove') {
+					const authToken = getAuthToken();
+					if (!authToken) {
+						alert('Login is required to remove dictionary entries.');
+						break;
+					}
+					try {
+						await deleteDictionaryEntry(authToken, payload.term, payload.language || 'en');
+						alert(`Removed dictionary entry for "${payload.term}" (${payload.language || 'en'}).`);
+					} catch (error) {
+						alert(error instanceof Error ? error.message : 'Failed to remove dictionary entry.');
+					}
+				}
+				break;
+			}
+
+			case 'directions':
+			case 'dir':
+			case 'where': {
+				const rawTarget = parsed.args.join(' ').trim();
+				if (!rawTarget) {
+					alert('Place is required.\nUsage: /directions <@place|place-slug[/poi]>');
+					break;
+				}
+				if (!(await pushLocalDirectionsCard($currentChannel, rawTarget))) {
+					alert(`Place "${rawTarget}" was not found.`);
+				}
+				break;
+			}
+
+			default:
+				console.warn(`Unknown command: ${commandName}`);
+		}
+	}
+
+	function handleSubmit() {
+		const hasSelectedFiles = selectedFiles.length > 0;
+		const hasTextInput = Boolean(messageInput.trim());
+		if (!hasSelectedFiles && !hasTextInput) return;
+		if (sendCooldownUntil > Date.now()) {
+			sendCooldownMessage = 'Hold on buster. Give chat a second before sending more.';
+			return;
+		}
+		if (hasSelectedFiles) {
+			void uploadSelectedFiles();
+			return;
+		}
+		if (hasTextInput) {
+			if (editingMessage) {
+				// Edit the existing message
+				editMessage($currentChannel, editingMessage.id, messageInput.trim());
+				editingMessage = null;
+			} else {
+				const trimmedMessage = messageInput.trim();
+				const aliasExpandedMessage = expandInputWithChatAlias(trimmedMessage);
+				const outgoingFilterResult = applyChatFilter(aliasExpandedMessage, 'outgoing');
+
+				if (outgoingFilterResult.hidden) {
+					const blockedTerms = outgoingFilterResult.matchedTerms.join(', ');
+					alert(
+						blockedTerms
+							? `Message blocked by Chat Filter: ${blockedTerms}`
+							: 'Message blocked by Chat Filter.'
+					);
+					return;
+				}
+
+				const finalMessage = outgoingFilterResult.text.trim();
+				if (!finalMessage) {
+					alert('Message is empty after Chat Filter processing.');
+					return;
+				}
+
+				const normalizedSentenceCaseMessage = applyWriteUpperCase(
+					finalMessage,
+					writeUpperCaseEnabled
+				);
+
+				const now = Date.now();
+				manualSendTimestamps = manualSendTimestamps.filter(
+					(timestamp) => now - timestamp < SEND_BURST_WINDOW_MS
+				);
+				if (manualSendTimestamps.length >= SEND_BURST_LIMIT) {
+					sendCooldownUntil = now + SEND_BURST_COOLDOWN_MS;
+					sendCooldownMessage = 'Hold on buster. Give chat a second before sending more.';
+					if (sendCooldownTimer) {
+						clearTimeout(sendCooldownTimer);
+					}
+					sendCooldownTimer = setTimeout(() => {
+						sendCooldownUntil = 0;
+						sendCooldownMessage = '';
+						sendCooldownTimer = null;
+					}, SEND_BURST_COOLDOWN_MS);
+					return;
+				}
+				manualSendTimestamps = [...manualSendTimestamps, now];
+
+				// Check if it's a command
+				if (normalizedSentenceCaseMessage.startsWith('/')) {
+					void executeCommand(normalizedSentenceCaseMessage);
+					messageInput = '';
+					resetComposerEntityState();
+					return;
+				}
+
+				const normalizedMessage = replaceEmojiShortcodesWithUnicode(
+					normalizedSentenceCaseMessage,
+					$emojis,
+					unicodeEmojisEnabled
+				);
+				const normalizedEntities = resolveOutgoingPlaceEntities(normalizedMessage);
+
+				if (splitLargeMessagesEnabled && normalizedMessage.length > splitLargeMessagesChunkSize) {
+					const chunks = splitMessageForSending(normalizedMessage, splitLargeMessagesChunkSize);
+					if (chunks.length === 0) {
+						alert('Unable to split message into chunks.');
+						return;
+					}
+					const chunkEntities = splitEntitiesForChunks(normalizedMessage, chunks, normalizedEntities);
+					for (const [index, chunk] of chunks.entries()) {
+						sendMessage($currentChannel, chunk, 'text', {
+							replyTo: index === 0 ? replyingTo?.id : undefined,
+							isSpoiler: markAsSpoiler,
+							entities: chunkEntities[index]
+						});
+					}
+				} else {
+					// Check if message is ONLY emoji syntax (e.g., ":smile:" or ":smile::heart:")
+					const emojiOnlyPattern = /^(?::[a-zA-Z0-9_+-]+:)+$/;
+					const isEmojiOnly = emojiOnlyPattern.test(normalizedMessage);
+
+					if (isEmojiOnly) {
+						// Extract emoji names and find their URLs
+						const emojiNames =
+							normalizedMessage.match(/:[a-zA-Z0-9_+-]+:/g)?.map((e) => e.slice(1, -1)) ||
+							[];
+						const firstEmojiName = emojiNames[0];
+						const firstEmoji = $emojis.find((e) => e.name === firstEmojiName);
+
+						// Send as emoji type for large display
+						sendMessage($currentChannel, normalizedMessage, 'emoji', {
+							emojiUrl: firstEmoji?.url,
+							emojiName: firstEmojiName,
+							replyTo: replyingTo?.id,
+							isSpoiler: markAsSpoiler
+						});
+					} else {
+						// Send as regular text message
+						sendMessage($currentChannel, normalizedMessage, 'text', {
+							replyTo: replyingTo?.id,
+							isSpoiler: markAsSpoiler,
+							entities: normalizedEntities
+						});
+					}
+				}
+				replyingTo = null;
+			}
+			messageInput = '';
+			resetComposerEntityState();
+			showMentionSuggestions = false;
+			showMediaMenu = false;
+			sendCooldownMessage = '';
+			sendTyping(false, $currentChannel);
+
+			if (typingTimeout) {
+				clearTimeout(typingTimeout);
+			}
+
+			// Reset textarea height
+			if (textareaElement) {
+				textareaElement.style.height = 'auto';
+			}
+			textareaElement?.focus();
+		}
+	}
+
+	function resolveOutgoingAttachmentCaption(): string | null {
+		if (!gifCaptionerEnabled) return '';
+		const captionSource = gifCaptionerDedicatedCaptionFieldEnabled ? gifCaptionInput : messageInput;
+		const trimmedMessage = captionSource.trim();
+		if (!trimmedMessage) return '';
+		if (trimmedMessage.length > MAX_GIF_CAPTION_LENGTH) {
+			alert(`GIF caption cannot exceed ${MAX_GIF_CAPTION_LENGTH} characters.`);
+			return null;
+		}
+		const aliasExpandedMessage = expandInputWithChatAlias(trimmedMessage);
+		const outgoingFilterResult = applyChatFilter(aliasExpandedMessage, 'outgoing');
+
+		if (outgoingFilterResult.hidden) {
+			const blockedTerms = outgoingFilterResult.matchedTerms.join(', ');
+			alert(
+				blockedTerms
+					? `Message blocked by Chat Filter: ${blockedTerms}`
+					: 'Message blocked by Chat Filter.'
+			);
+			return null;
+		}
+
+		const finalCaption = outgoingFilterResult.text.trim();
+		if (!finalCaption && aliasExpandedMessage.trim()) {
+			alert('Message is empty after Chat Filter processing.');
+			return null;
+		}
+		const normalizedSentenceCaseCaption = applyWriteUpperCase(
+			finalCaption,
+			writeUpperCaseEnabled
+		);
+		if (normalizedSentenceCaseCaption.length > MAX_GIF_CAPTION_LENGTH) {
+			alert(`GIF caption cannot exceed ${MAX_GIF_CAPTION_LENGTH} characters.`);
+			return null;
+		}
+
+		const normalizedCaption = replaceEmojiShortcodesWithUnicode(
+			normalizedSentenceCaseCaption,
+			$emojis,
+			unicodeEmojisEnabled
+		);
+		if (normalizedCaption.length > MAX_GIF_CAPTION_LENGTH) {
+			alert(`GIF caption cannot exceed ${MAX_GIF_CAPTION_LENGTH} characters.`);
+			return null;
+		}
+		return normalizedCaption;
+	}
+
+	function cancelEdit() {
+		editingMessage = null;
+		messageInput = '';
+		resetComposerEntityState();
+
+		// Reset textarea height
+		if (textareaElement) {
+			textareaElement.style.height = 'auto';
+		}
+	}
+
+	function handleGifSelect(event: CustomEvent<string>) {
+		const caption = resolveOutgoingAttachmentCaption();
+		if (caption === null) return;
+		const captionEntities = resolveOutgoingPlaceEntities(caption);
+		sendMessage($currentChannel, caption, 'gif', {
+			gifUrl: event.detail,
+			replyTo: replyingTo?.id,
+			isSpoiler: markAsSpoiler,
+			entities: captionEntities
+		});
+		replyingTo = null;
+		if (gifCaptionerDedicatedCaptionFieldEnabled) {
+			gifCaptionInput = '';
+		} else {
+			messageInput = '';
+			resetComposerEntityState();
+		}
+		showMentionSuggestions = false;
+		showEmojiPicker = false;
+		showMediaMenu = false;
+		sendTyping(false, $currentChannel);
+		if (typingTimeout) {
+			clearTimeout(typingTimeout);
+		}
+		if (textareaElement) {
+			textareaElement.style.height = 'auto';
+		}
+		textareaElement?.focus();
+	}
+
+	function handleEmojiSelect(event: CustomEvent<{ emoji: Emoji }>) {
+		const emoji = event.detail.emoji;
+		showEmojiPicker = false;
+		showMediaMenu = false;
+
+		// Insert emoji syntax into the composer and let the user send explicitly.
+		const emojiToken = `:${emoji.name}:`;
+		const shouldAddSpace = messageInput.length > 0 && !/\s$/.test(messageInput);
+		const nextMessageInput = shouldAddSpace ? `${messageInput} ${emojiToken}` : `${messageInput}${emojiToken}`;
+		composerEntities = reconcileMessageEntities(messageInput, nextMessageInput, composerEntities);
+		messageInput = nextMessageInput;
+		previousComposerInput = messageInput;
+		textareaElement?.focus();
+	}
+
+	function handleReply(message: Message) {
+		replyingTo = message;
+		textareaElement?.focus();
+	}
+
+	function handleQuickMention(message: Message) {
+		const mentionToken = `@${message.user}`;
+		const needsSpace = messageInput.length > 0 && !/\s$/.test(messageInput);
+		const nextMessageInput = needsSpace ? `${messageInput} ${mentionToken} ` : `${mentionToken} `;
+		composerEntities = reconcileMessageEntities(messageInput, nextMessageInput, composerEntities);
+		messageInput = nextMessageInput;
+		previousComposerInput = messageInput;
+		showMentionSuggestions = false;
+		textareaElement?.focus();
+	}
+
+	function cancelReply() {
+		replyingTo = null;
+	}
+
+	function revokePreviewUrl(preview?: string): void {
+		if (!preview || !preview.startsWith('blob:')) return;
+		URL.revokeObjectURL(preview);
+	}
+
+	function clearFilePreviews(): void {
+		for (const item of filePreviews) {
+			revokePreviewUrl(item.preview);
+			compressionMetadataByFile.delete(item.file);
+		}
+		filePreviews = [];
+		selectedFiles = [];
+		createAlbumFromUpload = false;
+		uploadAlbumName = '';
+	}
+
+	function enforcePreviewBudget(): void {
+		if (filePreviews.length <= MAX_FILE_PREVIEW_IMAGES) return;
+		const overflow = filePreviews.slice(0, filePreviews.length - MAX_FILE_PREVIEW_IMAGES);
+		for (const item of overflow) {
+			revokePreviewUrl(item.preview);
+		}
+		filePreviews = filePreviews.slice(-MAX_FILE_PREVIEW_IMAGES);
+		selectedFiles = selectedFiles.slice(-MAX_FILE_PREVIEW_IMAGES);
+	}
+
+	function buildPreviewEntries(files: File[]): { file: File; preview?: string }[] {
+		return files.map((file) => {
+			if (file.type.startsWith('image/')) {
+				const preview = URL.createObjectURL(file);
+				return { file, preview };
+			}
+			return { file };
+		});
+	}
+
+	function formatFileMb(bytes: number): string {
+		return (bytes / 1024 / 1024).toFixed(1);
+	}
+
+	function formatSignedMb(bytes: number): string {
+		const sign = bytes >= 0 ? '+' : '-';
+		return `${sign}${formatFileMb(Math.abs(bytes))} MB`;
+	}
+
+	function isAlbumEligibleFile(file: File): boolean {
+		return file.type.startsWith('image/');
+	}
+
+	function getMediaAlbumScope(channel: Channel | undefined): { scopeType: MediaAlbumScopeType; scopeId: string } | null {
+		if (!channel?.id) return null;
+		const scopeType: MediaAlbumScopeType =
+			channel.type === 'dm' || channel.type === 'group' ? 'dm' : 'channel';
+		return {
+			scopeType,
+			scopeId: channel.id
+		};
+	}
+
+	function buildDefaultUploadAlbumName(): string {
+		const trimmedCaption = messageInput.trim();
+		if (trimmedCaption) {
+			return trimmedCaption.slice(0, 60);
+		}
+		const channelLabel = channelDisplayName?.trim() || 'Album';
+		const stampedAt = new Date().toLocaleString([], {
+			month: 'short',
+			day: 'numeric',
+			hour: 'numeric',
+			minute: '2-digit'
+		});
+		return `${channelLabel} ${stampedAt}`;
+	}
+
+	$: albumEligibleSelection =
+		selectedFiles.length > 1 && selectedFiles.every((file) => isAlbumEligibleFile(file));
+	$: if (!albumEligibleSelection && createAlbumFromUpload) {
+		createAlbumFromUpload = false;
+		uploadAlbumName = '';
+	}
+
+	function handleAlbumUploadToggle(checked: boolean): void {
+		createAlbumFromUpload = checked;
+		if (!checked) {
+			uploadAlbumName = '';
+			return;
+		}
+		if (!uploadAlbumName.trim()) {
+			uploadAlbumName = buildDefaultUploadAlbumName();
+		}
+	}
+
+	function getCompressionSuggestionCopy(
+		fileSize: number,
+		runtime: VideoCompressionRuntime,
+		estimate: VideoCompressionEstimate | null
+	): string {
+		if (!estimate) return '';
+		const runtimeProfile = getVideoCompressionRuntimeProfile(runtime);
+		const nearThresholdMargin = Math.max(runtimeProfile.promptBytes * 0.18, 5 * 1024 * 1024);
+		const nearThreshold = fileSize <= runtimeProfile.promptBytes + nearThresholdMargin;
+		if (nearThreshold && estimate.estimatedReductionRatio <= 0.2) {
+			return 'This file is only slightly above the compression prompt threshold. Keeping the original may be fine on strong connections.';
+		}
+		if (estimate.estimatedReductionRatio >= 0.45) {
+			return 'This preset is expected to significantly reduce upload size.';
+		}
+		if (estimate.estimatedReductionRatio <= 0.08) {
+			return 'Only a small reduction is expected with this preset. Keeping the original may preserve better quality.';
+		}
+		return '';
+	}
+
+	function resolveVideoCompressionRuntime(): VideoCompressionRuntime {
+		if (!isTauriRuntime()) return 'web';
+		const runtime = getTauriPlatform();
+		if (runtime === 'android' || runtime === 'ios' || runtime === 'desktop') {
+			return runtime;
+		}
+		return 'desktop';
+	}
+
+	function applyCompressionRuntimeProfile(runtime: VideoCompressionRuntime): void {
+		const profile = getVideoCompressionRuntimeProfile(runtime);
+		compressionDialogRuntime = runtime;
+		compressionDialogRuntimeLabel = profile.label;
+		compressionDialogPresetOptions = getVideoCompressionPresetOptions(runtime);
+		const preferredPreset = getDefaultVideoCompressionPreset(runtime);
+		const presetAllowed = compressionDialogPresetOptions.some((option) => option.id === preferredPreset);
+		compressionDialogPreset = presetAllowed ? preferredPreset : profile.recommendedPreset;
+	}
+
+	function resetCompressionDialogState(): void {
+		if (compressionAbortController) {
+			compressionAbortController.abort();
+		}
+		compressionDialogOpen = false;
+		compressionDialogFile = null;
+		compressionDialogInputMetadata = null;
+		compressionDialogEstimate = null;
+		compressionDialogSuggestionCopy = '';
+		compressionDialogError = '';
+		compressionDialogProgress = 0;
+		compressionDialogBusy = false;
+		compressionAbortController = null;
+		compressionDialogResolve = null;
+	}
+
+	function resolveCompressionDialog(result: File | null): void {
+		const resolve = compressionDialogResolve;
+		resetCompressionDialogState();
+		resolve?.(result);
+	}
+
+	function openCompressionDialog(file: File, runtime: VideoCompressionRuntime): Promise<File | null> {
+		return new Promise((resolve) => {
+			if (compressionDialogResolve) {
+				resolveCompressionDialog(null);
+			}
+			applyCompressionRuntimeProfile(runtime);
+			compressionDialogOpen = true;
+			compressionDialogFile = file;
+			compressionDialogInputMetadata = null;
+			compressionDialogEstimate = null;
+			compressionDialogSuggestionCopy = '';
+			compressionDialogError = '';
+			compressionDialogProgress = 0;
+			compressionDialogBusy = false;
+			compressionDialogResolve = resolve;
+
+			const targetFile = file;
+			void sampleVideoCompressionInputMetadata(targetFile)
+				.then((metadata) => {
+					if (!compressionDialogOpen || compressionDialogFile !== targetFile) return;
+					compressionDialogInputMetadata = metadata;
+				})
+				.catch(() => {
+					// metadata sampling is best-effort
+				});
+		});
+	}
+
+	function keepOriginalVideoFile(): void {
+		if (compressionDialogFile) {
+			compressionMetadataByFile.delete(compressionDialogFile);
+			void reportVideoCompressionTelemetry({
+				outcome: 'skipped',
+				runtime: compressionDialogRuntime,
+				preset: compressionDialogPreset,
+				inputBytes: compressionDialogFile.size,
+				failureCode: 'kept_original'
+			});
+		}
+		resolveCompressionDialog(compressionDialogFile);
+	}
+
+	function removeVideoFileFromQueue(): void {
+		if (compressionDialogFile) {
+			compressionMetadataByFile.delete(compressionDialogFile);
+			void reportVideoCompressionTelemetry({
+				outcome: 'skipped',
+				runtime: compressionDialogRuntime,
+				preset: compressionDialogPreset,
+				inputBytes: compressionDialogFile.size,
+				failureCode: 'removed_from_queue'
+			});
+		}
+		resolveCompressionDialog(null);
+	}
+
+	function cancelCompressionRun(): void {
+		if (!compressionDialogBusy) return;
+		compressionAbortController?.abort();
+	}
+
+	async function runVideoCompression(): Promise<void> {
+		if (!compressionDialogFile || compressionDialogBusy) return;
+		compressionDialogBusy = true;
+		compressionDialogError = '';
+		compressionDialogProgress = 0;
+		const inputFile = compressionDialogFile;
+		const runtimeProfile = getVideoCompressionRuntimeProfile(compressionDialogRuntime);
+		const selectedPreset = compressionDialogPresetOptions.some(
+			(option) => option.id === compressionDialogPreset
+		)
+			? compressionDialogPreset
+			: runtimeProfile.recommendedPreset;
+		if (selectedPreset !== compressionDialogPreset) {
+			compressionDialogPreset = selectedPreset;
+		}
+		const startedAt = Date.now();
+		const abortController = new AbortController();
+		compressionAbortController = abortController;
+
+		try {
+			const compressed = await compressVideoFileForUpload(inputFile, {
+				preset: selectedPreset,
+				timeoutMs: runtimeProfile.timeoutMs,
+				signal: abortController.signal,
+				onProgress: (percent) => {
+					compressionDialogProgress = Math.min(100, Math.max(0, Math.round(percent)));
+				}
+			});
+			const inputMetadata = compressionDialogInputMetadata;
+			const estimate = compressionDialogEstimate;
+			compressionMetadataByFile.delete(inputFile);
+			compressionMetadataByFile.set(compressed, {
+				scheme: 'wabi-video-compression-v1',
+				runtime: compressionDialogRuntime,
+				preset: selectedPreset,
+				originalSize: inputFile.size,
+				compressedSize: compressed.size,
+				codec: inferVideoCodecHint(compressed.type || '', compressed.name),
+				mimeType: compressed.type || 'video/webm',
+				durationMs: inputMetadata
+					? Math.max(0, Math.round(inputMetadata.durationSeconds * 1000))
+					: Date.now() - startedAt,
+				estimatedOutputBytes: estimate?.estimatedBytes
+			});
+			void reportVideoCompressionTelemetry({
+				outcome: 'success',
+				runtime: compressionDialogRuntime,
+				preset: selectedPreset,
+				inputBytes: inputFile.size,
+				outputBytes: compressed.size,
+				durationMs: Date.now() - startedAt
+			});
+			resolveCompressionDialog(compressed);
+			return;
+		} catch (error) {
+			const failureCode = abortController.signal.aborted
+				? 'cancelled'
+				: classifyVideoCompressionFailure(error);
+			const cancelled = failureCode === 'cancelled';
+			void reportVideoCompressionTelemetry({
+				outcome: cancelled ? 'cancelled' : 'failure',
+				runtime: compressionDialogRuntime,
+				preset: selectedPreset,
+				inputBytes: inputFile.size,
+				durationMs: Date.now() - startedAt,
+				failureCode
+			});
+			if (cancelled) {
+				compressionDialogError = 'Compression was cancelled.';
+			} else if (failureCode === 'timeout') {
+				compressionDialogError = 'Compression timed out. Try a lower preset or keep the original file.';
+			} else {
+				compressionDialogError = error instanceof Error ? error.message : 'Compression failed.';
+			}
+		} finally {
+			if (compressionAbortController === abortController) {
+				compressionAbortController = null;
+			}
+			compressionDialogBusy = false;
+		}
+	}
+
+	async function maybeCompressVideoFile(file: File): Promise<File | null> {
+		const runtime = resolveVideoCompressionRuntime();
+		const runtimeProfile = getVideoCompressionRuntimeProfile(runtime);
+		if (!runtimeProfile.enabled) return file;
+		if (!isVideoCompressionEnabled()) return file;
+		if (!isVideoFile(file)) return file;
+		if (runtimeProfile.maxInputBytes !== null && file.size > runtimeProfile.maxInputBytes) {
+			void reportVideoCompressionTelemetry({
+				outcome: 'skipped',
+				runtime,
+				preset: getDefaultVideoCompressionPreset(runtime),
+				inputBytes: file.size,
+				failureCode: 'input_above_runtime_limit'
+			});
+			alert(
+				`"${file.name}" is ${formatFileMb(file.size)} MB. ${runtimeProfile.label} runtime keeps very large videos uncompressed to reduce device heat and instability.`
+			);
+			return file;
+		}
+		if (file.size < runtimeProfile.promptBytes) return file;
+		return openCompressionDialog(file, runtime);
+	}
+
+	async function prepareIncomingFiles(files: File[]): Promise<File[]> {
+		for (const file of files) {
+			if (file.size > MAX_UPLOAD_FILE_BYTES) {
+				alert(
+					`File too large! Maximum size is 1GB per file. "${file.name}" is ${formatFileMb(file.size)}MB`
+				);
+				return [];
+			}
+		}
+
+		const prepared: File[] = [];
+		for (const file of files) {
+			const candidate = await maybeCompressVideoFile(file);
+			if (candidate) prepared.push(candidate);
+		}
+		return prepared;
+	}
+
+	function applySelectedFiles(files: File[], mode: 'replace' | 'append'): void {
+		if (mode === 'replace') {
+			clearFilePreviews();
+			selectedFiles = files;
+			filePreviews = buildPreviewEntries(files);
+			enforcePreviewBudget();
+			return;
+		}
+
+		selectedFiles = [...selectedFiles, ...files];
+		filePreviews = [...filePreviews, ...buildPreviewEntries(files)];
+		enforcePreviewBudget();
+	}
+
+	async function handleFileSelect(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const files = Array.from(input.files || []);
+
+		if (files.length === 0) {
+			console.log('No files selected');
+			return;
+		}
+
+		console.log('Files selected:', files.length);
+		const preparedFiles = await prepareIncomingFiles(files);
+		if (preparedFiles.length > 0) {
+			applySelectedFiles(preparedFiles, 'replace');
+		}
+
+		input.value = '';
+		return;
+	}
+
+	function removeFile(index: number) {
+		const removed = filePreviews[index];
+		revokePreviewUrl(removed?.preview);
+		if (removed?.file) {
+			compressionMetadataByFile.delete(removed.file);
+		}
+		selectedFiles = selectedFiles.filter((_, i) => i !== index);
+		filePreviews = filePreviews.filter((_, i) => i !== index);
+	}
+
+	function cancelUpload() {
+		clearFilePreviews();
+	}
+
+	function handleDragEnter(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		dragCounter++;
+		if (e.dataTransfer?.types.includes('Files')) {
+			isDragging = true;
+		}
+	}
+
+	function handleDragLeave(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		dragCounter--;
+		if (dragCounter === 0) {
+			isDragging = false;
+		}
+	}
+
+	function handleDragOver(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+	}
+
+	async function handleDrop(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		isDragging = false;
+		dragCounter = 0;
+
+		const files = Array.from(e.dataTransfer?.files || []);
+		if (files.length === 0) return;
+		const preparedFiles = await prepareIncomingFiles(files);
+		if (preparedFiles.length > 0) {
+			applySelectedFiles(preparedFiles, 'replace');
+		}
+	}
+
+	async function handlePaste(e: ClipboardEvent) {
+		const items = e.clipboardData?.items;
+		if (!items) return;
+
+		// Check for files/images in clipboard
+		const files: File[] = [];
+		for (let i = 0; i < items.length; i++) {
+			const item = items[i];
+			if (item.kind === 'file') {
+				const file = item.getAsFile();
+				if (file) {
+					e.preventDefault(); // Prevent default paste
+					files.push(file);
+				}
+			}
+		}
+
+		// If files found, add to selectedFiles (reuse existing upload logic)
+		if (files.length > 0) {
+			const preparedFiles = await prepareIncomingFiles(files);
+			if (preparedFiles.length > 0) {
+				applySelectedFiles(preparedFiles, 'append');
+			}
+			return;
+		}
+
+		// If no files, check if text content exists
+		const text = e.clipboardData?.getData('text');
+		if (text && text.trim()) {
+			// Only send typing indicator if actual text content exists
+			handleInput();
+		}
+		// If empty paste (no files, no text), do nothing - prevents false typing
+	}
+
+	async function uploadSelectedFiles() {
+		if (selectedFiles.length === 0) return;
+
+		const activeChannel = $channels.find(ch => ch.id === $currentChannel);
+		const dmOtherUser = activeChannel?.type === 'dm' ? getDMOtherUser(activeChannel) : null;
+		const dmOtherDbUserId = typeof dmOtherUser?.dbUserId === 'number' ? dmOtherUser.dbUserId : null;
+		const authToken = getAuthToken();
+		const albumScope = createAlbumFromUpload ? getMediaAlbumScope(activeChannel) : null;
+		const dmPrivacyMode = activeChannel?.type === 'dm' ? getDMPrivacyMode(activeChannel.id) : null;
+		const requiresEncryptedDmAttachment = activeChannel?.type === 'dm' && dmPrivacyMode !== 'open';
+		if (createAlbumFromUpload && !authToken) {
+			alert('Sign in with a registered account to turn multi-photo uploads into an album.');
+			return;
+		}
+		if (createAlbumFromUpload && !albumScope) {
+			alert('Cannot determine album scope for this upload.');
+			return;
+		}
+		if (requiresEncryptedDmAttachment) {
+			if (!dmOtherDbUserId || !authToken || !isE2EAvailable()) {
+				alert('This DM is in sealed/private mode. File upload requires E2E encryption and was blocked.');
+				return;
+			}
+		}
+
+		isUploading = true;
+		uploadStatusLabel = get(_)('chat.upload.uploading');
+		const totalFiles = selectedFiles.length;
+		let completedFiles = 0;
+
+		try {
+			const captionEntities = resolveOutgoingPlaceEntities(messageInput.trim());
+			const serverUrl = getServerUrl();
+
+			console.log('Upload serverUrl:', serverUrl);
+			console.log('Upload URL will be:', `${serverUrl}/api/upload`);
+
+			// Upload all files and collect their URLs
+			const uploadedFiles: {
+				fileUrl: string;
+				fileName: string;
+				fileSize: number;
+				mimeType?: string | null;
+				attachmentStorage?: {
+					scheme: 'wabi-storage-v1';
+					compressed: boolean;
+					codec: 'identity' | 'gzip';
+					originalSize: number;
+					storedSize: number;
+					atRestEncrypted: boolean;
+				};
+				attachmentEncryption?: {
+					scheme: 'dm-e2ee-v1';
+					iv: string;
+					mimeType?: string;
+					originalSize?: number;
+				};
+			}[] = [];
+
+			const canEncryptDmAttachment =
+				requiresEncryptedDmAttachment &&
+				!!dmOtherDbUserId &&
+				!!authToken &&
+				isE2EAvailable();
+
+			for (const file of selectedFiles) {
+				let uploadFile = file;
+				let attachmentEncryption:
+					| { scheme: 'dm-e2ee-v1'; iv: string; mimeType?: string; originalSize?: number }
+					| undefined;
+				let persistentResume = true;
+				let videoCompressionMetadata = compressionMetadataByFile.get(file);
+
+				if (canEncryptDmAttachment && authToken && dmOtherDbUserId) {
+					const encrypted = await encryptDMFile(file, dmOtherDbUserId, authToken);
+					if (!encrypted) {
+						alert('This DM is in sealed/private mode. Encryption failed, so upload was cancelled.');
+						isUploading = false;
+						uploadStatusLabel = '';
+						uploadProgress = 0;
+						return;
+					}
+					uploadFile = encrypted.encryptedFile;
+					attachmentEncryption = {
+						scheme: 'dm-e2ee-v1',
+						iv: encrypted.iv,
+						mimeType: encrypted.mimeType,
+						originalSize: encrypted.originalSize
+					};
+					// Ciphertext is randomized; cross-reload resume can't safely assume identical bytes.
+					persistentResume = false;
+					videoCompressionMetadata = undefined;
+				}
+
+				const result = await uploadFileResumable(
+					uploadFile,
+					$currentChannel,
+					(fileProgressPercent) => {
+						const overallProgress = ((completedFiles + fileProgressPercent / 100) / totalFiles) * 100;
+						uploadProgress = Math.round(overallProgress);
+					},
+					persistentResume,
+					videoCompressionMetadata
+				);
+				completedFiles++;
+				uploadedFiles.push({
+					fileUrl: result.fileUrl,
+					fileName: file.name,
+					fileSize: file.size,
+					mimeType: file.type || null,
+					attachmentStorage: result.attachmentStorage,
+					attachmentEncryption
+				});
+			}
+
+			let createdAlbumName: string | null = null;
+			if (createAlbumFromUpload && authToken && albumScope) {
+				const albumName = uploadAlbumName.trim() || buildDefaultUploadAlbumName();
+				const createdAlbum = await createMediaAlbum(authToken, {
+					scopeType: albumScope.scopeType,
+					scopeId: albumScope.scopeId,
+					name: albumName
+				});
+				for (const uploadedFile of uploadedFiles) {
+					await addMediaAlbumItem(authToken, createdAlbum.id, {
+						attachmentUrl: uploadedFile.fileUrl,
+						attachmentName: uploadedFile.fileName,
+						attachmentSize: uploadedFile.fileSize,
+						attachmentMime: uploadedFile.mimeType,
+						caption: messageInput.trim() || null
+					});
+				}
+				createdAlbumName = createdAlbum.name;
+			}
+
+			// Send a single message with all uploaded files
+			if (uploadedFiles.length === 1) {
+				// Single file - use old format for backward compatibility
+				sendMessage($currentChannel, messageInput.trim() || `Shared: ${uploadedFiles[0].fileName}`, 'file', {
+					fileUrl: uploadedFiles[0].fileUrl,
+					fileName: uploadedFiles[0].fileName,
+					fileSize: uploadedFiles[0].fileSize,
+					attachmentStorage: uploadedFiles[0].attachmentStorage,
+					attachmentEncryption: uploadedFiles[0].attachmentEncryption,
+					replyTo: replyingTo?.id,
+					isSpoiler: markAsSpoiler,
+					entities: captionEntities
+				});
+			} else {
+				// Multiple files - use new format
+				sendMessage(
+					$currentChannel,
+					messageInput.trim() ||
+						(createdAlbumName
+							? `Shared ${uploadedFiles.length} photos in album "${createdAlbumName}"`
+							: `Shared ${uploadedFiles.length} files`),
+					'file',
+					{
+						files: uploadedFiles,
+						replyTo: replyingTo?.id,
+						isSpoiler: markAsSpoiler,
+						entities: captionEntities
+					}
+				);
+			}
+
+			console.log('All files uploaded');
+			messageInput = '';
+			resetComposerEntityState();
+			replyingTo = null;
+			clearFilePreviews();
+			isUploading = false;
+			uploadStatusLabel = '';
+			uploadProgress = 0;
+			textareaElement?.focus();
+		} catch (error) {
+			console.error('Upload error:', error);
+			alert('Failed to upload files. Please try again.');
+			isUploading = false;
+			uploadStatusLabel = '';
+			uploadProgress = 0;
+		}
+	}
+
+	function getUploadAuthHeaders(includeJsonContentType = false): Record<string, string> {
+		const headers: Record<string, string> = {};
+		if (includeJsonContentType) {
+			headers['Content-Type'] = 'application/json';
+		}
+		const authToken = getAuthToken();
+		if (authToken) {
+			headers['Authorization'] = `Bearer ${authToken}`;
+			return headers;
+		}
+		const sessionId = getGuestSessionId();
+		if (sessionId) {
+			headers['X-Session-Id'] = sessionId;
+		}
+		return headers;
+	}
+
+	function getResumeStorageKey(channelId: string, file: File): string {
+		return `upload-resume:${channelId}:${file.name}:${file.size}:${file.lastModified}`;
+	}
+
+	async function uploadFileResumable(
+		file: File,
+		channelId: string,
+		onProgress: (fileProgressPercent: number) => void,
+		allowPersistentResume = true,
+		videoCompression?: UploadVideoCompressionMetadata
+	): Promise<{
+		fileUrl: string;
+		fileName: string;
+		fileSize: number;
+		attachmentStorage?: {
+			scheme: 'wabi-storage-v1';
+			compressed: boolean;
+			codec: 'identity' | 'gzip';
+			originalSize: number;
+			storedSize: number;
+			atRestEncrypted: boolean;
+		};
+	}> {
+		const serverUrl = getServerUrl();
+		const resumeKey = getResumeStorageKey(channelId, file);
+		const previousUploadId = allowPersistentResume ? (localStorage.getItem(resumeKey) || undefined) : undefined;
+
+		const initResponse = await fetch(`${serverUrl}/api/upload/resumable/init`, {
+			method: 'POST',
+			headers: getUploadAuthHeaders(true),
+			credentials: 'include',
+			body: JSON.stringify({
+				uploadId: previousUploadId,
+				fileName: file.name,
+				fileSize: file.size,
+				mimeType: file.type || 'application/octet-stream',
+				channelId,
+				videoCompression: videoCompression || null
+			})
+		});
+		if (!initResponse.ok) {
+			throw new Error(`Resumable init failed (${initResponse.status})`);
+		}
+
+		const initResult = await initResponse.json();
+		const uploadId = initResult.uploadId as string;
+		let uploadToken = initResult.uploadToken as string;
+		if (allowPersistentResume) {
+			localStorage.setItem(resumeKey, uploadId);
+		}
+
+		if (initResult.completed && initResult.fileUrl) {
+			if (allowPersistentResume) localStorage.removeItem(resumeKey);
+			return {
+				fileUrl: initResult.fileUrl as string,
+				fileName: file.name,
+				fileSize: file.size,
+				attachmentStorage: initResult.attachmentStorage as
+					| {
+							scheme: 'wabi-storage-v1';
+							compressed: boolean;
+							codec: 'identity' | 'gzip';
+							originalSize: number;
+							storedSize: number;
+							atRestEncrypted: boolean;
+					  }
+					| undefined
+			};
+		}
+
+		let uploadedBytes = Number(initResult.uploadedBytes || 0);
+		onProgress((uploadedBytes / Math.max(file.size, 1)) * 100);
+
+		while (uploadedBytes < file.size) {
+			const chunkEnd = Math.min(uploadedBytes + RESUMABLE_UPLOAD_CHUNK_SIZE, file.size);
+			const chunkBlob = file.slice(uploadedBytes, chunkEnd);
+
+			let uploadedThisChunk = false;
+			let attempt = 0;
+			while (!uploadedThisChunk && attempt < RESUMABLE_UPLOAD_MAX_RETRIES) {
+				attempt++;
+				try {
+					const chunkResponse = await fetch(
+						`${serverUrl}/api/upload/resumable/chunk?uploadId=${encodeURIComponent(uploadId)}&offset=${uploadedBytes}&uploadToken=${encodeURIComponent(uploadToken)}`,
+						{
+							method: 'PUT',
+							headers: getUploadAuthHeaders(),
+							credentials: 'include',
+							body: chunkBlob
+						}
+					);
+					if (chunkResponse.status === 403) {
+						const refreshResponse = await fetch(`${serverUrl}/api/upload/resumable/init`, {
+							method: 'POST',
+							headers: getUploadAuthHeaders(true),
+							credentials: 'include',
+							body: JSON.stringify({
+								uploadId,
+								fileName: file.name,
+								fileSize: file.size,
+								mimeType: file.type || 'application/octet-stream',
+								channelId,
+								videoCompression: videoCompression || null
+							})
+						});
+						if (!refreshResponse.ok) {
+							throw new Error(`Upload token refresh failed (${refreshResponse.status})`);
+						}
+						const refresh = await refreshResponse.json();
+						uploadToken = refresh.uploadToken as string;
+						uploadedBytes = Number(refresh.uploadedBytes || uploadedBytes);
+						onProgress((uploadedBytes / Math.max(file.size, 1)) * 100);
+						uploadedThisChunk = true;
+						break;
+					}
+
+					if (chunkResponse.status === 409) {
+						const conflict = await chunkResponse.json();
+						const expectedOffset = Number(conflict.expectedOffset);
+						if (Number.isFinite(expectedOffset) && expectedOffset >= 0) {
+							uploadedBytes = expectedOffset;
+							if (conflict.uploadToken) {
+								uploadToken = conflict.uploadToken as string;
+							}
+							onProgress((uploadedBytes / Math.max(file.size, 1)) * 100);
+							uploadedThisChunk = true;
+							break;
+						}
+					}
+
+					if (!chunkResponse.ok) {
+						throw new Error(`Chunk upload failed (${chunkResponse.status})`);
+					}
+
+					const chunkResult = await chunkResponse.json();
+					uploadedBytes = Number(chunkResult.uploadedBytes || uploadedBytes);
+					if (chunkResult.uploadToken) {
+						uploadToken = chunkResult.uploadToken as string;
+					}
+					onProgress((uploadedBytes / Math.max(file.size, 1)) * 100);
+					uploadedThisChunk = true;
+				} catch (error) {
+					if (attempt >= RESUMABLE_UPLOAD_MAX_RETRIES) {
+						throw error;
+					}
+					await new Promise((resolve) => setTimeout(resolve, attempt * 400));
+				}
+			}
+		}
+
+		const completeResponse = await fetch(`${serverUrl}/api/upload/resumable/complete`, {
+			method: 'POST',
+			headers: getUploadAuthHeaders(true),
+			credentials: 'include',
+			body: JSON.stringify({ uploadId, uploadToken })
+		});
+		if (!completeResponse.ok) {
+			throw new Error(`Resumable complete failed (${completeResponse.status})`);
+		}
+
+		const completeResult = await completeResponse.json();
+		if (allowPersistentResume) localStorage.removeItem(resumeKey);
+
+		return {
+			fileUrl: completeResult.fileUrl as string,
+			fileName: file.name,
+			fileSize: file.size,
+			attachmentStorage: completeResult.attachmentStorage as
+				| {
+						scheme: 'wabi-storage-v1';
+						compressed: boolean;
+						codec: 'identity' | 'gzip';
+						originalSize: number;
+						storedSize: number;
+						atRestEncrypted: boolean;
+				  }
+				| undefined
+		};
+	}
+
+	// Handle photo capture
+	async function handlePhotoCapture(event: CustomEvent<Blob>) {
+		const blob = event.detail;
+		const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
+
+		// Validate file size (10MB limit)
+		if (file.size > 10 * 1024 * 1024) {
+			alert('Photo too large (max 10MB). Please try again.');
+			return;
+		}
+
+		clearFilePreviews();
+		selectedFiles = [file];
+		filePreviews = buildPreviewEntries([file]);
+		await uploadSelectedFiles();
+		showCameraCapture = false;
+		showMediaMenu = false;
+	}
+
+	// Handle audio recording
+	async function handleAudioSend(event: CustomEvent<Blob>) {
+		const blob = event.detail;
+		const ext = blob.type.includes('webm') ? 'webm' : 'm4a';
+		const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type });
+
+		// Validate file size (10MB limit)
+		if (file.size > 10 * 1024 * 1024) {
+			alert('Audio too large (max 10MB). Please try again.');
+			return;
+		}
+
+		clearFilePreviews();
+		selectedFiles = [file];
+		filePreviews = buildPreviewEntries([file]);
+		await uploadSelectedFiles();
+		showAudioRecorder = false;
+		showMediaMenu = false;
+	}
+
+	function handleOpenFilePicker() {
+		showMediaMenu = false;
+		fileInput?.click();
+	}
+
+	function handleOpenCameraCapture() {
+		showMediaMenu = false;
+		showCameraCapture = true;
+	}
+
+	function handleOpenAudioRecorder() {
+		showMediaMenu = false;
+		showAudioRecorder = true;
+	}
+
+	// Check if browser supports media capture
+	function supportsMediaCapture(): boolean {
+		return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+	}
+
+	function wait(ms: number): Promise<void> {
+		return new Promise((resolve) => setTimeout(resolve, ms));
+	}
+
+	function getChannelHistoryFlags(channelId: string): {
+		hasMoreServer: boolean;
+		serverLoading: boolean;
+		hasMoreArchive: boolean;
+		archiveLoading: boolean;
+	} {
+		const hasMoreServer = get(channelHasMoreHistory)[channelId] ?? false;
+		const serverLoading = get(channelHistoryLoading)[channelId] || false;
+		const availableArchives = get(channelAvailableArchives)[channelId] || [];
+		const loadedArchives = get(channelLoadedArchives)[channelId] || new Set<string>();
+		const hasMoreArchive = availableArchives.length > loadedArchives.size;
+		const archiveLoading = get(channelLoadingOlder)[channelId] || false;
+		return { hasMoreServer, serverLoading, hasMoreArchive, archiveLoading };
+	}
+
+	async function waitForHistoryIdle(channelId: string, timeoutMs = 12_000): Promise<void> {
+		const startedAt = Date.now();
+		while (Date.now() - startedAt < timeoutMs) {
+			const { serverLoading, archiveLoading } = getChannelHistoryFlags(channelId);
+			if (!serverLoading && !archiveLoading) return;
+			await wait(120);
+		}
+	}
+
+	async function runFullHistorySearchBackfill(): Promise<void> {
+		if (!searchInput.trim() || !currentChannelData?.persistMessages || !$currentChannel) return;
+		if (isFullHistorySearchRunning) return;
+		const channelId = $currentChannel;
+		const querySnapshot = searchInput.trim();
+		isFullHistorySearchRunning = true;
+		fullHistorySearchAbortRequested = false;
+		fullHistorySearchPagesLoaded = 0;
+		fullHistorySearchStatus = get(_)('chat.search.status.scanning');
+
+		try {
+			for (let i = 0; i < MAX_FULL_HISTORY_SEARCH_PAGES; i += 1) {
+				if (fullHistorySearchAbortRequested) {
+					fullHistorySearchStatus = get(_)('chat.search.status.stopped');
+					return;
+				}
+				if ($currentChannel !== channelId || searchInput.trim() !== querySnapshot) {
+					fullHistorySearchStatus = get(_)('chat.search.status.changed');
+					return;
+				}
+
+				const flags = getChannelHistoryFlags(channelId);
+				if (flags.serverLoading || flags.archiveLoading) {
+					await waitForHistoryIdle(channelId);
+					continue;
+				}
+
+				if (flags.hasMoreServer) {
+					loadOlderHistory(channelId);
+					fullHistorySearchPagesLoaded += 1;
+				} else if (flags.hasMoreArchive) {
+					await loadOlderMessages(channelId);
+					fullHistorySearchPagesLoaded += 1;
+				} else {
+					fullHistorySearchStatus = get(_)('chat.search.status.loaded');
+					return;
+				}
+
+				await waitForHistoryIdle(channelId);
+				await tick();
+			}
+			fullHistorySearchStatus = get(_)('chat.search.status.limit');
+		} finally {
+			isFullHistorySearchRunning = false;
+		}
+	}
+
+	async function openSearch(): Promise<void> {
+		if (!searchExpanded) {
+			searchExpanded = true;
+			await tick();
+		}
+		searchInputElement?.focus();
+	}
+
+	function collapseSearchIfIdle(): void {
+		if (!searchInput.trim()) {
+			searchExpanded = false;
+		}
+	}
+
+	function handleSearchInputKeydown(event: KeyboardEvent): void {
+		if (event.key !== 'Escape') return;
+		if (searchInput.trim()) {
+			searchInput = '';
+			return;
+		}
+		searchExpanded = false;
+		searchInputElement?.blur();
+	}
+
+	function searchCurrentQueryInBrowser(): void {
+		if (!$displayEnhancementSettingsStore.googleSearchReplaceEnabled) return;
+		openExternalSearch(searchInput, getSearchEngineProvider());
+	}
+
+	onMount(() => {
+		scrollToBottom();
+		experimentalStdbCallsEnabled = isExperimentalStdbCallEnabled();
+		void loadPlaceRegistry();
+
+		void (async () => {
+			const env = import.meta.env as Record<string, string | undefined>;
+			const fallbackVersion =
+				env.PUBLIC_APP_VERSION ||
+				env.VITE_APP_VERSION ||
+				env.npm_package_version ||
+				'dev';
+			runtimeVersionLabel = fallbackVersion;
+
+			if (!isTauriRuntime()) return;
+			try {
+				const { getVersion } = await import('@tauri-apps/api/app');
+				runtimeVersionLabel = await getVersion();
+			} catch {
+				// Keep fallback version label when Tauri API is unavailable.
+			}
+		})();
+
+		const handleGlobalClick = (event: MouseEvent) => {
+			const target = event.target as Node | null;
+			if (target && emojiPickerContainer?.contains(target)) return;
+			if (target && mediaMenuContainer?.contains(target)) return;
+			if (target && mentionMenuContainer?.contains(target)) return;
+			if (target && searchContainerElement?.contains(target)) return;
+			showMediaMenu = false;
+			showEmojiPicker = false;
+			showMentionSuggestions = false;
+			collapseSearchIfIdle();
+		};
+
+		document.addEventListener('click', handleGlobalClick);
+		return () => {
+			document.removeEventListener('click', handleGlobalClick);
+		};
+	});
+
+	onDestroy(() => {
+		clearFilePreviews();
+		if (sendCooldownTimer) {
+			clearTimeout(sendCooldownTimer);
+			sendCooldownTimer = null;
+		}
+		if (compressionDialogResolve) {
+			resolveCompressionDialog(null);
+		}
+	});
+
+	async function toggleExperimentalStdbCallUi() {
+		const next = !experimentalStdbCallsEnabled;
+		experimentalStdbCallsEnabled = next;
+		await setExperimentalStdbCallEnabled(next);
+	}
+
+	function returnToMessagesView(): void {
+		if (chatSurface !== 'messages') {
+			setWhiteboardSurface($currentChannel, 'messages');
+		}
+		if ($layoutStore.rightPanelView === 'media') {
+			layoutStore.rightPanelView.set('none');
+		}
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(READER_ADDON_ID)) {
+			mobileTabQueue.closeAddonTab(READER_ADDON_ID);
+		}
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_ADDON_ID)) {
+			mobileTabQueue.closeAddonTab(MODEL_VIEWPORT_ADDON_ID);
+		}
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MAP_ADDON_ID)) {
+			mobileTabQueue.closeAddonTab(MAP_ADDON_ID);
+		}
+	}
+</script>
+
+<div
+	class="chat-container"
+	role="presentation"
+	on:dragenter={handleDragEnter}
+	on:dragleave={handleDragLeave}
+	on:dragover={handleDragOver}
+	on:drop={handleDrop}
+>
+	{#if isDragging}
+		<div class="drag-overlay overlay">
+			<div class="drag-overlay-content">
+				<div class="drag-icon">📁</div>
+				<div class="drag-text">{$_('chat.drag.drop_to_upload')}</div>
+			</div>
+		</div>
+	{/if}
+
+	<div class="chat-header" class:dm-channel={isDMChannel}>
+		<div class="chat-heading">
+			{#if workspaceSurfaceLabel}
+				<span class="channel-surface-label">{workspaceSurfaceLabel}</span>
+			{/if}
+			<h2>
+				<span class="channel-title">{workspaceHeaderTitle}</span>
+				{#if isDMChannel && selectedWorkspaceView === 'messages'}
+					<span class="dm-badge">{$_('chat.dm.badge')}</span>
+				{:else if workspaceHeaderSubtitle}
+					<span class="channel-description">{workspaceHeaderSubtitle}</span>
+				{/if}
+			</h2>
+		</div>
+		<div class="header-actions">
+			{#if selectedWorkspaceView !== 'messages'}
+				<button
+					class="surface-return-btn btn-secondary"
+					type="button"
+					on:click={returnToMessagesView}
+					title="Return to messages"
+					aria-label="Return to messages"
+				>
+					Messages
+				</button>
+			{/if}
+			<div
+				class="workspace-view-actions"
+				class:compactable={!$layoutStore.isMobile}
+				role="tablist"
+				aria-label="Channel views"
+			>
+				<button
+					class="view-open-btn btn-icon"
+					class:active={selectedWorkspaceView === 'messages'}
+					type="button"
+					on:click={() => setWhiteboardSurface($currentChannel, 'messages')}
+					title="Show messages"
+					aria-label="Show messages"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+					</svg>
+				</button>
+				<button
+					class="view-open-btn btn-icon"
+					class:active={selectedWorkspaceView === 'whiteboard'}
+					type="button"
+					on:click={() => setWhiteboardSurface($currentChannel, 'whiteboard')}
+					title="Show whiteboard"
+					aria-label="Show whiteboard"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<rect x="3" y="4" width="18" height="14" rx="2"></rect>
+						<path d="M7 8h10"></path>
+						<path d="M7 12h6"></path>
+						<path d="M8 20h8"></path>
+					</svg>
+				</button>
+					<button
+						class="view-open-btn btn-icon"
+						type="button"
+						class:active={$layoutStore.activeRightTab === 'media' && $layoutStore.showRightPanel}
+						on:click={() => layoutStore.showMediaTab()}
+						title="Open media panel"
+						aria-label="Open media panel"
+					>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<rect x="3" y="3" width="18" height="18" rx="2"></rect>
+						<circle cx="8.5" cy="8.5" r="1.5"></circle>
+						<polyline points="21 15 16 10 5 21"></polyline>
+					</svg>
+				</button>
+				<button
+					class="view-open-btn btn-icon"
+					type="button"
+					on:click={openReaderSurface}
+					class:active={selectedWorkspaceView === 'reader'}
+					title="Open reader view"
+					aria-label="Open reader view"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+						<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+					</svg>
+				</button>
+				<button
+					class="view-open-btn btn-icon"
+					type="button"
+					on:click={openModelViewportSurface}
+					class:active={selectedWorkspaceView === 'model'}
+					title="Open 3D view"
+					aria-label="Open 3D view"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+						<path d="M3.27 6.96 12 12.01l8.73-5.05"></path>
+						<path d="M12 22.08V12"></path>
+					</svg>
+				</button>
+				<button
+					class="view-open-btn btn-icon"
+					type="button"
+					on:click={() => void openFullMapTab()}
+					class:active={selectedWorkspaceView === 'map'}
+					title="Open map view"
+					aria-label="Open map view"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"></path>
+						<path d="M9 4v14"></path>
+						<path d="M15 6v14"></path>
+					</svg>
+				</button>
+			</div>
+			{#if isDMChannel && dmCallTargetUser}
+				<div class="dm-call-actions">
+					{#if dmDirectCallActive}
+						<span class="dm-call-live" role="status" aria-live="polite">{dmDirectCallPending ? 'Calling…' : 'Call active'}</span>
+					{/if}
+					<button
+						class="dm-call-btn btn-secondary"
+						class:active={dmDirectCallActive}
+						on:click={startDMVoiceCall}
+						disabled={dmDirectCallActive}
+						title={$_('chat.dm.voice_call_title', { values: { user: dmCallTargetUser.username } })}
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+						<span>{$_('chat.dm.call')}</span>
+					</button>
+					<button
+						class="dm-call-btn btn-secondary"
+						class:active={dmDirectCallActive}
+						on:click={startDMVideoCall}
+						disabled={dmDirectCallActive}
+						title={$_('chat.dm.video_call_title', { values: { user: dmCallTargetUser.username } })}
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+						<span>{$_('chat.dm.video')}</span>
+					</button>
+				</div>
+			{/if}
+			{#if experimentalScopeVisible}
+				<button
+					type="button"
+					class="experimental-stdb-toggle btn-secondary"
+					class:active={experimentalStdbCallsEnabled}
+					on:click={toggleExperimentalStdbCallUi}
+					disabled={!isTauriRuntime() || getTauriPlatform() !== 'desktop'}
+					title="Experimental SpaceChatDB STDB routing for DM/group calls only"
+				>
+					STDB EXP {experimentalStdbCallsEnabled ? 'ON' : 'OFF'}
+				</button>
+			{/if}
+			<div class="search-container" class:expanded={searchExpanded} bind:this={searchContainerElement}>
+				<span class="search-icon" aria-hidden="true">
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<circle cx="11" cy="11" r="7"></circle>
+						<line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+					</svg>
+				</span>
+				<input
+					type="text"
+					bind:this={searchInputElement}
+					bind:value={searchInput}
+					placeholder={$_('chat.search.placeholder')}
+					class="search-input input"
+					on:click={openSearch}
+					on:focus={openSearch}
+					on:keydown={handleSearchInputKeydown}
+				/>
+				{#if searchExpanded && searchInput && !$displayEnhancementSettingsStore.betterSearchPageEnabled}
+					<span class="search-results">
+						{filteredMessages.length === 1
+							? $_('chat.search.results_one', { values: { count: filteredMessages.length } })
+							: $_('chat.search.results_many', { values: { count: filteredMessages.length } })}
+					</span>
+				{/if}
+				{#if searchExpanded && searchBackfillBusy && !$displayEnhancementSettingsStore.betterSearchPageEnabled}
+					<span class="search-results">{$_('chat.search.loading_older')}</span>
+				{/if}
+				{#if searchExpanded && searchInput && $displayEnhancementSettingsStore.googleSearchReplaceEnabled && !$displayEnhancementSettingsStore.betterSearchPageEnabled}
+					<button type="button" class="search-history-btn btn-ghost btn-sm" on:click={searchCurrentQueryInBrowser}>
+						Search on Web
+					</button>
+				{/if}
+				{#if searchExpanded && searchInput && currentChannelData?.persistMessages && !$displayEnhancementSettingsStore.betterSearchPageEnabled}
+					<button
+						type="button"
+						class="search-history-btn btn-ghost btn-sm"
+						on:click={() => {
+							if (isFullHistorySearchRunning) {
+								fullHistorySearchAbortRequested = true;
+							} else {
+								void runFullHistorySearchBackfill();
+							}
+						}}
+					>
+						{isFullHistorySearchRunning
+							? $_('chat.search.stop', { values: { count: fullHistorySearchPagesLoaded } })
+							: $_('chat.search.full_history')}
+					</button>
+					{#if fullHistorySearchStatus}
+						<span class="search-results">{fullHistorySearchStatus}</span>
+					{/if}
+				{/if}
+			</div>
+		</div>
+	</div>
+
+	{#if chatSurface === 'whiteboard'}
+		<div class="whiteboard-surface">
+			<WhiteboardTab channelId={$currentChannel} />
+		</div>
+	{/if}
+
+	<!-- TEMPORARY: DMs now render in center like channels -->
+	<div
+		class="messages"
+		bind:this={chatContainer}
+		class:surface-hidden={chatSurface !== 'messages'}
+		on:scroll={(e) => {
+			// Mobile composer auto-hide on scroll
+			if ($layoutStore.isMobile) {
+				const currentScrollTop = e.currentTarget.scrollTop;
+				const scrollDelta = lastScrollTop - currentScrollTop;
+				// Show when scrolling down or at top, hide when scrolling up
+				if (scrollDelta > 10 || currentScrollTop < 50) {
+					composerVisible = true;
+				} else if (scrollDelta < -10 && !isTextareaFocused) {
+					composerVisible = false;
+				}
+				lastScrollTop = currentScrollTop;
+			}
+		}}
+	>
+		{#if $displayEnhancementSettingsStore.betterSearchPageEnabled && searchInput}
+			<div class="search-results-toolbar" role="status" aria-live="polite">
+				<span class="search-toolbar-meta">
+					{filteredMessages.length === 1
+						? $_('chat.search.results_one', { values: { count: filteredMessages.length } })
+						: $_('chat.search.results_many', { values: { count: filteredMessages.length } })}
+				</span>
+				{#if searchBackfillBusy}
+					<span class="search-toolbar-meta">{$_('chat.search.loading_older')}</span>
+				{/if}
+				{#if $displayEnhancementSettingsStore.googleSearchReplaceEnabled}
+					<button type="button" class="search-toolbar-btn btn-ghost btn-sm" on:click={searchCurrentQueryInBrowser}>
+						Search on Web
+					</button>
+				{/if}
+				{#if currentChannelData?.persistMessages}
+					<button
+						type="button"
+						class="search-toolbar-btn btn-ghost btn-sm"
+						on:click={() => {
+							if (isFullHistorySearchRunning) {
+								fullHistorySearchAbortRequested = true;
+							} else {
+								void runFullHistorySearchBackfill();
+							}
+						}}
+					>
+						{isFullHistorySearchRunning
+							? $_('chat.search.stop', { values: { count: fullHistorySearchPagesLoaded } })
+							: $_('chat.search.full_history')}
+					</button>
+				{/if}
+				{#if fullHistorySearchStatus}
+					<span class="search-toolbar-meta">{fullHistorySearchStatus}</span>
+				{/if}
+			</div>
+		{/if}
+		{#key `${$currentChannel}-${channelPaneAnimation.enabled ? channelPaneAnimation.preset : 'off'}`}
+		<div
+			class="messages-pane"
+			in:channelPaneInTransition={channelPaneAnimation}
+			out:channelPaneOutTransition={channelPaneAnimation}
+		>
+			{#if !searchInput}
+				<PinnedMessages pinnedMessages={pinnedMessages} />
+			{/if}
+			<MessageList
+				messages={filteredMessages}
+				onReply={handleReply}
+				onQuickMention={handleQuickMention}
+				firstUnreadMessageId={$lastReadMessageId}
+				on:openSettings={() => dispatch('openSettings')}
+			/>
+
+			{#if visibleTypingUsers.length > 0}
+				<div class="typing-indicator">
+					<span class="typing-dots"></span>
+					<span>{formatTypingUsers(visibleTypingUsers)}</span>
+				</div>
+			{/if}
+		</div>
+		{/key}
+	</div>
+
+		{#if showEmojiPicker}
+			<div class="emoji-picker-container" bind:this={emojiPickerContainer}>
+				{#if EmojiPickerComponent}
+					<svelte:component
+						this={EmojiPickerComponent}
+						on:select={handleEmojiSelect}
+						on:gif={handleGifSelect}
+						on:close={() => showEmojiPicker = false}
+					/>
+				{:else}
+					<div class="emoji-picker-loading">{$_('emoji_picker.loading')}</div>
+				{/if}
+			</div>
+		{/if}
+
+		<CameraCapture
+			isOpen={showCameraCapture}
+			on:close={() => showCameraCapture = false}
+			on:capture={handlePhotoCapture}
+		/>
+
+		<AudioRecorder
+			isOpen={showAudioRecorder}
+			on:close={() => showAudioRecorder = false}
+			on:send={handleAudioSend}
+		/>
+
+		{#if chatSurface === 'messages' && !($layoutStore.isMobile && $isInCall)}
+		{#if editingMessage}
+			<div class="edit-bar">
+				<div class="edit-info">
+					<span class="edit-label">{$_('chat.compose.editing')}</span>
+					<span class="edit-hint">{$_('chat.compose.escape_to_cancel')}</span>
+				</div>
+				<button class="cancel-edit" on:click={cancelEdit}>✕</button>
+			</div>
+		{:else if replyingTo}
+			<div class="reply-bar">
+				<div class="reply-info">
+					<span class="reply-label">{$_('chat.compose.replying_to', { values: { user: replyingTo.user } })}</span>
+					<span class="reply-preview">
+						{#if replyingTo.text}
+							{replyingTo.text.substring(0, 50)}{replyingTo.text.length > 50 ? '...' : ''}
+						{:else if replyingTo.type === 'gif'}
+							GIF
+						{:else if replyingTo.type === 'emoji'}
+							:{replyingTo.emojiName || 'sticker'}:
+						{:else}
+							{$_('chat.compose.attachment')}
+						{/if}
+					</span>
+				</div>
+				<button class="cancel-reply" on:click={cancelReply}>✕</button>
+		</div>
+	{/if}
+
+	<div class="input-wrapper" class:hidden={$layoutStore.isMobile && !composerVisible}>
+		{#if showMentionSuggestions && mentionSuggestions.length > 0}
+			<div class="mention-suggestions" bind:this={mentionMenuContainer}>
+				{#each mentionSuggestions as suggestion, index (suggestion.key)}
+					<button
+						type="button"
+						class="mention-suggestion"
+						class:selected={index === mentionSelectedIndex}
+						on:mousedown|preventDefault={() => applyMentionSuggestion(index)}
+					>
+						<span class="mention-copy">
+							<span class="mention-label">{suggestion.label}</span>
+							{#if suggestion.detail}
+								<span class="mention-detail">{suggestion.detail}</span>
+							{/if}
+						</span>
+						<span class="mention-kind">
+							{#if suggestion.kind === 'special'}
+								{$_('chat.mentions.kind_mention')}
+							{:else if suggestion.kind === 'place'}
+								Place
+							{:else}
+								{$_('chat.mentions.kind_user')}
+							{/if}
+						</span>
+					</button>
+				{/each}
+			</div>
+		{/if}
+		{#if filePreviews.length > 0 && !isUploading}
+			<div class="file-gallery">
+				<div class="gallery-header">
+					<span>
+						{filePreviews.length === 1
+							? $_('chat.upload.files_selected_one', { values: { count: filePreviews.length } })
+							: $_('chat.upload.files_selected_many', { values: { count: filePreviews.length } })}
+					</span>
+					<button class="cancel-gallery" on:click={cancelUpload}>✕</button>
+				</div>
+				<div class="gallery-grid">
+					{#each filePreviews as { file, preview }, index}
+						<div class="gallery-item">
+							{#if preview}
+								<img src={preview} alt={file.name} class="gallery-preview" />
+							{:else}
+								<div class="gallery-file-icon">
+									{#if file.type.startsWith('video/')}
+										🎬
+									{:else if file.type.startsWith('audio/')}
+										🎵
+									{:else}
+										📄
+									{/if}
+								</div>
+							{/if}
+							<div class="gallery-file-info">
+								<div class="gallery-file-name">{file.name}</div>
+								<div class="gallery-file-size">{(file.size / 1024 / 1024).toFixed(2)} MB</div>
+							</div>
+							<button class="remove-file" on:click={() => removeFile(index)}>✕</button>
+						</div>
+					{/each}
+				</div>
+				<div class="spoiler-checkbox-container">
+					<label class="spoiler-checkbox-label">
+						<input type="checkbox" bind:checked={markAsSpoiler} class="spoiler-checkbox" />
+						<span>{$_('chat.upload.mark_spoiler')}</span>
+					</label>
+					<span class="spoiler-hint" title={$_('chat.upload.spoiler_hint')}>⚠️</span>
+				</div>
+				{#if albumEligibleSelection}
+					<div class="upload-album-row">
+						<label class="upload-album-toggle">
+							<input
+								type="checkbox"
+								checked={createAlbumFromUpload}
+								on:change={(event) =>
+									handleAlbumUploadToggle((event.currentTarget as HTMLInputElement).checked)}
+							/>
+							<span>Turn this multi-photo upload into a shared album</span>
+						</label>
+						{#if createAlbumFromUpload}
+							<label class="upload-album-field">
+								<span>Album name</span>
+								<input
+									class="upload-album-name input"
+									type="text"
+									bind:value={uploadAlbumName}
+									placeholder={buildDefaultUploadAlbumName()}
+									maxlength="80"
+								/>
+							</label>
+							<small class="upload-album-hint">This name shows up in chat and in the Albums tab.</small>
+						{/if}
+					</div>
+				{/if}
+				<button class="upload-files-btn" on:click={uploadSelectedFiles}>
+					{filePreviews.length === 1
+						? $_('chat.upload.upload_files_one', { values: { count: filePreviews.length } })
+						: $_('chat.upload.upload_files_many', { values: { count: filePreviews.length } })}
+				</button>
+			</div>
+		{/if}
+
+		{#if isUploading}
+			<div class="upload-progress-bar">
+				<div class="upload-progress-info">
+					<span>{uploadStatusLabel || $_('chat.upload.uploading')}</span>
+					<span>{uploadProgress}%</span>
+				</div>
+				<div class="progress-bar">
+					<div class="progress-fill" style="width: {uploadProgress}%"></div>
+				</div>
+			</div>
+		{/if}
+		<input
+			type="file"
+			bind:this={fileInput}
+			on:change={handleFileSelect}
+			multiple
+			class="hidden"
+		/>
+		{#if sendCooldownMessage}
+			<div class="composer-rate-limit-notice" role="status" aria-live="polite">
+				{sendCooldownMessage}
+			</div>
+		{/if}
+		<div class="input-container">
+			<CommandPalette
+				bind:this={commandPalette}
+				bind:input={messageInput}
+				bind:isVisible={showCommandPalette}
+				bind:selectedIndex={commandPaletteSelectedIndex}
+				onSelect={handleCommandSelect}
+			/>
+				<div class="input-buttons-left">
+					<div class="media-menu-container" bind:this={mediaMenuContainer}>
+						<button
+						class="input-icon-button"
+						on:click|stopPropagation={() => {
+							showMediaMenu = !showMediaMenu;
+							if (showMediaMenu) showEmojiPicker = false;
+						}}
+						title={$_('chat.compose.add_media')}
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+					</button>
+					{#if showMediaMenu}
+						<div class="media-menu">
+							<button class="media-menu-item" on:click={handleOpenFilePicker}>{$_('chat.compose.upload_file')}</button>
+							{#if supportsMediaCapture()}
+								<button class="media-menu-item" on:click={handleOpenCameraCapture}>{$_('chat.compose.take_photo')}</button>
+								<button class="media-menu-item" on:click={handleOpenAudioRecorder}>{$_('chat.compose.record_audio')}</button>
+							{/if}
+							</div>
+						{/if}
+					</div>
+					<button
+						class="input-icon-button"
+						on:click={() => openPaymentSheet()}
+						title="Create payment request"
+						disabled={!paymentButtonEnabled}
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2"></rect><path d="M2.5 10h19"></path><path d="M7.5 15h4"></path></svg>
+					</button>
+					{#if isDMChannel}
+						<button
+							class="input-icon-button"
+							on:click={openManualCashModal}
+							title="Record manual cash trade"
+							disabled={!paymentButtonEnabled}
+						>
+							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V7a2 2 0 0 1 2-2h4"></path><path d="M16 13v4a2 2 0 0 1-2 2h-4"></path><path d="M5 12h4"></path><path d="M15 12h4"></path><path d="m9 9 2 3-2 3"></path><path d="m15 9-2 3 2 3"></path></svg>
+						</button>
+					{/if}
+				</div>
+				<textarea
+				bind:this={textareaElement}
+				bind:value={messageInput}
+				on:paste={handlePaste}
+				on:input={() => {
+					handleInput();
+					handleInputChange();
+				}}
+				on:keydown={handleKeyDown}
+				on:focus={() => {
+					isTextareaFocused = true;
+					composerVisible = true;
+				}}
+				on:blur={() => {
+					isTextareaFocused = false;
+				}}
+				placeholder={$_('chat.compose.placeholder')}
+				maxlength={composerInputMaxLength}
+				spellcheck={composerSpellcheckEnabled}
+				rows="1"
+			></textarea>
+			{#if composerCharCounterEnabled && composerCharCounterVisible}
+				<span class="composer-char-counter" class:warn={composerCharCounterWarn} class:visible={composerCharCounterVisible}>
+					{composerCharCount}/{composerInputMaxLength}
+				</span>
+			{/if}
+				<button
+					bind:this={emojiPickerButton}
+					class="input-icon-button"
+					on:click|stopPropagation={() => {
+						showEmojiPicker = !showEmojiPicker;
+						if (showEmojiPicker) {
+							ensureEmojiPickerLoaded();
+							showMediaMenu = false;
+						}
+					}}
+					title={$_('chat.compose.add_emoji')}
+				>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
+			</button>
+			<button
+				class="send-button"
+				on:click={handleSubmit}
+				disabled={(selectedFiles.length === 0 && !messageInput.trim()) || sendCooldownUntil > Date.now() || isUploading}
+				title={selectedFiles.length > 0 ? 'Send selected media' : $_('chat.compose.send_message')}
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+			</button>
+		</div>
+		{#if unicodeEmojisEnabled && unicodeComposerPreviewTokens > 0 && unicodeComposerPreview !== messageInput}
+			<div class="unicode-conversion-hint">
+				Unicode preview: {unicodeComposerPreview}
+			</div>
+		{/if}
+		{#if gifCaptionerEnabled && gifCaptionerDedicatedCaptionFieldEnabled}
+			<div class="gif-caption-draft-row">
+				<input
+					type="text"
+					class="gif-caption-draft-input input input-sm"
+					bind:value={gifCaptionInput}
+					maxlength={MAX_GIF_CAPTION_LENGTH}
+					placeholder="GIF caption (used when sending from GIF picker)"
+				/>
+				<span class="gif-caption-draft-count" class:warn={gifCaptionDraftWarn}>
+					{gifCaptionDraftLength}/{MAX_GIF_CAPTION_LENGTH}
+				</span>
+			</div>
+			{#if unicodeEmojisEnabled && unicodeGifCaptionPreviewTokens > 0 && unicodeGifCaptionPreview !== gifCaptionInput}
+				<div class="unicode-conversion-hint">
+					GIF caption preview: {unicodeGifCaptionPreview}
+				</div>
+			{/if}
+		{:else if gifCaptionerEnabled && showEmojiPicker}
+			<div class="gif-caption-hint">
+				GIF caption uses composer text (max {MAX_GIF_CAPTION_LENGTH} characters).
+			</div>
+		{/if}
+	</div>
+			{/if}
+	</div>
+
+	{#if compressionDialogOpen && compressionDialogFile}
+		<div class="compression-modal-backdrop overlay" role="presentation">
+			<div class="compression-modal card" role="dialog" aria-modal="true" aria-labelledby="video-compress-title">
+				<h3 id="video-compress-title">Compress Video Before Upload</h3>
+				<p class="compression-copy">
+					"{compressionDialogFile.name}" is {formatFileMb(compressionDialogFile.size)} MB. Compress now or keep the original file.
+				</p>
+				<p class="compression-runtime-note">Runtime profile: {compressionDialogRuntimeLabel}</p>
+				<div class="compression-preset-row">
+					<label for="compression-preset-select">Preset</label>
+					<select
+						id="compression-preset-select"
+						bind:value={compressionDialogPreset}
+						disabled={compressionDialogBusy}
+					>
+						{#each compressionDialogPresetOptions as presetOption (presetOption.id)}
+							<option value={presetOption.id}>{presetOption.label}</option>
+						{/each}
+					</select>
+				</div>
+				{#if selectedCompressionPresetOption}
+					<div class="compression-preset-note">{selectedCompressionPresetOption.description}</div>
+				{/if}
+				{#if compressionDialogEstimate}
+					<div class="compression-estimate">
+						<span>
+							Estimated output: {formatFileMb(compressionDialogEstimate.estimatedBytes)} MB
+							({compressionDialogEstimate.targetWidth}x{compressionDialogEstimate.targetHeight})
+						</span>
+						<span class:estimate-saving={compressionDialogEstimate.estimatedReductionRatio > 0}>
+							{formatSignedMb(compressionDialogEstimate.estimatedBytes - compressionDialogFile.size)}
+						</span>
+					</div>
+				{/if}
+				{#if compressionDialogSuggestionCopy}
+					<div class="compression-suggestion">{compressionDialogSuggestionCopy}</div>
+				{/if}
+				{#if compressionDialogBusy}
+					<div class="compression-progress">
+						<div class="compression-progress-info">
+							<span>Compressing...</span>
+							<span>{compressionDialogProgress}%</span>
+						</div>
+						<div class="progress-bar">
+							<div class="progress-fill" style="width: {compressionDialogProgress}%"></div>
+						</div>
+					</div>
+				{:else if compressionDialogError}
+					<div class="compression-error">{compressionDialogError}</div>
+				{/if}
+				<div class="compression-actions">
+					{#if compressionDialogBusy}
+						<button type="button" class="compression-btn secondary" on:click={cancelCompressionRun}>Cancel Compression</button>
+					{:else if compressionDialogError}
+						<button type="button" class="compression-btn" on:click={() => void runVideoCompression()}>Retry</button>
+						<button type="button" class="compression-btn secondary" on:click={keepOriginalVideoFile}>Keep Original</button>
+						<button type="button" class="compression-btn danger" on:click={removeVideoFileFromQueue}>Remove File</button>
+					{:else}
+						<button type="button" class="compression-btn" on:click={() => void runVideoCompression()}>Compress</button>
+						<button type="button" class="compression-btn secondary" on:click={keepOriginalVideoFile}>Keep Original</button>
+						<button type="button" class="compression-btn danger" on:click={removeVideoFileFromQueue}>Remove File</button>
+					{/if}
+				</div>
+			</div>
+		</div>
+		{/if}
+
+		<PaymentSheet
+			isOpen={paymentSheetOpen}
+			openSeed={paymentSheetOpenSeed}
+			initialAmountInput={paymentSheetPrefillAmountInput}
+			initialDescription={paymentSheetPrefillDescription}
+			initialCustomerRef={paymentSheetPrefillCustomerRef}
+			defaultTargetLabel={paymentTargetLabel}
+			defaultTargetKind={paymentTargetKind}
+			onClose={() => {
+				paymentSheetOpen = false;
+			}}
+			onManageConnections={() => {
+				paymentSheetOpen = false;
+				dispatch('openSettings', { paymentSurface: 'connections' });
+			}}
+			defaultChannelId={$currentChannel}
+		/>
+		<ManualCashModal
+			isOpen={manualCashOpen}
+			channelId={$currentChannel}
+			targetLabel={paymentTargetLabel}
+			counterpartyLabel={dmCallTargetUser?.username || 'Other user'}
+			onClose={() => {
+				manualCashOpen = false;
+			}}
+		/>
+
+			<div class="debug-version-footer" aria-hidden="true">
+			Version {runtimeVersionLabel} - for debugging reasons only
+		</div>
+

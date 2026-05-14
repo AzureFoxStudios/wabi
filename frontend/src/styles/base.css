@@ -1,0 +1,98 @@
+/* ==========================================================================
+   GLOBAL BASE STYLES
+   Reset, typography defaults, links, focus.
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+}
+
+html {
+	font-size: 16px;
+}
+
+body {
+	font-family: var(--font-family-sans);
+	background: var(--surface-app);
+	color: var(--text-heading);
+	overflow: hidden;
+	height: 100vh;
+	height: 100dvh;
+}
+
+:root[data-color-assist='true'] body {
+	filter: saturate(var(--app-saturation)) contrast(var(--app-contrast));
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+	font-weight: var(--font-weight-semibold);
+	line-height: var(--line-height-tight);
+}
+
+h1 { font-size: var(--font-size-6); }
+h2 { font-size: var(--font-size-5); }
+h3 { font-size: var(--font-size-4); }
+
+/* Paragraphs and Links */
+p {
+	margin-bottom: var(--space-4);
+	line-height: var(--line-height-normal);
+}
+
+a {
+	color: var(--accent-primary);
+	text-decoration: none;
+	transition: color var(--duration-fast) ease-out;
+}
+
+a:hover {
+	color: var(--accent-secondary);
+	text-decoration: underline;
+}
+
+/* Focus visible — single, consistent ring across the app */
+*:focus-visible {
+	outline: none;
+	box-shadow: var(--shadow-focus-ring);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+	width: var(--space-2);
+	height: var(--space-2);
+}
+
+::-webkit-scrollbar-track {
+	background: rgba(var(--surface-app-rgb), var(--opacity-strong));
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--gradient-scrollbar, var(--surface-raised));
+	border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: var(--gradient-scrollbar-hover, var(--accent-primary));
+}
+
+/* Screen-reader only */
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border-width: 0;
+}
+
+.hidden {
+	display: none !important;
+}

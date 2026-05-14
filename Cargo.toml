@@ -1,0 +1,20 @@
+[workspace]
+members = [
+  "crates/wabi-core",
+  "core/crates/wabi-server",
+  "core/crates/wabi-tui",
+  "core/addons/webhooks/backend",
+  "core/addons/mesh/backend",
+]
+exclude = [
+  "src-tauri",
+  "frontend/src-tauri",
+  "spacetimedb/wabi_state_bridge"
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.88"

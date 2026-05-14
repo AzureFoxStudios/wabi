@@ -1,0 +1,20 @@
+{
+  "id": "reader-mode",
+  "name": "Reader Mode",
+  "version": "0.1.0",
+  "description": "Distraction-free reading mode for long-form content.",
+  "author": "Community",
+  "enabled": true,
+  "backend": {
+    "type": "typescript",
+    "entry": "./backend"
+  },
+  "permissions": ["channels:read"],
+  "security": {
+    "threatNotes": "Content transformation without data storage."
+  },
+  "capabilities": {
+    "tier": "content",
+    "notes": "Reader mode for articles and posts."
+  }
+}

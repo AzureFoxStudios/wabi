@@ -1,0 +1,510 @@
+<script lang="ts">
+	import { onDestroy, onMount } from 'svelte';
+	import { fade } from 'svelte/transition';
+	import { initSocket, disconnect, dmPanelSignal, retryDecryptLoadedDmMessages, currentUser } from '$lib/socket';
+	import { requestNotificationPermission } from '$lib/notifications';
+	import Login from '$lib/components/Login.svelte';
+	import MainLayout from '$lib/components/MainLayout.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import { layoutStore } from '$lib/layoutStore';
+	import { initE2E, clearE2EState } from '$lib/e2eManager';
+	import {
+		clearAuthSession,
+		clearStoredIdentity,
+		getAuthToken,
+		getGuestSessionId,
+		getStoredDbUserId,
+		getStoredUsername,
+		setAuthToken,
+		setStoredUsername
+	} from '$lib/authSession';
+	import { authStore } from '$lib/authStore';
+	import { getUserSettings } from '$lib/api';
+	import { initializeAccessibilitySettings } from '$lib/accessibility';
+	import { initializeAnimationPassSettings } from '$lib/animationPass';
+	import { refreshBackendEndpointCandidates } from '$lib/backendEndpoints';
+	import { startupMark, startupMeasure, startupScheduleReport } from '$lib/startupProfiler';
+	import {
+		applyHomeExperienceMode,
+		getStoredHomeExperienceMode,
+		normalizeHomeExperienceMode,
+		setStoredHomeExperienceMode,
+		type HomeExperienceMode
+	} from '$lib/homeExperience';
+	import { _ } from '$lib/i18n';
+	import { startDesktopHelperLifecycle, stopDesktopHelperService } from '$lib/desktopHelper';
+	import { startFollowNotificationPoller } from '$lib/followNotifier';
+	import { animationQuality } from '$lib/motion/animationQuality';
+	import {
+		getLocalWabiAccountKey,
+		getSuggestedLocalWabiImportSourceAccount,
+		hasHandledLocalWabiImportPrompt,
+		markLocalWabiImportPromptHandled
+	} from '$lib/localWabiAccounts';
+	import {
+		applyLocalWabiProfileImport,
+		getLocalWabiProfileImportPreview
+	} from '$lib/localWabiProfileImport';
+
+	// Theme system
+	import { initializeTheme, watchThemeChanges, syncThemeToLocalStorage } from '$lib/theme/initTheme';
+	import { startTimedThemeModeScheduler } from '$lib/timedThemeMode';
+
+	// Apply layout-affecting accessibility preferences before first render to avoid CLS.
+	if (typeof window !== 'undefined') {
+		initializeAccessibilitySettings();
+		initializeAnimationPassSettings();
+	}
+
+	let loggedIn = false;
+	let isInitialLoad = true;
+	let isBootstrapping = true;
+
+	let unsubscribeThemeWatcher: (() => void) | null = null;
+	let unsubscribeLocalStorageSync: (() => void) | null = null;
+	let unsubscribeLayoutStore: (() => void) | null = null;
+	let unsubscribeAuthStore: (() => void) | null = null;
+	let stopTimedThemeScheduler: (() => void) | null = null;
+	let authResetInFlight = false;
+	let bootShellDismissed = false;
+	let stopDesktopHelperLifecycle: (() => void) | null = null;
+	let stopFollowNotificationPoller: (() => void) | null = null;
+	let showTempPasswordPrompt = false;
+	let accountSecurityOpenRequest = 0;
+	let pendingPostLoginProfileImportCheck = false;
+	let showProfileImportPrompt = false;
+	let profileImportPromptSourceKey = '';
+	let profileImportPromptTargetKey = '';
+	let profileImportPromptMessage = '';
+	let perfToastVisible = false;
+	let perfToastDismissed = false;
+
+	function dismissDocumentBootShell(): void {
+		if (bootShellDismissed || typeof window === 'undefined') return;
+		bootShellDismissed = true;
+		window.dispatchEvent(new CustomEvent('wabi:boot-hide'));
+	}
+
+	function scheduleNonCritical(task: () => void, timeout = 1500): void {
+		if (typeof window === 'undefined') return;
+		const ric = (window as Window & { requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number }).requestIdleCallback;
+		if (ric) {
+			ric(task, { timeout });
+			return;
+		}
+		window.setTimeout(task, 0);
+	}
+
+	function seedBackendFailoverCache(): void {
+		scheduleNonCritical(() => {
+			void refreshBackendEndpointCandidates().catch((error) => {
+				console.warn('[App] Failed to seed backend failover candidates:', error);
+			});
+		}, 250);
+	}
+
+	function syncFollowNotificationPoller(nextLoggedIn: boolean): void {
+		if (!nextLoggedIn) {
+			stopFollowNotificationPoller?.();
+			stopFollowNotificationPoller = null;
+			return;
+		}
+		if (!stopFollowNotificationPoller) {
+			stopFollowNotificationPoller = startFollowNotificationPoller();
+		}
+	}
+
+	async function syncHomeExperienceFromServer(token: string | null | undefined): Promise<HomeExperienceMode> {
+		if (!token) {
+			return getStoredHomeExperienceMode();
+		}
+		try {
+			const settings = await getUserSettings(token);
+			const mode = normalizeHomeExperienceMode(settings?.home_experience);
+			setStoredHomeExperienceMode(mode);
+			return mode;
+		} catch {
+			return getStoredHomeExperienceMode();
+		}
+	}
+
+	// --- Lifecycle ---
+	onMount(() => {
+		let disposed = false;
+		startupMark('page:onMount:start');
+		startupMark('page:accessibility:ready');
+		startupMeasure('page:accessibility:init', 'page:onMount:start', 'page:accessibility:ready');
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.ctrlKey && e.shiftKey && e.key === '1') {
+				e.preventDefault();
+				window.location.href = '/business';
+			}
+			if (e.ctrlKey && e.shiftKey && (e.key === 'O' || e.key === 'o')) {
+				e.preventDefault();
+				handleLogout();
+			}
+		};
+
+		(async () => {
+			startupMark('page:bootstrap:start');
+			isInitialLoad = true;
+			startupMark('page:ui:unblocked');
+			startupMeasure('page:to-ui-unblocked', 'page:onMount:start', 'page:ui:unblocked');
+
+			const notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
+			if (notificationsEnabled && Notification.permission === 'default') {
+				scheduleNonCritical(() => {
+					requestNotificationPermission().catch(() => {
+						// No-op: permission prompts are best-effort.
+					});
+				});
+			}
+
+			// One-time performance toast when weak GPU was auto-detected
+			if (!$animationQuality.userOverride && $animationQuality.cssOnly) {
+				scheduleNonCritical(() => {
+					if (!disposed) {
+						perfToastVisible = true;
+					}
+				}, 2000);
+			}
+
+			unsubscribeLayoutStore = layoutStore.subscribe(state => {
+				if (state.isMobile) {
+					layoutStore.resetPanelsOnDesktop();
+				}
+			});
+			unsubscribeAuthStore = authStore.subscribe((state) => {
+				const errorType = state.error?.type;
+				if (!state.isAuthError || !errorType) return;
+				if (errorType !== 'session_expired' && errorType !== 'invalid_token') return;
+				if (authResetInFlight) return;
+
+				authResetInFlight = true;
+				loggedIn = false;
+				disconnect();
+				syncFollowNotificationPoller(false);
+				void stopDesktopHelperService(true);
+				clearAuthSession();
+				clearStoredIdentity();
+				clearE2EState();
+				pendingPostLoginProfileImportCheck = false;
+				showProfileImportPrompt = false;
+				profileImportPromptSourceKey = '';
+				profileImportPromptTargetKey = '';
+				profileImportPromptMessage = '';
+				authStore.clearAuthError();
+				authResetInFlight = false;
+			});
+
+			const savedUsername = getStoredUsername();
+			const savedToken = getAuthToken();
+			const savedGuestSessionId = getGuestSessionId();
+			const hasSession = Boolean(savedToken || savedGuestSessionId);
+			if (savedUsername && hasSession) {
+				seedBackendFailoverCache();
+				startupMark('page:socket:init:start');
+				initSocket(savedUsername, savedToken || undefined);
+				startupMark('page:socket:init:end');
+				startupMeasure('page:socket:init:call', 'page:socket:init:start', 'page:socket:init:end');
+				loggedIn = true;
+				syncFollowNotificationPoller(true);
+				applyHomeExperienceMode(getStoredHomeExperienceMode());
+				if (savedToken) {
+					scheduleNonCritical(() => {
+						void syncHomeExperienceFromServer(savedToken).then((mode) => {
+							applyHomeExperienceMode(mode);
+						});
+					});
+				}
+
+				// Initialize E2E in background so it doesn't block initial render and socket startup.
+				const dbUserId = getStoredDbUserId();
+				if (dbUserId) {
+					startupMark('page:e2e:init:start');
+					void initE2E(dbUserId, savedToken, false)
+						.then(() => retryDecryptLoadedDmMessages())
+						.catch((err) => {
+							console.warn('[App] E2E init failed; continuing without E2E for now:', err);
+						})
+						.finally(() => {
+							startupMark('page:e2e:init:end');
+							startupMeasure('page:e2e:init', 'page:e2e:init:start', 'page:e2e:init:end');
+						});
+				}
+			} else {
+				// Prevent stale username-only local state from skipping login.
+				loggedIn = false;
+				syncFollowNotificationPoller(false);
+				clearStoredIdentity();
+				clearAuthSession();
+			}
+
+			const isRegistered = !!savedToken || !!getStoredDbUserId();
+			// Theme fetch can hit network; don't block startup path.
+			startupMark('page:theme:init:start');
+			void initializeTheme(isRegistered).finally(() => {
+				startupMark('page:theme:init:end');
+				startupMeasure('page:theme:init', 'page:theme:init:start', 'page:theme:init:end');
+			});
+			if (disposed) return;
+
+			unsubscribeThemeWatcher = watchThemeChanges();
+			stopTimedThemeScheduler = startTimedThemeModeScheduler();
+			if (!isRegistered) {
+				unsubscribeLocalStorageSync = syncThemeToLocalStorage();
+			}
+			startupMark('page:bootstrap:end');
+			startupMeasure('page:bootstrap', 'page:bootstrap:start', 'page:bootstrap:end');
+			startupMeasure('page:total-to-bootstrap', 'page:onMount:start', 'page:bootstrap:end');
+			startupScheduleReport('initial-load', 400);
+			stopDesktopHelperLifecycle = startDesktopHelperLifecycle();
+			isBootstrapping = false;
+			dismissDocumentBootShell();
+			isInitialLoad = false;
+		})();
+
+		window.addEventListener('keydown', handleKeyDown);
+
+		return () => {
+			disposed = true;
+			window.removeEventListener('keydown', handleKeyDown);
+				unsubscribeThemeWatcher?.();
+				unsubscribeLocalStorageSync?.();
+				unsubscribeLayoutStore?.();
+				unsubscribeAuthStore?.();
+				stopTimedThemeScheduler?.();
+				stopDesktopHelperLifecycle?.();
+				stopFollowNotificationPoller?.();
+			};
+		});
+	
+	onDestroy(() => {
+		disconnect();
+		syncFollowNotificationPoller(false);
+		void stopDesktopHelperService(true);
+	});
+
+	// --- Event Handlers & Logic ---
+	$: if ($dmPanelSignal) {
+		layoutStore.openDM($dmPanelSignal.channelId, $dmPanelSignal.otherUser);
+		dmPanelSignal.set(null);
+	}
+
+	$: if (pendingPostLoginProfileImportCheck && $currentUser?.dbUserId) {
+		const targetKey = getLocalWabiAccountKey($currentUser);
+		if (!targetKey) {
+			pendingPostLoginProfileImportCheck = false;
+		} else if (hasHandledLocalWabiImportPrompt(targetKey)) {
+			pendingPostLoginProfileImportCheck = false;
+		} else {
+			const suggestedSource = getSuggestedLocalWabiImportSourceAccount(targetKey);
+			const preview = suggestedSource
+				? getLocalWabiProfileImportPreview(suggestedSource.key, $currentUser)
+				: null;
+			if (preview?.canImport) {
+				profileImportPromptSourceKey = preview.source.key;
+				profileImportPromptTargetKey = preview.targetKey;
+				profileImportPromptMessage =
+					`Import your display name and profile picture from ${preview.sourceLabel}? ` +
+					`If the display name is unavailable on this server, Wabi will still try the picture.`;
+				showProfileImportPrompt = true;
+			}
+			pendingPostLoginProfileImportCheck = false;
+		}
+	}
+
+	async function handleLogin(event: CustomEvent<{ username: string; token?: string; authMethod: 'guest' | 'registered'; homeExperience?: HomeExperienceMode; mustChangePassword?: boolean }>) {
+		const { username, token, authMethod, homeExperience, mustChangePassword } = event.detail;
+		setStoredUsername(username);
+
+		if (token) {
+			setAuthToken(token);
+		}
+
+		seedBackendFailoverCache();
+		initSocket(username, token);
+		loggedIn = true;
+		syncFollowNotificationPoller(true);
+
+		const isRegistered = authMethod === 'registered' || !!token;
+		await initializeTheme(isRegistered);
+
+		// Stop old watchers/syncers and start new ones if needed
+		unsubscribeThemeWatcher?.();
+		unsubscribeLocalStorageSync?.();
+		stopTimedThemeScheduler?.();
+
+		unsubscribeThemeWatcher = watchThemeChanges();
+		stopTimedThemeScheduler = startTimedThemeModeScheduler();
+		if (!isRegistered) {
+			unsubscribeLocalStorageSync = syncThemeToLocalStorage();
+		}
+
+		const immediateMode = normalizeHomeExperienceMode(homeExperience || getStoredHomeExperienceMode());
+		setStoredHomeExperienceMode(immediateMode);
+		applyHomeExperienceMode(immediateMode);
+
+		if (isRegistered && token && !homeExperience) {
+			scheduleNonCritical(() => {
+				void syncHomeExperienceFromServer(token).then((mode) => {
+					applyHomeExperienceMode(mode);
+				});
+			});
+		}
+
+		showTempPasswordPrompt = mustChangePassword === true;
+		pendingPostLoginProfileImportCheck = isRegistered;
+	}
+
+	function openAccountSecurityFromTempPasswordPrompt() {
+		showTempPasswordPrompt = false;
+		accountSecurityOpenRequest += 1;
+	}
+
+	function handleLogout() {
+		disconnect();
+		syncFollowNotificationPoller(false);
+		void stopDesktopHelperService(true);
+		clearE2EState();
+		loggedIn = false;
+		showTempPasswordPrompt = false;
+		pendingPostLoginProfileImportCheck = false;
+		showProfileImportPrompt = false;
+		profileImportPromptSourceKey = '';
+		profileImportPromptTargetKey = '';
+		profileImportPromptMessage = '';
+		clearStoredIdentity();
+		clearAuthSession();
+	}
+
+	async function confirmProfileImportPrompt(): Promise<void> {
+		const targetKey = profileImportPromptTargetKey;
+		const sourceKey = profileImportPromptSourceKey;
+		showProfileImportPrompt = false;
+		profileImportPromptSourceKey = '';
+		profileImportPromptTargetKey = '';
+		profileImportPromptMessage = '';
+		markLocalWabiImportPromptHandled(targetKey);
+		const result = await applyLocalWabiProfileImport(sourceKey);
+		if (!result.success) {
+			window.alert(result.errors.join(' ') || 'Profile import did not complete.');
+			return;
+		}
+		const importedSummary = result.importedFields.join(' and ');
+		window.alert(`Imported ${importedSummary}.`);
+	}
+
+	function cancelProfileImportPrompt(): void {
+		markLocalWabiImportPromptHandled(profileImportPromptTargetKey);
+		showProfileImportPrompt = false;
+		profileImportPromptSourceKey = '';
+		profileImportPromptTargetKey = '';
+		profileImportPromptMessage = '';
+	}
+</script>
+
+{#if !isBootstrapping}
+	<!-- Performance auto-detect toast -->
+	{#if perfToastVisible}
+		<div class="perf-toast" role="status" aria-live="polite">
+			<span class="perf-toast-icon">⚡</span>
+			<span class="perf-toast-msg">
+				<strong>Performance mode enabled</strong> — We detected a weak GPU and auto-enabled CSS animations and disabled new windows.
+				You can adjust these in <button class="perf-toast-link" on:click={() => { perfToastDismissed = true; window.dispatchEvent(new CustomEvent('wabi:open-settings', { detail: 'appearance' })); }}>Settings → Appearance</button>.
+			</span>
+			<button class="perf-toast-close" on:click={() => { perfToastVisible = false; perfToastDismissed = true; }} aria-label="Dismiss">×</button>
+		</div>
+	{/if}
+	{#if !loggedIn}
+		{#if isInitialLoad}
+			<Login on:login={handleLogin} />
+		{:else}
+			<div transition:fade={{ duration: 300 }}>
+				<Login on:login={handleLogin} />
+			</div>
+		{/if}
+	{:else}
+		{#if isInitialLoad}
+			<MainLayout accountSecurityOpenRequest={accountSecurityOpenRequest} on:logout={handleLogout} />
+		{:else}
+			<div transition:fade={{ duration: 300 }}>
+				<MainLayout accountSecurityOpenRequest={accountSecurityOpenRequest} on:logout={handleLogout} />
+			</div>
+		{/if}
+		<ConfirmDialog
+			isOpen={showTempPasswordPrompt}
+			title="Temporary Password"
+			message="An owner or admin reset this account with a temporary password. Open Account Security now and choose a new password."
+			confirmText="Change Password"
+			cancelText="Later"
+			variant="warning"
+			onConfirm={openAccountSecurityFromTempPasswordPrompt}
+			onCancel={() => showTempPasswordPrompt = false}
+		/>
+		<ConfirmDialog
+			isOpen={showProfileImportPrompt}
+			title="Import Profile"
+			message={profileImportPromptMessage}
+			confirmText="Import"
+			cancelText="Later"
+			variant="info"
+			onConfirm={confirmProfileImportPrompt}
+			onCancel={cancelProfileImportPrompt}
+		/>
+	{/if}
+{/if}
+
+<style>
+	.perf-toast {
+		position: fixed;
+		bottom: 1rem;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 9999;
+		display: flex;
+		align-items: center;
+		gap: 0.625rem;
+		padding: 0.75rem 1rem;
+		background: var(--bg-elevated, #1e1e2e);
+		border: 1px solid var(--border-subtle, #3a3a4a);
+		border-radius: 0.5rem;
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+		max-width: min(90vw, 28rem);
+		font-size: 0.8125rem;
+		line-height: 1.4;
+		color: var(--text-heading, #e0e0e0);
+	}
+	.perf-toast-icon {
+		flex-shrink: 0;
+		font-size: 1rem;
+	}
+	.perf-toast-msg {
+		flex: 1;
+	}
+	.perf-toast-msg strong {
+		color: var(--text-heading, #e0e0e0);
+	}
+	.perf-toast-link {
+		background: none;
+		border: none;
+		padding: 0;
+		color: var(--accent, #7c6af5);
+		cursor: pointer;
+		font-size: inherit;
+		text-decoration: underline;
+	}
+	.perf-toast-close {
+		flex-shrink: 0;
+		background: none;
+		border: none;
+		padding: 0 0 0 0.25rem;
+		color: var(--text-secondary, #a0a0a0);
+		cursor: pointer;
+		font-size: 1.125rem;
+		line-height: 1;
+	}
+	.perf-toast-close:hover {
+		color: var(--text-heading, #e0e0e0);
+	}
+</style>

@@ -1,0 +1,102 @@
+/* ==========================================================================
+   CHAT — CALLS STYLES
+   Extracted from chat.css
+   ========================================================================== */
+
+
+
+	.dm-call-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+
+	.dm-call-live {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.25rem 0.55rem;
+		border-radius: 999px;
+		border: 1px solid color-mix(in srgb, var(--status-online, #44b700) 65%, transparent);
+		background: color-mix(in srgb, var(--status-online, #44b700) 12%, transparent);
+		color: var(--status-online, #44b700);
+		font-size: var(--text-xs);
+		font-weight: var(--font-weight-semibold);
+		letter-spacing: 0.01em;
+	}
+
+
+	.dm-call-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.35rem 0.6rem;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border-subtle);
+		background: var(--surface-base);
+		color: var(--text-heading);
+		font-size: var(--text-sm);
+		font-weight: var(--font-weight-medium);
+		cursor: pointer;
+		transition: all var(--duration-fast);
+	}
+
+
+	.dm-call-btn svg {
+		width: 14px;
+		height: 14px;
+	}
+
+
+	.dm-call-btn:hover {
+		border-color: var(--accent-primary);
+		background: var(--surface-raised);
+	}
+
+
+	.dm-call-btn.active {
+		border-color: color-mix(in srgb, var(--status-online, #44b700) 60%, var(--border-subtle));
+		background: color-mix(in srgb, var(--status-online, #44b700) 14%, var(--surface-base));
+	}
+
+
+	.dm-call-btn:disabled {
+		opacity: 0.75;
+		cursor: default;
+	}
+
+
+	.experimental-stdb-toggle {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.32rem 0.55rem;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border-subtle);
+		background: var(--surface-base);
+		color: var(--text-secondary);
+		font-size: var(--text-xs);
+		font-weight: var(--font-weight-semibold);
+		letter-spacing: 0.02em;
+		cursor: pointer;
+		transition: all var(--duration-fast);
+	}
+
+
+	.experimental-stdb-toggle:hover:not(:disabled) {
+		border-color: var(--accent-primary);
+		color: var(--text-heading);
+		background: var(--surface-raised);
+	}
+
+
+	.experimental-stdb-toggle.active {
+		border-color: color-mix(in srgb, var(--accent-primary) 65%, var(--border-subtle));
+		background: color-mix(in srgb, var(--accent-primary) 12%, var(--surface-base));
+		color: var(--text-heading);
+	}
+
+
+	.experimental-stdb-toggle:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}

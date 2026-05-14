@@ -1,0 +1,154 @@
+/* ==========================================================================
+   ML — DIRECTIONS STYLES
+   Extracted from messagelist.css
+   ========================================================================== */
+
+
+
+	.directions-card {
+		border: 1px solid color-mix(in srgb, var(--accent-primary) 18%, var(--border-subtle) 82%);
+		border-radius: 12px;
+		padding: 0.8rem 0.9rem;
+		background:
+			linear-gradient(160deg, color-mix(in srgb, var(--accent-primary) 10%, var(--surface-raised) 90%), var(--surface-raised));
+		display: grid;
+		gap: 0.7rem;
+	}
+
+
+	.directions-card-head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+
+
+	.directions-card-copy {
+		min-width: 0;
+	}
+
+
+	.directions-card-kicker {
+		font-size: 0.68rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--text-secondary);
+		margin-bottom: 0.18rem;
+	}
+
+
+	.directions-card-title {
+		font-size: 0.96rem;
+		font-weight: 700;
+		color: var(--text-heading);
+		word-break: break-word;
+	}
+
+
+	.directions-card-expiry {
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+		white-space: nowrap;
+	}
+
+
+	.directions-card-details {
+		display: grid;
+		gap: 0.38rem;
+	}
+
+
+	.directions-detail-row {
+		display: grid;
+		grid-template-columns: 88px minmax(0, 1fr);
+		gap: 0.5rem;
+		align-items: start;
+		font-size: 0.84rem;
+	}
+
+
+	.directions-detail-label {
+		color: var(--text-secondary);
+		font-weight: 600;
+	}
+
+
+	.directions-detail-value {
+		color: var(--text-heading);
+		word-break: break-word;
+	}
+
+
+	.directions-card-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.45rem;
+	}
+
+
+	.directions-card-btn {
+		border: 1px solid var(--border-subtle);
+		border-radius: 999px;
+		background: var(--surface-app);
+		color: var(--text-heading);
+		padding: 0.38rem 0.72rem;
+		font-size: 0.8rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.18s ease, border-color 0.18s ease;
+	}
+
+
+	.directions-card-btn:hover {
+		background: var(--surface-hover);
+		border-color: color-mix(in srgb, var(--accent-primary) 26%, var(--border-subtle) 74%);
+	}
+
+
+	.directions-card-btn.primary {
+		background: color-mix(in srgb, var(--accent-primary) 18%, var(--surface-app) 82%);
+		border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-subtle) 68%);
+	}
+
+
+	.role-gate-card {
+		border: 1px solid var(--border-subtle);
+		border-radius: 10px;
+		padding: 0.65rem 0.75rem;
+		background: var(--surface-raised);
+	}
+
+
+	.role-gate-label {
+		font-size: 0.68rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--text-secondary);
+		margin-bottom: 0.3rem;
+	}
+
+
+	.role-gate-title {
+		font-size: 0.92rem;
+		font-weight: 700;
+		color: var(--text-heading);
+	}
+
+
+	.role-gate-description {
+		margin-top: 0.25rem;
+		white-space: pre-wrap;
+		color: var(--text-heading);
+		max-height: min(22rem, 55vh);
+		overflow-y: auto;
+		scrollbar-width: thin;
+		scrollbar-color: color-mix(in srgb, var(--accent-primary) 24%, var(--border-subtle) 76%) transparent;
+	}
+
+
+	.role-gate-hint {
+		margin-top: 0.45rem;
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+	}

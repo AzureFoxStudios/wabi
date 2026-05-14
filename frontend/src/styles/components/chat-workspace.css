@@ -1,0 +1,75 @@
+/* ==========================================================================
+   CHAT — WORKSPACE STYLES
+   Extracted from chat.css
+   ========================================================================== */
+
+
+
+	.surface-return-btn {
+		border: 1px solid var(--border-subtle);
+		background: color-mix(in srgb, var(--surface-base) 92%, transparent);
+		color: var(--text-secondary);
+		border-radius: 999px;
+		padding: 0.45rem 0.75rem;
+		font-size: 0.78rem;
+		font-weight: var(--font-weight-semibold);
+		cursor: pointer;
+		transition: all var(--duration-fast);
+	}
+
+
+	.surface-return-btn:hover,
+	.surface-return-btn:focus-visible {
+		border-color: var(--accent-primary);
+		color: var(--text-heading);
+		background: var(--surface-raised);
+	}
+
+
+	.workspace-view-actions {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.18rem;
+		border-radius: 999px;
+		border: 1px solid var(--border-subtle);
+		background: color-mix(in srgb, var(--surface-base) 88%, transparent);
+	}
+
+
+	.view-open-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		padding: 0;
+		border-radius: 999px;
+		border: 1px solid transparent;
+		background: transparent;
+		color: var(--text-secondary);
+		cursor: pointer;
+		transition: all var(--duration-fast);
+		overflow: hidden;
+	}
+
+
+	.view-open-btn svg {
+		width: 15px;
+		height: 15px;
+	}
+
+
+	.view-open-btn.active {
+		background: color-mix(in srgb, var(--accent-primary) 16%, var(--surface-raised));
+		border-color: color-mix(in srgb, var(--accent-primary) 38%, transparent);
+		color: var(--text-heading);
+	}
+
+
+	.view-open-btn:hover,
+	.view-open-btn:focus-visible {
+		border-color: var(--accent-primary);
+		background: var(--surface-raised);
+		color: var(--text-heading);
+	}

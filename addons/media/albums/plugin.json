@@ -1,0 +1,23 @@
+{
+  "id": "albums",
+  "name": "Albums",
+  "version": "0.1.0",
+  "description": "Photo albums and media gallery management.",
+  "author": "Community",
+  "enabled": true,
+  "backend": {
+    "type": "typescript",
+    "entry": "./backend"
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts"
+  },
+  "permissions": ["channels:read", "files:read"],
+  "security": {
+    "threatNotes": "Manages user-uploaded media with privacy controls."
+  },
+  "capabilities": {
+    "tier": "media",
+    "notes": "Photo albums and media gallery."
+  }
+}

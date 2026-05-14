@@ -1,0 +1,67 @@
+{
+  "id": "ffxiv-super-addon",
+  "name": "FFXIV Super Addon",
+  "version": "0.1.0",
+  "description": "Raid planning, static reference cards, market lookups, and shareable prep boards for Final Fantasy XIV communities.",
+  "author": "Community",
+  "enabled": true,
+  "backend": {
+    "entry": "./backend/index.ts",
+    "socketEvents": [
+      "ffxiv:get-state"
+    ]
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "extensions": {
+      "workspacePanels": [
+        {
+          "id": "reference",
+          "label": "FFXIV",
+          "shortLabel": "FFXIV",
+          "icon": "map",
+          "component": "ffxiv-reference",
+          "defaultDock": "right",
+          "preferredDockArea": "right",
+          "mobileMode": "sheet",
+          "capabilities": [
+            "xivapi-lookup",
+            "market-prices",
+            "raid-prep",
+            "pinboard"
+          ],
+          "fallbackBehavior": {
+            "title": "FFXIV panel unavailable",
+            "message": "The addon is registered, but this build is missing the built-in FFXIV reference panel."
+          },
+          "sortOrder": 260
+        }
+      ],
+      "mobileTabs": [
+        {
+          "id": "reference",
+          "label": "FFXIV",
+          "shortLabel": "FFXIV",
+          "icon": "map"
+        }
+      ],
+      "commands": [
+        "/ffxiv",
+        "/xiv",
+        "/raid",
+        "/market"
+      ]
+    }
+  },
+  "permissions": [
+    "channels:read",
+    "messages:write"
+  ],
+  "security": {
+    "threatNotes": "Uses public XIVAPI and Universalis endpoints only. Requests are opt-in and channel-scoped; the addon should not be used to store secrets, paid account data, or commercial media assets."
+  },
+  "capabilities": {
+    "tier": "network-limited",
+    "notes": "Built for static reference lookups, community raid prep, and pinned board state."
+  }
+}

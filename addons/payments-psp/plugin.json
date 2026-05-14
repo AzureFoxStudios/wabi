@@ -1,0 +1,70 @@
+{
+  "id": "payments-psp",
+  "name": "PSP Payments (Stripe/PayPal)",
+  "version": "0.1.0",
+  "description": "Stripe and PayPal payment provider adapters for checkout, refunds, and webhooks.",
+  "author": "Wabi Core",
+  "enabled": true,
+  "firstParty": true,
+  "backend": {
+    "entry": "./backend/src/index.ts"
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts"
+  },
+  "permissions": [
+    "payments:intent:create",
+    "payments:intent:status",
+    "payments:webhook:verify",
+    "payments:refund"
+  ],
+  "security": {
+    "threatNotes": "PSP integrations require API keys behind operator control. Plugin never exposes secrets to frontend."
+  },
+  "capabilities": {
+    "tier": "network-required",
+    "notes": "Stripe and PayPal provider plugin using official SDK adapters."
+  },
+  "payment": {
+    "providerName": "Stripe/PayPal",
+    "countries": [],
+    "currencies": [
+      "USD",
+      "EUR",
+      "GBP",
+      "CAD",
+      "AUD",
+      "JPY"
+    ],
+    "methods": [
+      {
+        "id": "stripe_checkout",
+        "label": "Stripe Checkout",
+        "checkoutModes": [
+          "payment_link",
+          "redirect"
+        ],
+        "estimatedSharePercent": 29,
+        "enabledByDefault": true,
+        "notes": "Stripe hosted checkout with card payments."
+      },
+      {
+        "id": "paypal_checkout",
+        "label": "PayPal Checkout",
+        "checkoutModes": [
+          "payment_link",
+          "redirect"
+        ],
+        "estimatedSharePercent": 34,
+        "enabledByDefault": true,
+        "notes": "PayPal hosted checkout."
+      }
+    ],
+    "nonCustodialOnly": false,
+    "supportsRefunds": true,
+    "supportsDisputes": true
+  },
+  "integrity": {
+    "algorithm": "sha256"
+  }
+}

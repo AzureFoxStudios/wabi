@@ -1,0 +1,24 @@
+/* ==========================================================================
+   SETTINGS — ABOUT STYLES
+   Extracted from settings.css
+   ========================================================================== */
+
+
+
+	.about-info {
+		padding: 1rem;
+		background: var(--surface-raised);
+		border-radius: 8px;
+	}
+
+
+	.about-info p {
+		margin: 0.5rem 0;
+		color: var(--text-secondary);
+	}
+
+
+	.about-info p strong {
+		color: var(--text-heading);
+		font-size: 1.1rem;
+	}

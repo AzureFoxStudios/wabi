@@ -1,0 +1,88 @@
+/* ==========================================================================
+   CHAT — HEADER STYLES
+   Extracted from chat.css
+   ========================================================================== */
+
+
+
+	.chat-header {
+		flex-shrink: 0;
+		padding: 0.75rem 1rem;
+		background: var(--surface-app);
+		border-bottom: 1px solid var(--border-subtle);
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		height: var(--app-chrome-height);
+		box-sizing: border-box;
+		z-index: 2;
+		position: relative;
+	}
+
+
+	.chat-header h2 {
+		font-size: var(--text-xl);
+		margin: 0;
+		font-weight: var(--font-weight-semibold);
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		min-width: 0;
+	}
+
+
+	.chat-heading {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.16rem;
+	}
+
+
+	.channel-title {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+
+	.channel-surface-label {
+		font-size: 0.68rem;
+		font-weight: var(--font-weight-semibold);
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--accent-primary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+
+	.channel-description {
+		font-size: var(--text-sm);
+		font-weight: var(--font-weight-regular);
+		color: var(--text-secondary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+
+	.dm-badge {
+		display: inline-block;
+		padding: 0.25rem 0.5rem;
+		background: var(--accent-primary);
+		color: white;
+		font-size: var(--text-xs);
+		border-radius: var(--radius-sm);
+		font-weight: var(--font-weight-medium);
+	}
+
+
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}

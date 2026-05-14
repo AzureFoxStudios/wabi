@@ -1,0 +1,11 @@
+{
+  "name": "@wabi/plugin-types",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared plugin infrastructure types for all backend addons",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts"
+}

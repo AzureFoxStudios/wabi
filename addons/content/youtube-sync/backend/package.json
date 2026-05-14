@@ -1,0 +1,14 @@
+{
+  "name": "youtube-sync-backend",
+  "version": "0.1.0",
+  "description": "YouTube sync backend for Wabi",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

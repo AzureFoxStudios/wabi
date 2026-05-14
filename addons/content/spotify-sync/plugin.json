@@ -1,0 +1,20 @@
+{
+  "id": "spotify-sync",
+  "name": "Spotify Sync",
+  "version": "0.1.0",
+  "description": "Synchronized Spotify playback in channels.",
+  "author": "Community",
+  "enabled": true,
+  "backend": {
+    "type": "typescript",
+    "entry": "./backend"
+  },
+  "permissions": ["channels:read", "channels:write"],
+  "security": {
+    "threatNotes": "Spotify playback state sync only."
+  },
+  "capabilities": {
+    "tier": "content",
+    "notes": "Synchronized music playback."
+  }
+}

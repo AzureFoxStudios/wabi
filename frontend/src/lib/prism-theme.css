@@ -1,0 +1,213 @@
+/* Prism.js syntax highlighting theme - Dark mode optimized */
+code[class*="language-"],
+pre[class*="language-"] {
+  color: #f8f8f2;
+  background: none;
+  text-shadow: 0 1px rgba(0, 0, 0, 0.3);
+  font-family: 'Consolas', 'Monaco', 'Andale Mono', 'Ubuntu Mono', monospace;
+  font-size: 0.9em;
+  text-align: left;
+  white-space: pre;
+  word-spacing: normal;
+  word-break: normal;
+  word-wrap: normal;
+  line-height: 1.5;
+  tab-size: 4;
+}
+
+pre[class*="language-"] {
+  padding: 1em;
+  margin: 0.5em 0;
+  overflow: auto;
+  border-radius: 0.3em;
+  background: #1e1e1e;
+}
+
+:not(pre) > code[class*="language-"],
+pre[class*="language-"] {
+  background: #1e1e1e;
+}
+
+/* Inline code */
+:not(pre) > code[class*="language-"] {
+  padding: 0.1em 0.3em;
+  border-radius: 0.3em;
+  white-space: normal;
+}
+
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: #6a9955;
+}
+
+.token.punctuation {
+  color: #d4d4d4;
+}
+
+.token.property,
+.token.tag,
+.token.boolean,
+.token.number,
+.token.constant,
+.token.symbol,
+.token.deleted {
+  color: #b5cea8;
+}
+
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted {
+  color: #ce9178;
+}
+
+.token.operator,
+.token.entity,
+.token.url,
+.language-css .token.string,
+.style .token.string {
+  color: #d4d4d4;
+}
+
+.token.atrule,
+.token.attr-value,
+.token.keyword {
+  color: #c586c0;
+}
+
+.token.function,
+.token.class-name {
+  color: #dcdcaa;
+}
+
+.token.regex,
+.token.important,
+.token.variable {
+  color: #d16969;
+}
+
+.token.important,
+.token.bold {
+  font-weight: bold;
+}
+
+.token.italic {
+  font-style: italic;
+}
+
+.token.entity {
+  cursor: help;
+}
+
+/* Inline code (non-block) */
+code:not([class*="language-"]) {
+  background: #2d2d2d;
+  color: #ce9178;
+  padding: 0.1em 0.3em;
+  border-radius: 0.3em;
+  font-family: 'Consolas', 'Monaco', 'Andale Mono', 'Ubuntu Mono', monospace;
+  font-size: 0.9em;
+}
+
+/* Markdown content styling */
+
+/* Block quotes */
+.markdown-content blockquote {
+  border-left: 4px solid #5865f2;
+  padding-left: 1em;
+  margin: 0.5em 0;
+  color: #a0a0a0;
+  font-style: italic;
+}
+
+/* Headings */
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  margin: 0.5em 0;
+  font-weight: 600;
+  color: #f0f0f0;
+}
+
+.markdown-content h1 {
+  font-size: 1.5em;
+  border-bottom: 2px solid #5865f2;
+  padding-bottom: 0.3em;
+}
+
+.markdown-content h2 {
+  font-size: 1.3em;
+  border-bottom: 1px solid #5865f2;
+  padding-bottom: 0.2em;
+}
+
+.markdown-content h3 {
+  font-size: 1.1em;
+}
+
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  font-size: 1em;
+}
+
+/* Lists */
+.markdown-content ul,
+.markdown-content ol {
+  margin: 0.5em 0;
+  padding-left: 2em;
+}
+
+.markdown-content li {
+  margin: 0.2em 0;
+}
+
+/* Horizontal rule */
+.markdown-content hr {
+  border: none;
+  border-top: 2px solid #5865f2;
+  margin: 1em 0;
+}
+
+/* Bold, italic, strikethrough */
+.markdown-content strong {
+  color: #f0f0f0;
+  font-weight: 700;
+}
+
+.markdown-content em {
+  font-style: italic;
+}
+
+.markdown-content del {
+  color: #808080;
+  text-decoration: line-through;
+}
+
+.markdown-content s {
+  color: #808080;
+  text-decoration: line-through;
+}
+
+/* Links */
+.markdown-content a {
+  color: #5865f2;
+  text-decoration: none;
+}
+
+.markdown-content a:hover {
+  text-decoration: underline;
+}
+
+/* Paragraphs */
+.markdown-content p {
+  margin: 0.5em 0;
+  line-height: 1.5;
+}

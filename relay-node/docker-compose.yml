@@ -1,0 +1,14 @@
+services:
+  relay-node:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wabi-relay-node
+    env_file:
+      - .env
+    ports:
+      - "${RELAY_PORT:-8090}:8090"
+    volumes:
+      - ./cache:/app/cache
+      - ./state:/app/state
+    restart: unless-stopped

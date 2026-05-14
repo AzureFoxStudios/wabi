@@ -1,0 +1,12 @@
+# Wabi Blacklist
+# Format: type|value|reason|expires_timestamp
+# Types: user, ip
+# expires_timestamp: Unix timestamp (0 = never expires)
+#
+# Examples:
+# user|123|spam|0
+# user|456|abuse|1735689600
+# ip|192.168.1.100|repeat spam|0
+#
+# Edit this file and restart wabi-server to apply changes.
+# Power users running their own instance can remove their own entries.

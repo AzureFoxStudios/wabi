@@ -1,0 +1,66 @@
+/* ==========================================================================
+   SETTINGS — MISC STYLES
+   Extracted from settings.css
+   ========================================================================== */
+
+
+
+	.header-icon {
+		width: 28px;
+		height: 28px;
+		stroke: currentColor;
+		stroke-width: 2;
+		flex-shrink: 0;
+	}
+
+
+	.setting-icon {
+		width: 18px;
+		height: 18px;
+		stroke: currentColor;
+		stroke-width: 2;
+		display: inline;
+		margin-right: 0.5rem;
+	}
+
+
+	.close-btn {
+		background: transparent;
+		border: none;
+		font-size: 1.5rem;
+		cursor: pointer;
+		color: var(--text-secondary);
+		padding: 0.25rem 0.5rem;
+		transition: all 0.2s;
+	}
+
+
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+	}
+
+
+	.header-locale-label {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+
+	.header-locale-select {
+		background: var(--surface-app);
+		color: var(--text-heading);
+		border: 1px solid var(--border-subtle);
+		border-radius: 6px;
+		padding: 0.3rem 0.45rem;
+		font-size: 0.8rem;
+	}
+
+
+	.close-btn:hover {
+		color: var(--text-heading);
+		transform: scale(1.1);
+	}

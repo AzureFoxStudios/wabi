@@ -1,0 +1,10 @@
+{
+  "name": "wabi-media-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wabi SRT media gateway daemon with control-plane sync and worker orchestration",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs"
+  }
+}

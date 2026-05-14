@@ -1,0 +1,10 @@
+{
+  "name": "webhooks",
+  "version": "0.1.0",
+  "description": "Webhook service for Wabi - triggers webhooks on events",
+  "backend": {
+    "runtime": "rust",
+    "path": "backend"
+  },
+  "permissions": ["network:outbound"]
+}

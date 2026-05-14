@@ -1,0 +1,49 @@
+node_modules
+.git
+.gitignore
+*.log
+dist
+build
+.svelte-kit
+.env
+.env.local
+README.md
+*.md
+
+# Docker files
+Dockerfile
+Dockerfile.frontend
+Dockerfile.backend
+docker-compose.yml
+.dockerignore
+
+# Development files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# CI/CD
+.github
+.gitlab-ci.yml
+
+# Test files
+coverage
+.nyc_output
+*.test.js
+*.spec.js
+
+# Uploads (will be mounted as volume)
+backend/uploads
+
+# Tauri/Desktop app (not needed for web deployment)
+src-tauri
+target
+frontend/src-tauri
+tauri-app
+tauri-app/**

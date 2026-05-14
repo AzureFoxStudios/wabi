@@ -1,0 +1,194 @@
+/* ==========================================================================
+   SIDEBAR — MOBILE STYLES
+   Extracted from channelsidebar.css
+   ========================================================================== */
+
+
+
+	/* ========== MOBILE STYLES ========== */
+	@media (max-width: 768px) {
+		.channel-sidebar {
+			height: calc(100dvh - 56px);
+			max-width: 100%;
+			overflow: hidden;
+		}
+
+		.mobile-close-btn {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			width: 44px;
+			height: 44px;
+			min-width: 44px;
+			min-height: 44px;
+			font-size: 1.5rem;
+		}
+
+		.top-section {
+			padding: 0.75rem 1rem;
+			height: 56px;
+		}
+
+		/* Touch-friendly section add button */
+		.section-add-btn {
+			width: 44px;
+			height: 44px;
+			font-size: 1.2rem;
+		}
+
+		/* Spacious channel items */
+		.channel-item {
+			padding: 0.25rem 0.75rem;
+		}
+
+		.channel-btn {
+			padding: 0.75rem 0.75rem;
+			min-height: 52px;
+			font-size: 1rem;
+			border-radius: 8px;
+		}
+
+		/* Hide action buttons by default on mobile — show only on active channel */
+		.channel-actions {
+			display: none;
+		}
+
+		.channel-item.active .channel-actions {
+			display: flex;
+		}
+
+		.pin-btn,
+		.settings-btn,
+		.follow-btn,
+		.voice-whiteboard-btn {
+			min-width: 44px;
+			min-height: 44px;
+			width: 44px;
+			height: 44px;
+			padding: 10px;
+		}
+
+		.create-channel {
+			padding: 0.75rem;
+		}
+
+		.create-channel input,
+		.create-channel select {
+			padding: 0.75rem;
+			font-size: 1rem;
+			min-height: 44px;
+			border-radius: 8px;
+		}
+
+		.create-channel button {
+			padding: 0.75rem;
+			min-height: 44px;
+			font-size: 0.9rem;
+			border-radius: 8px;
+		}
+
+		/* Spacious profile card */
+		.profile-card {
+			padding: 0.75rem;
+			height: auto;
+			min-height: 64px;
+		}
+
+		.profile-info {
+			padding: 0.25rem;
+		}
+
+		.avatar-container {
+			width: 40px;
+			height: 40px;
+		}
+
+		.control-btn {
+			width: 44px;
+			height: 44px;
+			font-size: 1.1rem;
+		}
+
+		/* Section headers */
+		.section-toggle,
+		.section-header {
+			padding: 0.75rem 0.75rem 0.375rem;
+			font-size: 0.8rem;
+		}
+
+		.section-count {
+			font-size: 0.72rem;
+		}
+
+		/* Modal adjustments */
+		.modal-content {
+			width: 95%;
+			max-height: 90vh;
+			max-height: 90dvh;
+		}
+
+		.modal-header {
+			padding: 0.75rem;
+		}
+
+		.modal-body {
+			padding: 0.75rem;
+		}
+
+		.auto-delete-options {
+			grid-template-columns: repeat(2, 1fr);
+			gap: 0.375rem;
+		}
+
+		.auto-delete-btn {
+			padding: 0.75rem;
+			font-size: 0.875rem;
+			min-height: 44px;
+		}
+
+		.channel-list {
+			-ms-overflow-style: none;
+			scrollbar-width: none;
+		}
+
+		.channel-list::-webkit-scrollbar {
+			display: none;
+			width: 0;
+			height: 0;
+		}
+
+	}
+
+
+	/* Extra small screens */
+	@media (max-width: 400px) {
+		.channel-item {
+			padding: 0.25rem 0.5rem;
+		}
+
+		.channel-btn {
+			padding: 0.625rem 0.5rem;
+			min-height: 48px;
+			font-size: 0.9375rem;
+		}
+
+		.auto-delete-options {
+			grid-template-columns: 1fr 1fr;
+			gap: 0.25rem;
+		}
+
+		.auto-delete-btn {
+			padding: 0.5rem;
+			font-size: 0.8rem;
+			min-height: 40px;
+		}
+
+		.profile-controls {
+			gap: 0.25rem;
+		}
+
+		.control-btn {
+			width: 40px;
+			height: 40px;
+		}
+	}

@@ -1,0 +1,672 @@
+<script lang="ts">
+	import { chatStorage, type RotationPeriod, type StorageStats } from '$lib/storage';
+	import { onMount } from 'svelte';
+	import { get } from 'svelte/store';
+	import { _ } from '$lib/i18n';
+	import ConfirmDialog from './ConfirmDialog.svelte';
+	import {
+		isRunningInTauri,
+		exportTauriDataAsZip,
+		clearTauriData,
+		getTauriDataPath
+	} from '$lib/tauri-storage';
+	import { currentUser } from '$lib/socket';
+
+	let saveHistory = false;
+	let rotationPeriod = chatStorage.getRotationPeriod();
+	let maxArchives = chatStorage.getMaxArchives();
+	let stats: StorageStats = { archives: [], totalSize: 0, totalMessages: 0 };
+
+	let showDisableStorageConfirm = false;
+	let showDeleteArchiveConfirm = false;
+	let archiveToDelete = '';
+	let showDeleteAllConfirm = false;
+
+	// Tauri storage state
+	let isTauri = false;
+	let tauriStorageEnabled = false;
+	let tauriDataPath = '';
+	let tauriExporting = false;
+	let showTauriClearConfirm = false;
+	$: canClearSidecarData = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
+
+	function t(key: string, values?: Record<string, unknown>): string {
+		if (values) return get(_)(key, { values } as any);
+		return get(_)(key);
+	}
+
+	function formatBytes(bytes: number): string {
+		if (bytes === 0) return '0 B';
+		const mb = bytes / (1024 * 1024);
+		return mb >= 0.01 ? `${mb.toFixed(2)} MB` : `${(bytes / 1024).toFixed(2)} KB`;
+	}
+
+	function formatPeriod(period: string): string {
+		if (period.includes('-W')) {
+			const [year, week] = period.split('-W');
+			return `Week ${week}, ${year}`;
+		} else if (period.includes('-H')) {
+			const [year, half] = period.split('-');
+			return `${half === 'H1' ? 'First' : 'Second'} Half ${year}`;
+		} else if (period.match(/^\d{4}-\d{2}$/)) {
+			const [year, month] = period.split('-');
+			const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+			return `${monthNames[parseInt(month) - 1]} ${year}`;
+		} else {
+			return `Year ${period}`;
+		}
+	}
+
+	async function toggleStorage() {
+		saveHistory = !saveHistory;
+		await chatStorage.setEnabled(saveHistory);
+
+		if (!saveHistory) {
+			showDisableStorageConfirm = true;
+		} else {
+			await refreshStats();
+		}
+	}
+
+	async function confirmDisableStorage() {
+		// Just disable, don't auto-delete
+		showDisableStorageConfirm = false;
+		await refreshStats();
+	}
+
+	function cancelDisableStorage() {
+		saveHistory = true;
+		chatStorage.setEnabled(true);
+		showDisableStorageConfirm = false;
+	}
+
+	async function updateRotationPeriod() {
+		await chatStorage.setRotationPeriod(rotationPeriod);
+		await refreshStats();
+	}
+
+	async function updateMaxArchives() {
+		await chatStorage.setMaxArchives(maxArchives);
+		await refreshStats();
+	}
+
+	async function deleteArchive(period: string) {
+		archiveToDelete = period;
+		showDeleteArchiveConfirm = true;
+	}
+
+	async function confirmDeleteArchive() {
+		await chatStorage.deleteArchive(archiveToDelete);
+		await refreshStats();
+		showDeleteArchiveConfirm = false;
+	}
+
+	async function exportArchive(period: string) {
+		await chatStorage.exportArchive(period);
+	}
+
+	async function exportAll() {
+		await chatStorage.exportArchives();
+	}
+
+	async function clearAll() {
+		showDeleteAllConfirm = true;
+	}
+
+	async function confirmClearAll() {
+		await chatStorage.clearAllHistory();
+		await refreshStats();
+		showDeleteAllConfirm = false;
+	}
+
+	async function refreshStats() {
+		stats = await chatStorage.getStats();
+	}
+
+	// Tauri data management functions
+	async function exportTauriData() {
+		if (!isTauri) return;
+		tauriExporting = true;
+		try {
+			const zipPath = await exportTauriDataAsZip();
+			alert(t('storage.alerts.export_success', { path: zipPath }));
+		} catch (error) {
+			alert(t('storage.alerts.export_failed', { error: String(error) }));
+		} finally {
+			tauriExporting = false;
+		}
+	}
+
+	function confirmTauriClear() {
+		if (!canClearSidecarData) {
+			alert(t('storage.tauri.clear_admin_only'));
+			return;
+		}
+		showTauriClearConfirm = true;
+	}
+
+	async function confirmClearTauriData() {
+		try {
+			await clearTauriData(canClearSidecarData);
+			showTauriClearConfirm = false;
+			alert(t('storage.alerts.tauri_clear_success'));
+		} catch (error) {
+			alert(t('storage.alerts.clear_failed', { error: String(error) }));
+		}
+	}
+
+	async function toggleTauriStorage() {
+		tauriStorageEnabled = !tauriStorageEnabled;
+		try {
+			localStorage.setItem('tauriStorageEnabled', String(tauriStorageEnabled));
+			if (tauriStorageEnabled) {
+				alert(t('storage.alerts.tauri_enabled'));
+			} else {
+				alert(t('storage.alerts.tauri_disabled'));
+			}
+		} catch (error) {
+			console.error('Failed to save Tauri storage setting:', error);
+			alert(t('storage.alerts.save_setting_failed'));
+		}
+	}
+
+	onMount(async () => {
+		isTauri = isRunningInTauri();
+		if (isTauri) {
+			try {
+				tauriDataPath = await getTauriDataPath();
+				// Load the stored setting
+				const setting = localStorage.getItem('tauriStorageEnabled');
+				tauriStorageEnabled = setting === 'true';
+			} catch (error) {
+				console.error('Failed to get Tauri data path:', error);
+			}
+		}
+
+		saveHistory = await chatStorage.isEnabled();
+		await refreshStats();
+	});
+</script>
+
+<div class="storage-settings">
+	{#if isTauri}
+		<div class="tauri-section">
+			<div class="header">
+				<h3>🖥️ {$_('storage.tauri.title')}</h3>
+				<p class="subtitle">
+					{$_('storage.tauri.subtitle')}
+					{#if tauriDataPath}
+						<br />
+						<code class="path">{tauriDataPath}</code>
+					{/if}
+				</p>
+			</div>
+
+			<div class="setting-group">
+				<label class="toggle-setting">
+					<input type="checkbox" bind:checked={tauriStorageEnabled} on:change={toggleTauriStorage} />
+					<span class="toggle-label">{$_('storage.tauri.enable_toggle')}</span>
+				</label>
+				<p class="hint">
+					{$_('storage.tauri.enable_hint')}
+				</p>
+			</div>
+
+			{#if tauriStorageEnabled}
+			<div class="setting-group">
+				<div class="tauri-actions">
+					<button
+						class="btn-primary"
+						on:click={exportTauriData}
+						disabled={tauriExporting}
+					>
+						{tauriExporting ? $_('storage.tauri.exporting') : $_('storage.tauri.export_zip')}
+					</button>
+					<p class="hint">
+						{$_('storage.tauri.export_hint')}
+					</p>
+				</div>
+			</div>
+
+			<div class="setting-group">
+				<div class="tauri-actions">
+					<button class="btn-danger" on:click={confirmTauriClear} disabled={!canClearSidecarData}>
+						🗑️ {$_('storage.tauri.clear_all')}
+					</button>
+					<p class="hint">{$_('storage.tauri.clear_hint')}</p>
+					{#if !canClearSidecarData}
+						<p class="hint warning-hint">{$_('storage.tauri.clear_admin_only')}</p>
+					{/if}
+				</div>
+			</div>
+			{/if}
+		</div>
+
+		<div class="divider"></div>
+	{/if}
+
+	<div class="header">
+		<h3>💾 {$_('storage.browser.title')}</h3>
+		<p class="subtitle">{$_('storage.browser.subtitle')}</p>
+	</div>
+
+	<div class="setting-group">
+		<label class="toggle-setting">
+			<input type="checkbox" bind:checked={saveHistory} on:change={toggleStorage} />
+			<span class="toggle-label">{$_('storage.browser.save_toggle')}</span>
+		</label>
+		<p class="hint">{$_('storage.browser.save_hint')}</p>
+	</div>
+
+	{#if saveHistory}
+		<div class="stats-panel">
+			<div class="stat">
+				<div class="stat-label">{$_('storage.stats.total_messages')}</div>
+				<div class="stat-value">{stats.totalMessages.toLocaleString()}</div>
+			</div>
+			<div class="stat">
+				<div class="stat-label">{$_('storage.stats.storage_used')}</div>
+				<div class="stat-value">{formatBytes(stats.totalSize)}</div>
+			</div>
+			<div class="stat">
+				<div class="stat-label">{$_('storage.stats.archives')}</div>
+				<div class="stat-value">{stats.archives.length}</div>
+			</div>
+		</div>
+
+		<div class="setting-group">
+			<label>
+				<span class="label">{$_('storage.browser.rotation_period')}</span>
+				<select bind:value={rotationPeriod} on:change={updateRotationPeriod}>
+					<option value="week">{$_('storage.rotation.weekly')}</option>
+					<option value="month">{$_('storage.rotation.monthly')}</option>
+					<option value="half-year">{$_('storage.rotation.half_year')}</option>
+					<option value="year">{$_('storage.rotation.yearly')}</option>
+				</select>
+			</label>
+			<p class="hint">{$_('storage.browser.rotation_hint')}</p>
+		</div>
+
+		<div class="setting-group">
+			<label>
+				<span class="label">{$_('storage.browser.keep_last')}</span>
+				<div class="number-input-group">
+					<input type="number" bind:value={maxArchives} on:change={updateMaxArchives} min="1" max="52" />
+					<span class="unit">{$_('storage.browser.archives_unit')}</span>
+				</div>
+			</label>
+			<p class="hint">{$_('storage.browser.keep_last_hint')}</p>
+		</div>
+
+		{#if stats.archives.length > 0}
+			<div class="archives-section">
+				<div class="section-header">
+					<h4>{$_('storage.browser.archive_history')}</h4>
+					<button class="btn-small" on:click={exportAll}>📦 {$_('storage.actions.export_all')}</button>
+				</div>
+				<div class="archive-list">
+					{#each stats.archives as archive}
+						<div class="archive-item">
+							<div class="archive-info">
+								<span class="archive-period">{formatPeriod(archive.period)}</span>
+								<span class="archive-meta">
+									{$_('storage.browser.archive_meta', { values: { size: formatBytes(archive.size), count: archive.messageCount.toLocaleString() } })}
+								</span>
+							</div>
+							<div class="archive-actions">
+								<button class="btn-icon" on:click={() => exportArchive(archive.period)} title={$_('storage.actions.export')}>
+									💾
+								</button>
+								<button class="btn-icon danger" on:click={() => deleteArchive(archive.period)} title={$_('storage.actions.delete')}>
+									🗑️
+								</button>
+							</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+		{:else}
+			<div class="empty-state">
+				<p>{$_('storage.browser.no_archives')}</p>
+			</div>
+		{/if}
+
+		<div class="actions">
+			<button class="btn-danger" on:click={clearAll}>
+				🗑️ {$_('storage.actions.clear_all_history')}
+			</button>
+		</div>
+	{/if}
+</div>
+
+<ConfirmDialog
+	isOpen={showDisableStorageConfirm}
+	title={$_('storage.confirm.disable_local_title')}
+	message={$_('storage.confirm.disable_local_message')}
+	confirmText={$_('storage.confirm.disable_local_confirm')}
+	variant="warning"
+	onConfirm={confirmDisableStorage}
+	onCancel={cancelDisableStorage}
+/>
+
+<ConfirmDialog
+	isOpen={showDeleteArchiveConfirm}
+	title={$_('storage.confirm.delete_archive_title')}
+	message={$_('storage.confirm.delete_archive_message', { values: { period: formatPeriod(archiveToDelete) } })}
+	confirmText={$_('storage.confirm.delete_archive_confirm')}
+	variant="danger"
+	onConfirm={confirmDeleteArchive}
+	onCancel={() => showDeleteArchiveConfirm = false}
+/>
+
+<ConfirmDialog
+	isOpen={showDeleteAllConfirm}
+	title={$_('storage.confirm.delete_all_title')}
+	message={$_('storage.confirm.delete_all_message')}
+	confirmText={$_('storage.confirm.delete_all_confirm')}
+	variant="danger"
+	onConfirm={confirmClearAll}
+	onCancel={() => showDeleteAllConfirm = false}
+/>
+
+{#if isTauri}
+	<ConfirmDialog
+		isOpen={showTauriClearConfirm}
+		title={$_('storage.confirm.clear_tauri_title')}
+		message={$_('storage.confirm.clear_tauri_message')}
+		confirmText={$_('storage.confirm.clear_tauri_confirm')}
+		variant="danger"
+		onConfirm={confirmClearTauriData}
+		onCancel={() => (showTauriClearConfirm = false)}
+	/>
+{/if}
+
+<style>
+	.storage-settings {
+		padding: 1.5rem;
+		max-width: 700px;
+	}
+
+	.header {
+		margin-bottom: 2rem;
+	}
+
+	.header h3 {
+		font-size: 1.5rem;
+		margin: 0 0 0.5rem 0;
+	}
+
+	.subtitle {
+		color: var(--text-secondary);
+		font-size: 0.9rem;
+		margin: 0;
+	}
+
+	.setting-group {
+		margin-bottom: 1.5rem;
+		padding-bottom: 1.5rem;
+		border-bottom: 1px solid var(--border-subtle);
+	}
+
+	.toggle-setting {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		cursor: pointer;
+		font-weight: 500;
+		font-size: 1.05rem;
+	}
+
+	.toggle-setting input[type="checkbox"] {
+		width: 20px;
+		height: 20px;
+		cursor: pointer;
+	}
+
+	.hint {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		font-style: italic;
+		margin: 0.5rem 0 0 0;
+	}
+
+	.warning-hint {
+		color: var(--text-danger, #ff8a8a);
+	}
+
+	.stats-panel {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1rem;
+		margin-bottom: 1.5rem;
+		padding: 1rem;
+		background: var(--surface-raised);
+		border-radius: 8px;
+	}
+
+	.stat {
+		text-align: center;
+	}
+
+	.stat-label {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+		margin-bottom: 0.25rem;
+	}
+
+	.stat-value {
+		font-size: 1.5rem;
+		font-weight: 600;
+		color: var(--accent-primary);
+	}
+
+	label {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.label {
+		font-weight: 500;
+		font-size: 0.95rem;
+	}
+
+	select {
+		padding: 0.5rem;
+		border: none;
+		border-radius: 4px;
+		background: var(--surface-app);
+		color: var(--text-heading);
+		font-size: 0.95rem;
+	}
+
+	.number-input-group {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.number-input-group input {
+		width: 80px;
+		padding: 0.5rem;
+		border: none;
+		border-radius: 4px;
+		background: var(--surface-app);
+		color: var(--text-heading);
+	}
+
+	.unit {
+		color: var(--text-secondary);
+		font-size: 0.9rem;
+	}
+
+	.archives-section {
+		margin-top: 1.5rem;
+	}
+
+	.section-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1rem;
+	}
+
+	.section-header h4 {
+		font-size: 1.1rem;
+		margin: 0;
+	}
+
+	.archive-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.archive-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.75rem 1rem;
+		background: var(--surface-raised);
+		border-radius: 6px;
+		border: none;
+	}
+
+	.archive-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.archive-period {
+		font-weight: 600;
+		font-size: 0.95rem;
+	}
+
+	.archive-meta {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.archive-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.btn-icon {
+		background: none;
+		border: none;
+		font-size: 1.2rem;
+		cursor: pointer;
+		padding: 0.25rem 0.5rem;
+		border-radius: 4px;
+		transition: background-color 0.2s;
+	}
+
+	.btn-icon:hover {
+		background: var(--shadow-sm, rgba(0, 0, 0, 0.05));
+	}
+
+	.btn-icon.danger:hover {
+		background: rgba(var(--color-danger-rgb, 220, 38, 38), 0.1);
+	}
+
+	.btn-small {
+		padding: 0.4rem 0.8rem;
+		font-size: 0.85rem;
+		background: var(--accent-primary);
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		transition: opacity 0.2s;
+	}
+
+	.btn-small:hover {
+		opacity: 0.9;
+	}
+
+	.empty-state {
+		text-align: center;
+		padding: 2rem;
+		color: var(--text-secondary);
+		font-style: italic;
+	}
+
+	.actions {
+		margin-top: 2rem;
+		padding-top: 1.5rem;
+		border-top: 1px solid var(--border-subtle);
+	}
+
+	.btn-danger {
+		padding: 0.6rem 1.2rem;
+		background: var(--color-danger-hover);
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-weight: 500;
+		transition: background-color 0.2s;
+	}
+
+	.btn-danger:hover {
+		background: var(--color-danger-dark);
+	}
+
+	/* Tauri Section Styles */
+	.tauri-section {
+		background: linear-gradient(135deg, rgba(var(--accent-primary-rgb, 88, 101, 242), 0.05), rgba(var(--accent-primary-rgb, 88, 101, 242), 0.02));
+		border: 1px solid rgba(var(--accent-primary-rgb, 88, 101, 242), 0.2);
+		border-radius: 8px;
+		padding: 1.5rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.tauri-actions {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.btn-primary {
+		padding: 0.6rem 1.2rem;
+		background: var(--accent-primary);
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-weight: 500;
+		transition: all 0.2s;
+		width: 100%;
+		text-align: left;
+	}
+
+	.btn-primary:hover:not(:disabled) {
+		opacity: 0.9;
+		transform: translateY(-2px);
+	}
+
+	.btn-primary:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.divider {
+		height: 1px;
+		background: var(--border-subtle);
+		margin: 2rem 0;
+	}
+
+	.path {
+		display: block;
+		margin-top: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		background: var(--surface-app);
+		border-radius: 4px;
+		font-size: 0.8rem;
+		word-break: break-all;
+		color: var(--accent-primary);
+		font-family: 'Courier New', monospace;
+	}
+</style>

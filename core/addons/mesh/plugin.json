@@ -1,0 +1,10 @@
+{
+  "name": "mesh",
+  "version": "0.1.0",
+  "description": "Mesh service for multi-node coordination",
+  "backend": {
+    "runtime": "rust",
+    "path": "backend"
+  },
+  "permissions": ["network:outbound"]
+}

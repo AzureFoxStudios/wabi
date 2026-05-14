@@ -1,0 +1,14 @@
+{
+  "name": "3d-viewer-backend",
+  "version": "0.1.0",
+  "description": "3D viewer backend for Wabi",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

@@ -1,0 +1,64 @@
+/* ==========================================================================
+   ML — SPOILER STYLES
+   Extracted from messagelist.css
+   ========================================================================== */
+
+
+
+	/* Spoiler styles */
+	.spoiler {
+		filter: blur(20px);
+		cursor: pointer;
+		position: relative;
+		transition: filter 0.2s ease;
+	}
+
+
+	.spoiler::before {
+		content: 'SPOILER - Click to reveal';
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		background: rgba(0, 0, 0, var(--opacity-heavy));
+		color: var(--text-heading);
+		padding: 0.5rem 1rem;
+		border-radius: 4px;
+		font-size: 0.875rem;
+		font-weight: 600;
+		white-space: nowrap;
+		pointer-events: none;
+		z-index: 1;
+	}
+
+
+	.spoiler.revealed {
+		filter: none;
+		cursor: default;
+	}
+
+
+	.spoiler.revealed::before {
+		display: none;
+	}
+
+
+.embedded-image.spoiler {
+	filter: blur(20px);
+	cursor: pointer;
+}
+
+
+.embedded-image.spoiler[data-spoiler="false"] {
+	filter: none;
+}
+
+
+.embedded-video.spoiler {
+	filter: blur(20px);
+}
+
+
+.embedded-video.spoiler[data-spoiler="false"] {
+	filter: none;
+}

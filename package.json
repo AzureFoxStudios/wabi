@@ -1,0 +1,57 @@
+{
+  "name": "community-chat",
+  "version": "1.0.0",
+  "description": "Self-hosted ephemeral chat system with screen sharing",
+  "type": "module",
+  "scripts": {
+    "dev": "cd frontend && bun run dev",
+    "dev:local": "bash ./scripts/local-dev.sh",
+    "dev:local:windows": "powershell -ExecutionPolicy Bypass -File scripts/local-dev.ps1",
+    "dev:backend:local": "cargo run -p wabi-server",
+    "dev:backend:local:windows": "cargo run -p wabi-server",
+    "desktop:dev": "cmd /c npm --prefix frontend run tauri-dev",
+    "desktop:build": "cmd /c npm --prefix frontend run tauri-build",
+    "desktop:check": "cargo check --manifest-path frontend/src-tauri/Cargo.toml",
+    "desktop:android:init": "cmd /c npm --prefix frontend run tauri-android-init",
+    "desktop:android:build": "cmd /c npm --prefix frontend run tauri-android-build",
+    "desktop:ios:init": "cmd /c npm --prefix frontend run tauri-ios-init",
+    "desktop:ios:build": "cmd /c npm --prefix frontend run tauri-ios-build",
+    "preview": "cd frontend && bun run preview",
+    "start": "cargo run -p wabi-server",
+    "build:frontend": "cd frontend && bun run build",
+    "build:frontend:static": "STATIC_BUILD=true cd frontend && bun run build",
+    "plugin:keygen": "node scripts/plugin-keygen.mjs",
+    "plugin:sign": "node scripts/plugin-sign.mjs",
+    "plugin:verify": "node scripts/plugin-verify.mjs",
+    "protocol:generate": "cargo build -p wabi-core --features ts && cargo test -p wabi-core --features ts --no-run",
+    "protocol:check": "cargo check -p wabi-core --features ts",
+    "protocol:verify": "cargo test -p wabi-core --features ts",
+    "payments:rollout:signed-only": "node scripts/payments-signed-only-rollout.mjs",
+    "bench:compression": "node scripts/compression-benchmark.mjs",
+    "bench:state-plane": "node frontend/scripts/state-plane-benchmark.mjs",
+    "bench:state-plane:stdb": "powershell -ExecutionPolicy Bypass -File scripts/state-plane-stdb-benchmark.ps1",
+    "check:compression-storage": "node scripts/compression-storage-smoke.mjs",
+    "openmoji:fetch": "powershell -ExecutionPolicy Bypass -File scripts/fetch-openmoji.ps1",
+    "tunnel:quick": "docker compose --profile tunnel --profile tunnel-quick up -d --build",
+    "tunnel:named": "docker compose --profile tunnel --profile tunnel-named up -d --build",
+    "pr:auto": "powershell -ExecutionPolicy Bypass -File scripts/pr-auto.ps1",
+    "pr:cleanup": "powershell -ExecutionPolicy Bypass -File scripts/pr-cleanup.ps1"
+  },
+  "keywords": [
+    "chat",
+    "webrtc",
+    "screen-sharing",
+    "ephemeral"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@tauri-apps/cli": "2.10.1",
+    "@types/node": "25.6.0",
+    "concurrently": "9.2.1",
+    "typescript": "6.0.3"
+  },
+  "dependencies": {
+    "sharp": "0.34.5"
+  }
+}

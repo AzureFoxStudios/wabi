@@ -1,0 +1,122 @@
+/* ==========================================================================
+   CHAT — UPLOAD STYLES
+   Extracted from chat.css
+   ========================================================================== */
+
+
+
+	.gallery-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.75rem;
+	}
+
+
+	.gallery-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+		gap: 0.75rem;
+		margin-bottom: 1rem;
+	}
+
+
+	.gallery-item {
+		position: relative;
+		aspect-ratio: 1;
+		border-radius: 8px;
+		overflow: hidden;
+	}
+
+
+	.upload-album-row {
+		display: grid;
+		gap: 0.55rem;
+		margin: -0.15rem 0 0.9rem;
+		padding: 0.75rem 0.85rem;
+		border-radius: 14px;
+		border: 1px solid rgba(var(--accent-rgb), 0.18);
+		background: rgba(var(--accent-rgb), 0.06);
+	}
+
+
+	.upload-album-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.85rem;
+		color: var(--text-heading);
+	}
+
+
+	.upload-album-field {
+		display: grid;
+		gap: 0.35rem;
+	}
+
+
+	.upload-album-field span {
+		font-size: 0.76rem;
+		font-weight: 600;
+		color: var(--text-secondary);
+	}
+
+
+	.upload-album-toggle input {
+		margin: 0;
+	}
+
+
+	.upload-album-name {
+		height: 36px;
+		border: 1px solid var(--border-subtle);
+		border-radius: 10px;
+		background: var(--surface-app);
+		color: var(--text-heading);
+		padding: 0 0.75rem;
+		font: inherit;
+	}
+
+
+	.upload-album-hint {
+		font-size: 0.72rem;
+		color: var(--text-secondary);
+	}
+
+
+	/* Drag & Drop Overlay - smooth fade effect */
+	.drag-overlay {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: var(--surface-modal-overlay, var(--surface-modal-overlay, rgba(0, 0, 0, 0.5)));
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 999;
+		animation: fadeIn 0.2s ease-in-out forwards;
+	}
+
+
+	.drag-overlay-content {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1rem;
+		pointer-events: none;
+	}
+
+
+	.drag-icon {
+		font-size: 3rem;
+		animation: pulse 1s ease-in-out infinite;
+	}
+
+
+	.drag-text {
+		color: white;
+		font-size: 1.2rem;
+		font-weight: 600;
+	}

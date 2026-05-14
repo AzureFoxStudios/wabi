@@ -1,0 +1,23 @@
+{
+  "id": "screen-share",
+  "name": "Screen Share",
+  "version": "0.1.0",
+  "description": "Screen sharing and remote desktop control addon.",
+  "author": "Community",
+  "enabled": true,
+  "backend": {
+    "type": "rust",
+    "entry": "./backend"
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts"
+  },
+  "permissions": ["channels:write", "channels:read"],
+  "security": {
+    "threatNotes": "Handles screen capture and streaming, requires user consent."
+  },
+  "capabilities": {
+    "tier": "media",
+    "notes": "Screen sharing and remote control functionality."
+  }
+}

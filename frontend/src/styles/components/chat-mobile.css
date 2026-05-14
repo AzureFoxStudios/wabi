@@ -1,0 +1,237 @@
+/* ==========================================================================
+   CHAT — MOBILE STYLES
+   Extracted from chat.css
+   ========================================================================== */
+
+
+
+	@media (hover: hover) {
+		.workspace-view-actions.compactable {
+			gap: 0;
+		}
+
+		.workspace-view-actions.compactable .view-open-btn {
+			width: 0;
+			min-width: 0;
+			opacity: 0;
+			padding: 0;
+			border-width: 0;
+			pointer-events: none;
+		}
+
+		.workspace-view-actions.compactable .view-open-btn.active {
+			width: 32px;
+			min-width: 32px;
+			opacity: 1;
+			border-width: 1px;
+			pointer-events: auto;
+		}
+
+		.workspace-view-actions.compactable:hover,
+		.workspace-view-actions.compactable:focus-within {
+			gap: 0.4rem;
+		}
+
+		.workspace-view-actions.compactable:hover .view-open-btn,
+		.workspace-view-actions.compactable:focus-within .view-open-btn {
+			width: 32px;
+			min-width: 32px;
+			opacity: 1;
+			border-width: 1px;
+			pointer-events: auto;
+		}
+	}
+
+
+	/* Other existing styles for uploads, spoilers, etc. can remain here */
+	/* ... */
+
+	/* ========== MOBILE OVERHAUL ========== */
+	@media (max-width: 768px) {
+		.chat-container {
+			height: 100%;
+		}
+
+		.chat-header {
+			padding: 0.55rem 0.8rem;
+			height: 50px;
+			gap: 0.5rem;
+			position: relative;
+			justify-content: flex-start;
+		}
+
+		.chat-header h2 {
+			font-size: 0.96rem;
+			min-width: 0;
+			position: absolute;
+			left: 50%;
+			transform: translateX(-50%);
+			width: clamp(120px, 44vw, 260px);
+			justify-content: center;
+			pointer-events: none;
+		}
+
+		.channel-description,
+		.dm-badge,
+		.channel-surface-label,
+		.surface-return-btn {
+			display: none;
+		}
+
+		.channel-title {
+			text-align: center;
+			width: 100%;
+		}
+
+		.header-actions {
+			flex: 0 1 auto;
+			justify-content: flex-start;
+			min-width: 0;
+			width: min(58vw, 250px);
+			gap: 0.45rem;
+		}
+
+		.workspace-view-actions {
+			gap: 0.25rem;
+			min-width: 0;
+			padding: 0.12rem;
+		}
+
+		.search-container {
+			flex-direction: row;
+			align-items: center;
+			gap: 0.35rem;
+			min-width: 0;
+			width: 100%;
+			overflow: visible;
+		}
+
+		.search-input {
+			min-width: unset;
+			width: 100%;
+			opacity: 1;
+			transform: none;
+			pointer-events: auto;
+			font-size: 0.84rem;
+			padding: 0.36rem 0.55rem 0.36rem 1.7rem;
+			border-radius: 10px;
+			border-color: var(--border-subtle);
+		}
+
+		.search-input::placeholder {
+			color: var(--text-secondary);
+		}
+
+		.search-results,
+		.search-history-btn,
+		.dm-call-actions,
+		.experimental-stdb-toggle {
+			display: none;
+		}
+
+		.search-results-toolbar {
+			top: 0;
+			margin: -0.1rem 0 0.35rem;
+			padding: 0.32rem 0.45rem;
+			gap: 0.3rem;
+		}
+
+		.search-toolbar-meta {
+			font-size: 0.7rem;
+		}
+
+		.search-toolbar-btn {
+			font-size: 0.68rem;
+			padding: 0.16rem 0.42rem;
+		}
+
+		.view-open-btn {
+			width: 30px;
+			height: 30px;
+		}
+
+		.messages {
+			padding: 0.4rem 0.4rem 0.25rem;
+			gap: 0.2rem;
+			-ms-overflow-style: none;
+			scrollbar-width: none;
+		}
+
+		.messages::-webkit-scrollbar {
+			display: none;
+			width: 0;
+			height: 0;
+		}
+
+		.input-wrapper {
+			padding: 0.38rem 0.45rem;
+			padding-bottom: calc(0.38rem + env(safe-area-inset-bottom));
+			border-top: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
+			background: transparent;
+			gap: 0.26rem;
+			transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+		}
+
+		.input-wrapper.hidden {
+			transform: translateY(100%);
+			opacity: 0;
+			pointer-events: none;
+		}
+
+		.input-container {
+			padding: 0.2rem 0.25rem;
+			gap: 0.22rem;
+			background: transparent;
+			border-radius: 12px;
+			border: 1px solid transparent;
+		}
+
+		.input-container:hover {
+			background: color-mix(in srgb, var(--surface-raised) 22%, transparent);
+			border-color: color-mix(in srgb, var(--border-subtle) 55%, transparent);
+		}
+
+		.input-container:focus-within {
+			background: color-mix(in srgb, var(--surface-raised) 28%, transparent);
+			border-color: color-mix(in srgb, var(--accent-primary) 34%, transparent);
+		}
+
+		textarea {
+			font-size: 16px; /* Prevents iOS auto-zoom */
+			padding: 0.58rem 0.45rem;
+			min-height: 36px;
+		}
+
+		.input-icon-button {
+			width: 34px;
+			height: 34px;
+			flex-shrink: 0;
+		}
+
+		/* Show attach/camera buttons on mobile */
+		.input-buttons-left {
+			display: flex;
+		}
+
+		.send-button {
+			height: 34px;
+			width: 34px;
+			padding: 0;
+			flex-shrink: 0;
+			border-radius: 9px;
+		}
+
+		.gif-caption-draft-row {
+			grid-template-columns: 1fr;
+			gap: 0.22rem;
+		}
+
+		.gif-caption-draft-count {
+			text-align: left;
+			min-width: 0;
+		}
+
+		.edit-bar, .reply-bar {
+			padding: 0.32rem 0.62rem;
+		}
+	}

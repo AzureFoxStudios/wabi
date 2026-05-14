@@ -1,0 +1,54 @@
+/**
+ * styles.css — Wabi Design System
+ * Single entry point. Imports all style modules in dependency order.
+ *
+ * Order matters:
+ * 1. tokens    — CSS custom properties (no selectors)
+ * 2. base      — reset, body, typography
+ * 3. components — buttons, inputs, content, panels
+ * 4. animations — keyframes, presets, reduced motion, skeleton
+ * 5. mobile    — responsive breakpoints, touch, safe area
+ * 6. accessibility — high contrast, theme overrides
+ */
+
+@import './tokens.css';
+@import './base.css';
+@import './components/chat-core.css';
+@import './components/chat-header.css';
+@import './components/chat-search.css';
+@import './components/chat-workspace.css';
+@import './components/chat-calls.css';
+@import './components/chat-composer.css';
+@import './components/chat-compression.css';
+@import './components/chat-upload.css';
+@import './components/chat-mobile.css';
+@import './components/ml-core.css';
+@import './components/ml-replies.css';
+@import './components/ml-markdown.css';
+@import './components/ml-translated.css';
+@import './components/ml-media.css';
+@import './components/ml-attachments.css';
+@import './components/ml-lightbox.css';
+@import './components/ml-directions.css';
+@import './components/ml-spoiler.css';
+@import './components/ml-badges.css';
+@import './components/ml-actions.css';
+@import './components/ml-reactions.css';
+@import './components/ml-mobile.css';
+@import './components/sidebar-core.css';
+@import './components/sidebar-profile.css';
+@import './components/sidebar-channels.css';
+@import './components/sidebar-compact.css';
+@import './components/sidebar-mobile.css';
+@import './components/settings-core.css';
+@import './components/settings-shell.css';
+@import './components/settings-nav.css';
+@import './components/settings-profile.css';
+@import './components/settings-appearance.css';
+@import './components/settings-about.css';
+@import './components/settings-misc.css';
+@import './components/settings-mobile.css';
+@import './animations.css';
+@import './mobile.css';
+@import './accessibility.css';
+@import './polish.css';

@@ -1,0 +1,137 @@
+/* ==========================================================================
+   MOBILE / RESPONSIVE
+   Breakpoints, touch improvements, safe area, iOS fixes.
+   ========================================================================== */
+
+/* --- Tablet and below (768px) --- */
+@media (max-width: 768px) {
+	/* Hide side panels by default */
+	.user-panel-container,
+	.dm-panel-container {
+		display: none;
+	}
+
+	/* Full-screen overlay when toggled */
+	.user-panel-container.mobile-visible,
+	.dm-panel-container.mobile-visible {
+		display: block;
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+		z-index: 200;
+		background: var(--surface-app);
+	}
+
+	/* Main content fills width */
+	.main-content {
+		flex: 1;
+		width: 100%;
+	}
+
+	/* Business hub button reposition */
+	.business-hub-btn {
+		left: auto;
+		right: var(--space-5);
+		bottom: var(--space-5);
+		padding: var(--space-2) var(--space-3);
+		font-size: var(--font-size-2);
+	}
+
+	/* PureRef button smaller */
+	.pureref-button-container {
+		bottom: var(--space-3);
+		right: var(--space-3);
+	}
+
+	.pureref-button-container button {
+		padding: var(--space-1) var(--space-2);
+		font-size: var(--font-size-2);
+	}
+
+	/* Touch improvements */
+	button {
+		touch-action: manipulation;
+	}
+
+	button:active,
+	[role="button"]:active {
+		opacity: var(--opacity-heavy);
+	}
+
+	/* Prevent horizontal scroll */
+	body {
+		overflow-x: hidden;
+	}
+
+	/* iOS smooth scrolling */
+	.messages,
+	.channel-list,
+	.user-list,
+	.dm-messages,
+	.dm-list {
+		-webkit-overflow-scrolling: touch;
+	}
+
+	/* Prevent pull-to-refresh on chat */
+	.chat-container,
+	.dm-panel,
+	.channel-sidebar,
+	.user-panel {
+		overscroll-behavior: contain;
+	}
+
+	/* Prevent iOS zoom on inputs */
+	input,
+	textarea,
+	select {
+		font-size: 16px !important;
+	}
+
+	/* Modal overflow handling */
+	[role="dialog"],
+	.modal-overlay,
+	.modal-content {
+		max-height: 100dvh;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	/* Better input sizing on mobile */
+	.modal input[type="text"],
+	.modal input[type="email"],
+	.modal textarea {
+		min-height: 44px;
+		font-size: 16px !important;
+	}
+}
+
+/* --- Small phones (480px) --- */
+@media (max-width: 480px) {
+	button {
+		padding: var(--space-1) var(--space-2);
+		font-size: var(--font-size-2);
+	}
+
+	input, textarea {
+		padding: var(--space-2);
+		font-size: var(--font-size-2);
+	}
+
+	.business-hub-btn {
+		right: var(--space-3);
+		bottom: var(--space-3);
+	}
+}
+
+/* --- Safe area for notches/home indicators --- */
+@supports (padding: env(safe-area-inset-bottom)) {
+	.mobile-bottom-nav {
+		padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom));
+	}
+
+	.input-wrapper {
+		padding-bottom: calc(var(--space-1) + env(safe-area-inset-bottom));
+	}
+}
