@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount, afterUpdate, tick } from 'svelte';
+import { paymentSheetOpen, paymentSheetOpenSeed, manualCashOpen } from '$lib/payments/dmPayments';
+import { handleTypingInput, stopTyping, resetTyping } from '$lib/components/DMTypingManager';
 	import { channelMessages, channels, sendMessage, currentUser, users, sendTyping, emojis, syncNewerMessages, updateChannelSettings } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { getAuthToken } from '$lib/authSession';
@@ -21,11 +23,13 @@
 		replaceEmojiShortcodesWithUnicode,
 		unicodeEmojiSettingsStore
 	} from '$lib/unicodeEmojis';
-	import {
-		clearConversationPaymentLaunch,
-		doesConversationPaymentLaunchMatch,
-		pendingConversationPaymentLaunch
-	} from '$lib/payments/paymentLaunch';
+import {
+	openPaymentSheet,
+	openManualCashModal,
+	clearConversationPaymentLaunch,
+	getPaymentTargetLabel,
+	isPaymentButtonEnabled
+} from '$lib/payments/dmPayments';
 	import {
 		buildPlaceMessageEntity,
 		buildPlaceSuggestionDetail,
@@ -56,17 +60,13 @@
 		openSettings: { paymentSurface: 'connections' };
 	}>();
 
-	let messageInput = '';
-	let messagesContainer: HTMLDivElement;
-	let shouldAutoScroll = true;
-	let typingTimeout: ReturnType<typeof setTimeout> | null = null;
-	let showDmNotes = false;
-	let paymentSheetOpen = false;
-	let paymentSheetOpenSeed = 0;
-	let manualCashOpen = false;
-	let textareaElement: HTMLTextAreaElement;
-	let mentionMenuContainer: HTMLElement | null = null;
-	let showMentionSuggestions = false;
+let messageInput = '';
+let messagesContainer: HTMLDivElement;
+let shouldAutoScroll = true;
+let showDmNotes = false;
+let textareaElement: HTMLTextAreaElement;
+let mentionMenuContainer: HTMLElement | null = null;
+let showMentionSuggestions = false;
 	type MentionSuggestion = {
 		key: string;
 		label: string;
@@ -102,8 +102,8 @@
 	$: dmCharCount = messageInput.length;
 	$: dmCharCounterVisible = dmInputMaxLength > 0 && dmCharCount / dmInputMaxLength >= 0.7;
 	$: dmCharCounterWarn = dmInputMaxLength > 0 && dmCharCount / dmInputMaxLength >= 0.9;
-	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken());
-	$: paymentTargetLabel = isGroup ? channel?.name || 'Group DM' : `DM with ${otherUser.username}`;
+$: paymentButtonEnabled = isPaymentButtonEnabled($currentUser);
+$: paymentTargetLabel = getPaymentTargetLabel(isGroup, channel, otherUser);
 	$: lineDmAddonEnabled = $lineDmAddonStore.enabled;
 	$: lineDmProfile = getLineDmResolvedProfile(channelId, $lineDmAddonStore);
 	$: lineDmPreset = lineDmAddonEnabled ? lineDmProfile.preset : 'discord';
@@ -130,26 +130,13 @@
 		clearConversationPaymentLaunch();
 	}
 
-	function openPaymentSheet(): void {
-		if (!paymentButtonEnabled) {
-			alert('Sign in with a registered account to create payments.');
-			return;
-		}
-		paymentSheetOpenSeed += 1;
-		paymentSheetOpen = true;
-	}
+function openPaymentSheet(): void {
+	openPaymentSheet(paymentButtonEnabled);
+}
 
-	function openManualCashModal(): void {
-		if (!paymentButtonEnabled) {
-			alert('Sign in with a registered account to track manual cash trades.');
-			return;
-		}
-		if (isGroup) {
-			alert('Manual cash trades are only available in direct messages.');
-			return;
-		}
-		manualCashOpen = true;
-	}
+function openManualCashModal(): void {
+	openManualCashModal(paymentButtonEnabled, isGroup);
+}
 
 	function syncComposerEntities() {
 		composerEntities = reconcileMessageEntities(previousComposerInput, messageInput, composerEntities);
@@ -316,11 +303,7 @@
 				resetComposerHeight();
 				showMentionSuggestions = false;
 				shouldAutoScroll = true;
-				if (typingTimeout) {
-					clearTimeout(typingTimeout);
-					typingTimeout = null;
-				}
-				sendTyping(false, channelId);
+				resetTyping(sendTyping);
 				return;
 			}
 		}
@@ -343,7 +326,7 @@
 		resetComposerHeight();
 		showMentionSuggestions = false;
 		shouldAutoScroll = true;
-		if (typingTimeout) { clearTimeout(typingTimeout); typingTimeout = null; }
+		resetTyping(sendTyping);
 		sendTyping(false, channelId);
 	}
 
@@ -377,17 +360,12 @@
 		}
 	}
 
-	function handleInput() {
-		autoResizeTextarea();
-		syncComposerEntities();
-		updateMentionSuggestions();
-		sendTyping(true, channelId);
-		if (typingTimeout) clearTimeout(typingTimeout);
-		typingTimeout = setTimeout(() => {
-			sendTyping(false, channelId);
-			typingTimeout = null;
-		}, 2000);
-	}
+function handleInput() {
+	autoResizeTextarea();
+	syncComposerEntities();
+	updateMentionSuggestions();
+	handleTypingInput(channelId, sendTyping);
+}
 
 	async function handleMessageContentClick(event: MouseEvent) {
 		const target = event.target as HTMLElement | null;
@@ -743,28 +721,28 @@
 </div>
 
 <PaymentSheet
-	isOpen={paymentSheetOpen}
-	openSeed={paymentSheetOpenSeed}
-	defaultChannelId={channelId}
-	defaultTargetLabel={paymentTargetLabel}
-	defaultTargetKind={isGroup ? 'group' : 'dm'}
-	onClose={() => {
-		paymentSheetOpen = false;
-	}}
-	onManageConnections={() => {
-		paymentSheetOpen = false;
-		dispatch('openSettings', { paymentSurface: 'connections' });
-	}}
+  isOpen=$paymentSheetOpen
+  openSeed=$paymentSheetOpenSeed
+  defaultChannelId={channelId}
+  defaultTargetLabel={paymentTargetLabel}
+  defaultTargetKind={isGroup ? 'group' : 'dm'}
+  onClose={() => {
+    paymentSheetOpen.set(false);
+  }}
+  onManageConnections={() => {
+    paymentSheetOpen.set(false);
+    dispatch('openSettings', { paymentSurface: 'connections' });
+  }}
 />
 
 <ManualCashModal
-	isOpen={manualCashOpen}
-	channelId={channelId}
-	targetLabel={paymentTargetLabel}
-	counterpartyLabel={otherUser.username}
-	onClose={() => {
-		manualCashOpen = false;
-	}}
+  isOpen=$manualCashOpen
+  channelId={channelId}
+  targetLabel={paymentTargetLabel}
+  counterpartyLabel={otherUser.username}
+  onClose={() => {
+    manualCashOpen.set(false);
+  }}
 />
 
 <style>

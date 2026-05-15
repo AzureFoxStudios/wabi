@@ -1,6 +1,8 @@
 import { getServerUrl } from './serverUrl';
+import { getAuthToken } from './authSession';
 import { authStore } from './authStore';
 import type { Message } from './socket-types';
+import type { MediaAlbumScopeType } from './mediaAlbumScope';
 import type {
 	PaymentCheckoutMode,
 	PaymentIntentStatus,
@@ -1473,7 +1475,7 @@ export async function deleteDictionaryEntry(token: string, term: string, languag
 	}
 }
 
-export type MediaAlbumScopeType = 'channel' | 'dm';
+// MediaAlbumScopeType moved to ./mediaAlbumScope to avoid duplication
 
 export interface MediaAlbum {
 	id: number;
@@ -1742,5 +1744,48 @@ export async function getSetupStatus(): Promise<SetupStatus> {
 		return await res.json();
 	} catch {
 		return { setupRequired: false };
+	}
+}
+
+// --- Channel API ---
+
+export interface CreateChannelResponse {
+	id: string;
+	name: string;
+	channel_type: string;
+	position: number;
+	parent_id: string | null;
+}
+
+export async function createChannelApi(
+	name: string,
+	channelType: string = 'text',
+	description?: string
+): Promise<CreateChannelResponse> {
+	const token = getAuthToken();
+	const res = await fetchWithTimeout(`${getApiBase()}/api/channels`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			...(token ? { Authorization: `Bearer ${token}` } : {})
+		},
+		body: JSON.stringify({ name, channel_type: channelType, description })
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || `Failed to create channel: ${res.status}`);
+	}
+	return (await res.json()) as CreateChannelResponse;
+}
+
+export async function deleteChannelApi(channelId: string): Promise<void> {
+	const token = getAuthToken();
+	const res = await fetchWithTimeout(`${getApiBase()}/api/channels/${encodeURIComponent(channelId)}`, {
+		method: 'DELETE',
+		headers: token ? { Authorization: `Bearer ${token}` } : undefined
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw new Error(error.error || `Failed to delete channel: ${res.status}`);
 	}
 }
