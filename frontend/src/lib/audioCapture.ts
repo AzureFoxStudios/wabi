@@ -11,8 +11,8 @@ import {
 	type LocalAudioCaptureSession,
 	type DspAudioPipeline
 } from './callingTypes';
+import { buildRTCConfig } from './turnConfig';
 import {
-	buildRTCConfig,
 	getAudioCaptureConstraints,
 	getStoredAudioProcessingMode,
 	getPreferredMicDeviceId,

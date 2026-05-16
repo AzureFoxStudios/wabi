@@ -46,12 +46,10 @@ function updateProfileAsync(
 			resolve({ success: false, error: 'Timed out while updating the profile.' });
 		}, 8000);
 
-		updateProfile(undefined, patch.profilePicture, undefined, patch.username, (response) => {
-			if (settled) return;
-			settled = true;
-			window.clearTimeout(timeout);
-			resolve(response);
-		});
+		updateProfile({ username: patch.username, profilePicture: patch.profilePicture });
+		window.clearTimeout(timeout);
+		settled = true;
+		resolve({ success: true });
 	});
 }
 

@@ -22,6 +22,8 @@
 @import './components/chat-compression.css';
 @import './components/chat-upload.css';
 @import './components/chat-mobile.css';
+@import './components/dm-tab.css';
+@import './components/dm-message-view.css';
 @import './components/ml-core.css';
 @import './components/ml-replies.css';
 @import './components/ml-markdown.css';
@@ -40,6 +42,7 @@
 @import './components/sidebar-channels.css';
 @import './components/sidebar-compact.css';
 @import './components/sidebar-mobile.css';
+@import './components/server-switcher.css';
 @import './components/settings-core.css';
 @import './components/settings-shell.css';
 @import './components/settings-nav.css';

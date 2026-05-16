@@ -79,7 +79,6 @@ async fn get_backend_endpoints(
 async fn get_setup_status(State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>> {
     let needs_setup = state.needs_setup().await;
     Ok(Json(serde_json::json!({
-        "setupComplete": !needs_setup,
-        "requiresSetup": needs_setup
+        "setupRequired": needs_setup
     })))
 }

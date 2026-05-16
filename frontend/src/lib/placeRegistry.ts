@@ -162,7 +162,11 @@ export {
 	createEmptyMapLayerDraft,
 	serializePlaceDraft,
 	savePlaceDraft,
-	deletePlace
+	deletePlace,
+	draftPoiToRecord,
+	draftMapLayerToRecord,
+	buildDraftPreview,
+	buildDraftValidationIssues
 } from './placeDraft';
 
 // ============================================================================
@@ -170,6 +174,7 @@ export {
 // ============================================================================
 
 export {
+	normalizeKey,
 	normalizePoiThemePreset,
 	normalizePoiIconPreset
 } from './placeNormalization';
@@ -185,3 +190,4 @@ export {
 	rebaseMessageEntitiesForText,
 	splitEntitiesForChunks
 } from './place-mentions';
+export { splitMessageForSending } from './composerEnhancements';

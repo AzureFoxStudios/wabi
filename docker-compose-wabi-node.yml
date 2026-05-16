@@ -63,7 +63,9 @@ services:
 
   # wabi-server - Rust application server (replaces TypeScript backend)
   wabi-server:
-    image: alpine:latest
+    build:
+      context: .
+      dockerfile: core/crates/wabi-server/Dockerfile
     container_name: wabi-server
     depends_on:
       stdb-proxy:

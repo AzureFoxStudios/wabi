@@ -6,12 +6,28 @@
 import { io } from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
 import { browser } from '$app/environment';
+import { get } from 'svelte/store';
 import { authStore } from './authStore';
 import { getServerUrl, normalizeServerUrl } from './serverUrl';
 import { getAuthToken, getGuestSessionId } from './authSession';
-import { VALID_TRANSITIONS, ConnectionState, socket, connected, connectionState } from './socketConnectionState';
+import { VALID_TRANSITIONS, type ConnectionState, socket, connected, connectionState } from './socketConnectionState';
 import { SocketHeartbeat } from './socketConnectionHeartbeat';
 import { SocketReconnectionManager } from './socketConnectionReconnect';
+import type { Channel, Message, User } from './socket-types';
+import { channels, currentChannel, _updatePinnedChannels } from './channelStore';
+import { channelMessages, _updateOptimisticMessage } from './messageStore';
+import {
+	users,
+	serverMembers,
+	_setUsers,
+	_setCurrentUser,
+	_setServerMembers,
+	_setRoleDefinitions,
+	_setVoiceChannelMembers,
+	_updateVoiceChannelMember,
+	_removeVoiceChannelMember
+} from './presenceStore';
+import { _setTypingUsers, _clearTypingUsers } from './typingStore';
 
 function classifyError(errorMessage: string): { fatal: boolean; userMessage: string; errorType: string } {
 	const lower = (errorMessage || '').toLowerCase();
@@ -44,6 +60,7 @@ export class SocketManager {
 	private reconnect: SocketReconnectionManager;
 	private connectTimeoutMs = 20000;
 	private boundListeners: Set<string> = new Set();
+	private typingClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 	constructor() {
 		this.heartbeat = new SocketHeartbeat(() => this.socketInstance?.disconnect());
@@ -122,7 +139,7 @@ export class SocketManager {
 		if (this.reconnect.hasExhaustedAttempts()) {
 			console.error('[SocketManager] Max reconnect attempts reached');
 			this.transition('failed');
-			authStore.setAuthError('Connection lost after multiple attempts', 'CONNECTION_FAILED');
+			authStore.setAuthError('Connection lost after multiple attempts', 'connection_lost');
 			return;
 		}
 
@@ -152,6 +169,11 @@ export class SocketManager {
 	}
 
 	private destroySocket(): void {
+		for (const timer of this.typingClearTimers.values()) {
+			clearTimeout(timer);
+		}
+		this.typingClearTimers.clear();
+
 		if (!this.socketInstance) return;
 		try {
 			this.socketInstance.removeAllListeners();
@@ -333,5 +355,185 @@ export class SocketManager {
 				this.heartbeat.recordPong();
 			});
 		}
+
+		this.bindStateEventListeners(sock);
+	}
+
+	private bindStateEventListeners(sock: Socket): void {
+		sock.on('init', (payload: {
+			channels?: Channel[];
+			users?: User[] | Record<string, User>;
+			serverMembers?: User[] | Record<string, User>;
+			roleDefinitions?: unknown[];
+			voiceState?: Record<string, unknown>;
+		}) => {
+			const nextChannels = Array.isArray(payload?.channels) ? payload.channels : [];
+			channels.set(nextChannels);
+			_updatePinnedChannels();
+
+			const activeChannel = get(currentChannel);
+			if (nextChannels.length > 0 && !nextChannels.some((channel) => channel.id === activeChannel)) {
+				const general = nextChannels.find((channel) => channel.id === 'general');
+				currentChannel.set((general || nextChannels[0]).id);
+			}
+
+			_setUsers(payload?.users || []);
+			_setServerMembers(payload?.serverMembers || []);
+			_setRoleDefinitions((payload?.roleDefinitions || []) as any[]);
+
+			const allUsers = [
+				...normalizeUserList(payload?.users),
+				...normalizeUserList(payload?.serverMembers)
+			];
+			const normalizedUsername = this.username.trim().toLowerCase();
+			const me = allUsers.find((user) => user.username?.trim().toLowerCase() === normalizedUsername) || null;
+			_setCurrentUser(me);
+
+			for (const [channelId, members] of Object.entries(payload?.voiceState || {})) {
+				if (Array.isArray(members)) {
+					_setVoiceChannelMembers(channelId, members as any[]);
+				}
+			}
+
+			console.log('[SocketManager] Init received:', {
+				channels: nextChannels.length,
+				users: normalizeUserList(payload?.users).length,
+				serverMembers: normalizeUserList(payload?.serverMembers).length
+			});
+		});
+
+		sock.on('channel-messages', (payload: { channelId?: string; messages?: Message[] }) => {
+			if (!payload?.channelId) return;
+			channelMessages.update((state) => ({
+				...state,
+				[payload.channelId as string]: Array.isArray(payload.messages) ? payload.messages : []
+			}));
+		});
+
+		sock.on('message', (payload: { channelId?: string; message?: Message }) => {
+			if (!payload?.channelId || !payload.message) return;
+			const channelId = payload.channelId;
+			const message = payload.message;
+			channelMessages.update((state) => {
+				const existing = state[channelId] || [];
+				const duplicateIndex = existing.findIndex((candidate) =>
+					candidate.id === message.id ||
+					(Boolean(message.clientMessageId) && candidate.clientMessageId === message.clientMessageId)
+				);
+				const next = duplicateIndex >= 0
+					? existing.map((candidate, index) => index === duplicateIndex ? { ...candidate, ...message, deliveryState: undefined, deliveryError: undefined } : candidate)
+					: [...existing, message];
+				return { ...state, [channelId]: next };
+			});
+		});
+
+		sock.on('message-accepted', (payload: {
+			channelId?: string;
+			messageId?: string;
+			clientMessageId?: string;
+			timestamp?: number;
+		}) => {
+			if (!payload?.channelId || !payload.clientMessageId) return;
+			_updateOptimisticMessage(
+				payload.channelId,
+				(message) => message.clientMessageId === payload.clientMessageId,
+				{
+					id: payload.messageId,
+					timestamp: payload.timestamp,
+					deliveryState: undefined,
+					deliveryError: undefined
+				}
+			);
+		});
+
+		sock.on('message-deleted', (payload: { channelId?: string; messageId?: string }) => {
+			if (!payload?.channelId || !payload.messageId) return;
+			_updateOptimisticMessage(payload.channelId, (message) => message.id === payload.messageId, { isDeleted: true });
+		});
+
+		sock.on('message-edited', (payload: { channelId?: string; messageId?: string; newText?: string }) => {
+			if (!payload?.channelId || !payload.messageId || payload.newText === undefined) return;
+			_updateOptimisticMessage(payload.channelId, (message) => message.id === payload.messageId, {
+				text: payload.newText,
+				isEdited: true
+			});
+		});
+
+		sock.on('typing', (payload: { channelId?: string; usernames?: string[]; userIds?: string[] }) => {
+			if (!payload?.channelId) return;
+			const typingUsers = payload.userIds || payload.usernames || [];
+			_setTypingUsers(payload.channelId, typingUsers);
+
+			const previous = this.typingClearTimers.get(payload.channelId);
+			if (previous) clearTimeout(previous);
+			this.typingClearTimers.set(payload.channelId, setTimeout(() => {
+				_clearTypingUsers(payload.channelId as string);
+				this.typingClearTimers.delete(payload.channelId as string);
+			}, 3500));
+		});
+
+		sock.on('user-joined', (user: User) => {
+			if (!user?.id) return;
+			upsertUser(users, user);
+			upsertUser(serverMembers, user);
+		});
+
+		sock.on('user-left', (payload: { id?: string }) => {
+			if (!payload?.id) return;
+			users.update((current) => current.filter((user) => user.id !== payload.id));
+			serverMembers.update((current) => current.map((user) =>
+				user.id === payload.id ? { ...user, status: 'offline' } : user
+			));
+		});
+
+		sock.on('voice-channel-state', (payload: { channelId?: string; members?: any[] }) => {
+			if (!payload?.channelId) return;
+			_setVoiceChannelMembers(payload.channelId, Array.isArray(payload.members) ? payload.members : []);
+		});
+
+		sock.on('voice-channel-joined', (payload: { channelId?: string; user?: any }) => {
+			if (!payload?.channelId || !payload.user?.userId) return;
+			_updateVoiceChannelMember(payload.channelId, payload.user.userId, payload.user);
+		});
+
+		sock.on('voice-channel-user-joined', (payload: { channelId?: string; userId?: string; socketId?: string; username?: string }) => {
+			if (!payload?.channelId || !payload.userId) return;
+			_updateVoiceChannelMember(payload.channelId, payload.userId, {
+				userId: payload.userId,
+				socketId: payload.socketId,
+				username: payload.username || '',
+				isSpeaking: false,
+				isMuted: false,
+				isDeafened: false
+			});
+		});
+
+		sock.on('voice-channel-left', (payload: { channelId?: string; userId?: string }) => {
+			if (!payload?.channelId || !payload.userId) return;
+			_removeVoiceChannelMember(payload.channelId, payload.userId);
+		});
+
+		sock.on('voice-channel-user-left', (payload: { channelId?: string; userId?: string }) => {
+			if (!payload?.channelId || !payload.userId) return;
+			_removeVoiceChannelMember(payload.channelId, payload.userId);
+		});
+
+		sock.on('role-definitions-updated', (payload: { roles?: any[] }) => {
+			_setRoleDefinitions(Array.isArray(payload?.roles) ? payload.roles : []);
+		});
 	}
 }
+
+function normalizeUserList(value: unknown): User[] {
+	if (Array.isArray(value)) return value as User[];
+	if (value && typeof value === 'object') return Object.values(value as Record<string, User>);
+	return [];
+}
+
+function upsertUser(store: typeof users, user: User): void {
+	store.update((current) => {
+		const existingIndex = current.findIndex((candidate) => candidate.id === user.id);
+		if (existingIndex === -1) return [...current, user];
+		return current.map((candidate, index) => index === existingIndex ? { ...candidate, ...user } : candidate);
+	});
+	}

@@ -4,7 +4,7 @@
  */
 
 import { get } from 'svelte/store';
-import { type WorkspacePanelId, FALLBACK_WORKSPACE_PANEL_ID } from '$lib/docking/layoutSchema';
+import { type WorkspacePanelId, FALLBACK_WORKSPACE_PANEL_ID, createDefaultPanelDock } from '$lib/docking/layoutSchema';
 import { rightPanelView, activeRightTab, rightPanelDock } from './layoutStoreStates';
 import { activatePanelInDock, getDockActivePanelId, createStack, clonePanelDock, setPanelDock, normalizePanelIdForRuntime } from './layoutStoreUtils';
 import { scheduleSyncWorkspace } from './layoutStoreSync';
@@ -28,6 +28,7 @@ export function openRightPanel(panelId: string): void {
 export function setActiveRightPanel(panelId: string): void {
 	const normalized = normalizePanelIdForRuntime(panelId);
 	activeRightTab.set(normalized);
+	rightPanelDock.update((dock) => activatePanelInDock(dock, normalized));
 	if (get(rightPanelView) !== 'none') {
 		rightPanelView.set(normalized);
 	}
@@ -103,6 +104,7 @@ export function resizeRightPanelStacks(primarySize: number): void {
 		next.updatedAt = Date.now();
 		return next;
 	});
+	scheduleSyncWorkspace();
 }
 
 export function toggleRightPanelStackCollapsed(stackId: string): void {
@@ -115,6 +117,7 @@ export function toggleRightPanelStackCollapsed(stackId: string): void {
 		}
 		return next;
 	});
+	scheduleSyncWorkspace();
 }
 
 export function toggleRightPanelStackPinned(stackId: string): void {
@@ -127,10 +130,39 @@ export function toggleRightPanelStackPinned(stackId: string): void {
 		}
 		return next;
 	});
+	scheduleSyncWorkspace();
+}
+
+export function mergeRightPanelStack(stackId: string): void {
+	rightPanelDock.update((dock) => {
+		const next = clonePanelDock(dock);
+		if (next.stacks.length <= 1) return dock;
+
+		const sourceIndex = next.stacks.findIndex((stack) => stack.id === stackId);
+		if (sourceIndex < 0) return dock;
+
+		const source = next.stacks[sourceIndex];
+		const target = next.stacks[sourceIndex === 0 ? 1 : 0];
+		if (!target) return dock;
+
+		for (const tab of source.tabs) {
+			if (!target.tabs.includes(tab)) {
+				target.tabs.push(tab);
+			}
+		}
+
+		target.activePanelId = source.activePanelId;
+		target.collapsed = false;
+		target.size = 100;
+		next.stacks.splice(sourceIndex, 1);
+		next.stacks = next.stacks.map((stack) => ({ ...stack, collapsed: false, size: 100 }));
+		next.updatedAt = Date.now();
+		return next;
+	});
+	scheduleSyncWorkspace();
 }
 
 export function resetRightPanelDock(): void {
-	const { createDefaultPanelDock } = require('$lib/docking/layoutSchema');
 	rightPanelDock.set(createDefaultPanelDock());
 	scheduleSyncWorkspace();
 }

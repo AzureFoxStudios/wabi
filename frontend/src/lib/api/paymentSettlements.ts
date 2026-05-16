@@ -45,7 +45,7 @@ async function postManualCashAction(
 		},
 		body: JSON.stringify(reason ? { reason } : {})
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || `Failed to ${action} manual cash trade`);
 	}
@@ -66,7 +66,7 @@ export async function listManualCashSettlements(
 		method: 'GET',
 		headers: token ? { Authorization: `Bearer ${token}` } : undefined
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to load manual cash trades');
 	}
@@ -84,7 +84,7 @@ export async function createManualCashSettlement(
 		amountMinor: number;
 		currency: string;
 		description?: string;
-		metadata?: Record<string, unknown>;
+		metadata?: Record<string, any>;
 	}
 ): Promise<ManualCashSettlement> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/manual-cash`, {
@@ -95,7 +95,7 @@ export async function createManualCashSettlement(
 		},
 		body: JSON.stringify(payload)
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to create manual cash trade');
 	}

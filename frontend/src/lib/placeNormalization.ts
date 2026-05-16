@@ -99,8 +99,8 @@ export function normalizePoiRecord(raw: unknown): PlacePoiRecord | null {
 		layerId: safeString(record.layerId) || null,
 		description: safeString(record.description),
 		renderMode: normalizePoiRenderMode(record.renderMode),
-		themePreset: safeString(record.themePreset),
-		iconPreset: safeString(record.iconPreset),
+		themePreset: normalizePoiThemePreset(record.themePreset),
+		iconPreset: normalizePoiIconPreset(record.iconPreset),
 		iconGlyph: safeString(record.iconGlyph),
 		iconColor: safeString(record.iconColor)
 	};

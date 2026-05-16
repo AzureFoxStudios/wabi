@@ -1,6 +1,6 @@
 import { browser } from '$app/environment';
 import { get, writable } from 'svelte/store';
-import type { PlacePoiRenderMode } from './placeRegistry';
+import type { PlacePoiRenderMode, PlacePoiThemePreset, PlacePoiIconPreset, PlacePoiRecord } from './placeRegistry';
 
 export type MapPoiDisplayPreference = 'server' | PlacePoiRenderMode;
 
@@ -65,4 +65,45 @@ export function resolvePoiRenderMode(
 	overrideMode: MapPoiDisplayPreference
 ): PlacePoiRenderMode {
 	return overrideMode === 'server' ? serverMode : overrideMode;
+}
+
+export function formatPoiThemePreset(preset: PlacePoiThemePreset): string {
+	if (preset === 'campus') return 'Campus';
+	if (preset === 'quest') return 'Quest';
+	if (preset === 'terminal') return 'Terminal';
+	return 'Classic';
+}
+
+export function formatPoiIconPreset(preset: PlacePoiIconPreset): string {
+	if (preset === 'star') return 'Star';
+	if (preset === 'door') return 'Door';
+	if (preset === 'food') return 'Food';
+	if (preset === 'meeting') return 'Meeting';
+	if (preset === 'warning') return 'Warning';
+	if (preset === 'vendor') return 'Vendor';
+	if (preset === 'boss') return 'Boss';
+	if (preset === 'info') return 'Info';
+	return 'Pin';
+}
+
+export function resolvePoiMarkerGlyph(poi: Pick<PlacePoiRecord, 'iconGlyph' | 'iconPreset'>): string {
+	if (poi.iconGlyph && poi.iconGlyph.trim()) return poi.iconGlyph.trim();
+	switch (poi.iconPreset || 'pin') {
+		case 'star': return '*';
+		case 'door': return 'D';
+		case 'food': return 'F';
+		case 'meeting': return 'M';
+		case 'warning': return '!';
+		case 'vendor': return '$';
+		case 'boss': return 'B';
+		case 'info': return 'i';
+		default: return '+';
+	}
+}
+
+export function formatPoiDisplayPreference(mode: MapPoiDisplayPreference): string {
+	if (mode === 'label') return 'Labels only';
+	if (mode === 'pin') return 'Pins only';
+	if (mode === 'both') return 'Labels + Pins';
+	return 'Server default';
 }

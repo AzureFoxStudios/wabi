@@ -195,7 +195,7 @@ export type {
 	PaymentMethodCapability,
 	PaymentProviderCapability,
 	PaymentUserBlock
-} from '../../../shared/paymentContracts.js';
+} from '../../../../shared/paymentContracts';
 
 export type {
 	CommunityNodeAccessMode,
@@ -206,7 +206,7 @@ export type {
 	PaymentAccessPolicy,
 	PaymentAccountLink,
 	PaymentDonationConfig
-} from '../../../shared/adminPolicyContracts.js';
+} from '../../../../shared/adminPolicyContracts';
 
 export type {
 	AdminCompressionConfig,
@@ -218,15 +218,15 @@ export type {
 	RuntimeTuningConfig,
 	UploadLimitConfig,
 	UploadRoleTier
-} from '../../../shared/runtimeAdminContracts.js';
+} from '../../../../shared/runtimeAdminContracts';
 
-export type { LaunchPageConfig, LaunchPageHighlight } from '../../../shared/launchPageContracts.js';
+export type { LaunchPageConfig, LaunchPageHighlight } from '../../../../shared/launchPageContracts';
 
 export type {
 	AuthResponse,
 	FollowedChannelPollRequest,
 	UserSettingsPayload,
 	UserSettingsResponse
-} from '../../../shared/userContracts.js';
+} from '../../../../shared/userContracts';
 
-export type { AdminRelayNode, ParsedRelayMetadata as AdminRelayNodeMetadata } from '../../../shared/relayContracts.js';
+export type { AdminRelayNode, ParsedRelayMetadata as AdminRelayNodeMetadata } from '../../../../shared/relayContracts';

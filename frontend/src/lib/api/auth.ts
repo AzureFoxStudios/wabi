@@ -1,7 +1,7 @@
 import type { Message } from '../socket-types';
-import type { AuthResponse, FollowedChannelPollChannelResult as SharedFollowedChannelPollChannelResult, FollowedChannelPollRequest, FollowedChannelPollResponse as SharedFollowedChannelPollResponse, UserSettingsPayload, UserSettingsResponse } from '../../../shared/userContracts.js';
+import type { AuthResponse, FollowedChannelPollChannelResult as SharedFollowedChannelPollChannelResult, FollowedChannelPollRequest, FollowedChannelPollResponse as SharedFollowedChannelPollResponse, UserSettingsPayload, UserSettingsResponse } from '../../../../shared/userContracts';
 import { authStore } from '../authStore';
-import { getApiBase, getApiBaseFor, fetchWithTimeout } from './utils';
+import { getApiBase, getApiBaseFor, fetchWithTimeout, safeJsonParse } from './utils';
 
 export type FollowedChannelPollChannelResult = SharedFollowedChannelPollChannelResult<Message>;
 export type FollowedChannelPollResponse = SharedFollowedChannelPollResponse<Message>;
@@ -14,7 +14,7 @@ export async function register(username: string, password: string, handle?: stri
 	});
 
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Registration failed');
 	}
 
@@ -33,7 +33,7 @@ export async function login(username: string, password: string): Promise<AuthRes
 	});
 
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Login failed');
 	}
 
@@ -52,7 +52,7 @@ export async function upgradeToRegistered(sessionId: string, password: string): 
 	});
 
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Upgrade failed');
 	}
 
@@ -78,7 +78,7 @@ export async function changePassword(
 	});
 
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to change password');
 	}
 }
@@ -99,7 +99,7 @@ export async function adminResetUserPassword(
 	});
 
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to reset user password');
 	}
 }
@@ -115,7 +115,7 @@ export async function adminClearUserLoginLockout(token: string | null | undefine
 	});
 
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to clear login lockout');
 	}
 }
@@ -193,7 +193,7 @@ export async function pollFollowedChannelActivity(
 		timeoutMs: 10000
 	});
 
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		const error = new Error(
 			typeof data.error === 'string' ? data.error : 'Failed to poll followed channel activity'

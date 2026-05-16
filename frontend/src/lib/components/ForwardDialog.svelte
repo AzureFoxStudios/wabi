@@ -2,6 +2,7 @@
 	import type { Message } from '$lib/socket';
 	import { channels, currentChannel, socket } from '$lib/socket';
 	import { _ } from '$lib/i18n';
+	import { getChannelTypeIcon } from '$lib/channelTypes';
 
 	export let visible: boolean = false;
 	export let message: Message | null = null;
@@ -68,11 +69,7 @@
 								on:click={() => forwardToChannel(channel.id)}
 							>
 								<span class="channel-icon">
-									{#if channel.type === 'dm'}
-										DM
-									{:else}
-										#
-									{/if}
+									{getChannelTypeIcon(channel.type)}
 								</span>
 								<span class="channel-name">{channel.name}</span>
 							</button>

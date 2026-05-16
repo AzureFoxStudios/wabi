@@ -16,7 +16,9 @@
 
 
 	.profile-card {
-		background: var(--surface-raised);
+		background:
+			linear-gradient(180deg, rgba(var(--surface-base-rgb, 26, 26, 46), 0.72), rgba(var(--surface-app-rgb, 15, 12, 41), 0.76)),
+			rgba(var(--surface-base-rgb, 26, 26, 46), 0.7);
 		border-top: 1px solid var(--border-subtle);
 		padding: 0.68rem 0.75rem;
 		display: flex;

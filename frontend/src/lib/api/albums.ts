@@ -34,7 +34,7 @@ export class MediaAlbumApiError extends Error {
 	status: number;
 	code: string | null;
 	retryAfterSeconds: number | null;
-	details: Record<string, unknown> | null;
+	details: Record<string, any> | null;
 
 	constructor(
 		message: string,
@@ -42,7 +42,7 @@ export class MediaAlbumApiError extends Error {
 			status: number;
 			code?: string | null;
 			retryAfterSeconds?: number | null;
-			details?: Record<string, unknown> | null;
+			details?: Record<string, any> | null;
 		}
 	) {
 		super(message);
@@ -72,7 +72,7 @@ export async function listMediaAlbums(
 		}
 	});
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to list media albums');
 	}
 	let data: unknown;
@@ -99,7 +99,7 @@ export async function createMediaAlbum(
 		body: JSON.stringify(payload)
 	});
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to create media album');
 	}
 	try {
@@ -123,7 +123,7 @@ export async function listMediaAlbumItems(
 		}
 	});
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to list media album items');
 	}
 	try {
@@ -158,7 +158,7 @@ export async function addMediaAlbumItem(
 		body: JSON.stringify(payload)
 	});
 	if (!res.ok) {
-		const payload = await res.json().catch(() => ({} as Record<string, unknown>));
+		const payload = await res.json().catch(() => ({} as Record<string, any>));
 		const code = typeof payload.code === 'string' ? payload.code : null;
 		const retryAfterSeconds =
 			typeof payload.retryAfterSeconds === 'number' && Number.isFinite(payload.retryAfterSeconds)
@@ -166,7 +166,7 @@ export async function addMediaAlbumItem(
 				: null;
 		const details =
 			payload.details && typeof payload.details === 'object'
-				? (payload.details as Record<string, unknown>)
+				? (payload.details as Record<string, any>)
 				: null;
 		let message = typeof payload.error === 'string' ? payload.error : 'Failed to add media album item';
 		if (retryAfterSeconds !== null && retryAfterSeconds > 0) {
@@ -193,7 +193,7 @@ export async function setMediaAlbumFeatured(token: string, albumId: number, feat
 		body: JSON.stringify({ featured })
 	});
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to update featured album state');
 	}
 	const data = await res.json();
@@ -210,7 +210,7 @@ export async function reorderMediaAlbumItems(token: string, albumId: number, ite
 		body: JSON.stringify({ itemIds })
 	});
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to reorder media album items');
 	}
 	const data = await res.json();
@@ -225,7 +225,7 @@ export async function deleteMediaAlbum(token: string, albumId: number): Promise<
 		}
 	});
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to delete media album');
 	}
 }
@@ -238,7 +238,7 @@ export async function deleteMediaAlbumItem(token: string, albumId: number, itemI
 		}
 	});
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to delete media album item');
 	}
 }

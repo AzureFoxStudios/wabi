@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wabi Gallery — Steam-style</title>
+<style>
+  :root {
+    --surface-app: #0b0f18;
+    --surface-base: #111827;
+    --surface-raised: #1a2332;
+    --border-subtle: rgba(148, 163, 184, 0.12);
+    --text-heading: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --accent: #7c6af5;
+    --accent-rgb: 124, 106, 245;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--surface-app);
+    color: var(--text-heading);
+    height: 100vh;
+    overflow: hidden;
+  }
+  .app-layout { display: flex; height: 100vh; }
+  .sidebar {
+    width: 240px; flex-shrink: 0; background: var(--surface-base);
+    border-right: 1px solid var(--border-subtle); padding: 10px; overflow-y: auto;
+  }
+  .sidebar-header { font-size: 13px; font-weight: 700; padding: 6px 6px 10px; border-bottom: 1px solid var(--border-subtle); margin-bottom: 6px; }
+  .sidebar-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); padding: 6px 6px 3px; }
+  .sidebar-ch {
+    display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 2px;
+    color: var(--text-secondary); font-size: 13px; cursor: pointer;
+  }
+  .sidebar-ch:hover { background: rgba(var(--accent-rgb), 0.1); color: var(--text-heading); }
+  .sidebar-ch.active { background: rgba(var(--accent-rgb), 0.18); color: var(--text-heading); font-weight: 600; }
+  .sidebar-ch .icon { width: 16px; height: 16px; opacity: 0.6; }
+  .sidebar-ch.active .icon { opacity: 1; }
+
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--surface-app); }
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; border-bottom: 1px solid var(--border-subtle);
+    background: var(--surface-base); flex-shrink: 0;
+  }
+  .header-left { display: flex; align-items: center; gap: 10px; }
+  .hash { font-size: 18px; color: var(--text-muted); font-weight: 300; }
+  .title { font-size: 15px; font-weight: 700; }
+  .search {
+    background: var(--surface-raised); border: 1px solid var(--border-subtle);
+    border-radius: 3px; padding: 5px 10px; color: var(--text-heading);
+    font-size: 12px; width: 180px; outline: none;
+  }
+  .search:focus { border-color: rgba(var(--accent-rgb), 0.4); }
+
+  .content { flex: 1; overflow-y: auto; }
+  .content::-webkit-scrollbar { width: 6px; }
+  .content::-webkit-scrollbar-track { background: transparent; }
+  .content::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.2); border-radius: 3px; }
+
+  /* Recently Uploaded — subtle top bar to set it apart */
+  .recent-section {
+    padding: 28px 8px 18px;
+    background: linear-gradient(180deg, rgba(148,163,184,0.03) 0%, transparent 100%);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .section-header { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; padding: 0 24px; }
+  .section-header h2 { font-size: 15px; font-weight: 700; }
+  .section-count { font-size: 12px; color: var(--text-muted); background: var(--surface-raised); padding: 3px 10px; border-radius: 3px; }
+
+  .recent-scroll { display: flex; gap: 20px; overflow-x: auto; padding: 10px 24px 18px 40px; scroll-snap-type: x mandatory; }
+  .recent-scroll::-webkit-scrollbar { height: 4px; }
+  .recent-scroll::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.2); border-radius: 2px; }
+
+  /* Steam-style recent card: container stays, cover lifts */
+  .recent-card {
+    flex: 0 0 520px; position: relative; border-radius: 6px;
+    cursor: pointer; scroll-snap-align: start; overflow: visible;
+  }
+
+  .recent-card-cover {
+    position: relative; overflow: hidden; border-radius: 6px 6px 0 0;
+    transform-origin: top center; transform: skewX(0.001deg);
+    transition: transform 0.35s ease-in-out; will-change: transform;
+    background: var(--surface-raised);
+  }
+
+  .recent-card:hover .recent-card-cover {
+    transform: perspective(800px) rotateX(7deg) translateY(-4px);
+  }
+
+  .recent-card img {
+    width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block;
+  }
+
+  /* Gloss sweeps down on hover — soft fade at bottom to hide cutoff */
+  .recent-gloss {
+    position: absolute; top: 0; left: 0; width: 100%; height: 120%;
+    background: linear-gradient(
+      226deg,
+      rgba(255,255,255,0.35) 0%,
+      rgba(255,255,255,0.35) 35%,
+      rgba(255,255,255,0.15) 42%,
+      rgba(255,255,255,0) 60%
+    );
+    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+    mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+    transform: translateY(-100%);
+    will-change: transform;
+    transition: transform 0.65s cubic-bezier(0.18, 0.9, 0.58, 1);
+    pointer-events: none;
+  }
+
+  .recent-card:hover .recent-gloss {
+    transform: translateY(0%);
+  }
+
+  /* Shadow behind lifted cover */
+  .recent-card::before {
+    content: ''; position: absolute; top: 4%; left: 4%; width: 92%; height: 92%;
+    background: rgba(0,0,0,0.4); box-shadow: 0 6px 14px 14px rgba(0,0,0,0.45);
+    border-radius: 6px; transform-origin: top center; transform: skewX(0.001deg);
+    opacity: 0; transition: transform 0.35s ease-in-out, opacity 0.5s ease-in-out;
+    pointer-events: none; z-index: 0;
+  }
+
+  .recent-card:hover::before {
+    opacity: 1; transform: perspective(800px) rotateX(7deg) translateY(-4px) scale(1.04);
+  }
+
+  .recent-info {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 40px 18px 14px;
+    z-index: 2;
+  }
+  .recent-title {
+    font-size: 14px; font-weight: 600; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; margin-bottom: 6px;
+    color: white;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+  }
+  .recent-meta { display: flex; align-items: center; gap: 6px; }
+  .recent-creator {
+    font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.8);
+    cursor: pointer; background: none; border: none; padding: 0;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  }
+  .recent-creator:hover { color: white; text-decoration: underline; }
+  .recent-time { font-size: 11px; color: rgba(255,255,255,0.5); text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+
+  /* Creator profile banner — image-based, personable */
+  .creator-banner {
+    position: relative; margin: 0 32px 24px; border-radius: 6px; overflow: hidden;
+    background: var(--surface-raised);
+  }
+  .creator-banner-image {
+    width: 100%; height: 140px; object-fit: cover; display: block;
+    filter: brightness(0.55) saturate(0.8);
+  }
+  .creator-banner-overlay {
+    position: absolute; inset: 0;
+    background: linear-gradient(180deg, transparent 20%, rgba(11,15,24,0.95) 100%);
+  }
+  .creator-banner-content {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    display: flex; align-items: flex-end; gap: 16px; padding: 16px 20px;
+  }
+  .banner-avatar {
+    width: 64px; height: 64px; border-radius: 4px; display: flex; align-items: center;
+    justify-content: center; font-size: 28px; font-weight: 700; color: white;
+    flex-shrink: 0; border: 3px solid var(--surface-raised);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+  }
+  .banner-info { flex: 1; padding-bottom: 2px; }
+  .banner-info h2 { font-size: 20px; font-weight: 700; margin-bottom: 2px; }
+  .banner-stats { font-size: 13px; color: var(--text-secondary); }
+  .banner-clear {
+    padding: 7px 16px; border-radius: 4px;
+    border: 1px solid rgba(var(--accent-rgb),0.25); background: rgba(var(--accent-rgb),0.12);
+    color: var(--text-heading); font-size: 12px; font-weight: 600; cursor: pointer;
+    flex-shrink: 0;
+  }
+  .banner-clear:hover { background: rgba(var(--accent-rgb),0.22); }
+
+  /* Main gallery grid */
+  .gallery-section { padding: 0 32px 28px; }
+  .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(500px, 1fr)); gap: 32px; }
+
+  /* Steam-style gallery card: container stays, cover lifts */
+  .card {
+    position: relative; border-radius: 6px; cursor: pointer;
+    aspect-ratio: 16/10; overflow: visible;
+  }
+
+  .card-cover {
+    position: relative; width: 100%; height: 100%; overflow: hidden;
+    border-radius: 6px; transform-origin: top center; transform: skewX(0.001deg);
+    transition: transform 0.35s ease-in-out; will-change: transform;
+    background: var(--surface-raised);
+  }
+
+  .card:hover .card-cover {
+    transform: perspective(800px) rotateX(7deg) translateY(-4px);
+  }
+
+  .card img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+
+  /* Gloss sweeps down on hover — soft fade at bottom to hide cutoff */
+  .card-gloss {
+    position: absolute; top: 0; left: 0; width: 100%; height: 120%;
+    background: linear-gradient(
+      226deg,
+      rgba(255,255,255,0.3) 0%,
+      rgba(255,255,255,0.3) 35%,
+      rgba(255,255,255,0.12) 42%,
+      rgba(255,255,255,0) 60%
+    );
+    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+    mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+    transform: translateY(-100%);
+    will-change: transform;
+    transition: transform 0.65s cubic-bezier(0.18, 0.9, 0.58, 1);
+    pointer-events: none;
+  }
+
+  .card:hover .card-gloss {
+    transform: translateY(0%);
+  }
+
+  /* Shadow behind lifted cover */
+  .card::before {
+    content: ''; position: absolute; top: 4%; left: 4%; width: 92%; height: 92%;
+    background: rgba(0,0,0,0.35); box-shadow: 0 6px 14px 14px rgba(0,0,0,0.45);
+    border-radius: 6px; transform-origin: top center; transform: skewX(0.001deg);
+    opacity: 0; transition: transform 0.35s ease-in-out, opacity 0.5s ease-in-out;
+    pointer-events: none; z-index: 0;
+  }
+
+  .card:hover::before {
+    opacity: 1; transform: perspective(800px) rotateX(7deg) translateY(-4px) scale(1.04);
+  }
+
+  .card-overlay {
+    position: absolute; bottom: 0; left: 0; right: 0; padding: 40px 16px 14px;
+    background: linear-gradient(transparent, rgba(0,0,0,0.75));
+    display: flex; align-items: center; gap: 9px; opacity: 0; transition: opacity 0.25s;
+    pointer-events: none; z-index: 2;
+  }
+  .card:hover .card-overlay { opacity: 1; }
+  .card-overlay > * { pointer-events: auto; }
+  .card-avatar {
+    width: 26px; height: 26px; border-radius: 3px; display: flex; align-items: center;
+    justify-content: center; font-size: 11px; font-weight: 700; color: white; flex-shrink: 0;
+  }
+  .card-creator { font-size: 13px; font-weight: 600; color: white; cursor: pointer; background: none; border: none; padding: 0; }
+  .card-creator:hover { text-decoration: underline; }
+  .card-time { font-size: 11px; color: rgba(255,255,255,0.5); margin-left: auto; }
+
+  /* Filter bar */
+  .filter-bar {
+    display: flex; align-items: center; padding: 8px 24px;
+    border-top: 1px solid var(--border-subtle); background: var(--surface-base);
+    flex-shrink: 0; gap: 8px; overflow-x: auto;
+  }
+  .filter-left { display: flex; gap: 4px; align-items: center; }
+  .filter-btn {
+    padding: 4px 12px; border-radius: 3px; border: 1px solid rgba(148,163,184,0.15);
+    background: transparent; color: var(--text-secondary); font-size: 11px;
+    font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .filter-btn:hover { border-color: rgba(var(--accent-rgb),0.3); color: var(--text-heading); }
+  .filter-btn.active { background: rgba(var(--accent-rgb),0.2); border-color: rgba(var(--accent-rgb),0.4); color: var(--text-heading); }
+  .filter-divider { width: 1px; height: 18px; background: rgba(148,163,184,0.15); flex-shrink: 0; }
+  .filter-creators { display: flex; gap: 3px; }
+  .creator-chip {
+    display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px 3px 3px;
+    border-radius: 3px; border: 1px solid transparent; background: transparent;
+    color: var(--text-secondary); font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .creator-chip:hover { background: var(--surface-raised); border-color: rgba(148,163,184,0.15); color: var(--text-heading); }
+  .creator-chip.active { background: rgba(var(--accent-rgb),0.2); border-color: rgba(var(--accent-rgb),0.4); color: var(--text-heading); }
+  .chip-avatar {
+    width: 18px; height: 18px; border-radius: 2px; display: flex; align-items: center;
+    justify-content: center; font-size: 9px; font-weight: 700; color: white; flex-shrink: 0;
+  }
+  .chip-name { max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Lightbox */
+  .lightbox {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.92);
+    z-index: 1000; align-items: center; justify-content: center; flex-direction: column;
+  }
+  .lightbox.visible { display: flex; }
+  .lightbox img { max-width: 90vw; max-height: 70vh; object-fit: contain; border-radius: 2px; cursor: zoom-out; }
+  .lightbox-info {
+    margin-top: 12px; padding: 10px 16px; background: rgba(255,255,255,0.05);
+    border-radius: 2px; max-width: 480px; width: 90vw; display: flex; flex-direction: column; gap: 6px;
+  }
+  .lb-creator { display: flex; align-items: center; gap: 8px; }
+  .lb-avatar {
+    width: 28px; height: 28px; border-radius: 2px; display: flex; align-items: center;
+    justify-content: center; font-size: 12px; font-weight: 700; color: white; flex-shrink: 0;
+  }
+  .lb-name { font-size: 13px; font-weight: 700; color: white; cursor: pointer; background: none; border: none; padding: 0; text-align: left; }
+  .lb-name:hover { text-decoration: underline; }
+  .lb-time { font-size: 11px; color: rgba(255,255,255,0.45); }
+  .lb-close {
+    position: absolute; top: 12px; right: 12px; width: 36px; height: 36px;
+    border-radius: 2px; border: none; background: rgba(255,255,255,0.08);
+    color: white; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .lb-close:hover { background: rgba(255,255,255,0.18); }
+  .lb-nav {
+    position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 40px;
+    border-radius: 2px; border: none; background: rgba(255,255,255,0.06); color: white;
+    font-size: 20px; cursor: pointer;
+  }
+  .lb-nav:hover { background: rgba(255,255,255,0.15); }
+  .lb-prev { left: 12px; }
+  .lb-next { right: 12px; }
+  .lb-more { font-size: 11px; color: var(--accent); cursor: pointer; font-weight: 600; background: none; border: none; padding: 2px 0; text-align: left; }
+  .lb-more:hover { text-decoration: underline; }
+  .lb-meta { display: flex; justify-content: space-between; font-size: 11px; color: rgba(255,255,255,0.35); }
+  .lb-album { font-weight: 600; color: rgba(255,255,255,0.55); }
+
+  @media (max-width: 1200px) {
+    .recent-card { flex: 0 0 440px; }
+    .gallery-grid { grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 24px; }
+  }
+  @media (max-width: 900px) {
+    .recent-scroll { padding-left: 24px; }
+    .recent-card { flex: 0 0 360px; }
+    .gallery-grid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; }
+  }
+  @media (max-width: 600px) {
+    .gallery-grid { grid-template-columns: 1fr; gap: 14px; }
+    .recent-section, .gallery-section { padding-left: 14px; padding-right: 14px; }
+    .recent-scroll { padding-left: 18px; }
+    .creator-banner { margin: 0 14px 14px; }
+    .filter-bar { padding: 8px 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="app-layout">
+  <aside class="sidebar">
+    <div class="sidebar-header">Wabi Server</div>
+    <div class="sidebar-label">Text</div>
+    <div class="sidebar-ch"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>general</div>
+    <div class="sidebar-label">Gallery</div>
+    <div class="sidebar-ch active"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>art-showcase</div>
+    <div class="sidebar-ch"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>screenshots</div>
+    <div class="sidebar-label">Voice</div>
+    <div class="sidebar-ch"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>Lounge</div>
+  </aside>
+  <main class="main">
+    <header class="header">
+      <div class="header-left">
+        <span class="hash">#</span>
+        <span class="title">art-showcase</span>
+        <span id="creatorBadge" style="display:none" class="creator-badge"></span>
+      </div>
+      <input type="text" class="search" placeholder="Search works..." id="searchInput" />
+    </header>
+    <div class="content">
+      <section class="recent-section" id="recentSection">
+        <div class="section-header"><h2>Recently Uploaded</h2><span class="section-count" id="recentCount">8 new</span></div>
+        <div class="recent-scroll" id="recentScroll"></div>
+      </section>
+      <div id="creatorBanner" style="display:none"></div>
+      <section class="gallery-section">
+        <div class="section-header" id="allHeader"><h2>All Works</h2><span class="section-count" id="allCount">0 total</span></div>
+        <div class="gallery-grid" id="galleryGrid"></div>
+      </section>
+    </div>
+    <div class="filter-bar">
+      <div class="filter-left">
+        <button class="filter-btn active" onclick="setFilter(this,'all')">All</button>
+        <button class="filter-btn" onclick="setFilter(this,'images')">Images</button>
+        <button class="filter-btn" onclick="setFilter(this,'video')">Video</button>
+        <div class="filter-divider"></div>
+        <div class="filter-creators" id="creatorChips"></div>
+      </div>
+    </div>
+  </main>
+</div>
+<div class="lightbox" id="lightbox">
+  <button class="lb-close" onclick="closeLightbox()">&times;</button>
+  <button class="lb-nav lb-prev" onclick="navigateLightbox(-1)">&#8249;</button>
+  <button class="lb-nav lb-next" onclick="navigateLightbox(1)">&#8250;</button>
+  <img id="lbImage" src="" alt="" onclick="closeLightbox()" />
+  <div class="lightbox-info" onclick="event.stopPropagation()">
+    <div class="lb-creator">
+      <div class="lb-avatar" id="lbAvatar" style="background:#f59e0b;">A</div>
+      <div><button class="lb-name" id="lbName" onclick="filterFromLightbox()">AzureFox</button><div class="lb-time" id="lbTime">2h ago</div></div>
+    </div>
+    <div class="lb-meta"><span class="lb-album">Main Album</span><span id="lbCounter">1/8</span></div>
+    <button class="lb-more" onclick="filterFromLightbox()">More by this creator</button>
+  </div>
+</div>
+<script>
+  const creators = [
+    { name: 'AzureFox', color: '#f59e0b', initial: 'A', works: 12, banner: 'https://picsum.photos/seed/banner-fox/1200/280' },
+    { name: 'RoninDev', color: '#10b981', initial: 'R', works: 8, banner: 'https://picsum.photos/seed/banner-ronin/1200/280' },
+    { name: 'KiraArts', color: '#8b5cf6', initial: 'K', works: 15, banner: 'https://picsum.photos/seed/banner-kira/1200/280' },
+    { name: 'PixelWitch', color: '#ec4899', initial: 'P', works: 6, banner: 'https://picsum.photos/seed/banner-witch/1200/280' },
+    { name: 'NovaDraw', color: '#06b6d4', initial: 'N', works: 20, banner: 'https://picsum.photos/seed/banner-nova/1200/280' },
+    { name: 'ShadowInk', color: '#6366f1', initial: 'S', works: 4, banner: 'https://picsum.photos/seed/banner-shadow/1200/280' },
+  ];
+  const times = ['1h','2h','3h','5h','8h','12h','1d','2d','3d','5d','1w','2w'];
+  const allItems = [];
+  for (let i = 0; i < 36; i++) {
+    const c = creators[i % creators.length];
+    allItems.push({ id: i, seed: `art${i}`, creator: c, time: times[i % times.length], name: `Artwork #${i+1}` });
+  }
+  let currentFilter = 'all';
+  let activeCreator = null;
+  let currentLightboxIndex = 0;
+  let lightboxItems = [];
+
+  function getMainItems() {
+    let items = activeCreator ? allItems.filter(i => i.creator.name === activeCreator.name) : allItems.slice(8);
+    return items;
+  }
+  function getRecentItems() { return allItems.slice(0, 8); }
+
+  function renderRecent() {
+    const scroll = document.getElementById('recentScroll');
+    const items = getRecentItems();
+    document.getElementById('recentCount').textContent = `${items.length} new`;
+    scroll.innerHTML = items.map((item, idx) => `
+      <div class="recent-card" onclick="openLightbox(${idx}, 'recent')">
+        <div class="recent-card-cover">
+          <img src="https://picsum.photos/seed/${item.seed}/1040/585" alt="" loading="lazy" />
+          <div class="recent-gloss"></div>
+          <div class="recent-info">
+            <span class="recent-title">${item.name}</span>
+            <div class="recent-meta">
+              <button class="recent-creator" onclick="event.stopPropagation(); toggleCreator('${item.creator.name}','${item.creator.color}','${item.creator.initial}')">${item.creator.name}</button>
+              <span class="recent-time">${item.time}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function renderGrid() {
+    const grid = document.getElementById('galleryGrid');
+    const items = getMainItems();
+    document.getElementById('allCount').textContent = `${items.length} total`;
+    if (items.length === 0) {
+      grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-muted);">No works found.</div>';
+      return;
+    }
+    grid.innerHTML = items.map((item, idx) => `
+      <div class="card" onclick="openLightbox(${idx}, 'main')">
+        <div class="card-cover">
+          <img src="https://picsum.photos/seed/${item.seed}/1000/625" alt="" loading="lazy" />
+          <div class="card-gloss"></div>
+          <div class="card-overlay">
+            <div class="card-avatar" style="background:${item.creator.color}">${item.creator.initial}</div>
+            <button class="card-creator" onclick="event.stopPropagation(); toggleCreator('${item.creator.name}','${item.creator.color}','${item.creator.initial}')">${item.creator.name}</button>
+            <span class="card-time">${item.time}</span>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function renderCreatorChips() {
+    document.getElementById('creatorChips').innerHTML = creators.slice(0, 10).map(c => `
+      <button class="creator-chip ${activeCreator?.name === c.name ? 'active' : ''}" onclick="toggleCreator('${c.name}','${c.color}','${c.initial}')">
+        <div class="chip-avatar" style="background:${c.color}">${c.initial}</div>
+        <span class="chip-name">${c.name}</span>
+      </button>
+    `).join('');
+  }
+
+  function renderCreatorBanner() {
+    const banner = document.getElementById('creatorBanner');
+    const badge = document.getElementById('creatorBadge');
+    if (!activeCreator) {
+      banner.style.display = 'none';
+      badge.style.display = 'none';
+      document.getElementById('recentSection').style.display = '';
+      document.getElementById('allHeader').style.display = '';
+      return;
+    }
+    const c = creators.find(x => x.name === activeCreator.name) || activeCreator;
+    const workCount = c.works || 0;
+    const bannerUrl = c.banner || `https://picsum.photos/seed/banner-${c.name.toLowerCase()}/1200/280`;
+    banner.style.display = 'block';
+    banner.className = 'creator-banner';
+    banner.innerHTML = `
+      <img class="creator-banner-image" src="${bannerUrl}" alt="" />
+      <div class="creator-banner-overlay"></div>
+      <div class="creator-banner-content">
+        <div class="banner-avatar" style="background:${c.color}">${c.initial}</div>
+        <div class="banner-info">
+          <h2>${c.name}</h2>
+          <span class="banner-stats">${workCount} works in this gallery</span>
+        </div>
+        <button class="banner-clear" onclick="clearCreatorFilter()">Show all</button>
+      </div>
+    `;
+    badge.style.display = 'flex';
+    badge.className = 'creator-badge';
+    badge.style.cssText = `display:flex;align-items:center;gap:6px;padding:3px 10px;background:rgba(var(--accent-rgb),0.15);border:1px solid rgba(var(--accent-rgb),0.25);border-radius:3px;font-size:12px;font-weight:600;`;
+    badge.innerHTML = `<div style="width:18px;height:18px;border-radius:2px;background:${c.color};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:white;">${c.initial}</div>${c.name}`;
+    document.getElementById('recentSection').style.display = 'none';
+    document.getElementById('allHeader').style.display = 'none';
+  }
+
+  function setFilter(btn, type) {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFilter = type;
+    renderGrid();
+  }
+
+  function toggleCreator(name, color, initial) {
+    if (activeCreator?.name === name) { clearCreatorFilter(); return; }
+    activeCreator = { name, color, initial };
+    renderGrid(); renderCreatorChips(); renderCreatorBanner();
+  }
+
+  function clearCreatorFilter() {
+    activeCreator = null;
+    renderGrid(); renderCreatorChips(); renderCreatorBanner();
+  }
+
+  function openLightbox(idx, source) {
+    lightboxItems = source === 'recent' ? getRecentItems() : getMainItems();
+    currentLightboxIndex = idx;
+    const item = lightboxItems[idx];
+    if (!item) return;
+    document.getElementById('lbImage').src = `https://picsum.photos/seed/${item.seed}/1200/800`;
+    document.getElementById('lbAvatar').textContent = item.creator.initial;
+    document.getElementById('lbAvatar').style.background = item.creator.color;
+    document.getElementById('lbName').textContent = item.creator.name;
+    document.getElementById('lbTime').textContent = item.time + ' ago';
+    document.getElementById('lbCounter').textContent = `${idx + 1} / ${lightboxItems.length}`;
+    document.getElementById('lightbox').classList.add('visible');
+  }
+
+  function closeLightbox() { document.getElementById('lightbox').classList.remove('visible'); }
+
+  function navigateLightbox(dir) {
+    currentLightboxIndex = (currentLightboxIndex + dir + lightboxItems.length) % lightboxItems.length;
+    openLightbox(currentLightboxIndex, lightboxItems === getRecentItems() ? 'recent' : 'main');
+  }
+
+  function filterFromLightbox() {
+    const name = document.getElementById('lbName').textContent;
+    const c = creators.find(x => x.name === name);
+    if (c) { closeLightbox(); toggleCreator(c.name, c.color, c.initial); }
+  }
+
+  document.addEventListener('keydown', e => {
+    if (!document.getElementById('lightbox').classList.contains('visible')) return;
+    if (e.key === 'Escape') closeLightbox();
+    if (e.key === 'ArrowLeft') navigateLightbox(-1);
+    if (e.key === 'ArrowRight') navigateLightbox(1);
+  });
+  document.getElementById('lightbox').addEventListener('click', e => { if (e.target === document.getElementById('lightbox')) closeLightbox(); });
+
+  renderRecent(); renderGrid(); renderCreatorChips();
+</script>
+</body>
+</html>

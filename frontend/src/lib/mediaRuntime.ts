@@ -5,12 +5,12 @@ import type {
 	BoosterRelayMode,
 	ServerMediaRuntimeResponse,
 	SfuProvider
-} from '../../../shared/mediaContracts.js';
+} from '../../../shared/mediaContracts';
 export type {
 	BoosterRelayMode,
 	ServerMediaRuntimeResponse,
 	SfuProvider
-} from '../../../shared/mediaContracts.js';
+} from '../../../shared/mediaContracts';
 
 export type MediaQualityMode = 'web-baseline' | 'local-enhanced';
 export type AudioProcessingMode = 'auto' | 'dsp' | 'rnn' | 'studio';

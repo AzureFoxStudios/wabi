@@ -6,8 +6,8 @@ import type {
 	MessageEntity,
 	PlaceMentionSuggestion
 } from './placeRegistry';
-import { placeRegistry } from './place-search';
-import { searchPlaces } from './place-search';
+import { placeRegistry } from './placeStore';
+import { searchPlaces } from './placeSearch';
 
 function normalizeKey(value: unknown): string {
 	return String(value || '')

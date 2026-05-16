@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { pinnedChannels, currentChannel, channelMessages } from '$lib/socket';
+	import { getChannelTypeIcon } from '$lib/channelTypes';
 
 	export let collapsed = false;
 	let headerHovered = false;
@@ -17,11 +18,6 @@
 		return messages.length; // Simplified - can be enhanced with proper unread tracking
 	}
 
-	function getChannelIcon(channelType?: string): string {
-		if (channelType === 'dm') return '\u{1F464}';
-		if (channelType === 'group') return '\u{1F465}';
-		return '#';
-	}
 </script>
 
 <div class="pinned-sidebar" class:collapsed>
@@ -42,7 +38,7 @@
 					title={channel.name}
 				>
 					<span class="channel-icon">
-						{getChannelIcon(channel.type)}
+						{getChannelTypeIcon(channel.type)}
 					</span>
 					<span class="channel-name">
 						{channel.name}

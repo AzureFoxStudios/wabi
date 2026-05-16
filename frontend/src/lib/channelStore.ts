@@ -16,6 +16,7 @@ import type { Socket } from 'socket.io-client';
 import type { Channel } from './socket-types';
 import { socket } from './socketConnection';
 import { getSocket } from './socketConnection';
+import { createChannelApi, deleteChannelApi } from './api';
 
 // ============================================================================
 // STORES
@@ -41,7 +42,7 @@ function getChannelById(channelId: string | null | undefined): Channel | undefin
 
 function updatePinnedChannels(): void {
 	const allChannels = get(channels);
-	const pinned = allChannels.filter((channel) => channel.pinned);
+	const pinned = allChannels.filter((channel) => channel.pinnedBy && channel.pinnedBy.length > 0);
 	pinnedChannels.set(pinned);
 }
 
@@ -66,10 +67,13 @@ export function switchChannel(channelId: string): void {
 	}
 }
 
-export function createChannel(channelName: string, description?: string, channelType: 'text' | 'voice' = 'text'): void {
-	const sock = getSocket();
-	if (!sock) return;
-	sock.emit('create-channel', { channelName, description, channelType });
+export async function createChannel(channelName: string, description?: string, channelType: 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage' = 'text'): Promise<void> {
+	try {
+		await createChannelApi(channelName, channelType, description);
+	} catch (e) {
+		console.error('[channelStore] Failed to create channel:', e);
+		throw e;
+	}
 }
 
 export function createBreakoutRooms(parentChannelId: string, roomCount = 2, autoAssign = true): void {
@@ -105,10 +109,13 @@ export function createThread(parentChannelId: string, name: string, options?: {
 	sock.emit('create-thread', { parentChannelId, name, ...options });
 }
 
-export function deleteChannel(channelId: string): void {
-	const sock = getSocket();
-	if (!sock) return;
-	sock.emit('delete-channel', { channelId });
+export async function deleteChannel(channelId: string): Promise<void> {
+	try {
+		await deleteChannelApi(channelId);
+	} catch (e) {
+		console.error('[channelStore] Failed to delete channel:', e);
+		throw e;
+	}
 }
 
 export function pinChannel(channelId: string): void {
@@ -128,6 +135,10 @@ export function updateChannelSettings(channelId: string, settings: {
 	description?: string;
 	isPrivate?: boolean;
 	voiceSettings?: any;
+	minRole?: string;
+	autoDeleteAfter?: string | number | null;
+	persistMessages?: boolean;
+	watchQueueEnabled?: boolean;
 }): void {
 	const sock = getSocket();
 	if (!sock) return;

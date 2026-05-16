@@ -33,8 +33,10 @@ import {
 	selectedGroupChannel,
 	obviousGrabRails,
 	NOTES_DM_ID,
+	layoutLoaded,
 	setLayoutLoaded,
-	DEFAULT_CONSTANTS
+	DEFAULT_CONSTANTS,
+	isApplyingLayout
 } from './layoutStoreStates';
 import {
 	toggleRightPanel,
@@ -46,6 +48,7 @@ import {
 	resizeRightPanelStacks,
 	toggleRightPanelStackCollapsed,
 	toggleRightPanelStackPinned,
+	mergeRightPanelStack,
 	resetRightPanelDock
 } from './layoutStoreRightPanel';
 import {
@@ -71,6 +74,7 @@ import {
 import {
 	loadLayoutState,
 	queuePersist,
+	scheduleSyncWorkspace,
 	resetAllLayouts,
 	exportLayoutJson,
 	importLayoutJson
@@ -98,15 +102,21 @@ if (browser) {
 }
 
 layoutState.subscribe((state) => {
-	if (!get({ layoutLoaded: true })) return;
+	if (!layoutLoaded) return;
 	activeWorkspace.set(state.activeWorkspace);
 });
 
-channelSidebarWidth.subscribe(() => queuePersist());
+channelSidebarWidth.subscribe(() => {
+	queuePersist();
+	if (!isApplyingLayout) scheduleSyncWorkspace();
+});
 rightPanelWidth.subscribe(() => queuePersist());
 rightPanelView.subscribe(() => queuePersist());
 rightPanelDock.subscribe(() => queuePersist());
-navDock.subscribe(() => queuePersist());
+navDock.subscribe(() => {
+	queuePersist();
+	if (!isApplyingLayout) scheduleSyncWorkspace();
+});
 
 // ============================================================================
 // HELPER FUNCTIONS FOR PANELS
@@ -348,9 +358,13 @@ export const layoutStore = {
 	resizeRightPanelStacks,
 	toggleRightPanelStackCollapsed,
 	toggleRightPanelStackPinned,
+	mergeRightPanelStack,
 	resetRightPanelDock,
 	detachPanel,
 	dockPanel,
 	isPanelDetached,
 	setObviousGrabRails: (enabled: boolean) => obviousGrabRails.set(Boolean(enabled))
 };
+
+
+export { NOTES_DM_ID };

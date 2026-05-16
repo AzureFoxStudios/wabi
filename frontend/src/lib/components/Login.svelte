@@ -278,7 +278,7 @@
 				{/if}
 				{#if activeLaunchPageConfig.highlights.length > 0}
 					<ul class="launch-highlights">
-						{#each activeLaunchPageConfig.highlights as highlight (highlight.title)}
+						{#each activeLaunchPageConfig.highlights as highlight, i (i)}
 							<li>
 								<strong>{highlight.title}</strong>
 								<span>{highlight.description}</span>

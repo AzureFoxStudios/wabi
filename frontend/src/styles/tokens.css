@@ -235,7 +235,7 @@
 	   ======================================================================== */
 
 	/* Legacy color namespace */
-	--surface-app: var(--surface-base, #1a1a2e);
+	--surface-app: var(--bg-primary, linear-gradient(to right, #0f0c29 0%, #302b63 100%));
 	--color-background-primary-rgb: var(--bg-secondary-rgb, 26, 26, 46);
 	--surface-base: var(--surface-raised, #24243e);
 	--color-background-secondary-rgb: var(--bg-tertiary-rgb, 36, 36, 62);

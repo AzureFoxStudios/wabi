@@ -272,7 +272,7 @@
 						</div>
 					{:else}
 						<div class="entries-list-view">
-							{#each Object.entries(entriesByMonth).sort((a, b) => b[0].localeCompare(a[0])) as [monthKey, { label, entries }]}
+							{#each Object.entries(entriesByMonth).sort((a, b) => b[0].localeCompare(a[0])) as [monthKey, { label, entries }] (monthKey)}
 								<div class="month-group">
 									<h3 class="month-header">{label}</h3>
 									<div class="month-entries">

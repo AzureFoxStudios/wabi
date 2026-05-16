@@ -1,5 +1,5 @@
-import type { LaunchPageConfig } from '../../../shared/launchPageContracts.js';
-import type { FrontendAppMetadataPolicy } from '../../../shared/adminPolicyContracts.js';
+import type { LaunchPageConfig } from '../../../../shared/launchPageContracts';
+import type { FrontendAppMetadataPolicy } from '../../../../shared/adminPolicyContracts';
 import { getApiBaseFor, fetchWithTimeout, LAUNCH_PAGE_TIMEOUT_MS } from './utils';
 
 export interface PublicBackendEndpoint {

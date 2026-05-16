@@ -14,6 +14,7 @@ import type {
 } from './callRecordingTypes';
 import { PRESETS } from './callRecordingTypes';
 import { RecordingAudioMixer, type RecordingAudioInputResolver } from './callRecordingAudio';
+export type { RecordingAudioInputResolver };
 import { RecordingVideoComposer } from './callRecordingVideo';
 import { triggerBrowserDownload } from './callRecordingUtils';
 import { getCurrentSnapshot } from './callRecordingSession';

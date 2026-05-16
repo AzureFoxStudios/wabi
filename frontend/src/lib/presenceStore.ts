@@ -13,6 +13,7 @@
 import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { getSocket } from './socketConnection';
+import type { User } from './socket-types';
 
 // ============================================================================
 // TYPES
@@ -20,6 +21,7 @@ import { getSocket } from './socketConnection';
 
 export interface VoiceChannelParticipant {
 	userId: string;
+	socketId?: string;
 	username: string;
 	isSpeaking: boolean;
 	isMuted: boolean;
@@ -27,11 +29,15 @@ export interface VoiceChannelParticipant {
 	videoEnabled?: boolean;
 	screenShareEnabled?: boolean;
 	connectionState?: string;
+	profilePicture?: string;
 }
 
 export interface RoleDefinition {
 	id: string;
 	name: string;
+	roleName: string;
+	displayName: string;
+	priority: number;
 	permissions: string[];
 	color?: string;
 }
@@ -40,9 +46,9 @@ export interface RoleDefinition {
 // STORES
 // ============================================================================
 
-export const users = writable<Record<string, any>>({});
-export const serverMembers = writable<Record<string, any>>({});
-export const currentUser = writable<any>(null);
+export const users = writable<User[]>([]);
+export const serverMembers = writable<User[]>([]);
+export const currentUser = writable<User | null>(null);
 export const activeVoiceChannel = writable<string | null>(null);
 export const voiceChannelMembers = writable<Record<string, VoiceChannelParticipant[]>>({});
 export const roleDefinitions = writable<RoleDefinition[]>([]);
@@ -73,13 +79,13 @@ export function setVoiceTransmitMode(mode: 'always' | 'push-to-talk' | 'auto'): 
 // PUBLIC API - Role Operations
 // ============================================================================
 
-export function assignRole(userId: string, roleId: string): void {
+export function assignRole(userId: string | number, roleId: string): void {
 	const sock = getSocket();
 	if (!sock) return;
 	sock.emit('assign-role', { userId, roleId });
 }
 
-export function removeUserRole(userId: string, roleId: string): void {
+export function removeUserRole(userId: string | number, roleId: string): void {
 	const sock = getSocket();
 	if (!sock) return;
 	sock.emit('remove-user-role', { userId, roleId });
@@ -89,10 +95,10 @@ export function removeUserRole(userId: string, roleId: string): void {
 // PUBLIC API - User Management
 // ============================================================================
 
-export function banUser(userId: string): void {
+export function banUser(userId: string | number, reason?: string): void {
 	const sock = getSocket();
 	if (!sock) return;
-	sock.emit('ban-user', { userId });
+	sock.emit('ban-user', { userId, reason });
 }
 
 // ============================================================================
@@ -133,20 +139,26 @@ export function updateGroupAvatar(groupId: string, avatarUrl: string): void {
 // INTERNAL EXPORTS FOR SOCKET-MANAGER
 // ============================================================================
 
-export function _setUsers(usersData: Record<string, any>): void {
-	users.set(usersData);
+function normalizeUserList(value: unknown): User[] {
+	if (Array.isArray(value)) return value as User[];
+	if (value && typeof value === 'object') return Object.values(value as Record<string, User>);
+	return [];
 }
 
-export function _setCurrentUser(userData: any): void {
+export function _setUsers(usersData: User[] | Record<string, User>): void {
+	users.set(normalizeUserList(usersData));
+}
+
+export function _setCurrentUser(userData: User | null): void {
 	currentUser.set(userData);
 }
 
-export function _setServerMembers(membersData: Record<string, any>): void {
-	serverMembers.set(membersData);
+export function _setServerMembers(membersData: User[] | Record<string, User>): void {
+	serverMembers.set(normalizeUserList(membersData));
 }
 
-export function _setActiveVoiceChannel(channelId: string | null): void {
-	activeVoiceChannel.set(channelId);
+export function _setActiveVoiceChannel(channel: string | { id: string; name?: string } | null): void {
+	activeVoiceChannel.set(typeof channel === 'string' ? channel : channel?.id ?? null);
 }
 
 export function _setVoiceChannelMembers(channelId: string, members: VoiceChannelParticipant[]): void {
@@ -156,8 +168,19 @@ export function _setVoiceChannelMembers(channelId: string, members: VoiceChannel
 	}));
 }
 
-export function _setRoleDefinitions(roles: RoleDefinition[]): void {
-	roleDefinitions.set(roles);
+export function _setRoleDefinitions(roles: Array<Partial<RoleDefinition> & { roleName?: string; displayName?: string; name?: string; priority?: number }>): void {
+	roleDefinitions.set(roles.map((role) => {
+		const roleName = role.roleName || role.name || role.id || 'member';
+		return {
+			id: role.id || roleName,
+			name: role.name || roleName,
+			roleName,
+			displayName: role.displayName || role.name || roleName,
+			priority: role.priority ?? 0,
+			permissions: role.permissions || [],
+			color: role.color
+		};
+	}));
 }
 
 export function _updateVoiceChannelMember(channelId: string, userId: string, updates: Partial<VoiceChannelParticipant>): void {

@@ -7,6 +7,7 @@
 	import ModelViewportTab from '$lib/components/ModelViewportTab.svelte';
 	import ReaderTab from '$lib/components/ReaderTab.svelte';
 	import MapWorkspace from '$lib/components/MapWorkspace.svelte';
+	import GalleryChannel from '$lib/components/GalleryChannel.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
 	import ServerRail from '$lib/components/ServerRail.svelte';
 	import ServerSwitcherPanel from '$lib/components/ServerSwitcherPanel.svelte';
@@ -95,6 +96,8 @@
 		$layoutStore.channelSidebarWidth > 0 &&
 		$savedServerRailItems.length > 1;
 	$: desktopServerRailOffset = desktopServerRailVisible ? SERVER_RAIL_WIDTH : 0;
+	$: currentChannelData = $channels.find(ch => ch.id === $currentChannel);
+	$: isGalleryChannel = currentChannelData?.type === 'gallery';
 
 	layoutStore.isResizingChannel.subscribe(v => resizingChannel = v);
 	layoutStore.isResizingRight.subscribe(v => resizingRight = v);
@@ -615,7 +618,8 @@
 		if (mobileNavVisible) scheduleMobileNavIdleHide();
 	}
 
-	function getChannelPreviewTransform(): string {
+	function getChannelPreviewTransform(): string | undefined {
+		if (!$layoutStore.isMobile) return undefined;
 		const channelsOpen = $layoutStore.showMobileChannels;
 		if (!swipePreviewActive || swipePreviewTarget !== 'channels') {
 			// When channels is open normally (not preview), no transform
@@ -850,6 +854,8 @@
 					<MapWorkspace variant="full" />
 				{:else if activeView === 'following'}
 					<FollowingFeed on:openChannel={() => (activeView = 'chat')} />
+				{:else if isGalleryChannel}
+					<GalleryChannel />
 				{:else}
 					<Chat
 						on:logout
@@ -867,9 +873,11 @@
 			type="button"
 			class="right-reopen-rail"
 			class:dock-right={$layoutStore.navDock === 'right'}
-			style:right={$layoutStore.navDock === 'right' ? `${desktopServerRailOffset}px` : null}
-			style:left={$layoutStore.navDock !== 'right'
+			style:right={$layoutStore.navDock === 'right'
 				? `${desktopServerRailOffset + $layoutStore.channelSidebarWidth}px`
+				: '0px'}
+			style:left={$layoutStore.navDock !== 'right'
+				? null
 				: null}
 			on:click={layoutStore.expandRight}
 			on:mousedown|preventDefault={startRightResizeFromClosed}
@@ -992,6 +1000,7 @@
 		height: 100dvh;
 		overflow: hidden;
 		position: relative;
+		background: var(--surface-app);
 	}
 
 	.app-container.in-call {
@@ -1025,14 +1034,24 @@
 	}
 
 	.server-rail-container {
+		order: 1;
 		flex-shrink: 0;
 		position: relative;
 	}
 
 	.channel-sidebar-container {
+		order: 2;
 		flex-shrink: 0;
 		position: relative;
 		border-right: 1px solid rgba(var(--border-rgb), var(--opacity-light));
+	}
+
+	.main-content {
+		order: 3;
+	}
+
+	.right-panel-container {
+		order: 4;
 	}
 
 	.app-container.nav-right .server-rail-container {
@@ -1329,7 +1348,7 @@
 		background: color-mix(in srgb, var(--surface-base) 86%, black 14%);
 		border: 1px solid var(--border-subtle);
 		border-right: none;
-		border-radius: 0 var(--radius-md) var(--radius-md) 0;
+		border-radius: var(--radius-md) 0 0 var(--radius-md);
 		color: var(--text-secondary);
 		display: flex;
 		align-items: center;
@@ -1347,11 +1366,10 @@
 	}
 
 	.right-reopen-rail.dock-right {
-		right: auto;
-		left: 0;
+		left: auto;
 		border-right: 1px solid var(--border-subtle);
 		border-left: none;
-		border-radius: var(--radius-md) 0 0 var(--radius-md);
+		border-radius: 0 var(--radius-md) var(--radius-md) 0;
 	}
 
 	/* --- Mobile Styles --- */

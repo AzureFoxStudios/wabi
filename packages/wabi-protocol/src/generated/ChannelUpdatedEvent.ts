@@ -2,4 +2,4 @@
 import type { MessageRetentionDuration } from "./MessageRetentionDuration";
 import type { VoiceChannelSettings } from "./VoiceChannelSettings";
 
-export type ChannelUpdatedEvent = { channelId: string, autoDeleteAfter?: MessageRetentionDuration | null, persistMessages?: boolean | null, name?: string | null, description?: string | null, watchQueueEnabled?: boolean | null, minRole?: string | null, voiceSettings?: VoiceChannelSettings | null, };
+export type ChannelUpdatedEvent = { channelId: string, autoDeleteAfter?: MessageRetentionDuration | null, persistMessages?: boolean | null, name?: string | null, description?: string | null, watchQueueEnabled?: boolean | null, minRole?: string | null, voiceSettings?: VoiceChannelSettings | null, topic?: string | null, };

@@ -24,7 +24,7 @@ export default defineConfig({
 	},
 	define: {
 		'process.env': {},
-		'__WABI_SW_VERSION__': JSON.stringify('5')
+		'__WABI_SW_VERSION__': JSON.stringify('7')
 	},
 	plugins: [
 		sveltekit()

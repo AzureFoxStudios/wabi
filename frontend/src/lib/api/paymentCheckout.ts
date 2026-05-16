@@ -2,8 +2,8 @@ import type {
 	PaymentCheckoutMode,
 	PaymentIntentStatus,
 	PaymentProviderCapability
-} from '../../../shared/paymentContracts.js';
-import type { PaymentAccessPolicy } from '../../../shared/adminPolicyContracts.js';
+} from '../../../../shared/paymentContracts';
+import type { PaymentAccessPolicy } from '../../../../shared/adminPolicyContracts';
 import { getApiBase, fetchWithTimeout, safeJsonParse, toQueryParam } from './utils';
 
 export interface PaymentIntent {
@@ -21,8 +21,8 @@ export interface PaymentIntent {
 	checkoutMode: PaymentCheckoutMode;
 	customerRef: string | null;
 	description: string | null;
-	metadata: Record<string, unknown> | null;
-	presentation: Record<string, unknown> | null;
+	metadata: Record<string, any> | null;
+	presentation: Record<string, any> | null;
 	failureCode: string | null;
 	failureMessage: string | null;
 	expiresAt: number | null;
@@ -37,7 +37,7 @@ export interface PaymentEvent {
 	eventType: string;
 	status: PaymentIntentStatus | null;
 	source: 'core' | 'plugin' | 'webhook' | 'manual';
-	payload: Record<string, unknown> | null;
+	payload: Record<string, any> | null;
 	signatureValid: boolean | null;
 	idempotencyKey: string | null;
 	createdAt: number;
@@ -69,7 +69,7 @@ export interface CreatePaymentIntentPayload {
 	description?: string;
 	customerRef?: string;
 	idempotencyKey?: string;
-	metadata?: Record<string, unknown>;
+	metadata?: Record<string, any>;
 }
 
 export interface CreatePaymentIntentResponse {
@@ -93,7 +93,7 @@ export async function listPaymentProviders(filters?: {
 
 	const suffix = query.size > 0 ? `?${query.toString()}` : '';
 	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/providers${suffix}`, { method: 'GET' });
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error((data.error as string) || 'Failed to list payment providers');
 	}
@@ -112,7 +112,7 @@ export async function createPaymentIntent(
 		},
 		body: JSON.stringify(payload)
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to create payment intent');
 	}
@@ -141,7 +141,7 @@ export async function getPaymentIntent(
 		method: 'GET',
 		headers: token ? { Authorization: `Bearer ${token}` } : undefined
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to load payment intent');
 	}
@@ -168,7 +168,7 @@ export async function cancelPaymentIntent(
 		},
 		body: JSON.stringify({ reason: reason || 'Canceled by user' })
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to cancel payment intent');
 	}
@@ -183,7 +183,7 @@ export async function getPaymentAccess(token: string | null | undefined): Promis
 		method: 'GET',
 		headers: token ? { Authorization: `Bearer ${token}` } : undefined
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to load payment access status');
 	}

@@ -12,6 +12,7 @@
 	import { followedChannelSnapshots } from '$lib/followingSnapshots';
 	import { currentSavedServer, switchToSavedServerChannel } from '$lib/savedServers';
 	import { resolveServerUrl } from '$lib/serverUrl';
+	import { getChannelTypeIcon, getChannelTypeLabel } from '$lib/channelTypes';
 
 	const MAX_FEED_ITEMS = 64;
 	const dispatch = createEventDispatcher<{
@@ -73,15 +74,11 @@
 	}
 
 	function summarizeChannel(channel: Channel): string {
-		if (channel.type === 'group') return 'Group chat';
-		if (channel.type === 'thread_public' || channel.type === 'thread_private') return 'Thread';
-		return 'Channel';
+		return getChannelTypeLabel(channel.type);
 	}
 
 	function summarizeSnapshotChannel(channelType: Channel['type'] | undefined): string {
-		if (channelType === 'group') return 'Group chat';
-		if (channelType === 'thread_public' || channelType === 'thread_private') return 'Thread';
-		return 'Channel';
+		return getChannelTypeLabel(channelType);
 	}
 </script>
 
@@ -124,7 +121,7 @@
 				<article class="follow-card" class:active={$currentChannel === entry.channel.id}>
 					<button type="button" class="follow-card-main" on:click={() => openChannel(entry.channel.id)}>
 						<div class="follow-card-header">
-							<span class="follow-channel-pill">{entry.channel.type === 'group' ? 'Group' : '#'}</span>
+							<span class="follow-channel-pill">{getChannelTypeIcon(entry.channel.type)}</span>
 							<strong>{entry.channel.name}</strong>
 							{#if entry.unreadCount > 0}
 								<span class="follow-unread">{entry.unreadCount}</span>
@@ -174,7 +171,7 @@
 						<button type="button" class="stream-card" on:click={() => openSnapshot(item.serverUrl, item.channelId)}>
 							<div class="stream-card-topline">
 								<div class="stream-channel-meta">
-									<span class="stream-channel-name">{item.channelType === 'group' ? item.channelName : `#${item.channelName}`}</span>
+									<span class="stream-channel-name">{getChannelTypeIcon(item.channelType)} {item.channelName}</span>
 									<span class="stream-server-name">{item.serverName || item.serverUrl}</span>
 								</div>
 								<time>{formatTimestamp(item.lastActivityAt)}</time>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { emojis, type Emoji } from '$lib/socket';
+	import { emojis } from '$lib/emoji-store';
+	import type { Emoji } from '$lib/socket';
 	import { _ } from '$lib/i18n';
 
 	const dispatch = createEventDispatcher<{

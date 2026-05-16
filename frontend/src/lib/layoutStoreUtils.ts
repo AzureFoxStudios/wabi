@@ -4,8 +4,8 @@
  */
 
 import { get } from 'svelte/store';
-import { normalizePanelDock, cloneWorkspace, FALLBACK_WORKSPACE_PANEL_ID, getNavTabset, getAuxTabset, buildPhase1Root, type WorkspacePanelDockV1, type WorkspacePanelId, type WorkspacePanelStackV1, type WorkspaceLayoutV1 } from '$lib/docking/layoutSchema';
-import { activeWorkspace, navDock, channelSidebarWidth, rightPanelView, rightPanelDock, activeRightTab, layoutState, setIsApplyingLayout, DEFAULT_CONSTANTS } from './layoutStoreStates';
+import { normalizePanelDock, cloneWorkspace, FALLBACK_WORKSPACE_PANEL_ID, getNavTabset, getAuxTabset, buildPhase1Root, isValidWorkspacePanelId, createDefaultWorkspaceLayout, getWorkspace, type WorkspacePanelDockV1, type WorkspacePanelId, type WorkspacePanelStackV1, type WorkspaceLayoutV1 } from '$lib/docking/layoutSchema';
+import { activeWorkspace, navDock, channelSidebarWidth, rightPanelWidth, rightPanelView, rightPanelDock, activeRightTab, layoutState, layoutLoaded, setIsApplyingLayout, DEFAULT_CONSTANTS, isMobile } from './layoutStoreStates';
 
 export function getDockActivePanelId(dock: WorkspacePanelDockV1): WorkspacePanelId {
 	const expandedStack = dock.stacks.find((stack) => !stack.collapsed && stack.tabs.includes(stack.activePanelId));
@@ -43,7 +43,6 @@ export function createStack(
 }
 
 export function normalizePanelIdForRuntime(panelId: string): WorkspacePanelId {
-	const { isValidWorkspacePanelId } = require('$lib/docking/layoutSchema');
 	return isValidWorkspacePanelId(panelId) ? panelId.trim() : FALLBACK_WORKSPACE_PANEL_ID;
 }
 
@@ -75,7 +74,6 @@ export function setPanelDock(nextDock: WorkspacePanelDockV1): void {
 }
 
 export function withActiveWorkspace(mutator: (workspace: WorkspaceLayoutV1) => WorkspaceLayoutV1): void {
-	const { createDefaultWorkspaceLayout, getWorkspace } = require('$lib/docking/layoutSchema');
 	layoutState.update((state) => {
 		const current = state.workspaces[state.activeWorkspace] || createDefaultWorkspaceLayout(state.activeWorkspace);
 		const next = mutator(current);
@@ -105,7 +103,6 @@ export function applyWorkspaceToRuntime(workspace: WorkspaceLayoutV1): void {
 	rightPanelDock.set(dock);
 	activeRightTab.set(activePanelId);
 
-	const { isMobile } = require('./layoutStoreStates');
 	if (!get(isMobile)) {
 		if (aux.collapsed) {
 			rightPanelView.set('none');
@@ -119,10 +116,8 @@ export function applyWorkspaceToRuntime(workspace: WorkspaceLayoutV1): void {
 }
 
 export function syncWorkspaceFromRuntime(): void {
-	const { layoutLoaded, setIsApplyingLayout } = require('./layoutStoreStates');
-	if (get({ layoutLoaded }) || !get({ layoutLoaded })) {
-		const { getWorkspace } = require('$lib/docking/layoutSchema');
-
+	if (!layoutLoaded) return;
+	{
 		withActiveWorkspace((workspace) => {
 			const side = get(navDock);
 			const navTab = getNavTabset(workspace);

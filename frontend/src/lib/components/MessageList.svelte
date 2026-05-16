@@ -1,15 +1,17 @@
 <script lang="ts">
 	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
-	import { fade, fly, scale } from 'svelte/transition';
 	import { get } from 'svelte/store';
 	import { browser } from '$app/environment';
 	import type { Message, User, Emoji, Channel, FileAttachment } from '$lib/socket';
 	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder, loadOlderHistory, channelHistoryLoading, channelHasMoreHistory, roleDefinitions, retryMessagePersistence } from '$lib/socket';
 	import { themeStore } from '$lib/theme/themeStore';
+	import MessageItem from './MessageItem.svelte';
 	import MessageContextMenu from './MessageContextMenu.svelte';
 	import ForwardDialog from './ForwardDialog.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import ZipPreviewPanel from './ZipPreviewPanel.svelte';
+	import ImageLightbox from './ImageLightbox.svelte';
+	import VideoLightbox from './VideoLightbox.svelte';
 	import ModelViewer3D from './plugins/ModelViewer3D.svelte';
 	import YouTubeWatchEmbed from './plugins/YouTubeWatchEmbed.svelte';
 	import SpotifyControlsEmbed from './plugins/SpotifyControlsEmbed.svelte';
@@ -65,13 +67,6 @@
 	export let onQuickMention: (message: Message) => void = () => {};
 	export let firstUnreadMessageId: string | null = null;
 	const dispatch = createEventDispatcher();
-	const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
-	const easeOutQuint = (t: number) => 1 - Math.pow(1 - t, 5);
-	const easeOutBack = (t: number) => {
-		const c1 = 1.70158;
-		const c3 = c1 + 1;
-		return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
-	};
 	const MESSAGE_RENDER_BATCH = 120;
 	const MESSAGE_RENDER_MAX = 360;
 	const MESSAGE_ANIMATION_BURST_WINDOW_MS = 600;
@@ -168,44 +163,6 @@
 		if (style === 'card') return 'style-card';
 		return 'style-plain';
 	})();
-
-	function getTransitionForPreset(
-		node: Element,
-		preset: AnimationPassPreset,
-		duration: number,
-		distance: number
-	) {
-		if (preset === 'fade') {
-			return fade(node, { duration, easing: easeOutCubic });
-		}
-		if (preset === 'scale') {
-			return scale(node, { duration, start: 0.985, opacity: 0.2, easing: easeOutBack });
-		}
-		if (preset === 'flip') {
-			return scale(node, { duration, start: 0.93, opacity: 0.12, easing: easeOutQuint });
-		}
-		return fly(node, { duration, y: distance, opacity: 0.15, easing: easeOutQuint });
-	}
-
-	function messageItemTransition(
-		node: Element,
-		params: {
-			enabled: boolean;
-			preset: AnimationPassPreset;
-			duration: number;
-			distance: number;
-			animate: boolean;
-		}
-	) {
-		const reducedMotion = typeof document !== 'undefined' && document.documentElement.getAttribute('data-reduce-motion') === 'true';
-		if (reducedMotion) {
-			return fade(node, { duration: 0 });
-		}
-		if (!params.enabled || !params.animate || params.duration <= 0) {
-			return fade(node, { duration: 0 });
-		}
-		return getTransitionForPreset(node, params.preset, params.duration, params.distance);
-	}
 
 	function clearBurstAnimationReset(): void {
 		if (burstAnimationResetHandle !== null) {
@@ -1377,9 +1334,6 @@
 	$: if (showUserPopout) {
 		ensureUserPopoutLoaded();
 	}
-	function getEmojiById(emojiId: string): Emoji | undefined {
-		return $emojis.find(e => e.id === emojiId);
-	}
 
 	const QUICK_REACTION_NAME_CANDIDATES: string[][] = [
 		['thumbsup', 'thumbs_up', 'thumb-up', 'like', '+1'],
@@ -2257,857 +2211,78 @@
 			</div>
 		{/if}
 
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div
-			id="message-{message.id}"
-			class="message {message.isPinned ? 'pinned' : ''} {isPersonalPinnedMessage(message.id) ? 'personal-pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''} {groupedWithNext ? 'has-continuation' : ''} {ownMessage ? 'own-message' : ''} {message.deliveryState === 'sending' ? 'is-sending' : ''} {message.deliveryState === 'failed' ? 'is-send-failed' : ''}"
-			title={message.deliveryState === 'failed' ? (message.deliveryError || 'Message failed to send') : undefined}
-			on:contextmenu={(e) => handleContextMenu(e, message)}
-			use:longpress={{ onLongPress: (e) => handleMessageLongPress(e, message) }}
-			transition:messageItemTransition={{
-				...messageAnimation,
-				animate: shouldAnimateMessage
-			}}
-		>
-			<div class="message-actions" class:mobile-visible={mobileActionsMessageId === message.id}>
-			{#if quickReactionEmojis.length > 0}
-				<div class="quick-reactions-strip">
-					{#each quickReactionEmojis as quickEmoji (quickEmoji.id)}
-						<button
-							class="quick-reaction-btn"
-							title={`Quick react: ${quickEmoji.displayName || quickEmoji.name}`}
-							on:click|stopPropagation={() => quickReactToMessage(message.id, quickEmoji.id)}
-						>
-							<img
-								src={quickEmoji.url}
-								alt={quickEmoji.displayName || quickEmoji.name}
-								class="quick-reaction-emoji"
-								loading="lazy"
-								decoding="async"
-							/>
-						</button>
-					{/each}
-				</div>
-			{/if}
-			<button class="action-btn" title={$_('messages.add_reaction')} on:click={(e) => openReactionPicker(e, message.id)}>
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
-			</button>
-			<button class="action-btn" title={$_('messages.actions.reply')} on:click={() => handleReply(message)}>
-				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
-			</button>
-			{#if $displayEnhancementSettingsStore.messageUtilitiesEnabled}
-				{#if $displayEnhancementSettingsStore.quickMentionEnabled && !ownMessage}
-					<button class="action-btn utility-btn" title={$_('context_menu.quick_mention')} on:click={() => handleQuickMention(message)}>
-						@
-					</button>
-				{/if}
-				<button class="action-btn utility-btn" title={message.isPinned ? $_('context_menu.unpin_message') : $_('context_menu.pin_message')} on:click={() => handleUtilityPinToggle(message)}>
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg>
-				</button>
-				{#if ownMessage}
-					<button class="action-btn utility-btn" title={$_('context_menu.edit_message')} on:click={() => handleUtilityEdit(message)}>
-						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path></svg>
-					</button>
-				{/if}
-			{/if}
-			<button class="action-btn" title={$_('messages.actions.more')} on:click={(e) => handleContextMenu(e, message)}>
-				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
-			</button>
-		</div>
-
-		<!-- Profile Picture -->
-		{#if groupedWithPrevious}
-			<div class="message-avatar message-avatar-spacer" aria-hidden="true"></div>
-		{:else}
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<!-- svelte-ignore a11y-no-static-element-interactions -->
-				<div class="message-avatar">
-					{#if author?.profilePicture}
-						<img src={author.profilePicture} alt={displayUsername} class="avatar" loading="lazy" decoding="async" />
-					{:else}
-						<div class="avatar-placeholder" style="--avatar-color: {getUserColor(author, displayUsername)}">
-							{displayUsername.charAt(0).toUpperCase()}
-						</div>
-					{/if}
-				</div>
-		{/if}
-		<!-- Message Content -->
-		<div class="message-body">
-			{#if !groupedWithPrevious}
-				<div class="message-header">
-					<div class="header-left">
-						{#if author}
-							<!-- svelte-ignore a11y-click-events-have-key-events -->
-							<!-- svelte-ignore a11y-no-static-element-interactions -->
-							<span
-								class="username"
-								class:clickable-username={$displayEnhancementSettingsStore.clickableMentionsEnabled}
-								style="color: {getUserColor(author, displayUsername)}; {getUsernameStyle(author, displayUsername, $themeStore)}"
-								on:click={(event) => handleUsernameClick(event, message, author)}
-							>
-								{displayUsername}
-							</span>
-						{:else}
-							<span class="username">{displayUsername}</span>
-						{/if}
-						{#if getTopRoleBadgeLabel(author)}
-							<span class={`role-inline-badge tone-${getTopRoleBadgeTone(author)}`}>{getTopRoleBadgeLabel(author)}</span>
-						{/if}
-						{#if shouldShowStaffTag(author)}
-							<span class="staff-inline-tag">Staff</span>
-						{/if}
-						<span class="timestamp" title={formatTimeTooltip(message.timestamp)}>
-							{formatTime(message.timestamp)}
-						</span>
-						{#if deletionLabel}
-							<span class="deletion-timer" title={$_('messages.deletion.scheduled_title')}>
-								{deletionLabel}
-							</span>
-						{/if}
-						{#if message.isPinned}
-							<span class="pin-badge" title={$_('messages.pinned_title')}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg></span>
-						{/if}
-						{#if $displayEnhancementSettingsStore.personalPinsEnabled && isPersonalPinnedMessage(message.id)}
-							<span class="local-pin-badge" title={$_('context_menu.pin_local_message')}>Local Pin</span>
-						{/if}
-						{#if message.isEdited}
-							<span class="edited-badge" title={$_('messages.edited_title')}>({$_('messages.edited')})</span>
-						{/if}
-					</div>
-				</div>
-			{:else}
-				<!-- Compact-mode inline header for continuation messages (hidden in cozy) -->
-				<div class="message-header compact-only-header">
-					<div class="header-left">
-						<span class="timestamp" title={formatTimeTooltip(message.timestamp)}>
-							{formatTime(message.timestamp)}
-						</span>
-						{#if author}
-							<!-- svelte-ignore a11y-click-events-have-key-events -->
-							<!-- svelte-ignore a11y-no-static-element-interactions -->
-							<span
-								class="username"
-								class:clickable-username={$displayEnhancementSettingsStore.clickableMentionsEnabled}
-								style="color: {getUserColor(author, displayUsername)}; {getUsernameStyle(author, displayUsername, $themeStore)}"
-								on:click={(event) => handleUsernameClick(event, message, author)}
-							>
-								{displayUsername}
-							</span>
-						{:else}
-							<span class="username">{displayUsername}</span>
-						{/if}
-						{#if getTopRoleBadgeLabel(author)}
-							<span class={`role-inline-badge tone-${getTopRoleBadgeTone(author)}`}>{getTopRoleBadgeLabel(author)}</span>
-						{/if}
-						{#if shouldShowStaffTag(author)}
-							<span class="staff-inline-tag">Staff</span>
-						{/if}
-					</div>
-				</div>
-			{/if}
-			{#if groupedWithPrevious && deletionLabel}
-				<div class="grouped-deletion-meta">
-					<span class="deletion-timer" title={$_('messages.deletion.scheduled_title')}>
-						{deletionLabel}
-					</span>
-				</div>
-			{/if}
-			{#if ownMessage && message.persistenceState}
-				<div class="message-persistence-row">
-					<span
-						class="message-persistence-badge"
-						class:is-failed={message.persistenceState === 'failed'}
-						class:is-retrying={message.persistenceState === 'retrying'}
-						title={message.persistenceError || ''}
-					>
-						{message.persistenceState === 'retrying'
-							? $_('messages.persistence.retrying')
-							: $_('messages.persistence.failed')}
-					</span>
-					{#if message.persistenceState === 'failed'}
-						<button
-							class="message-persistence-retry"
-							type="button"
-							on:click={() => retryMessagePersistence($currentChannel, message.id)}
-						>
-							{$_('messages.persistence.retry')}
-						</button>
-					{/if}
-				</div>
-			{/if}
-
-			<!-- Reply Preview -->
-			{#if replyToMsg}
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<!-- svelte-ignore a11y-no-static-element-interactions -->
-				<div
-					class="reply-preview"
-					role="button"
-					tabindex="0"
-					on:click={() => jumpToMessage(replyToMsg.id)}
-					on:keydown={(event) => {
-						if (event.key === 'Enter' || event.key === ' ') {
-							event.preventDefault();
-							jumpToMessage(replyToMsg.id);
-						}
-					}}
-				>
-					<div class="reply-line"></div>
-						<div class="reply-content">
-							<span class="reply-username">
-								{getMessageDisplayUsername(replyToMsg)}
-							</span>
-							<span class="reply-text">
-							{#if replyToMsg.text}
-								{replyToMsg.text.substring(0, 100)}{replyToMsg.text.length > 100 ? '...' : ''}
-							{:else if replyToMsg.type === 'gif'}
-								GIF
-							{:else if replyToMsg.type === 'emoji'}
-								:{replyToMsg.emojiName || 'sticker'}:
-							{:else if replyToMsg.fileUrl}
-								{replyToMsg.fileName || $_('messages.file')}
-							{:else}
-								{$_('messages.message')}
-							{/if}
-						</span>
-					</div>
-				</div>
-			{/if}
-
-			<!-- Message Content or Edit Mode -->
-			{#if editingMessageId === message.id}
-				<div class="edit-mode">
-					<textarea
-						bind:value={editText}
-						class="edit-textarea"
-						rows="3"
-						on:keydown={(e) => {
-							if (e.key === 'Enter' && !e.shiftKey) {
-								e.preventDefault();
-								saveEdit(message.id);
-							} else if (e.key === 'Escape') {
-								e.preventDefault();
-								cancelEdit();
-							}
-						}}
-					></textarea>
-					<div class="edit-actions">
-						<button class="edit-cancel" on:click={cancelEdit}>{$_('common.cancel')}</button>
-						<button class="edit-save" on:click={() => saveEdit(message.id)}>{$_('common.save')}</button>
-					</div>
-				</div>
-			{:else}
-				{@const albumAnnouncement = getAlbumAnnouncementMeta(message)}
-				<div class="message-content">
-					{#if isLocalDirectionsMessage(message)}
-						{@const directions = getDirectionsMeta(message)}
-						{#if directions}
-							<div class="directions-card">
-								<div class="directions-card-head">
-									<div class="directions-card-copy">
-										<div class="directions-card-kicker">Local Directions</div>
-										<div class="directions-card-title">{directions.placeLabel}</div>
-									</div>
-									<div class="directions-card-expiry">{formatDirectionsExpiry(directions.expiresAt)}</div>
-								</div>
-								<div class="directions-card-details">
-									<div class="directions-detail-row">
-										<span class="directions-detail-label">Place</span>
-										<span class="directions-detail-value">{directions.placeLabel}</span>
-									</div>
-									{#if directions.poiLabel}
-										<div class="directions-detail-row">
-											<span class="directions-detail-label">POI</span>
-											<span class="directions-detail-value">{directions.poiLabel}</span>
-										</div>
-									{/if}
-									{#if directions.layerLabel}
-										<div class="directions-detail-row">
-											<span class="directions-detail-label">Layer</span>
-											<span class="directions-detail-value">{directions.layerLabel}</span>
-										</div>
-									{/if}
-									{#if directions.building}
-										<div class="directions-detail-row">
-											<span class="directions-detail-label">Building</span>
-											<span class="directions-detail-value">{directions.building}</span>
-										</div>
-									{/if}
-									{#if directions.floor}
-										<div class="directions-detail-row">
-											<span class="directions-detail-label">Floor</span>
-											<span class="directions-detail-value">{directions.floor}</span>
-										</div>
-									{/if}
-									{#if directions.coordinates}
-										<div class="directions-detail-row">
-											<span class="directions-detail-label">Coordinates</span>
-											<span class="directions-detail-value">{directions.coordinates}</span>
-										</div>
-									{/if}
-									{#if directions.originCoordinates}
-										<div class="directions-detail-row">
-											<span class="directions-detail-label">From</span>
-											<span class="directions-detail-value">{directions.originCoordinates}</span>
-										</div>
-									{/if}
-								</div>
-								<div class="directions-card-actions">
-									<button
-										type="button"
-										class="directions-card-btn"
-										on:click={() =>
-											openMapPanel(directions.placeId, {
-												layerId: directions.layerId || null,
-												poiId: directions.poiId || null
-											})}
-									>
-										Mini Map
-									</button>
-									<button
-										type="button"
-										class="directions-card-btn primary"
-										on:click={() =>
-											openFullMapTab(directions.placeId, {
-												layerId: directions.layerId || null,
-												poiId: directions.poiId || null
-											})}
-									>
-										Full Map
-									</button>
-									<button
-										type="button"
-										class="directions-card-btn"
-										on:click={() =>
-											openPreferredMapSurface(directions.placeId, {
-												layerId: directions.layerId || null,
-												poiId: directions.poiId || null
-											})}
-									>
-										Smart Open
-									</button>
-									{#if directions.externalUrl}
-										<button
-											type="button"
-											class="directions-card-btn"
-											on:click={() => openDirectionsExternal(directions.externalUrl)}
-										>
-											{directions.externalLabel || 'Open OSM'}
-										</button>
-									{/if}
-								</div>
-							</div>
-						{/if}
-					{:else if albumAnnouncement && (!message.files || message.files.length === 0)}
-						<div
-							class="album-message-card album-message-card--actionable album-message-card--empty"
-							class:is-uploading={albumAnnouncementUploadName === albumAnnouncement.name}
-							role="button"
-							tabindex="0"
-							aria-disabled={albumAnnouncementUploadName === albumAnnouncement.name}
-							on:click={() => handleAlbumAnnouncementActivate(albumAnnouncement, false)}
-							on:keydown={(event) => handleAlbumAnnouncementKeydown(event, albumAnnouncement, false)}
-						>
-							<div class="album-message-main">
-								<div class="album-message-head">
-									<div class="album-message-copy">
-										<div class="album-message-kicker">Shared album</div>
-										<div class="album-message-title">{albumAnnouncement.name}</div>
-									</div>
-									<span class="album-message-count">{getAlbumAnnouncementStatusLabel(albumAnnouncement)}</span>
-								</div>
-								<div class="album-message-empty">
-									{getAlbumAnnouncementSupportText(albumAnnouncement)}
-								</div>
-							</div>
-							<div class="album-message-actions">
-								<button
-									type="button"
-									class="album-message-btn"
-									disabled={albumAnnouncementUploadName === albumAnnouncement.name}
-									on:click|stopPropagation={() => triggerAlbumAnnouncementUpload(albumAnnouncement)}
-								>
-									{albumAnnouncementUploadName === albumAnnouncement.name ? 'Uploading...' : 'Add Media'}
-								</button>
-								<button type="button" class="album-message-btn primary" on:click|stopPropagation={openAlbumPanel}>
-									Open Albums
-								</button>
-							</div>
-						</div>
-					{:else if message.type === 'role_gate'}
-						{@const gate = parseRoleGateText(messageText)}
-						<div class="role-gate-card">
-							<div class="role-gate-label">{$_('messages.role_gate.title')}</div>
-							<div class="role-gate-title">{gate.title}</div>
-							{#if gate.description}
-								<div class="role-gate-description">{gate.description}</div>
-							{/if}
-							<div class="role-gate-hint">{$_('messages.role_gate.hint')}</div>
-						</div>
-						{:else if message.type === 'gif' && message.gifUrl}
-							<div class="gif-message-block">
-								<img src={message.gifUrl} alt="GIF" class="gif {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
-								{#if messageText}
-									<!-- svelte-ignore a11y-click-events-have-key-events -->
-									<div
-										class="markdown-content gif-caption {gifCaptionStyleClass}"
-										on:click={handleMarkdownContentClick}
-									>
-								{@html parseMessage(messageText, message.entities || [])}
-							</div>
-								{/if}
-							</div>
-						{:else if message.type === 'emoji' && message.emojiUrl}
-						<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
-					{:else if message.type === 'file' && (message.fileUrl || message.files)}
-						{#if albumAnnouncement && message.files}
-							{@const albumPreviewFiles = getAlbumAnnouncementPreviewFiles(message)}
-							<div
-								class="album-message-card album-message-card--actionable"
-								role="button"
-								tabindex="0"
-								on:click={() => handleAlbumAnnouncementActivate(albumAnnouncement, true)}
-								on:keydown={(event) => handleAlbumAnnouncementKeydown(event, albumAnnouncement, true)}
-							>
-								<div class="album-message-main">
-									<div class="album-message-head">
-										<div class="album-message-copy">
-											<div class="album-message-kicker">Shared album</div>
-											<div class="album-message-title">{albumAnnouncement.name}</div>
-										</div>
-										<span class="album-message-count">{getAlbumAnnouncementStatusLabel(albumAnnouncement, message.files.length)}</span>
-									</div>
-									{#if albumPreviewFiles.length > 0}
-										<div class="album-message-grid">
-											{#each albumPreviewFiles as fileAttachment}
-												<button
-													type="button"
-													class="album-message-tile"
-													on:click|stopPropagation={() => openAlbumAnnouncementPreview(message, fileAttachment)}
-													title={fileAttachment.fileName}
-												>
-													{#if isVideo(fileAttachment.fileName)}
-														<video muted playsinline preload="metadata">
-															<source src={getFileUrl(fileAttachment.fileUrl)} />
-														</video>
-													{:else}
-														<img
-															src={getFileUrl(fileAttachment.fileUrl)}
-															alt={fileAttachment.fileName}
-															loading="lazy"
-															decoding="async"
-														/>
-													{/if}
-												</button>
-											{/each}
-										</div>
-									{:else}
-										<div class="album-message-empty">
-											{getAlbumAnnouncementSupportText(albumAnnouncement, message.files.length)}
-										</div>
-									{/if}
-									{#if getRecentAlbumAnnouncementUploadCount(albumAnnouncement.name) > 0}
-										<div class="album-message-note">
-											Added {getRecentAlbumAnnouncementUploadCount(albumAnnouncement.name)} file{getRecentAlbumAnnouncementUploadCount(albumAnnouncement.name) === 1 ? '' : 's'} from this device recently.
-										</div>
-									{/if}
-								</div>
-								<div class="album-message-actions">
-									<button
-										type="button"
-										class="album-message-btn"
-										disabled={albumAnnouncementUploadName === albumAnnouncement.name}
-										on:click|stopPropagation={() => triggerAlbumAnnouncementUpload(albumAnnouncement)}
-									>
-										{albumAnnouncementUploadName === albumAnnouncement.name ? 'Uploading...' : 'Add Media'}
-									</button>
-									<button type="button" class="album-message-btn primary" on:click|stopPropagation={openAlbumPanel}>
-										Open Album
-									</button>
-									{#if albumPreviewFiles.length > 0}
-										<button
-											type="button"
-											class="album-message-btn"
-											on:click|stopPropagation={() => openAlbumAnnouncementPreview(message, albumPreviewFiles[0])}
-										>
-											Preview
-										</button>
-									{/if}
-								</div>
-							</div>
-						{:else if message.files && message.files.length > 1}
-							<!-- Multiple files gallery -->
-							<div class="files-gallery" class:has-more={message.files.length > 4}>
-								{#each message.files.slice(0, 4) as fileAttachment, index}
-									{#if isImage(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
-										<!-- svelte-ignore a11y-click-events-have-key-events -->
-										<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-										<div class="gallery-file-item" class:last-item={index === 3 && message.files.length > 4}>
-											<img
-												src={getFileUrl(fileAttachment.fileUrl)}
-												alt={fileAttachment.fileName}
-												class="gallery-file-image {message.isSpoiler ? 'spoiler' : ''}"
-												data-spoiler={message.isSpoiler ? 'true' : 'false'}
-												on:click={(e) => {
-													if (e.button === 0) {
-														const imageGallery = message.files
-															.filter(f => isImage(f.fileName))
-															.map(f => getFileUrl(f.fileUrl));
-														enlargeImage(getFileUrl(fileAttachment.fileUrl), imageGallery);
-													}
-												}}
-												title={$_('messages.media.click_enlarge')}
-											/>
-											{#if index === 3 && message.files.length > 4}
-												<div class="more-overlay">
-													<span class="more-count">+{message.files.length - 4}</span>
-												</div>
-											{/if}
-										</div>
-									{:else if isVideo(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
-										<!-- svelte-ignore a11y-media-has-caption -->
-										<!-- svelte-ignore a11y-click-events-have-key-events -->
-										<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-										<div class="gallery-file-item" class:last-item={index === 3 && message.files.length > 4}>
-											<video
-												class="gallery-file-video {message.isSpoiler ? 'spoiler' : ''}"
-												data-spoiler={message.isSpoiler ? 'true' : 'false'}
-												on:click={(e) => e.button === 0 && enlargeVideo(getFileUrl(fileAttachment.fileUrl))}
-												title={$_('messages.media.click_enlarge')}
-											>
-												<source src={getFileUrl(fileAttachment.fileUrl)} />
-											</video>
-											{#if index === 3 && message.files.length > 4}
-												<div class="more-overlay">
-													<span class="more-count">+{message.files.length - 4}</span>
-												</div>
-											{/if}
-										</div>
-									{:else if isAudio(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
-										<!-- svelte-ignore a11y-media-has-caption -->
-										<div class="gallery-file-item audio-item" class:last-item={index === 3 && message.files.length > 4}>
-											<audio
-												controls
-												class="gallery-file-audio"
-											>
-												<source src={getFileUrl(fileAttachment.fileUrl)} type="audio/{fileAttachment.fileName?.split('.').pop()}" />
-												{$_('messages.media.audio_not_supported')}
-											</audio>
-											<div class="audio-file-name">{fileAttachment.fileName}</div>
-											{#if index === 3 && message.files.length > 4}
-												<div class="more-overlay">
-													<span class="more-count">+{message.files.length - 4}</span>
-												</div>
-											{/if}
-										</div>
-									{:else if isModelFile(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
-										<div class="gallery-file-item model-item" class:last-item={index === 3 && message.files.length > 4}>
-											<ModelViewer3D src={getFileUrl(fileAttachment.fileUrl)} fileName={fileAttachment.fileName || $_('messages.media.model_fallback_name')} height={220} />
-											<button
-												class="open-viewport-btn"
-												on:click={() => openModelInDedicatedTab(getFileUrl(fileAttachment.fileUrl), fileAttachment.fileName || $_('messages.media.model_fallback_name'))}
-											>
-												{$_('messages.media.open_3d_tab')}
-											</button>
-											<a href={getFileUrl(fileAttachment.fileUrl)} target="_blank" rel="noopener noreferrer" download={fileAttachment.fileName} class="image-download-link">
-												<span class="file-icon">{getFileIcon(fileAttachment.fileName)}</span>
-												{fileAttachment.fileName}
-												<span class="file-size-small">({formatFileSize(fileAttachment.fileSize)})</span>
-											</a>
-											{#if index === 3 && message.files.length > 4}
-												<div class="more-overlay">
-													<span class="more-count">+{message.files.length - 4}</span>
-												</div>
-											{/if}
-										</div>
-									{:else if isBlendFile(fileAttachment.fileName)}
-										<div class="gallery-file-item blend-item" class:last-item={index === 3 && message.files.length > 4}>
-											<div class="gallery-file-icon-large">{getFileIcon(fileAttachment.fileName)}</div>
-											<div class="gallery-file-overlay">
-												<span class="file-name-truncate">{fileAttachment.fileName}</span>
-												<span class="file-size-small">({formatFileSize(fileAttachment.fileSize)})</span>
-											</div>
-											<div class="blend-actions">
-												<button class="blend-import-btn" on:click={() => openBlendImportSettings(fileAttachment.fileUrl, fileAttachment.fileName)}>
-													{$_('messages.blend.import_settings')}
-												</button>
-											</div>
-											{#if index === 3 && message.files.length > 4}
-												<div class="more-overlay">
-													<span class="more-count">+{message.files.length - 4}</span>
-												</div>
-											{/if}
-										</div>
-									{:else}
-										<a
-											href={getFileUrl(fileAttachment.fileUrl)}
-											target="_blank"
-											rel="noopener noreferrer"
-											download={fileAttachment.fileName}
-											class="gallery-file-item file-link"
-											on:click|preventDefault={() => downloadAttachment(fileAttachment.fileUrl, fileAttachment.fileName, fileAttachment.attachmentEncryption)}
-										>
-											<div class="gallery-file-icon-large">{getFileIcon(fileAttachment.fileName)}</div>
-											<div class="gallery-file-overlay">
-												<span class="file-name-truncate">{fileAttachment.fileName}</span>
-												<span class="file-size-small">({formatFileSize(fileAttachment.fileSize)})</span>
-												{#if isEncryptedAttachment(fileAttachment)}
-													<span class="file-size-small">(encrypted)</span>
-												{/if}
-											</div>
-										</a>
-									{/if}
-								{/each}
-							</div>
-							{@const zipFiles = message.files.filter((fileAttachment) => isZipFile(fileAttachment.fileName))}
-							{#if zipFiles.length > 0}
-								<div class="multi-zip-previews">
-									{#each zipFiles as zipFile}
-										<ZipPreviewPanel
-											fileUrl={getFileUrl(zipFile.fileUrl)}
-											fileName={zipFile.fileName || 'archive.zip'}
-											fileSize={zipFile.fileSize}
-											encrypted={isEncryptedAttachment(zipFile)}
-										/>
-									{/each}
-								</div>
-							{/if}
-						{:else if message.fileUrl}
-							{#if isModelFile(message.fileName) && !isEncryptedAttachment(message)}
-							<div class="model-container">
-								<ModelViewer3D src={getFileUrl(message.fileUrl)} fileName={message.fileName || $_('messages.media.model_fallback_name')} />
-								<button
-									class="open-viewport-btn"
-									on:click={() => message.fileUrl && openModelInDedicatedTab(getFileUrl(message.fileUrl), message.fileName || $_('messages.media.model_fallback_name'))}
-								>
-									{$_('messages.media.open_3d_tab')}
-								</button>
-								<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="image-download-link">
-									<span class="file-icon">{getFileIcon(message.fileName)}</span>
-									{message.fileName}
-									<span class="file-size">({formatFileSize(message.fileSize)})</span>
-								</a>
-							</div>
-							{:else if isImage(message.fileName) && !isEncryptedAttachment(message)}
-							<!-- Display image inline -->
-							<div class="image-container">
-								<!-- svelte-ignore a11y-click-events-have-key-events -->
-								<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-								<img
-									src={getFileUrl(message.fileUrl)}
-									alt={message.fileName}
-									class="inline-image {message.isSpoiler ? 'spoiler' : ''}"
-									data-spoiler={message.isSpoiler ? 'true' : 'false'}
-									on:click={(e) => e.button === 0 && message.fileUrl && enlargeImage(getFileUrl(message.fileUrl))}
-									on:contextmenu={(e) => handleImageContextMenu(e, message)}
-									title={$_('messages.media.click_enlarge_with_options')}
-								/>
-								<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="image-download-link">
-									<span class="file-icon">{getFileIcon(message.fileName)}</span>
-									{message.fileName}
-									<span class="file-size">({formatFileSize(message.fileSize)})</span>
-								</a>
-							</div>
-						{:else if isVideo(message.fileName) && !isEncryptedAttachment(message)}
-							<!-- Display video with player -->
-							<div class="video-container">
-								<!-- svelte-ignore a11y-media-has-caption -->
-								<!-- svelte-ignore a11y-click-events-have-key-events -->
-								<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-								<video
-									controls
-									class="inline-video {message.isSpoiler ? 'spoiler' : ''}"
-									data-spoiler={message.isSpoiler ? 'true' : 'false'}
-									on:click={(e) => {
-										if (e.button === 0 && message.fileUrl) {
-											enlargeVideo(getFileUrl(message.fileUrl));
-										}
-									}}
-									on:contextmenu={(e) => handleImageContextMenu(e, message)}
-									title={$_('messages.media.click_enlarge_with_options')}
-								>
-									<source src={getFileUrl(message.fileUrl)} type="video/{message.fileName?.split('.').pop()}" />
-									{$_('messages.viewer.video_not_supported')}
-								</video>
-								<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="video-download-link">
-									<span class="file-icon">{getFileIcon(message.fileName)}</span>
-									{message.fileName}
-									<span class="file-size">({formatFileSize(message.fileSize)})</span>
-								</a>
-							</div>
-						{:else if isAudio(message.fileName) && !isEncryptedAttachment(message)}
-							<!-- Display audio with player -->
-							<div class="audio-container">
-								<!-- svelte-ignore a11y-media-has-caption -->
-								<audio
-									controls
-									class="inline-audio"
-								>
-									<source src={getFileUrl(message.fileUrl)} type="audio/{message.fileName?.split('.').pop()}" />
-									{$_('messages.media.audio_not_supported')}
-								</audio>
-								<div class="audio-file-info">
-									<span class="file-icon">{getFileIcon(message.fileName)}</span>
-									{message.fileName}
-									<span class="file-size">({formatFileSize(message.fileSize)})</span>
-								</div>
-							</div>
-						{:else if isBlendFile(message.fileName) && !isEncryptedAttachment(message)}
-							<div class="blend-file-card">
-								<div class="blend-file-head">
-									<span class="file-icon">{getFileIcon(message.fileName)}</span>
-									<div class="file-info">
-										<span class="file-name">{message.fileName}</span>
-										<span class="file-size">{formatFileSize(message.fileSize)}</span>
-									</div>
-								</div>
-								<div class="blend-file-actions">
-									<button class="blend-import-btn" on:click={() => message.fileUrl && message.fileName && openBlendImportSettings(message.fileUrl, message.fileName)}>
-										{$_('messages.blend.import_settings')}
-									</button>
-									<button class="blend-download-btn" on:click={() => message.fileUrl && message.fileName && downloadAttachment(message.fileUrl, message.fileName, message.attachmentEncryption)}>
-										{$_('messages.blend.download')}
-									</button>
-								</div>
-							</div>
-						{:else}
-							<!-- Display other files as download link -->
-							<a
-								href={getFileUrl(message.fileUrl)}
-								target="_blank"
-								rel="noopener noreferrer"
-								download={message.fileName}
-								class="file-attachment"
-								on:click|preventDefault={() => message.fileUrl && message.fileName && downloadAttachment(message.fileUrl, message.fileName, message.attachmentEncryption)}
-							>
-								<span class="file-icon">{getFileIcon(message.fileName)}</span>
-								<div class="file-info">
-									<span class="file-name">{message.fileName}</span>
-									<span class="file-size">{formatFileSize(message.fileSize)}{message.attachmentEncryption ? ` (${$_('messages.encrypted')})` : ''}</span>
-								</div>
-							</a>
-							{#if isZipFile(message.fileName)}
-								<ZipPreviewPanel
-									fileUrl={getFileUrl(message.fileUrl)}
-									fileName={message.fileName || 'archive.zip'}
-									fileSize={message.fileSize}
-									encrypted={isEncryptedAttachment(message)}
-								/>
-							{/if}
-						{/if}
-						{/if}
-						{#if !albumAnnouncement && messageText && (message.files ? messageText !== `Shared ${message.files.length} files` : messageText !== `Shared: ${message.fileName}`)}
-							<!-- svelte-ignore a11y-click-events-have-key-events -->
-							<div class="markdown-content" on:click={handleMarkdownContentClick}>
-								{@html parseMessage(messageText, message.entities || [])}
-							</div>
-						{/if}
-					{:else}
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<div class="markdown-content" on:click={handleMarkdownContentClick}>
-							{@html parseMessage(messageText, message.entities || [])}
-						</div>
-					{/if}
-					{#if translatedText}
-						<div class="translated-content" class:loading={translationLoading}>
-							<span class="translated-label">{$_('messages.translated_label')}</span>
-							<div class="translated-text">{translatedText}</div>
-						</div>
-					{/if}
-
-					<!-- TEMPORARY: Media URLs and Link Previews -->
-					{#if messageText}
-						{@const urls = extractUrls(messageText)}
-						{#each urls as url, urlIndex}
-							{#if isYouTubeUrl(url)}
-								{#if LinkPreviewComponent}
-									<svelte:component this={LinkPreviewComponent} {url} />
-								{:else}
-									{@const _linkPreviewRequested = (ensureLinkPreviewLoaded(), true)}
-									<a href={url} target="_blank" rel="noopener noreferrer" class="plain-link-fallback">{url}</a>
-								{/if}
-								{#if isYouTubeQueueChannel($currentChannel) && urlIndex === 0}
-									<div class="youtube-queue-section">
-										<YouTubeWatchEmbed url={url} channelId={$currentChannel} />
-									</div>
-								{/if}
-							{:else if $displayEnhancementSettingsStore.spotifyControlsEnabled && isSpotifyUrl(url)}
-								<SpotifyControlsEmbed {url} />
-							{:else}
-							{@const mediaType = getMediaType(url)}
-							{#if mediaType === 'image'}
-								<img
-									src={url}
-									alt={$_('messages.media.embedded_image_alt')}
-									class="embedded-media embedded-image {message.isSpoiler ? 'spoiler' : ''}"
-									data-spoiler={message.isSpoiler ? 'true' : 'false'}
-									loading="lazy"
-								/>
-							{:else if mediaType === 'video'}
-								<!-- svelte-ignore a11y-media-has-caption -->
-								<video
-									controls
-									class="embedded-media embedded-video {message.isSpoiler ? 'spoiler' : ''}"
-									data-spoiler={message.isSpoiler ? 'true' : 'false'}
-								>
-									<source src={url} />
-									{$_('messages.viewer.video_not_supported')}
-								</video>
-							{:else if mediaType === 'audio'}
-								<!-- svelte-ignore a11y-media-has-caption -->
-								<audio
-									controls
-									class="embedded-media embedded-audio"
-								>
-									<source src={url} />
-									{$_('messages.media.audio_not_supported')}
-								</audio>
-							{:else if mediaType === 'model'}
-								<div class="embedded-model-container">
-									<ModelViewer3D src={url} fileName={url.split('/').pop() || $_('messages.media.model_fallback_name')} height={280} />
-									<button
-										class="open-viewport-btn"
-										on:click={() => openModelInDedicatedTab(url, url.split('/').pop() || $_('messages.media.model_fallback_name'))}
-									>
-										{$_('messages.media.open_3d_tab')}
-									</button>
-								</div>
-							{:else}
-								<!-- Regular link preview for non-media URLs -->
-								{#if LinkPreviewComponent}
-									<svelte:component this={LinkPreviewComponent} {url} />
-								{:else}
-									{@const _linkPreviewRequested = (ensureLinkPreviewLoaded(), true)}
-									<a href={url} target="_blank" rel="noopener noreferrer" class="plain-link-fallback">{url}</a>
-								{/if}
-							{/if}
-							{/if}
-						{/each}
-					{/if}
-				</div>
-			{/if}
-
-			{#if message.reactions && Object.keys(message.reactions).length > 0}
-				<div class="reactions">
-					{#each Object.entries(message.reactions) as [emojiId, userIds]}
-						{@const emoji = getEmojiById(emojiId)}
-						{#if emoji && userIds.length > 0}
-							{@const userReacted = hasCurrentUserReaction(userIds)}
-							<button
-								class="reaction-btn"
-								class:user-reacted={userReacted}
-								on:click={() => toggleReaction(message.id, emojiId)}
-								title={getReactionTooltip(userIds)}
-							>
-								<img src={emoji.url} alt={emoji.name} class="reaction-emoji" loading="lazy" decoding="async" />
-								<span class="reaction-count">{userIds.length}</span>
-							</button>
-						{/if}
-					{/each}
-				</div>
-			{/if}
-		</div>
-	</div>
+		<MessageItem
+			{message}
+			{author}
+			{displayUsername}
+			replyToMsg={replyToMsg}
+			{groupedWithPrevious}
+			{groupedWithNext}
+			{ownMessage}
+			{deletionLabel}
+			{translatedText}
+			{translationLoading}
+			{filteredMessage}
+			{shouldAnimateMessage}
+			{quickReactionEmojis}
+			isPersonalPinned={isPersonalPinnedMessage(message.id)}
+			{messageAnimation}
+			{gifCaptionStyleClass}
+			deletionCountdownMode={deletionCountdownMode}
+			currentChannel={$currentChannel}
+			themeStore={$themeStore}
+			displayEnhancementSettingsStore={$displayEnhancementSettingsStore}
+			chatFilterStore={$chatFilterStore}
+			quickReactionSettingsStore={$quickReactionSettingsStore}
+			roleDefinitions={$roleDefinitions}
+			channels={$channels}
+			currentUser={$currentUser}
+			users={$users as any[]}
+			emojis={$emojis}
+			personalPinnedMessageIdSet={personalPinnedMessageIdSet}
+			editingMessageId={editingMessageId}
+			editText={editText}
+			mobileActionsMessageId={mobileActionsMessageId}
+			{nowMs}
+			albumAnnouncementUploadName={albumAnnouncementUploadName}
+			highlightedMessageId={highlightedMessageId}
+			messageText={messageText}
+			LinkPreviewComponent={LinkPreviewComponent}
+			ensureLinkPreviewLoaded={ensureLinkPreviewLoaded}
+			onReply={handleReply}
+			onQuickMention={handleQuickMention}
+			onContextMenu={handleContextMenu}
+			onLongPress={handleMessageLongPress}
+			onOpenReactionPicker={openReactionPicker}
+			onQuickReact={quickReactToMessage}
+			onToggleReaction={toggleReaction}
+			onJumpToMessage={jumpToMessage}
+			onSaveEdit={saveEdit}
+			onCancelEdit={cancelEdit}
+			onEnlargeImage={enlargeImage}
+			onEnlargeVideo={enlargeVideo}
+			onImageContextMenu={handleImageContextMenu}
+			onDownloadAttachment={downloadAttachment}
+			onOpenBlendImportSettings={openBlendImportSettings}
+			onOpenModelInDedicatedTab={openModelInDedicatedTab}
+			onOpenMapPanel={openMapPanel}
+			onOpenFullMapTab={openFullMapTab}
+			onOpenPreferredMapSurface={openPreferredMapSurface}
+			onOpenDirectionsExternal={openDirectionsExternal}
+			onTriggerAlbumUpload={triggerAlbumAnnouncementUpload}
+			onHandleAlbumActivate={handleAlbumAnnouncementActivate}
+			onOpenAlbumPanel={openAlbumPanel}
+			onOpenAlbumPreview={openAlbumAnnouncementPreview}
+			onAlbumUploadChange={handleAlbumAnnouncementUploadChange}
+			onTogglePersonalPin={handleTogglePersonalPin}
+			onHandleUtilityPinToggle={handleUtilityPinToggle}
+			onHandleUtilityEdit={handleUtilityEdit}
+			onHandleMarkdownContentClick={handleMarkdownContentClick}
+			onToggleSpoiler={toggleSpoiler}
+			onCapturedSpoilerClick={handleCapturedSpoilerClick}
+			onHandleUsernameClick={handleUsernameClick}
+			onHandleAlbumAnnouncementKeydown={handleAlbumAnnouncementKeydown}
+		/>
 	{/if}
 {/each}
 
@@ -3200,135 +2375,7 @@
 	/>
 {/if}
 
-{#if enlargedImage}
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div
-		class="image-modal"
-		role="button"
-		tabindex="0"
-		on:click={closeEnlargedImage}
-		on:keydown={(event) => {
-			if (event.key === 'Enter' || event.key === ' ') {
-				event.preventDefault();
-				closeEnlargedImage();
-			}
-		}}
-	>
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-		<img
-			src={enlargedImage}
-			alt={$_('messages.viewer.enlarged_alt')}
-			class="enlarged-image"
-			on:click|stopPropagation
-			on:load={onEnlargedImageLoad}
-			style={`transform: scale(${imageZoom});`}
-		/>
+<ImageLightbox imageUrl={enlargedImage} gallery={currentImageGallery} onClose={closeEnlargedImage} />
 
-		<!-- Navigation arrows (only show if multiple images) -->
-		{#if currentImageGallery.length > 1}
-			<button class="nav-arrow nav-prev" on:click|stopPropagation={() => navigateImage('prev')} title={$_('messages.viewer.previous')}>
-				&lt;
-			</button>
-			<button class="nav-arrow nav-next" on:click|stopPropagation={() => navigateImage('next')} title={$_('messages.viewer.next')}>
-				&gt;
-			</button>
-			<div class="image-counter">
-				{currentImageIndex + 1} / {currentImageGallery.length}
-			</div>
-		{/if}
-
-		<div class="lightbox-toolbar-wrap" on:click|stopPropagation>
-			<div class="lightbox-toolbar">
-				<a
-					href={enlargedImage}
-					target="_blank"
-					rel="noopener noreferrer"
-					class="toolbar-btn"
-					title={$_('messages.viewer.open_new_tab')}
-					aria-label={$_('messages.viewer.open_new_tab')}
-				>
-					<svg class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M14 3h7v7" />
-						<path d="M10 14 21 3" />
-						<path d="M21 14v7h-7" />
-						<path d="M3 10V3h7" />
-						<path d="M3 21h7v-7" />
-					</svg>
-				</a>
-				<button class="toolbar-btn" on:click={forwardCurrentImage} title={$_('messages.viewer.forward_share')} aria-label={$_('messages.viewer.forward_share')}>
-					<svg class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M5 12h14" />
-						<path d="m13 5 7 7-7 7" />
-					</svg>
-				</button>
-				<button class="toolbar-btn" on:click={zoomOut} title={$_('messages.viewer.zoom_out')} aria-label={$_('messages.viewer.zoom_out')}>
-					-
-				</button>
-				<button class="toolbar-btn zoom-level" on:click={resetZoom} title={$_('messages.viewer.reset_zoom')} aria-label={$_('messages.viewer.reset_zoom')}>
-					{Math.round(imageZoom * 100)}%
-				</button>
-				<button class="toolbar-btn" on:click={zoomIn} title={$_('messages.viewer.zoom_in')} aria-label={$_('messages.viewer.zoom_in')}>
-					+
-				</button>
-				<div class="toolbar-more-wrap">
-					<button class="toolbar-btn" on:click={toggleImageMenu} title={$_('messages.viewer.more')} aria-label={$_('messages.viewer.more_actions')}>
-						...
-					</button>
-					{#if imageMenuOpen}
-						<div class="toolbar-menu" role="menu">
-							<button class="toolbar-menu-item" on:click={copyCurrentImageLink}>{$_('messages.viewer.copy_image_link')}</button>
-							<button class="toolbar-menu-item" on:click={copyCurrentImage}>{$_('messages.viewer.copy_image')}</button>
-							<button class="toolbar-menu-item" on:click={openReverseImageSearch}>{$_('messages.viewer.reverse_search')}</button>
-							<div class="toolbar-menu-item details-hover-row">
-								{$_('messages.viewer.image_details')}
-								<div class="image-details-popout" role="note">
-									<div><strong>{$_('messages.viewer.details_name')}:</strong> {imageMeta.name}</div>
-									<div><strong>{$_('messages.viewer.details_dimensions')}:</strong> {imageMeta.width ?? '?'} x {imageMeta.height ?? '?'}</div>
-									<div><strong>{$_('messages.viewer.details_size')}:</strong> {formatBytes(imageMeta.sizeBytes)}</div>
-								</div>
-							</div>
-						</div>
-					{/if}
-				</div>
-			</div>
-			<button class="close-modal" on:click={closeEnlargedImage} aria-label={$_('messages.viewer.close')}>X</button>
-		</div>
-	</div>
-{/if}
-
-{#if enlargedVideo}
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div
-		class="video-modal"
-		role="button"
-		tabindex="0"
-		on:click={closeEnlargedVideo}
-		on:keydown={(event) => {
-			if (event.key === 'Enter' || event.key === ' ') {
-				event.preventDefault();
-				closeEnlargedVideo();
-			}
-		}}
-	>
-		<!-- svelte-ignore a11y-media-has-caption -->
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-		<video
-			controls
-			autoplay
-			class="enlarged-video"
-			on:click|stopPropagation
-		>
-			<source src={enlargedVideo} />
-			{$_('messages.viewer.video_not_supported')}
-		</video>
-		<button class="close-modal" on:click={closeEnlargedVideo}>X</button>
-		<a href={enlargedVideo} target="_blank" rel="noopener noreferrer" class="open-new-tab">
-			{$_('messages.viewer.open_new_tab')}
-		</a>
-	</div>
-{/if}
+<VideoLightbox videoUrl={enlargedVideo} onClose={closeEnlargedVideo} />
 

@@ -217,6 +217,12 @@ export class ChatStorage {
 		await this.messageManager.cleanupChannelHistory(channelId, serverMessages);
 	}
 
+	async deleteArchive(periodKey: string): Promise<void> {
+		if (!browser) return;
+		await this.ensureInit();
+		await this.db.deleteArchive(periodKey);
+	}
+
 	async clearAllHistory(): Promise<void> {
 		if (!browser) return;
 		await this.ensureInit();

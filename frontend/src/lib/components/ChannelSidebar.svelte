@@ -100,7 +100,7 @@
 
 	let newChannelName = '';
 	let newChannelDescription = '';
-	let newChannelType: 'text' | 'voice' = 'text';
+	let newChannelType: 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage' = 'text';
 	let showCreateInput = false;
 	let newChannelNameInput: HTMLInputElement | null = null;
 	let serverIdentityImageFailed = false;
@@ -117,6 +117,7 @@
 	let glimpsePopover: HTMLElement | null = null;
 	let isTextSectionExpanded = true;
 	let isVoiceSectionExpanded = true;
+	let isGallerySectionExpanded = true;
 	let voiceDurationMode: 'off' | 'others' | 'all' = 'all';
 	let nowMs = Date.now();
 	let voiceDurationTicker: ReturnType<typeof setInterval> | null = null;
@@ -251,10 +252,14 @@
 		rooms.sort((a, b) => (a.breakoutIndex || 0) - (b.breakoutIndex || 0))
 	);
 	$: voiceChannels = allVoiceChannels.filter(ch => !ch.isBreakout);
+	$: galleryChannels = $channels
+		.filter(ch => ch.type === 'gallery')
+		.filter(ch => !shouldHideChannelFromList(ch))
+		.sort((a, b) => a.name.localeCompare(b.name));
 	$: activeListenChips = voiceChannels.filter(ch =>
 		$listeningVoiceChannels.includes(ch.id) || ch.id === runtimeActiveVoiceChannelId
 	);
-	$: workspaceChannelCount = textChannels.length + groupChannels.length + voiceChannels.length;
+	$: workspaceChannelCount = textChannels.length + groupChannels.length + voiceChannels.length + galleryChannels.length;
 	$: totalUnreadNotifications = Object.values($channelUnreadCounts).reduce((sum, value) => {
 		return sum + (Number.isFinite(value) ? value : 0);
 	}, 0);
@@ -480,7 +485,7 @@
 	}
 
 	function handleTransmitModeChange(event: Event) {
-		const value = (event.currentTarget as HTMLSelectElement).value as 'primary' | 'all-listening';
+		const value = (event.currentTarget as HTMLSelectElement).value as 'auto' | 'always' | 'push-to-talk';
 		setVoiceTransmitMode(value);
 	}
 
@@ -701,9 +706,13 @@
 		}
 	}
 
-	function toggleSection(section: 'text' | 'voice') {
+	function toggleSection(section: 'text' | 'voice' | 'gallery') {
 		if (section === 'text') {
 			isTextSectionExpanded = !isTextSectionExpanded;
+			return;
+		}
+		if (section === 'gallery') {
+			isGallerySectionExpanded = !isGallerySectionExpanded;
 			return;
 		}
 		isVoiceSectionExpanded = !isVoiceSectionExpanded;
@@ -719,7 +728,7 @@
 		}
 	}
 
-	function toggleCreateInputForType(channelType: 'text' | 'voice') {
+	function toggleCreateInputForType(channelType: 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage') {
 		if (showCreateInput && newChannelType === channelType) {
 			showCreateInput = false;
 			return;
@@ -844,7 +853,7 @@
 
 	function changeStatus(newStatus: 'active' | 'away' | 'busy') {
 		clearActiveCustomStatusPreset();
-		updateProfile(newStatus, undefined, undefined);
+		updateProfile({ status: newStatus });
 		showStatusPopup = false;
 	}
 
@@ -1011,7 +1020,7 @@
 	class="channel-sidebar"
 	class:compact={isCompactSidebar}
 	class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
-	style="width: {$layoutStore.channelSidebarWidth}px"
+	style:width={$layoutStore.isMobile ? '100%' : `${$layoutStore.channelSidebarWidth}px`}
 >
 	<div
 		class="top-section"
@@ -1069,11 +1078,12 @@
 			<select bind:value={newChannelType}>
 				<option value="text">Text Channel</option>
 				<option value="voice">Voice Channel</option>
+				<option value="gallery">Gallery Channel</option>
 				<option value="forum" disabled>Forum Channel (coming soon)</option>
 			</select>
 			<p class="create-channel-hint">Forum channels are planned but not supported yet.</p>
 			<button on:click={handleCreateChannel}>
-				Create {newChannelType === 'voice' ? 'Voice' : 'Text'} Channel
+				Create {newChannelType === 'voice' ? 'Voice' : newChannelType === 'forum' ? 'Forum' : newChannelType === 'gallery' ? 'Gallery' : newChannelType === 'wiki' ? 'Wiki' : newChannelType === 'stage' ? 'Stage' : 'Text'} Channel
 			</button>
 		</div>
 	{/if}
@@ -1574,6 +1584,59 @@
 			{/each}
 		{/each}
 		{/if}
+
+		{#if galleryChannels.length > 0}
+		<div class="section-heading-row">
+			<button
+				class="section-toggle"
+				type="button"
+				aria-expanded={isGallerySectionExpanded}
+				on:click={() => toggleSection('gallery')}
+			>
+				<span class="section-chevron" aria-hidden="true">
+					<svg viewBox="0 0 24 24">
+						<path d="M9 6l6 6-6 6"></path>
+					</svg>
+				</span>
+				<span class="section-toggle-label">Gallery</span>
+				<span class="section-count">{galleryChannels.length}</span>
+			</button>
+			<button
+				class="section-add-btn"
+				class:active={showCreateInput}
+				on:click={() => toggleCreateInputForType('gallery')}
+				title="Create gallery channel"
+				aria-label="Create gallery channel"
+			>
+				<span class="plus-glyph" aria-hidden="true">+</span>
+			</button>
+		</div>
+		{#if isGallerySectionExpanded}
+		{#each galleryChannels as channel (channel.id)}
+			<div
+				class="channel-item"
+				class:active={$currentChannel === channel.id}
+				role="group"
+				on:contextmenu={(e) => handleChannelRightClick(e, channel)}
+				use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, channel) }}
+			>
+				<button class="channel-btn" data-abbrev={channel.name.charAt(0).toUpperCase()} on:click={(event) => handleChannelButtonClick(channel.id, event)} title="Alt-click to glimpse">
+					<span class="hash gallery-icon" aria-hidden="true">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<rect x="3" y="3" width="18" height="18" rx="2"/>
+							<circle cx="8.5" cy="8.5" r="1.5"/>
+							<path d="M21 15l-5-5L5 21"/>
+						</svg>
+					</span>
+					{channel.name}
+					{#if $channelUnreadCounts[channel.id] && $currentChannel !== channel.id}
+						<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
+					{/if}
+				</button>
+			</div>
+		{/each}
+		{/if}
+		{/if}
 	</div>
 
 	<ContextMenu
@@ -1960,4 +2023,3 @@
 		</div>
 	</div>
 {/if}
-

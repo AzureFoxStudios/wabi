@@ -7,15 +7,15 @@ import type {
 	RuntimeGuardrailsSnapshot,
 	RuntimeTuningConfig,
 	UploadLimitConfig
-} from '../../../shared/runtimeAdminContracts.js';
+} from '../../../../shared/runtimeAdminContracts';
 import type {
 	CommunityNodeAccessPolicy,
 	CommunityNodeAnnouncementsPolicy,
 	FrontendAppMetadataPolicy,
 	PaymentAccessPolicy
-} from '../../../shared/adminPolicyContracts.js';
-import type { AdminRelayNode } from '../../../shared/relayContracts.js';
-import type { PaymentUserBlock } from '../../../shared/paymentContracts.js';
+} from '../../../../shared/adminPolicyContracts';
+import type { AdminRelayNode } from '../../../../shared/relayContracts';
+import type { PaymentUserBlock } from '../../../../shared/paymentContracts';
 import { getApiBase, fetchWithTimeout, safeJsonParse } from './utils';
 
 export type AdminPolicyKey =
@@ -34,7 +34,7 @@ export async function listAdminRelays(token: string | null | undefined): Promise
 	});
 
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to load relay roster');
 	}
 
@@ -57,7 +57,7 @@ export async function approveAdminRelay(token: string | null | undefined, relayI
 	});
 
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to approve relay');
 	}
 }
@@ -69,7 +69,7 @@ export async function deleteAdminRelay(token: string | null | undefined, relayId
 	});
 
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to delete relay');
 	}
 }
@@ -88,7 +88,7 @@ export async function registerDesktopHelper(
 	});
 
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to register desktop helper');
 	}
 
@@ -117,7 +117,7 @@ export async function heartbeatDesktopHelper(
 	});
 
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to heartbeat desktop helper');
 	}
 }
@@ -137,7 +137,7 @@ export async function offlineDesktopHelper(
 	});
 
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to mark desktop helper offline');
 	}
 }
@@ -157,7 +157,7 @@ export async function getAdminPolicy<T>(token: string, key: AdminPolicyKey): Pro
 			signal: controller.signal
 		});
 		if (!res.ok) {
-			const error = (await safeJsonParse(res)) as Record<string, unknown>;
+			const error = (await safeJsonParse(res)) as Record<string, any>;
 			throw new Error(error.error || `Failed to load policy: ${key}`);
 		}
 		return res.json();
@@ -181,7 +181,7 @@ export async function saveAdminPolicy<T>(token: string, key: AdminPolicyKey, con
 			signal: controller.signal
 		});
 		if (!res.ok) {
-			const error = (await safeJsonParse(res)) as Record<string, unknown>;
+			const error = (await safeJsonParse(res)) as Record<string, any>;
 			throw new Error(error.error || `Failed to save policy: ${key}`);
 		}
 		try {
@@ -259,7 +259,7 @@ export async function getAdminPaymentUserBlocks(token: string): Promise<PaymentU
 		method: 'GET',
 		headers: { Authorization: `Bearer ${token}` }
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to load payment user blocks');
 	}
@@ -283,7 +283,7 @@ export async function setAdminPaymentUserBlock(
 			expiresAt: opts?.expiresAt ?? null
 		})
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to set payment block');
 	}
@@ -295,7 +295,7 @@ export async function clearAdminPaymentUserBlock(token: string, userId: number):
 		method: 'DELETE',
 		headers: { Authorization: `Bearer ${token}` }
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to clear payment block');
 	}
@@ -308,7 +308,7 @@ export async function getAdminCompressionConfig(token: string): Promise<AdminCom
 		headers: { Authorization: `Bearer ${token}` }
 	});
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to load compression config');
 	}
 	const data = await res.json();
@@ -321,7 +321,7 @@ export async function getAdminCompressionMetrics(token: string): Promise<AdminCo
 		headers: { Authorization: `Bearer ${token}` }
 	});
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to load compression metrics');
 	}
 	const data = await res.json();
@@ -334,7 +334,7 @@ export async function resetAdminCompressionMetrics(token: string): Promise<void>
 		headers: { Authorization: `Bearer ${token}` }
 	});
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to reset compression metrics');
 	}
 }
@@ -345,7 +345,7 @@ export async function getAdminRuntimeGuardrails(token: string): Promise<AdminRun
 		headers: { Authorization: `Bearer ${token}` }
 	});
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to load runtime guardrails');
 	}
 	const data = await res.json();

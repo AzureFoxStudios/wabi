@@ -374,3 +374,22 @@
 	.channel-item:hover .settings-btn {
 		opacity: 1;
 	}
+
+	/* Gallery channel icon */
+	.hash.gallery-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 18px;
+		height: 18px;
+	}
+
+	.hash.gallery-icon svg {
+		width: 16px;
+		height: 16px;
+	}
+
+	.channel-sidebar.compact .channel-btn .hash.gallery-icon {
+		font-size: 1rem;
+		margin: 0;
+	}

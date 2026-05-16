@@ -12,7 +12,9 @@
 
 import { writable, get } from 'svelte/store';
 import type { Message } from './socket-types';
+import type { MessageType } from '../../../packages/wabi-protocol/src/generated/MessageType';
 import { getSocket } from './socketConnection';
+import { currentUser } from './presenceStore';
 
 // ============================================================================
 // STORES
@@ -105,6 +107,44 @@ export function retryMessagePersistence(channelId: string, messageId: string): v
 	const sock = getSocket();
 	if (!sock) return;
 	sock.emit('retry-message', { channelId, messageId });
+}
+
+export function sendMessage(
+	channelId: string,
+	content: string,
+	type: MessageType = 'text',
+	options: Record<string, unknown> = {}
+): void {
+	const sock = getSocket();
+	if (!sock) return;
+
+	const trimmed = content.trim();
+	if (!trimmed && type === 'text') return;
+
+	const clientMessageId = createClientMessageId(channelId);
+	const me = get(currentUser);
+	const optimisticMessage: Message = {
+		id: clientMessageId,
+		clientMessageId,
+		user: me?.username || 'You',
+		userId: me?.id || sock.id || 'local',
+		senderStableId: me?.id || sock.id || 'local',
+		color: me?.color || '#98D8C8',
+		text: trimmed,
+		timestamp: Date.now(),
+		type,
+		deliveryState: 'sending',
+		...(options as Partial<Message>)
+	};
+
+	appendOptimisticMessage(channelId, optimisticMessage);
+	sock.emit('message', {
+		channelId,
+		text: trimmed,
+		type,
+		clientMessageId,
+		...options
+	});
 }
 
 export function editMessage(channelId: string, messageId: string, newText: string): void {

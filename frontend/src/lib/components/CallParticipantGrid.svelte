@@ -65,7 +65,6 @@
 				presenterOverlayElements={presenterOverlayElementsByTile[tile.id] || []}
 				onPresenterOverlayChange={(elements) => onPresenterOverlayChange(tile.id, elements)}
 				onPresenterOverlayActivate={() => onPresenterOverlayActivate(tile.id)}
-				isHero={heroIds.includes(tile.id)}
 			/>
 		{/each}
 	</div>

@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
 import { get, writable } from 'svelte/store';
+export { replaceEmojiShortcodesWithUnicode } from './unicodeEmojis';
 
 export interface ComposerEnhancementSettings {
 	spellcheckEnabled: boolean;

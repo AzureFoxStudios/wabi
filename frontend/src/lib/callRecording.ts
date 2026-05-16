@@ -169,7 +169,7 @@ export async function startCallRecording(options: CallRecordingStartOptions = {}
 			mimeType: sessionState.mimeType,
 			fileName: sessionState.fileName
 		}));
-		startRecordingTimer(callRecordingState);
+		startRecordingTimer();
 	} catch (error) {
 		await updateRecordingPresence(false).catch(() => undefined);
 		currentSession = null;

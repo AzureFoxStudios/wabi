@@ -1,5 +1,5 @@
-import type { DesktopHelperMode } from './runtimeAdminContracts.js';
-import type { BoosterRelayMode } from './mediaContracts.js';
+import type { DesktopHelperMode } from './runtimeAdminContracts';
+import type { BoosterRelayMode } from './mediaContracts';
 
 export interface RelayPublicCapabilities {
 	fileRelay: boolean;

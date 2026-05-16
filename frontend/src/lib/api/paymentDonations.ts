@@ -1,4 +1,4 @@
-import type { PaymentDonationConfig } from '../../../shared/adminPolicyContracts.js';
+import type { PaymentDonationConfig } from '../../../../shared/adminPolicyContracts';
 import { getApiBase, fetchWithTimeout, safeJsonParse } from './utils';
 import type { PaymentIntent, PaymentEvent } from './paymentCheckout';
 
@@ -60,7 +60,7 @@ export interface OfflineDonationAuditResponse {
 
 export async function getPaymentDonationSummary(): Promise<PaymentDonationSummaryResponse> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/donations`, { method: 'GET' });
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to load donation summary');
 	}
@@ -81,7 +81,7 @@ export async function getAdminPaymentDonationConfig(token: string | null | undef
 		method: 'GET',
 		headers: token ? { Authorization: `Bearer ${token}` } : undefined
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to load donation config');
 	}
@@ -100,7 +100,7 @@ export async function saveAdminPaymentDonationConfig(
 		},
 		body: JSON.stringify(payload)
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to save donation config');
 	}
@@ -120,7 +120,7 @@ export async function listAdminPaymentDonationAudit(
 		method: 'GET',
 		headers: token ? { Authorization: `Bearer ${token}` } : undefined
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to load donation audit trail');
 	}
@@ -144,7 +144,7 @@ export async function refundAdminPaymentDonation(
 		},
 		body: JSON.stringify({ reason: reason || 'Refund issued by server admin' })
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to refund donation');
 	}
@@ -167,7 +167,7 @@ export async function listAdminOfflineDonations(
 		method: 'GET',
 		headers: token ? { Authorization: `Bearer ${token}` } : undefined
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to load offline donations');
 	}
@@ -180,7 +180,7 @@ export async function listAdminOfflineDonations(
 
 export async function createAdminOfflineDonation(
 	token: string | null | undefined,
-	payload: { amountMinor: number; currency: string; donorLabel?: string; description?: string; metadata?: Record<string, unknown> }
+	payload: { amountMinor: number; currency: string; donorLabel?: string; description?: string; metadata?: Record<string, any> }
 ): Promise<OfflineDonationLedgerEntry> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/payments/donations/offline`, {
 		method: 'POST',
@@ -190,7 +190,7 @@ export async function createAdminOfflineDonation(
 		},
 		body: JSON.stringify(payload)
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to record offline donation');
 	}
@@ -213,7 +213,7 @@ export async function voidAdminOfflineDonation(
 			body: JSON.stringify(reason ? { reason } : {})
 		}
 	);
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to void offline donation');
 	}

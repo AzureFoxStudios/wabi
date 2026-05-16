@@ -752,7 +752,7 @@
 			selectedAlbumId = created.id;
 			await loadAlbumItems(created.id);
 			successMessage = `Created album "${created.name}".`;
-			void sendMessage(scopeId, buildAlbumAnnouncement(created), 'text').catch(() => undefined);
+			sendMessage(scopeId, buildAlbumAnnouncement(created), 'text');
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to create album';
 		} finally {

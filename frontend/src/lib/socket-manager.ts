@@ -21,7 +21,7 @@ export {
 	connected,
 	connectionState,
 	type ConnectionState,
-	SocketManager,
+	type SocketManager,
 	getSocket,
 	initSocket,
 	disconnect,

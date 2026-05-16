@@ -129,6 +129,17 @@ export function isOwnMessage(message: { user?: string; userId?: string }, curren
 	return false;
 }
 
+function getReactionUsername(userId: string, lookup: UserLookup): string | null {
+	if (userId.startsWith('user-')) {
+		const dbId = parseInt(userId.substring(5), 10);
+		if (!Number.isNaN(dbId)) {
+			const user = lookup.byDbId.get(dbId);
+			if (user) return user.username ?? null;
+		}
+	}
+	return lookup.bySocketId.get(userId)?.username ?? null;
+}
+
 export function getReactionTooltip(userIds: string[], lookup: UserLookup): string {
 	return userIds
 		.map((id) => getReactionUsername(id, lookup))

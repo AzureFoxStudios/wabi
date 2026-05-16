@@ -926,12 +926,12 @@
 				<CallParticipantGrid
 					{orderedTiles}
 					layoutTemplate={layoutResult.template}
-					pinnedTileIds
+					{pinnedTileIds}
 					isSpeaking={isTileSpeaking}
-					getParticipantAvatarUrl
-					getInitial
+					{getParticipantAvatarUrl}
+					{getInitial}
 					onPin={togglePin}
-					isTileDisconnected
+					{isTileDisconnected}
 					{presenterOverlayVisible}
 					{activePresenterOverlayTileId}
 					{presenterOverlayTool}

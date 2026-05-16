@@ -31,22 +31,20 @@ export type {
 // STORE EXPORTS (place-search.ts)
 // ============================================================================
 
-export { placeRegistry, placeRegistryLoaded, placeRegistryLoading } from './place-search';
+export { placeRegistry, placeRegistryLoaded, placeRegistryLoading, loadPlaceRegistry } from './placeStore';
 
 // ============================================================================
 // PLACE SEARCH FUNCTIONS
 // ============================================================================
 
 export {
-	loadPlaceRegistry,
 	getPlaceById,
-	resolvePlaceAssetUrl,
 	buildPlaceDisplayText,
 	searchPlaces,
 	buildPlaceSuggestionDetail,
 	buildPlaceDirectionsLabel,
 	resolvePlaceReference
-} from './place-search';
+} from './placeSearch';
 
 // ============================================================================
 // PLACE DRAFT FUNCTIONS
@@ -59,8 +57,9 @@ export {
 	createEmptyMapLayerDraft,
 	serializePlaceDraft,
 	savePlaceDraft,
-	deletePlace
-} from './place-search';
+	deletePlace,
+	resolvePlaceAssetUrl
+} from './placeDraft';
 
 // ============================================================================
 // PLACE MENTION FUNCTIONS

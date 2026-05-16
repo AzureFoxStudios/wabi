@@ -2,14 +2,15 @@ import { getServerUrl } from './serverUrl';
 import { getAuthToken } from './authSession';
 import { authStore } from './authStore';
 import type { Message } from './socket-types';
-import type { MediaAlbumScopeType } from './mediaAlbumScope';
+import type { MediaAlbumScopeType } from './api/mediaAlbumScope';
+export type { MediaAlbumScopeType } from './api/mediaAlbumScope';
 import type {
 	PaymentCheckoutMode,
 	PaymentIntentStatus,
 	PaymentMethodCapability,
 	PaymentProviderCapability,
 	PaymentUserBlock
-} from '../../../shared/paymentContracts.js';
+} from '../../../shared/paymentContracts';
 import type {
 	CommunityNodeAccessMode,
 	CommunityNodeAllowedUser,
@@ -19,7 +20,7 @@ import type {
 	PaymentAccessPolicy,
 	PaymentAccountLink,
 	PaymentDonationConfig
-} from '../../../shared/adminPolicyContracts.js';
+} from '../../../shared/adminPolicyContracts';
 import type {
 	AdminCompressionConfig,
 	AdminCompressionMetrics,
@@ -30,8 +31,8 @@ import type {
 	RuntimeTuningConfig,
 	UploadLimitConfig,
 	UploadRoleTier
-} from '../../../shared/runtimeAdminContracts.js';
-import type { LaunchPageConfig } from '../../../shared/launchPageContracts.js';
+} from '../../../shared/runtimeAdminContracts';
+import type { LaunchPageConfig } from '../../../shared/launchPageContracts';
 import type {
 	AuthResponse,
 	FollowedChannelPollChannelResult as SharedFollowedChannelPollChannelResult,
@@ -39,18 +40,18 @@ import type {
 	FollowedChannelPollResponse as SharedFollowedChannelPollResponse,
 	UserSettingsPayload,
 	UserSettingsResponse
-} from '../../../shared/userContracts.js';
+} from '../../../shared/userContracts';
 import type {
 	AdminRelayNode,
 	ParsedRelayMetadata as AdminRelayNodeMetadata
-} from '../../../shared/relayContracts.js';
+} from '../../../shared/relayContracts';
 export type {
 	PaymentCheckoutMode,
 	PaymentIntentStatus,
 	PaymentMethodCapability,
 	PaymentProviderCapability,
 	PaymentUserBlock
-} from '../../../shared/paymentContracts.js';
+} from '../../../shared/paymentContracts';
 export type {
 	CommunityNodeAccessMode,
 	CommunityNodeAllowedUser,
@@ -60,7 +61,7 @@ export type {
 	PaymentAccessPolicy,
 	PaymentAccountLink,
 	PaymentDonationConfig
-} from '../../../shared/adminPolicyContracts.js';
+} from '../../../shared/adminPolicyContracts';
 export type {
 	AdminCompressionConfig,
 	AdminCompressionMetrics,
@@ -71,15 +72,15 @@ export type {
 	RuntimeTuningConfig,
 	UploadLimitConfig,
 	UploadRoleTier
-} from '../../../shared/runtimeAdminContracts.js';
-export type { LaunchPageConfig, LaunchPageHighlight } from '../../../shared/launchPageContracts.js';
+} from '../../../shared/runtimeAdminContracts';
+export type { LaunchPageConfig, LaunchPageHighlight } from '../../../shared/launchPageContracts';
 export type {
 	AuthResponse,
 	FollowedChannelPollRequest,
 	UserSettingsPayload,
 	UserSettingsResponse
-} from '../../../shared/userContracts.js';
-export type { AdminRelayNode, ParsedRelayMetadata as AdminRelayNodeMetadata } from '../../../shared/relayContracts.js';
+} from '../../../shared/userContracts';
+export type { AdminRelayNode, ParsedRelayMetadata as AdminRelayNodeMetadata } from '../../../shared/relayContracts';
 
 const getApiBase = () => getServerUrl();
 const getApiBaseFor = (baseUrl?: string | null) => {
@@ -146,8 +147,8 @@ export interface PaymentIntent {
 	checkoutMode: PaymentCheckoutMode;
 	customerRef: string | null;
 	description: string | null;
-	metadata: Record<string, unknown> | null;
-	presentation: Record<string, unknown> | null;
+	metadata: Record<string, any> | null;
+	presentation: Record<string, any> | null;
 	failureCode: string | null;
 	failureMessage: string | null;
 	expiresAt: number | null;
@@ -162,7 +163,7 @@ export interface PaymentEvent {
 	eventType: string;
 	status: PaymentIntentStatus | null;
 	source: 'core' | 'plugin' | 'webhook' | 'manual';
-	payload: Record<string, unknown> | null;
+	payload: Record<string, any> | null;
 	signatureValid: boolean | null;
 	idempotencyKey: string | null;
 	createdAt: number;
@@ -194,7 +195,7 @@ export interface CreatePaymentIntentPayload {
 	description?: string;
 	customerRef?: string;
 	idempotencyKey?: string;
-	metadata?: Record<string, unknown>;
+	metadata?: Record<string, any>;
 }
 
 export interface CreatePaymentIntentResponse {
@@ -626,7 +627,7 @@ export async function createManualCashSettlement(
 		amountMinor: number;
 		currency: string;
 		description?: string;
-		metadata?: Record<string, unknown>;
+		metadata?: Record<string, any>;
 	}
 ): Promise<ManualCashSettlement> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/manual-cash`, {
@@ -719,7 +720,7 @@ export async function createAdminOfflineDonation(
 		currency: string;
 		donorLabel?: string;
 		description?: string;
-		metadata?: Record<string, unknown>;
+		metadata?: Record<string, any>;
 	}
 ): Promise<OfflineDonationLedgerEntry> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/admin/payments/donations/offline`, {
@@ -766,7 +767,7 @@ export async function upsertPaymentAccountLink(
 		pluginId: string;
 		providerAccountRef: string;
 		displayLabel?: string;
-		metadata?: Record<string, unknown>;
+		metadata?: Record<string, any>;
 	}
 ): Promise<PaymentAccountLink> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/account-links`, {
@@ -1512,7 +1513,7 @@ export class MediaAlbumApiError extends Error {
 	status: number;
 	code: string | null;
 	retryAfterSeconds: number | null;
-	details: Record<string, unknown> | null;
+	details: Record<string, any> | null;
 
 	constructor(
 		message: string,
@@ -1520,7 +1521,7 @@ export class MediaAlbumApiError extends Error {
 			status: number;
 			code?: string | null;
 			retryAfterSeconds?: number | null;
-			details?: Record<string, unknown> | null;
+			details?: Record<string, any> | null;
 		}
 	) {
 		super(message);
@@ -1636,7 +1637,7 @@ export async function addMediaAlbumItem(
 		body: JSON.stringify(payload)
 	});
 	if (!res.ok) {
-		const payload = await res.json().catch(() => ({} as Record<string, unknown>));
+		const payload = await res.json().catch(() => ({} as Record<string, any>));
 		const code = typeof payload.code === 'string' ? payload.code : null;
 		const retryAfterSeconds =
 			typeof payload.retryAfterSeconds === 'number' && Number.isFinite(payload.retryAfterSeconds)
@@ -1644,7 +1645,7 @@ export async function addMediaAlbumItem(
 				: null;
 		const details =
 			payload.details && typeof payload.details === 'object'
-				? (payload.details as Record<string, unknown>)
+				? (payload.details as Record<string, any>)
 				: null;
 		let message = typeof payload.error === 'string' ? payload.error : 'Failed to add media album item';
 		if (retryAfterSeconds !== null && retryAfterSeconds > 0) {

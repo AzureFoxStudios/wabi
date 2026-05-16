@@ -5,9 +5,8 @@
 
 import { get } from 'svelte/store';
 import { type WorkspacePanelId } from '$lib/docking/layoutSchema';
-import { navDock, channelSidebarWidth, rightPanelView, showMobileChannels, detachedPanelIds, isMobile, activeRightTab } from './layoutStoreStates';
+import { navDock, channelSidebarWidth, rightPanelWidth, rightPanelView, showMobileChannels, detachedPanelIds, isMobile, activeRightTab } from './layoutStoreStates';
 import { DEFAULT_CONSTANTS } from './layoutStoreStates';
-import { scheduleSyncWorkspace } from './layoutStoreSync';
 
 export const setNavDock = (side: any) => {
 	navDock.set(side);
@@ -29,7 +28,6 @@ export const expandNav = () => {
 };
 
 export const expandRight = () => {
-	const { rightPanelWidth } = require('./layoutStoreStates');
 	rightPanelWidth.update((width: number) => (width > 0 ? width : DEFAULT_CONSTANTS.RIGHT_WIDTH));
 };
 

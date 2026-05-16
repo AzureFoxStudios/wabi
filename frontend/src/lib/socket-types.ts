@@ -57,6 +57,8 @@ export interface Message extends Omit<ProtocolMessageView, MessageOptionalProtoc
   isSpoiler?: boolean;
   reactions?: Record<string, string[]>;
   entities?: MessageEntity[];
+  isDeleted?: boolean;
+  deletionExpireTime?: number;
   persistenceState?: 'failed' | 'retrying';
   persistenceError?: string;
   persistenceAttempts?: number;
@@ -129,7 +131,8 @@ type ChannelOptionalProtocolField =
   | 'isTemporary'
   | 'persistMessages'
   | 'pinnedBy'
-  | 'voiceSettings';
+  | 'voiceSettings'
+  | 'topic';
 
 export interface Channel extends Omit<ProtocolChannelView, ChannelOptionalProtocolField> {
   description?: Exclude<ProtocolChannelView['description'], null>;
@@ -154,4 +157,5 @@ export interface Channel extends Omit<ProtocolChannelView, ChannelOptionalProtoc
   persistMessages?: Exclude<ProtocolChannelView['persistMessages'], null>;
   pinnedBy?: Exclude<ProtocolChannelView['pinnedBy'], null>;
   voiceSettings?: VoiceChannelSettings;
+  topic?: Exclude<ProtocolChannelView['topic'], null>;
 }

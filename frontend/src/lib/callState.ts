@@ -25,9 +25,9 @@ import {
 	type AudioProcessingMode,
 	type EffectiveCallTransport,
 	type CallTransportMode,
-	type SpatialAudioMode,
-	type EffectiveAudioProcessingMode
+	type SpatialAudioMode
 } from './mediaRuntime';
+import { type EffectiveAudioProcessingMode } from './callingTypes';
 import { SpatialAudioEngine, type SpatialRenderMode, type SpatialPosition } from './audio/spatialEngine';
 import {
 	markExperimentalStdbCallAttempt,

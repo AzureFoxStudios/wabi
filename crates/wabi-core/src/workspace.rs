@@ -134,6 +134,8 @@ pub struct ChannelView {
     pub pinned_by: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voice_settings: Option<VoiceChannelSettings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,6 +172,8 @@ pub struct ChannelUpdatedEvent {
     pub min_role: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voice_settings: Option<VoiceChannelSettings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -509,6 +513,7 @@ mod tests {
                 user_limit: Some(8),
                 force_solo: Some(true),
             }),
+            topic: None,
         };
 
         let value = serde_json::to_value(channel).unwrap();
@@ -571,6 +576,7 @@ mod tests {
             persist_messages: None,
             pinned_by: None,
             voice_settings: None,
+            topic: None,
         });
 
         assert_eq!(
@@ -599,6 +605,7 @@ mod tests {
                 user_limit: Some(12),
                 force_solo: Some(false),
             }),
+            topic: None,
         };
 
         assert_eq!(
@@ -669,6 +676,7 @@ mod tests {
                 persist_messages: Some(true),
                 pinned_by: None,
                 voice_settings: None,
+            topic: None,
             }),
         };
 

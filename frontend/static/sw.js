@@ -1,13 +1,10 @@
 // Wabi Custom Service Worker — no third-party dependencies
 // Replaces vite-plugin-pwa / workbox
 
-const API_CACHE = 'api-cache-v1';
 const MEDIA_CACHE = 'media-cache-v1';
 const SHELL_CACHE = 'shell-cache-v1';
 
-const MAX_API_ENTRIES = 50;
 const MAX_MEDIA_ENTRIES = 300;
-const API_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
 const MEDIA_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // ---------------------------------------------------------------------------
@@ -42,18 +39,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // API routes — NetworkFirst
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(networkFirstHandler(request, API_CACHE, MAX_API_ENTRIES, API_MAX_AGE_MS));
-    return;
-  }
-
   // Media — StaleWhileRevalidate
   if (
     url.pathname.startsWith('/uploads/') ||
     /^\/api\/whiteboard\/boards\/[^/]+\/files\//.test(url.pathname)
   ) {
     event.respondWith(staleWhileRevalidateHandler(request, MEDIA_CACHE, MAX_MEDIA_ENTRIES, MEDIA_MAX_AGE_MS));
+    return;
+  }
+
+  // API routes carry auth, setup state, live channel state, and plugin state.
+  // Let the browser hit the network directly so the worker never manufactures
+  // local 503s for healthy login/config requests.
+  if (url.pathname.startsWith('/api/')) {
     return;
   }
 
@@ -195,7 +193,7 @@ async function trimCache(cache, maxEntries) {
  * Delete caches whose names we no longer use (stale workbox caches, old versions).
  */
 async function deleteOldCaches() {
-  const expectedCaches = [API_CACHE, MEDIA_CACHE, SHELL_CACHE];
+  const expectedCaches = [MEDIA_CACHE, SHELL_CACHE];
   const keys = await caches.keys();
   return Promise.all(
     keys

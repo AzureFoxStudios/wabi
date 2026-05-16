@@ -330,6 +330,10 @@ pub enum ChannelType {
     Public,
     ThreadPublic,
     ThreadPrivate,
+    Forum,
+    Gallery,
+    Wiki,
+    Stage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -360,6 +364,10 @@ impl ChannelType {
             Self::Public => "public",
             Self::ThreadPublic => "thread_public",
             Self::ThreadPrivate => "thread_private",
+            Self::Forum => "forum",
+            Self::Gallery => "gallery",
+            Self::Wiki => "wiki",
+            Self::Stage => "stage",
         }
     }
 }
@@ -403,6 +411,10 @@ impl FromStr for ChannelType {
             "public" => Ok(Self::Public),
             "thread_public" => Ok(Self::ThreadPublic),
             "thread_private" => Ok(Self::ThreadPrivate),
+            "forum" => Ok(Self::Forum),
+            "gallery" => Ok(Self::Gallery),
+            "wiki" => Ok(Self::Wiki),
+            "stage" => Ok(Self::Stage),
             _ => Err(ChannelTypeParseError),
         }
     }
@@ -453,6 +465,10 @@ mod tests {
         assert_eq!(ChannelType::Public.as_str(), "public");
         assert_eq!(ChannelType::ThreadPublic.as_str(), "thread_public");
         assert_eq!(ChannelType::ThreadPrivate.as_str(), "thread_private");
+        assert_eq!(ChannelType::Forum.as_str(), "forum");
+        assert_eq!(ChannelType::Gallery.as_str(), "gallery");
+        assert_eq!(ChannelType::Wiki.as_str(), "wiki");
+        assert_eq!(ChannelType::Stage.as_str(), "stage");
         assert_eq!(
             "thread_private".parse::<ChannelType>(),
             Ok(ChannelType::ThreadPrivate)

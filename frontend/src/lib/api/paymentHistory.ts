@@ -1,4 +1,4 @@
-import type { PaymentAccountLink } from '../../../shared/adminPolicyContracts.js';
+import type { PaymentAccountLink } from '../../../../shared/adminPolicyContracts';
 import { getApiBase, fetchWithTimeout, safeJsonParse } from './utils';
 import type { PaymentIntent, PaymentEvent } from './paymentCheckout';
 
@@ -13,7 +13,7 @@ export async function listPaymentAccountLinks(token: string | null | undefined):
 		method: 'GET',
 		headers: token ? { Authorization: `Bearer ${token}` } : undefined
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to load payment account links');
 	}
@@ -33,7 +33,7 @@ export async function listPaymentHistory(
 		method: 'GET',
 		headers: token ? { Authorization: `Bearer ${token}` } : undefined
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to load payment history');
 	}
@@ -46,7 +46,7 @@ export async function listPaymentHistory(
 
 export async function upsertPaymentAccountLink(
 	token: string | null | undefined,
-	payload: { pluginId: string; providerAccountRef: string; displayLabel?: string; metadata?: Record<string, unknown> }
+	payload: { pluginId: string; providerAccountRef: string; displayLabel?: string; metadata?: Record<string, any> }
 ): Promise<PaymentAccountLink> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/payments/account-links`, {
 		method: 'POST',
@@ -56,7 +56,7 @@ export async function upsertPaymentAccountLink(
 		},
 		body: JSON.stringify(payload)
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to save payment account link');
 	}
@@ -68,7 +68,7 @@ export async function deletePaymentAccountLink(token: string | null | undefined,
 		method: 'DELETE',
 		headers: token ? { Authorization: `Bearer ${token}` } : undefined
 	});
-	const data = (await safeJsonParse(res)) as Record<string, unknown>;
+	const data = (await safeJsonParse(res)) as Record<string, any>;
 	if (!res.ok) {
 		throw new Error(data.error || 'Failed to clear payment account link');
 	}

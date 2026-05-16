@@ -88,6 +88,7 @@ struct CreateChannelRequest {
     name: String,
     #[serde(default = "default_channel_type")]
     channel_type: String,
+    description: Option<String>,
 }
 
 fn default_channel_type() -> String {

@@ -7,7 +7,7 @@ import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 import { createDefaultLayoutState, migrateLayoutState, getWorkspace } from '$lib/docking/layoutSchema';
 import { loadPersistedLayoutState, persistLayoutState, loadLayoutState as loadRemoteLayoutState, queuePersist as queueRemotePersist } from '$lib/docking/layoutPersistence';
-import { layoutState, activeWorkspace, setLayoutLoaded, setPersistTimer, DEFAULT_CONSTANTS } from './layoutStoreStates';
+import { layoutState, activeWorkspace, layoutLoaded, persistTimer, setLayoutLoaded, setPersistTimer, DEFAULT_CONSTANTS } from './layoutStoreStates';
 import { applyWorkspaceToRuntime, syncWorkspaceFromRuntime } from './layoutStoreUtils';
 
 export async function loadLayoutState(): Promise<void> {
@@ -32,8 +32,8 @@ export async function loadLayoutState(): Promise<void> {
 }
 
 export function queuePersist(): void {
-	if (!browser || !get({ layoutLoaded: true })) return;
-	const timer = get({ persistTimer: null });
+	if (!browser || !layoutLoaded) return;
+	const timer = persistTimer;
 	if (timer) {
 		clearTimeout(timer);
 	}

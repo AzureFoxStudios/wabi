@@ -10,7 +10,7 @@ import { browser } from '$app/environment';
 import { getServerUrl } from './serverUrl';
 import { getAuthToken } from './authSession';
 import { getPreferredTurnRelayId } from './relaySelector';
-import type { TurnCredentialPayload, TurnCredentialsResponse } from '../../../shared/mediaContracts.js';
+import type { TurnCredentialPayload, TurnCredentialsResponse } from '../../../shared/mediaContracts';
 
 interface TurnServerConfig {
 	urls: string[];

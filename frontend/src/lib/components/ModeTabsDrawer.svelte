@@ -18,6 +18,7 @@
 		unfollowChannel
 	} from '$lib/following';
 	import { followedChannelSnapshots } from '$lib/followingSnapshots';
+	import { isServerScopedChannel } from '$lib/channelTypes';
 
 	export let embedded = false;
 
@@ -48,7 +49,7 @@
 
 	const { tabs: queueTabs } = mobileTabQueue;
 
-	$: serverScopedChannels = $channels.filter((channel) => channel.type !== 'dm');
+	$: serverScopedChannels = $channels.filter(isServerScopedChannel);
 	$: channelById = new Map(serverScopedChannels.map((channel) => [channel.id, channel] as const));
 	$: serverIconUrl = $currentSavedServer?.effectiveIconUrl || null;
 	$: serverIconLabel = ($currentSavedServer?.effectiveName || 'Wabi').trim().charAt(0).toUpperCase() || 'W';

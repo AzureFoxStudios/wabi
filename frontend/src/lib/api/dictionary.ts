@@ -20,7 +20,7 @@ export async function lookupDictionary(term: string, language = 'en', limit = 8)
 	});
 	const res = await fetchWithTimeout(`${getApiBase()}/api/dictionary?${params.toString()}`, { method: 'GET' });
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to lookup dictionary entry');
 	}
 	const data = await res.json();
@@ -42,7 +42,7 @@ export async function upsertDictionaryEntry(
 		body: JSON.stringify({ term, definition, language })
 	});
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to save dictionary entry');
 	}
 	const data = await res.json();
@@ -59,7 +59,7 @@ export async function deleteDictionaryEntry(token: string, term: string, languag
 		body: JSON.stringify({ term, language })
 	});
 	if (!res.ok) {
-		const error = (await safeJsonParse(res)) as Record<string, unknown>;
+		const error = (await safeJsonParse(res)) as Record<string, any>;
 		throw new Error(error.error || 'Failed to delete dictionary entry');
 	}
 }

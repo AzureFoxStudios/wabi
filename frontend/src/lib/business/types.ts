@@ -13,7 +13,7 @@ import type {
 	Todo as SharedTodo,
 	TodoStatus as SharedTodoStatus,
 	UserRole as SharedUserRole
-} from '../../../../shared/businessContracts.js';
+} from '../../../../shared/businessContracts';
 
 export type BusinessVisibility = SharedBusinessVisibility;
 export type BusinessDataCollections = SharedBusinessDataCollections;

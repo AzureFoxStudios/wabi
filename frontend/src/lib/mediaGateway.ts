@@ -6,12 +6,12 @@ import type {
 	MediaGatewaySession,
 	MediaGatewaySessionKind,
 	MediaGatewaySessionResponse
-} from '../../../shared/mediaContracts.js';
+} from '../../../shared/mediaContracts';
 export type {
 	LivekitAccessTokenResponse,
 	MediaGatewaySession,
 	MediaGatewaySessionKind
-} from '../../../shared/mediaContracts.js';
+} from '../../../shared/mediaContracts';
 
 function getAuthHeaders(): HeadersInit {
 	const token = getAuthToken();

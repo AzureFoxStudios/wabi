@@ -55,8 +55,7 @@
 	let contextMenuRef: HTMLElement | null = null;
 
 	// Blender-style panel drawer
-	let panelDrawerOpen = false;
-	let panelDrawerRef: HTMLElement | null = null;
+	let panelDrawerStackId: string | null = null;
 	let panelSearchQuery = '';
 
 	$: activeTab = $layoutStore.activeRightTab;
@@ -67,6 +66,7 @@
 	$: undockedPanels = availablePanels.filter((panel) => !dockedPanelIds.has(panel.id) && !$layoutStore.detachedPanelIds.has(panel.id));
 	$: activePanel = panelById.get(activeTab) || renderStacks[0]?.activePanel || availablePanels[0] || null;
 	$: visibleStacks = $layoutStore.isMobile ? buildMobileRenderStack(availablePanels, activePanel) : renderStacks;
+	$: splitOrientation = $layoutStore.rightPanelDock.orientation === 'horizontal' ? 'horizontal' : 'vertical';
 
 	// Stacks with detached panels filtered out of visiblePanels
 	$: stacksWithDetachedFiltered = visibleStacks.map((stack) => ({
@@ -116,16 +116,12 @@
 			if (contextMenuVisible && contextMenuRef && !contextMenuRef.contains(event.target as Node)) {
 				hideContextMenu();
 			}
-			if (panelDrawerOpen && panelDrawerRef && !panelDrawerRef.contains(event.target as Node)) {
-				panelDrawerOpen = false;
-				panelSearchQuery = '';
-			}
+			if (panelDrawerStackId) closePanelDrawer();
 		}
 		function handleKeydown(event: KeyboardEvent) {
 			if (event.key === 'Escape') {
 				hideContextMenu();
-				panelDrawerOpen = false;
-				panelSearchQuery = '';
+				closePanelDrawer();
 			}
 		}
 		document.addEventListener('click', handleClickOutside);
@@ -206,6 +202,16 @@
 		contextMenuPanelId = '';
 	}
 
+	function closePanelDrawer(): void {
+		panelDrawerStackId = null;
+		panelSearchQuery = '';
+	}
+
+	function togglePanelDrawer(stackId: string): void {
+		panelDrawerStackId = panelDrawerStackId === stackId ? null : stackId;
+		panelSearchQuery = '';
+	}
+
 	async function handleDetachPanel(): Promise<void> {
 		if (!contextMenuPanelId || !$windowsEnabled) return;
 		layoutStore.detachPanel(contextMenuPanelId as any);
@@ -214,6 +220,7 @@
 	}
 
 	function splitPanel(panelId: string): void {
+		closePanelDrawer();
 		layoutStore.splitRightPanelTab(panelId);
 	}
 
@@ -297,7 +304,7 @@
 	function handleSplitResizeMove(event: MouseEvent): void {
 		if (!isResizingSplit || !dockElement) return;
 		const rect = dockElement.getBoundingClientRect();
-		const isHorizontalSplit = stacksWithDetachedFiltered.length > 1;
+		const isHorizontalSplit = stacksWithDetachedFiltered.length > 1 && splitOrientation === 'horizontal';
 		let nextSize: number;
 		if (isHorizontalSplit) {
 			// Horizontal split (row mode): resize by X position
@@ -406,7 +413,14 @@
 </script>
 
 <div class="right-panel" class:mobile-workspace={$layoutStore.isMobile} bind:this={rightPanelElement}>
-	<div class="workspace-dock" class:split-mode={stacksWithDetachedFiltered.length > 1} class:resizing={isResizingSplit} bind:this={dockElement}>
+	<div
+		class="workspace-dock"
+		class:split-mode={stacksWithDetachedFiltered.length > 1}
+		class:horizontal-split={stacksWithDetachedFiltered.length > 1 && splitOrientation === 'horizontal'}
+		class:vertical-split={stacksWithDetachedFiltered.length > 1 && splitOrientation === 'vertical'}
+		class:resizing={isResizingSplit}
+		bind:this={dockElement}
+	>
 		{#if stacksWithDetachedFiltered.length === 0}
 			<div class="dock-empty">No workspace panels are available.</div>
 	{:else}
@@ -420,15 +434,17 @@
 					on:dragover={handleDragOver}
 					on:drop={(event) => handleDrop(event, stack.id)}
 				>
-					<div class="stack-header" bind:this={panelDrawerRef}>
+					<div class="stack-header">
 						<div class="stack-tabs" role="tablist" aria-label={`${stack.id} workspace panels`}>
 							<button
 								type="button"
 								class="panel-tab active panel-tab-drawer-trigger"
 								role="tab"
 								aria-selected="true"
+								aria-haspopup="listbox"
+								aria-expanded={panelDrawerStackId === stack.id}
 								title="Click to show all panels"
-								on:click={() => { panelDrawerOpen = !panelDrawerOpen; panelSearchQuery = ''; }}
+								on:click|stopPropagation={() => togglePanelDrawer(stack.id)}
 							>
 								<span class="panel-tab-icon"><WorkspacePanelIcon icon={stack.activePanel.icon} /></span>
 								<span class="panel-tab-label">{stack.activePanel.shortLabel || stack.activePanel.label}</span>
@@ -437,8 +453,15 @@
 								</svg>
 							</button>
 
-							{#if panelDrawerOpen}
-								<div class="panel-drawer" role="listbox" aria-label="Available panels">
+							{#if panelDrawerStackId === stack.id}
+								<div
+									class="panel-drawer"
+									role="listbox"
+									aria-label="Available panels"
+									tabindex="-1"
+									on:click|stopPropagation
+									on:keydown={(event) => event.stopPropagation()}
+								>
 									{#if stack.panels.length > 10}
 										<div class="panel-drawer-search">
 											<input
@@ -457,7 +480,7 @@
 												class:active={stack.activePanel.id === panel.id}
 												role="option"
 												aria-selected={stack.activePanel.id === panel.id}
-												on:click={() => { layoutStore.setActiveRightPanel(panel.id); panelDrawerOpen = false; panelSearchQuery = ''; }}
+												on:click={() => { layoutStore.setActiveRightPanel(panel.id); closePanelDrawer(); }}
 											>
 												<span class="panel-tab-icon"><WorkspacePanelIcon icon={panel.icon} /></span>
 												<span class="panel-tab-label">{panel.shortLabel || panel.label}</span>
@@ -470,29 +493,49 @@
 						</div>
 
 						<div class="stack-actions">
-							<button type="button" title="Split active panel — show two panels side by side" aria-label="Split active panel" on:click={() => splitPanel(stack.activePanel.id)}>
-								<!-- Columns icon: two vertical panels side by side -->
+							<button type="button" title={splitOrientation === 'horizontal' ? 'Split active panel side by side' : 'Split active panel above and below'} aria-label="Split active panel" on:click={() => splitPanel(stack.activePanel.id)}>
 								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-									<rect x="3" y="3" width="7" height="18" rx="1"></rect>
-									<rect x="14" y="3" width="7" height="18" rx="1"></rect>
-								</svg>
-							</button>
-							<button
-								type="button"
-								class:active={!stack.collapsed}
-								title={stack.collapsed ? 'Expand stack' : 'Collapse stack'}
-								aria-label={stack.collapsed ? 'Expand stack' : 'Collapse stack'}
-								on:click={() => layoutStore.toggleRightPanelStackCollapsed(stack.id)}
-							>
-								<!-- Chevron up/down -->
-								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-									{#if stack.collapsed}
-										<path d="M18 15l-6-6-6 6"></path>
+									{#if splitOrientation === 'horizontal'}
+										<rect x="3" y="3" width="7" height="18" rx="1"></rect>
+										<rect x="14" y="3" width="7" height="18" rx="1"></rect>
 									{:else}
-										<path d="M6 9l6 6 6-6"></path>
+										<rect x="3" y="3" width="18" height="7" rx="1"></rect>
+										<rect x="3" y="14" width="18" height="7" rx="1"></rect>
 									{/if}
 								</svg>
 							</button>
+							{#if stacksWithDetachedFiltered.length > 1}
+								<button
+									type="button"
+									title="Merge this split back into one panel stack"
+									aria-label="Merge panel split"
+									on:click={() => layoutStore.mergeRightPanelStack(stack.id)}
+								>
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+										<path d="M8 7h8"></path>
+										<path d="M8 17h8"></path>
+										<path d="M12 3v18"></path>
+										<path d="m8 11 4-4 4 4"></path>
+										<path d="m8 13 4 4 4-4"></path>
+									</svg>
+								</button>
+							{:else}
+								<button
+									type="button"
+									class:active={!stack.collapsed}
+									title={stack.collapsed ? 'Expand stack' : 'Collapse stack'}
+									aria-label={stack.collapsed ? 'Expand stack' : 'Collapse stack'}
+									on:click={() => layoutStore.toggleRightPanelStackCollapsed(stack.id)}
+								>
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										{#if stack.collapsed}
+											<path d="M18 15l-6-6-6 6"></path>
+										{:else}
+											<path d="M6 9l6 6 6-6"></path>
+										{/if}
+									</svg>
+								</button>
+							{/if}
 							<button
 								type="button"
 								class:active={stack.pinned}
@@ -755,12 +798,17 @@
 		height: 14px;
 		flex-shrink: 0;
 		opacity: 0.7;
+		transition: transform 0.16s ease;
 	}
 
 	.panel-tab-drawer-trigger {
 		flex: 1;
 		min-width: 120px;
 		max-width: 220px;
+	}
+
+	.panel-tab-drawer-trigger[aria-expanded='true'] .panel-tab-chevron {
+		transform: rotate(180deg);
 	}
 
 	.panel-drawer {
@@ -851,6 +899,10 @@
 	}
 
 	.workspace-dock.split-mode {
+		flex-direction: column;
+	}
+
+	.workspace-dock.horizontal-split {
 		flex-direction: row;
 	}
 
@@ -869,32 +921,39 @@
 		border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
 	}
 
-	.workspace-dock.split-mode .panel-stack {
-		flex-direction: row;
+	.workspace-dock.horizontal-split .panel-stack {
 		border-bottom: none;
 		border-right: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
 	}
 
-	.workspace-dock.split-mode .panel-stack:last-child {
+	.workspace-dock.horizontal-split .panel-stack:last-child {
 		border-right: none;
 	}
 
+	.workspace-dock.vertical-split .panel-stack:last-child {
+		border-bottom: none;
+	}
+
 	.stack-header {
+		position: relative;
+		z-index: 20;
 		display: flex;
 		align-items: center;
 		gap: 0.45rem;
 		padding: 0.48rem 0.55rem;
 		background: color-mix(in srgb, var(--surface-base) 82%, transparent);
 		border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 68%, transparent);
+		overflow: visible;
 	}
 
 	.stack-tabs {
+		position: relative;
 		flex: 1;
 		min-width: 0;
 		display: flex;
 		align-items: center;
 		gap: 0.35rem;
-		overflow-x: auto;
+		overflow: visible;
 	}
 
 	.stack-actions {
@@ -929,7 +988,7 @@
 		width: 100%;
 	}
 
-	.workspace-dock.split-mode .stack-resize-handle {
+	.workspace-dock.horizontal-split .stack-resize-handle {
 		/* Horizontal split (row): resize handle is vertical */
 		cursor: ew-resize;
 		height: 100%;
