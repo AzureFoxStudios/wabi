@@ -1,10 +1,10 @@
 <script lang="ts">
-	export interface CallerInfo {
+	type CallerInfo = {
 		username: string;
 		isVideoCall: boolean;
 		channelId?: string;
 		channelName?: string;
-	}
+	};
 
 	export let caller: CallerInfo;
 	export let groupCallRingingTargets: Array<{ stableUserId: string; username: string }>;

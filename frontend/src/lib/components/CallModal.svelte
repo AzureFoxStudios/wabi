@@ -79,6 +79,8 @@
 	import CallParticipantGrid from './CallParticipantGrid.svelte';
 	import CallControls from './CallControls.svelte';
 	import CallRecordingPanel from './CallRecordingPanel.svelte';
+	import IncomingCallModal from './IncomingCallModal.svelte';
+	import OutgoingCallModal from './OutgoingCallModal.svelte';
 	import { onDestroy, afterUpdate } from 'svelte';
 
 	type CallViewportMode = 'embedded' | 'focus' | 'docked';
@@ -768,22 +770,14 @@
 <svelte:window on:keydown={handleKeydown} />
 
 {#if $incomingCall}
-	<div class="call-modal-overlay">
-		<div class="incoming-call-modal">
-			<div class="caller-info">
-				<div class="caller-avatar">{$incomingCall.username.charAt(0).toUpperCase()}</div>
-				<h2>{$incomingCall.username}</h2>
-				<p class="call-type">{$incomingCall.isVideoCall ? 'Video' : 'Voice'} {$incomingCall.channelId ? 'Group Call' : 'Call'}</p>
-				{#if $incomingCall.channelName}
-					<p class="call-subtitle">{$incomingCall.channelName}</p>
-				{/if}
-			</div>
-			<div class="call-actions">
-				<button class="answer-btn" on:click={handleAnswer}>Answer</button>
-				<button class="reject-btn" on:click={handleReject}>Decline</button>
-			</div>
-		</div>
-	</div>
+	<IncomingCallModal
+		caller={$incomingCall}
+		groupCallRingingTargets={$groupCallRingingTargets}
+		scope={$incomingCall.channelId ? 'group' : 'direct'}
+		onAnswer={handleAnswer}
+		onReject={handleReject}
+		onOpenRingingMenu={openRingingMenu}
+	/>
 {/if}
 
 {#if $isInCall && $activeCalls.length > 0}
@@ -957,40 +951,12 @@
 {/if}
 
 {#if $outgoingCall && !$isInCall}
-	<div class="call-modal-overlay">
-		<div class="incoming-call-modal">
-			<div class="caller-info">
-				<div class="caller-avatar">{$outgoingCall.username.charAt(0).toUpperCase()}</div>
-				<h2>{$outgoingCall.username}</h2>
-				<p class="call-type">Calling... {$outgoingCall.isVideoCall ? 'Video' : 'Voice'} {$outgoingCall.scope === 'group' ? 'Group Call' : 'Call'}</p>
-				{#if $outgoingCall.channelName}
-					<p class="call-subtitle">Ringing {$outgoingCall.channelName}</p>
-				{/if}
-				{#if $outgoingCall.scope === 'group' && $groupCallRingingTargets.length > 0}
-					<div class="ringing-targets-panel outgoing">
-						<div class="ringing-targets-label">Right-click or tap a name to stop ringing that person.</div>
-						<div class="ringing-targets-list">
-							{#each $groupCallRingingTargets as target (target.stableUserId)}
-								<button
-									type="button"
-									class="ringing-target-chip"
-									title={`Manage ringing for ${target.username}`}
-									on:click={(event) => openRingingMenu(event, target)}
-									on:contextmenu={(event) => openRingingMenu(event, target)}
-								>
-									<span class="ringing-target-name">{target.username}</span>
-									<span class="ringing-target-state">Ringing</span>
-								</button>
-							{/each}
-						</div>
-					</div>
-				{/if}
-			</div>
-			<div class="call-actions">
-				<button class="reject-btn" on:click={handleCancelOutgoing}>Cancel</button>
-			</div>
-		</div>
-	</div>
+	<OutgoingCallModal
+		caller={$outgoingCall}
+		groupCallRingingTargets={$groupCallRingingTargets}
+		onCancel={handleCancelOutgoing}
+		onOpenRingingMenu={openRingingMenu}
+	/>
 {/if}
 
 <ContextMenu

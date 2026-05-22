@@ -1,10 +1,10 @@
 <script lang="ts">
-	export interface OutgoingCallerInfo {
+	type OutgoingCallerInfo = {
 		username: string;
 		isVideoCall: boolean;
 		scope: 'group' | 'direct';
 		channelName?: string;
-	}
+	};
 
 	export let caller: OutgoingCallerInfo;
 	export let groupCallRingingTargets: Array<{ stableUserId: string; username: string }>;
