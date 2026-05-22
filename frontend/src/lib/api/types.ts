@@ -2,6 +2,12 @@ import type {
 	PaymentCheckoutMode,
 	PaymentIntentStatus
 } from '../../../../shared/paymentContracts';
+import type { Message } from '../socket-types';
+import type { MediaAlbumScopeType } from './mediaAlbumScope';
+import type {
+	FollowedChannelPollChannelResult as SharedFollowedChannelPollChannelResult,
+	FollowedChannelPollResponse as SharedFollowedChannelPollResponse
+} from '../../../../shared/userContracts';
 import type {
 	PaymentAccessPolicy,
 	PaymentDonationConfig
@@ -198,3 +204,63 @@ export interface OfflineDonationAuditResponse {
 	donations: OfflineDonationLedgerEntry[];
 }
 
+export type FollowedChannelPollChannelResult = SharedFollowedChannelPollChannelResult<Message>;
+export type FollowedChannelPollResponse = SharedFollowedChannelPollResponse<Message>;
+export type AdminPolicyKey =
+	| 'upload_limits'
+	| 'download_limits'
+	| 'runtime_tuning'
+	| 'payments_access'
+	| 'community_node_announcements'
+	| 'community_node_access'
+	| 'frontend_app_metadata';
+export interface DictionaryEntry {
+	id?: number;
+	term: string;
+	definition: string;
+	language: string;
+	createdByUserId?: number | null;
+	createdByUsername?: string | null;
+	createdAt: number;
+	updatedAt: number;
+	votes: number;
+}
+export interface MediaAlbum {
+	id: number;
+	scopeType: MediaAlbumScopeType;
+	scopeId: string;
+	name: string;
+	createdBy: number;
+	createdAt: number;
+	updatedAt: number;
+	isFeatured: boolean;
+	itemCount: number;
+}
+
+export interface MediaAlbumItem {
+	id: number;
+	albumId: number;
+	attachmentUrl: string;
+	attachmentName: string;
+	attachmentSize: number | null;
+	attachmentMime: string | null;
+	messageId: string | null;
+	caption: string | null;
+	sortOrder: number;
+	uploadedBy: number;
+	uploadedAt: number;
+}
+export type MediaAlbumErrorCode =
+	| 'ALBUM_UPLOAD_SIZE_LIMIT'
+	| 'ALBUM_UPLOAD_RATE_LIMIT_USER'
+	| 'ALBUM_UPLOAD_RATE_LIMIT_SCOPE';
+export interface SetupStatus {
+	setupRequired: boolean;
+}
+export interface CreateChannelResponse {
+	id: string;
+	name: string;
+	channel_type: string;
+	position: number;
+	parent_id: string | null;
+}

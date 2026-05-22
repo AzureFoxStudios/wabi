@@ -1,7 +1,6 @@
 import { getServerUrl } from './serverUrl';
 import { getAuthToken } from './authSession';
 import { authStore } from './authStore';
-import type { Message } from './socket-types';
 import type { MediaAlbumScopeType } from './api/mediaAlbumScope';
 export type { MediaAlbumScopeType } from './api/mediaAlbumScope';
 import type {
@@ -35,9 +34,7 @@ import type {
 import type { LaunchPageConfig } from '../../../shared/launchPageContracts';
 import type {
 	AuthResponse,
-	FollowedChannelPollChannelResult as SharedFollowedChannelPollChannelResult,
 	FollowedChannelPollRequest,
-	FollowedChannelPollResponse as SharedFollowedChannelPollResponse,
 	UserSettingsPayload,
 	UserSettingsResponse
 } from '../../../shared/userContracts';
@@ -99,7 +96,16 @@ import type {
 	ManualCashSettlement,
 	ManualCashSettlementListResponse,
 	OfflineDonationLedgerEntry,
-	OfflineDonationAuditResponse
+	OfflineDonationAuditResponse,
+	FollowedChannelPollChannelResult,
+	FollowedChannelPollResponse,
+	AdminPolicyKey,
+	DictionaryEntry,
+	MediaAlbum,
+	MediaAlbumItem,
+	MediaAlbumErrorCode,
+	SetupStatus,
+	CreateChannelResponse
 } from './api/types';
 export type {
 	PaymentIntent,
@@ -119,7 +125,16 @@ export type {
 	ManualCashSettlement,
 	ManualCashSettlementListResponse,
 	OfflineDonationLedgerEntry,
-	OfflineDonationAuditResponse
+	OfflineDonationAuditResponse,
+	FollowedChannelPollChannelResult,
+	FollowedChannelPollResponse,
+	AdminPolicyKey,
+	DictionaryEntry,
+	MediaAlbum,
+	MediaAlbumItem,
+	MediaAlbumErrorCode,
+	SetupStatus,
+	CreateChannelResponse
 } from './api/types';
 
 
@@ -982,9 +997,6 @@ export async function getUserSettings(token: string | null | undefined): Promise
 	}
 }
 
-export type FollowedChannelPollChannelResult = SharedFollowedChannelPollChannelResult<Message>;
-export type FollowedChannelPollResponse = SharedFollowedChannelPollResponse<Message>;
-
 export async function pollFollowedChannelActivity(
 	baseUrl: string,
 	token: string | null | undefined,
@@ -1039,15 +1051,6 @@ export async function saveUserSettings(
 		throw new Error('Failed to save settings');
 	}
 }
-
-export type AdminPolicyKey =
-	| 'upload_limits'
-	| 'download_limits'
-	| 'runtime_tuning'
-	| 'payments_access'
-	| 'community_node_announcements'
-	| 'community_node_access'
-	| 'frontend_app_metadata';
 
 export async function getAdminPolicy<T>(token: string, key: AdminPolicyKey): Promise<{
 	key: AdminPolicyKey;
@@ -1262,18 +1265,6 @@ export async function getAdminRuntimeGuardrails(token: string): Promise<AdminRun
 	};
 }
 
-export interface DictionaryEntry {
-	id?: number;
-	term: string;
-	definition: string;
-	language: string;
-	createdByUserId?: number | null;
-	createdByUsername?: string | null;
-	createdAt: number;
-	updatedAt: number;
-	votes: number;
-}
-
 export async function lookupDictionary(term: string, language = 'en', limit = 8): Promise<DictionaryEntry[]> {
 	const params = new URLSearchParams({
 		term,
@@ -1328,32 +1319,6 @@ export async function deleteDictionaryEntry(token: string, term: string, languag
 
 // MediaAlbumScopeType moved to ./mediaAlbumScope to avoid duplication
 
-export interface MediaAlbum {
-	id: number;
-	scopeType: MediaAlbumScopeType;
-	scopeId: string;
-	name: string;
-	createdBy: number;
-	createdAt: number;
-	updatedAt: number;
-	isFeatured: boolean;
-	itemCount: number;
-}
-
-export interface MediaAlbumItem {
-	id: number;
-	albumId: number;
-	attachmentUrl: string;
-	attachmentName: string;
-	attachmentSize: number | null;
-	attachmentMime: string | null;
-	messageId: string | null;
-	caption: string | null;
-	sortOrder: number;
-	uploadedBy: number;
-	uploadedAt: number;
-}
-
 function normalizeMediaAlbum(raw: any): MediaAlbum {
 	return {
 		id: Number(raw?.id),
@@ -1384,11 +1349,6 @@ function normalizeMediaAlbumItem(raw: any): MediaAlbumItem {
 		uploadedAt: Number(raw?.uploadedAt ?? raw?.created_at ?? raw?.uploaded_at ?? 0)
 	};
 }
-
-export type MediaAlbumErrorCode =
-	| 'ALBUM_UPLOAD_SIZE_LIMIT'
-	| 'ALBUM_UPLOAD_RATE_LIMIT_USER'
-	| 'ALBUM_UPLOAD_RATE_LIMIT_SCOPE';
 
 export class MediaAlbumApiError extends Error {
 	status: number;
@@ -1613,10 +1573,6 @@ export async function deleteMediaAlbumItem(token: string, albumId: number, itemI
 
 // --- First-run owner bootstrap ---
 
-export interface SetupStatus {
-	setupRequired: boolean;
-}
-
 export async function getSetupStatus(): Promise<SetupStatus> {
 	try {
 		const res = await fetchWithTimeout(`${getApiBase()}/api/setup/status`, {
@@ -1630,14 +1586,6 @@ export async function getSetupStatus(): Promise<SetupStatus> {
 }
 
 // --- Channel API ---
-
-export interface CreateChannelResponse {
-	id: string;
-	name: string;
-	channel_type: string;
-	position: number;
-	parent_id: string | null;
-}
 
 export async function createChannelApi(
 	name: string,
