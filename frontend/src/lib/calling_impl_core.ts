@@ -33,7 +33,12 @@ import {
 } from './callingDiagnostics';
 import { prefetchTurnCredentials } from './turnConfig';
 import { playCallActionSound } from './callSounds';
-import { closeMediaGatewaySession, renewMediaGatewaySession, getMediaGatewaySession, createLivekitAccessToken } from './mediaGateway';
+import { closeMediaGatewaySession, createLivekitAccessToken } from './mediaGateway';
+import {
+	stopMediaGatewaySessionRenewal,
+	getActiveMediaGatewaySessionId,
+	setActiveMediaGatewaySessionId
+} from './callingMediaGateway';
 import {
 	getStoredCallMuteBehavior,
 	getStoredAudioProcessingMode,
@@ -71,10 +76,6 @@ import {
 	PERFORMANCE_GUARD_SAMPLE_MS,
 	PERFORMANCE_GUARD_LAG_THRESHOLD_MS,
 	PERFORMANCE_GUARD_REQUIRED_STRIKES,
-	MEDIA_GATEWAY_RENEW_MS,
-	MEDIA_GATEWAY_RENEW_FAILURE_LIMIT,
-	MEDIA_GATEWAY_WATCHDOG_MS,
-	MEDIA_GATEWAY_RUNTIME_POLL_MS,
 	type Call,
 	type ScreenShare,
 	type GroupCallRingingTarget,
@@ -186,11 +187,7 @@ let spatialAudioEngine: SpatialAudioEngine | null = null;
 let spatialFallbackNoticeShown = false;
 const callSpatialSeatMap = new Map<string, number>();
 const shareSpatialSeatMap = new Map<string, number>();
-let activeMediaGatewaySessionId: string | null = null;
-let mediaGatewayRenewInterval: number | null = null;
-let mediaGatewayRenewFailureCount = 0;
-let mediaGatewayWatchdogInterval: number | null = null;
-let mediaGatewayRuntimePollInterval: number | null = null;
+
 let livekitRoom: Room | null = null;
 let livekitChannelId: string | null = null;
 const livekitParticipantMedia = new Map<string, {
@@ -214,148 +211,6 @@ configureLivekitTokenRefresh(async (channelId, displayName) => {
 	}
 	await connectLivekitSfu(channelId, displayName);
 });
-
-async function refreshGatewayRuntimeTelemetry(): Promise<void> {
-	const runtime = await syncMediaRuntimeFromServer().catch(() => null);
-	const gateway = runtime?.media?.gateway;
-	if (!gateway) {
-		callTransportState.update((state) => ({
-			...state,
-			gatewayMediaPlaneStatus: state.gatewaySessionId ? 'degraded' : 'idle',
-			gatewayActiveStreams: null,
-			gatewayLastSeenAt: null
-		}));
-		return;
-	}
-
-	const healthy = gateway.healthy === true;
-	const mediaPlaneReady = gateway.mediaPlaneReady === true;
-	const nextStatus: 'idle' | 'pending' | 'ready' | 'degraded' | 'lost' =
-		!activeMediaGatewaySessionId
-			? 'idle'
-			: healthy && mediaPlaneReady
-				? 'ready'
-				: healthy
-					? 'pending'
-					: 'degraded';
-
-	callTransportState.update((state) => ({
-		...state,
-		gatewayMediaPlaneStatus: nextStatus,
-		gatewayActiveStreams: typeof gateway.activeStreams === 'number' ? gateway.activeStreams : null,
-		gatewayLastSeenAt: typeof gateway.lastSeenAt === 'number' ? gateway.lastSeenAt : null
-	}));
-}
-
-function stopMediaGatewayRuntimePolling(): void {
-	if (mediaGatewayRuntimePollInterval !== null) {
-		clearInterval(mediaGatewayRuntimePollInterval);
-		mediaGatewayRuntimePollInterval = null;
-	}
-}
-
-function startMediaGatewayRuntimePolling(): void {
-	stopMediaGatewayRuntimePolling();
-	if (typeof window === 'undefined') return;
-	void refreshGatewayRuntimeTelemetry();
-	mediaGatewayRuntimePollInterval = window.setInterval(() => {
-		void refreshGatewayRuntimeTelemetry();
-	}, MEDIA_GATEWAY_RUNTIME_POLL_MS);
-}
-
-function stopMediaGatewaySessionRenewal(): void {
-	if (mediaGatewayRenewInterval !== null) {
-		clearInterval(mediaGatewayRenewInterval);
-		mediaGatewayRenewInterval = null;
-	}
-	if (mediaGatewayWatchdogInterval !== null) {
-		clearInterval(mediaGatewayWatchdogInterval);
-		mediaGatewayWatchdogInterval = null;
-	}
-	stopMediaGatewayRuntimePolling();
-	mediaGatewayRenewFailureCount = 0;
-	callTransportState.update((state) => ({
-		...state,
-		gatewaySessionId: activeMediaGatewaySessionId,
-		gatewayControlPlaneStatus: activeMediaGatewaySessionId ? 'idle' : 'idle',
-		gatewayMediaPlaneStatus: activeMediaGatewaySessionId ? 'pending' : 'idle',
-		gatewayActiveStreams: null,
-		gatewayLastSeenAt: null
-	}));
-}
-
-function startMediaGatewaySessionRenewal(): void {
-	stopMediaGatewaySessionRenewal();
-	if (typeof window === 'undefined') return;
-	if (!activeMediaGatewaySessionId) return;
-	startMediaGatewayRuntimePolling();
-	mediaGatewayRenewInterval = window.setInterval(() => {
-		const sessionId = activeMediaGatewaySessionId;
-		if (!sessionId) return;
-		void renewMediaGatewaySession(sessionId)
-			.then(() => {
-				mediaGatewayRenewFailureCount = 0;
-				callTransportState.update((state) => ({
-					...state,
-					gatewaySessionId: sessionId,
-					gatewayControlPlaneStatus: 'ready',
-					gatewayMediaPlaneStatus: state.gatewayMediaPlaneStatus === 'idle' ? 'pending' : state.gatewayMediaPlaneStatus,
-					reason: state.reason === 'sfu_control_plane_degraded' ? 'sfu_control_plane_ready_media_plane_pending' : state.reason
-				}));
-			})
-			.catch((error) => {
-				mediaGatewayRenewFailureCount += 1;
-				console.warn('[MediaGateway] Session renewal failed:', error);
-				callTransportState.update((state) => ({
-					...state,
-					gatewaySessionId: sessionId,
-					gatewayControlPlaneStatus: mediaGatewayRenewFailureCount >= MEDIA_GATEWAY_RENEW_FAILURE_LIMIT ? 'lost' : 'degraded',
-					gatewayMediaPlaneStatus: mediaGatewayRenewFailureCount >= MEDIA_GATEWAY_RENEW_FAILURE_LIMIT ? 'lost' : 'degraded',
-					reason: 'sfu_control_plane_degraded'
-				}));
-
-				if (mediaGatewayRenewFailureCount >= MEDIA_GATEWAY_RENEW_FAILURE_LIMIT) {
-					void closeMediaGatewaySession(sessionId).catch(() => undefined);
-					activeMediaGatewaySessionId = null;
-					stopMediaGatewaySessionRenewal();
-				}
-			});
-	}, MEDIA_GATEWAY_RENEW_MS);
-
-	mediaGatewayWatchdogInterval = window.setInterval(() => {
-		const sessionId = activeMediaGatewaySessionId;
-		if (!sessionId) return;
-		void getMediaGatewaySession(sessionId)
-			.then((session) => {
-				if (!session || session.status !== 'open') {
-					callTransportState.update((state) => ({
-						...state,
-						gatewaySessionId: sessionId,
-						gatewayControlPlaneStatus: 'lost',
-						gatewayMediaPlaneStatus: 'lost',
-						reason: 'sfu_control_plane_lost'
-					}));
-					activeMediaGatewaySessionId = null;
-					stopMediaGatewaySessionRenewal();
-					return;
-				}
-				callTransportState.update((state) => ({
-					...state,
-					gatewaySessionId: sessionId,
-					gatewayControlPlaneStatus: 'ready'
-				}));
-			})
-			.catch(() => {
-				callTransportState.update((state) => ({
-					...state,
-					gatewaySessionId: sessionId,
-					gatewayControlPlaneStatus: 'degraded',
-					gatewayMediaPlaneStatus: 'degraded',
-					reason: 'sfu_control_plane_degraded'
-				}));
-			});
-	}, MEDIA_GATEWAY_WATCHDOG_MS);
-}
 
 function startPerformanceGuard(): void {
 	if (typeof window === 'undefined') return;
@@ -743,12 +598,13 @@ function finalizeLocalCallEndState(): void {
 		fallbackReason: null
 	}));
 
-	if (activeMediaGatewaySessionId) {
-		void closeMediaGatewaySession(activeMediaGatewaySessionId).catch((error) => {
+	const __mgwSessionId = getActiveMediaGatewaySessionId();
+	if (__mgwSessionId) {
+		void closeMediaGatewaySession(__mgwSessionId).catch((error) => {
 			console.warn('[MediaGateway] Failed to close session on call teardown:', error);
 		});
 		stopMediaGatewaySessionRenewal();
-		activeMediaGatewaySessionId = null;
+		setActiveMediaGatewaySessionId(null);
 	}
 	void disconnectLivekitSfu();
 	void disconnectStdbCall();
@@ -1136,9 +992,9 @@ async function resolveActiveTransport(channelId?: string): Promise<EffectiveCall
 		reason: plan.reason,
 		gatewayHealthy: plan.gatewayHealthy,
 		checkedAt: plan.checkedAt,
-		gatewaySessionId: activeMediaGatewaySessionId,
+		gatewaySessionId: getActiveMediaGatewaySessionId(),
 		gatewayControlPlaneStatus: 'idle',
-		gatewayMediaPlaneStatus: activeMediaGatewaySessionId ? 'pending' : 'idle',
+		gatewayMediaPlaneStatus: getActiveMediaGatewaySessionId() ? 'pending' : 'idle',
 		gatewayActiveStreams: null,
 		gatewayLastSeenAt: null
 	});
@@ -1633,12 +1489,13 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 	} catch (error) {
 		console.error('Error joining voice channel:', error);
 		void disconnectLivekitSfu();
-		if (activeMediaGatewaySessionId) {
-			void closeMediaGatewaySession(activeMediaGatewaySessionId).catch((closeError) => {
+		const __mgwSessionId = getActiveMediaGatewaySessionId();
+		if (__mgwSessionId) {
+			void closeMediaGatewaySession(__mgwSessionId).catch((closeError) => {
 				console.warn('[MediaGateway] Failed closing session after join failure:', closeError);
 			});
 			stopMediaGatewaySessionRenewal();
-			activeMediaGatewaySessionId = null;
+			setActiveMediaGatewaySessionId(null);
 		}
 		handleMediaError(error as DOMException, 'starting');
 		isInCall.set(false);
@@ -1717,12 +1574,13 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 		fallbackReason: null
 	}));
 
-	if (activeMediaGatewaySessionId) {
-		void closeMediaGatewaySession(activeMediaGatewaySessionId).catch((error) => {
+	const __mgwSessionId2 = getActiveMediaGatewaySessionId();
+	if (__mgwSessionId2) {
+		void closeMediaGatewaySession(__mgwSessionId2).catch((error) => {
 			console.warn('[MediaGateway] Failed to close session on leave:', error);
 		});
 		stopMediaGatewaySessionRenewal();
-		activeMediaGatewaySessionId = null;
+		setActiveMediaGatewaySessionId(null);
 	}
 	void disconnectLivekitSfu();
 }
@@ -2662,12 +2520,13 @@ export function cleanupAllConnections() {
 		effectiveMode: 'off',
 		fallbackReason: null
 	}));
-	if (activeMediaGatewaySessionId) {
-		void closeMediaGatewaySession(activeMediaGatewaySessionId).catch((error) => {
+	const __mgwSessionId3 = getActiveMediaGatewaySessionId();
+	if (__mgwSessionId3) {
+		void closeMediaGatewaySession(__mgwSessionId3).catch((error) => {
 			console.warn('[MediaGateway] Failed to close session on cleanupAllConnections:', error);
 		});
 		stopMediaGatewaySessionRenewal();
-		activeMediaGatewaySessionId = null;
+		setActiveMediaGatewaySessionId(null);
 	}
 	void disconnectLivekitSfu();
 }
