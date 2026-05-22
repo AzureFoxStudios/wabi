@@ -89,11 +89,9 @@ Already reduced from 3,334. Recent extraction: overlay/footer UI moved to `src/l
 - Extract event handlers (context menu, scroll management) into `messageListHandlers.ts`
 - Continue slicing album/upload and lightbox helpers where state boundaries are clean
 
-### Priority 3: api.ts (1,621 lines)
+### Priority 3: api.ts — DONE (1,621 → 3 lines)
 
-Already barrel-split and response/type definitions were moved into `api/types.ts`, reducing the barrel from 1,823 → 1,621 lines. `api.ts` no longer owns exported interfaces/types beyond re-export statements; remaining work is moving API functions to domain modules so the barrel only re-exports.
-
-**Approach:** Continue moving function groups to domain modules (`api/dictionary.ts`, `api/albums.ts`, setup/channel modules, etc.). The barrel should only re-export.
+`api.ts` is now a backward-compatible barrel that re-exports `./api/index`. Domain implementations live under `src/lib/api/`; channel bootstrap functions were moved to `api/channels.ts` and re-exported through `api/index.ts`.
 
 ### Priority 4: CSS files (sidebar-core 1,529, settings-core 1,342)
 
