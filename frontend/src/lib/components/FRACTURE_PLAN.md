@@ -93,9 +93,9 @@ Already reduced from 3,334. Recent extraction: overlay/footer UI moved to `src/l
 
 `api.ts` is now a backward-compatible barrel that re-exports `./api/index`. Domain implementations live under `src/lib/api/`; channel bootstrap functions were moved to `api/channels.ts` and re-exported through `api/index.ts`.
 
-### Priority 4: CSS files (sidebar-core 1,529, settings-core 1,342)
+### Priority 4: CSS files — DONE
 
-These are already partials (post-split). They're large but they're pure CSS — no logic coupling. Can merge small partials, remove dead rules, or further split by concern. Lower priority than TS/Svelte.
+Large CSS entry files were converted into thin `@import` stubs with depth-balanced partials, preserving existing imports from `styles.css` while keeping each physical CSS file under ~520 lines. Split files include sidebar-core, settings-core, projects-view, call-modal, server-switcher, kanban-board, map-workspace, diary-view, calendar-view, and main-layout.
 
 ### Priority 5: Svelte components (1000–1500 lines)
 
