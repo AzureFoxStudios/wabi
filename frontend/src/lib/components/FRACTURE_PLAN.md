@@ -55,7 +55,7 @@ Extract along natural UI boundaries (tabs, panels, modals, style blocks) rather 
 
 ## Remaining Targets (1000+ lines)
 
-### Priority 1: calling_impl_core.ts — IN PROGRESS (2,762 → 2,135 lines)
+### Priority 1: calling_impl_core.ts — IN PROGRESS (2,762 → 2,014 lines)
 
 Extractions completed:
 
@@ -65,8 +65,9 @@ Extractions completed:
 | StDB call (connect/disconnect) | ~110 | callingStdb.ts |
 | LiveKit SFU (7 functions + state) | ~210 | callingLivekit.ts |
 | Screen share (7 functions) | ~165 | callingScreenShare.ts |
+| Transport resolution | ~120 | callingTransport.ts |
 
-Remaining ~2,135 lines. Further extraction blocked by shared mutable state (peerConnections Map, activeVoiceChannelId, etc.). Dependency injection pattern (initXxxDeps) used for LiveKit and Screen Share extractions to avoid circular imports.
+Remaining ~2,014 lines. Further extraction blocked by shared mutable state (peerConnections Map, activeVoiceChannelId, etc.). Dependency injection pattern (initXxxDeps) used for LiveKit and Screen Share extractions to avoid circular imports.
 
 | Section | Lines (approx) | Extraction Target | Status |
 |---------|-------|-----------------|--------|
@@ -88,11 +89,11 @@ Already reduced from 3,334. Further extraction targets:
 - Extract inline `<script>` reactive declarations into a `messageListState.ts` helper
 - Extract event handlers (context menu, scroll management) into `messageListHandlers.ts`
 
-### Priority 3: api.ts (1,823 lines)
+### Priority 3: api.ts (1,673 lines)
 
-Already barrel-split but the barrel itself is still huge. Reason: it contains 500+ lines of TypeScript interfaces (PaymentIntent, PaymentEvent, etc.) plus the remaining API functions that weren't extracted.
+Already barrel-split and payment/domain response types were moved into `api/types.ts`, reducing the barrel from 1,823 → 1,673 lines. More split work possible: remaining TypeScript interfaces/types (`DictionaryEntry`, `MediaAlbum`, setup/channel responses) and remaining API functions should continue moving to `api/types.ts` or domain modules.
 
-**Approach:** Move interfaces to `api/types.ts` or co-locate with their domain modules. The barrel should only re-export.
+**Approach:** Keep moving interfaces to `api/types.ts` or co-locate with their domain modules. The barrel should only re-export.
 
 ### Priority 4: CSS files (sidebar-core 1,529, settings-core 1,342)
 
