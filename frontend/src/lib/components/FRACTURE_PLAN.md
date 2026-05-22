@@ -55,31 +55,31 @@ Extract along natural UI boundaries (tabs, panels, modals, style blocks) rather 
 
 ## Remaining Targets (1000+ lines)
 
-### Priority 1: calling_impl_core.ts (2,762 lines)
+### Priority 1: calling_impl_core.ts — IN PROGRESS (2,762 → 2,135 lines)
 
-The biggest remaining file. Dense reactive state machine with clear domain sections:
+Extractions completed:
 
-| Section | Lines | Extraction Target |
-|---------|-------|-----------------|
-| Private state (peer connections, LiveKit, StDB) | 168–217 | callingPeerState.ts |
-| Media gateway (start/stop/poll/renew) | 218–359 | callingMediaGateway.ts |
-| Performance guard | 360–420 | callingAudioMonitors.ts (already exists, merge) |
-| ICE candidate queue | 421–432 | callingWebrtcHelpers.ts (already exists, merge) |
-| Peer connection management | 433–653 | callingPeerState.ts |
-| Remote stream/track handlers | 757–886 | callingWebrtcHelpers.ts |
-| Spatial audio engine | 915–1118 | callingSpatialRuntime.ts (already exists, merge) |
-| Transport resolution | 1122–1239 | callingTransport.ts |
-| LiveKit SFU | 1240–1378 | callingLivekit.ts (new) |
-| StDB call | 1379–1548 | callingStdb.ts (new) |
-| Call lifecycle (join/leave/start/answer/end) | 1549–2182 | callingCallLifecycle.ts (new) |
-| Audio/video controls | 2183–2315 | callingMediaControls.ts (new) |
-| WebRTC signaling | 2316–2424 | callingWebrtcHelpers.ts |
-| Screen share | 2425–2589 | callingScreenShare.ts (new) |
-| Cleanup + utils | 2590–2762 | callingPeerState.ts |
+| Extraction | Lines removed | Target file |
+|-----------|-------------|-------------|
+| Media gateway (start/stop/poll/renew) | ~140 | callingMediaGateway.ts |
+| StDB call (connect/disconnect) | ~110 | callingStdb.ts |
+| LiveKit SFU (7 functions + state) | ~210 | callingLivekit.ts |
+| Screen share (7 functions) | ~165 | callingScreenShare.ts |
 
-**Blocker:** Same mutable-state trap as before — 30+ module-level `let` bindings. Must hoist state into a store object or use the same barrel pattern as calling.ts (re-export from sub-modules, keep `let` bindings in core barrel). The barrel pattern worked for calling.ts because the barrel just re-exports; the actual state can stay in one file if sub-modules import it.
+Remaining ~2,135 lines. Further extraction blocked by shared mutable state (peerConnections Map, activeVoiceChannelId, etc.). Dependency injection pattern (initXxxDeps) used for LiveKit and Screen Share extractions to avoid circular imports.
 
-**Approach:** Group functions by domain. Sub-modules import state from `calling_impl_core.ts` (or its replacement). Parent becomes thin barrel + state container. Each sub-module is pure functions that receive state as params, or they import the state module directly.
+| Section | Lines (approx) | Extraction Target | Status |
+|---------|-------|-----------------|--------|
+| Private state (peer connections, performance, spatial) | ~50 | callingPeerState.ts | Hard — shared state |
+| Performance guard | ~50 | callingAudioMonitors.ts merge | Possible |
+| Peer connection management | ~220 | callingPeerState.ts | Hard — shared state |
+| Remote stream/track handlers | ~130 | callingWebrtcHelpers.ts | Hard — refs peerConnections |
+| Spatial audio engine | ~200 | callingSpatialRuntime.ts merge | Possible with deps pattern |
+| Transport resolution | ~120 | callingTransport.ts | Possible with deps pattern |
+| Call lifecycle (join/leave/start/answer/end) | ~600 | callingCallLifecycle.ts | Hard — touches everything |
+| Audio/video controls | ~150 | callingMediaControls.ts | Possible with deps pattern |
+| WebRTC signaling | ~110 | callingWebrtcHelpers.ts | Possible with deps pattern |
+| Cleanup + utils | ~130 | callingPeerState.ts | Possible |
 
 ### Priority 2: MessageList.svelte (2,381 lines)
 
