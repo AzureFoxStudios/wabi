@@ -89,11 +89,11 @@ Already reduced from 3,334. Further extraction targets:
 - Extract inline `<script>` reactive declarations into a `messageListState.ts` helper
 - Extract event handlers (context menu, scroll management) into `messageListHandlers.ts`
 
-### Priority 3: api.ts (1,673 lines)
+### Priority 3: api.ts (1,621 lines)
 
-Already barrel-split and payment/domain response types were moved into `api/types.ts`, reducing the barrel from 1,823 → 1,673 lines. More split work possible: remaining TypeScript interfaces/types (`DictionaryEntry`, `MediaAlbum`, setup/channel responses) and remaining API functions should continue moving to `api/types.ts` or domain modules.
+Already barrel-split and response/type definitions were moved into `api/types.ts`, reducing the barrel from 1,823 → 1,621 lines. `api.ts` no longer owns exported interfaces/types beyond re-export statements; remaining work is moving API functions to domain modules so the barrel only re-exports.
 
-**Approach:** Keep moving interfaces to `api/types.ts` or co-locate with their domain modules. The barrel should only re-export.
+**Approach:** Continue moving function groups to domain modules (`api/dictionary.ts`, `api/albums.ts`, setup/channel modules, etc.). The barrel should only re-export.
 
 ### Priority 4: CSS files (sidebar-core 1,529, settings-core 1,342)
 
