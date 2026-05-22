@@ -101,12 +101,12 @@ Large CSS entry files were converted into thin `@import` stubs with depth-balanc
 
 | Component | Lines | Primary Bloat | Strategy |
 |-----------|-------|---------------|----------|
-| PaymentSheet.svelte | 1,492 | Style block | Extract CSS → payment-sheet.css |
+| PaymentSheet.svelte | 1,266 | Helpers extracted | Continue extracting state/markup panels; helper logic now in `payments/paymentSheetHelpers.ts` |
 | MapWorkspace.svelte | 1,420 | Style + logic | Extract helpers → mapWorkspaceHelpers.ts, CSS → map-workspace.css |
 | MediaAlbumsTabImpl.svelte | 1,375 | Markup + state | Extract album grid, upload logic |
 | ModelViewer3D.svelte | 1,091 | Style block | Extract CSS → model-viewer-3d.css |
 | ServerSwitcherPanel.svelte | 1,020 | Style + markup | Extract remaining style → server-switcher.css |
-| CallModal.svelte | 1,007 | Style + helpers | Extract CSS → call-modal.css, helpers → callModalHelpers.ts |
+| CallModal.svelte | 973 | Shell + presenter overlay state | Incoming/outgoing ringing modals wired; continue presenter overlay/capture extraction |
 
 ### Future: Rust files
 
