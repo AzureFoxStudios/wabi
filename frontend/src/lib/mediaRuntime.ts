@@ -31,20 +31,6 @@ export {
 
 import { getStoredScreenShareQualityPreset, getStoredScreenShareBitrateKbps } from './media/screenShare';
 import { getStoredSpatialAudioSettings } from './media/spatialAudio';
-export {
-	getPreferredMicDeviceId, setPreferredMicDeviceId,
-	getPreferredCameraDeviceId, setPreferredCameraDeviceId
-} from './media/mediaStorage';
-export {
-	getStoredScreenShareQualityPreset, setScreenShareQualityPreset,
-	getStoredScreenShareBitrateKbps, setScreenShareBitrateKbps,
-	getScreenShareBitrateOverrideBps, getScreenShareQualityProfile
-} from './media/screenShare';
-export {
-	getStoredSpatialAudioSettings, setSpatialAudioEnabled, setSpatialAudioMode,
-	setSpatialAudioMasterStrength, setSpatialAudioDistanceScale,
-	setSpatialAudioWarningMuted, setSpatialAudioQuickToggleVisible
-} from './media/spatialAudio';
 
 export type MediaQualityMode = 'web-baseline' | 'local-enhanced';
 export type AudioProcessingMode = 'auto' | 'dsp' | 'rnn' | 'studio';
