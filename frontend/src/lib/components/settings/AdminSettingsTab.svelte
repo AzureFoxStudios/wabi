@@ -48,11 +48,11 @@
 		type UploadLimitConfig,
 		type UploadRoleTier
 	} from '$lib/api';
-	import UploadLimitsPanel from './settings/admin/UploadLimitsPanel.svelte';
-	import DonationConfig from './settings/admin/DonationConfig.svelte';
-	import OfflineDonations from './settings/admin/OfflineDonations.svelte';
-	import CommunityNodes from './settings/admin/CommunityNodes.svelte';
-	import AdminUserList from './settings/admin/AdminUserList.svelte';
+	import UploadLimitsPanel from './admin/UploadLimitsPanel.svelte';
+	import DonationConfig from './admin/DonationConfig.svelte';
+	import OfflineDonations from './admin/OfflineDonations.svelte';
+	import CommunityNodes from './admin/CommunityNodes.svelte';
+	import AdminUserList from './admin/AdminUserList.svelte';
 
 	const dispatch = createEventDispatcher<{ openServerDonation: void }>();
 	const MB = 1024 * 1024;

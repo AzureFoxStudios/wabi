@@ -1,5 +1,5 @@
 <script lang="ts">
-	export type ViewMode = 'textured' | 'normal' | 'wireframe-lines';
+	type ViewMode = 'textured' | 'normal' | 'wireframe-lines';
 
 	export let viewMode: ViewMode;
 	export let hideUi: boolean;
