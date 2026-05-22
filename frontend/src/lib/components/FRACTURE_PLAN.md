@@ -82,12 +82,12 @@ Remaining ~2,014 lines. Further extraction blocked by shared mutable state (peer
 | WebRTC signaling | ~110 | callingWebrtcHelpers.ts | Possible with deps pattern |
 | Cleanup + utils | ~130 | callingPeerState.ts | Possible |
 
-### Priority 2: MessageList.svelte (2,381 lines)
+### Priority 2: MessageList.svelte (2,347 lines)
 
-Already reduced from 3,334. Further extraction targets:
-- Extract remaining style block → `ml-core.css` or component-scoped CSS
+Already reduced from 3,334. Recent extraction: overlay/footer UI moved to `src/lib/components/message/MessageListOverlays.svelte` (139 lines). Further extraction targets:
 - Extract inline `<script>` reactive declarations into a `messageListState.ts` helper
 - Extract event handlers (context menu, scroll management) into `messageListHandlers.ts`
+- Continue slicing album/upload and lightbox helpers where state boundaries are clean
 
 ### Priority 3: api.ts (1,621 lines)
 

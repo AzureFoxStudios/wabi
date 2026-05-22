@@ -6,12 +6,8 @@
 	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder, loadOlderHistory, channelHistoryLoading, channelHasMoreHistory, roleDefinitions, retryMessagePersistence } from '$lib/socket';
 	import { themeStore } from '$lib/theme/themeStore';
 	import MessageItem from './MessageItem.svelte';
-	import MessageContextMenu from './MessageContextMenu.svelte';
-	import ForwardDialog from './ForwardDialog.svelte';
-	import ConfirmDialog from './ConfirmDialog.svelte';
+	import MessageListOverlays from './message/MessageListOverlays.svelte';
 	import ZipPreviewPanel from './ZipPreviewPanel.svelte';
-	import ImageLightbox from './ImageLightbox.svelte';
-	import VideoLightbox from './VideoLightbox.svelte';
 	import ModelViewer3D from './plugins/ModelViewer3D.svelte';
 	import YouTubeWatchEmbed from './plugins/YouTubeWatchEmbed.svelte';
 	import SpotifyControlsEmbed from './plugins/SpotifyControlsEmbed.svelte';
@@ -2295,87 +2291,57 @@
 	on:change={handleAlbumAnnouncementUploadChange}
 />
 
-{#if UserPopoutComponent}
-	<svelte:component
-		this={UserPopoutComponent}
-		bind:isOpen={showUserPopout}
-		bind:user={popoutUser}
-		anchorElement={popoutAnchorElement}
-		isOwnProfile={popoutIsOwnProfile}
-		on:close={() => showUserPopout = false}
-		on:openFullProfile={(event) => {
-			if (event.detail?.isOwnProfile) {
-				dispatch('openSettings');
-			}
-		}}
-	/>
-{/if}
-
-{#if showReactionPicker}
-	{#if EmojiPickerComponent}
-		<svelte:component
-			this={EmojiPickerComponent}
-			on:select={handleReactionSelect}
-			on:close={closeReactionPicker}
-		/>
-	{:else}
-		<div class="emoji-picker-loading">{$_('emoji_picker.loading')}</div>
-	{/if}
-{/if}
-
-	{#if contextMenuMessage}
-	<MessageContextMenu
-		message={contextMenuMessage}
-		canManageOwnMessage={isOwnMessage(contextMenuMessage)}
-		bind:visible={contextMenuVisible}
-		x={contextMenuX}
-		y={contextMenuY}
-		onEdit={handleEdit}
-		onDelete={handleDelete}
-		onPin={handlePin}
-		onReply={handleReply}
-		onQuickMention={handleQuickMention}
-		onTogglePersonalPin={handleTogglePersonalPin}
-		onDownload={handleDownload}
-		onAddToAlbum={handleAddToAlbum}
-		onCopyQuote={handleCopyQuote}
-		onCopyMessageLink={handleCopyMessageLink}
-		onForward={handleForward}
-		onAddReaction={handleAddReaction}
-		onTranslate={handleTranslate}
-		quickMentionEnabled={$displayEnhancementSettingsStore.quickMentionEnabled}
-		personalPinsEnabled={$displayEnhancementSettingsStore.personalPinsEnabled}
-		isPersonalPinned={isPersonalPinnedMessage(contextMenuMessage.id)}
-	/>
-{/if}
-
-<ForwardDialog bind:visible={showForwardDialog} bind:message={forwardMessage} />
-
-<ConfirmDialog
-	isOpen={showDeleteConfirm}
-	title={$_('messages.confirm.delete_title')}
-	message={getDeleteConfirmMessage(messageToDelete)}
-	confirmText={$_('messages.confirm.delete_confirm')}
-	variant="danger"
-	onConfirm={confirmDeleteMessage}
-	onCancel={() => showDeleteConfirm = false}
+<MessageListOverlays
+	bind:showUserPopout
+	bind:popoutUser
+	{popoutAnchorElement}
+	bind:popoutIsOwnProfile
+	bind:showReactionPicker
+	bind:contextMenuVisible
+	bind:showForwardDialog
+	bind:forwardMessage
+	bind:showDeleteConfirm
+	bind:showBlendImportSettings
+	bind:enlargedImage
+	bind:enlargedVideo
+	{UserPopoutComponent}
+	{EmojiPickerComponent}
+	{BlendImportSettingsModalComponent}
+	{contextMenuMessage}
+	{contextMenuX}
+	{contextMenuY}
+	{messageToDelete}
+	{blendImportSourcePath}
+	{blendImportFileName}
+	{blendImportSubmitting}
+	{currentImageGallery}
+	quickMentionEnabled={$displayEnhancementSettingsStore.quickMentionEnabled}
+	personalPinsEnabled={$displayEnhancementSettingsStore.personalPinsEnabled}
+	{isOwnMessage}
+	{isPersonalPinnedMessage}
+	{getDeleteConfirmMessage}
+	handleOpenFullProfile={(event) => {
+		if (event.detail?.isOwnProfile) {
+			dispatch('openSettings');
+		}
+	}}
+	{handleReactionSelect}
+	{closeReactionPicker}
+	{handleEdit}
+	{handleDelete}
+	{handlePin}
+	{handleReply}
+	{handleQuickMention}
+	{handleTogglePersonalPin}
+	{handleDownload}
+	{handleAddToAlbum}
+	{handleCopyQuote}
+	{handleCopyMessageLink}
+	{handleForward}
+	{handleAddReaction}
+	{handleTranslate}
+	{confirmDeleteMessage}
+	{queueBlendImport}
+	{closeEnlargedImage}
+	{closeEnlargedVideo}
 />
-
-{#if BlendImportSettingsModalComponent}
-	<svelte:component
-		this={BlendImportSettingsModalComponent}
-		isOpen={showBlendImportSettings}
-		sourcePath={blendImportSourcePath}
-		fileName={blendImportFileName}
-		isSubmitting={blendImportSubmitting}
-		on:close={() => {
-			if (!blendImportSubmitting) showBlendImportSettings = false;
-		}}
-		on:submit={queueBlendImport}
-	/>
-{/if}
-
-<ImageLightbox imageUrl={enlargedImage} gallery={currentImageGallery} onClose={closeEnlargedImage} />
-
-<VideoLightbox videoUrl={enlargedVideo} onClose={closeEnlargedVideo} />
-
