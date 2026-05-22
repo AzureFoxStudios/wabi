@@ -48,6 +48,11 @@
 		type UploadLimitConfig,
 		type UploadRoleTier
 	} from '$lib/api';
+	import UploadLimitsPanel from './settings/admin/UploadLimitsPanel.svelte';
+	import DonationConfig from './settings/admin/DonationConfig.svelte';
+	import OfflineDonations from './settings/admin/OfflineDonations.svelte';
+	import CommunityNodes from './settings/admin/CommunityNodes.svelte';
+	import AdminUserList from './settings/admin/AdminUserList.svelte';
 
 	const dispatch = createEventDispatcher<{ openServerDonation: void }>();
 	const MB = 1024 * 1024;
@@ -846,614 +851,125 @@
 <div class="settings-section">
 	<h3>{$t('settings.sections.admin_panel')}</h3>
 	<p class="admin-help">Manage live user roles from here or from user right-click menus.</p>
-	<div class="upload-limits-panel">
-		<h4>Upload Limits (MB)</h4>
-		<p class="admin-help">Leave a field blank for unlimited. These limits are enforced on the backend.</p>
-		<div class="upload-limit-grid">
-			{#each uploadRoleOrder as tier}
-				<label class="upload-limit-row">
-					<span>{uploadRoleLabels[tier]}</span>
-					<input
-						type="number"
-						min="1"
-						step="1"
-						placeholder="Unlimited"
-						bind:value={uploadLimitInputs[tier]}
-						disabled={!canManageAdmin || loadingUploadLimits || savingUploadLimits}
-					/>
-				</label>
-			{/each}
-			<label class="upload-limit-row">
-				<span>Global Cap</span>
-				<input
-					type="number"
-					min="1"
-					step="1"
-					placeholder="Unlimited"
-					bind:value={globalUploadLimitInput}
-					disabled={!canManageAdmin || loadingUploadLimits || savingUploadLimits}
-				/>
-			</label>
-		</div>
-		<button class="action-btn" on:click={saveUploadLimits} disabled={!canManageAdmin || loadingUploadLimits || savingUploadLimits}>
-			{savingUploadLimits ? 'Saving...' : 'Save Upload Limits'}
-		</button>
-	</div>
-	<div class="upload-limits-panel">
-		<h4>Server Donations</h4>
-		<p class="admin-help">Configure a single server donation route. Users will see transparency totals and a donate flow based on this setup.</p>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Enable Donations</span>
-				<span class="setting-description">Show the server donation entry and allow donation-tagged payment requests.</span>
-			</div>
-			<button
-				class="toggle-btn"
-				class:active={adminDonationConfig.enabled}
-				on:click={() => adminDonationConfig = { ...adminDonationConfig, enabled: !adminDonationConfig.enabled }}
-			>
-				{adminDonationConfig.enabled ? 'ON' : 'OFF'}
-			</button>
-		</div>
-		<div class="quality-mode-row">
-			<label for="donation-provider-select">Donation Provider</label>
-			<select
-				id="donation-provider-select"
-				class="theme-select"
-				value={adminDonationConfig.providerPluginId || ''}
-				on:change={(event) => {
-					const providerPluginId = event.currentTarget.value || null;
-					const selectedProvider = paymentProviderCapabilities.find((provider) => provider.pluginId === providerPluginId) || null;
-					adminDonationConfig = {
-						...adminDonationConfig,
-						providerPluginId,
-						methodId: selectedProvider?.methods[0]?.id || null
-					};
-				}}
-			>
-				<option value="">Select provider</option>
-				{#each paymentProviderCapabilities as provider}
-					<option value={provider.pluginId}>{provider.providerName} ({provider.pluginId})</option>
-				{/each}
-			</select>
-		</div>
-		<div class="quality-mode-row">
-			<label for="donation-method-select">Donation Method</label>
-			<select
-				id="donation-method-select"
-				class="theme-select"
-				value={adminDonationConfig.methodId || ''}
-				on:change={(event) => adminDonationConfig = { ...adminDonationConfig, methodId: event.currentTarget.value || null }}
-			>
-				<option value="">Select method</option>
-				{#each adminDonationMethods as method}
-					<option value={method.id}>{method.label}</option>
-				{/each}
-			</select>
-		</div>
-		<div class="quality-mode-row">
-			<label for="donation-currency-select">Currency</label>
-			{#if adminDonationCurrencyOptions.length > 0}
-				<select
-					id="donation-currency-select"
-					class="theme-select"
-					value={adminDonationConfig.currency}
-					on:change={(event) => adminDonationConfig = { ...adminDonationConfig, currency: event.currentTarget.value.toUpperCase() }}
-				>
-					{#each adminDonationCurrencyOptions as option}
-						<option value={option}>{option}</option>
-					{/each}
-				</select>
-			{:else}
-				<input
-					id="donation-currency-select"
-					class="emoji-name-input"
-					maxlength="3"
-					value={adminDonationConfig.currency}
-					on:input={(event) => adminDonationConfig = { ...adminDonationConfig, currency: event.currentTarget.value.toUpperCase() }}
-				/>
-			{/if}
-		</div>
-		<div class="quality-mode-row">
-			<label for="donation-country-select">Country</label>
-			{#if adminDonationCountryOptions.length > 0}
-				<select
-					id="donation-country-select"
-					class="theme-select"
-					value={adminDonationConfig.countryCode || ''}
-					on:change={(event) => adminDonationConfig = { ...adminDonationConfig, countryCode: event.currentTarget.value.toUpperCase() || null }}
-				>
-					{#each adminDonationCountryOptions as option}
-						<option value={option}>{option}</option>
-					{/each}
-				</select>
-			{:else}
-				<input
-					id="donation-country-select"
-					class="emoji-name-input"
-					maxlength="2"
-					value={adminDonationConfig.countryCode || ''}
-					on:input={(event) => adminDonationConfig = { ...adminDonationConfig, countryCode: event.currentTarget.value.toUpperCase() || null }}
-				/>
-			{/if}
-		</div>
-		<div class="donation-audit-panel">
-			<div class="donation-audit-header">
-				<div>
-					<h5>Public Donation Route Preview</h5>
-					<p class="admin-help">This is the exact route the public donation sheet will use.</p>
-				</div>
-				<button class="action-btn" on:click={openServerDonation}>
-					Preview Public View
-				</button>
-			</div>
-			<div class="donation-audit-list">
-				<div class="donation-audit-item">
-					<div class="donation-audit-copy">
-						<strong>{adminDonationSelectedProvider?.providerName || 'No provider selected'}</strong>
-						<span>{adminDonationSelectedMethod?.label || 'No method selected'}</span>
-						<small>{adminDonationConfig.countryCode || 'Any country'} - {adminDonationConfig.currency || 'Any currency'}</small>
-						<small>Suggested amounts: {getDonationRouteSummaryList(parseSuggestedAmountsInput(donationSuggestedAmountsInput))}</small>
-						{#if adminDonationSelectedProvider?.notes}
-							<small>{adminDonationSelectedProvider.notes}</small>
-						{/if}
-						{#if adminDonationSelectedMethod?.notes}
-							<small>{adminDonationSelectedMethod.notes}</small>
-						{/if}
-					</div>
-					<button
-						class="action-btn"
-						disabled={!donationRoutePreviewReady}
-						on:click={openServerDonation}
-					>
-						{donationRoutePreviewReady ? 'Route Ready' : 'Needs Setup'}
-					</button>
-				</div>
-			</div>
-		</div>
-		<div class="quality-mode-row">
-			<label for="donation-headline-input">Headline</label>
-			<input
-				id="donation-headline-input"
-				class="emoji-name-input"
-				maxlength="120"
-				value={adminDonationConfig.headline}
-				on:input={(event) => adminDonationConfig = { ...adminDonationConfig, headline: event.currentTarget.value }}
-			/>
-		</div>
-		<div class="quality-mode-row">
-			<label for="donation-description-input">Description</label>
-			<input
-				id="donation-description-input"
-				class="emoji-name-input"
-				maxlength="500"
-				value={adminDonationConfig.description}
-				on:input={(event) => adminDonationConfig = { ...adminDonationConfig, description: event.currentTarget.value }}
-			/>
-		</div>
-		<div class="quality-mode-row">
-			<label for="donation-amounts-input">Suggested Amounts</label>
-			<input
-				id="donation-amounts-input"
-				class="emoji-name-input"
-				placeholder="5, 10, 25"
-				bind:value={donationSuggestedAmountsInput}
-			/>
-		</div>
-		<button class="action-btn" on:click={saveDonationConfig} disabled={!canManageAdmin || adminDonationConfigLoading || adminDonationConfigSaving}>
-			{adminDonationConfigSaving ? 'Saving...' : 'Save Donation Settings'}
-		</button>
-		<div class="donation-audit-panel">
-			<div class="donation-audit-header">
-				<div>
-					<h5>Donation Audit Trail</h5>
-					<p class="admin-help">This covers server donations only. Direct user-to-user payments stay private.</p>
-				</div>
-				<button
-					class="action-btn"
-					on:click={() => {
-						adminDonationAuditLoaded = false;
-						void loadAdminDonationAudit();
-					}}
-					disabled={adminDonationAuditLoading || adminDonationRefundingIntentId !== ''}
-				>
-					{adminDonationAuditLoading ? 'Refreshing...' : 'Refresh Audit'}
-				</button>
-			</div>
-			{#if adminDonationAuditLoading && adminDonationAudit.length === 0}
-				<p class="admin-help">Loading donation audit trail...</p>
-			{:else if adminDonationAudit.length === 0}
-				<p class="admin-help">No donation activity yet.</p>
-			{:else}
-				<div class="donation-audit-list">
-					{#each adminDonationAudit as entry (entry.intentId)}
-						<div class="donation-audit-item">
-							<div class="donation-audit-copy">
-								<strong>{entry.donorLabel}</strong>
-								<span>{formatDonationAuditAmount(entry.amountMinor, entry.currency)}</span>
-								<small>{formatDonationAuditWhen(entry)} | {entry.status}</small>
-							</div>
-							<button
-								class="action-btn"
-								disabled={!entry.canRefund || adminDonationRefundingIntentId !== '' || !canManageAdmin}
-								on:click={() => refundDonation(entry)}
-							>
-								{adminDonationRefundingIntentId === entry.intentId ? 'Refunding...' : (entry.canRefund ? 'Refund' : 'Closed')}
-							</button>
-						</div>
-					{/each}
-				</div>
-			{/if}
-		</div>
-		<div class="donation-audit-panel">
-			<div class="donation-audit-header">
-				<div>
-					<h5>Offline / Manual Donations</h5>
-					<p class="admin-help">Record in-person cash or off-platform donations here. These are visible in server donation transparency, but they are not provider-verified.</p>
-				</div>
-				<button
-					class="action-btn"
-					on:click={() => {
-						adminOfflineDonationAuditLoaded = false;
-						void loadAdminOfflineDonationAudit();
-					}}
-					disabled={adminOfflineDonationAuditLoading || adminOfflineDonationVoidingSettlementId !== '' || adminOfflineDonationSaving}
-				>
-					{adminOfflineDonationAuditLoading ? 'Refreshing...' : 'Refresh Offline Log'}
-				</button>
-			</div>
-			<div class="offline-donation-form">
-				<label class="upload-limit-row">
-					<span>Amount</span>
-					<input
-						type="text"
-						placeholder="10.00"
-						bind:value={offlineDonationAmountInput}
-						disabled={!canManageAdmin || adminOfflineDonationSaving}
-					/>
-				</label>
-				<label class="upload-limit-row">
-					<span>Currency</span>
-					<input
-						type="text"
-						maxlength="3"
-						placeholder="USD"
-						bind:value={offlineDonationCurrency}
-						disabled={!canManageAdmin || adminOfflineDonationSaving}
-					/>
-				</label>
-				<label class="upload-limit-row">
-					<span>Masked Donor Label</span>
-					<input
-						type="text"
-						maxlength="120"
-						placeholder="Dot"
-						bind:value={offlineDonationDonorLabel}
-						disabled={!canManageAdmin || adminOfflineDonationSaving}
-					/>
-				</label>
-				<label class="upload-limit-row">
-					<span>Note</span>
-					<input
-						type="text"
-						maxlength="280"
-						placeholder="Paid in cash after local meetup"
-						bind:value={offlineDonationDescription}
-						disabled={!canManageAdmin || adminOfflineDonationSaving}
-					/>
-				</label>
-			</div>
-			<button class="action-btn" on:click={createOfflineDonationRecord} disabled={!canManageAdmin || adminOfflineDonationSaving}>
-				{adminOfflineDonationSaving ? 'Recording...' : 'Record Offline Donation'}
-			</button>
-			{#if adminOfflineDonationAuditLoading && adminOfflineDonationAudit.length === 0}
-				<p class="admin-help">Loading offline donation log...</p>
-			{:else if adminOfflineDonationAudit.length === 0}
-				<p class="admin-help">No offline donations recorded yet.</p>
-			{:else}
-				<div class="donation-audit-list">
-					{#each adminOfflineDonationAudit as entry (entry.settlementId)}
-						<div class="donation-audit-item">
-							<div class="donation-audit-copy">
-								<strong>{entry.donorLabel}</strong>
-								<span>{formatDonationAuditAmount(entry.amountMinor, entry.currency)}</span>
-								<small>{formatDonationAuditWhen(entry)} | {entry.status} | {entry.recordedByLabel || 'Admin record'}</small>
-								{#if entry.description}
-									<small>{entry.description}</small>
-								{/if}
-							</div>
-							<button
-								class="action-btn"
-								disabled={!entry.canVoid || adminOfflineDonationVoidingSettlementId !== '' || !canManageAdmin}
-								on:click={() => voidOfflineDonation(entry)}
-							>
-								{adminOfflineDonationVoidingSettlementId === entry.settlementId ? 'Voiding...' : (entry.canVoid ? 'Void' : 'Closed')}
-							</button>
-						</div>
-					{/each}
-				</div>
-			{/if}
-		</div>
-		<div class="donation-audit-panel">
-			<div class="donation-audit-header">
-				<div>
-					<h5>Community Nodes</h5>
-					<p class="admin-help">See which relay-style nodes are up, down, pending, or degraded. This is the live server roster, not a private admin notification.</p>
-				</div>
-				<button
-					class="action-btn"
-					on:click={() => {
-						adminRelayRosterLoaded = false;
-						void loadAdminRelayRoster();
-					}}
-					disabled={adminRelayRosterLoading || adminRelayApproveBusyId !== null || adminRelayDeleteBusyId !== null}
-				>
-					{adminRelayRosterLoading ? 'Refreshing...' : 'Refresh Nodes'}
-				</button>
-			</div>
-			<div class="upload-limits-panel">
-				<h4>Node Access Policy</h4>
-				<p class="admin-help">Control who can activate desktop helper mode on this server.</p>
-				<div class="setting-item">
-					<label for="community-node-access-mode">Access Mode</label>
-					<select
-						id="community-node-access-mode"
-						bind:value={communityNodeAccess.mode}
-						disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
-					>
-						<option value="open">Open</option>
-						<option value="approval_required">Approval Required</option>
-						<option value="whitelist_only">Whitelist Only</option>
-					</select>
-				</div>
-				{#if communityNodeAccess.mode === 'whitelist_only'}
-					<div class="setting-item">
-						<label for="community-node-whitelist-online">Add Online User</label>
-						<div class="input-with-button">
-							<select
-								id="community-node-whitelist-online"
-								bind:value={communityNodeWhitelistSelectedUserId}
-								disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
-							>
-								<option value="">Select a user</option>
-								{#each communityNodeWhitelistCandidates as user}
-									<option value={String(user.dbUserId)}>#{user.username}</option>
-								{/each}
-							</select>
-							<button
-								class="action-btn"
-								on:click={addSelectedCommunityNodeWhitelistUser}
-								disabled={!communityNodeWhitelistSelectedUserId || !canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
-							>
-								Add
-							</button>
-						</div>
-					</div>
-					<div class="setting-item">
-						<label for="community-node-whitelist-username">Add By Username</label>
-						<div class="input-with-button">
-							<input
-								id="community-node-whitelist-username"
-								type="text"
-								placeholder="Exact registered username"
-								bind:value={communityNodeWhitelistUsernameInput}
-								disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
-							/>
-							<button
-								class="action-btn"
-								on:click={addTypedCommunityNodeWhitelistUser}
-								disabled={!communityNodeWhitelistUsernameInput.trim() || !canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
-							>
-								Stage
-							</button>
-						</div>
-						<p class="admin-help">Typed usernames are validated when you save the policy.</p>
-					</div>
-					<div class="setting-item">
-						<div class="setting-label">Allowed Users</div>
-						{#if communityNodeAccess.allowedUsers.length === 0 && communityNodeWhitelistPendingUsernames.length === 0}
-							<p class="admin-help">No users are currently whitelisted.</p>
-						{:else}
-							<div class="quick-reaction-custom-list">
-								{#each communityNodeAccess.allowedUsers as entry (entry.userId)}
-									<div class="quick-reaction-custom-item">
-										<span>#{entry.username}</span>
-										<button
-											class="action-btn danger"
-											on:click={() => removeCommunityNodeWhitelistUser(entry.userId)}
-											disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
-										>
-											Remove
-										</button>
-									</div>
-								{/each}
-								{#each communityNodeWhitelistPendingUsernames as username (username)}
-									<div class="quick-reaction-custom-item">
-										<span>#{username} (pending)</span>
-										<button
-											class="action-btn danger"
-											on:click={() => removePendingCommunityNodeWhitelistUsername(username)}
-											disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
-										>
-											Remove
-										</button>
-									</div>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				{/if}
-				{#if communityNodeAccessStatus}
-					<p class="admin-help">{communityNodeAccessStatus}</p>
-				{/if}
-				<button
-					class="action-btn"
-					on:click={saveCommunityNodeAccess}
-					disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
-				>
-					{communityNodeAccessSaving ? 'Saving...' : 'Save Node Access Policy'}
-				</button>
-			</div>
-			<div class="upload-limits-panel">
-				<h4>Node Announcements</h4>
-				<p class="admin-help">Optionally post helper up/down events into one channel. Placeholders: {'{node}'}, {'{user}'}, {'{mode}'}, {'{status}'}.</p>
-				<label class="setting-toggle">
-					<input
-						type="checkbox"
-						bind:checked={communityNodeAnnouncements.enabled}
-						disabled={!canManageAdmin || communityNodeAnnouncementsLoading || communityNodeAnnouncementsSaving}
-					/>
-					<span>Post community node status messages</span>
-				</label>
-				<div class="setting-item">
-					<label for="community-node-announcement-channel">Announcement Channel</label>
-					<select
-						id="community-node-announcement-channel"
-						bind:value={communityNodeAnnouncements.channelId}
-						disabled={!canManageAdmin || communityNodeAnnouncementsLoading || communityNodeAnnouncementsSaving}
-					>
-						<option value={null}>No channel selected</option>
-						{#each communityAnnouncementChannelOptions as channel}
-							<option value={channel.id}>#{channel.name}</option>
-						{/each}
-					</select>
-				</div>
-				<div class="setting-item">
-					<label for="community-node-announcement-online">Online Message</label>
-					<input
-						id="community-node-announcement-online"
-						type="text"
-						bind:value={communityNodeAnnouncements.onlineTemplate}
-						maxlength="280"
-						disabled={!canManageAdmin || communityNodeAnnouncementsLoading || communityNodeAnnouncementsSaving}
-					/>
-				</div>
-				<div class="setting-item">
-					<label for="community-node-announcement-offline">Offline Message</label>
-					<input
-						id="community-node-announcement-offline"
-						type="text"
-						bind:value={communityNodeAnnouncements.offlineTemplate}
-						maxlength="280"
-						disabled={!canManageAdmin || communityNodeAnnouncementsLoading || communityNodeAnnouncementsSaving}
-					/>
-				</div>
-				{#if communityNodeAnnouncementsStatus}
-					<p class="admin-help">{communityNodeAnnouncementsStatus}</p>
-				{/if}
-				<button
-					class="action-btn"
-					on:click={saveCommunityNodeAnnouncements}
-					disabled={!canManageAdmin || communityNodeAnnouncementsLoading || communityNodeAnnouncementsSaving}
-				>
-					{communityNodeAnnouncementsSaving ? 'Saving...' : 'Save Node Announcement Settings'}
-				</button>
-			</div>
-			{#if adminRelayRosterLoading && adminRelayRoster.length === 0}
-				<p class="admin-help">Loading community nodes...</p>
-			{:else if adminRelayRoster.length === 0}
-				<p class="admin-help">No community nodes have registered yet.</p>
-			{:else}
-				<div class="donation-audit-list">
-					{#each adminRelayRoster as relay (relay.relay_id)}
-						<div class="donation-audit-item">
-							<div class="donation-audit-copy">
-								<strong>{relay.name}</strong>
-								<span>{getAdminRelayKindLabel(relay)} - {relay.status}</span>
-								{#if getAdminRelayOwnerLabel(relay)}
-									<small>{getAdminRelayOwnerLabel(relay)}</small>
-								{/if}
-								<small>{relay.region} - {getAdminRelayCapabilitiesSummary(relay)}</small>
-								<small>Last seen: {formatRelaySeenAt(relay.last_health_ping)}</small>
-								<small>{relay.url}</small>
-								{#if relay.metadata?.reason}
-									<small>{relay.metadata.reason}</small>
-								{/if}
-							</div>
-							<div class="admin-user-actions">
-								<button
-									class="action-btn"
-									disabled={relay.approved === 1 || adminRelayApproveBusyId !== null}
-									on:click={() => approveRelayNode(relay)}
-								>
-									{adminRelayApproveBusyId === relay.relay_id ? 'Approving...' : (relay.approved === 1 ? 'Approved' : 'Approve')}
-								</button>
-								<button
-									class="action-btn danger"
-									disabled={adminRelayDeleteBusyId !== null}
-									on:click={() => deleteRelayNode(relay)}
-								>
-									{adminRelayDeleteBusyId === relay.relay_id ? 'Removing...' : 'Remove'}
-								</button>
-							</div>
-						</div>
-					{/each}
-				</div>
-			{/if}
-		</div>
-	</div>
-	<div class="admin-user-list">
-		{#each sortedAdminUsers as user (user.id)}
-			<div class="admin-user-item">
-				<div class="admin-user-meta">
-					<span class="admin-user-name">{user.username}</span>
-					<span class="admin-role-badge">{getRoleLabel(user.highestRole || 'member')}</span>
-					{#if !user.dbUserId}
-						<span class="admin-guest-badge">{getRoleLabel('guest')} session</span>
-					{/if}
-				</div>
-				<div class="admin-user-actions">
-					<button
-						class="action-btn"
-						disabled={!canManageTargetUser(user) || userHasRole(user, 'admin')}
-						on:click={() => promoteUser(user, 'admin')}
-					>
-						Make Admin
-					</button>
-					<button
-						class="action-btn"
-						disabled={!canManageTargetUser(user) || !userHasRole(user, 'admin')}
-						on:click={() => removeRoleFromUser(user, 'admin')}
-					>
-						Remove Admin
-					</button>
-					<button
-						class="action-btn"
-						disabled={!canManageTargetUser(user) || userHasRole(user, 'mod')}
-						on:click={() => promoteUser(user, 'mod')}
-					>
-						Make Mod
-					</button>
-					<button
-						class="action-btn"
-						disabled={!canManageTargetUser(user) || !userHasRole(user, 'mod')}
-						on:click={() => removeRoleFromUser(user, 'mod')}
-					>
-						Remove Mod
-					</button>
-					<button
-						class="action-btn danger"
-						disabled={!canManageTargetUser(user) || (!userHasRole(user, 'admin') && !userHasRole(user, 'mod'))}
-						on:click={() => resetUserToMember(user)}
-					>
-						Reset to Member
-					</button>
-					<button
-						class="action-btn"
-						disabled={!canManageTargetUser(user)}
-						on:click={() => promptAdminPasswordReset(user)}
-					>
-						Reset Password
-					</button>
-					<button
-						class="action-btn"
-						disabled={!canManageTargetUser(user)}
-						on:click={() => clearUserLoginLockout(user)}
-					>
-						Clear Lockout
-					</button>
-				</div>
-			</div>
-		{/each}
-	</div>
+
+	<UploadLimitsPanel
+		{canManageAdmin}
+		{loadingUploadLimits}
+		{savingUploadLimits}
+		{uploadRoleOrder}
+		{uploadRoleLabels}
+		{uploadLimitInputs}
+		{globalUploadLimitInput}
+		onSave={saveUploadLimits}
+	/>
+
+	<DonationConfig
+		{adminDonationConfig}
+		{canManageAdmin}
+		{adminDonationConfigLoading}
+		{adminDonationConfigSaving}
+		{paymentProviderCapabilities}
+		{donationSuggestedAmountsInput}
+		{adminDonationSelectedProvider}
+		{adminDonationMethods}
+		{adminDonationSelectedMethod}
+		{adminDonationCurrencyOptions}
+		{adminDonationCountryOptions}
+		{donationRoutePreviewReady}
+		{adminDonationAudit}
+		{adminDonationAuditLoading}
+		{adminDonationAuditLoaded}
+		{adminDonationRefundingIntentId}
+		onConfigChange={(cfg) => adminDonationConfig = cfg}
+		onDonationAmountsInput={(v) => donationSuggestedAmountsInput = v}
+		onSaveDonationConfig={saveDonationConfig}
+		onOpenServerDonation={openServerDonation}
+		onRefreshAudit={() => { adminDonationAuditLoaded = false; void loadAdminDonationAudit(); }}
+		onRefund={refundDonation}
+		{formatDonationAuditAmount}
+		{formatDonationAuditWhen}
+		{getDonationRouteSummaryList}
+		{parseSuggestedAmountsInput}
+		{minorToMajorInput}
+	/>
+
+	<OfflineDonations
+		{canManageAdmin}
+		{adminOfflineDonationAudit}
+		{adminOfflineDonationAuditLoading}
+		{adminOfflineDonationAuditLoaded}
+		{adminOfflineDonationVoidingSettlementId}
+		{adminOfflineDonationSaving}
+		{offlineDonationAmountInput}
+		{offlineDonationCurrency}
+		{offlineDonationDonorLabel}
+		{offlineDonationDescription}
+		onCreateOfflineDonation={createOfflineDonationRecord}
+		onRefreshAudit={() => { adminOfflineDonationAuditLoaded = false; void loadAdminOfflineDonationAudit(); }}
+		onVoid={voidOfflineDonation}
+		onAmountInput={(v) => offlineDonationAmountInput = v}
+		onCurrencyInput={(v) => offlineDonationCurrency = v}
+		onDonorLabelInput={(v) => offlineDonationDonorLabel = v}
+		onDescriptionInput={(v) => offlineDonationDescription = v}
+		{formatDonationAuditAmount}
+		{formatDonationAuditWhen}
+	/>
+
+	<CommunityNodes
+		{canManageAdmin}
+		{adminRelayRoster}
+		{adminRelayRosterLoading}
+		{adminRelayRosterLoaded}
+		{adminRelayApproveBusyId}
+		{adminRelayDeleteBusyId}
+		{communityNodeAccess}
+		{communityNodeAccessLoaded}
+		{communityNodeAccessLoading}
+		{communityNodeAccessSaving}
+		{communityNodeAccessStatus}
+		{communityNodeWhitelistSelectedUserId}
+		{communityNodeWhitelistUsernameInput}
+		{communityNodeWhitelistPendingUsernames}
+		{communityNodeWhitelistCandidates}
+		{communityNodeAnnouncements}
+		{communityNodeAnnouncementsLoaded}
+		{communityNodeAnnouncementsLoading}
+		{communityNodeAnnouncementsSaving}
+		{communityNodeAnnouncementsStatus}
+		{communityAnnouncementChannelOptions}
+		onRefreshRelayRoster={() => { adminRelayRosterLoaded = false; void loadAdminRelayRoster(); }}
+		onApproveRelay={approveRelayNode}
+		onDeleteRelay={deleteRelayNode}
+		onSaveNodeAccess={saveCommunityNodeAccess}
+		onSaveNodeAnnouncements={saveCommunityNodeAnnouncements}
+		onAddSelectedWhitelistUser={addSelectedCommunityNodeWhitelistUser}
+		onAddTypedWhitelistUser={addTypedCommunityNodeWhitelistUser}
+		onRemoveWhitelistUser={removeCommunityNodeWhitelistUser}
+		onRemovePendingWhitelistUsername={removePendingCommunityNodeWhitelistUsername}
+		onAccessModeChange={(mode) => communityNodeAccess = { ...communityNodeAccess, mode: mode as typeof communityNodeAccess.mode }}
+		onWhitelistSelectedUserIdChange={(id) => communityNodeWhitelistSelectedUserId = id}
+		onWhitelistUsernameInput={(v) => communityNodeWhitelistUsernameInput = v}
+		onAnnouncementsEnabledChange={(enabled) => communityNodeAnnouncements = { ...communityNodeAnnouncements, enabled }}
+		onAnnouncementsChannelIdChange={(id) => communityNodeAnnouncements = { ...communityNodeAnnouncements, channelId: id }}
+		onAnnouncementsOnlineTemplateChange={(v) => communityNodeAnnouncements = { ...communityNodeAnnouncements, onlineTemplate: v }}
+		onAnnouncementsOfflineTemplateChange={(v) => communityNodeAnnouncements = { ...communityNodeAnnouncements, offlineTemplate: v }}
+		{getAdminRelayKindLabel}
+		{getAdminRelayCapabilitiesSummary}
+		{formatRelaySeenAt}
+		{getAdminRelayOwnerLabel}
+	/>
+
+	<AdminUserList
+		{sortedAdminUsers}
+		{canManageTargetUser}
+		{userHasRole}
+		{getRoleLabel}
+		onPromoteAdmin={(u) => promoteUser(u, 'admin')}
+		onRemoveAdmin={(u) => removeRoleFromUser(u, 'admin')}
+		onPromoteMod={(u) => promoteUser(u, 'mod')}
+		onRemoveMod={(u) => removeRoleFromUser(u, 'mod')}
+		onResetToMember={resetUserToMember}
+		onResetPassword={promptAdminPasswordReset}
+		onClearLockout={clearUserLoginLockout}
+	/>
 </div>

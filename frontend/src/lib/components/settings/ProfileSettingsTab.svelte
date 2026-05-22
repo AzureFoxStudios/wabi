@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { createEventDispatcher, tick } from 'svelte';
+	import { createEventDispatcher, onMount, tick } from 'svelte';
 	import { _ as t } from '$lib/i18n';
 	import { currentUser, updateProfile } from '$lib/socket';
 	import { getAuthToken } from '$lib/authSession';
 	import { getServerUrl } from '$lib/serverUrl';
-	import { changePassword } from '$lib/api';
+	import { changePassword, getUserSettings } from '$lib/api';
 	import {
 		defaultLocalWabiAccountStore,
 		getLocalWabiAccountDisplayLabel,
@@ -28,6 +28,9 @@
 		openPaymentConnections: void;
 		openServerDonation: void;
 	}>();
+
+	export let passwordChangeRequest = 0;
+	let lastHandledPasswordChangeRequest = 0;
 
 	// ── Display name ──
 	let displayNameDraft = '';
@@ -72,6 +75,23 @@
 	let currentPasswordInput: HTMLInputElement | null = null;
 	let mustChangeOwnPassword = false;
 	let changingPassword = false;
+
+	$: if (passwordChangeRequest > lastHandledPasswordChangeRequest) {
+		lastHandledPasswordChangeRequest = passwordChangeRequest;
+		void focusPasswordChangeForm();
+	}
+
+	onMount(() => {
+		const token = getAuthToken();
+		if (!token) return;
+		void getUserSettings(token)
+			.then((settings) => {
+				mustChangeOwnPassword = settings?.require_password_change === true;
+			})
+			.catch((error) => {
+				console.warn('[Settings] Failed to load account security settings:', error);
+			});
+	});
 
 	// ── Handlers ──
 	function updateDisplayName() {
@@ -152,6 +172,12 @@
 		} finally {
 			changingPassword = false;
 		}
+	}
+
+	async function focusPasswordChangeForm(): Promise<void> {
+		await tick();
+		currentPasswordInput?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+		currentPasswordInput?.focus();
 	}
 
 	function openPaymentConnectionsSafe(): void {

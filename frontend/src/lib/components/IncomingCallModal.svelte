@@ -1,109 +1,51 @@
 <script lang="ts">
-	import { incomingCall, answerCall, rejectCall } from '$lib/calling';
-	import { getSocket } from '$lib/socket';
-	import { slide } from 'svelte/transition';
-
-	let socket = getSocket();
-
-	function handleAnswer() {
-		if (!$incomingCall) return;
-		// We need to re-acquire the socket instance if the page was reloaded
-		if (!socket) {
-			socket = getSocket();
-		}
-		if (socket) {
-			answerCall(socket, $incomingCall.userId, $incomingCall.isVideoCall);
-		} else {
-			console.error('Socket not available to answer call');
-		}
+	export interface CallerInfo {
+		username: string;
+		isVideoCall: boolean;
+		channelId?: string;
+		channelName?: string;
 	}
 
-	function handleReject() {
-		if (!$incomingCall) return;
-		// We need to re-acquire the socket instance if the page was reloaded
-		if (!socket) {
-			socket = getSocket();
-		}
-		if (socket) {
-			rejectCall(socket, $incomingCall.userId);
-		} else {
-			console.error('Socket not available to reject call');
-		}
-	}
+	export let caller: CallerInfo;
+	export let groupCallRingingTargets: Array<{ stableUserId: string; username: string }>;
+	export let scope: 'group' | 'direct';
+	export let onAnswer: () => void;
+	export let onReject: () => void;
+	export let onOpenRingingMenu: (event: MouseEvent, target: { stableUserId: string; username: string }) => void;
 </script>
 
-{#if $incomingCall}
-	<div class="modal-backdrop" transition:slide>
-		<div class="modal-content">
-			<p>Incoming {$incomingCall.isVideoCall ? 'video' : 'voice'} call from <strong>{$incomingCall.username}</strong></p>
-			<div class="button-group">
-				<button class="accept" on:click={handleAnswer}>Accept</button>
-				<button class="reject" on:click={handleReject}>Reject</button>
-			</div>
+<div class="call-modal-overlay">
+	<div class="incoming-call-modal">
+		<div class="caller-info">
+			<div class="caller-avatar">{caller.username.charAt(0).toUpperCase()}</div>
+			<h2>{caller.username}</h2>
+			<p class="call-type">{caller.isVideoCall ? 'Video' : 'Voice'} {caller.channelId ? 'Group Call' : 'Call'}</p>
+			{#if caller.channelName}
+				<p class="call-subtitle">{caller.channelName}</p>
+			{/if}
+			{#if scope === 'group' && groupCallRingingTargets.length > 0}
+				<div class="ringing-targets-panel outgoing">
+					<div class="ringing-targets-label">Right-click or tap a name to stop ringing that person.</div>
+					<div class="ringing-targets-list">
+						{#each groupCallRingingTargets as target (target.stableUserId)}
+							<button
+								type="button"
+								class="ringing-target-chip"
+								title={`Manage ringing for ${target.username}`}
+								on:click={(event) => onOpenRingingMenu(event, target)}
+								on:contextmenu={(event) => onOpenRingingMenu(event, target)}
+							>
+								<span class="ringing-target-name">{target.username}</span>
+								<span class="ringing-target-state">Ringing</span>
+							</button>
+						{/each}
+					</div>
+				</div>
+			{/if}
+		</div>
+		<div class="call-actions">
+			<button class="answer-btn" on:click={onAnswer}>Answer</button>
+			<button class="reject-btn" on:click={onReject}>Decline</button>
 		</div>
 	</div>
-{/if}
-
-<style>
-	.modal-backdrop {
-		position: fixed;
-		top: 20px;
-		right: 20px;
-		background-color: var(--surface-modal, rgba(40, 40, 40, 0.9));
-		border-radius: 8px;
-		padding: 20px;
-		z-index: var(--z-call-overlay);
-		box-shadow: 0 4px 10px var(--shadow-md, var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.5))));
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.1);
-	}
-
-	.modal-content {
-		color: var(--text-heading, white);
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 15px;
-	}
-
-	p {
-		margin: 0;
-		font-size: 1rem;
-	}
-
-	strong {
-		font-weight: 600;
-		color: var(--accent, #a29bfe);
-	}
-
-	.button-group {
-		display: flex;
-		gap: 10px;
-	}
-
-	button {
-		padding: 8px 16px;
-		border-radius: 5px;
-		border: none;
-		cursor: pointer;
-		font-weight: 500;
-		transition: background-color 0.2s ease;
-	}
-
-	.accept {
-		background-color: var(--color-success, #2ecc71);
-		color: white;
-	}
-
-	.accept:hover {
-		background-color: var(--color-success-hover, #27ae60);
-	}
-
-	.reject {
-		background-color: var(--color-danger, #e74c3c);
-		color: white;
-	}
-
-	.reject:hover {
-		background-color: var(--color-danger-hover, #c0392b);
-	}
-</style>
+</div>

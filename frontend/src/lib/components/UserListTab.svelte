@@ -2,14 +2,12 @@
 	import { get } from 'svelte/store';
 	import { users, serverMembers, currentUser, channels, createDM, getDMChannelIdForUser, socket, assignRole, removeUserRole, banUser, roleDefinitions } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
-	import { startCall } from '$lib/calling';
 	import type { User } from '$lib/socket';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
 	import type { ContextMenuItem } from '$lib/context-menu/types';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
-	import {
-		displayEnhancementSettingsStore
-	} from '$lib/displayEnhancements';
+	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
+	import { rememberPeople } from '$lib/peopleTracker';
 	import {
 		MAX_LOCAL_NICKNAME_LENGTH,
 		clearLocalNicknameForUser,
@@ -19,11 +17,18 @@
 		setLocalNicknameForUser
 	} from '$lib/localNicknames';
 	import {
-		isTrackedPersonStatusAlertsEnabled,
-		rememberPeople,
-		toggleTrackedPersonStatusAlerts
-	} from '$lib/peopleTracker';
-	import { queueConversationPaymentLaunch } from '$lib/payments/paymentLaunch';
+		buildRolePriority,
+		buildRoleLabelMap,
+		getRoleLabel,
+		isCurrentUserEntry,
+		sortUsersList,
+		matchesSearch,
+		matchesPresenceFilter,
+		buildUserMenuItems,
+		queuePayment,
+		startDMCall,
+		type BuildMenuContext
+	} from './userListHelpers';
 
 	let contextMenuUser: User | null = null;
 	let contextMenuPosition = { x: 0, y: 0 };
@@ -33,43 +38,13 @@
 	let friendSortMode: 'role' | 'name' | 'status' = 'role';
 	let offlineSectionExpanded = false;
 
-	const fallbackRolePriority: Record<string, number> = {
-		owner: 100, admin: 90, mod: 70, member: 10, guest: 0
-	};
-
-	const fallbackRoleLabels: Record<string, string> = {
-		owner: 'Owner', admin: 'Admin', mod: 'Moderator', member: 'Member', guest: 'Guest'
-	};
-
-	$: rolePriority = (() => {
-		const map: Record<string, number> = { ...fallbackRolePriority };
-		for (const role of $roleDefinitions) {
-			map[role.roleName] = role.priority;
-		}
-		return map;
-	})();
-
-	$: roleLabelMap = (() => {
-		const map: Record<string, string> = { ...fallbackRoleLabels };
-		for (const role of $roleDefinitions) {
-			map[role.roleName] = role.displayName;
-		}
-		return map;
-	})();
-
-	function getRoleLabel(role: string): string {
-		return roleLabelMap[role] || role;
-	}
-
-	function isCurrentUserEntry(user: User): boolean {
-		if (!$currentUser) return false;
-		if (user.id === $currentUser.id) return true;
-		if (user.dbUserId && $currentUser.dbUserId && user.dbUserId === $currentUser.dbUserId) return true;
-		return false;
-	}
+	$: rolePriority = buildRolePriority($roleDefinitions);
+	$: roleLabelMap = buildRoleLabelMap($roleDefinitions);
+	$: isEnhanced = $displayEnhancementSettingsStore.betterFriendListEnabled;
+	$: localNickEnabled = $displayEnhancementSettingsStore.localNicknamesEnabled;
 
 	function getLocalNickname(user: User): string {
-		if (!$displayEnhancementSettingsStore.localNicknamesEnabled) return '';
+		if (!localNickEnabled) return '';
 		const key = getUserIdentityKey(user);
 		return key ? $localNicknamesStore[key] || '' : '';
 	}
@@ -78,24 +53,15 @@
 		return getLocalNickname(user) || user.username;
 	}
 
-	function isFriendTrackedForNotifications(user: User): boolean {
-		return isTrackedPersonStatusAlertsEnabled(user);
-	}
-
-	function toggleTrackContextUserStatus(): void {
-		if (!contextMenuUser || isCurrentUserEntry(contextMenuUser) || !contextMenuUser.dbUserId) return;
-		rememberPeople([contextMenuUser]);
-		toggleTrackedPersonStatusAlerts(contextMenuUser);
-		closeContextMenu();
+	function hasContextLocalNickname(): boolean {
+		if (!contextMenuUser) return false;
+		return Boolean(getLocalNickname(contextMenuUser));
 	}
 
 	function promptSetContextLocalNickname(): void {
 		if (!contextMenuUser) return;
 		const currentNickname = getLocalNicknameForUser(contextMenuUser);
-		const draft = window.prompt(
-			`Set local nickname (max ${MAX_LOCAL_NICKNAME_LENGTH} characters)`,
-			currentNickname || contextMenuUser.username
-		);
+		const draft = window.prompt(`Set local nickname (max ${MAX_LOCAL_NICKNAME_LENGTH} characters)`, currentNickname || contextMenuUser.username);
 		if (draft === null) return;
 		setLocalNicknameForUser(contextMenuUser, draft);
 		closeContextMenu();
@@ -107,69 +73,14 @@
 		closeContextMenu();
 	}
 
-	function hasContextLocalNickname(): boolean {
-		if (!contextMenuUser) return false;
-		return Boolean(getLocalNickname(contextMenuUser));
-	}
-
-	function toStatusPriority(status: User['status']): number {
-		if (status === 'active') return 0;
-		if (status === 'away') return 1;
-		if (status === 'busy') return 2;
-		return 3;
-	}
-
-	function matchesSearch(user: User, query: string): boolean {
-		if (!$displayEnhancementSettingsStore.betterFriendListEnabled) return true;
-		const normalized = query.trim().toLowerCase();
-		if (!normalized) return true;
-		const username = user.username.toLowerCase();
-		const displayName = getDisplayName(user).toLowerCase();
-		const handle = (user.handle || '').toLowerCase();
-		return username.includes(normalized) || displayName.includes(normalized) || handle.includes(normalized);
-	}
-
-	function matchesPresenceFilter(user: User, offline: boolean): boolean {
-		if (!$displayEnhancementSettingsStore.betterFriendListEnabled) return true;
-		if (friendPresenceFilter === 'all') return true;
-		if (friendPresenceFilter === 'offline') return offline;
-		if (offline) return false;
-		return user.status === friendPresenceFilter;
-	}
-
-	function sortUsersList(input: User[]): User[] {
-		const sorted = [...input];
-		if (
-			!$displayEnhancementSettingsStore.betterFriendListEnabled ||
-			friendSortMode === 'role'
-		) {
-			sorted.sort((a, b) => {
-				const priorityDelta = (rolePriority[b.highestRole || 'member'] || 0) - (rolePriority[a.highestRole || 'member'] || 0);
-				if (priorityDelta !== 0) return priorityDelta;
-				return a.username.localeCompare(b.username);
-			});
-			return sorted;
-		}
-		if (friendSortMode === 'name') {
-			sorted.sort((a, b) => a.username.localeCompare(b.username));
-			return sorted;
-		}
-		if (friendSortMode === 'status') {
-			sorted.sort((a, b) => {
-				const statusDelta = toStatusPriority(a.status) - toStatusPriority(b.status);
-				if (statusDelta !== 0) return statusDelta;
-				return a.username.localeCompare(b.username);
-			});
-			return sorted;
-		}
-		return sorted;
-	}
-
 	$: onlineOtherUsers = sortUsersList(
 		$users.filter((user) => {
-			if (!matchesSearch(user, friendSearchQuery)) return false;
-			return matchesPresenceFilter(user, false);
-		})
+			if (!matchesSearch(user, friendSearchQuery, isEnhanced, getDisplayName)) return false;
+			return matchesPresenceFilter(user, friendPresenceFilter, false, isEnhanced);
+		}),
+		friendSortMode,
+		rolePriority,
+		isEnhanced
 	);
 	$: rememberPeople($users);
 	$: rememberPeople($serverMembers);
@@ -182,27 +93,24 @@
 			groups[role].push(user);
 		}
 		for (const role of Object.keys(groups)) {
-			groups[role] = sortUsersList(groups[role]);
+			groups[role] = sortUsersList(groups[role], friendSortMode, rolePriority, isEnhanced);
 		}
 		return groups;
 	})();
 
-	$: sortedRoles = Object.keys(groupedUsers).sort(
-		(a, b) => (rolePriority[b] || 0) - (rolePriority[a] || 0)
-	);
+	$: sortedRoles = Object.keys(groupedUsers).sort((a, b) => (rolePriority[b] || 0) - (rolePriority[a] || 0));
 
-	// Offline members: in serverMembers but not in the online users list
 	$: offlineUsers = (() => {
 		const onlineDbIds = new Set($users.map(u => u.dbUserId).filter(Boolean));
 		return $serverMembers
 			.filter(m => !onlineDbIds.has(m.dbUserId))
-			.filter((user) => matchesSearch(user, friendSearchQuery))
-			.filter((user) => matchesPresenceFilter(user, true))
+			.filter((user) => matchesSearch(user, friendSearchQuery, isEnhanced, getDisplayName))
+			.filter((user) => matchesPresenceFilter(user, friendPresenceFilter, true, isEnhanced))
 			.sort((a, b) => a.username.localeCompare(b.username));
 	})();
 
 	function handleUserClick(user: User) {
-		if (isCurrentUserEntry(user)) {
+		if (isCurrentUserEntry(user, $currentUser)) {
 			layoutStore.openNotes();
 			return;
 		}
@@ -223,7 +131,7 @@
 
 	function handleContextMessage() {
 		if (!contextMenuUser) return;
-		if (isCurrentUserEntry(contextMenuUser)) {
+		if (isCurrentUserEntry(contextMenuUser, $currentUser)) {
 			layoutStore.openNotes();
 			closeContextMenu();
 			return;
@@ -234,20 +142,17 @@
 
 	function openDirectConversationWithUser(user: User): void {
 		const self = get(currentUser);
-		if (!self || isCurrentUserEntry(user)) return;
+		if (!self || isCurrentUserEntry(user, $currentUser)) return;
 		const dmId = getDMChannelIdForUser(self, user);
 		const existingDM = get(channels).find((channel) => channel.id === dmId);
 		if (existingDM) {
 			layoutStore.openDM(dmId, user);
 			return;
 		}
-
 		createDM(user.id);
 		layoutStore.showDMsTab();
 		const unsubscribe = channels.subscribe((allChannels) => {
-			const newDM = allChannels.find(
-				(channel) => channel.id === dmId || (channel.type === 'dm' && channel.otherUser?.id === user.id)
-			);
+			const newDM = allChannels.find((channel) => channel.id === dmId || (channel.type === 'dm' && channel.otherUser?.id === user.id));
 			if (!newDM) return;
 			layoutStore.openDM(newDM.id, user);
 			unsubscribe();
@@ -255,57 +160,29 @@
 	}
 
 	function handleContextRequestPayment(): void {
-		if (!contextMenuUser || isCurrentUserEntry(contextMenuUser) || !contextMenuUser.dbUserId) return;
-		queueConversationPaymentLaunch({
-			surface: 'payment_request',
-			targetUserId: contextMenuUser.id,
-			targetDbUserId: contextMenuUser.dbUserId
-		});
+		if (!contextMenuUser || isCurrentUserEntry(contextMenuUser, $currentUser) || !contextMenuUser.dbUserId) return;
+		queuePayment('payment_request', contextMenuUser);
 		openDirectConversationWithUser(contextMenuUser);
 		closeContextMenu();
 	}
 
 	function handleContextManualCash(): void {
-		if (!contextMenuUser || isCurrentUserEntry(contextMenuUser) || !contextMenuUser.dbUserId) return;
-		queueConversationPaymentLaunch({
-			surface: 'manual_cash',
-			targetUserId: contextMenuUser.id,
-			targetDbUserId: contextMenuUser.dbUserId
-		});
+		if (!contextMenuUser || isCurrentUserEntry(contextMenuUser, $currentUser) || !contextMenuUser.dbUserId) return;
+		queuePayment('manual_cash', contextMenuUser);
 		openDirectConversationWithUser(contextMenuUser);
 		closeContextMenu();
 	}
 
 	async function handleContextVoiceCall() {
-		if (!contextMenuUser || !$socket || isCurrentUserEntry(contextMenuUser)) return;
+		if (!contextMenuUser || !$socket || isCurrentUserEntry(contextMenuUser, $currentUser)) return;
 		closeContextMenu();
-		await startCall($socket, getUserIdentityKey(contextMenuUser), false, { scope: 'dm', displayName: contextMenuUser.username });
+		await startDMCall($socket, contextMenuUser, false);
 	}
 
 	async function handleContextVideoCall() {
-		if (!contextMenuUser || !$socket || isCurrentUserEntry(contextMenuUser)) return;
+		if (!contextMenuUser || !$socket || isCurrentUserEntry(contextMenuUser, $currentUser)) return;
 		closeContextMenu();
-		await startCall($socket, getUserIdentityKey(contextMenuUser), true, { scope: 'dm', displayName: contextMenuUser.username });
-	}
-
-	function canManageRoles(): boolean {
-		const myRole = $currentUser?.highestRole;
-		return myRole === 'owner' || myRole === 'admin';
-	}
-
-	function canBanUsers(): boolean {
-		const myRole = $currentUser?.highestRole;
-		return myRole === 'owner' || myRole === 'admin' || myRole === 'mod';
-	}
-
-	function canBanContextUser(): boolean {
-		if (!contextMenuUser || !canBanUsers() || !$currentUser) return false;
-		if (isCurrentUserEntry(contextMenuUser)) return false;
-		if (!contextMenuUser.dbUserId) return false;
-		if (contextMenuUser.highestRole === 'owner') return false;
-		const myPriority = rolePriority[$currentUser.highestRole || 'guest'] || 0;
-		const targetPriority = rolePriority[contextMenuUser.highestRole || 'guest'] || 0;
-		return myPriority > targetPriority;
+		await startDMCall($socket, contextMenuUser, true);
 	}
 
 	function handleBanContextUser(): void {
@@ -315,13 +192,6 @@
 		const reasonInput = window.prompt('Ban reason (optional):', '') || '';
 		banUser(contextMenuUser.dbUserId, reasonInput);
 		closeContextMenu();
-	}
-
-	function canManageContextUserRoles(): boolean {
-		if (!contextMenuUser || !canManageRoles()) return false;
-		if (!$currentUser || isCurrentUserEntry(contextMenuUser)) return false;
-		if (!contextMenuUser.dbUserId) return false;
-		return contextMenuUser.highestRole !== 'owner';
 	}
 
 	function handleAssignContextRole(roleName: 'admin' | 'mod') {
@@ -343,151 +213,41 @@
 		closeContextMenu();
 	}
 
-	$: userMenuItems = contextMenuUser ? buildUserMenuItems() : [];
-
-	function buildUserMenuItems(): ContextMenuItem[] {
-		const items: ContextMenuItem[] = [
-			{
-				id: 'message',
-				label: isCurrentUserEntry(contextMenuUser) ? 'Open Notes' : 'Message',
-				icon: 'message-circle',
-				onSelect: handleContextMessage
-			},
-		];
-
-		if (!isCurrentUserEntry(contextMenuUser)) {
-			items.push(
-				{
-					id: 'request-payment',
-					label: 'Request Payment',
-					icon: 'credit-card',
-					disabled: !contextMenuUser?.dbUserId,
-					onSelect: handleContextRequestPayment
-				},
-				{
-					id: 'record-cash',
-					label: 'Record Cash Trade',
-					icon: 'banknote',
-					disabled: !contextMenuUser?.dbUserId,
-					onSelect: handleContextManualCash
-				},
-				{
-					id: 'voice',
-					label: 'Voice Call',
-					icon: 'phone',
-					onSelect: handleContextVoiceCall
-				},
-				{
-					id: 'video',
-					label: 'Video Call',
-					icon: 'video',
-					onSelect: handleContextVideoCall
-				}
-			);
-
-			items.push({
-				id: 'track-status',
-				label: isFriendTrackedForNotifications(contextMenuUser)
-					? 'Stop Status Alerts'
-					: 'Track Status Alerts',
-				icon: 'settings',
-				disabled: !contextMenuUser?.dbUserId,
-					onSelect: toggleTrackContextUserStatus
-				});
-			}
-
-			if ($displayEnhancementSettingsStore.localNicknamesEnabled) {
-				items.push({
-					id: 'nickname-set',
-					label: 'Set Local Nickname',
-					icon: 'settings',
-					onSelect: promptSetContextLocalNickname
-				});
-				if (hasContextLocalNickname()) {
-					items.push({
-						id: 'nickname-clear',
-						label: 'Clear Local Nickname',
-						icon: 'settings',
-						danger: true,
-						onSelect: clearContextLocalNickname
-					});
-				}
-			}
-
-			if (canManageContextUserRoles() && contextMenuUser) {
-			const roles = contextMenuUser.roles || [];
-			const isAdmin = roles.includes('admin') || contextMenuUser.highestRole === 'admin';
-			const isMod = roles.includes('mod') || contextMenuUser.highestRole === 'mod';
-
-			items.push({ id: 'role-divider', type: 'separator' });
-
-			if (!isAdmin) {
-				items.push({
-					id: 'make-admin',
-					label: 'Make Admin',
-					icon: 'settings',
-					onSelect: () => handleAssignContextRole('admin')
-				});
-			} else {
-				items.push({
-					id: 'remove-admin',
-					label: 'Remove Admin',
-					icon: 'settings',
-					danger: true,
-					onSelect: () => handleRemoveContextRole('admin')
-				});
-			}
-
-			if (!isMod) {
-				items.push({
-					id: 'make-mod',
-					label: 'Make Moderator',
-					icon: 'settings',
-					onSelect: () => handleAssignContextRole('mod')
-				});
-			} else {
-				items.push({
-					id: 'remove-mod',
-					label: 'Remove Moderator',
-					icon: 'settings',
-					danger: true,
-					onSelect: () => handleRemoveContextRole('mod')
-				});
-			}
-
-			if (isAdmin || isMod) {
-				items.push({
-					id: 'reset-member',
-					label: 'Reset to Member',
-					icon: 'settings',
-					danger: true,
-					onSelect: handleResetContextUserToMember
-				});
-			}
-		}
-
-		if (canBanContextUser()) {
-			items.push({ id: 'moderation-divider', type: 'separator' });
-			items.push({
-				id: 'ban-user',
-				label: 'Ban User',
-				icon: 'trash-2',
-				danger: true,
-				onSelect: handleBanContextUser
-			});
-		}
-
-		return items;
+	function buildMenuCtx(): BuildMenuContext {
+		return {
+			contextMenuUser,
+			currentUser: $currentUser,
+			rolePriority,
+			localNicknamesEnabled: localNickEnabled,
+			hasLocalNickname: hasContextLocalNickname(),
+			socket: $socket
+		};
 	}
+
+	$: rawMenuItems = buildUserMenuItems(buildMenuCtx());
+	$: userMenuItems = rawMenuItems.map((item: ContextMenuItem) => {
+		const handlers: Record<string, () => void> = {
+			message: handleContextMessage,
+			'request-payment': handleContextRequestPayment,
+			'record-cash': handleContextManualCash,
+			voice: handleContextVoiceCall,
+			video: handleContextVideoCall,
+			'nickname-set': promptSetContextLocalNickname,
+			'nickname-clear': clearContextLocalNickname,
+			'make-admin': () => handleAssignContextRole('admin'),
+			'remove-admin': () => handleRemoveContextRole('admin'),
+			'make-mod': () => handleAssignContextRole('mod'),
+			'remove-mod': () => handleRemoveContextRole('mod'),
+			'reset-member': handleResetContextUserToMember,
+			'ban-user': handleBanContextUser
+		};
+		if (handlers[item.id]) return { ...item, onSelect: handlers[item.id] };
+		return item;
+	});
 
 	function getDisplayColor(user: User): string {
 		return resolveUserDisplayColor(user.roleColor, user.color);
 	}
-
-	function getUserTopRoleName(user: User): string {
-		return user.highestRole || user.roles?.[0] || 'member';
-	}
-
 </script>
 
 <div class="user-list-tab">

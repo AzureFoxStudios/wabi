@@ -89,7 +89,8 @@
 	}
 
 
-	.input-buttons-left {
+	.input-buttons-left,
+	.input-buttons-right {
 		display: flex;
 		align-items: center;
 	}
@@ -234,6 +235,16 @@
 	.input-icon-button:hover {
 		background: var(--surface-hover);
 		color: var(--accent-primary);
+	}
+
+	.add-button {
+		font-size: 1.5rem;
+		line-height: 1;
+	}
+
+	.add-button span {
+		display: block;
+		transform: translateY(-1px);
 	}
 
 

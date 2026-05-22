@@ -307,24 +307,57 @@ fn generate_guest_jwt(state: &AppState, user_id: i64, username: &str) -> Result<
     Ok(token)
 }
 
-/// TURN credentials endpoint (moved from media module)
+/// TURN credentials — GET /api/media/turn-credentials
+/// Bearer token required. Optional `relayId` query param.
 #[derive(Debug, Deserialize)]
-pub struct TurnCredentialsRequest {
-    username: String,
+pub struct TurnCredentialsQuery {
+    #[serde(rename = "relayId")]
+    relay_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct TurnCredentialsResponse {
-    urls: Vec<String>,
-    username: String,
-    credential: String,
+    turn: TurnCredentialsPayload,
 }
 
-/// Generate TURN credentials for WebRTC
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnCredentialsPayload {
+    server: String,
+    port: u16,
+    use_turns: bool,
+    username: String,
+    credential: String,
+    expires_at: u64,
+    relay_id: Option<i64>,
+    source: String,
+}
+
+/// Generate TURN credentials for WebRTC (GET, Bearer-authenticated)
 pub async fn handle_turn_credentials(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<TurnCredentialsRequest>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<TurnCredentialsQuery>,
 ) -> Result<Json<TurnCredentialsResponse>> {
+    use jsonwebtoken::{decode, DecodingKey, Validation};
+    #[derive(serde::Deserialize)]
+    struct C { sub: String }
+
+    // Require valid auth token
+    let auth = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer ").map(str::to_owned))
+        .ok_or_else(|| AppError::Unauthorized("missing token".into()))?;
+    let key = DecodingKey::from_secret(state.config.jwt_secret.as_bytes());
+    let mut v = Validation::default();
+    v.validate_exp = true;
+    v.leeway = 60;
+    let claims = decode::<C>(&auth, &key, &v)
+        .map_err(|_| AppError::Unauthorized("invalid token".into()))?
+        .claims;
+    let user_id: i64 = claims.sub.parse().map_err(|_| AppError::Unauthorized("bad sub".into()))?;
+
     if !state.config.turn_enabled {
         return Err(AppError::BadRequest("TURN server not enabled".into()));
     }
@@ -341,18 +374,29 @@ pub async fn handle_turn_credentials(
         .as_ref()
         .ok_or_else(|| AppError::BadRequest("TURN secret not configured".into()))?;
 
-    // Generate time-limited TURN credentials
-    let ttl = 86400; // 24 hours
-    let timestamp = Utc::now().timestamp() as u64;
-    let expiry = timestamp + ttl as u64;
+    let ttl: u64 = 86400;
+    let expiry = Utc::now().timestamp() as u64 + ttl;
+    let username = format!("{}:{}", expiry, user_id);
+    let credential = generate_turn_password(&username, turn_secret, expiry);
 
-    let username = format!("{}:{}", expiry, req.username);
-    let password = generate_turn_password(&username, turn_secret, expiry);
+    // Parse host:port from turn_uri (e.g. "turn.wabi.chat:3478")
+    let (host, port) = if let Some((h, p)) = turn_uri.rsplit_once(':') {
+        (h.to_string(), p.parse::<u16>().unwrap_or(3478))
+    } else {
+        (turn_uri.clone(), 3478)
+    };
 
     Ok(Json(TurnCredentialsResponse {
-        urls: vec![format!("turn:{}", turn_uri)],
-        username,
-        credential: password,
+        turn: TurnCredentialsPayload {
+            server: host,
+            port,
+            use_turns: false,
+            username,
+            credential,
+            expires_at: expiry,
+            relay_id: query.relay_id,
+            source: "origin".to_string(),
+        },
     }))
 }
 

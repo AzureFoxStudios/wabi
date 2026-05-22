@@ -411,3 +411,62 @@ async fn upload_group_avatar(
 
     Ok(Json(GroupAvatarResponse { url: avatar_url }))
 }
+
+/// POST /api/upload-profile-picture
+/// Accepts multipart form with a `profilePicture` field.
+/// Saves the file to the uploads directory and returns { profilePictureUrl }.
+/// The caller is responsible for broadcasting the new URL via the socket update-profile event.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfilePictureResponse {
+    pub profile_picture_url: String,
+}
+
+pub async fn upload_profile_picture(
+    State(state): State<Arc<AppState>>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<ProfilePictureResponse>> {
+    use tokio::io::AsyncWriteExt;
+
+    let mut file_data: Vec<u8> = Vec::new();
+    let mut filename = "profile-picture.png".to_string();
+
+    while let Some(field) = multipart.next_field().await.map_err(|e| anyhow::anyhow!(e))? {
+        let name = field.name().unwrap_or("").to_string();
+        if name == "profilePicture" {
+            filename = field
+                .file_name()
+                .unwrap_or("profile-picture.png")
+                .to_string();
+            file_data = field.bytes().await.map_err(|e| anyhow::anyhow!(e))?.to_vec();
+        }
+    }
+
+    if file_data.is_empty() {
+        return Err(anyhow::anyhow!("No profile picture data provided").into());
+    }
+
+    let ext = std::path::Path::new(&filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| format!(".{}", e))
+        .unwrap_or_else(|| ".png".to_string());
+
+    let final_name = format!("{}{}", Uuid::new_v4(), ext);
+    let final_path = PathBuf::from(&state.config.uploads_dir).join(&final_name);
+
+    let mut file = File::create(&final_path).await?;
+    file.write_all(&file_data).await?;
+    file.flush().await?;
+    drop(file);
+
+    let profile_picture_url = format!("/uploads/{}", final_name);
+    tracing::info!(
+        "Profile picture uploaded: {} ({} bytes) -> {:?}",
+        filename,
+        file_data.len(),
+        final_path
+    );
+
+    Ok(Json(ProfilePictureResponse { profile_picture_url }))
+}

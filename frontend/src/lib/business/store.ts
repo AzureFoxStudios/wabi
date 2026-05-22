@@ -15,6 +15,8 @@ import type {
 } from './types';
 import { getBusinessDataSnapshot, applyBusinessDataSnapshot } from './snapshot';
 import { parseBusinessDataJson } from './validation';
+import { generateId } from './utils';
+import { addResource, addGraphEdge } from './resourceStore';
 import {
 	DEFAULT_KANBAN_COLUMNS,
 	todos,
@@ -45,6 +47,18 @@ export {
 	selectedProjectId,
 	todoFilters
 } from './state';
+
+export {
+	addResource, updateResource, deleteResource, getResource,
+	addTag, updateTag, deleteTag, getTag,
+	addGraphEdge, updateGraphEdge, deleteGraphEdge, getGraphEdge,
+	getConnectedEdges, getResourcesByTag, searchResources
+} from './resourceStore';
+
+export { addSprint, updateSprint, deleteSprint } from './sprintStore';
+export { addProject, updateProject, deleteProject, getSubProjects } from './projectStore';
+
+export { generateId } from './utils';
 
 // Local storage persistence
 const STORAGE_KEY = 'business_data';
@@ -130,11 +144,6 @@ if (browser) {
 	if (enableSampleData) {
 		initializeSampleData();
 	}
-}
-
-// Helper function to generate IDs
-export function generateId(): string {
-	return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
 // Initialize sample data for demo/testing
@@ -347,93 +356,20 @@ export function deleteDiaryEntry(id: string): void {
 	diaryEntries.update(d => d.filter(entry => entry.id !== id));
 }
 
-// Project CRUD operations
-export function addProject(project: Omit<Project, 'id' | 'createdAt'>): Project {
-	const newProject: Project = {
-		...project,
-		id: generateId(),
-		createdAt: Date.now()
-	};
-	projects.update(p => [...p, newProject]);
-	return newProject;
-}
-
-export function updateProject(id: string, updates: Partial<Project>): void {
-	projects.update(p =>
-		p.map(project =>
-			project.id === id ? { ...project, ...updates } : project
-		)
-	);
-}
-
-export function deleteProject(id: string): void {
-	// Get all child projects recursively
-	const allChildIds = getChildProjectIds(id);
-	const idsToDelete = [id, ...allChildIds];
-
-	projects.update(p => p.filter(project => !idsToDelete.includes(project.id)));
-	// Also delete associated todos and sprints
-	todos.update(t => t.filter(todo => !todo.projectId || !idsToDelete.includes(todo.projectId)));
-	sprints.update(s => s.filter(sprint => !idsToDelete.includes(sprint.projectId)));
-}
-
-// Helper to get all child project IDs recursively
-function getChildProjectIds(parentId: string): string[] {
-	const allProjects = get(projects);
-	const directChildren = allProjects.filter(p => p.parentId === parentId);
-	let allChildren = directChildren.map(p => p.id);
-
-	for (const child of directChildren) {
-		allChildren = [...allChildren, ...getChildProjectIds(child.id)];
-	}
-
-	return allChildren;
-}
-
 // Get root projects (no parent)
 export const rootProjects = derived(projects, ($projects) => {
 	return $projects.filter(p => !p.parentId);
 });
-
-// Get sub-projects for a given parent
-export function getSubProjects(parentId: string): Project[] {
-	return get(projects).filter(p => p.parentId === parentId);
-}
 
 // Derived store for project tree structure
 export const projectTree = derived(projects, ($projects) => {
 	const buildTree = (parentId: string | undefined): (Project & { children: any[] })[] => {
 		return $projects
 			.filter(p => p.parentId === parentId)
-			.map(p => ({
-				...p,
-				children: buildTree(p.id)
-			}));
+			.map(p => ({ ...p, children: buildTree(p.id) }));
 	};
 	return buildTree(undefined);
 });
-
-// Sprint CRUD operations
-export function addSprint(sprint: Omit<Sprint, 'id'>): Sprint {
-	const newSprint: Sprint = {
-		...sprint,
-		id: generateId()
-	};
-	sprints.update(s => [...s, newSprint]);
-	return newSprint;
-}
-
-export function updateSprint(id: string, updates: Partial<Sprint>): void {
-	sprints.update(s =>
-		s.map(sprint =>
-			sprint.id === id ? { ...sprint, ...updates } : sprint
-		)
-	);
-}
-
-export function deleteSprint(id: string): void {
-	sprints.update(s => s.filter(sprint => sprint.id !== id));
-}
 
 // Derived stores for filtered/computed data
 export const filteredTodos = derived(
@@ -624,106 +560,5 @@ export function getDiaryEntryForDate(date: number): DiaryEntry | undefined {
 
 	return get(diaryEntries).find(e =>
 		e.date >= dayStart.getTime() && e.date < dayEnd.getTime()
-	);
-}
-
-// Resource CRUD operations
-export function addResource(resource: Omit<Resource, 'id' | 'createdAt' | 'updatedAt'>): Resource {
-	const newResource: Resource = {
-		...resource,
-		id: generateId(),
-		createdAt: Date.now(),
-		updatedAt: Date.now()
-	};
-	resources.update(r => [...r, newResource]);
-	return newResource;
-}
-
-export function updateResource(id: string, updates: Partial<Resource>): void {
-	resources.update(r =>
-		r.map(resource =>
-			resource.id === id
-				? { ...resource, ...updates, updatedAt: Date.now() }
-				: resource
-		)
-	);
-}
-
-export function deleteResource(id: string): void {
-	resources.update(r => r.filter(resource => resource.id !== id));
-}
-
-export function getResource(id: string): Resource | undefined {
-	return get(resources).find(r => r.id === id);
-}
-
-// Tag CRUD operations
-export function addTag(tag: Omit<Tag, 'id'>): Tag {
-	const newTag: Tag = {
-		...tag,
-		id: generateId()
-	};
-	tags.update(t => [...t, newTag]);
-	return newTag;
-}
-
-export function updateTag(id: string, updates: Partial<Tag>): void {
-	tags.update(t =>
-		t.map(tag =>
-			tag.id === id ? { ...tag, ...updates } : tag
-		)
-	);
-}
-
-export function deleteTag(id: string): void {
-	tags.update(t => t.filter(tag => tag.id !== id));
-}
-
-export function getTag(id: string): Tag | undefined {
-	return get(tags).find(t => t.id === id);
-}
-
-// Graph Edge CRUD operations
-export function addGraphEdge(edge: Omit<GraphEdge, 'id'>): GraphEdge {
-	const newEdge: GraphEdge = {
-		...edge,
-		id: generateId()
-	};
-	graphEdges.update(e => [...e, newEdge]);
-	return newEdge;
-}
-
-export function updateGraphEdge(id: string, updates: Partial<GraphEdge>): void {
-	graphEdges.update(e =>
-		e.map(edge =>
-			edge.id === id ? { ...edge, ...updates } : edge
-		)
-	);
-}
-
-export function deleteGraphEdge(id: string): void {
-	graphEdges.update(e => e.filter(edge => edge.id !== id));
-}
-
-export function getGraphEdge(id: string): GraphEdge | undefined {
-	return get(graphEdges).find(e => e.id === id);
-}
-
-// Get all edges connected to a node
-export function getConnectedEdges(nodeId: string): GraphEdge[] {
-	return get(graphEdges).filter(e => e.source === nodeId || e.target === nodeId);
-}
-
-// Get all resources with a specific tag
-export function getResourcesByTag(tagId: string): Resource[] {
-	return get(resources).filter(r => r.tags.includes(tagId));
-}
-
-// Search resources by name or description
-export function searchResources(query: string): Resource[] {
-	const lowerQuery = query.toLowerCase();
-	return get(resources).filter(r =>
-		r.name.toLowerCase().includes(lowerQuery) ||
-		r.description?.toLowerCase().includes(lowerQuery)
 	);
 }

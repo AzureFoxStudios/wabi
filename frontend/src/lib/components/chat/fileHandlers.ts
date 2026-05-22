@@ -1,61 +1,70 @@
-import type { Channel } from '$lib/socket';
-import type { MediaAlbumScopeType } from '$lib/api';
-import type { FilePreview } from './types';
+import type { Emoji } from '$lib/socket';
 
-export function revokePreviewUrl(preview?: string): void {
-	if (!preview || !preview.startsWith('blob:')) return;
-	URL.revokeObjectURL(preview);
+export interface FilePreview {
+	file: File;
+	preview: string;
 }
 
 export function buildPreviewEntries(files: File[]): FilePreview[] {
-	return files.map((file) => {
-		if (file.type.startsWith('image/')) {
-			return { file, preview: URL.createObjectURL(file) };
+	return files.map((file) => ({
+		file,
+		preview: URL.createObjectURL(file)
+	}));
+}
+
+export function revokePreviewUrl(url: string): void {
+	if (url) {
+		try {
+			URL.revokeObjectURL(url);
+		} catch {
+			// no-op
 		}
-		return { file };
-	});
+	}
 }
 
 export function enforcePreviewBudget(
 	previews: FilePreview[],
 	files: File[],
-	max: number
+	maxImages: number
 ): { previews: FilePreview[]; files: File[] } {
-	if (previews.length <= max) return { previews, files };
-	const overflow = previews.slice(0, previews.length - max);
-	for (const item of overflow) revokePreviewUrl(item.preview);
-	return { previews: previews.slice(-max), files: files.slice(-max) };
+	const imagePreviews = previews.filter((p) => p.file.type.startsWith('image/'));
+	const nonImagePreviews = previews.filter((p) => !p.file.type.startsWith('image/'));
+	if (imagePreviews.length > maxImages) {
+		const excess = imagePreviews.slice(maxImages);
+		for (const item of excess) {
+			revokePreviewUrl(item.preview);
+		}
+		return {
+			previews: [...imagePreviews.slice(0, maxImages), ...nonImagePreviews],
+			files: [...imagePreviews.slice(0, maxImages), ...nonImagePreviews].map((p) => p.file)
+		};
+	}
+	return { previews, files };
 }
 
 export function formatFileMb(bytes: number): string {
-	return (bytes / 1024 / 1024).toFixed(1);
+	return (bytes / (1024 * 1024)).toFixed(2);
 }
 
 export function isAlbumEligibleFile(file: File): boolean {
 	return file.type.startsWith('image/');
 }
 
-export function getMediaAlbumScope(
-	channel: Channel | undefined
-): { scopeType: MediaAlbumScopeType; scopeId: string } | null {
-	if (!channel?.id) return null;
-	const scopeType: MediaAlbumScopeType =
-		channel.type === 'dm' || channel.type === 'group' ? 'dm' : 'channel';
-	return { scopeType, scopeId: channel.id };
+export function buildDefaultUploadAlbumName(channelName: string | undefined, messageInput: string): string {
+	const base = channelName || 'upload';
+	const snippet = messageInput.trim().slice(0, 40);
+	return snippet ? `${base} - ${snippet}` : base;
 }
 
-export function buildDefaultUploadAlbumName(
-	channelDisplayName: string,
-	messageInput: string
-): string {
-	const trimmed = messageInput.trim();
-	if (trimmed) return trimmed.slice(0, 60);
-	const label = channelDisplayName?.trim() || 'Album';
-	const stamp = new Date().toLocaleString([], {
-		month: 'short',
-		day: 'numeric',
-		hour: 'numeric',
-		minute: '2-digit'
-	});
-	return `${label} ${stamp}`;
+export interface MediaAlbumScope {
+	scopeType: string;
+	scopeId: string | null;
+}
+
+export function getMediaAlbumScope(channel: { type: string; id: string } | undefined): MediaAlbumScope | null {
+	if (!channel) return null;
+	return {
+		scopeType: channel.type === 'dm' ? 'dm' : 'channel',
+		scopeId: channel.id
+	};
 }

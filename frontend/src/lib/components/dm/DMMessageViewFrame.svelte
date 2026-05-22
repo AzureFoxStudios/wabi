@@ -151,12 +151,14 @@
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon><line x1="9" y1="3" x2="9" y2="18"></line><line x1="15" y1="6" x2="15" y2="21"></line></svg>
 					<span>Map</span>
 				</button>
-				<button class="dm-notes-btn" on:click={openPaymentSheet} title="Create payment request" disabled={!paymentButtonEnabled}>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"></rect><path d="M2 10h20"></path><path d="M7 15h3"></path></svg>
-					<span>Pay</span>
-				</button>
-				{#if !isGroup}
-					<button class="dm-notes-btn" on:click={openManualCashModal} title="Record manual cash trade" disabled={!paymentButtonEnabled}>
+				{#if paymentButtonEnabled}
+					<button class="dm-notes-btn" on:click={openPaymentSheet} title="Create payment request">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"></rect><path d="M2 10h20"></path><path d="M7 15h3"></path></svg>
+						<span>Pay</span>
+					</button>
+				{/if}
+				{#if !isGroup && paymentButtonEnabled}
+					<button class="dm-notes-btn" on:click={openManualCashModal} title="Record manual cash trade">
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="12" cy="12" r="2.5"></circle><path d="M6 9h.01"></path><path d="M18 15h.01"></path></svg>
 						<span>Cash</span>
 					</button>

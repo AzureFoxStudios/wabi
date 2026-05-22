@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
 import type { User } from '$lib/socket';
 import type { Channel } from '$lib/socket';
+import { paymentAccessStore } from './paymentAccessStore';
 
 // Payment state
 export const paymentSheetOpen = writable(false);
@@ -46,5 +47,10 @@ export function getPaymentTargetLabel(isGroup: boolean, channel: Channel | undef
 }
 
 export function isPaymentButtonEnabled(currentUser: User | null): boolean {
-	return Boolean(currentUser?.dbUserId) && Boolean(/* getAuthToken() */ true); // Simplified for module
+	let enabled = false;
+	const unsubscribe = paymentAccessStore.subscribe((access) => {
+		enabled = access.canCreate;
+	});
+	unsubscribe();
+	return Boolean(currentUser?.dbUserId) && enabled;
 }

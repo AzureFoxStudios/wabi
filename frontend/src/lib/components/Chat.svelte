@@ -38,6 +38,7 @@
 	import { getUserIdentityKey } from '$lib/localNicknames';
 	import { animationPassStore } from '$lib/animationPass';
 	import { getAuthToken } from '$lib/authSession';
+	import { paymentAccessStore, refreshPaymentAccess } from '$lib/payments/paymentAccessStore';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { getSearchEngineProvider, openExternalSearch } from '$lib/searchEngineJump';
 	import { isExperimentalStdbCallEnabled, setExperimentalStdbCallEnabled } from '$lib/experimentalStdbCalls';
@@ -142,7 +143,8 @@
 	let paymentSheetPrefillAmountInput: string | null = null;
 	let paymentSheetPrefillDescription: string | null = '';
 	let paymentSheetPrefillCustomerRef: string | null = '';
-	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken());
+	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken()) && $paymentAccessStore.canCreate;
+	$: if ($currentUser?.dbUserId) void refreshPaymentAccess();
 
 	type PaymentSheetPrefill = { amountInput?: string | null; description?: string | null; customerRef?: string | null };
 

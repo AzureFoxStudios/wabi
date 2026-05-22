@@ -10,13 +10,13 @@ Extract along natural UI boundaries (tabs, panels, modals) rather than arbitrary
 
 ---
 
-## Phase 1: Settings.svelte (8,033 lines → ~400 lines)
+## Phase 1: Settings.svelte (8,033 lines → ~400 lines) — COMPLETED
 
 ### Current Structure
-- **Script block:** lines 1-4176 (4,176 lines of TypeScript)
-- **Markup block:** lines 4177-8033 (3,857 lines of HTML/Svelte)
+- **Settings shell:** `Settings.svelte` is now ~430 lines
 - **Style block:** NONE (all styles in external CSS: `settings-*.css`)
-- **Tab switch:** `{#if activeSettingsTab === 'xxx'}` starting at line 4243
+- **Tab bodies:** extracted into `src/lib/components/settings/`
+- **Overlay ownership:** payment modals, server clear confirmation, and avatar editor shell events stay in the shell
 
 ### Tab Bodies (markup only)
 | Tab | Start Line | ~End Line | ~Lines | Notes |
@@ -39,17 +39,19 @@ All go into `src/lib/components/settings/`:
 
 ```
 settings/
-├── SettingsShell.svelte          (renamed from Settings.svelte, ~400 lines)
-├── ProfileSettingsTab.svelte   (~300 lines script + markup)
-├── AudioSettingsTab.svelte     (~500 lines)
-├── NotificationSettingsTab.svelte (~400 lines)
-├── AccessibilitySettingsTab.svelte (~250 lines)
-├── AppearanceSettingsTab.svelte (~400 lines)
-├── ServerSettingsTab.svelte    (~150 lines)
-├── AddonSettingsTab.svelte     (~1500 lines — largest)
-├── EmojiSettingsTab.svelte     (~250 lines)
-├── AdminSettingsTab.svelte     (~800 lines)
-└── AboutSettingsTab.svelte     (~150 lines)
+├── ProfileSettingsTab.svelte
+├── AudioSettingsTab.svelte
+├── NotificationsSettingsTab.svelte
+├── AccessibilitySettingsTab.svelte
+├── AppearanceSettingsTab.svelte
+├── ServerSettingsTab.svelte
+├── AddonSettingsTab.svelte
+├── EmojiSettingsTab.svelte
+├── AdminSettingsTab.svelte
+├── AboutSettingsTab.svelte
+├── addonSettingsRegistry.ts
+├── addonDetection.ts
+└── audioSettingsHelpers.ts
 ```
 
 ### Shared State Strategy
@@ -83,7 +85,7 @@ SettingsShell currently imports directly:
 
 ---
 
-## Phase 2: ChannelSidebar.svelte (2,026 lines → ~400 lines)
+## Phase 2: ChannelSidebar.svelte (2,026 lines → ~400 lines) — IN PROGRESS
 
 ### Current Structure
 - **Script:** 1,012 lines
@@ -118,6 +120,8 @@ lib/components/
 ├── ChannelSidebar.svelte          (shell: top-section + tree + expand-btn)
 ├── settings/                      (from Phase 1)
 └── sidebar/
+    ├── ChannelSettingsModal.svelte
+    ├── channelSidebarHelpers.ts
     ├── ChannelTree.svelte
     ├── ChannelTreeItem.svelte
     ├── ThreadList.svelte
@@ -141,7 +145,7 @@ lib/components/
 ### Audit Criteria
 - Merge files < 150 lines into their parent category file
 - Keep splits only if they represent truly independent concerns (mobile.css stays separate for responsive)
-- Remove `.backup` files (channelsidebar.css.backup, messagelist.css.backup, etc.)
+- Remove `.backup` files (channelsidebar.css.backup, messagelist.css.backup, etc.) — DONE
 
 ---
 

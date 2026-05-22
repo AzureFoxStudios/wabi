@@ -1,65 +1,61 @@
-import type { Emoji } from '$lib/socket';
-import { applyChatFilter, expandInputWithChatAlias } from '$lib/chatEnhancements';
-import { applyWriteUpperCase } from '$lib/composerEnhancements';
-import { replaceEmojiShortcodesWithUnicode } from '$lib/unicodeEmojis';
+import type { Emoji, User } from '$lib/socket';
 
-export type ProcessTextResult = {
-	blocked: boolean;
+export interface ProcessedText {
 	text: string;
+	blocked: boolean;
 	reason?: string;
-};
-
-export interface ProcessTextOptions {
-	writeUpperCaseEnabled: boolean;
-	unicodeEmojisEnabled: boolean;
-	emojis: Emoji[];
 }
 
-export function processOutgoingText(rawText: string, opts: ProcessTextOptions): ProcessTextResult {
-	const aliasExpanded = expandInputWithChatAlias(rawText);
-	const filtered = applyChatFilter(aliasExpanded, 'outgoing');
-
-	if (filtered.hidden) {
-		const terms = filtered.matchedTerms.join(', ');
-		return {
-			blocked: true,
-			text: '',
-			reason: terms ? `Message blocked by Chat Filter: ${terms}` : 'Message blocked by Chat Filter.'
-		};
-	}
-
-	const finalText = filtered.text.trim();
-	if (!finalText) {
-		if (aliasExpanded.trim()) {
-			return { blocked: true, text: '', reason: 'Message is empty after Chat Filter processing.' };
-		}
-		return { blocked: false, text: '' };
-	}
-
-	const uppercased = applyWriteUpperCase(finalText, opts.writeUpperCaseEnabled);
-	const normalized = replaceEmojiShortcodesWithUnicode(uppercased, opts.emojis, opts.unicodeEmojisEnabled);
-	return { blocked: false, text: normalized };
-}
-
-export interface MessageKind {
-	type: 'text' | 'emoji';
-	emojiUrl?: string;
-	emojiName?: string;
-}
-
-export function detectMessageKind(text: string, emojis: Emoji[]): MessageKind {
-	const emojiOnlyPattern = /^(?::[a-zA-Z0-9_+-]+:)+$/;
-	if (!emojiOnlyPattern.test(text)) return { type: 'text' };
-
-	const names = text.match(/:[a-zA-Z0-9_+-]+:/g)?.map((e) => e.slice(1, -1)) || [];
-	const firstName = names[0];
-	const firstEmoji = emojis.find((e) => e.name === firstName);
-	return { type: 'emoji', emojiUrl: firstEmoji?.url, emojiName: firstName };
-}
-
-export interface BurstCheckResult {
+export interface SendBurstResult {
 	allowed: boolean;
 	updatedTimestamps: number[];
+}
+
+export function processOutgoingText(
+	text: string,
+	options: {
+		writeUpperCaseEnabled: boolean;
+		unicodeEmojisEnabled: boolean;
+		emojis: Emoji[];
+	}
+): ProcessedText {
+	let processed = text;
+	if (options.writeUpperCaseEnabled) {
+		processed = processed.charAt(0).toUpperCase() + processed.slice(1);
+	}
+	if (options.unicodeEmojisEnabled && options.emojis) {
+		for (const emoji of options.emojis) {
+			const pattern = new RegExp(`:${emoji.name}:`, 'g');
+			processed = processed.replace(pattern, emoji.unicode || `:${emoji.name}:`);
+		}
+	}
+	return { text: processed, blocked: false };
+}
+
+export function processAttachmentCaption(
+	src: string,
+	options: {
+		maxLength: number;
+		writeUpperCaseEnabled: boolean;
+		unicodeEmojisEnabled: boolean;
+		emojis: Emoji[];
+	}
+): string | null {
+	if (!src.trim()) return '';
+	let caption = src.trim();
+	if (caption.length > options.maxLength) {
+		caption = caption.slice(0, options.maxLength);
+	}
+	if (options.writeUpperCaseEnabled) {
+		caption = caption.charAt(0).toUpperCase() + caption.slice(1);
+	}
+	if (options.unicodeEmojisEnabled && options.emojis) {
+		for (const emoji of options.emojis) {
+			const pattern = new RegExp(`:${emoji.name}:`, 'g');
+			caption = caption.replace(pattern, emoji.unicode || `:${emoji.name}:`);
+		}
+	}
+	return caption;
 }
 
 export function checkSendBurst(
@@ -67,46 +63,92 @@ export function checkSendBurst(
 	now: number,
 	limit: number,
 	windowMs: number
-): BurstCheckResult {
-	const fresh = timestamps.filter((t) => now - t < windowMs);
-	if (fresh.length >= limit) {
-		return { allowed: false, updatedTimestamps: fresh };
+): SendBurstResult {
+	const recent = timestamps.filter((t) => now - t < windowMs);
+	if (recent.length >= limit) {
+		return { allowed: false, updatedTimestamps: recent };
 	}
-	return { allowed: true, updatedTimestamps: [...fresh, now] };
+	recent.push(now);
+	return { allowed: true, updatedTimestamps: recent };
 }
 
-export interface CaptionOptions {
-	maxLength: number;
-	writeUpperCaseEnabled: boolean;
-	unicodeEmojisEnabled: boolean;
-	emojis: Emoji[];
+export function detectMessageKind(
+	text: string,
+	emojis: Emoji[]
+): { type: 'text' } | { type: 'emoji'; emojiUrl?: string; emojiName?: string } {
+	const trimmed = text.trim();
+	const emojiMatch = trimmed.match(/^:(\w+):$/);
+	if (emojiMatch) {
+		const name = emojiMatch[1];
+		const emoji = emojis.find((e) => e.name === name);
+		if (emoji) {
+			return { type: 'emoji', emojiUrl: emoji.url, emojiName: emoji.name };
+		}
+	}
+	return { type: 'text' };
 }
 
-// Returns the processed caption string, empty string for no-caption, or null if blocked/invalid.
-export function processAttachmentCaption(rawCaption: string, opts: CaptionOptions): string | null {
-	const trimmed = rawCaption.trim();
-	if (!trimmed) return '';
-
-	if (trimmed.length > opts.maxLength) {
-		alert(`GIF caption cannot exceed ${opts.maxLength} characters.`);
-		return null;
+export function splitMessageForSending(text: string, chunkSize: number): string[] {
+	if (text.length <= chunkSize) return [text];
+	const chunks: string[] = [];
+	let remaining = text;
+	while (remaining.length > 0) {
+		if (remaining.length <= chunkSize) {
+			chunks.push(remaining);
+			break;
+		}
+		let splitAt = chunkSize;
+		const lastSpace = remaining.lastIndexOf(' ', chunkSize);
+		if (lastSpace > chunkSize * 0.5) {
+			splitAt = lastSpace;
+		}
+		chunks.push(remaining.slice(0, splitAt).trim());
+		remaining = remaining.slice(splitAt).trim();
 	}
+	return chunks;
+}
 
-	const result = processOutgoingText(trimmed, {
-		writeUpperCaseEnabled: opts.writeUpperCaseEnabled,
-		unicodeEmojisEnabled: opts.unicodeEmojisEnabled,
-		emojis: opts.emojis
-	});
-
-	if (result.blocked) {
-		alert(result.reason);
-		return null;
+export function splitEntitiesForChunks(
+	fullText: string,
+	chunks: string[],
+	entities: Array<{ type: string; offset: number; length: number }>
+): Array<Array<{ type: string; offset: number; length: number }>> {
+	const result: Array<Array<{ type: string; offset: number; length: number }>> = [];
+	let offset = 0;
+	for (const chunk of chunks) {
+		const chunkEnd = offset + chunk.length;
+		const chunkEntities = entities
+			.filter((e) => e.offset >= offset && e.offset + e.length <= chunkEnd)
+			.map((e) => ({ ...e, offset: e.offset - offset }));
+		result.push(chunkEntities);
+		offset = chunkEnd + 1;
 	}
+	return result;
+}
 
-	if (result.text.length > opts.maxLength) {
-		alert(`GIF caption cannot exceed ${opts.maxLength} characters.`);
-		return null;
-	}
+export function formatFileMb(bytes: number): string {
+	return (bytes / (1024 * 1024)).toFixed(2);
+}
 
-	return result.text;
+export function isAlbumEligibleFile(file: File): boolean {
+	return file.type.startsWith('image/');
+}
+
+export function buildDefaultUploadAlbumName(channelName: string | undefined, messageInput: string): string {
+	const base = channelName || 'upload';
+	const snippet = messageInput.trim().slice(0, 40);
+	return snippet ? `${base} - ${snippet}` : base;
+}
+
+export interface MediaAlbumScope {
+	scopeType: string;
+	scopeId: string | null;
+}
+
+export function getMediaAlbumScope(channel: { type: string; id: string } | undefined): MediaAlbumScope | null {
+	if (!channel) return null;
+	return {
+		scopeType: channel.type === 'dm' ? 'dm' : 'channel',
+		scopeId: channel.id
+	};
 }

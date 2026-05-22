@@ -23,6 +23,7 @@
 		getPaymentTargetLabel,
 		isPaymentButtonEnabled
 	} from '$lib/payments/dmPayments';
+	import { refreshPaymentAccess } from '$lib/payments/paymentAccessStore';
 	import {
 		doesConversationPaymentLaunchMatch,
 		pendingConversationPaymentLaunch
@@ -101,6 +102,7 @@
 	$: dmCharCounterVisible = dmInputMaxLength > 0 && dmCharCount / dmInputMaxLength >= 0.7;
 	$: dmCharCounterWarn = dmInputMaxLength > 0 && dmCharCount / dmInputMaxLength >= 0.9;
 $: paymentButtonEnabled = isPaymentButtonEnabled($currentUser);
+$: if ($currentUser?.dbUserId) void refreshPaymentAccess();
 $: paymentTargetLabel = getPaymentTargetLabel(isGroup, channel, otherUser);
 	$: lineDmAddonEnabled = $lineDmAddonStore.enabled;
 	$: lineDmProfile = getLineDmResolvedProfile(channelId, $lineDmAddonStore);

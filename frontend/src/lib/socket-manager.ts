@@ -67,6 +67,7 @@ export {
 	markMessagesAsRead,
 	markChannelAsRead,
 	retryMessagePersistence,
+	sendMessage,
 	editMessage,
 	deleteMessage,
 	togglePinMessage,

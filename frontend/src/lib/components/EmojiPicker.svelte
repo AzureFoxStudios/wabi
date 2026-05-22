@@ -3,6 +3,8 @@
 	import { emojis } from '$lib/emoji-store';
 	import type { Emoji } from '$lib/socket';
 	import { _ } from '$lib/i18n';
+	import GifPicker from './emoji/GifPicker.svelte';
+	import EmojiGrid from './emoji/EmojiGrid.svelte';
 
 	const dispatch = createEventDispatcher<{
 		select: { emoji: Emoji };
@@ -14,33 +16,7 @@
 	let selectedSource: 'all' | 'default' | 'openmoji' | 'custom' = 'all';
 	let selectedCategory = 'all';
 	let searchQuery = '';
-	const EMOJI_PAGE_SIZE = 80;
-	const GIF_PAGE_SIZE = 12;
-	let emojiRenderLimit = EMOJI_PAGE_SIZE;
 
-	// GIF state
-	let gifs: any[] = [];
-	let gifLoading = false;
-	let gf: { trending: (args: { limit: number }) => Promise<{ data: any[] }>; search: (query: string, args: { limit: number }) => Promise<{ data: any[] }> } | null = null;
-	let giphyInitPromise: Promise<void> | null = null;
-	let gifSearchQuery = '';
-
-	async function ensureGiphyClient(): Promise<void> {
-		if (gf || giphyInitPromise || !import.meta.env.VITE_GIPHY_API_KEY) return;
-		giphyInitPromise = import('@giphy/js-fetch-api')
-			.then((mod) => {
-				gf = new mod.GiphyFetch(import.meta.env.VITE_GIPHY_API_KEY);
-			})
-			.catch((error) => {
-				console.error('Failed to load GIPHY SDK:', error);
-			})
-			.finally(() => {
-				giphyInitPromise = null;
-			});
-		await giphyInitPromise;
-	}
-
-	// Filter emojis by current mode first
 	$: modeEmojis = $emojis.filter(e => (e.type || 'emoji') === pickerMode);
 
 	function getEmojiSource(emoji: Emoji): 'default' | 'openmoji' | 'custom' {
@@ -53,7 +29,6 @@
 		return selectedSource === 'all' || getEmojiSource(emoji) === selectedSource;
 	});
 
-	// Group emojis by category after source filtering
 	$: categories = ['all', ...new Set(sourceEmojis.map(e => e.category))];
 
 	$: filteredEmojis = sourceEmojis.filter(emoji => {
@@ -65,26 +40,21 @@
 			(emoji.artist?.toLowerCase().includes(query) ?? false);
 		return matchesCategory && matchesSearch;
 	});
-	$: visibleEmojis = filteredEmojis.slice(0, emojiRenderLimit);
-	$: if (pickerMode !== 'gif') {
-		emojiRenderLimit = Math.min(Math.max(EMOJI_PAGE_SIZE, emojiRenderLimit), filteredEmojis.length || EMOJI_PAGE_SIZE);
-	}
 
-	// Reset filters when switching modes
 	function setMode(mode: 'emoji' | 'sticker' | 'gif') {
 		pickerMode = mode;
 		selectedSource = 'all';
 		selectedCategory = 'all';
-		emojiRenderLimit = EMOJI_PAGE_SIZE;
-		if (mode === 'gif' && gifs.length === 0) {
-			loadTrendingGifs();
+		emojiGridRef?.resetPagination();
+		if (mode === 'gif') {
+			gifPickerRef?.loadInitial();
 		}
 	}
 
 	function setSource(source: 'all' | 'default' | 'openmoji' | 'custom') {
 		selectedSource = source;
 		selectedCategory = 'all';
-		emojiRenderLimit = EMOJI_PAGE_SIZE;
+		emojiGridRef?.resetPagination();
 	}
 
 	function formatLabel(value: string): string {
@@ -92,53 +62,8 @@
 		return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, ' ');
 	}
 
-	function handleEmojiClick(emoji: Emoji) {
-		dispatch('select', { emoji });
-	}
-
-	function handleEmojiGridScroll(event: Event) {
-		const target = event.currentTarget as HTMLElement;
-		const nearBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - 160;
-		if (nearBottom && emojiRenderLimit < filteredEmojis.length) {
-			emojiRenderLimit = Math.min(filteredEmojis.length, emojiRenderLimit + EMOJI_PAGE_SIZE);
-		}
-	}
-
-	// GIF functions
-	async function loadTrendingGifs() {
-		await ensureGiphyClient();
-		if (!gf) return;
-		gifLoading = true;
-		try {
-			const { data } = await gf.trending({ limit: GIF_PAGE_SIZE });
-			gifs = data;
-		} catch (error) {
-			console.error('Error fetching trending GIFs:', error);
-			gifs = [];
-		}
-		gifLoading = false;
-	}
-
-	async function searchGifs() {
-		await ensureGiphyClient();
-		if (!gf) return;
-		if (!gifSearchQuery.trim()) {
-			loadTrendingGifs();
-			return;
-		}
-		gifLoading = true;
-		try {
-			const { data } = await gf.search(gifSearchQuery, { limit: GIF_PAGE_SIZE });
-			gifs = data;
-		} catch (error) {
-			console.error('Error fetching GIFs:', error);
-		}
-		gifLoading = false;
-	}
-
-	function selectGif(gif: any) {
-		dispatch('gif', gif.images.fixed_height.url);
-	}
+	let gifPickerRef: GifPicker;
+	let emojiGridRef: EmojiGrid;
 </script>
 
 <div class="emoji-picker">
@@ -181,20 +106,7 @@
 	</div>
 
 	{#if pickerMode === 'gif'}
-		<!-- GIF grid -->
-		<div class="gif-grid">
-			{#if gifLoading}
-				<div class="no-emojis">{$_('emoji_picker.loading')}</div>
-			{:else if gifs.length === 0}
-				<div class="no-emojis">{$_('emoji_picker.no_gifs')}</div>
-			{:else}
-				{#each gifs as gif (gif.id)}
-					<button class="gif-item" on:click={() => selectGif(gif)}>
-						<img src={gif.images.fixed_height_small.url} alt={gif.title} loading="lazy" decoding="async" />
-					</button>
-				{/each}
-			{/if}
-		</div>
+		<GifPicker bind:this={gifPickerRef} on:select={(e) => dispatch('gif', e.detail)} />
 	{:else}
 		<div class="source-tabs">
 			<button
@@ -219,47 +131,15 @@
 			>{$_('emoji_picker.filters.custom')}</button>
 		</div>
 
-		<!-- Category tabs -->
-		<div class="category-tabs">
-			{#each categories as category}
-				<button
-					class="category-tab"
-					class:active={selectedCategory === category}
-					on:click={() => {
-						selectedCategory = category;
-						emojiRenderLimit = EMOJI_PAGE_SIZE;
-					}}
-					title={category}
-				>
-					{formatLabel(category)}
-				</button>
-			{/each}
-		</div>
-
 		<!-- Emoji/Sticker grid -->
-		<div class="emoji-grid" class:sticker-grid={pickerMode === 'sticker'} on:scroll={handleEmojiGridScroll}>
-			{#if filteredEmojis.length === 0}
-				<div class="no-emojis">
-					{pickerMode === 'sticker' ? $_('emoji_picker.no_stickers') : $_('emoji_picker.no_emojis')}
-				</div>
-			{:else}
-				{#each visibleEmojis as emoji (emoji.id)}
-					<button
-						class="emoji-btn"
-						class:sticker-btn={pickerMode === 'sticker'}
-						on:click={() => handleEmojiClick(emoji)}
-						title={`${emoji.displayName || emoji.name}${emoji.artist ? ` by ${emoji.artist}` : ''}`}
-					>
-						<img src={emoji.url} alt={emoji.name} class="emoji-img" class:sticker-img={pickerMode === 'sticker'} loading="lazy" decoding="async" />
-					</button>
-				{/each}
-				{#if emojiRenderLimit < filteredEmojis.length}
-					<button class="emoji-load-more" on:click={() => (emojiRenderLimit = Math.min(filteredEmojis.length, emojiRenderLimit + EMOJI_PAGE_SIZE))}>
-						{$_('emoji_picker.load_more', { values: { remaining: filteredEmojis.length - emojiRenderLimit } })}
-					</button>
-				{/if}
-			{/if}
-		</div>
+		<EmojiGrid
+			bind:this={emojiGridRef}
+			emojis={filteredEmojis}
+			stickerMode={pickerMode === 'sticker'}
+			{categories}
+			bind:searchQuery
+			on:select={(e) => dispatch('select', e.detail)}
+		/>
 	{/if}
 </div>
 
@@ -394,139 +274,7 @@
 		background: var(--color-primary);
 	}
 
-	.emoji-grid {
-		flex: 1;
-		display: grid;
-		grid-template-columns: repeat(8, 1fr);
-		gap: 0.25rem;
-		padding: 0.5rem;
-		overflow-y: auto;
-		max-height: 280px;
-	}
-
-	.emoji-grid.sticker-grid {
-		grid-template-columns: repeat(4, 1fr);
-		gap: 0.5rem;
-	}
-
-	.emoji-btn {
-		width: 32px;
-		height: 32px;
-		background: transparent;
-		border: none;
-		border-radius: 4px;
-		cursor: pointer;
-		transition: all 0.2s;
-		padding: 0;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.emoji-btn.sticker-btn {
-		width: 68px;
-		height: 68px;
-	}
-
-	.emoji-btn:hover {
-		background: var(--surface-raised);
-		transform: scale(1.2);
-	}
-
-	.emoji-img {
-		width: 24px;
-		height: 24px;
-		object-fit: contain;
-	}
-
-	.emoji-img.sticker-img {
-		width: 56px;
-		height: 56px;
-	}
-
-	.no-emojis {
-		grid-column: 1 / -1;
-		text-align: center;
-		padding: 2rem;
-		color: var(--text-secondary);
-		font-size: 0.875rem;
-	}
-
-	.emoji-load-more {
-		grid-column: 1 / -1;
-		border: none;
-		background: var(--surface-raised);
-		color: var(--text-secondary);
-		border-radius: 8px;
-		padding: 0.5rem 0.75rem;
-		font-size: 0.78rem;
-	}
-
-	.emoji-load-more:hover {
-		background: var(--surface-hover, var(--surface-base));
-		color: var(--text-heading);
-	}
-
-	/* GIF grid */
-	.gif-grid {
-		flex: 1;
-		overflow-y: auto;
-		overflow-x: hidden;
-		padding: 0.5rem;
-		display: grid;
-		grid-template-columns: repeat(2, 1fr);
-		gap: 0.5rem;
-		align-content: start;
-	}
-
-	.gif-item {
-		background: var(--surface-raised);
-		padding: 0;
-		border: none;
-		border-radius: 6px;
-		overflow: hidden;
-		cursor: pointer;
-		width: 100%;
-		height: 120px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: all 0.2s;
-	}
-
-	.gif-item:hover {
-		background: var(--surface-hover);
-		transform: scale(1.02);
-	}
-
-	.gif-item img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		display: block;
-	}
-
-	/* Scrollbar styling */
-	.emoji-grid::-webkit-scrollbar {
-		width: 8px;
-	}
-
-	.emoji-grid::-webkit-scrollbar-track {
-		background: var(--surface-raised);
-	}
-
-	.emoji-grid::-webkit-scrollbar-thumb {
-		background: var(--color-primary);
-		border-radius: 4px;
-	}
-
-	.emoji-grid::-webkit-scrollbar-thumb:hover {
-		background: var(--color-primary-hover);
-	}
-
-	/* ========== MOBILE STYLES ========== */
-	@media (max-width: 768px) {
-		.emoji-picker {
+	.emoji-picker {
 			position: fixed;
 			bottom: 56px;
 			left: 0.5rem;
@@ -582,37 +330,6 @@
 			height: 44px;
 			font-size: 0.6875rem;
 		}
-
-		.emoji-grid {
-			grid-template-columns: repeat(6, 1fr);
-			gap: 0.375rem;
-			padding: 0.5rem;
-			max-height: 200px;
-		}
-
-		.emoji-grid.sticker-grid {
-			grid-template-columns: repeat(3, 1fr);
-		}
-
-		.emoji-btn {
-			width: 40px;
-			height: 40px;
-		}
-
-		.emoji-btn.sticker-btn {
-			width: 60px;
-			height: 60px;
-		}
-
-		.emoji-img {
-			width: 28px;
-			height: 28px;
-		}
-
-		.emoji-img.sticker-img {
-			width: 48px;
-			height: 48px;
-		}
 	}
 
 	/* Extra small screens */
@@ -622,24 +339,6 @@
 			left: 0.25rem;
 			right: 0.25rem;
 			height: 45vh;
-		}
-
-		.emoji-grid {
-			grid-template-columns: repeat(5, 1fr);
-		}
-
-		.emoji-grid.sticker-grid {
-			grid-template-columns: repeat(3, 1fr);
-		}
-
-		.emoji-btn {
-			width: 36px;
-			height: 36px;
-		}
-
-		.emoji-img {
-			width: 24px;
-			height: 24px;
 		}
 	}
 </style>

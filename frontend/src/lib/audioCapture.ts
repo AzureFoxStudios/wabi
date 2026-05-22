@@ -153,7 +153,7 @@ function disposeDspAudioPipeline(pipeline: DspAudioPipeline): void {
 	void pipeline.context.close().catch(() => undefined);
 }
 
-function disposeAudioCaptureSession(session: LocalAudioCaptureSession): void {
+export function disposeAudioCaptureSession(session: LocalAudioCaptureSession): void {
 	if (session.pipeline) {
 		disposeDspAudioPipeline(session.pipeline);
 	} else {

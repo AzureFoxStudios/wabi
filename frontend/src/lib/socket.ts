@@ -17,6 +17,12 @@
 
 import { writable, get } from 'svelte/store';
 import type { Emoji, User } from './socket-types';
+import { getSocket } from './socketConnection';
+import { loadOlderHistory } from './messagePagination';
+import {
+	joinVoiceChannel as joinCallVoiceChannel,
+	leaveVoiceChannel as leaveCallVoiceChannel
+} from './calling_impl_core';
 
 // Re-export everything from the new socket manager
 
@@ -27,14 +33,50 @@ export class socketManager {
 export const dmPanelSignal = writable<{ channelId: string; otherUser: User } | null>(null);
 export const emojis = writable<Emoji[]>([]);
 
-export function joinVoiceChannel(_channelId: string) { console.warn('[stub] joinVoiceChannel'); }
-export function leaveVoiceChannel(_channelId?: string) { console.warn('[stub] leaveVoiceChannel'); }
-export function sendMessage(_channelId: string, _content: string, ..._rest: any[]) { console.warn('[stub] sendMessage'); }
+export async function joinVoiceChannel(channelId: string) {
+	const sock = getSocket();
+	if (!sock) throw new Error('Socket is not connected');
+	return joinCallVoiceChannel(sock, channelId);
+}
+
+export async function leaveVoiceChannel(channelId?: string) {
+	const sock = getSocket();
+	if (!sock) throw new Error('Socket is not connected');
+	if (!channelId) return;
+	return leaveCallVoiceChannel(sock, channelId);
+}
+
 export function retryDecryptLoadedDmMessages() { console.warn('[stub] retryDecryptLoadedDmMessages'); }
-export function loadOlderMessages(_channelId: string) { console.warn('[stub] loadOlderMessages'); }
-export function updateProfile(..._args: any[]) { console.warn('[stub] updateProfile'); }
-export function createDM(_userId: string) { console.warn('[stub] createDM'); }
-export function deleteDM(_channelId: string) { console.warn('[stub] deleteDM'); }
+export function loadOlderMessages(channelId: string) { return loadOlderHistory(channelId); }
+
+export function updateProfile(...args: any[]) {
+	const sock = getSocket();
+	if (!sock) return;
+	const callback = typeof args[args.length - 1] === 'function' ? args.pop() : undefined;
+	const [first, profilePicture, bio, username] = args;
+	const patch =
+		first && typeof first === 'object'
+			? first
+			: {
+					...(typeof first === 'string' ? { status: first } : {}),
+					...(typeof profilePicture === 'string' ? { profilePicture } : {}),
+					...(typeof bio === 'string' ? { bio } : {}),
+					...(typeof username === 'string' ? { username } : {})
+				};
+	sock.emit('update-profile', patch, callback);
+}
+
+export function createDM(userId: string) {
+	const sock = getSocket();
+	if (!sock) return;
+	sock.emit('create-dm', { userId });
+}
+
+export function deleteDM(channelId: string) {
+	const sock = getSocket();
+	if (!sock) return;
+	sock.emit('delete-dm', { channelId });
+}
 export function getDMChannelIdForUser(current: User | null | undefined, target: User): string {
 	const currentKey = current?.dbUserId ? `user-${current.dbUserId}` : current?.id || 'me';
 	const targetKey = target.dbUserId ? `user-${target.dbUserId}` : target.id;
@@ -105,7 +147,7 @@ export {
 	updateChannelSettings,
 
 	// Message operations
-// sendMessage,
+	sendMessage,
 	retryMessagePersistence,
 // retryDecryptLoadedDmMessages,
 	editMessage,

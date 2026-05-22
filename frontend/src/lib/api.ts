@@ -1504,6 +1504,37 @@ export interface MediaAlbumItem {
 	uploadedAt: number;
 }
 
+function normalizeMediaAlbum(raw: any): MediaAlbum {
+	return {
+		id: Number(raw?.id),
+		scopeType: (raw?.scopeType ?? raw?.scope_type) as MediaAlbumScopeType,
+		scopeId: String(raw?.scopeId ?? raw?.scope_id ?? ''),
+		name: String(raw?.name ?? ''),
+		createdBy: Number(raw?.createdBy ?? raw?.owner_user_id ?? raw?.created_by ?? 0),
+		createdAt: Number(raw?.createdAt ?? raw?.created_at ?? 0),
+		updatedAt: Number(raw?.updatedAt ?? raw?.updated_at ?? 0),
+		isFeatured: Boolean(raw?.isFeatured ?? raw?.is_featured ?? raw?.featured_item_id),
+		itemCount: Number(raw?.itemCount ?? raw?.item_count ?? 0),
+		previewItems: Array.isArray(raw?.previewItems ?? raw?.preview_items) ? (raw.previewItems ?? raw.preview_items) : []
+	} as MediaAlbum;
+}
+
+function normalizeMediaAlbumItem(raw: any): MediaAlbumItem {
+	return {
+		id: Number(raw?.id),
+		albumId: Number(raw?.albumId ?? raw?.album_id),
+		attachmentUrl: String(raw?.attachmentUrl ?? raw?.attachment_url ?? ''),
+		attachmentName: String(raw?.attachmentName ?? raw?.attachment_name ?? ''),
+		attachmentSize: raw?.attachmentSize ?? raw?.attachment_size ?? null,
+		attachmentMime: raw?.attachmentMime ?? raw?.attachment_mime ?? null,
+		messageId: raw?.messageId ?? raw?.message_id ?? null,
+		caption: raw?.caption ?? null,
+		sortOrder: Number(raw?.sortOrder ?? raw?.sort_order ?? 0),
+		uploadedBy: Number(raw?.uploadedBy ?? raw?.uploaded_by ?? 0),
+		uploadedAt: Number(raw?.uploadedAt ?? raw?.created_at ?? raw?.uploaded_at ?? 0)
+	};
+}
+
 export type MediaAlbumErrorCode =
 	| 'ALBUM_UPLOAD_SIZE_LIMIT'
 	| 'ALBUM_UPLOAD_RATE_LIMIT_USER'
@@ -1562,7 +1593,7 @@ export async function listMediaAlbums(
 		console.error('[listMediaAlbums] Server returned non-JSON:', res.status, text.slice(0, 500));
 		throw new Error(`Server returned invalid JSON (${res.status}). Check console for details.`);
 	}
-	return Array.isArray((data as any)?.albums) ? ((data as any).albums as MediaAlbum[]) : [];
+	return Array.isArray((data as any)?.albums) ? (data as any).albums.map(normalizeMediaAlbum) : [];
 }
 
 export async function createMediaAlbum(
@@ -1583,7 +1614,7 @@ export async function createMediaAlbum(
 	}
 	try {
 		const data = await res.json();
-		return data.album as MediaAlbum;
+		return normalizeMediaAlbum(data.album);
 	} catch {
 		throw new Error('Invalid response from server while creating media album');
 	}
@@ -1608,8 +1639,8 @@ export async function listMediaAlbumItems(
 	try {
 		const data = await res.json();
 		return {
-			album: data.album as MediaAlbum,
-			items: Array.isArray(data.items) ? (data.items as MediaAlbumItem[]) : []
+			album: normalizeMediaAlbum(data.album),
+			items: Array.isArray(data.items) ? data.items.map(normalizeMediaAlbumItem) : []
 		};
 	} catch {
 		throw new Error('Invalid response from server while listing media album items');
@@ -1659,7 +1690,7 @@ export async function addMediaAlbumItem(
 		});
 	}
 	const data = await res.json();
-	return data.item as MediaAlbumItem;
+	return normalizeMediaAlbumItem(data.item);
 }
 
 export async function setMediaAlbumFeatured(
@@ -1668,7 +1699,7 @@ export async function setMediaAlbumFeatured(
 	featured: boolean
 ): Promise<MediaAlbum> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/albums/${albumId}/featured`, {
-		method: 'PATCH',
+		method: 'PUT',
 		headers: {
 			Authorization: `Bearer ${token}`,
 			'Content-Type': 'application/json'
@@ -1680,7 +1711,7 @@ export async function setMediaAlbumFeatured(
 		throw new Error(error.error || 'Failed to update featured album state');
 	}
 	const data = await res.json();
-	return data.album as MediaAlbum;
+	return normalizeMediaAlbum(data.album);
 }
 
 export async function reorderMediaAlbumItems(
@@ -1689,7 +1720,7 @@ export async function reorderMediaAlbumItems(
 	itemIds: number[]
 ): Promise<MediaAlbumItem[]> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/albums/${albumId}/items/reorder`, {
-		method: 'PATCH',
+		method: 'PUT',
 		headers: {
 			Authorization: `Bearer ${token}`,
 			'Content-Type': 'application/json'
@@ -1700,8 +1731,8 @@ export async function reorderMediaAlbumItems(
 		const error = await res.json().catch(() => ({}));
 		throw new Error(error.error || 'Failed to reorder media album items');
 	}
-	const data = await res.json();
-	return Array.isArray(data.items) ? (data.items as MediaAlbumItem[]) : [];
+	const data = await res.json().catch(() => ({}));
+	return Array.isArray(data.items) ? data.items.map(normalizeMediaAlbumItem) : [];
 }
 
 export async function deleteMediaAlbum(token: string, albumId: number): Promise<void> {
