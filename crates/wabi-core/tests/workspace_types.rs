@@ -1,7 +1,8 @@
+use wabi_core::workspace::SessionView;
 use wabi_core::{
     ChannelCreatedEvent, ChannelType, ChannelUpdatedEvent, ChannelView, ConversationUserSummary,
     DirectMessageChannelEvent, GroupAvatarUpdatedEvent, GroupCreatedEvent, GroupMemberAddedEvent,
-    GroupMemberRemovedEvent, GroupRemovedEvent, MessageRetentionDuration, SessionView, UserLeftEvent,
+    GroupMemberRemovedEvent, MessageRetentionDuration, UserLeftEvent,
     UserStatus, UserView, UsernameFont, VoiceBitrateMode, VoiceChannelSettings,
 };
 

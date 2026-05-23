@@ -92,7 +92,17 @@ import {
 	createDefaultPanelDock, normalizePanelDock, buildPhase1Root,
 	findTabsetById, isDockSide, clampSize, normalizePanelId
 } from './layoutHelpers';
-import { DEFAULT_NAV_SIZE, DEFAULT_AUX_SIZE, TABSET_IDS, FALLBACK_WORKSPACE_PANEL_ID } from './layoutConstants';
+import {
+	DEFAULT_NAV_SIZE,
+	DEFAULT_AUX_SIZE,
+	NAV_MIN_SIZE,
+	NAV_MAX_SIZE,
+	AUX_MIN_SIZE,
+	AUX_MAX_SIZE,
+	TABSET_IDS,
+	FALLBACK_WORKSPACE_PANEL_ID
+} from './layoutConstants';
+import type { DockModuleId, WorkspacePanelId, WorkspacePanelDockOrientation } from './layoutConstants';
 
 function normalizeWorkspace(layout: Partial<WorkspaceLayoutV1>, nameFallback: string): WorkspaceLayoutV1 {
 	const navDock = isDockSide(layout.navDock) ? layout.navDock : 'left';

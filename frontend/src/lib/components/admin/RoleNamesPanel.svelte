@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { _ } from '$lib/i18n';
 
-	export type RoleDefinition = {
+	type RoleDefinition = {
 		roleName: string;
 		displayName: string;
 		priority: number;

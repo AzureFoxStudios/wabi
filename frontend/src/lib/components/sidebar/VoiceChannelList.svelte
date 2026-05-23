@@ -3,8 +3,8 @@
 	import { cubicOut } from 'svelte/easing';
 	import { longpress } from '$lib/actions/longpress';
 	import type { Channel } from '$lib/socket';
-	import { currentUser, voiceChannelMembers, voiceTransmitMode, listeningVoiceChannels, channelUnreadCounts } from '$lib/socket';
-	import { callMuted, callDeafened, isLocalSpeaking, speakingUsers } from '$lib/calling';
+	import { currentUser, voiceChannelMembers, channelUnreadCounts } from '$lib/socket';
+	import { isMuted as callMuted, isDeafened as callDeafened, isLocalSpeaking, speakingUsers, voiceTransmitMode, listeningVoiceChannels } from '$lib/calling';
 	import { voiceCallRecordingParticipants } from '$lib/callRecordingPresence';
 	import { formatBadge, formatVoiceDuration as formatVoiceDurationLabel, formatVoiceOccupancy, getVoiceOccupancyTitle } from './channelSidebarHelpers';
 

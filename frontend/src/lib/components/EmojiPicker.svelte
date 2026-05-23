@@ -64,6 +64,10 @@
 
 	let gifPickerRef: GifPicker;
 	let emojiGridRef: EmojiGrid;
+	let gifSearchQuery = '';
+	function searchGifs() {}
+	let emojiRenderLimit = 200;
+	const EMOJI_PAGE_SIZE = 200;
 </script>
 
 <div class="emoji-picker">
@@ -274,6 +278,7 @@
 		background: var(--color-primary);
 	}
 
+	@media (max-width: 640px) {
 	.emoji-picker {
 			position: fixed;
 			bottom: 56px;
@@ -331,7 +336,6 @@
 			font-size: 0.6875rem;
 		}
 	}
-
 	/* Extra small screens */
 	@media (max-width: 400px) {
 		.emoji-picker {

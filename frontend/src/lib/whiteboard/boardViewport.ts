@@ -4,7 +4,7 @@ export interface WhiteboardViewport {
 	zoom: number;
 }
 
-interface BoardState {
+export interface BoardState {
 	viewport: WhiteboardViewport;
 }
 

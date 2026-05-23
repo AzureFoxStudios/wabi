@@ -2,7 +2,7 @@
 	import { _ } from '$lib/i18n';
 	import { emojis } from '$lib/emoji-store';
 
-	export type EmojiRoleRule = {
+	type EmojiRoleRule = {
 		id: number;
 		channelId: string;
 		messageId: string;

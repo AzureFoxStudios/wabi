@@ -2,7 +2,7 @@
 	import type { Channel } from '$lib/socket';
 	import {
 		callMode,
-		callConnectionState,
+		connectionState as callConnectionState,
 		callConnectionDiagnostics,
 		callTransportState,
 		listeningVoiceChannels,
@@ -12,13 +12,13 @@
 		canScreenShare,
 		isMuted as callMuted,
 		isDeafened as callDeafened,
-		getSocket,
 		toggleVideo,
 		startScreenShare,
 		stopScreenShare,
 		activeCalls
 	} from '$lib/calling';
 	import { formatDiag } from './channelSidebarHelpers';
+	import { getSocket } from '$lib/socketConnection';
 
 	export let runtimeActiveVoiceChannelId: string | null;
 	export let voiceChannels: Channel[];

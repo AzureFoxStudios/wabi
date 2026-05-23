@@ -1,16 +1,16 @@
 <script lang="ts">
-	export interface PaymentAccessPolicy {
+	interface PaymentAccessPolicy {
 		enabled: boolean;
 		allowGuest: boolean;
 		allowedRoleNames: string[];
 	}
 
-	export interface PaymentUserBlock {
+	interface PaymentUserBlock {
 		userId: number;
 		reason: string;
 	}
 
-	export interface RoleDef {
+	interface RoleDef {
 		roleName: string;
 		displayName: string;
 	}

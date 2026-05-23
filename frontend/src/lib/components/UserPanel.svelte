@@ -190,7 +190,7 @@
 				<button
 					class="user-info-button"
 					on:click={(e) => {
-						if (!isCurrentUserEntry(user)) {
+						if (!isCurrentUserEntry(user, $currentUser)) {
 							handleOpenDM(user);
 						} else {
 							openProfile(user, e.currentTarget as HTMLElement);
@@ -200,7 +200,7 @@
 					<div class="user-info">
 						<span class="user-name">
 							{user.username}
-							{#if isCurrentUserEntry(user)}<span class="you-badge">({$_('user.you')})</span>{/if}
+							{#if isCurrentUserEntry(user, $currentUser)}<span class="you-badge">({$_('user.you')})</span>{/if}
 						</span>
 						<div class="user-status">
 							<span class="status-dot" style="--status-color: {getStatusColor(user.status)}"></span>
@@ -210,12 +210,12 @@
 				</button>
 
 				<!-- Unread badge for DMs -->
-				{#if !isCurrentUserEntry(user) && getUserUnreadCount(user) > 0}
-					<span class="unread-badge">{formatBadge(getUserUnreadCount(user))}</span>
+				{#if !isCurrentUserEntry(user, $currentUser) && getUserUnreadCount(user, $channelUnreadCounts, getDMChannelIdForUser, $currentUser) > 0}
+					<span class="unread-badge">{formatBadge(getUserUnreadCount(user, $channelUnreadCounts, getDMChannelIdForUser, $currentUser))}</span>
 				{/if}
 
 				<!-- Call buttons (only show for other users) -->
-				{#if !isCurrentUserEntry(user)}
+				{#if !isCurrentUserEntry(user, $currentUser)}
 					<div class="call-buttons">
 						<button
 							class="call-btn voice-call"
@@ -258,11 +258,11 @@
 		user={contextMenuUser}
 		x={contextMenuX}
 		y={contextMenuY}
-		isOwnProfile={isCurrentUserEntry(contextMenuUser)}
+		isOwnProfile={isCurrentUserEntry(contextMenuUser, $currentUser)}
 		on:close={closeContextMenu}
-		on:voiceCall={() => handleVoiceCall()}
-		on:videoCall={() => handleVideoCall()}
-		on:screenShare={() => handleScreenShare()}
+		on:voiceCall={() => handleVoiceCall(undefined, contextMenuUser)}
+		on:videoCall={() => handleVideoCall(undefined, contextMenuUser)}
+		on:screenShare={() => handleScreenShare(undefined, contextMenuUser)}
 		on:openDM={handleOpenDM}
 		on:requestPayment={(event) => handlePaymentLaunch('payment_request', event)}
 		on:recordManualCash={(event) => handlePaymentLaunch('manual_cash', event)}

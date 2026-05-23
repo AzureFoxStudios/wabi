@@ -9,6 +9,17 @@
 	export let adminCount: number;
 	export let modCount: number;
 	export let guestCount: number;
+
+	function getRoleLabel(roleName: string): string {
+		const labels: Record<string, string> = {
+			owner: 'Owner',
+			admin: 'Admin',
+			mod: 'Moderator',
+			member: 'Member',
+			guest: 'Guest'
+		};
+		return labels[roleName] || roleName;
+	}
 </script>
 
 <div class="admin-header">
@@ -35,15 +46,4 @@
 	<div class="admin-stat"><span class="k">{$_('admin.stats.guests')}</span><span class="v">{guestCount}</span></div>
 </div>
 
-<script lang="ts">
-	function getRoleLabel(roleName: string): string {
-		const labels: Record<string, string> = {
-			owner: 'Owner',
-			admin: 'Admin',
-			mod: 'Moderator',
-			member: 'Member',
-			guest: 'Guest'
-		};
-		return labels[roleName] || roleName;
-	}
-</script>
+

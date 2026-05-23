@@ -16,6 +16,25 @@
 
 	let iconInput: HTMLInputElement | null = null;
 	let bannerInput: HTMLInputElement | null = null;
+
+	function frontendMetadataMatches(
+		left: FrontendAppMetadataPolicy,
+		right: FrontendAppMetadataPolicy
+	): boolean {
+		return (
+			left.displayName === right.displayName &&
+			left.iconUrl === right.iconUrl &&
+			left.bannerUrl === right.bannerUrl &&
+			left.accentColor === right.accentColor &&
+			left.description === right.description &&
+			left.launchPageFallbackEnabled === right.launchPageFallbackEnabled
+		);
+	}
+
+	$: frontendMetadataDirty = !frontendMetadataMatches(
+		frontendAppMetadata,
+		publishedFrontendAppMetadata
+	);
 </script>
 
 <div class="admin-section">
@@ -147,23 +166,4 @@
 	{/if}
 </div>
 
-<script lang="ts">
-	function frontendMetadataMatches(
-		left: FrontendAppMetadataPolicy,
-		right: FrontendAppMetadataPolicy
-	): boolean {
-		return (
-			left.displayName === right.displayName &&
-			left.iconUrl === right.iconUrl &&
-			left.bannerUrl === right.bannerUrl &&
-			left.accentColor === right.accentColor &&
-			left.description === right.description &&
-			left.launchPageFallbackEnabled === right.launchPageFallbackEnabled
-		);
-	}
 
-	$: frontendMetadataDirty = !frontendMetadataMatches(
-		frontendAppMetadata,
-		publishedFrontendAppMetadata
-	);
-</script>

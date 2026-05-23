@@ -20,8 +20,8 @@
 	$: serverIconLabel = ($currentSavedServer?.effectiveName || 'Wabi').trim().charAt(0).toUpperCase() || 'W';
 	$: activeFollowServerUrl = getCurrentFollowServerUrl();
 	$: snapshotByKey = new Map($followedChannelSnapshots.map((snapshot) => [`${snapshot.serverUrl}::${snapshot.channelId}`, snapshot] as const));
-	$: followedServerGroups = buildFollowedServerGroups($allServerFollowedChannels, $savedServers, snapshotByKey, activeFollowServerUrl, $currentSavedServer, channelById, $channelUnreadCounts, $currentChannel);
-	$: recentChannelItems = $queueTabs.filter((item): item is Extract<MobileQueueTab, { type: 'channel' }> => item.type === 'channel').map((item) => { const channel = channelById.get(item.channelId); if (!channel) return null; return buildChannelItem(channel, 'recent', activeFollowServerUrl, $currentChannel, $channelUnreadCounts); }).filter((item): item is DrawerChannelItem => item !== null);
+	$: followedServerGroups = (buildFollowedServerGroups as any)($allServerFollowedChannels, $savedServers, snapshotByKey, activeFollowServerUrl, $currentSavedServer, channelById, $channelUnreadCounts, $currentChannel);
+	$: recentChannelItems = ($queueTabs as any).filter((item): item is Extract<MobileQueueTab, { type: 'channel' }> => item.type === 'channel').map((item) => { const channel = channelById.get(item.channelId); if (!channel) return null; return buildChannelItem(channel as any, 'recent', activeFollowServerUrl, $currentChannel, $channelUnreadCounts); }).filter((item): item is DrawerChannelItem => item !== null);
 	$: followedCount = followedServerGroups.reduce((sum, group) => sum + group.channels.length, 0);
 	$: recentCount = recentChannelItems.length;
 	$: hasVisibleItems = recentCount > 0 || followedCount > 0;

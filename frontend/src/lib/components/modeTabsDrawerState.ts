@@ -1,3 +1,4 @@
+import { get } from 'svelte/store';
 import { getSocket, joinChannel, joinVoiceChannel } from '$lib/socket';
 import {
 	currentSavedServer,
@@ -44,7 +45,7 @@ export function computeDrawerState(
 	currentSavedServer: { url: string; effectiveIconUrl?: string; effectiveName?: string } | null,
 	followedSnapshots: Array<{ serverUrl: string; channelId: string }>
 ): DrawerComputedState {
-	const serverScopedChannels = channels.filter(isServerScopedChannel);
+	const serverScopedChannels = (channels as any).filter(isServerScopedChannel);
 	const channelById = new Map(serverScopedChannels.map((channel) => [channel.id, channel] as const));
 	const serverIconUrl = currentSavedServer?.effectiveIconUrl || null;
 	const serverIconLabel = (currentSavedServer?.effectiveName || 'Wabi').trim().charAt(0).toUpperCase() || 'W';
@@ -52,23 +53,23 @@ export function computeDrawerState(
 	const snapshotByKey = new Map(
 		followedSnapshots.map((snapshot) => [`${snapshot.serverUrl}::${snapshot.channelId}`, snapshot] as const)
 	);
-	const followedServerGroups = buildFollowedServerGroups(
-		allServerFollowedChannels,
-		savedServersList,
-		snapshotByKey,
+	const followedServerGroups = (buildFollowedServerGroups as any)(
+		get(allServerFollowedChannels),
+		savedServersList as any,
+		snapshotByKey as any,
 		activeFollowServerUrl,
 		currentSavedServer,
-		channelById,
+		channelById as any,
 		channelUnreadCounts,
 		currentChannel
 	);
-	const queueTabs = mobileTabQueue.tabs;
+	const queueTabs = (mobileTabQueue as any).tabs;
 	const recentChannelItems = queueTabs
 		.filter((item): item is Extract<MobileQueueTab, { type: 'channel' }> => item.type === 'channel')
 		.map((item) => {
 			const channel = channelById.get(item.channelId);
 			if (!channel) return null;
-			return buildChannelItem(channel, 'recent', activeFollowServerUrl, currentChannel, channelUnreadCounts);
+			return buildChannelItem(channel as any, 'recent', activeFollowServerUrl, currentChannel, channelUnreadCounts);
 		})
 		.filter((item): item is DrawerChannelItem => item !== null);
 	const followedCount = followedServerGroups.reduce((sum, group) => sum + group.channels.length, 0);
@@ -84,11 +85,11 @@ export function computeDrawerState(
 		: 'Followed channels across your servers';
 	return {
 		serverScopedChannels,
-		channelById,
+		channelById: channelById as any,
 		serverIconUrl,
 		serverIconLabel,
 		activeFollowServerUrl,
-		snapshotByKey,
+		snapshotByKey: snapshotByKey as any,
 		followedServerGroups,
 		recentChannelItems,
 		followedCount,

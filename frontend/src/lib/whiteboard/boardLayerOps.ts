@@ -6,7 +6,7 @@ import { pushUndo, type UndoEntry } from './boardUndo';
 type PatchType = 'layer:create' | 'layer:update' | 'layer:delete' | 'layer:reorder' | 'layer:select' | 'replace';
 type PatchListener = (type: PatchType, payload: unknown) => void;
 
-interface BoardState {
+export interface BoardState {
 	elements: BoardElement[];
 	layers: WhiteboardLayer[];
 	activeLayerId: string;

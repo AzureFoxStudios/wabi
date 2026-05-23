@@ -12,6 +12,7 @@
 		updateChannelSettings,
 		channelUnreadCounts,
 		activeVoiceChannel as socketActiveVoiceChannel,
+		currentUser,
 		voiceChannelMembers,
 		joinVoiceChannel,
 		leaveVoiceChannel,
@@ -173,7 +174,7 @@
 	function setVoiceDurationMode(mode: 'off' | 'others' | 'all') { voiceDurationMode = mode; try { localStorage.setItem('wabi-voice-duration-mode', mode); } catch {} }
 	function toggleSection(s: 'text' | 'voice' | 'gallery') { if (s === 'text') isTextSectionExpanded = !isTextSectionExpanded; else if (s === 'gallery') isGallerySectionExpanded = !isGallerySectionExpanded; else isVoiceSectionExpanded = !isVoiceSectionExpanded; }
 	function handleCreateChannel() { if (newChannelName.trim()) { createChannel(newChannelName.trim(), newChannelDescription.trim(), newChannelType); newChannelName = ''; newChannelDescription = ''; newChannelType = 'text'; showCreateInput = false; } }
-	function toggleCreateInputForType(t: 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage') { if (showCreateInput && newChannelType === t) { showCreateInput = false; return; } newChannelType = t; showCreateInput = true; tick().then(() => document.querySelector('.create-channel input')?.focus()); }
+	function toggleCreateInputForType(t: 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage') { if (showCreateInput && newChannelType === t) { showCreateInput = false; return; } newChannelType = t; showCreateInput = true; tick().then(() => (document.querySelector('.create-channel input') as HTMLInputElement | null)?.focus()); }
 	function handleDeleteChannel(id: string) { channelToDelete = id; showDeleteConfirm = true; }
 	function confirmDeleteChannel() { deleteChannel(channelToDelete); showDeleteConfirm = false; }
 	function handleShowPinnedMessages(id: string) { selectedChannelForPinned = id; showPinnedModal = true; }

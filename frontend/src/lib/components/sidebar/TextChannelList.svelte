@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { longpress } from '$lib/actions/longpress';
 	import type { Channel } from '$lib/socket';
-	import { channelMessages, currentChannel, channelUnreadCounts, currentUser, displayEnhancementSettingsStore } from '$lib/socket';
+	import { channelMessages, currentChannel, channelUnreadCounts, currentUser } from '$lib/socket';
+	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { FOLLOW_ALERT_LEVEL_LABELS } from '$lib/following';
 	import { formatBadge, formatGlimpseTime, summarizeGlimpseMessage } from './channelSidebarHelpers';
 	import { isLikelyNsfwChannel } from '$lib/displayEnhancements';

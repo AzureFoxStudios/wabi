@@ -26,7 +26,7 @@ export function processOutgoingText(
 	if (options.unicodeEmojisEnabled && options.emojis) {
 		for (const emoji of options.emojis) {
 			const pattern = new RegExp(`:${emoji.name}:`, 'g');
-			processed = processed.replace(pattern, emoji.unicode || `:${emoji.name}:`);
+			processed = processed.replace(pattern, ((emoji as { unicode?: string }).unicode) || `:${emoji.name}:`);
 		}
 	}
 	return { text: processed, blocked: false };
@@ -52,7 +52,7 @@ export function processAttachmentCaption(
 	if (options.unicodeEmojisEnabled && options.emojis) {
 		for (const emoji of options.emojis) {
 			const pattern = new RegExp(`:${emoji.name}:`, 'g');
-			caption = caption.replace(pattern, emoji.unicode || `:${emoji.name}:`);
+			caption = caption.replace(pattern, ((emoji as { unicode?: string }).unicode) || `:${emoji.name}:`);
 		}
 	}
 	return caption;

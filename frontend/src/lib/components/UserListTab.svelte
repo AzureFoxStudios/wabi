@@ -279,7 +279,7 @@
 	{#each sortedRoles as role}
 		<div class="role-group">
 			<div class="role-header">
-				{getRoleLabel(role)} - {groupedUsers[role].length}
+				{getRoleLabel(role, roleLabelMap)} - {groupedUsers[role].length}
 			</div>
 			{#each groupedUsers[role] as user (user.id)}
 				<button

@@ -48,7 +48,7 @@ export interface BoardState {
 	isDirty: boolean;
 }
 
-export { BoardDocument } from './boardUndo';
+export type { BoardDocument } from './boardUndo';
 
 function defaultState(): BoardState {
 	const now = Date.now();
@@ -160,7 +160,7 @@ function pushHistoryCheckpoint(): void {
 }
 
 function addElement(el: BoardElement): void {
-	activeStore().update((s) => elemOps.addElement(toState(s), el, notifyPatch));
+	activeStore().update((s) => fromState(s, elemOps.addElement(toState(s), el, notifyPatch)));
 }
 
 function updateElement(id: string, partial: Partial<BoardElement>, options: elemOps.UpdateElementOptions = {}): void {
@@ -168,27 +168,27 @@ function updateElement(id: string, partial: Partial<BoardElement>, options: elem
 }
 
 function deleteElements(ids: string[]): void {
-	activeStore().update((s) => elemOps.deleteElements(toState(s), ids, notifyPatch));
+	activeStore().update((s) => fromState(s, elemOps.deleteElements(toState(s), ids, notifyPatch)));
 }
 
 function reorderElement(id: string, dir: 'front' | 'back' | 'forward' | 'backward'): void {
-	activeStore().update((s) => elemOps.reorderElement(toState(s), id, dir, notifyPatch));
+	activeStore().update((s) => fromState(s, elemOps.reorderElement(toState(s), id, dir, notifyPatch)));
 }
 
 function duplicateElements(ids: string[]): void {
-	activeStore().update((s) => elemOps.duplicateElements(toState(s), ids, notifyPatch));
+	activeStore().update((s) => fromState(s, elemOps.duplicateElements(toState(s), ids, notifyPatch)));
 }
 
 function addElementSilent(el: BoardElement): void {
-	activeStore().update((s) => elemOps.addElementSilent(toState(s), el));
+	activeStore().update((s) => fromState(s, elemOps.addElementSilent(toState(s), el)));
 }
 
 function updateElementSilent(id: string, partial: Partial<BoardElement>): void {
-	activeStore().update((s) => elemOps.updateElementSilent(toState(s), id, partial));
+	activeStore().update((s) => fromState(s, elemOps.updateElementSilent(toState(s), id, partial)));
 }
 
 function deleteElementsSilent(ids: string[]): void {
-	activeStore().update((s) => elemOps.deleteElementsSilent(toState(s), ids));
+	activeStore().update((s) => fromState(s, elemOps.deleteElementsSilent(toState(s), ids)));
 }
 
 function ensureLayer(layer: Partial<WhiteboardLayer> & { id?: string; name?: string }): WhiteboardLayer {
@@ -226,31 +226,31 @@ function updateLayer(id: string, partial: Partial<WhiteboardLayer>): void {
 }
 
 function updateLayerSilent(id: string, partial: Partial<WhiteboardLayer>): void {
-	activeStore().update((s) => layerOps.updateLayerSilent(toState(s), id, partial));
+	activeStore().update((s) => fromState(s, layerOps.updateLayerSilent(toState(s), id, partial)));
 }
 
 function deleteLayer(id: string): void {
-	activeStore().update((s) => layerOps.deleteLayer(toState(s), id, notifyPatch));
+	activeStore().update((s) => fromState(s, layerOps.deleteLayer(toState(s), id, notifyPatch)));
 }
 
 function deleteLayerSilent(id: string): void {
-	activeStore().update((s) => layerOps.deleteLayerSilent(toState(s), id));
+	activeStore().update((s) => fromState(s, layerOps.deleteLayerSilent(toState(s), id)));
 }
 
 function reorderLayer(id: string, dir: 'front' | 'back' | 'forward' | 'backward'): void {
-	activeStore().update((s) => layerOps.reorderLayer(toState(s), id, dir, notifyPatch));
+	activeStore().update((s) => fromState(s, layerOps.reorderLayer(toState(s), id, dir, notifyPatch)));
 }
 
 function reorderLayerSilent(id: string, dir: 'front' | 'back' | 'forward' | 'backward'): void {
-	activeStore().update((s) => layerOps.reorderLayerSilent(toState(s), id, dir));
+	activeStore().update((s) => fromState(s, layerOps.reorderLayerSilent(toState(s), id, dir)));
 }
 
 function setActiveLayerId(id: string): void {
-	activeStore().update((s) => layerOps.setActiveLayerId(toState(s), id, notifyPatch));
+	activeStore().update((s) => fromState(s, layerOps.setActiveLayerId(toState(s), id, notifyPatch)));
 }
 
 function setActiveLayerIdSilent(id: string): void {
-	activeStore().update((s) => layerOps.setActiveLayerIdSilent(toState(s), id));
+	activeStore().update((s) => fromState(s, layerOps.setActiveLayerIdSilent(toState(s), id)));
 }
 
 function setLayerVisible(id: string, visible: boolean): void {
@@ -270,35 +270,35 @@ function renameLayer(id: string, name: string): void {
 }
 
 function assignSelectionToLayer(layerId: string): void {
-	activeStore().update((s) => layerOps.assignSelectionToLayer(toState(s), layerId, notifyPatch));
+	activeStore().update((s) => fromState(s, layerOps.assignSelectionToLayer(toState(s), layerId, notifyPatch)));
 }
 
 function select(ids: string[]): void {
-	activeStore().update((s) => selOps.select(toState(s), ids));
+	activeStore().update((s) => fromState(s, selOps.select(toState(s), ids)));
 }
 
 function selectAll(): void {
-	activeStore().update((s) => selOps.selectAll(toState(s)));
+	activeStore().update((s) => fromState(s, selOps.selectAll(toState(s))));
 }
 
 function clearSelection(): void {
-	activeStore().update((s) => selOps.clearSelection(toState(s)));
+	activeStore().update((s) => fromState(s, selOps.clearSelection(toState(s))));
 }
 
 function toggleSelection(id: string): void {
-	activeStore().update((s) => selOps.toggleSelection(toState(s), id));
+	activeStore().update((s) => fromState(s, selOps.toggleSelection(toState(s), id)));
 }
 
 function setViewport(vp: VpType): void {
-	activeStore().update((s) => vpOps.setViewport(toState(s), vp));
+	activeStore().update((s) => fromState(s, vpOps.setViewport(toState(s), vp)));
 }
 
 function panBy(dx: number, dy: number): void {
-	activeStore().update((s) => vpOps.panBy(toState(s), dx, dy));
+	activeStore().update((s) => fromState(s, vpOps.panBy(toState(s), dx, dy)));
 }
 
 function zoomTo(zoom: number, cx: number, cy: number): void {
-	activeStore().update((s) => vpOps.zoomTo(toState(s), zoom, cx, cy));
+	activeStore().update((s) => fromState(s, vpOps.zoomTo(toState(s), zoom, cx, cy)));
 }
 
 function undo(): void {

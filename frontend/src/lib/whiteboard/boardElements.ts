@@ -2,12 +2,13 @@ import type { WhiteboardLayer } from './boardTypes';
 import type { BoardElement } from './elementTypes';
 import { generateElementId } from './elementTypes';
 import { resolveWhiteboardLayerId, resolveWritableWhiteboardLayerId } from './layers';
-import { cloneElement, cloneElements, cloneWhiteboardLayers, estimateBytes, estimateLayerBytes, pushUndo, type UndoEntry } from './boardUndo';
+import { cloneElement, cloneElements, estimateBytes, estimateLayerBytes, pushUndo, type UndoEntry } from './boardUndo';
+import { cloneWhiteboardLayers } from './layers';
 
 type PatchType = 'create' | 'update' | 'delete' | 'reorder' | 'replace';
 type PatchListener = (type: PatchType, payload: unknown) => void;
 
-interface BoardState {
+export interface BoardState {
 	elements: BoardElement[];
 	layers: WhiteboardLayer[];
 	activeLayerId: string;
@@ -46,7 +47,7 @@ export function addElement(
 	return next;
 }
 
-interface UpdateElementOptions {
+export interface UpdateElementOptions {
 	recordHistory?: boolean;
 	emitPatch?: boolean;
 }
@@ -174,9 +175,9 @@ export function duplicateElements(
 
 export function addElementSilent(state: BoardState, el: BoardElement): BoardState {
 	if (state.elements.some((existing) => existing.id === el.id)) return state;
-	const normalized = { ...el };
+	const normalized: BoardElement = { ...el } as BoardElement;
 	if (el.type === 'stroke') {
-		normalized.points = el.points.map((point) => ({ ...point }));
+		(normalized as Extract<BoardElement, { type: 'stroke' }>).points = el.points.map((point) => ({ ...point }));
 	}
 	return { ...state, elements: [...state.elements, normalized] };
 }

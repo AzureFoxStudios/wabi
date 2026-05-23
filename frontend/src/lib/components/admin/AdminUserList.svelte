@@ -2,7 +2,7 @@
 	import { _ } from '$lib/i18n';
 	import type { User } from '$lib/socket';
 
-	export type ManagedUserRole = 'member' | 'mod' | 'admin';
+	type ManagedUserRole = 'member' | 'mod' | 'admin';
 
 	export let sortedUsers: User[];
 	export let searchQuery: string;

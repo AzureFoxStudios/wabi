@@ -936,7 +936,7 @@
 		{communityNodeAnnouncementsLoading}
 		{communityNodeAnnouncementsSaving}
 		{communityNodeAnnouncementsStatus}
-		{communityAnnouncementChannelOptions}
+		communityAnnouncementChannelOptions={communityAnnouncementChannelOptions as any}
 		onRefreshRelayRoster={() => { adminRelayRosterLoaded = false; void loadAdminRelayRoster(); }}
 		onApproveRelay={approveRelayNode}
 		onDeleteRelay={deleteRelayNode}

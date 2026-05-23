@@ -277,6 +277,11 @@
 		for (const previewUrl of importPreviewUrls.values()) URL.revokeObjectURL(previewUrl);
 		importPreviewUrls.clear();
 	});
+
+	function handleTextKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') commitTextEdit();
+		if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitTextEdit(); }
+	}
 </script>
 
 <svelte:window on:keydown={handleKeyDown} on:keyup={handleKeyUp} />
@@ -286,7 +291,7 @@
 	<canvas bind:this={interactionCanvas} class="whiteboard-layer interaction-layer" style="cursor: {cursorStyle}" on:pointerdown={handlePointerDown} on:pointermove={handlePointerMove} on:pointerup={handlePointerUp} on:pointercancel={handlePointerCancel} on:wheel|preventDefault={handleWheel} on:contextmenu|preventDefault></canvas>
 
 	{#if textEditing}
-		<textarea bind:this={textOverlay} class="text-edit-overlay" style="left: {textEditX}px; top: {textEditY}px;" bind:value={textEditValue} on:blur={commitTextEdit} on:keydown={(e) => { if (e.key === 'Escape') commitTextEdit(); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitTextEdit(); } }}"></textarea>
+		<textarea bind:this={textOverlay} class="text-edit-overlay" style="left: {textEditX}px; top: {textEditY}px;" bind:value={textEditValue} on:blur={commitTextEdit} on:keydown={handleTextKeydown}></textarea>
 	{/if}
 
 	{#if importPreviewCards.length > 0 || importError || isDragHover}

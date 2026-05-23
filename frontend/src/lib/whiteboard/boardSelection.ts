@@ -1,7 +1,7 @@
 import type { WhiteboardLayer } from './boardTypes';
 import type { BoardElement } from './elementTypes';
 
-interface BoardState {
+export interface BoardState {
 	elements: BoardElement[];
 	layers: WhiteboardLayer[];
 	selection: Set<string>;

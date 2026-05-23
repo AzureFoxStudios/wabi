@@ -645,7 +645,7 @@
 		/>
 
 		<ChannelAccessPanel
-			{customChannels}
+			customChannels={customChannels as any}
 			channelRoleOptions={channelRoleOptions}
 			{canManageRoles}
 			{getRoleLabel}
@@ -658,7 +658,7 @@
 			{roleGateTitle}
 			{roleGateDescription}
 			{roleGatePersist}
-			{gateChannels}
+			gateChannels={gateChannels as any}
 			onChannelChange={(id) => roleGateChannelId = id}
 			onTitleInput={(v) => roleGateTitle = v}
 			onDescriptionInput={(v) => roleGateDescription = v}
@@ -674,7 +674,7 @@
 			{selectedRuleEmojiId}
 			{selectedRuleRoleName}
 			{selectedRuleRemoveOnUnreact}
-			{gateChannels}
+			gateChannels={gateChannels as any}
 			{availableRoleGatePosts}
 			assignableRoleOptions={assignableRoleOptions}
 			{getRoleLabel}
