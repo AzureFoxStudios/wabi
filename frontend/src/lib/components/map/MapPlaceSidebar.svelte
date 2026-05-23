@@ -26,6 +26,7 @@
 		newPlace: void;
 		editPlace: void;
 		selectPlace: PlaceRecord;
+		searchChange: string;
 	}>();
 </script>
 
@@ -42,7 +43,7 @@
 
 	<label class="search-field">
 		<span>Search places</span>
-		<input type="text" bind:value={searchQuery} placeholder="building, tag, alias..." />
+		<input type="text" value={searchQuery} on:input={(event) => dispatch('searchChange', (event.currentTarget as HTMLInputElement).value)} placeholder="building, tag, alias..." />
 	</label>
 
 	{#if canManagePlaces && variant !== 'compact'}

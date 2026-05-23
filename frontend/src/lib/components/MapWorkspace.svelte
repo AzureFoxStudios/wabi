@@ -53,10 +53,16 @@
 		resolvePoiMarkerGlyph
 	} from './mapWorkspaceHelpers';
 
+	import MapPlaceSidebar from './map/MapPlaceSidebar.svelte';
+	import MapCompactToolbar from './map/MapCompactToolbar.svelte';
+	import MapPlaceHeader from './map/MapPlaceHeader.svelte';
+	import MapEmptyStage from './map/MapEmptyStage.svelte';
+
 	export let variant: 'compact' | 'full' | 'detached' = 'full';
 	export let initialPlaceId: string | null = null;
 
 	type SurfaceMode = 'custom' | 'osm';
+
 	type EditorMode = 'view' | 'edit' | 'new';
 
 	const MAP_BASE_WIDTH = 1000;
@@ -847,220 +853,64 @@
 
 <div class="map-workspace {variant}">
 	{#if !isCompactLayout}
-	<div class="map-sidebar">
-		<div class="map-sidebar-header">
-			<div>
-				<h2>{variant === 'compact' ? 'Map' : 'Server Map'}</h2>
-				<p>Places shared by this Wabi server.</p>
-			</div>
-			<button class="ghost-button" type="button" on:click={() => void hydrateWorkspace()} disabled={loading || $placeRegistryLoading}>
-				{loading || $placeRegistryLoading ? 'Refreshing...' : 'Refresh'}
-			</button>
-		</div>
-
-		<label class="search-field">
-			<span>Search places</span>
-			<input type="text" bind:value={searchQuery} placeholder="building, tag, alias..." />
-		</label>
-
-		{#if canManagePlaces && variant !== 'compact'}
-			<div class="admin-actions">
-				<button class="ghost-button" type="button" on:click={beginNewPlace}>New Place</button>
-				{#if activePlace}
-					<button class="ghost-button" type="button" on:click={beginEditingCurrentPlace}>Edit Place</button>
-				{/if}
-			</div>
-		{/if}
-
-		{#if loadError}
-			<p class="state-message error">{loadError}</p>
-		{/if}
-
-		<div class="place-list-header">
-			<strong>Places</strong>
-			<span>{visiblePlaces.length}</span>
-		</div>
-
-		{#if loading && $placeRegistry.length === 0}
-			<p class="state-message">Loading map places...</p>
-		{:else if visiblePlaces.length === 0}
-			<div class="state-message">
-				<div>{normalizedQuery ? 'No places match this search yet.' : 'No places have been configured yet.'}</div>
-				{#if canManagePlaces && !normalizedQuery}
-					<div class="admin-actions">
-						<button class="ghost-button" type="button" on:click={beginNewPlace}>Create First Place</button>
-					</div>
-				{/if}
-			</div>
-		{:else}
-			<div class="place-list" role="list">
-				{#each visiblePlaces as place (place.id)}
-					{@const placePreviewUrl = getPlacePreviewUrl(place)}
-					<button type="button" class="place-item" class:active={activePlace?.id === place.id && editorMode === 'view'} on:click={() => void selectPlace(place)}>
-						<div class="place-thumb" class:has-preview={Boolean(placePreviewUrl)}>
-							{#if placePreviewUrl}
-								<img src={placePreviewUrl} alt="" loading="lazy" decoding="async" />
-							{:else}
-								<span>{place.name.charAt(0).toUpperCase()}</span>
-							{/if}
-						</div>
-						<div class="place-copy">
-							<div class="place-copy-heading">
-								<strong>{place.name}</strong>
-								<small>@{place.slug}</small>
-							</div>
-							<div class="place-chip-row">
-								{#if place.building}
-									<span class="place-chip">{place.building}</span>
-								{/if}
-								{#if place.floor}
-									<span class="place-chip">Floor {place.floor}</span>
-								{/if}
-								{#if place.mapLayers.length > 0 || place.mapImageUrl}
-									<span class="place-chip">{place.mapLayers.length || 1} layer{(place.mapLayers.length || 1) === 1 ? '' : 's'}</span>
-								{/if}
-								{#if place.pois.length > 0}
-									<span class="place-chip">{place.pois.length} POI{place.pois.length === 1 ? '' : 's'}</span>
-								{/if}
-								{#if place.lat != null && place.lon != null}
-									<span class="place-chip">OSM</span>
-								{/if}
-							</div>
-						</div>
-					</button>
-				{/each}
-			</div>
-		{/if}
-	</div>
+	<MapPlaceSidebar
+		{variant}
+		{searchQuery}
+		{loading}
+		{loadError}
+		{canManagePlaces}
+		{visiblePlaces}
+		{activePlace}
+		{editorMode}
+		{normalizedQuery}
+		on:refresh={() => void hydrateWorkspace()}
+		on:searchChange={(event) => (searchQuery = event.detail)}
+		on:newPlace={beginNewPlace}
+		on:editPlace={beginEditingCurrentPlace}
+		on:selectPlace={(event) => void selectPlace(event.detail)}
+	/>
 	{/if}
 
 	<div class="map-stage">
 		{#if isCompactLayout}
-			<div class="compact-map-toolbar">
-				<label class="search-field compact-map-search">
-					<span>Search places</span>
-					<input type="text" bind:value={searchQuery} placeholder="Search this server map..." />
-				</label>
-				{#if compactPlaceSuggestions.length > 0}
-					<div class="compact-place-picker" role="list">
-						{#each compactPlaceSuggestions as place (place.id)}
-							<button
-								type="button"
-								class="compact-place-chip"
-								class:active={activePlace?.id === place.id && editorMode === 'view'}
-								on:click={() => void selectPlace(place)}
-							>
-								{place.name}
-							</button>
-						{/each}
-					</div>
-				{:else if normalizedQuery}
-					<div class="compact-map-empty">No places match this search yet.</div>
-				{:else if activePlace}
-					<div class="compact-active-place">
-						<strong>{activePlace.name}</strong>
-						<span>{activePlace.description || formatMapPlaceMeta(activePlace)}</span>
-					</div>
-				{/if}
-			</div>
+			<MapCompactToolbar
+				{searchQuery}
+				{compactPlaceSuggestions}
+				{activePlace}
+				{editorMode}
+				{normalizedQuery}
+				on:searchChange={(event) => (searchQuery = event.detail)}
+				on:selectPlace={(event) => void selectPlace(event.detail)}
+			/>
 		{/if}
 		{#if stagePlace}
 			{#if !isCompactLayout}
-				<div class="place-header">
-					<div class="place-heading">
-						<div class="place-kicker">Map Place</div>
-						<h3>{stagePlace.name}</h3>
-						<p>{stagePlace.description || formatMapPlaceMeta(stagePlace)}</p>
-						<div class="place-chip-row place-chip-row--hero">
-							{#if stagePlace.building}
-								<span class="place-chip">{stagePlace.building}</span>
-							{/if}
-							{#if stagePlace.floor}
-								<span class="place-chip">Floor {stagePlace.floor}</span>
-							{/if}
-							<span class="place-chip">{stageMapLayers.length || (stagePlace.mapImageUrl ? 1 : 0)} layer{(stageMapLayers.length || (stagePlace.mapImageUrl ? 1 : 0)) === 1 ? '' : 's'}</span>
-							<span class="place-chip">{allStagePois.length} POI{allStagePois.length === 1 ? '' : 's'}</span>
-							{#if surfaceHasCustom}
-								<span class="place-chip">Custom Map</span>
-							{/if}
-							{#if surfaceHasOsm}
-								<span class="place-chip">OSM Ready</span>
-							{/if}
-						</div>
-					</div>
-					<div class="place-actions">
-						{#if canManagePlaces && !surfaceHasCustom}
-							<button class="ghost-button" type="button" on:click={() => void startQuickMapUpload()} disabled={uploadBusy}>
-								{uploadBusy ? 'Uploading...' : 'Upload Custom Map'}
-							</button>
-						{/if}
-						{#if canManagePlaces && !surfaceHasOsm}
-							<button class="ghost-button" type="button" on:click={() => void startQuickOsmSetup()}>
-								Add OSM Coordinates
-							</button>
-						{/if}
-						{#if surfaceHasCustom && surfaceHasOsm}
-							<div class="surface-toggle" role="tablist" aria-label="Map surface selector">
-								<button type="button" class:active={surfaceMode === 'custom'} on:click={() => (surfaceMode = 'custom')}>Custom</button>
-								<button type="button" class:active={surfaceMode === 'osm'} on:click={() => (surfaceMode = 'osm')}>OSM</button>
-							</div>
-						{/if}
-						{#if externalUrl}
-							<a class="ghost-button" href={externalUrl} target="_blank" rel="noreferrer noopener">Open External Map</a>
-						{/if}
-						{#if modelUrl}
-							{#if modelViewerAvailable}
-							<button class="ghost-button" type="button" on:click={openPlaceModelViewport}>Open 3D Tab</button>
-							{/if}
-							<a class="ghost-button" href={modelUrl} target="_blank" rel="noreferrer noopener">Open Model</a>
-						{/if}
-					</div>
-				</div>
-
-				{#if stagePlace.description}
-					<p class="place-description">{stagePlace.description}</p>
-				{/if}
-
-				{#if stageMapLayers.length > 1 || stagePois.length > 0}
-					<div class="display-preference-row">
-						{#if stageMapLayers.length > 1}
-							<label class="display-mode-field">
-								<span>Map Layer</span>
-								<select value={selectedLayerId} on:change={(event) => (selectedLayerId = (event.currentTarget as HTMLSelectElement).value)}>
-									{#each stageMapLayers as layer (layer.id)}
-										<option value={layer.id}>{layer.name}{layer.floor ? ` | Floor ${layer.floor}` : ''}</option>
-									{/each}
-								</select>
-							</label>
-						{/if}
-						{#if stagePois.length > 0}
-							<label class="display-mode-field">
-								<span>POI View</span>
-								<select
-									value={poiDisplayPreference}
-									on:change={(event) =>
-										setMapPoiDisplayPreference(
-											(event.currentTarget as HTMLSelectElement).value as MapPoiDisplayPreference
-										)}
-								>
-									<option value="server">Server Default</option>
-									<option value="label">Labels Only</option>
-									<option value="pin">Pins Only</option>
-									<option value="both">Labels + Pins</option>
-								</select>
-							</label>
-						{/if}
-						<small class="display-mode-note">
-							{#if stageMapLayers.length > 1}
-								Showing {activeMapLayer?.name || 'selected layer'}
-								{#if stagePois.length > 0} | {/if}
-							{/if}
-							{#if stagePois.length > 0}
-								Local POI override only. Server defaults remain unchanged.
-							{/if}
-						</small>
-					</div>
-				{/if}
+				<MapPlaceHeader
+					{stagePlace}
+					{stageMapLayers}
+					{allStagePois}
+					{surfaceHasCustom}
+					{surfaceHasOsm}
+					{surfaceMode}
+					{canManagePlaces}
+					{uploadBusy}
+					{externalUrl}
+					{modelUrl}
+					{modelViewerAvailable}
+					{selectedLayerId}
+					{poiDisplayPreference}
+					{activeMapLayer}
+					{stagePois}
+					{isCompactLayout}
+					{variant}
+					on:startQuickMapUpload={() => void startQuickMapUpload()}
+					on:startQuickOsmSetup={() => void startQuickOsmSetup()}
+					on:openPlaceModelViewport={openPlaceModelViewport}
+					on:changeSurfaceMode={(event) => (surfaceMode = event.detail)}
+					on:changeLayerId={(event) => (selectedLayerId = event.detail)}
+					on:changePoiDisplayPreference={(event) =>
+						setMapPoiDisplayPreference(event.detail)}
+				/>
 			{:else}
 				<div class="compact-stage-toolbar">
 					<div class="compact-stage-summary">
@@ -1403,17 +1253,7 @@
 				{/if}
 			</div>
 		{:else}
-			<div class="empty-stage">
-				<div class="empty-stage-copy">
-					<h3>No place selected</h3>
-					<p>{isCompactLayout ? 'Search for a place to open the server map.' : 'Choose a saved place from the list to open the server map.'}</p>
-					{#if canManagePlaces}
-						<div class="surface-buttons">
-							<button class="ghost-button" type="button" on:click={beginNewPlace}>Create First Place</button>
-						</div>
-					{/if}
-				</div>
-			</div>
+			<MapEmptyStage {isCompactLayout} {canManagePlaces} on:newPlace={beginNewPlace} />
 		{/if}
 	</div>
 </div>
