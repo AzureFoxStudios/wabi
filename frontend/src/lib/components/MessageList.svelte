@@ -7,6 +7,30 @@
 	import { themeStore } from '$lib/theme/themeStore';
 	import MessageItem from './MessageItem.svelte';
 	import MessageListOverlays from './message/MessageListOverlays.svelte';
+	import {
+		countMessageAttachments,
+		getMessageAttachmentActionItems,
+		selectAttachmentActionItems,
+		type MessageAttachmentActionItem
+	} from './message/messageAttachmentActions';
+	import {
+		extractUrls,
+		getFileIcon,
+		getMediaType,
+		isAudio,
+		isBlendFile,
+		isImage,
+		isMediaUrl,
+		isModelFile,
+		isVideo,
+		isYouTubeUrl,
+		isZipFile
+	} from './message/messageMediaUtils';
+	import {
+		getTranslatorSettings,
+		requestTranslation,
+		type TranslatorSettings
+	} from './message/messageTranslator';
 	import ZipPreviewPanel from './ZipPreviewPanel.svelte';
 	import ModelViewer3D from './plugins/ModelViewer3D.svelte';
 	import YouTubeWatchEmbed from './plugins/YouTubeWatchEmbed.svelte';
@@ -111,18 +135,6 @@
 	let pendingAlbumUploadMeta: AlbumAnnouncementMeta | null = null;
 	let albumAnnouncementUploadName: string | null = null;
 	let recentAlbumAnnouncementUploadCounts = new Map<string, number>();
-	type MessageAttachmentActionItem = Pick<
-		FileAttachment,
-		'fileUrl' | 'fileName' | 'fileSize' | 'attachmentEncryption'
-	>;
-	type TranslatorSettings = {
-		model: string;
-		providerUrl: string;
-		sourceLang: string;
-		targetLang: string;
-		useProxy: boolean;
-	};
-	const TRANSLATOR_SETTINGS_KEY = 'addon.translator_assist.settings';
 	let translatedMessages: Record<string, string> = {};
 	let translatingMessageIds = new Set<string>();
 	// Edit mode state
@@ -637,66 +649,12 @@
 		return getSessionAuthToken();
 	}
 
-	function getMessageAttachmentActionItems(message: Message): MessageAttachmentActionItem[] {
-		const multi = (message.files || [])
-			.filter((entry) => Boolean(entry?.fileUrl && entry?.fileName))
-			.map((entry) => ({
-				fileUrl: entry.fileUrl,
-				fileName: entry.fileName,
-				fileSize: typeof entry.fileSize === 'number' ? entry.fileSize : 0,
-				attachmentEncryption: entry.attachmentEncryption
-			}));
-		if (multi.length > 0) {
-			return multi;
-		}
-		if (!message.fileUrl || !message.fileName) {
-			return [];
-		}
-		return [
-			{
-				fileUrl: message.fileUrl,
-				fileName: message.fileName,
-				fileSize: typeof message.fileSize === 'number' ? message.fileSize : 0,
-				attachmentEncryption: message.attachmentEncryption
-			}
-		];
-	}
-
-	function countMessageAttachments(message: Message | null): number {
-		if (!message) return 0;
-		if (Array.isArray(message.files) && message.files.length > 0) {
-			return message.files.filter((entry) => Boolean(entry?.fileUrl)).length;
-		}
-		return message.fileUrl ? 1 : 0;
-	}
-
 	function getDeleteConfirmMessage(message: Message | null): string {
 		const attachmentCount = countMessageAttachments(message);
 		if (attachmentCount > 0) {
 			return get(_)('messages.confirm.delete_message_with_uploads', { values: { count: attachmentCount } });
 		}
 		return get(_)('messages.confirm.delete_message');
-	}
-
-	function selectAttachmentActionItems(items: MessageAttachmentActionItem[]): MessageAttachmentActionItem[] | null {
-		if (items.length <= 1) return items;
-		const choices = items
-			.map((item, index) => `${index + 1}. ${item.fileName}`)
-			.slice(0, 20)
-			.join('\n');
-		const raw = prompt(
-			`Select file to use:\n${choices}${items.length > 20 ? '\n...more files not listed' : ''}\n\nEnter a number (1-${items.length}) or "all".`,
-			'all'
-		);
-		if (raw === null) return null;
-		const value = raw.trim().toLowerCase();
-		if (!value || value === 'all' || value === '*') return items;
-		const index = Number.parseInt(value, 10);
-		if (!Number.isInteger(index) || index < 1 || index > items.length) {
-			alert(`Invalid selection. Enter a number between 1 and ${items.length}, or "all".`);
-			return null;
-		}
-		return [items[index - 1]];
 	}
 
 	async function resolveTargetAlbum(
@@ -1129,108 +1087,6 @@
 		contextMenuVisible = false;
 	}
 
-	function resolveTranslatorProviderUrl(model: string): string {
-		if (model === 'libretranslate-public') return 'https://libretranslate.com/translate';
-		return 'http://127.0.0.1:5000/translate';
-	}
-
-	function getTranslatorSettings(): TranslatorSettings {
-		if (typeof window === 'undefined') {
-			return {
-				model: 'libretranslate-local',
-				providerUrl: resolveTranslatorProviderUrl('libretranslate-local'),
-				sourceLang: 'auto',
-				targetLang: 'en',
-				useProxy: true
-			};
-		}
-		try {
-			const raw = localStorage.getItem(TRANSLATOR_SETTINGS_KEY);
-			if (!raw) {
-				return {
-					model: 'libretranslate-local',
-					providerUrl: resolveTranslatorProviderUrl('libretranslate-local'),
-					sourceLang: 'auto',
-					targetLang: 'en',
-					useProxy: true
-				};
-			}
-			const parsed = JSON.parse(raw);
-			const model = typeof parsed?.model === 'string' && parsed.model.trim()
-				? parsed.model.trim()
-				: 'libretranslate-local';
-			const resolvedProviderUrl = typeof parsed?.providerUrl === 'string' && parsed.providerUrl.trim()
-				? parsed.providerUrl.trim()
-				: resolveTranslatorProviderUrl(model);
-			return {
-				model,
-				providerUrl: resolvedProviderUrl,
-				sourceLang: 'auto',
-				targetLang: typeof parsed?.targetLang === 'string' && parsed.targetLang.trim() ? parsed.targetLang.trim() : 'en',
-				useProxy: parsed?.useProxy !== false
-			};
-		} catch {
-			return {
-				model: 'libretranslate-local',
-				providerUrl: resolveTranslatorProviderUrl('libretranslate-local'),
-				sourceLang: 'auto',
-				targetLang: 'en',
-				useProxy: true
-			};
-		}
-	}
-
-	async function requestTranslation(text: string, settings: TranslatorSettings): Promise<string> {
-		if (settings.useProxy) {
-			const response = await fetch(`${getServerUrl()}/api/plugins/runtime/translator-assist/translate`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					providerUrl: settings.providerUrl,
-					text,
-					sourceLang: settings.sourceLang,
-					targetLang: settings.targetLang
-				})
-			});
-			if (!response.ok) {
-				const detail = await response.text();
-				throw new Error(`Proxy translate failed (${response.status}) ${detail.slice(0, 180)}`);
-			}
-			const data = await response.json();
-			const translated = typeof data?.translatedText === 'string' ? data.translatedText.trim() : '';
-			if (!translated) throw new Error('No translated text returned');
-			return translated;
-		}
-
-		const response = await fetch(settings.providerUrl, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				q: text,
-				source: settings.sourceLang,
-				target: settings.targetLang,
-				format: 'text'
-			})
-		});
-		const raw = await response.text();
-		if (!response.ok) {
-			throw new Error(`Translator failed (${response.status}) ${raw.slice(0, 180)}`);
-		}
-		try {
-			const parsed = JSON.parse(raw);
-			const translated =
-				typeof parsed?.translatedText === 'string' ? parsed.translatedText :
-				typeof parsed?.translation === 'string' ? parsed.translation :
-				typeof parsed?.data?.translatedText === 'string' ? parsed.data.translatedText :
-				'';
-			if (translated.trim()) return translated.trim();
-		} catch {
-			// Non-JSON response may already be translated text.
-		}
-		if (raw.trim()) return raw.trim();
-		throw new Error('No translated text returned');
-	}
-
 	async function handleTranslate() {
 		if (!contextMenuMessage?.text?.trim()) return;
 		const targetMessage = contextMenuMessage;
@@ -1591,125 +1447,9 @@
 		}
 	}
 	// Extract URLs from message text
-	function extractUrls(text: string): string[] {
-		const urlRegex = /(https?:\/\/[^\s<>"]+)/gi;
-		const matches = text.match(urlRegex);
-		return matches || [];
-	}
-
-	// TEMPORARY: Detect media URLs (images, videos, audio, 3D models)
-	function getMediaType(url: string): 'image' | 'video' | 'audio' | 'model' | null {
-		try {
-			const urlObj = new URL(url);
-			const pathname = urlObj.pathname.toLowerCase();
-
-			// Image extensions
-			if (/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|#|$)/i.test(pathname)) {
-				return 'image';
-			}
-			// Video extensions
-			if (/\.(mp4|webm|ogg|mov|avi|mkv|flv|wmv|m4v)(\?|#|$)/i.test(pathname)) {
-				return 'video';
-			}
-			// Audio extensions
-			if (/\.(mp3|wav|ogg|m4a|flac|aac|wma)(\?|#|$)/i.test(pathname)) {
-				return 'audio';
-			}
-			// 3D model extensions
-			if (/\.(glb|gltf|obj|stl)(\?|#|$)/i.test(pathname)) {
-				return 'model';
-			}
-		} catch (e) {
-			// Invalid URL
-		}
-		return null;
-	}
-
-	function isMediaUrl(url: string): boolean {
-		return getMediaType(url) !== null;
-	}
-
-	function isYouTubeUrl(url: string): boolean {
-		try {
-			const parsed = new URL(url);
-			return (
-				parsed.hostname.includes('youtube.com') ||
-				parsed.hostname.includes('youtu.be')
-			);
-		} catch {
-			return false;
-		}
-	}
-
 	function isYouTubeQueueChannel(channelId: string): boolean {
 		const channel = $channels.find((ch) => ch.id === channelId);
 		return Boolean(channel?.watchQueueEnabled);
-	}
-
-	function getFileIcon(fileName?: string): string {
-		if (!fileName) return '📎';
-		const ext = fileName.toLowerCase().split('.').pop() || '';
-		const iconMap: Record<string, string> = {
-			// Images
-			'jpg': '🖼️',
-			'jpeg': '🖼️',
-			'png': '🖼️',
-			'gif': '🖼️',
-			'bmp': '🖼️',
-			'svg': '🖼️',
-			'webp': '🖼️',
-			// Videos
-			'mp4': '🎬',
-			'mov': '🎬',
-			'avi': '🎬',
-			'mkv': '🎬',
-			'webm': '🎬',
-			'flv': '🎬',
-			// Audio
-			'mp3': '🎵',
-			'wav': '🎵',
-			'ogg': '🎵',
-			'flac': '🎵',
-			// Documents
-			'pdf': '📄',
-			'doc': '📝',
-			'docx': '📝',
-			'txt': '📝',
-			'rtf': '📝',
-			// Spreadsheets
-			'xls': '📊',
-			'xlsx': '📊',
-			'csv': '📊',
-			// Presentations
-			'ppt': '📽️',
-			'pptx': '📽️',
-			// Archives
-			'zip': '📦',
-			'rar': '📦',
-			'7z': '📦',
-			'tar': '📦',
-			'gz': '📦',
-			// Code
-			'js': '💻',
-			'ts': '💻',
-			'py': '💻',
-			'java': '💻',
-			'cpp': '💻',
-			'c': '💻',
-			'cs': '💻',
-			'html': '💻',
-			'css': '💻',
-			'json': '💻',
-			// 3D/Design
-			'blend': '🎨',
-			'fbx': '🎨',
-			'obj': '🎨',
-			'stl': '🎨',
-			'psd': '🎨',
-			'ai': '🎨',
-			'sketch': '🎨',
-		};
-		return iconMap[ext] || '📎';
 	}
 
 	function parseRoleGateText(text: string): { title: string; description: string } {
@@ -1740,36 +1480,6 @@
 	function openDirectionsExternal(url?: string): void {
 		if (!browser || !url) return;
 		window.open(url, '_blank', 'noopener,noreferrer');
-	}
-
-	function isImage(fileName?: string): boolean {
-		if (!fileName) return false;
-		const ext = fileName.toLowerCase().split('.').pop() || '';
-		return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp'].includes(ext);
-	}
-	function isVideo(fileName?: string): boolean {
-		if (!fileName) return false;
-		const ext = fileName.toLowerCase().split('.').pop() || '';
-		return ['mp4', 'mov', 'avi', 'mkv', 'flv', 'webm', 'm4v'].includes(ext);
-	}
-	function isAudio(fileName?: string): boolean {
-		if (!fileName) return false;
-		const ext = fileName.toLowerCase().split('.').pop() || '';
-		return ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma'].includes(ext);
-	}
-	function isModelFile(fileName?: string): boolean {
-		if (!fileName) return false;
-		const ext = fileName.toLowerCase().split('.').pop() || '';
-		return ['glb', 'gltf', 'obj', 'stl'].includes(ext);
-	}
-	function isBlendFile(fileName?: string): boolean {
-		if (!fileName) return false;
-		return fileName.toLowerCase().endsWith('.blend');
-	}
-
-	function isZipFile(fileName?: string): boolean {
-		if (!fileName) return false;
-		return fileName.toLowerCase().endsWith('.zip');
 	}
 
 	function openBlendImportSettings(sourcePath: string, fileName: string): void {
