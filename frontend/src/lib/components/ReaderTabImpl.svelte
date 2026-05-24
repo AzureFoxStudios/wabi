@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { browser } from '$app/environment';
-	import DOMPurify from 'dompurify';
 	import '$lib/prism-theme.css';
-	import { parseMessage } from '$lib/markdown';
+	import ReaderImportSheet from './ReaderImportSheet.svelte';
+	import { countWords, formatSourceLabel, renderReaderHtml } from './readerTabHelpers';
 	import {
 		clearReaderSelection,
 		openReaderDocument,
@@ -27,10 +27,6 @@
 
 	const ACCEPTED_READER_FILE_TYPES = '.md,.markdown,.txt,.text,.html,.htm';
 	const ACCEPTED_IMAGE_FILES = '.jpg,.jpeg,.png,.gif,.webp,.bmp';
-	const SANITIZE_CONFIG = {
-		USE_PROFILES: { html: true }
-	};
-
 	let articleViewport: HTMLDivElement | null = null;
 	let fileInput: HTMLInputElement | null = null;
 	let importPanelOpen = false;
@@ -63,51 +59,6 @@
 		if (event.key === 'Escape') closeImageViewer();
 		if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') goToPreviousImage();
 		if (event.key === 'ArrowRight' || event.key === 'ArrowDown') goToNextImage();
-	}
-
-	function escapeHtml(value: string): string {
-		return value
-			.replace(/&/g, '&amp;')
-			.replace(/</g, '&lt;')
-			.replace(/>/g, '&gt;')
-			.replace(/"/g, '&quot;')
-			.replace(/'/g, '&#39;');
-	}
-
-	function renderPlainText(content: string): string {
-		const normalized = content.replace(/\r\n/g, '\n').trim();
-		if (!normalized) return '<p></p>';
-		return normalized
-			.split(/\n{2,}/)
-			.map((block) => `<p>${block.split('\n').map((line) => escapeHtml(line)).join('<br>')}</p>`)
-			.join('');
-	}
-
-	function renderReaderHtml(
-		content: string,
-		format: ReaderDocumentFormat
-	): string {
-		if (!content.trim()) {
-			return '<p class="reader-empty-copy">No content loaded yet.</p>';
-		}
-		if (format === 'markdown') return parseMessage(content);
-		if (format === 'html') return DOMPurify.sanitize(content, SANITIZE_CONFIG);
-		return renderPlainText(content);
-	}
-
-	function countWords(value: string): number {
-		return value
-			.trim()
-			.split(/\s+/)
-			.filter(Boolean).length;
-	}
-
-	function formatSourceLabel(source: string): string {
-		if (source === 'local-temp') return 'Local file';
-		if (source === 'pasted') return 'Pasted';
-		if (source === 'chat') return 'Chat';
-		if (source === 'notes') return 'Notes';
-		return 'Reader';
 	}
 
 	function openImportPanel(format: ReaderDocumentFormat): void {
@@ -493,45 +444,13 @@
 	{/if}
 
 	{#if importPanelOpen}
-		<div class="reader-import-sheet">
-			<div class="reader-import-card">
-				<div class="reader-import-header">
-					<h3>Import Into Reader</h3>
-					<button class="reader-action-btn subtle" type="button" on:click={closeImportPanel}>Close</button>
-				</div>
-				<div class="reader-import-grid">
-					<label class="reader-field">
-						<span>Title</span>
-						<input
-							type="text"
-							bind:value={importTitle}
-							placeholder="Document title"
-						/>
-					</label>
-					<label class="reader-field">
-						<span>Format</span>
-						<select bind:value={importFormat}>
-							<option value="markdown">Markdown</option>
-							<option value="text">Plain text</option>
-							<option value="html">HTML</option>
-						</select>
-					</label>
-				</div>
-				<label class="reader-field block">
-					<span>Content</span>
-					<textarea
-						bind:value={importContent}
-						rows="14"
-						placeholder="Paste an article, chapter, essay, or issue draft here."
-					></textarea>
-				</label>
-				<div class="reader-import-actions">
-					<button class="reader-action-btn" type="button" on:click={submitImportedDocument} disabled={!importContent.trim()}>
-						Open In Reader
-					</button>
-				</div>
-			</div>
-		</div>
+		<ReaderImportSheet
+			bind:importTitle
+			bind:importContent
+			bind:importFormat
+			onClose={closeImportPanel}
+			onSubmit={submitImportedDocument}
+		/>
 	{/if}
 
 	<div class="reader-stage">
@@ -644,4 +563,3 @@
 		</div>
 	{/if}
 </div>
-

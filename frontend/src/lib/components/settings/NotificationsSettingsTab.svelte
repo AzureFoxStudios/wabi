@@ -10,23 +10,11 @@
 		type CustomSynthRingtonePreset,
 		type CustomSynthWaveform
 	} from '$lib/notifications';
-
-	type CallRingtoneMode = 'classic-bell' | 'soft-chime' | 'pulse' | 'custom-synth' | 'custom-audio';
-
-	const CALL_RINGTONE_OPTIONS: Array<{ value: CallRingtoneMode; label: string }> = [
-		{ value: 'classic-bell', label: 'Classic Bell' },
-		{ value: 'soft-chime', label: 'Soft Chime' },
-		{ value: 'pulse', label: 'Pulse' },
-		{ value: 'custom-synth', label: 'Custom Synth' },
-		{ value: 'custom-audio', label: 'Custom Audio' }
-	];
-
-	const CUSTOM_SYNTH_WAVEFORM_OPTIONS: Array<{ value: CustomSynthWaveform; label: string }> = [
-		{ value: 'sine', label: 'Sine' },
-		{ value: 'triangle', label: 'Triangle' },
-		{ value: 'square', label: 'Square' },
-		{ value: 'sawtooth', label: 'Sawtooth' }
-	];
+	import {
+		CALL_RINGTONE_OPTIONS,
+		CUSTOM_SYNTH_WAVEFORM_OPTIONS,
+		type CallRingtoneMode
+	} from './notificationSettingsHelpers';
 
 	let notificationsEnabled = true;
 	let suppressEveryoneHereMentions = false;

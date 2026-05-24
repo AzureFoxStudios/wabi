@@ -1,16 +1,25 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import QRCode from 'qrcode';
-	import BaseModal from '../components/BaseModal.svelte';
-	import PaymentIntentCard from './PaymentIntentCard.svelte';
-	import PaymentReferencePanel from './PaymentReferencePanel.svelte';
-	import PaymentRouteControls from './PaymentRouteControls.svelte';
+	import PaymentSheetBody from './PaymentSheetBody.svelte';
 	import { getAuthToken } from '$lib/authSession';
 	import { subscribePaymentRealtimeEvent } from '$lib/payments/paymentRealtime';
-	import { formatMinorAmount, parseMajorAmountInput } from '$lib/payments/paymentAmounts';
+	import {
+		copyPaymentText,
+		createPaymentQrDataUrl,
+		fetchPaymentAccessStatus,
+		fetchPaymentAccountLinks,
+		fetchPaymentIntentStatus,
+		getQrImageSource,
+		getShareablePaymentTarget,
+		loadPaymentAccountRoutePreference,
+		parsePaymentAmountMinor,
+		savePaymentAccountRoutePreference,
+		savePaymentQrImage,
+		sharePaymentTarget as sharePaymentTargetAction,
+		type PaymentActionResult
+	} from '$lib/payments/paymentSheetActions';
 	import {
 		buildRoutePresets,
-		getBrowserPreferredRouteKey,
 		isMethodEligibleForDraft,
 		isRecord,
 		normalizeCheckoutMode,
@@ -20,15 +29,16 @@
 		type RoutePreset
 	} from '$lib/payments/paymentSheetHelpers';
 	import {
+		getCurrentPaymentRouteKey,
+		getPreferredPaymentProviderId,
+		readPreferredPaymentRouteKey,
+		resolvePreferredPaymentRoutePreset,
+		writePreferredPaymentRouteKey
+	} from '$lib/payments/paymentSheetRouting';
+	import {
 		cancelPaymentIntent,
 		createPaymentIntent,
-		getPaymentAccess,
-		getPaymentIntent,
-		getUserSettings,
-		listPaymentAccountLinks,
 		listPaymentProviders,
-		saveUserSettings,
-		type PaymentCheckoutMode,
 		type PaymentAccountLink,
 		type PaymentAccessActorStatus,
 		type PaymentEvent,
@@ -96,8 +106,6 @@
 		'disputed',
 		'canceled'
 	]);
-	const PAYMENT_ROUTE_PREFERENCE_KEY = 'wabi.payment.preferred-route';
-
 	$: if (defaultChannelId && !channelId) {
 		channelId = defaultChannelId;
 	}
@@ -197,22 +205,12 @@
 
 
 	function parseAmountMinor(value: string): number {
-		return parseMajorAmountInput(value, getEffectiveDraftCurrency());
+		return parsePaymentAmountMinor(value, getEffectiveDraftCurrency());
 	}
 
 
 	function getCurrentRouteKey(): string {
-		const normalizedCountry = String(countryCode || '').trim().toUpperCase();
-		const normalizedCurrency = String(currency || '').trim().toUpperCase();
-		return (
-			routePresets.find(
-				(preset) =>
-					preset.providerId === selectedProviderId &&
-					preset.methodId === selectedMethodId &&
-					preset.countryCode === normalizedCountry &&
-					preset.currency === normalizedCurrency
-			)?.key || ''
-		);
+		return getCurrentPaymentRouteKey(routePresets, selectedProviderId, selectedMethodId, countryCode, currency);
 	}
 
 	function applyRoutePreset(preset: RoutePreset): void {
@@ -243,105 +241,33 @@
 	}
 
 	function readPreferredRouteKey(): string {
-		if (accountPreferredRouteKey) {
-			return accountPreferredRouteKey;
-		}
-		if (typeof localStorage === 'undefined') return '';
-		try {
-			return String(localStorage.getItem(PAYMENT_ROUTE_PREFERENCE_KEY) || '').trim().toUpperCase();
-		} catch {
-			return '';
-		}
+		return readPreferredPaymentRouteKey(accountPreferredRouteKey);
 	}
 
 	function persistPreferredRouteKey(routeKey: string): void {
-		const normalized = String(routeKey || '').trim().toUpperCase();
-		accountPreferredRouteKey = normalized;
-		if (typeof localStorage === 'undefined') return;
-		try {
-			if (!normalized) {
-				localStorage.removeItem(PAYMENT_ROUTE_PREFERENCE_KEY);
-				return;
-			}
-			localStorage.setItem(PAYMENT_ROUTE_PREFERENCE_KEY, normalized);
-		} catch {
-			// Ignore local preference persistence failures.
-		}
+		accountPreferredRouteKey = writePreferredPaymentRouteKey(routeKey);
 	}
 
 
 	function resolvePreferredRoutePreset(nextRoutePresets: RoutePreset[]): RoutePreset | null {
-		if (nextRoutePresets.length === 0) return null;
-
-		const currentRouteKey = getCurrentRouteKey();
-		if (currentRouteKey) {
-			const currentPreset = nextRoutePresets.find((preset) => preset.key === currentRouteKey);
-			if (currentPreset) {
-				return currentPreset;
-			}
-		}
-
-		const requestedProviderId = normalizePrefillValue(initialProviderId);
-		const requestedCountryCode = normalizePrefillValue(initialCountryCode)?.toUpperCase() || '';
-		const requestedCurrency = normalizePrefillValue(initialCurrency)?.toUpperCase() || '';
-		const requestedMethodId = normalizePrefillValue(initialMethodId);
-		const explicitPreset = nextRoutePresets.find(
-			(preset) =>
-				(!requestedProviderId || preset.providerId === requestedProviderId) &&
-				(!requestedMethodId || preset.methodId === requestedMethodId) &&
-				(!requestedCountryCode || preset.countryCode === requestedCountryCode) &&
-				(!requestedCurrency || preset.currency === requestedCurrency)
-		);
-		if (explicitPreset) {
-			return explicitPreset;
-		}
-
-		const preferredRouteKey = readPreferredRouteKey();
-		if (preferredRouteKey) {
-			const preferredPreset = nextRoutePresets.find((preset) => preset.key === preferredRouteKey);
-			if (preferredPreset) {
-				return preferredPreset;
-			}
-		}
-
-		const browserPreferredRouteKey = getBrowserPreferredRouteKey();
-		if (browserPreferredRouteKey) {
-			const browserPreset = nextRoutePresets.find((preset) => preset.key === browserPreferredRouteKey);
-			if (browserPreset) {
-				return browserPreset;
-			}
-		}
-
-		const linkedProviderPreset = nextRoutePresets.find((preset) =>
-			paymentAccountLinks.some((link) => link.pluginId === preset.providerId)
-		);
-		if (linkedProviderPreset) {
-			return linkedProviderPreset;
-		}
-
-		const selectedProviderPreset = nextRoutePresets.find((preset) => preset.providerId === selectedProviderId);
-		if (selectedProviderPreset) {
-			return selectedProviderPreset;
-		}
-
-		return nextRoutePresets[0] || null;
+		return resolvePreferredPaymentRoutePreset({
+			nextRoutePresets,
+			currentRouteKey: getCurrentRouteKey(),
+			initialProviderId,
+			initialCountryCode,
+			initialCurrency,
+			initialMethodId,
+			preferredRouteKey: readPreferredRouteKey(),
+			paymentAccountLinks,
+			selectedProviderId
+		});
 	}
 
 	async function loadAccountRoutePreference(): Promise<void> {
 		if (accountRoutePreferenceLoaded || accountRoutePreferenceLoading) return;
-		const token = getAuthToken();
-		if (!token) {
-			accountPreferredRouteKey = '';
-			accountRoutePreferenceLoaded = true;
-			return;
-		}
 		accountRoutePreferenceLoading = true;
 		try {
-			const settings = await getUserSettings(token);
-			accountPreferredRouteKey = String(settings?.payment_preferred_route || '').trim().toUpperCase();
-			accountRoutePreferenceLoaded = true;
-		} catch {
-			accountPreferredRouteKey = '';
+			accountPreferredRouteKey = await loadPaymentAccountRoutePreference(getAuthToken());
 			accountRoutePreferenceLoaded = true;
 		} finally {
 			accountRoutePreferenceLoading = false;
@@ -349,14 +275,12 @@
 	}
 
 	async function syncPreferredRouteToAccount(routeKey: string): Promise<void> {
-		const normalized = String(routeKey || '').trim().toUpperCase();
-		if (!normalized) return;
-		const token = getAuthToken();
-		if (!token) return;
 		try {
-			await saveUserSettings(token, { payment_preferred_route: normalized });
-			accountPreferredRouteKey = normalized;
-			accountRoutePreferenceLoaded = true;
+			const normalized = await savePaymentAccountRoutePreference(getAuthToken(), routeKey);
+			if (normalized) {
+				accountPreferredRouteKey = normalized;
+				accountRoutePreferenceLoaded = true;
+			}
 		} catch {
 			// Ignore sync failures and keep the local preference.
 		}
@@ -364,18 +288,7 @@
 
 
 	function getPreferredProviderId(): string {
-		const requestedProviderId = normalizePrefillValue(initialProviderId);
-		if (requestedProviderId && providers.some((provider) => provider.pluginId === requestedProviderId)) {
-			return requestedProviderId;
-		}
-
-		for (const link of paymentAccountLinks) {
-			if (providers.some((provider) => provider.pluginId === link.pluginId)) {
-				return link.pluginId;
-			}
-		}
-
-		return providers[0]?.pluginId || '';
+		return getPreferredPaymentProviderId(initialProviderId, providers, paymentAccountLinks);
 	}
 
 
@@ -426,124 +339,31 @@
 		window.open(url, '_blank', 'noopener,noreferrer');
 	}
 
-	function getPresentationString(key: string): string {
-		const value = presentation[key];
-		return typeof value === 'string' ? value.trim() : '';
-	}
-
-	function getShareablePaymentTarget(): string {
-		return (
-			getPresentationString('url') ||
-			getPresentationString('deepLinkUrl') ||
-			getPresentationString('fallbackUrl') ||
-			getPresentationString('qrData')
-		);
-	}
-
-	function getQrImageSource(): string {
-		return getPresentationString('qrImageUrl') || qrDataUrl;
-	}
-
 	function getEffectiveDraftCurrency(): string {
 		return String(currency || selectedRoutePreset?.currency || selectedProvider?.currencies?.[0] || 'USD')
 			.trim()
 			.toUpperCase();
 	}
 
+	function applyActionResult(result: PaymentActionResult): void {
+		if (result.actionInfo) actionInfo = result.actionInfo;
+		if (result.actionError) actionError = result.actionError;
+	}
+
 	async function copyToClipboard(text: string): Promise<void> {
-		if (!text) return;
-		try {
-			await navigator.clipboard.writeText(text);
-			actionInfo = 'Copied to clipboard.';
-		} catch {
-			actionError = 'Failed to copy to clipboard.';
-		}
+		applyActionResult(await copyPaymentText(text));
 	}
 
 	async function saveQrImage(): Promise<void> {
-		const source = getQrImageSource();
-		if (!source) {
-			actionError = 'No QR image is available to save.';
-			return;
-		}
-
-		const filename = `wabi-payment-${activeIntent?.intentId || 'intent'}.png`;
-		const anchor = document.createElement('a');
-		anchor.download = filename;
-
-		try {
-			if (source.startsWith('data:')) {
-				anchor.href = source;
-				anchor.click();
-				actionInfo = 'QR image saved.';
-				return;
-			}
-
-			const response = await fetch(source);
-			if (!response.ok) {
-				throw new Error('download_failed');
-			}
-			const blob = await response.blob();
-			const objectUrl = URL.createObjectURL(blob);
-			anchor.href = objectUrl;
-			anchor.click();
-			URL.revokeObjectURL(objectUrl);
-			actionInfo = 'QR image saved.';
-		} catch {
-			anchor.href = source;
-			anchor.target = '_blank';
-			anchor.rel = 'noopener noreferrer';
-			anchor.click();
-			actionInfo = 'Opened QR image. Use browser save if download was blocked.';
-		}
+		applyActionResult(await savePaymentQrImage(getQrImageSource(presentation, qrDataUrl), activeIntent?.intentId));
 	}
 
 	async function sharePaymentTarget(): Promise<void> {
-		const target = getShareablePaymentTarget();
-		if (!target) {
-			actionError = 'No payment target is available to share.';
-			return;
-		}
-
-		const title = 'Wabi payment request';
-		const text = activeIntent
-			? `Pay ${formatMinorAmount(activeIntent.amountMinor, activeIntent.currency)}`
-			: 'Wabi payment request';
-
-		const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
-		if (canNativeShare) {
-			try {
-				await navigator.share({
-					title,
-					text,
-					url: target
-				});
-				actionInfo = 'Payment request shared.';
-				return;
-			} catch {
-				// Fall through to clipboard copy for dismissed or unsupported native share flows.
-			}
-		}
-
-		await copyToClipboard(target);
-		actionInfo = 'Share unavailable on this device. Copied payment target instead.';
+		applyActionResult(await sharePaymentTargetAction(getShareablePaymentTarget(presentation), activeIntent));
 	}
 
 	async function updateQrDataUrl(): Promise<void> {
-		const qrPayload = typeof presentation.qrData === 'string' ? presentation.qrData.trim() : '';
-		if (!qrPayload) {
-			qrDataUrl = '';
-			return;
-		}
-		try {
-			qrDataUrl = await QRCode.toDataURL(qrPayload, {
-				errorCorrectionLevel: 'M',
-				margin: 1,
-				width: 360
-			});
-		} catch {
-			qrDataUrl = '';
-		}
+		qrDataUrl = await createPaymentQrDataUrl(presentation);
 	}
 
 	async function loadProviders(): Promise<void> {
@@ -572,15 +392,9 @@
 	}
 
 	async function loadPaymentAccountLinks(): Promise<void> {
-		const token = getAuthToken();
-		if (!token) {
-			paymentAccountLinks = [];
-			accountLinksLoaded = true;
-			return;
-		}
 		accountLinksLoading = true;
 		try {
-			paymentAccountLinks = await listPaymentAccountLinks(token);
+			paymentAccountLinks = await fetchPaymentAccountLinks(getAuthToken());
 			accountLinksLoaded = true;
 		} catch (error) {
 			actionError = error instanceof Error ? error.message : 'Failed to load saved payment references';
@@ -590,13 +404,9 @@
 	}
 
 	async function refreshAccessStatus(): Promise<void> {
-		const token = getAuthToken();
 		accessLoading = true;
 		try {
-			const access = await getPaymentAccess(token);
-			accessStatus = access.actor;
-		} catch {
-			accessStatus = null;
+			accessStatus = await fetchPaymentAccessStatus(getAuthToken());
 		} finally {
 			accessLoading = false;
 		}
@@ -626,25 +436,12 @@
 	}
 
 	async function refreshIntent(intentId: string, refresh = true): Promise<void> {
-		const token = getAuthToken();
-		if (!token) {
-			actionError = 'You must be logged in to view payment status.';
-			return;
-		}
 		try {
-			const payload = await getPaymentIntent(token, intentId, {
-				refresh,
-				includeEvents: true,
-				eventLimit: 50
-			});
+			const payload = await fetchPaymentIntentStatus(getAuthToken(), intentId, refresh);
 			activeIntent = payload.intent;
 			activeEvents = payload.events;
-			if (payload.providerRefreshError) {
-				actionInfo = `Provider refresh warning: ${payload.providerRefreshError}`;
-			}
-			if (terminalStatuses.has(payload.intent.status)) {
-				stopPolling();
-			}
+			if (payload.providerRefreshError) actionInfo = `Provider refresh warning: ${payload.providerRefreshError}`;
+			if (terminalStatuses.has(payload.intent.status)) stopPolling();
 		} catch (error) {
 			actionError = error instanceof Error ? error.message : 'Failed to refresh payment status';
 			stopPolling();
@@ -755,126 +552,6 @@
 		onManageConnections();
 	}
 
-	function getTargetKindLabel(): string {
-		if (defaultTargetKind === 'dm') return 'Direct message';
-		if (defaultTargetKind === 'group') return 'Group';
-		if (defaultTargetKind === 'workspace') return 'Server-wide';
-		return 'Channel';
-	}
-
-	function getTargetDisplayLabel(): string {
-		const explicitLabel = String(defaultTargetLabel || '').trim();
-		if (explicitLabel) return explicitLabel;
-		const fallbackId = String(channelId || '').trim();
-		return fallbackId || 'No conversation attached';
-	}
-
-	function shouldShowProviderPicker(): boolean {
-		return (routePresets.length === 0 || showAdvancedRouting) && providers.length > 1;
-	}
-
-	function shouldShowMethodPicker(): boolean {
-		return (routePresets.length === 0 || showAdvancedRouting) && eligibleProviderMethods.length > 1;
-	}
-
-	function shouldShowCurrencyPicker(): boolean {
-		const manualMode = routePresets.length === 0 || showAdvancedRouting;
-		if (!manualMode) return false;
-		return providerCurrencyOptions.length > 1 || (routePresets.length === 0 && providerCurrencyOptions.length === 0);
-	}
-
-	function shouldShowCountryPicker(): boolean {
-		const manualMode = routePresets.length === 0 || showAdvancedRouting;
-		if (!manualMode) return false;
-		return providerCountryOptions.length > 1 || (routePresets.length === 0 && providerCountryOptions.length === 0);
-	}
-
-	function getSheetTitle(): string {
-		if (isThaiQrIntent) return 'PromptPay QR';
-		if (isBitcoinQrIntent) return 'Bitcoin QR';
-		return 'New Payment Request';
-	}
-
-	function getSheetIntro(): string {
-		if (isThaiPromptPayDraft) {
-			return isServerDonationDraft
-				? 'Enter the amount. Wabi will build a PromptPay donation QR for this server.'
-				: 'Enter the amount. Wabi will build a PromptPay QR from your saved PromptPay number.';
-		}
-		if (isBitcoinQrDraft) {
-			return isServerDonationDraft
-				? 'Enter the amount. Wabi will build a Bitcoin donation QR for this server.'
-				: 'Enter the amount. Wabi will build a Bitcoin QR from your saved Bitcoin address.';
-		}
-		if (isThaiQrIntent) {
-			return 'Share or save the QR, then wait for confirmation.';
-		}
-		if (isBitcoinQrIntent) {
-			return 'Share or save the QR, then wait for on-chain confirmation.';
-		}
-		return 'Create a non-custodial payment request. Wabi does not store cards or bank credentials and does not move the money itself.';
-	}
-
-	function getTargetHeaderLabel(): string {
-		const target = String(defaultTargetLabel || '').trim();
-		if (target) return target;
-		if (channelId.trim()) return channelId.trim();
-		return '';
-	}
-
-
-	function getCreateButtonLabel(): string {
-		if (creatingIntent) {
-			return isThaiPromptPayDraft || isBitcoinQrDraft ? 'Creating QR...' : 'Creating...';
-		}
-		return isThaiPromptPayDraft || isBitcoinQrDraft ? 'Create QR' : 'Create payment request';
-	}
-
-	function getDraftMethodBehaviorNote(): string | null {
-		if (!selectedProvider || !selectedMethod) return null;
-		if (selectedProvider.pluginId === 'th-payments' && selectedMethod.id === 'promptpay_qr') {
-			if (isServerDonationDraft) {
-				return 'PromptPay QR creates a donation request using the server donation PromptPay number. Wabi does not mark it paid just because the app returned.';
-			}
-			return 'PromptPay QR creates a payment request using your saved PromptPay number or a one-off PromptPay number. Wabi does not mark it paid just because the app returned.';
-		}
-		if (selectedProvider.pluginId === 'th-payments' && selectedMethod.id === 'psp_checkout') {
-			return 'This route can become fully verified when a Thai PSP adapter is configured. Without that adapter, PromptPay QR is the safer fallback.';
-		}
-		if (selectedProvider.pluginId === 'btc-payments' && selectedMethod.id === 'bitcoin_qr') {
-			if (isServerDonationDraft) {
-				return 'Bitcoin QR creates a donation request using the server donation Bitcoin address. Wabi does not mark it paid just because a wallet opened or returned.';
-			}
-			return 'Bitcoin QR creates a payment request using your saved Bitcoin address or a one-off Bitcoin address. Wabi does not mark it paid just because a wallet opened or returned.';
-		}
-		if (selectedProvider.pluginId === 'btc-payments' && selectedMethod.id === 'lightning_checkout') {
-			if (String(selectedMethod.notes || '').toLowerCase().includes('local test')) {
-				return 'This server is currently using Lightning local test mode. It exercises the request flow without moving money.';
-			}
-			return 'Lightning can become provider-verified when a Bitcoin adapter is configured.';
-		}
-		if (selectedProvider.pluginId === 'western-payments' && String(selectedProvider.notes || '').toLowerCase().includes('local test')) {
-			return 'This server is currently using western local test mode. It exercises the request flow without moving money.';
-		}
-		return null;
-	}
-
-	function isDirectReferenceDraft(): boolean {
-		return isThaiPromptPayDraft || isBitcoinQrDraft;
-	}
-
-	function getDirectReferenceTitle(): string {
-		if (isThaiPromptPayDraft) return 'PromptPay number';
-		if (isBitcoinQrDraft) return 'Bitcoin address';
-		return 'Payment reference';
-	}
-
-	function getDirectReferencePlaceholder(): string {
-		if (isThaiPromptPayDraft) return 'Thai mobile number or PromptPay ID';
-		if (isBitcoinQrDraft) return 'bc1... or 1... / 3...';
-		return 'Payment reference';
-	}
-
 	function getMissingDirectReferenceMessage(): string {
 		if (isThaiPromptPayDraft) {
 			return 'Thai PromptPay requests need your own PromptPay number before Wabi can build the QR. Save it in Saved Payment References or enter it as a one-off number.';
@@ -885,145 +562,63 @@
 		return 'A saved payment reference is required for this request.';
 	}
 
-	function getQrExternalConfirmationHint(): string {
-		if (activeIntent?.pluginId === 'btc-payments') {
-			return 'Scanning or copying this QR opens the wallet flow. Wabi keeps the request pending until it gets real confirmation or the request expires.';
-		}
-		return 'Scanning this QR opens the bank/payment app flow. Wabi keeps the request pending until it gets real confirmation or the request expires.';
-	}
 </script>
 
-<BaseModal isOpen={isOpen} onClose={handleClose} width="680px" {overlayZIndex}>
-	<div slot="header" class="sheet-header">
-		<h2>{getSheetTitle()}</h2>
-		{#if getTargetHeaderLabel()}
-			<div class="sheet-target">{getTargetHeaderLabel()}</div>
-		{/if}
-		<p>{getSheetIntro()}</p>
-	</div>
-
-	<div class="sheet-body">
-		{#if loadingProviders}
-			<p class="hint">Loading payment providers...</p>
-		{/if}
-
-		{#if providersError}
-			<p class="error">{providersError}</p>
-		{/if}
-
-		{#if accessStatus && !accessStatus.canCreate}
-			<p class="error">{accessStatus.reason || 'Your account cannot create payments on this server.'}</p>
-		{/if}
-
-		{#if !loadingProviders && providers.length === 0}
-			<p class="hint">
-				No payment provider plugins are loaded. Enable plugins and install a payment plugin (for example
-				`th-payments`).
-			</p>
-		{/if}
-
-		<PaymentRouteControls
-			{routePresets}
-			{selectedRoutePreset}
-			bind:showAdvancedRouting
-			{providers}
-			bind:selectedProviderId
-			{eligibleProviderMethods}
-			bind:selectedMethodId
-			bind:amountInput
-			{providerCurrencyOptions}
-			bind:currency
-			{providerCountryOptions}
-			bind:countryCode
-			{selectedProvider}
-			{selectedMethod}
-			{isThaiPromptPayDraft}
-			shouldShowProviderPicker={shouldShowProviderPicker()}
-			shouldShowMethodPicker={shouldShowMethodPicker()}
-			shouldShowCurrencyPicker={shouldShowCurrencyPicker()}
-			shouldShowCountryPicker={shouldShowCountryPicker()}
-			draftMethodBehaviorNote={getDraftMethodBehaviorNote()}
-			onApplyRoutePreset={applyRoutePreset}
-		/>
-
-		<PaymentReferencePanel
-			{selectedAccountLink}
-			{accountLinksLoading}
-			isDirectReferenceDraft={isDirectReferenceDraft()}
-			{isServerDonationDraft}
-			{isThaiPromptPayDraft}
-			{isBitcoinQrDraft}
-			bind:showCustomCustomerRef
-			bind:customerRef
-			directReferenceTitle={getDirectReferenceTitle()}
-			directReferencePlaceholder={getDirectReferencePlaceholder()}
-			onManageConnections={handleManageConnections}
-		/>
-
-		{#if !isThaiPromptPayDraft}
-			<label class="checkbox-row">
-				<input type="checkbox" bind:checked={showOptionalNote} />
-				<span>Add a note</span>
-			</label>
-		{:else}
-			<label class="checkbox-row">
-				<input type="checkbox" bind:checked={showOptionalNote} />
-				<span>Add a private note to this request</span>
-			</label>
-		{/if}
-
-		{#if showOptionalNote}
-			<label class="wide-field">
-				<span>Note</span>
-				<input type="text" bind:value={description} maxlength="200" placeholder="Optional" />
-			</label>
-		{/if}
-
-		{#if missingRequiredThaiPromptPayReference || missingRequiredBitcoinAddress}
-			<p class="hint emphasis">
-				{getMissingDirectReferenceMessage()}
-			</p>
-		{/if}
-
-		<div class="actions">
-			<button class="action" on:click={loadProviders} disabled={loadingProviders}>
-				Refresh providers
-			</button>
-			<button
-				class="action primary"
-				on:click={handleCreateIntent}
-				disabled={creatingIntent || providers.length === 0 || Boolean(accessStatus && !accessStatus.canCreate) || missingRequiredThaiPromptPayReference || missingRequiredBitcoinAddress}
-			>
-				{getCreateButtonLabel()}
-			</button>
-		</div>
-
-		{#if actionInfo}
-			<p class="info">{actionInfo}</p>
-		{/if}
-		{#if actionError}
-			<p class="error">{actionError}</p>
-		{/if}
-
-		{#if activeIntent}
-			<PaymentIntentCard
-				{activeIntent}
-				{activeEvents}
-				{presentation}
-				{presentationMode}
-				{qrDataUrl}
-				{isThaiQrIntent}
-				targetHeaderLabel={getTargetHeaderLabel()}
-				{terminalStatuses}
-				qrExternalConfirmationHint={getQrExternalConfirmationHint()}
-				onSaveQrImage={saveQrImage}
-				onSharePaymentTarget={sharePaymentTarget}
-				onOpenSheetUrl={openSheetUrl}
-				onCopyToClipboard={copyToClipboard}
-				onRefreshIntent={refreshIntent}
-				onCancelIntent={handleCancelIntent}
-				onResetForNewIntent={resetForNewIntent}
-			/>
-		{/if}
-	</div>
-</BaseModal>
+<PaymentSheetBody
+	{isOpen}
+	onClose={handleClose}
+	{overlayZIndex}
+	{defaultTargetLabel}
+	bind:channelId
+	{loadingProviders}
+	{providersLoaded}
+	{providersError}
+	{accessStatus}
+	{providers}
+	{routePresets}
+	{selectedRoutePreset}
+	{selectedProvider}
+	{selectedMethod}
+	{selectedAccountLink}
+	{eligibleProviderMethods}
+	{providerCurrencyOptions}
+	{providerCountryOptions}
+	bind:selectedProviderId
+	bind:selectedMethodId
+	bind:amountInput
+	bind:currency
+	bind:countryCode
+	bind:showAdvancedRouting
+	bind:showCustomCustomerRef
+	bind:customerRef
+	bind:showOptionalNote
+	bind:description
+	{accountLinksLoading}
+	{isServerDonationDraft}
+	{isThaiPromptPayDraft}
+	{isBitcoinQrDraft}
+	{isThaiQrIntent}
+	{isBitcoinQrIntent}
+	{missingRequiredThaiPromptPayReference}
+	{missingRequiredBitcoinAddress}
+	{creatingIntent}
+	{actionInfo}
+	{actionError}
+	{activeIntent}
+	{activeEvents}
+	{presentation}
+	{presentationMode}
+	{qrDataUrl}
+	{terminalStatuses}
+	onLoadProviders={loadProviders}
+	onApplyRoutePreset={applyRoutePreset}
+	onManageConnections={handleManageConnections}
+	onCreateIntent={handleCreateIntent}
+	onSaveQrImage={saveQrImage}
+	onSharePaymentTarget={sharePaymentTarget}
+	onOpenSheetUrl={openSheetUrl}
+	onCopyToClipboard={copyToClipboard}
+	onRefreshIntent={refreshIntent}
+	onCancelIntent={handleCancelIntent}
+	onResetForNewIntent={resetForNewIntent}
+/>
