@@ -11,6 +11,8 @@
 		updateTodo
 	} from '$lib/business/store';
 	import type { CalendarEvent, Todo } from '$lib/business/types';
+	import CalendarDayModal from './CalendarDayModal.svelte';
+	import CalendarEventModal from './CalendarEventModal.svelte';
 
 	// Props
 	export let isReadOnly = false;
@@ -468,258 +470,38 @@
 
 <!-- Event Modal -->
 {#if showEventModal}
-	<div
-		class="modal-overlay"
-		role="button"
-		tabindex="0"
-		on:click|stopPropagation={closeModal}
-		on:keydown|stopPropagation={(event) => {
-			const tag = (event.target as HTMLElement).tagName;
-			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-			if (event.key === 'Enter' || event.key === ' ') {
-				event.preventDefault();
-				closeModal();
-			}
-		}}
-	>
-		<div
-			class="modal"
-			role="button"
-			tabindex="0"
-			on:click|stopPropagation
-			on:keydown|stopPropagation={(event) => {
-				const tag = (event.target as HTMLElement).tagName;
-				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-				if (event.key === 'Enter' || event.key === ' ') {
-					event.preventDefault();
-				}
-			}}
-		>
-			<div class="modal-header">
-				<h2>{editingEvent ? 'Edit Event' : 'Add New Event'}</h2>
-				<button class="close-btn" on:click={closeModal}>&times;</button>
-			</div>
-			<form on:submit|preventDefault={handleSubmit}>
-				<div class="form-group">
-					<label for="title">Title *</label>
-					<input
-						id="title"
-						type="text"
-						bind:value={formTitle}
-						placeholder="Event title"
-						required
-					/>
-				</div>
-
-				<div class="form-group">
-					<label for="description">Description</label>
-					<textarea
-						id="description"
-						bind:value={formDescription}
-						placeholder="Add details..."
-						rows="2"
-					></textarea>
-				</div>
-
-				<div class="form-group">
-					<label class="checkbox-label">
-						<input type="checkbox" bind:checked={formAllDay} />
-						All day event
-					</label>
-				</div>
-
-				<div class="form-group">
-					<label class="checkbox-label">
-						<input type="checkbox" bind:checked={formRecurring} />
-						Repeating event
-					</label>
-				</div>
-
-				<div class="form-row">
-					<div class="form-group">
-						<label for="startDate">Start Date *</label>
-						<input id="startDate" type="date" bind:value={formStartDate} required />
-					</div>
-					{#if !formAllDay}
-						<div class="form-group">
-							<label for="startTime">Start Time</label>
-							<input id="startTime" type="time" bind:value={formStartTime} />
-						</div>
-					{/if}
-				</div>
-
-				<div class="form-group">
-					<label for="endDate">End Date (optional)</label>
-					<input id="endDate" type="date" bind:value={formEndDate} />
-				</div>
-
-				{#if formRecurring}
-					<div class="form-row">
-						<div class="form-group">
-							<label for="frequency">Repeats</label>
-							<select id="frequency" bind:value={formRecurringFrequency}>
-								<option value="daily">Every day</option>
-								<option value="weekly">Every week</option>
-								<option value="monthly">Every month</option>
-								<option value="yearly">Every year</option>
-							</select>
-						</div>
-						<div class="form-group">
-							<label for="interval">Every N:</label>
-							<input id="interval" type="number" bind:value={formRecurringInterval} min="1" max="99" />
-						</div>
-					</div>
-
-					<div class="form-group">
-						<label for="recurringEndDate">Repeat until (optional)</label>
-						<input id="recurringEndDate" type="date" bind:value={formRecurringEndDate} />
-					</div>
-				{/if}
-
-				<div class="form-group">
-					<span class="form-label">Color</span>
-					<div class="color-picker">
-						{#each colorOptions as color}
-							<button
-								type="button"
-								class="color-option"
-								class:selected={formColor === color}
-								style="background-color: {color}"
-								aria-label={`Select ${color} event color`}
-								on:click={() => formColor = color}
-							></button>
-						{/each}
-					</div>
-				</div>
-
-				<!-- Signature checkbox -->
-				<div class="form-group checkbox-group">
-					<label class="checkbox-label">
-						<input type="checkbox" bind:checked={willSign} />
-						<span>Sign this event with my username</span>
-					</label>
-				</div>
-
-				<div class="form-actions">
-					{#if editingEvent}
-						<button type="button" class="delete-btn" on:click={() => handleDelete(editingEvent.id)}>
-							Delete
-						</button>
-					{/if}
-					<button type="button" class="cancel-btn" on:click={closeModal}>Cancel</button>
-					<button type="submit" class="submit-btn">
-						{editingEvent ? 'Save Changes' : 'Add Event'}
-					</button>
-				</div>
-			</form>
-		</div>
-	</div>
+	<CalendarEventModal
+		{editingEvent}
+		bind:formTitle
+		bind:formDescription
+		bind:formStartDate
+		bind:formStartTime
+		bind:formEndDate
+		bind:formAllDay
+		bind:formColor
+		bind:formRecurring
+		bind:formRecurringFrequency
+		bind:formRecurringInterval
+		bind:formRecurringEndDate
+		bind:willSign
+		{colorOptions}
+		{handleSubmit}
+		{handleDelete}
+		{closeModal}
+	/>
 {/if}
 
 <!-- Day Detail Modal -->
 {#if showDayModal}
-	{@const modalDayTasks = getTasksForDay(new Date($selectedDate))}
-	<div
-		class="modal-overlay"
-		role="button"
-		tabindex="0"
-			on:click|stopPropagation={closeModal}
-			on:keydown|stopPropagation={(event) => {
-			const tag = (event.target as HTMLElement).tagName;
-			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-			if (event.key === 'Enter' || event.key === ' ') {
-				event.preventDefault();
-				closeModal();
-			}
-		}}
-	>
-		<div
-			class="modal day-modal"
-			role="button"
-			tabindex="0"
-			on:click|stopPropagation
-			on:keydown|stopPropagation={(event) => {
-				const tag = (event.target as HTMLElement).tagName;
-				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-				if (event.key === 'Enter' || event.key === ' ') {
-					event.preventDefault();
-				}
-			}}
-		>
-			<div class="modal-header">
-				<h2>{new Date($selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h2>
-				<button class="close-btn" on:click={closeModal}>&times;</button>
-			</div>
-			<div class="day-detail-content">
-				{#if selectedDayEvents.length > 0}
-					<div class="detail-section">
-						<h4>Events</h4>
-						<ul class="event-list">
-							{#each selectedDayEvents as event}
-								<li>
-									<button
-										type="button"
-										class="event-item event-item-button"
-										aria-label={`Edit event ${event.title}`}
-										on:click={() => { closeModal(); openEditModal(event); }}
-									>
-										<div class="event-color" style="background-color: {event.color || '#5865f2'}"></div>
-										<div class="event-details">
-											<span class="event-title">{event.title}</span>
-											<div class="event-meta">
-												{#if event.allDay}
-													<span class="event-time">All day</span>
-												{:else}
-													<span class="event-time">{formatTime(event.startDate)}</span>
-												{/if}
-												{#if event.signedBy}
-													<span class="signature" title="Signed by {event.signedBy}">
-														✍️ {event.signedBy}
-													</span>
-												{/if}
-											</div>
-										</div>
-									</button>
-								</li>
-							{/each}
-						</ul>
-					</div>
-				{/if}
-
-				{#if modalDayTasks.length > 0}
-					<div class="detail-section">
-						<h4>Tasks Due</h4>
-						<ul class="event-list">
-							{#each modalDayTasks as task}
-								<li>
-									<button
-										type="button"
-										class="event-item event-item-button task-item"
-										aria-label={`Mark task ${task.title} complete`}
-										on:click={() => toggleTaskComplete(task)}
-									>
-										<div class="event-color" style="background-color: {getPriorityColor(task.priority)}"></div>
-										<div class="event-details">
-											<span class="event-title">{task.title}</span>
-											<span class="event-time priority-{task.priority}">{task.priority}</span>
-										</div>
-										<span class="task-check" title="Mark complete">&#10003;</span>
-									</button>
-								</li>
-							{/each}
-						</ul>
-					</div>
-				{/if}
-
-				{#if selectedDayEvents.length === 0 && modalDayTasks.length === 0}
-					<p class="empty-message">No events or tasks scheduled</p>
-				{/if}
-
-				<button class="add-event-btn" on:click={() => { closeModal(); openAddModal(new Date($selectedDate)); }} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Add event for this day'}>
-					+ Add event for this day
-				</button>
-			</div>
-		</div>
-	</div>
+	<CalendarDayModal
+		{selectedDayEvents}
+		modalDayTasks={getTasksForDay(new Date($selectedDate))}
+		{isReadOnly}
+		{formatTime}
+		{getPriorityColor}
+		{openEditModal}
+		{toggleTaskComplete}
+		{closeModal}
+		{openAddModal}
+	/>
 {/if}
-
