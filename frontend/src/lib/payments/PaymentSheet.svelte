@@ -2,21 +2,17 @@
 	import { onDestroy } from 'svelte';
 	import QRCode from 'qrcode';
 	import BaseModal from '../components/BaseModal.svelte';
+	import PaymentIntentCard from './PaymentIntentCard.svelte';
+	import PaymentReferencePanel from './PaymentReferencePanel.svelte';
+	import PaymentRouteControls from './PaymentRouteControls.svelte';
 	import { getAuthToken } from '$lib/authSession';
 	import { subscribePaymentRealtimeEvent } from '$lib/payments/paymentRealtime';
 	import { formatMinorAmount, parseMajorAmountInput } from '$lib/payments/paymentAmounts';
 	import {
-		getPaymentIntentStatusHelp,
-		getPaymentIntentStatusLabel,
-		getPaymentVerificationMode
-	} from '$lib/payments/paymentRequestPresentation';
-	import {
 		buildRoutePresets,
-		formatExpiryTimestamp,
 		getBrowserPreferredRouteKey,
 		isMethodEligibleForDraft,
 		isRecord,
-		maskReference,
 		normalizeCheckoutMode,
 		normalizePrefillValue,
 		normalizeProviderOptions,
@@ -926,205 +922,43 @@
 			</p>
 		{/if}
 
-		{#if routePresets.length > 1}
-			<div class="route-picker">
-				<div class="route-picker-header">
-					<h3>Pay with</h3>
-					<button class="action subtle" type="button" on:click={() => (showAdvancedRouting = !showAdvancedRouting)}>
-						{showAdvancedRouting ? 'Hide manual routing' : 'Adjust manually'}
-					</button>
-				</div>
-				<div class="route-preset-list">
-					{#each routePresets as preset}
-						<button
-							type="button"
-							class="route-preset"
-							class:active={selectedRoutePreset?.key === preset.key}
-							on:click={() => applyRoutePreset(preset)}
-						>
-							<span class="route-flag">{preset.flag}</span>
-							<span class="route-label">{preset.label}</span>
-						</button>
-					{/each}
-				</div>
-			</div>
-		{/if}
+		<PaymentRouteControls
+			{routePresets}
+			{selectedRoutePreset}
+			bind:showAdvancedRouting
+			{providers}
+			bind:selectedProviderId
+			{eligibleProviderMethods}
+			bind:selectedMethodId
+			bind:amountInput
+			{providerCurrencyOptions}
+			bind:currency
+			{providerCountryOptions}
+			bind:countryCode
+			{selectedProvider}
+			{selectedMethod}
+			{isThaiPromptPayDraft}
+			shouldShowProviderPicker={shouldShowProviderPicker()}
+			shouldShowMethodPicker={shouldShowMethodPicker()}
+			shouldShowCurrencyPicker={shouldShowCurrencyPicker()}
+			shouldShowCountryPicker={shouldShowCountryPicker()}
+			draftMethodBehaviorNote={getDraftMethodBehaviorNote()}
+			onApplyRoutePreset={applyRoutePreset}
+		/>
 
-		<div class="grid">
-			{#if shouldShowProviderPicker()}
-				<label>
-					<span>Provider</span>
-					<select bind:value={selectedProviderId} disabled={providers.length === 0}>
-						{#each providers as provider}
-							<option value={provider.pluginId}>{provider.providerName}</option>
-						{/each}
-					</select>
-				</label>
-			{/if}
-
-			{#if shouldShowMethodPicker()}
-				<label>
-					<span>Method</span>
-					<select bind:value={selectedMethodId} disabled={eligibleProviderMethods.length === 0}>
-						{#each eligibleProviderMethods as method}
-							<option value={method.id}>{method.label}</option>
-						{/each}
-					</select>
-				</label>
-			{/if}
-
-			<label>
-				<span>Amount</span>
-				<input class="amount-input" type="text" bind:value={amountInput} placeholder="100.00" />
-			</label>
-
-			{#if shouldShowCurrencyPicker()}
-				<label>
-					<span>Currency</span>
-					{#if providerCurrencyOptions.length > 0}
-						<select bind:value={currency} disabled={providerCurrencyOptions.length <= 1}>
-							{#each providerCurrencyOptions as providerCurrency}
-								<option value={providerCurrency}>{providerCurrency}</option>
-							{/each}
-						</select>
-					{:else}
-						<input type="text" bind:value={currency} maxlength="3" placeholder="Auto" />
-					{/if}
-				</label>
-			{/if}
-
-			{#if shouldShowCountryPicker()}
-				<label>
-					<span>Country</span>
-					{#if providerCountryOptions.length > 0}
-						<select bind:value={countryCode} disabled={providerCountryOptions.length <= 1}>
-							{#each providerCountryOptions as providerCountry}
-								<option value={providerCountry}>{providerCountry}</option>
-							{/each}
-						</select>
-					{:else}
-						<input type="text" bind:value={countryCode} maxlength="2" placeholder="Auto" />
-					{/if}
-				</label>
-			{/if}
-		</div>
-
-		{#if !shouldShowCurrencyPicker() || !shouldShowCountryPicker() || !shouldShowMethodPicker()}
-			<div class="compact-summary">
-				{#if selectedProvider}
-					<span>{selectedProvider.providerName}</span>
-				{/if}
-				{#if selectedMethod}
-					<span>{selectedMethod.label}</span>
-				{/if}
-				{#if currency}
-					<span>{currency}</span>
-				{/if}
-				{#if countryCode}
-					<span>{countryCode}</span>
-				{/if}
-			</div>
-		{/if}
-
-		{#if selectedProvider?.notes && !isThaiPromptPayDraft}
-			<p class="hint">{selectedProvider.notes}</p>
-		{/if}
-
-		{#if selectedMethod?.notes && !isThaiPromptPayDraft}
-			<p class="hint">Method note: {selectedMethod.notes}</p>
-		{/if}
-
-		{#if getDraftMethodBehaviorNote() && !isThaiPromptPayDraft}
-			<p class="hint emphasis">{getDraftMethodBehaviorNote()}</p>
-		{/if}
-
-		{#if selectedProvider && eligibleProviderMethods.length === 0}
-			<p class="hint">No method is currently eligible for this amount and provider combination. Try a different amount or provider.</p>
-		{/if}
-
-		{#if isDirectReferenceDraft() && !isServerDonationDraft}
-			<div class="intent-card">
-				<h3>{getDirectReferenceTitle()}</h3>
-				{#if accountLinksLoading}
-					<p class="hint">Loading your saved {getDirectReferenceTitle().toLowerCase()}...</p>
-				{:else if selectedAccountLink && !showCustomCustomerRef}
-					<p class="hint">Using {maskReference(selectedAccountLink.providerAccountRef)} for this QR request.</p>
-				{:else}
-					<p class="hint">
-						{#if isThaiPromptPayDraft}
-							Enter your own PromptPay number or registered PromptPay ID for this request.
-						{:else if isBitcoinQrDraft}
-							Enter your own Bitcoin address for this request.
-						{/if}
-					</p>
-				{/if}
-				{#if !selectedAccountLink || showCustomCustomerRef}
-					<label class="wide-field">
-						<span>{getDirectReferenceTitle()}</span>
-						<input
-							type="text"
-							bind:value={customerRef}
-							maxlength="120"
-							placeholder={getDirectReferencePlaceholder()}
-						/>
-					</label>
-				{/if}
-				<div class="actions">
-					{#if selectedAccountLink}
-						<button class="action" on:click={() => (showCustomCustomerRef = !showCustomCustomerRef)}>
-							{#if isThaiPromptPayDraft}
-								{showCustomCustomerRef ? 'Use saved PromptPay number' : 'Use different number'}
-							{:else}
-								{showCustomCustomerRef ? 'Use saved Bitcoin address' : 'Use different address'}
-							{/if}
-						</button>
-					{/if}
-					<button class="action" on:click={handleManageConnections}>
-						{selectedAccountLink ? 'Edit in Saved References' : `Add ${getDirectReferenceTitle()}`}
-					</button>
-				</div>
-			</div>
-		{:else}
-			<div class="intent-card">
-				<h3>Saved payment reference</h3>
-				{#if accountLinksLoading}
-					<p class="hint">Loading your saved payment references...</p>
-				{:else if selectedAccountLink}
-					<p class="hint">
-						Wabi will reuse
-						<code>{selectedAccountLink.displayLabel || selectedAccountLink.providerAccountRef}</code>
-						for this provider unless you turn on the one-off override below.
-					</p>
-				{:else}
-					<p class="hint">
-						No saved reference is attached to this provider yet. Add one in Settings only if this provider needs a reusable destination reference.
-					</p>
-				{/if}
-				<div class="actions">
-					<button class="action" on:click={handleManageConnections}>
-						{selectedAccountLink ? 'Manage Saved References' : 'Add Reference in Settings'}
-					</button>
-				</div>
-			</div>
-
-			<div class="intent-card">
-				<label class="checkbox-row">
-					<input type="checkbox" bind:checked={showCustomCustomerRef} />
-					<span>Use a one-off payment reference</span>
-				</label>
-				{#if showCustomCustomerRef}
-					<label class="wide-field">
-						<span>One-off payment reference</span>
-						<input
-							type="text"
-							bind:value={customerRef}
-							maxlength="120"
-							placeholder="PromptPay number / wallet handle / PSP customer id"
-						/>
-					</label>
-				{/if}
-			</div>
-		{/if}
+		<PaymentReferencePanel
+			{selectedAccountLink}
+			{accountLinksLoading}
+			isDirectReferenceDraft={isDirectReferenceDraft()}
+			{isServerDonationDraft}
+			{isThaiPromptPayDraft}
+			{isBitcoinQrDraft}
+			bind:showCustomCustomerRef
+			bind:customerRef
+			directReferenceTitle={getDirectReferenceTitle()}
+			directReferencePlaceholder={getDirectReferencePlaceholder()}
+			onManageConnections={handleManageConnections}
+		/>
 
 		{#if !isThaiPromptPayDraft}
 			<label class="checkbox-row">
@@ -1172,95 +1006,24 @@
 		{/if}
 
 		{#if activeIntent}
-			<div class="intent-card">
-				<div class="intent-header">
-					<div class="intent-heading">
-						<span class="status-light status-light-{activeIntent.status}"></span>
-						<h3>{isThaiQrIntent ? 'PromptPay QR' : `Request ${activeIntent.intentId}`}</h3>
-					</div>
-					<span class="status status-{activeIntent.status}">{getPaymentIntentStatusLabel(activeIntent)}</span>
-				</div>
-				<p class="intent-meta">
-					{formatMinorAmount(activeIntent.amountMinor, activeIntent.currency)} via {activeIntent.providerName}
-					{#if getTargetHeaderLabel()}
-						• {getTargetHeaderLabel()}
-					{/if}
-				</p>
-				{#if formatExpiryTimestamp(activeIntent.expiresAt) && !terminalStatuses.has(activeIntent.status)}
-					<p class="hint">Auto-expires at {formatExpiryTimestamp(activeIntent.expiresAt)}.</p>
-				{/if}
-				{#if getPaymentIntentStatusHelp(activeIntent)}
-					<p class="hint emphasis">{getPaymentIntentStatusHelp(activeIntent)}</p>
-				{/if}
-				{#if activeIntent.failureMessage}
-					<p class="error">{activeIntent.failureMessage}</p>
-				{/if}
-
-				{#if presentationMode === 'qr'}
-					<div class="qr-block">
-						{#if typeof presentation.qrImageUrl === 'string' && presentation.qrImageUrl}
-							<img src={presentation.qrImageUrl} alt="Payment QR" class="qr-image" />
-						{:else if qrDataUrl}
-							<img src={qrDataUrl} alt="Payment QR" class="qr-image" />
-						{:else}
-							<p class="hint">QR payload available, image render failed.</p>
-						{/if}
-						<div class="link-actions">
-							<button class="action" on:click={saveQrImage} disabled={!getQrImageSource()}>Save QR</button>
-							<button class="action" on:click={sharePaymentTarget}>Share payment</button>
-						</div>
-						{#if getPaymentVerificationMode(activeIntent) === 'external_confirmation'}
-							<p class="hint emphasis">{getQrExternalConfirmationHint()}</p>
-						{/if}
-					</div>
-				{:else if presentationMode === 'payment_link' || presentationMode === 'redirect'}
-					{#if typeof presentation.url === 'string' && presentation.url}
-						<div class="link-actions">
-							<button class="action primary" on:click={() => openSheetUrl(String(presentation.url))}>Open checkout link</button>
-							<button class="action" on:click={() => copyToClipboard(String(presentation.url))}>Copy link</button>
-							<button class="action" on:click={sharePaymentTarget}>Share payment</button>
-						</div>
-					{/if}
-				{:else if presentationMode === 'app_switch'}
-					<div class="link-actions">
-						{#if typeof presentation.deepLinkUrl === 'string' && presentation.deepLinkUrl}
-							<button class="action primary" on:click={() => openSheetUrl(String(presentation.deepLinkUrl))}>Open payment app</button>
-						{/if}
-						{#if typeof presentation.fallbackUrl === 'string' && presentation.fallbackUrl}
-							<button class="action" on:click={() => openSheetUrl(String(presentation.fallbackUrl))}>Open fallback link</button>
-						{/if}
-					</div>
-				{:else if presentationMode === 'tap_to_pay'}
-					<p class="hint">
-						Tap-to-pay session:
-						{typeof presentation.providerSessionId === 'string' ? presentation.providerSessionId : 'unknown'}
-					</p>
-				{/if}
-
-				<div class="actions">
-					<button class="action" on:click={() => refreshIntent(activeIntent.intentId, true)}>Refresh status</button>
-					<button class="action" on:click={handleCancelIntent} disabled={terminalStatuses.has(activeIntent.status)}>
-						Cancel request
-					</button>
-					<button class="action" on:click={resetForNewIntent}>New request</button>
-				</div>
-
-				{#if activeEvents.length > 0}
-					<div class="events">
-						<h4>Events</h4>
-						<ul>
-							{#each activeEvents as event}
-								<li>
-									<span>{event.eventType}</span>
-									<span>{event.status || 'n/a'}</span>
-									<time>{new Date(event.createdAt).toLocaleString()}</time>
-								</li>
-							{/each}
-						</ul>
-					</div>
-				{/if}
-			</div>
+			<PaymentIntentCard
+				{activeIntent}
+				{activeEvents}
+				{presentation}
+				{presentationMode}
+				{qrDataUrl}
+				{isThaiQrIntent}
+				targetHeaderLabel={getTargetHeaderLabel()}
+				{terminalStatuses}
+				qrExternalConfirmationHint={getQrExternalConfirmationHint()}
+				onSaveQrImage={saveQrImage}
+				onSharePaymentTarget={sharePaymentTarget}
+				onOpenSheetUrl={openSheetUrl}
+				onCopyToClipboard={copyToClipboard}
+				onRefreshIntent={refreshIntent}
+				onCancelIntent={handleCancelIntent}
+				onResetForNewIntent={resetForNewIntent}
+			/>
 		{/if}
 	</div>
 </BaseModal>
-
