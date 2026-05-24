@@ -8,6 +8,7 @@
 
 	export let onTriggerPicker: (mode: 'draft' | 'instant') => void = () => {};
 	export let onUpload: () => void = () => {};
+	export let onFileChange: (event: Event) => void = () => {};
 </script>
 
 <div class="upload-local-item">
@@ -15,7 +16,7 @@
 		type="file"
 		bind:this={uploadInputElement}
 		class="album-file-input"
-		on:change
+		on:change={onFileChange}
 		accept="image/*,video/*,audio/*,.zip,.pdf,.txt,.md"
 	/>
 	<div
