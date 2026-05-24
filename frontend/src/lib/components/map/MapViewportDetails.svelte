@@ -10,7 +10,7 @@
 	} from '../mapWorkspaceHelpers';
 	import type { MapPoiDisplayPreference } from '$lib/mapDisplayPreferences';
 	import { resolvePoiRenderMode } from '$lib/mapDisplayPreferences';
-	import type { PlaceRecord, PlacePoiRecord, PlacePoiThemePreset } from '$lib/placeRegistry';
+	import type { PlaceRecord, PlacePoiRecord, PlacePoiThemePreset, PlaceDraft } from '$lib/placeRegistry';
 
 	export let stagePlace: PlaceRecord | null;
 	export let stageMapLayers: PlaceRecord['mapLayers'];
@@ -24,7 +24,8 @@
 	export let canManagePlaces: boolean;
 	export let uploadBusy: boolean;
 	export let placingPoiIndex: number;
-	export let placeDraft: PlaceRecord | null;
+	export let placeDraft: PlaceDraft | null;
+	export let customMapViewport: HTMLDivElement | null = null;
 	export let MAP_BASE_WIDTH: number;
 	export let mapBaseHeight: number;
 	export let mapZoom: number;
@@ -83,6 +84,7 @@
 		<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 		<div
 			class="custom-map-viewport"
+			bind:this={customMapViewport}
 			role="application"
 			tabindex="0"
 			aria-label={`Interactive map for ${stagePlace?.name || 'this place'}. Use arrow keys to pan, plus or minus to zoom, bracket keys to rotate, and N to reset north.`}
@@ -232,5 +234,7 @@
 				</ul>
 			</div>
 		{/if}
+
+		<slot />
 	</div>
 {/if}

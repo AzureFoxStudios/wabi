@@ -31,7 +31,6 @@
 	import {
 		albumItemKindLabel,
 		formatAlbumActionError,
-		formatBytes,
 		formatTimestamp,
 		isImageAlbumItem,
 		isVideoAlbumItem,
@@ -50,6 +49,7 @@
 		import AlbumUploadForm from './AlbumUploadForm.svelte';
 		import AlbumItemRow from './AlbumItemRow.svelte';
 		import ScreenshotPipePanel from './ScreenshotPipePanel.svelte';
+		import AlbumItemsHeader from './AlbumItemsHeader.svelte';
 
 	$: activeChannel = $channels.find((channel) => channel.id === $currentChannel) || null;
 	$: scopeType = (activeChannel?.type === 'dm' || activeChannel?.type === 'group' ? 'dm' : 'channel') as MediaAlbumScopeType;
@@ -1001,56 +1001,21 @@
 
 		{#if selectedAlbumValue}
 			<div class="items-section">
-				<div class="items-header">
-					<div class="items-header-title">
-						<strong>{selectedAlbumValue.name}</strong>
-						<span>
-							{albumItems.length} loaded
-							{#if selectedAlbumValue.isFeatured}
-								&middot; featured
-							{/if}
-						</span>
-					</div>
-					<div class="items-header-actions">
-						<button
-							type="button"
-							class="album-plus-btn"
-							on:click={() => triggerAlbumUploadPicker('instant')}
-							title="Add file to album"
-							aria-label="Add file to album"
-						>
-							+
-						</button>
-						{#if canFeatureAlbum(selectedAlbumValue)}
-							<button
-								class="feature-btn"
-								class:active={selectedAlbumValue.isFeatured}
-								on:click={() => void toggleFeaturedAlbum(selectedAlbumValue)}
-								disabled={isSavingFeaturedAlbum}
-								title={selectedAlbumValue.isFeatured ? 'Unpin featured album' : 'Pin as featured album'}
-							>
-								{selectedAlbumValue.isFeatured ? 'Unfeature album' : 'Feature album'}
-							</button>
-						{/if}
-						<button
-							class="feature-btn"
-							class:active={screenshotPipeTargetAlbumId === selectedAlbumValue.id}
-							on:click={setScreenshotPipeTargetFromSelectedAlbum}
-							disabled={!scopeKey}
-							title="Use this album as the screenshot pipe target for the current scope"
-						>
-							{screenshotPipeTargetAlbumId === selectedAlbumValue.id ? 'Pipe target set' : 'Set as pipe target'}
-						</button>
-						<button
-							class="danger-btn"
-							on:click={() => void removeSelectedAlbum()}
-							disabled={isDeletingAlbum || !canDeleteAlbum(selectedAlbumValue)}
-							title="Delete this album"
-						>
-							{isDeletingAlbum ? 'Deleting...' : 'Delete album'}
-						</button>
-					</div>
-				</div>
+				<AlbumItemsHeader
+					album={selectedAlbumValue}
+					canFeature={canFeatureAlbum(selectedAlbumValue)}
+					canDelete={canDeleteAlbum(selectedAlbumValue)}
+					isDeleting={isDeletingAlbum}
+					isSavingFeatured={isSavingFeaturedAlbum}
+					{screenshotPipeTargetAlbumId}
+					{selectedAlbumId}
+					{scopeKey}
+					loadedItemCount={albumItems.length}
+					onFeature={(album) => void toggleFeaturedAlbum(album)}
+					onDelete={() => void removeSelectedAlbum()}
+					onSetPipeTarget={setScreenshotPipeTargetFromSelectedAlbum}
+					onAddMedia={() => triggerAlbumUploadPicker('instant')}
+				/>
 				{#if albumPreviewItems.length > 0}
 					<div class="album-preview-strip">
 						{#each albumPreviewItems as previewItem, previewIndex}
@@ -1084,58 +1049,15 @@
 					<div class="permission-hint">Only the album owner or moderators can delete this album.</div>
 				{/if}
 
-				<div class="upload-local-item">
-					<input
-						type="file"
-						bind:this={uploadInputElement}
-						class="album-file-input"
-						on:change={handleAlbumFileChange}
-						accept="image/*,video/*,audio/*,.zip,.pdf,.txt,.md"
-					/>
-						<div
-							class="upload-local-row"
-							role="button"
-							tabindex="0"
-							on:click={() => triggerAlbumUploadPicker()}
-							on:keydown={(event) => {
-								if (event.key === 'Enter' || event.key === ' ') {
-									event.preventDefault();
-									triggerAlbumUploadPicker();
-								}
-						}}
-					>
-						<button
-							type="button"
-							class="album-upload-trigger"
-							on:click|stopPropagation={() => triggerAlbumUploadPicker()}
-							title="Choose file for this album"
-							aria-label="Choose file for this album"
-						>
-							+
-						</button>
-						<div class="upload-local-copy">
-							<strong>Add to this album</strong>
-							<span>{draftUploadFile ? draftUploadFile.name : 'Pick an image, video, or file to add.'}</span>
-						</div>
-						<button
-							on:click|stopPropagation={() => void addUploadedFileItem()}
-							disabled={isUploadingAlbumFile || !draftUploadFile}
-						>
-							{isUploadingAlbumFile ? 'Uploading...' : 'Upload to album'}
-						</button>
-					</div>
-					{#if draftUploadFile}
-						<div class="upload-local-meta">
-							<span>{draftUploadFile.name}</span>
-							<span>{formatBytes(draftUploadFile.size)}</span>
-						</div>
-					{/if}
-					<input
-						type="text"
-						bind:value={draftUploadCaption}
-						placeholder="Caption for uploaded file (optional)"
-					/>
-				</div>
+				<AlbumUploadForm
+					{draftUploadFile}
+					bind:draftUploadCaption
+					{isUploadingAlbumFile}
+					bind:uploadInputElement
+					onTriggerPicker={triggerAlbumUploadPicker}
+					onUpload={() => void addUploadedFileItem()}
+					onFileChange={(event) => void handleAlbumFileChange(event)}
+				/>
 
 				<details class="debug-add-item">
 					<summary>Advanced: add item by URL</summary>

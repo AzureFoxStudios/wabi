@@ -9,6 +9,7 @@
 	export let screenshotPipeTargetAlbumId: number | null = null;
 	export let selectedAlbumId: number | null = null;
 	export let scopeKey: string = '';
+	export let loadedItemCount: number | null = null;
 
 	export let onFeature: (album: MediaAlbum) => void = () => {};
 	export let onDelete: () => void = () => {};
@@ -20,7 +21,7 @@
 	<div class="items-header-title">
 		<strong>{album?.name || 'Album'}</strong>
 		<span>
-			{album ? (album.itemCount ?? 0) + ' loaded' : ''}
+			{album ? (loadedItemCount ?? album.itemCount ?? 0) + ' loaded' : ''}
 			{#if album?.isFeatured}
 				&middot; featured
 			{/if}
