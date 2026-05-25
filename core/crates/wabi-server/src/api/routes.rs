@@ -30,6 +30,8 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/payments", payments::routes(state.clone()))
         // Helper node registry routes
         .nest("/nodes", nodes::routes(state.clone()))
+        // Job queue routes
+        .nest("/jobs", super::jobs::routes(state.clone()))
         // Whiteboard routes (image upload & file serving)
         .nest("/whiteboard", super::whiteboard::routes(state.clone()))
         // URL preview / image proxy (mounted at /url-preview and /image-proxy)

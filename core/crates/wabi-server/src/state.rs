@@ -9,6 +9,7 @@ use crate::api::upload::UploadState;
 use crate::blacklist::BlacklistManager;
 use crate::config::ServerConfig;
 use crate::db::StdbClient;
+use crate::jobs::JobQueue;
 use crate::nodes::NodeRegistry;
 
 /// In-memory message cache shared between Socket.IO and HTTP handlers.
@@ -30,6 +31,8 @@ pub struct AppState {
     pub upload_state: UploadState,
     /// Core helper-node registry (authority-owned; not federation)
     pub node_registry: NodeRegistry,
+    /// Job queue for helper-node worker offload
+    pub job_queue: JobQueue,
     /// Broadcasts the SocketIo handle so HTTP handlers (like avatar upload) can emit events
     #[allow(dead_code)]
     pub sio_broadcast_tx: broadcast::Sender<socketioxide::SocketIo>,
@@ -83,6 +86,9 @@ impl AppState {
             config.node_id.clone(),
             PathBuf::from(&config.data_dir).join("node_registry.json"),
         );
+        let job_queue = JobQueue::new_persistent(
+            PathBuf::from(&config.data_dir).join("job_queue.json"),
+        );
         Self {
             config,
             stdb,
@@ -94,6 +100,7 @@ impl AppState {
             owner_user_id,
             upload_state: UploadState::new(),
             node_registry,
+            job_queue,
             sio_broadcast_tx,
             blacklist: RwLock::new(None),
         }

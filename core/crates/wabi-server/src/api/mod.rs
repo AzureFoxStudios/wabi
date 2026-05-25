@@ -3,6 +3,7 @@
 pub mod albums;
 pub mod auth;
 pub mod channels;
+pub mod jobs;
 pub mod messages;
 pub mod nodes;
 pub mod payments;

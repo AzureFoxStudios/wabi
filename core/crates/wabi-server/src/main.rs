@@ -12,6 +12,7 @@ mod config;
 mod db;
 mod error;
 mod helper_client;
+mod jobs;
 mod nodes;
 mod socketio;
 mod state;
@@ -205,6 +206,27 @@ async fn main() -> anyhow::Result<()> {
                     .await;
                 for node in offline {
                     tracing::info!("[stale-detector] node {} marked offline", node.node_id);
+                }
+            }
+        });
+    }
+
+    // Stale job reaper: requeue jobs claimed by offline/helpers that vanished
+    {
+        let state = state.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                interval.tick().await;
+                let reaped = state.job_queue
+                    .reap_stale_jobs(
+                        &state.node_registry,
+                        std::time::Duration::from_secs(600),
+                    )
+                    .await;
+                for job in reaped {
+                    tracing::info!("[stale-job-reaper] job {} requeued (node vanished)", job.job_id);
                 }
             }
         });
