@@ -34,6 +34,7 @@ pub enum NodeCapability {
     SearchIndexer,
     FileCache,
     MediaRelay,
+    BlobCache,
     Backup,
     GpuWorker,
 }

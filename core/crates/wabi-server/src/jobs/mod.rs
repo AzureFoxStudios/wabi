@@ -21,6 +21,7 @@ pub enum JobKind {
     SearchIndex,
     GenerateWaveform,
     ModerationScan,
+    BlobMirror,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -326,6 +327,7 @@ fn job_kind_matches_capabilities(kind: &JobKind, capabilities: &[NodeCapability]
         JobKind::SearchIndex => &[NodeCapability::SearchIndexer][..],
         JobKind::GenerateWaveform => &[NodeCapability::TranscodeWorker][..],
         JobKind::ModerationScan => &[NodeCapability::CpuWorker][..],
+        JobKind::BlobMirror => &[NodeCapability::BlobCache][..],
     };
     required.iter().any(|cap| capabilities.contains(cap))
 }

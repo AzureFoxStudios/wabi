@@ -14,6 +14,7 @@ mod db;
 mod error;
 mod helper_client;
 mod jobs;
+mod media;
 mod nodes;
 mod socketio;
 mod socketio_impl;

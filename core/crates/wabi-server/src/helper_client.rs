@@ -4,6 +4,7 @@
 //! primary via HTTPS and sends periodic heartbeats instead of listening on a port.
 //! This is a client runtime, not an API. It complements the registry in `nodes/mod.rs`.
 
+use crate::blobs::BlobRegistry;
 use crate::jobs::{JobKind, JobResultRequest};
 use crate::nodes::{
     JoinNodeRequest, NodeCapability, NodeHeartbeatRequest, NodeLoad, NodeReachability,
@@ -28,11 +29,6 @@ const HEARTBEAT_INTERVAL_SECS: u64 = 30;
 const JOB_POLL_INTERVAL_SECS: u64 = 5;
 
 /// Run helper client loop until cancellation or terminal error.
-///
-/// Steps:
-/// 1. Load existing identity or join with pairing token.
-/// 2. Spawn heartbeat loop + job-poll loop concurrently.
-/// 3. On terminal errors (revoked, token expired), exit.
 pub async fn run_helper(
     primary_url: String,
     pairing_token: Option<String>,
@@ -41,6 +37,9 @@ pub async fn run_helper(
     data_dir: String,
 ) {
     let identity_path = PathBuf::from(&data_dir).join(IDENTITY_FILE);
+    let local_blob_registry = BlobRegistry::new_persistent(
+        PathBuf::from(&data_dir).join("helper_blobs"),
+    );
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
@@ -87,14 +86,15 @@ pub async fn run_helper(
 
     let client2 = client.clone();
     let id_hb = identity.clone();
+    let caps_hb = capabilities.clone();
     let heartbeat = tokio::spawn(async move {
-        heartbeat_loop(client2, id_hb).await;
+        heartbeat_loop(client2, id_hb, caps_hb).await;
     });
 
     let client3 = client.clone();
     let id_jobs = identity.clone();
     let jobs = tokio::spawn(async move {
-        job_loop(client3, id_jobs, capabilities).await;
+        job_loop(client3, id_jobs, capabilities, local_blob_registry).await;
     });
 
     tokio::select! {
@@ -107,7 +107,11 @@ pub async fn run_helper(
     }
 }
 
-async fn heartbeat_loop(client: reqwest::Client, identity: HelperIdentity) {
+async fn heartbeat_loop(
+    client: reqwest::Client,
+    identity: HelperIdentity,
+    capabilities: Vec<NodeCapability>,
+) {
     let mut interval = tokio::time::interval(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -117,7 +121,7 @@ async fn heartbeat_loop(client: reqwest::Client, identity: HelperIdentity) {
             load: gather_load().await,
             reachability: NodeReachability::OutboundOnly,
             endpoint: None,
-            capabilities: None,
+            capabilities: Some(capabilities.clone()),
         };
 
         let url = format!(
@@ -150,14 +154,18 @@ async fn heartbeat_loop(client: reqwest::Client, identity: HelperIdentity) {
     }
 }
 
-async fn job_loop(client: reqwest::Client, identity: HelperIdentity, capabilities: Vec<NodeCapability>) {
+async fn job_loop(
+    client: reqwest::Client,
+    identity: HelperIdentity,
+    capabilities: Vec<NodeCapability>,
+    local_blob_registry: BlobRegistry,
+) {
     let mut interval = tokio::time::interval(Duration::from_secs(JOB_POLL_INTERVAL_SECS));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     loop {
         interval.tick().await;
 
-        // Claim next job
         let claim_url = format!("{}/api/jobs/claim", identity.primary_url);
         let caps = serde_json::to_value(&capabilities).unwrap_or(serde_json::json!([]));
         let claim_body = serde_json::json!({
@@ -182,7 +190,6 @@ async fn job_loop(client: reqwest::Client, identity: HelperIdentity, capabilitie
                 }
             }
             Ok(resp) if resp.status() == reqwest::StatusCode::NO_CONTENT => {
-                // No jobs available — normal
                 continue;
             }
             Ok(resp) => {
@@ -213,32 +220,26 @@ async fn job_loop(client: reqwest::Client, identity: HelperIdentity, capabilitie
 
         info!("[helper] Claimed job {} (kind: {:?})", job_id, kind);
 
-        // Execute job stub
-        let success = execute_job_stub(&kind, &payload, &identity.node_id,
-        ).await;
+        let (success, result_payload, error_message) = execute_job(
+            &client,
+            &identity,
+            &kind,
+            &payload,
+            &local_blob_registry,
+        )
+        .await;
 
-        // Report result
         let result_url = format!(
             "{}/api/jobs/{}/result",
             identity.primary_url, job_id
         );
-        let result_body = if success {
-            serde_json::json!({
-                "nodeId": identity.node_id,
-                "nodeSecret": identity.node_secret,
-                "success": true,
-                "resultPayload": {"done": true},
-                "errorMessage": null,
-            })
-        } else {
-            serde_json::json!({
-                "nodeId": identity.node_id,
-                "nodeSecret": identity.node_secret,
-                "success": false,
-                "resultPayload": null,
-                "errorMessage": "stub execution failed",
-            })
-        };
+        let result_body = serde_json::json!({
+            "nodeId": identity.node_id,
+            "nodeSecret": identity.node_secret,
+            "success": success,
+            "resultPayload": result_payload,
+            "errorMessage": error_message,
+        });
 
         match client
             .post(&result_url)
@@ -264,42 +265,155 @@ async fn job_loop(client: reqwest::Client, identity: HelperIdentity, capabilitie
     }
 }
 
-async fn execute_job_stub(
+async fn execute_job(
+    client: &reqwest::Client,
+    identity: &HelperIdentity,
     kind: &serde_json::Value,
-    _payload: &serde_json::Value,
-    node_id: &str,
-) -> bool {
+    payload: &serde_json::Value,
+    local_blob_registry: &BlobRegistry,
+) -> (bool, Option<serde_json::Value>, Option<String>) {
     let kind_str = kind.as_str().unwrap_or("unknown");
     match kind_str {
         "thumbnail" => {
-            info!("[helper] Executing thumbnail job on {}", node_id);
-            // Phase 2 stub: no actual image processing yet
+            info!("[helper] Executing thumbnail job on {}", identity.node_id);
             tokio::time::sleep(Duration::from_millis(500)).await;
-            true
+            (true, Some(serde_json::json!({"done": true})), None)
         }
         "transcode_video" | "transcode_audio" => {
-            info!("[helper] Executing transcode job on {}", node_id);
+            info!("[helper] Executing transcode job on {}", identity.node_id);
             tokio::time::sleep(Duration::from_millis(500)).await;
-            true
+            (true, Some(serde_json::json!({"done": true})), None)
         }
         "search_index" => {
-            info!("[helper] Executing search index job on {}", node_id);
+            info!("[helper] Executing search index job on {}", identity.node_id);
             tokio::time::sleep(Duration::from_millis(200)).await;
-            true
+            (true, Some(serde_json::json!({"done": true})), None)
         }
         "generate_waveform" => {
-            info!("[helper] Executing waveform job on {}", node_id);
+            info!("[helper] Executing waveform job on {}", identity.node_id);
             tokio::time::sleep(Duration::from_millis(300)).await;
-            true
+            (true, Some(serde_json::json!({"done": true})), None)
         }
         "moderation_scan" => {
-            info!("[helper] Executing moderation scan job on {}", node_id);
+            info!("[helper] Executing moderation scan job on {}", identity.node_id);
             tokio::time::sleep(Duration::from_millis(200)).await;
-            true
+            (true, Some(serde_json::json!({"done": true})), None)
+        }
+        "blob_mirror" => {
+            info!(
+                "[helper] Executing blob mirror job on {}",
+                identity.node_id
+            );
+            let hash = payload["hash"].as_str().unwrap_or("");
+            if hash.is_empty() {
+                return (
+                    false,
+                    None,
+                    Some("blob_mirror payload missing hash".to_string()),
+                );
+            }
+
+            // Download blob from primary
+            let url = format!("{}/api/blobs/{}", identity.primary_url, hash);
+            let bytes = match client.get(&url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    match resp.bytes().await {
+                        Ok(b) => b.to_vec(),
+                        Err(e) => {
+                            return (
+                                false,
+                                None,
+                                Some(format!("download body error: {}", e)),
+                            );
+                        }
+                    }
+                }
+                Ok(resp) => {
+                    return (
+                        false,
+                        None,
+                        Some(format!("download failed: {}", resp.status())),
+                    );
+                }
+                Err(e) => {
+                    return (
+                        false,
+                        None,
+                        Some(format!("download network error: {}", e)),
+                    );
+                }
+            };
+
+            // Fetch metadata to preserve original_name / mime_type
+            let meta_url = format!(
+                "{}/api/blobs/{}/meta",
+                identity.primary_url, hash
+            );
+            let (name, mime) = match client.get(&meta_url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(val) => (
+                            val["originalName"]
+                                .as_str()
+                                .unwrap_or("mirrored.bin")
+                                .to_string(),
+                            val["mimeType"]
+                                .as_str()
+                                .unwrap_or("application/octet-stream")
+                                .to_string(),
+                        ),
+                        Err(_) => (
+                            "mirrored.bin".to_string(),
+                            "application/octet-stream".to_string(),
+                        ),
+                    }
+                }
+                _ => (
+                    "mirrored.bin".to_string(),
+                    "application/octet-stream".to_string(),
+                ),
+            };
+
+            // Store locally by hash — will dedupe if already present
+            match local_blob_registry
+                .store_blob(
+                    &bytes,
+                    name,
+                    mime,
+                    None,
+                    None,
+                    None,
+                    Some(hash),
+                )
+                .await
+            {
+                Ok(meta) => {
+                    info!(
+                        "[helper] Mirrored blob {} ({} bytes)",
+                        meta.hash, meta.size
+                    );
+                    (
+                        true,
+                        Some(serde_json::json!({"hash": meta.hash, "size": meta.size})),
+                        None,
+                    )
+                }
+                Err(e) => {
+                    (
+                        false,
+                        None,
+                        Some(format!("store_blob failed: {:?}", e)),
+                    )
+                }
+            }
         }
         _ => {
             warn!("[helper] Unknown job kind: {}", kind_str);
-            false
+            (
+                false,
+                None,
+                Some(format!("unknown job kind: {}", kind_str)),
+            )
         }
     }
 }
@@ -374,11 +488,9 @@ async fn save_identity(path: &PathBuf, id: &HelperIdentity) -> anyhow::Result<()
 }
 
 fn new_keypair_placeholder() -> String {
-    // Phase 1: opaque string; real Ed25519 or P-256 keypairs later.
     format!("key-{}", uuid::Uuid::new_v4())
 }
 
 async fn gather_load() -> NodeLoad {
-    // Phase 1: stub. Later: read /proc/stat, /proc/meminfo, sysinfo crate, etc.
     NodeLoad::default()
 }

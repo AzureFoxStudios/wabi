@@ -5,6 +5,7 @@ pub mod auth;
 pub mod blobs;
 pub mod channels;
 pub mod jobs;
+pub mod media;
 pub mod messages;
 pub mod nodes;
 pub mod payments;

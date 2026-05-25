@@ -36,6 +36,8 @@ pub struct AppState {
     pub job_queue: JobQueue,
     /// Content-addressed blob registry
     pub blob_registry: BlobRegistry,
+    /// Media room routing registry (voice/video assignment to helper nodes)
+    pub media_registry: crate::media::MediaRoomRegistry,
     /// Broadcasts the SocketIo handle so HTTP handlers (like avatar upload) can emit events
     #[allow(dead_code)]
     pub sio_broadcast_tx: broadcast::Sender<socketioxide::SocketIo>,
@@ -95,6 +97,9 @@ impl AppState {
         let blob_registry = BlobRegistry::new_persistent(
             PathBuf::from(&config.data_dir),
         );
+        let media_registry = crate::media::MediaRoomRegistry::new_persistent(
+            PathBuf::from(&config.data_dir),
+        );
         Self {
             config,
             stdb,
@@ -108,6 +113,7 @@ impl AppState {
             node_registry,
             job_queue,
             blob_registry,
+            media_registry,
             sio_broadcast_tx,
             blacklist: RwLock::new(None),
         }
