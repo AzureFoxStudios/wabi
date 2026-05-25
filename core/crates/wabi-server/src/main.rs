@@ -11,6 +11,7 @@ mod blacklist;
 mod config;
 mod db;
 mod error;
+mod nodes;
 mod socketio;
 mod state;
 mod websocket;
@@ -69,7 +70,12 @@ async fn serve_upload(
     match tokio::fs::read(&file_path).await {
         Ok(data) => {
             let mime = mime_guess::from_path(&file_path).first_or_octet_stream();
-            tracing::debug!("Serving upload: {:?} ({} bytes, {})", file_path, data.len(), mime);
+            tracing::debug!(
+                "Serving upload: {:?} ({} bytes, {})",
+                file_path,
+                data.len(),
+                mime
+            );
             ([(axum::http::header::CONTENT_TYPE, mime.as_ref())], data).into_response()
         }
         Err(e) => {
@@ -118,8 +124,8 @@ async fn main() -> anyhow::Result<()> {
     info!("🚀 Wabi Node v{}", env!("CARGO_PKG_VERSION"));
 
     // Compute uploads_dir and blacklist_file before data_dir is consumed
-    let uploads_dir = std::env::var("UPLOADS_DIR")
-        .unwrap_or_else(|_| format!("{}/uploads", args.data_dir));
+    let uploads_dir =
+        std::env::var("UPLOADS_DIR").unwrap_or_else(|_| format!("{}/uploads", args.data_dir));
     let blacklist_file = std::env::var("WABI_BLACKLIST_FILE")
         .unwrap_or_else(|_| format!("{}/blacklist.txt", args.data_dir));
 

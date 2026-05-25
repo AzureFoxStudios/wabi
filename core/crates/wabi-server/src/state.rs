@@ -9,6 +9,7 @@ use crate::api::upload::UploadState;
 use crate::blacklist::BlacklistManager;
 use crate::config::ServerConfig;
 use crate::db::StdbClient;
+use crate::nodes::NodeRegistry;
 
 /// In-memory message cache shared between Socket.IO and HTTP handlers.
 /// channel_id → Vec of message JSON objects (capped at 1000 per channel).
@@ -27,6 +28,8 @@ pub struct AppState {
     pub owner_user_id: RwLock<Option<i64>>,
     /// Upload session state (in-memory, not persisted)
     pub upload_state: UploadState,
+    /// Core helper-node registry (authority-owned; not federation)
+    pub node_registry: NodeRegistry,
     /// Broadcasts the SocketIo handle so HTTP handlers (like avatar upload) can emit events
     #[allow(dead_code)]
     pub sio_broadcast_tx: broadcast::Sender<socketioxide::SocketIo>,
@@ -76,6 +79,10 @@ impl AppState {
             std::env::var("WABI_STDB_TOKEN").ok(),
         );
         let owner_user_id = RwLock::new(Self::load_owner_from_disk(&config.data_dir));
+        let node_registry = NodeRegistry::new_persistent(
+            config.node_id.clone(),
+            PathBuf::from(&config.data_dir).join("node_registry.json"),
+        );
         Self {
             config,
             stdb,
@@ -86,6 +93,7 @@ impl AppState {
             session_messages: Arc::new(RwLock::new(HashMap::new())),
             owner_user_id,
             upload_state: UploadState::new(),
+            node_registry,
             sio_broadcast_tx,
             blacklist: RwLock::new(None),
         }

@@ -1,9 +1,10 @@
 //! API route handlers
 
-pub mod auth;
 pub mod albums;
+pub mod auth;
 pub mod channels;
 pub mod messages;
+pub mod nodes;
 pub mod payments;
 pub mod preview;
 pub mod public;
