@@ -332,6 +332,33 @@ impl NodeRegistry {
         Ok(updated)
     }
 
+    /// Mark nodes offline if their last heartbeat is older than the threshold.
+    pub async fn mark_stale_nodes_offline(&self, threshold: Duration) -> Vec<HelperNode> {
+        let mut changed = Vec::new();
+        let mut data = self.inner.write().await;
+        let now = Utc::now();
+        let threshold = match ChronoDuration::from_std(threshold) {
+            Ok(d) => d,
+            Err(_) => return changed,
+        };
+        for node in data.nodes.iter_mut() {
+            if node.status != NodeStatus::Online {
+                continue;
+            }
+            let Some(last) = node.last_heartbeat_at else {
+                continue;
+            };
+            if now - last > threshold {
+                node.status = NodeStatus::Offline;
+                changed.push(node.clone());
+            }
+        }
+        if !changed.is_empty() {
+            let _ = self.persist_locked(&data).await;
+        }
+        changed
+    }
+
     async fn persist_locked(&self, data: &NodeRegistryData) -> Result<(), NodeRegistryError> {
         let Some(path) = &self.storage_path else {
             return Ok(());

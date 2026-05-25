@@ -11,6 +11,7 @@ mod blacklist;
 mod config;
 mod db;
 mod error;
+mod helper_client;
 mod nodes;
 mod socketio;
 mod state;
@@ -106,6 +107,18 @@ struct Args {
     /// Data directory
     #[arg(long, default_value = "./data")]
     data_dir: String,
+
+    /// Run this binary as a helper node instead of a primary server
+    #[arg(long)]
+    helper_mode: bool,
+
+    /// URL of the primary Wabi server when running as helper
+    #[arg(long)]
+    primary_url: Option<String>,
+
+    /// Pairing token to use when joining as a helper
+    #[arg(long)]
+    pairing_token: Option<String>,
 }
 
 #[tokio::main]
@@ -122,6 +135,17 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     info!("🚀 Wabi Node v{}", env!("CARGO_PKG_VERSION"));
+
+    // --- Helper mode: outbound worker, no listening socket ---
+    if args.helper_mode {
+        let Some(primary_url) = args.primary_url else {
+            tracing::error!("--primary-url is required when using --helper-mode");
+            std::process::exit(1);
+        };
+        let display_name = std::env::var("HOSTNAME").unwrap_or_else(|_| format!("wabi-helper-{}", uuid::Uuid::new_v4().simple()));
+        helper_client::run_helper(primary_url, args.pairing_token, display_name, args.data_dir).await;
+        return Ok(());
+    }
 
     // Compute uploads_dir and blacklist_file before data_dir is consumed
     let uploads_dir =
@@ -167,6 +191,24 @@ async fn main() -> anyhow::Result<()> {
 
     // Create application state
     let state = Arc::new(AppState::new(config.clone()));
+
+    // Stale heartbeat detector: marks helpers offline if >120s since last heartbeat
+    {
+        let state = state.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                interval.tick().await;
+                let offline = state.node_registry
+                    .mark_stale_nodes_offline(std::time::Duration::from_secs(120))
+                    .await;
+                for node in offline {
+                    tracing::info!("[stale-detector] node {} marked offline", node.node_id);
+                }
+            }
+        });
+    }
 
     // Load blacklist
     let blacklist = BlacklistManager::new(config.blacklist_file.clone());
