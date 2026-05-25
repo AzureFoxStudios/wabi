@@ -19,6 +19,7 @@ mod state;
 mod websocket;
 
 use crate::blacklist::BlacklistManager;
+use crate::nodes::NodeCapability;
 use crate::state::AppState;
 use axum::{
     extract::DefaultBodyLimit,
@@ -144,7 +145,19 @@ async fn main() -> anyhow::Result<()> {
             std::process::exit(1);
         };
         let display_name = std::env::var("HOSTNAME").unwrap_or_else(|_| format!("wabi-helper-{}", uuid::Uuid::new_v4().simple()));
-        helper_client::run_helper(primary_url, args.pairing_token, display_name, args.data_dir).await;
+        helper_client::run_helper(
+            primary_url,
+            args.pairing_token,
+            display_name,
+            vec![
+                NodeCapability::CpuWorker,
+                NodeCapability::ThumbnailWorker,
+                NodeCapability::TranscodeWorker,
+                NodeCapability::SearchIndexer,
+            ],
+            args.data_dir,
+        )
+        .await;
         return Ok(());
     }
 
