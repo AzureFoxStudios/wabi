@@ -1567,186 +1567,14 @@
 	let enlargedImage: string | null = null;
 	let enlargedVideo: string | null = null;
 	let currentImageGallery: string[] = [];
-	let currentImageIndex: number = 0;
-	let imageZoom = 1;
-	let imageMenuOpen = false;
-	let imageMeta: { name: string; width: number | null; height: number | null; sizeBytes: number | null } = {
-		name: '',
-		width: null,
-		height: null,
-		sizeBytes: null
-	};
-
-	function getFileNameFromUrl(url: string): string {
-		try {
-			const pathname = new URL(url, window.location.origin).pathname;
-			const lastSegment = pathname.split('/').pop() || 'image';
-			return decodeURIComponent(lastSegment);
-		} catch {
-			return 'image';
-		}
-	}
-
-	function formatBytes(bytes: number | null): string {
-		if (bytes === null || Number.isNaN(bytes)) return 'Unknown';
-		if (bytes < 1024) return `${bytes} B`;
-		const kb = bytes / 1024;
-		if (kb < 1024) return `${kb.toFixed(1)} KB`;
-		const mb = kb / 1024;
-		if (mb < 1024) return `${mb.toFixed(1)} MB`;
-		const gb = mb / 1024;
-		return `${gb.toFixed(2)} GB`;
-	}
-
-	function resetImageOverlayState(url: string) {
-		imageZoom = 1;
-		imageMenuOpen = false;
-		imageMeta = {
-			name: getFileNameFromUrl(url),
-			width: null,
-			height: null,
-			sizeBytes: null
-		};
-		void resolveImageSize(url);
-	}
-
-	async function resolveImageSize(url: string) {
-		try {
-			const response = await fetch(url);
-			if (!response.ok) return;
-			const blob = await response.blob();
-			imageMeta = { ...imageMeta, sizeBytes: blob.size };
-		} catch {
-			// Ignore metadata failures for external/CORS-protected URLs.
-		}
-	}
-
-	function setImageZoom(nextZoom: number) {
-		imageZoom = Math.max(0.25, Math.min(5, nextZoom));
-	}
-
-	function zoomIn() {
-		setImageZoom(imageZoom + 0.25);
-	}
-
-	function zoomOut() {
-		setImageZoom(imageZoom - 0.25);
-	}
-
-	function resetZoom() {
-		imageZoom = 1;
-	}
-
-	function toggleImageMenu() {
-		imageMenuOpen = !imageMenuOpen;
-	}
-
-	function onEnlargedImageLoad(event: Event) {
-		const imageEl = event.currentTarget as HTMLImageElement;
-		imageMeta = {
-			...imageMeta,
-			width: imageEl.naturalWidth || null,
-			height: imageEl.naturalHeight || null
-		};
-	}
-
-	async function copyCurrentImageLink() {
-		if (!enlargedImage || !navigator.clipboard) return;
-		try {
-			await navigator.clipboard.writeText(enlargedImage);
-		} catch (error) {
-			console.warn('Failed to copy image link:', error);
-		}
-		imageMenuOpen = false;
-	}
-
-	async function copyCurrentImage() {
-		if (!enlargedImage || !navigator.clipboard || typeof ClipboardItem === 'undefined') {
-			await copyCurrentImageLink();
-			return;
-		}
-		try {
-			const response = await fetch(enlargedImage);
-			if (!response.ok) throw new Error(`Failed to fetch image (${response.status})`);
-			const blob = await response.blob();
-			await navigator.clipboard.write([new ClipboardItem({ [blob.type || 'image/png']: blob })]);
-		} catch (error) {
-			console.warn('Failed to copy image, falling back to link copy:', error);
-			await copyCurrentImageLink();
-		}
-		imageMenuOpen = false;
-	}
-
-	function openReverseImageSearch(): void {
-		if (!enlargedImage) return;
-		const provider = getReverseImageSearchProvider();
-		const searchUrl = buildReverseImageSearchUrl(enlargedImage, provider);
-		window.open(searchUrl, '_blank', 'noopener,noreferrer');
-		imageMenuOpen = false;
-	}
-
-	async function forwardCurrentImage() {
-		if (!enlargedImage) return;
-		const nav = navigator as Navigator & { share?: (data: ShareData) => Promise<void> };
-		if (nav.share) {
-			try {
-				await nav.share({ url: enlargedImage, title: imageMeta.name });
-				return;
-			} catch {
-				// Share dialog dismissed or unavailable for this payload.
-			}
-		}
-		await copyCurrentImageLink();
-	}
 
 	function enlargeImage(imageUrl: string, gallery: string[] = []) {
 		enlargedImage = imageUrl;
 		currentImageGallery = gallery.length > 0 ? gallery : [imageUrl];
-		currentImageIndex = currentImageGallery.indexOf(imageUrl);
-		resetImageOverlayState(imageUrl);
 	}
 	function closeEnlargedImage() {
 		enlargedImage = null;
 		currentImageGallery = [];
-		currentImageIndex = 0;
-		imageMenuOpen = false;
-	}
-	function navigateImage(direction: 'prev' | 'next') {
-		if (currentImageGallery.length === 0) return;
-		if (direction === 'prev') {
-			currentImageIndex = (currentImageIndex - 1 + currentImageGallery.length) % currentImageGallery.length;
-		} else {
-			currentImageIndex = (currentImageIndex + 1) % currentImageGallery.length;
-		}
-		enlargedImage = currentImageGallery[currentImageIndex];
-		if (enlargedImage) resetImageOverlayState(enlargedImage);
-	}
-	function handleImageKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && contextMenuVisible) {
-			e.preventDefault();
-			contextMenuVisible = false;
-			return;
-		}
-		if (!enlargedImage) return;
-		if (e.key === 'ArrowLeft') {
-			e.preventDefault();
-			navigateImage('prev');
-		} else if (e.key === 'ArrowRight') {
-			e.preventDefault();
-			navigateImage('next');
-		} else if (e.key === 'Escape') {
-			e.preventDefault();
-			closeEnlargedImage();
-		} else if (e.key === '+' || e.key === '=') {
-			e.preventDefault();
-			zoomIn();
-		} else if (e.key === '-') {
-			e.preventDefault();
-			zoomOut();
-		} else if (e.key === '0') {
-			e.preventDefault();
-			resetZoom();
-		}
 	}
 	function enlargeVideo(videoUrl: string) {
 		enlargedVideo = videoUrl;
@@ -1754,6 +1582,7 @@
 	function closeEnlargedVideo() {
 		enlargedVideo = null;
 	}
+
 	function toggleSpoiler(target: HTMLElement, event: MouseEvent): void {
 		if (canUseRevealAllSpoilers() && (event.ctrlKey || event.metaKey)) {
 			const shouldReveal = !target.classList.contains('revealed');
@@ -1866,9 +1695,8 @@
 	}
 </script>
 
-<!-- Window-level keyboard listener for image navigation -->
+<!-- Window-level keyboard listener for image navigation handled by ImageLightbox -->
 <svelte:window
-	on:keydown={handleImageKeydown}
 	on:click={dismissMobileActions}
 	on:click|capture={handleCapturedSpoilerClick}
 />

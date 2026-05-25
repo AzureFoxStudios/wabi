@@ -1,27 +1,44 @@
 # Wabi Multi-Anchor + Helper Node Architecture — Futuresight Proposal
 
-**Status:** Proposal / notes for later. Not for immediate implementation until core Wabi chat, calls, storage, and addon fracture work are stable.
+**Version:** 1.1 (Updated after review, May 2026)  
+**Status:** Proposal / notes for later. Not for implementation until core Wabi chat, calls, storage, and addon fracture work are stable.  
+**Prerequisite:** `wabi-mesh` addon must be replaced with real infrastructure, not extended.
 
-**Problem:** Wabi's current mesh addon is scaffolding only. It does not provide real routing, replication, offload, heartbeat handling, or server-to-server state sync. This document proposes a realistic path for letting Wabi scale beyond one box without jumping straight into cursed full federation.
+**Problem:** Wabi's current `wabi-mesh` addon (141 lines) is scaffolding only. `send_heartbeat()` logs a debug message and returns `Ok(())`. `get_optimal_node()` returns the local node_id. `sync_status` is hardcoded `"synced"`. This document replaces that fake scaffolding with a real, bounded, average-joe-friendly scaling path.
 
-**Core idea:** Keep Wabi simple for normal self-hosters, but allow larger communities to pair extra machines as scoped helper nodes, regional anchors, media nodes, cache nodes, and warm standbys.
+**Core idea:** Keep Wabi simple for normal self-hosters, but allow larger communities to pair extra machines as scoped helper nodes, regional anchors, media nodes, cache nodes, and warm standbys. One authority owns truth. Helpers do bounded work. Complexity is opt-in.
 
 ---
 
 ## 1. Design Philosophy
 
-Wabi should not begin with “server mesh.” That phrase is too vague and implies every node is equal.
+Wabi should not begin with "server mesh." That phrase is too vague and implies every node is equal.
 
 The safer framing:
 
 - **One community authority** owns truth.
 - **Helper nodes** do bounded work.
-- **Regional anchors** absorb public traffic.
+- **Regional anchors** absorb public traffic (large scale only).
 - **Media/cache/worker nodes** offload expensive paths.
 - **Warm standby nodes** preserve recoverability.
 - **Full active-active multi-writer mesh** is a last resort, not the starting point.
 
 This keeps Wabi closer to a self-hosted Minecraft/Discord alternative than a Matrix-sized distributed protocol.
+
+### 1.1 UX Language vs. Internal Language
+
+Public-facing UX should not expose distributed-systems vocabulary.
+
+| What the user sees | What it is internally |
+|---|---|
+| Main server | Authority node |
+| Add helper computer | Worker node pairing |
+| Call helper | Media node |
+| File cache | Cache / blob node |
+| Regional entry | Anchor node |
+| Backup computer | Warm standby |
+
+Advanced terms (authority, anchor, route token, event log, read replica, node capability) stay in docs/config/API for expert operators only.
 
 ---
 
@@ -86,8 +103,8 @@ Responsibilities:
 
 - WebSocket/QUIC/TCP forwarding
 - NAT traversal assist
-- fallback media/file routing
-- possibly STDB/TCP call fallback later
+- Fallback media/file routing
+- Possibly STDB/TCP call fallback later
 
 Trust level depends on deployment:
 
@@ -100,12 +117,12 @@ A cache node stores content-addressed blobs and derived media.
 
 Responsibilities:
 
-- file downloads
-- public media cache
-- thumbnails
-- optimized images
-- video preview variants
-- static assets
+- File downloads
+- Public media cache
+- Thumbnails
+- Optimized images
+- Video preview variants
+- Static assets
 
 Rules:
 
@@ -121,10 +138,10 @@ A media node handles voice/video routing.
 Responsibilities:
 
 - SFU/media relay
-- voice room hosting
-- regional call routing
-- screen-share relay
-- recording/transcoding only if explicitly enabled
+- Voice room hosting
+- Regional call routing
+- Screen-share relay
+- Recording/transcoding only if explicitly enabled
 
 Primary still owns:
 
@@ -141,13 +158,13 @@ An anchor is a public gateway for a large community.
 
 Responsibilities:
 
-- public WebSocket/API entrypoint
-- regional client fanout
-- local cache
-- upload ingress
-- voice/media coordination
+- Public WebSocket/API entrypoint
+- Regional client fanout
+- Local cache
+- Upload ingress
+- Voice/media coordination
 - DDoS blast-radius reduction
-- route users toward local media/cache nodes
+- Route users toward local media/cache nodes
 
 Anchors are not equal authorities. They are scoped gateways.
 
@@ -160,16 +177,18 @@ For a worldwide art team:
 
 Users connect to the closest healthy anchor. The anchor talks to the authority.
 
+**Important:** Regional anchors are Phase 7. Do not build them until workers, cache, media offload, LAN acceleration, and warm standby are all proven.
+
 ### 2.7 Warm Standby Node
 
 A warm standby receives replicated event logs/snapshots from the authority.
 
 Responsibilities:
 
-- encrypted event log backup
-- snapshot storage
-- restore target
-- manual promotion if authority dies
+- Encrypted event log backup
+- Snapshot storage
+- Restore target
+- Manual promotion if authority dies
 
 Initial rule: promotion is manual.
 
@@ -304,6 +323,8 @@ Admin panel should show:
 
 Important: helpers should connect outbound by default. Requiring inbound router config defeats the point.
 
+**Initial pairing delivery mechanism:** CLI join command. QR code as a later enhancement if mobile helpers become a use case.
+
 ---
 
 ## 5. Networking Reality
@@ -328,13 +349,28 @@ And route accordingly.
 
 ---
 
-## 6. Signed Tokens as the Safety Primitive
+## 6. Control Tunnel Protocol
+
+**Phase 1 default:** WebSocket over HTTPS.
+
+Wabi already has Axum + Socket.IO-style infrastructure. A helper opening one outbound WebSocket control tunnel is sufficient for Phase 1.
+
+**Future upgrades:** QUIC can be added later if the control tunnel becomes a bandwidth or latency bottleneck. Do not start with QUIC. One less protocol to debug.
+
+**Why not gRPC or libp2p:**
+- gRPC adds protobuf tooling and a heavy dependency stack.
+- libp2p is powerful but violates Wabi's "simple durable tool" preference.
+- Custom protocol can be evaluated later, but WebSocket is the right Phase 1 default.
+
+---
+
+## 7. Signed Tokens as the Safety Primitive
 
 Helper nodes should not need full database access or global permission logic.
 
 The authority should mint scoped signed tokens.
 
-### 6.1 SignedRouteToken
+### 7.1 SignedRouteToken
 
 Fields:
 
@@ -357,7 +393,9 @@ Capabilities:
 
 Helpers verify the authority signature and expiry.
 
-### 6.2 NodePairingToken
+**Token format recommendation:** Evaluate Biscuit or Macaroon-style caveats before choosing. Both support attenuation (scope reduction) and third-party caveats natively. JWT is common but less naturally caveat-oriented. PASETO is simpler but lacks caveats.
+
+### 7.2 NodePairingToken
 
 Fields:
 
@@ -376,7 +414,7 @@ Pairing flow:
 4. Authority stores helper public key.
 5. Future node messages are signed/mTLS-authenticated.
 
-### 6.3 Node Revocation
+### 7.3 Node Revocation
 
 Authority must be able to revoke a node instantly.
 
@@ -390,7 +428,21 @@ Revocation should:
 
 ---
 
-## 7. State and Data Levels
+## 8. Heartbeat Granularity
+
+Do not put everything in one heartbeat message. Separate channels with different frequencies:
+
+| Channel | Interval | Content |
+|---|---|---|
+| **Heartbeat** | 5 seconds | "I'm alive" + node_id |
+| **Capability report** | 30-60 seconds | CPU, RAM, capabilities, load, reachability |
+| **Job status** | On demand | Progress, completion, failure |
+
+The current fake `wabi-mesh` heartbeat conflates these. The real implementation should keep them separate so heartbeat stays lightweight and capability reports don't spam the control tunnel.
+
+---
+
+## 9. State and Data Levels
 
 Do not start with distributed writes.
 
@@ -441,7 +493,59 @@ Problems introduced:
 
 ---
 
-## 8. Regional Anchor Semantics
+## 10. Event Log Scope (Canonical vs. Ephemeral)
+
+The authority maintains an append-only event log for durable events.
+
+**In the log:**
+
+- message_created
+- message_deleted
+- file_uploaded
+- role_changed
+- user_banned
+- node_joined
+- node_revoked
+- channel_created
+- channel_deleted
+- permission_changed
+
+**NOT in the log:**
+
+- presence_change (who's online)
+- typing_start/typing_stop
+- voice_sfu_frame
+- media_packet
+- heartbeat
+- read receipt
+- reaction_add (can be logged but often ephemeral)
+- ephemeral notification
+
+The event log is the replication spine for warm standby, search indexing, worker jobs, and cache invalidation. Keep it compact. Do not put high-volume ephemeral packets in the same stream.
+
+---
+
+## 11. Node Registry: Core vs. Addon
+
+**The node registry is core infrastructure.** Do not implement it as an addon.
+
+Individual node capabilities can be optional:
+
+- Thumbnail worker → optional addon
+- Transcode worker → optional addon
+- Media relay → optional addon
+- Cache node → optional addon
+- Backup node → optional addon
+
+But the node identity, pairing, heartbeat, capability registry, and revocation are foundational. They enable the addon system to offload work safely. Without a core registry, every addon would reinvent node trust.
+
+**What to do with `wabi-mesh`:**
+
+Do not extend it. The `MeshConfig`, `MeshStatus`, and `MeshPresence` types are the right shape, but the implementation is fake. Create a new `core/crates/wabi-server/src/nodes/` module with real logic. Remove or deprecate `wabi-mesh` once the new system is proven.
+
+---
+
+## 12. Regional Anchor Semantics
 
 A regional anchor may accept local client traffic, but not all writes should be equal.
 
@@ -469,7 +573,7 @@ This avoids pretending that disconnected anchors can safely own the whole commun
 
 ---
 
-## 9. Emergency Lockdown Mode
+## 13. Emergency Lockdown Mode
 
 Large artists need raid/attack controls.
 
@@ -492,16 +596,16 @@ This is more useful for public figures than abstract federation complexity.
 
 ---
 
-## 10. Threat Model
+## 14. Threat Model
 
-### 10.1 Small Server Threats
+### 14.1 Small Server Threats
 
 - misbehaving user
 - accidental spam
 - weak admin password
 - local machine failure
 
-### 10.2 Large Public Artist Threats
+### 14.2 Large Public Artist Threats
 
 - DDoS
 - scraper farms
@@ -513,7 +617,7 @@ This is more useful for public figures than abstract federation complexity.
 - payment/subscription abuse
 - malicious media uploads
 
-### 10.3 Isolation Rules
+### 14.3 Isolation Rules
 
 - Public cache nodes must not see private DMs/mod logs/payment config.
 - Worker nodes should only receive the data required for a job.
@@ -522,32 +626,60 @@ This is more useful for public figures than abstract federation complexity.
 - Backup nodes should store encrypted data when possible.
 - Revocation must be fast.
 
+### 14.4 Public Figure Threat Model Document
+
+A dedicated threat model document is planned for later: `docs/futuresight-public-figure-threat-model.md`.
+
+Topics to cover:
+- hidden authority
+- regional anchors
+- emergency lockdown
+- invite freeze
+- expensive endpoint shutdown
+- media upload restrictions
+- mod-account hardening
+- cache poisoning prevention
+
+This is deferred until the core helper-node architecture is stable.
+
 ---
 
-## 11. Implementation Sketch
+## 15. Implementation Sketch
 
 ### Phase 1: Real Node Registry
 
-Goal: replace fake mesh scaffolding with actual node presence.
+**Goal:** Replace fake mesh scaffolding with actual node presence. This is the foundation everything else builds on.
 
-Tasks:
+**Prerequisites before starting:**
+- Fracture branch landed and stable
+- `bun run check` clean
+- `cargo check` clean
+- Runtime calling/chat verification complete
 
-- Add node table/types:
+**Tasks:**
+
+- Add `core/crates/wabi-server/src/nodes/` module:
+  - `registry.rs` — HashMap<node_id, NodeRecord> with persistence
+  - `pairing.rs` — Invite token creation, validation, one-time use
+  - `heartbeat.rs` — Heartbeat handler, dead detection (5s interval, 15s threshold)
+  - `auth.rs` — Node keypair signature verification
+- NodeRecord fields:
   - node_id
   - public_key
   - role
   - capabilities
-  - reachability
+  - reachability (outbound_only / lan_reachable / public_reachable / relay_reachable)
   - last_seen
-  - status
-- Add pairing token creation endpoint.
-- Add helper join endpoint.
-- Add heartbeat endpoint/tunnel message.
-- Show nodes in admin UI.
-- Remove/replace fake `sync_status: synced` behavior.
+  - status (pending / connected / degraded / dead / revoked)
+  - paired_at
+- Control tunnel: WebSocket over HTTPS (Axum upgrade path)
+- Heartbeat: lightweight "I'm alive" only (5s)
+- Capability report: CPU/RAM/load/capabilities (30-60s)
+- Admin REST endpoints: `GET /api/admin/nodes`, `POST /api/admin/nodes/invite`, `DELETE /api/admin/nodes/:id`
+- Admin UI: Settings -> Scale with another computer -> show nodes table + revoke button
+- Remove/replace fake `sync_status: synced` behavior from `wabi-mesh`
 
-Verification:
-
+**Verification:**
 - Start authority.
 - Pair local helper.
 - Kill helper.
@@ -555,22 +687,19 @@ Verification:
 
 ### Phase 2: Job Offload
 
-Start with safe jobs:
-
+**Start with safe jobs:**
 - thumbnail generation
 - video metadata extraction
 - search indexing
 
-Tasks:
-
-- Add job queue table.
+**Tasks:**
+- Add job queue table (SQLite or in-memory with persistence).
 - Add worker job pull API.
 - Add signed job lease.
 - Add result submission.
 - Add retry/failure handling.
 
-Verification:
-
+**Verification:**
 - Upload image.
 - Worker generates thumbnail.
 - Kill worker mid-job.
@@ -578,16 +707,14 @@ Verification:
 
 ### Phase 3: Blob Cache/File Offload
 
-Tasks:
-
-- Store blobs by hash.
+**Tasks:**
+- Store blobs by hash (SHA-256 or BLAKE3).
 - Add storage locations to file metadata.
 - Add signed upload/download route tokens.
 - Add cache node quota.
 - Add verification by hash.
 
-Verification:
-
+**Verification:**
 - Upload file via authority.
 - Mirror to cache node.
 - Download from cache node.
@@ -595,46 +722,40 @@ Verification:
 
 ### Phase 4: Media Node / Voice Offload
 
-Tasks:
-
+**Tasks:**
 - Define media node capability.
 - Authority assigns room to media node.
 - Authority mints signed room token.
 - Client connects to media node.
 - Existing room can drain/migrate when node shuts down.
 
-Verification:
-
+**Verification:**
 - Join voice room hosted on helper media node.
 - Revoke media node.
 - Client falls back or reconnects.
 
 ### Phase 5: LAN Acceleration
 
-Tasks:
-
+**Tasks:**
 - mDNS discovery for helper nodes.
 - Client asks authority if local helper is allowed.
 - Authority returns signed local route token.
 - Client uses LAN helper for media/cache.
 
-Verification:
-
+**Verification:**
 - Same-LAN client downloads from local helper.
 - Remote client ignores LAN-only helper.
 
 ### Phase 6: Warm Standby
 
-Tasks:
-
+**Tasks:**
 - Append-only authority event log.
 - Stream log to standby.
 - Periodic snapshots.
 - Manual promotion command.
 - Anchor reconnect to promoted authority.
 
-Verification:
-
+**Verification:**
 - Kill primary authority.
 - Promote standby manually.
 - Anchors reconnect.
@@ -642,8 +763,7 @@ Verification:
 
 ### Phase 7: Regional Anchors
 
-Tasks:
-
+**Tasks:**
 - Define anchor node role.
 - Public client connection through anchor.
 - Anchor forwards writes to authority.
@@ -651,17 +771,57 @@ Tasks:
 - Anchor supports degraded read-only mode.
 - Region selection logic.
 
-Verification:
-
+**Verification:**
 - Two anchors in different regions/local ports.
 - Client connects to nearest/preferred anchor.
 - Authority outage makes admin/payment actions unavailable but cached reads continue.
 
 ---
 
+## 16. Scaling Middleware (When, Not Now)
+
+Basic protections for 50+ concurrent users should be added when the server actually serves that many. Not before. Not as defensive architecture theater.
+
+When needed:
+- **Socket event rate limiting:** Per-connection throttle, ~50-80 lines Rust middleware.
+- **Consistent auth middleware:** Single `require_role(minimum)` wrapper, replaces scattered `is_admin()` checks.
+- **Call transport validation:** Verify user is in voice channel before accepting WebRTC signaling.
+- **Admin API rate limiting:** Sliding window per-session on admin routes.
+
+What NOT to add:
+- Template-based config pipelines (Sovereign pattern)
+- Sidecar auth/rate-limit containers
+- Request validation with schema rendering
+- DDoS protection at the proxy layer (that's Cloudflare/provider's job)
+
+These are in `docs/futuresight-scaling-middleware.md`.
 
 ---
 
 ## Research Appendix
 
 Detailed research notes, implementation comparisons, and future backlog live in `futuresight-multi-anchor-research.md`.
+
+Key verified precedents:
+- **LiveKit distributed:** Many rooms across nodes, one room per node. Confirmed by docs.livekit.io.
+- **Matrix Synapse workers:** Worker splitting is real but operationally heavy. Good cautionary example.
+- **Cloudflare Tunnel:** Outbound-only connector pattern proven for NAT/CGNAT.
+- **GitLab Geo:** Async warm standby with manual promotion. Good precedent.
+- **IPFS:** Content-addressed retrieval proven. Use hash-addressing, not public IPFS.
+
+---
+
+## Summary
+
+For normal users:
+
+> Run Wabi on one machine. Pair extra computers when you want them to help.
+
+For large teams:
+
+> Run one hidden authority, several regional anchors, scoped workers/media/cache nodes, and a warm standby.
+
+For Wabi engineering:
+
+> Build helper-node primitives first. Do not jump to active-active federation. Start with WebSocket control tunnels. Keep the node registry in core. Make every phase additive, not destructive. Verify each phase before building the next.
+
