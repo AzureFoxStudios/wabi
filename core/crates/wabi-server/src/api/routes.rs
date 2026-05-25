@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::state::AppState;
 
-use super::{albums, auth, channels, messages, nodes, payments, preview, public, upload, user};
+use super::{albums, auth, blobs, channels, messages, nodes, payments, preview, public, upload, user};
 
 /// Create the main API router with all routes
 pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
@@ -30,6 +30,8 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/payments", payments::routes(state.clone()))
         // Helper node registry routes
         .nest("/nodes", nodes::routes(state.clone()))
+        // Blob storage routes (content-addressed)
+        .nest("/blobs", blobs::routes(state.clone()))
         // Job queue routes
         .nest("/jobs", super::jobs::routes(state.clone()))
         // Whiteboard routes (image upload & file serving)

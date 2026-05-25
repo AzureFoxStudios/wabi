@@ -8,6 +8,7 @@
 
 mod api;
 mod blacklist;
+mod blobs;
 mod config;
 mod db;
 mod error;
@@ -15,9 +16,9 @@ mod helper_client;
 mod jobs;
 mod nodes;
 mod socketio;
+mod socketio_impl;
 mod state;
 mod websocket;
-
 use crate::blacklist::BlacklistManager;
 use crate::nodes::NodeCapability;
 use crate::state::AppState;

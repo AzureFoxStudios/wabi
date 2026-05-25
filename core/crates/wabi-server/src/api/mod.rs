@@ -2,6 +2,7 @@
 
 pub mod albums;
 pub mod auth;
+pub mod blobs;
 pub mod channels;
 pub mod jobs;
 pub mod messages;

@@ -7,6 +7,7 @@ use tokio::sync::{broadcast, RwLock};
 
 use crate::api::upload::UploadState;
 use crate::blacklist::BlacklistManager;
+use crate::blobs::BlobRegistry;
 use crate::config::ServerConfig;
 use crate::db::StdbClient;
 use crate::jobs::JobQueue;
@@ -33,6 +34,8 @@ pub struct AppState {
     pub node_registry: NodeRegistry,
     /// Job queue for helper-node worker offload
     pub job_queue: JobQueue,
+    /// Content-addressed blob registry
+    pub blob_registry: BlobRegistry,
     /// Broadcasts the SocketIo handle so HTTP handlers (like avatar upload) can emit events
     #[allow(dead_code)]
     pub sio_broadcast_tx: broadcast::Sender<socketioxide::SocketIo>,
@@ -89,6 +92,9 @@ impl AppState {
         let job_queue = JobQueue::new_persistent(
             PathBuf::from(&config.data_dir).join("job_queue.json"),
         );
+        let blob_registry = BlobRegistry::new_persistent(
+            PathBuf::from(&config.data_dir),
+        );
         Self {
             config,
             stdb,
@@ -101,6 +107,7 @@ impl AppState {
             upload_state: UploadState::new(),
             node_registry,
             job_queue,
+            blob_registry,
             sio_broadcast_tx,
             blacklist: RwLock::new(None),
         }
