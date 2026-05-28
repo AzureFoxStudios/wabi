@@ -83,7 +83,10 @@ impl MediaRoomRegistry {
         let mut guard = self.inner.write().await;
         if let Some(existing) = guard.rooms.values().find(|r| {
             r.channel_id == channel_id
-                && matches!(r.status, MediaRoomStatus::Pending | MediaRoomStatus::Assigned | MediaRoomStatus::Active)
+                && matches!(
+                    r.status,
+                    MediaRoomStatus::Pending | MediaRoomStatus::Assigned | MediaRoomStatus::Active
+                )
         }) {
             return Ok(existing.clone());
         }
@@ -163,10 +166,7 @@ impl MediaRoomRegistry {
         Ok(cloned)
     }
 
-    pub async fn close_room(
-        &self,
-        room_id: &str,
-    ) -> Result<MediaRoom, MediaRoomError> {
+    pub async fn close_room(&self, room_id: &str) -> Result<MediaRoom, MediaRoomError> {
         let mut guard = self.inner.write().await;
         let room = guard
             .rooms
@@ -185,24 +185,26 @@ impl MediaRoomRegistry {
         guard.rooms.get(room_id).cloned()
     }
 
-    pub async fn find_by_channel(&self,
-        channel_id: &str,
-    ) -> Option<MediaRoom> {
+    pub async fn find_by_channel(&self, channel_id: &str) -> Option<MediaRoom> {
         let guard = self.inner.read().await;
-        guard.rooms.values().find(|r| {
-            r.channel_id == channel_id
-                && !matches!(r.status, MediaRoomStatus::Closed)
-        }).cloned()
+        guard
+            .rooms
+            .values()
+            .find(|r| r.channel_id == channel_id && !matches!(r.status, MediaRoomStatus::Closed))
+            .cloned()
     }
 
-    pub async fn list_rooms(&self,
-    ) -> Vec<MediaRoom> {
+    pub async fn list_rooms(&self) -> Vec<MediaRoom> {
         let guard = self.inner.read().await;
-        guard.rooms.values().filter(|r| !matches!(r.status, MediaRoomStatus::Closed)).cloned().collect()
+        guard
+            .rooms
+            .values()
+            .filter(|r| !matches!(r.status, MediaRoomStatus::Closed))
+            .cloned()
+            .collect()
     }
 
-    pub async fn active_endpoint(&self, room_id: &str,
-    ) -> Option<String> {
+    pub async fn active_endpoint(&self, room_id: &str) -> Option<String> {
         let guard = self.inner.read().await;
         let room = guard.rooms.get(room_id)?;
         if room.status != MediaRoomStatus::Active {
@@ -211,9 +213,7 @@ impl MediaRoomRegistry {
         room.sfu_endpoint.clone()
     }
 
-    async fn persist_locked(
-        &self, data: &MediaRoomRegistryData,
-    ) {
+    async fn persist_locked(&self, data: &MediaRoomRegistryData) {
         if let Some(parent) = self.data_path.parent() {
             let _ = tokio::fs::create_dir_all(parent).await;
         }
@@ -240,10 +240,20 @@ mod tests {
         assert_eq!(room.channel_id, "ch1");
         assert_eq!(room.status, MediaRoomStatus::Pending);
 
-        let assigned = reg.assign_room(&room.room_id, "node-a", Some("wss://helper.local/roomA".into())).await.unwrap();
+        let assigned = reg
+            .assign_room(
+                &room.room_id,
+                "node-a",
+                Some("wss://helper.local/roomA".into()),
+            )
+            .await
+            .unwrap();
         assert_eq!(assigned.status, MediaRoomStatus::Assigned);
 
-        let active = reg.mark_active(&room.room_id, "node-a", "wss://helper.local/roomA".into()).await.unwrap();
+        let active = reg
+            .mark_active(&room.room_id, "node-a", "wss://helper.local/roomA".into())
+            .await
+            .unwrap();
         assert_eq!(active.status, MediaRoomStatus::Active);
 
         let ep = reg.active_endpoint(&room.room_id).await;

@@ -31,8 +31,12 @@ pub struct UploadBlobQuery {
     pub message_id: Option<String>,
 }
 
-fn default_name() -> String { "unnamed.bin".to_string() }
-fn default_mime() -> String { "application/octet-stream".to_string() }
+fn default_name() -> String {
+    "unnamed.bin".to_string()
+}
+fn default_mime() -> String {
+    "application/octet-stream".to_string()
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -119,9 +123,7 @@ async fn blob_meta(
 }
 
 /// GET /api/blobs/
-async fn list_blobs(
-    State(state): State<Arc<AppState>>,
-) -> Json<BlobListResponse> {
+async fn list_blobs(State(state): State<Arc<AppState>>) -> Json<BlobListResponse> {
     let blobs = state.blob_registry.list_blobs().await;
     Json(BlobListResponse { blobs })
 }
@@ -142,8 +144,7 @@ impl From<BlobRegistryError> for BlobApiError {
 impl IntoResponse for BlobApiError {
     fn into_response(self) -> axum::response::Response {
         let (status, body) = match &self {
-            BlobApiError::Registry(BlobRegistryError::NotFound)
-            | BlobApiError::NotFound => {
+            BlobApiError::Registry(BlobRegistryError::NotFound) | BlobApiError::NotFound => {
                 (StatusCode::NOT_FOUND, "blob not found")
             }
             BlobApiError::Registry(BlobRegistryError::HashMismatch) => {
@@ -152,8 +153,7 @@ impl IntoResponse for BlobApiError {
             BlobApiError::Registry(BlobRegistryError::AlreadyExists) => {
                 (StatusCode::CONFLICT, "already exists")
             }
-            BlobApiError::Registry(BlobRegistryError::Io(msg))
-            | BlobApiError::Io(msg) => {
+            BlobApiError::Registry(BlobRegistryError::Io(msg)) | BlobApiError::Io(msg) => {
                 tracing::error!("blob io error: {}", msg);
                 (StatusCode::INTERNAL_SERVER_ERROR, "storage error")
             }

@@ -36,7 +36,28 @@ pub enum NodeCapability {
     MediaRelay,
     BlobCache,
     Backup,
+    Standby,
+    Anchor,
     GpuWorker,
+}
+
+impl std::fmt::Display for NodeCapability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            NodeCapability::CpuWorker => "cpu_worker",
+            NodeCapability::ThumbnailWorker => "thumbnail_worker",
+            NodeCapability::TranscodeWorker => "transcode_worker",
+            NodeCapability::SearchIndexer => "search_indexer",
+            NodeCapability::FileCache => "file_cache",
+            NodeCapability::MediaRelay => "media_relay",
+            NodeCapability::BlobCache => "blob_cache",
+            NodeCapability::Backup => "backup",
+            NodeCapability::Standby => "standby",
+            NodeCapability::Anchor => "anchor",
+            NodeCapability::GpuWorker => "gpu_worker",
+        };
+        write!(f, "{}", s)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -66,6 +87,14 @@ pub struct NodeLoad {
     pub upload_mbps: Option<f32>,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StandbySnapshotMetadata {
+    pub last_snapshot_id: Option<String>,
+    pub last_snapshot_at: Option<DateTime<Utc>>,
+    pub last_snapshot_status: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct HelperNode {
@@ -80,6 +109,13 @@ pub struct HelperNode {
     pub paired_at: DateTime<Utc>,
     pub last_heartbeat_at: Option<DateTime<Utc>>,
     pub revoked_at: Option<DateTime<Utc>>,
+    /// LAN-reachable address reported by the helper, e.g. "http://192.168.1.42:9999".
+    /// Used by the authority to route same-LAN clients directly to this helper.
+    #[serde(default)]
+    pub lan_reachable_at: Option<String>,
+    /// Snapshot status for high-trust standby/backup nodes.
+    #[serde(default)]
+    pub standby: StandbySnapshotMetadata,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -123,6 +159,11 @@ pub struct NodeHeartbeatRequest {
     pub endpoint: Option<String>,
     #[serde(default)]
     pub capabilities: Option<Vec<NodeCapability>>,
+    /// If the helper is reachable on the local LAN, it should report its LAN address here
+    /// (e.g. "http://192.168.1.42:9999"). The authority can then issue signed route tokens
+    /// pointing LAN clients to this helper directly.
+    #[serde(default)]
+    pub lan_reachable_at: Option<String>,
 }
 
 fn default_reachability() -> NodeReachability {
@@ -175,6 +216,10 @@ impl NodeRegistry {
             storage_path: Some(storage_path),
             inner: Arc::new(RwLock::new(data)),
         }
+    }
+
+    pub fn authority_node_id(&self) -> Option<&str> {
+        Some(self.authority_node_id.as_str())
     }
 
     pub async fn list_nodes(&self) -> Vec<HelperNode> {
@@ -266,6 +311,8 @@ impl NodeRegistry {
             paired_at: now,
             last_heartbeat_at: None,
             revoked_at: None,
+            lan_reachable_at: None,
+            standby: StandbySnapshotMetadata::default(),
         };
         data.node_secrets
             .insert(node.node_id.clone(), node_secret.clone());
@@ -309,11 +356,66 @@ impl NodeRegistry {
         node.load = req.load;
         node.reachability = req.reachability;
         node.endpoint = req.endpoint;
+        node.lan_reachable_at = req.lan_reachable_at;
         if let Some(capabilities) = req.capabilities {
             if !capabilities.is_empty() {
                 node.capabilities = capabilities;
             }
         }
+        let updated = node.clone();
+        self.persist_locked(&data).await?;
+        Ok(updated)
+    }
+
+    pub async fn authenticate_node(
+        &self,
+        node_id: &str,
+        node_secret: &str,
+    ) -> Result<HelperNode, NodeRegistryError> {
+        let data = self.inner.read().await;
+        let expected_secret = data
+            .node_secrets
+            .get(node_id)
+            .ok_or(NodeRegistryError::InvalidNodeSecret)?;
+        if expected_secret != node_secret {
+            return Err(NodeRegistryError::InvalidNodeSecret);
+        }
+        let node = data
+            .nodes
+            .iter()
+            .find(|node| node.node_id == node_id)
+            .ok_or(NodeRegistryError::NodeNotFound)?;
+        if node.status == NodeStatus::Revoked {
+            return Err(NodeRegistryError::NodeRevoked);
+        }
+        Ok(node.clone())
+    }
+
+    pub async fn record_standby_snapshot(
+        &self,
+        node_id: &str,
+        snapshot_id: &str,
+        status: impl Into<String>,
+    ) -> Result<HelperNode, NodeRegistryError> {
+        let mut data = self.inner.write().await;
+        let node = data
+            .nodes
+            .iter_mut()
+            .find(|node| node.node_id == node_id)
+            .ok_or(NodeRegistryError::NodeNotFound)?;
+        if node.status == NodeStatus::Revoked {
+            return Err(NodeRegistryError::NodeRevoked);
+        }
+        if !node.capabilities.contains(&NodeCapability::Standby)
+            && !node.capabilities.contains(&NodeCapability::Backup)
+        {
+            return Err(NodeRegistryError::InvalidInput(
+                "node does not have standby or backup capability".into(),
+            ));
+        }
+        node.standby.last_snapshot_id = Some(snapshot_id.to_string());
+        node.standby.last_snapshot_at = Some(Utc::now());
+        node.standby.last_snapshot_status = Some(status.into());
         let updated = node.clone();
         self.persist_locked(&data).await?;
         Ok(updated)
@@ -358,6 +460,22 @@ impl NodeRegistry {
             let _ = self.persist_locked(&data).await;
         }
         changed
+    }
+
+    pub async fn find_online_node_with_capability(
+        &self,
+        capability: NodeCapability,
+    ) -> Option<HelperNode> {
+        let data = self.inner.read().await;
+        for node in &data.nodes {
+            if node.status != NodeStatus::Online {
+                continue;
+            }
+            if node.capabilities.contains(&capability) {
+                return Some(node.clone());
+            }
+        }
+        None
     }
 
     async fn persist_locked(&self, data: &NodeRegistryData) -> Result<(), NodeRegistryError> {
@@ -478,6 +596,7 @@ mod tests {
                     reachability: NodeReachability::LanReachable,
                     endpoint: Some("https://worker.lan:9443".to_string()),
                     capabilities: Some(vec![NodeCapability::CpuWorker, NodeCapability::FileCache]),
+                    ..Default::default()
                 },
             )
             .await
@@ -531,6 +650,69 @@ mod tests {
                 &joined.node_secret,
                 NodeHeartbeatRequest::default(),
             )
+            .await;
+
+        assert!(matches!(result, Err(NodeRegistryError::NodeRevoked)));
+    }
+
+    #[tokio::test]
+    async fn standby_snapshot_metadata_requires_standby_or_backup_capability() {
+        let registry = test_registry();
+        let token = registry
+            .create_pairing_token(
+                "worker".to_string(),
+                vec![NodeCapability::CpuWorker],
+                Duration::from_secs(60),
+            )
+            .await
+            .expect("token created");
+        let joined = registry
+            .join_with_token(JoinNodeRequest {
+                token: token.token,
+                display_name: "worker-1".to_string(),
+                public_key: "worker-key".to_string(),
+                reachability: NodeReachability::OutboundOnly,
+                endpoint: None,
+            })
+            .await
+            .expect("joined");
+
+        let result = registry
+            .record_standby_snapshot(&joined.node.node_id, "snap-test", "received")
+            .await;
+
+        assert!(matches!(result, Err(NodeRegistryError::InvalidInput(_))));
+    }
+
+    #[tokio::test]
+    async fn revoked_standby_node_cannot_record_snapshot() {
+        let registry = test_registry();
+        let token = registry
+            .create_pairing_token(
+                "standby".to_string(),
+                vec![NodeCapability::Standby],
+                Duration::from_secs(60),
+            )
+            .await
+            .expect("token created");
+        let joined = registry
+            .join_with_token(JoinNodeRequest {
+                token: token.token,
+                display_name: "standby-1".to_string(),
+                public_key: "age1standbykey".to_string(),
+                reachability: NodeReachability::OutboundOnly,
+                endpoint: None,
+            })
+            .await
+            .expect("joined");
+
+        registry
+            .revoke_node(&joined.node.node_id)
+            .await
+            .expect("revoked");
+
+        let result = registry
+            .record_standby_snapshot(&joined.node.node_id, "snap-test", "received")
             .await;
 
         assert!(matches!(result, Err(NodeRegistryError::NodeRevoked)));

@@ -6,18 +6,23 @@
 //! - Health check endpoints
 //! - WebSocket real-time communication
 
+mod anchor;
 mod api;
 mod blacklist;
 mod blobs;
 mod config;
 mod db;
 mod error;
+mod helper_api;
 mod helper_client;
 mod jobs;
+mod lan;
+mod mdns;
 mod media;
 mod nodes;
 mod socketio;
 mod socketio_impl;
+mod standby;
 mod state;
 mod websocket;
 use crate::blacklist::BlacklistManager;
@@ -41,7 +46,7 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 
 use crate::api::routes::create_api_router;
-use crate::config::ServerConfig;
+use crate::config::{ServerConfig, ServerRole};
 
 /// Serve a file from the uploads directory
 async fn serve_upload(
@@ -123,6 +128,12 @@ struct Args {
     /// Pairing token to use when joining as a helper
     #[arg(long)]
     pairing_token: Option<String>,
+
+    /// When in helper mode, optionally advertise a LAN-reachable bind address
+    /// (e.g. 192.168.1.42:9999) so the authority can issue signed route tokens
+    /// pointing LAN clients to this helper directly.
+    #[arg(long, value_name = "HOST:PORT")]
+    lan_reachable_at: Option<String>,
 }
 
 #[tokio::main]
@@ -146,7 +157,10 @@ async fn main() -> anyhow::Result<()> {
             tracing::error!("--primary-url is required when using --helper-mode");
             std::process::exit(1);
         };
-        let display_name = std::env::var("HOSTNAME").unwrap_or_else(|_| format!("wabi-helper-{}", uuid::Uuid::new_v4().simple()));
+        let display_name = std::env::var("HOSTNAME")
+            .unwrap_or_else(|_| format!("wabi-helper-{}", uuid::Uuid::new_v4().simple()));
+        let jwt_secret = std::env::var("JWT_SECRET")
+            .unwrap_or_else(|_| "dev-secret-change-in-production".to_string());
         helper_client::run_helper(
             primary_url,
             args.pairing_token,
@@ -156,8 +170,11 @@ async fn main() -> anyhow::Result<()> {
                 NodeCapability::ThumbnailWorker,
                 NodeCapability::TranscodeWorker,
                 NodeCapability::SearchIndexer,
+                NodeCapability::MediaRelay,
             ],
             args.data_dir,
+            args.lan_reachable_at,
+            Some(jwt_secret),
         )
         .await;
         return Ok(());
@@ -168,6 +185,8 @@ async fn main() -> anyhow::Result<()> {
         std::env::var("UPLOADS_DIR").unwrap_or_else(|_| format!("{}/uploads", args.data_dir));
     let blacklist_file = std::env::var("WABI_BLACKLIST_FILE")
         .unwrap_or_else(|_| format!("{}/blacklist.txt", args.data_dir));
+    let server_role = ServerRole::from_env();
+    let authority_url = std::env::var("WABI_AUTHORITY_URL").ok();
 
     let config = ServerConfig {
         host: args.host,
@@ -187,6 +206,8 @@ async fn main() -> anyhow::Result<()> {
         is_primary: true,
         mesh_enabled: false,
         mesh_peers: vec![],
+        server_role: server_role.clone(),
+        authority_url: authority_url.clone(),
         admin_user_ids: std::env::var("WABI_ADMIN_USER_IDS")
             .unwrap_or_default()
             .split(',')
@@ -197,6 +218,24 @@ async fn main() -> anyhow::Result<()> {
 
     // Ensure data directory exists
     std::fs::create_dir_all(&config.data_dir)?;
+
+    if config.server_role == ServerRole::Anchor {
+        let authority_url = config.authority_url.clone().ok_or_else(|| {
+            anyhow::anyhow!("WABI_AUTHORITY_URL is required when WABI_SERVER_ROLE=anchor")
+        })?;
+        info!(
+            "🛰️ Starting stateless regional anchor on {}:{} -> {}",
+            config.host, config.port, authority_url
+        );
+        let app = anchor::create_anchor_router(authority_url)?
+            .layer(TraceLayer::new_for_http())
+            .layer(DefaultBodyLimit::max(50 * 1024 * 1024));
+        let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], config.port));
+        let listener = TcpListener::bind(addr).await?;
+        info!("✅ Anchor ready");
+        axum::serve(listener, app).await?;
+        return Ok(());
+    }
 
     // Ensure uploads directory exists
     std::fs::create_dir_all(&config.uploads_dir)?;
@@ -216,7 +255,8 @@ async fn main() -> anyhow::Result<()> {
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 interval.tick().await;
-                let offline = state.node_registry
+                let offline = state
+                    .node_registry
                     .mark_stale_nodes_offline(std::time::Duration::from_secs(120))
                     .await;
                 for node in offline {
@@ -234,14 +274,15 @@ async fn main() -> anyhow::Result<()> {
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 interval.tick().await;
-                let reaped = state.job_queue
-                    .reap_stale_jobs(
-                        &state.node_registry,
-                        std::time::Duration::from_secs(600),
-                    )
+                let reaped = state
+                    .job_queue
+                    .reap_stale_jobs(&state.node_registry, std::time::Duration::from_secs(600))
                     .await;
                 for job in reaped {
-                    tracing::info!("[stale-job-reaper] job {} requeued (node vanished)", job.job_id);
+                    tracing::info!(
+                        "[stale-job-reaper] job {} requeued (node vanished)",
+                        job.job_id
+                    );
                 }
             }
         });
@@ -311,7 +352,7 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state);
 
     // Bind and serve
-    let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
+    let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], config.port));
     let listener = TcpListener::bind(addr).await?;
 
     info!("✅ Server ready");
@@ -328,6 +369,7 @@ async fn health_check() -> impl IntoResponse {
     Json(serde_json::json!({
         "status": "ok",
         "service": "wabi-server",
+        "role": "authority",
         "version": env!("CARGO_PKG_VERSION"),
         "timestamp": chrono::Utc::now().to_rfc3339()
     }))

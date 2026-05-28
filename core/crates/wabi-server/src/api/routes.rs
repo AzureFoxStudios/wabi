@@ -5,7 +5,10 @@ use std::sync::Arc;
 
 use crate::state::AppState;
 
-use super::{albums, auth, blobs, channels, media, messages, nodes, payments, preview, public, upload, user};
+use super::{
+    albums, auth, blobs, channels, jobs, lan, media, messages, nodes, payments, preview, public,
+    standby, upload, user,
+};
 
 /// Create the main API router with all routes
 pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
@@ -35,7 +38,9 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Media room routing (helper-node SFU assignment)
         .nest("/media", media::routes(state.clone()))
         // Job queue routes
-        .nest("/jobs", super::jobs::routes(state.clone()))
+        .nest("/jobs", jobs::routes(state.clone()))
+        // Warm standby snapshot receive route (encrypted envelopes only)
+        .nest("/standby", standby::routes(state.clone()))
         // Whiteboard routes (image upload & file serving)
         .nest("/whiteboard", super::whiteboard::routes(state.clone()))
         // URL preview / image proxy (mounted at /url-preview and /image-proxy)
@@ -46,8 +51,10 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
             "/upload-profile-picture",
             axum::routing::post(upload::upload_profile_picture),
         )
+        // LAN acceleration routes (signed local route tokens)
+        .nest("/lan", lan::routes(state.clone()))
         // Media/TURN routes
-        .nest("/media", media_routes(state.clone()))
+        .nest("/media-turn", media_routes(state.clone()))
 }
 
 /// Media routes (TURN credentials, file uploads)

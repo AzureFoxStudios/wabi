@@ -178,7 +178,12 @@ impl BlobRegistry {
     /// List all non-deleted blobs.
     pub async fn list_blobs(&self) -> Vec<BlobMeta> {
         let guard = self.inner.read().await;
-        guard.blobs.values().filter(|m| !m.deleted).cloned().collect()
+        guard
+            .blobs
+            .values()
+            .filter(|m| !m.deleted)
+            .cloned()
+            .collect()
     }
 
     /// Soft-delete a blob.
@@ -195,7 +200,11 @@ impl BlobRegistry {
     }
 
     /// Register that a helper node now holds a copy of this blob.
-    pub async fn add_storage_location(&self, hash: &str, node_id: &str) -> Result<(), BlobRegistryError> {
+    pub async fn add_storage_location(
+        &self,
+        hash: &str,
+        node_id: &str,
+    ) -> Result<(), BlobRegistryError> {
         let mut guard = self.inner.write().await;
         let meta = guard
             .blobs
@@ -263,7 +272,15 @@ mod tests {
 
         // Re-storing same bytes returns existing meta (dedupe)
         let meta2 = reg
-            .store_blob(data.as_slice(), "other.txt".into(), "text/plain".into(), None, None, None, None)
+            .store_blob(
+                data.as_slice(),
+                "other.txt".into(),
+                "text/plain".into(),
+                None,
+                None,
+                None,
+                None,
+            )
             .await
             .unwrap();
         assert_eq!(meta2.hash, meta.hash);
@@ -279,7 +296,9 @@ mod tests {
         assert!(reg.verify_localblob(&meta.hash).await);
 
         // Add helper storage location
-        reg.add_storage_location(&meta.hash, "helper-1").await.unwrap();
+        reg.add_storage_location(&meta.hash, "helper-1")
+            .await
+            .unwrap();
         let fetched2 = reg.get_meta(&meta.hash).await.unwrap();
         assert!(fetched2.storage_locations.contains(&"helper-1".to_string()));
 
@@ -299,7 +318,15 @@ mod tests {
         let data = b"mismatch test";
         let bad_hash = "0000000000000000000000000000000000000000000000000000000000000000";
         let result = reg
-            .store_blob(data.as_slice(), "f.txt".into(), "text/plain".into(), None, None, None, Some(bad_hash))
+            .store_blob(
+                data.as_slice(),
+                "f.txt".into(),
+                "text/plain".into(),
+                None,
+                None,
+                None,
+                Some(bad_hash),
+            )
             .await;
         assert_eq!(result, Err(BlobRegistryError::HashMismatch));
         let _ = tokio::fs::remove_dir_all(&tmp).await;

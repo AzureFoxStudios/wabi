@@ -5,17 +5,33 @@ use super::StdbClient;
 
 impl StdbClient {
     /// Add an emoji reaction to a message
-    pub async fn add_reaction(&self, message_id: &str, channel_id: &str, user_id: i64, emoji_id: &str) -> Result<()> {
+    pub async fn add_reaction(
+        &self,
+        message_id: &str,
+        channel_id: &str,
+        user_id: i64,
+        emoji_id: &str,
+    ) -> Result<()> {
         self.ingest_event("reaction", "add", &json!({
             "row": { "message_id": message_id, "channel_id": channel_id, "user_id": user_id, "emoji_id": emoji_id }
         })).await
     }
 
     /// Remove an emoji reaction from a message
-    pub async fn remove_reaction(&self, message_id: &str, user_id: i64, emoji_id: &str) -> Result<()> {
-        self.ingest_event("reaction", "remove", &json!({
-            "row": { "message_id": message_id, "user_id": user_id, "emoji_id": emoji_id }
-        })).await
+    pub async fn remove_reaction(
+        &self,
+        message_id: &str,
+        user_id: i64,
+        emoji_id: &str,
+    ) -> Result<()> {
+        self.ingest_event(
+            "reaction",
+            "remove",
+            &json!({
+                "row": { "message_id": message_id, "user_id": user_id, "emoji_id": emoji_id }
+            }),
+        )
+        .await
     }
 
     /// Get all reactions for a message
@@ -40,7 +56,14 @@ impl StdbClient {
     }
 
     /// Upsert an emote
-    pub async fn upsert_emote(&self, emote_id: &str, name: &str, url: &str, emote_type: &str, created_by: i64) -> Result<()> {
+    pub async fn upsert_emote(
+        &self,
+        emote_id: &str,
+        name: &str,
+        url: &str,
+        emote_type: &str,
+        created_by: i64,
+    ) -> Result<()> {
         self.ingest_event("emote", "upsert", &json!({
             "row": { "emote_id": emote_id, "name": name, "url": url, "emote_type": emote_type, "created_by": created_by }
         })).await

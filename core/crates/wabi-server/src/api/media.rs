@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::media::MediaRoomError;
+use crate::nodes::NodeCapability;
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -36,7 +37,9 @@ pub struct CreateRoomRequest {
     pub max_participants: u32,
 }
 
-fn default_max_participants() -> u32 { 50 }
+fn default_max_participants() -> u32 {
+    50
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -99,11 +102,63 @@ async fn create_room(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateRoomRequest>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
-    let room = state
+    // 1. Create the room (or return existing)
+    let mut room = state
         .media_registry
         .create_room(req.channel_id, req.max_participants)
         .await
         .map_err(MediaApiError::from)?;
+
+    // 2. If room is Pending and an online MediaRelay node exists, auto-assign it
+    //    Phase 4 skeleton: no actual SFU wiring, but the registry assignment is real.
+    if room.status == crate::media::MediaRoomStatus::Pending {
+        if let Some(node) = state
+            .node_registry
+            .find_online_node_with_capability(NodeCapability::MediaRelay)
+            .await
+        {
+            let endpoint = node
+                .lan_reachable_at
+                .as_ref()
+                .or(node.endpoint.as_ref())
+                .cloned();
+            match state
+                .media_registry
+                .assign_room(&room.room_id, &node.node_id, endpoint)
+                .await
+            {
+                Ok(assigned) => {
+                    tracing::info!(
+                        "[media] Auto-assigned room {} to node {} (phase-4 skeleton)",
+                        room.room_id,
+                        node.node_id
+                    );
+                    room = assigned;
+                }
+                Err(e) => {
+                    tracing::warn!("[media] Auto-assignment failed: {}", e);
+                }
+            }
+        }
+    }
+
+    // 3. If the room is now Assigned, drop a MediaRelay job into the queue
+    //    so the helper can claim it (Phase 4C skeleton — no actual SFU).
+    if room.status == crate::media::MediaRoomStatus::Assigned && room.assigned_node_id.is_some() {
+        state
+            .job_queue
+            .submit(crate::jobs::SubmitJobRequest {
+                kind: crate::jobs::JobKind::MediaRelay,
+                payload: serde_json::json!({
+                    "roomId": room.room_id,
+                    "channelId": room.channel_id,
+                }),
+                max_retries: 3,
+            })
+            .await;
+        tracing::info!("[media] Submitted MediaRelay job for room={}", room.room_id,);
+    }
+
     Ok(Json(RoomResponse { room }))
 }
 
@@ -169,9 +224,7 @@ async fn close_room(
     Ok(Json(RoomResponse { room }))
 }
 
-async fn list_rooms(
-    State(state): State<Arc<AppState>>,
-) -> Json<Vec<crate::media::MediaRoom>> {
+async fn list_rooms(State(state): State<Arc<AppState>>) -> Json<Vec<crate::media::MediaRoom>> {
     let rooms = state.media_registry.list_rooms().await;
     Json(rooms)
 }
@@ -208,8 +261,7 @@ impl From<MediaRoomError> for MediaApiError {
 impl IntoResponse for MediaApiError {
     fn into_response(self) -> axum::response::Response {
         let (status, body) = match &self {
-            MediaApiError::Registry(MediaRoomError::NotFound)
-            | MediaApiError::NotFound => {
+            MediaApiError::Registry(MediaRoomError::NotFound) | MediaApiError::NotFound => {
                 (StatusCode::NOT_FOUND, "room not found")
             }
             MediaApiError::Registry(MediaRoomError::AlreadyExists) => {

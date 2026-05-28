@@ -35,11 +35,12 @@ pub async fn run_helper(
     display_name: String,
     capabilities: Vec<NodeCapability>,
     data_dir: String,
+    lan_reachable_at: Option<String>,
+    jwt_secret: Option<String>,
 ) {
     let identity_path = PathBuf::from(&data_dir).join(IDENTITY_FILE);
-    let local_blob_registry = BlobRegistry::new_persistent(
-        PathBuf::from(&data_dir).join("helper_blobs"),
-    );
+    let local_blob_registry =
+        BlobRegistry::new_persistent(PathBuf::from(&data_dir).join("helper_blobs"));
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
@@ -68,7 +69,10 @@ pub async fn run_helper(
         match try_join(&client, &primary_url, token.clone(), &display_name).await {
             Ok(id) => {
                 if let Err(e) = save_identity(&identity_path, &id).await {
-                    warn!("[helper] Saved identity but failed to persist to disk: {}", e);
+                    warn!(
+                        "[helper] Saved identity but failed to persist to disk: {}",
+                        e
+                    );
                 }
                 break id;
             }
@@ -87,22 +91,90 @@ pub async fn run_helper(
     let client2 = client.clone();
     let id_hb = identity.clone();
     let caps_hb = capabilities.clone();
+    let lan_hb = lan_reachable_at.clone();
     let heartbeat = tokio::spawn(async move {
-        heartbeat_loop(client2, id_hb, caps_hb).await;
+        heartbeat_loop(client2, id_hb, caps_hb, lan_hb).await;
     });
+
+    // Phase 5B: register on mDNS if we have a LAN address.
+    let _mdns_guard: Option<mdns_sd::ServiceDaemon> = if let Some(ref addr_str) = lan_reachable_at {
+        match addr_str.parse::<std::net::SocketAddr>() {
+            Ok(addr) => {
+                match crate::mdns::register_wabi_helper(addr, &identity.node_id, &capabilities) {
+                    Ok(daemon) => {
+                        info!("[helper] mDNS registered as _wabi._tcp on {}", addr);
+                        Some(daemon)
+                    }
+                    Err(e) => {
+                        warn!("[helper] mDNS registration failed: {}", e);
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "[helper] --lan-reachable-at is not a valid address: {}. Skipping mDNS.",
+                    e
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     let client3 = client.clone();
     let id_jobs = identity.clone();
+    let lan_jobs = lan_reachable_at.clone();
+    let data_dir_clone = data_dir.clone();
     let jobs = tokio::spawn(async move {
-        job_loop(client3, id_jobs, capabilities, local_blob_registry).await;
+        job_loop(
+            client3,
+            id_jobs,
+            capabilities,
+            local_blob_registry,
+            lan_jobs,
+            data_dir_clone,
+        )
+        .await;
     });
 
-    tokio::select! {
-        _ = heartbeat => {
-            warn!("[helper] Heartbeat loop exited. Shutting down.");
+    // Phase 5D: start helper-side LAN API when reachable address is given.
+    let api = if let (Some(addr_str), Some(secret)) = (&lan_reachable_at, &jwt_secret) {
+        match addr_str.parse::<std::net::SocketAddr>() {
+            Ok(addr) => {
+                let handle = crate::helper_api::start_helper_api(addr, secret.clone());
+                Some(handle)
+            }
+            Err(e) => {
+                warn!("[helper] --lan-reachable-at '{}' is not a valid socket address ({}). Skipping helper API.", addr_str, e);
+                None
+            }
         }
-        _ = jobs => {
-            warn!("[helper] Job loop exited. Shutting down.");
+    } else {
+        None
+    };
+
+    if let Some(api_handle) = api {
+        tokio::select! {
+            _ = heartbeat => {
+                warn!("[helper] Heartbeat loop exited. Shutting down.");
+            }
+            _ = jobs => {
+                warn!("[helper] Job loop exited. Shutting down.");
+            }
+            _ = api_handle => {
+                warn!("[helper] API listener exited. Shutting down.");
+            }
+        }
+    } else {
+        tokio::select! {
+            _ = heartbeat => {
+                warn!("[helper] Heartbeat loop exited. Shutting down.");
+            }
+            _ = jobs => {
+                warn!("[helper] Job loop exited. Shutting down.");
+            }
         }
     }
 }
@@ -111,6 +183,7 @@ async fn heartbeat_loop(
     client: reqwest::Client,
     identity: HelperIdentity,
     capabilities: Vec<NodeCapability>,
+    lan_reachable_at: Option<String>,
 ) {
     let mut interval = tokio::time::interval(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -119,9 +192,14 @@ async fn heartbeat_loop(
         interval.tick().await;
         let hb = NodeHeartbeatRequest {
             load: gather_load().await,
-            reachability: NodeReachability::OutboundOnly,
+            reachability: if lan_reachable_at.is_some() {
+                NodeReachability::LanReachable
+            } else {
+                NodeReachability::OutboundOnly
+            },
             endpoint: None,
             capabilities: Some(capabilities.clone()),
+            lan_reachable_at: lan_reachable_at.clone(),
         };
 
         let url = format!(
@@ -159,6 +237,8 @@ async fn job_loop(
     identity: HelperIdentity,
     capabilities: Vec<NodeCapability>,
     local_blob_registry: BlobRegistry,
+    lan_reachable_at: Option<String>,
+    data_dir: String,
 ) {
     let mut interval = tokio::time::interval(Duration::from_secs(JOB_POLL_INTERVAL_SECS));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -174,21 +254,14 @@ async fn job_loop(
             "capabilities": caps,
         });
 
-        let job: serde_json::Value = match client
-            .post(&claim_url)
-            .json(&claim_body)
-            .send()
-            .await
-        {
-            Ok(resp) if resp.status().is_success() => {
-                match resp.json().await {
-                    Ok(j) => j,
-                    Err(e) => {
-                        warn!("[helper] failed to decode job claim response: {}", e);
-                        continue;
-                    }
+        let job: serde_json::Value = match client.post(&claim_url).json(&claim_body).send().await {
+            Ok(resp) if resp.status().is_success() => match resp.json().await {
+                Ok(j) => j,
+                Err(e) => {
+                    warn!("[helper] failed to decode job claim response: {}", e);
+                    continue;
                 }
-            }
+            },
             Ok(resp) if resp.status() == reqwest::StatusCode::NO_CONTENT => {
                 continue;
             }
@@ -226,13 +299,12 @@ async fn job_loop(
             &kind,
             &payload,
             &local_blob_registry,
+            &lan_reachable_at,
+            &data_dir,
         )
         .await;
 
-        let result_url = format!(
-            "{}/api/jobs/{}/result",
-            identity.primary_url, job_id
-        );
+        let result_url = format!("{}/api/jobs/{}/result", identity.primary_url, job_id);
         let result_body = serde_json::json!({
             "nodeId": identity.node_id,
             "nodeSecret": identity.node_secret,
@@ -241,12 +313,7 @@ async fn job_loop(
             "errorMessage": error_message,
         });
 
-        match client
-            .post(&result_url)
-            .json(&result_body)
-            .send()
-            .await
-        {
+        match client.post(&result_url).json(&result_body).send().await {
             Ok(resp) if resp.status().is_success() => {
                 info!("[helper] Job {} result reported successfully", job_id);
             }
@@ -271,6 +338,8 @@ async fn execute_job(
     kind: &serde_json::Value,
     payload: &serde_json::Value,
     local_blob_registry: &BlobRegistry,
+    lan_reachable_at: &Option<String>,
+    data_dir: &str,
 ) -> (bool, Option<serde_json::Value>, Option<String>) {
     let kind_str = kind.as_str().unwrap_or("unknown");
     match kind_str {
@@ -285,7 +354,10 @@ async fn execute_job(
             (true, Some(serde_json::json!({"done": true})), None)
         }
         "search_index" => {
-            info!("[helper] Executing search index job on {}", identity.node_id);
+            info!(
+                "[helper] Executing search index job on {}",
+                identity.node_id
+            );
             tokio::time::sleep(Duration::from_millis(200)).await;
             (true, Some(serde_json::json!({"done": true})), None)
         }
@@ -295,15 +367,15 @@ async fn execute_job(
             (true, Some(serde_json::json!({"done": true})), None)
         }
         "moderation_scan" => {
-            info!("[helper] Executing moderation scan job on {}", identity.node_id);
+            info!(
+                "[helper] Executing moderation scan job on {}",
+                identity.node_id
+            );
             tokio::time::sleep(Duration::from_millis(200)).await;
             (true, Some(serde_json::json!({"done": true})), None)
         }
         "blob_mirror" => {
-            info!(
-                "[helper] Executing blob mirror job on {}",
-                identity.node_id
-            );
+            info!("[helper] Executing blob mirror job on {}", identity.node_id);
             let hash = payload["hash"].as_str().unwrap_or("");
             if hash.is_empty() {
                 return (
@@ -316,18 +388,12 @@ async fn execute_job(
             // Download blob from primary
             let url = format!("{}/api/blobs/{}", identity.primary_url, hash);
             let bytes = match client.get(&url).send().await {
-                Ok(resp) if resp.status().is_success() => {
-                    match resp.bytes().await {
-                        Ok(b) => b.to_vec(),
-                        Err(e) => {
-                            return (
-                                false,
-                                None,
-                                Some(format!("download body error: {}", e)),
-                            );
-                        }
+                Ok(resp) if resp.status().is_success() => match resp.bytes().await {
+                    Ok(b) => b.to_vec(),
+                    Err(e) => {
+                        return (false, None, Some(format!("download body error: {}", e)));
                     }
-                }
+                },
                 Ok(resp) => {
                     return (
                         false,
@@ -336,19 +402,12 @@ async fn execute_job(
                     );
                 }
                 Err(e) => {
-                    return (
-                        false,
-                        None,
-                        Some(format!("download network error: {}", e)),
-                    );
+                    return (false, None, Some(format!("download network error: {}", e)));
                 }
             };
 
             // Fetch metadata to preserve original_name / mime_type
-            let meta_url = format!(
-                "{}/api/blobs/{}/meta",
-                identity.primary_url, hash
-            );
+            let meta_url = format!("{}/api/blobs/{}/meta", identity.primary_url, hash);
             let (name, mime) = match client.get(&meta_url).send().await {
                 Ok(resp) if resp.status().is_success() => {
                     match resp.json::<serde_json::Value>().await {
@@ -376,44 +435,176 @@ async fn execute_job(
 
             // Store locally by hash — will dedupe if already present
             match local_blob_registry
-                .store_blob(
-                    &bytes,
-                    name,
-                    mime,
-                    None,
-                    None,
-                    None,
-                    Some(hash),
-                )
+                .store_blob(&bytes, name, mime, None, None, None, Some(hash))
                 .await
             {
                 Ok(meta) => {
-                    info!(
-                        "[helper] Mirrored blob {} ({} bytes)",
-                        meta.hash, meta.size
-                    );
+                    info!("[helper] Mirrored blob {} ({} bytes)", meta.hash, meta.size);
                     (
                         true,
                         Some(serde_json::json!({"hash": meta.hash, "size": meta.size})),
                         None,
                     )
                 }
-                Err(e) => {
-                    (
+                Err(e) => (false, None, Some(format!("store_blob failed: {:?}", e))),
+            }
+        }
+        "media_relay" => {
+            info!("[helper] Executing media relay job on {}", identity.node_id);
+            // Phase 6: LiveKit SFU wiring on helper node.
+            //
+            // 1. Extract room/channel from job payload.
+            let room_id = payload["roomId"].as_str().unwrap_or("");
+            let channel_id = payload["channelId"].as_str().unwrap_or("");
+            if room_id.is_empty() || channel_id.is_empty() {
+                return (
+                    false,
+                    None,
+                    Some("media_relay payload missing roomId or channelId".to_string()),
+                );
+            }
+
+            // 2. Check if livekit-server is available.
+            let lk_binary = match tokio::process::Command::new("livekit-server")
+                .arg("--version")
+                .output()
+                .await
+            {
+                Ok(_) => std::path::PathBuf::from("livekit-server"),
+                Err(_) => {
+                    warn!(
+                        "[helper] livekit-server not found in PATH; cannot serve media_relay job"
+                    );
+                    return (
                         false,
                         None,
-                        Some(format!("store_blob failed: {:?}", e)),
-                    )
+                        Some("livekit-server not installed on helper".to_string()),
+                    );
+                }
+            };
+
+            // 3. Compute the SFU endpoint for this room.
+            //    Prefer lan_reachable_at (local network) since helpers often sit
+            //    behind NAT / CGNAT. If absent, fallback to whatever endpoint
+            //    the helper advertised in its heartbeat (none for outbound-only).
+            let sfu_url = match lan_reachable_at {
+                Some(ref addr) => format!("wss://{}/livekit/sfu/room/{}", addr, room_id),
+                None => {
+                    warn!("[helper] No --lan-reachable-at set; cannot expose SFU endpoint");
+                    return (
+                        false,
+                        None,
+                        Some("helper has no reachable address for SFU".to_string()),
+                    );
+                }
+            };
+
+            // 4. Spawn livekit-server as a child process for this room.
+            //    In production you'd use a shared LiveKit node or container;
+            //    for Phase 6 we spawn per-room to keep the helper self-contained.
+            let config_path = std::path::PathBuf::from(&data_dir)
+                .join("livekit_configs")
+                .join(format!("{}.yaml", room_id));
+            if let Some(parent) = config_path.parent() {
+                let _ = tokio::fs::create_dir_all(parent).await;
+            }
+            let config = format!(
+                "room:\n  name: {}\n  empty_timeout: 300\n  enabled_codecs:\n    - mime: audio/opus\n    - mime: video/vp8\n",
+                room_id
+            );
+            if let Err(e) = tokio::fs::write(&config_path, config).await {
+                warn!("[helper] Failed to write LiveKit config: {}", e);
+                return (
+                    false,
+                    None,
+                    Some(format!("livekit config write failed: {}", e)),
+                );
+            }
+
+            // NOTE: LiveKit server spawn is active by default in Phase 6.
+            // To disable spawning (e.g. for testing without livekit-server installed),
+            // comment out the block below or set WABI_DISABLE_LIVEKIT_SPAWN=1.
+            let disable_spawn = std::env::var("WABI_DISABLE_LIVEKIT_SPAWN")
+                .unwrap_or_default()
+                .eq_ignore_ascii_case("1");
+            if !disable_spawn {
+                let _ = tokio::process::Command::new("livekit-server")
+                    .arg("--config")
+                    .arg(&config_path)
+                    .spawn();
+                info!(
+                    "[helper] Spawned livekit-server for room {} with config {}",
+                    room_id,
+                    config_path.to_string_lossy()
+                );
+            } else {
+                info!(
+                    "[helper] LiveKit spawn disabled by WABI_DISABLE_LIVEKIT_SPAWN; config prepared at {}",
+                    config_path.to_string_lossy()
+                );
+            }
+            info!(
+                "[helper] Media relay prepared for room {} → endpoint {}",
+                room_id, sfu_url
+            );
+
+            // 5. Call authority to mark room active with our endpoint.
+            let active_url = format!(
+                "{}/api/media/rooms/{}/active",
+                identity.primary_url, room_id
+            );
+            let active_body = serde_json::json!({
+                "nodeId": identity.node_id,
+                "sfuEndpoint": sfu_url,
+            });
+            match client
+                .post(&active_url)
+                .header("x-wabi-node-secret", &identity.node_secret)
+                .json(&active_body)
+                .send()
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => {
+                    info!("[helper] Room {} marked active on authority", room_id);
+                }
+                Ok(resp) => {
+                    let status = resp.status();
+                    let body = resp.text().await.unwrap_or_default();
+                    warn!("[helper] mark_active rejected: {} — {}", status, body);
+                    return (
+                        false,
+                        None,
+                        Some(format!(
+                            "authority rejected mark_active: {} {}",
+                            status, body
+                        )),
+                    );
+                }
+                Err(e) => {
+                    warn!("[helper] mark_active network error: {}", e);
+                    return (
+                        false,
+                        None,
+                        Some(format!("mark_active network error: {}", e)),
+                    );
                 }
             }
+
+            (
+                true,
+                Some(serde_json::json!({
+                    "acknowledged": true,
+                    "roomId": room_id,
+                    "channelId": channel_id,
+                    "sfuEndpoint": sfu_url,
+                    "livekitConfigPath": config_path.to_string_lossy(),
+                })),
+                None,
+            )
         }
         _ => {
             warn!("[helper] Unknown job kind: {}", kind_str);
-            (
-                false,
-                None,
-                Some(format!("unknown job kind: {}", kind_str)),
-            )
+            (false, None, Some(format!("unknown job kind: {}", kind_str)))
         }
     }
 }

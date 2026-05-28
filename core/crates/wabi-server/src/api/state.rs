@@ -4,9 +4,9 @@
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
+use crate::api::upload::UploadState;
 use crate::config::ServerConfig;
 use crate::db::StdbClient;
-use crate::api::upload::UploadState;
 
 /// Shared application state
 pub struct AppState {
@@ -56,6 +56,8 @@ impl Default for AppState {
             is_primary: true,
             mesh_enabled: false,
             mesh_peers: vec![],
+            server_role: crate::config::ServerRole::Authority,
+            authority_url: None,
             admin_user_ids: vec![],
             blacklist_file: "./data/blacklist.txt".to_string(),
         })

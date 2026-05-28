@@ -38,7 +38,7 @@ Public-facing UX should not expose distributed-systems vocabulary.
 | Regional entry | Anchor node |
 | Backup computer | Warm standby |
 
-Advanced terms (authority, anchor, route token, event log, read replica, node capability) stay in docs/config/API for expert operators only.
+Advanced terms (authority, anchor, route token, live-state snapshot, read replica, node capability) stay in docs/config/API for expert operators only.
 
 ---
 
@@ -57,7 +57,7 @@ Responsibilities:
 - Message ordering
 - Moderation actions
 - Payment/provider config
-- Canonical event log
+- Live-state snapshot export for opt-in standby/backup nodes
 - Node registry
 - Signed route token minting
 - Job scheduling
@@ -179,16 +179,22 @@ Users connect to the closest healthy anchor. The anchor talks to the authority.
 
 **Important:** Regional anchors are Phase 7. Do not build them until workers, cache, media offload, LAN acceleration, and warm standby are all proven.
 
-### 2.7 Warm Standby Node
+### 2.7 Warm Standby / Backup Node
 
-A warm standby receives replicated event logs/snapshots from the authority.
+A warm standby is a high-trust backup target paired to the authority. It receives encrypted live-state snapshots only when the operator explicitly enables this feature.
 
 Responsibilities:
 
-- Encrypted event log backup
-- Snapshot storage
-- Restore target
-- Manual promotion if authority dies
+- Store encrypted live-state snapshots after retention/deletion has already been applied
+- Preserve a recent restore point for the same server operator
+- Serve as a manual restore/promotion target if the authority dies
+
+Non-goals:
+
+- No append-only message/event log
+- No telemetry/audit trail
+- No raw STDB data-directory copy unless proven deletion-safe
+- No automatic failover
 
 Initial rule: promotion is manual.
 
@@ -222,7 +228,7 @@ Client -> Authority
              |
              +-> Worker node: thumbnails/transcodes/search
              +-> Cache node: blobs/thumbnails
-             +-> Backup node: event log copy
+             +-> Backup node: encrypted live-state snapshots
 ```
 
 Use for:
@@ -473,7 +479,7 @@ Helpers serve cached/read-only data:
 
 ### Level 4: Warm Standby
 
-A standby receives event log/snapshots and can be manually promoted.
+A standby receives encrypted live-state snapshots after retention/deletion has been applied and can be manually promoted.
 
 ### Level 5: Active-Active Mesh
 
@@ -493,35 +499,32 @@ Problems introduced:
 
 ---
 
-## 10. Event Log Scope (Canonical vs. Ephemeral)
+## 10. Snapshot Scope (Live State, Not Surveillance Logs)
 
-The authority maintains an append-only event log for durable events.
+The authority does **not** maintain a new append-only application event log for standby. Wabi's durable truth lives in STDB, and Wabi's privacy model depends on deletion/retention being meaningful.
 
-**In the log:**
+For warm standby, export current live state after retention/deletion has already been applied. Do not copy raw STDB internals or WAL/commitlog segments unless they are proven deletion-safe.
 
-- message_created
-- message_deleted
-- file_uploaded
-- role_changed
-- user_banned
-- node_joined
-- node_revoked
-- channel_created
-- channel_deleted
-- permission_changed
+**May be included in an encrypted full standby snapshot:**
 
-**NOT in the log:**
+- active users and user metadata required for restore
+- active channels and channel membership
+- retained messages
+- retained file metadata
+- current roles and permissions
+- current moderation state
+- current node registry state
 
-- presence_change (who's online)
-- typing_start/typing_stop
-- voice_sfu_frame
-- media_packet
-- heartbeat
-- read receipt
-- reaction_add (can be logged but often ephemeral)
-- ephemeral notification
+**Should not be included unless explicitly required:**
 
-The event log is the replication spine for warm standby, search indexing, worker jobs, and cache invalidation. Keep it compact. Do not put high-volume ephemeral packets in the same stream.
+- expired/deleted messages
+- expired presence/typing/read receipts
+- historical audit trails
+- raw media packets
+- raw STDB commitlog/WAL segments
+- old payment events beyond current operational state
+
+The snapshot is a backup of live state, not a history-preserving log. A standby/backup node is a high-trust opt-in node controlled by the same operator, not a general helper.
 
 ---
 
@@ -746,35 +749,58 @@ This is deferred until the core helper-node architecture is stable.
 - Same-LAN client downloads from local helper.
 - Remote client ignores LAN-only helper.
 
-### Phase 6: Warm Standby
+### Phase 6: Warm Standby / Backup Node
 
 **Tasks:**
-- Append-only authority event log.
-- Stream log to standby.
-- Periodic snapshots.
-- Manual promotion command.
-- Anchor reconnect to promoted authority.
+- Define standby/backup capability as a high-trust opt-in node type.
+- Pair standby with a public key for snapshot encryption.
+- Export current live STDB state after retention/deletion has already been applied.
+- Encrypt snapshot before writing or sending it to the standby.
+- Send/store encrypted snapshot on the standby.
+- Add manual restore/import path.
+- Add manual promotion command.
+- Anchor/client reconnect to promoted authority.
+
+**Non-goals:**
+- No append-only event log.
+- No raw STDB data-directory copy unless proven deletion-safe.
+- No automatic failover.
+- No hidden long-term audit/history layer.
 
 **Verification:**
+- Pair standby node.
+- Trigger encrypted live-state snapshot.
+- Confirm no plaintext snapshot remains on either side.
+- Confirm deleted/expired data is not present in the next snapshot.
 - Kill primary authority.
-- Promote standby manually.
-- Anchors reconnect.
+- Restore/promote standby manually.
+- Anchors/clients reconnect.
 - No automatic split-brain.
 
 ### Phase 7: Regional Anchors
 
 **Tasks:**
-- Define anchor node role.
-- Public client connection through anchor.
-- Anchor forwards writes to authority.
-- Anchor caches reads/media.
-- Anchor supports degraded read-only mode.
+- Define anchor node role/capability.
+- Start with stateless public gateway mode.
+- Public clients connect through anchor.
+- Anchor forwards reads and writes to authority.
+- Anchor may cache static frontend assets and scoped media blobs.
+- Authority outage returns clear unavailable/degraded responses.
+- Defer read-only history cache until it has explicit opt-in, TTL, and scope rules.
 - Region selection logic.
+
+**Non-goals for first implementation:**
+- No local STDB replica on anchors by default.
+- No private channel/DM cache on anchors.
+- No admin/payment/mod cache on anchors.
+- No offline write acceptance.
 
 **Verification:**
 - Two anchors in different regions/local ports.
 - Client connects to nearest/preferred anchor.
-- Authority outage makes admin/payment actions unavailable but cached reads continue.
+- Reads/writes forward to authority.
+- Authority outage makes writes unavailable quickly and clearly.
+- Cached static/media assets, if enabled, still serve within their scoped TTL.
 
 ---
 

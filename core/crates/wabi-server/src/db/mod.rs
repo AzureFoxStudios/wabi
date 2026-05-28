@@ -193,7 +193,8 @@ impl StdbClient {
                 "is_hoisted": is_hoisted,
             }
         });
-        self.ingest_event("role_definition", "upsert", &payload).await
+        self.ingest_event("role_definition", "upsert", &payload)
+            .await
     }
 
     /// Get layout JSON and updated_at for a user
@@ -203,17 +204,28 @@ impl StdbClient {
             user_id
         );
         let resp = self.sql_query(&q).await?;
-        let Some(row) = resp.decode_rows().into_iter().next() else { return Ok(None) };
-        let layout_json = row.get("layout_json").and_then(|v| v.as_str()).map(String::from).unwrap_or_default();
+        let Some(row) = resp.decode_rows().into_iter().next() else {
+            return Ok(None);
+        };
+        let layout_json = row
+            .get("layout_json")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_default();
         let updated_at = row.get("updated_at").and_then(|v| v.as_i64()).unwrap_or(0);
         Ok(Some((layout_json, updated_at)))
     }
 
     /// Upsert layout via ingest event
     pub async fn upsert_user_layout(&self, user_id: i64, layout_json: &str) -> Result<()> {
-        self.ingest_event("layout", "upsert_layout", &json!({
-            "row": { "user_id": user_id, "layout_json": layout_json }
-        })).await
+        self.ingest_event(
+            "layout",
+            "upsert_layout",
+            &json!({
+                "row": { "user_id": user_id, "layout_json": layout_json }
+            }),
+        )
+        .await
     }
 
     /// Get channel auto-delete retention duration from row_json
@@ -223,12 +235,50 @@ impl StdbClient {
             Self::sanitize_sql(channel_id)
         );
         let resp = self.sql_query(&q).await?;
-        let Some(row) = resp.decode_rows().into_iter().next() else { return Ok(None) };
-        let retention = row.get("row_json")
+        let Some(row) = resp.decode_rows().into_iter().next() else {
+            return Ok(None);
+        };
+        let retention = row
+            .get("row_json")
             .and_then(|v| v.as_str())
             .and_then(|s| serde_json::from_str::<Value>(s).ok())
-            .and_then(|j| j.get("autoDeleteAfter").and_then(|v| v.as_str()).map(String::from));
+            .and_then(|j| {
+                j.get("autoDeleteAfter")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+            });
         Ok(retention)
+    }
+
+    /// Export current live-state rows for a standby snapshot.
+    ///
+    /// This returns plaintext rows in memory only. Callers must encrypt the
+    /// resulting payload before writing it to disk or sending it over the
+    /// network. Table names are allowlisted to avoid exporting transient logs,
+    /// leases, call signaling, or historical ingest tables.
+    pub async fn export_live_state_snapshot_rows(
+        &self,
+    ) -> Result<crate::standby::LiveStateSnapshotPayload> {
+        let mut tables = std::collections::BTreeMap::new();
+
+        for table in crate::standby::LIVE_STATE_SNAPSHOT_TABLES {
+            if !crate::standby::is_live_state_snapshot_table(table)
+                || crate::standby::is_excluded_snapshot_table(table)
+            {
+                anyhow::bail!("refusing to export non-live-state table: {}", table);
+            }
+
+            let query = format!("SELECT * FROM {}", table);
+            let response = self.sql_query(&query).await?;
+            let rows = response
+                .decode_rows()
+                .into_iter()
+                .map(|row| serde_json::to_value(row).unwrap_or(Value::Null))
+                .collect::<Vec<_>>();
+            tables.insert((*table).to_string(), rows);
+        }
+
+        Ok(crate::standby::LiveStateSnapshotPayload { tables })
     }
 
     /// Execute SQL query against SpacetimeDB

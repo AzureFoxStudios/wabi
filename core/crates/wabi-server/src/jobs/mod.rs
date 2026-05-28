@@ -22,6 +22,7 @@ pub enum JobKind {
     GenerateWaveform,
     ModerationScan,
     BlobMirror,
+    MediaRelay,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -169,12 +170,10 @@ impl JobQueue {
 
         let mut data = self.inner.write().await;
         // Find first pending job whose kind maps to a capability the node has.
-        let idx = data
-            .jobs
-            .iter()
-            .position(|j| {
-                j.status == JobStatus::Pending && job_kind_matches_capabilities(&j.kind, &req.capabilities)
-            });
+        let idx = data.jobs.iter().position(|j| {
+            j.status == JobStatus::Pending
+                && job_kind_matches_capabilities(&j.kind, &req.capabilities)
+        });
         let Some(idx) = idx else {
             return Err(JobQueueError::NoMatchingJob);
         };
@@ -281,9 +280,9 @@ impl JobQueue {
             // Check if the assigned node is still online
             if let Some(node_id) = &job.assigned_node_id {
                 let nodes = node_registry.list_nodes().await;
-                let node_online = nodes.iter().any(|n| {
-                    n.node_id == *node_id && n.status == crate::nodes::NodeStatus::Online
-                });
+                let node_online = nodes
+                    .iter()
+                    .any(|n| n.node_id == *node_id && n.status == crate::nodes::NodeStatus::Online);
                 if node_online {
                     // Node is alive — maybe just slow. Don't reap yet.
                     continue;
@@ -328,6 +327,7 @@ fn job_kind_matches_capabilities(kind: &JobKind, capabilities: &[NodeCapability]
         JobKind::GenerateWaveform => &[NodeCapability::TranscodeWorker][..],
         JobKind::ModerationScan => &[NodeCapability::CpuWorker][..],
         JobKind::BlobMirror => &[NodeCapability::BlobCache][..],
+        JobKind::MediaRelay => &[NodeCapability::MediaRelay][..],
     };
     required.iter().any(|cap| capabilities.contains(cap))
 }

@@ -91,15 +91,11 @@ impl AppState {
             config.node_id.clone(),
             PathBuf::from(&config.data_dir).join("node_registry.json"),
         );
-        let job_queue = JobQueue::new_persistent(
-            PathBuf::from(&config.data_dir).join("job_queue.json"),
-        );
-        let blob_registry = BlobRegistry::new_persistent(
-            PathBuf::from(&config.data_dir),
-        );
-        let media_registry = crate::media::MediaRoomRegistry::new_persistent(
-            PathBuf::from(&config.data_dir),
-        );
+        let job_queue =
+            JobQueue::new_persistent(PathBuf::from(&config.data_dir).join("job_queue.json"));
+        let blob_registry = BlobRegistry::new_persistent(PathBuf::from(&config.data_dir));
+        let media_registry =
+            crate::media::MediaRoomRegistry::new_persistent(PathBuf::from(&config.data_dir));
         Self {
             config,
             stdb,

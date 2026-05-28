@@ -129,8 +129,19 @@ async fn init_upload(
 
     // Check if resuming existing upload
     if let Some(upload_id) = &req.upload_id {
-        if let Some(session) = state.upload_state.sessions.read().await.get(upload_id).cloned() {
-            tracing::info!("Resume upload: {} ({} bytes so far)", upload_id, session.uploaded_bytes);
+        if let Some(session) = state
+            .upload_state
+            .sessions
+            .read()
+            .await
+            .get(upload_id)
+            .cloned()
+        {
+            tracing::info!(
+                "Resume upload: {} ({} bytes so far)",
+                upload_id,
+                session.uploaded_bytes
+            );
             return Ok(Json(InitUploadResponse {
                 upload_id: session.upload_id.clone(),
                 upload_token: session.upload_token.clone(),
@@ -175,7 +186,12 @@ async fn init_upload(
         extension,
     };
 
-    state.upload_state.sessions.write().await.insert(upload_id.clone(), session);
+    state
+        .upload_state
+        .sessions
+        .write()
+        .await
+        .insert(upload_id.clone(), session);
 
     tracing::info!(
         "Init upload: {} ({} bytes, {}), temp at {:?}",
@@ -212,8 +228,12 @@ async fn upload_chunk(
 ) -> Result<Json<InitUploadResponse>> {
     // Look up session (clone to release the read lock before the async file ops)
     let session = state
-        .upload_state.sessions.read().await
-        .get(&query.upload_id).cloned()
+        .upload_state
+        .sessions
+        .read()
+        .await
+        .get(&query.upload_id)
+        .cloned()
         .ok_or_else(|| anyhow::anyhow!("Upload session not found"))?;
 
     if session.upload_token != query.upload_token {
@@ -230,13 +250,22 @@ async fn upload_chunk(
     drop(file);
 
     let uploaded_bytes = query.offset + body.len() as u64;
-    if let Some(s) = state.upload_state.sessions.write().await.get_mut(&query.upload_id) {
+    if let Some(s) = state
+        .upload_state
+        .sessions
+        .write()
+        .await
+        .get_mut(&query.upload_id)
+    {
         s.uploaded_bytes = uploaded_bytes;
     }
 
     tracing::debug!(
         "Chunk {}: wrote {} bytes at offset {}, total {}",
-        query.upload_id, body.len(), query.offset, uploaded_bytes
+        query.upload_id,
+        body.len(),
+        query.offset,
+        uploaded_bytes
     );
 
     Ok(Json(InitUploadResponse {
@@ -273,7 +302,10 @@ async fn complete_upload(
     Json(req): Json<CompleteUploadRequest>,
 ) -> Result<Json<CompleteUploadResponse>> {
     let session = state
-        .upload_state.sessions.write().await
+        .upload_state
+        .sessions
+        .write()
+        .await
         .remove(&req.upload_id)
         .ok_or_else(|| anyhow::anyhow!("Upload session not found"))?;
 
@@ -333,12 +365,20 @@ async fn upload_group_avatar(
     let mut channel_id: Option<String> = None;
 
     // Extract fields from multipart
-    while let Some(field) = multipart.next_field().await.map_err(|e| anyhow::anyhow!(e))? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?
+    {
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
             "file" => {
                 filename = field.file_name().unwrap_or("avatar").to_string();
-                file_data = field.bytes().await.map_err(|e| anyhow::anyhow!(e))?.to_vec();
+                file_data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))?
+                    .to_vec();
             }
             "channelId" | "channel_id" => {
                 if let Ok(text) = field.text().await {
@@ -431,14 +471,22 @@ pub async fn upload_profile_picture(
     let mut file_data: Vec<u8> = Vec::new();
     let mut filename = "profile-picture.png".to_string();
 
-    while let Some(field) = multipart.next_field().await.map_err(|e| anyhow::anyhow!(e))? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?
+    {
         let name = field.name().unwrap_or("").to_string();
         if name == "profilePicture" {
             filename = field
                 .file_name()
                 .unwrap_or("profile-picture.png")
                 .to_string();
-            file_data = field.bytes().await.map_err(|e| anyhow::anyhow!(e))?.to_vec();
+            file_data = field
+                .bytes()
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?
+                .to_vec();
         }
     }
 
@@ -468,5 +516,7 @@ pub async fn upload_profile_picture(
         final_path
     );
 
-    Ok(Json(ProfilePictureResponse { profile_picture_url }))
+    Ok(Json(ProfilePictureResponse {
+        profile_picture_url,
+    }))
 }
