@@ -5,7 +5,7 @@
  * Receive: Socket.IO listen → jitter buffer → opus-recorder decoder → AudioWorklet playback
  */
 
-import { OpusRecorder } from 'opus-recorder';
+import OpusRecorder from 'opus-recorder';
 
 export interface StdbMediaRelayConfig {
   sessionId: string;

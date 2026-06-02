@@ -10,7 +10,7 @@ declare module 'opus-recorder' {
     encoderApplication?: number;
   }
 
-  class OpusRecorder {
+  export default class OpusRecorder {
     constructor(config?: OpusRecorderConfig);
     ondataavailable?: (data: ArrayBuffer) => void;
     onpause?: () => void;
@@ -20,6 +20,4 @@ declare module 'opus-recorder' {
     pause(): void;
     resume(): void;
   }
-
-  export { OpusRecorder };
 }

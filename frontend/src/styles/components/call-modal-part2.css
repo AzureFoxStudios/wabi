@@ -6,7 +6,7 @@
 		padding: 0.2rem 0.4rem;
 		border-radius: 999px;
 		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.24);
-		background: var(--shadow-lg, var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.56))));
+		background: var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.56)));
 		color: var(--text-inverse, var(--text-inverse, #fff));
 		font-size: 0.64rem;
 		font-weight: 700;
@@ -299,7 +299,7 @@
 		top: 0.6rem;
 		left: 50%;
 		transform: translateX(-50%);
-		background: var(--shadow-lg, var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.62))));
+		background: var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.62)));
 		padding: 0.35rem 0.6rem;
 		border-radius: 8px;
 		font-size: 0.7rem;
@@ -313,7 +313,7 @@
 		top: 2.2rem;
 		left: 50%;
 		transform: translateX(-50%);
-		background: var(--shadow-lg, var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.56))));
+		background: var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.56)));
 		padding: 0.25rem 0.52rem;
 		border-radius: 8px;
 		font-size: 0.66rem;
@@ -329,7 +329,7 @@
 		left: 50%;
 		transform: translateX(-50%);
 		max-width: min(92vw, 900px);
-		background: var(--shadow-lg, var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.56))));
+		background: var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.56)));
 		padding: 0.25rem 0.52rem;
 		border-radius: 8px;
 		font-size: 0.66rem;
