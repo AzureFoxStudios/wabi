@@ -51,12 +51,14 @@ struct AlbumMemoryStore {
 static ALBUM_STORE: OnceLock<Mutex<AlbumMemoryStore>> = OnceLock::new();
 
 fn store() -> &'static Mutex<AlbumMemoryStore> {
-    ALBUM_STORE.get_or_init(|| Mutex::new(AlbumMemoryStore {
-        next_album_id: 1,
-        next_item_id: 1,
-        albums: HashMap::new(),
-        items: HashMap::new(),
-    }))
+    ALBUM_STORE.get_or_init(|| {
+        Mutex::new(AlbumMemoryStore {
+            next_album_id: 1,
+            next_item_id: 1,
+            albums: HashMap::new(),
+            items: HashMap::new(),
+        })
+    })
 }
 
 fn now_ts() -> i64 {
@@ -201,24 +203,35 @@ async fn create_album(
     Ok(Json(json!({ "album": album_json(&album, 0, Vec::new()) })))
 }
 
-async fn get_album(State(_state): State<Arc<AppState>>, Path(album_id): Path<i64>) -> Result<Json<Value>> {
+async fn get_album(
+    State(_state): State<Arc<AppState>>,
+    Path(album_id): Path<i64>,
+) -> Result<Json<Value>> {
     let guard = store().lock().expect("album store lock poisoned");
     let Some(album) = guard.albums.get(&album_id) else {
         return Ok(Json(json!({ "error": "Album not found" })));
     };
     let items = guard.items.get(&album_id).cloned().unwrap_or_default();
     let preview = items.iter().take(4).map(item_json).collect::<Vec<_>>();
-    Ok(Json(json!({ "album": album_json(album, items.len(), preview) })))
+    Ok(Json(
+        json!({ "album": album_json(album, items.len(), preview) }),
+    ))
 }
 
-async fn delete_album(State(_state): State<Arc<AppState>>, Path(album_id): Path<i64>) -> Result<StatusCode> {
+async fn delete_album(
+    State(_state): State<Arc<AppState>>,
+    Path(album_id): Path<i64>,
+) -> Result<StatusCode> {
     let mut guard = store().lock().expect("album store lock poisoned");
     guard.albums.remove(&album_id);
     guard.items.remove(&album_id);
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn list_items(State(_state): State<Arc<AppState>>, Path(album_id): Path<i64>) -> Result<Json<Value>> {
+async fn list_items(
+    State(_state): State<Arc<AppState>>,
+    Path(album_id): Path<i64>,
+) -> Result<Json<Value>> {
     let guard = store().lock().expect("album store lock poisoned");
     let Some(album) = guard.albums.get(&album_id) else {
         return Ok(Json(json!({ "error": "Album not found", "items": [] })));
@@ -241,7 +254,11 @@ async fn add_item(
     let now = now_ts();
     let item_id = guard.next_item_id;
     guard.next_item_id += 1;
-    let sort_order = guard.items.get(&album_id).map(|items| items.len() as i64).unwrap_or(0);
+    let sort_order = guard
+        .items
+        .get(&album_id)
+        .map(|items| items.len() as i64)
+        .unwrap_or(0);
     let item = AlbumItemRecord {
         id: item_id,
         album_id,
@@ -310,6 +327,12 @@ async fn set_featured(
     } else {
         None
     };
-    let album = updated.map(|album| album_json(&album, guard.items.get(&album_id).map(Vec::len).unwrap_or(0), Vec::new()));
+    let album = updated.map(|album| {
+        album_json(
+            &album,
+            guard.items.get(&album_id).map(Vec::len).unwrap_or(0),
+            Vec::new(),
+        )
+    });
     Ok(Json(json!({ "album": album })))
 }

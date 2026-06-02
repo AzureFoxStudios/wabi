@@ -8,7 +8,7 @@ import { execSync } from 'child_process';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const iconDir = path.join(__dirname, '../frontend/src-tauri/icons');
+const iconDir = path.join(__dirname, '../src-tauri/icons');
 const projectRoot = path.join(__dirname, '..');
 
 console.log('🎨 Tauri Icon Setup Tool');
@@ -39,11 +39,11 @@ try {
 
   if (fs.existsSync(sourceIcon)) {
     console.log(`Found source icon at: ${sourceIcon}`);
-    console.log('Running: tauri icon app-icon.png\n');
+    console.log('Running: bunx @tauri-apps/cli icon app-icon.png\n');
 
     try {
-      execSync('tauri icon', {
-        cwd: path.join(projectRoot, 'frontend'),
+      execSync('bunx @tauri-apps/cli icon app-icon.png', {
+        cwd: projectRoot,
         stdio: 'inherit'
       });
       console.log('\n✓ Icons generated successfully via Tauri CLI');

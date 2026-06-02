@@ -62,7 +62,10 @@ impl BlacklistManager {
         // Create empty file if it doesn't exist
         if !path.exists() {
             std::fs::write(path, "# Wabi Blacklist\n# Format: type|value|reason|expires_timestamp\n# Types: user, ip\n# expires_timestamp: Unix timestamp (0 = never expires)\n")?;
-            info!("[blacklist] Created empty blacklist file at {}", self.file_path);
+            info!(
+                "[blacklist] Created empty blacklist file at {}",
+                self.file_path
+            );
             return Ok(());
         }
 
@@ -82,40 +85,60 @@ impl BlacklistManager {
 
             let parts: Vec<&str> = line.split('|').collect();
             if parts.len() < 3 {
-                warn!("[blacklist] Line {} invalid format (expected type|value|reason|[expires]): {}", line_num + 1, line);
+                warn!(
+                    "[blacklist] Line {} invalid format (expected type|value|reason|[expires]): {}",
+                    line_num + 1,
+                    line
+                );
                 continue;
             }
 
             let entry_type = match BlacklistType::from_str(parts[0]) {
                 Some(t) => t,
                 None => {
-                    warn!("[blacklist] Line {} unknown type '{}': {}", line_num + 1, parts[0], line);
+                    warn!(
+                        "[blacklist] Line {} unknown type '{}': {}",
+                        line_num + 1,
+                        parts[0],
+                        line
+                    );
                     continue;
                 }
             };
 
             let value = parts[1].trim().to_string();
             let reason = parts[2].trim().to_string();
-            let expires_at = parts.get(3)
+            let expires_at = parts
+                .get(3)
                 .and_then(|s| s.trim().parse::<u64>().ok())
                 .filter(|&ts| ts > 0);
 
-            let key = format!("{}:{}", 
-                match entry_type { BlacklistType::User => "user", BlacklistType::Ip => "ip" },
+            let key = format!(
+                "{}:{}",
+                match entry_type {
+                    BlacklistType::User => "user",
+                    BlacklistType::Ip => "ip",
+                },
                 &value
             );
 
-            entries.insert(key, BlacklistEntry {
-                entry_type,
-                value,
-                reason,
-                expires_at,
-            });
+            entries.insert(
+                key,
+                BlacklistEntry {
+                    entry_type,
+                    value,
+                    reason,
+                    expires_at,
+                },
+            );
             count += 1;
         }
 
-        info!("[blacklist] Loaded {} entries from {}", count, self.file_path);
-        
+        info!(
+            "[blacklist] Loaded {} entries from {}",
+            count, self.file_path
+        );
+
         // Replace entries atomically
         let mut guard = self.entries.write().await;
         *guard = entries;
@@ -127,7 +150,7 @@ impl BlacklistManager {
     pub async fn is_user_banned(&self, user_id: i64) -> Option<BlacklistEntry> {
         let key = format!("user:{}", user_id);
         let guard = self.entries.read().await;
-        
+
         guard.get(&key).and_then(|entry| {
             if let Some(expires) = entry.expires_at {
                 let now = chrono::Utc::now().timestamp() as u64;
@@ -143,7 +166,7 @@ impl BlacklistManager {
     pub async fn is_ip_banned(&self, ip: &str) -> Option<BlacklistEntry> {
         let key = format!("ip:{}", ip);
         let guard = self.entries.read().await;
-        
+
         guard.get(&key).and_then(|entry| {
             if let Some(expires) = entry.expires_at {
                 let now = chrono::Utc::now().timestamp() as u64;
@@ -166,7 +189,10 @@ impl BlacklistManager {
         };
         let mut guard = self.entries.write().await;
         guard.insert(key, entry);
-        info!("[blacklist] Added user {} to blacklist: {}", user_id, reason);
+        info!(
+            "[blacklist] Added user {} to blacklist: {}",
+            user_id, reason
+        );
     }
 
     /// Remove a user from the blacklist (in-memory only)

@@ -16,9 +16,7 @@
 	import { openModelViewport } from '$lib/modelViewportTab';
 	import {
 		mapDisplayPreferences,
-		resolvePoiRenderMode,
-		setMapPoiDisplayPreference,
-		type MapPoiDisplayPreference
+		setMapPoiDisplayPreference
 	} from '$lib/mapDisplayPreferences';
 	import {
 		createEmptyPlaceDraft,
@@ -34,8 +32,6 @@
 		type PlaceDraft,
 		type PlaceMapLayerDraft,
 		type PlacePoiDraft,
-		type PlacePoiThemePreset,
-		type PlacePoiRecord,
 		type PlaceRecord
 	} from '$lib/placeRegistry';
 	import {
@@ -43,20 +39,22 @@
 		buildDraftValidationIssues,
 		clampNormalized,
 		formatMapPlaceMeta,
-		formatPoiDisplayPreference,
-		formatPoiIconPreset,
-		formatPoiThemePreset,
-		formatServerPoiTheme,
 		normalizeKey,
 		normalizeRotationDegrees,
-		parseCoordinate,
-		resolvePoiMarkerGlyph
+		parseCoordinate
 	} from './mapWorkspaceHelpers';
+
+	import MapPlaceSidebar from './map/MapPlaceSidebar.svelte';
+	import MapCompactToolbar from './map/MapCompactToolbar.svelte';
+	import MapPlaceHeader from './map/MapPlaceHeader.svelte';
+	import MapEmptyStage from './map/MapEmptyStage.svelte';
+	import MapViewportDetails from './map/MapViewportDetails.svelte';
 
 	export let variant: 'compact' | 'full' | 'detached' = 'full';
 	export let initialPlaceId: string | null = null;
 
 	type SurfaceMode = 'custom' | 'osm';
+
 	type EditorMode = 'view' | 'edit' | 'new';
 
 	const MAP_BASE_WIDTH = 1000;
@@ -360,18 +358,6 @@
 		const firstLayerImage =
 			place.mapLayers.find((layer) => Boolean(resolvePlaceAssetUrl(layer.imageUrl)))?.imageUrl || null;
 		return resolvePlaceAssetUrl(firstLayerImage || place.mapImageUrl || null);
-	}
-
-	function getEffectivePoiRenderMode(poi: PlacePoiRecord): PlacePoiRecord['renderMode'] {
-		return resolvePoiRenderMode(poi.renderMode, poiDisplayPreference);
-	}
-
-	function getEffectivePoiThemePreset(poi: Pick<PlacePoiRecord, 'themePreset'>): PlacePoiThemePreset {
-		return poi.themePreset || stagePlace?.poiThemePreset || 'classic';
-	}
-
-	function describeServerPoiTheme(poi: PlacePoiRecord): string {
-		return formatServerPoiTheme(poi, stagePlace?.poiThemePreset || 'classic');
 	}
 
 	async function scheduleViewportReset(): Promise<void> {
@@ -847,220 +833,64 @@
 
 <div class="map-workspace {variant}">
 	{#if !isCompactLayout}
-	<div class="map-sidebar">
-		<div class="map-sidebar-header">
-			<div>
-				<h2>{variant === 'compact' ? 'Map' : 'Server Map'}</h2>
-				<p>Places shared by this Wabi server.</p>
-			</div>
-			<button class="ghost-button" type="button" on:click={() => void hydrateWorkspace()} disabled={loading || $placeRegistryLoading}>
-				{loading || $placeRegistryLoading ? 'Refreshing...' : 'Refresh'}
-			</button>
-		</div>
-
-		<label class="search-field">
-			<span>Search places</span>
-			<input type="text" bind:value={searchQuery} placeholder="building, tag, alias..." />
-		</label>
-
-		{#if canManagePlaces && variant !== 'compact'}
-			<div class="admin-actions">
-				<button class="ghost-button" type="button" on:click={beginNewPlace}>New Place</button>
-				{#if activePlace}
-					<button class="ghost-button" type="button" on:click={beginEditingCurrentPlace}>Edit Place</button>
-				{/if}
-			</div>
-		{/if}
-
-		{#if loadError}
-			<p class="state-message error">{loadError}</p>
-		{/if}
-
-		<div class="place-list-header">
-			<strong>Places</strong>
-			<span>{visiblePlaces.length}</span>
-		</div>
-
-		{#if loading && $placeRegistry.length === 0}
-			<p class="state-message">Loading map places...</p>
-		{:else if visiblePlaces.length === 0}
-			<div class="state-message">
-				<div>{normalizedQuery ? 'No places match this search yet.' : 'No places have been configured yet.'}</div>
-				{#if canManagePlaces && !normalizedQuery}
-					<div class="admin-actions">
-						<button class="ghost-button" type="button" on:click={beginNewPlace}>Create First Place</button>
-					</div>
-				{/if}
-			</div>
-		{:else}
-			<div class="place-list" role="list">
-				{#each visiblePlaces as place (place.id)}
-					{@const placePreviewUrl = getPlacePreviewUrl(place)}
-					<button type="button" class="place-item" class:active={activePlace?.id === place.id && editorMode === 'view'} on:click={() => void selectPlace(place)}>
-						<div class="place-thumb" class:has-preview={Boolean(placePreviewUrl)}>
-							{#if placePreviewUrl}
-								<img src={placePreviewUrl} alt="" loading="lazy" decoding="async" />
-							{:else}
-								<span>{place.name.charAt(0).toUpperCase()}</span>
-							{/if}
-						</div>
-						<div class="place-copy">
-							<div class="place-copy-heading">
-								<strong>{place.name}</strong>
-								<small>@{place.slug}</small>
-							</div>
-							<div class="place-chip-row">
-								{#if place.building}
-									<span class="place-chip">{place.building}</span>
-								{/if}
-								{#if place.floor}
-									<span class="place-chip">Floor {place.floor}</span>
-								{/if}
-								{#if place.mapLayers.length > 0 || place.mapImageUrl}
-									<span class="place-chip">{place.mapLayers.length || 1} layer{(place.mapLayers.length || 1) === 1 ? '' : 's'}</span>
-								{/if}
-								{#if place.pois.length > 0}
-									<span class="place-chip">{place.pois.length} POI{place.pois.length === 1 ? '' : 's'}</span>
-								{/if}
-								{#if place.lat != null && place.lon != null}
-									<span class="place-chip">OSM</span>
-								{/if}
-							</div>
-						</div>
-					</button>
-				{/each}
-			</div>
-		{/if}
-	</div>
+	<MapPlaceSidebar
+		{variant}
+		{searchQuery}
+		{loading}
+		{loadError}
+		{canManagePlaces}
+		{visiblePlaces}
+		{activePlace}
+		{editorMode}
+		{normalizedQuery}
+		on:refresh={() => void hydrateWorkspace()}
+		on:searchChange={(event) => (searchQuery = event.detail)}
+		on:newPlace={beginNewPlace}
+		on:editPlace={beginEditingCurrentPlace}
+		on:selectPlace={(event) => void selectPlace(event.detail)}
+	/>
 	{/if}
 
 	<div class="map-stage">
 		{#if isCompactLayout}
-			<div class="compact-map-toolbar">
-				<label class="search-field compact-map-search">
-					<span>Search places</span>
-					<input type="text" bind:value={searchQuery} placeholder="Search this server map..." />
-				</label>
-				{#if compactPlaceSuggestions.length > 0}
-					<div class="compact-place-picker" role="list">
-						{#each compactPlaceSuggestions as place (place.id)}
-							<button
-								type="button"
-								class="compact-place-chip"
-								class:active={activePlace?.id === place.id && editorMode === 'view'}
-								on:click={() => void selectPlace(place)}
-							>
-								{place.name}
-							</button>
-						{/each}
-					</div>
-				{:else if normalizedQuery}
-					<div class="compact-map-empty">No places match this search yet.</div>
-				{:else if activePlace}
-					<div class="compact-active-place">
-						<strong>{activePlace.name}</strong>
-						<span>{activePlace.description || formatMapPlaceMeta(activePlace)}</span>
-					</div>
-				{/if}
-			</div>
+			<MapCompactToolbar
+				{searchQuery}
+				{compactPlaceSuggestions}
+				{activePlace}
+				{editorMode}
+				{normalizedQuery}
+				on:searchChange={(event) => (searchQuery = event.detail)}
+				on:selectPlace={(event) => void selectPlace(event.detail)}
+			/>
 		{/if}
 		{#if stagePlace}
 			{#if !isCompactLayout}
-				<div class="place-header">
-					<div class="place-heading">
-						<div class="place-kicker">Map Place</div>
-						<h3>{stagePlace.name}</h3>
-						<p>{stagePlace.description || formatMapPlaceMeta(stagePlace)}</p>
-						<div class="place-chip-row place-chip-row--hero">
-							{#if stagePlace.building}
-								<span class="place-chip">{stagePlace.building}</span>
-							{/if}
-							{#if stagePlace.floor}
-								<span class="place-chip">Floor {stagePlace.floor}</span>
-							{/if}
-							<span class="place-chip">{stageMapLayers.length || (stagePlace.mapImageUrl ? 1 : 0)} layer{(stageMapLayers.length || (stagePlace.mapImageUrl ? 1 : 0)) === 1 ? '' : 's'}</span>
-							<span class="place-chip">{allStagePois.length} POI{allStagePois.length === 1 ? '' : 's'}</span>
-							{#if surfaceHasCustom}
-								<span class="place-chip">Custom Map</span>
-							{/if}
-							{#if surfaceHasOsm}
-								<span class="place-chip">OSM Ready</span>
-							{/if}
-						</div>
-					</div>
-					<div class="place-actions">
-						{#if canManagePlaces && !surfaceHasCustom}
-							<button class="ghost-button" type="button" on:click={() => void startQuickMapUpload()} disabled={uploadBusy}>
-								{uploadBusy ? 'Uploading...' : 'Upload Custom Map'}
-							</button>
-						{/if}
-						{#if canManagePlaces && !surfaceHasOsm}
-							<button class="ghost-button" type="button" on:click={() => void startQuickOsmSetup()}>
-								Add OSM Coordinates
-							</button>
-						{/if}
-						{#if surfaceHasCustom && surfaceHasOsm}
-							<div class="surface-toggle" role="tablist" aria-label="Map surface selector">
-								<button type="button" class:active={surfaceMode === 'custom'} on:click={() => (surfaceMode = 'custom')}>Custom</button>
-								<button type="button" class:active={surfaceMode === 'osm'} on:click={() => (surfaceMode = 'osm')}>OSM</button>
-							</div>
-						{/if}
-						{#if externalUrl}
-							<a class="ghost-button" href={externalUrl} target="_blank" rel="noreferrer noopener">Open External Map</a>
-						{/if}
-						{#if modelUrl}
-							{#if modelViewerAvailable}
-							<button class="ghost-button" type="button" on:click={openPlaceModelViewport}>Open 3D Tab</button>
-							{/if}
-							<a class="ghost-button" href={modelUrl} target="_blank" rel="noreferrer noopener">Open Model</a>
-						{/if}
-					</div>
-				</div>
-
-				{#if stagePlace.description}
-					<p class="place-description">{stagePlace.description}</p>
-				{/if}
-
-				{#if stageMapLayers.length > 1 || stagePois.length > 0}
-					<div class="display-preference-row">
-						{#if stageMapLayers.length > 1}
-							<label class="display-mode-field">
-								<span>Map Layer</span>
-								<select value={selectedLayerId} on:change={(event) => (selectedLayerId = (event.currentTarget as HTMLSelectElement).value)}>
-									{#each stageMapLayers as layer (layer.id)}
-										<option value={layer.id}>{layer.name}{layer.floor ? ` | Floor ${layer.floor}` : ''}</option>
-									{/each}
-								</select>
-							</label>
-						{/if}
-						{#if stagePois.length > 0}
-							<label class="display-mode-field">
-								<span>POI View</span>
-								<select
-									value={poiDisplayPreference}
-									on:change={(event) =>
-										setMapPoiDisplayPreference(
-											(event.currentTarget as HTMLSelectElement).value as MapPoiDisplayPreference
-										)}
-								>
-									<option value="server">Server Default</option>
-									<option value="label">Labels Only</option>
-									<option value="pin">Pins Only</option>
-									<option value="both">Labels + Pins</option>
-								</select>
-							</label>
-						{/if}
-						<small class="display-mode-note">
-							{#if stageMapLayers.length > 1}
-								Showing {activeMapLayer?.name || 'selected layer'}
-								{#if stagePois.length > 0} | {/if}
-							{/if}
-							{#if stagePois.length > 0}
-								Local POI override only. Server defaults remain unchanged.
-							{/if}
-						</small>
-					</div>
-				{/if}
+				<MapPlaceHeader
+					{stagePlace}
+					{stageMapLayers}
+					{allStagePois}
+					{surfaceHasCustom}
+					{surfaceHasOsm}
+					{surfaceMode}
+					{canManagePlaces}
+					{uploadBusy}
+					{externalUrl}
+					{modelUrl}
+					{modelViewerAvailable}
+					{selectedLayerId}
+					{poiDisplayPreference}
+					{activeMapLayer}
+					{stagePois}
+					{isCompactLayout}
+					{variant}
+					on:startQuickMapUpload={() => void startQuickMapUpload()}
+					on:startQuickOsmSetup={() => void startQuickOsmSetup()}
+					on:openPlaceModelViewport={openPlaceModelViewport}
+					on:changeSurfaceMode={(event) => (surfaceMode = event.detail)}
+					on:changeLayerId={(event) => (selectedLayerId = event.detail)}
+					on:changePoiDisplayPreference={(event) =>
+						setMapPoiDisplayPreference(event.detail)}
+				/>
 			{:else}
 				<div class="compact-stage-toolbar">
 					<div class="compact-stage-summary">
@@ -1088,172 +918,42 @@
 				</div>
 			{/if}
 
-			<div class="stage-grid">
-				<div class="map-panel">
-					{#if surfaceMode === 'custom' && mapImageUrl}
-						<div class="surface-toolbar">
-							<div class="surface-status">
-								<span>Zoom {Math.round(mapZoom * 100)}%</span>
-								<span>Rotation {viewRotation.toFixed(0)} deg</span>
-								{#if placingPoiIndex >= 0}
-									<span class="placing-status">Placing {placeDraft.pois[placingPoiIndex]?.name || 'POI'}...</span>
-								{/if}
-							</div>
-							<div class="surface-buttons">
-								<button class="ghost-button" type="button" on:click={() => rotateView(-15)}>Rotate Left</button>
-								<button class="ghost-button" type="button" on:click={() => rotateView(15)}>Rotate Right</button>
-								<button class="ghost-button" type="button" on:click={resetNorth} disabled={viewRotation === 0}>North</button>
-								<button class="ghost-button" type="button" on:click={resetCustomMapView}>Reset View</button>
-								{#if placingPoiIndex >= 0}
-									<button class="ghost-button danger" type="button" on:click={cancelPoiPlacement}>Cancel Placement</button>
-								{/if}
-							</div>
-						</div>
-						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-						<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-						<div
-							class="custom-map-viewport"
-							bind:this={customMapViewport}
-							role="application"
-							tabindex="0"
-							aria-label={`Interactive map for ${stagePlace.name}. Use arrow keys to pan, plus or minus to zoom, bracket keys to rotate, and N to reset north.`}
-							on:wheel|preventDefault={handleViewportWheel}
-							on:mousedown={handleViewportMouseDown}
-							on:click={handleViewportClick}
-							on:keydown={handleViewportKeydown}
-						>
-							<div class="custom-map-content" style={`width:${MAP_BASE_WIDTH}px;height:${mapBaseHeight}px;transform: translate(${mapPanX}px, ${mapPanY}px) scale(${mapZoom});`}>
-								<div class="rotated-map-layer" style={`transform: rotate(${viewRotation}deg);`}>
-									<img class="custom-map-image" src={mapImageUrl} alt={`Map reference for ${stagePlace.name}`} on:load={handleCustomMapImageLoad} />
-									{#each stagePois as poi (poi.id)}
-										<button type="button" class="poi-anchor" data-poi-theme={getEffectivePoiThemePreset(poi)} class:active={selectedPoi?.id === poi.id} style={`left:${poi.x * 100}%;top:${poi.y * 100}%;--poi-color:${poi.iconColor || '#78b4ff'}`} title={poi.name} on:click|stopPropagation={() => selectPoi(poi.id)}>
-											{#if getEffectivePoiRenderMode(poi) !== 'label'}
-												<span class="poi-pin">{resolvePoiMarkerGlyph(poi)}</span>
-											{/if}
-											{#if getEffectivePoiRenderMode(poi) !== 'pin'}
-												<span class="poi-label">{poi.name}</span>
-											{/if}
-										</button>
-									{/each}
-								</div>
-							</div>
-							<div class="compass-overlay" aria-hidden="true">
-								<div class="compass-rose">
-									<span class="compass-arrow" style={`transform: translateX(-50%) rotate(${viewRotation}deg);`}></span>
-									<span class="compass-letter">N</span>
-								</div>
-							</div>
-							{#if stagePois.length === 0}
-								<div class="viewport-overlay">No POIs placed on this custom map yet.</div>
-							{/if}
-							{#if placingPoiIndex >= 0}
-								<div class="viewport-overlay place-hint">Click anywhere on the map to place this POI.</div>
-							{/if}
-						</div>
-					{:else if surfaceMode === 'osm' && embedUrl}
-						<iframe title={`Map for ${stagePlace.name}`} src={embedUrl} loading="lazy"></iframe>
-					{:else}
-						<div class="visual-fallback">
-							{#if canManagePlaces}
-								<div class="visual-fallback-card">
-									<h4>No map surface yet</h4>
-									<p>Upload custom map art for floorplans or add coordinates for OpenStreetMap.</p>
-									<div class="surface-buttons visual-fallback-actions">
-										<button class="ghost-button" type="button" on:click={() => void startQuickMapUpload()} disabled={uploadBusy}>
-											{uploadBusy ? 'Uploading...' : 'Upload Custom Map'}
-										</button>
-										<button class="ghost-button" type="button" on:click={() => void startQuickOsmSetup()}>
-											Add OSM Coordinates
-										</button>
-									</div>
-									<small>"OSM here please" is just latitude and longitude in the place editor.</small>
-								</div>
-							{:else}
-								<div class="visual-fallback-card">
-									<h4>No map surface yet</h4>
-									<p>No visual map is configured for this place yet.</p>
-									<small>Ask an owner or admin to upload map art or add coordinates.</small>
-								</div>
-							{/if}
-						</div>
-					{/if}
-				</div>
-				{#if !isCompactLayout}
-				<div class="detail-panel">
-					<div class="detail-card">
-						<h4>Place Details</h4>
-						<div class="detail-stat-grid">
-							<div class="detail-stat">
-								<span>Slug</span>
-								<strong>@{stagePlace.slug}</strong>
-							</div>
-							<div class="detail-stat">
-								<span>Layers</span>
-								<strong>{stageMapLayers.length || (stagePlace.mapImageUrl ? 1 : 0)}</strong>
-							</div>
-							<div class="detail-stat">
-								<span>POI View</span>
-								<strong>{formatPoiDisplayPreference(poiDisplayPreference)}</strong>
-							</div>
-							<div class="detail-stat">
-								<span>POI Theme</span>
-								<strong>{formatPoiThemePreset(stagePlace.poiThemePreset)}</strong>
-							</div>
-							<div class="detail-stat">
-								<span>Rotation</span>
-								<strong>{stagePlace.mapRotation.toFixed(0)} deg</strong>
-							</div>
-							<div class="detail-stat">
-								<span>POIs</span>
-								<strong>{stagePois.length}{stageMapLayers.length > 1 ? ` visible / ${allStagePois.length} total` : ''}</strong>
-							</div>
-							<div class="detail-stat detail-stat--wide">
-								<span>Aliases</span>
-								<strong>{stagePlace.aliases.length ? stagePlace.aliases.join(', ') : 'None'}</strong>
-							</div>
-							<div class="detail-stat detail-stat--wide">
-								<span>Tags</span>
-								<strong>{stagePlace.tags.length ? stagePlace.tags.join(', ') : 'None'}</strong>
-							</div>
-						</div>
-					</div>
-
-					{#if stagePois.length > 0}
-						<div class="detail-card">
-							<h4>Points of Interest</h4>
-							<div class="poi-list">
-								{#each stagePois as poi (poi.id)}
-									<button type="button" class="poi-item" class:active={selectedPoi?.id === poi.id} on:click={() => selectPoi(poi.id)}>
-										<strong>{poi.name}</strong>
-										<small>{poi.description || getEffectivePoiRenderMode(poi)}</small>
-									</button>
-								{/each}
-							</div>
-						</div>
-					{/if}
-
-					{#if selectedPoi}
-						<div class="detail-card selected-poi-card">
-							<h4>Selected POI</h4>
-							<div class="poi-summary">
-								<div class="poi-badge" data-poi-theme={getEffectivePoiThemePreset(selectedPoi)} style={`--poi-color:${selectedPoi.iconColor || '#78b4ff'}`}>
-									{resolvePoiMarkerGlyph(selectedPoi)}
-								</div>
-								<div>
-									<strong>{selectedPoi.name}</strong>
-									<p>{selectedPoi.description || 'No description saved.'}</p>
-								</div>
-							</div>
-							<ul>
-								<li><strong>Server Style</strong><span>{selectedPoi.renderMode}</span></li>
-								<li><strong>Shown As</strong><span>{getEffectivePoiRenderMode(selectedPoi)}</span></li>
-								<li><strong>Server Theme</strong><span>{describeServerPoiTheme(selectedPoi)}</span></li>
-								<li><strong>Shown Theme</strong><span>{formatPoiThemePreset(getEffectivePoiThemePreset(selectedPoi))}</span></li>
-								<li><strong>Icon Preset</strong><span>{formatPoiIconPreset(selectedPoi.iconPreset || 'pin')}</span></li>
-								<li><strong>Anchor</strong><span>{selectedPoi.x.toFixed(3)}, {selectedPoi.y.toFixed(3)}</span></li>
-							</ul>
-						</div>
-					{/if}
+				<div class="stage-grid">
+					<MapViewportDetails
+						{stagePlace}
+						{stageMapLayers}
+						{stagePois}
+						{allStagePois}
+						{selectedPoi}
+						{poiDisplayPreference}
+						{surfaceMode}
+						{mapImageUrl}
+						{embedUrl}
+						{canManagePlaces}
+						{uploadBusy}
+						{placingPoiIndex}
+						{placeDraft}
+						{MAP_BASE_WIDTH}
+						{mapBaseHeight}
+						{mapZoom}
+						{mapPanX}
+						{mapPanY}
+						{viewRotation}
+						{isCompactLayout}
+						bind:customMapViewport
+						on:selectPoi={(event) => selectPoi(event.detail)}
+						on:viewportClick={(event) => handleViewportClick(event.detail)}
+						on:viewportWheel={(event) => handleViewportWheel(event.detail)}
+						on:viewportMouseDown={(event) => handleViewportMouseDown(event.detail)}
+						on:viewportKeydown={(event) => handleViewportKeydown(event.detail)}
+						on:customMapImageLoad={(event) => handleCustomMapImageLoad(event.detail)}
+						on:rotateView={(event) => rotateView(event.detail)}
+						on:resetNorth={resetNorth}
+						on:resetCustomMapView={resetCustomMapView}
+						on:cancelPoiPlacement={cancelPoiPlacement}
+						on:startQuickMapUpload={() => void startQuickMapUpload()}
+						on:startQuickOsmSetup={() => void startQuickOsmSetup()}
+					>
 
 					{#if canManagePlaces && variant !== 'compact'}
 						<div class="detail-card editor-card">
@@ -1392,29 +1092,17 @@
 								<div class="editor-actions final-actions">
 									<button class="ghost-button" type="button" on:click={cancelEditing}>Cancel</button>
 									<button class="ghost-button" type="button" on:click={() => void saveCurrentPlace()} disabled={!canSaveDraft}>{saveBusy ? 'Saving...' : 'Save Place'}</button>
-									{#if editorMode === 'edit' && activePlace}
-										<button class="ghost-button danger" type="button" on:click={() => void deleteCurrentPlaceRecord()} disabled={deleteBusy}>{deleteBusy ? 'Deleting...' : 'Delete'}</button>
-									{/if}
-								</div>
-							{/if}
-						</div>
-					{/if}
-				</div>
-				{/if}
-			</div>
-		{:else}
-			<div class="empty-stage">
-				<div class="empty-stage-copy">
-					<h3>No place selected</h3>
-					<p>{isCompactLayout ? 'Search for a place to open the server map.' : 'Choose a saved place from the list to open the server map.'}</p>
-					{#if canManagePlaces}
-						<div class="surface-buttons">
-							<button class="ghost-button" type="button" on:click={beginNewPlace}>Create First Place</button>
-						</div>
-					{/if}
-				</div>
-			</div>
+										{#if editorMode === 'edit' && activePlace}
+											<button class="ghost-button danger" type="button" on:click={() => void deleteCurrentPlaceRecord()} disabled={deleteBusy}>{deleteBusy ? 'Deleting...' : 'Delete'}</button>
+										{/if}
+									</div>
+								{/if}
+							</div>
+						{/if}
+							</MapViewportDetails>
+					</div>
+			{:else}
+			<MapEmptyStage {isCompactLayout} {canManagePlaces} on:newPlace={beginNewPlace} />
 		{/if}
 	</div>
 </div>
-

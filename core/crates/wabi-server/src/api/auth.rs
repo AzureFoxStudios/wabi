@@ -73,7 +73,7 @@ async fn handle_register(
 
     // Check IP blacklist (if available)
     // Note: We don't have IP here, but admin can manually ban usernames
-    
+
     let password_hash = bcrypt::hash(&req.password, bcrypt::DEFAULT_COST)?;
 
     let existing = state.stdb.get_user(&req.username).await?;
@@ -183,7 +183,10 @@ async fn handle_login(
     // Check blacklist after successful auth
     if let Some(blacklist) = state.get_blacklist().await {
         if let Some(entry) = blacklist.is_user_banned(user_id).await {
-            return Err(AppError::Unauthorized(format!("Account banned: {}. Contact server admin.", entry.reason)));
+            return Err(AppError::Unauthorized(format!(
+                "Account banned: {}. Contact server admin.",
+                entry.reason
+            )));
         }
     }
 
@@ -341,7 +344,9 @@ pub async fn handle_turn_credentials(
 ) -> Result<Json<TurnCredentialsResponse>> {
     use jsonwebtoken::{decode, DecodingKey, Validation};
     #[derive(serde::Deserialize)]
-    struct C { sub: String }
+    struct C {
+        sub: String,
+    }
 
     // Require valid auth token
     let auth = headers
@@ -356,7 +361,10 @@ pub async fn handle_turn_credentials(
     let claims = decode::<C>(&auth, &key, &v)
         .map_err(|_| AppError::Unauthorized("invalid token".into()))?
         .claims;
-    let user_id: i64 = claims.sub.parse().map_err(|_| AppError::Unauthorized("bad sub".into()))?;
+    let user_id: i64 = claims
+        .sub
+        .parse()
+        .map_err(|_| AppError::Unauthorized("bad sub".into()))?;
 
     if !state.config.turn_enabled {
         return Err(AppError::BadRequest("TURN server not enabled".into()));
