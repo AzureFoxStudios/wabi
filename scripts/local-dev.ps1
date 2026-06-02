@@ -7,22 +7,25 @@ $backendDataDir = Join-Path $repoRoot "backend\data"
 $backendUploadsDir = Join-Path $repoRoot "backend\uploads"
 $backendDbPath = Join-Path $backendDataDir "chat.db"
 $frontendBuildDir = Join-Path $repoRoot "frontend\build"
+$backendPort = if ($env:BACKEND_PORT) { $env:BACKEND_PORT } else { "3000" }
+$frontendPort = if ($env:FRONTEND_PORT) { $env:FRONTEND_PORT } else { "5173" }
+$frontendHost = if ($env:FRONTEND_HOST) { $env:FRONTEND_HOST } else { "127.0.0.1" }
 
 New-Item -ItemType Directory -Path $backendDataDir -Force | Out-Null
 New-Item -ItemType Directory -Path $backendUploadsDir -Force | Out-Null
 
 $env:NODE_ENV = "development"
-$env:BACKEND_PORT = "3000"
-$env:PORT = "3000"
-$env:FRONTEND_URL = "http://127.0.0.1:5173"
-$env:PUBLIC_URL = "http://127.0.0.1:5173"
-$env:ALLOWED_ORIGINS = "http://127.0.0.1:5173,http://127.0.0.1:3000,http://localhost:5173,http://localhost:3000,http://localhost,http://127.0.0.1,https://tauri.localhost,tauri://localhost"
+$env:BACKEND_PORT = $backendPort
+$env:PORT = $backendPort
+$env:FRONTEND_URL = "http://${frontendHost}:${frontendPort}"
+$env:PUBLIC_URL = "http://${frontendHost}:${frontendPort}"
+$env:ALLOWED_ORIGINS = "http://${frontendHost}:${frontendPort},http://localhost:${frontendPort},http://${frontendHost}:${backendPort},http://localhost:${backendPort},http://localhost,http://${frontendHost},https://tauri.localhost,tauri://localhost"
 $env:DB_MODE = "sqlite"
 $env:DATABASE_PATH = $backendDbPath
 $env:DATA_DIR = $backendDataDir
 $env:UPLOADS_DIR = $backendUploadsDir
 $env:STATIC_DIR = $frontendBuildDir
-$env:VITE_SOCKET_URL = "http://127.0.0.1:3000"
+$env:VITE_SOCKET_URL = "http://${frontendHost}:${backendPort}"
 $env:VITE_TURN_SERVER = "127.0.0.1"
 $env:VITE_TURN_PORT = "3478"
 $env:VITE_USE_TURNS = "false"
@@ -35,15 +38,14 @@ $env:WABI_STDB_AUTH_TOKEN = ""
 $env:WABI_STDB_ANONYMOUS = "true"
 
 Write-Host "[local-dev] Starting localhost stack"
-Write-Host "[local-dev] frontend: http://127.0.0.1:5173"
-Write-Host "[local-dev] backend:  http://127.0.0.1:3000"
-Write-Host "[local-dev] health:   http://127.0.0.1:3000/health"
+Write-Host "[local-dev] frontend: http://${frontendHost}:${frontendPort}"
+Write-Host "[local-dev] backend:  http://${frontendHost}:${backendPort}"
+Write-Host "[local-dev] health:   http://${frontendHost}:${backendPort}/health"
 
 $frontendDir = Join-Path $repoRoot "frontend"
-$backendDir = Join-Path $repoRoot "backend"
 
-$frontendProc = Start-Process -FilePath "bun" -ArgumentList @("run", "dev") -WorkingDirectory $frontendDir -NoNewWindow -PassThru
-$backendProc = Start-Process -FilePath "bun" -ArgumentList @("run", "dev") -WorkingDirectory $backendDir -NoNewWindow -PassThru
+$frontendProc = Start-Process -FilePath "bun" -ArgumentList @("run", "dev", "--", "--host", $frontendHost, "--port", $frontendPort) -WorkingDirectory $frontendDir -NoNewWindow -PassThru
+$backendProc = Start-Process -FilePath "cargo" -ArgumentList @("run", "-p", "wabi-server", "--", "--host", $frontendHost, "--port", $backendPort, "--data-dir", $backendDataDir) -WorkingDirectory $repoRoot -NoNewWindow -PassThru
 
 try {
   while ($true) {
