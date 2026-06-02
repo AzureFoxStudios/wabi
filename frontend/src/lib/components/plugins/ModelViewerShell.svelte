@@ -8,12 +8,13 @@
 	export let fileName: string;
 	export let error: string | null;
 	export let fullBleed: boolean;
+	export let host: HTMLDivElement | null = null;
 	export let onStartViewer: () => void;
 	export let onViewModeChange: (mode: ViewMode) => void;
 	export let onToggleHideUi: () => void;
 </script>
 
-<div class="model-viewer" class:full-bleed={fullBleed}>
+<div class="model-viewer" class:full-bleed={fullBleed} bind:this={host}>
 	{#if error}
 		<div class="model-error">{error}</div>
 	{:else}

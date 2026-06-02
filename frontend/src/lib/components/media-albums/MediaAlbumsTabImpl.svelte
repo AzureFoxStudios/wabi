@@ -31,7 +31,6 @@
 	import {
 		albumItemKindLabel,
 		formatAlbumActionError,
-		formatBytes,
 		formatTimestamp,
 		isImageAlbumItem,
 		isVideoAlbumItem,
@@ -46,7 +45,11 @@
 		} from './mediaAlbumHelpers';
 		import { uploadAlbumFile } from './mediaAlbumUpload';
 		import AlbumViewer from './AlbumViewer.svelte';
+		import AlbumCard from './AlbumCard.svelte';
+		import AlbumUploadForm from './AlbumUploadForm.svelte';
+		import AlbumItemRow from './AlbumItemRow.svelte';
 		import ScreenshotPipePanel from './ScreenshotPipePanel.svelte';
+		import AlbumItemsHeader from './AlbumItemsHeader.svelte';
 
 	$: activeChannel = $channels.find((channel) => channel.id === $currentChannel) || null;
 	$: scopeType = (activeChannel?.type === 'dm' || activeChannel?.type === 'group' ? 'dm' : 'channel') as MediaAlbumScopeType;
@@ -939,106 +942,27 @@
 		{/if}
 
 		<div class="album-list">
-			{#if isLoadingAlbums}
+		{#if isLoadingAlbums}
 				<div class="empty-state">Loading albums...</div>
 			{:else if albums.length === 0}
 				<div class="empty-state">{scopeType === 'dm' ? 'No albums in this conversation yet.' : 'No albums in this channel yet.'}</div>
 			{:else}
 				{#each albums as album}
 					{@const previewItems = getAlbumPreviewItems(album.id)}
-					<div
-						class="album-card"
-						class:featured={album.isFeatured}
-						class:selected={selectedAlbumId === album.id}
-						class:uploading={selectedAlbumId === album.id && isUploadingAlbumFile}
-						role="button"
-						tabindex="0"
-						on:click={() => void handleAlbumCardActivate(album)}
-						on:contextmenu={(event) => openAlbumContextMenu(event, album.id)}
-						on:keydown={(event) => {
-							if (event.key === 'Enter' || event.key === ' ') {
-								event.preventDefault();
-								void handleAlbumCardActivate(album);
-							}
-						}}
-					>
-						<div class="album-name-row">
-							<div class="album-name-stack">
-								<div class="album-name">{album.name}</div>
-								{#if albumRowStatus(album)}
-									<span class="album-row-status">{albumRowStatus(album)}</span>
-								{/if}
-							</div>
-						<div class="album-card-actions">
-							{#if album.isFeatured}
-								<span class="featured-badge">Featured</span>
-							{/if}
-							{#if screenshotPipeTargetAlbumId === album.id}
-								<span class="featured-badge">FFXIV pipe target</span>
-							{/if}
-							<button
-								type="button"
-								class="album-quick-btn"
-								title="Add file to album"
-									aria-label={`Add file to ${album.name}`}
-									on:click|stopPropagation={() => void openAlbumUpload(album.id)}
-								>
-									+
-								</button>
-								{#if canDeleteAlbum(album)}
-									<button
-										type="button"
-										class="album-quick-btn album-quick-btn--danger"
-										title="Delete album"
-										aria-label={`Delete ${album.name}`}
-										on:click|stopPropagation={() => void removeAlbum(album.id)}
-									>
-										Delete
-									</button>
-								{/if}
-							</div>
-						</div>
-						<div class="album-card-preview-row">
-							{#if previewItems.length > 0}
-								{#each previewItems as previewItem, previewIndex}
-									<button
-										type="button"
-										class="album-card-preview"
-										aria-label={`Open ${album.name} preview ${previewIndex + 1}`}
-										on:click|stopPropagation={() => void handleAlbumPreviewActivate(album, previewIndex)}
-									>
-										{#if isVideoAlbumItem(previewItem)}
-											<video muted playsinline preload="metadata">
-												<source
-													src={resolveAlbumAssetUrl(previewItem.attachmentUrl)}
-													type={previewItem.attachmentMime || undefined}
-												/>
-											</video>
-										{:else}
-											<img
-												src={resolveAlbumAssetUrl(previewItem.attachmentUrl)}
-												alt=""
-												loading="lazy"
-												decoding="async"
-											/>
-										{/if}
-									</button>
-								{/each}
-							{:else}
-								<div class="album-card-placeholder">
-									{selectedAlbumId === album.id && isUploadingAlbumFile
-										? 'Uploading into this album...'
-										: album.itemCount > 0
-											? 'Open album gallery'
-											: 'Click row to upload the first image'}
-								</div>
-							{/if}
-						</div>
-						<div class="album-meta">
-							<span>{album.itemCount} items</span>
-							<span>Updated {formatTimestamp(album.updatedAt)}</span>
-						</div>
-					</div>
+					<AlbumCard
+						{album}
+						{selectedAlbumId}
+						{isUploadingAlbumFile}
+						{lastUploadedAlbumId}
+						{screenshotPipeTargetAlbumId}
+						{previewItems}
+						canDeleteAlbumFor={canDeleteAlbum}
+						onActivate={(album) => void handleAlbumCardActivate(album)}
+						onContextMenu={(event, albumId) => openAlbumContextMenu(event, albumId)}
+						onPreviewActivate={(album, previewIndex) => void handleAlbumPreviewActivate(album, previewIndex)}
+						onQuickAdd={(albumId) => void openAlbumUpload(albumId)}
+						onQuickDelete={(albumId) => void removeAlbum(albumId)}
+					/>
 				{/each}
 			{/if}
 		</div>
@@ -1077,56 +1001,21 @@
 
 		{#if selectedAlbumValue}
 			<div class="items-section">
-				<div class="items-header">
-					<div class="items-header-title">
-						<strong>{selectedAlbumValue.name}</strong>
-						<span>
-							{albumItems.length} loaded
-							{#if selectedAlbumValue.isFeatured}
-								&middot; featured
-							{/if}
-						</span>
-					</div>
-					<div class="items-header-actions">
-						<button
-							type="button"
-							class="album-plus-btn"
-							on:click={() => triggerAlbumUploadPicker('instant')}
-							title="Add file to album"
-							aria-label="Add file to album"
-						>
-							+
-						</button>
-						{#if canFeatureAlbum(selectedAlbumValue)}
-							<button
-								class="feature-btn"
-								class:active={selectedAlbumValue.isFeatured}
-								on:click={() => void toggleFeaturedAlbum(selectedAlbumValue)}
-								disabled={isSavingFeaturedAlbum}
-								title={selectedAlbumValue.isFeatured ? 'Unpin featured album' : 'Pin as featured album'}
-							>
-								{selectedAlbumValue.isFeatured ? 'Unfeature album' : 'Feature album'}
-							</button>
-						{/if}
-						<button
-							class="feature-btn"
-							class:active={screenshotPipeTargetAlbumId === selectedAlbumValue.id}
-							on:click={setScreenshotPipeTargetFromSelectedAlbum}
-							disabled={!scopeKey}
-							title="Use this album as the screenshot pipe target for the current scope"
-						>
-							{screenshotPipeTargetAlbumId === selectedAlbumValue.id ? 'Pipe target set' : 'Set as pipe target'}
-						</button>
-						<button
-							class="danger-btn"
-							on:click={() => void removeSelectedAlbum()}
-							disabled={isDeletingAlbum || !canDeleteAlbum(selectedAlbumValue)}
-							title="Delete this album"
-						>
-							{isDeletingAlbum ? 'Deleting...' : 'Delete album'}
-						</button>
-					</div>
-				</div>
+				<AlbumItemsHeader
+					album={selectedAlbumValue}
+					canFeature={canFeatureAlbum(selectedAlbumValue)}
+					canDelete={canDeleteAlbum(selectedAlbumValue)}
+					isDeleting={isDeletingAlbum}
+					isSavingFeatured={isSavingFeaturedAlbum}
+					{screenshotPipeTargetAlbumId}
+					{selectedAlbumId}
+					{scopeKey}
+					loadedItemCount={albumItems.length}
+					onFeature={(album) => void toggleFeaturedAlbum(album)}
+					onDelete={() => void removeSelectedAlbum()}
+					onSetPipeTarget={setScreenshotPipeTargetFromSelectedAlbum}
+					onAddMedia={() => triggerAlbumUploadPicker('instant')}
+				/>
 				{#if albumPreviewItems.length > 0}
 					<div class="album-preview-strip">
 						{#each albumPreviewItems as previewItem, previewIndex}
@@ -1160,58 +1049,15 @@
 					<div class="permission-hint">Only the album owner or moderators can delete this album.</div>
 				{/if}
 
-				<div class="upload-local-item">
-					<input
-						type="file"
-						bind:this={uploadInputElement}
-						class="album-file-input"
-						on:change={handleAlbumFileChange}
-						accept="image/*,video/*,audio/*,.zip,.pdf,.txt,.md"
-					/>
-						<div
-							class="upload-local-row"
-							role="button"
-							tabindex="0"
-							on:click={() => triggerAlbumUploadPicker()}
-							on:keydown={(event) => {
-								if (event.key === 'Enter' || event.key === ' ') {
-									event.preventDefault();
-									triggerAlbumUploadPicker();
-								}
-						}}
-					>
-						<button
-							type="button"
-							class="album-upload-trigger"
-							on:click|stopPropagation={() => triggerAlbumUploadPicker()}
-							title="Choose file for this album"
-							aria-label="Choose file for this album"
-						>
-							+
-						</button>
-						<div class="upload-local-copy">
-							<strong>Add to this album</strong>
-							<span>{draftUploadFile ? draftUploadFile.name : 'Pick an image, video, or file to add.'}</span>
-						</div>
-						<button
-							on:click|stopPropagation={() => void addUploadedFileItem()}
-							disabled={isUploadingAlbumFile || !draftUploadFile}
-						>
-							{isUploadingAlbumFile ? 'Uploading...' : 'Upload to album'}
-						</button>
-					</div>
-					{#if draftUploadFile}
-						<div class="upload-local-meta">
-							<span>{draftUploadFile.name}</span>
-							<span>{formatBytes(draftUploadFile.size)}</span>
-						</div>
-					{/if}
-					<input
-						type="text"
-						bind:value={draftUploadCaption}
-						placeholder="Caption for uploaded file (optional)"
-					/>
-				</div>
+				<AlbumUploadForm
+					{draftUploadFile}
+					bind:draftUploadCaption
+					{isUploadingAlbumFile}
+					bind:uploadInputElement
+					onTriggerPicker={triggerAlbumUploadPicker}
+					onUpload={() => void addUploadedFileItem()}
+					onFileChange={(event) => void handleAlbumFileChange(event)}
+				/>
 
 				<details class="debug-add-item">
 					<summary>Advanced: add item by URL</summary>
@@ -1273,77 +1119,21 @@
 					{:else if filteredAlbumItems.length === 0}
 						<div class="empty-state">No items match this search.</div>
 					{:else}
-						{#each pagedAlbumItems as item}
-							<div
-								class="item-row"
-								class:dragging={draggingItemId === item.id}
-								role="listitem"
-								draggable={canDragReorderItems}
-								on:dragstart={() => (draggingItemId = item.id)}
-								on:dragend={() => (draggingItemId = null)}
-								on:dragover|preventDefault
-								on:drop|preventDefault={() => void handleItemDrop(item.id)}
-							>
-								{#if isImageAlbumItem(item) || isVideoAlbumItem(item)}
-									<button
-										type="button"
-										class="item-preview"
-										title={item.attachmentName}
-										aria-label={`Open ${item.attachmentName}`}
-										on:click={() => void openSelectedAlbumViewerAtItem(item)}
-									>
-										{#if isImageAlbumItem(item)}
-										<img
-											src={resolveAlbumAssetUrl(item.attachmentUrl)}
-											alt={item.attachmentName}
-											loading="lazy"
-											decoding="async"
-										/>
-										{:else}
-										<video muted playsinline preload="metadata">
-											<source
-												src={resolveAlbumAssetUrl(item.attachmentUrl)}
-												type={item.attachmentMime || undefined}
-											/>
-										</video>
-										{/if}
-									</button>
-								{:else}
-									<a
-										class="item-preview"
-										href={resolveAlbumAssetUrl(item.attachmentUrl)}
-										target="_blank"
-										rel="noreferrer"
-										title={item.attachmentName}
-									>
-										<div class="item-preview-fallback">{albumItemKindLabel(item)}</div>
-									</a>
-								{/if}
-								<div class="item-main">
-									<a href={resolveAlbumAssetUrl(item.attachmentUrl)} target="_blank" rel="noreferrer">
-										{item.attachmentName}
-									</a>
-									<div class="item-kind-pill">{albumItemKindLabel(item)}</div>
-									{#if item.caption}
-										<div class="item-caption">{item.caption}</div>
-									{/if}
-								</div>
-								<div class="item-meta">
-									{#if item.attachmentSize !== null}
-										<div>{(item.attachmentSize / 1024 / 1024).toFixed(2)} MB</div>
-									{/if}
-									<div>{formatTimestamp(item.uploadedAt)}</div>
-									<button
-										class="item-delete-btn"
-										on:click={() => void removeItem(item.id)}
-										disabled={deletingItemId !== null || !canDeleteItem(item, selectedAlbumValue)}
-										title="Delete item from album"
-									>
-										{deletingItemId === item.id ? 'Deleting...' : 'Delete'}
-									</button>
-								</div>
-							</div>
-						{/each}
+							{#each pagedAlbumItems as item}
+								<AlbumItemRow
+									{item}
+									album={selectedAlbumValue}
+									dragging={draggingItemId === item.id}
+									canDrag={canDragReorderItems}
+									{deletingItemId}
+									canDeleteItem={canDeleteItem}
+									on:open={() => void openSelectedAlbumViewerAtItem(item)}
+									on:delete={() => void removeItem(item.id)}
+									on:dragstart={() => (draggingItemId = item.id)}
+									on:dragend={() => (draggingItemId = null)}
+									on:drop={() => void handleItemDrop(item.id)}
+								/>
+							{/each}
 					{/if}
 				</div>
 				{#if !isLoadingItems && !isManualSortMode && filteredAlbumItems.length > ITEMS_PER_PAGE}

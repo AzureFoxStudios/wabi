@@ -1,5 +1,23 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import ModelViewerShell from './ModelViewerShell.svelte';
+  import ModelViewerSettingsMenu from './ModelViewerSettingsMenu.svelte';
+  import {
+    clearOverlayLines,
+    clearRigOverlays,
+    clearSkeletonHelpers,
+    disposeMaterialLike,
+    disposeRuntimeMaterials,
+    getThreadMode,
+    materialTextureKeys,
+    persistThreadMode,
+    resolveWorkerDecision,
+    setColorTextureSpace,
+    type AnimationLoopMode,
+    type RigOverlay,
+    type ThreadMode,
+    type ViewMode
+  } from './modelViewerHelpers';
 
   export let src: string;
   export let fileName = '3D model';
@@ -8,12 +26,6 @@
   export let lazyLoad = true;
   export let hideUi = false;
 
-  type ThreadMode = 'auto' | 'always' | 'off';
-  type ViewMode = 'textured' | 'normal' | 'wireframe-lines';
-  type AnimationLoopMode = 'repeat' | 'once' | 'pingpong';
-
-  const THREAD_MODE_KEY = 'wabi:model-viewer-thread-mode';
-  const AUTO_WORKER_THRESHOLD_BYTES = 8 * 1024 * 1024;
   const THREE_BASE = 'https://esm.sh/three@0.181.1';
 
   let host: HTMLDivElement;
@@ -51,51 +63,10 @@
   let setAnimationLoopRuntime: ((mode: AnimationLoopMode) => void) | null = null;
   let startViewer: () => void = () => {};
 
-  function getThreadMode(): ThreadMode {
-    const raw = localStorage.getItem(THREAD_MODE_KEY);
-    if (raw === 'single') return 'off';
-    if (raw === 'always' || raw === 'off' || raw === 'auto') return raw;
-    return 'auto';
-  }
-
-  function persistThreadMode(mode: ThreadMode): void {
-    localStorage.setItem(THREAD_MODE_KEY, mode);
-  }
-
-  async function getRemoteFileSize(url: string): Promise<number | null> {
-    try {
-      const response = await fetch(url, { method: 'HEAD' });
-      const rawLength = response.headers.get('content-length');
-      if (!rawLength) return null;
-      const parsed = Number.parseInt(rawLength, 10);
-      return Number.isFinite(parsed) ? parsed : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function workerSupportedForExt(ext: string): boolean {
-    return ext === 'stl';
-  }
-
   async function shouldUseWorker(ext: string): Promise<boolean> {
-    if (!workerSupportedForExt(ext)) return false;
-    if (threadMode === 'off') return false;
-    if (threadMode === 'always') return true;
-
-    const sizeBytes = await getRemoteFileSize(src);
-    if (sizeBytes === null) {
-      threadingNotice = 'Auto mode could not determine file size. Using main-thread path.';
-      return false;
-    }
-
-    if (sizeBytes >= AUTO_WORKER_THRESHOLD_BYTES) {
-      threadingNotice = `Auto selected worker mode (${(sizeBytes / (1024 * 1024)).toFixed(1)} MB).`;
-      return true;
-    }
-
-    threadingNotice = `Auto selected main-thread mode (${(sizeBytes / (1024 * 1024)).toFixed(1)} MB).`;
-    return false;
+    const decision = await resolveWorkerDecision(src, ext, threadMode);
+    threadingNotice = decision.notice;
+    return decision.useWorker;
   }
 
   function handleThreadModeChange(event: Event): void {
@@ -185,20 +156,6 @@
     let mixer: any = null;
     let activeAction: any = null;
     let animationClips: any[] = [];
-    type RigOverlay = {
-      bones: any[];
-      pairs: Array<[any, any]>;
-      line: any;
-      lineGeometry: any;
-      lineMaterial: any;
-      linePositions: Float32Array;
-      sticks: any[];
-      stickGeometry: any;
-      stickMaterial: any;
-      joints: any[];
-      jointGeometry: any;
-      jointMaterial: any;
-    };
     const skeletonHelpers: any[] = [];
     const rigOverlays: RigOverlay[] = [];
     let frameHandle = 0;
@@ -217,41 +174,6 @@
     const sourceMaterials: any[] = [];
     const runtimeMaterials: any[] = [];
     const overlayLines: Array<{ line: any; geometry: any; material: any }> = [];
-
-    const materialTextureKeys = [
-      'map',
-      'emissiveMap',
-      'specularColorMap',
-      'sheenColorMap'
-    ];
-
-    const clearSkeletonHelpers = () => {
-      for (const helper of skeletonHelpers) {
-        helper?.parent?.remove?.(helper);
-        helper?.geometry?.dispose?.();
-        helper?.material?.dispose?.();
-      }
-      skeletonHelpers.length = 0;
-    };
-
-    const clearRigOverlays = () => {
-      for (const overlay of rigOverlays) {
-        overlay.line?.parent?.remove?.(overlay.line);
-        overlay.lineGeometry?.dispose?.();
-        overlay.lineMaterial?.dispose?.();
-        for (const stick of overlay.sticks) {
-          stick?.parent?.remove?.(stick);
-        }
-        overlay.stickGeometry?.dispose?.();
-        overlay.stickMaterial?.dispose?.();
-        for (const joint of overlay.joints) {
-          joint?.parent?.remove?.(joint);
-        }
-        overlay.jointGeometry?.dispose?.();
-        overlay.jointMaterial?.dispose?.();
-      }
-      rigOverlays.length = 0;
-    };
 
     const collectBonesFromRoot = (rootBone: any): any[] => {
       const list: any[] = [];
@@ -401,40 +323,6 @@
       }
     };
 
-    const disposeMaterialLike = (materialLike: any) => {
-      if (Array.isArray(materialLike)) {
-        for (const mat of materialLike) mat?.dispose?.();
-      } else {
-        materialLike?.dispose?.();
-      }
-    };
-
-    const clearOverlayLines = () => {
-      for (const overlay of overlayLines) {
-        overlay.line?.parent?.remove?.(overlay.line);
-        overlay.geometry?.dispose?.();
-        overlay.material?.dispose?.();
-      }
-      overlayLines.length = 0;
-    };
-
-    const disposeRuntimeMaterials = () => {
-      for (const material of runtimeMaterials) {
-        material?.dispose?.();
-      }
-      runtimeMaterials.length = 0;
-    };
-
-    const setColorTextureSpace = (texture: any) => {
-      if (!texture) return;
-      if (typeof THREE?.SRGBColorSpace !== 'undefined' && 'colorSpace' in texture) {
-        texture.colorSpace = THREE.SRGBColorSpace;
-      } else if (typeof THREE?.sRGBEncoding !== 'undefined' && 'encoding' in texture) {
-        texture.encoding = THREE.sRGBEncoding;
-      }
-      texture.needsUpdate = true;
-    };
-
     const normalizeMeshMaterial = (mesh: any) => {
       const applySingle = (material: any) => {
         if (!material) return;
@@ -445,7 +333,7 @@
           material.side = THREE.DoubleSide;
         }
         for (const key of materialTextureKeys) {
-          setColorTextureSpace((material as any)[key]);
+          setColorTextureSpace((material as any)[key], THREE);
         }
         material.needsUpdate = true;
       };
@@ -524,8 +412,8 @@
         sourceMaterialsCaptured = true;
       }
 
-      clearOverlayLines();
-      disposeRuntimeMaterials();
+      clearOverlayLines(overlayLines);
+      disposeRuntimeMaterials(runtimeMaterials);
 
       for (let meshIndex = 0; meshIndex < meshes.length; meshIndex += 1) {
         const mesh = meshes[meshIndex];
@@ -587,11 +475,11 @@
       disposed = true;
       if (frameHandle) cancelAnimationFrame(frameHandle);
       controls?.dispose?.();
-      clearOverlayLines();
-      clearSkeletonHelpers();
-      clearRigOverlays();
+      clearOverlayLines(overlayLines);
+      clearSkeletonHelpers(skeletonHelpers);
+      clearRigOverlays(rigOverlays);
       rigStatusNote = '';
-      disposeRuntimeMaterials();
+      disposeRuntimeMaterials(runtimeMaterials);
       for (const material of sourceMaterials) {
         disposeMaterialLike(material);
       }
@@ -939,144 +827,50 @@
 
 <svelte:window on:click={handleWindowClick} />
 
-<div class="model-viewer" class:full-bleed={fullBleed} bind:this={host}>
-  {#if error}
-    <div class="model-error">{error}</div>
-  {:else}
-    <canvas bind:this={canvas} aria-label={`3D model viewer for ${fileName}`}></canvas>
-    {#if !hasStarted}
-      <button
-        type="button"
-        class="activation-overlay"
-        on:click={startViewer}
-      >
-        <span class="activation-title">Click to load 3D preview</span>
-        <span class="activation-subtitle">{fileName}</span>
-      </button>
-    {/if}
-    {#if loadingViewer}
-      <div class="loading-overlay">Loading 3D preview...</div>
-    {/if}
+<ModelViewerShell
+  {viewMode}
+  {hideUi}
+  {loadingViewer}
+  {hasStarted}
+  {fileName}
+  {error}
+  {fullBleed}
+  bind:host
+  onStartViewer={startViewer}
+  onViewModeChange={setViewMode}
+  onToggleHideUi={toggleHideUi}
+>
+  <canvas slot="canvas" bind:this={canvas} aria-label={`3D model viewer for ${fileName}`}></canvas>
 
-    {#if hasStarted && !hideUi}
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions: this wrapper only stops control clicks from reaching the viewport -->
-    <div class="overlay-controls overlay-left" role="group" on:click|stopPropagation on:keydown|stopPropagation>
-      <button
-        type="button"
-        class="view-btn"
-        class:active={viewMode === 'textured'}
-        on:click={() => setViewMode('textured')}
-      >
-        Textured
-      </button>
-      <button
-        type="button"
-        class="view-btn"
-        class:active={viewMode === 'normal'}
-        on:click={() => setViewMode('normal')}
-      >
-        Normal
-      </button>
-      <button
-        type="button"
-        class="view-btn"
-        class:active={viewMode === 'wireframe-lines'}
-        on:click={() => setViewMode('wireframe-lines')}
-      >
-        Wireframe Lines
-      </button>
-      <!-- Wireframe overlay mode intentionally disabled for now. -->
-    </div>
+  <svelte:fragment slot="settings-menu">
+    <ModelViewerSettingsMenu
+      bind:menuOpen
+      {autoRotate}
+      {showGrid}
+      {showAxes}
+      {showRig}
+      {showDebugStats}
+      {animationClipOptions}
+      bind:selectedAnimationIndex
+      {animationPlaying}
+      {animationSpeed}
+      bind:animationLoopMode
+      bind:threadMode
+      onToggleAutoRotate={toggleAutoRotate}
+      onResetView={resetView}
+      onToggleGrid={toggleGrid}
+      onToggleAxes={toggleAxes}
+      onToggleRig={toggleRig}
+      onToggleDebugStats={toggleDebugStats}
+      onAnimationClipChange={handleAnimationClipChange}
+      onToggleAnimationPlayback={toggleAnimationPlayback}
+      onAnimationLoopModeChange={handleAnimationLoopModeChange}
+      onAnimationSpeedChange={handleAnimationSpeedChange}
+      onThreadModeChange={handleThreadModeChange}
+    />
+  </svelte:fragment>
 
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions: this wrapper only stops control clicks from reaching the viewport -->
-    <div class="overlay-controls overlay-right" role="group" on:click|stopPropagation on:keydown|stopPropagation>
-      <button
-        type="button"
-        class="settings-fab"
-        on:click={toggleHideUi}
-      >
-        Hide UI
-      </button>
-      <button
-        type="button"
-        class="settings-fab"
-        aria-expanded={menuOpen}
-        aria-haspopup="menu"
-        on:click={() => (menuOpen = !menuOpen)}
-      >
-        View Settings
-      </button>
-      {#if menuOpen}
-        <div class="settings-menu" role="menu">
-          <button type="button" class="menu-item" class:active={autoRotate} on:click={toggleAutoRotate}>Auto-rotate</button>
-          <button type="button" class="menu-item" on:click={resetView}>Reset View</button>
-      <button type="button" class="menu-item" class:active={showGrid} on:click={toggleGrid}>Grid</button>
-      <button type="button" class="menu-item" class:active={showAxes} on:click={toggleAxes}>Axes</button>
-      <button type="button" class="menu-item" class:active={showRig} on:click={toggleRig}>Bones / Controllers</button>
-      <button type="button" class="menu-item" class:active={showDebugStats} on:click={toggleDebugStats}>Debug Stats Overlay</button>
-          {#if animationClipOptions.length > 0}
-            <div class="menu-section">
-              <div class="menu-section-title">Animation</div>
-              <label class="menu-item clip-control">
-                <span>Clip</span>
-                <select bind:value={selectedAnimationIndex} on:change={handleAnimationClipChange}>
-                  {#each animationClipOptions as clip}
-                    <option value={clip.index}>{clip.name}</option>
-                  {/each}
-                </select>
-              </label>
-              <button type="button" class="menu-item" class:active={animationPlaying} on:click={toggleAnimationPlayback}>
-                {animationPlaying ? 'Pause' : 'Play'}
-              </button>
-              <label class="menu-item clip-control">
-                <span>Loop</span>
-                <select bind:value={animationLoopMode} on:change={handleAnimationLoopModeChange}>
-                  <option value="repeat">Repeat</option>
-                  <option value="once">Once</option>
-                  <option value="pingpong">Ping Pong</option>
-                </select>
-              </label>
-              <label class="menu-item speed-control">
-                <span>Speed {animationSpeed.toFixed(1)}x</span>
-                <input
-                  type="range"
-                  min="0.1"
-                  max="2.5"
-                  step="0.1"
-                  value={animationSpeed}
-                  on:input={handleAnimationSpeedChange}
-                />
-              </label>
-            </div>
-          {/if}
-          <label class="menu-item thread-mode-control">
-            <span>Threading</span>
-            <select bind:value={threadMode} on:change={handleThreadModeChange}>
-              <option value="auto">Auto</option>
-              <option value="always">Always Multi-thread</option>
-              <option value="off">Off</option>
-            </select>
-          </label>
-        </div>
-      {/if}
-    </div>
-    {/if}
-    {#if hasStarted && hideUi}
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions: this wrapper only stops control clicks from reaching the viewport -->
-      <div class="overlay-controls overlay-right minimal-toggle" role="group" on:click|stopPropagation on:keydown|stopPropagation>
-        <button
-          type="button"
-          class="settings-fab"
-          on:click={toggleHideUi}
-        >
-          Show UI
-        </button>
-      </div>
-    {/if}
-
-    {#if !hideUi}
-    <div class="viewer-hint">Drag to rotate, wheel to zoom, right-drag to pan</div>
-    {/if}
+  <svelte:fragment slot="notes">
     {#if !hideUi && threadingNotice}
       <div class="threading-note">{threadingNotice}</div>
     {/if}
@@ -1086,6 +880,5 @@
     {#if !hideUi && showDebugStats && debugStats}
       <div class="debug-note">{debugStats}</div>
     {/if}
-  {/if}
-</div>
-
+  </svelte:fragment>
+</ModelViewerShell>

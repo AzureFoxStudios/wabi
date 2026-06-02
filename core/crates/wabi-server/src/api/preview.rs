@@ -86,7 +86,10 @@ fn parse_youtube_id(raw_url: &str) -> Option<String> {
     let mut candidate: Option<String> = None;
 
     if host.contains("youtube.com") {
-        candidate = parsed.query_pairs().find(|(k, _)| k == "v").map(|(_, v)| v.to_string());
+        candidate = parsed
+            .query_pairs()
+            .find(|(k, _)| k == "v")
+            .map(|(_, v)| v.to_string());
         if candidate.is_none() {
             let segments: Vec<_> = parsed.path_segments()?.filter(|s| !s.is_empty()).collect();
             if segments.len() >= 2 {
@@ -104,7 +107,10 @@ fn parse_youtube_id(raw_url: &str) -> Option<String> {
     if normalized.is_empty() || normalized.len() < 6 || normalized.len() > 20 {
         return None;
     }
-    if !normalized.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+    if !normalized
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
         return None;
     }
     Some(normalized)
@@ -204,10 +210,10 @@ pub async fn url_preview(
         .or_else(|| get_meta(&html, "og:video:url"))
         .or_else(|| get_meta(&html, "og:video"));
     let video_type = get_meta(&html, "og:video:type");
-    let video_width = get_meta(&html, "og:video:width")
-        .or_else(|| get_meta(&html, "twitter:player:width"));
-    let video_height = get_meta(&html, "og:video:height")
-        .or_else(|| get_meta(&html, "twitter:player:height"));
+    let video_width =
+        get_meta(&html, "og:video:width").or_else(|| get_meta(&html, "twitter:player:width"));
+    let video_height =
+        get_meta(&html, "og:video:height").or_else(|| get_meta(&html, "twitter:player:height"));
     let twitter_card = get_meta(&html, "twitter:card");
     let twitter_player = get_meta(&html, "twitter:player");
 
@@ -232,10 +238,7 @@ pub async fn url_preview(
     }))
 }
 
-async fn fetch_youtube_preview(
-    client: &Client,
-    raw_url: &str,
-) -> Result<Json<UrlPreviewResponse>> {
+async fn fetch_youtube_preview(client: &Client, raw_url: &str) -> Result<Json<UrlPreviewResponse>> {
     let youtube_id = parse_youtube_id(raw_url).unwrap_or_default();
     let image = format!("https://i.ytimg.com/vi/{}/maxresdefault.jpg", youtube_id);
     let yt_id_for_url = youtube_id.clone();

@@ -22,6 +22,11 @@ export {
 } from './callingScreenShare';
 import { initScreenShareDeps } from './callingScreenShare';
 import {
+	initStorefwdDeps,
+	startStorefwdRecording,
+	stopStorefwdRecording
+} from './callingStorefwd';
+import {
 	clearActiveAudioCaptureSession,
 	createAudioCaptureSession,
 	disposeAudioCaptureSession,
@@ -1036,8 +1041,14 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		isVideoOff.set(true);
 		startLocalSpeakingMonitor(stream);
 		startPerformanceGuard();
+		initStorefwdDeps(socket);
 		if (activeTransport === 'sfu') {
 			await connectLivekitSfu(channelId, 'Wabi User');
+		}
+		if (activeTransport === 'storefwd') {
+			// Storefwd is passive — no connection setup, just subscribe
+			// PTT is handled by UI button calling start/stopStorefwdRecording
+			pushVoiceChannelNotice('Joined voice (storefwd mode)');
 		}
 		syncSpatialAudioGraph();
 		playCallActionSound('join');

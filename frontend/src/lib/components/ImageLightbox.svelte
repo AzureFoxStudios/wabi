@@ -160,6 +160,31 @@
 	}
 </script>
 
+<svelte:window
+	on:keydown={(e) => {
+		if (!imageUrl) return;
+		if (e.key === 'Escape') {
+			e.preventDefault();
+			onClose();
+		} else if (e.key === 'ArrowLeft') {
+			e.preventDefault();
+			navigateImage('prev');
+		} else if (e.key === 'ArrowRight') {
+			e.preventDefault();
+			navigateImage('next');
+		} else if (e.key === '+' || e.key === '=') {
+			e.preventDefault();
+			zoomIn();
+		} else if (e.key === '-') {
+			e.preventDefault();
+			zoomOut();
+		} else if (e.key === '0') {
+			e.preventDefault();
+			resetZoom();
+		}
+	}}
+/>
+
 {#if imageUrl}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->

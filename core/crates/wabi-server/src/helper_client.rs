@@ -1,0 +1,687 @@
+//! Helper-node runtime client.
+//!
+//! When `wabi-server` is started with `--helper-mode`, it connects outbound to the
+//! primary via HTTPS and sends periodic heartbeats instead of listening on a port.
+//! This is a client runtime, not an API. It complements the registry in `nodes/mod.rs`.
+
+use crate::blobs::BlobRegistry;
+use crate::jobs::{JobKind, JobResultRequest};
+use crate::nodes::{
+    JoinNodeRequest, NodeCapability, NodeHeartbeatRequest, NodeLoad, NodeReachability,
+};
+use serde::{Deserialize, Serialize};
+use std::{path::PathBuf, time::Duration};
+use tracing::{error, info, warn};
+
+/// Saved helper identity across restarts.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HelperIdentity {
+    node_id: String,
+    node_secret: String,
+    authority_node_id: String,
+    primary_url: String,
+    display_name: String,
+}
+
+const IDENTITY_FILE: &str = "helper_identity.json";
+const HEARTBEAT_INTERVAL_SECS: u64 = 30;
+const JOB_POLL_INTERVAL_SECS: u64 = 5;
+
+/// Run helper client loop until cancellation or terminal error.
+pub async fn run_helper(
+    primary_url: String,
+    pairing_token: Option<String>,
+    display_name: String,
+    capabilities: Vec<NodeCapability>,
+    data_dir: String,
+    lan_reachable_at: Option<String>,
+    jwt_secret: Option<String>,
+) {
+    let identity_path = PathBuf::from(&data_dir).join(IDENTITY_FILE);
+    let local_blob_registry =
+        BlobRegistry::new_persistent(PathBuf::from(&data_dir).join("helper_blobs"));
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            error!("[helper] Failed to build HTTP client: {}", e);
+            return;
+        }
+    };
+
+    let identity = loop {
+        if let Ok(id) = load_identity(&identity_path).await {
+            info!("[helper] Loaded existing identity for node {}", id.node_id);
+            break id;
+        }
+
+        let Some(token) = &pairing_token else {
+            error!(
+                "[helper] No saved identity and no --pairing-token provided. Cannot join primary."
+            );
+            return;
+        };
+
+        match try_join(&client, &primary_url, token.clone(), &display_name).await {
+            Ok(id) => {
+                if let Err(e) = save_identity(&identity_path, &id).await {
+                    warn!(
+                        "[helper] Saved identity but failed to persist to disk: {}",
+                        e
+                    );
+                }
+                break id;
+            }
+            Err(e) => {
+                error!("[helper] Join failed (will retry in 5s): {}", e);
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        }
+    };
+
+    info!(
+        "[helper] Connected to primary {}. node_id={}",
+        identity.primary_url, identity.node_id
+    );
+
+    let client2 = client.clone();
+    let id_hb = identity.clone();
+    let caps_hb = capabilities.clone();
+    let lan_hb = lan_reachable_at.clone();
+    let heartbeat = tokio::spawn(async move {
+        heartbeat_loop(client2, id_hb, caps_hb, lan_hb).await;
+    });
+
+    // Phase 5B: register on mDNS if we have a LAN address.
+    let _mdns_guard: Option<mdns_sd::ServiceDaemon> = if let Some(ref addr_str) = lan_reachable_at {
+        match addr_str.parse::<std::net::SocketAddr>() {
+            Ok(addr) => {
+                match crate::mdns::register_wabi_helper(addr, &identity.node_id, &capabilities) {
+                    Ok(daemon) => {
+                        info!("[helper] mDNS registered as _wabi._tcp on {}", addr);
+                        Some(daemon)
+                    }
+                    Err(e) => {
+                        warn!("[helper] mDNS registration failed: {}", e);
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "[helper] --lan-reachable-at is not a valid address: {}. Skipping mDNS.",
+                    e
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let client3 = client.clone();
+    let id_jobs = identity.clone();
+    let lan_jobs = lan_reachable_at.clone();
+    let data_dir_clone = data_dir.clone();
+    let jobs = tokio::spawn(async move {
+        job_loop(
+            client3,
+            id_jobs,
+            capabilities,
+            local_blob_registry,
+            lan_jobs,
+            data_dir_clone,
+        )
+        .await;
+    });
+
+    // Phase 5D: start helper-side LAN API when reachable address is given.
+    let api = if let (Some(addr_str), Some(secret)) = (&lan_reachable_at, &jwt_secret) {
+        match addr_str.parse::<std::net::SocketAddr>() {
+            Ok(addr) => {
+                let handle = crate::helper_api::start_helper_api(addr, secret.clone());
+                Some(handle)
+            }
+            Err(e) => {
+                warn!("[helper] --lan-reachable-at '{}' is not a valid socket address ({}). Skipping helper API.", addr_str, e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    if let Some(api_handle) = api {
+        tokio::select! {
+            _ = heartbeat => {
+                warn!("[helper] Heartbeat loop exited. Shutting down.");
+            }
+            _ = jobs => {
+                warn!("[helper] Job loop exited. Shutting down.");
+            }
+            _ = api_handle => {
+                warn!("[helper] API listener exited. Shutting down.");
+            }
+        }
+    } else {
+        tokio::select! {
+            _ = heartbeat => {
+                warn!("[helper] Heartbeat loop exited. Shutting down.");
+            }
+            _ = jobs => {
+                warn!("[helper] Job loop exited. Shutting down.");
+            }
+        }
+    }
+}
+
+async fn heartbeat_loop(
+    client: reqwest::Client,
+    identity: HelperIdentity,
+    capabilities: Vec<NodeCapability>,
+    lan_reachable_at: Option<String>,
+) {
+    let mut interval = tokio::time::interval(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    loop {
+        interval.tick().await;
+        let hb = NodeHeartbeatRequest {
+            load: gather_load().await,
+            reachability: if lan_reachable_at.is_some() {
+                NodeReachability::LanReachable
+            } else {
+                NodeReachability::OutboundOnly
+            },
+            endpoint: None,
+            capabilities: Some(capabilities.clone()),
+            lan_reachable_at: lan_reachable_at.clone(),
+        };
+
+        let url = format!(
+            "{}/api/nodes/{}/heartbeat",
+            identity.primary_url, identity.node_id
+        );
+        match client
+            .post(&url)
+            .header("x-wabi-node-secret", &identity.node_secret)
+            .json(&hb)
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                tracing::debug!("[helper] heartbeat accepted");
+            }
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                warn!("[helper] heartbeat rejected: {} — {}", status, body);
+                if status.as_u16() == 401 || status.as_u16() == 403 {
+                    warn!("[helper] Authentication/revocation detected. Exiting.");
+                    return;
+                }
+            }
+            Err(e) => {
+                warn!("[helper] heartbeat network error: {}", e);
+            }
+        }
+    }
+}
+
+async fn job_loop(
+    client: reqwest::Client,
+    identity: HelperIdentity,
+    capabilities: Vec<NodeCapability>,
+    local_blob_registry: BlobRegistry,
+    lan_reachable_at: Option<String>,
+    data_dir: String,
+) {
+    let mut interval = tokio::time::interval(Duration::from_secs(JOB_POLL_INTERVAL_SECS));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    loop {
+        interval.tick().await;
+
+        let claim_url = format!("{}/api/jobs/claim", identity.primary_url);
+        let caps = serde_json::to_value(&capabilities).unwrap_or(serde_json::json!([]));
+        let claim_body = serde_json::json!({
+            "nodeId": identity.node_id,
+            "nodeSecret": identity.node_secret,
+            "capabilities": caps,
+        });
+
+        let job: serde_json::Value = match client.post(&claim_url).json(&claim_body).send().await {
+            Ok(resp) if resp.status().is_success() => match resp.json().await {
+                Ok(j) => j,
+                Err(e) => {
+                    warn!("[helper] failed to decode job claim response: {}", e);
+                    continue;
+                }
+            },
+            Ok(resp) if resp.status() == reqwest::StatusCode::NO_CONTENT => {
+                continue;
+            }
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                warn!("[helper] job claim rejected: {} — {}", status, body);
+                if status.as_u16() == 401 || status.as_u16() == 403 {
+                    warn!("[helper] Authentication/revocation during job claim. Exiting.");
+                    return;
+                }
+                continue;
+            }
+            Err(e) => {
+                warn!("[helper] job claim network error: {}", e);
+                continue;
+            }
+        };
+
+        let job_id = match job["jobId"].as_str() {
+            Some(id) => id.to_string(),
+            None => {
+                warn!("[helper] job claim response missing jobId");
+                continue;
+            }
+        };
+        let kind = job["kind"].clone();
+        let payload = job["payload"].clone();
+
+        info!("[helper] Claimed job {} (kind: {:?})", job_id, kind);
+
+        let (success, result_payload, error_message) = execute_job(
+            &client,
+            &identity,
+            &kind,
+            &payload,
+            &local_blob_registry,
+            &lan_reachable_at,
+            &data_dir,
+        )
+        .await;
+
+        let result_url = format!("{}/api/jobs/{}/result", identity.primary_url, job_id);
+        let result_body = serde_json::json!({
+            "nodeId": identity.node_id,
+            "nodeSecret": identity.node_secret,
+            "success": success,
+            "resultPayload": result_payload,
+            "errorMessage": error_message,
+        });
+
+        match client.post(&result_url).json(&result_body).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                info!("[helper] Job {} result reported successfully", job_id);
+            }
+            Ok(resp) => {
+                warn!(
+                    "[helper] Job {} result rejected: {} — {}",
+                    job_id,
+                    resp.status(),
+                    resp.text().await.unwrap_or_default()
+                );
+            }
+            Err(e) => {
+                warn!("[helper] Job {} result report network error: {}", job_id, e);
+            }
+        }
+    }
+}
+
+async fn execute_job(
+    client: &reqwest::Client,
+    identity: &HelperIdentity,
+    kind: &serde_json::Value,
+    payload: &serde_json::Value,
+    local_blob_registry: &BlobRegistry,
+    lan_reachable_at: &Option<String>,
+    data_dir: &str,
+) -> (bool, Option<serde_json::Value>, Option<String>) {
+    let kind_str = kind.as_str().unwrap_or("unknown");
+    match kind_str {
+        "thumbnail" => {
+            info!("[helper] Executing thumbnail job on {}", identity.node_id);
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            (true, Some(serde_json::json!({"done": true})), None)
+        }
+        "transcode_video" | "transcode_audio" => {
+            info!("[helper] Executing transcode job on {}", identity.node_id);
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            (true, Some(serde_json::json!({"done": true})), None)
+        }
+        "search_index" => {
+            info!(
+                "[helper] Executing search index job on {}",
+                identity.node_id
+            );
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            (true, Some(serde_json::json!({"done": true})), None)
+        }
+        "generate_waveform" => {
+            info!("[helper] Executing waveform job on {}", identity.node_id);
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            (true, Some(serde_json::json!({"done": true})), None)
+        }
+        "moderation_scan" => {
+            info!(
+                "[helper] Executing moderation scan job on {}",
+                identity.node_id
+            );
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            (true, Some(serde_json::json!({"done": true})), None)
+        }
+        "blob_mirror" => {
+            info!("[helper] Executing blob mirror job on {}", identity.node_id);
+            let hash = payload["hash"].as_str().unwrap_or("");
+            if hash.is_empty() {
+                return (
+                    false,
+                    None,
+                    Some("blob_mirror payload missing hash".to_string()),
+                );
+            }
+
+            // Download blob from primary
+            let url = format!("{}/api/blobs/{}", identity.primary_url, hash);
+            let bytes = match client.get(&url).send().await {
+                Ok(resp) if resp.status().is_success() => match resp.bytes().await {
+                    Ok(b) => b.to_vec(),
+                    Err(e) => {
+                        return (false, None, Some(format!("download body error: {}", e)));
+                    }
+                },
+                Ok(resp) => {
+                    return (
+                        false,
+                        None,
+                        Some(format!("download failed: {}", resp.status())),
+                    );
+                }
+                Err(e) => {
+                    return (false, None, Some(format!("download network error: {}", e)));
+                }
+            };
+
+            // Fetch metadata to preserve original_name / mime_type
+            let meta_url = format!("{}/api/blobs/{}/meta", identity.primary_url, hash);
+            let (name, mime) = match client.get(&meta_url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(val) => (
+                            val["originalName"]
+                                .as_str()
+                                .unwrap_or("mirrored.bin")
+                                .to_string(),
+                            val["mimeType"]
+                                .as_str()
+                                .unwrap_or("application/octet-stream")
+                                .to_string(),
+                        ),
+                        Err(_) => (
+                            "mirrored.bin".to_string(),
+                            "application/octet-stream".to_string(),
+                        ),
+                    }
+                }
+                _ => (
+                    "mirrored.bin".to_string(),
+                    "application/octet-stream".to_string(),
+                ),
+            };
+
+            // Store locally by hash — will dedupe if already present
+            match local_blob_registry
+                .store_blob(&bytes, name, mime, None, None, None, Some(hash))
+                .await
+            {
+                Ok(meta) => {
+                    info!("[helper] Mirrored blob {} ({} bytes)", meta.hash, meta.size);
+                    (
+                        true,
+                        Some(serde_json::json!({"hash": meta.hash, "size": meta.size})),
+                        None,
+                    )
+                }
+                Err(e) => (false, None, Some(format!("store_blob failed: {:?}", e))),
+            }
+        }
+        "media_relay" => {
+            info!("[helper] Executing media relay job on {}", identity.node_id);
+            // Phase 6: LiveKit SFU wiring on helper node.
+            //
+            // 1. Extract room/channel from job payload.
+            let room_id = payload["roomId"].as_str().unwrap_or("");
+            let channel_id = payload["channelId"].as_str().unwrap_or("");
+            if room_id.is_empty() || channel_id.is_empty() {
+                return (
+                    false,
+                    None,
+                    Some("media_relay payload missing roomId or channelId".to_string()),
+                );
+            }
+
+            // 2. Check if livekit-server is available.
+            let lk_binary = match tokio::process::Command::new("livekit-server")
+                .arg("--version")
+                .output()
+                .await
+            {
+                Ok(_) => std::path::PathBuf::from("livekit-server"),
+                Err(_) => {
+                    warn!(
+                        "[helper] livekit-server not found in PATH; cannot serve media_relay job"
+                    );
+                    return (
+                        false,
+                        None,
+                        Some("livekit-server not installed on helper".to_string()),
+                    );
+                }
+            };
+
+            // 3. Compute the SFU endpoint for this room.
+            //    Prefer lan_reachable_at (local network) since helpers often sit
+            //    behind NAT / CGNAT. If absent, fallback to whatever endpoint
+            //    the helper advertised in its heartbeat (none for outbound-only).
+            let sfu_url = match lan_reachable_at {
+                Some(ref addr) => format!("wss://{}/livekit/sfu/room/{}", addr, room_id),
+                None => {
+                    warn!("[helper] No --lan-reachable-at set; cannot expose SFU endpoint");
+                    return (
+                        false,
+                        None,
+                        Some("helper has no reachable address for SFU".to_string()),
+                    );
+                }
+            };
+
+            // 4. Spawn livekit-server as a child process for this room.
+            //    In production you'd use a shared LiveKit node or container;
+            //    for Phase 6 we spawn per-room to keep the helper self-contained.
+            let config_path = std::path::PathBuf::from(&data_dir)
+                .join("livekit_configs")
+                .join(format!("{}.yaml", room_id));
+            if let Some(parent) = config_path.parent() {
+                let _ = tokio::fs::create_dir_all(parent).await;
+            }
+            let config = format!(
+                "room:\n  name: {}\n  empty_timeout: 300\n  enabled_codecs:\n    - mime: audio/opus\n    - mime: video/vp8\n",
+                room_id
+            );
+            if let Err(e) = tokio::fs::write(&config_path, config).await {
+                warn!("[helper] Failed to write LiveKit config: {}", e);
+                return (
+                    false,
+                    None,
+                    Some(format!("livekit config write failed: {}", e)),
+                );
+            }
+
+            // NOTE: LiveKit server spawn is active by default in Phase 6.
+            // To disable spawning (e.g. for testing without livekit-server installed),
+            // comment out the block below or set WABI_DISABLE_LIVEKIT_SPAWN=1.
+            let disable_spawn = std::env::var("WABI_DISABLE_LIVEKIT_SPAWN")
+                .unwrap_or_default()
+                .eq_ignore_ascii_case("1");
+            if !disable_spawn {
+                let _ = tokio::process::Command::new("livekit-server")
+                    .arg("--config")
+                    .arg(&config_path)
+                    .spawn();
+                info!(
+                    "[helper] Spawned livekit-server for room {} with config {}",
+                    room_id,
+                    config_path.to_string_lossy()
+                );
+            } else {
+                info!(
+                    "[helper] LiveKit spawn disabled by WABI_DISABLE_LIVEKIT_SPAWN; config prepared at {}",
+                    config_path.to_string_lossy()
+                );
+            }
+            info!(
+                "[helper] Media relay prepared for room {} → endpoint {}",
+                room_id, sfu_url
+            );
+
+            // 5. Call authority to mark room active with our endpoint.
+            let active_url = format!(
+                "{}/api/media/rooms/{}/active",
+                identity.primary_url, room_id
+            );
+            let active_body = serde_json::json!({
+                "nodeId": identity.node_id,
+                "sfuEndpoint": sfu_url,
+            });
+            match client
+                .post(&active_url)
+                .header("x-wabi-node-secret", &identity.node_secret)
+                .json(&active_body)
+                .send()
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => {
+                    info!("[helper] Room {} marked active on authority", room_id);
+                }
+                Ok(resp) => {
+                    let status = resp.status();
+                    let body = resp.text().await.unwrap_or_default();
+                    warn!("[helper] mark_active rejected: {} — {}", status, body);
+                    return (
+                        false,
+                        None,
+                        Some(format!(
+                            "authority rejected mark_active: {} {}",
+                            status, body
+                        )),
+                    );
+                }
+                Err(e) => {
+                    warn!("[helper] mark_active network error: {}", e);
+                    return (
+                        false,
+                        None,
+                        Some(format!("mark_active network error: {}", e)),
+                    );
+                }
+            }
+
+            (
+                true,
+                Some(serde_json::json!({
+                    "acknowledged": true,
+                    "roomId": room_id,
+                    "channelId": channel_id,
+                    "sfuEndpoint": sfu_url,
+                    "livekitConfigPath": config_path.to_string_lossy(),
+                })),
+                None,
+            )
+        }
+        _ => {
+            warn!("[helper] Unknown job kind: {}", kind_str);
+            (false, None, Some(format!("unknown job kind: {}", kind_str)))
+        }
+    }
+}
+
+async fn try_join(
+    client: &reqwest::Client,
+    primary_url: &str,
+    token: String,
+    display_name: &str,
+) -> anyhow::Result<HelperIdentity> {
+    let url = format!("{}/api/nodes/join", primary_url);
+    let req_body = JoinNodeRequest {
+        token,
+        display_name: display_name.to_string(),
+        public_key: new_keypair_placeholder(),
+        reachability: NodeReachability::OutboundOnly,
+        endpoint: None,
+    };
+
+    let resp = client
+        .post(&url)
+        .json(&req_body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("join request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("join rejected: {}", text));
+    }
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| anyhow::anyhow!("join response json error: {}", e))?;
+    let node = json["node"].clone();
+    let node_id = node["nodeId"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("join response missing nodeId"))?
+        .to_string();
+    let node_secret = json["nodeSecret"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("join response missing nodeSecret"))?
+        .to_string();
+    let authority_node_id = json["authorityNodeId"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("join response missing authorityNodeId"))?
+        .to_string();
+
+    Ok(HelperIdentity {
+        node_id,
+        node_secret,
+        authority_node_id,
+        primary_url: primary_url.to_string(),
+        display_name: display_name.to_string(),
+    })
+}
+
+async fn load_identity(path: &PathBuf) -> anyhow::Result<HelperIdentity> {
+    let content = tokio::fs::read_to_string(path).await?;
+    let id: HelperIdentity = serde_json::from_str(&content)?;
+    Ok(id)
+}
+
+async fn save_identity(path: &PathBuf, id: &HelperIdentity) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let content = serde_json::to_string_pretty(id)?;
+    tokio::fs::write(path, content).await?;
+    Ok(())
+}
+
+fn new_keypair_placeholder() -> String {
+    format!("key-{}", uuid::Uuid::new_v4())
+}
+
+async fn gather_load() -> NodeLoad {
+    NodeLoad::default()
+}

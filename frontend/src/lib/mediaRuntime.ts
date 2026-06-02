@@ -34,10 +34,10 @@ import { getStoredSpatialAudioSettings } from './media/spatialAudio';
 
 export type MediaQualityMode = 'web-baseline' | 'local-enhanced';
 export type AudioProcessingMode = 'auto' | 'dsp' | 'rnn' | 'studio';
-export type CallTransportMode = 'auto' | 'p2p-only' | 'sfu-preferred' | 'stdb';
+export type CallTransportMode = 'auto' | 'p2p-only' | 'sfu-preferred' | 'stdb' | 'storefwd';
 export type CallMuteBehavior = 'mute-local-input' | 'outbound-only';
 export type CallRecordingStemMode = 'mixed-only' | 'mixed-plus-mic' | 'mixed-plus-all-audio';
-export type EffectiveCallTransport = 'p2p' | 'sfu' | 'stdb';
+export type EffectiveCallTransport = 'p2p' | 'sfu' | 'stdb' | 'storefwd';
 
 export interface MediaRuntimeConfig {
 	isTauri: boolean;
@@ -294,6 +294,9 @@ export async function resolveCallTransportPlan(): Promise<CallTransportPlan> {
 	const canUseSfu = sfuProvider === 'livekit' && livekitReady;
 	const checkedAt = Date.now();
 
+	if (mode === 'storefwd') {
+		return { mode, effective: 'storefwd', fallbackApplied: false, reason: null, gatewayHealthy, sfuProvider, checkedAt };
+	}
 	if (mode === 'p2p-only') {
 		return { mode, effective: 'p2p', fallbackApplied: false, reason: null, gatewayHealthy, sfuProvider, checkedAt };
 	}

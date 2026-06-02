@@ -1,0 +1,216 @@
+	.user-list-tab {
+		flex: 1;
+		overflow-y: auto;
+		padding: 0.4rem 0.35rem 0.7rem;
+		text-align: left;
+	}
+
+	.friend-toolbar {
+		display: flex;
+		flex-direction: column;
+		gap: 0.38rem;
+		padding: 0.35rem 0.45rem 0.55rem;
+		border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
+		margin-bottom: 0.3rem;
+	}
+
+	.friend-search,
+	.friend-select {
+		width: 100%;
+		height: 30px;
+		border-radius: 6px;
+		border: 1px solid var(--border-subtle);
+		background: var(--surface-raised);
+		color: var(--text-heading);
+		padding: 0 0.55rem;
+		font-size: 0.76rem;
+	}
+
+	.friend-toolbar-row {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		gap: 0.35rem;
+	}
+
+	.empty-state {
+		padding: 2rem 1rem;
+		text-align: center;
+		color: var(--text-secondary);
+		font-size: 0.875rem;
+	}
+
+	.role-group {
+		margin-bottom: 0.55rem;
+	}
+
+	.role-header {
+		padding: 0.45rem 0.3rem 0.3rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+		letter-spacing: 0.04em;
+		text-align: left;
+	}
+
+	.offline-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		width: 100%;
+		background: none;
+		border: none;
+		cursor: pointer;
+		border-radius: 6px;
+		transition: color 0.15s, background 0.15s;
+		padding: 0.45rem 0.3rem 0.3rem;
+	}
+
+	.offline-toggle:hover {
+		color: var(--text-heading);
+		background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
+	}
+
+	.offline-chevron {
+		font-size: 0.9rem;
+		line-height: 1;
+		display: inline-block;
+		transition: transform 0.18s ease;
+		transform: rotate(0deg);
+	}
+
+	.offline-chevron.expanded {
+		transform: rotate(90deg);
+	}
+
+	.user-row {
+		display: flex;
+		align-items: center;
+		justify-content: flex-start;
+		gap: 0.5rem;
+		padding: 0.48rem 0.35rem;
+		width: 100%;
+		background: transparent;
+		border: none;
+		color: var(--text-heading);
+		cursor: pointer;
+		text-align: left;
+		border-radius: 10px;
+		transition:
+			background 0.15s,
+			transform 0.15s;
+		margin-bottom: 0.08rem;
+	}
+
+	.user-row:hover {
+		background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+		transform: translateY(-1px);
+	}
+
+	.user-row.offline {
+		opacity: 0.58;
+	}
+
+	.user-avatar-wrap {
+		position: relative;
+		flex-shrink: 0;
+		width: 32px;
+		height: 32px;
+	}
+
+	.user-avatar,
+	.user-avatar-placeholder {
+		width: 32px;
+		height: 32px;
+		border-radius: 50%;
+		object-fit: cover;
+	}
+
+	.user-avatar-placeholder {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: white;
+	}
+
+	.presence-dot {
+		position: absolute;
+		bottom: -2px;
+		right: -2px;
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		border: 3px solid var(--surface-base, #1a1a2e);
+		background: var(--status-offline, #6b7280);
+		box-sizing: border-box;
+		z-index: 2;
+		transition: transform 0.15s ease;
+	}
+
+	.presence-dot.active {
+		background: var(--status-online, #22c55e);
+		box-shadow: 0 0 0 0 rgba(var(--status-online-rgb, 34, 197, 94), 0.45);
+		animation: status-pulse-online 2.5s infinite ease-in-out;
+	}
+
+	.presence-dot.away { background: var(--status-away, #f59e0b); }
+	.presence-dot.busy { background: var(--status-busy, #ef4444); }
+
+	@keyframes status-pulse-online {
+		0%, 100% { box-shadow: 0 0 0 0 rgba(var(--status-online-rgb, 34, 197, 94), 0.45); }
+		50% { box-shadow: 0 0 0 5px rgba(var(--status-online-rgb, 34, 197, 94), 0); }
+	}
+
+	.user-info {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		gap: 1px;
+	}
+
+	.user-display-name {
+		font-size: 0.875rem;
+		font-weight: 600;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.user-handle {
+		font-size: 0.7rem;
+		color: var(--text-secondary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	@media (max-width: 768px) {
+		.friend-search,
+		.friend-select {
+			font-size: 16px;
+		}
+
+		.user-row {
+			padding: 0.625rem 0.75rem;
+			min-height: 52px;
+		}
+
+		.user-avatar-wrap {
+			width: 36px;
+			height: 36px;
+		}
+
+		.user-avatar,
+		.user-avatar-placeholder {
+			width: 36px;
+			height: 36px;
+		}
+
+		.user-display-name { font-size: 1rem; }
+		.user-handle { font-size: 0.8rem; }
+
+	}
+
+	.user-avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary)); }

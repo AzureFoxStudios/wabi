@@ -65,12 +65,16 @@ hmac = "0.12"
 sha1 = "0.10"
 base64 = "0.22"
 
+# mDNS LAN discovery
+mdns-sd = "0.20"
+
 # URL encoding
 urlencoding = "2"
 
 # Optional addons
 wabi-webhooks = { path = "../../addons/webhooks/backend", optional = true }
 wabi-mesh = { path = "../../addons/mesh/backend", optional = true }
+age = { version = "0.11.3", default-features = false }
 
 [features]
 default = []

@@ -116,19 +116,37 @@ impl StdbClient {
         description: Option<&str>,
     ) -> Result<()> {
         let mut row = serde_json::Map::new();
-        row.insert("channel_id".to_string(), serde_json::Value::String(channel_id.to_string()));
-        row.insert("name".to_string(), serde_json::Value::String(name.to_string()));
-        row.insert("channel_type".to_string(), serde_json::Value::String(channel_type.to_string()));
+        row.insert(
+            "channel_id".to_string(),
+            serde_json::Value::String(channel_id.to_string()),
+        );
+        row.insert(
+            "name".to_string(),
+            serde_json::Value::String(name.to_string()),
+        );
+        row.insert(
+            "channel_type".to_string(),
+            serde_json::Value::String(channel_type.to_string()),
+        );
         row.insert("archived".to_string(), serde_json::Value::Bool(false));
-        row.insert("min_role".to_string(), serde_json::Value::String("member".to_string()));
+        row.insert(
+            "min_role".to_string(),
+            serde_json::Value::String("member".to_string()),
+        );
         if let Some(m) = members {
             row.insert("members".to_string(), serde_json::to_value(m).unwrap());
         }
         if let Some(a) = avatar {
-            row.insert("avatar".to_string(), serde_json::Value::String(a.to_string()));
+            row.insert(
+                "avatar".to_string(),
+                serde_json::Value::String(a.to_string()),
+            );
         }
         if let Some(d) = description {
-            row.insert("description".to_string(), serde_json::Value::String(d.to_string()));
+            row.insert(
+                "description".to_string(),
+                serde_json::Value::String(d.to_string()),
+            );
         }
         let payload = json!({ "row": row });
         self.ingest_event("channel", "upsert", &payload).await

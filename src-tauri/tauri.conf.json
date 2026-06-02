@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../frontend/build",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "cd /home/Ronin/Desktop/Wabi/dotronin-worktree/wabi/frontend && npm run build",
+    "beforeBuildCommand": "cd frontend && bun run build",
     "beforeDevCommand": ""
   },
   "app": {

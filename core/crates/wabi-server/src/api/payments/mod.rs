@@ -16,11 +16,26 @@ use crate::state::AppState;
 
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
-        .route("/access", get(handlers::get_payment_access).post(handlers::save_payment_access))
-        .route("/account-links", get(handlers::list_account_links).post(handlers::create_account_link))
-        .route("/account-links/{plugin_id}", delete(handlers::delete_account_link))
-        .route("/donations", get(handlers::get_donation_config).post(handlers::save_donation_config))
-        .route("/user-blocks", get(handlers::list_user_blocks).post(handlers::create_user_block))
+        .route(
+            "/access",
+            get(handlers::get_payment_access).post(handlers::save_payment_access),
+        )
+        .route(
+            "/account-links",
+            get(handlers::list_account_links).post(handlers::create_account_link),
+        )
+        .route(
+            "/account-links/{plugin_id}",
+            delete(handlers::delete_account_link),
+        )
+        .route(
+            "/donations",
+            get(handlers::get_donation_config).post(handlers::save_donation_config),
+        )
+        .route(
+            "/user-blocks",
+            get(handlers::list_user_blocks).post(handlers::create_user_block),
+        )
         .route("/user-blocks/{user_id}", delete(handlers::clear_user_block))
         .with_state(state)
 }
@@ -41,7 +56,12 @@ impl Default for PaymentAccessPolicy {
         Self {
             enabled: false,
             allow_guest: false,
-            allowed_role_names: vec!["owner".into(), "admin".into(), "mod".into(), "member".into()],
+            allowed_role_names: vec![
+                "owner".into(),
+                "admin".into(),
+                "mod".into(),
+                "member".into(),
+            ],
         }
     }
 }
@@ -176,15 +196,19 @@ pub fn extract_user_id(headers: &axum::http::HeaderMap, jwt_secret: &str) -> any
         .ok_or_else(|| anyhow::anyhow!("missing Bearer prefix"))?;
 
     #[derive(serde::Deserialize)]
-    struct Claims { sub: String }
+    struct Claims {
+        sub: String,
+    }
 
     let key = DecodingKey::from_secret(jwt_secret.as_bytes());
     let mut v = Validation::default();
     v.validate_exp = true;
     v.leeway = 60;
-    let c = decode::<Claims>(token, &key, &v)
-        .map_err(|e| anyhow::anyhow!("invalid token: {}", e))?;
-    c.claims.sub.parse::<i64>()
+    let c =
+        decode::<Claims>(token, &key, &v).map_err(|e| anyhow::anyhow!("invalid token: {}", e))?;
+    c.claims
+        .sub
+        .parse::<i64>()
         .map_err(|_| anyhow::anyhow!("invalid user_id in token"))
 }
 
@@ -200,22 +224,36 @@ pub async fn get_policy_row(stdb: &StdbClient, key: &str) -> Option<Value> {
     let resp = stdb.sql_query(&query).await.ok()?;
     let rows = resp.decode_rows();
     let row = rows.first()?;
-    row.get("row_json").and_then(|v| v.as_str()).and_then(|s| serde_json::from_str(s).ok())
+    row.get("row_json")
+        .and_then(|v| v.as_str())
+        .and_then(|s| serde_json::from_str(s).ok())
 }
 
 pub async fn upsert_policy(stdb: &StdbClient, key: &str, value: &Value) {
-    let _ = stdb.ingest_event("payment", "upsert_policy", &json!({
-        "policyKey": key,
-        "updatedAt": chrono::Utc::now().timestamp_millis(),
-        "row": value,
-    })).await;
+    let _ = stdb
+        .ingest_event(
+            "payment",
+            "upsert_policy",
+            &json!({
+                "policyKey": key,
+                "updatedAt": chrono::Utc::now().timestamp_millis(),
+                "row": value,
+            }),
+        )
+        .await;
 }
 
 pub async fn upsert_account_link(stdb: &StdbClient, link: &PaymentAccountLink) {
-    let _ = stdb.ingest_event("payment", "upsert_account_link", &json!({
-        "userId": link.user_id,
-        "pluginId": link.plugin_id,
-        "workspaceId": link.workspace_id,
-        "row": link,
-    })).await;
+    let _ = stdb
+        .ingest_event(
+            "payment",
+            "upsert_account_link",
+            &json!({
+                "userId": link.user_id,
+                "pluginId": link.plugin_id,
+                "workspaceId": link.workspace_id,
+                "row": link,
+            }),
+        )
+        .await;
 }

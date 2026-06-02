@@ -127,6 +127,24 @@ export async function resolveActiveTransport(channelId?: string): Promise<Effect
 		return 'stdb';
 	}
 
+	if (plan.effective === 'storefwd') {
+		stopMediaGatewaySessionRenewal();
+		callTransportState.set({
+			mode: plan.mode,
+			activeTransport: 'storefwd',
+			isFallback: false,
+			reason: 'storefwd_requested',
+			gatewayHealthy: false,
+			checkedAt: Date.now(),
+			gatewaySessionId: null,
+			gatewayControlPlaneStatus: 'idle',
+			gatewayMediaPlaneStatus: 'idle',
+			gatewayActiveStreams: null,
+			gatewayLastSeenAt: null
+		});
+		return 'storefwd';
+	}
+
 	stopMediaGatewaySessionRenewal();
 	return 'p2p';
 }

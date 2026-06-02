@@ -48,10 +48,7 @@ const WHITEBOARD_UPLOAD_PREFIX: &str = "wbi-";
 /// Create the whiteboard API router.
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
-        .route(
-            "/boards/{board_id}/images",
-            post(upload_whiteboard_image),
-        )
+        .route("/boards/{board_id}/images", post(upload_whiteboard_image))
         .route(
             "/boards/{board_id}/files/{file_id}",
             get(serve_whiteboard_file),
@@ -75,12 +72,23 @@ fn create_whiteboard_file_id(board_id: &str, file_name: &str) -> String {
     let tag = whiteboard_scope_tag(board_id);
     let nonce = format!("{:x}", rand::random::<u64>());
     let safe_name = sanitize_filename(file_name);
-    format!("{}{}-{}-{}-{}", WHITEBOARD_UPLOAD_PREFIX, tag, timestamp_millis(), nonce, safe_name)
+    format!(
+        "{}{}-{}-{}-{}",
+        WHITEBOARD_UPLOAD_PREFIX,
+        tag,
+        timestamp_millis(),
+        nonce,
+        safe_name
+    )
 }
 
 /// Check that a file ID belongs to whiteboard uploads and is scoped to the given board.
 fn is_whiteboard_file_id_for_board(board_id: &str, file_id: &str) -> bool {
-    let prefix = format!("{}{}-", WHITEBOARD_UPLOAD_PREFIX, whiteboard_scope_tag(board_id));
+    let prefix = format!(
+        "{}{}-",
+        WHITEBOARD_UPLOAD_PREFIX,
+        whiteboard_scope_tag(board_id)
+    );
     file_id.starts_with(&prefix)
 }
 
@@ -193,12 +201,18 @@ async fn upload_whiteboard_image(
     // Validate board ID
     let board_id = board_id.trim().to_string();
     if board_id.is_empty() {
-        return Ok(json_error_response(StatusCode::BAD_REQUEST, "Invalid whiteboard id"));
+        return Ok(json_error_response(
+            StatusCode::BAD_REQUEST,
+            "Invalid whiteboard id",
+        ));
     }
 
     // Check channel access (board IDs are channel:xxx)
     let channel_id = if board_id.starts_with("channel:") {
-        board_id.strip_prefix("channel:").unwrap_or(&board_id).to_string()
+        board_id
+            .strip_prefix("channel:")
+            .unwrap_or(&board_id)
+            .to_string()
     } else {
         // For non-channel-scoped boards, look up the scope
         board_id.clone()
@@ -213,16 +227,27 @@ async fn upload_whiteboard_image(
     let mut file_name = "whiteboard-image.bin".to_string();
     let mut mime_type = "application/octet-stream".to_string();
 
-    while let Some(field) = multipart.next_field().await.map_err(|e| anyhow::anyhow!(e))? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?
+    {
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
             "file" | "image" => {
-                file_name = field.file_name().unwrap_or("whiteboard-image.bin").to_string();
+                file_name = field
+                    .file_name()
+                    .unwrap_or("whiteboard-image.bin")
+                    .to_string();
                 mime_type = field
                     .content_type()
                     .unwrap_or("application/octet-stream")
                     .to_string();
-                file_data = field.bytes().await.map_err(|e| anyhow::anyhow!(e))?.to_vec();
+                file_data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))?
+                    .to_vec();
             }
             _ => {}
         }
@@ -299,7 +324,10 @@ async fn serve_whiteboard_file(
 
     let board_id = board_id.trim().to_string();
     if board_id.is_empty() {
-        return Ok(json_error_response(StatusCode::BAD_REQUEST, "Invalid whiteboard id"));
+        return Ok(json_error_response(
+            StatusCode::BAD_REQUEST,
+            "Invalid whiteboard id",
+        ));
     }
 
     // Validate file ID is scoped to this board
@@ -312,7 +340,10 @@ async fn serve_whiteboard_file(
 
     // Check channel access
     let channel_id = if board_id.starts_with("channel:") {
-        board_id.strip_prefix("channel:").unwrap_or(&board_id).to_string()
+        board_id
+            .strip_prefix("channel:")
+            .unwrap_or(&board_id)
+            .to_string()
     } else {
         board_id.clone()
     };
@@ -376,8 +407,8 @@ fn extract_user_id(headers: &axum::http::HeaderMap, jwt_secret: &str) -> anyhow:
     let mut v = Validation::default();
     v.validate_exp = true;
     v.leeway = 60;
-    let c = decode::<Claims>(token, &key, &v)
-        .map_err(|e| anyhow::anyhow!("invalid token: {}", e))?;
+    let c =
+        decode::<Claims>(token, &key, &v).map_err(|e| anyhow::anyhow!("invalid token: {}", e))?;
     c.claims
         .sub
         .parse::<i64>()

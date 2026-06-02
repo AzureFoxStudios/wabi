@@ -29,13 +29,19 @@ fn extract_user_id_from_token(headers: &HeaderMap, jwt_secret: &str) -> Result<i
         .ok_or_else(|| anyhow::anyhow!("missing authorization header"))?
         .to_str()
         .map_err(|_| anyhow::anyhow!("invalid authorization header"))?;
-    let token = auth.strip_prefix("Bearer ").ok_or_else(|| anyhow::anyhow!("missing Bearer prefix"))?;
+    let token = auth
+        .strip_prefix("Bearer ")
+        .ok_or_else(|| anyhow::anyhow!("missing Bearer prefix"))?;
     let key = DecodingKey::from_secret(jwt_secret.as_bytes());
     let mut v = Validation::default();
     v.validate_exp = true;
     v.leeway = 60;
     let c = decode::<C>(token, &key, &v).map_err(|e| anyhow::anyhow!("invalid token: {}", e))?;
-    let user_id = c.claims.sub.parse::<i64>().map_err(|_| anyhow::anyhow!("invalid user_id in token"))?;
+    let user_id = c
+        .claims
+        .sub
+        .parse::<i64>()
+        .map_err(|_| anyhow::anyhow!("invalid user_id in token"))?;
     Ok(user_id)
 }
 
@@ -137,10 +143,12 @@ async fn get_layout(
 ) -> Result<Json<serde_json::Value>> {
     let user_id = extract_user_id_from_token(&headers, &state.config.jwt_secret)?;
     match state.stdb.get_user_layout(user_id).await? {
-        Some((layout_json, updated_at)) =>
-            Ok(Json(serde_json::json!({ "layoutJson": layout_json, "updatedAt": updated_at }))),
-        None =>
-            Ok(Json(serde_json::json!({ "layoutJson": null, "updatedAt": null }))),
+        Some((layout_json, updated_at)) => Ok(Json(
+            serde_json::json!({ "layoutJson": layout_json, "updatedAt": updated_at }),
+        )),
+        None => Ok(Json(
+            serde_json::json!({ "layoutJson": null, "updatedAt": null }),
+        )),
     }
 }
 
@@ -157,6 +165,9 @@ async fn save_layout(
     Json(body): Json<SaveLayoutRequest>,
 ) -> Result<Json<serde_json::Value>> {
     let user_id = extract_user_id_from_token(&headers, &state.config.jwt_secret)?;
-    state.stdb.upsert_user_layout(user_id, &body.layout_json).await?;
+    state
+        .stdb
+        .upsert_user_layout(user_id, &body.layout_json)
+        .await?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }

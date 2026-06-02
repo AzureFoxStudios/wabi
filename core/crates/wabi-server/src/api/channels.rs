@@ -53,8 +53,17 @@ async fn list_channels(State(state): State<Arc<AppState>>) -> Result<Json<Channe
             let name = row.get("name")?.as_str()?.to_string();
             let channel_type = row.get("channel_type")?.as_str()?.to_string();
             let position = row.get("position").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-            let parent_id = row.get("parent_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-            Some(ChannelResponse { id, name, channel_type, position, parent_id })
+            let parent_id = row
+                .get("parent_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            Some(ChannelResponse {
+                id,
+                name,
+                channel_type,
+                position,
+                parent_id,
+            })
         })
         .collect();
 
@@ -77,8 +86,17 @@ async fn get_channel(
             let name = row.get("name")?.as_str()?.to_string();
             let channel_type = row.get("channel_type")?.as_str()?.to_string();
             let position = row.get("position").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-            let parent_id = row.get("parent_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-            Some(Ok(Json(ChannelResponse { id: id.clone(), name, channel_type, position, parent_id })))
+            let parent_id = row
+                .get("parent_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            Some(Ok(Json(ChannelResponse {
+                id: id.clone(),
+                name,
+                channel_type,
+                position,
+                parent_id,
+            })))
         })
         .unwrap_or_else(|| Err(AppError::NotFound(format!("Channel {} not found", id))))
 }
@@ -104,7 +122,9 @@ async fn create_channel(
         .ok_or_else(|| AppError::Unauthorized("valid auth token required".into()))?;
 
     if !state.is_admin(claims.user_id).await {
-        return Err(AppError::Unauthorized("only admins can create channels".into()));
+        return Err(AppError::Unauthorized(
+            "only admins can create channels".into(),
+        ));
     }
 
     let name = req.name.trim().to_string();
@@ -116,7 +136,13 @@ async fn create_channel(
     let channel_id = name
         .to_lowercase()
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .trim_matches('-')
         .to_string();
@@ -145,7 +171,9 @@ async fn delete_channel(
         .ok_or_else(|| AppError::Unauthorized("valid auth token required".into()))?;
 
     if !state.is_admin(claims.user_id).await {
-        return Err(AppError::Unauthorized("only admins can delete channels".into()));
+        return Err(AppError::Unauthorized(
+            "only admins can delete channels".into(),
+        ));
     }
 
     state
@@ -174,5 +202,7 @@ fn claims_from_bearer(headers: &HeaderMap, jwt_secret: &str) -> Option<BearerCla
     v.validate_exp = true;
     v.leeway = 60;
     let c = decode::<C>(token, &key, &v).ok()?.claims;
-    Some(BearerClaims { user_id: c.sub.parse().ok()? })
+    Some(BearerClaims {
+        user_id: c.sub.parse().ok()?,
+    })
 }
