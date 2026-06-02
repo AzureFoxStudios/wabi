@@ -52,10 +52,10 @@ jobs:
           bun install
 
       - name: Build Tauri app
-        working-directory: ./frontend
+        working-directory: .
         run: |
           echo "Starting Tauri build..."
-          bun run tauri build
+          bunx tauri build --ci
         env:
           RUST_BACKTRACE: 1
           RUST_LOG: debug
@@ -65,21 +65,21 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-builds
-          path: frontend/src-tauri/target/release/bundle/
+          path: src-tauri/target/release/bundle/
 
       - name: Upload artifacts (Linux)
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: linux-builds
-          path: frontend/src-tauri/target/release/bundle/
+          path: src-tauri/target/release/bundle/
 
       - name: Upload artifacts (macOS)
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
           name: macos-builds
-          path: frontend/src-tauri/target/release/bundle/
+          path: src-tauri/target/release/bundle/
 
   create-release:
     needs: build

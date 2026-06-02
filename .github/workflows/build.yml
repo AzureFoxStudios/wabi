@@ -32,11 +32,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -64,55 +59,37 @@ jobs:
       - name: install frontend dependencies
         run: cd frontend && bun install
 
-      - name: install backend dependencies
-        run: cd backend && npm install
-
       - name: build Tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          projectPath: './frontend'
+          projectPath: '.'
           args: ''
           releaseDraft: ${{ startsWith(github.ref, 'refs/tags/') }}
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
 
-  build-backend:
+  build-server:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: install bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: latest
+      - name: build Rust server
+        run: cargo build --release -p wabi-server
 
-      - name: install dependencies
-        run: cd backend && bun install
-
-      - name: build
-        run: cd backend && bun run build
-
-      - name: upload backend artifact
+      - name: upload server artifact
         uses: actions/upload-artifact@v4
         with:
-          name: backend-build
-          path: backend/dist
+          name: wabi-server
+          path: target/release/wabi-server
 
   frontend-checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
 
       - name: install bun
         uses: oven-sh/setup-bun@v1
