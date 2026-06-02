@@ -165,7 +165,7 @@
 		border-radius: 8px;
 		overflow: hidden;
 		z-index: 10;
-		box-shadow: 0 4px 12px var(--shadow-sm, var(--shadow-sm, var(--shadow-md, var(--shadow-lg, rgba(0, 0, 0, 0.3)))));
+		box-shadow: 0 4px 12px var(--shadow-sm, rgba(0, 0, 0, 0.3));
 	}
 
 	.local-video-pip video {

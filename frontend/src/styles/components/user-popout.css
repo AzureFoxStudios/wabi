@@ -56,7 +56,7 @@
 		border-radius: 26px;
 		background: var(--surface-base);
 		padding: 6px;
-		box-shadow: 0 14px 34px var(--shadow-md, var(--shadow-md, var(--shadow-lg, rgba(0, 0, 0, 0.32))));
+		box-shadow: 0 14px 34px var(--shadow-md, rgba(0, 0, 0, 0.32));
 	}
 
 	.popout-avatar,
