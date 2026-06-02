@@ -39,10 +39,10 @@ try {
 
   if (fs.existsSync(sourceIcon)) {
     console.log(`Found source icon at: ${sourceIcon}`);
-    console.log('Running: tauri icon app-icon.png\n');
+    console.log('Running: bunx @tauri-apps/cli icon app-icon.png\n');
 
     try {
-      execSync('bunx tauri icon app-icon.png', {
+      execSync('bunx @tauri-apps/cli icon app-icon.png', {
         cwd: projectRoot,
         stdio: 'inherit'
       });

@@ -55,7 +55,7 @@ jobs:
         working-directory: .
         run: |
           echo "Starting Tauri build..."
-          bunx tauri build --ci
+          bunx @tauri-apps/cli build --ci
         env:
           RUST_BACKTRACE: 1
           RUST_LOG: debug

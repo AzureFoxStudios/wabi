@@ -60,14 +60,9 @@ jobs:
         run: cd frontend && bun install
 
       - name: build Tauri
-        uses: tauri-apps/tauri-action@v0
+        run: bunx @tauri-apps/cli build --ci ${{ matrix.args }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: '.'
-          args: ''
-          releaseDraft: ${{ startsWith(github.ref, 'refs/tags/') }}
-          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
 
   build-server:
     runs-on: ubuntu-latest
@@ -76,6 +71,14 @@ jobs:
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
+
+      - name: install bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: build frontend assets for embedding
+        run: cd frontend && bun install && bun run build
 
       - name: build Rust server
         run: cargo build --release -p wabi-server
