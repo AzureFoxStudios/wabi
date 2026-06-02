@@ -23,7 +23,7 @@
 			radial-gradient(circle at 80% 80%, rgba(var(--accent-primary-rgb, 99, 102, 241), 0.18), transparent 50%),
 			var(--surface-base, #111827);
 		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.1);
-		box-shadow: 0 24px 56px var(--shadow-lg, var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.52))));
+		box-shadow: 0 24px 56px var(--shadow-lg, rgba(0, 0, 0, 0.52));
 		border-radius: 20px;
 		padding: 2rem;
 		width: min(420px, 92vw);
@@ -153,7 +153,7 @@
 		border-radius: 12px;
 		background: color-mix(in srgb, var(--surface-base, #111827) 88%, black 12%);
 		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.12);
-		box-shadow: 0 12px 28px var(--shadow-md, var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.42))));
+		box-shadow: 0 12px 28px var(--shadow-md, rgba(0, 0, 0, 0.42));
 	}
 
 	.docked-title {
@@ -257,7 +257,7 @@
 		height: 32px;
 		border-radius: 8px;
 		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.18);
-		background: var(--shadow-lg, var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.52))));
+		background: var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.52)));
 		color: var(--text-inverse, var(--text-inverse, #fff));
 		cursor: pointer;
 		display: flex;
@@ -297,7 +297,7 @@
 		inset: 0.7rem calc(var(--hatch-right) + 0.7rem) 0.7rem calc(var(--hatch-left) + 0.7rem);
 		border-radius: 18px;
 		transform: scale(0.988);
-		box-shadow: 0 16px 40px var(--shadow-lg, var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.48))));
+		box-shadow: 0 16px 40px var(--shadow-lg, rgba(0, 0, 0, 0.48));
 	}
 
 	.recording-banner {
@@ -495,7 +495,7 @@
 		left: 0.55rem;
 		bottom: 0.55rem;
 		z-index: 3;
-		background: var(--shadow-lg, var(--shadow-lg, rgba(0, 0, 0, 0.64)));
+		background: var(--shadow-lg, rgba(0, 0, 0, 0.64));
 		color: var(--text-inverse, var(--text-inverse, #fff));
 		padding: 0.25rem 0.45rem;
 		border-radius: 6px;

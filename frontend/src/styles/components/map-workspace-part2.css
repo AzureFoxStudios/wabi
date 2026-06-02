@@ -73,7 +73,7 @@
 		border-radius: 999px;
 		background: var(--poi-fill);
 		border: 1px solid var(--poi-border);
-		box-shadow: 0 10px 24px var(--shadow-md, var(--shadow-md, var(--shadow-lg, rgba(0, 0, 0, 0.28))));
+		box-shadow: 0 10px 24px var(--shadow-md, rgba(0, 0, 0, 0.28));
 	}
 
 	.poi-label {
@@ -81,7 +81,7 @@
 		border-radius: 999px;
 		background: var(--poi-label-bg);
 		border: 1px solid var(--poi-label-border);
-		box-shadow: 0 10px 24px var(--shadow-md, var(--shadow-sm, var(--shadow-md, var(--shadow-lg, rgba(0, 0, 0, 0.24)))));
+		box-shadow: 0 10px 24px var(--shadow-md, rgba(0, 0, 0, 0.24));
 		font-size: 0.82rem;
 		white-space: nowrap;
 	}
@@ -168,7 +168,7 @@
 		border-radius: 999px;
 		border: 1px solid rgba(191, 214, 254, 0.32);
 		background: rgba(var(--surface-app-rgb, 8, 12, 21), 0.76);
-		box-shadow: 0 8px 18px var(--shadow-sm, var(--shadow-md, var(--shadow-sm, rgba(0, 0, 0, 0.2))));
+		box-shadow: 0 8px 18px var(--shadow-sm, rgba(0, 0, 0, 0.2));
 	}
 
 	.compass-arrow {

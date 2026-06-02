@@ -230,7 +230,7 @@
 		border: 1px solid var(--reader-border);
 		border-radius: 24px;
 		background: var(--reader-surface);
-		box-shadow: 0 18px 44px var(--shadow-sm, var(--shadow-sm, rgba(0, 0, 0, 0.08)));
+		box-shadow: 0 18px 44px var(--shadow-sm, rgba(0, 0, 0, 0.08));
 		color: inherit;
 	}
 
@@ -296,7 +296,7 @@
 	}
 
 	.reader-document :global(pre) {
-		background: var(--shadow-sm, var(--shadow-sm, rgba(0, 0, 0, 0.08)));
+		background: var(--shadow-sm, rgba(0, 0, 0, 0.08));
 		border-radius: 14px;
 		padding: 0.95rem;
 		overflow-x: auto;
@@ -328,7 +328,7 @@
 		border-radius: 24px;
 		border: 1px solid var(--reader-border);
 		background: var(--reader-surface);
-		box-shadow: 0 16px 40px var(--shadow-sm, var(--shadow-sm, rgba(0, 0, 0, 0.08)));
+		box-shadow: 0 16px 40px var(--shadow-sm, rgba(0, 0, 0, 0.08));
 	}
 
 	.reader-empty-card h3 {
@@ -360,7 +360,7 @@
 		border-radius: 22px;
 		border: 1px solid var(--reader-border);
 		background: var(--reader-surface);
-		box-shadow: 0 20px 50px var(--shadow-lg, var(--shadow-md, var(--shadow-md, rgba(0, 0, 0, 0.18))));
+		box-shadow: 0 20px 50px var(--shadow-lg, rgba(0, 0, 0, 0.18));
 	}
 
 	.reader-import-header,
@@ -508,7 +508,7 @@
 		position: absolute;
 		top: 50%;
 		transform: translateY(-50%);
-		background: var(--shadow-md, var(--shadow-md, var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.5)))));
+		background: var(--shadow-md, var(--surface-modal-overlay, rgba(0, 0, 0, 0.5)));
 		border: 1px solid var(--reader-border);
 		border-radius: 50%;
 		width: 48px;
@@ -545,7 +545,7 @@
 		bottom: 1rem;
 		left: 50%;
 		transform: translateX(-50%);
-		background: var(--surface-overlay, var(--shadow-lg, var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.6)))));
+		background: var(--surface-overlay, var(--surface-modal-overlay, rgba(0, 0, 0, 0.6)));
 		color: white;
 		padding: 0.4rem 0.8rem;
 		border-radius: 999px;
