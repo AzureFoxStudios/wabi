@@ -11,6 +11,7 @@
 
 import type { Socket } from 'socket.io-client';
 import { SocketManager } from './socketConnectionCore';
+import { createLocalMockSocket, disconnectLocalMockSocket, isLocalMockMode, type LocalMockSocket } from './localMockSocket';
 
 // ============================================================================
 // RE-EXPORTS FROM socketConnectionState.ts
@@ -30,19 +31,31 @@ export type { SocketManager } from './socketConnectionCore';
 // ============================================================================
 
 export const socketManager = new SocketManager();
+let localMockSocket: LocalMockSocket | null = null;
 
 export function getSocket(): Socket | null {
+	if (isLocalMockMode()) return localMockSocket as unknown as Socket | null;
 	return socketManager.getSocket();
 }
 
 export function initSocket(username: string, authToken?: string): Socket | null {
+	if (isLocalMockMode()) {
+		localMockSocket = createLocalMockSocket(username);
+		return localMockSocket as unknown as Socket;
+	}
 	return socketManager.connect(username, authToken);
 }
 
 export function disconnect(): void {
+	if (isLocalMockMode()) {
+		disconnectLocalMockSocket(localMockSocket);
+		localMockSocket = null;
+		return;
+	}
 	socketManager.disconnect();
 }
 
 export function getConnectionState() {
+	if (isLocalMockMode()) return localMockSocket ? 'connected' : 'disconnected';
 	return socketManager.getState();
 }

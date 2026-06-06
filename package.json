@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "cd frontend && bun run dev",
+    "dev:mock": "cd frontend && VITE_WABI_LOCAL_MOCK=1 bun run dev -- --host 127.0.0.1",
     "dev:local": "bash ./scripts/local-dev.sh",
     "dev:local:windows": "powershell -ExecutionPolicy Bypass -File scripts/local-dev.ps1",
     "dev:backend:local": "cargo run -p wabi-server",
