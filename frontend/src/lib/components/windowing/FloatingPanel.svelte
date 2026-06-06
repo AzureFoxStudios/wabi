@@ -98,9 +98,18 @@
 	class:floating-panel-docked={panel.mode === 'docked'}
 	class:floating-panel-maximized={panel.mode === 'maximized'}
 	style={styleFromRect(panel.rect, panel.zIndex)}
+	role="dialog"
+	aria-label={panel.title}
+	tabindex="0"
 	on:pointerdown={() => floatingPanelStore.focusFloatingPanel(panel.id)}
 >
-	<header class="floating-panel-header" on:pointerdown={startDrag}>
+	<header
+		class="floating-panel-header"
+		role="toolbar"
+		aria-label={`${panel.title} window controls`}
+		tabindex="0"
+		on:pointerdown={startDrag}
+	>
 		<div class="floating-panel-title">
 			<span class="floating-panel-title-dot" aria-hidden="true"></span>
 			<span>{panel.title}</span>
