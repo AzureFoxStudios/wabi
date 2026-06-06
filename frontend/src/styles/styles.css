@@ -69,6 +69,7 @@
 @import './components/task-panel.css';
 @import './components/todo-list.css';
 @import './components/user-popout.css';
+@import './components/windowing.css';
 @import './animations.css';
 @import './mobile.css';
 @import './accessibility.css';

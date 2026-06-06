@@ -17,7 +17,8 @@ export type ContextMenuIcon =
 	| 'archive-restore'
 	| 'banknote'
 	| 'log-out'
-	| 'languages';
+	| 'languages'
+	| 'external-window';
 
 export type ContextMenuItem = {
 	id: string;

@@ -48,6 +48,8 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { currentSavedServer } from '$lib/savedServers';
 	import { resolveServerUrl } from '$lib/serverUrl';
+	import { openDetachedPanel } from '$lib/detachedPanels';
+	import { floatingPanelStore } from '$lib/windowing/floatingPanelStore';
 	import {
 		FOLLOW_ALERT_LEVEL_LABELS,
 		currentServerFollowedChannels,
@@ -185,6 +187,13 @@
 	function closeContextMenu() { showContextMenu = false; contextMenuChannel = null; }
 	function isChannelBookmarked(ch: Channel) { return !!$currentUser?.id && (ch.pinnedBy?.includes($currentUser.id) ?? false); }
 	function toggleChannelBookmark(ch: Channel) { isChannelBookmarked(ch) ? unpinChannel(ch.id) : pinChannel(ch.id); }
+	function openChannelFloatingPanel(ch: Channel) {
+		floatingPanelStore.openFloatingPanel({
+			kind: 'channel-chat',
+			title: `#${ch.name}`,
+			payload: { channelId: ch.id, channelName: ch.name }
+		});
+	}
 
 	$: channelMenuItems = contextMenuChannel ? buildChannelMenuItems(contextMenuChannel) : [];
 	function buildChannelMenuItems(ch: Channel): ContextMenuItem[] {
@@ -192,6 +201,9 @@
 		const noun = ch.type === 'group' ? 'Group' : 'Channel';
 		const followed = sup && followedChannelIds.has(ch.id);
 		const items: ContextMenuItem[] = [
+			{ id: 'open-floating-panel', label: 'Open floating panel', icon: 'message-circle', onSelect: () => openChannelFloatingPanel(ch) },
+			{ id: 'open-os-window', label: 'Open OS window', icon: 'external-window', onSelect: () => openDetachedPanel({ kind: 'channel-chat', channelId: ch.id, channelName: ch.name }) },
+			{ id: 'windowing-divider', type: 'separator' },
 			{ id: 'pin-channel', label: isChannelBookmarked(ch) ? 'Remove Bookmark' : 'Bookmark Channel', icon: 'pin', onSelect: () => toggleChannelBookmark(ch) },
 			{ id: 'pinned-messages', label: 'Pinned Messages', icon: 'pin', onSelect: () => handleShowPinnedMessages(ch.id) },
 			{ id: 'toggle-mute-channel', label: isChannelLocallyMuted(ch.id) ? 'Unmute Channel' : 'Mute Channel', onSelect: () => toggleMutedChannelId(ch.id) },
