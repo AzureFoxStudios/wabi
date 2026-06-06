@@ -9,6 +9,7 @@
 	import MapWorkspace from '$lib/components/MapWorkspace.svelte';
 	import GalleryChannel from '$lib/components/GalleryChannel.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
+	import FloatingPanelHost from '$lib/components/windowing/FloatingPanelHost.svelte';
 	import ServerRail from '$lib/components/ServerRail.svelte';
 	import ServerSwitcherPanel from '$lib/components/ServerSwitcherPanel.svelte';
 	import FollowingFeed from '$lib/components/FollowingFeed.svelte';
@@ -911,6 +912,9 @@
 			</svg>
 		</button>
 	{/if}
+
+	<!-- Floating sub-window layer inside the app webview. This is the Odysseus-style panel system for Tauri/browser. -->
+	<FloatingPanelHost />
 
 	{#if $layoutStore.isMobile && $callMode === 'channel' && $activeVoiceChannel}
 		<div class="voice-channel-strip" role="status" aria-live="polite" transition:fly={{ y: 20, duration: 220 }}>

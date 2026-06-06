@@ -1,0 +1,214 @@
+.floating-panel-layer {
+	position: fixed;
+	inset: 0;
+	z-index: 1100;
+	pointer-events: none;
+}
+
+.floating-panel {
+	position: fixed;
+	display: flex;
+	flex-direction: column;
+	min-width: 320px;
+	min-height: 240px;
+	max-width: calc(100vw - 16px);
+	max-height: calc(100vh - 16px);
+	background: color-mix(in srgb, var(--bg-primary, #111827) 92%, black 8%);
+	border: 1px solid color-mix(in srgb, var(--border-color, #334155) 72%, var(--accent-primary, #60a5fa) 28%);
+	border-radius: 16px;
+	box-shadow: 0 22px 70px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+	overflow: hidden;
+	pointer-events: auto;
+	backdrop-filter: blur(18px);
+}
+
+.floating-panel-docked,
+.floating-panel-maximized {
+	border-radius: 10px;
+}
+
+.floating-panel-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	min-height: 42px;
+	padding: 0 10px 0 14px;
+	background: linear-gradient(135deg, color-mix(in srgb, var(--accent-primary, #60a5fa) 18%, transparent), color-mix(in srgb, var(--bg-secondary, #1f2937) 88%, transparent));
+	border-bottom: 1px solid color-mix(in srgb, var(--border-color, #334155) 76%, transparent);
+	cursor: grab;
+	user-select: none;
+	touch-action: none;
+}
+
+.floating-panel-header:active {
+	cursor: grabbing;
+}
+
+.floating-panel-title {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	font-weight: 700;
+	color: var(--text-primary, #f8fafc);
+}
+
+.floating-panel-title span:last-child {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.floating-panel-title-dot {
+	width: 9px;
+	height: 9px;
+	border-radius: 999px;
+	background: var(--accent-primary, #60a5fa);
+	box-shadow: 0 0 16px color-mix(in srgb, var(--accent-primary, #60a5fa) 75%, transparent);
+	flex: 0 0 auto;
+}
+
+.floating-panel-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.floating-panel-action {
+	width: 28px;
+	height: 28px;
+	border: 1px solid color-mix(in srgb, var(--border-color, #334155) 78%, transparent);
+	border-radius: 9px;
+	background: color-mix(in srgb, var(--bg-secondary, #1f2937) 75%, transparent);
+	color: var(--text-primary, #f8fafc);
+	font-size: 16px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.floating-panel-action:hover {
+	background: color-mix(in srgb, var(--accent-primary, #60a5fa) 20%, var(--bg-secondary, #1f2937));
+}
+
+.floating-panel-body {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: auto;
+	background: color-mix(in srgb, var(--bg-primary, #111827) 92%, transparent);
+}
+
+.floating-panel-shell-content {
+	padding: 22px;
+	color: var(--text-secondary, #cbd5e1);
+}
+
+.floating-panel-shell-eyebrow {
+	margin-bottom: 8px;
+	color: var(--accent-primary, #60a5fa);
+	font-size: 0.74rem;
+	font-weight: 800;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+
+.floating-panel-shell-content h2 {
+	margin: 0 0 10px;
+	color: var(--text-primary, #f8fafc);
+	font-size: 1.24rem;
+}
+
+.floating-panel-shell-content p {
+	max-width: 62ch;
+	margin: 0;
+	line-height: 1.55;
+}
+
+.floating-panel-meta {
+	display: grid;
+	gap: 10px;
+	margin-top: 18px;
+}
+
+.floating-panel-meta div {
+	display: grid;
+	grid-template-columns: 110px minmax(0, 1fr);
+	gap: 10px;
+	padding: 10px 12px;
+	border: 1px solid color-mix(in srgb, var(--border-color, #334155) 72%, transparent);
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--bg-secondary, #1f2937) 62%, transparent);
+}
+
+.floating-panel-meta dt {
+	color: var(--text-muted, #94a3b8);
+	font-size: 0.8rem;
+}
+
+.floating-panel-meta dd {
+	min-width: 0;
+	margin: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text-primary, #f8fafc);
+}
+
+.floating-panel-resize {
+	position: absolute;
+	border: 0;
+	background: transparent;
+	padding: 0;
+}
+
+.floating-panel-resize-right {
+	top: 42px;
+	right: 0;
+	bottom: 12px;
+	width: 10px;
+	cursor: ew-resize;
+}
+
+.floating-panel-resize-bottom {
+	left: 12px;
+	right: 12px;
+	bottom: 0;
+	height: 10px;
+	cursor: ns-resize;
+}
+
+.floating-panel-resize-corner {
+	right: 0;
+	bottom: 0;
+	width: 18px;
+	height: 18px;
+	cursor: nwse-resize;
+}
+
+.floating-panel-resize-corner::after {
+	content: '';
+	position: absolute;
+	right: 5px;
+	bottom: 5px;
+	width: 8px;
+	height: 8px;
+	border-right: 2px solid color-mix(in srgb, var(--text-muted, #94a3b8) 72%, transparent);
+	border-bottom: 2px solid color-mix(in srgb, var(--text-muted, #94a3b8) 72%, transparent);
+}
+
+.floating-panel-ghost {
+	position: fixed;
+	z-index: 1099;
+	border: 2px dashed color-mix(in srgb, var(--accent-primary, #60a5fa) 70%, transparent);
+	border-radius: 14px;
+	background: color-mix(in srgb, var(--accent-primary, #60a5fa) 14%, transparent);
+	box-shadow: 0 0 36px color-mix(in srgb, var(--accent-primary, #60a5fa) 18%, transparent) inset;
+	pointer-events: none;
+	transition: left 120ms ease, top 120ms ease, width 120ms ease, height 120ms ease;
+}
+
+@media (max-width: 768px) {
+	.floating-panel-layer {
+		display: none;
+	}
+}
