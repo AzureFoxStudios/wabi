@@ -146,7 +146,7 @@
 	flex-shrink: 0;
 	padding: 0;
 }
-.admin-icon-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-primary) 10%, transparent); color: var(--text-heading); }
+.admin-icon-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-primary-color) 10%, transparent); color: var(--text-heading); }
 .admin-icon-btn svg { width: 14px; height: 14px; display: block; }
 .admin-role-control {
 	display: inline-flex;

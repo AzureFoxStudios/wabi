@@ -67,7 +67,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 9999;
+		z-index: var(--z-modal-nested, 1300);
 		backdrop-filter: blur(8px);
 	}
 
@@ -85,7 +85,7 @@
 
 	.qr-modal h2 {
 		margin: 0 0 1.5rem 0;
-		color: var(--launch-accent, var(--accent-primary));
+		color: var(--launch-accent, var(--accent-primary-color));
 		font-size: 1.5rem;
 	}
 
@@ -121,7 +121,7 @@
 	}
 
 	.qr-actions button:first-child {
-		background: var(--launch-accent, var(--accent-primary));
+		background: var(--launch-accent, var(--accent-primary-color));
 		color: white;
 	}
 

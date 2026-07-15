@@ -6,13 +6,16 @@ use std::sync::Arc;
 use crate::state::AppState;
 
 use super::{
-    albums, auth, blobs, channels, jobs, lan, media, messages, nodes, payments, preview, public,
-    standby, upload, user,
+    admin, albums, auth, blobs, calls, channels, forum, incidents, jobs, lan, media, mesh, messages,
+    nodes, operator, payments, preview, public, standby, sync, upload, user, wiki,
 };
+#[cfg(feature = "wabi-lore")]
+use super::lore;
 
 /// Create the main API router with all routes
 pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
-    Router::new()
+    // Build common routes
+    let router = Router::new()
         // Public routes (no auth)
         .nest("/public", public::routes(state.clone()))
         // Setup status (called on every page load)
@@ -29,18 +32,40 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/upload", upload::routes(state.clone()))
         // Media album routes
         .nest("/albums", albums::routes(state.clone()))
+        // Wiki page routes
+        .nest("/wiki", wiki::routes(state.clone()))
+        // Forum thread & post routes
+        .nest("/forum", forum::routes(state.clone()))
+        // Incident routes
+        .nest("/incidents", incidents::routes(state.clone()))
+        // Call-session routes (replaces WDB call-session reducers)
+        .nest("/calls", calls::routes(state.clone()))
+        // Admin routes (policy management, compression, runtime, payments)
+        .nest("/admin", admin::routes(state.clone()))
         // Payment routes (non-custodial provider integration)
         .nest("/payments", payments::routes(state.clone()))
         // Helper node registry routes
         .nest("/nodes", nodes::routes(state.clone()))
         // Blob storage routes (content-addressed)
         .nest("/blobs", blobs::routes(state.clone()))
+        // Mesh coordination routes (multi-node discovery)
+        .nest("/mesh", mesh::routes(state.clone()))
+        // Break-glass operator routes (loopback + WABI_OPERATOR_SECRET only)
+        .nest("/operator", operator::routes(state.clone()));
+
+    // Optional addon routes
+    #[cfg(feature = "wabi-lore")]
+    let router = router.nest("/addons/lore", lore::routes(state.clone()));
+
+    router
         // Media room routing (helper-node SFU assignment)
         .nest("/media", media::routes(state.clone()))
         // Job queue routes
         .nest("/jobs", jobs::routes(state.clone()))
         // Warm standby snapshot receive route (encrypted envelopes only)
         .nest("/standby", standby::routes(state.clone()))
+        // Database replication sync (commit index pull/push)
+        .nest("/sync", sync::routes(state.clone()))
         // Whiteboard routes (image upload & file serving)
         .nest("/whiteboard", super::whiteboard::routes(state.clone()))
         // URL preview / image proxy (mounted at /url-preview and /image-proxy)

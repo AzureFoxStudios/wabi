@@ -1,0 +1,77 @@
+[package]
+name = "wabidb"
+version = "0.1.0"
+edition = "2021"
+description = "WabiDB - per-stream log-structured object/event store with global commit index"
+license = "MIT"
+rust-version = "1.88"
+
+[dependencies]
+# Content addressing
+blake3 = "1"
+# Authenticated encryption (per-stream records, DM bodies)
+aes-gcm = "0.10"
+# Record integrity
+crc32c = "0.6"
+# Async runtime
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "macros", "fs", "io-util", "time"] }
+# Serialization
+serde = { version = "1", features = ["derive"] }
+# Structured logging
+tracing = "0.1"
+# Passphrase-based key derivation (Argon2id) for the bootstrap key
+argon2 = "0.5"
+# Random number generation
+rand = "0.8"
+# Ed25519 signature verification (identity key attestation)
+ed25519-dalek = "2"
+# X25519 key exchange (X3DH, signed prekey, one-time prekeys)
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+# Subtle encoding/decoding helpers (constant-time eq, etc.)
+subtle = "2"
+# Lock-free skip-list for projection state (per Council Review #0, #1)
+crossbeam-skiplist = "0.1"
+
+# Zero-on-drop for sensitive key material and plaintext buffers
+zeroize = { version = "1", features = ["zeroize_derive"] }
+
+# Hex encoding (used by blobs/write.rs and snapshot debug)
+hex = "0.4"
+
+# Compact binary serialization (replaces manual codecs)
+postcard = { version = "1", features = ["alloc"] }
+
+# JSON serialization
+serde_json = "1"
+
+# TOML parsing (used by WabiDbConfig::load_from_file)
+toml = "0.8"
+
+# Async trait support (SyncTransport trait)
+async-trait = "0.1"
+
+[[bench]]
+name = "commit_throughput"
+harness = false
+
+[[bench]]
+name = "projection_read"
+harness = false
+
+[features]
+# Enable crash-injection points for power-loss testing (wabidb-72).
+# When enabled, the engine calls std::process::exit(1) at specific points
+# to simulate a process crash at that exact moment.
+test-harness = []
+
+[dev-dependencies]
+# Cryptographic algorithm test vectors
+# Property-based testing (used by wabidb-78, wabidb-79)
+proptest = "1"
+# Async test runtime
+tokio = { version = "1", features = ["test-util"] }
+# Temporary directories for storage tests
+tempfile = "3"
+
+# Benchmarking
+criterion = "0.8"

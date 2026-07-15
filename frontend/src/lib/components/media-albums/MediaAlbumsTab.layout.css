@@ -301,6 +301,12 @@
 		outline-offset: 2px;
 	}
 
+	@media (prefers-reduced-motion: reduce) {
+		.album-card {
+			transition: border-color 0.18s ease, background 0.18s ease;
+		}
+	}
+
 	.album-name-row {
 		display: flex;
 		align-items: flex-start;

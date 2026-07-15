@@ -177,3 +177,11 @@ export const spatialSeatDebugState = writable<{
 // ============================================================================
 
 export const sfuMediaActive = writable(false);
+
+// ============================================================================
+// Offline / Call Error Notice
+// ============================================================================
+
+// Short, user-facing notice shown when a call cannot start due to missing
+// server connection or other offline/resilience failures. Cleared on success.
+export const callOfflineNotice = writable<string | null>(null);

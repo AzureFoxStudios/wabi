@@ -117,10 +117,10 @@ code:not([class*="language-"]) {
 
 /* Block quotes */
 .markdown-content blockquote {
-  border-left: 4px solid #5865f2;
+  border-left: 4px solid var(--accent-primary-color, var(--accent-primary));
   padding-left: 1em;
   margin: 0.5em 0;
-  color: #a0a0a0;
+  color: var(--text-muted, var(--text-secondary));
   font-style: italic;
 }
 
@@ -133,18 +133,18 @@ code:not([class*="language-"]) {
 .markdown-content h6 {
   margin: 0.5em 0;
   font-weight: 600;
-  color: #f0f0f0;
+  color: var(--text-heading);
 }
 
 .markdown-content h1 {
   font-size: 1.5em;
-  border-bottom: 2px solid #5865f2;
+  border-bottom: 2px solid var(--accent-primary-color, var(--accent-primary));
   padding-bottom: 0.3em;
 }
 
 .markdown-content h2 {
   font-size: 1.3em;
-  border-bottom: 1px solid #5865f2;
+  border-bottom: 1px solid var(--accent-primary-color, var(--accent-primary));
   padding-bottom: 0.2em;
 }
 
@@ -172,13 +172,13 @@ code:not([class*="language-"]) {
 /* Horizontal rule */
 .markdown-content hr {
   border: none;
-  border-top: 2px solid #5865f2;
+  border-top: 2px solid var(--border-strong, var(--accent-primary-color));
   margin: 1em 0;
 }
 
 /* Bold, italic, strikethrough */
 .markdown-content strong {
-  color: #f0f0f0;
+  color: var(--text-heading);
   font-weight: 700;
 }
 
@@ -198,16 +198,20 @@ code:not([class*="language-"]) {
 
 /* Links */
 .markdown-content a {
-  color: #5865f2;
+  color: var(--text-link, var(--color-info, var(--accent-primary-color)));
   text-decoration: none;
 }
 
 .markdown-content a:hover {
   text-decoration: underline;
+  color: var(--color-info, var(--accent-primary-color));
 }
 
-/* Paragraphs */
+/* Paragraphs — Discord-tight; no vertical fluff on chat messages */
 .markdown-content p {
-  margin: 0.5em 0;
-  line-height: 1.5;
+  margin: 0;
+  line-height: 1.375;
+}
+.markdown-content p + p {
+  margin-top: 0.25em;
 }

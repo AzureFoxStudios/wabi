@@ -1,127 +1,142 @@
 .whiteboard-canvas-container {
-	position: relative;
-	width: 100%;
-	height: 100%;
-	overflow: hidden;
-	outline: none;
-	background:
-		linear-gradient(180deg, rgba(255, 253, 247, 0.98), rgba(247, 240, 226, 0.82)),
-		linear-gradient(90deg, rgba(var(--text-muted-rgb, 148, 163, 184), 0.13) 1px, transparent 1px),
-		linear-gradient(rgba(var(--text-muted-rgb, 148, 163, 184), 0.13) 1px, transparent 1px),
-		linear-gradient(180deg, var(--surface-base, #fffef9) 0%, var(--surface-sunken, #f5ecdd) 100%);
-	background-size: auto, 26px 26px, 26px 26px, auto;
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  background-color: var(--surface-base, #1a1a2e);
+  background-image:
+    linear-gradient(45deg, color-mix(in srgb, var(--text-muted, #9999ff) 7%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, var(--text-muted, #9999ff) 7%, transparent) 75%),
+    linear-gradient(45deg, color-mix(in srgb, var(--text-muted, #9999ff) 7%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, var(--text-muted, #9999ff) 7%, transparent) 75%);
+  background-size: 24px 24px;
+  background-position: 0 0, 12px 12px;
+  border-radius: var(--radius-md, 8px);
 }
+
 .whiteboard-layer {
-	position: absolute;
-	inset: 0;
-	width: 100%;
-	height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
 }
-.base-layer { z-index: 0; }
-.interaction-layer { z-index: 1; touch-action: none; }
+
+.base-layer {
+  z-index: 1;
+}
+
+.interaction-layer {
+  z-index: 2;
+  touch-action: none;
+}
+
 .text-edit-overlay {
-	position: absolute;
-	z-index: 10;
-	min-width: 100px;
-	min-height: 28px;
-	padding: 4px 6px;
-	font-size: 16px;
-	font-family: sans-serif;
-	color: var(--surface-app, #1f2937);
-	background: rgba(255, 251, 235, 0.98);
-	border: 1.5px solid rgba(59, 130, 246, 0.42);
-	border-radius: 4px;
-	outline: none;
-	resize: both;
-	box-shadow: 0 10px 24px rgba(var(--surface-app-rgb, 15, 23, 42), 0.14);
+  position: absolute;
+  z-index: 3;
+  background: transparent;
+  border: none;
+  outline: 2px solid var(--accent-primary, #6366f1);
+  color: var(--text-heading, #ffffff);
+  font: 16px sans-serif;
+  padding: 2px 4px;
+  min-width: 60px;
+  min-height: 24px;
+  resize: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
+
 .whiteboard-import-hud {
-	position: absolute;
-	inset: 0;
-	z-index: 12;
-	pointer-events: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 16px;
+  pointer-events: none;
+  gap: 8px;
 }
+
 .whiteboard-import-overlay {
-	position: absolute;
-	inset: auto 16px 16px auto;
-	max-width: min(320px, calc(100% - 32px));
-	padding: 10px 14px;
-	border-radius: 10px;
-	background: rgba(var(--surface-app-rgb, 15, 23, 42), 0.9);
-	border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.18);
-	color: var(--text-inverse, #e2e8f0);
-	box-shadow: 0 16px 32px rgba(var(--surface-app-rgb, 2, 6, 23), 0.35);
-	backdrop-filter: blur(10px);
-	pointer-events: none;
+  background: rgba(0,0,0,0.75);
+  color: var(--text-heading, #fff);
+  padding: 12px 24px;
+  border-radius: var(--radius-md, 8px);
+  font-size: var(--text-sm, 14px);
+  backdrop-filter: blur(4px);
 }
+
 .whiteboard-import-overlay.is-error {
-	inset: 16px 16px auto auto;
-	background: rgba(var(--color-danger-rgb, 127, 29, 29), 0.9);
-	border-color: rgba(var(--color-danger-rgb, 248, 113, 113), 0.35);
-	color: var(--accent-danger-soft, var(--accent-danger-soft, #fecaca));
+  background: rgba(220,38,38,0.85);
 }
+
 .whiteboard-import-queue {
-	position: absolute;
-	right: 16px;
-	bottom: 16px;
-	display: grid;
-	gap: 0.65rem;
-	width: min(360px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 320px;
 }
+
 .whiteboard-import-card {
-	display: grid;
-	grid-template-columns: 56px minmax(0, 1fr);
-	gap: 0.8rem;
-	padding: 0.7rem;
-	border-radius: 14px;
-	background: rgba(var(--surface-app-rgb, 15, 23, 42), 0.88);
-	border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.16);
-	box-shadow: 0 18px 32px rgba(var(--surface-app-rgb, 2, 6, 23), 0.3);
-	backdrop-filter: blur(14px);
+  display: flex;
+  gap: 8px;
+  background: var(--surface-raised, #2a2a4e);
+  border-radius: var(--radius-sm, 6px);
+  padding: 8px;
+  pointer-events: auto;
 }
+
 .whiteboard-import-card.is-active {
-	border-color: rgba(var(--accent-primary-rgb, 99, 102, 241), 0.45);
-	box-shadow: 0 22px 36px rgba(var(--surface-base-rgb, 30, 41, 59), 0.38);
+  outline: 1px solid var(--accent-primary, #6366f1);
 }
+
 .whiteboard-import-thumb {
-	width: 56px;
-	height: 56px;
-	object-fit: cover;
-	border-radius: 10px;
-	border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.18);
-	background: rgba(var(--surface-base-rgb, 30, 41, 59), 0.72);
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--surface-base, #1a1a2e);
 }
+
 .whiteboard-import-thumb--empty {
-	background:
-		linear-gradient(135deg, rgba(var(--accent-primary-rgb, 99, 102, 241), 0.24), rgba(14, 165, 233, 0.12)),
-		rgba(var(--surface-base-rgb, 30, 41, 59), 0.72);
+  background: var(--surface-base, #1a1a2e);
 }
+
 .whiteboard-import-copy {
-	min-width: 0;
-	display: grid;
-	gap: 0.3rem;
-	align-content: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
 }
+
 .whiteboard-import-name {
-	font-size: 0.92rem;
-	font-weight: 600;
-	color: var(--text-inverse, var(--text-inverse, #f8fafc));
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
+  font-size: var(--text-sm, 13px);
+  color: var(--text-heading, #fff);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
 .whiteboard-import-meta {
-	display: flex;
-	align-items: center;
-	gap: 0.35rem;
-	font-size: 0.76rem;
-	color: var(--text-secondary, #cbd5e1);
-	text-transform: uppercase;
-	letter-spacing: 0.04em;
+  font-size: var(--text-xs, 11px);
+  color: var(--text-muted, #888);
+  display: flex;
+  gap: 6px;
+  align-items: center;
 }
+
 .whiteboard-import-more {
-	justify-self: end;
-	padding: 0.15rem 0.35rem;
-	font-size: 0.78rem;
-	color: var(--text-secondary, #cbd5e1);
+  font-size: var(--text-xs, 11px);
+  color: var(--text-muted, #888);
+  text-align: center;
+  padding: 4px;
+}
+
+.whiteboard-hidden-input {
+  display: none;
 }

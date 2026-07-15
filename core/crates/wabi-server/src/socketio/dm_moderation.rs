@@ -1,3 +1,13 @@
+// WDB-compat shim: this file calls `state.app.wdb.X(...)` for
+// methods the WDB doesn't have equivalents for yet
+// (is_user_muted, get_channel_retention, mute_user, etc.).
+// The compat WdbClient in `db/` returns no-op defaults for all
+// of these. When WDB has the corresponding engine methods, this
+// file can be migrated to use `state.app.wdb.X(...)` instead.
+// The compat shim itself is a temporary layer and will be removed
+// once the last socketio file is migrated.
+
+#[allow(dead_code)]
 async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let target_user_id = match data.get("targetUserId").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
@@ -17,17 +27,25 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
         return;
     }
 
-    // Build stable DM channel id: dm-sorted-member1-sorted-member2
+    // Build stable DM channel id: dm-user-{a}-user-{b}
+    // Ensure targetUserId is a clean numeric ID, stripping "user-" prefix if present
+    let clean_target_user_id = target_user_id.strip_prefix("user-").unwrap_or(&target_user_id);
+    let parsed_target_user_id = match clean_target_user_id.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => return, // Invalid targetUserId format
+    };
+
     let my_stable_id = format!("user-{}", my_user_id);
+    let target_stable_id = format!("user-{}", parsed_target_user_id);
 
     // Sort the two IDs to get a canonical channel id regardless of who initiates
-    let member_ids = [my_stable_id.clone(), target_user_id.clone()];
+    let member_ids = [my_stable_id.clone(), target_stable_id.clone()];
     let mut sorted = member_ids.to_vec();
     sorted.sort();
     let channel_id = format!("dm-{}", sorted.join("-"));
 
     // Check if DM already exists in channel list
-    let existing = state.app.stdb.get_channels_raw().await.unwrap_or_default();
+    let existing = state.app.wdb.get_channels_raw().await.unwrap_or_default();
     if existing.iter().any(|c| {
         c.get("channel_id")
             .or_else(|| c.get("id"))
@@ -42,16 +60,16 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
         let connected = state.connected_users.read().await;
         connected
             .values()
-            .find(|u| u.stable_id == target_user_id || u.stable_id == format!("user-{}", target_user_id))
+            .find(|u| u.stable_id == target_stable_id || u.stable_id == target_user_id)
             .map(|u| u.username.clone())
-            .unwrap_or_else(|| target_user_id.clone())
+            .unwrap_or_else(|| target_stable_id.clone())
     };
 
-    // Persist DM channel to STDB
+    // Persist DM channel to WDB
     if let Err(e) = state
         .app
-        .stdb
-        .create_dm_channel(&channel_id, &format!("DM with {}", target_username), &sorted, my_user_id)
+        .wdb
+        .create_dm_channel(&channel_id, &format!("DM with {}", target_username), Some(&sorted), my_user_id)
         .await
     {
         warn!("[sio] create-dm: failed to create channel {}: {}", channel_id, e);
@@ -59,12 +77,31 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
         return;
     }
 
-    let dm_event = json!({
-        "channelId": channel_id,
+    let dm_channel = json!({
+        "id": channel_id,
+        "name": format!("DM with {}", target_username),
+        "type": "dm",
+        "createdAt": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0),
+        "members": sorted,
         "otherUser": {
-            "id": target_user_id,
+            "id": target_stable_id,
             "username": target_username,
             "color": "#98D8C8",
+            "status": "offline",
+        },
+        "minRole": "member",
+    });
+    let dm_event = json!({
+        "channelId": channel_id,
+        "channel": dm_channel,
+        "otherUser": {
+            "id": target_stable_id,
+            "username": target_username,
+            "color": "#98D8C8",
+            "status": "offline",
         }
     });
 
@@ -74,6 +111,97 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
     let _ = io.broadcast().emit("dm-channel-added", &dm_event).await;
 }
 
+#[allow(dead_code)]
+async fn on_create_group(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+    let group_name = match data.get("groupName").and_then(|v| v.as_str()).map(str::trim) {
+        Some(name) if !name.is_empty() => name.to_string(),
+        _ => {
+            let _ = socket.emit("group-error", &json!({ "error": "Group name is required" }));
+            return;
+        }
+    };
+
+    let requested_members = match data.get("userIds").and_then(|v| v.as_array()) {
+        Some(ids) => ids,
+        None => {
+            let _ = socket.emit("group-error", &json!({ "error": "At least one member is required" }));
+            return;
+        }
+    };
+
+    let token = socket
+        .extensions
+        .get::<AuthToken>()
+        .map(|t| t.0.clone())
+        .unwrap_or_default();
+    let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
+
+    // Auth check — guests cannot create persistent group DMs.
+    if my_user_id <= 0 {
+        let _ = socket.emit("group-error", &json!({ "error": "Guests cannot create groups" }));
+        return;
+    }
+
+    let my_stable_id = format!("user-{}", my_user_id);
+    let mut members = vec![my_stable_id];
+    for member in requested_members.iter().filter_map(|v| v.as_str()) {
+        let member = member.trim();
+        if member.is_empty() {
+            continue;
+        }
+        let stable_id = if let Some(numeric) = member.strip_prefix("user-") {
+            if numeric.parse::<i64>().is_ok() {
+                format!("user-{}", numeric)
+            } else {
+                continue;
+            }
+        } else if member.parse::<i64>().is_ok() {
+            format!("user-{}", member)
+        } else {
+            member.to_string()
+        };
+        if !members.iter().any(|existing| existing == &stable_id) {
+            members.push(stable_id);
+        }
+    }
+
+    if members.len() < 2 {
+        let _ = socket.emit("group-error", &json!({ "error": "At least one other member is required" }));
+        return;
+    }
+
+    let channel_id = format!("group-{}", uuid::Uuid::new_v4());
+
+    if let Err(e) = state
+        .app
+        .wdb
+        .upsert_group(&channel_id, &group_name, "group", Some(&members), None, None)
+        .await
+    {
+        warn!("[sio] create-group: failed to create channel {}: {}", channel_id, e);
+        let _ = socket.emit("group-error", &json!({ "error": "Failed to create group", "channelId": channel_id }));
+        return;
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let channel = json!({
+        "id": channel_id,
+        "name": group_name,
+        "type": "group",
+        "createdAt": now,
+        "members": members,
+        "minRole": "member",
+    });
+    let payload = json!({ "channel": channel, "channelId": channel_id });
+
+    let _ = socket.emit("group-created", &payload);
+    let _ = io.broadcast().emit("group-channel-added", &payload).await;
+}
+
+#[allow(dead_code)]
 async fn on_delete_dm(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let channel_id = match data.get("channelId").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
@@ -97,8 +225,8 @@ async fn on_delete_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
         return;
     }
 
-    // Persist deletion to STDB
-    if let Err(e) = state.app.stdb.delete_dm_channel(&channel_id).await {
+    // Persist deletion to WDB
+    if let Err(e) = state.app.wdb.delete_dm_channel(&channel_id).await {
         warn!("[sio] delete-dm: failed to delete channel {}: {}", channel_id, e);
         let _ = socket.emit("dm-error", &json!({ "error": "Failed to delete DM", "channelId": channel_id }));
         return;
@@ -108,6 +236,7 @@ async fn on_delete_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
     let _ = io.broadcast().emit("dm-deleted", &json!({ "channelId": channel_id })).await;
 }
 
+#[allow(dead_code)]
 async fn on_ban_user(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let target_user_id = match data.get("targetUserId").and_then(|v| v.as_i64()) {
         Some(id) => id,
@@ -126,6 +255,12 @@ async fn on_ban_user(socket: SocketRef, data: Value, state: SioState, io: Socket
     let my_user_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
     if !state.app.is_admin(my_user_id).await {
         let _ = socket.emit("ban-error", &json!({ "error": "Only admins can ban users" }));
+        return;
+    }
+
+    // The server owner can never be banned.
+    if state.app.is_owner(target_user_id).await {
+        let _ = socket.emit("ban-error", &json!({ "error": "The server owner cannot be banned" }));
         return;
     }
 

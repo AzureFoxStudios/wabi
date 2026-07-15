@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, tick } from 'svelte';
 	import type { ContextMenuItem } from '$lib/context-menu/types';
+	import { portal } from '$lib/actions/portal';
 
 	export let open = false;
 	export let x = 0;
@@ -174,7 +175,7 @@
 {#if open}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div class="context-menu-overlay" on:mousedown={closeMenu}>
+	<div class="context-menu-overlay" use:portal on:pointerdown={(e) => { if (e.button === 0 && e.target === e.currentTarget) closeMenu(); }}>
 		<div
 			bind:this={menuElement}
 			class="context-menu-surface"
@@ -237,7 +238,7 @@
 	.context-menu-overlay {
 		position: fixed;
 		inset: 0;
-		z-index: var(--z-floating-ui);
+		z-index: var(--z-floating-ui, 10000);
 	}
 
 	.context-menu-surface {
@@ -325,7 +326,7 @@
 
 	.menu-item:hover,
 	.menu-item:focus-visible {
-		background: var(--accent, #5865f2);
+		background: var(--accent, var(--accent-primary-color));
 		color: #fff;
 	}
 

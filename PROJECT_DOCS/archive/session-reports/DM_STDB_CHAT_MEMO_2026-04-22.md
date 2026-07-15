@@ -53,7 +53,7 @@ Findings captured during the chat:
 - Keeping E2EE for third-party self-hosters is reasonable.
 - Any future toggle should be framed as an install-time simplicity choice, not a performance fix.
 
-### 5. Removed several SQLite-backed shadow paths and switched them to STDB-only
+### 5. Removed several legacy embedded DB-backed shadow paths and switched them to STDB-only
 
 Converted these repositories from legacy-first or mirror-write behavior to STDB-only:
 
@@ -67,7 +67,7 @@ Converted these repositories from legacy-first or mirror-write behavior to STDB-
 Behavior change:
 
 - These paths now read and write STDB directly.
-- Their runtime helpers now fail loudly if STDB is unavailable instead of silently falling back to SQLite.
+- Their runtime helpers now fail loudly if STDB is unavailable instead of silently falling back to legacy embedded DB.
 
 Primary files:
 
@@ -83,9 +83,9 @@ Primary files:
 - `backend/src/db/repositories/stdbDictionaryRuntime.ts`
 - `backend/src/db/repositories/stdbRelayRuntime.ts`
 
-### 6. Removed obsolete SQLite schema definitions for STDB-migrated support stores
+### 6. Removed obsolete legacy embedded DB schema definitions for STDB-migrated support stores
 
-Removed SQLite schema blocks for:
+Removed legacy embedded DB schema blocks for:
 
 - `user_settings`
 - `app_settings`
@@ -113,9 +113,9 @@ After the STDB-only repository cutover:
 
 ## What Is Still Left To Do
 
-### 1. Remove the SQLite offline DM queue
+### 1. Remove the legacy embedded DB offline DM queue
 
-This is still the main SQLite dependency for the DM work itself.
+This is still the main legacy embedded DB dependency for the DM work itself.
 
 Current remaining files:
 
@@ -127,17 +127,17 @@ Current remaining files:
 Recommended direction:
 
 - Replace the separate `offline_messages` queue with STDB-backed missed-message catch-up from persisted message history.
-- Use a cursor or last-seen model instead of maintaining a second delivery store in SQLite.
+- Use a cursor or last-seen model instead of maintaining a second delivery store in legacy embedded DB.
 
-### 2. Finish whiteboard migration before removing SQLite whiteboard code
+### 2. Finish whiteboard migration before removing legacy embedded DB whiteboard code
 
 Whiteboards are not actually ready for STDB-only yet.
 
 Current issue:
 
-- The backend has a whiteboard STDB wrapper, but the bridge/runtime still behaves as SQLite fallback.
-- The whiteboard repository still reads and writes SQLite.
-- Whiteboard SQLite schema and migrations are still active.
+- The backend has a whiteboard STDB wrapper, but the bridge/runtime still behaves as legacy embedded DB fallback.
+- The whiteboard repository still reads and writes legacy embedded DB.
+- Whiteboard legacy embedded DB schema and migrations are still active.
 
 Current remaining files:
 
@@ -149,7 +149,7 @@ Current remaining files:
 
 ### 3. Finish payments STDB migration
 
-Payments still advertise SQLite fallback behavior and were intentionally left out of this pass.
+Payments still advertise legacy embedded DB fallback behavior and were intentionally left out of this pass.
 
 Current remaining file to start from:
 
@@ -157,12 +157,12 @@ Current remaining file to start from:
 
 This likely needs a broader migration review rather than another small shadow-write removal.
 
-### 4. Do a final SQLite residue sweep after the above
+### 4. Do a final legacy embedded DB residue sweep after the above
 
 Once offline DM queue, whiteboards, and payments are migrated:
 
-- remove any leftover SQLite-only schema blocks tied to those features
-- remove any leftover SQLite debug/admin reads that assume those tables still exist
+- remove any leftover legacy embedded DB-only schema blocks tied to those features
+- remove any leftover legacy embedded DB debug/admin reads that assume those tables still exist
 - rerun backend build/tests and frontend check
 
 ## Recommended Next Step
@@ -171,4 +171,4 @@ The next highest-value task is:
 
 1. Replace `offline_messages` with STDB-backed DM catch-up.
 
-That finishes the DM/offline part of this chat and removes the last SQLite dependency directly tied to DMs.
+That finishes the DM/offline part of this chat and removes the last legacy embedded DB dependency directly tied to DMs.

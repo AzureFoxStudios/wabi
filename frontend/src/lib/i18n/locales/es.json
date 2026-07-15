@@ -85,7 +85,17 @@
       "password_rules_placeholder": "Contraseña (8+ caracteres)",
       "confirm_password_placeholder": "Confirmar contraseña",
       "creating_account": "Creando cuenta...",
-      "create_account_button": "Crear cuenta"
+      "create_account_button": "Crear cuenta",
+      "forgot_password": "¿Olvidaste tu contraseña?",
+      "remember_me": "Recuérdame en este dispositivo",
+      "show_password": "Mostrar contraseña",
+      "hide_password": "Ocultar contraseña",
+      "create_account_prompt": "¿Nuevo aquí?",
+      "create_account_link": "Crear una cuenta registrada",
+      "guest_access_heading": "Acceso como invitado",
+      "guest_access_link": "Continuar como invitado",
+      "change_server": "¿Buscas otro servidor?",
+      "change_server_link": "Cambiar"
     },
     "errors": {
       "username_min": "El nombre de usuario debe tener al menos 2 caracteres",

@@ -153,16 +153,20 @@
 	.skeleton-shimmer {
 		position: absolute;
 		top: 0;
-		left: -100%;
+		left: 0;
 		height: 100%;
 		width: 100%;
 		background: linear-gradient(90deg, transparent, rgba(123, 104, 238, 0.1), transparent);
+		transform: translateX(-100%);
 		animation: shimmer 1.5s infinite;
 	}
 
 	@keyframes shimmer {
+		from {
+			transform: translateX(-100%);
+		}
 		to {
-			left: 100%;
+			transform: translateX(100%);
 		}
 	}
 
@@ -296,8 +300,8 @@
 
 	.link-preview:hover {
 		background: var(--surface-raised);
-		border-color: var(--color-primary);
-		box-shadow: 0 4px 12px rgba(123, 104, 238, 0.15);
+		border-color: var(--accent-primary-color);
+		box-shadow: 0 4px 12px color-mix(in srgb, var(--accent-secondary-color) 15%, transparent);
 	}
 
 	.preview-image {

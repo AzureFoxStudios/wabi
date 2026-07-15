@@ -10,7 +10,7 @@
 		padding: 0.4rem 0.5rem;
 		border: 1px dashed var(--border-subtle);
 		border-radius: 8px;
-		background: color-mix(in srgb, var(--surface-raised) 90%, var(--accent-primary) 10%);
+		background: color-mix(in srgb, var(--surface-raised) 90%, var(--accent-primary-color) 10%);
 	}
 
 
@@ -37,5 +37,5 @@
 		max-height: min(22rem, 55vh);
 		overflow-y: auto;
 		scrollbar-width: thin;
-		scrollbar-color: color-mix(in srgb, var(--accent-primary) 24%, var(--border-subtle) 76%) transparent;
+		scrollbar-color: color-mix(in srgb, var(--accent-primary-color) 24%, var(--border-subtle) 76%) transparent;
 	}

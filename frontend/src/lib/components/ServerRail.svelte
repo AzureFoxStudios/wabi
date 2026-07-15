@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { longpress } from '$lib/actions/longpress';
+	import { centerPanelView } from '$lib/layoutStoreStates';
 	import { followUnreadCountsByServer } from '$lib/followingSnapshots';
 	import {
 		createSavedServerFolder,
@@ -208,7 +209,7 @@
 		<button
 			type="button"
 			class="rail-home"
-			title="Open server switcher"
+			title="Wabi — open server switcher"
 			on:click={() => dispatch('manage')}
 		>
 			<img src="/wabi-logo-small.webp" alt="Wabi" class="server-avatar-image server-avatar-image--logo" />
@@ -333,9 +334,9 @@
 		</div>
 
 		{#if mobile}
-			<button type="button" class="rail-manage rail-manage-mobile" title="Open server switcher" on:click={() => dispatch('manage')}>
-				<span>+</span>
-			</button>
+		<button type="button" class="rail-manage rail-manage-mobile" title="Add or switch servers" on:click={() => dispatch('manage')}>
+			<span>+</span>
+		</button>
 		{/if}
 	</div>
 
@@ -375,7 +376,12 @@
 	{/if}
 
 	{#if !mobile}
-		<button type="button" class="rail-manage" title="Open server switcher" on:click={() => dispatch('manage')}>
+		<button type="button" class="rail-manage" title="Admin Dashboard" on:click={() => centerPanelView.set('admin')}>
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+			</svg>
+		</button>
+		<button type="button" class="rail-manage" title="Add or switch servers" on:click={() => dispatch('manage')}>
 			<span>+</span>
 		</button>
 	{/if}

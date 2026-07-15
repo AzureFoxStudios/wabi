@@ -4,11 +4,10 @@
 	import { initSocket, disconnect, dmPanelSignal, retryDecryptLoadedDmMessages, currentUser } from '$lib/socket';
 	import { requestNotificationPermission } from '$lib/notifications';
 	import Login from '$lib/components/Login.svelte';
-	import MainLayout from '$lib/components/MainLayout.svelte';
+	import LayoutRouter from '$lib/components/LayoutRouter.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { layoutStore } from '$lib/layoutStore';
-	import { initE2E, clearE2EState } from '$lib/e2eManager';
-	import {
+		import {
 		clearAuthSession,
 		clearStoredIdentity,
 		getAuthToken,
@@ -19,7 +18,7 @@
 		setStoredUsername
 	} from '$lib/authSession';
 	import { authStore } from '$lib/authStore';
-	import { getUserSettings } from '$lib/api';
+	import { getUserSettings, getSetupStatus } from '$lib/api';
 	import { initializeAccessibilitySettings } from '$lib/accessibility';
 	import { initializeAnimationPassSettings } from '$lib/animationPass';
 	import { refreshBackendEndpointCandidates } from '$lib/backendEndpoints';
@@ -187,7 +186,7 @@
 				void stopDesktopHelperService(true);
 				clearAuthSession();
 				clearStoredIdentity();
-				clearE2EState();
+				
 				pendingPostLoginProfileImportCheck = false;
 				showProfileImportPrompt = false;
 				profileImportPromptSourceKey = '';
@@ -201,7 +200,30 @@
 			const savedToken = getAuthToken();
 			const savedGuestSessionId = getGuestSessionId();
 			const hasSession = Boolean(savedToken || savedGuestSessionId);
-			if (savedUsername && hasSession) {
+			const hasLoggedInBefore = localStorage.getItem('wabi_has_logged_in') === 'true';
+
+			// Server is the source of truth for first-user / no-owner state.
+			// After a DB reset (or fresh server), we must not let stale client
+			// localStorage flags (hasLoggedInBefore, old tokens, savedServers, etc.)
+			// keep us in auto-connect or reconnect mode. We want the registration
+			// wizard to appear naturally.
+			let setupRequired = false;
+			try {
+				const status = await getSetupStatus();
+				setupRequired = !!status?.setupRequired;
+			} catch {
+				// Can't reach the server yet; fall back to client hints.
+			}
+
+			if (setupRequired) {
+				// Fresh server — force first-user setup flow.
+				// This is the important part: server wins over localStorage.
+				localStorage.removeItem('wabi_has_logged_in');
+				loggedIn = false;
+				syncFollowNotificationPoller(false);
+				clearStoredIdentity();
+				clearAuthSession();
+			} else if (savedUsername && hasSession) {
 				seedBackendFailoverCache();
 				startupMark('page:socket:init:start');
 				initSocket(savedUsername, savedToken || undefined);
@@ -219,19 +241,56 @@
 				}
 
 				// Initialize E2E in background so it doesn't block initial render and socket startup.
+				// DM-strip 2026-06-16: initE2E + retryDecryptLoadedDmMessages removed. E2E
+				// encryption was a DM-only concern; without DMs there's nothing to
+				// encrypt. The startup marks are kept as no-ops so the rest of the
+				// startup profiler instrumentation isn't affected.
 				const dbUserId = getStoredDbUserId();
 				if (dbUserId) {
 					startupMark('page:e2e:init:start');
-					void initE2E(dbUserId, savedToken, false)
-						.then(() => retryDecryptLoadedDmMessages())
-						.catch((err) => {
-							console.warn('[App] E2E init failed; continuing without E2E for now:', err);
-						})
-						.finally(() => {
-							startupMark('page:e2e:init:end');
-							startupMeasure('page:e2e:init', 'page:e2e:init:start', 'page:e2e:init:end');
-						});
+					startupMark('page:e2e:init:end');
+					startupMeasure('page:e2e:init', 'page:e2e:init:start', 'page:e2e:init:end');
 				}
+			} else if (hasLoggedInBefore) {
+				// Returning user but offline — enter reconnect mode.
+				// Don't show login. Stay in boot shell with retry.
+				window.dispatchEvent(new CustomEvent('wabi:boot-reconnect'));
+
+				let reconnectAttempts = 0;
+				const maxReconnectAttempts = 10;
+				let reconnectTimer = setInterval(() => {
+					reconnectAttempts++;
+					const token = getAuthToken();
+					if (token) {
+						fetch('/api/auth/validate', {
+							headers: { Authorization: `Bearer ${token}` },
+							signal: AbortSignal.timeout(5000),
+						}).then((res) => {
+							if (res.ok && !disposed) {
+								clearInterval(reconnectTimer);
+								loggedIn = true;
+								initSocket(savedUsername, token);
+								syncFollowNotificationPoller(true);
+								applyHomeExperienceMode(getStoredHomeExperienceMode());
+								dismissDocumentBootShell();
+							}
+						}).catch(() => {});
+					}
+					if (reconnectAttempts >= maxReconnectAttempts) {
+						clearInterval(reconnectTimer);
+					}
+				}, 3000);
+
+				const onReconnect = () => {
+					clearInterval(reconnectTimer);
+					loggedIn = true;
+					isBootstrapping = false;
+					dismissDocumentBootShell();
+				};
+				window.addEventListener('wabi:work-offline', onReconnect, { once: true });
+
+				// Not used until destroy, but store for cleanup.
+				// No additional cleanup needed since we use 'once: true'.
 			} else {
 				// Prevent stale username-only local state from skipping login.
 				loggedIn = false;
@@ -366,7 +425,7 @@
 		disconnect();
 		syncFollowNotificationPoller(false);
 		void stopDesktopHelperService(true);
-		clearE2EState();
+		
 		loggedIn = false;
 		showTempPasswordPrompt = false;
 		pendingPostLoginProfileImportCheck = false;
@@ -374,6 +433,7 @@
 		profileImportPromptSourceKey = '';
 		profileImportPromptTargetKey = '';
 		profileImportPromptMessage = '';
+		localStorage.removeItem('wabi_has_logged_in');
 		clearStoredIdentity();
 		clearAuthSession();
 	}
@@ -426,10 +486,10 @@
 		{/if}
 	{:else}
 		{#if isInitialLoad}
-			<MainLayout accountSecurityOpenRequest={accountSecurityOpenRequest} on:logout={handleLogout} />
+			<LayoutRouter accountSecurityOpenRequest={accountSecurityOpenRequest} on:logout={handleLogout} />
 		{:else}
 			<div transition:fade={{ duration: 300 }}>
-				<MainLayout accountSecurityOpenRequest={accountSecurityOpenRequest} on:logout={handleLogout} />
+				<LayoutRouter accountSecurityOpenRequest={accountSecurityOpenRequest} on:logout={handleLogout} />
 			</div>
 		{/if}
 		<ConfirmDialog
@@ -461,7 +521,7 @@
 		bottom: 1rem;
 		left: 50%;
 		transform: translateX(-50%);
-		z-index: 9999;
+		z-index: var(--z-toast, 1500);
 		display: flex;
 		align-items: center;
 		gap: 0.625rem;

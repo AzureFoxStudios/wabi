@@ -19,47 +19,47 @@
 	   ======================================================================== */
 
 	/* Surfaces */
-	--surface-app: var(--surface-app, var(--surface-app, #1a1a2e));
-	--surface-base: var(--surface-base, var(--surface-base, #24243e));
-	--surface-raised: var(--surface-raised, var(--surface-raised, #302b63));
+--surface-app: var(--surface-app, #1a1a2e);
+--surface-base: var(--surface-base, #24243e);
+--surface-raised: var(--surface-raised, #302b63);
 	--surface-sunken: var(--surface-modal, #0f0c29);
-	--surface-sidebar: var(--surface-base, var(--surface-base, #24243e));
-	--surface-chat: var(--surface-app, var(--surface-app, #1a1a2e));
-	--surface-message: var(--surface-raised, var(--surface-raised, #302b63));
-	--surface-modal: var(--surface-modal, #0f0c29);
-	--surface-card: var(--surface-raised, var(--surface-raised, #302b63));
-	--surface-popover: var(--surface-base, var(--surface-base, #24243e));
-	--surface-tooltip: var(--surface-modal, #0f0c29);
-	--surface-input: var(--surface-base, var(--surface-base, #24243e));
-	--surface-button: var(--surface-raised, var(--surface-raised, #302b63));
-	--surface-hover: var(--surface-hover, #302b63);
-	--surface-active: var(--surface-modal, #0f0c29);
-	--surface-selected: var(--accent, var(--accent-primary, #6366f1));
-	--surface-overlay: var(--surface-overlay, rgba(0, 0, 0, 0.6));
-	--surface-scrollbar: var(--gradient-scrollbar, var(--accent-primary, #6366f1));
-	--surface-elevated: var(--surface-raised, var(--surface-raised, #302b63));
-	--surface-panel: var(--surface-base, var(--surface-base, #24243e));
-	--surface-modal-overlay: var(--surface-overlay, rgba(0, 0, 0, 0.6));
+--surface-sidebar: var(--surface-base, #24243e);
+--surface-chat: var(--surface-app, #1a1a2e);
+--surface-message: var(--surface-raised, #302b63);
+--surface-modal: var(--surface-modal, #0f0c29);
+--surface-card: var(--surface-raised, #302b63);
+--surface-popover: var(--surface-base, #24243e);
+--surface-tooltip: var(--surface-modal, #0f0c29);
+--surface-input: var(--surface-base, #24243e);
+--surface-button: var(--surface-raised, #302b63);
+--surface-hover: var(--surface-hover, #302b63);
+--surface-active: var(--surface-modal, #0f0c29);
+--surface-selected: var(--accent, #6366f1);
+--surface-overlay: var(--surface-overlay, rgba(0, 0, 0, 0.6));
+--surface-scrollbar: var(--gradient-scrollbar, var(--accent-primary, #6366f1));
+--surface-elevated: var(--surface-raised, #302b63);
+--surface-panel: var(--surface-base, #24243e);
+--surface-modal-overlay: var(--surface-overlay, rgba(0, 0, 0, 0.6));
 	--surface-app-rgb: var(--bg-primary-rgb, 26, 22, 46);
 	--surface-base-rgb: var(--bg-secondary-rgb, 36, 36, 62);
 	--surface-raised-rgb: var(--bg-tertiary-rgb, 48, 43, 99);
 
 	/* Text */
-	--text-heading: var(--text-heading, var(--text-heading, #e0e0ff));
-	--text-body: var(--text-heading, var(--text-heading, #e0e0ff));
-	--text-secondary: var(--text-secondary, var(--text-secondary, #b3b3ff));
-	--text-muted: var(--text-muted, var(--text-muted, #9999ff));
-	--text-placeholder: var(--text-muted, var(--text-muted, #9999ff));
-	--text-link: var(--accent, var(--accent-primary, #6366f1));
+	--text-heading: var(--text-heading, #e0e0ff);
+	--text-body: var(--text-heading, #e0e0ff);
+	--text-secondary: var(--text-secondary, #b3b3ff);
+	--text-muted: var(--text-muted, #9999ff);
+	--text-placeholder: var(--text-muted, #9999ff);
+	--text-link: var(--accent, #6366f1);
 	--text-on-accent: var(--bg-sunken, #0f0c29);
 	--text-on-danger: #ffffff;
 	--text-on-success: #ffffff;
 	--text-on-warning: #000000;
 	--text-inverse: var(--bg-sunken, #0f0c29);
-	--text-danger: var(--color-danger, var(--color-danger, #ef4444));
-	--text-warning: var(--color-warning, var(--color-warning, #ffd700));
-	--text-success: var(--color-success, var(--color-success, #00ff7f));
-	--text-info: var(--color-info, var(--color-info, #00bfff));
+	--text-danger: var(--color-danger, #ef4444);
+	--text-warning: var(--color-warning, #ffd700);
+	--text-success: var(--color-success, #00ff7f);
+	--text-info: var(--color-info, #00bfff);
 
 	/* RGB variants (runtime-set by themeManager, static defaults here for pre-JS) */
 	--text-inverse-rgb: 255, 255, 255;
@@ -70,15 +70,17 @@
 	--color-danger-rgb: 255, 0, 0;
 
 	/* Borders */
-	--border-subtle: var(--border-subtle, var(--color-border-primary, #302b63));
+	--border-subtle: var(--border-subtle, #302b63);
 	--border-default: rgba(var(--text-secondary-rgb, 179, 179, 255), 0.15);
 	--border-strong: rgba(var(--text-secondary-rgb, 179, 179, 255), 0.3);
-	--border-focus: var(--accent, var(--accent-primary, #6366f1));
-	--border-error: var(--color-danger, var(--color-danger, #ef4444));
+	--border-focus: var(--accent, #6366f1);
+	--border-error: var(--color-danger, #ef4444);
 
 	/* Accent */
-	--accent-primary: var(--accent, var(--accent-primary, #6366f1));
-	--accent-secondary: var(--accent-secondary, var(--accent-secondary, #818cf8));
+	--accent-primary: var(--accent, #6366f1);
+	--accent-secondary: var(--accent-secondary, #818cf8);
+	--accent-primary-color: var(--color-accent-primary, #6366f1);
+	--accent-secondary-color: var(--color-accent-secondary, #818cf8);
 	--accent-gradient: var(--gradient-accent, linear-gradient(to right, #6366f1, #818cf8));
 	--accent-hover: var(--accent-hover, linear-gradient(to right, #818cf8, #ef4444));
 	--accent-subtle: var(--gradient-accent-subtle, rgba(99, 102, 241, 0.1));
@@ -90,20 +92,20 @@
 	--accent-info-soft: rgba(var(--color-info-rgb, 0, 191, 255), 0.15);
 
 	/* Status */
-	--status-online: var(--status-online, var(--color-success, #00ff7f));
-	--status-away: var(--status-away, var(--color-warning, #ffd700));
-	--status-busy: var(--status-busy, var(--color-danger, #ef4444));
-	--status-offline: var(--status-offline, var(--status-offline, #708090));
+	--status-online: var(--status-online, #00ff7f);
+	--status-away: var(--status-away, #ffd700);
+	--status-busy: var(--status-busy, #ef4444);
+	--status-offline: var(--status-offline, #708090);
 	--status-online-rgb: var(--color-success-rgb, 0, 255, 127);
 	--status-away-rgb: var(--color-warning-rgb, 255, 215, 0);
 	--status-busy-rgb: var(--color-danger-rgb, 239, 68, 68);
 	--status-offline-rgb: var(--color-neutral-rgb, 112, 128, 144);
 
 	/* Semantic */
-	--color-success: var(--color-success, var(--color-success, #00ff7f));
-	--color-info: var(--color-info, var(--color-info, #00bfff));
-	--color-warning: var(--color-warning, var(--color-warning, #ffd700));
-	--color-danger: var(--color-danger, var(--color-danger, #ef4444));
+	--color-success: var(--color-success, #00ff7f);
+	--color-info: var(--color-info, #00bfff);
+	--color-warning: var(--color-warning, #ffd700);
+	--color-danger: var(--color-danger, #ef4444);
 	--color-success-bg: rgba(var(--color-success-rgb, 0, 255, 127), 0.15);
 	--color-danger-bg: rgba(var(--color-danger-rgb, 239, 68, 68), 0.15);
 	--color-warning-bg: rgba(var(--color-warning-rgb, 255, 215, 0), 0.15);
@@ -219,6 +221,15 @@
 	--opacity-80: 0.8;
 	--opacity-90: 0.9;
 	--opacity-100: 1;
+
+	/* ========================================================================
+	   AMBIENT EFFECTS
+	   ======================================================================== */
+	--bg-effect-effect: none;
+	--bg-effect-color: var(--accent-primary-color, #6366f1);
+	--bg-effect-intensity: 0;
+	--bg-effect-size: 1;
+	--bg-effect-speed: 1;
 
 	/* ========================================================================
 	   APP CHROME

@@ -109,8 +109,13 @@ wabi.config
 
 # STDB runtime identity + local recovery snapshots (never commit)
 data/spacetimedb/
+data/spacetimedb-local/
+data/spacetimedb-local-config/
 data/spacetimedb-config/
+data/call-spacetimedb-config/
+data/call-spacetimedb/
 data/stdb-publisher-config/
+data/call-spacetimedb-config/
 spacetimedb/.local-data-recovery/
 
 # Python bytecode

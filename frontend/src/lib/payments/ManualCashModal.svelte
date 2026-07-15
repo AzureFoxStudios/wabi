@@ -368,12 +368,12 @@
 	}
 
 	.error {
-		color: #ff8585;
+		color: var(--color-danger, #ef4444);
 		font-size: 0.84rem;
 	}
 
 	.info {
-		color: #7fd5ff;
+		color: var(--color-info, #00bfff);
 		font-size: 0.84rem;
 	}
 
@@ -414,18 +414,18 @@
 	.status-pending,
 	.status-confirmed_by_creator,
 	.status-confirmed_by_counterparty {
-		color: #8cc7ff;
+		color: var(--color-info, #00bfff);
 		border-color: rgba(140, 199, 255, 0.45);
 	}
 
 	.status-completed {
-		color: #69e093;
+		color: var(--color-success, #00ff7f);
 		border-color: rgba(105, 224, 147, 0.45);
 	}
 
 	.status-canceled,
 	.status-disputed {
-		color: #ff8585;
+		color: var(--color-danger, #ef4444);
 		border-color: rgba(255, 133, 133, 0.45);
 	}
 

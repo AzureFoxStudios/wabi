@@ -455,7 +455,7 @@
 	}
 
 	.status-pill.linked {
-		color: #69e093;
+		color: var(--color-success, #00ff7f);
 		border-color: rgba(105, 224, 147, 0.45);
 	}
 
@@ -515,13 +515,13 @@
 
 	.info {
 		margin: 0;
-		color: #7fd5ff;
+		color: var(--color-info, #00bfff);
 		font-size: 0.84rem;
 	}
 
 	.error {
 		margin: 0;
-		color: #ff8585;
+		color: var(--color-danger, #ef4444);
 		font-size: 0.84rem;
 	}
 

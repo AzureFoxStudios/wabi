@@ -1,0 +1,283 @@
+# Wabi — canonical compose for the Rust + STDB stack.
+# Single source of truth: Rust server + SpacetimeDB.
+#
+# wabi-server is the Rust HTTP/WS server (axum). It embeds the Svelte
+# frontend at compile time via rust_embed (folder = ../../../frontend/build).
+# The binary at target/release/wabi-server is bind-mounted; rebuild locally
+# (`cargo build --release -p wabi-server`) and restart the container to ship.
+#
+# Optional services (coturn / media-gateway / livekit / tunnels) live under
+# compose profiles so the default `up -d` stays minimal.
+
+services:
+  # ---------------------------------------------------------------- core ----
+  spacetimedb:
+    image: docker.io/clockworklabs/spacetime:latest
+    container_name: wabi-spacetimedb
+    command: ["start", "--listen-addr", "0.0.0.0:3000", "--data-dir", "/var/lib/spacetimedb", "--non-interactive", "--page_pool_max_size", "268435456"]
+    ports:
+      - "${WABI_STDB_SERVER_BIND_IP:-127.0.0.1}:3030:3000"
+    volumes:
+      - ./data/spacetimedb:/var/lib/spacetimedb:Z,U
+      - ./data/spacetimedb-config:/home/spacetime/.config/spacetime:Z,U
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/v1/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  stdb-publisher:
+    image: docker.io/clockworklabs/spacetime:latest
+    container_name: wabi-stdb-publisher
+    depends_on:
+      spacetimedb:
+        condition: service_healthy
+    volumes:
+      - ./spacetimedb/wabi_state_bridge:/module:z
+      - ./data/stdb-publisher-config:/home/spacetime/.config/spacetime:Z,U
+    environment:
+      - WABI_STDB_BRIDGE_DATABASE=${WABI_STDB_BRIDGE_DATABASE:-wabi-state-benchmark-v2}
+      - CARGO_TARGET_DIR=/tmp/cargo-target
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "[stdb-publisher] Publishing wabi_state_bridge to spacetimedb..."
+        spacetime server add --url http://spacetimedb:3000 wabi-local --default 2>/dev/null || true
+        spacetime publish --module-path /module --server wabi-local "$${WABI_STDB_BRIDGE_DATABASE}" --yes
+        echo "[stdb-publisher] Publish complete."
+    restart: "no"
+
+  stdb-proxy:
+    image: docker.io/library/caddy:2
+    container_name: wabi-stdb-proxy
+    depends_on:
+      spacetimedb:
+        condition: service_healthy
+    ports:
+      - "${WABI_STDB_PROXY_BIND_IP:-127.0.0.1}:3100:80"
+    volumes:
+      - ./Caddyfile.stdb:/etc/caddy/Caddyfile:ro,z
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:80/v1/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # --------------------------------------------- ephemeral call/media state ----
+  call-spacetimedb:
+    image: docker.io/clockworklabs/spacetime:latest
+    container_name: wabi-call-spacetimedb
+    command: ["start", "--listen-addr", "0.0.0.0:3000", "--data-dir", "/var/lib/spacetimedb", "--non-interactive", "--page_pool_max_size", "268435456"]
+    ports:
+      - "${WABI_CALL_STDB_SERVER_BIND_IP:-127.0.0.1}:3031:3000"
+    volumes:
+      - ./data/call-spacetimedb:/var/lib/spacetimedb:Z,U
+      - ./data/call-spacetimedb-config:/home/spacetime/.config/spacetime:Z,U
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/v1/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  call-stdb-publisher:
+    image: docker.io/clockworklabs/spacetime:latest
+    container_name: wabi-call-stdb-publisher
+    depends_on:
+      call-spacetimedb:
+        condition: service_healthy
+    volumes:
+      - ./spacetimedb/wabi_call_state_bridge:/module:z
+      - ./data/call-stdb-publisher-config:/home/spacetime/.config/spacetime:Z,U
+    environment:
+      - WABI_CALL_STDB_DATABASE=${WABI_CALL_STDB_DATABASE:-wabi-call-state-local}
+      - CARGO_TARGET_DIR=/tmp/cargo-target
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "[call-stdb-publisher] Publishing wabi_call_state_bridge to call-spacetimedb..."
+        spacetime server add --url http://call-spacetimedb:3000 wabi-call-local --default 2>/dev/null || true
+        spacetime publish --module-path /module --server wabi-call-local "$${WABI_CALL_STDB_DATABASE}" --yes
+        echo "[call-stdb-publisher] Publish complete."
+    restart: "no"
+
+  call-stdb-proxy:
+    image: docker.io/library/caddy:2
+    container_name: wabi-call-stdb-proxy
+    depends_on:
+      call-spacetimedb:
+        condition: service_healthy
+    ports:
+      - "${WABI_CALL_STDB_PROXY_BIND_IP:-127.0.0.1}:3101:80"
+    volumes:
+      - ./Caddyfile.call-stdb:/etc/caddy/Caddyfile:ro,z
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:80/v1/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  wabi-server:
+    build:
+      context: .
+      dockerfile: core/crates/wabi-server/Dockerfile
+    container_name: wabi-server
+    depends_on:
+      stdb-proxy:
+        condition: service_healthy
+      call-stdb-proxy:
+        condition: service_healthy
+    ports:
+      - "${WABI_SERVER_PORT:-3001}:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - WABI_PORT=3000
+      - WABI_HOST=0.0.0.0
+      - WABI_DATA_DIR=/data
+      - WABI_STDB_SERVER=http://stdb-proxy:80
+      - WABI_STDB_DATABASE=${WABI_STDB_BRIDGE_DATABASE:-wabi-state-benchmark-v2}
+      - WABI_STDB_TOKEN=${WABI_STDB_AUTH_TOKEN:-}
+      - WABI_CALL_STDB_SERVER=http://call-stdb-proxy:80
+      - WABI_CALL_STDB_DATABASE=${WABI_CALL_STDB_DATABASE:-wabi-call-state-local}
+      - WABI_CALL_STDB_TOKEN=${WABI_CALL_STDB_AUTH_TOKEN:-}
+      - JWT_SECRET=${JWT_SECRET:-change-this-in-production}
+      - WABI_SERVER_INSTANCE_ID=${WABI_SERVER_INSTANCE_ID:-}
+      - WABI_SERVER_REGION=${WABI_SERVER_REGION:-}
+      - WABI_SERVER_ROLE=${WABI_SERVER_ROLE:-}
+      - WABI_MESH_INSTANCE_URL_TEMPLATE=${WABI_MESH_INSTANCE_URL_TEMPLATE:-}
+      - WABI_MESH_INGRESS_URL=${WABI_MESH_INGRESS_URL:-}
+      - WABI_MESH_SHARED_TOKEN=${WABI_MESH_SHARED_TOKEN:-}
+      - WABI_MAX_BODY_SIZE=${WABI_MAX_BODY_SIZE:-53687091200}
+    volumes:
+      - ./data/wabi-server:/data:Z,U
+      - ./uploads:/app/uploads:Z,U
+      - ./plugins:/app/plugins:Z,U
+      - ./target/release/wabi-server:/wabi-server:ro,Z
+    entrypoint: ["/wabi-server"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------- tunnels ----
+  caddy-tunnel:
+    image: docker.io/library/caddy:2
+    container_name: wabi-tunnel-caddy
+    profiles:
+      - tunnel
+    ports:
+      - "127.0.0.1:8088:8088"
+    volumes:
+      - ./Caddyfile.tunnel:/etc/caddy/Caddyfile:ro,z
+    depends_on:
+      - wabi-server
+    restart: unless-stopped
+
+  cloudflared-quick:
+    image: docker.io/cloudflare/cloudflared:2026.2.0
+    container_name: wabi-cloudflared-quick
+    profiles:
+      - tunnel
+      - tunnel-quick
+    command: tunnel --no-autoupdate --url http://caddy-tunnel:8088
+    depends_on:
+      - caddy-tunnel
+    restart: unless-stopped
+
+  cloudflared-named:
+    image: docker.io/cloudflare/cloudflared:2026.2.0
+    container_name: wabi-cloudflared-named
+    profiles:
+      - tunnel
+      - tunnel-named
+    command: tunnel --no-autoupdate --protocol http2 --loglevel debug run --token ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - caddy-tunnel
+    restart: unless-stopped
+
+  # ---------------------------------------------------- media (optional) ----
+  coturn:
+    build:
+      context: ./turn-server
+      dockerfile: Dockerfile
+    container_name: wabi-coturn
+    profiles:
+      - turn
+      - booster-turn
+      - booster-sfu
+      - booster-full
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "5349:5349/tcp"
+      - "5349:5349/udp"
+      - "49160-49200:49160-49200/udp"
+    volumes:
+      - ./turn-server/turnserver.conf.template:/etc/coturn/turnserver.conf.template:ro,z
+      - ./turn-server/certs:/etc/coturn/certs:ro,z
+      - ./turn-server/docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh:ro,z
+      - ./data:/wabi-data:ro,z
+    entrypoint: ["/bin/sh", "/usr/local/bin/docker-entrypoint.sh"]
+    environment:
+      - TURN_EXTERNAL_IP=${TURN_EXTERNAL_IP:-127.0.0.1}
+      - TURN_REALM=${TURN_REALM:-localhost}
+      - TURN_SHARED_SECRET=${TURN_SHARED_SECRET:-}
+      - WABI_SECRETS_FILE=/wabi-data/.wabi-auto-secrets
+    depends_on:
+      wabi-server:
+        condition: service_healthy
+    restart: unless-stopped
+
+  media-gateway:
+    build:
+      context: ./media-gateway
+      dockerfile: Dockerfile
+    container_name: wabi-media-gateway
+    profiles:
+      - srt-gateway
+      - booster-full
+    ports:
+      - "8095:8095"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - WABI_ORIGIN_URL=${MEDIA_GATEWAY_ORIGIN_URL:-http://wabi-server:3000}
+      - MEDIA_GATEWAY_KEY=${MEDIA_GATEWAY_KEY:-}
+      - MEDIA_GATEWAY_REGION=${MEDIA_GATEWAY_REGION:-local}
+      - GATEWAY_HOST=0.0.0.0
+      - GATEWAY_PORT=8095
+      - MEDIA_GATEWAY_HEARTBEAT_INTERVAL_MS=${MEDIA_GATEWAY_HEARTBEAT_INTERVAL_MS:-15000}
+      - MEDIA_GATEWAY_SESSION_SYNC_INTERVAL_MS=${MEDIA_GATEWAY_SESSION_SYNC_INTERVAL_MS:-10000}
+    depends_on:
+      - wabi-server
+    restart: unless-stopped
+
+  livekit:
+    image: docker.io/livekit/livekit-server:v1.8.3
+    container_name: wabi-livekit
+    profiles:
+      - sfu
+      - booster-sfu
+      - booster-full
+    command: >
+      --bind 0.0.0.0
+      --keys ${LIVEKIT_API_KEY:-disabled}:${LIVEKIT_API_SECRET:-disabled}
+    ports:
+      - "7880:7880"
+      - "7881:7881/udp"
+    restart: unless-stopped

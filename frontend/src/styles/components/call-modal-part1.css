@@ -44,7 +44,7 @@
 		width: 92px;
 		height: 92px;
 		border-radius: 50%;
-		background: var(--accent-primary);
+		background: var(--accent-primary-color);
 		color: white;
 		font-size: 2.5rem;
 		font-weight: 700;
@@ -183,7 +183,7 @@
 	}
 
 	.dock-btn.active {
-		background: var(--accent, var(--accent-primary, #5865f2));
+		background: var(--accent, var(--accent-primary, var(--accent-primary-color)));
 	}
 
 	.dock-btn.record {
@@ -481,7 +481,7 @@
 		width: 84px;
 		height: 84px;
 		border-radius: 50%;
-		background: var(--accent, var(--accent-primary, #5865f2));
+		background: var(--accent, var(--accent-primary, var(--accent-primary-color)));
 		color: var(--text-inverse, var(--text-inverse, #fff));
 		font-size: 1.9rem;
 		font-weight: 700;

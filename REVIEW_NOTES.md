@@ -1,3 +1,6 @@
+> **Historical note (2026-06-22):** This document predates the STDB → Wabidb rip. STDB/SpacetimeDB/wabi-node references are historical. The current architecture is wabi-server with embedded Wabidb. See PROJECT_DOCS/01-architecture/ARCHITECTURE.md for the current state.
+
+
 # WABI REPO REVIEW - 2026-05-14
 ## Scope: post-merge of backend overhaul + CSS refactor
 ## Method: chunk-by-chunk file inspection

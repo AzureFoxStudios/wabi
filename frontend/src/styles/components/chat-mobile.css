@@ -5,44 +5,6 @@
 
 
 
-	@media (hover: hover) {
-		.workspace-view-actions.compactable {
-			gap: 0;
-		}
-
-		.workspace-view-actions.compactable .view-open-btn {
-			width: 0;
-			min-width: 0;
-			opacity: 0;
-			padding: 0;
-			border-width: 0;
-			pointer-events: none;
-		}
-
-		.workspace-view-actions.compactable .view-open-btn.active {
-			width: 32px;
-			min-width: 32px;
-			opacity: 1;
-			border-width: 1px;
-			pointer-events: auto;
-		}
-
-		.workspace-view-actions.compactable:hover,
-		.workspace-view-actions.compactable:focus-within {
-			gap: 0.4rem;
-		}
-
-		.workspace-view-actions.compactable:hover .view-open-btn,
-		.workspace-view-actions.compactable:focus-within .view-open-btn {
-			width: 32px;
-			min-width: 32px;
-			opacity: 1;
-			border-width: 1px;
-			pointer-events: auto;
-		}
-	}
-
-
 	/* Other existing styles for uploads, spoilers, etc. can remain here */
 	/* ... */
 
@@ -53,22 +15,22 @@
 		}
 
 		.chat-header {
-			padding: 0.55rem 0.8rem;
-			height: 50px;
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			align-items: center;
+			min-height: 48px;
+			height: auto;
+			padding: max(0.5rem, env(safe-area-inset-top)) 0.75rem 0.5rem;
 			gap: 0.5rem;
-			position: relative;
-			justify-content: flex-start;
 		}
 
 		.chat-header h2 {
 			font-size: 0.96rem;
 			min-width: 0;
-			position: absolute;
-			left: 50%;
-			transform: translateX(-50%);
-			width: clamp(120px, 44vw, 260px);
-			justify-content: center;
-			pointer-events: none;
+			position: static;
+			transform: none;
+			width: auto;
+			justify-content: flex-start;
 		}
 
 		.channel-description,
@@ -79,15 +41,15 @@
 		}
 
 		.channel-title {
-			text-align: center;
+			text-align: left;
 			width: 100%;
 		}
 
 		.header-actions {
-			flex: 0 1 auto;
-			justify-content: flex-start;
+			flex: 0 0 auto;
+			justify-content: flex-end;
 			min-width: 0;
-			width: min(58vw, 250px);
+			width: auto;
 			gap: 0.45rem;
 		}
 
@@ -125,7 +87,7 @@
 		.search-results,
 		.search-history-btn,
 		.dm-call-actions,
-		.experimental-stdb-toggle {
+		.experimental-wabidb-toggle {
 			display: none;
 		}
 
@@ -146,8 +108,10 @@
 		}
 
 		.view-open-btn {
-			width: 30px;
-			height: 30px;
+			width: 44px;
+			height: 44px;
+			min-width: 44px;
+			min-height: 44px;
 		}
 
 		.messages {
@@ -166,7 +130,7 @@
 		.input-wrapper {
 			padding: 0.38rem 0.45rem;
 			padding-bottom: calc(0.38rem + env(safe-area-inset-bottom));
-			border-top: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
+			border-top: 1px solid color-mix(in srgb, var(--border-subtle) 42%, transparent);
 			background: transparent;
 			gap: 0.26rem;
 			transition: transform 0.2s ease-out, opacity 0.2s ease-out;
@@ -181,19 +145,22 @@
 		.input-container {
 			padding: 0.2rem 0.25rem;
 			gap: 0.22rem;
-			background: transparent;
+			background: color-mix(in srgb, var(--surface-raised) 20%, transparent);
 			border-radius: 12px;
-			border: 1px solid transparent;
+			border: 1px solid color-mix(in srgb, var(--border-subtle) 42%, transparent);
+			box-shadow: none;
 		}
 
 		.input-container:hover {
-			background: color-mix(in srgb, var(--surface-raised) 22%, transparent);
+			background: color-mix(in srgb, var(--surface-raised) 28%, transparent);
 			border-color: color-mix(in srgb, var(--border-subtle) 55%, transparent);
 		}
 
 		.input-container:focus-within {
-			background: color-mix(in srgb, var(--surface-raised) 28%, transparent);
-			border-color: color-mix(in srgb, var(--accent-primary) 34%, transparent);
+			background: color-mix(in srgb, var(--surface-raised) 34%, transparent);
+			border-color: transparent !important;
+			box-shadow: none !important;
+			outline: none !important;
 		}
 
 		textarea {
@@ -203,8 +170,8 @@
 		}
 
 		.input-icon-button {
-			width: 34px;
-			height: 34px;
+			width: 44px;
+			height: 44px;
 			flex-shrink: 0;
 		}
 
@@ -214,11 +181,17 @@
 		}
 
 		.send-button {
-			height: 34px;
-			width: 34px;
+			height: 44px;
+			width: 44px;
 			padding: 0;
 			flex-shrink: 0;
-			border-radius: 9px;
+			border-radius: 12px;
+		}
+
+		@media (max-width: 768px) {
+			html[data-clickable-send='false'] .input-container .send-button {
+				display: flex;
+			}
 		}
 
 		.gif-caption-draft-row {
@@ -233,5 +206,10 @@
 
 		.edit-bar, .reply-bar {
 			padding: 0.32rem 0.62rem;
+		}
+
+		/* Hide payment/manual cash buttons on mobile — secondary actions live behind + menu */
+		.input-buttons-right > button {
+			display: none;
 		}
 	}

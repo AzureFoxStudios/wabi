@@ -150,6 +150,12 @@ export function sendMessage(
 export function editMessage(channelId: string, messageId: string, newText: string): void {
 	const sock = getSocket();
 	if (!sock) return;
+	// Optimistic UI — server will confirm via message-edited or edit-error
+	updateOptimisticMessage(
+		channelId,
+		(m) => m.id === messageId,
+		{ text: newText, isEdited: true }
+	);
 	sock.emit('edit-message', { channelId, messageId, newText });
 }
 
@@ -157,18 +163,9 @@ export function deleteMessage(channelId: string, messageId: string): void {
 	const sock = getSocket();
 	if (!sock) return;
 
-	const messages = get(channelMessages)[channelId] || [];
-	const message = messages.find((m) => m.id === messageId);
-
-	if (message) {
-		const deletionTime = computeOptimisticDeletionTime(channelId, message.timestamp);
-		updateOptimisticMessage(
-			channelId,
-			(m) => m.id === messageId,
-			{ isDeleted: true, deletionExpireTime: deletionTime }
-		);
-	}
-
+	// Remove immediately from the open channel view (Discord-style hard delete in UI).
+	// Server confirms via message-deleted; edit/delete-error can restore if needed.
+	removeOptimisticMessage(channelId, messageId);
 	sock.emit('delete-message', { channelId, messageId });
 }
 

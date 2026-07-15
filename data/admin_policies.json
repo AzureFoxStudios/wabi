@@ -1,0 +1,10 @@
+{
+  "frontend_app_metadata": {
+    "accentColor": "#ffff",
+    "bannerUrl": null,
+    "description": "A place to code",
+    "displayName": "TestServer",
+    "iconUrl": null,
+    "launchPageFallbackEnabled": true
+  }
+}

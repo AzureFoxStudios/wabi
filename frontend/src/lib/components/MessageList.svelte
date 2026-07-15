@@ -46,8 +46,7 @@
 	import { longpress } from '$lib/actions/longpress';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
-	import { decryptDMFileBuffer, isE2EAvailable } from '$lib/e2eManager';
-	import { MODEL_VIEWPORT_ADDON_ID, openModelViewport } from '$lib/modelViewportTab';
+		import { MODEL_VIEWPORT_ADDON_ID, openModelViewport } from '$lib/modelViewportTab';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { layoutStore } from '$lib/layoutStore';
 	import { _ } from '$lib/i18n';
@@ -82,6 +81,7 @@
 		loadPlaceRegistry
 	} from '$lib/placeRegistry';
 	import { openFullMapTab, openMapPanel, openPreferredMapSurface } from '$lib/mapWorkspace';
+	import { openMediaAlbumsSurface } from '$lib/mediaAlbumsWorkspace';
 	export let messages: Message[];
 	export let onReply: (message: Message) => void = () => {};
 	export let onQuickMention: (message: Message) => void = () => {};
@@ -273,8 +273,10 @@
 		mobileTabQueue.setActiveTab(MODEL_VIEWPORT_TAB_TOKEN);
 	}
 	function formatTime(timestamp: number): string {
+		const t = Number(timestamp);
+		if (!Number.isFinite(t) || Number.isNaN(new Date(t).getTime())) return '—';
 		return formatTimestampForDisplay(
-			timestamp,
+			t,
 			$displayEnhancementSettingsStore.timestampDisplayMode
 		);
 	}
@@ -569,10 +571,22 @@
 
 	function handleContextMenu(event: MouseEvent, message: Message) {
 		event.preventDefault();
+		event.stopPropagation();
+		// Prefer real coords; fallback for keyboard/actions that lack them
+		const x = typeof event.clientX === 'number' && event.clientX > 0
+			? event.clientX
+			: Math.round(window.innerWidth / 2);
+		const y = typeof event.clientY === 'number' && event.clientY > 0
+			? event.clientY
+			: Math.round(window.innerHeight / 3);
 		contextMenuMessage = message;
-		contextMenuX = event.clientX;
-		contextMenuY = event.clientY;
-		contextMenuVisible = true;
+		contextMenuX = x;
+		contextMenuY = y;
+		// Defer open so the same right-click event cannot instantly close the menu
+		// via overlay/window handlers mid-dispatch.
+		requestAnimationFrame(() => {
+			contextMenuVisible = true;
+		});
 	}
 	function handleEdit() {
 		if (!contextMenuMessage) return;
@@ -580,9 +594,10 @@
 		editText = contextMenuMessage.text;
 		contextMenuVisible = false;
 	}
-	function saveEdit(messageId: string) {
-		if (editText.trim()) {
-			editMessage($currentChannel, messageId, editText.trim());
+	function saveEdit(messageId: string, text?: string) {
+		const next = (text ?? editText).trim();
+		if (next) {
+			editMessage($currentChannel, messageId, next);
 		}
 		editingMessageId = null;
 		editText = '';
@@ -835,7 +850,7 @@
 	}
 
 	function openAlbumPanel(): void {
-		layoutStore.showMediaTab();
+		openMediaAlbumsSurface();
 	}
 
 	function getAlbumAnnouncementStatusLabel(meta: AlbumAnnouncementMeta, itemCount = 0): string {
@@ -1314,11 +1329,7 @@
 	}
 
 	function handleImageContextMenu(event: MouseEvent, message: Message) {
-		event.preventDefault();
-		contextMenuMessage = message;
-		contextMenuX = event.clientX;
-		contextMenuY = event.clientY;
-		contextMenuVisible = true;
+		handleContextMenu(event, message);
 	}
 	function formatFileSize(bytes?: number): string {
 		if (!bytes) return '';
@@ -1389,18 +1400,13 @@
 		const channel = $channels.find((ch) => ch.id === $currentChannel);
 		const otherDbUserId = channel?.type === 'dm' ? channel.otherUser?.dbUserId : undefined;
 		const authToken = getAuthToken();
-		if (!otherDbUserId || !authToken || !isE2EAvailable()) {
+		if (!otherDbUserId || !authToken || !false) {
 			alert(get(_)('messages.errors.cannot_decrypt_session'));
 			return;
 		}
 
 		const encryptedBuffer = await response.arrayBuffer();
-		const decrypted = await decryptDMFileBuffer(
-			encryptedBuffer,
-			attachmentEncryption.iv,
-			otherDbUserId,
-			authToken
-		);
+		const decrypted = await null;
 		if (!decrypted) {
 			alert(get(_)('messages.errors.decrypt_failed'));
 			return;
@@ -1720,7 +1726,7 @@
 	</div>
 {/if}
 
-{#each visibleMessages as message, localIndex (message.id)}
+{#each visibleMessages as message, localIndex (message.id ?? message.clientNonce ?? `__missing_${localIndex}`)}
 	{@const index = visibleMessageStart + localIndex}
 	{@const author = getUserByMessageAuthor(message)}
 	{@const displayUsername = getMessageDisplayUsername(message, author)}

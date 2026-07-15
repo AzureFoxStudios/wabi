@@ -17,8 +17,13 @@
 </script>
 
 <div class="message-actions" class:mobile-visible={mobileActionsMessageId === message.id}>
-	{#if quickReactionEmojis.length > 0}
-		<div class="quick-reactions-strip">
+	<!-- Quick reactions strip: always visible with fallbacks when no custom emojis -->
+	<div class="quick-reactions-strip">
+		{#if quickReactionEmojis.length === 0}
+			<button class="quick-reaction-btn" on:click|stopPropagation={() => onQuickReact(message.id, "👍")}>👍</button>
+			<button class="quick-reaction-btn" on:click|stopPropagation={() => onQuickReact(message.id, "❤️")}>❤️</button>
+			<button class="quick-reaction-btn" on:click|stopPropagation={() => onQuickReact(message.id, "😂")}>😂</button>
+		{:else}
 			{#each quickReactionEmojis as quickEmoji (quickEmoji.id)}
 				<button
 					class="quick-reaction-btn"
@@ -34,14 +39,17 @@
 					/>
 				</button>
 			{/each}
-		</div>
-	{/if}
+		{/if}
+	</div>
+
 	<button class="action-btn" title={$_('messages.add_reaction')} on:click={(event) => onOpenReactionPicker(event, message.id)}>
 		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
 	</button>
+
 	<button class="action-btn" title={$_('messages.actions.reply')} on:click={() => onReply(message)}>
-		<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
 	</button>
+
 	{#if displayEnhancementSettingsStore.messageUtilitiesEnabled}
 		{#if displayEnhancementSettingsStore.quickMentionEnabled && !ownMessage}
 			<button class="action-btn utility-btn" title={$_('context_menu.quick_mention')} on:click={() => onQuickMention(message)}>
@@ -57,7 +65,8 @@
 			</button>
 		{/if}
 	{/if}
+
 	<button class="action-btn" title={$_('messages.actions.more')} on:click={(event) => onContextMenu(event, message)}>
-		<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
+		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
 	</button>
 </div>

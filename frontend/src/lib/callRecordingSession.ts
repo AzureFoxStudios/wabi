@@ -275,7 +275,8 @@ export class CallRecordingSession {
 			savedPath: mainExport?.savedPath || exports.find((entry) => entry.savedPath)?.savedPath || null,
 			savedPaths: exports.map((entry) => entry.savedPath).filter((value): value is string => Boolean(value)),
 			savedFileCount: exports.length,
-			saveTarget: mainExport?.saveTarget || 'browser'
+			saveTarget: mainExport?.saveTarget || 'browser',
+			mainBlob: mainExport?.blob || null
 		};
 	}
 

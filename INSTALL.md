@@ -1,9 +1,15 @@
 # Wabi Installation Guide
 
+> **Status:** Updated 2026-06-22 (Wabidb era; SpacetimeDB install steps no longer needed).
+
 ## Requirements
 
-- **SpacetimeDB 2.0+** (the database server)
-- **wabi-node** (the application server, 14MB binary)
+- **Docker** or **Podman** (with `docker compose` or `podman compose`)
+- A Linux, macOS, or Windows host
+- 1 GB RAM minimum, 2 GB recommended
+- 5 GB free disk for the Wabidb data directory
+
+That's it. Wabidb is embedded in the `wabi-server` binary — there is no separate database server to install.
 
 ---
 
@@ -12,176 +18,125 @@
 One command, everything included:
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 This starts:
-- SpacetimeDB server
-- SpacetimeDB proxy (Caddy)
-- wabi-node server
-- Module publisher (auto-deploys your schema)
+- `wabi-server` (Rust binary with embedded Wabidb engine)
+- (Optional profile) Caddy reverse proxy
+- (Optional profile) TURN server
+- (Optional profile) SFU (LiveKit)
+- (Optional profile) Cloudflare tunnel
 
-**Access:** `http://localhost:3000`
+**Access:** `http://localhost:3001`
+
+**Configuration:** create a `.env` file in the repo root with at minimum:
+```
+JWT_SIGNING_KEY=<run: openssl rand -base64 48>
+```
+
+Optional `.env` values for the various profiles are documented in `docker-compose.yml`.
 
 ---
 
 ## Option 2: Native Install (No Docker)
 
-### Step 1: Install SpacetimeDB
-
+### Step 1: Install Rust toolchain
 ```bash
-# Linux/macOS
-curl -sSf https://install.spacetimedb.com | sh
-
-# Windows PowerShell
-iwr https://windows.spacetimedb.com -useb | iex
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-### Step 2: Start SpacetimeDB
-
+### Step 2: Clone and build
 ```bash
-spacetimedb start
+git clone https://github.com/AzureFoxStudios/wabi.git
+cd wabi
+cargo build --release -p wabi-server
 ```
 
-Keep this terminal open, or run as a service.
-
-### Step 3: Publish Your Module
-
+### Step 3: Create data directory
 ```bash
-cd ~/wabi
-spacetimedb publish --module-path spacetimedb/wabi_state_bridge wabi-state-benchmark-v2
+mkdir -p data/wabi-server uploads plugins
 ```
 
-### Step 4: Run wabi-node
-
+### Step 4: Run
 ```bash
-cd ~/wabi
-./target/release/wabi-node --port 3000
+JWT_SIGNING_KEY=$(openssl rand -base64 48) \
+  ./target/release/wabi-server --data-dir ./data/wabi-server --port 3000
 ```
 
 **Access:** `http://localhost:3000`
 
----
-
-## Option 3: Single Script (Best of Both)
-
-Create `wabi-serve.sh`:
-
-```bash
-#!/bin/bash
-set -e
-
-# Check if SpacetimeDB is installed
-if ! command -v spacetimedb &> /dev/null; then
-    echo "Installing SpacetimeDB..."
-    curl -sSf https://install.spacetimedb.com | sh
-fi
-
-# Start SpacetimeDB if not running
-if ! pgrep -f "spacetimedb" > /dev/null; then
-    echo "Starting SpacetimeDB..."
-    spacetimedb start &
-    sleep 3
-fi
-
-# Publish module (idempotent)
-echo "Publishing module..."
-spacetimedb publish --module-path spacetimedb/wabi_state_bridge wabi-state-benchmark-v2 --yes
-
-# Start wabi-node
-echo "Starting wabi-node..."
-exec ./target/release/wabi-node "$@"
-```
-
-Usage:
-```bash
-chmod +x wabi-serve.sh
-./wabi-serve.sh --port 3000
-```
+The Wabidb engine creates its subdirectory structure under `./data/wabi-server/` on first run.
 
 ---
 
-## Configuration
+## Option 3: Tauri Desktop App
 
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `WABI_PORT` | `3000` | Server port |
-| `WABI_HOST` | `0.0.0.0` | Server host |
-| `WABI_DATA_DIR` | `./data` | Data directory |
-| `WABI_STDB_SERVER` | `http://localhost:3100` | SpacetimeDB proxy URL |
-| `WABI_STDB_DATABASE` | `wabi-state-benchmark-v2` | Database name |
-| `WABI_STDB_TOKEN` | (none) | Auth token (if required) |
-
-### Example `.env` File
+If you want a bundled desktop client (includes a private `wabi-server` instance):
 
 ```bash
-WABI_PORT=3000
-WABI_STDB_SERVER=http://localhost:3100
-WABI_STDB_DATABASE=wabi-state-benchmark-v2
+cd frontend/src-tauri
+cargo build --release
+./target/release/wabi-desktop
 ```
+
+The Tauri build embeds both the SvelteKit frontend and a wabi-server binary. See `PROJECT_DOCS/05-tauri/TAURI_BUILD.md` for build details.
 
 ---
 
-## Testing
+## First-Run Configuration
 
-### Health Check
+On first run, the server creates an admin user from these env vars (or interactive setup):
+- `WABI_ADMIN_USER_IDS` (comma-separated user IDs allowed to create/delete channels)
 
+After first run, additional configuration is done via the Web UI.
+
+---
+
+## Optional: TURN Server (for voice/video NAT traversal)
+
+Add the `turn` profile to your compose invocation:
+```bash
+docker compose --profile turn up -d
+```
+
+See `PROJECT_DOCS/02-deployment/TURN_SETUP.md` for full TURN configuration.
+
+---
+
+## Optional: Multi-Server (Mesh)
+
+For Authority + Anchor topology:
+
+1. Set `WABI_SERVER_ROLE=authority` on one node, `WABI_SERVER_ROLE=anchor` on others
+2. Set `WABI_AUTHORITY_URL` on the Anchors pointing to the Authority
+3. Set `WABI_MESH_SHARED_TOKEN` (a random shared secret) on all nodes
+4. Start the services
+
+See `PROJECT_DOCS/01-architecture/SERVER_MESH_PLAN.md`.
+
+---
+
+## Verification
+
+After install, verify the server is healthy:
 ```bash
 curl http://localhost:3000/health
+# expected: {"status":"ok"}
 ```
 
-Expected:
-```json
-{"service":"wabi-node","status":"ok","timestamp":"...","version":"0.1.0"}
-```
-
-### Test Login
-
+And verify the Wabidb engine started cleanly:
 ```bash
-curl -X POST http://localhost:3000/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"test","password":"test123"}'
-```
-
-### Test Channels
-
-```bash
-curl http://localhost:3000/api/channels
+docker logs wabi-server 2>&1 | grep -i 'wabidb\|engine started'
 ```
 
 ---
 
-## Troubleshooting
+## Cross-References
 
-### "Connection refused" to SpacetimeDB
-
-1. Check STDB is running: `pgrep -f spacetimedb`
-2. Check proxy is running: `curl http://localhost:3100/v1/ping`
-3. Restart STDB: `pkill spacetimedb && spacetimedb start`
-
-### "Module not found"
-
-```bash
-spacetimedb publish --module-path spacetimedb/wabi_state_bridge wabi-state-benchmark-v2
-```
-
-### Port already in use
-
-```bash
-./wabi-node --port 3001  # Use different port
-```
-
----
-
-## Next Steps
-
-1. Test locally with this guide
-2. Deploy to Iyoku (staging) using native install
-3. Verify everything works
-4. Update Tim (production) using same process
-
----
-
-*Keep this guide updated as deployment evolves.*
+- `PROJECT_DOCS/01-architecture/ARCHITECTURE.md` — system architecture
+- `PROJECT_DOCS/02-deployment/DEPLOYMENT.md` — production deployment
+- `PROJECT_DOCS/02-deployment/FRESH_INSTALL.md` — fresh install walkthrough
+- `PROJECT_DOCS/02-deployment/TURN_SETUP.md` — TURN deployment
+- `docker-compose.yml` — production stack definition
+- `scripts/local-dev.sh` — local dev stack bootstrap

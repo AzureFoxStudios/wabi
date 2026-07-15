@@ -229,6 +229,13 @@ export class ChatStorage {
 		await this.archiveManager.clearAllArchives();
 	}
 
+	async clearChannelMessages(channelId: string): Promise<void> {
+		if (!browser) return;
+		if (!channelId) return;
+		await this.ensureInit();
+		await this.messageManager.clearChannelMessages(channelId);
+	}
+
 	async exportArchives(): Promise<void> {
 		if (!browser) return;
 		await this.ensureInit();

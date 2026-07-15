@@ -194,7 +194,7 @@
 		width: 16px;
 		height: 16px;
 		border-radius: 50%;
-		background: var(--accent-primary);
+		background: var(--accent-primary-color);
 		cursor: pointer;
 		transition: all 0.2s;
 		border: 2px solid var(--surface-base);
@@ -208,7 +208,7 @@
 		width: 16px;
 		height: 16px;
 		border-radius: 50%;
-		background: var(--accent-primary);
+		background: var(--accent-primary-color);
 		cursor: pointer;
 		border: 2px solid var(--surface-base);
 		transition: all 0.2s;
@@ -236,7 +236,7 @@
 	}
 
 	.preset-btn:hover {
-		border-color: var(--accent-primary);
+		border-color: var(--accent-primary-color);
 		background: var(--surface-hover);
 	}
 

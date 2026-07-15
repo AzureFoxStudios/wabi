@@ -278,8 +278,8 @@
 
 	$: {
 		if ($isInCall && !wasInCall) {
-			callViewportMode = 'embedded';
-			channelCallPanelOpen.set(true);
+			callViewportMode = 'docked';
+			channelCallPanelOpen.set(false);
 			hatchOpen = false;
 			pinnedTileIds = [];
 			activeSpeakerState = { ...DEFAULT_ACTIVE_SPEAKER_STATE };

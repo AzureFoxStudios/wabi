@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { acceptLocalMockGuestCode, isLocalMockApiMode } from '$lib/localMockApi';
   import { getServerUrl } from '../serverUrl';
 
   export let show = false;
@@ -18,6 +19,18 @@
 
     loading = true;
     error = '';
+
+    if (isLocalMockApiMode()) {
+      if (acceptLocalMockGuestCode(code)) {
+        sessionStorage.setItem('guestAccessCode', code.trim());
+        dispatch('verified', { code: code.trim() });
+        show = false;
+      } else {
+        error = 'Please enter a code';
+      }
+      loading = false;
+      return;
+    }
 
     try {
       const response = await fetch(`${getServerUrl()}/api/guest/verify-code`, {
@@ -59,17 +72,21 @@
 {#if show}
   <div class="modal-overlay">
     <div class="modal-content">
+      <div class="modal-kicker">LOCAL · BUSINESS HUB</div>
       <h2>Guest Access Required</h2>
-      <p>Enter your special access code to create and edit business data.</p>
+      <p class="intro">Enter your special access code to create and edit business data.</p>
 
-      <input
-        type="text"
-        bind:value={code}
-        on:keydown={handleKeydown}
-        placeholder="Enter access code"
-        disabled={loading}
-        autocomplete="off"
-      />
+      <label class="access-field">
+        <span>ACCESS CODE</span>
+        <input
+          type="text"
+          bind:value={code}
+          on:keydown={handleKeydown}
+          placeholder="Enter access code"
+          disabled={loading}
+          autocomplete="off"
+        />
+      </label>
 
       {#if error}
         <p class="error">{error}</p>
@@ -93,47 +110,88 @@
   .modal-overlay {
     position: fixed;
     inset: 0;
-    background: var(--surface-overlay, var(--surface-overlay, var(--surface-modal-overlay, rgba(0, 0, 0, 0.7))));
+    background:
+      radial-gradient(circle at 50% 38%, rgba(243, 107, 33, 0.08), transparent 34%),
+      rgba(0, 0, 0, 0.78);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: var(--z-modal);
+    padding: 1rem;
+    backdrop-filter: blur(10px);
   }
 
   .modal-content {
-    background: var(--surface-app, #1a2332);
+    position: relative;
+    width: min(440px, 100%);
+    background:
+      var(--biz-dot-grid, radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.075) 1px, transparent 0)) 0 0 / 16px 16px,
+      linear-gradient(180deg, var(--biz-bg-card, #0d0f12), var(--biz-bg-secondary, #090a0c));
+    border: 1px solid var(--biz-border-light, rgba(255, 255, 255, 0.14));
     border-radius: 12px;
-    padding: 2rem;
-    max-width: 400px;
-    width: 90%;
-    box-shadow: 0 4px 20px var(--shadow-md, var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.5))));
+    padding: 1.35rem;
+    box-shadow: var(--biz-shadow-lg, 0 24px 80px rgba(0, 0, 0, 0.46));
+    color: var(--biz-text-primary, #f4f4f5);
+  }
+
+  .modal-content::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .modal-kicker,
+  .access-field span {
+    font-family: var(--biz-font-mono, monospace);
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--biz-text-tertiary, #71717a);
   }
 
   h2 {
-    margin: 0 0 0.5rem 0;
-    color: var(--text-inverse, #f1f5f9);
+    margin: 0.25rem 0 0.5rem 0;
+    color: var(--biz-text-primary, #f4f4f5);
+    font-size: 1.35rem;
+    font-weight: 650;
   }
 
-  p {
-    color: var(--text-muted, #94a3b8);
+  .intro {
+    color: var(--biz-text-secondary, #a1a1aa);
     margin: 0 0 1rem 0;
+    line-height: 1.5;
+  }
+
+  .access-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
   }
 
   input {
     width: 100%;
-    padding: 0.75rem;
-    border: 1px solid var(--surface-base, #2d3a4d);
+    padding: 0.78rem 0.85rem;
+    border: 1px solid var(--biz-border, rgba(255, 255, 255, 0.085));
     border-radius: 8px;
-    background: var(--surface-base, #243044);
-    color: var(--text-inverse, #f1f5f9);
-    font-size: 1rem;
-    margin-bottom: 1rem;
+    background: rgba(255, 255, 255, 0.045);
+    color: var(--biz-text-primary, #f4f4f5);
+    caret-color: var(--biz-accent, #f36b21);
+    font-size: 0.95rem;
     box-sizing: border-box;
+  }
+
+  input::placeholder {
+    color: var(--biz-text-muted, #52525b);
   }
 
   input:focus {
     outline: none;
-    border-color: var(--color-warning);
+    border-color: var(--biz-accent, #f36b21);
+    box-shadow: 0 0 0 3px var(--biz-accent-soft, rgba(243, 107, 33, 0.16));
   }
 
   .button-group {
@@ -144,46 +202,73 @@
 
   button {
     flex: 1;
-    padding: 0.75rem 1rem;
-    border: none;
+    padding: 0.78rem 1rem;
+    border: 1px solid var(--biz-border, rgba(255, 255, 255, 0.085));
     border-radius: 8px;
-    font-weight: 600;
+    font-weight: 650;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.16s ease;
+    font-family: inherit;
   }
 
   button.primary {
-    background: var(--color-warning);
-    color: white;
+    background: var(--biz-accent, #f36b21);
+    border-color: var(--biz-accent, #f36b21);
+    color: #fff7ed;
   }
 
   button.primary:hover:not(:disabled) {
-    background: var(--color-warning, #d97706);
+    background: var(--biz-accent-hover, #ff7a2f);
+    transform: translateY(-1px);
   }
 
   button.secondary {
-    background: var(--surface-base, #243044);
-    color: var(--text-muted, #94a3b8);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--biz-text-secondary, #a1a1aa);
   }
 
   button.secondary:hover:not(:disabled) {
-    background: var(--surface-base, #2d3a4d);
+    background: rgba(255, 255, 255, 0.075);
+    color: var(--biz-text-primary, #f4f4f5);
+  }
+
+  button:focus-visible {
+    outline: 2px solid var(--biz-accent, #f36b21);
+    outline-offset: 2px;
   }
 
   button:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+    transform: none;
   }
 
   .error {
-    color: var(--color-danger, #ef4444);
+    color: var(--biz-danger, #ff4d4d);
     font-size: 0.875rem;
-    margin: -0.5rem 0 1rem 0;
+    margin: -0.35rem 0 1rem 0;
   }
 
   .hint {
-    font-size: 0.875rem;
+    font-size: 0.84rem;
+    line-height: 1.45;
     text-align: center;
-    color: var(--text-muted, #64748b);
+    color: var(--biz-text-tertiary, #71717a);
+    margin: 0;
+  }
+
+  @media (max-width: 520px) {
+    .modal-overlay {
+      align-items: flex-start;
+      padding: 1rem 0.9rem;
+    }
+
+    .modal-content {
+      padding: 1rem;
+    }
+
+    .button-group {
+      flex-direction: column;
+    }
   }
 </style>

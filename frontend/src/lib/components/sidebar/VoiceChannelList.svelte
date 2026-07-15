@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { slide, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { longpress } from '$lib/actions/longpress';
@@ -25,6 +26,16 @@
 	export let onToggleChannelFollow: (channelId: string, event?: Event) => void;
 	export let onToggleListenChannel: (channelId: string) => void;
 	export let onOpenVoiceChannelWhiteboard: (channelId: string, event?: Event) => void;
+
+	let reducedMotion = false;
+	onMount(() => {
+		if (typeof window === 'undefined' || !window.matchMedia) return;
+		const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+		reducedMotion = mq.matches;
+		const onChange = (event: MediaQueryListEvent) => { reducedMotion = event.matches; };
+		mq.addEventListener('change', onChange);
+		return () => mq.removeEventListener('change', onChange);
+	});
 
 	function getVoiceMembers(channelId: string) {
 		return $voiceChannelMembers[channelId] || [];
@@ -195,27 +206,11 @@
 				</button>
 			</div>
 		</div>
-		{#if members.length > 0}
-			<div class="voice-channel-chips">
-				{#each members.slice(0, 6) as member}
-					{#if member.profilePicture}
-						<img class="voice-chip-avatar" src={member.profilePicture} alt={member.username || ''} title={member.username || 'Unknown'} />
-					{:else}
-						<span class="voice-chip-avatar voice-chip-fallback" title={member.username || 'Unknown'}>
-							{(member.username || '?').charAt(0).toUpperCase()}
-						</span>
-					{/if}
-				{/each}
-				{#if members.length > 6}
-					<span class="voice-chip-more">+{members.length - 6}</span>
-				{/if}
-			</div>
-		{/if}
 	</div>
 	{#if showVoiceMembers(channel.id)}
-		<div class="voice-member-list" transition:slide={{ duration: 180, easing: cubicOut }}>
+		<div class="voice-member-list" transition:slide={reducedMotion ? undefined : { duration: 180, easing: cubicOut }}>
 			{#if channelIsConnected && $currentUser}
-			<div class="voice-member-item" in:fly={{ x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={{ x: -24, duration: 150, opacity: 0.1 }}>
+			<div class="voice-member-item" in:fly={reducedMotion ? undefined : { x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={reducedMotion ? undefined : { x: -24, duration: 150, opacity: 0.1 }}>
 				{#if $currentUser.profilePicture}
 					<img class="voice-member-avatar" class:speaking={isSelfSpeakingInChannel(channel.id)} src={$currentUser.profilePicture} alt={$currentUser.username} />
 				{:else}
@@ -238,8 +233,8 @@
 					draggable={canDragVoiceMember(member.userId)}
 					on:dragstart={(event) => onVoiceMemberDragStart(event, channel.id, member.userId)}
 					on:dragend={onVoiceMemberDragEnd}
-					in:fly={{ x: -18, duration: 180, opacity: 0.2, easing: cubicOut }}
-					out:fly={{ x: -24, duration: 150, opacity: 0.1 }}
+					in:fly={reducedMotion ? undefined : { x: -18, duration: 180, opacity: 0.2, easing: cubicOut }}
+					out:fly={reducedMotion ? undefined : { x: -24, duration: 150, opacity: 0.1 }}
 				>
 					{#if member.profilePicture}
 						<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member, channel.id)} src={member.profilePicture} alt={member.username || member.userId} />
@@ -312,9 +307,9 @@
 			</div>
 		</div>
 		{#if showVoiceMembers(breakout.id)}
-			<div class="voice-member-list breakout-member-list" transition:slide={{ duration: 180, easing: cubicOut }}>
+			<div class="voice-member-list breakout-member-list" transition:slide={reducedMotion ? undefined : { duration: 180, easing: cubicOut }}>
 				{#if breakoutIsConnected && $currentUser}
-				<div class="voice-member-item" in:fly={{ x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={{ x: -24, duration: 150, opacity: 0.1 }}>
+				<div class="voice-member-item" in:fly={reducedMotion ? undefined : { x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={reducedMotion ? undefined : { x: -24, duration: 150, opacity: 0.1 }}>
 					{#if $currentUser.profilePicture}
 						<img class="voice-member-avatar" class:speaking={isSelfSpeakingInChannel(breakout.id)} src={$currentUser.profilePicture} alt={$currentUser.username} />
 					{:else}
@@ -337,8 +332,8 @@
 						draggable={canDragVoiceMember(member.userId)}
 						on:dragstart={(event) => onVoiceMemberDragStart(event, breakout.id, member.userId)}
 						on:dragend={onVoiceMemberDragEnd}
-						in:fly={{ x: -18, duration: 180, opacity: 0.2, easing: cubicOut }}
-						out:fly={{ x: -24, duration: 150, opacity: 0.1 }}
+						in:fly={reducedMotion ? undefined : { x: -18, duration: 180, opacity: 0.2, easing: cubicOut }}
+						out:fly={reducedMotion ? undefined : { x: -24, duration: 150, opacity: 0.1 }}
 					>
 						{#if member.profilePicture}
 							<img class="voice-member-avatar" class:speaking={isMemberSpeaking(member, breakout.id)} src={member.profilePicture} alt={member.username || member.userId} />

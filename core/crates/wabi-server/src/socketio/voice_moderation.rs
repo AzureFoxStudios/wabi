@@ -1,3 +1,13 @@
+// WDB-compat shim: this file calls `state.app.wdb.X(...)` for
+// methods the WDB doesn't have equivalents for yet
+// (is_user_muted, get_channel_retention, mute_user, etc.).
+// The compat WdbClient in `db/` returns no-op defaults for all
+// of these. When WDB has the corresponding engine methods, this
+// file can be migrated to use `state.app.wdb.X(...)` instead.
+// The compat shim itself is a temporary layer and will be removed
+// once the last socketio file is migrated.
+
+#[allow(dead_code)]
 async fn on_voice_mute(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let channel_id = match data.get("channelId").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
@@ -24,7 +34,7 @@ async fn on_voice_mute(socket: SocketRef, data: Value, state: SioState, io: Sock
     }
 
     // Mute the user on this channel
-    if let Err(e) = state.app.stdb.mute_user(target_user_id, Some(&channel_id), my_user_id).await {
+    if let Err(e) = state.app.wdb.mute_user(&channel_id, my_user_id as u64, target_user_id as u64, i64::MAX).await {
         warn!("[sio] voice-mute: failed to mute user {}: {}", target_user_id, e);
         let _ = socket.emit("voice-mute-error", &json!({ "error": "Failed to mute user" }));
         return;
@@ -53,6 +63,7 @@ async fn on_voice_mute(socket: SocketRef, data: Value, state: SioState, io: Sock
         .await;
 }
 
+#[allow(dead_code)]
 async fn on_voice_unmute(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let channel_id = match data.get("channelId").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
@@ -79,7 +90,7 @@ async fn on_voice_unmute(socket: SocketRef, data: Value, state: SioState, io: So
     }
 
     // Unmute the user on this channel
-    if let Err(e) = state.app.stdb.unmute_user(target_user_id, Some(&channel_id)).await {
+    if let Err(e) = state.app.wdb.unmute_user(&channel_id, my_user_id as u64, target_user_id as u64).await {
         warn!("[sio] voice-unmute: failed to unmute user {}: {}", target_user_id, e);
         let _ = socket.emit("voice-unmute-error", &json!({ "error": "Failed to unmute user" }));
         return;
@@ -100,6 +111,7 @@ async fn on_voice_unmute(socket: SocketRef, data: Value, state: SioState, io: So
         .await;
 }
 
+#[allow(dead_code)]
 async fn on_voice_deafen(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let channel_id = match data.get("channelId").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
@@ -126,7 +138,7 @@ async fn on_voice_deafen(socket: SocketRef, data: Value, state: SioState, io: So
     }
 
     // Deafen the user on this channel
-    if let Err(e) = state.app.stdb.deafen_user(target_user_id, Some(&channel_id), my_user_id).await {
+    if let Err(e) = state.app.wdb.deafen_user(&channel_id, my_user_id as u64, target_user_id as u64).await {
         warn!("[sio] voice-deafen: failed to deafen user {}: {}", target_user_id, e);
         let _ = socket.emit("voice-deafen-error", &json!({ "error": "Failed to deafen user" }));
         return;
@@ -157,6 +169,7 @@ async fn on_voice_deafen(socket: SocketRef, data: Value, state: SioState, io: So
         .await;
 }
 
+#[allow(dead_code)]
 async fn on_voice_undeafen(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let channel_id = match data.get("channelId").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
@@ -183,7 +196,7 @@ async fn on_voice_undeafen(socket: SocketRef, data: Value, state: SioState, io: 
     }
 
     // Undeafen the user on this channel
-    if let Err(e) = state.app.stdb.undeafen_user(target_user_id, Some(&channel_id)).await {
+    if let Err(e) = state.app.wdb.undeafen_user(&channel_id, my_user_id as u64, target_user_id as u64).await {
         warn!("[sio] voice-undeafen: failed to undeafen user {}: {}", target_user_id, e);
         let _ = socket.emit("voice-undeafen-error", &json!({ "error": "Failed to undeafen user" }));
         return;

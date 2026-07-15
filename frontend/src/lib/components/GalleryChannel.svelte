@@ -158,7 +158,7 @@
 			<span class="gallery-title">{activeChannel?.name || 'gallery'}</span>
 			{#if creatorHeader}
 				<span class="gallery-creator-badge">
-					<div class="gallery-creator-badge-avatar" style="background: {creatorHeader.color || 'var(--accent-primary)'};">
+					<div class="gallery-creator-badge-avatar" style="background: {creatorHeader.color || 'var(--accent-primary-color)'};">
 						{getCreatorInitial(creatorHeader.username)}
 					</div>
 					{creatorHeader.username}
@@ -261,7 +261,7 @@
 					{/if}
 					<div class="creator-banner-overlay"></div>
 					<div class="creator-banner-content">
-						<div class="creator-banner-avatar" style="background: {creatorHeader.color || 'var(--accent-primary)'};">
+						<div class="creator-banner-avatar" style="background: {creatorHeader.color || 'var(--accent-primary-color)'};">
 							{getCreatorInitial(creatorHeader.username)}
 						</div>
 						<div class="creator-banner-info">
@@ -313,7 +313,7 @@
 										{#if item.creator}
 											<div
 												class="card-avatar"
-												style="background: {item.creator.color || item.creator.roleColor || 'var(--accent-primary)'};"
+												style="background: {item.creator.color || item.creator.roleColor || 'var(--accent-primary-color)'};"
 											>
 												{getCreatorInitial(item.creator.username)}
 											</div>
@@ -359,7 +359,7 @@
 						on:click={() => toggleCreatorFilter(creator)}
 						title={creator.username}
 					>
-						<div class="creator-chip-avatar" style="background: {creator.color || 'var(--accent-primary)'};">
+						<div class="creator-chip-avatar" style="background: {creator.color || 'var(--accent-primary-color)'};">
 							{getCreatorInitial(creator.username)}
 						</div>
 						<span class="creator-chip-name">{creator.username}</span>

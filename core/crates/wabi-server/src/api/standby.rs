@@ -145,7 +145,12 @@ async fn export_snapshot(
         ));
     }
 
-    let payload = state.stdb.export_live_state_snapshot_rows().await?;
+    // WDB-compat: no live-state export in WDB v1. The standby dump
+    // endpoint returns an empty snapshot; will be wired to WDB's
+    // export-logs command in a follow-up.
+    let payload = crate::standby::LiveStateSnapshotPayload {
+        tables: std::collections::BTreeMap::new(),
+    };
     let plaintext = serde_json::to_vec(&payload)
         .map_err(|error| AppError::Internal(format!("snapshot serialization failed: {error}")))?;
     let encrypted_payload_b64 = encrypt_to_recipient_b64(&plaintext, &recipient_public_key)
@@ -171,7 +176,7 @@ async fn manual_import_stub() -> impl IntoResponse {
         StatusCode::NOT_IMPLEMENTED,
         Json(json!({
             "error": "manual standby import/restore is intentionally not implemented yet",
-            "reason": "restore must be an explicit operator flow that validates schema, retention semantics, and target authority state before touching STDB"
+            "reason": "restore must be an explicit operator flow that validates schema, retention semantics, and target authority state before touching WDB"
         })),
     )
 }

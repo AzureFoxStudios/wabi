@@ -1,0 +1,14 @@
+{
+  "name": "lore",
+  "version": "0.1.0",
+  "description": "Version-controlled binary asset storage via Epic Games Lore - for CAD files, 3D models, and large binaries",
+  "backend": {
+    "runtime": "rust",
+    "path": "backend"
+  },
+  "permissions": [
+    "network:outbound",
+    "filesystem:read",
+    "filesystem:write"
+  ]
+}

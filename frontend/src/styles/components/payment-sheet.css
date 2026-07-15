@@ -163,13 +163,13 @@
 
 	.error {
 		margin: 0;
-		color: #ff8585;
+		color: var(--color-danger, #ef4444);
 		font-size: 0.84rem;
 	}
 
 	.info {
 		margin: 0;
-		color: #7fd5ff;
+		color: var(--color-info, #00bfff);
 		font-size: 0.84rem;
 	}
 
@@ -237,7 +237,7 @@
 	}
 
 	.status-light-succeeded {
-		background: #69e093;
+		background: var(--color-success, #00ff7f);
 		box-shadow: 0 0 0 1px rgba(105, 224, 147, 0.35);
 	}
 
@@ -246,13 +246,13 @@
 	.status-light-disputed,
 	.status-light-canceled,
 	.status-light-refunded {
-		background: #ff8585;
+		background: var(--color-danger, #ef4444);
 		box-shadow: 0 0 0 1px rgba(255, 133, 133, 0.35);
 	}
 
 	.status-light-pending,
 	.status-light-draft {
-		background: #8cc7ff;
+		background: var(--color-info, #00bfff);
 		box-shadow: 0 0 0 1px rgba(140, 199, 255, 0.35);
 	}
 
@@ -266,20 +266,20 @@
 	}
 
 	.status-succeeded {
-		color: #69e093;
+		color: var(--color-success, #00ff7f);
 		border-color: rgba(105, 224, 147, 0.45);
 	}
 
 	.status-failed,
 	.status-expired,
 	.status-disputed {
-		color: #ff8585;
+		color: var(--color-danger, #ef4444);
 		border-color: rgba(255, 133, 133, 0.45);
 	}
 
 	.status-pending,
 	.status-draft {
-		color: #8cc7ff;
+		color: var(--color-info, #00bfff);
 		border-color: rgba(140, 199, 255, 0.45);
 	}
 

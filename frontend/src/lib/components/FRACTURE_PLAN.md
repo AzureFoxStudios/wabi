@@ -62,7 +62,7 @@ Extractions completed:
 | Extraction | Lines removed | Target file |
 |-----------|-------------|-------------|
 | Media gateway (start/stop/poll/renew) | ~140 | callingMediaGateway.ts |
-| StDB call (connect/disconnect) | ~110 | callingStdb.ts |
+| wabiDB call (connect/disconnect) | ~110 | callingWabidb.ts |
 | LiveKit SFU (7 functions + state) | ~210 | callingLivekit.ts |
 | Screen share (7 functions) | ~165 | callingScreenShare.ts |
 | Transport resolution | ~120 | callingTransport.ts |

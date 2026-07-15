@@ -1,17 +1,22 @@
 //! Application state shared across handlers
 
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tokio::sync::{broadcast, RwLock};
+use std::sync::atomic::AtomicU64;
+use std::path::PathBuf;
+use tokio::sync::{broadcast, Mutex, RwLock};
+use serde::{Serialize, Deserialize};
+use sha2::{Sha256, Digest};
 
+use crate::adapter::WdbAdapter;
+use wabidb::engine::wabi_store::WabiStore;
 use crate::api::upload::UploadState;
 use crate::blacklist::BlacklistManager;
 use crate::blobs::BlobRegistry;
 use crate::config::ServerConfig;
-use crate::db::StdbClient;
 use crate::jobs::JobQueue;
 use crate::nodes::NodeRegistry;
+use crate::replication_transport::ReqwestTransport;
 
 /// In-memory message cache shared between Socket.IO and HTTP handlers.
 /// channel_id → Vec of message JSON objects (capped at 1000 per channel).
@@ -20,14 +25,32 @@ pub type SessionMessages = Arc<RwLock<HashMap<String, Vec<serde_json::Value>>>>;
 /// Shared application state
 pub struct AppState {
     pub config: ServerConfig,
-    pub stdb: StdbClient,
+    /// WabiDB engine handle. The source of truth for all persistence.
+    /// Concrete `WdbAdapter` (not the trait object) — `WabiStore` is not
+    /// yet dyn-compatible (its async fns need a Send bound for `dyn Trait`).
+    /// Can switch to `Arc<dyn WabiStore>` once the trait gets the fix.
+    pub wdb: Arc<WdbAdapter>,
     pub ws_tx: broadcast::Sender<Arc<crate::websocket::WsMessage>>,
     #[allow(dead_code)]
     pub channels: RwLock<ChannelManager>,
     pub session_messages: SessionMessages,
+    /// channel_id -> auto-delete duration in milliseconds (None/0 = off).
+    /// In-memory for full preset support (5s..90d); also mirrored to WDB days when >= 1d.
+    pub channel_auto_delete_ms: Arc<RwLock<HashMap<String, u64>>>,
+    /// channel_id -> frontend label (e.g. "5s", "24h") for channel-updated payloads
+    pub channel_auto_delete_label: Arc<RwLock<HashMap<String, String>>>,
     /// The user ID of the server owner (first registrant).
     /// None until the first account is created.
     pub owner_user_id: RwLock<Option<i64>>,
+    /// Token revocation state. A stolen/compromised JWT can be killed
+    /// without rotating the signing secret: individual `jti`s, entire
+    /// users, or all tokens issued before an `epoch` can be revoked.
+    pub revocation_file: PathBuf,
+    pub revocations: RwLock<RevocationStore>,
+    /// One-time recovery codes that let the owner regain access when locked
+    /// out (e.g. password changed by an attacker). Maps code-hash -> owner id.
+    pub recovery_file: PathBuf,
+    pub recovery_codes: RwLock<HashMap<String, i64>>,
     /// Upload session state (in-memory, not persisted)
     pub upload_state: UploadState,
     /// Core helper-node registry (authority-owned; not federation)
@@ -43,6 +66,21 @@ pub struct AppState {
     pub sio_broadcast_tx: broadcast::Sender<socketioxide::SocketIo>,
     /// Blacklist manager for bans
     pub blacklist: RwLock<Option<Arc<BlacklistManager>>>,
+    /// Mesh service for multi-node coordination
+    pub mesh_service: RwLock<Option<Arc<crate::mesh::MeshService>>>,
+    /// Lore addon service for version-controlled binary storage
+    #[cfg(feature = "wabi-lore")]
+    pub lore_service: RwLock<Option<Arc<crate::lore::LoreService>>>,
+    /// Monotonic per-process counter for call signal ids.
+    /// Not durable across restarts; clients replay since-signal_id after reconnect.
+    pub call_signal_counter: Arc<AtomicU64>,
+    /// Per-connection call-session subscription sets. conn_id -> set of session_ids.
+    pub call_session_subscriptions: Arc<Mutex<HashMap<u64, HashSet<String>>>>,
+    /// Channel that internal call-session handlers push (session_id, WsMessage) to.
+    /// WebSocket connections subscribe and filter by their own session set.
+    pub call_session_push: broadcast::Sender<(String, Arc<crate::websocket::WsMessage>)>,
+    /// Monotonic connection id counter for WebSocket connections.
+    pub ws_conn_id_counter: Arc<Mutex<u64>>,
 }
 
 /// Channel manager for broadcast channels
@@ -77,16 +115,26 @@ pub enum ChannelEvent {
     },
 }
 
+/// Persisted token-revocation state.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RevocationStore {
+    /// Tokens with `iat` earlier than this epoch (unix seconds) are rejected.
+    /// Bumping it effectively revokes every outstanding token at once.
+    pub epoch: u64,
+    /// Individual revoked token IDs (`jti`).
+    pub jtis: HashSet<String>,
+    /// Entire revoked user IDs (all their tokens rejected).
+    pub users: HashSet<i64>,
+}
+
 impl AppState {
-    pub fn new(config: ServerConfig) -> Self {
+    /// Build the application state. Opens the WabiDB engine at
+    /// `<data_dir>/wabidb/`. WDB is fully decommissioned — no WDB
+    /// initialization, no compat shim.
+    pub async fn new(config: ServerConfig) -> anyhow::Result<Self> {
         let (ws_tx, _) = broadcast::channel(1000);
         let (sio_broadcast_tx, _) = broadcast::channel(1);
-        let stdb = StdbClient::new(
-            config.stdb_uri.clone(),
-            config.stdb_database.clone(),
-            std::env::var("WABI_STDB_TOKEN").ok(),
-        );
-        let owner_user_id = RwLock::new(Self::load_owner_from_disk(&config.data_dir));
+        let owner_user_id = RwLock::new(None);
         let node_registry = NodeRegistry::new_persistent(
             config.node_id.clone(),
             PathBuf::from(&config.data_dir).join("node_registry.json"),
@@ -96,15 +144,56 @@ impl AppState {
         let blob_registry = BlobRegistry::new_persistent(PathBuf::from(&config.data_dir));
         let media_registry =
             crate::media::MediaRoomRegistry::new_persistent(PathBuf::from(&config.data_dir));
-        Self {
+
+        // Open the WabiDB engine. This is the new source of truth.
+        let wdb_data_dir = PathBuf::from(&config.data_dir).join("wabidb");
+        std::fs::create_dir_all(&wdb_data_dir).ok();
+
+        // If a peer endpoint is configured, enable replication.
+        let peer_endpoint = std::env::var("WABIDB_PEER_ENDPOINT").ok();
+        let wdb: Arc<WdbAdapter> = if let Some(endpoint) = peer_endpoint {
+            let transport = Arc::new(ReqwestTransport::new(wdb_data_dir.clone()));
+            let rep_config = wabidb::replication::config::ReplicationConfig::new(
+                &endpoint,
+                1_000_000, // 1 second sync interval
+                5_000_000, // 5 second max lag
+            );
+            let mut wdb_config = wabidb::engine::WabiDbConfig::from_env_var(wdb_data_dir);
+            wdb_config.sync_transport = Some(transport);
+            wdb_config.replication_config = Some(rep_config);
+            Arc::new(WdbAdapter::open_with_config(wdb_config).await?)
+        } else {
+            Arc::new(WdbAdapter::open(&wdb_data_dir).await?)
+        };
+
+        // Load the authoritative owner from the WDB store (migrating the
+        // legacy JSON file if needed). Must happen after the engine opens.
+        let owner_val = Self::load_owner(wdb.as_ref(), &config.data_dir).await;
+        *owner_user_id.write().await = owner_val;
+
+        // Load persisted token-revocation state.
+        let revocation_file = Self::revocation_file_path(&config.data_dir);
+        let revocations = RwLock::new(Self::load_revocations(&config.data_dir).await);
+
+        // Load persisted recovery codes.
+        let recovery_file = Self::recovery_file_path(&config.data_dir);
+        let recovery_codes = RwLock::new(Self::load_recovery_codes(&config.data_dir).await);
+
+        Ok(Self {
             config,
-            stdb,
+            wdb,
             ws_tx,
             channels: RwLock::new(ChannelManager {
                 channel_broadcasts: std::collections::HashMap::new(),
             }),
             session_messages: Arc::new(RwLock::new(HashMap::new())),
+            channel_auto_delete_ms: Arc::new(RwLock::new(HashMap::new())),
+            channel_auto_delete_label: Arc::new(RwLock::new(HashMap::new())),
             owner_user_id,
+            revocation_file,
+            revocations,
+            recovery_file,
+            recovery_codes,
             upload_state: UploadState::new(),
             node_registry,
             job_queue,
@@ -112,7 +201,17 @@ impl AppState {
             media_registry,
             sio_broadcast_tx,
             blacklist: RwLock::new(None),
-        }
+            mesh_service: RwLock::new(None),
+            #[cfg(feature = "wabi-lore")]
+            lore_service: RwLock::new(None),
+            call_signal_counter: Arc::new(AtomicU64::new(0)),
+            call_session_subscriptions: Arc::new(Mutex::new(HashMap::new())),
+            ws_conn_id_counter: Arc::new(Mutex::new(0)),
+            call_session_push: {
+                let (tx, _) = broadcast::channel(1024);
+                tx
+            },
+        })
     }
 
     /// Set the blacklist manager (called during startup)
@@ -127,10 +226,52 @@ impl AppState {
         guard.clone()
     }
 
+    /// Set the mesh service (called during startup)
+    pub async fn set_mesh_service(&self, mesh: Arc<crate::mesh::MeshService>) {
+        let mut guard = self.mesh_service.write().await;
+        *guard = Some(mesh);
+    }
+
+    /// Get the mesh service (if initialized)
+    pub async fn get_mesh_status(&self) -> anyhow::Result<crate::mesh::MeshStatus> {
+        let guard = self.mesh_service.read().await;
+        match guard.as_ref() {
+            Some(mesh) => Ok(mesh.get_status().await),
+            None => Err(anyhow::anyhow!("Mesh service not initialized")),
+        }
+    }
+
+    /// Record a heartbeat from a peer node
+    pub async fn record_heartbeat(&self, node_id: &str, timestamp: i64) {
+        let guard = self.mesh_service.read().await;
+        if let Some(mesh) = guard.as_ref() {
+            mesh.record_heartbeat(node_id, timestamp).await;
+        }
+    }
+
+    /// Set the Lore service (called during startup)
+    #[cfg(feature = "wabi-lore")]
+    pub async fn set_lore_service(&self, lore: Arc<crate::lore::LoreService>) {
+        let mut guard = self.lore_service.write().await;
+        *guard = Some(lore);
+    }
+
+    /// Get mesh configuration
+    pub async fn get_mesh_config(&self) -> anyhow::Result<crate::mesh::MeshConfig> {
+        let guard = self.mesh_service.read().await;
+        match guard.as_ref() {
+            Some(mesh) => Ok(mesh.config.clone()),
+            None => Err(anyhow::anyhow!("Mesh service not initialized")),
+        }
+    }
+
     fn owner_file(data_dir: &str) -> PathBuf {
         PathBuf::from(data_dir).join("server_owner.json")
     }
 
+    /// Legacy migration source. The authoritative owner is now persisted in
+    /// the WDB store (see `load_owner` / `claim_ownership`); this only reads
+    /// the old JSON file once, to migrate existing deployments.
     fn load_owner_from_disk(data_dir: &str) -> Option<i64> {
         let path = Self::owner_file(data_dir);
         let content = std::fs::read_to_string(path).ok()?;
@@ -138,89 +279,221 @@ impl AppState {
         v.get("owner_user_id")?.as_i64()
     }
 
+    /// Load the owner from the authoritative WDB store. Falls back to the
+    /// legacy JSON file for one-time migration, adopting it into the store.
+    async fn load_owner(wdb: &WdbAdapter, data_dir: &str) -> Option<i64> {
+        match wdb.get_owner_user_id().await {
+            Ok(Some(id)) => return Some(id as i64),
+            Ok(None) => {}
+            Err(e) => tracing::warn!("[setup] failed to read owner from store: {e}"),
+        }
+        if let Some(id) = Self::load_owner_from_disk(data_dir) {
+            tracing::warn!(
+                "[setup] migrating legacy server_owner.json -> WDB store (owner_user_id={})",
+                id
+            );
+            if let Err(e) = wdb.claim_owner(id as u64).await {
+                tracing::error!("[setup] failed to migrate owner into store: {e}");
+            }
+            return Some(id);
+        }
+        None
+    }
+
     /// Returns true if the server has no owner yet (first-run state).
     pub async fn needs_setup(&self) -> bool {
         self.owner_user_id.read().await.is_none()
     }
 
-    /// Claim ownership. Writes to disk so it survives restarts.
+    /// Claim ownership. Returns true if this user claimed it (i.e., was
+    /// the first registrant). Persists to the WDB store so it is the
+    /// authoritative source of truth and survives restarts.
     /// Fails silently if an owner already exists.
-    pub async fn claim_ownership(&self, user_id: i64, username: &str) {
+    pub async fn claim_ownership(&self, user_id: i64, _username: &str) -> bool {
         let mut guard = self.owner_user_id.write().await;
         if guard.is_some() {
-            return; // already claimed
+            return false; // already claimed
+        }
+        if let Err(e) = self.wdb.claim_owner(user_id as u64).await {
+            tracing::error!("[setup] failed to persist owner claim: {e}");
+            return false;
         }
         *guard = Some(user_id);
-        let path = Self::owner_file(&self.config.data_dir);
-        let payload = serde_json::json!({
-            "owner_user_id": user_id,
-            "owner_username": username,
-        });
-        if let Ok(s) = serde_json::to_string_pretty(&payload) {
-            let _ = std::fs::write(path, s);
-        }
-        tracing::info!("[setup] owner claimed by {} (id={})", username, user_id);
+        tracing::info!("[setup] owner claimed by user_id={}", user_id);
+        true
     }
 
-    /// Get the highest role for a user from STDB RBAC (default workspace)
-    pub async fn get_user_highest_role(&self, user_id: i64) -> String {
-        if let Ok(result) = self.stdb.sql_query(
-            &format!("SELECT role FROM state_rbac_assignment WHERE user_id = {} AND workspace_id = 'default-workspace' AND active = true LIMIT 1", user_id)
-        ).await {
-            if let Some(row) = result.decode_rows().into_iter().next() {
-                if let Some(role_val) = row.get("role") {
-                    if let Some(role_str) = role_val.as_str() {
-                        return role_str.to_string();
-                    }
-                }
-            }
-        }
-        if *self.owner_user_id.read().await == Some(user_id) {
-            return "owner".to_string();
-        }
-        if user_id > 0 {
-            return "member".to_string();
-        }
-        "guest".to_string()
+    /// Get the highest role for a user from WDB RBAC (default workspace)
+    /// TODO: wabidb RBAC projection
+    pub async fn get_user_highest_role(&self, _user_id: i64) -> String {
+        "Member".to_string()
     }
 
-    /// Returns true if the user is the owner, in the admin list, or has 'admin' role in STDB
+    /// Returns true if the user is the server owner (first registrant).
+    pub async fn is_owner(&self, user_id: i64) -> bool {
+        match *self.owner_user_id.read().await {
+            Some(owner) => owner == user_id,
+            None => false,
+        }
+    }
+
+    /// Returns true if the user holds `role` (or a higher role) in the
+    /// default workspace, per the live `rbac_roles` projection.
+    pub async fn has_role(&self, user_id: i64, role: &str) -> bool {
+        let current = match self
+            .wdb
+            .get_user_role("default-workspace", user_id as u64)
+            .await
+        {
+            Ok(Some(r)) => r,
+            _ => return false,
+        };
+        let rank = |r: &str| match r {
+            "Owner" => 3,
+            "Admin" => 2,
+            "Moderator" => 1,
+            _ => 0,
+        };
+        rank(&current) >= rank(role)
+    }
+
+    /// Returns true if the user is the server owner, is listed in the
+    /// configured `admin_user_ids`, or holds the `Admin` (or higher) role.
     pub async fn is_admin(&self, user_id: i64) -> bool {
+        if self.is_owner(user_id).await {
+            return true;
+        }
         if self.config.admin_user_ids.contains(&user_id) {
             return true;
         }
-        if *self.owner_user_id.read().await == Some(user_id) {
+        self.has_role(user_id, "Admin").await
+    }
+
+    // ─── Token revocation ────────────────────────────────────────────────────
+
+    fn revocation_file_path(data_dir: &str) -> PathBuf {
+        PathBuf::from(data_dir).join("revocations.json")
+    }
+
+    async fn load_revocations(data_dir: &str) -> RevocationStore {
+        let path = Self::revocation_file_path(data_dir);
+        if let Ok(s) = std::fs::read_to_string(&path) {
+            if let Ok(v) = serde_json::from_str::<RevocationStore>(&s) {
+                return v;
+            }
+        }
+        RevocationStore::default()
+    }
+
+    async fn save_revocations(&self) {
+        let guard = self.revocations.read().await;
+        if let Ok(s) = serde_json::to_string_pretty(&*guard) {
+            let _ = std::fs::write(&self.revocation_file, s);
+        }
+    }
+
+    /// Revoke a single token by its `jti`. No-op for tokens that lack one.
+    pub async fn revoke_token(&self, jti: String) {
+        if jti.is_empty() {
+            return;
+        }
+        {
+            self.revocations.write().await.jtis.insert(jti);
+        }
+        self.save_revocations().await;
+    }
+
+    /// Revoke every current token for a user (force-logout).
+    pub async fn revoke_user(&self, user_id: i64) {
+        {
+            self.revocations.write().await.users.insert(user_id);
+        }
+        self.save_revocations().await;
+    }
+
+    /// Revoke ALL outstanding tokens by advancing the revocation epoch.
+    pub async fn revoke_all_tokens(&self) {
+        {
+            self.revocations.write().await.epoch =
+                chrono::Utc::now().timestamp().max(1) as u64 + 1;
+        }
+        self.save_revocations().await;
+    }
+
+    /// Returns true if the given token claims have been revoked.
+    pub async fn is_token_revoked(&self, jti: &str, sub: i64, iat: i64) -> bool {
+        let guard = self.revocations.read().await;
+        if guard.epoch != 0 && (iat as u64) < guard.epoch {
             return true;
         }
-        // Check STDB for admin/owner role
-        if let Ok(result) = self.stdb.sql_query(
-            &format!("SELECT role FROM state_rbac_assignment WHERE user_id = {} AND workspace_id = 'default-workspace' AND role IN ('admin', 'owner') AND active = true LIMIT 1", user_id)
-        ).await {
-            return !result.decode_rows().is_empty();
+        if guard.users.contains(&sub) {
+            return true;
+        }
+        if !jti.is_empty() && guard.jtis.contains(jti) {
+            return true;
         }
         false
     }
 
-    /// Get mesh status (for health checks)
-    #[allow(dead_code)]
-    pub fn get_mesh_status(&self) -> anyhow::Result<MeshStatusInfo> {
-        Ok(MeshStatusInfo {
-            peers: self.config.mesh_peers.clone(),
-            is_primary: self.config.is_primary,
-            sync_status: if self.config.mesh_enabled {
-                "synced"
-            } else {
-                "standalone"
-            }
-            .to_string(),
-        })
-    }
-}
+    // ─── Recovery codes ──────────────────────────────────────────────────────
 
-/// Mesh status information (for health endpoint)
-#[allow(dead_code)]
-pub struct MeshStatusInfo {
-    pub peers: Vec<String>,
-    pub is_primary: bool,
-    pub sync_status: String,
+    fn recovery_file_path(data_dir: &str) -> PathBuf {
+        PathBuf::from(data_dir).join("recovery_codes.json")
+    }
+
+    async fn load_recovery_codes(data_dir: &str) -> HashMap<String, i64> {
+        let path = Self::recovery_file_path(data_dir);
+        if let Ok(s) = std::fs::read_to_string(&path) {
+            if let Ok(v) = serde_json::from_str::<HashMap<String, i64>>(&s) {
+                return v;
+            }
+        }
+        HashMap::new()
+    }
+
+    async fn save_recovery_codes(&self) {
+        let guard = self.recovery_codes.read().await;
+        if let Ok(s) = serde_json::to_string_pretty(&*guard) {
+            let _ = std::fs::write(&self.recovery_file, s);
+        }
+    }
+
+    fn hash_code(code: &str) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(code.as_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
+    /// Generate `count` one-time recovery codes for `user_id`. The plaintext
+    /// codes are returned exactly once; only their hashes are persisted.
+    pub async fn generate_recovery_codes(&self, user_id: i64, count: usize) -> Vec<String> {
+        let mut plaintext = Vec::new();
+        {
+            let mut guard = self.recovery_codes.write().await;
+            for _ in 0..count {
+                let code = uuid::Uuid::new_v4().simple().to_string();
+                plaintext.push(code.clone());
+                guard.insert(Self::hash_code(&code), user_id);
+            }
+        }
+        self.save_recovery_codes().await;
+        plaintext
+    }
+
+    /// Consume a recovery code. Returns true only if the code is valid and
+    /// bound to `user_id`. The code is single-use.
+    pub async fn consume_recovery_code(&self, code: &str, user_id: i64) -> bool {
+        let key = Self::hash_code(code);
+        let mut guard = self.recovery_codes.write().await;
+        match guard.get(&key) {
+            Some(&bound) if bound == user_id => {
+                guard.remove(&key);
+                drop(guard);
+                self.save_recovery_codes().await;
+                true
+            }
+            _ => false,
+        }
+    }
+
 }

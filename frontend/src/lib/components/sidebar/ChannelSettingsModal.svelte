@@ -1,11 +1,27 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import type { Channel, VoiceChannelSettings } from '$lib/socket';
+	import { currentUser } from '$lib/socket';
+	import { getSocket } from '$lib/socketConnection';
 	import {
 		MESSAGE_RETENTION_LABELS,
 		MESSAGE_RETENTION_PRESETS,
 		type MessageRetentionDuration
 	} from '../../../../../shared/messageRetention.js';
+
+	// Only workspace owners and admins may bulk-clear a channel's messages.
+	$: canClearMessages = ['owner', 'admin'].includes($currentUser?.highestRole || '');
+
+	function clearAllMessages(): void {
+		if (!canClearMessages || channel.type === 'dm') return;
+		const confirmed = window.confirm(
+			`Delete ALL messages in #${channel.name}? This cannot be undone. Attachment files are not deleted.`
+		);
+		if (!confirmed) return;
+		const sock = getSocket();
+		if (!sock) return;
+		sock.emit('clear-channel-messages', { channelId: channel.id });
+	}
 
 	export let channel: Channel;
 	export let canTogglePersistMessages = false;
@@ -181,10 +197,23 @@
 								{MESSAGE_RETENTION_LABELS[duration]}
 							</button>
 						{/each}
-					</div>
 				</div>
+			</div>
 
-				{#if channel.type !== 'dm'}
+			{#if channel.type !== 'dm' && canClearMessages}
+				<div class="setting-group danger-zone">
+					<span class="setting-label">Clear Messages</span>
+					<p class="setting-description">
+						Permanently delete every message in this channel for all members. Direct messages are never
+						affected, and attachment files are not deleted.
+					</p>
+					<button class="clear-messages-btn" on:click={clearAllMessages}>
+						Clear All Messages
+					</button>
+				</div>
+			{/if}
+
+			{#if channel.type !== 'dm'}
 					<div class="setting-group">
 						<label class="setting-label">
 							<input
@@ -267,3 +296,25 @@
 		</div>
 	</div>
 </div>
+
+<style>
+	.danger-zone {
+		border: 1px solid var(--danger-color, #e2484d);
+		border-radius: 8px;
+		padding: 12px;
+		margin-top: 8px;
+	}
+	.clear-messages-btn {
+		margin-top: 8px;
+		background: var(--danger-color, #e2484d);
+		color: #fff;
+		border: none;
+		border-radius: 6px;
+		padding: 8px 14px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.clear-messages-btn:hover {
+		filter: brightness(0.92);
+	}
+</style>

@@ -30,7 +30,8 @@
 		openChannelCallPanel,
 		callMode,
 		channelCallPanelOpen,
-		listeningVoiceChannels
+		listeningVoiceChannels,
+		setVoiceTransmitRoutingMode
 	} from '$lib/calling';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import PinnedMessagesModal from './PinnedMessagesModal.svelte';
@@ -46,6 +47,7 @@
 	import type { ContextMenuItem } from '$lib/context-menu/types';
 	import type { Channel } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
+	import { selectedDmChannelId } from '$lib/layoutStoreStates';
 	import { currentSavedServer } from '$lib/savedServers';
 	import { resolveServerUrl } from '$lib/serverUrl';
 	import { openDetachedPanel } from '$lib/detachedPanels';
@@ -58,13 +60,16 @@
 	} from '$lib/following';
 	import { setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
 	import { displayEnhancementSettingsStore, toggleMutedChannelId } from '$lib/displayEnhancements';
+	import { whiteboardPresence } from '$lib/presenceStore';
 
 	const dispatch = createEventDispatcher();
-	export let activeView: 'chat' | 'screen' | 'following' = 'chat';
+	export let activeView: 'chat' | 'screen' | 'following' | 'dm' = 'chat';
 
 	let newChannelName = '';
 	let newChannelDescription = '';
 	let newChannelType: 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage' = 'text';
+	let createChannelError = '';
+	let creatingChannel = false;
 	let showCreateInput = false;
 	let serverIdentityImageFailed = false;
 	let lastServerIdentityIconUrl: string | null = null;
@@ -79,7 +84,7 @@
 	let isTextSectionExpanded = true;
 	let isVoiceSectionExpanded = true;
 	let isGallerySectionExpanded = true;
-	let voiceDurationMode: 'off' | 'others' | 'all' = 'all';
+	let voiceDurationMode: 'off' | 'others' | 'all' = 'off';
 	let nowMs = Date.now();
 	let voiceDurationTicker: ReturnType<typeof setInterval> | null = null;
 	let voicePresenceSince = new Map<string, number>();
@@ -102,6 +107,11 @@
 	$: if (serverIdentityIconUrl !== lastServerIdentityIconUrl) { lastServerIdentityIconUrl = serverIdentityIconUrl; serverIdentityImageFailed = false; }
 	$: followedChannelIds = new Set($currentServerFollowedChannels.map(e => e.channelId));
 	$: followedChannelPreferences = new Map($currentServerFollowedChannels.map(e => [e.channelId, e]));
+	$: liveWhiteboardChannelIds = new Set(
+		Object.entries($whiteboardPresence)
+			.filter(([, users]) => Array.isArray(users) && users.length > 0)
+			.map(([channelId]) => channelId)
+	);
 
 	let contextMenuChannel: Channel | null = null;
 	let contextMenuPosition = { x: 0, y: 0 };
@@ -109,7 +119,6 @@
 	let showOwnProfilePopout = false;
 	let ownProfilePopoutAnchor: HTMLElement | null = null;
 
-	function toggleSidebar() { layoutStore.channelSidebarWidth.set($layoutStore.channelSidebarWidth === 0 ? 280 : 0); }
 	function openOwnProfilePopout(event: Event) { if (!$currentUser) return; ownProfilePopoutAnchor = event.currentTarget as HTMLElement | null; showOwnProfilePopout = true; }
 	function isChannelLocallyMuted(id: string) { return $displayEnhancementSettingsStore.mutedChannelIds.includes(id); }
 	function shouldHideChannelFromList(ch: Channel) { return $displayEnhancementSettingsStore.hideMutedCategoriesEnabled && $currentChannel !== ch.id && isChannelLocallyMuted(ch.id); }
@@ -137,7 +146,8 @@
 	}
 
 	onMount(() => {
-		try { const s = localStorage.getItem('wabi-voice-duration-mode'); if (s === 'off' || s === 'others' || s === 'all') voiceDurationMode = s; } catch {}
+		try { localStorage.setItem('wabi-voice-duration-mode', 'off'); } catch {}
+		voiceDurationMode = 'off';
 		voiceDurationTicker = setInterval(() => { nowMs = Date.now(); }, 1000);
 		const onPtr = (e: PointerEvent) => { if (!glimpseChannelId) return; const t = e.target as HTMLElement | null; if (!t || glimpsePopover?.contains(t) || t.closest('.channel-btn')) return; glimpseChannelId = null; };
 		const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && glimpseChannelId) glimpseChannelId = null; };
@@ -148,9 +158,10 @@
 
 	$: if (activeView === 'chat') markMessagesAsRead();
 
-	function handleChannelClick(id: string) { activeView = 'chat'; glimpseChannelId = null; joinChannel(id); if ($callMode === 'channel') channelCallPanelOpen.set(false); dispatch('close'); }
+	function handleChannelClick(id: string) { activeView = 'chat'; glimpseChannelId = null; joinChannel(id); if ($callMode === 'channel') channelCallPanelOpen.set(false); dispatch('close'); if ($selectedDmChannelId) layoutStore.closeDM(); }
 	function clearAllUnreadNotifications() { for (const id of Object.keys($channelUnreadCounts)) markChannelAsRead(id); markMessagesAsRead(); }
 	function openFollowingView() { activeView = 'following'; glimpseChannelId = null; dispatch('close'); }
+	function openDmHub() { activeView = 'dm'; glimpseChannelId = null; dispatch('close'); }
 	function openVoiceChannelWhiteboard(id: string, e?: Event) { e?.stopPropagation(); activeView = 'chat'; currentChannel.set(id); setWhiteboardSurface(id, 'whiteboard'); dispatch('close'); }
 	function toggleChannelFollowState(id: string, e?: Event) { e?.stopPropagation(); const f = toggleChannelFollow(id); if (!f && glimpseChannelId === id) glimpseChannelId = null; }
 	function cycleFollowAlert(id: string, e?: Event) { e?.stopPropagation(); if (!followedChannelIds.has(id)) toggleChannelFollow(id); cycleChannelFollowAlertLevel(id); }
@@ -162,7 +173,11 @@
 	function isPrimaryVoiceChannel(id: string) { return primaryVoiceChannelId === id; }
 	async function handleVoiceChannelClick(id: string) { if (isConnectedToVoice(id)) { openChannelCallPanel(); dispatch('close'); return; } if (runtimeActiveVoiceChannelId) { subscribeVoiceChannel(id); return; } try { await joinVoiceChannel(id); dispatch('close'); } catch (e) { console.error('Failed to join voice channel:', e); } }
 	function handleToggleListenChannel(id: string) { if (isPrimaryVoiceChannel(id)) return; isConnectedToVoice(id) ? unsubscribeVoiceChannel(id) : subscribeVoiceChannel(id); }
-	function handleTransmitModeChange(e: Event) { setVoiceTransmitMode((e.currentTarget as HTMLSelectElement).value as 'auto' | 'always' | 'push-to-talk'); }
+	function handleTransmitModeChange(e: Event) {
+		const mode = (e.currentTarget as HTMLSelectElement).value as 'primary' | 'all-listening';
+		setVoiceTransmitRoutingMode(mode);
+		setVoiceTransmitMode(mode);
+	}
 	async function handleLeaveVoice() { if (primaryVoiceChannelId) { await leaveVoiceChannel(primaryVoiceChannelId); return; } for (const id of connectedVoiceChannelIds) unsubscribeVoiceChannel(id); }
 	function hasBreakoutRooms(id: string) { return (breakoutChannelsByParent[id] || []).length > 0; }
 	function handleCreateBreakoutRooms(ch: Channel) { const n = Math.max(2, Math.ceil(getVoiceMembers(ch.id).length / 2)); const r = window.prompt(`Create breakout rooms for ${ch.name} (2-20):`, String(n)); const p = Number.parseInt(r || '', 10); if (Number.isFinite(p)) createBreakoutRooms(ch.id, p, true); }
@@ -175,8 +190,24 @@
 	function handleVoiceChannelDrop(e: DragEvent, chId: string) { if (!draggedVoiceMember || draggedVoiceMember.channelId === chId) return; e.preventDefault(); e.stopPropagation(); moveUserToVoiceChannel(draggedVoiceMember.userId, chId); draggedVoiceMember = null; voiceDropTargetChannelId = null; }
 	function setVoiceDurationMode(mode: 'off' | 'others' | 'all') { voiceDurationMode = mode; try { localStorage.setItem('wabi-voice-duration-mode', mode); } catch {} }
 	function toggleSection(s: 'text' | 'voice' | 'gallery') { if (s === 'text') isTextSectionExpanded = !isTextSectionExpanded; else if (s === 'gallery') isGallerySectionExpanded = !isGallerySectionExpanded; else isVoiceSectionExpanded = !isVoiceSectionExpanded; }
-	function handleCreateChannel() { if (newChannelName.trim()) { createChannel(newChannelName.trim(), newChannelDescription.trim(), newChannelType); newChannelName = ''; newChannelDescription = ''; newChannelType = 'text'; showCreateInput = false; } }
-	function toggleCreateInputForType(t: 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage') { if (showCreateInput && newChannelType === t) { showCreateInput = false; return; } newChannelType = t; showCreateInput = true; tick().then(() => (document.querySelector('.create-channel input') as HTMLInputElement | null)?.focus()); }
+	async function handleCreateChannel() {
+		const channelName = newChannelName.trim();
+		if (!channelName || creatingChannel) return;
+		createChannelError = '';
+		creatingChannel = true;
+		try {
+			await createChannel(channelName, newChannelDescription.trim(), newChannelType);
+			newChannelName = '';
+			newChannelDescription = '';
+			newChannelType = 'text';
+			showCreateInput = false;
+		} catch (error) {
+			createChannelError = error instanceof Error ? error.message : 'Failed to create channel.';
+		} finally {
+			creatingChannel = false;
+		}
+	}
+	function toggleCreateInputForType(t: 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage') { if (showCreateInput && newChannelType === t) { showCreateInput = false; createChannelError = ''; return; } newChannelType = t; createChannelError = ''; showCreateInput = true; tick().then(() => (document.querySelector('.create-channel input') as HTMLInputElement | null)?.focus()); }
 	function handleDeleteChannel(id: string) { channelToDelete = id; showDeleteConfirm = true; }
 	function confirmDeleteChannel() { deleteChannel(channelToDelete); showDeleteConfirm = false; }
 	function handleShowPinnedMessages(id: string) { selectedChannelForPinned = id; showPinnedModal = true; }
@@ -225,10 +256,6 @@
 	}
 </script>
 
-{#if sidebarWidth === 0}
-	<button class="expand-btn" on:click={toggleSidebar} title="Expand sidebar">›</button>
-{/if}
-
 <div class="channel-sidebar" class:compact={isCompactSidebar} class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'} style:width={$layoutStore.isMobile ? '100%' : `${$layoutStore.channelSidebarWidth}px`}>
 	<div class="top-section" class:has-banner={Boolean(currentServerBannerUrl)} style:--sidebar-banner-image={currentServerBannerUrl ? `url('${currentServerBannerUrl}')` : 'none'}>
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
@@ -253,7 +280,7 @@
 		{/if}
 	</div>
 
-	<CreateChannelForm {showCreateInput} newChannelName={newChannelName} newChannelDescription={newChannelDescription} {newChannelType} onNameChange={(v) => newChannelName = v} onDescriptionChange={(v) => newChannelDescription = v} onTypeChange={(v) => newChannelType = v} onSubmit={handleCreateChannel} />
+	<CreateChannelForm {showCreateInput} newChannelName={newChannelName} newChannelDescription={newChannelDescription} {newChannelType} createError={createChannelError} {creatingChannel} onNameChange={(v) => { newChannelName = v; createChannelError = ''; }} onDescriptionChange={(v) => newChannelDescription = v} onTypeChange={(v) => { newChannelType = v; createChannelError = ''; }} onSubmit={handleCreateChannel} />
 
 	<div class="channel-list">
 		{#if $displayEnhancementSettingsStore.serverCounterEnabled}
@@ -271,7 +298,7 @@
 			<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('text')} title="Create channel" aria-label="Create channel"><span class="plus-glyph" aria-hidden="true">+</span></button>
 		</div>
 		{#if isTextSectionExpanded}
-			<TextChannelList {textChannels} {groupChannels} {threadChannelsByParent} {followedChannelIds} {followedChannelPreferences} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onCycleFollowAlert={cycleFollowAlert} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} />
+			<TextChannelList {textChannels} {groupChannels} {threadChannelsByParent} {followedChannelIds} {followedChannelPreferences} {liveWhiteboardChannelIds} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onCycleFollowAlert={cycleFollowAlert} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} />
 		{/if}
 
 		<div class="section-heading-row">
@@ -294,9 +321,16 @@
 				<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('gallery')} title="Create gallery channel" aria-label="Create gallery channel"><span class="plus-glyph" aria-hidden="true">+</span></button>
 			</div>
 			{#if isGallerySectionExpanded}
-				<GalleryChannelList {galleryChannels} {followedChannelIds} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} />
+				<GalleryChannelList {galleryChannels} {followedChannelIds} {liveWhiteboardChannelIds} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} />
 			{/if}
 		{/if}
+
+		<div class="dm-hub-entry">
+			<button class="dm-hub-btn" type="button" on:click={openDmHub} title="Direct Messages">
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+				<span>Direct Messages</span>
+			</button>
+		</div>
 	</div>
 
 	<ContextMenu open={showContextMenu && !!contextMenuChannel} x={contextMenuPosition.x} y={contextMenuPosition.y} items={channelMenuItems} ariaLabel="Channel actions" headerLabel={contextMenuChannel ? `#${contextMenuChannel.name}` : null} on:close={closeContextMenu} />

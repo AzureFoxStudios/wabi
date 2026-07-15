@@ -51,12 +51,6 @@
 					{deletionLabel}
 				</span>
 			{/if}
-			{#if message.isPinned}
-				<span class="pin-badge" title={$_('messages.pinned_title')}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg></span>
-			{/if}
-			{#if displayEnhancementSettingsStore.personalPinsEnabled && isPersonalPinned}
-				<span class="local-pin-badge" title={$_('context_menu.pin_local_message')}>Local Pin</span>
-			{/if}
 			{#if message.isEdited}
 				<span class="edited-badge" title={$_('messages.edited_title')}>({$_('messages.edited')})</span>
 			{/if}

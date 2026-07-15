@@ -63,7 +63,7 @@
 		top: 0;
 		left: 0;
 		right: 0;
-		z-index: 9000;
+		z-index: var(--z-lightbox, 2000);
 		background: linear-gradient(135deg, rgba(var(--color-danger-rgb, 239, 68, 68), 0.95), rgba(var(--color-danger-rgb, 220, 38, 38), 0.95));
 		border-bottom: 2px solid rgba(var(--color-danger-rgb, 239, 68, 68), 1);
 		backdrop-filter: blur(8px);

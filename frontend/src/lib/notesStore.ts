@@ -5,7 +5,20 @@ export interface LocalNote {
 	text: string;
 	createdAt: number;
 	updatedAt: number;
+	pinned?: boolean;
+	color?: string;
 }
+
+// Preset swatches mapped to theme tokens (NOT hardcoded brand colors).
+// Stored on the note and resolved via a CSS custom property at render time.
+export const NOTE_COLORS: string[] = [
+	'var(--accent-primary-color)',
+	'var(--color-success, #22c55e)',
+	'var(--color-warning, #f59e0b)',
+	'var(--color-danger, #ef4444)',
+	'var(--accent-purple, #9b59b6)',
+	'var(--text-secondary, #8a8aa3)'
+];
 
 const KEEP_NOTES_PREFIX = 'wabi:keep-notes:v1';
 const DM_NOTES_PREFIX = 'wabi:dm-notes:v1';
@@ -33,6 +46,16 @@ function safeWrite<T>(key: string, value: T): void {
 
 function sortNotes(notes: LocalNote[]): LocalNote[] {
 	return [...notes].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+// Pinned notes float to the top; within each group, newest-updated first.
+export function sortNotesWithPin(notes: LocalNote[]): LocalNote[] {
+	return [...notes].sort((a, b) => {
+		const ap = a.pinned ? 1 : 0;
+		const bp = b.pinned ? 1 : 0;
+		if (ap !== bp) return bp - ap;
+		return b.updatedAt - a.updatedAt;
+	});
 }
 
 export function getKeepNotesStorageKey(userId: string | undefined): string {

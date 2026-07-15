@@ -29,6 +29,8 @@ import {
 	getDefaultPreset,
 	getDefaultStemMode
 } from './callRecordingUtils';
+import { unlockAudioContext } from './callRecordingAudio';
+import { uploadRecordingToLoreServer } from './loreRecording';
 
 // ============================================================================
 // RE-EXPORTS FROM callRecordingTypes.ts
@@ -134,6 +136,10 @@ export async function startCallRecording(options: CallRecordingStartOptions = {}
 		throw new Error('A call recording is already active.');
 	}
 
+	// Unlock audio output within the user gesture so the per-mixer AudioContext
+	// instances start in the `running` state (otherwise recordings are silent).
+	unlockAudioContext();
+
 	const snapshot = getCurrentSnapshot();
 	const mode = options.mode || getDefaultMode(snapshot);
 	const preset = options.preset || getDefaultPreset(mode);
@@ -195,6 +201,7 @@ export async function stopCallRecording(): Promise<void> {
 	}));
 	try {
 		const exported = await session.stop();
+		const fileName = get(callRecordingState).fileName;
 		callRecordingState.update((current) => ({
 			...current,
 			status: 'idle',
@@ -204,13 +211,24 @@ export async function stopCallRecording(): Promise<void> {
 			saveTarget: exported.saveTarget,
 			elapsedMs: current.startedAt ? Date.now() - current.startedAt : current.elapsedMs
 		}));
+
+		// Optional: auto-upload the main recording to the Lore "Recordings" channel.
+		if (exported.mainBlob && fileName) {
+			void uploadRecordingToLore(exported.mainBlob, fileName);
+		}
+
 		window.setTimeout(() => {
 			callRecordingState.update((current) => ({
 				...INITIAL_STATE,
 				savedPath: current.savedPath,
 				savedPaths: current.savedPaths,
 				savedFileCount: current.savedFileCount,
-				saveTarget: current.saveTarget
+				saveTarget: current.saveTarget,
+				// Preserve Lore upload status across the 6s reset so an
+				// in-flight or completed upload stays visible.
+				loreUploadStatus: current.loreUploadStatus,
+				loreUploadError: current.loreUploadError,
+				loreUploadedPath: current.loreUploadedPath
 			}));
 		}, 6_000);
 	} catch (error) {
@@ -225,4 +243,39 @@ export async function stopCallRecording(): Promise<void> {
 
 export function refreshCallRecordingMix(): void {
 	currentSession?.refresh();
+}
+
+/**
+ * Fire-and-forget upload of the main recording to the Lore Recordings channel.
+ * Updates the shared recording state with the upload progress/result.
+ */
+async function uploadRecordingToLore(blob: Blob, fileName: string): Promise<void> {
+	callRecordingState.update((current) => ({
+		...current,
+		loreUploadStatus: 'uploading',
+		loreUploadError: null,
+		loreUploadedPath: null
+	}));
+	try {
+		const outcome = await uploadRecordingToLoreServer(blob, fileName);
+		callRecordingState.update((current) => {
+			switch (outcome.status) {
+				case 'done':
+					return { ...current, loreUploadStatus: 'done', loreUploadedPath: outcome.path };
+				case 'no-channel':
+					return { ...current, loreUploadStatus: 'no-channel' };
+				case 'error':
+					return { ...current, loreUploadStatus: 'error', loreUploadError: outcome.message };
+				case 'unavailable':
+				default:
+					return { ...current, loreUploadStatus: 'none' };
+			}
+		});
+	} catch (error) {
+		callRecordingState.update((current) => ({
+			...current,
+			loreUploadStatus: 'error',
+			loreUploadError: error instanceof Error ? error.message : 'Upload failed'
+		}));
+	}
 }

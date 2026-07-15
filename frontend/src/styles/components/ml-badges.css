@@ -42,8 +42,8 @@
 
 
 	.role-inline-badge.tone-default {
-		background: color-mix(in srgb, var(--accent-primary) 16%, var(--surface-base));
-		border-color: color-mix(in srgb, var(--accent-primary) 42%, transparent);
+		background: color-mix(in srgb, var(--accent-primary-color) 16%, var(--surface-base));
+		border-color: color-mix(in srgb, var(--accent-primary-color) 42%, transparent);
 		color: var(--text-secondary);
 	}
 
@@ -105,8 +105,8 @@
 
 
 	.message-persistence-badge.is-failed {
-		background: color-mix(in srgb, var(--color-danger, var(--accent-primary, #ff1493)) 14%, transparent);
-		color: color-mix(in srgb, var(--color-danger, var(--accent-primary, #ff1493)) 88%, var(--text-heading));
+		background: color-mix(in srgb, var(--color-danger, #ef4444) 14%, transparent);
+		color: color-mix(in srgb, var(--color-danger, #ef4444) 88%, var(--text-heading));
 	}
 
 
@@ -123,9 +123,9 @@
 
 
 	.message-persistence-retry {
-		border: 1px solid color-mix(in srgb, var(--color-danger, var(--accent-primary, #ff1493)) 30%, transparent);
+		border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 30%, transparent);
 		background: transparent;
-		color: color-mix(in srgb, var(--color-danger, var(--accent-primary, #ff1493)) 88%, var(--text-heading));
+		color: color-mix(in srgb, var(--color-danger, #ef4444) 88%, var(--text-heading));
 		border-radius: 999px;
 		padding: 0.16rem 0.55rem;
 		font-size: 0.72rem;
@@ -136,6 +136,6 @@
 
 
 	.message-persistence-retry:hover {
-		background: color-mix(in srgb, var(--color-danger, var(--accent-primary, #ff1493)) 10%, transparent);
-		border-color: color-mix(in srgb, var(--color-danger, var(--accent-primary, #ff1493)) 50%, transparent);
+		background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, transparent);
+		border-color: color-mix(in srgb, var(--color-danger, #ef4444) 50%, transparent);
 	}

@@ -83,7 +83,8 @@ export {
 	spatialAudioRuntimeStatus,
 	spatialAudioDiagnostics,
 	spatialSeatDebugState,
-	sfuMediaActive
+	sfuMediaActive,
+	callOfflineNotice
 } from './callingStateStores';
 
 // Re-export audio capture functions

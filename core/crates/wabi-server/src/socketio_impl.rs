@@ -1,3 +1,5 @@
+use wabidb::engine::wabi_store::WabiStore;
+
 include!("socketio/shared.rs");
 include!("socketio/presence.rs");
 include!("socketio/messages.rs");

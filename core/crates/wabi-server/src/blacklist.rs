@@ -13,10 +13,11 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 /// Blacklist entry
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct BlacklistEntry {
     pub entry_type: BlacklistType,
     pub value: String,
@@ -47,6 +48,7 @@ pub struct BlacklistManager {
     file_path: String,
 }
 
+#[allow(dead_code)]
 impl BlacklistManager {
     pub fn new(file_path: String) -> Self {
         Self {
@@ -203,8 +205,122 @@ impl BlacklistManager {
         info!("[blacklist] Removed user {} from blacklist", user_id);
     }
 
+    /// Clear all blacklist entries (admin use). In-memory only.
+    pub async fn clear_all(&self) {
+        let mut guard = self.entries.write().await;
+        let count = guard.len();
+        guard.clear();
+        info!("[blacklist] Cleared all {} entries", count);
+    }
+
+    /// Sweep expired entries. Required to prevent unbounded memory growth
+    /// when entries are added with `expires_at` and never get re-checked
+    /// after expiration (the `is_user_banned` check filters at read time
+    /// but the entry stays in the map).
+    ///
+    /// WABI_AUDIT_REPORT.md finding #6 + WABI_BAN_SYSTEM_MEMORY_FIX.md.
+    ///
+    /// Returns the number of entries removed.
+    pub async fn cleanup_expired(&self) -> usize {
+        let now = chrono::Utc::now().timestamp() as u64;
+        let mut guard = self.entries.write().await;
+        let before = guard.len();
+        guard.retain(|_, entry| match entry.expires_at {
+            None => true,                                // never expires — keep
+            Some(expires) => now < expires,              // not yet expired — keep
+        });
+        let removed = before - guard.len();
+        if removed > 0 {
+            info!("[blacklist] Cleaned up {} expired entries", removed);
+        }
+        removed
+    }
+
     /// Reload blacklist from file
     pub async fn reload(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.load_from_file().await
+    }
+}
+
+/// Spawn a periodic cleanup task for the blacklist. 5-minute interval.
+/// Returns the JoinHandle so shutdown can cancel the loop.
+pub fn spawn_blacklist_cleanup_loop(
+    manager: Arc<BlacklistManager>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+        interval.tick().await; // skip the immediate first tick
+        loop {
+            interval.tick().await;
+            manager.cleanup_expired().await;
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    //! WABI_AUDIT_REPORT.md finding #6 + WABI_BAN_SYSTEM_MEMORY_FIX.md.
+    //!
+    //! Tests assert the cleanup_expired and clear_all methods work as
+    //! expected: expired entries are swept, non-expired entries survive,
+    //! and clear_all removes everything.
+
+    use super::*;
+
+    fn test_manager() -> BlacklistManager {
+        BlacklistManager::new("/tmp/test_blacklist.txt".to_string())
+    }
+
+    #[tokio::test]
+    async fn cleanup_expired_removes_expired_keeps_active() {
+        let m = test_manager();
+        // Active entry (never expires)
+        m.add_user(1, "perm ban", None).await;
+        // Active entry (far future expiry)
+        m.add_user(2, "temp ban", Some(u64::MAX)).await;
+        // Already expired
+        m.add_user(3, "already expired", Some(1)).await;
+
+        assert_eq!(m.is_user_banned(1).await.is_some(), true);
+        assert_eq!(m.is_user_banned(2).await.is_some(), true);
+        // is_user_banned returns None for expired (filters at read)
+        assert_eq!(m.is_user_banned(3).await.is_some(), false);
+        // But the entry is still in the map
+        assert_eq!(m.entries.read().await.len(), 3);
+
+        let removed = m.cleanup_expired().await;
+        assert_eq!(removed, 1); // only user 3 was expired
+
+        // After cleanup, expired entry is gone
+        assert_eq!(m.entries.read().await.len(), 2);
+        // Active entries still banned
+        assert!(m.is_user_banned(1).await.is_some());
+        assert!(m.is_user_banned(2).await.is_some());
+        // Expired entry is now also gone (not just filtered)
+        assert!(m.is_user_banned(3).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn clear_all_removes_everything() {
+        let m = test_manager();
+        m.add_user(1, "ban 1", None).await;
+        m.add_user(2, "ban 2", None).await;
+        m.add_user(3, "ban 3", None).await;
+        assert_eq!(m.entries.read().await.len(), 3);
+
+        m.clear_all().await;
+        assert_eq!(m.entries.read().await.len(), 0);
+        assert!(m.is_user_banned(1).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn remove_user_only_removes_target() {
+        let m = test_manager();
+        m.add_user(1, "ban 1", None).await;
+        m.add_user(2, "ban 2", None).await;
+
+        m.remove_user(1).await;
+        assert!(m.is_user_banned(1).await.is_none());
+        assert!(m.is_user_banned(2).await.is_some());
     }
 }

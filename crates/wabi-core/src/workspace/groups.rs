@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
-use super::{ChannelType, ChannelView, ConversationUserSummary, MessageRetentionDuration, UserStatus};
+use super::{ChannelType, ChannelView, ConversationUserSummary, MessageRetentionDuration};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS))]

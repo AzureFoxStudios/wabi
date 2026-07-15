@@ -14,11 +14,13 @@ import { VALID_TRANSITIONS, type ConnectionState, socket, connected, connectionS
 import { SocketHeartbeat } from './socketConnectionHeartbeat';
 import { SocketReconnectionManager } from './socketConnectionReconnect';
 import type { Channel, Message, User } from './socket-types';
-import { channels, currentChannel, _updatePinnedChannels } from './channelStore';
-import { channelMessages, _updateOptimisticMessage } from './messageStore';
+import { channels, currentChannel, joinChannel, _updatePinnedChannels } from './channelStore';
+import { channelMessages, _updateOptimisticMessage, _removeOptimisticMessage } from './messageStore';
+import { isRenderableMessage } from '$lib/displayEnhancements';
 import {
 	users,
 	serverMembers,
+	voiceChannelMembers,
 	_setUsers,
 	_setCurrentUser,
 	_setServerMembers,
@@ -28,6 +30,7 @@ import {
 	_removeVoiceChannelMember
 } from './presenceStore';
 import { _setTypingUsers, _clearTypingUsers } from './typingStore';
+import { incomingCall, outgoingCall } from './callingStateStores';
 
 function classifyError(errorMessage: string): { fatal: boolean; userMessage: string; errorType: string } {
 	const lower = (errorMessage || '').toLowerCase();
@@ -54,6 +57,7 @@ export class SocketManager {
 	private authToken: string | null = null;
 	private currentServerUrl: string | null = null;
 	private shouldSyncAfterReconnect = false;
+	private lastConnected = 0;
 
 	private state: ConnectionState = 'disconnected';
 	private heartbeat: SocketHeartbeat;
@@ -61,6 +65,8 @@ export class SocketManager {
 	private connectTimeoutMs = 20000;
 	private boundListeners: Set<string> = new Set();
 	private typingClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	private lastConnectStartedAt = 0;
+	private fastReconnectCount = 0;
 
 	constructor() {
 		this.heartbeat = new SocketHeartbeat(() => this.socketInstance?.disconnect());
@@ -144,7 +150,20 @@ export class SocketManager {
 		}
 
 		this.reconnect.incrementAttempt();
-		const delay = this.reconnect.calculateBackoffDelay();
+		let delay = this.reconnect.calculateBackoffDelay();
+
+		// Circuit breaker: if we keep disconnecting immediately after connecting
+		// (the classic "disconnect -> connecting loop after Init received"), back
+		// off hard instead of hammering the server in a tight reconnect storm.
+		const sinceConnected = this.lastConnected > 0 ? Date.now() - this.lastConnected : Number.POSITIVE_INFINITY;
+		if (sinceConnected < 5000) {
+			this.fastReconnectCount += 1;
+		} else {
+			this.fastReconnectCount = 0;
+		}
+		if (this.fastReconnectCount >= 3) {
+			delay = Math.max(delay, 15000);
+		}
 
 		console.log(`[SocketManager] Scheduling reconnect (attempt ${this.reconnect.getAttemptCount()}/${this.reconnect.getMaxAttempts()}) in ${Math.round(delay)}ms`);
 
@@ -202,6 +221,16 @@ export class SocketManager {
 			return this.socketInstance;
 		}
 
+		// Re-entry cooldown: a connect() invoked again within a few hundred ms of
+		// starting a connection (e.g. overlapping bootstrap + login handlers, or
+		// aggressive HMR remounts) must not spin up a second socket that the
+		// server would then kick, triggering a disconnect/reconnect storm.
+		if (this.socketInstance && Date.now() - this.lastConnectStartedAt < 500) {
+			console.log('[SocketManager] Ignoring duplicate connect() within cooldown window');
+			return this.socketInstance;
+		}
+		this.lastConnectStartedAt = Date.now();
+
 		if (!this.canTransition('connecting')) {
 			console.warn(`[SocketManager] Cannot connect from state: ${this.state}`);
 			this.forceReset();
@@ -229,7 +258,7 @@ export class SocketManager {
 		console.log('[SocketManager] Connecting to:', serverUrl, token ? '(token)' : sessionId ? '(session)' : '(new)');
 
 		this.socketInstance = io(serverUrl, {
-			transports: ['websocket', 'polling'],
+			transports: ['websocket'],
 			reconnection: false,
 			timeout: this.connectTimeoutMs,
 			withCredentials: true,
@@ -247,6 +276,10 @@ export class SocketManager {
 	}
 
 	disconnect(): void {
+		if (this.state === 'connected' && Date.now() - this.lastConnected < 1500) {
+			// Prevent rapid disconnect right after successful init (HMR/auth timing)
+			return;
+		}
 		console.log('[SocketManager] Disconnect requested');
 		this.reconnect.cancelReconnect();
 		this.heartbeat.stop();
@@ -284,6 +317,8 @@ export class SocketManager {
 			console.log('[SocketManager] Connected, socket.id:', sock.id);
 
 			this.transition('connected');
+			this.lastConnected = Date.now();
+			this.fastReconnectCount = 0;
 			this.reconnect.resetAttempts();
 			this.currentServerUrl = normalizeServerUrl(getServerUrl()) || this.currentServerUrl;
 			if (this.currentServerUrl) {
@@ -374,7 +409,11 @@ export class SocketManager {
 			const activeChannel = get(currentChannel);
 			if (nextChannels.length > 0 && !nextChannels.some((channel) => channel.id === activeChannel)) {
 				const general = nextChannels.find((channel) => channel.id === 'general');
-				currentChannel.set((general || nextChannels[0]).id);
+				const newChannel = (general || nextChannels[0]).id;
+				currentChannel.set(newChannel);
+				joinChannel(newChannel);
+			} else if (nextChannels.length > 0) {
+				joinChannel(activeChannel);
 			}
 
 			_setUsers(payload?.users || []);
@@ -402,16 +441,49 @@ export class SocketManager {
 			});
 		});
 
+		const upsertChannel = (channel: Channel | undefined) => {
+			if (!channel?.id) return;
+			channels.update((current) => {
+				const existingIndex = current.findIndex((candidate) => candidate.id === channel.id);
+				if (existingIndex === -1) return [...current, channel];
+				return current.map((candidate, index) => index === existingIndex ? { ...candidate, ...channel } : candidate);
+			});
+			_updatePinnedChannels();
+		};
+
+		sock.on('dm-created', (payload: { channel?: Channel; channelId?: string }) => {
+			upsertChannel(payload?.channel);
+		});
+
+		sock.on('dm-channel-added', (payload: { channel?: Channel; channelId?: string }) => {
+			upsertChannel(payload?.channel);
+		});
+
+		sock.on('group-created', (payload: { channel?: Channel; channelId?: string }) => {
+			upsertChannel(payload?.channel);
+		});
+
+		sock.on('group-channel-added', (payload: { channel?: Channel; channelId?: string }) => {
+			upsertChannel(payload?.channel);
+		});
+
 		sock.on('channel-messages', (payload: { channelId?: string; messages?: Message[] }) => {
 			if (!payload?.channelId) return;
+			const sanitized = Array.isArray(payload.messages)
+				? payload.messages.filter((m) => isRenderableMessage(m))
+				: [];
 			channelMessages.update((state) => ({
 				...state,
-				[payload.channelId as string]: Array.isArray(payload.messages) ? payload.messages : []
+				[payload.channelId as string]: sanitized
 			}));
 		});
 
 		sock.on('message', (payload: { channelId?: string; message?: Message }) => {
 			if (!payload?.channelId || !payload.message) return;
+			if (!isRenderableMessage(payload.message)) {
+				console.warn('[socket] Dropping malformed message payload', payload.message);
+				return;
+			}
 			const channelId = payload.channelId;
 			const message = payload.message;
 			channelMessages.update((state) => {
@@ -448,7 +520,48 @@ export class SocketManager {
 
 		sock.on('message-deleted', (payload: { channelId?: string; messageId?: string }) => {
 			if (!payload?.channelId || !payload.messageId) return;
-			_updateOptimisticMessage(payload.channelId, (message) => message.id === payload.messageId, { isDeleted: true });
+			_removeOptimisticMessage(payload.channelId, payload.messageId);
+		});
+
+		sock.on('channel-messages-cleared', (payload: { channelId?: string }) => {
+			if (!payload?.channelId) return;
+			const channelId = payload.channelId;
+			channelMessages.update((state) => ({
+				...state,
+				[channelId]: []
+			}));
+			import('$lib/storage').then(({ chatStorage }) => {
+				chatStorage.clearChannelMessages(channelId).catch((e) =>
+					console.warn('[socket] failed to clear local cache for', channelId, e)
+				);
+			});
+		});
+
+		sock.on('channel-updated', (payload: any) => {
+			const id = payload?.channelId || payload?.id;
+			if (!id) return;
+			channels.update((list) =>
+				list.map((ch) =>
+					ch.id === id
+						? {
+								...ch,
+								...(payload.name != null ? { name: payload.name } : {}),
+								...(payload.description != null ? { description: payload.description } : {}),
+								...('autoDeleteAfter' in (payload || {})
+									? { autoDeleteAfter: payload.autoDeleteAfter ?? null }
+									: {})
+						  }
+						: ch
+				)
+			);
+		});
+
+		sock.on('edit-error', (payload: { messageId?: string; error?: string }) => {
+			console.warn('[socket] edit-error', payload?.messageId, payload?.error);
+		});
+
+		sock.on('delete-error', (payload: { messageId?: string; error?: string }) => {
+			console.warn('[socket] delete-error', payload?.messageId, payload?.error);
 		});
 
 		sock.on('message-edited', (payload: { channelId?: string; messageId?: string; newText?: string }) => {
@@ -457,6 +570,17 @@ export class SocketManager {
 				text: payload.newText,
 				isEdited: true
 			});
+		});
+
+		sock.on('message-pinned', (payload: { channelId?: string; messageId?: string; isPinned?: boolean }) => {
+			if (!payload?.channelId || !payload.messageId || payload.isPinned === undefined) return;
+			_updateOptimisticMessage(payload.channelId, (message) => message.id === payload.messageId, {
+				isPinned: payload.isPinned
+			});
+		});
+
+		sock.on('pin-error', (payload: { messageId?: string; error?: string }) => {
+			console.warn('[socket] pin-error', payload?.messageId, payload?.error);
 		});
 
 		sock.on('typing', (payload: { channelId?: string; usernames?: string[]; userIds?: string[] }) => {
@@ -494,6 +618,203 @@ export class SocketManager {
 		sock.on('voice-channel-joined', (payload: { channelId?: string; user?: any }) => {
 			if (!payload?.channelId || !payload.user?.userId) return;
 			_updateVoiceChannelMember(payload.channelId, payload.user.userId, payload.user);
+		});
+
+		sock.on('voice-transmit-mode-updated', (payload: { userId?: string; mode?: 'primary' | 'all-listening' }) => {
+			if (!payload?.userId || !payload.mode) return;
+			const mode = payload.mode;
+			voiceChannelMembers.update((byChannel) => {
+				const next = { ...byChannel };
+				for (const [channelId, members] of Object.entries(next)) {
+					next[channelId] = members.map((member) =>
+						member.userId === payload.userId ? { ...member, transmitMode: mode } : member
+					);
+				}
+				return next;
+			});
+		});
+
+		sock.on('screen-share-targets', (payload: { targets?: Array<{ userId?: string; username?: string }> }) => {
+			void import('./calling').then(({ createScreenShareOffer, isSharing }) => {
+				if (!get(isSharing)) return;
+				for (const target of payload?.targets ?? []) {
+					if (target?.userId) void createScreenShareOffer(sock, target.userId);
+				}
+			}).catch((error) => console.warn('[Socket] Failed to create screen share offers:', error));
+		});
+
+		sock.on('webrtc-offer', (payload: { senderId?: string; username?: string; offer?: RTCSessionDescriptionInit }) => {
+			if (!payload?.senderId || !payload.offer) return;
+			void import('./calling').then(({ handleScreenShareOffer }) =>
+				handleScreenShareOffer(sock, payload.senderId!, payload.username || 'Screen Share', payload.offer!)
+			).catch((error) => console.warn('[Socket] Failed to handle screen share offer:', error));
+		});
+
+		sock.on('webrtc-answer', (payload: { senderId?: string; answer?: RTCSessionDescriptionInit }) => {
+			if (!payload?.senderId || !payload.answer) return;
+			void import('./calling').then(({ handleScreenShareAnswer }) =>
+				handleScreenShareAnswer(payload.senderId!, payload.answer!)
+			).catch((error) => console.warn('[Socket] Failed to handle screen share answer:', error));
+		});
+
+		sock.on('webrtc-ice-candidate', (payload: { senderId?: string; candidate?: RTCIceCandidateInit }) => {
+			if (!payload?.senderId || !payload.candidate) return;
+			void import('./calling').then(({ handleScreenShareIceCandidate }) =>
+				handleScreenShareIceCandidate(payload.senderId!, payload.candidate!)
+			).catch((error) => console.warn('[Socket] Failed to handle screen share ICE candidate:', error));
+		});
+
+		// =====================================================================
+		// P2P / DM / Group call signaling
+		// =====================================================================
+		sock.on('call-incoming', (payload: { userId?: string; username?: string; isVideoCall?: boolean; channelId?: string; channelName?: string }) => {
+			if (!payload?.userId) return;
+			incomingCall.set({
+				userId: payload.userId,
+				username: payload.username || 'User',
+				isVideoCall: Boolean(payload.isVideoCall),
+				channelId: payload.channelId,
+				channelName: payload.channelName
+			});
+		});
+
+		sock.on('call-accepted', (payload: { userId?: string; username?: string; isVideoCall?: boolean }) => {
+			if (!payload?.userId) return;
+			const pending = get(outgoingCall);
+			const targetId = pending?.targetUserId || payload.userId;
+			void import('./calling').then(async ({ beginEstablishedDirectCall, createCallOffer }) => {
+				if (!beginEstablishedDirectCall()) return;
+				await createCallOffer(
+					sock,
+					targetId,
+					payload.username || 'User',
+					pending?.channelId ? { channelId: pending.channelId } : {}
+				);
+			}).catch((error) => console.warn('[Socket] Failed to create call offer:', error));
+		});
+
+		sock.on('call-offer', (payload: { offer?: RTCSessionDescriptionInit; senderId?: string; username?: string; channelId?: string }) => {
+			if (!payload?.senderId || !payload.offer) return;
+			void import('./calling').then(({ handleCallOffer }) =>
+				handleCallOffer(sock, payload.senderId!, payload.username || 'User', payload.offer!, payload.channelId)
+			).catch((error) => console.warn('[Socket] Failed to handle call offer:', error));
+		});
+
+		sock.on('call-answer-sdp', (payload: { answer?: RTCSessionDescriptionInit; senderId?: string }) => {
+			if (!payload?.senderId || !payload.answer) return;
+			void import('./calling').then(({ handleCallAnswer }) =>
+				handleCallAnswer(payload.senderId!, payload.answer!)
+			).catch((error) => console.warn('[Socket] Failed to handle call answer:', error));
+		});
+
+		sock.on('call-ice-candidate', (payload: { candidate?: RTCIceCandidateInit; senderId?: string }) => {
+			if (!payload?.senderId || !payload.candidate) return;
+			void import('./calling').then(({ handleCallIceCandidate }) =>
+				handleCallIceCandidate(payload.senderId!, payload.candidate!)
+			).catch((error) => console.warn('[Socket] Failed to handle call ICE candidate:', error));
+		});
+
+		sock.on('call-ended', (payload: { userId?: string }) => {
+			const userId = payload?.userId;
+			if (userId) void import('./calling').then(({ handleRemoteDirectCallEnded }) => handleRemoteDirectCallEnded(userId))
+				.catch((error) => console.warn('[Socket] Failed to handle call ended:', error));
+		});
+
+		sock.on('call-cancelled', (payload: { userId?: string; callerId?: string }) => {
+			const id = payload?.callerId || payload?.userId || '';
+			void import('./calling').then(({ handleIncomingCallCancelled }) => handleIncomingCallCancelled(id))
+				.catch((error) => console.warn('[Socket] Failed to handle call cancelled:', error));
+		});
+
+		sock.on('call-rejected', (payload: { userId?: string; callerId?: string }) => {
+			const id = payload?.callerId || payload?.userId || '';
+			void import('./calling').then(({ handleIncomingCallCancelled }) => handleIncomingCallCancelled(id))
+				.catch((error) => console.warn('[Socket] Failed to handle call rejected:', error));
+		});
+
+		sock.on('call-error', (payload: { code?: string; message?: string; targetUserId?: string }) => {
+			console.warn('[Socket] call-error:', payload?.code, payload?.message);
+			if (payload?.targetUserId) {
+				void import('./calling').then(({ handleIncomingCallCancelled }) => handleIncomingCallCancelled(payload.targetUserId!))
+					.catch((error) => console.warn('[Socket] Failed to handle call error:', error));
+			}
+		});
+
+		sock.on('group-call-participant-joined', (payload: { channelId?: string; channelName?: string; userId?: string; username?: string; stableUserId?: string }) => {
+			if (!payload?.channelId || !payload?.userId) return;
+			void import('./calling').then(({ handleGroupCallParticipantJoined }) =>
+				handleGroupCallParticipantJoined(sock, {
+					channelId: payload.channelId!,
+					channelName: payload.channelName,
+					userId: payload.userId!,
+					username: payload.username || 'User',
+					stableUserId: payload.stableUserId
+				})
+			).catch((error) => console.warn('[Socket] Failed to handle group participant joined:', error));
+		});
+
+		sock.on('group-call-participant-left', (payload: { channelId?: string; userId?: string }) => {
+			if (!payload?.channelId || !payload?.userId) return;
+			void import('./calling').then(({ handleGroupCallParticipantLeft }) =>
+				handleGroupCallParticipantLeft({ channelId: payload.channelId!, userId: payload.userId! })
+			).catch((error) => console.warn('[Socket] Failed to handle group participant left:', error));
+		});
+
+		sock.on('group-call-invite-cleared', (payload: { channelId?: string; stableUserId?: string }) => {
+			if (!payload?.channelId || !payload?.stableUserId) return;
+			void import('./calling').then(({ handleGroupCallInviteCleared }) =>
+				handleGroupCallInviteCleared({ channelId: payload.channelId!, stableUserId: payload.stableUserId! })
+			).catch((error) => console.warn('[Socket] Failed to handle group invite cleared:', error));
+		});
+
+		sock.on('p2p-offer', (payload: {
+			transferId?: string;
+			senderId?: string;
+			senderUsername?: string;
+			offer?: RTCSessionDescriptionInit;
+			fileName?: string;
+			fileSize?: number;
+		}) => {
+			if (!payload?.transferId || !payload.senderId || !payload.offer) return;
+			void import('./p2pFileTransfer').then(({ handleP2PIncomingOffer }) =>
+				handleP2PIncomingOffer({
+					transferId: payload.transferId!,
+					senderId: payload.senderId!,
+					senderUsername: payload.senderUsername || 'User',
+					offer: payload.offer!,
+					fileName: payload.fileName || 'unknown',
+					fileSize: payload.fileSize || 0
+				})
+			).catch((error) => console.warn('[Socket] Failed to handle P2P offer:', error));
+		});
+
+		sock.on('p2p-answer', (payload: { transferId?: string; senderId?: string; answer?: RTCSessionDescriptionInit }) => {
+			if (!payload?.transferId || !payload.senderId || !payload.answer) return;
+			void import('./p2pFileTransfer').then(({ handleP2PAnswer }) =>
+				handleP2PAnswer({
+					transferId: payload.transferId!,
+					senderId: payload.senderId!,
+					answer: payload.answer!
+				})
+			).catch((error) => console.warn('[Socket] Failed to handle P2P answer:', error));
+		});
+
+		sock.on('p2p-ice-candidate', (payload: { transferId?: string; senderId?: string; candidate?: RTCIceCandidateInit }) => {
+			if (!payload?.transferId || !payload.senderId || !payload.candidate) return;
+			void import('./p2pFileTransfer').then(({ handleP2PIceCandidate }) =>
+				handleP2PIceCandidate({
+					transferId: payload.transferId!,
+					senderId: payload.senderId!,
+					candidate: payload.candidate!
+				})
+			).catch((error) => console.warn('[Socket] Failed to handle P2P ICE candidate:', error));
+		});
+
+		sock.on('screen-share-stopped', (payload: { senderId?: string; userId?: string }) => {
+			const userId = payload?.senderId || payload?.userId;
+			if (!userId) return;
+			void import('./calling').then(({ removeScreenShare }) => removeScreenShare(userId))
+				.catch((error) => console.warn('[Socket] Failed to remove screen share:', error));
 		});
 
 		sock.on('voice-channel-user-joined', (payload: { channelId?: string; userId?: string; socketId?: string; username?: string }) => {

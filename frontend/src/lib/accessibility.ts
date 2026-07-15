@@ -163,7 +163,7 @@ export function getStoredAccessibilitySettings(): AccessibilitySettings {
 	try {
 		const raw = localStorage.getItem(ACCESSIBILITY_SETTINGS_KEY);
 		if (raw) {
-			return normalizeSettings(JSON.parse(raw) as Partial<AccessibilitySettings>);
+			const s = normalizeSettings(JSON.parse(raw) as Partial<AccessibilitySettings>); s.messageDensity = "cozy"; return s;
 		}
 	} catch {
 		// Fall through to legacy/default loading
@@ -208,6 +208,7 @@ export function applyAccessibilitySettings(settings: AccessibilitySettings): voi
 	root.setAttribute('data-color-assist', currentSettings.colorAssistEnabled ? 'true' : 'false');
 	root.setAttribute('data-own-messages-right', currentSettings.ownMessagesOnRight ? 'true' : 'false');
 	root.setAttribute('data-chat-avatar-mode', currentSettings.chatAvatarMode);
+	currentSettings.messageDensity = "cozy";
 	root.setAttribute('data-message-density', currentSettings.messageDensity);
 	root.setAttribute('data-deletion-countdown-mode', currentSettings.deletionCountdownMode);
 	root.setAttribute('data-clickable-send', currentSettings.clickableSendEnabled ? 'true' : 'false');

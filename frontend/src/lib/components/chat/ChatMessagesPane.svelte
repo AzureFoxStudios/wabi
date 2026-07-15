@@ -10,6 +10,7 @@
 
 	export let currentChannel = '';
 	export let searchInput = '';
+	export let channelDisplayName = '';
 	export let filteredMessages: Message[] = [];
 	export let pinnedMessages: Message[] = [];
 	export let firstUnreadMessageId: string | null = null;
@@ -28,6 +29,12 @@
 	export let onReply: (message: Message) => void;
 	export let onQuickMention: (message: Message) => void;
 	export let onOpenSettings: () => void;
+
+	function focusComposer(): void {
+		if (typeof document === 'undefined') return;
+		const composer = document.querySelector<HTMLTextAreaElement>('.input-container textarea');
+		composer?.focus();
+	}
 </script>
 
 {#if $displayEnhancementSettingsStore.betterSearchPageEnabled && searchInput}
@@ -70,6 +77,21 @@
 	>
 		{#if !searchInput}
 			<PinnedMessages {pinnedMessages} />
+		{/if}
+		{#if filteredMessages.length === 0 && pinnedMessages.length === 0 && !searchInput}
+			<div class="empty-state">
+				<div class="empty-state-icon">#</div>
+				<div class="empty-state-title">{channelDisplayName || currentChannel}</div>
+				<div class="empty-state-subtitle">This is the start of your self-hosted space.</div>
+				<div class="empty-state-actions">
+					<button class="empty-state-btn" type="button" on:click={focusComposer}>Send first message</button>
+				</div>
+			</div>
+		{:else if filteredMessages.length === 0 && searchInput}
+			<div class="empty-state">
+				<div class="empty-state-title">No results</div>
+				<div class="empty-state-subtitle">No messages match "{searchInput}"</div>
+			</div>
 		{/if}
 		<MessageList
 			messages={filteredMessages}

@@ -1,39 +1,35 @@
 #![allow(dead_code)]
 //! Application state
+//!
+//! NOTE: This is an OLD duplicate AppState that pre-dates the main
+//! `crate::state::AppState`. It has no importers anywhere in the
+//! codebase. The WDB dependency was removed in the WDB migration; the
+//! rest of the file is harmless dead code that will be deleted in a
+//! follow-up cleanup pass. Marked `#[allow(dead_code)]` at the crate
+//! level via the `#![allow(dead_code)]` above.
 
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use crate::api::upload::UploadState;
 use crate::config::ServerConfig;
-use crate::db::StdbClient;
 
-/// Shared application state
+/// Stub AppState — the real one lives in `crate::state`. This struct
+/// is retained for module-path compatibility but is unused.
 pub struct AppState {
     pub config: ServerConfig,
     pub ws_tx: broadcast::Sender<Arc<crate::websocket::WsMessage>>,
-    pub stdb: StdbClient,
     pub upload_state: UploadState,
 }
 
 impl AppState {
-    /// Create new application state
+    /// Create a new stub AppState. The WDB field is gone; the WDB
+    /// equivalent lives in the real `AppState` at `crate::state`.
     pub fn new(config: ServerConfig) -> Self {
         let (ws_tx, _) = broadcast::channel(1000);
-
-        // Create SpacetimeDB client from environment or defaults
-        let stdb_server = std::env::var("WABI_STDB_SERVER")
-            .unwrap_or_else(|_| "http://localhost:3100".to_string());
-        let stdb_database = std::env::var("WABI_STDB_DATABASE")
-            .unwrap_or_else(|_| "wabi-state-benchmark-v2".to_string());
-        let stdb_token = std::env::var("WABI_STDB_TOKEN").ok();
-
-        let stdb = StdbClient::new(stdb_server, stdb_database, stdb_token);
-
         Self {
             config,
             ws_tx,
-            stdb,
             upload_state: UploadState::new(),
         }
     }
@@ -50,8 +46,6 @@ impl Default for AppState {
             turn_enabled: false,
             turn_uri: None,
             turn_secret: None,
-            stdb_uri: "http://localhost:3100".to_string(),
-            stdb_database: "wabi-state-benchmark-v2".to_string(),
             node_id: "node-1".to_string(),
             is_primary: true,
             mesh_enabled: false,
@@ -60,6 +54,8 @@ impl Default for AppState {
             authority_url: None,
             admin_user_ids: vec![],
             blacklist_file: "./data/blacklist.txt".to_string(),
+            max_body_size: None,
+            lore: Default::default(),
         })
     }
 }

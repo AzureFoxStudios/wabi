@@ -86,29 +86,3 @@
 	transition: opacity var(--duration-normal, 250ms) ease;
 }
 
-/* --- Resize Handle --- */
-.resize-handle {
-	position: absolute;
-	top: 0;
-	bottom: 0;
-	width: 6px;
-	padding: 0;
-	border: 0;
-	background: transparent;
-	cursor: col-resize;
-	z-index: var(--z-sticky, 200);
-	transition: background var(--duration-fast, 150ms);
-}
-
-.resize-handle:hover {
-	background: var(--accent-primary, var(--accent, #ff00ff));
-	opacity: 0.5;
-}
-
-.resize-handle-channel {
-	right: -3px;
-}
-
-.resize-handle-right {
-	left: -3px;
-}

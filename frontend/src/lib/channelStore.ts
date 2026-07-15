@@ -142,6 +142,30 @@ export function updateChannelSettings(channelId: string, settings: {
 }): void {
 	const sock = getSocket();
 	if (!sock) return;
+	// Optimistic local channel patch so timers/UI update immediately
+	channels.update((list) =>
+		list.map((ch) =>
+			ch.id === channelId
+				? {
+						...ch,
+						...(settings.name !== undefined ? { name: settings.name } : {}),
+						...(settings.description !== undefined ? { description: settings.description } : {}),
+						...(settings.autoDeleteAfter !== undefined
+							? { autoDeleteAfter: settings.autoDeleteAfter as any }
+							: {}),
+						...(settings.persistMessages !== undefined
+							? { persistMessages: settings.persistMessages }
+							: {}),
+						...(settings.watchQueueEnabled !== undefined
+							? { watchQueueEnabled: settings.watchQueueEnabled }
+							: {}),
+						...(settings.voiceSettings !== undefined
+							? { voiceSettings: settings.voiceSettings }
+							: {})
+					}
+				: ch
+		)
+	);
 	sock.emit('update-channel-settings', { channelId, settings });
 }
 

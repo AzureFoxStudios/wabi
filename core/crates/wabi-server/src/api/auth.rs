@@ -11,8 +11,11 @@ use jsonwebtoken::{encode, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::auth_extractor::AuthUser;
 use crate::error::{AppError, Result};
 use crate::state::AppState;
+use serde_json::{json, Value};
+use wabidb::engine::wabi_store::WabiStore;
 
 /// Create auth router
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
@@ -20,6 +23,9 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/register", axum::routing::post(handle_register))
         .route("/login", axum::routing::post(handle_login))
         .route("/guest", axum::routing::post(handle_guest))
+        .route("/logout", axum::routing::post(handle_logout))
+        .route("/recover", axum::routing::post(handle_recover))
+        .route("/stepup", axum::routing::post(handle_stepup))
         .route(
             "/turn-credentials",
             axum::routing::post(handle_turn_credentials),
@@ -76,20 +82,42 @@ async fn handle_register(
 
     let password_hash = bcrypt::hash(&req.password, bcrypt::DEFAULT_COST)?;
 
-    let existing = state.stdb.get_user(&req.username).await?;
-    if !existing.is_empty() {
+    let existing = state
+        .wdb
+        .get_user_by_username(&req.username)
+        .await?;
+    if existing.is_some() {
         return Err(AppError::BadRequest("Username already taken".into()));
     }
 
-    let handle = req.handle.unwrap_or_else(|| req.username.to_lowercase());
-    let user_id = state
-        .stdb
-        .create_user(&req.username, &password_hash)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to create user: {}", e)))?;
+    let handle = req.handle.clone().unwrap_or_else(|| req.username.to_lowercase());
+    let user_id_u64 = state
+        .wdb
+        .create_user(&req.username, Some(&handle), &password_hash)
+        .await?;
+    let user_id = user_id_u64 as i64;
 
     // First registrant on a fresh server automatically becomes the owner.
-    state.claim_ownership(user_id, &req.username).await;
+    let was_first = state.claim_ownership(user_id, &req.username).await;
+
+    // Seed default channels on first-ever registration.
+    if was_first {
+        use wabidb::domain::{ChannelKind, MemberRole};
+        for (name, kind) in &[("general", ChannelKind::Text), ("general", ChannelKind::Voice)] {
+            match state.wdb.create_channel(name, *kind, user_id as u64).await {
+                Ok(ch_id) => {
+                    if let Err(e) = state
+                        .wdb
+                        .add_channel_member(&ch_id, user_id as u64, MemberRole::Owner)
+                        .await
+                    {
+                        tracing::warn!("[setup] failed to add owner to default channel {ch_id}: {e}");
+                    }
+                }
+                Err(e) => tracing::warn!("[setup] failed to create default channel {name}: {e}"),
+            }
+        }
+    }
 
     let token = generate_jwt(&state, user_id, &req.username)?;
 
@@ -118,57 +146,32 @@ async fn handle_login(
     State(state): State<Arc<AppState>>,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>> {
-    let users = state
-        .stdb
-        .get_user(&req.username)
+    let user_row = state
+        .wdb
+        .get_user_by_username(&req.username)
         .await
-        .map_err(|e| AppError::Internal(format!("Failed to fetch user: {}", e)))?;
+        .map_err(|e| AppError::Internal(format!("wdb get_user_by_username: {e}")))?
+        .ok_or_else(|| {
+            AppError::Unauthorized("Invalid username or password".into())
+        })?;
 
-    tracing::info!(
+    let user_id = user_row.user_id as i64;
+
+    tracing::debug!(
         "[login] username={} found={}",
         req.username,
-        !users.is_empty()
+        user_row.user_id
     );
 
-    if users.is_empty() {
+    // Guest users don't have password_hash - they must use guest login
+    if user_row.password_hash.is_empty() {
         return Err(AppError::Unauthorized(
-            "Invalid username or password".into(),
+            "This account is guest-only. Use 'Join as Guest' or register a new account with a password.".into(),
         ));
     }
 
-    let user_row = &users[0];
-    let user_id = user_row
-        .get("user_id")
-        .and_then(|v| v.as_i64())
-        .ok_or_else(|| AppError::Internal("Invalid user_id format".into()))?;
-
-    let stored_hash = user_row.get("password_hash").and_then(|v| v.as_str());
-
-    // Guest users don't have password_hash - they must use guest login
-    if stored_hash.is_none() {
-        let is_guest = user_row
-            .get("is_guest")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        if is_guest {
-            tracing::warn!(
-                "[login] user={} is guest account, cannot login with password",
-                req.username
-            );
-            return Err(AppError::Unauthorized("This account is guest-only. Use 'Join as Guest' or register a new account with a password.".into()));
-        }
-        return Err(AppError::Internal("Missing password_hash".into()));
-    }
-    let stored_hash = stored_hash.unwrap();
-
-    tracing::info!(
-        "[login] hash_variant={} hash_cost={}",
-        &stored_hash[..4],
-        &stored_hash[4..7]
-    );
-
-    let verified = bcrypt::verify(&req.password, stored_hash)?;
-    tracing::info!(
+    let verified = bcrypt::verify(&req.password, &user_row.password_hash)?;
+    tracing::debug!(
         "[login] verify_result={} for user={}",
         verified,
         req.username
@@ -190,20 +193,9 @@ async fn handle_login(
         }
     }
 
-    let username = user_row
-        .get("username")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&req.username)
-        .to_string();
-    let handle = user_row
-        .get("handle")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    let color = user_row
-        .get("color")
-        .and_then(|v| v.as_str())
-        .unwrap_or("#98D8C8")
-        .to_string();
+    let username = user_row.username.clone();
+    let handle = user_row.handle.clone();
+    let color = user_row.color.clone();
 
     let token = generate_jwt(&state, user_id, &username)?;
 
@@ -226,6 +218,49 @@ struct GuestRequest {
     username: Option<String>,
 }
 
+/// Recovery request (owner lockout escape hatch)
+#[derive(Debug, Deserialize)]
+struct RecoverRequest {
+    code: String,
+    #[serde(rename = "userId")]
+    user_id: i64,
+}
+
+/// Logout — revoke the caller's own token (force re-auth next request).
+async fn handle_logout(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+) -> Result<Json<Value>> {
+    state.revoke_token(auth.jti).await;
+    Ok(Json(json!({ "success": true })))
+}
+
+/// Recover ownership using a one-time recovery code. This is the escape
+/// hatch when the owner is locked out (e.g. password changed by an attacker):
+/// presenting a valid code bound to `userId` reasserts ownership and forces
+/// a global token revocation. No JWT required.
+async fn handle_recover(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<RecoverRequest>,
+) -> Result<Json<Value>> {
+    if !state
+        .consume_recovery_code(&payload.code, payload.user_id)
+        .await
+    {
+        return Err(AppError::Unauthorized(
+            "invalid or already-used recovery code".into(),
+        ));
+    }
+    {
+        *state.owner_user_id.write().await = Some(payload.user_id);
+    }
+    if let Err(e) = state.wdb.claim_owner(payload.user_id as u64).await {
+        return Err(AppError::Internal(format!("failed to persist owner: {e}")));
+    }
+    state.revoke_all_tokens().await;
+    Ok(Json(json!({ "success": true, "owner_user_id": payload.user_id })))
+}
+
 /// Guest login (no password required)
 async fn handle_guest(
     State(state): State<Arc<AppState>>,
@@ -235,11 +270,12 @@ async fn handle_guest(
         .username
         .unwrap_or_else(|| format!("Guest_{}", uuid::Uuid::new_v4()));
 
-    let user_id = state
-        .stdb
-        .create_guest_user(&username)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to create guest user: {}", e)))?;
+    // Guest users: empty password hash, handle = username.
+    let user_id_u64 = state
+        .wdb
+        .create_user(&username, None, "")
+        .await?;
+    let user_id = user_id_u64 as i64;
 
     let token = generate_guest_jwt(&state, user_id, &username)?;
 
@@ -264,6 +300,8 @@ struct JwtClaims {
     is_guest: bool,
     exp: i64, // Expiration timestamp
     iat: i64, // Issued at timestamp
+    jti: String, // Unique token ID, for revocation
+    stepup: bool, // True only for step-up tokens (re-verified password)
 }
 
 /// Generate JWT token for authenticated user
@@ -277,6 +315,8 @@ fn generate_jwt(state: &AppState, user_id: i64, username: &str) -> Result<String
         is_guest: false,
         exp: expiration.timestamp(),
         iat: now.timestamp(),
+        jti: uuid::Uuid::new_v4().to_string(),
+        stepup: false,
     };
 
     let token = encode(
@@ -286,6 +326,74 @@ fn generate_jwt(state: &AppState, user_id: i64, username: &str) -> Result<String
     )?;
 
     Ok(token)
+}
+
+/// Generate a short-lived step-up JWT after the user re-proves their password.
+/// This token (carried in `X-Stepup-Token`) is required for destructive admin
+/// operations, so a stolen long-lived bearer token is not sufficient on its own.
+fn generate_stepup_jwt(state: &AppState, user_id: i64, username: &str) -> Result<String> {
+    use crate::auth_extractor::STEPUP_TTL_SECONDS;
+    let now = Utc::now();
+    let expiration = now + Duration::seconds(STEPUP_TTL_SECONDS);
+
+    let claims = JwtClaims {
+        sub: user_id.to_string(),
+        username: username.to_string(),
+        is_guest: false,
+        exp: expiration.timestamp(),
+        iat: now.timestamp(),
+        jti: uuid::Uuid::new_v4().to_string(),
+        stepup: true,
+    };
+
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(state.config.jwt_secret.as_bytes()),
+    )?;
+
+    Ok(token)
+}
+
+/// Step-up request — re-present the account password to mint a short-lived
+/// step-up token used for destructive admin actions.
+#[derive(Debug, Deserialize)]
+struct StepUpRequest {
+    password: String,
+}
+
+/// POST /api/auth/stepup — prove the current password and receive a step-up token.
+async fn handle_stepup(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(req): Json<StepUpRequest>,
+) -> Result<Json<Value>> {
+    use crate::auth_extractor::STEPUP_TTL_SECONDS;
+
+    let user_row = state
+        .wdb
+        .get_user(auth.user_id as u64)
+        .await
+        .map_err(|e| AppError::Internal(format!("wdb get_user: {e}")))?
+        .ok_or_else(|| AppError::Unauthorized("user not found".into()))?;
+
+    // Guests (empty password hash) cannot perform step-up; they have no password.
+    if user_row.password_hash.is_empty() {
+        return Err(AppError::Unauthorized(
+            "this account has no password; step-up unavailable".into(),
+        ));
+    }
+
+    let verified = bcrypt::verify(&req.password, &user_row.password_hash)?;
+    if !verified {
+        return Err(AppError::Unauthorized("invalid password".into()));
+    }
+
+    let token = generate_stepup_jwt(&state, auth.user_id, &auth.username)?;
+    Ok(Json(json!({
+        "stepupToken": token,
+        "expiresInSeconds": STEPUP_TTL_SECONDS,
+    })))
 }
 
 /// Generate short-lived JWT for guest users
@@ -299,6 +407,8 @@ fn generate_guest_jwt(state: &AppState, user_id: i64, username: &str) -> Result<
         is_guest: true,
         exp: expiration.timestamp(),
         iat: now.timestamp(),
+        jti: uuid::Uuid::new_v4().to_string(),
+        stepup: false,
     };
 
     let token = encode(

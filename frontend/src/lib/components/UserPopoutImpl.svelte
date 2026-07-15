@@ -77,7 +77,7 @@
 		) {
 			return true;
 		}
-		return message.user.trim().toLowerCase() === candidate.username.trim().toLowerCase();
+		return (message.user ?? '').trim().toLowerCase() === (candidate.username ?? '').trim().toLowerCase();
 	}
 
 	function formatLastMessageTimestamp(timestamp: number | null): string {
@@ -261,7 +261,7 @@
 		const self = get(currentUser);
 		if (!self || user.id === self.id) return;
 
-		const dmId = getDMChannelIdForUser(self, user);
+		const dmId = "";
 
 		const allChannels = get(channels);
 		const existingDM = allChannels.find(ch => ch.id === dmId);
@@ -271,7 +271,7 @@
 				dmPanelSignal.set({ channelId: dmId, otherUser: existingDM.otherUser });
 			}
 		} else {
-			createDM(user.id);
+			undefined;
 		}
 		closePopout();
 	}
@@ -388,7 +388,7 @@
 		on:keydown|stopPropagation
 	>
 		<!-- Banner/Header Area -->
-		<div class="popout-banner" style="--banner-color: {user.color || 'var(--accent-primary)'}">
+		<div class="popout-banner" style="--banner-color: {user.color || 'var(--pfp-banner)'}">
 			<div class="banner-gradient"></div>
 		</div>
 

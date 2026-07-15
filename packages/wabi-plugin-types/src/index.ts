@@ -12,13 +12,42 @@
 
 import type { IncomingHttpHeaders, IncomingMessage, Server as HttpServer, ServerResponse } from 'http';
 import type { Server, Socket } from 'socket.io';
-import type { ClientMessage } from '../../../shared/messageRetention.js';
+
 import type {
   PaymentCheckoutMode,
   PaymentIntentStatus,
   PaymentMethodCapability,
   PaymentProviderCapability
 } from '../../../shared/paymentContracts.js';
+
+/**
+ * ClientMessage is the canonical shape of a message flowing through the
+ * Wabi realtime bus. The Rust core is the source of truth for the actual
+ * runtime shape; this minimal declaration exists so addon/plugin packages
+ * that import the Wabi shared module via TypeScript can compile without
+ * pulling in the full Rust-generated protocol types.
+ *
+ * Addons should treat this as opaque and pass values through unchanged.
+ */
+export interface ClientMessage {
+  id?: string;
+  clientMessageId?: string;
+  stableId?: string;
+  channelId: string;
+  senderId: string;
+  senderName?: string;
+  body?: string;
+  type?: string;
+  timestamp?: number;
+  editedAt?: number;
+  deletedAt?: number;
+  threadParentId?: string;
+  attachments?: unknown[];
+  reactions?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  // Allow other runtime fields without an exhaustive list.
+  [key: string]: unknown;
+}
 
 // ============================================================================
 // TYPE RE-EXPORTS

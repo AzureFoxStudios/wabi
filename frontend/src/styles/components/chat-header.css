@@ -7,13 +7,16 @@
 
 	.chat-header {
 		flex-shrink: 0;
-		padding: 0.75rem 1rem;
+		padding: 0 1rem;
 		background: var(--surface-app);
 		border-bottom: 1px solid var(--border-subtle);
-		display: flex;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
 		align-items: center;
-		justify-content: space-between;
+		justify-content: normal;
+		column-gap: 1rem;
 		height: var(--app-chrome-height);
+		min-height: var(--app-chrome-height);
 		box-sizing: border-box;
 		z-index: 2;
 		position: relative;
@@ -21,13 +24,14 @@
 
 
 	.chat-header h2 {
-		font-size: var(--text-xl);
+		font-size: 1.05rem;
 		margin: 0;
 		font-weight: var(--font-weight-semibold);
 		display: flex;
-		align-items: baseline;
+		align-items: center;
 		gap: 0.5rem;
 		min-width: 0;
+		line-height: 1.15;
 	}
 
 
@@ -37,14 +41,25 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.16rem;
+		justify-content: center;
 	}
 
 
 	.channel-title {
-		min-width: 0;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.34rem;
+		min-width: max-content;
+		max-width: min(28ch, 45vw);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.channel-title-hash::before {
+		content: '#';
+		color: var(--text-secondary);
+		font-weight: 700;
 	}
 
 
@@ -53,7 +68,7 @@
 		font-weight: var(--font-weight-semibold);
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
-		color: var(--accent-primary);
+		color: var(--accent-primary-color);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -61,19 +76,21 @@
 
 
 	.channel-description {
+		margin: 0;
 		font-size: var(--text-sm);
 		font-weight: var(--font-weight-regular);
 		color: var(--text-secondary);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		max-width: min(56ch, 58vw);
 	}
 
 
 	.dm-badge {
 		display: inline-block;
 		padding: 0.25rem 0.5rem;
-		background: var(--accent-primary);
+		background: var(--accent-primary-color);
 		color: white;
 		font-size: var(--text-xs);
 		border-radius: var(--radius-sm);
@@ -85,4 +102,73 @@
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
+	}
+
+	.header-action-group {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+
+	.header-action-group + .header-action-group::before {
+		content: '';
+		width: 1px;
+		height: 18px;
+		background: color-mix(in srgb, var(--border-subtle) 40%, transparent);
+		margin-left: 0.2rem;
+	}
+
+	/* Desktop hover compaction: collapse non-active workspace view buttons until hover */
+	@media (hover: hover) {
+	.workspace-view-actions.compactable {
+		gap: 0;
+		transition: gap 0.24s ease;
+	}
+
+	.workspace-view-actions.compactable .view-open-btn {
+		width: 0;
+		min-width: 0;
+		opacity: 0;
+		margin: 0;
+		padding: 0;
+		border-width: 0;
+		transform: none;
+		overflow: hidden;
+		pointer-events: none;
+		transition:
+			width 0.28s ease,
+			opacity 0.22s ease,
+			transform 0.28s ease,
+			border-width 0.22s ease,
+			padding 0.22s ease,
+			margin 0.22s ease !important;
+	}
+
+		.workspace-view-actions.compactable .view-open-btn.active {
+			width: 32px;
+			min-width: 32px;
+			opacity: 1;
+			border-width: 1px;
+			transform: translateX(0) scale(1);
+			pointer-events: auto;
+		}
+
+		.workspace-view-actions.compactable:hover,
+		.workspace-view-actions.compactable:focus-within {
+			gap: 0.4rem;
+		}
+
+		.workspace-view-actions.compactable:hover .view-open-btn,
+		.workspace-view-actions.compactable:focus-within .view-open-btn {
+			width: 32px;
+			min-width: 32px;
+			opacity: 1;
+			border-width: 1px;
+			transform: translateX(0) scale(1);
+			pointer-events: auto;
+		}
+
+		.workspace-view-actions.compactable .view-open-btn:hover {
+			transform: translateY(-1px) scale(1.04) !important;
+		}
 	}

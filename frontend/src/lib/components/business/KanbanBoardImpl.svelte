@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { get } from 'svelte/store';
 	import { currentUser } from '$lib/socket';
+	import { getLocalMockUsers, isLocalMockApiMode } from '$lib/localMockApi';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { onMount } from 'svelte';
 	import {
@@ -55,6 +56,12 @@
 	let newColumnColor = '#3b82f6';
 
 	onMount(async () => {
+		if (isLocalMockApiMode()) {
+			registeredUsers = getLocalMockUsers();
+			filteredUsers = registeredUsers;
+			return;
+		}
+
 		try {
 			const response = await fetch(`${getServerUrl()}/api/users`);
 			if (response.ok) {

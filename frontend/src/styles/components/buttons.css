@@ -35,10 +35,15 @@ button:disabled {
 	transform: none;
 }
 
+button:focus-visible {
+	outline: 2px solid color-mix(in srgb, var(--accent-primary-color) 70%, transparent);
+	outline-offset: 2px;
+}
+
 /* --- Primary --- */
 .btn-primary {
-	background: var(--accent-primary);
-	color: white;
+	background: var(--accent-primary-color);
+	color: var(--text-on-accent, #ffffff);
 	padding: var(--space-3) var(--space-5);
 	font-weight: var(--font-weight-semibold);
 }
@@ -77,7 +82,7 @@ button:disabled {
 /* --- Danger --- */
 .btn-danger {
 	background: var(--color-danger);
-	color: white;
+	color: var(--text-on-danger, #ffffff);
 	padding: var(--space-3) var(--space-5);
 	font-weight: var(--font-weight-semibold);
 }
@@ -97,7 +102,7 @@ button:disabled {
 
 .btn-icon:hover {
 	background: rgba(var(--accent-rgb), var(--opacity-light));
-	color: var(--accent-primary);
+	color: var(--accent-primary-color);
 }
 
 /* --- Sizes --- */

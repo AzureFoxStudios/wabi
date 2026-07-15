@@ -1,0 +1,1383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Business Dashboard · Preview</title>
+<!--
+╔══════════════════════════════════════════════════════════════════╗
+║  WABI — Business Spreadsheet / Odoo Integration Addon          ║
+║  ─────────────────────────────────────────────────────────────   ║
+║  This is NOT a standard Wabi workspace panel.                  ║
+║  Standard Wabi panels are document/chat-centric.               ║
+║  This addon adapts Wabi into a role-gated operational          ║
+║  dashboard for Odoo-connected businesses.                      ║
+║                                                                ║
+║  Design deviations from core Wabi:                             ║
+║  · Full bento-grid dashboard (core Wabi uses list/feed panels) ║
+║  · AFK idle auto-summon (core Wabi has no ambient mode)        ║
+║  · Role-gated widget visibility (core Wabi uses flat RBAC)     ║
+║  · Server health monitoring (core Wabi is chat-first, not ops) ║
+║  · Approval queue with forced-attention UI                     ║
+║  · Tamper detection snapshots (no core analogue)               ║
+║  · Spending cap enforcement (core Wabi has no money logic)     ║
+║                                                                ║
+║  These are intentional adaptations for the business use case.  ║
+║  They extend Wabi's addon system beyond its original design.   ║
+╚══════════════════════════════════════════════════════════════════╝
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Doto:wght@400;600;700&family=Space+Grotesk:wght@300;400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  /* ──────────────────────────────────────────────────────────────
+     DESIGN TOKEN — Nothing/NullFrame-inspired dark palette
+     Extended with role colors and status indicators
+     ──────────────────────────────────────────────────────────── */
+  :root {
+    --black: #000;
+    --surface: #111;
+    --surface-raised: #1a1a1a;
+    --border: #222;
+    --border-visible: #333;
+    --text-disabled: #666;
+    --text-secondary: #999;
+    --text-primary: #e8e8e8;
+    --text-display: #fff;
+    --accent: #f26522;
+    --accent-red: #d71921;
+    --success: #4a9e5c;
+    --warning: #f0ad4e;
+    --ease: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    /* Role tag colors */
+    --role-owner: #f26522;
+    --role-admin: #f26522;
+    --role-manager: #e8e8e8;
+    --role-estimator: #4a9e5c;
+    --role-reception: #999;
+    --role-installer: #5bc0de;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--black);
+    min-height: 100dvh;
+    padding: 20px;
+    color: var(--text-primary);
+    font-family: 'Space Grotesk', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    overflow-x: hidden;
+  }
+  #root { width: 100%; max-width: 1200px; }
+
+  /* ─── Role selector bar (dev mock; real addon gets role from Wabi auth) ─── */
+  .role-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+  .role-bar .mono-sub { color: var(--text-disabled); }
+  .role-btn {
+    all: unset;
+    font: 400 10px/1 'Space Mono', monospace;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: var(--text-secondary);
+  }
+  .role-btn:hover { border-color: var(--accent); }
+  .role-btn.active {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #000;
+  }
+
+  /* ─── Bento Grid ─── */
+  .bento {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-auto-rows: auto;
+    gap: 10px;
+    width: 100%;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s ease-out;
+  }
+  .card:hover { border-color: var(--border-visible); }
+  .card:hover .tag { opacity: 1; }
+
+  /* ─── Shimmer ─── */
+  .shine {
+    opacity: 0;
+    pointer-events: none;
+    z-index: 2;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,0.04) 35%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.04) 65%, transparent);
+    width: 110px;
+    position: absolute;
+    top: -30%;
+    bottom: -30%;
+    left: -140px;
+    transform: skew(-14deg);
+    animation: shimmer 1.05s var(--ease) 0.3s forwards;
+  }
+  @keyframes shimmer {
+    0% { opacity: 1; left: -140px; }
+    to { opacity: 0; left: 110%; }
+  }
+
+  /* ─── Tag ─── */
+  .tag {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    font: 700 9px/1 'Space Mono', monospace;
+    letter-spacing: 0.12em;
+    color: var(--text-disabled);
+    opacity: 0;
+    transition: opacity 0.25s var(--ease);
+    pointer-events: none;
+  }
+
+  /* ─── Typography ─── */
+  .mono-sub {
+    font: 400 11px/1.6 'Space Mono', monospace;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+  .dim { color: var(--text-disabled); }
+
+  /* ─── Hero ─── */
+  .hero {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+    min-height: 180px;
+    background-image: radial-gradient(circle, #1d1d1d 1.1px, transparent 1.1px);
+    background-position: 8px 8px;
+    background-size: 16px 16px;
+  }
+  .hero-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+  .hero-clock { display: flex; align-items: baseline; gap: 12px; }
+  .clock {
+    font-family: 'Doto', sans-serif;
+    font-size: 96px;
+    font-weight: 400;
+    line-height: 1;
+    color: var(--text-display);
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+  }
+  .clock-sec {
+    font-family: 'Doto', sans-serif;
+    font-size: 30px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+  .hero-summary {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+  }
+  .hero-summary-item {
+    text-align: right;
+  }
+  .hero-summary-item .num {
+    font-family: 'Doto', sans-serif;
+    font-size: 32px;
+    font-weight: 400;
+    line-height: 1;
+    color: var(--text-display);
+  }
+  .hero-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-top: auto;
+  }
+  .day {
+    font: 500 22px/1.2 'Space Grotesk', sans-serif;
+    color: var(--text-display);
+    letter-spacing: -0.01em;
+  }
+  .conn-btn {
+    background: none;
+    border: 1px solid var(--border-visible);
+    color: var(--text-primary);
+    font: 400 10px/1 'Space Mono', monospace;
+    letter-spacing: 0.08em;
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .conn-btn:hover { border-color: var(--accent); }
+
+  /* ─── Data Lists ─── */
+  .data-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; flex: 1; }
+  .data-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    border-radius: 6px;
+    transition: background 0.15s;
+    cursor: default;
+  }
+  .data-row:hover { background: var(--surface-raised); }
+  .data-row .ref {
+    font: 400 11px/1.4 'Space Mono', monospace;
+    color: var(--text-primary);
+  }
+  .data-row .name {
+    font: 400 12px/1.4 'Space Grotesk', sans-serif;
+    color: var(--text-primary);
+    flex: 1;
+    margin-left: 8px;
+  }
+  .data-row .amount {
+    font: 700 12px/1 'Space Mono', monospace;
+    color: var(--text-display);
+  }
+  .status-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    margin-right: 6px;
+    flex: none;
+  }
+  .status-dot.open { background: var(--accent); }
+  .status-dot.paid { background: var(--success); }
+  .status-dot.overdue { background: var(--accent-red); animation: pulse 1.6s var(--ease) infinite; }
+  .status-dot.urgent { background: var(--accent-red); animation: pulse 1.2s var(--ease) infinite; }
+  .status-dot.normal { background: var(--text-disabled); }
+  .urgency-badge {
+    font: 400 8px/1 'Space Mono', monospace;
+    letter-spacing: 0.1em;
+    padding: 3px 6px;
+    border-radius: 4px;
+    flex: none;
+  }
+  .urgency-badge.urgent { background: var(--accent-red); color: #fff; }
+  .urgency-badge.normal { border: 1px solid var(--text-disabled); color: var(--text-disabled); }
+
+  /* ─── Server Health ─── */
+  .health-grid { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; flex: 1; }
+  .health-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .health-item .label {
+    font: 400 10px/1 'Space Mono', monospace;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+  }
+  .health-item .value {
+    font: 600 12px/1 'Space Mono', monospace;
+    color: var(--text-display);
+  }
+  .health-bar {
+    height: 4px;
+    background: #242424;
+    border-radius: 2px;
+    margin-top: 4px;
+    overflow: hidden;
+  }
+  .health-bar i {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.5s var(--ease);
+  }
+  .health-bar i.green { background: var(--success); }
+  .health-bar i.orange { background: var(--accent); }
+  .health-bar i.red { background: var(--accent-red); }
+  .health-bar i.blue { background: #5bc0de; }
+  .net-led {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    margin-right: 4px;
+  }
+  .net-led.online { background: var(--success); animation: pulse 2.4s var(--ease) infinite; }
+
+  /* ─── Approval row (full width, attention-grabbing) ─── */
+  .approval-strip {
+    grid-column: 1 / -1;
+    border: 1px solid var(--accent);
+    box-shadow: 0 0 20px rgba(242, 101, 34, 0.08);
+    animation: approval-pulse-border 3s var(--ease) infinite;
+  }
+  @keyframes approval-pulse-border {
+    0%, 100% { border-color: var(--accent); }
+    50% { border-color: rgba(242, 101, 34, 0.4); }
+  }
+  .approval-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .approval-count {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .approval-count .num {
+    font-family: 'Doto', sans-serif;
+    font-size: 28px;
+    font-weight: 400;
+    color: var(--accent);
+  }
+  .approval-alert-dots {
+    display: flex;
+    gap: 4px;
+  }
+  .approval-alert-dots i {
+    width: 6px; height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: pulse 1.6s var(--ease) infinite;
+  }
+  .approval-alert-dots i:nth-child(2) { animation-delay: 0.3s; }
+  .approval-alert-dots i:nth-child(3) { animation-delay: 0.6s; }
+  .approval-table { display: flex; flex-direction: column; gap: 4px; }
+  .approval-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    transition: background 0.15s;
+  }
+  .approval-row:hover { background: var(--surface-raised); }
+  .approval-row .apr-ref {
+    font: 700 11px/1 'Space Mono', monospace;
+    color: var(--text-display);
+    width: 80px;
+    flex: none;
+  }
+  .approval-row .apr-name {
+    font: 400 13px/1 'Space Grotesk', sans-serif;
+    color: var(--text-primary);
+    flex: 1;
+  }
+  .approval-row .apr-amount {
+    font: 700 13px/1 'Space Mono', monospace;
+    color: var(--text-display);
+    flex: none;
+  }
+  .approval-row .apr-time {
+    font: 400 10px/1 'Space Mono', monospace;
+    color: var(--text-disabled);
+    width: 60px;
+    flex: none;
+    text-align: right;
+  }
+  .approval-row .apr-actions { display: flex; gap: 6px; flex: none; }
+  .apr-btn {
+    all: unset;
+    font: 400 9px/1 'Space Mono', monospace;
+    letter-spacing: 0.08em;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .apr-btn.approve { background: var(--success); color: #000; }
+  .apr-btn.approve:hover { background: #3d8a4e; }
+  .apr-btn.reject { border: 1px solid var(--accent-red); color: var(--accent-red); }
+  .apr-btn.reject:hover { background: rgba(215, 25, 33, 0.15); }
+  .apr-btn.escalate { border: 1px solid var(--accent); color: var(--accent); }
+  .apr-btn.escalate:hover { background: rgba(242, 101, 34, 0.15); }
+  .apr-btn.review { border: 1px solid var(--border-visible); color: var(--text-secondary); }
+  .apr-btn.review:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ─── Widget Zone ─── */
+  .widget-zone {
+    grid-column: 1 / 3;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .widget-zone .card { flex: 1; }
+  .widget-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .widget-header .mono-sub { font-size: 10px; }
+  .streak-display {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+  }
+  .streak-fire {
+    font-size: 36px;
+    line-height: 1;
+    animation: streak-flicker 2s var(--ease) infinite;
+  }
+  @keyframes streak-flicker {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.08); }
+  }
+  .streak-days {
+    font-family: 'Doto', sans-serif;
+    font-size: 48px;
+    font-weight: 400;
+    color: var(--accent);
+  }
+  .streak-label {
+    font: 400 11px/1 'Space Mono', monospace;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+  }
+  .gauge-wrap { margin-top: 10px; }
+  .gauge-label {
+    display: flex;
+    justify-content: space-between;
+    font: 400 10px/1 'Space Mono', monospace;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+  }
+  .gauge-track {
+    height: 8px;
+    background: #242424;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .gauge-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.8s var(--ease);
+  }
+  .gauge-fill.ok { background: var(--success); }
+  .gauge-fill.warn { background: var(--accent); }
+  .gauge-fill.danger { background: var(--accent-red); }
+  .widget-add {
+    all: unset;
+    font: 400 10px/1 'Space Mono', monospace;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    cursor: pointer;
+    padding: 10px;
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    text-align: center;
+    transition: border-color 0.2s;
+  }
+  .widget-add:hover { border-color: var(--accent); }
+
+  /* ─── Activity Feed ─── */
+  .feed-col {
+    grid-column: 3 / -1;
+    display: flex;
+    flex-direction: column;
+    min-height: 300px;
+  }
+  .feed-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 12px;
+    flex: 1;
+    overflow-y: auto;
+  }
+  .feed-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 6px;
+    transition: background 0.15s;
+  }
+  .feed-row:hover { background: var(--surface-raised); }
+  .feed-row .feed-msg {
+    font: 400 12px/1.4 'Space Mono', monospace;
+    color: var(--text-primary);
+    letter-spacing: 0.02em;
+  }
+  .feed-row .feed-msg .hl { color: var(--accent); }
+  .feed-row .feed-msg .warn { color: var(--accent-red); }
+  .feed-row .feed-msg .ok { color: var(--success); }
+  .feed-row .feed-time {
+    font: 400 10px/1 'Space Mono', monospace;
+    color: var(--text-disabled);
+    flex: none;
+  }
+
+  /* ─── LED (shared) ─── */
+  @keyframes pulse {
+    0%, to { opacity: 1; }
+    50% { opacity: 0.18; }
+  }
+
+  /* ─── Transaction Audit ─── */
+  .audit-toolbar {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  .audit-search {
+    all: unset;
+    font: 400 11px/1 'Space Mono', monospace;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    flex: 1;
+    min-width: 160px;
+  }
+  .audit-search:focus { border-color: var(--accent); }
+  .audit-select {
+    all: unset;
+    font: 400 10px/1 'Space Mono', monospace;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    cursor: pointer;
+    min-width: 100px;
+  }
+  .audit-select:hover { border-color: var(--border-visible); }
+  .audit-export {
+    all: unset;
+    font: 400 9px/1 'Space Mono', monospace;
+    letter-spacing: 0.08em;
+    background: var(--surface-raised);
+    color: var(--text-primary);
+    border: 1px solid var(--border-visible);
+    border-radius: 6px;
+    padding: 8px 14px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+    flex: none;
+  }
+  .audit-export:hover { border-color: var(--accent); color: var(--accent); }
+  .audit-table {
+    display: flex;
+    flex-direction: column;
+    margin-top: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .audit-row {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+    font: 400 11px/1.4 'Space Mono', monospace;
+  }
+  .audit-row:last-child { border-bottom: none; }
+  .audit-row:hover { background: var(--surface-raised); }
+  .audit-row.flag-warn { border-left: 2px solid var(--warning); }
+  .audit-row.flag-alert { border-left: 2px solid var(--accent-red); animation: approval-pulse-border 3s var(--ease) infinite; }
+  .audit-header {
+    background: var(--surface-raised);
+    color: var(--text-disabled);
+    font-weight: 700;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: default;
+  }
+  .audit-col { flex: 1; }
+  .audit-col.date { flex: 0 0 120px; }
+  .audit-col.user { flex: 0 0 80px; }
+  .audit-col.type { flex: 0 0 60px; }
+  .audit-col.ref { flex: 0 0 80px; }
+  .audit-col.amount { flex: 0 0 90px; text-align: right; }
+  .audit-col.status { flex: 0 0 80px; display: flex; align-items: center; gap: 4px; }
+  .audit-col.flag { flex: 1; color: var(--warning); }
+
+  /* ─── Empty state ─── */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    gap: 12px;
+    color: var(--text-disabled);
+  }
+  .empty-state .icon { font-size: 32px; opacity: 0.4; }
+
+  /* ─── Widget catalog overlay ─── */
+  .overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    z-index: 100;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 12vh;
+  }
+  .overlay.open { display: flex; }
+  .overlay-panel {
+    background: var(--surface);
+    border: 1px solid var(--border-visible);
+    border-radius: 14px;
+    width: min(480px, 92vw);
+    padding: 24px;
+  }
+  .overlay-panel h2 {
+    font: 400 14px/1 'Space Mono', monospace;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #fff;
+    margin-bottom: 16px;
+  }
+  .widget-pick {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .widget-pick:hover { border-color: var(--accent); }
+  .widget-pick .wp-name { font: 400 12px 'Space Grotesk', sans-serif; color: var(--text-primary); }
+  .widget-pick .wp-desc { font: 400 10px/1 'Space Mono', monospace; color: var(--text-disabled); }
+  .widget-pick .wp-role { font: 400 9px/1 'Space Mono', monospace; letter-spacing: 0.08em; color: var(--accent); }
+
+  /* ─── Role visibility markers ─── */
+  .role-tag {
+    font: 400 8px/1 'Space Mono', monospace;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--surface-raised);
+    color: var(--text-disabled);
+    margin-left: auto;
+  }
+
+  /* ─── AFK indicator ─── */
+  .afk-indicator {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    font: 400 9px/1 'Space Mono', monospace;
+    letter-spacing: 0.08em;
+    color: var(--text-disabled);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 90;
+    transition: opacity 0.3s;
+    opacity: 0.5;
+  }
+  .afk-indicator:hover { opacity: 1; }
+  .afk-indicator .afk-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--text-disabled);
+  }
+  .afk-indicator .afk-dot.active { background: var(--accent); animation: pulse 2.4s var(--ease) infinite; }
+
+  /* ─── Responsive ─── */
+  @media (max-width: 940px) {
+    .bento { grid-template-columns: repeat(2, 1fr); }
+    .hero { grid-column: 1 / -1; }
+    .approval-strip { grid-column: 1 / -1; }
+    .widget-zone { grid-column: 1 / -1; }
+    .feed-col { grid-column: 1 / -1; min-height: auto; }
+    .clock { font-size: 72px; }
+    .hero-summary { display: none; }
+  }
+  @media (max-width: 520px) {
+    body { padding: 12px; }
+    .card { border-radius: 12px; padding: 16px; }
+    .clock { font-size: 56px; }
+    .clock-sec { font-size: 20px; }
+    .day { font-size: 16px; }
+    .approval-row { flex-wrap: wrap; gap: 6px; }
+    .approval-row .apr-actions { width: 100%; justify-content: flex-end; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: 1ms !important; animation-duration: 1ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<div id="root">
+
+<!-- ════════════════════════════════════════════════════════════
+     ROLE SELECTOR — Dev mock.
+     In production: roles come from Wabi auth (user.highestRole).
+     The addon checks role against every widget/action server-side.
+     Frontend only renders what role can see.
+     ════════════════════════════════════════════════════════ -->
+<div class="role-bar">
+  <span class="mono-sub">👤 MOCK ROLE</span>
+  <button class="role-btn" data-role="owner" onclick="setRole('owner')">Owner</button>
+  <button class="role-btn" data-role="manager" onclick="setRole('manager')">Manager</button>
+  <button class="role-btn active" data-role="estimator" onclick="setRole('estimator')">Estimator</button>
+  <button class="role-btn" data-role="reception" onclick="setRole('reception')">Reception</button>
+  <button class="role-btn" data-role="installer" onclick="setRole('installer')">Installer</button>
+  <span class="mono-sub dim" style="margin-left:auto">Card visibility changes by role</span>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     BENTO GRID DASHBOARD
+     Each card has a data-role-min attribute — elements with
+     role rank < minRole are hidden by the role system.
+     ════════════════════════════════════════════════════════ -->
+<div class="bento" id="dashboard">
+
+  <!-- ─── ROW 1: HERO ─── -->
+  <div class="card hero" data-role-min="viewer">
+    <div class="shine"></div>
+    <span class="tag">DASHBOARD</span>
+    <div class="hero-top">
+      <div class="hero-clock">
+        <span class="clock" id="clock">14:32</span>
+        <span class="clock-sec" id="clockSec">09</span>
+      </div>
+      <!-- Summary strip — only for roles that need an overview -->
+      <div class="hero-summary" data-role-min="viewer">
+        <div class="hero-summary-item">
+          <div class="num">12</div>
+          <div class="mono-sub dim">drafts</div>
+        </div>
+        <div class="hero-summary-item" data-role-min="manager">
+          <div class="num">3</div>
+          <div class="mono-sub dim">pending</div>
+        </div>
+        <div class="hero-summary-item" data-role-min="admin">
+          <div class="num">0</div>
+          <div class="mono-sub dim">alerts</div>
+        </div>
+      </div>
+    </div>
+    <div class="hero-foot">
+      <div>
+        <div class="day" id="day">Sunday, June 14, 2026</div>
+        <div class="mono-sub dim" style="margin-top:4px">
+          <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--success);vertical-align:middle;margin-right:4px"></span>
+          ODOO ● CONNECTED
+        </div>
+      </div>
+      <div class="mono-sub dim">
+        12 drafts · 3 pending · 0 alerts
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── ROW 2 LEFT: SERVER HEALTH ─── -->
+  <div class="card" data-role-min="admin" id="card-server-health">
+    <div class="shine"></div>
+    <span class="tag">HEALTH</span>
+    <div class="mono-sub" style="color:var(--text-primary)">SERVER</div>
+    <div class="health-grid">
+      <div>
+        <div class="health-item">
+          <span class="label">Uptime</span>
+          <span class="value">12d 4h 31m</span>
+        </div>
+      </div>
+      <div>
+        <div class="health-item">
+          <span class="label">CPU</span>
+          <span class="value">23%</span>
+        </div>
+        <div class="health-bar"><i class="green" style="width:23%"></i></div>
+      </div>
+      <div>
+        <div class="health-item">
+          <span class="label">RAM</span>
+          <span class="value">6.2 / 16 GB</span>
+        </div>
+        <div class="health-bar"><i class="orange" style="width:39%"></i></div>
+      </div>
+      <div>
+        <div class="health-item">
+          <span class="label">Disk</span>
+          <span class="value">234 / 512 GB</span>
+        </div>
+        <div class="health-bar"><i class="green" style="width:46%"></i></div>
+      </div>
+      <div>
+        <div class="health-item">
+          <span class="label">Network</span>
+          <span class="value"><span class="net-led online"></span> online · 1.2 Gbps</span>
+        </div>
+      </div>
+      <div>
+        <div class="health-item">
+          <span class="label">Odoo</span>
+          <span class="value"><span class="net-led online"></span> 18.0 CE · 14ms</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── ROW 2 MID: INVOICES ─── -->
+  <div class="card" data-role-min="viewer">
+    <div class="shine"></div>
+    <span class="tag">INVOICES</span>
+    <div class="mono-sub" style="color:var(--text-primary)">RECEIVABLES · 24 open</div>
+    <div class="data-list">
+      <div class="data-row" onclick="alert('INV-042: 12,500 THB — Client A')">
+        <span class="status-dot open"></span>
+        <span class="ref">INV-042</span>
+        <span class="name">Client A · Roofing</span>
+        <span class="amount">12,500</span>
+      </div>
+      <div class="data-row" onclick="alert('INV-041: 8,200 THB — Client B')">
+        <span class="status-dot paid"></span>
+        <span class="ref">INV-041</span>
+        <span class="name">Client B · Repairs</span>
+        <span class="amount">8,200</span>
+      </div>
+      <div class="data-row" onclick="alert('INV-040: 3,400 THB — Client C')">
+        <span class="status-dot overdue"></span>
+        <span class="ref">INV-040</span>
+        <span class="name">Client C · Materials</span>
+        <span class="amount">3,400</span>
+      </div>
+      <div class="data-row" onclick="alert('INV-039: 22,100 THB — Client D')">
+        <span class="status-dot open"></span>
+        <span class="ref">INV-039</span>
+        <span class="name">Client D · New Build</span>
+        <span class="amount">22,100</span>
+      </div>
+      <div class="data-row" onclick="alert('INV-038: 5,600 THB — Client E')">
+        <span class="status-dot paid"></span>
+        <span class="ref">INV-038</span>
+        <span class="name">Client E · Inspection</span>
+        <span class="amount">5,600</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── ROW 2 RIGHT: PURCHASE ─── -->
+  <div class="card" data-role-min="estimator">
+    <div class="shine"></div>
+    <span class="tag">PURCHASE</span>
+    <div class="mono-sub" style="color:var(--text-primary)">PENDING ORDERS · 8</div>
+    <div class="data-list">
+      <div class="data-row" onclick="alert('PO-015: 45,000 THB — Steel Supply Co.')">
+        <span class="status-dot urgent"></span>
+        <span class="ref">PO-015</span>
+        <span class="name">Steel Supply Co.</span>
+        <span class="urgency-badge urgent">URGENT</span>
+      </div>
+      <div class="data-row" onclick="alert('PO-014: 12,000 THB — Cement Depot')">
+        <span class="status-dot normal"></span>
+        <span class="ref">PO-014</span>
+        <span class="name">Cement Depot</span>
+        <span class="urgency-badge normal">NORMAL</span>
+      </div>
+      <div class="data-row" onclick="alert('PO-013: 3,200 THB — Tool Mart')">
+        <span class="status-dot normal"></span>
+        <span class="ref">PO-013</span>
+        <span class="name">Tool Mart</span>
+        <span class="urgency-badge normal">NORMAL</span>
+      </div>
+      <div class="data-row" onclick="alert('PO-012: 28,000 THB — Lumber Yard')">
+        <span class="status-dot normal"></span>
+        <span class="ref">PO-012</span>
+        <span class="name">Lumber Yard</span>
+        <span class="urgency-badge normal">NORMAL</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── ROW 3: APPROVALS (HEY NOTICE ME) ─── -->
+  <div class="card approval-strip" data-role-min="manager">
+    <div class="shine"></div>
+    <span class="tag">APPROVALS</span>
+    <div class="approval-header">
+      <div class="approval-count">
+        <div class="approval-alert-dots">
+          <i></i><i></i><i></i>
+        </div>
+        <span class="num">3</span>
+        <span class="mono-sub" style="color:var(--accent)">PENDING APPROVALS</span>
+      </div>
+      <button class="apr-btn review" onclick="alert('Opening approval queue...')">REVIEW ALL →</button>
+    </div>
+    <div class="approval-table">
+      <div class="approval-row">
+        <span class="apr-ref">PO-042</span>
+        <span class="apr-name">Somchai · 12,500 THB</span>
+        <span class="apr-time">15m ago</span>
+        <div class="apr-actions">
+          <button class="apr-btn reject" onclick="alert('Rejected')">✕</button>
+          <button class="apr-btn approve" onclick="alert('Approved')">✓</button>
+          <button class="apr-btn escalate" onclick="alert('Escalated to director')">↑</button>
+        </div>
+      </div>
+      <div class="approval-row">
+        <span class="apr-ref">EST-008</span>
+        <span class="apr-name">Wichai · 8,200 THB</span>
+        <span class="apr-time">42m ago</span>
+        <div class="apr-actions">
+          <button class="apr-btn reject" onclick="alert('Rejected')">✕</button>
+          <button class="apr-btn approve" onclick="alert('Approved')">✓</button>
+          <button class="apr-btn escalate" onclick="alert('Escalated')">↑</button>
+        </div>
+      </div>
+      <div class="approval-row">
+        <span class="apr-ref">PO-045</span>
+        <span class="apr-name">Malee · 45,000 THB <span class="mono-sub dim">(exceeds cap)</span></span>
+        <span class="apr-time">2h ago</span>
+        <div class="apr-actions">
+          <button class="apr-btn reject" onclick="alert('Rejected')">✕</button>
+          <button class="apr-btn escalate" onclick="alert('Escalated to director')">↑</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── ROW 4 LEFT: CONFIGURABLE WIDGETS ─── -->
+  <div class="widget-zone" data-role-min="viewer">
+    <!-- WIDGET: Transaction Audit — the REAL feature -->
+    <div class="card" data-role-min="manager" id="widget-audit" style="grid-column:1/-1">
+      <div class="widget-header">
+        <span class="mono-sub" style="color:var(--text-primary); font-size:12px">🔍 TRANSACTION AUDIT</span>
+        <span class="role-tag">manager+</span>
+      </div>
+      <div class="audit-toolbar">
+        <input class="audit-search" type="text" placeholder="SEARCH BY USER, CUSTOMER, AMOUNT, DATE..." value="">
+        <select class="audit-select" onchange="applyAuditFilter()">
+          <option value="all">ALL TYPES</option>
+          <option value="draft">DRAFTS</option>
+          <option value="po">PURCHASE ORDERS</option>
+          <option value="invoice">INVOICES</option>
+          <option value="payment">PAYMENTS</option>
+          <option value="approval">APPROVALS</option>
+        </select>
+        <select class="audit-select" onchange="applyAuditFilter()">
+          <option value="all">ALL USERS</option>
+          <option value="somchai">Somchai</option>
+          <option value="wichai">Wichai</option>
+          <option value="malee">Malee</option>
+          <option value="manager">Manager</option>
+        </select>
+        <button class="audit-export" onclick="alert('Exporting filtered results to PDF...')">EXPORT PDF</button>
+      </div>
+      <div class="audit-table">
+        <div class="audit-row audit-header">
+          <span class="audit-col date">DATE</span>
+          <span class="audit-col user">USER</span>
+          <span class="audit-col type">TYPE</span>
+          <span class="audit-col ref">REF</span>
+          <span class="audit-col amount">AMOUNT</span>
+          <span class="audit-col status">STATUS</span>
+          <span class="audit-col flag">FLAG</span>
+        </div>
+        <div class="audit-row flag-warn">
+          <span class="audit-col date">14 Jun 14:32</span>
+          <span class="audit-col user">Somchai</span>
+          <span class="audit-col type">PO</span>
+          <span class="audit-col ref">PO-042</span>
+          <span class="audit-col amount">12,500 THB</span>
+          <span class="audit-col status"><span class="status-dot urgent"></span> pending</span>
+          <span class="audit-col flag">⚠ exceeds cap</span>
+        </div>
+        <div class="audit-row flag-alert">
+          <span class="audit-col date">14 Jun 14:02</span>
+          <span class="audit-col user">Malee</span>
+          <span class="audit-col type">PO</span>
+          <span class="audit-col ref">PO-040</span>
+          <span class="audit-col amount">6,000 THB</span>
+          <span class="audit-col status"><span class="status-dot overdue"></span> tampered</span>
+          <span class="audit-col flag">🔴 price changed post-approval</span>
+        </div>
+        <div class="audit-row">
+          <span class="audit-col date">14 Jun 11:20</span>
+          <span class="audit-col user">Wichai</span>
+          <span class="audit-col type">DRAFT</span>
+          <span class="audit-col ref">EST-008</span>
+          <span class="audit-col amount">8,200 THB</span>
+          <span class="audit-col status"><span class="status-dot open"></span> pending</span>
+          <span class="audit-col flag"></span>
+        </div>
+        <div class="audit-row">
+          <span class="audit-col date">14 Jun 10:15</span>
+          <span class="audit-col user">Manager</span>
+          <span class="audit-col type">APPROVAL</span>
+          <span class="audit-col ref">PO-039</span>
+          <span class="audit-col amount">4,500 THB</span>
+          <span class="audit-col status"><span class="status-dot paid"></span> approved</span>
+          <span class="audit-col flag"></span>
+        </div>
+        <div class="audit-row flag-warn">
+          <span class="audit-col date">13 Jun 16:45</span>
+          <span class="audit-col user">Malee</span>
+          <span class="audit-col type">INVOICE</span>
+          <span class="audit-col ref">INV-038</span>
+          <span class="audit-col amount">5,600 THB</span>
+          <span class="audit-col status"><span class="status-dot normal"></span> paid</span>
+          <span class="audit-col flag">⚠ amount edited after approval</span>
+        </div>
+        <div class="audit-row">
+          <span class="audit-col date">13 Jun 14:30</span>
+          <span class="audit-col user">Somchai</span>
+          <span class="audit-col type">DRAFT</span>
+          <span class="audit-col ref">DW-022</span>
+          <span class="audit-col amount">3,200 THB</span>
+          <span class="audit-col status"><span class="status-dot paid"></span> pushed</span>
+          <span class="audit-col flag"></span>
+        </div>
+      </div>
+      <div class="mono-sub dim" style="margin-top:8px; text-align:right; cursor:pointer" onclick="alert('Showing 6 of 142 records. Load more...')">
+        6 of 142 records · LOAD MORE →
+      </div>
+    </div>
+
+    <!-- WIDGET: Active Projects (replaces streak) -->
+    <div class="card" data-role-min="contributor" id="widget-projects">
+      <div class="widget-header">
+        <span class="mono-sub" style="color:var(--text-primary)">ACTIVE PROJECTS</span>
+        <span class="role-tag">contributor+</span>
+      </div>
+      <div class="data-list" style="margin-top:6px">
+        <div class="data-row" onclick="alert('Roofing #12 — Somsak, 45% complete')">
+          <span class="status-dot open"></span>
+          <span class="ref">#12</span>
+          <span class="name">Roofing · Somsak</span>
+          <span class="mono-sub dim">45%</span>
+        </div>
+        <div class="data-row" onclick="alert('Repair #08 — Wichai, waiting materials')">
+          <span class="status-dot normal"></span>
+          <span class="ref">#08</span>
+          <span class="name">Repair · Wichai</span>
+          <span class="mono-sub dim" style="color:var(--warning)">materials</span>
+        </div>
+        <div class="data-row" onclick="alert('Build #03 — Client D, phase 2/4')">
+          <span class="status-dot open"></span>
+          <span class="ref">#03</span>
+          <span class="name">Build · Client D</span>
+          <span class="mono-sub dim">phase 2/4</span>
+        </div>
+        <div class="data-row" onclick="alert('Inspect #07 — Client E, scheduling')">
+          <span class="status-dot paid"></span>
+          <span class="ref">#07</span>
+          <span class="name">Insp. · Client E</span>
+          <span class="mono-sub dim">scheduling</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- WIDGET: Stock Alerts (clarified — Odoo Inventory) -->
+    <div class="card" data-role-min="estimator" id="widget-stock">
+      <div class="widget-header">
+        <span class="mono-sub" style="color:var(--text-primary)">STOCK ALERTS</span>
+        <span class="role-tag">estimator+</span>
+      </div>
+      <div class="data-list" style="margin-top:6px">
+        <div class="data-row" onclick="alert('Tile — Premium Ceramic: 12 remaining, reorder at 20')">
+          <span class="status-dot urgent"></span>
+          <span class="ref">TILE-PC</span>
+          <span class="name">Premium Ceramic</span>
+          <span class="amount">12</span>
+        </div>
+        <div class="data-row" onclick="alert('Cement — Type 1: 8 bags, reorder at 25')">
+          <span class="status-dot urgent"></span>
+          <span class="ref">CMT-1</span>
+          <span class="name">Cement Type 1</span>
+          <span class="amount">8</span>
+        </div>
+        <div class="data-row" onclick="alert('Rebar — 12mm: 34 bars, reorder at 30')">
+          <span class="status-dot normal"></span>
+          <span class="ref">RBR-12</span>
+          <span class="name">Rebar 12mm</span>
+          <span class="amount">34</span>
+        </div>
+        <div class="data-row" onclick="alert('Scaffolding — Clamp: 22 units, reorder at 20')">
+          <span class="status-dot open"></span>
+          <span class="ref">SCF-CL</span>
+          <span class="name">Scaffold Clamp</span>
+          <span class="amount">22</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- WIDGET: Budget Gauge (stays) -->
+    <div class="card" data-role-min="manager" id="widget-budget">
+      <div class="widget-header">
+        <span class="mono-sub" style="color:var(--text-primary)">BUDGET · Q3 Materials</span>
+        <span class="role-tag">manager+</span>
+      </div>
+      <div class="gauge-wrap">
+        <div class="gauge-label">
+          <span>Consumed</span>
+          <span>234,000 / 300,000 THB</span>
+        </div>
+        <div class="gauge-track">
+          <div class="gauge-fill warn" style="width:78%"></div>
+        </div>
+      </div>
+    </div>
+
+    <button class="widget-add" onclick="document.getElementById('widgetCatalog').classList.add('open')">
+      + ADD WIDGET
+    </button>
+  </div>
+
+  <!-- ─── ROW 4 RIGHT: ACTIVITY FEED ─── -->
+  <div class="card feed-col" data-role-min="viewer">
+    <div class="shine"></div>
+    <span class="tag">STREAM</span>
+    <div class="mono-sub" style="color:var(--text-primary); margin-bottom:4px">ACTIVITY FEED</div>
+    <div class="feed-rows">
+      <div class="feed-row">
+        <span class="feed-msg"><span class="hl">PO-042</span> approved by Manager</span>
+        <span class="feed-time">2m</span>
+      </div>
+      <div class="feed-row">
+        <span class="feed-msg"><span class="warn">⚠</span> <span class="warn">INV/023</span> tamper detected</span>
+        <span class="feed-time">8m</span>
+      </div>
+      <div class="feed-row">
+        <span class="feed-msg"><span class="ok">✓</span> Roofing #12 draft submitted</span>
+        <span class="feed-time">14m</span>
+      </div>
+      <div class="feed-row">
+        <span class="feed-msg"><span class="ok">✓</span> Customer 88 synced from Odoo</span>
+        <span class="feed-time">31m</span>
+      </div>
+      <div class="feed-row">
+        <span class="feed-msg"><span class="warn">⚠</span> Cap exceeded: Malee (45,000 THB)</span>
+        <span class="feed-time">1h</span>
+      </div>
+      <div class="feed-row">
+        <span class="feed-msg"><span class="warn">⚠</span> Stock #5 conflict — qty changed in Odoo</span>
+        <span class="feed-time">2h</span>
+      </div>
+      <div class="feed-row">
+        <span class="feed-msg"><span class="ok">✓</span> INV-041 marked as paid</span>
+        <span class="feed-time">3h</span>
+      </div>
+      <div class="feed-row">
+        <span class="feed-msg"><span class="ok">✓</span> P.O. 014 created in Odoo</span>
+        <span class="feed-time">4h</span>
+      </div>
+      <div class="feed-row">
+        <span class="feed-msg"><span class="hl">Budget warning</span> Q3 Materials at 78%</span>
+        <span class="feed-time">5h</span>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /bento -->
+
+<!-- ════════════════════════════════════════════════════════════
+     FOOTER — Odoo connect + AFK indicator
+     ════════════════════════════════════════════════════════ -->
+<div style="display:flex; justify-content:center; margin-top:24px">
+  <button class="conn-btn" onclick="document.getElementById('connectModal').classList.add('open')">
+    CONFIGURE ODOO
+  </button>
+</div>
+
+<div class="afk-indicator" id="afkIndicator">
+  <span class="afk-dot" id="afkDot"></span>
+  <span id="afkLabel">AFK: 5 min idle → dashboard (manager)</span>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     CONNECT MODAL
+     ════════════════════════════════════════════════════════ -->
+<div class="overlay" id="connectModal">
+  <div class="overlay-panel">
+    <h2>ODOO CONNECTION</h2>
+    <div class="field" style="margin-bottom:14px">
+      <label style="display:block;font:400 11px/1.6 'Space Mono',monospace;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-disabled);margin-bottom:4px">HOST</label>
+      <input type="text" value="192.168.1.50" style="all:unset;width:100%;font:400 13px/1 'Space Mono',monospace;color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:10px 12px;box-sizing:border-box">
+    </div>
+    <div class="field" style="margin-bottom:14px">
+      <label style="display:block;font:400 11px/1.6 'Space Mono',monospace;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-disabled);margin-bottom:4px">PORT</label>
+      <input type="text" value="8069" style="all:unset;width:100%;font:400 13px/1 'Space Mono',monospace;color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:10px 12px;box-sizing:border-box">
+    </div>
+    <div class="field" style="margin-bottom:14px">
+      <label style="display:block;font:400 11px/1.6 'Space Mono',monospace;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-disabled);margin-bottom:4px">DATABASE</label>
+      <input type="text" value="wabi_business" style="all:unset;width:100%;font:400 13px/1 'Space Mono',monospace;color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:10px 12px;box-sizing:border-box">
+    </div>
+    <div class="field" style="margin-bottom:14px">
+      <label style="display:block;font:400 11px/1.6 'Space Mono',monospace;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-disabled);margin-bottom:4px">USERNAME</label>
+      <input type="text" value="admin" style="all:unset;width:100%;font:400 13px/1 'Space Mono',monospace;color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:10px 12px;box-sizing:border-box">
+    </div>
+    <div class="field" style="margin-bottom:14px">
+      <label style="display:block;font:400 11px/1.6 'Space Mono',monospace;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-disabled);margin-bottom:4px">API KEY</label>
+      <input type="password" value="••••••••" style="all:unset;width:100%;font:400 13px/1 'Space Mono',monospace;color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:10px 12px;box-sizing:border-box">
+    </div>
+    <div style="display:flex; gap:12px; justify-content:flex-end; margin-top:20px">
+      <button class="conn-btn" onclick="document.getElementById('connectModal').classList.remove('open')">CANCEL</button>
+      <button class="conn-btn" style="background:var(--accent);color:#000;border-color:var(--accent)" onclick="document.getElementById('connectModal').classList.remove('open');alert('Connected to Odoo 18.0 CE')">CONNECT</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     WIDGET CATALOG — role-filtered widget picker
+     ════════════════════════════════════════════════════════ -->
+<div class="overlay" id="widgetCatalog">
+  <div class="overlay-panel">
+    <h2>ADD WIDGET</h2>
+    <div id="widgetList">
+      <div class="widget-pick" data-widget-role="manager" onclick="alert('Transaction Audit added')">
+        <div>
+          <div class="wp-name">Transaction Audit</div>
+          <div class="wp-desc">Search by user, date, amount. Export to PDF. Flags anomalies.</div>
+        </div>
+        <span class="wp-role">manager+</span>
+      </div>
+      <div class="widget-pick" data-widget-role="admin" onclick="alert('Server Health added')">
+        <div>
+          <div class="wp-name">Server Health</div>
+          <div class="wp-desc">CPU, RAM, Disk, Uptime, Odoo ping</div>
+        </div>
+        <span class="wp-role">admin+</span>
+      </div>
+      <div class="widget-pick" data-widget-role="manager" onclick="alert('Budget Gauge added')">
+        <div>
+          <div class="wp-name">Budget Gauge</div>
+          <div class="wp-desc">Budget consumption by quarter with warning colors</div>
+        </div>
+        <span class="wp-role">manager+</span>
+      </div>
+      <div class="widget-pick" data-widget-role="contributor" onclick="alert('Active Projects added')">
+        <div>
+          <div class="wp-name">Active Projects</div>
+          <div class="wp-desc">Project timeline, status, % complete, blockers</div>
+        </div>
+        <span class="wp-role">contributor+</span>
+      </div>
+      <div class="widget-pick" data-widget-role="estimator" onclick="alert('Stock Alerts added')">
+        <div>
+          <div class="wp-name">Stock Alerts</div>
+          <div class="wp-desc">Low-stock construction materials from Odoo Inventory</div>
+        </div>
+        <span class="wp-role">estimator+</span>
+      </div>
+      <div class="widget-pick" data-widget-role="manager" onclick="alert('Top Vendors added')">
+        <div>
+          <div class="wp-name">Top Vendors</div>
+          <div class="wp-desc">Spend by vendor, this quarter</div>
+        </div>
+        <span class="wp-role">manager+</span>
+      </div>
+      <div class="widget-pick" data-widget-role="estimator" onclick="alert('Material Prices added')">
+        <div>
+          <div class="wp-name">Material Prices</div>
+          <div class="wp-desc">Latest supplier pricing for common materials</div>
+        </div>
+        <span class="wp-role">estimator+</span>
+      </div>
+    </div>
+    <button class="conn-btn" style="margin-top:16px" onclick="document.getElementById('widgetCatalog').classList.remove('open')">CLOSE</button>
+  </div>
+</div>
+
+</div><!-- /root -->
+
+<script>
+  /*
+   * ═══════════════════════════════════════════════════════════════
+   *  ROLE SYSTEM — mock
+   *  In production this reads from Wabi auth (user.highestRole).
+   *  Role hierarchy for visibility gating:
+   *    owner (100) > admin (80) > manager (60) > estimator (40) >
+   *    contributor (30) > viewer (20) > installer (15) > guest (10)
+   * ═══════════════════════════════════════════════════════════════
+   */
+  const ROLE_RANK = { owner: 100, admin: 80, manager: 60, estimator: 40, contributor: 30, viewer: 20, installer: 15, guest: 10 };
+  const ROLE_AFK = { owner: 300, admin: 300, manager: 300, estimator: 600, installer: 600, reception: null, viewer: 900 };
+
+  let currentRole = 'estimator';
+
+  function setRole(role) {
+    currentRole = role;
+    document.querySelectorAll('.role-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.role === role);
+    });
+    applyRoleVisibility();
+    updateAfkLabel();
+  }
+
+  function applyRoleVisibility() {
+    const rank = ROLE_RANK[currentRole] || 0;
+    document.querySelectorAll('[data-role-min]').forEach(el => {
+      const min = ROLE_RANK[el.dataset.roleMin] || 0;
+      // data-role-min="viewer" means viewer+ can see it
+      el.style.display = rank >= min ? '' : 'none';
+    });
+    // Filter widget catalog
+    document.querySelectorAll('#widgetList .widget-pick').forEach(el => {
+      const min = ROLE_RANK[el.dataset.widgetRole] || 0;
+      el.style.display = rank >= min ? '' : 'none';
+    });
+  }
+
+  function updateAfkLabel() {
+    const threshold = ROLE_AFK[currentRole];
+    const label = threshold
+      ? `AFK: ${threshold / 60} min idle → dashboard (${currentRole})`
+      : `AFK: never (${currentRole} — always manual access)`;
+    document.getElementById('afkLabel').textContent = label;
+    document.getElementById('afkDot').className = `afk-dot${threshold ? ' active' : ''}`;
+  }
+
+  // ─── Live clock ───
+  function updateClock() {
+    const now = new Date();
+    document.getElementById('clock').textContent = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false });
+    document.getElementById('clockSec').textContent = now.toLocaleTimeString('th-TH', { second: '2-digit' });
+    document.getElementById('day').textContent = now.toLocaleDateString('th-TH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  // ─── Init ───
+  applyRoleVisibility();
+  updateAfkLabel();
+</script>
+</body>
+</html>

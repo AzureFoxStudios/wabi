@@ -24,7 +24,7 @@ wabi-tui (Rust)      <- Future terminal client
 |----------------|------------------|-----------------|
 | Document types, format enums | TypeScript (`readerWorkspace.ts`) | `wabi-core` (Rust) |
 | Image page types | TypeScript | `wabi-core` |
-| Preferences schema | TypeScript | `wabi-core` → persisted to SQLite/Postgres |
+| Preferences schema | TypeScript | `wabi-core` → persisted to SpacetimeDB |
 | **UI/View layer** | Svelte (`ReaderTab.svelte`) | **Stays in wabi-web** |
 | Scroll manipulation | Svelte/DOM | **Stays in wabi-web** |
 | Image rendering | Svelte | **Stays in wabi-web** |
@@ -277,7 +277,7 @@ function toggleFullscreenMode(): void {
 When wabi-core is patched and wabi-web receives a pass, the following may change:
 
 1. **Protocol Definitions**: Types (ReaderDocumentFormat, ReaderTheme, ImageFitMode, etc.) move to `wabi-core` Rust
-2. **State Management**: Preferences/progress may sync to backend (SQLite/Postgres) instead of localStorage
+2. **State Management**: Preferences/progress may sync to SpacetimeDB instead of remaining browser-local
 3. **Cross-Client Consistency**: Desktop (Tauri) and future TUI clients will share core types
 4. **Image Handling**: May use wabi-core for image metadata/caching
 
@@ -450,7 +450,7 @@ readerPreferences.subscribe((value) => {
 });
 ```
 
-**Note**: With the new persistence option (SQLite/Postgres via Docker), reader preferences can now persist beyond localStorage when using the community deployment mode.
+**Note**: Reader preferences can persist beyond browser-local state once wired to SpacetimeDB.
 
 ---
 
@@ -538,6 +538,6 @@ readerPreferences.subscribe((value) => {
 | Page Navigation | DOM scroll manipulation | No change (UI-layer) |
 | Fullscreen Mode | CSS classes + localStorage | May sync via core user settings |
 | Image Viewer | Svelte + DOM APIs | Core may handle metadata |
-| Persistence | localStorage | Migrate to core persistence (SQLite/Postgres) |
+| Persistence | localStorage | Migrate to SpacetimeDB or keep browser-local in IndexedDB |
 
 The key principle: **Keep UI behavior in Svelte, prepare state management for core integration.**

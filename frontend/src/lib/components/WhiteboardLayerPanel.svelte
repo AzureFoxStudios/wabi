@@ -148,8 +148,8 @@
 		gap: 0.65rem;
 		padding: 0.85rem;
 		border-radius: 18px;
-		border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.18);
-		background: rgba(var(--surface-app-rgb, 15, 23, 42), 0.82);
+		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 18%, transparent);
+		background: color-mix(in srgb, var(--surface-app, #1a1a2e) 82%, transparent);
 		color: var(--text-inverse, #e2e8f0);
 		backdrop-filter: blur(12px);
 		box-shadow: 0 18px 42px rgba(var(--surface-app-rgb, 15, 23, 42), 0.18);
@@ -179,14 +179,14 @@
 
 	.layer-panel-subtitle {
 		font-size: 0.7rem;
-		color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.7);
+		color: color-mix(in srgb, var(--text-inverse, #e2e8f0) 70%, transparent);
 	}
 
 	.layer-add-btn,
 	.layer-row-actions button {
-		border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.2);
+		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 20%, transparent);
 		border-radius: 10px;
-		background: rgba(var(--surface-base-rgb, 30, 41, 59), 0.92);
+		background: color-mix(in srgb, var(--surface-base, #24243e) 92%, transparent);
 		color: var(--text-inverse, #f8fafc);
 		font-size: 0.74rem;
 		padding: 0.32rem 0.55rem;
@@ -195,14 +195,14 @@
 
 	.layer-add-btn:hover,
 	.layer-row-actions button:hover {
-		background: rgba(51, 65, 85, 0.96);
+		background: color-mix(in srgb, var(--surface-raised, #302b63) 96%, transparent);
 	}
 
 	.active-layer-card,
 	.layer-row {
-		border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.14);
+		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 14%, transparent);
 		border-radius: 14px;
-		background: rgba(var(--surface-base-rgb, 30, 41, 59), 0.72);
+		background: color-mix(in srgb, var(--surface-base, #24243e) 72%, transparent);
 	}
 
 	.active-layer-card {
@@ -220,8 +220,8 @@
 		font-size: 0.68rem;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
-		background: rgba(59, 130, 246, 0.18);
-		color: var(--text-info, #bfdbfe);
+		background: color-mix(in srgb, var(--color-info, #00bfff) 18%, transparent);
+		color: var(--color-info, #00bfff);
 	}
 
 	.active-layer-switch,
@@ -230,14 +230,14 @@
 		align-items: center;
 		gap: 0.35rem;
 		font-size: 0.72rem;
-		color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.86);
+		color: color-mix(in srgb, var(--text-inverse, #e2e8f0) 86%, transparent);
 	}
 
 	.opacity-row,
 	.layer-row-opacity {
 		justify-content: space-between;
 		font-size: 0.74rem;
-		color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.84);
+		color: color-mix(in srgb, var(--text-inverse, #e2e8f0) 84%, transparent);
 	}
 
 	.opacity-row input,
@@ -261,8 +261,8 @@
 	}
 
 	.layer-row.active {
-		border-color: rgba(var(--color-info-rgb, 96, 165, 250), 0.44);
-		box-shadow: inset 0 0 0 1px rgba(var(--color-info-rgb, 96, 165, 250), 0.18);
+		border-color: color-mix(in srgb, var(--color-info, #00bfff) 44%, transparent);
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-info, #00bfff) 18%, transparent);
 	}
 
 	.layer-row-main {
@@ -278,16 +278,16 @@
 	}
 
 	.layer-row-handle {
-		color: rgba(var(--text-muted-rgb, 148, 163, 184), 0.72);
+		color: color-mix(in srgb, var(--text-muted, #9999ff) 72%, transparent);
 	}
 
 	.layer-name-input {
 		flex: 1;
 		min-width: 0;
 		padding: 0.3rem 0.45rem;
-		border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.16);
+		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 16%, transparent);
 		border-radius: 8px;
-		background: rgba(var(--surface-app-rgb, 15, 23, 42), 0.66);
+		background: color-mix(in srgb, var(--surface-app, #1a1a2e) 66%, transparent);
 		color: var(--text-inverse, #f8fafc);
 		font-size: 0.78rem;
 	}
@@ -295,7 +295,7 @@
 	.layer-row-meta {
 		flex-wrap: wrap;
 		font-size: 0.7rem;
-		color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.8);
+		color: color-mix(in srgb, var(--text-inverse, #e2e8f0) 80%, transparent);
 	}
 
 	.layer-row-actions {

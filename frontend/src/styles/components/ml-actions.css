@@ -7,27 +7,39 @@
 
 	.message-actions {
 		position: absolute;
-		top: -10px;
-		right: 0px;
+		top: 4px;
+		right: 12px;
 		display: flex;
 		align-items: center;
-		background: var(--surface-raised);
-		border-radius: 8px;
-		box-shadow: 0 2px 10px rgba(0, 0, 0, var(--opacity-light));
-		z-index: 10;
+		background: var(--surface-popover);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
+		box-shadow: 0 2px 10px color-mix(in srgb, var(--surface-app) 60%, transparent);
+		z-index: 80;
 		opacity: 0;
 		visibility: hidden;
-		transform: translateY(10px);
-		transition: opacity 0.2s ease-out, visibility 0.2s ease-out, transform 0.2s ease-out;
+		transform: translateY(6px) scale(0.98);
+		transition: opacity 0.18s ease-out, visibility 0.18s ease-out, transform 0.18s ease-out;
 		padding: 0 5px;
-		height: 30px;
+		height: 32px;
 	}
 
 
-	.message:hover .message-actions {
+	/* In right-aligned own messages the message body is mirrored, so anchor
+	   the hover bar to the left edge instead. */
+	/* plain CSS: no :global() */
+	html[data-own-messages-right='true'] .message.own-message .message-actions {
+		right: auto;
+		left: 12px;
+	}
+
+
+	.message:hover .message-actions,
+	.message:focus-within .message-actions,
+	.message-actions.mobile-visible {
 		opacity: 1;
 		visibility: visible;
-		transform: translateY(0);
+		transform: translateY(0) scale(1);
 	}
 
 
@@ -41,6 +53,33 @@
 	}
 
 
+	.quick-reaction-btn {
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 2px;
+		border-radius: var(--radius-sm);
+		transition: background-color 0.18s ease, transform 0.12s ease;
+		font-size: 1rem;
+		line-height: 1;
+	}
+
+	.quick-reaction-btn:hover {
+		background-color: var(--surface-raised);
+		transform: scale(1.15);
+	}
+
+	.quick-reaction-emoji {
+		width: 20px;
+		height: 20px;
+		object-fit: contain;
+	}
+
+
 	.timestamp-action {
 		font-size: 0.75rem;
 		color: var(--text-secondary);
@@ -49,7 +88,7 @@
 		/* Added for better visibility against background */
 		background-color: var(--surface-base);
 		padding: 0 5px;
-		border-radius: 4px;
+		border-radius: var(--radius-sm);
 	}
 
 
@@ -63,9 +102,10 @@
 		align-items: center;
 		justify-content: center;
 		font-size: 1rem;
-		transition: color 0.2s, background-color 0.2s;
-		height: 24px; /* Fixed height for icon */
-		width: 24px; /* Fixed width for icon */
+		transition: color 0.18s ease, background-color 0.18s ease;
+		height: 28px; /* Fixed height for icon */
+		width: 28px; /* Fixed width for icon */
+		border-radius: var(--radius-sm);
 	}
 
 
@@ -76,9 +116,14 @@
 
 
 	.action-btn:hover {
-		color: var(--accent-primary);
+		color: var(--accent-primary-color);
 		background-color: var(--surface-raised);
-		border-radius: 8px;
+	}
+
+
+	.action-btn:focus-visible {
+		outline: 2px solid color-mix(in srgb, var(--accent-primary-color) 70%, transparent);
+		outline-offset: 1px;
 	}
 
 

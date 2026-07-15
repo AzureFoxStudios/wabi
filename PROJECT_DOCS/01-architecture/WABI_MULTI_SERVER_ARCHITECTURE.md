@@ -1,15 +1,18 @@
 # Wabi Architecture — Multi-Server Model
 
-**Date:** 2026-04-27  
-**Verified:** Live on wabi.chat
+> **Status:** Live on wabi.chat (user-facing federation UX).
+> **Date:** 2026-04-27 (originally); 2026-06-22 (rewritten for Wabidb era).
+> **Scope:** How users connect to and switch between multiple self-hosted Wabi servers.
+
+This document is the **user-facing federation UX**. It is distinct from `SERVER_MESH_PLAN.md`, which describes the runtime mesh between Authority and Anchor nodes of a single Wabi deployment.
 
 ## Core Principle
 
 **Wabi is a TOOL, not a SERVICE.**
 
-- Users run their own servers (wabi-node)
-- Client connects to multiple independent servers
-- No central coordination between servers
+- Users run their own servers
+- A single client can connect to multiple independent servers
+- No central coordination between servers (no global user directory, no cross-server messaging)
 - Clean legal separation: "I publish software, you run your server"
 
 ## User Experience
@@ -26,6 +29,7 @@
 ### Server Switcher Panel
 
 Shows:
+
 - List of saved servers (with favicons/logos)
 - Recent servers
 - Followed servers (future feature)
@@ -35,99 +39,40 @@ Shows:
 ### Multi-Server Client
 
 **Tauri app (desktop/mobile):**
+
 - Stores list of servers locally
 - Connects to multiple servers simultaneously
 - Shows server switcher (like Slack workspace switcher)
 - Each server has independent auth (different accounts possible)
 - Notifications per server
 
-## Server Architecture (wabi-node)
+## Server Architecture (per server)
 
-**Single binary that:**
-- Serves frontend (embedded static files)
-- Handles HTTP API routes
+Each server is a self-contained `wabi-server` binary instance. It:
+
+- Serves frontend (embedded static files via `rust_embed`)
+- Handles HTTP API routes (`/api/*`)
 - Manages Socket.IO connections
-- Stores its own user database (SQLite or SpacetimeDB)
-- Coordinates TURN for its own users
-- Optionally coordinates SFU/media gateway
-- Can run in relay mode (volunteer to help other servers)
+- Manages the embedded Wabidb engine for all state
+- Persists to its own `./data/wabi-server/` directory
+- No peer-to-peer sync with other servers (use `SERVER_MESH_PLAN.md` for multi-node within a deployment)
 
-**Independent:**
-- Doesn't know about other wabi-node instances
-- No federation required (optional future feature)
-- Each server is an island
-- Client is the bridge
+A user connecting to a single Wabi server experiences the same UI as one connecting to many — the server is just a URL.
 
-## Legal Protection Model
+## Privacy Implications
 
-**Like BitTorrent or Signal:**
-- ✅ Publish open-source tool on GitHub
-- ✅ Users run their own servers
-- ✅ No central directory of servers
-- ✅ No coordination between servers
-- ✅ wabi.chat is a demo instance, not "the service"
-- ✅ If served legal process: "I publish software. I don't operate your server."
+Because each server is independent:
 
-## Current Implementation
+- A user's identity (account, password hash, message history) exists ONLY on the server they registered with
+- There is no global username registry — two users with the same name on different servers are unrelated
+- A user joining a second server must register separately; they have a different account on each
+- Cross-server DMs are not supported (the server is the trust boundary)
 
-**Frontend:**
-- `frontend/src/lib/savedServers.ts` — localStorage management
-- `frontend/src/lib/components/ServerSwitcherPanel.svelte` — UI for server management
-- Server list stored in browser localStorage
-- No backend API needed for server management
+This is by design. Wabi is not a federated protocol like Matrix or ActivityPub; it is a self-hosted single-tenant server that happens to support a multi-server UI for users who want to interact with multiple Wabi deployments.
 
-**Backend (TypeScript, being replaced by wabi-node):**
-- Standalone Node.js server
-- Serves frontend
-- Handles auth, channels, messages, etc.
-- Each instance is independent
+## Cross-References
 
-**Future (wabi-node Rust server):**
-- Single binary replacement for TypeScript backend
-- Same independence model
-- Better performance
-- Easier deployment (no Node.js required)
-
-## Deployment Models
-
-### Kyle's Room (Simple)
-```bash
-# Kyle runs at home
-./wabi-node serve
-# Port forwards 3000
-# Friends connect to Kyle's public IP:3000
-```
-
-### TAFKAT Art Server (Community)
-```bash
-# TAFKAT runs on VPS with Docker
-docker compose up -d
-# Has TURN, SFU, media gateway
-# 500 users, many channels, whiteboards
-```
-
-### Alice's Client
-```bash
-# Alice runs Tauri app
-# Connected to:
-#   - Kyle's Room (gaming friends)
-#   - Joey's Server (barebones)
-#   - TAFKAT Art (community)
-# Switches between them seamlessly
-```
-
-## Next Steps
-
-1. **wabi-node development** — Rust server to replace TypeScript backend
-2. **Tauri v2 migration** — Desktop + mobile from one codebase
-3. **Relay mode** — Optional volunteer relay hosting
-4. **QR code onboarding** — Scan to join server (easier than typing URL)
-5. **LAN discovery** — Auto-find servers on same WiFi (optional)
-
-## Parking Lot (Future Considerations)
-
-- **Pretext integration** — Text layout optimization for Reader Mode / notes surfaces. Only add if users report scrolling lag or we build note-heavy features. Not needed for core chat. ([analysis](./PRETEXT_COMPARISON.md))
-
----
-
-**Summary:** Wabi is a tool for running independent servers. The client aggregates multiple servers. No central coordination. Clean legal separation.
+- `PROJECT_DOCS/01-architecture/SERVER_MESH_PLAN.md` — runtime mesh between Authority and Anchor nodes (separate concern)
+- `PROJECT_DOCS/01-architecture/ARCHITECTURE.md` §6 — multi-server topology
+- `frontend/src/lib/components/` — server switcher UI components (Svelte)
+- `core/crates/wabi-tui/` — TUI client (also supports multi-server)

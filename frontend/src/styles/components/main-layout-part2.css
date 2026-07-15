@@ -1,9 +1,5 @@
 @media (max-width: 768px) {
 	.app-container {
-		height: 100vh;
-		height: 100dvh;
-	}
-	.app-container.mobile-nav-visible {
 		height: calc(100vh - var(--mobile-nav-height));
 		height: calc(100dvh - var(--mobile-nav-height));
 	}
@@ -20,7 +16,10 @@
 	.mobile-panel-backdrop {
 		display: block;
 		position: fixed;
-		inset: 0;
+		top: 0;
+		right: 0;
+		bottom: var(--mobile-nav-height);
+		left: 0;
 		background: var(--shadow-md, var(--surface-modal-overlay, rgba(0, 0, 0, 0.4)));
 		backdrop-filter: blur(4px);
 		z-index: calc(var(--z-modal) - 1);
@@ -79,6 +78,11 @@
 		transform: translateX(0);
 	}
 
+	.mobile-right-overlay:not(.visible):not(.preview-visible) {
+		transform: translateX(100%) !important;
+		pointer-events: none;
+	}
+
 	.mobile-right-overlay.preview-visible {
 		display: flex;
 		pointer-events: none;
@@ -109,15 +113,6 @@
 		z-index: var(--z-toast);
 		padding: 0;
 		padding-bottom: env(safe-area-inset-bottom, 0);
-		transform: translateY(100%);
-		opacity: 0;
-		pointer-events: none;
-		transition: transform 0.2s ease, opacity 0.2s ease;
-	}
-	.mobile-bottom-nav.visible {
-		transform: translateY(0);
-		opacity: 1;
-		pointer-events: auto;
 	}
 	.mobile-bottom-nav button {
 		display: flex;
@@ -130,37 +125,16 @@
 		border: none;
 		color: var(--text-secondary);
 		font-size: 0.62rem;
+		min-height: 44px;
 		padding: 0.34rem 0.45rem;
 		transition: color 0.15s;
 	}
 	.mobile-bottom-nav button:hover { color: var(--text-heading); }
-	.mobile-bottom-nav button.active { color: var(--accent-primary); }
+	.mobile-bottom-nav button.active { color: var(--accent-primary-color); }
 	.mobile-bottom-nav svg { width: 19px; height: 19px; stroke: currentColor; fill: none; stroke-width: 2; }
 
 	.mobile-nav-grabber {
-		display: flex;
-		position: fixed;
-		right: 8px;
-		top: calc(env(safe-area-inset-top, 0) + 56px);
-		width: 34px;
-		height: 34px;
-		border: none;
-		border-radius: 10px;
-		background: color-mix(in srgb, var(--surface-raised) 88%, black 12%);
-		box-shadow: 0 4px 14px var(--shadow-lg, rgba(0, 0, 0, 0.24));
-		align-items: center;
-		justify-content: center;
-		z-index: var(--z-toast);
-		opacity: 0.88;
-	}
-
-	.mobile-nav-grabber span {
-		display: block;
-		width: 14px;
-		height: 14px;
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--text-secondary) 78%, white 22%);
-		mask: linear-gradient(135deg, transparent 42%, var(--surface-app, #000) 42% 58%, transparent 58%) center / 90% 90% no-repeat;
+		display: none;
 	}
 }
 

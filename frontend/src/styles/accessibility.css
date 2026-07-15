@@ -27,122 +27,159 @@
    VS CODE HIGH CONTRAST — electric blue separators
    ========================================================================== */
 
-:root[data-theme='vscode-high-contrast'] .channel-sidebar {
+:root[data-theme='high-contrast'] .channel-sidebar {
 	border-right: var(--border-width-md) solid var(--color-info);
 }
 
-:root[data-theme='vscode-high-contrast'] .channel-list {
+:root[data-theme='high-contrast'] .channel-list {
 	border-top: var(--border-width-md) solid var(--color-info);
 }
 
-:root[data-theme='vscode-high-contrast'] .channel-item {
+:root[data-theme='high-contrast'] .channel-item {
 	border-left: var(--border-width-md) solid transparent;
 	transition: border-left-color var(--duration-fast);
 }
 
-:root[data-theme='vscode-high-contrast'] .channel-item:hover,
-:root[data-theme='vscode-high-contrast'] .channel-item.active {
+:root[data-theme='high-contrast'] .channel-item:hover,
+:root[data-theme='high-contrast'] .channel-item.active {
 	border-left-color: var(--color-info);
 }
 
-:root[data-theme='vscode-high-contrast'] .chat-header {
+:root[data-theme='high-contrast'] .chat-header {
 	border-bottom: var(--border-width-md) solid var(--color-info);
 }
 
-:root[data-theme='vscode-high-contrast'] .dm-list-panel {
+:root[data-theme='high-contrast'] .dm-list-panel {
 	border-left: var(--border-width-md) solid var(--color-info);
 }
 
-:root[data-theme='vscode-high-contrast'] .panel-header {
+:root[data-theme='high-contrast'] .panel-header {
 	border-bottom: var(--border-width-md) solid var(--color-info);
 }
 
-:root[data-theme='vscode-high-contrast'] .tab-switcher {
+:root[data-theme='high-contrast'] .tab-switcher {
 	border-bottom: none;
 	margin-bottom: 0;
 }
 
-:root[data-theme='vscode-high-contrast'] .tab-switcher::after {
+:root[data-theme='high-contrast'] .tab-switcher::after {
 	color: var(--color-info);
 	font-size: var(--font-size-3);
 }
 
-:root[data-theme='vscode-high-contrast'] .tab-btn {
+:root[data-theme='high-contrast'] .tab-btn {
 	font-size: var(--font-size-2);
 	color: var(--text-heading);
 }
 
-:root[data-theme='vscode-high-contrast'] .tab-btn.active {
+:root[data-theme='high-contrast'] .tab-btn.active {
 	color: var(--color-info);
 }
 
-:root[data-theme='vscode-high-contrast'] .tab-btn.active::after {
+:root[data-theme='high-contrast'] .tab-btn.active::after {
 	background: var(--color-info);
 }
 
-:root[data-theme='vscode-high-contrast'] .conversations-list,
-:root[data-theme='vscode-high-contrast'] .users-list {
+:root[data-theme='high-contrast'] .conversations-list,
+:root[data-theme='high-contrast'] .users-list {
 	border-top: var(--border-width-sm) solid var(--color-info);
 }
 
-:root[data-theme='vscode-high-contrast'] .conversation-item,
-:root[data-theme='vscode-high-contrast'] .user-item {
+:root[data-theme='high-contrast'] .conversation-item,
+:root[data-theme='high-contrast'] .user-item {
 	border-left: var(--border-width-md) solid transparent;
 	transition: border-left-color var(--duration-fast);
 }
 
-:root[data-theme='vscode-high-contrast'] .conversation-item:hover,
-:root[data-theme='vscode-high-contrast'] .user-item:hover {
+:root[data-theme='high-contrast'] .conversation-item:hover,
+:root[data-theme='high-contrast'] .user-item:hover {
 	border-left-color: var(--color-info);
 }
 
 /* ==========================================================================
-   SLATE SIGNAL — frosted glass layering
+   AMBIENT FROSTED GLASS
+   Whenever the active theme has a living background (any theme whose
+   ambient.effect != 'none', including custom themes — flagged by
+   [data-ambient='true'] set in themeManager), surfaces become translucent +
+   blurred so the ambient <canvas> sitting behind .app-content-layer blends
+   THROUGH instead of being hidden behind opaque panels. Opacity/blur are
+   driven by --surface-frost-* (0.85 / 12px when ambient is on, 1 / 0 off).
+   Themes without an effect keep data-ambient='false', so their surfaces
+   stay fully opaque.
    ========================================================================== */
 
-:root[data-theme='slate-signal'] .channel-sidebar,
-:root[data-theme='slate-signal'] .dm-panel,
-:root[data-theme='slate-signal'] .user-panel,
-:root[data-theme='slate-signal'] .right-panel-content,
-:root[data-theme='slate-signal'] .chat-header,
-:root[data-theme='slate-signal'] .panel-header,
-:root[data-theme='slate-signal'] .modal-content,
-:root[data-theme='slate-signal'] .incoming-call-modal,
-:root[data-theme='slate-signal'] .call-shell .active-call-container {
-	background-color: rgba(var(--surface-base-rgb), 0.58) !important;
+[data-ambient='true']
+  .channel-sidebar,
+[data-ambient='true']
+  .dm-panel,
+[data-ambient='true']
+  .user-panel,
+[data-ambient='true']
+  .right-panel-content,
+[data-ambient='true']
+  .chat-header,
+[data-ambient='true']
+  .panel-header,
+[data-ambient='true']
+  .modal-content,
+[data-ambient='true']
+  .incoming-call-modal,
+[data-ambient='true']
+  .call-shell .active-call-container {
+	/* Use the `background` shorthand (not background-color) so it also clears
+	   the component's own gradient image layers — otherwise those paint on
+	   top and keep the surface effectively opaque, hiding the canvas. */
+	background: rgba(var(--surface-base-rgb), var(--surface-frost-opacity, 1)) !important;
 	border-color: rgba(var(--border-rgb), 0.5) !important;
 }
 
-:root[data-theme='slate-signal'] .chat-header,
-:root[data-theme='slate-signal'] .panel-header,
-:root[data-theme='slate-signal'] .input-wrapper {
-	background-color: rgba(var(--surface-raised-rgb), 0.52) !important;
+[data-ambient='true']
+  .chat-header,
+[data-ambient='true']
+  .panel-header,
+[data-ambient='true']
+  .input-wrapper {
+	background: rgba(var(--surface-raised-rgb), var(--surface-frost-opacity, 1)) !important;
 }
 
-:root[data-theme='slate-signal'] .input-wrapper,
-:root[data-theme='slate-signal'] .input-container {
-	background-color: transparent !important;
+[data-ambient='true']
+  .input-wrapper,
+[data-ambient='true']
+  .input-container {
+	background: transparent !important;
 	box-shadow: none !important;
 }
 
-:root[data-theme='slate-signal'] .chat-container,
-:root[data-theme='slate-signal'] .main-content,
-:root[data-theme='slate-signal'] .chat-content {
-	background: linear-gradient(180deg, rgba(13, 17, 24, 0.22) 0%, rgba(13, 17, 24, 0.38) 100%);
+[data-ambient='true']
+  .chat-container,
+[data-ambient='true']
+  .main-content,
+[data-ambient='true']
+  .chat-content {
+	background: rgba(var(--surface-base-rgb), var(--surface-frost-opacity, 1)) !important;
 }
 
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-	:root[data-theme='slate-signal'] .channel-sidebar,
-	:root[data-theme='slate-signal'] .dm-panel,
-	:root[data-theme='slate-signal'] .user-panel,
-	:root[data-theme='slate-signal'] .right-panel-content,
-	:root[data-theme='slate-signal'] .chat-header,
-	:root[data-theme='slate-signal'] .panel-header,
-	:root[data-theme='slate-signal'] .modal-content,
-	:root[data-theme='slate-signal'] .incoming-call-modal,
-	:root[data-theme='slate-signal'] .call-shell .active-call-container {
-		backdrop-filter: blur(14px) saturate(1.12);
-		-webkit-backdrop-filter: blur(14px) saturate(1.12);
-		box-shadow: 0 12px 28px rgba(6, 10, 18, 0.32);
+	[data-ambient='true']
+	  .channel-sidebar,
+	[data-ambient='true']
+	  .dm-panel,
+	[data-ambient='true']
+	  .user-panel,
+	[data-ambient='true']
+	  .right-panel-content,
+	[data-ambient='true']
+	  .chat-header,
+	[data-ambient='true']
+	  .panel-header,
+	[data-ambient='true']
+	  .modal-content,
+	[data-ambient='true']
+	  .incoming-call-modal,
+	[data-ambient='true']
+	  .call-shell .active-call-container {
+		backdrop-filter: blur(var(--surface-frost-blur, 0px)) saturate(1.12);
+		-webkit-backdrop-filter: blur(var(--surface-frost-blur, 0px)) saturate(1.12);
+		box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
 	}
 }

@@ -1,6 +1,6 @@
 # STDB Migration — P7 + P8 Handoff Guide
 
-Context: the hybrid SQLite+STDB → STDB-only migration completed phases P1–P6 on 2026-04-22.
+Context: the hybrid legacy-db+STDB → STDB-only migration completed phases P1–P6 on 2026-04-22.
 All 6 state plane stores (`message`, `channel`, `channel_member`, `user`, `session`, `rbac`) run in
 `stdb_primary` mode on tim with clean writes and no shadow/warmup/parity/outbox-replay plumbing.
 This guide exists so a future session can finish P7 (cleanup) and P8 (multi-server client features)
@@ -56,14 +56,14 @@ Follow-up work in this session finished the code-side P7 cleanup:
 - **P7b done.** `scripts/launch.sh` no longer parses/applies the retired hybrid/shadow
   env flags, and `scripts/state-plane-stdb-benchmark.ps1` was deleted.
 - **Additional cleanup:** `payments/userBlocks.ts` now hydrates usernames from STDB-backed
-  user lookups instead of joining the stale SQLite `users` mirror, and `server.ts` no longer
-  uses SQLite `users`/`sessions` paths for setup status or moderation session revocation.
+  user lookups instead of joining the stale legacy embedded DB `users` mirror, and `server.ts` no longer
+  uses legacy embedded DB `users`/`sessions` paths for setup status or moderation session revocation.
 - **Still deferred:** live tim verification/deploy. From this coding environment `tim` did not
   resolve, so `/state-plane/healthz`, rsync, and smoke tests on tim were not rerun here.
-- **Important nuance:** the SQLite tables `users`, `sessions`, `channels`, `channel_members`,
+- **Important nuance:** the legacy embedded DB tables `users`, `sessions`, `channels`, `channel_members`,
   and `messages` still exist in `schema.sql`/`database.ts`. They are no longer used through
   the deleted repository layer, but fully dropping them is a separate schema-decoupling task
-  because other legacy SQLite tables and scripts still reference them directly or via foreign
+  because other legacy legacy embedded DB tables and scripts still reference them directly or via foreign
   keys.
 
 ### 2026-04-23 P8 progress update
@@ -133,7 +133,7 @@ endpoint, and update the docs.
 **Problem.** These still exist but nothing in the running code path calls them since P5:
 
 - `backend/src/db/repositories/messageRepository.ts` — used only by `stdbMessageStore.toClientFormat()` (pure formatter — can inline or pull into a `formatMessage` helper) and `findLegacyMessageByMessageId` (dead).
-- `/api/admin/legacy-message-status` in `backend/src/api/runtimeAdminRoutes.ts` — introspects the SQLite message_archive table that P5 stopped writing to.
+- `/api/admin/legacy-message-status` in `backend/src/api/runtimeAdminRoutes.ts` — introspects the legacy embedded DB message_archive table that P5 stopped writing to.
 - The `findByMessageId` repo method it calls.
 - `backend/src/api/followRoutes.ts` reference — verify whether it's still in the hot path or a vestige.
 

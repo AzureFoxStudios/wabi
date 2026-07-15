@@ -12,6 +12,7 @@
 		localScreenStream,
 		connectionState,
 		callTransportState,
+		callOfflineNotice,
 		spatialAudioRuntimeStatus,
 		spatialAudioDiagnostics,
 		spatialSeatDebugState,
@@ -159,6 +160,16 @@
 
 {#if hasActiveMedia}
 	<div class="media-overlay" transition:fade={{ duration: 200 }}>
+		{#if $callOfflineNotice}
+			<div class="call-offline-banner" transition:fade={{ duration: 160 }}>
+				{$callOfflineNotice}
+				<button
+					class="call-offline-dismiss"
+					on:click={() => callOfflineNotice.set(null)}
+					title="Dismiss"
+				>×</button>
+			</div>
+		{/if}
 		<!-- Screen Share Focus Mode (1 screen share) -->
 		{#if layoutMode === 'screen-focus'}
 			<div class="layout-focus">
@@ -508,4 +519,32 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	.call-offline-banner {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		z-index: 50;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.5rem 0.75rem;
+		background: rgba(180, 30, 30, 0.92);
+		color: #fff;
+		font-size: 0.8rem;
+		font-weight: 600;
+	}
+	.call-offline-dismiss {
+		background: transparent;
+		border: none;
+		color: #fff;
+		font-size: 1rem;
+		line-height: 1;
+		cursor: pointer;
+		padding: 0 0.25rem;
+	}
+</style>
 

@@ -1,142 +1,96 @@
 # Wabi Local Development Setup
 
-This guide explains how to set up Wabi for local development on any computer.
+Wabi has two explicitly different local modes. Do not blur them:
+
+- `dev:mock` is frontend-only visual smoke.
+- `dev:local` is real development: Rust server + SpacetimeDB + frontend.
+
+Shared server state belongs in SpacetimeDB. Browser-local client caches belong in IndexedDB.
 
 ## Prerequisites
 
-- [Bun](https://bun.sh/) (version 1.1+)
-- [Rust](https://www.rust-lang.org/tools/install) and Cargo
+- Bun 1.1+
+- Rust and Cargo
 - Git
-- (Optional) [Docker](https://www.docker.com/) for containerized dependencies (not required for basic dev)
+- Docker or a working Podman/Compose setup for local SpacetimeDB services
+- The Wabi SpacetimeDB module at `spacetimedb/wabi_state_bridge`
 
-## Setup
+## Install dependencies
 
-1. Clone the repository (if you haven't already):
+```bash
+bun install
+```
 
-   ```bash
-   git clone https://github.com/AzureFoxStudios/wabi.git
-   cd wabi
-   ```
+## Development modes
 
-2. Install Bun dependencies:
-
-   ```bash
-   bun install
-   ```
-
-   Note: The frontend has its own `package.json` but Bun hoists dependencies, so a single `bun install` at the root is sufficient.
-
-## Development Modes
-
-Wabi provides two local development modes:
-
-### 1. Frontend-Only Mock Dev Mode (`bun run dev:mock`)
-
-Use this mode when you want to work on the frontend UI without a real backend or SpacetimeDB.
-
-- Starts a Vite dev server for the frontend only.
-- Uses an in-browser mock socket that simulates connected state.
-- Seeds mock data: users, channels, messages, roles.
-- Persists mock messages to browser `localStorage` (key: `wabi:local-mock:messages:v1`).
-- Ideal for rapid UI iteration, offline work, or when backend setup is problematic.
-
-To start:
+### Frontend-only mock mode
 
 ```bash
 bun run dev:mock
 ```
 
-Then open: <http://127.0.0.1:5173/>
+Use this only for quick layout and visual smoke checks.
 
-### 2. Real Stack Dev Mode (`bun run dev:local`)
+What it does:
 
-Use this mode when you need the real Rust backend and Socket.IO connection.
+- starts Vite on `http://127.0.0.1:5173/`
+- uses an in-browser mock socket
+- uses browser-local fake data
+- does not verify real auth, uploads, profile pictures, permissions, reducers, or STDB state
 
-- Starts the Rust `wabi-server` on port 3000.
-- Starts the frontend Vite dev server on port 5173.
-- Requires a working SpacetimeDB setup (or local STDB container) for full functionality.
-- Backend data is stored in `backend/data/`.
+Mock mode must never be treated as real dev verification.
 
-To start:
+### Real local dev mode
 
 ```bash
 bun run dev:local
 ```
 
-Then open:
-- Frontend: <http://127.0.0.1:5173/>
-- Backend health: <http://127.0.0.1:3000/health>
+What it expects:
+
+- SpacetimeDB on `http://127.0.0.1:3030`
+- STDB proxy on `http://127.0.0.1:3100`
+- Rust `wabi-server` on `http://127.0.0.1:3001`
+- Vite frontend on `http://127.0.0.1:5173`
+
+`dev:local` refuses to silently fall back to mock or legacy persistence. If `spacetimedb/wabi_state_bridge` is missing, or Docker/Compose is unavailable, it exits with a specific error.
 
 ## Verification
 
-### Quick Smoke Test
+For mock mode:
 
-Run the smoke helper script to verify both modes:
+1. Open `http://127.0.0.1:5173/`.
+2. Confirm the UI shell renders.
+3. Treat all backend-dependent behavior as unverified.
 
-```bash
-./scripts/local-dev-smoke.sh
-```
+For real local mode:
 
-It will check:
-- Frontend HTTP 200 (both modes)
-- Backend HTTP 200 (only in `dev:local` mode)
-- Print clear PASS/FAIL lines.
-
-### Manual Checks
-
-#### For `dev:mock`:
-1. Confirm you see the app shell after guest login.
-2. Verify no "Connection Lost" banner appears.
-3. Check that mock channels (`general`, `Voice Lounge`) and users (`Mira`, `Taro`) are present.
-4. Send a message in `general` and confirm it does not remain stuck as "sending".
-5. Refresh the page and confirm mock messages persist.
-
-#### For `dev:local`:
-1. Confirm frontend loads and you can log in (guest or registered).
-2. Verify backend `/health` returns HTTP 200 with JSON:
-   ```json
-   {"role":"authority","service":"wabi-server","status":"ok",...}
+1. Open `http://127.0.0.1:5173/`.
+2. Confirm backend health:
+   ```bash
+   curl http://127.0.0.1:3001/health
    ```
-3. Note: You may see a reducer failure in the backend logs during startup:
-   ```
-   wabi_server::db: Reducer call failed: Failed to call reducer
-   ```
-   This is a known issue with default channel seeding in SpacetimeDB but does not block the health check or basic functionality. It is safe to ignore for frontend work.
+3. Register or guest-login through the real Rust backend.
+4. Verify profile pictures, permissions, uploads, messages, and settings through the real stack.
 
 ## Ports
 
 - Frontend dev server: `5173`
-- Backend server: `3000`
-- (Optional) Chromium remote debugging: `9223`-`9229` (used by smoke tests)
+- Rust backend: `3001`
+- SpacetimeDB direct HTTP: `3030`
+- STDB proxy: `3100`
+- Optional Chromium remote debugging for smoke tests: `9223`-`9229`
 
 ## Troubleshooting
 
-### Common Issues
+- Missing `spacetimedb/wabi_state_bridge`: restore/add the STDB module before using real dev mode.
+- Docker permission denied: fix Docker socket access, configure Podman Compose, or start STDB/Rust services separately and point the frontend at them.
+- Need pure visual smoke: use `bun run dev:mock`, but do not treat that as backend verification.
 
-- **"Address already in use"**: Kill existing processes:
-  ```bash
-  pkill -f 'bun run dev:mock' || true
-  pkill -f 'bun run dev:local' || true
-  pkill -f 'vite dev --host 127.0.0.1' || true
-  pkill -f 'wabi-server' || true
-  ```
-- **Missing dependencies**: Ensure Bun and Rust are installed and in your PATH.
-- **Backend health fails**: Verify the `wabi-server` binary is built (it should be on first `bun run dev:local`). Check logs for Rust panics.
-- **Mock mode not working**: Ensure `VITE_WABI_LOCAL_MOCK=1` is set (the `dev:mock` script does this automatically).
+## Useful checks
 
-### Logs
-
-- Frontend dev server logs: stdout of `bun run dev:mock` or `bun run dev:local`
-- Backend logs: stdout of `bun run dev:local` (look for lines starting with `wabi_server`)
-
-## Next Steps
-
-Once you have local dev working, you can:
-- Work on UI components using `bun run dev:mock` for fast iteration.
-- Switch to `bun run dev:local` when you need to test real socket/backend behavior.
-- Run `bun run check` to verify TypeScript and Svelte types.
-- Run `STATIC_BUILD=1 bun run build` to verify production build.
-
----
-
-> **Note**: This document is intended for developers setting up Wabi on a new machine or refreshing their environment. For detailed architecture and contribution guidelines, see other docs in `/docs`.
+```bash
+cd frontend && bun run check
+cd frontend && bun run build:only
+cargo check -p wabi-server
+```

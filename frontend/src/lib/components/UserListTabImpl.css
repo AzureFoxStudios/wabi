@@ -68,7 +68,7 @@
 
 	.offline-toggle:hover {
 		color: var(--text-heading);
-		background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
+		background: color-mix(in srgb, var(--accent-primary-color) 6%, transparent);
 	}
 
 	.offline-chevron {
@@ -103,7 +103,7 @@
 	}
 
 	.user-row:hover {
-		background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+		background: color-mix(in srgb, var(--accent-primary-color) 8%, transparent);
 		transform: translateY(-1px);
 	}
 
@@ -213,4 +213,13 @@
 
 	}
 
-	.user-avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary)); }
+	.user-avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary-color)); }
+
+	@media (prefers-reduced-motion: reduce) {
+		.user-row {
+			transition: background 0.15s;
+		}
+		.user-row:hover {
+			transform: none;
+		}
+	}

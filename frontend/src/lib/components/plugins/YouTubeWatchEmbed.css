@@ -23,8 +23,8 @@
 	padding: 0.3rem 0.5rem;
 }
 .watch-embed button.primary {
-	background: color-mix(in srgb, var(--accent, #5865f2) 78%, black 22%);
-	border-color: color-mix(in srgb, var(--accent, #5865f2) 70%, white 30%);
+	background: color-mix(in srgb, var(--accent, var(--accent-primary-color)) 78%, black 22%);
+	border-color: color-mix(in srgb, var(--accent, var(--accent-primary-color)) 70%, white 30%);
 }
 .watch-stage {
 	position: relative;

@@ -142,7 +142,7 @@ pub struct SessionView {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
-#[serde(transparent)]
+#[cfg_attr(not(feature = "ts"), serde(transparent))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct ChannelCreatedEvent(pub ChannelView);
 

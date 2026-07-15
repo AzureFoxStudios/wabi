@@ -1,0 +1,130 @@
+/* ==========================================================================
+   MOTION — shared animation tokens (Polish Fork 789, Item 8)
+   Canonical home for app-wide motion primitives: live dots, reveal,
+   and the OS-only reduced-motion guard. Component CSS references these
+   global keyframes by name; do not redefine them per-component.
+   ========================================================================== */
+
+/* --- Token-driven live dot (green, pulsing) --- */
+.live-dot {
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: var(--color-success, #22c55e);
+	box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-success, #22c55e) 70%, transparent);
+	animation: wabi-live-pulse 1.8s ease-out infinite;
+}
+
+@keyframes wabi-live-pulse {
+	0% {
+		box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-success, #22c55e) 70%, transparent);
+	}
+	70% {
+		box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-success, #22c55e) 0%, transparent);
+	}
+	100% {
+		box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-success, #22c55e) 0%, transparent);
+	}
+}
+
+/* --- Online presence pulse (avatar-wrapped / status dots) --- */
+@keyframes wabi-status-pulse-online {
+	0%,
+	100% {
+		box-shadow: 0 0 0 0 rgba(var(--status-online-rgb, 34, 197, 94), 0.45);
+	}
+	50% {
+		box-shadow: 0 0 0 5px rgba(var(--status-online-rgb, 34, 197, 94), 0);
+	}
+}
+
+/* --- Admin status glow (opacity pulse) --- */
+@keyframes wabi-admin-pulse-glow {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.2;
+	}
+}
+
+/* --- Reveal: fade-up (cards, segments, rows) --- */
+.reveal {
+	opacity: 0;
+	transform: translateY(var(--reveal-distance, 8px));
+	animation: wabi-reveal var(--reveal-duration, 0.4s) var(--ease-out, ease-out) forwards;
+}
+
+@keyframes wabi-reveal {
+	from {
+		opacity: 0;
+		transform: translateY(var(--reveal-distance, 8px));
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+/* --- Reveal with per-child stagger --- */
+.reveal-stagger > * {
+	opacity: 0;
+	animation: wabi-reveal var(--reveal-duration, 0.4s) var(--ease-out, ease-out) forwards;
+	animation-delay: calc(var(--reveal-index, 0) * var(--reveal-stagger, 40ms));
+}
+
+/* --- Admin card reveal (scale + fade-up) --- */
+@keyframes wabi-admin-card-reveal {
+	from {
+		opacity: 0;
+		transform: scale(0.95) translateY(8px);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1) translateY(0);
+	}
+}
+
+/* --- Admin slide-in (horizontal) --- */
+@keyframes wabi-admin-slide-in {
+	from {
+		opacity: 0;
+		transform: translateX(-8px);
+	}
+	to {
+		opacity: 1;
+		transform: translateX(0);
+	}
+}
+
+/* --- Admin segment in (scale settle) --- */
+@keyframes wabi-admin-seg-in {
+	to {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
+/* --- Admin fade-slide-in (vertical) --- */
+@keyframes wabi-admin-fade-slide-in {
+	from {
+		opacity: 0;
+		transform: translateY(12px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+/* --- OS-only reduced motion: disable all shared motion --- */
+@media (prefers-reduced-motion: reduce) {
+	.live-dot,
+	.reveal,
+	.reveal-stagger > * {
+		animation: none !important;
+		opacity: 1 !important;
+		transform: none !important;
+	}
+}

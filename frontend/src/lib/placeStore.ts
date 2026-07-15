@@ -1,7 +1,9 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
+import { getLocalMockPlaces, isLocalMockApiMode } from './localMockApi';
 import { getServerUrl } from './serverUrl';
 import { normalizeRegistryPayload } from './placeNormalization';
+import { isEndpointUnsupported, markEndpointUnsupported } from './optionalEndpoints';
 import type { PlaceRecord } from './placeRegistry';
 
 export const placeRegistry = writable<PlaceRecord[]>([]);
@@ -16,11 +18,35 @@ export async function loadPlaceRegistry(force = false): Promise<PlaceRecord[]> {
 
 	loadPromise = (async () => {
 		placeRegistryLoading.set(true);
+		if (isLocalMockApiMode()) {
+			const places = getLocalMockPlaces();
+			placeRegistry.set(places);
+			placeRegistryLoaded.set(true);
+			placeRegistryLoading.set(false);
+			return places;
+		}
+
+		const placesUrl = `${getServerUrl()}/api/places`;
+		if (isEndpointUnsupported(placesUrl)) {
+			// Optional endpoint already known to be missing — silent fallback.
+			placeRegistry.set([]);
+			placeRegistryLoaded.set(false);
+			return [];
+		}
+
 		try {
-			const response = await fetch(`${getServerUrl()}/api/places`, {
+			const response = await fetch(placesUrl, {
 				credentials: 'include'
 			});
 			if (!response.ok) {
+				if (response.status === 404) {
+					// Optional endpoint not implemented yet — remember it and
+					// fall back silently so we never spam the console with 404s.
+					markEndpointUnsupported(placesUrl);
+					placeRegistry.set([]);
+					placeRegistryLoaded.set(false);
+					return [];
+				}
 				throw new Error(`places_${response.status}`);
 			}
 			const payload = await response.json();

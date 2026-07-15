@@ -10,7 +10,7 @@
 	}
 
 
-	.message.continuation .markdown-content :global(p) {
+	.message.continuation .markdown-content p {
 		line-height: 1.25;
 		margin: 0 !important;
 	}
@@ -20,7 +20,7 @@
 		max-height: min(22rem, 55vh);
 		overflow-y: auto;
 		scrollbar-width: thin;
-		scrollbar-color: color-mix(in srgb, var(--accent-primary) 24%, var(--border-subtle) 76%) transparent;
+		scrollbar-color: color-mix(in srgb, var(--accent-primary-color) 24%, var(--border-subtle) 76%) transparent;
 	}
 
 
@@ -41,68 +41,68 @@
 	.markdown-content::-webkit-scrollbar-thumb,
 	.translated-text::-webkit-scrollbar-thumb,
 	.role-gate-description::-webkit-scrollbar-thumb {
-		background: color-mix(in srgb, var(--accent-primary) 24%, var(--border-subtle) 76%);
+		background: color-mix(in srgb, var(--accent-primary-color) 24%, var(--border-subtle) 76%);
 		border-radius: 999px;
 	}
 
 
-	.markdown-content :global(p) {
+	.markdown-content p {
 		margin: 0;
 		line-height: 1.5;
 	}
 
 
-	.markdown-content :global(p:not(:last-child)) {
+	.markdown-content p:not(:last-child) {
 		margin-bottom: 0.2rem;
 	}
 
 
-	.markdown-content :global(strong) {
+	.markdown-content strong {
 		font-weight: 600;
 	}
 
 
-	.markdown-content :global(em) {
+	.markdown-content em {
 		font-style: italic;
 	}
 
 
-	.markdown-content :global(a) {
+	.markdown-content a {
 		color: var(--color-info);
 		text-decoration: underline;
 	}
 
 
-	.markdown-content :global(a:hover) {
+	.markdown-content a:hover {
 		color: var(--color-info-hover);
 	}
 
 
-	.markdown-content :global(.mention-token) {
+	.markdown-content .mention-token {
 		display: inline-block;
 		padding: 0.05rem 0.34rem;
 		border-radius: 0.4rem;
-		background: color-mix(in srgb, var(--accent-primary) 20%, transparent);
-		color: color-mix(in srgb, var(--accent-primary) 70%, var(--text-heading) 30%);
+		background: color-mix(in srgb, var(--accent-primary-color) 20%, transparent);
+		color: color-mix(in srgb, var(--accent-primary-color) 70%, var(--text-heading) 30%);
 		font-weight: 600;
 		cursor: pointer;
 		transition: background 0.18s ease;
 	}
 
 
-	.markdown-content :global(.mention-token:hover) {
-		background: color-mix(in srgb, var(--accent-primary) 28%, transparent);
+	.markdown-content .mention-token:hover {
+		background: color-mix(in srgb, var(--accent-primary-color) 28%, transparent);
 	}
 
 
-	.markdown-content :global(code) {
+	.markdown-content code {
 		word-wrap: break-word;
 		word-break: break-all;
 		overflow-wrap: break-word;
 	}
 
 
-	.markdown-content :global(pre) {
+	.markdown-content pre {
 		word-wrap: break-word;
 		word-break: break-word;
 		overflow-wrap: break-word;
@@ -110,7 +110,7 @@
 	}
 
 
-	.markdown-content :global(pre code) {
+	.markdown-content pre code {
 		word-wrap: break-word;
 		word-break: break-word;
 		overflow-wrap: break-word;
@@ -119,7 +119,7 @@
 
 
 	/* Emote styles */
-	.markdown-content :global(.emote) {
+	.markdown-content .emote {
 		display: inline-block;
 		height: 1.5em;
 		width: auto;
@@ -131,16 +131,16 @@
 
 
 .message .markdown-content,
-.message .markdown-content :global(p),
-:global(html[data-message-density='cozy']) .message .markdown-content,
-:global(html[data-message-density='cozy']) .message .markdown-content :global(p) {
-	line-height: 1.36 !important;
+.message .markdown-content p,
+html[data-message-density='cozy'] .message .markdown-content,
+html[data-message-density='cozy'] .message .markdown-content p {
+	line-height: 1.42 !important;
 	margin: 0 !important;
 }
 
 
-:global(html[data-message-density='compact']) .message .markdown-content,
-:global(html[data-message-density='compact']) .message .markdown-content :global(p) {
+html[data-message-density='compact'] .message .markdown-content,
+html[data-message-density='compact'] .message .markdown-content p {
 	line-height: 1.22 !important;
 	font-size: calc(var(--text-base, 14px) * var(--chat-font-scale, 1) * 0.96) !important;
 	margin: 0 !important;

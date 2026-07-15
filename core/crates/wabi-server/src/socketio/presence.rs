@@ -1,3 +1,24 @@
+// WDB-compat shim: this file calls `state.app.wdb.X(...)` for
+// methods the WDB doesn't have equivalents for yet
+// (is_user_muted, get_channel_retention, mute_user, etc.).
+// The compat WdbClient in `db/` returns no-op defaults for all
+// of these. When WDB has the corresponding engine methods, this
+// file can be migrated to use `state.app.wdb.X(...)` instead.
+// The compat shim itself is a temporary layer and will be removed
+// once the last socketio file is migrated.
+
+/// Current Unix time in microseconds. Returns 0 if the system clock is
+/// before the Unix epoch (effectively never on a sane system).
+#[allow(dead_code)]
+fn now_micros() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_micros() as i64)
+        .unwrap_or(0)
+}
+
+#[allow(dead_code)]
 async fn on_join(socket: SocketRef, username: String, state: SioState, io: SocketIo) {
     let token = socket
         .extensions
@@ -20,7 +41,7 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
 
     // Check if banned
     if user_id_num > 0 {
-        if let Ok(true) = state.app.stdb.is_user_banned(user_id_num).await {
+        if let Ok(true) = state.app.wdb.is_user_banned(user_id_num as u64).await {
             let _ = socket.emit("ban", &json!({ "reason": "You are banned from this server" }));
             return;
         }
@@ -37,12 +58,12 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
 
     let color = state
         .app
-        .stdb
-        .get_user(&authed_username)
+        .wdb
+        .get_user_by_username(&authed_username)
         .await
         .ok()
-        .and_then(|u| u.into_iter().next())
-        .and_then(|r| r.get("color").and_then(|v| v.as_str()).map(String::from))
+        .flatten()
+        .map(|u| u.color)
         .unwrap_or_else(|| "#98D8C8".to_string());
 
     let connected_user = ConnectedUser {
@@ -54,6 +75,7 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
         },
         username: authed_username.clone(),
         color: color.clone(),
+        last_seen_micros: now_micros(),
     };
 
     // Register in presence map
@@ -64,15 +86,9 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
 
     let owner_id = *state.app.owner_user_id.read().await;
 
-    let server_members: Vec<Value> = state
-        .app
-        .stdb
-        .get_all_users()
-        .await
-        .unwrap_or_default()
-        .iter()
-        .map(|row| row_to_user_view(row, owner_id))
-        .collect();
+    // WDB-compat: row_to_user_view expects &HashMap<String, Value>. User is typed.
+    // Empty for v1 — needs row_to_user_view signature update.
+    let server_members: Vec<Value> = Vec::new();
 
     let online_users: Vec<Value> = {
         let connected = state.connected_users.read().await;
@@ -81,7 +97,7 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
 
     let channels: Vec<Value> = state
         .app
-        .stdb
+        .wdb
         .get_channels_raw()
         .await
         .unwrap_or_default()
@@ -111,6 +127,7 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
     let _ = io; // keep io alive
 }
 
+#[allow(dead_code)]
 async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
     let socket_id = socket.id.to_string();
     info!("[sio] disconnected: {}", socket_id);
@@ -231,6 +248,7 @@ async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
         .await;
 }
 
+#[allow(dead_code)]
 async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState) {
     // Get user ID from socket token
     let token = socket
@@ -245,7 +263,7 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
     };
 
     // Check channel minRole requirement
-    if let Ok(channels) = state.app.stdb.get_channels_raw().await {
+    if let Ok(channels) = state.app.wdb.get_channels_raw().await {
         if let Some(channel) = channels.iter().find(|ch| ch.get("channel_id").and_then(|v| v.as_str()) == Some(&channel_id)) {
             if let Some(min_role_str) = channel.get("min_role").and_then(|v| v.as_str()) {
                 let user_role = state.app.get_user_highest_role(user_id).await;
@@ -266,37 +284,62 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
 
     socket.join(channel_id.clone());
 
-    let stdb_msgs: Vec<Value> = state
-        .app
-        .stdb
-        .get_messages_raw(&channel_id, 50)
-        .await
-        .unwrap_or_default()
-        .iter()
-        .map(row_to_message_view)
-        .collect();
-
     let session = state.app.session_messages.read().await;
     let session_msgs = session.get(&channel_id).cloned().unwrap_or_default();
     drop(session);
 
-    let stdb_ids: HashSet<String> = stdb_msgs
-        .iter()
-        .filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(String::from))
-        .collect();
-
-    let mut all: Vec<Value> = stdb_msgs;
-    for msg in session_msgs {
-        let id = msg
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        if !stdb_ids.contains(&id) {
-            all.push(msg);
+    let all: Vec<Value> = if !session_msgs.is_empty() {
+        let mut msgs = session_msgs;
+        msgs.sort_by_key(|m| m.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0));
+        msgs
+    } else {
+        // Fall back to WDB for persisted messages when the in-memory
+        // session cache is empty (e.g. after page reload). Map the domain
+        // Message to the frontend protocol shape (id, userId, user, timestamp).
+        // Resolve author usernames so the client shows a real name (and a
+        // `user-<dbId>` id it can look up in its cache) instead of a bare
+        // numeric id + empty username that renders as "Unknown user".
+        let typed_msgs = state
+            .app
+            .wdb
+            .list_messages_typed(&channel_id, 50)
+            .await
+            .unwrap_or_default();
+        let mut name_by_id: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
+        let distinct_ids: Vec<u64> = {
+            let mut seen: std::collections::HashSet<u64> =
+                typed_msgs.iter().map(|m| m.author_user_id).collect();
+            seen.into_iter().collect()
+        };
+        for id in distinct_ids {
+            if let Ok(Some(u)) = state.app.wdb.get_user(id).await {
+                name_by_id.insert(id, u.username);
+            }
         }
-    }
-    all.sort_by_key(|m| m.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0));
+        typed_msgs
+            .into_iter()
+            .map(|m| {
+                let uname = m
+                    .author_username
+                    .clone()
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| name_by_id.get(&m.author_user_id).cloned())
+                    .unwrap_or_default();
+                json!({
+                    "id": m.message_id,
+                    "userId": format!("user-{}", m.author_user_id),
+                    "user": uname,
+                    "timestamp": m.created_at_micros / 1000,
+                    "text": m.content,
+                    "type": m.message_type,
+                    "authorDeviceId": m.author_device_id,
+                    "editedAt": m.edited_at_micros.map(|e| e / 1000),
+                    "commitSeq": m.commit_seq,
+                    "isDeleted": m.is_deleted,
+                })
+            })
+            .collect()
+    };
 
     let payload = json!({ "channelId": channel_id, "messages": all, "hasMore": false });
     if let Err(e) = socket.emit("channel-messages", &payload) {

@@ -2,11 +2,12 @@
 	import { get } from 'svelte/store';
 	import { themeStore, currentTheme } from '$lib/theme/themeStore';
 	import { saveThemePreferences, resetThemePreferences } from '$lib/theme/themeApi';
+	import { applyPanelColors, contrastText } from '$lib/theme/panelColors';
 	import ColorPicker from './ColorPicker.svelte';
 	import GradientEditor from './GradientEditor.svelte';
 	import ThemePreview from './ThemePreview.svelte';
 	import BackgroundImageEditor from './BackgroundImageEditor.svelte';
-	import type { CustomTheme } from '$lib/types/theme';
+	import type { CustomTheme, PanelColors, PanelColorOverride } from '$lib/types/theme';
 	import { getAuthToken } from '$lib/authSession';
 
 	let customColors: CustomTheme['colors'] = {
@@ -29,14 +30,77 @@
 		accentHover: 'linear-gradient(to right, #ff69b4 0%, #ff1493 100%)'
 	};
 
+	// Per-panel color overrides (server rail, left sidebar, center, right panel)
+	type PanelKey = 'serverRail' | 'leftSidebar' | 'center' | 'rightPanel';
+	const PANEL_META: { key: PanelKey; label: string; solidDefault: string; solidOnly?: boolean }[] = [
+		{ key: 'serverRail', label: 'Server Rail', solidDefault: '#0f0c29' },
+		{ key: 'leftSidebar', label: 'Left Sidebar', solidDefault: '#1a1a2e' },
+		{ key: 'center', label: 'Center Chat', solidDefault: '#0f0c29', solidOnly: true },
+		{ key: 'rightPanel', label: 'Right Panel', solidDefault: '#1a1a2e' }
+	];
+
+	function defaultOverride(solid: string): PanelColorOverride {
+		return { enabled: false, mode: 'solid', bg: solid, autoText: true, text: '#f5f5f7' };
+	}
+
+	// Master switch + which panel is being edited (progressive disclosure).
+	let panelColorsEnabled = false;
+	let selectedPanel: PanelKey = 'leftSidebar';
+
+	let panelColors: PanelColors = {
+		enabled: false,
+		serverRail: defaultOverride('#0f0c29'),
+		leftSidebar: defaultOverride('#1a1a2e'),
+		center: defaultOverride('#0f0c29'),
+		rightPanel: defaultOverride('#1a1a2e')
+	};
+
 	let isExpanded = false;
 	let isSaving = false;
 	let showResetConfirm = false;
+	let panelColorsInitialized = false;
 
 	// Initialize from current custom theme
 	$: if ($themeStore.themeId === 'custom' && $themeStore.customTheme) {
 		customColors = { ...$themeStore.customTheme.colors };
 		customGradients = { ...$themeStore.customTheme.gradients };
+		if (!panelColorsInitialized && $themeStore.customTheme.panelColors) {
+			const saved = $themeStore.customTheme.panelColors;
+			for (const meta of PANEL_META) {
+				const savedPanel = saved[meta.key];
+				if (savedPanel) panelColors[meta.key] = { ...defaultOverride(meta.solidDefault), ...savedPanel };
+			}
+			// Master on if explicitly enabled, or any panel is active (older saves).
+			panelColorsEnabled =
+				saved.enabled ?? PANEL_META.some((m) => panelColors[m.key]?.enabled);
+			panelColors.enabled = panelColorsEnabled;
+			panelColors = panelColors;
+			panelColorsInitialized = true;
+		}
+	}
+
+	function panelBgValue(key: PanelKey): string {
+		return panelColors[key]?.bg || PANEL_META.find((m) => m.key === key)!.solidDefault;
+	}
+
+	function syncPanels(): void {
+		panelColors.enabled = panelColorsEnabled;
+		panelColors = panelColors;
+		applyPanelColors(panelColors);
+	}
+
+	function toggleMaster(on: boolean): void {
+		panelColorsEnabled = on;
+		syncPanels();
+	}
+
+	function updatePanel(key: PanelKey, patch: Partial<PanelColorOverride>): void {
+		panelColors[key] = { ...panelColors[key], ...patch };
+		syncPanels();
+	}
+
+	function autoTextPreview(key: PanelKey): string {
+		return contrastText(panelBgValue(key)).base;
 	}
 
 	function normalizeHex(value: string | undefined, fallback: string): string {
@@ -72,7 +136,8 @@
 				...activeState.customTheme?.gradients,
 				...customGradients
 			},
-			backgroundImage: activeState.customTheme?.backgroundImage
+			backgroundImage: activeState.customTheme?.backgroundImage,
+			panelColors: { ...panelColors }
 		};
 	}
 
@@ -122,13 +187,35 @@
 		}
 	}
 
+	function captureEffect() {
+		const cs = getComputedStyle(document.documentElement);
+		return {
+			effect: cs.getPropertyValue('--bg-effect-effect').trim() || 'none',
+			color: cs.getPropertyValue('--bg-effect-color').trim() || '#6366f1',
+			intensity: parseFloat(cs.getPropertyValue('--bg-effect-intensity')) || 0,
+			size: parseFloat(cs.getPropertyValue('--bg-effect-size')) || 1,
+			speed: parseFloat(cs.getPropertyValue('--bg-effect-speed')) || 1
+		};
+	}
+
+	function applyEffectVars(effect: Record<string, any>) {
+		const root = document.documentElement;
+		root.style.setProperty('--bg-effect-effect', effect.effect || 'none');
+		root.style.setProperty('--bg-effect-color', effect.color || '#6366f1');
+		root.style.setProperty('--bg-effect-intensity', String(effect.intensity ?? 0));
+		root.style.setProperty('--bg-effect-size', String(effect.size ?? 1));
+		root.style.setProperty('--bg-effect-speed', String(effect.speed ?? 1));
+	}
+
 	function exportTheme() {
 		const data = {
 			name: 'Custom Theme',
 			theme: {
 				colors: customColors,
 				gradients: customGradients,
-				backgroundImage: get(themeStore).customTheme?.backgroundImage
+				panelColors,
+				backgroundImage: get(themeStore).customTheme?.backgroundImage,
+				effect: captureEffect()
 			},
 			exportedAt: new Date().toISOString()
 		};
@@ -151,15 +238,28 @@
 		reader.onload = (event) => {
 			try {
 				const data = JSON.parse(event.target?.result as string);
-				if (data.theme?.colors || data.theme?.gradients) {
+				if (data.theme?.colors || data.theme?.gradients || data.theme?.panelColors) {
 					customColors = { ...customColors, ...data.theme.colors };
 					customGradients = { ...customGradients, ...data.theme.gradients };
+					if (data.theme.panelColors) {
+						for (const meta of PANEL_META) {
+							const imported = data.theme.panelColors[meta.key];
+							if (imported) panelColors[meta.key] = { ...defaultOverride(meta.solidDefault), ...imported };
+						}
+						panelColorsEnabled =
+							data.theme.panelColors.enabled ??
+							PANEL_META.some((m) => panelColors[m.key]?.enabled);
+						panelColors.enabled = panelColorsEnabled;
+						panelColors = panelColors;
+						applyPanelColors(panelColors);
+					}
 					if (data.theme.backgroundImage) {
 						themeStore.setCustomTheme({
 							...get(themeStore).customTheme,
 							backgroundImage: data.theme.backgroundImage
 						});
 					}
+					if (data.theme.effect) applyEffectVars(data.theme.effect);
 					isExpanded = true;
 				}
 			} catch (error) {
@@ -261,6 +361,133 @@
 						onChange={(g) => (customGradients.accentHover = g)}
 					/>
 				</div>
+			</section>
+
+			<!-- Per-Panel Colors -->
+			<section class="section">
+				<h4>Panel Colors</h4>
+
+				<!-- Step 1: separate the panels before touching colors -->
+				<label class="panel-master">
+					<input
+						type="checkbox"
+						checked={panelColorsEnabled}
+						on:change={(e) => toggleMaster(e.currentTarget.checked)}
+					/>
+					<span class="panel-master-copy">
+						<strong>Color panels independently</strong>
+						<small>
+							Give the sidebar, chat, and side panels their own colors instead of one
+							app-wide look.
+						</small>
+					</span>
+				</label>
+
+				{#if panelColorsEnabled}
+					<!-- Step 2: pick which panel to edit -->
+					<div class="panel-picker" role="tablist" aria-label="Choose a panel">
+						{#each PANEL_META as meta (meta.key)}
+							<button
+								type="button"
+								role="tab"
+								aria-selected={selectedPanel === meta.key}
+								class="panel-tab-btn"
+								class:panel-tab-selected={selectedPanel === meta.key}
+								on:click={() => (selectedPanel = meta.key)}
+							>
+								<span
+									class="panel-swatch"
+									style:background={panelColors[meta.key]?.enabled
+										? panelBgValue(meta.key)
+										: 'transparent'}
+									class:panel-swatch-empty={!panelColors[meta.key]?.enabled}
+								></span>
+								{meta.label}
+							</button>
+						{/each}
+					</div>
+
+					<!-- Step 3: basic colors for the selected panel -->
+					{#each PANEL_META as meta (meta.key)}
+						{#if selectedPanel === meta.key}
+							<div class="panel-editor">
+								<label class="panel-toggle panel-toggle-inline">
+									<input
+										type="checkbox"
+										checked={panelColors[meta.key]?.enabled ?? false}
+										on:change={(e) =>
+											updatePanel(meta.key, { enabled: e.currentTarget.checked })}
+									/>
+									<span>Custom color for {meta.label}</span>
+								</label>
+
+								{#if panelColors[meta.key]?.enabled}
+									{#if !meta.solidOnly}
+										<div class="panel-mode">
+											<button
+												type="button"
+												class="mode-btn"
+												class:mode-active={(panelColors[meta.key]?.mode ?? 'solid') === 'solid'}
+												on:click={() =>
+													updatePanel(meta.key, { mode: 'solid', bg: panelBgValue(meta.key) })}
+											>
+												Solid
+											</button>
+											<button
+												type="button"
+												class="mode-btn"
+												class:mode-active={panelColors[meta.key]?.mode === 'gradient'}
+												on:click={() =>
+													updatePanel(meta.key, {
+														mode: 'gradient',
+														bg: `linear-gradient(180deg, ${panelBgValue(meta.key)} 0%, ${panelBgValue(meta.key)} 100%)`
+													})}
+											>
+												Gradient
+											</button>
+										</div>
+									{/if}
+
+									{#if panelColors[meta.key]?.mode === 'gradient' && !meta.solidOnly}
+										<GradientEditor
+											label="Background Gradient"
+											value={panelBgValue(meta.key)}
+											onChange={(g) => updatePanel(meta.key, { bg: g })}
+										/>
+									{:else}
+										<ColorPicker
+											label="Background"
+											value={panelBgValue(meta.key)}
+											onChange={(c) => updatePanel(meta.key, { bg: c, mode: 'solid' })}
+										/>
+									{/if}
+
+									<label class="panel-toggle panel-toggle-inline">
+										<input
+											type="checkbox"
+											checked={panelColors[meta.key]?.autoText !== false}
+											on:change={(e) =>
+												updatePanel(meta.key, { autoText: e.currentTarget.checked })}
+										/>
+										<span>Auto-contrast text (recommended)</span>
+									</label>
+
+									{#if panelColors[meta.key]?.autoText === false}
+										<ColorPicker
+											label="Text Color"
+											value={panelColors[meta.key]?.text || autoTextPreview(meta.key)}
+											onChange={(c) => updatePanel(meta.key, { text: c })}
+										/>
+									{/if}
+								{:else}
+									<p class="section-hint">
+										Turn on “Custom color for {meta.label}” to set its background and text.
+									</p>
+								{/if}
+							</div>
+						{/if}
+					{/each}
+				{/if}
 			</section>
 
 			<!-- Background Image -->
@@ -424,6 +651,135 @@
 		gap: 0.7rem;
 	}
 
+	.section-hint {
+		margin: 0 0 0.75rem;
+		color: var(--text-secondary);
+		font-size: 0.8rem;
+		line-height: 1.4;
+	}
+
+	.panel-master {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.6rem;
+		padding: 0.75rem;
+		border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
+		border-radius: 12px;
+		background: color-mix(in srgb, var(--surface-raised) 60%, transparent);
+		cursor: pointer;
+	}
+
+	.panel-master input {
+		margin-top: 0.2rem;
+	}
+
+	.panel-master-copy {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+	}
+
+	.panel-master-copy strong {
+		color: var(--text-heading);
+		font-size: 0.9rem;
+	}
+
+	.panel-master-copy small {
+		color: var(--text-secondary);
+		font-size: 0.78rem;
+		line-height: 1.4;
+	}
+
+	.panel-picker {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		margin-top: 0.85rem;
+	}
+
+	.panel-tab-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+		padding: 0.4rem 0.7rem;
+		border-radius: 999px;
+		border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
+		background: transparent;
+		color: var(--text-secondary);
+		font-size: 0.8rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.panel-tab-selected {
+		border-color: rgba(var(--accent-rgb), 0.5);
+		background: rgba(var(--accent-rgb), 0.14);
+		color: var(--text-heading);
+	}
+
+	.panel-swatch {
+		width: 14px;
+		height: 14px;
+		border-radius: 4px;
+		border: 1px solid rgba(var(--text-secondary-rgb, 179, 179, 255), 0.4);
+		flex-shrink: 0;
+	}
+
+	.panel-swatch-empty {
+		background:
+			linear-gradient(45deg, transparent 46%, rgba(var(--text-secondary-rgb, 179, 179, 255), 0.5) 46%, rgba(var(--text-secondary-rgb, 179, 179, 255), 0.5) 54%, transparent 54%);
+	}
+
+	.panel-editor {
+		display: flex;
+		flex-direction: column;
+		gap: 0.7rem;
+		margin-top: 0.85rem;
+		padding: 0.85rem;
+		border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
+		border-radius: 12px;
+		background: color-mix(in srgb, var(--surface-raised) 45%, transparent);
+	}
+
+	.panel-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-size: 0.78rem;
+		color: var(--text-secondary);
+		cursor: pointer;
+	}
+
+	.panel-toggle-inline {
+		font-size: 0.82rem;
+		color: var(--text-heading);
+	}
+
+	.panel-mode {
+		display: inline-flex;
+		border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
+		border-radius: 999px;
+		overflow: hidden;
+		align-self: flex-start;
+	}
+
+	.mode-btn {
+		padding: 0.3rem 0.85rem;
+		font-size: 0.78rem;
+		font-weight: 600;
+		background: transparent;
+		color: var(--text-secondary);
+		border: none;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.mode-active {
+		background: rgba(var(--accent-rgb), 0.18);
+		color: var(--text-heading);
+	}
+
 	.preview-section {
 		border-top: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
 		padding-top: 1rem;
@@ -461,7 +817,7 @@
 	}
 
 	.btn-primary {
-		background: var(--accent-primary);
+		background: var(--accent-primary-color);
 		color: var(--text-inverse, #fff);
 		border-color: rgba(var(--accent-rgb), 0.35);
 	}
@@ -478,7 +834,7 @@
 	}
 
 	.btn-secondary:hover:not(:disabled) {
-		border-color: var(--accent-primary);
+		border-color: var(--accent-primary-color);
 		background: var(--ui-bg-light);
 	}
 

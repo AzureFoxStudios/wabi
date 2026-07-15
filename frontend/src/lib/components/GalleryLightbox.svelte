@@ -90,7 +90,7 @@
 		<div class="lightbox-info" on:click|stopPropagation>
 			{#if currentCreator}
 				<div class="lightbox-creator">
-					<div class="lightbox-avatar" style="background: {currentCreator.color || 'var(--accent-primary)'};">
+					<div class="lightbox-avatar" style="background: {currentCreator.color || 'var(--accent-primary-color)'};">
 						{getCreatorInitial(currentCreator.username)}
 					</div>
 					<div class="lightbox-creator-text">
@@ -133,7 +133,7 @@
 		position: fixed;
 		inset: 0;
 		background: rgba(0, 0, 0, 0.92);
-		z-index: 10000;
+		z-index: var(--z-lightbox, 2000);
 		display: flex;
 		align-items: center;
 		justify-content: center;

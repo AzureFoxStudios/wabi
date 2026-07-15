@@ -217,8 +217,8 @@ Only after explicit design and UI toggle:
 
 ## Hard boundaries
 
-- No SQLite.
-- No PostgreSQL.
+- Shared application state lives in SpacetimeDB.
+- Client-local cache lives in IndexedDB.
 - No append-only application event log.
 - No raw STDB data directory backup until deletion-safety is verified.
 - No background plaintext dumps.

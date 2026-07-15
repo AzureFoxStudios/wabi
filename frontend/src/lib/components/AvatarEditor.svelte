@@ -199,7 +199,7 @@
 
 	.choose-file-btn {
 		padding: 1rem 2rem;
-		background: var(--accent-primary);
+		background: var(--accent-primary-color);
 		color: white;
 		border: none;
 		border-radius: 8px;
@@ -225,7 +225,7 @@
 		height: 150px;
 		border-radius: 50%;
 		object-fit: cover;
-		border: 3px solid var(--accent-primary);
+		border: 3px solid var(--accent-primary-color);
 	}
 
 	.error {
@@ -262,7 +262,7 @@
 	}
 
 	.confirm-btn {
-		background: var(--accent-primary);
+		background: var(--accent-primary-color);
 		color: white;
 	}
 

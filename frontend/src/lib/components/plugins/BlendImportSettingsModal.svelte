@@ -255,7 +255,7 @@
   }
 
   .primary {
-    background: var(--accent-primary);
+    background: var(--accent-primary-color);
     color: #fff;
   }
 </style>

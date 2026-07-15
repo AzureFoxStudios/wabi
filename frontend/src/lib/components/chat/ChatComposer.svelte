@@ -34,6 +34,7 @@
 		import type { MentionSuggestion } from './mentionSuggestions';
 
 	export let isDMChannel = false;
+	export let channelId: string | null = null;
 	export let paymentButtonEnabled = false;
 	export let replyingTo: Message | null = null;
 	export let composerVisible = true;
@@ -45,7 +46,7 @@
 	const dispatch = createEventDispatcher();
 	type SendChatMessage = (channelId: string, text: string, type: string, opts?: Record<string, unknown>) => void;
 	const sendChatMessage = sendMessage as unknown as SendChatMessage;
-	const resolveDmChannelId = getDMChannelIdForUser as unknown as (u: User | null, t: User) => string;
+	const resolveDmChannelId = "" as unknown as (u: User | null, t: User) => string;
 	const openExistingDmSignal = dmPanelSignal as unknown as { set(v: { channelId: string; otherUser: User }): void };
 
 	let messageInput = '';
@@ -113,6 +114,7 @@
 	$: unicodeEmojisEnabled = $unicodeEmojiSettingsStore.enabled;
 	$: composerCharCount = messageInput.length;
 	$: composerCharCounterVisible = composerInputMaxLength > 0 && composerCharCount / composerInputMaxLength >= 0.7;
+	$: effectiveChannel = channelId || $currentChannel;
 	$: composerCharCounterWarn = composerInputMaxLength > 0 && composerCharCount / composerInputMaxLength >= 0.9;
 	$: gifCaptionDraftLength = gifCaptionInput.trim().length;
 	$: gifCaptionDraftWarn = gifCaptionDraftLength > 0 && gifCaptionDraftLength / MAX_GIF_CAPTION_LENGTH >= 0.9;
@@ -125,12 +127,12 @@
 	export function handleCommandPaletteKeyDown(key: string): boolean { return commandPalette?.handleKeyDown(key) || false; }
 	export async function receiveFiles(files: File[], mode: 'replace' | 'append'): Promise<void> { const prepared = await prepareIncomingFiles(files); if (prepared.length > 0) applySelectedFiles(prepared, mode); }
 	export function insertQuickMention(username: string): void { const token = `@${username}`; const needsSpace = messageInput.length > 0 && !/\s$/.test(messageInput); const next = needsSpace ? `${messageInput} ${token} ` : `${token} `; composerEntities = reconcileMessageEntities(messageInput, next, composerEntities); messageInput = next; previousComposerInput = messageInput; showMentionSuggestions = false; textareaElement?.focus(); }
-	export function startEditingLastMessage(): void { const messages = $channelMessages[$currentChannel] || []; const userMessages = messages.filter((m: Message) => m.userId === $currentUser?.id); if (userMessages.length > 0) { const last = userMessages[userMessages.length - 1]; editingMessage = last; messageInput = last.text; composerEntities = []; previousComposerInput = messageInput; } }
+	export function startEditingLastMessage(): void { const messages = $channelMessages[effectiveChannel] || []; const userMessages = messages.filter((m: Message) => m.userId === $currentUser?.id); if (userMessages.length > 0) { const last = userMessages[userMessages.length - 1]; editingMessage = last; messageInput = last.text; composerEntities = []; previousComposerInput = messageInput; } }
 	function syncComposerEntities() { composerEntities = reconcileMessageEntities(previousComposerInput, messageInput, composerEntities); previousComposerInput = messageInput; }
 	function resetComposerEntityState() { composerEntities = []; previousComposerInput = messageInput; }
 	function resolveOutgoingPlaceEntities(text: string): MessageEntity[] { if (!composerEntities.length || !text) return []; return rebaseMessageEntitiesForText(text, composerEntities); }
 	function autoResizeTextarea() { if (!textareaElement) return; textareaElement.style.height = 'auto'; textareaElement.style.height = `${Math.min(textareaElement.scrollHeight, COMPOSER_MAX_HEIGHT)}px`; }
-	function handleInput() { autoResizeTextarea(); const now = Date.now(); if (now - lastTypingEmit >= TYPING_THROTTLE_MS) { sendTyping(true, $currentChannel); lastTypingEmit = now; } if (typingTimeout) clearTimeout(typingTimeout); typingTimeout = setTimeout(() => sendTyping(false, $currentChannel), 1000) as unknown as number; }
+	function handleInput() { autoResizeTextarea(); const now = Date.now(); if (now - lastTypingEmit >= TYPING_THROTTLE_MS) { sendTyping(true, effectiveChannel); lastTypingEmit = now; } if (typingTimeout) clearTimeout(typingTimeout); typingTimeout = setTimeout(() => sendTyping(false, effectiveChannel), 1000) as unknown as number; }
 	function handleInputChange() {
 		syncComposerEntities();
 		if (messageInput.startsWith('/')) { showCommandPalette = getMatchingCommands(messageInput).length > 0; showMentionSuggestions = false; }
@@ -174,14 +176,14 @@
 	function resolveOutgoingAttachmentCaption(): string | null { if (!gifCaptionerEnabled) return ''; const src = gifCaptionerDedicatedCaptionFieldEnabled ? gifCaptionInput : messageInput; return processAttachmentCaption(src, { maxLength: MAX_GIF_CAPTION_LENGTH, writeUpperCaseEnabled, unicodeEmojisEnabled, emojis: $emojis as unknown as Emoji[] }); }
 	function cancelEdit() { editingMessage = null; messageInput = ''; resetComposerEntityState(); if (textareaElement) textareaElement.style.height = 'auto'; }
 	function cancelReply() { replyingTo = null; }
-	function clearAfterSend() { messageInput = ''; resetComposerEntityState(); showMentionSuggestions = false; showMediaMenu = false; sendCooldownMessage = ''; sendTyping(false, $currentChannel); if (typingTimeout) clearTimeout(typingTimeout); if (textareaElement) textareaElement.style.height = 'auto'; textareaElement?.focus(); }
+	function clearAfterSend() { messageInput = ''; resetComposerEntityState(); showMentionSuggestions = false; showMediaMenu = false; sendCooldownMessage = ''; sendTyping(false, effectiveChannel); if (typingTimeout) clearTimeout(typingTimeout); if (textareaElement) textareaElement.style.height = 'auto'; textareaElement?.focus(); }
 	function handleSubmit() {
 		const hasFiles = selectedFiles.length > 0;
 		const hasText = Boolean(messageInput.trim());
 		if (!hasFiles && !hasText) return;
 		if (sendCooldownUntil > Date.now()) { sendCooldownMessage = 'Hold on buster. Give chat a second before sending more.'; return; }
 		if (hasFiles) { void uploadSelectedFiles(); return; }
-		if (editingMessage) { editMessage($currentChannel, editingMessage.id, messageInput.trim()); editingMessage = null; }
+		if (editingMessage) { editMessage(effectiveChannel, editingMessage.id, messageInput.trim()); editingMessage = null; }
 		else {
 			const processed = processOutgoingText(messageInput.trim(), { writeUpperCaseEnabled, unicodeEmojisEnabled, emojis: $emojis as unknown as Emoji[] });
 			if (processed.blocked) { alert(processed.reason); return; }
@@ -196,11 +198,11 @@
 				const chunks = splitMessageForSending(processed.text, splitLargeMessagesChunkSize);
 				if (chunks.length === 0) { alert('Unable to split message into chunks.'); return; }
 				const chunkEntities = splitEntitiesForChunks(processed.text, chunks, normalizedEntities);
-				for (const [i, chunk] of chunks.entries()) sendChatMessage($currentChannel, chunk, 'text', { replyTo: i === 0 ? replyingTo?.id : undefined, isSpoiler: markAsSpoiler, entities: chunkEntities[i] });
+				for (const [i, chunk] of chunks.entries()) sendChatMessage(effectiveChannel, chunk, 'text', { replyTo: i === 0 ? replyingTo?.id : undefined, isSpoiler: markAsSpoiler, entities: chunkEntities[i] });
 			} else {
 				const kind = detectMessageKind(processed.text, $emojis as unknown as Emoji[]);
-				if (kind.type === 'emoji') sendChatMessage($currentChannel, processed.text, 'emoji', { emojiUrl: kind.emojiUrl, emojiName: kind.emojiName, replyTo: replyingTo?.id, isSpoiler: markAsSpoiler });
-				else sendChatMessage($currentChannel, processed.text, 'text', { replyTo: replyingTo?.id, isSpoiler: markAsSpoiler, entities: normalizedEntities });
+				if (kind.type === 'emoji') sendChatMessage(effectiveChannel, processed.text, 'emoji', { emojiUrl: kind.emojiUrl, emojiName: kind.emojiName, replyTo: replyingTo?.id, isSpoiler: markAsSpoiler });
+				else sendChatMessage(effectiveChannel, processed.text, 'text', { replyTo: replyingTo?.id, isSpoiler: markAsSpoiler, entities: normalizedEntities });
 			}
 			replyingTo = null;
 		}
@@ -209,13 +211,13 @@
 	function handleGifSelect(event: CustomEvent<string>) {
 		const caption = resolveOutgoingAttachmentCaption();
 		if (caption === null) return;
-		sendChatMessage($currentChannel, caption, 'gif', { gifUrl: event.detail, replyTo: replyingTo?.id, isSpoiler: markAsSpoiler, entities: resolveOutgoingPlaceEntities(caption) });
+		sendChatMessage(effectiveChannel, caption, 'gif', { gifUrl: event.detail, replyTo: replyingTo?.id, isSpoiler: markAsSpoiler, entities: resolveOutgoingPlaceEntities(caption) });
 		replyingTo = null;
 		if (gifCaptionerDedicatedCaptionFieldEnabled) gifCaptionInput = ''; else { messageInput = ''; resetComposerEntityState(); }
 		showMentionSuggestions = false;
 		showEmojiPicker = false;
 		showMediaMenu = false;
-		sendTyping(false, $currentChannel);
+		sendTyping(false, effectiveChannel);
 		if (typingTimeout) clearTimeout(typingTimeout);
 		if (textareaElement) textareaElement.style.height = 'auto';
 		textareaElement?.focus();
@@ -237,10 +239,10 @@
 	async function prepareIncomingFiles(files: File[]): Promise<File[]> { for (const file of files) { if (file.size > MAX_UPLOAD_FILE_BYTES) { alert(`File too large! Maximum size is 1GB per file. "${file.name}" is ${formatFileMb(file.size)}MB`); return []; } } const prepared: File[] = []; for (const file of files) { const candidate = videoCompressionController ? await videoCompressionController.maybeCompressVideoFile(file) : file; if (candidate) prepared.push(candidate); } return prepared; }
 	async function handleFileSelect(event: Event) { const input = event.target as HTMLInputElement; const files = Array.from(input.files || []); if (files.length === 0) return; const prepared = await prepareIncomingFiles(files); if (prepared.length > 0) applySelectedFiles(prepared, 'replace'); input.value = ''; }
 	function removeFile(index: number) { const removed = filePreviews[index]; revokePreviewUrl(removed?.preview); if (removed?.file) videoCompressionController?.deleteCompressionMetadata(removed.file); selectedFiles = selectedFiles.filter((_, i) => i !== index); filePreviews = filePreviews.filter((_, i) => i !== index); }
-	function handleAlbumUploadToggle(checked: boolean): void { createAlbumFromUpload = checked; if (!checked) { uploadAlbumName = ''; return; } if (!uploadAlbumName.trim()) uploadAlbumName = buildDefaultUploadAlbumName($channels.find(ch => ch.id === $currentChannel)?.name || $currentChannel, messageInput); }
+	function handleAlbumUploadToggle(checked: boolean): void { createAlbumFromUpload = checked; if (!checked) { uploadAlbumName = ''; return; } if (!uploadAlbumName.trim()) uploadAlbumName = buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput); }
 	async function uploadSelectedFiles() {
 		if (selectedFiles.length === 0) return;
-		const activeChannel = $channels.find(ch => ch.id === $currentChannel);
+		const activeChannel = $channels.find(ch => ch.id === effectiveChannel);
 		const dmOtherUser = activeChannel?.type === 'dm' ? getDMOtherUser(activeChannel, $currentUser, $userLookup) : null;
 		const dmOtherDbUserId = typeof dmOtherUser?.dbUserId === 'number' ? dmOtherUser.dbUserId : null;
 		const authToken = getAuthToken();
@@ -252,8 +254,8 @@
 		uploadProgress = 0;
 		try {
 			const captionEntities = resolveOutgoingPlaceEntities(messageInput.trim());
-			const spec = await orchestrateUpload({ files: selectedFiles, channelId: $currentChannel, channelType: activeChannel?.type || 'channel', dmChannelId: activeChannel?.type === 'dm' ? activeChannel.id : undefined, dmOtherDbUserId, authToken, messageInput: messageInput.trim(), replyToId: replyingTo?.id, markAsSpoiler, captionEntities, createAlbum: createAlbumFromUpload, albumName: uploadAlbumName, albumScopeType: (albumScope?.scopeType ?? null) as any, albumScopeId: albumScope?.scopeId ?? null, getCompressionMetadata: f => videoCompressionController?.getCompressionMetadata(f), onProgress: pct => { uploadProgress = pct; } });
-			sendChatMessage($currentChannel, spec.text, spec.type, spec.options);
+			const spec = await orchestrateUpload({ files: selectedFiles, channelId: effectiveChannel, channelType: activeChannel?.type || 'channel', dmChannelId: activeChannel?.type === 'dm' ? activeChannel.id : undefined, dmOtherDbUserId, authToken, messageInput: messageInput.trim(), replyToId: replyingTo?.id, markAsSpoiler, captionEntities, createAlbum: createAlbumFromUpload, albumName: uploadAlbumName, albumScopeType: (albumScope?.scopeType ?? null) as any, albumScopeId: albumScope?.scopeId ?? null, getCompressionMetadata: f => videoCompressionController?.getCompressionMetadata(f), onProgress: pct => { uploadProgress = pct; } });
+			sendChatMessage(effectiveChannel, spec.text, spec.type, spec.options);
 			messageInput = ''; resetComposerEntityState(); replyingTo = null; clearFilePreviews(); textareaElement?.focus();
 		} catch (error) { console.error('Upload error:', error); alert('Failed to upload files. Please try again.'); } finally { isUploading = false; uploadStatusLabel = ''; uploadProgress = 0; }
 	}
@@ -280,13 +282,13 @@
 
 <div class="input-wrapper" class:hidden={$layoutStore.isMobile && !composerVisible}>
 	{#if showMentionSuggestions && mentionSuggestions.length > 0}<MentionSuggestions suggestions={mentionSuggestions as any} selectedIndex={mentionSelectedIndex} bind:container={mentionMenuContainer} onApply={applyMentionSuggestion} />{/if}
-	{#if filePreviews.length > 0 && !isUploading}<FileUploadPreview {filePreviews} bind:markAsSpoiler {albumEligibleSelection} {createAlbumFromUpload} bind:uploadAlbumName buildDefaultUploadAlbumName={() => buildDefaultUploadAlbumName($channels.find(ch => ch.id === $currentChannel)?.name || $currentChannel, messageInput)} onAlbumUploadToggle={handleAlbumUploadToggle} onCancelUpload={clearFilePreviews} onRemoveFile={removeFile} onUploadSelectedFiles={uploadSelectedFiles} />{/if}
+	{#if filePreviews.length > 0 && !isUploading}<FileUploadPreview {filePreviews} bind:markAsSpoiler {albumEligibleSelection} {createAlbumFromUpload} bind:uploadAlbumName buildDefaultUploadAlbumName={() => buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput)} onAlbumUploadToggle={handleAlbumUploadToggle} onCancelUpload={clearFilePreviews} onRemoveFile={removeFile} onUploadSelectedFiles={uploadSelectedFiles} />{/if}
 	{#if isUploading}<div class="upload-progress-bar"><div class="upload-progress-info"><span>{uploadStatusLabel || $_('chat.upload.uploading')}</span><span>{uploadProgress}%</span></div><div class="progress-bar"><div class="progress-fill" style="width: {uploadProgress}%"></div></div></div>{/if}
 	<input type="file" bind:this={fileInput} on:change={handleFileSelect} multiple class="hidden" />
 	{#if sendCooldownMessage}<div class="composer-rate-limit-notice" role="status" aria-live="polite">{sendCooldownMessage}</div>{/if}
 	<div class="input-container">
 		<CommandPalette bind:this={commandPalette} bind:input={messageInput} bind:isVisible={showCommandPalette} bind:selectedIndex={commandPaletteSelectedIndex} onSelect={handleCommandSelect} />
-		<textarea bind:this={textareaElement} bind:value={messageInput} on:paste={handlePaste} on:input={() => { handleInput(); handleInputChange(); }} on:keydown={handleKeyDown} on:focus={() => { isTextareaFocused = true; composerVisible = true; }} on:blur={() => { isTextareaFocused = false; }} placeholder={$_('chat.compose.placeholder')} maxlength={composerInputMaxLength} spellcheck={composerSpellcheckEnabled} rows="1"></textarea>
+		<textarea bind:this={textareaElement} bind:value={messageInput} on:paste={handlePaste} on:input={() => { handleInput(); handleInputChange(); }} on:keydown={handleKeyDown} on:focus={() => { isTextareaFocused = true; composerVisible = true; }} on:blur={() => { isTextareaFocused = false; }} placeholder={$layoutStore.isMobile ? 'Message...' : $_('chat.compose.placeholder')} maxlength={composerInputMaxLength} spellcheck={composerSpellcheckEnabled} rows="1"></textarea>
 		{#if composerCharCounterEnabled && composerCharCounterVisible}<span class="composer-char-counter" class:warn={composerCharCounterWarn} class:visible={composerCharCounterVisible}>{composerCharCount}/{composerInputMaxLength}</span>{/if}
 		<button bind:this={emojiPickerButton} class="input-icon-button" on:click|stopPropagation={() => { showEmojiPicker = !showEmojiPicker; if (showEmojiPicker) { ensureEmojiPickerLoaded(); showMediaMenu = false; } }} title={$_('chat.compose.add_emoji')}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg></button>
 		<div class="input-buttons-right">

@@ -109,13 +109,13 @@ export async function resolveActiveTransport(channelId?: string): Promise<Effect
 		return 'p2p';
 	}
 
-	if (plan.effective === 'stdb') {
+	if (plan.effective === 'wabidb') {
 		stopMediaGatewaySessionRenewal();
 		callTransportState.set({
 			mode: plan.mode,
-			activeTransport: 'stdb',
+			activeTransport: 'wabidb',
 			isFallback: false,
-			reason: 'stdb_default',
+			reason: 'wabidb_default',
 			gatewayHealthy: plan.gatewayHealthy,
 			checkedAt: Date.now(),
 			gatewaySessionId: null,
@@ -124,7 +124,7 @@ export async function resolveActiveTransport(channelId?: string): Promise<Effect
 			gatewayActiveStreams: null,
 			gatewayLastSeenAt: null
 		});
-		return 'stdb';
+		return 'wabidb';
 	}
 
 	if (plan.effective === 'storefwd') {

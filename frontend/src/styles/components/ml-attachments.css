@@ -282,7 +282,7 @@
 		background: var(--gradient-accent-subtle);
 		border: 1px solid rgba(var(--accent-rgb), var(--opacity-light));
 		border-radius: 4px;
-		color: var(--accent-primary);
+		color: var(--accent-primary-color);
 		text-decoration: none;
 		font-weight: 600;
 		font-size: var(--text-xs);
@@ -295,7 +295,7 @@
 	.open-viewport-btn {
 		border: 1px solid rgba(var(--accent-rgb), var(--opacity-light));
 		background: var(--surface-base);
-		color: var(--accent-primary);
+		color: var(--accent-primary-color);
 		border-radius: 4px;
 		padding: 0.32rem 0.55rem;
 		font-size: var(--text-xs);
@@ -315,7 +315,7 @@
 	.video-download-link:hover {
 		background: var(--gradient-accent-medium);
 		border-color: rgba(var(--accent-rgb), var(--opacity-strong));
-		color: var(--accent-primary);
+		color: var(--accent-primary-color);
 		box-shadow: 0 3px 12px rgba(var(--accent-rgb), var(--opacity-medium));
 	}
 

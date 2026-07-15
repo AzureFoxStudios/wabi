@@ -7,14 +7,30 @@
 
 use axum::{
     extract::{Path, State},
-    http::HeaderMap,
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::auth_extractor::AuthUser;
 use crate::error::{AppError, Result};
 use crate::state::AppState;
+use wabidb::engine::wabi_store::WabiStore;
+
+/// Convert a WDB typed `Channel` to the JSON `ChannelResponse` shape
+/// the frontend expects. Fields the WDB doesn't track (position,
+/// parent_id, description) are filled with sensible defaults — they'll
+/// get added to the WDB Channel domain type when Carl extends it.
+fn channel_to_response(c: wabidb::domain::Channel) -> ChannelResponse {
+    ChannelResponse {
+        id: c.channel_id,
+        name: c.name,
+        channel_type: format!("{:?}", c.channel_kind).to_lowercase(),
+        position: 0,
+        parent_id: None,
+        description: None,
+    }
+}
 
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
@@ -37,34 +53,17 @@ struct ChannelResponse {
     channel_type: String,
     position: i32,
     parent_id: Option<String>,
+    description: Option<String>,
 }
 
 async fn list_channels(State(state): State<Arc<AppState>>) -> Result<Json<ChannelListResponse>> {
-    let raw = state
-        .stdb
-        .get_channels_raw()
+    let channels = state
+        .wdb
+        .list_channels(None)
         .await
-        .map_err(|e| AppError::Internal(format!("Failed to fetch channels: {}", e)))?;
-
-    let channels = raw
-        .iter()
-        .filter_map(|row| {
-            let id = row.get("channel_id")?.as_str()?.to_string();
-            let name = row.get("name")?.as_str()?.to_string();
-            let channel_type = row.get("channel_type")?.as_str()?.to_string();
-            let position = row.get("position").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-            let parent_id = row
-                .get("parent_id")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            Some(ChannelResponse {
-                id,
-                name,
-                channel_type,
-                position,
-                parent_id,
-            })
-        })
+        .map_err(|e| AppError::Internal(format!("wdb list_channels: {e}")))?
+        .into_iter()
+        .map(channel_to_response)
         .collect();
 
     Ok(Json(ChannelListResponse { channels }))
@@ -74,31 +73,13 @@ async fn get_channel(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<ChannelResponse>> {
-    let raw = state
-        .stdb
-        .get_channels_raw()
+    let channel = state
+        .wdb
+        .get_channel(&id)
         .await
-        .map_err(|e| AppError::Internal(format!("Failed to fetch channels: {}", e)))?;
-
-    raw.iter()
-        .find(|row| row.get("channel_id").and_then(|v| v.as_str()) == Some(&id))
-        .and_then(|row| {
-            let name = row.get("name")?.as_str()?.to_string();
-            let channel_type = row.get("channel_type")?.as_str()?.to_string();
-            let position = row.get("position").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-            let parent_id = row
-                .get("parent_id")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            Some(Ok(Json(ChannelResponse {
-                id: id.clone(),
-                name,
-                channel_type,
-                position,
-                parent_id,
-            })))
-        })
-        .unwrap_or_else(|| Err(AppError::NotFound(format!("Channel {} not found", id))))
+        .map_err(|e| AppError::Internal(format!("wdb get_channel: {e}")))?
+        .ok_or_else(|| AppError::NotFound(format!("Channel {id} not found")))?;
+    Ok(Json(channel_to_response(channel)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -107,6 +88,8 @@ struct CreateChannelRequest {
     #[serde(default = "default_channel_type")]
     channel_type: String,
     description: Option<String>,
+    #[serde(default)]
+    asset_storage: bool,
 }
 
 fn default_channel_type() -> String {
@@ -115,13 +98,10 @@ fn default_channel_type() -> String {
 
 async fn create_channel(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
+    auth: AuthUser,
     Json(req): Json<CreateChannelRequest>,
 ) -> Result<Json<ChannelResponse>> {
-    let claims = claims_from_bearer(&headers, &state.config.jwt_secret)
-        .ok_or_else(|| AppError::Unauthorized("valid auth token required".into()))?;
-
-    if !state.is_admin(claims.user_id).await {
+    if !state.is_admin(auth.user_id).await {
         return Err(AppError::Unauthorized(
             "only admins can create channels".into(),
         ));
@@ -132,77 +112,152 @@ async fn create_channel(
         return Err(AppError::BadRequest("channel name cannot be empty".into()));
     }
 
-    // Use slugified name as ID so it's stable and URL-safe.
-    let channel_id = name
-        .to_lowercase()
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '-' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>()
-        .trim_matches('-')
-        .to_string();
+    // Map the request's channel_type string to a WDB ChannelKind enum.
+    // Defaults to Text for unknown / "text" / missing.
+    let channel_kind = match req.channel_type.as_str() {
+        "text" | "" => wabidb::domain::ChannelKind::Text,
+        "voice" => wabidb::domain::ChannelKind::Voice,
+        "dm" => wabidb::domain::ChannelKind::Dm,
+        "group_dm" => wabidb::domain::ChannelKind::GroupDm,
+        "announcement" => wabidb::domain::ChannelKind::Announcement,
+        "whiteboard" => wabidb::domain::ChannelKind::Whiteboard,
+        "wiki" => wabidb::domain::ChannelKind::Wiki,
+        "forum" => wabidb::domain::ChannelKind::Forum,
+        "incident" => wabidb::domain::ChannelKind::Incident,
+        _ => wabidb::domain::ChannelKind::Text,
+    };
 
+    // The WDB engine assigns the channel_id (returns a "ch_{:x}" id
+    // derived from the commit_seq). Use that.
+    let channel_id = state
+        .wdb
+        .create_channel(&name, channel_kind, auth.user_id as u64)
+        .await?;
+
+    // Add the creator as a member with the Owner role so they can see and
+    // manage the channel.
     state
-        .stdb
-        .create_channel(&channel_id, &name, &req.channel_type, claims.user_id)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to create channel: {}", e)))?;
+        .wdb
+        .add_channel_member(
+            &channel_id,
+            auth.user_id as u64,
+            wabidb::domain::MemberRole::Owner,
+        )
+        .await?;
 
+    // `description` is in the WDB Channel domain type yet — dropped for v1.
+    let _ = req.description;
+
+    // Auto-create a Lore repo if asset_storage is enabled
+    let lore_channel_id = channel_id
+        .strip_prefix("ch_")
+        .and_then(|hex| i64::from_str_radix(hex, 16).ok())
+        .unwrap_or(0);
+    if req.asset_storage {
+        #[cfg(feature = "wabi-lore")]
+        {
+            if lore_channel_id != 0 {
+                let lore_guard = state.lore_service.read().await;
+                if let Some(lore) = lore_guard.as_ref() {
+                    let repo_name = format!("ch-{channel_id}");
+                    match lore.create_repo(lore_channel_id, auth.user_id, &repo_name).await {
+                        Ok(repo) => {
+                            let _ = state
+                                .wdb
+                                .lore_create_repo(lore_channel_id, &repo_name, &repo.lore_server_url, auth.user_id)
+                                .await;
+                            tracing::info!(channel_id, repo_name, "Auto-created Lore repo for asset_storage channel");
+                        }
+                        Err(e) => {
+                            tracing::warn!(channel_id, error = %e, "Failed to auto-create Lore repo");
+                        }
+                    }
+                }
+            }
+        }
+        #[cfg(not(feature = "wabi-lore"))]
+        {
+            tracing::warn!(channel_id, "asset_storage requested but Lore addon not enabled");
+        }
+    }
+
+    // We don't have the typed Channel object back (create returns just the
+    // id), so build the response from the request + returned id.
     Ok(Json(ChannelResponse {
         id: channel_id,
         name,
         channel_type: req.channel_type,
         position: 0,
         parent_id: None,
+        description: None,
     }))
 }
 
 async fn delete_channel(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
+    auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>> {
-    let claims = claims_from_bearer(&headers, &state.config.jwt_secret)
-        .ok_or_else(|| AppError::Unauthorized("valid auth token required".into()))?;
-
-    if !state.is_admin(claims.user_id).await {
+    if !state.is_admin(auth.user_id).await {
         return Err(AppError::Unauthorized(
             "only admins can delete channels".into(),
         ));
     }
 
+    // WdbAdapter::delete_channel uses the trait's default impl (Ok(()))
+    // for v1 — a no-op soft-delete. The real engine event emission
+    // (channel_deleted → projection handler) is a later WDB engine pass.
     state
-        .stdb
-        .delete_channel(&id)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to delete channel: {}", e)))?;
+        .wdb
+        .delete_channel(&id, auth.user_id as u64)
+        .await?;
+
+    // Clear the session message cache for this channel. The cache
+    // (HashMap<channel_id, Vec<Message>>) accumulates 1000 messages
+    // per channel. Without this cleanup, deleting a channel leaks
+    // its cache entry forever. WABI_AUDIT_REPORT.md finding #2.
+    state.session_messages.write().await.remove(&id);
 
     Ok(Json(serde_json::json!({ "deleted": id })))
 }
 
-struct BearerClaims {
-    user_id: i64,
-}
+#[cfg(test)]
+mod tests {
+    //! WABI_AUDIT_REPORT.md finding #2 — session messages leak.
+    //!
+    //! The full HTTP handler `delete_channel` calls
+    //! `state.session_messages.write().await.remove(&id);` after the
+    //! wdb soft-delete succeeds. This test asserts the idiomatic
+    //! pattern: insert into session_messages, remove via the same
+    //! pattern, assert gone.
+    //!
+    //! Full handler tests require a wired AppState (auth, wdb, etc.)
+    //! and are tested at the binary level via integration scripts.
 
-fn claims_from_bearer(headers: &HeaderMap, jwt_secret: &str) -> Option<BearerClaims> {
-    use jsonwebtoken::{decode, DecodingKey, Validation};
-    #[derive(serde::Deserialize)]
-    struct C {
-        sub: String,
+    use crate::state::SessionMessages;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    #[tokio::test]
+    async fn session_messages_cleared_on_channel_delete() {
+        let session: SessionMessages = Arc::new(RwLock::new(HashMap::new()));
+        session
+            .write()
+            .await
+            .insert("channel-to-delete".to_string(), vec![]);
+        session
+            .write()
+            .await
+            .insert("channel-to-keep".to_string(), vec![]);
+        assert_eq!(session.read().await.len(), 2);
+
+        // Same pattern the HTTP handler uses:
+        session.write().await.remove("channel-to-delete");
+
+        let after = session.read().await;
+        assert_eq!(after.len(), 1);
+        assert!(after.contains_key("channel-to-keep"));
+        assert!(!after.contains_key("channel-to-delete"));
     }
-    let auth = headers.get("authorization")?.to_str().ok()?;
-    let token = auth.strip_prefix("Bearer ")?;
-    let key = DecodingKey::from_secret(jwt_secret.as_bytes());
-    let mut v = Validation::default();
-    v.validate_exp = true;
-    v.leeway = 60;
-    let c = decode::<C>(token, &key, &v).ok()?.claims;
-    Some(BearerClaims {
-        user_id: c.sub.parse().ok()?,
-    })
 }

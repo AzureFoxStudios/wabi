@@ -23,6 +23,8 @@ use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+use wabidb::engine::wabi_store::WabiStore;
+
 use crate::error::Result;
 use crate::state::AppState;
 
@@ -352,7 +354,7 @@ struct GroupAvatarResponse {
 
 /// Handler for group avatar upload.
 /// Accepts a multipart form with a `file` field and `channelId`.
-/// Saves the file, persists the avatar URL to STDB, then broadcasts
+/// Saves the file, persists the avatar URL to WDB, then broadcasts
 /// `group-avatar-updated` to all connected clients.
 async fn upload_group_avatar(
     State(state): State<Arc<AppState>>,
@@ -421,9 +423,9 @@ async fn upload_group_avatar(
         final_path
     );
 
-    // Persist avatar URL to STDB
+    // Persist avatar URL to WDB
     if let Err(e) = state
-        .stdb
+        .wdb
         .upsert_group(&channel_id, "", "group", None, Some(&avatar_url), None)
         .await
     {

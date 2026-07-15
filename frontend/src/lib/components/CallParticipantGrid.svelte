@@ -23,7 +23,7 @@
 	export let presenterOverlayElementsByTile: Record<string, PresenterOverlayElement[]> = {};
 	export let onPresenterOverlayChange: (tileId: string, elements: PresenterOverlayElement[]) => void = () => {};
 	export let onPresenterOverlayActivate: (tileId: string) => void = () => {};
-	export let heroIds: string[] = [];
+	export const heroIds: string[] = [];
 
 	function isBubbleLayout(): boolean {
 		return layoutTemplate === 'floating-bubbles';

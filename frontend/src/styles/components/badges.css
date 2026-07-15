@@ -53,7 +53,7 @@
 }
 
 .badge-status.busy {
-	background: var(--status-busy, #ff1493);
+	background: var(--status-busy, #ef4444);
 }
 
 .badge-status.offline {
@@ -62,8 +62,8 @@
 
 /* --- Role Badge (owner/admin/mod) --- */
 .badge-role {
-	background: var(--accent-subtle, rgba(255, 0, 255, 0.1));
-	color: var(--accent-primary, var(--accent, #ff00ff));
+	background: var(--accent-subtle, rgba(99, 102, 241, 0.1));
+	color: var(--accent-primary, #6366f1);
 	padding: 2px 8px;
 	border-radius: var(--radius-sm, 4px);
 	font-size: var(--font-size-xs, 0.6875rem);
@@ -78,8 +78,8 @@
 }
 
 .badge-role.admin {
-	background: rgba(var(--accent-rgb, 255, 0, 255), 0.15);
-	color: var(--accent-primary, var(--accent, #ff00ff));
+	background: rgba(var(--accent-rgb, 99, 102, 241), 0.15);
+	color: var(--accent-primary, #6366f1);
 }
 
 .badge-role.mod {
@@ -100,8 +100,8 @@
 }
 
 .badge-tag.nsfw {
-	background: rgba(var(--color-danger-rgb, 255, 20, 147), 0.15);
-	color: var(--color-danger, #ff1493);
+	background: rgba(var(--color-danger-rgb, 239, 68, 68), 0.15);
+	color: var(--color-danger, #ef4444);
 }
 
 .badge-tag.muted {

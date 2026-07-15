@@ -6,11 +6,11 @@
 
 
 	.directions-card {
-		border: 1px solid color-mix(in srgb, var(--accent-primary) 18%, var(--border-subtle) 82%);
+		border: 1px solid color-mix(in srgb, var(--accent-primary-color) 18%, var(--border-subtle) 82%);
 		border-radius: 12px;
 		padding: 0.8rem 0.9rem;
 		background:
-			linear-gradient(160deg, color-mix(in srgb, var(--accent-primary) 10%, var(--surface-raised) 90%), var(--surface-raised));
+			linear-gradient(160deg, color-mix(in srgb, var(--accent-primary-color) 10%, var(--surface-raised) 90%), var(--surface-raised));
 		display: grid;
 		gap: 0.7rem;
 	}
@@ -102,13 +102,13 @@
 
 	.directions-card-btn:hover {
 		background: var(--surface-hover);
-		border-color: color-mix(in srgb, var(--accent-primary) 26%, var(--border-subtle) 74%);
+		border-color: color-mix(in srgb, var(--accent-primary-color) 26%, var(--border-subtle) 74%);
 	}
 
 
 	.directions-card-btn.primary {
-		background: color-mix(in srgb, var(--accent-primary) 18%, var(--surface-app) 82%);
-		border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-subtle) 68%);
+		background: color-mix(in srgb, var(--accent-primary-color) 18%, var(--surface-app) 82%);
+		border-color: color-mix(in srgb, var(--accent-primary-color) 32%, var(--border-subtle) 68%);
 	}
 
 
@@ -143,7 +143,7 @@
 		max-height: min(22rem, 55vh);
 		overflow-y: auto;
 		scrollbar-width: thin;
-		scrollbar-color: color-mix(in srgb, var(--accent-primary) 24%, var(--border-subtle) 76%) transparent;
+		scrollbar-color: color-mix(in srgb, var(--accent-primary-color) 24%, var(--border-subtle) 76%) transparent;
 	}
 
 

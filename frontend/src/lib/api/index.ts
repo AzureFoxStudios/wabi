@@ -123,6 +123,11 @@ export {
 
 // ============================================================================
 // RE-EXPORTS FROM admin.ts
+// DM-strip 2026-06-16: admin.ts was deleted then restored from git HEAD
+// (it was not DM-specific — DM was removed but the admin surface is
+// independent of DMs and was collateral damage). The re-export block
+// is now live again so AdminTab.svelte and the admin settings tabs
+// keep working.
 // ============================================================================
 
 export {
@@ -149,8 +154,8 @@ export {
 	clearAdminPaymentUserBlock,
 	getAdminCompressionConfig,
 	getAdminCompressionMetrics,
-	resetAdminCompressionMetrics,
 	getAdminRuntimeGuardrails,
+	resetAdminCompressionMetrics,
 	type AdminPolicyKey
 } from './admin';
 
@@ -190,6 +195,34 @@ export {
 // ============================================================================
 
 export { createChannelApi, deleteChannelApi } from './channels';
+
+// ============================================================================
+// RE-EXPORTS FROM lore.ts
+// ============================================================================
+
+export {
+	getLoreRepo,
+	listLoreFiles,
+	createLoreRepo,
+	deleteLoreRepo,
+	uploadLoreFile,
+	downloadLoreFile,
+	deleteLoreFile,
+	lockLoreFile,
+	unlockLoreFile,
+	getLoreFileHistory,
+	getLoreFileDiff,
+	getLoreRepoHistory,
+	getLoreBranches,
+	createLoreBranch,
+	mergeLoreBranch,
+	createLoreSnapshot,
+	checkLoreHealth,
+	type LoreRepo,
+	type LoreFileInfo,
+	type LoreRevision,
+	type LoreBranch
+} from './lore';
 
 // ============================================================================
 // RE-EXPORT TYPE ASSERTIONS FROM SHARED CONTRACTS

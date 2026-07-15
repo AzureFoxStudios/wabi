@@ -1,9 +1,10 @@
 <script lang="ts">
 	import type { Message, User, Emoji, FileAttachment, Channel } from '$lib/socket';
 	import { retryMessagePersistence } from '$lib/socket';
+	import { _ } from '$lib/i18n';
 	import type { ChatFilterResult } from '$lib/chatEnhancements';
 	import type { AnimationPassPreset } from '$lib/animationPass';
-	import { formatTimestampForDisplay } from '$lib/displayEnhancements';
+	import { formatTimestampForDisplay, isRenderableMessage } from '$lib/displayEnhancements';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
 	import { longpress } from '$lib/actions/longpress';
 	import MessageItemActions from './message/MessageItemActions.svelte';
@@ -54,7 +55,7 @@
 	export let onQuickReact: (messageId: string, emojiId: string) => void;
 	export let onToggleReaction: (messageId: string, emojiId: string) => void;
 	export let onJumpToMessage: (messageId: string) => void;
-	export let onSaveEdit: (messageId: string) => void;
+	export let onSaveEdit: (messageId: string, text: string) => void;
 	export let onCancelEdit: () => void;
 	export let onEnlargeImage: (url: string, gallery?: string[]) => void;
 	export let onEnlargeVideo: (url: string) => void;
@@ -175,7 +176,7 @@
 
 </script>
 
-{#if !filteredMessage.hidden}
+{#if !filteredMessage.hidden && isRenderableMessage(message)}
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		id="message-{message.id}"
@@ -221,6 +222,16 @@
 	{/if}
 	<!-- Message Content -->
 	<div class="message-body">
+		{#if message.isPinned || isPersonalPinned}
+			<div
+				class="pin-indicator"
+				class:personal={isPersonalPinned && !message.isPinned}
+				title={message.isPinned ? $_('messages.pinned_title') : $_('context_menu.pin_local_message')}
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg>
+				<span>{message.isPinned ? $_('messages.pinned_title') : $_('context_menu.pin_local_message')}</span>
+			</div>
+		{/if}
 		<MessageHeader
 			{author}
 			{displayUsername}
@@ -258,7 +269,7 @@
 		{#if editingMessageId === message.id}
 			<MessageEditForm
 				{editText}
-				onSave={() => onSaveEdit(message.id)}
+				onSave={(text) => onSaveEdit(message.id, text)}
 				onCancel={onCancelEdit}
 			/>
 		{:else}
@@ -297,3 +308,83 @@
 	</div>
 </div>
 {/if}
+
+<style>
+	/* Discord-like cozy force (groupStart 17px, thin line pad) */
+	:global(html[data-message-density='cozy'] .message),
+	:global(html:not([data-message-density]) .message) {
+		display: flex !important;
+		align-items: flex-start !important;
+		gap: 16px !important;
+		padding: 2px 16px !important;
+		margin: 0 !important;
+		border-radius: 0 !important;
+	}
+	:global(html[data-message-density='cozy'] .message + .message:not(.continuation)),
+	:global(html:not([data-message-density]) .message + .message:not(.continuation)) {
+		margin-top: 1.0625rem !important;
+	}
+	:global(html[data-message-density='cozy'] .message.continuation),
+	:global(html:not([data-message-density]) .message.continuation) {
+		padding-top: 2px !important;
+		padding-bottom: 2px !important;
+		margin-top: 0 !important;
+	}
+	:global(html[data-message-density='cozy'] .message.has-continuation),
+	:global(html:not([data-message-density]) .message.has-continuation) {
+		padding-bottom: 2px !important;
+	}
+	:global(html[data-message-density='cozy'] .message.continuation .message-header),
+	:global(html[data-message-density='cozy'] .compact-only-header),
+	:global(html:not([data-message-density]) .message.continuation .message-header),
+	:global(html:not([data-message-density]) .compact-only-header) {
+		display: none !important;
+	}
+	:global(html[data-message-density='cozy'] .message-avatar),
+	:global(html[data-message-density='cozy'] .message-avatar-spacer),
+	:global(html:not([data-message-density]) .message-avatar),
+	:global(html:not([data-message-density]) .message-avatar-spacer) {
+		width: 40px !important;
+		min-width: 40px !important;
+		flex-shrink: 0 !important;
+	}
+	:global(html[data-message-density='cozy'] .message .avatar),
+	:global(html[data-message-density='cozy'] .message .avatar-placeholder),
+	:global(html:not([data-message-density]) .message .avatar),
+	:global(html:not([data-message-density]) .message .avatar-placeholder) {
+		width: 40px !important;
+		height: 40px !important;
+	}
+	:global(html[data-message-density='cozy'] .message .username),
+	:global(html:not([data-message-density]) .message .username) {
+		font-size: 1rem !important; /* 16px Discord-ish */
+		font-weight: 500 !important;
+		line-height: 1.375 !important;
+	}
+	:global(html[data-message-density='cozy'] .message .timestamp),
+	:global(html:not([data-message-density]) .message .timestamp) {
+		font-size: 0.75rem !important; /* 12px */
+		line-height: 1.375 !important;
+	}
+	:global(html[data-message-density='cozy'] .message .message-content),
+	:global(html[data-message-density='cozy'] .message .markdown-content),
+	:global(html:not([data-message-density]) .message .message-content),
+	:global(html:not([data-message-density]) .message .markdown-content) {
+		font-size: 1rem !important;
+		line-height: 1.375 !important;
+	}
+	:global(.message .markdown-content p) {
+		margin: 0 !important;
+		line-height: 1.375 !important;
+	}
+	:global(.message .markdown-content p + p) {
+		margin-top: 0.25em !important;
+	}
+	:global(.messages-pane) {
+		gap: 0 !important;
+	}
+	:global(.no-more-messages) {
+		padding: 8px 12px 4px !important;
+		font-size: 13px !important;
+	}
+</style>

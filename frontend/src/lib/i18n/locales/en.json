@@ -85,7 +85,17 @@
       "password_rules_placeholder": "Password (8+ characters)",
       "confirm_password_placeholder": "Confirm password",
       "creating_account": "Creating account...",
-      "create_account_button": "Create Account"
+      "create_account_button": "Create Account",
+      "forgot_password": "Forgot password?",
+      "remember_me": "Remember me on this device",
+      "show_password": "Show password",
+      "hide_password": "Hide password",
+      "create_account_prompt": "New here?",
+      "create_account_link": "Create a registered account",
+      "guest_access_heading": "Guest access",
+      "guest_access_link": "Continue as guest",
+      "change_server": "Looking for another server?",
+      "change_server_link": "Change"
     },
     "errors": {
       "username_min": "Username must be at least 2 characters",

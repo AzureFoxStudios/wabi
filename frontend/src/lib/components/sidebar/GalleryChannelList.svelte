@@ -11,6 +11,7 @@
 	export let onChannelButtonClick: (channelId: string, event: MouseEvent) => void;
 	export let onChannelRightClick: (event: MouseEvent, channel: Channel) => void;
 	export let onChannelLongPress: (event: TouchEvent, channel: Channel) => void;
+	export let liveWhiteboardChannelIds: Set<string> = new Set();
 </script>
 
 <div class="section-heading-row">
@@ -47,6 +48,9 @@
 			{channel.name}
 			{#if $channelUnreadCounts[channel.id] && $currentChannel !== channel.id}
 				<span class="unread-badge">{formatBadge($channelUnreadCounts[channel.id])}</span>
+			{/if}
+			{#if liveWhiteboardChannelIds.has(channel.id)}
+				<span class="live-pill" title="Someone is on this whiteboard"><span class="live-dot"></span>LIVE</span>
 			{/if}
 		</button>
 	</div>

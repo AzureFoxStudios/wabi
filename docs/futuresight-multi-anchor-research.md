@@ -465,8 +465,8 @@ Research targets:
 
 - NATS JetStream
 - NATS leaf nodes
-- SQLite append-only logs
-- LiteFS/Litestream
+- STDB-backed authority logs
+- helper-node cache snapshots
 - GitLab Geo
 - Matrix Synapse replication streams
 - SpacetimeDB durability/event semantics

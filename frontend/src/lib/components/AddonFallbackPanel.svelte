@@ -45,7 +45,7 @@
 		justify-content: center;
 		border-radius: 12px;
 		border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
-		color: var(--accent-primary);
+		color: var(--accent-primary-color);
 		background: rgba(var(--accent-rgb), 0.1);
 	}
 

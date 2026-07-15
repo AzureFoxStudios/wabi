@@ -19,7 +19,7 @@
 
 	.profile-hero-banner {
 		height: 86px;
-		background: var(--accent-primary);
+		background: var(--accent-primary-color);
 		filter: saturate(1.08);
 	}
 
@@ -59,7 +59,7 @@
 	.profile-hero-avatar {
 		width: 100%;
 		height: 100%;
-		border-radius: 23px;
+		border-radius: 50%;
 		object-fit: cover;
 	}
 

@@ -11,9 +11,9 @@
 }
 .panel-header { display: flex; justify-content: space-between; gap: 0.8rem; }
 .eyebrow { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-info, #7dd3fc); }
-h3, h4, h5, p { margin: 0; }
-h3 { font-size: 1.02rem; margin-top: 0.2rem; }
-p { color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.76); }
+.ffxiv-panel h3, .ffxiv-panel h4, .ffxiv-panel h5, .ffxiv-panel p { margin: 0; }
+.ffxiv-panel h3 { font-size: 1.02rem; margin-top: 0.2rem; }
+.ffxiv-panel p { color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.76); }
 .channel-pill {
 	align-self: flex-start;
 	padding: 0.28rem 0.5rem;
@@ -30,14 +30,17 @@ p { color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.76); }
 }
 .search-card { padding: 0.8rem; display: grid; gap: 0.7rem; }
 .search-grid { display: grid; grid-template-columns: 1fr 1.4fr 1fr 1fr; gap: 0.55rem; }
-label { display: grid; gap: 0.25rem; font-size: 0.72rem; color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.82); }
-label span { text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.66rem; }
-input, select, textarea {
+.ffxiv-panel label { display: grid; gap: 0.25rem; font-size: 0.72rem; color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.82); }
+.ffxiv-panel label span { text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.66rem; }
+/* SCOPED — was global and forced dark text-inverse (#0f0c29) onto ALL app textareas (message edit bug) */
+.ffxiv-panel input,
+.ffxiv-panel select,
+.ffxiv-panel textarea {
 	width: 100%;
 	border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.16);
 	border-radius: 10px;
 	background: rgba(var(--surface-app-rgb, 15, 23, 42), 0.68);
-	color: var(--text-inverse, var(--text-inverse, #f8fafc));
+	color: var(--text-heading, #f8fafc);
 	padding: 0.52rem 0.65rem;
 	font: inherit;
 }

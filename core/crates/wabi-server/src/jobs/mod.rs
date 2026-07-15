@@ -5,7 +5,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -101,6 +101,7 @@ pub enum JobQueueError {
     #[error("job not found")]
     JobNotFound,
     #[error("job is not in a claimable state")]
+    #[allow(dead_code)]
     NotClaimable,
     #[error("node secret did not match")]
     InvalidNodeSecret,
@@ -340,14 +341,14 @@ fn new_id(prefix: &str) -> String {
 mod tests {
     use super::*;
     use crate::nodes::{
-        JoinNodeRequest, NodeCapability, NodeReachability, NodeRegistry, NodeStatus,
+        JoinNodeRequest, NodeCapability, NodeReachability, NodeRegistry,
     };
 
     fn test_queue() -> JobQueue {
         JobQueue::new_in_memory()
     }
 
-    fn test_registry(node_id: &str) -> NodeRegistry {
+    fn test_registry(_node_id: &str) -> NodeRegistry {
         let reg = NodeRegistry::new_in_memory("authority-test".to_string());
         // We can't easily inject a node without a token, but for unit tests
         // we can skip registry validation by using the in-memory one and

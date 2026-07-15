@@ -13,6 +13,37 @@ export interface BackgroundImage {
 	blend?: string;
 }
 
+/**
+ * Per-panel background/text override.
+ * When `enabled` is false (or the override is absent) the panel falls back to
+ * the active theme's default background and text tokens.
+ */
+export interface PanelColorOverride {
+	enabled?: boolean;
+	/** Whether `bg` is a solid color or a full CSS gradient string. */
+	mode?: 'solid' | 'gradient';
+	/** Solid hex color OR a gradient CSS string (depending on `mode`). */
+	bg?: string;
+	/** Auto-pick contrasting text based on `bg` luminance. Defaults to true. */
+	autoText?: boolean;
+	/** Manual text color, used when `autoText` is false. */
+	text?: string;
+}
+
+/**
+ * Independent color overrides for each major panel region.
+ * Stored inside the custom theme so it round-trips with the existing
+ * theme persistence (server + localStorage) without a schema change.
+ */
+export interface PanelColors {
+	/** Master switch — when false, no per-panel overrides are applied. */
+	enabled?: boolean;
+	serverRail?: PanelColorOverride;
+	leftSidebar?: PanelColorOverride;
+	center?: PanelColorOverride;
+	rightPanel?: PanelColorOverride;
+}
+
 export interface CustomTheme {
 	colors?: {
 		bgPrimary?: string;
@@ -34,6 +65,7 @@ export interface CustomTheme {
 		[key: string]: string | undefined;
 	};
 	backgroundImage?: BackgroundImage;
+	panelColors?: PanelColors;
 	[key: string]: any;
 }
 

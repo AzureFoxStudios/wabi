@@ -34,10 +34,10 @@ import { getStoredSpatialAudioSettings } from './media/spatialAudio';
 
 export type MediaQualityMode = 'web-baseline' | 'local-enhanced';
 export type AudioProcessingMode = 'auto' | 'dsp' | 'rnn' | 'studio';
-export type CallTransportMode = 'auto' | 'p2p-only' | 'sfu-preferred' | 'stdb' | 'storefwd';
+export type CallTransportMode = 'auto' | 'p2p-only' | 'sfu-preferred' | 'wabidb' | 'storefwd';
 export type CallMuteBehavior = 'mute-local-input' | 'outbound-only';
 export type CallRecordingStemMode = 'mixed-only' | 'mixed-plus-mic' | 'mixed-plus-all-audio';
-export type EffectiveCallTransport = 'p2p' | 'sfu' | 'stdb' | 'storefwd';
+export type EffectiveCallTransport = 'p2p' | 'sfu' | 'wabidb' | 'storefwd';
 
 export interface MediaRuntimeConfig {
 	isTauri: boolean;
@@ -91,6 +91,15 @@ let lastRuntimeSnapshot: ServerMediaRuntimeResponse | null = null;
 
 export function isTauriRuntime(): boolean {
 	return detectTauriRuntime();
+}
+
+// Hint only: true when the configured server points at a local/LAN address.
+// Used to soften gateway-health checks so calling keeps working offline/LAN
+// without depending on external SFU/TURN reachability.
+export function isLocalConnection(serverUrl?: string | null): boolean {
+	if (!browser) return false;
+	const url = serverUrl || getServerUrl();
+	return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/.test(url);
 }
 
 function resolveQualityMode(isTauri: boolean): MediaQualityMode {
@@ -172,7 +181,8 @@ export function getAudioCaptureConstraints(mode: AudioProcessingMode = getStored
 export function getStoredCallTransportMode(): CallTransportMode {
 	if (!browser) return 'auto';
 	const stored = localStorage.getItem(STORAGE_KEYS.callTransportMode);
-	if (stored === 'p2p-only' || stored === 'sfu-preferred' || stored === 'stdb') return stored;
+	if (stored === 'stdb') return 'wabidb';
+	if (stored === 'p2p-only' || stored === 'sfu-preferred' || stored === 'wabidb') return stored;
 	return 'auto';
 }
 
@@ -287,7 +297,17 @@ function getSfuFallbackReason(runtime: ServerMediaRuntimeResponse | null): strin
 
 export async function resolveCallTransportPlan(): Promise<CallTransportPlan> {
 	const mode = getStoredCallTransportMode();
-	const runtime = (await syncMediaRuntimeFromServer()) || lastRuntimeSnapshot;
+	// Soft-fail the runtime sync: a failed fetch must never hard-error the
+	// transport resolution. When unreachable we default to wabidb (the offline
+	// friendly local/LAN relay) instead of giving up.
+	let runtime: ServerMediaRuntimeResponse | null = null;
+	try {
+		runtime = await syncMediaRuntimeFromServer();
+	} catch {
+		runtime = null;
+	}
+	const runtimeUnreachable = !runtime && !lastRuntimeSnapshot;
+	runtime = runtime || lastRuntimeSnapshot;
 	const sfuProvider = getSfuProvider(runtime || null);
 	const gatewayHealthy = isGatewayHealthy(runtime || null);
 	const livekitReady = isLivekitReady(runtime || null);
@@ -300,8 +320,19 @@ export async function resolveCallTransportPlan(): Promise<CallTransportPlan> {
 	if (mode === 'p2p-only') {
 		return { mode, effective: 'p2p', fallbackApplied: false, reason: null, gatewayHealthy, sfuProvider, checkedAt };
 	}
-	if (mode === 'stdb') {
-		return { mode, effective: 'stdb', fallbackApplied: false, reason: null, gatewayHealthy, sfuProvider, checkedAt };
+	if (mode === 'wabidb') {
+	if (runtimeUnreachable) {
+		return {
+			mode,
+			effective: 'wabidb',
+			fallbackApplied: true,
+			reason: 'runtime_unreachable_default_wabidb',
+			gatewayHealthy: isLocalConnection(),
+			sfuProvider,
+			checkedAt
+		};
+	}
+	return { mode, effective: 'wabidb', fallbackApplied: false, reason: null, gatewayHealthy, sfuProvider, checkedAt };
 	}
 	if (mode === 'sfu-preferred') {
 		if (canUseSfu) {
@@ -310,5 +341,5 @@ export async function resolveCallTransportPlan(): Promise<CallTransportPlan> {
 		return { mode, effective: 'p2p', fallbackApplied: true, reason: getSfuFallbackReason(runtime || null), gatewayHealthy, sfuProvider, checkedAt };
 	}
 
-	return { mode, effective: 'stdb', fallbackApplied: false, reason: null, gatewayHealthy, sfuProvider, checkedAt };
+	return { mode, effective: 'wabidb', fallbackApplied: false, reason: null, gatewayHealthy, sfuProvider, checkedAt };
 }

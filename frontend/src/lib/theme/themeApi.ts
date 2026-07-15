@@ -7,6 +7,7 @@ import type { ThemePreferences } from '../../types/theme';
 import { getServerUrl } from '../serverUrl';
 import { authStore } from '../authStore';
 import { getAuthToken } from '../authSession';
+import { markEndpointUnsupported, isEndpointUnsupported } from '../optionalEndpoints';
 
 const THEME_API_TIMEOUT_MS = 15000;
 const THEME_API_RETRY_DELAY_MS = 250;
@@ -24,6 +25,13 @@ function sleep(ms: number): Promise<void> {
  */
 export async function fetchThemePreferences(): Promise<ThemePreferences> {
 	const token = getAuthToken();
+
+	// Optional endpoint — if the server doesn't implement theme persistence
+	// (common after a fresh wabidb reset) we never hit the network again this
+	// session. This keeps the console free of repeated 404s.
+	if (isEndpointUnsupported(`${getServerUrl()}/api/user/theme`)) {
+		return defaultThemePreferences();
+	}
 
 	let response;
 	let lastError: unknown = null;
@@ -70,16 +78,20 @@ export async function fetchThemePreferences(): Promise<ThemePreferences> {
 			errorText = 'Could not read error response';
 		}
 
-		console.error('[ThemeApi] Fetch failed with status', response.status, ':', errorText);
+		if (response.status === 404) {
+			// Optional endpoint — server doesn't have theme persistence yet (common after fresh wabidb reset)
+			markEndpointUnsupported(`${getServerUrl()}/api/user/theme`);
+			return defaultThemePreferences();
+		}
 
 		if (response.status === 401) {
 			authStore.setAuthError('Your session has expired. Please log in again.', 'session_expired');
 			throw new Error('Unauthorized - invalid or expired token');
-		} else if (response.status === 404) {
-			throw new Error('Theme endpoint not found on server');
 		} else if (response.status >= 500) {
 			throw new Error('Server error - theme service unavailable');
 		}
+
+		console.warn('[ThemeApi] Fetch failed with status', response.status, ':', errorText);
 		throw new Error(`Failed to fetch theme preferences (${response.status}): ${errorText}`);
 	}
 
@@ -132,7 +144,7 @@ export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Pr
 		clearTimeout(timeout);
 	}
 
-	if (!response.ok) {
+		if (!response.ok) {
 		let errorText = '';
 		try {
 			errorText = await response.text();
@@ -140,16 +152,20 @@ export async function saveThemePreferences(prefs: Partial<ThemePreferences>): Pr
 			errorText = 'Could not read error response';
 		}
 
-		console.error('[ThemeApi] Save failed with status', response.status, ':', errorText);
-
 		if (response.status === 401) {
 			authStore.setAuthError('Your session has expired. Please log in again.', 'session_expired');
 			throw new Error('Unauthorized - invalid or expired token');
 		} else if (response.status === 404) {
-			throw new Error('Theme endpoint not found on server');
+			// Optional endpoint — theme persistence isn't implemented on this
+			// server. Silently no-op instead of spamming the console with errors.
+			markEndpointUnsupported(`${getServerUrl()}/api/user/theme`);
+			console.warn('[ThemeApi] Theme endpoint unavailable (404) — preferences not persisted');
+			return;
 		} else if (response.status >= 500) {
 			throw new Error('Server error - theme service unavailable');
 		}
+
+		console.error('[ThemeApi] Save failed with status', response.status, ':', errorText);
 
 		// Try to parse JSON error response
 		let errorData;
@@ -189,9 +205,26 @@ export async function resetThemePreferences(): Promise<void> {
 	if (!response.ok) {
 		if (response.status === 401) {
 			throw new Error('Unauthorized');
+		} else if (response.status === 404) {
+			// Optional endpoint — silently ignore.
+			markEndpointUnsupported(`${getServerUrl()}/api/user/theme`);
+			return;
 		}
 		throw new Error('Failed to reset theme preferences');
 	}
+}
+
+function defaultThemePreferences(): ThemePreferences {
+	return {
+		theme_id: 'dark',
+		custom_theme: null,
+		uniform_font_enabled: 0,
+		uniform_font_family: null,
+		uniform_font_size: null,
+		uniform_font_weight: null,
+		uniform_font_style: null,
+		updated_at: undefined
+	};
 }
 
 /**

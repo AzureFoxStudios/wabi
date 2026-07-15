@@ -2,6 +2,7 @@
 	import { get } from 'svelte/store';
 	import { currentUser } from '$lib/socket';
 	import { todos, projects, addTodo, updateTodo, deleteTodo, type Todo } from '$lib/business';
+	import { getLocalMockUsers, isLocalMockApiMode } from '$lib/localMockApi';
 	import { getServerUrl } from '$lib/serverUrl';
 
 	export let onClose: (() => void) | undefined = undefined;
@@ -47,6 +48,12 @@
 	let activeFilter: FilterType = 'all';
 
 	onMount(async () => {
+		if (isLocalMockApiMode()) {
+			registeredUsers = getLocalMockUsers();
+			filteredUsers = registeredUsers;
+			return;
+		}
+
 		try {
 			const response = await fetch(`${getServerUrl()}/api/users`);
 			if (response.ok) {

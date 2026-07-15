@@ -1,0 +1,15 @@
+[package]
+name = "wabi-lore"
+version = "0.1.0"
+edition = "2021"
+description = "Wabi Lore addon - version-controlled binary storage via Epic Games Lore"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }

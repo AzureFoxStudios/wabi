@@ -9,6 +9,7 @@
 	import { boardStore } from '$lib/whiteboard/boardStore';
 	import { exportBoardAsJson, exportBoardAsPng } from '$lib/whiteboard/export';
 	import { queueWhiteboardImport } from '$lib/whiteboard/whiteboardSurface';
+	import { setWhiteboardPresence, clearWhiteboardPresence } from '$lib/presenceStore';
 	import WhiteboardCanvas from './WhiteboardCanvas.svelte';
 	import WhiteboardLayerPanel from './WhiteboardLayerPanel.svelte';
 	import WhiteboardToolbar from './WhiteboardToolbar.svelte';
@@ -48,6 +49,24 @@
 	$: localUsername = $currentUser?.username || 'Guest';
 	$: localUserColor = $currentUser?.color || '#6366f1';
 
+	$: selfParticipant = ($currentUser
+		? { userId: $currentUser.id, username: localUsername, color: localUserColor }
+		: { userId: 'local-guest', username: localUsername, color: localUserColor }) as WhiteboardPresenceUser;
+	$: jamParticipants = (() => {
+		const seen = new Set<string>();
+		const list: WhiteboardPresenceUser[] = [selfParticipant];
+		seen.add(selfParticipant.userId);
+		for (const user of presence) {
+			if (!seen.has(user.userId)) {
+				list.push(user);
+				seen.add(user.userId);
+			}
+		}
+		return list;
+	})();
+	$: jamVisible = jamParticipants.slice(0, 5);
+	$: jamOverflow = Math.max(0, jamParticipants.length - 5);
+
 	function resetSessionState(): void {
 		presence = [];
 		remoteCursors = [];
@@ -56,6 +75,7 @@
 	}
 
 	function destroySyncSession(): void {
+		if (activeChannelId) clearWhiteboardPresence(activeChannelId);
 		if (syncSession) {
 			syncSession.destroy();
 			syncSession = null;
@@ -105,6 +125,7 @@
 			},
 			onPresence(payload) {
 				presence = payload.users || [];
+				setWhiteboardPresence(activeChannelId, presence);
 				const activeIds = new Set(presence.map((user) => user.userId));
 				remoteCursors = remoteCursors.filter((cursor) => activeIds.has(cursor.userId));
 				if (!syncReady) {
@@ -204,6 +225,30 @@
 			{#if !syncReady}
 				<span class="whiteboard-connecting-pill" aria-live="polite">Joining board...</span>
 			{/if}
+			<div class="whiteboard-jam-strip" aria-label="People on this board">
+				<div class="jam-avatars">
+					{#each jamVisible as person (person.userId)}
+						<span
+							class="jam-avatar"
+							style="--jam-color: {person.color || 'var(--accent-primary, #6366f1)'}"
+							title={person.username}
+						>{person.username.charAt(0).toUpperCase()}</span>
+					{/each}
+					{#if jamOverflow > 0}
+						<span class="jam-avatar jam-avatar-more" title="{jamParticipants.length} people">+{jamOverflow}</span>
+					{/if}
+				</div>
+				<button
+					type="button"
+					class="whiteboard-jam-call"
+					title="Start a jam call (preview only — not connected)"
+					aria-disabled="true"
+					tabindex="-1"
+				>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+					<span>Jam</span>
+				</button>
+			</div>
 		</div>
 
 		<button
@@ -221,27 +266,42 @@
 		<div class="whiteboard-banner error">{errorMessage}</div>
 	{/if}
 
-	<div class="whiteboard-stage">
-		<WhiteboardCanvas
-			{remoteCursors}
-			{boardId}
-			{channelId}
-			username={localUsername}
-			userColor={localUserColor}
-			{syncReady}
-			{showGrid}
-		/>
-		<WhiteboardToolbar
-			onImportImages={triggerImportPicker}
-			onExportPng={handleExportPng}
-			onExportJson={handleExportJson}
-			{exportBusy}
-			importDisabled={!channelId}
-		/>
-		<div class="whiteboard-layer-panel-wrap">
-			<WhiteboardLayerPanel />
+	{#if channelId}
+		<div class="whiteboard-stage">
+			<WhiteboardCanvas
+				{remoteCursors}
+				{boardId}
+				{channelId}
+				username={localUsername}
+				userColor={localUserColor}
+				{syncReady}
+				{showGrid}
+			/>
+			<WhiteboardToolbar
+				onImportImages={triggerImportPicker}
+				onExportPng={handleExportPng}
+				onExportJson={handleExportJson}
+				{exportBusy}
+				importDisabled={!channelId}
+			/>
+			<div class="whiteboard-layer-panel-wrap">
+				<WhiteboardLayerPanel />
+			</div>
 		</div>
-	</div>
+	{:else}
+		<div class="whiteboard-empty">
+			<div class="whiteboard-empty-icon">
+				<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M8 8h32v32H8z"/>
+					<path d="M18 18l12 12M30 18l-12 12"/>
+					<path d="M8 28h32M8 20h32"/>
+					<circle cx="36" cy="12" r="3" fill="currentColor" stroke="none"/>
+				</svg>
+			</div>
+			<h3 class="whiteboard-empty-title">No Channel Selected</h3>
+			<p class="whiteboard-empty-desc">Open a channel and switch to its whiteboard tab to start drawing together.</p>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -264,9 +324,9 @@
 		align-items: center;
 		gap: 1rem;
 		padding: 0.42rem 0.62rem;
-		border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.18);
+		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 18%, transparent);
 		border-radius: 14px;
-		background: rgba(255, 251, 243, 0.76);
+		background: color-mix(in srgb, var(--surface-base, #24243e) 76%, transparent);
 		backdrop-filter: blur(12px);
 		box-shadow: 0 16px 30px rgba(var(--surface-app-rgb, 15, 23, 42), 0.08);
 	}
@@ -288,25 +348,25 @@
 		border-radius: 999px;
 		font-size: 0.76rem;
 		font-weight: 600;
-		border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.2);
-		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.86);
-		color: var(--surface-app, #0f172a);
+		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 20%, transparent);
+		background: color-mix(in srgb, var(--text-inverse, #ffffff) 86%, transparent);
+		color: var(--text-heading, #e0e0ff);
 	}
 
 	.whiteboard-channel-pill {
-		background: rgba(var(--surface-app-rgb, 15, 23, 42), 0.05);
+		background: color-mix(in srgb, var(--surface-app, #1a1a2e) 5%, transparent);
 	}
 
 	.whiteboard-connecting-pill {
-		background: rgba(var(--color-info-rgb, 59, 130, 246), 0.12);
-		border-color: rgba(var(--color-info-rgb, 59, 130, 246), 0.24);
-		color: var(--color-info, #1d4ed8);
+		background: color-mix(in srgb, var(--color-info, #00bfff) 12%, transparent);
+		border-color: color-mix(in srgb, var(--color-info, #00bfff) 24%, transparent);
+		color: var(--color-info, #00bfff);
 	}
 
 	.whiteboard-grid-toggle {
-		border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.22);
-		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.84);
-		color: var(--surface-raised, #334155);
+		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 22%, transparent);
+		background: color-mix(in srgb, var(--text-inverse, #ffffff) 84%, transparent);
+		color: var(--text-secondary, #b3b3ff);
 		border-radius: 999px;
 		padding: 0.3rem 0.68rem;
 		font-size: 0.74rem;
@@ -317,9 +377,9 @@
 	}
 
 	.whiteboard-grid-toggle.active {
-		background: rgba(37, 99, 235, 0.12);
-		border-color: rgba(59, 130, 246, 0.26);
-		color: var(--color-info, #1d4ed8);
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 12%, transparent);
+		border-color: color-mix(in srgb, var(--accent-primary, #6366f1) 26%, transparent);
+		color: var(--accent-primary, #6366f1);
 	}
 
 	.whiteboard-banner {
@@ -334,9 +394,9 @@
 	}
 
 	.whiteboard-banner.error {
-		background: rgba(var(--color-danger-rgb, 127, 29, 29), 0.22);
-		color: var(--accent-danger-soft, #fecaca);
-		border-bottom: 1px solid rgba(var(--color-danger-rgb, 248, 113, 113), 0.24);
+		background: color-mix(in srgb, var(--color-danger, #ef4444) 22%, transparent);
+		color: var(--text-danger, #ef4444);
+		border-bottom: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 24%, transparent);
 	}
 
 	.whiteboard-stage {
@@ -375,6 +435,39 @@
 		display: none;
 	}
 
+	.whiteboard-empty {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		height: 100%;
+		gap: 0.75rem;
+		padding: 2rem;
+		text-align: center;
+		color: var(--text-secondary, #b3b3ff);
+	}
+
+	.whiteboard-empty-icon {
+		width: 64px;
+		height: 64px;
+		color: var(--text-muted, #9999ff);
+		opacity: 0.5;
+	}
+
+	.whiteboard-empty-title {
+		font-size: 1.1rem;
+		font-weight: 700;
+		color: var(--text-heading, #e0e0ff);
+		margin: 0;
+	}
+
+	.whiteboard-empty-desc {
+		font-size: 0.85rem;
+		max-width: 320px;
+		margin: 0;
+		line-height: 1.5;
+	}
+
 	@media (max-width: 720px) {
 		.whiteboard-topbar {
 			top: 0.6rem;
@@ -390,11 +483,93 @@
 			top: 5rem;
 		}
 
+		.whiteboard-stage :global(.wb-toolbar) {
+			top: 10.5rem;
+			left: 0.6rem;
+			right: 0.6rem;
+			transform: none;
+			flex-wrap: wrap;
+			justify-content: center;
+			height: auto;
+			padding: 8px 10px;
+			border-radius: 12px;
+		}
+
 		.whiteboard-layer-panel-wrap {
 			left: 0.6rem;
 			right: 0.6rem;
-			top: 9.1rem;
+			top: 16rem;
 			width: auto;
 		}
+	}
+
+	.whiteboard-jam-strip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin-left: 0.15rem;
+		padding-left: 0.55rem;
+		border-left: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 18%, transparent);
+	}
+
+	.jam-avatars {
+		display: inline-flex;
+		align-items: center;
+	}
+
+	.jam-avatar {
+		width: 1.5rem;
+		height: 1.5rem;
+		border-radius: 999px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.68rem;
+		font-weight: 700;
+		color: #ffffff;
+		background: var(--jam-color, var(--accent-primary, #6366f1));
+		border: 2px solid color-mix(in srgb, var(--surface-base, #24243e) 76%, transparent);
+		margin-left: -0.35rem;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+	}
+
+	.jam-avatar:first-child {
+		margin-left: 0;
+	}
+
+	.jam-avatar-more {
+		background: color-mix(in srgb, var(--text-muted, #9999ff) 26%, transparent);
+		color: var(--text-heading, #e0e0ff);
+	}
+
+	.whiteboard-jam-call {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		margin-left: 0.2rem;
+		padding: 0.2rem 0.55rem;
+		border-radius: 999px;
+		border: 1px solid color-mix(in srgb, var(--accent-primary, #6366f1) 26%, transparent);
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 10%, transparent);
+		color: var(--accent-primary, #6366f1);
+		font-size: 0.72rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		cursor: default;
+		transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+	}
+
+	.whiteboard-jam-call:hover {
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 18%, transparent);
+	}
+
+	.whiteboard-jam-call svg {
+		width: 13px;
+		height: 13px;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.whiteboard-grid-toggle { transition: none; }
+		.whiteboard-jam-call { transition: none; }
 	}
 </style>

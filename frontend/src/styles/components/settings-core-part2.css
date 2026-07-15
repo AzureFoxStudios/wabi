@@ -362,7 +362,7 @@
 
 	.sound-option:hover {
 		background: var(--surface-app);
-		border-color: var(--accent-primary);
+		border-color: var(--accent-primary-color);
 	}
 
 
@@ -400,21 +400,21 @@
 
 
 	.density-btn.active {
-		background: var(--accent-primary, var(--accent-primary));
+		background: var(--accent-primary, var(--accent-primary-color));
 		color: var(--text-inverse, #fff);
 	}
 
 
 	.sound-option.active {
-		background: var(--accent-primary);
+		background: var(--accent-primary-color);
 		color: white;
-		border-color: var(--accent-primary);
+		border-color: var(--accent-primary-color);
 	}
 
 
 	.test-sound-btn {
 		padding: 0.75rem 1rem;
-		background: var(--accent-primary);
+		background: var(--accent-primary-color);
 		border: none;
 		border-radius: 6px;
 		color: white;
@@ -449,7 +449,7 @@
 		width: 18px;
 		height: 18px;
 		border-radius: 50%;
-		background: var(--accent-primary);
+		background: var(--accent-primary-color);
 		cursor: pointer;
 		transition: all 0.2s;
 	}
@@ -465,7 +465,7 @@
 		width: 18px;
 		height: 18px;
 		border-radius: 50%;
-		background: var(--accent-primary);
+		background: var(--accent-primary-color);
 		cursor: pointer;
 		border: none;
 		transition: all 0.2s;
@@ -501,7 +501,7 @@
 	.pfp-current-img {
 		width: 80px;
 		height: 80px;
-		border-radius: 24px;
+		border-radius: 50%;
 		object-fit: cover;
 		border: 3px solid rgba(var(--accent-rgb), 0.42);
 	}

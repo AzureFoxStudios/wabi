@@ -233,6 +233,6 @@ Current status:
 - Is message/channel validation the right first vertical slice, or should permissions be first?
 - Should `wabi-tui` be built before `wabi-wasm` to force protocol clarity earlier?
 - How much repo directory movement is acceptable in the first pass?
-- Should `wabi-node` target SQLite first, or mirror the current SpacetimeDB-aware deployment assumptions?
+- Should `wabi-node` target legacy embedded DB first, or mirror the current SpacetimeDB-aware deployment assumptions?
 - Which installer targets matter first for desktop distribution: Windows `.exe`, Linux `.deb`/AppImage, or macOS `.dmg`?
 - Which first-party add-on is safest to migrate through Add-on API v1 first?

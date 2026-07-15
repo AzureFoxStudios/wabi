@@ -16,7 +16,7 @@ export type MentionSuggestion = {
 	poi?: PlaceRecord['pois'][number];
 };
 
-export type WorkspaceViewKey = 'messages' | 'whiteboard' | 'reader' | 'model' | 'map';
+export type WorkspaceViewKey = 'messages' | 'whiteboard' | 'reader' | 'model' | 'map' | 'media';
 
 export type ChannelPaneAnimation = {
 	enabled: boolean;

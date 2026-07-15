@@ -4,8 +4,8 @@
 	export let recordingState: CallRecordingState;
 	export let recordingLabel: string = '';
 	export let recordingPresenceCopy: string = '';
-	export let recordingPillText: string = '';
-	export let onToggleRecording: () => void = () => {};
+	export const recordingPillText: string = '';
+	export const onToggleRecording: () => void = () => {};
 
 	function formatRecordingElapsed(elapsedMs: number): string {
 		const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
@@ -36,6 +36,26 @@
 {#if recordingLabel}
 	<div class="recording-status" class:is-error={recordingState.status === 'error'}>
 		{recordingLabel}
+	</div>
+{/if}
+
+{#if recordingState.loreUploadStatus !== 'none' && recordingState.status !== 'recording' && recordingState.status !== 'saving'}
+	<div
+		class="lore-upload"
+		class:is-error={recordingState.loreUploadStatus === 'error'}
+		class:is-warn={recordingState.loreUploadStatus === 'no-channel'}
+		role="status"
+		aria-live="polite"
+	>
+		{#if recordingState.loreUploadStatus === 'uploading'}
+			Saving recording to Lore…
+		{:else if recordingState.loreUploadStatus === 'done'}
+			Saved to Lore Recordings
+		{:else if recordingState.loreUploadStatus === 'no-channel'}
+			Lore Recordings channel not found
+		{:else if recordingState.loreUploadStatus === 'error'}
+			Lore upload failed: {recordingState.loreUploadError}
+		{/if}
 	</div>
 {/if}
 
@@ -111,6 +131,34 @@
 	.recording-status.is-error {
 		color: var(--accent-danger-soft, var(--accent-danger-soft, #fecaca));
 		background: rgba(var(--color-danger-rgb, 127, 29, 29), 0.62);
+	}
+
+	.lore-upload {
+		position: absolute;
+		top: 3.9rem;
+		left: 50%;
+		transform: translateX(-50%);
+		max-width: min(92vw, 900px);
+		background: var(--shadow-lg, rgba(0, 0, 0, 0.56));
+		padding: 0.25rem 0.52rem;
+		border-radius: 8px;
+		font-size: 0.66rem;
+		font-weight: 600;
+		color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.88);
+		z-index: 3;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.lore-upload.is-error {
+		color: var(--accent-danger-soft, #fecaca);
+		background: rgba(var(--color-danger-rgb, 127, 29, 29), 0.62);
+	}
+
+	.lore-upload.is-warn {
+		color: var(--accent-warning-soft, #fef9c3);
+		background: rgba(var(--color-warning-rgb, 161, 98, 7), 0.62);
 	}
 
 	@keyframes recording-pulse {

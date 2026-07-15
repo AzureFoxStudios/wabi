@@ -54,7 +54,7 @@
 
 	.connection-kicker {
 		margin: 0 0 0.35rem;
-		color: var(--launch-accent, var(--accent-primary));
+		color: var(--launch-accent, var(--accent-primary-color));
 		font-size: 0.72rem;
 		font-weight: 750;
 		letter-spacing: 0.1em;
@@ -107,9 +107,9 @@
 		padding: 0;
 		flex-shrink: 0;
 		border-radius: 5px;
-		border: 1px solid rgba(125, 211, 252, 0.3);
-		background: rgba(125, 211, 252, 0.08);
-		accent-color: var(--launch-accent, var(--accent-primary));
+		border: 1px solid color-mix(in srgb, var(--accent-primary-color) 30%, transparent);
+		background: color-mix(in srgb, var(--accent-primary-color) 8%, transparent);
+		accent-color: var(--launch-accent, var(--accent-primary-color));
 	}
 
 	input[type='text'] {
@@ -117,10 +117,10 @@
 		padding: 0.875rem 1rem;
 		font-size: 1rem;
 		border-radius: 12px;
-		border: 1px solid rgba(125, 211, 252, 0.18);
-		background: color-mix(in srgb, var(--surface-raised) 88%, rgba(8, 14, 28, 0.72));
+		border: 1px solid color-mix(in srgb, var(--accent-primary-color) 18%, transparent);
+		background: color-mix(in srgb, var(--surface-raised) 88%, color-mix(in srgb, var(--surface-sunken) 72%, transparent));
 		color: var(--text-heading);
-		caret-color: var(--launch-accent, var(--accent-primary));
+		caret-color: var(--launch-accent, var(--accent-primary-color));
 		margin-bottom: 0;
 		appearance: none;
 		-webkit-appearance: none;
@@ -135,8 +135,8 @@
 	input[type='text']:focus,
 	input[type='text']:focus-visible {
 		outline: none;
-		border-color: rgba(125, 211, 252, 0.56);
-		box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.16), 0 10px 26px rgba(0, 0, 0, 0.18);
+		border-color: color-mix(in srgb, var(--accent-primary-color) 56%, transparent);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary-color) 16%, transparent), 0 10px 26px color-mix(in srgb, var(--surface-app) 18%, transparent);
 	}
 
 	input:disabled {
@@ -149,8 +149,8 @@
 		padding: 0.875rem 1rem;
 		font-size: 1rem;
 		font-weight: 740;
-		background: linear-gradient(135deg, var(--accent-primary, #5865f2), var(--launch-accent, #7dd3fc));
-		color: white;
+		background: linear-gradient(135deg, var(--accent-primary-color, var(--accent-primary)), var(--accent-secondary-color, var(--launch-accent, var(--accent-secondary))));
+		color: var(--text-on-accent, #ffffff);
 		border: none;
 		border-radius: 12px;
 		cursor: pointer;
@@ -161,9 +161,9 @@
 	}
 
 	.join-btn:hover:not(:disabled) {
-		background: var(--accent-hover, #4752c4);
+		background: var(--accent-hover, var(--accent-primary-color));
 		transform: translateY(-2px);
-		box-shadow: 0 8px 20px rgba(88, 101, 242, 0.3);
+		box-shadow: 0 8px 20px color-mix(in srgb, var(--accent-primary-color, var(--accent-primary)) 30%, transparent);
 	}
 
 	.join-btn:disabled {

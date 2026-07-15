@@ -1,75 +1,59 @@
-#!/usr/bin/env pwsh
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$backendDataDir = Join-Path $repoRoot "backend\data"
-$backendUploadsDir = Join-Path $repoRoot "backend\uploads"
-$backendDbPath = Join-Path $backendDataDir "chat.db"
-$frontendBuildDir = Join-Path $repoRoot "frontend\build"
-$backendPort = if ($env:BACKEND_PORT) { $env:BACKEND_PORT } else { "3000" }
-$frontendPort = if ($env:FRONTEND_PORT) { $env:FRONTEND_PORT } else { "5173" }
+$moduleDir = Join-Path $repoRoot "spacetimedb\wabi_state_bridge"
 $frontendHost = if ($env:FRONTEND_HOST) { $env:FRONTEND_HOST } else { "127.0.0.1" }
+$frontendPort = if ($env:FRONTEND_PORT) { $env:FRONTEND_PORT } else { "5173" }
+$backendPort = if ($env:BACKEND_PORT) { $env:BACKEND_PORT } else { "3001" }
 
-New-Item -ItemType Directory -Path $backendDataDir -Force | Out-Null
-New-Item -ItemType Directory -Path $backendUploadsDir -Force | Out-Null
+Write-Host "[local-dev] Real local Wabi dev mode"
+Write-Host "[local-dev] This is NOT frontend mock mode."
+Write-Host "[local-dev] Expected stack: Rust server + SpacetimeDB + frontend."
+Write-Host "[local-dev] Frontend: http://${frontendHost}:${frontendPort}"
+Write-Host "[local-dev] Backend:  http://${frontendHost}:${backendPort}"
 
-$env:NODE_ENV = "development"
-$env:BACKEND_PORT = $backendPort
-$env:PORT = $backendPort
-$env:FRONTEND_URL = "http://${frontendHost}:${frontendPort}"
-$env:PUBLIC_URL = "http://${frontendHost}:${frontendPort}"
-$env:ALLOWED_ORIGINS = "http://${frontendHost}:${frontendPort},http://localhost:${frontendPort},http://${frontendHost}:${backendPort},http://localhost:${backendPort},http://localhost,http://${frontendHost},https://tauri.localhost,tauri://localhost"
-$env:DB_MODE = "sqlite"
-$env:DATABASE_PATH = $backendDbPath
-$env:DATA_DIR = $backendDataDir
-$env:UPLOADS_DIR = $backendUploadsDir
-$env:STATIC_DIR = $frontendBuildDir
-$env:VITE_SOCKET_URL = "http://${frontendHost}:${backendPort}"
-$env:VITE_TURN_SERVER = "127.0.0.1"
-$env:VITE_TURN_PORT = "3478"
-$env:VITE_USE_TURNS = "false"
-$env:VITE_ENABLE_GOOGLE_STUN = "true"
-$env:VITE_ENABLE_RELAYS = "false"
-$env:STATE_STDB_SUBSCRIPTIONS_ENABLED = "false"
-$env:WABI_STDB_BRIDGE_SERVER = ""
-$env:WABI_STDB_BRIDGE_DATABASE = ""
-$env:WABI_STDB_AUTH_TOKEN = ""
-$env:WABI_STDB_ANONYMOUS = "true"
+if ($env:VITE_WABI_LOCAL_MOCK -eq "1" -or $env:VITE_WABI_LOCAL_MOCK -eq "true") {
+    throw "VITE_WABI_LOCAL_MOCK is set. Use 'bun run dev:mock' only for visual smoke tests."
+}
 
-Write-Host "[local-dev] Starting localhost stack"
-Write-Host "[local-dev] frontend: http://${frontendHost}:${frontendPort}"
-Write-Host "[local-dev] backend:  http://${frontendHost}:${backendPort}"
-Write-Host "[local-dev] health:   http://${frontendHost}:${backendPort}/health"
+if (!(Test-Path $moduleDir)) {
+    throw @"
+Missing SpacetimeDB module directory:
+  $moduleDir
 
-$frontendDir = Join-Path $repoRoot "frontend"
+Real dev mode cannot run without the Wabi STDB module. Restore/add spacetimedb/wabi_state_bridge, or point the app at an already-published local STDB database. Refusing to fall back to local mock or legacy database modes.
+"@
+}
 
-$frontendProc = Start-Process -FilePath "bun" -ArgumentList @("run", "dev", "--", "--host", $frontendHost, "--port", $frontendPort) -WorkingDirectory $frontendDir -NoNewWindow -PassThru
-$backendProc = Start-Process -FilePath "cargo" -ArgumentList @("run", "-p", "wabi-server", "--", "--host", $frontendHost, "--port", $backendPort, "--data-dir", $backendDataDir) -WorkingDirectory $repoRoot -NoNewWindow -PassThru
-
+Push-Location $repoRoot
 try {
-  while ($true) {
-    Start-Sleep -Seconds 1
-    $frontendProc.Refresh()
-    $backendProc.Refresh()
+    Write-Host "[local-dev] Building frontend for embedded server assets..."
+    bun run --cwd frontend build
 
-    if ($frontendProc.HasExited -or $backendProc.HasExited) {
-      break
-    }
-  }
-}
-finally {
-  if (-not $frontendProc.HasExited) {
-    Stop-Process -Id $frontendProc.Id -Force
-  }
-  if (-not $backendProc.HasExited) {
-    Stop-Process -Id $backendProc.Id -Force
-  }
-}
+    Write-Host "[local-dev] Building Rust server..."
+    cargo build -p wabi-server
 
-if ($frontendProc.HasExited -and $frontendProc.ExitCode -ne 0) {
-  exit $frontendProc.ExitCode
-}
-if ($backendProc.HasExited -and $backendProc.ExitCode -ne 0) {
-  exit $backendProc.ExitCode
+    Write-Host "[local-dev] Starting canonical compose core stack..."
+    docker compose up -d spacetimedb stdb-publisher stdb-proxy wabi-server
+
+    Write-Host "[local-dev] Waiting for Rust server health..."
+    $deadline = (Get-Date).AddSeconds(60)
+    do {
+        try {
+            Invoke-WebRequest -UseBasicParsing "http://${frontendHost}:${backendPort}/health" | Out-Null
+            break
+        } catch {
+            Start-Sleep -Seconds 1
+        }
+    } while ((Get-Date) -lt $deadline)
+    Invoke-WebRequest -UseBasicParsing "http://${frontendHost}:${backendPort}/health" | Out-Null
+
+    $env:VITE_SOCKET_URL = "http://${frontendHost}:${backendPort}"
+    Remove-Item Env:VITE_WABI_LOCAL_MOCK -ErrorAction SilentlyContinue
+
+    Write-Host "[local-dev] Starting frontend against real Rust/STDB backend..."
+    bun run --cwd frontend dev -- --host $frontendHost --port $frontendPort
+} finally {
+    Pop-Location
 }

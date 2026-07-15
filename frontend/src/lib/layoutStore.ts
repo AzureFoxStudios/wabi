@@ -20,6 +20,7 @@ import {
 	activeWorkspace,
 	navDock,
 	rightPanelView,
+	centerPanelView,
 	activeRightTab,
 	rightPanelDock,
 	showMobileChannels,
@@ -30,7 +31,10 @@ import {
 	isResizingRight,
 	selectedDmChannelId,
 	dmOtherUser,
+	centerDmChannelId,
 	selectedGroupChannel,
+	pinnedDmChannelId,
+	pinnedDmOtherUser,
 	obviousGrabRails,
 	NOTES_DM_ID,
 	layoutLoaded,
@@ -134,6 +138,14 @@ const showAdminTab = () => {
 	openRightPanel('admin');
 };
 
+const showAdminCenterStage = () => {
+	centerPanelView.set('admin');
+};
+
+const setCenterPanelView = (view: 'chat' | 'admin') => {
+	centerPanelView.set(view);
+};
+
 const showMediaTab = () => {
 	openRightPanel('media');
 };
@@ -146,36 +158,54 @@ const showNotesTab = () => {
 	openRightPanel('notes');
 };
 
-const openDM = (channelIdStr: string, otherUserObj: any) => {
-	selectedDmChannelId.set(channelIdStr);
-	dmOtherUser.set(otherUserObj);
-	selectedGroupChannel.set(null);
-	openRightPanel('dms');
+const openDM = (channelIdStr: string, otherUserObj: any, target: 'center' | 'right' = 'right') => {
+	if (target === 'center') {
+		centerDmChannelId.set(channelIdStr);
+		dmOtherUser.set(otherUserObj);
+		selectedGroupChannel.set(null);
+	} else {
+		selectedDmChannelId.set(channelIdStr);
+		dmOtherUser.set(otherUserObj);
+		selectedGroupChannel.set(null);
+		openRightPanel('dms');
+	}
 };
 
-const openGroupDM = (channelIdStr: string, channel: any) => {
-	selectedDmChannelId.set(channelIdStr);
-	dmOtherUser.set(null);
-	selectedGroupChannel.set(channel);
-	openRightPanel('dms');
+const openGroupDM = (channelIdStr: string, channel: any, target: 'center' | 'right' = 'right') => {
+	if (target === 'center') {
+		centerDmChannelId.set(channelIdStr);
+		dmOtherUser.set(null);
+		selectedGroupChannel.set(channel);
+	} else {
+		selectedDmChannelId.set(channelIdStr);
+		dmOtherUser.set(null);
+		selectedGroupChannel.set(channel);
+		openRightPanel('dms');
+	}
 };
 
-const openNotes = () => {
-	selectedDmChannelId.set(NOTES_DM_ID);
-	dmOtherUser.set({
-		id: 'notes',
-		username: 'Notes',
-		color: '#28b463',
-		status: 'active'
-	});
-	selectedGroupChannel.set(null);
-	openRightPanel('dms');
+const openCenterDm = (channelIdStr: string, otherUserObj: any) => openDM(channelIdStr, otherUserObj, 'center');
+const openCenterGroupDm = (channelIdStr: string, channel: any) => openGroupDM(channelIdStr, channel, 'center');
+const closeCenterDm = () => {
+	centerDmChannelId.set(null);
 };
+
+	const openNotes = () => {
+		selectedDmChannelId.set(null);
+		dmOtherUser.set(null);
+		selectedGroupChannel.set(null);
+		openRightPanel('notes');
+	};
 
 const closeDM = () => {
 	selectedDmChannelId.set(null);
 	dmOtherUser.set(null);
 	selectedGroupChannel.set(null);
+};
+
+const pinToAux = (channelId: string, otherUser: any) => {
+	pinnedDmChannelId.set(channelId);
+	pinnedDmOtherUser.set(otherUser);
 };
 
 // ============================================================================
@@ -236,7 +266,10 @@ const layout = derived(
 		activeRightTab,
 		rightPanelDock,
 		selectedDmChannelId,
+		centerDmChannelId,
+		pinnedDmChannelId,
 		dmOtherUser,
+		pinnedDmOtherUser,
 		selectedGroupChannel,
 		isResizing,
 		navDock,
@@ -255,7 +288,10 @@ const layout = derived(
 		$activeRightTab,
 		$rightPanelDock,
 		$selectedDmChannelId,
+		$centerDmChannelId,
+		$pinnedDmChannelId,
 		$dmOtherUser,
+		$pinnedDmOtherUser,
 		$selectedGroupChannel,
 		$isResizing,
 		$navDock,
@@ -278,13 +314,16 @@ const layout = derived(
 			rightPanelWidth: $rightPanelWidth,
 			toggleButtonRight: showRightPanel ? $rightPanelWidth : 0,
 			selectedDmChannelId: $selectedDmChannelId,
+			centerDmChannelId: $centerDmChannelId,
+			pinnedDmChannelId: $pinnedDmChannelId,
 			dmOtherUser: $dmOtherUser,
+			pinnedDmOtherUser: $pinnedDmOtherUser,
 			selectedGroupChannel: $selectedGroupChannel,
 			isResizing: $isResizing,
 			navDock: $navDock,
 			isNavCollapsed: $channelSidebarWidth <= 0,
 			activeWorkspace: $activeWorkspace,
-			workspaces: Object.keys($layoutState.workspaces),
+			workspaces: Object.keys($layoutState.workspaces ?? {}),
 			layoutVersion: $layoutState.layoutVersion,
 			obviousGrabRails: $obviousGrabRails,
 			detachedPanelIds: $detachedPanelIds
@@ -308,7 +347,10 @@ export const layoutStore = {
 	isResizingChannel,
 	isResizingRight,
 	selectedDmChannelId,
+	centerDmChannelId,
+	pinnedDmChannelId,
 	dmOtherUser,
+	pinnedDmOtherUser,
 	selectedGroupChannel,
 	rightPanelView,
 	activeRightTab,
@@ -322,6 +364,8 @@ export const layoutStore = {
 	showUsersTab,
 	showDMsTab,
 	showAdminTab,
+	showAdminCenterStage,
+	setCenterPanelView,
 	showMediaTab,
 	showMapTab,
 	showNotesTab,
@@ -329,8 +373,12 @@ export const layoutStore = {
 	setActiveRightPanel,
 	openDM,
 	openGroupDM,
+	openCenterDm,
+	openCenterGroupDm,
+	closeCenterDm,
 	openNotes,
 	closeDM,
+	pinToAux,
 	toggleMobileChannels,
 	toggleMobileUsers,
 	resetPanelsOnDesktop,

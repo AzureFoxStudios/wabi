@@ -14,6 +14,7 @@ import { writable, get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { getSocket } from './socketConnection';
 import type { User } from './socket-types';
+import type { WhiteboardPresenceUser } from './whiteboard/boardTypes';
 
 // ============================================================================
 // TYPES
@@ -26,6 +27,7 @@ export interface VoiceChannelParticipant {
 	isSpeaking: boolean;
 	isMuted: boolean;
 	isDeafened: boolean;
+	transmitMode?: 'primary' | 'all-listening';
 	videoEnabled?: boolean;
 	screenShareEnabled?: boolean;
 	connectionState?: string;
@@ -53,6 +55,26 @@ export const activeVoiceChannel = writable<string | null>(null);
 export const voiceChannelMembers = writable<Record<string, VoiceChannelParticipant[]>>({});
 export const roleDefinitions = writable<RoleDefinition[]>([]);
 
+// Per-channel whiteboard presence: maps a channel id to the users currently
+// on that channel's board. Populated by WhiteboardTab from its sync session so
+// the channel sidebar can surface a "LIVE" indicator without re-subscribing.
+export const whiteboardPresence = writable<Record<string, WhiteboardPresenceUser[]>>({});
+
+export function setWhiteboardPresence(channelId: string, users: WhiteboardPresenceUser[]): void {
+	if (!channelId) return;
+	whiteboardPresence.update((map) => ({ ...map, [channelId]: users }));
+}
+
+export function clearWhiteboardPresence(channelId: string): void {
+	if (!channelId) return;
+	whiteboardPresence.update((map) => {
+		if (!(channelId in map)) return map;
+		const next = { ...map };
+		delete next[channelId];
+		return next;
+	});
+}
+
 // ============================================================================
 // PUBLIC API - Voice Channel Operations
 // ============================================================================
@@ -60,16 +82,16 @@ export const roleDefinitions = writable<RoleDefinition[]>([]);
 export function subscribeVoiceChannel(channelId: string): void {
 	const sock = getSocket();
 	if (!sock) return;
-	sock.emit('subscribe-voice-channel', { channelId });
+	sock.emit('voice-channel-subscribe', { channelId });
 }
 
 export function unsubscribeVoiceChannel(channelId: string): void {
 	const sock = getSocket();
 	if (!sock) return;
-	sock.emit('unsubscribe-voice-channel', { channelId });
+	sock.emit('voice-channel-leave', { channelId });
 }
 
-export function setVoiceTransmitMode(mode: 'always' | 'push-to-talk' | 'auto'): void {
+export function setVoiceTransmitMode(mode: 'primary' | 'all-listening'): void {
 	const sock = getSocket();
 	if (!sock) return;
 	sock.emit('set-voice-transmit-mode', { mode });
@@ -79,16 +101,26 @@ export function setVoiceTransmitMode(mode: 'always' | 'push-to-talk' | 'auto'): 
 // PUBLIC API - Role Operations
 // ============================================================================
 
+function toNumericUserId(userId: string | number): number | null {
+	if (typeof userId === 'number' && Number.isFinite(userId)) return userId;
+	const match = String(userId).match(/^(?:user-)?(\d+)$/);
+	return match ? Number(match[1]) : null;
+}
+
 export function assignRole(userId: string | number, roleId: string): void {
 	const sock = getSocket();
 	if (!sock) return;
-	sock.emit('assign-role', { userId, roleId });
+	const targetUserId = toNumericUserId(userId);
+	if (!targetUserId) return;
+	sock.emit('assign-role', { targetUserId, roleName: roleId });
 }
 
 export function removeUserRole(userId: string | number, roleId: string): void {
 	const sock = getSocket();
 	if (!sock) return;
-	sock.emit('remove-user-role', { userId, roleId });
+	const targetUserId = toNumericUserId(userId);
+	if (!targetUserId) return;
+	sock.emit('remove-role', { targetUserId, roleName: roleId });
 }
 
 // ============================================================================
@@ -98,7 +130,9 @@ export function removeUserRole(userId: string | number, roleId: string): void {
 export function banUser(userId: string | number, reason?: string): void {
 	const sock = getSocket();
 	if (!sock) return;
-	sock.emit('ban-user', { userId, reason });
+	const targetUserId = toNumericUserId(userId);
+	if (!targetUserId) return;
+	sock.emit('ban-user', { targetUserId, reason });
 }
 
 // ============================================================================
@@ -114,25 +148,25 @@ export function createGroup(groupName: string, userIds: string[]): void {
 export function leaveGroup(groupId: string): void {
 	const sock = getSocket();
 	if (!sock) return;
-	sock.emit('leave-group', { groupId });
+	sock.emit('leave-group', { channelId: groupId });
 }
 
 export function kickGroupMember(groupId: string, userId: string): void {
 	const sock = getSocket();
 	if (!sock) return;
-	sock.emit('kick-group-member', { groupId, userId });
+	sock.emit('kick-group-member', { channelId: groupId, targetUserId: userId });
 }
 
 export function addGroupMember(groupId: string, userId: string): void {
 	const sock = getSocket();
 	if (!sock) return;
-	sock.emit('add-group-member', { groupId, userId });
+	sock.emit('add-group-member', { channelId: groupId, userId });
 }
 
 export function updateGroupAvatar(groupId: string, avatarUrl: string): void {
 	const sock = getSocket();
 	if (!sock) return;
-	sock.emit('update-group-avatar', { groupId, avatarUrl });
+	sock.emit('update-group-avatar', { channelId: groupId, avatarUrl });
 }
 
 // ============================================================================

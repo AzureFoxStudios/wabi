@@ -149,7 +149,7 @@
 	.viewport-overlay.place-hint {
 		top: 1rem;
 		bottom: auto;
-		color: var(--text-inverse, var(--text-inverse, #fff))7cb;
+		color: var(--text-inverse, #fff7cb);
 		background: rgba(80, 54, 6, 0.88);
 	}
 
@@ -366,5 +366,19 @@
 		.compact-display-mode-field {
 			flex-basis: 100%;
 			min-width: 0;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.place-item,
+		.poi-item,
+		.poi-editor-item {
+			transition: background 0.15s ease, border-color 0.15s ease;
+		}
+
+		.place-item:hover,
+		.poi-item:hover,
+		.poi-editor-item:hover {
+			transform: none;
 		}
 	}

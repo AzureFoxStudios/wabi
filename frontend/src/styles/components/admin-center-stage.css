@@ -1,0 +1,847 @@
+/* ─── Admin Center Stage ──────────────────────────────────────────── */
+.admin-center-stage {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  background: var(--surface-app, #0d0d1a);
+  color: var(--text-primary, #e8e8e8);
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  overflow: hidden;
+}
+
+/* ─── Sidebar ────────────────────────────────────────────────────── */
+.admin-sidebar {
+  width: 200px;
+  flex: none;
+  background: var(--surface-base, #111);
+  border-right: 1px solid var(--border-subtle, #222);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.admin-sidebar-header {
+  padding: 12px 12px;
+  border-bottom: 1px solid var(--border-subtle, #222);
+}
+
+.admin-back-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--text-secondary, #999);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: all 0.15s;
+  width: 100%;
+}
+
+.admin-back-btn:hover {
+  color: var(--text-primary, #e8e8e8);
+  background: var(--surface-hover, #222);
+}
+
+.admin-sidebar-role {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle, #222);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-role-tag {
+  font-size: 9px;
+  font-family: 'Space Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(52, 152, 219, 0.15);
+  color: #64b5f6;
+  border: 1px solid rgba(52, 152, 219, 0.3);
+}
+
+.admin-role-owner {
+  background: rgba(244, 67, 54, 0.15) !important;
+  color: #ff8a80 !important;
+  border-color: rgba(244, 67, 54, 0.3) !important;
+}
+
+.admin-role-admin {
+  background: rgba(255, 193, 7, 0.15) !important;
+  color: #ffd54f !important;
+  border-color: rgba(255, 193, 7, 0.3) !important;
+}
+
+.admin-role-label {
+  font-size: 9px;
+  color: var(--text-disabled, #666);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.admin-sidebar-nav {
+  flex: 1;
+  padding: 8px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.admin-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: none;
+  border: none;
+  color: var(--text-secondary, #999);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+  width: 100%;
+}
+
+.admin-nav-item:hover {
+  color: var(--text-primary, #e8e8e8);
+  background: var(--surface-hover, #222);
+}
+
+.admin-nav-active {
+  background: rgba(242, 101, 34, 0.1) !important;
+  color: var(--accent, #F26522) !important;
+}
+
+.admin-nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  opacity: 0.6;
+}
+
+.admin-nav-active .admin-nav-icon {
+  opacity: 1;
+}
+
+.admin-nav-label {
+  font-weight: 500;
+}
+
+.admin-sidebar-footer {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border-subtle, #222);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-footer-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4a9e5c;
+  animation: wabi-admin-pulse-glow 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.admin-footer-text {
+  font-size: 9px;
+  font-family: 'Space Mono', monospace;
+  color: var(--text-disabled, #666);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* ─── Main Content ───────────────────────────────────────────────── */
+.admin-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.admin-topbar {
+  height: 48px;
+  flex: none;
+  background: var(--surface-base, #111);
+  border-bottom: 1px solid var(--border-subtle, #222);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+}
+
+.admin-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-topbar-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-heading, #fff);
+  margin: 0;
+}
+
+.admin-topbar-badge {
+  font-size: 9px;
+  font-family: 'Space Mono', monospace;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--surface-hover, #222);
+  color: var(--text-disabled, #666);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.admin-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.admin-topbar-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-topbar-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4a9e5c;
+  animation: wabi-admin-pulse-glow 2.4s infinite;
+}
+
+.admin-topbar-stat {
+  font-size: 11px;
+  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary, #999);
+}
+
+.admin-topbar-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border-subtle, #333);
+}
+
+.admin-topbar-clock {
+  font-size: 13px;
+  font-family: 'Space Mono', monospace;
+  color: var(--text-heading, #fff);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 22px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.admin-content-inner {
+  width: 100%;
+}
+
+/* ─── Overview Section ───────────────────────────────────────────── */
+.admin-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.admin-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.admin-skel-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.admin-skel-card {
+  height: 120px !important;
+  border-radius: 16px !important;
+}
+
+.admin-skel-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 12px;
+}
+
+.admin-skel-large {
+  height: 300px !important;
+  border-radius: 16px !important;
+}
+
+.admin-skel-medium {
+  height: 300px !important;
+  border-radius: 16px !important;
+}
+
+/* ─── Card ───────────────────────────────────────────────────────── */
+.admin-card {
+  background: var(--surface-raised, #1a1a2e);
+  border: 1px solid var(--border-subtle, #222);
+  border-radius: 16px;
+  padding: 20px;
+  transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
+  animation: wabi-admin-card-reveal 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  opacity: 0;
+}
+
+.admin-card-hover:hover {
+  border-color: var(--border-visible, #444);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  transform: translateY(-2px);
+}
+
+.admin-card-accent {
+  border-color: rgba(242, 101, 34, 0.2);
+  background: rgba(242, 101, 34, 0.05);
+}
+
+/* Card shine effect */
+.admin-card::after {
+  content: '';
+  position: absolute;
+  top: -30%;
+  bottom: -30%;
+  left: 0;
+  width: 110px;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,0.04) 35%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.04) 65%, transparent);
+  transform: skew(-14deg);
+  pointer-events: none;
+  opacity: 0;
+}
+
+.admin-card-hover:hover::after {
+  animation: adminShine 1.05s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* ─── Stat Card Inner ────────────────────────────────────────────── */
+.admin-stat-card-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-stat-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-stat-label {
+  font-size: 10px;
+  font-family: 'Space Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--text-disabled, #666);
+}
+
+.admin-stat-icon {
+  display: flex;
+  opacity: 0.4;
+}
+
+.admin-stat-value {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text-heading, #fff);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.admin-stat-segbar {
+  display: flex;
+  gap: 3px;
+  height: 10px;
+}
+
+.admin-seg-segment {
+  flex: 1;
+  border-radius: 1px;
+  background: #242424;
+  animation: wabi-admin-seg-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  transform: scale(0.3);
+  opacity: 0;
+}
+
+.admin-seg-active {
+  background: var(--accent, #F26522);
+}
+
+/* ─── Overview Row (2-column) ────────────────────────────────────── */
+.admin-overview-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 16px;
+}
+
+.admin-overview-row:last-of-type {
+  grid-template-columns: 1fr 1fr;
+}
+
+.admin-section-label {
+  font-size: 10px;
+  font-family: 'Space Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--text-disabled, #666);
+  display: block;
+  margin-bottom: 16px;
+}
+
+.admin-ring-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-ring-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  place-items: center;
+}
+
+/* ─── Ring Gauge ─────────────────────────────────────────────────── */
+.admin-ring-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.admin-ring-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.admin-ring-bg {
+  fill: none;
+  stroke: #272727;
+  stroke-width: 6.5;
+}
+
+.admin-ring-fg {
+  fill: none;
+  stroke-width: 6.5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.admin-ring-value {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -65%);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-heading, #fff);
+}
+
+.admin-ring-label {
+  font-size: 9px;
+  font-family: 'Space Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary, #999);
+}
+
+/* ─── Activity Feed ──────────────────────────────────────────────── */
+.admin-activity-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-activity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.admin-activity-header .admin-section-label {
+  margin-bottom: 0;
+}
+
+.admin-live-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-red, #d71921);
+  animation: wabi-admin-pulse-glow 2.4s infinite;
+}
+
+.admin-live-text {
+  font-size: 9px;
+  font-family: 'Space Mono', monospace;
+  font-weight: 700;
+  color: var(--accent-red, #d71921);
+  letter-spacing: 0.1em;
+}
+
+.admin-activity-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.admin-activity-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  transition: background 0.15s;
+  animation: wabi-admin-slide-in 0.3s ease forwards;
+  opacity: 0;
+}
+
+.admin-activity-item:hover {
+  background: var(--surface-hover, #222);
+}
+
+.admin-activity-action {
+  font-size: 9px;
+  font-family: 'Space Mono', monospace;
+  font-weight: 700;
+  width: 40px;
+  flex: none;
+}
+
+.admin-activity-desc {
+  font-size: 12px;
+  color: var(--text-primary, #e8e8e8);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-activity-desc strong {
+  color: var(--text-heading, #fff);
+  font-weight: 500;
+}
+
+.admin-activity-arrow {
+  color: var(--text-secondary, #999);
+  margin: 0 4px;
+}
+
+.admin-activity-channel {
+  color: var(--text-disabled, #666);
+}
+
+.admin-activity-time {
+  font-size: 9px;
+  font-family: 'Space Mono', monospace;
+  color: var(--text-disabled, #666);
+  flex: none;
+}
+
+/* ─── Role Distribution ──────────────────────────────────────────── */
+.admin-role-dist {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.admin-role-dist-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-role-bar-track {
+  flex: 1;
+  height: 8px;
+  background: #1a1a1a;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.admin-role-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.7s;
+}
+
+.admin-role-bar-count {
+  font-size: 12px;
+  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary, #999);
+  width: 60px;
+  text-align: right;
+}
+
+.admin-role-bar-pct {
+  font-size: 10px;
+  color: var(--text-disabled, #666);
+}
+
+/* ─── Top Users ──────────────────────────────────────────────────── */
+.admin-top-users {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-top-user-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  transition: background 0.15s;
+}
+
+.admin-top-user-item:hover {
+  background: var(--surface-hover, #222);
+}
+
+.admin-top-rank {
+  font-size: 16px;
+  font-family: 'Space Mono', monospace;
+  color: var(--text-disabled, #666);
+  width: 24px;
+  text-align: center;
+  flex: none;
+}
+
+.admin-top-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface-hover, #222);
+  border: 1px solid var(--border-visible, #333);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-heading, #fff);
+  flex: none;
+}
+
+.admin-top-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-top-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-top-name {
+  font-size: 13px;
+  color: var(--text-heading, #fff);
+  font-weight: 500;
+}
+
+.admin-top-metrics {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.admin-top-msgs {
+  font-size: 10px;
+  font-family: 'Space Mono', monospace;
+  color: var(--text-disabled, #666);
+}
+
+.admin-top-xp {
+  font-size: 10px;
+  font-family: 'Space Mono', monospace;
+  color: var(--accent, #F26522);
+}
+
+/* ─── Role Badge ─────────────────────────────────────────────────── */
+.admin-role-badge {
+  font-family: 'Space Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: 999px;
+  border: 1px solid;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+.admin-role-badge-sm {
+  font-size: 9px;
+  padding: 1px 8px;
+}
+
+.admin-role-badge-md {
+  font-size: 11px;
+  padding: 2px 10px;
+}
+
+/* ─── Status Dot ─────────────────────────────────────────────────── */
+.admin-status-dot {
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+}
+
+.admin-dot-sm {
+  width: 7px;
+  height: 7px;
+}
+
+.admin-dot-md {
+  width: 10px;
+  height: 10px;
+}
+
+.admin-dot-pulse {
+  animation: wabi-admin-pulse-glow 2.4s infinite;
+}
+
+/* ─── Skeleton ───────────────────────────────────────────────────── */
+.admin-skeleton {
+  background: linear-gradient(90deg, var(--surface-raised, #1a1a2e) 25%, var(--surface-hover, #2a2a2a) 50%, var(--surface-raised, #1a1a2e) 75%);
+  background-size: 200% 100%;
+  animation: adminShimmer 1.5s infinite;
+  border-radius: 12px;
+}
+
+/* ─── Placeholder sections ───────────────────────────────────────── */
+.admin-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  color: var(--text-disabled, #666);
+  font-size: 14px;
+  font-family: 'Space Mono', monospace;
+  border: 1px dashed var(--border-subtle, #333);
+  border-radius: 16px;
+}
+
+.admin-empty-state {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-disabled, #666);
+  font-size: 12px;
+}
+
+/* ─── Animations ───────────────────────────────────────────────────
+   Shared pulse/reveal keyframes now live in styles/motion.css.
+   Only admin-specific shine effects are defined here. */
+@keyframes adminShimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes adminShine {
+  0% { transform: skew(-14deg) translateX(-140px); opacity: 1; }
+  100% { transform: skew(-14deg) translateX(110%); opacity: 0; }
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────────── */
+.admin-content::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.admin-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.admin-content::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+
+.admin-content::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+.admin-sidebar-nav::-webkit-scrollbar {
+  width: 4px;
+}
+
+.admin-sidebar-nav::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 2px;
+}
+
+.admin-sidebar-nav:hover::-webkit-scrollbar-thumb {
+  background: #333;
+}
+
+/* ─── Responsive ─────────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .admin-stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .admin-overview-row {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .admin-sidebar {
+    width: 160px;
+  }
+  .admin-stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .admin-topbar-stats {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .admin-stat-grid,
+  .admin-skel-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ─── Reduced motion ─────────────────────────────────────────────── */
+/* ─── Dotted pattern (optional bg) ───────────────────────────────── */
+.admin-dot-bg {
+  background-image: radial-gradient(circle, #1d1d1d 1.1px, transparent 1.1px);
+  background-size: 16px 16px;
+  background-position: 8px 8px;
+}

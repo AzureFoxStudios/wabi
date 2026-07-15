@@ -105,7 +105,7 @@ wabi serve
 That command should eventually:
 
 - create or locate the Wabi data directory
-- initialize SQLite or the selected local store
+- initialize legacy embedded DB or the selected local store
 - serve the bundled web UI
 - start the realtime API
 - diagnose LAN/public reachability

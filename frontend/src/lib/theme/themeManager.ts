@@ -30,7 +30,7 @@ const LEGACY_COLOR_MAP: Record<string, keyof Theme['colors']> = {
 	'--color-text-secondary': 'textSecondary',
 	'--color-text-tertiary': 'textTertiary',
 	'--color-accent-primary': 'accentHex',
-	'--color-accent-secondary': 'accentHex', // approximated — used only as fallback
+	'--color-accent-secondary': 'accentSecondaryHex', // solid color (NOT gradient) for color/border contexts
 	'--color-status-success': 'colorSuccess',
 	'--color-status-warning': 'colorWarning',
 	'--color-status-danger': 'colorDanger',
@@ -65,7 +65,6 @@ const SEMANTIC_MAP: Record<string, string> = {
 	'--surface-panel': '--bg-secondary',
 	'--text-heading': '--text-primary',
 	'--text-body': '--text-primary',
-	'--text-secondary': '--text-secondary',
 	'--text-muted': '--text-tertiary',
 	'--text-placeholder': '--text-tertiary',
 	'--text-link': '--accent',
@@ -78,19 +77,31 @@ const SEMANTIC_MAP: Record<string, string> = {
 	'--border-focus': '--accent',
 	'--accent-primary': '--accent',
 	'--accent-secondary': '--accent-hover',
+	'--accent-primary-color': '--color-accent-primary',
+	'--accent-secondary-color': '--color-accent-secondary',
 	'--accent-gradient': '--gradient-accent',
-	'--accent-hover': '--accent-hover',
 	'--accent-glow': '--accent-rgb',
-	'--status-online': '--status-online',
-	'--status-away': '--status-away',
-	'--status-busy': '--status-busy',
-	'--status-offline': '--status-offline',
-	'--color-success': '--color-success',
-	'--color-info': '--color-info',
-	'--color-warning': '--color-warning',
-	'--color-danger': '--color-danger',
-};
 
+	// RGB aliases — enable rgba() to track theme changes
+	'--surface-app-rgb': '--bg-primary-rgb',
+	'--surface-base-rgb': '--bg-secondary-rgb',
+	'--surface-raised-rgb': '--bg-tertiary-rgb',
+	'--text-heading-rgb': '--text-primary-rgb',
+	'--text-secondary-rgb': '--text-secondary-rgb',
+	'--text-muted-rgb': '--text-tertiary-rgb',
+	'--text-inverse-rgb': '--text-inverse-rgb',
+	'--accent-primary-rgb': '--accent-rgb',
+	'--color-success-rgb': '--color-success-rgb',
+	'--color-info-rgb': '--color-info-rgb',
+	'--color-warning-rgb': '--color-warning-rgb',
+	'--color-danger-rgb': '--color-danger-rgb',
+	'--border-rgb': '--border-rgb',
+
+	// NOTE: self-referencing entries removed (e.g. '--text-secondary': '--text-secondary',
+	// '--accent-hover': '--accent-hover', '--status-*': '--status-*', '--color-*': '--color-*').
+	// Those tokens are set correctly in step 1 from theme.colors and should not be aliased
+	// to themselves, which previously made them resolve to the initial value (empty).
+};
 /**
  * Apply a theme to the document root.
  * Sets legacy, color-namespace, and semantic tokens.
@@ -164,7 +175,44 @@ export function applyTheme(theme: Theme, backgroundImage?: BackgroundImage, unif
 		root.style.setProperty('--uniform-font-style', 'inherit');
 	}
 
-	// === 7. Data attribute + accessibility ===
+	// === 7. Ambient effect CSS variables ===
+	const ambient = theme.ambient;
+	if (ambient) {
+		root.style.setProperty('--bg-effect-effect', ambient.effect);
+		root.style.setProperty('--bg-effect-color', ambient.color || theme.colors.accentHex);
+		root.style.setProperty('--bg-effect-intensity', String(ambient.intensity ?? 0.3));
+		root.style.setProperty('--bg-effect-size', String(ambient.size ?? 1));
+		root.style.setProperty('--bg-effect-speed', String(ambient.speed ?? 1));
+	} else {
+		root.style.setProperty('--bg-effect-effect', 'none');
+		root.style.setProperty('--bg-effect-color', theme.colors.accentHex);
+		root.style.setProperty('--bg-effect-intensity', '0');
+		root.style.setProperty('--bg-effect-size', '1');
+		root.style.setProperty('--bg-effect-speed', '1');
+	}
+
+	// === 7b. Frosted-glass surfaces (driven by ambient) ===
+	// When a theme has a living background, surfaces become translucent + blurred
+	// so the ambient canvas reads as a blended backdrop instead of being hidden.
+	const hasAmbient = !!ambient && ambient.effect && ambient.effect !== 'none';
+	if (hasAmbient) {
+		root.style.setProperty('--surface-frost-opacity', String(ambient!.frostOpacity ?? 0.6));
+		root.style.setProperty('--surface-frost-blur', `${ambient!.frostBlur ?? 6}px`);
+	} else {
+		root.style.setProperty('--surface-frost-opacity', '1');
+		root.style.setProperty('--surface-frost-blur', '0px');
+	}
+	// Flag any theme that ships an ambient effect (built-in OR custom) so the
+	// frosted-surface CSS can target it without a hardcoded theme-id list.
+	root.setAttribute('data-ambient', hasAmbient ? 'true' : 'false');
+
+	// === 8. Theme-reactive PFP banner gradient ===
+	root.style.setProperty(
+		'--pfp-banner',
+		`linear-gradient(135deg, ${theme.colors.accentHex} 0%, ${theme.colors.accentSecondaryHex} 100%)`
+	);
+
+	// === 9. Data attribute + accessibility ===
 	root.setAttribute('data-theme', theme.id);
 	applyAccessibilitySettings(getStoredAccessibilitySettings());
 

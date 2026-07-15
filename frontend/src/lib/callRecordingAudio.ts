@@ -8,6 +8,23 @@ import type { CallRecordingSnapshot, RecordingAudioInput } from './callRecording
 
 export type RecordingAudioInputResolver = (snapshot: CallRecordingSnapshot, respectLocalMute: boolean) => RecordingAudioInput[];
 
+// A single throwaway context used only to "unlock" audio output within a
+// user gesture. Browsers start new AudioContexts in the `running` state once
+// the document has sticky user activation, so resuming this from the Record
+// button handler lets the per-mixer contexts below start un-suspended.
+let gestureUnlockContext: AudioContext | null = null;
+
+export function unlockAudioContext(): void {
+	try {
+		if (!gestureUnlockContext) {
+			gestureUnlockContext = new AudioContext({ sampleRate: 48_000 });
+		}
+		void gestureUnlockContext.resume().catch(() => undefined);
+	} catch {
+		// Audio unlock is best-effort; ignore unsupported environments.
+	}
+}
+
 export class RecordingAudioMixer {
 	private readonly context = new AudioContext({ sampleRate: 48_000 });
 	private readonly compressor = this.context.createDynamicsCompressor();
@@ -25,6 +42,13 @@ export class RecordingAudioMixer {
 		this.resolveInputs = resolveInputs;
 		this.respectLocalMuteOverride = respectLocalMuteOverride;
 		this.compressorEnabled = compressorEnabled;
+		// The mixer context is created after async setup, so resume it eagerly.
+		// If the document already has user activation (it does once the user is
+		// in a call), this flips the context to `running` instead of `suspended`,
+		// preventing silent recordings.
+		if (this.context.state === 'suspended') {
+			void this.context.resume().catch(() => undefined);
+		}
 		this.compressor.threshold.value = -22;
 		this.compressor.knee.value = 18;
 		this.compressor.ratio.value = 2.8;

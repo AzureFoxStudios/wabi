@@ -1,3 +1,13 @@
+// WDB-compat shim: this file calls `state.app.wdb.X(...)` for
+// methods the WDB doesn't have equivalents for yet
+// (is_user_muted, get_channel_retention, mute_user, etc.).
+// The compat WdbClient in `db/` returns no-op defaults for all
+// of these. When WDB has the corresponding engine methods, this
+// file can be migrated to use `state.app.wdb.X(...)` instead.
+// The compat shim itself is a temporary layer and will be removed
+// once the last socketio file is migrated.
+
+#[allow(dead_code)]
 async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let my_stable_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     let my_username = {
@@ -18,7 +28,7 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
         .map(String::from)
     {
         // Group call
-        let channels = state.app.stdb.get_channels_raw().await.unwrap_or_default();
+        let channels = state.app.wdb.get_channels_raw().await.unwrap_or_default();
         let channel_opt = channels.iter().find(|c| {
             c.get("channel_id")
                 .or_else(|| c.get("id"))
@@ -223,6 +233,7 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
     }
 }
 
+#[allow(dead_code)]
 async fn on_call_answer(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let my_stable_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     let my_username = {
@@ -330,6 +341,7 @@ async fn on_call_answer(socket: SocketRef, data: Value, state: SioState, io: Soc
     }
 }
 
+#[allow(dead_code)]
 async fn on_call_reject(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let my_stable_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
 
@@ -404,6 +416,7 @@ async fn on_call_reject(socket: SocketRef, data: Value, state: SioState, io: Soc
     }
 }
 
+#[allow(dead_code)]
 async fn on_call_cancel(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let my_stable_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
 
@@ -462,6 +475,7 @@ async fn on_call_cancel(socket: SocketRef, data: Value, state: SioState, io: Soc
     }
 }
 
+#[allow(dead_code)]
 async fn on_call_end(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let my_stable_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     let participant_ids: Vec<String> = data

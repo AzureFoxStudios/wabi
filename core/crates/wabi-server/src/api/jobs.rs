@@ -15,7 +15,7 @@ use axum::{
 };
 use std::sync::Arc;
 
-use crate::jobs::{ClaimJobRequest, JobQueueError, JobResultRequest, JobStatus, SubmitJobRequest};
+use crate::jobs::{ClaimJobRequest, JobQueueError, JobResultRequest, SubmitJobRequest};
 use crate::state::AppState;
 
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {

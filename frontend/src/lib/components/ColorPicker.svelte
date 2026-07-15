@@ -139,7 +139,7 @@
 
 	.color-preview:hover {
 		transform: scale(1.05);
-		border-color: var(--accent-primary);
+		border-color: var(--accent-primary-color);
 	}
 
 	.color-button {
@@ -154,7 +154,7 @@
 	}
 
 	.color-button:hover {
-		border-color: var(--accent-primary);
+		border-color: var(--accent-primary-color);
 		background: var(--surface-hover);
 	}
 
@@ -200,7 +200,7 @@
 
 	.hex-input:focus {
 		outline: none;
-		border-color: var(--accent-primary);
+		border-color: var(--accent-primary-color);
 		box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.1);
 	}
 </style>

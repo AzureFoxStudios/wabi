@@ -17,7 +17,7 @@ Positioning references:
 - Voice, video, and screen sharing via WebRTC
 - Better call connectivity across networks using TURN (coturn)
 - User accounts, JWT auth, guest access codes, and role-based permissions
-- Saves data by default (SQLite), with optional Postgres mode for larger/community setups
+- Saves shared server state in the embedded Wabidb engine; browser-local client caches belong in IndexedDB
 - Theme customization and saved user preferences
 - Plugin system with integrity/signature policy controls
 - Optional `relay-node` (file delivery network phase) and `media-gateway` (SRT gateway daemon + worker bridge)
@@ -30,7 +30,7 @@ Positioning references:
 | Voice/video calls | Available | WebRTC with TURN REST credentials |
 | Screen sharing | Available | Real-time share flows in client |
 | Auth + roles | Available | JWT auth, guest codes, RBAC |
-| Persistence | Available | SQLite default, Postgres community mode |
+| Persistence | Available | Wabidb server state (embedded engine) + IndexedDB client-local cache |
 | Theming | Available | Saved user theme/preferences |
 | Relay network | Optional/Phase 1 | `relay-node/` for file delivery relays |
 | SRT media gateway | Optional | `media-gateway/` daemon with control-plane sync + worker orchestration |
@@ -178,13 +178,15 @@ bun run dev:local:windows
 bun run dev:local
 ```
 
-This mode forces local runtime defaults:
+This mode is the real local stack, not UI mock mode:
 - Frontend: `http://localhost:5173`
-- Backend: `http://localhost:3000`
-- Health check: `http://localhost:3000/health`
-- SQLite DB path: `backend/data/chat.db`
+- Rust backend: `http://localhost:3001`
+- Wabidb data dir: `./data/wabi-server`
+- *(no proxy needed; Wabidb is in-process)*
 
-Backend-only localhost cleanup mode (skips frontend and ignores STDB env leftovers):
+If `spacetimedb/wabi_state_bridge` is missing, `bun run dev:local` fails loudly instead of falling back to a fake persistence layer.
+
+Backend-only localhost mode (skips frontend; still expects only the wabi-server binary to be valid):
 
 ```powershell
 bun run dev:backend:local:windows
@@ -220,24 +222,12 @@ The Windows installer is configured to embed the WebView2 offline installer so i
 
 ## Deployment modes
 
-Wabi supports a few deployment combinations:
+Wabi's canonical deployment is Rust + Wabidb (engine embedded). Optional profiles add tunnels, TURN, SFU, and media helpers.
 
-- `normal + node` (default): SQLite + Node containers
-- `normal + bun`: SQLite + Bun containers
-- `community + node`: Postgres + Node containers
-- `community + bun`: Postgres + Bun containers
-
-Compose examples:
+Compose example:
 
 ```bash
-# normal + node
 docker compose -f docker-compose.yml up -d --build
-
-# community + node
-docker compose -f docker-compose.yml -f docker-compose.community.yml up -d --build
-
-# community + bun
-docker compose -f docker-compose.yml -f docker-compose.community.yml -f docker-compose.bun.yml up -d --build
 ```
 
 See `PROJECT_DOCS/DEPLOYMENT.md` for full deployment guidance.
@@ -259,10 +249,10 @@ Important settings to review before production:
 - `FRONTEND_URL`, `PUBLIC_URL`, `ALLOWED_ORIGINS`
 - `JWT_SECRET`
 - `TURN_EXTERNAL_IP`, `TURN_REALM`, `TURN_SHARED_SECRET`
-- `WABI_MODE`, `WABI_RUNTIME`, `DB_MODE`
+- `WABI_MODE`, `WABI_RUNTIME`, `JWT_SIGNING_KEY` (see docker-compose.yml for required env)
 - `PLUGINS_ENABLED`, `PLUGINS_ALLOW_INSTALL` (both default to `false`)
 - `WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED` / `VITE_VIDEO_COMPRESSION_CLIENT_METRICS` (both default to `false`)
-- Postgres settings if using community mode
+Server data dir and storage config (see `docker-compose.yml`)
 - Optional launch page branding: `WABI_LAUNCH_PAGE_JSON` or `WABI_LAUNCH_PAGE_PATH`
 
 If you are new to this, start with `./scripts/setup.sh` and only edit advanced variables later.

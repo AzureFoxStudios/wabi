@@ -14,9 +14,10 @@ use super::{
     PaymentUserBlock, SaveAccessInput, SaveDonationInput, UserBlockInput, DEFAULT_WORKSPACE_ID,
 };
 use crate::state::AppState;
+use wabidb::engine::wabi_store::WabiStore;
 
 pub async fn get_payment_access(State(state): State<Arc<AppState>>) -> Response {
-    let policy = match get_policy_row(&state.stdb, "policy:payments_access").await {
+    let policy = match get_policy_row(&state, "policy:payments_access").await {
         Some(v) => serde_json::from_value::<PaymentAccessPolicy>(v).unwrap_or_default(),
         None => PaymentAccessPolicy::default(),
     };
@@ -37,7 +38,7 @@ pub async fn save_payment_access(
     }
     let sanitized = sanitize_access_policy(&input.policy);
     upsert_policy(
-        &state.stdb,
+        &state,
         "policy:payments_access",
         &serde_json::to_value(&sanitized).unwrap(),
     )
@@ -50,34 +51,17 @@ pub async fn list_account_links(
     headers: axum::http::HeaderMap,
     Query(query): Query<ListQuery>,
 ) -> Response {
-    let user_id = match extract_user_id(&headers, &state.config.jwt_secret) {
+    let _user_id = match extract_user_id(&headers, &state.config.jwt_secret) {
         Ok(id) => id,
         Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
     };
-    let workspace_id = query
+    let _workspace_id = query
         .workspace_id
         .as_deref()
         .unwrap_or(DEFAULT_WORKSPACE_ID);
-    let sql = format!(
-        "SELECT row_json FROM state_payment_account_link WHERE user_id = {} AND workspace_id = '{}'",
-        user_id,
-        crate::db::StdbClient::sanitize_sql(workspace_id),
-    );
-    let links: Vec<PaymentAccountLink> = state
-        .stdb
-        .sql_query(&sql)
-        .await
-        .map(|resp| {
-            resp.decode_rows()
-                .iter()
-                .filter_map(|row| {
-                    row.get("row_json")
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| serde_json::from_str(s).ok())
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    // WDB-compat: payment projections not in wabidb v1. Return empty.
+    // Real impl lands when the payment-policy projection is wired in.
+    let links: Vec<PaymentAccountLink> = Vec::new();
     Json(json!({ "success": true, "links": links })).into_response()
 }
 
@@ -109,7 +93,7 @@ pub async fn create_account_link(
         linked_at: now,
         updated_at: now,
     };
-    upsert_account_link(&state.stdb, &link).await;
+    upsert_account_link(&state, &link).await;
     Json(json!({ "success": true, "link": link })).into_response()
 }
 
@@ -123,7 +107,7 @@ pub async fn delete_account_link(
         Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
     };
     let _ = state
-        .stdb
+        .wdb
         .ingest_event(
             "payment",
             "delete_account_link",
@@ -138,7 +122,7 @@ pub async fn delete_account_link(
 }
 
 pub async fn get_donation_config(State(state): State<Arc<AppState>>) -> Response {
-    let config = match get_policy_row(&state.stdb, "policy:payments_donations").await {
+    let config = match get_policy_row(&state, "policy:payments_donations").await {
         Some(v) => serde_json::from_value::<PaymentDonationConfig>(v).unwrap_or_default(),
         None => PaymentDonationConfig::default(),
     };
@@ -159,7 +143,7 @@ pub async fn save_donation_config(
     }
     let config = sanitize_donation_config(&input.config);
     upsert_policy(
-        &state.stdb,
+        &state,
         "policy:payments_donations",
         &serde_json::to_value(&config).unwrap(),
     )
@@ -179,31 +163,13 @@ pub async fn list_user_blocks(
     if !is_admin_user(user_id, &state).await {
         return json_error(StatusCode::FORBIDDEN, "Admin access required");
     }
-    let workspace_id = query
+    let _workspace_id = query
         .workspace_id
         .as_deref()
         .unwrap_or(DEFAULT_WORKSPACE_ID);
-    let limit = query.limit.unwrap_or(500).min(5000);
-    let sql = format!(
-        "SELECT row_json FROM state_payment_user_block WHERE workspace_id = '{}' LIMIT {}",
-        crate::db::StdbClient::sanitize_sql(workspace_id),
-        limit,
-    );
-    let blocks: Vec<PaymentUserBlock> = state
-        .stdb
-        .sql_query(&sql)
-        .await
-        .map(|resp| {
-            resp.decode_rows()
-                .iter()
-                .filter_map(|row| {
-                    row.get("row_json")
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| serde_json::from_str(s).ok())
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    // WDB-compat: payment projections not in wabidb v1. Return empty.
+    // Real impl lands when the payment-user-block projection is wired in.
+    let blocks: Vec<PaymentUserBlock> = Vec::new();
     Json(json!({ "success": true, "blocks": blocks })).into_response()
 }
 
@@ -235,7 +201,7 @@ pub async fn create_user_block(
         expires_at: input.expires_at,
     };
     let _ = state
-        .stdb
+        .wdb
         .ingest_event(
             "payment",
             "upsert_user_block",
@@ -262,7 +228,7 @@ pub async fn clear_user_block(
         return json_error(StatusCode::FORBIDDEN, "Admin access required");
     }
     let _ = state
-        .stdb
+        .wdb
         .ingest_event(
             "payment",
             "delete_user_block",

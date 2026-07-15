@@ -23,6 +23,7 @@ use crate::state::AppState;
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
+#[allow(dead_code)]
 struct AuthToken(String);
 
 // ---------------------------------------------------------------------------
@@ -31,18 +32,28 @@ struct AuthToken(String);
 
 /// Info about a connected socket's user identity.
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct ConnectedUser {
     pub stable_id: String,
     pub db_user_id: Option<i64>,
     pub username: String,
     pub color: String,
+    /// Unix microseconds of the last activity (connect, message, or
+    /// periodic heartbeat). The periodic sweep uses this to remove
+    /// entries that are stale (e.g. on_disconnect never fired because
+    /// the socket was lost without a clean close).
+    ///
+    /// WABI_AUDIT_REPORT.md finding #3.
+    pub last_seen_micros: i64,
 }
 
 /// socket_id → ConnectedUser for all live sockets.
+#[allow(dead_code)]
 pub type ConnectedUsers = Arc<RwLock<HashMap<String, ConnectedUser>>>;
 
 /// A participant currently in a voice channel.
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct VoiceParticipant {
     pub socket_id: String,
     pub stable_id: String,
@@ -50,13 +61,20 @@ pub struct VoiceParticipant {
     #[allow(dead_code)]
     pub color: String,
     pub is_deafened: bool,
+    pub transmit_mode: String,
+    /// True for participants that only listen to a voice channel (multi-listen
+    /// / TeamSpeak-style) without transmitting. A socket can be `primary` in one
+    /// channel and `listening` in several others.
+    pub is_listening_only: bool,
 }
 
 /// channel_id → Vec<VoiceParticipant>.
+#[allow(dead_code)]
 pub type VoiceChannels = Arc<RwLock<HashMap<String, Vec<VoiceParticipant>>>>;
 
 /// State for an active group/DM-group call.
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct GroupCallSession {
     #[allow(dead_code)]
     pub channel_id: String,
@@ -70,9 +88,11 @@ pub struct GroupCallSession {
 }
 
 /// channel_id → GroupCallSession.
+#[allow(dead_code)]
 pub type GroupCallSessions = Arc<RwLock<HashMap<String, GroupCallSession>>>;
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct SioState {
     pub app: Arc<AppState>,
     pub connected_users: ConnectedUsers,
@@ -80,10 +100,87 @@ pub struct SioState {
     pub group_call_sessions: GroupCallSessions,
 }
 
+/// Periodic sweep of stale Socket.IO state. Safety net for on_disconnect
+/// failures (network errors, panics, missed events). Run every 60s from
+/// the server's startup task.
+///
+/// WABI_AUDIT_REPORT.md findings #3 (connected_users), #4 (group call
+/// sessions), #5 (voice channels).
+///
+/// Removes:
+/// - voice_channels entries with no participants (channel went empty
+///   but on_disconnect didn't catch it).
+/// - group_call_sessions entries with empty `connected_participants`.
+/// - connected_users entries whose `last_seen_micros` is older than
+///   `CONNECTED_USER_STALE_AFTER_MICROS` (5 min). Catches the case
+///   where a socket is lost without a clean close, so on_disconnect
+///   never fires and the entry sits in the map forever.
+#[allow(dead_code)]
+pub async fn sweep_stale_state(
+    connected_users: &ConnectedUsers,
+    voice_channels: &VoiceChannels,
+    group_call_sessions: &GroupCallSessions,
+) -> (usize, usize, usize) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_micros() as i64)
+        .unwrap_or(0);
+
+    // HashMap::retain returns (), so we count before/after.
+    let users_removed = {
+        let mut users = connected_users.write().await;
+        let before = users.len();
+        users.retain(|_, u| now - u.last_seen_micros < CONNECTED_USER_STALE_AFTER_MICROS);
+        before - users.len()
+    };
+    let voice_removed = {
+        let mut voice = voice_channels.write().await;
+        let before = voice.len();
+        voice.retain(|_, members| !members.is_empty());
+        before - voice.len()
+    };
+    let groups_removed = {
+        let mut groups = group_call_sessions.write().await;
+        let before = groups.len();
+        groups.retain(|_, session| !session.connected_participants.is_empty());
+        before - groups.len()
+    };
+    (users_removed, voice_removed, groups_removed)
+}
+
+/// A connected_user with `last_seen_micros` older than this is considered
+/// stale and removed by `sweep_stale_state`. 5 minutes.
+#[allow(dead_code)]
+pub const CONNECTED_USER_STALE_AFTER_MICROS: i64 = 5 * 60 * 1_000_000;
+
+/// Spawn the periodic sweep task. Call from server startup.
+/// The JoinHandle is returned so shutdown can cancel the loop.
+#[allow(dead_code)]
+pub fn spawn_sweep_loop(state: SioState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        // Skip the first immediate tick — on_disconnect handles startup cleanly.
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            let (u, v, g) = sweep_stale_state(
+                &state.connected_users,
+                &state.voice_channels,
+                &state.group_call_sessions,
+            )
+            .await;
+            if u > 0 || v > 0 || g > 0 {
+                tracing::info!("[sweep] removed {} stale connected users, {} empty voice channels, {} empty group call sessions", u, v, g);
+            }
+        }
+    })
+}
+
 // ---------------------------------------------------------------------------
 // JWT helpers
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 fn username_from_token(token: &str, secret: &str) -> Option<String> {
     use jsonwebtoken::{decode, DecodingKey, Validation};
     #[derive(Deserialize)]
@@ -97,6 +194,7 @@ fn username_from_token(token: &str, secret: &str) -> Option<String> {
     decode::<C>(token, &key, &v).ok().map(|d| d.claims.username)
 }
 
+#[allow(dead_code)]
 fn user_id_from_token(token: &str, secret: &str) -> Option<i64> {
     use jsonwebtoken::{decode, DecodingKey, Validation};
     #[derive(Deserialize)]
@@ -116,6 +214,7 @@ fn user_id_from_token(token: &str, secret: &str) -> Option<i64> {
 // Protocol mapping helpers
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 fn row_to_channel_view(row: &HashMap<String, Value>) -> Value {
     json!({
         "id":        row.get("channel_id").or_else(|| row.get("id")).and_then(|v| v.as_str()).unwrap_or(""),
@@ -130,6 +229,7 @@ fn row_to_channel_view(row: &HashMap<String, Value>) -> Value {
     })
 }
 
+#[allow(dead_code)]
 fn highest_role(db_id: Option<i64>, owner_id: Option<i64>) -> &'static str {
     if owner_id.is_some() && db_id == owner_id {
         "owner"
@@ -141,6 +241,7 @@ fn highest_role(db_id: Option<i64>, owner_id: Option<i64>) -> &'static str {
 }
 
 /// Used for serverMembers snapshot — all registered users, status unset (offline by default).
+#[allow(dead_code)]
 fn row_to_user_view(row: &HashMap<String, Value>, owner_id: Option<i64>) -> Value {
     let db_id = row.get("user_id").and_then(|v| v.as_i64());
     let stable_id = db_id
@@ -159,6 +260,7 @@ fn row_to_user_view(row: &HashMap<String, Value>, owner_id: Option<i64>) -> Valu
     })
 }
 
+#[allow(dead_code)]
 fn connected_user_to_view(user: &ConnectedUser, owner_id: Option<i64>) -> Value {
     let role = highest_role(user.db_user_id, owner_id);
     json!({
@@ -172,36 +274,19 @@ fn connected_user_to_view(user: &ConnectedUser, owner_id: Option<i64>) -> Value 
     })
 }
 
+#[allow(dead_code)]
 fn voice_participant_to_view(p: &VoiceParticipant) -> Value {
     json!({
         "userId":     p.stable_id,
         "socketId":   p.socket_id,
         "username":   p.username,
         "isDeafened": p.is_deafened,
+        "transmitMode": p.transmit_mode,
+        "isListeningOnly": p.is_listening_only,
     })
 }
 
-fn retention_to_ms(duration: &str) -> Option<u64> {
-    match duration {
-        "5s"  => Some(5_000),
-        "30s" => Some(30_000),
-        "1m"  => Some(60_000),
-        "5m"  => Some(300_000),
-        "15m" => Some(900_000),
-        "30m" => Some(1_800_000),
-        "1h"  => Some(3_600_000),
-        "6h"  => Some(21_600_000),
-        "12h" => Some(43_200_000),
-        "24h" => Some(86_400_000),
-        "3d"  => Some(259_200_000),
-        "7d"  => Some(604_800_000),
-        "14d" => Some(1_209_600_000),
-        "30d" => Some(2_592_000_000),
-        "90d" => Some(7_776_000_000),
-        _     => None,
-    }
-}
-
+#[allow(dead_code)]
 fn row_to_message_view(row: &HashMap<String, Value>) -> Value {
     let sender_id = row
         .get("sender_id")
@@ -225,6 +310,7 @@ fn row_to_message_view(row: &HashMap<String, Value>) -> Value {
     })
 }
 
+#[allow(dead_code)]
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -232,6 +318,7 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+#[allow(dead_code)]
 fn new_message_id(channel_id: &str, username: &str) -> String {
     let rand: u32 = rand::random();
     format!("msg:{}:{}:{}:{:x}", username, channel_id, now_ms(), rand)
@@ -241,6 +328,7 @@ fn new_message_id(channel_id: &str, username: &str) -> String {
 // Call helpers
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 fn get_my_stable_id(socket: &SocketRef, jwt_secret: &str) -> String {
     let token = socket
         .extensions
@@ -255,8 +343,170 @@ fn get_my_stable_id(socket: &SocketRef, jwt_secret: &str) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn is_stable_connected(connected: &HashMap<String, ConnectedUser>, stable_id: &str) -> bool {
     connected.values().any(|u| u.stable_id == stable_id)
+}
+
+#[cfg(test)]
+mod tests {
+    //! WABI_AUDIT_REPORT.md findings #3, #4, #5 — periodic sweep tests.
+    //!
+    //! The sweep runs in a 60s loop at server startup. These tests assert
+    //! the sweep logic itself: empty channels and empty group call
+    //! sessions are removed, non-empty ones survive.
+
+    use super::*;
+    use std::collections::HashSet;
+
+    fn test_voice_channels() -> VoiceChannels {
+        Arc::new(RwLock::new(HashMap::new()))
+    }
+
+    fn test_group_sessions() -> GroupCallSessions {
+        Arc::new(RwLock::new(HashMap::new()))
+    }
+
+    fn test_connected_users() -> ConnectedUsers {
+        Arc::new(RwLock::new(HashMap::new()))
+    }
+
+    fn make_user(stable_id: &str, last_seen_micros: i64) -> ConnectedUser {
+        ConnectedUser {
+            stable_id: stable_id.to_string(),
+            db_user_id: None,
+            username: stable_id.to_string(),
+            color: "#fff".to_string(),
+            last_seen_micros,
+        }
+    }
+
+    #[tokio::test]
+    async fn sweep_removes_empty_voice_channels() {
+        let voice = test_voice_channels();
+        // Empty channel — should be removed
+        voice.write().await.insert("ch-empty".to_string(), vec![]);
+        // Non-empty channel — should survive
+        voice.write().await.insert(
+            "ch-active".to_string(),
+            vec![VoiceParticipant {
+                socket_id: "s1".to_string(),
+                stable_id: "user-1".to_string(),
+                username: "alice".to_string(),
+                color: "#fff".to_string(),
+                is_deafened: false,
+                transmit_mode: "primary".to_string(),
+                is_listening_only: false,
+            }],
+        );
+        assert_eq!(voice.read().await.len(), 2);
+
+        let groups = test_group_sessions();
+        let users = test_connected_users();
+        let (u_removed, v_removed, g_removed) =
+            sweep_stale_state(&users, &voice, &groups).await;
+
+        assert_eq!(u_removed, 0);
+        assert_eq!(v_removed, 1);
+        assert_eq!(g_removed, 0);
+        let after = voice.read().await;
+        assert_eq!(after.len(), 1);
+        assert!(after.contains_key("ch-active"));
+        assert!(!after.contains_key("ch-empty"));
+    }
+
+    #[tokio::test]
+    async fn sweep_removes_empty_group_call_sessions() {
+        let groups = test_group_sessions();
+        // Session with no connected participants — should be removed
+        let mut invited = HashSet::new();
+        invited.insert("user-1".to_string());
+        groups.write().await.insert(
+            "ch-dead".to_string(),
+            GroupCallSession {
+                channel_id: "ch-dead".to_string(),
+                channel_name: "dead call".to_string(),
+                initiator_stable_id: "user-1".to_string(),
+                is_video_call: false,
+                has_ever_established: false,
+                last_invite_sender_id: "user-1".to_string(),
+                invited_participants: invited,
+                connected_participants: HashSet::new(),
+            },
+        );
+        // Active session — should survive
+        let mut connected = HashSet::new();
+        connected.insert("user-2".to_string());
+        groups.write().await.insert(
+            "ch-active".to_string(),
+            GroupCallSession {
+                channel_id: "ch-active".to_string(),
+                channel_name: "active call".to_string(),
+                initiator_stable_id: "user-2".to_string(),
+                is_video_call: false,
+                has_ever_established: true,
+                last_invite_sender_id: "user-2".to_string(),
+                invited_participants: connected.clone(),
+                connected_participants: connected,
+            },
+        );
+
+        let voice = test_voice_channels();
+        let users = test_connected_users();
+        let (u_removed, v_removed, g_removed) =
+            sweep_stale_state(&users, &voice, &groups).await;
+
+        assert_eq!(u_removed, 0);
+        assert_eq!(v_removed, 0);
+        assert_eq!(g_removed, 1);
+        let after = groups.read().await;
+        assert_eq!(after.len(), 1);
+        assert!(after.contains_key("ch-active"));
+        assert!(!after.contains_key("ch-dead"));
+    }
+
+    #[tokio::test]
+    async fn sweep_empty_state_returns_zero_zero() {
+        let voice = test_voice_channels();
+        let groups = test_group_sessions();
+        let users = test_connected_users();
+        let (u, v, g) = sweep_stale_state(&users, &voice, &groups).await;
+        assert_eq!((u, v, g), (0, 0, 0));
+    }
+
+    #[tokio::test]
+    async fn sweep_removes_stale_connected_users_keeps_fresh() {
+        let users = test_connected_users();
+        // Stale: 10 minutes ago
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_micros() as i64)
+            .unwrap_or(0);
+        let stale = now - 10 * 60 * 1_000_000;
+        let fresh = now;
+        users.write().await.insert(
+            "sock-stale".to_string(),
+            make_user("user-stale", stale),
+        );
+        users.write().await.insert(
+            "sock-fresh".to_string(),
+            make_user("user-fresh", fresh),
+        );
+        assert_eq!(users.read().await.len(), 2);
+
+        let voice = test_voice_channels();
+        let groups = test_group_sessions();
+        let (u_removed, v_removed, g_removed) =
+            sweep_stale_state(&users, &voice, &groups).await;
+
+        assert_eq!(u_removed, 1);
+        assert_eq!(v_removed, 0);
+        assert_eq!(g_removed, 0);
+        let after = users.read().await;
+        assert_eq!(after.len(), 1);
+        assert!(after.contains_key("sock-fresh"));
+        assert!(!after.contains_key("sock-stale"));
+    }
 }
 
 // ---------------------------------------------------------------------------

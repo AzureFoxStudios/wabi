@@ -39,7 +39,7 @@
 		right: 0;
 		height: 3px;
 		background: rgba(var(--accent-primary-rgb, 99, 102, 241), 0.15);
-		z-index: 9999;
+		z-index: var(--z-lightbox, 2000);
 	}
 
 	.sync-fill {
@@ -61,7 +61,7 @@
 		border-radius: 4px;
 		display: flex;
 		gap: 8px;
-		z-index: 9999;
+		z-index: var(--z-lightbox, 2000);
 	}
 
 	.sync-count {

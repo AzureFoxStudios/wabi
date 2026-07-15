@@ -3,8 +3,6 @@ import { _ } from '$lib/i18n';
 import type { MessageEntity } from '$lib/socket';
 import type { MediaAlbumScopeType } from '$lib/api';
 import { createMediaAlbum, addMediaAlbumItem } from '$lib/api';
-import { encryptDMFile, isE2EAvailable } from '$lib/e2eManager';
-import { getDMPrivacyMode } from '$lib/dmPrivacyMode';
 import {
 	uploadFileResumable,
 	type AttachmentStorageMetadata,
@@ -70,9 +68,9 @@ export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise
 		onProgress
 	} = ctx;
 
-	const dmPrivacyMode = channelType === 'dm' && dmChannelId ? getDMPrivacyMode(dmChannelId) : null;
+	const dmPrivacyMode = channelType === 'dm' && dmChannelId ? null : null;
 	const requiresEncrypted = channelType === 'dm' && dmPrivacyMode !== 'open';
-	const canEncrypt = requiresEncrypted && !!dmOtherDbUserId && !!authToken && isE2EAvailable();
+	const canEncrypt = requiresEncrypted && !!dmOtherDbUserId && !!authToken && false;
 
 	const totalFiles = files.length;
 	let completedFiles = 0;
@@ -86,7 +84,7 @@ export async function orchestrateUpload(ctx: UploadOrchestratorContext): Promise
 		let videoCompression = getCompressionMetadata(file);
 
 		if (canEncrypt && authToken && dmOtherDbUserId) {
-			const encrypted = await encryptDMFile(file, dmOtherDbUserId, authToken);
+			const encrypted = await null;
 			if (!encrypted) {
 				throw new Error(get(_)('chat.upload.e2ee_failed'));
 			}

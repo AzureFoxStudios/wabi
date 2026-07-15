@@ -72,10 +72,10 @@ You asked me to reassess this. Let me be objective:
 
 | Database | Pros | Cons | Best For |
 |----------|------|------|----------|
-| **PostgreSQL** | Mature, flexible, huge ecosystem | No built-in real-time (need triggers/websockets) | Traditional apps |
-| **SQLite** | Simple, embedded, no server | No multi-user sync | Single-user apps |
+| **legacy SQL DB** | Mature, flexible, huge ecosystem | No built-in real-time (need triggers/websockets) | Traditional apps |
+| **legacy embedded DB** | Simple, embedded, no server | No multi-user sync | Single-user apps |
 | **Redis** | Fast, pub/sub for real-time | Not a primary database (need persistence layer) | Caching, queues |
-| **Supabase** | Postgres + real-time + auth | Hosted service (not self-hosted friendly) | Quick prototypes |
+| **Supabase** | legacy SQL DB + real-time + auth | Hosted service (not self-hosted friendly) | Quick prototypes |
 | **SpacetimeDB** | Real-time built-in, event sourcing | New, smaller community | Multi-user sync (games, chat) |
 
 ---
@@ -187,8 +187,8 @@ This shows the working pattern. I'll port it to Rust.
 
 4. **Tell me if you want to:**
    - A) Keep SpacetimeDB and finish integration (my recommendation)
-   - B) Switch to PostgreSQL/SQLite (more work, but more flexible)
-   - C) Hybrid (STDB for real-time, SQLite for persistence)
+   - B) Switch to legacy SQL stores (more work, but more flexible)
+   - C) Hybrid (STDB for real-time, legacy embedded DB for persistence)
 
 ---
 

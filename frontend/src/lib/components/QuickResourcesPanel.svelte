@@ -1,96 +1,45 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { channels, channelMessages, currentUser, sendMessage, users } from '$lib/socket';
-	import type { Channel, Message, User } from '$lib/socket-types';
-	import WorkspacePanelHost from './WorkspacePanelHost.svelte';
+	import { layoutStore } from '$lib/layoutStore';
+	import type { WorkspacePanelIcon as WorkspacePanelIconName } from '$lib/workspacePanels';
+	import WorkspacePanelIcon from './WorkspacePanelIcon.svelte';
 
 	export let parentHeight = 600;
 
-	type QuickMode = 'notes' | 'dm';
-
-	const QUICK_MIN_HEIGHT = 150;
-	const QUICK_DEFAULT_HEIGHT = 240;
+	const QUICK_MIN_HEIGHT = 132;
+	const QUICK_DEFAULT_HEIGHT = 200;
 	const QUICK_MAX_RATIO = 0.56;
 	const QUICK_COLLAPSED_BAR_HEIGHT = 44;
 	const QUICK_COLLAPSE_THRESHOLD = 118;
 
-	let quickMode: QuickMode = 'notes';
 	let quickPanelHeight = QUICK_DEFAULT_HEIGHT;
 	let quickPanelCollapsed = false;
-	let quickDmChannelId = '';
-	let quickMessage = '';
 	let isResizingQuick = false;
 	let quickResizeStartY = 0;
 	let quickResizeStartHeight = QUICK_DEFAULT_HEIGHT;
-	let quickMessagesElement: HTMLDivElement | null = null;
 
-	$: dmChannels = $channels.filter((ch) => ch.type === 'dm' || ch.type === 'group');
-	$: if (!quickDmChannelId && dmChannels.length > 0) {
-		quickDmChannelId = dmChannels[0].id;
-	}
-	$: if (quickDmChannelId && !dmChannels.some((ch) => ch.id === quickDmChannelId)) {
-		quickDmChannelId = dmChannels[0]?.id || '';
-	}
-	$: quickDmChannel = dmChannels.find((ch) => ch.id === quickDmChannelId) || null;
-	$: quickMessages = quickDmChannelId ? (($channelMessages[quickDmChannelId] || []) as Message[]) : [];
-	$: quickRecentMessages = quickMessages.slice(-40);
-	$: quickConversationTitle = quickDmChannel ? getDmLabel(quickDmChannel) : 'Quick DM';
+	type QuickLink = { id: string; label: string; icon: WorkspacePanelIconName; hint: string };
 
-	$: if (quickMessagesElement) {
-		quickMessagesElement.scrollTop = quickMessagesElement.scrollHeight;
+	// QuickResources is a lightweight launcher: it LINKS OUT to the dedicated
+	// workspace panels (Notes, Messages, People, …) instead of embedding a
+	// second editor for notes/DMs. One place for each surface keeps the mental
+	// model clean.
+	const quickLinks: QuickLink[] = [
+		{ id: 'notes', label: 'Notes', icon: 'notes', hint: 'Open your notes workspace' },
+		{ id: 'dms', label: 'Messages', icon: 'messages', hint: 'Jump to direct messages' },
+		{ id: 'users', label: 'People', icon: 'users', hint: 'See who is online' },
+		{ id: 'media', label: 'Media', icon: 'media', hint: 'Browse the media library' },
+		{ id: 'map', label: 'Map', icon: 'map', hint: 'Open the world map' },
+		{ id: 'transfers', label: 'Transfers', icon: 'transfers', hint: 'Active file transfers' }
+	];
+
+	function launch(id: string): void {
+		layoutStore.openRightPanel(id);
 	}
 
 	onDestroy(() => {
 		stopQuickResize();
 	});
-
-	function getOtherUser(channel: Channel): User | null {
-		if (channel.otherUser) return channel.otherUser;
-		const me = $currentUser;
-		if (!me) return null;
-		const myStableId = me.dbUserId ? `user-${me.dbUserId}` : me.id;
-		const otherStableId = (channel.members || []).find((id) => id !== myStableId);
-		if (!otherStableId) return null;
-		if (otherStableId.startsWith('user-')) {
-			const dbId = Number.parseInt(otherStableId.slice(5), 10);
-			return $users.find((u) => u.dbUserId === dbId) || null;
-		}
-		return $users.find((u) => u.id === otherStableId) || null;
-	}
-
-	function getDmLabel(channel: Channel): string {
-		if (channel.type === 'group') return channel.name || 'Group DM';
-		const other = getOtherUser(channel);
-		return other?.username || channel.name || 'Direct Message';
-	}
-
-	function getMessageText(message: Message): string {
-		if (message.type === 'text') return message.text;
-		if (message.type === 'gif') return '[GIF]';
-		if (message.type === 'file') return '[File]';
-		if (message.type === 'emoji') return '[Emoji]';
-		if (message.type === 'role_gate') return '[Role message]';
-		return '[Message]';
-	}
-
-	function formatTime(timestamp: number): string {
-		return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-	}
-
-	function handleQuickMessageKeydown(event: KeyboardEvent): void {
-		if (event.key === 'Enter' && !event.shiftKey) {
-			event.preventDefault();
-			sendQuickMessage();
-		}
-	}
-
-	function sendQuickMessage(): void {
-		if (!quickDmChannelId) return;
-		const trimmed = quickMessage.trim();
-		if (!trimmed) return;
-		sendMessage(quickDmChannelId, trimmed);
-		quickMessage = '';
-	}
 
 	function startQuickResize(event: MouseEvent): void {
 		event.preventDefault();
@@ -137,11 +86,21 @@
 >
 	{#if quickPanelCollapsed}
 		<div class="quick-collapsed-bar">
-			<div class="quick-mode-toggle" role="tablist" aria-label="Notes and quick DM">
-				<button type="button" class:active={quickMode === 'notes'} aria-pressed={quickMode === 'notes'} on:click={() => (quickMode = 'notes')}>Notes</button>
-				<button type="button" class:active={quickMode === 'dm'} aria-pressed={quickMode === 'dm'} on:click={() => (quickMode = 'dm')}>DM</button>
+			<span class="quick-kicker">Quick</span>
+			<div class="quick-launch quick-launch-collapsed">
+				{#each quickLinks as link}
+					<button
+						class="quick-link-icon-btn"
+						type="button"
+						title={link.hint}
+						aria-label={link.label}
+						on:click={() => launch(link.id)}
+					>
+						<WorkspacePanelIcon icon={link.icon} />
+					</button>
+				{/each}
 			</div>
-			<button class="quick-collapse-btn" type="button" title="Expand bottom panel" on:click={expandQuickPanel}>
+			<button class="quick-collapse-btn" type="button" title="Expand quick launcher" on:click={expandQuickPanel}>
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<polyline points="18 15 12 9 6 15"></polyline>
 				</svg>
@@ -158,25 +117,11 @@
 
 		<div class="quick-header">
 			<div class="quick-header-main">
-				<div class="quick-mode-toggle" role="tablist" aria-label="Notes and quick DM">
-					<button type="button" class:active={quickMode === 'notes'} aria-pressed={quickMode === 'notes'} on:click={() => (quickMode = 'notes')}>Notes</button>
-					<button type="button" class:active={quickMode === 'dm'} aria-pressed={quickMode === 'dm'} on:click={() => (quickMode = 'dm')}>DM</button>
-				</div>
-
-				{#if quickMode === 'dm'}
-					<select class="quick-dm-select" bind:value={quickDmChannelId}>
-						{#if dmChannels.length === 0}
-							<option value="">No DM threads</option>
-						{:else}
-							{#each dmChannels as channel}
-								<option value={channel.id}>{getDmLabel(channel)}</option>
-							{/each}
-						{/if}
-					</select>
-				{/if}
+				<span class="quick-kicker">Quick launch</span>
+				<span class="quick-sub">Jump to a workspace surface</span>
 			</div>
 
-			<button class="quick-collapse-btn" type="button" title="Collapse bottom panel" on:click={collapseQuickPanel}>
+			<button class="quick-collapse-btn" type="button" title="Collapse quick launcher" on:click={collapseQuickPanel}>
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<polyline points="6 9 12 15 18 9"></polyline>
 				</svg>
@@ -184,38 +129,14 @@
 		</div>
 
 		<div class="quick-body">
-			{#if quickMode === 'notes'}
-				<WorkspacePanelHost panel={{ id: 'notes', label: 'Notes', icon: 'notes', component: 'notes', defaultDock: 'bottom', mobileMode: 'sheet', source: 'core' }} />
-			{:else if !quickDmChannelId}
-				<div class="quick-empty">Open a DM or group thread to use quick replies here.</div>
-			{:else}
-				<div class="quick-dm-shell">
-					<div class="quick-dm-messages" bind:this={quickMessagesElement}>
-						{#if quickRecentMessages.length === 0}
-							<div class="quick-empty">No messages yet.</div>
-						{:else}
-							{#each quickRecentMessages as message}
-								<div class="quick-dm-message">
-									<div class="quick-dm-meta">
-										<span class="quick-dm-author">{message.user}</span>
-										<span class="quick-dm-time">{formatTime(message.timestamp)}</span>
-									</div>
-									<div class="quick-dm-text">{getMessageText(message)}</div>
-								</div>
-							{/each}
-						{/if}
-					</div>
-					<div class="quick-dm-compose">
-						<input
-							type="text"
-							bind:value={quickMessage}
-							on:keydown={handleQuickMessageKeydown}
-							placeholder={`Message ${quickConversationTitle}...`}
-						/>
-						<button class="quick-send-btn" type="button" on:click={sendQuickMessage}>Send</button>
-					</div>
-				</div>
-			{/if}
+			<div class="quick-launch">
+				{#each quickLinks as link}
+					<button class="quick-link" type="button" title={link.hint} on:click={() => launch(link.id)}>
+						<span class="quick-link-icon"><WorkspacePanelIcon icon={link.icon} /></span>
+						<span class="quick-link-label">{link.label}</span>
+					</button>
+				{/each}
+			</div>
 		</div>
 	{/if}
 </div>
@@ -250,7 +171,7 @@
 		display: flex;
 		align-items: center;
 		gap: 0.55rem;
-		padding: 0.55rem 0.65rem;
+		padding: 0.5rem 0.65rem;
 	}
 
 	.quick-header {
@@ -264,49 +185,28 @@
 
 	.quick-header-main {
 		display: flex;
-		align-items: center;
+		align-items: baseline;
 		gap: 0.55rem;
 		min-width: 0;
 		flex: 1;
 	}
 
-	.quick-mode-toggle {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.16rem;
-		border-radius: 999px;
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 86%, transparent);
-		background: color-mix(in srgb, var(--surface-base) 86%, transparent);
-	}
-
-	.quick-mode-toggle button {
-		height: 28px;
-		padding: 0 0.7rem;
-		border: none;
-		border-radius: 999px;
-		background: transparent;
-		color: var(--text-secondary);
-		font-size: 0.72rem;
+	.quick-kicker {
+		font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+		font-size: 0.68rem;
 		font-weight: 700;
-		cursor: pointer;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--accent-primary-color, var(--text-secondary));
+		white-space: nowrap;
 	}
 
-	.quick-mode-toggle button.active {
-		background: rgba(var(--accent-rgb), 0.18);
-		color: var(--text-heading);
-	}
-
-	.quick-dm-select {
-		flex: 1;
-		min-width: 0;
-		height: 32px;
-		border-radius: 8px;
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 84%, transparent);
-		background: color-mix(in srgb, var(--surface-raised) 90%, transparent);
-		color: var(--text-heading);
-		padding: 0 0.5rem;
-		font-size: 0.76rem;
-		font-weight: 650;
+	.quick-sub {
+		font-size: 0.72rem;
+		color: var(--text-muted);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.quick-collapse-btn {
@@ -321,6 +221,7 @@
 		background: transparent;
 		color: var(--text-secondary);
 		cursor: pointer;
+		transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 	}
 
 	.quick-collapse-btn:hover {
@@ -337,93 +238,96 @@
 	.quick-body {
 		flex: 1;
 		min-height: 0;
-		overflow: hidden;
-		border-top: 1px solid color-mix(in srgb, var(--border-subtle) 76%, transparent);
-	}
-
-	.quick-empty {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		height: 100%;
-		padding: 0.95rem;
-		color: var(--text-muted);
-		font-size: 0.8rem;
-		text-align: center;
-	}
-
-	.quick-dm-shell {
-		height: 100%;
-		display: flex;
-		flex-direction: column;
-		min-height: 0;
-	}
-
-	.quick-dm-messages {
-		flex: 1;
-		min-height: 0;
 		overflow-y: auto;
-		padding: 0.6rem;
-		display: flex;
-		flex-direction: column;
-		gap: 0.45rem;
-	}
-
-	.quick-dm-message {
-		padding: 0.45rem 0.55rem;
-		border-radius: 8px;
-		background: color-mix(in srgb, var(--surface-base) 78%, transparent);
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
-	}
-
-	.quick-dm-meta {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.5rem;
-		margin-bottom: 0.2rem;
-		font-size: 0.68rem;
-		color: var(--text-muted);
-	}
-
-	.quick-dm-author {
-		color: var(--text-heading);
-		font-weight: 750;
-	}
-
-	.quick-dm-text {
-		color: var(--text-secondary);
-		font-size: 0.78rem;
-		line-height: 1.35;
-		overflow-wrap: anywhere;
-	}
-
-	.quick-dm-compose {
-		display: flex;
-		gap: 0.45rem;
-		padding: 0.55rem;
 		border-top: 1px solid color-mix(in srgb, var(--border-subtle) 76%, transparent);
 	}
 
-	.quick-dm-compose input {
+	.quick-launch {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.45rem;
+		padding: 0.6rem 0.65rem;
+	}
+
+	.quick-launch-collapsed {
 		flex: 1;
 		min-width: 0;
-		height: 34px;
-		border-radius: 8px;
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
-		background: color-mix(in srgb, var(--surface-app) 90%, transparent);
-		color: var(--text-heading);
-		padding: 0 0.65rem;
+		justify-content: flex-start;
+		padding: 0;
 	}
 
-	.quick-send-btn {
-		height: 34px;
-		border: none;
-		border-radius: 8px;
-		background: var(--accent-primary);
-		color: white;
-		font-weight: 800;
-		padding: 0 0.7rem;
+	.quick-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+		padding: 0.5rem 0.7rem;
+		border-radius: 10px;
+		border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
+		background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+		color: var(--text-heading);
+		font-size: 0.78rem;
+		font-weight: 650;
 		cursor: pointer;
+		transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+	}
+
+	.quick-link:hover {
+		transform: translateY(-1px);
+		border-color: rgba(var(--accent-rgb), 0.45);
+		background: rgba(var(--accent-rgb), 0.1);
+	}
+
+	.quick-link:active {
+		transform: none;
+	}
+
+	.quick-link-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		color: var(--accent-primary-color);
+	}
+
+	.quick-link-icon :global(svg) {
+		width: 18px;
+		height: 18px;
+	}
+
+	.quick-link-icon-btn {
+		width: 34px;
+		height: 34px;
+		flex-shrink: 0;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 9px;
+		border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
+		background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+		color: var(--accent-primary-color);
+		cursor: pointer;
+		transition: border-color 120ms ease, background 120ms ease;
+	}
+
+	.quick-link-icon-btn:hover {
+		border-color: rgba(var(--accent-rgb), 0.45);
+		background: rgba(var(--accent-rgb), 0.12);
+	}
+
+	.quick-link-icon-btn :global(svg) {
+		width: 18px;
+		height: 18px;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.quick-link,
+		.quick-link-icon-btn,
+		.quick-collapse-btn {
+			transition: none;
+		}
+
+		.quick-link:hover,
+		.quick-collapse-btn:hover {
+			transform: none;
+		}
 	}
 </style>

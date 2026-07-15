@@ -176,6 +176,42 @@
 	</header>
 
 	<!-- Main Content Area -->
+	<!-- Control Strip: dashboard overview -->
+	<section class="business-control-strip" aria-label="Business status overview">
+		<article class="biz-control-card biz-control-card--hero">
+			<div class="biz-card-topline">
+				<span>LOCAL · BUSINESS HUB</span>
+				<span>WABI · OWNER SPACE</span>
+			</div>
+			<div class="biz-hero-metric">
+				<span class="biz-hero-number">{quickStats.todayCount}</span>
+				<span class="biz-hero-unit">due today</span>
+			</div>
+			<div class="biz-card-footerline">
+				<span>{quickStats.completedTasks}/{quickStats.totalTasks} tasks complete</span>
+				<span class="biz-status"><i class="biz-status-dot live"></i> local data</span>
+			</div>
+		</article>
+
+		<article class="biz-control-card">
+			<div class="biz-card-label">FOCUS</div>
+			<div class="biz-card-value">{activeView}</div>
+			<div class="biz-card-subtle">Current workspace mode</div>
+		</article>
+
+		<article class="biz-control-card">
+			<div class="biz-card-label">OVERDUE</div>
+			<div class="biz-card-value" class:warn={quickStats.overdueCount > 0}>{quickStats.overdueCount}</div>
+			<div class="biz-card-subtle">Items needing attention</div>
+		</article>
+
+		<article class="biz-control-card">
+			<div class="biz-card-label">PRIVACY</div>
+			<div class="biz-card-value">LOCAL</div>
+			<div class="biz-card-subtle">Private-by-default workspace</div>
+		</article>
+	</section>
+
 	<!-- Read-only banner for guests -->
 	{#if guestState.guestReadOnly}
 		<div class="read-only-banner">
