@@ -1,127 +1,53 @@
 /* ==========================================================================
    ML — REPLIES STYLES
-   Extracted from messagelist.css
+   Made to closely match standard Discord mobile/desktop reply bars.
    ========================================================================== */
 
+.reply-preview {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 2px;
+	padding: 1px 0 1px 8px;
+	font-size: 12px;
+	line-height: 1.15;
+	cursor: pointer;
+	opacity: 0.9;
+}
 
+.reply-preview:hover {
+	opacity: 1;
+}
 
-	.reply-preview {
-		display: flex;
-		gap: 0.5rem;
-		margin-bottom: 0.5rem;
-		padding: 0.5rem;
-		background: var(--surface-raised);
-		border-radius: 6px;
-		font-size: var(--text-base);
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
+.reply-line {
+	width: 2px;
+	height: 12px;
+	background: var(--accent-primary-color, var(--accent-primary));
+	border-radius: 999px;
+	flex-shrink: 0;
+	align-self: center;
+}
 
+.reply-content {
+	display: flex;
+	align-items: baseline;
+	gap: 5px;
+	min-width: 0;
+	flex: 1;
+}
 
-	.reply-preview:hover {
-		background: var(--accent-primary, #5865f2);
-		transform: translateX(4px);
-	}
+.reply-username {
+	font-weight: 600;
+	font-size: 12px;
+	white-space: nowrap;
+	color: inherit;
+}
 
-
-	.reply-preview:hover .reply-username,
-	.reply-preview:hover .reply-text {
-		color: var(--color-border);
-	}
-
-
-	.reply-line {
-		width: 3px;
-		background: var(--accent-primary);
-		border-radius: 2px;
-		flex-shrink: 0;
-	}
-
-
-	.reply-content {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-		min-width: 0;
-	}
-
-
-	.reply-username {
-		font-weight: 600;
-		font-size: var(--text-sm);
-	}
-
-
-	.reply-text {
-		color: var(--text-secondary);
-		font-size: var(--text-sm);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-
-	.edit-mode {
-		margin-top: 0.5rem;
-	}
-
-
-	.edit-textarea {
-		width: 100%;
-		padding: 0.75rem;
-		border: none;
-		border-radius: 6px;
-		font-family: inherit;
-		font-size: var(--text-base);
-		resize: vertical;
-		min-height: 60px;
-	}
-
-
-	.edit-textarea:focus {
-		outline: none;
-		border-color: var(--accent-primary);
-	}
-
-
-	.edit-actions {
-		display: flex;
-		gap: 0.5rem;
-		margin-top: 0.5rem;
-		justify-content: flex-end;
-	}
-
-
-	.edit-cancel,
-	.edit-save {
-		padding: 0.5rem 1rem;
-		border-radius: 6px;
-		font-size: var(--text-base);
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-
-	.edit-cancel {
-		background: white;
-		border: none;
-		color: var(--text-heading);
-	}
-
-
-	.edit-cancel:hover {
-		background: var(--surface-raised);
-	}
-
-
-	.edit-save {
-		background: var(--accent-primary);
-		border: none;
-		color: white;
-	}
-
-
-	.edit-save:hover {
-		opacity: 0.9;
-	}
+.reply-text {
+	color: var(--text-muted, var(--text-secondary));
+	font-size: 12px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	max-width: 100%;
+}

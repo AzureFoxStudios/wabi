@@ -3,13 +3,14 @@ members = [
   "crates/wabi-core",
   "core/crates/wabi-server",
   "core/crates/wabi-tui",
+  "core/crates/wabidb",
   "core/addons/webhooks/backend",
   "core/addons/mesh/backend",
+  "core/addons/lore/backend",
 ]
 exclude = [
   "src-tauri",
   "frontend/src-tauri",
-  "spacetimedb/wabi_state_bridge"
 ]
 resolver = "2"
 
@@ -18,3 +19,6 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 rust-version = "1.88"
+
+[workspace.dependencies]
+wabi-mesh = { path = "core/addons/mesh/backend", optional = false }

@@ -3,10 +3,14 @@
 	import { fly } from 'svelte/transition';
 	import { layoutStore } from '$lib/layoutStore';
 	import { get } from 'svelte/store';
+	import { centerPanelView, dmOtherUser } from '$lib/layoutStoreStates';
 	import Chat from '$lib/components/Chat.svelte';
+import DmConversationView from '$lib/components/DmConversationView.svelte';
+import DmHub from '$lib/components/DmHub.svelte';
 	import ModelViewportTab from '$lib/components/ModelViewportTab.svelte';
 	import ReaderTab from '$lib/components/ReaderTab.svelte';
 	import MapWorkspace from '$lib/components/MapWorkspace.svelte';
+	import MediaAlbumsTab from '$lib/components/MediaAlbumsTab.svelte';
 	import GalleryChannel from '$lib/components/GalleryChannel.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
 	import FloatingPanelHost from '$lib/components/windowing/FloatingPanelHost.svelte';
@@ -21,12 +25,15 @@
 	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, isVideoOff, toggleVideo } from '$lib/calling';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { onDestroy, onMount } from 'svelte';
-	import { _ } from '$lib/i18n';
-	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
+import { _ } from '$lib/i18n';
+import AdminCenterStage from '$lib/components/AdminCenterStage.svelte';
+import '$lib/../styles/components/admin-center-stage.css';
+import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { playNotificationSound } from '$lib/notifications';
 	import { MAP_ADDON_ID } from '$lib/mapWorkspace';
 	import { MODEL_VIEWPORT_ADDON_ID } from '$lib/modelViewportTab';
 	import { READER_ADDON_ID } from '$lib/readerWorkspace';
+	import { MEDIA_ALBUMS_ADDON_ID } from '$lib/mediaAlbumsWorkspace';
 	import {
 		getServerScopedUserKey,
 		getTrackedPersonKeyForUser,
@@ -36,9 +43,9 @@
 	import { getServerUrl } from '$lib/serverUrl';
 	import { openWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
 	import { savedServerRailItems } from '$lib/savedServers';
-	import { startGameScreenshotPipe } from '$lib/gameScreenshotPipe';
+	import { activeTransfers, incomingFileOffers } from '$lib/p2pFileTransfer';
 
-	export let activeView: 'chat' | 'screen' | 'following' = 'chat';
+	export let activeView: 'chat' | 'screen' | 'following' | 'dm' = 'chat';
 	export let accountSecurityOpenRequest = 0;
 	let showSettings = false;
 	let requestedSettingsPaymentSurface: 'connections' | null = null;
@@ -46,9 +53,11 @@
 	let lastHandledAccountSecurityOpenRequest = 0;
 
 	$: mobileRightVisible = $layoutStore.isMobile && $layoutStore.rightPanelView !== 'none';
-	$: totalUnreadDMs = Object.entries($channelUnreadCounts)
-		.filter(([channelId, count]) => channelId.startsWith('dm-') && count > 0)
-		.reduce((sum, [, count]) => sum + count, 0);
+	$: totalUnreadDMs = 0; // DM-strip: was Object.entries($channelUnreadCounts) for DM channels. Stubbed to 0.
+
+	$: transferBadgeCount = $incomingFileOffers.length + $activeTransfers.filter(
+		(t) => t.status !== 'complete' && t.status !== 'cancelled' && t.status !== 'failed'
+	).length;
 
 	let resizingChannel = false;
 	let resizingRight = false;
@@ -76,14 +85,16 @@
 	let friendPresenceObserverReady = false;
 	let friendPresenceObserverServerUrl = '';
 	let unsubscribeFriendPresence: (() => void) | null = null;
-	let stopGameScreenshotPipe: (() => void) | null = null;
+	
 	const { activeTabId } = mobileTabQueue;
 	const MODEL_VIEWPORT_TAB_TOKEN = mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_ADDON_ID);
 	const READER_TAB_TOKEN = mobileTabQueue.toAddonTabId(READER_ADDON_ID);
 	const MAP_TAB_TOKEN = mobileTabQueue.toAddonTabId(MAP_ADDON_ID);
+	const MEDIA_ALBUMS_TAB_TOKEN = mobileTabQueue.toAddonTabId(MEDIA_ALBUMS_ADDON_ID);
 	$: isModelViewportTabActive = $activeTabId === MODEL_VIEWPORT_TAB_TOKEN;
 	$: isReaderTabActive = $activeTabId === READER_TAB_TOKEN;
 	$: isMapTabActive = $activeTabId === MAP_TAB_TOKEN;
+	$: isMediaAlbumsTabActive = $activeTabId === MEDIA_ALBUMS_TAB_TOKEN;
 	const MOBILE_EDGE_SWIPE_MIN_X_PX = 56;
 	const MOBILE_EDGE_SWIPE_MAX_Y_PX = 72;
 	const MOBILE_EDGE_SWIPE_MAX_MS = 700;
@@ -139,6 +150,11 @@
 			id: MAP_ADDON_ID,
 			label: 'Maps',
 			shortLabel: 'Map'
+		});
+		mobileTabQueue.registerAddonTab({
+			id: MEDIA_ALBUMS_ADDON_ID,
+			label: 'Media Albums',
+			shortLabel: 'Albums'
 		});
 
 		unsubscribeFriendPresence = users.subscribe((nextUsers) => {
@@ -197,13 +213,13 @@
 			friendPresenceByKey = nextSnapshot;
 			friendPresenceObserverReady = true;
 		});
-		stopGameScreenshotPipe = startGameScreenshotPipe();
 	});
 
 	onDestroy(() => {
 		mobileTabQueue.unregisterAddonTab(MODEL_VIEWPORT_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(READER_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(MAP_ADDON_ID);
+		mobileTabQueue.unregisterAddonTab(MEDIA_ALBUMS_ADDON_ID);
 		if (mobileNavIdleTimer) {
 			clearTimeout(mobileNavIdleTimer);
 			mobileNavIdleTimer = null;
@@ -211,10 +227,6 @@
 		if (unsubscribeFriendPresence) {
 			unsubscribeFriendPresence();
 			unsubscribeFriendPresence = null;
-		}
-		if (stopGameScreenshotPipe) {
-			stopGameScreenshotPipe();
-			stopGameScreenshotPipe = null;
 		}
 	});
 
@@ -685,6 +697,9 @@
 
 <AuthErrorBanner />
 
+{#if $centerPanelView === 'admin'}
+	<AdminCenterStage />
+{:else}
 {#if $layoutStore.isMobile && !$layoutStore.isInCall}
 	{#if !mobileNavVisible}
 		<button
@@ -851,8 +866,28 @@
 					<ModelViewportTab />
 				{:else if isReaderTabActive}
 					<ReaderTab />
+				{:else if isMediaAlbumsTabActive}
+					<MediaAlbumsTab variant="full" />
 				{:else if isMapTabActive}
 					<MapWorkspace variant="full" />
+				{:else if $layoutStore.centerDmChannelId || activeView === 'dm'}
+					<div class="center-dm-layout">
+						<div class="center-dm-list">
+							<DmHub />
+						</div>
+						<div class="center-dm-thread">
+							{#if $layoutStore.centerDmChannelId}
+								<DmConversationView context="center" channelIdProp={$layoutStore.centerDmChannelId} otherUserProp={$dmOtherUser} />
+							{:else}
+								<div class="center-dm-empty">
+									<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+										<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+									</svg>
+									<span>Select a conversation</span>
+								</div>
+							{/if}
+						</div>
+					</div>
 				{:else if activeView === 'following'}
 					<FollowingFeed on:openChannel={() => (activeView = 'chat')} />
 				{:else if isGalleryChannel}
@@ -875,11 +910,8 @@
 			class="right-reopen-rail"
 			class:dock-right={$layoutStore.navDock === 'right'}
 			style:right={$layoutStore.navDock === 'right'
-				? `${desktopServerRailOffset + $layoutStore.channelSidebarWidth}px`
-				: '0px'}
-			style:left={$layoutStore.navDock !== 'right'
-				? null
-				: null}
+			    ? `${desktopServerRailOffset + $layoutStore.channelSidebarWidth}px`
+			    : '0px'}
 			on:click={layoutStore.expandRight}
 			on:mousedown|preventDefault={startRightResizeFromClosed}
 			title="Open right panel"
@@ -899,8 +931,8 @@
 	{#if !$layoutStore.isMobile && $layoutStore.channelSidebarWidth === 0}
 		<button
 			class="user-panel-toggle"
-			class:has-unread={totalUnreadDMs > 0}
-			data-unread={totalUnreadDMs > 99 ? '99+' : totalUnreadDMs}
+			
+			
 			style:right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'
 			? `${desktopServerRailOffset + $layoutStore.rightPanelWidth}px`
 			: '0px'}
@@ -915,6 +947,25 @@
 
 	<!-- Floating sub-window layer inside the app webview. This is the Odysseus-style panel system for Tauri/browser. -->
 	<FloatingPanelHost />
+
+	<!-- Transfer Center tray button (floating top-right; hidden when any right panel is open) -->
+	{#if !$layoutStore.isMobile && $layoutStore.rightPanelView === 'none'}
+		<button
+			type="button"
+			class="transfer-tray-btn"
+			class:has-active={transferBadgeCount > 0}
+			data-badge={transferBadgeCount > 99 ? '99+' : transferBadgeCount > 0 ? transferBadgeCount : ''}
+			on:click={() => layoutStore.openRightPanel('transfers')}
+			title="Open transfers"
+			aria-label="Open transfer center"
+		>
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+				<polyline points="7 10 12 15 17 10"></polyline>
+				<line x1="12" y1="15" x2="12" y2="3"></line>
+			</svg>
+		</button>
+	{/if}
 
 	{#if $layoutStore.isMobile && $callMode === 'channel' && $activeVoiceChannel}
 		<div class="voice-channel-strip" role="status" aria-live="polite" transition:fly={{ y: 20, duration: 220 }}>
@@ -978,6 +1029,7 @@
 		</div>
 	{/if}
 
+
 </div>
 
 {#if showSettings}
@@ -988,4 +1040,53 @@
 		on:logout
 	/>
 {/if}
+{/if}
+
+<style>
+	.center-dm-layout {
+		display: grid;
+		grid-template-columns: 300px minmax(0, 1fr);
+		height: 100%;
+		min-height: 0;
+		overflow: hidden;
+	}
+
+	.center-dm-list {
+		min-width: 0;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		border-right: 1px solid var(--color-border-primary, #302b63);
+	}
+
+	.center-dm-thread {
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+	}
+
+	.center-dm-empty {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		color: var(--text-muted, #9999ff);
+		font-size: 0.95rem;
+	}
+
+	@media (max-width: 768px) {
+		.center-dm-layout {
+			grid-template-columns: 1fr;
+		}
+		.center-dm-list {
+			display: none;
+		}
+		.center-dm-layout:not(:has(.center-dm-thread .dm-conversation)) .center-dm-list {
+			display: flex;
+		}
+	}
+</style>
 

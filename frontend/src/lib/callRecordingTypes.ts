@@ -29,6 +29,11 @@ export interface CallRecordingState {
 	savedFileCount: number;
 	saveTarget: 'browser' | 'desktop' | null;
 	lastError: string | null;
+	// Optional Lore auto-upload to the "Recordings" Asset Storage channel.
+	// 'none' = not attempted (Lore addon absent or no recording to upload).
+	loreUploadStatus: 'none' | 'uploading' | 'done' | 'error' | 'no-channel';
+	loreUploadError: string | null;
+	loreUploadedPath: string | null;
 }
 
 export interface CallRecordingSnapshot {
@@ -64,6 +69,8 @@ export interface RecordingArtifactExport {
 	fileName: string;
 	savedPath: string | null;
 	saveTarget: 'browser' | 'desktop';
+	// The recorded blob, retained so callers can forward it (e.g. Lore upload).
+	blob?: Blob;
 }
 
 export interface RecordingExportResult {
@@ -71,6 +78,8 @@ export interface RecordingExportResult {
 	savedPaths: string[];
 	savedFileCount: number;
 	saveTarget: 'browser' | 'desktop';
+	// The main ("mixed") recording blob, if available for forwarding.
+	mainBlob: Blob | null;
 }
 
 export interface RecordingAudioInput {
@@ -121,7 +130,10 @@ export const INITIAL_STATE: CallRecordingState = {
 	savedPaths: [],
 	savedFileCount: 0,
 	saveTarget: null,
-	lastError: null
+	lastError: null,
+	loreUploadStatus: 'none',
+	loreUploadError: null,
+	loreUploadedPath: null
 };
 
 export const PRESETS: Record<CallRecordingPreset, CallRecordingPresetConfig> = {

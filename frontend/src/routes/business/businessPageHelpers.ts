@@ -2,6 +2,7 @@ import { browser } from '$app/environment';
 import { getAuthToken } from '$lib/authSession';
 import { getBusinessDataSnapshot, applyBusinessDataSnapshot } from '$lib/business/snapshot';
 import { sanitizeBusinessData } from '$lib/business/validation';
+import { grantLocalMockGuestAccess, isLocalMockApiMode } from '$lib/localMockApi';
 import { joinChannel } from '$lib/socket';
 
 export type MainView = 'calendar' | 'journal' | 'projects' | 'kanban';
@@ -27,6 +28,10 @@ export function initGuestAccess(): GuestAccessState {
 	}
 	const authToken = getAuthToken();
 	const isGuest = !authToken;
+	if (isGuest && isLocalMockApiMode()) {
+		grantLocalMockGuestAccess();
+		return { isGuest: true, hasGuestAccess: true, showGuestPrompt: false, guestReadOnly: false };
+	}
 	if (!isGuest) {
 		return { isGuest: false, hasGuestAccess: false, showGuestPrompt: false, guestReadOnly: false };
 	}

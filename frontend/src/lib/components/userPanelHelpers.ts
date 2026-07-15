@@ -7,10 +7,12 @@ export function isCurrentUserEntry(user: User, currentUser: User | null): boolea
 	return false;
 }
 
-export function formatBadge(count: number): string {
-	if (count === 0) return '';
-	if (count <= 10) return `+${count}`;
-	return '•';
+// DM helpers removed in 2026-06-16 DM-strip pass. Stubs retained so
+// existing import sites keep compiling. Each is a no-op that returns
+// a value safe for the previous call sites (empty string, 0, null).
+
+export function formatBadgeStub(_count: number): string {
+	return '';
 }
 
 export function getStatusColor(status: string): string {
@@ -26,20 +28,17 @@ export function getStatusColor(status: string): string {
 	}
 }
 
-export function computeTotalUnreadDMs(channelUnreadCounts: Record<string, number>): number {
-	return Object.entries(channelUnreadCounts)
-		.filter(([channelId]) => channelId.startsWith('dm-'))
-		.reduce((sum, [, count]) => sum + count, 0);
+export function computeTotalUnreadDMsStub(_channelUnreadCounts: Record<string, number>): number {
+	return 0;
 }
 
-export function getUserUnreadCount(
-	user: User,
+export function getUserUnreadCountStub(
+	_user: User,
 	channelUnreadCounts: Record<string, number>,
-	getDMChannelIdForUser: (currentUser: User | null, user: User) => string,
-	currentUser: User | null
+	_dmIdFn: (current: User, target: User) => string,
+	_currentUser: User | null
 ): number {
-	const dmId = getDMChannelIdForUser(currentUser, user);
-	return channelUnreadCounts[dmId] || 0;
+	return 0;
 }
 
 export function createSyntheticMouseEvent(touch: Touch): MouseEvent {
@@ -51,8 +50,8 @@ export function createSyntheticMouseEvent(touch: Touch): MouseEvent {
 	} as unknown as MouseEvent;
 }
 
-export function extractUserFromEvent(
-	event: CustomEvent<{ user: User }> | User | null,
+export function extractUserFromEventStub(
+	event: CustomEvent<{ user: User }> | User | undefined,
 	contextMenuUser: User | null
 ): User | null {
 	if (!event) return contextMenuUser;

@@ -138,8 +138,13 @@ export function resolveServerUrl(): { url: string; source: string } {
 
 function resolveServerUrlInternal(): { url: string; source: string } {
 	if (!browser) {
-		return { url: 'http://localhost:8080', source: 'ssr_default' };
+		return { url: 'http://localhost:3001', source: 'ssr_default' };
 	}
+
+	const origin = window.location.origin;
+	const hostname = window.location.hostname;
+	const port = window.location.port;
+	const protocol = window.location.protocol;
 
 	const configured = getConfiguredServerUrl();
 	if (configured) {
@@ -147,7 +152,7 @@ function resolveServerUrlInternal(): { url: string; source: string } {
 		// of the current production host — both cause broken CORS preflight.
 		try {
 			const storedHost = new URL(configured).hostname;
-			const pageHost = window.location.hostname;
+			const pageHost = hostname;
 			const isWwwVariant =
 				storedHost === `www.${pageHost}` || pageHost === `www.${storedHost}`;
 			if ((isLocalHost(storedHost) && !isLocalHost(pageHost)) || isWwwVariant) {
@@ -169,40 +174,36 @@ function resolveServerUrlInternal(): { url: string; source: string } {
 			try {
 				const parsed = new URL(envUrl);
 				if (!isLocalHost(parsed.hostname)) {
-					return { url: 'http://localhost:8080', source: 'env_override_dev_rewrite' };
+					return { url: `${protocol}//${hostname}:3001`, source: 'env_override_dev_rewrite' };
 				}
 			} catch {
 				// Invalid URL in dev override -> fail safe to local backend.
-				return { url: 'http://localhost:8080', source: 'env_override_dev_rewrite_invalid' };
+				return { url: `${protocol}//${hostname}:3001`, source: 'env_override_dev_rewrite_invalid' };
 			}
 		}
 		return { url: envUrl, source: 'env_override' };
 	}
 
-	const origin = window.location.origin;
-	const hostname = window.location.hostname;
-	const port = window.location.port;
-	const protocol = window.location.protocol;
 	const hasTauriBridge =
 		typeof (window as any).__TAURI__ !== 'undefined' || typeof (window as any).__TAURI_INTERNALS__ !== 'undefined';
 
 	// 2. Tauri runtime (Windows often uses https://tauri.localhost, but runtime can vary by platform/build)
 	if (hasTauriBridge || hostname === 'tauri.localhost' || protocol === 'tauri:') {
 		if (import.meta.env.DEV) {
-			return { url: 'http://localhost:8080', source: 'dev_tauri' };
+			return { url: `${protocol}//${hostname}:3001`, source: 'dev_tauri' };
 		}
 		return { url: 'https://wabi.chat', source: 'prod_tauri' };
 	}
 
-	// 3. Vite dev server
+	// 3. Vite dev server — use the page's hostname with backend port 3001
 	if (port === '5173') {
-		return { url: 'http://localhost:8080', source: 'dev_vite' };
+		return { url: `${protocol}//${hostname}:3001`, source: 'dev_vite' };
 	}
 
 	// 4. Direct container access: frontend on :3000, backend on :8080 on the same host.
 	// Keep localhost and LAN/IP access working without requiring a separate reverse proxy.
 	if (port === '3000') {
-		return { url: `${protocol}//${hostname}:8080`, source: 'docker_port_rewrite' };
+		return { url: `${protocol}//${hostname}:3001`, source: 'docker_port_rewrite' };
 	}
 
 	// 5. Production: same-origin (platform routes /socket.io to backend)

@@ -121,5 +121,5 @@
 		font-size: 0.65em;
 	}
 
-	.avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary)); }
+	.avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary-color)); }
 </style>

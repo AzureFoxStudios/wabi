@@ -5,6 +5,7 @@
 	import { channelMessages, channels } from '$lib/socket';
 	import PureRefViewer from '$lib/components/PureRefViewer.svelte';
 	import SyncLoadingOverlay from '$lib/components/SyncLoadingOverlay.svelte';
+	import CallView from '$lib/components/CallView.svelte';
 	import { isRunningInTauri, startAutoSaveTauri, type WabiData } from '$lib/tauri-storage';
 	import { migrateTauriData, loadMigratedTauriData } from '$lib/tauri-migration';
 	import { chatStorage } from '$lib/storage';
@@ -14,6 +15,9 @@
 	import { updated } from '$app/stores';
 	import { initRelaySelector } from '$lib/relaySelector';
 	import { startupMark, startupMeasure } from '$lib/startupProfiler';
+	import { initEmojis } from '$lib/emoji-store';
+	import AmbientBackground from '$lib/effects/AmbientBackground.svelte';
+	import ConnectionBadge from '$lib/effects/ConnectionBadge.svelte';
 
 	initI18n();
 
@@ -47,6 +51,9 @@ function isLocalPreviewHost(): boolean {
 
 	onMount(async () => {
 		startupMark('layout:onMount:start');
+
+		void initEmojis();
+
 		// Register service worker for PWA support (browser/PWA only, not Tauri webview)
 		if ('serviceWorker' in navigator && !isRunningInTauri() && isLocalPreviewHost()) {
 			try {
@@ -156,12 +163,27 @@ function isLocalPreviewHost(): boolean {
 	});
 </script>
 
-<!-- Calling components disabled - re-enable after testing basic functionality -->
-<!-- <IncomingCallModal /> -->
-<!-- <CallView /> -->
+<AmbientBackground />
+<div class="app-content-layer">
+	<ConnectionBadge />
 
-<PureRefViewer />
+	<!-- CallView re-enabled in 2026-06-15 frontend cleanup pass. IncomingCallModal
+	     is mounted by CallModal.svelte (it requires call-scoped props). -->
+	<CallView />
 
-<SyncLoadingOverlay />
+	<PureRefViewer />
 
-<slot />
+	<SyncLoadingOverlay />
+
+	<slot />
+</div>
+
+<style>
+	/* Keep the ambient effect canvas painted behind all app UI.
+	   The canvas is position:fixed; z-index:0, so this layer must sit
+	   above it for effects to read as a background, not draw over content. */
+	.app-content-layer {
+		position: relative;
+		z-index: 1;
+	}
+</style>

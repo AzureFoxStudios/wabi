@@ -3,8 +3,7 @@
  * Derived from compact BasePalettes via the buildTokens derivation engine.
  * This file maintains backward compatibility — all existing imports work unchanged.
  *
- * Previously: 14 themes × 84 hardcoded properties = 1,176 values
- * Now: 14 palettes × ~20 colors + derivation engine
+ * Curated core set: 8 themes × ~20 colors + derivation engine.
  */
 
 import { buildTheme } from './buildTokens';
@@ -17,30 +16,40 @@ const allThemes = ALL_PALETTES.map(buildTheme);
 // Export individual themes for direct import
 export const darkTheme = allThemes.find(t => t.id === 'dark')!;
 export const lightTheme = allThemes.find(t => t.id === 'light')!;
-export const midnightBlueTheme = allThemes.find(t => t.id === 'midnight-blue')!;
-export const vscodeHighContrastTheme = allThemes.find(t => t.id === 'vscode-high-contrast')!;
-export const professionalTheme = allThemes.find(t => t.id === 'professional')!;
-export const slateSignalTheme = allThemes.find(t => t.id === 'slate-signal')!;
-export const catppuccinMochaTheme = allThemes.find(t => t.id === 'catppuccin-mocha')!;
-export const draculaTheme = allThemes.find(t => t.id === 'dracula')!;
-export const nordTheme = allThemes.find(t => t.id === 'nord')!;
-export const tokyoNightTheme = allThemes.find(t => t.id === 'tokyo-night')!;
+export const blueTheme = allThemes.find(t => t.id === 'blue')!;
+export const highContrastTheme = allThemes.find(t => t.id === 'high-contrast')!;
 export const forestTheme = allThemes.find(t => t.id === 'forest')!;
 export const emberTheme = allThemes.find(t => t.id === 'ember')!;
-export const paperDawnTheme = allThemes.find(t => t.id === 'paper-dawn')!;
-export const graphiteLimeTheme = allThemes.find(t => t.id === 'graphite-lime')!;
+export const sakuraTheme = allThemes.find(t => t.id === 'sakura')!;
+export const spaceTheme = allThemes.find(t => t.id === 'space')!;
 
 // Registry for lookup
 export const THEMES: Record<string, Theme> = Object.fromEntries(
 	allThemes.map(t => [t.id, t])
 );
 
-// Default theme: Nebula Cosmic
+// Default theme: Nebula (dark)
 export const DEFAULT_THEME = darkTheme;
+
+// Alias map for legacy/renamed theme IDs so old stored preferences still resolve.
+const THEME_ALIASES: Record<string, string> = {
+	'midnight-blue': 'blue',
+	'midnight': 'blue',
+	'vscode-high-contrast': 'high-contrast',
+	'professional': 'light',
+	'paper-dawn': 'light',
+	'slate-signal': 'blue',
+	'catppuccin-mocha': 'sakura',
+	'dracula': 'sakura',
+	'nord': 'blue',
+	'tokyo-night': 'blue',
+	'graphite-lime': 'forest',
+};
 
 // Get theme by ID
 export function getThemeById(id: string): Theme {
-	return THEMES[id] || DEFAULT_THEME;
+	const resolved = THEME_ALIASES[id] || id;
+	return THEMES[resolved] || DEFAULT_THEME;
 }
 
 export type { Theme, ThemeColors, ThemeGradients } from './themeTypes';

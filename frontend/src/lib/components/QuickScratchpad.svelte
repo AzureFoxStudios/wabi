@@ -74,7 +74,7 @@
 		display: grid;
 		grid-template-rows: minmax(0, 1fr) auto;
 		background:
-			radial-gradient(circle at top right, color-mix(in srgb, var(--accent-primary) 12%, transparent), transparent 45%),
+			radial-gradient(circle at top right, color-mix(in srgb, var(--accent-primary-color) 12%, transparent), transparent 45%),
 			linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 82%, transparent), var(--surface-base));
 	}
 

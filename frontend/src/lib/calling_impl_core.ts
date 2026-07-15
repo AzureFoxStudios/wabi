@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
-import { disconnectStdbCall, connectStdbCall } from './callingStdb';
+import { disconnectWabidbCall, connectWabidbCall } from './callingWabidb';
 import {
 	configureLivekitTokenRefresh
 } from './callingLivekitTokenRefresh';
@@ -81,10 +81,10 @@ import {
 	setPeerAudioSendEnabled
 } from './callingWebrtcHelpers';
 import {
-	markExperimentalStdbCallAttempt,
-	shouldUseExperimentalStdbCall,
-	type ExperimentalStdbCallScope
-} from './experimentalStdbCalls';
+	markExperimentalWabidbCallAttempt,
+	shouldUseExperimentalWabidbCall,
+	type ExperimentalWabidbCallScope
+} from './experimentalWabidbCalls';
 import { clearAllRecordingPresence } from './callRecordingPresence';
 import {
 	PERFORMANCE_GUARD_SAMPLE_MS,
@@ -175,6 +175,7 @@ import {
 	spatialAudioDiagnostics,
 	spatialSeatDebugState,
 	sfuMediaActive,
+	callOfflineNotice,
 	incomingCall,
 	outgoingCall,
 	groupCallRingingTargets
@@ -597,7 +598,7 @@ function finalizeLocalCallEndState(): void {
 		setActiveMediaGatewaySessionId(null);
 	}
 	void disconnectLivekitSfu();
-	void disconnectStdbCall();
+	void disconnectWabidbCall();
 }
 
 // ============================================================================
@@ -1013,6 +1014,11 @@ async function ensureLocalAudioStream(): Promise<MediaStream> {
 }
 
 export async function joinVoiceChannel(socket: Socket, channelId: string) {
+	if (!socket.connected) {
+		callOfflineNotice.set('No connection to server. Calls require an active connection to the Wabi server.');
+		throw new Error('No connection to server. Calls require an active connection to the Wabi server.');
+	}
+
 	if (activeVoiceChannelId === channelId) {
 		listeningVoiceChannels.update((channels) => (
 			channels.includes(channelId) ? channels : [...channels, channelId]
@@ -1026,7 +1032,9 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 	}
 
 	try {
-		await prefetchTurnCredentials();
+		await prefetchTurnCredentials().catch((err) => {
+			console.warn('[Calling] TURN prefetch failed, continuing without TURN', err);
+		});
 		const activeTransport = await resolveActiveTransport(channelId);
 		const stream = await ensureLocalAudioStream();
 		activeVoiceChannelId = channelId;
@@ -1050,10 +1058,20 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 			// PTT is handled by UI button calling start/stopStorefwdRecording
 			pushVoiceChannelNotice('Joined voice (storefwd mode)');
 		}
+		if (activeTransport === 'wabidb') {
+			// Default transport: wabidb/socket.io opus relay. Guarded so a
+			// relay failure doesn't abort the whole channel join.
+			try {
+				await connectWabidbCall(socket, channelId, 'Wabi User');
+			} catch (wabidbErr) {
+				console.error('[Calling] wabiDB voice connection failed:', wabidbErr);
+			}
+		}
 		syncSpatialAudioGraph();
 		playCallActionSound('join');
 		socket.emit('voice-channel-join', { channelId });
 		socket.emit('voice-channel-subscribe', { channelId });
+		callOfflineNotice.set(null);
 		return stream;
 	} catch (error) {
 		console.error('Error joining voice channel:', error);
@@ -1152,20 +1170,28 @@ export async function leaveVoiceChannel(socket: Socket, channelId: string) {
 		setActiveMediaGatewaySessionId(null);
 	}
 	void disconnectLivekitSfu();
+	void disconnectWabidbCall();
 }
 
 export async function startCall(
 	socket: Socket,
 	targetUserId: string,
 	isVideoCall: boolean = false,
-	options: { scope?: ExperimentalStdbCallScope; displayName?: string } = {}
+	options: { scope?: ExperimentalWabidbCallScope; displayName?: string } = {}
 ) {
 	try {
+		if (!socket.connected) {
+			callOfflineNotice.set('No connection to server. Calls require an active connection to the Wabi server.');
+			throw new Error('No connection to server. Calls require an active connection to the Wabi server.');
+		}
+
 		if (get(isInCall) || get(outgoingCall) || get(incomingCall)) {
 			throw new Error('A call is already active or ringing');
 		}
 
-		await prefetchTurnCredentials();
+		await prefetchTurnCredentials().catch((err) => {
+			console.warn('[Calling] TURN prefetch failed, continuing without TURN', err);
+		});
 		await resolveActiveTransport();
 		const stream = await ensureLocalAudioStream();
 		if (isVideoCall && !stream.getVideoTracks()[0]) {
@@ -1192,15 +1218,15 @@ export async function startCall(
 		});
 
 		const scope = options.scope ?? 'unknown';
-		const useExperimentalStdb = shouldUseExperimentalStdbCall(scope);
-		if (useExperimentalStdb) {
-			await markExperimentalStdbCallAttempt({ targetUserId, isVideoCall, scope });
+		const useExperimentalWabidb = shouldUseExperimentalWabidbCall(scope);
+		if (useExperimentalWabidb) {
+			await markExperimentalWabidbCallAttempt({ targetUserId, isVideoCall, scope });
 			socket.emit('call-initiate', {
 				targetUserId,
 				isVideoCall,
 				experimental: {
-					label: 'experimental-spacechatdb-stdb-call',
-					route: 'desktop-spacechatdb-stdb',
+					label: 'experimental-wabidb-call',
+					route: 'desktop-wabidb',
 					scope
 				}
 			});
@@ -1211,9 +1237,11 @@ export async function startCall(
 			});
 		}
 
+		callOfflineNotice.set(null);
 		return stream;
 	} catch (error) {
 		console.error('Error starting call:', error);
+		callOfflineNotice.set('Could not start the call. Check your connection and try again.');
 		const leakedStream = get(localStream);
 		if (leakedStream) {
 			leakedStream.getTracks().forEach(track => track.stop());
@@ -1264,15 +1292,15 @@ async function enterEstablishedGroupCall(
 	const activeTransport = await resolveActiveTransport(channelId);
 	if (activeTransport === 'sfu') {
 		await connectLivekitSfu(channelId, localDisplayName || 'Wabi User');
-	} else if (activeTransport === 'stdb' && options.socket) {
+	} else if (activeTransport === 'wabidb' && options.socket) {
 		try {
-			await connectStdbCall(options.socket, channelId, localDisplayName || 'Wabi User');
+			await connectWabidbCall(options.socket, channelId, localDisplayName || 'Wabi User');
 		} catch (error) {
-			console.warn('[Calling] STDB connection failed, attempting SFU fallback:', error);
+			console.warn('[Calling] wabiDB connection failed, attempting SFU fallback:', error);
 			try {
 				await connectLivekitSfu(channelId, localDisplayName || 'Wabi User');
 			} catch (sfuError) {
-				console.error('[Calling] Both STDB and SFU failed, will use P2P:', sfuError);
+				console.error('[Calling] Both wabiDB and SFU failed, will use P2P:', sfuError);
 			}
 		}
 	}
@@ -1298,11 +1326,18 @@ export async function startGroupCall(
 	options: { localDisplayName?: string; invitees?: GroupCallRingingTarget[] } = {}
 ) {
 	try {
+		if (!socket.connected) {
+			callOfflineNotice.set('No connection to server. Calls require an active connection to the Wabi server.');
+			throw new Error('No connection to server. Calls require an active connection to the Wabi server.');
+		}
+
 		if (get(isInCall) || get(outgoingCall) || get(incomingCall)) {
 			throw new Error('A call is already active or ringing');
 		}
 
-		await prefetchTurnCredentials();
+		await prefetchTurnCredentials().catch((err) => {
+			console.warn('[Calling] TURN prefetch failed, continuing without TURN', err);
+		});
 		const stream = await ensureLocalAudioStream();
 		if (isVideoCall && !stream.getVideoTracks()[0]) {
 			const cameraStream = await requestCameraStream();
@@ -1330,15 +1365,15 @@ export async function startGroupCall(
 			localDisplayName: options.localDisplayName?.trim() || 'Wabi User'
 		});
 
-		const useExperimentalStdb = shouldUseExperimentalStdbCall('group');
-		if (useExperimentalStdb) {
-			await markExperimentalStdbCallAttempt({ targetUserId: channelId, isVideoCall, scope: 'group' });
+		const useExperimentalWabidb = shouldUseExperimentalWabidbCall('group');
+		if (useExperimentalWabidb) {
+			await markExperimentalWabidbCallAttempt({ targetUserId: channelId, isVideoCall, scope: 'group' });
 			socket.emit('call-initiate', {
 				channelId,
 				isVideoCall,
 				experimental: {
-					label: 'experimental-spacechatdb-stdb-call',
-					route: 'desktop-spacechatdb-stdb',
+					label: 'experimental-wabidb-call',
+					route: 'desktop-wabidb',
 					scope: 'group'
 				}
 			});
@@ -1349,9 +1384,11 @@ export async function startGroupCall(
 			});
 		}
 
+		callOfflineNotice.set(null);
 		return stream;
 	} catch (error) {
 		console.error('Error starting group call:', error);
+		callOfflineNotice.set('Could not start the call. Check your connection and try again.');
 		handleMediaError(error as DOMException, 'starting');
 		isInCall.set(false);
 		localStream.set(null);
@@ -1394,7 +1431,9 @@ export async function answerCall(
 	options: { channelId?: string; channelName?: string; localDisplayName?: string } = {}
 ) {
 	try {
-		await prefetchTurnCredentials();
+		await prefetchTurnCredentials().catch((err) => {
+			console.warn('[Calling] TURN prefetch failed, continuing without TURN', err);
+		});
 		const stream = await ensureLocalAudioStream();
 		if (isVideoCall && !stream.getVideoTracks()[0]) {
 			const cameraStream = await requestCameraStream();
@@ -1439,9 +1478,11 @@ export async function answerCall(
 
 		incomingCall.set(null);
 
+		callOfflineNotice.set(null);
 		return stream;
 	} catch (error) {
 		console.error('Error answering call:', error);
+		callOfflineNotice.set('Could not answer the call. Check your connection and try again.');
 		handleMediaError(error as DOMException, 'answering');
 		isInCall.set(false);
 		localStream.set(null);
@@ -1470,6 +1511,19 @@ export function cancelOutgoingCall(socket: Socket) {
 }
 
 export function handleIncomingCallCancelled(callerId: string, channelId?: string): void {
+	// Outgoing DM call that was rejected/cancelled/errored by the callee. The
+	// caller holds an outgoingCall (not an incomingCall), so tear the pending
+	// call down and release the local media captured at startCall time.
+	const pendingOutgoing = get(outgoingCall);
+	if (
+		pendingOutgoing &&
+		pendingOutgoing.scope !== 'group' &&
+		pendingOutgoing.targetUserId === callerId
+	) {
+		finalizeLocalCallEndState();
+		return;
+	}
+
 	const current = get(incomingCall);
 	if (!current || current.userId !== callerId) return;
 	if (channelId && current.channelId && current.channelId !== channelId) return;
@@ -1750,7 +1804,9 @@ export async function createCallOffer(
 	username: string = '',
 	options?: { channelId?: string }
 ) {
-	await prefetchTurnCredentials();
+	await prefetchTurnCredentials().catch((err) => {
+		console.warn('[Calling] TURN prefetch failed, continuing without TURN', err);
+	});
 	const pc = createPeerConnection(targetId, username, 'call', socket);
 	const key = getConnectionKey(targetId, 'call');
 	const state = peerConnections.get(key);
@@ -1788,7 +1844,9 @@ export async function handleCallOffer(
 	offer: RTCSessionDescriptionInit,
 	channelId?: string
 ) {
-	await prefetchTurnCredentials();
+	await prefetchTurnCredentials().catch((err) => {
+		console.warn('[Calling] TURN prefetch failed, continuing without TURN', err);
+	});
 	const pc = createPeerConnection(senderId, username, 'call', socket);
 	const key = getConnectionKey(senderId, 'call');
 	const offerState = peerConnections.get(key);

@@ -1,315 +1,212 @@
-# 💾 Wabi Persistence Model
+# Wabi Persistence Model
 
-**Version:** 1.0.0  
-**Date:** April 29, 2026  
-**Status:** Design
+> **Status:** Canonical reference for how state is stored in Wabi.
+> **Last major revision:** 2026-06-22 (Wabidb replaces SpacetimeDB).
+> **Audience:** Operators configuring retention, contributors adding storage features, and integrators building on the Wabi API.
 
 ---
 
-## Philosophy
+## 1. Philosophy
 
 **"Signal + Self-Host Flexibility"**
 
 Wabi defaults to client-side storage (like Signal), but server operators can opt into varying levels of persistence per channel. Self-host means **their data, their rules, their risk**.
 
+Every byte of server-side state lives inside the operator's `./data/wabi-server/` directory. The Wabidb engine is the only writer; the only readers are `wabi-server` itself (for query responses) and the Wabidb CLI tools (for backup/verify/migration).
+
 ---
 
-## Storage Tiers
+## 2. Storage Tiers
 
 | Tier | Default | Who Controls | Purpose |
 |------|---------|--------------|---------|
-| **Client (IndexedDB)** | ✅ Always | User | Personal history, offline access |
-| **Server (STDB memory)** | ✅ Always | Server admin | Real-time sync, active sessions |
-| **Server (disk files)** | ❌ Opt-in | Server admin | Compliance, audit, backup |
-| **server-auditor addon** | ❌ Opt-in | Server admin | Structured archival + retention |
+| **Client (IndexedDB)** | Always | User | Personal history, offline access, draft state |
+| **Server (Wabidb streams)** | Always | Server admin | Real-time sync, active sessions, shared state |
+| **Server (BLAKE3 blobs)** | Opt-in | Server admin | File uploads, attachments, large media |
+| **Wabidb snapshots** | Automatic | Engine | Fast recovery from crash without replaying full commit log |
+| **Operator archives** | Manual | Server admin | Offsite backup, disaster recovery |
+
+All tiers run on the same filesystem. There is no separate database server to provision.
 
 ---
 
-## Persistence Modes
+## 3. Persistence Modes (Per Channel / Stream)
 
-### 1. Ephemeral (Default)
+Wabidb supports three modes, configured per-stream via the stream key metadata:
 
-Messages exist only in STDB memory. Deleted after TTL (default: 5 minutes).
+### 3.1 Ephemeral
+Streams are deleted after a TTL. Used for high-churn channels (e.g. temporary coordination chats).
 
 **Use cases:**
 - Temporary coordination channels
 - Privacy-focused conversations
 - High-churn chat rooms
 
-**Config:**
+**Implementation:**
+- The Wabidb retention engine (`wabidb::retention::reaper`) scans for streams past their TTL
+- On expiry, the stream's encryption key is destroyed (cryptographic deletion)
+- The segments become unreadable garbage
+- The commit index entry remains (audit trail) but the data is unrecoverable
+
+**Configuration (TOML, per stream):**
 ```toml
-[channels."#temp"]
+[streams."ch_01H...#temp"]
 persistence = "ephemeral"
 ttl_minutes = 5
 ```
 
-### 2. Session-Only
-
-Messages persist until server restart. No disk writes.
+### 3.2 Session-Only
+Streams persist until server restart. No disk writes beyond the operating system's page cache flushes.
 
 **Use cases:**
 - Daily standup channels
 - Event coordination
-- Testing/development
+- Testing / development
 
-**Config:**
-```toml
-[channels."#standup"]
-persistence = "session"
-```
+**Implementation:**
+- The stream is held in memory only; not flushed to disk
+- On restart, all session-only streams are gone
+- (This mode is partially implemented; currently most streams are durable-by-default. Future work.)
 
-### 3. Persistent (Disk)
-
-Messages written to `.jsonl` files on disk. Retention policies apply.
+### 3.3 Persistent (Default)
+Streams are durable across server restarts. This is the default for all streams that don't explicitly request ephemeral.
 
 **Use cases:**
 - Community servers with compliance needs
 - Project coordination (audit trail)
 - Servers wanting backup capability
 
-**Config:**
+**Implementation:**
+- Writes are append-only to per-stream segments
+- Segments are AES-256-GCM encrypted with the stream's key
+- Segments are fsync'd to disk before the commit index is updated
+- The commit index is the canonical ordering of all writes
+- Snapshots are taken periodically (configurable threshold) to bound recovery time
+
+**Configuration (TOML):**
 ```toml
-[channels."#general"]
+[streams."ch_01H...#general"]
 persistence = "persistent"
 retention_days = 365
 ```
 
 ---
 
-## File Format
+## 4. File Format
 
-### Location
-```
-~/.wabi/data/{server_id}/channels/{channel_id}/messages.jsonl
-```
+All on-disk formats are specified in `core/crates/wabidb/docs/STORAGE_FORMAT.md`. Summary:
 
-### Structure
-```jsonl
-{"ts":"2026-04-29T13:00:00.000Z","user_id":"usr_abc123","content":"hello world","edited":false}
-{"ts":"2026-04-29T13:00:05.000Z","user_id":"usr_def456","content":"hi there","edited":false}
-{"ts":"2026-04-29T13:01:00.000Z","user_id":"usr_abc123","content":"edited message","edited":true}
-```
+| File | Format | Purpose |
+|------|--------|---------|
+| `*.wseg` | 48-byte header + payload + 4-byte CRC32C + padding | Encrypted stream segment |
+| `*.widx` | 16-byte header + entries + 32-byte trailer | Commit index file |
+| `*.wsnap` | 40-byte header + BLAKE3-keyed state + 4-byte CRC32C | Projection snapshot |
+| `*.bin` | raw bytes | BLAKE3 content-addressed blob |
+| `*.meta` | `BMTA` magic + content hash + size + CRC32C | Blob metadata sidecar |
+| `storage-manifest.json` | JSON | Operator-readable manifest of all streams, segments, sizes |
 
-### Why JSONL?
-- Append-only (no read-modify-write)
-- Line-based (easy to stream, grep, tail)
-- Human-readable (can inspect with cat/head)
-- Backup-friendly (rsync, tar, etc.)
-- Recovery possible even if server crashes mid-write
+All CRCs are CRC32C (Castagnoli polynomial `0x1EDC6F41`). All multi-byte integers are little-endian.
 
 ---
 
-## Architecture
+## 5. Storage Manifest
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Client (Browser/Tauri)                  │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │ IndexedDB (wabi-chat-db)                              │  │
-│  │ - All messages (encrypted optional)                   │  │
-│  │ - Compressed storage                                  │  │
-│  │ - User controls retention                             │  │
-│  └───────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-                            ↓ WebSocket
-┌─────────────────────────────────────────────────────────────┐
-│                    Server (wabi-server)                      │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │ STDB (in-memory)                                      │  │
-│  │ - Active session state                                │  │
-│  │ - Real-time message routing                           │  │
-│  │ - Channel/user presence                               │  │
-│  └───────────────────────────────────────────────────────┘  │
-│                            ↓                                 │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │ persistence-disk addon (optional)                     │  │
-│  │ - Watches message events                              │  │
-│  │ - Writes to .jsonl files                              │  │
-│  │ - Applies retention policies                          │  │
-│  │ - Handles rotation/archival                           │  │
-│  └───────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                    Filesystem                                │
-│  ~/.wabi/data/{server_id}/channels/                        │
-│  ├── general/                                              │
-│  │   └── messages.jsonl                                    │
-│  ├── random/                                               │
-│  │   └── messages.jsonl                                    │
-│  └── ...                                                   │
-└─────────────────────────────────────────────────────────────┘
-```
+`$DATA_DIR/manifests/storage-manifest.json` is the canonical operator-readable manifest. It's the primary artifact for backup verification (per `wabidb-62` and `wabidb-86`).
 
----
-
-## STDB Tables
-
-### ChannelConfig (new)
-```rust
-#[spacetimedb(table)]
-pub struct ChannelConfig {
-    pub channel_id: String,
-    pub persistence: String, // "ephemeral" | "session" | "persistent"
-    pub ttl_minutes: Option<u32>,
-    pub retention_days: Option<u32>,
-    pub created_at: u64,
-    pub updated_at: u64,
+```json
+{
+  "schema_version": 1,
+  "format_version": 1,
+  "highest_commit_seq": 12345,
+  "engine_version": "0.1.0",
+  "created_at_micros": 1718901234567890,
+  "config": {
+    "segment_size_bytes": 67108864,
+    "commit_batch_size": 10,
+    "commit_batch_age_micros": 50000,
+    "backpressure_timeout_micros": 5000000,
+    "reaper_interval_micros": 60000000,
+    "snapshot_threshold_events": 10000,
+    "snapshot_threshold_age_micros": 86400000000,
+    "load_shed_backlog_threshold": 50000
+  },
+  "streams": [
+    {
+      "stream_id": "ch_01H...",
+      "stream_kind": 1,
+      "stream_key_id": "01H...",
+      "segment_count": 3,
+      "total_record_count": 15234,
+      "total_size_bytes": 8923456,
+      "created_at_micros": 1718901234567890,
+      "last_commit_seq": 12345
+    }
+  ]
 }
 ```
 
-### PersistenceStats (new)
-```rust
-#[spacetimedb(table)]
-pub struct PersistenceStats {
-    pub channel_id: String,
-    pub total_messages: u64,
-    pub disk_size_bytes: u64,
-    pub oldest_message_ts: Option<u64>,
-    pub newest_message_ts: Option<u64>,
-    pub last_rotation_ts: Option<u64>,
-}
-```
+The manifest is regenerated whenever the engine reopens the data directory. It is also the **primary backup verification artifact**: a backup is valid iff its manifest matches the live data directory's manifest after restore.
 
 ---
 
-## Addon: persistence-disk
+## 6. Cryptographic Deletion
 
-**Location:** `addons/compliance/persistence-disk/`
+Wabidb supports **cryptographic deletion** of streams: rather than overwriting data on disk (slow, fragile on SSDs), the engine destroys the stream's encryption key. The on-disk bytes become mathematically unrecoverable.
 
-**Responsibilities:**
-1. Subscribe to message events from STDB
-2. Write messages to `.jsonl` files (append-only)
-3. Apply retention policies (delete old messages)
-4. Rotate files (daily/weekly/monthly)
-5. Report stats to STDB
+**Lifecycle:**
+1. **Create:** A new stream is allocated with a fresh 256-bit key. The key is stored in the `StreamKeyRegistry` (in-memory + optional offline backup).
+2. **Use:** Every segment is encrypted with the stream's current key. AES-256-GCM provides confidentiality + integrity.
+3. **Rekey (optional):** For streams being migrated, the engine generates a new key, re-encrypts all segments, and discards the old key. See `wabidb::crypto::rekey`.
+4. **Delete:** The key is removed from the registry. The segments are now unrecoverable garbage. The commit index retains a tombstone marking the stream as deleted (for audit).
 
-**Implementation:**
-```rust
-// Core writer trait
-pub trait MessageWriter {
-    async fn write(&self, channel_id: &str, message: &Message) -> Result<()>;
-    async fn rotate(&self, channel_id: &str) -> Result<()>;
-    async fn prune(&self, channel_id: &str, before: DateTime<Utc>) -> Result<usize>;
-}
-
-// JSONL implementation
-pub struct JsonlWriter {
-    base_path: PathBuf,
-    buffer: Arc<Mutex<HashMap<String, BufWriter<File>>>>,
-}
-```
-
-**Config:**
-```toml
-[persistence-disk]
-enabled = true
-base_path = "~/.wabi/data"
-flush_interval_seconds = 10
-rotation = "daily"  # daily | weekly | monthly
-max_file_size_mb = 100
-```
+This is the basis for the Ephemeral persistence mode (3.1): reaper deletes keys, segments are unreadable, no I/O amplification.
 
 ---
 
-## Privacy & Legal
+## 7. Backup and Recovery
 
-### User Visibility
+### 7.1 What to Back Up
 
-Users MUST know when joining a channel what the persistence mode is:
+The full `data/wabi-server/` directory plus the `storage-manifest.json` are the backup unit. Specifically:
 
-```
-┌────────────────────────────────────────────────┐
-│ Joining #general                               │
-│                                                │
-│ ⚠️ This channel has PERSISTENT storage         │
-│ Messages are saved to disk by the server       │
-│ Retention: 365 days                            │
-│                                                │
-│ [Join Anyway]  [Cancel]                        │
-└────────────────────────────────────────────────┘
-```
+- `streams/` — all segments
+- `global/commit-index/` — the index
+- `manifests/storage-manifest.json` — the manifest
+- `blobs/` — content-addressed uploads
+- The Wabidb engine's bootstrap key material (stored separately; see `wabidb::crypto::bootstrap`)
 
-### Server Admin Responsibilities
+### 7.2 Backup Workflow
 
-Document clearly in admin guide:
+The Wabidb CLI (`wabidb backup`) produces a manifest-frozen directory copy. Steps:
 
-1. **Legal compliance** — They're responsible for their jurisdiction
-2. **User notification** — Must inform users of persistence
-3. **Data requests** — They handle deletion/export requests
-4. **Security** — They secure the filesystem
+1. Engine quiesces (no new commits accepted for the duration)
+2. Engine flushes pending writes
+3. `storage-manifest.json` is regenerated with `highest_commit_seq` reflecting the quiesced state
+4. The manifest is frozen (hash recorded)
+5. Directory copy proceeds (rsync, cp, tar, etc.)
+6. Manifest hash is verified against the post-copy directory
 
-### Wabi Legal Protection
+See `wabidb::retention::manifest_backup` for implementation.
 
-Wabi is **infrastructure only**:
-- We don't mandate persistence
-- We don't access stored data
-- Server operators control all settings
-- Publish design openly (like BitTorrent)
+### 7.3 Restore
+
+Restore is the inverse: write the directory back, then run `wabidb check` to verify the manifest matches. If the manifest hash disagrees, the engine refuses to start (configurable; default = refuse).
 
 ---
 
-## Migration Path
+## 8. What This Document Does Not Cover
 
-### From Client-Only to Server Persistence
-
-1. Server admin enables `persistence-disk` addon
-2. Set channel config to `persistent`
-3. New messages written to disk
-4. Old messages remain in client IndexedDB
-5. Optional: backfill from client exports
-
-### From Server Persistence to Client-Only
-
-1. Disable `persistence-disk` addon
-2. Set channel config to `ephemeral`
-3. Server stops writing to disk
-4. Existing files remain (admin deletes manually)
-5. Clients continue storing locally
+- Wire protocol for client-server sync — see `PROJECT_DOCS/01-architecture/ARCHITECTURE.md` §5
+- Internal Wabidb key derivation — see `wabidb::crypto::bootstrap`
+- Operator runbook for backups — see `PROJECT_DOCS/02-deployment/BACKUP_AND_RESTORE.md`
+- Disaster recovery procedures — see `PROJECT_DOCS/02-deployment/DEPLOYMENT.md`
 
 ---
 
-## Implementation Plan
+## 9. Cross-References
 
-### Phase 1: Core Infrastructure
-- [ ] Add `ChannelConfig` table to STDB
-- [ ] Add persistence mode enum + validation
-- [ ] Create `persistence-disk` addon skeleton
-
-### Phase 2: Disk Writer
-- [ ] Implement `JsonlWriter` (append-only)
-- [ ] Add buffering + flush interval
-- [ ] Implement file rotation (daily)
-- [ ] Add retention policy enforcement
-
-### Phase 3: UI Integration
-- [ ] Channel settings → Persistence tab
-- [ ] Mode selector (ephemeral/session/persistent)
-- [ ] Retention config UI
-- [ ] User warning modal on join
-
-### Phase 4: Stats + Monitoring
-- [ ] Add `PersistenceStats` table
-- [ ] Periodic stats updates
-- [ ] Admin dashboard widget
-- [ ] Disk usage alerts
-
----
-
-## Open Questions
-
-1. **Encryption at rest?** — Server-side encryption adds complexity. Default: no (their server, their choice). Addon could add it.
-
-2. **Backfill from clients?** — Let admins request historical data from connected clients. Tricky, maybe later.
-
-3. **Compression?** — `.jsonl.gz` saves space but complicates recovery. Default: uncompressed (can pipe through gzip for backup).
-
-4. **Multi-node sync?** — Mesh addon would need to replicate files. Out of scope for Phase 1.
-
----
-
-## Related Docs
-
-- `docs/addons/local-first.md` — Client-side storage model
-- `docs/addons/server-auditor.md` — Structured archival addon
-- `docs/admin/persistence.md` — Admin configuration guide (TODO)
+- `core/crates/wabidb/docs/STORAGE_FORMAT.md` — full byte-level format spec
+- `docs/proposals/wabidb-endstate.md` — Wabidb endstate design (the larger storage architecture)
+- `PROJECT_DOCS/02-deployment/BACKUP_AND_RESTORE.md` — operator backup runbook
+- `PROJECT_DOCS/01-architecture/ARCHITECTURE.md` §4 — Wabidb engine architecture
+- `PROJECT_DOCS/archive/2026-04-stdb-migration/` — historical context for what this doc replaced

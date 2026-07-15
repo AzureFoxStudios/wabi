@@ -146,8 +146,8 @@
 	}
 
 	.control-btn.active {
-		background: color-mix(in srgb, var(--accent, var(--accent-primary, #5865f2)) 35%, transparent);
-		border-color: color-mix(in srgb, var(--accent, var(--accent-primary, #5865f2)) 65%, transparent);
+		background: color-mix(in srgb, var(--accent, var(--accent-primary, var(--accent-primary-color))) 35%, transparent);
+		border-color: color-mix(in srgb, var(--accent, var(--accent-primary, var(--accent-primary-color))) 65%, transparent);
 	}
 
 	.control-btn.record {
@@ -250,8 +250,8 @@
 
 	.presenter-overlay-btn.is-active,
 	.presenter-overlay-width.is-active {
-		background: color-mix(in srgb, var(--accent, var(--accent-primary, #5865f2)) 28%, rgba(var(--surface-app-rgb, 15, 23, 42), 0.82));
-		border-color: color-mix(in srgb, var(--accent, var(--accent-primary, #5865f2)) 64%, transparent);
+		background: color-mix(in srgb, var(--accent, var(--accent-primary, var(--accent-primary-color))) 28%, rgba(var(--surface-app-rgb, 15, 23, 42), 0.82));
+		border-color: color-mix(in srgb, var(--accent, var(--accent-primary, var(--accent-primary-color))) 64%, transparent);
 		color: var(--text-inverse, var(--text-inverse, #fff));
 	}
 

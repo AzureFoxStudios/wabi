@@ -10,7 +10,7 @@
 	flex-direction: column;
 	overflow: hidden;
 	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 4%, var(--surface-raised)), var(--surface-raised)),
+		linear-gradient(180deg, color-mix(in srgb, var(--accent-primary-color) 4%, var(--surface-raised)), var(--surface-raised)),
 		var(--surface-raised);
 	backdrop-filter: blur(14px);
 	border-right: 1px solid rgba(var(--border-rgb), var(--opacity-light));

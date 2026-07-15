@@ -4,7 +4,7 @@
  * Backward compatible with existing themeManager.ts and component CSS
  */
 
-import type { Theme, ThemeColors, ThemeGradients } from './themeTypes';
+import type { Theme, ThemeColors, ThemeGradients, AmbientConfig } from './themeTypes';
 
 // ============================================================================
 // Base Palette Definition
@@ -36,6 +36,8 @@ export interface BasePalette {
 	info: string;
 	warning: string;
 	danger: string;
+	// Ambient effect config
+	ambient?: AmbientConfig;
 	// Special overrides (for themes that don't follow standard patterns)
 	overrides?: { colors?: Partial<ThemeColors>; gradients?: Partial<ThemeGradients> };
 }
@@ -131,6 +133,7 @@ export function buildTheme(palette: BasePalette): Theme {
 		textMutedRgb: rgbFromString(palette.textMuted),
 		accent: `linear-gradient(to right, ${palette.accent} 0%, ${palette.accentSecondary} 100%)`,
 		accentHex,
+		accentSecondaryHex: palette.accentSecondary,
 		accentRgb: rgbFromString(accentHex),
 		accentHover,
 		uiBgLight: palette.bgRaised,
@@ -189,6 +192,7 @@ export function buildTheme(palette: BasePalette): Theme {
 		description: palette.description,
 		colors,
 		gradients,
+		ambient: palette.ambient,
 	};
 }
 

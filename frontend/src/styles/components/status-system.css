@@ -15,6 +15,7 @@
 	box-sizing: border-box;
 	flex-shrink: 0;
 	transition: transform 0.15s ease, box-shadow 0.3s ease;
+	background: var(--status-color, transparent);
 }
 
 /* --- Status states with semantic token colors --- */
@@ -24,7 +25,7 @@
 .dm-conv-status-dot.active {
 	background: var(--status-online, #22c55e);
 	box-shadow: 0 0 0 0 rgba(var(--status-online-rgb, 34, 197, 94), 0.5);
-	animation: status-pulse-online 2.5s infinite ease-in-out;
+	animation: wabi-status-pulse-online 2.5s infinite ease-in-out;
 }
 
 .status-dot.away,
@@ -59,6 +60,23 @@
 	height: 14px;
 	border-width: 3px;
 	z-index: 2;
+	background: var(--status-color, var(--status-offline));
+}
+
+/* Bottom-left self profile status is intentionally larger than list/panel dots. */
+.profile-card .avatar-container .status-indicator {
+	bottom: 0;
+	right: -1px;
+	width: 18px;
+	height: 18px;
+	border-width: 2px;
+	box-shadow: 0 0 0 1px rgba(224, 242, 254, 0.22);
+}
+
+.profile-card .avatar-container .status-indicator.online {
+	box-shadow:
+		0 0 0 1px rgba(224, 242, 254, 0.25),
+		0 0 12px rgba(var(--status-online-rgb, 34, 197, 94), 0.42);
 }
 
 /* --- Status popup dots --- */
@@ -92,7 +110,7 @@
 .profile-hero-status.busy { background: var(--status-busy); }
 .profile-hero-status:not(.away):not(.busy):not(.offline) {
 	background: var(--status-online);
-	animation: status-pulse-online 2.5s infinite ease-in-out;
+	animation: wabi-status-pulse-online 2.5s infinite ease-in-out;
 }
 
 /* --- Inline status badges (text labels) --- */
@@ -121,29 +139,8 @@
 	animation: none;
 }
 
-/* --- Animated online pulse --- */
-@keyframes status-pulse-online {
-	0%, 100% {
-		box-shadow: 0 0 0 0 rgba(var(--status-online-rgb, 34, 197, 94), 0.45);
-	}
-	50% {
-		box-shadow: 0 0 0 5px rgba(var(--status-online-rgb, 34, 197, 94), 0);
-	}
-}
-
 /* --- Hover scale on interactive lists --- */
 .user-row:hover .presence-dot,
 .dm-conversation:hover .dm-conv-status-dot {
 	transform: scale(1.15);
-}
-
-/* --- Reduced motion --- */
-@media (prefers-reduced-motion: reduce) {
-	.status-dot.online,
-	.status-indicator.online,
-	.presence-dot.active,
-	.dm-conv-status-dot.active,
-	.profile-hero-status:not(.away):not(.busy):not(.offline) {
-		animation: none;
-	}
 }

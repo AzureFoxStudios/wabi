@@ -161,6 +161,7 @@
 		flex-direction: column;
 		box-shadow: none;
 		z-index: 100;
+		overflow: hidden;
 	}
 
 	.emoji-header {
@@ -211,8 +212,8 @@
 	}
 
 	.mode-tab.active {
-		color: var(--color-primary);
-		border-bottom-color: var(--color-primary);
+		color: var(--accent-primary-color);
+		border-bottom-color: var(--accent-primary-color);
 	}
 
 	.source-tabs {
@@ -240,8 +241,8 @@
 	}
 
 	.source-tab.active {
-		border-color: var(--color-primary);
-		color: var(--color-primary);
+		border-color: var(--accent-primary-color);
+		color: var(--accent-primary-color);
 	}
 
 	.category-tabs {
@@ -275,7 +276,7 @@
 	}
 
 	.category-tab.active {
-		background: var(--color-primary);
+		background: var(--accent-primary-color);
 	}
 
 	@media (max-width: 640px) {

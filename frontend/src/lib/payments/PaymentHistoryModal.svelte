@@ -289,7 +289,7 @@
 
 	.error {
 		margin: 0;
-		color: #ff8585;
+		color: var(--color-danger, #ef4444);
 		font-size: 0.84rem;
 	}
 
@@ -363,7 +363,7 @@
 	}
 
 	.status-succeeded {
-		color: #69e093;
+		color: var(--color-success, #00ff7f);
 		border-color: rgba(105, 224, 147, 0.45);
 	}
 
@@ -371,14 +371,14 @@
 	.status-expired,
 	.status-disputed,
 	.status-canceled {
-		color: #ff8585;
+		color: var(--color-danger, #ef4444);
 		border-color: rgba(255, 133, 133, 0.45);
 	}
 
 	.status-pending,
 	.status-draft,
 	.status-refunded {
-		color: #8cc7ff;
+		color: var(--color-info, #00bfff);
 		border-color: rgba(140, 199, 255, 0.45);
 	}
 

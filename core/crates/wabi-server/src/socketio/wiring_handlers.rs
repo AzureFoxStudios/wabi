@@ -1,7 +1,19 @@
+// WDB-compat shim: this file calls `state.app.wdb.X(...)` for
+// methods the WDB doesn't have equivalents for yet
+// (is_user_muted, get_channel_retention, mute_user, etc.).
+// The compat WdbClient in `db/` returns no-op defaults for all
+// of these. When WDB has the corresponding engine methods, this
+// file can be migrated to use `state.app.wdb.X(...)` instead.
+// The compat shim itself is a temporary layer and will be removed
+// once the last socketio file is migrated.
+//
 // Inline socket handlers extracted from wiring.rs
 
+use wabidb::domain::MemberRole;
+
+#[allow(dead_code)]
 pub async fn handle_get_emojis(socket: SocketRef, state: &SioState) {
-    match state.app.stdb.get_emotes().await {
+    match state.app.wdb.get_emotes().await {
         Ok(emotes) => {
             let _ = socket.emit("emojis-list", &json!(emotes));
         }
@@ -12,12 +24,14 @@ pub async fn handle_get_emojis(socket: SocketRef, state: &SioState) {
     }
 }
 
+#[allow(dead_code)]
 pub async fn handle_get_role_definitions(socket: SocketRef, io: &SocketIo, state: &SioState) {
-    let roles: Vec<Value> = state.app.stdb.get_role_definitions().await.unwrap_or_default();
+    let roles = state.app.wdb.list_role_definitions("default-workspace").await.unwrap_or_default();
     let _ = socket.emit("role-definitions-updated", &json!({ "roles": roles }));
     let _ = io;
 }
 
+#[allow(dead_code)]
 pub async fn handle_assign_role(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
     let target_user_id = data.get("targetUserId").and_then(|v| v.as_i64()).unwrap_or(0);
     let role_name = data.get("roleName").and_then(|v| v.as_str()).unwrap_or("");
@@ -35,13 +49,40 @@ pub async fn handle_assign_role(socket: SocketRef, data: Value, state: &SioState
         return;
     }
 
-    if let Err(e) = state.app.stdb.upsert_role_definition(
-        "default-workspace", role_name, role_name, 0, None, false,
-    ).await {
-        warn!("[sio] assign-role: failed to upsert role {}: {}", role_name, e);
+    let role = match role_name {
+        "Admin" => MemberRole::Admin,
+        "Moderator" => MemberRole::Moderator,
+        "Owner" => MemberRole::Owner,
+        _ => MemberRole::Member,
+    };
+
+    // The server owner is protected: cannot be demoted or reassigned by
+    // anyone (including other admins). Only the owner may grant the Owner
+    // role, and only to themselves or another user.
+    let target_is_owner = state.app.is_owner(target_user_id).await;
+    if target_is_owner && role != MemberRole::Owner {
+        warn!("[sio] assign-role: refusing to demote server owner {}", target_user_id);
+        let _ = socket.emit("assign-role-error", &json!({ "error": "The server owner's role cannot be changed" }));
+        return;
+    }
+    if role == MemberRole::Owner {
+        // Ownership transfer is handled by a dedicated endpoint (Phase 2);
+        // this path may only reaffirm the current owner, never mint a
+        // second owner that the `is_owner` check wouldn't recognize.
+        if !state.app.is_owner(caller_id).await || target_user_id != caller_id {
+            warn!("[sio] assign-role: illegal Owner assignment by {}", caller_id);
+            let _ = socket.emit("assign-role-error", &json!({ "error": "Ownership transfer is not permitted here" }));
+            return;
+        }
     }
 
-    if let Err(e) = state.app.stdb.ingest_event("rbac", "assign_role", &json!({
+    if let Err(e) = state.app.wdb.upsert_member_role(
+        "", target_user_id as u64, role,
+    ).await {
+        warn!("[sio] assign-role: failed to upsert member role {}: {}", role_name, e);
+    }
+
+    if let Err(e) = state.app.wdb.ingest_event("rbac", "assign_role", &json!({
         "userId": target_user_id,
         "workspaceId": "default-workspace",
         "role": role_name,
@@ -52,11 +93,12 @@ pub async fn handle_assign_role(socket: SocketRef, data: Value, state: &SioState
         return;
     }
 
-    let roles: Vec<Value> = state.app.stdb.get_role_definitions().await.unwrap_or_default();
+    let roles = state.app.wdb.list_role_definitions("default-workspace").await.unwrap_or_default();
     drop(io.emit("role-definitions-updated", &json!({ "roles": roles })));
     drop(socket.emit("assign-role-success", &json!({ "targetUserId": target_user_id, "role": role_name })));
 }
 
+#[allow(dead_code)]
 pub async fn handle_remove_role(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
     let target_user_id = data.get("targetUserId").and_then(|v| v.as_i64()).unwrap_or(0);
     let role_name = data.get("roleName").and_then(|v| v.as_str()).unwrap_or("");
@@ -72,7 +114,13 @@ pub async fn handle_remove_role(socket: SocketRef, data: Value, state: &SioState
         return;
     }
 
-    if let Err(e) = state.app.stdb.ingest_event("rbac", "remove_role", &json!({
+    // The server owner's role can never be removed.
+    if state.app.is_owner(target_user_id).await {
+        warn!("[sio] remove-role: refusing to remove role from owner {}", target_user_id);
+        return;
+    }
+
+    if let Err(e) = state.app.wdb.ingest_event("rbac", "remove_role", &json!({
         "userId": target_user_id,
         "workspaceId": "default-workspace",
         "role": role_name,
@@ -80,10 +128,11 @@ pub async fn handle_remove_role(socket: SocketRef, data: Value, state: &SioState
         warn!("[sio] remove-role: failed: {}", e);
     }
 
-    let roles: Vec<Value> = state.app.stdb.get_role_definitions().await.unwrap_or_default();
+    let roles = state.app.wdb.list_role_definitions("default-workspace").await.unwrap_or_default();
     drop(io.emit("role-definitions-updated", &json!({ "roles": roles })));
 }
 
+#[allow(dead_code)]
 pub async fn handle_update_channel_settings(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
     let channel_id = match data.get("channelId").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
@@ -97,28 +146,97 @@ pub async fn handle_update_channel_settings(socket: SocketRef, data: Value, stat
         return;
     }
 
+    // Frontend emits { channelId, settings: { name, description, autoDeleteAfter, ... } }
+    // Accept flat fields too for older clients.
+    let settings = data.get("settings").cloned().unwrap_or_else(|| data.clone());
+
     let mut row = serde_json::Map::new();
     row.insert("channel_id".to_string(), json!(channel_id.clone()));
-    if let Some(min_role) = data.get("minRole").and_then(|v| v.as_str()) {
+    if let Some(min_role) = settings.get("minRole").and_then(|v| v.as_str()) {
         row.insert("min_role".to_string(), json!(min_role));
     }
-    if let Some(name) = data.get("name").and_then(|v| v.as_str()) {
+    if let Some(name) = settings.get("name").and_then(|v| v.as_str()) {
         row.insert("name".to_string(), json!(name));
     }
-    if let Some(desc) = data.get("description").and_then(|v| v.as_str()) {
+    if let Some(desc) = settings.get("description").and_then(|v| v.as_str()) {
         row.insert("description".to_string(), json!(desc));
     }
 
-    if let Err(e) = state.app.stdb.ingest_event("channel", "update_settings", &json!({ "row": row })).await {
+    // Auto-delete / retention presets (5s..90d or null/off)
+    let mut auto_delete_after: Option<String> = None;
+    if settings.get("autoDeleteAfter").is_some() {
+        if settings.get("autoDeleteAfter").and_then(|v| v.as_null()).is_some() {
+            // explicit null -> clear
+            state.app.channel_auto_delete_ms.write().await.remove(&channel_id);
+            state.app.channel_auto_delete_label.write().await.remove(&channel_id);
+            let _ = state
+                .app
+                .wdb
+                .upsert_channel_retention(&channel_id, 0, caller_id as u64)
+                .await;
+            auto_delete_after = None;
+        } else if let Some(label) = settings.get("autoDeleteAfter").and_then(|v| v.as_str()) {
+            if let Some(ms) = parse_retention_label_to_ms(label) {
+                state
+                    .app
+                    .channel_auto_delete_ms
+                    .write()
+                    .await
+                    .insert(channel_id.clone(), ms);
+                state
+                    .app
+                    .channel_auto_delete_label
+                    .write()
+                    .await
+                    .insert(channel_id.clone(), label.to_string());
+                // Mirror coarse days into WDB when >= 1 day
+                let days = (ms / 86_400_000) as u32;
+                let _ = state
+                    .app
+                    .wdb
+                    .upsert_channel_retention(&channel_id, days.max(if ms >= 86_400_000 { 1 } else { 0 }), caller_id as u64)
+                    .await;
+                auto_delete_after = Some(label.to_string());
+            }
+        }
+    }
+
+    if let Err(e) = state.app.wdb.ingest_event("channel", "update_settings", &json!({ "row": row })).await {
         warn!("[sio] update-channel-settings failed: {}", e);
         let _ = socket.emit("channel-settings-error", &json!({ "error": "Failed to update settings" }));
         return;
     }
 
-    let _ = socket.emit("channel-settings-updated", &json!({ "channelId": channel_id }));
-    let _ = io.broadcast().emit("channel-updated", &json!({ "channelId": channel_id })).await;
+    let payload = json!({
+        "channelId": channel_id,
+        "id": channel_id,
+        "autoDeleteAfter": auto_delete_after,
+        "name": settings.get("name"),
+        "description": settings.get("description"),
+    });
+    let _ = socket.emit("channel-settings-updated", &payload);
+    let _ = io.broadcast().emit("channel-updated", &payload).await;
 }
 
+/// Parse frontend retention labels ("5s", "1m", "24h", "7d", ...) to milliseconds.
+fn parse_retention_label_to_ms(label: &str) -> Option<u64> {
+    let s = label.trim().to_lowercase();
+    if s.is_empty() || s == "never" || s == "off" || s == "forever" {
+        return None;
+    }
+    let (num, unit) = s.split_at(s.find(|c: char| c.is_ascii_alphabetic()).unwrap_or(s.len()));
+    let n: u64 = num.parse().ok()?;
+    let mult = match unit {
+        "s" | "sec" | "secs" | "second" | "seconds" => 1_000u64,
+        "m" | "min" | "mins" | "minute" | "minutes" => 60_000,
+        "h" | "hr" | "hrs" | "hour" | "hours" => 3_600_000,
+        "d" | "day" | "days" => 86_400_000,
+        _ => return None,
+    };
+    Some(n.saturating_mul(mult))
+}
+
+#[allow(dead_code)]
 pub async fn handle_set_role_display_name(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
     let token = socket.extensions.get::<AuthToken>().map(|t| t.0.clone()).unwrap_or_default();
     let caller_id = user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1);
@@ -128,21 +246,24 @@ pub async fn handle_set_role_display_name(socket: SocketRef, data: Value, state:
     }
 
     let role_name = data.get("roleName").and_then(|v| v.as_str()).unwrap_or("");
-    let display_name = data.get("displayName").and_then(|v| v.as_str()).unwrap_or("");
+    let _display_name = data.get("displayName").and_then(|v| v.as_str()).unwrap_or("");
 
     if role_name.is_empty() {
         return;
     }
 
-    if let Err(e) = state.app.stdb.upsert_role_definition(
-        "default-workspace",
-        role_name,
-        if display_name.is_empty() { role_name } else { display_name },
-        0, None, false,
+    let role = match role_name {
+        "Admin" => MemberRole::Admin,
+        "Moderator" => MemberRole::Moderator,
+        "Owner" => MemberRole::Owner,
+        _ => MemberRole::Member,
+    };
+    if let Err(e) = state.app.wdb.upsert_member_role(
+        "", caller_id as u64, role,
     ).await {
         warn!("[sio] set-role-display-name: failed to update role {}: {}", role_name, e);
     }
 
-    let roles: Vec<Value> = state.app.stdb.get_role_definitions().await.unwrap_or_default();
+    let roles = state.app.wdb.list_role_definitions("default-workspace").await.unwrap_or_default();
     drop(io.emit("role-definitions-updated", &json!({ "roles": roles })));
 }

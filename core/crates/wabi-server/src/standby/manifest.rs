@@ -11,7 +11,7 @@ use super::tables::{EXCLUDED_SNAPSHOT_TABLES, LIVE_STATE_SNAPSHOT_TABLES};
 #[serde(rename_all = "camelCase")]
 pub struct LiveStateSnapshotPayload {
     /// Plaintext rows grouped by table. This value must only exist in memory
-    /// between STDB export and encryption. Do not write it to disk.
+    /// between WDB export and encryption. Do not write it to disk.
     pub tables: std::collections::BTreeMap<String, Vec<serde_json::Value>>,
 }
 
@@ -85,12 +85,14 @@ impl SnapshotManifest {
         }
     }
 
+    #[allow(dead_code)]
     pub fn includes_table(&self, table: &str) -> bool {
         self.included_tables
             .iter()
             .any(|candidate| candidate == table)
     }
 
+    #[allow(dead_code)]
     pub fn excludes_table(&self, table: &str) -> bool {
         self.excluded_tables
             .iter()

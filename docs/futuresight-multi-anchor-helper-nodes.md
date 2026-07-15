@@ -696,7 +696,7 @@ This is deferred until the core helper-node architecture is stable.
 - search indexing
 
 **Tasks:**
-- Add job queue table (SQLite or in-memory with persistence).
+- Add job queue table in SpacetimeDB or an authority-owned helper queue.
 - Add worker job pull API.
 - Add signed job lease.
 - Add result submission.

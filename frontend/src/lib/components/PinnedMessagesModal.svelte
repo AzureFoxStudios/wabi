@@ -296,7 +296,7 @@
 
 	.jump-btn {
 		padding: 0.25rem 0.5rem;
-		background: var(--accent-primary, #5865f2);
+		background: var(--accent-primary, var(--accent-primary-color));
 		border: none;
 		border-radius: 4px;
 		color: white;

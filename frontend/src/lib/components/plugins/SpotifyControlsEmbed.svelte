@@ -50,7 +50,7 @@
 
 	.spotify-controls-actions a {
 		font-size: 0.72rem;
-		color: var(--accent-primary);
+		color: var(--accent-primary-color);
 		text-decoration: none;
 	}
 

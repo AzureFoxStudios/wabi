@@ -5,7 +5,9 @@
 	import { saveUserSettings } from '$lib/api';
 	import ThemeCustomizer from '../ThemeCustomizer.svelte';
 	import UniformFontMode from '../UniformFontMode.svelte';
+	import EffectsTab from '$lib/effects/EffectsTab.svelte';
 	import { layoutStore } from '$lib/layoutStore';
+	import { homeLayout, type HomeLayoutMode } from '$lib/layoutStoreStates';
 	import { animationQuality } from '$lib/motion/animationQuality';
 	import { themeStore } from '$lib/theme/themeStore';
 	import { THEMES } from '$lib/theme/themes';
@@ -170,6 +172,10 @@
 		layoutStore.setNavDock(side);
 	}
 
+	function updateHomeLayoutMode(mode: HomeLayoutMode) {
+		homeLayout.set(mode);
+	}
+
 	function toggleDockNavCollapsed() {
 		layoutStore.toggleNavCollapsed();
 	}
@@ -189,9 +195,7 @@
 		}
 	}
 
-	function toggleObviousGrabRails() {
-		layoutStore.setObviousGrabRails(!$layoutStore.obviousGrabRails);
-	}
+
 
 	function loadWorkspaceByName(name: string) {
 		layoutStore.loadWorkspace(name);
@@ -317,6 +321,18 @@
 
 	<div class="setting-item">
 		<div class="setting-info">
+			<span class="setting-label">Conversation Layout</span>
+			<span class="setting-description">Choose which navigation rails stay visible. This preference is saved on this device.</span>
+		</div>
+		<select class="theme-select" value={$homeLayout} on:change={(e) => updateHomeLayoutMode(e.currentTarget.value as HomeLayoutMode)}>
+			<option value="server-browser">Full — server rail and channel sidebar</option>
+			<option value="dm-focused">Focus — hide the server rail</option>
+			<option value="dm-pure">DMs Only — hide both navigation rails</option>
+		</select>
+	</div>
+
+	<div class="setting-item">
+		<div class="setting-info">
 			<span class="setting-label">Navigation Collapse</span>
 			<span class="setting-description">Collapse or expand the navigation dock</span>
 		</div>
@@ -337,15 +353,7 @@
 		</select>
 	</div>
 
-	<div class="setting-item">
-		<div class="setting-info">
-			<span class="setting-label">Obvious Grab Rails</span>
-			<span class="setting-description">Debug mode: draw exact draggable resize hitboxes</span>
-		</div>
-		<button class="toggle-btn" class:active={$layoutStore.obviousGrabRails} on:click={toggleObviousGrabRails}>
-			{$layoutStore.obviousGrabRails ? 'ON' : 'OFF'}
-		</button>
-	</div>
+	
 
 	<div class="setting-item-full">
 		<div class="settings-row-actions">
@@ -430,6 +438,10 @@
 
 	<div class="customizer-container">
 		<UniformFontMode />
+	</div>
+
+	<div class="customizer-container">
+		<EffectsTab />
 	</div>
 
 	<div class="settings-subsection">

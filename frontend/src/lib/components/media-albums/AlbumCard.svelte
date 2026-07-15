@@ -6,7 +6,6 @@
 	export let selectedAlbumId: number | null = null;
 	export let isUploadingAlbumFile = false;
 	export let lastUploadedAlbumId: number | null = null;
-	export let screenshotPipeTargetAlbumId: number | null = null;
 	export let previewItems: MediaAlbumItem[] = [];
 	export let canDeleteAlbumFor: (album: MediaAlbum | null) => boolean = () => false;
 
@@ -58,9 +57,6 @@
 		<div class="album-card-actions">
 			{#if album.isFeatured}
 				<span class="featured-badge">Featured</span>
-			{/if}
-			{#if screenshotPipeTargetAlbumId === album.id}
-				<span class="featured-badge">FFXIV pipe target</span>
 			{/if}
 			<button
 				type="button"

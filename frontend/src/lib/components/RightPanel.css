@@ -42,6 +42,27 @@
 	white-space: nowrap;
 }
 .panel-tab.active { background: rgba(var(--accent-rgb), 0.18); border-color: rgba(var(--accent-rgb), 0.36); color: var(--text-heading); }
+.panel-tab-more {
+	min-width: 0;
+	height: 28px;
+	border-radius: 999px;
+	border: 1px solid rgba(var(--accent-rgb), 0.36);
+	background: rgba(var(--accent-rgb), 0.14);
+	color: var(--text-heading);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0 0.6rem;
+	cursor: pointer;
+	font-size: 0.7rem;
+	font-weight: 750;
+	white-space: nowrap;
+}
+.panel-tab-more:hover, .panel-tab-more:focus-visible {
+	border-color: rgba(var(--accent-rgb), 0.55);
+	background: rgba(var(--accent-rgb), 0.22);
+}
+.panel-tab-more:focus-visible { outline: 2px solid rgba(var(--accent-rgb), 0.5); outline-offset: 1px; }
 .panel-tab-icon { width: 17px; height: 17px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .panel-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .panel-badge {
@@ -127,7 +148,9 @@
 	display: flex;
 	align-items: center;
 	gap: 0.45rem;
-	padding: 0.48rem 0.55rem;
+	padding: 0 0.55rem;
+	min-height: var(--app-chrome-height);
+	box-sizing: border-box;
 	background: color-mix(in srgb, var(--surface-base) 82%, transparent);
 	border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 68%, transparent);
 	overflow: visible;
@@ -172,11 +195,13 @@
 .mobile-workspace .workspace-dock { flex: 1; }
 .mobile-workspace .panel-stack { flex-basis: 100% !important; }
 .mobile-workspace .panel-stack:not(:first-child), .mobile-workspace .stack-resize-handle { display: none; }
-.mobile-workspace .stack-header { overflow-x: auto; }
+.mobile-workspace .stack-header { overflow-x: auto; min-height: 44px; }
+.mobile-workspace .panel-tab { min-height: 44px; }
+.mobile-workspace .stack-actions button { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
 @media (max-width: 420px) { .panel-tab-label { display: none; } }
 .panel-context-menu {
 	position: fixed;
-	z-index: 9999;
+	z-index: var(--z-popover, 500);
 	background: var(--surface-base);
 	border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
 	border-radius: 6px;

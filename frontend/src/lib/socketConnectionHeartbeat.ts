@@ -19,6 +19,11 @@ export class SocketHeartbeat {
 	start(socket: Socket): void {
 		if (this.heartbeatInterval) return;
 
+		// Seed the last-pong timestamp so the very first interval (which runs
+		// well after connect) doesn't mistake a healthy, freshly-connected
+		// socket for a timed-out one and force a spurious reconnect.
+		this.lastPong = Date.now();
+
 		this.heartbeatInterval = setInterval(() => {
 			if (!socket?.connected) {
 				this.stop();

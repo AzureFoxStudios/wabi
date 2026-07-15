@@ -86,6 +86,8 @@
 	let profilePaymentSheetInitialMethodId: string | null = null;
 	let profilePaymentSheetInitialMetadata: Record<string, unknown> | null = null;
 	let showClearServerConfirm = false;
+	let avatarUploadStatus = '';
+	let avatarUploadError = '';
 
 	$: canManageAdmin = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
 	$: if (!canManageAdmin && activeSettingsTab === 'admin') {
@@ -194,6 +196,8 @@
 
 	function handleAvatarSelected(event: CustomEvent<{ file: File; dataUrl: string }>): void {
 		selectedAvatarFile = event.detail.file;
+		avatarUploadStatus = 'Uploading avatar…';
+		avatarUploadError = '';
 		void uploadProfilePicture();
 	}
 
@@ -205,11 +209,13 @@
 
 		try {
 			const uploadedProfilePictureUrl = await uploadProfilePictureFile(selectedAvatarFile);
-			updateProfile(undefined, uploadedProfilePictureUrl);
-			alert('Profile picture updated successfully!');
+			updateProfile({ profilePicture: uploadedProfilePictureUrl });
+			currentUser.update((user) => user ? { ...user, profilePicture: uploadedProfilePictureUrl } : user);
+			avatarUploadStatus = 'Avatar updated locally. Server profile sync requested.';
 		} catch (error) {
 			console.error('Error uploading profile picture:', error);
-			alert(error instanceof Error ? error.message : 'Failed to upload profile picture. Please try again.');
+			avatarUploadError = error instanceof Error ? error.message : 'Failed to upload profile picture. Please try again.';
+			avatarUploadStatus = '';
 		} finally {
 			selectedAvatarFile = null;
 		}
@@ -327,6 +333,11 @@
 				</div>
 
 				<div class="settings-content">
+					{#if avatarUploadStatus || avatarUploadError}
+						<div class="settings-inline-status" class:error={Boolean(avatarUploadError)} role="status">
+							{avatarUploadError || avatarUploadStatus}
+						</div>
+					{/if}
 					{#if activeSettingsTab === 'profile'}
 						<ProfileSettingsTab
 							passwordChangeRequest={requestedPasswordChangeRequest}

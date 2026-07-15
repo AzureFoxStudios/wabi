@@ -1,5 +1,6 @@
 import { getAuthToken } from '$lib/authSession';
 import { getServerUrl } from '$lib/serverUrl';
+import { isEndpointUnsupported, markEndpointUnsupported } from './optionalEndpoints';
 
 interface PluginApiRecord {
 	id?: string;
@@ -41,11 +42,20 @@ function detectBuiltinFrontendAddonIds(): Set<string> {
 
 export async function fetchPluginInventory(): Promise<PluginApiRecord[] | null> {
 	const token = getAuthToken();
+	const pluginsUrl = `${getServerUrl()}/api/plugins`;
+	if (isEndpointUnsupported(pluginsUrl)) return null; // already known missing
+
 	try {
-		const response = await fetch(`${getServerUrl()}/api/plugins`, {
+		const response = await fetch(pluginsUrl, {
 			headers: token ? { Authorization: `Bearer ${token}` } : undefined
 		});
-		if (!response.ok) return null;
+		if (!response.ok) {
+			if (response.status === 404) {
+				markEndpointUnsupported(pluginsUrl); // optional endpoint — silent
+				return null;
+			}
+			return null;
+		}
 		const payload = await response.json();
 		return Array.isArray(payload?.plugins) ? payload.plugins : [];
 	} catch (error) {

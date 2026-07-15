@@ -41,7 +41,7 @@
 			></textarea>
 		</label>
 		<div class="reader-import-actions">
-			<button class="reader-action-btn" type="button" on:click={onSubmit} disabled={!importContent.trim()}>
+			<button class="reader-action-btn primary" type="button" on:click={onSubmit} disabled={!importContent.trim()}>
 				Open In Reader
 			</button>
 		</div>

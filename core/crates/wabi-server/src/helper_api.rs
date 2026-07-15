@@ -12,7 +12,6 @@
 //! handlers guarded by the token.
 
 use axum::{
-    body::Body,
     extract::{Query, Request},
     http::StatusCode,
     middleware::{self, Next},

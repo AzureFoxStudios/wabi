@@ -138,7 +138,7 @@
 	}
 
 	.chat-message.own .message-bubble {
-		background: var(--accent-primary);
+		background: var(--accent-primary-color);
 		color: white;
 		border-color: transparent;
 	}
@@ -199,7 +199,7 @@
 
 	.preview-button {
 		padding: 0.6rem 1rem;
-		background: var(--accent-primary);
+		background: var(--accent-primary-color);
 		color: white;
 		border: none;
 		border-radius: 4px;
@@ -226,7 +226,7 @@
 
 	.preview-input:focus {
 		outline: none;
-		border-color: var(--accent-primary);
+		border-color: var(--accent-primary-color);
 		box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.1);
 	}
 

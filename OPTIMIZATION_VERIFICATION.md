@@ -1,3 +1,6 @@
+> **Historical note (2026-06-22):** This document predates the STDB → Wabidb rip. STDB/SpacetimeDB/wabi-node references are historical. The current architecture is wabi-server with embedded Wabidb. See PROJECT_DOCS/01-architecture/ARCHITECTURE.md for the current state.
+
+
 # Optimization Verification — Wabi Stack Audit
 
 ## Part 1: The Big 8 — What We Have vs What's Listed

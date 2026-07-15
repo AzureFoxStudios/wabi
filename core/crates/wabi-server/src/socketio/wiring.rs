@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
     let app_for_broadcast = app.clone();
     let state = SioState {
@@ -6,6 +7,12 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
         voice_channels: Arc::new(RwLock::new(HashMap::new())),
         group_call_sessions: Arc::new(RwLock::new(HashMap::new())),
     };
+
+    // Spawn the periodic sweep task for stale Socket.IO state. Safety
+    // net for on_disconnect failures. WABI_AUDIT_REPORT.md #3-#5.
+    // JoinHandle is dropped — the task runs until process exit. Future
+    // work: store in AppState for graceful shutdown.
+    let _sweep_handle = spawn_sweep_loop(state.clone());
 
     let (layer, io) = SocketIo::builder().with_state(state).build_layer();
     let _ = app_for_broadcast.sio_broadcast_tx.send(io.clone());
@@ -69,6 +76,14 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 }
             });
 
+            socket.on("clear-channel-messages", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(cmd): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_clear_channel_messages(socket, cmd, s, io).await }
+                }
+            });
+
             socket.on("voice-channel-join", {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
@@ -81,7 +96,15 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    async move { on_voice_channel_join(socket, data, s, io).await }
+                    async move { on_voice_channel_subscribe(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("voice-channel-unsubscribe", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_voice_channel_unsubscribe(socket, data, s, io).await }
                 }
             });
 
@@ -90,6 +113,14 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
                     async move { on_voice_channel_leave(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("set-voice-transmit-mode", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_set_voice_transmit_mode(socket, data, s, io).await }
                 }
             });
 
@@ -154,6 +185,14 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
                     async move { on_create_dm(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("create-group", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_create_group(socket, data, s, io).await }
                 }
             });
 
@@ -242,6 +281,14 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
                     async move { on_edit_message(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("toggle-pin-message", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_toggle_pin(socket, data, s, io).await }
                 }
             });
 
@@ -349,19 +396,19 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 }
             });
 
-            socket.on("join-stdb-call", {
+            socket.on("join-wabidb-call", {
                 let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let io = io.clone();
-                    async move { on_join_stdb_call(socket, data, io).await }
+                    async move { on_join_wabidb_call(socket, data, io).await }
                 }
             });
 
-            socket.on("stdb-media", {
+            socket.on("wabidb-media", {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    async move { on_stdb_media(socket, data, s, io).await }
+                    async move { on_wabidb_media(socket, data, s, io).await }
                 }
             });
 
@@ -370,6 +417,70 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
                     async move { on_voice_segment(socket, data, &s, &io).await }
+                }
+            });
+
+            socket.on("start-screen-share", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_start_screen_share(socket, s, io).await }
+                }
+            });
+
+            socket.on("stop-screen-share", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_stop_screen_share(socket, s, io).await }
+                }
+            });
+
+            socket.on("webrtc-offer", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_webrtc_offer(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("webrtc-answer", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_webrtc_answer(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("webrtc-ice-candidate", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_webrtc_ice_candidate(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("p2p-offer", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_p2p_offer(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("p2p-answer", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_p2p_answer(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("p2p-ice-candidate", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_p2p_ice_candidate(socket, data, s, io).await }
                 }
             });
 

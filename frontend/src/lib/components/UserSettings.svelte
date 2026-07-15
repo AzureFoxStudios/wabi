@@ -219,13 +219,13 @@
 	}
 
 	.select-input:hover:not(:disabled) {
-		border-color: var(--accent-primary);
+		border-color: var(--accent-primary-color);
 		background: var(--surface-base);
 	}
 
 	.select-input:focus {
 		outline: none;
-		border-color: var(--accent-primary);
+		border-color: var(--accent-primary-color);
 		box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb, 88, 101, 242), 0.1);
 	}
 
@@ -249,7 +249,7 @@
 		width: 20px;
 		height: 20px;
 		cursor: pointer;
-		accent-color: var(--accent-primary);
+		accent-color: var(--accent-primary-color);
 		flex-shrink: 0;
 	}
 
@@ -267,13 +267,13 @@
 		gap: 1rem;
 		padding: 1rem;
 		background: rgba(var(--accent-primary-rgb, 88, 101, 242), 0.05);
-		border: 1px solid var(--accent-primary);
+		border: 1px solid var(--accent-primary-color);
 		border-radius: 8px;
 		color: var(--text-heading);
 	}
 
 	.info-box svg {
-		color: var(--accent-primary);
+		color: var(--accent-primary-color);
 		flex-shrink: 0;
 		margin-top: 0.25rem;
 	}
@@ -284,7 +284,7 @@
 	}
 
 	.info-box p strong {
-		color: var(--accent-primary);
+		color: var(--accent-primary-color);
 	}
 
 	.info-box ul {
@@ -320,7 +320,7 @@
 
 	.save-btn {
 		padding: 0.75rem 1.5rem;
-		background: var(--accent-primary);
+		background: var(--accent-primary-color);
 		color: white;
 		border: none;
 		border-radius: 8px;

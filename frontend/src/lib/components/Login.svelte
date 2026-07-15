@@ -3,8 +3,7 @@
 	import { get } from 'svelte/store';
 	import { register, login, saveUserSettings, getLaunchPageConfig, getSetupStatus, type LaunchPageConfig } from '$lib/api';
 	import { clearAuthSession, setAuthToken, setPersistentAuthToken, setStoredDbUserId } from '$lib/authSession';
-	import { initE2E } from '$lib/e2eManager';
-	import { retryDecryptLoadedDmMessages } from '$lib/socket';
+		import { retryDecryptLoadedDmMessages } from '$lib/socket';
 	import { setStoredHomeExperienceMode, type HomeExperienceMode } from '$lib/homeExperience';
 	import { _, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
 	import { getConfiguredServerUrl, getServerUrl, resolveServerUrl } from '$lib/serverUrl';
@@ -35,6 +34,7 @@
 	let selectedLocale = 'en';
 	let launchPageConfig: LaunchPageConfig | null = null;
 	let wizardMode = false;
+	let showPassword = false;
 
 	$: selectedLocale = $currentLocale || 'en';
 	$: activeLaunchPageConfig = launchPageConfig?.enabled ? launchPageConfig : null;
@@ -68,7 +68,7 @@
 		try {
 			const result = await register(username, password, cleanHandle);
 			setAuthToken(result.token);
-			if (result.user.id) { setStoredDbUserId(result.user.id); await initE2E(result.user.id, result.token, true); await retryDecryptLoadedDmMessages(); }
+			if (result.user.id) { setStoredDbUserId(result.user.id); /* DM-strip: removed initE2E + retryDecryptLoadedDmMessages */ }
 			if (wizardMode) dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered' });
 			else { pendingRegisteredLogin = { username: result.user.username, token: result.token }; showHomeExperiencePrompt = true; }
 		} catch (err) { error = err instanceof Error ? err.message : t('login.errors.registration_failed'); }
@@ -95,7 +95,8 @@
 			const result = await login(username, password);
 			setAuthToken(result.token);
 			if (rememberMe) setPersistentAuthToken(result.token);
-			if (result.user.id) { setStoredDbUserId(result.user.id); await initE2E(result.user.id, result.token, false); await retryDecryptLoadedDmMessages(); }
+			if (result.user.id) { setStoredDbUserId(result.user.id); /* DM-strip: removed initE2E + retryDecryptLoadedDmMessages */ }
+			localStorage.setItem('wabi_has_logged_in', 'true');
 			dispatch('login', { username: result.user.username, token: result.token, authMethod: 'registered', mustChangePassword: result.mustChangePassword === true });
 		} catch (err) { error = err instanceof Error ? err.message : t('login.errors.login_failed'); }
 		finally { loading = false; }
@@ -126,14 +127,12 @@
 
 		<div class="login-box" class:login-box-default={!activeLaunchPageConfig} style={launchCardStyle}>
 			<div class="login-brand-panel">
-				<img src={activeLaunchPageConfig?.logoUrl || '/wabi-logo.webp'} alt={activeLaunchPageConfig?.brandName || 'Wabi'} class="logo" class:logo-compact={!activeLaunchPageConfig} />
+				<img src={activeLaunchPageConfig?.logoUrl || '/wabi-logo.webp'} alt={activeLaunchPageConfig?.brandName || 'Wabi'} class="login-logo" class:login-logo-compact={!activeLaunchPageConfig} />
 				{#if activeLaunchPageConfig}
 					<h2 class="launch-headline">{activeLaunchPageConfig.headline}</h2>
 					<p class="launch-subheadline">{activeLaunchPageConfig.subheadline}</p>
 				{:else}
-					<p class="login-kicker">Self-hosted creative workspace</p>
 					<h1 class="login-title">Wabi</h1>
-					<p class="login-intro">A calmer home for your crew, calls, files, maps, notes, and messy work-in-progress.</p>
 				{/if}
 			</div>
 
@@ -180,12 +179,6 @@
 							</div>
 						</div>
 					{:else}
-						{#if !activeLaunchPageConfig}
-							<p class="auth-eyebrow">Account access</p>
-							<h2 class="auth-heading">{authMode === 'login' ? 'Welcome back' : 'Create your account'}</h2>
-							<p class="auth-subheading">{authMode === 'login' ? 'Sign in to continue to your server.' : 'Create a permanent identity for this Wabi server.'}</p>
-						{/if}
-
 						{#if error}
 							<div class="error-message">{error}</div>
 						{/if}
@@ -196,20 +189,36 @@
 									<span class="field-caption">Username or handle</span>
 									<input type="text" bind:value={username} placeholder={$_('login.auth.username_or_handle_placeholder')} autocomplete="username" required use:focusOnMount disabled={loading} />
 								</label>
-								<label class="field-label">
+								<label class="field-label password-field">
 									<span class="field-caption">Password</span>
-									<input type="password" bind:value={password} placeholder={$_('login.auth.password_placeholder')} autocomplete="current-password" required disabled={loading} />
+									<div class="password-wrapper">
+										<input type={showPassword ? 'text' : 'password'} bind:value={password} placeholder={$_('login.auth.password_placeholder')} autocomplete="current-password" required disabled={loading} />
+										<button type="button" class="password-toggle" on:click={() => showPassword = !showPassword} aria-label={showPassword ? $_('login.auth.hide_password') : $_('login.auth.show_password')} aria-pressed={showPassword}>
+											<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+												{#if showPassword}
+													<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+													<line x1="1" y1="1" x2="23" y2="23"></line>
+												{:else}
+													<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+													<circle cx="12" cy="12" r="3"></circle>
+												{/if}
+											</svg>
+										</button>
+									</div>
 								</label>
-								<label class="remember-row">
-									<input type="checkbox" bind:checked={rememberMe} disabled={loading} />
-									<span>Remember me on this device</span>
-								</label>
+								<div class="field-row">
+									<label class="remember-row">
+										<input type="checkbox" bind:checked={rememberMe} disabled={loading} />
+										<span>{$_('login.auth.remember_me')}</span>
+									</label>
+									<a href="#" class="forgot-link" on:click|preventDefault={() => { /* TODO: implement forgot password */ }}>{$_('login.auth.forgot_password')}</a>
+								</div>
 								<button type="submit" class="auth-btn auth-btn-primary" disabled={loading}>
 									{loading ? $_('login.auth.logging_in') : $_('login.auth.login_button')}
 								</button>
 							</form>
 							<p class="auth-alt-prompt">
-								New here? <button type="button" class="auth-link" on:click={() => switchAuthMode('register')}>Create a registered account</button>
+								{$_('login.auth.create_account_prompt')} <button type="button" class="auth-link" on:click={() => switchAuthMode('register')}>{$_('login.auth.create_account_link')}</button>
 							</p>
 						{:else}
 							<form class="auth-form" on:submit|preventDefault={handleRegister}>
@@ -263,21 +272,23 @@
 							</div>
 						{:else}
 							<button type="button" class="guest-expand" on:click={() => { guestExpanded = true; error = ''; }}>
-								Continue as guest
+								{$_('login.auth.guest_access_link')}
 							</button>
 						{/if}
 
 						<div class="auth-footer-row">
 							<div class="locale-pill">
-								<select id="locale-picker" bind:value={selectedLocale} on:change={(event) => setAppLocale((event.currentTarget as HTMLSelectElement).value)}>
+								<span class="locale-flag" aria-hidden="true">🇺🇸</span>
+								<span class="locale-label" aria-hidden="true">English</span>
+								<select id="locale-picker" aria-label="Language" bind:value={selectedLocale} on:change={(event) => setAppLocale((event.currentTarget as HTMLSelectElement).value)}>
 									{#each availableLocales as localeOption}
 										<option value={localeOption.code}>{localeOption.label}</option>
 									{/each}
 								</select>
 							</div>
 							<div class="server-pill">
-								<span class="server-pill-url">{serverUrl || 'Local server'}</span>
-								<button type="button" class="server-pill-btn" on:click={() => (showConnectionPrompt = true)}>Change</button>
+								<span class="server-pill-url">{$_('login.auth.change_server')}</span>
+								<button type="button" class="server-pill-btn" on:click={() => (showConnectionPrompt = true)}>{$_('login.auth.change_server_link')}</button>
 							</div>
 						</div>
 					{/if}

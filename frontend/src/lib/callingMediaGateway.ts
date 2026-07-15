@@ -100,7 +100,7 @@ function stopMediaGatewaySessionRenewal(): void {
 	callTransportState.update((state) => ({
 		...state,
 		gatewaySessionId: activeMediaGatewaySessionId,
-		gatewayControlPlaneStatus: activeMediaGatewaySessionId ? 'idle' : 'idle',
+		gatewayControlPlaneStatus: activeMediaGatewaySessionId ? 'ready' : 'idle',
 		gatewayMediaPlaneStatus: activeMediaGatewaySessionId ? 'pending' : 'idle',
 		gatewayActiveStreams: null,
 		gatewayLastSeenAt: null

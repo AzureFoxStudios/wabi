@@ -2,6 +2,8 @@
 	import { tick } from 'svelte';
 	import { browser } from '$app/environment';
 	import '$lib/prism-theme.css';
+	import { mobileTabQueue } from '$lib/mobileTabQueue';
+	import { READER_ADDON_ID } from '$lib/readerWorkspace';
 	import ReaderImportSheet from './ReaderImportSheet.svelte';
 	import { countWords, formatSourceLabel, renderReaderHtml } from './readerTabHelpers';
 	import {
@@ -289,6 +291,9 @@
 				</div>
 
 				<div class="reader-toolbar-actions">
+					<button class="reader-action-btn subtle" type="button" on:click={() => mobileTabQueue.closeAddonTab(READER_ADDON_ID)} title="Back to Chat">
+						← Back to Chat
+					</button>
 					{#if $readerSelection}
 						<button class="reader-action-btn" type="button" on:click={goToPreviousPage} disabled={isAtDocumentStart} title="Previous Page">
 							← Prev
@@ -298,7 +303,7 @@
 							Next →
 						</button>
 					{/if}
-					<button class="reader-action-btn" type="button" on:click={openFilePicker} disabled={importBusy}>
+					<button class="reader-action-btn primary" type="button" on:click={openFilePicker} disabled={importBusy}>
 						{importBusy ? 'Opening...' : 'Open File'}
 					</button>
 					<button class="reader-action-btn" type="button" on:click={openImagePicker}>
@@ -520,7 +525,7 @@
 					<h3>Reader Mode is ready</h3>
 					<p>Open a local text file, paste long-form writing, or keep this tab available for future article and publication flows.</p>
 					<div class="reader-empty-actions">
-						<button class="reader-action-btn" type="button" on:click={openFilePicker}>Open File</button>
+						<button class="reader-action-btn primary" type="button" on:click={openFilePicker}>Open File</button>
 						<button class="reader-action-btn" type="button" on:click={openImagePicker}>Open Images</button>
 						<button class="reader-action-btn" type="button" on:click={() => openImportPanel('markdown')}>Paste Markdown</button>
 						<button class="reader-action-btn subtle" type="button" on:click={() => openReaderDocument('Reader Welcome', '# Reader Mode\n\nWabi now has a dedicated long-form reading surface.\n\nUse it for essays, books, issue drafts, and documentation.\n\n## Suggested next steps\n\n- Import a `.md`, `.txt`, or `.html` file\n- Adjust width and typography\n- Re-open recent documents from the toolbar\n- Import images for manga/comic viewing\n', 'markdown', 'generated')}>

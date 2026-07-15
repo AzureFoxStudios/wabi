@@ -7,6 +7,11 @@ type Listener = (...args: any[]) => void;
 const LOCAL_MOCK_FLAG = 'VITE_WABI_LOCAL_MOCK';
 const LOCAL_MOCK_STORAGE_KEY = 'wabi:local-mock:messages:v1';
 
+function localMockAvatar(label: string, background: string): string {
+	const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" rx="24" fill="${background}"/><text x="50%" y="54%" text-anchor="middle" dominant-baseline="middle" font-family="Inter, Arial, sans-serif" font-size="44" font-weight="800" fill="#06111d">${label}</text></svg>`;
+	return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
 export function isLocalMockMode(): boolean {
 	return import.meta.env[LOCAL_MOCK_FLAG] === '1' || import.meta.env[LOCAL_MOCK_FLAG] === 'true';
 }
@@ -97,20 +102,23 @@ async function seedLocalMockState(mock: LocalMockSocket, username: string): Prom
 		username,
 		color: '#98D8C8',
 		status: 'active',
-		highestRole: 'owner'
+		highestRole: 'guest',
+		profilePicture: localMockAvatar('H', '#98D8C8')
 	};
 	const artist: User = {
 		id: 'local-mira',
 		username: 'Mira',
 		color: '#F6A6FF',
 		status: 'active',
-		bio: 'Local mock collaborator for frontend-only Wabi dev.'
+		bio: 'Local mock collaborator for frontend-only Wabi dev.',
+		profilePicture: localMockAvatar('M', '#F6A6FF')
 	};
 	const sleepy: User = {
 		id: 'local-taro',
 		username: 'Taro',
 		color: '#FFD166',
-		status: 'away'
+		status: 'away',
+		profilePicture: localMockAvatar('T', '#FFD166')
 	};
 
 	const channels: Channel[] = [
@@ -118,7 +126,7 @@ async function seedLocalMockState(mock: LocalMockSocket, username: string): Prom
 			id: 'general',
 			name: 'general',
 			type: 'text',
-			description: 'Frontend-only local mock channel. No backend or STDB required.',
+			description: 'Frontend-only local mock channel. No backend required.',
 			createdAt: now - 86400000,
 			minRole: 'guest'
 		},
@@ -152,6 +160,8 @@ async function seedLocalMockState(mock: LocalMockSocket, username: string): Prom
 	]);
 	presenceStore._setRoleDefinitions([
 		{ roleName: 'owner', displayName: 'Owner', priority: 100, color: '#98D8C8' },
+		{ roleName: 'admin', displayName: 'Admin', priority: 80, color: '#7dd3fc' },
+		{ roleName: 'mod', displayName: 'Moderator', priority: 50, color: '#c4b5fd' },
 		{ roleName: 'guest', displayName: 'Guest', priority: 0, color: null }
 	]);
 
@@ -173,7 +183,7 @@ function createSeedMessages(now: number, username: string): Record<string, Messa
 				userId: 'system',
 				senderStableId: 'system',
 				color: '#98D8C8',
-				text: 'Local mock mode is running. You can work on the frontend without a real backend or SpacetimeDB.',
+				text: 'Local mock mode is running. You can work on the frontend without a real backend.',
 				timestamp: now - 120000,
 				type: 'text'
 			},

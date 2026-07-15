@@ -49,7 +49,7 @@
 	}
 
 	.item-main a {
-		color: var(--accent-primary);
+		color: var(--accent-primary-color);
 		text-decoration: none;
 		font-size: 0.8rem;
 		word-break: break-all;

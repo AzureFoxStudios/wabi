@@ -46,6 +46,7 @@ pub struct MediaRoomRegistry {
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum MediaRoomError {
     #[error("room not found")]
     NotFound,
@@ -59,6 +60,7 @@ pub enum MediaRoomError {
     Io(String),
 }
 
+#[allow(dead_code)]
 impl MediaRoomRegistry {
     pub fn new_persistent(data_dir: impl Into<PathBuf>) -> Self {
         let data_dir: PathBuf = data_dir.into();

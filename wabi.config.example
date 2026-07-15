@@ -4,14 +4,12 @@
 # launch.sh will sync supported keys into .env/frontend/.env automatically.
 #
 # PROFILE:
-#   starter   -> normal mode (SQLite)
-#   community -> community mode (SQLite + STDB-ready)
-PROFILE=starter
+#   authority -> Rust server + SpacetimeDB authority node
+#   anchor    -> regional/helper node that routes to an authority
+PROFILE=authority
 
-# RUNTIME:
-#   node (default, recommended)
-#   bun  (advanced)
-RUNTIME=node
+# Runtime is Rust + SpacetimeDB. Frontend local state belongs in IndexedDB only.
+RUNTIME=rust
 
 # Public host users will open (domain preferred for HTTPS).
 # Use localhost only for local testing.
@@ -36,6 +34,10 @@ CLOUDFLARE_TUNNEL_TOKEN=
 #   self_hosted_turn -> deploy coturn profile locally
 #   external_turn    -> skip coturn profile (external TURN provider)
 CALLS=off
+
+# Maximum upload size in bytes (default: 50GB = 53687091200).
+# Self-hosted = your server, your rules. Set lower if you want guardrails.
+WABI_MAX_BODY_SIZE=53687091200
 
 # Advanced media flags (off by default).
 # Relay network setup is intentionally separated from core server setup.
@@ -85,6 +87,13 @@ WABI_SERVER_ROLE=
 WABI_MESH_INSTANCE_URL_TEMPLATE=http://{instanceId}:8080
 WABI_MESH_INGRESS_URL=
 WABI_MESH_SHARED_TOKEN=
+
+# Mesh coordination (core functionality, enabled by default).
+# Set WABI_MESH_ENABLED=true to activate multi-node coordination.
+# WABI_MESH_PEERS is a comma-separated list of peer node IDs.
+WABI_MESH_ENABLED=false
+WABI_MESH_PEERS=
+
 STATE_PLANE_SCHEMA_VERSION=1
 STATE_PLANE_SCHEMA_AUTO_APPLY=true
 STATE_REDUCER_INGRESS_ENABLED=false

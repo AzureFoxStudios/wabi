@@ -122,9 +122,9 @@ relay-volunteer-domain {
 ### Required for Production Deployment
 
 **Backend Requirements:**
-- ✅ Use Node 20-slim or later for better-sqlite3 compatibility
+- ✅ Use Node 20-slim or later for legacy native DB module compatibility
   - See backend/Dockerfile commit bc35ffe: "Fix backend Docker build: use Node 20-slim and rebuild native modules"
-  - Ensures native module compilation (better-sqlite3) works correctly
+  - Ensures native module compilation (legacy native DB module) works correctly
   - Build tools (build-essential, python3) required in Dockerfile
 
 **Relay Configuration:**
@@ -138,7 +138,7 @@ relay-volunteer-domain {
   - List pending: `./scripts/relay-admin.sh list-pending`
   - Approve: `./scripts/relay-admin.sh approve <relay_id>`
   - Verify: `./scripts/relay-admin.sh list-active`
-- ❌ DO NOT use direct SQLite updates (`UPDATE relays SET approved=1`) — testing only
+- ❌ DO NOT use direct legacy embedded DB updates (`UPDATE relays SET approved=1`) — testing only
   - This bypasses admin authentication; production requires proper auth flow
 
 **Frontend Deployment:**

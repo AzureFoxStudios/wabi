@@ -1,8 +1,36 @@
 import { browser } from '$app/environment';
 import { get, writable } from 'svelte/store';
 
+import type { Message } from '$lib/socket-types';
+
 export type TimestampDisplayMode = 'compact' | 'complete' | 'detailed';
 export type RevealAllSpoilersMinRole = 'guest' | 'member' | 'mod' | 'admin' | 'owner';
+
+/**
+ * A message timestamp is only meaningful if it is a finite, positive number.
+ * `new Date(undefined/NaN)` yields the literal "Invalid Date" string, which is
+ * what produced the "U / Unknown user / Invalid Date" rows in chat.
+ */
+export function isValidMessageTimestamp(timestamp: unknown): boolean {
+	return typeof timestamp === 'number' && Number.isFinite(timestamp) && timestamp > 0;
+}
+
+/**
+ * A message is renderable only if it has a stable id, a valid timestamp, and
+ * some notion of sender identity (or is a local/system card). Messages missing
+ * any of these are corrupted/orphaned and should not be shown as chat rows.
+ */
+export function isRenderableMessage(message: Message | null | undefined): boolean {
+	if (!message) return false;
+	if (!message.id) return false;
+	// Soft-deleted messages (orphaned/ghost rows) must never render as chat rows.
+	if (message.isDeleted) return false;
+	if (!isValidMessageTimestamp(message.timestamp)) return false;
+	const hasIdentity = Boolean(
+		message.userId || message.user || message.senderStableId || message.localCard
+	);
+	return hasIdentity;
+}
 
 export interface DisplayEnhancementSettings {
 	clickableMentionsEnabled: boolean;

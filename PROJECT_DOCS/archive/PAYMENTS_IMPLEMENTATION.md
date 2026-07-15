@@ -55,7 +55,7 @@ STDB shared-state projection in `stdb_primary`:
 
 Hybrid rule now:
 - shared payment reads lean on STDB in `stdb_primary`
-- local SQLite remains the supporting mirror and operational store
+- local legacy embedded DB remains the supporting mirror and operational store
 - provider secrets, webhook auth, adapter tokens, and other non-shared operator data stay backend-local
 - if an STDB payment row is missing during `stdb_primary`, backend backfills it from the local mirror and continues
 

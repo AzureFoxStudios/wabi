@@ -12,10 +12,13 @@ type RightPanelTab = WorkspacePanelId;
 
 export const NOTES_DM_ID = '__keep_notes__';
 
+export type HomeLayoutMode = 'dm-pure' | 'dm-focused' | 'server-browser';
+
 const DEFAULT_NAV_WIDTH = 280;
 const DEFAULT_RIGHT_WIDTH = 320;
 const MIN_RIGHT_WIDTH = 220;
 const OBVIOUS_GRAB_RAILS_KEY = 'wabi:obvious-grab-rails';
+const HOME_LAYOUT_KEY = 'wabi:home-layout';
 
 export const isMobile = readable(false, (set) => {
 	if (typeof window === 'undefined') {
@@ -32,6 +35,7 @@ export const layoutState = writable<LayoutStateV1>(createDefaultLayoutState());
 export const activeWorkspace = writable('default');
 export const navDock = writable<any>('left');
 export const rightPanelView = writable<RightPanelView>('none');
+export const centerPanelView = writable<'chat' | 'admin'>('chat');
 export const activeRightTab = writable<RightPanelTab>(FALLBACK_WORKSPACE_PANEL_ID);
 export const rightPanelDock = writable<WorkspacePanelDockV1>(createDefaultPanelDock());
 export const showMobileChannels = writable(false);
@@ -44,8 +48,28 @@ export const isResizingRight = writable(false);
 
 export const selectedDmChannelId = writable<string | null>(null);
 export const dmOtherUser = writable<User | null>(null);
+export const centerDmChannelId = writable<string | null>(null);
 export const selectedGroupChannel = writable<Channel | null>(null);
+export const pinnedDmChannelId = writable<string | null>(null);
+export const pinnedDmOtherUser = writable<User | null>(null);
 export const obviousGrabRails = writable(false);
+
+function readHomeLayout(): HomeLayoutMode {
+	if (typeof localStorage === 'undefined') return 'server-browser';
+	try {
+		const stored = localStorage.getItem(HOME_LAYOUT_KEY);
+		if (stored === 'dm-pure' || stored === 'dm-focused' || stored === 'server-browser') return stored;
+	} catch { /* best effort */ }
+	return 'server-browser';
+}
+
+export const homeLayout = writable<HomeLayoutMode>(readHomeLayout());
+
+if (typeof localStorage !== 'undefined') {
+	homeLayout.subscribe(value => {
+		try { localStorage.setItem(HOME_LAYOUT_KEY, value); } catch { /* best effort */ }
+	});
+}
 
 export const DEFAULT_CONSTANTS = {
 	NAV_WIDTH: DEFAULT_NAV_WIDTH,

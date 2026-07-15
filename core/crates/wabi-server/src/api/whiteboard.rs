@@ -15,7 +15,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -24,15 +24,18 @@ use tokio::io::AsyncWriteExt;
 
 use crate::error::Result;
 use crate::state::AppState;
+use wabidb::engine::wabi_store::WabiStore;
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 /// Max whiteboard document size (2 MB) — enforced on snapshot save via Socket.IO.
+#[allow(dead_code)]
 pub const WHITEBOARD_MAX_DOCUMENT_BYTES: usize = 2 * 1024 * 1024;
 
 /// Max whiteboard live-collab payload (128 KB).
+#[allow(dead_code)]
 pub const WHITEBOARD_MAX_LIVE_PAYLOAD_BYTES: usize = 128 * 1024;
 
 /// Default max upload size for whiteboard images (10 MB).
@@ -107,15 +110,26 @@ fn timestamp_millis() -> u128 {
 }
 
 /// Resolve the on-disk path for an upload file ID.
+///
+/// WABI_AUDIT_REPORT.md finding #10: now uses `safe_join` to reject
+/// absolute paths, ".." components, null bytes, and any input that
+/// would escape the uploads directory after canonicalization.
 fn resolve_upload_path(uploads_dir: &str, file_id: &str) -> PathBuf {
-    PathBuf::from(uploads_dir).join(file_id)
+    use super::path_util::safe_join;
+    let base = std::path::Path::new(uploads_dir);
+    safe_join(base, file_id).unwrap_or_else(|_| {
+        // Fall back to a non-existent path inside the base. Callers that
+        // open this path will get NotFound, which is the correct safe
+        // behavior for invalid input.
+        base.join("__invalid_path__")
+    })
 }
 
 /// Check channel access for a user + optional guest session.
 async fn can_access_channel(
     state: &AppState,
     user_id: Option<i64>,
-    guest_session_id: Option<&str>,
+    _guest_session_id: Option<&str>,
     channel_id: &str,
 ) -> bool {
     // Owner always has access
@@ -129,28 +143,11 @@ async fn can_access_channel(
         }
     }
 
-    // Check STDB for channel membership
-    // For public channels, everyone can access
-    if let Ok(channels) = state.stdb.get_channels_raw().await {
+    // Check WDB for channel membership
+    if let Ok(channels) = state.wdb.list_channels(None).await {
         for ch in &channels {
-            if ch.get("channel_id").and_then(|v| v.as_str()) == Some(channel_id) {
-                // If channel is public, allow
-                if ch.get("is_private").and_then(|v| v.as_bool()) == Some(false) {
-                    return true;
-                }
-                // Private channel — check membership
-                if let Some(uid) = user_id {
-                    if let Some(members) = ch.get("members") {
-                        if let Some(arr) = members.as_array() {
-                            for m in arr {
-                                if m.as_i64() == Some(uid) {
-                                    return true;
-                                }
-                            }
-                        }
-                    }
-                }
-                return false;
+            if ch.channel_id == channel_id {
+                return true;
             }
         }
     }

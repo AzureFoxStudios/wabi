@@ -349,7 +349,7 @@
 	}
 
 	.refund-pill {
-		color: #ffb766;
+		color: var(--color-warning, #ffd700);
 	}
 
 	.suggestions {
@@ -404,7 +404,7 @@
 
 	.error {
 		margin: 0;
-		color: #ff8585;
+		color: var(--color-danger, #ef4444);
 		font-size: 0.84rem;
 	}
  </style>

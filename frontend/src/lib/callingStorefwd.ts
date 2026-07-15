@@ -31,9 +31,9 @@ const OPUS_BITRATE = 16000;
 export function initStorefwdDeps(socket: Socket): void {
 	_socket = socket;
 
-	socket.on('voice-segment', (payload: { channelId: string; fromUserId: string; audioUrl: string; durationMs: number; sentAt: number }) => {
+	socket.on('voice-segment', (payload: { channelId: string; fromUserId?: string; audioBase64: string; durationMs: number; sentAt: number }) => {
 		// Receive a voice segment from another user
-		playSegment(payload.audioUrl, payload.fromUserId);
+		playSegment(payload.audioBase64, payload.fromUserId ?? 'unknown');
 	});
 }
 

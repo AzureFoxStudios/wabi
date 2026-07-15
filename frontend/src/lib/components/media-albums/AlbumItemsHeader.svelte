@@ -6,14 +6,10 @@
 	export let canDelete: boolean = false;
 	export let isDeleting: boolean = false;
 	export let isSavingFeatured: boolean = false;
-	export let screenshotPipeTargetAlbumId: number | null = null;
-	export let selectedAlbumId: number | null = null;
-	export let scopeKey: string = '';
 	export let loadedItemCount: number | null = null;
 
 	export let onFeature: (album: MediaAlbum) => void = () => {};
 	export let onDelete: () => void = () => {};
-	export let onSetPipeTarget: () => void = () => {};
 	export let onAddMedia: () => void = () => {};
 </script>
 
@@ -48,15 +44,6 @@
 				{album?.isFeatured ? 'Unfeature album' : 'Feature album'}
 			</button>
 		{/if}
-		<button
-			class="feature-btn"
-			class:active={screenshotPipeTargetAlbumId === selectedAlbumId}
-			on:click={onSetPipeTarget}
-			disabled={!scopeKey}
-			title="Use this album as the screenshot pipe target for the current scope"
-		>
-			{screenshotPipeTargetAlbumId === selectedAlbumId ? 'Pipe target set' : 'Set as pipe target'}
-		</button>
 		<button
 			class="danger-btn"
 			on:click={onDelete}

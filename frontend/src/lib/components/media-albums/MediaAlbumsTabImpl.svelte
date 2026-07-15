@@ -2,6 +2,8 @@
 	import './MediaAlbumsTabImpl.css';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { channels, currentChannel, currentUser, sendMessage } from '$lib/socket';
+
+	export let variant: 'compact' | 'full' = 'compact';
 	import { getAuthToken as getSessionAuthToken } from '$lib/authSession';
 	import {
 		addMediaAlbumItem,
@@ -16,18 +18,6 @@
 		type MediaAlbumItem,
 		type MediaAlbumScopeType
 	} from '$lib/api';
-	import {
-		GAME_SCREENSHOT_PIPE_REFRESH_EVENT,
-		detectGameScreenshotDirectory,
-		getGameScreenshotPipeTargetAlbumId,
-		listGameScreenshotDirectoryCandidates,
-		loadGameScreenshotPipeSettings,
-		runGameScreenshotPipeOnce,
-		saveGameScreenshotPipeSettings,
-		setGameScreenshotPipeTargetAlbumId,
-		type GameScreenshotDirectoryCandidate,
-		type GameScreenshotPipeImportEventDetail
-	} from '$lib/gameScreenshotPipe';
 	import {
 		albumItemKindLabel,
 		formatAlbumActionError,
@@ -48,7 +38,6 @@
 		import AlbumCard from './AlbumCard.svelte';
 		import AlbumUploadForm from './AlbumUploadForm.svelte';
 		import AlbumItemRow from './AlbumItemRow.svelte';
-		import ScreenshotPipePanel from './ScreenshotPipePanel.svelte';
 		import AlbumItemsHeader from './AlbumItemsHeader.svelte';
 
 	$: activeChannel = $channels.find((channel) => channel.id === $currentChannel) || null;
@@ -112,14 +101,6 @@
 	let albumViewerIndex = 0;
 	let albumViewerCurrentItem: MediaAlbumItem | null = null;
 	let lastUploadedAlbumId: number | null = null;
-	let screenshotPipeEnabled = false;
-	let screenshotPipeFolderPath = '';
-	let screenshotPipeCandidates: GameScreenshotDirectoryCandidate[] = [];
-	let isLoadingScreenshotPipeCandidates = false;
-	let isScanningScreenshotPipe = false;
-	let screenshotPipeStatusMessage = '';
-	let screenshotPipeErrorMessage = '';
-	let screenshotPipeTargetAlbumId: number | null = null;
 	const ITEMS_PER_PAGE = 24;
 
 	function getAuthToken(): string | null {
@@ -148,89 +129,6 @@
 
 	function clearSuccess(): void {
 		successMessage = '';
-	}
-
-	function syncScreenshotPipeSettingsFromStorage(): void {
-		const settings = loadGameScreenshotPipeSettings();
-		screenshotPipeEnabled = settings.enabled;
-		screenshotPipeFolderPath = settings.screenshotDirectoryPath;
-		screenshotPipeTargetAlbumId = scopeKey ? getGameScreenshotPipeTargetAlbumId(scopeKey) : null;
-	}
-
-	function persistScreenshotPipeSettings(): void {
-		saveGameScreenshotPipeSettings({
-			enabled: screenshotPipeEnabled,
-			screenshotDirectoryPath: screenshotPipeFolderPath
-		});
-	}
-
-	async function refreshScreenshotPipeCandidates(): Promise<void> {
-		isLoadingScreenshotPipeCandidates = true;
-		try {
-			screenshotPipeCandidates = await listGameScreenshotDirectoryCandidates();
-		} catch {
-			screenshotPipeCandidates = [];
-		} finally {
-			isLoadingScreenshotPipeCandidates = false;
-		}
-	}
-
-	async function useDetectedScreenshotFolder(): Promise<void> {
-		const detected = await detectGameScreenshotDirectory();
-		if (!detected) {
-			screenshotPipeErrorMessage = 'No common FFXIV screenshot folder was detected on this device.';
-			return;
-		}
-		screenshotPipeFolderPath = detected;
-		persistScreenshotPipeSettings();
-		screenshotPipeStatusMessage = `Using ${detected} for screenshot imports.`;
-		screenshotPipeErrorMessage = '';
-	}
-
-	function setScreenshotPipeTargetFromSelectedAlbum(): void {
-		if (!scopeKey || !selectedAlbumId) return;
-		setGameScreenshotPipeTargetAlbumId(scopeKey, selectedAlbumId);
-		screenshotPipeTargetAlbumId = selectedAlbumId;
-		screenshotPipeStatusMessage = `Screenshots will import into "${selectedAlbum()?.name || 'selected album'}" for this scope.`;
-		screenshotPipeErrorMessage = '';
-	}
-
-	function clearScreenshotPipeTarget(): void {
-		if (!scopeKey) return;
-		setGameScreenshotPipeTargetAlbumId(scopeKey, null);
-		screenshotPipeTargetAlbumId = null;
-		screenshotPipeStatusMessage = 'Screenshot imports are no longer tied to this scope.';
-		screenshotPipeErrorMessage = '';
-	}
-
-	async function scanGameScreenshotPipeNow(): Promise<void> {
-		if (isScanningScreenshotPipe) return;
-		isScanningScreenshotPipe = true;
-		screenshotPipeErrorMessage = '';
-		try {
-			const result = await runGameScreenshotPipeOnce();
-			if (result.imported > 0) {
-				screenshotPipeStatusMessage = `Imported ${result.imported} screenshot${result.imported === 1 ? '' : 's'} into the album target.`;
-			} else if (result.skipped > 0) {
-				screenshotPipeStatusMessage = 'Screenshot folder already synced.';
-			} else {
-				screenshotPipeStatusMessage = 'No new screenshots were found.';
-			}
-		} catch (error) {
-			screenshotPipeErrorMessage = error instanceof Error ? error.message : 'Failed to scan screenshot folder';
-		} finally {
-			isScanningScreenshotPipe = false;
-		}
-	}
-
-	function handleGameScreenshotPipeRefresh(event: Event): void {
-		const detail = (event as CustomEvent<GameScreenshotPipeImportEventDetail>).detail;
-		if (!detail) return;
-		if (!scopeKey || detail.scopeKey !== scopeKey) return;
-		lastUploadedAlbumId = detail.albumId;
-		screenshotPipeStatusMessage = `Imported "${detail.fileName}" into the target album.`;
-		screenshotPipeErrorMessage = '';
-		void refreshAlbums(false);
 	}
 
 	function selectedAlbum(): MediaAlbum | null {
@@ -316,9 +214,6 @@
 		$: contextMenuAlbumValue = albumContextMenu
 			? albums.find((album) => album.id === albumContextMenu?.albumId) || null
 			: null;
-		$: screenshotPipeTargetAlbumName = screenshotPipeTargetAlbumId
-			? albums.find((album) => album.id === screenshotPipeTargetAlbumId)?.name || ''
-			: '';
 		$: albumPreviewItems = albumItems.filter((item) => isImageAlbumItem(item) || isVideoAlbumItem(item)).slice(0, 4);
 	$: albumViewerCurrentItem =
 		albumViewerOpen && albumViewerItems.length > 0
@@ -802,8 +697,6 @@
 
 	onMount(() => {
 		void refreshAlbums(true);
-		syncScreenshotPipeSettingsFromStorage();
-		void refreshScreenshotPipeCandidates();
 		const handleWindowPointerDown = (): void => {
 			closeAlbumContextMenu();
 		};
@@ -827,7 +720,6 @@
 				albumViewerIndex = (albumViewerIndex + 1) % albumViewerItems.length;
 			}
 		};
-		window.addEventListener(GAME_SCREENSHOT_PIPE_REFRESH_EVENT, handleGameScreenshotPipeRefresh as EventListener);
 		window.addEventListener('pointerdown', handleWindowPointerDown);
 		window.addEventListener('keydown', handleWindowKeydown);
 		autoRefreshTimer = setInterval(() => {
@@ -836,10 +728,6 @@
 		}, 20000);
 
 		return () => {
-			window.removeEventListener(
-				GAME_SCREENSHOT_PIPE_REFRESH_EVENT,
-				handleGameScreenshotPipeRefresh as EventListener
-			);
 			window.removeEventListener('pointerdown', handleWindowPointerDown);
 			window.removeEventListener('keydown', handleWindowKeydown);
 		};
@@ -860,9 +748,6 @@
 			clearSuccess();
 			applyScopeViewPreferences(scopeKey);
 			activePrefsScopeKey = scopeKey;
-			screenshotPipeTargetAlbumId = getGameScreenshotPipeTargetAlbumId(scopeKey);
-			screenshotPipeStatusMessage = '';
-			screenshotPipeErrorMessage = '';
 			void refreshAlbums(true);
 		}
 		if (!scopeId) {
@@ -874,9 +759,6 @@
 			albumPreviewMap = {};
 			lastUploadedAlbumId = null;
 			clearSuccess();
-			screenshotPipeTargetAlbumId = null;
-			screenshotPipeStatusMessage = '';
-			screenshotPipeErrorMessage = '';
 			closeAlbumContextMenu();
 		}
 	}
@@ -888,25 +770,6 @@
 	</div>
 	<p class="scope-label">{scopeLabel} Pins and uploads stay scoped to the current channel or DM.</p>
 
-		<ScreenshotPipePanel
-			{scopeId}
-			{scopeKey}
-			{selectedAlbumId}
-			bind:enabled={screenshotPipeEnabled}
-			bind:folderPath={screenshotPipeFolderPath}
-			candidates={screenshotPipeCandidates}
-			isLoadingCandidates={isLoadingScreenshotPipeCandidates}
-			isScanning={isScanningScreenshotPipe}
-			targetAlbumId={screenshotPipeTargetAlbumId}
-			targetAlbumName={screenshotPipeTargetAlbumName}
-			statusMessage={screenshotPipeStatusMessage}
-			errorMessage={screenshotPipeErrorMessage}
-			onPersistSettings={persistScreenshotPipeSettings}
-			onScanNow={() => void scanGameScreenshotPipeNow()}
-			onUseDetectedFolder={() => void useDetectedScreenshotFolder()}
-			onSetTargetFromSelectedAlbum={setScreenshotPipeTargetFromSelectedAlbum}
-			onClearTarget={clearScreenshotPipeTarget}
-		/>
 
 	{#if !getAuthToken()}
 		<div class="empty-state">
@@ -954,7 +817,6 @@
 						{selectedAlbumId}
 						{isUploadingAlbumFile}
 						{lastUploadedAlbumId}
-						{screenshotPipeTargetAlbumId}
 						{previewItems}
 						canDeleteAlbumFor={canDeleteAlbum}
 						onActivate={(album) => void handleAlbumCardActivate(album)}
@@ -1007,13 +869,9 @@
 					canDelete={canDeleteAlbum(selectedAlbumValue)}
 					isDeleting={isDeletingAlbum}
 					isSavingFeatured={isSavingFeaturedAlbum}
-					{screenshotPipeTargetAlbumId}
-					{selectedAlbumId}
-					{scopeKey}
 					loadedItemCount={albumItems.length}
 					onFeature={(album) => void toggleFeaturedAlbum(album)}
 					onDelete={() => void removeSelectedAlbum()}
-					onSetPipeTarget={setScreenshotPipeTargetFromSelectedAlbum}
 					onAddMedia={() => triggerAlbumUploadPicker('instant')}
 				/>
 				{#if albumPreviewItems.length > 0}

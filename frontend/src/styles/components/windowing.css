@@ -13,8 +13,8 @@
 	min-height: 240px;
 	max-width: calc(100vw - 16px);
 	max-height: calc(100vh - 16px);
-	background: color-mix(in srgb, var(--bg-primary, #111827) 92%, black 8%);
-	border: 1px solid color-mix(in srgb, var(--border-color, #334155) 72%, var(--accent-primary, #60a5fa) 28%);
+	background: color-mix(in srgb, var(--surface-app, #1a1a2e) 92%, black 8%);
+	border: 1px solid color-mix(in srgb, var(--border-subtle, #302b63) 72%, var(--accent-primary, #6366f1) 28%);
 	border-radius: 16px;
 	box-shadow: 0 22px 70px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
 	overflow: hidden;
@@ -34,8 +34,8 @@
 	gap: 12px;
 	min-height: 42px;
 	padding: 0 10px 0 14px;
-	background: linear-gradient(135deg, color-mix(in srgb, var(--accent-primary, #60a5fa) 18%, transparent), color-mix(in srgb, var(--bg-secondary, #1f2937) 88%, transparent));
-	border-bottom: 1px solid color-mix(in srgb, var(--border-color, #334155) 76%, transparent);
+	background: linear-gradient(135deg, color-mix(in srgb, var(--accent-primary, #6366f1) 18%, transparent), color-mix(in srgb, var(--surface-base, #24243e) 88%, transparent));
+	border-bottom: 1px solid color-mix(in srgb, var(--border-subtle, #302b63) 76%, transparent);
 	cursor: grab;
 	user-select: none;
 	touch-action: none;
@@ -51,7 +51,7 @@
 	gap: 8px;
 	min-width: 0;
 	font-weight: 700;
-	color: var(--text-primary, #f8fafc);
+	color: var(--text-heading, #e0e0ff);
 }
 
 .floating-panel-title span:last-child {
@@ -64,8 +64,8 @@
 	width: 9px;
 	height: 9px;
 	border-radius: 999px;
-	background: var(--accent-primary, #60a5fa);
-	box-shadow: 0 0 16px color-mix(in srgb, var(--accent-primary, #60a5fa) 75%, transparent);
+	background: var(--accent-primary, #6366f1);
+	box-shadow: 0 0 16px color-mix(in srgb, var(--accent-primary, #6366f1) 75%, transparent);
 	flex: 0 0 auto;
 }
 
@@ -78,34 +78,34 @@
 .floating-panel-action {
 	width: 28px;
 	height: 28px;
-	border: 1px solid color-mix(in srgb, var(--border-color, #334155) 78%, transparent);
+	border: 1px solid color-mix(in srgb, var(--border-subtle, #302b63) 78%, transparent);
 	border-radius: 9px;
-	background: color-mix(in srgb, var(--bg-secondary, #1f2937) 75%, transparent);
-	color: var(--text-primary, #f8fafc);
+	background: color-mix(in srgb, var(--surface-base, #24243e) 75%, transparent);
+	color: var(--text-heading, #e0e0ff);
 	font-size: 16px;
 	line-height: 1;
 	cursor: pointer;
 }
 
 .floating-panel-action:hover {
-	background: color-mix(in srgb, var(--accent-primary, #60a5fa) 20%, var(--bg-secondary, #1f2937));
+	background: color-mix(in srgb, var(--accent-primary, #6366f1) 20%, var(--surface-base, #24243e));
 }
 
 .floating-panel-body {
 	flex: 1 1 auto;
 	min-height: 0;
 	overflow: auto;
-	background: color-mix(in srgb, var(--bg-primary, #111827) 92%, transparent);
+	background: color-mix(in srgb, var(--surface-app, #1a1a2e) 92%, transparent);
 }
 
 .floating-panel-shell-content {
 	padding: 22px;
-	color: var(--text-secondary, #cbd5e1);
+	color: var(--text-secondary, #b3b3ff);
 }
 
 .floating-panel-shell-eyebrow {
 	margin-bottom: 8px;
-	color: var(--accent-primary, #60a5fa);
+	color: var(--accent-primary, #6366f1);
 	font-size: 0.74rem;
 	font-weight: 800;
 	letter-spacing: 0.12em;
@@ -114,7 +114,7 @@
 
 .floating-panel-shell-content h2 {
 	margin: 0 0 10px;
-	color: var(--text-primary, #f8fafc);
+	color: var(--text-heading, #e0e0ff);
 	font-size: 1.24rem;
 }
 
@@ -135,13 +135,13 @@
 	grid-template-columns: 110px minmax(0, 1fr);
 	gap: 10px;
 	padding: 10px 12px;
-	border: 1px solid color-mix(in srgb, var(--border-color, #334155) 72%, transparent);
+	border: 1px solid color-mix(in srgb, var(--border-subtle, #302b63) 72%, transparent);
 	border-radius: 10px;
-	background: color-mix(in srgb, var(--bg-secondary, #1f2937) 62%, transparent);
+	background: color-mix(in srgb, var(--surface-base, #24243e) 62%, transparent);
 }
 
 .floating-panel-meta dt {
-	color: var(--text-muted, #94a3b8);
+	color: var(--text-muted, #9999ff);
 	font-size: 0.8rem;
 }
 
@@ -151,7 +151,7 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	color: var(--text-primary, #f8fafc);
+	color: var(--text-heading, #e0e0ff);
 }
 
 .floating-panel-resize {
@@ -192,17 +192,17 @@
 	bottom: 5px;
 	width: 8px;
 	height: 8px;
-	border-right: 2px solid color-mix(in srgb, var(--text-muted, #94a3b8) 72%, transparent);
-	border-bottom: 2px solid color-mix(in srgb, var(--text-muted, #94a3b8) 72%, transparent);
+	border-right: 2px solid color-mix(in srgb, var(--text-muted, #9999ff) 72%, transparent);
+	border-bottom: 2px solid color-mix(in srgb, var(--text-muted, #9999ff) 72%, transparent);
 }
 
 .floating-panel-ghost {
 	position: fixed;
 	z-index: 1099;
-	border: 2px dashed color-mix(in srgb, var(--accent-primary, #60a5fa) 70%, transparent);
+	border: 2px dashed color-mix(in srgb, var(--accent-primary, #6366f1) 70%, transparent);
 	border-radius: 14px;
-	background: color-mix(in srgb, var(--accent-primary, #60a5fa) 14%, transparent);
-	box-shadow: 0 0 36px color-mix(in srgb, var(--accent-primary, #60a5fa) 18%, transparent) inset;
+	background: color-mix(in srgb, var(--accent-primary, #6366f1) 14%, transparent);
+	box-shadow: 0 0 36px color-mix(in srgb, var(--accent-primary, #6366f1) 18%, transparent) inset;
 	pointer-events: none;
 	transition: left 120ms ease, top 120ms ease, width 120ms ease, height 120ms ease;
 }

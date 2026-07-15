@@ -90,13 +90,17 @@
 	}
 
 	.reader-meta span {
-		padding: 0.08rem 0.45rem;
+		padding: 0.1rem 0.5rem;
 		border-radius: 999px;
-		background: var(--shadow-sm, rgba(0, 0, 0, 0.04));
+		border: 1px solid var(--reader-border);
+		font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+		font-size: 0.72rem;
+		letter-spacing: 0.01em;
+		background: transparent;
 	}
 
 	.reader-shell.theme-night .reader-meta span {
-		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.06);
+		border-color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.16);
 	}
 
 	.reader-toolbar-actions,
@@ -189,6 +193,19 @@
 		background: transparent;
 	}
 
+	/* Primary action — single accent-filled CTA that anchors the toolbar. */
+	.reader-action-btn.primary {
+		background: var(--reader-accent);
+		border-color: var(--reader-accent);
+		color: var(--text-inverse, #fff);
+	}
+
+	.reader-action-btn.primary:hover:not(:disabled) {
+		transform: translateY(-1px);
+		filter: brightness(1.05);
+		border-color: var(--reader-accent);
+	}
+
 	.reader-page-indicator {
 		display: inline-flex;
 		align-items: center;
@@ -225,7 +242,7 @@
 
 	.reader-document {
 		margin: 0 auto;
-		max-width: 52rem;
+		max-width: 48rem;
 		padding: 2.1rem clamp(1.2rem, 2vw, 2rem) 3rem;
 		border: 1px solid var(--reader-border);
 		border-radius: 24px;
@@ -234,16 +251,17 @@
 		color: inherit;
 	}
 
+	/* Calm, consistent prose column — never drifts into work-surface widths. */
 	.reader-shell.width-narrow .reader-document {
-		max-width: 42rem;
+		max-width: 38rem;
 	}
 
 	.reader-shell.width-medium .reader-document {
-		max-width: 54rem;
+		max-width: 48rem;
 	}
 
 	.reader-shell.width-wide .reader-document {
-		max-width: 66rem;
+		max-width: 56rem;
 	}
 
 	.reader-document-header {
@@ -453,7 +471,7 @@
 	.reader-shell.fullscreen-mode {
 		position: fixed;
 		inset: 0;
-		z-index: 9999;
+		z-index: var(--z-lightbox, 2000);
 	}
 
 	.reader-shell.fullscreen-mode .reader-toolbar,
@@ -606,4 +624,19 @@
 	.image-viewer-toolbar button:disabled {
 		opacity: 0.4;
 		cursor: not-allowed;
+	}
+
+	/* Respect reduced-motion: kill reveals/transforms, keep state changes instant. */
+	@media (prefers-reduced-motion: reduce) {
+		.reader-action-btn,
+		.image-nav,
+		.image-viewer-toolbar button,
+		.reader-focus-return {
+			transition: none;
+		}
+
+		.reader-action-btn:hover:not(:disabled),
+		.reader-action-btn.primary:hover:not(:disabled) {
+			transform: none;
+		}
 	}

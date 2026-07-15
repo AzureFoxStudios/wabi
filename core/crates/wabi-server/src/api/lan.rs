@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::{
-    lan::{sign_token, verify_token, LocalCapability, SignedLocalRouteToken},
+    lan::{sign_token, LocalCapability, SignedLocalRouteToken},
     state::AppState,
 };
 
@@ -207,8 +207,6 @@ impl IntoResponse for LanRouteError {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[tokio::test]
     async fn lan_route_compiles_with_empty_registry() {
         use crate::nodes::NodeRegistry;

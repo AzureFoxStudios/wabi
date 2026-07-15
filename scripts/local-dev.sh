@@ -2,64 +2,81 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BACKEND_DATA_DIR="${ROOT_DIR}/backend/data"
-BACKEND_UPLOADS_DIR="${ROOT_DIR}/backend/uploads"
-BACKEND_DB_PATH="${BACKEND_DATA_DIR}/chat.db"
-FRONTEND_BUILD_DIR="${ROOT_DIR}/frontend/build"
-BACKEND_PORT="${BACKEND_PORT:-3000}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
-
-mkdir -p "${BACKEND_DATA_DIR}" "${BACKEND_UPLOADS_DIR}"
-
-export NODE_ENV=development
-export BACKEND_PORT
-export PORT="${BACKEND_PORT}"
-export FRONTEND_URL="http://${FRONTEND_HOST}:${FRONTEND_PORT}"
-export PUBLIC_URL="http://${FRONTEND_HOST}:${FRONTEND_PORT}"
-export ALLOWED_ORIGINS="http://${FRONTEND_HOST}:${FRONTEND_PORT},http://localhost:${FRONTEND_PORT},http://${FRONTEND_HOST}:${BACKEND_PORT},http://localhost:${BACKEND_PORT},http://localhost,http://${FRONTEND_HOST},https://tauri.localhost,tauri://localhost"
-export DB_MODE=sqlite
-export DATABASE_PATH="${BACKEND_DB_PATH}"
-export DATA_DIR="${BACKEND_DATA_DIR}"
-export UPLOADS_DIR="${BACKEND_UPLOADS_DIR}"
-export STATIC_DIR="${FRONTEND_BUILD_DIR}"
-export VITE_SOCKET_URL="http://${FRONTEND_HOST}:${BACKEND_PORT}"
-export VITE_TURN_SERVER=127.0.0.1
-export VITE_TURN_PORT=3478
-export VITE_USE_TURNS=false
-export VITE_ENABLE_GOOGLE_STUN=true
-export VITE_ENABLE_RELAYS=false
-export STATE_STDB_SUBSCRIPTIONS_ENABLED=false
-export WABI_STDB_BRIDGE_SERVER=
-export WABI_STDB_BRIDGE_DATABASE=
-export WABI_STDB_AUTH_TOKEN=
-export WABI_STDB_ANONYMOUS=true
-
-echo "[local-dev] Starting localhost stack"
-echo "[local-dev] frontend: http://${FRONTEND_HOST}:${FRONTEND_PORT}"
-echo "[local-dev] backend:  http://${FRONTEND_HOST}:${BACKEND_PORT}"
-echo "[local-dev] health:   http://${FRONTEND_HOST}:${BACKEND_PORT}/health"
+BACKEND_PORT="${BACKEND_PORT:-3001}"
 
 cd "${ROOT_DIR}"
-bun run --cwd frontend dev -- --host "${FRONTEND_HOST}" --port "${FRONTEND_PORT}" &
-FRONTEND_PID=$!
 
-cargo run -p wabi-server -- --host "${FRONTEND_HOST}" --port "${BACKEND_PORT}" --data-dir "${BACKEND_DATA_DIR}" &
-BACKEND_PID=$!
+cat <<INFO
+[local-dev] Real local Wabi dev mode — privacy-first topology
+[local-dev] This is NOT frontend mock mode.
+[local-dev] Expected stack:
+[local-dev]   Rust server (wabi-server + embedded wabidb engine): http://${FRONTEND_HOST}:${BACKEND_PORT}
+[local-dev]   Frontend:                                          http://${FRONTEND_HOST}:${FRONTEND_PORT}
+INFO
+
+if [[ "${VITE_WABI_LOCAL_MOCK:-}" == "1" || "${VITE_WABI_LOCAL_MOCK:-}" == "true" ]]; then
+  echo "[local-dev] ERROR: VITE_WABI_LOCAL_MOCK is set. That is UI mock mode, not real dev mode." >&2
+  echo "[local-dev] Use 'bun run dev:mock' only for visual-only smoke tests." >&2
+  exit 2
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "[local-dev] docker CLI is not installed; will try podman-compose as a fallback." >&2
+fi
+
+if command -v docker >/dev/null 2>&1 && docker ps >/dev/null 2>&1; then
+  CONTAINER_CMD="docker"
+  echo "[local-dev] Container runtime: docker (compose via 'docker compose')"
+elif command -v podman-compose >/dev/null 2>&1; then
+  CONTAINER_CMD="podman-compose"
+  echo "[local-dev] Container runtime: podman-compose (docker socket not available, falling back)"
+elif command -v podman >/dev/null 2>&1 && podman compose version >/dev/null 2>&1; then
+  CONTAINER_CMD="podman"
+  echo "[local-dev] Container runtime: podman (using 'podman compose' subcommand)"
+else
+  cat >&2 <<ERR
+[local-dev] ERROR: No usable container runtime found.
+[local-dev] Need ONE of:
+[local-dev]   - 'docker ps' to work (docker installed + user has socket access), or
+[local-dev]   - 'podman-compose' on PATH, or
+[local-dev]   - 'podman compose version' to work
+[local-dev]
+[local-dev] On Bazzite/Ronin, the typical fix is one of:
+[local-dev]   - grant this user Docker socket access intentionally, or
+[local-dev]   - install podman-compose (rpm-ostree install podman-compose), or
+[local-dev]   - run the wabi-server binary directly (cargo run -p wabi-server).
+ERR
+  exit 4
+fi
 
 cleanup() {
-  kill "${FRONTEND_PID}" "${BACKEND_PID}" 2>/dev/null || true
+  if [[ -n "${FRONTEND_PID:-}" ]]; then kill "${FRONTEND_PID}" 2>/dev/null || true; fi
 }
-
 trap cleanup EXIT INT TERM
 
-set +e
-wait -n "${FRONTEND_PID}" "${BACKEND_PID}"
-EXIT_CODE=$?
-set -e
+echo "[local-dev] Building frontend for embedded server assets..."
+STATIC_BUILD=1 bun run --cwd frontend build
 
-cleanup
-wait "${FRONTEND_PID}" 2>/dev/null || true
-wait "${BACKEND_PID}" 2>/dev/null || true
+echo "[local-dev] Building Rust server release binary for compose bind mount..."
+cargo build --release -p wabi-server
 
-exit "${EXIT_CODE}"
+echo "[local-dev] Starting canonical privacy-first compose stack..."
+${CONTAINER_CMD} up -d wabi-server
+
+echo "[local-dev] Waiting for wabi-server health..."
+for _ in $(seq 1 60); do
+  if curl -fsS "http://${FRONTEND_HOST}:${BACKEND_PORT}/health" >/dev/null 2>&1; then break; fi
+  sleep 1
+done
+curl -fsS "http://${FRONTEND_HOST}:${BACKEND_PORT}/health" >/dev/null
+
+export VITE_SOCKET_URL="http://${FRONTEND_HOST}:${BACKEND_PORT}"
+unset VITE_WABI_LOCAL_MOCK
+
+echo "[local-dev] Starting frontend against real Rust + wabidb backend..."
+echo "[local-dev] Open: http://${FRONTEND_HOST}:${FRONTEND_PORT}"
+bun run --cwd frontend dev -- --host "${FRONTEND_HOST}" --port "${FRONTEND_PORT}" &
+FRONTEND_PID=$!
+wait "${FRONTEND_PID}"

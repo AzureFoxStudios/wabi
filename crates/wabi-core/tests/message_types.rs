@@ -3,9 +3,9 @@ use wabi_core::{
     is_valid_client_message_id, normalize_client_message_id, AttachmentEncryptionMeta,
     AttachmentEncryptionScheme, AttachmentStorageCodec, AttachmentStorageMeta,
     AttachmentStorageScheme, ChannelMessageWindowEvent, ChannelType, FileAttachment,
-    HistoryDirection, HistoryLoadedEvent, MessageAcceptedEvent, MessageCreateCommand,
-    MessageCreatedEvent, MessageEntity, MessageEntityKind, MessagePersistFailedEvent,
-    MessagePersistedEvent, MessageQueuedEvent, MessageType, MessageView, OfflineMessagesEvent,
+    HistoryDirection, HistoryLoadedEvent, MessageCreateCommand,
+    MessageCreatedEvent, MessageEntity, MessageEntityKind,
+    MessageType, MessageView, OfflineMessagesEvent,
 };
 
 #[test]

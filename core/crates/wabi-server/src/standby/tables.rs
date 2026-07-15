@@ -58,12 +58,14 @@ pub const EXCLUDED_SNAPSHOT_TABLES: &[&str] = &[
     "state_socket_lease",
 ];
 
+#[allow(dead_code)]
 pub fn is_live_state_snapshot_table(table: &str) -> bool {
     LIVE_STATE_SNAPSHOT_TABLES
         .iter()
         .any(|candidate| candidate == &table)
 }
 
+#[allow(dead_code)]
 pub fn is_excluded_snapshot_table(table: &str) -> bool {
     EXCLUDED_SNAPSHOT_TABLES
         .iter()

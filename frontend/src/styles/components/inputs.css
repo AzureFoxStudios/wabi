@@ -22,8 +22,17 @@ input:focus,
 textarea:focus,
 select:focus {
 	outline: none;
-	border-color: var(--border-focus, var(--accent, #ff00ff));
-	box-shadow: var(--shadow-focus, 0 0 0 3px var(--accent-glow, rgba(255, 0, 255, 0.4)));
+	border-color: var(--border-focus, var(--accent-primary-color, var(--accent-primary)));
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary-color, var(--accent-primary)) 22%, transparent);
+}
+
+.input:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+	outline: none;
+	border-color: var(--border-focus, var(--accent-primary-color, var(--accent-primary)));
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary-color, var(--accent-primary)) 22%, transparent);
 }
 
 .input::placeholder,
@@ -91,7 +100,7 @@ select:disabled {
 }
 
 .input-error {
-	color: var(--color-danger, #ff1493);
+	color: var(--color-danger, #ef4444);
 	font-size: var(--font-size-sm, 0.8125rem);
 	margin-top: var(--space-1, 0.25rem);
 }

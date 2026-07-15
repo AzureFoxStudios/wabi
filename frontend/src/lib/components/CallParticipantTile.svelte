@@ -185,7 +185,7 @@
 		width: 84px;
 		height: 84px;
 		border-radius: 50%;
-		background: var(--accent, var(--accent-primary, #5865f2));
+		background: var(--accent, var(--accent-primary, var(--accent-primary-color)));
 		color: var(--text-inverse, var(--text-inverse, #fff));
 		font-size: 1.9rem;
 		font-weight: 700;

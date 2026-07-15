@@ -21,8 +21,7 @@
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getAuthToken } from '$lib/authSession';
 	import AddonManifestSection from './addons/AddonManifestSection.svelte';
-	import DmsSection from './addons/DmsSection.svelte';
-	import ChatSection from './addons/ChatSection.svelte';
+		import ChatSection from './addons/ChatSection.svelte';
 	import SearchSection from './addons/SearchSection.svelte';
 	import NavigationSection from './addons/NavigationSection.svelte';
 	import IdentitySection from './addons/IdentitySection.svelte';
@@ -252,12 +251,7 @@
 					</button>
 				</div>
 			{:else}
-				<DmsSection
-					{localAddonControlMatches}
-					{isAddonSectionOpen}
-					{toggleAddonSection}
-					{addonSectionMatchCount}
-				/>
+				<!-- DM-strip 2026-06-16: DmsSection removed. Only Chat + Search addon panels remain. -->
 				<ChatSection
 					{localAddonControlMatches}
 					{isAddonSectionOpen}

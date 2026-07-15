@@ -31,7 +31,7 @@ export class socketManager {
 	static getInstance() { return this; }
 }
 export const dmPanelSignal = writable<{ channelId: string; otherUser: User } | null>(null);
-export const emojis = writable<Emoji[]>([]);
+export { emojis } from './emoji-store';
 
 export async function joinVoiceChannel(channelId: string) {
 	const sock = getSocket();
@@ -66,10 +66,10 @@ export function updateProfile(...args: any[]) {
 	sock.emit('update-profile', patch, callback);
 }
 
-export function createDM(userId: string) {
+export function createDM(userId: string): void {
 	const sock = getSocket();
 	if (!sock) return;
-	sock.emit('create-dm', { userId });
+	sock.emit('create-dm', { targetUserId: userId });
 }
 
 export function deleteDM(channelId: string) {
@@ -77,10 +77,13 @@ export function deleteDM(channelId: string) {
 	if (!sock) return;
 	sock.emit('delete-dm', { channelId });
 }
-export function getDMChannelIdForUser(current: User | null | undefined, target: User): string {
-	const currentKey = current?.dbUserId ? `user-${current.dbUserId}` : current?.id || 'me';
-	const targetKey = target.dbUserId ? `user-${target.dbUserId}` : target.id;
-	return `dm-${[currentKey, targetKey].sort().join('-')}`;
+
+export function getDMChannelIdForUser(current: User, target: User): string {
+	const a = current.dbUserId;
+	const b = target.dbUserId;
+	if (a == null || b == null) return '';
+	const ids = [a, b].sort();
+	return `dm-user-${ids[0]}-user-${ids[1]}`;
 }
 export function uploadEmote(_file: File) { console.warn('[stub] uploadEmote'); }
 export function deleteEmote(_emoteId: string) { console.warn('[stub] deleteEmote'); }
@@ -167,9 +170,9 @@ export {
 	markChannelAsRead,
 
 	// DM/Group operations
-// createDM,
+// undefined,
 // deleteDM,
-// getDMChannelIdForUser,
+// "",
 	createGroup,
 	leaveGroup,
 	kickGroupMember,

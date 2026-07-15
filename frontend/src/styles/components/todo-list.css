@@ -121,13 +121,13 @@
 	}
 
 	.view-toggle button.active {
-		background: var(--accent, #5865f2);
+		background: var(--accent, var(--accent-primary-color));
 		color: white;
 	}
 
 	.add-btn {
 		padding: 0.6rem 1.2rem;
-		background: var(--accent, #5865f2);
+		background: var(--accent, var(--accent-primary-color));
 		color: white;
 		border: none;
 		border-radius: 8px;
@@ -137,7 +137,7 @@
 	}
 
 	.add-btn:hover {
-		background: #4752c4;
+		background: var(--accent-primary, #4752c4);
 	}
 
 	/* Filters */
@@ -213,11 +213,11 @@
 	}
 
 	.todo-card:hover {
-		border-color: var(--accent, #5865f2);
+		border-color: var(--accent, var(--accent-primary-color));
 	}
 
 	.todo-card.overdue {
-		border-left: 3px solid #ef4444;
+		border-left: 3px solid var(--color-danger, #ef4444);
 	}
 
 	.card-header {
@@ -299,12 +299,12 @@
 
 	.time-estimate {
 		font-size: 0.75rem;
-		color: var(--accent, #5865f2);
+		color: var(--accent, var(--accent-primary-color));
 		font-weight: 600;
 	}
 
 	.due-date.overdue {
-		color: #ef4444;
+		color: var(--color-danger, #ef4444);
 	}
 
 	.tags {
@@ -475,7 +475,7 @@
 	.form-group textarea:focus,
 	.form-group select:focus {
 		outline: none;
-		border-color: var(--accent, #5865f2);
+		border-color: var(--accent, var(--accent-primary-color));
 	}
 
 	.form-row {
@@ -507,7 +507,7 @@
 
 	.submit-btn {
 		padding: 0.6rem 1.25rem;
-		background: var(--accent, #5865f2);
+		background: var(--accent, var(--accent-primary-color));
 		border: none;
 		border-radius: 6px;
 		color: white;
@@ -517,7 +517,7 @@
 	}
 
 	.submit-btn:hover {
-		background: #4752c4;
+		background: var(--accent-primary, #4752c4);
 	}
 
 	.submit-btn:disabled,

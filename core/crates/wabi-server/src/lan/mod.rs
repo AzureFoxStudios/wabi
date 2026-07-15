@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize, Serializer};
 
+#[allow(dead_code)]
 fn serialize_option_as_empty_string<S>(
     value: &Option<String>,
     serializer: S,
@@ -98,6 +99,7 @@ pub fn verify_token(secret: &str, token: &SignedLocalRouteToken) -> bool {
 /// Find the best LAN-reachable helper for a user from the node list.
 /// Returns the node_id and its `lan_reachable_at` endpoint, if any Online
 /// node reports LAN reachability.
+#[allow(dead_code)]
 pub fn pick_lan_helper(nodes: &[crate::nodes::HelperNode]) -> Option<(String, String)> {
     for node in nodes {
         if node.status != crate::nodes::NodeStatus::Online {

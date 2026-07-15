@@ -3,7 +3,7 @@
   import { browser } from '$app/environment';
 
   let ws;
-  let imageUrl = 'http://localhost:12345/static/board.png';
+  let imageUrl = '';
   let cacheBuster = Date.now();
   let isConnected = false;
   let showViewer = false;

@@ -49,7 +49,7 @@
 
 
 	.dm-call-btn:hover {
-		border-color: var(--accent-primary);
+		border-color: var(--accent-primary-color);
 		background: var(--surface-raised);
 	}
 
@@ -66,7 +66,7 @@
 	}
 
 
-	.experimental-stdb-toggle {
+	.experimental-wabidb-toggle {
 		display: inline-flex;
 		align-items: center;
 		padding: 0.32rem 0.55rem;
@@ -82,21 +82,21 @@
 	}
 
 
-	.experimental-stdb-toggle:hover:not(:disabled) {
-		border-color: var(--accent-primary);
+	.experimental-wabidb-toggle:hover:not(:disabled) {
+		border-color: var(--accent-primary-color);
 		color: var(--text-heading);
 		background: var(--surface-raised);
 	}
 
 
-	.experimental-stdb-toggle.active {
-		border-color: color-mix(in srgb, var(--accent-primary) 65%, var(--border-subtle));
-		background: color-mix(in srgb, var(--accent-primary) 12%, var(--surface-base));
+	.experimental-wabidb-toggle.active {
+		border-color: color-mix(in srgb, var(--accent-primary-color) 65%, var(--border-subtle));
+		background: color-mix(in srgb, var(--accent-primary-color) 12%, var(--surface-base));
 		color: var(--text-heading);
 	}
 
 
-	.experimental-stdb-toggle:disabled {
+	.experimental-wabidb-toggle:disabled {
 		opacity: 0.5;
 		cursor: default;
 	}

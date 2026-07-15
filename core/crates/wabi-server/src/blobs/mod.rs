@@ -13,7 +13,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -48,6 +48,7 @@ pub struct BlobRegistry {
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum BlobRegistryError {
     #[error("blob not found")]
     NotFound,
@@ -59,6 +60,7 @@ pub enum BlobRegistryError {
     AlreadyExists,
 }
 
+#[allow(dead_code)]
 impl BlobRegistry {
     pub fn new_persistent(data_dir: impl Into<PathBuf>) -> Self {
         let base_dir: PathBuf = data_dir.into();

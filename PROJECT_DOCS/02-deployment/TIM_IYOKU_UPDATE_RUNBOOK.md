@@ -83,7 +83,7 @@ At the end of the cleanup campaign, the verified state was:
 - `tim` is the live rebuild target in this runbook.
 - `Iyoku` receives the synced tree, but does not require a live rebuild unless explicitly requested.
 - If the live stack on `tim` exposes startup regressions after a rebuild, fix locally first, resync, then rerun `docker compose up -d --build`.
-- Do not delete or overwrite `data/` during code sync. It contains SQLite, SpacetimeDB state, and local SpacetimeDB CLI/server config.
+- Do not delete or overwrite `data/` during code sync. It contains SpacetimeDB state, uploads, and local SpacetimeDB CLI/server config.
 
 ## STDB Token/Fingerprint Gotcha
 

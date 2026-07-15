@@ -4,7 +4,7 @@
   "description": "Self-hosted ephemeral chat system with screen sharing",
   "type": "module",
   "scripts": {
-    "dev": "cd frontend && bun run dev",
+    "dev": "bun run dev:local",
     "dev:mock": "cd frontend && VITE_WABI_LOCAL_MOCK=1 bun run dev -- --host 127.0.0.1",
     "dev:local": "bash ./scripts/local-dev.sh",
     "dev:local:windows": "powershell -ExecutionPolicy Bypass -File scripts/local-dev.ps1",
@@ -36,7 +36,8 @@
     "tunnel:quick": "docker compose --profile tunnel --profile tunnel-quick up -d --build",
     "tunnel:named": "docker compose --profile tunnel --profile tunnel-named up -d --build",
     "pr:auto": "powershell -ExecutionPolicy Bypass -File scripts/pr-auto.ps1",
-    "pr:cleanup": "powershell -ExecutionPolicy Bypass -File scripts/pr-cleanup.ps1"
+    "pr:cleanup": "powershell -ExecutionPolicy Bypass -File scripts/pr-cleanup.ps1",
+    "dev:ui": "cd frontend && bun run dev"
   },
   "keywords": [
     "chat",

@@ -165,18 +165,18 @@
 <style>
 	.wb-toolbar {
 		position: absolute;
-		top: 12px;
-		left: 50%;
-		transform: translateX(-50%);
+		top: 4.25rem;
+		left: 0.9rem;
+		transform: none;
 		z-index: 20;
 		display: flex;
 		align-items: center;
 		gap: 4px;
 		padding: 6px 9px;
 		border-radius: 14px;
-		background: rgba(255, 251, 243, 0.96);
+		background: color-mix(in srgb, var(--surface-base, #24243e) 82%, transparent);
 		backdrop-filter: blur(12px);
-		border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.26);
+		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 26%, transparent);
 		box-shadow: 0 14px 32px rgba(var(--surface-app-rgb, 15, 23, 42), 0.14);
 		user-select: none;
 	}
@@ -191,7 +191,7 @@
 		width: 1px;
 		height: 24px;
 		margin: 0 4px;
-		background: rgba(var(--text-muted-rgb, 148, 163, 184), 0.28);
+		background: color-mix(in srgb, var(--text-muted, #9999ff) 28%, transparent);
 	}
 
 	.wb-tool-btn {
@@ -202,27 +202,42 @@
 		width: 32px;
 		height: 32px;
 		padding: 0;
-		border: none;
+		border: 1px solid transparent;
 		border-radius: 8px;
 		background: transparent;
-		color: rgba(var(--surface-base-rgb, 30, 41, 59), 0.78);
+		color: var(--text-secondary, #b3b3ff);
 		cursor: pointer;
-		transition: background 0.12s, color 0.12s;
+		transition: background 0.12s, color 0.12s, border-color 0.12s, transform 0.12s, box-shadow 0.12s;
 	}
 
-	.wb-tool-btn:hover {
-		background: rgba(var(--text-muted-rgb, 148, 163, 184), 0.14);
-		color: var(--surface-app, #0f172a);
+	.wb-tool-btn:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--text-muted, #9999ff) 14%, transparent);
+		color: var(--text-heading, #e0e0ff);
+		border-color: color-mix(in srgb, var(--text-muted, #9999ff) 28%, transparent);
+		transform: translateY(-1px);
+		box-shadow: 0 6px 14px rgba(var(--surface-app-rgb, 15, 23, 42), 0.18);
 	}
 
 	.wb-tool-btn.active {
-		background: rgba(59, 130, 246, 0.16);
-		color: var(--color-info, #1d4ed8);
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 16%, transparent);
+		color: var(--accent-primary, #6366f1);
+		border-color: color-mix(in srgb, var(--accent-primary, #6366f1) 34%, transparent);
 	}
 
 	.wb-tool-btn:disabled {
 		opacity: 0.35;
 		cursor: default;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.wb-tool-btn {
+			transition: background 0.12s, color 0.12s, border-color 0.12s;
+		}
+
+		.wb-tool-btn:hover:not(:disabled) {
+			transform: none;
+			box-shadow: none;
+		}
 	}
 
 	.wb-tool-btn svg {
@@ -273,8 +288,8 @@
 	}
 
 	.wb-color-swatch.active {
-		border-color: var(--text-inverse, var(--text-inverse, #fff)ef9);
-		box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.48);
+		border-color: var(--text-inverse, #ffffff);
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary, #6366f1) 48%, transparent);
 	}
 
 	.wb-width-btn {
@@ -292,17 +307,17 @@
 	}
 
 	.wb-width-btn:hover {
-		background: rgba(var(--text-muted-rgb, 148, 163, 184), 0.14);
+		background: color-mix(in srgb, var(--text-muted, #9999ff) 14%, transparent);
 	}
 
 	.wb-width-btn.active {
-		background: rgba(59, 130, 246, 0.16);
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 16%, transparent);
 	}
 
 	.wb-width-preview {
 		display: block;
 		width: 16px;
 		border-radius: 2px;
-		background: rgba(var(--surface-base-rgb, 30, 41, 59), 0.72);
+		background: color-mix(in srgb, var(--surface-base, #24243e) 72%, transparent);
 	}
 </style>

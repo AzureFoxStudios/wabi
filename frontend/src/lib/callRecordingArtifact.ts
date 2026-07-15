@@ -29,7 +29,8 @@ export async function exportRecordingArtifact(blob: Blob, fileName: string): Pro
 			return {
 				fileName,
 				savedPath,
-				saveTarget: 'desktop'
+				saveTarget: 'desktop',
+				blob
 			};
 		}
 	}
@@ -38,7 +39,8 @@ export async function exportRecordingArtifact(blob: Blob, fileName: string): Pro
 	return {
 		fileName,
 		savedPath: null,
-		saveTarget: 'browser'
+		saveTarget: 'browser',
+		blob
 	};
 }
 
@@ -82,6 +84,26 @@ export function createRecordingArtifact(options: {
 		outputStream = new MediaStream(audioMixer.getOutputStream().getAudioTracks());
 	}
 
+	// Guard against an empty stream: MediaRecorder throws an opaque
+	// NotSupportedError if there are no tracks to record.
+	if (outputStream.getTracks().length === 0) {
+		void disposeRecordingArtifact({
+			id: options.id,
+			fileName: options.fileName,
+			mimeType: options.mimeType,
+			mode: options.mode,
+			audioMixer,
+			videoComposer,
+			outputStream,
+			recorder: null as unknown as MediaRecorder,
+			chunks: [],
+			stopPromise: Promise.resolve({ fileName: options.fileName, savedPath: null, saveTarget: 'browser' }),
+			resolveStop: () => undefined,
+			rejectStop: () => undefined
+		}).catch(() => undefined);
+		throw new Error('Cannot start recording: no audio or video tracks are available yet.');
+	}
+
 	const recorder = new MediaRecorder(outputStream, {
 		audioBitsPerSecond: PRESETS[options.preset].audioBitsPerSecond,
 		videoBitsPerSecond: options.mode === 'video' ? PRESETS[options.preset].videoBitsPerSecond : undefined,
@@ -122,9 +144,13 @@ export function createRecordingArtifact(options: {
 
 	recorder.onstop = async () => {
 		try {
-			const blob = new Blob(handle.chunks, {
-				type: handle.mimeType || (handle.mode === 'audio' ? 'audio/webm' : 'video/webm')
-			});
+			// Use the recorder's actual mimeType so the Blob container always
+			// matches the bytes (the requested mimeType may be empty/unsupported).
+			const effectiveMime =
+				handle.recorder.mimeType ||
+				handle.mimeType ||
+				(handle.mode === 'audio' ? 'audio/webm' : 'video/webm');
+			const blob = new Blob(handle.chunks, { type: effectiveMime });
 			const exported = await exportRecordingArtifact(blob, handle.fileName);
 			handle.resolveStop(exported);
 		} catch (error) {

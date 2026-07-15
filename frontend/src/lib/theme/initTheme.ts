@@ -5,6 +5,7 @@
 
 import { themeStore, currentTheme } from './themeStore';
 import { applyTheme, loadThemeFromLocalStorage, saveThemeToLocalStorage } from './themeManager';
+import { applyPanelColors } from './panelColors';
 import { fetchThemePreferences } from './themeApi';
 import { get } from 'svelte/store';
 import { startupMark, startupMeasure } from '$lib/startupProfiler';
@@ -70,6 +71,7 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 		weight: stateInit.uniformFontWeight,
 		style: stateInit.uniformFontStyle
 	});
+	applyPanelColors(stateInit.customTheme?.panelColors);
 
 		themeStore.setLoading(false);
 	console.log('[Theme] ✅ Theme initialization complete');
@@ -90,6 +92,7 @@ export async function initializeTheme(isRegistered: boolean = false): Promise<vo
 			weight: state.uniformFontWeight,
 			style: state.uniformFontStyle
 		});
+		applyPanelColors(state.customTheme?.panelColors);
 		startupMark('theme:initialize:end');
 		startupMeasure('theme:initialize', 'theme:initialize:start', 'theme:initialize:end');
 	}
@@ -110,6 +113,7 @@ export function watchThemeChanges(): () => void {
 			weight: state.uniformFontWeight,
 			style: state.uniformFontStyle
 		});
+		applyPanelColors(state.customTheme?.panelColors);
 	});
 }
 

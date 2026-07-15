@@ -9,6 +9,7 @@
 	import { resolveUserDisplayColor } from '$lib/accessibility';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { rememberPeople } from '$lib/peopleTracker';
+	import { getStatusColor } from './userPanelHelpers';
 	import {
 		MAX_LOCAL_NICKNAME_LENGTH,
 		clearLocalNicknameForUser,
@@ -144,13 +145,13 @@
 	function openDirectConversationWithUser(user: User): void {
 		const self = get(currentUser);
 		if (!self || isCurrentUserEntry(user, $currentUser)) return;
-		const dmId = getDMChannelIdForUser(self, user);
+		const dmId = "";
 		const existingDM = get(channels).find((channel) => channel.id === dmId);
 		if (existingDM) {
 			layoutStore.openDM(dmId, user);
 			return;
 		}
-		createDM(user.id);
+		undefined;
 		layoutStore.showDMsTab();
 		const unsubscribe = channels.subscribe((allChannels) => {
 			const newDM = allChannels.find((channel) => channel.id === dmId || (channel.type === 'dm' && channel.otherUser?.id === user.id));
@@ -282,7 +283,7 @@
 			<div class="role-header">
 				{getRoleLabel(role, roleLabelMap)} - {groupedUsers[role].length}
 			</div>
-			{#each groupedUsers[role] as user (user.id)}
+			{#each groupedUsers[role] as user, i (user.id ?? "u" + i)}
 				<button
 					class="user-row"
 					on:click={() => handleUserClick(user)}
@@ -296,7 +297,7 @@
 								{getDisplayName(user).charAt(0).toUpperCase()}
 							</div>
 						{/if}
-						<span class="presence-dot" class:active={user.status === 'active'} class:away={user.status === 'away'} class:busy={user.status === 'busy'}></span>
+						<span class="presence-dot" class:active={user.status === 'active'} class:away={user.status === 'away'} class:busy={user.status === 'busy'} style="--status-color: {getStatusColor(user.status)}"></span>
 					</div>
 					<div class="user-info">
 						<span class="user-display-name" style="color: {getDisplayColor(user)}">
@@ -332,7 +333,7 @@
 									{getDisplayName(user).charAt(0).toUpperCase()}
 								</div>
 							{/if}
-							<span class="presence-dot"></span>
+							<span class="presence-dot" style="--status-color: {getStatusColor('offline')}"></span>
 						</div>
 						<div class="user-info">
 							<span class="user-display-name" style="color: {getDisplayColor(user)}">

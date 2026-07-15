@@ -16,7 +16,8 @@ export type WorkspacePanelIcon =
 	| 'admin'
 	| 'box'
 	| 'activity'
-	| 'settings';
+	| 'settings'
+	| 'transfers';
 
 export type WorkspacePanelComponentKey =
 	| 'users'
@@ -28,7 +29,8 @@ export type WorkspacePanelComponentKey =
 	| 'addon-fallback'
 	| 'model-viewport'
 	| 'ffxiv-reference'
-	| 'reader';
+	| 'reader'
+	| 'transfers';
 
 export type WorkspacePanelDockArea = 'right' | 'bottom' | 'center' | 'floating';
 export type WorkspacePanelMobileMode = 'sheet' | 'fullscreen' | 'hidden';
@@ -156,6 +158,18 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 		permissions: ['mod'],
 		source: 'core',
 		sortOrder: 60
+	},
+	{
+		id: 'transfers',
+		label: 'Transfers',
+		shortLabel: 'Xfers',
+		icon: 'transfers',
+		component: 'transfers',
+		capabilities: ['p2p-file-transfer', 'transfer-queue'],
+		defaultDock: 'right',
+		mobileMode: 'fullscreen',
+		source: 'core',
+		sortOrder: 55
 	}
 ];
 
@@ -172,7 +186,8 @@ const KNOWN_COMPONENT_KEYS = new Set<WorkspacePanelComponentKey>([
 	'addon-fallback',
 	'model-viewport',
 	'ffxiv-reference',
-	'reader'
+	'reader',
+	'transfers'
 ]);
 
 export const workspacePanelRegistry = { subscribe: panelRegistry.subscribe };

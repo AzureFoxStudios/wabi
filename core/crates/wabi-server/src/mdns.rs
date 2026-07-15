@@ -14,7 +14,7 @@
 use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 const SERVICE_TYPE: &str = "_wabi._tcp.local.";
 const PROTO_VERSION: &str = "1";

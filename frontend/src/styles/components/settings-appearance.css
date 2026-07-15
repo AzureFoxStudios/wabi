@@ -19,13 +19,13 @@
 
 
 	.theme-select:hover {
-		border-color: var(--accent-primary);
+		border-color: var(--accent-primary-color);
 	}
 
 
 	.theme-select:focus {
 		outline: none;
-		border-color: var(--accent-primary);
+		border-color: var(--accent-primary-color);
 		box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.2);
 	}
 
@@ -78,16 +78,16 @@
 
 
 	.theme-card:hover {
-		border-color: var(--accent-primary, var(--accent-primary));
+		border-color: var(--accent-primary, var(--accent-primary-color));
 		transform: translateY(-2px);
 		box-shadow: 0 4px 14px var(--shadow-lg, rgba(0, 0, 0, 0.18));
 	}
 
 
 	.theme-card.active {
-		border-color: var(--accent-primary, var(--accent-primary));
+		border-color: var(--accent-primary, var(--accent-primary-color));
 		box-shadow:
-			0 0 0 3px color-mix(in srgb, var(--accent-primary, #5865f2) 24%, transparent),
+			0 0 0 3px color-mix(in srgb, var(--accent-primary-color) 24%, transparent),
 			0 16px 28px var(--shadow-md, rgba(0, 0, 0, 0.16));
 	}
 
@@ -171,7 +171,7 @@
 	.theme-card-badge {
 		font-size: 0.7rem;
 		font-weight: 700;
-		color: var(--accent-primary, var(--accent-primary));
+		color: var(--accent-primary, var(--accent-primary-color));
 		flex-shrink: 0;
 		margin-left: 0.25rem;
 	}

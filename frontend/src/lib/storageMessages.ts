@@ -160,6 +160,30 @@ export class MessageManager {
 		}
 	}
 
+	async clearChannelMessages(channelId: string): Promise<void> {
+		if (!browser) return;
+		if (!channelId) return;
+
+		const archives = await this.db.getAllArchives();
+		for (const archive of archives) {
+			const data = (this.archiveManager.getArchiveCache().get(archive.period) || archive.data || {}) as Record<
+				string,
+				Message[]
+			>;
+			if (!data[channelId]) continue;
+
+			delete data[channelId];
+			if (Object.keys(data).length === 0) {
+				await this.db.deleteArchive(archive.period);
+				this.archiveManager.getArchiveCache().delete(archive.period);
+				this.archiveManager.getLoadPromises().delete(archive.period);
+			} else {
+				this.archiveManager.getArchiveCache().set(archive.period, data);
+				await this.db.setArchive(archive.period, data);
+			}
+		}
+	}
+
 	async getStats(): Promise<StorageStats> {
 		if (!browser) return { archives: [], totalSize: 0, totalMessages: 0 };
 

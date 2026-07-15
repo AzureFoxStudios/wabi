@@ -2,7 +2,7 @@
 //!
 //! Anchor mode is intentionally not a replica. It forwards requests to the
 //! authority, preserves method/path/query/body/auth headers, and fails fast when
-//! the authority is unreachable. It does not require or initialize STDB.
+//! the authority is unreachable. It does not require or initialize WDB.
 
 use axum::{
     body::Bytes,
@@ -17,11 +17,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct AnchorState {
     authority_url: String,
     client: reqwest::Client,
 }
 
+#[allow(dead_code)]
 impl AnchorState {
     pub fn new(authority_url: String) -> Result<Self, reqwest::Error> {
         let client = reqwest::Client::builder()
@@ -35,6 +37,7 @@ impl AnchorState {
     }
 }
 
+#[allow(dead_code)]
 pub fn create_anchor_router(authority_url: String) -> anyhow::Result<Router> {
     let state = Arc::new(AnchorState::new(authority_url)?);
     Ok(Router::new()
@@ -43,6 +46,7 @@ pub fn create_anchor_router(authority_url: String) -> anyhow::Result<Router> {
         .with_state(state))
 }
 
+#[allow(dead_code)]
 async fn anchor_health(State(state): State<Arc<AnchorState>>) -> impl IntoResponse {
     Json(json!({
         "status": "ok",
@@ -54,6 +58,7 @@ async fn anchor_health(State(state): State<Arc<AnchorState>>) -> impl IntoRespon
     }))
 }
 
+#[allow(dead_code)]
 async fn proxy_to_authority(
     State(state): State<Arc<AnchorState>>,
     method: Method,
@@ -75,6 +80,7 @@ async fn proxy_to_authority(
     }
 }
 
+#[allow(dead_code)]
 async fn forward(
     state: &AnchorState,
     method: Method,
@@ -109,11 +115,13 @@ async fn forward(
     Ok(builder.body(axum::body::Body::from(bytes))?)
 }
 
+#[allow(dead_code)]
 fn target_url(authority_url: &str, uri: &axum::http::Uri) -> String {
     let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
     format!("{}{}", authority_url.trim_end_matches('/'), path_and_query)
 }
 
+#[allow(dead_code)]
 fn is_hop_by_hop_header(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),

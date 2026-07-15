@@ -12,6 +12,7 @@ use thiserror::Error;
 pub const SNAPSHOT_ENCRYPTION_ALGORITHM: &str = "age-x25519-v1";
 
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum SnapshotCryptoError {
     #[error("invalid age recipient: {0}")]
     InvalidRecipient(String),
@@ -25,14 +26,17 @@ pub enum SnapshotCryptoError {
     Base64(String),
 }
 
+#[allow(dead_code)]
 pub fn generate_standby_identity() -> age::x25519::Identity {
     age::x25519::Identity::generate()
 }
 
+#[allow(dead_code)]
 pub fn identity_to_string(identity: &age::x25519::Identity) -> String {
     identity.to_string().expose_secret().to_string()
 }
 
+#[allow(dead_code)]
 pub fn recipient_to_string(identity: &age::x25519::Identity) -> String {
     identity.to_public().to_string()
 }
@@ -61,6 +65,7 @@ pub fn encrypt_to_recipient_b64(
     Ok(BASE64.encode(encrypted))
 }
 
+#[allow(dead_code)]
 pub fn decrypt_from_identity_b64(
     encrypted_b64: &str,
     identity: &str,

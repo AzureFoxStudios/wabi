@@ -28,15 +28,25 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Wabi core protocol
 wabi-core = { path = "../../../crates/wabi-core", features = ["ts"] }
 
+# Mesh coordination (core functionality)
+wabi-mesh = { path = "../../addons/mesh/backend" }
+
+# WabiDB engine (the new state engine, replacing SpacetimeDB)
+wabidb = { path = "../wabidb" }
+
 # Error handling
 anyhow = "1"
 thiserror = "2"
 
 # Async utilities
+async-trait = "0.1"
 futures = "0.3"
 
 # HTTP middleware
 tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# Rate limiting
+governor = { version = "0.6", features = ["std"] }
 
 # SpacetimeDB (HTTP API only)
 reqwest = { version = "0.12", features = ["json"] }
@@ -73,12 +83,15 @@ urlencoding = "2"
 
 # Optional addons
 wabi-webhooks = { path = "../../addons/webhooks/backend", optional = true }
-wabi-mesh = { path = "../../addons/mesh/backend", optional = true }
+wabi-lore = { path = "../../addons/lore/backend", optional = true }
 age = { version = "0.11.3", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"
 
 [features]
 default = []
-addons = ["wabi-webhooks", "wabi-mesh"]
+addons = ["wabi-webhooks", "wabi-lore"]
 
 [[bin]]
 name = "wabi-server"

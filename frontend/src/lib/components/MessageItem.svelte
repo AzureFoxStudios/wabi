@@ -1,7 +1,7 @@
 <script lang="ts">
 	import MessageItemContent from './MessageItemContent.svelte';
 
-	const forwardedProps = $$props as any;
+	let { editText = '', ...rest } = $props<{ editText?: string; [key: string]: unknown }>();
 </script>
 
-<MessageItemContent {...forwardedProps} />
+<MessageItemContent {...rest} {editText} />

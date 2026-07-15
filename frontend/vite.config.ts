@@ -15,16 +15,22 @@ export default defineConfig({
 		}
 	},
 	server: {
+		// Plain localhost only. If you need a public URL, set PUBLIC_URL env
+		// var to your own domain — don't hardcode ngrok or any other tunnel.
 		allowedHosts: [
-		'localhost',
-		'.ngrok-free.dev',
-		'wabi.onrender.com',
-		process.env.PUBLIC_URL ? new URL(process.env.PUBLIC_URL).hostname : null
-	].filter(Boolean) as string[]
+			'localhost',
+			'127.0.0.1',
+			process.env.PUBLIC_URL ? new URL(process.env.PUBLIC_URL).hostname : null
+		].filter(Boolean) as string[],
+		// In dev the frontend expects the local wabi-server on its default
+		// port. Set VITE_SOCKET_URL in the environment to point elsewhere.
+		// (frontend/src/lib/serverUrl.ts picks this up.)
+		host: '0.0.0.0',
+		port: 5173
 	},
 	define: {
 		'process.env': {},
-		'__WABI_SW_VERSION__': JSON.stringify('7')
+		'__WABI_SW_VERSION__': JSON.stringify('8')
 	},
 	plugins: [
 		sveltekit()

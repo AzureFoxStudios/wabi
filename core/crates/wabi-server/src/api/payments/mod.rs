@@ -9,9 +9,8 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 
-use crate::db::StdbClient;
 use crate::state::AppState;
 
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
@@ -158,6 +157,7 @@ pub struct UserBlockInput {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct ListQuery {
     #[serde(rename = "workspaceId")]
     pub workspace_id: Option<String>,
@@ -213,47 +213,20 @@ pub fn extract_user_id(headers: &axum::http::HeaderMap, jwt_secret: &str) -> any
 }
 
 pub async fn is_admin_user(user_id: i64, state: &std::sync::Arc<AppState>) -> bool {
-    *state.owner_user_id.read().await == Some(user_id)
+    state.is_admin(user_id).await
 }
 
-pub async fn get_policy_row(stdb: &StdbClient, key: &str) -> Option<Value> {
-    let query = format!(
-        "SELECT row_json FROM state_payment_policy WHERE policy_key = '{}' LIMIT 1",
-        StdbClient::sanitize_sql(key)
-    );
-    let resp = stdb.sql_query(&query).await.ok()?;
-    let rows = resp.decode_rows();
-    let row = rows.first()?;
-    row.get("row_json")
-        .and_then(|v| v.as_str())
-        .and_then(|s| serde_json::from_str(s).ok())
+pub async fn get_policy_row(_state: &AppState, _key: &str) -> Option<Value> {
+    // WDB-compat: WDB has no payment-policy projection. Returns
+    // None so handlers fall back to default policy. Will be wired
+    // to a WDB commands::payment command in a follow-up.
+    None
 }
 
-pub async fn upsert_policy(stdb: &StdbClient, key: &str, value: &Value) {
-    let _ = stdb
-        .ingest_event(
-            "payment",
-            "upsert_policy",
-            &json!({
-                "policyKey": key,
-                "updatedAt": chrono::Utc::now().timestamp_millis(),
-                "row": value,
-            }),
-        )
-        .await;
+pub async fn upsert_policy(_state: &AppState, _key: &str, _value: &Value) {
+    // No-op for v1. See get_policy_row comment.
 }
 
-pub async fn upsert_account_link(stdb: &StdbClient, link: &PaymentAccountLink) {
-    let _ = stdb
-        .ingest_event(
-            "payment",
-            "upsert_account_link",
-            &json!({
-                "userId": link.user_id,
-                "pluginId": link.plugin_id,
-                "workspaceId": link.workspace_id,
-                "row": link,
-            }),
-        )
-        .await;
+pub async fn upsert_account_link(_state: &AppState, _link: &PaymentAccountLink) {
+    // No-op for v1. See get_policy_row comment.
 }

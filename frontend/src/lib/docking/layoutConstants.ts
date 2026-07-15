@@ -6,7 +6,7 @@ export const AUX_MIN_SIZE = 22;
 export const AUX_MAX_SIZE = 1200;
 export const PANEL_STACK_MIN_SIZE = 22;
 export const PANEL_STACK_MAX_SIZE = 100;
-export const DEFAULT_PANEL_OVERFLOW_THRESHOLD = 5;
+export const DEFAULT_PANEL_OVERFLOW_THRESHOLD = 4;
 export const PANEL_ID_PATTERN = /^[a-z0-9][a-z0-9:_-]{0,79}$/i;
 export const RESERVED_PANEL_IDS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -16,7 +16,9 @@ export const TABSET_IDS = {
 	aux: 'tabset-aux'
 } as const;
 
-export const DEFAULT_WORKSPACE_PANEL_IDS = ['users', 'dms', 'notes', 'map', 'media', 'admin'] as const;
+// Calm ambient strip comes first (users, dms, notes, map). Heavier tools
+// (media, transfers, admin) fall behind the overflow row by default.
+export const DEFAULT_WORKSPACE_PANEL_IDS = ['users', 'dms', 'notes', 'map', 'media', 'transfers', 'admin'] as const;
 export const FALLBACK_WORKSPACE_PANEL_ID = DEFAULT_WORKSPACE_PANEL_IDS[0];
 
 export type DockModuleId = string;

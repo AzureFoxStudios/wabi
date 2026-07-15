@@ -1,5 +1,6 @@
 import type { Message, Channel } from '../socket-types';
 import { browser } from '$app/environment';
+import { isRenderableMessage } from '$lib/displayEnhancements';
 import { IndexedDBWrapper } from './indexeddb';
 import {
 	resolveStorageScope,
@@ -269,6 +270,7 @@ export class ChatStorage {
 
 	async saveMessage(channel: string, message: Message) {
 		if (!browser) return;
+		if (!isRenderableMessage(message)) return;
 		await this.ensureInit();
 
 		const periodKey = this.getPeriodKey();
@@ -326,7 +328,9 @@ export class ChatStorage {
 				}
 
 				if (!allMessages[channel]) allMessages[channel] = [];
-				allMessages[channel].push(...(messages as Message[]));
+				allMessages[channel].push(
+					...(messages as Message[]).filter((m) => isRenderableMessage(m))
+				);
 
 				if (!availableArchives[channel]) availableArchives[channel] = [];
 				availableArchives[channel].push(archive.period);
@@ -359,7 +363,7 @@ export class ChatStorage {
 		const data = await this.db.getArchive(archiveKey);
 		if (!data || !data[channelId]) return [];
 
-		const messages = data[channelId] as Message[];
+		const messages = (data[channelId] as Message[]).filter((m) => isRenderableMessage(m));
 		return messages.sort((a, b) => a.timestamp - b.timestamp);
 	}
 

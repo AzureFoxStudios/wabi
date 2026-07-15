@@ -279,8 +279,10 @@
 	}
 
 	.note-input:focus {
-		outline: none;
-		border-color: var(--accent-primary);
+		outline: 1.5px solid var(--accent-primary-color);
+		outline-offset: 1px;
+		border-color: var(--border-subtle);
+		box-shadow: none;
 	}
 
 	.note-actions {
@@ -357,7 +359,7 @@
 	}
 
 	.connection-link:hover {
-		color: var(--accent-primary);
+		color: var(--accent-primary-color);
 	}
 
 	.actions {
@@ -382,7 +384,7 @@
 	}
 
 	.action-btn.primary {
-		background: var(--accent-primary);
+		background: var(--accent-primary-color);
 		color: white;
 	}
 
@@ -466,7 +468,7 @@
 	}
 
 	.call-btn.video-call:hover {
-		background: var(--color-info, var(--accent-primary, #5865f2));
+		background: var(--accent-primary-color);
 	}
 
 	.call-btn.screen-share:hover {
@@ -487,6 +489,6 @@
 		}
 	}
 
-	.popout-banner { background-color: var(--banner-color, var(--accent-primary)); }
-	.popout-avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary)); }
+	.popout-banner { background: var(--banner-color, var(--pfp-banner, var(--accent-primary-color))); }
+	.popout-avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary-color)); }
 	.status-badge, .status-indicator { background-color: var(--status-color); }

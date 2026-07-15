@@ -17,6 +17,7 @@ pub enum AppError {
     Unauthorized(String),
 
     #[error("Too many requests: {0}")]
+    #[allow(dead_code)]
     TooManyRequests(String),
 
     #[error("Not found: {0}")]
@@ -44,6 +45,9 @@ pub enum AppError {
 
     #[error("HTTP client error: {0}")]
     Reqwest(#[from] reqwest::Error),
+
+    #[error("WDB error: {0}")]
+    Wdb(#[from] wabidb::error::WabiError),
 }
 
 impl IntoResponse for AppError {
@@ -60,6 +64,7 @@ impl IntoResponse for AppError {
             AppError::Io(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string()),
             AppError::Anyhow(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string()),
             AppError::Reqwest(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string()),
+            AppError::Wdb(msg) => (StatusCode::INTERNAL_SERVER_ERROR, format!("wdb: {msg}")),
         };
 
         let body = Json(json!({

@@ -1,0 +1,362 @@
+/**
+ * WabiDbCallState — wabidb-backed call-session client.
+ *
+ * Uses native WebSocket + HTTP against the wabi-server endpoints.
+ *
+ * API surface is intentionally close to the previous call-state shape so
+ * wabidbMediaRelay.ts can be re-wired with minimal changes.
+ */
+
+import type {
+  StateCallSessionRow,
+  StateCallParticipantRow,
+  StateCallSignalRow,
+} from './wabidbCallTypes';
+
+export interface WabiDbCallConfig {
+  serverUrl: string; // e.g. "https://wabi.example.com" (no trailing slash)
+  token?: string; // bearer token from Wabi auth
+}
+
+export interface CallSubscriptionHandle {
+  unsubscribe: () => void;
+}
+
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30000;
+
+export class WabiDbCallState {
+  private cfg: WabiDbCallConfig;
+  private ws: WebSocket | null = null;
+  private _isConnected = false;
+  private subscribedSessionIds: Set<string> = new Set();
+  private handles: CallSubscriptionHandle[] = [];
+  private reconnectAttempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private explicitlyClosed = false;
+
+  // Last-seen row caches (per session id) for state restoration after reconnect.
+  private sessionCache: Map<string, StateCallSessionRow> = new Map();
+  private participantCache: Map<string, StateCallParticipantRow[]> = new Map();
+  private signalListeners: ((row: StateCallSignalRow) => void)[] = [];
+
+  private _onConnect?: () => void;
+  private _onDisconnect?: () => void;
+  private _onError?: (err: Error) => void;
+  private _onSessionChange?: (rows: StateCallSessionRow[]) => void;
+  private _onParticipantChange?: (rows: StateCallParticipantRow[]) => void;
+  private _onSignal?: (row: StateCallSignalRow) => void;
+
+  constructor(cfg: WabiDbCallConfig) {
+    this.cfg = cfg;
+  }
+
+  get isConnected(): boolean {
+    return this._isConnected;
+  }
+
+  connect(): void {
+    if (this.ws && this.ws.readyState !== WebSocket.CLOSED) return;
+    this.explicitlyClosed = false;
+    this.openWebSocket();
+  }
+
+  disconnect(): void {
+    this.explicitlyClosed = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    this._isConnected = false;
+  }
+
+  // --- HTTP writes ---
+
+  async createSession(
+    sessionId: string,
+    channelId: string,
+    callType: string,
+    hostUserId: number,
+    maxParticipants = 0,
+  ): Promise<void> {
+    const res = await fetch(`${this.cfg.serverUrl}/api/calls/sessions`, {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify({
+        session_id: sessionId,
+        channel_id: channelId,
+        call_type: callType,
+        max_participants: maxParticipants,
+        transport: 'wabidb',
+      }),
+    });
+    if (!res.ok) throw new Error(`createSession failed: ${res.status}`);
+  }
+
+  async joinSession(
+    sessionId: string,
+    _userId: number,
+    stableUserId: string,
+  ): Promise<void> {
+    const res = await fetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/join`, {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify({ stable_user_id: stableUserId }),
+    });
+    if (!res.ok) throw new Error(`joinSession failed: ${res.status}`);
+  }
+
+  async leaveSession(
+    sessionId: string,
+    _userId: number,
+    _stableUserId: string,
+  ): Promise<void> {
+    const res = await fetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/leave`, {
+      method: 'POST',
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`leaveSession failed: ${res.status}`);
+  }
+
+  async endSession(
+    sessionId: string,
+    _userId?: number,
+    _stableUserId?: string,
+  ): Promise<void> {
+    const res = await fetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/end`, {
+      method: 'POST',
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`endSession failed: ${res.status}`);
+  }
+
+  async emitSignal(
+    sessionId: string,
+    _userId: number,
+    signalType: string,
+    payloadJson: string,
+    targetUserId?: number,
+  ): Promise<void> {
+    const res = await fetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/signals`, {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify({
+        signal_type: signalType,
+        target_user_id: targetUserId ?? null,
+        payload: payloadJson,
+      }),
+    });
+    if (!res.ok) throw new Error(`emitSignal failed: ${res.status}`);
+  }
+
+  // --- HTTP reads (fallback when WS push is unavailable) ---
+
+  async getSession(sessionId: string): Promise<StateCallSessionRow | undefined> {
+    const res = await fetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}`, {
+      headers: this.headers(),
+    });
+    if (res.status === 404) return undefined;
+    if (!res.ok) throw new Error(`getSession failed: ${res.status}`);
+    const data = (await res.json()) as { session: any };
+    return wabidbSessionToRow(data.session);
+  }
+
+  async getParticipants(sessionId: string): Promise<StateCallParticipantRow[]> {
+    const res = await fetch(`${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/participants`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`getParticipants failed: ${res.status}`);
+    const data = (await res.json()) as { participants: any[] };
+    return data.participants.map(wabidbParticipantToRow);
+  }
+
+  async getSignals(
+    sessionId: string,
+    since: number = 0,
+  ): Promise<StateCallSignalRow[]> {
+    const url = `${this.cfg.serverUrl}/api/calls/sessions/${encodeURIComponent(sessionId)}/signals?since=${since}`;
+    const res = await fetch(url, { headers: this.headers() });
+    if (!res.ok) throw new Error(`getSignals failed: ${res.status}`);
+    const data = (await res.json()) as { signals: any[] };
+    return data.signals.map(wabidbSignalToRow);
+  }
+
+  // --- Subscriptions (no-op stubs for v1: WS push not wired yet) ---
+  // Clients should call getSession/getParticipants/getSignals on demand
+  // (HTTP polling). The interface matches the prior call-state shape.
+
+  subscribeToSession(sessionId: string): CallSubscriptionHandle[] {
+    // Track the subscription locally for clean teardown.
+    this.subscribedSessionIds.add(sessionId);
+
+    // Send the subscribe_call message over WS if connected. If not connected,
+    // openWebSocket() will re-send it on reconnect.
+    this.sendWsMessage({ type: 'subscribe_call', session_id: sessionId });
+
+    const handle: CallSubscriptionHandle = {
+      unsubscribe: () => {
+        this.subscribedSessionIds.delete(sessionId);
+        this.sendWsMessage({ type: 'unsubscribe_call', session_id: sessionId });
+      },
+    };
+    this.handles.push(handle);
+    return [handle];
+  }
+
+  unsubscribeAll(): void {
+    for (const h of this.handles) {
+      try { h.unsubscribe(); } catch (_) { /* ignore */ }
+    }
+    this.handles = [];
+  }
+
+  // --- Event handlers ---
+
+  onConnect(cb: () => void): void { this._onConnect = cb; }
+  onDisconnect(cb: () => void): void { this._onDisconnect = cb; }
+  onError(cb: (err: Error) => void): void { this._onError = cb; }
+  onSessionChange(cb: (rows: StateCallSessionRow[]) => void): void { this._onSessionChange = cb; }
+  onParticipantChange(cb: (rows: StateCallParticipantRow[]) => void): void { this._onParticipantChange = cb; }
+  onSignal(cb: (row: StateCallSignalRow) => void): void {
+    this._onSignal = cb;
+    this.signalListeners.push(cb);
+  }
+
+  // --- Internal ---
+
+  private headers(): Record<string, string> {
+    const h: Record<string, string> = { 'content-type': 'application/json' };
+    if (this.cfg.token) h['authorization'] = `Bearer ${this.cfg.token}`;
+    return h;
+  }
+
+  private openWebSocket(): void {
+    try {
+      const wsUrl = this.cfg.serverUrl.replace(/^http/, 'ws') + '/ws';
+      this.ws = new WebSocket(wsUrl);
+
+      this.ws.onopen = () => {
+        this._isConnected = true;
+        this.reconnectAttempts = 0;
+        this._onConnect?.();
+        // Re-subscribe to any active sessions
+        for (const sessionId of this.subscribedSessionIds) {
+          this.sendWsMessage({ type: 'subscribe_call', session_id: sessionId });
+        }
+      };
+
+      this.ws.onclose = () => {
+        this._isConnected = false;
+        this._onDisconnect?.();
+        if (!this.explicitlyClosed) this.scheduleReconnect();
+      };
+
+      this.ws.onerror = (e) => {
+        this._onError?.(new Error(`WebSocket error: ${e}`));
+      };
+
+      this.ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data as string);
+          this.handleWsMessage(msg);
+        } catch (e) {
+          this._onError?.(new Error(`Bad WS message: ${e}`));
+        }
+      };
+    } catch (e) {
+      this._onError?.(e as Error);
+      this.scheduleReconnect();
+    }
+  }
+
+  private sendWsMessage(msg: unknown): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(msg));
+    }
+  }
+
+  private handleWsMessage(msg: any): void {
+    switch (msg.type) {
+      case 'call_session_changed':
+        if (msg.session) {
+          const row = wabidbSessionToRow(msg.session);
+          this.sessionCache.set(row.sessionId, row);
+          this._onSessionChange?.([...this.sessionCache.values()]);
+        }
+        break;
+      case 'call_participant_changed':
+        if (msg.participants) {
+          const rows = msg.participants.map(wabidbParticipantToRow);
+          this.participantCache.set(msg.session_id, rows);
+          const all: StateCallParticipantRow[] = [];
+          for (const v of this.participantCache.values()) all.push(...v);
+          this._onParticipantChange?.(all);
+        }
+        break;
+      case 'call_signal_emitted':
+        if (msg.signal) {
+          const row = wabidbSignalToRow(msg.signal);
+          for (const cb of this.signalListeners) cb(row);
+        }
+        break;
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.explicitlyClosed) return;
+    this.reconnectAttempts++;
+    const delay = Math.min(
+      RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempts - 1),
+      RECONNECT_MAX_MS,
+    );
+    this.reconnectTimer = setTimeout(() => this.openWebSocket(), delay);
+  }
+}
+
+// --- JSON -> row converters ---
+
+function wabidbSessionToRow(s: any): StateCallSessionRow {
+  return {
+    sessionId: s.session_id,
+    channelId: s.channel_id,
+    callType: s.call_type,
+    hostUserId: s.host_user_id != null ? BigInt(s.host_user_id) : null,
+    startedAt: BigInt(s.started_at_micros),
+    endedAt: s.ended_at_micros != null ? BigInt(s.ended_at_micros) : null,
+    transport: s.transport,
+    maxParticipants: BigInt(s.max_participants),
+    active: s.active,
+    lastUpdatedAt: s.last_updated_at_micros,
+  };
+}
+
+function wabidbParticipantToRow(p: any): StateCallParticipantRow {
+  return {
+    participantKey: p.participant_key,
+    sessionId: p.session_id,
+    userId: BigInt(p.user_id),
+    stableUserId: p.stable_user_id,
+    joinedAt: BigInt(p.joined_at_micros),
+    leftAt: p.left_at_micros != null ? BigInt(p.left_at_micros) : null,
+    isHost: p.is_host,
+    muted: p.muted,
+    videoEnabled: p.video_enabled,
+    lastUpdatedAt: p.last_updated_at_micros,
+  };
+}
+
+function wabidbSignalToRow(s: any): StateCallSignalRow {
+  return {
+    signalId: Number(s.signal_id),
+    sessionId: s.session_id,
+    fromUserId: BigInt(s.from_user_id),
+    signalType: s.signal_type,
+    targetUserId: s.target_user_id != null ? BigInt(s.target_user_id) : null,
+    payload: s.payload,
+    createdAt: s.created_at_micros,
+  };
+}

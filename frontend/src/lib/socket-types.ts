@@ -37,6 +37,7 @@ type MessageOptionalProtocolField =
 
 export interface Message extends Omit<ProtocolMessageView, MessageOptionalProtocolField> {
   clientMessageId?: string;
+  clientNonce?: string;
   senderStableId?: string;
   color?: string;
   scheduledDeletionTime?: number;

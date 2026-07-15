@@ -5,7 +5,7 @@
 //! This is a client runtime, not an API. It complements the registry in `nodes/mod.rs`.
 
 use crate::blobs::BlobRegistry;
-use crate::jobs::{JobKind, JobResultRequest};
+
 use crate::nodes::{
     JoinNodeRequest, NodeCapability, NodeHeartbeatRequest, NodeLoad, NodeReachability,
 };
@@ -465,7 +465,7 @@ async fn execute_job(
             }
 
             // 2. Check if livekit-server is available.
-            let lk_binary = match tokio::process::Command::new("livekit-server")
+            let _lk_binary = match tokio::process::Command::new("livekit-server")
                 .arg("--version")
                 .output()
                 .await

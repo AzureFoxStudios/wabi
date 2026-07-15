@@ -105,9 +105,10 @@ impl SnapshotStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::standby::{
-        encrypt_to_recipient_b64, generate_standby_identity, recipient_to_string, SnapshotManifest,
+    use crate::standby::crypto::{
+        encrypt_to_recipient_b64, generate_standby_identity, recipient_to_string,
     };
+    use crate::standby::SnapshotManifest;
 
     fn encrypted_fixture() -> EncryptedSnapshotEnvelope {
         let identity = generate_standby_identity();

@@ -56,11 +56,13 @@
 <style>
 	.emoji-grid {
 		flex: 1;
+		min-width: 0;
 		display: grid;
 		grid-template-columns: repeat(8, 1fr);
 		gap: 0.25rem;
 		padding: 0.5rem;
 		overflow-y: auto;
+		overflow-x: hidden;
 		max-height: 280px;
 	}
 

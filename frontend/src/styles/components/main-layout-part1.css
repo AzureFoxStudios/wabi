@@ -12,7 +12,13 @@
 	height: 100dvh;
 	overflow: hidden;
 	position: relative;
-	background: var(--surface-app);
+	/* Transparent so the fixed ambient <canvas> (z-index:0) painted behind
+	   this layer shows through. <body> already supplies the opaque base fill
+	   (var(--surface-app)), so going transparent here does not expose a blank
+	   background — it just stops .app-container from painting over the effect.
+	   Frosted/translucent surfaces (see accessibility.css) then sample the
+	   canvas as their backdrop instead of this solid color. */
+	background: transparent;
 }
 
 .app-container.in-call {
@@ -107,12 +113,15 @@
 
 /* Desktop Right Panel */
 .right-panel-container {
-	flex-shrink: 0;
+	flex-shrink: 1;
+	flex-basis: 320px;
 	position: relative;
 	height: 100vh;
 	height: 100dvh;
 	background: var(--surface-base);
 	border-left: 1px solid rgba(var(--border-rgb), var(--opacity-light));
+	min-width: 0;
+	max-width: min(480px, 45vw);
 }
 
 /* Resize handles */
@@ -128,9 +137,16 @@
 	z-index: var(--z-sticky);
 	transition: background 0.2s;
 }
-.resize-handle:hover { background: var(--accent-primary); opacity: 0.5; }
+.resize-handle:hover { background: var(--accent-primary-color); opacity: 0.5; }
 .resize-handle-channel { right: -3px; }
-.resize-handle-right { left: -3px; }
+.resize-handle-right {
+	/* Make right resize more obvious and draggable */
+	left: -4px;
+	width: 8px;
+	border-left: 2px solid rgba(var(--accent-primary-rgb, 120, 120, 255), 0.25);
+	background: linear-gradient(to right, rgba(0,0,0,0.1), transparent);
+	z-index: 1200;
+}
 
 .app-container.obvious-grab-rails .resize-handle {
 	background: rgba(var(--status-away-rgb, 255, 176, 32), 0.35);
@@ -264,7 +280,7 @@
 
 .dm-notification-stub:hover {
 	transform: translateX(-4px);
-	border-color: var(--accent-primary);
+	border-color: var(--accent-primary-color);
 }
 
 .dm-stub-avatar {
@@ -312,7 +328,7 @@
 }
 .user-panel-toggle:hover {
 	opacity: 1;
-	background: var(--accent-primary);
+	background: var(--accent-primary-color);
 	color: white;
 }
 
@@ -379,9 +395,63 @@
 
 .right-reopen-rail.dock-right {
 	left: auto;
+	right: 0;
 	border-right: 1px solid var(--border-subtle);
 	border-left: none;
 	border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+/* Transfer tray button */
+.transfer-tray-btn {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	z-index: calc(var(--z-sticky) + 1);
+	width: 32px;
+	height: 32px;
+	border-radius: 8px;
+	border: 1px solid var(--border-subtle);
+	background: var(--surface-base);
+	color: var(--text-secondary);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	transition: all 0.18s ease;
+	opacity: 0.5;
+}
+
+.transfer-tray-btn:hover {
+	opacity: 1;
+	background: var(--accent-primary-color);
+	color: var(--text-inverse, #fff);
+	border-color: var(--accent-primary-color);
+}
+
+.transfer-tray-btn.has-active {
+	opacity: 0.85;
+	border-color: var(--accent-primary-color);
+	color: var(--accent-primary-color);
+}
+
+.transfer-tray-btn.has-active::after {
+	content: attr(data-badge);
+	position: absolute;
+	top: -4px;
+	right: -4px;
+	min-width: 16px;
+	height: 16px;
+	padding: 0 4px;
+	border-radius: 999px;
+	background: var(--color-danger, #ef4444);
+	color: var(--text-inverse, #fff);
+	font-size: 0.6rem;
+	font-weight: 700;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	line-height: 1;
+	pointer-events: none;
 }
 
 /* --- Mobile Styles --- */

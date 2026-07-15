@@ -4,7 +4,7 @@
 
 ## 1. Project Overview
 
-Wabi is a **private, self-hosted, and feature-rich real-time chat platform** designed for small to medium-sized communities. While its original philosophy was based on ephemeral (in-memory) data, the project has evolved to include a **persistent SQLite database** that supports a robust set of features, including user accounts, offline messaging, and detailed user customization.
+Wabi is a **private, self-hosted, and feature-rich real-time chat platform** designed for small to medium-sized communities. While its original philosophy was based on ephemeral (in-memory) data, the project has evolved to include a **persistent legacy embedded DB database** that supports a robust set of features, including user accounts, offline messaging, and detailed user customization.
 
 The core mission remains focused on privacy and user control through self-hosting, opt-in logging, and support for client-side encryption.
 
@@ -22,7 +22,7 @@ The core mission remains focused on privacy and user control through self-hostin
 
 ## 2. Architecture
 
-The application follows a classic client-server model, with a clear separation between the frontend and backend. The original "ephemeral" concept has been replaced by a persistent model centered around an SQLite database.
+The application follows a classic client-server model, with a clear separation between the frontend and backend. The original "ephemeral" concept has been replaced by a persistent model centered around an legacy embedded DB database.
 
 ### High-Level System Design
 
@@ -52,8 +52,8 @@ The application follows a classic client-server model, with a clear separation b
              │ (File I/O)            │ (DB Queries)
              │                       │
     ┌────────▼─────────┐    ┌────────▼───────────────┐
-    │  File Storage    │    │    SQLite Database    │
-    │  /data/uploads   │    │      (chat.db)        │
+    │  File Storage    │    │    legacy embedded DB Database    │
+    │  /data/uploads   │    │      (legacy-db-file)        │
     └──────────────────┘    └───────────────────────┘
 ```
 
@@ -66,7 +66,7 @@ The application follows a classic client-server model, with a clear separation b
 | **Desktop Wrapper** | Tauri | Builds a native desktop application from the web frontend. |
 | **Backend** | Node.js with Fastify | High-performance web framework for APIs and serving Socket.IO. |
 | **Real-time API** | Socket.IO | Handles WebSocket-based real-time events. |
-| **Database** | SQLite (via `better-sqlite3`) | Persistent storage for users, messages, settings, etc. |
+| **Database** | legacy embedded DB (via `legacy native DB module`) | Persistent storage for users, messages, settings, etc. |
 | **P2P Media** | WebRTC | Peer-to-peer screen sharing and voice/video calls. |
 | **Media Relay** | Coturn | A TURN server to relay WebRTC media across restrictive networks. |
 | **Deployment** | Docker & Docker Compose | Containerization for all services. |
@@ -76,7 +76,7 @@ The application follows a classic client-server model, with a clear separation b
 
 ## 3. Data Model & Persistence
 
-**This is the most significant evolution of the project.** The application is **no longer ephemeral**. It uses an SQLite database (`chat.db`) for persistent storage.
+**This is the most significant evolution of the project.** The application is **no longer ephemeral**. It uses an legacy embedded DB database (`legacy-db-file`) for persistent storage.
 
 **Location:** `backend/src/db/database.ts` (connector), `backend/src/db/schema.sql` (schema)
 
@@ -126,7 +126,7 @@ The backend is a Node.js application built with the Fastify framework. It serves
 -   **Server (`backend/src/server.ts`):** The main entry point, which sets up the Fastify server, registers plugins (like Socket.IO and CORS), and defines routes.
 -   **API Routes (`backend/src/api`):** RESTful endpoints for features like authentication (`authRoutes.ts`) and theme persistence (`themeRoutes.ts`).
 -   **Socket.IO Handlers:** Manages all real-time events for chat, presence, WebRTC signaling, etc. The logic is organized into handlers for different features.
--   **Database Layer (`backend/src/db`):** Contains the SQLite database connection (`database.ts`), schema (`schema.sql`), and repositories that provide a clean interface for data access.
+-   **Database Layer (`backend/src/db`):** Contains the legacy embedded DB database connection (`database.ts`), schema (`schema.sql`), and repositories that provide a clean interface for data access.
 -   **Authentication (`backend/src/auth`):** Handles JWT creation and verification, password hashing, and role-based middleware.
 -   **Plugin System (`backend/src/plugins`):** A loader system (`loader.ts`) that can dynamically load and initialize plugins from the `/plugins` directory, allowing for modular extension of backend functionality.
 
@@ -155,7 +155,7 @@ The application is designed to be deployed using Docker.
 | `.do/app.yaml` | DigitalOcean App Platform specification. |
 | **`/backend`** | **Node.js Fastify Backend** |
 | `backend/src/server.ts`| Main server entry point (Fastify). |
-| `backend/src/db/schema.sql`| The definitive schema for the SQLite database. **Crucial for understanding the data model.** |
+| `backend/src/db/schema.sql`| The definitive schema for the legacy embedded DB database. **Crucial for understanding the data model.** |
 | `backend/src/api/`| Contains REST API route definitions. |
 | `backend/src/auth/`| JWT, password hashing, and role middleware. |
 | **`/frontend`** | **SvelteKit Frontend** |

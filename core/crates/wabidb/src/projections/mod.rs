@@ -1,0 +1,30 @@
+//! Projection engine: barrier (linearizability), handlers, indexes.
+
+pub mod album_items;
+pub mod albums;
+pub mod audit;
+pub mod barrier;
+pub mod call_participants;
+pub mod call_signals;
+pub mod call_sessions;
+pub mod channel_members;
+pub mod channels;
+pub mod codec;
+pub mod dm_identities;
+pub mod dm_message_recipients;
+pub mod dm_messages;
+pub mod emotes;
+pub mod forum;
+pub mod handler;
+pub mod incidents;
+pub mod layouts;
+pub mod lore;
+pub mod messages;
+pub mod noop;
+pub mod owner;
+pub mod reactions;
+pub mod rebuild_auth;
+pub mod registry;
+pub mod users;
+pub mod webhooks;
+pub mod wiki;

@@ -81,30 +81,29 @@ cp wabi.config.example wabi.config
 
 `launch.sh` reads `wabi.config` first, then writes `.env` / `frontend/.env`. It also writes `.wabi-profile` to prevent silent mode/runtime swaps on later runs.
 
-## Normal vs Community
+## Authority vs Anchor
 
-| Mode | Database | Compose files | Typical use |
+Wabi's canonical runtime is Rust + SpacetimeDB.
+
+| Mode | State plane | Compose files | Typical use |
 |---|---|---|---|
-| `normal` | SQLite (`DB_MODE=sqlite`) | `docker-compose.yml` | Single-host default deployment, simplest operations |
-| `community` | SQLite + STDB state-plane | `docker-compose.yml` | Community-style deployments using the same base stack with STDB-enabled state routing |
+| `authority` | SpacetimeDB | `docker-compose.yml` | Primary self-hosted server |
+| `anchor` | Authority-routed SpacetimeDB | `docker-compose.yml` plus mesh/anchor env | Regional/helper node |
 
-`scripts/setup.sh` remains the first-run entry point and generates a default `.env` for `normal` mode on Node + SQLite.
+`scripts/setup.sh` remains the first-run entry point and generates a default `.env` for the Rust/STDB authority stack.
 
 ## Runtime Matrix
 
-Runtime is independent from deployment mode:
+Runtime is not a Node/Bun backend selector anymore. Bun is used for frontend tooling; the backend runtime is Rust.
 
 | Combination | Compose invocation |
 |---|---|
-| `normal + node` | `docker compose -f docker-compose.yml up -d --build` |
-| `normal + bun` | `docker compose -f docker-compose.yml -f docker-compose.bun.yml up -d --build` |
-| `community + node` | `docker compose -f docker-compose.yml up -d --build` |
-| `community + bun` | `docker compose -f docker-compose.yml -f docker-compose.bun.yml up -d --build` |
+| `authority + rust` | `docker compose -f docker-compose.yml up -d --build` |
 
-If you use the deploy helper, overlays are selected automatically from environment:
+If you use the deploy helper, keep environment aligned with the canonical stack:
 
 ```bash
-WABI_MODE=community WABI_RUNTIME=bun ./scripts/deploy-clean.sh
+WABI_MODE=authority WABI_RUNTIME=rust ./scripts/deploy-clean.sh
 ```
 
 ## Manual Setup
@@ -290,10 +289,10 @@ Important limitation:
 
 | Variable | Purpose | Example |
 |----------|---------|---------|
-| `WABI_MODE` | Deployment profile selector (`normal` or `community`) | `normal` |
-| `WABI_RUNTIME` | Runtime selector (`node` or `bun`) | `node` |
-| `DB_MODE` | Backend DB engine selector (`sqlite` only) | `sqlite` |
-| `DATABASE_PATH` | SQLite DB path override | `/app/data/chat.db` |
+| `WABI_MODE` | Deployment profile selector (`authority` or `anchor`) | `authority` |
+| `WABI_RUNTIME` | Backend runtime selector | `rust` |
+| `WABI_STDB_SERVER` | Server-side SpacetimeDB/proxy URL | `http://stdb-proxy:80` |
+| `WABI_STDB_DATABASE` | SpacetimeDB database/module name | `wabi-state-benchmark-v2` |
 | `FRONTEND_URL` | Frontend domain (CORS origin) | `https://wabi.chat` |
 | `PUBLIC_URL` | File upload base URL | `https://wabi.chat` |
 | `ALLOWED_ORIGINS` | CORS whitelist (comma-separated) | `https://wabi.chat,https://tauri.localhost` |
@@ -313,8 +312,8 @@ Important limitation:
 | `WEST_PAYMENTS_ADAPTER_TOKEN` | Bearer token for western adapter API auth | `<random secret>` |
 | `WEST_PAYMENTS_ADAPTER_SIGNING_SECRET` | Optional HMAC secret to sign western adapter requests | `<random secret>` |
 | `WEST_PAYMENTS_ADAPTER_TIMEOUT_MS` | Western adapter request timeout for checkout/refund/status polling | `10000` |
-| `NODE_ENV` | Node environment | `production` |
-| `PORT` | Backend listen port | `8080` |
+| `WABI_HOST` | Rust backend listen host | `0.0.0.0` |
+| `WABI_PORT` | Rust backend listen port | `3000` |
 | `TURN_EXTERNAL_IP` | Public IP for TURN relay | `203.0.113.10` |
 | `TURN_REALM` | TURN server realm | `your-domain.com` |
 | `TURN_SHARED_SECRET` | TURN auth secret (must match coturn) | `<random base64>` |
@@ -371,27 +370,15 @@ Use this for US/EU/CAN style non-custodial rails via contracted adapter.
 
 ## Mode Switch And Migration
 
-Postgres mode has been removed from the runtime. Current migrations are:
+Current runtime state:
 
-1. SQLite remains the local compatibility store.
-2. STDB state-plane rollout is controlled with `STATE_*` and `WABI_STDB_*` settings.
-3. Community mode no longer implies a second SQL engine.
+1. Shared server state is SpacetimeDB.
+2. Client-local cache is IndexedDB.
+3. `STATE_*`, `WABI_STDB_*`, and mesh/anchor settings control rollout and routing.
 
 ### Rollback and export paths
 
-Snapshot SQLite:
-
-```bash
-mkdir -p backups
-cp data/chat.db "backups/chat-$(date -u +%Y%m%d-%H%M%S).db"
-```
-
-Revert to previous normal mode safely:
-
-1. Stop current stack: `docker compose -f docker-compose.yml down`
-2. Restore SQLite backup to `data/chat.db` if needed.
-3. Set `.env`: `WABI_MODE=normal`, `DB_MODE=sqlite`.
-4. Start again with `docker compose -f docker-compose.yml up -d --build`.
+Use SpacetimeDB export/backup procedures and preserve `data/spacetimedb` plus uploads during syncs. Do not introduce a second database engine as a rollback path.
 
 ## Firewall Ports
 

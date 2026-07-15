@@ -46,7 +46,7 @@ Why each exclude matters:
 
 | Exclude | Why it must be excluded |
 |---|---|
-| `data/` | Holds live SQLite, SpacetimeDB state, and STDB CLI/server config. `--delete` without this wipes STDB identity and the owner JWT, leaving you with `TokenError(InvalidSignature)` and an un-republishable database. **Never remove this exclude.** |
+| `data/` | Holds live SpacetimeDB state and STDB CLI/server config. `--delete` without this wipes STDB identity and the owner JWT, leaving you with `TokenError(InvalidSignature)` and an un-republishable database. **Never remove this exclude.** |
 | `uploads/` | Owned by the containerized backend's user; rsync fails with `Permission denied` if you try to overwrite. It's also user-generated content — you don't want your local copy to clobber the remote anyway. |
 | `target/` | Multi-GB Rust build cache. Useless to ship; the remote rebuilds inside docker (tim) or uses a separately-copied binary (Iyoku). |
 | `node_modules` | Recreated by the build. Shipping it is slow and platform-mismatched. |

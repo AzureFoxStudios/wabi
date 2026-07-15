@@ -7,93 +7,43 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex, OnceLock},
-};
+use std::sync::Arc;
 
 use crate::{error::Result, state::AppState};
+use wabidb::engine::wabi_store::WabiStore;
 
-#[derive(Clone)]
-struct AlbumRecord {
-    id: i64,
-    scope_type: String,
-    scope_id: String,
-    name: String,
-    created_at: i64,
-    updated_at: i64,
-    owner_user_id: i64,
-    is_featured: bool,
-}
-
-#[derive(Clone)]
-struct AlbumItemRecord {
-    id: i64,
-    album_id: i64,
-    attachment_url: String,
-    attachment_name: String,
-    attachment_size: Option<i64>,
-    attachment_mime: Option<String>,
-    message_id: Option<String>,
-    caption: Option<String>,
-    sort_order: i64,
-    created_at: i64,
-}
-
-#[derive(Default)]
-struct AlbumMemoryStore {
-    next_album_id: i64,
-    next_item_id: i64,
-    albums: HashMap<i64, AlbumRecord>,
-    items: HashMap<i64, Vec<AlbumItemRecord>>,
-}
-
-static ALBUM_STORE: OnceLock<Mutex<AlbumMemoryStore>> = OnceLock::new();
-
-fn store() -> &'static Mutex<AlbumMemoryStore> {
-    ALBUM_STORE.get_or_init(|| {
-        Mutex::new(AlbumMemoryStore {
-            next_album_id: 1,
-            next_item_id: 1,
-            albums: HashMap::new(),
-            items: HashMap::new(),
-        })
-    })
-}
-
-fn now_ts() -> i64 {
-    chrono::Utc::now().timestamp()
-}
-
-fn album_json(album: &AlbumRecord, item_count: usize, preview_items: Vec<Value>) -> Value {
+fn album_json(album: &wabidb::domain::Album, item_count: usize, preview_items: Vec<Value>) -> Value {
     json!({
-        "id": album.id,
+        "id": album.album_id,
         "scope_type": album.scope_type,
         "scope_id": album.scope_id,
         "name": album.name,
-        "created_at": album.created_at,
-        "updated_at": album.updated_at,
+        "description": album.description,
+        "cover_url": album.cover_url,
+        "created_at": album.created_at_micros,
+        "updated_at": album.updated_at_micros,
         "owner_user_id": album.owner_user_id,
-        "featured_item_id": if album.is_featured { Some(1_i64) } else { None },
-        "isFeatured": album.is_featured,
         "item_count": item_count,
         "preview_items": preview_items,
     })
 }
 
-fn item_json(item: &AlbumItemRecord) -> Value {
+fn item_json(item: &wabidb::domain::AlbumItem) -> Value {
     json!({
-        "id": item.id,
+        "id": item.item_id,
         "album_id": item.album_id,
-        "attachment_url": item.attachment_url,
-        "attachment_name": item.attachment_name,
-        "attachment_size": item.attachment_size,
-        "attachment_mime": item.attachment_mime,
-        "message_id": item.message_id,
+        "attachment_url": item.url,
+        "attachment_name": item.name,
+        "attachment_size": item.size,
+        "attachment_mime": item.mime,
         "caption": item.caption,
         "sort_order": item.sort_order,
-        "created_at": item.created_at,
+        "created_at": item.created_at_micros,
     })
+}
+
+fn preview_items(items: &[wabidb::domain::AlbumItem]) -> Vec<Value> {
+    items.iter().take(4).map(item_json).collect()
 }
 
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
@@ -148,7 +98,7 @@ struct AddItemPayload {
 #[derive(Debug, Deserialize)]
 struct ReorderItemsPayload {
     #[serde(alias = "itemIds")]
-    item_ids: Vec<i64>,
+    item_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -158,181 +108,165 @@ struct SetFeaturedPayload {
 }
 
 async fn list_albums(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Query(query): Query<ListAlbumsQuery>,
 ) -> Result<Json<Value>> {
-    let guard = store().lock().expect("album store lock poisoned");
-    let mut albums = guard
-        .albums
-        .values()
-        .filter(|album| album.scope_type == query.scope_type && album.scope_id == query.scope_id)
-        .cloned()
-        .collect::<Vec<_>>();
-    albums.sort_by_key(|album| -album.updated_at);
+    let albums = state.wdb.list_albums(&query.scope_type, &query.scope_id).await?;
+    let mut albums: Vec<wabidb::domain::Album> = albums;
+    albums.sort_by(|a, b| b.updated_at_micros.cmp(&a.updated_at_micros));
     albums.truncate(query.limit as usize);
-    let result = albums
-        .iter()
-        .map(|album| {
-            let items = guard.items.get(&album.id).cloned().unwrap_or_default();
-            let preview = items.iter().take(4).map(item_json).collect::<Vec<_>>();
-            album_json(album, items.len(), preview)
-        })
-        .collect::<Vec<_>>();
+    let mut result: Vec<Value> = Vec::with_capacity(albums.len());
+    for album in &albums {
+        let items = state.wdb.list_items(&album.album_id).await.unwrap_or_default();
+        result.push(album_json(album, items.len(), preview_items(&items)));
+    }
     Ok(Json(json!({ "albums": result })))
 }
 
 async fn create_album(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateAlbumPayload>,
 ) -> Result<Json<Value>> {
-    let mut guard = store().lock().expect("album store lock poisoned");
-    let now = now_ts();
-    let id = guard.next_album_id;
-    guard.next_album_id += 1;
-    let album = AlbumRecord {
-        id,
-        scope_type: payload.scope_type,
-        scope_id: payload.scope_id,
-        name: payload.name,
-        created_at: now,
-        updated_at: now,
-        owner_user_id: 1,
-        is_featured: false,
-    };
-    guard.albums.insert(id, album.clone());
+    let album_id = state
+        .wdb
+        .create_album(&payload.scope_type, &payload.scope_id, &payload.name, 1)
+        .await?;
+    let album = state
+        .wdb
+        .get_album(&payload.scope_type, &payload.scope_id, &album_id)
+        .await?
+        .ok_or_else(|| wabidb::error::WabiError::Validation {
+            command: "create_album".into(),
+            reason: "album was created but not found in projection".into(),
+        })?;
     Ok(Json(json!({ "album": album_json(&album, 0, Vec::new()) })))
 }
 
 async fn get_album(
-    State(_state): State<Arc<AppState>>,
-    Path(album_id): Path<i64>,
+    State(state): State<Arc<AppState>>,
+    Path(album_id): Path<String>,
 ) -> Result<Json<Value>> {
-    let guard = store().lock().expect("album store lock poisoned");
-    let Some(album) = guard.albums.get(&album_id) else {
-        return Ok(Json(json!({ "error": "Album not found" })));
-    };
-    let items = guard.items.get(&album_id).cloned().unwrap_or_default();
-    let preview = items.iter().take(4).map(item_json).collect::<Vec<_>>();
-    Ok(Json(
-        json!({ "album": album_json(album, items.len(), preview) }),
-    ))
+    use wabidb::projections::albums;
+    let proj = state.wdb.engine().projection_state();
+    let mut found: Option<wabidb::domain::Album> = None;
+    proj.for_each("albums", |_key, value| {
+        if found.is_some() {
+            return;
+        }
+        if let Ok(r) = albums::decode_record(value) {
+            if r.album_id == album_id {
+                found = Some(wabidb::domain::Album::from(r));
+            }
+        }
+    });
+    match found {
+        Some(album) => {
+            let items = state.wdb.list_items(&album.album_id).await.unwrap_or_default();
+            Ok(Json(json!({ "album": album_json(&album, items.len(), preview_items(&items)) })))
+        }
+        None => Ok(Json(json!({ "error": "Album not found" }))),
+    }
 }
 
 async fn delete_album(
-    State(_state): State<Arc<AppState>>,
-    Path(album_id): Path<i64>,
+    State(state): State<Arc<AppState>>,
+    Path(album_id): Path<String>,
 ) -> Result<StatusCode> {
-    let mut guard = store().lock().expect("album store lock poisoned");
-    guard.albums.remove(&album_id);
-    guard.items.remove(&album_id);
+    use wabidb::projections::albums;
+    let proj = state.wdb.engine().projection_state();
+    let mut scope: Option<(String, String)> = None;
+    proj.for_each("albums", |_key, value| {
+        if scope.is_some() {
+            return;
+        }
+        if let Ok(r) = albums::decode_record(value) {
+            if r.album_id == album_id && !r.is_deleted {
+                scope = Some((r.scope_type, r.scope_id));
+            }
+        }
+    });
+    if let Some((scope_type, scope_id)) = scope {
+        state
+            .wdb
+            .delete_album(&scope_type, &scope_id, &album_id, 0)
+            .await?;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_items(
-    State(_state): State<Arc<AppState>>,
-    Path(album_id): Path<i64>,
+    State(state): State<Arc<AppState>>,
+    Path(album_id): Path<String>,
 ) -> Result<Json<Value>> {
-    let guard = store().lock().expect("album store lock poisoned");
-    let Some(album) = guard.albums.get(&album_id) else {
-        return Ok(Json(json!({ "error": "Album not found", "items": [] })));
+    let items = state.wdb.list_items(&album_id).await?;
+    let sorted = {
+        let mut s = items;
+        s.sort_by_key(|i| i.sort_order);
+        s
     };
-    let items = guard.items.get(&album_id).cloned().unwrap_or_default();
-    let mut sorted = items;
-    sorted.sort_by_key(|item| item.sort_order);
     Ok(Json(json!({
-        "album": album_json(album, sorted.len(), Vec::new()),
         "items": sorted.iter().map(item_json).collect::<Vec<_>>()
     })))
 }
 
 async fn add_item(
-    State(_state): State<Arc<AppState>>,
-    Path(album_id): Path<i64>,
+    State(state): State<Arc<AppState>>,
+    Path(album_id): Path<String>,
     Json(payload): Json<AddItemPayload>,
 ) -> Result<Json<Value>> {
-    let mut guard = store().lock().expect("album store lock poisoned");
-    let now = now_ts();
-    let item_id = guard.next_item_id;
-    guard.next_item_id += 1;
-    let sort_order = guard
-        .items
-        .get(&album_id)
-        .map(|items| items.len() as i64)
-        .unwrap_or(0);
-    let item = AlbumItemRecord {
-        id: item_id,
+    let item_id = state
+        .wdb
+        .add_item(
+            &album_id,
+            &payload.attachment_url,
+            &payload.attachment_name,
+            payload.caption.as_deref(),
+            0,
+        )
+        .await?;
+    let item = wabidb::domain::AlbumItem {
+        item_id,
         album_id,
-        attachment_url: payload.attachment_url,
-        attachment_name: payload.attachment_name,
-        attachment_size: payload.attachment_size,
-        attachment_mime: payload.attachment_mime,
-        message_id: payload.message_id,
+        url: payload.attachment_url,
+        name: payload.attachment_name,
+        size: payload.attachment_size,
+        mime: payload.attachment_mime,
         caption: payload.caption,
-        sort_order,
-        created_at: now,
+        sort_order: 0,
+        created_at_micros: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_micros() as i64)
+            .unwrap_or(0),
+        is_deleted: false,
     };
-    guard.items.entry(album_id).or_default().push(item.clone());
-    if let Some(album) = guard.albums.get_mut(&album_id) {
-        album.updated_at = now;
-    }
     Ok(Json(json!({ "item": item_json(&item) })))
 }
 
 async fn delete_item(
-    State(_state): State<Arc<AppState>>,
-    Path((album_id, item_id)): Path<(i64, i64)>,
+    State(state): State<Arc<AppState>>,
+    Path((album_id, item_id)): Path<(String, String)>,
 ) -> Result<StatusCode> {
-    let mut guard = store().lock().expect("album store lock poisoned");
-    if let Some(items) = guard.items.get_mut(&album_id) {
-        items.retain(|item| item.id != item_id);
-    }
-    if let Some(album) = guard.albums.get_mut(&album_id) {
-        album.updated_at = now_ts();
-    }
+    state.wdb.delete_item(&album_id, &item_id, 0).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn reorder_items(
     State(_state): State<Arc<AppState>>,
-    Path(album_id): Path<i64>,
-    Json(payload): Json<ReorderItemsPayload>,
+    Path(_album_id): Path<String>,
+    Json(_payload): Json<ReorderItemsPayload>,
 ) -> Result<Json<Value>> {
-    let mut guard = store().lock().expect("album store lock poisoned");
-    if let Some(items) = guard.items.get_mut(&album_id) {
-        for (index, item_id) in payload.item_ids.iter().enumerate() {
-            if let Some(item) = items.iter_mut().find(|item| item.id == *item_id) {
-                item.sort_order = index as i64;
-            }
-        }
-        items.sort_by_key(|item| item.sort_order);
-        let result = items.iter().map(item_json).collect::<Vec<_>>();
-        return Ok(Json(json!({ "items": result })));
-    }
+    // v1: reorder_items is not yet implemented through WabiDB.
+    // The projection handles sort_order; a future card can add a
+    // dedicated reorder event type.
     Ok(Json(json!({ "items": [] })))
 }
 
 async fn set_featured(
     State(_state): State<Arc<AppState>>,
-    Path(album_id): Path<i64>,
-    Json(payload): Json<SetFeaturedPayload>,
+    Path(_album_id): Path<String>,
+    Json(_payload): Json<SetFeaturedPayload>,
 ) -> Result<Json<Value>> {
-    let mut guard = store().lock().expect("album store lock poisoned");
-    for album in guard.albums.values_mut() {
-        album.is_featured = false;
-    }
-    let updated = if let Some(album) = guard.albums.get_mut(&album_id) {
-        album.is_featured = payload.featured;
-        album.updated_at = now_ts();
-        Some(album.clone())
-    } else {
-        None
-    };
-    let album = updated.map(|album| {
-        album_json(
-            &album,
-            guard.items.get(&album_id).map(Vec::len).unwrap_or(0),
-            Vec::new(),
-        )
-    });
-    Ok(Json(json!({ "album": album })))
+    // v1: set_featured is not yet persisted in the albums projection.
+    // A future card can add is_featured to AlbumRecord.
+    Ok(Json(json!({ "album": serde_json::Value::Null })))
 }

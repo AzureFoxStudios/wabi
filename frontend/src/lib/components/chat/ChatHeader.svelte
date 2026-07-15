@@ -5,6 +5,7 @@
 	import { openFullMapTab } from '$lib/mapWorkspace';
 	import { openModelViewportSurface } from '$lib/modelViewportTab';
 	import { openReaderSurface } from '$lib/readerWorkspace';
+	import { openMediaAlbumsSurface } from '$lib/mediaAlbumsWorkspace';
 	import { getTauriPlatform, isTauriRuntime } from '$lib/tauri-platform';
 	import { setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
 	import type { User } from '$lib/socket';
@@ -20,7 +21,7 @@
 	export let dmDirectCallActive = false;
 	export let dmDirectCallPending = false;
 	export let experimentalScopeVisible = false;
-	export let experimentalStdbCallsEnabled = false;
+	export let experimentalWabidbCallsEnabled = false;
 	export let currentChannelPersistMessages = false;
 	export let searchExpanded = false;
 	export let searchInput = '';
@@ -34,7 +35,7 @@
 	export let onReturnToMessages: () => void;
 	export let onStartDMVoiceCall: () => void | Promise<void>;
 	export let onStartDMVideoCall: () => void | Promise<void>;
-	export let onToggleExperimentalStdbCall: () => void | Promise<void>;
+	export let onToggleExperimentalWabidbCall: () => void | Promise<void>;
 	export let onOpenSearch: () => void | Promise<void>;
 	export let onSearchInputKeydown: (event: KeyboardEvent) => void;
 	export let onSearchCurrentQueryInBrowser: () => void;
@@ -47,34 +48,36 @@
 			<span class="channel-surface-label">{workspaceSurfaceLabel}</span>
 		{/if}
 		<h2>
-			<span class="channel-title">{workspaceHeaderTitle}</span>
+			<span class="channel-title" class:channel-title-hash={!isDMChannel && selectedWorkspaceView === 'messages'}>{workspaceHeaderTitle}</span>
 			{#if isDMChannel && selectedWorkspaceView === 'messages'}
 				<span class="dm-badge">{$_('chat.dm.badge')}</span>
-			{:else if workspaceHeaderSubtitle}
-				<span class="channel-description">{workspaceHeaderSubtitle}</span>
 			{/if}
 		</h2>
+		{#if !isDMChannel && workspaceHeaderSubtitle}
+			<p class="channel-description">{workspaceHeaderSubtitle}</p>
+		{/if}
 	</div>
 	<div class="header-actions">
-		{#if selectedWorkspaceView !== 'messages'}
-			<button
-				class="surface-return-btn btn-secondary"
-				type="button"
-				on:click={onReturnToMessages}
-				title="Return to messages"
-				aria-label="Return to messages"
+		<div class="header-action-group">
+			{#if selectedWorkspaceView !== 'messages'}
+				<button
+					class="surface-return-btn btn-secondary"
+					type="button"
+					on:click={onReturnToMessages}
+					title="Return to messages"
+					aria-label="Return to messages"
+				>
+					Messages
+				</button>
+			{/if}
+			<div
+				class="workspace-view-actions"
+				class:compactable={!$layoutStore.isMobile}
+				role="tablist"
+				aria-label="Channel views"
 			>
-				Messages
-			</button>
-		{/if}
-		<div
-			class="workspace-view-actions"
-			class:compactable={!$layoutStore.isMobile}
-			role="tablist"
-			aria-label="Channel views"
-		>
 			<button
-				class="view-open-btn btn-icon"
+				class="view-open-btn"
 				class:active={selectedWorkspaceView === 'messages'}
 				type="button"
 				on:click={() => setWhiteboardSurface(currentChannel, 'messages')}
@@ -86,7 +89,7 @@
 				</svg>
 			</button>
 			<button
-				class="view-open-btn btn-icon"
+				class="view-open-btn"
 				class:active={selectedWorkspaceView === 'whiteboard'}
 				type="button"
 				on:click={() => setWhiteboardSurface(currentChannel, 'whiteboard')}
@@ -101,12 +104,12 @@
 				</svg>
 			</button>
 			<button
-				class="view-open-btn btn-icon"
+				class="view-open-btn"
 				type="button"
-				class:active={$layoutStore.activeRightTab === 'media' && $layoutStore.showRightPanel}
-				on:click={() => layoutStore.showMediaTab()}
-				title="Open media panel"
-				aria-label="Open media panel"
+				on:click={openMediaAlbumsSurface}
+				class:active={selectedWorkspaceView === 'media'}
+				title="Open media albums view"
+				aria-label="Open media albums view"
 			>
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<rect x="3" y="3" width="18" height="18" rx="2"></rect>
@@ -115,7 +118,7 @@
 				</svg>
 			</button>
 			<button
-				class="view-open-btn btn-icon"
+				class="view-open-btn"
 				type="button"
 				on:click={openReaderSurface}
 				class:active={selectedWorkspaceView === 'reader'}
@@ -128,7 +131,7 @@
 				</svg>
 			</button>
 			<button
-				class="view-open-btn btn-icon"
+				class="view-open-btn"
 				type="button"
 				on:click={openModelViewportSurface}
 				class:active={selectedWorkspaceView === 'model'}
@@ -142,7 +145,7 @@
 				</svg>
 			</button>
 			<button
-				class="view-open-btn btn-icon"
+				class="view-open-btn"
 				type="button"
 				on:click={() => void openFullMapTab()}
 				class:active={selectedWorkspaceView === 'map'}
@@ -156,8 +159,10 @@
 				</svg>
 			</button>
 		</div>
-		{#if isDMChannel && dmCallTargetUser}
-			<div class="dm-call-actions">
+		</div>
+		<div class="header-action-group">
+			{#if isDMChannel && dmCallTargetUser}
+				<div class="dm-call-actions">
 				{#if dmDirectCallActive}
 					<span class="dm-call-live" role="status" aria-live="polite">{dmDirectCallPending ? 'Calling…' : 'Call active'}</span>
 				{/if}
@@ -183,19 +188,21 @@
 				</button>
 			</div>
 		{/if}
-		{#if experimentalScopeVisible}
-			<button
-				type="button"
-				class="experimental-stdb-toggle btn-secondary"
-				class:active={experimentalStdbCallsEnabled}
-				on:click={onToggleExperimentalStdbCall}
-				disabled={!isTauriRuntime() || getTauriPlatform() !== 'desktop'}
-				title="Experimental SpaceChatDB STDB routing for DM/group calls only"
-			>
-				STDB EXP {experimentalStdbCallsEnabled ? 'ON' : 'OFF'}
-			</button>
-		{/if}
-		<div class="search-container" class:expanded={searchExpanded} bind:this={searchContainerElement}>
+		</div>
+		<div class="header-action-group">
+			{#if experimentalScopeVisible}
+				<button
+					type="button"
+					class="experimental-wabidb-toggle btn-secondary"
+					class:active={experimentalWabidbCallsEnabled}
+					on:click={onToggleExperimentalWabidbCall}
+					disabled={!isTauriRuntime() || getTauriPlatform() !== 'desktop'}
+					title="Experimental wabiDB routing for DM/group calls only"
+				>
+					wabiDB EXP {experimentalWabidbCallsEnabled ? 'ON' : 'OFF'}
+				</button>
+			{/if}
+			<div class="search-container" class:expanded={searchExpanded} bind:this={searchContainerElement} on:mouseenter={onOpenSearch} role="search">
 			<span class="search-icon" aria-hidden="true">
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<circle cx="11" cy="11" r="7"></circle>
@@ -208,7 +215,6 @@
 				bind:value={searchInput}
 				placeholder={$_('chat.search.placeholder')}
 				class="search-input input"
-				on:click={onOpenSearch}
 				on:focus={onOpenSearch}
 				on:keydown={onSearchInputKeydown}
 			/>
@@ -241,6 +247,7 @@
 					<span class="search-results">{fullHistorySearchStatus}</span>
 				{/if}
 			{/if}
+				</div>
 		</div>
 	</div>
 </div>

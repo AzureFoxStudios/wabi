@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 async fn on_group_call_leave(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let my_stable_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     let channel_id = match data
@@ -77,6 +78,7 @@ async fn on_group_call_leave(socket: SocketRef, data: Value, state: SioState, io
     }
 }
 
+#[allow(dead_code)]
 async fn on_group_call_stop_ringing(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let my_stable_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     let channel_id = match data

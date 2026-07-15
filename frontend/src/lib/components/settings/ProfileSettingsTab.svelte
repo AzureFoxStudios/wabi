@@ -200,13 +200,13 @@
 </script>
 
 <div class="profile-hero-card">
-	<div class="profile-hero-banner" style="background: {($currentUser?.color || 'var(--accent-primary)')};"></div>
+	<div class="profile-hero-banner" style="background: {($currentUser?.color || 'var(--pfp-banner, var(--accent-primary-color))')};"></div>
 	<div class="profile-hero-main">
 		<div class="profile-hero-avatar-wrap">
 			{#if $currentUser?.profilePicture}
 				<img src={$currentUser.profilePicture} alt="Current profile" class="profile-hero-avatar" />
 			{:else}
-				<div class="profile-hero-avatar profile-hero-avatar-fallback" style="--avatar-color: {$currentUser?.color || 'var(--accent-primary)'}">
+				<div class="profile-hero-avatar profile-hero-avatar-fallback" style="--avatar-color: {$currentUser?.color || 'var(--accent-primary-color)'}">
 					{$currentUser?.username?.charAt(0).toUpperCase() || '?'}
 				</div>
 			{/if}

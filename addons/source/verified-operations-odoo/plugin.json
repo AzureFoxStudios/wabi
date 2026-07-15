@@ -1,0 +1,63 @@
+{
+  "id": "verified-operations-odoo",
+  "name": "Business Dashboard",
+  "version": "0.1.0",
+  "description": "Odoo-integrated business dashboard with spreadsheet views, draft worksheets, approval workflows, spending controls, and post-approval tamper detection",
+  "author": "Wabi Core",
+  "enabled": true,
+  "firstParty": true,
+  "backend": {
+    "entry": "./backend/index.ts",
+    "socketEvents": [
+      "biz:odoo:connect",
+      "biz:odoo:disconnect",
+      "biz:sheet:data",
+      "biz:draft:update",
+      "biz:approval:submit",
+      "biz:approval:review",
+      "biz:tamper:alert"
+    ]
+  },
+  "frontend": {
+    "entry": "./frontend/index.ts",
+    "extensions": {
+      "workspacePanels": [
+        {
+          "id": "business-dashboard",
+          "label": "Business",
+          "shortLabel": "Biz",
+          "icon": "layout-dashboard",
+          "component": "business-dashboard",
+          "capabilities": ["badge", "settings-entry"],
+          "defaultDock": "right",
+          "preferredDockArea": "right",
+          "mobileMode": "sheet",
+          "sortOrder": 200
+        }
+      ],
+      "settingsPages": [
+        {
+          "id": "business-odoo",
+          "label": "Odoo Integration",
+          "route": "addons/verified-operations-odoo"
+        }
+      ]
+    }
+  },
+  "permissions": [
+    "channels:read",
+    "messages:write",
+    "plugin_storage"
+  ],
+  "capabilities": {
+    "tier": "network-required",
+    "notes": "Requires outbound HTTPS to Odoo JSON-RPC endpoint. Stores Odoo API credentials (encrypted)."
+  },
+  "security": {
+    "threatNotes": "Stores Odoo API credentials in plugin storage. Controls access to business data. Must never expose Odoo data to unauthorized roles. All Odoo writes must pass Wabi approval chain first."
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "checksum": ""
+  }
+}

@@ -1,75 +1,82 @@
 /* Business Hub Dashboard Theme
-   A clean, professional dashboard aesthetic with subtle gradients and warm accents
+   Nullframe-inspired control-room palette — matte black/charcoal with orange signal accents
 */
 
 :root {
-	/* Base colors - Deep navy with warmth */
-	--biz-bg-primary: #0f1419;
-	--biz-bg-secondary: #1a2332;
-	--biz-bg-tertiary: #243044;
-	--biz-bg-card: #1e2a3a;
-	--biz-bg-hover: #2a3a4d;
+	/* Base colors - Near-black canvas */
+	--biz-bg-primary: #030405;
+	--biz-bg-secondary: #090a0c;
+	--biz-bg-tertiary: #111316;
+	--biz-bg-card: #0d0f12;
+	--biz-bg-hover: #171a1f;
 
-	/* Accent colors - Warm gold/amber for actions */
-	--biz-accent: #f59e0b;
-	--biz-accent-hover: #d97706;
-	--biz-accent-soft: rgba(245, 158, 11, 0.15);
+	/* Accent colors - Orange signal, not decoration */
+	--biz-accent: #f36b21;
+	--biz-accent-hover: #ff7a2f;
+	--biz-accent-soft: rgba(243, 107, 33, 0.16);
 
 	/* Secondary accent - Cool blue for info */
-	--biz-info: #3b82f6;
-	--biz-info-soft: rgba(59, 130, 246, 0.15);
+	--biz-info: #7dd3fc;
+	--biz-info-soft: rgba(125, 211, 252, 0.12);
 
 	/* Status colors */
-	--biz-success: #10b981;
-	--biz-success-soft: rgba(16, 185, 129, 0.15);
+	--biz-success: #35d07f;
+	--biz-success-soft: rgba(53, 208, 127, 0.12);
 	--biz-warning: #f59e0b;
-	--biz-warning-soft: rgba(245, 158, 11, 0.15);
-	--biz-danger: #ef4444;
-	--biz-danger-soft: rgba(239, 68, 68, 0.15);
+	--biz-warning-soft: rgba(245, 158, 11, 0.14);
+	--biz-danger: #ff4d4d;
+	--biz-danger-soft: rgba(255, 77, 77, 0.13);
+	--biz-danger-hover: #ff3333;
 
 	/* Text colors */
-	--biz-text-primary: #f1f5f9;
-	--biz-text-secondary: #94a3b8;
-	--biz-text-tertiary: #64748b;
-	--biz-text-muted: #64748b;
+	--biz-text-primary: #f4f4f5;
+	--biz-text-secondary: #a1a1aa;
+	--biz-text-tertiary: #71717a;
+	--biz-text-muted: #52525b;
 
 	/* Borders */
-	--biz-border: #2d3a4d;
-	--biz-border-light: #3d4a5d;
-
-	/* Danger hover */
-	--biz-danger-hover: #dc2626;
+	--biz-border: rgba(255, 255, 255, 0.085);
+	--biz-border-light: rgba(255, 255, 255, 0.14);
 
 	/* Shadows */
-	--biz-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-	--biz-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3);
-	--biz-shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.4);
+	--biz-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+	--biz-shadow-md: 0 10px 30px rgba(0, 0, 0, 0.34);
+	--biz-shadow-lg: 0 24px 80px rgba(0, 0, 0, 0.46);
 
 	/* Priority colors (used in inline styles via getPriorityColor) */
-	--priority-urgent: #ef4444;
+	--priority-urgent: #ff4d4d;
 	--priority-high: #f97316;
-	--priority-medium: #eab308;
-	--priority-low: #22c55e;
+	--priority-medium: #f59e0b;
+	--priority-low: #35d07f;
 
 	/* Gradients */
-	--biz-gradient-card: linear-gradient(135deg, #1e2a3a 0%, #243044 100%);
-	--biz-gradient-accent: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-	--biz-gradient-header: linear-gradient(90deg, #0f1419 0%, #1a2332 100%);
+	--biz-gradient-card: linear-gradient(135deg, #0d0f12 0%, #111316 100%);
+	--biz-gradient-accent: linear-gradient(135deg, #f36b21 0%, #ff7a2f 100%);
+	--biz-gradient-header: linear-gradient(90deg, #030405 0%, #090a0c 100%);
+
+	/* Loading gradient - subtle dark radial */
+	--gradient-loading-business: radial-gradient(ellipse at center, #0d0f12 0%, #030405 100%);
+
+	/* Dot-grid texture */
+	--biz-dot-grid: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.075) 1px, transparent 0);
+
+	/* Monospace font stack for instrument labels */
+	--biz-font-mono: 'Geist Mono', 'SFMono-Regular', 'Cascadia Code', 'Roboto Mono', monospace;
 }
 
 /* Priority colors */
-.priority-urgent { --priority-color: #ef4444; }
+.priority-urgent { --priority-color: #ff4d4d; }
 .priority-high { --priority-color: #f97316; }
-.priority-medium { --priority-color: #eab308; }
-.priority-low { --priority-color: #22c55e; }
+.priority-medium { --priority-color: #f59e0b; }
+.priority-low { --priority-color: #35d07f; }
 
 /* Kanban column colors */
-.column-todo { --column-color: #64748b; }
-.column-in-progress { --column-color: #3b82f6; }
-.column-scrapped { --column-color: #ef4444; }
-.column-done { --column-color: #10b981; }
-.column-ideas { --column-color: #a855f7; }
-.column-archived { --column-color: #475569; }
+.column-todo { --column-color: #71717a; }
+.column-in-progress { --column-color: #7dd3fc; }
+.column-scrapped { --column-color: #ff4d4d; }
+.column-done { --column-color: #35d07f; }
+.column-ideas { --column-color: #a78bfa; }
+.column-archived { --column-color: #52525b; }
 
 /* Fix for color picker buttons - override global button styles */
 .color-picker button.color-option {
@@ -78,4 +85,71 @@
 	padding: 0 !important;
 	min-width: 28px !important;
 	min-height: 28px !important;
+}
+
+/* ── Control-room utility classes ── */
+
+.biz-card-control {
+	background: var(--biz-bg-card, #0d0f12);
+	border: 1px solid var(--biz-border, rgba(255,255,255,0.085));
+	border-radius: 8px;
+	padding: 1rem;
+}
+
+.biz-card-grid {
+	display: grid;
+	gap: 0.75rem;
+}
+
+.biz-kicker {
+	font-family: var(--biz-font-mono, monospace);
+	font-size: 0.65rem;
+	font-weight: 500;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--biz-text-tertiary, #71717a);
+}
+
+.biz-metric-value {
+	font-size: 1.75rem;
+	font-weight: 700;
+	line-height: 1.1;
+	color: var(--biz-text-primary, #f4f4f5);
+}
+
+.biz-metric-unit {
+	font-family: var(--biz-font-mono, monospace);
+	font-size: 0.75rem;
+	color: var(--biz-text-tertiary, #71717a);
+	margin-left: 0.35rem;
+}
+
+/* ── Status indicator dots ── */
+
+.biz-status-dot {
+	display: inline-block;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--biz-text-muted, #52525b);
+	flex-shrink: 0;
+}
+
+.biz-status-dot.live {
+	background: var(--biz-success, #35d07f);
+	box-shadow: 0 0 6px rgba(53, 208, 127, 0.5);
+}
+
+.biz-status-dot.warn {
+	background: var(--biz-warning, #f59e0b);
+	box-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
+}
+
+.biz-status-dot.danger {
+	background: var(--biz-danger, #ff4d4d);
+	box-shadow: 0 0 6px rgba(255, 77, 77, 0.5);
+}
+
+.biz-status-dot.idle {
+	background: var(--biz-text-muted, #52525b);
 }

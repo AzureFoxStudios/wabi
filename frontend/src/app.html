@@ -152,37 +152,95 @@
 				0%, 80%, 100% { opacity: 0.25; transform: translateY(0px); }
 				40% { opacity: 1; transform: translateY(-2px); }
 			}
+
+			/* Reconnect state */
+			.wabi-boot-shell__reconnect {
+				display: none;
+				flex-direction: column;
+				align-items: center;
+				gap: 0.85rem;
+			}
+			.wabi-boot-shell__subtitle {
+				font-size: 0.8125rem;
+				opacity: 0.6;
+				max-width: 220px;
+				line-height: 1.4;
+				margin: 0;
+			}
+			.wabi-boot-shell__btn {
+				margin-top: 0.5rem;
+				padding: 8px 20px;
+				border-radius: 9999px;
+				border: 1px solid rgba(148, 163, 184, 0.3);
+				background: rgba(255, 255, 255, 0.06);
+				color: rgba(255, 255, 255, 0.88);
+				font-family: inherit;
+				font-size: 0.8125rem;
+				cursor: pointer;
+				transition: background 0.15s ease;
+			}
+			.wabi-boot-shell__btn:hover {
+				background: rgba(255, 255, 255, 0.12);
+			}
+			[data-boot-state="reconnect"] .wabi-boot-shell__default {
+				display: none;
+			}
+			[data-boot-state="reconnect"] .wabi-boot-shell__reconnect {
+				display: flex;
+			}
 		</style>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="tap">
 		<div id="wabi-boot-shell" role="status" aria-live="polite">
-			<div class="wabi-boot-shell__center">
-				<div class="wabi-boot-shell__stage" aria-hidden="true">
-					<span class="wabi-boot-shell__halo"></span>
-					<span class="wabi-boot-shell__ring"></span>
-					<img src="%sveltekit.assets%/wabi-logo.png" alt="" class="wabi-boot-shell__logo" />
+			<div class="wabi-boot-shell__center" data-boot-state="default">
+				<div class="wabi-boot-shell__default">
+					<div class="wabi-boot-shell__stage" aria-hidden="true">
+						<span class="wabi-boot-shell__halo"></span>
+						<span class="wabi-boot-shell__ring"></span>
+						<img src="%sveltekit.assets%/wabi-logo.png" alt="" class="wabi-boot-shell__logo" />
+					</div>
+					<div class="wabi-boot-shell__title">Starting Wabi</div>
+					<div class="wabi-boot-shell__dots" aria-hidden="true">
+						<span></span>
+						<span></span>
+						<span></span>
+					</div>
 				</div>
-				<div class="wabi-boot-shell__title">Starting Wabi</div>
-				<div class="wabi-boot-shell__dots" aria-hidden="true">
-					<span></span>
-					<span></span>
-					<span></span>
+				<div class="wabi-boot-shell__reconnect">
+					<div class="wabi-boot-shell__title">Reconnecting…</div>
+					<p class="wabi-boot-shell__subtitle">Unable to reach the server. Your session may still be valid.</p>
+					<button id="wabi-work-offline" class="wabi-boot-shell__btn">Work Offline</button>
 				</div>
 			</div>
 		</div>
 		<div style="display: contents">%sveltekit.body%</div>
 		<script>
 			(() => {
+				const getShell = () => document.getElementById('wabi-boot-shell');
+				const getCenter = () => getShell()?.querySelector('.wabi-boot-shell__center');
+
 				const hideBootShell = () => {
-					const shell = document.getElementById('wabi-boot-shell');
+					const shell = getShell();
 					if (!shell || shell.classList.contains('is-hidden')) return;
 					shell.classList.add('is-hidden');
 					window.setTimeout(() => shell.remove(), 280);
 				};
 
+				const enterReconnectMode = () => {
+					const center = getCenter();
+					if (center) center.dataset.bootState = 'reconnect';
+				};
+
 				window.__hideWabiBootShell = hideBootShell;
+				window.__enterReconnectMode = enterReconnectMode;
 				window.addEventListener('wabi:boot-hide', hideBootShell, { once: true });
+				window.addEventListener('wabi:boot-reconnect', enterReconnectMode, { once: true });
+
+				document.getElementById('wabi-work-offline')?.addEventListener('click', () => {
+					window.__hideWabiBootShell();
+					window.dispatchEvent(new CustomEvent('wabi:work-offline'));
+				});
 			})();
 		</script>
 	</body>

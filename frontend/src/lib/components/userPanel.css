@@ -224,6 +224,7 @@
 	height: 8px;
 	border-radius: 50%;
 	flex-shrink: 0;
+	background: var(--status-color, var(--status-offline, #6b7280));
 }
 
 .status-text {
@@ -318,5 +319,5 @@
 	.call-btn { width: 28px; height: 28px; font-size: 0.8rem; }
 }
 
-.user-avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary)); }
+.user-avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary-color)); }
 .status-dot { background-color: var(--status-color); }

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { createEmptyNote, readNotes, writeNotes, type LocalNote } from '$lib/notesStore';
+	import { createEmptyNote, readNotes, writeNotes, sortNotesWithPin, NOTE_COLORS, type LocalNote } from '$lib/notesStore';
 	import { openReaderDocument } from '$lib/readerWorkspace';
 
 	export let storageKey: string;
@@ -8,6 +8,13 @@
 	export let emptyMessage = 'No notes yet.';
 	export let placeholder = 'Write your note...';
 	export let showHeader = true;
+	export let compact = false;
+
+	let view: 'list' | 'editor' = 'list';
+
+	$: if (view === 'editor' && !selectedNote) {
+		view = 'list';
+	}
 
 	const SIDEBAR_MIN_WIDTH = 0;
 	const SIDEBAR_COLLAPSED_WIDTH = 0;
@@ -34,7 +41,7 @@
 			selectedNoteId = null;
 			return;
 		}
-		const next = readNotes(key).slice().sort((a, b) => b.updatedAt - a.updatedAt);
+		const next = sortNotesWithPin(readNotes(key));
 		const hadSelection = next.some((note) => note.id === selectedNoteId);
 		notes = next;
 		if (!hadSelection) {
@@ -44,7 +51,7 @@
 
 	function addNote() {
 		const note = createEmptyNote();
-		notes = [note, ...notes];
+		notes = sortNotesWithPin([note, ...notes]);
 		selectedNoteId = note.id;
 		writeNotes(storageKey, notes);
 	}
@@ -56,10 +63,20 @@
 		writeNotes(storageKey, notes);
 	}
 
+	function openNote(id: string): void {
+		selectedNoteId = id;
+		view = 'editor';
+	}
+
+	function addNoteAndOpen(): void {
+		addNote();
+		view = 'editor';
+	}
+
 	function updateSelectedText(nextText: string) {
 		if (!selectedNote) return;
-		notes = notes
-			.map((note) => {
+		notes = sortNotesWithPin(
+			notes.map((note) => {
 				if (note.id !== selectedNote.id) return note;
 				return {
 					...note,
@@ -67,7 +84,24 @@
 					updatedAt: Date.now()
 				};
 			})
-			.sort((a, b) => b.updatedAt - a.updatedAt);
+		);
+		writeNotes(storageKey, notes);
+	}
+
+	function togglePinSelected(): void {
+		if (!selectedNote) return;
+		const nextPinned = !selectedNote.pinned;
+		notes = sortNotesWithPin(
+			notes.map((note) => (note.id === selectedNote.id ? { ...note, pinned: nextPinned } : note))
+		);
+		writeNotes(storageKey, notes);
+	}
+
+	function updateSelectedColor(nextColor: string | undefined): void {
+		if (!selectedNote) return;
+		notes = sortNotesWithPin(
+			notes.map((note) => (note.id === selectedNote.id ? { ...note, color: nextColor } : note))
+		);
 		writeNotes(storageKey, notes);
 	}
 
@@ -154,12 +188,100 @@
 
 <svelte:window on:resize={recalcWorkspaceWidth} />
 
-<div
-	class="notes-workspace"
-	class:sidebar-collapsed={sidebarWidth === SIDEBAR_COLLAPSED_WIDTH}
-	style={`grid-template-columns: ${sidebarWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr);`}
-	bind:this={workspaceElement}
->
+{#if compact}
+	<div class="notes-workspace notes-compact">
+		{#if view === 'editor' && selectedNote}
+			<div class="notes-editor">
+				<div class="notes-editor-toolbar">
+				<div class="notes-toolbar-leading">
+					<button class="notes-open-sidebar-btn" type="button" on:click={() => (view = 'list')} title="Back to notes" aria-label="Back to notes">
+						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+					</button>
+					<button
+						class="notes-pin-btn"
+						class:active={selectedNote.pinned}
+						type="button"
+						on:click={togglePinSelected}
+						title={selectedNote.pinned ? 'Unpin note' : 'Pin to top'}
+						aria-label={selectedNote.pinned ? 'Unpin note' : 'Pin to top'}
+						aria-pressed={selectedNote.pinned ? 'true' : 'false'}
+					>
+						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+					</button>
+					<div class="notes-color-row" role="group" aria-label="Note color">
+						{#each NOTE_COLORS as color}
+							<button
+								class="notes-color-dot"
+								class:active={selectedNote.color === color}
+								type="button"
+								style={`--swatch: ${color}`}
+								on:click={() => updateSelectedColor(selectedNote.color === color ? undefined : color)}
+								title="Set note color"
+								aria-label="Set note color"
+							></button>
+						{/each}
+					</div>
+					<span class="notes-editor-time">Updated {formatTs(selectedNote.updatedAt)}</span>
+				</div>
+					<div class="notes-toolbar-actions">
+						<button class="notes-reader-btn" on:click={openSelectedInReader} title="Open in Reader">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+								<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+								<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 0 4 24V4.5A2.5 2.5 0 0 1 6.5 2z"></path>
+							</svg>
+						</button>
+						<button class="notes-add-btn editor-add" on:click={addNote} title="Create note">
+							<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v14h-2zM5 11h14v2H5z" fill="currentColor"/></svg>
+						</button>
+						<button class="notes-delete-btn" on:click={deleteSelected} title="Delete note">
+							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+						</button>
+					</div>
+				</div>
+				<textarea
+					class="notes-input"
+					value={selectedNote.text}
+					on:input={(e) => updateSelectedText((e.currentTarget as HTMLTextAreaElement).value)}
+					placeholder={placeholder}
+				></textarea>
+			</div>
+		{:else}
+			<div class="notes-compact-header">
+				<span class="notes-title">{title}</span>
+				<button class="notes-add-btn" on:click={addNoteAndOpen} title="Create note">
+					<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v14h-2zM5 11h14v2H5z" fill="currentColor"/></svg>
+				</button>
+			</div>
+			<div class="notes-list notes-list-cards">
+				{#each notes as note (note.id)}
+					<button
+						class="notes-card"
+						class:active={note.id === selectedNoteId}
+						class:has-color={Boolean(note.color)}
+						style={note.color ? `--note-color: ${note.color}` : ''}
+						on:click={() => openNote(note.id)}
+					>
+						<div class="notes-item-top">
+							{#if note.pinned}
+								<svg class="notes-item-pin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-label="Pinned"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+							{/if}
+							<span class="notes-item-time">{formatTs(note.updatedAt)}</span>
+						</div>
+						<span class="notes-item-preview">{previewText(note)}</span>
+					</button>
+				{:else}
+					<div class="notes-empty">{emptyMessage}</div>
+				{/each}
+			</div>
+		{/if}
+	</div>
+{:else}
+	<div
+		class="notes-workspace"
+		class:sidebar-collapsed={sidebarWidth === SIDEBAR_COLLAPSED_WIDTH}
+		style={`grid-template-columns: ${sidebarWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr);`}
+		bind:this={workspaceElement}
+	>
 	<div class="notes-sidebar" class:collapsed={sidebarWidth === SIDEBAR_COLLAPSED_WIDTH}>
 		{#if showHeader}
 			<div class="notes-header">
@@ -174,9 +296,14 @@
 				<button
 					class="notes-item"
 					class:active={note.id === selectedNoteId}
+					class:has-color={Boolean(note.color)}
+					style={note.color ? `--note-color: ${note.color}` : ''}
 					on:click={() => selectedNoteId = note.id}
 				>
 					<div class="notes-item-top">
+						{#if note.pinned}
+							<svg class="notes-item-pin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-label="Pinned"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+						{/if}
 						<span class="notes-item-time">{formatTs(note.updatedAt)}</span>
 					</div>
 					<span class="notes-item-preview">{previewText(note)}</span>
@@ -202,6 +329,30 @@
 							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
 						</button>
 					{/if}
+					<button
+						class="notes-pin-btn"
+						class:active={selectedNote.pinned}
+						type="button"
+						on:click={togglePinSelected}
+						title={selectedNote.pinned ? 'Unpin note' : 'Pin to top'}
+						aria-label={selectedNote.pinned ? 'Unpin note' : 'Pin to top'}
+						aria-pressed={selectedNote.pinned ? 'true' : 'false'}
+					>
+						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+					</button>
+					<div class="notes-color-row" role="group" aria-label="Note color">
+						{#each NOTE_COLORS as color}
+							<button
+								class="notes-color-dot"
+								class:active={selectedNote.color === color}
+								type="button"
+								style={`--swatch: ${color}`}
+								on:click={() => updateSelectedColor(selectedNote.color === color ? undefined : color)}
+								title="Set note color"
+								aria-label="Set note color"
+							></button>
+						{/each}
+					</div>
 					<span class="notes-editor-time">Updated {formatTs(selectedNote.updatedAt)}</span>
 				</div>
 				<div class="notes-toolbar-actions">
@@ -236,6 +387,7 @@
 		{/if}
 	</div>
 </div>
+{/if}
 
 <style>
 	.notes-workspace {
@@ -315,7 +467,7 @@
 		border: none;
 		border-left: 1px solid var(--border-subtle);
 		border-right: 1px solid var(--border-subtle);
-		background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+		background: color-mix(in srgb, var(--accent-primary-color) 12%, transparent);
 		cursor: ew-resize;
 	}
 
@@ -452,6 +604,66 @@
 		outline: none;
 	}
 
+	/* Pin + color controls (compact + full editor) */
+	.notes-pin-btn {
+		width: 22px;
+		height: 22px;
+		border: none;
+		border-radius: 4px;
+		background: transparent;
+		color: var(--text-secondary);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		flex: none;
+	}
+
+	.notes-pin-btn:hover {
+		color: var(--text-heading);
+		background: var(--surface-hover);
+	}
+
+	.notes-pin-btn.active {
+		color: var(--accent-primary-color);
+	}
+
+	.notes-color-row {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		flex: none;
+	}
+
+	.notes-color-dot {
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		border: 1px solid var(--border-subtle);
+		background: var(--swatch);
+		padding: 0;
+		cursor: pointer;
+		transition: transform 0.1s, box-shadow 0.1s;
+	}
+
+	.notes-color-dot:hover {
+		transform: scale(1.12);
+	}
+
+	.notes-color-dot.active {
+		box-shadow: 0 0 0 2px var(--surface-base), 0 0 0 3px var(--swatch);
+	}
+
+	.notes-item-pin {
+		color: var(--accent-primary-color);
+		flex: none;
+	}
+
+	.notes-card.has-color,
+	.notes-item.has-color {
+		border-left: 3px solid var(--note-color, transparent);
+	}
+
 	.notes-editor-empty {
 		flex: 1;
 		display: flex;
@@ -490,6 +702,57 @@
 		cursor: pointer;
 	}
 
+	/* Compact (right dock) mode: single-column list OR editor view state */
+	.notes-compact {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		min-height: 0;
+	}
+
+	.notes-compact-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.5rem 0.55rem;
+		border-bottom: 1px solid var(--border-subtle);
+		flex-shrink: 0;
+	}
+
+	.notes-list-cards {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		padding: 0.4rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+
+	.notes-card {
+		width: 100%;
+		border: 1px solid var(--border-subtle);
+		border-radius: 10px;
+		background: var(--surface-base);
+		padding: 0.55rem 0.65rem;
+		text-align: left;
+		color: var(--text-heading);
+		cursor: pointer;
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		transition: background 0.1s, border-color 0.1s;
+	}
+
+	.notes-card:hover {
+		background: var(--surface-hover);
+	}
+
+	.notes-card.active {
+		background: rgba(var(--accent-primary-rgb, 88, 101, 242), 0.14);
+		border-color: rgba(var(--accent-primary-rgb, 88, 101, 242), 0.4);
+	}
+
 	@media (max-width: 900px) {
 		.notes-workspace {
 			grid-template-columns: 1fr;
@@ -504,5 +767,10 @@
 		.notes-sidebar-resizer {
 			display: none;
 		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.notes-color-dot, .notes-card { transition: none; }
+		.notes-color-dot:hover { transform: none; }
 	}
 </style>

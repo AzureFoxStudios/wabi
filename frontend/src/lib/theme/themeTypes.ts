@@ -30,8 +30,9 @@ export interface ThemeColors {
 	textMutedRgb: string;
 
 	// Accent colors
-	accent: string;
-	accentHex: string;
+	accent: string;            // Gradient string for backgrounds
+	accentHex: string;         // Solid color of accent (palette.accent)
+	accentSecondaryHex: string;// Solid color of secondary accent (palette.accentSecondary)
 	accentRgb: string;
 	accentHover: string;
 
@@ -94,10 +95,23 @@ export interface ThemeGradients {
 	loadingDark: string;
 }
 
+export interface AmbientConfig {
+	effect: string;
+	color?: string;
+	intensity?: number;
+	size?: number;
+	speed?: number;
+	/** Surface translucency so the ambient canvas blends through (0..1). Default 0.85. */
+	frostOpacity?: number;
+	/** Backdrop blur radius in px applied to surfaces. Default 12. */
+	frostBlur?: number;
+}
+
 export interface Theme {
 	id: string;
 	name: string;
 	description: string;
 	colors: ThemeColors;
 	gradients: ThemeGradients;
+	ambient?: AmbientConfig;
 }

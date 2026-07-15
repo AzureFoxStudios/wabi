@@ -34,17 +34,17 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { callMode, isInCall, outgoingCall, startCall } from '$lib/calling';
 	import { _, currentLocale } from '$lib/i18n';
-	import { isTauriRuntime } from '$lib/tauri-platform';
 	import { getUserIdentityKey } from '$lib/localNicknames';
 	import { animationPassStore } from '$lib/animationPass';
 	import { getAuthToken } from '$lib/authSession';
 	import { paymentAccessStore, refreshPaymentAccess } from '$lib/payments/paymentAccessStore';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { getSearchEngineProvider, openExternalSearch } from '$lib/searchEngineJump';
-	import { isExperimentalStdbCallEnabled, setExperimentalStdbCallEnabled } from '$lib/experimentalStdbCalls';
+	import { isExperimentalWabidbCallEnabled, setExperimentalWabidbCallEnabled } from '$lib/experimentalWabidbCalls';
 	import { MAP_ADDON_ID, focusedMapPlace, openFullMapTab } from '$lib/mapWorkspace';
 	import { MODEL_VIEWPORT_ADDON_ID, modelViewportSelection, openModelViewportSurface } from '$lib/modelViewportTab';
 	import { READER_ADDON_ID, openReaderSurface, readerSelection } from '$lib/readerWorkspace';
+	import { MEDIA_ALBUMS_ADDON_ID } from '$lib/mediaAlbumsWorkspace';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { pushLocalDirectionsCard } from '$lib/directionsAssist';
 	import { currentChatSurface, setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
@@ -55,6 +55,7 @@
 	import ChatHeader from './chat/ChatHeader.svelte';
 	import ChatMessagesPane from './chat/ChatMessagesPane.svelte';
 	import GalleryChannel from './GalleryChannel.svelte';
+	import LoreChannel from './LoreChannel.svelte';
 	import { executeChatCommand } from './chat/commandExecutor';
 	import { filterMessages, getChannelHistoryFlags, waitForHistoryIdle } from './chat/search';
 	import { formatTypingUsers, getVisibleTypingUsers } from './chat/typing';
@@ -64,7 +65,7 @@
 	const dispatch = createEventDispatcher();
 	type SendChatMessage = (channelId: string, text: string, type: string, opts?: Record<string, unknown>) => void;
 	const sendChatMessage = sendMessage as unknown as SendChatMessage;
-	const resolveDmChannelId = getDMChannelIdForUser as unknown as (u: User | null, t: User) => string;
+	const resolveDmChannelId = "" as unknown as (u: User | null, t: User) => string;
 	const openExistingDmSignal = dmPanelSignal as unknown as { set(v: { channelId: string; otherUser: User }): void };
 
 	$: chatSurface = $currentChatSurface;
@@ -75,6 +76,7 @@
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(READER_ADDON_ID)) return 'reader' as const;
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_ADDON_ID)) return 'model' as const;
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MAP_ADDON_ID)) return 'map' as const;
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MEDIA_ALBUMS_ADDON_ID)) return 'media' as const;
 		return 'messages' as const;
 	})();
 
@@ -87,9 +89,10 @@
 		switch (selectedWorkspaceView) {
 			case 'whiteboard': return 'Whiteboard';
 			case 'reader': return 'Reader';
-			case 'model': return '3D View';
+			case 'model': return '3D Viewport';
 			case 'map': return 'Map';
-			default: return null;
+			case 'media': return 'Media Albums';
+			default: return '';
 		}
 	})();
 	$: workspaceHeaderTitle = (() => {
@@ -112,7 +115,7 @@
 
 	$: isDMChannel = currentChannelData?.type === 'dm';
 	$: isGroupChannel = currentChannelData?.type === 'group';
-	$: currentChannelType = currentChannelData?.type || 'text';
+	$: currentChannelType = (currentChannelData?.type || 'text') as string;
 	$: channelUsesChatStream = isTextLikeChannelType(currentChannelType);
 	$: dmCallTargetUser = getDMOtherUser(currentChannelData, $currentUser, $userLookup);
 	let paymentTargetKind: 'channel' | 'dm' | 'group' | 'workspace' | null = null;
@@ -230,8 +233,7 @@
 	let fullHistorySearchStatus = '';
 	const MAX_FULL_HISTORY_SEARCH_PAGES = 80;
 	let visibleTypingUsers: string[] = [];
-	let runtimeVersionLabel = 'unknown';
-	let experimentalStdbCallsEnabled = false;
+	let experimentalWabidbCallsEnabled = false;
 
 	function getWorkingSetLimit(): number {
 		if (currentChannelData?.persistMessages) {
@@ -324,7 +326,7 @@
 			setSearchInput: v => { searchInput = v; },
 			openReaderSurface, openModelViewportSurface, openFullMapTab,
 			openPaymentSheet, dispatchLogout: () => dispatch('logout'),
-			createDM, getDMChannelIdForUser: resolveDmChannelId,
+			undefined, "": resolveDmChannelId,
 			openExistingDM: (channelId, otherUser) => openExistingDmSignal.set({ channelId, otherUser }),
 			pushLocalDirectionsCard,
 			navigateTo: path => { window.location.href = path; }
@@ -334,14 +336,7 @@
 	// ── Lifecycle ───────────────────────────────────────────────────────────────
 	onMount(() => {
 		scrollToBottom();
-		experimentalStdbCallsEnabled = isExperimentalStdbCallEnabled();
-		void (async () => {
-			const env = import.meta.env as Record<string, string | undefined>;
-			runtimeVersionLabel = env.PUBLIC_APP_VERSION || env.VITE_APP_VERSION || env.npm_package_version || 'dev';
-			if (!isTauriRuntime()) return;
-			try { const { getVersion } = await import('@tauri-apps/api/app'); runtimeVersionLabel = await getVersion(); }
-			catch { /* keep fallback */ }
-		})();
+		experimentalWabidbCallsEnabled = isExperimentalWabidbCallEnabled();
 		const onGlobalClick = (e: MouseEvent) => {
 			const t = e.target as Node | null;
 			if (t && searchContainerElement?.contains(t)) return;
@@ -351,10 +346,10 @@
 		return () => document.removeEventListener('click', onGlobalClick);
 	});
 
-	async function toggleExperimentalStdbCallUi() {
-		const next = !experimentalStdbCallsEnabled;
-		experimentalStdbCallsEnabled = next;
-		await setExperimentalStdbCallEnabled(next);
+	async function toggleExperimentalWabidbCallUi() {
+		const next = !experimentalWabidbCallsEnabled;
+		experimentalWabidbCallsEnabled = next;
+		await setExperimentalWabidbCallEnabled(next);
 	}
 
 	function returnToMessagesView(): void {
@@ -363,6 +358,7 @@
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(READER_ADDON_ID)) mobileTabQueue.closeAddonTab(READER_ADDON_ID);
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MODEL_VIEWPORT_ADDON_ID)) mobileTabQueue.closeAddonTab(MODEL_VIEWPORT_ADDON_ID);
 		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MAP_ADDON_ID)) mobileTabQueue.closeAddonTab(MAP_ADDON_ID);
+		if ($mobileQueueActiveTabId === mobileTabQueue.toAddonTabId(MEDIA_ALBUMS_ADDON_ID)) mobileTabQueue.closeAddonTab(MEDIA_ALBUMS_ADDON_ID);
 	}
 </script>
 
@@ -394,7 +390,7 @@
 		{dmDirectCallActive}
 		{dmDirectCallPending}
 		{experimentalScopeVisible}
-		{experimentalStdbCallsEnabled}
+		{experimentalWabidbCallsEnabled}
 		currentChannelPersistMessages={Boolean(currentChannelData?.persistMessages)}
 		bind:searchExpanded
 		bind:searchInput
@@ -408,7 +404,7 @@
 		onReturnToMessages={returnToMessagesView}
 		onStartDMVoiceCall={startDMVoiceCall}
 		onStartDMVideoCall={startDMVideoCall}
-		onToggleExperimentalStdbCall={toggleExperimentalStdbCallUi}
+		onToggleExperimentalWabidbCall={toggleExperimentalWabidbCallUi}
 		onOpenSearch={openSearch}
 		onSearchInputKeydown={handleSearchInputKeydown}
 		onSearchCurrentQueryInBrowser={searchCurrentQueryInBrowser}
@@ -443,12 +439,15 @@
 	>
 		{#if currentChannelType === 'gallery'}
 			<GalleryChannel />
+		{:else if currentChannelType === 'lore'}
+			<LoreChannel />
 		{:else if isRoutedChannelType(currentChannelType)}
-			<ChannelModePlaceholder channel={currentChannelData} mode={currentChannelType} />
+			<ChannelModePlaceholder channel={currentChannelData} mode={currentChannelType as 'forum' | 'wiki' | 'stage'} />
 		{:else}
 			<ChatMessagesPane
 				currentChannel={$currentChannel}
 				{searchInput}
+				{channelDisplayName}
 				{filteredMessages}
 				{pinnedMessages}
 				firstUnreadMessageId={$lastReadMessageId}
@@ -512,7 +511,3 @@
 				manualCashOpen = false;
 			}}
 		/>
-
-			<div class="debug-version-footer" aria-hidden="true">
-			Version {runtimeVersionLabel} - for debugging reasons only
-		</div>
