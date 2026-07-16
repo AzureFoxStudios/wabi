@@ -672,6 +672,9 @@
 			<div class="switcher-eyebrow">Servers</div>
 			<h2>{showcaseServer?.effectiveName || 'Saved servers'}</h2>
 			<p>{getShowcaseDescription(showcaseServer)}</p>
+			{#if showcaseServer?.effectiveTagline}
+				<p class="switcher-showcase-tagline">{showcaseServer.effectiveTagline}</p>
+			{/if}
 		</div>
 
 		<button type="button" class="switcher-close" aria-label="Close server switcher" on:click={() => dispatch('close')}>x</button>
@@ -875,6 +878,9 @@
 												</span>
 											{/if}
 										</div>
+										{#if server.effectiveTagline}
+											<div class="switcher-tagline">{server.effectiveTagline}</div>
+										{/if}
 										{#if editingUrl === server.url}
 											<div class="switcher-alias-editor">
 												<input

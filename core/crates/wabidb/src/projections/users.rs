@@ -15,6 +15,10 @@ pub struct UserRecord {
     pub is_active: bool,
     pub created_at_micros: i64,
     pub last_seen_micros: i64,
+    pub profile_picture: Option<String>,
+    pub username_font: Option<String>,
+    pub bio: Option<String>,
+    pub status_message: Option<String>,
 }
 
 impl RecordCodec for UserRecord {
@@ -35,6 +39,10 @@ impl From<UserRecord> for crate::domain::User {
             is_active: r.is_active,
             created_at_micros: r.created_at_micros,
             last_seen_micros: r.last_seen_micros,
+            profile_picture: r.profile_picture,
+            username_font: r.username_font,
+            bio: r.bio,
+            status_message: r.status_message,
         }
     }
 }
@@ -61,11 +69,45 @@ impl Projection for UsersProjection {
         "user_registered"
     }
 
+    fn event_types(&self) -> Vec<&str> {
+        vec!["user_registered", "user_updated"]
+    }
+
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         let mut record: UserRecord = decode_record(&event.payload)?;
-        // Override with the commit_seq so the user_id is always unique
-        // and matches what the adapter returned to the caller.
-        record.user_id = event.commit_seq;
+        if event.event_type == "user_registered" {
+            // Override with the commit_seq so the user_id is always unique
+            // and matches what the adapter returned to the caller.
+            record.user_id = event.commit_seq;
+        } else {
+            // user_updated patches an existing record in place.
+            let key = encode_key(record.user_id);
+            if let Some(existing_bytes) = state.get("users", &key) {
+                if let Ok(mut existing) = decode_record(&existing_bytes) {
+                    if record.username != existing.username {
+                        existing.username = record.username;
+                    }
+                    if let Some(color) = record.color.strip_prefix("\0") {
+                        existing.color = color.to_string();
+                    } else if !record.color.is_empty() {
+                        existing.color = record.color.clone();
+                    }
+                    if record.profile_picture.is_some() {
+                        existing.profile_picture = record.profile_picture.clone();
+                    }
+                    if record.username_font.is_some() {
+                        existing.username_font = record.username_font.clone();
+                    }
+                    if record.bio.is_some() {
+                        existing.bio = record.bio.clone();
+                    }
+                    if record.status_message.is_some() {
+                        existing.status_message = record.status_message.clone();
+                    }
+                    record = existing;
+                }
+            }
+        }
         let key = encode_key(record.user_id);
         let value = encode_record(&record);
         state.insert("users", key, value, event.commit_seq);
@@ -89,6 +131,10 @@ mod tests {
             is_active: true,
             created_at_micros: 1_000_000,
             last_seen_micros: 2_000_000,
+            profile_picture: None,
+            username_font: None,
+            bio: None,
+            status_message: None,
         };
         let buf = encode_record(&r);
         let decoded = decode_record(&buf).unwrap();
@@ -107,6 +153,10 @@ mod tests {
             is_active: false,
             created_at_micros: 1_000_000,
             last_seen_micros: 1_000_000,
+            profile_picture: None,
+            username_font: None,
+            bio: None,
+            status_message: None,
         };
         let buf = encode_record(&r);
         let decoded = decode_record(&buf).unwrap();
@@ -130,6 +180,10 @@ mod tests {
             is_active: true,
             created_at_micros: 1_000_000,
             last_seen_micros: 1_000_000,
+            profile_picture: None,
+            username_font: None,
+            bio: None,
+            status_message: None,
         };
 
         let event = DurableEvent {

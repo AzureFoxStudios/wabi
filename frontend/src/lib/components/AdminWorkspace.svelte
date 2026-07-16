@@ -79,6 +79,7 @@
 			bannerUrl: null,
 			accentColor: null,
 			description: null,
+			tagline: null,
 			launchPageFallbackEnabled: true
 		};
 	}
@@ -144,8 +145,6 @@
 	let frontendMetadataError = '';
 	let frontendMetadataSaveStatus = '';
 	let frontendMetadataUploadTarget: 'icon' | 'banner' | null = null;
-	let frontendIconInput: HTMLInputElement | null = null;
-	let frontendBannerInput: HTMLInputElement | null = null;
 	let paymentPolicyLoading = false;
 	let paymentPolicyLoaded = false;
 	let paymentPolicyAttempted = false;
@@ -446,14 +445,6 @@
 		}
 	}
 
-	function triggerFrontendMetadataUpload(target: 'icon' | 'banner'): void {
-		if (target === 'icon') {
-			frontendIconInput?.click();
-			return;
-		}
-		frontendBannerInput?.click();
-	}
-
 	function validateFrontendMetadataImage(file: File): string | null {
 		const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 		if (!allowedTypes.includes(file.type)) {
@@ -746,13 +737,13 @@
 				{frontendMetadataUploadTarget}
 				onMetadataChange={(m) => frontendAppMetadata = m}
 				onSave={saveFrontendMetadata}
-				onDiscard={discardFrontendMetadataDraft}
-				onTriggerUpload={triggerFrontendMetadataUpload}
-				{resolveFrontendMetadataAssetUrl}
-			/>
-		{/if}
+			onDiscard={discardFrontendMetadataDraft}
+			onUploadAsset={uploadFrontendMetadataAsset}
+			{resolveFrontendMetadataAssetUrl}
+		/>
+	{/if}
 
-		<AdminUserList
+	<AdminUserList
 			{sortedUsers}
 			{searchQuery}
 			{canManageRoles}
@@ -844,6 +835,8 @@
 	{/if}
 {:else if section === 'payments'}
 	{#if canManageRoles}
+		<ServerPolicyPanel canManageAdmin={canManageRoles} />
+
 		<PaymentAccessPanel
 			{paymentPolicy}
 			{paymentUserBlocks}
@@ -858,7 +851,7 @@
 			onSave={savePaymentPolicy}
 		/>
 	{/if}
-{:else if section === 'runtime'}
+	{:else if section === 'runtime'}
 	{#if canManageRoles}
 		<RuntimeTuningPanel
 			{runtimePanel}
@@ -894,12 +887,26 @@
 			onMetadataChange={(m) => frontendAppMetadata = m}
 			onSave={saveFrontendMetadata}
 			onDiscard={discardFrontendMetadataDraft}
-			onTriggerUpload={triggerFrontendMetadataUpload}
+			onUploadAsset={uploadFrontendMetadataAsset}
 			{resolveFrontendMetadataAssetUrl}
 		/>
 	{/if}
 	{:else if section === 'settings'}
 	{#if canManageRoles}
 		<ServerPolicyPanel canManageAdmin={canManageRoles} />
+
+		<PaymentAccessPanel
+			{paymentPolicy}
+			{paymentUserBlocks}
+			{paymentPolicyLoading}
+			{paymentPolicySaving}
+			{paymentPolicyError}
+			{paymentPolicySaveStatus}
+			roleDefinitions={roleDefinitions}
+			{getRoleLabel}
+			onPolicyChange={(p) => paymentPolicy = p}
+			onRefresh={refreshPaymentControls}
+			onSave={savePaymentPolicy}
+		/>
 	{/if}
 {/if}

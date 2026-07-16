@@ -97,6 +97,15 @@
 	line-height: 1.45;
 }
 
+.switcher-showcase-tagline {
+	font-style: italic;
+	opacity: 0.92;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
 .switcher-close {
 	position: absolute;
 	top: 0.95rem;

@@ -112,6 +112,11 @@ export function deriveServerView(entry: SavedServerEntry, activeUrl: string | nu
 		metadata?.description ||
 		(useLaunchFallback ? launch?.subheadline || null : null) ||
 		null;
+	const effectiveTagline =
+		metadata?.tagline ||
+		metadata?.description ||
+		(useLaunchFallback ? launch?.subheadline || null : null) ||
+		null;
 	return {
 		...entry,
 		hasRegisteredSession,
@@ -121,6 +126,7 @@ export function deriveServerView(entry: SavedServerEntry, activeUrl: string | nu
 		effectiveBannerUrl,
 		effectiveAccentColor,
 		effectiveDescription,
+		effectiveTagline,
 		isActive: activeUrl === entry.url
 	};
 }

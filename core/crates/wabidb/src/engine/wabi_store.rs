@@ -27,6 +27,7 @@ pub trait WabiStore: Send + Sync {
         channel_id: &str,
         user_id: u64,
         content: &str,
+        is_spoiler: bool,
     ) -> Result<String>;
 
     /// Create a new user. Returns the new user_id.
@@ -43,6 +44,7 @@ pub trait WabiStore: Send + Sync {
         name: &str,
         channel_kind: crate::domain::ChannelKind,
         owner_user_id: u64,
+        force_spoiler: bool,
     ) -> Result<String>;
 
     /// Add or update a reaction on a message.
@@ -83,6 +85,13 @@ pub trait WabiStore: Send + Sync {
 
     /// Update a user's last-seen timestamp.
     async fn touch_user(&self, user_id: u64) -> Result<()>;
+
+    /// Patch mutable profile fields on a user (avatar, font, bio, status, color, username).
+    async fn update_user(
+        &self,
+        user_id: u64,
+        updates: crate::domain::UserUpdate,
+    ) -> Result<()>;
 
     // --- typed reads ---
 
@@ -651,6 +660,7 @@ impl WabiStore for LocalWabiStore {
         channel_id: &str,
         user_id: u64,
         content: &str,
+        _is_spoiler: bool,
     ) -> Result<String> {
         let id = format!("msg_{}", self.next_message_id);
         let now = std::time::SystemTime::now()
@@ -677,6 +687,7 @@ impl WabiStore for LocalWabiStore {
         _name: &str,
         _channel_kind: crate::domain::ChannelKind,
         _owner_user_id: u64,
+        _force_spoiler: bool,
     ) -> Result<String> {
         Ok("ch_local_stub".to_string())
     }
@@ -723,6 +734,14 @@ impl WabiStore for LocalWabiStore {
     }
 
     async fn touch_user(&self, _user_id: u64) -> Result<()> {
+        Ok(())
+    }
+
+    async fn update_user(
+        &self,
+        _user_id: u64,
+        _updates: crate::domain::UserUpdate,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -976,7 +995,7 @@ mod tests {
     #[tokio::test]
     async fn legacy_string_methods_still_work() {
         let store = LocalWabiStore::new();
-        let id = store.send_message("ch_1", 42, "hello").await.unwrap();
+        let id = store.send_message("ch_1", 42, "hello", false).await.unwrap();
         assert!(!id.is_empty());
         let _ = store.get_message("any_id").await.unwrap();
         let _ = store.list_messages("ch_1", 10).await.unwrap();
@@ -1062,6 +1081,7 @@ mod tests {
             edited_at_micros: None,
             commit_seq: 1,
             is_deleted: false,
+            is_spoiler: false,
         };
         let s = serde_json::to_string(&m).unwrap();
         let back: Message = serde_json::from_str(&s).unwrap();

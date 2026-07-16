@@ -187,6 +187,15 @@ export function _setCurrentUser(userData: User | null): void {
 	currentUser.set(userData);
 }
 
+/// Merge profile fields (avatar, font, bio, status) from an updated
+/// `UserView` into the current user without clobbering other fields.
+export function _mergeCurrentUserProfile(patch: Partial<User>): void {
+	currentUser.update((current) => {
+		if (!current) return current;
+		return { ...current, ...patch };
+	});
+}
+
 export function _setServerMembers(membersData: User[] | Record<string, User>): void {
 	serverMembers.set(normalizeUserList(membersData));
 }

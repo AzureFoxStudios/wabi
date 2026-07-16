@@ -92,7 +92,11 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
 
     let online_users: Vec<Value> = {
         let connected = state.connected_users.read().await;
-        connected.values().map(|u| connected_user_to_view(u, owner_id)).collect()
+        let mut views = Vec::new();
+        for u in connected.values() {
+            views.push(connected_user_to_view(u, owner_id, &state).await);
+        }
+        views
     };
 
     let channels: Vec<Value> = state
@@ -122,9 +126,210 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
     }
 
     // Broadcast arrival to all other connected sockets
-    let user_view = connected_user_to_view(&connected_user, owner_id);
+    let user_view = connected_user_to_view(&connected_user, owner_id, &state).await;
     let _ = socket.broadcast().emit("user-joined", &user_view).await;
     let _ = io; // keep io alive
+}
+
+/// Validate and normalize a user-submitted profile string field.
+/// Rejects overly long values and control characters.
+fn sanitize_profile_text(input: &str, max_len: usize) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.len() > max_len {
+        return None;
+    }
+    if trimmed.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+/// Validate an avatar URL. Only same-origin relative paths and https URLs
+/// are allowed, to prevent javascript:/data: injection.
+fn sanitize_avatar_url(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.starts_with("/uploads/")
+        || trimmed.starts_with("/api/")
+        || trimmed.starts_with("https://")
+    {
+        return Some(trimmed.to_string());
+    }
+    None
+}
+
+/// Build a full `UserView` (with profile fields) for broadcast.
+async fn build_user_view(state: &SioState, db_user_id: i64, username: &str, color: &str) -> Value {
+    let owner_id = *state.app.owner_user_id.read().await;
+    let role = highest_role(if db_user_id > 0 { Some(db_user_id) } else { None }, owner_id);
+
+    let (profile_picture, username_font, bio, status_message) = if db_user_id > 0 {
+        if let Ok(Some(user)) = state.app.wdb.get_user(db_user_id as u64).await {
+            (
+                user.profile_picture,
+                user.username_font.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
+                user.bio,
+                user.status_message,
+            )
+        } else {
+            (None, None, None, None)
+        }
+    } else {
+        (None, None, None, None)
+    };
+
+    let stable_id = if db_user_id > 0 {
+        format!("user-{}", db_user_id)
+    } else {
+        username.to_string()
+    };
+
+    json!({
+        "id": stable_id,
+        "username": username,
+        "color": color,
+        "status": "active",
+        "handle": null,
+        "profilePicture": profile_picture,
+        "bio": bio,
+        "statusMessage": status_message,
+        "dbUserId": if db_user_id > 0 { Some(db_user_id) } else { None },
+        "roles": [role],
+        "highestRole": role,
+        "usernameFont": username_font,
+    })
+}
+
+/// Handle `update-profile` (and the legacy `n`) socket event: patch the
+/// authenticated user's profile fields and broadcast the updated `UserView`.
+#[allow(dead_code)]
+async fn on_update_profile(
+    socket: SocketRef,
+    data: Value,
+    state: SioState,
+    io: SocketIo,
+) {
+    let token = socket
+        .extensions
+        .get::<AuthToken>()
+        .map(|t| t.0.clone())
+        .unwrap_or_default();
+
+    let db_user_id = if !token.is_empty() {
+        user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1)
+    } else {
+        -1
+    };
+    let username = if !token.is_empty() {
+        username_from_token(&token, &state.app.config.jwt_secret)
+            .unwrap_or_else(|| "unknown".to_string())
+    } else {
+        "unknown".to_string()
+    };
+
+    if db_user_id <= 0 {
+        let _ = socket.emit(
+            "profile-update-failed",
+            &json!({ "reason": "authentication required" }),
+        );
+        return;
+    }
+
+    let mut updates = wabidb::domain::UserUpdate::default();
+
+    if let Some(v) = data.get("profilePicture").and_then(|v| v.as_str()) {
+        match sanitize_avatar_url(v) {
+            Some(url) => updates.profile_picture = Some(url),
+            None => {
+                let _ = socket.emit(
+                    "profile-update-failed",
+                    &json!({ "reason": "invalid profilePicture url" }),
+                );
+                return;
+            }
+        }
+    }
+    if let Some(v) = data.get("usernameFont") {
+        // Accept either a string (legacy) or an object {family,size,weight,style}.
+        let encoded = if let Some(s) = v.as_str() {
+            if s.is_empty() {
+                None
+            } else {
+                Some(serde_json::json!({ "family": s }).to_string())
+            }
+        } else if v.is_object() {
+            let family = v.get("family").and_then(|x| x.as_str()).map(|s| s.to_string());
+            let size = v.get("size").and_then(|x| x.as_str()).map(|s| s.to_string());
+            let weight = v.get("weight").and_then(|x| x.as_str()).map(|s| s.to_string());
+            let style = v.get("style").and_then(|x| x.as_str()).map(|s| s.to_string());
+            if family.is_none() && size.is_none() && weight.is_none() && style.is_none() {
+                None
+            } else {
+                Some(serde_json::json!({
+                    "family": family,
+                    "size": size,
+                    "weight": weight,
+                    "style": style,
+                }).to_string())
+            }
+        } else {
+            None
+        };
+        updates.username_font = encoded;
+    }
+    if let Some(v) = data.get("username").and_then(|v| v.as_str()) {
+        match sanitize_profile_text(v, 32) {
+            Some(name) => updates.username = Some(name),
+            None => {
+                let _ = socket.emit(
+                    "profile-update-failed",
+                    &json!({ "reason": "invalid username" }),
+                );
+                return;
+            }
+        }
+    }
+    if let Some(v) = data.get("bio").and_then(|v| v.as_str()) {
+        updates.bio = sanitize_profile_text(v, 280);
+    }
+    if let Some(v) = data.get("status").and_then(|v| v.as_str()) {
+        updates.status_message = sanitize_profile_text(v, 120);
+    }
+    if let Some(v) = data.get("color").and_then(|v| v.as_str()) {
+        // Prefix with NUL so the projection can distinguish "set" from "unchanged".
+        updates.color = Some(format!("\0{}", v));
+    }
+
+    match state.app.wdb.update_user(db_user_id as u64, updates).await {
+        Ok(()) => {
+            let color = state
+                .app
+                .wdb
+                .get_user(db_user_id as u64)
+                .await
+                .ok()
+                .flatten()
+                .map(|u| u.color)
+                .unwrap_or_else(|| "#98D8C8".to_string());
+
+            let view = build_user_view(&state, db_user_id, &username, &color).await;
+            let _ = socket.emit("profile-updated", &view);
+            let _ = io.to(format!("user-{}", db_user_id)).emit("user-updated", &view);
+            let _ = socket.broadcast().emit("user-updated", &view);
+        }
+        Err(e) => {
+            warn!("[sio] update-profile failed: {}", e);
+            let _ = socket.emit(
+                "profile-update-failed",
+                &json!({ "reason": "failed to persist profile" }),
+            );
+        }
+    }
 }
 
 #[allow(dead_code)]

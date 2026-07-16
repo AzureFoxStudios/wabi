@@ -156,6 +156,14 @@
 	text-align: right;
 }
 
+.switcher-tagline {
+	font-size: 0.78rem;
+	color: var(--text-muted, rgba(226, 232, 240, 0.62));
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .switcher-title-row {
 	display: flex;
 	flex-wrap: wrap;
