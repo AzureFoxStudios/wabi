@@ -32,6 +32,23 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 }
             });
 
+            socket.on("update-profile", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(cmd): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_update_profile(socket, cmd, s, io).await }
+                }
+            });
+
+            // Legacy alias used by the profile-picture upload flow.
+            socket.on("n", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(cmd): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_update_profile(socket, cmd, s, io).await }
+                }
+            });
+
             socket.on("rejoin", |socket: SocketRef, Data(_session_id): Data<String>| async move {
                 let _ = socket.emit("rejoin-failed", &json!({ "reason": "sessions not persisted" }));
             });

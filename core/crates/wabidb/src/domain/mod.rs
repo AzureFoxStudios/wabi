@@ -22,6 +22,10 @@ pub struct User {
     pub is_active: bool,
     pub created_at_micros: i64,
     pub last_seen_micros: i64,
+    pub profile_picture: Option<String>,
+    pub username_font: Option<String>,
+    pub bio: Option<String>,
+    pub status_message: Option<String>,
 }
 
 impl User {
@@ -41,8 +45,25 @@ impl User {
             is_active: true,
             created_at_micros: now,
             last_seen_micros: now,
+            profile_picture: None,
+            username_font: None,
+            bio: None,
+            status_message: None,
         }
     }
+}
+
+/// A set of mutable profile fields to patch onto a user. `None` means
+/// "leave unchanged"; `Some(value)` means "set to this value" (an empty
+/// string clears the field).
+#[derive(Debug, Clone, Default)]
+pub struct UserUpdate {
+    pub username: Option<String>,
+    pub color: Option<String>,
+    pub profile_picture: Option<String>,
+    pub username_font: Option<String>,
+    pub bio: Option<String>,
+    pub status_message: Option<String>,
 }
 
 /// A channel in Wabi (text, voice, DM, etc.).
@@ -66,6 +87,10 @@ pub struct Channel {
     /// When true, a Lore asset storage repo is auto-created for this channel.
     #[serde(default)]
     pub asset_storage: bool,
+    /// When true, every message sent in this channel is automatically marked
+    /// as a spoiler (and existing messages render spoiled by default).
+    #[serde(default)]
+    pub force_spoiler: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -99,6 +124,7 @@ impl Channel {
             position: 0,
             parent_id: None,
             asset_storage: false,
+            force_spoiler: false,
         }
     }
 }
@@ -124,6 +150,10 @@ pub struct Message {
     pub edited_at_micros: Option<i64>,
     pub commit_seq: u64,
     pub is_deleted: bool,
+    /// When true, the message content is hidden behind a spoiler veil by
+    /// default. Also forced on by a channel's `force_spoiler` flag.
+    #[serde(default)]
+    pub is_spoiler: bool,
 }
 
 /// A reaction on a message.
@@ -734,6 +764,7 @@ mod tests {
             edited_at_micros: None,
             commit_seq: 1,
             is_deleted: false,
+            is_spoiler: false,
         };
         let s = serde_json::to_string(&m).unwrap();
         let back: Message = serde_json::from_str(&s).unwrap();
@@ -753,6 +784,7 @@ mod tests {
             position: 5,
             parent_id: None,
             asset_storage: false,
+            force_spoiler: false,
         };
         let s = serde_json::to_string(&c).unwrap();
         let back: Channel = serde_json::from_str(&s).unwrap();
@@ -774,6 +806,7 @@ mod tests {
             edited_at_micros: None,
             commit_seq: 1,
             is_deleted: false,
+            is_spoiler: false,
         };
         let json = serde_json::to_string(&m).unwrap();
         let back: Message = serde_json::from_str(&json).unwrap();

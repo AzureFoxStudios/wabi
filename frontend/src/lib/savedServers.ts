@@ -41,6 +41,7 @@ export interface SavedServerView extends SavedServerEntry {
 	effectiveBannerUrl: string | null;
 	effectiveAccentColor: string | null;
 	effectiveDescription: string | null;
+	effectiveTagline: string | null;
 	isActive: boolean;
 }
 

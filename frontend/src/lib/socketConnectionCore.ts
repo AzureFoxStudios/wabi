@@ -17,6 +17,7 @@ import type { Channel, Message, User } from './socket-types';
 import { channels, currentChannel, joinChannel, _updatePinnedChannels } from './channelStore';
 import { channelMessages, _updateOptimisticMessage, _removeOptimisticMessage } from './messageStore';
 import { isRenderableMessage } from '$lib/displayEnhancements';
+import { recordSuccessfulServerConnection } from './savedServerActions';
 import {
 	users,
 	serverMembers,
@@ -27,7 +28,8 @@ import {
 	_setRoleDefinitions,
 	_setVoiceChannelMembers,
 	_updateVoiceChannelMember,
-	_removeVoiceChannelMember
+	_removeVoiceChannelMember,
+	_mergeCurrentUserProfile
 } from './presenceStore';
 import { _setTypingUsers, _clearTypingUsers } from './typingStore';
 import { incomingCall, outgoingCall } from './callingStateStores';
@@ -56,6 +58,7 @@ export class SocketManager {
 	private username: string = '';
 	private authToken: string | null = null;
 	private currentServerUrl: string | null = null;
+	private lastRecordedServerUrl: string | null = null;
 	private shouldSyncAfterReconnect = false;
 	private lastConnected = 0;
 
@@ -320,10 +323,18 @@ export class SocketManager {
 			this.lastConnected = Date.now();
 			this.fastReconnectCount = 0;
 			this.reconnect.resetAttempts();
-			this.currentServerUrl = normalizeServerUrl(getServerUrl()) || this.currentServerUrl;
+			const connectedUrl = normalizeServerUrl(getServerUrl()) || this.currentServerUrl;
+			this.currentServerUrl = connectedUrl;
 			if (this.currentServerUrl) {
 				this.reconnect.primeFailoverCandidates(this.currentServerUrl);
 				void this.reconnect.refreshFailoverCandidates(this.currentServerUrl);
+				if (this.currentServerUrl !== this.lastRecordedServerUrl) {
+					this.lastRecordedServerUrl = this.currentServerUrl;
+					recordSuccessfulServerConnection({
+						url: this.currentServerUrl,
+						username: this.username
+					});
+				}
 			}
 			this.heartbeat.start(sock);
 
@@ -547,6 +558,7 @@ export class SocketManager {
 								...ch,
 								...(payload.name != null ? { name: payload.name } : {}),
 								...(payload.description != null ? { description: payload.description } : {}),
+								...(payload.forceSpoiler != null ? { forceSpoiler: payload.forceSpoiler } : {}),
 								...('autoDeleteAfter' in (payload || {})
 									? { autoDeleteAfter: payload.autoDeleteAfter ?? null }
 									: {})
@@ -600,6 +612,28 @@ export class SocketManager {
 			if (!user?.id) return;
 			upsertUser(users, user);
 			upsertUser(serverMembers, user);
+		});
+
+		sock.on('user-updated', (user: User) => {
+			if (!user?.id) return;
+			upsertUser(users, user);
+			upsertUser(serverMembers, user);
+			_mergeCurrentUserProfile({
+				profilePicture: user.profilePicture,
+				usernameFont: user.usernameFont,
+				bio: user.bio
+			});
+		});
+
+		sock.on('profile-updated', (user: User) => {
+			if (!user?.id) return;
+			upsertUser(users, user);
+			upsertUser(serverMembers, user);
+			_mergeCurrentUserProfile({
+				profilePicture: user.profilePicture,
+				usernameFont: user.usernameFont,
+				bio: user.bio
+			});
 		});
 
 		sock.on('user-left', (payload: { id?: string }) => {

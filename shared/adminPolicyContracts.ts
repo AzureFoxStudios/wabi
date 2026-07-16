@@ -4,6 +4,7 @@ export interface FrontendAppMetadataPolicy {
   bannerUrl: string | null;
   accentColor: string | null;
   description: string | null;
+  tagline: string | null;
   launchPageFallbackEnabled: boolean;
 }
 

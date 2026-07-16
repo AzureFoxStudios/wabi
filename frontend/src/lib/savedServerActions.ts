@@ -248,6 +248,7 @@ export function switchToSavedServer(url: string): void {
 	if (!normalizedUrl || !browser) return;
 	const remember = getConfiguredServerRememberPreference();
 	setConfiguredServerUrl(normalizedUrl, remember);
+	recordSuccessfulServerConnection({ url: normalizedUrl });
 	window.location.reload();
 }
 

@@ -700,7 +700,7 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::projections::dm_identities::DmIdentityRecord",
         },
         ProjectionRegistration {
-            event_types: &["user_registered"],
+            event_types: &["user_registered", "user_updated"],
             handler: Arc::new(UsersProjection),
             index_name: "users",
             record_type_name: "wabidb::projections::users::UserRecord",
@@ -748,7 +748,7 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::projections::call_signals::CallSignal",
         },
         ProjectionRegistration {
-            event_types: &["channel_created"],
+            event_types: &["channel_created", "channel_updated"],
             handler: Arc::new(ChannelProjection),
             index_name: "channels",
             record_type_name: "wabidb::projections::channels::Channel",

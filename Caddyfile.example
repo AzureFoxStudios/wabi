@@ -33,7 +33,9 @@ YOUR_DOMAIN {
         # Control referrer leakage
         Referrer-Policy "strict-origin-when-cross-origin"
         # Content Security Policy — adjust if you use external resources
-        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss:; font-src 'self'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests"
+        # Voice/calling needs WebRTC + LiveKit: STUN/TURN ICE servers, the
+        # dynamic SFU websocket (any wss host), media blob streams, and workers.
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' wss: stun: turn: https:; media-src 'self' blob: data: mediastream:; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests"
         # Restrict feature permissions
         Permissions-Policy "camera=(), microphone=(), geolocation=()"
     }

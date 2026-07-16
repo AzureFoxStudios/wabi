@@ -155,6 +155,7 @@ impl WabiStore for WdbAdapter {
         channel_id: &str,
         user_id: u64,
         content: &str,
+        is_spoiler: bool,
     ) -> Result<String> {
         use wabidb::projections::messages::{encode_record, MessageRecord};
         let idem = format!(
@@ -173,6 +174,7 @@ impl WabiStore for WdbAdapter {
             edit_history: vec![],
             edited_at_micros: None,
             is_deleted: false,
+            is_spoiler,
         };
         let payload = encode_record(&record);
         let seq = self
@@ -211,6 +213,10 @@ impl WabiStore for WdbAdapter {
             is_active: true,
             created_at_micros: now_micros,
             last_seen_micros: now_micros,
+            profile_picture: None,
+            username_font: None,
+            bio: None,
+            status_message: None,
         };
         let payload = encode_record(&record);
         let seq = self
@@ -233,10 +239,12 @@ impl WabiStore for WdbAdapter {
         name: &str,
         channel_kind: wabidb::domain::ChannelKind,
         owner_user_id: u64,
+        force_spoiler: bool,
     ) -> Result<String> {
         use wabidb::domain::Channel;
         let mut channel = Channel::new("", name, owner_user_id);
         channel.channel_kind = channel_kind;
+        channel.force_spoiler = force_spoiler;
         let payload = Self::payload_json(&channel)?;
         let seq = self
             .run(
@@ -397,6 +405,48 @@ impl WabiStore for WdbAdapter {
             6,
             Self::payload_json(&payload)?,
             false,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn update_user(
+        &self,
+        user_id: u64,
+        updates: wabidb::domain::UserUpdate,
+    ) -> Result<()> {
+        use wabidb::projections::users::{encode_record, UserRecord};
+
+        let current = self
+            .get_user(user_id)
+            .await?
+            .ok_or_else(|| WabiError::NotFound { what: format!("User {} not found", user_id) })?;
+
+        let record = UserRecord {
+            user_id,
+            username: updates.username.unwrap_or(current.username),
+            handle: current.handle,
+            color: updates.color.unwrap_or(current.color),
+            password_hash: current.password_hash,
+            is_registered: current.is_registered,
+            is_active: current.is_active,
+            created_at_micros: current.created_at_micros,
+            last_seen_micros: current.last_seen_micros,
+            profile_picture: updates.profile_picture.or(current.profile_picture),
+            username_font: updates.username_font.or(current.username_font),
+            bio: updates.bio.or(current.bio),
+            status_message: updates.status_message.or(current.status_message),
+        };
+        let payload = encode_record(&record);
+        self.run(
+            user_id,
+            "update_user",
+            format!("user:{}", user_id),
+            "user_updated",
+            6,
+            payload,
+            true,
             None,
         )
         .await?;
@@ -756,6 +806,7 @@ impl WabiStore for WdbAdapter {
                 if let Some(parent) = &c.parent_id {
                     row.insert("parent_channel_id".into(), serde_json::json!(parent));
                 }
+                row.insert("force_spoiler".into(), serde_json::json!(c.force_spoiler));
                 out.push(row);
             }
         });
@@ -1233,6 +1284,29 @@ impl WabiStore for WdbAdapter {
                     "ingest_channel_update_settings",
                     format!("channel_settings:{}", channel_id),
                     "channel_settings_updated",
+                    1,
+                    Self::payload_json(&pl)?,
+                    false,
+                    None,
+                ).await?;
+            }
+            ("channel", "update") => {
+                // Merge a partial channel update into the `channels` index
+                // (used for force_spoiler, name, description). The projection
+                // (`channel_updated`) applies only the provided fields.
+                let row = &payload["row"];
+                let channel_id = row.get("channel_id").and_then(|v| v.as_str()).unwrap_or("");
+                let pl = serde_json::json!({
+                    "channel_id": channel_id,
+                    "name": row.get("name"),
+                    "description": row.get("description"),
+                    "force_spoiler": row.get("force_spoiler"),
+                });
+                self.run(
+                    0,
+                    "ingest_channel_update",
+                    format!("channels:{}", channel_id),
+                    "channel_updated",
                     1,
                     Self::payload_json(&pl)?,
                     false,
