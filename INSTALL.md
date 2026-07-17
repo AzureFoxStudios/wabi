@@ -1,142 +1,100 @@
-# Wabi Installation Guide
+# Wabi install / deploy
 
-> **Status:** Updated 2026-06-22 (Wabidb era; SpacetimeDB install steps no longer needed).
+**Updated:** 2026-07-17
 
-## Requirements
+## Mental model
 
-- **Docker** or **Podman** (with `docker compose` or `podman compose`)
-- A Linux, macOS, or Windows host
-- 1 GB RAM minimum, 2 GB recommended
-- 5 GB free disk for the Wabidb data directory
+| Piece | Role |
+|-------|------|
+| `wabi-server` | Only app process. Axum + WabiDB in-process + embedded SPA |
+| `.env` | Secrets + config |
+| Caddy (optional) | HTTPS / reverse proxy / tunnel front |
+| Docker | Optional packaging of the same binary |
+| Compose | Optional multi-service glue; **not** the architecture |
 
-That's it. Wabidb is embedded in the `wabi-server` binary — there is no separate database server to install.
-
----
-
-## Option 1: Docker (Recommended)
-
-One command, everything included:
-
-```bash
-docker compose up -d
-```
-
-This starts:
-- `wabi-server` (Rust binary with embedded Wabidb engine)
-- (Optional profile) Caddy reverse proxy
-- (Optional profile) TURN server
-- (Optional profile) SFU (LiveKit)
-- (Optional profile) Cloudflare tunnel
-
-**Access:** `http://localhost:3001`
-
-**Configuration:** create a `.env` file in the repo root with at minimum:
-```
-JWT_SIGNING_KEY=<run: openssl rand -base64 48>
-```
-
-Optional `.env` values for the various profiles are documented in `docker-compose.yml`.
+No SpacetimeDB. No separate frontend/backend services. Default calling is same TCP/WS as the app (see `docs/NETWORKING.md`).
 
 ---
 
-## Option 2: Native Install (No Docker)
+## Preferred: Rust / cargo path
 
-### Step 1: Install Rust toolchain
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
+# 1) Frontend for rust_embed (must be static SPA)
+cd frontend && STATIC_BUILD=1 npm run build && cd ..
 
-### Step 2: Clone and build
-```bash
-git clone https://github.com/AzureFoxStudios/wabi.git
-cd wabi
+# 2) Binary
 cargo build --release -p wabi-server
-```
 
-### Step 3: Create data directory
-```bash
+# 3) Secrets + data
 mkdir -p data/wabi-server uploads plugins
+export WABI_JWT_KEY="$(openssl rand -base64 48)"
+export WABIDB_ROOT_KEY="$(openssl rand -hex 32)"
+# binary also accepts JWT_SECRET (legacy alias)
+
+# 4) Run
+./target/release/wabi-server --data-dir ./data/wabi-server --host 0.0.0.0 --port 3000
 ```
 
-### Step 4: Run
+**Check:**
 ```bash
-JWT_SIGNING_KEY=$(openssl rand -base64 48) \
-  ./target/release/wabi-server --data-dir ./data/wabi-server --port 3000
+curl -s http://127.0.0.1:3000/health
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/   # expect 200 + HTML
 ```
 
-**Access:** `http://localhost:3000`
+If `/` is 404, rebuild frontend with `STATIC_BUILD=1` then rebuild the binary (embed is compile-time).
 
-The Wabidb engine creates its subdirectory structure under `./data/wabi-server/` on first run.
+**Prod front:** point Caddy (or cloudflared) at `127.0.0.1:3000`. Edit Caddyfile + `.env` only — no STDB, no node backend.
 
 ---
 
-## Option 3: Tauri Desktop App
-
-If you want a bundled desktop client (includes a private `wabi-server` instance):
+## Docker (same binary, containerized)
 
 ```bash
-cd frontend/src-tauri
-cargo build --release
-./target/release/wabi-desktop
+# .env (required for compose)
+# WABI_JWT_KEY=...
+# WABIDB_ROOT_KEY=...  # 64 hex chars
+
+docker compose up -d          # only wabi-server by default
+# optional profiles: tunnel, tunnel-named, turn, sfu, ...
 ```
 
-The Tauri build embeds both the SvelteKit frontend and a wabi-server binary. See `PROJECT_DOCS/05-tauri/TAURI_BUILD.md` for build details.
+Compose bind-mounts `./target/release/wabi-server` (read-only) in the current layout — rebuild the binary on the host, then restart the container. Default publish: host `3001` → container `3000`.
 
----
-
-## First-Run Configuration
-
-On first run, the server creates an admin user from these env vars (or interactive setup):
-- `WABI_ADMIN_USER_IDS` (comma-separated user IDs allowed to create/delete channels)
-
-After first run, additional configuration is done via the Web UI.
-
----
-
-## Optional: TURN Server (for voice/video NAT traversal)
-
-Add the `turn` profile to your compose invocation:
+Bare docker without compose is fine:
 ```bash
-docker compose --profile turn up -d
+docker run --rm -p 3001:3000 --env-file .env \
+  -v "$PWD/data/wabi-server:/data" \
+  -v "$PWD/target/release/wabi-server:/wabi-server:ro" \
+  --user 1000:1000 --entrypoint /wabi-server \
+  wabi-wabi-server --data-dir /data --host 0.0.0.0 --port 3000
 ```
-
-See `PROJECT_DOCS/02-deployment/TURN_SETUP.md` for full TURN configuration.
+(Image name/tags may vary; the contract is: one process, one data dir, two secrets.)
 
 ---
 
-## Optional: Multi-Server (Mesh)
+## Tim / production shape
 
-For Authority + Anchor topology:
+Live Tim is already this stack:
+- `wabi-server` (healthy)
+- Caddy tunnel container (optional edge)
+- cloudflared connectors (optional public)
 
-1. Set `WABI_SERVER_ROLE=authority` on one node, `WABI_SERVER_ROLE=anchor` on others
-2. Set `WABI_AUTHORITY_URL` on the Anchors pointing to the Authority
-3. Set `WABI_MESH_SHARED_TOKEN` (a random shared secret) on all nodes
-4. Start the services
-
-See `PROJECT_DOCS/01-architecture/SERVER_MESH_PLAN.md`.
+Update flow: rebuild binary (and static frontend if UI changed) → restart `wabi-server` → leave Caddy/tunnel unless edge config changed.
 
 ---
 
-## Verification
+## Optional extras
 
-After install, verify the server is healthy:
-```bash
-curl http://localhost:3000/health
-# expected: {"status":"ok"}
-```
+| Profile / tool | When |
+|----------------|------|
+| Caddy / cloudflared | Public domain or HTTPS edge |
+| coturn / LiveKit | Only if you enable P2P TURN or SFU |
+| Mesh env vars | Multi-node authority/anchor |
 
-And verify the Wabidb engine started cleanly:
-```bash
-docker logs wabi-server 2>&1 | grep -i 'wabidb\|engine started'
-```
+Default voice does **not** need open UDP or Cloudflare.
 
 ---
 
-## Cross-References
+## Stale docs
 
-- `PROJECT_DOCS/01-architecture/ARCHITECTURE.md` — system architecture
-- `PROJECT_DOCS/02-deployment/DEPLOYMENT.md` — production deployment
-- `PROJECT_DOCS/02-deployment/FRESH_INSTALL.md` — fresh install walkthrough
-- `PROJECT_DOCS/02-deployment/TURN_SETUP.md` — TURN deployment
-- `docker-compose.yml` — production stack definition
-- `scripts/local-dev.sh` — local dev stack bootstrap
+- `DEPLOYMENT_READY.md`, much of `PROJECT_DOCS/02-deployment/DEPLOYMENT.md` — STDB-era; prefer this file + `docker-compose.yml` header + `docs/NETWORKING.md`.
