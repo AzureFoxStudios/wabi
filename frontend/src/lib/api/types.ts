@@ -263,4 +263,5 @@ export interface CreateChannelResponse {
 	channel_type: string;
 	position: number;
 	parent_id: string | null;
+	force_spoiler?: boolean;
 }

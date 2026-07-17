@@ -68,6 +68,7 @@
 	let newChannelName = '';
 	let newChannelDescription = '';
 	let newChannelType: 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage' = 'text';
+	let newChannelForceSpoiler = false;
 	let createChannelError = '';
 	let creatingChannel = false;
 	let showCreateInput = false;
@@ -138,6 +139,10 @@
 	$: canManageWatchQueue = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
 	$: canManageVoiceSettings = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
 	$: canModerateVoiceMembers = ['owner', 'admin', 'mod'].includes($currentUser?.highestRole || '');
+	// Mirrors the backend `is_admin` gate in core/crates/wabi-server/src/api/channels.rs
+	// (owner OR configured admin_user_ids OR Admin role). Moderators do NOT pass,
+	// so the new-channel affordance must not render for them.
+	$: canCreateChannel = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
 	$: {
 		const prev = voicePresenceSince; const next = new Map<string, number>(); const at = Date.now();
 		const selfId = $currentUser?.dbUserId ? `user-${$currentUser.dbUserId}` : $currentUser?.id || null;
@@ -196,10 +201,11 @@
 		createChannelError = '';
 		creatingChannel = true;
 		try {
-			await createChannel(channelName, newChannelDescription.trim(), newChannelType);
+			await createChannel(channelName, newChannelDescription.trim(), newChannelType, newChannelForceSpoiler);
 			newChannelName = '';
 			newChannelDescription = '';
 			newChannelType = 'text';
+			newChannelForceSpoiler = false;
 			showCreateInput = false;
 		} catch (error) {
 			createChannelError = error instanceof Error ? error.message : 'Failed to create channel.';
@@ -280,7 +286,7 @@
 		{/if}
 	</div>
 
-	<CreateChannelForm {showCreateInput} newChannelName={newChannelName} newChannelDescription={newChannelDescription} {newChannelType} createError={createChannelError} {creatingChannel} onNameChange={(v) => { newChannelName = v; createChannelError = ''; }} onDescriptionChange={(v) => newChannelDescription = v} onTypeChange={(v) => { newChannelType = v; createChannelError = ''; }} onSubmit={handleCreateChannel} />
+	<CreateChannelForm {showCreateInput} canCreate={canCreateChannel} newChannelName={newChannelName} newChannelDescription={newChannelDescription} {newChannelType} forceSpoiler={newChannelForceSpoiler} createError={createChannelError} {creatingChannel} onNameChange={(v) => { newChannelName = v; createChannelError = ''; }} onDescriptionChange={(v) => newChannelDescription = v} onTypeChange={(v) => { newChannelType = v; createChannelError = ''; }} onForceSpoilerChange={(v) => { newChannelForceSpoiler = v; }} onSubmit={handleCreateChannel} />
 
 	<div class="channel-list">
 		{#if $displayEnhancementSettingsStore.serverCounterEnabled}
@@ -295,7 +301,7 @@
 				<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
 				<span class="section-toggle-label">Text Channels</span><span class="section-count">{textChannels.length + groupChannels.length}</span>
 			</button>
-			<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('text')} title="Create channel" aria-label="Create channel"><span class="plus-glyph" aria-hidden="true">+</span></button>
+			{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('text')} title="Create channel" aria-label="Create channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
 		</div>
 		{#if isTextSectionExpanded}
 			<TextChannelList {textChannels} {groupChannels} {threadChannelsByParent} {followedChannelIds} {followedChannelPreferences} {liveWhiteboardChannelIds} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onCycleFollowAlert={cycleFollowAlert} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} />
@@ -306,7 +312,7 @@
 				<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
 				<span class="section-toggle-label">Voice Channels</span><span class="section-count">{allVoiceChannels.length}</span>
 			</button>
-			<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('voice')} title="Create channel" aria-label="Create channel"><span class="plus-glyph" aria-hidden="true">+</span></button>
+			{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('voice')} title="Create channel" aria-label="Create channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
 		</div>
 		{#if isVoiceSectionExpanded}
 			<VoiceChannelList {voiceChannels} {allVoiceChannels} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} {followedChannelIds} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} />
@@ -318,7 +324,7 @@
 					<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
 					<span class="section-toggle-label">Gallery</span><span class="section-count">{galleryChannels.length}</span>
 				</button>
-				<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('gallery')} title="Create gallery channel" aria-label="Create gallery channel"><span class="plus-glyph" aria-hidden="true">+</span></button>
+				{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput} on:click={() => toggleCreateInputForType('gallery')} title="Create gallery channel" aria-label="Create gallery channel"><span class="plus-glyph" aria-hidden="true">+</span></button>{/if}
 			</div>
 			{#if isGallerySectionExpanded}
 				<GalleryChannelList {galleryChannels} {followedChannelIds} {liveWhiteboardChannelIds} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} />

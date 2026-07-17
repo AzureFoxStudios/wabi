@@ -94,6 +94,7 @@ proptest! {
             edit_history: edits,
             edited_at_micros: None,
             is_deleted: false,
+            is_spoiler: false,
         };
         projection_round_trip(&record);
     }

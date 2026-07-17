@@ -67,9 +67,9 @@ export function switchChannel(channelId: string): void {
 	}
 }
 
-export async function createChannel(channelName: string, description?: string, channelType: 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage' = 'text'): Promise<void> {
+export async function createChannel(channelName: string, description?: string, channelType: 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage' = 'text', forceSpoiler?: boolean): Promise<void> {
 	try {
-		await createChannelApi(channelName, channelType, description);
+		await createChannelApi(channelName, channelType, description, forceSpoiler);
 	} catch (e) {
 		console.error('[channelStore] Failed to create channel:', e);
 		throw e;
@@ -139,6 +139,7 @@ export function updateChannelSettings(channelId: string, settings: {
 	autoDeleteAfter?: string | number | null;
 	persistMessages?: boolean;
 	watchQueueEnabled?: boolean;
+	forceSpoiler?: boolean;
 }): void {
 	const sock = getSocket();
 	if (!sock) return;
@@ -158,6 +159,9 @@ export function updateChannelSettings(channelId: string, settings: {
 							: {}),
 						...(settings.watchQueueEnabled !== undefined
 							? { watchQueueEnabled: settings.watchQueueEnabled }
+							: {}),
+						...(settings.forceSpoiler !== undefined
+							? { forceSpoiler: settings.forceSpoiler }
 							: {}),
 						...(settings.voiceSettings !== undefined
 							? { voiceSettings: settings.voiceSettings }

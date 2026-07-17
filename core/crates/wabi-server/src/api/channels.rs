@@ -29,6 +29,7 @@ fn channel_to_response(c: wabidb::domain::Channel) -> ChannelResponse {
         position: 0,
         parent_id: None,
         description: None,
+        force_spoiler: c.force_spoiler,
     }
 }
 
@@ -38,6 +39,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/", axum::routing::post(create_channel))
         .route("/{id}", axum::routing::get(get_channel))
         .route("/{id}", axum::routing::delete(delete_channel))
+        .route("/{channel_id}/reactions", axum::routing::get(list_channel_reactions))
         .with_state(state)
 }
 
@@ -54,6 +56,8 @@ struct ChannelResponse {
     position: i32,
     parent_id: Option<String>,
     description: Option<String>,
+    #[serde(default)]
+    force_spoiler: bool,
 }
 
 async fn list_channels(State(state): State<Arc<AppState>>) -> Result<Json<ChannelListResponse>> {
@@ -90,6 +94,8 @@ struct CreateChannelRequest {
     description: Option<String>,
     #[serde(default)]
     asset_storage: bool,
+    #[serde(default)]
+    force_spoiler: bool,
 }
 
 fn default_channel_type() -> String {
@@ -131,7 +137,7 @@ async fn create_channel(
     // derived from the commit_seq). Use that.
     let channel_id = state
         .wdb
-        .create_channel(&name, channel_kind, auth.user_id as u64)
+        .create_channel(&name, channel_kind, auth.user_id as u64, req.force_spoiler)
         .await?;
 
     // Add the creator as a member with the Owner role so they can see and
@@ -144,6 +150,24 @@ async fn create_channel(
             wabidb::domain::MemberRole::Owner,
         )
         .await?;
+
+    // Product default: ephemeral 24h retention (keep-forever is opt-in later).
+    // Text/voice chat should not retain indefinitely unless the operator chooses.
+    const DEFAULT_CHANNEL_AUTO_DELETE_MS: u64 = 24 * 60 * 60 * 1000;
+    state
+        .channel_auto_delete_ms
+        .write()
+        .await
+        .insert(channel_id.clone(), DEFAULT_CHANNEL_AUTO_DELETE_MS);
+    state
+        .channel_auto_delete_label
+        .write()
+        .await
+        .insert(channel_id.clone(), "24h".to_string());
+    let _ = state
+        .wdb
+        .upsert_channel_retention(&channel_id, 1, auth.user_id as u64)
+        .await;
 
     // `description` is in the WDB Channel domain type yet — dropped for v1.
     let _ = req.description;
@@ -190,6 +214,7 @@ async fn create_channel(
         position: 0,
         parent_id: None,
         description: None,
+        force_spoiler: req.force_spoiler,
     }))
 }
 
@@ -219,6 +244,29 @@ async fn delete_channel(
     state.session_messages.write().await.remove(&id);
 
     Ok(Json(serde_json::json!({ "deleted": id })))
+}
+
+async fn list_channel_reactions(
+    State(state): State<Arc<AppState>>,
+    Path(channel_id): Path<String>,
+) -> Result<Json<Vec<serde_json::Value>>> {
+    let messages = state
+        .wdb
+        .list_messages_typed(&channel_id, 100)
+        .await?;
+
+    let mut all_reactions = Vec::new();
+    for msg in &messages {
+        let reactions = state
+            .wdb
+            .list_reactions(&msg.message_id)
+            .await?;
+        for r in reactions {
+            all_reactions.push(serde_json::json!(r));
+        }
+    }
+
+    Ok(Json(all_reactions))
 }
 
 #[cfg(test)]

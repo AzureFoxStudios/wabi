@@ -11,4 +11,8 @@ include!("socketio/voice_moderation.rs");
 include!("socketio/group_members_messages.rs");
 include!("socketio/media_reactions_signaling.rs");
 include!("socketio/wiring_handlers.rs");
+include!("socketio/channel_ops.rs");
+include!("socketio/message_ops.rs");
+include!("socketio/breakout_ops.rs");
+include!("socketio/whiteboard_ops.rs");
 include!("socketio/wiring.rs");

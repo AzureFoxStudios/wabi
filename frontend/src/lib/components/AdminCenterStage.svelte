@@ -7,10 +7,11 @@
   import OverviewSection from './admin/OverviewSection.svelte'
   import type { DashboardStats } from './admin/OverviewSection.svelte'
   import AdminWorkspace from './AdminWorkspace.svelte'
+  import { getAdminPaymentAccessPolicy, type PaymentAccessPolicy } from '$lib/api'
 
   type Section =
     | 'overview' | 'users' | 'roles' | 'channels' | 'gates'
-    | 'payments' | 'runtime' | 'branding' | 'settings'
+    | 'runtime' | 'branding' | 'settings'
 
   const sectionMeta: Record<Section, { label: string; icon: string; badge?: string }> = {
     overview: { label: 'Overview', icon: 'overview' },
@@ -18,7 +19,6 @@
     roles: { label: 'Roles', icon: 'roles' },
     channels: { label: 'Channels', icon: 'channels' },
     gates: { label: 'Role Gates', icon: 'gates' },
-    payments: { label: 'Payments', icon: 'payments' },
     runtime: { label: 'Runtime', icon: 'runtime' },
     branding: { label: 'Branding', icon: 'branding' },
     settings: { label: 'Server Policy', icon: 'settings' },
@@ -30,7 +30,6 @@
     roles: ['owner', 'admin'],
     channels: ['owner', 'admin'],
     gates: ['owner', 'admin'],
-    payments: ['owner', 'admin'],
     runtime: ['owner', 'admin'],
     branding: ['owner', 'admin'],
     settings: ['owner', 'admin'],
@@ -40,6 +39,8 @@
   let stats: DashboardStats | null = null
   let statsLoading = true
   let timeStr = ''
+  let paymentPolicy: PaymentAccessPolicy | null = null
+  let paymentLoading = true
 
   $: role = $currentUser?.highestRole || 'member'
   $: canAccess = (s: Section) => sectionAccess[s].includes(role)
@@ -71,12 +72,32 @@
     }
   }
 
+  async function fetchPaymentPolicy() {
+    const token = getAuthToken()
+    paymentLoading = true
+    if (!token) { paymentLoading = false; return }
+    try {
+      const policy = await getAdminPaymentAccessPolicy(token)
+      paymentPolicy = {
+        ...policy,
+        allowedRoleNames: Array.isArray(policy.allowedRoleNames)
+          ? policy.allowedRoleNames.map((r) => r.toLowerCase())
+          : []
+      }
+    } catch {
+      paymentPolicy = null
+    } finally {
+      paymentLoading = false
+    }
+  }
+
   function goBackToChat() {
     layoutStore.setCenterPanelView('chat')
   }
 
   onMount(() => {
     fetchStats()
+    fetchPaymentPolicy()
     const interval = setInterval(fetchStats, 30000)
     const clock = setInterval(() => {
       const now = new Date()
@@ -124,8 +145,6 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             {:else if item.meta.icon === 'gates'}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-            {:else if item.meta.icon === 'payments'}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
             {:else if item.meta.icon === 'runtime'}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             {:else if item.meta.icon === 'branding'}
@@ -171,7 +190,7 @@
       {#key section}
         <div class="admin-content-inner" in:fade={{ duration: 200 }}>
           {#if section === 'overview'}
-            <OverviewSection {stats} loading={statsLoading} />
+            <OverviewSection {stats} loading={statsLoading} paymentPolicy={paymentPolicy} paymentLoading={paymentLoading} />
           {:else}
             <AdminWorkspace section={section} />
           {/if}

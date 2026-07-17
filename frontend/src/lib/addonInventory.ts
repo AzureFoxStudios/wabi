@@ -20,16 +20,19 @@ interface PluginApiRecord {
 	permissions?: string[];
 }
 
-const frontendAddonModules = import.meta.glob('./components/plugins/*.svelte');
+// ModelViewer3D (three.js) is intentionally excluded: on desktop Tauri builds it
+// is NOT bundled (native wgpu viewer is the default) and is only loaded at runtime
+// when a server-provided `model-viewer` addon is present. On web it is imported
+// directly by ModelViewerLauncher.
+const frontendAddonModules = import.meta.glob([
+	'./components/plugins/*.svelte',
+	'!./components/plugins/ModelViewer3D.svelte'
+]);
 
 function detectBuiltinFrontendAddonIds(): Set<string> {
 	const ids = new Set<string>();
 	for (const path of Object.keys(frontendAddonModules)) {
 		const fileName = path.split('/').pop()?.replace('.svelte', '') || path;
-		if (fileName === 'ModelViewer3D') {
-			ids.add('model-viewer');
-			continue;
-		}
 		ids.add(
 			fileName
 				.replace(/([a-z0-9])([A-Z])/g, '$1-$2')

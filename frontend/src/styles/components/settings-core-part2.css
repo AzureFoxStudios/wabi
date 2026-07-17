@@ -86,10 +86,35 @@
 
 
 	.admin-help {
-		margin: 0 0 0.75rem;
+		margin:0 0 0.75rem;
 		color: var(--text-secondary);
-		font-size: 0.85rem;
+		font-size:0.85rem;
 	}
+
+	.admin-open-dashboard-btn {
+		display:inline-flex;
+		align-items:center;
+		gap:0.45rem;
+		margin-bottom:0.75rem;
+		padding:0.5rem 0.85rem;
+		border-radius:9px;
+		border:1px solid var(--accent-primary, #6366f1);
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 14%, transparent);
+		color: var(--text-heading, #fff);
+		font-size:0.82rem;
+		font-weight:600;
+		cursor:pointer;
+		transition: background 0.15s, transform 0.1s;
+	}
+
+	.admin-open-dashboard-btn:hover {
+		background: color-mix(in srgb, var(--accent-primary, #6366f1) 24%, transparent);
+	}
+
+	.admin-open-dashboard-btn:active {
+		transform: translateY(1px);
+	}
+
 
 
 	.upload-limits-panel {

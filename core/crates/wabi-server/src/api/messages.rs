@@ -38,6 +38,8 @@ struct MessageResponse {
     message_type: String,
     created_at: i64,
     edited_at: Option<i64>,
+    #[serde(default)]
+    is_spoiler: bool,
 }
 
 /// Convert a WDB typed `Message` to the JSON `MessageResponse` shape.
@@ -55,6 +57,7 @@ fn message_to_response(m: wabidb::domain::Message) -> MessageResponse {
         message_type: m.message_type,
         created_at: m.created_at_micros / 1000,
         edited_at: m.edited_at_micros.map(|e| e / 1000),
+        is_spoiler: m.is_spoiler,
     }
 }
 
@@ -82,6 +85,8 @@ struct SendMessageRequest {
     channel_id: String,
     content: String,
     message_type: Option<String>,
+    #[serde(default)]
+    is_spoiler: bool,
 }
 
 async fn send_message(
@@ -97,20 +102,38 @@ async fn send_message(
         .map(|d| d.as_micros() as i64)
         .unwrap_or(0);
 
-    // Submit to WDB synchronously (WDB is in-process, no async fire needed).
-    // The adapter builds a CommandCommit with event_type="message_created"
-    // and an idempotency_key, runs the sequencer, and returns the
-    // WDB-assigned message_id (format!("msg_{:x}", commit_seq)).
-    let message_id = state
-        .wdb
-        .send_message(&req.channel_id, sender_id, &req.content)
-        .await?;
+    let is_live = state
+        .channel_auto_delete_label
+        .read()
+        .await
+        .get(&req.channel_id)
+        .map(|s| s == "live")
+        .unwrap_or(false);
 
-    // Optimistic session cache push — keeps the in-memory layer consistent
-    // for any code that reads state.session_messages directly. (Skipped for
-    // v1: WDB writes are sync, so the WDB read in GET will see the message
-    // immediately.)
-    let _ = (message_id.clone(), created_at_micros, message_type.clone());
+    // A spoiler channel forces every message to be a spoiler regardless of
+    // the client's request. Look the channel up to combine the flags.
+    let channel_force_spoiler = state
+        .wdb
+        .get_channel(&req.channel_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|c| c.force_spoiler)
+        .unwrap_or(false);
+    let is_spoiler = req.is_spoiler || channel_force_spoiler;
+
+    let message_id = if is_live {
+        format!("live_{}", uuid::Uuid::new_v4())
+    } else {
+        // Submit to WDB synchronously (WDB is in-process, no async fire needed).
+        // The adapter builds a CommandCommit with event_type="message_created"
+        // and an idempotency_key, runs the sequencer, and returns the
+        // WDB-assigned message_id (format!("msg_{:x}", commit_seq)).
+        state
+            .wdb
+            .send_message(&req.channel_id, sender_id, &req.content, is_spoiler)
+            .await?
+    };
 
     Ok(Json(MessageResponse {
         id: message_id,
@@ -121,5 +144,6 @@ async fn send_message(
         message_type,
         created_at: created_at_micros / 1000,
         edited_at: None,
+        is_spoiler,
     }))
 }

@@ -194,12 +194,13 @@ impl ApiClient {
             .collect())
     }
 
-    pub async fn send_message(&self, channel_id: &str, text: &str) -> Result<()> {
+    pub async fn send_message(&self, channel_id: &str, text: &str, is_spoiler: bool) -> Result<()> {
         let url = format!("{}/api/messages", self.base_url);
         let mut req = self.client.post(&url).json(&serde_json::json!({
             "channel_id": channel_id,
             "content": text,
-            "message_type": "text"
+            "message_type": "text",
+            "is_spoiler": is_spoiler
         }));
 
         if let Some(ref t) = self.token {

@@ -36,10 +36,6 @@ WABI_CONFIG_HAS_PLUGINS_ENABLED=false
 WABI_CONFIG_PLUGINS_ENABLED_VALUE=""
 WABI_CONFIG_HAS_PLUGINS_ALLOW_INSTALL=false
 WABI_CONFIG_PLUGINS_ALLOW_INSTALL_VALUE=""
-WABI_CONFIG_HAS_STATE_STDB_SUBSCRIPTIONS_ENABLED=false
-WABI_CONFIG_STATE_STDB_SUBSCRIPTIONS_ENABLED_VALUE=""
-WABI_CONFIG_HAS_STATE_STDB_ENFORCE_RBAC=false
-WABI_CONFIG_STATE_STDB_ENFORCE_RBAC_VALUE=""
 WABI_CONFIG_HAS_STATE_OUTBOX_PATH=false
 WABI_CONFIG_STATE_OUTBOX_PATH_VALUE=""
 WABI_CONFIG_HAS_STATE_OUTBOX_REDACT_SENSITIVE=false
@@ -60,24 +56,6 @@ WABI_CONFIG_HAS_STATE_REDUCER_INGRESS_MAX_SKEW_MS=false
 WABI_CONFIG_STATE_REDUCER_INGRESS_MAX_SKEW_MS_VALUE=""
 WABI_CONFIG_HAS_STATE_REDUCER_INGRESS_MAX_BODY_BYTES=false
 WABI_CONFIG_STATE_REDUCER_INGRESS_MAX_BODY_BYTES_VALUE=""
-WABI_CONFIG_HAS_WABI_STDB_BRIDGE_MODE=false
-WABI_CONFIG_WABI_STDB_BRIDGE_MODE_VALUE=""
-WABI_CONFIG_HAS_WABI_STDB_BRIDGE_SERVER=false
-WABI_CONFIG_WABI_STDB_BRIDGE_SERVER_VALUE=""
-WABI_CONFIG_HAS_WABI_STDB_BRIDGE_DATABASE=false
-WABI_CONFIG_WABI_STDB_BRIDGE_DATABASE_VALUE=""
-WABI_CONFIG_HAS_WABI_STDB_BRIDGE_REDUCER=false
-WABI_CONFIG_WABI_STDB_BRIDGE_REDUCER_VALUE=""
-WABI_CONFIG_HAS_WABI_STDB_BRIDGE_MAP_FILE=false
-WABI_CONFIG_WABI_STDB_BRIDGE_MAP_FILE_VALUE=""
-WABI_CONFIG_HAS_WABI_STDB_BRIDGE_TIMEOUT_MS=false
-WABI_CONFIG_WABI_STDB_BRIDGE_TIMEOUT_MS_VALUE=""
-WABI_CONFIG_HAS_WABI_STDB_AUTH_TOKEN=false
-WABI_CONFIG_WABI_STDB_AUTH_TOKEN_VALUE=""
-WABI_CONFIG_HAS_WABI_STDB_ANONYMOUS=false
-WABI_CONFIG_WABI_STDB_ANONYMOUS_VALUE=""
-WABI_CONFIG_HAS_WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=false
-WABI_CONFIG_WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION_VALUE=""
 WABI_CONFIG_HAS_WEBHOOK_MAX_BODY_BYTES=false
 WABI_CONFIG_WEBHOOK_MAX_BODY_BYTES_VALUE=""
 WABI_CONFIG_HAS_WEBHOOK_ALLOW_PRIVATE_TARGETS=false
@@ -122,8 +100,6 @@ Advanced environment overrides:
   GIPHY_KEY=<key>                      (default: empty)
   WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED=true|false (default: false)
   VITE_VIDEO_COMPRESSION_CLIENT_METRICS=true|false         (default: false)
-  STATE_STDB_SUBSCRIPTIONS_ENABLED=true|false              (default: false)
-  STATE_STDB_ENFORCE_RBAC=true|false                       (default: true)
   STATE_OUTBOX_PATH=<path>                                 (default: /app/data/state-plane-outbox.ndjson)
   STATE_OUTBOX_REDACT_SENSITIVE=true|false                 (default: true)
   STATE_OUTBOX_MAX_BYTES=<1048576-1073741824>             (default: 67108864)
@@ -134,15 +110,6 @@ Advanced environment overrides:
   STATE_REDUCER_INGRESS_REQUIRE_SIGNATURE=true|false       (default: true)
   STATE_REDUCER_INGRESS_MAX_SKEW_MS=<1000-3600000>         (default: 300000)
   STATE_REDUCER_INGRESS_MAX_BODY_BYTES=<4096-16777216>     (default: 1048576)
-  WABI_STDB_BRIDGE_MODE=spacetime-call|stdout|file         (default: spacetime-call)
-  WABI_STDB_BRIDGE_SERVER=<name|url>                       (default: local)
-  WABI_STDB_BRIDGE_DATABASE=<database>                     (default: empty)
-  WABI_STDB_BRIDGE_REDUCER=<reducer>                       (default: ingest_wabi_event)
-  WABI_STDB_BRIDGE_MAP_FILE=<path>                         (default: empty)
-  WABI_STDB_BRIDGE_TIMEOUT_MS=<100-300000>                 (default: 10000)
-  WABI_STDB_AUTH_TOKEN=<token>                             (default: empty; uses anonymous when unset)
-  WABI_STDB_ANONYMOUS=true|false                           (default: false)
-  WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=true|false       (default: false)
   WABI_PUBLIC_BACKEND_URL=<url>                            (default: empty; advertise direct backend URL for client failover)
   WABI_SERVER_INSTANCE_ID=<instance-id>                    (default: empty; runtime falls back to HOSTNAME)
   WABI_SERVER_REGION=<region>                              (default: empty; runtime falls back to local)
@@ -428,14 +395,6 @@ load_wabi_config() {
         WABI_CONFIG_HAS_PLUGINS_ALLOW_INSTALL=true
         WABI_CONFIG_PLUGINS_ALLOW_INSTALL_VALUE="$(normalize_bool "$value" "false")"
         ;;
-      STATE_STDB_SUBSCRIPTIONS_ENABLED)
-        WABI_CONFIG_HAS_STATE_STDB_SUBSCRIPTIONS_ENABLED=true
-        WABI_CONFIG_STATE_STDB_SUBSCRIPTIONS_ENABLED_VALUE="$(normalize_bool "$value" "false")"
-        ;;
-      STATE_STDB_ENFORCE_RBAC)
-        WABI_CONFIG_HAS_STATE_STDB_ENFORCE_RBAC=true
-        WABI_CONFIG_STATE_STDB_ENFORCE_RBAC_VALUE="$(normalize_bool "$value" "true")"
-        ;;
       STATE_OUTBOX_PATH)
         WABI_CONFIG_HAS_STATE_OUTBOX_PATH=true
         WABI_CONFIG_STATE_OUTBOX_PATH_VALUE="$value"
@@ -475,46 +434,6 @@ load_wabi_config() {
       STATE_REDUCER_INGRESS_MAX_BODY_BYTES)
         WABI_CONFIG_HAS_STATE_REDUCER_INGRESS_MAX_BODY_BYTES=true
         WABI_CONFIG_STATE_REDUCER_INGRESS_MAX_BODY_BYTES_VALUE="$(normalize_positive_int "$value" "1048576" "4096" "16777216")"
-        ;;
-      WABI_STDB_BRIDGE_MODE)
-        case "${value,,}" in
-          spacetime-call|stdout|file)
-            WABI_CONFIG_HAS_WABI_STDB_BRIDGE_MODE=true
-            WABI_CONFIG_WABI_STDB_BRIDGE_MODE_VALUE="${value,,}"
-            ;;
-        esac
-        ;;
-      WABI_STDB_BRIDGE_SERVER)
-        WABI_CONFIG_HAS_WABI_STDB_BRIDGE_SERVER=true
-        WABI_CONFIG_WABI_STDB_BRIDGE_SERVER_VALUE="$value"
-        ;;
-      WABI_STDB_BRIDGE_DATABASE)
-        WABI_CONFIG_HAS_WABI_STDB_BRIDGE_DATABASE=true
-        WABI_CONFIG_WABI_STDB_BRIDGE_DATABASE_VALUE="$value"
-        ;;
-      WABI_STDB_BRIDGE_REDUCER)
-        WABI_CONFIG_HAS_WABI_STDB_BRIDGE_REDUCER=true
-        WABI_CONFIG_WABI_STDB_BRIDGE_REDUCER_VALUE="$value"
-        ;;
-      WABI_STDB_BRIDGE_MAP_FILE)
-        WABI_CONFIG_HAS_WABI_STDB_BRIDGE_MAP_FILE=true
-        WABI_CONFIG_WABI_STDB_BRIDGE_MAP_FILE_VALUE="$value"
-        ;;
-      WABI_STDB_BRIDGE_TIMEOUT_MS)
-        WABI_CONFIG_HAS_WABI_STDB_BRIDGE_TIMEOUT_MS=true
-        WABI_CONFIG_WABI_STDB_BRIDGE_TIMEOUT_MS_VALUE="$(normalize_positive_int "$value" "10000" "100" "300000")"
-        ;;
-      WABI_STDB_AUTH_TOKEN)
-        WABI_CONFIG_HAS_WABI_STDB_AUTH_TOKEN=true
-        WABI_CONFIG_WABI_STDB_AUTH_TOKEN_VALUE="$value"
-        ;;
-      WABI_STDB_ANONYMOUS)
-        WABI_CONFIG_HAS_WABI_STDB_ANONYMOUS=true
-        WABI_CONFIG_WABI_STDB_ANONYMOUS_VALUE="$(normalize_bool "$value" "false")"
-        ;;
-      WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION)
-        WABI_CONFIG_HAS_WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=true
-        WABI_CONFIG_WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION_VALUE="$(normalize_bool "$value" "false")"
         ;;
       WABI_PUBLIC_BACKEND_URL)
         WABI_PUBLIC_BACKEND_URL="$value"
@@ -620,11 +539,9 @@ configure_defaults() {
   local domain mode runtime public_ip frontend_url public_url turn_realm turn_secret jwt_secret
   local db_mode giphy_key
   local plugins_enabled plugins_allow_install srt_gateway_enabled sfu_provider
-  local state_stdb_subscriptions_enabled state_stdb_enforce_rbac
   local state_outbox_path state_outbox_redact_sensitive state_outbox_max_bytes state_outbox_truncate_min_bytes
   local state_plane_schema_version state_plane_schema_auto_apply
   local state_reducer_ingress_enabled state_reducer_ingress_require_signature state_reducer_ingress_max_skew_ms state_reducer_ingress_max_body_bytes
-  local wabi_stdb_bridge_mode wabi_stdb_bridge_server wabi_stdb_bridge_database wabi_stdb_bridge_reducer wabi_stdb_bridge_map_file wabi_stdb_bridge_timeout_ms wabi_stdb_auth_token wabi_stdb_anonymous wabi_stdb_allow_anonymous_in_production
   local wabi_server_instance_id wabi_server_region wabi_server_role wabi_mesh_instance_url_template wabi_mesh_ingress_url wabi_mesh_shared_token
   local webhook_max_body_bytes webhook_allow_private_targets webhook_allowed_hosts webhook_max_dns_records
   local webhook_max_concurrent_deliveries webhook_max_event_fanout
@@ -639,8 +556,6 @@ configure_defaults() {
   video_compression_metrics="$(normalize_bool "${WABI_VIDEO_COMPRESSION_CLIENT_METRICS_ENABLED:-${VITE_VIDEO_COMPRESSION_CLIENT_METRICS:-false}}" "false")"
   plugins_enabled="$(normalize_bool "${PLUGINS_ENABLED:-false}" "false")"
   plugins_allow_install="$(normalize_bool "${PLUGINS_ALLOW_INSTALL:-false}" "false")"
-  state_stdb_subscriptions_enabled="$(normalize_bool "${STATE_STDB_SUBSCRIPTIONS_ENABLED:-false}" "false")"
-  state_stdb_enforce_rbac="$(normalize_bool "${STATE_STDB_ENFORCE_RBAC:-true}" "true")"
   state_outbox_path="${STATE_OUTBOX_PATH:-}"
   state_outbox_redact_sensitive="$(normalize_bool "${STATE_OUTBOX_REDACT_SENSITIVE:-true}" "true")"
   state_outbox_max_bytes="$(normalize_positive_int "${STATE_OUTBOX_MAX_BYTES:-67108864}" "67108864" "1048576" "1073741824")"
@@ -651,23 +566,6 @@ configure_defaults() {
   state_reducer_ingress_require_signature="$(normalize_bool "${STATE_REDUCER_INGRESS_REQUIRE_SIGNATURE:-true}" "true")"
   state_reducer_ingress_max_skew_ms="$(normalize_positive_int "${STATE_REDUCER_INGRESS_MAX_SKEW_MS:-300000}" "300000" "1000" "3600000")"
   state_reducer_ingress_max_body_bytes="$(normalize_positive_int "${STATE_REDUCER_INGRESS_MAX_BODY_BYTES:-1048576}" "1048576" "4096" "16777216")"
-  wabi_stdb_bridge_mode="${WABI_STDB_BRIDGE_MODE:-spacetime-call}"
-  case "${wabi_stdb_bridge_mode,,}" in
-    spacetime-call|stdout|file)
-      wabi_stdb_bridge_mode="${wabi_stdb_bridge_mode,,}"
-      ;;
-    *)
-      wabi_stdb_bridge_mode="spacetime-call"
-      ;;
-  esac
-  wabi_stdb_bridge_server="${WABI_STDB_BRIDGE_SERVER:-local}"
-  wabi_stdb_bridge_database="${WABI_STDB_BRIDGE_DATABASE:-}"
-  wabi_stdb_bridge_reducer="${WABI_STDB_BRIDGE_REDUCER:-ingest_wabi_event}"
-  wabi_stdb_bridge_map_file="${WABI_STDB_BRIDGE_MAP_FILE:-}"
-  wabi_stdb_bridge_timeout_ms="$(normalize_positive_int "${WABI_STDB_BRIDGE_TIMEOUT_MS:-10000}" "10000" "100" "300000")"
-  wabi_stdb_auth_token="${WABI_STDB_AUTH_TOKEN:-}"
-  wabi_stdb_anonymous="$(normalize_bool "${WABI_STDB_ANONYMOUS:-false}" "false")"
-  wabi_stdb_allow_anonymous_in_production="$(normalize_bool "${WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION:-false}" "false")"
   wabi_public_backend_url="${WABI_PUBLIC_BACKEND_URL:-}"
   wabi_server_instance_id="${WABI_SERVER_INSTANCE_ID:-}"
   wabi_server_region="${WABI_SERVER_REGION:-}"
@@ -718,21 +616,6 @@ configure_defaults() {
     plugins_allow_install="false"
   fi
 
-  case "${state_backend_mode,,}" in
-    legacy|dual_write|stdb_primary) ;;
-    dual-write|dual) state_backend_mode="dual_write" ;;
-    stdb-primary|stdb) state_backend_mode="stdb_primary" ;;
-    *) state_backend_mode="legacy" ;;
-  esac
-
-  if [[ -z "$state_shadow_writer_enabled" ]]; then
-    if [[ "$state_backend_mode" == "dual_write" && "$state_stdb_write_enabled" == "true" ]]; then
-      state_shadow_writer_enabled="true"
-    else
-      state_shadow_writer_enabled="false"
-    fi
-  fi
-
   if [[ "$mode" != "authority" && "$mode" != "anchor" ]]; then
     echo "[launch] Invalid WABI_MODE: $mode (expected authority|anchor)" >&2
     exit 1
@@ -766,8 +649,6 @@ PORT=8080
 # Generated by scripts/launch.sh
 WABI_MODE=$mode
 WABI_RUNTIME=$runtime
-STATE_STDB_SUBSCRIPTIONS_ENABLED=$state_stdb_subscriptions_enabled
-STATE_STDB_ENFORCE_RBAC=$state_stdb_enforce_rbac
 STATE_OUTBOX_PATH=$state_outbox_path
 STATE_OUTBOX_REDACT_SENSITIVE=$state_outbox_redact_sensitive
 STATE_OUTBOX_MAX_BYTES=$state_outbox_max_bytes
@@ -778,15 +659,6 @@ STATE_REDUCER_INGRESS_ENABLED=$state_reducer_ingress_enabled
 STATE_REDUCER_INGRESS_REQUIRE_SIGNATURE=$state_reducer_ingress_require_signature
 STATE_REDUCER_INGRESS_MAX_SKEW_MS=$state_reducer_ingress_max_skew_ms
 STATE_REDUCER_INGRESS_MAX_BODY_BYTES=$state_reducer_ingress_max_body_bytes
-WABI_STDB_BRIDGE_MODE=$wabi_stdb_bridge_mode
-WABI_STDB_BRIDGE_SERVER=$wabi_stdb_bridge_server
-WABI_STDB_BRIDGE_DATABASE=$wabi_stdb_bridge_database
-WABI_STDB_BRIDGE_REDUCER=$wabi_stdb_bridge_reducer
-WABI_STDB_BRIDGE_MAP_FILE=$wabi_stdb_bridge_map_file
-WABI_STDB_BRIDGE_TIMEOUT_MS=$wabi_stdb_bridge_timeout_ms
-WABI_STDB_AUTH_TOKEN=$wabi_stdb_auth_token
-WABI_STDB_ANONYMOUS=$wabi_stdb_anonymous
-WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=$wabi_stdb_allow_anonymous_in_production
 WABI_PUBLIC_BACKEND_URL=$wabi_public_backend_url
 WABI_SERVER_INSTANCE_ID=$wabi_server_instance_id
 WABI_SERVER_REGION=$wabi_server_region
@@ -870,16 +742,6 @@ validate_security_config() {
   if [[ "${SFU_PROVIDER:-none}" == "livekit" ]]; then
     if [[ -z "${LIVEKIT_API_KEY:-}" || -z "${LIVEKIT_API_SECRET:-}" ]]; then
       errors+=("LIVEKIT_API_KEY and LIVEKIT_API_SECRET are required when SFU_PROVIDER=livekit.")
-    fi
-  fi
-
-  local stdb_active="false"
-  if [[ -n "${WABI_STDB_BRIDGE_DATABASE:-}" ]]; then
-    stdb_active="true"
-  fi
-  if [[ "${NODE_ENV:-production}" == "production" && "$stdb_active" == "true" ]]; then
-    if [[ -z "${WABI_STDB_AUTH_TOKEN:-}" && "${WABI_STDB_ANONYMOUS:-false}" == "true" && "${WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION:-false}" != "true" ]]; then
-      errors+=("STDB is active with anonymous auth in production. Set WABI_STDB_AUTH_TOKEN or explicitly set WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION=true.")
     fi
   fi
 
@@ -1058,14 +920,6 @@ if [[ "${PLUGINS_ENABLED:-false}" != "true" ]]; then
   upsert_env_file_key "$ENV_FILE" "PLUGINS_ALLOW_INSTALL" "$PLUGINS_ALLOW_INSTALL"
 fi
 
-if [[ "$WABI_CONFIG_HAS_STATE_STDB_SUBSCRIPTIONS_ENABLED" == "true" ]]; then
-  STATE_STDB_SUBSCRIPTIONS_ENABLED="$(normalize_bool "${WABI_CONFIG_STATE_STDB_SUBSCRIPTIONS_ENABLED_VALUE:-false}" "false")"
-  upsert_env_file_key "$ENV_FILE" "STATE_STDB_SUBSCRIPTIONS_ENABLED" "$STATE_STDB_SUBSCRIPTIONS_ENABLED"
-fi
-if [[ "$WABI_CONFIG_HAS_STATE_STDB_ENFORCE_RBAC" == "true" ]]; then
-  STATE_STDB_ENFORCE_RBAC="$(normalize_bool "${WABI_CONFIG_STATE_STDB_ENFORCE_RBAC_VALUE:-true}" "true")"
-  upsert_env_file_key "$ENV_FILE" "STATE_STDB_ENFORCE_RBAC" "$STATE_STDB_ENFORCE_RBAC"
-fi
 if [[ "$WABI_CONFIG_HAS_STATE_OUTBOX_PATH" == "true" ]]; then
   STATE_OUTBOX_PATH="$WABI_CONFIG_STATE_OUTBOX_PATH_VALUE"
   upsert_env_file_key "$ENV_FILE" "STATE_OUTBOX_PATH" "$STATE_OUTBOX_PATH"
@@ -1088,63 +942,6 @@ STATE_OUTBOX_TRUNCATE_MIN_BYTES="$(normalize_positive_int "${STATE_OUTBOX_TRUNCA
 upsert_env_file_key "$ENV_FILE" "STATE_OUTBOX_REDACT_SENSITIVE" "$STATE_OUTBOX_REDACT_SENSITIVE"
 upsert_env_file_key "$ENV_FILE" "STATE_OUTBOX_MAX_BYTES" "$STATE_OUTBOX_MAX_BYTES"
 upsert_env_file_key "$ENV_FILE" "STATE_OUTBOX_TRUNCATE_MIN_BYTES" "$STATE_OUTBOX_TRUNCATE_MIN_BYTES"
-if [[ "$WABI_CONFIG_HAS_WABI_STDB_BRIDGE_MODE" == "true" ]]; then
-  WABI_STDB_BRIDGE_MODE="${WABI_CONFIG_WABI_STDB_BRIDGE_MODE_VALUE,,}"
-  upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_MODE" "$WABI_STDB_BRIDGE_MODE"
-fi
-if [[ "$WABI_CONFIG_HAS_WABI_STDB_BRIDGE_SERVER" == "true" ]]; then
-  WABI_STDB_BRIDGE_SERVER="$WABI_CONFIG_WABI_STDB_BRIDGE_SERVER_VALUE"
-  upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_SERVER" "$WABI_STDB_BRIDGE_SERVER"
-fi
-if [[ "$WABI_CONFIG_HAS_WABI_STDB_BRIDGE_DATABASE" == "true" ]]; then
-  WABI_STDB_BRIDGE_DATABASE="$WABI_CONFIG_WABI_STDB_BRIDGE_DATABASE_VALUE"
-  upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_DATABASE" "$WABI_STDB_BRIDGE_DATABASE"
-fi
-if [[ "$WABI_CONFIG_HAS_WABI_STDB_BRIDGE_REDUCER" == "true" ]]; then
-  WABI_STDB_BRIDGE_REDUCER="$WABI_CONFIG_WABI_STDB_BRIDGE_REDUCER_VALUE"
-  upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_REDUCER" "$WABI_STDB_BRIDGE_REDUCER"
-fi
-if [[ "$WABI_CONFIG_HAS_WABI_STDB_BRIDGE_MAP_FILE" == "true" ]]; then
-  WABI_STDB_BRIDGE_MAP_FILE="$WABI_CONFIG_WABI_STDB_BRIDGE_MAP_FILE_VALUE"
-  upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_MAP_FILE" "$WABI_STDB_BRIDGE_MAP_FILE"
-fi
-if [[ "$WABI_CONFIG_HAS_WABI_STDB_BRIDGE_TIMEOUT_MS" == "true" ]]; then
-  WABI_STDB_BRIDGE_TIMEOUT_MS="$(normalize_positive_int "${WABI_CONFIG_WABI_STDB_BRIDGE_TIMEOUT_MS_VALUE:-10000}" "10000" "100" "300000")"
-  upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_TIMEOUT_MS" "$WABI_STDB_BRIDGE_TIMEOUT_MS"
-fi
-if [[ "$WABI_CONFIG_HAS_WABI_STDB_AUTH_TOKEN" == "true" ]]; then
-  WABI_STDB_AUTH_TOKEN="$WABI_CONFIG_WABI_STDB_AUTH_TOKEN_VALUE"
-  upsert_env_file_key "$ENV_FILE" "WABI_STDB_AUTH_TOKEN" "$WABI_STDB_AUTH_TOKEN"
-fi
-if [[ "$WABI_CONFIG_HAS_WABI_STDB_ANONYMOUS" == "true" ]]; then
-  WABI_STDB_ANONYMOUS="$(normalize_bool "${WABI_CONFIG_WABI_STDB_ANONYMOUS_VALUE:-false}" "false")"
-  upsert_env_file_key "$ENV_FILE" "WABI_STDB_ANONYMOUS" "$WABI_STDB_ANONYMOUS"
-fi
-if [[ "$WABI_CONFIG_HAS_WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION" == "true" ]]; then
-  WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION="$(normalize_bool "${WABI_CONFIG_WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION_VALUE:-false}" "false")"
-  upsert_env_file_key "$ENV_FILE" "WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION" "$WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION"
-fi
-case "${WABI_STDB_BRIDGE_MODE:-spacetime-call}" in
-  spacetime-call|stdout|file) ;;
-  *) WABI_STDB_BRIDGE_MODE="spacetime-call" ;;
-esac
-WABI_STDB_BRIDGE_SERVER="${WABI_STDB_BRIDGE_SERVER:-local}"
-WABI_STDB_BRIDGE_DATABASE="${WABI_STDB_BRIDGE_DATABASE:-}"
-WABI_STDB_BRIDGE_REDUCER="${WABI_STDB_BRIDGE_REDUCER:-ingest_wabi_event}"
-WABI_STDB_BRIDGE_MAP_FILE="${WABI_STDB_BRIDGE_MAP_FILE:-}"
-WABI_STDB_BRIDGE_TIMEOUT_MS="$(normalize_positive_int "${WABI_STDB_BRIDGE_TIMEOUT_MS:-10000}" "10000" "100" "300000")"
-WABI_STDB_AUTH_TOKEN="${WABI_STDB_AUTH_TOKEN:-}"
-WABI_STDB_ANONYMOUS="$(normalize_bool "${WABI_STDB_ANONYMOUS:-false}" "false")"
-WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION="$(normalize_bool "${WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION:-false}" "false")"
-upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_MODE" "$WABI_STDB_BRIDGE_MODE"
-upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_SERVER" "$WABI_STDB_BRIDGE_SERVER"
-upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_DATABASE" "$WABI_STDB_BRIDGE_DATABASE"
-upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_REDUCER" "$WABI_STDB_BRIDGE_REDUCER"
-upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_MAP_FILE" "$WABI_STDB_BRIDGE_MAP_FILE"
-upsert_env_file_key "$ENV_FILE" "WABI_STDB_BRIDGE_TIMEOUT_MS" "$WABI_STDB_BRIDGE_TIMEOUT_MS"
-upsert_env_file_key "$ENV_FILE" "WABI_STDB_AUTH_TOKEN" "$WABI_STDB_AUTH_TOKEN"
-upsert_env_file_key "$ENV_FILE" "WABI_STDB_ANONYMOUS" "$WABI_STDB_ANONYMOUS"
-upsert_env_file_key "$ENV_FILE" "WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION" "$WABI_STDB_ALLOW_ANONYMOUS_IN_PRODUCTION"
 if [[ "$WABI_CONFIG_HAS_WEBHOOK_MAX_BODY_BYTES" == "true" ]]; then
   WEBHOOK_MAX_BODY_BYTES="$(normalize_positive_int "${WABI_CONFIG_WEBHOOK_MAX_BODY_BYTES_VALUE:-65536}" "65536" "1024" "1048576")"
   upsert_env_file_key "$ENV_FILE" "WEBHOOK_MAX_BODY_BYTES" "$WEBHOOK_MAX_BODY_BYTES"

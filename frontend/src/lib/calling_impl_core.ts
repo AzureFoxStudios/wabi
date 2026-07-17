@@ -1039,7 +1039,6 @@ export async function joinVoiceChannel(socket: Socket, channelId: string) {
 		const stream = await ensureLocalAudioStream();
 		activeVoiceChannelId = channelId;
 		callMode.set('channel');
-		channelCallPanelOpen.set(false);
 		activeVoiceChannel.set({ id: channelId, name: channelId });
 		listeningVoiceChannels.set([channelId]);
 		incomingCall.set(null);
@@ -2036,15 +2035,30 @@ export function isSfuMediaTransportActive(): boolean {
 // Utility Functions
 // ============================================================================
 
-function handleMediaError(error: DOMException, action: string) {
-	if (error.name === 'NotAllowedError') {
+function handleMediaError(error: DOMException | Error, action: string) {
+	const message = error?.message || String(error);
+	const insecure =
+		message.includes('mediaDevices') ||
+		message.includes('secure context') ||
+		message.includes('127.0.0.1');
+	if (insecure) {
+		alert(
+			`Cannot ${action === 'starting' ? 'start' : 'answer'} call: mic/camera API is blocked.\n\n` +
+				`Open Wabi at http://127.0.0.1:5173 (or HTTPS), not a plain LAN IP over HTTP.\n\n${message}`
+		);
+		return;
+	}
+	if (error instanceof DOMException && error.name === 'NotAllowedError') {
 		alert(`Permission denied: Please allow camera and microphone access to ${action === 'starting' ? 'start' : 'answer'} a call.`);
-	} else if (error.name === 'NotFoundError') {
+	} else if (error instanceof DOMException && error.name === 'NotFoundError') {
 		alert(`No camera or microphone found to ${action === 'starting' ? 'start' : 'answer'} the call.`);
-	} else if (error.name === 'NotReadableError' || error.name === 'OverconstrainedError') {
+	} else if (
+		error instanceof DOMException &&
+		(error.name === 'NotReadableError' || error.name === 'OverconstrainedError')
+	) {
 		alert('Camera or microphone is in use or inaccessible. Please close other applications that might be using it.');
 	} else {
-		alert(`Error ${action} call: ${error.message}`);
+		alert(`Error ${action} call: ${message}`);
 	}
 }
 

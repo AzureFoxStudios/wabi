@@ -25,6 +25,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/guest", axum::routing::post(handle_guest))
         .route("/logout", axum::routing::post(handle_logout))
         .route("/recover", axum::routing::post(handle_recover))
+        .route("/change-password", axum::routing::post(handle_change_password))
         .route("/stepup", axum::routing::post(handle_stepup))
         .route(
             "/turn-credentials",
@@ -103,8 +104,9 @@ async fn handle_register(
     // Seed default channels on first-ever registration.
     if was_first {
         use wabidb::domain::{ChannelKind, MemberRole};
+        const DEFAULT_CHANNEL_AUTO_DELETE_MS: u64 = 24 * 60 * 60 * 1000;
         for (name, kind) in &[("general", ChannelKind::Text), ("general", ChannelKind::Voice)] {
-            match state.wdb.create_channel(name, *kind, user_id as u64).await {
+            match state.wdb.create_channel(name, *kind, user_id as u64, false).await {
                 Ok(ch_id) => {
                     if let Err(e) = state
                         .wdb
@@ -113,6 +115,21 @@ async fn handle_register(
                     {
                         tracing::warn!("[setup] failed to add owner to default channel {ch_id}: {e}");
                     }
+                    // Default ephemeral 24h — keep-forever is opt-in.
+                    state
+                        .channel_auto_delete_ms
+                        .write()
+                        .await
+                        .insert(ch_id.clone(), DEFAULT_CHANNEL_AUTO_DELETE_MS);
+                    state
+                        .channel_auto_delete_label
+                        .write()
+                        .await
+                        .insert(ch_id.clone(), "24h".to_string());
+                    let _ = state
+                        .wdb
+                        .upsert_channel_retention(&ch_id, 1, user_id as u64)
+                        .await;
                 }
                 Err(e) => tracing::warn!("[setup] failed to create default channel {name}: {e}"),
             }
@@ -290,6 +307,61 @@ async fn handle_guest(
             is_registered: false,
         },
     }))
+}
+
+#[derive(Debug, Deserialize)]
+struct ChangePasswordRequest {
+    #[serde(rename = "currentPassword")]
+    current_password: String,
+    #[serde(rename = "newPassword")]
+    new_password: String,
+}
+
+/// POST /api/auth/change-password — authenticated user changes their own password.
+async fn handle_change_password(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(req): Json<ChangePasswordRequest>,
+) -> Result<Json<Value>> {
+    if req.new_password.len() < 6 {
+        return Err(AppError::BadRequest(
+            "Password must be at least 6 characters".into(),
+        ));
+    }
+
+    let user_row = state
+        .wdb
+        .get_user(auth.user_id as u64)
+        .await
+        .map_err(|e| AppError::Internal(format!("wdb get_user: {e}")))?
+        .ok_or_else(|| AppError::Unauthorized("User not found".into()))?;
+
+    if user_row.password_hash.is_empty() {
+        return Err(AppError::Unauthorized(
+            "This account has no password (guest)".into(),
+        ));
+    }
+    if !bcrypt::verify(&req.current_password, &user_row.password_hash)? {
+        return Err(AppError::Unauthorized("Current password is incorrect".into()));
+    }
+
+    let password_hash = bcrypt::hash(&req.new_password, bcrypt::DEFAULT_COST)?;
+    state
+        .wdb
+        .update_user(
+            auth.user_id as u64,
+            wabidb::domain::UserUpdate {
+                password_hash: Some(password_hash),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to update password: {e}")))?;
+
+    // Force re-auth on other sessions for this user.
+    state.revoke_user(auth.user_id).await;
+
+    Ok(Json(json!({ "success": true })))
 }
 
 /// JWT claims structure

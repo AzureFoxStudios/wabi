@@ -1,11 +1,13 @@
 <script lang="ts">
 	import type { Message, FileAttachment } from '$lib/socket';
+	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { _ } from '$lib/i18n';
 	import { parseMessage } from '$lib/markdown';
-	import ModelViewer3D from '../plugins/ModelViewer3D.svelte';
+	import ModelViewerLauncher from '../ModelViewerLauncher.svelte';
 	import ZipPreviewPanel from '../ZipPreviewPanel.svelte';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
+	import { activeServerSpoilAll, activeServerUnspoilAll } from '$lib/serverSettings';
 	import {
 		formatFileSize,
 		getFileIcon,
@@ -20,6 +22,14 @@
 	} from './messageItemUtils';
 
 	export let message: Message;
+	export let forceSpoiler = false;
+
+	// A spoiler channel, the active server's "spoiler all", or the user's
+	// global "Spoiler All Messages" setting forces every message to render
+	// spoiled. A server "unspoil all" override wins and reveals everything.
+	$: effectiveSpoiler = $activeServerUnspoilAll
+		? false
+		: (message.isSpoiler || forceSpoiler || $activeServerSpoilAll || $displayEnhancementSettingsStore.spoilerAllMessagesEnabled);
 	export let albumAnnouncement: AlbumAnnouncement | null;
 	export let albumAnnouncementUploadName: string | null;
 	export let onHandleAlbumActivate: (meta: any, hasFiles: boolean) => void;
@@ -155,8 +165,8 @@
 										<img
 											src={getFileUrl(fileAttachment.fileUrl)}
 											alt={fileAttachment.fileName}
-											class="gallery-file-image {message.isSpoiler ? 'spoiler' : ''}"
-											data-spoiler={message.isSpoiler ? 'true' : 'false'}
+											class="gallery-file-image {effectiveSpoiler ? 'spoiler' : ''}"
+											data-spoiler={effectiveSpoiler ? 'true' : 'false'}
 											on:click={(e) => {
 												if (e.button === 0) {
 													const imageGallery = message.files
@@ -179,8 +189,8 @@
 									<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 									<div class="gallery-file-item" class:last-item={index === 3 && message.files.length > 4}>
 										<video
-											class="gallery-file-video {message.isSpoiler ? 'spoiler' : ''}"
-											data-spoiler={message.isSpoiler ? 'true' : 'false'}
+											class="gallery-file-video {effectiveSpoiler ? 'spoiler' : ''}"
+											data-spoiler={effectiveSpoiler ? 'true' : 'false'}
 											on:click={(e) => e.button === 0 && onEnlargeVideo(getFileUrl(fileAttachment.fileUrl))}
 											title={$_('messages.media.click_enlarge')}
 										>
@@ -211,7 +221,7 @@
 									</div>
 								{:else if isModelFile(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
 									<div class="gallery-file-item model-item" class:last-item={index === 3 && message.files.length > 4}>
-										<ModelViewer3D src={getFileUrl(fileAttachment.fileUrl)} fileName={fileAttachment.fileName || $_('messages.media.model_fallback_name')} height={220} />
+										<ModelViewerLauncher src={getFileUrl(fileAttachment.fileUrl)} fileName={fileAttachment.fileName || $_('messages.media.model_fallback_name')} height={220} />
 										<button
 											class="open-viewport-btn"
 											on:click={() => onOpenModelInDedicatedTab(getFileUrl(fileAttachment.fileUrl), fileAttachment.fileName || $_('messages.media.model_fallback_name'))}
@@ -284,7 +294,7 @@
 					{:else if message.fileUrl}
 						{#if isModelFile(message.fileName) && !isEncryptedAttachment(message)}
 						<div class="model-container">
-							<ModelViewer3D src={getFileUrl(message.fileUrl)} fileName={message.fileName || $_('messages.media.model_fallback_name')} />
+							<ModelViewerLauncher src={getFileUrl(message.fileUrl)} fileName={message.fileName || $_('messages.media.model_fallback_name')} />
 							<button
 								class="open-viewport-btn"
 								on:click={() => message.fileUrl && onOpenModelInDedicatedTab(getFileUrl(message.fileUrl), message.fileName || $_('messages.media.model_fallback_name'))}
@@ -305,8 +315,8 @@
 							<img
 								src={getFileUrl(message.fileUrl)}
 								alt={message.fileName}
-								class="inline-image {message.isSpoiler ? 'spoiler' : ''}"
-								data-spoiler={message.isSpoiler ? 'true' : 'false'}
+								class="inline-image {effectiveSpoiler ? 'spoiler' : ''}"
+								data-spoiler={effectiveSpoiler ? 'true' : 'false'}
 								on:click={(e) => e.button === 0 && message.fileUrl && onEnlargeImage(getFileUrl(message.fileUrl))}
 								on:contextmenu={(e) => onImageContextMenu(e, message)}
 								title={$_('messages.media.click_enlarge_with_options')}
@@ -325,8 +335,8 @@
 							<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 							<video
 								controls
-								class="inline-video {message.isSpoiler ? 'spoiler' : ''}"
-								data-spoiler={message.isSpoiler ? 'true' : 'false'}
+								class="inline-video {effectiveSpoiler ? 'spoiler' : ''}"
+								data-spoiler={effectiveSpoiler ? 'true' : 'false'}
 								on:click={(e) => {
 									if (e.button === 0 && message.fileUrl) {
 										onEnlargeVideo(getFileUrl(message.fileUrl));

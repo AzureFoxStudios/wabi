@@ -403,12 +403,6 @@
 	}
 
 
-	.channel-item:hover .pin-btn,
-	.channel-item:focus-within .pin-btn {
-		opacity: 1;
-	}
-
-
 	/* Auto-delete/Timer indicator - redder highlight */
 	.channel-item.has-timer {
 		background: rgba(255, 77, 77, var(--opacity-subtle));
@@ -431,10 +425,6 @@
 		border-radius: 0;
 	}
 
-
-	.channel-item:hover .settings-btn {
-		opacity: 1;
-	}
 
 	/* Gallery channel icon */
 	.hash.gallery-icon {

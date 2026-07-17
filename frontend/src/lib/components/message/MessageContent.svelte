@@ -11,9 +11,24 @@
 		parseAlbumAnnouncement,
 		parseRoleGateText
 	} from './messageItemUtils';
+	import { activeServerSpoilAll, activeServerUnspoilAll } from '$lib/serverSettings';
 
 	export let message: Message;
 	export let messageText: string;
+
+	// Spoiler layering (most specific wins, except server unspoil overrides all):
+	//   1. message.isSpoiler          (manual, per message)
+	//   2. channel.forceSpoiler       (per channel)
+	//   3. activeServerSpoilAll       (per server, local)
+	//   4. spoilerAllMessagesEnabled  (global, device-wide, local)
+	// A server "unspoil all" override forces everything visible, even on
+	// spoiler channels / individually spoiled messages ("server is king").
+	$: effectiveSpoiler = $activeServerUnspoilAll
+		? false
+		: (message.isSpoiler ||
+				(channels.find((ch) => ch.id === currentChannel)?.forceSpoiler ?? false) ||
+				$activeServerSpoilAll ||
+				$displayEnhancementSettingsStore.spoilerAllMessagesEnabled);
 	export let albumAnnouncementUploadName: string | null;
 	export let translatedText: string | undefined;
 	export let translationLoading: boolean;
@@ -202,7 +217,7 @@
 		</div>
 	{:else if message.type === 'gif' && message.gifUrl}
 		<div class="gif-message-block">
-			<img src={message.gifUrl} alt="GIF" class="gif {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
+			<img src={message.gifUrl} alt="GIF" class="gif {effectiveSpoiler ? 'spoiler' : ''}" data-spoiler={effectiveSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
 				{#if messageText}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -217,6 +232,7 @@
 	{:else if message.type === 'file'}
 		<MessageFileContent
 			{message}
+			forceSpoiler={effectiveSpoiler}
 			{albumAnnouncement}
 			{albumAnnouncementUploadName}
 			{onHandleAlbumActivate}
@@ -239,7 +255,7 @@
 			</div>
 		{/if}
 	{:else if message.type === 'emoji' && message.emojiUrl}
-		<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
+		<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {effectiveSpoiler ? 'spoiler' : ''}" data-spoiler={effectiveSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
 	{:else}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->

@@ -20,7 +20,11 @@
 	}
 
 
-	.pin-btn {
+	/* Scope: channel-row pin button. The same class name is used by
+   CallParticipantTile for call tile pin, so we must scope to avoid
+   cross-surface contamination (sidebar-core is loaded before call-modal in
+   styles.css). */
+	.text-channel-actions .pin-btn {
 		width: 24px;
 		height: 24px;
 		border-radius: 4px;
@@ -37,8 +41,8 @@
 	}
 
 
-	.pin-btn svg,
-	.settings-btn svg {
+	.text-channel-actions .pin-btn svg,
+	.text-channel-actions .settings-btn svg {
 		width: 16px;
 		height: 16px;
 		stroke: currentColor;
@@ -46,7 +50,7 @@
 	}
 
 
-	.pin-btn:hover {
+	.text-channel-actions .pin-btn:hover {
 		background: var(--pinned-border);
 		color: var(--text-heading);
 	}
@@ -425,20 +429,18 @@
 	}
 
 
-	.settings-btn {
+	/* Channel-row settings: tray owns show/hide via parent opacity.
+   Do NOT set opacity:0 here — that fights .text-channel-actions > button. */
+	.text-channel-actions .settings-btn {
 		background: transparent;
 		border: none;
-		color: var(--text-muted);
-		font-size: var(--text-base);
+		color: var(--text-secondary);
 		cursor: pointer;
-		padding: 0.25rem 0.5rem;
 		border-radius: 4px;
-		transition: all 0.2s;
-		opacity: 0;
+		transition: color 0.15s ease, background 0.15s ease;
 	}
 
-
-	.settings-btn:hover {
+	.text-channel-actions .settings-btn:hover {
 		background: var(--surface-base);
 		color: var(--text-heading);
 	}

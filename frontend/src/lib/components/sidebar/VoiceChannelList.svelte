@@ -210,20 +210,21 @@
 	{#if showVoiceMembers(channel.id)}
 		<div class="voice-member-list" transition:slide={reducedMotion ? undefined : { duration: 180, easing: cubicOut }}>
 			{#if channelIsConnected && $currentUser}
-			<div class="voice-member-item" in:fly={reducedMotion ? undefined : { x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={reducedMotion ? undefined : { x: -24, duration: 150, opacity: 0.1 }}>
-				{#if $currentUser.profilePicture}
-					<img class="voice-member-avatar" class:speaking={isSelfSpeakingInChannel(channel.id)} src={$currentUser.profilePicture} alt={$currentUser.username} />
-				{:else}
-					<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isSelfSpeakingInChannel(channel.id)}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
-				{/if}
-				<span class="voice-member-name">{$currentUser.username}</span>
-				{#if isSelfRecordingInChannel(channel.id)}
-					<span class="voice-recording-tag member">REC</span>
-				{/if}
-				{#if showSelfVoiceDuration()}
-					<span class="voice-member-duration">{formatVoiceDuration(getSelfVoicePresenceStart(channel.id))}</span>
-				{/if}
-			</div>
+				{@const channelId = channel.id}
+				<div class="voice-member-item" in:fly={reducedMotion ? undefined : { x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={reducedMotion ? undefined : { x: -24, duration: 150, opacity: 0.1 }}>
+					{#if $currentUser.profilePicture}
+						<img class="voice-member-avatar" class:speaking={isSelfSpeakingInChannel(channelId)} src={$currentUser.profilePicture} alt={$currentUser.username} />
+					{:else}
+						<span class="voice-member-avatar voice-avatar-fallback" class:speaking={isSelfSpeakingInChannel(channelId)}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
+					{/if}
+					<span class="voice-member-name">{$currentUser.username}</span>
+					{#if isSelfRecordingInChannel(channelId)}
+						<span class="voice-recording-tag member">REC</span>
+					{/if}
+					{#if showSelfVoiceDuration()}
+						<span class="voice-member-duration">{formatVoiceDuration(getSelfVoicePresenceStart(channelId))}</span>
+					{/if}
+				</div>
 			{/if}
 			{#each visibleVoiceMembers(channel.id) as member (member.userId)}
 				<div

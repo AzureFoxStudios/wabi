@@ -218,14 +218,9 @@ async function fetchAddonManifest(addonId: string): Promise<AddonManifest | null
 	}
 
 	// Fallback: local manifest
+	// Note: `model-viewer` (three.js) is intentionally omitted here so it is only
+	// resolvable from the server and never bundled into the desktop Tauri build.
 	const localManifests: Record<string, AddonManifest> = {
-		'3d-viewer': {
-			id: '3d-viewer',
-			name: '3D Model Viewer',
-			version: '1.0.0',
-			frontendEntry: '$lib/components/plugins/ModelViewer3D.svelte',
-			dependencies: []
-		},
 		'youtube-sync': {
 			id: 'youtube-sync',
 			name: 'YouTube Watch Together',

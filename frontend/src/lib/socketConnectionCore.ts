@@ -595,6 +595,48 @@ export class SocketManager {
 			console.warn('[socket] pin-error', payload?.messageId, payload?.error);
 		});
 
+		sock.on('emoji-reaction-added', (payload: { channelId?: string; messageId?: string; userId?: number; emojiId?: string }) => {
+			if (!payload?.channelId || !payload.messageId || !payload.emojiId) return;
+			const userIdStr = String(payload.userId);
+			channelMessages.update((state) => {
+				const messages = state[payload.channelId!];
+				if (!messages) return state;
+				const next = messages.map((msg) => {
+					if (msg.id !== payload.messageId) return msg;
+					const reactions = { ...(msg.reactions || {}) };
+					const users = reactions[payload.emojiId!] || [];
+					if (!users.includes(userIdStr)) {
+						reactions[payload.emojiId!] = [...users, userIdStr];
+					}
+					return { ...msg, reactions };
+				});
+				return { ...state, [payload.channelId!]: next };
+			});
+		});
+
+		sock.on('emoji-reaction-removed', (payload: { channelId?: string; messageId?: string; userId?: number; emojiId?: string }) => {
+			if (!payload?.channelId || !payload.messageId || !payload.emojiId) return;
+			const userIdStr = String(payload.userId);
+			channelMessages.update((state) => {
+				const messages = state[payload.channelId!];
+				if (!messages) return state;
+				const next = messages.map((msg) => {
+					if (msg.id !== payload.messageId) return msg;
+					const reactions = { ...(msg.reactions || {}) };
+					const users = reactions[payload.emojiId!];
+					if (!users) return { ...msg, reactions };
+					const filtered = users.filter((uid) => uid !== userIdStr);
+					if (filtered.length === 0) {
+						delete reactions[payload.emojiId!];
+					} else {
+						reactions[payload.emojiId!] = filtered;
+					}
+					return { ...msg, reactions };
+				});
+				return { ...state, [payload.channelId!]: next };
+			});
+		});
+
 		sock.on('typing', (payload: { channelId?: string; usernames?: string[]; userIds?: string[] }) => {
 			if (!payload?.channelId) return;
 			const typingUsers = payload.userIds || payload.usernames || [];
@@ -875,6 +917,56 @@ export class SocketManager {
 
 		sock.on('role-definitions-updated', (payload: { roles?: any[] }) => {
 			_setRoleDefinitions(Array.isArray(payload?.roles) ? payload.roles : []);
+		});
+
+		sock.on('emoji-reaction-added', (payload: { messageId?: string; userId?: number; emojiId?: string }) => {
+			if (!payload?.messageId || !payload.userId || !payload.emojiId) return;
+			const userIdStr = `user-${payload.userId}`;
+			channelMessages.update((state) => {
+				const next = { ...state };
+				for (const channelId of Object.keys(next)) {
+					const messages = next[channelId];
+					const idx = messages.findIndex((m) => m.id === payload.messageId);
+					if (idx === -1) continue;
+					const message = messages[idx];
+					const reactions = { ...(message.reactions || {}) };
+					const existing = reactions[payload.emojiId] ? [...reactions[payload.emojiId]] : [];
+					if (!existing.includes(userIdStr)) {
+						existing.push(userIdStr);
+					}
+					reactions[payload.emojiId] = existing;
+					const updated = [...messages];
+					updated[idx] = { ...message, reactions };
+					next[channelId] = updated;
+				}
+				return next;
+			});
+		});
+
+		sock.on('emoji-reaction-removed', (payload: { messageId?: string; userId?: number; emojiId?: string }) => {
+			if (!payload?.messageId || !payload.userId || !payload.emojiId) return;
+			const userIdStr = `user-${payload.userId}`;
+			channelMessages.update((state) => {
+				const next = { ...state };
+				for (const channelId of Object.keys(next)) {
+					const messages = next[channelId];
+					const idx = messages.findIndex((m) => m.id === payload.messageId);
+					if (idx === -1) continue;
+					const message = messages[idx];
+					const reactions = { ...(message.reactions || {}) };
+					const existing = reactions[payload.emojiId] ? [...reactions[payload.emojiId]] : [];
+					const filtered = existing.filter((id) => id !== userIdStr);
+					if (filtered.length > 0) {
+						reactions[payload.emojiId] = filtered;
+					} else {
+						delete reactions[payload.emojiId];
+					}
+					const updated = [...messages];
+					updated[idx] = { ...message, reactions };
+					next[channelId] = updated;
+				}
+				return next;
+			});
 		});
 	}
 }

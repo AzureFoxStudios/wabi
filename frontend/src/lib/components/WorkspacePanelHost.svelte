@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import type { WorkspacePanelManifest } from '$lib/workspacePanels';
-	import { layoutStore } from '$lib/layoutStore';
 	import UserListTab from './UserListTab.svelte';
 	import MediaAlbumsTab from './MediaAlbumsTab.svelte';
 	import NotesWorkspace from './NotesWorkspace.svelte';
@@ -16,19 +15,13 @@
 	import { selectedDmChannelId } from '$lib/layoutStoreStates';
 	import { currentUser } from '$lib/socket';
 	import { getKeepNotesStorageKey } from '$lib/notesStore';
+	import AdminTab from './AdminTab.svelte';
 
 	export let panel: WorkspacePanelManifest;
 
 	const dispatch = createEventDispatcher<{
 		openSettings: { paymentSurface: 'connections' };
 	}>();
-
-	// A.5: Opening the admin right-panel entry must flip straight to the center
-	// stage with ZERO stub flash. Trigger the flip as a side-effect and render
-	// nothing visible (the stub lived in AdminTab.svelte, kept only as a file).
-	$: if (panel.component === 'admin') {
-		layoutStore.showAdminCenterStage();
-	}
 </script>
 
 {#if panel.component === 'users'}
@@ -52,8 +45,9 @@
 {:else if panel.component === 'media'}
 	<MediaAlbumsTab variant="compact" />
 {:else if panel.component === 'admin'}
-	<!-- Intentionally empty: admin flips to the center stage via the reactive
-	     side-effect above, so no visible stub is ever mounted. -->
+	<!-- Design law: right = ambient staff ops. The Admin Ops Rail stays in the
+	     right panel; "Open full dashboard" inside it flips the center stage. -->
+	<AdminTab />
 {:else if panel.component === 'model-viewport'}
 	<ModelViewportTab />
 {:else if panel.component === 'reader'}

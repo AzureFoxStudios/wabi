@@ -424,7 +424,7 @@ impl App {
                         let api = self.api.clone();
                         let tx = self.bg_tx.clone();
                         tokio::spawn(async move {
-                            match api.send_message(&ch_id, &text).await {
+                            match api.send_message(&ch_id, &text, false).await {
                                 Ok(()) => {
                                     let _ = tx.send(BgMsg::SendOk(ch_id)).await;
                                 }

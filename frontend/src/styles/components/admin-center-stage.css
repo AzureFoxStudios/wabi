@@ -115,8 +115,10 @@
 }
 
 .admin-nav-active {
-  background: rgba(242, 101, 34, 0.1) !important;
-  color: var(--accent, #F26522) !important;
+  background: color-mix(in srgb, var(--accent-primary, #6366f1) 14%, transparent) !important;
+  color: var(--accent-primary, #6366f1) !important;
+  border-left: 3px solid var(--accent-primary, #6366f1);
+  padding-left: 7px;
 }
 
 .admin-nav-icon {
@@ -317,8 +319,8 @@
 }
 
 .admin-card-accent {
-  border-color: rgba(242, 101, 34, 0.2);
-  background: rgba(242, 101, 34, 0.05);
+  border-color: color-mix(in srgb, var(--accent-primary, #6366f1) 28%, transparent);
+  background: color-mix(in srgb, var(--accent-primary, #6366f1) 6%, transparent);
 }
 
 /* Card shine effect */
@@ -389,7 +391,7 @@
 }
 
 .admin-seg-active {
-  background: var(--accent, #F26522);
+  background: var(--accent-primary, #6366f1);
 }
 
 /* ─── Overview Row (2-column) ────────────────────────────────────── */
@@ -690,7 +692,7 @@
 .admin-top-xp {
   font-size: 10px;
   font-family: 'Space Mono', monospace;
-  color: var(--accent, #F26522);
+  color: var(--accent-primary, #6366f1);
 }
 
 /* ─── Role Badge ─────────────────────────────────────────────────── */
@@ -762,6 +764,71 @@
   text-align: center;
   color: var(--text-disabled, #666);
   font-size: 12px;
+}
+
+/* ─── Payment summary card ─────────────────────────────────────── */
+.admin-payment-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-payment-loading {
+  font-size: 12px;
+  color: var(--text-secondary, #999);
+}
+
+.admin-payment-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary, #999);
+}
+
+.admin-payment-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-disabled, #666);
+  flex: none;
+}
+
+.admin-payment-on {
+  color: var(--text-heading, #fff);
+}
+
+.admin-payment-on .admin-payment-dot {
+  background: #4a9e5c;
+  box-shadow: 0 0 8px rgba(74, 158, 92, 0.6);
+}
+
+.admin-payment-state {
+  font-weight: 500;
+}
+
+.admin-payment-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.admin-payment-chip {
+  font-size: 10px;
+  font-family: 'Space Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface-hover, #222);
+  border: 1px solid var(--border-subtle, #333);
+  color: var(--text-secondary, #999);
+}
+
+.admin-payment-chip-on {
+  background: rgba(74, 158, 92, 0.12);
+  border-color: rgba(74, 158, 92, 0.4);
+  color: #81c784;
 }
 
 /* ─── Animations ───────────────────────────────────────────────────
@@ -844,4 +911,91 @@
   background-image: radial-gradient(circle, #1d1d1d 1.1px, transparent 1.1px);
   background-size: 16px 16px;
   background-position: 8px 8px;
+}
+
+/* ─── Branding upload dropzones ─────────────────────────────────── */
+.frontend-metadata-dropzone {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 12px;
+  background: var(--surface-raised, #1a1a2e);
+  border: 1px dashed var(--border-visible, #444);
+  color: var(--text-primary, #e8e8e8);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+
+.frontend-metadata-dropzone-icon {
+  flex: 0 0 auto;
+}
+
+.frontend-metadata-dropzone-banner {
+  flex: 1 1 auto;
+}
+
+.frontend-metadata-dropzone:hover,
+.frontend-metadata-dropzone:focus-visible {
+  border-color: var(--accent-primary, #6366f1);
+  background: color-mix(in srgb, var(--accent-primary, #6366f1) 8%, transparent);
+}
+
+.frontend-metadata-dropzone.is-dragover {
+  border-color: var(--accent, #f26522);
+  border-style: solid;
+  background: rgba(242, 101, 34, 0.12);
+  box-shadow: 0 0 0 3px rgba(242, 101, 34, 0.2);
+}
+
+.frontend-metadata-dropzone-preview {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--surface-base, #111);
+  border: 1px solid var(--border-subtle, #222);
+  border-radius: 8px;
+}
+
+.frontend-metadata-dropzone-icon .frontend-metadata-dropzone-preview {
+  width: 48px;
+  height: 48px;
+}
+
+.frontend-metadata-dropzone-banner .frontend-metadata-dropzone-preview {
+  width: 96px;
+  height: 48px;
+}
+
+.frontend-metadata-dropzone-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.frontend-metadata-dropzone-glyph {
+  font-size: 20px;
+  color: var(--text-disabled, #666);
+  line-height: 1;
+}
+
+.frontend-metadata-dropzone-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.frontend-metadata-dropzone-label strong {
+  font-size: 13px;
+  color: var(--text-heading, #fff);
+  font-weight: 500;
+}
+
+.frontend-metadata-dropzone-label span {
+  font-size: 11px;
+  color: var(--text-secondary, #999);
 }

@@ -7,6 +7,15 @@
 // The compat shim itself is a temporary layer and will be removed
 // once the last socketio file is migrated.
 
+pub async fn channel_is_live(app: &AppState, channel_id: &str) -> bool {
+    app.channel_auto_delete_label
+        .read()
+        .await
+        .get(channel_id)
+        .map(|s| s == "live")
+        .unwrap_or(false)
+}
+
 #[allow(dead_code)]
 async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo) {
     let channel_id = match cmd.get("channelId").and_then(|v| v.as_str()) {
@@ -56,59 +65,104 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         .and_then(|v| v.as_str())
         .map(String::from);
     let text = cmd.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let mut is_spoiler = false;
 
     if user_id_num > 0 {
-        match state
+        let is_live = channel_is_live(&state.app, &channel_id).await;
+
+        let requested_spoiler = cmd
+            .get("isSpoiler")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let channel_force_spoiler = state
             .app
             .wdb
-            .send_message(&channel_id, user_id_num as u64, &text)
+            .get_channel(&channel_id)
             .await
-        {
-            Ok(wdb_id) => {
-                message_id = wdb_id;
-            }
-            Err(e) => {
-                warn!("Failed to persist message to WDB: {}", e);
-            }
-        }
+            .ok()
+            .flatten()
+            .map(|c| c.force_spoiler)
+            .unwrap_or(false);
+        is_spoiler = requested_spoiler || channel_force_spoiler;
 
-        // Schedule message deletion if channel has auto-delete (in-memory map + WDB days)
-        let mut delete_after_ms: Option<u64> = {
-            state
+        if is_live {
+            message_id = format!("live_{}", uuid::Uuid::new_v4());
+        } else {
+            match state
                 .app
-                .channel_auto_delete_ms
-                .read()
+                .wdb
+                .send_message(&channel_id, user_id_num as u64, &text, is_spoiler)
                 .await
-                .get(&channel_id)
-                .copied()
-                .filter(|ms| *ms > 0)
-        };
-        if delete_after_ms.is_none() {
-            if let Ok(Some(policy)) = state.app.wdb.get_channel_retention(&channel_id).await {
-                if policy.days > 0 {
-                    delete_after_ms = Some(policy.days as u64 * 86_400_000);
+            {
+                Ok(wdb_id) => {
+                    message_id = wdb_id;
+                }
+                Err(e) => {
+                    warn!("Failed to persist message to WDB: {}", e);
                 }
             }
-        }
-        if let Some(ms) = delete_after_ms {
-            let wdb = state.app.wdb.clone();
-            let session = state.app.session_messages.clone();
-            let msg_id = message_id.clone();
-            let ch_id = channel_id.clone();
-            let io_bg = io.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
-                // session remove
+
+            // Schedule message deletion (default: 24h ephemeral unless channel opts into forever).
+            // - In-memory map: exact timer including sub-day presets
+            // - WDB retention days>0: durable multi-day timer (survives restart)
+            // - WDB retention days==0 with a stored policy: explicit keep-forever opt-in
+            // - No policy / no map: product default 24h (not infinite retention)
+            const DEFAULT_CHANNEL_AUTO_DELETE_MS: u64 = 24 * 60 * 60 * 1000;
+            let mut delete_after_ms: Option<u64> = {
+                state
+                    .app
+                    .channel_auto_delete_ms
+                    .read()
+                    .await
+                    .get(&channel_id)
+                    .copied()
+                    .filter(|ms| *ms > 0)
+            };
+            let mut explicit_forever = false;
+            if delete_after_ms.is_none() {
+                // Label "forever" is set when operator opts into keep-forever.
+                if state
+                    .app
+                    .channel_auto_delete_label
+                    .read()
+                    .await
+                    .get(&channel_id)
+                    .map(|s| s == "forever")
+                    .unwrap_or(false)
                 {
-                    let mut guard = session.write().await;
-                    if let Some(msgs) = guard.get_mut(&ch_id) {
-                        msgs.retain(|m| m.get("id").and_then(|v| v.as_str()) != Some(msg_id.as_str()));
+                    explicit_forever = true;
+                } else if let Ok(Some(policy)) = state.app.wdb.get_channel_retention(&channel_id).await {
+                    if policy.days > 0 {
+                        delete_after_ms = Some(policy.days as u64 * 86_400_000);
+                    } else {
+                        // days == 0 means keep-forever was explicitly configured.
+                        explicit_forever = true;
                     }
                 }
-                let _ = wdb.delete_message(&msg_id, 0).await;
-                let payload = json!({"channelId": ch_id, "messageId": msg_id});
-                let _ = io_bg.to(ch_id).emit("message-deleted", &payload).await;
-            });
+            }
+            if delete_after_ms.is_none() && !explicit_forever {
+                delete_after_ms = Some(DEFAULT_CHANNEL_AUTO_DELETE_MS);
+            }
+            if let Some(ms) = delete_after_ms {
+                let wdb = state.app.wdb.clone();
+                let session = state.app.session_messages.clone();
+                let msg_id = message_id.clone();
+                let ch_id = channel_id.clone();
+                let io_bg = io.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+                    // session remove
+                    {
+                        let mut guard = session.write().await;
+                        if let Some(msgs) = guard.get_mut(&ch_id) {
+                            msgs.retain(|m| m.get("id").and_then(|v| v.as_str()) != Some(msg_id.as_str()));
+                        }
+                    }
+                    let _ = wdb.delete_message(&msg_id, 0).await;
+                    let payload = json!({"channelId": ch_id, "messageId": msg_id});
+                    let _ = io_bg.to(ch_id).emit("message-deleted", &payload).await;
+                });
+            }
         }
     }
 
@@ -124,7 +178,7 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         "clientMessageId": client_message_id.clone(),
         "encrypted":      cmd.get("encrypted"),
         "iv":             cmd.get("iv"),
-        "isSpoiler":      cmd.get("isSpoiler"),
+        "isSpoiler":      is_spoiler,
         "replyTo":        cmd.get("replyTo"),
         "gifUrl":         cmd.get("gifUrl"),
         "emojiUrl":       cmd.get("emojiUrl"),

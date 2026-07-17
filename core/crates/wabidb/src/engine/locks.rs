@@ -747,6 +747,7 @@ mod tests {
             edit_history: vec![],
             edited_at_micros: None,
             is_deleted: false,
+            is_spoiler: false,
         };
         let payload = encode_record(&msg);
         let expected_msg_id = format!("msg_{:x}", 1);

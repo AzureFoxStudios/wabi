@@ -501,6 +501,134 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 }
             });
 
+            socket.on("create-thread", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_create_thread(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("pin-channel", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_pin_channel(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("unpin-channel", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_unpin_channel(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("retry-message", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_retry_message(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("mark-messages-as-read", {
+                let s = state.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone();
+                    async move { on_mark_messages_as_read(socket, data, s).await }
+                }
+            });
+
+            socket.on("mark-channel-as-read", {
+                let s = state.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone();
+                    async move { on_mark_channel_as_read(socket, data, s).await }
+                }
+            });
+
+            socket.on("sync-newer", {
+                let s = state.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone();
+                    async move { on_sync_newer(socket, data, s).await }
+                }
+            });
+
+            socket.on("create-breakout-rooms", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_create_breakout_rooms(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("close-breakout-rooms", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_close_breakout_rooms(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("move-user-to-breakout", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_move_user_to_breakout(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("move-user-to-voice-channel", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_move_user_to_voice_channel(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("whiteboard:join", {
+                let s = state.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone();
+                    async move { on_whiteboard_join(socket, data, s).await }
+                }
+            });
+
+            socket.on("whiteboard:leave", {
+                let s = state.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone();
+                    async move { on_whiteboard_leave(socket, data, s).await }
+                }
+            });
+
+            socket.on("whiteboard:snapshot", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_whiteboard_snapshot(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("whiteboard:patch", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_whiteboard_patch(socket, data, s, io).await }
+                }
+            });
+
+            socket.on("whiteboard:cursor", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    async move { on_whiteboard_cursor(socket, data, s, io).await }
+                }
+            });
+
             socket.on_disconnect({
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, _reason: socketioxide::socket::DisconnectReason| {

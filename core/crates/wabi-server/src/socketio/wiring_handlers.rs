@@ -161,14 +161,41 @@ pub async fn handle_update_channel_settings(socket: SocketRef, data: Value, stat
     if let Some(desc) = settings.get("description").and_then(|v| v.as_str()) {
         row.insert("description".to_string(), json!(desc));
     }
+    if let Some(force_spoiler) = settings.get("forceSpoiler").and_then(|v| v.as_bool()) {
+        row.insert("force_spoiler".to_string(), json!(force_spoiler));
+    }
 
-    // Auto-delete / retention presets (5s..90d or null/off)
+    // Auto-delete / retention presets (5s..90d or null/off = keep forever opt-in,
+    // or "live" = session-only, never persisted to WabiDB).
     let mut auto_delete_after: Option<String> = None;
     if settings.get("autoDeleteAfter").is_some() {
-        if settings.get("autoDeleteAfter").and_then(|v| v.as_null()).is_some() {
-            // explicit null -> clear
+        if settings.get("autoDeleteAfter").and_then(|v| v.as_str()) == Some("live") {
+            // Live session room: no durable writes, no timed delete. Mark via the
+            // in-memory label sentinel "live" (checked by channel_is_live on send).
+            // Clear any ms timer and drop the durable retention policy so a restart
+            // does not resurrect timed/forever behavior for this channel.
             state.app.channel_auto_delete_ms.write().await.remove(&channel_id);
-            state.app.channel_auto_delete_label.write().await.remove(&channel_id);
+            state
+                .app
+                .channel_auto_delete_label
+                .write()
+                .await
+                .insert(channel_id.clone(), "live".to_string());
+            let _ = state
+                .app
+                .wdb
+                .upsert_channel_retention(&channel_id, 0, caller_id as u64)
+                .await;
+            auto_delete_after = Some("live".to_string());
+        } else if settings.get("autoDeleteAfter").and_then(|v| v.as_null()).is_some() {
+            // explicit null -> keep forever (opt-in persistence)
+            state.app.channel_auto_delete_ms.write().await.remove(&channel_id);
+            state
+                .app
+                .channel_auto_delete_label
+                .write()
+                .await
+                .insert(channel_id.clone(), "forever".to_string());
             let _ = state
                 .app
                 .wdb
@@ -201,10 +228,28 @@ pub async fn handle_update_channel_settings(socket: SocketRef, data: Value, stat
         }
     }
 
-    if let Err(e) = state.app.wdb.ingest_event("channel", "update_settings", &json!({ "row": row })).await {
+    if let Err(e) = state.app.wdb.ingest_event("channel", "update_settings", &json!({ "row": row.clone() })).await {
         warn!("[sio] update-channel-settings failed: {}", e);
         let _ = socket.emit("channel-settings-error", &json!({ "error": "Failed to update settings" }));
         return;
+    }
+
+    // Mirror the patch into the `channels` projection so flags like
+    // `force_spoiler` persist and survive reload. Only fields that were
+    // actually present in the request are included.
+    let mut patch = serde_json::Map::new();
+    patch.insert("channel_id".to_string(), json!(channel_id.clone()));
+    if let Some(name) = settings.get("name").and_then(|v| v.as_str()) {
+        patch.insert("name".to_string(), json!(name));
+    }
+    if let Some(desc) = settings.get("description").and_then(|v| v.as_str()) {
+        patch.insert("description".to_string(), json!(desc));
+    }
+    if let Some(force) = settings.get("forceSpoiler").and_then(|v| v.as_bool()) {
+        patch.insert("force_spoiler".to_string(), json!(force));
+    }
+    if let Err(e) = state.app.wdb.ingest_event("channel", "update", &json!({ "row": patch })).await {
+        warn!("[sio] update-channel settings projection merge failed: {}", e);
     }
 
     let payload = json!({
@@ -213,6 +258,7 @@ pub async fn handle_update_channel_settings(socket: SocketRef, data: Value, stat
         "autoDeleteAfter": auto_delete_after,
         "name": settings.get("name"),
         "description": settings.get("description"),
+        "forceSpoiler": settings.get("forceSpoiler"),
     });
     let _ = socket.emit("channel-settings-updated", &payload);
     let _ = io.broadcast().emit("channel-updated", &payload).await;

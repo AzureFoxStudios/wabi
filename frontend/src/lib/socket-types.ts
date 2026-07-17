@@ -159,4 +159,5 @@ export interface Channel extends Omit<ProtocolChannelView, ChannelOptionalProtoc
   pinnedBy?: Exclude<ProtocolChannelView['pinnedBy'], null>;
   voiceSettings?: VoiceChannelSettings;
   topic?: Exclude<ProtocolChannelView['topic'], null>;
+  forceSpoiler?: boolean;
 }

@@ -51,7 +51,7 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { _ } from '$lib/i18n';
 	import { addMediaAlbumItem, createMediaAlbum, listMediaAlbums, type MediaAlbumScopeType } from '$lib/api';
-	import { messageRetentionToMs } from '../../../../shared/messageRetention.js';
+	import { messageRetentionToMs, DEFAULT_CHANNEL_RETENTION } from '../../../../shared/messageRetention.js';
 	import {
 		applyChatFilter,
 		chatFilterStore,
@@ -308,7 +308,10 @@
 
 	function getChannelDeleteDurationMs(channelId: string): number | null {
 		const channel = $channels.find((ch) => ch.id === channelId);
-		return messageRetentionToMs(channel?.autoDeleteAfter || null);
+		// null = keep forever (opt-in); unset/undefined = default 24h ephemeral
+		const d = channel?.autoDeleteAfter;
+		if (d === null) return null;
+		return messageRetentionToMs(d ?? DEFAULT_CHANNEL_RETENTION);
 	}
 
 	function getMessageDeletionDeadline(message: Message): number | null {

@@ -30,9 +30,12 @@
   import StatusDot from './ui/StatusDot.svelte'
   import Skeleton from './ui/Skeleton.svelte'
   import AnimatedNumber from './ui/AnimatedNumber.svelte'
+  import type { PaymentAccessPolicy } from '$lib/api'
 
   export let stats: DashboardStats | null = null
   export let loading = false
+  export let paymentPolicy: PaymentAccessPolicy | null = null
+  export let paymentLoading = false
 
   const statCards = [
     { key: 'totalUsers' as const, label: 'Users', icon: 'users', color: 'var(--accent-blue, #3498DB)' },
@@ -242,6 +245,31 @@
             <div class="admin-empty-state">No contributor data yet</div>
           {/each}
         </div>
+      </Card>
+    </div>
+
+    <!-- Fourth row: Payment access summary -->
+    <div class="admin-overview-row">
+      <Card delay={740} className="admin-payment-card">
+        <span class="admin-section-label">Payments Access</span>
+        {#if paymentLoading}
+          <div class="admin-payment-loading">Loading…</div>
+        {:else if paymentPolicy}
+          <div class="admin-payment-status" class:admin-payment-on={paymentPolicy.enabled}>
+            <span class="admin-payment-dot"></span>
+            <span class="admin-payment-state">{paymentPolicy.enabled ? 'Payments enabled' : 'Payments disabled'}</span>
+          </div>
+          <div class="admin-payment-meta">
+            <span class="admin-payment-chip" class:admin-payment-chip-on={paymentPolicy.allowGuest}>
+              {paymentPolicy.allowGuest ? 'Guests allowed' : 'Guests blocked'}
+            </span>
+            <span class="admin-payment-chip">
+              {paymentPolicy.allowedRoleNames.length} role{paymentPolicy.allowedRoleNames.length === 1 ? '' : 's'} allowed
+            </span>
+          </div>
+        {:else}
+          <div class="admin-empty-state">No payment policy loaded</div>
+        {/if}
       </Card>
     </div>
   {/if}

@@ -207,7 +207,11 @@
 	}
 
 
-	.settings-btn {
+	/* Scope: channel-row settings button. The same class name is used by
+   KanbanBoardImpl for column settings, so we must scope to avoid
+   cross-surface contamination (sidebar-core is loaded before kanban in
+   styles.css). */
+	.text-channel-actions .settings-btn {
 		background: transparent;
 		border: none;
 		font-size: 1.5rem;
@@ -222,18 +226,17 @@
 	}
 
 
-	.settings-btn svg {
-		width: 18px;
-		height: 18px;
+	.text-channel-actions .settings-btn svg {
+		width: 16px;
+		height: 16px;
 		stroke: currentColor;
 		stroke-width: 2;
 	}
 
 
-	.settings-btn:hover {
+	.text-channel-actions .settings-btn:hover {
 		color: var(--text-heading);
 		background: var(--surface-base);
-		box-shadow: inset 0 0 6px var(--surface-hover, rgba(255, 255, 255, 0.1));
 	}
 
 
@@ -335,7 +338,11 @@
 	}
 
 
-	.follow-btn {
+	/* Scope: channel-row follow button. The same class name is used by
+   KanbanBoardImpl for column follow, so we must scope to avoid
+   cross-surface contamination (sidebar-core is loaded before kanban in
+   styles.css). */
+	.text-channel-actions .follow-btn {
 		background: transparent;
 		border: none;
 		width: 24px;
@@ -351,8 +358,8 @@
 	}
 
 
-	.follow-btn:hover,
-	.follow-btn.active {
+	.text-channel-actions .follow-btn:hover,
+	.text-channel-actions .follow-btn.active {
 		color: var(--text-heading);
 		background: var(--surface-base);
 	}

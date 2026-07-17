@@ -182,7 +182,7 @@
 	}
 </script>
 
-{#if localAddonControlMatches('spellcheck') || localAddonControlMatches('char_counter') || localAddonControlMatches('split_large_messages') || localAddonControlMatches('write_upper_case') || localAddonControlMatches('clickable_mentions') || localAddonControlMatches('complete_timestamps') || localAddonControlMatches('reveal_all_spoilers') || localAddonControlMatches('message_utilities') || localAddonControlMatches('quick_mention') || localAddonControlMatches('personal_pins') || localAddonControlMatches('unicode_emojis')}
+{#if localAddonControlMatches('spellcheck') || localAddonControlMatches('char_counter') || localAddonControlMatches('split_large_messages') || localAddonControlMatches('write_upper_case') || localAddonControlMatches('clickable_mentions') || localAddonControlMatches('complete_timestamps') || localAddonControlMatches('message_utilities') || localAddonControlMatches('quick_mention') || localAddonControlMatches('personal_pins') || localAddonControlMatches('unicode_emojis')}
 <section class="addon-accordion-section">
 	<button
 		type="button"
@@ -306,35 +306,6 @@
 						<option value="detailed">Detailed (full locale)</option>
 					</select>
 				</label>
-			</div>
-		{/if}
-
-		{#if localAddonControlMatches('reveal_all_spoilers')}
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">RevealAllSpoilers</span>
-					<span class="setting-description">Hold Ctrl/Cmd and click a spoiler to reveal all spoilers in that message.</span>
-				</div>
-				<div class="settings-row-actions">
-					<button class="toggle-btn" class:active={revealAllSpoilersEnabled} on:click={toggleRevealAllSpoilersAddon}>
-						{revealAllSpoilersEnabled ? 'ON' : 'OFF'}
-					</button>
-					<label class="upload-limit-row split-chunk-size-row">
-						<span>Minimum role</span>
-						<select
-							class="theme-select"
-							value={revealAllSpoilersMinRole}
-							on:change={(event) => updateRevealAllSpoilersRole(event.currentTarget.value)}
-							disabled={!revealAllSpoilersEnabled}
-						>
-							<option value="guest">Guest</option>
-							<option value="member">Member</option>
-							<option value="mod">Moderator</option>
-							<option value="admin">Admin</option>
-							<option value="owner">Owner</option>
-						</select>
-					</label>
-				</div>
 			</div>
 		{/if}
 

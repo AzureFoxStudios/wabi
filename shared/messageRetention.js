@@ -15,6 +15,8 @@ export const MESSAGE_RETENTION_PRESETS = [
     '90d'
 ];
 export const DEFAULT_DM_RETENTION = '24h';
+/** Public/text channel default: ephemeral 1 day. Keep-forever is opt-in (null). */
+export const DEFAULT_CHANNEL_RETENTION = '24h';
 export const MESSAGE_RETENTION_LABELS = {
     '5s': '5 seconds',
     '30s': '30 seconds',
@@ -63,6 +65,16 @@ export function messageRetentionToMs(duration) {
 }
 export function formatMessageRetentionLabel(duration) {
     if (!duration)
-        return 'Never';
+        return 'Keep forever';
     return MESSAGE_RETENTION_LABELS[duration] || 'Custom';
+}
+/** Effective channel timer: unset → default 24h; null forever only when explicitly opted in. */
+export function effectiveChannelRetention(duration, opts) {
+    if (opts?.persistForever)
+        return null;
+    if (duration === null)
+        return null;
+    if (duration === undefined)
+        return DEFAULT_CHANNEL_RETENTION;
+    return duration;
 }

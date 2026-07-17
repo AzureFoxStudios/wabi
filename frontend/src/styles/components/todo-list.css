@@ -23,8 +23,8 @@
 		gap: 0.75rem;
 	}
 
-	.settings-btn,
-	.archive-btn {
+	.todo-container .settings-btn,
+	.todo-container .archive-btn {
 		padding: 0.5rem 0.8rem;
 		background: var(--surface-base, #16213e);
 		border: 1px solid var(--border-color, #2a2a4a);
@@ -44,8 +44,8 @@
 		flex-shrink: 0;
 	}
 
-	.settings-btn:hover,
-	.archive-btn:hover {
+	.todo-container .settings-btn:hover,
+	.todo-container .archive-btn:hover {
 		background: var(--surface-raised, #1f2937);
 		color: var(--text-heading, #eee);
 	}

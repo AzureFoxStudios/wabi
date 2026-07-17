@@ -93,6 +93,10 @@ tempfile = "3"
 default = []
 addons = ["wabi-webhooks", "wabi-lore"]
 
+[lib]
+name = "wabi_server"
+path = "src/lib.rs"
+
 [[bin]]
 name = "wabi-server"
 path = "src/main.rs"
