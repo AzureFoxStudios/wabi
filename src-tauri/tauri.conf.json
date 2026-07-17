@@ -49,12 +49,5 @@
       "appimage": {}
     }
   },
-  "plugins": {
-    "notification": {
-      "active": true
-    },
-    "shell": {
-      "active": true
-    }
-  }
+  "plugins": {}
 }

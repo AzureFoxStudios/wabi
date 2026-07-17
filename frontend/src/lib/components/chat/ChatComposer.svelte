@@ -115,6 +115,10 @@
 	$: composerCharCount = messageInput.length;
 	$: composerCharCounterVisible = composerInputMaxLength > 0 && composerCharCount / composerInputMaxLength >= 0.7;
 	$: effectiveChannel = channelId || $currentChannel;
+	// A spoiler channel forces every outgoing message to be a spoiler, and
+	// the per-message spoiler checkbox is locked on so users can't opt out.
+	$: channelForceSpoiler = $channels.find((ch) => ch.id === effectiveChannel)?.forceSpoiler || false;
+	$: if (channelForceSpoiler) markAsSpoiler = true;
 	$: composerCharCounterWarn = composerInputMaxLength > 0 && composerCharCount / composerInputMaxLength >= 0.9;
 	$: gifCaptionDraftLength = gifCaptionInput.trim().length;
 	$: gifCaptionDraftWarn = gifCaptionDraftLength > 0 && gifCaptionDraftLength / MAX_GIF_CAPTION_LENGTH >= 0.9;
@@ -282,7 +286,7 @@
 
 <div class="input-wrapper" class:hidden={$layoutStore.isMobile && !composerVisible}>
 	{#if showMentionSuggestions && mentionSuggestions.length > 0}<MentionSuggestions suggestions={mentionSuggestions as any} selectedIndex={mentionSelectedIndex} bind:container={mentionMenuContainer} onApply={applyMentionSuggestion} />{/if}
-	{#if filePreviews.length > 0 && !isUploading}<FileUploadPreview {filePreviews} bind:markAsSpoiler {albumEligibleSelection} {createAlbumFromUpload} bind:uploadAlbumName buildDefaultUploadAlbumName={() => buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput)} onAlbumUploadToggle={handleAlbumUploadToggle} onCancelUpload={clearFilePreviews} onRemoveFile={removeFile} onUploadSelectedFiles={uploadSelectedFiles} />{/if}
+	{#if filePreviews.length > 0 && !isUploading}		<FileUploadPreview {filePreviews} bind:markAsSpoiler spoilerLocked={channelForceSpoiler} {albumEligibleSelection} {createAlbumFromUpload} bind:uploadAlbumName buildDefaultUploadAlbumName={() => buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput)} onAlbumUploadToggle={handleAlbumUploadToggle} onCancelUpload={clearFilePreviews} onRemoveFile={removeFile} onUploadSelectedFiles={uploadSelectedFiles} />{/if}
 	{#if isUploading}<div class="upload-progress-bar"><div class="upload-progress-info"><span>{uploadStatusLabel || $_('chat.upload.uploading')}</span><span>{uploadProgress}%</span></div><div class="progress-bar"><div class="progress-fill" style="width: {uploadProgress}%"></div></div></div>{/if}
 	<input type="file" bind:this={fileInput} on:change={handleFileSelect} multiple class="hidden" />
 	{#if sendCooldownMessage}<div class="composer-rate-limit-notice" role="status" aria-live="polite">{sendCooldownMessage}</div>{/if}

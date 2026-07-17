@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Channel, Message } from '$lib/socket';
 	import { _ } from '$lib/i18n';
-	import ModelViewer3D from '../plugins/ModelViewer3D.svelte';
+	import ModelViewerLauncher from '../ModelViewerLauncher.svelte';
 	import YouTubeWatchEmbed from '../plugins/YouTubeWatchEmbed.svelte';
 	import SpotifyControlsEmbed from '../plugins/SpotifyControlsEmbed.svelte';
 	import { isSpotifyUrl } from '$lib/spotifyControls';
@@ -67,7 +67,7 @@
 				</audio>
 			{:else if mediaType === 'model'}
 				<div class="embedded-model-container">
-					<ModelViewer3D src={url} fileName={url.split('/').pop() || $_('messages.media.model_fallback_name')} height={280} />
+					<ModelViewerLauncher src={url} fileName={url.split('/').pop() || $_('messages.media.model_fallback_name')} height={280} />
 					<button
 						class="open-viewport-btn"
 						on:click={() => onOpenModelInDedicatedTab(url, url.split('/').pop() || $_('messages.media.model_fallback_name'))}

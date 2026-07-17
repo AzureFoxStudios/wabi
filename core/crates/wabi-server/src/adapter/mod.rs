@@ -428,7 +428,7 @@ impl WabiStore for WdbAdapter {
             username: updates.username.unwrap_or(current.username),
             handle: current.handle,
             color: updates.color.unwrap_or(current.color),
-            password_hash: current.password_hash,
+            password_hash: updates.password_hash.unwrap_or(current.password_hash),
             is_registered: current.is_registered,
             is_active: current.is_active,
             created_at_micros: current.created_at_micros,

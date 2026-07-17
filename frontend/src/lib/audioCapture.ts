@@ -213,7 +213,41 @@ function isRecoverableMediaDeviceError(error: unknown): error is DOMException {
 	);
 }
 
+/**
+ * Browsers only expose navigator.mediaDevices in a secure context
+ * (https://, http://localhost, http://127.0.0.1). Plain LAN HTTP like
+ * http://192.168.x.x:5173 leaves mediaDevices undefined and crashes getUserMedia.
+ */
+export function assertMediaDevicesAvailable(kind: 'microphone' | 'camera' | 'media' = 'media'): void {
+	if (typeof navigator === 'undefined') {
+		throw new Error('Media capture is only available in a browser.');
+	}
+	const host =
+		typeof window !== 'undefined' && window.location
+			? `${window.location.protocol}//${window.location.host}`
+			: 'this page';
+	const isLocalhost =
+		typeof window !== 'undefined' &&
+		(window.location.hostname === 'localhost' ||
+			window.location.hostname === '127.0.0.1' ||
+			window.location.hostname === '[::1]');
+	const secure =
+		typeof window !== 'undefined' &&
+		(window.isSecureContext === true || isLocalhost || window.location.protocol === 'https:');
+
+	if (!navigator.mediaDevices?.getUserMedia) {
+		const reason = !secure
+			? `This page is not a secure context (${host}). Browsers hide the microphone/camera API on plain HTTP LAN URLs.`
+			: 'navigator.mediaDevices is unavailable in this browser.';
+		throw new Error(
+			`${reason} Open Wabi via http://127.0.0.1:5173 or https://… to use ${kind}/calls. ` +
+				`Do not use http://192.168.x.x or http://100.x.x.x without HTTPS.`
+		);
+	}
+}
+
 async function requestAudioSourceStream(mode: EffectiveAudioProcessingMode): Promise<MediaStream> {
+	assertMediaDevicesAvailable('microphone');
 	const baseAudioConstraints: MediaTrackConstraints = getAudioCaptureConstraints(mode as AudioProcessingMode);
 	const preferredMicId = getPreferredMicDeviceId();
 	const attempts: Array<{
@@ -269,6 +303,7 @@ async function requestAudioSourceStream(mode: EffectiveAudioProcessingMode): Pro
 }
 
 export async function requestCameraStream(): Promise<MediaStream> {
+	assertMediaDevicesAvailable('camera');
 	const preferredCameraId = getPreferredCameraDeviceId();
 	const attempts: Array<{
 		label: string;

@@ -45759,3 +45759,25 @@ A single self-hosted binary that gives you chat, voice, project workspaces, vers
 ### `WabiDbEngine` methods (`engine/mod.rs`)
 ```
 
+
+---
+
+## 2026-07-15 11:52:17 +07 — Carl posted
+
+### wabidb commits
+
+```
+c3ed78c feat: sync local Wabi to current state (WabiDB + calling cleanup)
+```
+
+
+---
+
+## 2026-07-16 14:16:25 +07 — Carl posted
+
+### wabidb commits
+
+```
+de0c8d8 fix: persist profile picture/font, auto-save connected server, show tagline
+```
+

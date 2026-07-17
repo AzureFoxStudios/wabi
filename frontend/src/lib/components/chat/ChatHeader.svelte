@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { _ } from '$lib/i18n';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
+	import { activeServerSpoilAll, activeServerUnspoilAll } from '$lib/serverSettings';
 	import { layoutStore } from '$lib/layoutStore';
 	import { openFullMapTab } from '$lib/mapWorkspace';
 	import { openModelViewportSurface } from '$lib/modelViewportTab';
@@ -17,6 +18,7 @@
 	export let workspaceHeaderSubtitle = '';
 	export let selectedWorkspaceView: WorkspaceViewKey = 'messages';
 	export let currentChannel = '';
+	export let forceSpoiler = false;
 	export let dmCallTargetUser: User | null = null;
 	export let dmDirectCallActive = false;
 	export let dmDirectCallPending = false;
@@ -55,6 +57,18 @@
 		</h2>
 		{#if !isDMChannel && workspaceHeaderSubtitle}
 			<p class="channel-description">{workspaceHeaderSubtitle}</p>
+		{/if}
+		{#if forceSpoiler}
+			<span class="spoiler-channel-badge" title="Every message in this channel is hidden until clicked.">🔒 Spoilers</span>
+		{/if}
+		{#if $displayEnhancementSettingsStore.spoilerAllMessagesEnabled}
+			<span class="spoiler-channel-badge" title="You have Spoiler All Messages enabled — every message is hidden until clicked (your view only).">🔒 Spoiler All</span>
+		{/if}
+		{#if $activeServerSpoilAll}
+			<span class="spoiler-channel-badge" title="You have Spoiler All enabled for this server — every message here is hidden until clicked (your view only).">🔒 Server Spoiled</span>
+		{/if}
+		{#if $activeServerUnspoilAll}
+			<span class="spoiler-channel-badge spoiler-channel-badge-revealed" title="You have Unspoil All enabled for this server — every message here is force-revealed, even spoilers (your view only).">👁 Server Unspoiled</span>
 		{/if}
 	</div>
 	<div class="header-actions">

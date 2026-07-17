@@ -45,6 +45,7 @@ services:
       # JWT signing key - REQUIRED. Set in .env as WABI_JWT_KEY=<random-64-chars>
       # Compose refuses to start if WABI_JWT_KEY is empty or missing.
       - WABI_JWT_KEY=${WABI_JWT_KEY:?WABI_JWT_KEY must be set in .env (64+ random chars)}
+      - WABIDB_ROOT_KEY=${WABIDB_ROOT_KEY:?WABIDB_ROOT_KEY must be set (64 hex chars = 32-byte key)}
       - WABI_SERVER_INSTANCE_ID=${WABI_SERVER_INSTANCE_ID:-}
       - WABI_SERVER_REGION=${WABI_SERVER_REGION:-}
       - WABI_SERVER_ROLE=${WABI_SERVER_ROLE:-authority}

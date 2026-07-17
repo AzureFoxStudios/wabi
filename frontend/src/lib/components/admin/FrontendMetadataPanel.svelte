@@ -11,11 +11,21 @@
 	export let onMetadataChange: (metadata: FrontendAppMetadataPolicy) => void;
 	export let onSave: () => void;
 	export let onDiscard: () => void;
-	export let onTriggerUpload: (target: 'icon' | 'banner') => void;
+	export let onUploadAsset: (target: 'icon' | 'banner', event: Event) => void;
 	export let resolveFrontendMetadataAssetUrl: (url: string | null | undefined) => string | null;
 
 	let iconInput: HTMLInputElement | null = null;
 	let bannerInput: HTMLInputElement | null = null;
+	let iconDragOver = false;
+	let bannerDragOver = false;
+
+	function pickIcon() {
+		iconInput?.click();
+	}
+
+	function pickBanner() {
+		bannerInput?.click();
+	}
 
 	function frontendMetadataMatches(
 		left: FrontendAppMetadataPolicy,
@@ -99,31 +109,85 @@
 				type="file"
 				accept="image/png,image/jpeg,image/gif,image/webp"
 				class="frontend-metadata-hidden-input"
-				on:change={(event) => onTriggerUpload('icon')}
+				on:change={(event) => onUploadAsset('icon', event)}
 			/>
 			<input
 				bind:this={bannerInput}
 				type="file"
 				accept="image/png,image/jpeg,image/gif,image/webp"
 				class="frontend-metadata-hidden-input"
-				on:change={(event) => onTriggerUpload('banner')}
+				on:change={(event) => onUploadAsset('banner', event)}
 			/>
-			<button
-				type="button"
-				class="admin-btn"
-				disabled={frontendMetadataUploadTarget !== null}
-				on:click={() => iconInput?.click()}
+
+			<div
+				class="frontend-metadata-dropzone frontend-metadata-dropzone-icon"
+				class:is-dragover={iconDragOver}
+				role="button"
+				tabindex={0}
+				aria-label="Upload server icon"
+				on:click={pickIcon}
+				on:keydown={(e) => {
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault();
+						pickIcon();
+					}
+				}}
+				on:dragover|preventDefault={() => (iconDragOver = true)}
+				on:dragleave={() => (iconDragOver = false)}
+				on:drop|preventDefault={() => {
+					iconDragOver = false;
+					pickIcon();
+				}}
 			>
-				{frontendMetadataUploadTarget === 'icon' ? 'Uploading Icon...' : 'Upload Icon'}
-			</button>
-			<button
-				type="button"
-				class="admin-btn"
-				disabled={frontendMetadataUploadTarget !== null}
-				on:click={() => bannerInput?.click()}
+				<div class="frontend-metadata-dropzone-preview">
+					{#if resolveFrontendMetadataAssetUrl(frontendAppMetadata.iconUrl)}
+						<img src={resolveFrontendMetadataAssetUrl(frontendAppMetadata.iconUrl) || undefined} alt="Server icon" />
+					{:else}
+						<span class="frontend-metadata-dropzone-glyph">⤓</span>
+					{/if}
+				</div>
+				<div class="frontend-metadata-dropzone-label">
+					<strong>
+						{frontendMetadataUploadTarget === 'icon' ? 'Uploading Icon…' : 'Server Icon'}
+					</strong>
+					<span>{frontendMetadataUploadTarget === 'icon' ? '' : 'Square · click or drop'}</span>
+				</div>
+			</div>
+
+			<div
+				class="frontend-metadata-dropzone frontend-metadata-dropzone-banner"
+				class:is-dragover={bannerDragOver}
+				role="button"
+				tabindex={0}
+				aria-label="Upload server banner"
+				on:click={pickBanner}
+				on:keydown={(e) => {
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault();
+						pickBanner();
+					}
+				}}
+				on:dragover|preventDefault={() => (bannerDragOver = true)}
+				on:dragleave={() => (bannerDragOver = false)}
+				on:drop|preventDefault={() => {
+					bannerDragOver = false;
+					pickBanner();
+				}}
 			>
-				{frontendMetadataUploadTarget === 'banner' ? 'Uploading Banner...' : 'Upload Banner'}
-			</button>
+				<div class="frontend-metadata-dropzone-preview">
+					{#if resolveFrontendMetadataAssetUrl(frontendAppMetadata.bannerUrl)}
+						<img src={resolveFrontendMetadataAssetUrl(frontendAppMetadata.bannerUrl) || undefined} alt="Server banner" />
+					{:else}
+						<span class="frontend-metadata-dropzone-glyph">⤓</span>
+					{/if}
+				</div>
+				<div class="frontend-metadata-dropzone-label">
+					<strong>
+						{frontendMetadataUploadTarget === 'banner' ? 'Uploading Banner…' : 'Server Banner'}
+					</strong>
+					<span>{frontendMetadataUploadTarget === 'banner' ? '' : 'Wide · click or drop'}</span>
+				</div>
+			</div>
 		</div>
 
 		{#if frontendMetadataSaveStatus}

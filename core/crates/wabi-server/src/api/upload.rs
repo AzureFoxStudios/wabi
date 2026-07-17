@@ -25,6 +25,7 @@ use uuid::Uuid;
 
 use wabidb::engine::wabi_store::WabiStore;
 
+use crate::auth_extractor::AuthUser;
 use crate::error::Result;
 use crate::state::AppState;
 
@@ -63,6 +64,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/resumable/chunk", put(upload_chunk))
         .route("/resumable/complete", post(complete_upload))
         .route("/group-avatar", post(upload_group_avatar))
+        .route("/", post(upload_simple))
         .with_state(state)
 }
 
@@ -452,6 +454,126 @@ async fn upload_group_avatar(
     }
 
     Ok(Json(GroupAvatarResponse { url: avatar_url }))
+}
+
+/// POST /api/upload (mounted at "/" inside the `/upload` router)
+///
+/// Authenticated simple multipart image upload for frontend branding assets
+/// (server icon / banner). Accepts a single multipart `file` field, validates
+/// that it is an allowed image type and within the size limit, writes it under
+/// the configured uploads directory, and returns `{ fileUrl }` — matching the
+/// shape the admin frontend expects.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SimpleUploadResponse {
+    file_url: String,
+}
+
+const SIMPLE_UPLOAD_MAX_BYTES: u64 = 10 * 1024 * 1024;
+
+/// Resolve a safe, allowed image extension from a content type and filename.
+/// Returns `None` for anything that is not an allowed branding image type.
+fn resolve_image_extension(content_type: Option<&str>, filename: &str) -> Option<String> {
+    let allowed: &[(&str, &str)] = &[
+        ("image/png", ".png"),
+        ("image/jpeg", ".jpg"),
+        ("image/gif", ".gif"),
+        ("image/webp", ".webp"),
+    ];
+
+    if let Some(ct) = content_type {
+        if let Some((_, ext)) = allowed.iter().find(|(m, _)| *m == ct) {
+            return Some((*ext).to_string());
+        }
+    }
+
+    let ext = std::path::Path::new(filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| format!(".{}", e.to_lowercase()))
+        .unwrap_or_default();
+
+    match ext.as_str() {
+        ".png" => Some(".png".to_string()),
+        ".jpg" | ".jpeg" => Some(".jpg".to_string()),
+        ".gif" => Some(".gif".to_string()),
+        ".webp" => Some(".webp".to_string()),
+        _ => None,
+    }
+}
+
+async fn upload_simple(
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<SimpleUploadResponse>> {
+    use tokio::io::AsyncWriteExt;
+
+    if auth.is_guest {
+        return Err(anyhow::anyhow!("Guests cannot upload branding assets").into());
+    }
+
+    let mut file_data: Vec<u8> = Vec::new();
+    let mut filename = "branding".to_string();
+    let mut content_type: Option<String> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?
+    {
+        let name = field.name().unwrap_or("").to_string();
+        if name == "file" {
+            filename = field.file_name().unwrap_or("branding").to_string();
+            content_type = field.content_type().map(|c| c.to_string());
+            file_data = field
+                .bytes()
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?
+                .to_vec();
+        }
+    }
+
+    if file_data.is_empty() {
+        return Err(anyhow::anyhow!("No file data provided").into());
+    }
+
+    if file_data.len() as u64 > SIMPLE_UPLOAD_MAX_BYTES {
+        return Err(anyhow::anyhow!("Image must be 10 MB or smaller.").into());
+    }
+
+    // Determine and validate the extension; reject anything not an allowed image.
+    let ext = match resolve_image_extension(content_type.as_deref(), &filename) {
+        Some(ext) => ext,
+        None => {
+            return Err(anyhow::anyhow!(
+                "Use a PNG, JPG, GIF, or WEBP image for branding assets."
+            )
+            .into())
+        }
+    };
+
+    let uploads_dir = PathBuf::from(&state.config.uploads_dir);
+    tokio::fs::create_dir_all(&uploads_dir).await?;
+
+    let final_name = format!("{}{}", Uuid::new_v4(), ext);
+    let final_path = uploads_dir.join(&final_name);
+
+    let mut file = File::create(&final_path).await?;
+    file.write_all(&file_data).await?;
+    file.flush().await?;
+    drop(file);
+
+    let file_url = format!("/uploads/{}", final_name);
+    tracing::info!(
+        "Branding asset uploaded by user {}: {} ({} bytes) -> {:?}",
+        auth.user_id,
+        filename,
+        file_data.len(),
+        final_path
+    );
+
+    Ok(Json(SimpleUploadResponse { file_url }))
 }
 
 /// POST /api/upload-profile-picture

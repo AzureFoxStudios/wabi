@@ -51,10 +51,53 @@ pub fn encode_record(r: &UserRecord) -> Vec<u8> {
     postcard::to_allocvec(r).expect("postcard serialization failed")
 }
 
+/// Pre-profile-fields layout (before profile_picture/username_font/bio/status_message).
+/// Historical `user_registered` events on Tim/prod used this shape. Postcard is not
+/// forward-compatible when new trailing fields are required, so decode must fall back.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct UserRecordV1 {
+    user_id: u64,
+    username: String,
+    handle: Option<String>,
+    color: String,
+    password_hash: String,
+    is_registered: bool,
+    is_active: bool,
+    created_at_micros: i64,
+    last_seen_micros: i64,
+}
+
+impl From<UserRecordV1> for UserRecord {
+    fn from(r: UserRecordV1) -> Self {
+        Self {
+            user_id: r.user_id,
+            username: r.username,
+            handle: r.handle,
+            color: r.color,
+            password_hash: r.password_hash,
+            is_registered: r.is_registered,
+            is_active: r.is_active,
+            created_at_micros: r.created_at_micros,
+            last_seen_micros: r.last_seen_micros,
+            profile_picture: None,
+            username_font: None,
+            bio: None,
+            status_message: None,
+        }
+    }
+}
+
 pub fn decode_record(buf: &[u8]) -> Result<UserRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
+    // Prefer current schema, then legacy v1 (no profile fields).
+    if let Ok(r) = postcard::from_bytes::<UserRecord>(buf) {
+        return Ok(r);
+    }
+    if let Ok(r) = postcard::from_bytes::<UserRecordV1>(buf) {
+        return Ok(UserRecord::from(r));
+    }
+    Err(crate::error::WabiError::Corrupt {
         location: "users projection".into(),
-        detail: format!("postcard decode failed: {e}"),
+        detail: "postcard decode failed for UserRecord and UserRecordV1".into(),
     })
 }
 
@@ -103,6 +146,12 @@ impl Projection for UsersProjection {
                     }
                     if record.status_message.is_some() {
                         existing.status_message = record.status_message.clone();
+                    }
+                    // Non-empty password_hash in the event replaces the stored hash.
+                    if !record.password_hash.is_empty()
+                        && record.password_hash != existing.password_hash
+                    {
+                        existing.password_hash = record.password_hash.clone();
                     }
                     record = existing;
                 }
@@ -163,6 +212,28 @@ mod tests {
         assert_eq!(r, decoded);
         assert_eq!(decoded.handle, None);
         assert!(!decoded.is_active);
+    }
+
+    #[test]
+    fn decode_legacy_v1_user_record() {
+        let legacy = UserRecordV1 {
+            user_id: 0,
+            username: "wabi".into(),
+            handle: Some("wabi".into()),
+            color: "#98D8C8".into(),
+            password_hash: "$2b$12$legacyhash".into(),
+            is_registered: true,
+            is_active: true,
+            created_at_micros: 1_000_000,
+            last_seen_micros: 1_000_000,
+        };
+        let buf = postcard::to_allocvec(&legacy).unwrap();
+        // Must not require the newer trailing Option fields.
+        let decoded = decode_record(&buf).expect("v1 fallback decode");
+        assert_eq!(decoded.username, "wabi");
+        assert_eq!(decoded.password_hash, "$2b$12$legacyhash");
+        assert_eq!(decoded.profile_picture, None);
+        assert_eq!(decoded.bio, None);
     }
 
     #[test]

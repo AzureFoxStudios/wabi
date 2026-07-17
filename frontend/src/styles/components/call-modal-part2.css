@@ -1,4 +1,12 @@
-	.pin-btn {
+	/* Scope: call tile pin/unpin pill. Do NOT promote to a bare `.pin-btn`
+   selector — `pin-btn` is also used by TextChannelList channel rows for
+   "view pinned messages", and a global rule here leaks across surfaces
+   (imported after sidebar-channels.css in styles.css). The matching
+   scoped version in CallParticipantTile.svelte <style> is the canonical
+   source for this style; this global block is kept only for any legacy
+   tile variants that still rely on the global stylesheet. */
+	.media-tile .pin-btn,
+	.bubble-tile .pin-btn {
 		position: absolute;
 		top: 0.45rem;
 		right: 0.45rem;

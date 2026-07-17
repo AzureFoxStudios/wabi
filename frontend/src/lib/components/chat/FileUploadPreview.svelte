@@ -4,6 +4,7 @@
 
 	export let filePreviews: FilePreview[] = [];
 	export let markAsSpoiler = false;
+	export let spoilerLocked = false;
 	export let albumEligibleSelection = false;
 	export let createAlbumFromUpload = false;
 	export let uploadAlbumName = '';
@@ -49,8 +50,8 @@
 	</div>
 	<div class="spoiler-checkbox-container">
 		<label class="spoiler-checkbox-label">
-			<input type="checkbox" bind:checked={markAsSpoiler} class="spoiler-checkbox" />
-			<span>{$_('chat.upload.mark_spoiler')}</span>
+			<input type="checkbox" bind:checked={markAsSpoiler} class="spoiler-checkbox" disabled={spoilerLocked} />
+			<span>{spoilerLocked ? '🔒 Spoiler channel' : $_('chat.upload.mark_spoiler')}</span>
 		</label>
 		<span class="spoiler-hint" title={$_('chat.upload.spoiler_hint')}>⚠️</span>
 	</div>

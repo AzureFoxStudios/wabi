@@ -157,6 +157,25 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			shortLabel: 'Albums'
 		});
 
+		// Optional deep-link: #admin opens the full dashboard for staff.
+		if (typeof window !== 'undefined') {
+			const tryOpenAdmin = () => {
+				if (window.location.hash !== '#admin') return;
+				const role = get(currentUser)?.highestRole;
+				if (role === 'owner' || role === 'admin' || role === 'mod') {
+					layoutStore.showAdminCenterStage();
+				}
+			};
+			tryOpenAdmin();
+			window.addEventListener('hashchange', tryOpenAdmin);
+			// Auth may resolve after mount; retry briefly once the user is known.
+			const unsub = currentUser.subscribe(() => {});
+			setTimeout(() => {
+				tryOpenAdmin();
+				unsub();
+			}, 1500);
+		}
+
 		unsubscribeFriendPresence = users.subscribe((nextUsers) => {
 			const serverUrl = getServerUrl();
 			if (friendPresenceObserverServerUrl !== serverUrl) {

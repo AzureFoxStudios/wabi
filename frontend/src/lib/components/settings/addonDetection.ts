@@ -27,12 +27,9 @@ function toAddonNameFromComponentFile(fileName: string): string {
 }
 
 function getBuiltinAddonMeta(fileName: string): { id: string; name: string } | null {
-	if (fileName === 'ModelViewer3D') {
-		return {
-			id: 'model-viewer',
-			name: 'Model Viewer 3D'
-		};
-	}
+	// ModelViewer3D (three.js) is no longer a builtin addon: on desktop it is
+	// excluded from the bundle (native wgpu viewer is default) and only available
+	// when a server-provided `model-viewer` addon is present.
 	return null;
 }
 

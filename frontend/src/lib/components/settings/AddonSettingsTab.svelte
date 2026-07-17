@@ -22,6 +22,7 @@
 	import { getAuthToken } from '$lib/authSession';
 	import AddonManifestSection from './addons/AddonManifestSection.svelte';
 		import ChatSection from './addons/ChatSection.svelte';
+		import SpoilersSection from './addons/SpoilersSection.svelte';
 	import SearchSection from './addons/SearchSection.svelte';
 	import NavigationSection from './addons/NavigationSection.svelte';
 	import IdentitySection from './addons/IdentitySection.svelte';
@@ -252,12 +253,18 @@
 				</div>
 			{:else}
 				<!-- DM-strip 2026-06-16: DmsSection removed. Only Chat + Search addon panels remain. -->
-				<ChatSection
-					{localAddonControlMatches}
-					{isAddonSectionOpen}
-					{toggleAddonSection}
-					{addonSectionMatchCount}
-				/>
+			<ChatSection
+				{localAddonControlMatches}
+				{isAddonSectionOpen}
+				{toggleAddonSection}
+				{addonSectionMatchCount}
+			/>
+			<SpoilersSection
+				{localAddonControlMatches}
+				{isAddonSectionOpen}
+				{toggleAddonSection}
+				{addonSectionMatchCount}
+			/>
 				<SearchSection
 					{localAddonControlMatches}
 					{isAddonSectionOpen}

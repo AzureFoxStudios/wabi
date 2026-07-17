@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import ModelViewer3D from './plugins/ModelViewer3D.svelte';
+	import ModelViewerLauncher from './ModelViewerLauncher.svelte';
 	import {
 		clearModelViewport,
 		modelViewportHistory,
@@ -88,7 +88,7 @@
 
 	{#if $modelViewportSelection}
 		<div class="viewport-canvas-wrap">
-			<ModelViewer3D bind:hideUi={viewerUiHidden} src={$modelViewportSelection.src} fileName={$modelViewportSelection.fileName} height={viewerHeight} fullBleed={true} lazyLoad={false} />
+			<ModelViewerLauncher bind:hideUi={viewerUiHidden} src={$modelViewportSelection.src} fileName={$modelViewportSelection.fileName} height={viewerHeight} fullBleed={true} lazyLoad={false} />
 		</div>
 	{:else}
 		<div class="viewport-empty">

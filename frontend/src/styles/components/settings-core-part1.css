@@ -380,6 +380,81 @@
 	}
 
 
+	/* Per-server scoped settings panel — visually marks these as server-only. */
+	.server-scope-panel {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 0.7rem 0.8rem 0.8rem;
+		border: 1px solid color-mix(in srgb, var(--accent-color, #5b8def) 40%, var(--border-subtle));
+		border-radius: 10px;
+		background: color-mix(in srgb, var(--accent-color, #5b8def) 8%, transparent);
+	}
+
+	.server-scope-header {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+	}
+
+	.server-scope-icon {
+		font-size: 1.05rem;
+		line-height: 1;
+	}
+
+	.server-scope-meta {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+		min-width: 0;
+		flex: 1 1 auto;
+	}
+
+	.server-scope-title {
+		font-weight: 600;
+		color: var(--text-heading);
+		font-size: var(--text-sm);
+	}
+
+	.server-scope-url {
+		font-family: monospace;
+		font-size: 0.72rem;
+		color: var(--text-muted);
+		word-break: break-all;
+	}
+
+	.server-scope-badge {
+		flex: 0 0 auto;
+		padding: 0.15rem 0.5rem;
+		border-radius: 999px;
+		font-size: 0.68rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		background: color-mix(in srgb, var(--accent-color, #5b8def) 22%, transparent);
+		color: var(--accent-color, #5b8def);
+		border: 1px solid color-mix(in srgb, var(--accent-color, #5b8def) 45%, transparent);
+	}
+
+	.server-scope-badge-default {
+		background: color-mix(in srgb, var(--text-muted) 16%, transparent);
+		color: var(--text-muted);
+		border-color: color-mix(in srgb, var(--text-muted) 35%, transparent);
+	}
+
+	.server-scope-hint {
+		margin: 0;
+		font-size: 0.76rem;
+		color: var(--text-secondary);
+		line-height: 1.4;
+	}
+
+	.setting-item-nested {
+		padding-left: 0.55rem;
+		border-left: 2px solid color-mix(in srgb, var(--accent-color, #5b8def) 30%, transparent);
+	}
+
+
 	.addons-list {
 		display: flex;
 		flex-direction: column;

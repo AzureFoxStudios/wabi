@@ -26,3 +26,14 @@ tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
 open = "5"
+
+# Native 3D model viewer (Tauri command spawns a separate wgpu window)
+wgpu = "0.19"
+winit = "0.29"
+gltf = "1.4"
+glam = "0.29"
+image = "0.25"
+pollster = "0.3"
+anyhow = "1"
+base64 = "0.22"
+bytemuck = { version = "1", features = ["derive"] }

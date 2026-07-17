@@ -64,6 +64,8 @@ pub struct UserUpdate {
     pub username_font: Option<String>,
     pub bio: Option<String>,
     pub status_message: Option<String>,
+    /// When set, replaces the stored password hash (already bcrypt/argon hashed).
+    pub password_hash: Option<String>,
 }
 
 /// A channel in Wabi (text, voice, DM, etc.).

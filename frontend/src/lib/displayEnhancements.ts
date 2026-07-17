@@ -37,6 +37,14 @@ export interface DisplayEnhancementSettings {
 	timestampDisplayMode: TimestampDisplayMode;
 	revealAllSpoilersEnabled: boolean;
 	revealAllSpoilersMinRole: RevealAllSpoilersMinRole;
+	/**
+	 * "Spoiler All Messages": the user's personal, client-side choice to hide
+	 * every message in every channel behind a spoiler veil. Purely local — it
+	 * never touches the server and only affects the person who enabled it.
+	 * Useful on very spicy servers where the loud few want to calm their own
+	 * view. (This is a global, device-wide setting, not per-server.)
+	 */
+	spoilerAllMessagesEnabled: boolean;
 	betterSearchPageEnabled: boolean;
 	googleSearchReplaceEnabled: boolean;
 	hideMutedCategoriesEnabled: boolean;
@@ -70,6 +78,7 @@ const DEFAULT_DISPLAY_ENHANCEMENT_SETTINGS: DisplayEnhancementSettings = {
 	timestampDisplayMode: 'compact',
 	revealAllSpoilersEnabled: true,
 	revealAllSpoilersMinRole: 'member',
+	spoilerAllMessagesEnabled: false,
 	betterSearchPageEnabled: true,
 	googleSearchReplaceEnabled: true,
 	hideMutedCategoriesEnabled: false,
@@ -135,6 +144,7 @@ function sanitizeDisplayEnhancementSettings(
 		timestampDisplayMode: normalizeTimestampDisplayMode(base.timestampDisplayMode),
 		revealAllSpoilersEnabled: base.revealAllSpoilersEnabled !== false,
 		revealAllSpoilersMinRole: normalizeRevealRole(base.revealAllSpoilersMinRole),
+		spoilerAllMessagesEnabled: base.spoilerAllMessagesEnabled === true,
 		betterSearchPageEnabled: base.betterSearchPageEnabled !== false,
 		googleSearchReplaceEnabled: base.googleSearchReplaceEnabled !== false,
 		hideMutedCategoriesEnabled: base.hideMutedCategoriesEnabled === true,
@@ -229,6 +239,21 @@ export function setRevealAllSpoilersMinRole(role: RevealAllSpoilersMinRole): voi
 		sanitizeDisplayEnhancementSettings({
 			...current,
 			revealAllSpoilersMinRole: role
+		})
+	);
+}
+
+/**
+ * Toggle the user's personal "Spoiler All Messages" setting (client-side
+ * global spoiler). When on, every message in every channel is hidden until
+ * clicked — locally only, with no server involvement. This is a global,
+ * device-wide setting (not scoped per server).
+ */
+export function setSpoilerAllMessagesEnabled(enabled: boolean): void {
+	displayEnhancementSettingsStore.update((current) =>
+		sanitizeDisplayEnhancementSettings({
+			...current,
+			spoilerAllMessagesEnabled: enabled
 		})
 	);
 }

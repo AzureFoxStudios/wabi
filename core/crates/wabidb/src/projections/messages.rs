@@ -16,6 +16,26 @@ pub struct MessageRecord {
     pub edit_history: Vec<(i64, String)>,
     pub edited_at_micros: Option<i64>,
     pub is_deleted: bool,
+    /// When true the message is hidden behind a spoiler veil by default.
+    /// Added after the initial schema; missing on older on-disk records,
+    /// which decode via `MessageRecordV0` and default to `false`.
+    pub is_spoiler: bool,
+}
+
+/// Pre-`is_spoiler` schema, used as a fallback so messages written before
+/// the field existed still decode (defaulting `is_spoiler` to `false`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct MessageRecordV0 {
+    pub message_id: String,
+    pub channel_id: String,
+    pub author_user_id: u64,
+    pub author_device_id: String,
+    pub created_at_micros: i64,
+    pub encrypted_body_ref: String,
+    pub idempotency_key: Option<String>,
+    pub edit_history: Vec<(i64, String)>,
+    pub edited_at_micros: Option<i64>,
+    pub is_deleted: bool,
 }
 
 impl RecordCodec for MessageRecord {
@@ -39,6 +59,7 @@ impl From<MessageRecord> for crate::domain::Message {
             edited_at_micros: r.edited_at_micros,
             commit_seq: 0,
             is_deleted: r.is_deleted,
+            is_spoiler: r.is_spoiler,
         }
     }
 }
@@ -56,6 +77,7 @@ impl From<crate::domain::Message> for MessageRecord {
             edit_history: vec![],
             edited_at_micros: m.edited_at_micros,
             is_deleted: m.is_deleted,
+            is_spoiler: m.is_spoiler,
         }
     }
 }
@@ -65,10 +87,37 @@ pub fn encode_record(r: &MessageRecord) -> Vec<u8> {
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<MessageRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "messages projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    decode_record_lenient(buf)
+}
+
+/// Decode a `MessageRecord`, falling back to the pre-`is_spoiler` schema so
+/// on-disk records written before the field existed still load (with
+/// `is_spoiler` defaulting to `false`).
+pub fn decode_record_lenient(buf: &[u8]) -> Result<MessageRecord> {
+    match postcard::from_bytes::<MessageRecord>(buf) {
+        Ok(r) => Ok(r),
+        Err(_) => {
+            let v0 = postcard::from_bytes::<MessageRecordV0>(buf).map_err(|e| {
+                crate::error::WabiError::Corrupt {
+                    location: "messages projection".into(),
+                    detail: format!("postcard decode failed: {e}"),
+                }
+            })?;
+            Ok(MessageRecord {
+                message_id: v0.message_id,
+                channel_id: v0.channel_id,
+                author_user_id: v0.author_user_id,
+                author_device_id: v0.author_device_id,
+                created_at_micros: v0.created_at_micros,
+                encrypted_body_ref: v0.encrypted_body_ref,
+                idempotency_key: v0.idempotency_key,
+                edit_history: v0.edit_history,
+                edited_at_micros: v0.edited_at_micros,
+                is_deleted: v0.is_deleted,
+                is_spoiler: false,
+            })
+        }
+    }
 }
 
 pub fn encode_key(channel_id: &str, message_id: &str) -> Vec<u8> {
@@ -132,7 +181,7 @@ impl MessagesProjection {
     /// the number of entries removed.
     pub fn compact(state: &ProjectionState) -> usize {
         state.compact_index("messages", |_key, value| {
-            postcard::from_bytes::<MessageRecord>(value)
+            decode_record_lenient(value)
                 .ok()
                 .map_or(false, |r| r.is_deleted)
         })
@@ -181,6 +230,7 @@ mod tests {
             edit_history: vec![(500_000, "old_body".into())],
             edited_at_micros: Some(600_000),
             is_deleted: false,
+            is_spoiler: false,
         }
     }
 
@@ -205,6 +255,7 @@ mod tests {
             edit_history: vec![],
             edited_at_micros: None,
             is_deleted: false,
+            is_spoiler: false,
         };
         let buf = encode_record(&r);
         let decoded = decode_record(&buf).unwrap();
@@ -221,6 +272,29 @@ mod tests {
         let decoded = decode_record(&buf).unwrap();
         assert_eq!(r, decoded);
         assert!(decoded.is_deleted);
+    }
+
+    /// Records written before the `is_spoiler` field existed must still
+    /// decode (defaulting `is_spoiler` to `false`) so existing on-disk data
+    /// survives the schema addition.
+    #[test]
+    fn decode_legacy_record_without_is_spoiler() {
+        let legacy = MessageRecordV0 {
+            message_id: "msg_legacy".into(),
+            channel_id: "ch_legacy".into(),
+            author_user_id: 7,
+            author_device_id: "dev".into(),
+            created_at_micros: 1_000_000,
+            encrypted_body_ref: "body".into(),
+            idempotency_key: None,
+            edit_history: vec![],
+            edited_at_micros: None,
+            is_deleted: false,
+        };
+        let buf = postcard::to_allocvec(&legacy).unwrap();
+        let decoded = decode_record(&buf).unwrap();
+        assert_eq!(decoded.message_id, "msg_legacy");
+        assert!(!decoded.is_spoiler);
     }
 
     fn make_event(seq: u64, event_type: &str, record: &MessageRecord) -> DurableEvent {
@@ -248,6 +322,7 @@ mod tests {
             edit_history: vec![],
             edited_at_micros: None,
             is_deleted: false,
+            is_spoiler: false,
         };
 
         let event = make_event(1, "message_created", &r);
@@ -278,6 +353,7 @@ mod tests {
             edit_history: vec![],
             edited_at_micros: None,
             is_deleted: false,
+            is_spoiler: false,
         };
         let create_event = make_event(1, "message_created", &r);
         proj.apply(&create_event, &state).unwrap();
@@ -375,6 +451,7 @@ mod tests {
             edit_history: vec![],
             edited_at_micros: None,
             is_deleted: false,
+            is_spoiler: false,
         };
         let event = make_event(1, "message_created", &r);
         proj.apply(&event, &state).unwrap();
@@ -407,6 +484,7 @@ mod tests {
                 edit_history: vec![],
                 edited_at_micros: None,
                 is_deleted: false,
+                is_spoiler: false,
             };
             proj.apply(&make_event(seq, "message_created", &r), &state).unwrap();
         }

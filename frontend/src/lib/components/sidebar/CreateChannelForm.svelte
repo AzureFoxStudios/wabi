@@ -5,13 +5,16 @@
 	export let newChannelName: string;
 	export let newChannelDescription: string;
 	export let newChannelType: 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage';
+	export let forceSpoiler = false;
 	export let createError = '';
 	export let creatingChannel = false;
 
 	export let onNameChange: (value: string) => void;
 	export let onDescriptionChange: (value: string) => void;
 	export let onTypeChange: (value: 'text' | 'voice' | 'forum' | 'gallery' | 'wiki' | 'stage') => void;
+	export let onForceSpoilerChange: (value: boolean) => void = () => {};
 	export let onSubmit: () => void | Promise<void>;
+	export let canCreate = false;
 
 	let inputEl: HTMLInputElement | null = null;
 
@@ -29,7 +32,7 @@
 	}
 </script>
 
-{#if showCreateInput}
+{#if showCreateInput && canCreate}
 	<div class="create-channel">
 		<input
 			bind:this={inputEl}
@@ -53,6 +56,14 @@
 			<option value="forum" disabled>Forum Channel (coming soon)</option>
 		</select>
 		<p class="create-channel-hint">Forum channels are planned but not supported yet.</p>
+		<label class="create-channel-spoiler">
+			<input
+				type="checkbox"
+				checked={forceSpoiler}
+				on:change={(e) => onForceSpoilerChange((e.currentTarget as HTMLInputElement).checked)}
+			/>
+			<span>🔒 Spoiler channel — automatically hide all messages</span>
+		</label>
 		{#if createError}
 			<p class="create-channel-error" role="alert">{createError}</p>
 		{/if}

@@ -453,7 +453,7 @@
 				firstUnreadMessageId={$lastReadMessageId}
 				{channelPaneAnimation}
 				{searchBackfillBusy}
-				currentChannelPersistMessages={Boolean(currentChannelData?.persistMessages)}
+		currentChannelPersistMessages={Boolean(currentChannelData?.persistMessages)}
 				{isFullHistorySearchRunning}
 				{fullHistorySearchPagesLoaded}
 				{fullHistorySearchStatus}

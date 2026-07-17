@@ -6,21 +6,52 @@
 	import {
 		MESSAGE_RETENTION_LABELS,
 		MESSAGE_RETENTION_PRESETS,
+		DEFAULT_CHANNEL_RETENTION,
 		type MessageRetentionDuration
 	} from '../../../../../shared/messageRetention.js';
 
 	// Only workspace owners and admins may bulk-clear a channel's messages.
 	$: canClearMessages = ['owner', 'admin'].includes($currentUser?.highestRole || '');
 
+	/** Effective timer for UI: unset → default 24h; null only when keep-forever. */
+	$: effectiveAutoDelete =
+		channel.autoDeleteAfter === undefined
+			? DEFAULT_CHANNEL_RETENTION
+			: channel.autoDeleteAfter;
+
 	function clearAllMessages(): void {
 		if (!canClearMessages || channel.type === 'dm') return;
 		const confirmed = window.confirm(
-			`Delete ALL messages in #${channel.name}? This cannot be undone. Attachment files are not deleted.`
+			`Purge ALL messages in #${channel.name}? This removes chat history for everyone. Attachment files on disk are not deleted. This cannot be undone.`
 		);
 		if (!confirmed) return;
 		const sock = getSocket();
 		if (!sock) return;
 		sock.emit('clear-channel-messages', { channelId: channel.id });
+	}
+
+	function chooseRetention(next: MessageRetentionDuration | null): void {
+		const prev = effectiveAutoDelete;
+		// Opt into keep-forever (persistence).
+		if (next === null && prev !== null) {
+			const ok = window.confirm(
+				`Keep messages in #${channel.name} forever?\n\nThis opts into persistence. History will be stored until you purge it or change retention.`
+			);
+			if (!ok) return;
+		}
+		// Leaving forever → timed: offer purge of stored history.
+		if (prev === null && next !== null) {
+			const purge = window.confirm(
+				`Switch #${channel.name} back to timed chat (${next})?\n\nOK = also purge existing stored messages now.\nCancel = keep old messages, only apply the timer to new ones.`
+			);
+			saveChannelSettings(next);
+			if (purge) {
+				// Slight delay so settings save emits first.
+				setTimeout(() => clearAllMessages(), 50);
+			}
+			return;
+		}
+		saveChannelSettings(next);
 	}
 
 	export let channel: Channel;
@@ -38,6 +69,7 @@
 				description: string;
 				name: string;
 				watchQueueEnabled?: boolean;
+				forceSpoiler?: boolean;
 				voiceSettings?: VoiceChannelSettings;
 			};
 		};
@@ -48,6 +80,7 @@
 	let tempDescription = '';
 	let tempChannelName = '';
 	let tempWatchQueueEnabled = false;
+	let tempForceSpoiler = false;
 	let tempVoiceUserLimit = '';
 	let tempVoiceForceSolo = false;
 
@@ -57,6 +90,7 @@
 		tempDescription = channel.description || '';
 		tempChannelName = channel.name || '';
 		tempWatchQueueEnabled = channel.watchQueueEnabled || false;
+		tempForceSpoiler = channel.forceSpoiler || false;
 		tempVoiceUserLimit = channel.voiceSettings?.userLimit ? String(channel.voiceSettings.userLimit) : '';
 		tempVoiceForceSolo = channel.voiceSettings?.forceSolo === true;
 	}
@@ -103,6 +137,7 @@
 				description: tempDescription,
 				name: tempChannelName.trim() || channel.name,
 				watchQueueEnabled: canManageWatchQueue ? tempWatchQueueEnabled : channel.watchQueueEnabled,
+				forceSpoiler: tempForceSpoiler,
 				voiceSettings: canManageVoiceSettings ? buildDraftVoiceSettings() : channel.voiceSettings
 			}
 		});
@@ -177,38 +212,61 @@
 				</div>
 
 				<div class="setting-group">
-					<span class="setting-label">Auto-Delete Messages</span>
-					<p class="setting-description">Automatically delete messages after a set period of time</p>
+					<span class="setting-label">Message retention</span>
+					<p class="setting-description">
+						Default is timed chat (24 hours). Keep forever is opt-in persistence.
+					</p>
 
 					<div class="auto-delete-options">
 						<button
 							class="auto-delete-btn"
-							class:active={!channel.autoDeleteAfter}
-							on:click={() => saveChannelSettings(null)}
+							class:active={effectiveAutoDelete === null}
+							on:click={() => chooseRetention(null)}
+							type="button"
 						>
-							Never
+							Keep forever
 						</button>
 						{#each MESSAGE_RETENTION_PRESETS as duration}
 							<button
 								class="auto-delete-btn"
-								class:active={channel.autoDeleteAfter === duration}
-								on:click={() => saveChannelSettings(duration)}
+								class:active={effectiveAutoDelete === duration}
+								on:click={() => chooseRetention(duration)}
+								type="button"
 							>
 								{MESSAGE_RETENTION_LABELS[duration]}
 							</button>
 						{/each}
+					</div>
 				</div>
-			</div>
+
+			{#if channel.type !== 'dm'}
+				<div class="setting-group">
+					<label class="spoiler-toggle">
+						<input
+							type="checkbox"
+							checked={tempForceSpoiler}
+							on:change={(e) => (tempForceSpoiler = (e.currentTarget as HTMLInputElement).checked)}
+						/>
+						<span>
+							<strong>🔒 Spoiler channel</strong>
+							<span class="setting-description">
+								Every message sent here is automatically hidden until clicked — including old messages.
+							</span>
+						</span>
+					</label>
+				</div>
+			{/if}
 
 			{#if channel.type !== 'dm' && canClearMessages}
 				<div class="setting-group danger-zone">
-					<span class="setting-label">Clear Messages</span>
+					<span class="setting-label">Purge channel history</span>
 					<p class="setting-description">
 						Permanently delete every message in this channel for all members. Direct messages are never
-						affected, and attachment files are not deleted.
+						affected. Attachment files on disk are not deleted. Use this when turning off keep-forever
+						or wiping local/server chat data for the channel.
 					</p>
-					<button class="clear-messages-btn" on:click={clearAllMessages}>
-						Clear All Messages
+					<button class="clear-messages-btn" type="button" on:click={clearAllMessages}>
+						Purge all messages
 					</button>
 				</div>
 			{/if}

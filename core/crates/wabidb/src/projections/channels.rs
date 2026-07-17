@@ -15,7 +15,21 @@ impl Projection for ChannelProjection {
         "channel_created"
     }
 
+    fn event_types(&self) -> Vec<&str> {
+        vec!["channel_created", "channel_updated"]
+    }
+
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
+        match event.event_type.as_str() {
+            "channel_created" => self.apply_created(event, state),
+            "channel_updated" => self.apply_updated(event, state),
+            _ => Ok(()),
+        }
+    }
+}
+
+impl ChannelProjection {
+    fn apply_created(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         let mut channel: Channel = serde_json::from_slice(&event.payload).map_err(|e| {
             crate::error::WabiError::Validation {
                 command: "channels_projection".into(),
@@ -24,6 +38,48 @@ impl Projection for ChannelProjection {
         })?;
         channel.channel_id = format!("ch_{:x}", event.commit_seq);
         let key = channel.channel_id.as_bytes().to_vec();
+        let value = serde_json::to_vec(&channel).map_err(|e| {
+            crate::error::WabiError::Validation {
+                command: "channels_projection".into(),
+                reason: format!("failed to encode channel: {e}"),
+            }
+        })?;
+        state.insert("channels", key, value, event.commit_seq);
+        Ok(())
+    }
+
+    /// Merge a partial channel update (sent by the settings endpoint) into
+    /// the existing channel record. Unknown/missing fields are left as-is.
+    fn apply_updated(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
+        let patch: serde_json::Value = serde_json::from_slice(&event.payload).map_err(|e| {
+            crate::error::WabiError::Validation {
+                command: "channels_projection".into(),
+                reason: format!("failed to decode channel update: {e}"),
+            }
+        })?;
+        let channel_id = patch
+            .get("channel_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if channel_id.is_empty() {
+            return Ok(());
+        }
+        let key = channel_id.as_bytes().to_vec();
+        let existing = match state.get("channels", &key) {
+            Some(bytes) => serde_json::from_slice::<Channel>(&bytes).unwrap_or_else(|_| Channel::new(&channel_id, "", 0)),
+            None => Channel::new(&channel_id, "", 0),
+        };
+        let mut channel = existing;
+        if let Some(name) = patch.get("name").and_then(|v| v.as_str()) {
+            channel.name = name.to_string();
+        }
+        if let Some(desc) = patch.get("description").and_then(|v| v.as_str()) {
+            channel.description = Some(desc.to_string());
+        }
+        if let Some(force) = patch.get("force_spoiler").and_then(|v| v.as_bool()) {
+            channel.force_spoiler = force;
+        }
         let value = serde_json::to_vec(&channel).map_err(|e| {
             crate::error::WabiError::Validation {
                 command: "channels_projection".into(),

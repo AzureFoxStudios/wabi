@@ -10,6 +10,7 @@
 		users
 	} from '$lib/socket';
 	import { getAuthToken } from '$lib/authSession';
+	import { layoutStore } from '$lib/layoutStore';
 	import {
 		adminClearUserLoginLockout,
 		adminResetUserPassword,
@@ -202,6 +203,16 @@
 <div class="settings-section">
 	<h3>{$t('settings.sections.admin_panel')}</h3>
 	<p class="admin-help">Manage live user roles from here or from user right-click menus.</p>
+
+	<button class="admin-open-dashboard-btn" type="button" on:click={() => layoutStore.showAdminCenterStage()}>
+		<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+			<rect x="3" y="3" width="7" height="7" rx="1" />
+			<rect x="14" y="3" width="7" height="7" rx="1" />
+			<rect x="14" y="14" width="7" height="7" rx="1" />
+			<rect x="3" y="14" width="7" height="7" rx="1" />
+		</svg>
+		Open Admin Dashboard
+	</button>
 
 	<UploadLimitsPanel
 		{canManageAdmin}

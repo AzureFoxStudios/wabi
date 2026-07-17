@@ -7,7 +7,8 @@ export type AddonSectionId =
 	| 'notifications'
 	| 'media'
 	| 'appearance'
-	| 'utilities';
+	| 'utilities'
+	| 'spoilers';
 
 export interface LocalAddonControlMeta {
 	label: string;
@@ -24,7 +25,8 @@ export const ADDON_SECTION_IDS: AddonSectionId[] = [
 	'notifications',
 	'media',
 	'appearance',
-	'utilities'
+	'utilities',
+	'spoilers'
 ];
 
 export const ADDON_SECTION_LABELS: Record<AddonSectionId, string> = {
@@ -36,7 +38,8 @@ export const ADDON_SECTION_LABELS: Record<AddonSectionId, string> = {
 	notifications: 'Notifications',
 	media: 'Media',
 	appearance: 'Appearance',
-	utilities: 'Utilities'
+	utilities: 'Utilities',
+	spoilers: 'Spoilers'
 };
 
 export const LOCAL_ADDON_CONTROL_META: Record<string, LocalAddonControlMeta> = {
@@ -102,8 +105,18 @@ export const LOCAL_ADDON_CONTROL_META: Record<string, LocalAddonControlMeta> = {
 	},
 	reveal_all_spoilers: {
 		label: 'RevealAllSpoilers',
-		section: 'chat',
+		section: 'spoilers',
 		terms: ['spoilers', 'reveal', 'moderation']
+	},
+	server_spoiler_all: {
+		label: 'ServerSpoilerAll',
+		section: 'spoilers',
+		terms: ['spoiler', 'server', 'hide', 'veil', 'calm']
+	},
+	server_unspoil_all: {
+		label: 'ServerUnspoilAll',
+		section: 'spoilers',
+		terms: ['unspoil', 'reveal', 'server', 'force reveal']
 	},
 	better_search_page: {
 		label: 'BetterSearchPage',
