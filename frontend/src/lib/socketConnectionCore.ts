@@ -595,6 +595,30 @@ export class SocketManager {
 			console.warn('[socket] pin-error', payload?.messageId, payload?.error);
 		});
 
+		// Backend rejection surfaces — avoid silent no-ops for channel/moderation ops.
+		const surfaceSocketError = (event: string, payload: { error?: string } | undefined) => {
+			const msg = payload?.error || event;
+			console.warn(`[socket] ${event}`, msg);
+			if (typeof window !== 'undefined') {
+				// Lightweight user-facing signal without a toast dependency.
+				window.dispatchEvent(
+					new CustomEvent('wabi-socket-error', { detail: { event, message: msg } })
+				);
+			}
+		};
+		for (const evt of [
+			'create-thread-error',
+			'pin-channel-error',
+			'unpin-channel-error',
+			'ban-error',
+			'kick-error',
+			'wiki-error',
+			'forum-error',
+			'incident-error'
+		] as const) {
+			sock.on(evt, (payload: { error?: string }) => surfaceSocketError(evt, payload));
+		}
+
 		sock.on('emoji-reaction-added', (payload: { channelId?: string; messageId?: string; userId?: number; emojiId?: string }) => {
 			if (!payload?.channelId || !payload.messageId || !payload.emojiId) return;
 			const userIdStr = String(payload.userId);
