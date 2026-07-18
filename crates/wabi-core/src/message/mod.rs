@@ -119,7 +119,10 @@ pub struct MessageEntity {
     pub kind: MessageEntityKind,
     pub start: u32,
     pub end: u32,
-    pub place_id: String,
+    /// Canonical id for the referenced entity. For legacy Place payloads, this field
+    /// was named `place_id` and is still accepted on deserialization via serde alias.
+    #[serde(alias = "placeId")]
+    pub target_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layer_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -127,6 +130,14 @@ pub struct MessageEntity {
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_subtitle: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_thumb_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_status: Option<String>,
 }
 
 #[non_exhaustive]
@@ -136,6 +147,11 @@ pub struct MessageEntity {
 #[cfg_attr(feature = "ts", ts(export))]
 pub enum MessageEntityKind {
     Place,
+    User,
+    Channel,
+    ForumPost,
+    WikiPage,
+    GalleryWork,
 }
 
 #[non_exhaustive]

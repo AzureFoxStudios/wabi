@@ -186,11 +186,15 @@ fn message_entity_serializes_current_place_entity_shape() {
         kind: MessageEntityKind::Place,
         start: 0,
         end: 5,
-        place_id: "studio".to_owned(),
+        target_id: "studio".to_owned(),
         layer_id: Some("floor-1".to_owned()),
         poi_id: None,
         label: "Studio".to_owned(),
         display_text: Some("there".to_owned()),
+        preview_title: None,
+        preview_subtitle: None,
+        preview_thumb_url: None,
+        preview_status: None,
     };
 
     let value = serde_json::to_value(entity).unwrap();
@@ -201,7 +205,7 @@ fn message_entity_serializes_current_place_entity_shape() {
             "kind": "place",
             "start": 0,
             "end": 5,
-            "placeId": "studio",
+            "targetId": "studio",
             "layerId": "floor-1",
             "label": "Studio",
             "displayText": "there"
@@ -292,11 +296,15 @@ fn message_view_serializes_current_client_message_shape() {
             kind: MessageEntityKind::Place,
             start: 5,
             end: 9,
-            place_id: "studio".to_owned(),
+            target_id: "studio".to_owned(),
             layer_id: None,
             poi_id: None,
             label: "Studio".to_owned(),
             display_text: None,
+            preview_title: None,
+            preview_subtitle: None,
+            preview_thumb_url: None,
+            preview_status: None,
         }]),
     };
 
@@ -348,7 +356,7 @@ fn message_view_serializes_current_client_message_shape() {
                 "kind": "place",
                 "start": 5,
                 "end": 9,
-                "placeId": "studio",
+                "targetId": "studio",
                 "label": "Studio"
             }]
         })
@@ -424,6 +432,59 @@ fn message_created_event_serializes_current_socket_payload_shape() {
             }
         })
     );
+}
+
+#[test]
+fn message_entity_forum_post_with_preview_round_trip() {
+    let entity = MessageEntity {
+        kind: MessageEntityKind::ForumPost,
+        start: 0,
+        end: 10,
+        target_id: "forum-post-1".to_owned(),
+        layer_id: None,
+        poi_id: None,
+        label: "UX Design Discussion".to_owned(),
+        display_text: Some("ux_1151".to_owned()),
+        preview_title: Some("UX Design Discussion".to_owned()),
+        preview_subtitle: Some("5 replies".to_owned()),
+        preview_thumb_url: Some("https://wabi.chat/thumb/ux_1151.png".to_owned()),
+        preview_status: Some("active".to_owned()),
+    };
+
+    let json = serde_json::to_value(&entity).unwrap();
+    let deserialized: MessageEntity = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(deserialized, entity);
+
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "kind": "forum_post",
+            "start": 0,
+            "end": 10,
+            "targetId": "forum-post-1",
+            "label": "UX Design Discussion",
+            "displayText": "ux_1151",
+            "previewTitle": "UX Design Discussion",
+            "previewSubtitle": "5 replies",
+            "previewThumbUrl": "https://wabi.chat/thumb/ux_1151.png",
+            "previewStatus": "active"
+        })
+    );
+}
+
+#[test]
+fn message_entity_legacy_place_id_alias_deserializes_to_target_id() {
+    let entity: MessageEntity = serde_json::from_value(serde_json::json!({
+        "kind": "place",
+        "start": 0,
+        "end": 3,
+        "placeId": "abc",
+        "label": "x"
+    }))
+    .unwrap();
+
+    assert_eq!(entity.target_id, "abc");
+    assert_eq!(entity.kind, MessageEntityKind::Place);
 }
 
 #[test]

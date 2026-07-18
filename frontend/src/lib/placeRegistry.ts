@@ -103,14 +103,16 @@ export interface PlaceMessageEntity {
 	kind: 'place';
 	start: number;
 	end: number;
-	placeId: string;
+	targetId: string;
 	layerId?: string;
 	poiId?: string;
 	label: string;
 	displayText?: string;
 }
 
-export type MessageEntity = PlaceMessageEntity;
+// Single source of truth: the protocol MessageEntity (regenerated from Rust wabi-core).
+// PlaceMessageEntity above is a place-only alias kept for callers that build place refs.
+export type { MessageEntity } from '$lib/socket-types';
 
 export interface PlaceMentionSuggestion {
 	key: string;

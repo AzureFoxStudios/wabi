@@ -478,6 +478,9 @@ pub struct WikiPage {
     pub created_at_micros: i64,
     pub updated_at_micros: i64,
     pub is_deleted: bool,
+    pub parent_page_id: String,
+    pub slug: String,
+    pub order_index: i64,
 }
 
 impl From<crate::projections::wiki::WikiPageRecord> for WikiPage {
@@ -491,6 +494,37 @@ impl From<crate::projections::wiki::WikiPageRecord> for WikiPage {
             created_at_micros: r.created_at_micros,
             updated_at_micros: r.updated_at_micros,
             is_deleted: r.is_deleted,
+            parent_page_id: r.parent_page_id,
+            slug: r.slug,
+            order_index: r.order_index,
+        }
+    }
+}
+
+/// A wiki revision (edit history entry).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WikiRevision {
+    pub revision_id: String,
+    pub page_id: String,
+    pub channel_id: String,
+    pub editor_user_id: u64,
+    pub title: String,
+    pub body: String,
+    pub summary: String,
+    pub created_at_micros: i64,
+}
+
+impl From<crate::projections::wiki::WikiRevisionRecord> for WikiRevision {
+    fn from(r: crate::projections::wiki::WikiRevisionRecord) -> Self {
+        Self {
+            revision_id: r.revision_id,
+            page_id: r.page_id,
+            channel_id: r.channel_id,
+            editor_user_id: r.editor_user_id,
+            title: r.title,
+            body: r.body,
+            summary: r.summary,
+            created_at_micros: r.created_at_micros,
         }
     }
 }
@@ -507,6 +541,12 @@ pub struct ForumPost {
     pub edited_at_micros: Option<i64>,
     pub is_deleted: bool,
     pub is_thread_starter: bool,
+    pub title: String,
+    pub tags: Vec<String>,
+    pub votes_up: u64,
+    pub votes_down: u64,
+    pub is_solution: bool,
+    pub category: Option<String>,
 }
 
 impl From<crate::projections::forum::ForumPostRecord> for ForumPost {
@@ -521,6 +561,12 @@ impl From<crate::projections::forum::ForumPostRecord> for ForumPost {
             edited_at_micros: r.edited_at_micros,
             is_deleted: r.is_deleted,
             is_thread_starter: r.is_thread_starter,
+            title: r.title,
+            tags: r.tags,
+            votes_up: r.votes_up,
+            votes_down: r.votes_down,
+            is_solution: r.is_solution,
+            category: r.category,
         }
     }
 }
@@ -601,6 +647,72 @@ impl From<crate::projections::dm_message_recipients::DmRecipientRecord> for DmRe
             recipient_user_id: r.recipient_user_id,
             delivered_at_micros: r.delivered_at_micros,
             read_at_micros: r.read_at_micros,
+        }
+    }
+}
+
+/// A gallery work (artwork/media post) in a gallery channel.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GalleryWork {
+    pub work_id: String,
+    pub channel_id: String,
+    pub author_user_id: u64,
+    pub title: String,
+    pub caption: String,
+    pub attachment_url: String,
+    pub mime_type: String,
+    pub category: String,
+    pub is_wip: bool,
+    pub created_at_micros: i64,
+    pub updated_at_micros: i64,
+    pub is_deleted: bool,
+}
+
+impl From<crate::projections::gallery::GalleryWorkRecord> for GalleryWork {
+    fn from(r: crate::projections::gallery::GalleryWorkRecord) -> Self {
+        Self {
+            work_id: r.work_id,
+            channel_id: r.channel_id,
+            author_user_id: r.author_user_id,
+            title: r.title,
+            caption: r.caption,
+            attachment_url: r.attachment_url,
+            mime_type: r.mime_type,
+            category: r.category,
+            is_wip: r.is_wip,
+            created_at_micros: r.created_at_micros,
+            updated_at_micros: r.updated_at_micros,
+            is_deleted: r.is_deleted,
+        }
+    }
+}
+
+/// A coordinate-pinned feedback comment on a gallery work.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GalleryFeedback {
+    pub feedback_id: String,
+    pub work_id: String,
+    pub channel_id: String,
+    pub author_user_id: u64,
+    pub comment: String,
+    pub x_percent: f32,
+    pub y_percent: f32,
+    pub created_at_micros: i64,
+    pub is_deleted: bool,
+}
+
+impl From<crate::projections::gallery::GalleryFeedbackRecord> for GalleryFeedback {
+    fn from(r: crate::projections::gallery::GalleryFeedbackRecord) -> Self {
+        Self {
+            feedback_id: r.feedback_id,
+            work_id: r.work_id,
+            channel_id: r.channel_id,
+            author_user_id: r.author_user_id,
+            comment: r.comment,
+            x_percent: r.x_percent,
+            y_percent: r.y_percent,
+            created_at_micros: r.created_at_micros,
+            is_deleted: r.is_deleted,
         }
     }
 }

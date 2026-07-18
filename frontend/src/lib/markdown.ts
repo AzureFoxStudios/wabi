@@ -148,7 +148,6 @@ function injectMessageEntityPlaceholders(
 	}
 
 	const sorted = [...entities]
-		.filter((entity) => entity.kind === 'place')
 		.sort((a, b) => a.start - b.start || a.end - b.end);
 
 	let cursor = 0;
@@ -165,21 +164,36 @@ function injectMessageEntityPlaceholders(
 			return;
 		}
 
-		const displayText = text.slice(entity.start, entity.end) || entity.displayText || `@${entity.placeId}`;
-		const token = `WABI_PLACE_ENTITY_${index}_${entity.placeId.toUpperCase()}`;
-		prepared += text.slice(cursor, entity.start);
-		prepared += token;
-		replacements.push({
-			token,
-			html:
-				`<span class="mention-token mention-token-place" ` +
-				`data-place-id="${escapeHtml(entity.placeId)}" ` +
+		const displayText = entity.displayText || text.slice(entity.start, entity.end) || entity.label;
+		const token = `WABI_ENTITY_${index}_${entity.targetId.toUpperCase()}`;
+		const kind = entity.kind;
+
+		let html: string;
+		if (kind === 'place') {
+			html =
+				`<span class="mention-token mention-token-${kind}" ` +
+				`data-place-id="${escapeHtml(entity.targetId)}` +
 				`data-place-layer-id="${escapeHtml(entity.layerId || '')}" ` +
 				`data-place-poi-id="${escapeHtml(entity.poiId || '')}" ` +
-				`data-place-name="${escapeHtml(entity.label)}">` +
+				`data-place-name="${escapeHtml(entity.label)}" ` +
+				`data-ref-kind="${escapeHtml(kind)}" ` +
+				`data-ref-id="${escapeHtml(entity.targetId)}" ` +
+				`data-ref-label="${escapeHtml(entity.label)}">` +
 				`${escapeHtml(displayText)}` +
-				`</span>`
-		});
+				`</span>`;
+		} else {
+			html =
+				`<span class="mention-token mention-token-${kind}" ` +
+				`data-ref-kind="${escapeHtml(kind)}" ` +
+				`data-ref-id="${escapeHtml(entity.targetId)}" ` +
+				`data-ref-label="${escapeHtml(entity.label)}">` +
+				`${escapeHtml(displayText)}` +
+				`</span>`;
+		}
+
+		prepared += text.slice(cursor, entity.start);
+		prepared += token;
+		replacements.push({ token, html });
 		cursor = entity.end;
 	});
 
@@ -257,7 +271,7 @@ export function parseMessage(text: string, entities: MessageEntity[] = []): stri
       'a', 'img', 'blockquote', 'ul', 'ol', 'li', 'h1', 'h2', 'h3',
       'h4', 'h5', 'h6', 'hr', 'span'
     ],
-    ALLOWED_ATTR: ['href', 'src', 'alt', 'class', 'title', 'target', 'rel', 'data-spoiler', 'data-place-id', 'data-place-layer-id', 'data-place-poi-id', 'data-place-name'],
+    ALLOWED_ATTR: ['href', 'src', 'alt', 'class', 'title', 'target', 'rel', 'data-spoiler', 'data-place-id', 'data-place-layer-id', 'data-place-poi-id', 'data-place-name', 'data-ref-kind', 'data-ref-id', 'data-ref-label'],
     FORBID_TAGS: ['style', 'script'],
     FORBID_ATTR: ['style', 'onerror', 'onload'],
   });

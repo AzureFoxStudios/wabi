@@ -14,6 +14,9 @@
 		type GalleryCreator,
 	} from '$lib/galleryStore';
 	import GalleryLightbox from './GalleryLightbox.svelte';
+	import { initObjectRefRegistry, registerObjectRef, slugify } from '$lib/objectRefRegistry';
+	import { openShareModal } from '$lib/shareStore';
+	import { buildShareLink, buildShareRefText, copyToClipboard } from '$lib/shareToChannel';
 
 	$: activeChannel = $channels.find((ch) => ch.id === $currentChannel) || null;
 	$: allItems = $galleryItemsStore;
@@ -27,6 +30,36 @@
 	let lightboxVisible = false;
 	let lightboxIndex = 0;
 	let lightboxItems: GalleryItem[] = [];
+
+	initObjectRefRegistry();
+
+	$: if (allItems.length > 0 && $currentChannel) {
+		for (const item of allItems) {
+			registerObjectRef({
+				kind: 'gallery_work',
+				id: item.id,
+				slug: slugify(item.attachmentName),
+				title: item.attachmentName,
+				channelId: $currentChannel,
+				subtitle: item.creator?.username || undefined,
+				thumbUrl: item.attachmentUrl,
+				updatedAt: item.uploadedAt,
+			});
+		}
+	}
+
+	function shareGalleryItem(item: GalleryItem) {
+		openShareModal({
+			kind: 'gallery_work',
+			id: item.id,
+			slug: slugify(item.attachmentName),
+			title: item.attachmentName,
+			channelId: $currentChannel,
+			subtitle: item.creator?.username || undefined,
+			thumbUrl: item.attachmentUrl,
+			updatedAt: item.uploadedAt,
+		});
+	}
 
 	$: filteredItems = allItems.filter((item) => {
 		if (activeTypeFilter === 'image' && getGalleryItemKind(item.attachmentMime) !== 'image') return false;
@@ -207,7 +240,7 @@
 					</div>
 					<div class="recent-scroll">
 						{#each recentItems as item, idx (item.id)}
-							<div class="recent-card" on:click={() => openLightbox(idx, recentItems)}>
+							<div class="recent-card" on:click={() => openLightbox(idx, recentItems)} on:contextmenu|stopPropagation={(e) => { e.preventDefault(); shareGalleryItem(recentItems[idx]); }}>
 								<div class="recent-card-cover">
 									{#if getGalleryItemKind(item.attachmentMime) === 'video'}
 										<video
@@ -290,7 +323,7 @@
 					{/if}
 					<div class="gallery-grid">
 						{#each mainItems as item, idx (item.id)}
-							<div class="gallery-card" on:click={() => openLightbox(idx, mainItems)}>
+							<div class="gallery-card" on:click={() => openLightbox(idx, mainItems)} on:contextmenu|stopPropagation={(e) => { e.preventDefault(); shareGalleryItem(mainItems[idx]); }}>
 								<div class="card-cover">
 									{#if getGalleryItemKind(item.attachmentMime) === 'video'}
 										<video
@@ -374,6 +407,8 @@
 		items={lightboxItems}
 		currentIndex={lightboxIndex}
 		creators={allCreators}
+		channelId={$currentChannel}
+		workId={lightboxItems[lightboxIndex]?.id || null}
 		onFilterByCreator={handleLightboxFilterByCreator}
 	/>
 </div>

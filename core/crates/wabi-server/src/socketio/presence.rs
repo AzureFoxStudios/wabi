@@ -550,5 +550,38 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
     if let Err(e) = socket.emit("channel-messages", &payload) {
         warn!("[sio] channel-messages failed: {}", e);
     }
+
+    // Emit a live-buffer-snapshot for live channels so the joining client
+    // gets the current in-memory buffer (which may differ from WDB history).
+    let is_live = state
+        .app
+        .channel_auto_delete_label
+        .read()
+        .await
+        .get(&channel_id)
+        .map(|s| s == "live")
+        .unwrap_or(false);
+    if is_live {
+        let cap = state
+            .app
+            .live_channel_cap
+            .read()
+            .await
+            .get(&channel_id)
+            .copied()
+            .unwrap_or(1000);
+        let session = state.app.session_messages.read().await;
+        let msgs: Vec<Value> = session
+            .get(&channel_id)
+            .map(|v| {
+                let mut sorted = v.clone();
+                sorted.sort_by_key(|m| m.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0));
+                sorted.into_iter().rev().take(cap as usize).rev().collect()
+            })
+            .unwrap_or_default();
+        drop(session);
+        let snap = json!({ "channelId": channel_id.clone(), "messages": msgs });
+        let _ = socket.emit("live-buffer-snapshot", &snap);
+    }
 }
 

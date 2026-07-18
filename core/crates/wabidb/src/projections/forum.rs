@@ -15,6 +15,12 @@ pub struct ForumPostRecord {
     pub edited_at_micros: Option<i64>,
     pub is_deleted: bool,
     pub is_thread_starter: bool,
+    pub title: String,
+    pub tags: Vec<String>,
+    pub votes_up: u64,
+    pub votes_down: u64,
+    pub is_solution: bool,
+    pub category: Option<String>,
 }
 
 impl RecordCodec for ForumPostRecord {
@@ -109,7 +115,15 @@ impl Projection for ForumProjection {
     }
 
     fn event_types(&self) -> Vec<&str> {
-        vec!["forum_thread_created", "forum_post_created", "forum_post_edited", "forum_post_deleted"]
+        vec![
+            "forum_thread_created",
+            "forum_post_created",
+            "forum_post_edited",
+            "forum_post_deleted",
+            "forum_post_voted",
+            "forum_post_solution_set",
+            "forum_thread_meta_updated",
+        ]
     }
 
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
@@ -118,6 +132,9 @@ impl Projection for ForumProjection {
             "forum_post_created" => self.apply_post_created(event, state),
             "forum_post_edited" => self.apply_post_edited(event, state),
             "forum_post_deleted" => self.apply_post_deleted(event, state),
+            "forum_post_voted" => self.apply_post_voted(event, state),
+            "forum_post_solution_set" => self.apply_post_solution_set(event, state),
+            "forum_thread_meta_updated" => self.apply_thread_meta_updated(event, state),
             _ => Ok(()),
         }
     }
@@ -160,6 +177,91 @@ impl ForumProjection {
         state.insert("forum_posts", key, value, event.commit_seq);
         Ok(())
     }
+
+    fn apply_post_voted(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
+        #[derive(Deserialize)]
+        struct VotePayload {
+            post_id: String,
+            thread_id: String,
+            channel_id: String,
+            direction: String,
+            #[allow(dead_code)]
+            actor_user_id: u64,
+        }
+        let v: VotePayload = postcard::from_bytes(&event.payload).map_err(|e| {
+            crate::error::WabiError::Corrupt {
+                location: "forum projection".into(),
+                detail: format!("vote payload decode failed: {e}"),
+            }
+        })?;
+        let key = encode_key(&v.channel_id, &v.thread_id, &v.post_id);
+        if let Some(bytes) = state.get("forum_posts", &key) {
+            if let Ok(mut record) = postcard::from_bytes::<ForumPostRecord>(&bytes) {
+                match v.direction.as_str() {
+                    "up" => record.votes_up += 1,
+                    "down" => record.votes_down += 1,
+                    _ => {}
+                }
+                let value = encode_record(&record);
+                state.insert("forum_posts", key, value, event.commit_seq);
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_post_solution_set(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
+        #[derive(Deserialize)]
+        struct SolutionPayload {
+            post_id: String,
+            thread_id: String,
+            channel_id: String,
+            #[allow(dead_code)]
+            actor_user_id: u64,
+        }
+        let s: SolutionPayload = postcard::from_bytes(&event.payload).map_err(|e| {
+            crate::error::WabiError::Corrupt {
+                location: "forum projection".into(),
+                detail: format!("solution payload decode failed: {e}"),
+            }
+        })?;
+
+        // Clear solution on all other posts in this thread
+        let mut prefix = Vec::new();
+        prefix.extend_from_slice(&(s.channel_id.len() as u64).to_le_bytes());
+        prefix.extend_from_slice(s.channel_id.as_bytes());
+        prefix.extend_from_slice(&(s.thread_id.len() as u64).to_le_bytes());
+        prefix.extend_from_slice(s.thread_id.as_bytes());
+        let mut updates: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+        state.prefix_scan("forum_posts", &prefix, |key, value| {
+            if let Ok(mut record) = postcard::from_bytes::<ForumPostRecord>(value) {
+                if key != s.post_id.as_bytes() && record.is_solution {
+                    record.is_solution = false;
+                    updates.push((key.to_vec(), encode_record(&record)));
+                }
+            }
+        });
+        for (k, v) in updates {
+            state.insert("forum_posts", k, v, event.commit_seq);
+        }
+
+        // Set solution on the target post
+        let key = encode_key(&s.channel_id, &s.thread_id, &s.post_id);
+        if let Some(bytes) = state.get("forum_posts", &key) {
+            if let Ok(mut record) = postcard::from_bytes::<ForumPostRecord>(&bytes) {
+                record.is_solution = true;
+                let value = encode_record(&record);
+                state.insert("forum_posts", key, value, event.commit_seq);
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_thread_meta_updated(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
+        let record: ForumPostRecord = decode_record(&event.payload)?;
+        let key = encode_key(&record.channel_id, &record.thread_id, &record.post_id);
+        state.insert("forum_posts", key, event.payload.clone(), event.commit_seq);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -186,6 +288,12 @@ mod tests {
             edited_at_micros: None,
             is_deleted: false,
             is_thread_starter: false,
+            title: String::new(),
+            tags: Vec::new(),
+            votes_up: 0,
+            votes_down: 0,
+            is_solution: false,
+            category: None,
         }
     }
 
@@ -201,6 +309,12 @@ mod tests {
             edited_at_micros: None,
             is_deleted: false,
             is_thread_starter: true,
+            title: String::new(),
+            tags: Vec::new(),
+            votes_up: 0,
+            votes_down: 0,
+            is_solution: false,
+            category: None,
         };
         let buf = encode_record(&r);
         let decoded = decode_record(&buf).unwrap();
@@ -446,5 +560,153 @@ mod tests {
         };
         let result = ForumProjection.apply(&event, &state);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn vote_increments_votes_up() {
+        let state = ProjectionState::new();
+        let proj = ForumProjection;
+        let r = thread_starter();
+        let event = make_event(1, "forum_thread_created", &r);
+        proj.apply(&event, &state).unwrap();
+        let post_id = format!("post_{:x}", event.commit_seq);
+        let key = encode_key("ch_forum", &post_id, &post_id);
+
+        // Apply a vote event
+        use postcard::to_allocvec;
+        let vote_payload = to_allocvec(&serde_json::json!({
+            "post_id": post_id,
+            "thread_id": post_id,
+            "channel_id": "ch_forum",
+            "direction": "up",
+            "actor_user_id": 99u64,
+        })).unwrap();
+        // Manually construct a vote payload as postcard-serialized struct
+        // Actually we need to use the same format as the projection handler expects
+        #[derive(Serialize)]
+        struct TestVotePayload {
+            post_id: String,
+            thread_id: String,
+            channel_id: String,
+            direction: String,
+            actor_user_id: u64,
+        }
+        let vote_payload = to_allocvec(&TestVotePayload {
+            post_id: post_id.clone(),
+            thread_id: post_id.clone(),
+            channel_id: "ch_forum".into(),
+            direction: "up".into(),
+            actor_user_id: 99,
+        }).unwrap();
+        let vote_event = DurableEvent {
+            commit_seq: 2,
+            stream_id: "ch_forum".into(),
+            event_type: "forum_post_voted".into(),
+            payload: vote_payload,
+        };
+        proj.apply(&vote_event, &state).unwrap();
+
+        let decoded = decode_record(&state.get("forum_posts", &key).unwrap()).unwrap();
+        assert_eq!(decoded.votes_up, 1);
+        assert_eq!(decoded.votes_down, 0);
+    }
+
+    #[test]
+    fn mark_solution_sets_flag_and_clears_siblings() {
+        let state = ProjectionState::new();
+        let proj = ForumProjection;
+        // Create a thread
+        let r = thread_starter();
+        let thread_event = make_event(1, "forum_thread_created", &r);
+        proj.apply(&thread_event, &state).unwrap();
+        let thread_id = format!("post_{:x}", thread_event.commit_seq);
+
+        // Add two replies
+        let mut reply1 = thread_starter();
+        reply1.thread_id = thread_id.clone();
+        reply1.body = "Reply 1".into();
+        reply1.is_thread_starter = false;
+        let reply1_event = make_event(2, "forum_post_created", &reply1);
+        proj.apply(&reply1_event, &state).unwrap();
+        let reply1_id = format!("post_{:x}", reply1_event.commit_seq);
+
+        let mut reply2 = thread_starter();
+        reply2.thread_id = thread_id.clone();
+        reply2.body = "Reply 2".into();
+        reply2.is_thread_starter = false;
+        let reply2_event = make_event(3, "forum_post_created", &reply2);
+        proj.apply(&reply2_event, &state).unwrap();
+        let reply2_id = format!("post_{:x}", reply2_event.commit_seq);
+
+        // Mark reply1 as solution
+        use postcard::to_allocvec;
+        #[derive(Serialize)]
+        struct TestSolutionPayload {
+            post_id: String,
+            thread_id: String,
+            channel_id: String,
+            actor_user_id: u64,
+        }
+        let sol_payload = to_allocvec(&TestSolutionPayload {
+            post_id: reply1_id.clone(),
+            thread_id: thread_id.clone(),
+            channel_id: "ch_forum".into(),
+            actor_user_id: 42,
+        }).unwrap();
+        let sol_event = DurableEvent {
+            commit_seq: 4,
+            stream_id: "ch_forum".into(),
+            event_type: "forum_post_solution_set".into(),
+            payload: sol_payload,
+        };
+        proj.apply(&sol_event, &state).unwrap();
+
+        // Check reply1 is solution
+        let key1 = encode_key("ch_forum", &thread_id, &reply1_id);
+        let decoded1 = decode_record(&state.get("forum_posts", &key1).unwrap()).unwrap();
+        assert!(decoded1.is_solution);
+
+        // Check reply2 is NOT solution
+        let key2 = encode_key("ch_forum", &thread_id, &reply2_id);
+        let decoded2 = decode_record(&state.get("forum_posts", &key2).unwrap()).unwrap();
+        assert!(!decoded2.is_solution);
+
+        // Now mark reply2 as solution — reply1 should be cleared
+        let sol_payload2 = to_allocvec(&TestSolutionPayload {
+            post_id: reply2_id.clone(),
+            thread_id: thread_id.clone(),
+            channel_id: "ch_forum".into(),
+            actor_user_id: 42,
+        }).unwrap();
+        let sol_event2 = DurableEvent {
+            commit_seq: 5,
+            stream_id: "ch_forum".into(),
+            event_type: "forum_post_solution_set".into(),
+            payload: sol_payload2,
+        };
+        proj.apply(&sol_event2, &state).unwrap();
+
+        let decoded1b = decode_record(&state.get("forum_posts", &key1).unwrap()).unwrap();
+        assert!(!decoded1b.is_solution);
+
+        let decoded2b = decode_record(&state.get("forum_posts", &key2).unwrap()).unwrap();
+        assert!(decoded2b.is_solution);
+    }
+
+    #[test]
+    fn thread_created_round_trips_title() {
+        let state = ProjectionState::new();
+        let proj = ForumProjection;
+        let mut r = thread_starter();
+        r.title = "My Thread Title".into();
+        r.tags = vec!["bug".into(), "discussion".into()];
+        r.category = Some("general".into());
+        let event = make_event(1, "forum_thread_created", &r);
+        proj.apply(&event, &state).unwrap();
+        let post_id = format!("post_{:x}", event.commit_seq);
+        let loaded = ForumProjection::get_post(&state, "ch_forum", &post_id, &post_id).unwrap().unwrap();
+        assert_eq!(loaded.title, "My Thread Title");
+        assert_eq!(loaded.tags, vec!["bug", "discussion"]);
+        assert_eq!(loaded.category, Some("general".into()));
     }
 }

@@ -187,6 +187,14 @@ pub async fn handle_update_channel_settings(socket: SocketRef, data: Value, stat
                 .upsert_channel_retention(&channel_id, 0, caller_id as u64)
                 .await;
             auto_delete_after = Some("live".to_string());
+
+            // Optional per-channel live TTL and cap.
+            if let Some(ttl) = settings.get("liveTtlMs").and_then(|v| v.as_u64()) {
+                state.app.live_channel_ttl_ms.write().await.insert(channel_id.clone(), ttl);
+            }
+            if let Some(cap) = settings.get("liveCap").and_then(|v| v.as_u64()) {
+                state.app.live_channel_cap.write().await.insert(channel_id.clone(), cap);
+            }
         } else if settings.get("autoDeleteAfter").and_then(|v| v.as_null()).is_some() {
             // explicit null -> keep forever (opt-in persistence)
             state.app.channel_auto_delete_ms.write().await.remove(&channel_id);

@@ -15,6 +15,7 @@ pub mod dm_message_recipients;
 pub mod dm_messages;
 pub mod emotes;
 pub mod forum;
+pub mod gallery;
 pub mod handler;
 pub mod incidents;
 pub mod layouts;

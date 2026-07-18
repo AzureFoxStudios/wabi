@@ -10,7 +10,7 @@ export type MentionSuggestion = {
 	key: string;
 	label: string;
 	value: string;
-	kind: 'special' | 'user' | 'place';
+	kind: 'special' | 'user' | 'place' | 'channel' | 'forum_post' | 'wiki_page' | 'gallery_work';
 	detail?: string;
 	place?: PlaceRecord;
 	poi?: PlaceRecord['pois'][number];

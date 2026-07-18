@@ -39,6 +39,10 @@ pub struct AppState {
     pub channel_auto_delete_ms: Arc<RwLock<HashMap<String, u64>>>,
     /// channel_id -> frontend label (e.g. "5s", "24h") for channel-updated payloads
     pub channel_auto_delete_label: Arc<RwLock<HashMap<String, String>>>,
+    /// Per-channel live room TTL in milliseconds. Default: 10 minutes.
+    pub live_channel_ttl_ms: Arc<RwLock<HashMap<String, u64>>>,
+    /// Per-channel live room message count cap. Default: 1000.
+    pub live_channel_cap: Arc<RwLock<HashMap<String, u64>>>,
     /// The user ID of the server owner (first registrant).
     /// None until the first account is created.
     pub owner_user_id: RwLock<Option<i64>>,
@@ -189,6 +193,8 @@ impl AppState {
             session_messages: Arc::new(RwLock::new(HashMap::new())),
             channel_auto_delete_ms: Arc::new(RwLock::new(HashMap::new())),
             channel_auto_delete_label: Arc::new(RwLock::new(HashMap::new())),
+            live_channel_ttl_ms: Arc::new(RwLock::new(HashMap::new())),
+            live_channel_cap: Arc::new(RwLock::new(HashMap::new())),
             owner_user_id,
             revocation_file,
             revocations,
@@ -457,7 +463,42 @@ impl AppState {
             let _ = std::fs::write(&self.recovery_file, s);
         }
     }
+}
 
+/// Partition a live channel's in-memory message buffer into alive and expired,
+/// enforcing TTL and cap. Returns the IDs of expired (evicted) messages.
+/// Used by the live room reaper task. Pure function for testability.
+pub fn reap_live_channel_buffer(
+    msgs: &mut Vec<serde_json::Value>,
+    ttl_ms: u64,
+    cap: u64,
+    now: i64,
+) -> Vec<String> {
+    let mut alive: Vec<serde_json::Value> = Vec::with_capacity(msgs.len());
+    let mut expired: Vec<String> = Vec::new();
+    for m in msgs.drain(..) {
+        let born = m.get("bornAt").and_then(|v| v.as_i64()).unwrap_or(0);
+        if now - born >= ttl_ms as i64 {
+            if let Some(id) = m.get("id").and_then(|v| v.as_str()) {
+                expired.push(id.to_string());
+            }
+        } else {
+            alive.push(m);
+        }
+    }
+    if alive.len() > cap as usize {
+        let excess = alive.len() - cap as usize;
+        for m in alive.drain(..excess) {
+            if let Some(id) = m.get("id").and_then(|v| v.as_str()) {
+                expired.push(id.to_string());
+            }
+        }
+    }
+    *msgs = alive;
+    expired
+}
+
+impl AppState {
     fn hash_code(code: &str) -> String {
         let mut hasher = Sha256::new();
         hasher.update(code.as_bytes());
@@ -496,4 +537,56 @@ impl AppState {
         }
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_reap_live_channel_ttl_expired() {
+        let now = 1000_000;
+        let mut msgs = vec![
+            json!({"id": "live_1", "bornAt": now - 1000, "text": "fresh"}),
+            json!({"id": "live_2", "bornAt": now - 600_001, "text": "old"}),
+            json!({"id": "live_3", "bornAt": now - 700_000, "text": "ancient"}),
+        ];
+        let expired = reap_live_channel_buffer(&mut msgs, 600_000, 100, now);
+        assert_eq!(expired, vec!["live_2", "live_3"]);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0]["id"], "live_1");
+    }
+
+    #[test]
+    fn test_reap_live_channel_cap_enforced() {
+        let now = 1000_000;
+        let mut msgs: Vec<serde_json::Value> = (0..5)
+            .map(|i| json!({"id": format!("live_{}", i), "bornAt": now - 1000}))
+            .collect();
+        let expired = reap_live_channel_buffer(&mut msgs, 600_000, 2, now);
+        assert_eq!(expired, vec!["live_0", "live_1", "live_2"]);
+        assert_eq!(msgs.len(), 2);
+    }
+
+    #[test]
+    fn test_reap_live_channel_empty() {
+        let now = 1000_000;
+        let mut msgs: Vec<serde_json::Value> = vec![];
+        let expired = reap_live_channel_buffer(&mut msgs, 600_000, 100, now);
+        assert!(expired.is_empty());
+        assert!(msgs.is_empty());
+    }
+
+    #[test]
+    fn test_reap_live_channel_no_born_at() {
+        let now = 1000_000;
+        let mut msgs = vec![
+            json!({"id": "live_1", "text": "no bornat"}),
+        ];
+        let expired = reap_live_channel_buffer(&mut msgs, 1, 100, now);
+        // bornAt defaults to 0, which means it's expired since now - 0 >= 1
+        assert_eq!(expired, vec!["live_1"]);
+        assert!(msgs.is_empty());
+    }
 }

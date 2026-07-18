@@ -132,6 +132,9 @@ fn populate(state: &ProjectionState) {
                 created_at_micros: (g * per_group + i) as i64 * 1000,
                 updated_at_micros: (g * per_group + i) as i64 * 1000,
                 is_deleted: false,
+                parent_page_id: String::new(),
+                slug: String::new(),
+                order_index: 0,
             };
             let key = wiki::encode_key(&ch, &page_id);
             let val = wiki::encode_record(&r);
@@ -155,6 +158,12 @@ fn populate(state: &ProjectionState) {
                 edited_at_micros: None,
                 is_deleted: i == 0,
                 is_thread_starter: i == 0,
+                title: String::new(),
+                tags: Vec::new(),
+                votes_up: 0,
+                votes_down: 0,
+                is_solution: false,
+                category: None,
             };
             let key = forum::encode_key(&ch, &thread_id, &post_id);
             let val = forum::encode_record(&r);

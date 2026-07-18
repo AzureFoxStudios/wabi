@@ -4122,6 +4122,7 @@ dependencies = [
  "jsonwebtoken",
  "mdns-sd",
  "mime_guess",
+ "postcard",
  "rand 0.8.6",
  "regex",
  "reqwest",

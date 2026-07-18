@@ -49,6 +49,10 @@ const MESSAGE_RETENTION_MS = {
     '30d': 30 * 24 * 60 * 60 * 1000,
     '90d': 90 * 24 * 60 * 60 * 1000
 };
+export const LIVE_RETENTION = 'live';
+export function isLiveRetention(value) {
+    return value === LIVE_RETENTION;
+}
 export function isMessageRetentionDuration(value) {
     return typeof value === 'string' && MESSAGE_RETENTION_PRESETS.includes(value);
 }

@@ -66,9 +66,10 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         .map(String::from);
     let text = cmd.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let mut is_spoiler = false;
+    let mut is_live = false;
 
     if user_id_num > 0 {
-        let is_live = channel_is_live(&state.app, &channel_id).await;
+        is_live = channel_is_live(&state.app, &channel_id).await;
 
         let requested_spoiler = cmd
             .get("isSpoiler")
@@ -174,6 +175,7 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         "color":          color,
         "text":           text,
         "timestamp":      timestamp,
+        "bornAt":         timestamp,
         "type":           cmd.get("type").and_then(|v| v.as_str()).unwrap_or("text"),
         "clientMessageId": client_message_id.clone(),
         "encrypted":      cmd.get("encrypted"),
@@ -195,10 +197,22 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
     {
         let mut session = state.app.session_messages.write().await;
         let msgs = session.entry(channel_id.clone()).or_default();
-        msgs.push(message_view.clone());
-        if msgs.len() > 1000 {
-            msgs.drain(0..msgs.len() - 1000);
+        let cap = if is_live {
+            state
+                .app
+                .live_channel_cap
+                .read()
+                .await
+                .get(&channel_id)
+                .copied()
+                .unwrap_or(1000)
+        } else {
+            1000
+        };
+        if msgs.len() >= cap as usize {
+            msgs.drain(0..msgs.len() - (cap as usize).saturating_sub(1));
         }
+        msgs.push(message_view.clone());
     }
 
     let _ = socket.emit(

@@ -14,6 +14,27 @@ pub struct WikiPageRecord {
     pub created_at_micros: i64,
     pub updated_at_micros: i64,
     pub is_deleted: bool,
+    pub parent_page_id: String,
+    pub slug: String,
+    pub order_index: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WikiRevisionRecord {
+    pub revision_id: String,
+    pub page_id: String,
+    pub channel_id: String,
+    pub editor_user_id: u64,
+    pub title: String,
+    pub body: String,
+    pub summary: String,
+    pub created_at_micros: i64,
+}
+
+impl RecordCodec for WikiRevisionRecord {
+    fn codec_name() -> &'static str {
+        "wiki_revisions"
+    }
 }
 
 impl RecordCodec for WikiPageRecord {
@@ -40,6 +61,28 @@ pub fn encode_key(channel_id: &str, page_id: &str) -> Vec<u8> {
     buf.extend_from_slice(&(page_id.len() as u64).to_le_bytes());
     buf.extend_from_slice(page_id.as_bytes());
     buf
+}
+
+pub fn encode_revision_key(channel_id: &str, page_id: &str, revision_id: &str) -> Vec<u8> {
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&(channel_id.len() as u64).to_le_bytes());
+    buf.extend_from_slice(channel_id.as_bytes());
+    buf.extend_from_slice(&(page_id.len() as u64).to_le_bytes());
+    buf.extend_from_slice(page_id.as_bytes());
+    buf.extend_from_slice(&(revision_id.len() as u64).to_le_bytes());
+    buf.extend_from_slice(revision_id.as_bytes());
+    buf
+}
+
+pub fn encode_revision_record(r: &WikiRevisionRecord) -> Vec<u8> {
+    postcard::to_allocvec(r).expect("postcard serialization failed")
+}
+
+pub fn decode_revision_record(buf: &[u8]) -> Result<WikiRevisionRecord> {
+    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
+        location: "wiki revision projection".into(),
+        detail: format!("postcard decode failed: {e}"),
+    })
 }
 
 impl WikiProjection {
@@ -127,6 +170,71 @@ impl WikiProjection {
     }
 }
 
+impl WikiRevisionProjection {
+    pub fn list_revisions(
+        state: &ProjectionState,
+        channel_id: &str,
+        page_id: &str,
+    ) -> Result<Vec<WikiRevisionRecord>> {
+        let mut prefix = Vec::new();
+        prefix.extend_from_slice(&(channel_id.len() as u64).to_le_bytes());
+        prefix.extend_from_slice(channel_id.as_bytes());
+        prefix.extend_from_slice(&(page_id.len() as u64).to_le_bytes());
+        prefix.extend_from_slice(page_id.as_bytes());
+        let mut results = Vec::new();
+        state.prefix_scan("wiki_revisions", &prefix, |_key, value| {
+            if let Ok(record) = decode_revision_record(value) {
+                results.push(record);
+            }
+        });
+        results.sort_by(|a, b| a.created_at_micros.cmp(&b.created_at_micros));
+        Ok(results)
+    }
+
+    pub fn get_revision(
+        state: &ProjectionState,
+        channel_id: &str,
+        page_id: &str,
+        revision_id: &str,
+    ) -> Result<Option<WikiRevisionRecord>> {
+        let key = encode_revision_key(channel_id, page_id, revision_id);
+        match state.get("wiki_revisions", &key) {
+            None => Ok(None),
+            Some(bytes) => decode_revision_record(&bytes).map(Some),
+        }
+    }
+}
+
+pub struct WikiRevisionProjection;
+
+impl Projection for WikiRevisionProjection {
+    fn event_type(&self) -> &str {
+        "wiki_revision_created"
+    }
+
+    fn event_types(&self) -> Vec<&str> {
+        vec!["wiki_revision_created"]
+    }
+
+    fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
+        match event.event_type.as_str() {
+            "wiki_revision_created" => self.apply_created(event, state),
+            _ => Ok(()),
+        }
+    }
+}
+
+impl WikiRevisionProjection {
+    fn apply_created(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
+        let mut record: WikiRevisionRecord = decode_revision_record(&event.payload)?;
+        record.revision_id = format!("rev_{:x}", event.commit_seq);
+        let key = encode_revision_key(&record.channel_id, &record.page_id, &record.revision_id);
+        let value = encode_revision_record(&record);
+        state.insert("wiki_revisions", key, value, event.commit_seq);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,6 +251,9 @@ mod tests {
             created_at_micros: 1_000_000,
             updated_at_micros: 1_000_000,
             is_deleted: false,
+            parent_page_id: String::new(),
+            slug: "getting-started".into(),
+            order_index: 0,
         }
     }
 
@@ -271,6 +382,9 @@ mod tests {
                 created_at_micros: (seq * 1_000_000) as i64,
                 updated_at_micros: (seq * 1_000_000) as i64,
                 is_deleted: false,
+                parent_page_id: String::new(),
+                slug: format!("page-{seq}"),
+                order_index: seq as i64,
             };
             proj.apply(&make_event(seq, "wiki_page_created", &r), &state).unwrap();
         }
@@ -292,6 +406,9 @@ mod tests {
                 created_at_micros: (seq * 1_000_000) as i64,
                 updated_at_micros: (seq * 1_000_000) as i64,
                 is_deleted: false,
+                parent_page_id: String::new(),
+                slug: format!("page-{seq}"),
+                order_index: seq as i64,
             };
             proj.apply(&make_event(seq, "wiki_page_created", &r), &state).unwrap();
         }
@@ -325,6 +442,9 @@ mod tests {
                 created_at_micros: (seq * 1_000_000) as i64,
                 updated_at_micros: (seq * 1_000_000) as i64,
                 is_deleted: false,
+                parent_page_id: String::new(),
+                slug: format!("page-{seq}"),
+                order_index: seq as i64,
             };
             proj.apply(&make_event(seq, "wiki_page_created", &r), &state).unwrap();
         }
@@ -352,5 +472,55 @@ mod tests {
         };
         let result = WikiProjection.apply(&event, &state);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn revision_projection_roundtrip() {
+        let state = ProjectionState::new();
+        let proj = WikiRevisionProjection;
+        let record = WikiRevisionRecord {
+            revision_id: String::new(),
+            page_id: "page_1".into(),
+            channel_id: "ch_wiki".into(),
+            editor_user_id: 42,
+            title: "Revision Title".into(),
+            body: "Revision body".into(),
+            summary: "Fixed typo".into(),
+            created_at_micros: 2_000_000,
+        };
+        let payload = encode_revision_record(&record);
+        let event = DurableEvent {
+            commit_seq: 10,
+            stream_id: "ch_wiki".into(),
+            event_type: "wiki_revision_created".into(),
+            payload,
+        };
+        proj.apply(&event, &state).unwrap();
+        let expected_id = format!("rev_{:x}", event.commit_seq);
+        let loaded = WikiRevisionProjection::get_revision(&state, "ch_wiki", "page_1", &expected_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.revision_id, expected_id);
+        assert_eq!(loaded.summary, "Fixed typo");
+        let list = WikiRevisionProjection::list_revisions(&state, "ch_wiki", "page_1").unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].revision_id, expected_id);
+    }
+
+    #[test]
+    fn revision_encode_decode_roundtrip() {
+        let r = WikiRevisionRecord {
+            revision_id: "rev_1".into(),
+            page_id: "page_1".into(),
+            channel_id: "ch_wiki".into(),
+            editor_user_id: 42,
+            title: "Title".into(),
+            body: "Body".into(),
+            summary: "Edit summary".into(),
+            created_at_micros: 2_000_000,
+        };
+        let buf = encode_revision_record(&r);
+        let decoded = decode_revision_record(&buf).unwrap();
+        assert_eq!(r, decoded);
     }
 }

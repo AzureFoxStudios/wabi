@@ -113,7 +113,7 @@ export function buildPlaceMessageEntity(
 		kind: 'place',
 		start,
 		end,
-		placeId: place.id,
+		targetId: place.id,
 		layerId: options.poi?.layerId || undefined,
 		poiId: options.poi?.id || undefined,
 		label: options.poi?.name || place.name,

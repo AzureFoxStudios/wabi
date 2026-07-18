@@ -2,8 +2,9 @@ use std::collections::HashMap;
 
 use crate::domain::{
     Album, AlbumItem, Ban, CallParticipant, CallSession, CallSignal, Channel, ChannelMember,
-    DmMessage, DmRecipient, EmojiRoleRule, Emote, ForumPost, Incident, Message, Reaction,
-    RetentionPolicy, RoleDefinition, User, UserLayout, Webhook, WikiPage,
+    DmMessage, DmRecipient, EmojiRoleRule, Emote, ForumPost, GalleryFeedback, GalleryWork,
+    Incident, Message, Reaction, RetentionPolicy, RoleDefinition, User, UserLayout, Webhook,
+    WikiPage, WikiRevision,
 };
 use crate::error::Result;
 use crate::projections::lore::LoreRepoRecord;
@@ -496,18 +497,47 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// Create a wiki page. Returns the new page_id.
-    async fn create_wiki_page(&self, _channel_id: &str, _title: &str, _body: &str, _author_user_id: u64) -> Result<String> {
+    async fn create_wiki_page(
+        &self,
+        _channel_id: &str,
+        _title: &str,
+        _body: &str,
+        _author_user_id: u64,
+        _parent_page_id: &str,
+        _slug: &str,
+        _order_index: i64,
+    ) -> Result<String> {
         Ok(String::new())
     }
 
     /// Update a wiki page.
-    async fn update_wiki_page(&self, _channel_id: &str, _page_id: &str, _title: &str, _body: &str, _author_user_id: u64) -> Result<()> {
+    async fn update_wiki_page(
+        &self,
+        _channel_id: &str,
+        _page_id: &str,
+        _title: &str,
+        _body: &str,
+        _author_user_id: u64,
+        _parent_page_id: &str,
+        _slug: &str,
+        _order_index: i64,
+    ) -> Result<()> {
         Ok(())
     }
 
     /// Soft-delete a wiki page.
     async fn delete_wiki_page(&self, _channel_id: &str, _page_id: &str, _actor_user_id: u64) -> Result<()> {
         Ok(())
+    }
+
+    /// List revisions for a wiki page.
+    async fn list_wiki_revisions(&self, _channel_id: &str, _page_id: &str) -> Result<Vec<WikiRevision>> {
+        Ok(Vec::new())
+    }
+
+    /// Get a single wiki revision.
+    async fn get_wiki_revision(&self, _channel_id: &str, _page_id: &str, _revision_id: &str) -> Result<Option<WikiRevision>> {
+        Ok(None)
     }
 
     // --- forum ---
@@ -528,22 +558,84 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// Create a forum thread. Returns the new thread (post) id.
-    async fn create_forum_thread(&self, _channel_id: &str, _body: &str, _author_user_id: u64) -> Result<String> {
+    async fn create_forum_thread(
+        &self,
+        _channel_id: &str,
+        _body: &str,
+        _author_user_id: u64,
+        _title: Option<&str>,
+        _tags: Option<&[String]>,
+        _category: Option<&str>,
+    ) -> Result<String> {
         Ok(String::new())
     }
 
     /// Create a reply in a forum thread. Returns the new post id.
-    async fn create_forum_post(&self, _channel_id: &str, _thread_id: &str, _body: &str, _author_user_id: u64) -> Result<String> {
+    async fn create_forum_post(
+        &self,
+        _channel_id: &str,
+        _thread_id: &str,
+        _body: &str,
+        _author_user_id: u64,
+        _tags: Option<&[String]>,
+    ) -> Result<String> {
         Ok(String::new())
     }
 
     /// Edit a forum post body.
-    async fn update_forum_post(&self, _channel_id: &str, _thread_id: &str, _post_id: &str, _body: &str, _author_user_id: u64) -> Result<()> {
+    async fn update_forum_post(
+        &self,
+        _channel_id: &str,
+        _thread_id: &str,
+        _post_id: &str,
+        _body: &str,
+        _author_user_id: u64,
+        _title: Option<&str>,
+        _tags: Option<&[String]>,
+        _category: Option<&str>,
+    ) -> Result<()> {
         Ok(())
     }
 
     /// Soft-delete a forum post.
     async fn delete_forum_post(&self, _channel_id: &str, _thread_id: &str, _post_id: &str, _actor_user_id: u64) -> Result<()> {
+        Ok(())
+    }
+
+    /// Vote on a forum post (direction: "up" or "down").
+    async fn vote_forum_post(
+        &self,
+        _channel_id: &str,
+        _thread_id: &str,
+        _post_id: &str,
+        _direction: &str,
+        _actor_user_id: u64,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Mark a forum post as the accepted solution for its thread.
+    /// Clears any prior solution on other posts in the same thread.
+    async fn mark_forum_solution(
+        &self,
+        _channel_id: &str,
+        _thread_id: &str,
+        _post_id: &str,
+        _actor_user_id: u64,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Update thread-level metadata (title, tags, category).
+    async fn update_forum_thread_meta(
+        &self,
+        _channel_id: &str,
+        _thread_id: &str,
+        _title: &str,
+        _tags: &[String],
+        _category: Option<&str>,
+        _actor_user_id: u64,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -622,6 +714,48 @@ pub trait WabiStore: Send + Sync {
 
     /// Record a Lore commit in the event log.
     async fn lore_commit(&self, _channel_id: i64, _commit_hash: &str, _repo_name: &str, _file_path: &str, _message: &str, _author_user_id: i64) -> Result<()> {
+        Ok(())
+    }
+
+    // --- gallery ---
+
+    /// List gallery works in a channel (excludes deleted).
+    async fn list_gallery_works(&self, _channel_id: &str) -> Result<Vec<GalleryWork>> {
+        Ok(Vec::new())
+    }
+
+    /// Get a single gallery work.
+    async fn get_gallery_work(&self, _channel_id: &str, _work_id: &str) -> Result<Option<GalleryWork>> {
+        Ok(None)
+    }
+
+    /// Upload a gallery work. Returns the new work_id.
+    async fn upload_gallery_work(&self, _channel_id: &str, _title: &str, _caption: &str, _attachment_url: &str, _mime_type: &str, _category: &str, _is_wip: bool, _author_user_id: u64) -> Result<String> {
+        Ok(String::new())
+    }
+
+    /// Edit a gallery work's mutable fields.
+    async fn edit_gallery_work(&self, _channel_id: &str, _work_id: &str, _title: &str, _caption: &str, _category: &str, _is_wip: bool, _actor_user_id: u64) -> Result<()> {
+        Ok(())
+    }
+
+    /// Soft-delete a gallery work.
+    async fn delete_gallery_work(&self, _channel_id: &str, _work_id: &str, _actor_user_id: u64) -> Result<()> {
+        Ok(())
+    }
+
+    /// List feedback for a gallery work (excludes deleted).
+    async fn list_gallery_feedback(&self, _channel_id: &str, _work_id: &str) -> Result<Vec<GalleryFeedback>> {
+        Ok(Vec::new())
+    }
+
+    /// Add feedback to a gallery work. Returns the new feedback_id.
+    async fn add_gallery_feedback(&self, _channel_id: &str, _work_id: &str, _comment: &str, _x_percent: f32, _y_percent: f32, _author_user_id: u64) -> Result<String> {
+        Ok(String::new())
+    }
+
+    /// Soft-delete a feedback comment.
+    async fn delete_gallery_feedback(&self, _channel_id: &str, _work_id: &str, _feedback_id: &str, _actor_user_id: u64) -> Result<()> {
         Ok(())
     }
 }

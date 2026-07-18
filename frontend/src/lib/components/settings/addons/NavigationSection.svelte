@@ -1,10 +1,11 @@
 <script lang="ts">
 	import {
-		displayEnhancementSettingsStore, clearMutedChannelIds,
+		displayEnhancementSettingsStore,
 		setBetterFriendListEnabled, setBetterNsfwTagEnabled,
 		setHideMutedCategoriesEnabled, setReadAllNotificationsButtonEnabled,
 		setServerCounterEnabled
 	} from '$lib/displayEnhancements';
+	import { activeServerSettings, clearServerMutedChannelIds } from '$lib/serverSettings';
 	import { ADDON_SECTION_LABELS } from '../addonSettingsRegistry';
 	import type { AddonSectionId } from '../addonSettingsRegistry';
 
@@ -25,15 +26,15 @@
 	$: serverCounterEnabled = $displayEnhancementSettingsStore.serverCounterEnabled;
 	$: betterNsfwTagEnabled = $displayEnhancementSettingsStore.betterNsfwTagEnabled;
 	$: betterFriendListEnabled = $displayEnhancementSettingsStore.betterFriendListEnabled;
-	$: mutedChannelCount = $displayEnhancementSettingsStore.mutedChannelIds.length;
+	$: mutedChannelCount = $activeServerSettings.mutedChannelIds.length;
 
 	function toggleHideMutedCategoriesAddon(): void {
 		setHideMutedCategoriesEnabled(!hideMutedCategoriesEnabled);
 	}
 
 	function clearMutedChannelsAddon(): void {
-		if (!window.confirm('Clear all locally muted channels?')) return;
-		clearMutedChannelIds();
+		if (!window.confirm('Clear all locally muted channels on this server?')) return;
+		clearServerMutedChannelIds();
 	}
 
 	function toggleReadAllNotificationsButtonAddon(): void {

@@ -22,6 +22,11 @@
 		}
 	};
 
+	/*
+	chatref-07: When forum/wiki product UI lands, import openShareModal from '$lib/shareStore'
+	and wire object context menus via registerObjectRef (see docs/plans/2026-07-18-chat-object-refs.md).
+	*/
+
 	$: content = labels[mode];
 	$: channelName = channel?.name || content.title.toLowerCase();
 	$: topic = channel?.topic || channel?.description || '';

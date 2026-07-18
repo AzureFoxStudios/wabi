@@ -49,6 +49,8 @@
 	import { pushLocalDirectionsCard } from '$lib/directionsAssist';
 	import { currentChatSurface, setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
 	import { isRoutedChannelType, isTextLikeChannelType } from '$lib/channelTypes';
+	import { isLiveRetention } from '../../../../shared/messageRetention.js';
+	import LiveChannelView from './live/LiveChannelView.svelte';
 	import WhiteboardTab from './WhiteboardTab.svelte';
 	import ChannelModePlaceholder from './ChannelModePlaceholder.svelte';
 	import ChatComposer from './chat/ChatComposer.svelte';
@@ -56,6 +58,8 @@
 	import ChatMessagesPane from './chat/ChatMessagesPane.svelte';
 	import GalleryChannel from './GalleryChannel.svelte';
 	import LoreChannel from './LoreChannel.svelte';
+	import ForumChannel from './ForumChannel.svelte';
+	import WikiChannel from './WikiChannel.svelte';
 	import { executeChatCommand } from './chat/commandExecutor';
 	import { filterMessages, getChannelHistoryFlags, waitForHistoryIdle } from './chat/search';
 	import { formatTypingUsers, getVisibleTypingUsers } from './chat/typing';
@@ -117,6 +121,7 @@
 	$: isGroupChannel = currentChannelData?.type === 'group';
 	$: currentChannelType = (currentChannelData?.type || 'text') as string;
 	$: channelUsesChatStream = isTextLikeChannelType(currentChannelType);
+	$: isLiveChannel = isLiveRetention(currentChannelData?.autoDeleteAfter);
 	$: dmCallTargetUser = getDMOtherUser(currentChannelData, $currentUser, $userLookup);
 	let paymentTargetKind: 'channel' | 'dm' | 'group' | 'workspace' | null = null;
 	$: paymentTargetLabel = (() => {
@@ -437,12 +442,18 @@
 			}
 		}}
 	>
-		{#if currentChannelType === 'gallery'}
+		{#if isLiveChannel}
+			<LiveChannelView channel={currentChannelData} />
+		{:else if currentChannelType === 'gallery'}
 			<GalleryChannel />
 		{:else if currentChannelType === 'lore'}
 			<LoreChannel />
+		{:else if currentChannelType === 'forum'}
+			<ForumChannel />
+		{:else if currentChannelType === 'wiki'}
+			<WikiChannel />
 		{:else if isRoutedChannelType(currentChannelType)}
-			<ChannelModePlaceholder channel={currentChannelData} mode={currentChannelType as 'forum' | 'wiki' | 'stage'} />
+			<ChannelModePlaceholder channel={currentChannelData} mode={currentChannelType as 'stage'} />
 		{:else}
 			<ChatMessagesPane
 				currentChannel={$currentChannel}
@@ -470,7 +481,7 @@
 		{/if}
 	</div>
 
-		{#if channelUsesChatStream && chatSurface === 'messages' && !($layoutStore.isMobile && $isInCall)}
+		{#if channelUsesChatStream && !isLiveChannel && chatSurface === 'messages' && !($layoutStore.isMobile && $isInCall)}
 			<ChatComposer
 				bind:this={chatComposer}
 				{isDMChannel}
