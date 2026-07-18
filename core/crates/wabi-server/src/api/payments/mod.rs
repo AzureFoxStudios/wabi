@@ -1,11 +1,13 @@
 mod handlers;
+mod intents;
+mod promptpay;
 
 use std::sync::Arc;
 
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{delete, get},
+    routing::{delete, get, post},
     Router,
 };
 use serde::{Deserialize, Serialize};
@@ -36,6 +38,19 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
             get(handlers::list_user_blocks).post(handlers::create_user_block),
         )
         .route("/user-blocks/{user_id}", delete(handlers::clear_user_block))
+        // Non-custodial PromptPay intents (Thailand-first)
+        .route(
+            "/intents",
+            get(intents::list_intents).post(intents::create_intent),
+        )
+        .route(
+            "/intents/{id}/confirm",
+            post(intents::confirm_intent),
+        )
+        .route(
+            "/intents/{id}/reject",
+            post(intents::reject_intent),
+        )
         .with_state(state)
 }
 
