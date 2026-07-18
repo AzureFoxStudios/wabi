@@ -2,6 +2,7 @@ use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
+use crate::projections::query::{apply_limit, ForumFilter, QueryableProjection};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -261,6 +262,58 @@ impl ForumProjection {
         let key = encode_key(&record.channel_id, &record.thread_id, &record.post_id);
         state.insert("forum_posts", key, event.payload.clone(), event.commit_seq);
         Ok(())
+    }
+}
+
+impl QueryableProjection for ForumProjection {
+    type Record = ForumPostRecord;
+    type Filter = ForumFilter;
+
+    fn query(&self, state: &ProjectionState, filter: &ForumFilter) -> Result<Vec<ForumPostRecord>> {
+        let mut results = Vec::new();
+        match &filter.channel_id {
+            // channel_id is the leading key component; thread_id narrows further.
+            Some(channel_id) => {
+                let mut prefix = Vec::new();
+                prefix.extend_from_slice(&(channel_id.len() as u64).to_le_bytes());
+                prefix.extend_from_slice(channel_id.as_bytes());
+                if let Some(thread_id) = &filter.thread_id {
+                    prefix.extend_from_slice(&(thread_id.len() as u64).to_le_bytes());
+                    prefix.extend_from_slice(thread_id.as_bytes());
+                }
+                state.prefix_scan("forum_posts", &prefix, |_key, value| {
+                    if let Ok(record) = decode_record(value) {
+                        if filter.threads_only && !record.is_thread_starter {
+                            return;
+                        }
+                        if !filter.include_deleted && record.is_deleted {
+                            return;
+                        }
+                        results.push(record);
+                    }
+                });
+            }
+            None => {
+                state.for_each("forum_posts", |_key, value| {
+                    if let Ok(record) = decode_record(value) {
+                        if let Some(thread_id) = &filter.thread_id {
+                            if &record.thread_id != thread_id {
+                                return;
+                            }
+                        }
+                        if filter.threads_only && !record.is_thread_starter {
+                            return;
+                        }
+                        if !filter.include_deleted && record.is_deleted {
+                            return;
+                        }
+                        results.push(record);
+                    }
+                });
+            }
+        }
+        apply_limit(&mut results, filter.limit);
+        Ok(results)
     }
 }
 
@@ -708,5 +761,93 @@ mod tests {
         assert_eq!(loaded.title, "My Thread Title");
         assert_eq!(loaded.tags, vec!["bug", "discussion"]);
         assert_eq!(loaded.category, Some("general".into()));
+    }
+
+    // --- ForumProjection query tests ---------------------------------------
+
+    #[test]
+    fn query_by_channel_uses_prefix() {
+        let state = ProjectionState::new();
+        let proj = ForumProjection;
+        for seq in 1..=2 {
+            let mut r = thread_starter();
+            r.body = format!("Thread {seq}");
+            proj.apply(&make_event(seq, "forum_thread_created", &r), &state).unwrap();
+        }
+        let other = thread_starter();
+        proj.apply(&make_event(9, "forum_thread_created", &other), &state).unwrap();
+
+        let results = proj.query(&state, &ForumFilter { channel_id: Some("ch_forum".into()), ..Default::default() }).unwrap();
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|p| p.channel_id == "ch_forum"));
+    }
+
+    #[test]
+    fn query_threads_only_returns_starters() {
+        let state = ProjectionState::new();
+        let proj = ForumProjection;
+        let ev = make_event(1, "forum_thread_created", &thread_starter());
+        proj.apply(&ev, &state).unwrap();
+        let thread_id = format!("post_{:x}", ev.commit_seq);
+        for seq in 2..=3 {
+            let mut reply = thread_starter();
+            reply.thread_id = thread_id.clone();
+            reply.body = format!("Reply {seq}");
+            reply.is_thread_starter = false;
+            proj.apply(&make_event(seq, "forum_post_created", &reply), &state).unwrap();
+        }
+        let threads = proj.query(&state, &ForumFilter { channel_id: Some("ch_forum".into()), threads_only: true, ..Default::default() }).unwrap();
+        assert_eq!(threads.len(), 1);
+        assert!(threads[0].is_thread_starter);
+    }
+
+    #[test]
+    fn query_by_thread_narrows() {
+        let state = ProjectionState::new();
+        let proj = ForumProjection;
+        let ev = make_event(1, "forum_thread_created", &thread_starter());
+        proj.apply(&ev, &state).unwrap();
+        let thread_id = format!("post_{:x}", ev.commit_seq);
+        for seq in 2..=4 {
+            let mut reply = thread_starter();
+            reply.thread_id = thread_id.clone();
+            reply.body = format!("Reply {seq}");
+            reply.is_thread_starter = false;
+            proj.apply(&make_event(seq, "forum_post_created", &reply), &state).unwrap();
+        }
+        let results = proj.query(&state, &ForumFilter { channel_id: Some("ch_forum".into()), thread_id: Some(thread_id), ..Default::default() }).unwrap();
+        assert_eq!(results.len(), 4);
+    }
+
+    #[test]
+    fn query_filters_deleted_threads() {
+        let state = ProjectionState::new();
+        let proj = ForumProjection;
+        for seq in 1..=2 {
+            let mut r = thread_starter();
+            r.body = format!("Thread {seq}");
+            proj.apply(&make_event(seq, "forum_thread_created", &r), &state).unwrap();
+        }
+        let key = encode_key("ch_forum", &format!("post_{:x}", 2), &format!("post_{:x}", 2));
+        let stored = state.get("forum_posts", &key).unwrap();
+        let mut deleted = decode_record(&stored).unwrap();
+        deleted.is_deleted = true;
+        proj.apply(&make_event(3, "forum_post_deleted", &deleted), &state).unwrap();
+
+        assert_eq!(proj.query(&state, &ForumFilter { channel_id: Some("ch_forum".into()), ..Default::default() }).unwrap().len(), 1);
+        assert_eq!(proj.query(&state, &ForumFilter { channel_id: Some("ch_forum".into()), include_deleted: true, ..Default::default() }).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn query_limit_truncates() {
+        let state = ProjectionState::new();
+        let proj = ForumProjection;
+        for seq in 1..=4 {
+            let mut r = thread_starter();
+            r.body = format!("Thread {seq}");
+            proj.apply(&make_event(seq, "forum_thread_created", &r), &state).unwrap();
+        }
+        let results = proj.query(&state, &ForumFilter { channel_id: Some("ch_forum".into()), limit: Some(2), ..Default::default() }).unwrap();
+        assert_eq!(results.len(), 2);
     }
 }

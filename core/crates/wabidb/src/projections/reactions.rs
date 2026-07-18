@@ -27,6 +27,7 @@ use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
+use crate::projections::query::{apply_limit, ReactionsFilter, QueryableProjection};
 use serde::{Deserialize, Serialize};
 
 /// A single reaction event.
@@ -109,6 +110,46 @@ impl Projection for ReactionsProjection {
         let value = event.payload.clone();
         state.insert("reactions", key, value, event.commit_seq);
         Ok(())
+    }
+}
+
+impl QueryableProjection for ReactionsProjection {
+    type Record = Reaction;
+    type Filter = ReactionsFilter;
+
+    fn query(&self, state: &ProjectionState, filter: &ReactionsFilter) -> Result<Vec<Reaction>> {
+        let mut results = Vec::new();
+        match &filter.message_id {
+            // message_id is the leading key component, so this is a prefix scan.
+            Some(message_id) => {
+                let mut prefix = Vec::from(message_id.as_bytes());
+                prefix.push(0);
+                state.prefix_scan("reactions", &prefix, |_key, value| {
+                    if let Ok(reaction) = decode_reaction(value) {
+                        if let Some(uid) = filter.user_id {
+                            if reaction.user_id != uid {
+                                return;
+                            }
+                        }
+                        results.push(reaction);
+                    }
+                });
+            }
+            None => {
+                state.for_each("reactions", |_key, value| {
+                    if let Ok(reaction) = decode_reaction(value) {
+                        if let Some(uid) = filter.user_id {
+                            if reaction.user_id != uid {
+                                return;
+                            }
+                        }
+                        results.push(reaction);
+                    }
+                });
+            }
+        }
+        apply_limit(&mut results, filter.limit);
+        Ok(results)
     }
 }
 
@@ -381,5 +422,58 @@ mod tests {
         let mut count = 0;
         state.for_each("reactions", |_, _| count += 1);
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn query_by_message_id_prefix() {
+        let state = ProjectionState::new();
+        let p = ReactionsProjection;
+        for uid in [1u64, 2, 3] {
+            let r = Reaction {
+                message_id: "msg_01".into(),
+                user_id: uid,
+                reaction_type: "👍".into(),
+                created_at_micros: uid as i64,
+                key_id: "k1".into(),
+            };
+            p.apply(&DurableEvent { commit_seq: uid, stream_id: "ch_01".into(), event_type: "reaction_added".into(), payload: encode_reaction(&r) }, &state).unwrap();
+        }
+        // A reaction on a different message must not show up.
+        let other = Reaction { message_id: "msg_99".into(), user_id: 7, reaction_type: "👍".into(), created_at_micros: 1, key_id: "k1".into() };
+        p.apply(&DurableEvent { commit_seq: 7, stream_id: "ch_01".into(), event_type: "reaction_added".into(), payload: encode_reaction(&other) }, &state).unwrap();
+
+        let results = p.query(&state, &ReactionsFilter { message_id: Some("msg_01".into()), ..Default::default() }).unwrap();
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|r| r.message_id == "msg_01"));
+    }
+
+    #[test]
+    fn query_by_user_id_filters() {
+        let state = ProjectionState::new();
+        let p = ReactionsProjection;
+        let mut seq = 1u64;
+        for msg in ["m1", "m2"] {
+            let r = Reaction { message_id: msg.into(), user_id: 5, reaction_type: "👍".into(), created_at_micros: seq as i64, key_id: "k1".into() };
+            p.apply(&DurableEvent { commit_seq: seq, stream_id: "ch".into(), event_type: "reaction_added".into(), payload: encode_reaction(&r) }, &state).unwrap();
+            seq += 1;
+        }
+        let other = Reaction { message_id: "m3".into(), user_id: 9, reaction_type: "👍".into(), created_at_micros: seq as i64, key_id: "k1".into() };
+        p.apply(&DurableEvent { commit_seq: seq, stream_id: "ch".into(), event_type: "reaction_added".into(), payload: encode_reaction(&other) }, &state).unwrap();
+
+        let results = p.query(&state, &ReactionsFilter { user_id: Some(5), ..Default::default() }).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| r.user_id == 5));
+    }
+
+    #[test]
+    fn query_limit_truncates() {
+        let state = ProjectionState::new();
+        let p = ReactionsProjection;
+        for uid in [1u64, 2, 3, 4] {
+            let r = Reaction { message_id: "msg_01".into(), user_id: uid, reaction_type: "👍".into(), created_at_micros: uid as i64, key_id: "k1".into() };
+            p.apply(&DurableEvent { commit_seq: uid, stream_id: "ch".into(), event_type: "reaction_added".into(), payload: encode_reaction(&r) }, &state).unwrap();
+        }
+        let results = p.query(&state, &ReactionsFilter { message_id: Some("msg_01".into()), user_id: None, limit: Some(2) }).unwrap();
+        assert_eq!(results.len(), 2);
     }
 }

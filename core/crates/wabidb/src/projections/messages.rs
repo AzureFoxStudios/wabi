@@ -2,6 +2,7 @@ use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
+use crate::projections::query::{apply_limit, MessagesFilter, QueryableProjection};
 use crate::projections::secondary_index::SecondaryIndex;
 use crossbeam_skiplist::SkipMap;
 use serde::{Deserialize, Serialize};
@@ -218,6 +219,84 @@ impl MessagesProjection {
         state.insert("messages", key, value, event.commit_seq);
         Ok(())
     }
+}
+
+impl QueryableProjection for MessagesProjection {
+    type Record = MessageRecord;
+    type Filter = MessagesFilter;
+
+    fn query(&self, state: &ProjectionState, filter: &MessagesFilter) -> Result<Vec<MessageRecord>> {
+        match (&filter.channel_id, &filter.author_id) {
+            // Channel-scoped queries use the messages_by_channel secondary index.
+            (Some(channel_id), _) => {
+                let mut prefix = Vec::new();
+                prefix.extend_from_slice(&(channel_id.len() as u64).to_le_bytes());
+                prefix.extend_from_slice(channel_id.as_bytes());
+                let mut results = Vec::new();
+                state.prefix_scan("messages_by_channel", &prefix, |_key, value| {
+                    if let Ok(record) = decode_record(value) {
+                        if !filter.include_deleted && record.is_deleted {
+                            return;
+                        }
+                        if let Some(author) = filter.author_id {
+                            if record.author_user_id != author {
+                                return;
+                            }
+                        }
+                        results.push(record);
+                    }
+                });
+                filter_since_and_limit(results, filter)
+            }
+            // Author-scoped queries (no channel) use messages_by_author.
+            (None, Some(author_id)) => {
+                let mut prefix = Vec::new();
+                prefix.extend_from_slice(&(author_id.to_le_bytes()));
+                let mut results = Vec::new();
+                state.prefix_scan("messages_by_author", &prefix, |_key, value| {
+                    if let Ok(record) = decode_record(value) {
+                        if !filter.include_deleted && record.is_deleted {
+                            return;
+                        }
+                        results.push(record);
+                    }
+                });
+                filter_since_and_limit(results, filter)
+            }
+            // No indexed dimension: scan the primary index.
+            (None, None) => {
+                let mut results = Vec::new();
+                state.for_each("messages", |_key, value| {
+                    if let Ok(record) = decode_record(value) {
+                        if !filter.include_deleted && record.is_deleted {
+                            return;
+                        }
+                        results.push(record);
+                    }
+                });
+                filter_since_and_limit(results, filter)
+            }
+        }
+    }
+}
+
+/// Apply the `since_seq` / `limit` portions of a `MessagesFilter` to a result
+/// set collected from a secondary or primary index. `since_seq` is derived
+/// from the message id (`msg_{:x}` of its commit_seq).
+fn filter_since_and_limit(
+    mut results: Vec<MessageRecord>,
+    filter: &MessagesFilter,
+) -> Result<Vec<MessageRecord>> {
+    if let Some(since) = filter.since_seq {
+        results.retain(|r| {
+            r.message_id
+                .strip_prefix("msg_")
+                .and_then(|h| u64::from_str_radix(h, 16).ok())
+                .map_or(false, |seq| seq >= since)
+        });
+    }
+    apply_limit(&mut results, filter.limit);
+    Ok(results)
 }
 
 /// Secondary index: one entry per (channel_id, message_id) so a channel's
@@ -889,5 +968,131 @@ mod tests {
             payload: vec![],
         };
         assert!(MESSAGES_SECONDARY_INDEXES[0].extract_keys(&non_msg).is_empty());
+    }
+
+    // --- QueryableProjection tests -----------------------------------------
+
+    fn query_sample(seq: u64, channel_id: &str, author: u64, deleted: bool) -> MessageRecord {
+        MessageRecord {
+            message_id: String::new(),
+            channel_id: channel_id.into(),
+            author_user_id: author,
+            author_device_id: "dev".into(),
+            created_at_micros: (seq * 1_000_000) as i64,
+            encrypted_body_ref: format!("hash_{seq}"),
+            idempotency_key: None,
+            edit_history: vec![],
+            edited_at_micros: None,
+            is_deleted: deleted,
+            is_spoiler: false,
+        }
+    }
+
+    #[test]
+    fn query_by_channel_uses_secondary_index() {
+        let state = ProjectionState::new();
+        let proj = MessagesProjection;
+        // ch_01: two messages by two authors.
+        proj.apply(&make_event(1, "message_created", &query_sample(1, "ch_01", 10, false)), &state).unwrap();
+        proj.apply(&make_event(2, "message_created", &query_sample(2, "ch_01", 20, false)), &state).unwrap();
+        // ch_02: one message by a third author.
+        proj.apply(&make_event(3, "message_created", &query_sample(3, "ch_02", 30, false)), &state).unwrap();
+
+        let filter = MessagesFilter {
+            channel_id: Some("ch_01".into()),
+            ..Default::default()
+        };
+        let results = proj.query(&state, &filter).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|m| m.channel_id == "ch_01"));
+        // Non-matching channel must not appear.
+        assert!(results.iter().all(|m| m.author_user_id != 30));
+    }
+
+    #[test]
+    fn query_by_channel_and_author_narrows() {
+        let state = ProjectionState::new();
+        let proj = MessagesProjection;
+        proj.apply(&make_event(1, "message_created", &query_sample(1, "ch_01", 10, false)), &state).unwrap();
+        proj.apply(&make_event(2, "message_created", &query_sample(2, "ch_01", 20, false)), &state).unwrap();
+
+        let filter = MessagesFilter {
+            channel_id: Some("ch_01".into()),
+            author_id: Some(10),
+            ..Default::default()
+        };
+        let results = proj.query(&state, &filter).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].author_user_id, 10);
+    }
+
+    #[test]
+    fn query_by_author_uses_secondary_index() {
+        let state = ProjectionState::new();
+        let proj = MessagesProjection;
+        proj.apply(&make_event(1, "message_created", &query_sample(1, "ch_01", 42, false)), &state).unwrap();
+        proj.apply(&make_event(2, "message_created", &query_sample(2, "ch_02", 99, false)), &state).unwrap();
+
+        let filter = MessagesFilter {
+            author_id: Some(42),
+            ..Default::default()
+        };
+        let results = proj.query(&state, &filter).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].author_user_id, 42);
+        assert_eq!(results[0].channel_id, "ch_01");
+    }
+
+    #[test]
+    fn query_limit_truncates() {
+        let state = ProjectionState::new();
+        let proj = MessagesProjection;
+        for seq in 1..=5 {
+            proj.apply(&make_event(seq, "message_created", &query_sample(seq, "ch_01", seq, false)), &state).unwrap();
+        }
+        let filter = MessagesFilter {
+            channel_id: Some("ch_01".into()),
+            limit: Some(2),
+            ..Default::default()
+        };
+        let results = proj.query(&state, &filter).unwrap();
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn query_filters_deleted_by_default() {
+        let state = ProjectionState::new();
+        let proj = MessagesProjection;
+        proj.apply(&make_event(1, "message_created", &query_sample(1, "ch_01", 1, false)), &state).unwrap();
+        proj.apply(&make_event(2, "message_created", &query_sample(2, "ch_01", 2, false)), &state).unwrap();
+        // Soft-delete message 2 (created under commit_seq 2 → msg_2).
+        let key = encode_key("ch_01", &format!("msg_{:x}", 2));
+        let stored = state.get("messages", &key).expect("message 2 should exist");
+        let mut deleted = decode_record_lenient(&stored).unwrap();
+        deleted.is_deleted = true;
+        proj.apply(&make_event(3, "message_deleted", &deleted), &state).unwrap();
+
+        let default_q = proj.query(&state, &MessagesFilter { channel_id: Some("ch_01".into()), ..Default::default() }).unwrap();
+        assert_eq!(default_q.len(), 1);
+
+        let with_deleted = proj.query(&state, &MessagesFilter { channel_id: Some("ch_01".into()), include_deleted: true, ..Default::default() }).unwrap();
+        assert_eq!(with_deleted.len(), 2);
+    }
+
+    #[test]
+    fn query_since_seq_excludes_older() {
+        let state = ProjectionState::new();
+        let proj = MessagesProjection;
+        for seq in 1..=3 {
+            proj.apply(&make_event(seq, "message_created", &query_sample(seq, "ch_01", seq, false)), &state).unwrap();
+        }
+        let filter = MessagesFilter {
+            channel_id: Some("ch_01".into()),
+            since_seq: Some(2),
+            ..Default::default()
+        };
+        let results = proj.query(&state, &filter).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|m| m.message_id != format!("msg_{:x}", 1)));
     }
 }

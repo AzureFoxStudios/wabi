@@ -7,6 +7,7 @@ use crate::domain::Channel;
 use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::projections::handler::{DurableEvent, Projection};
+use crate::projections::query::{apply_limit, ChannelsFilter, QueryableProjection};
 
 pub struct ChannelProjection;
 
@@ -91,6 +92,34 @@ impl ChannelProjection {
     }
 }
 
+impl QueryableProjection for ChannelProjection {
+    type Record = Channel;
+    type Filter = ChannelsFilter;
+
+    fn query(&self, state: &ProjectionState, filter: &ChannelsFilter) -> Result<Vec<Channel>> {
+        let mut results = Vec::new();
+        match &filter.channel_id {
+            Some(channel_id) => {
+                let key = channel_id.as_bytes().to_vec();
+                if let Some(bytes) = state.get("channels", &key) {
+                    if let Ok(channel) = serde_json::from_slice::<Channel>(&bytes) {
+                        results.push(channel);
+                    }
+                }
+            }
+            None => {
+                state.for_each("channels", |_key, value| {
+                    if let Ok(channel) = serde_json::from_slice::<Channel>(value) {
+                        results.push(channel);
+                    }
+                });
+            }
+        }
+        apply_limit(&mut results, filter.limit);
+        Ok(results)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,5 +155,37 @@ mod tests {
         assert_eq!(decoded.channel_id, expected_id);
         assert_eq!(decoded.name, "general");
         assert_eq!(decoded.owner_user_id, 42);
+    }
+
+    #[test]
+    fn query_by_channel_id_lookup() {
+        let state = ProjectionState::new();
+        let proj = ChannelProjection;
+        let mut ch = Channel::new("ch_1", "general", 42);
+        ch.created_at_micros = 1_000_000;
+        proj.apply(&DurableEvent { commit_seq: 2, stream_id: "channels".into(), event_type: "channel_created".into(), payload: serde_json::to_vec(&ch).unwrap() }, &state).unwrap();
+        let expected_id = format!("ch_{:x}", 2);
+
+        let found = proj.query(&state, &ChannelsFilter { channel_id: Some(expected_id.clone()), ..Default::default() }).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].channel_id, expected_id);
+
+        let missing = proj.query(&state, &ChannelsFilter { channel_id: Some("ch_nope".into()), ..Default::default() }).unwrap();
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn query_all_channels_and_limit() {
+        let state = ProjectionState::new();
+        let proj = ChannelProjection;
+        for seq in 1..=4u64 {
+            let mut ch = Channel::new("ch", &format!("c{seq}"), 1);
+            ch.channel_id = format!("ch_{:x}", seq);
+            proj.apply(&DurableEvent { commit_seq: seq, stream_id: "channels".into(), event_type: "channel_created".into(), payload: serde_json::to_vec(&ch).unwrap() }, &state).unwrap();
+        }
+        let all = proj.query(&state, &ChannelsFilter::default()).unwrap();
+        assert_eq!(all.len(), 4);
+        let limited = proj.query(&state, &ChannelsFilter { limit: Some(2), ..Default::default() }).unwrap();
+        assert_eq!(limited.len(), 2);
     }
 }
